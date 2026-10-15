@@ -1,0 +1,122 @@
+=== C1 FIFO claim, 100 rows: how many tenants get served? ===
+BEGIN
+                                                  QUERY PLAN                                                   
+---------------------------------------------------------------------------------------------------------------
+ Limit (actual time=47.233..47.366 rows=100 loops=1)
+   Buffers: shared hit=1322, temp read=333 written=344
+   ->  LockRows (actual time=47.230..47.351 rows=100 loops=1)
+         Buffers: shared hit=1322, temp read=333 written=344
+         ->  Sort (actual time=47.082..47.101 rows=100 loops=1)
+               Sort Key: available_at
+               Sort Method: external merge  Disk: 2744kB
+               Buffers: shared hit=1122, temp read=333 written=344
+               ->  Bitmap Heap Scan on outbox2 (actual time=5.047..23.462 rows=50000 loops=1)
+                     Recheck Cond: ((available_at <= now()) AND (dispatched_at IS NULL) AND (dead_at IS NULL))
+                     Heap Blocks: exact=863
+                     Buffers: shared hit=1119
+                     ->  Bitmap Index Scan on outbox2_pending (actual time=4.789..4.790 rows=50000 loops=1)
+                           Index Cond: (available_at <= now())
+                           Buffers: shared hit=256
+ Planning:
+   Buffers: shared hit=134 read=1
+ Planning Time: 0.787 ms
+ Execution Time: 48.824 ms
+(19 rows)
+
+ tenants_served_fifo 
+---------------------
+                   1
+(1 row)
+
+ROLLBACK
+=== C2 fair claim: loose index scan for pending tenants, then <=2 rows per tenant ===
+BEGIN
+                                                          QUERY PLAN                                                          
+------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.093..4.889 rows=400 loops=1)
+   Buffers: shared hit=2431
+   CTE tenants
+     ->  Recursive Union (actual time=0.029..2.384 rows=200 loops=1)
+           Buffers: shared hit=632
+           ->  Limit (actual time=0.027..0.028 rows=1 loops=1)
+                 Buffers: shared hit=4
+                 ->  Index Only Scan using outbox2_pending on outbox2 (actual time=0.026..0.027 rows=1 loops=1)
+                       Heap Fetches: 0
+                       Buffers: shared hit=4
+           ->  WorkTable Scan on tenants tenants_1 (actual time=0.011..0.011 rows=1 loops=199)
+                 Filter: (tenant_id IS NOT NULL)
+                 Buffers: shared hit=628
+                 SubPlan 1
+                   ->  Limit (actual time=0.010..0.010 rows=1 loops=199)
+                         Buffers: shared hit=628
+                         ->  Index Only Scan using outbox2_pending on outbox2 o_1 (actual time=0.009..0.009 rows=1 loops=199)
+                               Index Cond: (tenant_id > tenants_1.tenant_id)
+                               Heap Fetches: 0
+                               Buffers: shared hit=628
+   ->  Nested Loop (actual time=0.091..4.808 rows=400 loops=1)
+         Buffers: shared hit=2431
+         ->  CTE Scan on tenants (actual time=0.032..2.482 rows=200 loops=1)
+               Buffers: shared hit=632
+         ->  Subquery Scan on c (actual time=0.008..0.011 rows=2 loops=200)
+               Buffers: shared hit=1799
+               ->  Limit (actual time=0.007..0.010 rows=2 loops=200)
+                     Buffers: shared hit=1799
+                     ->  LockRows (actual time=0.007..0.009 rows=2 loops=200)
+                           Buffers: shared hit=1799
+                           ->  Index Scan using outbox2_pending on outbox2 o (actual time=0.005..0.006 rows=2 loops=200)
+                                 Index Cond: ((tenant_id = tenants.tenant_id) AND (available_at <= now()))
+                                 Filter: ((dispatched_at IS NULL) AND (dead_at IS NULL))
+                                 Buffers: shared hit=999
+ Planning:
+   Buffers: shared hit=14
+ Planning Time: 0.496 ms
+ Execution Time: 5.032 ms
+(38 rows)
+
+ROLLBACK
+BEGIN
+ rows_claimed | tenants_served_fair 
+--------------+---------------------
+          400 |                 200
+(1 row)
+
+ROLLBACK
+=== C3 mark dispatched (idempotent guard) ===
+BEGIN
+                                                 QUERY PLAN                                                  
+-------------------------------------------------------------------------------------------------------------
+ Update on outbox2 (actual time=794.585..794.588 rows=0 loops=1)
+   Buffers: shared hit=2758 read=73759 dirtied=3 written=3
+   ->  Nested Loop (actual time=791.934..792.653 rows=100 loops=1)
+         Buffers: shared hit=1637 read=73759
+         ->  HashAggregate (actual time=791.892..791.927 rows=100 loops=1)
+               Group Key: "ANY_subquery".tenant_id, "ANY_subquery".id
+               Batches: 1  Memory Usage: 32kB
+               Buffers: shared hit=1237 read=73759
+               ->  Subquery Scan on "ANY_subquery" (actual time=791.756..791.850 rows=100 loops=1)
+                     Buffers: shared hit=1237 read=73759
+                     ->  Limit (actual time=791.727..791.792 rows=100 loops=1)
+                           Buffers: shared hit=1237 read=73759
+                           ->  Seq Scan on outbox2 outbox2_1 (actual time=791.724..791.778 rows=100 loops=1)
+                                 Filter: ((dispatched_at IS NULL) AND (dead_at IS NULL))
+                                 Rows Removed by Filter: 3000000
+                                 Buffers: shared hit=1237 read=73759
+         ->  Memoize (actual time=0.007..0.007 rows=1 loops=100)
+               Cache Key: "ANY_subquery".tenant_id, "ANY_subquery".id
+               Cache Mode: logical
+               Hits: 0  Misses: 100  Evictions: 0  Overflows: 0  Memory Usage: 17kB
+               Buffers: shared hit=400
+               ->  Index Scan using outbox2_pkey on outbox2 (actual time=0.006..0.006 rows=1 loops=100)
+                     Index Cond: ((tenant_id = "ANY_subquery".tenant_id) AND (id = "ANY_subquery".id))
+                     Filter: (dispatched_at IS NULL)
+                     Buffers: shared hit=400
+ Planning:
+   Buffers: shared hit=25 read=1
+ Planning Time: 0.560 ms
+ Execution Time: 795.000 ms
+(29 rows)
+
+ROLLBACK
+=== C4 relay cannot read last_error/dedupe_key or other tables ===
+psql:/tmp/04_claim_bench.sql:53: ERROR:  permission denied for table outbox2
+psql:/tmp/04_claim_bench.sql:54: ERROR:  permission denied for table records

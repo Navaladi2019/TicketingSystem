@@ -1,0 +1,194 @@
+### sizes
+     rel      |  heap  | claim_idx | fifo_idx | all_idx 
+--------------+--------+-----------+----------+---------
+ outbox3      | 439 MB | 3944 kB   | 8840 kB  | 435 MB
+ workflow_ref | 384 MB | -         | -        | 641 MB
+(2 rows)
+
+### r2_03 as nava_relay
+=== C1 fair + FIFO claim, normal state (flood tenant 45 deep x 1,000 targets) ===
+BEGIN
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.102..5.214 rows=400 loops=1)
+   Buffers: shared hit=4358
+   CTE tenants
+     ->  Recursive Union (actual time=0.038..1.663 rows=200 loops=1)
+           Buffers: shared hit=817
+           ->  Limit (actual time=0.037..0.038 rows=1 loops=1)
+                 Buffers: shared hit=5
+                 ->  Index Only Scan using outbox3_claim on outbox3 (actual time=0.036..0.037 rows=1 loops=1)
+                       Heap Fetches: 1
+                       Buffers: shared hit=5
+           ->  WorkTable Scan on tenants tenants_1 (actual time=0.007..0.008 rows=1 loops=199)
+                 Filter: (tenant_id IS NOT NULL)
+                 Buffers: shared hit=812
+                 SubPlan 1
+                   ->  Limit (actual time=0.007..0.007 rows=1 loops=199)
+                         Buffers: shared hit=812
+                         ->  Index Only Scan using outbox3_claim on outbox3 o_1 (actual time=0.006..0.006 rows=1 loops=199)
+                               Index Cond: (tenant_id > tenants_1.tenant_id)
+                               Heap Fetches: 181
+                               Buffers: shared hit=812
+   ->  Nested Loop (actual time=0.101..5.150 rows=400 loops=1)
+         Buffers: shared hit=4358
+         ->  CTE Scan on tenants (actual time=0.042..1.739 rows=200 loops=1)
+               Buffers: shared hit=817
+         ->  Subquery Scan on c (actual time=0.010..0.016 rows=2 loops=200)
+               Buffers: shared hit=3541
+               ->  Limit (actual time=0.010..0.016 rows=2 loops=200)
+                     Buffers: shared hit=3541
+                     ->  LockRows (actual time=0.010..0.015 rows=2 loops=200)
+                           Buffers: shared hit=3541
+                           ->  Nested Loop Anti Join (actual time=0.009..0.013 rows=2 loops=200)
+                                 Buffers: shared hit=2743
+                                 ->  Index Scan using outbox3_claim on outbox3 o (actual time=0.003..0.004 rows=2 loops=200)
+                                       Index Cond: ((tenant_id = tenants.tenant_id) AND (available_at <= now()))
+                                       Filter: ((dispatched_at IS NULL) AND (dead_at IS NULL))
+                                       Buffers: shared hit=1362
+                                 ->  Index Scan using outbox3_fifo on outbox3 p (actual time=0.003..0.003 rows=0 loops=400)
+                                       Index Cond: ((tenant_id = o.tenant_id) AND (tenant_id = tenants.tenant_id) AND (target_key = o.target_key) AND (id < o.id))
+                                       Filter: ((dispatched_at IS NULL) AND (dead_at IS NULL))
+                                       Buffers: shared hit=1200
+ Planning:
+   Buffers: shared hit=273 read=1
+ Planning Time: 1.297 ms
+ Execution Time: 5.449 ms
+(44 rows)
+
+ROLLBACK
+### r2_02 probes
+Timing is off.
+=== R1 (PG-B1) relay: FIFO + fair claim uses only granted columns ===
+SET
+BEGIN
+ heads_claimed | tenants_served 
+---------------+----------------
+           400 |            200
+(1 row)
+
+UPDATE 25
+ROLLBACK
+RESET
+=== R2 (PG-B1 follow-on) purge as written: FOR DELETE policy only ===
+ purgeable_rows 
+----------------
+        1038323
+(1 row)
+
+SET
+BEGIN
+DELETE 0
+ROLLBACK
+RESET
+--- add a matching FOR SELECT policy, same predicate ---
+SET
+CREATE POLICY
+RESET
+SET
+BEGIN
+DELETE 1038326
+ROLLBACK
+ purge_can_see_unexpired 
+-------------------------
+                       0
+(1 row)
+
+psql:/tmp/r2_02_probes.sql:37: ERROR:  permission denied for table outbox3
+RESET
+=== R3 (PG-B3) PUBLIC: aclexplode misses NULL (default) ACLs ===
+CREATE FUNCTION
+SET
+CREATE FUNCTION
+RESET
+       proname        | acl_is_null | ci3_as_written_finds_public | ci3_with_acldefault_finds_public | relay_can_execute 
+----------------------+-------------+-----------------------------+----------------------------------+-------------------
+ created_by_bootstrap | t           | f                           | t                                | t
+ created_by_migrator  | f           | f                           | f                                | f
+(2 rows)
+
+    obj     | acl_is_null 
+------------+-------------
+ schema app | f
+ db nava    | f
+(2 rows)
+
+### r2_04
+=== C2 worst case: all 1,000 flood-tenant heads backing off (available_at +1h) ===
+UPDATE 1000
+VACUUM
+SET
+BEGIN
+                                                            QUERY PLAN                                                            
+----------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=369.715..369.718 rows=0 loops=1)
+   Buffers: shared hit=268754 read=447 dirtied=444
+   InitPlan 1 (returns $0)
+     ->  Seq Scan on t (actual time=0.011..0.031 rows=1 loops=1)
+           Filter: (n = 1)
+           Rows Removed by Filter: 199
+           Buffers: shared read=2
+   ->  LockRows (actual time=369.714..369.714 rows=0 loops=1)
+         Buffers: shared hit=268754 read=447 dirtied=444
+         ->  Nested Loop Anti Join (actual time=369.712..369.713 rows=0 loops=1)
+               Buffers: shared hit=268754 read=447 dirtied=444
+               ->  Index Scan using outbox3_claim on outbox3 o (actual time=0.717..42.071 rows=44000 loops=1)
+                     Index Cond: ((tenant_id = $0) AND (available_at <= now()))
+                     Filter: ((dispatched_at IS NULL) AND (dead_at IS NULL))
+                     Buffers: shared hit=90447 read=447 dirtied=444
+               ->  Index Scan using outbox3_fifo on outbox3 p (actual time=0.007..0.007 rows=1 loops=44000)
+                     Index Cond: ((tenant_id = o.tenant_id) AND (tenant_id = $0) AND (target_key = o.target_key) AND (id < o.id))
+                     Filter: ((dispatched_at IS NULL) AND (dead_at IS NULL))
+                     Buffers: shared hit=177307
+ Planning:
+   Buffers: shared hit=75 read=1
+ Planning Time: 0.406 ms
+ Execution Time: 369.763 ms
+(23 rows)
+
+ROLLBACK
+RESET
+=== W1 insert cost: 100,000 outbox rows WITH the FIFO index ===
+Timing is on.
+BEGIN
+Time: 0.128 ms
+INSERT 0 100000
+Time: 5983.850 ms (00:05.984)
+ROLLBACK
+Time: 0.438 ms
+Timing is off.
+DROP INDEX
+=== W2 insert cost: 100,000 outbox rows WITHOUT the FIFO index ===
+Timing is on.
+BEGIN
+Time: 0.137 ms
+INSERT 0 100000
+Time: 4870.581 ms (00:04.871)
+ROLLBACK
+Time: 0.545 ms
+=== W3 workflow_ref insert cost: 100,000 rows ===
+BEGIN
+Time: 0.346 ms
+INSERT 0 100000
+Time: 7812.849 ms (00:07.813)
+ROLLBACK
+Time: 0.354 ms
+Timing is off.
+=== L1 workflow_ref lookup as nava_app under RLS (latest workflow for a record) ===
+SET
+BEGIN
+                                                                                               QUERY PLAN                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.037..0.038 rows=1 loops=1)
+   Buffers: shared hit=4 read=1
+   ->  Index Scan using workflow_ref_record on workflow_ref (actual time=0.036..0.036 rows=1 loops=1)
+         Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (record_id = 'f1c15925-8841-1002-af34-0cbaedd6fc33'::uuid) AND (kind = 'approval'::text))
+         Buffers: shared hit=4 read=1
+ Planning:
+   Buffers: shared hit=31 read=12
+ Planning Time: 0.363 ms
+ Execution Time: 0.060 ms
+(9 rows)
+
+ROLLBACK
+RESET

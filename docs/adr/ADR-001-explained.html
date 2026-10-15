@@ -1,0 +1,749 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-001 explained (reading guide)</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--warn:#9a6700;--warnbg:#fff8c5}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--warn:#d29922;--warnbg:#2b2111}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:32px 24px 80px}
+.banner{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.pill{font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left;min-width:0;overflow-wrap:anywhere}
+th{background:var(--soft)}
+table.front th{width:120px}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:36px}
+h3{font-size:18px;margin-top:28px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;background:var(--soft);padding:1px 5px;border-radius:4px}
+pre{background:var(--soft);border:1px solid var(--bd);border-radius:6px;padding:12px 14px;overflow-x:auto}
+pre code{background:none;padding:0;white-space:pre}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft);color:var(--fg)}
+hr{border:0;border-top:1px solid var(--bd);margin:32px 0}
+a{color:var(--acc)}
+figure.diagram{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure.diagram svg{max-width:100%;height:auto;display:block;margin:0 auto}
+@media print{.banner{display:none} table{display:table} pre code{white-space:pre-wrap}}
+</style></head>
+<body><main>
+<div class="banner"><span class="pill">READING GUIDE · ADR-001 ACCEPTED</span>
+<span class="src">Companion to ADR-001-platform-blueprint.md. Not a decision record; changes nothing.</span></div>
+<table class="front"><tbody>
+<tr><th>title</th><td>ADR-001 explained — a reading guide to the platform blueprint</td></tr>
+<tr><th>type</th><td>explainer (not a decision record)</td></tr>
+<tr><th>explains</th><td>ADR-001-platform-blueprint.md (status ACCEPTED, 2026-10-15)</td></tr>
+<tr><th>date</th><td>2026-10-15</td></tr>
+<tr><th>audience</th><td>nava (founder), no context from the debate needed</td></tr>
+</tbody></table>
+<h1>ADR-001 explained</h1>
+<p><strong>What this is.</strong> A plain-English guide to ADR-001. It changes nothing. ADR-001 is the decision. <strong>You approved it on 2026-10-15, so it is now ACCEPTED</strong>, together with the identity port (ADR Annex A.4). Where this guide simplifies, it cites the ADR section, for example &quot;ADR §2&quot; or &quot;ADR Annex A.2&quot;.</p>
+<p><strong>What ADR-001 is about, in one paragraph.</strong> nava is a platform that many customer organisations (<em>tenants</em>) share. The biggest risk in such a platform is one tenant seeing or changing another tenant's data. ADR-001 fixes the ground rules (<em>invariants</em>) every later design must keep. It also makes the four choices Milestone 1 is waiting for:</p>
+<ul>
+<li>how people log in and how we know their tenant (<strong>D26</strong>)</li>
+<li>what the API looks like (<strong>D6</strong>)</li>
+<li>how background workflows stay separated by tenant (<strong>D22</strong>)</li>
+<li>which database accounts the platform's own background jobs use (<strong>D28</strong>)</li>
+</ul>
+<p>How to read it, if you have 15 minutes:</p>
+<ul>
+<li>§1 and §3 give you the picture.</li>
+<li>§5 has the risks.</li>
+<li>§7 is what you approved.</li>
+</ul>
+<hr />
+<h2>1. The whole picture</h2>
+<figure class="diagram"><svg id="mmd0" width="100%" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" class="flowchart" style="max-width: 2998.88px; background-color: white;" viewBox="0 0 2998.8828125 2022.85302734375" role="graphics-document document" aria-roledescription="flowchart-v2"><style>#mmd0{font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:26px;fill:#333;}@keyframes edge-animation-frame{from{stroke-dashoffset:0;}}@keyframes dash{to{stroke-dashoffset:0;}}#mmd0 .edge-animation-slow{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 50s linear infinite;stroke-linecap:round;}#mmd0 .edge-animation-fast{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 20s linear infinite;stroke-linecap:round;}#mmd0 .error-icon{fill:#552222;}#mmd0 .error-text{fill:#552222;stroke:#552222;}#mmd0 .edge-thickness-normal{stroke-width:1px;}#mmd0 .edge-thickness-thick{stroke-width:3.5px;}#mmd0 .edge-pattern-solid{stroke-dasharray:0;}#mmd0 .edge-thickness-invisible{stroke-width:0;fill:none;}#mmd0 .edge-pattern-dashed{stroke-dasharray:3;}#mmd0 .edge-pattern-dotted{stroke-dasharray:2;}#mmd0 .marker{fill:#333333;stroke:#333333;}#mmd0 .marker.cross{stroke:#333333;}#mmd0 svg{font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:26px;}#mmd0 p{margin:0;}#mmd0 .label{font-family:"trebuchet ms",verdana,arial,sans-serif;color:#333;}#mmd0 .cluster-label text{fill:#333;}#mmd0 .cluster-label span{color:#333;}#mmd0 .cluster-label span p{background-color:transparent;}#mmd0 .label text,#mmd0 span{fill:#333;color:#333;}#mmd0 .node rect,#mmd0 .node circle,#mmd0 .node ellipse,#mmd0 .node polygon,#mmd0 .node path{fill:#ECECFF;stroke:#9370DB;stroke-width:1px;}#mmd0 .rough-node .label text,#mmd0 .node .label text,#mmd0 .image-shape .label,#mmd0 .icon-shape .label{text-anchor:middle;}#mmd0 .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#mmd0 .rough-node .label,#mmd0 .node .label,#mmd0 .image-shape .label,#mmd0 .icon-shape .label{text-align:center;}#mmd0 .node.clickable{cursor:pointer;}#mmd0 .root .anchor path{fill:#333333!important;stroke-width:0;stroke:#333333;}#mmd0 .arrowheadPath{fill:#333333;}#mmd0 .edgePath .path{stroke:#333333;stroke-width:1px;}#mmd0 .flowchart-link{stroke:#333333;fill:none;}#mmd0 .edgeLabel{background-color:rgba(232,232,232, 0.8);text-align:center;}#mmd0 .edgeLabel p{background-color:rgba(232,232,232, 0.8);}#mmd0 .edgeLabel rect{opacity:0.5;background-color:rgba(232,232,232, 0.8);fill:rgba(232,232,232, 0.8);}#mmd0 .labelBkg{background-color:rgba(232, 232, 232, 0.5);}#mmd0 .cluster rect{fill:#ffffde;stroke:#aaaa33;stroke-width:1px;}#mmd0 .cluster text{fill:#333;}#mmd0 .cluster span{color:#333;}#mmd0 div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:12px;background:hsl(80, 100%, 96.2745098039%);border:1px solid #aaaa33;border-radius:2px;pointer-events:none;z-index:100;}#mmd0 .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#333;}#mmd0 rect.text{fill:none;stroke-width:0;}#mmd0 .icon-shape,#mmd0 .image-shape{background-color:rgba(232,232,232, 0.8);text-align:center;}#mmd0 .icon-shape p,#mmd0 .image-shape p{background-color:rgba(232,232,232, 0.8);padding:2px;}#mmd0 .icon-shape .label rect,#mmd0 .image-shape .label rect{opacity:0.5;background-color:rgba(232,232,232, 0.8);fill:rgba(232,232,232, 0.8);}#mmd0 .label-icon{display:inline-block;height:1em;overflow:visible;vertical-align:-0.125em;}#mmd0 .node .label-icon path{fill:currentColor;stroke:revert;stroke-width:revert;}#mmd0 .node .neo-node{stroke:#9370DB;}#mmd0 [data-look="neo"].node rect,#mmd0 [data-look="neo"].cluster rect,#mmd0 [data-look="neo"].node polygon{stroke:#9370DB;filter:drop-shadow(1px 2px 2px rgba(185, 185, 185, 1));}#mmd0 [data-look="neo"].node path{stroke:#9370DB;stroke-width:1px;}#mmd0 [data-look="neo"].node .outer-path{filter:drop-shadow(1px 2px 2px rgba(185, 185, 185, 1));}#mmd0 [data-look="neo"].node .neo-line path{stroke:#9370DB;filter:none;}#mmd0 [data-look="neo"].node circle{stroke:#9370DB;filter:drop-shadow(1px 2px 2px rgba(185, 185, 185, 1));}#mmd0 [data-look="neo"].node circle .state-start{fill:#000000;}#mmd0 [data-look="neo"].icon-shape .icon{fill:#9370DB;filter:drop-shadow(1px 2px 2px rgba(185, 185, 185, 1));}#mmd0 [data-look="neo"].icon-shape .icon-neo path{stroke:#9370DB;filter:drop-shadow(1px 2px 2px rgba(185, 185, 185, 1));}#mmd0 :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g><marker id="mmd0_flowchart-v2-pointEnd" class="marker flowchart-v2" viewBox="0 0 10 10" refX="5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="mmd0_flowchart-v2-pointStart" class="marker flowchart-v2" viewBox="0 0 10 10" refX="4.5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 5 L 10 10 L 10 0 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="mmd0_flowchart-v2-pointEnd-margin" class="marker flowchart-v2" viewBox="0 0 11.5 14" refX="11.5" refY="7" markerUnits="userSpaceOnUse" markerWidth="10.5" markerHeight="14" orient="auto"><path d="M 0 0 L 11.5 7 L 0 14 z" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"/></marker><marker id="mmd0_flowchart-v2-pointStart-margin" class="marker flowchart-v2" viewBox="0 0 11.5 14" refX="1" refY="7" markerUnits="userSpaceOnUse" markerWidth="11.5" markerHeight="14" orient="auto"><polygon points="0,7 11.5,14 11.5,0" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"/></marker><marker id="mmd0_flowchart-v2-circleEnd" class="marker flowchart-v2" viewBox="0 0 10 10" refX="11" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="mmd0_flowchart-v2-circleStart" class="marker flowchart-v2" viewBox="0 0 10 10" refX="-1" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="mmd0_flowchart-v2-circleEnd-margin" class="marker flowchart-v2" viewBox="0 0 10 10" refY="5" refX="12.25" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="14" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"/></marker><marker id="mmd0_flowchart-v2-circleStart-margin" class="marker flowchart-v2" viewBox="0 0 10 10" refX="-2" refY="5" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="14" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"/></marker><marker id="mmd0_flowchart-v2-crossEnd" class="marker cross flowchart-v2" viewBox="0 0 11 11" refX="12" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"/></marker><marker id="mmd0_flowchart-v2-crossStart" class="marker cross flowchart-v2" viewBox="0 0 11 11" refX="-1" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"/></marker><marker id="mmd0_flowchart-v2-crossEnd-margin" class="marker cross flowchart-v2" viewBox="0 0 15 15" refX="17.7" refY="7.5" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto"><path d="M 1,1 L 14,14 M 1,14 L 14,1" class="arrowMarkerPath" style="stroke-width: 2.5;"/></marker><marker id="mmd0_flowchart-v2-crossStart-margin" class="marker cross flowchart-v2" viewBox="0 0 15 15" refX="-3.5" refY="7.5" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto"><path d="M 1,1 L 14,14 M 1,14 L 14,1" class="arrowMarkerPath" style="stroke-width: 2.5; stroke-dasharray: 1, 0;"/></marker><g class="root"><g class="clusters"><g class="cluster" id="mmd0-Ops" data-look="classic"><rect style="" x="8" y="736" width="890" height="314"/><g class="cluster-label" transform="translate(361.578125, 736)"><foreignObject width="182.84375" height="39"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5;"><span class="nodeLabel"><p>Operations only</p></span></div></foreignObject></g></g><g class="cluster" id="mmd0-Durable" data-look="classic"><rect style="" x="2552.421875" y="1178" width="310" height="836.8529968261719"/><g class="cluster-label" transform="translate(2601.203125, 1178)"><foreignObject width="212.4375" height="39"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5;"><span class="nodeLabel"><p>Durable execution</p></span></div></foreignObject></g></g><g class="cluster" id="mmd0-Data" data-look="classic"><rect style="" x="1931.7265625" y="736" width="600.6953125" height="788.426513671875"/><g class="cluster-label" transform="translate(2205.28515625, 736)"><foreignObject width="53.578125" height="39"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5;"><span class="nodeLabel"><p>Data</p></span></div></foreignObject></g></g><g class="cluster" id="mmd0-Core" data-look="classic"><rect style="" x="1568.15625" y="333" width="1422.7265625" height="275"/><g class="cluster-label" transform="translate(2118.37109375, 333)"><foreignObject width="322.296875" height="39"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5;"><span class="nodeLabel"><p>nava platform services (Go)</p></span></div></foreignObject></g></g><g class="cluster" id="mmd0-Identity" data-look="classic"><rect style="" x="918" y="333" width="612.0234375" height="717"/><g class="cluster-label" transform="translate(1178.52734375, 333)"><foreignObject width="90.96875" height="39"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5;"><span class="nodeLabel"><p>Identity</p></span></div></foreignObject></g></g><g class="cluster" id="mmd0-Clients" data-look="classic"><rect style="" x="1175.0234375" y="8" width="617.5" height="197"/><g class="cluster-label" transform="translate(1397.1953125, 8)"><foreignObject width="173.15625" height="39"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5;"><span class="nodeLabel"><p>Outside callers</p></span></div></foreignObject></g></g></g><g class="edgePaths"><path d="M1073,583L1073,587.167C1073,591.333,1073,599.667,1073,614.5C1073,629.333,1073,650.667,1073,672C1073,693.333,1073,714.667,1084.568,734.299C1096.136,753.931,1119.272,771.863,1130.841,780.829L1142.409,789.794" id="mmd0-L_IDP_KC_0" class="edge-thickness-normal edge-pattern-dotted edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_IDP_KC_0" data-points="W3sieCI6MTA3MywieSI6NTgzfSx7IngiOjEwNzMsInkiOjYwOH0seyJ4IjoxMDczLCJ5Ijo2NzJ9LHsieCI6MTA3MywieSI6NzM2fSx7IngiOjExNDUuNTcwMzEyNSwieSI6NzkyLjI0NDg2MDk2NjQ4NTR9XQ==" data-look="classic" marker-end="url(#mmd0_flowchart-v2-pointEnd)"/><path d="M1367.523,164.192L1352.198,170.994C1336.872,177.795,1306.221,191.397,1290.896,208.865C1275.57,226.333,1275.57,247.667,1275.57,269C1275.57,290.333,1275.57,311.667,1275.57,345.25C1275.57,378.833,1275.57,424.667,1275.57,470.5C1275.57,516.333,1275.57,562.167,1275.57,595.75C1275.57,629.333,1275.57,650.667,1275.57,672C1275.57,693.333,1275.57,714.667,1275.57,728.833C1275.57,743,1275.57,750,1275.57,753.5L1275.57,757" id="mmd0-L_U_KC_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_U_KC_0" data-points="W3sieCI6MTM2Ny41MjM0Mzc1LCJ5IjoxNjQuMTkyMzYxODQ0NDIxfSx7IngiOjEyNzUuNTcwMzEyNSwieSI6MjA1fSx7IngiOjEyNzUuNTcwMzEyNSwieSI6MjY5fSx7IngiOjEyNzUuNTcwMzEyNSwieSI6MzMzfSx7IngiOjEyNzUuNTcwMzEyNSwieSI6NDcwLjV9LHsieCI6MTI3NS41NzAzMTI1LCJ5Ijo2MDh9LHsieCI6MTI3NS41NzAzMTI1LCJ5Ijo2NzJ9LHsieCI6MTI3NS41NzAzMTI1LCJ5Ijo3MzZ9LHsieCI6MTI3NS41NzAzMTI1LCJ5Ijo3NjF9XQ==" data-look="classic" marker-end="url(#mmd0_flowchart-v2-pointEnd)"/><path d="M1627.523,163.251L1643.462,170.21C1659.401,177.168,1691.279,191.084,1707.217,208.709C1723.156,226.333,1723.156,247.667,1723.156,269C1723.156,290.333,1723.156,311.667,1723.156,329.083C1723.156,346.5,1723.156,360,1723.156,366.75L1723.156,373.5" id="mmd0-L_U_API_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_U_API_0" data-points="W3sieCI6MTYyNy41MjM0Mzc1LCJ5IjoxNjMuMjUxNDk3NTI0MzIzOTV9LHsieCI6MTcyMy4xNTYyNSwieSI6MjA1fSx7IngiOjE3MjMuMTU2MjUsInkiOjI2OX0seyJ4IjoxNzIzLjE1NjI1LCJ5IjozMzN9LHsieCI6MTcyMy4xNTYyNSwieSI6Mzc3LjV9XQ==" data-look="classic" marker-end="url(#mmd0_flowchart-v2-pointEnd)"/><path d="M1723.156,563.5L1723.156,570.917C1723.156,578.333,1723.156,593.167,1668.559,611.25C1613.961,629.333,1504.766,650.667,1450.168,672C1395.57,693.333,1395.57,714.667,1392.79,728.97C1390.011,743.274,1384.451,750.548,1381.671,754.185L1378.891,757.822" id="mmd0-L_API_KC_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_API_KC_0" data-points="W3sieCI6MTcyMy4xNTYyNSwieSI6NTYzLjV9LHsieCI6MTcyMy4xNTYyNSwieSI6NjA4fSx7IngiOjEzOTUuNTcwMzEyNSwieSI6NjcyfSx7IngiOjEzOTUuNTcwMzEyNSwieSI6NzM2fSx7IngiOjEzNzYuNDYyMDMyMjQ1MjIyOSwieSI6NzYxfV0=" data-look="classic" marker-end="url(#mmd0_flowchart-v2-pointEnd)"/><path d="M1853.156,544.762L1871.607,555.301C1890.057,565.841,1926.958,586.921,1945.409,608.127C1963.859,629.333,1963.859,650.667,1999.775,672C2035.69,693.333,2107.521,714.667,2164.929,742.09C2222.337,769.514,2265.323,803.027,2286.816,819.784L2308.309,836.541" id="mmd0-L_API_PGB_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_API_PGB_0" data-points="W3sieCI6MTg1My4xNTYyNSwieSI6NTQ0Ljc2MTYwMzM3NTUyNzR9LHsieCI6MTk2My44NTkzNzUsInkiOjYwOH0seyJ4IjoxOTYzLjg1OTM3NSwieSI6NjcyfSx7IngiOjIxNzkuMzUxNTYyNSwieSI6NzM2fSx7IngiOjIzMTEuNDYzODIzNjQ2NDk2NiwieSI6ODM5fV0=" data-look="classic" marker-end="url(#mmd0_flowchart-v2-pointEnd)"/><path d="M2380.727,947L2380.727,964.167C2380.727,981.333,2380.727,1015.667,2380.727,1043.5C2380.727,1071.333,2380.727,1092.667,2380.727,1114C2380.727,1135.333,2380.727,1156.667,2378.538,1172.014C2376.349,1187.362,2371.971,1196.724,2369.782,1201.405L2367.593,1206.086" id="mmd0-L_PGB_PG_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_PGB_PG_0" data-points="W3sieCI6MjM4MC43MjY1NjI1LCJ5Ijo5NDd9LHsieCI6MjM4MC43MjY1NjI1LCJ5IjoxMDUwfSx7IngiOjIzODAuNzI2NTYyNSwieSI6MTExNH0seyJ4IjoyMzgwLjcyNjU2MjUsInkiOjExNzh9LHsieCI6MjM2NS44OTg4MzI2NzE5NDk1LCJ5IjoxMjA5LjcwOTM3MzMxMTkxNzN9XQ==" data-look="classic" marker-end="url(#mmd0_flowchart-v2-pointEnd)"/><path d="M2835.883,563.5L2835.883,570.917C2835.883,578.333,2835.883,593.167,2835.883,611.25C2835.883,629.333,2835.883,650.667,2771.303,672C2706.724,693.333,2577.565,714.667,2505.849,741.888C2434.134,769.109,2419.861,802.218,2412.725,818.772L2405.588,835.327" id="mmd0-L_JOBS_PGB_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_JOBS_PGB_0" data-points="W3sieCI6MjgzNS44ODI4MTI1LCJ5Ijo1NjMuNX0seyJ4IjoyODM1Ljg4MjgxMjUsInkiOjYwOH0seyJ4IjoyODM1Ljg4MjgxMjUsInkiOjY3Mn0seyJ4IjoyNDQ4LjQwNjI1LCJ5Ijo3MzZ9LHsieCI6MjQwNC4wMDQ5MjYzNTM1MDM0LCJ5Ijo4Mzl9XQ==" data-look="classic" marker-end="url(#mmd0_flowchart-v2-pointEnd)"/><path d="M2090.715,563.5L2085.466,570.917C2080.216,578.333,2069.718,593.167,2064.468,611.25C2059.219,629.333,2059.219,650.667,2088.854,672C2118.49,693.333,2177.76,714.667,2222.658,742.008C2267.555,769.35,2298.078,802.7,2313.34,819.374L2328.602,836.049" id="mmd0-L_RELAY_PGB_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_RELAY_PGB_0" data-points="W3sieCI6MjA5MC43MTUxNDIwNDU0NTQ3LCJ5Ijo1NjMuNX0seyJ4IjoyMDU5LjIxODc1LCJ5Ijo2MDh9LHsieCI6MjA1OS4yMTg3NSwieSI6NjcyfSx7IngiOjIyMzcuMDMxMjUsInkiOjczNn0seyJ4IjoyMzMxLjMwMjY5NzA1NDE0LCJ5Ijo4Mzl9XQ==" data-look="classic" marker-end="url(#mmd0_flowchart-v2-pointEnd)"/><path d="M2188.788,563.5L2191.36,570.917C2193.931,578.333,2199.075,593.167,2201.647,611.25C2204.219,629.333,2204.219,650.667,2138.984,672C2073.75,693.333,1943.281,714.667,1878.047,751.5C1812.813,788.333,1812.813,840.667,1812.813,893C1812.813,945.333,1812.813,997.667,1956.914,1034.5C2101.016,1071.333,2389.219,1092.667,2533.32,1114C2677.422,1135.333,2677.422,1156.667,2679.624,1180.045C2681.825,1203.424,2686.229,1228.848,2688.43,1241.56L2690.632,1254.272" id="mmd0-L_RELAY_TF_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_RELAY_TF_0" data-points="W3sieCI6MjE4OC43ODc4NjkzMTgxODIsInkiOjU2My41fSx7IngiOjIyMDQuMjE4NzUsInkiOjYwOH0seyJ4IjoyMjA0LjIxODc1LCJ5Ijo2NzJ9LHsieCI6MTgxMi44MTI1LCJ5Ijo3MzZ9LHsieCI6MTgxMi44MTI1LCJ5Ijo4OTN9LHsieCI6MTgxMi44MTI1LCJ5IjoxMDUwfSx7IngiOjI2NzcuNDIxODc1LCJ5IjoxMTE0fSx7IngiOjI2NzcuNDIxODc1LCJ5IjoxMTc4fSx7IngiOjI2OTEuMzE0NTYyODI5MDY5NSwieSI6MTI1OC4yMTMyNTY4MzU5Mzc1fV0=" data-look="classic" marker-end="url(#mmd0_flowchart-v2-pointEnd)"/><path d="M2513.81,544L2509.156,554.667C2504.501,565.333,2495.192,586.667,2490.537,608C2485.883,629.333,2485.883,650.667,2527.389,672C2568.896,693.333,2651.909,714.667,2693.415,751.5C2734.922,788.333,2734.922,840.667,2734.922,893C2734.922,945.333,2734.922,997.667,2734.922,1034.5C2734.922,1071.333,2734.922,1092.667,2734.922,1114C2734.922,1135.333,2734.922,1156.667,2732.904,1180.044C2730.886,1203.421,2726.85,1228.842,2724.832,1241.552L2722.814,1254.263" id="mmd0-L_WRK_TF_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_WRK_TF_0" data-points="W3sieCI6MjUxMy44MTAwODUyMjcyNzMsInkiOjU0NH0seyJ4IjoyNDg1Ljg4MjgxMjUsInkiOjYwOH0seyJ4IjoyNDg1Ljg4MjgxMjUsInkiOjY3Mn0seyJ4IjoyNzM0LjkyMTg3NSwieSI6NzM2fSx7IngiOjI3MzQuOTIxODc1LCJ5Ijo4OTN9LHsieCI6MjczNC45MjE4NzUsInkiOjEwNTB9LHsieCI6MjczNC45MjE4NzUsInkiOjExMTR9LHsieCI6MjczNC45MjE4NzUsInkiOjExNzh9LHsieCI6MjcyMi4xODY5MTExNTY2ODYsInkiOjEyNTguMjEzMjU2ODM1OTM3NX1d" data-look="classic" marker-end="url(#mmd0_flowchart-v2-pointEnd)"/><path d="M2591.319,544L2597.913,554.667C2604.507,565.333,2617.695,586.667,2624.289,608C2630.883,629.333,2630.883,650.667,2574.637,672C2518.391,693.333,2405.898,714.667,2358.876,741.917C2311.854,769.168,2330.301,802.336,2339.525,818.92L2348.749,835.504" id="mmd0-L_WRK_PGB_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_WRK_PGB_0" data-points="W3sieCI6MjU5MS4zMTkxNzYxMzYzNjM3LCJ5Ijo1NDR9LHsieCI6MjYzMC44ODI4MTI1LCJ5Ijo2MDh9LHsieCI6MjYzMC44ODI4MTI1LCJ5Ijo2NzJ9LHsieCI6MjI5My40MDYyNSwieSI6NzM2fSx7IngiOjIzNTAuNjkyODI0NDQyNjc1NCwieSI6ODM5fV0=" data-look="classic" marker-end="url(#mmd0_flowchart-v2-pointEnd)"/><path d="M2707.422,1444.213L2707.422,1457.582C2707.422,1470.951,2707.422,1497.689,2707.422,1515.224C2707.422,1532.76,2707.422,1541.093,2707.422,1548.76C2707.422,1556.427,2707.422,1563.427,2707.422,1566.927L2707.422,1570.427" id="mmd0-L_TF_TI_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_TF_TI_0" data-points="W3sieCI6MjcwNy40MjE4NzUsInkiOjE0NDQuMjEzMjU2ODM1OTM3NX0seyJ4IjoyNzA3LjQyMTg3NSwieSI6MTUyNC40MjY1MTM2NzE4NzV9LHsieCI6MjcwNy40MjE4NzUsInkiOjE1NDkuNDI2NTEzNjcxODc1fSx7IngiOjI3MDcuNDIxODc1LCJ5IjoxNTc0LjQyNjUxMzY3MTg3NX1d" data-look="classic" marker-end="url(#mmd0_flowchart-v2-pointEnd)"/><path d="M2707.422,1799.427L2707.422,1803.593C2707.422,1807.76,2707.422,1816.093,2707.422,1823.76C2707.422,1831.427,2707.422,1838.427,2707.422,1841.927L2707.422,1845.427" id="mmd0-L_TI_TDB_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_TI_TDB_0" data-points="W3sieCI6MjcwNy40MjE4NzUsInkiOjE3OTkuNDI2NTEzNjcxODc1fSx7IngiOjI3MDcuNDIxODc1LCJ5IjoxODI0LjQyNjUxMzY3MTg3NX0seyJ4IjoyNzA3LjQyMTg3NSwieSI6MTg0OS40MjY1MTM2NzE4NzV9XQ==" data-look="classic" marker-end="url(#mmd0_flowchart-v2-pointEnd)"/><path d="M163,947L163,964.167C163,981.333,163,1015.667,478.829,1043.5C794.659,1071.333,1426.318,1092.667,1742.147,1114C2057.977,1135.333,2057.977,1156.667,2076.205,1181.684C2094.434,1206.702,2130.892,1235.404,2149.121,1249.756L2167.349,1264.107" id="mmd0-L_MIG_PG_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_MIG_PG_0" data-points="W3sieCI6MTYzLCJ5Ijo5NDd9LHsieCI6MTYzLCJ5IjoxMDUwfSx7IngiOjIwNTcuOTc2NTYyNSwieSI6MTExNH0seyJ4IjoyMDU3Ljk3NjU2MjUsInkiOjExNzh9LHsieCI6MjE3MC40OTIxODc1LCJ5IjoxMjY2LjU4MDk3MTY5NzcxOTR9XQ==" data-look="classic" marker-end="url(#mmd0_flowchart-v2-pointEnd)"/><path d="M453,947L453,964.167C453,981.333,453,1015.667,755.725,1043.5C1058.451,1071.333,1663.901,1092.667,1966.626,1114C2269.352,1135.333,2269.352,1156.667,2269.526,1170.84C2269.701,1185.014,2270.05,1192.028,2270.225,1195.535L2270.4,1199.042" id="mmd0-L_BAK_PG_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_BAK_PG_0" data-points="W3sieCI6NDUzLCJ5Ijo5NDd9LHsieCI6NDUzLCJ5IjoxMDUwfSx7IngiOjIyNjkuMzUxNTYyNSwieSI6MTExNH0seyJ4IjoyMjY5LjM1MTU2MjUsInkiOjExNzh9LHsieCI6MjI3MC41OTg2NzA0MjMxODA1LCJ5IjoxMjAzLjAzNzQzNDI2MjY0NTV9XQ==" data-look="classic" marker-end="url(#mmd0_flowchart-v2-pointEnd)"/><path d="M743,947L743,964.167C743,981.333,743,1015.667,743,1043.5C743,1071.333,743,1092.667,1060.82,1114C1378.641,1135.333,2014.281,1156.667,2336.329,1180.069C2658.378,1203.472,2666.833,1228.945,2671.061,1241.681L2675.289,1254.417" id="mmd0-L_OPS_TF_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_OPS_TF_0" data-points="W3sieCI6NzQzLCJ5Ijo5NDd9LHsieCI6NzQzLCJ5IjoxMDUwfSx7IngiOjc0MywieSI6MTExNH0seyJ4IjoyNjQ5LjkyMTg3NSwieSI6MTE3OH0seyJ4IjoyNjc2LjU0OTUyNjY3MjM4MzMsInkiOjEyNTguMjEzMjU2ODM1OTM3NX1d" data-look="classic" marker-end="url(#mmd0_flowchart-v2-pointEnd)"/></g><g class="edgeLabels"><g class="edgeLabel" transform="translate(1073, 672)"><g class="label" data-id="L_IDP_KC_0" transform="translate(-28.1484375, -19.5)"><foreignObject width="56.296875" height="39"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"><p>login</p></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(1275.5703125, 470.5)"><g class="label" data-id="L_U_KC_0" transform="translate(-47.5703125, -19.5)"><foreignObject width="95.140625" height="39"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"><p>1. log in</p></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(1723.15625, 269)"><g class="label" data-id="L_U_API_0" transform="translate(-100, -39)"><foreignObject width="200" height="78"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="edgeLabel"><p>2. request with token</p></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(1395.5703125, 672)"><g class="label" data-id="L_API_KC_0" transform="translate(-100, -39)"><foreignObject width="200" height="78"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="edgeLabel"><p>checks token signature</p></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_API_PGB_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_PGB_PG_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_JOBS_PGB_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(2059.21875, 672)"><g class="label" data-id="L_RELAY_PGB_0" transform="translate(-75.359375, -19.5)"><foreignObject width="150.71875" height="39"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"><p>reads outbox</p></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(1812.8125, 893)"><g class="label" data-id="L_RELAY_TF_0" transform="translate(-80.578125, -19.5)"><foreignObject width="161.15625" height="39"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"><p>start or signal</p></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(2734.921875, 893)"><g class="label" data-id="L_WRK_TF_0" transform="translate(-87.46875, -19.5)"><foreignObject width="174.9375" height="39"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"><p>poll and report</p></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(2630.8828125, 672)"><g class="label" data-id="L_WRK_PGB_0" transform="translate(-100, -39)"><foreignObject width="200" height="78"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="edgeLabel"><p>steps read and write</p></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_TF_TI_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_TI_TDB_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(2057.9765625, 1114)"><g class="label" data-id="L_MIG_PG_0" transform="translate(-100, -39)"><foreignObject width="200" height="78"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="edgeLabel"><p>direct, not pooled</p></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(2269.3515625, 1114)"><g class="label" data-id="L_BAK_PG_0" transform="translate(-91.375, -19.5)"><foreignObject width="182.75" height="39"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"><p>replication only</p></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_OPS_TF_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g></g><g class="nodes"><g class="node default" id="mmd0-flowchart-U-0" data-look="classic" transform="translate(1497.5234375, 106.5)"><rect class="basic label-container" style="" x="-130" y="-73.5" width="260" height="147"/><g class="label" style="" transform="translate(-100, -58.5)"><rect/><foreignObject width="200" height="117"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>Tenant user or app<br />calls the API</p></span></div></foreignObject></g></g><g class="node default" id="mmd0-flowchart-KC-1" data-look="classic" transform="translate(1275.5703125, 893)"><rect class="basic label-container" style="" x="-130" y="-132" width="260" height="264"/><g class="label" style="" transform="translate(-100, -117)"><rect/><foreignObject width="200" height="234"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>Keycloak, behind the identity port<br />one realm, one organization per tenant</p></span></div></foreignObject></g></g><g class="node default" id="mmd0-flowchart-IDP-2" data-look="classic" transform="translate(1073, 470.5)"><rect class="basic label-container" style="" x="-130" y="-112.5" width="260" height="225"/><g class="label" style="" transform="translate(-100, -97.5)"><rect/><foreignObject width="200" height="195"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>Tenant's own login provider<br />optional, linked to its organization</p></span></div></foreignObject></g></g><g class="node default" id="mmd0-flowchart-API-3" data-look="classic" transform="translate(1723.15625, 470.5)"><rect class="basic label-container" style="" x="-130" y="-93" width="260" height="186"/><g class="label" style="" transform="translate(-100, -78)"><rect/><foreignObject width="200" height="156"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>Core API /api/v1<br />token check, authorization, write pipeline</p></span></div></foreignObject></g></g><g class="node default" id="mmd0-flowchart-RELAY-4" data-look="classic" transform="translate(2156.5390625, 470.5)"><rect class="basic label-container" style="" x="-130" y="-93" width="260" height="186"/><g class="label" style="" transform="translate(-100, -78)"><rect/><foreignObject width="200" height="156"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>Outbox relay<br />moves committed work to Temporal</p></span></div></foreignObject></g></g><g class="node default" id="mmd0-flowchart-WRK-5" data-look="classic" transform="translate(2545.8828125, 470.5)"><rect class="basic label-container" style="" x="-130" y="-73.5" width="260" height="147"/><g class="label" style="" transform="translate(-100, -58.5)"><rect/><foreignObject width="200" height="117"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>Workers<br />run workflows and their steps</p></span></div></foreignObject></g></g><g class="node default" id="mmd0-flowchart-JOBS-6" data-look="classic" transform="translate(2835.8828125, 470.5)"><rect class="basic label-container" style="" x="-130" y="-93" width="260" height="186"/><g class="label" style="" transform="translate(-100, -78)"><rect/><foreignObject width="200" height="156"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>Background jobs<br />onboarding, group sync, purge</p></span></div></foreignObject></g></g><g class="node default" id="mmd0-flowchart-PGB-7" data-look="classic" transform="translate(2380.7265625, 893)"><rect class="basic label-container" style="" x="-123.03125" y="-54" width="246.0625" height="108"/><g class="label" style="" transform="translate(-93.03125, -39)"><rect/><foreignObject width="186.0625" height="78"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>PgBouncer<br />connection pool</p></span></div></foreignObject></g></g><g class="node default" id="mmd0-flowchart-PG-8" data-look="classic" transform="translate(2277.9921875, 1351.2132568359375)"><path d="M0,15.808823529411764 a107.5,15.808823529411764 0,0,0 215,0 a107.5,15.808823529411764 0,0,0 -215,0 l0,264.80882352941177 a107.5,15.808823529411764 0,0,0 215,0 l0,-264.80882352941177" class="basic label-container outer-path" style="" transform="translate(-107.5, -148.21323529411765)"/><g class="label" style="" transform="translate(-100, -107)"><rect/><foreignObject width="200" height="234"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>PostgreSQL: nava<br />records, audit, outbox<br />row-level security</p></span></div></foreignObject></g></g><g class="node default" id="mmd0-flowchart-TF-9" data-look="classic" transform="translate(2707.421875, 1351.2132568359375)"><rect class="basic label-container" style="" x="-130" y="-93" width="260" height="186"/><g class="label" style="" transform="translate(-100, -78)"><rect/><foreignObject width="200" height="156"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>Temporal frontend<br />mTLS and Authorizer</p></span></div></foreignObject></g></g><g class="node default" id="mmd0-flowchart-TI-10" data-look="classic" transform="translate(2707.421875, 1686.926513671875)"><rect class="basic label-container" style="" x="-130" y="-112.5" width="260" height="225"/><g class="label" style="" transform="translate(-100, -97.5)"><rect/><foreignObject width="200" height="195"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>Temporal internal services<br />not reachable from the platform</p></span></div></foreignObject></g></g><g class="node default" id="mmd0-flowchart-TDB-11" data-look="classic" transform="translate(2707.421875, 1919.6397552490234)"><path d="M0,15.808823529411764 a107.5,15.808823529411764 0,0,0 215,0 a107.5,15.808823529411764 0,0,0 -215,0 l0,108.80882352941177 a107.5,15.808823529411764 0,0,0 215,0 l0,-108.80882352941177" class="basic label-container outer-path" style="" transform="translate(-107.5, -70.21323529411765)"/><g class="label" style="" transform="translate(-100, -29)"><rect/><foreignObject width="200" height="78"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>Temporal's own database</p></span></div></foreignObject></g></g><g class="node default" id="mmd0-flowchart-MIG-12" data-look="classic" transform="translate(163, 893)"><rect class="basic label-container" style="" x="-130" y="-54" width="260" height="108"/><g class="label" style="" transform="translate(-100, -39)"><rect/><foreignObject width="200" height="78"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>Migrations, one-shot job</p></span></div></foreignObject></g></g><g class="node default" id="mmd0-flowchart-BAK-13" data-look="classic" transform="translate(453, 893)"><rect class="basic label-container" style="" x="-130" y="-54" width="260" height="108"/><g class="label" style="" transform="translate(-100, -39)"><rect/><foreignObject width="200" height="78"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>Backups, physical copy</p></span></div></foreignObject></g></g><g class="node default" id="mmd0-flowchart-OPS-14" data-look="classic" transform="translate(743, 893)"><rect class="basic label-container" style="" x="-130" y="-54" width="260" height="108"/><g class="label" style="" transform="translate(-100, -39)"><rect/><foreignObject width="200" height="78"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>Operator tools and Temporal UI</p></span></div></foreignObject></g></g></g></g></g><defs><filter id="mmd0-drop-shadow" height="130%" width="130%"><feDropShadow dx="4" dy="4" stdDeviation="0" flood-opacity="0.06" flood-color="#000000"/></filter></defs><defs><filter id="mmd0-drop-shadow-small" height="150%" width="150%"><feDropShadow dx="2" dy="2" stdDeviation="0" flood-opacity="0.06" flood-color="#000000"/></filter></defs></svg></figure>
+<p><em>Not shown:</em> custom-function sandboxes, plugins and the AI service come in later epics. ADR-001 rules that they get <strong>no route to Temporal and no database access</strong> (ADR Annex A.2, invariant I8).</p>
+<table>
+<thead>
+<tr>
+  <th>Component</th>
+  <th>What it is</th>
+  <th>What we use it for</th>
+  <th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td><strong>Core API</strong></td>
+  <td>Our Go service, reached at <code>/api/v1</code></td>
+  <td>It checks who you are and which tenant you belong to. It checks what you may see or change, and saves records through one write pipeline.</td>
+  <td>It is the single front door. It is easier to guard one door than many (ADR §2 D6, I4, I5).</td>
+</tr>
+<tr>
+  <td><strong>Keycloak</strong></td>
+  <td>An open-source login server</td>
+  <td>Logins, users, groups, and one <em>organization</em> per tenant</td>
+  <td>It is the settled identity choice. Organizations let one installation hold many tenants safely (ADR §2 D26).</td>
+</tr>
+<tr>
+  <td><strong>Identity port</strong></td>
+  <td>Two small interfaces inside the core API: <code>IdentityResolver</code> and <code>DirectoryAdmin</code></td>
+  <td><code>IdentityResolver</code> turns a login token into &quot;tenant, user, groups&quot;. <code>DirectoryAdmin</code> creates tenants, users and group memberships in Keycloak, for onboarding and group sync only.</td>
+  <td>Only these two know Keycloak exists. If we ever change login servers, only they change, not the whole platform (ADR Annex A.4).</td>
+</tr>
+<tr>
+  <td><strong>Tenant's own login provider</strong></td>
+  <td>For example the customer's Microsoft or Google login, linked to their organization</td>
+  <td>Lets a tenant's staff use their company login</td>
+  <td>Customers expect it. ADR-001 adds rules so it can't be used to break into another tenant (ADR Annex A.1).</td>
+</tr>
+<tr>
+  <td><strong>PostgreSQL</strong> (database <code>nava</code>)</td>
+  <td>The main database</td>
+  <td>Records, audit history, the outbox and workflow references</td>
+  <td>It is the settled database. Its <em>row-level security</em> is our hard tenant wall (I1).</td>
+</tr>
+<tr>
+  <td><strong>PgBouncer</strong></td>
+  <td>A connection pooler in front of PostgreSQL</td>
+  <td>Lets many requests share a small number of database connections</td>
+  <td>It is needed for scale. ADR-001 makes sure one request's tenant can't leak into the next request on the same connection (I1, CI-2).</td>
+</tr>
+<tr>
+  <td><strong>Outbox relay</strong></td>
+  <td>A small Go process</td>
+  <td>It reads &quot;work to do&quot; rows (the <em>outbox</em>) that were saved together with a change, then starts or signals the matching workflow</td>
+  <td>If the system crashes between saving and starting a workflow, nothing is lost or done twice (I6, I7).</td>
+</tr>
+<tr>
+  <td><strong>Temporal frontend</strong></td>
+  <td>The entry point of Temporal, the workflow engine</td>
+  <td>It accepts start, signal and poll requests</td>
+  <td>It is locked down with certificates (<em>mTLS</em>) and an <em>Authorizer</em> that decides which caller may do what (ADR §2 D22).</td>
+</tr>
+<tr>
+  <td><strong>Temporal internal services and database</strong></td>
+  <td>Temporal's own engine and storage</td>
+  <td>They store workflow history and timers</td>
+  <td>They are kept separate from our data and are not reachable from the platform network (ADR Annex A.2).</td>
+</tr>
+<tr>
+  <td><strong>Workers</strong></td>
+  <td>Our Go processes that run workflow logic</td>
+  <td>Approvals, timers, notifications and anything that waits or retries</td>
+  <td>Work that has to survive restarts runs here, never inside a web request (I6).</td>
+</tr>
+<tr>
+  <td><strong>Background jobs</strong></td>
+  <td>Small platform jobs</td>
+  <td>Setting up a new tenant, copying groups from Keycloak, deleting expired rows</td>
+  <td>Each job has its own narrow database account (ADR §2 D28, Annex A.3).</td>
+</tr>
+<tr>
+  <td><strong>Migrations</strong></td>
+  <td>A one-shot job that changes the database structure</td>
+  <td>Creating and altering tables</td>
+  <td>It is the only account that owns tables. It never runs inside the live service (ADR Annex A.3, R2).</td>
+</tr>
+<tr>
+  <td><strong>Backups</strong></td>
+  <td>A physical copy of the database files</td>
+  <td>Disaster recovery</td>
+  <td>Its account can copy files but can't run queries (ADR Annex A.3).</td>
+</tr>
+<tr>
+  <td><strong>Operator tools</strong></td>
+  <td>The Temporal UI and command-line tools</td>
+  <td>Platform staff diagnosing problems</td>
+  <td>Operators only, on a separate network (ADR Annex A.2).</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>2. What we are using, and what we are not</h2>
+<table>
+<thead>
+<tr>
+  <th>Area</th>
+  <th>We use</th>
+  <th>For</th>
+  <th>We rejected</th>
+  <th>Why we rejected it</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>Tenants in Keycloak</td>
+  <td><strong>One realm, one <em>organization</em> per tenant</strong> (ADR §2 D26)</td>
+  <td>Knowing which tenant a user belongs to</td>
+  <td>A separate realm per tenant</td>
+  <td>Every tenant admin would control their own realm and could create login tokens. Each realm also needs its own setup that drifts over time.</td>
+</tr>
+<tr>
+  <td>How we read the tenant from a login</td>
+  <td><strong>A platform lookup table keyed by the organization's fixed id</strong></td>
+  <td>Turning a login into a tenant</td>
+  <td>A &quot;tenant id&quot; field on the user or in the token</td>
+  <td>An admin could edit that field and claim another tenant.</td>
+</tr>
+<tr>
+  <td>Login server</td>
+  <td><strong>Keycloak, behind the identity port</strong> (ADR Annex A.4)</td>
+  <td>Logins, users, groups</td>
+  <td>Zitadel</td>
+  <td>It has no built-in groups, which Epic 03 needs. Its AGPL licence is awkward when we ship it to customers on-premise. Our isolation tests were all run on Keycloak. It is better at letting tenants manage their own users, so we look again if that becomes a must (ADR Annex A.4).</td>
+</tr>
+<tr>
+  <td>Keycloak version</td>
+  <td><strong>26.1.3 or later</strong> (26.8.1 recommended)</td>
+  <td>Running Keycloak</td>
+  <td>26.0 to 26.1.2</td>
+  <td>A test proved a user could pick an organization they don't belong to and get a valid login for it.</td>
+</tr>
+<tr>
+  <td>Company logins (federation)</td>
+  <td><strong>Create a new user only, and add them to that tenant's organization</strong></td>
+  <td>Letting staff sign in with their company login</td>
+  <td>Matching an existing account by email</td>
+  <td>Tenant A's login provider could claim Bob from tenant B's email and take over his account.</td>
+</tr>
+<tr>
+  <td>API style</td>
+  <td><strong>REST at <code>/api/v1</code>, from an OpenAPI contract</strong> (ADR §2 D6)</td>
+  <td>Every read and write in Milestone 1</td>
+  <td>GraphQL first, or REST and GraphQL together</td>
+  <td>It would mean two access-control surfaces to secure before the access layer is proven. GraphQL comes later, in Epic 23, for reads.</td>
+</tr>
+<tr>
+  <td>Tenant wall</td>
+  <td><strong>PostgreSQL row-level security, forced on every tenant table</strong> (I1)</td>
+  <td>Making a query that forgets the tenant return nothing</td>
+  <td>Filtering in application code only</td>
+  <td>One forgotten filter leaks data. The database check can't be forgotten.</td>
+</tr>
+<tr>
+  <td>Platform database accounts</td>
+  <td><strong>One narrow account per job, none able to skip the tenant wall</strong> (I3, ADR §2 D28)</td>
+  <td>Onboarding, group sync, relay, purge, migrations</td>
+  <td>One shared &quot;system&quot; account that skips the wall</td>
+  <td>One leaked password would read every tenant.</td>
+</tr>
+<tr>
+  <td>Backups</td>
+  <td><strong>A physical copy through a replication-only account</strong></td>
+  <td>Disaster recovery</td>
+  <td><code>pg_dump</code> with an account that skips the wall</td>
+  <td>That account could run any query across tenants.</td>
+</tr>
+<tr>
+  <td>From &quot;saved&quot; to &quot;workflow started&quot;</td>
+  <td><strong>A transactional <em>outbox</em>, then a relay</strong> (I6)</td>
+  <td>Making sure saved work always runs exactly once</td>
+  <td>Calling Temporal straight after saving</td>
+  <td>A crash between the two loses the work. A retry does it twice.</td>
+</tr>
+<tr>
+  <td>Workflow tenancy</td>
+  <td><strong>One Temporal namespace; the tenant travels in a checked header and in the workflow id</strong> (ADR §2 D22)</td>
+  <td>Keeping every workflow tied to one tenant</td>
+  <td>One namespace per tenant</td>
+  <td>Worker connections grow with every tenant, onboarding needs an admin step, and Temporal's storage is shared anyway.</td>
+</tr>
+<tr>
+  <td>Workflow tenancy</td>
+  <td>(same)</td>
+  <td></td>
+  <td>The tenant inside the workflow's input data</td>
+  <td>The caller shapes the input, so it can be forged.</td>
+</tr>
+<tr>
+  <td>Who may talk to Temporal</td>
+  <td><strong>Certificates (mTLS) plus our own Authorizer, which also checks the commands workers send</strong></td>
+  <td>Stopping forged starts and signals</td>
+  <td>Network rules only, Temporal's default token check, or checking API calls without the commands</td>
+  <td>A test proved a worker's certificate could create and signal workflows in another tenant through commands.</td>
+</tr>
+<tr>
+  <td>Duplicate starts</td>
+  <td><strong>&quot;Reject duplicate&quot; on a workflow id that is unique per outbox row</strong></td>
+  <td>No workflow runs twice</td>
+  <td>A request-id setting</td>
+  <td>Our version of the Temporal SDK doesn't expose it.</td>
+</tr>
+<tr>
+  <td>Message order</td>
+  <td><strong>First in, first out, per target, ordered by a number assigned under a lock</strong></td>
+  <td>&quot;Approve&quot; and &quot;cancel&quot; can't swap places</td>
+  <td>Unordered, or ordered by an id made before the lock</td>
+  <td>Both allow the swap.</td>
+</tr>
+<tr>
+  <td>Workflow data</td>
+  <td><strong>References only</strong> (record ids, not record contents)</td>
+  <td>Keeping tenant data out of Temporal's history</td>
+  <td>Full record data in history</td>
+  <td>Temporal's storage holds every tenant together and isn't encrypted in Milestone 1 (R1).</td>
+</tr>
+<tr>
+  <td>Database layout</td>
+  <td><strong>Shared tables for all tenants</strong>; the tenant id leads every index</td>
+  <td>Performance and simplicity</td>
+  <td>A separate database per tenant by default</td>
+  <td>Kept as an operator option for very large tenants, under the deployment decision D1 (ADR §1, G7).</td>
+</tr>
+<tr>
+  <td>Not in Milestone 1</td>
+  <td>Temporal Schedules, cron and reset; partitioned tables; tenant self-service in Keycloak</td>
+  <td>—</td>
+  <td>—</td>
+  <td>Each one adds a path we haven't secured yet. They come back with their own decision when needed (ADR Annex A.2, A.3, R3).</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>3. One request, end to end</h2>
+<p><strong>The story.</strong> Alice from tenant <em>Acme</em> logs in. She raises a ticket. That starts an approval workflow. Later her manager approves, which sends the workflow a <em>signal</em>.</p>
+<figure class="diagram"><svg id="mmd1" width="100%" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="max-width: 2119px; background-color: white;" viewBox="-50 -10 2119 773" role="graphics-document document" aria-roledescription="sequence"><g><rect x="1869" y="687" fill="#eaeaea" stroke="#666" width="150" height="65" name="W" rx="3" ry="3" class="actor actor-bottom"/><text x="1944" y="719.5" dominant-baseline="central" alignment-baseline="central" class="actor actor-box" style="text-anchor: middle; font-size: 16px; font-weight: 400;"><tspan x="1944" dy="0">Worker</tspan></text></g><g><rect x="1521" y="687" fill="#eaeaea" stroke="#666" width="150" height="65" name="T" rx="3" ry="3" class="actor actor-bottom"/><text x="1596" y="719.5" dominant-baseline="central" alignment-baseline="central" class="actor actor-box" style="text-anchor: middle; font-size: 16px; font-weight: 400;"><tspan x="1596" dy="0">Temporal</tspan></text></g><g><rect x="1164" y="687" fill="#eaeaea" stroke="#666" width="150" height="65" name="R" rx="3" ry="3" class="actor actor-bottom"/><text x="1239" y="719.5" dominant-baseline="central" alignment-baseline="central" class="actor actor-box" style="text-anchor: middle; font-size: 16px; font-weight: 400;"><tspan x="1239" dy="0">Outbox relay</tspan></text></g><g><rect x="944" y="687" fill="#eaeaea" stroke="#666" width="150" height="65" name="DB" rx="3" ry="3" class="actor actor-bottom"/><text x="1019" y="719.5" dominant-baseline="central" alignment-baseline="central" class="actor actor-box" style="text-anchor: middle; font-size: 16px; font-weight: 400;"><tspan x="1019" dy="0">PostgreSQL</tspan></text></g><g><rect x="527" y="687" fill="#eaeaea" stroke="#666" width="150" height="65" name="API" rx="3" ry="3" class="actor actor-bottom"/><text x="602" y="719.5" dominant-baseline="central" alignment-baseline="central" class="actor actor-box" style="text-anchor: middle; font-size: 16px; font-weight: 400;"><tspan x="602" dy="0">Core API</tspan></text></g><g><rect x="327" y="687" fill="#eaeaea" stroke="#666" width="150" height="65" name="K" rx="3" ry="3" class="actor actor-bottom"/><text x="402" y="719.5" dominant-baseline="central" alignment-baseline="central" class="actor actor-box" style="text-anchor: middle; font-size: 16px; font-weight: 400;"><tspan x="402" dy="0">Keycloak</tspan></text></g><g><rect x="0" y="687" fill="#eaeaea" stroke="#666" width="150" height="65" name="A" rx="3" ry="3" class="actor actor-bottom"/><text x="75" y="719.5" dominant-baseline="central" alignment-baseline="central" class="actor actor-box" style="text-anchor: middle; font-size: 16px; font-weight: 400;"><tspan x="75" dy="0">Alice (Acme)</tspan></text></g><g><line id="actor6" x1="1944" y1="65" x2="1944" y2="687" class="actor-line 200" stroke-width="0.5px" stroke="#999" name="W" data-et="life-line" data-id="W"/><g id="root-6" data-et="participant" data-type="participant" data-id="W"><rect x="1869" y="0" fill="#eaeaea" stroke="#666" width="150" height="65" name="W" rx="3" ry="3" class="actor actor-top"/><text x="1944" y="32.5" dominant-baseline="central" alignment-baseline="central" class="actor actor-box" style="text-anchor: middle; font-size: 16px; font-weight: 400;"><tspan x="1944" dy="0">Worker</tspan></text></g></g><g><line id="actor5" x1="1596" y1="65" x2="1596" y2="687" class="actor-line 200" stroke-width="0.5px" stroke="#999" name="T" data-et="life-line" data-id="T"/><g id="root-5" data-et="participant" data-type="participant" data-id="T"><rect x="1521" y="0" fill="#eaeaea" stroke="#666" width="150" height="65" name="T" rx="3" ry="3" class="actor actor-top"/><text x="1596" y="32.5" dominant-baseline="central" alignment-baseline="central" class="actor actor-box" style="text-anchor: middle; font-size: 16px; font-weight: 400;"><tspan x="1596" dy="0">Temporal</tspan></text></g></g><g><line id="actor4" x1="1239" y1="65" x2="1239" y2="687" class="actor-line 200" stroke-width="0.5px" stroke="#999" name="R" data-et="life-line" data-id="R"/><g id="root-4" data-et="participant" data-type="participant" data-id="R"><rect x="1164" y="0" fill="#eaeaea" stroke="#666" width="150" height="65" name="R" rx="3" ry="3" class="actor actor-top"/><text x="1239" y="32.5" dominant-baseline="central" alignment-baseline="central" class="actor actor-box" style="text-anchor: middle; font-size: 16px; font-weight: 400;"><tspan x="1239" dy="0">Outbox relay</tspan></text></g></g><g><line id="actor3" x1="1019" y1="65" x2="1019" y2="687" class="actor-line 200" stroke-width="0.5px" stroke="#999" name="DB" data-et="life-line" data-id="DB"/><g id="root-3" data-et="participant" data-type="participant" data-id="DB"><rect x="944" y="0" fill="#eaeaea" stroke="#666" width="150" height="65" name="DB" rx="3" ry="3" class="actor actor-top"/><text x="1019" y="32.5" dominant-baseline="central" alignment-baseline="central" class="actor actor-box" style="text-anchor: middle; font-size: 16px; font-weight: 400;"><tspan x="1019" dy="0">PostgreSQL</tspan></text></g></g><g><line id="actor2" x1="602" y1="65" x2="602" y2="687" class="actor-line 200" stroke-width="0.5px" stroke="#999" name="API" data-et="life-line" data-id="API"/><g id="root-2" data-et="participant" data-type="participant" data-id="API"><rect x="527" y="0" fill="#eaeaea" stroke="#666" width="150" height="65" name="API" rx="3" ry="3" class="actor actor-top"/><text x="602" y="32.5" dominant-baseline="central" alignment-baseline="central" class="actor actor-box" style="text-anchor: middle; font-size: 16px; font-weight: 400;"><tspan x="602" dy="0">Core API</tspan></text></g></g><g><line id="actor1" x1="402" y1="65" x2="402" y2="687" class="actor-line 200" stroke-width="0.5px" stroke="#999" name="K" data-et="life-line" data-id="K"/><g id="root-1" data-et="participant" data-type="participant" data-id="K"><rect x="327" y="0" fill="#eaeaea" stroke="#666" width="150" height="65" name="K" rx="3" ry="3" class="actor actor-top"/><text x="402" y="32.5" dominant-baseline="central" alignment-baseline="central" class="actor actor-box" style="text-anchor: middle; font-size: 16px; font-weight: 400;"><tspan x="402" dy="0">Keycloak</tspan></text></g></g><g><line id="actor0" x1="75" y1="65" x2="75" y2="687" class="actor-line 200" stroke-width="0.5px" stroke="#999" name="A" data-et="life-line" data-id="A"/><g id="root-0" data-et="participant" data-type="participant" data-id="A"><rect x="0" y="0" fill="#eaeaea" stroke="#666" width="150" height="65" name="A" rx="3" ry="3" class="actor actor-top"/><text x="75" y="32.5" dominant-baseline="central" alignment-baseline="central" class="actor actor-box" style="text-anchor: middle; font-size: 16px; font-weight: 400;"><tspan x="75" dy="0">Alice (Acme)</tspan></text></g></g><style>#mmd1{font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:18px;fill:#333;}@keyframes edge-animation-frame{from{stroke-dashoffset:0;}}@keyframes dash{to{stroke-dashoffset:0;}}#mmd1 .edge-animation-slow{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 50s linear infinite;stroke-linecap:round;}#mmd1 .edge-animation-fast{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 20s linear infinite;stroke-linecap:round;}#mmd1 .error-icon{fill:#552222;}#mmd1 .error-text{fill:#552222;stroke:#552222;}#mmd1 .edge-thickness-normal{stroke-width:1px;}#mmd1 .edge-thickness-thick{stroke-width:3.5px;}#mmd1 .edge-pattern-solid{stroke-dasharray:0;}#mmd1 .edge-thickness-invisible{stroke-width:0;fill:none;}#mmd1 .edge-pattern-dashed{stroke-dasharray:3;}#mmd1 .edge-pattern-dotted{stroke-dasharray:2;}#mmd1 .marker{fill:#333333;stroke:#333333;}#mmd1 .marker.cross{stroke:#333333;}#mmd1 svg{font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:18px;}#mmd1 p{margin:0;}#mmd1 .actor{stroke:#9370DB;fill:#ECECFF;stroke-width:1;}#mmd1 rect.actor.outer-path[data-look="neo"]{filter:drop-shadow(1px 2px 2px rgba(185, 185, 185, 1));}#mmd1 rect.note[data-look="neo"]{stroke:#aaaa33;fill:#fff5ad;filter:drop-shadow(1px 2px 2px rgba(185, 185, 185, 1));}#mmd1 text.actor&gt;tspan{fill:black;stroke:none;}#mmd1 .actor-line{stroke:#9370DB;}#mmd1 .innerArc{stroke-width:1.5;stroke-dasharray:none;}#mmd1 .messageLine0{stroke-width:1.5;stroke-dasharray:none;stroke:#333;}#mmd1 .messageLine1{stroke-width:1.5;stroke-dasharray:2,2;stroke:#333;}#mmd1 [id$="-arrowhead"] path{fill:#333;stroke:#333;}#mmd1 .sequenceNumber{fill:white;}#mmd1 [id$="-sequencenumber"]{fill:#333;}#mmd1 [id$="-crosshead"] path{fill:#333;stroke:#333;}#mmd1 .messageText{fill:#333;stroke:none;}#mmd1 .labelBox{stroke:#9370DB;fill:#ECECFF;filter:none;}#mmd1 .labelText,#mmd1 .labelText&gt;tspan{fill:black;stroke:none;}#mmd1 .loopText,#mmd1 .loopText&gt;tspan{fill:black;stroke:none;}#mmd1 .sectionTitle,#mmd1 .sectionTitle&gt;tspan{fill:black;stroke:none;}#mmd1 .loopLine{stroke-width:2px;stroke-dasharray:2,2;stroke:#9370DB;fill:#9370DB;}#mmd1 .note{stroke:#aaaa33;fill:#fff5ad;}#mmd1 .noteText,#mmd1 .noteText&gt;tspan{fill:black;stroke:none;font-weight:normal;}#mmd1 .activation0{fill:#f4f4f4;stroke:#666;}#mmd1 .activation1{fill:#f4f4f4;stroke:#666;}#mmd1 .activation2{fill:#f4f4f4;stroke:#666;}#mmd1 .actorPopupMenu{position:absolute;}#mmd1 .actorPopupMenuPanel{position:absolute;fill:#ECECFF;box-shadow:0px 8px 16px 0px rgba(0,0,0,0.2);filter:drop-shadow(3px 5px 2px rgb(0 0 0 / 0.4));}#mmd1 .actor-man circle,#mmd1 line{fill:#ECECFF;stroke-width:2px;}#mmd1 g rect.rect{filter:drop-shadow(1px 2px 2px rgba(185, 185, 185, 1));stroke:#9370DB;}#mmd1 .node .neo-node{stroke:#9370DB;}#mmd1 [data-look="neo"].node rect,#mmd1 [data-look="neo"].cluster rect,#mmd1 [data-look="neo"].node polygon{stroke:#9370DB;filter:drop-shadow(1px 2px 2px rgba(185, 185, 185, 1));}#mmd1 [data-look="neo"].node path{stroke:#9370DB;stroke-width:1px;}#mmd1 [data-look="neo"].node .outer-path{filter:drop-shadow(1px 2px 2px rgba(185, 185, 185, 1));}#mmd1 [data-look="neo"].node .neo-line path{stroke:#9370DB;filter:none;}#mmd1 [data-look="neo"].node circle{stroke:#9370DB;filter:drop-shadow(1px 2px 2px rgba(185, 185, 185, 1));}#mmd1 [data-look="neo"].node circle .state-start{fill:#000000;}#mmd1 [data-look="neo"].icon-shape .icon{fill:#9370DB;filter:drop-shadow(1px 2px 2px rgba(185, 185, 185, 1));}#mmd1 [data-look="neo"].icon-shape .icon-neo path{stroke:#9370DB;filter:drop-shadow(1px 2px 2px rgba(185, 185, 185, 1));}#mmd1 :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g/><defs><symbol id="mmd1-computer" width="24" height="24"><path transform="scale(.5)" d="M2 2v13h20v-13h-20zm18 11h-16v-9h16v9zm-10.228 6l.466-1h3.524l.467 1h-4.457zm14.228 3h-24l2-6h2.104l-1.33 4h18.45l-1.297-4h2.073l2 6zm-5-10h-14v-7h14v7z"/></symbol></defs><defs><symbol id="mmd1-database" fill-rule="evenodd" clip-rule="evenodd"><path transform="scale(.5)" d="M12.258.001l.256.004.255.005.253.008.251.01.249.012.247.015.246.016.242.019.241.02.239.023.236.024.233.027.231.028.229.031.225.032.223.034.22.036.217.038.214.04.211.041.208.043.205.045.201.046.198.048.194.05.191.051.187.053.183.054.18.056.175.057.172.059.168.06.163.061.16.063.155.064.15.066.074.033.073.033.071.034.07.034.069.035.068.035.067.035.066.035.064.036.064.036.062.036.06.036.06.037.058.037.058.037.055.038.055.038.053.038.052.038.051.039.05.039.048.039.047.039.045.04.044.04.043.04.041.04.04.041.039.041.037.041.036.041.034.041.033.042.032.042.03.042.029.042.027.042.026.043.024.043.023.043.021.043.02.043.018.044.017.043.015.044.013.044.012.044.011.045.009.044.007.045.006.045.004.045.002.045.001.045v17l-.001.045-.002.045-.004.045-.006.045-.007.045-.009.044-.011.045-.012.044-.013.044-.015.044-.017.043-.018.044-.02.043-.021.043-.023.043-.024.043-.026.043-.027.042-.029.042-.03.042-.032.042-.033.042-.034.041-.036.041-.037.041-.039.041-.04.041-.041.04-.043.04-.044.04-.045.04-.047.039-.048.039-.05.039-.051.039-.052.038-.053.038-.055.038-.055.038-.058.037-.058.037-.06.037-.06.036-.062.036-.064.036-.064.036-.066.035-.067.035-.068.035-.069.035-.07.034-.071.034-.073.033-.074.033-.15.066-.155.064-.16.063-.163.061-.168.06-.172.059-.175.057-.18.056-.183.054-.187.053-.191.051-.194.05-.198.048-.201.046-.205.045-.208.043-.211.041-.214.04-.217.038-.22.036-.223.034-.225.032-.229.031-.231.028-.233.027-.236.024-.239.023-.241.02-.242.019-.246.016-.247.015-.249.012-.251.01-.253.008-.255.005-.256.004-.258.001-.258-.001-.256-.004-.255-.005-.253-.008-.251-.01-.249-.012-.247-.015-.245-.016-.243-.019-.241-.02-.238-.023-.236-.024-.234-.027-.231-.028-.228-.031-.226-.032-.223-.034-.22-.036-.217-.038-.214-.04-.211-.041-.208-.043-.204-.045-.201-.046-.198-.048-.195-.05-.19-.051-.187-.053-.184-.054-.179-.056-.176-.057-.172-.059-.167-.06-.164-.061-.159-.063-.155-.064-.151-.066-.074-.033-.072-.033-.072-.034-.07-.034-.069-.035-.068-.035-.067-.035-.066-.035-.064-.036-.063-.036-.062-.036-.061-.036-.06-.037-.058-.037-.057-.037-.056-.038-.055-.038-.053-.038-.052-.038-.051-.039-.049-.039-.049-.039-.046-.039-.046-.04-.044-.04-.043-.04-.041-.04-.04-.041-.039-.041-.037-.041-.036-.041-.034-.041-.033-.042-.032-.042-.03-.042-.029-.042-.027-.042-.026-.043-.024-.043-.023-.043-.021-.043-.02-.043-.018-.044-.017-.043-.015-.044-.013-.044-.012-.044-.011-.045-.009-.044-.007-.045-.006-.045-.004-.045-.002-.045-.001-.045v-17l.001-.045.002-.045.004-.045.006-.045.007-.045.009-.044.011-.045.012-.044.013-.044.015-.044.017-.043.018-.044.02-.043.021-.043.023-.043.024-.043.026-.043.027-.042.029-.042.03-.042.032-.042.033-.042.034-.041.036-.041.037-.041.039-.041.04-.041.041-.04.043-.04.044-.04.046-.04.046-.039.049-.039.049-.039.051-.039.052-.038.053-.038.055-.038.056-.038.057-.037.058-.037.06-.037.061-.036.062-.036.063-.036.064-.036.066-.035.067-.035.068-.035.069-.035.07-.034.072-.034.072-.033.074-.033.151-.066.155-.064.159-.063.164-.061.167-.06.172-.059.176-.057.179-.056.184-.054.187-.053.19-.051.195-.05.198-.048.201-.046.204-.045.208-.043.211-.041.214-.04.217-.038.22-.036.223-.034.226-.032.228-.031.231-.028.234-.027.236-.024.238-.023.241-.02.243-.019.245-.016.247-.015.249-.012.251-.01.253-.008.255-.005.256-.004.258-.001.258.001zm-9.258 20.499v.01l.001.021.003.021.004.022.005.021.006.022.007.022.009.023.01.022.011.023.012.023.013.023.015.023.016.024.017.023.018.024.019.024.021.024.022.025.023.024.024.025.052.049.056.05.061.051.066.051.07.051.075.051.079.052.084.052.088.052.092.052.097.052.102.051.105.052.11.052.114.051.119.051.123.051.127.05.131.05.135.05.139.048.144.049.147.047.152.047.155.047.16.045.163.045.167.043.171.043.176.041.178.041.183.039.187.039.19.037.194.035.197.035.202.033.204.031.209.03.212.029.216.027.219.025.222.024.226.021.23.02.233.018.236.016.24.015.243.012.246.01.249.008.253.005.256.004.259.001.26-.001.257-.004.254-.005.25-.008.247-.011.244-.012.241-.014.237-.016.233-.018.231-.021.226-.021.224-.024.22-.026.216-.027.212-.028.21-.031.205-.031.202-.034.198-.034.194-.036.191-.037.187-.039.183-.04.179-.04.175-.042.172-.043.168-.044.163-.045.16-.046.155-.046.152-.047.148-.048.143-.049.139-.049.136-.05.131-.05.126-.05.123-.051.118-.052.114-.051.11-.052.106-.052.101-.052.096-.052.092-.052.088-.053.083-.051.079-.052.074-.052.07-.051.065-.051.06-.051.056-.05.051-.05.023-.024.023-.025.021-.024.02-.024.019-.024.018-.024.017-.024.015-.023.014-.024.013-.023.012-.023.01-.023.01-.022.008-.022.006-.022.006-.022.004-.022.004-.021.001-.021.001-.021v-4.127l-.077.055-.08.053-.083.054-.085.053-.087.052-.09.052-.093.051-.095.05-.097.05-.1.049-.102.049-.105.048-.106.047-.109.047-.111.046-.114.045-.115.045-.118.044-.12.043-.122.042-.124.042-.126.041-.128.04-.13.04-.132.038-.134.038-.135.037-.138.037-.139.035-.142.035-.143.034-.144.033-.147.032-.148.031-.15.03-.151.03-.153.029-.154.027-.156.027-.158.026-.159.025-.161.024-.162.023-.163.022-.165.021-.166.02-.167.019-.169.018-.169.017-.171.016-.173.015-.173.014-.175.013-.175.012-.177.011-.178.01-.179.008-.179.008-.181.006-.182.005-.182.004-.184.003-.184.002h-.37l-.184-.002-.184-.003-.182-.004-.182-.005-.181-.006-.179-.008-.179-.008-.178-.01-.176-.011-.176-.012-.175-.013-.173-.014-.172-.015-.171-.016-.17-.017-.169-.018-.167-.019-.166-.02-.165-.021-.163-.022-.162-.023-.161-.024-.159-.025-.157-.026-.156-.027-.155-.027-.153-.029-.151-.03-.15-.03-.148-.031-.146-.032-.145-.033-.143-.034-.141-.035-.14-.035-.137-.037-.136-.037-.134-.038-.132-.038-.13-.04-.128-.04-.126-.041-.124-.042-.122-.042-.12-.044-.117-.043-.116-.045-.113-.045-.112-.046-.109-.047-.106-.047-.105-.048-.102-.049-.1-.049-.097-.05-.095-.05-.093-.052-.09-.051-.087-.052-.085-.053-.083-.054-.08-.054-.077-.054v4.127zm0-5.654v.011l.001.021.003.021.004.021.005.022.006.022.007.022.009.022.01.022.011.023.012.023.013.023.015.024.016.023.017.024.018.024.019.024.021.024.022.024.023.025.024.024.052.05.056.05.061.05.066.051.07.051.075.052.079.051.084.052.088.052.092.052.097.052.102.052.105.052.11.051.114.051.119.052.123.05.127.051.131.05.135.049.139.049.144.048.147.048.152.047.155.046.16.045.163.045.167.044.171.042.176.042.178.04.183.04.187.038.19.037.194.036.197.034.202.033.204.032.209.03.212.028.216.027.219.025.222.024.226.022.23.02.233.018.236.016.24.014.243.012.246.01.249.008.253.006.256.003.259.001.26-.001.257-.003.254-.006.25-.008.247-.01.244-.012.241-.015.237-.016.233-.018.231-.02.226-.022.224-.024.22-.025.216-.027.212-.029.21-.03.205-.032.202-.033.198-.035.194-.036.191-.037.187-.039.183-.039.179-.041.175-.042.172-.043.168-.044.163-.045.16-.045.155-.047.152-.047.148-.048.143-.048.139-.05.136-.049.131-.05.126-.051.123-.051.118-.051.114-.052.11-.052.106-.052.101-.052.096-.052.092-.052.088-.052.083-.052.079-.052.074-.051.07-.052.065-.051.06-.05.056-.051.051-.049.023-.025.023-.024.021-.025.02-.024.019-.024.018-.024.017-.024.015-.023.014-.023.013-.024.012-.022.01-.023.01-.023.008-.022.006-.022.006-.022.004-.021.004-.022.001-.021.001-.021v-4.139l-.077.054-.08.054-.083.054-.085.052-.087.053-.09.051-.093.051-.095.051-.097.05-.1.049-.102.049-.105.048-.106.047-.109.047-.111.046-.114.045-.115.044-.118.044-.12.044-.122.042-.124.042-.126.041-.128.04-.13.039-.132.039-.134.038-.135.037-.138.036-.139.036-.142.035-.143.033-.144.033-.147.033-.148.031-.15.03-.151.03-.153.028-.154.028-.156.027-.158.026-.159.025-.161.024-.162.023-.163.022-.165.021-.166.02-.167.019-.169.018-.169.017-.171.016-.173.015-.173.014-.175.013-.175.012-.177.011-.178.009-.179.009-.179.007-.181.007-.182.005-.182.004-.184.003-.184.002h-.37l-.184-.002-.184-.003-.182-.004-.182-.005-.181-.007-.179-.007-.179-.009-.178-.009-.176-.011-.176-.012-.175-.013-.173-.014-.172-.015-.171-.016-.17-.017-.169-.018-.167-.019-.166-.02-.165-.021-.163-.022-.162-.023-.161-.024-.159-.025-.157-.026-.156-.027-.155-.028-.153-.028-.151-.03-.15-.03-.148-.031-.146-.033-.145-.033-.143-.033-.141-.035-.14-.036-.137-.036-.136-.037-.134-.038-.132-.039-.13-.039-.128-.04-.126-.041-.124-.042-.122-.043-.12-.043-.117-.044-.116-.044-.113-.046-.112-.046-.109-.046-.106-.047-.105-.048-.102-.049-.1-.049-.097-.05-.095-.051-.093-.051-.09-.051-.087-.053-.085-.052-.083-.054-.08-.054-.077-.054v4.139zm0-5.666v.011l.001.02.003.022.004.021.005.022.006.021.007.022.009.023.01.022.011.023.012.023.013.023.015.023.016.024.017.024.018.023.019.024.021.025.022.024.023.024.024.025.052.05.056.05.061.05.066.051.07.051.075.052.079.051.084.052.088.052.092.052.097.052.102.052.105.051.11.052.114.051.119.051.123.051.127.05.131.05.135.05.139.049.144.048.147.048.152.047.155.046.16.045.163.045.167.043.171.043.176.042.178.04.183.04.187.038.19.037.194.036.197.034.202.033.204.032.209.03.212.028.216.027.219.025.222.024.226.021.23.02.233.018.236.017.24.014.243.012.246.01.249.008.253.006.256.003.259.001.26-.001.257-.003.254-.006.25-.008.247-.01.244-.013.241-.014.237-.016.233-.018.231-.02.226-.022.224-.024.22-.025.216-.027.212-.029.21-.03.205-.032.202-.033.198-.035.194-.036.191-.037.187-.039.183-.039.179-.041.175-.042.172-.043.168-.044.163-.045.16-.045.155-.047.152-.047.148-.048.143-.049.139-.049.136-.049.131-.051.126-.05.123-.051.118-.052.114-.051.11-.052.106-.052.101-.052.096-.052.092-.052.088-.052.083-.052.079-.052.074-.052.07-.051.065-.051.06-.051.056-.05.051-.049.023-.025.023-.025.021-.024.02-.024.019-.024.018-.024.017-.024.015-.023.014-.024.013-.023.012-.023.01-.022.01-.023.008-.022.006-.022.006-.022.004-.022.004-.021.001-.021.001-.021v-4.153l-.077.054-.08.054-.083.053-.085.053-.087.053-.09.051-.093.051-.095.051-.097.05-.1.049-.102.048-.105.048-.106.048-.109.046-.111.046-.114.046-.115.044-.118.044-.12.043-.122.043-.124.042-.126.041-.128.04-.13.039-.132.039-.134.038-.135.037-.138.036-.139.036-.142.034-.143.034-.144.033-.147.032-.148.032-.15.03-.151.03-.153.028-.154.028-.156.027-.158.026-.159.024-.161.024-.162.023-.163.023-.165.021-.166.02-.167.019-.169.018-.169.017-.171.016-.173.015-.173.014-.175.013-.175.012-.177.01-.178.01-.179.009-.179.007-.181.006-.182.006-.182.004-.184.003-.184.001-.185.001-.185-.001-.184-.001-.184-.003-.182-.004-.182-.006-.181-.006-.179-.007-.179-.009-.178-.01-.176-.01-.176-.012-.175-.013-.173-.014-.172-.015-.171-.016-.17-.017-.169-.018-.167-.019-.166-.02-.165-.021-.163-.023-.162-.023-.161-.024-.159-.024-.157-.026-.156-.027-.155-.028-.153-.028-.151-.03-.15-.03-.148-.032-.146-.032-.145-.033-.143-.034-.141-.034-.14-.036-.137-.036-.136-.037-.134-.038-.132-.039-.13-.039-.128-.041-.126-.041-.124-.041-.122-.043-.12-.043-.117-.044-.116-.044-.113-.046-.112-.046-.109-.046-.106-.048-.105-.048-.102-.048-.1-.05-.097-.049-.095-.051-.093-.051-.09-.052-.087-.052-.085-.053-.083-.053-.08-.054-.077-.054v4.153zm8.74-8.179l-.257.004-.254.005-.25.008-.247.011-.244.012-.241.014-.237.016-.233.018-.231.021-.226.022-.224.023-.22.026-.216.027-.212.028-.21.031-.205.032-.202.033-.198.034-.194.036-.191.038-.187.038-.183.04-.179.041-.175.042-.172.043-.168.043-.163.045-.16.046-.155.046-.152.048-.148.048-.143.048-.139.049-.136.05-.131.05-.126.051-.123.051-.118.051-.114.052-.11.052-.106.052-.101.052-.096.052-.092.052-.088.052-.083.052-.079.052-.074.051-.07.052-.065.051-.06.05-.056.05-.051.05-.023.025-.023.024-.021.024-.02.025-.019.024-.018.024-.017.023-.015.024-.014.023-.013.023-.012.023-.01.023-.01.022-.008.022-.006.023-.006.021-.004.022-.004.021-.001.021-.001.021.001.021.001.021.004.021.004.022.006.021.006.023.008.022.01.022.01.023.012.023.013.023.014.023.015.024.017.023.018.024.019.024.02.025.021.024.023.024.023.025.051.05.056.05.06.05.065.051.07.052.074.051.079.052.083.052.088.052.092.052.096.052.101.052.106.052.11.052.114.052.118.051.123.051.126.051.131.05.136.05.139.049.143.048.148.048.152.048.155.046.16.046.163.045.168.043.172.043.175.042.179.041.183.04.187.038.191.038.194.036.198.034.202.033.205.032.21.031.212.028.216.027.22.026.224.023.226.022.231.021.233.018.237.016.241.014.244.012.247.011.25.008.254.005.257.004.26.001.26-.001.257-.004.254-.005.25-.008.247-.011.244-.012.241-.014.237-.016.233-.018.231-.021.226-.022.224-.023.22-.026.216-.027.212-.028.21-.031.205-.032.202-.033.198-.034.194-.036.191-.038.187-.038.183-.04.179-.041.175-.042.172-.043.168-.043.163-.045.16-.046.155-.046.152-.048.148-.048.143-.048.139-.049.136-.05.131-.05.126-.051.123-.051.118-.051.114-.052.11-.052.106-.052.101-.052.096-.052.092-.052.088-.052.083-.052.079-.052.074-.051.07-.052.065-.051.06-.05.056-.05.051-.05.023-.025.023-.024.021-.024.02-.025.019-.024.018-.024.017-.023.015-.024.014-.023.013-.023.012-.023.01-.023.01-.022.008-.022.006-.023.006-.021.004-.022.004-.021.001-.021.001-.021-.001-.021-.001-.021-.004-.021-.004-.022-.006-.021-.006-.023-.008-.022-.01-.022-.01-.023-.012-.023-.013-.023-.014-.023-.015-.024-.017-.023-.018-.024-.019-.024-.02-.025-.021-.024-.023-.024-.023-.025-.051-.05-.056-.05-.06-.05-.065-.051-.07-.052-.074-.051-.079-.052-.083-.052-.088-.052-.092-.052-.096-.052-.101-.052-.106-.052-.11-.052-.114-.052-.118-.051-.123-.051-.126-.051-.131-.05-.136-.05-.139-.049-.143-.048-.148-.048-.152-.048-.155-.046-.16-.046-.163-.045-.168-.043-.172-.043-.175-.042-.179-.041-.183-.04-.187-.038-.191-.038-.194-.036-.198-.034-.202-.033-.205-.032-.21-.031-.212-.028-.216-.027-.22-.026-.224-.023-.226-.022-.231-.021-.233-.018-.237-.016-.241-.014-.244-.012-.247-.011-.25-.008-.254-.005-.257-.004-.26-.001-.26.001z"/></symbol></defs><defs><symbol id="mmd1-clock" width="24" height="24"><path transform="scale(.5)" d="M12 2c5.514 0 10 4.486 10 10s-4.486 10-10 10-10-4.486-10-10 4.486-10 10-10zm0-2c-6.627 0-12 5.373-12 12s5.373 12 12 12 12-5.373 12-12-5.373-12-12-12zm5.848 12.459c.202.038.202.333.001.372-1.907.361-6.045 1.111-6.547 1.111-.719 0-1.301-.582-1.301-1.301 0-.512.77-5.447 1.125-7.445.034-.192.312-.181.343.014l.985 6.238 5.394 1.011z"/></symbol></defs><defs><marker id="mmd1-arrowhead" refX="7.9" refY="5" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto-start-reverse"><path d="M -1 0 L 10 5 L 0 10 z"/></marker></defs><defs><marker id="mmd1-crosshead" markerWidth="15" markerHeight="8" orient="auto" refX="4" refY="4.5"><path fill="none" stroke="#000000" stroke-width="1pt" d="M 1,2 L 6,7 M 6,2 L 1,7" style="stroke-dasharray: 0, 0;"/></marker></defs><defs><marker id="mmd1-filled-head" refX="15.5" refY="7" markerWidth="20" markerHeight="28" orient="auto"><path d="M 18,7 L9,13 L14,7 L9,1 Z"/></marker></defs><defs><marker id="mmd1-sequencenumber" refX="15" refY="15" markerWidth="60" markerHeight="40" orient="auto"><circle cx="15" cy="15" r="6"/></marker></defs><defs><marker id="mmd1-solidTopArrowHead" refX="7.9" refY="7.25" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto-start-reverse"><path d="M 0 0 L 10 8 L 0 8 z"/></marker></defs><defs><marker id="mmd1-solidBottomArrowHead" refX="7.9" refY="0.75" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto-start-reverse"><path d="M 0 0 L 10 0 L 0 8 z"/></marker></defs><defs><marker id="mmd1-stickTopArrowHead" refX="7.5" refY="7" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto-start-reverse"><path d="M 0 0 L 7 7" stroke="black" stroke-width="1.5" fill="none"/></marker></defs><defs><marker id="mmd1-stickBottomArrowHead" refX="7.5" refY="0" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto-start-reverse"><path d="M 0 7 L 7 0" stroke="black" stroke-width="1.5" fill="none"/></marker></defs><text x="237" y="80" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="messageText" dy="1em" style="font-size: 16px; font-weight: 400;">log in (password or company login)</text><line x1="82" y1="109" x2="398" y2="109" class="messageLine0" data-et="message" data-id="i1" data-from="A" data-to="K" stroke-width="2" stroke="none" marker-end="url(#mmd1-arrowhead)" style="fill: none;"/><line x1="75" y1="109" x2="75" y2="109" stroke-width="0" marker-start="url(#mmd1-sequencenumber)"/><text x="75" y="113" font-family="sans-serif" font-size="12px" text-anchor="middle" class="sequenceNumber">1</text><text x="240" y="124" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="messageText" dy="1em" style="font-size: 16px; font-weight: 400;">access token naming organization Acme</text><line x1="407" y1="153" x2="79" y2="153" class="messageLine1" data-et="message" data-id="i2" data-from="K" data-to="A" stroke-width="2" stroke="none" marker-end="url(#mmd1-arrowhead)" style="stroke-dasharray: 3, 3; fill: none;"/><line x1="402" y1="153" x2="402" y2="153" stroke-width="0" marker-start="url(#mmd1-sequencenumber)"/><text x="402" y="157" font-family="sans-serif" font-size="12px" text-anchor="middle" class="sequenceNumber">2</text><text x="337" y="168" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="messageText" dy="1em" style="font-size: 16px; font-weight: 400;">create ticket, token attached</text><line x1="82" y1="197" x2="598" y2="197" class="messageLine0" data-et="message" data-id="i3" data-from="A" data-to="API" stroke-width="2" stroke="none" marker-end="url(#mmd1-arrowhead)" style="fill: none;"/><line x1="75" y1="197" x2="75" y2="197" stroke-width="0" marker-start="url(#mmd1-sequencenumber)"/><text x="75" y="201" font-family="sans-serif" font-size="12px" text-anchor="middle" class="sequenceNumber">3</text><text x="603" y="212" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="messageText" dy="1em" style="font-size: 16px; font-weight: 400;">check token and look up tenant Acme</text><path d="M 603,241 C 663,231 663,271 603,261" class="messageLine0" data-et="message" data-id="i4" data-from="API" data-to="API" stroke-width="2" stroke="none" marker-end="url(#mmd1-arrowhead)" x1="609" style="fill: none;"/><line x1="602" y1="241" x2="602" y2="241" stroke-width="0" marker-start="url(#mmd1-sequencenumber)"/><text x="602" y="245" font-family="sans-serif" font-size="12px" text-anchor="middle" class="sequenceNumber">4</text><text x="809" y="286" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="messageText" dy="1em" style="font-size: 16px; font-weight: 400;">save ticket, audit and outbox row in one transaction</text><line x1="609" y1="315" x2="1015" y2="315" class="messageLine0" data-et="message" data-id="i5" data-from="API" data-to="DB" stroke-width="2" stroke="none" marker-end="url(#mmd1-arrowhead)" style="fill: none;"/><line x1="602" y1="315" x2="602" y2="315" stroke-width="0" marker-start="url(#mmd1-sequencenumber)"/><text x="602" y="319" font-family="sans-serif" font-size="12px" text-anchor="middle" class="sequenceNumber">5</text><text x="1131" y="330" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="messageText" dy="1em" style="font-size: 16px; font-weight: 400;">pick up the outbox row</text><line x1="1244" y1="359" x2="1023" y2="359" class="messageLine0" data-et="message" data-id="i6" data-from="R" data-to="DB" stroke-width="2" stroke="none" marker-end="url(#mmd1-arrowhead)" style="fill: none;"/><line x1="1239" y1="359" x2="1239" y2="359" stroke-width="0" marker-start="url(#mmd1-sequencenumber)"/><text x="1239" y="363" font-family="sans-serif" font-size="12px" text-anchor="middle" class="sequenceNumber">6</text><text x="1416" y="374" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="messageText" dy="1em" style="font-size: 16px; font-weight: 400;">start workflow t:Acme:approval, over mTLS</text><line x1="1246" y1="403" x2="1592" y2="403" class="messageLine0" data-et="message" data-id="i7" data-from="R" data-to="T" stroke-width="2" stroke="none" marker-end="url(#mmd1-arrowhead)" style="fill: none;"/><line x1="1239" y1="403" x2="1239" y2="403" stroke-width="0" marker-start="url(#mmd1-sequencenumber)"/><text x="1239" y="407" font-family="sans-serif" font-size="12px" text-anchor="middle" class="sequenceNumber">7</text><text x="1769" y="418" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="messageText" dy="1em" style="font-size: 16px; font-weight: 400;">run the workflow</text><line x1="1603" y1="447" x2="1940" y2="447" class="messageLine0" data-et="message" data-id="i8" data-from="T" data-to="W" stroke-width="2" stroke="none" marker-end="url(#mmd1-arrowhead)" style="fill: none;"/><line x1="1596" y1="447" x2="1596" y2="447" stroke-width="0" marker-start="url(#mmd1-sequencenumber)"/><text x="1596" y="451" font-family="sans-serif" font-size="12px" text-anchor="middle" class="sequenceNumber">8</text><text x="1483" y="462" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="messageText" dy="1em" style="font-size: 16px; font-weight: 400;">each step works as tenant Acme only</text><line x1="1949" y1="491" x2="1023" y2="491" class="messageLine0" data-et="message" data-id="i9" data-from="W" data-to="DB" stroke-width="2" stroke="none" marker-end="url(#mmd1-arrowhead)" style="fill: none;"/><line x1="1944" y1="491" x2="1944" y2="491" stroke-width="0" marker-start="url(#mmd1-sequencenumber)"/><text x="1944" y="495" font-family="sans-serif" font-size="12px" text-anchor="middle" class="sequenceNumber">9</text><text x="337" y="506" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="messageText" dy="1em" style="font-size: 16px; font-weight: 400;">manager approves (same login checks)</text><line x1="82" y1="535" x2="598" y2="535" class="messageLine0" data-et="message" data-id="i10" data-from="A" data-to="API" stroke-width="2" stroke="none" marker-end="url(#mmd1-arrowhead)" style="fill: none;"/><line x1="75" y1="535" x2="75" y2="535" stroke-width="0" marker-start="url(#mmd1-sequencenumber)"/><text x="75" y="539" font-family="sans-serif" font-size="12px" text-anchor="middle" class="sequenceNumber">10</text><text x="809" y="550" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="messageText" dy="1em" style="font-size: 16px; font-weight: 400;">save approval and a signal row for the same workflow</text><line x1="609" y1="579" x2="1015" y2="579" class="messageLine0" data-et="message" data-id="i11" data-from="API" data-to="DB" stroke-width="2" stroke="none" marker-end="url(#mmd1-arrowhead)" style="fill: none;"/><line x1="602" y1="579" x2="602" y2="579" stroke-width="0" marker-start="url(#mmd1-sequencenumber)"/><text x="602" y="583" font-family="sans-serif" font-size="12px" text-anchor="middle" class="sequenceNumber">11</text><text x="1416" y="594" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="messageText" dy="1em" style="font-size: 16px; font-weight: 400;">deliver the signal, in order, after the start</text><line x1="1246" y1="623" x2="1592" y2="623" class="messageLine0" data-et="message" data-id="i12" data-from="R" data-to="T" stroke-width="2" stroke="none" marker-end="url(#mmd1-arrowhead)" style="fill: none;"/><line x1="1239" y1="623" x2="1239" y2="623" stroke-width="0" marker-start="url(#mmd1-sequencenumber)"/><text x="1239" y="627" font-family="sans-serif" font-size="12px" text-anchor="middle" class="sequenceNumber">12</text><text x="1769" y="638" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="messageText" dy="1em" style="font-size: 16px; font-weight: 400;">workflow receives the signal and continues</text><line x1="1603" y1="667" x2="1940" y2="667" class="messageLine0" data-et="message" data-id="i13" data-from="T" data-to="W" stroke-width="2" stroke="none" marker-end="url(#mmd1-arrowhead)" style="fill: none;"/><line x1="1596" y1="667" x2="1596" y2="667" stroke-width="0" marker-start="url(#mmd1-sequencenumber)"/><text x="1596" y="671" font-family="sans-serif" font-size="12px" text-anchor="middle" class="sequenceNumber">13</text></svg></figure>
+<p><strong>Where tenant isolation is enforced, step by step:</strong></p>
+<ol>
+<li><p><strong>Logging in.</strong> Keycloak is version 26.1.3 or later, which fixes the &quot;pick another organization&quot; bug. If Alice uses her company login, it can only create a new Acme user. It can never take over an existing account. <em>(ADR §2 D26, Annex A.1)</em></p>
+</li>
+<li><p><strong>The token.</strong> The API checks:</p>
+<ul>
+<li>the signature, and that the token came from our Keycloak;</li>
+<li>that it is not expired, and is meant for this API;</li>
+<li>that it names <strong>exactly one</strong> organization.</li>
+</ul>
+<p>It then asks the <em>identity port</em> (<code>IdentityResolver</code>) for the tenant. That looks the tenant up in our own table, using the organization's fixed id. If Alice signed in through a company login, that login must belong to Acme. Any doubt means <em>401, not logged in</em>. <em>(Annex A.1)</em></p>
+</li>
+<li><p><strong>The database.</strong> The API tells the database &quot;this transaction is for Acme&quot;. That setting lasts for this one transaction only, so the shared connection pool can't carry it over. <em>Row-level security</em> then hides every non-Acme row, even if our code has a bug. <em>(I1, I3)</em></p>
+</li>
+<li><p><strong>What Alice may see.</strong> Acme's own rules (for example &quot;requesters see their own tickets&quot;) are turned into the database query itself, so counts and pages are correct. Hidden fields are removed. A record that belongs to another tenant, one Alice may not read, and one that doesn't exist all give the same &quot;not found&quot;. <em>(I5)</em></p>
+</li>
+<li><p><strong>Saving.</strong> The ticket, its audit entry and an <em>outbox</em> row (&quot;start the approval workflow&quot;) are saved together, or not at all. The outbox row carries the tenant that the token proved. <em>(I4, I6)</em></p>
+</li>
+<li><p><strong>Starting the workflow.</strong> The relay builds the workflow id from the outbox row's tenant, for example <code>t:Acme:approval:…</code>. It connects to Temporal with its own certificate. Temporal's <em>Authorizer</em> lets the relay start and signal workflows, and nothing else. Starting the same row twice is rejected, so the workflow runs once. <em>(Annex A.2, I7)</em></p>
+</li>
+<li><p><strong>Running the workflow.</strong> The tenant travels with the workflow in a checked header. If the header is missing or doesn't match the id, the workflow stops. Each step tells the database &quot;this is Acme&quot;, so row-level security applies again. If the workflow tries to start, signal or cancel a workflow belonging to another tenant, our worker code refuses. Temporal's Authorizer also refuses, even if a worker were compromised. <em>(Annex A.2)</em></p>
+</li>
+<li><p><strong>The signal.</strong> The manager's approval goes through the same login and database checks. The target workflow is found from our own table under row-level security, never from anything the browser sends. Signals to one workflow are delivered in order, never before the start. A signal claiming the wrong tenant is dropped and raises an alert. It never stops the workflow that received it. A repeated signal is applied only once. <em>(Annex A.2)</em></p>
+</li>
+</ol>
+<hr />
+<h2>4. The invariants (the ground rules)</h2>
+<p>These are the nine rules every later design must keep. Changing one needs a new ADR that you sign. <em>(ADR §1)</em></p>
+<table>
+<thead>
+<tr>
+  <th>#</th>
+  <th>Rule, in plain words</th>
+  <th>What it means in practice</th>
+  <th>What goes wrong without it</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td><strong>I1</strong></td>
+  <td>The database itself keeps tenants apart</td>
+  <td>Every tenant table has row-level security switched on and forced. Any exception is on a short named list.</td>
+  <td>One missing filter in code shows Acme's tickets to another tenant.</td>
+</tr>
+<tr>
+  <td><strong>I2</strong></td>
+  <td>We only trust the tenant from a source we verified</td>
+  <td>The tenant comes from a checked login or from a row we saved. Never from a form field, workflow input or message.</td>
+  <td>Anyone could type another tenant's id and act as them.</td>
+</tr>
+<tr>
+  <td><strong>I3</strong></td>
+  <td>Every platform account has the least power possible</td>
+  <td>No account can skip row-level security, own tables, or inherit power from another account. Every permission is written in one list. CI checks it.</td>
+  <td>A single leaked password, or a hidden inherited permission, opens every tenant.</td>
+</tr>
+<tr>
+  <td><strong>I4</strong></td>
+  <td>All saves go through one pipeline, and stale saves are refused</td>
+  <td>Checks, defaults, validation and audit run the same way for everyone. Saving an out-of-date copy gives a clear conflict error.</td>
+  <td>Two people edit one ticket and the second silently wipes the first. Rules get skipped by a &quot;side door&quot;.</td>
+</tr>
+<tr>
+  <td><strong>I5</strong></td>
+  <td>One access layer, applied inside the database query</td>
+  <td>Access rules become part of the query. Lists, counts and exports are always correct.</td>
+  <td>Lists show the wrong totals, or reveal records you can't open.</td>
+</tr>
+<tr>
+  <td><strong>I6</strong></td>
+  <td>Long-running work runs in Temporal, and only through the outbox</td>
+  <td>Work that waits or retries is a workflow. It starts only from a row saved together with the change that caused it.</td>
+  <td>A crash loses approvals and SLA timers. Workflow logic behaves differently on replay.</td>
+</tr>
+<tr>
+  <td><strong>I7</strong></td>
+  <td>Every action is safe to repeat</td>
+  <td>Retries and redeliveries never act twice. That covers writes, emails, starts and signals.</td>
+  <td>Double emails, double approvals, double charges.</td>
+</tr>
+<tr>
+  <td><strong>I8</strong></td>
+  <td>Contracts are the boundary. Configuration, not code. AI only advises</td>
+  <td>Customer code, plugins and AI reach data only through our API or SDK. Tenant changes never alter the database structure, except operator-approved indexes. AI acts only above a confidence threshold, and its decisions are recorded.</td>
+  <td>Customer code touches the database directly. A tenant change needs a platform release. AI changes data unchecked.</td>
+</tr>
+<tr>
+  <td><strong>I9</strong></td>
+  <td>Chains of automatic actions have a limit</td>
+  <td>Each automatic write records what caused it and how deep the chain is. Past a limit, or in a loop, it stops with an error.</td>
+  <td>One rule triggers another forever, burning capacity for every tenant.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>5. The risks you accepted</h2>
+<p>ADR-001 lists six residual risks, R1, R2, R3, R7, R8 and R9, and you accepted them on 2026-10-15 <em>(ADR §5)</em>. R4, R5 and R6 were tracked during the design debate (archived RFC-001 §6). They are shown here for completeness, but they are <strong>not</strong> part of what you sign.</p>
+<table>
+<thead>
+<tr>
+  <th>#</th>
+  <th>The risk, in plain words</th>
+  <th>What could happen</th>
+  <th>How it's limited</th>
+  <th>Accepted by you?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td><strong>R1</strong></td>
+  <td>Temporal's history stores workflows from all tenants together, unencrypted</td>
+  <td>Someone who gets into Temporal's database sees workflow history for every tenant</td>
+  <td>Histories hold only ids, not record contents. Temporal has its own database, certificates and an operator-only UI. Encryption comes when a regulated tenant arrives or the key-holding decision (TICK-41) is made.</td>
+  <td>Yes</td>
+</tr>
+<tr>
+  <td><strong>R2</strong></td>
+  <td>Two accounts can see everything: the migration account and the backup copy</td>
+  <td>A stolen migration password or backup file exposes every tenant</td>
+  <td>Migrations run only as a one-off job. The backup account can't run queries. Backup files get the same protection as the live database.</td>
+  <td>Yes</td>
+</tr>
+<tr>
+  <td><strong>R3</strong></td>
+  <td>Tenants can't manage their own Keycloak users in Milestone 1</td>
+  <td>Tenant admins depend on our API for user and group changes</td>
+  <td>It is deliberate: it stops tenant admins creating forged logins. Revisited when the admin console (Epic 26) is scoped.</td>
+  <td>Yes</td>
+</tr>
+<tr>
+  <td>R4</td>
+  <td>A person in two tenants must pick one when logging in</td>
+  <td>Small inconvenience</td>
+  <td>A login option to choose the organization, proven to work</td>
+  <td>No (closed)</td>
+</tr>
+<tr>
+  <td>R5</td>
+  <td>One Temporal namespace means one history-retention setting and one rate limit for everyone</td>
+  <td>A very busy tenant could slow others</td>
+  <td>Fair, per-tenant pickup by the relay. Per-tenant limits on workers.</td>
+  <td>No (tracked)</td>
+</tr>
+<tr>
+  <td>R6</td>
+  <td>The deployment model (shared, on-premise, or both) is still open (D1)</td>
+  <td>Some details may change</td>
+  <td>The design works in both models</td>
+  <td>No (tracked)</td>
+</tr>
+<tr>
+  <td><strong>R7</strong></td>
+  <td>We run our own build of the Temporal server</td>
+  <td>Extra upkeep at every Temporal upgrade</td>
+  <td>The addition is small (the Authorizer), kept in its own code module, pinned to a version, and tested in CI</td>
+  <td>Yes</td>
+</tr>
+<tr>
+  <td><strong>R8</strong></td>
+  <td>A stolen relay, core or worker certificate can act for any tenant. A worker sees every tenant's tasks.</td>
+  <td>An attacker on a worker machine could read and write any tenant's data</td>
+  <td>Separate certificates per role. Tenant checks at every step. Temporal blocks cross-tenant commands. Closing it fully needs a worker pool per tenant: a later cost decision.</td>
+  <td>Yes</td>
+</tr>
+<tr>
+  <td><strong>R9</strong></td>
+  <td>A stuck message for one workflow holds up later messages to that same workflow</td>
+  <td>One ticket's workflow waits longer</td>
+  <td>Only that workflow waits. &quot;Not found&quot; ends a stuck message at once, and dead messages raise an alert.</td>
+  <td>Yes</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>6. Glossary</h2>
+<table>
+<thead>
+<tr>
+  <th>Term</th>
+  <th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td><strong>Tenant</strong></td>
+  <td>One customer organisation using the shared platform.</td>
+</tr>
+<tr>
+  <td><strong>Multi-tenant</strong></td>
+  <td>Many tenants share the same software and database, kept apart by rules.</td>
+</tr>
+<tr>
+  <td><strong>Invariant</strong></td>
+  <td>A rule that must always hold. Later designs can't break it without a new signed ADR.</td>
+</tr>
+<tr>
+  <td><strong>ADR / RFC</strong></td>
+  <td>An <em>Architecture Decision Record</em> (the decision) and a <em>Request for Comments</em> (the proposal and its debate).</td>
+</tr>
+<tr>
+  <td><strong>Spike</strong></td>
+  <td>A short experiment that settles a factual question by actually running the software.</td>
+</tr>
+<tr>
+  <td><strong>Residual risk</strong></td>
+  <td>A risk we knowingly accept, with an owner and a trigger to revisit it.</td>
+</tr>
+<tr>
+  <td><strong>M1 / Epic</strong></td>
+  <td>Milestone 1 (Epics 01–09, shown through the API). An epic is one deliverable chunk of work.</td>
+</tr>
+<tr>
+  <td><strong>CI</strong></td>
+  <td>Automated tests that run on every change. ADR Annex B lists the ones this ADR requires.</td>
+</tr>
+<tr>
+  <td><strong>RLS (row-level security)</strong></td>
+  <td>A PostgreSQL feature: the database adds a hidden &quot;only this tenant's rows&quot; filter to every query.</td>
+</tr>
+<tr>
+  <td><strong>FORCE RLS</strong></td>
+  <td>Applies row-level security even to the table's owner.</td>
+</tr>
+<tr>
+  <td><strong>BYPASSRLS</strong></td>
+  <td>A database permission that skips row-level security. No platform service has it.</td>
+</tr>
+<tr>
+  <td><strong>Database role</strong></td>
+  <td>A database account with its own permissions.</td>
+</tr>
+<tr>
+  <td><strong>Superuser</strong></td>
+  <td>An all-powerful database account. Used only once, at setup.</td>
+</tr>
+<tr>
+  <td><strong>PUBLIC</strong></td>
+  <td>PostgreSQL's &quot;everyone&quot; group. We remove all its permissions.</td>
+</tr>
+<tr>
+  <td><strong>Grant manifest</strong></td>
+  <td>One file listing every permission every account has. CI checks the live database against it.</td>
+</tr>
+<tr>
+  <td><strong>Migration</strong></td>
+  <td>A controlled change to the database structure (<em>DDL</em>), run by a one-off job.</td>
+</tr>
+<tr>
+  <td><strong>DDL</strong></td>
+  <td>Statements that change the database structure, such as creating a table or an index.</td>
+</tr>
+<tr>
+  <td><strong>PgBouncer</strong></td>
+  <td>A connection pool that lets many requests share few database connections.</td>
+</tr>
+<tr>
+  <td><strong>Transaction</strong></td>
+  <td>A group of database changes that succeed or fail together.</td>
+</tr>
+<tr>
+  <td><strong>Outbox</strong></td>
+  <td>A table of &quot;work to do&quot; rows saved in the same transaction as the change that caused them.</td>
+</tr>
+<tr>
+  <td><strong>Relay</strong></td>
+  <td>The process that reads outbox rows and hands them to Temporal.</td>
+</tr>
+<tr>
+  <td><strong>Temporal</strong></td>
+  <td>A workflow engine. It runs long processes reliably: waits, retries, timers.</td>
+</tr>
+<tr>
+  <td><strong>Workflow / activity</strong></td>
+  <td>A workflow is the process logic. An activity is one step that does real work (database, email, external call).</td>
+</tr>
+<tr>
+  <td><strong>Signal</strong></td>
+  <td>A message to a running workflow, such as &quot;approved&quot;.</td>
+</tr>
+<tr>
+  <td><strong>Namespace</strong></td>
+  <td>A partition inside Temporal. We use one, called <code>nava</code>.</td>
+</tr>
+<tr>
+  <td><strong>Worker</strong></td>
+  <td>Our process that runs workflow and activity code for Temporal.</td>
+</tr>
+<tr>
+  <td><strong>Task queue</strong></td>
+  <td>Where Temporal puts work for workers to pick up.</td>
+</tr>
+<tr>
+  <td><strong>Workflow id</strong></td>
+  <td>A workflow's unique name. Ours start with the tenant: <code>t:&lt;tenant&gt;:…</code>.</td>
+</tr>
+<tr>
+  <td><strong>Reject duplicate</strong></td>
+  <td>A Temporal setting: a second start with the same id is refused.</td>
+</tr>
+<tr>
+  <td><strong>Header / ContextPropagator</strong></td>
+  <td>Hidden metadata that travels with every workflow step. We use it to carry the tenant.</td>
+</tr>
+<tr>
+  <td><strong>Search attribute</strong></td>
+  <td>A label for finding workflows in Temporal's UI. For operators only; never trusted as the tenant.</td>
+</tr>
+<tr>
+  <td><strong>mTLS</strong></td>
+  <td>Mutual TLS: both sides prove who they are with certificates before talking.</td>
+</tr>
+<tr>
+  <td><strong>Certificate / CA</strong></td>
+  <td>A digital ID card, and the <em>certificate authority</em> that issues it. We run our own CA per installation.</td>
+</tr>
+<tr>
+  <td><strong>Internode</strong></td>
+  <td>Traffic between Temporal's own internal services. Also protected with mTLS.</td>
+</tr>
+<tr>
+  <td><strong>Authorizer / ClaimMapper</strong></td>
+  <td>Code we add to Temporal. The ClaimMapper reads who a caller is from its certificate. The Authorizer decides what that caller may do, including what commands a worker sends.</td>
+</tr>
+<tr>
+  <td><strong>Keycloak</strong></td>
+  <td>Open-source login server.</td>
+</tr>
+<tr>
+  <td><strong>Port / adapter</strong></td>
+  <td>A <em>port</em> is an interface the platform depends on. An <em>adapter</em> is one product plugged into it. Keycloak is the adapter behind our identity port.</td>
+</tr>
+<tr>
+  <td><strong>IdentityResolver</strong></td>
+  <td>The identity port's &quot;who is this, and which tenant&quot; function.</td>
+</tr>
+<tr>
+  <td><strong>DirectoryAdmin</strong></td>
+  <td>The identity port's &quot;create tenants, users and group memberships&quot; function. Only onboarding and group sync may use it.</td>
+</tr>
+<tr>
+  <td><strong>Zitadel</strong></td>
+  <td>Another open-source login server. We assessed it and kept Keycloak (ADR §4).</td>
+</tr>
+<tr>
+  <td><strong>SCIM</strong></td>
+  <td>A standard for syncing users and groups between systems.</td>
+</tr>
+<tr>
+  <td><strong>Realm</strong></td>
+  <td>A fully separate space inside Keycloak, with its own users and settings.</td>
+</tr>
+<tr>
+  <td><strong>Organization</strong></td>
+  <td>A Keycloak feature: a group of users inside one realm. We use one organization per tenant.</td>
+</tr>
+<tr>
+  <td><strong>IdP / federation / brokered login</strong></td>
+  <td>A tenant's own login provider (for example Microsoft). <em>Federation</em> links it to Keycloak. A <em>brokered login</em> is a sign-in that goes through it.</td>
+</tr>
+<tr>
+  <td><strong>First-broker-login flow</strong></td>
+  <td>What Keycloak does the first time someone signs in through a company login. Ours only creates a new user and adds them to that tenant.</td>
+</tr>
+<tr>
+  <td><strong>OIDC / JWT / access token</strong></td>
+  <td>The login standard, the token format, and the token the API receives.</td>
+</tr>
+<tr>
+  <td><strong>Issuer (<code>iss</code>) / JWKS</strong></td>
+  <td>Which server issued a token, and the public keys used to check its signature.</td>
+</tr>
+<tr>
+  <td><strong>Claim</strong></td>
+  <td>A field inside a token, such as <code>organization</code> or <code>idp</code>.</td>
+</tr>
+<tr>
+  <td><strong>REST / OpenAPI / GraphQL</strong></td>
+  <td>REST is the API style we use. OpenAPI is the contract file it is generated from. GraphQL is a query-style API, coming later.</td>
+</tr>
+<tr>
+  <td><strong>RFC 9457</strong></td>
+  <td>A standard format for API error messages.</td>
+</tr>
+<tr>
+  <td><strong>Idempotency key</strong></td>
+  <td>A unique key a client sends with a write, so a retry doesn't create a duplicate.</td>
+</tr>
+<tr>
+  <td><strong>Version / ETag / If-Match</strong></td>
+  <td>A record's version number. A save must say which version it changes, so a stale save is refused.</td>
+</tr>
+<tr>
+  <td><strong>Cursor</strong></td>
+  <td>An opaque bookmark for paging through a list. Ours only works for the same tenant and user.</td>
+</tr>
+<tr>
+  <td><strong>ACL</strong></td>
+  <td>Access-control rules: who may read or change which records.</td>
+</tr>
+<tr>
+  <td><strong>Field mask</strong></td>
+  <td>Hiding or locking individual fields, such as salary, by role.</td>
+</tr>
+<tr>
+  <td><strong>Write pipeline</strong></td>
+  <td>The single path every save goes through: authorise, fill defaults, validate, check rules, save with audit.</td>
+</tr>
+<tr>
+  <td><strong>Causation depth</strong></td>
+  <td>How many automatic steps led to a write. Capped, to stop runaway chains.</td>
+</tr>
+<tr>
+  <td><strong>FIFO / target_seq</strong></td>
+  <td>First in, first out. <code>target_seq</code> is the order number that keeps one workflow's messages in order.</td>
+</tr>
+<tr>
+  <td><strong>Head-of-line blocking</strong></td>
+  <td>When the first message in a line is stuck, the ones behind it wait.</td>
+</tr>
+<tr>
+  <td><strong>Purge</strong></td>
+  <td>Deleting expired rows, such as old idempotency keys or delivered outbox rows.</td>
+</tr>
+<tr>
+  <td><strong>Physical backup / replication / WAL</strong></td>
+  <td>Copying the database's files and its change log (<em>WAL</em>), as opposed to exporting rows with queries.</td>
+</tr>
+<tr>
+  <td><strong>pg_hba</strong></td>
+  <td>PostgreSQL's rule file for who may connect, from where, and to what.</td>
+</tr>
+<tr>
+  <td><strong>Pin</strong></td>
+  <td>A fixed minimum or exact software version that we commit to.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>7. What you approved (2026-10-15)</h2>
+<ol>
+<li><strong>Nine ground rules (I1–I9)</strong> that every future design must keep. The core one: the database itself keeps tenants apart.</li>
+<li><strong>Logins:</strong> one Keycloak with one organization per tenant, on version 26.1.3 or later, behind a thin identity port. Company logins can never take over existing accounts.</li>
+<li><strong>API and workflows:</strong> a REST API now, with GraphQL later. One Temporal setup, locked with certificates and our own access checks, fed only through the outbox.</li>
+<li><strong>Database accounts:</strong> one narrow account per platform job. None can skip the tenant wall. Backups can copy files but can't run queries.</li>
+<li><strong>Six accepted risks (R1, R2, R3, R7, R8, R9).</strong> R8 is the one to weigh: a stolen worker certificate can reach every tenant. Removing it means per-tenant workers, a later cost decision.</li>
+</ol>
+<p><em>You replied <code>APPROVED</code> on TICK-36 on 2026-10-15. ADR-001 is ACCEPTED. Planning continues in TICK-42 (&quot;Plan ADR-001&quot;).</em></p>
+
+</main></body></html>
