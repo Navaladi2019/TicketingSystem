@@ -1,0 +1,740 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-001: Platform blueprint (ACCEPTED)</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--warn:#9a6700;--warnbg:#fff8c5}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--warn:#d29922;--warnbg:#2b2111}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:32px 24px 80px}
+.banner{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.pill{font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left;min-width:0;overflow-wrap:anywhere}
+th{background:var(--soft)}
+table.front th{width:120px}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:36px}
+h3{font-size:18px;margin-top:28px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;background:var(--soft);padding:1px 5px;border-radius:4px}
+pre{background:var(--soft);border:1px solid var(--bd);border-radius:6px;padding:12px 14px;overflow-x:auto}
+pre code{background:none;padding:0;white-space:pre}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft);color:var(--fg)}
+hr{border:0;border-top:1px solid var(--bd);margin:32px 0}
+a{color:var(--acc)}
+figure.diagram{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure.diagram svg{max-width:100%;height:auto;display:block;margin:0 auto}
+@media print{.banner{display:none} table{display:table} pre code{white-space:pre-wrap}}
+</style></head>
+<body><main>
+<div class="banner"><span class="pill">ACCEPTED · 2026-10-15</span>
+<span class="src">HTML rendering of ADR-001-platform-blueprint.md (identical text). Approved by nava on 2026-10-15.</span></div>
+<table class="front"><tbody>
+<tr><th>type</th><td>adr</td></tr>
+<tr><th>id</th><td>ADR-001</td></tr>
+<tr><th>title</th><td>Platform blueprint — invariants, D26, D6, D22, D28 (system actors)</td></tr>
+<tr><th>status</th><td>ACCEPTED (approved by nava 2026-10-15, TICK-36 comment 01a14052-5768)</td></tr>
+<tr><th>date</th><td>2026-10-15</td></tr>
+<tr><th>accepted</th><td>2026-10-15</td></tr>
+<tr><th>issue</th><td>TICK-36</td></tr>
+<tr><th>rfc</th><td>&quot;[[RFC-001-platform-blueprint]] (archived; thread on TICK-36, rev 1 + critique rounds 1–2 + CTO rulings)&quot;</td></tr>
+<tr><th>supersedes</th><td>none</td></tr>
+</tbody></table>
+<h1>ADR-001: Platform blueprint</h1>
+<p><strong>Status: ACCEPTED</strong> on 2026-10-15. nava replied <code>APPROVED</code>, accepted residuals R1, R2, R3, R7, R8 and R9, and accepted the CTO's ruling to keep Keycloak behind a thin identity port (Annex A.4). Changing an invariant or a decision here now needs a superseding ADR signed by nava.</p>
+<p><strong>Changes on acceptance:</strong> the status above, Annex A.4 (identity port), the Zitadel row in §4, the consequence line in §3, and CI-11. No decision changed.</p>
+<p>The body is the decision. <strong>Annex A</strong> holds the binding contracts that Epics 02, 03, 07 and 08 implement against. <strong>Annex B</strong> is the acceptance tests.</p>
+<blockquote>
+<p><strong>D-number note.</strong> This ADR uses the TICK-3 numbering, where <strong>D28</strong> is privileged and system-actor access. The TICK-2 gap list numbered differently: its D28 was the real-time channel and its D29 operator access. Human support access is <strong>TICK-40</strong> (D28b).</p>
+</blockquote>
+<h2>1. Invariants</h2>
+<p>These are I1–I9, citable by later ADRs.</p>
+<table>
+<thead>
+<tr>
+  <th>#</th>
+  <th>Invariant</th>
+  <th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td><strong>I1</strong></td>
+  <td><strong>Tenant wall in the database.</strong> Every tenant table has <code>tenant_id</code>, <code>ENABLE</code> and <code>FORCE ROW LEVEL SECURITY</code>, and a tenant policy on <code>NULLIF(current_setting('app.tenant_id', true), '')::uuid</code>. With no tenant context, a query gets no rows or an error, never another tenant's rows. Unique keys and foreign keys include <code>tenant_id</code>. A policy that does not test <code>app.tenant_id</code> must be on the named allow-list (Annex A.3).</td>
+  <td>P2, P19, §5</td>
+</tr>
+<tr>
+  <td><strong>I2</strong></td>
+  <td><strong>The tenant comes only from a platform-verified source.</strong> That means a validated token resolved through <code>tenant_identity_binding</code> (D26), or a row the platform wrote under RLS (<code>outbox.tenant_id</code>, D22). Client values, payloads, script arguments, workflow inputs, signal bodies and search attributes are never a source. Temporal is a path like any other (G2).</td>
+  <td>P2; G2</td>
+</tr>
+<tr>
+  <td><strong>I3</strong></td>
+  <td><strong>Least-privilege database roles.</strong> No runtime role is a superuser, has <code>BYPASSRLS</code>, owns an object, or is a member (direct or inherited) of any role, <code>pg_*</code> included. No object grants to <code>PUBLIC</code>, including default ACLs. Every grant comes from one manifest. No <code>SECURITY DEFINER</code> function or RLS-bypassing view is reachable from a runtime role (G9).</td>
+  <td>P2, P19; TICK-3; G9</td>
+</tr>
+<tr>
+  <td><strong>I4</strong></td>
+  <td><strong>One write pipeline with optimistic concurrency.</strong> Every writer goes authorisation → defaults/computed → JSON Schema → declarative checks → commit with audit in one transaction. Every update carries the expected record <code>version</code>, and a stale write is a typed conflict, never last-writer-wins (G4).</td>
+  <td>P8, §2.4; G4/D24</td>
+</tr>
+<tr>
+  <td><strong>I5</strong></td>
+  <td><strong>One authorization layer, inside the query.</strong> ACLs compile to SQL, and the Go single-record check agrees with them. Field masks apply on write and read. Unreadable, other-tenant and missing records give the same response.</td>
+  <td>P19, §2.12</td>
+</tr>
+<tr>
+  <td><strong>I6</strong></td>
+  <td><strong>The durable path is deterministic, versioned, and entered only through the transactional outbox.</strong> All I/O, clocks, randomness and tenant code run in activities. In-flight executions keep their version. Nothing starts or signals a workflow except the relay dispatching an outbox row committed with the change that caused it (G1).</td>
+  <td>P7, P9; G1</td>
+</tr>
+<tr>
+  <td><strong>I7</strong></td>
+  <td><strong>Every side effect is idempotent.</strong> A retry, replay or redelivery never acts twice.</td>
+  <td>P10</td>
+</tr>
+<tr>
+  <td><strong>I8</strong></td>
+  <td><strong>Contracts are the boundary. Configuration, not code. AI is advisory.</strong> Tenant code, plugins and AI reach data only through the capability contract or the public API, with a scoped token, and never reach the database or Temporal directly. A tenant change never needs DDL. The <strong>only</strong> tenant-motivated DDL is an operator-approved, measured, audited <em>indexed attribute</em> (<code>CREATE INDEX CONCURRENTLY … WHERE tenant_id = …</code>). It runs as a migrator-class job outside the tenant's change set (D25). Per-tenant numbering uses a counter table, not sequences. AI changes data only above an explicit confidence threshold, and the decision is recorded.</td>
+  <td>P1, P3, P14, P16, P20, P21; D25</td>
+</tr>
+<tr>
+  <td><strong>I9</strong></td>
+  <td><strong>Cascades are bounded (new, G5).</strong> Every write and every outbox row carries a causation record: origin event id plus depth. The pipeline rejects any write beyond a hard platform depth limit, and rejects a cycle (the origin seen again on the same record), with a typed error and an audit entry. The limit is platform configuration, not tenant configuration. Its initial value is set at Epic 05 planning.</td>
+  <td>P10, P2 (quota exhaustion is a cross-tenant effect); G5</td>
+</tr>
+</tbody>
+</table>
+<h3>TICK-2 gap coverage</h3>
+<table>
+<thead>
+<tr>
+  <th>Gap</th>
+  <th>Where it is handled</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td><strong>G1</strong> outbox is the only durable bridge</td>
+  <td><strong>I6</strong>, plus the D22 start path (Annex A.2)</td>
+</tr>
+<tr>
+  <td><strong>G2</strong> Temporal tenancy</td>
+  <td><strong>I2</strong> and <strong>D22</strong>. TICK-2's per-tenant payload codec is <strong>deferred</strong> as residual R1, with a trigger.</td>
+</tr>
+<tr>
+  <td><strong>G4</strong> version contract (D24)</td>
+  <td><strong>I4</strong>, implemented by the D6 contract (<code>version</code>, ETag/<code>If-Match</code>, <code>412 version_conflict</code>). Workflow activities re-read and retry. D24 needs no separate RFC unless nava wants one.</td>
+</tr>
+<tr>
+  <td><strong>G5</strong> causation depth</td>
+  <td><strong>New I9.</strong> <code>outbox</code> gains <code>causation_id</code> and <code>causation_depth</code> (Annex A.3).</td>
+</tr>
+<tr>
+  <td><strong>G7</strong> database topology</td>
+  <td><strong>Recorded as a decision, not an invariant:</strong> shared database, shared tables, forced RLS, and <code>tenant_id</code> leading every tenant-table index. Moving a large tenant to a dedicated database (same schema, roles and RLS) is an operator option under <strong>D1</strong>. <em>Why it is not an invariant:</em> topology is a performance and deployment choice that can change without weakening isolation. I1 and I3 are what keep isolation.</td>
+</tr>
+<tr>
+  <td><strong>G9</strong> no <code>BYPASSRLS</code> in the application</td>
+  <td><strong>I3.</strong> Even backup does not use it; it uses a <code>REPLICATION</code>-only role (Annex A.3). Human support access is <strong>TICK-40</strong>.</td>
+</tr>
+<tr>
+  <td><strong>D25</strong> indexed-attribute governance</td>
+  <td><strong>I8</strong> clarifies &quot;no DDL&quot;. The approval workflow, measurement and quotas stay with <strong>D25</strong>. M1 planning does not need it unless Epic 06's 150 ms list measurement shows an expression index is required.</td>
+</tr>
+</tbody>
+</table>
+<h2>2. Decisions</h2>
+<table>
+<thead>
+<tr>
+  <th>#</th>
+  <th>Decision</th>
+  <th>What it prevents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td><strong>D26</strong></td>
+  <td>One shared Keycloak realm per installation, on <strong>Keycloak ≥ 26.1.3</strong> (recommended 26.8.1), with <strong>Organizations</strong>, one organization per tenant. The tenant is resolved from <code>(iss, organization.id)</code> through <code>tenant_identity_binding</code>. The token must name exactly one organization, otherwise 401. Tenant-linked IdPs use <code>trustEmail=OFF</code> and the first-broker-login flow <code>idp-create-user-if-unique</code> → <code>idp-add-organization-member</code>. The resolver checks <code>idp</code> and the user's federated links against the tenant's bound IdPs, and <strong>fails closed</strong>. Invitation and add-member reject a user federated to a foreign IdP. Only platform service accounts administer Keycloak. On-premise has its own installation and realm.</td>
+  <td>A tenant admin minting claims. The <code>kc.org</code> picker tamper on 26.0.0–26.1.2 (spike-proven). Account takeover and pre-hijack through a tenant-controlled IdP.</td>
+</tr>
+<tr>
+  <td><strong>D6</strong></td>
+  <td>REST-first <code>/api/v1</code>, from an OpenAPI 3.1 contract and additive-only within a major version. RFC 9457 errors with a stable <code>code</code>. Opaque HMAC cursors bound to tenant, principal and query. <code>Idempotency-Key</code> on writes. ETag/<code>If-Match</code> on updates. Per-tenant rate limits. GraphQL arrives later (Epic 23) as a read surface over the same authorization layer.</td>
+  <td>Two authorization surfaces in M1. Lost updates (G4). Duplicate writes.</td>
+</tr>
+<tr>
+  <td><strong>D22</strong></td>
+  <td>One Temporal namespace <code>nava</code> per installation. <strong>M1 requirement:</strong> frontend mTLS with a custom deny-by-default <code>Authorizer</code> and <code>ClaimMapper</code> per certificate identity, which <strong>also inspects worker commands</strong>. Internode mTLS, and internal ports unreachable from the platform network. Only the relay starts and signals workflows, from outbox rows. Workflow ids are <code>t:&lt;outbox.tenant_id&gt;:&lt;target_key&gt;</code>, started with <code>REJECT_DUPLICATE</code> and error-on-started. The tenant travels through a <code>ContextPropagator</code>, with inbound and outbound guards. Signals are FIFO per target on <code>target_seq</code>, assigned under the record's row lock. Payloads carry references only. No Schedules, cron or reset in M1.</td>
+  <td>Forged starts and signals by any process or certificate. Cross-tenant child, signal and cancel calls from a compromised worker (A7). Duplicate runs. Approve and cancel swapping order.</td>
+</tr>
+<tr>
+  <td><strong>D28</strong></td>
+  <td>One database role per system actor (Annex A.3). No role has <code>BYPASSRLS</code>, owns anything, belongs to any role, or inherits from <code>PUBLIC</code>. Cross-tenant access goes only through allow-listed, role-scoped policies or a separate database. Backups are physical, through a <code>REPLICATION</code>-only role that <code>pg_hba</code> keeps to the <code>replication</code> pseudo-database. The migrator owns everything, runs as a one-shot job and is granted to no one.</td>
+  <td>The first cross-tenant job shipping with <code>BYPASSRLS</code>. The <code>SET ROLE</code> path to the owner (TICK-3 TA point). <code>PUBLIC</code> and default-ACL leaks. Logical-decoding exfiltration by the backup role.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Fixed inputs, not reopened:</strong></p>
+<ul>
+<li>PostgreSQL ≥ 15</li>
+<li>PgBouncer ≥ 1.21 with <code>max_prepared_statements &gt; 0</code></li>
+<li>Temporal stays on <code>default</code> until this ADR is accepted; Epic 08 then creates <code>nava</code></li>
+<li>Keycloak &quot;26 or later&quot; from TICK-4 is narrowed to <strong>≥ 26.1.3</strong>, which only excludes a proven-broken range (CTO ruling)</li>
+</ul>
+<h2>3. Consequences</h2>
+<ul>
+<li><strong>We own a custom Temporal server build.</strong> It carries the Authorizer and ClaimMapper, as a <strong>separate Go module</strong> from the SDK code (R7), and is re-verified on every Temporal upgrade.</li>
+<li><strong>Every cross-tenant database path is enumerable.</strong> CI (Annex B) fails on any new one.</li>
+<li><strong>Keycloak is administered only through the platform API</strong> in M1 (R3).</li>
+<li><strong>Only the identity port talks to the IdP.</strong> <code>IdentityResolver</code> and <code>DirectoryAdmin</code> (Annex A.4) are the only code that knows Keycloak. They are built in Epic 03. A later IdP switch is a contained, spike-gated adapter change, not a rewrite.</li>
+<li><strong>Per-target FIFO costs about 11 µs and +23% on outbox inserts,</strong> plus one partial index (8.8 MB at 50k pending rows). The normal claim is 5.4 ms against 5.0 ms without it. The worst case must be bounded (Annex A.2).</li>
+</ul>
+<p><strong>Pins for the Technical Lead to commit at planning</strong> (TA spike text, verbatim):</p>
+<pre><code>keycloak: &gt;= 26.1.3 (recommended 26.8.1, tested 2026-10-14)
+  known-broken: 26.0.0?–26.1.2. Org-selection form accepts kc.org for an org the
+  user is not a member of, and the token carries that org's id. Tested vulnerable:
+  26.0.7, 26.0.8, 26.1.0, 26.1.2. Fixed: 26.1.3+. Spike: TICK-36 TA critique round 1.
+keycloak realm export: organization scope mapper addOrganizationId=true,
+  jsonType.label=JSON, addOrganizationAttributes=false
+temporal server: 1.28.4 tested (SQL visibility on PostgreSQL 16, Keyword search attribute)
+go.temporal.io/sdk: v1.49.0 tested; requires Go &gt;= 1.26
+temporal custom server module: go.temporal.io/server v1.28.4 + go.temporal.io/api v1.50.1, Go &gt;= 1.25.8,
+  built as a separate Go module from SDK code (SDK v1.49.0 needs api v1.63.5)
+</code></pre>
+<h2>4. Rejected options</h2>
+<table>
+<thead>
+<tr>
+  <th>Option</th>
+  <th>Why it lost</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>Zitadel instead of Keycloak (TA assessment on TICK-36, CTO ruling)</td>
+  <td>No native groups, and Epic 03 syncs groups and the org hierarchy. AGPL-3.0, while we ship the IdP on-premise; Keycloak is Apache-2.0. Our tenant-isolation spikes (A1, A2, A6, TA-B1) were run on Keycloak, and Zitadel's tamper behaviour is untested. It is stronger on per-tenant self-administration (R3) and footprint. Revisit triggers are in Annex A.4.</td>
+</tr>
+<tr>
+  <td>Realm per tenant</td>
+  <td>Every tenant admin is a realm admin. It needs a JWKS and issuer per tenant, and config drifts. Kept as an escape hatch through the binding table.</td>
+</tr>
+<tr>
+  <td>Tenant id as a user attribute or claim</td>
+  <td>An editable attribute becomes a forgery path (I2).</td>
+</tr>
+<tr>
+  <td>Brokered auto-link by verified email</td>
+  <td>Cross-tenant account takeover.</td>
+</tr>
+<tr>
+  <td>GraphQL-first, or REST and GraphQL equal in M1</td>
+  <td>Two authorization surfaces, plus cost governance, before Epic 06 is proven.</td>
+</tr>
+<tr>
+  <td>Namespace per tenant</td>
+  <td>Pollers grow with tenant count, onboarding needs an admin operation, and persistence stays shared anyway. Revisit with D23.</td>
+</tr>
+<tr>
+  <td>Tenant in workflow input or a search attribute</td>
+  <td>Caller-shaped. The spike showed the search attribute can be changed from workflow code.</td>
+</tr>
+<tr>
+  <td>Network isolation of port 7233 alone, or the default JWT authorizer</td>
+  <td>Neither can stop a valid certificate, or separate start from poll by API.</td>
+</tr>
+<tr>
+  <td>API-level Authorizer without command inspection</td>
+  <td>A7: a worker certificate created and signalled workflows in tenant B through <code>RespondWorkflowTaskCompleted</code>.</td>
+</tr>
+<tr>
+  <td>Outbox <code>id</code> as Temporal request id</td>
+  <td>Not exposed by Go SDK v1.49.0.</td>
+</tr>
+<tr>
+  <td>FIFO ordered by UUIDv7 <code>id</code></td>
+  <td><code>id</code> is generated before the lock, so approve and cancel can swap.</td>
+</tr>
+<tr>
+  <td><code>nava_system</code> role with <code>BYPASSRLS</code></td>
+  <td>One leaked credential reads every tenant.</td>
+</tr>
+<tr>
+  <td>Backup with <code>BYPASSRLS</code> and <code>pg_dump</code></td>
+  <td>Arbitrary SQL across tenants. Kept as the fallback only if a customer requires logical dumps, with its credential on no runtime host.</td>
+</tr>
+<tr>
+  <td>NOLOGIN group roles, or <code>ALTER DEFAULT PRIVILEGES … GRANT</code></td>
+  <td>Harder to audit, and they grant silently.</td>
+</tr>
+<tr>
+  <td><code>SECURITY DEFINER</code> functions</td>
+  <td>They bypass RLS invisibly. Banned by Epic 02.</td>
+</tr>
+</tbody>
+</table>
+<h2>5. Residuals (accepted by nava, 2026-10-15)</h2>
+<table>
+<thead>
+<tr>
+  <th>#</th>
+  <th>Residual</th>
+  <th>Mitigation</th>
+  <th>Owner</th>
+  <th>Revisit trigger</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td><strong>R1</strong></td>
+  <td>Temporal histories are cross-tenant data and are not encrypted in M1</td>
+  <td>References-only payloads (CI-7). Separate database and role. mTLS everywhere. Operator-only UI.</td>
+  <td>Solution Architect</td>
+  <td>The first regulated-data tenant, or TICK-41 decided. Then a per-tenant encrypting codec.</td>
+</tr>
+<tr>
+  <td><strong>R2</strong></td>
+  <td>The migrator is all-powerful over its tables. The backup role and the backup set hold every byte, including Keycloak and Temporal if they share the cluster.</td>
+  <td>One-shot migrator job. Post-run catalogue check. <code>pg_hba</code> reject line for <code>nava_backup</code>. The WAL archive and base backups get the same access control as the primary.</td>
+  <td>Technical Lead</td>
+  <td>Any request to run DDL from a runtime process, or a logical-dump requirement</td>
+</tr>
+<tr>
+  <td><strong>R3</strong></td>
+  <td>No tenant self-administration of Keycloak in M1</td>
+  <td>The platform API does it</td>
+  <td>CTO / nava</td>
+  <td>Epic 26 scoping</td>
+</tr>
+<tr>
+  <td><strong>R7</strong></td>
+  <td>A custom Temporal server build to own</td>
+  <td>A minimal Authorizer module, pinned, with a CI test of the allow-list</td>
+  <td>Technical Lead</td>
+  <td>Every Temporal upgrade</td>
+</tr>
+<tr>
+  <td><strong>R8</strong></td>
+  <td>A compromised <code>nava-relay</code> or <code>nava-core</code> certificate can start or signal for any tenant. A compromised <strong><code>nava-worker</code></strong> certificate polls every tenant's tasks and histories from the shared queue, and its activities can set any <code>app.tenant_id</code>, so it reads and writes any tenant under RLS. The Authorizer stops only its cross-tenant <em>commands</em>.</td>
+  <td>Separate credentials and pools. The relay reads the tenant only from <code>outbox</code>. Inbound guards. Command inspection. <code>set_config</code> only inside the database helper (lint rule).</td>
+  <td>Security reviewer</td>
+  <td>Any new holder of a Temporal certificate, or a requirement for per-tenant workers</td>
+</tr>
+<tr>
+  <td><strong>R9</strong></td>
+  <td>Head-of-line blocking per target while a signal backs off</td>
+  <td>It blocks only that target. <code>NotFound</code> or &quot;already completed&quot; is terminal at once. A dead row unblocks the target and raises an alert. The worst-case bound is in Annex A.2.</td>
+  <td>Technical Lead</td>
+  <td>Epic 08 flood test</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Dissent: none recorded.</strong> All three reviewers (Security, Postgres, TA) approved. TA-B3 was settled by a CTO ruling on a verified spike.</p>
+<hr />
+<h2>Annex A: binding contracts</h2>
+<h3>A.1 D26: tenant resolution</h3>
+<p><strong>1. Validate the token.</strong></p>
+<ul>
+<li>Signature from the JWKS of the realm named by <code>iss</code>. A key from realm X with <code>iss=Y</code> is rejected.</li>
+<li><code>alg</code> allow-list, <code>aud</code>, and <code>exp</code>/<code>nbf</code> with ±60 s skew.</li>
+<li><code>typ</code>/<code>azp</code>, so an ID token is rejected.</li>
+</ul>
+<p><strong>2. Read the organization.</strong> The <code>organization</code> claim is an object keyed by alias. Exactly one key is required, otherwise <strong>401 <code>tenant_unresolved</code></strong>. Read its <code>.id</code>.</p>
+<p><strong>3. Check the identity provider.</strong> This is fail-closed and needs both checks:</p>
+<ul>
+<li>If the token has an <code>idp</code> claim, it must be one of the tenant's bound IdP aliases.</li>
+<li>Independently of the claim, the user's federated links (recorded on <code>principals</code> by group sync from the Keycloak admin API) must all be IdPs bound to the tenant. If either check fails, or the links are unknown for a brokered user, the result is 401.</li>
+</ul>
+<p><strong>4. Resolve the tenant.</strong> Look up <code>tenant_identity_binding(issuer, org_id, idp_aliases[])</code>, which has <code>UNIQUE (issuer, org_id)</code>. More than one row is an error.</p>
+<p><strong>5. Set the tenant for the transaction.</strong> <code>set_config('app.tenant_id', $1, true)</code>, per transaction, and only inside the database helper.</p>
+<p><strong>Realm export:</strong></p>
+<ul>
+<li>Organization mapper: <code>addOrganizationId=true</code>, <code>jsonType.label=JSON</code>, <code>addOrganizationAttributes=false</code>.</li>
+<li><code>oidc-usersessionmodel-note-mapper</code> with <code>user.session.note=identity_provider</code> and <code>claim.name=idp</code>, in the access token.</li>
+<li>Tenant-linked IdPs: <code>trustEmail=OFF</code>, and first-broker-login <code>idp-create-user-if-unique</code> → <code>idp-add-organization-member</code>, both REQUIRED. No <code>idp-confirm-link</code>, <code>idp-auto-link</code> or <code>idp-email-verification</code>.</li>
+<li>The org has verified domains only.</li>
+</ul>
+<p><strong>Platform rules:</strong></p>
+<ul>
+<li>Keycloak user and group ids come only from <code>principals</code> and <code>groups</code> rows read under RLS.</li>
+<li>Adding an existing user to another organization goes through an invitation. Invitation and add-member <strong>reject</strong> a user whose federated link points to an IdP not bound to the target tenant (CTO ruling).</li>
+<li>Tenant groups live under <code>/t/&lt;tenant_id&gt;/</code>. Group sync also requires the user to be a member of the organization.</li>
+<li>Access tokens live 5 minutes or less.</li>
+</ul>
+<p><strong>Why bind on the id, not the alias:</strong> the alias is immutable (spike: 400 &quot;Cannot change the alias&quot;). The id is still the binding key, because a deleted and recreated organization could reuse an alias.</p>
+<h3>A.2 D22: Temporal access and the tenant path</h3>
+<p><strong>Network and TLS:</strong></p>
+<ul>
+<li>The frontend (7233) requires client certificates from the installation CA. A rogue CA fails at the handshake.</li>
+<li><code>global.tls.internode</code> requires client certificates between services.</li>
+<li>History, matching, internal-frontend and worker ports (7234, 7235, 7239, 6933–6939) are <strong>unreachable from the platform network</strong>.</li>
+<li>Sandbox hosts, plugins, Mastra and anything tenant-supplied have no route to Temporal and hold no certificate.</li>
+<li>The UI is operator-only.</li>
+</ul>
+<p><strong>Authorizer allow-list (deny by default, namespace <code>nava</code>):</strong></p>
+<table>
+<thead>
+<tr>
+  <th>Identity</th>
+  <th>APIs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>all three below</td>
+  <td><code>GetSystemInfo</code></td>
+</tr>
+<tr>
+  <td><code>nava-relay</code></td>
+  <td><code>StartWorkflowExecution</code>, <code>SignalWorkflowExecution</code>, <code>SignalWithStartWorkflowExecution</code></td>
+</tr>
+<tr>
+  <td><code>nava-core</code></td>
+  <td><code>RequestCancelWorkflowExecution</code>, <code>UpdateWorkflowExecution</code>, <code>QueryWorkflow</code>, <code>DescribeWorkflowExecution</code>, <code>GetWorkflowExecutionHistory</code></td>
+</tr>
+<tr>
+  <td><code>nava-worker</code></td>
+  <td><code>DescribeNamespace</code>, <code>ShutdownWorker</code>, <code>PollWorkflowTaskQueue</code>, <code>PollActivityTaskQueue</code>, <code>RespondWorkflowTask*</code>, <code>RespondActivityTask*</code>, <code>RecordActivityTaskHeartbeat</code>, <code>RespondQueryTaskCompleted</code>, <code>GetWorkflowExecutionHistory</code>, <code>RecordWorkerHeartbeat</code></td>
+</tr>
+<tr>
+  <td><code>temporal-system</code></td>
+  <td>All. This is the server's own system worker, on the <code>systemWorker</code> certificate.</td>
+</tr>
+<tr>
+  <td><code>nava-operator</code></td>
+  <td>Admin and visibility, from the operator network only</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Command inspection (TA-B3, adopted as written):</strong></p>
+<blockquote>
+<p>&quot;The Authorizer also inspects <code>CallTarget.Request</code> for <code>RespondWorkflowTaskCompleted</code> from <code>nava-worker</code>. It decodes the task token's <code>WorkflowId</code>. It denies the call if any <code>StartChildWorkflowExecution</code>, <code>SignalExternalWorkflowExecution</code> or <code>RequestCancelExternalWorkflowExecution</code> command targets a workflow id whose tenant prefix differs, or if a <code>ContinueAsNewWorkflowExecution</code> command changes the workflow id. CI-6 asserts both the deny and the allow path.&quot;</p>
+</blockquote>
+<p>A denied task retries until someone acts, so <strong>each deny raises an alert</strong> that includes the certificate, the workflow id and the command.</p>
+<p><strong>Writing outbox rows (producer, inside the write pipeline):</strong></p>
+<ul>
+<li>Each row carries <code>causation_id</code> and <code>causation_depth</code> (I9).</li>
+<li>It takes <code>target_seq</code> = the record's <code>version</code> after this write, assigned under the record's row lock. A producer that signals a workflow without otherwise changing the record must still lock the record and bump its <code>version</code>. There is no other way to get a <code>target_seq</code>.</li>
+<li>A <strong>start</strong> row has <code>target_key = &lt;kind&gt;:&lt;own outbox id&gt;</code>. In the same transaction the producer inserts <code>workflow_ref(tenant_id, record_id, kind, outbox_id, closed_at)</code>.</li>
+<li>A <strong>signal</strong> row's <code>target_key</code> is read from <code>workflow_ref</code> under RLS. So a signal row queues behind its start row on the same target.</li>
+</ul>
+<p><strong>What the relay does:</strong></p>
+<ul>
+<li>It builds every workflow id as <strong><code>t:&lt;outbox.tenant_id&gt;:&lt;target_key&gt;</code></strong>, and never reads a full id from a column.</li>
+<li>Starts use <code>REJECT_DUPLICATE</code> and <code>WorkflowExecutionErrorWhenAlreadyStarted = true</code>. <code>AlreadyStarted</code> counts as dispatched. To restart a failed workflow, a new event writes a new outbox row.</li>
+<li>On a signal, <code>NotFound</code> or &quot;already completed&quot; is <strong>terminal at once</strong>: the row is marked dead and an alert is raised.</li>
+</ul>
+<p><strong>Claim order (fair across tenants, FIFO per target):</strong></p>
+<ul>
+<li>Walk the pending index per tenant and take at most 2 rows per tenant with <code>LATERAL … FOR UPDATE SKIP LOCKED</code>.</li>
+<li>A row is a candidate only if no pending row exists for the same <code>(tenant_id, target_key)</code> with a lower <code>target_seq</code>.</li>
+</ul>
+<p><strong>Worst-case bound:</strong></p>
+<ul>
+<li>When a head backs off, the same <code>UPDATE</code> pushes its successors' <code>available_at</code> to the head's.</li>
+<li>The relay scans at most 200 rows per tenant per poll.</li>
+<li>Epic 08's flood test includes the case where every head is backing off.</li>
+</ul>
+<p><strong>Guards in the worker:</strong></p>
+<ul>
+<li>The tenant travels in the <code>nava-tenant</code> header through a <code>ContextPropagator</code>.</li>
+<li><strong>Workflow start:</strong> a missing header, or one that differs from the id prefix, fails the workflow non-retryably, with a metric.</li>
+<li><strong>Signal from the wrong tenant:</strong> <strong>dropped, with an alert. It never fails the receiving workflow.</strong></li>
+<li><strong>Update from the wrong tenant:</strong> rejected by the update validator.</li>
+<li><strong>Outbound child, signal-external, cancel-external, or continue-as-new with a changed id:</strong> rejected in the worker, then again at the Authorizer.</li>
+<li><strong>Activity:</strong> a missing header fails it non-retryably. The database helper refuses a transaction with no tenant.</li>
+<li><strong>Never panic in a guard.</strong> A panic produces a poison loop.</li>
+<li><code>NavaTenantId</code> is for visibility only.</li>
+</ul>
+<p><strong>Signal dedupe (I7):</strong></p>
+<ul>
+<li>The signal payload carries <code>outbox.id</code>. The handler keeps a bounded set of applied ids, carried across continue-as-new.</li>
+<li>The set's window must be longer than the relay's maximum redelivery age, from first attempt to <code>dead_at</code>.</li>
+</ul>
+<h3>A.3 D28: roles, tables, policies</h3>
+<p><strong>Global settings (first migration):</strong></p>
+<ul>
+<li><code>REVOKE ALL ON DATABASE nava FROM PUBLIC</code></li>
+<li><code>REVOKE ALL ON SCHEMA public FROM PUBLIC</code></li>
+<li><code>ALTER DEFAULT PRIVILEGES FOR ROLE nava_migrator REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC</code></li>
+<li><strong>no</strong> default <code>GRANT</code></li>
+</ul>
+<p>Grants come only from the manifest <code>db/grants.yaml</code>. All roles are <code>NOSUPERUSER NOCREATEDB NOCREATEROLE</code>.</p>
+<table>
+<thead>
+<tr>
+  <th>Actor</th>
+  <th>Role</th>
+  <th>Owns</th>
+  <th>Member of</th>
+  <th>BYPASSRLS</th>
+  <th>Access</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>Migrations (one-shot, direct, not through PgBouncer)</td>
+  <td><code>nava_migrator</code></td>
+  <td>all objects, plus <code>datdba</code></td>
+  <td>none; granted to no one</td>
+  <td>No</td>
+  <td>Subject to <code>FORCE</code>. Backfills run per tenant, batched by key range. A post-run check covers RLS, <code>FORCE</code> and <code>PUBLIC</code>/default ACLs.</td>
+</tr>
+<tr>
+  <td>Core API</td>
+  <td><code>nava_app</code></td>
+  <td>—</td>
+  <td>none</td>
+  <td>No</td>
+  <td>Manifest DML under the tenant policy. <code>INSERT</code> on <code>outbox</code> and <code>workflow_ref</code>. <code>binding_lookup</code>.</td>
+</tr>
+<tr>
+  <td>Workflow workers</td>
+  <td><code>nava_worker</code></td>
+  <td>—</td>
+  <td>none</td>
+  <td>No</td>
+  <td>As <code>nava_app</code>. Tenant from the header. <code>INSERT … RETURNING</code> needs matching <code>SELECT</code> grants.</td>
+</tr>
+<tr>
+  <td>Outbox relay</td>
+  <td><code>nava_relay</code></td>
+  <td>—</td>
+  <td>none</td>
+  <td>No</td>
+  <td><code>SELECT</code> on <code>outbox</code> except <code>dedupe_key</code> and <code>last_error</code>. <code>UPDATE (available_at, attempts, last_error, dispatched_at, dead_at)</code>. <code>SELECT</code> on <code>workflow_ref</code> is <strong>not</strong> needed.</td>
+</tr>
+<tr>
+  <td>Purge</td>
+  <td><code>nava_purge</code></td>
+  <td>—</td>
+  <td>none</td>
+  <td>No</td>
+  <td><code>DELETE</code>, plus <code>SELECT</code> on key and predicate columns, through paired <code>FOR SELECT</code> and <code>FOR DELETE</code> policies with the same expiry predicate. Covers <code>idempotency_keys</code> (<code>expires_at &lt; now()</code>), <code>outbox</code> (dispatched &gt; 7 days or dead &gt; 30 days) and <code>workflow_ref</code> (<code>closed_at</code> older than 30 days, an initial value that D23 may change). No audit purge in M1 (D23).</td>
+</tr>
+<tr>
+  <td>Onboarding</td>
+  <td><code>nava_onboard</code></td>
+  <td>—</td>
+  <td>none</td>
+  <td>No</td>
+  <td><code>INSERT</code> on <code>tenants</code> and <code>tenant_identity_binding</code>. <code>SELECT</code> on its own provisioning row. Seeds through the pipeline grants, with <code>WITH CHECK (tenant_id IN (SELECT id FROM tenants WHERE state = 'provisioning'))</code>. Idempotent on the request id.</td>
+</tr>
+<tr>
+  <td>Group sync</td>
+  <td><code>nava_groupsync</code></td>
+  <td>—</td>
+  <td>none</td>
+  <td>No</td>
+  <td><code>binding_lookup</code>. DML on <code>principals</code> (including federated links), <code>groups</code>, <code>group_members</code> and <code>org_units</code>, one transaction per tenant.</td>
+</tr>
+<tr>
+  <td>Backups</td>
+  <td><code>nava_backup</code></td>
+  <td>—</td>
+  <td>none</td>
+  <td>No; <code>REPLICATION</code></td>
+  <td>Physical only. <code>pg_hba</code>: <code>host replication nava_backup &lt;backup-host&gt;</code>, then <strong><code>host all nava_backup 0.0.0.0/0 reject</code></strong> and the IPv6 equivalent, placed <strong>before</strong> any catch-all line.</td>
+</tr>
+<tr>
+  <td>Partition maintenance</td>
+  <td>—</td>
+  <td>—</td>
+  <td>—</td>
+  <td>—</td>
+  <td>No partitioned tenant tables in M1 (D23)</td>
+</tr>
+<tr>
+  <td>Temporal persistence</td>
+  <td><code>temporal</code></td>
+  <td>DBs <code>temporal</code> and <code>temporal_visibility</code></td>
+  <td>none</td>
+  <td>No</td>
+  <td>No <code>CONNECT</code> on <code>nava</code>, and the reverse</td>
+</tr>
+<tr>
+  <td>Keycloak / bootstrap</td>
+  <td><code>keycloak</code> / image superuser</td>
+  <td>own DB / —</td>
+  <td>none</td>
+  <td>—</td>
+  <td>Bootstrap is used by the init script only. It is in no service's environment.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Allow-list: policies that do not test <code>app.tenant_id</code>.</strong> Each names a <code>FOR</code> command and a <code>TO</code> role. None is <code>ALL</code> or <code>PUBLIC</code>.</p>
+<ul>
+<li><code>outbox_relay_select</code>, <code>outbox_relay_update</code></li>
+<li><code>binding_lookup</code> (<code>FOR SELECT TO nava_app, nava_groupsync</code>), <code>binding_onboard</code> (<code>FOR INSERT TO nava_onboard</code>)</li>
+<li><code>idempotency_purge</code>, <code>idempotency_purge_select</code></li>
+<li><code>outbox_purge</code>, <code>outbox_purge_select</code></li>
+</ul>
+<p>That is the 8 entries from round 2. <strong>Plus</strong> <code>workflow_ref_purge</code> and <code>workflow_ref_purge_select</code>, which come from the Postgres retention item the CTO ruled into the ADR. <strong>Total: 10.</strong></p>
+<p><strong><code>outbox</code> columns:</strong></p>
+<ul>
+<li><code>id uuid</code> (UUIDv7) and <code>tenant_id</code>, with PK <code>(tenant_id, id)</code></li>
+<li><code>kind</code>, <code>kind_version</code></li>
+<li><code>dedupe_key</code> with <code>UNIQUE (tenant_id, dedupe_key)</code>, for producer <code>ON CONFLICT DO NOTHING</code></li>
+<li><code>target_key</code>, <code>target_seq bigint</code></li>
+<li><code>causation_id uuid</code>, <code>causation_depth smallint</code> (I9)</li>
+<li><code>payload jsonb</code>, references only</li>
+<li><code>trace_context</code></li>
+<li><code>created_at</code>, <code>available_at</code></li>
+<li><code>attempts</code>, <code>last_error</code></li>
+<li><code>dispatched_at</code>, <code>dead_at</code></li>
+</ul>
+<p><code>outbox</code> indexes:</p>
+<ul>
+<li><code>(tenant_id, available_at) WHERE dispatched_at IS NULL AND dead_at IS NULL</code></li>
+<li><code>(tenant_id, target_key, target_seq)</code> with the same predicate</li>
+</ul>
+<p><strong><code>workflow_ref</code> columns:</strong></p>
+<ul>
+<li><code>tenant_id</code>, <code>record_id</code>, <code>kind</code>, <code>outbox_id uuid</code>, <code>closed_at</code></li>
+<li>Index <code>(tenant_id, record_id, kind, created_at DESC)</code></li>
+<li>The final activity writes <code>closed_at</code>.</li>
+</ul>
+<h3>A.4 Identity port (accepted with ADR-001)</h3>
+<p>The platform reaches the identity provider (IdP) <strong>only</strong> through two Go interfaces in the core, built in Epic 03. Nothing else in the platform talks to the IdP directly: no other code calls the Keycloak admin API, reads Keycloak-specific token claims, or depends on a Keycloak library. The <strong>Keycloak adapter</strong> is the only implementation in M1, and A.1 is its contract.</p>
+<table>
+<thead>
+<tr>
+  <th>Interface</th>
+  <th>What it does</th>
+  <th>Who may call it</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td><strong><code>IdentityResolver</code></strong></td>
+  <td>Takes a validated access token. Returns <code>(tenant_id, principal_id, groups[], idp_alias)</code>, or a typed <code>tenant_unresolved</code> error.</td>
+  <td>The core API's authentication middleware, and nothing else</td>
+</tr>
+<tr>
+  <td><strong><code>DirectoryAdmin</code></strong></td>
+  <td>Creates a tenant organization. Creates, invites and disables users. Manages group membership. Lists directory changes since a cursor.</td>
+  <td>Tenant onboarding (<code>nava_onboard</code>) and group sync (<code>nava_groupsync</code>) only</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Contract every adapter must meet</strong> (adapter-independent; Keycloak meets it as specified in A.1):</p>
+<ul>
+<li><code>tenant_id</code> comes only from <code>tenant_identity_binding</code>, keyed by the IdP's issuer plus an immutable organization identifier, never from a claim value (I2).</li>
+<li>A token that resolves to zero or several tenants is rejected, and so is any doubt about the brokering IdP. It fails closed (401).</li>
+<li><code>groups[]</code> are platform group ids for this tenant, never raw IdP group names from an unverified claim.</li>
+<li><code>DirectoryAdmin</code> never links a brokered login to an existing account by email, and its invite and add-member calls reject a user federated to an IdP that isn't bound to the target tenant (A.1).</li>
+<li>&quot;List changes since a cursor&quot; is how group sync keeps the deprovisioning bound (access-token lifetime plus sync interval).</li>
+</ul>
+<p><strong>Changing the IdP.</strong> A different adapter, for example Zitadel, changes D26. It needs a superseding ADR signed by nava, plus spikes at the depth of A1, A2 and A6 against that IdP. The Technical Architect's assessment lists the epics it would touch (01, 02, 03, 26).</p>
+<p><strong>Revisit Zitadel when</strong> (CTO ruling):</p>
+<ul>
+<li>Zitadel ships native user groups <strong>and</strong> its SCIM support is generally available under AGPL; or</li>
+<li>tenant self-administration (Epic 26) becomes a hard requirement before a spike has proved Keycloak 26.8's per-organization admin permissions.</li>
+</ul>
+<h2>Annex B: acceptance tests</h2>
+<table>
+<thead>
+<tr>
+  <th>#</th>
+  <th>Test</th>
+  <th>Catches</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>CI-1</td>
+  <td>Every tenant table has RLS and <code>FORCE</code>. Every non-tenant policy is on the 10-entry allow-list, with <code>FOR</code> and <code>TO</code>. No <code>SECURITY DEFINER</code> function. Views are <code>security_invoker</code>.</td>
+  <td>I1, I3</td>
+</tr>
+<tr>
+  <td>CI-2</td>
+  <td>Per runtime role: no tenant set, <code>''</code>, and after a prior <code>SET LOCAL</code> through PgBouncer each give 0 rows or an error</td>
+  <td>Fail-open RLS, pool bleed</td>
+</tr>
+<tr>
+  <td>CI-3</td>
+  <td>Recursive <code>pg_auth_members</code> is empty for runtime roles. No one is a member of <code>nava_migrator</code>. <code>pg_has_role(runtime, relowner, 'MEMBER') = false</code>. <code>datdba = nava_migrator</code>. <code>aclexplode(coalesce(acl, acldefault(type, owner)))</code> has no <code>PUBLIC</code> grantee on any platform object.</td>
+  <td>I3</td>
+</tr>
+<tr>
+  <td>CI-4</td>
+  <td><code>has_table_privilege</code>, <code>has_column_privilege</code> and <code>has_function_privilege</code> equal the manifest exactly, for every runtime role</td>
+  <td>Grant creep</td>
+</tr>
+<tr>
+  <td>CI-5</td>
+  <td>All of these are rejected:<br/>• zero or two organizations<br/>• an unknown issuer<br/>• a key from realm X with <code>iss=Y</code><br/>• an ID token used as an access token<br/>• the <code>kc.org</code> tamper<br/>• a brokered login with an existing email<br/>• an out-of-domain brokered user<br/>• an <code>idp</code> not bound to the tenant<br/>• a user federated to a foreign IdP (at login and at invitation)<br/>• a duplicate binding<br/><br/>An in-domain brokered user gets the organization and <code>idp</code>.</td>
+  <td>D26, I2</td>
+</tr>
+<tr>
+  <td>CI-6</td>
+  <td>The following are rejected:<br/>• an unlisted or rogue-CA certificate<br/>• a platform pod connecting to the internal Temporal ports<br/>• a relay, core or worker certificate calling outside its allow-list<br/>• worker-certificate child, signal-external or cancel-external to another tenant, denied by the Authorizer, with an alert<br/>• continue-as-new with a changed id<br/><br/>These still work: a same-tenant child completes. Every SDK client dials and its worker starts.<br/><br/>Other cases:<br/>• no header, or a mismatched header, fails the workflow<br/>• a wrong-tenant signal is dropped and alerts, and the workflow keeps running<br/>• a redelivered start after completion starts no second run<br/>• a redelivered signal is applied once, including across continue-as-new<br/>• a signal queues behind its start<br/>• two relays never reorder one target<br/>• <code>NotFound</code> on a signal is terminal</td>
+  <td>D22, I2, I6, I7</td>
+</tr>
+<tr>
+  <td>CI-7</td>
+  <td>The workflow input and activity payload schema rejects record-data fields</td>
+  <td>R1 creep</td>
+</tr>
+<tr>
+  <td>CI-8</td>
+  <td>Byte-identical 404s. Cross-tenant cursor replay returns 400. Idempotency replay returns the same response, and a different body returns 409. A stale <code>If-Match</code> returns 412. A masked-field filter returns 400.</td>
+  <td>D6, I4, I5, I7</td>
+</tr>
+<tr>
+  <td>CI-9</td>
+  <td><code>nava_relay</code> cannot read <code>records</code>. <code>nava_purge</code> cannot read data columns or unexpired rows, and its purge actually deletes expired rows. <code>nava_onboard</code> cannot write to a non-provisioning tenant. <code>nava_backup</code> is rejected for a SQL session on <code>nava</code> and on <code>postgres</code>, and for a walsender with <code>replication=database</code>.</td>
+  <td>D28</td>
+</tr>
+<tr>
+  <td>CI-10</td>
+  <td>A write cascade beyond the depth limit, or a cycle, is rejected with a typed error and audited</td>
+  <td>I9</td>
+</tr>
+<tr>
+  <td>CI-11</td>
+  <td>Only the identity adapter package imports a Keycloak client, calls the Keycloak admin API or reads Keycloak-specific claims (static import and lint check). <code>IdentityResolver</code> and <code>DirectoryAdmin</code> pass a contract test suite that any future adapter must also pass.</td>
+  <td>A.4 identity port</td>
+</tr>
+</tbody>
+</table>
+<h2>Annex C: carried items</h2>
+<p>These are non-blocking and accepted as the reviewers stated them. Each is already reflected in Annex A or B.</p>
+<p><strong>Security</strong></p>
+<ul>
+<li><strong>S-N1:</strong> unique binding.</li>
+<li><strong>S-N2:</strong> onboarding <code>WITH CHECK</code>; group sync requires org membership.</li>
+<li><strong>S-N3:</strong> <code>FOR</code>/<code>TO</code>-scoped policies.</li>
+<li><strong>S-N4:</strong> ids come from rows; invitation-only adds.</li>
+<li><strong>S-N5:</strong> issuer and key binding.</li>
+<li><strong>Poison head:</strong> terminal on <code>NotFound</code>.</li>
+</ul>
+<p><strong>Postgres</strong></p>
+<ul>
+<li><strong>PG-N1:</strong> <code>set_config</code> lint rule.</li>
+<li><strong>PG-N2:</strong> fair claim shape.</li>
+<li><strong>PG-N3:</strong> onboarding and pipeline grants, and the <code>RETURNING</code> grant.</li>
+<li><strong>PG-N4:</strong> split policies; tenant policies <code>TO</code> the runtime roles.</li>
+<li><strong>PG-N5:</strong> backfills batched by key range.</li>
+<li><strong>PG Q3a:</strong> one manifest.</li>
+<li><strong>FIFO worst-case bound.</strong></li>
+<li><strong><code>workflow_ref</code>:</strong> stores <code>outbox_id</code>, with retention.</li>
+</ul>
+<p><strong>Technical Architect</strong></p>
+<ul>
+<li><strong>Mapper settings.</strong></li>
+<li><strong>Alias immutability:</strong> reasoning corrected.</li>
+<li><strong><code>ContextPropagator</code>.</strong></li>
+<li><strong>Search attribute:</strong> visibility only.</li>
+<li><strong>Guards:</strong> non-retryable, never panic.</li>
+<li><strong>Go and SDK pins:</strong> set together.</li>
+<li><strong>Minimal allow-list.</strong></li>
+<li><strong>Signal behind start.</strong></li>
+<li><strong>Applied-id window.</strong></li>
+<li><strong>R7:</strong> separate module.</li>
+</ul>
+
+</main></body></html>

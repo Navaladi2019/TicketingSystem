@@ -1,0 +1,160 @@
+=== P1 relay: claim pending rows (needs dispatched_at in WHERE) ===
+SET
+psql:/tmp/02_probes.sql:4: ERROR:  permission denied for table outbox
+=== P2 relay: mark dispatched, idempotent guard on dispatched_at IS NULL ===
+psql:/tmp/02_probes.sql:6: ERROR:  permission denied for table outbox
+=== P2b relay: attempts = attempts + 1 (reads attempts) ===
+=== P3 relay: plain read of granted columns (sees all tenants, by design) ===
+psql:/tmp/02_probes.sql:8: ERROR:  permission denied for table outbox
+ count 
+-------
+     2
+(1 row)
+
+RESET
+=== P4 app: identity lookup BEFORE tenant is known (binding table under CI-1 FORCE RLS) ===
+SET
+ tenant_id 
+-----------
+(0 rows)
+
+RESET
+=== P5 worker: idempotent outbox insert (INSERT-only grant) ===
+SET
+BEGIN
+              set_config              
+--------------------------------------
+ 00000000-0000-0000-0000-00000000000a
+(1 row)
+
+INSERT 0 1
+INSERT 0 0
+COMMIT
+=== P5b worker: INSERT ... RETURNING id with INSERT-only grant ===
+BEGIN
+              set_config              
+--------------------------------------
+ 00000000-0000-0000-0000-00000000000a
+(1 row)
+
+ROLLBACK
+=== P6 worker: insert outbox row for ANOTHER tenant (WITH CHECK) ===
+psql:/tmp/02_probes.sql:26: ERROR:  permission denied for table outbox
+BEGIN
+              set_config              
+--------------------------------------
+ 00000000-0000-0000-0000-00000000000a
+(1 row)
+
+psql:/tmp/02_probes.sql:30: ERROR:  new row violates row-level security policy for table "outbox"
+ROLLBACK
+RESET
+=== P7 A4: setting value after SET LOCAL txn ends, same session ===
+SET
+ before_any 
+------------
+ ''
+(1 row)
+
+BEGIN
+              set_config              
+--------------------------------------
+ 00000000-0000-0000-0000-00000000000a
+(1 row)
+
+ in_txn 
+--------
+      1
+(1 row)
+
+COMMIT
+ after_local | rows_visible 
+-------------+--------------
+ ''          |            0
+(1 row)
+
+=== P8 app: garbage tenant string -> error (fail closed) ===
+BEGIN
+ set_config 
+------------
+ not-a-uuid
+(1 row)
+
+psql:/tmp/02_probes.sql:40: ERROR:  invalid input syntax for type uuid: "not-a-uuid"
+ROLLBACK
+=== P9 app: runtime role can re-point its own tenant mid-txn (GUC is user-settable) ===
+BEGIN
+              set_config              
+--------------------------------------
+ 00000000-0000-0000-0000-00000000000a
+(1 row)
+
+              set_config              
+--------------------------------------
+ 00000000-0000-0000-0000-00000000000b
+(1 row)
+
+              tenant_id               
+--------------------------------------
+ 00000000-0000-0000-0000-00000000000b
+(1 row)
+
+ROLLBACK
+RESET
+=== P10 PUBLIC grant: a stray GRANT TO PUBLIC reaches nava_relay; CI-3 membership query sees nothing ===
+SET
+GRANT
+RESET
+ ci3_membership_rows_for_relay 
+-------------------------------
+                             0
+(1 row)
+
+SET
+BEGIN
+              set_config              
+--------------------------------------
+ 00000000-0000-0000-0000-00000000000b
+(1 row)
+
+ relay_reads_records 
+---------------------
+                   1
+(1 row)
+
+ROLLBACK
+RESET
+SET
+REVOKE
+RESET
+=== P11 default EXECUTE on functions to PUBLIC ===
+SET
+CREATE FUNCTION
+RESET
+ relay_can_exec_new_fn 
+-----------------------
+ t
+(1 row)
+
+=== P12 migrator (owner) under FORCE, no tenant: rows visible? can it turn FORCE off? ===
+SET
+ owner_rows 
+------------
+          0
+(1 row)
+
+BEGIN
+ALTER TABLE
+ owner_rows_after_noforce 
+--------------------------
+                        2
+(1 row)
+
+ROLLBACK
+RESET
+=== P13 app session tries SET ROLE nava_migrator ===
+SET
+SET
+RESET
+=== P13 login as nava_app
+ERROR:  permission denied to set role "nava_migrator"
