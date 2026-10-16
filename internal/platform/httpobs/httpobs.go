@@ -24,6 +24,9 @@ const RequestIDHeader = "X-Request-Id"
 // a label value: they are unbounded and may carry ids.
 const unmatchedRoute = "unmatched"
 
+// otherMethod labels any method outside the standard set, for the same reason.
+const otherMethod = "OTHER"
+
 // Metrics holds the RED metrics for HTTP requests.
 type Metrics struct {
 	requests *prometheus.CounterVec
@@ -84,8 +87,9 @@ func Middleware(log *slog.Logger, m *Metrics, mux *http.ServeMux) http.Handler {
 		status := rec.statusCode()
 		elapsed := time.Since(start)
 		class := strconv.Itoa(status/100) + "xx"
-		m.requests.WithLabelValues(r.Method, route, class).Inc()
-		m.duration.WithLabelValues(r.Method, route, class).Observe(elapsed.Seconds())
+		method := methodLabel(r.Method)
+		m.requests.WithLabelValues(method, route, class).Inc()
+		m.duration.WithLabelValues(method, route, class).Observe(elapsed.Seconds())
 
 		reqLog.LogAttrs(ctx, slog.LevelInfo, "http request",
 			slog.String("method", r.Method),
@@ -114,6 +118,19 @@ func Logger(ctx context.Context, fallback *slog.Logger) *slog.Logger {
 		return l
 	}
 	return fallback
+}
+
+// methodLabel maps the request method onto a fixed set. net/http accepts any
+// token as a method, so the raw value would let one client grow /metrics
+// without bound.
+func methodLabel(method string) string {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch,
+		http.MethodDelete, http.MethodOptions, http.MethodConnect, http.MethodTrace:
+		return method
+	default:
+		return otherMethod
+	}
 }
 
 func newRequestID() string {

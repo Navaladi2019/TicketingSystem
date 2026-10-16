@@ -51,7 +51,12 @@ func newHarness(t *testing.T) *harness {
 
 func (h *harness) do(t *testing.T, path, traceparent string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
+	return h.doMethod(t, http.MethodGet, path, traceparent)
+}
+
+func (h *harness) doMethod(t *testing.T, method, path, traceparent string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequestWithContext(t.Context(), method, path, nil)
 	if traceparent != "" {
 		req.Header.Set(trace.Header, traceparent)
 	}
@@ -134,17 +139,28 @@ func TestMetricsLabelByRoutePatternAndStatusClass(t *testing.T) {
 	h.do(t, "/items/1", "")
 	h.do(t, "/items/2", "")
 	h.do(t, "/nope/secret-id", "")
+	// Made-up methods collapse into one OTHER series, however many a client invents.
+	for _, m := range []string{"FOO1", "FOO2", "XYZ"} {
+		h.doMethod(t, m, "/items/1", "")
+	}
 
 	want := `
 # HELP http_requests_total HTTP requests completed, by method, route pattern and status class.
 # TYPE http_requests_total counter
 http_requests_total{method="GET",route="GET /items/{id}",status_class="4xx"} 2
 http_requests_total{method="GET",route="unmatched",status_class="4xx"} 1
+http_requests_total{method="OTHER",route="unmatched",status_class="4xx"} 3
 `
 	if err := testutil.GatherAndCompare(h.reg, strings.NewReader(want), "http_requests_total"); err != nil {
 		t.Error(err)
 	}
-	if n := testutil.CollectAndCount(h.reg, "http_request_duration_seconds"); n != 2 {
-		t.Errorf("duration series = %d, want 2", n)
+	if n := testutil.CollectAndCount(h.reg, "http_request_duration_seconds"); n != 3 {
+		t.Errorf("duration series = %d, want 3", n)
+	}
+
+	// The access log keeps the raw method for drill-down.
+	lines := h.lines(t)
+	if got := lines[len(lines)-1]["method"]; got != "XYZ" {
+		t.Errorf("access line method = %v, want the raw XYZ", got)
 	}
 }

@@ -1,0 +1,12 @@
+# Go sources and config are LF on every checkout, so gofmt and golangci-lint
+# agree on Windows (core.autocrlf=true) and Linux alike.
+*.go     text eol=lf
+go.mod   text eol=lf
+go.sum   text eol=lf
+*.yml    text eol=lf
+*.yaml   text eol=lf
+Makefile text eol=lf
+
+# docs/ (ADRs, spike evidence) is kept byte-for-byte as recorded.
+docs/**  -text
+docs/go.mod text eol=lf
