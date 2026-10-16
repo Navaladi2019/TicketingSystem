@@ -1,0 +1,31 @@
+# Local task runner (go-task v3, https://taskfile.dev), handy on Windows hosts
+# without make. Keep these commands in step with the Makefile, which stays the
+# CI entry point (T05).
+version: "3"
+
+tasks:
+  default:
+    desc: List the available tasks
+    cmds:
+      - task --list
+    silent: true
+
+  build:
+    desc: Build the nava-core binary into bin/
+    cmds:
+      - go build -o bin/nava-core{{exeExt}} ./cmd/nava-core
+
+  test:
+    desc: Run all tests with the race detector (needs cgo), the same as make test
+    cmds:
+      - go test -race ./...
+
+  test:short:
+    desc: Run all tests without the race detector, for hosts with no cgo
+    cmds:
+      - go test ./...
+
+  lint:
+    desc: Run golangci-lint
+    cmds:
+      - golangci-lint run ./...

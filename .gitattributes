@@ -6,6 +6,7 @@ go.sum   text eol=lf
 *.yml    text eol=lf
 *.yaml   text eol=lf
 Makefile text eol=lf
+Taskfile.yml text eol=lf
 
 # docs/ (ADRs, spike evidence) is kept byte-for-byte as recorded.
 docs/**  -text

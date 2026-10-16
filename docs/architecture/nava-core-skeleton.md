@@ -17,6 +17,22 @@ PLAN-001 T01 (TICK-50). This is the shape every later task builds on.
 
 Go is pinned by `go.mod` (`go 1.26.0`, `toolchain go1.26.9`); SDK v1.49.0 needs Go ≥ 1.26 (ADR-001 §3).
 
+## Running locally
+
+You need Go 1.26 (a newer `go` command fetches the pinned toolchain itself) and golangci-lint v2. You also need one of the two task runners:
+- **make.** The `Makefile` is the CI entry point (T05).
+- **[go-task v3](https://taskfile.dev).** `Taskfile.yml` mirrors the Makefile, for hosts without make, such as Windows. Install it with `go install github.com/go-task/task/v3/cmd/task@latest`, `winget install Task.Task`, `scoop install task` or `brew install go-task`.
+
+| make | task | Does |
+|---|---|---|
+| — | `task` | Lists the tasks (`task --list`) |
+| `make build` | `task build` | `go build -o bin/nava-core ./cmd/nava-core` (`.exe` on Windows with task) |
+| `make test` | `task test` | `go test -race ./...` (the race detector needs cgo) |
+| — | `task test:short` | `go test ./...`, for hosts with no cgo |
+| `make lint` | `task lint` | `golangci-lint run ./...` |
+
+The two files must stay in step: a change to one is a change to the other. Run the binary with `bin/nava-core` and check `GET http://localhost:8080/metrics`.
+
 ## Request path
 
 ```mermaid

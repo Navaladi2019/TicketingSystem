@@ -1,3 +1,6 @@
+# CI entry point (T05). Taskfile.yml mirrors these commands for local use
+# (go-task); keep the two in step.
+
 GOLANGCI_LINT ?= golangci-lint
 
 .PHONY: build test lint
