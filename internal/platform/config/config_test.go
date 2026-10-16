@@ -74,3 +74,64 @@ func TestLoadInvalidReportsEveryKeyWithoutValues(t *testing.T) {
 		t.Errorf("error echoes the invalid value: %q", msg)
 	}
 }
+
+func TestLoadTelemetryDefaults(t *testing.T) {
+	t.Parallel()
+	cfg, err := config.Load(env(nil))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := config.Telemetry{
+		ServiceName:  "nava-core",
+		OTLPEndpoint: "",
+		Sampler:      config.SamplerParentBasedTraceIDRatio,
+		SamplerArg:   1.0,
+	}
+	if cfg.Telemetry != want {
+		t.Errorf("Telemetry = %+v, want %+v", cfg.Telemetry, want)
+	}
+}
+
+func TestLoadTelemetryOverrides(t *testing.T) {
+	t.Parallel()
+	cfg, err := config.Load(env(map[string]string{
+		"OTEL_SERVICE_NAME":           "nava-core-eu",
+		"OTEL_EXPORTER_OTLP_ENDPOINT": "http://collector:4318",
+		"OTEL_TRACES_SAMPLER":         "TraceIdRatio",
+		"OTEL_TRACES_SAMPLER_ARG":     "0.25",
+	}))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := config.Telemetry{
+		ServiceName:  "nava-core-eu",
+		OTLPEndpoint: "http://collector:4318",
+		Sampler:      config.SamplerTraceIDRatio,
+		SamplerArg:   0.25,
+	}
+	if cfg.Telemetry != want {
+		t.Errorf("Telemetry = %+v, want %+v", cfg.Telemetry, want)
+	}
+}
+
+func TestLoadTelemetryInvalidNeverEchoesValues(t *testing.T) {
+	t.Parallel()
+	const secretish = "user:s3cr3t@" // a credential pasted into the endpoint
+	_, err := config.Load(env(map[string]string{
+		"OTEL_EXPORTER_OTLP_ENDPOINT": "ftp://" + secretish + "collector",
+		"OTEL_TRACES_SAMPLER":         "jaeger_remote",
+		"OTEL_TRACES_SAMPLER_ARG":     "1.5",
+	}))
+	if err == nil {
+		t.Fatal("Load: want error, got nil")
+	}
+	msg := err.Error()
+	for _, key := range []string{"OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_TRACES_SAMPLER:", "OTEL_TRACES_SAMPLER_ARG"} {
+		if !strings.Contains(msg, key) {
+			t.Errorf("error %q does not name %s", msg, key)
+		}
+	}
+	if strings.Contains(msg, "s3cr3t") {
+		t.Errorf("error echoes the invalid value: %q", msg)
+	}
+}

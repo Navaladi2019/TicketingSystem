@@ -1,142 +1,99 @@
-// Package httpobs is the HTTP observability middleware: a request id, the W3C
-// trace context, a request-scoped logger, one access-log line per request and
-// RED metrics. It wraps a *http.ServeMux so it can label by route pattern.
+// Package httpobs is the HTTP observability edge for the public listener:
+// a server-generated request id, OpenTelemetry tracing and metrics through
+// otelhttp, and one access-log line per request.
+//
+// The listener is a trace trust boundary. otelhttp treats every request as a
+// public endpoint (WithPublicEndpointFn returning true), so every request starts a new root span with a
+// server-generated trace id, and a valid inbound traceparent is only linked.
+// The propagator is TraceContext only, so inbound baggage is dropped.
 package httpobs
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/propagation"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
+	"go.opentelemetry.io/otel/trace"
 
-	"github.com/Navaladi2019/TicketingSystem/internal/platform/trace"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/requestid"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
 )
 
-// RequestIDHeader is echoed on every response so a caller can quote it.
-const RequestIDHeader = "X-Request-Id"
-
-// unmatchedRoute labels requests no route matched. Raw paths are never used as
-// a label value: they are unbounded and may carry ids.
+// unmatchedRoute is what the access log shows when no route matched. Raw
+// paths are never logged as the route: they are unbounded and may carry ids.
 const unmatchedRoute = "unmatched"
 
-// otherMethod labels any method outside the standard set, for the same reason.
-const otherMethod = "OTHER"
-
-// Metrics holds the RED metrics for HTTP requests.
-type Metrics struct {
-	requests *prometheus.CounterVec
-	duration *prometheus.HistogramVec
-}
-
-// NewMetrics registers the HTTP metrics on reg. Labels are bounded: method,
-// route pattern and status class. Never tenant or user ids.
-func NewMetrics(reg prometheus.Registerer) (*Metrics, error) {
-	labels := []string{"method", "route", "status_class"}
-	m := &Metrics{
-		requests: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "http_requests_total",
-			Help: "HTTP requests completed, by method, route pattern and status class.",
-		}, labels),
-		duration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "http_request_duration_seconds",
-			Help:    "HTTP request latency, by method, route pattern and status class.",
-			Buckets: prometheus.DefBuckets,
-		}, labels),
-	}
-	for _, c := range []prometheus.Collector{m.requests, m.duration} {
-		if err := reg.Register(c); err != nil {
-			return nil, err
-		}
-	}
-	return m, nil
-}
-
-// Middleware wraps mux. Each request gets a server-generated request id and a
-// span context (continuing an inbound traceparent), both in its context and in
-// a derived logger; on completion it logs one line and records the metrics.
-func Middleware(log *slog.Logger, m *Metrics, mux *http.ServeMux) http.Handler {
+// Middleware wraps mux, outermost first:
+//
+//  1. request id: generated, put in the context and echoed in X-Request-Id;
+//  2. otelhttp: new root span (inbound traceparent linked), server metrics;
+//  3. access: route attribute on the span and the access-log line.
+//
+// Nothing between otelhttp and mux may replace the *http.Request, because
+// otelhttp reads r.Pattern from the request it handed down.
+func Middleware(log *slog.Logger, tel *telemetry.Telemetry, mux *http.ServeMux) http.Handler {
+	traced := otelhttp.NewHandler(access(log, tel.Propagator, mux), "nava-core",
+		otelhttp.WithTracerProvider(tel.TracerProvider),
+		otelhttp.WithMeterProvider(tel.MeterProvider),
+		otelhttp.WithPropagators(tel.Propagator),
+		// Every request on this listener is public. This is what the removed
+		// otelhttp.WithPublicEndpoint() did.
+		otelhttp.WithPublicEndpointFn(func(*http.Request) bool { return true }),
+	)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		reqID := newRequestID()
-		sc := trace.FromRequest(r.Header.Get(trace.Header))
-		reqLog := log.With(
-			slog.String("request_id", reqID),
-			slog.String("trace_id", sc.TraceIDString()),
-			slog.String("span_id", sc.SpanIDString()),
-		)
-
-		ctx := trace.WithSpanContext(r.Context(), sc)
-		ctx = context.WithValue(ctx, requestIDKey{}, reqID)
-		ctx = context.WithValue(ctx, loggerKey{}, reqLog)
-		r = r.WithContext(ctx)
-
-		w.Header().Set(RequestIDHeader, reqID)
-		rec := &statusRecorder{ResponseWriter: w}
-		mux.ServeHTTP(rec, r)
-
-		// ServeMux sets r.Pattern on the request it routed.
-		route := r.Pattern
-		if route == "" {
-			route = unmatchedRoute
-		}
-		status := rec.statusCode()
-		elapsed := time.Since(start)
-		class := strconv.Itoa(status/100) + "xx"
-		method := methodLabel(r.Method)
-		m.requests.WithLabelValues(method, route, class).Inc()
-		m.duration.WithLabelValues(method, route, class).Observe(elapsed.Seconds())
-
-		reqLog.LogAttrs(ctx, slog.LevelInfo, "http request",
-			slog.String("method", r.Method),
-			slog.String("route", route),
-			slog.Int("status", status),
-			slog.Duration("duration", elapsed),
-		)
+		id := requestid.New()
+		w.Header().Set(requestid.Header, id)
+		traced.ServeHTTP(w, r.WithContext(requestid.NewContext(r.Context(), id)))
 	})
 }
 
-type (
-	requestIDKey struct{}
-	loggerKey    struct{}
-)
+func access(log *slog.Logger, prop propagation.TextMapPropagator, mux *http.ServeMux) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rec := &statusRecorder{ResponseWriter: w}
+		mux.ServeHTTP(rec, r)
 
-// RequestID returns the request id in ctx, or "" outside a request.
-func RequestID(ctx context.Context) string {
-	id, _ := ctx.Value(requestIDKey{}).(string)
-	return id
+		ctx := r.Context()
+		route := unmatchedRoute
+		if r.Pattern != "" { // ServeMux set it on this same request
+			route = r.Pattern
+			// otelhttp names the span after routing but sets http.route only
+			// on metrics; the span gets it here. Unmatched requests get none.
+			trace.SpanFromContext(ctx).SetAttributes(semconv.HTTPRoute(routePath(r.Pattern)))
+		}
+
+		attrs := []slog.Attr{
+			slog.String("method", r.Method),
+			slog.String("route", route),
+			slog.Int("status", rec.statusCode()),
+			slog.Duration("duration", time.Since(start)),
+		}
+		if in := inboundSpanContext(prop, r.Header); in.IsValid() {
+			attrs = append(attrs, slog.String("inbound_trace_id", in.TraceID().String()))
+		}
+		log.LogAttrs(ctx, slog.LevelInfo, "http request", attrs...)
+	})
 }
 
-// Logger returns the request-scoped logger in ctx, or fallback outside a
-// request. Handlers log through it so every line carries the request ids.
-func Logger(ctx context.Context, fallback *slog.Logger) *slog.Logger {
-	if l, ok := ctx.Value(loggerKey{}).(*slog.Logger); ok {
-		return l
+// inboundSpanContext decodes the caller's traceparent, the one otelhttp
+// linked. It is logged for correlation and never becomes the parent.
+func inboundSpanContext(prop propagation.TextMapPropagator, h http.Header) trace.SpanContext {
+	return trace.SpanContextFromContext(prop.Extract(context.Background(), propagation.HeaderCarrier(h)))
+}
+
+// routePath strips the method from a ServeMux pattern ("GET /items/{id}" →
+// "/items/{id}"), as otelhttp does for the metric's http.route.
+func routePath(pattern string) string {
+	for i := range len(pattern) {
+		if pattern[i] == '/' {
+			return pattern[i:]
+		}
 	}
-	return fallback
-}
-
-// methodLabel maps the request method onto a fixed set. net/http accepts any
-// token as a method, so the raw value would let one client grow /metrics
-// without bound.
-func methodLabel(method string) string {
-	switch method {
-	case http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch,
-		http.MethodDelete, http.MethodOptions, http.MethodConnect, http.MethodTrace:
-		return method
-	default:
-		return otherMethod
-	}
-}
-
-func newRequestID() string {
-	var b [16]byte
-	_, _ = rand.Read(b[:]) // crypto/rand.Read never returns an error (Go ≥ 1.24)
-	return hex.EncodeToString(b[:])
+	return pattern
 }
 
 type statusRecorder struct {

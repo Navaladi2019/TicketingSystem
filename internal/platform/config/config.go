@@ -7,14 +7,17 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
 
 // Config is the full nava-core configuration.
 type Config struct {
-	HTTP HTTP
-	Log  Log
+	HTTP      HTTP
+	Log       Log
+	Telemetry Telemetry
 }
 
 // HTTP configures the API listener.
@@ -32,6 +35,25 @@ type Log struct {
 	Level  slog.Level // NAVA_LOG_LEVEL: debug, info, warn, error
 	Format string     // NAVA_LOG_FORMAT: json or text
 }
+
+// Telemetry configures OpenTelemetry. It uses the standard OTEL_* names, read
+// here like every other variable, so the SDK never reads them behind our back.
+type Telemetry struct {
+	ServiceName  string  // OTEL_SERVICE_NAME
+	OTLPEndpoint string  // OTEL_EXPORTER_OTLP_ENDPOINT; empty means no trace exporter
+	Sampler      string  // OTEL_TRACES_SAMPLER
+	SamplerArg   float64 // OTEL_TRACES_SAMPLER_ARG: the ratio for the *traceidratio samplers
+}
+
+// Trace samplers, as named by the OpenTelemetry environment specification.
+const (
+	SamplerAlwaysOn                = "always_on"
+	SamplerAlwaysOff               = "always_off"
+	SamplerTraceIDRatio            = "traceidratio"
+	SamplerParentBasedAlwaysOn     = "parentbased_always_on"
+	SamplerParentBasedAlwaysOff    = "parentbased_always_off"
+	SamplerParentBasedTraceIDRatio = "parentbased_traceidratio"
+)
 
 // Log formats.
 const (
@@ -60,6 +82,14 @@ func Load(lookup LookupFunc) (Config, error) {
 		Log: Log{
 			Level:  r.level("NAVA_LOG_LEVEL", slog.LevelInfo),
 			Format: r.oneOf("NAVA_LOG_FORMAT", FormatJSON, FormatJSON, FormatText),
+		},
+		Telemetry: Telemetry{
+			ServiceName:  r.str("OTEL_SERVICE_NAME", "nava-core"),
+			OTLPEndpoint: r.endpoint("OTEL_EXPORTER_OTLP_ENDPOINT"),
+			Sampler: r.oneOf("OTEL_TRACES_SAMPLER", SamplerParentBasedTraceIDRatio,
+				SamplerAlwaysOn, SamplerAlwaysOff, SamplerTraceIDRatio,
+				SamplerParentBasedAlwaysOn, SamplerParentBasedAlwaysOff, SamplerParentBasedTraceIDRatio),
+			SamplerArg: r.ratio("OTEL_TRACES_SAMPLER_ARG", 1.0),
 		},
 	}
 	if err := errors.Join(r.errs...); err != nil {
@@ -119,4 +149,32 @@ func (r *reader) oneOf(key, def string, allowed ...string) string {
 	}
 	r.errs = append(r.errs, fmt.Errorf("%s: want one of %s", key, strings.Join(allowed, ", ")))
 	return def
+}
+
+func (r *reader) ratio(key string, def float64) float64 {
+	v, ok := r.lookup(key)
+	if !ok || v == "" {
+		return def
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil || f < 0 || f > 1 {
+		r.errs = append(r.errs, fmt.Errorf("%s: want a number from 0 to 1", key))
+		return def
+	}
+	return f
+}
+
+// endpoint accepts an absolute http or https base URL, or nothing. It never
+// echoes the value: an endpoint URL can carry credentials.
+func (r *reader) endpoint(key string) string {
+	v, ok := r.lookup(key)
+	if !ok || v == "" {
+		return ""
+	}
+	u, err := url.Parse(v)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		r.errs = append(r.errs, fmt.Errorf("%s: want an http or https base URL", key))
+		return ""
+	}
+	return v
 }

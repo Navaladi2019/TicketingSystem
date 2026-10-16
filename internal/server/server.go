@@ -6,32 +6,19 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/httpobs"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
 )
 
-// NewHandler returns the root handler. It uses its own registry, never the
-// Prometheus default one, so there is no package-level metric state.
-func NewHandler(log *slog.Logger) (http.Handler, error) {
-	reg := prometheus.NewRegistry()
-	if err := reg.Register(collectors.NewGoCollector()); err != nil {
-		return nil, err
-	}
-	if err := reg.Register(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{})); err != nil {
-		return nil, err
-	}
-	m, err := httpobs.NewMetrics(reg)
-	if err != nil {
-		return nil, err
-	}
-
+// NewHandler returns the root handler. /metrics serves the telemetry
+// registry, never the Prometheus default one.
+func NewHandler(log *slog.Logger, tel *telemetry.Telemetry) http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("GET /metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{Registry: reg}))
-	return httpobs.Middleware(log, m, mux), nil
+	mux.Handle("GET /metrics", promhttp.HandlerFor(tel.Registry, promhttp.HandlerOpts{Registry: tel.Registry}))
+	return httpobs.Middleware(log, tel, mux)
 }
 
 // New returns an *http.Server with every timeout set from cfg.

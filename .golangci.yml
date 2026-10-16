@@ -18,6 +18,7 @@ linters:
   settings:
     sloglint:
       attr-only: true # slog.String(...) attributes, never loose key/value pairs
+      context: all # *Context methods only, so every line carries the request ids
     revive:
       rules:
         - name: exported
