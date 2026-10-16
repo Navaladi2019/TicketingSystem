@@ -90,6 +90,9 @@ func adrAllows(id Identity, fullAPI string) bool {
 		if strings.Contains(method, "NexusEndpoint") {
 			return false // "the Nexus endpoint calls" are denied
 		}
+		if svc == api.AdminServicePrefix && strings.Contains(method, "ReplicationMessages") {
+			return false // they move replication ack levels: writes behind a Get name
+		}
 		for _, p := range []string{"Describe", "List", "Count", "Get"} {
 			if strings.HasPrefix(method, p) {
 				return true

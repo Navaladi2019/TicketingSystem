@@ -59,6 +59,8 @@ var allowList = map[Identity][]string{
 	// Reads (Describe*, List*, Count*, Get*) of the three services, and two
 	// operational calls named one by one. The Nexus endpoint reads are denied:
 	// the grooming row denies "the Nexus endpoint calls" and M1 has no Nexus.
+	// The admin Get*ReplicationMessages calls are denied too: the caller's ack
+	// position moves replication ack levels, so they are writes (TICK-53 review).
 	// The operator-network restriction is T28's; the Authorizer cannot see it.
 	Operator: {
 		wf + "DescribeNamespace",
@@ -106,9 +108,6 @@ var allowList = map[Identity][]string{
 		adm + "ListHistoryTasks",
 		adm + "GetWorkflowExecutionRawHistoryV2",
 		adm + "GetWorkflowExecutionRawHistory",
-		adm + "GetReplicationMessages",
-		adm + "GetNamespaceReplicationMessages",
-		adm + "GetDLQReplicationMessages",
 		adm + "GetSearchAttributes",
 		adm + "DescribeCluster",
 		adm + "ListClusters",
@@ -178,6 +177,9 @@ var deniedByDefault = []string{
 	adm + "CloseShard",
 	adm + "RemoveTask",
 	adm + "ReapplyEvents",
+	adm + "GetReplicationMessages",
+	adm + "GetNamespaceReplicationMessages",
+	adm + "GetDLQReplicationMessages",
 	adm + "AddSearchAttributes",
 	adm + "RemoveSearchAttributes",
 	adm + "AddOrUpdateRemoteCluster",

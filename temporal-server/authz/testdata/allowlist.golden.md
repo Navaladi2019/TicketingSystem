@@ -133,11 +133,11 @@ go.temporal.io/api v1.50.1, go.temporal.io/server v1.28.4. `Y` = allowed in name
 | ForceUnloadTaskQueuePartition | nava | | | | | Y |
 | GenerateLastHistoryReplicationTasks | nava | | | | | Y |
 | GetDLQMessages | - | | | | Y | Y |
-| GetDLQReplicationMessages | - | | | | Y | Y |
+| GetDLQReplicationMessages | - | | | | | Y |
 | GetDLQTasks | - | | | | Y | Y |
 | GetNamespace | nava | | | | Y | Y |
-| GetNamespaceReplicationMessages | - | | | | Y | Y |
-| GetReplicationMessages | - | | | | Y | Y |
+| GetNamespaceReplicationMessages | - | | | | | Y |
+| GetReplicationMessages | - | | | | | Y |
 | GetSearchAttributes | nava | | | | Y | Y |
 | GetShard | - | | | | Y | Y |
 | GetTaskQueueTasks | nava | | | | Y | Y |
