@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -221,7 +222,8 @@ func TestSpanHasRouteAndNoForbiddenAttributes(t *testing.T) {
 	}
 	for _, k := range []string{
 		"url.path", "url.query", "url.full", "user_agent.original", "client.address",
-		"network.peer.address", "network.peer.port",
+		"network.peer.address", "network.peer.port", "server.port", "http.request.method_original",
+		"network.protocol.version",
 	} {
 		if v, ok := attrs[attribute.Key(k)]; ok {
 			t.Errorf("span carries forbidden %s = %q", k, v)
@@ -231,6 +233,88 @@ func TestSpanHasRouteAndNoForbiddenAttributes(t *testing.T) {
 		if strings.Contains(v, "42") || strings.Contains(v, "a@b.test") || strings.Contains(v, "203.0.113.7") {
 			t.Errorf("span attribute %s = %q leaks a raw request value", k, v)
 		}
+	}
+}
+
+// TestServerSpanAttributeKeysAreGolden is the allow-list behind the filter's
+// deny-list. One request carries every client-controlled input; the server
+// span's key set must equal the expected set exactly. A key added by an
+// otelhttp upgrade fails here until someone decides whether it may leave the
+// process (deny it in telemetry.spanAttributeAllowed, or add it below).
+func TestServerSpanAttributeKeysAreGolden(t *testing.T) {
+	t.Parallel()
+	const (
+		host       = "tenant-a.evil.test:9"
+		remoteAddr = "198.51.100.23:4567"
+		xff        = "203.0.113.7"
+		agent      = "curl/8.0 secret-agent"
+		query      = "email=a@b.test&token=s3cr3t"
+	)
+	tests := []struct {
+		name, method string
+		want         []string
+	}{
+		{
+			name:   "matched route",
+			method: http.MethodGet,
+			want: []string{
+				"server.address", // WithServerName: "nava-core", never the Host header
+				"http.request.method",
+				"url.scheme",
+				"http.response.status_code",
+				"http.route", // set by httpobs from r.Pattern
+			},
+		},
+		{
+			name:   "made-up method",
+			method: "FOO",
+			want: []string{
+				"server.address",
+				"http.request.method", // _OTHER
+				"url.scheme",
+				"http.response.status_code",
+				"http.response.body.size", // ServeMux writes the 405 body
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h := newHarness(t, 1)
+			req := httptest.NewRequestWithContext(t.Context(), tc.method, "/items/42?"+query, nil)
+			req.Host = host
+			req.RemoteAddr = remoteAddr
+			req.Header.Set("User-Agent", agent)
+			req.Header.Set("X-Forwarded-For", xff)
+			req.Header.Set("traceparent", inbound)
+			h.handler.ServeHTTP(httptest.NewRecorder(), req)
+
+			attrs := attrMap(h.onlySpan(t).Attributes())
+			got := make([]string, 0, len(attrs))
+			for k := range attrs {
+				got = append(got, string(k))
+			}
+			slices.Sort(got)
+			want := slices.Sorted(slices.Values(tc.want))
+			if !slices.Equal(got, want) {
+				t.Errorf("span attribute keys = %v, want %v. A new key needs a decision: "+
+					"deny it in telemetry.spanAttributeAllowed or add it to this test.", got, want)
+			}
+
+			if attrs["server.address"] != "nava-core" {
+				t.Errorf("server.address = %q, want nava-core", attrs["server.address"])
+			}
+			for k, v := range attrs {
+				for _, raw := range []string{"tenant-a.evil.test", "198.51.100.23", "4567", xff, agent, "a@b.test", "s3cr3t", "/items/42", "FOO"} {
+					if strings.Contains(v, raw) {
+						t.Errorf("span attribute %s = %q leaks client value %q", k, v, raw)
+					}
+				}
+				if v == "9" {
+					t.Errorf("span attribute %s = %q is the Host header's port", k, v)
+				}
+			}
+		})
 	}
 }
 

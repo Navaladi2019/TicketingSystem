@@ -59,7 +59,9 @@ func (h *ContextHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 }
 
 // WithGroup implements slog.Handler. Correlation attributes added after a
-// group is opened land inside that group.
+// group is opened land inside that group (x.trace_id), which breaks log
+// queries that join on trace_id. Do not call WithGroup on a logger used in
+// request scope; group with slog.Group attributes instead. Revisit in T17.
 func (h *ContextHandler) WithGroup(name string) slog.Handler {
 	return &ContextHandler{next: h.next.WithGroup(name)}
 }

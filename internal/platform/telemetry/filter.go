@@ -10,15 +10,23 @@ import (
 )
 
 // spanAttributeAllowed is the span attribute deny-list. Raw paths, queries,
-// user agents and client or peer addresses carry ids and PII, which must not
-// leave the process once an exporter is on. The rule is enforced here, on
-// every tracer the provider hands out, not left to each call site.
+// user agents, client or peer addresses, the Host header's port, a raw
+// non-standard method and the protocol version are client-chosen values that may carry ids and PII;
+// none may leave the process once an exporter is on. The rule is enforced
+// here, on every tracer the provider hands out, not left to each call site.
+//
+// It is a deny-list because application spans need free attribute keys. The
+// golden key-set test in httpobs is the allow-list that backs it: a key a
+// future otelhttp release adds fails that test until someone decides on it.
 func spanAttributeAllowed(kv attribute.KeyValue) bool {
 	switch kv.Key {
 	case "url.path", "url.query", "url.full",
 		"user_agent.original",
 		"client.address", "client.port",
-		"network.peer.address", "network.peer.port":
+		"network.peer.address", "network.peer.port",
+		"server.port", // from the Host header when the server name has no port
+		"http.request.method_original",
+		"network.protocol.version": // the client picks it from HTTP/1.0 to HTTP/1.9
 		return false
 	}
 	return !strings.HasPrefix(string(kv.Key), "http.request.header.")
@@ -52,7 +60,7 @@ func (t filteringTracer) Start(ctx context.Context, name string, opts ...trace.S
 	cfg := trace.NewSpanStartConfig(opts...)
 	clean := []trace.SpanStartOption{
 		trace.WithAttributes(filterSpanAttributes(cfg.Attributes())...),
-		trace.WithLinks(cfg.Links()...),
+		trace.WithLinks(cleanLinks(cfg.Links())...),
 		trace.WithSpanKind(cfg.SpanKind()),
 	}
 	if cfg.NewRoot() {
@@ -64,6 +72,19 @@ func (t filteringTracer) Start(ctx context.Context, name string, opts ...trace.S
 	ctx, span := t.Tracer.Start(ctx, name, clean...)
 	fs := filteringSpan{Span: span}
 	return trace.ContextWithSpan(ctx, fs), fs
+}
+
+// cleanLinks keeps only the trace and span id of each link. A linked inbound
+// traceparent arrives with the client's tracestate, which must not be exported.
+func cleanLinks(links []trace.Link) []trace.Link {
+	out := make([]trace.Link, 0, len(links))
+	for _, l := range links {
+		out = append(out, trace.Link{
+			SpanContext: l.SpanContext.WithTraceState(trace.TraceState{}),
+			Attributes:  filterSpanAttributes(l.Attributes),
+		})
+	}
+	return out
 }
 
 type filteringSpan struct {
@@ -91,8 +112,7 @@ func httpServerMetricsView() sdkmetric.View {
 			"http.response.status_code",
 			"http.route", // the ServeMux pattern's path, never the raw path
 			"url.scheme",
-			"network.protocol.name",
-			"network.protocol.version",
+			"network.protocol.name", // network.protocol.version is client-chosen (HTTP/1.0 to 1.9)
 			"error.type",
 		)},
 	)
