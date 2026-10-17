@@ -25,10 +25,12 @@ Before reviewing code against a task's spec, check the spec itself:
 
 If the spec is the problem, say so in the verdict and route it to the spec's owner (the Technical Lead for PLAN tasks). Do not block the implementer for building what was asked.
 
+When the spec itself fixes a cross-cutting choice, rule 2 wins: `VERDICT: CHANGES`, with the choice routed to the Technical Architect and the implementer recorded as not at fault.
+
 **Every verdict states the result**, as one line before the findings:
 
 ```
-Spec challenge: done. Consumers checked: T04, T17, T30a. Boundaries: public listener. Result: no conflict | conflict → <issue>.
+Spec challenge: done. Consumers checked: <tasks> | none (<reason>). Boundaries: <list> | none (<reason>). Result: no conflict | conflict → <issue>.
 ```
 
 A verdict without this line is incomplete, and the Technical Lead sends it back.
@@ -37,9 +39,9 @@ A verdict without this line is incomplete, and the Technical Lead sends it back.
 
 A **cross-cutting choice** is any choice that other tasks will inherit:
 
-- a new Go module or container image (anything that adds a `require` to a `go.mod` or a service to compose);
+- a new direct Go module or container image (a `require` without `// indirect`, a service in compose), or a major-version change of one; indirect requires and patch/minor bumps of pinned modules are not choices unless `pins.md` marks the target version known-broken;
 - a protocol, wire format or propagation rule (headers, trace context, cursor or token format);
-- a metric, span or log attribute shape that other code or dashboards will read;
+- a new metric, span or log attribute key, or a shape outside the telemetry row below, that other code or dashboards will read; a metric whose name and bounded attributes the task spec already states is not a new choice;
 - a shared construction point (HTTP client, DB pool, telemetry providers, router);
 - a listener, port or network placement.
 
@@ -47,8 +49,9 @@ The Technical Architect stress-tests the choice before the Technical Lead accept
 
 - The implementer names the choice in the PR description (`New dependency:` / `Cross-cutting choice:`), with the version and the reason.
 - The reviewer does not approve a PR with an unexamined choice. The verdict either links the Technical Architect's comment that accepted it, or is `VERDICT: CHANGES` with the choice routed to the Technical Architect.
-- An accepted dependency is added to `docs/pins.md` with its reason in the same PR (T05).
-- Choices already fixed by ADR-001, PLAN-001 or the decision log need no new stress test; cite the source.
+- The reviewer reads `git diff <base> -- '**/go.mod' 'compose*.y*ml'` rather than relying on the PR description alone. Once T05 lands, CI fails on any direct require that is not in `pins.md`.
+- An accepted dependency is added to `docs/pins.md` with its reason in the same PR; until T05 creates the file, the PR description and the accepting TICK-94 comment are the record, and T05 copies them in.
+- Choices already decided in ADR-001, in a PLAN-001 decision (D-Pxx) or in the decision log need no new stress test; cite the decision. A choice that appears only in a task description is not a decision: it goes through this rule even if the PLAN fixed it.
 
 ## What a core review checks
 
@@ -66,3 +69,4 @@ The Technical Architect stress-tests the choice before the Technical Lead accept
 | Date | Change | By |
 |---|---|---|
 | 2026-10-16 | Created with rules 1 and 2 after TICK-89. | Technical Lead |
+| 2026-10-17 | Technical Architect review (TICK-95) applied: rule 2 exemption limited to recorded decisions (R2-1); definitions narrowed to direct requires and new attribute keys; diff check and pre-T05 pin record; rule 2 wins over rule 1; `none (<reason>)` form. | Technical Lead |

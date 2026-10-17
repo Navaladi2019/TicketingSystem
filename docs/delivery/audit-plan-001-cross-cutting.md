@@ -10,7 +10,7 @@ owner: Technical Lead
 
 Every task from T02 to T33 was checked against the tasks that consume its output, the trust boundaries it touches, and the telemetry contract decided on TICK-89 (OpenTelemetry, edge trace root, no tenant ids in metric attributes). Rule 1 of `review-standard-core.md`, applied to the plan itself.
 
-**Result:** 16 findings across 20 tasks. 9 are fixed in the task descriptions (section "Audit TICK-93"). 7 are choices or dependencies nobody had stress-tested, sent to the Technical Architect as TICK-94. 15 tasks have no finding.
+**Result:** 16 findings across 20 tasks. #1–#9 are fixed in the task descriptions (section "Audit TICK-93"); #2 also opens TICK-94 item 7. #10–#16 are choices or dependencies nobody had stress-tested and open TICK-94 items 1–6 and 8–16. 15 tasks have no finding.
 
 ## Findings
 
@@ -26,7 +26,7 @@ Every task from T02 to T33 was checked against the tasks that consume its output
 | 8 | T29 TICK-70 | The "traces through the outbox" deferral is triggered by T29, which does not mention it | dropped deferral | Description fixed: decide or re-defer before coding |
 | 9 | T28 TICK-59 | T04's Temporal health check dials without a certificate; after T28 it would fail | consumer conflict | Description fixed |
 | 10 | T04 TICK-55 (+ T01) | `/healthz`, `/readyz` and `/metrics` sit on the listener that 4a made the public trust boundary. Background binaries (T13, T25, T30b, T31) have no metrics endpoint at all | trust boundary | TICK-94 #1 (admin listener); T04, T13, T25, T30b, T31 point to it |
-| 11 | T15 TICK-63, T18 TICK-73 | Outbound Keycloak calls have no shared client. `otelhttp` client spans would export emails (`InviteUser`) and user ids in `url.full` | trust boundary | TICK-94 #2; descriptions fixed with a no-email-in-spans test |
+| 11 | T15 TICK-63, T18 TICK-73 | Outbound Keycloak calls have no shared client. `otelhttp` client spans would export user ids (`/users/{id}`) and emails from lookup queries (`?email=`, `?search=`) in `url.full` | trust boundary | TICK-94 #2; descriptions fixed with a no-email-in-spans test |
 | 12 | T07 TICK-61 | No task owns the pgx pool or its `otelpgx` tracer; query parameters would carry tenant ids and record data | ownership gap | TICK-94 #4; T07 owns the pool, parameters never recorded |
 | 13 | T30b TICK-85, T31 TICK-65, T32b TICK-86 | The Temporal OTel interceptor and metrics handler are unspecified; baggage in Temporal headers would land in unencrypted histories (R1); guard metrics invite tenant labels | trust boundary, metric shape | TICK-94 #5; descriptions fixed, CI-7 case added |
 | 14 | T20 TICK-52 | A generated router that is not `net/http.ServeMux` leaves `r.Pattern` empty, so every API request would record no route | consumer conflict | TICK-94 #6; description fixed with a route test |
