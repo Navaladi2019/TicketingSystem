@@ -174,7 +174,7 @@ temporal custom server module: go.temporal.io/server v1.28.4 + go.temporal.io/ap
 | `temporal-system` | All. This is the server's own system worker, on the `systemWorker` certificate. |
 | `nava-operator` | Admin and visibility, from the operator network only |
 
-**Command inspection (TA-B3, adopted as written):**
+**Command inspection (TA-B3, adopted as written; its continue-as-new clause is replaced by erratum E1, below):**
 
 > "The Authorizer also inspects `CallTarget.Request` for `RespondWorkflowTaskCompleted` from `nava-worker`. It decodes the task token's `WorkflowId`. It denies the call if any `StartChildWorkflowExecution`, `SignalExternalWorkflowExecution` or `RequestCancelExternalWorkflowExecution` command targets a workflow id whose tenant prefix differs, or if a `ContinueAsNewWorkflowExecution` command changes the workflow id. CI-6 asserts both the deny and the allow path."
 
@@ -298,7 +298,7 @@ The platform reaches the identity provider (IdP) **only** through two Go interfa
 | CI-3 | Recursive `pg_auth_members` is empty for runtime roles. No one is a member of `nava_migrator`. `pg_has_role(runtime, relowner, 'MEMBER') = false`. `datdba = nava_migrator`. `aclexplode(coalesce(acl, acldefault(type, owner)))` has no `PUBLIC` grantee on any platform object. | I3 |
 | CI-4 | `has_table_privilege`, `has_column_privilege` and `has_function_privilege` equal the manifest exactly, for every runtime role | Grant creep |
 | CI-5 | All of these are rejected:<br/>• zero or two organizations<br/>• an unknown issuer<br/>• a key from realm X with `iss=Y`<br/>• an ID token used as an access token<br/>• the `kc.org` tamper<br/>• a brokered login with an existing email<br/>• an out-of-domain brokered user<br/>• an `idp` not bound to the tenant<br/>• a user federated to a foreign IdP (at login and at invitation)<br/>• a duplicate binding<br/><br/>An in-domain brokered user gets the organization and `idp`. | D26, I2 |
-| CI-6 | The following are rejected:<br/>• an unlisted or rogue-CA certificate<br/>• a platform pod connecting to the internal Temporal ports<br/>• a relay, core or worker certificate calling outside its allow-list<br/>• worker-certificate child, signal-external or cancel-external to another tenant, denied by the Authorizer, with an alert<br/>• continue-as-new with a changed id<br/><br/>These still work: a same-tenant child completes. Every SDK client dials and its worker starts.<br/><br/>Other cases:<br/>• no header, or a mismatched header, fails the workflow<br/>• a wrong-tenant signal is dropped and alerts, and the workflow keeps running<br/>• a redelivered start after completion starts no second run<br/>• a redelivered signal is applied once, including across continue-as-new<br/>• a signal queues behind its start<br/>• two relays never reorder one target<br/>• `NotFound` on a signal is terminal | D22, I2, I6, I7 |
+| CI-6 | The following are rejected:<br/>• an unlisted or rogue-CA certificate<br/>• a platform pod connecting to the internal Temporal ports<br/>• a relay, core or worker certificate calling outside its allow-list<br/>• worker-certificate child, signal-external or cancel-external to another tenant, denied by the Authorizer, with an alert<br/>• continue-as-new with a missing or mismatched `nava-tenant` header, or with `cron_schedule`; an unlisted command type; an undecodable task token (erratum E1, replacing "continue-as-new with a changed id")<br/><br/>These still work: a same-tenant child completes. Every SDK client dials and its worker starts.<br/><br/>Other cases:<br/>• no header, or a mismatched header, fails the workflow<br/>• a wrong-tenant signal is dropped and alerts, and the workflow keeps running<br/>• a redelivered start after completion starts no second run<br/>• a redelivered signal is applied once, including across continue-as-new<br/>• a signal queues behind its start<br/>• two relays never reorder one target<br/>• `NotFound` on a signal is terminal | D22, I2, I6, I7 |
 | CI-7 | The workflow input and activity payload schema rejects record-data fields | R1 creep |
 | CI-8 | Byte-identical 404s. Cross-tenant cursor replay returns 400. Idempotency replay returns the same response, and a different body returns 409. A stale `If-Match` returns 412. A masked-field filter returns 400. | D6, I4, I5, I7 |
 | CI-9 | `nava_relay` cannot read `records`. `nava_purge` cannot read data columns or unexpired rows, and its purge actually deletes expired rows. `nava_onboard` cannot write to a non-provisioning tenant. `nava_backup` is rejected for a SQL session on `nava` and on `postgres`, and for a walsender with `replication=database`. | D28 |
@@ -338,3 +338,18 @@ These are non-blocking and accepted as the reviewers stated them. Each is alread
 - **Signal behind start.**
 - **Applied-id window.**
 - **R7:** separate module.
+
+## Errata
+
+### E1 (2026-10-15): command inspection for continue-as-new
+
+*Ruled by the CTO in TICK-83 (PLAN-001 grooming); approved by nava with PLAN-001. Security supports it.*
+
+TA-B3's clause "or if a `ContinueAsNewWorkflowExecution` command changes the workflow id" cannot fire: `ContinueAsNewWorkflowExecutionCommandAttributes` has no workflow-id field, so Temporal always keeps the id. The clause is replaced by these rules, which are strictly stronger. The Authorizer, for `RespondWorkflowTaskCompleted` from `nava-worker`:
+- denies the response if the task token does not decode or its `WorkflowId` has no `t:<tenant>:` prefix, and alerts;
+- denies `StartChildWorkflowExecution`, `SignalExternalWorkflowExecution` and `RequestCancelExternalWorkflowExecution` whose target has another tenant's prefix (or none) or a namespace other than `nava`;
+- denies `ContinueAsNewWorkflowExecution` whose `nava-tenant` header is missing or differs from the task token's prefix, or which sets `cron_schedule`;
+- denies every command type not on the written allow-list (PLAN-001 T27b; Nexus commands are denied today).
+
+The header check is defence in depth, because the worker sets the header. The controls are the namespace check and deny-unlisted. The Annex B CI-6 row is updated to match. I6, I7 and D22 are unchanged.
+
