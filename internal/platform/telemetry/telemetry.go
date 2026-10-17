@@ -164,8 +164,11 @@ func (t *Telemetry) Shutdown(ctx context.Context) error {
 
 // RouteErrors sends OTel's own errors and internal log lines (failed exports,
 // an invalid OTEL_* value) to log, instead of the default plain-text stderr
-// logger. It sets OTel's global error handler and logger: process-wide, so
-// main calls it once, before New. It changes no instrumentation.
+// logger. Handled errors arrive as "opentelemetry error" warnings; internal
+// lines keep their own message and fields, which can quote a variable's value,
+// so config.Load rejects the OTLP values the exporter would log. It sets OTel's
+// global error handler and logger: process-wide, so main calls it once, before
+// New. It changes no instrumentation.
 func RouteErrors(log *slog.Logger) {
 	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(err error) {
 		log.WarnContext(context.Background(), "opentelemetry error", slog.Any("error", err))

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 
@@ -186,6 +187,47 @@ func TestRouteErrors(t *testing.T) {
 	if got := buf.String(); !strings.Contains(got, `"msg":"opentelemetry error"`) ||
 		!strings.Contains(got, "connection refused") || !strings.Contains(got, `"level":"WARN"`) {
 		t.Errorf("OTel error not routed to slog as a warning: %q", got)
+	}
+}
+
+// TestValidHeadersNeverReachTheLog builds the real OTLP exporter, which reads
+// the header variables from the process environment, so it uses t.Setenv and
+// does not run in parallel. Once config.Load has accepted the headers, the
+// exporter has nothing to report, so their values never reach the log.
+func TestValidHeadersNeverReachTheLog(t *testing.T) {
+	const secret = "s3cr3t-token"
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:1")
+	t.Setenv("OTEL_EXPORTER_OTLP_HEADERS", "Authorization=Bearer%20"+secret+",x-tenant=a")
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_HEADERS", "api-key="+secret)
+	t.Setenv("OTEL_EXPORTER_OTLP_TIMEOUT", "1000")
+
+	var buf bytes.Buffer
+	telemetry.RouteErrors(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { telemetry.RouteErrors(slog.New(slog.DiscardHandler)) })
+
+	cfg, err := config.Load(os.LookupEnv)
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	tel, err := telemetry.New(t.Context(), cfg.Telemetry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !tel.Exporting() {
+		t.Fatal("no trace exporter was built with an OTLP endpoint set")
+	}
+	if err := tel.Shutdown(t.Context()); err != nil {
+		t.Errorf("Shutdown: %v", err)
+	}
+
+	// The route is live, so an absent secret means nothing logged it.
+	otel.Handle(errors.New("route-check"))
+	got := buf.String()
+	if !strings.Contains(got, "route-check") {
+		t.Fatalf("OTel errors are not reaching the buffer: %q", got)
+	}
+	if strings.Contains(got, secret) {
+		t.Errorf("a header value reached the log: %q", got)
 	}
 }
 
