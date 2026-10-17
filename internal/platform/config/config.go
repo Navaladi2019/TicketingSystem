@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -38,7 +39,8 @@ type Log struct {
 // Telemetry configures OpenTelemetry. config reads only what decides whether
 // a trace exporter exists. Every other standard OTEL_* variable (service name,
 // resource attributes, sampler, OTLP headers, timeout and TLS) is read by the
-// OTel SDK and exporter themselves, as the OTel specification defines.
+// OTel SDK and exporter themselves, as the OTel specification defines. The
+// OTLP headers and timeout are still checked here first (see Load).
 type Telemetry struct {
 	// ExportTraces is true when OTEL_EXPORTER_OTLP_TRACES_ENDPOINT or
 	// OTEL_EXPORTER_OTLP_ENDPOINT is set. Neither set means no trace exporter.
@@ -67,6 +69,13 @@ func Load(lookup LookupFunc) (Config, error) {
 	// the exporter would report it with the value.
 	tracesEndpoint := r.endpoint("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
 	baseEndpoint := r.endpoint("OTEL_EXPORTER_OTLP_ENDPOINT")
+	// The exporter parses these itself and logs a bad entry or timeout with
+	// its value, which for headers is a bearer token or API key. Check them
+	// here, by name, so the exporter only ever sees values it accepts.
+	r.otlpHeaders("OTEL_EXPORTER_OTLP_HEADERS")
+	r.otlpHeaders("OTEL_EXPORTER_OTLP_TRACES_HEADERS")
+	r.otlpTimeout("OTEL_EXPORTER_OTLP_TIMEOUT")
+	r.otlpTimeout("OTEL_EXPORTER_OTLP_TRACES_TIMEOUT")
 	cfg := Config{
 		HTTP: HTTP{
 			Addr:              r.str("NAVA_HTTP_ADDR", ":8080"),
@@ -157,4 +166,55 @@ func (r *reader) endpoint(key string) bool {
 		return false
 	}
 	return true
+}
+
+// otlpHeaders checks key against the OTLP exporter's header syntax: a
+// comma-separated list of key=value entries, each key an HTTP token and each
+// value percent-decodable. Like the exporter, a blank value counts as unset.
+// It never echoes the value: it carries credentials.
+func (r *reader) otlpHeaders(key string) {
+	v, ok := r.lookup(key)
+	if !ok || strings.TrimSpace(v) == "" {
+		return
+	}
+	for _, entry := range strings.Split(v, ",") {
+		name, value, found := strings.Cut(entry, "=")
+		if !found || !isHeaderToken(strings.TrimSpace(name)) {
+			r.errs = append(r.errs, fmt.Errorf("%s: want comma-separated key=value entries with a valid header name", key))
+			return
+		}
+		if _, err := url.PathUnescape(value); err != nil {
+			r.errs = append(r.errs, fmt.Errorf("%s: a header value has an invalid percent-escape", key))
+			return
+		}
+	}
+}
+
+// isHeaderToken reports whether s is a non-empty HTTP token (RFC 9110), the
+// same rule the exporter applies to header names.
+func isHeaderToken(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		case strings.ContainsRune("!#$%&'*+-.^_`|~", c):
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// otlpTimeout checks key is a whole number of milliseconds, as the exporter
+// parses it. A blank value counts as unset, as it does for the exporter.
+func (r *reader) otlpTimeout(key string) {
+	v, ok := r.lookup(key)
+	if !ok || strings.TrimSpace(v) == "" {
+		return
+	}
+	if ms, err := strconv.Atoi(strings.TrimSpace(v)); err != nil || ms < 0 {
+		r.errs = append(r.errs, fmt.Errorf("%s: want a whole number of milliseconds such as 10000", key))
+	}
 }

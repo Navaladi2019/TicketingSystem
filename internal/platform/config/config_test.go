@@ -126,3 +126,68 @@ func TestLoadTelemetryInvalidNeverEchoesValues(t *testing.T) {
 		t.Errorf("error echoes the invalid value: %q", msg)
 	}
 }
+
+func TestLoadOTLPHeadersInvalidNeverEchoesValues(t *testing.T) {
+	t.Parallel()
+	const secret = "s3cr3t-token"
+	malformed := map[string]string{
+		"missing =":  "Authorization: Bearer " + secret,
+		"empty key":  "=Bearer " + secret,
+		"bad key":    "Auth orization=Bearer " + secret,
+		"bad escape": "Authorization=Bearer%zz" + secret,
+		"second bad": "x-tenant=a,Authorization: Bearer " + secret,
+	}
+	for _, key := range []string{"OTEL_EXPORTER_OTLP_HEADERS", "OTEL_EXPORTER_OTLP_TRACES_HEADERS"} {
+		for name, value := range malformed {
+			_, err := config.Load(env(map[string]string{key: value}))
+			if err == nil {
+				t.Errorf("%s %s: Load: want error, got nil", key, name)
+				continue
+			}
+			msg := err.Error()
+			if !strings.Contains(msg, key) {
+				t.Errorf("%s %s: error %q does not name the variable", key, name, msg)
+			}
+			if strings.Contains(msg, secret) || strings.Contains(msg, "Bearer") {
+				t.Errorf("%s %s: error echoes the value: %q", key, name, msg)
+			}
+		}
+	}
+}
+
+func TestLoadOTLPHeadersValid(t *testing.T) {
+	t.Parallel()
+	for _, value := range []string{
+		"Authorization=Bearer%20s3cr3t-token",
+		" api-key = abc , x-tenant=a%2Cb ",
+		"x-empty=",
+		"   ", // blank counts as unset, as it does for the exporter
+	} {
+		_, err := config.Load(env(map[string]string{
+			"OTEL_EXPORTER_OTLP_HEADERS":        value,
+			"OTEL_EXPORTER_OTLP_TRACES_HEADERS": value,
+		}))
+		if err != nil {
+			t.Errorf("%q: Load: %v", value, err)
+		}
+	}
+}
+
+func TestLoadOTLPTimeout(t *testing.T) {
+	t.Parallel()
+	for _, key := range []string{"OTEL_EXPORTER_OTLP_TIMEOUT", "OTEL_EXPORTER_OTLP_TRACES_TIMEOUT"} {
+		if _, err := config.Load(env(map[string]string{key: "10000"})); err != nil {
+			t.Errorf("%s=10000: Load: %v", key, err)
+		}
+		for _, bad := range []string{"10s", "-1", "1.5"} {
+			_, err := config.Load(env(map[string]string{key: bad}))
+			if err == nil || !strings.Contains(err.Error(), key) {
+				t.Errorf("%s=%s: Load error = %v, want one naming the variable", key, bad, err)
+				continue
+			}
+			if strings.Contains(err.Error(), bad) {
+				t.Errorf("%s=%s: error echoes the value: %q", key, bad, err)
+			}
+		}
+	}
+}
