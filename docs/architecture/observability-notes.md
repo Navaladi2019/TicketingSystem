@@ -115,7 +115,7 @@ span, link, metric or log.
 
 | Gap | Risk | Where tracked |
 |---|---|---|
-| `/metrics` on the public listener, no auth | Route names, traffic, process details exposed | TODO-001 |
+| `/metrics` has no auth of its own | Fixed for the public port (TODO-001): it is served only on the internal listener (`NAVA_METRICS_ADDR`, `:9090`) and `:8080` answers 404. Anything that reaches `:9090` can read it, so that port must stay off the ingress | T02 deployment (network policy) |
 | Panic value logged as-is | A panic message built from input can log client data | Not yet tracked |
 | OTLP transport security comes from env | Plain `http://` or no auth if misconfigured | T02 deployment |
 | `WithGroup` nests correlation ids | `x.trace_id` breaks log joins (section 6) | Comment in `logging.go` only |
@@ -156,11 +156,12 @@ queries aggregate, e.g. `sum(rate(http_server_request_duration_seconds_count[5m]
 ### 3.3 Setups
 
 - Local: `prom/prometheus` in Docker with target
-  `host.docker.internal:8080` and `--enable-feature=exemplar-storage`.
+  `host.docker.internal:9090` and `--enable-feature=exemplar-storage`.
 - T02 compose stack: Prometheus + Grafana, plus Tempo or Jaeger and the
   Collector, so an exemplar click opens its trace.
 - Production: kube-prometheus-stack with a `ServiceMonitor`.
-- Whichever: scrape the internal metrics port from TODO-001, not `:8080`.
+- Whichever: scrape the internal listener (`NAVA_METRICS_ADDR`, default
+  `:9090`). `:8080/metrics` answers 404.
 
 ## 4. Authenticating push (OTLP)
 
@@ -182,7 +183,8 @@ line with ADR-001's rule that the tenant comes only from a verified source.
 
 Tenant ids are not metric labels: one series per label combination, so
 1,000 tenants × 30 routes × 5 status classes × 15 buckets ≈ 2.25 million
-series from one histogram, and `/metrics` is unauthenticated (TODO-001).
+series from one histogram, and `/metrics` is unauthenticated (it is kept
+off the public port, not behind a login).
 
 | Need | Source |
 |---|---|
