@@ -3,13 +3,18 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 )
 
 // syncBuffer is a bytes.Buffer safe for the server goroutine and the test.
@@ -34,21 +39,92 @@ func (b *syncBuffer) String() string {
 // OTel's process-wide error handler, so parallel runs would route each
 // other's OTel errors into the wrong log buffer.
 
-func TestRunShutsDownTelemetryOnCancel(t *testing.T) {
-	env := map[string]string{"NAVA_HTTP_ADDR": "127.0.0.1:0"}
-	lookup := func(k string) (string, bool) { v, ok := env[k]; return v, ok }
+// freeAddr returns a loopback address with a port that was free a moment ago.
+func freeAddr(t *testing.T) string {
+	t.Helper()
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	if err := ln.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return addr
+}
+
+// get returns the status of GET url, retrying while the listener comes up.
+func get(t *testing.T, url string) int {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err == nil {
+			_ = resp.Body.Close()
+			return resp.StatusCode
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("GET %s: %v", url, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// assertClosed fails if anything still accepts connections on addr.
+func assertClosed(t *testing.T, name, addr string) {
+	t.Helper()
+	conn, err := (&net.Dialer{Timeout: time.Second}).DialContext(t.Context(), "tcp", addr)
+	if err == nil {
+		_ = conn.Close()
+		t.Errorf("the %s listener %s still accepts connections after run returned", name, addr)
+	}
+}
+
+// logLines returns the msg of each JSON log line, prefixed with its listener
+// attribute when it has one ("public: nava-core shutting down").
+func logLines(t *testing.T, out string) []string {
+	t.Helper()
+	var lines []string
+	for l := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
+		var rec struct{ Msg, Listener string }
+		if err := json.Unmarshal([]byte(l), &rec); err != nil {
+			t.Fatalf("log line is not JSON: %q", l)
+		}
+		if rec.Listener != "" {
+			rec.Msg = rec.Listener + ": " + rec.Msg
+		}
+		lines = append(lines, rec.Msg)
+	}
+	return lines
+}
+
+// runWith returns run bound to env instead of the process environment.
+func runWith(env map[string]string) func(context.Context, *syncBuffer) error {
+	var lookup config.LookupFunc = func(k string) (string, bool) { v, ok := env[k]; return v, ok }
+	return func(ctx context.Context, out *syncBuffer) error { return run(ctx, lookup, out) }
+}
+
+// TestRunSignalDrainsBothServers starts run for real: /metrics answers only on
+// the internal listener, and a signal shuts down both listeners before
+// telemetry is flushed.
+func TestRunSignalDrainsBothServers(t *testing.T) {
+	public, internal := freeAddr(t), freeAddr(t)
+	start := runWith(map[string]string{"NAVA_HTTP_ADDR": public, "NAVA_METRICS_ADDR": internal})
 
 	ctx, cancel := context.WithCancel(t.Context())
 	var out syncBuffer
 	done := make(chan error, 1)
-	go func() { done <- run(ctx, lookup, &out) }()
+	go func() { done <- start(ctx, &out) }()
 
-	deadline := time.Now().Add(10 * time.Second)
-	for !strings.Contains(out.String(), "nava-core listening") {
-		if time.Now().After(deadline) {
-			t.Fatalf("server did not start: %s", out.String())
-		}
-		time.Sleep(10 * time.Millisecond)
+	if code := get(t, "http://"+internal+"/metrics"); code != http.StatusOK {
+		t.Errorf("internal /metrics = %d, want 200", code)
+	}
+	if code := get(t, "http://"+public+"/metrics"); code != http.StatusNotFound {
+		t.Errorf("public /metrics = %d, want 404", code)
 	}
 	cancel()
 
@@ -60,36 +136,72 @@ func TestRunShutsDownTelemetryOnCancel(t *testing.T) {
 	case <-time.After(20 * time.Second):
 		t.Fatal("run did not return after cancel")
 	}
+	assertClosed(t, "public", public)
+	assertClosed(t, "internal", internal)
+
 	logs := out.String()
-	if !strings.Contains(logs, `"msg":"telemetry shut down"`) {
-		t.Errorf("telemetry.Shutdown was not called during shutdown:\n%s", logs)
+	lines := logLines(t, logs)
+	flushed := slices.Index(lines, "telemetry shut down")
+	if flushed < 0 {
+		t.Fatalf("telemetry.Shutdown was not called during shutdown:\n%s", logs)
+	}
+	for _, want := range []string{"public: nava-core shutting down", "internal: nava-core shutting down"} {
+		if i := slices.Index(lines, want); i < 0 || i > flushed {
+			t.Errorf("no %q line before the telemetry flush:\n%s", want, logs)
+		}
 	}
 	if !strings.Contains(logs, `"trace_export":false`) {
 		t.Errorf("trace export is on with no endpoint:\n%s", logs)
 	}
 }
 
-func TestRunShutsDownGracefullyWhenServingFails(t *testing.T) {
-	env := map[string]string{"NAVA_HTTP_ADDR": "127.0.0.1:99999"} // invalid port: ListenAndServe fails
-	lookup := func(k string) (string, bool) { v, ok := env[k]; return v, ok }
+// TestRunListenFailureShutsDownBoth occupies one listener's port, so its
+// ListenAndServe fails: run must drain the other listener too, flush
+// telemetry and return the listen error.
+func TestRunListenFailureShutsDownBoth(t *testing.T) {
+	for _, failing := range []string{"public", "internal"} {
+		t.Run(failing, func(t *testing.T) {
+			taken, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = taken.Close() }()
+			healthy := freeAddr(t)
+			addrs := map[string]string{"public": healthy, "internal": healthy}
+			addrs[failing] = taken.Addr().String()
+			other := "internal"
+			if failing == "internal" {
+				other = "public"
+			}
+			start := runWith(map[string]string{"NAVA_HTTP_ADDR": addrs["public"], "NAVA_METRICS_ADDR": addrs["internal"]})
 
-	var out syncBuffer
-	done := make(chan error, 1)
-	go func() { done <- run(t.Context(), lookup, &out) }()
+			var out syncBuffer
+			done := make(chan error, 1)
+			go func() { done <- start(t.Context(), &out) }()
 
-	select {
-	case err := <-done:
-		if err == nil {
-			t.Fatal("run returned nil, want the listen error")
-		}
-	case <-time.After(20 * time.Second):
-		t.Fatal("run did not return after serving failed")
-	}
-	logs := out.String()
-	for _, msg := range []string{"nava-core shutting down", "telemetry shut down"} {
-		if !strings.Contains(logs, `"msg":"`+msg+`"`) {
-			t.Errorf("no %q line; the shutdown path was skipped:\n%s", msg, logs)
-		}
+			select {
+			case err := <-done:
+				if err == nil {
+					t.Fatal("run returned nil, want the listen error")
+				}
+			case <-time.After(20 * time.Second):
+				t.Fatal("run did not return after a listener failed: the other one kept serving")
+			}
+			assertClosed(t, other, healthy)
+
+			logs := out.String()
+			lines := logLines(t, logs)
+			for _, want := range []string{
+				failing + ": nava-core serve failed",
+				failing + ": nava-core shutting down",
+				other + ": nava-core shutting down",
+				"telemetry shut down",
+			} {
+				if !slices.Contains(lines, want) {
+					t.Errorf("no %q line; the shutdown path was skipped:\n%s", want, logs)
+				}
+			}
+		})
 	}
 }
 

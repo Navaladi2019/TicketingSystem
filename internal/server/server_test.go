@@ -13,28 +13,64 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/server"
 )
 
-func newServer(t *testing.T) (*httptest.Server, *telemetry.Telemetry) {
+// newServers starts the public and internal handlers on one telemetry, as run
+// does.
+func newServers(t *testing.T) (public, internal *httptest.Server, tel *telemetry.Telemetry) {
 	t.Helper()
 	cfg, err := config.Load(func(string) (string, bool) { return "", false })
 	if err != nil {
 		t.Fatal(err)
 	}
-	tel, err := telemetry.New(t.Context(), cfg.Telemetry)
+	tel, err = telemetry.New(t.Context(), cfg.Telemetry)
 	if err != nil {
 		t.Fatalf("telemetry.New: %v", err)
 	}
 	t.Cleanup(func() { _ = tel.Shutdown(t.Context()) })
-	srv := httptest.NewServer(server.NewHandler(slog.New(slog.DiscardHandler), tel))
-	t.Cleanup(srv.Close)
-	return srv, tel
+	log := slog.New(slog.DiscardHandler)
+	public = httptest.NewServer(server.NewHandler(log, tel))
+	t.Cleanup(public.Close)
+	internal = httptest.NewServer(server.NewInternalHandler(log, tel))
+	t.Cleanup(internal.Close)
+	return public, internal, tel
+}
+
+// TestMetricsOnlyOnInternalListener is TODO-001: the public listener must not
+// expose /metrics, in any format a scraper might ask for.
+func TestMetricsOnlyOnInternalListener(t *testing.T) {
+	t.Parallel()
+	public, internal, _ := newServers(t)
+	const openMetrics = "application/openmetrics-text; version=1.0.0"
+
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		for _, accept := range []string{"", openMetrics} {
+			code, _, body := request(t, method, public.URL+"/metrics", accept)
+			if code != http.StatusNotFound {
+				t.Errorf("public %s /metrics (Accept %q) = %d, want 404", method, accept, code)
+			}
+			if strings.Contains(body, "# TYPE") {
+				t.Errorf("public %s /metrics (Accept %q) leaks metrics:\n%s", method, accept, body)
+			}
+		}
+	}
+
+	code, ctype, body := request(t, http.MethodGet, internal.URL+"/metrics", openMetrics)
+	if code != http.StatusOK {
+		t.Fatalf("internal GET /metrics = %d, want 200", code)
+	}
+	if !strings.HasPrefix(ctype, "application/openmetrics-text") {
+		t.Errorf("internal /metrics Content-Type = %q, want OpenMetrics", ctype)
+	}
+	if !strings.HasSuffix(body, "# EOF\n") || !strings.Contains(body, "# TYPE go_goroutine_count") {
+		t.Errorf("internal /metrics is not an OpenMetrics exposition:\n%s", body)
+	}
 }
 
 func TestMetricsEndpointExposesOTelHTTPAndRuntimeMetrics(t *testing.T) {
 	t.Parallel()
-	srv, _ := newServer(t)
+	public, internal, _ := newServers(t)
 
-	do(t, http.MethodGet, srv.URL+"/nope", "")
-	body := do(t, http.MethodGet, srv.URL+"/metrics", "")
+	do(t, http.MethodGet, public.URL+"/nope", "")
+	body := do(t, http.MethodGet, internal.URL+"/metrics", "")
 	for _, want := range []string{
 		"# TYPE http_server_request_duration_seconds histogram",
 		"http_server_request_duration_seconds_count{",
@@ -63,10 +99,10 @@ func TestMetricsEndpointExposesOTelHTTPAndRuntimeMetrics(t *testing.T) {
 // buckets to the trace of a sampled request.
 func TestMetricsCarryTraceExemplars(t *testing.T) {
 	t.Parallel()
-	srv, _ := newServer(t)
+	public, internal, _ := newServers(t)
 
-	do(t, http.MethodGet, srv.URL+"/nope", "")
-	body := doAccept(t, srv.URL+"/metrics", "application/openmetrics-text; version=1.0.0")
+	do(t, http.MethodGet, public.URL+"/nope", "")
+	body := doAccept(t, internal.URL+"/metrics", "application/openmetrics-text; version=1.0.0")
 	var bucket string
 	for l := range strings.SplitSeq(body, "\n") {
 		if strings.HasPrefix(l, "http_server_request_duration_seconds_bucket{") && strings.Contains(l, "# {") {
@@ -90,11 +126,11 @@ func TestMetricsCarryTraceExemplars(t *testing.T) {
 // value or appear in a label.
 func TestHTTPMetricCardinalityIsBounded(t *testing.T) {
 	t.Parallel()
-	srv, tel := newServer(t)
+	srv, internal, tel := newServers(t)
 
 	hostile := []string{"FOO1", "FOO2", "XYZ"}
 	for _, m := range hostile {
-		do(t, m, srv.URL+"/metrics", "") // traced: only GET /metrics is skipped
+		do(t, m, internal.URL+"/metrics", "") // traced: only GET /metrics is skipped
 	}
 	hosts := []string{"tenant-a.evil.test:1111", "tenant-b.evil.test:2222", "tenant-c.evil.test"}
 	for _, h := range hosts {
@@ -146,7 +182,10 @@ func TestNewServerSetsTimeouts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := server.New(cfg.HTTP, http.NotFoundHandler(), slog.New(slog.DiscardHandler))
+	srv := server.New(cfg.HTTP.MetricsAddr, cfg.HTTP, http.NotFoundHandler(), slog.New(slog.DiscardHandler))
+	if srv.Addr != ":9090" {
+		t.Errorf("Addr = %q, want the addr passed in", srv.Addr)
+	}
 	if srv.ReadHeaderTimeout == 0 || srv.ReadTimeout == 0 || srv.WriteTimeout == 0 || srv.IdleTimeout == 0 {
 		t.Errorf("server has an unset timeout: %+v", srv)
 	}
@@ -172,6 +211,28 @@ func doAccept(t *testing.T, url, accept string) string {
 	}
 	req.Header.Set("Accept", accept)
 	return send(t, req)
+}
+
+// request returns the status, Content-Type and body of method url.
+func request(t *testing.T, method, url, accept string) (code int, ctype, body string) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), method, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accept != "" {
+		req.Header.Set("Accept", accept)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp.StatusCode, resp.Header.Get("Content-Type"), string(b)
 }
 
 func send(t *testing.T, req *http.Request) string {

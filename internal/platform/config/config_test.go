@@ -22,8 +22,8 @@ func TestLoadDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.HTTP.Addr != ":8080" {
-		t.Errorf("Addr = %q, want :8080", cfg.HTTP.Addr)
+	if cfg.HTTP.Addr != ":8080" || cfg.HTTP.MetricsAddr != ":9090" {
+		t.Errorf("Addr, MetricsAddr = %q, %q, want :8080, :9090", cfg.HTTP.Addr, cfg.HTTP.MetricsAddr)
 	}
 	if cfg.HTTP.ReadHeaderTimeout != 5*time.Second {
 		t.Errorf("ReadHeaderTimeout = %v, want 5s", cfg.HTTP.ReadHeaderTimeout)
@@ -37,6 +37,7 @@ func TestLoadOverrides(t *testing.T) {
 	t.Parallel()
 	cfg, err := config.Load(env(map[string]string{
 		"NAVA_HTTP_ADDR":             "127.0.0.1:9000",
+		"NAVA_METRICS_ADDR":          "[::1]:0",
 		"NAVA_HTTP_SHUTDOWN_TIMEOUT": "3s",
 		"NAVA_LOG_LEVEL":             "debug",
 		"NAVA_LOG_FORMAT":            "TEXT",
@@ -44,7 +45,7 @@ func TestLoadOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.HTTP.Addr != "127.0.0.1:9000" || cfg.HTTP.ShutdownTimeout != 3*time.Second {
+	if cfg.HTTP.Addr != "127.0.0.1:9000" || cfg.HTTP.MetricsAddr != "[::1]:0" || cfg.HTTP.ShutdownTimeout != 3*time.Second {
 		t.Errorf("HTTP = %+v", cfg.HTTP)
 	}
 	if cfg.Log.Level != slog.LevelDebug || cfg.Log.Format != config.FormatText {
@@ -72,6 +73,38 @@ func TestLoadInvalidReportsEveryKeyWithoutValues(t *testing.T) {
 	}
 	if strings.Contains(msg, secretish) {
 		t.Errorf("error echoes the invalid value: %q", msg)
+	}
+}
+
+func TestLoadInvalidAddrs(t *testing.T) {
+	t.Parallel()
+	for _, v := range []string{"9000", "localhost", ":http", ":65536", ":-1", "host:port:extra", "s3cr3t:pw@host"} {
+		for _, key := range []string{"NAVA_HTTP_ADDR", "NAVA_METRICS_ADDR"} {
+			_, err := config.Load(env(map[string]string{key: v}))
+			if err == nil {
+				t.Errorf("%s=%q: Load accepted it", key, v)
+				continue
+			}
+			if msg := err.Error(); !strings.Contains(msg, key) || strings.Contains(msg, v) {
+				t.Errorf("%s=%q: error %q, want the key named and the value not echoed", key, v, msg)
+			}
+		}
+	}
+}
+
+// The two listeners must not share an address: the internal one is what keeps
+// /metrics off the public port.
+func TestLoadRejectsSharedListenerAddr(t *testing.T) {
+	t.Parallel()
+	for _, m := range []map[string]string{
+		{"NAVA_METRICS_ADDR": ":8080"},
+		{"NAVA_HTTP_ADDR": ":9090"},
+		{"NAVA_HTTP_ADDR": "127.0.0.1:7000", "NAVA_METRICS_ADDR": "127.0.0.1:7000"},
+	} {
+		_, err := config.Load(env(m))
+		if err == nil || !strings.Contains(err.Error(), "NAVA_METRICS_ADDR") {
+			t.Errorf("%v: Load = %v, want an error naming NAVA_METRICS_ADDR", m, err)
+		}
 	}
 }
 
