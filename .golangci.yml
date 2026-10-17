@@ -1,0 +1,46 @@
+version: "2"
+
+run:
+  go: "1.26"
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - bodyclose
+    - errorlint
+    - gochecknoglobals # config and state go through constructors, never globals
+    - gosec
+    - misspell
+    - noctx
+    - revive
+    - sloglint
+    - unconvert
+  settings:
+    sloglint:
+      attr-only: true # slog.String(...) attributes, never loose key/value pairs
+      context: all # *Context methods only, so every line carries the request ids
+    revive:
+      rules:
+        - name: exported
+        - name: package-comments
+        - name: context-as-argument
+        - name: error-return
+        - name: error-naming
+  exclusions:
+    presets:
+      - std-error-handling
+    rules:
+      - path: _test\.go
+        linters: [gosec]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    paths:
+      - ^docs/ # ADR spike evidence, kept byte-for-byte as recorded
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/Navaladi2019/TicketingSystem
