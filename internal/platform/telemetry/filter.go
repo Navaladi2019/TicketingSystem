@@ -3,17 +3,25 @@ package telemetry
 import (
 	"context"
 	"strings"
+	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/exemplar"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // spanAttributeAllowed is the span attribute deny-list. Raw paths, queries,
-// user agents, client or peer addresses, SQL text and free-form error messages
-// carry ids and PII, which must not leave the process once an exporter is on.
-// Older semconv names are listed too, in case an instrumentation still emits
-// them.
+// user agents, client or peer addresses, the Host header's port, a raw
+// non-standard method, the protocol version, SQL text and free-form error
+// messages are client-chosen or free-form values that may carry ids and PII;
+// none may leave the process once an exporter is on. Older semconv names are
+// listed too, in case an instrumentation still emits them.
+//
+// It is a deny-list because application spans need free attribute keys. The
+// golden key-set test in httpobs is the allow-list that backs it: a key a
+// future otelhttp release adds fails that test until someone decides on it.
 func spanAttributeAllowed(kv attribute.KeyValue) bool {
 	switch kv.Key {
 	case "url.path", "url.query", "url.full",
@@ -21,6 +29,9 @@ func spanAttributeAllowed(kv attribute.KeyValue) bool {
 		"user_agent.original", "http.user_agent",
 		"client.address", "client.port", "http.client_ip",
 		"network.peer.address", "network.peer.port", "net.sock.peer.addr", "net.peer.ip",
+		"server.port", // from the Host header when the server name has no port
+		"http.request.method_original",
+		"network.protocol.version", // the client picks it from HTTP/1.0 to HTTP/1.9
 		"db.query.text", "db.statement",
 		"exception.message":
 		return false
@@ -74,10 +85,14 @@ func (s filteredSpan) Events() []sdktrace.Event {
 	return out
 }
 
+// Links keeps only the trace and span id of each link, with filtered
+// attributes. A linked inbound traceparent arrives with the client's
+// tracestate, which must not be exported.
 func (s filteredSpan) Links() []sdktrace.Link {
 	links := s.ReadOnlySpan.Links()
 	out := make([]sdktrace.Link, len(links))
 	for i, l := range links {
+		l.SpanContext = l.SpanContext.WithTraceState(trace.TraceState{})
 		l.Attributes = filterAttributes(l.Attributes)
 		out[i] = l
 	}
@@ -97,14 +112,33 @@ func (s filteredSpan) Status() sdktrace.Status {
 func httpServerMetricsView() sdkmetric.View {
 	return sdkmetric.NewView(
 		sdkmetric.Instrument{Name: "http.server.*"},
-		sdkmetric.Stream{AttributeFilter: attribute.NewAllowKeysFilter(
-			"http.request.method", // standard methods, else _OTHER
-			"http.response.status_code",
-			"http.route", // the ServeMux pattern's path, never the raw path
-			"url.scheme",
-			"network.protocol.name",
-			"network.protocol.version",
-			"error.type",
-		)},
+		sdkmetric.Stream{
+			AttributeFilter: attribute.NewAllowKeysFilter(
+				"http.request.method", // standard methods, else _OTHER
+				"http.response.status_code",
+				"http.route", // the ServeMux pattern's path, never the raw path
+				"url.scheme",
+				"network.protocol.name", // network.protocol.version is client-chosen (HTTP/1.0 to 1.9)
+				"error.type",
+			),
+			ExemplarReservoirProviderSelector: traceOnlyExemplars,
+		},
 	)
+}
+
+// traceOnlyExemplars wraps the default reservoir so an exemplar keeps only its
+// trace and span id. The SDK otherwise attaches the attributes the View
+// dropped (server.port from the Host header, network.protocol.version) to each
+// exemplar, which puts client-chosen values back on /metrics as exemplar
+// labels; OpenMetrics also rejects an exemplar whose labels pass 128
+// characters, and these push it over.
+func traceOnlyExemplars(agg sdkmetric.Aggregation) exemplar.ReservoirProvider {
+	next := sdkmetric.DefaultExemplarReservoirProviderSelector(agg)
+	return func(attr attribute.Set) exemplar.Reservoir { return attributelessReservoir{next(attr)} }
+}
+
+type attributelessReservoir struct{ exemplar.Reservoir }
+
+func (r attributelessReservoir) Offer(ctx context.Context, t time.Time, val exemplar.Value, _ []attribute.KeyValue) {
+	r.Reservoir.Offer(ctx, t, val, nil)
 }

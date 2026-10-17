@@ -77,6 +77,12 @@ func TestMetricsCarryTraceExemplars(t *testing.T) {
 	if bucket == "" || !strings.Contains(bucket, "trace_id=") {
 		t.Errorf("no duration bucket carries a trace_id exemplar:\n%s", body)
 	}
+	// The exemplar carries only trace and span id: attributes the View dropped
+	// (server.port from the Host header, the protocol version) must not come
+	// back as exemplar labels.
+	if _, ex, _ := strings.Cut(bucket, "# {"); strings.Contains(ex, "server_") || strings.Contains(ex, "network_protocol") {
+		t.Errorf("exemplar carries dropped attributes: %s", ex)
+	}
 }
 
 // TestHTTPMetricCardinalityIsBounded sends what a hostile client controls:

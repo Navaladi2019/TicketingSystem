@@ -13,6 +13,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -60,6 +61,8 @@ func Middleware(log *slog.Logger, tel *telemetry.Telemetry, mux *http.ServeMux, 
 		otelhttp.WithTracerProvider(tel.TracerProvider),
 		otelhttp.WithMeterProvider(tel.MeterProvider),
 		otelhttp.WithPropagators(tel.Propagator),
+		// server.address is our name, never the client's Host header.
+		otelhttp.WithServerName("nava-core"),
 		otelhttp.WithPublicEndpointFn(func(*http.Request) bool { return true }),
 	)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -96,7 +99,7 @@ func access(log *slog.Logger, prop propagation.TextMapPropagator, mux http.Handl
 		}
 
 		attrs := []slog.Attr{
-			slog.String("method", r.Method),
+			slog.String("method", methodLabel(r.Method)),
 			slog.String("route", route),
 			slog.Int("status", resp.status()),
 			slog.Duration("duration", duration),
@@ -106,6 +109,19 @@ func access(log *slog.Logger, prop propagation.TextMapPropagator, mux http.Handl
 		}
 		log.LogAttrs(ctx, slog.LevelInfo, "http request", attrs...)
 	})
+}
+
+// methodLabel is the method as the metrics record it: a standard method, or
+// _OTHER. net/http accepts any token as a method, so the raw value is a
+// client-chosen string and never goes into a log line.
+func methodLabel(m string) string {
+	switch m = strings.ToUpper(m); m {
+	case http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch,
+		http.MethodDelete, http.MethodOptions, http.MethodConnect, http.MethodTrace:
+		return m
+	default:
+		return "_OTHER"
+	}
 }
 
 // inboundSpanContext decodes the caller's traceparent, the one otelhttp

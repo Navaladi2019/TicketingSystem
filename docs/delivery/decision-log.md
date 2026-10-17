@@ -11,3 +11,4 @@ Delivery decisions that change a task's contract, newest first.
   - OTLP log export (`otelslog`). Trigger: the T02 Collector exists.
   - Collector tail sampling. Trigger: T02.
   - Trace continuity across the outbox (the producer stores the trace context on the outbox row, and the relay starts the workflow as a linked span). Trigger: T29 and T30a start.
+- **Erratum (2026-10-16):** otelhttp v0.72.0 removed `WithPublicEndpoint()`. The code uses `WithPublicEndpointFn(func(*http.Request) bool { return true })`, which does the same thing (otelhttp `handler.go`: new root span, and a remote inbound context is added as a link).
