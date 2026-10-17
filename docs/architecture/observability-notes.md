@@ -123,6 +123,37 @@ span, link, metric or log.
 | Plain-text 500 | Not RFC 9457 | TODO-002 |
 | No `tenant_id` or rate limits yet | Arrive with T17 and Epic 07 | Plan |
 
+### 2.8 Where error text may go
+
+Error text is free-form, and it can contain client input (a parse error that
+quotes the bad value, a driver error that quotes a row). Each store has one
+rule:
+
+| Store | May carry error text? | What enforces it |
+|---|---|---|
+| Spans | No | The deny-list in `internal/platform/telemetry/filter.go` drops `exception.message`, the status description and `db.statement` / `db.query.text`. An error shows as status `Error`, `error.type` and `exception.type` / `exception.stacktrace` |
+| Metrics | No | The View allow-list keeps only bounded attributes (section 2.3); `error.type` is the only error signal |
+| Logs | Yes, under `err` | Nothing inspects the value. The log-record deny-list (T01e, TICK-101) removes the same **keys** as the span list, so an `err` attribute passes through. This is intended |
+
+Each log line is joined to its trace by `trace_id`, `span_id` and
+`request_id`, so the message stays reachable from the red trace without
+being copied onto it.
+
+Therefore the log backend's retention period and access control are the PII
+control for error text. The deny-list does not clean logs. Both must be
+decided when a log backend is chosen. That is not part of T02, which only
+uses the Collector's debug exporter. It is tracked as TODO-003 in the
+[TODO tracker](../delivery/todo.md), triggered by a log backend being added
+to the Collector pipeline.
+
+`db.statement` and `db.query.text` stay stripped. When DB instrumentation
+lands (Epic 05, records path), that task decides whether to allow the
+bounded fields `db.operation.name`, `db.collection.name` and
+`db.query.summary`.
+
+Debugging an error: alert, then the red trace, then `error.type` and the
+stack on the span, then its `trace_id`, then the log line with the message.
+
 ## 3. Prometheus
 
 ### 3.1 Pull or push
