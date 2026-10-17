@@ -1,6 +1,8 @@
 # nava-core service skeleton
 
 PLAN-001 T01 (TICK-50). This is the shape every later task builds on.
+[observability-notes.md](observability-notes.md) explains how telemetry
+flows, the security controls behind these rules, and options for later tasks.
 
 ## Layout
 
