@@ -11,3 +11,7 @@ Taskfile.yml text eol=lf
 # docs/ (ADRs, spike evidence) is kept byte-for-byte as recorded.
 docs/**  -text
 docs/go.mod text eol=lf
+
+# Scripts that run in Linux containers.
+*.sh     text eol=lf
+Dockerfile text eol=lf

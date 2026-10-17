@@ -1,0 +1,7 @@
+# Overlay: no network of the stack has egress, so every image must already be
+# present and nothing is reachable from the host. Use it with the root file:
+#   docker compose -f compose.yaml -f deploy/compose/compose.internal.yaml up
+# Published ports do not work here; reach services with `docker compose exec`.
+networks:
+  default:
+    internal: true

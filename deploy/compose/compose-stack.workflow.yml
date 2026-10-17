@@ -1,0 +1,57 @@
+# Move to .github/workflows/compose-stack.yml: the agent token has no `workflow` scope, so it could not push it there.
+name: compose-stack
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  stack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      # An ordinary 404 is sampled out at the default 10%; keep all for the trace test.
+      OTEL_TAIL_SAMPLE_PERCENT: "100"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: No floating image tags
+        run: |
+          files="compose.yaml deploy/compose/compose.internal.yaml deploy/compose/otel-collector/Dockerfile deploy/compose/nava-core/Dockerfile"
+          if grep -En '^\s*(image:\s*|FROM\s+)[^:[:space:]]+(\s|$)' $files; then echo 'image without an exact tag'; exit 1; fi
+          if grep -n ':latest' $files; then echo 'latest is not allowed'; exit 1; fi
+
+      - name: Build and start the stack
+        run: docker compose up -d --build
+
+      - name: Every container healthy
+        run: sh deploy/compose/test/stack-test.sh healthy
+
+      - name: PgBouncer settings
+        run: sh deploy/compose/test/stack-test.sh pgbouncer
+
+      - name: Keycloak and Temporal databases
+        run: sh deploy/compose/test/stack-test.sh temporal
+
+      - name: One request, one trace
+        run: sh deploy/compose/test/stack-test.sh trace
+
+      - name: Init script is idempotent
+        run: sh deploy/compose/test/stack-test.sh idempotent
+
+      - name: Internal overlay comes up
+        run: |
+          docker compose down -v
+          sh deploy/compose/test/stack-test.sh internal
+
+      - name: Logs on failure
+        if: failure()
+        run: docker compose -f compose.yaml -f deploy/compose/compose.internal.yaml logs --no-color --tail 200
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

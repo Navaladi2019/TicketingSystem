@@ -1,0 +1,70 @@
+# nava-core exports OTLP/HTTP traces here. The debug exporter is the only
+# destination until a trace backend is chosen.
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+  # Second layer behind the in-process deny-list in
+  # internal/platform/telemetry/filter.go: keep the two lists in step.
+  attributes/deny:
+    actions:
+      - {key: url.path, action: delete}
+      - {key: url.query, action: delete}
+      - {key: url.full, action: delete}
+      - {key: http.url, action: delete}
+      - {key: http.target, action: delete}
+      - {key: user_agent.original, action: delete}
+      - {key: http.user_agent, action: delete}
+      - {key: client.address, action: delete}
+      - {key: client.port, action: delete}
+      - {key: http.client_ip, action: delete}
+      - {key: network.peer.address, action: delete}
+      - {key: network.peer.port, action: delete}
+      - {key: net.sock.peer.addr, action: delete}
+      - {key: net.peer.ip, action: delete}
+      - {key: server.port, action: delete}
+      - {key: http.request.method_original, action: delete}
+      - {key: network.protocol.version, action: delete}
+      - {key: db.query.text, action: delete}
+      - {key: db.statement, action: delete}
+      - {key: exception.message, action: delete}
+  # Keep every error and every slow request; sample the rest.
+  tail_sampling:
+    decision_wait: 2s
+    num_traces: 10000
+    policies:
+      - name: errors
+        type: status_code
+        status_code: {status_codes: [ERROR]}
+      - name: slow
+        type: latency
+        latency: {threshold_ms: 500}
+      - name: sample-the-rest
+        type: probabilistic
+        probabilistic: {sampling_percentage: "${env:OTEL_TAIL_SAMPLE_PERCENT:-10}"}
+  batch:
+    timeout: 1s
+
+exporters:
+  debug:
+    verbosity: detailed
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, attributes/deny, tail_sampling, batch]
+      exporters: [debug]
