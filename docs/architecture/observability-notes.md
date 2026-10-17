@@ -60,14 +60,14 @@ bounded, non-client values leave the process; secrets are never echoed.
 
 ### 2.2 Spans carry no client values or PII
 
-The export-time deny-list in `internal/platform/telemetry/filter.go` runs on
-every span, event and link just before export. It drops raw paths and queries
+The export-time filter in `internal/platform/telemetry/filter.go` runs on
+every span, event and link just before export. `filter.go` drops raw paths and queries
 (`url.*`, `http.url`, `http.target`), client identity and headers
 (`user_agent.original`, `client.address`, `network.peer.*`,
 `http.request.header.*`), client-chosen values (`server.port`,
 `http.request.method_original`, `network.protocol.version`), free text
 (`db.statement`, `db.query.text`, `exception.message`) and the status
-description. `server.address` is fixed to `nava-core` (`WithServerName`).
+description (`filteredSpan.Status()`). `server.address` is fixed to `nava-core` (`WithServerName`).
 
 Backing tests: `TestServerSpanAttributeKeysAreGolden` pins the server span's
 exact key set, so an otelhttp upgrade that adds a key fails CI until someone
@@ -131,16 +131,21 @@ rule:
 
 | Store | May carry error text? | What enforces it |
 |---|---|---|
-| Spans | No | The deny-list in `internal/platform/telemetry/filter.go` drops `exception.message`, the status description and `db.statement` / `db.query.text`. An error shows as status `Error`, `error.type` and `exception.type` / `exception.stacktrace` |
-| Metrics | No | The View allow-list keeps only bounded attributes (section 2.3); `error.type` is the only error signal |
-| Logs | Yes, under `err` | Nothing inspects the value. The log-record deny-list (T01e, TICK-101) removes the same **keys** as the span list, so an `err` attribute passes through. This is intended |
+| Spans | No, for the listed keys | `filter.go` drops `exception.message`, the status description and `db.statement` / `db.query.text`. An error shows as status `Error` and `error.type`; `exception.type` / `exception.stacktrace` are allowed if recorded (nothing calls `RecordError` today). It covers only the keys it lists, so new span keys are reviewed (section 2.7, "Deny-list for application spans") |
+| Metrics | No, for the HTTP metrics | The View allow-list matches only `http.server.*` and keeps bounded attributes (section 2.3); `error.type` is the only error signal there. Runtime metrics have fixed attributes. Any new instrument needs its own View or a review |
+| Logs, stdout JSON | Yes | No deny-list, now or later. Nothing inspects keys or values |
+| Logs, OTLP via the Collector | Yes | Once T01e (TICK-101) lands: a deny-list on attribute **keys** only, values are not inspected. T01e is not in place yet |
+
+Error text can sit in any log attribute value. Today that is `error`
+(`slog.Any("error", err)`) and, from panic recovery, `panic` and `stack`.
+It passes through both log paths. This is intended.
 
 Each log line is joined to its trace by `trace_id`, `span_id` and
 `request_id`, so the message stays reachable from the red trace without
 being copied onto it.
 
 Therefore the log backend's retention period and access control are the PII
-control for error text. The deny-list does not clean logs. Both must be
+control for error text. No deny-list cleans logs. Both must be
 decided when a log backend is chosen. That is not part of T02, which only
 uses the Collector's debug exporter. It is tracked as TODO-003 in the
 [TODO tracker](../delivery/todo.md), triggered by a log backend being added
@@ -151,8 +156,9 @@ lands (Epic 05, records path), that task decides whether to allow the
 bounded fields `db.operation.name`, `db.collection.name` and
 `db.query.summary`.
 
-Debugging an error: alert, then the red trace, then `error.type` and the
-stack on the span, then its `trace_id`, then the log line with the message.
+Debugging an error: alert, then the red trace, then its status and
+`error.type`, then its `trace_id`, then the log line with `error`, or
+`panic` and `stack`. The span carries no stack today.
 
 ## 3. Prometheus
 
