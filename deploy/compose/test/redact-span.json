@@ -1,0 +1,32 @@
+{
+  "resourceSpans": [{
+    "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "redact-test"}}]},
+    "scopeSpans": [{
+      "scope": {"name": "redact-test"},
+      "spans": [{
+        "traceId": "__TRACE_ID__",
+        "spanId": "__SPAN_ID__",
+        "name": "redact-probe",
+        "kind": 2,
+        "startTimeUnixNano": "__START__",
+        "endTimeUnixNano": "__END__",
+        "attributes": [
+          {"key": "url.path", "value": {"stringValue": "LEAKY-PATH"}},
+          {"key": "http.request.header.authorization", "value": {"stringValue": "LEAKY-HEADER"}},
+          {"key": "keep.me", "value": {"stringValue": "__TRACE_ID__"}}
+        ],
+        "events": [{
+          "name": "exception",
+          "timeUnixNano": "__START__",
+          "attributes": [
+            {"key": "exception.type", "value": {"stringValue": "keep-type"}},
+            {"key": "exception.message", "value": {"stringValue": "LEAKY-MESSAGE"}},
+            {"key": "http.request.header.cookie", "value": {"stringValue": "LEAKY-COOKIE"}},
+            {"key": "db.statement", "value": {"stringValue": "LEAKY-SQL"}}
+          ]
+        }],
+        "status": {"code": 2, "message": "LEAKY-STATUS"}
+      }]
+    }]
+  }]
+}

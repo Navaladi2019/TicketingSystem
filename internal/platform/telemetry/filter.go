@@ -27,10 +27,8 @@ import (
 // a second layer (deploy/compose/otel-collector/config.yaml); a test fails when
 // the two drift.
 func spanAttributeAllowed(kv attribute.KeyValue) bool {
-	for _, k := range deniedSpanAttributeKeys() {
-		if kv.Key == k {
-			return false
-		}
+	if _, denied := deniedSpanAttributeKeys[kv.Key]; denied {
+		return false
 	}
 	return !strings.HasPrefix(string(kv.Key), deniedSpanAttributePrefix)
 }
@@ -38,20 +36,21 @@ func spanAttributeAllowed(kv attribute.KeyValue) bool {
 // deniedSpanAttributePrefix denies every key under it.
 const deniedSpanAttributePrefix = "http.request.header."
 
-// deniedSpanAttributeKeys returns the exact denied keys.
-func deniedSpanAttributeKeys() []attribute.Key {
-	return []attribute.Key{
-		"url.path", "url.query", "url.full",
-		"http.url", "http.target",
-		"user_agent.original", "http.user_agent",
-		"client.address", "client.port", "http.client_ip",
-		"network.peer.address", "network.peer.port", "net.sock.peer.addr", "net.peer.ip",
-		"server.port", // from the Host header when the server name has no port
-		"http.request.method_original",
-		"network.protocol.version", // the client picks it from HTTP/1.0 to HTTP/1.9
-		"db.query.text", "db.statement",
-		"exception.message",
-	}
+// deniedSpanAttributeKeys is the set of exact denied keys. It is read-only and
+// looked up for every attribute of every exported span, so it is built once.
+//
+//nolint:gochecknoglobals // immutable lookup table
+var deniedSpanAttributeKeys = map[attribute.Key]struct{}{
+	"url.path": {}, "url.query": {}, "url.full": {},
+	"http.url": {}, "http.target": {},
+	"user_agent.original": {}, "http.user_agent": {},
+	"client.address": {}, "client.port": {}, "http.client_ip": {},
+	"network.peer.address": {}, "network.peer.port": {}, "net.sock.peer.addr": {}, "net.peer.ip": {},
+	"server.port":                  {}, // from the Host header when the server name has no port
+	"http.request.method_original": {},
+	"network.protocol.version":     {}, // the client picks it from HTTP/1.0 to HTTP/1.9
+	"db.query.text":                {}, "db.statement": {},
+	"exception.message": {},
 }
 
 func filterAttributes(kvs []attribute.KeyValue) []attribute.KeyValue {

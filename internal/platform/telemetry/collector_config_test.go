@@ -18,7 +18,7 @@ func TestCollectorDenyListMatchesFilter(t *testing.T) {
 	}
 	cfg := string(raw)
 
-	for _, k := range deniedSpanAttributeKeys() {
+	for k := range deniedSpanAttributeKeys {
 		if want := "{key: " + string(k) + ", action: delete}"; !strings.Contains(cfg, want) {
 			t.Errorf("attributes/deny lacks %q: add it to the Collector config", want)
 		}

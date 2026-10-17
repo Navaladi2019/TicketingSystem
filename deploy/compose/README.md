@@ -22,7 +22,7 @@ Host ports (bound to 127.0.0.1): nava-core `18080`, Keycloak `18081`.
 **Extending the init script.** Add `ensure_role` / `ensure_database` calls to
 `db-init/init.sh`; both are safe to re-run.
 
-**Tests.** `sh deploy/compose/test/stack-test.sh <healthy|pgbouncer|temporal|trace|idempotent|internal>`
+**Tests.** `sh deploy/compose/test/stack-test.sh <healthy|pgbouncer|temporal|trace|redact|idempotent|internal>`
 (`task stack:test`). Start the stack with `OTEL_TAIL_SAMPLE_PERCENT=100` for the
 `trace` test: an ordinary 404 is otherwise sampled out. CI runs them in
 `deploy/compose/compose-stack.workflow.yml` (to be moved to `.github/workflows/`).
