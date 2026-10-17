@@ -273,11 +273,11 @@ func TestSpanHasRouteAndNoForbiddenAttributes(t *testing.T) {
 	}
 }
 
-// TestServerSpanAttributeKeysAreGolden is the allow-list behind the filter's
-// deny-list. One request carries every client-controlled input; the server
-// span's key set must equal the expected set exactly. A key added by an
-// otelhttp upgrade fails here until someone decides whether it may leave the
-// process (deny it in telemetry.spanAttributeAllowed, or add it below).
+// TestServerSpanAttributeKeysAreGolden pins the server span's exported key
+// set. One request carries every client-controlled input; the key set must
+// equal the expected set exactly. The filter drops unlisted keys, so a key an
+// otelhttp upgrade adds is dropped; if it should leave the process, add it to
+// telemetry.spanAttributeAllowed and below.
 func TestServerSpanAttributeKeysAreGolden(t *testing.T) {
 	t.Parallel()
 	const (
@@ -336,8 +336,8 @@ func TestServerSpanAttributeKeysAreGolden(t *testing.T) {
 			slices.Sort(got)
 			want := slices.Sorted(slices.Values(tc.want))
 			if !slices.Equal(got, want) {
-				t.Errorf("span attribute keys = %v, want %v. A new key needs a decision: "+
-					"deny it in telemetry.spanAttributeAllowed or add it to this test.", got, want)
+				t.Errorf("span attribute keys = %v, want %v. "+
+					"telemetry.spanAttributeAllowed and this test change together.", got, want)
 			}
 
 			if attrs["server.address"] != "nava-core" {

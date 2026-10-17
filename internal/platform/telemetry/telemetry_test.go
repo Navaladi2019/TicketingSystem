@@ -89,7 +89,7 @@ func TestExportFilter(t *testing.T) {
 		attribute.String("user_agent.original", "curl"),
 		attribute.String("http.request.header.authorization", "Bearer x"),
 		attribute.String("db.query.text", "SELECT * FROM users WHERE email = 'a@b.test'"),
-		attribute.String("app.kept", "yes"),
+		attribute.String("app.dropped", "yes"), // not on the allow-list
 	)
 	// What otelhttp.Transport does with a client error: the *url.Error text
 	// quotes the full URL, query included.
@@ -108,7 +108,7 @@ func TestExportFilter(t *testing.T) {
 	for _, s := range spans {
 		for _, kv := range s.Attributes {
 			switch kv.Key {
-			case "http.route", "app.kept":
+			case "http.route":
 			default:
 				t.Errorf("span %s kept %s = %q", s.Name, kv.Key, kv.Value.String())
 			}

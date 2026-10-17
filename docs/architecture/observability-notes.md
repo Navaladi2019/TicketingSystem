@@ -61,18 +61,34 @@ bounded, non-client values leave the process; secrets are never echoed.
 ### 2.2 Spans carry no client values or PII
 
 The export-time filter in `internal/platform/telemetry/filter.go` runs on
-every span, event and link just before export. `filter.go` drops raw paths
-and queries (`url.*`, `http.url`, `http.target`), client identity and headers
-(`user_agent.original`, `client.address`, `network.peer.*`,
-`http.request.header.*`), client-chosen values (`server.port`,
-`http.request.method_original`, `network.protocol.version`), free text
-(`db.statement`, `db.query.text`, `exception.message`) and the status
-description (`filteredSpan.Status()`). `server.address` is fixed to `nava-core`
-(`WithServerName`).
+every span, event and link just before export, whatever library created the
+span. It is an **allow-list** (`spanAttributeAllowed`, TICK-94 item 3): any
+key not listed is dropped, so a new library's keys never leave the process
+by default. The list:
 
-Backing tests: `TestServerSpanAttributeKeysAreGolden` pins the server span's
-exact key set, so an otelhttp upgrade that adds a key fails CI until someone
-decides on it. `edge_adversarial_test.go` writes crafted requests onto raw
+| Kept | Why |
+|---|---|
+| `server.address`, `http.request.method`, `http.response.status_code`, `http.response.body.size`, `http.route`, `url.scheme` | The server span keys the golden test pins; all bounded or server-chosen. `server.address` is fixed to `nava-core` (`WithServerName`) |
+| `error.type`, `exception.type`, `exception.stacktrace` | Error class without its text |
+| `nava.tenant_id`, `nava.request_id`, `nava.outbox_id` | Platform-generated ids, each a named constant in `filter.go` |
+| `temporalWorkflowID`, `temporalRunID` | Workflow id (built only by the relay) and run id |
+
+Everything else is dropped, including raw paths and queries, client
+identity and headers, client-chosen values, SQL text and `exception.message`.
+An undeclared `nava.*` key is dropped too. The status keeps its code; the
+description is replaced with the span's `error.type` (empty without one),
+because instrumentation fills it with `err.Error()`. Link `tracestate` is
+cleared.
+
+Span id policy: only ids the platform generates go on spans. Principal ids,
+emails, names, raw paths, queries, payloads and SQL parameters never do;
+principal id goes in logs only (T17). A new `nava.*` key is a change to
+`filter.go` and is reviewed against this policy.
+
+Backing tests, all on the exporter's output: `filter_test.go` covers the
+TICK-94 bypass case, unlisted keys and the status description.
+`TestServerSpanAttributeKeysAreGolden` pins the server span's exact key set,
+so the allow-list and the expected keys change together. `edge_adversarial_test.go` writes crafted requests onto raw
 TCP with a marker in every client-controlled slot and fails if it reaches a
 span, link, metric or log.
 
@@ -120,7 +136,7 @@ span, link, metric or log.
 | Panic value logged as-is | A panic message built from input can log client data | Not yet tracked |
 | OTLP transport security comes from env | Plain `http://` or no auth if misconfigured | T02 deployment |
 | `WithGroup` nests correlation ids | `x.trace_id` breaks log joins (section 6) | Comment in `logging.go` only |
-| Deny-list for application spans | A future app span could add a sensitive key; the golden test covers the server span only | Review each new instrumentation |
+| Allow-list drops unknown keys silently | A useful key a new library adds is lost until someone lists it | Review each new instrumentation; add keys to `spanAttributeAllowed` |
 | Plain-text 500 | Not RFC 9457 | TODO-002 |
 | No `tenant_id` or rate limits yet | Arrive with T17 and Epic 07 | Plan |
 
@@ -132,7 +148,7 @@ rule:
 
 | Store | May carry error text? | What enforces it |
 |---|---|---|
-| Spans | No, for the listed keys | `filter.go` drops `exception.message`, the status description and `db.statement` / `db.query.text`. An error shows as status `Error` and `error.type`; `exception.type` / `exception.stacktrace` are allowed if recorded (nothing calls `RecordError` today). It covers only the keys it lists, so new span keys are reviewed (section 2.7, "Deny-list for application spans") |
+| Spans | No | `filter.go`'s allow-list keeps no free-text key: `exception.message`, `db.statement` / `db.query.text` and every unlisted key are dropped, and the status description becomes `error.type`. An error shows as status `Error` and `error.type`; `exception.type` / `exception.stacktrace` are kept if recorded |
 | Metrics | No, for the HTTP metrics | The View allow-list matches only `http.server.*` and keeps bounded attributes (section 2.3); `error.type` is the only error signal there. Runtime metrics have fixed attributes. Any new instrument needs its own View or a review |
 | Logs, stdout JSON | Yes | No deny-list, now or later. Nothing inspects keys or values |
 | Logs, OTLP via the Collector | Yes | Once T01e (TICK-101) lands: a deny-list on attribute **keys** only, values are not inspected. T01e is not in place yet |
@@ -256,7 +272,7 @@ Options, in order of preference:
 4. Stopgap: a `forbidigo` lint rule banning `.WithGroup(`.
 
 Also at T02: the Collector's `attributes`/`redaction` processors with the
-same deny-list, as a second layer behind `filter.go`.
+same allow-list, as a second layer behind `filter.go`.
 
 ## 7. Adding an API gateway
 
@@ -302,7 +318,7 @@ of the edge rules, and every piece we own has a test.
 
 | Our code | Library alternative | Why ours (for now) | Revisit when |
 |---|---|---|---|
-| Span deny-list (`filteringExporter`, `filter.go`) | Collector `attributes` / `redaction` / `transform` processors; SDK span limits only cap counts and lengths | Libraries follow OTel semantic conventions, which *require* attributes such as `client.address` and `user_agent.original`; no library knows that our ADR forbids client values leaving the process. The Collector is the usual place, but there is no Collector until T02, and filtering in-process means the data never leaves at all (defence in depth) | T02: add the same list to the Collector as a second layer; keep this one |
+| Span allow-list (`filteringExporter`, `filter.go`) | Collector `attributes` / `redaction` / `transform` processors; SDK span limits only cap counts and lengths | Libraries follow OTel semantic conventions, which *require* attributes such as `client.address` and `user_agent.original`; no library knows that our ADR forbids client values leaving the process. The Collector is the usual place, but there is no Collector until T02, and filtering in-process means the data never leaves at all (defence in depth) | T02: add the same list to the Collector as a second layer; keep this one |
 | Metric View and `traceOnlyExemplars` | The SDK's own View and reservoir API (we configure them) | This *is* the library's extension point. The wrapper exists because the Prometheus exporter has no option to drop exemplar filtered-attributes, and without it client values reach `/metrics` | An exporter option to omit filtered attributes appears |
 | `methodLabel` | otelhttp normalises methods internally | otelhttp's normaliser is in an internal package, so it cannot be imported; ours mirrors it so the access log and the metric agree | otelhttp exports it |
 | `ContextHandler` (slog ids) | `otelslog` bridge (official); `github.com/veqryn/slog-context` (community) | About 20 lines, written before any log pipeline existed. `otelslog` exports over OTLP, which waits for the T02 Collector. Its one gap is the `WithGroup` caveat (section 6) | T02: adopt `otelslog` for export; try `slog-context` for stdout |

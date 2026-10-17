@@ -42,7 +42,7 @@ type Telemetry struct {
 	// exporter's metrics and the process collector, and nothing else.
 	Registry *prometheus.Registry
 	// TracerProvider is the SDK provider. Every exporter behind it applies the
-	// span attribute deny-list.
+	// span attribute allow-list.
 	TracerProvider trace.TracerProvider
 	// MeterProvider exports through Registry.
 	MeterProvider metric.MeterProvider
