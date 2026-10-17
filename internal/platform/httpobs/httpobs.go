@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
@@ -32,7 +31,7 @@ const unmatchedRoute = "unmatched"
 
 // RequestIDAttribute is the span attribute holding the request id, so a
 // quoted X-Request-Id can be searched for in the trace backend directly.
-const RequestIDAttribute = attribute.Key("nava.request_id")
+const RequestIDAttribute = telemetry.RequestIDKey
 
 // Middleware wraps mux, outermost first:
 //

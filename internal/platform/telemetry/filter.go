@@ -2,55 +2,62 @@ package telemetry
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/exemplar"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
-// spanAttributeAllowed is the span attribute deny-list. Raw paths, queries,
-// user agents, client or peer addresses, the Host header's port, a raw
-// non-standard method, the protocol version, SQL text and free-form error
-// messages are client-chosen or free-form values that may carry ids and PII;
-// none may leave the process once an exporter is on. Older semconv names are
-// listed too, in case an instrumentation still emits them.
+// The nava.* span attribute keys. Each one is a platform-generated id, never
+// a value a client or the IdP supplies and never one that identifies a person
+// (TICK-94 item 3 span id policy). Principal ids, emails and names go in logs
+// only. A key is exported only if it is declared here and listed in
+// spanAttributeAllowed, so a new nava.* key is a reviewed change to this file.
+const (
+	// TenantIDKey is the tenant the work runs for, as resolved server-side.
+	TenantIDKey = attribute.Key("nava.tenant_id")
+	// RequestIDKey is the server-generated request id (package requestid).
+	RequestIDKey = attribute.Key("nava.request_id")
+	// OutboxIDKey is the id of an outbox row the platform created.
+	OutboxIDKey = attribute.Key("nava.outbox_id")
+)
+
+// The Temporal SDK's own keys for the workflow and run ids. The workflow id
+// is built only by the relay (t:<tenant>:<target_key>), the run id by Temporal.
+const (
+	temporalWorkflowIDKey = attribute.Key("temporalWorkflowID")
+	temporalRunIDKey      = attribute.Key("temporalRunID")
+)
+
+// spanAttributeAllowed is the span attribute allow-list, applied to span,
+// event and link attributes. Any other key is dropped, so a key a new library
+// or a library upgrade emits never leaves the process until someone adds it
+// here.
 //
-// It is a deny-list because application spans need free attribute keys. The
-// golden key-set test in httpobs is the allow-list that backs it: a key a
-// future otelhttp release adds fails that test until someone decides on it.
-//
-// The Collector's attributes/deny and transform processors repeat this list as
-// a second layer (deploy/compose/otel-collector/config.yaml); a test fails when
-// the two drift.
+// The semconv keys are the ones the httpobs golden key-set test pins for the
+// server span, plus the error keys. exception.message is not listed:
+// instrumentation fills it with err.Error(), which can quote input values.
 func spanAttributeAllowed(kv attribute.KeyValue) bool {
-	if _, denied := deniedSpanAttributeKeys[kv.Key]; denied {
-		return false
+	switch kv.Key {
+	case "server.address", // fixed to nava-core (otelhttp.WithServerName)
+		"http.request.method", // standard methods, else _OTHER
+		"http.response.status_code",
+		"http.response.body.size",
+		"http.route", // the ServeMux pattern's path, never the raw path
+		"url.scheme",
+		"error.type",
+		"exception.type",
+		"exception.stacktrace",
+		TenantIDKey, RequestIDKey, OutboxIDKey,
+		temporalWorkflowIDKey, temporalRunIDKey:
+		return true
 	}
-	return !strings.HasPrefix(string(kv.Key), deniedSpanAttributePrefix)
-}
-
-// deniedSpanAttributePrefix denies every key under it.
-const deniedSpanAttributePrefix = "http.request.header."
-
-// deniedSpanAttributeKeys is the set of exact denied keys. It is read-only and
-// looked up for every attribute of every exported span, so it is built once.
-//
-//nolint:gochecknoglobals // immutable lookup table
-var deniedSpanAttributeKeys = map[attribute.Key]struct{}{
-	"url.path": {}, "url.query": {}, "url.full": {},
-	"http.url": {}, "http.target": {},
-	"user_agent.original": {}, "http.user_agent": {},
-	"client.address": {}, "client.port": {}, "http.client_ip": {},
-	"network.peer.address": {}, "network.peer.port": {}, "net.sock.peer.addr": {}, "net.peer.ip": {},
-	"server.port":                  {}, // from the Host header when the server name has no port
-	"http.request.method_original": {},
-	"network.protocol.version":     {}, // the client picks it from HTTP/1.0 to HTTP/1.9
-	"db.query.text":                {}, "db.statement": {},
-	"exception.message": {},
+	return false
 }
 
 func filterAttributes(kvs []attribute.KeyValue) []attribute.KeyValue {
@@ -63,7 +70,7 @@ func filterAttributes(kvs []attribute.KeyValue) []attribute.KeyValue {
 	return out
 }
 
-// filteringExporter applies the deny-list at export, so it holds however the
+// filteringExporter applies the allow-list at export, so it holds however the
 // data reached the span: start options, SetAttributes, events (RecordError),
 // links or the status. Every exporter, test ones included, sits behind it.
 type filteringExporter struct {
@@ -80,7 +87,8 @@ func (e filteringExporter) ExportSpans(ctx context.Context, spans []sdktrace.Rea
 
 func (e filteringExporter) Shutdown(ctx context.Context) error { return e.next.Shutdown(ctx) }
 
-// filteredSpan is the exported view of a span with denied attributes removed.
+// filteredSpan is the exported view of a span: only allowed attributes, no
+// link tracestate, and error.type as the status description.
 type filteredSpan struct {
 	sdktrace.ReadOnlySpan
 }
@@ -113,11 +121,21 @@ func (s filteredSpan) Links() []sdktrace.Link {
 	return out
 }
 
-// Status keeps the code and drops the description: instrumentation fills it
+// Status keeps the code and replaces the description with the span's
+// error.type, or empty if it has none. Instrumentation fills the description
 // with err.Error(), and a *url.Error, for one, quotes the full URL with its
-// query. error.type stays on the span.
+// query; a PostgreSQL 22P02 quotes the bad input. Only an Error status carries
+// a description, as in the OTel API.
 func (s filteredSpan) Status() sdktrace.Status {
-	return sdktrace.Status{Code: s.ReadOnlySpan.Status().Code}
+	st := sdktrace.Status{Code: s.ReadOnlySpan.Status().Code}
+	if st.Code == codes.Error {
+		for _, kv := range s.ReadOnlySpan.Attributes() {
+			if kv.Key == semconv.ErrorTypeKey {
+				st.Description = kv.Value.String()
+			}
+		}
+	}
+	return st
 }
 
 // httpServerMetricsView keeps only bounded attributes on the otelhttp server

@@ -16,7 +16,7 @@ processors:
   memory_limiter:
     check_interval: 1s
     limit_mib: 256
-  # Second layer behind the in-process deny-list in
+  # Second layer behind the in-process allow-list in
   # internal/platform/telemetry/filter.go. TestCollectorDenyListMatchesFilter
   # fails when the two drift.
   attributes/deny:

@@ -5,13 +5,45 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"go.opentelemetry.io/otel/attribute"
 )
 
-// TestCollectorDenyListMatchesFilter keeps the Collector's second layer in
-// step with the in-process deny-list: every denied key must be deleted from
-// span attributes (attributes/deny) and from span events (transform/deny), the
-// header prefix must be covered in both, and the status description cleared.
+// deniedSpanAttributePrefix and deniedSpanAttributeKeys are the known-bad keys
+// the Collector's second layer deletes (deploy/compose/otel-collector/config.yaml).
+// The in-process filter is an allow-list and does not read them; this list is
+// what the Collector config must mirror. Older semconv names are listed too.
+const deniedSpanAttributePrefix = "http.request.header."
+
+//nolint:gochecknoglobals // read-only test table
+var deniedSpanAttributeKeys = map[attribute.Key]struct{}{
+	"url.path": {}, "url.query": {}, "url.full": {},
+	"http.url": {}, "http.target": {},
+	"user_agent.original": {}, "http.user_agent": {},
+	"client.address": {}, "client.port": {}, "http.client_ip": {},
+	"network.peer.address": {}, "network.peer.port": {}, "net.sock.peer.addr": {}, "net.peer.ip": {},
+	"server.port":                  {}, // from the Host header when the server name has no port
+	"http.request.method_original": {},
+	"network.protocol.version":     {}, // the client picks it from HTTP/1.0 to HTTP/1.9
+	"db.query.text":                {}, "db.statement": {},
+	"exception.message": {},
+}
+
+// TestCollectorDenyListMatchesFilter keeps the two layers consistent. Every
+// denied key, and a header key, must be rejected by the in-process allow-list.
+// The Collector must delete every denied key from span attributes
+// (attributes/deny) and from span events (transform/deny), cover the header
+// prefix in both, and clear the status description.
 func TestCollectorDenyListMatchesFilter(t *testing.T) {
+	for k := range deniedSpanAttributeKeys {
+		if spanAttributeAllowed(k.String("x")) {
+			t.Errorf("spanAttributeAllowed keeps denied key %q", k)
+		}
+	}
+	if k := attribute.Key(deniedSpanAttributePrefix + "x"); spanAttributeAllowed(k.String("x")) {
+		t.Errorf("spanAttributeAllowed keeps header key %q", k)
+	}
+
 	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "deploy", "compose", "otel-collector", "config.yaml"))
 	if err != nil {
 		t.Fatal(err)
