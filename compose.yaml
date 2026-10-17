@@ -1,0 +1,180 @@
+# Local platform stack: `docker compose up` from a fresh clone (or `task stack:up`).
+# Every image tag is pinned exactly (D-P3, ADR-001 section 3); never use `latest`.
+# Passwords below are dev-only defaults so a fresh clone needs no setup. Override
+# them in .env (gitignored). The Postgres superuser password reaches only the
+# postgres and db-init containers, as a file under /run, never as an
+# environment variable.
+#
+# Networks: `internal` (internal: true, no egress) carries every backing
+# service. `default` publishes ports to the host for nava-core and Keycloak.
+# deploy/compose/compose.internal.yaml makes `default` internal too.
+name: nava
+
+services:
+  postgres:
+    image: postgres:16.10
+    environment:
+      POSTGRES_USER: pgadmin
+      POSTGRES_PASSWORD_FILE: /run/pg_superuser_password
+      POSTGRES_DB: postgres
+    configs:
+      - source: pg_superuser_password
+        target: /run/pg_superuser_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pgadmin -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  # One-shot and idempotent: creates the service roles and databases, then
+  # exits. T03 grows this into the db-roles job.
+  db-init:
+    image: postgres:16.10
+    entrypoint: ["/bin/sh", "/init/init.sh"]
+    environment:
+      PGHOST: postgres
+      PGUSER: pgadmin
+      PG_SUPERUSER_PASSWORD_FILE: /run/pg_superuser_password
+      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-dev-only-keycloak}
+      TEMPORAL_DB_PASSWORD: ${TEMPORAL_DB_PASSWORD:-dev-only-temporal}
+      PGBOUNCER_AUTH_PASSWORD: ${PGBOUNCER_AUTH_PASSWORD:-dev-only-pgbouncer}
+    configs:
+      - source: pg_superuser_password
+        target: /run/pg_superuser_password
+    volumes:
+      - ./deploy/compose/db-init:/init:ro
+    networks: [internal]
+    depends_on:
+      postgres: {condition: service_healthy}
+    restart: "no"
+
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.24.1-p1
+    configs:
+      - source: pgbouncer_ini
+        target: /etc/pgbouncer/pgbouncer.ini
+      - source: pgbouncer_userlist
+        target: /etc/pgbouncer/userlist.txt
+    networks: [internal]
+    depends_on:
+      db-init: {condition: service_completed_successfully}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.1
+    command: ["start-dev"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-dev-only-keycloak}
+      KC_HEALTH_ENABLED: "true"
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-dev-only-admin}
+    ports:
+      - "127.0.0.1:${KEYCLOAK_PORT:-18081}:8080"
+    networks: [default, internal]
+    depends_on:
+      db-init: {condition: service_completed_successfully}
+    healthcheck:
+      # The image has no curl; probe the management port with bash.
+      test:
+        - CMD-SHELL
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/9000 &&
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          grep -q '"status": "UP"' <&3
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    restart: unless-stopped
+
+  # Temporal on the `default` namespace; T28 adds `nava`. SQL visibility on
+  # PostgreSQL. Talks to Postgres directly, not through PgBouncer.
+  temporal:
+    image: temporalio/auto-setup:1.28.4
+    environment:
+      DB: postgres12
+      DB_PORT: "5432"
+      POSTGRES_SEEDS: postgres
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: ${TEMPORAL_DB_PASSWORD:-dev-only-temporal}
+      DBNAME: temporal
+      VISIBILITY_DBNAME: temporal_visibility
+      SKIP_DB_CREATE: "true"
+      DEFAULT_NAMESPACE: default
+    networks: [internal]
+    depends_on:
+      db-init: {condition: service_completed_successfully}
+    healthcheck:
+      test: ["CMD-SHELL", "tctl --address $$(hostname -i):7233 cluster health | grep -q SERVING"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
+
+  otel-collector:
+    build:
+      context: ./deploy/compose/otel-collector
+    image: nava/otel-collector:dev
+    environment:
+      # Share of ordinary traces kept; errors and slow requests are always kept.
+      OTEL_TAIL_SAMPLE_PERCENT: ${OTEL_TAIL_SAMPLE_PERCENT:-10}
+    networks: [internal]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:13133/"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  nava-core:
+    build:
+      context: .
+      dockerfile: deploy/compose/nava-core/Dockerfile
+    image: nava/nava-core:dev
+    environment:
+      NAVA_HTTP_ADDR: ":8080"
+      NAVA_LOG_FORMAT: json
+      OTEL_SERVICE_NAME: nava-core
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    ports:
+      - "127.0.0.1:${NAVA_CORE_PORT:-18080}:8080"
+    networks: [default, internal]
+    depends_on:
+      otel-collector: {condition: service_healthy}
+    healthcheck:
+      # /metrics on the internal listener (NAVA_METRICS_ADDR, :9090) until T04 adds the health endpoint.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/metrics"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+networks:
+  default: {}
+  internal:
+    internal: true
+
+volumes:
+  pgdata: {}
+
+configs:
+  pg_superuser_password:
+    content: ${PG_SUPERUSER_PASSWORD:-dev-only-superuser}
+  pgbouncer_ini:
+    file: ./deploy/compose/pgbouncer/pgbouncer.ini
+  pgbouncer_userlist:
+    content: |
+      "pgbouncer_auth" "${PGBOUNCER_AUTH_PASSWORD:-dev-only-pgbouncer}"
