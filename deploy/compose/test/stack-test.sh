@@ -22,6 +22,16 @@ t_pgbouncer() {
     major=${ver%.*}; minor=${ver#*.}
     { [ "$major" -gt 1 ] || [ "$minor" -ge 21 ]; } || fail "PgBouncer $ver is older than 1.21"
     pass "pgbouncer $ver, transaction mode, max_prepared_statements=$mps"
+    # The image superuser must not be reachable through the pooler, while a
+    # service role is (this also proves the auth_query lookup works).
+    if compose exec -T -e PGPASSWORD="${PG_SUPERUSER_PASSWORD:-dev-only-superuser}" pgbouncer \
+        psql -X -h 127.0.0.1 -U pgadmin nava -c 'SELECT 1' >/dev/null 2>&1; then
+        fail "the superuser logged in through PgBouncer"
+    fi
+    compose exec -T -e PGPASSWORD="${KEYCLOAK_DB_PASSWORD:-dev-only-keycloak}" pgbouncer \
+        psql -X -h 127.0.0.1 -U keycloak nava -c 'SELECT 1' >/dev/null 2>&1 \
+        || fail "keycloak could not log in through PgBouncer"
+    pass "superuser refused through PgBouncer, service role accepted"
 }
 
 # Keycloak and Temporal have their own databases; Temporal's visibility is SQL.
@@ -40,6 +50,8 @@ t_temporal() {
 # an ordinary 404 is not an error or slow and is otherwise sampled.
 distinct_traces() { compose logs --no-log-prefix otel-collector | sed -n 's/.*Trace ID[ ]*: *\([0-9a-f]*\).*/\1/p' | sort -u | wc -l | tr -d ' '; }
 t_trace() {
+    pct=$(compose exec -T otel-collector printenv OTEL_TAIL_SAMPLE_PERCENT | tr -d '\r')
+    [ "$pct" = 100 ] || fail "OTEL_TAIL_SAMPLE_PERCENT is $pct; start the stack with OTEL_TAIL_SAMPLE_PERCENT=100 for this test"
     before=$(distinct_traces)
     compose exec -T nava-core wget -q -O /dev/null "http://127.0.0.1:8080/trace-probe" 2>/dev/null || true
     deadline=$(( $(date +%s) + 60 ))
@@ -54,18 +66,20 @@ t_trace() {
 }
 
 # The init is a no-op on a used volume: same role and database ids, data kept,
-# nothing created, and the stack stays healthy after a second `up`.
+# nothing created, and the stack is healthy again after `down` (volumes kept)
+# and a second `up`.
 t_idempotent() {
     snapshot() { psql_super postgres "SELECT (SELECT string_agg(oid::text, ',' ORDER BY rolname) FROM pg_roles WHERE rolname IN ('keycloak','temporal','pgbouncer_auth')) || '/' || (SELECT string_agg(oid::text, ',' ORDER BY datname) FROM pg_database WHERE datname IN ('keycloak','temporal','temporal_visibility','nava'))"; }
     psql_super nava "CREATE TABLE IF NOT EXISTS idempotency_marker (id int); INSERT INTO idempotency_marker SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM idempotency_marker)" >/dev/null
     first=$(snapshot)
+    compose down
     compose up -d
-    out=$(compose run --rm db-init) || fail "db-init failed on the second run"
+    wait_healthy 300
+    out=$(compose logs --no-log-prefix db-init)
     printf '%s\n' "$out"
     printf '%s\n' "$out" | grep -q 'done: 0 created' || fail "second run created something"
     [ "$(snapshot)" = "$first" ] || fail "role or database ids changed"
     [ "$(psql_super nava 'SELECT count(*) FROM idempotency_marker')" = 1 ] || fail "data in nava was lost"
-    wait_healthy 120
     pass "second up on a used volume is a no-op"
 }
 

@@ -22,9 +22,26 @@ import (
 // It is a deny-list because application spans need free attribute keys. The
 // golden key-set test in httpobs is the allow-list that backs it: a key a
 // future otelhttp release adds fails that test until someone decides on it.
+//
+// The Collector's attributes/deny and transform processors repeat this list as
+// a second layer (deploy/compose/otel-collector/config.yaml); a test fails when
+// the two drift.
 func spanAttributeAllowed(kv attribute.KeyValue) bool {
-	switch kv.Key {
-	case "url.path", "url.query", "url.full",
+	for _, k := range deniedSpanAttributeKeys() {
+		if kv.Key == k {
+			return false
+		}
+	}
+	return !strings.HasPrefix(string(kv.Key), deniedSpanAttributePrefix)
+}
+
+// deniedSpanAttributePrefix denies every key under it.
+const deniedSpanAttributePrefix = "http.request.header."
+
+// deniedSpanAttributeKeys returns the exact denied keys.
+func deniedSpanAttributeKeys() []attribute.Key {
+	return []attribute.Key{
+		"url.path", "url.query", "url.full",
 		"http.url", "http.target",
 		"user_agent.original", "http.user_agent",
 		"client.address", "client.port", "http.client_ip",
@@ -33,10 +50,8 @@ func spanAttributeAllowed(kv attribute.KeyValue) bool {
 		"http.request.method_original",
 		"network.protocol.version", // the client picks it from HTTP/1.0 to HTTP/1.9
 		"db.query.text", "db.statement",
-		"exception.message":
-		return false
+		"exception.message",
 	}
-	return !strings.HasPrefix(string(kv.Key), "http.request.header.")
 }
 
 func filterAttributes(kvs []attribute.KeyValue) []attribute.KeyValue {

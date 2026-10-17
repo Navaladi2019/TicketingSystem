@@ -17,7 +17,8 @@ processors:
     check_interval: 1s
     limit_mib: 256
   # Second layer behind the in-process deny-list in
-  # internal/platform/telemetry/filter.go: keep the two lists in step.
+  # internal/platform/telemetry/filter.go. TestCollectorDenyListMatchesFilter
+  # fails when the two drift.
   attributes/deny:
     actions:
       - {key: url.path, action: delete}
@@ -40,6 +41,40 @@ processors:
       - {key: db.query.text, action: delete}
       - {key: db.statement, action: delete}
       - {key: exception.message, action: delete}
+      - {pattern: ^http\.request\.header\..*, action: delete}
+  # The attributes processor reaches span attributes only. filter.go also
+  # filters span events (RecordError puts exception.message there), drops the
+  # status description. Link tracestate is stripped in-process only: OTTL cannot
+  # edit links.
+  transform/deny:
+    error_mode: propagate
+    trace_statements:
+      - context: spanevent
+        statements:
+          - delete_key(attributes, "url.path")
+          - delete_key(attributes, "url.query")
+          - delete_key(attributes, "url.full")
+          - delete_key(attributes, "http.url")
+          - delete_key(attributes, "http.target")
+          - delete_key(attributes, "user_agent.original")
+          - delete_key(attributes, "http.user_agent")
+          - delete_key(attributes, "client.address")
+          - delete_key(attributes, "client.port")
+          - delete_key(attributes, "http.client_ip")
+          - delete_key(attributes, "network.peer.address")
+          - delete_key(attributes, "network.peer.port")
+          - delete_key(attributes, "net.sock.peer.addr")
+          - delete_key(attributes, "net.peer.ip")
+          - delete_key(attributes, "server.port")
+          - delete_key(attributes, "http.request.method_original")
+          - delete_key(attributes, "network.protocol.version")
+          - delete_key(attributes, "db.query.text")
+          - delete_key(attributes, "db.statement")
+          - delete_key(attributes, "exception.message")
+          - delete_matching_keys(attributes, "^http\\.request\\.header\\..*")
+      - context: span
+        statements:
+          - set(status.message, "")
   # Keep every error and every slow request; sample the rest.
   tail_sampling:
     decision_wait: 2s
@@ -66,5 +101,5 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [memory_limiter, attributes/deny, tail_sampling, batch]
+      processors: [memory_limiter, attributes/deny, transform/deny, tail_sampling, batch]
       exporters: [debug]

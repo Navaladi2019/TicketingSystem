@@ -35,8 +35,11 @@ ensure_role() {
     else
         existing=$((existing + 1))
     fi
-    # Re-applied every run so a changed password in .env reaches the database.
-    sql postgres "SELECT format('ALTER ROLE %I PASSWORD %L', :'n', :'pw') \gexec" -v n="$1" -v pw="$2"
+    # Re-asserted every run, so drift on a used volume is corrected: the
+    # attributes, and the password, which a changed value in .env then reaches.
+    # Dev only: the password is a psql argument, visible in ps inside this
+    # container, and re-hashing it changes rolpassword on every run.
+    sql postgres "SELECT format('ALTER ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD %L', :'n', :'pw') \gexec" -v n="$1" -v pw="$2"
 }
 
 # ensure_database <name> [owner]
@@ -51,6 +54,10 @@ ensure_database() {
         created=$((created + 1))
     else
         existing=$((existing + 1))
+        if [ -n "${2:-}" ]; then
+            # Converge the owner of an existing database too.
+            sql postgres "SELECT format('ALTER DATABASE %I OWNER TO %I', :'d', :'o') \gexec" -v d="$1" -v o="$2"
+        fi
     fi
 }
 
@@ -65,13 +72,15 @@ ensure_database temporal_visibility temporal
 ensure_database nava
 
 # PgBouncer authenticates every other role with this lookup, so it needs no
-# copy of their passwords. CREATE OR REPLACE and GRANT are safe to repeat.
+# copy of their passwords. Superusers are never returned, so the image
+# superuser cannot log in through PgBouncer. CREATE OR REPLACE and GRANT are
+# safe to repeat.
 sql nava "
 CREATE SCHEMA IF NOT EXISTS pgbouncer;
 CREATE OR REPLACE FUNCTION pgbouncer.get_auth(p_usename text)
     RETURNS TABLE (usename name, passwd text)
     LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog
-    AS 'SELECT usename, passwd FROM pg_catalog.pg_shadow WHERE usename = p_usename';
+    AS 'SELECT usename, passwd FROM pg_catalog.pg_shadow WHERE usename = p_usename AND NOT usesuper';
 REVOKE ALL ON FUNCTION pgbouncer.get_auth(text) FROM PUBLIC;
 GRANT USAGE ON SCHEMA pgbouncer TO pgbouncer_auth;
 GRANT EXECUTE ON FUNCTION pgbouncer.get_auth(text) TO pgbouncer_auth;
