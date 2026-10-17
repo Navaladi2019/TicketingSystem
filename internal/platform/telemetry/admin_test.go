@@ -41,13 +41,13 @@ func TestAdminHandlerStartsNoSpan(t *testing.T) {
 
 	for _, path := range []string{"/metrics", "/healthz", "/readyz"} {
 		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		h.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
 		if rec.Code != http.StatusOK {
 			t.Errorf("GET %s = %d, want 200", path, rec.Code)
 		}
 	}
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	h.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
 	if strings.Contains(rec.Body.String(), "http_server_request_duration_seconds_count") {
 		t.Error("admin requests are recorded as HTTP server metrics")
 	}
@@ -71,7 +71,7 @@ func TestAdminHandlerUnknownRouteAnd405(t *testing.T) {
 		{http.MethodPost, "/healthz", http.StatusMethodNotAllowed},
 	} {
 		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, nil))
+		h.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), tc.method, tc.path, nil))
 		if rec.Code != tc.want {
 			t.Errorf("%s %s = %d, want %d", tc.method, tc.path, rec.Code, tc.want)
 		}
@@ -83,7 +83,7 @@ func TestAdminHandlerRecoversPanic(t *testing.T) {
 	var logs bytes.Buffer
 	h, _ := adminHandler(t, slog.New(slog.NewJSONHandler(&logs, nil)), stubRoutes)
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/boom", nil))
+	h.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/boom", nil))
 	if rec.Code != http.StatusInternalServerError {
 		t.Errorf("panicking handler = %d, want 500", rec.Code)
 	}
