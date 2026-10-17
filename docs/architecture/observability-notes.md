@@ -271,8 +271,13 @@ Options, in order of preference:
    `testing/slogtest`.
 4. Stopgap: a `forbidigo` lint rule banning `.WithGroup(`.
 
-Also at T02: the Collector's `attributes`/`redaction` processors with the
-same allow-list, as a second layer behind `filter.go`.
+Since T02, the Collector keeps a deny-list of known-bad keys as a second layer
+behind `filter.go`'s allow-list (`attributes/deny` and `transform/deny` in
+`deploy/compose/otel-collector/config.yaml`), and clears the status
+description. `TestCollectorDenyListMatchesFilter` checks that the Collector
+deletes every listed key and that `spanAttributeAllowed` rejects all of them.
+Converting the Collector to an allow-list is deferred until a span producer
+that bypasses `filter.go` sends spans to it.
 
 ## 7. Adding an API gateway
 
@@ -318,7 +323,7 @@ of the edge rules, and every piece we own has a test.
 
 | Our code | Library alternative | Why ours (for now) | Revisit when |
 |---|---|---|---|
-| Span allow-list (`filteringExporter`, `filter.go`) | Collector `attributes` / `redaction` / `transform` processors; SDK span limits only cap counts and lengths | Libraries follow OTel semantic conventions, which *require* attributes such as `client.address` and `user_agent.original`; no library knows that our ADR forbids client values leaving the process. The Collector is the usual place, but there is no Collector until T02, and filtering in-process means the data never leaves at all (defence in depth) | T02: add the same list to the Collector as a second layer; keep this one |
+| Span allow-list (`filteringExporter`, `filter.go`) | Collector `attributes` / `redaction` / `transform` processors; SDK span limits only cap counts and lengths | Libraries follow OTel semantic conventions, which *require* attributes such as `client.address` and `user_agent.original`; no library knows that our ADR forbids client values leaving the process. The Collector is the usual place, but there is no Collector until T02, and filtering in-process means the data never leaves at all (defence in depth) | The Collector keeps a deny-list of known-bad keys as a second layer (T02); keep this one |
 | Metric View and `traceOnlyExemplars` | The SDK's own View and reservoir API (we configure them) | This *is* the library's extension point. The wrapper exists because the Prometheus exporter has no option to drop exemplar filtered-attributes, and without it client values reach `/metrics` | An exporter option to omit filtered attributes appears |
 | `methodLabel` | otelhttp normalises methods internally | otelhttp's normaliser is in an internal package, so it cannot be imported; ours mirrors it so the access log and the metric agree | otelhttp exports it |
 | `ContextHandler` (slog ids) | `otelslog` bridge (official); `github.com/veqryn/slog-context` (community) | About 20 lines, written before any log pipeline existed. `otelslog` exports over OTLP, which waits for the T02 Collector. Its one gap is the `WithGroup` caveat (section 6) | T02: adopt `otelslog` for export; try `slog-context` for stdout |
