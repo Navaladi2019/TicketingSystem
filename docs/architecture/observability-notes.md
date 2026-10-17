@@ -60,14 +60,15 @@ bounded, non-client values leave the process; secrets are never echoed.
 
 ### 2.2 Spans carry no client values or PII
 
-The export-time deny-list in `internal/platform/telemetry/filter.go` runs on
-every span, event and link just before export. It drops raw paths and queries
-(`url.*`, `http.url`, `http.target`), client identity and headers
+The export-time filter in `internal/platform/telemetry/filter.go` runs on
+every span, event and link just before export. `filter.go` drops raw paths
+and queries (`url.*`, `http.url`, `http.target`), client identity and headers
 (`user_agent.original`, `client.address`, `network.peer.*`,
 `http.request.header.*`), client-chosen values (`server.port`,
 `http.request.method_original`, `network.protocol.version`), free text
 (`db.statement`, `db.query.text`, `exception.message`) and the status
-description. `server.address` is fixed to `nava-core` (`WithServerName`).
+description (`filteredSpan.Status()`). `server.address` is fixed to `nava-core`
+(`WithServerName`).
 
 Backing tests: `TestServerSpanAttributeKeysAreGolden` pins the server span's
 exact key set, so an otelhttp upgrade that adds a key fails CI until someone
@@ -115,13 +116,50 @@ span, link, metric or log.
 
 | Gap | Risk | Where tracked |
 |---|---|---|
-| `/metrics` on the public listener, no auth | Route names, traffic, process details exposed | TODO-001 |
+| `/metrics` has no auth of its own | Fixed for the public port (TODO-001): it is served only on the internal listener (`NAVA_METRICS_ADDR`, `:9090`) and `:8080` answers 404. Anything that reaches `:9090` can read it, so that port must stay off the ingress | T02 deployment (network policy) |
 | Panic value logged as-is | A panic message built from input can log client data | Not yet tracked |
 | OTLP transport security comes from env | Plain `http://` or no auth if misconfigured | T02 deployment |
 | `WithGroup` nests correlation ids | `x.trace_id` breaks log joins (section 6) | Comment in `logging.go` only |
 | Deny-list for application spans | A future app span could add a sensitive key; the golden test covers the server span only | Review each new instrumentation |
 | Plain-text 500 | Not RFC 9457 | TODO-002 |
 | No `tenant_id` or rate limits yet | Arrive with T17 and Epic 07 | Plan |
+
+### 2.8 Where error text may go
+
+Error text is free-form, and it can contain client input (a parse error that
+quotes the bad value, a driver error that quotes a row). Each store has one
+rule:
+
+| Store | May carry error text? | What enforces it |
+|---|---|---|
+| Spans | No, for the listed keys | `filter.go` drops `exception.message`, the status description and `db.statement` / `db.query.text`. An error shows as status `Error` and `error.type`; `exception.type` / `exception.stacktrace` are allowed if recorded (nothing calls `RecordError` today). It covers only the keys it lists, so new span keys are reviewed (section 2.7, "Deny-list for application spans") |
+| Metrics | No, for the HTTP metrics | The View allow-list matches only `http.server.*` and keeps bounded attributes (section 2.3); `error.type` is the only error signal there. Runtime metrics have fixed attributes. Any new instrument needs its own View or a review |
+| Logs, stdout JSON | Yes | No deny-list, now or later. Nothing inspects keys or values |
+| Logs, OTLP via the Collector | Yes | Once T01e (TICK-101) lands: a deny-list on attribute **keys** only, values are not inspected. T01e is not in place yet |
+
+Error text can sit in any log attribute value. Today that is `error`
+(`slog.Any("error", err)`) and, from panic recovery, `panic` and `stack`.
+It passes through both log paths. This is intended.
+
+Each log line is joined to its trace by `trace_id`, `span_id` and
+`request_id`, so the message stays reachable from the red trace without
+being copied onto it.
+
+Therefore the log backend's retention period and access control are the PII
+control for error text. No deny-list cleans logs. Both must be
+decided when a log backend is chosen. That is not part of T02, which only
+uses the Collector's debug exporter. It is tracked as TODO-003 in the
+[TODO tracker](../delivery/todo.md), triggered by a log backend being added
+to the Collector pipeline.
+
+`db.statement` and `db.query.text` stay stripped. When DB instrumentation
+lands (Epic 05, records path), that task decides whether to allow the
+bounded fields `db.operation.name`, `db.collection.name` and
+`db.query.summary`.
+
+Debugging an error: alert, then the red trace, then its status and
+`error.type`, then its `trace_id`, then the log line with `error`, or
+`panic` and `stack`. The span carries no stack today.
 
 ## 3. Prometheus
 
@@ -156,11 +194,12 @@ queries aggregate, e.g. `sum(rate(http_server_request_duration_seconds_count[5m]
 ### 3.3 Setups
 
 - Local: `prom/prometheus` in Docker with target
-  `host.docker.internal:8080` and `--enable-feature=exemplar-storage`.
+  `host.docker.internal:9090` and `--enable-feature=exemplar-storage`.
 - T02 compose stack: Prometheus + Grafana, plus Tempo or Jaeger and the
   Collector, so an exemplar click opens its trace.
 - Production: kube-prometheus-stack with a `ServiceMonitor`.
-- Whichever: scrape the internal metrics port from TODO-001, not `:8080`.
+- Whichever: scrape the internal listener (`NAVA_METRICS_ADDR`, default
+  `:9090`). `:8080/metrics` answers 404.
 
 ## 4. Authenticating push (OTLP)
 
@@ -182,7 +221,8 @@ line with ADR-001's rule that the tenant comes only from a verified source.
 
 Tenant ids are not metric labels: one series per label combination, so
 1,000 tenants × 30 routes × 5 status classes × 15 buckets ≈ 2.25 million
-series from one histogram, and `/metrics` is unauthenticated (TODO-001).
+series from one histogram, and `/metrics` is unauthenticated (it is kept
+off the public port, not behind a login).
 
 | Need | Source |
 |---|---|
