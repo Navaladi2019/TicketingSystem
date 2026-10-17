@@ -1,4 +1,3 @@
-# Move to .github/workflows/compose-stack.yml: the agent token has no `workflow` scope, so it could not push it there.
 name: compose-stack
 
 on:
@@ -39,6 +38,9 @@ jobs:
 
       - name: One request, one trace
         run: sh deploy/compose/test/stack-test.sh trace
+
+      - name: Collector redacts denied span values
+        run: sh deploy/compose/test/stack-test.sh redact
 
       - name: Init script is idempotent
         run: sh deploy/compose/test/stack-test.sh idempotent
