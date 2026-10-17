@@ -24,7 +24,7 @@ type Config struct {
 // HTTP configures the two listeners. Both use the same timeouts.
 type HTTP struct {
 	Addr              string        // NAVA_HTTP_ADDR: the public API listener
-	MetricsAddr       string        // NAVA_METRICS_ADDR: the internal listener (/metrics)
+	AdminAddr         string        // NAVA_ADMIN_ADDR: the admin listener (/metrics, /healthz, /readyz)
 	ReadHeaderTimeout time.Duration // NAVA_HTTP_READ_HEADER_TIMEOUT
 	ReadTimeout       time.Duration // NAVA_HTTP_READ_TIMEOUT
 	WriteTimeout      time.Duration // NAVA_HTTP_WRITE_TIMEOUT
@@ -81,7 +81,7 @@ func Load(lookup LookupFunc) (Config, error) {
 	cfg := Config{
 		HTTP: HTTP{
 			Addr:              r.addr("NAVA_HTTP_ADDR", ":8080"),
-			MetricsAddr:       r.addr("NAVA_METRICS_ADDR", ":9090"),
+			AdminAddr:         r.addr("NAVA_ADMIN_ADDR", ":9090"),
 			ReadHeaderTimeout: r.duration("NAVA_HTTP_READ_HEADER_TIMEOUT", 5*time.Second),
 			ReadTimeout:       r.duration("NAVA_HTTP_READ_TIMEOUT", 15*time.Second),
 			WriteTimeout:      r.duration("NAVA_HTTP_WRITE_TIMEOUT", 30*time.Second),
@@ -97,8 +97,8 @@ func Load(lookup LookupFunc) (Config, error) {
 			ShutdownTimeout: r.duration("NAVA_TELEMETRY_SHUTDOWN_TIMEOUT", 5*time.Second),
 		},
 	}
-	if cfg.HTTP.Addr == cfg.HTTP.MetricsAddr {
-		r.errs = append(r.errs, errors.New("NAVA_METRICS_ADDR: must differ from NAVA_HTTP_ADDR"))
+	if cfg.HTTP.Addr == cfg.HTTP.AdminAddr {
+		r.errs = append(r.errs, errors.New("NAVA_ADMIN_ADDR: must differ from NAVA_HTTP_ADDR"))
 	}
 	if err := errors.Join(r.errs...); err != nil {
 		return Config{}, fmt.Errorf("config: %w", err)

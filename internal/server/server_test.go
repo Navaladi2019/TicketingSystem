@@ -13,7 +13,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/server"
 )
 
-// newServers starts the public and internal handlers on one telemetry, as run
+// newServers starts the public and admin handlers on one telemetry, as run
 // does.
 func newServers(t *testing.T) (public, internal *httptest.Server, tel *telemetry.Telemetry) {
 	t.Helper()
@@ -29,14 +29,14 @@ func newServers(t *testing.T) (public, internal *httptest.Server, tel *telemetry
 	log := slog.New(slog.DiscardHandler)
 	public = httptest.NewServer(server.NewHandler(log, tel))
 	t.Cleanup(public.Close)
-	internal = httptest.NewServer(server.NewInternalHandler(log, tel))
+	internal = httptest.NewServer(telemetry.NewAdminHandler(log, tel))
 	t.Cleanup(internal.Close)
 	return public, internal, tel
 }
 
-// TestMetricsOnlyOnInternalListener is TODO-001: the public listener must not
-// expose /metrics, in any format a scraper might ask for.
-func TestMetricsOnlyOnInternalListener(t *testing.T) {
+// TestOperationalEndpointsOnlyOnAdminListener is TODO-001: the public listener must not
+// expose /metrics, /healthz or /readyz, in any format a scraper might ask for.
+func TestOperationalEndpointsOnlyOnAdminListener(t *testing.T) {
 	t.Parallel()
 	public, internal, _ := newServers(t)
 	const openMetrics = "application/openmetrics-text; version=1.0.0"
@@ -49,6 +49,13 @@ func TestMetricsOnlyOnInternalListener(t *testing.T) {
 			}
 			if strings.Contains(body, "# TYPE") {
 				t.Errorf("public %s /metrics (Accept %q) leaks metrics:\n%s", method, accept, body)
+			}
+		}
+	}
+	for _, path := range []string{"/healthz", "/readyz"} {
+		for _, method := range []string{http.MethodGet, http.MethodHead} {
+			if code, _, _ := request(t, method, public.URL+path, ""); code != http.StatusNotFound {
+				t.Errorf("public %s %s = %d, want 404", method, path, code)
 			}
 		}
 	}
@@ -126,11 +133,11 @@ func TestMetricsCarryTraceExemplars(t *testing.T) {
 // value or appear in a label.
 func TestHTTPMetricCardinalityIsBounded(t *testing.T) {
 	t.Parallel()
-	srv, internal, tel := newServers(t)
+	srv, _, tel := newServers(t)
 
 	hostile := []string{"FOO1", "FOO2", "XYZ"}
 	for _, m := range hostile {
-		do(t, m, internal.URL+"/metrics", "") // traced: only GET /metrics is skipped
+		do(t, m, srv.URL+"/nope/method", "")
 	}
 	hosts := []string{"tenant-a.evil.test:1111", "tenant-b.evil.test:2222", "tenant-c.evil.test"}
 	for _, h := range hosts {
@@ -170,7 +177,7 @@ func TestHTTPMetricCardinalityIsBounded(t *testing.T) {
 			}
 		}
 	}
-	// _OTHER 405 (no route) and GET 404 (no route).
+	// _OTHER 404 and GET 404, both with no route.
 	if series != 2 {
 		t.Errorf("http_server_request_duration_seconds has %d series, want 2", series)
 	}
@@ -182,7 +189,7 @@ func TestNewServerSetsTimeouts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := server.New(cfg.HTTP.MetricsAddr, cfg.HTTP, http.NotFoundHandler(), slog.New(slog.DiscardHandler))
+	srv := server.New(cfg.HTTP.AdminAddr, cfg.HTTP, http.NotFoundHandler(), slog.New(slog.DiscardHandler))
 	if srv.Addr != ":9090" {
 		t.Errorf("Addr = %q, want the addr passed in", srv.Addr)
 	}

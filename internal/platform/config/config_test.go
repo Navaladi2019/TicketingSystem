@@ -22,8 +22,8 @@ func TestLoadDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.HTTP.Addr != ":8080" || cfg.HTTP.MetricsAddr != ":9090" {
-		t.Errorf("Addr, MetricsAddr = %q, %q, want :8080, :9090", cfg.HTTP.Addr, cfg.HTTP.MetricsAddr)
+	if cfg.HTTP.Addr != ":8080" || cfg.HTTP.AdminAddr != ":9090" {
+		t.Errorf("Addr, MetricsAddr = %q, %q, want :8080, :9090", cfg.HTTP.Addr, cfg.HTTP.AdminAddr)
 	}
 	if cfg.HTTP.ReadHeaderTimeout != 5*time.Second {
 		t.Errorf("ReadHeaderTimeout = %v, want 5s", cfg.HTTP.ReadHeaderTimeout)
@@ -37,7 +37,7 @@ func TestLoadOverrides(t *testing.T) {
 	t.Parallel()
 	cfg, err := config.Load(env(map[string]string{
 		"NAVA_HTTP_ADDR":             "127.0.0.1:9000",
-		"NAVA_METRICS_ADDR":          "[::1]:0",
+		"NAVA_ADMIN_ADDR":            "[::1]:0",
 		"NAVA_HTTP_SHUTDOWN_TIMEOUT": "3s",
 		"NAVA_LOG_LEVEL":             "debug",
 		"NAVA_LOG_FORMAT":            "TEXT",
@@ -45,7 +45,7 @@ func TestLoadOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.HTTP.Addr != "127.0.0.1:9000" || cfg.HTTP.MetricsAddr != "[::1]:0" || cfg.HTTP.ShutdownTimeout != 3*time.Second {
+	if cfg.HTTP.Addr != "127.0.0.1:9000" || cfg.HTTP.AdminAddr != "[::1]:0" || cfg.HTTP.ShutdownTimeout != 3*time.Second {
 		t.Errorf("HTTP = %+v", cfg.HTTP)
 	}
 	if cfg.Log.Level != slog.LevelDebug || cfg.Log.Format != config.FormatText {
@@ -79,7 +79,7 @@ func TestLoadInvalidReportsEveryKeyWithoutValues(t *testing.T) {
 func TestLoadInvalidAddrs(t *testing.T) {
 	t.Parallel()
 	for _, v := range []string{"9000", "localhost", ":http", ":65536", ":-1", "host:port:extra", "s3cr3t:pw@host"} {
-		for _, key := range []string{"NAVA_HTTP_ADDR", "NAVA_METRICS_ADDR"} {
+		for _, key := range []string{"NAVA_HTTP_ADDR", "NAVA_ADMIN_ADDR"} {
 			_, err := config.Load(env(map[string]string{key: v}))
 			if err == nil {
 				t.Errorf("%s=%q: Load accepted it", key, v)
@@ -97,13 +97,13 @@ func TestLoadInvalidAddrs(t *testing.T) {
 func TestLoadRejectsSharedListenerAddr(t *testing.T) {
 	t.Parallel()
 	for _, m := range []map[string]string{
-		{"NAVA_METRICS_ADDR": ":8080"},
+		{"NAVA_ADMIN_ADDR": ":8080"},
 		{"NAVA_HTTP_ADDR": ":9090"},
-		{"NAVA_HTTP_ADDR": "127.0.0.1:7000", "NAVA_METRICS_ADDR": "127.0.0.1:7000"},
+		{"NAVA_HTTP_ADDR": "127.0.0.1:7000", "NAVA_ADMIN_ADDR": "127.0.0.1:7000"},
 	} {
 		_, err := config.Load(env(m))
-		if err == nil || !strings.Contains(err.Error(), "NAVA_METRICS_ADDR") {
-			t.Errorf("%v: Load = %v, want an error naming NAVA_METRICS_ADDR", m, err)
+		if err == nil || !strings.Contains(err.Error(), "NAVA_ADMIN_ADDR") {
+			t.Errorf("%v: Load = %v, want an error naming NAVA_ADMIN_ADDR", m, err)
 		}
 	}
 }

@@ -116,7 +116,7 @@ span, link, metric or log.
 
 | Gap | Risk | Where tracked |
 |---|---|---|
-| `/metrics` has no auth of its own | Fixed for the public port (TODO-001): it is served only on the internal listener (`NAVA_METRICS_ADDR`, `:9090`) and `:8080` answers 404. Anything that reaches `:9090` can read it, so that port must stay off the ingress | T02 deployment (network policy) |
+| `/metrics` has no auth of its own | Fixed for the public port (TODO-001): it is served only on the internal listener (`NAVA_ADMIN_ADDR`, `:9090`) and `:8080` answers 404. Anything that reaches `:9090` can read it, so that port must stay off the ingress | T02 deployment (network policy) |
 | Panic value logged as-is | A panic message built from input can log client data | Not yet tracked |
 | OTLP transport security comes from env | Plain `http://` or no auth if misconfigured | T02 deployment |
 | `WithGroup` nests correlation ids | `x.trace_id` breaks log joins (section 6) | Comment in `logging.go` only |
@@ -198,7 +198,7 @@ queries aggregate, e.g. `sum(rate(http_server_request_duration_seconds_count[5m]
 - T02 compose stack: Prometheus + Grafana, plus Tempo or Jaeger and the
   Collector, so an exemplar click opens its trace.
 - Production: kube-prometheus-stack with a `ServiceMonitor`.
-- Whichever: scrape the internal listener (`NAVA_METRICS_ADDR`, default
+- Whichever: scrape the internal listener (`NAVA_ADMIN_ADDR`, default
   `:9090`). `:8080/metrics` answers 404.
 
 ## 4. Authenticating push (OTLP)

@@ -155,7 +155,7 @@ services:
     depends_on:
       otel-collector: {condition: service_healthy}
     healthcheck:
-      # /metrics on the internal listener (NAVA_METRICS_ADDR, :9090) until T04 adds the health endpoint.
+      # /metrics on the admin listener (NAVA_ADMIN_ADDR, :9090); the admin port is never published.
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/metrics"]
       interval: 5s
       timeout: 5s
