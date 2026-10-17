@@ -6,12 +6,12 @@ PLAN-001 T01 (TICK-50). This is the shape every later task builds on.
 
 | Path | Holds |
 |---|---|
-| `cmd/nava-core` | `main`: wiring only (config → logger → telemetry → handler → server). Graceful shutdown stops the server, then calls `telemetry.Shutdown` |
-| `internal/platform/config` | Typed `Config` loaded from `NAVA_*` and the standard `OTEL_*` variables. No globals: `Load(os.LookupEnv)` in `main`, a map in tests |
-| `internal/platform/telemetry` | OpenTelemetry providers: SDK tracer provider (behind the span attribute filter), meter provider exported as Prometheus on our own registry, the edge propagator, `Shutdown`. No `otel.Set*` |
+| `cmd/nava-core` | `main`: wiring only (config → logger → `telemetry.RouteErrors` → telemetry → handler → server). Graceful shutdown drains the server, then flushes telemetry, each with its own deadline |
+| `internal/platform/config` | Typed `Config` loaded from `NAVA_*` variables, plus the two OTLP endpoint variables that decide whether traces are exported. No globals: `Load(os.LookupEnv)` in `main`, a map in tests |
+| `internal/platform/telemetry` | OpenTelemetry providers: SDK tracer provider (every exporter behind the export-time attribute filter), meter provider exported as Prometheus on our own registry, the edge propagator, `Shutdown`. The only `otel.Set*` is `RouteErrors` (OTel's own errors → slog) |
 | `internal/platform/logging` | The process `slog.Logger` (JSON by default) and `ContextHandler`, which adds `trace_id`, `span_id` and `request_id` to every `*Context` record |
 | `internal/platform/requestid` | The server-generated request id and its context helpers |
-| `internal/platform/httpobs` | The public-listener edge: request id → `otelhttp` → access log |
+| `internal/platform/httpobs` | The public-listener edge: request id → `otelhttp` → access log → panic recovery. Exact `METHOD /path` routes can be marked untraced (`GET /metrics`, which also covers `HEAD`); they keep the request id and panic recovery |
 | `internal/server` | Root handler and `*http.Server`; later tasks register routes here |
 | `api/`, `db/`, `deploy/compose/` | Placeholders for T20, T03 and T02 |
 | `docs/` | ADRs, the delivery plan, the decision log and notes. Its own `go.mod` keeps the ADR spike code out of `go build ./...` |
@@ -28,11 +28,12 @@ You need Go 1.26 (a newer `go` command fetches the pinned toolchain itself) and 
 |---|---|---|
 | — | `task` | Lists the tasks (`task --list`) |
 | `make build` | `task build` | `go build -o bin/nava-core ./cmd/nava-core` (`.exe` on Windows with task) |
+| `make run` | `task run` | `go run ./cmd/nava-core` with `.env` loaded when present (task: shell variables win; make: `.env` wins) |
 | `make test` | `task test` | `go test -race ./...` (the race detector needs cgo) |
 | — | `task test:short` | `go test ./...`, for hosts with no cgo |
 | `make lint` | `task lint` | `golangci-lint run ./...` |
 
-The two files must stay in step: a change to one is a change to the other. Run the binary with `bin/nava-core` and check `GET http://localhost:8080/metrics`.
+The two files must stay in step: a change to one is a change to the other. Run the service with `task run` (or the built `bin/nava-core`) and check `GET http://localhost:8080/metrics`. For local settings, copy `.env.example` to `.env` (gitignored); it lists every variable with its default.
 
 ## Request path
 
@@ -46,34 +47,40 @@ sequenceDiagram
   participant H as Handler
   C->>R: request (traceparent? baggage?)
   R->>R: new request id into ctx, X-Request-Id header
+  R-->>X: untraced route (GET or HEAD /metrics): panic recovery only, no span, no access line
   R->>O: request
   O->>O: extract TraceContext only (baggage dropped)
   O->>O: new root span, server trace id, link to inbound span
   O->>A: request with span in ctx
-  A->>X: same *http.Request
+  A->>X: same *http.Request, writer wrapped once by httpsnoop (status, committed), panics recovered
   X->>H: matched route (sets r.Pattern)
-  H-->>A: response (status recorded)
-  A->>A: span http.route from r.Pattern, access line (+ inbound_trace_id)
+  H-->>A: response (status captured; a panic becomes a 500, or an abort once committed)
+  A->>A: span http.route + nava.request_id, access line (+ inbound_trace_id)
   A-->>O: return
   O->>O: span name from r.Pattern, http.server.request.duration
   O-->>C: response + X-Request-Id
 ```
 
-Nothing between `otelhttp` and the mux may replace the `*http.Request`: `otelhttp` reads `r.Pattern` from the request it handed down. That is why the request id is set outside `otelhttp`.
+Nothing between `otelhttp` and the mux may replace the `*http.Request`: `otelhttp` reads `r.Pattern` from the request it handed down. That is why the request id is set outside `otelhttp`. Panic recovery sits inside access, so a recovered 500 still gets its access line and HTTP metrics; any new middleware goes outside it or must keep the same `*http.Request`. The one response wrapper uses `httpsnoop`, so handlers keep `http.Flusher`, `http.Hijacker` and `io.ReaderFrom` (streaming, upgrades, `sendfile`).
 
 ## Edge rules (the listener is a trace trust boundary)
 
 - **Linked, never continued.** Every request starts a new root span with a server-generated trace id. A valid inbound `traceparent` becomes a span link and the access line's `inbound_trace_id`; it is never the parent. The sampling decision is ours: an inbound sampled flag cannot force sampling. `otelhttp.WithPublicEndpoint()` was removed upstream; `WithPublicEndpointFn` returning `true` is the same behaviour.
 - **No inbound baggage.** The edge propagator is `propagation.TraceContext{}` only. `baggage.FromContext` in a handler is always empty.
 - **This whole listener is public.** ADR-001 has no internal HTTP caller of nava-core: the relay and workers talk to Temporal and Postgres. An internal HTTP caller, if one is ever added, needs its own listener or mTLS-peer trust, never a header.
-- **Span attributes.** Spans carry `http.route` (the pattern's path, e.g. `/items/{id}`); unmatched requests carry none. A filtering tracer provider drops `url.path`, `url.query`, `url.full`, `user_agent.original`, `client.address`, `client.port`, `network.peer.address`, `network.peer.port` and `http.request.header.*`, at start and on `SetAttributes`.
+- **Span attributes.** Spans carry `http.route` (the pattern's path, e.g. `/items/{id}`; unmatched requests carry none) and `nava.request_id`, so a quoted `X-Request-Id` can be searched for in the trace backend.
+- **Export filter.** Every span exporter, test ones included, sits behind a filter applied at export, so it holds however data reached the span. It drops `url.path`, `url.query`, `url.full`, `user_agent.original`, `client.address`, `client.port`, `network.peer.address`, `network.peer.port`, `db.query.text`, `exception.message`, `http.request.header.*` and their older semconv names, from span, event and link attributes. It also drops the status description, because instrumentation fills it with `err.Error()` (a `*url.Error` quotes the full URL with its query); the status code and `error.type` stay. Each new instrumentation (pgx in T03, Temporal in T27/T29) must be checked against this list.
 - **Metric attributes.** A metric View keeps only `http.request.method` (standard methods, else `_OTHER`), `http.response.status_code`, `http.route`, `url.scheme`, `network.protocol.*` and `error.type` on `http.server.*` metrics. `server.address` and `server.port` come from the client's `Host` header and are dropped.
 
 ## Other rules this skeleton sets
 
 - **Request id** is always generated by the server and echoed in `X-Request-Id`. It is never taken from a client header and never derived from the trace id.
 - **Logging.** Log with the `*Context` methods (sloglint `context: all`) so `ContextHandler` adds `trace_id`, `span_id` and `request_id`. `tenant_id` joins once the identity middleware exists (T17). Logs go to stdout as JSON; OTLP log export is deferred to T02.
-- **Metrics.** `/metrics` serves the telemetry registry, never the Prometheus default one: `http_server_request_duration_seconds` (its `_count` is the request count), `http_server_request_body_size_bytes`, `http_server_response_body_size_bytes`, the Go runtime metrics (`go_*`) and the process collector (`process_*`). Tenant and user ids are never attributes.
+- **Metrics.** `/metrics` serves the telemetry registry, never the Prometheus default one: `http_server_request_duration_seconds` (its `_count` is the request count), `http_server_request_body_size_bytes`, `http_server_response_body_size_bytes`, the Go runtime metrics (`go_*`) and the process collector (`process_*`). Tenant and user ids are never attributes. Scrapes themselves are untraced and add no HTTP series.
+- **Exemplars.** `/metrics` offers OpenMetrics. In that format, duration buckets carry the `trace_id` of a sampled request, so a latency spike links straight to a trace. Prometheus needs `--enable-feature=exemplar-storage` to keep them.
+- **OTel's own errors** (a failed export, an invalid `OTEL_*` value) go through `telemetry.RouteErrors` to the process logger as `"opentelemetry error"` warnings, not plain text on stderr.
+- **Shutdown.** The HTTP drain (`NAVA_HTTP_SHUTDOWN_TIMEOUT`) and the telemetry flush (`NAVA_TELEMETRY_SHUTDOWN_TIMEOUT`) have separate deadlines. A failed flush is logged with its error. A signal and the serve goroutine ending (an error, or a panic recovered into one) take the same path, so in-flight requests are drained either way; a serve failure is also logged at ERROR by the process logger.
+- **Panics.** A handler panic is recovered per request in `httpobs`: logged at ERROR with its stack and request/trace ids, the span marked as an error, the handler's headers cleared (except `X-Request-Id`), and a plain-text 500 returned (problem+json is TODO-002), so the access line and HTTP metrics still record it. If the response was already committed (including a `101`), the panic is re-raised as `http.ErrAbortHandler` and net/http drops the connection. A handler panic never stops the server.
 - **Config errors** name the variable, never its value.
 
 ## Configuration
@@ -85,9 +92,15 @@ Nothing between `otelhttp` and the mux may replace the `*http.Request`: `otelhtt
 | `NAVA_HTTP_SHUTDOWN_TIMEOUT` | `15s` |
 | `NAVA_LOG_LEVEL` | `info` |
 | `NAVA_LOG_FORMAT` | `json` (`text` for local use) |
-| `OTEL_SERVICE_NAME` | `nava-core` |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | unset: no trace exporter, nothing dials out. Set: OTLP/HTTP to `<endpoint>/v1/traces` |
-| `OTEL_TRACES_SAMPLER` | `parentbased_traceidratio` (all six spec names are accepted) |
-| `OTEL_TRACES_SAMPLER_ARG` | `1.0` |
+| `NAVA_TELEMETRY_SHUTDOWN_TIMEOUT` | `5s` |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` / `OTEL_EXPORTER_OTLP_ENDPOINT` | both unset: no trace exporter, nothing dials out. Either set: OTLP/HTTP, resolved by the exporter as the spec says (the signal endpoint as is, else the base endpoint + `/v1/traces`). `config` checks both are http(s) URLs and never echoes them |
 
-The OTLP exporter still reads its own transport variables (`OTEL_EXPORTER_OTLP_HEADERS`, `_TIMEOUT`, TLS) when an endpoint is set.
+Every other standard `OTEL_*` variable is read by the OTel SDK and exporter themselves, not by `config`:
+
+| Variable | Default / note |
+|---|---|
+| `OTEL_SERVICE_NAME` | `nava-core` |
+| `OTEL_RESOURCE_ATTRIBUTES` | none. Set `deployment.environment.name` here so services sharing a backend can be told apart. A malformed value fails startup, naming the variable only |
+| `OTEL_TRACES_SAMPLER` / `_ARG` | `parentbased_always_on`, the same as `parentbased_traceidratio` at `1.0`. An invalid value is logged as an OTel error and the default is used; it does not fail startup |
+| `OTEL_EXPORTER_OTLP_HEADERS`, `_TIMEOUT`, `_COMPRESSION`, `_CERTIFICATE` (and `_TRACES_` forms) | exporter transport |
+| `OTEL_BSP_*`, `OTEL_SPAN_*_LIMIT`, `OTEL_ATTRIBUTE_*_LIMIT` | batching and span limits |

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -36,24 +35,18 @@ type Log struct {
 	Format string     // NAVA_LOG_FORMAT: json or text
 }
 
-// Telemetry configures OpenTelemetry. It uses the standard OTEL_* names, read
-// here like every other variable, so the SDK never reads them behind our back.
+// Telemetry configures OpenTelemetry. config reads only what decides whether
+// a trace exporter exists. Every other standard OTEL_* variable (service name,
+// resource attributes, sampler, OTLP headers, timeout and TLS) is read by the
+// OTel SDK and exporter themselves, as the OTel specification defines.
 type Telemetry struct {
-	ServiceName  string  // OTEL_SERVICE_NAME
-	OTLPEndpoint string  // OTEL_EXPORTER_OTLP_ENDPOINT; empty means no trace exporter
-	Sampler      string  // OTEL_TRACES_SAMPLER
-	SamplerArg   float64 // OTEL_TRACES_SAMPLER_ARG: the ratio for the *traceidratio samplers
+	// ExportTraces is true when OTEL_EXPORTER_OTLP_TRACES_ENDPOINT or
+	// OTEL_EXPORTER_OTLP_ENDPOINT is set. Neither set means no trace exporter.
+	ExportTraces bool
+	// ShutdownTimeout is the flush budget after the HTTP server has drained,
+	// separate from it. NAVA_TELEMETRY_SHUTDOWN_TIMEOUT.
+	ShutdownTimeout time.Duration
 }
-
-// Trace samplers, as named by the OpenTelemetry environment specification.
-const (
-	SamplerAlwaysOn                = "always_on"
-	SamplerAlwaysOff               = "always_off"
-	SamplerTraceIDRatio            = "traceidratio"
-	SamplerParentBasedAlwaysOn     = "parentbased_always_on"
-	SamplerParentBasedAlwaysOff    = "parentbased_always_off"
-	SamplerParentBasedTraceIDRatio = "parentbased_traceidratio"
-)
 
 // Log formats.
 const (
@@ -70,6 +63,10 @@ type LookupFunc func(key string) (string, bool)
 // are never echoed, because a misplaced secret must not reach the logs.
 func Load(lookup LookupFunc) (Config, error) {
 	r := reader{lookup: lookup}
+	// Both endpoints are validated, so a bad value fails here, by name, before
+	// the exporter would report it with the value.
+	tracesEndpoint := r.endpoint("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+	baseEndpoint := r.endpoint("OTEL_EXPORTER_OTLP_ENDPOINT")
 	cfg := Config{
 		HTTP: HTTP{
 			Addr:              r.str("NAVA_HTTP_ADDR", ":8080"),
@@ -84,12 +81,8 @@ func Load(lookup LookupFunc) (Config, error) {
 			Format: r.oneOf("NAVA_LOG_FORMAT", FormatJSON, FormatJSON, FormatText),
 		},
 		Telemetry: Telemetry{
-			ServiceName:  r.str("OTEL_SERVICE_NAME", "nava-core"),
-			OTLPEndpoint: r.endpoint("OTEL_EXPORTER_OTLP_ENDPOINT"),
-			Sampler: r.oneOf("OTEL_TRACES_SAMPLER", SamplerParentBasedTraceIDRatio,
-				SamplerAlwaysOn, SamplerAlwaysOff, SamplerTraceIDRatio,
-				SamplerParentBasedAlwaysOn, SamplerParentBasedAlwaysOff, SamplerParentBasedTraceIDRatio),
-			SamplerArg: r.ratio("OTEL_TRACES_SAMPLER_ARG", 1.0),
+			ExportTraces:    tracesEndpoint || baseEndpoint,
+			ShutdownTimeout: r.duration("NAVA_TELEMETRY_SHUTDOWN_TIMEOUT", 5*time.Second),
 		},
 	}
 	if err := errors.Join(r.errs...); err != nil {
@@ -151,30 +144,17 @@ func (r *reader) oneOf(key, def string, allowed ...string) string {
 	return def
 }
 
-func (r *reader) ratio(key string, def float64) float64 {
-	v, ok := r.lookup(key)
-	if !ok || v == "" {
-		return def
-	}
-	f, err := strconv.ParseFloat(v, 64)
-	if err != nil || f < 0 || f > 1 {
-		r.errs = append(r.errs, fmt.Errorf("%s: want a number from 0 to 1", key))
-		return def
-	}
-	return f
-}
-
-// endpoint accepts an absolute http or https base URL, or nothing. It never
+// endpoint reports whether key holds an absolute http or https URL. It never
 // echoes the value: an endpoint URL can carry credentials.
-func (r *reader) endpoint(key string) string {
+func (r *reader) endpoint(key string) bool {
 	v, ok := r.lookup(key)
 	if !ok || v == "" {
-		return ""
+		return false
 	}
 	u, err := url.Parse(v)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		r.errs = append(r.errs, fmt.Errorf("%s: want an http or https base URL", key))
-		return ""
+		r.errs = append(r.errs, fmt.Errorf("%s: want an http or https URL", key))
+		return false
 	}
-	return v
+	return true
 }

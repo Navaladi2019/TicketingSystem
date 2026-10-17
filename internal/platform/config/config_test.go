@@ -81,36 +81,26 @@ func TestLoadTelemetryDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	want := config.Telemetry{
-		ServiceName:  "nava-core",
-		OTLPEndpoint: "",
-		Sampler:      config.SamplerParentBasedTraceIDRatio,
-		SamplerArg:   1.0,
-	}
+	want := config.Telemetry{ExportTraces: false, ShutdownTimeout: 5 * time.Second}
 	if cfg.Telemetry != want {
 		t.Errorf("Telemetry = %+v, want %+v", cfg.Telemetry, want)
 	}
 }
 
-func TestLoadTelemetryOverrides(t *testing.T) {
+func TestLoadTelemetryEitherEndpointExports(t *testing.T) {
 	t.Parallel()
-	cfg, err := config.Load(env(map[string]string{
-		"OTEL_SERVICE_NAME":           "nava-core-eu",
-		"OTEL_EXPORTER_OTLP_ENDPOINT": "http://collector:4318",
-		"OTEL_TRACES_SAMPLER":         "TraceIdRatio",
-		"OTEL_TRACES_SAMPLER_ARG":     "0.25",
-	}))
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	want := config.Telemetry{
-		ServiceName:  "nava-core-eu",
-		OTLPEndpoint: "http://collector:4318",
-		Sampler:      config.SamplerTraceIDRatio,
-		SamplerArg:   0.25,
-	}
-	if cfg.Telemetry != want {
-		t.Errorf("Telemetry = %+v, want %+v", cfg.Telemetry, want)
+	for _, key := range []string{"OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"} {
+		cfg, err := config.Load(env(map[string]string{
+			key:                               "http://collector:4318",
+			"NAVA_TELEMETRY_SHUTDOWN_TIMEOUT": "2s",
+		}))
+		if err != nil {
+			t.Fatalf("%s: Load: %v", key, err)
+		}
+		want := config.Telemetry{ExportTraces: true, ShutdownTimeout: 2 * time.Second}
+		if cfg.Telemetry != want {
+			t.Errorf("%s: Telemetry = %+v, want %+v", key, cfg.Telemetry, want)
+		}
 	}
 }
 
@@ -118,15 +108,16 @@ func TestLoadTelemetryInvalidNeverEchoesValues(t *testing.T) {
 	t.Parallel()
 	const secretish = "user:s3cr3t@" // a credential pasted into the endpoint
 	_, err := config.Load(env(map[string]string{
-		"OTEL_EXPORTER_OTLP_ENDPOINT": "ftp://" + secretish + "collector",
-		"OTEL_TRACES_SAMPLER":         "jaeger_remote",
-		"OTEL_TRACES_SAMPLER_ARG":     "1.5",
+		// A valid signal endpoint must not hide an invalid base one.
+		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://collector:4318/v1/traces",
+		"OTEL_EXPORTER_OTLP_ENDPOINT":        "ftp://" + secretish + "collector",
+		"NAVA_TELEMETRY_SHUTDOWN_TIMEOUT":    "0s",
 	}))
 	if err == nil {
 		t.Fatal("Load: want error, got nil")
 	}
 	msg := err.Error()
-	for _, key := range []string{"OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_TRACES_SAMPLER:", "OTEL_TRACES_SAMPLER_ARG"} {
+	for _, key := range []string{"OTEL_EXPORTER_OTLP_ENDPOINT", "NAVA_TELEMETRY_SHUTDOWN_TIMEOUT"} {
 		if !strings.Contains(msg, key) {
 			t.Errorf("error %q does not name %s", msg, key)
 		}

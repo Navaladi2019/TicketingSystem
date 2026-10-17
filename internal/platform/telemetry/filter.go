@@ -6,25 +6,29 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
-	"go.opentelemetry.io/otel/trace"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 // spanAttributeAllowed is the span attribute deny-list. Raw paths, queries,
-// user agents and client or peer addresses carry ids and PII, which must not
-// leave the process once an exporter is on. The rule is enforced here, on
-// every tracer the provider hands out, not left to each call site.
+// user agents, client or peer addresses, SQL text and free-form error messages
+// carry ids and PII, which must not leave the process once an exporter is on.
+// Older semconv names are listed too, in case an instrumentation still emits
+// them.
 func spanAttributeAllowed(kv attribute.KeyValue) bool {
 	switch kv.Key {
 	case "url.path", "url.query", "url.full",
-		"user_agent.original",
-		"client.address", "client.port",
-		"network.peer.address", "network.peer.port":
+		"http.url", "http.target",
+		"user_agent.original", "http.user_agent",
+		"client.address", "client.port", "http.client_ip",
+		"network.peer.address", "network.peer.port", "net.sock.peer.addr", "net.peer.ip",
+		"db.query.text", "db.statement",
+		"exception.message":
 		return false
 	}
 	return !strings.HasPrefix(string(kv.Key), "http.request.header.")
 }
 
-func filterSpanAttributes(kvs []attribute.KeyValue) []attribute.KeyValue {
+func filterAttributes(kvs []attribute.KeyValue) []attribute.KeyValue {
 	out := kvs[:0:0]
 	for _, kv := range kvs {
 		if spanAttributeAllowed(kv) {
@@ -34,50 +38,57 @@ func filterSpanAttributes(kvs []attribute.KeyValue) []attribute.KeyValue {
 	return out
 }
 
-// filteringTracerProvider hands out tracers whose spans drop denied attributes,
-// both at start and on SetAttributes.
-type filteringTracerProvider struct {
-	trace.TracerProvider
+// filteringExporter applies the deny-list at export, so it holds however the
+// data reached the span: start options, SetAttributes, events (RecordError),
+// links or the status. Every exporter, test ones included, sits behind it.
+type filteringExporter struct {
+	next sdktrace.SpanExporter
 }
 
-func (p filteringTracerProvider) Tracer(name string, opts ...trace.TracerOption) trace.Tracer {
-	return filteringTracer{Tracer: p.TracerProvider.Tracer(name, opts...)}
-}
-
-type filteringTracer struct {
-	trace.Tracer
-}
-
-func (t filteringTracer) Start(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, trace.Span) {
-	cfg := trace.NewSpanStartConfig(opts...)
-	clean := []trace.SpanStartOption{
-		trace.WithAttributes(filterSpanAttributes(cfg.Attributes())...),
-		trace.WithLinks(cfg.Links()...),
-		trace.WithSpanKind(cfg.SpanKind()),
+func (e filteringExporter) ExportSpans(ctx context.Context, spans []sdktrace.ReadOnlySpan) error {
+	out := make([]sdktrace.ReadOnlySpan, len(spans))
+	for i, s := range spans {
+		out[i] = filteredSpan{ReadOnlySpan: s}
 	}
-	if cfg.NewRoot() {
-		clean = append(clean, trace.WithNewRoot())
+	return e.next.ExportSpans(ctx, out)
+}
+
+func (e filteringExporter) Shutdown(ctx context.Context) error { return e.next.Shutdown(ctx) }
+
+// filteredSpan is the exported view of a span with denied attributes removed.
+type filteredSpan struct {
+	sdktrace.ReadOnlySpan
+}
+
+func (s filteredSpan) Attributes() []attribute.KeyValue {
+	return filterAttributes(s.ReadOnlySpan.Attributes())
+}
+
+func (s filteredSpan) Events() []sdktrace.Event {
+	events := s.ReadOnlySpan.Events()
+	out := make([]sdktrace.Event, len(events))
+	for i, ev := range events {
+		ev.Attributes = filterAttributes(ev.Attributes)
+		out[i] = ev
 	}
-	if ts := cfg.Timestamp(); !ts.IsZero() {
-		clean = append(clean, trace.WithTimestamp(ts))
+	return out
+}
+
+func (s filteredSpan) Links() []sdktrace.Link {
+	links := s.ReadOnlySpan.Links()
+	out := make([]sdktrace.Link, len(links))
+	for i, l := range links {
+		l.Attributes = filterAttributes(l.Attributes)
+		out[i] = l
 	}
-	ctx, span := t.Tracer.Start(ctx, name, clean...)
-	fs := filteringSpan{Span: span}
-	return trace.ContextWithSpan(ctx, fs), fs
+	return out
 }
 
-type filteringSpan struct {
-	trace.Span
-}
-
-func (s filteringSpan) SetAttributes(kvs ...attribute.KeyValue) {
-	s.Span.SetAttributes(filterSpanAttributes(kvs)...)
-}
-
-// TracerProvider returns the filtering provider, so child tracers obtained
-// from a span stay filtered.
-func (s filteringSpan) TracerProvider() trace.TracerProvider {
-	return filteringTracerProvider{TracerProvider: s.Span.TracerProvider()}
+// Status keeps the code and drops the description: instrumentation fills it
+// with err.Error(), and a *url.Error, for one, quotes the full URL with its
+// query. error.type stays on the span.
+func (s filteredSpan) Status() sdktrace.Status {
+	return sdktrace.Status{Code: s.ReadOnlySpan.Status().Code}
 }
 
 // httpServerMetricsView keeps only bounded attributes on the otelhttp server

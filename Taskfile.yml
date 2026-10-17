@@ -3,6 +3,10 @@
 # CI entry point (T05).
 version: "3"
 
+# Loaded only when present; copy .env.example to .env. Variables already set in
+# the shell take precedence.
+dotenv: [".env"]
+
 tasks:
   default:
     desc: List the available tasks
@@ -14,6 +18,11 @@ tasks:
     desc: Build the nava-core binary into bin/
     cmds:
       - go build -o bin/nava-core{{exeExt}} ./cmd/nava-core
+
+  run:
+    desc: Run nava-core locally with .env loaded (Ctrl+C shuts it down gracefully)
+    cmds:
+      - go run ./cmd/nava-core
 
   test:
     desc: Run all tests with the race detector (needs cgo), the same as make test

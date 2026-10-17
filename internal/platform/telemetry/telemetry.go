@@ -1,19 +1,27 @@
 // Package telemetry builds the OpenTelemetry providers for nava-core: an SDK
 // tracer provider, a meter provider exported as Prometheus on our own
-// registry, and the edge propagator. Nothing here is global. There is no
-// otel.Set*; callers pass the providers to the instrumentation explicitly.
+// registry, and the edge propagator. Callers pass the providers to the
+// instrumentation explicitly. The one global is where OTel reports its own
+// errors (RouteErrors).
+//
+// The SDK and the OTLP exporter read their standard OTEL_* variables
+// themselves: OTEL_SERVICE_NAME, OTEL_RESOURCE_ATTRIBUTES, OTEL_TRACES_SAMPLER
+// and _ARG, OTEL_BSP_*, the span limits, and every OTEL_EXPORTER_OTLP_*
+// transport setting. config decides only whether a trace exporter exists.
 package telemetry
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"runtime/debug"
-	"strings"
 
+	"github.com/go-logr/logr"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"go.opentelemetry.io/contrib/instrumentation/runtime"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	otelprom "go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/metric"
@@ -33,7 +41,8 @@ type Telemetry struct {
 	// Registry is the Prometheus registry /metrics serves. It holds the OTel
 	// exporter's metrics and the process collector, and nothing else.
 	Registry *prometheus.Registry
-	// TracerProvider is the SDK provider behind the span attribute filter.
+	// TracerProvider is the SDK provider. Every exporter behind it applies the
+	// span attribute deny-list.
 	TracerProvider trace.TracerProvider
 	// MeterProvider exports through Registry.
 	MeterProvider metric.MeterProvider
@@ -46,50 +55,57 @@ type Telemetry struct {
 	exporting bool
 }
 
-// Option adjusts New. Tests use it to record spans in memory.
+// Option adjusts New. Tests use them to export spans in memory and to fix the
+// sampler without touching the process environment.
 type Option func(*options)
 
 type options struct {
-	spanProcessors []sdktrace.SpanProcessor
+	exporters []sdktrace.SpanExporter
+	sampler   sdktrace.Sampler
 }
 
-// WithSpanProcessor adds a span processor, such as tracetest.SpanRecorder.
-func WithSpanProcessor(sp sdktrace.SpanProcessor) Option {
-	return func(o *options) { o.spanProcessors = append(o.spanProcessors, sp) }
+// WithSpanExporter adds a synchronous exporter, such as
+// tracetest.InMemoryExporter. It sees spans exactly as the OTLP exporter
+// would: sampled, ended and filtered.
+func WithSpanExporter(exp sdktrace.SpanExporter) Option {
+	return func(o *options) { o.exporters = append(o.exporters, exp) }
 }
 
-// New builds the providers from cfg. With no OTLP endpoint there is no trace
+// WithSampler overrides OTEL_TRACES_SAMPLER.
+func WithSampler(s sdktrace.Sampler) Option {
+	return func(o *options) { o.sampler = s }
+}
+
+// New builds the providers. With cfg.ExportTraces false there is no trace
 // exporter and nothing dials out; spans are still created, so every request
 // has a trace id for its logs.
-func New(ctx context.Context, cfg config.Telemetry, opts ...Option) (*Telemetry, error) {
+func New(ctx context.Context, cfg config.Telemetry, opts ...Option) (_ *Telemetry, err error) {
 	var o options
 	for _, opt := range opts {
 		opt(&o)
 	}
 
-	res := resource.NewWithAttributes(semconv.SchemaURL,
-		semconv.ServiceName(cfg.ServiceName),
-		semconv.ServiceVersion(version()),
+	// Later options win: OTEL_SERVICE_NAME and OTEL_RESOURCE_ATTRIBUTES
+	// override the defaults.
+	res, err := resource.New(ctx,
+		resource.WithTelemetrySDK(),
+		resource.WithAttributes(semconv.ServiceName("nava-core"), semconv.ServiceVersion(version())),
+		resource.WithFromEnv(),
 	)
-
-	sampler, err := newSampler(cfg.Sampler, cfg.SamplerArg)
 	if err != nil {
-		return nil, err
+		// The detector's error quotes the variable's content; name it only.
+		return nil, errors.New("telemetry: OTEL_SERVICE_NAME or OTEL_RESOURCE_ATTRIBUTES is invalid")
 	}
-	tpOpts := []sdktrace.TracerProviderOption{sdktrace.WithResource(res), sdktrace.WithSampler(sampler)}
-	exporting := cfg.OTLPEndpoint != ""
-	if exporting {
-		exp, err := otlptracehttp.New(ctx,
-			otlptracehttp.WithEndpointURL(strings.TrimRight(cfg.OTLPEndpoint, "/")+"/v1/traces"))
+
+	// Whatever is built is shut down again if a later step fails.
+	var built []func(context.Context) error
+	defer func() {
 		if err != nil {
-			return nil, fmt.Errorf("telemetry: otlp trace exporter: %w", err)
+			for _, shutdown := range built {
+				_ = shutdown(ctx)
+			}
 		}
-		tpOpts = append(tpOpts, sdktrace.WithBatcher(exp))
-	}
-	for _, sp := range o.spanProcessors {
-		tpOpts = append(tpOpts, sdktrace.WithSpanProcessor(sp))
-	}
-	tp := sdktrace.NewTracerProvider(tpOpts...)
+	}()
 
 	reg := prometheus.NewRegistry()
 	if err := reg.Register(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{})); err != nil {
@@ -104,18 +120,37 @@ func New(ctx context.Context, cfg config.Telemetry, opts ...Option) (*Telemetry,
 		sdkmetric.WithReader(reader),
 		sdkmetric.WithView(httpServerMetricsView()),
 	)
+	built = append(built, mp.Shutdown)
 	if err := runtime.Start(runtime.WithMeterProvider(mp)); err != nil {
 		return nil, fmt.Errorf("telemetry: runtime metrics: %w", err)
 	}
 
+	tpOpts := []sdktrace.TracerProviderOption{sdktrace.WithResource(res)}
+	if o.sampler != nil {
+		tpOpts = append(tpOpts, sdktrace.WithSampler(o.sampler))
+	}
+	if cfg.ExportTraces {
+		// No endpoint option: the exporter resolves OTEL_EXPORTER_OTLP_TRACES_ENDPOINT,
+		// then OTEL_EXPORTER_OTLP_ENDPOINT + /v1/traces, as the spec says.
+		exp, err := otlptracehttp.New(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("telemetry: otlp trace exporter: %w", err)
+		}
+		tpOpts = append(tpOpts, sdktrace.WithBatcher(filteringExporter{next: exp}))
+	}
+	for _, exp := range o.exporters {
+		tpOpts = append(tpOpts, sdktrace.WithSyncer(filteringExporter{next: exp}))
+	}
+	tp := sdktrace.NewTracerProvider(tpOpts...)
+
 	return &Telemetry{
 		Registry:       reg,
-		TracerProvider: filteringTracerProvider{TracerProvider: tp},
+		TracerProvider: tp,
 		MeterProvider:  mp,
 		Propagator:     propagation.TraceContext{},
 		tp:             tp,
 		mp:             mp,
-		exporting:      exporting,
+		exporting:      cfg.ExportTraces,
 	}, nil
 }
 
@@ -127,23 +162,15 @@ func (t *Telemetry) Shutdown(ctx context.Context) error {
 	return errors.Join(t.tp.Shutdown(ctx), t.mp.Shutdown(ctx))
 }
 
-func newSampler(name string, ratio float64) (sdktrace.Sampler, error) {
-	switch name {
-	case config.SamplerAlwaysOn:
-		return sdktrace.AlwaysSample(), nil
-	case config.SamplerAlwaysOff:
-		return sdktrace.NeverSample(), nil
-	case config.SamplerTraceIDRatio:
-		return sdktrace.TraceIDRatioBased(ratio), nil
-	case config.SamplerParentBasedAlwaysOn:
-		return sdktrace.ParentBased(sdktrace.AlwaysSample()), nil
-	case config.SamplerParentBasedAlwaysOff:
-		return sdktrace.ParentBased(sdktrace.NeverSample()), nil
-	case config.SamplerParentBasedTraceIDRatio:
-		return sdktrace.ParentBased(sdktrace.TraceIDRatioBased(ratio)), nil
-	default:
-		return nil, fmt.Errorf("telemetry: unknown sampler %q", name)
-	}
+// RouteErrors sends OTel's own errors and internal log lines (failed exports,
+// an invalid OTEL_* value) to log, instead of the default plain-text stderr
+// logger. It sets OTel's global error handler and logger: process-wide, so
+// main calls it once, before New. It changes no instrumentation.
+func RouteErrors(log *slog.Logger) {
+	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(err error) {
+		log.WarnContext(context.Background(), "opentelemetry error", slog.Any("error", err))
+	}))
+	otel.SetLogger(logr.FromSlogHandler(log.Handler()))
 }
 
 // version is the module version from the build, or "(devel)" for a local build.

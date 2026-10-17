@@ -33,15 +33,13 @@ func TestMetricsEndpointExposesOTelHTTPAndRuntimeMetrics(t *testing.T) {
 	t.Parallel()
 	srv, _ := newServer(t)
 
-	// A request is recorded after it is served, so the second scrape sees the first.
-	do(t, http.MethodGet, srv.URL+"/metrics", "")
+	do(t, http.MethodGet, srv.URL+"/nope", "")
 	body := do(t, http.MethodGet, srv.URL+"/metrics", "")
 	for _, want := range []string{
 		"# TYPE http_server_request_duration_seconds histogram",
 		"http_server_request_duration_seconds_count{",
-		`http_route="/metrics"`,
 		`http_request_method="GET"`,
-		`http_response_status_code="200"`,
+		`http_response_status_code="404"`,
 		"go_goroutine_count", // runtime instrumentation
 		"go_memory_used_bytes",
 		"process_cpu_seconds_total", // process collector
@@ -55,6 +53,30 @@ func TestMetricsEndpointExposesOTelHTTPAndRuntimeMetrics(t *testing.T) {
 			t.Errorf("/metrics still exposes the pre-OTel %q", gone)
 		}
 	}
+	// Scrapes are untraced: they add no HTTP series of their own.
+	if strings.Contains(body, `http_route="/metrics"`) {
+		t.Error("/metrics scrapes are recorded as HTTP requests")
+	}
+}
+
+// TestMetricsCarryTraceExemplars checks the OpenMetrics scrape links latency
+// buckets to the trace of a sampled request.
+func TestMetricsCarryTraceExemplars(t *testing.T) {
+	t.Parallel()
+	srv, _ := newServer(t)
+
+	do(t, http.MethodGet, srv.URL+"/nope", "")
+	body := doAccept(t, srv.URL+"/metrics", "application/openmetrics-text; version=1.0.0")
+	var bucket string
+	for l := range strings.SplitSeq(body, "\n") {
+		if strings.HasPrefix(l, "http_server_request_duration_seconds_bucket{") && strings.Contains(l, "# {") {
+			bucket = l
+			break
+		}
+	}
+	if bucket == "" || !strings.Contains(bucket, "trace_id=") {
+		t.Errorf("no duration bucket carries a trace_id exemplar:\n%s", body)
+	}
 }
 
 // TestHTTPMetricCardinalityIsBounded sends what a hostile client controls:
@@ -64,14 +86,13 @@ func TestHTTPMetricCardinalityIsBounded(t *testing.T) {
 	t.Parallel()
 	srv, tel := newServer(t)
 
-	do(t, http.MethodGet, srv.URL+"/metrics", "")
 	hostile := []string{"FOO1", "FOO2", "XYZ"}
 	for _, m := range hostile {
-		do(t, m, srv.URL+"/metrics", "")
+		do(t, m, srv.URL+"/metrics", "") // traced: only GET /metrics is skipped
 	}
 	hosts := []string{"tenant-a.evil.test:1111", "tenant-b.evil.test:2222", "tenant-c.evil.test"}
 	for _, h := range hosts {
-		do(t, http.MethodGet, srv.URL+"/metrics", h)
+		do(t, http.MethodGet, srv.URL+"/nope/host", h)
 	}
 	paths := []string{"/nope/9f1c", "/nope/77ab", "/users/alice@example.test"}
 	for _, p := range paths {
@@ -107,9 +128,9 @@ func TestHTTPMetricCardinalityIsBounded(t *testing.T) {
 			}
 		}
 	}
-	// GET 200 /metrics, _OTHER 405 (no route), GET 404 (no route).
-	if series != 3 {
-		t.Errorf("http_server_request_duration_seconds has %d series, want 3", series)
+	// _OTHER 405 (no route) and GET 404 (no route).
+	if series != 2 {
+		t.Errorf("http_server_request_duration_seconds has %d series, want 2", series)
 	}
 }
 
@@ -134,6 +155,21 @@ func do(t *testing.T, method, url, host string) string {
 	if host != "" {
 		req.Host = host
 	}
+	return send(t, req)
+}
+
+func doAccept(t *testing.T, url, accept string) string {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Accept", accept)
+	return send(t, req)
+}
+
+func send(t *testing.T, req *http.Request) string {
+	t.Helper()
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)

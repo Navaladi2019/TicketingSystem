@@ -14,11 +14,22 @@ import (
 )
 
 // NewHandler returns the root handler. /metrics serves the telemetry
-// registry, never the Prometheus default one.
+// registry, never the Prometheus default one. It offers OpenMetrics, the only
+// format that carries exemplars: histogram buckets then link to a trace_id.
+// Scrapes are untraced, so they create no spans and no access lines.
+//
+// TODO(TODO-001): /metrics shares the public listener and has no auth, so
+// anyone who can reach :8080 can read route names, traffic volume, latency,
+// error rates and process details. Move it to its own internal listener
+// (NAVA_METRICS_ADDR, default :9090), drain both servers on shutdown, and test
+// that the public port answers 404. See docs/delivery/todo.md.
 func NewHandler(log *slog.Logger, tel *telemetry.Telemetry) http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("GET /metrics", promhttp.HandlerFor(tel.Registry, promhttp.HandlerOpts{Registry: tel.Registry}))
-	return httpobs.Middleware(log, tel, mux)
+	mux.Handle("GET /metrics", promhttp.HandlerFor(tel.Registry, promhttp.HandlerOpts{
+		Registry:          tel.Registry,
+		EnableOpenMetrics: true,
+	}))
+	return httpobs.Middleware(log, tel, mux, "GET /metrics")
 }
 
 // New returns an *http.Server with every timeout set from cfg.

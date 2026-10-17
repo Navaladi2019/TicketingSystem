@@ -12,6 +12,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/baggage"
+	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
@@ -36,23 +37,22 @@ var hex32 = regexp.MustCompile(`^[0-9a-f]{32}$`)
 type harness struct {
 	handler http.Handler
 	logs    *bytes.Buffer
-	spans   *tracetest.SpanRecorder
+	spans   *tracetest.InMemoryExporter
 	seen    struct {
 		span     trace.SpanContext
 		baggage  baggage.Baggage
 		reqID    string
+		flusher  bool
 		requests int
 	}
 }
 
 func newHarness(t *testing.T, samplerArg float64) *harness {
 	t.Helper()
-	h := &harness{logs: &bytes.Buffer{}, spans: tracetest.NewSpanRecorder()}
-	tel, err := telemetry.New(t.Context(), config.Telemetry{
-		ServiceName: "nava-core-test",
-		Sampler:     config.SamplerParentBasedTraceIDRatio,
-		SamplerArg:  samplerArg,
-	}, telemetry.WithSpanProcessor(h.spans))
+	h := &harness{logs: &bytes.Buffer{}, spans: tracetest.NewInMemoryExporter()}
+	tel, err := telemetry.New(t.Context(), config.Telemetry{},
+		telemetry.WithSampler(sdktrace.ParentBased(sdktrace.TraceIDRatioBased(samplerArg))),
+		telemetry.WithSpanExporter(h.spans))
 	if err != nil {
 		t.Fatalf("telemetry.New: %v", err)
 	}
@@ -65,17 +65,50 @@ func newHarness(t *testing.T, samplerArg float64) *harness {
 		h.seen.span = trace.SpanContextFromContext(ctx)
 		h.seen.baggage = baggage.FromContext(ctx)
 		h.seen.reqID = requestid.FromContext(ctx)
+		_, h.seen.flusher = w.(http.Flusher)
 		h.seen.requests++
 		log.InfoContext(ctx, "handler line")
 		w.WriteHeader(http.StatusTeapot)
 	})
-	h.handler = httpobs.Middleware(log, tel, mux)
+	mux.HandleFunc("GET /panic", func(http.ResponseWriter, *http.Request) {
+		panic("boom")
+	})
+	mux.HandleFunc("GET /panic-after-write", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("partial"))
+		panic("boom")
+	})
+	mux.HandleFunc("GET /panic-with-headers", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		w.Header().Set("Set-Cookie", "session=abc")
+		w.Header().Set("Content-Encoding", "gzip")
+		panic("boom")
+	})
+	mux.HandleFunc("GET /panic-after-upgrade", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusSwitchingProtocols)
+		panic("boom")
+	})
+	mux.HandleFunc("GET /abort", func(http.ResponseWriter, *http.Request) {
+		panic(http.ErrAbortHandler)
+	})
+	mux.HandleFunc("GET /quiet-panic", func(http.ResponseWriter, *http.Request) {
+		panic("boom")
+	})
+	mux.HandleFunc("GET /quiet", func(w http.ResponseWriter, r *http.Request) {
+		h.seen.reqID = requestid.FromContext(r.Context())
+		h.seen.span = trace.SpanContextFromContext(r.Context())
+	})
+	h.handler = httpobs.Middleware(log, tel, mux, "GET /quiet", "GET /quiet-panic")
 	return h
 }
 
 func (h *harness) do(t *testing.T, path string, header map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
+	return h.doMethod(t, http.MethodGet, path, header)
+}
+
+func (h *harness) doMethod(t *testing.T, method, path string, header map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequestWithContext(t.Context(), method, path, nil)
 	for k, v := range header {
 		req.Header.Set(k, v)
 	}
@@ -108,9 +141,10 @@ func (h *harness) accessLine(t *testing.T) map[string]any {
 	return l
 }
 
-func (h *harness) onlySpan(t *testing.T) sdktrace.ReadOnlySpan {
+// onlySpan returns the one exported span, as the OTLP exporter would see it.
+func (h *harness) onlySpan(t *testing.T) tracetest.SpanStub {
 	t.Helper()
-	ended := h.spans.Ended()
+	ended := h.spans.GetSpans()
 	if len(ended) != 1 {
 		t.Fatalf("recorded %d spans, want 1", len(ended))
 	}
@@ -123,14 +157,14 @@ func TestInboundTraceparentIsLinkedNotContinued(t *testing.T) {
 	h.do(t, "/items/42", map[string]string{"traceparent": inbound})
 
 	span := h.onlySpan(t)
-	got := span.SpanContext().TraceID().String()
+	got := span.SpanContext.TraceID().String()
 	if got == inboundTraceID || !hex32.MatchString(got) {
 		t.Errorf("trace id = %s, want a new server-generated id", got)
 	}
-	if span.Parent().IsValid() {
-		t.Errorf("span has parent %v, want a root span", span.Parent())
+	if span.Parent.IsValid() {
+		t.Errorf("span has parent %v, want a root span", span.Parent)
 	}
-	links := span.Links()
+	links := span.Links
 	if len(links) != 1 {
 		t.Fatalf("span has %d links, want 1", len(links))
 	}
@@ -185,7 +219,7 @@ func TestClientCannotForceSampling(t *testing.T) {
 	if !h.seen.span.IsValid() {
 		t.Error("unsampled span has no valid span context; logs would lose their trace id")
 	}
-	if n := len(h.spans.Ended()); n != 0 {
+	if n := len(h.spans.GetSpans()); n != 0 {
 		t.Errorf("recorded %d spans at ratio 0, want 0", n)
 	}
 }
@@ -212,10 +246,10 @@ func TestSpanHasRouteAndNoForbiddenAttributes(t *testing.T) {
 	})
 
 	span := h.onlySpan(t)
-	if span.Name() != "GET /items/{id}" {
-		t.Errorf("span name = %q, want the route pattern", span.Name())
+	if span.Name != "GET /items/{id}" {
+		t.Errorf("span name = %q, want the route pattern", span.Name)
 	}
-	attrs := attrMap(span.Attributes())
+	attrs := attrMap(span.Attributes)
 	if attrs["http.route"] != "/items/{id}" {
 		t.Errorf("http.route = %q, want /items/{id}", attrs["http.route"])
 	}
@@ -228,6 +262,9 @@ func TestSpanHasRouteAndNoForbiddenAttributes(t *testing.T) {
 		}
 	}
 	for k, v := range attrs {
+		if k == httpobs.RequestIDAttribute {
+			continue // random hex; may contain "42"
+		}
 		if strings.Contains(v, "42") || strings.Contains(v, "a@b.test") || strings.Contains(v, "203.0.113.7") {
 			t.Errorf("span attribute %s = %q leaks a raw request value", k, v)
 		}
@@ -240,11 +277,11 @@ func TestUnmatchedRequestHasNoRoute(t *testing.T) {
 	h.do(t, "/nope/secret-id", nil)
 
 	span := h.onlySpan(t)
-	if v, ok := attrMap(span.Attributes())["http.route"]; ok {
+	if v, ok := attrMap(span.Attributes)["http.route"]; ok {
 		t.Errorf("unmatched span has http.route = %q", v)
 	}
-	if strings.Contains(span.Name(), "secret-id") {
-		t.Errorf("span name %q carries the raw path", span.Name())
+	if strings.Contains(span.Name, "secret-id") {
+		t.Errorf("span name %q carries the raw path", span.Name)
 	}
 	if got := h.accessLine(t)["route"]; got != "unmatched" {
 		t.Errorf("access route = %v, want unmatched", got)
@@ -268,6 +305,179 @@ func TestRequestIDIsServerGenerated(t *testing.T) {
 	if h.seen.reqID != got {
 		t.Errorf("context request id %q differs from the header %q", h.seen.reqID, got)
 	}
+}
+
+func TestRequestIDIsOnTheSpan(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, 1)
+	rec := h.do(t, "/items/1", nil)
+
+	got := attrMap(h.onlySpan(t).Attributes)[httpobs.RequestIDAttribute]
+	if want := rec.Header().Get(requestid.Header); got != want {
+		t.Errorf("span %s = %q, want the X-Request-Id %q", httpobs.RequestIDAttribute, got, want)
+	}
+}
+
+func TestHandlerKeepsOptionalWriterInterfaces(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, 1)
+	h.do(t, "/items/1", nil) // httptest.ResponseRecorder is an http.Flusher
+
+	if !h.seen.flusher {
+		t.Error("handler's ResponseWriter lost http.Flusher; SSE and streaming would break")
+	}
+	if got := h.accessLine(t)["status"]; got != float64(http.StatusTeapot) {
+		t.Errorf("access status = %v, want 418", got)
+	}
+}
+
+func TestUntracedRequestHasNoSpanOrAccessLine(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, 1)
+	rec := h.do(t, "/quiet", map[string]string{"traceparent": inbound})
+
+	if n := len(h.spans.GetSpans()); n != 0 {
+		t.Errorf("untraced request exported %d spans, want 0", n)
+	}
+	if h.seen.span.IsValid() {
+		t.Errorf("untraced handler sees span %s, want none", h.seen.span.TraceID())
+	}
+	if h.logs.Len() != 0 {
+		t.Errorf("untraced request logged: %s", h.logs)
+	}
+	if got := rec.Header().Get(requestid.Header); !hex32.MatchString(got) || h.seen.reqID != got {
+		t.Errorf("untraced request id: header %q, context %q, want the same server id", got, h.seen.reqID)
+	}
+}
+
+func TestHandlerPanicBecomesLogged500(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, 1)
+	rec := h.do(t, "/panic", nil)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", rec.Code)
+	}
+	reqID := rec.Header().Get(requestid.Header)
+	panicLine := h.lineWithMsg(t, "http handler panic")
+	if panicLine["level"] != "ERROR" || panicLine["panic"] != "boom" {
+		t.Errorf("panic line = %v, want level ERROR and panic boom", panicLine)
+	}
+	if stack, _ := panicLine["stack"].(string); !strings.Contains(stack, "httpobs_test") {
+		t.Errorf("panic line stack does not reach the handler:\n%s", stack)
+	}
+	if panicLine["request_id"] != reqID || panicLine["trace_id"] == nil {
+		t.Errorf("panic line ids = %v/%v, want request id %s and a trace id",
+			panicLine["request_id"], panicLine["trace_id"], reqID)
+	}
+
+	access := h.accessLine(t)
+	if access["status"] != float64(http.StatusInternalServerError) || access["route"] != "GET /panic" {
+		t.Errorf("access line = %v, want status 500 on route GET /panic", access)
+	}
+	if span := h.onlySpan(t); span.Status.Code != codes.Error {
+		t.Errorf("span status = %v, want Error", span.Status)
+	}
+}
+
+func TestPanicAfterWriteAbortsTheResponse(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, 1)
+	if v := h.doPanics(t, "/panic-after-write"); v != http.ErrAbortHandler { //nolint:errorlint // identity, as net/http checks
+		t.Fatalf("recovered %v, want http.ErrAbortHandler so net/http drops the connection", v)
+	}
+	if line := h.lineWithMsg(t, "http handler panic"); line["panic"] != "boom" {
+		t.Errorf("panic line = %v, want the original panic logged", line)
+	}
+	if span := h.onlySpan(t); span.Status.Code != codes.Error {
+		t.Errorf("span status = %v, want Error", span.Status)
+	}
+}
+
+func TestHandlerAbortIsPassedThrough(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, 1)
+	if v := h.doPanics(t, "/abort"); v != http.ErrAbortHandler { //nolint:errorlint // identity, as net/http checks
+		t.Fatalf("recovered %v, want http.ErrAbortHandler", v)
+	}
+	if strings.Contains(h.logs.String(), "http handler panic") {
+		t.Errorf("a deliberate abort was logged as a panic:\n%s", h.logs)
+	}
+}
+
+func TestRecovered500DropsHandlerHeaders(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, 1)
+	rec := h.do(t, "/panic-with-headers", nil)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+	for _, k := range []string{"Cache-Control", "Set-Cookie", "Content-Encoding"} {
+		if v := rec.Header().Get(k); v != "" {
+			t.Errorf("500 carries the handler's %s: %q", k, v)
+		}
+	}
+	if !hex32.MatchString(rec.Header().Get(requestid.Header)) {
+		t.Errorf("500 lost %s", requestid.Header)
+	}
+}
+
+func TestPanicAfterSwitchingProtocolsAborts(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, 1)
+	if v := h.doPanics(t, "/panic-after-upgrade"); v != http.ErrAbortHandler { //nolint:errorlint // identity, as net/http checks
+		t.Fatalf("recovered %v, want http.ErrAbortHandler: a 500 cannot follow a 101", v)
+	}
+}
+
+func TestUntracedHandlerPanicBecomes500(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, 1)
+	rec := h.do(t, "/quiet-panic", nil)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", rec.Code)
+	}
+	if line := h.lineWithMsg(t, "http handler panic"); line["request_id"] != rec.Header().Get(requestid.Header) {
+		t.Errorf("panic line = %v, want the request id", line)
+	}
+	if n := len(h.spans.GetSpans()); n != 0 {
+		t.Errorf("untraced panic exported %d spans, want 0", n)
+	}
+}
+
+func TestUntracedGetAlsoSkipsHead(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, 1)
+	h.doMethod(t, http.MethodHead, "/quiet", nil)
+
+	if n := len(h.spans.GetSpans()); n != 0 {
+		t.Errorf("HEAD on an untraced GET route exported %d spans, want 0", n)
+	}
+	if h.logs.Len() != 0 {
+		t.Errorf("HEAD on an untraced GET route logged: %s", h.logs)
+	}
+}
+
+// doPanics serves path and returns what the handler chain panicked with, as
+// net/http's per-connection recover would see it.
+func (h *harness) doPanics(t *testing.T, path string) (v any) {
+	t.Helper()
+	defer func() { v = recover() }()
+	h.do(t, path, nil)
+	return nil
+}
+
+func (h *harness) lineWithMsg(t *testing.T, msg string) map[string]any {
+	t.Helper()
+	for _, l := range h.lines(t) {
+		if l["msg"] == msg {
+			return l
+		}
+	}
+	t.Fatalf("no %q log line in:\n%s", msg, h.logs)
+	return nil
 }
 
 func attrMap(kvs []attribute.KeyValue) map[attribute.Key]string {
