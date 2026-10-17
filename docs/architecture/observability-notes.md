@@ -61,13 +61,14 @@ bounded, non-client values leave the process; secrets are never echoed.
 ### 2.2 Spans carry no client values or PII
 
 The export-time filter in `internal/platform/telemetry/filter.go` runs on
-every span, event and link just before export. `filter.go` drops raw paths and queries
-(`url.*`, `http.url`, `http.target`), client identity and headers
+every span, event and link just before export. `filter.go` drops raw paths
+and queries (`url.*`, `http.url`, `http.target`), client identity and headers
 (`user_agent.original`, `client.address`, `network.peer.*`,
 `http.request.header.*`), client-chosen values (`server.port`,
 `http.request.method_original`, `network.protocol.version`), free text
 (`db.statement`, `db.query.text`, `exception.message`) and the status
-description (`filteredSpan.Status()`). `server.address` is fixed to `nava-core` (`WithServerName`).
+description (`filteredSpan.Status()`). `server.address` is fixed to `nava-core`
+(`WithServerName`).
 
 Backing tests: `TestServerSpanAttributeKeysAreGolden` pins the server span's
 exact key set, so an otelhttp upgrade that adds a key fails CI until someone
