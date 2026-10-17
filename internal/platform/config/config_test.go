@@ -224,3 +224,28 @@ func TestLoadOTLPTimeout(t *testing.T) {
 		}
 	}
 }
+
+func TestRejectsBadBadDependencyValuesByName(t *testing.T) {
+	t.Parallel()
+	for key, bad := range map[string]string{
+		"NAVA_DATABASE_URL":            "mysql://u:hunter2@h/db",
+		"NAVA_KEYCLOAK_MANAGEMENT_URL": "http://u:hunter2@keycloak:9000",
+		"NAVA_TEMPORAL_ADDRESS":        "temporal",
+	} {
+		_, err := config.Load(func(k string) (string, bool) { return bad, k == key })
+		if err == nil || !strings.Contains(err.Error(), key) || strings.Contains(err.Error(), "hunter2") {
+			t.Errorf("%s: error = %v, want one naming the key and not the value", key, err)
+		}
+	}
+}
+
+func TestDependencyDefaultsAreUnconfigured(t *testing.T) {
+	t.Parallel()
+	cfg, err := config.Load(func(string) (string, bool) { return "", false })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Deps != (config.Dependencies{}) {
+		t.Errorf("Deps = %+v, want zero", cfg.Deps)
+	}
+}

@@ -123,6 +123,18 @@ func TestRunSignalDrainsBothServers(t *testing.T) {
 	if code := get(t, "http://"+admin+"/metrics"); code != http.StatusOK {
 		t.Errorf("admin /metrics = %d, want 200", code)
 	}
+	for _, p := range []string{"/healthz", "/readyz"} {
+		if code := get(t, "http://"+public+p); code != http.StatusNotFound {
+			t.Errorf("public %s = %d, want 404", p, code)
+		}
+	}
+	// No database is configured, so the admin probes fail closed.
+	if code := get(t, "http://"+admin+"/healthz"); code != http.StatusServiceUnavailable {
+		t.Errorf("admin /healthz with no database = %d, want 503", code)
+	}
+	if code := get(t, "http://"+admin+"/readyz"); code != http.StatusServiceUnavailable {
+		t.Errorf("admin /readyz with no database = %d, want 503", code)
+	}
 	if code := get(t, "http://"+public+"/metrics"); code != http.StatusNotFound {
 		t.Errorf("public /metrics = %d, want 404", code)
 	}

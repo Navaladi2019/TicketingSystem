@@ -10,11 +10,12 @@ flows, the security controls behind these rules, and options for later tasks.
 |---|---|
 | `cmd/nava-core` | `main`: wiring only (config → logger → `telemetry.RouteErrors` → telemetry → handlers → two servers). Graceful shutdown drains both servers, then flushes telemetry, each with its own deadline |
 | `internal/platform/config` | Typed `Config` loaded from `NAVA_*` variables, plus the two OTLP endpoint variables that decide whether traces are exported. No globals: `Load(os.LookupEnv)` in `main`, a map in tests |
-| `internal/platform/telemetry` | The admin listener (`NewAdminHandler`, `NewAdminServer`) and, below, the OpenTelemetry providers: SDK tracer provider (every exporter behind the export-time attribute filter), meter provider exported as Prometheus on our own registry, the edge propagator, `Shutdown`. The only `otel.Set*` is `RouteErrors` (OTel's own errors → slog) |
+| `internal/platform/telemetry` | The admin listener (`NewAdminHandler`, `NewAdminServer`) and, below, the OpenTelemetry providers: SDK tracer provider (every exporter behind the export-time attribute filter), meter provider exported as Prometheus on our own registry, the edge propagator, `Shutdown`. The only `otel.Set*` is `RouteErrors` (OTel's own errors → slog) |. `NewOutboundClient` is the one client for outbound HTTP: otelhttp with the explicit providers, timeouts at client, dial and TLS, and errors reduced to scheme, host and the `WithRoute` template
 | `internal/platform/logging` | The process `slog.Logger` (JSON by default) and `ContextHandler`, which adds `trace_id`, `span_id` and `request_id` to every `*Context` record |
 | `internal/platform/requestid` | The server-generated request id and its context helpers |
 | `internal/platform/httpobs` | The public-listener edge: request id → `otelhttp` → access log → panic recovery. Only the public listener uses it. Exact `METHOD /path` routes can be marked untraced (a route that needs no span, which also covers `HEAD`); they keep the request id and panic recovery |
 | `internal/server` | `NewHandler` (public API listener) and `New` for its `*http.Server`; later tasks register routes here |
+| `internal/platform/health` | `Monitor`: probes PostgreSQL (critical), Keycloak (management port) and Temporal (`GetSystemInfo`) in the background, caches the result, and serves `/healthz` (`{status, checks}`) and `/readyz` on the admin listener. Only PostgreSQL gates `/readyz`; the others show as `degraded` and in `nava.dependency.degraded{dependency}` |
 | `api/`, `db/`, `deploy/compose/` | Placeholders for T20, T03 and T02 |
 | `docs/` | ADRs, the delivery plan, the decision log and notes. Its own `go.mod` keeps the ADR spike code out of `go build ./...` |
 
@@ -112,6 +113,9 @@ Nothing between `otelhttp` and the mux may replace the `*http.Request`: `otelhtt
 | `NAVA_LOG_LEVEL` | `info` |
 | `NAVA_LOG_FORMAT` | `json` (`text` for local use) |
 | `NAVA_TELEMETRY_SHUTDOWN_TIMEOUT` | `5s` |
+| `NAVA_DATABASE_URL` | unset. `postgres://` URL; a credential, never logged or echoed. Unset: `/readyz` fails closed |
+| `NAVA_KEYCLOAK_MANAGEMENT_URL` | unset. Keycloak management base URL (port 9000); checked at `/health/ready` |
+| `NAVA_TEMPORAL_ADDRESS` | unset. Temporal frontend `host:port`; checked with `GetSystemInfo` |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` / `OTEL_EXPORTER_OTLP_ENDPOINT` | both unset: no trace exporter, nothing dials out. Either set: OTLP/HTTP, resolved by the exporter as the spec says (the signal endpoint as is, else the base endpoint + `/v1/traces`). `config` checks both are http(s) URLs and never echoes them |
 
 Every other standard `OTEL_*` variable is read by the OTel SDK and exporter themselves, not by `config`:

@@ -46,12 +46,18 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 	if err != nil {
 		return err
 	}
+	mon, closeDeps, err := newMonitor(ctx, log, tel, cfg)
+	if err != nil {
+		_ = tel.Shutdown(context.WithoutCancel(ctx))
+		return err
+	}
+	defer closeDeps()
 	listeners := []struct {
 		name string
 		srv  *http.Server
 	}{
 		{"public", server.New(cfg.HTTP.Addr, cfg.HTTP, server.NewHandler(log, tel), log)},
-		{"admin", telemetry.NewAdminServer(cfg.HTTP.AdminAddr, cfg.HTTP, telemetry.NewAdminHandler(log, tel), log)},
+		{"admin", telemetry.NewAdminServer(cfg.HTTP.AdminAddr, cfg.HTTP, telemetry.NewAdminHandler(log, tel, mon.Routes), log)},
 	}
 
 	log.InfoContext(ctx, "nava-core listening",
@@ -63,6 +69,7 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 	defer stopAll()
 	serveErrs := make([]error, len(listeners))
 	var wg sync.WaitGroup
+	wg.Go(func() { mon.Run(stopCtx) })
 	for i, l := range listeners {
 		wg.Go(func() {
 			llog := log.With(slog.String("listener", l.name))
