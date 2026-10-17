@@ -115,7 +115,8 @@ func (e *edge) scrape(t *testing.T) string {
 func firstLine(s string) string { l, _, _ := strings.Cut(s, "\r\n"); return l }
 
 // leaks lists every place in an exported span the marker survives: name,
-// attributes, status, events, links (their trace state and attributes).
+// own trace state, attributes, status, events, links (their trace state and
+// attributes).
 func leaks(span tracetest.SpanStub) []string {
 	var out []string
 	has := func(s string) bool { return strings.Contains(strings.ToLower(s), marker) }
@@ -126,6 +127,9 @@ func leaks(span tracetest.SpanStub) []string {
 		if has(kv.Value.String()) || has(string(kv.Key)) {
 			out = append(out, fmt.Sprintf("attr %s=%s", kv.Key, kv.Value.String()))
 		}
+	}
+	if has(span.SpanContext.TraceState().String()) {
+		out = append(out, "tracestate="+span.SpanContext.TraceState().String())
 	}
 	if has(span.Status.Description) {
 		out = append(out, "status="+span.Status.Description)

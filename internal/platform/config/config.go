@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/url"
 	"strconv"
 	"strings"
@@ -20,9 +21,10 @@ type Config struct {
 	Telemetry Telemetry
 }
 
-// HTTP configures the API listener.
+// HTTP configures the two listeners. Both use the same timeouts.
 type HTTP struct {
-	Addr              string        // NAVA_HTTP_ADDR
+	Addr              string        // NAVA_HTTP_ADDR: the public API listener
+	MetricsAddr       string        // NAVA_METRICS_ADDR: the internal listener (/metrics)
 	ReadHeaderTimeout time.Duration // NAVA_HTTP_READ_HEADER_TIMEOUT
 	ReadTimeout       time.Duration // NAVA_HTTP_READ_TIMEOUT
 	WriteTimeout      time.Duration // NAVA_HTTP_WRITE_TIMEOUT
@@ -78,7 +80,8 @@ func Load(lookup LookupFunc) (Config, error) {
 	r.otlpTimeout("OTEL_EXPORTER_OTLP_TRACES_TIMEOUT")
 	cfg := Config{
 		HTTP: HTTP{
-			Addr:              r.str("NAVA_HTTP_ADDR", ":8080"),
+			Addr:              r.addr("NAVA_HTTP_ADDR", ":8080"),
+			MetricsAddr:       r.addr("NAVA_METRICS_ADDR", ":9090"),
 			ReadHeaderTimeout: r.duration("NAVA_HTTP_READ_HEADER_TIMEOUT", 5*time.Second),
 			ReadTimeout:       r.duration("NAVA_HTTP_READ_TIMEOUT", 15*time.Second),
 			WriteTimeout:      r.duration("NAVA_HTTP_WRITE_TIMEOUT", 30*time.Second),
@@ -94,6 +97,9 @@ func Load(lookup LookupFunc) (Config, error) {
 			ShutdownTimeout: r.duration("NAVA_TELEMETRY_SHUTDOWN_TIMEOUT", 5*time.Second),
 		},
 	}
+	if cfg.HTTP.Addr == cfg.HTTP.MetricsAddr {
+		r.errs = append(r.errs, errors.New("NAVA_METRICS_ADDR: must differ from NAVA_HTTP_ADDR"))
+	}
 	if err := errors.Join(r.errs...); err != nil {
 		return Config{}, fmt.Errorf("config: %w", err)
 	}
@@ -105,11 +111,22 @@ type reader struct {
 	errs   []error
 }
 
-func (r *reader) str(key, def string) string {
-	if v, ok := r.lookup(key); ok && v != "" {
-		return v
+// addr checks key is a listen address, host:port with a numeric port (0 picks
+// a free one). The host may be empty, meaning every interface.
+func (r *reader) addr(key, def string) string {
+	v, ok := r.lookup(key)
+	if !ok || v == "" {
+		return def
 	}
-	return def
+	_, port, err := net.SplitHostPort(v)
+	if err == nil {
+		_, err = strconv.ParseUint(port, 10, 16)
+	}
+	if err != nil {
+		r.errs = append(r.errs, fmt.Errorf("%s: want host:port such as :8080", key))
+		return def
+	}
+	return v
 }
 
 func (r *reader) duration(key string, def time.Duration) time.Duration {

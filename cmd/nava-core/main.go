@@ -1,5 +1,5 @@
 // Command nava-core is the platform's core API service. main only wires
-// configuration, telemetry, logging and the HTTP server together.
+// configuration, telemetry, logging and the HTTP servers together.
 package main
 
 import (
@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"sync"
 	"syscall"
 	"time"
 
@@ -31,8 +32,8 @@ func main() {
 	}
 }
 
-// run serves until ctx is cancelled or serving fails, then shuts the server
-// down and flushes telemetry.
+// run serves the public and internal listeners until ctx is cancelled or
+// either one fails, then drains both and flushes telemetry.
 func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error {
 	cfg, err := config.Load(lookup)
 	if err != nil {
@@ -45,11 +46,32 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 	if err != nil {
 		return err
 	}
-	srv := server.New(cfg.HTTP, server.NewHandler(log, tel), log)
+	listeners := []struct {
+		name string
+		srv  *http.Server
+	}{
+		{"public", server.New(cfg.HTTP.Addr, cfg.HTTP, server.NewHandler(log, tel), log)},
+		{"internal", server.New(cfg.HTTP.MetricsAddr, cfg.HTTP, server.NewInternalHandler(log, tel), log)},
+	}
 
 	log.InfoContext(ctx, "nava-core listening",
-		slog.String("addr", cfg.HTTP.Addr), slog.Bool("trace_export", tel.Exporting()))
-	serveErr := serve(ctx, log, srv, srv.ListenAndServe, cfg.HTTP.ShutdownTimeout)
+		slog.String("addr", cfg.HTTP.Addr), slog.String("metrics_addr", cfg.HTTP.MetricsAddr),
+		slog.Bool("trace_export", tel.Exporting()))
+	// Either server stopping (a listen failure, a recovered panic) cancels
+	// stopCtx, so the other drains too. Both drain before telemetry flushes.
+	stopCtx, stopAll := context.WithCancel(ctx)
+	defer stopAll()
+	serveErrs := make([]error, len(listeners))
+	var wg sync.WaitGroup
+	for i, l := range listeners {
+		wg.Go(func() {
+			llog := log.With(slog.String("listener", l.name))
+			serveErrs[i] = serve(stopCtx, llog, l.srv, l.srv.ListenAndServe, cfg.HTTP.ShutdownTimeout)
+			stopAll()
+		})
+	}
+	wg.Wait()
+	serveErr := errors.Join(serveErrs...)
 
 	// The telemetry flush has its own deadline, separate from the drain, so a
 	// slow drain cannot use up the time the last requests' spans need to leave.
