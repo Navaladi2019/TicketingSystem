@@ -5,6 +5,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
+COPY api ./api
 RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-core ./cmd/nava-core
 
 FROM alpine:3.22.1
