@@ -46,7 +46,8 @@ func Postgres(ctx context.Context, dsn string) (Check, func(), error) {
 // Keycloak returns a check on Keycloak's management port (9000):
 // GET <managementURL>/health/ready must answer 200. client is the outbound
 // client from telemetry.NewOutboundClient. managementURL is the base, such as
-// http://keycloak:9000; empty means not configured.
+// http://keycloak:9000; empty means not configured. The probe runs every
+// round, so it is not traced.
 func Keycloak(managementURL string, client *telemetry.OutboundClient) Check {
 	c := Check{Name: "keycloak"}
 	if managementURL == "" {
@@ -54,7 +55,7 @@ func Keycloak(managementURL string, client *telemetry.OutboundClient) Check {
 		return c
 	}
 	c.Probe = func(ctx context.Context) error {
-		ctx = telemetry.WithRoute(ctx, "/health/ready")
+		ctx = telemetry.WithoutTrace(telemetry.WithRoute(ctx, "/health/ready"))
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, managementURL+"/health/ready", nil)
 		if err != nil {
 			return errors.New("health: bad Keycloak management URL")

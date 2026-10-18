@@ -48,6 +48,22 @@ func routeFrom(ctx context.Context) string {
 	return s
 }
 
+type untracedKey struct{}
+
+// WithoutTrace returns ctx marked so that an outbound call made with it is
+// neither traced nor measured, nor carries trace headers. It is for periodic
+// background calls such as dependency health probes: traced, each would be
+// a root trace of its own every second, and every failing one would be kept
+// by the Collector's tail sampler.
+func WithoutTrace(ctx context.Context) context.Context {
+	return context.WithValue(ctx, untracedKey{}, true)
+}
+
+func traced(r *http.Request) bool {
+	off, _ := r.Context().Value(untracedKey{}).(bool)
+	return !off
+}
+
 // OutboundClient is the one HTTP client for calls leaving the process
 // (Keycloak, webhooks, LLM providers). Build it with NewOutboundClient; do not
 // make an http.Client of your own.
@@ -85,7 +101,8 @@ func NewOutboundClient(tel *Telemetry, opts OutboundOptions) (*OutboundClient, e
 		IdleConnTimeout:       90 * time.Second,
 		ForceAttemptHTTP2:     true,
 	}
-	traced := otelhttp.NewTransport(base,
+	instrumented := otelhttp.NewTransport(base,
+		otelhttp.WithFilter(traced),
 		otelhttp.WithTracerProvider(tel.TracerProvider),
 		otelhttp.WithMeterProvider(tel.MeterProvider),
 		otelhttp.WithPropagators(tel.Propagator),
@@ -93,7 +110,7 @@ func NewOutboundClient(tel *Telemetry, opts OutboundOptions) (*OutboundClient, e
 			return r.Method + " " + routeFrom(r.Context())
 		}),
 	)
-	return &OutboundClient{hc: &http.Client{Transport: redactingTransport{next: traced}, Timeout: opts.Timeout}}, nil
+	return &OutboundClient{hc: &http.Client{Transport: redactingTransport{next: instrumented}, Timeout: opts.Timeout}}, nil
 }
 
 func orDefault(d, def time.Duration) time.Duration {

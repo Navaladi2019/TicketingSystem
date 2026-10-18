@@ -144,6 +144,29 @@ func TestOutboundTracesAndPropagates(t *testing.T) {
 	}
 }
 
+func TestOutboundWithoutTraceMakesNoSpan(t *testing.T) {
+	t.Parallel()
+	var traceparent string
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		traceparent = r.Header.Get("Traceparent")
+	}))
+	t.Cleanup(srv.Close)
+	c, _, spans := outbound(t, telemetry.OutboundOptions{})
+	ctx := telemetry.WithoutTrace(telemetry.WithRoute(t.Context(), "/ping"))
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/ping", nil)
+	resp, err := c.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if traceparent != "" {
+		t.Errorf("traceparent %q sent on an untraced call", traceparent)
+	}
+	if n := len(spans.GetSpans()); n != 0 {
+		t.Errorf("untraced call made %d spans, want 0", n)
+	}
+}
+
 func TestOutboundRejectsNegativeTimeout(t *testing.T) {
 	t.Parallel()
 	_, tel, _ := outbound(t, telemetry.OutboundOptions{})
