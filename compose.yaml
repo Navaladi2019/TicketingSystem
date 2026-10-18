@@ -2,7 +2,7 @@
 # Every image tag is pinned exactly (D-P3, ADR-001 section 3); never use `latest`.
 # Passwords below are dev-only defaults so a fresh clone needs no setup. Override
 # them in .env (gitignored). The Postgres superuser password reaches only the
-# postgres and db-init containers, as a file under /run, never as an
+# postgres and db-roles containers, as a file under /run, never as an
 # environment variable.
 #
 # Networks: `internal` (internal: true, no egress) carries every backing
@@ -30,26 +30,54 @@ services:
       retries: 20
     restart: unless-stopped
 
-  # One-shot and idempotent: creates the service roles and databases, then
-  # exits. T03 grows this into the db-roles job.
-  db-init:
-    image: postgres:16.10
-    entrypoint: ["/bin/sh", "/init/init.sh"]
+  # One-shot and idempotent, as the bootstrap superuser (the only service
+  # that has its credential): converges every role in db/grants.yaml (no
+  # SUPERUSER, CREATEDB, CREATEROLE or BYPASSRLS; no memberships), the
+  # databases and their owners, and PgBouncer's lookup function, then exits.
+  db-roles:
+    build:
+      context: .
+      dockerfile: deploy/compose/nava-db/Dockerfile
+    image: nava/nava-db:dev
+    command: ["roles"]
     environment:
       PGHOST: postgres
       PGUSER: pgadmin
-      PG_SUPERUSER_PASSWORD_FILE: /run/pg_superuser_password
-      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-dev-only-keycloak}
-      TEMPORAL_DB_PASSWORD: ${TEMPORAL_DB_PASSWORD:-dev-only-temporal}
-      PGBOUNCER_AUTH_PASSWORD: ${PGBOUNCER_AUTH_PASSWORD:-dev-only-pgbouncer}
+      PGDATABASE: postgres
+      PGPASSWORD_FILE: /run/pg_superuser_password
+      DBROLES_PASSWORD_NAVA_MIGRATOR: ${NAVA_MIGRATOR_DB_PASSWORD:-dev-only-migrator}
+      DBROLES_PASSWORD_NAVA_APP: ${NAVA_APP_DB_PASSWORD:-dev-only-app}
+      DBROLES_PASSWORD_KEYCLOAK: ${KEYCLOAK_DB_PASSWORD:-dev-only-keycloak}
+      DBROLES_PASSWORD_TEMPORAL: ${TEMPORAL_DB_PASSWORD:-dev-only-temporal}
+      DBROLES_PASSWORD_PGBOUNCER_AUTH: ${PGBOUNCER_AUTH_PASSWORD:-dev-only-pgbouncer}
     configs:
       - source: pg_superuser_password
         target: /run/pg_superuser_password
-    volumes:
-      - ./deploy/compose/db-init:/init:ro
     networks: [internal]
     depends_on:
       postgres: {condition: service_healthy}
+    restart: "no"
+
+  # One-shot: as nava_migrator, straight to PostgreSQL (never PgBouncer, which
+  # refuses it), applies the migrations under goose's session lock, then
+  # db/grants.yaml. nava-core never migrates.
+  migrate:
+    build:
+      context: .
+      dockerfile: deploy/compose/nava-db/Dockerfile
+    image: nava/nava-db:dev
+    command: ["migrate"]
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: nava_migrator
+      PGPASSWORD_FILE: /run/nava_migrator_password
+    configs:
+      - source: nava_migrator_password
+        target: /run/nava_migrator_password
+    networks: [internal]
+    depends_on:
+      db-roles: {condition: service_completed_successfully}
     restart: "no"
 
   pgbouncer:
@@ -61,7 +89,7 @@ services:
         target: /etc/pgbouncer/userlist.txt
     networks: [internal]
     depends_on:
-      db-init: {condition: service_completed_successfully}
+      migrate: {condition: service_completed_successfully}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432"]
       interval: 5s
@@ -84,7 +112,7 @@ services:
       - "127.0.0.1:${KEYCLOAK_PORT:-18081}:8080"
     networks: [default, internal]
     depends_on:
-      db-init: {condition: service_completed_successfully}
+      db-roles: {condition: service_completed_successfully}
     healthcheck:
       # The image has no curl; probe the management port with bash.
       test:
@@ -115,7 +143,7 @@ services:
       DEFAULT_NAMESPACE: default
     networks: [internal]
     depends_on:
-      db-init: {condition: service_completed_successfully}
+      db-roles: {condition: service_completed_successfully}
     healthcheck:
       test: ["CMD-SHELL", "tctl --address $$(hostname -i):7233 cluster health | grep -q SERVING"]
       interval: 10s
@@ -175,6 +203,8 @@ volumes:
 configs:
   pg_superuser_password:
     content: ${PG_SUPERUSER_PASSWORD:-dev-only-superuser}
+  nava_migrator_password:
+    content: ${NAVA_MIGRATOR_DB_PASSWORD:-dev-only-migrator}
   pgbouncer_ini:
     file: ./deploy/compose/pgbouncer/pgbouncer.ini
   pgbouncer_userlist:

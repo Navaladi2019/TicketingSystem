@@ -1,0 +1,74 @@
+# The single grant manifest (ADR-001 I3, A.3; PLAN-001 D-P2). Nothing else
+# grants privileges. Read by two jobs through internal/platform/strictyaml
+# (unknown keys, duplicate keys and a second document are errors):
+#
+#   db-roles (bootstrap superuser): creates or alters every role under `roles`
+#     (always NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS, plus the listed
+#     `attributes`), revokes every role membership this file does not list
+#     (it lists none), creates `databases` with their owners, and converges the
+#     `infrastructure_exceptions`.
+#   migrate (nava_migrator, after the migrations): grants on the platform
+#     database what each role lists below, and revokes and logs anything else
+#     granted on an object nava_migrator owns, PUBLIC included.
+#
+# Per role:
+#   attributes:      LOGIN and/or REPLICATION; anything not listed is off.
+#   pgbouncer_login: true puts the role on PgBouncer's login allow-list.
+#   database:        privileges on the platform database (CONNECT, TEMPORARY, CREATE).
+#   schemas:         schema -> privileges (USAGE, CREATE).
+#   tables:          table -> privilege -> columns. An empty list is a
+#                    table-level grant; a list grants only those columns.
+#                    A bare name is in schema public.
+#   functions:       "schema.name(argtypes)" -> [EXECUTE].
+# Each table's entries ship with the migration that creates that table.
+# Policies stay in SQL migrations.
+
+platform_database: nava
+
+databases:
+  nava: { owner: nava_migrator }
+  keycloak: { owner: keycloak }
+  temporal: { owner: temporal }
+  temporal_visibility: { owner: temporal }
+
+roles:
+  # Owns every platform object and the database (datdba); granted to no one;
+  # connects directly to PostgreSQL, never through PgBouncer.
+  nava_migrator:
+    attributes: [LOGIN]
+
+  nava_app:
+    attributes: [LOGIN]
+    pgbouncer_login: true
+    database: [CONNECT]
+    schemas: { public: [USAGE] }
+    tables: {}
+    functions: {}
+
+  # Own databases; nothing on the platform database (A.3).
+  keycloak:
+    attributes: [LOGIN]
+  temporal:
+    attributes: [LOGIN]
+
+  # PgBouncer's auth_user. Logs in from PgBouncer's auth_file, not through the
+  # lookup, so it is not on the allow-list.
+  pgbouncer_auth:
+    attributes: [LOGIN]
+    database: [CONNECT]
+    schemas: { pgbouncer: [USAGE] }
+    functions: { "pgbouncer.get_auth(text)": [EXECUTE] }
+
+# Objects that break an I3 rule on purpose. Each is owned by the bootstrap
+# superuser, created and converged by db-roles (not by the migrator), and
+# reachable only by `granted_to`, whose role entries must list it.
+infrastructure_exceptions:
+  pgbouncer_get_auth:
+    schema: pgbouncer
+    function: pgbouncer.get_auth(text)
+    security_definer: true
+    granted_to: [pgbouncer_auth]
+    reason: >-
+      PgBouncer's auth_query reads pg_shadow, which only a superuser can. The
+      function returns a row only for roles with pgbouncer_login: true, and
+      never for a superuser, BYPASSRLS or REPLICATION role.

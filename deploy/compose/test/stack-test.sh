@@ -1,10 +1,10 @@
 #!/bin/sh
-# Stack tests for T02. Usage: stack-test.sh <healthy|pgbouncer|temporal|dependencies|trace|redact|idempotent|internal>
+# Stack tests for T02 and T03. Usage: stack-test.sh <healthy|pgbouncer|temporal|dependencies|trace|redact|idempotent|dbroles|internal>
 # Needs the stack up (task stack:up); `internal` brings up its own overlay.
 set -eu
 . "$(dirname "$0")/lib.sh"
 
-# Every container healthy, db-init done.
+# Every container healthy, db-roles and migrate done.
 t_healthy() { wait_healthy "${WAIT_SECONDS:-300}"; }
 
 # PgBouncer is in transaction mode, version >= 1.21, max_prepared_statements > 0.
@@ -22,16 +22,16 @@ t_pgbouncer() {
     major=${ver%.*}; minor=${ver#*.}
     { [ "$major" -gt 1 ] || [ "$minor" -ge 21 ]; } || fail "PgBouncer $ver is older than 1.21"
     pass "pgbouncer $ver, transaction mode, max_prepared_statements=$mps"
-    # The image superuser must not be reachable through the pooler, while a
-    # service role is (this also proves the auth_query lookup works).
-    if compose exec -T -e PGPASSWORD="${PG_SUPERUSER_PASSWORD:-dev-only-superuser}" pgbouncer \
-        psql -X -h 127.0.0.1 -U pgadmin nava -c 'SELECT 1' >/dev/null 2>&1; then
-        fail "the superuser logged in through PgBouncer"
-    fi
-    compose exec -T -e PGPASSWORD="${KEYCLOAK_DB_PASSWORD:-dev-only-keycloak}" pgbouncer \
-        psql -X -h 127.0.0.1 -U keycloak nava -c 'SELECT 1' >/dev/null 2>&1 \
-        || fail "keycloak could not log in through PgBouncer"
-    pass "superuser refused through PgBouncer, service role accepted"
+    # Only roles with pgbouncer_login in db/grants.yaml log in through the
+    # pooler: never the superuser or the migrator (T02 security review).
+    via_pooler() { # <role> <password>
+        compose exec -T -e PGPASSWORD="$2" pgbouncer psql -X -h 127.0.0.1 -U "$1" nava -c 'SELECT 1' >/dev/null 2>&1
+    }
+    via_pooler pgadmin "${PG_SUPERUSER_PASSWORD:-dev-only-superuser}" && fail "the superuser logged in through PgBouncer"
+    via_pooler nava_migrator "${NAVA_MIGRATOR_DB_PASSWORD:-dev-only-migrator}" && fail "the migrator logged in through PgBouncer"
+    via_pooler keycloak "${KEYCLOAK_DB_PASSWORD:-dev-only-keycloak}" && fail "keycloak logged in through PgBouncer"
+    via_pooler nava_app "${NAVA_APP_DB_PASSWORD:-dev-only-app}" || fail "nava_app could not log in through PgBouncer"
+    pass "superuser, migrator and keycloak refused through PgBouncer, nava_app accepted"
 }
 
 # Keycloak and Temporal have their own databases; Temporal's visibility is SQL.
@@ -145,22 +145,40 @@ t_redact() {
     pass "denied span, event and status values redacted; markers and Error status kept"
 }
 
-# The init is a no-op on a used volume: same role and database ids, data kept,
-# nothing created, and the stack is healthy again after `down` (volumes kept)
-# and a second `up`.
+# db-roles and migrate are no-ops on a used volume: same role and database
+# ids, data kept, nothing created, changed or revoked, and the stack is
+# healthy again after `down` (volumes kept) and a second `up`.
 t_idempotent() {
-    snapshot() { psql_super postgres "SELECT (SELECT string_agg(oid::text, ',' ORDER BY rolname) FROM pg_roles WHERE rolname IN ('keycloak','temporal','pgbouncer_auth')) || '/' || (SELECT string_agg(oid::text, ',' ORDER BY datname) FROM pg_database WHERE datname IN ('keycloak','temporal','temporal_visibility','nava'))"; }
+    snapshot() { psql_super postgres "SELECT (SELECT string_agg(oid::text || rolpassword, ',' ORDER BY rolname) FROM pg_authid WHERE rolname IN ('nava_migrator','nava_app','keycloak','temporal','pgbouncer_auth')) || '/' || (SELECT string_agg(oid::text, ',' ORDER BY datname) FROM pg_database WHERE datname IN ('keycloak','temporal','temporal_visibility','nava'))"; }
     psql_super nava "CREATE TABLE IF NOT EXISTS idempotency_marker (id int); INSERT INTO idempotency_marker SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM idempotency_marker)" >/dev/null
     first=$(snapshot)
     compose down
     compose up -d
     wait_healthy 300
-    out=$(compose logs --no-log-prefix db-init)
-    printf '%s\n' "$out"
-    printf '%s\n' "$out" | grep -q 'done: 0 created' || fail "second run created something"
-    [ "$(snapshot)" = "$first" ] || fail "role or database ids changed"
+    roles=$(compose logs --no-log-prefix db-roles | grep '"db-roles done"' | tail -n 1)
+    printf '%s
+' "$roles"
+    printf '%s
+' "$roles" | grep -q '"created":0,"changed":0,"revoked":0' || fail "second db-roles run changed something"
+    mig=$(compose logs --no-log-prefix migrate | grep '"migrate done"' | tail -n 1)
+    printf '%s
+' "$mig"
+    printf '%s
+' "$mig" | grep -q '"migrations_applied":0,"grants_granted":0,"grants_revoked":0' || fail "second migrate run changed something"
+    [ "$(snapshot)" = "$first" ] || fail "role ids, passwords or database ids changed"
     [ "$(psql_super nava 'SELECT count(*) FROM idempotency_marker')" = 1 ] || fail "data in nava was lost"
     pass "second up on a used volume is a no-op"
+}
+
+# A stray membership does not survive db-roles (T02 security review, ADR-001
+# I3 / CI-3), and the migrator owns the platform database.
+t_dbroles() {
+    psql_super postgres "GRANT pg_read_all_data TO keycloak" >/dev/null
+    compose run --rm --no-deps db-roles >/dev/null
+    [ "$(psql_super postgres "SELECT count(*) FROM pg_auth_members WHERE member = 'keycloak'::regrole")" = 0 ]         || fail "the stray membership survived db-roles"
+    [ "$(psql_super postgres "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = 'nava'")" = nava_migrator ]         || fail "nava is not owned by nava_migrator"
+    [ "$(psql_super postgres "SELECT count(*) FROM pg_auth_members WHERE roleid = 'nava_migrator'::regrole")" = 0 ]         || fail "nava_migrator is granted to a role"
+    pass "stray membership revoked; datdba = nava_migrator, granted to no one"
 }
 
 # With the internal overlay the stack still comes up healthy and has no egress.
@@ -178,5 +196,5 @@ t_internal() {
     pass "overlay up, every network internal, no egress"
 }
 
-[ $# -eq 1 ] || fail "usage: stack-test.sh <healthy|pgbouncer|temporal|dependencies|trace|redact|idempotent|internal>"
+[ $# -eq 1 ] || fail "usage: stack-test.sh <healthy|pgbouncer|temporal|dependencies|trace|redact|idempotent|dbroles|internal>"
 "t_$1"

@@ -8,7 +8,8 @@ import (
 )
 
 type doc struct {
-	Name string `yaml:"name"`
+	Name  string            `yaml:"name"`
+	Items map[string]string `yaml:"items"`
 }
 
 func TestDecode(t *testing.T) {
@@ -19,7 +20,12 @@ func TestDecode(t *testing.T) {
 	}{
 		{"ok", "name: a\n", ""},
 		{"unknown field", "name: a\nnam: b\n", "decode yaml"},
+		{"explicit document start", "---\nname: a\n", ""},
+		{"duplicate key", "name: a\nname: b\n", `"name" already defined`},
+		{"duplicate nested key", "items:\n  x: y\n  x: z\n", `"x" already defined`},
 		{"second document", "name: a\n---\nname: b\n", "more than one document"},
+		{"empty second document", "name: a\n---\n", "more than one document"},
+		{"broken second document", "name: a\n---\n: : :\n", "more than one document"},
 		{"empty", "", "decode yaml"},
 		{"malformed", "name: [", "decode yaml"},
 	}

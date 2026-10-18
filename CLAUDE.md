@@ -36,6 +36,7 @@ typing raw `go` / `golangci-lint` commands.
 | `task run`        | Run nava-core locally, loading `.env` (copy `.env.example`)   |
 | `task test`       | Run all tests with the race detector (needs cgo)              |
 | `task test:short` | Run all tests without the race detector, for hosts with no cgo |
+| `task test:integration` | Run the database integration tests against a throwaway Postgres container (Docker) |
 | `task lint`       | Run golangci-lint (config in `.golangci.yml`)                 |
 
 Before calling a change done, run `task test` and `task lint`.
