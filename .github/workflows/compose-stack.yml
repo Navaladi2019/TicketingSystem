@@ -9,6 +9,30 @@ permissions:
   contents: read
 
 jobs:
+  # db-roles, the migrator and the grant manifest against a real, disposable
+  # PostgreSQL (internal/db/dbtest).
+  db-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16.10
+        env:
+          POSTGRES_USER: pgadmin
+          POSTGRES_PASSWORD: ci-only-superuser
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U pgadmin" --health-interval 2s --health-timeout 5s --health-retries 30
+    env:
+      NAVA_TEST_PG_URL: postgres://pgadmin:ci-only-superuser@127.0.0.1:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Integration tests
+        run: make test-integration
+
   stack:
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -20,7 +44,7 @@ jobs:
 
       - name: No floating image tags
         run: |
-          files="compose.yaml deploy/compose/compose.internal.yaml deploy/compose/otel-collector/Dockerfile deploy/compose/nava-core/Dockerfile"
+          files="compose.yaml deploy/compose/compose.internal.yaml deploy/compose/otel-collector/Dockerfile deploy/compose/nava-core/Dockerfile deploy/compose/nava-db/Dockerfile"
           if grep -En '^\s*(image:\s*|FROM\s+)[^:[:space:]]+(\s|$)' $files; then echo 'image without an exact tag'; exit 1; fi
           if grep -n ':latest' $files; then echo 'latest is not allowed'; exit 1; fi
 
@@ -42,8 +66,11 @@ jobs:
       - name: Collector redacts denied span values
         run: sh deploy/compose/test/stack-test.sh redact
 
-      - name: Init script is idempotent
+      - name: db-roles and migrate are idempotent
         run: sh deploy/compose/test/stack-test.sh idempotent
+
+      - name: db-roles revokes stray memberships
+        run: sh deploy/compose/test/stack-test.sh dbroles
 
       - name: Internal overlay comes up
         run: |
