@@ -1,5 +1,5 @@
 #!/bin/sh
-# Stack tests for T02. Usage: stack-test.sh <healthy|pgbouncer|temporal|trace|redact|idempotent|internal>
+# Stack tests for T02. Usage: stack-test.sh <healthy|pgbouncer|temporal|dependencies|trace|redact|idempotent|internal>
 # Needs the stack up (task stack:up); `internal` brings up its own overlay.
 set -eu
 . "$(dirname "$0")/lib.sh"
@@ -43,6 +43,50 @@ t_temporal() {
     [ "$(psql_super keycloak "SELECT count(*) FROM information_schema.tables WHERE table_name = 'realm'")" = 1 ] \
         || fail "Keycloak has not migrated its schema"
     pass "own databases present, Temporal SQL visibility and Keycloak schema in place"
+}
+
+# nava-core's dependency probes against the real containers: the Keycloak
+# management port and path, and Temporal's GetSystemInfo. With Keycloak stopped
+# /healthz shows it failed and the degraded metric is 1, while /readyz answers
+# as before (only PostgreSQL gates readiness; until T05 sets NAVA_DATABASE_URL
+# in compose it is 503 both times). The admin port is never published, so the
+# requests go through `compose exec`. nc, not wget: /healthz is 503 here while
+# PostgreSQL is unconfigured, and busybox wget drops the body of an error reply.
+admin_get() { # <path>: the full HTTP response from the admin listener
+    printf 'GET %s HTTP/1.0\r\nHost: localhost\r\n\r\n' "$1" | compose exec -T nava-core nc 127.0.0.1 9090 | tr -d '\r'
+}
+admin_code() { admin_get "$1" | sed -n '1s/^HTTP\/[0-9.]* \([0-9]*\).*/\1/p'; }
+# await_check <name> <ok|fail> <seconds>: wait for /healthz to report the state.
+await_check() {
+    deadline=$(( $(date +%s) + $3 ))
+    until admin_get /healthz | grep -q "\"$1\":\"$2\""; do
+        [ "$(date +%s)" -lt "$deadline" ] || fail "/healthz did not report $1 $2 within $3s"
+        sleep 1
+    done
+}
+degraded_metric() { admin_get /metrics | grep "^nava_dependency_degraded{" | grep "dependency=\"$1\"" | sed 's/.* //'; }
+t_dependencies() {
+    await_check keycloak ok 120
+    await_check temporal ok 120
+    [ "$(degraded_metric keycloak)" = 0 ] || fail "nava_dependency_degraded for keycloak is not 0 while it is up"
+    pass "/healthz reports keycloak and temporal ok against the real containers"
+
+    ready_before=$(admin_code /readyz)
+    compose stop keycloak
+    await_check keycloak fail 60
+    deadline=$(( $(date +%s) + 30 ))
+    until [ "$(degraded_metric keycloak)" = 1 ]; do
+        [ "$(date +%s)" -lt "$deadline" ] || { compose start keycloak; fail "nava_dependency_degraded{dependency=\"keycloak\"} did not reach 1"; }
+        sleep 1
+    done
+    ready_during=$(admin_code /readyz)
+    [ "$ready_during" = "$ready_before" ] || { compose start keycloak; fail "/readyz went from $ready_before to $ready_during with Keycloak stopped"; }
+    pass "keycloak stopped: /healthz fail, degraded metric 1, /readyz unchanged ($ready_during)"
+
+    compose start keycloak
+    await_check keycloak ok 180
+    [ "$(degraded_metric keycloak)" = 0 ] || fail "nava_dependency_degraded for keycloak did not return to 0"
+    pass "keycloak back: /healthz ok again"
 }
 
 # One request to nava-core produces exactly one trace in the Collector's debug
@@ -133,5 +177,5 @@ t_internal() {
     pass "overlay up, every network internal, no egress"
 }
 
-[ $# -eq 1 ] || fail "usage: stack-test.sh <healthy|pgbouncer|temporal|trace|redact|idempotent|internal>"
+[ $# -eq 1 ] || fail "usage: stack-test.sh <healthy|pgbouncer|temporal|dependencies|trace|redact|idempotent|internal>"
 "t_$1"
