@@ -128,6 +128,7 @@ flowchart LR
   end
   subgraph S2[S2 Epic 02: tenant wall]
     T03-->T07[T07 tenant DB helper]
+    T01g[T01g span export allow-list]-->T07
     T03-->T08[T08 D28 roles + pg_hba]
     T08-->T09[T09 platform tables, records, RLS]
     T09-->T10[T10 catalogue gate CI-1/3/4]
@@ -141,6 +142,7 @@ flowchart LR
     T02-->T14[T14 realm as code]
     T05-->T14
     T14-->T15[T15 port, validation, CI-11]
+    T01g-->T15
     T09-->T16[T16 identity tables]
     T15-->T17[T17 tenant resolution]
     T16-->T17
@@ -253,6 +255,8 @@ gantt
 | T10 | TICK-66 | security | T22 | TICK-76 | backend-dev | T32a | TICK-79 | security |
 | T11 | TICK-67 | security | T23 | TICK-58 | backend-dev | T32b | TICK-86 | security |
 | T12 | TICK-71 | security | T24 | TICK-77 | backend-dev | T33 | TICK-80 | qa |
+
+**Added after grooming:** T01g (TICK-105, `core-dev`): the span export filter becomes an allow-list (TICK-94 item 3). It blocks T07 and T15.
 
 **Carry-forward (backlog, PLAN-002):** TICK-87 rest of CI-8 · TICK-88 rest of CI-10.
 
