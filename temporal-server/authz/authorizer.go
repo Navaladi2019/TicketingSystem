@@ -157,6 +157,9 @@ func (a *Authorizer) recordDeny(ctx context.Context, id Identity, api, namespace
 // recordCommandDeny logs a denied workflow task response at error level with
 // alert=true: the task retries until someone acts, so each one must page. The
 // workflow ids go to the log line only; they hold the tenant and are unbounded.
+//
+// TODO(TODO-004): no alert rule is installed yet; install the
+// nava_authz_denied{command!="none"} rule from docs/temporal-server.md.
 func (a *Authorizer) recordCommandDeny(ctx context.Context, id Identity, api, namespace string, d *commandDenial) {
 	defer func() { _ = recover() }()
 

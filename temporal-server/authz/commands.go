@@ -129,6 +129,10 @@ func inspectCommands(request any) *commandDenial {
 
 // checkCommand returns "" if the command is allowed for a task of tenant, or
 // the deny reason with the command's target workflow id, if it has one.
+//
+// TODO(TODO-005): bind the nava-tenant header on ScheduleActivityTask and
+// StartChildWorkflowExecution, and NavaTenantId on child and continue-as-new,
+// to the task's tenant (Security review of PR #20).
 func checkCommand(cmd *commandpb.Command, tenant string) (reason, target, detail string) {
 	if !allowedCommands[cmd.GetCommandType()] {
 		return ReasonCommandNotAllowed, "", ""
