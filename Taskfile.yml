@@ -76,6 +76,7 @@ tasks:
   stack:up:
     desc: Build and start the local compose stack (Postgres, PgBouncer, Keycloak, Temporal, Collector, nava-core)
     cmds:
+      - make dev-ca
       - docker compose up -d --build
 
   stack:down:
@@ -86,5 +87,5 @@ tasks:
   stack:test:
     desc: Run the stack tests against a running stack (set OTEL_TAIL_SAMPLE_PERCENT=100 when starting it for the trace test)
     cmds:
-      - for: [healthy, pgbouncer, temporal, trace, redact, idempotent, dbroles]
+      - for: [healthy, pgbouncer, temporal, temporal_handshake, temporal_isolation, temporal_custody, temporal_health, trace, redact, idempotent, dbroles]
         cmd: sh deploy/compose/test/stack-test.sh {{.ITEM}}

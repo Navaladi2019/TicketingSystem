@@ -1,6 +1,6 @@
 TEMPORAL_SERVER_IMAGE ?= nava/temporal-server:dev
 
-.PHONY: temporal-server-test temporal-server-image temporal-server-dev-certs temporal-server-run
+.PHONY: temporal-server-test temporal-server-image temporal-server-dev-certs temporal-server-run dev-ca
 
 ## Unit, policy and end-to-end tests of the custom Temporal server module.
 temporal-server-test:
@@ -54,3 +54,12 @@ generate:
 BASE ?= origin/main
 check-openapi:
 	@if git cat-file -e $(BASE):api/openapi.yaml 2>/dev/null; then 		git show $(BASE):api/openapi.yaml > $${TMPDIR:-/tmp}/openapi.base.yaml && 		go run ./cmd/openapi-compat $${TMPDIR:-/tmp}/openapi.base.yaml api/openapi.yaml; 	else echo "no api/openapi.yaml on $(BASE): nothing to compare"; fi
+
+CERT_DIR ?= deploy/compose/certs
+
+## Dev installation CA for the compose stack (ADR-001 D22, T28): the installation
+## (frontend client) CA, a separate internode CA, the frontend and internode
+## certificates, and the five platform certificates, written to
+## deploy/compose/certs/ (git-ignored). Keeps existing certificates; FORCE=1 reissues.
+dev-ca:
+	@if [ -f $(CERT_DIR)/ca.pem ] && [ -z "$(FORCE)" ]; then echo "$(CERT_DIR) already holds a dev CA (FORCE=1 to reissue)"; 	else cd temporal-server && go run ./cmd/devcerts -installation -out ../$(CERT_DIR); fi

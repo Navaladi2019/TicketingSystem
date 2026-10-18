@@ -249,3 +249,24 @@ func TestDependencyDefaultsAreUnconfigured(t *testing.T) {
 		t.Errorf("Deps = %+v, want zero", cfg.Deps)
 	}
 }
+
+func TestTemporalTLSFilesAreAllOrNone(t *testing.T) {
+	t.Parallel()
+	load := func(env map[string]string) (config.Config, error) {
+		return config.Load(func(k string) (string, bool) { v, ok := env[k]; return v, ok })
+	}
+	cfg, err := load(map[string]string{
+		"NAVA_TEMPORAL_TLS_CERT_FILE": "c.pem", "NAVA_TEMPORAL_TLS_KEY_FILE": "c.key",
+		"NAVA_TEMPORAL_TLS_CA_FILE": "ca.pem", "NAVA_TEMPORAL_TLS_SERVER_NAME": "temporal",
+	})
+	if err != nil || !cfg.Deps.TemporalTLS.Enabled() || cfg.Deps.TemporalTLS.ServerName != "temporal" {
+		t.Fatalf("full set: %+v, %v", cfg.Deps.TemporalTLS, err)
+	}
+	if cfg, err = load(nil); err != nil || cfg.Deps.TemporalTLS.Enabled() {
+		t.Fatalf("none set: %+v, %v", cfg.Deps.TemporalTLS, err)
+	}
+	_, err = load(map[string]string{"NAVA_TEMPORAL_TLS_CERT_FILE": "c.pem"})
+	if err == nil || !strings.Contains(err.Error(), "NAVA_TEMPORAL_TLS_CA_FILE") {
+		t.Fatalf("partial set: %v, want an error naming the variables", err)
+	}
+}

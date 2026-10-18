@@ -3,6 +3,7 @@
 Support files for the local stack defined in `/compose.yaml`.
 
 ```
+make dev-ca                         # once: dev CA and certificates in deploy/compose/certs/
 docker compose up -d --build        # or: task stack:up
 docker compose -f compose.yaml -f deploy/compose/compose.internal.yaml up -d   # no-egress overlay
 ```
@@ -14,9 +15,21 @@ docker compose -f compose.yaml -f deploy/compose/compose.internal.yaml up -d   #
 | migrate | built from the repo (`nava-db migrate`) | One-shot, as `nava_migrator`, direct to Postgres: goose migrations, then the grant manifest |
 | pgbouncer | `edoburu/pgbouncer:v1.24.1-p1` | Transaction mode, `max_prepared_statements=100`, fronts `nava`; logs in only roles with `pgbouncer_login` |
 | keycloak | `quay.io/keycloak/keycloak:26.8.1` | `start-dev`, own database |
-| temporal | `temporalio/auto-setup:1.28.4` | `default` namespace, SQL visibility on Postgres |
+| temporal-schema | `nava/temporal-server:dev` | One-shot, idempotent: Temporal schema in `temporal` and `temporal_visibility` |
+| temporal-server | `nava/temporal-server:dev` (T27a) | Frontend and internode mTLS, namespace `nava`, `NavaTenantId`; holds the `temporal-system` certificate; `temporal-backplane` network only |
+| temporal | `nava/temporal-server:dev` | Gateway: forwards TCP 7233 only, no certificate. The only route from the platform network to the server |
+| temporal-ui | `temporalio/ui:2.40.1` | Profile `operator` only, on the `operator` network with the `nava-operator` certificate; `http://127.0.0.1:18233` |
 | otel-collector | built from `contrib:0.139.0` | Internal network only; tail sampling; debug exporter |
 | nava-core | built from the repo | Exports OTLP traces to the Collector |
+
+**Temporal mTLS (T28).** `make dev-ca` writes, to `deploy/compose/certs/`
+(git-ignored): the installation CA (`ca.pem`, path length 0, signs the frontend
+certificate and the client certificates), a separate internode CA and
+certificate, and `nava-relay`, `nava-core`, `nava-worker`, `nava-operator` and
+`temporal-system`. Each is mounted only into its own service. Internode and
+membership ports (7234, 7235, 7239, 6933-6939) are on `temporal-backplane`, which
+no platform process joins; the gateway forwards 7233 only. `FORCE=1 make dev-ca`
+reissues. Cron on a started workflow cannot be seen by the Authorizer (T27b).
 
 Host ports (bound to 127.0.0.1): nava-core `18080`, Keycloak `18081`.
 
@@ -24,9 +37,14 @@ Host ports (bound to 127.0.0.1): nava-core `18080`, Keycloak `18081`.
 db-roles creates it on the next `up`. A LOGIN role also needs a
 `DBROLES_PASSWORD_<ROLE>` variable on the db-roles service.
 
-**Tests.** `sh deploy/compose/test/stack-test.sh <healthy|pgbouncer|temporal|trace|redact|idempotent|dbroles|internal>`
+**Tests.** `sh deploy/compose/test/stack-test.sh <healthy|pgbouncer|temporal|trace|redact|idempotent|dbroles|internal|temporal_handshake|temporal_isolation|temporal_custody|temporal_health>`
 (`task stack:test`). Start the stack with `OTEL_TAIL_SAMPLE_PERCENT=100` for the
 `trace` test: an ordinary 404 is otherwise sampled out. CI runs them in
 `.github/workflows/compose-stack.yml`.
 
-Later tasks mount here: T08 `db/pg_hba.conf`, T28 the dev CA.
+The SDK test (every identity dials, a worker runs a workflow) needs the stack
+with the test overlay, which publishes the gateway on `127.0.0.1:17233`:
+`docker compose -f compose.yaml -f deploy/compose/compose.test.yaml up -d`, then
+`go test -tags temporalstack -count=1 ./internal/temporalstack`.
+
+Later tasks mount here: T08 `db/pg_hba.conf`.

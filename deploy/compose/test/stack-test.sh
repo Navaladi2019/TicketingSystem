@@ -1,5 +1,5 @@
 #!/bin/sh
-# Stack tests for T02 and T03. Usage: stack-test.sh <healthy|pgbouncer|temporal|dependencies|trace|redact|idempotent|dbroles|internal>
+# Stack tests for T02 and T03. Usage: stack-test.sh <healthy|pgbouncer|temporal|dependencies|trace|redact|idempotent|dbroles|internal|temporal_handshake|temporal_isolation|temporal_custody|temporal_health>
 # Needs the stack up (task stack:up); `internal` brings up its own overlay.
 set -eu
 . "$(dirname "$0")/lib.sh"
@@ -196,5 +196,96 @@ t_internal() {
     pass "overlay up, every network internal, no egress"
 }
 
-[ $# -eq 1 ] || fail "usage: stack-test.sh <healthy|pgbouncer|temporal|dependencies|trace|redact|idempotent|dbroles|internal>"
+# --- T28: Temporal mTLS and network isolation -------------------------------
+# Needs the stack up with certificates from `make dev-ca`. These run from the
+# platform network (`internal`), the way nava-core and the other platform
+# processes see Temporal.
+CERTS="$ROOT/deploy/compose/certs"
+TEMPORAL_IMAGE=nava/temporal-server:dev
+
+# platform_net: the compose network that carries the platform processes.
+platform_net() {
+    docker network ls -q --filter label=com.docker.compose.project=nava \
+        --filter label=com.docker.compose.network=internal | head -n 1
+}
+
+# dial_as <client-cert-name|none> <cert-dir>: run `temporal-server health` from a
+# throwaway container on the platform network, through the gateway, with the named
+# certificate. Prints the command's output; exit status is the probe's.
+dial_as() {
+    export MSYS_NO_PATHCONV=1 # Git Bash on Windows would rewrite the /c/ paths
+    if [ "$1" = none ]; then
+        certs="-ca /c/ca.pem -cert= -key="
+        mounts="-v $2/ca.pem:/c/ca.pem:ro"
+    else
+        certs="-ca /c/ca.pem -cert /c/$1.pem -key /c/$1.key"
+        mounts="-v $2/ca.pem:/c/ca.pem:ro -v $2/$1.pem:/c/$1.pem:ro -v $2/$1.key:/c/$1.key:ro"
+    fi
+    # shellcheck disable=SC2086
+    docker run --rm --network "$(platform_net)" $mounts --entrypoint /usr/local/bin/temporal-server \
+        "$TEMPORAL_IMAGE" health -addr temporal:7233 -server-name temporal $certs 2>&1
+}
+
+# Rogue-CA certificate fails the handshake: a nava-relay certificate from another
+# CA is refused, as is no certificate, while the real nava-core certificate works.
+t_temporal_handshake() {
+    [ -f "$CERTS/ca.pem" ] || fail "no certificates in $CERTS: run make dev-ca"
+    dial_as nava-core "$CERTS" | grep -q SERVING || fail "the nava-core certificate could not dial Temporal"
+    rogue=$(mktemp -d)
+    (cd temporal-server && go run ./cmd/devcerts -rogue -out "$rogue") >/dev/null || fail "cannot generate the rogue certificate"
+    cp "$CERTS/ca.pem" "$rogue/ca.pem"
+    chmod -R a+rX "$rogue"
+    if out=$(dial_as rogue-nava-relay "$rogue"); then rm -rf "$rogue"; fail "a rogue-CA certificate completed the handshake: $out"; fi
+    case $out in *"health check"*PermissionDenied*) rm -rf "$rogue"; fail "rogue certificate got past the handshake: $out" ;; esac
+    rm -rf "$rogue"
+    if out=$(dial_as none "$CERTS"); then fail "a client without a certificate was served: $out"; fi
+    pass "nava-core dials; a rogue-CA certificate and no certificate fail the handshake"
+}
+
+# A container on the platform network reaches 7233 through the gateway and none of
+# the internode (7234, 7235, 7239) or membership (6933-6939) ports, and cannot
+# even resolve the server.
+t_temporal_isolation() {
+    nc_ok() { compose exec -T nava-core nc -w 3 "$1" "$2" </dev/null >/dev/null 2>&1; }
+    nc_ok temporal 7233 || fail "the gateway does not answer on 7233"
+    for port in 7234 7235 7239 6933 6934 6935 6936 6937 6938 6939 9090; do
+        nc_ok temporal "$port" && fail "port $port is reachable from the platform network through the gateway"
+    done
+    if compose exec -T nava-core nslookup temporal-server >/dev/null 2>&1; then
+        fail "the platform network can resolve temporal-server"
+    fi
+    gw=$(docker inspect -f '{{range $n, $c := .NetworkSettings.Networks}}{{$n}} {{end}}' "$(container_of temporal-server)")
+    case $gw in *_internal*) fail "temporal-server is on the platform network: $gw" ;; esac
+    pass "7233 reachable; 7234, 7235, 7239, 6933-6939 and 9090 are not; temporal-server is not on the platform network"
+}
+
+# Each certificate is mounted only into the service that owns it. temporal-system
+# is never mounted into a platform service.
+t_temporal_custody() {
+    bad=""
+    for cid in $(compose ps -a -q); do
+        svc=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.service"}}' "$cid")
+        for src in $(docker inspect -f '{{range .Mounts}}{{.Source}} {{end}}' "$cid"); do
+            case $src in
+                */certs/temporal-system.*|*/certs/internode*|*/certs/server.*) [ "$svc" = temporal-server ] || bad="$bad $svc:$src" ;;
+                */certs/nava-core.*) [ "$svc" = nava-core ] || bad="$bad $svc:$src" ;;
+                */certs/nava-operator.*) [ "$svc" = temporal-ui ] || bad="$bad $svc:$src" ;;
+                */certs/nava-relay.*|*/certs/nava-worker.*) bad="$bad $svc:$src" ;;
+            esac
+        done
+    done
+    [ -z "$bad" ] || fail "certificates mounted into the wrong service:$bad"
+    pass "every certificate is mounted only into its own service"
+}
+
+# The server is up on the Postgres config with namespace nava and NavaTenantId
+# (the compose health check requires both), and nava-core reports Temporal ok
+# while dialing with its certificate.
+t_temporal_health() {
+    [ "$(health_of temporal-server)" = healthy ] || fail "temporal-server is not healthy"
+    await_check temporal ok 120
+    pass "temporal-server bootstrapped (nava, NavaTenantId); /healthz reports temporal ok over mTLS"
+}
+
+[ $# -eq 1 ] || fail "usage: stack-test.sh <healthy|pgbouncer|temporal|dependencies|trace|redact|idempotent|dbroles|internal|temporal_handshake|temporal_isolation|temporal_custody|temporal_health>"
 "t_$1"

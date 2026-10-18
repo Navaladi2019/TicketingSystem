@@ -3,8 +3,7 @@
 ADR-001 D22 and Annex A.2, plan task T27a. A separate Go module (R7) that builds
 Temporal `go.temporal.io/server` v1.28.4 + `go.temporal.io/api` v1.50.1 with a
 deny-by-default Authorizer and a certificate ClaimMapper. Worker command
-inspection is T27b. Compose wiring, PostgreSQL config and the operator-network
-restriction are T28.
+inspection is T27b. Compose wiring (T28) is in `compose.yaml` and `deploy/compose/README.md`.
 
 ```mermaid
 flowchart LR
@@ -60,3 +59,19 @@ make temporal-server-run         # dev certs + run the image on :7233 (in-memory
 
 The `nava` namespace can only be registered with the `temporal-system`
 certificate; no other identity may call `RegisterNamespace`.
+
+## Startup refusals (T28)
+
+`checkConfig` refuses to start when: frontend `requireClientAuth` is false; the
+frontend client CA is not a self-signed root with path length 0; the same CA is
+trusted on frontend and internode (internode ports have no Authorizer, so it has
+its own CA and certificate); `services.frontend.rpc.httpPort` is set;
+`system.disableStreamingAuthorizer` is true (the dynamic config client also hides
+that key, so a later file edit cannot enable it). The operator's admin
+`GetWorkflowExecutionRawHistory[V2]` calls are denied: they skip the namespace
+gate and `GetWorkflowExecutionHistory` covers the need.
+
+`temporal-server --bootstrap` registers `nava` and the `NavaTenantId` Keyword
+search attribute with the `temporal-system` certificate, so that certificate stays
+in the server container. `temporal-server health` and `temporal-server proxy` are
+the compose health probe and the 7233-only gateway.

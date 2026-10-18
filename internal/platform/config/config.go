@@ -45,7 +45,22 @@ type Dependencies struct {
 	KeycloakManagementURL string
 	// TemporalAddress is NAVA_TEMPORAL_ADDRESS, the frontend host:port.
 	TemporalAddress string
+	// TemporalTLS is the client certificate nava-core dials the frontend with.
+	TemporalTLS TemporalTLS
 }
+
+// TemporalTLS locates nava-core's mTLS identity for the Temporal frontend (the
+// `nava-core` certificate). The key is read from a file, never from a variable.
+// CertFile, KeyFile and CAFile are set together or not at all.
+type TemporalTLS struct {
+	CertFile   string // NAVA_TEMPORAL_TLS_CERT_FILE
+	KeyFile    string // NAVA_TEMPORAL_TLS_KEY_FILE
+	CAFile     string // NAVA_TEMPORAL_TLS_CA_FILE, the CA that signed the frontend certificate
+	ServerName string // NAVA_TEMPORAL_TLS_SERVER_NAME, the name on the frontend certificate
+}
+
+// Enabled reports whether the three files are configured.
+func (t TemporalTLS) Enabled() bool { return t.CertFile != "" }
 
 // Log configures the structured logger.
 type Log struct {
@@ -117,6 +132,16 @@ func Load(lookup LookupFunc) (Config, error) {
 		KeycloakManagementURL: strings.TrimRight(r.baseURL("NAVA_KEYCLOAK_MANAGEMENT_URL"), "/"),
 		TemporalAddress:       r.hostPort("NAVA_TEMPORAL_ADDRESS"),
 	}
+	cfg.Deps.TemporalTLS = TemporalTLS{
+		CertFile:   r.str("NAVA_TEMPORAL_TLS_CERT_FILE"),
+		KeyFile:    r.str("NAVA_TEMPORAL_TLS_KEY_FILE"),
+		CAFile:     r.str("NAVA_TEMPORAL_TLS_CA_FILE"),
+		ServerName: r.str("NAVA_TEMPORAL_TLS_SERVER_NAME"),
+	}
+	if t := cfg.Deps.TemporalTLS; (t.CertFile != "" || t.KeyFile != "" || t.CAFile != "") &&
+		(t.CertFile == "" || t.KeyFile == "" || t.CAFile == "") {
+		r.errs = append(r.errs, errors.New("NAVA_TEMPORAL_TLS_CERT_FILE, NAVA_TEMPORAL_TLS_KEY_FILE and NAVA_TEMPORAL_TLS_CA_FILE: set all three or none"))
+	}
 	if cfg.HTTP.Addr == cfg.HTTP.AdminAddr {
 		r.errs = append(r.errs, errors.New("NAVA_ADMIN_ADDR: must differ from NAVA_HTTP_ADDR"))
 	}
@@ -177,6 +202,12 @@ func (r *reader) baseURL(key string) string {
 		r.errs = append(r.errs, fmt.Errorf("%s: want an http or https URL without credentials or query", key))
 		return ""
 	}
+	return v
+}
+
+// str returns key's value, empty when unset.
+func (r *reader) str(key string) string {
+	v, _ := r.lookup(key)
 	return v
 }
 
