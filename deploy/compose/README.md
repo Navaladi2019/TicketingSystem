@@ -30,7 +30,3 @@ db-roles creates it on the next `up`. A LOGIN role also needs a
 `.github/workflows/compose-stack.yml`.
 
 Later tasks mount here: T08 `db/pg_hba.conf`, T28 the dev CA.
-
-**CI workflow (parked).** `compose-stack.workflow.yml` here is the T03 version of
-`.github/workflows/compose-stack.yml`; the agent token cannot write workflow
-files, so a maintainer moves it into place.
