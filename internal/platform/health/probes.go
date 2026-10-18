@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -64,7 +65,11 @@ func Keycloak(managementURL string, client *telemetry.OutboundClient) Check {
 		if err != nil {
 			return err
 		}
-		defer func() { _ = resp.Body.Close() }()
+		defer func() {
+			// Drain a little so the connection is reused on the next round.
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))
+			_ = resp.Body.Close()
+		}()
 		if resp.StatusCode != http.StatusOK {
 			return fmt.Errorf("keycloak /health/ready: status %d", resp.StatusCode)
 		}

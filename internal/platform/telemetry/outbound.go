@@ -3,7 +3,9 @@ package telemetry
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -143,14 +145,42 @@ func (t redactingTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	return resp, nil
 }
 
-// redactURLError rewrites the URL of a *url.Error and of any it wraps. Other
-// errors pass through: net errors name an address, never a request URL.
+// redactURLError rewrites the URL of a *url.Error and of any it wraps. The
+// cause is kept only when its type is known to carry no request URL or remote
+// text (net, context, TLS and x509 errors); anything else, such as an
+// unparsable Location header that http.Client quotes verbatim, is replaced.
 func redactURLError(ctx context.Context, err error) error {
 	var ue *url.Error
 	if !errors.As(err, &ue) {
 		return err
 	}
-	return &url.Error{Op: ue.Op, URL: reduceURL(ue.URL, routeFrom(ctx)), Err: redactURLError(ctx, ue.Err)}
+	return &url.Error{Op: ue.Op, URL: reduceURL(ue.URL, routeFrom(ctx)), Err: safeCause(ctx, ue.Err)}
+}
+
+var errOutboundFailed = errors.New("outbound: request failed")
+
+func safeCause(ctx context.Context, err error) error {
+	var (
+		nested  *url.Error
+		netErr  net.Error
+		certErr *tls.CertificateVerificationError
+		alert   tls.AlertError
+		record  tls.RecordHeaderError
+		unknown x509.UnknownAuthorityError
+		host    x509.HostnameError
+		invalid x509.CertificateInvalidError
+	)
+	switch {
+	case errors.As(err, &nested):
+		return redactURLError(ctx, err)
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded),
+		errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF),
+		errors.As(err, &netErr), errors.As(err, &certErr), errors.As(err, &alert),
+		errors.As(err, &record), errors.As(err, &unknown), errors.As(err, &host),
+		errors.As(err, &invalid):
+		return err
+	}
+	return errOutboundFailed
 }
 
 // reduceURL returns scheme://host plus route. A URL that does not parse

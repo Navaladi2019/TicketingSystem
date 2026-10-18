@@ -45,13 +45,14 @@ const RequestIDAttribute = telemetry.RequestIDKey
 // request id and panic recovery. A GET entry also covers HEAD, as a GET
 // pattern does in ServeMux.
 //
-// Nothing between otelhttp and mux may replace the *http.Request, because
+// mux is a *http.ServeMux, or a wrapper that serves matched requests through
+// one. Nothing between otelhttp and the ServeMux may replace the *http.Request, because
 // otelhttp reads r.Pattern from the request it handed down.
 //
 // Every request is treated as public (WithPublicEndpointFn returns true). If
 // an internal HTTP caller is ever added, give it its own listener, or decide
 // by mTLS peer here; never by a header.
-func Middleware(log *slog.Logger, tel *telemetry.Telemetry, mux *http.ServeMux, untraced ...string) http.Handler {
+func Middleware(log *slog.Logger, tel *telemetry.Telemetry, mux http.Handler, untraced ...string) http.Handler {
 	skip := make(map[string]bool, len(untraced))
 	for _, u := range untraced {
 		skip[u] = true

@@ -8,6 +8,7 @@ linters:
   enable:
     - bodyclose
     - errorlint
+    - forbidigo
     - gochecknoglobals # config and state go through constructors, never globals
     - gosec
     - misspell
@@ -16,6 +17,14 @@ linters:
     - sloglint
     - unconvert
   settings:
+    forbidigo:
+      # Outbound calls go through telemetry.NewOutboundClient (timeouts, URL
+      # redaction, no query or email in spans). A raw client skips all three.
+      analyze-types: true # match by package, so aliased imports are caught too
+      forbid:
+        - pattern: ^http\.(DefaultClient|DefaultTransport|Get|Head|Post|PostForm|Client|Transport)$
+          pkg: ^net/http$
+          msg: use telemetry.NewOutboundClient
     sloglint:
       attr-only: true # slog.String(...) attributes, never loose key/value pairs
       context: all # *Context methods only, so every line carries the request ids
@@ -31,7 +40,9 @@ linters:
       - std-error-handling
     rules:
       - path: _test\.go
-        linters: [gosec]
+        linters: [gosec, forbidigo]
+      - path: ^internal/platform/telemetry/
+        linters: [forbidigo]
 
 formatters:
   enable:

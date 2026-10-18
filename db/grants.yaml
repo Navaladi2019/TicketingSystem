@@ -1,5 +1,5 @@
 # The single grant manifest (ADR-001 I3, A.3; PLAN-001 D-P2). Nothing else
-# grants privileges. Read by two jobs through internal/platform/yamlstrict
+# grants privileges. Read by two jobs through internal/platform/strictyaml
 # (unknown keys, duplicate keys and a second document are errors):
 #
 #   db-roles (bootstrap superuser): creates or alters every role under `roles`

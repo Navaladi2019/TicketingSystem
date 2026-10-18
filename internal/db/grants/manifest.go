@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Navaladi2019/TicketingSystem/internal/platform/yamlstrict"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/strictyaml"
 )
 
 // Manifest is db/grants.yaml.
@@ -70,7 +70,7 @@ func functionPrivs() []string { return []string{"EXECUTE"} }
 // Parse decodes and validates a manifest.
 func Parse(b []byte) (*Manifest, error) {
 	var m Manifest
-	if err := yamlstrict.DecodeBytes(b, &m); err != nil {
+	if err := strictyaml.Decode(b, &m); err != nil {
 		return nil, fmt.Errorf("grants manifest: %w", err)
 	}
 	if err := m.Validate(); err != nil {

@@ -50,6 +50,29 @@ tasks:
     cmds:
       - golangci-lint run ./...
 
+  lint:fixture:
+    desc: The forbidigo rule must report exactly 5 findings on the raw HTTP client fixtures
+    cmds:
+      - |
+        code=0; out=$(golangci-lint run --build-tags lintfixture ./internal/platform/lintfixture/ 2>&1) || code=$?
+        echo "$out"
+        test "$code" -eq 1 || { echo "lint:fixture: expected exit 1, got $code"; exit 1; }
+        n=$(echo "$out" | grep -c "(forbidigo)$" || true)
+        test "$n" -eq 5 || { echo "lint:fixture: expected 5 forbidigo findings, got $n"; exit 1; }
+
+  generate:
+    desc: Regenerate api/api.gen.go from api/openapi.yaml (oapi-codegen, pinned by the go.mod tool directive)
+    cmds:
+      - go generate ./...
+
+  check-openapi:
+    desc: Fail if api/openapi.yaml removes or narrows anything on origin/main (additive-only rule for /api/v1)
+    cmds:
+      - git show origin/main:api/openapi.yaml > {{.TMP}}/openapi.base.yaml
+      - go run ./cmd/openapi-compat {{.TMP}}/openapi.base.yaml api/openapi.yaml
+    vars:
+      TMP: '{{.TEMP | default "/tmp"}}'
+
   stack:up:
     desc: Build and start the local compose stack (Postgres, PgBouncer, Keycloak, Temporal, Collector, nava-core)
     cmds:
