@@ -19,6 +19,10 @@ flows, the security controls behind these rules, and options for later tasks.
 | `api/`, `db/`, `deploy/compose/` | Placeholders for T20, T03 and T02 |
 | `docs/` | ADRs, the delivery plan, the decision log and notes. Its own `go.mod` keeps the ADR spike code out of `go build ./...` |
 
+`/healthz` is a report, not a liveness probe: it returns 503 while PostgreSQL is down, so pointing a restart policy at it would turn a database outage into a restart loop. Liveness is the process answering on the admin listener (`/metrics`); readiness is `/readyz`.
+
+Outbound HTTP goes through `telemetry.NewOutboundClient` only: `forbidigo` rejects `http.Client`, `http.DefaultClient` and `http.Get`/`Head`/`Post`/`PostForm` everywhere except `internal/platform/telemetry` and tests, and `task lint:fixture` checks the rule still fires.
+
 Go is pinned by `go.mod` (`go 1.26.0`, `toolchain go1.26.9`); SDK v1.49.0 needs Go ≥ 1.26 (ADR-001 §3). Telemetry is decided in `docs/delivery/decision-log.md` (2026-10-16).
 
 ## Running locally
