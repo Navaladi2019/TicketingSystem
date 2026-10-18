@@ -1,0 +1,84 @@
+openapi: 3.1.0
+info:
+  title: Nava core API
+  version: 1.0.0
+  description: |
+    The public /api/v1 contract. Within v1 changes are additive only: CI diffs
+    this file against main and fails on a removed or narrowed field.
+    Every error response is application/problem+json (RFC 9457) with a `code`
+    registered in api/errors.yaml.
+paths:
+  /api/v1/me:
+    get:
+      operationId: getMe
+      summary: The calling user and tenant
+      description: Declared by T20; the implementation lands with T17.
+      responses:
+        "200":
+          description: The caller.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Me"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "429":
+          $ref: "#/components/responses/Problem"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "501":
+          $ref: "#/components/responses/Problem"
+components:
+  schemas:
+    Me:
+      type: object
+      required: [user_id, tenant_id]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+    Problem:
+      type: object
+      description: RFC 9457 problem details. `code` is registered in api/errors.yaml.
+      required: [type, title, status, code, detail, instance]
+      properties:
+        type:
+          type: string
+          description: A URN naming the problem type, `urn:nava:problem:<code>`.
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+        detail:
+          type: string
+          description: Fixed text per code; never carries request input.
+        instance:
+          type: string
+          description: "`urn:nava:request:<request id>`, the X-Request-Id of the response."
+        errors:
+          type: array
+          description: Present on validation_failed. Never carries request input.
+          items:
+            $ref: "#/components/schemas/FieldError"
+    FieldError:
+      type: object
+      required: [pointer]
+      properties:
+        pointer:
+          type: string
+          description: JSON Pointer to the failing field.
+        rule:
+          type: string
+          description: The schema keyword that failed, such as `format` or `pattern`.
+  responses:
+    Problem:
+      description: An RFC 9457 problem.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"

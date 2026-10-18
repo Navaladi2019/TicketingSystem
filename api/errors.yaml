@@ -1,0 +1,46 @@
+# Registry of every `code` an API error response may carry (RFC 9457
+# problem+json, see api/openapi.yaml). Read through the strict loader
+# (internal/platform/strictyaml). A contract test fails on any response whose
+# code is not listed here, and on any code listed here that no Go constant
+# names. `detail` is fixed text: it never echoes request input.
+codes:
+  - code: tenant_unresolved
+    status: 401
+    title: Tenant unresolved
+    detail: The request could not be tied to a tenant.
+  - code: invalid_token
+    status: 401
+    title: Invalid token
+    detail: The access token is missing, expired or invalid.
+  - code: idempotency_key_reuse
+    status: 422
+    title: Idempotency key reused
+    detail: The Idempotency-Key was already used with a different request.
+  - code: invalid_cursor
+    status: 400
+    title: Invalid cursor
+    detail: The pagination cursor is invalid or has expired.
+  - code: rate_limited
+    status: 429
+    title: Rate limited
+    detail: Too many requests. Retry after the interval in Retry-After.
+  - code: not_found
+    status: 404
+    title: Not found
+    detail: The resource does not exist.
+  - code: validation_failed
+    status: 400
+    title: Validation failed
+    detail: The request does not match the API contract. See errors for the failing fields.
+  - code: method_not_allowed
+    status: 405
+    title: Method not allowed
+    detail: The resource does not support this method. See the Allow header.
+  - code: not_implemented
+    status: 501
+    title: Not implemented
+    detail: This operation is declared in the contract but not implemented yet.
+  - code: internal_error
+    status: 500
+    title: Internal error
+    detail: The server failed to handle the request. Quote the instance when reporting it.
