@@ -52,11 +52,16 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 		return err
 	}
 	defer closeDeps()
+	public, err := server.NewHandler(log, tel)
+	if err != nil {
+		_ = tel.Shutdown(context.WithoutCancel(ctx))
+		return err
+	}
 	listeners := []struct {
 		name string
 		srv  *http.Server
 	}{
-		{"public", server.New(cfg.HTTP.Addr, cfg.HTTP, server.NewHandler(log, tel), log)},
+		{"public", server.New(cfg.HTTP.Addr, cfg.HTTP, public, log)},
 		{"admin", telemetry.NewAdminServer(cfg.HTTP.AdminAddr, cfg.HTTP, telemetry.NewAdminHandler(log, tel, mon.Routes), log)},
 	}
 

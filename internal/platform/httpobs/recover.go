@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/requestid"
 )
 
@@ -51,9 +52,7 @@ func serve(log *slog.Logger, next http.Handler, w http.ResponseWriter, r *http.R
 		id := h.Get(requestid.Header)
 		clear(h)
 		h.Set(requestid.Header, id)
-		// TODO(TODO-002): write the T20 RFC 9457 problem+json body instead of
-		// text/plain once the shared error writer exists. See docs/delivery/todo.md.
-		http.Error(ww, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		problem.Internal(ww, r)
 	}()
 	next.ServeHTTP(ww, r)
 	return resp

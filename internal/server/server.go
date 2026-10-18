@@ -16,9 +16,13 @@ import (
 // NewHandler returns the public root handler, served on NAVA_HTTP_ADDR. It
 // serves /api/v1/* only: /metrics, /healthz and /readyz live on the admin
 // listener (telemetry.NewAdminHandler).
-func NewHandler(log *slog.Logger, tel *telemetry.Telemetry) http.Handler {
+func NewHandler(log *slog.Logger, tel *telemetry.Telemetry) (http.Handler, error) {
 	mux := http.NewServeMux()
-	return httpobs.Middleware(log, tel, mux)
+	a, err := newAPI(log, mux)
+	if err != nil {
+		return nil, err
+	}
+	return httpobs.Middleware(log, tel, a.Wrap(mux)), nil
 }
 
 // New returns an *http.Server on addr with every timeout set from cfg.

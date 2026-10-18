@@ -1,0 +1,114 @@
+openapi: 3.1.0
+info:
+  title: Contract test fixture
+  version: 1.0.0
+  description: |
+    Test-only contract with a uuid path parameter and a pattern body field. Within v1 changes are additive only: CI diffs
+    this file against main and fails on a removed or narrowed field.
+    Every error response is application/problem+json (RFC 9457) with a `code`
+    registered in api/errors.yaml.
+paths:
+  /api/v1/items/{id}:
+    get:
+      operationId: getItem
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: The item.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Item"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+  /api/v1/items:
+    post:
+      operationId: createItem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              additionalProperties: false
+              properties:
+                name:
+                  type: string
+                  pattern: "^[a-z]+$"
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Item"
+        "400":
+          $ref: "#/components/responses/Problem"
+components:
+  schemas:
+    Item:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+    Problem:
+      type: object
+      description: RFC 9457 problem details. `code` is registered in api/errors.yaml.
+      required: [type, title, status, code, detail, instance]
+      properties:
+        type:
+          type: string
+          description: A URN naming the problem type, `urn:nava:problem:<code>`.
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+        detail:
+          type: string
+          description: Fixed text per code; never carries request input.
+        instance:
+          type: string
+          description: "`urn:nava:request:<request id>`, the X-Request-Id of the response."
+        errors:
+          type: array
+          description: Present on validation_failed. Never carries request input.
+          items:
+            $ref: "#/components/schemas/FieldError"
+    FieldError:
+      type: object
+      required: [pointer]
+      properties:
+        pointer:
+          type: string
+          description: JSON Pointer to the failing field.
+        rule:
+          type: string
+          description: The schema keyword that failed, such as `format` or `pattern`.
+  responses:
+    Problem:
+      description: An RFC 9457 problem.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"

@@ -445,6 +445,11 @@ func TestHandlerPanicBecomesLogged500(t *testing.T) {
 		t.Errorf("status = %d, want 500", rec.Code)
 	}
 	reqID := rec.Header().Get(requestid.Header)
+	if ct := rec.Header().Get("Content-Type"); ct != "application/problem+json" ||
+		!strings.Contains(rec.Body.String(), `"code":"internal_error"`) ||
+		!strings.Contains(rec.Body.String(), `"instance":"urn:nava:request:`+reqID+`"`) {
+		t.Errorf("500 is not the internal_error problem: %s %s", ct, rec.Body)
+	}
 	panicLine := h.lineWithMsg(t, "http handler panic")
 	if panicLine["level"] != "ERROR" || panicLine["panic"] != "boom" {
 		t.Errorf("panic line = %v, want level ERROR and panic boom", panicLine)

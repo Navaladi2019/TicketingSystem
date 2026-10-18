@@ -49,6 +49,19 @@ tasks:
         n=$(echo "$out" | grep -c "(forbidigo)$" || true)
         test "$n" -eq 5 || { echo "lint:fixture: expected 5 forbidigo findings, got $n"; exit 1; }
 
+  generate:
+    desc: Regenerate api/api.gen.go from api/openapi.yaml (oapi-codegen, pinned by the go.mod tool directive)
+    cmds:
+      - go generate ./...
+
+  check-openapi:
+    desc: Fail if api/openapi.yaml removes or narrows anything on origin/main (additive-only rule for /api/v1)
+    cmds:
+      - git show origin/main:api/openapi.yaml > {{.TMP}}/openapi.base.yaml
+      - go run ./cmd/openapi-compat {{.TMP}}/openapi.base.yaml api/openapi.yaml
+    vars:
+      TMP: '{{.TEMP | default "/tmp"}}'
+
   stack:up:
     desc: Build and start the local compose stack (Postgres, PgBouncer, Keycloak, Temporal, Collector, nava-core)
     cmds:

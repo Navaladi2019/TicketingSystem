@@ -27,7 +27,11 @@ func newServers(t *testing.T) (public, internal *httptest.Server, tel *telemetry
 	}
 	t.Cleanup(func() { _ = tel.Shutdown(t.Context()) })
 	log := slog.New(slog.DiscardHandler)
-	public = httptest.NewServer(server.NewHandler(log, tel))
+	handler, err := server.NewHandler(log, tel)
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+	public = httptest.NewServer(handler)
 	t.Cleanup(public.Close)
 	internal = httptest.NewServer(telemetry.NewAdminHandler(log, tel))
 	t.Cleanup(internal.Close)
