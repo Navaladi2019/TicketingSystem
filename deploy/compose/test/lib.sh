@@ -23,11 +23,14 @@ health_of() {
     docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$cid"
 }
 
-# services: every service except the one-shot db-init.
-services() { compose config --services | grep -v '^db-init$'; }
+# The one-shot jobs, which must exit 0 instead of staying healthy.
+JOBS="db-roles migrate"
+
+# services: every long-running service.
+services() { compose config --services | grep -v -x -e db-roles -e migrate; }
 
 # wait_healthy [seconds]: block until every long-running service is healthy
-# and db-init has exited 0; print each one's state and fail on timeout.
+# and every job has exited 0; print each one's state and fail on timeout.
 wait_healthy() {
     deadline=$(( $(date +%s) + ${1:-300} ))
     while :; do
@@ -35,9 +38,10 @@ wait_healthy() {
         for s in $(services); do
             [ "$(health_of "$s")" = healthy ] || bad="$bad $s"
         done
-        init_cid=$(container_of db-init)
-        init_state=$(docker inspect -f '{{.State.Status}} {{.State.ExitCode}}' "$init_cid" 2>/dev/null || echo missing)
-        [ "$init_state" = "exited 0" ] || bad="$bad db-init($init_state)"
+        for j in $JOBS; do
+            state=$(docker inspect -f '{{.State.Status}} {{.State.ExitCode}}' "$(container_of "$j")" 2>/dev/null || echo missing)
+            [ "$state" = "exited 0" ] || bad="$bad $j($state)"
+        done
         [ -z "$bad" ] && break
         if [ "$(date +%s)" -ge "$deadline" ]; then
             compose ps -a
@@ -46,7 +50,7 @@ wait_healthy() {
         sleep 3
     done
     for s in $(services); do pass "$s healthy"; done
-    pass "db-init exited 0"
+    for j in $JOBS; do pass "$j exited 0"; done
 }
 
 # psql_super <database> <sql>: run as the superuser from inside the postgres

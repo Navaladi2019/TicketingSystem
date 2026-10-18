@@ -1,0 +1,89 @@
+# Parked: the agent token cannot write .github/workflows. A maintainer moves
+# this file to .github/workflows/compose-stack.yml (adds the db-integration job,
+# the dbroles stack step and the nava-db Dockerfile tag check).
+name: compose-stack
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  # db-roles, the migrator and the grant manifest against a real, disposable
+  # PostgreSQL (internal/db/dbtest).
+  db-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16.10
+        env:
+          POSTGRES_USER: pgadmin
+          POSTGRES_PASSWORD: ci-only-superuser
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U pgadmin" --health-interval 2s --health-timeout 5s --health-retries 30
+    env:
+      NAVA_TEST_PG_URL: postgres://pgadmin:ci-only-superuser@127.0.0.1:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Integration tests
+        run: make test-integration
+
+  stack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      # An ordinary 404 is sampled out at the default 10%; keep all for the trace test.
+      OTEL_TAIL_SAMPLE_PERCENT: "100"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: No floating image tags
+        run: |
+          files="compose.yaml deploy/compose/compose.internal.yaml deploy/compose/otel-collector/Dockerfile deploy/compose/nava-core/Dockerfile deploy/compose/nava-db/Dockerfile"
+          if grep -En '^\s*(image:\s*|FROM\s+)[^:[:space:]]+(\s|$)' $files; then echo 'image without an exact tag'; exit 1; fi
+          if grep -n ':latest' $files; then echo 'latest is not allowed'; exit 1; fi
+
+      - name: Build and start the stack
+        run: docker compose up -d --build
+
+      - name: Every container healthy
+        run: sh deploy/compose/test/stack-test.sh healthy
+
+      - name: PgBouncer settings
+        run: sh deploy/compose/test/stack-test.sh pgbouncer
+
+      - name: Keycloak and Temporal databases
+        run: sh deploy/compose/test/stack-test.sh temporal
+
+      - name: One request, one trace
+        run: sh deploy/compose/test/stack-test.sh trace
+
+      - name: Collector redacts denied span values
+        run: sh deploy/compose/test/stack-test.sh redact
+
+      - name: db-roles and migrate are idempotent
+        run: sh deploy/compose/test/stack-test.sh idempotent
+
+      - name: db-roles revokes stray memberships
+        run: sh deploy/compose/test/stack-test.sh dbroles
+
+      - name: Internal overlay comes up
+        run: |
+          docker compose down -v
+          sh deploy/compose/test/stack-test.sh internal
+
+      - name: Logs on failure
+        if: failure()
+        run: docker compose -f compose.yaml -f deploy/compose/compose.internal.yaml logs --no-color --tail 200
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
