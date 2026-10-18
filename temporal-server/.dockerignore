@@ -1,0 +1,3 @@
+.devcerts/
+Dockerfile
+.dockerignore

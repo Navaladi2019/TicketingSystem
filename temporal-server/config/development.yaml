@@ -1,0 +1,125 @@
+# enable-template
+# Development config for nava/temporal-server:dev (ADR-001 D22, Annex A.2).
+# In-memory SQLite: state is lost on restart. T28 supplies the PostgreSQL config.
+# Frontend and internode require client certificates from the installation CA;
+# generate throwaway ones with `make temporal-server-dev-certs`.
+# Overrides (environment): NAVA_TEMPORAL_CERT_DIR, NAVA_TEMPORAL_FRONTEND_BIND_IP,
+# NAVA_TEMPORAL_METRICS_ADDR.
+{{- $certs := default "/etc/temporal/certs" (env "NAVA_TEMPORAL_CERT_DIR") }}
+{{- $frontendIP := default "0.0.0.0" (env "NAVA_TEMPORAL_FRONTEND_BIND_IP") }}
+{{- $metrics := default "0.0.0.0:9090" (env "NAVA_TEMPORAL_METRICS_ADDR") }}
+log:
+  stdout: true
+  level: info
+  format: json
+
+persistence:
+  defaultStore: sqlite-default
+  visibilityStore: sqlite-visibility
+  numHistoryShards: 1
+  datastores:
+    sqlite-default:
+      sql:
+        pluginName: "sqlite"
+        databaseName: "default"
+        connectAddr: "localhost"
+        connectProtocol: "tcp"
+        connectAttributes:
+          mode: "memory"
+          cache: "private"
+        maxConns: 1
+        maxIdleConns: 1
+        maxConnLifetime: "1h"
+    sqlite-visibility:
+      sql:
+        pluginName: "sqlite"
+        databaseName: "default"
+        connectAddr: "localhost"
+        connectProtocol: "tcp"
+        connectAttributes:
+          mode: "memory"
+          cache: "private"
+        maxConns: 1
+        maxIdleConns: 1
+        maxConnLifetime: "1h"
+
+global:
+  membership:
+    maxJoinDuration: 30s
+    broadcastAddress: "127.0.0.1"
+  tls:
+    internode:
+      server:
+        certFile: "{{ $certs }}/server.pem"
+        keyFile: "{{ $certs }}/server.key"
+        clientCaFiles: ["{{ $certs }}/ca.pem"]
+        requireClientAuth: true
+      client:
+        serverName: "localhost"
+        rootCaFiles: ["{{ $certs }}/ca.pem"]
+    frontend:
+      server:
+        certFile: "{{ $certs }}/server.pem"
+        keyFile: "{{ $certs }}/server.key"
+        clientCaFiles: ["{{ $certs }}/ca.pem"]
+        requireClientAuth: true
+      client:
+        serverName: "localhost"
+        rootCaFiles: ["{{ $certs }}/ca.pem"]
+    systemWorker:
+      certFile: "{{ $certs }}/temporal-system.pem"
+      keyFile: "{{ $certs }}/temporal-system.key"
+      client:
+        serverName: "localhost"
+        rootCaFiles: ["{{ $certs }}/ca.pem"]
+  metrics:
+    prometheus:
+      framework: "tally"
+      timerType: "histogram"
+      listenAddress: "{{ $metrics }}"
+
+# Only the frontend binds beyond loopback. History, matching and worker stay on
+# 127.0.0.1 inside the container (A.2: internal ports unreachable).
+services:
+  frontend:
+    rpc:
+      grpcPort: 7233
+      membershipPort: 6933
+      bindOnIP: "{{ $frontendIP }}"
+  matching:
+    rpc:
+      grpcPort: 7235
+      membershipPort: 6935
+      bindOnIP: "127.0.0.1"
+  history:
+    rpc:
+      grpcPort: 7234
+      membershipPort: 6934
+      bindOnIP: "127.0.0.1"
+  worker:
+    rpc:
+      grpcPort: 7239
+      membershipPort: 6939
+      bindOnIP: "127.0.0.1"
+
+clusterMetadata:
+  enableGlobalNamespace: false
+  failoverVersionIncrement: 10
+  masterClusterName: "active"
+  currentClusterName: "active"
+  clusterInformation:
+    active:
+      enabled: true
+      initialFailoverVersion: 1
+      rpcName: "frontend"
+      rpcAddress: "localhost:7233"
+
+dcRedirectionPolicy:
+  policy: "noop"
+
+publicClient:
+  hostPort: "localhost:7233"
+
+dynamicConfigClient:
+  filepath: "dynamicconfig/development.yaml"
+  pollInterval: "60s"
