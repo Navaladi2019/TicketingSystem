@@ -39,4 +39,5 @@ typing raw `go` / `golangci-lint` commands.
 | `task test:integration` | Run the database integration tests against a throwaway Postgres container (Docker) |
 | `task lint`       | Run golangci-lint (config in `.golangci.yml`)                 |
 
-Before calling a change done, run `task test` and `task lint`.
+Before calling a change done, run `task test` and `task lint`. `make ci` runs
+the whole CI pipeline locally (see `docs/quality/ci-pipeline.md`).

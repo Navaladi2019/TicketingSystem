@@ -1,0 +1,70 @@
+# PLAN-001 D-P10: paths that need a Security reviewer on top of the squad's
+# normal reviewer, plus an adversarial test. `make review-paths` (CI, every
+# pull request) prints two lines on the PR's checks summary:
+#
+#   security review required: yes|no   any changed file matches `security`
+#   CTO sign-off required: yes|no      a `cto_signoff.paths` file changed, or a
+#                                      registered isolation test was removed
+#                                      or gained a skip
+#
+# Patterns: a trailing `/` matches everything under that directory; anything
+# else is a path.Match glob against the whole repo-relative path.
+#
+# Several packages below do not exist yet. Their paths are the names PLAN-001
+# gives them; the task that creates a package under a different name updates
+# this file in the same PR (and that PR is itself flagged, since this file is
+# on the list).
+
+security:
+  - internal/tenancy/
+  - internal/identity/
+  - internal/outbox/
+  # The relay and the worker guard.
+  - internal/relay/
+  - cmd/nava-relay/
+  - internal/workerguard/
+  # The auth middleware.
+  - internal/platform/auth/
+  # Cursor and idempotency.
+  - internal/platform/cursor/
+  - internal/platform/idempotency/
+  - cmd/nava-purge/
+  - cmd/nava-groupsync/
+  # The operator onboarding handler.
+  - internal/onboarding/
+  - temporal-server/
+  # Including pg_hba.conf, grants.yaml and every migration.
+  - db/
+  - cmd/nava-db/
+  - internal/db/
+  # The realm export.
+  - deploy/keycloak/
+  # The compose network files.
+  - compose.yaml
+  - deploy/compose/compose.internal.yaml
+  # The CI workflow and what it runs.
+  - .github/
+  - Makefile
+  - tools/ci/
+  - docs/delivery/review-paths.yaml
+  # The `set_config` lint config (and every other lint rule).
+  - .golangci.yml
+  - tools/navalint/
+  # Span export filter and outbound redaction (TICK-93 audit).
+  - internal/platform/telemetry/
+
+cto_signoff:
+  # Editing any of these needs CTO sign-off.
+  paths:
+    # The isolation registry.
+    - internal/tenancy/isolation/registry.go
+    - internal/tenancy/isolation/registry.yaml
+    # The RLS allow-list (ADR-001 A.3, CI-1).
+    - db/rls-allowlist.yaml
+  # Registered isolation tests: removing one of these files, or adding a
+  # t.Skip / t.SkipNow / t.Skipf / testing.Short() guard to one, needs CTO
+  # sign-off.
+  isolation_tests:
+    - internal/tenancy/isolation/*_test.go
+    - internal/db/dbtest/*isolation*_test.go
+    - internal/*/*isolation*_test.go

@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -29,10 +30,14 @@ func docker(t *testing.T, args ...string) string {
 }
 
 // startPostgres runs postgres:16.10 on a fixed free host port, so the address
-// survives docker stop and docker start. It skips the test with no Docker.
+// survives docker stop and docker start. With no Docker it skips the test, or
+// fails it under CI (T05), where a skip would pass the gate unseen.
 func startPostgres(t *testing.T) (dsn, container string) {
 	t.Helper()
 	if err := exec.CommandContext(t.Context(), "docker", "info").Run(); err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatalf("docker is not available under CI: %v", err)
+		}
 		t.Skip("docker is not available")
 	}
 	l, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")

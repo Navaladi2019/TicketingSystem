@@ -1,0 +1,9 @@
+services:
+  db:
+    image: postgres:16.9
+  kc:
+    image: quay.io/keycloak/keycloak:26.8.1
+  floating:
+    image: postgres
+  latest:
+    image: alpine:latest
