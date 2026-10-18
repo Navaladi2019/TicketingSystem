@@ -3,6 +3,7 @@ package authz
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"go.temporal.io/server/common/authorization"
@@ -18,7 +19,8 @@ import (
 	_ "go.temporal.io/server/api/adminservice/v1"
 )
 
-// DeniedMetric counts denied calls, tagged identity, api, namespace and reason.
+// DeniedMetric counts denied calls, tagged identity, api, namespace, reason and
+// command (the denied workflow command's type, or "none" for an API deny).
 const DeniedMetric = "nava_authz_denied"
 
 // Deny reasons, used as the `reason` log field and metric tag.
@@ -31,6 +33,9 @@ const (
 
 // maxLoggedNamespace bounds the client-supplied namespace written to the log.
 const maxLoggedNamespace = 128
+
+// maxLoggedWorkflowID bounds a client-supplied workflow id written to the log.
+const maxLoggedWorkflowID = 256
 
 var (
 	allow = authorization.Result{Decision: authorization.DecisionAllow}
@@ -95,12 +100,17 @@ func (a *Authorizer) Authorize(
 		}
 	}()
 
-	reason := a.decide(id, api, namespace)
-	if reason == "" {
-		return allow, nil
+	if reason := a.decide(id, api, namespace); reason != "" {
+		a.recordDeny(ctx, id, api, namespace, reason, "")
+		return deny, nil
 	}
-	a.recordDeny(ctx, id, api, namespace, reason, "")
-	return deny, nil
+	if id == Worker && api == respondWorkflowTaskCompleted {
+		if d := inspectCommands(target.Request); d != nil {
+			a.recordCommandDeny(ctx, id, api, namespace, d)
+			return deny, nil
+		}
+	}
+	return allow, nil
 }
 
 // decide returns "" to allow, or the deny reason.
@@ -137,6 +147,36 @@ func (a *Authorizer) recordDeny(ctx context.Context, id Identity, api, namespace
 	// Logging and metrics must not turn a deny into a panic either.
 	defer func() { _ = recover() }()
 
+	tags := a.denyTags(ctx, id, api, namespace, reason, commandNone)
+	if detail != "" {
+		tags = append(tags, tag.NewStringTag("detail", detail))
+	}
+	a.logger.Warn("Temporal API call denied", tags...)
+}
+
+// recordCommandDeny logs a denied workflow task response at error level with
+// alert=true: the task retries until someone acts, so each one must page. The
+// workflow ids go to the log line only; they hold the tenant and are unbounded.
+func (a *Authorizer) recordCommandDeny(ctx context.Context, id Identity, api, namespace string, d *commandDenial) {
+	defer func() { _ = recover() }()
+
+	tags := a.denyTags(ctx, id, api, namespace, d.reason, d.command)
+	tags = append(tags,
+		tag.NewStringTag("alert", "true"),
+		tag.NewStringTag("workflow_id", truncate(d.workflowID, maxLoggedWorkflowID)),
+		tag.NewStringTag("command_index", strconv.Itoa(d.index)),
+	)
+	if d.target != "" {
+		tags = append(tags, tag.NewStringTag("target_workflow_id", truncate(d.target, maxLoggedWorkflowID)))
+	}
+	if d.detail != "" {
+		tags = append(tags, tag.NewStringTag("detail", d.detail))
+	}
+	a.logger.Error("Temporal workflow command denied", tags...)
+}
+
+// denyTags increments DeniedMetric and returns the log tags common to every deny.
+func (a *Authorizer) denyTags(ctx context.Context, id Identity, api, namespace, reason, command string) []tag.Tag {
 	identityTag := string(id)
 	if identityTag == "" {
 		identityTag = "none"
@@ -150,6 +190,7 @@ func (a *Authorizer) recordDeny(ctx context.Context, id Identity, api, namespace
 		metrics.StringTag("api", apiTag),
 		metrics.StringTag("namespace", namespaceTag(namespace)),
 		metrics.StringTag("reason", reason),
+		metrics.StringTag("command", command),
 	).Counter(DeniedMetric).Record(1)
 
 	tags := []tag.Tag{
@@ -157,6 +198,7 @@ func (a *Authorizer) recordDeny(ctx context.Context, id Identity, api, namespace
 		tag.NewStringTag("api", api),
 		tag.NewStringTag("namespace", truncate(namespace, maxLoggedNamespace)),
 		tag.NewStringTag("reason", reason),
+		tag.NewStringTag("command", command),
 	}
 	if cert := authorization.PeerCert(authorization.TLSInfoFromContext(ctx)); cert != nil {
 		tags = append(tags,
@@ -167,10 +209,7 @@ func (a *Authorizer) recordDeny(ctx context.Context, id Identity, api, namespace
 	} else {
 		tags = append(tags, tag.NewStringTag("cert_subject", "none"))
 	}
-	if detail != "" {
-		tags = append(tags, tag.NewStringTag("detail", detail))
-	}
-	a.logger.Warn("Temporal API call denied", tags...)
+	return tags
 }
 
 // namespaceTag keeps the metric's cardinality bounded: the namespace is
