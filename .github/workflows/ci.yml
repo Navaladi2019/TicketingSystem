@@ -1,8 +1,9 @@
 # T05 pipeline. Every step calls a Makefile target, so `make ci` runs the same
-# gates locally. The three jobs run in parallel; inside each, steps run in the
+# gates locally. The jobs run in parallel; inside each, steps run in the
 # Makefile's gate order and the first failure stops the job:
 #   lint-unit    gofmt, go vet, golangci-lint, fixtures, pins, OpenAPI,
 #                govulncheck, then go test -race (no containers)
+#   temporal-server  the custom server module's unit tests (no containers)
 #   integration  -tags integration against a throwaway PostgreSQL
 #   stack        image build, compose up, GET /healthz smoke, stack tests
 name: ci
@@ -58,6 +59,18 @@ jobs:
         run: make vulncheck
       - name: go test -race
         run: make test
+
+  # The custom server module's tests take ~4.5 min, so they run beside
+  # lint-unit to keep the pipeline under 10 minutes. No containers.
+  temporal-server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: temporal-server/go.mod
+          cache-dependency-path: temporal-server/go.sum
       - name: temporal-server unit tests
         run: make temporal-server-test
 
@@ -71,8 +84,6 @@ jobs:
           go-version-file: go.mod
       - name: Integration tests (-tags integration)
         run: make test-integration
-        env:
-          NAVA_CI_CANARY: fail # T05 red-run proof; reverted in the next commit
 
   stack:
     runs-on: ubuntu-latest
