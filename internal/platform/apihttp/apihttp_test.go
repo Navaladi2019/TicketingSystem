@@ -43,6 +43,7 @@ type env struct {
 	handler http.Handler
 	spans   *tracetest.InMemoryExporter
 	reg     *problem.Registry
+	schema  *openapi3.Schema // components.schemas.Problem of the spec
 }
 
 func newEnv(t *testing.T) *env {
@@ -63,7 +64,11 @@ func newEnv(t *testing.T) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := &env{spans: tracetest.NewInMemoryExporter(), reg: reg}
+	ref := spec.Components.Schemas["Problem"]
+	if ref == nil || ref.Value == nil {
+		t.Fatal("spec has no Problem schema")
+	}
+	e := &env{spans: tracetest.NewInMemoryExporter(), reg: reg, schema: ref.Value}
 	tel, err := telemetry.New(t.Context(), config.Telemetry{}, telemetry.WithSpanExporter(e.spans))
 	if err != nil {
 		t.Fatal(err)
@@ -85,6 +90,19 @@ func newEnv(t *testing.T) *env {
 		})
 	e.handler = httpobs.Middleware(log, tel, a.Wrap(mux))
 	return e
+}
+
+// assertProblemSchema validates body against the spec's Problem schema, the
+// schema every error response of the contract declares.
+func (e *env) assertProblemSchema(t *testing.T, body []byte) {
+	t.Helper()
+	var doc any
+	if err := json.Unmarshal(body, &doc); err != nil {
+		t.Fatalf("body is not JSON: %v", err)
+	}
+	if err := e.schema.VisitJSON(doc, openapi3.MultiErrors()); err != nil {
+		t.Fatalf("body does not validate against the Problem schema: %v", err)
+	}
 }
 
 func (e *env) do(t *testing.T, method, target, body string) *httptest.ResponseRecorder {
@@ -133,6 +151,7 @@ func TestErrorsAreRegisteredProblemsWithoutInput(t *testing.T) {
 			if strings.Contains(rec.Body.String(), secret) {
 				t.Fatalf("body echoes the input: %s", rec.Body)
 			}
+			e.assertProblemSchema(t, rec.Body.Bytes())
 			var p problem.Body
 			if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
 				t.Fatalf("body is not a problem: %v", err)
@@ -152,6 +171,36 @@ func TestErrorsAreRegisteredProblemsWithoutInput(t *testing.T) {
 			}
 			if tt.status == http.StatusMethodNotAllowed && rec.Header().Get("Allow") == "" {
 				t.Error("405 has no Allow header")
+			}
+		})
+	}
+}
+
+// TestMissingRequiredParameter: the generated wrapper's Required*Error types
+// map to rule "required", and the response still fits the Problem schema.
+func TestMissingRequiredParameter(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	a := apihttp.New(&openapi3.T{}, e.reg, slog.New(slog.DiscardHandler), "")
+	for name, err := range map[string]error{
+		"query":  &apitest.RequiredParamError{ParamName: "limit"},
+		"header": &apitest.RequiredHeaderError{ParamName: "X-Tenant"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			rec := httptest.NewRecorder()
+			a.ErrorHandler(rec, httptest.NewRequestWithContext(t.Context(), "GET", "/", nil), err)
+			e.assertProblemSchema(t, rec.Body.Bytes())
+			var p problem.Body
+			if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
+				t.Fatal(err)
+			}
+			want := "/parameters/limit"
+			if name == "header" {
+				want = "/parameters/X-Tenant"
+			}
+			if len(p.Errors) != 1 || p.Errors[0].Pointer != want || p.Errors[0].Rule != "required" {
+				t.Errorf("errors = %+v, want %s (required)", p.Errors, want)
 			}
 		})
 	}

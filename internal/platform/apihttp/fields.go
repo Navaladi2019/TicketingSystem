@@ -45,26 +45,32 @@ func collect(err error, add func(problem.FieldError)) {
 		// The generated wrapper binds parameters before the validator runs; its
 		// errors name the parameter in a ParamName field and carry the input
 		// in their text, so only the name is read.
-		if name, ok := paramName(err); ok {
-			add(problem.FieldError{Pointer: "/parameters/" + escape(name), Rule: "format"})
+		if name, rule, ok := paramName(err); ok {
+			add(problem.FieldError{Pointer: "/parameters/" + escape(name), Rule: rule})
 		}
 	}
 }
 
 // paramName returns ParamName from the generated parameter errors
-// (InvalidParamFormatError, RequiredParamError and friends). Each generated
-// package has its own copy of those types, so the field is read by reflection.
-func paramName(err error) (string, bool) {
+// (InvalidParamFormatError, RequiredParamError and friends) and the rule they
+// stand for: "required" for the Required* types, "format" otherwise. Each
+// generated package has its own copy of those types, so the field is read by
+// reflection.
+func paramName(err error) (name, rule string, ok bool) {
 	for ; err != nil; err = errors.Unwrap(err) {
 		v := reflect.Indirect(reflect.ValueOf(err))
 		if v.Kind() != reflect.Struct {
 			continue
 		}
 		if f := v.FieldByName("ParamName"); f.IsValid() && f.Kind() == reflect.String {
-			return f.String(), true
+			rule = "format"
+			if strings.HasPrefix(v.Type().Name(), "Required") {
+				rule = "required"
+			}
+			return f.String(), rule, true
 		}
 	}
-	return "", false
+	return "", "", false
 }
 
 func requestField(req *openapi3filter.RequestError) problem.FieldError {

@@ -7,6 +7,7 @@
 package problem
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -111,20 +112,26 @@ type Body struct {
 // handler cannot send a code with a status the registry does not list. An
 // unregistered code is a programming error and is sent as internal_error.
 func (reg *Registry) Write(w http.ResponseWriter, r *http.Request, code Code, errs ...FieldError) {
+	write(w, r, reg.Body(r.Context(), code, errs...))
+}
+
+// Body builds the problem for code, with the request id of ctx as instance. An
+// unregistered code is a programming error and is built as internal_error.
+func (reg *Registry) Body(ctx context.Context, code Code, errs ...FieldError) Body {
 	e, ok := reg.Lookup(code)
 	if !ok {
 		e, _ = reg.Lookup(InternalError)
 		code = InternalError
 	}
-	write(w, r, Body{
+	return Body{
 		Type:     "urn:nava:problem:" + string(code),
 		Title:    e.Title,
 		Status:   e.Status,
 		Code:     code,
 		Detail:   e.Detail,
-		Instance: "urn:nava:request:" + requestid.FromContext(r.Context()),
+		Instance: "urn:nava:request:" + requestid.FromContext(ctx),
 		Errors:   errs,
-	})
+	}
 }
 
 // Internal writes the internal_error problem without a registry, for the panic

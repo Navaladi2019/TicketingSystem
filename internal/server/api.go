@@ -9,7 +9,6 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/api"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/apihttp"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
-	"github.com/Navaladi2019/TicketingSystem/internal/platform/requestid"
 )
 
 // baseURL is oapi-codegen's BaseURL and the validator's Options.Prefix. The
@@ -63,10 +62,9 @@ type handlers struct {
 
 // GetMe is declared by T20 and implemented by T17.
 func (h *handlers) GetMe(ctx context.Context, _ api.GetMeRequestObject) (api.GetMeResponseObject, error) {
-	e, _ := h.reg.Lookup(problem.NotImplemented)
+	b := h.reg.Body(ctx, problem.NotImplemented)
 	return api.GetMe501ApplicationProblemPlusJSONResponse{
-		Type: "urn:nava:problem:" + string(e.Code), Title: e.Title, Status: e.Status,
-		Code: string(e.Code), Detail: e.Detail,
-		Instance: "urn:nava:request:" + requestid.FromContext(ctx),
+		Type: b.Type, Title: b.Title, Status: b.Status,
+		Code: string(b.Code), Detail: b.Detail, Instance: b.Instance,
 	}, nil
 }
