@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -173,6 +174,7 @@ func safeCause(ctx context.Context, err error) error {
 	case errors.As(err, &nested):
 		return redactURLError(ctx, err)
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded),
+		errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF),
 		errors.As(err, &netErr), errors.As(err, &certErr), errors.As(err, &alert),
 		errors.As(err, &record), errors.As(err, &unknown), errors.As(err, &host),
 		errors.As(err, &invalid):

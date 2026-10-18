@@ -40,9 +40,14 @@ tasks:
       - golangci-lint run ./...
 
   lint:fixture:
-    desc: The forbidigo rule must reject the raw HTTP client fixture
+    desc: The forbidigo rule must report exactly 5 findings on the raw HTTP client fixtures
     cmds:
-      - 'golangci-lint run --build-tags lintfixture ./internal/platform/lintfixture/ && { echo "forbidigo accepted the fixture"; exit 1; } || test $? -eq 1'
+      - |
+        code=0; out=$(golangci-lint run --build-tags lintfixture ./internal/platform/lintfixture/ 2>&1) || code=$?
+        echo "$out"
+        test "$code" -eq 1 || { echo "lint:fixture: expected exit 1, got $code"; exit 1; }
+        n=$(echo "$out" | grep -c "(forbidigo)$" || true)
+        test "$n" -eq 5 || { echo "lint:fixture: expected 5 forbidigo findings, got $n"; exit 1; }
 
   stack:up:
     desc: Build and start the local compose stack (Postgres, PgBouncer, Keycloak, Temporal, Collector, nava-core)

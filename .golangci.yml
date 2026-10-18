@@ -20,10 +20,10 @@ linters:
     forbidigo:
       # Outbound calls go through telemetry.NewOutboundClient (timeouts, URL
       # redaction, no query or email in spans). A raw client skips all three.
+      analyze-types: true # match by package, so aliased imports are caught too
       forbid:
-        - pattern: ^http\.(DefaultClient|DefaultTransport|Get|Head|Post|PostForm)$
-          msg: use telemetry.NewOutboundClient
-        - pattern: ^http\.Client$
+        - pattern: ^http\.(DefaultClient|DefaultTransport|Get|Head|Post|PostForm|Client|Transport)$
+          pkg: ^net/http$
           msg: use telemetry.NewOutboundClient
     sloglint:
       attr-only: true # slog.String(...) attributes, never loose key/value pairs

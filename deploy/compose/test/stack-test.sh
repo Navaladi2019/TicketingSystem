@@ -73,6 +73,7 @@ t_dependencies() {
 
     ready_before=$(admin_code /readyz)
     compose stop keycloak
+    trap 'compose start keycloak' EXIT
     await_check keycloak fail 60
     deadline=$(( $(date +%s) + 30 ))
     until [ "$(degraded_metric keycloak)" = 1 ]; do

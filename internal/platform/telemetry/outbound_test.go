@@ -67,6 +67,9 @@ func TestOutboundErrorHasNoQueryOrEmail(t *testing.T) {
 	if !errors.As(err, &ue) || ue.URL != want {
 		t.Errorf("error = %#v, want a *url.Error with URL %q", err, want)
 	}
+	if !errors.As(err, new(*net.OpError)) {
+		t.Errorf("error = %#v, want the *net.OpError cause kept for retry logic", err)
+	}
 }
 
 func TestOutboundErrorWithoutRouteKeepsOnlyHost(t *testing.T) {
@@ -102,6 +105,10 @@ func TestOutboundTimeoutAndRedirectDoNotLeak(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "alice") || strings.Contains(err.Error(), "?") {
 		t.Errorf("timeout error leaks the query: %v", err)
+	}
+	var ue *url.Error
+	if !errors.As(err, &ue) || !ue.Timeout() {
+		t.Errorf("error = %#v, want a *url.Error whose Timeout() is true", err)
 	}
 
 	// A redirect to a query-carrying URL that then fails must not echo it.
