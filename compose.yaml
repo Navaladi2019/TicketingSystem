@@ -146,6 +146,8 @@ services:
     image: nava/nava-core:dev
     environment:
       NAVA_HTTP_ADDR: ":8080"
+      NAVA_KEYCLOAK_MANAGEMENT_URL: http://keycloak:9000
+      NAVA_TEMPORAL_ADDRESS: temporal:7233
       NAVA_LOG_FORMAT: json
       OTEL_SERVICE_NAME: nava-core
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
@@ -155,7 +157,7 @@ services:
     depends_on:
       otel-collector: {condition: service_healthy}
     healthcheck:
-      # /metrics on the internal listener (NAVA_METRICS_ADDR, :9090) until T04 adds the health endpoint.
+      # /metrics on the admin listener (NAVA_ADMIN_ADDR, :9090); the admin port is never published.
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/metrics"]
       interval: 5s
       timeout: 5s

@@ -32,7 +32,7 @@ func main() {
 	}
 }
 
-// run serves the public and internal listeners until ctx is cancelled or
+// run serves the public and admin listeners until ctx is cancelled or
 // either one fails, then drains both and flushes telemetry.
 func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error {
 	cfg, err := config.Load(lookup)
@@ -46,16 +46,22 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 	if err != nil {
 		return err
 	}
+	mon, closeDeps, err := newMonitor(ctx, log, tel, cfg)
+	if err != nil {
+		_ = tel.Shutdown(context.WithoutCancel(ctx))
+		return err
+	}
+	defer closeDeps()
 	listeners := []struct {
 		name string
 		srv  *http.Server
 	}{
 		{"public", server.New(cfg.HTTP.Addr, cfg.HTTP, server.NewHandler(log, tel), log)},
-		{"internal", server.New(cfg.HTTP.MetricsAddr, cfg.HTTP, server.NewInternalHandler(log, tel), log)},
+		{"admin", telemetry.NewAdminServer(cfg.HTTP.AdminAddr, cfg.HTTP, telemetry.NewAdminHandler(log, tel, mon.Routes), log)},
 	}
 
 	log.InfoContext(ctx, "nava-core listening",
-		slog.String("addr", cfg.HTTP.Addr), slog.String("metrics_addr", cfg.HTTP.MetricsAddr),
+		slog.String("addr", cfg.HTTP.Addr), slog.String("admin_addr", cfg.HTTP.AdminAddr),
 		slog.Bool("trace_export", tel.Exporting()))
 	// Either server stopping (a listen failure, a recovered panic) cancels
 	// stopCtx, so the other drains too. Both drain before telemetry flushes.
@@ -63,6 +69,7 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 	defer stopAll()
 	serveErrs := make([]error, len(listeners))
 	var wg sync.WaitGroup
+	wg.Go(func() { mon.Run(stopCtx) })
 	for i, l := range listeners {
 		wg.Go(func() {
 			llog := log.With(slog.String("listener", l.name))

@@ -109,19 +109,31 @@ func runWith(env map[string]string) func(context.Context, *syncBuffer) error {
 }
 
 // TestRunSignalDrainsBothServers starts run for real: /metrics answers only on
-// the internal listener, and a signal shuts down both listeners before
+// the admin listener, and a signal shuts down both listeners before
 // telemetry is flushed.
 func TestRunSignalDrainsBothServers(t *testing.T) {
-	public, internal := freeAddr(t), freeAddr(t)
-	start := runWith(map[string]string{"NAVA_HTTP_ADDR": public, "NAVA_METRICS_ADDR": internal})
+	public, admin := freeAddr(t), freeAddr(t)
+	start := runWith(map[string]string{"NAVA_HTTP_ADDR": public, "NAVA_ADMIN_ADDR": admin})
 
 	ctx, cancel := context.WithCancel(t.Context())
 	var out syncBuffer
 	done := make(chan error, 1)
 	go func() { done <- start(ctx, &out) }()
 
-	if code := get(t, "http://"+internal+"/metrics"); code != http.StatusOK {
-		t.Errorf("internal /metrics = %d, want 200", code)
+	if code := get(t, "http://"+admin+"/metrics"); code != http.StatusOK {
+		t.Errorf("admin /metrics = %d, want 200", code)
+	}
+	for _, p := range []string{"/healthz", "/readyz"} {
+		if code := get(t, "http://"+public+p); code != http.StatusNotFound {
+			t.Errorf("public %s = %d, want 404", p, code)
+		}
+	}
+	// No database is configured, so the admin probes fail closed.
+	if code := get(t, "http://"+admin+"/healthz"); code != http.StatusServiceUnavailable {
+		t.Errorf("admin /healthz with no database = %d, want 503", code)
+	}
+	if code := get(t, "http://"+admin+"/readyz"); code != http.StatusServiceUnavailable {
+		t.Errorf("admin /readyz with no database = %d, want 503", code)
 	}
 	if code := get(t, "http://"+public+"/metrics"); code != http.StatusNotFound {
 		t.Errorf("public /metrics = %d, want 404", code)
@@ -137,7 +149,7 @@ func TestRunSignalDrainsBothServers(t *testing.T) {
 		t.Fatal("run did not return after cancel")
 	}
 	assertClosed(t, "public", public)
-	assertClosed(t, "internal", internal)
+	assertClosed(t, "admin", admin)
 
 	logs := out.String()
 	lines := logLines(t, logs)
@@ -145,7 +157,7 @@ func TestRunSignalDrainsBothServers(t *testing.T) {
 	if flushed < 0 {
 		t.Fatalf("telemetry.Shutdown was not called during shutdown:\n%s", logs)
 	}
-	for _, want := range []string{"public: nava-core shutting down", "internal: nava-core shutting down"} {
+	for _, want := range []string{"public: nava-core shutting down", "admin: nava-core shutting down"} {
 		if i := slices.Index(lines, want); i < 0 || i > flushed {
 			t.Errorf("no %q line before the telemetry flush:\n%s", want, logs)
 		}
@@ -159,7 +171,7 @@ func TestRunSignalDrainsBothServers(t *testing.T) {
 // ListenAndServe fails: run must drain the other listener too, flush
 // telemetry and return the listen error.
 func TestRunListenFailureShutsDownBoth(t *testing.T) {
-	for _, failing := range []string{"public", "internal"} {
+	for _, failing := range []string{"public", "admin"} {
 		t.Run(failing, func(t *testing.T) {
 			taken, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 			if err != nil {
@@ -167,13 +179,13 @@ func TestRunListenFailureShutsDownBoth(t *testing.T) {
 			}
 			defer func() { _ = taken.Close() }()
 			healthy := freeAddr(t)
-			addrs := map[string]string{"public": healthy, "internal": healthy}
+			addrs := map[string]string{"public": healthy, "admin": healthy}
 			addrs[failing] = taken.Addr().String()
-			other := "internal"
-			if failing == "internal" {
+			other := "admin"
+			if failing == "admin" {
 				other = "public"
 			}
-			start := runWith(map[string]string{"NAVA_HTTP_ADDR": addrs["public"], "NAVA_METRICS_ADDR": addrs["internal"]})
+			start := runWith(map[string]string{"NAVA_HTTP_ADDR": addrs["public"], "NAVA_ADMIN_ADDR": addrs["admin"]})
 
 			var out syncBuffer
 			done := make(chan error, 1)

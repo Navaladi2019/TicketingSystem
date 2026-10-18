@@ -19,17 +19,32 @@ type Config struct {
 	HTTP      HTTP
 	Log       Log
 	Telemetry Telemetry
+	Deps      Dependencies
 }
 
 // HTTP configures the two listeners. Both use the same timeouts.
 type HTTP struct {
 	Addr              string        // NAVA_HTTP_ADDR: the public API listener
-	MetricsAddr       string        // NAVA_METRICS_ADDR: the internal listener (/metrics)
+	AdminAddr         string        // NAVA_ADMIN_ADDR: the admin listener (/metrics, /healthz, /readyz)
 	ReadHeaderTimeout time.Duration // NAVA_HTTP_READ_HEADER_TIMEOUT
 	ReadTimeout       time.Duration // NAVA_HTTP_READ_TIMEOUT
 	WriteTimeout      time.Duration // NAVA_HTTP_WRITE_TIMEOUT
 	IdleTimeout       time.Duration // NAVA_HTTP_IDLE_TIMEOUT
 	ShutdownTimeout   time.Duration // NAVA_HTTP_SHUTDOWN_TIMEOUT
+}
+
+// Dependencies locates what the health checks probe. An empty value means
+// "not configured": the check reports it, and readiness fails closed for
+// PostgreSQL.
+type Dependencies struct {
+	// DatabaseURL is NAVA_DATABASE_URL, a postgres:// or postgresql:// URL. It
+	// holds a password: it is never logged and never echoed in an error.
+	DatabaseURL string
+	// KeycloakManagementURL is NAVA_KEYCLOAK_MANAGEMENT_URL, the base URL of
+	// Keycloak's management port, such as http://keycloak:9000.
+	KeycloakManagementURL string
+	// TemporalAddress is NAVA_TEMPORAL_ADDRESS, the frontend host:port.
+	TemporalAddress string
 }
 
 // Log configures the structured logger.
@@ -81,7 +96,7 @@ func Load(lookup LookupFunc) (Config, error) {
 	cfg := Config{
 		HTTP: HTTP{
 			Addr:              r.addr("NAVA_HTTP_ADDR", ":8080"),
-			MetricsAddr:       r.addr("NAVA_METRICS_ADDR", ":9090"),
+			AdminAddr:         r.addr("NAVA_ADMIN_ADDR", ":9090"),
 			ReadHeaderTimeout: r.duration("NAVA_HTTP_READ_HEADER_TIMEOUT", 5*time.Second),
 			ReadTimeout:       r.duration("NAVA_HTTP_READ_TIMEOUT", 15*time.Second),
 			WriteTimeout:      r.duration("NAVA_HTTP_WRITE_TIMEOUT", 30*time.Second),
@@ -97,8 +112,13 @@ func Load(lookup LookupFunc) (Config, error) {
 			ShutdownTimeout: r.duration("NAVA_TELEMETRY_SHUTDOWN_TIMEOUT", 5*time.Second),
 		},
 	}
-	if cfg.HTTP.Addr == cfg.HTTP.MetricsAddr {
-		r.errs = append(r.errs, errors.New("NAVA_METRICS_ADDR: must differ from NAVA_HTTP_ADDR"))
+	cfg.Deps = Dependencies{
+		DatabaseURL:           r.databaseURL("NAVA_DATABASE_URL"),
+		KeycloakManagementURL: strings.TrimRight(r.baseURL("NAVA_KEYCLOAK_MANAGEMENT_URL"), "/"),
+		TemporalAddress:       r.hostPort("NAVA_TEMPORAL_ADDRESS"),
+	}
+	if cfg.HTTP.Addr == cfg.HTTP.AdminAddr {
+		r.errs = append(r.errs, errors.New("NAVA_ADMIN_ADDR: must differ from NAVA_HTTP_ADDR"))
 	}
 	if err := errors.Join(r.errs...); err != nil {
 		return Config{}, fmt.Errorf("config: %w", err)
@@ -125,6 +145,55 @@ func (r *reader) addr(key, def string) string {
 	if err != nil {
 		r.errs = append(r.errs, fmt.Errorf("%s: want host:port such as :8080", key))
 		return def
+	}
+	return v
+}
+
+// databaseURL checks key is a postgres:// or postgresql:// URL with a host. It
+// never echoes the value: it carries the password.
+func (r *reader) databaseURL(key string) string {
+	v, ok := r.lookup(key)
+	if !ok || v == "" {
+		return ""
+	}
+	u, err := url.Parse(v)
+	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") || u.Host == "" {
+		r.errs = append(r.errs, fmt.Errorf("%s: want a postgres:// or postgresql:// URL", key))
+		return ""
+	}
+	return v
+}
+
+// baseURL checks key is an absolute http or https URL with no userinfo, query
+// or fragment. Empty is "not configured".
+func (r *reader) baseURL(key string) string {
+	v, ok := r.lookup(key)
+	if !ok || v == "" {
+		return ""
+	}
+	u, err := url.Parse(v)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" ||
+		u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		r.errs = append(r.errs, fmt.Errorf("%s: want an http or https URL without credentials or query", key))
+		return ""
+	}
+	return v
+}
+
+// hostPort checks key is host:port with a numeric port. Empty is "not
+// configured".
+func (r *reader) hostPort(key string) string {
+	v, ok := r.lookup(key)
+	if !ok || v == "" {
+		return ""
+	}
+	host, port, err := net.SplitHostPort(v)
+	if err == nil {
+		_, err = strconv.ParseUint(port, 10, 16)
+	}
+	if err != nil || host == "" {
+		r.errs = append(r.errs, fmt.Errorf("%s: want host:port such as temporal:7233", key))
+		return ""
 	}
 	return v
 }
