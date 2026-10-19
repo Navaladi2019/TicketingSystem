@@ -232,7 +232,7 @@ t_temporal_handshake() {
     [ -f "$CERTS/ca.pem" ] || fail "no certificates in $CERTS: run make dev-ca"
     dial_as nava-core "$CERTS" | grep -q SERVING || fail "the nava-core certificate could not dial Temporal"
     rogue=$(mktemp -d "$CERTS/rogue.XXXXXX") # under certs/ so Docker Desktop can mount it
-    (cd temporal-server && go run ./cmd/devcerts -rogue -out "$rogue") >/dev/null || fail "cannot generate the rogue certificate"
+    (cd temporal-server && go run ./cmd/devcerts -rogue -out ".rogue.$$" && cp ".rogue.$$"/* "$rogue"/ && rm -rf ".rogue.$$") >/dev/null || fail "cannot generate the rogue certificate" # relative -out: portable to Git Bash on Windows
     cp "$CERTS/ca.pem" "$rogue/ca.pem"
     chmod -R a+rX "$rogue"
     # A TLS rejection, not just any failure (a timeout or a missing image must not pass).
