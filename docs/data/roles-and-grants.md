@@ -1,6 +1,6 @@
-# Roles, ownership and grants (T03)
+# Roles, ownership and grants (T03, T08)
 
-Scope: TICK-54. ADR-001 I3 and A.3, PLAN-001 D-P2. PostgreSQL 16.10.
+Scope: TICK-54, TICK-62. ADR-001 I3 and A.3, PLAN-001 D-P2. PostgreSQL 16.10.
 
 ## Who owns and reaches what
 
@@ -16,17 +16,32 @@ erDiagram
     GRANT }o--|| PLATFORM_OBJECT : "on"
     PGBOUNCER_AUTH ||--|| PGBOUNCER_GET_AUTH : "EXECUTE"
     PGBOUNCER_GET_AUTH ||--o{ ROLE : "returns verifier only if pgbouncer_login"
+    PG_HBA ||--|| BOOTSTRAP_SUPERUSER : "Unix socket only"
+    PG_HBA ||--|| NAVA_BACKUP : "physical walsender from backup host only"
 ```
 
 | Role | Attributes | Owns | On `nava` | Through PgBouncer |
 | --- | --- | --- | --- | --- |
 | `nava_migrator` | LOGIN | `nava` (datdba), every platform object | owner | refused |
-| `nava_app` | LOGIN | nothing | CONNECT, USAGE on `public`; tables as later tasks list them | yes |
+| `nava_app`, `nava_worker`, `nava_relay`, `nava_purge`, `nava_onboard`, `nava_groupsync` | LOGIN | nothing | CONNECT, USAGE on `public`; tables as T09/T16 list them | yes |
+| `nava_backup` | LOGIN REPLICATION | nothing | nothing; `pg_hba` refuses every SQL session and logical walsender | refused |
 | `keycloak`, `temporal` | LOGIN | their own databases | nothing (no CONNECT) | refused |
 | `pgbouncer_auth` | LOGIN | nothing | CONNECT, USAGE on `pgbouncer`, EXECUTE on `get_auth` | n/a (auth_file) |
 
 Every role is `NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS` and a member of
-no role, `pg_*` included. T08 adds the other D28 roles to `db/grants.yaml`.
+no role, `pg_*` included. The service databases (`keycloak`, `temporal`,
+`temporal_visibility`) carry only their owner's privileges: db-roles revokes
+PostgreSQL's default `CONNECT`/`TEMPORARY` to PUBLIC and any other grant on
+them, so no platform role can connect there.
+
+### `db/pg_hba.conf` (first match wins)
+
+| Line | Effect |
+| --- | --- |
+| `local all pgadmin scram-sha-256`, then `host all pgadmin 0.0.0.0/0` and `::/0 reject` | The bootstrap superuser only over the Unix socket, which only `postgres` and `db-roles` mount (tmpfs volume `pgsocket`; `db-roles` has `network_mode: none`). T02 security review. |
+| `host replication nava_backup 127.0.0.1/32 scram-sha-256` | Physical walsender from the backup host. In compose that is the postgres container itself. A deployment changes only this address. |
+| `host all nava_backup 0.0.0.0/0` and `::/0 reject`, `local all nava_backup reject` | No SQL session and no logical walsender (`replication=database` names a database, so it matches `all`). |
+| `local`/`host all all … scram-sha-256` | Everyone else, password only. No `replication` line follows, so no other role can be a physical walsender. |
 
 ## Decisions
 
@@ -51,7 +66,12 @@ no role, `pg_*` included. T08 adds the other D28 roles to `db/grants.yaml`.
 5. **PUBLIC counts as drift.** The applier reads `coalesce(acl, acldefault())`,
    so implicit PUBLIC grants (and a missing global function default) are
    revoked like explicit ones.
-6. **Session lock.** goose v3.29.0 with
+6. **The superuser reaches PostgreSQL only through a shared Unix socket (T08).**
+   The issue allowed "local socket, or only from db-init". Container
+   addresses are dynamic, so an address rule for db-roles would need a fixed
+   subnet. A socket directory mounted only into `postgres` and `db-roles`
+   needs no addressing, and db-roles then needs no network at all.
+7. **Session lock.** goose v3.29.0 with
    `WithSessionLocker(lock.NewPostgresSessionLocker(...))`, retrying every 2 s
    up to 300 times (10 min). A second migrator waits, then applies nothing.
 
@@ -68,5 +88,8 @@ every grant.
 
 - Default `USAGE` on new types still goes to PUBLIC; A.3 revokes only function
   `EXECUTE`. CI-3 (T10) decides whether types count as platform objects.
-- `pg_hba` rules, the other D28 roles and the post-run RLS/FORCE check belong
-  to T08 and T10.
+- The post-run RLS/FORCE check belongs to T10. Per-table grants and policies
+  for the D28 roles arrive with T09 and T16.
+- PUBLIC keeps `CONNECT` on the `postgres` maintenance database, which is not
+  in the manifest. `pg_hba` already refuses `pgadmin` and `nava_backup` there
+  over TCP.

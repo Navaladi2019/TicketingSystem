@@ -5,6 +5,10 @@
 # postgres and db-roles containers, as a file under /run, never as an
 # environment variable.
 #
+# The superuser logs in only over PostgreSQL's Unix socket (db/pg_hba.conf),
+# which only postgres and db-roles mount (the `pgsocket` volume); db-roles has
+# no network at all.
+#
 # Networks: `internal` (internal: true, no egress) carries every backing
 # service and is the platform network. `default` publishes ports to the host for
 # nava-core and Keycloak. `temporal-backplane` carries Temporal's own traffic and
@@ -15,6 +19,9 @@ name: nava
 services:
   postgres:
     image: postgres:16.10
+    # db/pg_hba.conf replaces the image's file, which trusts the socket and
+    # lets every role in, the superuser included, from any container.
+    command: ["postgres", "-c", "hba_file=/etc/postgresql/pg_hba.conf"]
     environment:
       POSTGRES_USER: pgadmin
       POSTGRES_PASSWORD_FILE: /run/pg_superuser_password
@@ -22,8 +29,11 @@ services:
     configs:
       - source: pg_superuser_password
         target: /run/pg_superuser_password
+      - source: pg_hba
+        target: /etc/postgresql/pg_hba.conf
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - pgsocket:/var/run/postgresql
     networks: [internal, temporal-backplane]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U pgadmin -d postgres"]
@@ -35,7 +45,9 @@ services:
   # One-shot and idempotent, as the bootstrap superuser (the only service
   # that has its credential): converges every role in db/grants.yaml (no
   # SUPERUSER, CREATEDB, CREATEROLE or BYPASSRLS; no memberships), the
-  # databases and their owners, and PgBouncer's lookup function, then exits.
+  # databases and their owners, the service databases' grants (owner only),
+  # and PgBouncer's lookup function, then exits. It reaches PostgreSQL over
+  # the Unix socket only, the one path pg_hba.conf opens to the superuser.
   db-roles:
     build:
       context: .
@@ -43,19 +55,27 @@ services:
     image: nava/nava-db:dev
     command: ["roles"]
     environment:
-      PGHOST: postgres
+      PGHOST: /var/run/postgresql
       PGUSER: pgadmin
       PGDATABASE: postgres
       PGPASSWORD_FILE: /run/pg_superuser_password
       DBROLES_PASSWORD_NAVA_MIGRATOR: ${NAVA_MIGRATOR_DB_PASSWORD:-dev-only-migrator}
       DBROLES_PASSWORD_NAVA_APP: ${NAVA_APP_DB_PASSWORD:-dev-only-app}
+      DBROLES_PASSWORD_NAVA_WORKER: ${NAVA_WORKER_DB_PASSWORD:-dev-only-worker}
+      DBROLES_PASSWORD_NAVA_RELAY: ${NAVA_RELAY_DB_PASSWORD:-dev-only-relay}
+      DBROLES_PASSWORD_NAVA_PURGE: ${NAVA_PURGE_DB_PASSWORD:-dev-only-purge}
+      DBROLES_PASSWORD_NAVA_ONBOARD: ${NAVA_ONBOARD_DB_PASSWORD:-dev-only-onboard}
+      DBROLES_PASSWORD_NAVA_GROUPSYNC: ${NAVA_GROUPSYNC_DB_PASSWORD:-dev-only-groupsync}
+      DBROLES_PASSWORD_NAVA_BACKUP: ${NAVA_BACKUP_DB_PASSWORD:-dev-only-backup}
       DBROLES_PASSWORD_KEYCLOAK: ${KEYCLOAK_DB_PASSWORD:-dev-only-keycloak}
       DBROLES_PASSWORD_TEMPORAL: ${TEMPORAL_DB_PASSWORD:-dev-only-temporal}
       DBROLES_PASSWORD_PGBOUNCER_AUTH: ${PGBOUNCER_AUTH_PASSWORD:-dev-only-pgbouncer}
     configs:
       - source: pg_superuser_password
         target: /run/pg_superuser_password
-    networks: [internal]
+    volumes:
+      - pgsocket:/var/run/postgresql
+    network_mode: none
     depends_on:
       postgres: {condition: service_healthy}
     restart: "no"
@@ -295,12 +315,18 @@ networks:
 
 volumes:
   pgdata: {}
+  # PostgreSQL's Unix socket directory, shared by postgres and db-roles only.
+  # tmpfs: no stale socket or lock file survives a restart.
+  pgsocket:
+    driver_opts: {type: tmpfs, device: tmpfs, o: "uid=999,gid=999,mode=0755"}
 
 configs:
   pg_superuser_password:
     content: ${PG_SUPERUSER_PASSWORD:-dev-only-superuser}
   nava_migrator_password:
     content: ${NAVA_MIGRATOR_DB_PASSWORD:-dev-only-migrator}
+  pg_hba:
+    file: ./db/pg_hba.conf
   pgbouncer_ini:
     file: ./deploy/compose/pgbouncer/pgbouncer.ini
   pgbouncer_userlist:

@@ -45,6 +45,41 @@ roles:
     tables: {}
     functions: {}
 
+  # The other D28 system actors (A.3), one role each. Their table and column
+  # grants and their policies arrive with the migrations that create the
+  # tables (T09, T16).
+  nava_worker:
+    attributes: [LOGIN]
+    pgbouncer_login: true
+    database: [CONNECT]
+    schemas: { public: [USAGE] }
+  nava_relay:
+    attributes: [LOGIN]
+    pgbouncer_login: true
+    database: [CONNECT]
+    schemas: { public: [USAGE] }
+  nava_purge:
+    attributes: [LOGIN]
+    pgbouncer_login: true
+    database: [CONNECT]
+    schemas: { public: [USAGE] }
+  nava_onboard:
+    attributes: [LOGIN]
+    pgbouncer_login: true
+    database: [CONNECT]
+    schemas: { public: [USAGE] }
+  nava_groupsync:
+    attributes: [LOGIN]
+    pgbouncer_login: true
+    database: [CONNECT]
+    schemas: { public: [USAGE] }
+
+  # Physical backups only. No CONNECT on the platform database; db/pg_hba.conf
+  # lets it in only as a physical walsender from the backup host and rejects
+  # every SQL session and logical walsender (A.3, R2).
+  nava_backup:
+    attributes: [LOGIN, REPLICATION]
+
   # Own databases; nothing on the platform database (A.3).
   keycloak:
     attributes: [LOGIN]

@@ -6,7 +6,7 @@ Delivery decisions that change a task's contract, newest first.
 - **Decided by:** the Technical Lead on TICK-59, on the Security Reviewer's Finding 1 (PR #21).
 - **Decision:** `temporal-ui` publishes no port. Operators reach it with `make operator-tunnel`, which lives only while it runs. `stack-test.sh temporal_operator_reach` checks the default state, with no tunnel.
 - **Accepted risk (Low):** while the tunnel is open, a compromised nava-core can reach the UI through `host.docker.internal` and act as `nava-operator`.
-- **Deferred:** Temporal UI login through Keycloak OIDC (TODO-004). Trigger: the UI must be reachable without a tunnel, the stack runs in a shared or non-local environment, or Milestone 1 closes, whichever is first.
+- **Deferred:** Temporal UI login through Keycloak OIDC (TODO-006). Trigger: the UI must be reachable without a tunnel, the stack runs in a shared or non-local environment, or Milestone 1 closes, whichever is first.
 - **Also decided:** `temporal-server` pins `go.temporal.io/server/cmd/tools/sql` with a `tool` directive. Its indirect dependencies (`urfave/cli`, `go-md2man`, `blackfriday`) come only from the pinned server module and are accepted under the no-new-dependencies rule.
 - **Dissent:** none.
 

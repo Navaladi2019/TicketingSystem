@@ -81,7 +81,8 @@ func adrAllows(id Identity, fullAPI string) bool {
 			"RecordActivityTaskHeartbeat", "RespondQueryTaskCompleted", "GetWorkflowExecutionHistory",
 			"RecordWorkerHeartbeat") ||
 			strings.HasPrefix(method, "RespondWorkflowTask") ||
-			strings.HasPrefix(method, "RespondActivityTask"))
+			// T27c: the *ById forms need no task token, so the worker may not call them.
+			(strings.HasPrefix(method, "RespondActivityTask") && !strings.HasSuffix(method, "ById")))
 	case Operator:
 		if fullAPI == api.WorkflowServicePrefix+"TerminateWorkflowExecution" ||
 			fullAPI == api.OperatorServicePrefix+"AddSearchAttributes" {
@@ -226,7 +227,7 @@ func TestAuthorizeMatrix(t *testing.T) {
 					nsOK := ns == Namespace || (ns == "" && !hasNS)
 					want = adrAllows(id, m) && nsOK
 				}
-				res, err := a.Authorize(ctx, claimsFor(id), &authorization.CallTarget{APIName: m, Namespace: ns})
+				res, err := a.Authorize(ctx, claimsFor(id), &authorization.CallTarget{APIName: m, Namespace: ns, Request: gateRequest(t, m)})
 				if err != nil {
 					t.Fatalf("Authorize returned error: %v", err)
 				}
@@ -243,6 +244,15 @@ func TestAuthorizeMatrix(t *testing.T) {
 		}
 	}
 	t.Logf("matrix: %d allowed, %d denied", allowed, denied)
+}
+
+// gateRequest is a request body that command inspection allows, so that the
+// matrix and golden table test the API gate alone. Inspection is commands_test.go.
+func gateRequest(t testing.TB, api string) any {
+	if api != respondWorkflowTaskCompleted {
+		return nil
+	}
+	return respond(taskToken(t, "t:tenantA:ticket:1"))
 }
 
 func claimsFor(id Identity) *authorization.Claims {
@@ -287,7 +297,7 @@ func TestAllowListGolden(t *testing.T) {
 				if scope == "nava" {
 					ns = Namespace
 				}
-				res, _ := a.Authorize(context.Background(), claimsFor(id), &authorization.CallTarget{APIName: full, Namespace: ns})
+				res, _ := a.Authorize(context.Background(), claimsFor(id), &authorization.CallTarget{APIName: full, Namespace: ns, Request: gateRequest(t, full)})
 				cell := " |"
 				if res.Decision == authorization.DecisionAllow {
 					cell = " Y |"

@@ -66,7 +66,7 @@ dev-ca:
 
 ## Explicit operator tunnel to the Temporal UI (profile operator): forwards
 ## 127.0.0.1:$(UI_PORT) to the UI until interrupted. The UI publishes no port.
-# TODO(TODO-004): while the tunnel is open, any container on a non-internal
+# TODO(TODO-006): while the tunnel is open, any container on a non-internal
 # network reaches the UI through host.docker.internal and acts as nava-operator.
 UI_PORT ?= 18233
 operator-tunnel:
