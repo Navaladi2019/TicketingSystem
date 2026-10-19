@@ -179,6 +179,17 @@ t_dbroles() {
     [ "$(psql_super postgres "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = 'nava'")" = nava_migrator ]         || fail "nava is not owned by nava_migrator"
     [ "$(psql_super postgres "SELECT count(*) FROM pg_auth_members WHERE roleid = 'nava_migrator'::regrole")" = 0 ]         || fail "nava_migrator is granted to a role"
     pass "stray membership revoked; datdba = nava_migrator, granted to no one"
+
+    # T08 security review: a second superuser fails db-roles, which names it.
+    psql_super postgres "CREATE ROLE nava_test_super SUPERUSER" >/dev/null
+    if out=$(compose run --rm --no-deps db-roles 2>&1); then
+        psql_super postgres "DROP ROLE nava_test_super" >/dev/null
+        fail "db-roles succeeded with a second superuser"
+    fi
+    psql_super postgres "DROP ROLE nava_test_super" >/dev/null
+    printf '%s\n' "$out" | grep -q nava_test_super || fail "db-roles failed without naming the second superuser: $out"
+    compose run --rm --no-deps db-roles >/dev/null || fail "db-roles fails once the second superuser is gone"
+    pass "db-roles refuses a second superuser and names it"
 }
 
 # db/pg_hba.conf in the running stack (T08: ADR-001 A.3, CI-9; T02 security
