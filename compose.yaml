@@ -279,6 +279,8 @@ services:
       NAVA_TEMPORAL_TLS_KEY_FILE: /run/temporal-tls/nava-core.key
       NAVA_TEMPORAL_TLS_CA_FILE: /run/temporal-tls/ca.pem
       NAVA_TEMPORAL_TLS_SERVER_NAME: temporal
+      # nava_app (db/grants.yaml) through PgBouncer; PostgreSQL gates /readyz.
+      NAVA_DATABASE_URL: postgres://nava_app:${NAVA_APP_DB_PASSWORD:-dev-only-app}@pgbouncer:5432/nava?sslmode=disable
       NAVA_LOG_FORMAT: json
       OTEL_SERVICE_NAME: nava-core
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
@@ -292,9 +294,11 @@ services:
     depends_on:
       otel-collector: {condition: service_healthy}
       temporal: {condition: service_healthy}
+      pgbouncer: {condition: service_healthy}
     healthcheck:
-      # /metrics on the admin listener (NAVA_ADMIN_ADDR, :9090); the admin port is never published.
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/metrics"]
+      # /readyz on the admin listener (NAVA_ADMIN_ADDR, :9090): 200 only while
+      # PostgreSQL answers. The admin port is never published.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/readyz"]
       interval: 5s
       timeout: 5s
       retries: 20

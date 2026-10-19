@@ -2,9 +2,10 @@
 
 // These tests need a disposable PostgreSQL cluster: the tests
 // create and drop cluster-wide roles and the databases in db/grants.yaml.
-// Point NAVA_TEST_PG_URL at its superuser, e.g.
+// make test-integration (scripts/ci/test-integration.sh) starts one from the
+// docs/pins.md postgres image and points NAVA_TEST_PG_URL at its superuser.
+// To use your own cluster instead:
 //
-//	docker run -d --name nava-test-pg -e POSTGRES_USER=pgadmin -e POSTGRES_PASSWORD=pw -p 127.0.0.1:55432:5432 postgres:16.10
 //	NAVA_TEST_PG_URL=postgres://pgadmin:pw@127.0.0.1:55432/postgres go test -tags integration -p 1 ./internal/db/dbtest/
 //
 // Everything is in this one package so no two tests touch the cluster at

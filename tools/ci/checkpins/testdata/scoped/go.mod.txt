@@ -1,0 +1,6 @@
+module example.com/probe
+
+go 1.26
+
+// The reviewer's probe: the platform module takes temporal-server's grpc.
+require google.golang.org/grpc v1.79.3

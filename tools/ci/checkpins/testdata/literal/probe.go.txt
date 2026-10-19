@@ -1,0 +1,6 @@
+package probe
+
+// Not an image: a host and port.
+const url = "http://keycloak:9000"
+
+const image = "postgres:16.10"

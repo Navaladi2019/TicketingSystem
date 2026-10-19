@@ -32,7 +32,17 @@ Every role is `NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS` and a member of
 no role, `pg_*` included. The service databases (`keycloak`, `temporal`,
 `temporal_visibility`) carry only their owner's privileges: db-roles revokes
 PostgreSQL's default `CONNECT`/`TEMPORARY` to PUBLIC and any other grant on
-them, so no platform role can connect there.
+them, so no platform role can connect there. On `nava` the migrator owns the
+grants, but db-roles runs `REVOKE ALL ON DATABASE nava FROM PUBLIC` right
+after `CREATE DATABASE nava`, so PUBLIC has no `CONNECT`/`TEMPORARY` there
+while `keycloak` and `temporal` start and `migrate` has not yet run (T08
+security review).
+
+db-roles fails, before it changes anything, if any role outside the manifest
+other than the bootstrap superuser has `rolsuper`, and names it. The
+`pg_hba.conf` superuser rules match `pgadmin` by name, so a second superuser
+would reach PostgreSQL over TCP through the catch-all. A manifest role with
+`rolsuper` is drift that the same run demotes, so it does not fail the run.
 
 ### `db/pg_hba.conf` (first match wins)
 

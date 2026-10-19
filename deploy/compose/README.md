@@ -40,7 +40,7 @@ db-roles creates it on the next `up`. A LOGIN role also needs a
 **Tests.** `sh deploy/compose/test/stack-test.sh <healthy|pgbouncer|temporal|trace|redact|idempotent|dbroles|internal|temporal_handshake|temporal_isolation|temporal_custody|temporal_health>`
 (`task stack:test`). Start the stack with `OTEL_TAIL_SAMPLE_PERCENT=100` for the
 `trace` test: an ordinary 404 is otherwise sampled out. CI runs them in
-`.github/workflows/compose-stack.yml`.
+the `stack` job in `.github/workflows/ci.yml`.
 
 The SDK test (every identity dials, a worker runs a workflow) needs the stack
 with the test overlay, which publishes the gateway on `127.0.0.1:17233`:

@@ -10,6 +10,15 @@ Delivery decisions that change a task's contract, newest first.
 - **Also decided:** `temporal-server` pins `go.temporal.io/server/cmd/tools/sql` with a `tool` directive. Its indirect dependencies (`urfave/cli`, `go-md2man`, `blackfriday`) come only from the pinned server module and are accepted under the no-new-dependencies rule.
 - **Dissent:** none.
 
+## 2026-10-19: T05 keeps docker-CLI integration containers; CI gates run as parallel required checks
+- **Decided by:** the Technical Lead on TICK-56 (testcontainers, 2026-10-18; gate order, 2026-10-19), after the PR #19 review.
+- **Decision 1:** the integration tests keep starting containers through the docker CLI. `testcontainers-go` and `moby/go-archive` are approved, not adopted.
+  - **Reason:** T03 and T04 already use this pattern, and converting would add a dependency that fixes nothing.
+  - **Intent kept (TICK-94 item 16):** real containers, image tags from `docs/pins.md` (`check-pins` fails on an inline tag), and per-test cleanup. Go-started containers are removed in `t.Cleanup`. The shared container that `scripts/ci/test-integration.sh` starts is removed by its trap on exit, Ctrl-C or TERM.
+  - **Trigger:** if testcontainers is adopted later, the `moby/go-archive` ≥ v0.3.0 pin comes with it (GO-2026-6253).
+- **Decision 2:** "Gates, in order" means each gate is a separate required check that blocks merge. The four CI jobs (`lint-unit`, `temporal-server`, `integration`, `stack`) run in parallel, with no `needs: lint-unit`. That keeps the pipeline under the 10-minute target (6m15s). `make ci` still runs the stages in order locally.
+- **Dissent:** none.
+
 ## 2026-10-17: TICK-94 rulings folded into PLAN-001; T01g owns span redaction
 - **Decided by:** the Technical Architect on TICK-94 (verdicts for items 1–16, 2026-10-16). Folded in by the Technical Lead on TICK-104.
 - **Decision:** each affected task (T03, T04, T05, T07, T15, T18, T20, T24, T30a, T30b, T31, T33) has an "Audit TICK-93 / TICK-94" section that quotes its conditions. T05 commits the pin rows and a forbidden-module list to `docs/pins.md`.
