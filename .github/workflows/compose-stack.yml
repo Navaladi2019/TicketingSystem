@@ -39,6 +39,8 @@ jobs:
     env:
       # An ordinary 404 is sampled out at the default 10%; keep all for the trace test.
       OTEL_TAIL_SAMPLE_PERCENT: "100"
+      # The stack tests run with the operator profile (Temporal UI) and the test overlay.
+      COMPOSE_FILE_ARGS: --profile operator -f compose.yaml -f deploy/compose/compose.test.yaml
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -54,7 +56,7 @@ jobs:
       - name: Build and start the stack
         run: |
           make dev-ca
-          docker compose -f compose.yaml -f deploy/compose/compose.test.yaml up -d --build
+          docker compose --profile operator -f compose.yaml -f deploy/compose/compose.test.yaml up -d --build
 
       - name: Every container healthy
         run: sh deploy/compose/test/stack-test.sh healthy
@@ -73,6 +75,9 @@ jobs:
 
       - name: Temporal certificates mounted only where owned
         run: sh deploy/compose/test/stack-test.sh temporal_custody
+
+      - name: No platform process reaches the Temporal UI
+        run: sh deploy/compose/test/stack-test.sh temporal_operator_reach
 
       - name: Temporal bootstrapped, nava-core healthz ok over mTLS
         run: sh deploy/compose/test/stack-test.sh temporal_health
@@ -94,7 +99,7 @@ jobs:
 
       - name: Internal overlay comes up
         run: |
-          docker compose down -v
+          docker compose --profile operator down -v
           sh deploy/compose/test/stack-test.sh internal
 
       - name: Logs on failure
