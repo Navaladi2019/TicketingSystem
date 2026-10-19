@@ -6,7 +6,8 @@ exact version, why it is pinned there, and the ruling or task that set it.
 
 - every direct `require` in every `go.mod` has a row in **Go modules**, and the
   row's version names the version in that `go.mod` (or is a `≥` floor it meets);
-- no `*.go` or `*.sh` file (outside `docs/` and `testdata/`) spells an image
+- no `*.go` or `*.sh` file (outside `docs/` and the checker's own
+  `tools/ci/checkpins/`) spells an image
   from **Images** with a tag, such as `postgres:16.10`: code and scripts read
   the tag from this file (`scripts/ci/test-integration.sh` exports it as
   `NAVA_TEST_PG_IMAGE`);

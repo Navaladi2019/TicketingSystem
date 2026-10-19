@@ -148,9 +148,14 @@ func yesNo(b bool) string {
 	return "no"
 }
 
-// skipRe matches an added line that can take a test out of the run: a skip,
-// a -short guard, or a build constraint (`//go:build ignore` and the like).
-var skipRe = regexp.MustCompile(`\bt\.(Skip|SkipNow|Skipf)\(|testing\.Short\(\)|^\s*//\s*(go:build|\+build)\b`)
+// skipRe matches an added line that can take a test out of the run: a skip
+// or a -short guard.
+var skipRe = regexp.MustCompile(`\bt\.(Skip|SkipNow|Skipf)\(|testing\.Short\(\)`)
+
+// constraintRe matches an added build constraint (`//go:build ignore` and the
+// like). It counts only in a modified file: a new file needs a header such as
+// `//go:build integration`, and cannot take an existing test out of the run.
+var constraintRe = regexp.MustCompile(`^\s*//\s*(go:build|\+build)\b`)
 
 // Evaluate applies the path list to a change. added holds the added lines of
 // each isolation test file that was not deleted.
@@ -167,7 +172,7 @@ func Evaluate(cfg Config, changes []Change, added map[string][]string) Result {
 			r.CTO = append(r.CTO, c.Path+" (isolation test removed)")
 		case cfg.isIsolationTest(c.Path):
 			for _, l := range added[c.Path] {
-				if skipRe.MatchString(l) {
+				if skipRe.MatchString(l) || (c.Status == "M" && constraintRe.MatchString(l)) {
 					r.CTO = append(r.CTO, c.Path+" (isolation test skipped or excluded)")
 					break
 				}

@@ -91,6 +91,9 @@ func TestCTOSignoff(t *testing.T) {
 		{"go:build ignore", "M\t" + deep, map[string][]string{deep: {"//go:build ignore"}}, deep + " (isolation test skipped or excluded)"},
 		{"+build tag", "M\t" + iso, map[string][]string{iso: {"// +build never"}}, iso + " (isolation test skipped or excluded)"},
 		{"constraint changed", "M\t" + ci6, map[string][]string{ci6: {"//go:build integration && !race"}}, ci6 + " (isolation test skipped or excluded)"},
+		// PR #19 round 2: a new isolation test needs its build tag; that is no skip.
+		{"new isolation test", "A\t" + deep, map[string][]string{deep: {"//go:build integration", "package c"}}, ""},
+		{"new isolation test skipped", "A\t" + deep, map[string][]string{deep: {"//go:build integration", "\tt.Skip(\"todo\")"}}, deep + " (isolation test skipped or excluded)"},
 		// Not an isolation test: no CTO line.
 		{"ordinary test removed", "D\tinternal/server/api_test.go", nil, ""},
 	} {
