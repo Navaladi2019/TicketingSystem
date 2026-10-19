@@ -16,13 +16,33 @@ func TestRepositoryManifestParses(t *testing.T) {
 	if m.Owner() != "nava_migrator" {
 		t.Fatalf("platform database owner = %q, want nava_migrator", m.Owner())
 	}
-	if got := m.PgBouncerLogins(); len(got) != 1 || got[0] != "nava_app" {
-		t.Fatalf("PgBouncer allow-list = %v, want [nava_app]", got)
+	// ADR-001 A.3: one role per system actor. The runtime roles log in
+	// through PgBouncer with CONNECT and USAGE on public; nava_backup is
+	// LOGIN REPLICATION with no grant at all.
+	runtime := []string{"nava_app", "nava_groupsync", "nava_onboard", "nava_purge", "nava_relay", "nava_worker"}
+	if got := m.PgBouncerLogins(); strings.Join(got, ",") != strings.Join(runtime, ",") {
+		t.Fatalf("PgBouncer allow-list = %v, want %v", got, runtime)
 	}
-	for _, name := range []string{"nava_migrator", "nava_app"} {
+	want := append([]string{"keycloak", "nava_backup", "nava_migrator", "pgbouncer_auth", "temporal"}, runtime...)
+	for _, name := range want {
 		if _, ok := m.Roles[name]; !ok {
 			t.Errorf("role %s missing", name)
 		}
+	}
+	if len(m.Roles) != len(want) {
+		t.Errorf("roles = %v, want exactly %v", m.RoleNames(), want)
+	}
+	for _, name := range runtime {
+		r := m.Roles[name]
+		if strings.Join(r.Attributes, ",") != "LOGIN" || strings.Join(r.Database, ",") != "CONNECT" ||
+			strings.Join(r.Schemas["public"], ",") != "USAGE" || len(r.Schemas) != 1 {
+			t.Errorf("runtime role %s: %+v, want LOGIN, CONNECT and USAGE on public", name, r)
+		}
+	}
+	b := m.Roles["nava_backup"]
+	if strings.Join(b.Attributes, ",") != "LOGIN,REPLICATION" || b.PgBouncerLogin ||
+		len(b.Database)+len(b.Schemas)+len(b.Tables)+len(b.Functions) != 0 {
+		t.Errorf("nava_backup: %+v, want LOGIN REPLICATION and no grants", b)
 	}
 }
 
