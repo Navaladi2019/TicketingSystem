@@ -13,7 +13,7 @@ interleaved load, and proves the test would catch the fault.
 | Risk | Covered by |
 | --- | --- |
 | A PgBouncer image or setting change (`max_prepared_statements = 0`, version < 1.21) breaks every query that pgx prepares: `42P05 already exists` / `26000 does not exist` | `TestPgBouncerPreparedStatements`: 50 clients x 200 statements, zero errors |
-| The test passes vacuously because clients never share a server connection | Same test: `SHOW POOLS` shows 50 clients logged in on at most 5 server connections; `SHOW STATS` shows one server assignment per transaction (≥ 10,000); at most 5 backend PIDs, at least one serving more than one client |
+| The test passes vacuously because clients never share a server connection | Same test: `SHOW POOLS` shows 50 clients logged in on at most 5 server connections; `SHOW STATS` shows one server assignment per transaction (≥ 10,000); at most 5 backend PIDs, at least one serving more than one client, and at least one client served by more than one backend |
 | The check cannot see the fault | `TestPgBouncerWithoutPreparedStatementTracking`: the same load and the same check through a PgBouncer with `max_prepared_statements = 0` must report prepared-statement errors |
 
 ## Setup

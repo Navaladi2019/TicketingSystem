@@ -40,7 +40,10 @@ docker run -d --name "$name" --network "$net" --network-alias pg \
 # Two PgBouncers in front of it (T06): pooled.ini is the setting under test,
 # noprep.ini the same with max_prepared_statements = 0 (the negative case).
 for b in $bouncers; do
-    docker create --name "$b" --network "$net"         --health-cmd 'pg_isready -h 127.0.0.1 -p 5432'         --health-interval 1s --health-timeout 5s --health-retries 90         -p 127.0.0.1::5432 "$bouncer_image" >/dev/null
+    docker create --name "$b" --network "$net" \
+        --health-cmd 'pg_isready -h 127.0.0.1 -p 5432' \
+        --health-interval 1s --health-timeout 5s --health-retries 90 \
+        -p 127.0.0.1::5432 "$bouncer_image" >/dev/null
     if [ "$b" = "$pooled" ]; then ini=pooled.ini; else ini=noprep.ini; fi
     docker cp scripts/ci/pgbouncer/$ini "$b:/etc/pgbouncer/pgbouncer.ini"
     docker cp scripts/ci/pgbouncer/userlist.txt "$b:/etc/pgbouncer/userlist.txt"

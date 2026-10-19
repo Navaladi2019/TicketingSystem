@@ -25,7 +25,6 @@ import (
 	"os"
 	"slices"
 	"strconv"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -195,10 +194,11 @@ func sum(m map[string]int64, cols []string) int64 {
 // result is what one load run observed.
 type result struct {
 	statements   int
-	preparedErrs int            // SQLSTATE 26000 / 42P05 or "prepared statement" errors
+	preparedErrs int            // server errors with SQLSTATE 26000 or 42P05
 	otherErrs    int            // anything else
 	firstErr     error          // first error of either kind, for the log
 	clientsByPID map[uint32]int // backend PID -> how many clients it served
+	pidsByClient []int          // client -> how many backends served it
 }
 
 // checkNoPreparedErrors is the outcome assertion. The main case expects nil;
@@ -212,12 +212,11 @@ func checkNoPreparedErrors(r result) error {
 	return nil
 }
 
+// isPreparedErr is true only for a server error with SQLSTATE 26000
+// (prepared statement does not exist) or 42P05 (already exists).
 func isPreparedErr(err error) bool {
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && (pgErr.Code == "26000" || pgErr.Code == "42P05") {
-		return true
-	}
-	return strings.Contains(err.Error(), "prepared statement")
+	return errors.As(err, &pgErr) && (pgErr.Code == "26000" || pgErr.Code == "42P05")
 }
 
 // load connects every client first, calls connected (to sample SHOW POOLS
@@ -250,7 +249,7 @@ func load(t *testing.T, url string, connected func()) result {
 
 	var (
 		mu  sync.Mutex
-		res = result{clientsByPID: map[uint32]int{}}
+		res = result{clientsByPID: map[uint32]int{}, pidsByClient: make([]int, clients)}
 		wg  sync.WaitGroup
 	)
 	stmts := statements()
@@ -298,6 +297,7 @@ func load(t *testing.T, url string, connected func()) result {
 			for pid := range pids {
 				res.clientsByPID[pid]++
 			}
+			res.pidsByClient[i] = len(pids)
 		})
 	}
 	close(start)
@@ -382,6 +382,13 @@ func TestPgBouncerPreparedStatements(t *testing.T) {
 	}
 	if shared == 0 {
 		t.Error("no backend served more than one client: the test proves nothing")
+	}
+	// And from the client's side: a client whose transactions land on
+	// different backends is the path that raises 26000 without tracking.
+	if hop := slices.Max(res.pidsByClient); hop < 2 {
+		t.Error("no client was served by more than one backend: the test proves nothing")
+	} else {
+		t.Logf("clients served by more than one backend: up to %d backends per client", hop)
 	}
 }
 
