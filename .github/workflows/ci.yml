@@ -1,0 +1,124 @@
+# T05 pipeline. Every step calls a Makefile target, so `make ci` runs the same
+# gates locally. The jobs run in parallel; inside each, steps run in the
+# Makefile's gate order and the first failure stops the job:
+#   lint-unit    gofmt, go vet, golangci-lint, fixtures, pins, OpenAPI,
+#                govulncheck, then go test -race (no containers)
+#   temporal-server  the custom server module's unit tests (no containers)
+#   integration  -tags integration against a throwaway PostgreSQL
+#   stack        image build, compose up, GET /healthz smoke, stack tests
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint-unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # check-openapi and review-paths diff against the pull request's base.
+      BASE: origin/${{ github.base_ref || 'main' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install pinned tools
+        run: make tools
+      - name: Review paths (D-P10)
+        if: github.event_name == 'pull_request'
+        run: make review-paths
+      - name: Tool versions
+        run: make check-tools
+      - name: gofmt
+        run: make fmt-check
+      - name: go vet
+        run: make vet
+      - name: golangci-lint
+        run: make lint
+      - name: Lint fixture (exact forbidigo finding count)
+        run: make lint-fixture
+      - name: Taskfile matches Makefile
+        run: make check-taskfile
+      - name: Pins and forbidden modules
+        run: make check-pins
+      - name: OpenAPI additive-only
+        run: make check-openapi
+      - name: govulncheck
+        run: make vulncheck
+      - name: go test -race
+        run: make test
+
+  # The custom server module's tests take ~4.5 min, so they run beside
+  # lint-unit to keep the pipeline under 10 minutes. No containers.
+  temporal-server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: temporal-server/go.mod
+          cache-dependency-path: temporal-server/go.sum
+      - name: temporal-server unit tests
+        run: make temporal-server-test
+
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Integration tests (-tags integration)
+        run: make test-integration
+
+  stack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build images
+        run: make image
+      - name: Start the stack
+        run: make stack-up
+      - name: Every container healthy
+        run: make stack-test-healthy
+      - name: Compose smoke, GET /healthz from the compose network
+        run: make smoke
+      - name: PgBouncer settings
+        run: make stack-test-pgbouncer
+      - name: Keycloak and Temporal databases
+        run: make stack-test-temporal
+      - name: Dependency probes, /readyz 200 with Keycloak stopped
+        run: make stack-test-dependencies
+      - name: One request, one trace
+        run: make stack-test-trace
+      - name: Collector redacts denied span values
+        run: make stack-test-redact
+      - name: db-roles and migrate are idempotent
+        run: make stack-test-idempotent
+      - name: db-roles revokes stray memberships
+        run: make stack-test-dbroles
+      - name: pg_hba keeps pgadmin and nava_backup out
+        run: make stack-test-hba
+      - name: Internal overlay comes up
+        run: make stack-internal
+      - name: Logs on failure
+        if: failure()
+        run: make stack-logs
+      - name: Tear down
+        if: always()
+        run: make stack-down

@@ -1,0 +1,15 @@
+# Fixture: the test task drifted from the Makefile (no -race).
+version: "3"
+tasks:
+  build:
+    cmds:
+      - go build -o bin/nava-core{{exeExt}} ./cmd/nava-core
+  test:
+    cmds:
+      - go test ./...
+  test:short:
+    cmds:
+      - go test ./...
+  lint:
+    cmds:
+      - golangci-lint run ./...

@@ -1,0 +1,2 @@
+#!/bin/sh
+image=postgres:16.10

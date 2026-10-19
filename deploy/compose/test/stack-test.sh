@@ -1,11 +1,23 @@
 #!/bin/sh
-# Stack tests for T02, T03 and T08. Usage: stack-test.sh <healthy|pgbouncer|temporal|dependencies|trace|redact|idempotent|dbroles|hba|internal>
+# Stack tests for T02 to T05 and T08. Usage: stack-test.sh <healthy|smoke|pgbouncer|temporal|dependencies|trace|redact|idempotent|dbroles|hba|internal>
 # Needs the stack up (task stack:up); `internal` brings up its own overlay.
 set -eu
 . "$(dirname "$0")/lib.sh"
 
 # Every container healthy, db-roles and migrate done.
 t_healthy() { wait_healthy "${WAIT_SECONDS:-300}"; }
+
+# The compose smoke (T05): GET /healthz on nava-core's admin listener answers
+# 200 from another container on the compose network, the way a probe would
+# reach it (the admin port is never published to the host).
+t_smoke() {
+    body=$(compose exec -T otel-collector wget -q -T 10 -O - http://nava-core:9090/healthz)         || fail "GET http://nava-core:9090/healthz from the compose network was not 200"
+    printf '%s
+' "$body"
+    printf '%s
+' "$body" | grep -q '"postgres":"ok"' || fail "/healthz does not report postgres ok"
+    pass "GET /healthz 200 from inside the compose network"
+}
 
 # PgBouncer is in transaction mode, version >= 1.21, max_prepared_statements > 0.
 t_pgbouncer() {
@@ -47,11 +59,11 @@ t_temporal() {
 
 # nava-core's dependency probes against the real containers: the Keycloak
 # management port and path, and Temporal's GetSystemInfo. With Keycloak stopped
-# /healthz shows it failed and the degraded metric is 1, while /readyz answers
-# as before (only PostgreSQL gates readiness; until T05 sets NAVA_DATABASE_URL
-# in compose it is 503 both times). The admin port is never published, so the
-# requests go through `compose exec`. nc, not wget: /healthz is 503 here while
-# PostgreSQL is unconfigured, and busybox wget drops the body of an error reply.
+# /healthz shows it failed and the degraded metric is 1, while /readyz stays
+# 200 (only PostgreSQL gates readiness, and compose sets NAVA_DATABASE_URL).
+# The admin port is never published, so the requests go through `compose
+# exec`. nc, not wget: busybox wget drops the body of an error reply, which is
+# what a failure message needs.
 admin_get() { # <path>: the full HTTP response from the admin listener
     printf 'GET %s HTTP/1.0\r\nHost: localhost\r\n\r\n' "$1" | compose exec -T nava-core nc 127.0.0.1 9090 | tr -d '\r'
 }
@@ -72,6 +84,7 @@ t_dependencies() {
     pass "/healthz reports keycloak and temporal ok against the real containers"
 
     ready_before=$(admin_code /readyz)
+    [ "$ready_before" = 200 ] || fail "/readyz is $ready_before before the stop, want 200"
     compose stop keycloak
     trap 'compose start keycloak' EXIT
     await_check keycloak fail 60
@@ -81,8 +94,8 @@ t_dependencies() {
         sleep 1
     done
     ready_during=$(admin_code /readyz)
-    [ "$ready_during" = "$ready_before" ] || { compose start keycloak; fail "/readyz went from $ready_before to $ready_during with Keycloak stopped"; }
-    pass "keycloak stopped: /healthz fail, degraded metric 1, /readyz unchanged ($ready_during)"
+    [ "$ready_during" = 200 ] || { compose start keycloak; fail "/readyz is $ready_during with Keycloak stopped, want 200"; }
+    pass "keycloak stopped: /healthz fail, degraded metric 1, /readyz 200"
 
     compose start keycloak
     await_check keycloak ok 180
@@ -189,9 +202,13 @@ t_dbroles() {
 t_hba() {
     core=$(container_of nava-core)
     [ -n "$core" ] || fail "nava-core is not running"
+    # The client image is the one compose runs, so the tag lives only in
+    # compose.yaml and docs/pins.md (make check-pins).
+    pgimage=$(docker inspect --format '{{.Config.Image}}' "$(container_of postgres)")
+    [ -n "$pgimage" ] || fail "postgres is not running"
     # from_core <user> <password> <conninfo> [sql]
     from_core() {
-        docker run --rm --network "container:$core" -e PGPASSWORD="$2" postgres:16.10 \
+        docker run --rm --network "container:$core" -e PGPASSWORD="$2" "$pgimage" \
             psql -X -t -A "host=postgres user=$1 connect_timeout=10 $3" -c "${4:-SELECT 1}" 2>&1 || true
     }
     # in_pg <user> <password> <conninfo> [sql]: over TCP from inside the postgres container
@@ -249,5 +266,5 @@ t_internal() {
     pass "overlay up, every network internal, no egress"
 }
 
-[ $# -eq 1 ] || fail "usage: stack-test.sh <healthy|pgbouncer|temporal|dependencies|trace|redact|idempotent|dbroles|hba|internal>"
+[ $# -eq 1 ] || fail "usage: stack-test.sh <healthy|smoke|pgbouncer|temporal|dependencies|trace|redact|idempotent|dbroles|hba|internal>"
 "t_$1"
