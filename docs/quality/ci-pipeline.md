@@ -9,7 +9,7 @@ calls only `make` targets. Install the pinned tools once with `make tools`.
 | --- | --- | --- | --- |
 | Lint | `ci-lint` | tool versions differ from `docs/pins.md`, `gofmt`, `go vet`, golangci-lint, `lint-fixture` (exactly 5 forbidigo findings), `check-taskfile`, `check-pins`, `check-openapi`, `govulncheck ./...` | none |
 | Unit | `ci-unit` | `go test -race ./...`, temporal-server unit tests | none |
-| Integration | `ci-integration` | any `//go:build integration` test (`internal/db/dbtest`, `internal/platform/health`) against a throwaway PostgreSQL (tag from `docs/pins.md`) | Docker |
+| Integration | `ci-integration` | any `//go:build integration` test (`internal/db/dbtest`, `internal/db/pooltest`, `internal/platform/health`) against a throwaway PostgreSQL and two PgBouncers in front of it (tags from `docs/pins.md`) | Docker |
 | Stack | `ci-stack` | image build, every container healthy, `GET /healthz` smoke from inside the compose network, then the stack tests (`pgbouncer`, `temporal`, `dependencies`, `trace`, `redact`, `idempotent`, `dbroles`, `hba`, `internal`) | compose |
 
 In GitHub, `lint`, `unit`, `temporal-server`, `integration`, `stack`,
@@ -37,9 +37,12 @@ A change to `go.sum` or a Dockerfile base stage is a cold run (about 8 to 10
 minutes); the next run is warm again.
 
 Containers: `scripts/ci/test-integration.sh` owns the shared PostgreSQL that the
-dbtest suites use and removes it on exit, Ctrl-C or TERM. Every container a Go
+dbtest suites use, plus the two PgBouncers of the load test (T06,
+`docs/quality/pgbouncer-load.md`) on a private network, and removes them on
+exit, Ctrl-C or TERM. Every container a Go
 test starts itself is removed in `t.Cleanup`. Image tags come from
-`docs/pins.md`: the script exports the `postgres` row as `NAVA_TEST_PG_IMAGE`.
+`docs/pins.md`: the script exports the `postgres` row as `NAVA_TEST_PG_IMAGE`
+and starts the `edoburu/pgbouncer` row.
 
 ## Risks and the layer that covers them
 
@@ -50,6 +53,7 @@ test starts itself is removed in `t.Cleanup`. Image tags come from
 | Taskfile and Makefile drift apart, so local runs differ from CI | `check-taskfile` (drift fixture in `tools/ci/checktaskfile`) |
 | A security-path change goes without the D-P10 review | `review-paths` prints the summary lines on every PR (fixture: a PR touching `db/`) |
 | A shallow clone passes `check-openapi` with nothing to compare against | `check-openapi` fails when `BASE` is missing |
+| pgx's prepared-statement cache breaks through PgBouncer in transaction mode | `internal/db/pooltest` (T06): 50 clients, 10k statements, zero errors; a second PgBouncer with `max_prepared_statements = 0` must fail |
 | nava-core goes ready without PostgreSQL | compose healthcheck on `/readyz`, plus the `dependencies` case (200 with Keycloak stopped) |
 
 ## Deliberately not covered
