@@ -53,8 +53,10 @@ wait_healthy() {
     for j in $JOBS; do pass "$j exited 0"; done
 }
 
-# psql_super <database> <sql>: run as the superuser from inside the postgres
-# container (the password never leaves its secret file).
+# psql_super <database> <sql>: run as the superuser over the Unix socket
+# inside the postgres container, the only path db/pg_hba.conf opens to it (the
+# password never leaves its secret file).
 psql_super() {
-    compose exec -T postgres psql -X -q -t -A -U pgadmin -d "$1" -c "$2"
+    # shellcheck disable=SC2016 # expanded inside the container
+    compose exec -T postgres sh -c 'PGPASSWORD=$(cat /run/pg_superuser_password) exec psql -X -q -t -A -U pgadmin -d "$0" -c "$1"' "$1" "$2"
 }

@@ -112,6 +112,8 @@ jobs:
         run: make stack-test-idempotent
       - name: db-roles revokes stray memberships
         run: make stack-test-dbroles
+      - name: pg_hba keeps pgadmin and nava_backup out
+        run: make stack-test-hba
       - name: Internal overlay comes up
         run: make stack-internal
       - name: Logs on failure

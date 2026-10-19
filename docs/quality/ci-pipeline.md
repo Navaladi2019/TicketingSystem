@@ -10,7 +10,7 @@ calls only `make` targets. Install the pinned tools once with `make tools`.
 | Lint | `ci-lint` | tool versions differ from `docs/pins.md`, `gofmt`, `go vet`, golangci-lint, `lint-fixture` (exactly 5 forbidigo findings), `check-taskfile`, `check-pins`, `check-openapi`, `govulncheck ./...` | none |
 | Unit | `ci-unit` | `go test -race ./...`, temporal-server unit tests | none |
 | Integration | `ci-integration` | any `//go:build integration` test (`internal/db/dbtest`, `internal/platform/health`) against a throwaway PostgreSQL (tag from `docs/pins.md`) | Docker |
-| Stack | `ci-stack` | image build, every container healthy, `GET /healthz` smoke from inside the compose network, then the stack tests (`pgbouncer`, `temporal`, `dependencies`, `trace`, `redact`, `idempotent`, `dbroles`, `internal`) | compose |
+| Stack | `ci-stack` | image build, every container healthy, `GET /healthz` smoke from inside the compose network, then the stack tests (`pgbouncer`, `temporal`, `dependencies`, `trace`, `redact`, `idempotent`, `dbroles`, `hba`, `internal`) | compose |
 
 In GitHub, `lint-unit`, `temporal-server`, `integration` and `stack` run as four
 parallel jobs, each a separate required check (decision log, 2026-10-19).

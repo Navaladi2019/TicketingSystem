@@ -90,5 +90,5 @@ tasks:
   stack:test:
     desc: Run the stack tests against a running stack (set OTEL_TAIL_SAMPLE_PERCENT=100 when starting it for the trace test)
     cmds:
-      - for: [healthy, smoke, pgbouncer, temporal, dependencies, trace, redact, idempotent, dbroles]
+      - for: [healthy, smoke, pgbouncer, temporal, dependencies, trace, redact, idempotent, dbroles, hba]
         cmd: sh deploy/compose/test/stack-test.sh {{.ITEM}}
