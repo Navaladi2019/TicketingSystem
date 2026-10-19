@@ -66,6 +66,8 @@ dev-ca:
 
 ## Explicit operator tunnel to the Temporal UI (profile operator): forwards
 ## 127.0.0.1:$(UI_PORT) to the UI until interrupted. The UI publishes no port.
+# TODO(TODO-004): while the tunnel is open, any container on a non-internal
+# network reaches the UI through host.docker.internal and acts as nava-operator.
 UI_PORT ?= 18233
 operator-tunnel:
 	docker run --rm --name nava-operator-tunnel -p 127.0.0.1:$(UI_PORT):8080 		--network $$(docker network ls -q --filter label=com.docker.compose.project=nava --filter label=com.docker.compose.network=operator) 		--entrypoint /usr/local/bin/temporal-server nava/temporal-server:dev proxy -listen :8080 -to temporal-ui:8080
