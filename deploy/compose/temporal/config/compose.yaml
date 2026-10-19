@@ -3,7 +3,7 @@
 # PostgreSQL persistence and SQL visibility, mounted at /etc/temporal/config and
 # selected with `--env compose`. Same TLS as config/development.yaml.
 # Frontend and internode require client certificates from the installation CA;
-# generate throwaway ones with `make temporal-server-dev-certs`.
+# generate throwaway ones with `make dev-ca`.
 # Environment: TEMPORAL_DB_PASSWORD (required), NAVA_TEMPORAL_CERT_DIR, NAVA_TEMPORAL_FRONTEND_BIND_IP,
 # NAVA_TEMPORAL_METRICS_ADDR.
 {{- $certs := default "/etc/temporal/certs" (env "NAVA_TEMPORAL_CERT_DIR") }}

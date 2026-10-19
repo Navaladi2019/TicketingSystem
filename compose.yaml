@@ -146,8 +146,6 @@ services:
   # The certificates come from `make dev-ca` (deploy/compose/certs/, git-ignored);
   # each is mounted only into the service that owns it.
   temporal-schema:
-    build:
-      context: ./temporal-server
     image: nava/temporal-server:dev
     entrypoint: ["/bin/sh", "/usr/local/bin/setup-schema.sh"]
     command: []
@@ -191,8 +189,6 @@ services:
     restart: unless-stopped
 
   temporal:
-    build:
-      context: ./temporal-server
     image: nava/temporal-server:dev
     entrypoint: ["/usr/local/bin/temporal-server", "proxy", "-listen", ":7233", "-to", "temporal-server:7233"]
     command: []
@@ -227,6 +223,11 @@ services:
     networks: [operator]
     depends_on:
       temporal: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
     restart: unless-stopped
 
   otel-collector:
