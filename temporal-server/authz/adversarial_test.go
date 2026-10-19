@@ -102,7 +102,7 @@ func TestAdversarialNamespaceLookalikesDenied(t *testing.T) {
 
 // A compromised worker certificate cannot use workflow-task commands to start,
 // signal or cancel in another namespace (e.g. the system namespace), while the
-// same commands inside `nava` still pass the API gate (tenant-prefix checks are T27b).
+// same commands inside `nava` pass only for the task's own tenant.
 func TestAdversarialWorkerCrossNamespaceCommandsDenied(t *testing.T) {
 	commands := map[string]*commandpb.Command{
 		"start child": {
@@ -129,16 +129,18 @@ func TestAdversarialWorkerCrossNamespaceCommandsDenied(t *testing.T) {
 		})
 	}
 
-	sameNS := &commandpb.Command{
-		CommandType: enumspb.COMMAND_TYPE_START_CHILD_WORKFLOW_EXECUTION,
-		Attributes: &commandpb.Command_StartChildWorkflowExecutionCommandAttributes{
-			StartChildWorkflowExecutionCommandAttributes: &commandpb.StartChildWorkflowExecutionCommandAttributes{Namespace: Namespace, WorkflowId: "x"}},
-	}
+	// Inside `nava`, a same-tenant child passes; another tenant's is denied (T27b).
+	tok := taskToken(t, "t:tenantA:parent")
 	called, err := callUnary(t, peerCtx(string(Worker), true), wf+"RespondWorkflowTaskCompleted",
-		&workflowservice.RespondWorkflowTaskCompletedRequest{Namespace: Namespace, Commands: []*commandpb.Command{sameNS}})
+		&workflowservice.RespondWorkflowTaskCompletedRequest{Namespace: Namespace, TaskToken: tok,
+			Commands: []*commandpb.Command{startChild(Namespace, "t:tenantA:child")}})
 	if err != nil || !called {
-		t.Fatalf("same-namespace child denied at the API gate: err=%v called=%v", err, called)
+		t.Fatalf("same-tenant child denied: err=%v called=%v", err, called)
 	}
+	called, err = callUnary(t, peerCtx(string(Worker), true), wf+"RespondWorkflowTaskCompleted",
+		&workflowservice.RespondWorkflowTaskCompletedRequest{Namespace: Namespace, TaskToken: tok,
+			Commands: []*commandpb.Command{startChild(Namespace, "t:tenantB:child")}})
+	requireDenied(t, called, err)
 }
 
 type fakeStream struct {

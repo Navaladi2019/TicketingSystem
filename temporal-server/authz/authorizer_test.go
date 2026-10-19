@@ -164,7 +164,7 @@ func TestDenyEmitsLogAndMetric(t *testing.T) {
 	}
 	wantTags := map[string]string{
 		"identity": "nava-worker", "api": wf + "StartWorkflowExecution",
-		"namespace": "nava", "reason": ReasonAPI,
+		"namespace": "nava", "reason": ReasonAPI, "command": "none",
 	}
 	for k, v := range wantTags {
 		if recs[0].Tags[k] != v {
@@ -177,6 +177,7 @@ func TestDenyEmitsLogAndMetric(t *testing.T) {
 	}
 	got := logger.entries[0]
 	for k, v := range map[string]string{
+		"level": "warn", "command": "none",
 		"identity": "nava-worker", "api": wf + "StartWorkflowExecution", "namespace": "nava",
 		"reason": ReasonAPI, "cert_subject": "CN=nava-worker,O=nava", "cert_serial": "4242",
 		"cert_issuer": "CN=nava-internal-ca",
@@ -278,10 +279,10 @@ type captureLogger struct {
 	entries []map[string]string
 }
 
-func (l *captureLogger) record(tags []tag.Tag) {
+func (l *captureLogger) record(level string, tags []tag.Tag) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	m := map[string]string{}
+	m := map[string]string{"level": level}
 	for _, t := range tags {
 		if s, ok := t.Value().(string); ok {
 			m[t.Key()] = s
@@ -292,8 +293,8 @@ func (l *captureLogger) record(tags []tag.Tag) {
 
 func (l *captureLogger) Debug(string, ...tag.Tag)        {}
 func (l *captureLogger) Info(string, ...tag.Tag)         {}
-func (l *captureLogger) Warn(_ string, tags ...tag.Tag)  { l.record(tags) }
-func (l *captureLogger) Error(_ string, tags ...tag.Tag) { l.record(tags) }
+func (l *captureLogger) Warn(_ string, tags ...tag.Tag)  { l.record("warn", tags) }
+func (l *captureLogger) Error(_ string, tags ...tag.Tag) { l.record("error", tags) }
 func (l *captureLogger) DPanic(string, ...tag.Tag)       {}
 func (l *captureLogger) Panic(string, ...tag.Tag)        {}
 func (l *captureLogger) Fatal(string, ...tag.Tag)        {}
