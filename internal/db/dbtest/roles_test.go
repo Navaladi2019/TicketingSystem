@@ -152,3 +152,50 @@ func TestDBRolesRefusesNonSuperuser(t *testing.T) {
 		t.Fatalf("err = %v, want a refusal", err)
 	}
 }
+
+// T08 security review: the pg_hba.conf superuser rules match the bootstrap
+// superuser by name, so db-roles refuses a cluster with a second one, and
+// fails before it changes anything.
+func TestDBRolesRefusesSecondSuperuser(t *testing.T) {
+	m := freshCluster(t)
+	conn := connect(t, superConfig(t))
+	exec(t, conn, "CREATE ROLE nava_test_intruder SUPERUSER")
+	exec(t, conn, "GRANT pg_read_all_data TO keycloak") // drift a passing run would revoke
+	before := snapshotRoles(t)
+
+	log, _ := newLog()
+	_, err := roles.Run(context.Background(), superConfig(t), m, passwords, log)
+	if err == nil || !strings.Contains(err.Error(), "nava_test_intruder") {
+		t.Fatalf("db-roles with a second superuser: err = %v, want one naming nava_test_intruder", err)
+	}
+	if after := snapshotRoles(t); after != before {
+		t.Fatalf("a failed run changed the cluster:\nbefore %s\nafter  %s", before, after)
+	}
+
+	exec(t, conn, "DROP ROLE nava_test_intruder")
+	if _, err := roles.Run(context.Background(), superConfig(t), m, passwords, log); err != nil {
+		t.Fatalf("db-roles after the second superuser is gone: %v", err)
+	}
+}
+
+// T08 security review: PUBLIC holds nothing on the platform database between
+// db-roles and migrate, while keycloak and temporal are already starting.
+func TestDBRolesNewPlatformDatabaseHasNoPublicGrants(t *testing.T) {
+	m := freshCluster(t) // db-roles only, no migrate
+	conn := connect(t, superConfig(t))
+	if got := queryString(t, conn, `
+		SELECT coalesce(string_agg(a.privilege_type, ',' ORDER BY a.privilege_type), '')
+		FROM pg_database d, aclexplode(coalesce(d.datacl, acldefault('d', d.datdba))) a
+		WHERE d.datname = $1 AND a.grantee = 0`, m.PlatformDatabase); got != "" {
+		t.Fatalf("PUBLIC privileges on %s before migrate: %s", m.PlatformDatabase, got)
+	}
+	for _, r := range m.RoleNames() {
+		if r == m.Owner() {
+			continue
+		}
+		if queryBool(t, conn, "SELECT has_database_privilege($1, $2, 'CONNECT') OR has_database_privilege($1, $2, 'TEMPORARY')",
+			r, m.PlatformDatabase) {
+			t.Errorf("%s has CONNECT or TEMPORARY on %s before migrate", r, m.PlatformDatabase)
+		}
+	}
+}
