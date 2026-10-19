@@ -6,13 +6,21 @@ exact version, why it is pinned there, and the ruling or task that set it.
 
 - every direct `require` in every `go.mod` has a row in **Go modules**, and the
   row's version names the version in that `go.mod` (or is a `≥` floor it meets);
+- no `*.go` or `*.sh` file (outside `docs/` and `testdata/`) spells an image
+  from **Images** with a tag, such as `postgres:16.10`: code and scripts read
+  the tag from this file (`scripts/ci/test-integration.sh` exports it as
+  `NAVA_TEST_PG_IMAGE`);
 - every `image:` in the compose files and every `FROM` in a Dockerfile has a
   row in **Images** whose version names that exact tag;
 - nothing listed under **Forbidden** appears in any `go.mod` or `go.sum`,
   indirect dependencies included.
 
-The first column holds the module path or image name in backticks; the
-version column may list several versions when modules differ (say which).
+The first column holds the module path or image name in backticks. When
+modules or images differ, the version column scopes each version to a
+directory with `@dir`: `v1.84.0 @., v1.79.3 @temporal-server`. A scoped
+version matches only the `go.mod` in exactly that directory (`.` is the
+repository root), or only Dockerfiles under that directory. Text in
+parentheses is a note and never matches.
 Image tags in code and tests come from this file, never from memory (TICK-94
 item 16, condition 3).
 
@@ -21,7 +29,7 @@ item 16, condition 3).
 | Component | Version | Why | Source |
 | --- | --- | --- | --- |
 | Go (platform module) | `go 1.26.0`, toolchain go1.26.9 | Floor Go ≥ 1.26 for platform code. go1.26.9 is the toolchain the images build with (`golang:1.26.9-alpine`). | D-P3 |
-| Go (`temporal-server`) | `go 1.25.8` | Pinned separately with the custom server build (R7); the module is not platform code. govulncheck reports reachable standard-library vulnerabilities fixed in go1.25.9 / go1.25.10: see the T05 PR. | D-P3, T27a |
+| Go (`temporal-server`) | `go 1.25.8` | Pinned separately with the custom server build (R7); the module is not platform code. govulncheck reports reachable standard-library vulnerabilities fixed in go1.25.9 / go1.25.10: TICK-111. | D-P3, T27a |
 | `golangci-lint` | v2.14.0 | Lint stage. Uses its bundled depguard (`OpenPeeDeeP/depguard/v2 v2.2.1`), so depguard has no row. Module plugins (`golangci-lint custom`) are forbidden (review rule, TICK-94 item 15). | TICK-93 audit, T05 |
 | `govulncheck` (`golang.org/x/vuln`) | v1.9.0 | `make vulncheck`: no reachable vulnerability in the platform module. | TICK-94 item 16, T05 |
 | `actions/checkout`, `actions/setup-go` | v4, v5 | GitHub Actions only check out and install Go; every gate runs through `make`. | T05 |
@@ -35,9 +43,9 @@ item 16, condition 3).
 | `quay.io/keycloak/keycloak` | 26.8.1 | Floor 26.1.3; known-broken 26.0.0–26.1.2 (the `kc.org` picker tamper). Supersedes Epic 01's "26.0" row. | D-P3, D26 |
 | `temporalio/auto-setup` | 1.28.4 | Temporal server 1.28.4 with PostgreSQL persistence and SQL visibility, no Elasticsearch. The compose stack and CI use `auto-setup` (stock server plus schema setup) rather than bare `temporalio/server`; T28 swaps in the T27a build. | D-P3, T02 |
 | `otel/opentelemetry-collector-contrib` | 0.139.0 | The Collector (tail sampling, redaction layer two). | T01, T02 |
-| `golang` | 1.26.9-alpine (nava-core, nava-db), 1.25.8-bookworm (`temporal-server`) | Build stages. Matches each module's toolchain. | D-P3, T27a |
+| `golang` | 1.26.9-alpine @deploy/compose, 1.25.8-bookworm @temporal-server | Build stages: 1.26.9 for nava-core and nava-db, 1.25.8 for the custom Temporal server. Matches each module's toolchain. | D-P3, T27a |
 | `alpine` | 3.22.1 | Runtime base of nava-core, nava-db and the Collector wrapper. | T02 |
-| `debian` | bookworm-slim | Runtime base of the custom Temporal server. **Not an exact tag**: a known gap for the T27a owner, reported in the T05 PR; the row stays until the Dockerfile pins a dated tag. | T27a |
+| `debian` | bookworm-slim | Runtime base of the custom Temporal server. **Not an exact tag**: a known gap, fixed by TICK-111; the row stays until the Dockerfile pins a dated tag. | T27a |
 | `nava/nava-core`, `nava/nava-db`, `nava/otel-collector` | dev | Built locally from this repo by `docker compose build`; never pulled. | T02 |
 
 ## Go modules
@@ -45,10 +53,10 @@ item 16, condition 3).
 | Component | Version | Why | Source |
 | --- | --- | --- | --- |
 | `go.temporal.io/sdk` | v1.49.0 | Temporal client and workers. | D-P3 |
-| `go.temporal.io/server` | v1.28.4 | Custom server module (`temporal-server` only), matches the server image. | D-P3, R7 |
-| `go.temporal.io/api` | v1.63.5 (platform, required by SDK v1.49.0), v1.50.1 (`temporal-server`, matches server v1.28.4) | Temporal API types. The two modules are built separately, so the versions may differ. | D-P3, R7 |
-| `google.golang.org/grpc` | v1.84.0 (platform), v1.79.3 (`temporal-server`) | gRPC for the Temporal SDK client. Platform: not chosen directly; goose v3.29.0 requires it, so MVS raises it. `temporal-server`: what server v1.28.4 builds with (govulncheck reports reachable advisories; see the T05 PR). | T04 (v1.83.2), raised by goose in T03; T27a |
-| `google.golang.org/protobuf` | v1.36.11 (`temporal-server`) | Protobuf runtime for the custom server. | T27a |
+| `go.temporal.io/server` | v1.28.4 @temporal-server | Custom server module (`temporal-server` only), matches the server image. | D-P3, R7 |
+| `go.temporal.io/api` | v1.63.5 @., v1.50.1 @temporal-server | Temporal API types. Platform: required by SDK v1.49.0. `temporal-server`: matches server v1.28.4. The two modules are built separately, so the versions may differ. | D-P3, R7 |
+| `google.golang.org/grpc` | v1.84.0 @., v1.79.3 @temporal-server | gRPC for the Temporal SDK client. Platform: not chosen directly; goose v3.29.0 requires it, so MVS raises it. `temporal-server`: what server v1.28.4 builds with (govulncheck reports reachable advisories; TICK-111). | T04 (v1.83.2), raised by goose in T03; T27a |
+| `google.golang.org/protobuf` | v1.36.11 @temporal-server | Protobuf runtime for the custom server. | T27a |
 | `github.com/prometheus/client_golang` | v1.25.0 | Prometheus `/metrics` per the observability standard. | T01, TICK-89 |
 | `go.opentelemetry.io/otel` | v1.47.0 | OpenTelemetry API. | T01, TICK-89 (human decision 2026-10-16) |
 | `go.opentelemetry.io/otel/metric` | v1.47.0 | OpenTelemetry metric API. | T01, TICK-89 |
@@ -79,8 +87,8 @@ item 16, condition 3).
 | `golang.org/x/crypto` | ≥ v0.56.0 | Transitive (jwx). v0.55.0 has GO-2026-6354 and GO-2026-6355. Not in the graph yet. | TICK-94 |
 | `golang.org/x/time` | v0.16.0 | `rate` token bucket. Today the graph holds v0.14.0 indirectly (through the Temporal SDK); the first direct use takes v0.16.0. | TICK-94 |
 | `golang.org/x/tools` | v0.52.0 (`navalint` tools module, when it lands) | `navalint` analyzers. Not a direct require of the production `go.mod`; v0.51.0 is there indirectly (goose, oapi-codegen). | TICK-94 |
-| `github.com/testcontainers/testcontainers-go` | v0.44.0 (+ `modules/postgres`) | Accepted for Postgres-level tests only (Keycloak and Temporal run in the compose stack). Not in the graph yet: the integration tests run a pinned `postgres` container through the docker CLI instead (see `make test-integration`). With `moby/go-archive` < v0.3.0: GO-2026-6253. | TICK-94 item 16 |
-| `github.com/moby/go-archive` | ≥ v0.3.0 | Transitive (testcontainers). v0.2.0 has GO-2026-6253. Not in the graph yet. | TICK-94 item 16 |
+| `github.com/testcontainers/testcontainers-go` | v0.44.0 (+ `modules/postgres`) | Approved, not adopted (T05 ruling, 2026-10-18). The integration tests use the docker CLI with the `postgres` image from this file (`make test-integration`). If testcontainers is adopted later, it is for Postgres-level tests only, and it brings the `moby/go-archive` ≥ v0.3.0 pin with it: with `moby/go-archive` < v0.3.0 it has GO-2026-6253. | TICK-94 item 16; decision log 2026-10-19 |
+| `github.com/moby/go-archive` | ≥ v0.3.0 | Approved, not adopted (T05 ruling, 2026-10-18). Transitive through testcontainers, so it comes in only if testcontainers is adopted. v0.2.0 has GO-2026-6253. | TICK-94 item 16; decision log 2026-10-19 |
 | Keycloak admin client | none | Hand-written in `internal/identity`. `gocloak` rejected (no organization API in v13; a second JWT path). | TICK-94 item 12 |
 
 ## Forbidden

@@ -65,7 +65,11 @@ func TestSecurityPaths(t *testing.T) {
 
 func TestCTOSignoff(t *testing.T) {
 	cfg := repoConfig(t)
-	const iso = "internal/tenancy/isolation/records_test.go"
+	const (
+		iso  = "internal/tenancy/isolation/records_test.go"
+		ci6  = "temporal-server/authz/adversarial_test.go"
+		deep = "internal/a/b/c/tenant_isolation_test.go"
+	)
 	for _, tc := range []struct {
 		name    string
 		changes string
@@ -74,9 +78,21 @@ func TestCTOSignoff(t *testing.T) {
 	}{
 		{"allow-list edited", "M\tdb/rls-allowlist.yaml", nil, "db/rls-allowlist.yaml (changed)"},
 		{"isolation test removed", "D\t" + iso, nil, iso + " (isolation test removed)"},
-		{"isolation test skipped", "M\t" + iso, map[string][]string{iso: {"\tt.Skip(\"flaky\")"}}, iso + " (isolation test skipped)"},
-		{"short guard", "M\t" + iso, map[string][]string{iso: {"\tif testing.Short() {"}}, iso + " (isolation test skipped)"},
+		{"isolation test skipped", "M\t" + iso, map[string][]string{iso: {"\tt.Skip(\"flaky\")"}}, iso + " (isolation test skipped or excluded)"},
+		{"short guard", "M\t" + iso, map[string][]string{iso: {"\tif testing.Short() {"}}, iso + " (isolation test skipped or excluded)"},
 		{"isolation test extended", "M\t" + iso, map[string][]string{iso: {"\tassertNoRows(t, rows)"}}, ""},
+		// PR #19 round 1: the CI-6 suite is registered.
+		{"CI-6 suite removed", "D\t" + ci6, nil, ci6 + " (isolation test removed)"},
+		{"CI-6 suite skipped", "M\t" + ci6, map[string][]string{ci6: {"\tt.Skipf(\"%s\", why)"}}, ci6 + " (isolation test skipped or excluded)"},
+		// *isolation*_test.go at any depth, and at the root.
+		{"deep isolation test removed", "D\t" + deep, nil, deep + " (isolation test removed)"},
+		{"root isolation test removed", "D\tisolation_test.go", nil, "isolation_test.go (isolation test removed)"},
+		// A build constraint can drop the file from the run as surely as a skip.
+		{"go:build ignore", "M\t" + deep, map[string][]string{deep: {"//go:build ignore"}}, deep + " (isolation test skipped or excluded)"},
+		{"+build tag", "M\t" + iso, map[string][]string{iso: {"// +build never"}}, iso + " (isolation test skipped or excluded)"},
+		{"constraint changed", "M\t" + ci6, map[string][]string{ci6: {"//go:build integration && !race"}}, ci6 + " (isolation test skipped or excluded)"},
+		// Not an isolation test: no CTO line.
+		{"ordinary test removed", "D\tinternal/server/api_test.go", nil, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := Evaluate(cfg, parseNameStatus(tc.changes), tc.added)

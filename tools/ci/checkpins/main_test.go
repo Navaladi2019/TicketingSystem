@@ -1,30 +1,40 @@
 package main
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// fixture copies testdata/<name> into a temp dir, renaming go.mod.txt to
-// go.mod (a real go.mod under testdata would be a nested module to the go
-// tool), and returns it.
+// fixture copies testdata/<name> (subdirectories included) into a temp dir,
+// dropping a ".txt" suffix: a real go.mod or .go file under testdata would be
+// a nested module or source to the go tool. It returns the temp dir.
 func fixture(t *testing.T, name string) string {
 	t.Helper()
 	dir := t.TempDir()
-	entries, err := os.ReadDir(filepath.Join("testdata", name))
+	src := filepath.Join("testdata", name)
+	err := filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		dst := filepath.Join(dir, strings.TrimSuffix(rel, ".txt"))
+		if d.IsDir() {
+			return os.MkdirAll(dst, 0o700)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(dst, data, 0o600)
+	})
 	if err != nil {
 		t.Fatal(err)
-	}
-	for _, e := range entries {
-		data, err := os.ReadFile(filepath.Join("testdata", name, e.Name()))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, strings.TrimSuffix(e.Name(), ".txt")), data, 0o600); err != nil {
-			t.Fatal(err)
-		}
 	}
 	return dir
 }
@@ -109,21 +119,60 @@ func TestRepository(t *testing.T) {
 	}
 }
 
-func TestVersionListed(t *testing.T) {
-	for _, tc := range []struct {
-		cell, v string
-		want    bool
-	}{
-		{"v1.47.0", "v1.47.0", true},
-		{"v1.47.0", "v1.4", false},
-		{"v1.84.0 (platform), v1.79.3 (`temporal-server`)", "v1.79.3", true},
-		{"≥ v0.56.0", "v0.56.0", true},
-		{"≥ v0.56.0", "v0.60.1", true},
-		{"≥ v0.56.0", "v0.55.0", false},
-		{"1.26.9-alpine (nava-core), 1.25.8-bookworm", "1.25.8-bookworm", true},
+// The reviewer's probe (PR #19 round 1): the platform go.mod requiring
+// temporal-server's vulnerable grpc v1.79.3 fails, while temporal-server/go.mod
+// may hold it, because the row scopes each version to a module directory.
+func TestScopedVersionFailsOutsideItsModule(t *testing.T) {
+	got := run(t, fixture(t, "scoped"))
+	want := `go.mod: google.golang.org/grpc is v1.79.3, but docs/pins.md pins "v1.84.0 @., v1.79.3 @temporal-server"`
+	if got != want {
+		t.Fatalf("got:\n%s\nwant exactly:\n%s", got, want)
+	}
+}
+
+// Image tags come from docs/pins.md (TICK-94 item 16): a Go or shell file that
+// spells a pinned image with a tag fails; a host:port does not.
+func TestInlineImageLiteralFails(t *testing.T) {
+	got := run(t, fixture(t, "literal"))
+	for _, want := range []string{
+		"start.sh:2: image postgres:16.10 spelled inline",
+		"probe.go:6: image postgres:16.10 spelled inline",
 	} {
-		if got := versionListed(tc.cell, tc.v); got != tc.want {
-			t.Errorf("versionListed(%q, %q) = %v, want %v", tc.cell, tc.v, got, tc.want)
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "keycloak") || strings.Count(got, "\n") != 1 {
+		t.Errorf("want exactly the two literals, got:\n%s", got)
+	}
+}
+
+func TestVersionListed(t *testing.T) {
+	const grpc = "v1.84.0 @., v1.79.3 @temporal-server"
+	const golang = "1.26.9-alpine @deploy/compose, 1.25.8-bookworm @temporal-server"
+	for _, tc := range []struct {
+		cell, v, dir string
+		image        bool
+		want         bool
+	}{
+		{"v1.47.0", "v1.47.0", ".", false, true},
+		{"v1.47.0", "v1.4", ".", false, false},
+		{grpc, "v1.84.0", ".", false, true},
+		{grpc, "v1.79.3", ".", false, false},
+		{grpc, "v1.79.3", "temporal-server", false, true},
+		{grpc, "v1.84.0", "temporal-server", false, false},
+		{grpc, "v1.79.3", "temporal-server/sub", false, false}, // go.mod: exact dir only
+		{"v0.52.0 (navalint tools module v0.51.0)", "v0.51.0", ".", false, false},
+		{"≥ v0.56.0", "v0.56.0", ".", false, true},
+		{"≥ v0.56.0", "v0.60.1", ".", false, true},
+		{"≥ v0.56.0", "v0.55.0", ".", false, false},
+		{golang, "1.26.9-alpine", "deploy/compose/nava-core", true, true},
+		{golang, "1.25.8-bookworm", "deploy/compose/nava-core", true, false},
+		{golang, "1.25.8-bookworm", "temporal-server", true, true},
+		{golang, "1.26.9-alpine", "deploy/composer", true, false},
+	} {
+		if got := versionListed(tc.cell, tc.v, tc.dir, tc.image); got != tc.want {
+			t.Errorf("versionListed(%q, %q, %q) = %v, want %v", tc.cell, tc.v, tc.dir, got, tc.want)
 		}
 	}
 }

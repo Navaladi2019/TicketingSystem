@@ -1,7 +1,13 @@
 // Command checkpins enforces docs/pins.md (T05, TICK-94): every direct
 // require in every go.mod has a row naming its version, every image in the
-// compose files and Dockerfiles has a row naming its tag, and no module from
-// the Forbidden section appears in any go.mod or go.sum.
+// compose files and Dockerfiles has a row naming its tag, no Go or shell file
+// spells a pinned image with a tag, and no module from the Forbidden section
+// appears in any go.mod or go.sum.
+//
+// A version cell may scope versions to a directory: "v1.84.0 @., v1.79.3
+// @temporal-server" accepts v1.84.0 only in ./go.mod and v1.79.3 only in
+// temporal-server/go.mod (for images: Dockerfiles under that directory).
+// Parenthesised text in a cell is a note and never matches.
 //
 // Usage: checkpins [-root dir] [-pins file]. It exits 1 and prints one line
 // per problem when anything is out of step.
@@ -16,6 +22,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -48,6 +55,7 @@ type pins struct {
 	modules   map[string]string // module path -> version cell
 	images    map[string]string // image name -> version cell
 	forbidden []string          // module path prefixes
+	literalRe *regexp.Regexp    // a pinned image name followed by a tag
 }
 
 // check returns one line per problem found under root.
@@ -69,6 +77,13 @@ func check(root, pinsPath string) ([]string, error) {
 				return filepath.SkipDir
 			}
 			return nil
+		}
+		if literalChecked(rel) {
+			ps, err := checkLiterals(path, rel, p)
+			problems = append(problems, ps...)
+			if err != nil {
+				return err
+			}
 		}
 		switch {
 		case d.Name() == "go.mod":
@@ -106,6 +121,10 @@ var (
 	fromRe = regexp.MustCompile(`(?i)^\s*FROM\s+(?:--\S+\s+)*(\S+)`)
 	// image: name[:tag]
 	imageRe = regexp.MustCompile(`^\s*image:\s*["']?([^"'\s#]+)`)
+	// "version @dir" entries in a version cell.
+	scopedRe = regexp.MustCompile(`(\S+)\s+@(\S+)`)
+	// A parenthesised note in a version cell.
+	noteRe = regexp.MustCompile(`\([^)]*\)`)
 	// Version tokens in a version cell.
 	tokenRe = regexp.MustCompile(`[A-Za-z0-9][A-Za-z0-9.+_-]*`)
 )
@@ -157,6 +176,12 @@ func parsePins(path string) (*pins, error) {
 	if len(p.forbidden) == 0 {
 		return nil, fmt.Errorf("%s: no ## Forbidden table found", path)
 	}
+	names := make([]string, 0, len(p.images))
+	for name := range p.images {
+		names = append(names, regexp.QuoteMeta(name))
+	}
+	sort.Strings(names)
+	p.literalRe = regexp.MustCompile(`(?:^|[^A-Za-z0-9_./-])((?:` + strings.Join(names, "|") + `):[0-9][A-Za-z0-9._-]*)`)
 	return p, nil
 }
 
@@ -218,7 +243,7 @@ func checkGoMod(path, rel string, p *pins) ([]string, error) {
 			problems = append(problems, fmt.Sprintf("%s: direct require %s %s has no row in docs/pins.md", rel, r.path, r.version))
 			continue
 		}
-		if !versionListed(cell, r.version) {
+		if !versionListed(cell, r.version, filepath.ToSlash(filepath.Dir(rel)), false) {
 			problems = append(problems, fmt.Sprintf("%s: %s is %s, but docs/pins.md pins %q", rel, r.path, r.version, strings.TrimSpace(cell)))
 		}
 	}
@@ -295,7 +320,7 @@ func checkImages(path, rel string, p *pins, re *regexp.Regexp) ([]string, error)
 			problems = append(problems, fmt.Sprintf("%s: image %s has no row in docs/pins.md", rel, name))
 			continue
 		}
-		if !versionListed(cell, tag) {
+		if !versionListed(cell, tag, filepath.ToSlash(filepath.Dir(rel)), true) {
 			problems = append(problems, fmt.Sprintf("%s: image %s:%s, but docs/pins.md pins %q", rel, name, tag, strings.TrimSpace(cell)))
 		}
 	}
@@ -313,9 +338,24 @@ func splitImage(ref string) (name, tag string) {
 	return ref, ""
 }
 
-// versionListed reports whether the version cell names v exactly, or holds a
-// "≥ vX" floor that v meets.
-func versionListed(cell, v string) bool {
+// versionListed reports whether the version cell allows v in dir (the
+// directory of the go.mod or Dockerfile, "." for the root). A cell with
+// "version @scope" entries allows only the entries whose scope is dir (for
+// images, dir or a parent of it). Otherwise it must name v exactly, or hold a
+// "≥ vX" floor that v meets. Notes in parentheses never match.
+func versionListed(cell, v, dir string, underScope bool) bool {
+	cell = noteRe.ReplaceAllString(cell, " ")
+	if scoped := scopedRe.FindAllStringSubmatch(cell, -1); scoped != nil {
+		for _, m := range scoped {
+			scope := strings.TrimSuffix(strings.Trim(m[2], "`,"), "/")
+			inScope := scope == dir ||
+				(underScope && (scope == "." || strings.HasPrefix(dir+"/", scope+"/")))
+			if inScope && strings.Trim(m[1], "`") == v {
+				return true
+			}
+		}
+		return false
+	}
 	if slices.Contains(tokenRe.FindAllString(cell, -1), v) {
 		return true
 	}
@@ -324,6 +364,31 @@ func versionListed(cell, v string) bool {
 		return len(f) > 0 && compareSemver(v, strings.Trim(f[0], "`")) >= 0
 	}
 	return false
+}
+
+// literalChecked: Go and shell files must take image tags from docs/pins.md.
+// docs/ (recorded evidence) and this checker's own tests are exempt.
+func literalChecked(rel string) bool {
+	if !strings.HasSuffix(rel, ".go") && !strings.HasSuffix(rel, ".sh") {
+		return false
+	}
+	return !strings.HasPrefix(rel, "docs/") && !strings.HasPrefix(rel, "tools/ci/checkpins/")
+}
+
+// checkLiterals reports each pinned image spelled with a tag, such as
+// postgres:16.10, in a Go or shell file.
+func checkLiterals(path, rel string, p *pins) ([]string, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // a file found by the walk
+	if err != nil {
+		return nil, err
+	}
+	var problems []string
+	for i, line := range strings.Split(string(data), "\n") {
+		for _, m := range p.literalRe.FindAllStringSubmatch(line, -1) {
+			problems = append(problems, fmt.Sprintf("%s:%d: image %s spelled inline; read the tag from docs/pins.md", rel, i+1, m[1]))
+		}
+	}
+	return problems, nil
 }
 
 // compareSemver compares vMAJOR.MINOR.PATCH, ignoring any pre-release or

@@ -148,7 +148,9 @@ func yesNo(b bool) string {
 	return "no"
 }
 
-var skipRe = regexp.MustCompile(`\bt\.(Skip|SkipNow|Skipf)\(|testing\.Short\(\)`)
+// skipRe matches an added line that can take a test out of the run: a skip,
+// a -short guard, or a build constraint (`//go:build ignore` and the like).
+var skipRe = regexp.MustCompile(`\bt\.(Skip|SkipNow|Skipf)\(|testing\.Short\(\)|^\s*//\s*(go:build|\+build)\b`)
 
 // Evaluate applies the path list to a change. added holds the added lines of
 // each isolation test file that was not deleted.
@@ -166,7 +168,7 @@ func Evaluate(cfg Config, changes []Change, added map[string][]string) Result {
 		case cfg.isIsolationTest(c.Path):
 			for _, l := range added[c.Path] {
 				if skipRe.MatchString(l) {
-					r.CTO = append(r.CTO, c.Path+" (isolation test skipped)")
+					r.CTO = append(r.CTO, c.Path+" (isolation test skipped or excluded)")
 					break
 				}
 			}
@@ -177,6 +179,12 @@ func Evaluate(cfg Config, changes []Change, added map[string][]string) Result {
 
 func matchAny(patterns []string, p string) bool {
 	for _, pat := range patterns {
+		if rest, ok := strings.CutPrefix(pat, "**/"); ok {
+			if matchAnyDepth(rest, p) {
+				return true
+			}
+			continue
+		}
 		if strings.HasSuffix(pat, "/") {
 			if strings.HasPrefix(p, pat) {
 				return true
@@ -188,4 +196,19 @@ func matchAny(patterns []string, p string) bool {
 		}
 	}
 	return false
+}
+
+// matchAnyDepth matches pat against p and every trailing run of p's segments,
+// so "*isolation*_test.go" matches the file name at any depth.
+func matchAnyDepth(pat, p string) bool {
+	for {
+		if ok, _ := path.Match(pat, p); ok {
+			return true
+		}
+		i := strings.Index(p, "/")
+		if i < 0 {
+			return false
+		}
+		p = p[i+1:]
+	}
 }

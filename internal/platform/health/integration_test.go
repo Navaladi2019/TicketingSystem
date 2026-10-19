@@ -29,16 +29,26 @@ func docker(t *testing.T, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// startPostgres runs postgres:16.10 on a fixed free host port, so the address
-// survives docker stop and docker start. With no Docker it skips the test, or
-// fails it under CI (T05), where a skip would pass the gate unseen.
+// startPostgres runs NAVA_TEST_PG_IMAGE (the docs/pins.md postgres row, set by
+// scripts/ci/test-integration.sh) on a fixed free host port, so the address
+// survives docker stop and docker start. With no Docker or no image it skips
+// the test, or fails it under CI (T05), where a skip would pass the gate
+// unseen. The container is removed in t.Cleanup.
 func startPostgres(t *testing.T) (dsn, container string) {
 	t.Helper()
-	if err := exec.CommandContext(t.Context(), "docker", "info").Run(); err != nil {
+	skip := func(format string, args ...any) {
+		t.Helper()
 		if os.Getenv("CI") != "" {
-			t.Fatalf("docker is not available under CI: %v", err)
+			t.Fatalf("under CI: "+format, args...)
 		}
-		t.Skip("docker is not available")
+		t.Skipf(format, args...)
+	}
+	image := os.Getenv("NAVA_TEST_PG_IMAGE")
+	if image == "" {
+		skip("NAVA_TEST_PG_IMAGE is not set; run make test-integration")
+	}
+	if err := exec.CommandContext(t.Context(), "docker", "info").Run(); err != nil {
+		skip("docker is not available: %v", err)
 	}
 	l, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
@@ -46,7 +56,7 @@ func startPostgres(t *testing.T) (dsn, container string) {
 	}
 	port := l.Addr().(*net.TCPAddr).Port
 	_ = l.Close()
-	container = docker(t, "run", "-d", "-e", "POSTGRES_PASSWORD=dev-only", "-p", fmt.Sprintf("127.0.0.1:%d:5432", port), "postgres:16.10")
+	container = docker(t, "run", "-d", "-e", "POSTGRES_PASSWORD=dev-only", "-p", fmt.Sprintf("127.0.0.1:%d:5432", port), image)
 	t.Cleanup(func() {
 		_ = exec.CommandContext(context.WithoutCancel(t.Context()), "docker", "rm", "-f", container).Run()
 	})

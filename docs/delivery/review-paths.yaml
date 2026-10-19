@@ -7,8 +7,9 @@
 #                                      registered isolation test was removed
 #                                      or gained a skip
 #
-# Patterns: a trailing `/` matches everything under that directory; anything
-# else is a path.Match glob against the whole repo-relative path.
+# Patterns: a trailing `/` matches everything under that directory; a leading
+# `**/` matches the rest at any depth (`**/*isolation*_test.go`); anything else
+# is a path.Match glob against the whole repo-relative path.
 #
 # Several packages below do not exist yet. Their paths are the names PLAN-001
 # gives them; the task that creates a package under a different name updates
@@ -61,10 +62,12 @@ cto_signoff:
     - internal/tenancy/isolation/registry.yaml
     # The RLS allow-list (ADR-001 A.3, CI-1).
     - db/rls-allowlist.yaml
-  # Registered isolation tests: removing one of these files, or adding a
-  # t.Skip / t.SkipNow / t.Skipf / testing.Short() guard to one, needs CTO
-  # sign-off.
+  # Registered isolation tests: removing one of these files, adding a
+  # t.Skip / t.SkipNow / t.Skipf / testing.Short() guard to one, or adding or
+  # changing a build constraint (`//go:build ignore` and the like) that can
+  # leave it out of the run, needs CTO sign-off.
   isolation_tests:
+    - "**/*isolation*_test.go"
     - internal/tenancy/isolation/*_test.go
-    - internal/db/dbtest/*isolation*_test.go
-    - internal/*/*isolation*_test.go
+    # The T27a CI-6 namespace-isolation suite.
+    - temporal-server/authz/adversarial_test.go
