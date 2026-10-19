@@ -35,6 +35,8 @@ const (
 	ReasonCrossTenant       = "command_cross_tenant"
 	ReasonCommandNamespace  = "command_namespace"
 	ReasonTenantHeader      = "continue_as_new_header"
+	ReasonActivityHeader    = "activity_header"
+	ReasonChildHeader       = "child_header"
 	ReasonCronSchedule      = "continue_as_new_cron"
 	ReasonTenantSearchAttr  = "search_attribute_tenant"
 	ReasonMalformedRequest  = "request_malformed"
@@ -129,18 +131,29 @@ func inspectCommands(request any) *commandDenial {
 
 // checkCommand returns "" if the command is allowed for a task of tenant, or
 // the deny reason with the command's target workflow id, if it has one.
-//
-// TODO(TODO-005): bind the nava-tenant header on ScheduleActivityTask and
-// StartChildWorkflowExecution, and NavaTenantId on child and continue-as-new,
-// to the task's tenant (Security review of PR #20).
+// Activities, children and continue-as-new must carry the task's tenant in the
+// nava-tenant header; a NavaTenantId they set must be the task's tenant too.
 func checkCommand(cmd *commandpb.Command, tenant string) (reason, target, detail string) {
 	if !allowedCommands[cmd.GetCommandType()] {
 		return ReasonCommandNotAllowed, "", ""
 	}
 	switch cmd.GetCommandType() {
+	case enumspb.COMMAND_TYPE_SCHEDULE_ACTIVITY_TASK:
+		a := cmd.GetScheduleActivityTaskCommandAttributes()
+		if detail := checkTenantHeader(a.GetHeader(), tenant); detail != "" {
+			return ReasonActivityHeader, "", detail
+		}
 	case enumspb.COMMAND_TYPE_START_CHILD_WORKFLOW_EXECUTION:
 		a := cmd.GetStartChildWorkflowExecutionCommandAttributes()
-		return checkTarget(a.GetNamespace(), a.GetWorkflowId(), tenant)
+		if reason, target, detail := checkTarget(a.GetNamespace(), a.GetWorkflowId(), tenant); reason != "" {
+			return reason, target, detail
+		}
+		if detail := checkTenantHeader(a.GetHeader(), tenant); detail != "" {
+			return ReasonChildHeader, a.GetWorkflowId(), detail
+		}
+		if !tenantSearchAttrOK(a.GetSearchAttributes(), tenant) {
+			return ReasonTenantSearchAttr, a.GetWorkflowId(), ""
+		}
 	case enumspb.COMMAND_TYPE_SIGNAL_EXTERNAL_WORKFLOW_EXECUTION:
 		a := cmd.GetSignalExternalWorkflowExecutionCommandAttributes()
 		return checkTarget(a.GetNamespace(), a.GetExecution().GetWorkflowId(), tenant)
@@ -152,20 +165,15 @@ func checkCommand(cmd *commandpb.Command, tenant string) (reason, target, detail
 		if a.GetCronSchedule() != "" {
 			return ReasonCronSchedule, "", ""
 		}
-		got, ok := payloadString(a.GetHeader().GetFields()[TenantHeader])
-		if !ok {
-			return ReasonTenantHeader, "", "header missing or not a json/plain string"
+		if detail := checkTenantHeader(a.GetHeader(), tenant); detail != "" {
+			return ReasonTenantHeader, "", detail
 		}
-		if got != tenant {
-			return ReasonTenantHeader, "", "header tenant differs from the task's"
+		if !tenantSearchAttrOK(a.GetSearchAttributes(), tenant) {
+			return ReasonTenantSearchAttr, "", ""
 		}
 	case enumspb.COMMAND_TYPE_UPSERT_WORKFLOW_SEARCH_ATTRIBUTES:
 		a := cmd.GetUpsertWorkflowSearchAttributesCommandAttributes()
-		p, set := a.GetSearchAttributes().GetIndexedFields()[TenantSearchAttribute]
-		if !set {
-			return "", "", ""
-		}
-		if got, ok := payloadString(p); !ok || got != tenant {
+		if !tenantSearchAttrOK(a.GetSearchAttributes(), tenant) {
 			return ReasonTenantSearchAttr, "", ""
 		}
 	}
@@ -183,6 +191,29 @@ func checkTarget(namespace, workflowID, tenant string) (reason, target, detail s
 		return ReasonCrossTenant, workflowID, ""
 	}
 	return "", "", ""
+}
+
+// checkTenantHeader returns "" if the header's nava-tenant is the tenant, or
+// why not, for the log line's detail.
+func checkTenantHeader(h *commonpb.Header, tenant string) string {
+	got, ok := payloadString(h.GetFields()[TenantHeader])
+	if !ok {
+		return "header missing or not a json/plain string"
+	}
+	if got != tenant {
+		return "header tenant differs from the task's"
+	}
+	return ""
+}
+
+// tenantSearchAttrOK reports whether NavaTenantId is unset or is the tenant.
+func tenantSearchAttrOK(sa *commonpb.SearchAttributes, tenant string) bool {
+	p, set := sa.GetIndexedFields()[TenantSearchAttribute]
+	if !set {
+		return true
+	}
+	got, ok := payloadString(p)
+	return ok && got == tenant
 }
 
 // tenantOf returns the tenant of a `t:<tenant>:<rest>` workflow id.
