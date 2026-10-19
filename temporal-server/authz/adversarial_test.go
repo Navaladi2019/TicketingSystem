@@ -143,6 +143,31 @@ func TestAdversarialWorkerCrossNamespaceCommandsDenied(t *testing.T) {
 	requireDenied(t, called, err)
 }
 
+// The *ById activity completions act on any workflow id and activity id with no
+// task token, so a worker certificate could complete another tenant's activity.
+// They are off the worker's list (T27c); the task-token forms still pass.
+func TestAdversarialWorkerActivityByIdDenied(t *testing.T) {
+	ctx := peerCtx(string(Worker), true)
+	for method, req := range map[string]any{
+		"RespondActivityTaskCompletedById": &workflowservice.RespondActivityTaskCompletedByIdRequest{
+			Namespace: Namespace, WorkflowId: "t:tenantB:ticket:7", ActivityId: "1"},
+		"RespondActivityTaskFailedById": &workflowservice.RespondActivityTaskFailedByIdRequest{
+			Namespace: Namespace, WorkflowId: "t:tenantB:ticket:7", ActivityId: "1"},
+		"RespondActivityTaskCanceledById": &workflowservice.RespondActivityTaskCanceledByIdRequest{
+			Namespace: Namespace, WorkflowId: "t:tenantB:ticket:7", ActivityId: "1"},
+	} {
+		t.Run(method, func(t *testing.T) {
+			called, err := callUnary(t, ctx, wf+method, req)
+			requireDenied(t, called, err)
+		})
+	}
+	called, err := callUnary(t, ctx, wf+"RespondActivityTaskCompleted",
+		&workflowservice.RespondActivityTaskCompletedRequest{Namespace: Namespace})
+	if err != nil || !called {
+		t.Fatalf("worker RespondActivityTaskCompleted denied: err=%v called=%v", err, called)
+	}
+}
+
 type fakeStream struct {
 	grpc.ServerStream
 	ctx context.Context

@@ -44,13 +44,11 @@ var allowList = map[Identity][]string{
 		// RespondWorkflowTask*
 		wf + "RespondWorkflowTaskCompleted",
 		wf + "RespondWorkflowTaskFailed",
-		// RespondActivityTask*
+		// RespondActivityTask*, task-token forms only. The *ById forms act on any
+		// workflow id without a task token, and M1 has no async completion (T27c).
 		wf + "RespondActivityTaskCompleted",
-		wf + "RespondActivityTaskCompletedById",
 		wf + "RespondActivityTaskFailed",
-		wf + "RespondActivityTaskFailedById",
 		wf + "RespondActivityTaskCanceled",
-		wf + "RespondActivityTaskCanceledById",
 		wf + "RecordActivityTaskHeartbeat",
 		wf + "RespondQueryTaskCompleted",
 		wf + "GetWorkflowExecutionHistory",
@@ -131,6 +129,9 @@ var deniedByDefault = []string{
 	wf + "DeprecateNamespace",
 	wf + "ExecuteMultiOperation",
 	wf + "RecordActivityTaskHeartbeatById",
+	wf + "RespondActivityTaskCompletedById",
+	wf + "RespondActivityTaskFailedById",
+	wf + "RespondActivityTaskCanceledById",
 	wf + "ResetWorkflowExecution",
 	wf + "DeleteWorkflowExecution",
 	wf + "ScanWorkflowExecutions",

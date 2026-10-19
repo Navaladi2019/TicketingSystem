@@ -45,13 +45,46 @@ func jsonString(s string) *commonpb.Payload {
 	return &commonpb.Payload{Metadata: map[string][]byte{"encoding": []byte("json/plain")}, Data: []byte(`"` + s + `"`)}
 }
 
+// startChild is a child with the tenantA header, the shape tenantA's worker sends.
 func startChild(namespace, workflowID string) *commandpb.Command {
+	return startChildWith(namespace, workflowID, jsonString("tenantA"), nil)
+}
+
+// startChildWith sets the tenant header to header and NavaTenantId to sa,
+// leaving each out if nil.
+func startChildWith(namespace, workflowID string, header, sa *commonpb.Payload) *commandpb.Command {
+	attrs := &commandpb.StartChildWorkflowExecutionCommandAttributes{
+		Namespace: namespace, WorkflowId: workflowID, Header: tenantHeader(header), SearchAttributes: tenantSearchAttrs(sa)}
 	return &commandpb.Command{
 		CommandType: enumspb.COMMAND_TYPE_START_CHILD_WORKFLOW_EXECUTION,
-		Attributes: &commandpb.Command_StartChildWorkflowExecutionCommandAttributes{
-			StartChildWorkflowExecutionCommandAttributes: &commandpb.StartChildWorkflowExecutionCommandAttributes{
-				Namespace: namespace, WorkflowId: workflowID}},
+		Attributes:  &commandpb.Command_StartChildWorkflowExecutionCommandAttributes{StartChildWorkflowExecutionCommandAttributes: attrs},
 	}
+}
+
+// scheduleActivity sets the tenant header to header, or leaves it out if nil.
+func scheduleActivity(header *commonpb.Payload) *commandpb.Command {
+	return &commandpb.Command{
+		CommandType: enumspb.COMMAND_TYPE_SCHEDULE_ACTIVITY_TASK,
+		Attributes: &commandpb.Command_ScheduleActivityTaskCommandAttributes{
+			ScheduleActivityTaskCommandAttributes: &commandpb.ScheduleActivityTaskCommandAttributes{
+				ActivityId: "1", Header: tenantHeader(header)}},
+	}
+}
+
+func tenantHeader(p *commonpb.Payload) *commonpb.Header {
+	if p == nil {
+		return nil
+	}
+	return &commonpb.Header{Fields: map[string]*commonpb.Payload{TenantHeader: p}}
+}
+
+// tenantSearchAttrs always sets another attribute, and NavaTenantId to p if not nil.
+func tenantSearchAttrs(p *commonpb.Payload) *commonpb.SearchAttributes {
+	fields := map[string]*commonpb.Payload{"TicketStatus": jsonString("open")}
+	if p != nil {
+		fields[TenantSearchAttribute] = p
+	}
+	return &commonpb.SearchAttributes{IndexedFields: fields}
 }
 
 func signalExternal(namespace, workflowID string) *commandpb.Command {
@@ -74,10 +107,13 @@ func cancelExternal(namespace, workflowID string) *commandpb.Command {
 
 // continueAsNew sets the tenant header to header, or leaves it out if header is nil.
 func continueAsNew(header *commonpb.Payload, cron string) *commandpb.Command {
-	attrs := &commandpb.ContinueAsNewWorkflowExecutionCommandAttributes{CronSchedule: cron}
-	if header != nil {
-		attrs.Header = &commonpb.Header{Fields: map[string]*commonpb.Payload{TenantHeader: header}}
-	}
+	return continueAsNewWith(header, nil, cron)
+}
+
+// continueAsNewWith also sets NavaTenantId to sa, if not nil.
+func continueAsNewWith(header, sa *commonpb.Payload, cron string) *commandpb.Command {
+	attrs := &commandpb.ContinueAsNewWorkflowExecutionCommandAttributes{
+		CronSchedule: cron, Header: tenantHeader(header), SearchAttributes: tenantSearchAttrs(sa)}
 	return &commandpb.Command{
 		CommandType: enumspb.COMMAND_TYPE_CONTINUE_AS_NEW_WORKFLOW_EXECUTION,
 		Attributes:  &commandpb.Command_ContinueAsNewWorkflowExecutionCommandAttributes{ContinueAsNewWorkflowExecutionCommandAttributes: attrs},
@@ -85,15 +121,11 @@ func continueAsNew(header *commonpb.Payload, cron string) *commandpb.Command {
 }
 
 func upsertTenant(p *commonpb.Payload) *commandpb.Command {
-	fields := map[string]*commonpb.Payload{"TicketStatus": jsonString("open")}
-	if p != nil {
-		fields[TenantSearchAttribute] = p
-	}
 	return &commandpb.Command{
 		CommandType: enumspb.COMMAND_TYPE_UPSERT_WORKFLOW_SEARCH_ATTRIBUTES,
 		Attributes: &commandpb.Command_UpsertWorkflowSearchAttributesCommandAttributes{
 			UpsertWorkflowSearchAttributesCommandAttributes: &commandpb.UpsertWorkflowSearchAttributesCommandAttributes{
-				SearchAttributes: &commonpb.SearchAttributes{IndexedFields: fields}}},
+				SearchAttributes: tenantSearchAttrs(p)}},
 	}
 }
 
@@ -275,6 +307,83 @@ func TestContinueAsNew(t *testing.T) {
 	})
 }
 
+// T27c: an activity carries the task's tenant in its header, since the worker
+// runs it under that tenant's RLS.
+func TestScheduleActivityTenantHeader(t *testing.T) {
+	tok := taskToken(t, wfA)
+	sa := "ScheduleActivityTask"
+	for _, c := range []denyCase{
+		{name: "header missing", req: respond(tok, scheduleActivity(nil)),
+			reason: ReasonActivityHeader, command: sa, workflowID: wfA, commandIdx: "0"},
+		{name: "header other tenant", req: respond(tok, scheduleActivity(jsonString("tenantB"))),
+			reason: ReasonActivityHeader, command: sa, workflowID: wfA, commandIdx: "0"},
+		{name: "header not json/plain", req: respond(tok, scheduleActivity(&commonpb.Payload{
+			Metadata: map[string][]byte{"encoding": []byte("binary/plain")}, Data: []byte("tenantA")})),
+			reason: ReasonActivityHeader, command: sa, workflowID: wfA, commandIdx: "0"},
+		{name: "missing attributes", req: respond(tok, ofType(enumspb.COMMAND_TYPE_SCHEDULE_ACTIVITY_TASK)),
+			reason: ReasonActivityHeader, command: sa, workflowID: wfA, commandIdx: "0"},
+		{name: "second activity bad", req: respond(tok, scheduleActivity(jsonString("tenantA")), scheduleActivity(jsonString("tenantB"))),
+			reason: ReasonActivityHeader, command: sa, workflowID: wfA, commandIdx: "1"},
+	} {
+		t.Run(c.name, func(t *testing.T) { requireCommandDeny(t, c) })
+	}
+	t.Run("same tenant allowed", func(t *testing.T) {
+		requireCommandAllow(t, respond(tok, scheduleActivity(jsonString("tenantA"))))
+	})
+}
+
+// T27c: a same-tenant child must also carry the task's tenant in its header
+// and, if set, in NavaTenantId.
+func TestStartChildTenantHeaderAndSearchAttribute(t *testing.T) {
+	tok := taskToken(t, wfA)
+	child := "t:tenantA:child:1"
+	sc := "StartChildWorkflowExecution"
+	for _, c := range []denyCase{
+		{name: "header missing", req: respond(tok, startChildWith(Namespace, child, nil, nil)),
+			reason: ReasonChildHeader, command: sc, workflowID: wfA, target: child, commandIdx: "0"},
+		{name: "header other tenant", req: respond(tok, startChildWith(Namespace, child, jsonString("tenantB"), nil)),
+			reason: ReasonChildHeader, command: sc, workflowID: wfA, target: child, commandIdx: "0"},
+		{name: "header not a string", req: respond(tok, startChildWith(Namespace, child, &commonpb.Payload{
+			Metadata: map[string][]byte{"encoding": []byte("json/plain")}, Data: []byte(`["tenantA"]`)}, nil)),
+			reason: ReasonChildHeader, command: sc, workflowID: wfA, target: child, commandIdx: "0"},
+		{name: "search attribute other tenant", req: respond(tok, startChildWith(Namespace, child, jsonString("tenantA"), jsonString("tenantB"))),
+			reason: ReasonTenantSearchAttr, command: sc, workflowID: wfA, target: child, commandIdx: "0"},
+		{name: "search attribute keyword list", req: respond(tok, startChildWith(Namespace, child, jsonString("tenantA"), &commonpb.Payload{
+			Metadata: map[string][]byte{"encoding": []byte("json/plain")}, Data: []byte(`["tenantA","tenantB"]`)})),
+			reason: ReasonTenantSearchAttr, command: sc, workflowID: wfA, target: child, commandIdx: "0"},
+		// The target id is checked first: another tenant's child is cross-tenant
+		// whatever its header says.
+		{name: "other tenant target with its own header", req: respond(tok, startChildWith(Namespace, wfB, jsonString("tenantB"), nil)),
+			reason: ReasonCrossTenant, command: sc, workflowID: wfA, target: wfB, commandIdx: "0"},
+	} {
+		t.Run(c.name, func(t *testing.T) { requireCommandDeny(t, c) })
+	}
+	t.Run("same tenant allowed", func(t *testing.T) {
+		requireCommandAllow(t, respond(tok, startChildWith(Namespace, child, jsonString("tenantA"), jsonString("tenantA"))))
+	})
+	t.Run("search attribute unset allowed", func(t *testing.T) {
+		requireCommandAllow(t, respond(tok, startChildWith(Namespace, child, jsonString("tenantA"), nil)))
+	})
+}
+
+// T27c: continue-as-new may leave NavaTenantId unset; if set it is the task's tenant.
+func TestContinueAsNewTenantSearchAttribute(t *testing.T) {
+	tok := taskToken(t, wfA)
+	can := "ContinueAsNewWorkflowExecution"
+	for _, c := range []denyCase{
+		{name: "other tenant", req: respond(tok, continueAsNewWith(jsonString("tenantA"), jsonString("tenantB"), "")),
+			reason: ReasonTenantSearchAttr, command: can, workflowID: wfA, commandIdx: "0"},
+		{name: "not json/plain", req: respond(tok, continueAsNewWith(jsonString("tenantA"), &commonpb.Payload{
+			Metadata: map[string][]byte{"encoding": []byte("binary/plain")}, Data: []byte("tenantA")}, "")),
+			reason: ReasonTenantSearchAttr, command: can, workflowID: wfA, commandIdx: "0"},
+	} {
+		t.Run(c.name, func(t *testing.T) { requireCommandDeny(t, c) })
+	}
+	t.Run("same tenant allowed", func(t *testing.T) {
+		requireCommandAllow(t, respond(tok, continueAsNewWith(jsonString("tenantA"), jsonString("tenantA"), "")))
+	})
+}
+
 func TestUndecodableTaskTokenOrUnprefixedIDDenied(t *testing.T) {
 	for _, c := range []denyCase{
 		{name: "garbage token", req: respond([]byte{0xff, 0xff, 0xff}),
@@ -316,6 +425,7 @@ func TestUpsertTenantSearchAttribute(t *testing.T) {
 func TestCommandTypeTable(t *testing.T) {
 	tok := taskToken(t, wfA)
 	sameTenantPath := map[enumspb.CommandType]*commandpb.Command{
+		enumspb.COMMAND_TYPE_SCHEDULE_ACTIVITY_TASK:                     scheduleActivity(jsonString("tenantA")),
 		enumspb.COMMAND_TYPE_START_CHILD_WORKFLOW_EXECUTION:             startChild(Namespace, "t:tenantA:c"),
 		enumspb.COMMAND_TYPE_SIGNAL_EXTERNAL_WORKFLOW_EXECUTION:         signalExternal(Namespace, "t:tenantA:c"),
 		enumspb.COMMAND_TYPE_REQUEST_CANCEL_EXTERNAL_WORKFLOW_EXECUTION: cancelExternal(Namespace, "t:tenantA:c"),

@@ -81,7 +81,8 @@ func adrAllows(id Identity, fullAPI string) bool {
 			"RecordActivityTaskHeartbeat", "RespondQueryTaskCompleted", "GetWorkflowExecutionHistory",
 			"RecordWorkerHeartbeat") ||
 			strings.HasPrefix(method, "RespondWorkflowTask") ||
-			strings.HasPrefix(method, "RespondActivityTask"))
+			// T27c: the *ById forms need no task token, so the worker may not call them.
+			(strings.HasPrefix(method, "RespondActivityTask") && !strings.HasSuffix(method, "ById")))
 	case Operator:
 		if fullAPI == api.WorkflowServicePrefix+"TerminateWorkflowExecution" ||
 			fullAPI == api.OperatorServicePrefix+"AddSearchAttributes" {

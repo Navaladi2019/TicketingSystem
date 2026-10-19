@@ -65,11 +65,11 @@ go.temporal.io/api v1.50.1, go.temporal.io/server v1.28.4. `Y` = allowed in name
 | ResetStickyTaskQueue | nava | | | | | Y |
 | ResetWorkflowExecution | nava | | | | | Y |
 | RespondActivityTaskCanceled | nava | | | Y | | Y |
-| RespondActivityTaskCanceledById | nava | | | Y | | Y |
+| RespondActivityTaskCanceledById | nava | | | | | Y |
 | RespondActivityTaskCompleted | nava | | | Y | | Y |
-| RespondActivityTaskCompletedById | nava | | | Y | | Y |
+| RespondActivityTaskCompletedById | nava | | | | | Y |
 | RespondActivityTaskFailed | nava | | | Y | | Y |
-| RespondActivityTaskFailedById | nava | | | Y | | Y |
+| RespondActivityTaskFailedById | nava | | | | | Y |
 | RespondNexusTaskCompleted | nava | | | | | Y |
 | RespondNexusTaskFailed | nava | | | | | Y |
 | RespondQueryTaskCompleted | nava | | | Y | | Y |
