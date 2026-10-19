@@ -207,8 +207,9 @@ services:
     restart: unless-stopped
 
   # Temporal UI, on the operator network only, with the nava-operator
-  # certificate. Off by default: `docker compose --profile operator up -d`, then
-  # http://127.0.0.1:${TEMPORAL_UI_PORT:-18233}.
+  # certificate. Off by default: `docker compose --profile operator up -d`. It
+  # publishes no port (a published port is reachable from platform containers
+  # through the host); reach it with `make operator-tunnel`.
   temporal-ui:
     profiles: [operator]
     image: temporalio/ui:2.40.1
@@ -223,8 +224,6 @@ services:
       - ./deploy/compose/certs/ca.pem:/run/certs/ca.pem:ro
       - ./deploy/compose/certs/nava-operator.pem:/run/certs/nava-operator.pem:ro
       - ./deploy/compose/certs/nava-operator.key:/run/certs/nava-operator.key:ro
-    ports:
-      - "127.0.0.1:${TEMPORAL_UI_PORT:-18233}:8080"
     networks: [operator]
     depends_on:
       temporal: {condition: service_healthy}

@@ -1,6 +1,6 @@
 TEMPORAL_SERVER_IMAGE ?= nava/temporal-server:dev
 
-.PHONY: temporal-server-test temporal-server-image temporal-server-dev-certs temporal-server-run dev-ca
+.PHONY: temporal-server-test temporal-server-image temporal-server-dev-certs temporal-server-run dev-ca operator-tunnel
 
 ## Unit, policy and end-to-end tests of the custom Temporal server module.
 temporal-server-test:
@@ -63,3 +63,9 @@ CERT_DIR ?= deploy/compose/certs
 ## deploy/compose/certs/ (git-ignored). Keeps existing certificates; FORCE=1 reissues.
 dev-ca:
 	@if [ -f $(CERT_DIR)/ca.pem ] && [ -z "$(FORCE)" ]; then echo "$(CERT_DIR) already holds a dev CA (FORCE=1 to reissue)"; 	else cd temporal-server && go run ./cmd/devcerts -installation -out ../$(CERT_DIR); fi
+
+## Explicit operator tunnel to the Temporal UI (profile operator): forwards
+## 127.0.0.1:$(UI_PORT) to the UI until interrupted. The UI publishes no port.
+UI_PORT ?= 18233
+operator-tunnel:
+	docker run --rm --name nava-operator-tunnel -p 127.0.0.1:$(UI_PORT):8080 		--network $$(docker network ls -q --filter label=com.docker.compose.project=nava --filter label=com.docker.compose.network=operator) 		--entrypoint /usr/local/bin/temporal-server nava/temporal-server:dev proxy -listen :8080 -to temporal-ui:8080

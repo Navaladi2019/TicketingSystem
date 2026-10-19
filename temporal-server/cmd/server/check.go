@@ -93,7 +93,7 @@ func tlsErrors(cfg *config.Config) error {
 	}
 	for _, f := range feCAs {
 		for _, i := range inCAs {
-			if bytes.Equal(f.Raw, i.Raw) {
+			if bytes.Equal(f.Raw, i.Raw) || bytes.Equal(f.RawSubjectPublicKeyInfo, i.RawSubjectPublicKeyInfo) {
 				errs = append(errs, fmt.Errorf("CA %q is trusted on both frontend and internode: internode needs its own CA", f.Subject.CommonName))
 			}
 		}

@@ -75,3 +75,21 @@ gate and `GetWorkflowExecutionHistory` covers the need.
 search attribute with the `temporal-system` certificate, so that certificate stays
 in the server container. `temporal-server health` and `temporal-server proxy` are
 the compose health probe and the 7233-only gateway.
+
+## Operator tunnel to the Temporal UI (T28)
+
+The UI (`docker compose --profile operator up -d`) wields the `nava-operator`
+identity, so it publishes no port: a port published on the host is reachable from
+platform containers (for example through `host.docker.internal` on Docker
+Desktop), which would let them use that identity. Reach it with an explicit
+tunnel that lives only while you run it:
+
+```sh
+make operator-tunnel        # 127.0.0.1:18233 -> temporal-ui:8080; Ctrl-C closes it
+```
+
+While the tunnel runs, that port is reachable from the host like any published
+port, so run it only on a developer machine and close it when done. Login through
+Keycloak OIDC is deferred until the UI must be reachable without a tunnel.
+`stack-test.sh temporal_operator_reach` checks that no platform container reaches
+the UI by name or through the host.

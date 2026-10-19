@@ -156,3 +156,33 @@ func writeCA(t *testing.T, dir, name string, parent *ca, maxPathLen int) *ca {
 	}
 	return &ca{cert, key}
 }
+
+// A CA reissued with the same key is the same trust anchor: refuse it on both sides.
+func TestCheckConfigRefusesSameCAKeyReissuedForInternode(t *testing.T) {
+	dir := t.TempDir()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"a.pem", "b.pem"} {
+		serial, _ := rand.Int(rand.Reader, big.NewInt(1<<62))
+		tmpl := &x509.Certificate{
+			SerialNumber: serial, Subject: pkix.Name{CommonName: "ca-" + name},
+			NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+			IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign, MaxPathLenZero: true,
+		}
+		der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c := validConfig(t)
+	c.Global.TLS.Frontend.Server.ClientCAFiles = []string{filepath.Join(dir, "a.pem")}
+	c.Global.TLS.Internode.Server.ClientCAFiles = []string{filepath.Join(dir, "b.pem")}
+	if err := checkConfig(c, nil); err == nil || !strings.Contains(err.Error(), "both frontend and internode") {
+		t.Fatalf("same key, different certificate: got %v", err)
+	}
+}
