@@ -1,6 +1,7 @@
 // Package roles is the db-roles job: run once with the bootstrap superuser,
-// it converges the cluster's roles, their memberships, the databases and the
-// infrastructure exceptions to db/grants.yaml, then exits. Every role is
+// it converges the cluster's roles, their memberships, the databases, the
+// service databases' grants and the infrastructure exceptions to
+// db/grants.yaml, then exits. Every role is
 // NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS (ADR-001 A.3), so the
 // migrator cannot create roles and this job does it instead. A second run
 // changes nothing.
@@ -32,7 +33,7 @@ func PasswordEnv(role string) string { return "DBROLES_PASSWORD_" + strings.ToUp
 type Result struct {
 	Created  int // roles and databases
 	Changed  int // attributes, passwords, owners, the lookup function
-	Revoked  int // memberships and exception grants
+	Revoked  int // memberships, service-database grants and exception grants
 	Existing int // roles and databases already present
 }
 
@@ -82,6 +83,12 @@ func Run(ctx context.Context, cfg *pgx.ConnConfig, m *grants.Manifest, passwords
 	}
 	for _, name := range m.DatabaseNames() {
 		if err := ensureDatabase(ctx, conn, name, m.Databases[name].Owner, log, &res); err != nil {
+			return res, fmt.Errorf("database %s: %w", name, err)
+		}
+		if name == m.PlatformDatabase {
+			continue // its grants are the migrator's (grants.Apply)
+		}
+		if err := ownerOnlyDatabase(ctx, conn, name, log, &res); err != nil {
 			return res, fmt.Errorf("database %s: %w", name, err)
 		}
 	}
@@ -223,6 +230,54 @@ func ensureDatabase(ctx context.Context, conn *pgx.Conn, name, owner string, log
 	log.WarnContext(ctx, "changed database owner", slog.String("database", name),
 		slog.String("from", cur), slog.String("to", owner))
 	res.Changed++
+	return nil
+}
+
+// ownerOnlyDatabase revokes every privilege on a service database (keycloak,
+// temporal, temporal_visibility) held by anyone but its owner, PUBLIC
+// included. PostgreSQL's default gives PUBLIC CONNECT and TEMPORARY on a new
+// database, which would let every runtime role connect to Keycloak's and
+// Temporal's data (ADR-001 A.3: "No CONNECT on nava, and the reverse").
+func ownerOnlyDatabase(ctx context.Context, conn *pgx.Conn, name string, log *slog.Logger, res *Result) error {
+	// A superuser's REVOKE acts as the owner, so a grant made by anyone else
+	// (only possible through a grant option) would survive it: read twice.
+	type acl struct{ Grantee, Priv string }
+	read := func() ([]acl, error) {
+		rows, err := conn.Query(ctx, `
+			SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(a.grantee)::text END,
+			       a.privilege_type
+			FROM pg_catalog.pg_database d,
+			     pg_catalog.aclexplode(coalesce(d.datacl, pg_catalog.acldefault('d', d.datdba))) a
+			WHERE d.datname = $1 AND a.grantee <> d.datdba
+			ORDER BY 1, 2`, name)
+		if err != nil {
+			return nil, err
+		}
+		return pgx.CollectRows(rows, pgx.RowToStructByPos[acl])
+	}
+	acls, err := read()
+	if err != nil {
+		return err
+	}
+	for _, a := range acls {
+		grantee := "PUBLIC"
+		if a.Grantee != "PUBLIC" {
+			grantee = ident(a.Grantee)
+		}
+		// a.Priv comes from aclexplode: CONNECT, TEMPORARY or CREATE.
+		if _, err := conn.Exec(ctx, fmt.Sprintf("REVOKE %s ON DATABASE %s FROM %s CASCADE",
+			a.Priv, ident(name), grantee)); err != nil {
+			return fmt.Errorf("revoke %s from %s: %w", a.Priv, a.Grantee, err)
+		}
+		log.WarnContext(ctx, "revoked database grant not in manifest", slog.String("database", name),
+			slog.String("grantee", a.Grantee), slog.String("privilege", a.Priv))
+		res.Revoked++
+	}
+	if acls, err = read(); err != nil {
+		return err
+	} else if len(acls) > 0 {
+		return fmt.Errorf("%s on database %s survived its revoke; its grantor is not the owner", acls[0].Priv, name)
+	}
 	return nil
 }
 

@@ -72,6 +72,9 @@ jobs:
       - name: db-roles revokes stray memberships
         run: sh deploy/compose/test/stack-test.sh dbroles
 
+      - name: pg_hba keeps pgadmin and nava_backup out
+        run: sh deploy/compose/test/stack-test.sh hba
+
       - name: Internal overlay comes up
         run: |
           docker compose down -v

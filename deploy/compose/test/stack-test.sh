@@ -1,5 +1,5 @@
 #!/bin/sh
-# Stack tests for T02 and T03. Usage: stack-test.sh <healthy|pgbouncer|temporal|dependencies|trace|redact|idempotent|dbroles|internal>
+# Stack tests for T02, T03 and T08. Usage: stack-test.sh <healthy|pgbouncer|temporal|dependencies|trace|redact|idempotent|dbroles|hba|internal>
 # Needs the stack up (task stack:up); `internal` brings up its own overlay.
 set -eu
 . "$(dirname "$0")/lib.sh"
@@ -149,7 +149,7 @@ t_redact() {
 # ids, data kept, nothing created, changed or revoked, and the stack is
 # healthy again after `down` (volumes kept) and a second `up`.
 t_idempotent() {
-    snapshot() { psql_super postgres "SELECT (SELECT string_agg(oid::text || rolpassword, ',' ORDER BY rolname) FROM pg_authid WHERE rolname IN ('nava_migrator','nava_app','keycloak','temporal','pgbouncer_auth')) || '/' || (SELECT string_agg(oid::text, ',' ORDER BY datname) FROM pg_database WHERE datname IN ('keycloak','temporal','temporal_visibility','nava'))"; }
+    snapshot() { psql_super postgres "SELECT (SELECT string_agg(oid::text || rolpassword, ',' ORDER BY rolname) FROM pg_authid WHERE rolname IN ('nava_migrator','nava_app','nava_worker','nava_relay','nava_purge','nava_onboard','nava_groupsync','nava_backup','keycloak','temporal','pgbouncer_auth')) || '/' || (SELECT string_agg(oid::text, ',' ORDER BY datname) FROM pg_database WHERE datname IN ('keycloak','temporal','temporal_visibility','nava'))"; }
     psql_super nava "CREATE TABLE IF NOT EXISTS idempotency_marker (id int); INSERT INTO idempotency_marker SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM idempotency_marker)" >/dev/null
     first=$(snapshot)
     compose down
@@ -181,6 +181,59 @@ t_dbroles() {
     pass "stray membership revoked; datdba = nava_migrator, granted to no one"
 }
 
+# db/pg_hba.conf in the running stack (T08: ADR-001 A.3, CI-9; T02 security
+# review). Clients run in nava-core's network namespace, so PostgreSQL sees
+# nava-core's address. The superuser is refused over TCP even with the right
+# password; nava_backup gets no SQL session and no logical walsender, only a
+# physical walsender from the backup host (127.0.0.1 in the postgres container).
+t_hba() {
+    core=$(container_of nava-core)
+    [ -n "$core" ] || fail "nava-core is not running"
+    # from_core <user> <password> <conninfo> [sql]
+    from_core() {
+        docker run --rm --network "container:$core" -e PGPASSWORD="$2" postgres:16.10 \
+            psql -X -t -A "host=postgres user=$1 connect_timeout=10 $3" -c "${4:-SELECT 1}" 2>&1 || true
+    }
+    # in_pg <user> <password> <conninfo> [sql]: over TCP from inside the postgres container
+    in_pg() {
+        compose exec -T -e PGPASSWORD="$2" postgres \
+            psql -X -t -A "host=127.0.0.1 user=$1 connect_timeout=10 $3" -c "${4:-SELECT 1}" 2>&1 || true
+    }
+    expect() { # <what> <grep -E pattern> <output>
+        printf '%s\n' "$3" | grep -Eq "$2" || fail "$1: expected /$2/, got: $3"
+        pass "$1"
+    }
+    su=${PG_SUPERUSER_PASSWORD:-dev-only-superuser}
+    bk=${NAVA_BACKUP_DB_PASSWORD:-dev-only-backup}
+    rejected='pg_hba.conf rejects connection'
+
+    expect "control: nava_app from nava-core logs in to nava" '^1$' \
+        "$(from_core nava_app "${NAVA_APP_DB_PASSWORD:-dev-only-app}" dbname=nava)"
+    expect "control: pgadmin over the Unix socket" '^1$' "$(psql_super postgres 'SELECT 1')"
+
+    expect "pgadmin from nava-core (correct password) refused" "$rejected.*\"pgadmin\"" \
+        "$(from_core pgadmin "$su" dbname=postgres)"
+    expect "pgadmin from nava-core to nava refused" "$rejected.*\"pgadmin\"" \
+        "$(from_core pgadmin "$su" dbname=nava)"
+    expect "pgadmin over TCP inside the postgres container refused" "$rejected.*\"pgadmin\"" \
+        "$(in_pg pgadmin "$su" dbname=postgres)"
+
+    expect "nava_backup SQL session to nava refused" "$rejected.*\"nava_backup\".*\"nava\"" \
+        "$(from_core nava_backup "$bk" dbname=nava)"
+    expect "nava_backup SQL session to postgres refused" "$rejected.*\"nava_backup\".*\"postgres\"" \
+        "$(from_core nava_backup "$bk" dbname=postgres)"
+    expect "nava_backup SQL session from the backup host refused" "$rejected.*\"nava_backup\"" \
+        "$(in_pg nava_backup "$bk" dbname=postgres)"
+    expect "nava_backup logical walsender (replication=database) refused" "$rejected.*\"nava_backup\"" \
+        "$(from_core nava_backup "$bk" "dbname=nava replication=database" IDENTIFY_SYSTEM)"
+    expect "nava_backup logical walsender from the backup host refused" "$rejected.*\"nava_backup\"" \
+        "$(in_pg nava_backup "$bk" "dbname=nava replication=database" IDENTIFY_SYSTEM)"
+    expect "nava_backup physical walsender from nava-core refused" 'no pg_hba.conf entry for replication connection' \
+        "$(from_core nava_backup "$bk" replication=true IDENTIFY_SYSTEM)"
+    expect "nava_backup physical walsender from the backup host accepted" '^[0-9]+\|1\|' \
+        "$(in_pg nava_backup "$bk" replication=true IDENTIFY_SYSTEM)"
+}
+
 # With the internal overlay the stack still comes up healthy and has no egress.
 t_internal() {
     COMPOSE_FILE_ARGS="-f compose.yaml -f deploy/compose/compose.internal.yaml"
@@ -196,5 +249,5 @@ t_internal() {
     pass "overlay up, every network internal, no egress"
 }
 
-[ $# -eq 1 ] || fail "usage: stack-test.sh <healthy|pgbouncer|temporal|dependencies|trace|redact|idempotent|dbroles|internal>"
+[ $# -eq 1 ] || fail "usage: stack-test.sh <healthy|pgbouncer|temporal|dependencies|trace|redact|idempotent|dbroles|hba|internal>"
 "t_$1"
