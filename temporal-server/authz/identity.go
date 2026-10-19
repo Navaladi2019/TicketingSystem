@@ -2,7 +2,8 @@
 // Temporal server (ADR-001 D22, Annex A.2). Access is deny by default: a call is
 // allowed only when the caller's certificate identity is listed for the API in
 // policy.go and the call targets the `nava` namespace (or no namespace, for APIs
-// whose request carries none). Worker command inspection is T27b.
+// whose request carries none). A nava-worker RespondWorkflowTaskCompleted is
+// also denied if any command reaches another tenant (commands.go, erratum E1).
 package authz
 
 import (
