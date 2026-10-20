@@ -109,7 +109,10 @@ func TestReadyzFollowsPostgresOnly(t *testing.T) {
 		health.Check{Name: "keycloak", Probe: kc.probe},
 		health.Check{Name: "temporal", Probe: tc.probe})
 
+	// Probes finish independently, so /readyz (postgres only) can turn 200
+	// while keycloak or temporal is still unknown. Wait for the full report.
 	eventually(t, "ready", func() bool { return readyz(t, srv) == http.StatusOK })
+	eventually(t, "ok", func() bool { _, r := report(t, srv); return r.Status == health.StatusOK })
 	code, r := report(t, srv)
 	if code != http.StatusOK || r.Status != health.StatusOK ||
 		r.Checks["postgres"] != "ok" || r.Checks["keycloak"] != "ok" || r.Checks["temporal"] != "ok" {
@@ -146,7 +149,7 @@ func TestReadyzFollowsPostgresOnly(t *testing.T) {
 func TestNotReadyBeforeFirstProbe(t *testing.T) {
 	t.Parallel()
 	tel := newTel(t)
-	started := make(chan struct{})
+	started := make(chan struct{}, 1)
 	block := make(chan struct{})
 	t.Cleanup(func() { close(block) })
 	mon, err := health.NewMonitor(slog.New(slog.DiscardHandler), tel.MeterProvider, []health.Check{{
