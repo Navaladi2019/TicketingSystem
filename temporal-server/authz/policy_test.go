@@ -94,6 +94,9 @@ func adrAllows(id Identity, fullAPI string) bool {
 		if svc == api.AdminServicePrefix && strings.Contains(method, "ReplicationMessages") {
 			return false // they move replication ack levels: writes behind a Get name
 		}
+		if svc == api.AdminServicePrefix && strings.HasPrefix(method, "GetWorkflowExecutionRawHistory") {
+			return false // skip the namespace gate; GetWorkflowExecutionHistory covers the need
+		}
 		for _, p := range []string{"Describe", "List", "Count", "Get"} {
 			if strings.HasPrefix(method, p) {
 				return true

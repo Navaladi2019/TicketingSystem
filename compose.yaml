@@ -10,8 +10,10 @@
 # no network at all.
 #
 # Networks: `internal` (internal: true, no egress) carries every backing
-# service. `default` publishes ports to the host for nava-core and Keycloak.
-# deploy/compose/compose.internal.yaml makes `default` internal too.
+# service and is the platform network. `default` publishes ports to the host for
+# nava-core and Keycloak. `temporal-backplane` carries Temporal's own traffic and
+# `operator` the Temporal UI (see the temporal services).
+# deploy/compose/compose.internal.yaml makes `default` and `operator` internal too.
 name: nava
 
 services:
@@ -32,7 +34,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - pgsocket:/var/run/postgresql
-    networks: [internal]
+    networks: [internal, temporal-backplane]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U pgadmin -d postgres"]
       interval: 5s
@@ -147,29 +149,105 @@ services:
       start_period: 60s
     restart: unless-stopped
 
-  # Temporal on the `default` namespace; T28 adds `nava`. SQL visibility on
-  # PostgreSQL. Talks to Postgres directly, not through PgBouncer.
-  temporal:
-    image: temporalio/auto-setup:1.28.4
+  # Temporal (ADR-001 D22, T28). Three services share the nava/temporal-server
+  # image (T27a); build it with `make temporal-server-image` or let `up --build`.
+  #   temporal-schema  one-shot: schema in the temporal and temporal_visibility
+  #                    databases (PostgreSQL direct, not PgBouncer).
+  #   temporal-server  the server. Frontend and internode require client
+  #                    certificates; internode has its own CA. Only this service
+  #                    holds the temporal-system certificate: it registers
+  #                    namespace `nava` and the NavaTenantId search attribute
+  #                    itself (--bootstrap). It is on temporal-backplane only.
+  #   temporal         the gateway: forwards TCP 7233 and nothing else, so the
+  #                    internode (7234, 7235, 7239) and membership (6933-6939)
+  #                    ports are unreachable from `internal`. It holds no
+  #                    certificate; TLS is end to end. Platform processes dial
+  #                    temporal:7233 with their own certificate.
+  # The certificates come from `make dev-ca` (deploy/compose/certs/, git-ignored);
+  # each is mounted only into the service that owns it.
+  temporal-schema:
+    image: nava/temporal-server:dev
+    entrypoint: ["/bin/sh", "/usr/local/bin/setup-schema.sh"]
+    command: []
     environment:
-      DB: postgres12
-      DB_PORT: "5432"
-      POSTGRES_SEEDS: postgres
-      POSTGRES_USER: temporal
-      POSTGRES_PWD: ${TEMPORAL_DB_PASSWORD:-dev-only-temporal}
-      DBNAME: temporal
-      VISIBILITY_DBNAME: temporal_visibility
-      SKIP_DB_CREATE: "true"
-      DEFAULT_NAMESPACE: default
-    networks: [internal]
+      PG_HOST: postgres
+      PG_USER: temporal
+      TEMPORAL_DB_PASSWORD: ${TEMPORAL_DB_PASSWORD:-dev-only-temporal}
+    networks: [temporal-backplane]
     depends_on:
       db-roles: {condition: service_completed_successfully}
+    restart: "no"
+
+  temporal-server:
+    build:
+      context: ./temporal-server
+    image: nava/temporal-server:dev
+    command: ["--env", "compose", "--bootstrap"]
+    environment:
+      TEMPORAL_DB_PASSWORD: ${TEMPORAL_DB_PASSWORD:-dev-only-temporal}
+    volumes:
+      - ./deploy/compose/temporal/config:/etc/temporal/config:ro
+      - ./deploy/compose/certs/ca.pem:/etc/temporal/certs/ca.pem:ro
+      - ./deploy/compose/certs/server.pem:/etc/temporal/certs/server.pem:ro
+      - ./deploy/compose/certs/server.key:/etc/temporal/certs/server.key:ro
+      - ./deploy/compose/certs/internode-ca.pem:/etc/temporal/certs/internode-ca.pem:ro
+      - ./deploy/compose/certs/internode.pem:/etc/temporal/certs/internode.pem:ro
+      - ./deploy/compose/certs/internode.key:/etc/temporal/certs/internode.key:ro
+      - ./deploy/compose/certs/temporal-system.pem:/etc/temporal/certs/temporal-system.pem:ro
+      - ./deploy/compose/certs/temporal-system.key:/etc/temporal/certs/temporal-system.key:ro
+    networks: [temporal-backplane]
+    depends_on:
+      temporal-schema: {condition: service_completed_successfully}
     healthcheck:
-      test: ["CMD-SHELL", "tctl --address $$(hostname -i):7233 cluster health | grep -q SERVING"]
+      # Dials the frontend with the temporal-system certificate and requires the
+      # nava namespace and NavaTenantId: healthy means bootstrapped.
+      test: ["CMD", "/usr/local/bin/temporal-server", "health", "-bootstrapped"]
       interval: 10s
       timeout: 10s
       retries: 30
       start_period: 30s
+    restart: unless-stopped
+
+  temporal:
+    image: nava/temporal-server:dev
+    entrypoint: ["/usr/local/bin/temporal-server", "proxy", "-listen", ":7233", "-to", "temporal-server:7233"]
+    command: []
+    networks: [internal, operator, temporal-backplane]
+    depends_on:
+      temporal-server: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/temporal-server", "health", "-tcp-only", "-addr", "127.0.0.1:7233"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  # Temporal UI, on the operator network only, with the nava-operator
+  # certificate. Off by default: `docker compose --profile operator up -d`. It
+  # publishes no port (a published port is reachable from platform containers
+  # through the host); reach it with `make operator-tunnel`.
+  temporal-ui:
+    profiles: [operator]
+    image: temporalio/ui:2.40.1
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_DEFAULT_NAMESPACE: nava
+      TEMPORAL_TLS_CA: /run/certs/ca.pem
+      TEMPORAL_TLS_CERT: /run/certs/nava-operator.pem
+      TEMPORAL_TLS_KEY: /run/certs/nava-operator.key
+      TEMPORAL_TLS_SERVER_NAME: temporal
+    volumes:
+      - ./deploy/compose/certs/ca.pem:/run/certs/ca.pem:ro
+      - ./deploy/compose/certs/nava-operator.pem:/run/certs/nava-operator.pem:ro
+      - ./deploy/compose/certs/nava-operator.key:/run/certs/nava-operator.key:ro
+    networks: [operator]
+    depends_on:
+      temporal: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
     restart: unless-stopped
 
   otel-collector:
@@ -196,16 +274,26 @@ services:
       NAVA_HTTP_ADDR: ":8080"
       NAVA_KEYCLOAK_MANAGEMENT_URL: http://keycloak:9000
       NAVA_TEMPORAL_ADDRESS: temporal:7233
+      # The nava-core certificate: the only one this service holds.
+      NAVA_TEMPORAL_TLS_CERT_FILE: /run/temporal-tls/nava-core.pem
+      NAVA_TEMPORAL_TLS_KEY_FILE: /run/temporal-tls/nava-core.key
+      NAVA_TEMPORAL_TLS_CA_FILE: /run/temporal-tls/ca.pem
+      NAVA_TEMPORAL_TLS_SERVER_NAME: temporal
       # nava_app (db/grants.yaml) through PgBouncer; PostgreSQL gates /readyz.
       NAVA_DATABASE_URL: postgres://nava_app:${NAVA_APP_DB_PASSWORD:-dev-only-app}@pgbouncer:5432/nava?sslmode=disable
       NAVA_LOG_FORMAT: json
       OTEL_SERVICE_NAME: nava-core
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    volumes:
+      - ./deploy/compose/certs/nava-core.pem:/run/temporal-tls/nava-core.pem:ro
+      - ./deploy/compose/certs/nava-core.key:/run/temporal-tls/nava-core.key:ro
+      - ./deploy/compose/certs/ca.pem:/run/temporal-tls/ca.pem:ro
     ports:
       - "127.0.0.1:${NAVA_CORE_PORT:-18080}:8080"
     networks: [default, internal]
     depends_on:
       otel-collector: {condition: service_healthy}
+      temporal: {condition: service_healthy}
       pgbouncer: {condition: service_healthy}
     healthcheck:
       # /readyz on the admin listener (NAVA_ADMIN_ADDR, :9090): 200 only while
@@ -220,6 +308,14 @@ networks:
   default: {}
   internal:
     internal: true
+  # Temporal's own network: the server, the gateway, the schema job and
+  # PostgreSQL. No platform process joins it, so the server's other ports have
+  # no route from `internal`.
+  temporal-backplane:
+    internal: true
+  # Operator tooling (Temporal UI). Not internal, so the UI can publish a port
+  # on 127.0.0.1; the overlay makes it internal.
+  operator: {}
 
 volumes:
   pgdata: {}

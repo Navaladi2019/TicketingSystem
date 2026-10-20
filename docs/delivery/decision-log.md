@@ -2,6 +2,22 @@
 
 Delivery decisions that change a task's contract, newest first.
 
+## 2026-10-20: CI wall clock under 5 minutes; stack tests split over three jobs
+- **Decided by:** the Technical Lead on TICK-59, on the human's escalation (CI took about 22 minutes).
+- **Decision:** `ci.yml` runs seven parallel jobs: `lint`, `unit`, `temporal-server`, `integration`, `stack`, `stack-db` and `stack-internal`. This replaces `lint-unit` and the single `stack` job. Every gate and every stack test still runs, and none is skipped or weakened. `make ci` and `make ci-stack` are unchanged locally.
+- **Caching:** each job keeps a Go build cache keyed per job. CI tools are cached by Makefile hash, and image layers live in the Actions cache (`make image-ci`, `IMAGE_CACHE=gha`).
+- **temporal-server image:** it no longer runs `go test -short` during the build. The `temporal-server` job already runs the full suite, which is a superset. Its Temporal dependencies now compile in a layer keyed on `go.mod`/`go.sum`.
+- **Accepted cost:** a run that changes `go.sum` or a base image is cold and takes about 8 to 10 minutes. Three stacks per run use more Actions minutes.
+- **Dissent:** none.
+
+## 2026-10-19: T28 operator UI reached only through a tunnel; UI login deferred
+- **Decided by:** the Technical Lead on TICK-59, on the Security Reviewer's Finding 1 (PR #21).
+- **Decision:** `temporal-ui` publishes no port. Operators reach it with `make operator-tunnel`, which lives only while it runs. `stack-test.sh temporal_operator_reach` checks the default state, with no tunnel.
+- **Accepted risk (Low):** while the tunnel is open, a compromised nava-core can reach the UI through `host.docker.internal` and act as `nava-operator`.
+- **Deferred:** Temporal UI login through Keycloak OIDC (TODO-006). Trigger: the UI must be reachable without a tunnel, the stack runs in a shared or non-local environment, or Milestone 1 closes, whichever is first.
+- **Also decided:** `temporal-server` pins `go.temporal.io/server/cmd/tools/sql` with a `tool` directive. Its indirect dependencies (`urfave/cli`, `go-md2man`, `blackfriday`) come only from the pinned server module and are accepted under the no-new-dependencies rule.
+- **Dissent:** none.
+
 ## 2026-10-19: T05 keeps docker-CLI integration containers; CI gates run as parallel required checks
 - **Decided by:** the Technical Lead on TICK-56 (testcontainers, 2026-10-18; gate order, 2026-10-19), after the PR #19 review.
 - **Decision 1:** the integration tests keep starting containers through the docker CLI. `testcontainers-go` and `moby/go-archive` are approved, not adopted.

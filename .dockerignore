@@ -4,3 +4,4 @@ bin
 docs
 .env
 *.exe
+deploy/compose/certs

@@ -1,0 +1,8 @@
+# Overlay for the Temporal stack test (internal/temporalstack): publishes the
+# gateway on the host loopback so a Go test can dial it from outside Docker.
+#   docker compose -f compose.yaml -f deploy/compose/compose.test.yaml up -d
+# Only 7233 is published; every other Temporal port stays unreachable.
+services:
+  temporal:
+    ports:
+      - "127.0.0.1:${TEMPORAL_TEST_PORT:-17233}:7233"

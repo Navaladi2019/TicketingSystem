@@ -1,0 +1,126 @@
+# enable-template
+# Compose config for nava/temporal-server:dev (ADR-001 D22, Annex A.2, task T28):
+# PostgreSQL persistence and SQL visibility, mounted at /etc/temporal/config and
+# selected with `--env compose`. Same TLS as config/development.yaml.
+# Frontend and internode require client certificates from the installation CA;
+# generate throwaway ones with `make dev-ca`.
+# Environment: TEMPORAL_DB_PASSWORD (required), NAVA_TEMPORAL_CERT_DIR, NAVA_TEMPORAL_FRONTEND_BIND_IP,
+# NAVA_TEMPORAL_METRICS_ADDR.
+{{- $certs := default "/etc/temporal/certs" (env "NAVA_TEMPORAL_CERT_DIR") }}
+{{- $frontendIP := default "0.0.0.0" (env "NAVA_TEMPORAL_FRONTEND_BIND_IP") }}
+{{- $metrics := default "0.0.0.0:9090" (env "NAVA_TEMPORAL_METRICS_ADDR") }}
+log:
+  stdout: true
+  level: info
+  format: json
+
+persistence:
+  defaultStore: postgres-default
+  visibilityStore: postgres-visibility
+  numHistoryShards: 4
+  datastores:
+    postgres-default:
+      sql:
+        pluginName: "postgres12"
+        databaseName: "temporal"
+        connectAddr: "postgres:5432"
+        connectProtocol: "tcp"
+        user: "temporal"
+        password: "{{ env "TEMPORAL_DB_PASSWORD" }}"
+        maxConns: 20
+        maxIdleConns: 20
+        maxConnLifetime: "1h"
+    postgres-visibility:
+      sql:
+        pluginName: "postgres12"
+        databaseName: "temporal_visibility"
+        connectAddr: "postgres:5432"
+        connectProtocol: "tcp"
+        user: "temporal"
+        password: "{{ env "TEMPORAL_DB_PASSWORD" }}"
+        maxConns: 10
+        maxIdleConns: 10
+        maxConnLifetime: "1h"
+
+global:
+  membership:
+    maxJoinDuration: 30s
+    broadcastAddress: "127.0.0.1"
+  tls:
+    # Internode has its own CA and certificate: its ports have no Authorizer,
+    # so no frontend client identity may chain to it (checkConfig enforces it).
+    internode:
+      server:
+        certFile: "{{ $certs }}/internode.pem"
+        keyFile: "{{ $certs }}/internode.key"
+        clientCaFiles: ["{{ $certs }}/internode-ca.pem"]
+        requireClientAuth: true
+      client:
+        serverName: "localhost"
+        rootCaFiles: ["{{ $certs }}/internode-ca.pem"]
+    frontend:
+      server:
+        certFile: "{{ $certs }}/server.pem"
+        keyFile: "{{ $certs }}/server.key"
+        clientCaFiles: ["{{ $certs }}/ca.pem"]
+        requireClientAuth: true
+      client:
+        serverName: "localhost"
+        rootCaFiles: ["{{ $certs }}/ca.pem"]
+    systemWorker:
+      certFile: "{{ $certs }}/temporal-system.pem"
+      keyFile: "{{ $certs }}/temporal-system.key"
+      client:
+        serverName: "localhost"
+        rootCaFiles: ["{{ $certs }}/ca.pem"]
+  metrics:
+    prometheus:
+      framework: "tally"
+      timerType: "histogram"
+      listenAddress: "{{ $metrics }}"
+
+# Only the frontend binds beyond loopback. History, matching and worker stay on
+# 127.0.0.1 inside the container (A.2: internal ports unreachable).
+services:
+  frontend:
+    rpc:
+      grpcPort: 7233
+      membershipPort: 6933
+      bindOnIP: "{{ $frontendIP }}"
+  matching:
+    rpc:
+      grpcPort: 7235
+      membershipPort: 6935
+      bindOnIP: "127.0.0.1"
+  history:
+    rpc:
+      grpcPort: 7234
+      membershipPort: 6934
+      bindOnIP: "127.0.0.1"
+  worker:
+    rpc:
+      grpcPort: 7239
+      membershipPort: 6939
+      bindOnIP: "127.0.0.1"
+
+clusterMetadata:
+  enableGlobalNamespace: false
+  failoverVersionIncrement: 10
+  masterClusterName: "active"
+  currentClusterName: "active"
+  clusterInformation:
+    active:
+      enabled: true
+      initialFailoverVersion: 1
+      rpcName: "frontend"
+      rpcAddress: "localhost:7233"
+
+dcRedirectionPolicy:
+  policy: "noop"
+
+publicClient:
+  hostPort: "localhost:7233"
+
+dynamicConfigClient:
+  filepath: "dynamicconfig/compose.yaml"
+  pollInterval: "60s"

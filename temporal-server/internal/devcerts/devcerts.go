@@ -22,29 +22,72 @@ import (
 // Files written into the output directory. Each client identity gets
 // <cn>.pem and <cn>.key.
 const (
+	// CAFile is the installation CA: the frontend client CA (clientCaFiles) and
+	// the root that clients trust for the frontend certificate. Path length 0,
+	// so it cannot have intermediates (identity is the CN alone).
 	CAFile         = "ca.pem"
 	ServerCertFile = "server.pem"
 	ServerKeyFile  = "server.key"
+	// InternodeCAFile is a second CA, separate from CAFile, that signs only the
+	// internode certificate. The internode ports have no Authorizer, so no
+	// client identity may chain to it.
+	InternodeCAFile   = "internode-ca.pem"
+	InternodeCertFile = "internode.pem"
+	InternodeKeyFile  = "internode.key"
 	// RogueCN is a client certificate for nava-relay issued by a different CA;
 	// the frontend must reject it at the handshake.
 	RogueCN = "rogue-nava-relay"
 )
 
-// ClientCNs are the client certificates written, including one CN that the
-// ClaimMapper does not know.
-var ClientCNs = []string{"nava-relay", "nava-core", "nava-worker", "nava-operator", "temporal-system", "nava-unknown"}
+// PlatformCNs are the five identities of the installation. WriteInstallation
+// issues exactly these.
+var PlatformCNs = []string{"nava-relay", "nava-core", "nava-worker", "nava-operator", "temporal-system"}
 
-// ServerNames are the DNS SANs on the server certificate (also 127.0.0.1).
-var ServerNames = []string{"localhost", "temporal"}
+// ClientCNs are the client certificates Write issues for tests: the platform
+// identities plus one CN that the ClaimMapper does not know.
+var ClientCNs = append(append([]string(nil), PlatformCNs...), "nava-unknown")
+
+// ServerNames are the DNS SANs on the frontend and internode certificates (also
+// 127.0.0.1): the in-container name, the gateway name clients dial, and the
+// server's compose service name.
+var ServerNames = []string{"localhost", "temporal", "temporal-server"}
 
 type keyPair struct {
 	cert *x509.Certificate
 	key  *ecdsa.PrivateKey
 }
 
-// Write generates a CA, a server certificate valid for frontend and internode
-// TLS, and one client certificate per ClientCNs entry, plus the rogue one.
+// Write generates, for tests, everything WriteInstallation does plus a
+// certificate with an unknown CN and the rogue one.
 func Write(dir string, validFor time.Duration) error {
+	return write(dir, validFor, ClientCNs, true)
+}
+
+// WriteInstallation generates the installation CA, the frontend certificate,
+// the separate internode CA and certificate, and one client certificate for
+// each of PlatformCNs. It is what `make dev-ca` runs.
+func WriteInstallation(dir string, validFor time.Duration) error {
+	return write(dir, validFor, PlatformCNs, false)
+}
+
+// WriteRogue writes RogueCN: a nava-relay certificate from an unrelated CA,
+// for tests that need a handshake failure.
+func WriteRogue(dir string, validFor time.Duration) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	rogueCA, err := issue("rogue-ca", nil, kindCA, validFor)
+	if err != nil {
+		return err
+	}
+	rogue, err := issue("nava-relay", rogueCA, kindClient, validFor)
+	if err != nil {
+		return err
+	}
+	return writePair(dir, RogueCN, rogue)
+}
+
+func write(dir string, validFor time.Duration, cns []string, rogue bool) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
@@ -62,7 +105,21 @@ func Write(dir string, validFor time.Duration) error {
 	if err := writePair(dir, "server", srv); err != nil {
 		return err
 	}
-	for _, cn := range ClientCNs {
+	inCA, err := issue("nava-dev-internode-ca", nil, kindCA, validFor)
+	if err != nil {
+		return err
+	}
+	if err := writeCert(filepath.Join(dir, InternodeCAFile), inCA.cert); err != nil {
+		return err
+	}
+	in, err := issue("temporal-internode", inCA, kindServer, validFor)
+	if err != nil {
+		return err
+	}
+	if err := writePair(dir, "internode", in); err != nil {
+		return err
+	}
+	for _, cn := range cns {
 		c, err := issue(cn, ca, kindClient, validFor)
 		if err != nil {
 			return err
@@ -71,15 +128,10 @@ func Write(dir string, validFor time.Duration) error {
 			return err
 		}
 	}
-	rogueCA, err := issue("rogue-ca", nil, kindCA, validFor)
-	if err != nil {
-		return err
+	if rogue {
+		return WriteRogue(dir, validFor)
 	}
-	rogue, err := issue("nava-relay", rogueCA, kindClient, validFor)
-	if err != nil {
-		return err
-	}
-	return writePair(dir, RogueCN, rogue)
+	return nil
 }
 
 type kind int
@@ -108,10 +160,11 @@ func issue(cn string, parent *keyPair, k kind, validFor time.Duration) (*keyPair
 	}
 	switch k {
 	case kindCA:
-		tmpl.IsCA, tmpl.BasicConstraintsValid = true, true
+		// Path length 0: this CA signs leaves only, never an intermediate.
+		tmpl.IsCA, tmpl.BasicConstraintsValid, tmpl.MaxPathLen, tmpl.MaxPathLenZero = true, true, 0, true
 		tmpl.KeyUsage |= x509.KeyUsageCertSign
 	case kindServer:
-		// Internode TLS uses the same certificate as client and server.
+		// The internode certificate is both the server and the client certificate.
 		tmpl.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}
 		tmpl.DNSNames = ServerNames
 		tmpl.IPAddresses = []net.IP{net.ParseIP("127.0.0.1")}

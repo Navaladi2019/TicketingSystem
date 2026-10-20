@@ -12,10 +12,29 @@ calls only `make` targets. Install the pinned tools once with `make tools`.
 | Integration | `ci-integration` | any `//go:build integration` test (`internal/db/dbtest`, `internal/platform/health`) against a throwaway PostgreSQL (tag from `docs/pins.md`) | Docker |
 | Stack | `ci-stack` | image build, every container healthy, `GET /healthz` smoke from inside the compose network, then the stack tests (`pgbouncer`, `temporal`, `dependencies`, `trace`, `redact`, `idempotent`, `dbroles`, `hba`, `internal`) | compose |
 
-In GitHub, `lint-unit`, `temporal-server`, `integration` and `stack` run as four
-parallel jobs, each a separate required check (decision log, 2026-10-19).
-Inside each job, steps follow the order above and the first failure stops the job.
-Lint and unit tests share one job with no containers.
+In GitHub, `lint`, `unit`, `temporal-server`, `integration`, `stack`,
+`stack-db` and `stack-internal` run as seven parallel jobs, each a separate
+check (decision log, 2026-10-20). Inside each job, steps follow the order above
+and the first failure stops the job. The stack tests are split over three jobs,
+each with its own compose stack: `stack` (healthy, smoke, PgBouncer, every
+Temporal case, SDK, dependencies, trace, redact), `stack-db` (idempotent,
+dbroles, hba) and `stack-internal` (the internal overlay). `make ci-stack` still
+runs all of them on one stack locally.
+
+**Time budget: under 5 minutes wall clock on a warm cache.** What keeps it there:
+- Each job restores its own Go module and build cache (`actions/cache`, key per
+  job and commit, falling back to the newest entry), so `go vet`, `go test` and
+  the temporal-server tests compile only what changed. The lint job also caches
+  the golangci-lint cache and the pinned tools (`~/go/bin`, keyed on the
+  Makefile, which holds the versions).
+- `make image-ci` builds the images with `docker buildx bake` and keeps the
+  layers in the Actions cache (`IMAGE_CACHE=gha`), while the registry images are
+  pulled alongside. The temporal-server image compiles the Temporal dependencies
+  in a layer keyed on `go.mod`/`go.sum`, so a source change rebuilds one layer.
+  The image no longer runs `go test`; the `temporal-server` job runs the full
+  suite.
+A change to `go.sum` or a Dockerfile base stage is a cold run (about 8 to 10
+minutes); the next run is warm again.
 
 Containers: `scripts/ci/test-integration.sh` owns the shared PostgreSQL that the
 dbtest suites use and removes it on exit, Ctrl-C or TERM. Every container a Go

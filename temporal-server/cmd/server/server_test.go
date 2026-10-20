@@ -117,6 +117,14 @@ func TestServerEndToEnd(t *testing.T) {
 			_, err := operatorAdmin.ReapplyEvents(ctx, &adminservice.ReapplyEventsRequest{})
 			return err
 		}), codes.PermissionDenied},
+		{"operator GetWorkflowExecutionRawHistory", call(func() error {
+			_, err := operatorAdmin.GetWorkflowExecutionRawHistory(ctx, &adminservice.GetWorkflowExecutionRawHistoryRequest{NamespaceId: "nava"})
+			return err
+		}), codes.PermissionDenied},
+		{"operator GetWorkflowExecutionRawHistoryV2", call(func() error {
+			_, err := operatorAdmin.GetWorkflowExecutionRawHistoryV2(ctx, &adminservice.GetWorkflowExecutionRawHistoryV2Request{NamespaceId: "nava"})
+			return err
+		}), codes.PermissionDenied},
 		{"operator DeleteNamespace", call(func() error {
 			_, err := operatorOps.DeleteNamespace(ctx, &operatorservice.DeleteNamespaceRequest{Namespace: authz.Namespace})
 			return err
@@ -189,15 +197,12 @@ func TestCheckTLSRefusesConfigWithoutMTLS(t *testing.T) {
 	if err == nil {
 		t.Fatal("empty TLS config accepted")
 	}
-	for _, want := range []string{"requireClientAuth", "installation CA", "temporal-system"} {
+	for _, want := range []string{"requireClientAuth", "installation CA", "internode", "temporal-system"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not mention %q", err, want)
 		}
 	}
-	ok := &config.Config{}
-	ok.Global.TLS.Frontend.Server = config.ServerTLS{CertFile: "s", KeyFile: "k", ClientCAFiles: []string{"ca"}, RequireClientAuth: true}
-	ok.Global.TLS.Internode.Server.RequireClientAuth = true
-	ok.Global.TLS.SystemWorker.CertFile = "sys"
+	ok := validConfig(t)
 	if err := checkTLS(ok); err != nil {
 		t.Fatalf("valid config refused: %v", err)
 	}
@@ -272,4 +277,146 @@ func scrape(t *testing.T, url string) string {
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(resp.Body)
 	return string(b)
+}
+
+// TestInternodeRejectsFrontendClientCertificates: the internode ports have no
+// Authorizer, so a certificate from the frontend (installation) CA, such as the
+// worker's, must fail at the internode handshake, while the internode
+// certificate completes it. In-process only: it needs the history port.
+func TestInternodeRejectsFrontendClientCertificates(t *testing.T) {
+	if testing.Short() {
+		t.Skip("starts a Temporal server")
+	}
+	if os.Getenv("NAVA_TEMPORAL_E2E_ADDR") != "" {
+		t.Skip("in-process only")
+	}
+	addr, certDir, _ := startInProcess(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	eventually(t, ctx, "every service listening", func(context.Context) error {
+		for _, p := range []string{"7233", "7234", "7235"} {
+			c, err := net.DialTimeout("tcp", "127.0.0.1:"+p, time.Second)
+			if err != nil {
+				return err
+			}
+			c.Close()
+		}
+		return nil
+	})
+	_ = addr
+	// 7239 (worker service) is not listening in this in-process setup.
+	for _, port := range []string{"7234", "7235"} {
+		addr := "127.0.0.1:" + port
+		for _, cn := range []string{"nava-worker", "nava-core", "temporal-system"} {
+			if err := handshake(t, addr, certDir, cn+".pem", cn+".key", devcerts.InternodeCAFile); err == nil {
+				t.Errorf("%s: a %s certificate completed the internode handshake", addr, cn)
+			}
+		}
+		if err := handshake(t, addr, certDir, devcerts.InternodeCertFile, devcerts.InternodeKeyFile, devcerts.InternodeCAFile); err != nil {
+			t.Errorf("%s: the internode certificate failed: %v", addr, err)
+		}
+	}
+}
+
+// handshake dials addr with the given client certificate and completes (or
+// fails) the TLS handshake plus one read, so a server-side rejection of the
+// client certificate (reported after the handshake in TLS 1.3) is seen.
+func handshake(t *testing.T, addr, dir, cert, key, caFile string) error {
+	t.Helper()
+	caPEM, err := os.ReadFile(filepath.Join(dir, caFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := x509.NewCertPool()
+	pool.AppendCertsFromPEM(caPEM)
+	pair, err := tls.LoadX509KeyPair(filepath.Join(dir, cert), filepath.Join(dir, key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := &net.Dialer{Timeout: 5 * time.Second}
+	conn, err := tls.DialWithDialer(d, "tcp", addr, &tls.Config{
+		RootCAs: pool, ServerName: "localhost", Certificates: []tls.Certificate{pair}, MinVersion: tls.VersionTLS12,
+		NextProtos: []string{"h2"}, // gRPC servers refuse a connection without it
+	})
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	// An accepted client gets the server's HTTP/2 SETTINGS frame; a rejected one
+	// gets an alert or a close.
+	_, err = conn.Read(make([]byte, 1))
+	return err
+}
+
+func TestBootstrapRegistersNamespaceAndSearchAttribute(t *testing.T) {
+	if testing.Short() {
+		t.Skip("starts a Temporal server")
+	}
+	if os.Getenv("NAVA_TEMPORAL_E2E_ADDR") != "" {
+		t.Skip("in-process only")
+	}
+	addr, certDir, _ := startInProcess(t)
+	f := tlsFiles{
+		CA: filepath.Join(certDir, devcerts.CAFile), ServerName: "localhost",
+		Cert: filepath.Join(certDir, "temporal-system.pem"), Key: filepath.Join(certDir, "temporal-system.key"),
+	}
+	conn, err := f.dial(addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	for i := 0; i < 2; i++ { // the second run proves it is idempotent
+		if err := ensureNamespace(ctx, conn); err != nil {
+			t.Fatalf("run %d: %v", i+1, err)
+		}
+	}
+	var out strings.Builder
+	args := []string{"-addr", addr, "-ca", f.CA, "-cert", f.Cert, "-key", f.Key, "-bootstrapped"}
+	if err := runHealth(args, &out); err != nil || !strings.Contains(out.String(), "SERVING") {
+		t.Fatalf("health -bootstrapped: %q, %v", out.String(), err)
+	}
+	// The same probe with a certificate from another CA fails the handshake.
+	if err := runHealth([]string{"-addr", addr, "-ca", f.CA,
+		"-cert", filepath.Join(certDir, devcerts.RogueCN+".pem"), "-key", filepath.Join(certDir, devcerts.RogueCN+".key"),
+		"-timeout", "5s"}, io.Discard); err == nil {
+		t.Fatal("health with a rogue-CA certificate succeeded")
+	}
+}
+
+func TestProxyForwardsBytes(t *testing.T) {
+	up, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer up.Close()
+	go func() {
+		c, err := up.Accept()
+		if err == nil {
+			_, _ = io.Copy(c, c)
+			c.Close()
+		}
+	}()
+	front, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer front.Close()
+	go func() { _ = serveProxy(front, up.Addr().String()) }()
+
+	c, err := net.Dial("tcp", front.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	_ = c.SetDeadline(time.Now().Add(5 * time.Second))
+	if _, err := c.Write([]byte("ping")); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 4)
+	if _, err := io.ReadFull(c, buf); err != nil || string(buf) != "ping" {
+		t.Fatalf("echo through the proxy: %q, %v", buf, err)
+	}
 }

@@ -1,13 +1,18 @@
 // Command server runs Temporal 1.28.4 with nava's deny-by-default Authorizer and
 // certificate ClaimMapper (ADR-001 D22, Annex A.2).
+//
+// Two helper subcommands run from the same image: `health` (a probe that dials
+// with a client certificate) and `proxy` (the TCP gateway that is the only way
+// from the platform network to the frontend).
 package main
 
 import (
-	"errors"
+	"context"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"go.temporal.io/server/common/authorization"
 	"go.temporal.io/server/common/config"
@@ -23,18 +28,40 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 {
+		var err error
+		switch os.Args[1] {
+		case "health":
+			err = runHealth(os.Args[2:], os.Stdout)
+		case "proxy":
+			err = runProxy(os.Args[2:])
+		default:
+			serve()
+			return
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "temporal-server:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	serve()
+}
+
+func serve() {
 	configDir := flag.String("config", "/etc/temporal/config", "config directory")
 	env := flag.String("env", "development", "config environment (file <env>.yaml)")
 	zone := flag.String("zone", "", "config zone")
+	boot := flag.Bool("bootstrap", false, "register the nava namespace and the NavaTenantId search attribute once the frontend serves")
 	flag.Parse()
 
-	if err := run(*configDir, *env, *zone); err != nil {
+	if err := run(*configDir, *env, *zone, *boot); err != nil {
 		fmt.Fprintln(os.Stderr, "temporal-server:", err)
 		os.Exit(1)
 	}
 }
 
-func run(configDir, env, zone string) error {
+func run(configDir, env, zone string, boot bool) error {
 	cfg, err := config.LoadConfig(env, configDir, zone)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
@@ -56,18 +83,29 @@ func run(configDir, env, zone string) error {
 	if err != nil {
 		return err
 	}
+	if boot {
+		// The temporal-system certificate lives only in this container, so the
+		// server registers its own namespace and search attribute.
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			if err := bootstrap(ctx, cfg, logger); err != nil {
+				logger.Error("bootstrap failed", tag.Error(err))
+			}
+		}()
+	}
 	logger.Info("Starting Temporal server with nava Authorizer", tag.NewStringTag("namespace", authz.Namespace))
 	// Start blocks until interrupted.
 	return s.Start()
 }
 
 // newServer builds the server with the nava Authorizer and ClaimMapper. It
-// refuses a config without frontend mTLS: the ClaimMapper's only input is the
-// client certificate.
+// refuses a config that weakens them (see checkConfig).
 func newServer(cfg *config.Config, logger log.Logger, dc dynamicconfig.Client, extra ...temporal.ServerOption) (temporal.Server, error) {
-	if err := checkTLS(cfg); err != nil {
+	if err := checkConfig(cfg, dc); err != nil {
 		return nil, err
 	}
+	dc = guardedClient{dc}
 	mh, err := metrics.MetricsHandlerFromConfig(logger, cfg.Global.Metrics)
 	if err != nil {
 		return nil, fmt.Errorf("metrics: %w", err)
@@ -86,32 +124,4 @@ func newServer(cfg *config.Config, logger log.Logger, dc dynamicconfig.Client, e
 		return nil, fmt.Errorf("create server: %w", err)
 	}
 	return s, nil
-}
-
-func checkTLS(cfg *config.Config) error {
-	t := cfg.Global.TLS
-	fe := t.Frontend.Server
-	var errs []error
-	if !fe.RequireClientAuth {
-		errs = append(errs, errors.New("global.tls.frontend.server.requireClientAuth must be true"))
-	}
-	if len(fe.ClientCAFiles) == 0 && len(fe.ClientCAData) == 0 {
-		errs = append(errs, errors.New("global.tls.frontend.server needs the installation CA (clientCaFiles)"))
-	}
-	if fe.CertFile == "" && fe.CertData == "" {
-		errs = append(errs, errors.New("global.tls.frontend.server needs a certificate"))
-	}
-	if !t.Internode.Server.RequireClientAuth {
-		errs = append(errs, errors.New("global.tls.internode.server.requireClientAuth must be true"))
-	}
-	if t.SystemWorker.CertFile == "" && t.SystemWorker.CertData == "" {
-		errs = append(errs, errors.New("global.tls.systemWorker needs the temporal-system certificate"))
-	}
-	if cfg.Global.Authorization.Authorizer != "" || cfg.Global.Authorization.ClaimMapper != "" {
-		errs = append(errs, errors.New("global.authorization must be empty: the nava Authorizer and ClaimMapper are compiled in"))
-	}
-	if err := errors.Join(errs...); err != nil {
-		return fmt.Errorf("refusing to start: %w", err)
-	}
-	return nil
 }

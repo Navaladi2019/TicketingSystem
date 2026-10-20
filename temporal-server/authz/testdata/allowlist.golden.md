@@ -141,8 +141,8 @@ go.temporal.io/api v1.50.1, go.temporal.io/server v1.28.4. `Y` = allowed in name
 | GetSearchAttributes | nava | | | | Y | Y |
 | GetShard | - | | | | Y | Y |
 | GetTaskQueueTasks | nava | | | | Y | Y |
-| GetWorkflowExecutionRawHistory | - | | | | Y | Y |
-| GetWorkflowExecutionRawHistoryV2 | - | | | | Y | Y |
+| GetWorkflowExecutionRawHistory | - | | | | | Y |
+| GetWorkflowExecutionRawHistoryV2 | - | | | | | Y |
 | ImportWorkflowExecution | nava | | | | | Y |
 | ListClusterMembers | - | | | | Y | Y |
 | ListClusters | - | | | | Y | Y |

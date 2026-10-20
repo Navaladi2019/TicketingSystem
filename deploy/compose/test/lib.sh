@@ -24,10 +24,10 @@ health_of() {
 }
 
 # The one-shot jobs, which must exit 0 instead of staying healthy.
-JOBS="db-roles migrate"
+JOBS="db-roles migrate temporal-schema"
 
 # services: every long-running service.
-services() { compose config --services | grep -v -x -e db-roles -e migrate; }
+services() { compose config --services | grep -v -x -e db-roles -e migrate -e temporal-schema; }
 
 # wait_healthy [seconds]: block until every long-running service is healthy
 # and every job has exited 0; print each one's state and fail on timeout.

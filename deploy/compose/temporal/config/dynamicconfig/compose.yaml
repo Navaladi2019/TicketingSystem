@@ -1,0 +1,6 @@
+# Dynamic config for the compose Temporal server.
+# Schedules are not part of the M1 contract: refuse them in the frontend as well
+# as in the Authorizer. system.disableStreamingAuthorizer must never appear here:
+# the server refuses to start on it, and ignores it if added later.
+frontend.enableSchedules:
+  - value: false

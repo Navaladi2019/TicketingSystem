@@ -33,7 +33,7 @@ item 16, condition 3).
 | Go (`temporal-server`) | `go 1.25.8` | Pinned separately with the custom server build (R7); the module is not platform code. govulncheck reports reachable standard-library vulnerabilities fixed in go1.25.9 / go1.25.10: TICK-111. | D-P3, T27a |
 | `golangci-lint` | v2.14.0 | Lint stage. Uses its bundled depguard (`OpenPeeDeeP/depguard/v2 v2.2.1`), so depguard has no row. Module plugins (`golangci-lint custom`) are forbidden (review rule, TICK-94 item 15). | TICK-93 audit, T05 |
 | `govulncheck` (`golang.org/x/vuln`) | v1.9.0 | `make vulncheck`: no reachable vulnerability in the platform module. | TICK-94 item 16, T05 |
-| `actions/checkout`, `actions/setup-go` | v4, v5 | GitHub Actions only check out and install Go; every gate runs through `make`. | T05 |
+| `actions/checkout`, `actions/setup-go`, `actions/cache`, `docker/setup-buildx-action`, `crazy-max/ghaction-github-runtime` | v4, v5, v4, v3, v3 | GitHub Actions only check out, install Go, restore caches (Go build cache per job, CI tools by version) and give `make image-ci` a buildx builder with the Actions cache (`type=gha`); every gate runs through `make`. | T05, T28 |
 
 ## Images
 
@@ -42,12 +42,13 @@ item 16, condition 3).
 | `postgres` | 16.10 | An exact `postgres:16.x` patch tag, floor 15. Role semantics and `pg_auth_members` columns differ between 15 and 16, which CI-3 depends on. Also the integration-test database (`make test-integration`, `internal/platform/health` integration test). | D-P3, ADR-001 §3 |
 | `edoburu/pgbouncer` | v1.24.1-p1 | PgBouncer ≥ 1.21 (transaction mode with `max_prepared_statements`). | D-P3, T02 |
 | `quay.io/keycloak/keycloak` | 26.8.1 | Floor 26.1.3; known-broken 26.0.0–26.1.2 (the `kc.org` picker tamper). Supersedes Epic 01's "26.0" row. | D-P3, D26 |
-| `temporalio/auto-setup` | 1.28.4 | Temporal server 1.28.4 with PostgreSQL persistence and SQL visibility, no Elasticsearch. The compose stack and CI use `auto-setup` (stock server plus schema setup) rather than bare `temporalio/server`; T28 swaps in the T27a build. | D-P3, T02 |
+| `temporalio/auto-setup` | 1.28.4 | Temporal server 1.28.4 with PostgreSQL persistence and SQL visibility, no Elasticsearch. The compose stack and CI use `auto-setup` (stock server plus schema setup) rather than bare `temporalio/server`; T28 replaced it in compose with the T27a build (`nava/temporal-server`); no compose file uses it now. | D-P3, T02, T28 |
+| `temporalio/ui` | 2.40.1 | Temporal Web UI for the `operator` profile only. It publishes no port; operators reach it through `make operator-tunnel`. Wields the `nava-operator` certificate (TODO-006). | T28 |
 | `otel/opentelemetry-collector-contrib` | 0.139.0 | The Collector (tail sampling, redaction layer two). | T01, T02 |
 | `golang` | 1.26.9-alpine @deploy/compose, 1.25.8-bookworm @temporal-server | Build stages: 1.26.9 for nava-core and nava-db, 1.25.8 for the custom Temporal server. Matches each module's toolchain. | D-P3, T27a |
 | `alpine` | 3.22.1 | Runtime base of nava-core, nava-db and the Collector wrapper. | T02 |
 | `debian` | bookworm-slim | Runtime base of the custom Temporal server. **Not an exact tag**: a known gap, fixed by TICK-111; the row stays until the Dockerfile pins a dated tag. | T27a |
-| `nava/nava-core`, `nava/nava-db`, `nava/otel-collector` | dev | Built locally from this repo by `docker compose build`; never pulled. | T02 |
+| `nava/nava-core`, `nava/nava-db`, `nava/otel-collector`, `nava/temporal-server` | dev | Built locally from this repo by `docker compose build`; never pulled. `nava/temporal-server` is the T27a custom server (`temporal-server/Dockerfile`), used by the `temporal-schema`, `temporal-server` and `temporal` services. | T02, T28 |
 
 ## Go modules
 

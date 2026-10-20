@@ -104,8 +104,6 @@ var allowList = map[Identity][]string{
 		adm + "DescribeHistoryHost",
 		adm + "GetShard",
 		adm + "ListHistoryTasks",
-		adm + "GetWorkflowExecutionRawHistoryV2",
-		adm + "GetWorkflowExecutionRawHistory",
 		adm + "GetSearchAttributes",
 		adm + "DescribeCluster",
 		adm + "ListClusters",
@@ -199,4 +197,8 @@ var deniedByDefault = []string{
 	adm + "GenerateLastHistoryReplicationTasks",
 	adm + "ForceUnloadTaskQueuePartition",
 	adm + "StreamWorkflowReplicationMessages",
+	// Raw history skips the namespace gate ; GetWorkflowExecutionHistory covers the
+	// operator need (TICK-59, Security Reviewer finding).
+	adm + "GetWorkflowExecutionRawHistory",
+	adm + "GetWorkflowExecutionRawHistoryV2",
 }

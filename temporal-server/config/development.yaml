@@ -1,6 +1,7 @@
 # enable-template
 # Development config for nava/temporal-server:dev (ADR-001 D22, Annex A.2).
-# In-memory SQLite: state is lost on restart. T28 supplies the PostgreSQL config.
+# In-memory SQLite: state is lost on restart. The compose stack uses
+# deploy/compose/temporal/config (PostgreSQL) instead.
 # Frontend and internode require client certificates from the installation CA;
 # generate throwaway ones with `make temporal-server-dev-certs`.
 # Overrides (environment): NAVA_TEMPORAL_CERT_DIR, NAVA_TEMPORAL_FRONTEND_BIND_IP,
@@ -48,15 +49,17 @@ global:
     maxJoinDuration: 30s
     broadcastAddress: "127.0.0.1"
   tls:
+    # Internode has its own CA and certificate: its ports have no Authorizer,
+    # so no frontend client identity may chain to it (checkConfig enforces it).
     internode:
       server:
-        certFile: "{{ $certs }}/server.pem"
-        keyFile: "{{ $certs }}/server.key"
-        clientCaFiles: ["{{ $certs }}/ca.pem"]
+        certFile: "{{ $certs }}/internode.pem"
+        keyFile: "{{ $certs }}/internode.key"
+        clientCaFiles: ["{{ $certs }}/internode-ca.pem"]
         requireClientAuth: true
       client:
         serverName: "localhost"
-        rootCaFiles: ["{{ $certs }}/ca.pem"]
+        rootCaFiles: ["{{ $certs }}/internode-ca.pem"]
     frontend:
       server:
         certFile: "{{ $certs }}/server.pem"
