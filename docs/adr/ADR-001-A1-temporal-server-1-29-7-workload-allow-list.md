@@ -2,15 +2,21 @@
 type: adr-amendment
 id: ADR-001-A1
 title: Temporal server v1.29.7 / api v1.53.0, the D6-K startup guard and the D9 workload allow-list
-status: PROPOSED
+status: ACCEPTED
 date: 2026-10-20
+accepted: 2026-10-20 (nava, TICK-115 comment 01a157c4-7420-766d-b142-4fa85ad2a211)
+issue: TICK-115
+rfc: docs/adr/ADR-001/rfc/RFC-002-temporal-server-off-1-28-4.md (rev 1.1, archived)
+supersedes: the go.temporal.io/server v1.28.4 / api v1.50.1 pins in ADR-001 §3
 amends: "[[ADR-001-platform-blueprint]] §3 (pin block), R7 (revisit trigger), Annex A.2 (allow-list)"
 source: RFC-002 rev 1.1 (archived), TICK-115, comment thread under the CTO's 2026-10-20 rulings
 deciders: Solution Architect (author), Technical Architect (APPROVE), Security & Multi-Tenancy Reviewer (approve on the V1 rule as written, per CTO ruling), CTO
-signs: nava
+signs: nava (signed 2026-10-20: "I Approve")
 ---
 
 # ADR-001 amendment A1: Temporal server v1.29.7, D6-K, D9
+
+> **Status: ACCEPTED, 2026-10-20.** nava approved it on TICK-115 (comment `01a157c4`: "I Approve"), and the CTO recorded the approval in comment `01a157c5`. Implementation is planned in TICK-119 (T27d).
 
 > **Invariants source.** The project description defines no invariants. I checked this against [[ADR-001-platform-blueprint]] §1 I1–I9. If the project is meant to have its own list of eight, these checks are incomplete against it.
 

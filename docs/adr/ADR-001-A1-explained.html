@@ -37,12 +37,12 @@ figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
 @media print{.banner{display:none} table{display:table}}
 </style></head>
 <body><main>
-<div class="banner"><span class="pill">READING GUIDE · ADR-001 A1 PROPOSED</span>
+<div class="banner"><span class="pill">READING GUIDE · ADR-001 A1 ACCEPTED</span>
 <span class="src">Companion to ADR-001-A1-temporal-server-1-29-7-workload-allow-list.md. It isn't a decision record and changes nothing.</span></div>
 <table class="front"><tbody>
 <tr><th>title</th><td>ADR-001 amendment A1 explained: the Temporal upgrade and the workload allow-list</td></tr>
 <tr><th>type</th><td>explainer (not a decision record)</td></tr>
-<tr><th>explains</th><td>ADR-001-A1 (status PROPOSED, 2026-10-20), from RFC-002 on TICK-115</td></tr>
+<tr><th>explains</th><td>ADR-001-A1 (status ACCEPTED, 2026-10-20), from RFC-002 on TICK-115</td></tr>
 <tr><th>date</th><td>2026-10-20</td></tr>
 <tr><th>audience</th><td>nava, as the decision-maker. You don't need any of the review debate to follow it.</td></tr>
 </tbody></table>
@@ -251,13 +251,13 @@ figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
 <p><strong>Reviews:</strong> the Technical Architect approved. Security approves with the sticky-queue rule applied exactly as they wrote it, which it is. No dissent is on record.</p>
 
 <hr />
-<h2>7. What you are asked to approve</h2>
+<h2>7. What you approved (2026-10-20)</h2>
 <ol>
 <li><strong>Upgrade</strong> Temporal server to <strong>1.29.7</strong> (api library 1.53.0), with the table change 1.17 → 1.18 applied first. No security-gate exception.</li>
 <li><strong>D9</strong>, the work allow-list that closes S1, added to ADR-001's allow-list annex.</li>
 <li><strong>D6-K</strong>, the startup check on safety settings.</li>
 <li><strong>RS1 and RS5</strong> as accepted residual risks.</li>
 </ol>
-<p><em>Reply <code>APPROVED</code> or <code>REJECTED: &lt;why&gt;</code> on TICK-115. A1 stays PROPOSED until you do. The documents are in the repo pull request linked in the comment.</em></p>
+<p><em>You replied &quot;I Approve&quot; on TICK-115 on 2026-10-20, so ADR-001 A1 is ACCEPTED. Implementation is planned in TICK-119 (&quot;Plan ADR-001-A1&quot;), which covers the T27d upgrade pull request.</em></p>
 
 </main></body></html>
