@@ -2,6 +2,18 @@
 
 Delivery decisions that change a task's contract, newest first.
 
+## 2026-10-20: PLAN-001-A1 splits ADR-001-A1 delivery into D9 first, then the 1.29.7 upgrade
+- **Decided by:** the Technical Lead on TICK-119 (`docs/delivery/plan-adr-001-a1.md`). Pending nava's approval of the plan.
+- **Decision:** RFC-002 §9's single T27d PR becomes two PRs, merged in order:
+  - T27e (TICK-120): the D9 workload allow-list on 1.28.4. It closes S1, which is live on every version.
+  - T27f (TICK-121): server 1.29.7 / api 1.53.0, schema 1.18, the D6-K guard and the vulncheck gate.
+  - CI-A to CI-I must all be green on T27f's PR. T27d (TICK-111) closes when T27f merges.
+- **E4:** no 1.28.4 data needs keeping (M1 is dev-only and single-node). T27f still checks the upgrade in place, schema-before-binary, with an in-flight execution. *Trigger:* the first non-dev deployment needs a runbook, together with F1.
+- **RS5:** accepted. Each new workflow type or task queue is a policy PR plus an image rebuild. *Trigger:* more than about one such change a week, or PLAN-002 Epic 09 needing a type per definition.
+- **Deferred:** F1 (mixed-version node smoke). *Trigger:* before any multi-node deployment. Owner: Technical Architect. F2 is T27g (TICK-122, `security`), released after T27f.
+- **No grooming meeting.** The task text is lifted directly from the ADR, which was reviewed twice. The PR reviews carry that weight instead.
+- **Dissent:** none recorded. RFC-002 §9 proposed one PR; the split keeps every test it named.
+
 ## 2026-10-20: CI wall clock under 5 minutes; stack tests split over three jobs
 - **Decided by:** the Technical Lead on TICK-59, on the human's escalation (CI took about 22 minutes).
 - **Decision:** `ci.yml` runs seven parallel jobs: `lint`, `unit`, `temporal-server`, `integration`, `stack`, `stack-db` and `stack-internal`. This replaces `lint-unit` and the single `stack` job. Every gate and every stack test still runs, and none is skipped or weakened. `make ci` and `make ci-stack` are unchanged locally.
