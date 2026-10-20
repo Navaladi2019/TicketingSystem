@@ -66,8 +66,8 @@ func TestModuleIsSeparateFromSDKModule(t *testing.T) {
 	for p, v := range pins {
 		t.Errorf("missing pin %s %s", p, v)
 	}
-	if !versionAtLeast(m.Go, "1.25.8") {
-		t.Errorf("go directive %s, want >= 1.25.8", m.Go)
+	if !versionAtLeast(m.Go, "1.26.0") {
+		t.Errorf("go directive %s, want >= 1.26.0", m.Go)
 	}
 }
 

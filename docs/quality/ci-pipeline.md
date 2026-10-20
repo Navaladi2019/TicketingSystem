@@ -58,7 +58,7 @@ and starts the `edoburu/pgbouncer` row.
 
 ## Deliberately not covered
 
-- **govulncheck on `temporal-server`** (`make vulncheck-temporal-server`). That module has reachable advisories (Go 1.25.8 stdlib, grpc v1.79.3, x/net and others). TICK-111 fixes them and makes the check gating.
+- **govulncheck on `temporal-server`** (`make vulncheck-temporal-server`). TICK-111 cleared every reachable advisory but one: GO-2026-5766 in `go.temporal.io/server` v1.28.4, fixed only in server ≥ 1.29.5. Moving the server is an ADR-001 §3 change (TICK-115). The check becomes gating when that lands (TICK-111).
 - **testcontainers-go.** Approved, not adopted (decision log, 2026-10-19). The integration tests start a pinned container through the docker CLI, the way T03 and T04 built them.
 
 ## Run it

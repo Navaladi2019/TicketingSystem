@@ -30,7 +30,7 @@ item 16, condition 3).
 | Component | Version | Why | Source |
 | --- | --- | --- | --- |
 | Go (platform module) | `go 1.26.0`, toolchain go1.26.9 | Floor Go ≥ 1.26 for platform code. go1.26.9 is the toolchain the images build with (`golang:1.26.9-alpine`). | D-P3 |
-| Go (`temporal-server`) | `go 1.25.8` | Pinned separately with the custom server build (R7); the module is not platform code. govulncheck reports reachable standard-library vulnerabilities fixed in go1.25.9 / go1.25.10: TICK-111. | D-P3, T27a |
+| Go (`temporal-server`) | `go 1.26.0`, toolchain go1.26.9 | Pinned separately with the custom server build (R7); the module is not platform code. Raised from go1.25.8, whose standard library had reachable govulncheck advisories (net/http, crypto/tls, crypto/x509, html/template, net/url, encoding/xml, encoding/asn1, net, net/textproto, mime/multipart). Same floor and toolchain as the platform module. | D-P3, T27a, TICK-111 |
 | `golangci-lint` | v2.14.0 | Lint stage. Uses its bundled depguard (`OpenPeeDeeP/depguard/v2 v2.2.1`), so depguard has no row. Module plugins (`golangci-lint custom`) are forbidden (review rule, TICK-94 item 15). | TICK-93 audit, T05 |
 | `govulncheck` (`golang.org/x/vuln`) | v1.9.0 | `make vulncheck`: no reachable vulnerability in the platform module. | TICK-94 item 16, T05 |
 | `actions/checkout`, `actions/setup-go`, `actions/cache`, `docker/setup-buildx-action`, `crazy-max/ghaction-github-runtime` | v4, v5, v4, v3, v3 | GitHub Actions only check out, install Go, restore caches (Go build cache per job, CI tools by version) and give `make image-ci` a buildx builder with the Actions cache (`type=gha`); every gate runs through `make`. | T05, T28 |
@@ -45,9 +45,9 @@ item 16, condition 3).
 | `temporalio/auto-setup` | 1.28.4 | Temporal server 1.28.4 with PostgreSQL persistence and SQL visibility, no Elasticsearch. The compose stack and CI use `auto-setup` (stock server plus schema setup) rather than bare `temporalio/server`; T28 replaced it in compose with the T27a build (`nava/temporal-server`); no compose file uses it now. | D-P3, T02, T28 |
 | `temporalio/ui` | 2.40.1 | Temporal Web UI for the `operator` profile only. It publishes no port; operators reach it through `make operator-tunnel`. Wields the `nava-operator` certificate (TODO-006). | T28 |
 | `otel/opentelemetry-collector-contrib` | 0.139.0 | The Collector (tail sampling, redaction layer two). | T01, T02 |
-| `golang` | 1.26.9-alpine @deploy/compose, 1.25.8-bookworm @temporal-server | Build stages: 1.26.9 for nava-core and nava-db, 1.25.8 for the custom Temporal server. Matches each module's toolchain. | D-P3, T27a |
+| `golang` | 1.26.9-alpine @deploy/compose, 1.26.9-bookworm @temporal-server | Build stages: 1.26.9 for nava-core, nava-db and the custom Temporal server (raised from 1.25.8-bookworm in TICK-111). Matches each module's toolchain. | D-P3, T27a, TICK-111 |
 | `alpine` | 3.22.1 | Runtime base of nava-core, nava-db and the Collector wrapper. | T02 |
-| `debian` | bookworm-slim | Runtime base of the custom Temporal server. **Not an exact tag**: a known gap, fixed by TICK-111; the row stays until the Dockerfile pins a dated tag. | T27a |
+| `debian` | bookworm-20261005-slim (digest `sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587`) | Runtime base of the custom Temporal server. A dated Debian tag, digest-pinned in `temporal-server/Dockerfile`; replaces the floating `bookworm-slim`. Bump tag and digest together. | T27a, TICK-111 |
 | `nava/nava-core`, `nava/nava-db`, `nava/otel-collector`, `nava/temporal-server` | dev | Built locally from this repo by `docker compose build`; never pulled. `nava/temporal-server` is the T27a custom server (`temporal-server/Dockerfile`), used by the `temporal-schema`, `temporal-server` and `temporal` services. | T02, T28 |
 
 ## Go modules
@@ -57,7 +57,7 @@ item 16, condition 3).
 | `go.temporal.io/sdk` | v1.49.0 | Temporal client and workers. | D-P3 |
 | `go.temporal.io/server` | v1.28.4 @temporal-server | Custom server module (`temporal-server` only), matches the server image. | D-P3, R7 |
 | `go.temporal.io/api` | v1.63.5 @., v1.50.1 @temporal-server | Temporal API types. Platform: required by SDK v1.49.0. `temporal-server`: matches server v1.28.4. The two modules are built separately, so the versions may differ. | D-P3, R7 |
-| `google.golang.org/grpc` | v1.84.0 @., v1.79.3 @temporal-server | gRPC for the Temporal SDK client. Platform: not chosen directly; goose v3.29.0 requires it, so MVS raises it. `temporal-server`: what server v1.28.4 builds with (govulncheck reports reachable advisories; TICK-111). | T04 (v1.83.2), raised by goose in T03; T27a |
+| `google.golang.org/grpc` | v1.84.0 @., v1.83.1 @temporal-server | gRPC for the Temporal SDK client. Platform: not chosen directly; goose v3.29.0 requires it, so MVS raises it. `temporal-server`: raised from v1.79.3 (what server v1.28.4 builds with), which had reachable govulncheck advisories. | T04 (v1.83.2), raised by goose in T03; T27a, TICK-111 |
 | `google.golang.org/protobuf` | v1.36.11 @temporal-server | Protobuf runtime for the custom server. | T27a |
 | `github.com/prometheus/client_golang` | v1.25.0 | Prometheus `/metrics` per the observability standard. | T01, TICK-89 |
 | `go.opentelemetry.io/otel` | v1.47.0 | OpenTelemetry API. | T01, TICK-89 (human decision 2026-10-16) |
@@ -92,6 +92,38 @@ item 16, condition 3).
 | `github.com/testcontainers/testcontainers-go` | v0.44.0 (+ `modules/postgres`) | Approved, not adopted (T05 ruling, 2026-10-18). The integration tests use the docker CLI with the `postgres` image from this file (`make test-integration`). If testcontainers is adopted later, it is for Postgres-level tests only, and it brings the `moby/go-archive` ≥ v0.3.0 pin with it: with `moby/go-archive` < v0.3.0 it has GO-2026-6253. | TICK-94 item 16; decision log 2026-10-19 |
 | `github.com/moby/go-archive` | ≥ v0.3.0 | Approved, not adopted (T05 ruling, 2026-10-18). Transitive through testcontainers, so it comes in only if testcontainers is adopted. v0.2.0 has GO-2026-6253. | TICK-94 item 16; decision log 2026-10-19 |
 | Keycloak admin client | none | Hand-written in `internal/identity`. `gocloak` rejected (no organization API in v13; a second JWT path). | TICK-94 item 12 |
+
+## `temporal-server` transitive raises
+
+Indirect requires of `temporal-server/go.mod` that TICK-111 raised to clear
+reachable govulncheck advisories, or that MVS raised with them. The Temporal
+pins (`go.temporal.io/server` v1.28.4, `go.temporal.io/api` v1.50.1) are
+unchanged. `make check-pins` checks only direct requires, so this table is
+documentation: it records why each version moved off what server v1.28.4
+builds with.
+
+| Module (`temporal-server`) | Version | Why | Source |
+| --- | --- | --- | --- |
+| `golang.org/x/net` | v0.60.0 (from v0.51.0) | Reachable advisories in v0.51.0. | TICK-111 |
+| `golang.org/x/text` | v0.42.0 (from v0.34.0) | Reachable advisories in v0.34.0. | TICK-111 |
+| `github.com/jackc/pgx/v5` | v5.9.2 (from v5.7.2) | Reachable advisories in v5.7.2 (persistence driver). | TICK-111 |
+| `github.com/go-jose/go-jose/v4` | v4.1.4 (from v4.1.3) | Reachable advisory in v4.1.3. | TICK-111 |
+| `go.opentelemetry.io/otel`, `/metric`, `/trace`, `/sdk`, `/sdk/metric` | v1.45.0 (from v1.40.0) | Reachable advisories in otel / otel/sdk v1.40.0; the API and SDK modules move together. | TICK-111 |
+| `go.opentelemetry.io/otel/exporters/otlp/otlptrace`, `/otlptrace/otlptracegrpc` | v1.45.0 (from v1.34.0) | Reachable advisories in v1.34.0; same release as the SDK. | TICK-111 |
+| `go.opentelemetry.io/proto/otlp` | v1.11.0 (from v1.7.1) | Required by the otlptrace v1.45.0 exporters (MVS). | TICK-111 |
+| `go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc`, `/net/http/otelhttp` | v0.61.0 (from v0.59.0) | Raised by MVS with otel v1.45.0. | TICK-111 |
+| `go.opentelemetry.io/contrib/detectors/gcp` | v1.44.0 (from v1.39.0) | Raised by MVS with otel v1.45.0. | TICK-111 |
+| `golang.org/x/crypto` | v0.57.0 (from v0.48.0) | Raised by MVS with x/net v0.60.0. | TICK-111 |
+| `golang.org/x/sys`, `golang.org/x/sync`, `golang.org/x/oauth2`, `golang.org/x/time` | v0.48.0, v0.23.0, v0.36.0, v0.14.0 (from v0.41.0, v0.19.0, v0.35.0, v0.10.0) | Raised by MVS with x/net, grpc and otel. | TICK-111 |
+| `google.golang.org/genproto`, `/googleapis/api`, `/googleapis/rpc` | v0.0.0-20260128011058-8636f8732409, v0.0.0-20260803160001-6ac0973c030d, v0.0.0-20260803160001-6ac0973c030d | Raised by MVS with grpc v1.83.1. | TICK-111 |
+| `google.golang.org/api`, `cloud.google.com/go` (+ `auth`, `auth/oauth2adapt`, `iam`, `monitoring`, `storage`), `github.com/googleapis/gax-go/v2`, `github.com/googleapis/enterprise-certificate-proxy` | v0.264.0; v0.121.6 (v0.18.2, v0.2.8, v1.5.3, v1.24.3, v1.56.0); v2.17.0; v0.3.11 | Raised by MVS with grpc and otel (server's GCS archival and Stackdriver deps; not used by our config). | TICK-111 |
+| `github.com/GoogleCloudPlatform/opentelemetry-operations-go/*` | detectors/gcp v1.33.0, exporter/metric and internal/resourcemapping v0.53.0 | Raised by MVS with otel v1.45.0. | TICK-111 |
+| `github.com/grpc-ecosystem/grpc-gateway/v2`, `github.com/envoyproxy/go-control-plane/envoy`, `github.com/envoyproxy/protoc-gen-validate`, `github.com/cncf/xds/go`, `github.com/spiffe/go-spiffe/v2`, `cel.dev/expr`, `github.com/go-logr/logr` | v2.29.0, v1.37.0, v1.3.3, v0.0.0-20260202195803-dba9d589def2, v2.7.0, v0.25.2, v1.4.4 | Raised by MVS with grpc v1.83.1. `github.com/cenkalti/backoff/v5` v5.0.3 is new (otlptrace v1.45.0). | TICK-111 |
+
+`go.temporal.io/server` v1.28.4 still carries **GO-2026-5766** (cross-namespace
+signal, delete and reset), fixed only in server ≥ 1.29.5. Moving the server is
+an ADR-001 §3 change, tracked by TICK-115; until it lands,
+`make vulncheck-temporal-server` reports that one advisory and is not a CI gate.
 
 ## Forbidden
 
