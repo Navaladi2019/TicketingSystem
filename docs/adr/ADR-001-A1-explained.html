@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-001 amendment A1 explained (reading guide)</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:32px 24px 80px}
+.banner{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.pill{font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left;min-width:0;overflow-wrap:anywhere}
+th{background:var(--soft)}
+table.front th{width:120px}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:36px}
+h3{font-size:18px;margin-top:28px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;background:var(--soft);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft);color:var(--fg)}
+hr{border:0;border-top:1px solid var(--bd);margin:32px 0}
+a{color:var(--acc)}
+figure.diagram{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure.diagram svg{max-width:100%;height:auto;display:block;margin:0 auto;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:12px;margin:12px 0 20px}
+.card{border:1px solid var(--bd);border-radius:8px;padding:12px 14px;background:var(--soft);min-width:0}
+.card h4{margin:0 0 6px;font-size:15px}
+.card p{margin:0}
+.red{color:var(--bad);font-weight:700}
+.green{color:var(--good);font-weight:700}
+.tag{display:inline-block;font-size:12px;font-weight:700;padding:1px 8px;border-radius:999px}
+.tag.red{background:var(--badbg);border:1px solid var(--bad)}
+.tag.green{background:var(--goodbg);border:1px solid var(--good)}
+@media print{.banner{display:none} table{display:table}}
+</style></head>
+<body><main>
+<div class="banner"><span class="pill">READING GUIDE · ADR-001 A1 ACCEPTED</span>
+<span class="src">Companion to ADR-001-A1-temporal-server-1-29-7-workload-allow-list.md. It isn't a decision record and changes nothing.</span></div>
+<table class="front"><tbody>
+<tr><th>title</th><td>ADR-001 amendment A1 explained: the Temporal upgrade and the workload allow-list</td></tr>
+<tr><th>type</th><td>explainer (not a decision record)</td></tr>
+<tr><th>explains</th><td>ADR-001-A1 (status ACCEPTED, 2026-10-20), from RFC-002 on TICK-115</td></tr>
+<tr><th>date</th><td>2026-10-20</td></tr>
+<tr><th>audience</th><td>nava, as the decision-maker. You don't need any of the review debate to follow it.</td></tr>
+</tbody></table>
+
+<h1>ADR-001 amendment A1 explained</h1>
+
+<blockquote><strong>The decision in three lines.</strong>
+(1) Upgrade our workflow engine, Temporal, from version 1.28.4 to <strong>1.29.7</strong>. That's a routine move, not an emergency.
+(2) Add a new safety rule, <strong>D9</strong>, which closes a real gap: today a platform component could ask Temporal's own internal machinery to destroy another tenant's work.
+(3) Add a startup check, <strong>D6-K</strong>, so the engine refuses to start if anyone switches off a safety setting.</blockquote>
+
+<p>Words used throughout:</p>
+<ul>
+<li><strong>Temporal</strong> is the engine that runs our long-running background jobs, called <em>workflows</em> (for example, "wait for approval, then send the email"). We run our own copy of its server.</li>
+<li>A <strong>tenant</strong> is one customer organisation. Many tenants share the platform, and the top rule (ADR-001 I2) is that no tenant can see or change another tenant's data.</li>
+<li><strong>Namespace</strong>: Temporal's own top-level partition. We use one, called <code>nava</code>, for all tenants. Inside it, each tenant's workflows are labelled <code>t:&lt;tenant&gt;:…</code>, and <em>our</em> access checks keep them apart.</li>
+<li>The <strong>Authorizer</strong> is our gatekeeper code inside Temporal. Every request passes through it, and it decides allow or deny based on who is calling.</li>
+<li>A <strong>task queue</strong> is a named inbox inside Temporal. A workflow is placed on a queue, and whichever program is listening on that queue (a <em>worker</em>) runs it.</li>
+</ul>
+
+<hr />
+<h2>1. The problem, in plain words</h2>
+
+<div class="cards">
+<div class="card"><h4>What the alert said</h4><p>A public security advisory, <strong>GO-2026-5766</strong>, says every Temporal version below 1.29.5 lets one namespace terminate or tamper with workflows in another namespace. Our security scan in CI (the <em>vulncheck gate</em>) flags our version, 1.28.4, so the build is red.</p></div>
+<div class="card"><h4>What is actually true</h4><p><strong>1.28.4 is not affected.</strong> The broken code was <em>added</em> in 1.29.0 and fixed in 1.29.5. Two reviewers read the source and ran tests: the bug is absent on 1.28.4, present on 1.29.4 and fixed on 1.29.5. The advisory's version range is simply too wide.</p></div>
+<div class="card"><h4>Why we move anyway</h4><p>The gate checks <em>versions</em>, not code paths, so it stays red until we move. We won't add an exception to silence it. <strong>Urgency is normal</strong>: there's no live risk from this advisory.</p></div>
+</div>
+
+<p><strong>Why 1.29.7 and not 1.29.5?</strong> A different advisory, GO-2026-5578, is broken again in 1.29.0 to 1.29.5 and fixed in 1.29.6. Version 1.29.7 is the newest release in that line and clears both advisories. <strong>Never land on 1.29.0–1.29.4</strong>: on those versions our setup <em>would</em> be exploitable.</p>
+
+<hr />
+<h2>2. The real gap review found (S1)</h2>
+
+<p>While checking the advisory, the Security reviewer found a separate problem. It exists on <strong>every</strong> version, old and new, so the upgrade alone doesn't fix it.</p>
+
+<p>Temporal ships its own internal workflows, for example a <em>batch</em> workflow that can terminate many workflows at once. They run on an internal queue and act as Temporal's own all-powerful system identity, <code>temporal-system</code>. Our Authorizer lets <code>temporal-system</code> do anything, because Temporal needs that to run itself.</p>
+
+<p>The gap: our <strong>relay</strong>, the platform component allowed to start workflows, could start <em>Temporal's internal batch workflow</em> instead of one of ours. Nothing checked <em>which</em> workflow or <em>which</em> queue it named.</p>
+
+<figure class="diagram">
+<svg viewBox="0 0 1060 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="S1 attack: relay starts the internal batch workflow, which runs as temporal-system and terminates tenant B's workflow">
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#cf222e"/></marker></defs>
+<g font-size="14" fill="#1f2328">
+<rect x="10" y="70" width="190" height="120" rx="10" fill="#f6f8fa" stroke="#59636e"/>
+<text x="105" y="100" text-anchor="middle" font-weight="700">1. Relay</text>
+<text x="105" y="124" text-anchor="middle">platform component,</text>
+<text x="105" y="144" text-anchor="middle">identity nava-relay</text>
+<text x="105" y="170" text-anchor="middle" font-size="12" fill="#59636e">tenant A's request</text>
+
+<rect x="270" y="70" width="210" height="120" rx="10" fill="#fff8c5" stroke="#9a6700"/>
+<text x="375" y="100" text-anchor="middle" font-weight="700">2. Our Authorizer</text>
+<text x="375" y="124" text-anchor="middle">"Relay may start</text>
+<text x="375" y="144" text-anchor="middle">workflows" → ALLOW</text>
+<text x="375" y="170" text-anchor="middle" font-size="12" fill="#9a6700">never asked which one</text>
+
+<rect x="550" y="70" width="220" height="120" rx="10" fill="#ffebe9" stroke="#cf222e"/>
+<text x="660" y="100" text-anchor="middle" font-weight="700">3. Internal batch workflow</text>
+<text x="660" y="124" text-anchor="middle">on Temporal's internal queue,</text>
+<text x="660" y="144" text-anchor="middle">runs as temporal-system</text>
+<text x="660" y="170" text-anchor="middle" font-size="12" fill="#cf222e">allowed everywhere</text>
+
+<rect x="840" y="70" width="210" height="120" rx="10" fill="#ffebe9" stroke="#cf222e" stroke-width="2"/>
+<text x="945" y="100" text-anchor="middle" font-weight="700">4. Tenant B</text>
+<text x="945" y="124" text-anchor="middle">workflow t:B:victim</text>
+<text x="945" y="150" text-anchor="middle" font-weight="700" fill="#cf222e">TERMINATED</text>
+
+<line x1="200" y1="130" x2="266" y2="130" stroke="#cf222e" stroke-width="2.5" marker-end="url(#ar)"/>
+<line x1="480" y1="130" x2="546" y2="130" stroke="#cf222e" stroke-width="2.5" marker-end="url(#ar)"/>
+<line x1="770" y1="130" x2="836" y2="130" stroke="#cf222e" stroke-width="2.5" marker-end="url(#ar)"/>
+<text x="530" y="40" text-anchor="middle" font-size="15" font-weight="700">"Start temporal-sys-batch-workflow: terminate t:B:victim"</text>
+<text x="530" y="250" text-anchor="middle" font-size="13" fill="#59636e">Reproduced live on throwaway servers on both 1.28.4 and 1.29.7. The same trick can also signal (inject data into),</text>
+<text x="530" y="270" text-anchor="middle" font-size="13" fill="#59636e">reset or delete other tenants' workflows, or pick out every tenant's workflows at once.</text>
+</g></svg>
+<figcaption>S1: tenant A's relay request ends with tenant B's workflow terminated. Severity: High.</figcaption>
+</figure>
+
+<p><strong>How exposed are we today?</strong> No tenant can trigger this yet, because the relay code that turns customer actions into workflow starts doesn't exist yet. It would go live the moment it does. That is why the fix ships in the same change as the upgrade (the T27d pull request) and not later. A stolen worker certificate could abuse two related routes, through what a worker <em>listens to</em> and what it <em>asks Temporal to do</em>, so D9 closes those too.</p>
+
+<hr />
+<h2>3. How D9 blocks it</h2>
+
+<p><strong>D9 is an allow-list for work, not just for actions.</strong> Before D9, the Authorizer only asked whether this caller is allowed to <em>start a workflow</em>. With D9 it also asks <em>which</em> workflow, on <em>which</em> queue, for <em>which</em> tenant. Only names written in our code are allowed. Everything else, including every internal Temporal name present or future, is refused because it isn't on the list. We deliberately did <em>not</em> write a block-list of "bad" names: a block-list misses the next name Temporal adds.</p>
+
+<figure class="diagram">
+<svg viewBox="0 0 1060 330" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="D9: the Authorizer checks workflow type, task queue and tenant label against an allow-list and denies the internal batch workflow">
+<defs>
+<marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#1a7f37"/></marker>
+<marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#59636e"/></marker>
+</defs>
+<g font-size="14" fill="#1f2328">
+<rect x="10" y="40" width="180" height="90" rx="10" fill="#f6f8fa" stroke="#59636e"/>
+<text x="100" y="72" text-anchor="middle" font-weight="700">Relay</text>
+<text x="100" y="96" text-anchor="middle">asks to start the</text>
+<text x="100" y="114" text-anchor="middle">internal batch workflow</text>
+
+<rect x="10" y="190" width="180" height="100" rx="10" fill="#f6f8fa" stroke="#59636e"/>
+<text x="100" y="222" text-anchor="middle" font-weight="700">Worker</text>
+<text x="100" y="246" text-anchor="middle">listens on, or sends work</text>
+<text x="100" y="264" text-anchor="middle">to, an internal queue</text>
+
+<rect x="260" y="20" width="430" height="290" rx="12" fill="#dafbe1" stroke="#1a7f37" stroke-width="2"/>
+<text x="475" y="50" text-anchor="middle" font-weight="700" font-size="16">Our Authorizer + D9</text>
+<text x="290" y="88">✓ Is the caller allowed this action? (as before)</text>
+<text x="290" y="120" font-weight="700">D9 adds, and every check must pass:</text>
+<text x="300" y="150">• Workflow type on our list?   (nava.smoke.Echo)</text>
+<text x="300" y="178">• Task queue on our list?   (nava-tq)</text>
+<text x="300" y="206">• Workflow labelled with a tenant?   (t:&lt;tenant&gt;:…)</text>
+<text x="300" y="234">• A worker's private "sticky" queue has the</text>
+<text x="314" y="254">exact shape the Temporal library generates</text>
+<text x="290" y="290" font-size="12" fill="#59636e">temporal-system itself is exempt. Temporal needs it to run.</text>
+
+<rect x="770" y="40" width="280" height="90" rx="10" fill="#ffebe9" stroke="#cf222e" stroke-width="2"/>
+<text x="910" y="74" text-anchor="middle" font-weight="700" fill="#cf222e">DENIED</text>
+<text x="910" y="98" text-anchor="middle">"internal batch workflow"</text>
+<text x="910" y="116" text-anchor="middle">isn't on the list</text>
+
+<rect x="770" y="190" width="280" height="100" rx="10" fill="#dafbe1" stroke="#1a7f37"/>
+<text x="910" y="222" text-anchor="middle" font-weight="700" fill="#1a7f37">ALLOWED</text>
+<text x="910" y="246" text-anchor="middle">our own workflows on our own</text>
+<text x="910" y="264" text-anchor="middle">queue, for a labelled tenant</text>
+
+<line x1="190" y1="85" x2="256" y2="85" stroke="#59636e" stroke-width="2" marker-end="url(#ab)"/>
+<line x1="190" y1="240" x2="256" y2="240" stroke="#59636e" stroke-width="2" marker-end="url(#ab)"/>
+<line x1="690" y1="85" x2="766" y2="85" stroke="#cf222e" stroke-width="2.5" marker-end="url(#ab)"/>
+<line x1="690" y1="240" x2="766" y2="240" stroke="#1a7f37" stroke-width="2.5" marker-end="url(#ag)"/>
+</g></svg>
+<figcaption>D9 sits in the Authorizer, the lowest layer we own. Tenant B's workflow keeps running.</figcaption>
+</figure>
+
+<table>
+<thead><tr><th>Part</th><th>What it covers, in plain words</th></tr></thead>
+<tbody>
+<tr><td><strong>D9a</strong>: starts</td><td>The relay may only start or signal our own workflow types, on our own queue, labelled with a tenant.</td></tr>
+<tr><td><strong>D9b</strong>: listening</td><td>A worker may only listen on our queues. Each worker also gets a private, temporary queue (a <em>sticky</em> queue) for speed. Its name must look exactly like the random name the Temporal library generates (<code>host:uuid</code>), so it can't be named after an internal queue to eavesdrop on it.</td></tr>
+<tr><td><strong>D9c</strong>: what workers ask for</td><td>When a worker asks Temporal to do the next step (run an activity, start a child workflow, restart itself as a new run), the same list applies. A missing workflow type is refused, not filled in.</td></tr>
+<tr><td><strong>D6-K</strong>: defence in depth</td><td>We switch off Temporal's batch and schedule features, which the first milestone doesn't use, and the server refuses to start if any of them, or any authorization-bypass setting, is switched back on.</td></tr>
+</tbody></table>
+
+<hr />
+<h2>4. What changes in the upgrade</h2>
+
+<p>Temporal keeps its data in our PostgreSQL database. Version 1.29.7 needs a slightly newer table layout, the <em>schema</em>: main store <strong>1.17 → 1.18</strong>. The search store stays at 1.9. The order matters, and the software enforces it.</p>
+
+<figure class="diagram">
+<svg viewBox="0 0 1060 190" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Upgrade order: migrate schema to 1.18 first, old binary still works, then swap to 1.29.7">
+<defs><marker id="an" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#0969da"/></marker></defs>
+<g font-size="14" fill="#1f2328">
+<rect x="10" y="30" width="300" height="110" rx="10" fill="#f6f8fa" stroke="#0969da"/>
+<text x="160" y="60" text-anchor="middle" font-weight="700">Step 1: update the tables</text>
+<text x="160" y="86" text-anchor="middle">schema 1.17 → 1.18</text>
+<text x="160" y="110" text-anchor="middle" font-size="13" fill="#59636e">the old 1.28.4 server keeps working</text>
+<text x="160" y="128" text-anchor="middle" font-size="13" fill="#59636e">on the new layout (tested)</text>
+
+<rect x="380" y="30" width="300" height="110" rx="10" fill="#f6f8fa" stroke="#0969da"/>
+<text x="530" y="60" text-anchor="middle" font-weight="700">Step 2: swap the server</text>
+<text x="530" y="86" text-anchor="middle">1.28.4 → 1.29.7</text>
+<text x="530" y="110" text-anchor="middle" font-size="13" fill="#59636e">a running workflow continued</text>
+<text x="530" y="128" text-anchor="middle" font-size="13" fill="#59636e">across the swap (tested live)</text>
+
+<rect x="750" y="30" width="300" height="110" rx="10" fill="#dafbe1" stroke="#1a7f37"/>
+<text x="900" y="60" text-anchor="middle" font-weight="700">Safety net</text>
+<text x="900" y="86" text-anchor="middle">1.29.7 refuses to start</text>
+<text x="900" y="110" text-anchor="middle">on the old 1.17 tables</text>
+<text x="900" y="128" text-anchor="middle" font-size="13" fill="#59636e">wrong order fails safely</text>
+
+<line x1="310" y1="85" x2="376" y2="85" stroke="#0969da" stroke-width="2.5" marker-end="url(#an)"/>
+<line x1="680" y1="85" x2="746" y2="85" stroke="#0969da" stroke-width="2.5" marker-end="url(#an)"/>
+<text x="530" y="175" text-anchor="middle" font-size="13" fill="#59636e">Our platform code keeps its current Temporal library (SDK v1.49.0). The CI run proves it works with the new server.</text>
+</g></svg>
+<figcaption>Today we run a single server. Upgrading several servers one at a time with mixed versions is a later follow-up (F1).</figcaption>
+</figure>
+
+<p>Still open, and owned by the Technical Lead: whether any data on today's 1.28.4 servers must be kept (E4). The development and CI servers can simply be recreated. It doesn't block your decision.</p>
+
+<hr />
+<h2>5. What you accept by signing</h2>
+
+<table>
+<thead><tr><th>Item</th><th>What it means for you</th><th>What we do about it</th></tr></thead>
+<tbody>
+<tr><td><strong>RS1</strong>: unknown support window</td><td>Temporal hasn't published how long the 1.29 line will get security fixes. Some day we'll need to move again.</td><td>The CI security gate tells us the moment that happens. 1.30.8 is already analysed as the next step: a bigger table change and more review.</td></tr>
+<tr><td><strong>RS5</strong>: the list must be maintained</td><td>Every new kind of workflow or new queue a product team adds needs a small code change to the allow-list, a Security review and a server rebuild. That's a little friction on every new feature that uses workflows.</td><td>It's deliberate: the list is a security boundary, so a code review is the approval step. If it turns into more than about one change a week, we'll revisit.</td></tr>
+<tr><td>Also in A1</td><td>Our database schema moves 1.17 → 1.18, and we add no exception to the security gate. If 1.29.7 fails in CI, that comes back to you as a new decision.</td><td>The order is enforced by the server itself.</td></tr>
+</tbody></table>
+
+<p>The other risks (startup-only checks, library compatibility, features switched off) have named owners and tests. The full list is in A1 under "Consequences".</p>
+
+<hr />
+<h2>6. Evidence: tests that are red today and must turn green</h2>
+
+<p>"Red" means the test fails, which proves the problem is real today. The upgrade pull request (T27d) is only done when every row is green.</p>
+
+<table>
+<thead><tr><th>Test</th><th>What it proves</th><th>Today</th><th>After T27d</th></tr></thead>
+<tbody>
+<tr><td>Upstream batch test on 1.28.4 / 1.29.4 / 1.29.5 (reviewers' spike)</td><td>The advisory's bug is absent in 1.28.4, present in 1.29.4 and fixed in 1.29.5</td><td colspan="2"><span class="tag green">PASS</span> / <span class="tag red">FAIL</span> / <span class="tag green">PASS</span>, already settled</td></tr>
+<tr><td>Live attack replay on throwaway servers (Security spike)</td><td>S1 is real: tenant B's workflow terminated</td><td><span class="tag red">attack works</span> on 1.28.4 and 1.29.7</td><td>CI-H: <span class="tag green">denied</span>, victim still running</td></tr>
+<tr><td><code>adversarial_reserved_test.go</code> (<code>37b7bf4</code>), CI-I</td><td>The relay can't start or signal-start internal workflows (14 cases), and a worker can't listen on internal queues</td><td><span class="tag red">RED</span></td><td><span class="tag green">GREEN</span></td></tr>
+<tr><td><code>adversarial_sticky_command_test.go</code> (<code>f39e0a3</code>), CI-I</td><td>A worker can't misuse its private queue, or its next-step requests, to reach internal work (10 cases)</td><td><span class="tag red">RED</span></td><td><span class="tag green">GREEN</span></td></tr>
+<tr><td>CI-A security gate (vulncheck)</td><td>No known advisories against our Temporal build</td><td><span class="tag red">RED</span> (version flagged)</td><td><span class="tag green">zero findings</span></td></tr>
+<tr><td>CI-E startup guard</td><td>The server refuses to start with any unsafe setting</td><td>new</td><td><span class="tag green">GREEN</span></td></tr>
+<tr><td>CI-D and CI-G: full suite and stack smoke on 1.29.7</td><td>Everything still works on the new version with the features switched off</td><td>new</td><td><span class="tag green">GREEN</span></td></tr>
+</tbody></table>
+
+<p><strong>Reviews:</strong> the Technical Architect approved. Security approves with the sticky-queue rule applied exactly as they wrote it, which it is. No dissent is on record.</p>
+
+<hr />
+<h2>7. What you approved (2026-10-20)</h2>
+<ol>
+<li><strong>Upgrade</strong> Temporal server to <strong>1.29.7</strong> (api library 1.53.0), with the table change 1.17 → 1.18 applied first. No security-gate exception.</li>
+<li><strong>D9</strong>, the work allow-list that closes S1, added to ADR-001's allow-list annex.</li>
+<li><strong>D6-K</strong>, the startup check on safety settings.</li>
+<li><strong>RS1 and RS5</strong> as accepted residual risks.</li>
+</ol>
+<p><em>You replied &quot;I Approve&quot; on TICK-115 on 2026-10-20, so ADR-001 A1 is ACCEPTED. Implementation is planned in TICK-119 (&quot;Plan ADR-001-A1&quot;), which covers the T27d upgrade pull request.</em></p>
+
+</main></body></html>
