@@ -114,8 +114,9 @@ check-pins:
 vulncheck:
 	govulncheck ./...
 
-# Not in ci yet: the custom Temporal server module has reachable advisories
-# (see docs/pins.md); its owner fixes them, then this joins ci-lint.
+# Not in ci yet: go.temporal.io/server v1.28.4 still has GO-2026-5766, fixed
+# only in server >= 1.29.5 (an ADR-001 section 3 change, TICK-115). It joins
+# ci-lint when that lands (TICK-111); see docs/pins.md.
 vulncheck-temporal-server:
 	cd temporal-server && govulncheck ./...
 

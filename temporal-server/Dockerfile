@@ -1,6 +1,6 @@
 # nava/temporal-server: Temporal 1.28.4 with the nava Authorizer and ClaimMapper.
 # Build: make temporal-server-image (from the repository root).
-FROM golang:1.25.8-bookworm AS build
+FROM golang:1.26.9-bookworm AS build
 WORKDIR /src
 ENV CGO_ENABLED=0
 COPY go.mod go.sum ./
@@ -19,7 +19,7 @@ RUN go build -trimpath -o /out/temporal-server ./cmd/server \
  && cp -r "$(go list -m -f '{{.Dir}}' go.temporal.io/server)/schema/postgresql/v12" /out/schema \
  && chmod -R a+rX /out/schema
 
-FROM debian:bookworm-slim
+FROM debian:bookworm-20261005-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
 RUN useradd --system --uid 10001 --no-create-home temporal
 COPY --from=build /out/temporal-server /usr/local/bin/temporal-server
 COPY --from=build /out/temporal-sql-tool /usr/local/bin/temporal-sql-tool
