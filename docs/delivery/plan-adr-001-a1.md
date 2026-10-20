@@ -4,7 +4,7 @@ id: PLAN-001-A1
 title: Implementing ADR-001 amendment A1 (Temporal 1.29.7, D6-K, D9)
 adr: "[[ADR-001-A1-temporal-server-1-29-7-workload-allow-list]] (APPROVED by nava 2026-10-20, TICK-115)"
 issue: TICK-119
-status: PROPOSED
+status: APPROVED by nava 2026-10-20 (TICK-119)
 date: 2026-10-20
 owner: Technical Lead
 ---

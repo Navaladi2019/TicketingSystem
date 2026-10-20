@@ -3,7 +3,7 @@
 Delivery decisions that change a task's contract, newest first.
 
 ## 2026-10-20: PLAN-001-A1 splits ADR-001-A1 delivery into D9 first, then the 1.29.7 upgrade
-- **Decided by:** the Technical Lead on TICK-119 (`docs/delivery/plan-adr-001-a1.md`). Pending nava's approval of the plan.
+- **Decided by:** the Technical Lead on TICK-119 (`docs/delivery/plan-adr-001-a1.md`). Approved by nava on TICK-119 (2026-10-20).
 - **Decision:** RFC-002 §9's single T27d PR becomes two PRs, merged in order:
   - T27e (TICK-120): the D9 workload allow-list on 1.28.4. It closes S1, which is live on every version.
   - T27f (TICK-121): server 1.29.7 / api 1.53.0, schema 1.18, the D6-K guard and the vulncheck gate.
