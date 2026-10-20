@@ -16,3 +16,4 @@ docs/go.mod text eol=lf
 *.sh     text eol=lf
 Dockerfile text eol=lf
 *.conf   text eol=lf
+scripts/ci/pgbouncer/* text eol=lf

@@ -40,7 +40,7 @@ item 16, condition 3).
 | Component | Version | Why | Source |
 | --- | --- | --- | --- |
 | `postgres` | 16.10 | An exact `postgres:16.x` patch tag, floor 15. Role semantics and `pg_auth_members` columns differ between 15 and 16, which CI-3 depends on. Also the integration-test database (`make test-integration`, `internal/platform/health` integration test). | D-P3, ADR-001 §3 |
-| `edoburu/pgbouncer` | v1.24.1-p1 | PgBouncer ≥ 1.21 (transaction mode with `max_prepared_statements`). | D-P3, T02 |
+| `edoburu/pgbouncer` | v1.24.1-p1 | PgBouncer ≥ 1.21 (transaction mode with `max_prepared_statements`). Also the two poolers of the PgBouncer load test (`internal/db/pooltest`): `scripts/ci/test-integration.sh` reads this row. A bump must keep that test green. | D-P3, T02, T06 |
 | `quay.io/keycloak/keycloak` | 26.8.1 | Floor 26.1.3; known-broken 26.0.0–26.1.2 (the `kc.org` picker tamper). Supersedes Epic 01's "26.0" row. | D-P3, D26 |
 | `temporalio/auto-setup` | 1.28.4 | Temporal server 1.28.4 with PostgreSQL persistence and SQL visibility, no Elasticsearch. The compose stack and CI use `auto-setup` (stock server plus schema setup) rather than bare `temporalio/server`; T28 replaced it in compose with the T27a build (`nava/temporal-server`); no compose file uses it now. | D-P3, T02, T28 |
 | `temporalio/ui` | 2.40.1 | Temporal Web UI for the `operator` profile only. It publishes no port; operators reach it through `make operator-tunnel`. Wields the `nava-operator` certificate (TODO-006). | T28 |
