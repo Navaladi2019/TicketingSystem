@@ -36,10 +36,11 @@ figure.diagram svg{max-width:100%;height:auto;display:block;margin:0 auto}
 <tr><th>type</th><td>explainer (not a decision record)</td></tr>
 <tr><th>explains</th><td>ADR-001-platform-blueprint.md (status ACCEPTED, 2026-10-15)</td></tr>
 <tr><th>date</th><td>2026-10-15</td></tr>
+<tr><th>updated</th><td>2026-10-20 (erratum E1, see §8)</td></tr>
 <tr><th>audience</th><td>nava (founder), no context from the debate needed</td></tr>
 </tbody></table>
 <h1>ADR-001 explained</h1>
-<p><strong>What this is.</strong> A plain-English guide to ADR-001. It changes nothing. ADR-001 is the decision. <strong>You approved it on 2026-10-15, so it is now ACCEPTED</strong>, together with the identity port (ADR Annex A.4). Where this guide simplifies, it cites the ADR section, for example &quot;ADR §2&quot; or &quot;ADR Annex A.2&quot;.</p>
+<p><strong>What this is.</strong> A plain-English guide to ADR-001. It changes nothing. ADR-001 is the decision. <strong>You approved it on 2026-10-15, so it is now ACCEPTED</strong>, together with the identity port (ADR Annex A.4). Where this guide simplifies, it cites the ADR section, for example &quot;ADR §2&quot; or &quot;ADR Annex A.2&quot;. <strong>One correction was made after approval, erratum E1; §8 explains it.</strong></p>
 <p><strong>What ADR-001 is about, in one paragraph.</strong> nava is a platform that many customer organisations (<em>tenants</em>) share. The biggest risk in such a platform is one tenant seeing or changing another tenant's data. ADR-001 fixes the ground rules (<em>invariants</em>) every later design must keep. It also makes the four choices Milestone 1 is waiting for:</p>
 <ul>
 <li>how people log in and how we know their tenant (<strong>D26</strong>)</li>
@@ -618,6 +619,18 @@ figure.diagram svg{max-width:100%;height:auto;display:block;margin:0 auto}
   <td>Traffic between Temporal's own internal services. Also protected with mTLS.</td>
 </tr>
 <tr>
+  <td><strong>Continue-as-new</strong></td>
+  <td>How a long-running workflow restarts itself with a fresh history while keeping the same workflow id.</td>
+</tr>
+<tr>
+  <td><strong>Task token</strong></td>
+  <td>The ticket Temporal hands a worker with each piece of work. It names the workflow, so the Authorizer can read the tenant from it.</td>
+</tr>
+<tr>
+  <td><strong>Erratum</strong></td>
+  <td>A correction to an accepted ADR that fixes a mistake without changing a decision.</td>
+</tr>
+<tr>
   <td><strong>Authorizer / ClaimMapper</strong></td>
   <td>Code we add to Temporal. The ClaimMapper reads who a caller is from its certificate. The Authorizer decides what that caller may do, including what commands a worker sends.</td>
 </tr>
@@ -745,5 +758,45 @@ figure.diagram svg{max-width:100%;height:auto;display:block;margin:0 auto}
 <li><strong>Six accepted risks (R1, R2, R3, R7, R8, R9).</strong> R8 is the one to weigh: a stolen worker certificate can reach every tenant. Removing it means per-tenant workers, a later cost decision.</li>
 </ol>
 <p><em>You replied <code>APPROVED</code> on TICK-36 on 2026-10-15. ADR-001 is ACCEPTED. Planning continues in TICK-42 (&quot;Plan ADR-001&quot;).</em></p>
+
+<hr />
+<h2>8. Correction after approval: erratum E1</h2>
+<p><strong>What was wrong.</strong> ADR Annex A.2 adopted a rule from the Technical Architect (TA-B3): Temporal's <em>Authorizer</em> checks the commands a worker sends back. One clause said: refuse a <em>continue-as-new</em> command that changes the workflow id. That clause could never fire. Temporal's continue-as-new command has no field for a workflow id, so the id never changes. A check that can't fail protects nothing.</p>
+<p><strong>What replaced it</strong> <em>(ADR Errata E1)</em>. When a worker reports back, the Authorizer now refuses:</p>
+<table>
+<thead>
+<tr>
+  <th>It refuses</th>
+  <th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>A task token it can't decode, or one whose workflow id has no <code>t:&lt;tenant&gt;:</code> prefix. It also raises an alert.</td>
+  <td>Without the prefix we can't tell which tenant the worker is acting for.</td>
+</tr>
+<tr>
+  <td>Starting, signalling or cancelling another workflow that belongs to another tenant, has no tenant, or sits in a namespace other than <code>nava</code></td>
+  <td>The existing cross-tenant rule, tightened to cover the namespace.</td>
+</tr>
+<tr>
+  <td>A continue-as-new whose tenant header (<code>nava-tenant</code>) is missing or differs from the workflow's tenant, or that sets a cron schedule</td>
+  <td>The restarted workflow must stay in the same tenant. Cron is off in Milestone 1.</td>
+</tr>
+<tr>
+  <td>Any command type not on a written allow-list. Nexus commands are refused today.</td>
+  <td>A new Temporal feature can't open a path we haven't reviewed.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Why this is stronger.</strong> The old clause checked something that can't happen. The new rules check things that can. The header check is a second line of defence, because our own worker sets the header. The main controls are the namespace check and &quot;refuse anything not on the list&quot;.</p>
+<p><strong>The test change (CI-6).</strong> ADR Annex B CI-6 used to require that &quot;continue-as-new with a changed id&quot; is rejected, a test that couldn't be written. It now requires that these are rejected:</p>
+<ul>
+<li>continue-as-new with a missing or mismatched tenant header, or with a cron schedule;</li>
+<li>a command type that isn't on the allow-list;</li>
+<li>a task token that doesn't decode.</li>
+</ul>
+<p>The allow path must still pass: a same-tenant child workflow completes.</p>
+<p><strong>What did not change.</strong> No invariant and no decision. I6, I7 and D22 stand as you approved them. The CTO ruled E1 in TICK-83 (PLAN-001 grooming), you approved it with PLAN-001, and Security supports it.</p>
 
 </main></body></html>

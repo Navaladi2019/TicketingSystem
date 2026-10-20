@@ -409,7 +409,7 @@ temporal custom server module: go.temporal.io/server v1.28.4 + go.temporal.io/ap
 </tr>
 </tbody>
 </table>
-<p><strong>Command inspection (TA-B3, adopted as written):</strong></p>
+<p><strong>Command inspection (TA-B3, adopted as written; its continue-as-new clause is replaced by erratum E1, below):</strong></p>
 <blockquote>
 <p>&quot;The Authorizer also inspects <code>CallTarget.Request</code> for <code>RespondWorkflowTaskCompleted</code> from <code>nava-worker</code>. It decodes the task token's <code>WorkflowId</code>. It denies the call if any <code>StartChildWorkflowExecution</code>, <code>SignalExternalWorkflowExecution</code> or <code>RequestCancelExternalWorkflowExecution</code> command targets a workflow id whose tenant prefix differs, or if a <code>ContinueAsNewWorkflowExecution</code> command changes the workflow id. CI-6 asserts both the deny and the allow path.&quot;</p>
 </blockquote>
@@ -671,7 +671,7 @@ temporal custom server module: go.temporal.io/server v1.28.4 + go.temporal.io/ap
 </tr>
 <tr>
   <td>CI-6</td>
-  <td>The following are rejected:<br/>• an unlisted or rogue-CA certificate<br/>• a platform pod connecting to the internal Temporal ports<br/>• a relay, core or worker certificate calling outside its allow-list<br/>• worker-certificate child, signal-external or cancel-external to another tenant, denied by the Authorizer, with an alert<br/>• continue-as-new with a changed id<br/><br/>These still work: a same-tenant child completes. Every SDK client dials and its worker starts.<br/><br/>Other cases:<br/>• no header, or a mismatched header, fails the workflow<br/>• a wrong-tenant signal is dropped and alerts, and the workflow keeps running<br/>• a redelivered start after completion starts no second run<br/>• a redelivered signal is applied once, including across continue-as-new<br/>• a signal queues behind its start<br/>• two relays never reorder one target<br/>• <code>NotFound</code> on a signal is terminal</td>
+  <td>The following are rejected:<br/>• an unlisted or rogue-CA certificate<br/>• a platform pod connecting to the internal Temporal ports<br/>• a relay, core or worker certificate calling outside its allow-list<br/>• worker-certificate child, signal-external or cancel-external to another tenant, denied by the Authorizer, with an alert<br/>• continue-as-new with a missing or mismatched <code>nava-tenant</code> header, or with <code>cron_schedule</code>; an unlisted command type; an undecodable task token (erratum E1, replacing &quot;continue-as-new with a changed id&quot;)<br/><br/>These still work: a same-tenant child completes. Every SDK client dials and its worker starts.<br/><br/>Other cases:<br/>• no header, or a mismatched header, fails the workflow<br/>• a wrong-tenant signal is dropped and alerts, and the workflow keeps running<br/>• a redelivered start after completion starts no second run<br/>• a redelivered signal is applied once, including across continue-as-new<br/>• a signal queues behind its start<br/>• two relays never reorder one target<br/>• <code>NotFound</code> on a signal is terminal</td>
   <td>D22, I2, I6, I7</td>
 </tr>
 <tr>
@@ -736,5 +736,16 @@ temporal custom server module: go.temporal.io/server v1.28.4 + go.temporal.io/ap
 <li><strong>Applied-id window.</strong></li>
 <li><strong>R7:</strong> separate module.</li>
 </ul>
+<h2>Errata</h2>
+<h3>E1 (2026-10-15): command inspection for continue-as-new</h3>
+<p><em>Ruled by the CTO in TICK-83 (PLAN-001 grooming); approved by nava with PLAN-001. Security supports it.</em></p>
+<p>TA-B3's clause &quot;or if a <code>ContinueAsNewWorkflowExecution</code> command changes the workflow id&quot; cannot fire: <code>ContinueAsNewWorkflowExecutionCommandAttributes</code> has no workflow-id field, so Temporal always keeps the id. The clause is replaced by these rules, which are strictly stronger. The Authorizer, for <code>RespondWorkflowTaskCompleted</code> from <code>nava-worker</code>:</p>
+<ul>
+<li>denies the response if the task token does not decode or its <code>WorkflowId</code> has no <code>t:&lt;tenant&gt;:</code> prefix, and alerts;</li>
+<li>denies <code>StartChildWorkflowExecution</code>, <code>SignalExternalWorkflowExecution</code> and <code>RequestCancelExternalWorkflowExecution</code> whose target has another tenant's prefix (or none) or a namespace other than <code>nava</code>;</li>
+<li>denies <code>ContinueAsNewWorkflowExecution</code> whose <code>nava-tenant</code> header is missing or differs from the task token's prefix, or which sets <code>cron_schedule</code>;</li>
+<li>denies every command type not on the written allow-list (PLAN-001 T27b; Nexus commands are denied today).</li>
+</ul>
+<p>The header check is defence in depth, because the worker sets the header. The controls are the namespace check and deny-unlisted. The Annex B CI-6 row is updated to match. I6, I7 and D22 are unchanged.</p>
 
 </main></body></html>
