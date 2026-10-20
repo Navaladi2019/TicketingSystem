@@ -2,6 +2,14 @@
 
 Delivery decisions that change a task's contract, newest first.
 
+## 2026-10-20: CI wall clock under 5 minutes; stack tests split over three jobs
+- **Decided by:** the Technical Lead on TICK-59, on the human's escalation (CI took about 22 minutes).
+- **Decision:** `ci.yml` runs seven parallel jobs: `lint`, `unit`, `temporal-server`, `integration`, `stack`, `stack-db` and `stack-internal`. This replaces `lint-unit` and the single `stack` job. Every gate and every stack test still runs, and none is skipped or weakened. `make ci` and `make ci-stack` are unchanged locally.
+- **Caching:** each job keeps a Go build cache keyed per job. CI tools are cached by Makefile hash, and image layers live in the Actions cache (`make image-ci`, `IMAGE_CACHE=gha`).
+- **temporal-server image:** it no longer runs `go test -short` during the build. The `temporal-server` job already runs the full suite, which is a superset. Its Temporal dependencies now compile in a layer keyed on `go.mod`/`go.sum`.
+- **Accepted cost:** a run that changes `go.sum` or a base image is cold and takes about 8 to 10 minutes. Three stacks per run use more Actions minutes.
+- **Dissent:** none.
+
 ## 2026-10-19: T28 operator UI reached only through a tunnel; UI login deferred
 - **Decided by:** the Technical Lead on TICK-59, on the Security Reviewer's Finding 1 (PR #21).
 - **Decision:** `temporal-ui` publishes no port. Operators reach it with `make operator-tunnel`, which lives only while it runs. `stack-test.sh temporal_operator_reach` checks the default state, with no tunnel.

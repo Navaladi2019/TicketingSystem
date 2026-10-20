@@ -106,7 +106,9 @@ func TestEachSDKClientDialsWithItsCertificateAndAWorkerStarts(t *testing.T) {
 	}
 	t.Cleanup(w.Stop)
 
-	run, err := relay.ExecuteWorkflow(ctx, client.StartWorkflowOptions{ID: "t:" + queue, TaskQueue: queue}, Echo, "mtls")
+	// Workflow IDs carry the t:<tenant>:<rest> prefix the Authorizer requires;
+	// without the tenant segment every workflow task completion is denied.
+	run, err := relay.ExecuteWorkflow(ctx, client.StartWorkflowOptions{ID: "t:t28:" + queue, TaskQueue: queue}, Echo, "mtls")
 	if err != nil {
 		t.Fatalf("nava-relay ExecuteWorkflow: %v", err)
 	}

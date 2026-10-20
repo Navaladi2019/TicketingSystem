@@ -36,7 +36,7 @@ GOLANGCI_LINT_VERSION := 2.14.0
 GOVULNCHECK_VERSION := v1.9.0
 
 .PHONY: build run test test-integration lint generate check-openapi
-.PHONY: ci ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-temporal-server review-paths dev-ca operator-tunnel stack-test-sdk 	image stack-up stack-down stack-logs stack-internal smoke
+.PHONY: ci ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-temporal-server review-paths dev-ca operator-tunnel stack-test-sdk 	image image-ci stack-up stack-down stack-logs stack-internal smoke
 
 build:
 	go build -o bin/nava-core ./cmd/nava-core
@@ -131,10 +131,25 @@ export OTEL_TAIL_SAMPLE_PERCENT ?= 100
 # overlay that publishes the Temporal gateway on loopback for the SDK test.
 export COMPOSE_PROFILES ?= operator
 export COMPOSE_FILE ?= compose.yaml:deploy/compose/compose.test.yaml
+# Windows Docker splits COMPOSE_FILE on ";" unless told otherwise.
+export COMPOSE_PATH_SEPARATOR ?= :
 STACK_FILES := -f compose.yaml -f deploy/compose/compose.internal.yaml
 
 image:
 	docker compose build
+
+# CI image build: buildx bake over compose.yaml while the registry images are
+# pulled alongside. IMAGE_CACHE=gha keeps the layer cache in the GitHub Actions
+# cache (needs a docker-container builder and the Actions runtime env), so an
+# unchanged image is a cache hit and a source change rebuilds one layer.
+# db-roles and migrate share nava/nava-db; only db-roles writes its cache.
+BAKE_CACHED := db-roles nava-core otel-collector temporal-server
+BAKE_CACHE_GHA := $(foreach t,$(BAKE_CACHED),--set $(t).cache-from=type=gha,scope=$(t) --set $(t).cache-to=type=gha,scope=$(t),mode=max) --set migrate.cache-from=type=gha,scope=db-roles
+BAKE_CACHE := $(if $(filter gha,$(IMAGE_CACHE)),$(BAKE_CACHE_GHA))
+image-ci:
+	@docker compose pull --quiet --ignore-buildable --ignore-pull-failures & pull=$$!; \
+	docker buildx bake -f compose.yaml --load $(BAKE_CACHE); status=$$?; \
+	wait $$pull; exit $$status
 
 stack-up: dev-ca
 	docker compose up -d

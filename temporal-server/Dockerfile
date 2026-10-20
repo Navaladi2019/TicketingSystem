@@ -2,12 +2,20 @@
 # Build: make temporal-server-image (from the repository root).
 FROM golang:1.25.8-bookworm AS build
 WORKDIR /src
+ENV CGO_ENABLED=0
 COPY go.mod go.sum ./
 RUN go mod download
+# Compile the Temporal server dependencies in their own layer, keyed only on
+# go.mod/go.sum, so a source change rebuilds just this module's packages.
+# The module's tests run in CI's temporal-server job, not in the image build.
+RUN go build -trimpath \
+      go.temporal.io/server/temporal \
+      go.temporal.io/server/common/persistence/sql/sqlplugin/postgresql \
+      go.temporal.io/server/common/persistence/sql/sqlplugin/sqlite \
+      go.temporal.io/server/cmd/tools/sql
 COPY . .
-RUN go test -short ./... \
- && CGO_ENABLED=0 go build -trimpath -o /out/temporal-server ./cmd/server \
- && CGO_ENABLED=0 go build -trimpath -o /out/temporal-sql-tool go.temporal.io/server/cmd/tools/sql \
+RUN go build -trimpath -o /out/temporal-server ./cmd/server \
+ && go build -trimpath -o /out/temporal-sql-tool go.temporal.io/server/cmd/tools/sql \
  && cp -r "$(go list -m -f '{{.Dir}}' go.temporal.io/server)/schema/postgresql/v12" /out/schema \
  && chmod -R a+rX /out/schema
 
