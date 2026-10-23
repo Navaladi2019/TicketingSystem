@@ -2,7 +2,7 @@ module github.com/Navaladi2019/TicketingSystem
 
 go 1.26.0
 
-toolchain go1.26.9
+toolchain go1.26.10
 
 require (
 	github.com/felixge/httpsnoop v1.1.0

@@ -1,6 +1,6 @@
 # nava/temporal-server: Temporal 1.28.4 with the nava Authorizer and ClaimMapper.
 # Build: make temporal-server-image (from the repository root).
-FROM golang:1.26.9-bookworm AS build
+FROM golang:1.26.10-bookworm AS build
 WORKDIR /src
 ENV CGO_ENABLED=0
 COPY go.mod go.sum ./
