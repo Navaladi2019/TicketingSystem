@@ -23,7 +23,7 @@ flows, the security controls behind these rules, and options for later tasks.
 
 Outbound HTTP goes through `telemetry.NewOutboundClient` only: `forbidigo` rejects `http.Client`, `http.DefaultClient` and `http.Get`/`Head`/`Post`/`PostForm` everywhere except `internal/platform/telemetry` and tests, and `task lint:fixture` checks the rule still fires.
 
-Go is pinned by `go.mod` (`go 1.26.0`, `toolchain go1.26.9`); SDK v1.49.0 needs Go ≥ 1.26 (ADR-001 §3). Telemetry is decided in `docs/delivery/decision-log.md` (2026-10-16).
+Go is pinned by `go.mod` (`go 1.26.0`, `toolchain go1.26.10`); SDK v1.49.0 needs Go ≥ 1.26 (ADR-001 §3). Telemetry is decided in `docs/delivery/decision-log.md` (2026-10-16).
 
 ## Running locally
 
