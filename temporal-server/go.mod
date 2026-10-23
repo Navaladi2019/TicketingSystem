@@ -7,7 +7,7 @@ toolchain go1.26.10
 require (
 	go.temporal.io/api v1.53.0
 	go.temporal.io/server v1.29.7
-	google.golang.org/grpc v1.83.1
+	google.golang.org/grpc v1.83.2
 	google.golang.org/protobuf v1.36.11
 )
 
