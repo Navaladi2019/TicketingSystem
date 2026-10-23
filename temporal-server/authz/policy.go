@@ -2,8 +2,8 @@ package authz
 
 // The API allow-list of ADR-001 Annex A.2, plus the `nava-operator` row pinned in
 // TICK-83 grooming, written method by method from the service descriptors of
-// go.temporal.io/api v1.50.1 (WorkflowService, OperatorService) and
-// go.temporal.io/server v1.28.4 (AdminService). Wildcards in the ADR are expanded
+// go.temporal.io/api v1.53.0 (WorkflowService, OperatorService) and
+// go.temporal.io/server v1.29.7 (AdminService). Wildcards in the ADR are expanded
 // here so that a Temporal upgrade that adds a method denies it until someone
 // classifies it: policy_test.go fails while any descriptor method is missing from
 // both allowList and deniedByDefault, or listed in both.
@@ -165,6 +165,13 @@ var deniedByDefault = []string{
 	wf + "CreateWorkflowRule",
 	wf + "DeleteWorkflowRule",
 	wf + "TriggerWorkflowRule",
+	// New at api v1.53.0 (ADR-001 A1, TICK-121): denied for every platform
+	// identity, DescribeWorker included, until someone classifies them.
+	wf + "DescribeWorker",
+	wf + "FetchWorkerConfig",
+	wf + "UpdateWorkerConfig",
+	wf + "SetWorkerDeploymentManager",
+	wf + "UpdateTaskQueueConfig",
 
 	op + "RemoveSearchAttributes",
 	op + "DeleteNamespace",

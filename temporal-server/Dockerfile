@@ -1,4 +1,4 @@
-# nava/temporal-server: Temporal 1.28.4 with the nava Authorizer and ClaimMapper.
+# nava/temporal-server: Temporal 1.29.7 with the nava Authorizer and ClaimMapper.
 # Build: make temporal-server-image (from the repository root).
 FROM golang:1.26.10-bookworm AS build
 WORKDIR /src

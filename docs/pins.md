@@ -42,7 +42,7 @@ item 16, condition 3).
 | `postgres` | 16.10 | An exact `postgres:16.x` patch tag, floor 15. Role semantics and `pg_auth_members` columns differ between 15 and 16, which CI-3 depends on. Also the integration-test database (`make test-integration`, `internal/platform/health` integration test). | D-P3, ADR-001 §3 |
 | `edoburu/pgbouncer` | v1.24.1-p1 | PgBouncer ≥ 1.21 (transaction mode with `max_prepared_statements`). Also the two poolers of the PgBouncer load test (`internal/db/pooltest`): `scripts/ci/test-integration.sh` reads this row. A bump must keep that test green. | D-P3, T02, T06 |
 | `quay.io/keycloak/keycloak` | 26.8.1 | Floor 26.1.3; known-broken 26.0.0–26.1.2 (the `kc.org` picker tamper). Supersedes Epic 01's "26.0" row. | D-P3, D26 |
-| `temporalio/auto-setup` | 1.28.4 | Temporal server 1.28.4 with PostgreSQL persistence and SQL visibility, no Elasticsearch. The compose stack and CI use `auto-setup` (stock server plus schema setup) rather than bare `temporalio/server`; T28 replaced it in compose with the T27a build (`nava/temporal-server`); no compose file uses it now. | D-P3, T02, T28 |
+| `temporalio/auto-setup` | 1.29.7 | Temporal server 1.29.7 with PostgreSQL persistence and SQL visibility, no Elasticsearch, the same version as the custom build (ADR-001 A1 Decision 1; the last `auto-setup` tag). T28 replaced it in compose with the T27a build (`nava/temporal-server`); no compose file uses it now, so this row only keeps the version in step if one ever does. | D-P3, T02, T28, ADR-001 A1, TICK-121 |
 | `temporalio/ui` | 2.40.1 | Temporal Web UI for the `operator` profile only. It publishes no port; operators reach it through `make operator-tunnel`. Wields the `nava-operator` certificate (TODO-006). | T28 |
 | `otel/opentelemetry-collector-contrib` | 0.139.0 | The Collector (tail sampling, redaction layer two). | T01, T02 |
 | `golang` | 1.26.10-alpine @deploy/compose, 1.26.10-bookworm @temporal-server | Build stages: 1.26.10 for nava-core, nava-db and the custom Temporal server (raised from 1.25.8-bookworm in TICK-111, then from 1.26.9 for GO-2026-6809 in TICK-124). Matches each module's toolchain. | D-P3, T27a, TICK-111, TICK-124 |
@@ -55,8 +55,8 @@ item 16, condition 3).
 | Component | Version | Why | Source |
 | --- | --- | --- | --- |
 | `go.temporal.io/sdk` | v1.49.0 | Temporal client and workers. | D-P3 |
-| `go.temporal.io/server` | v1.28.4 @temporal-server | Custom server module (`temporal-server` only), matches the server image. | D-P3, R7 |
-| `go.temporal.io/api` | v1.63.5 @., v1.50.1 @temporal-server | Temporal API types. Platform: required by SDK v1.49.0. `temporal-server`: matches server v1.28.4. The two modules are built separately, so the versions may differ. | D-P3, R7 |
+| `go.temporal.io/server` | v1.29.7 @temporal-server | Custom server module (`temporal-server` only), matches the server image. Moved from v1.28.4 so that `make vulncheck-temporal-server` reports zero findings (GO-2026-5766 is flagged on the 1.28.4 module version); not v1.29.5, which reopens GO-2026-5578. Main schema 1.18, visibility 1.9. | D-P3, R7, ADR-001 A1, TICK-121 |
+| `go.temporal.io/api` | v1.63.5 @., v1.53.0 @temporal-server | Temporal API types. Platform: required by SDK v1.49.0. `temporal-server`: what server v1.29.7 requires (`go mod tidy` resolves v1.53.0, no higher). The two modules are built separately, so the versions may differ. | D-P3, R7, ADR-001 A1, TICK-121 |
 | `google.golang.org/grpc` | v1.84.0 @., v1.83.1 @temporal-server | gRPC for the Temporal SDK client. Platform: not chosen directly; goose v3.29.0 requires it, so MVS raises it. `temporal-server`: raised from v1.79.3 (what server v1.28.4 builds with), which had reachable govulncheck advisories. | T04 (v1.83.2), raised by goose in T03; T27a, TICK-111 |
 | `google.golang.org/protobuf` | v1.36.11 @temporal-server | Protobuf runtime for the custom server. | T27a |
 | `github.com/prometheus/client_golang` | v1.25.0 | Prometheus `/metrics` per the observability standard. | T01, TICK-89 |
@@ -96,11 +96,14 @@ item 16, condition 3).
 ## `temporal-server` transitive raises
 
 Indirect requires of `temporal-server/go.mod` that TICK-111 raised to clear
-reachable govulncheck advisories, or that MVS raised with them. The Temporal
-pins (`go.temporal.io/server` v1.28.4, `go.temporal.io/api` v1.50.1) are
-unchanged. `make check-pins` checks only direct requires, so this table is
-documentation: it records why each version moved off what server v1.28.4
-builds with.
+reachable govulncheck advisories, or that MVS raised with them, measured
+against what server v1.28.4 builds with. TICK-121's move to server v1.29.7
+left every row below unchanged; it raised only what v1.29.7 itself requires
+(`go.temporal.io/sdk` v1.35.0, `github.com/apache/thrift` v0.23.0,
+`github.com/klauspost/compress` v1.18.0, `go.uber.org/dig` v1.19.0,
+`golang.org/x/exp` v0.0.0-20250620022241-b7579e27df2b) and dropped
+`go.temporal.io/version`. `make check-pins` checks only direct requires, so
+this table is documentation.
 
 | Module (`temporal-server`) | Version | Why | Source |
 | --- | --- | --- | --- |
@@ -120,10 +123,10 @@ builds with.
 | `github.com/GoogleCloudPlatform/opentelemetry-operations-go/*` | detectors/gcp v1.33.0, exporter/metric and internal/resourcemapping v0.53.0 | Raised by MVS with otel v1.45.0. | TICK-111 |
 | `github.com/grpc-ecosystem/grpc-gateway/v2`, `github.com/envoyproxy/go-control-plane/envoy`, `github.com/envoyproxy/protoc-gen-validate`, `github.com/cncf/xds/go`, `github.com/spiffe/go-spiffe/v2`, `cel.dev/expr`, `github.com/go-logr/logr` | v2.29.0, v1.37.0, v1.3.3, v0.0.0-20260202195803-dba9d589def2, v2.7.0, v0.25.2, v1.4.4 | Raised by MVS with grpc v1.83.1. `github.com/cenkalti/backoff/v5` v5.0.3 is new (otlptrace v1.45.0). | TICK-111 |
 
-`go.temporal.io/server` v1.28.4 still carries **GO-2026-5766** (cross-namespace
-signal, delete and reset), fixed only in server ≥ 1.29.5. Moving the server is
-an ADR-001 §3 change, tracked by TICK-115; until it lands,
-`make vulncheck-temporal-server` reports that one advisory and is not a CI gate.
+`make vulncheck-temporal-server` reports zero findings on server v1.29.7 and
+is a required step of the `temporal-server` CI job (ADR-001 A1 Decision 3).
+There is no exception and no allowlist: a new finding fails CI and is a new
+decision, not a pin bump.
 
 ## Forbidden
 

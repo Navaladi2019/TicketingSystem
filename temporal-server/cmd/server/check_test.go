@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -16,11 +17,12 @@ import (
 
 	"go.temporal.io/server/common/config"
 	"go.temporal.io/server/common/dynamicconfig"
+	"go.temporal.io/server/common/log"
 
 	"github.com/Navaladi2019/TicketingSystem/temporal-server/internal/devcerts"
 )
 
-// validConfig is a config that passes checkConfig, with real dev certificates.
+// validConfig is a config that passes checkSecurityConfig, with real dev certificates.
 func validConfig(t *testing.T) *config.Config {
 	t.Helper()
 	dir := t.TempDir()
@@ -40,49 +42,183 @@ func validConfig(t *testing.T) *config.Config {
 	return c
 }
 
+// staticDC maps a key to one unconstrained value, or to the
+// []dynamicconfig.ConstrainedValue given.
 type staticDC map[dynamicconfig.Key]any
 
 func (s staticDC) GetValue(k dynamicconfig.Key) []dynamicconfig.ConstrainedValue {
-	if v, ok := s[k]; ok {
+	switch v := s[k].(type) {
+	case nil:
+		return nil
+	case []dynamicconfig.ConstrainedValue:
+		return v
+	default:
 		return []dynamicconfig.ConstrainedValue{{Value: v}}
 	}
-	return nil
 }
 
-func TestCheckConfigAcceptsValidConfig(t *testing.T) {
-	if err := checkConfig(validConfig(t), dynamicconfig.NewNoopClient()); err != nil {
+// d6kCases is the D6-K table of ADR-001 A1, each key by its Go symbol so that a
+// renamed or removed key fails to compile (CI-E).
+var d6kCases = []struct {
+	key dynamicconfig.Key
+	// missingRefuses marks the "not false" rows, whose server default is true.
+	missingRefuses bool
+}{
+	{dynamicconfig.DisableStreamingAuthorizer.Key(), false},
+	{dynamicconfig.ExposeAuthorizerErrors.Key(), false},
+	{dynamicconfig.EnableCrossNamespaceCommands.Key(), true},
+	{dynamicconfig.EnableBatcherNamespace.Key(), true},
+	{dynamicconfig.WorkerEnableScheduler.Key(), true},
+	{dynamicconfig.FrontendEnableSchedules.Key(), true},
+	{dynamicconfig.FrontendEnableBatcher.Key(), true},
+}
+
+// shippedDC has every D6-K key at its shipped value, false.
+func shippedDC() staticDC {
+	dc := staticDC{}
+	for _, c := range d6kCases {
+		dc[c.key] = false
+	}
+	return dc
+}
+
+// requireRefused fails unless err holds a *SecurityConfigError for key.
+func requireRefused(t *testing.T, err error, key string) {
+	t.Helper()
+	var joined interface{ Unwrap() []error }
+	if errors.As(err, &joined) {
+		for _, e := range joined.Unwrap() {
+			var sce *SecurityConfigError
+			if errors.As(e, &sce) && sce.Key == key {
+				return
+			}
+		}
+	}
+	t.Fatalf("got %v, want a SecurityConfigError for %s", err, key)
+}
+
+func TestCheckSecurityConfigAcceptsValidConfig(t *testing.T) {
+	if err := checkSecurityConfig(validConfig(t), shippedDC()); err != nil {
 		t.Fatalf("valid config refused: %v", err)
 	}
 }
 
-func TestCheckConfigRefusesSameCAOnFrontendAndInternode(t *testing.T) {
+func TestCheckSecurityConfigRefusesSameCAOnFrontendAndInternode(t *testing.T) {
 	c := validConfig(t)
 	c.Global.TLS.Internode.Server.ClientCAFiles = c.Global.TLS.Frontend.Server.ClientCAFiles
-	err := checkConfig(c, nil)
+	err := checkSecurityConfig(c, shippedDC())
 	if err == nil || !strings.Contains(err.Error(), "both frontend and internode") {
 		t.Fatalf("shared CA: got %v", err)
 	}
 }
 
-func TestCheckConfigRefusesUnsafeSettings(t *testing.T) {
-	c := validConfig(t)
-	err := checkConfig(c, staticDC{disableStreamingAuthorizerKey: true})
-	if err == nil || !strings.Contains(err.Error(), "disableStreamingAuthorizer") {
-		t.Errorf("system.disableStreamingAuthorizer=true: got %v", err)
+// TestCheckSecurityConfigD6K is CI-E: one sub-case per D6-K row, and per
+// constrained (per-namespace) value.
+func TestCheckSecurityConfigD6K(t *testing.T) {
+	if len(d6kKeys) != len(d6kCases) {
+		t.Fatalf("the guard checks %d keys, the D6-K table has %d", len(d6kKeys), len(d6kCases))
 	}
-	if err := checkConfig(c, staticDC{disableStreamingAuthorizerKey: false}); err != nil {
-		t.Errorf("system.disableStreamingAuthorizer=false refused: %v", err)
+	nava := dynamicconfig.Constraints{Namespace: "nava"}
+	for i, tc := range d6kCases {
+		key := tc.key.String()
+		t.Run(key, func(t *testing.T) {
+			if d6kKeys[i].key != tc.key || d6kKeys[i].requireExplicit != tc.missingRefuses {
+				t.Fatalf("guard row %d is %+v, want %s requireExplicit=%v", i, d6kKeys[i], key, tc.missingRefuses)
+			}
+			c := validConfig(t)
+			with := func(v any) staticDC {
+				dc := shippedDC()
+				dc[tc.key] = v
+				return dc
+			}
+			mustStart := func(t *testing.T, dc staticDC) {
+				t.Helper()
+				if err := checkSecurityConfig(c, dc); err != nil {
+					t.Fatalf("refused: %v", err)
+				}
+			}
+
+			t.Run("true refuses", func(t *testing.T) { requireRefused(t, checkSecurityConfig(c, with(true)), key) })
+			// The server's convertBool parses strings, so "true" is true.
+			t.Run("string true refuses", func(t *testing.T) { requireRefused(t, checkSecurityConfig(c, with("TRUE")), key) })
+			t.Run("non-bool refuses", func(t *testing.T) { requireRefused(t, checkSecurityConfig(c, with(1)), key) })
+			t.Run("false starts", func(t *testing.T) { mustStart(t, with(false)) })
+			t.Run("missing", func(t *testing.T) {
+				dc := shippedDC()
+				delete(dc, tc.key)
+				if tc.missingRefuses {
+					requireRefused(t, checkSecurityConfig(c, dc), key)
+				} else {
+					mustStart(t, dc)
+				}
+			})
+			t.Run("per-namespace true refuses", func(t *testing.T) {
+				requireRefused(t, checkSecurityConfig(c, with([]dynamicconfig.ConstrainedValue{
+					{Value: false}, {Constraints: nava, Value: true},
+				})), key)
+			})
+			t.Run("per-namespace false starts", func(t *testing.T) {
+				mustStart(t, with([]dynamicconfig.ConstrainedValue{{Value: false}, {Constraints: nava, Value: false}}))
+			})
+			// With only a namespace value, every other namespace gets the server default.
+			t.Run("per-namespace false only", func(t *testing.T) {
+				dc := with([]dynamicconfig.ConstrainedValue{{Constraints: nava, Value: false}})
+				if tc.missingRefuses {
+					requireRefused(t, checkSecurityConfig(c, dc), key)
+				} else {
+					mustStart(t, dc)
+				}
+			})
+		})
 	}
 
-	c = validConfig(t)
-	c.Services = map[string]config.Service{"frontend": {RPC: config.RPC{GRPCPort: 7233, HTTPPort: 7243}}}
-	err = checkConfig(c, nil)
-	if err == nil || !strings.Contains(err.Error(), "httpPort") {
-		t.Errorf("services.frontend.rpc.httpPort set: got %v", err)
-	}
-	c.Services["frontend"] = config.Service{RPC: config.RPC{GRPCPort: 7233}}
-	if err := checkConfig(c, nil); err != nil {
-		t.Errorf("no httpPort refused: %v", err)
+	t.Run(httpPortKey, func(t *testing.T) {
+		c := validConfig(t)
+		c.Services = map[string]config.Service{"frontend": {RPC: config.RPC{GRPCPort: 7233, HTTPPort: 7243}}}
+		requireRefused(t, checkSecurityConfig(c, shippedDC()), httpPortKey)
+		c.Services["frontend"] = config.Service{RPC: config.RPC{GRPCPort: 7233}}
+		if err := checkSecurityConfig(c, shippedDC()); err != nil {
+			t.Fatalf("no httpPort refused: %v", err)
+		}
+	})
+
+	t.Run("no dynamic config refuses", func(t *testing.T) {
+		for _, dc := range []dynamicconfig.Client{nil, dynamicconfig.NewNoopClient()} {
+			err := checkSecurityConfig(validConfig(t), dc)
+			for _, tc := range d6kCases {
+				if tc.missingRefuses {
+					requireRefused(t, err, tc.key.String())
+				}
+			}
+		}
+	})
+}
+
+// The shipped dynamic config files, read the way the server reads them, start,
+// and set every D6-K key explicitly to false.
+func TestShippedDynamicConfigStarts(t *testing.T) {
+	for _, path := range []string{
+		filepath.Join("..", "..", "config", "dynamicconfig", "development.yaml"),
+		filepath.Join("..", "..", "..", "deploy", "compose", "temporal", "config", "dynamicconfig", "compose.yaml"),
+	} {
+		t.Run(path, func(t *testing.T) {
+			done := make(chan interface{})
+			defer close(done)
+			dc, err := dynamicconfig.NewFileBasedClient(&dynamicconfig.FileBasedClientConfig{
+				Filepath: path, PollInterval: time.Minute,
+			}, log.NewNoopLogger(), done)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := checkSecurityConfig(validConfig(t), dc); err != nil {
+				t.Fatalf("refused: %v", err)
+			}
+			for _, tc := range d6kCases {
+				if got := dc.GetValue(tc.key); len(got) != 1 || got[0].Value != false {
+					t.Errorf("%s = %+v, want exactly one explicit false", tc.key, got)
+				}
+			}
+		})
 	}
 }
 
@@ -112,7 +248,7 @@ func TestCheckConfigRefusesClientCAThatIsNotARootWithPathLenZero(t *testing.T) {
 	for _, tc := range cases {
 		c := validConfig(t)
 		c.Global.TLS.Frontend.Server.ClientCAFiles = []string{filepath.Join(dir, tc.file)}
-		err := checkConfig(c, nil)
+		err := checkSecurityConfig(c, shippedDC())
 		switch {
 		case tc.want == "" && err != nil:
 			t.Errorf("%s: refused: %v", tc.name, err)
@@ -182,7 +318,7 @@ func TestCheckConfigRefusesSameCAKeyReissuedForInternode(t *testing.T) {
 	c := validConfig(t)
 	c.Global.TLS.Frontend.Server.ClientCAFiles = []string{filepath.Join(dir, "a.pem")}
 	c.Global.TLS.Internode.Server.ClientCAFiles = []string{filepath.Join(dir, "b.pem")}
-	if err := checkConfig(c, nil); err == nil || !strings.Contains(err.Error(), "both frontend and internode") {
+	if err := checkSecurityConfig(c, shippedDC()); err == nil || !strings.Contains(err.Error(), "both frontend and internode") {
 		t.Fatalf("same key, different certificate: got %v", err)
 	}
 }

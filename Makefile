@@ -25,7 +25,7 @@ temporal-server-run: temporal-server-dev-certs
 #
 # Gates, in order (each stage stops the run when it fails):
 #   ci-lint         gofmt, go vet, golangci-lint (+ fixture), check-taskfile,
-#                   check-pins, check-openapi, govulncheck. No containers.
+#                   check-pins, check-openapi, govulncheck (both modules). No containers.
 #   ci-unit         go test -race ./..., temporal-server unit tests. No containers.
 #   ci-integration  -tags integration against a throwaway PostgreSQL (Docker).
 #   ci-stack        image build, compose up, GET /healthz smoke, stack tests.
@@ -36,7 +36,7 @@ GOLANGCI_LINT_VERSION := 2.14.0
 GOVULNCHECK_VERSION := v1.9.0
 
 .PHONY: build run test test-integration lint generate check-openapi
-.PHONY: ci ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-temporal-server review-paths dev-ca operator-tunnel stack-test-sdk 	image image-ci stack-up stack-down stack-logs stack-internal smoke
+.PHONY: ci ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk 	image image-ci stack-up stack-down stack-logs stack-internal smoke
 
 build:
 	go build -o bin/nava-core ./cmd/nava-core
@@ -73,7 +73,7 @@ check-openapi:
 
 ci: ci-lint ci-unit ci-integration ci-stack
 
-ci-lint: check-tools fmt-check vet lint lint-fixture check-taskfile check-pins check-openapi vulncheck
+ci-lint: check-tools fmt-check vet lint lint-fixture check-taskfile check-pins check-openapi vulncheck vulncheck-temporal-server
 
 ci-unit: test temporal-server-test
 
@@ -89,6 +89,10 @@ ci-stack: image
 # Installs the pinned CI tools into $$(go env GOPATH)/bin.
 tools:
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v$(GOLANGCI_LINT_VERSION)
+	$(MAKE) --no-print-directory tools-govulncheck
+
+# govulncheck alone, for the temporal-server CI job.
+tools-govulncheck:
 	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 
 # A local lint run with another golangci-lint version is not the CI run.
@@ -114,9 +118,8 @@ check-pins:
 vulncheck:
 	govulncheck ./...
 
-# Not in ci yet: go.temporal.io/server v1.28.4 still has GO-2026-5766, fixed
-# only in server >= 1.29.5 (an ADR-001 section 3 change, TICK-115). It joins
-# ci-lint when that lands (TICK-111); see docs/pins.md.
+# Required in CI (temporal-server job and ci-lint): zero findings, with no
+# exception or allowlist (ADR-001 A1 Decision 3).
 vulncheck-temporal-server:
 	cd temporal-server && govulncheck ./...
 

@@ -7,12 +7,15 @@ calls only `make` targets. Install the pinned tools once with `make tools`.
 
 | Stage | Make target | What fails it | Containers |
 | --- | --- | --- | --- |
-| Lint | `ci-lint` | tool versions differ from `docs/pins.md`, `gofmt`, `go vet`, golangci-lint, `lint-fixture` (exactly 5 forbidigo findings), `check-taskfile`, `check-pins`, `check-openapi`, `govulncheck ./...` | none |
+| Lint | `ci-lint` | tool versions differ from `docs/pins.md`, `gofmt`, `go vet`, golangci-lint, `lint-fixture` (exactly 5 forbidigo findings), `check-taskfile`, `check-pins`, `check-openapi`, `govulncheck ./...` in both modules (`vulncheck`, `vulncheck-temporal-server`) | none |
 | Unit | `ci-unit` | `go test -race ./...`, temporal-server unit tests | none |
 | Integration | `ci-integration` | any `//go:build integration` test (`internal/db/dbtest`, `internal/db/pooltest`, `internal/platform/health`) against a throwaway PostgreSQL and two PgBouncers in front of it (tags from `docs/pins.md`) | Docker |
 | Stack | `ci-stack` | image build, every container healthy, `GET /healthz` smoke from inside the compose network, then the stack tests (`pgbouncer`, `temporal`, `dependencies`, `trace`, `redact`, `idempotent`, `dbroles`, `hba`, `internal`) | compose |
 
-In GitHub, `lint`, `unit`, `temporal-server`, `integration`, `stack`,
+In GitHub, the `temporal-server` job runs the module's tests and then
+`make vulncheck-temporal-server`, which must report zero findings: there is no
+exception and no allowlist (ADR-001 A1 Decision 3, TICK-121).
+`lint`, `unit`, `temporal-server`, `integration`, `stack`,
 `stack-db` and `stack-internal` run as seven parallel jobs, each a separate
 check (decision log, 2026-10-20). Inside each job, steps follow the order above
 and the first failure stops the job. The stack tests are split over three jobs,
@@ -58,7 +61,6 @@ and starts the `edoburu/pgbouncer` row.
 
 ## Deliberately not covered
 
-- **govulncheck on `temporal-server`** (`make vulncheck-temporal-server`). TICK-111 cleared every reachable advisory but one: GO-2026-5766 in `go.temporal.io/server` v1.28.4, fixed only in server ≥ 1.29.5. Moving the server is an ADR-001 §3 change (TICK-115). The check becomes gating when that lands (TICK-111).
 - **testcontainers-go.** Approved, not adopted (decision log, 2026-10-19). The integration tests start a pinned container through the docker CLI, the way T03 and T04 built them.
 
 ## Run it

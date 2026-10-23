@@ -46,7 +46,8 @@ func TestModuleIsSeparateFromSDKModule(t *testing.T) {
 	if len(m.Replace) != 0 {
 		t.Errorf("go.mod must have no replace directives, has %+v", m.Replace)
 	}
-	pins := map[string]string{"go.temporal.io/server": "v1.28.4", "go.temporal.io/api": "v1.50.1"}
+	// ADR-001 A1 Decision 1 (CI-B).
+	pins := map[string]string{"go.temporal.io/server": "v1.29.7", "go.temporal.io/api": "v1.53.0"}
 	for _, r := range m.Require {
 		if strings.HasPrefix(r.Path, repo) {
 			t.Errorf("depends on a platform module: %s %s", r.Path, r.Version)
