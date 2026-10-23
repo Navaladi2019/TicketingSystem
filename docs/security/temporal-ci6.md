@@ -10,8 +10,10 @@ is stubbed. Source of the rules: ADR-001 Annex B CI-6 and Annex A.2, erratum E1
   the `**/*isolation*_test.go` pattern in `docs/delivery/review-paths.yaml`, so
   removing it, or adding a skip to it, needs CTO sign-off.
 - Run: `make stack-up`, then `make stack-test-sdk`. This writes the report
-  (`ci6-report.md`, uploaded by CI as the `ci6-report` artifact) through
-  `tools/ci/ci6report`. The step fails if a contract case fails, is skipped or is
+  (`ci6-report.md`) through `tools/ci/ci6report`. The CI `stack` job already runs
+  this step. Uploading the report as the `ci6-report` artifact needs a change to
+  `.github/workflows/ci.yml`, which is attached to TICK-79 because the agent token
+  cannot push workflow files. The step fails if a contract case fails, is skipped or is
   missing.
 - Last local report: [`ci6-report.md`](ci6-report.md).
 
