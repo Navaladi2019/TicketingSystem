@@ -37,6 +37,9 @@ const (
 	// RogueCN is a client certificate for nava-relay issued by a different CA;
 	// the frontend must reject it at the handshake.
 	RogueCN = "rogue-nava-relay"
+	// UnlistedCN is a client certificate from the installation CA whose CN is
+	// no identity: the handshake passes and the Authorizer denies every call.
+	UnlistedCN = "nava-unknown"
 )
 
 // PlatformCNs are the five identities of the installation. WriteInstallation
@@ -45,7 +48,7 @@ var PlatformCNs = []string{"nava-relay", "nava-core", "nava-worker", "nava-opera
 
 // ClientCNs are the client certificates Write issues for tests: the platform
 // identities plus one CN that the ClaimMapper does not know.
-var ClientCNs = append(append([]string(nil), PlatformCNs...), "nava-unknown")
+var ClientCNs = append(append([]string(nil), PlatformCNs...), UnlistedCN)
 
 // ServerNames are the DNS SANs on the frontend and internode certificates (also
 // 127.0.0.1): the in-container name, the gateway name clients dial, and the
@@ -68,6 +71,12 @@ func Write(dir string, validFor time.Duration) error {
 // each of PlatformCNs. It is what `make dev-ca` runs.
 func WriteInstallation(dir string, validFor time.Duration) error {
 	return write(dir, validFor, PlatformCNs, false)
+}
+
+// WriteInstallationWithUnlisted is WriteInstallation plus UnlistedCN, for the
+// compose stack's CI-6 suite (T32a). Nothing in the stack mounts UnlistedCN.
+func WriteInstallationWithUnlisted(dir string, validFor time.Duration) error {
+	return write(dir, validFor, ClientCNs, false)
 }
 
 // WriteRogue writes RogueCN: a nava-relay certificate from an unrelated CA,

@@ -48,7 +48,9 @@ func address() string {
 }
 
 // dial connects as the identity cn. The frontend certificate names `localhost`.
-func dial(t *testing.T, cn string) client.Client {
+// Each opt may adjust the client options (the CI-6 child test adds the tenant
+// header propagator).
+func dial(t *testing.T, cn string, opts ...func(*client.Options)) client.Client {
 	t.Helper()
 	dir := certDir()
 	pair, err := tls.LoadX509KeyPair(filepath.Join(dir, cn+".pem"), filepath.Join(dir, cn+".key"))
@@ -61,13 +63,17 @@ func dial(t *testing.T, cn string) client.Client {
 	}
 	pool := x509.NewCertPool()
 	pool.AppendCertsFromPEM(caPEM)
-	c, err := client.Dial(client.Options{
+	o := client.Options{
 		HostPort:  address(),
 		Namespace: namespace,
 		ConnectionOptions: client.ConnectionOptions{TLS: &tls.Config{
 			Certificates: []tls.Certificate{pair}, RootCAs: pool, ServerName: "localhost", MinVersion: tls.VersionTLS12,
 		}},
-	})
+	}
+	for _, opt := range opts {
+		opt(&o)
+	}
+	c, err := client.Dial(o)
 	if err != nil {
 		t.Fatalf("%s: dial: %v", cn, err)
 	}
@@ -84,7 +90,9 @@ const (
 
 func Echo(ctx workflow.Context, in string) (string, error) { return "echo:" + in, nil }
 
-func TestEachSDKClientDialsWithItsCertificateAndAWorkerStarts(t *testing.T) {
+// CI-6 allowed case: every SDK client dials with its certificate and its worker
+// starts (T28 acceptance; renamed into the CI-6 suite by T32a).
+func TestCI6_Allowed_EverySDKClientDialsAndItsWorkerStarts(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
