@@ -170,7 +170,7 @@ make temporal-server-run         # dev certs + run the image on :7233 (in-memory
 The `nava` namespace can only be registered with the `temporal-system`
 certificate; no other identity may call `RegisterNamespace`.
 
-## Startup refusals (T28; D6-K, ADR-001-A1)
+## Startup refusals (T28; D6-K, ADR-001-A1 and A2)
 
 `checkSecurityConfig` (`cmd/server/check.go`) refuses to start when: frontend
 `requireClientAuth` is false; the frontend client CA is not a self-signed root
@@ -188,17 +188,22 @@ the key.
 | `worker.enableScheduler` | not `false` (missing refuses) | `false` |
 | `frontend.enableSchedules` | not `false` (missing refuses) | `false` |
 | `frontend.enableBatcher` | not `false` (missing refuses) | `false` |
+| `frontend.enableTokenNamespaceEnforcement` | not `true` (missing refuses) | `true` |
 | `services.frontend.rpc.httpPort` (static) | non-zero | `0` |
 
 Every value of a key counts, per-namespace constrained ones included, and a
 value is read the way the server reads it (`"true"` as a string is true; a
 non-bool refuses). "Missing" means no unconstrained value: a namespace-only
-`false` leaves every other namespace on the server default, `true`. The guard
+value leaves every other namespace on the server default, `true` for every
+key where missing refuses. `frontend.enableTokenNamespaceEnforcement` is
+required explicitly even though `true` is what it wants, so an upgrade that
+changes its default cannot turn it off (A2, F2-3b: the frontend, not the
+Authorizer, checks a task token's namespace). The guard
 holds each key by its Go symbol (`dynamicconfig.EnableBatcherNamespace.Key()`
 and so on), so a key renamed by a Temporal upgrade fails to compile.
 `config/dynamicconfig/development.yaml` and
 `deploy/compose/temporal/config/dynamicconfig/compose.yaml` set every key
-explicitly. The check runs once at startup, on a snapshot of the seven
+explicitly. The check runs once at startup, on a snapshot of the eight
 dynamic-config keys that the server then keeps for its whole life (RS2): a
 later edit of the file cannot change any of them, while every other key still
 reloads. Hiding a key would not do, because most default to `true`. The

@@ -75,6 +75,7 @@ var d6kCases = []struct {
 	{dynamicconfig.WorkerEnableScheduler.Key(), false, true},
 	{dynamicconfig.FrontendEnableSchedules.Key(), false, true},
 	{dynamicconfig.FrontendEnableBatcher.Key(), false, true},
+	{dynamicconfig.EnableTokenNamespaceEnforcement.Key(), true, true},
 }
 
 // shippedDC has every D6-K key at its shipped value.

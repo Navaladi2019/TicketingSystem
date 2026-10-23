@@ -66,6 +66,9 @@ var d6kKeys = []guardedKey{
 	{key: dynamicconfig.WorkerEnableScheduler.Key(), want: false, requireExplicit: true},
 	{key: dynamicconfig.FrontendEnableSchedules.Key(), want: false, requireExplicit: true},
 	{key: dynamicconfig.FrontendEnableBatcher.Key(), want: false, requireExplicit: true},
+	// A2 (F2-3b): the frontend, not the Authorizer, refuses a task token whose
+	// namespace differs from the request's. It defaults to true; pin it anyway.
+	{key: dynamicconfig.EnableTokenNamespaceEnforcement.Key(), want: true, requireExplicit: true},
 }
 
 // SecurityConfigError is the named error checkSecurityConfig returns for each
