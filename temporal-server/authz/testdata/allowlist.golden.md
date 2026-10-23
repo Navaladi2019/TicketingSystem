@@ -161,3 +161,22 @@ go.temporal.io/api v1.50.1, go.temporal.io/server v1.28.4. `Y` = allowed in name
 | ResendReplicationTasks | - | | | | | Y |
 | StreamWorkflowReplicationMessages (stream) | - | | | | | Y |
 | SyncWorkflowState | - | | | | | Y |
+
+## D9 workload allow-list
+
+A request to one of these APIs is allowed only if every workflow type, task queue and workflow id it names is allow-listed. `nava-worker` `RespondWorkflowTaskCompleted` commands and `StickyAttributes` are checked the same way (D9c). `temporal-system` is exempt.
+
+| Identity | Method |
+|---|---|
+| `nava-relay` | SignalWithStartWorkflowExecution |
+| `nava-relay` | SignalWorkflowExecution |
+| `nava-relay` | StartWorkflowExecution |
+| `nava-worker` | PollActivityTaskQueue |
+| `nava-worker` | PollWorkflowTaskQueue |
+
+| Set | Entries |
+|---|---|
+| `platformWorkflowTypes` | `nava.smoke.Echo` |
+| `platformTaskQueues` | `nava-tq` |
+
+A STICKY queue name must match `^[^/]+:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`, must not be in `platformTaskQueues`, and its `NormalName` must be in `platformTaskQueues`.

@@ -188,7 +188,8 @@ func TestDenyEmitsLogAndMetric(t *testing.T) {
 	}
 
 	// Allowed calls emit nothing.
-	_, _ = a.Authorize(ctx, claimsFor(Worker), &authorization.CallTarget{APIName: wf + "PollActivityTaskQueue", Namespace: Namespace})
+	_, _ = a.Authorize(ctx, claimsFor(Worker), &authorization.CallTarget{APIName: wf + "PollActivityTaskQueue", Namespace: Namespace,
+		Request: gateRequest(t, wf+"PollActivityTaskQueue")})
 	if n := len(rec.Snapshot()[DeniedMetric]); n != 1 {
 		t.Errorf("allowed call recorded a deny metric")
 	}

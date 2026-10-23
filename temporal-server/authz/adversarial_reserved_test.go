@@ -63,8 +63,8 @@ func TestAdversarialReservedSystemWorkflowStartDenied(t *testing.T) {
 		&workflowservice.StartWorkflowExecutionRequest{
 			Namespace:    Namespace,
 			WorkflowId:   "t:tenantA:x",
-			WorkflowType: &commonpb.WorkflowType{Name: "TicketWorkflow"},
-			TaskQueue:    &taskqueuepb.TaskQueue{Name: "nava-tq"},
+			WorkflowType: &commonpb.WorkflowType{Name: platformType()},
+			TaskQueue:    &taskqueuepb.TaskQueue{Name: platformQueue()},
 		})
 	if err != nil || !called {
 		t.Fatalf("ordinary relay start denied: err=%v called=%v", err, called)

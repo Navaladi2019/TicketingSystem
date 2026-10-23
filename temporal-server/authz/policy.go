@@ -8,6 +8,11 @@ package authz
 // classifies it: policy_test.go fails while any descriptor method is missing from
 // both allowList and deniedByDefault, or listed in both.
 
+import (
+	"regexp"
+	"sort"
+)
+
 const (
 	wf  = "/temporal.api.workflowservice.v1.WorkflowService/"
 	op  = "/temporal.api.operatorservice.v1.OperatorService/"
@@ -201,4 +206,44 @@ var deniedByDefault = []string{
 	// operator need (TICK-59, Security Reviewer finding).
 	adm + "GetWorkflowExecutionRawHistory",
 	adm + "GetWorkflowExecutionRawHistoryV2",
+}
+
+// D9 workload allow-list (ADR-001 amendment A1, Annex A.2 sub-table). A request
+// from nava-relay or nava-worker that names a workflow type, a task queue or a
+// workflow id is allowed only if every such field is allow-listed; there is no
+// deny-list, so Temporal's own `temporal-sys-*` workloads are out by omission.
+// System is exempt, as it is for the API allow-list. Adding an entry is a policy
+// PR with Security review; TestAllowListGolden prints both sets.
+var (
+	platformTaskQueues    = set("nava-tq")
+	platformWorkflowTypes = set("nava.smoke.Echo")
+)
+
+// stickyQueueName is the SDK's own sticky queue name, `<host>:<uuid>`
+// (sdk-go v1.49.0 getWorkerTaskQueue). At server v1.29.7 a sticky partition and
+// the normal root partition of the same name share a key (common/tqid), so a
+// STICKY name must never be a queue another worker serves.
+var stickyQueueName = regexp.MustCompile(`^[^/]+:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+func set(items ...string) map[string]struct{} {
+	s := make(map[string]struct{}, len(items))
+	for _, it := range items {
+		s[it] = struct{}{}
+	}
+	return s
+}
+
+func inSet(s map[string]struct{}, item string) bool {
+	_, ok := s[item]
+	return ok
+}
+
+// sortedKeys returns the set's entries in order, for the golden table.
+func sortedKeys(s map[string]struct{}) []string {
+	out := make([]string, 0, len(s))
+	for k := range s {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

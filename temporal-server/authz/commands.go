@@ -4,16 +4,19 @@ package authz
 // Annex A.2 TA-B3 with its continue-as-new clause replaced by erratum E1 (plan
 // task T27b). The API gate (policy.go) has already passed when this runs, so the
 // request targets namespace `nava`; this checks that no command in it reaches
-// another tenant.
+// another tenant, and (ADR-001-A1 D9c) that no command or StickyAttributes hands
+// work to a workflow type or task queue off the workload allow-list.
 
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	commandpb "go.temporal.io/api/command/v1"
 	commonpb "go.temporal.io/api/common/v1"
 	enumspb "go.temporal.io/api/enums/v1"
+	taskqueuepb "go.temporal.io/api/taskqueue/v1"
 	"go.temporal.io/api/workflowservice/v1"
 	tokenspb "go.temporal.io/server/api/token/v1"
 )
@@ -43,9 +46,11 @@ const (
 )
 
 // Values of the `command` metric tag besides the command names below.
+// commandStickyAttributes tags a denied response-level StickyAttributes (D9c).
 const (
-	commandNone    = "none"
-	commandUnknown = "unknown"
+	commandNone             = "none"
+	commandUnknown          = "unknown"
+	commandStickyAttributes = "StickyAttributes"
 )
 
 // commandNames is every command type of go.temporal.io/api v1.50.1, by the name
@@ -96,7 +101,7 @@ var allowedCommands = map[enumspb.CommandType]bool{
 // command are metric tags; the ids go to the log line (and so the alert) only.
 type commandDenial struct {
 	reason  string
-	command string // a commandNames value, commandUnknown or commandNone
+	command string // a commandNames value, commandUnknown, commandNone or commandStickyAttributes
 	index   int    // position in Commands, or -1 for the whole response
 	// workflowID is the task token's; target is the command's target id.
 	workflowID, target string
@@ -119,6 +124,13 @@ func inspectCommands(request any) *commandDenial {
 	tenant, ok := tenantOf(workflowID)
 	if !ok {
 		return &commandDenial{reason: ReasonNoTenantPrefix, command: commandNone, index: -1, workflowID: workflowID}
+	}
+	// D9c: StickyAttributes name the queue the workflow's next task goes to.
+	if sa := req.GetStickyAttributes(); sa != nil {
+		if reason, detail := checkStickyTaskQueue(sa.GetWorkerTaskQueue()); reason != "" {
+			return &commandDenial{reason: reason, command: commandStickyAttributes, index: -1,
+				workflowID: workflowID, detail: detail}
+		}
 	}
 	for i, cmd := range req.GetCommands() {
 		if reason, target, detail := checkCommand(cmd, tenant); reason != "" {
@@ -143,6 +155,9 @@ func checkCommand(cmd *commandpb.Command, tenant string) (reason, target, detail
 		if detail := checkTenantHeader(a.GetHeader(), tenant); detail != "" {
 			return ReasonActivityHeader, "", detail
 		}
+		if reason, detail := checkCommandTaskQueue(a.GetTaskQueue()); reason != "" {
+			return reason, "", detail
+		}
 	case enumspb.COMMAND_TYPE_START_CHILD_WORKFLOW_EXECUTION:
 		a := cmd.GetStartChildWorkflowExecutionCommandAttributes()
 		if reason, target, detail := checkTarget(a.GetNamespace(), a.GetWorkflowId(), tenant); reason != "" {
@@ -153,6 +168,9 @@ func checkCommand(cmd *commandpb.Command, tenant string) (reason, target, detail
 		}
 		if !tenantSearchAttrOK(a.GetSearchAttributes(), tenant) {
 			return ReasonTenantSearchAttr, a.GetWorkflowId(), ""
+		}
+		if reason, detail := checkCommandWorkload(a.GetWorkflowType(), a.GetTaskQueue()); reason != "" {
+			return reason, a.GetWorkflowId(), detail
 		}
 	case enumspb.COMMAND_TYPE_SIGNAL_EXTERNAL_WORKFLOW_EXECUTION:
 		a := cmd.GetSignalExternalWorkflowExecutionCommandAttributes()
@@ -171,6 +189,9 @@ func checkCommand(cmd *commandpb.Command, tenant string) (reason, target, detail
 		if !tenantSearchAttrOK(a.GetSearchAttributes(), tenant) {
 			return ReasonTenantSearchAttr, "", ""
 		}
+		if reason, detail := checkCommandWorkload(a.GetWorkflowType(), a.GetTaskQueue()); reason != "" {
+			return reason, "", detail
+		}
 	case enumspb.COMMAND_TYPE_UPSERT_WORKFLOW_SEARCH_ATTRIBUTES:
 		a := cmd.GetUpsertWorkflowSearchAttributesCommandAttributes()
 		if !tenantSearchAttrOK(a.GetSearchAttributes(), tenant) {
@@ -178,6 +199,25 @@ func checkCommand(cmd *commandpb.Command, tenant string) (reason, target, detail
 		}
 	}
 	return "", "", ""
+}
+
+// checkCommandWorkload is D9c for a child or continue-as-new: the workflow type
+// is a platform type (an empty one is denied, not inherited) and the task queue
+// is empty (inherited) or a platform queue.
+func checkCommandWorkload(wt *commonpb.WorkflowType, tq *taskqueuepb.TaskQueue) (reason, detail string) {
+	if reason, detail := checkWorkflowType(wt.GetName()); reason != "" {
+		return reason, detail
+	}
+	return checkCommandTaskQueue(tq)
+}
+
+// checkCommandTaskQueue is D9c for a command's task queue: empty (the command
+// inherits the workflow's queue) or a platform queue.
+func checkCommandTaskQueue(tq *taskqueuepb.TaskQueue) (reason, detail string) {
+	if name := tq.GetName(); name != "" && !inSet(platformTaskQueues, name) {
+		return ReasonTaskQueue, "task queue " + strconv.Quote(truncate(name, maxLoggedName))
+	}
+	return "", ""
 }
 
 // checkTarget allows a target in namespace `nava` (or "", which Temporal

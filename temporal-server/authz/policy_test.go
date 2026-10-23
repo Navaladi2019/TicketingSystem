@@ -10,7 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	commonpb "go.temporal.io/api/common/v1"
 	"go.temporal.io/api/operatorservice/v1"
+	taskqueuepb "go.temporal.io/api/taskqueue/v1"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/server/api/adminservice/v1"
 	"go.temporal.io/server/common/api"
@@ -246,13 +248,28 @@ func TestAuthorizeMatrix(t *testing.T) {
 	t.Logf("matrix: %d allowed, %d denied", allowed, denied)
 }
 
-// gateRequest is a request body that command inspection allows, so that the
-// matrix and golden table test the API gate alone. Inspection is commands_test.go.
+// gateRequest is a request body that command inspection and the D9 workload
+// checks allow, so that the matrix and golden table test the API gate alone.
+// Inspection is commands_test.go and workload_test.go.
 func gateRequest(t testing.TB, api string) any {
-	if api != respondWorkflowTaskCompleted {
-		return nil
+	const wfID = "t:tenantA:ticket:1"
+	wt := &commonpb.WorkflowType{Name: platformType()}
+	tq := &taskqueuepb.TaskQueue{Name: platformQueue()}
+	switch api {
+	case respondWorkflowTaskCompleted:
+		return respond(taskToken(t, wfID))
+	case wf + "StartWorkflowExecution":
+		return &workflowservice.StartWorkflowExecutionRequest{Namespace: Namespace, WorkflowId: wfID, WorkflowType: wt, TaskQueue: tq}
+	case wf + "SignalWithStartWorkflowExecution":
+		return &workflowservice.SignalWithStartWorkflowExecutionRequest{Namespace: Namespace, WorkflowId: wfID, WorkflowType: wt, TaskQueue: tq}
+	case wf + "SignalWorkflowExecution":
+		return &workflowservice.SignalWorkflowExecutionRequest{Namespace: Namespace, WorkflowExecution: &commonpb.WorkflowExecution{WorkflowId: wfID}}
+	case wf + "PollWorkflowTaskQueue":
+		return &workflowservice.PollWorkflowTaskQueueRequest{Namespace: Namespace, TaskQueue: tq}
+	case wf + "PollActivityTaskQueue":
+		return &workflowservice.PollActivityTaskQueueRequest{Namespace: Namespace, TaskQueue: tq}
 	}
-	return respond(taskToken(t, "t:tenantA:ticket:1"))
+	return nil
 }
 
 func claimsFor(id Identity) *authorization.Claims {
@@ -308,6 +325,8 @@ func TestAllowListGolden(t *testing.T) {
 		}
 	}
 
+	writeWorkloadTable(&b)
+
 	path := filepath.Join("testdata", "allowlist.golden.md")
 	if *update {
 		if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
@@ -322,6 +341,33 @@ func TestAllowListGolden(t *testing.T) {
 	if strings.ReplaceAll(string(want), "\r\n", "\n") != b.String() {
 		t.Errorf("%s is stale; review the policy change and rerun with -update", path)
 	}
+}
+
+// writeWorkloadTable prints the D9 sub-table: the APIs whose requests are
+// checked against the workload allow-list, and both compiled-in sets.
+func writeWorkloadTable(b *strings.Builder) {
+	b.WriteString("\n## D9 workload allow-list\n\n")
+	b.WriteString("A request to one of these APIs is allowed only if every workflow type, task queue and workflow id it names is allow-listed. ")
+	b.WriteString("`nava-worker` `RespondWorkflowTaskCompleted` commands and `StickyAttributes` are checked the same way (D9c). `temporal-system` is exempt.\n\n")
+	b.WriteString("| Identity | Method |\n|---|---|\n")
+	var rows []string
+	for id, apis := range workloadChecks {
+		for api := range apis {
+			rows = append(rows, fmt.Sprintf("| `%s` | %s |\n", id, strings.TrimPrefix(api, wf)))
+		}
+	}
+	sort.Strings(rows)
+	for _, r := range rows {
+		b.WriteString(r)
+	}
+	b.WriteString("\n| Set | Entries |\n|---|---|\n")
+	for _, set := range []struct {
+		name    string
+		entries map[string]struct{}
+	}{{"platformWorkflowTypes", platformWorkflowTypes}, {"platformTaskQueues", platformTaskQueues}} {
+		fmt.Fprintf(b, "| `%s` | `%s` |\n", set.name, strings.Join(sortedKeys(set.entries), "`, `"))
+	}
+	fmt.Fprintf(b, "\nA STICKY queue name must match `%s`, must not be in `platformTaskQueues`, and its `NormalName` must be in `platformTaskQueues`.\n", stickyQueueName)
 }
 
 func joinIDs(ids []Identity) string {
