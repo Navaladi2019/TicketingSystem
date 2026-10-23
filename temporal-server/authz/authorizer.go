@@ -146,8 +146,8 @@ var workloadChecks = map[Identity]map[string]func(request any) *commandDenial{
 		wf + "SignalWorkflowExecution":          checkSignalRequest,
 	},
 	Worker: {
-		wf + "PollWorkflowTaskQueue": checkPollRequest,
-		wf + "PollActivityTaskQueue": checkPollRequest,
+		wf + "PollWorkflowTaskQueue": checkWorkflowTaskPoll,
+		wf + "PollActivityTaskQueue": checkActivityTaskPoll,
 	},
 }
 
@@ -194,23 +194,30 @@ func checkSignalRequest(request any) *commandDenial {
 	return nil
 }
 
-// checkPollRequest is D9b: a NORMAL poll names a platform queue, a STICKY
-// workflow-task poll follows the sticky rule, and a STICKY activity poll is
-// denied (activities have no sticky queue).
-func checkPollRequest(request any) *commandDenial {
-	var reason, detail string
-	switch req := request.(type) {
-	case *workflowservice.PollWorkflowTaskQueueRequest:
-		if req.GetTaskQueue().GetKind() == enumspb.TASK_QUEUE_KIND_STICKY {
-			reason, detail = checkStickyTaskQueue(req.GetTaskQueue())
-		} else {
-			reason, detail = checkNormalTaskQueue(req.GetTaskQueue())
-		}
-	case *workflowservice.PollActivityTaskQueueRequest:
-		reason, detail = checkNormalTaskQueue(req.GetTaskQueue())
-	default:
+// checkWorkflowTaskPoll is D9b for workflow tasks: a NORMAL poll names a
+// platform queue and a STICKY poll follows the sticky rule.
+func checkWorkflowTaskPoll(request any) *commandDenial {
+	req, ok := request.(*workflowservice.PollWorkflowTaskQueueRequest)
+	if !ok {
 		return malformed(request)
 	}
+	if req.GetTaskQueue().GetKind() == enumspb.TASK_QUEUE_KIND_STICKY {
+		return pollDenial(checkStickyTaskQueue(req.GetTaskQueue()))
+	}
+	return pollDenial(checkNormalTaskQueue(req.GetTaskQueue()))
+}
+
+// checkActivityTaskPoll is D9b for activity tasks: a NORMAL platform queue.
+// Activities have no sticky queue, so a STICKY activity poll is denied.
+func checkActivityTaskPoll(request any) *commandDenial {
+	req, ok := request.(*workflowservice.PollActivityTaskQueueRequest)
+	if !ok {
+		return malformed(request)
+	}
+	return pollDenial(checkNormalTaskQueue(req.GetTaskQueue()))
+}
+
+func pollDenial(reason, detail string) *commandDenial {
 	if reason == "" {
 		return nil
 	}
