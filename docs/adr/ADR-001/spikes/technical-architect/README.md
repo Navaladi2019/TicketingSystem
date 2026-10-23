@@ -7,6 +7,7 @@ These spikes were posted **inline in issue comments** on TICK-36, not as attachm
 | `round-1/` | `01a13b74-d359-73b0-a697-a982e9e54593` (TA critique, round 1) | A1/A2 Keycloak organization claims and the `kc.org` tamper (`a1-a2/kc_spike.py`). A3 Temporal header propagation, the guard, duplicate starts and the search attribute (`a3/main.go`). Raw output and rerun steps (`spike-report-raw-output.md`). |
 | `round-2/` | `01a13d33-402a-7e39-b6d2-07b776dcaf87` (TA re-check, round 2) | A7 Temporal mTLS, the custom Authorizer and worker-command inspection (`a7/server/main.go`, `a7/client/main.go`). A6 Keycloak brokered login into an organization (`a6/a6_spike.py`). Raw output (`raw-output.md`). |
 | `zitadel-assessment/` | `01a13ed1-a45e-7c7c-a910-bbbb3dd2889f` (Zitadel vs Keycloak assessment) | Footprint method and raw numbers (`footprint-raw-numbers.md`) |
+| `rfc-003-round-1/` | TICK-129 `01a16780-b3fc-7da9-9aee-4ec79ab35742` (TA critique of RFC-003, round 1; ADR-001-A2) | F2 reach of `nava-worker` at the in-process Authorizer: `ShutdownWorker` / heartbeat / query-token queues (F2-6), worker history (F2-5), task tokens (F2-3), versioned polls (F2-1); unload-key equality and deployment registration (`main_test.go`). Raw output and rerun steps (`raw-output.md`). |
 
 **These are throwaway spike programs.** The credentials in them are placeholders. Each spike's environment and rerun steps are in its raw-output file.
 
