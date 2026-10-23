@@ -78,8 +78,8 @@ func TestServerEndToEnd(t *testing.T) {
 	nsReq := &workflowservice.DescribeNamespaceRequest{Namespace: authz.Namespace}
 	start := func(c workflowservice.WorkflowServiceClient) error {
 		_, err := c.StartWorkflowExecution(ctx, &workflowservice.StartWorkflowExecutionRequest{
-			Namespace:    authz.Namespace,
-			WorkflowId:   fmt.Sprintf("t:e2e:%d", time.Now().UnixNano()),
+			Namespace:  authz.Namespace,
+			WorkflowId: fmt.Sprintf("t:e2e:%d", time.Now().UnixNano()),
 			// The D9 workload allow-list's entries (authz/policy.go).
 			WorkflowType: &commonpb.WorkflowType{Name: "nava.smoke.Echo"},
 			TaskQueue:    &taskqueuepb.TaskQueue{Name: "nava-tq"},
