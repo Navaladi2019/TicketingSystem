@@ -3,7 +3,8 @@
 ADR-001 D22 and Annex A.2, plan task T27a. A separate Go module (R7) that builds
 Temporal `go.temporal.io/server` v1.28.4 + `go.temporal.io/api` v1.50.1 with a
 deny-by-default Authorizer and a certificate ClaimMapper, plus worker command
-inspection (T27b, ADR-001 erratum E1, tightened by T27c). Compose wiring (T28) is in `compose.yaml` and `deploy/compose/README.md`.
+inspection (T27b, ADR-001 erratum E1, tightened by T27c) and the D9 workload
+allow-list (T27e, ADR-001-A1). Compose wiring (T28) is in `compose.yaml` and `deploy/compose/README.md`.
 
 ```mermaid
 flowchart LR
@@ -11,8 +12,10 @@ flowchart LR
   F --> CM[ClaimMapper<br/>CN to identity]
   CM --> AZ{Authorizer}
   AZ -->|identity, API and namespace allowed| CI{nava-worker<br/>RespondWorkflowTaskCompleted?}
-  CI -->|no| H[handler]
-  CI -->|yes| INS{every command<br/>inside the task's tenant?}
+  CI -->|no| WL{D9a/D9b: workflow type,<br/>task queue, workflow id<br/>all allow-listed?}
+  WL -->|yes, or not a D9 API| H[handler]
+  WL -->|no| DC
+  CI -->|yes| INS{every command inside the<br/>task's tenant and on the<br/>D9c allow-list?}
   INS -->|yes| H
   INS -->|no| DC[PermissionDenied<br/>+ error log alert=true<br/>+ nava_authz_denied]
   AZ -->|otherwise| D[PermissionDenied<br/>+ warn log + nava_authz_denied]
@@ -58,6 +61,40 @@ payloads (`json/plain`, a JSON string); anything else counts as missing.
 `temporal-system` is not inspected. `TestCommandNamesCoverPinnedEnum` fails when
 a Temporal upgrade adds a command type, until it is classified.
 
+## Workload allow-list (T27e, ADR-001-A1 D9)
+
+Temporal's own system workflows (`temporal-sys-*`) run on reserved queues and
+are processed by the system worker as `temporal-system`, which may do anything.
+So a platform identity must never name a workflow type or task queue it does not
+own (S1: a relay start of `temporal-sys-batch-workflow` terminated another
+tenant's workflow). A request is allowed only if **every** workflow type, task
+queue and workflow id it names is on the compiled-in allow-list in
+`authz/policy.go` (`platformWorkflowTypes = {nava.smoke.Echo}`,
+`platformTaskQueues = {nava-tq}`). There is no deny-list. `temporal-system` is
+exempt. Adding an entry is a policy PR with Security review; the golden table
+prints both sets.
+
+| Part | Checked | Denied when | `reason` |
+|---|---|---|---|
+| D9a | `nava-relay` `StartWorkflowExecution`, `SignalWithStartWorkflowExecution` | type not in the set (empty included) | `workflow_type_not_allowed` |
+| | | queue kind not NORMAL / UNSPECIFIED | `task_queue_kind_not_allowed` |
+| | | queue name not in the set | `task_queue_not_allowed` |
+| | | workflow id without `t:<tenant>:` | `workflow_id_no_tenant` |
+| D9a | `nava-relay` `SignalWorkflowExecution` | workflow id without `t:<tenant>:` | `workflow_id_no_tenant` |
+| D9b | `nava-worker` `PollWorkflowTaskQueue` | NORMAL queue not in the set | `task_queue_not_allowed` |
+| | | STICKY name not `<host>:<uuid>`, or in the set, or `NormalName` not in the set (empty included) | `sticky_queue_not_allowed` |
+| D9b | `nava-worker` `PollActivityTaskQueue` | STICKY (activities have no sticky queue) | `task_queue_kind_not_allowed` |
+| | | queue not in the set | `task_queue_not_allowed` |
+| D9c | `ScheduleActivityTask` | queue set and not in the set | `task_queue_not_allowed` |
+| D9c | `StartChildWorkflowExecution`, `ContinueAsNewWorkflowExecution` | type not in the set (empty is denied, not inherited) | `workflow_type_not_allowed` |
+| | | queue set and not in the set | `task_queue_not_allowed` |
+| D9c | `StickyAttributes` (`command=StickyAttributes`) | the D9b STICKY rule fails | `sticky_queue_not_allowed` |
+
+A missing or mistyped request body is `request_malformed`. The sticky rule
+exists because, at server v1.29.7, a sticky partition and the normal partition
+of the same name share a key, so a STICKY poll named `temporal-sys-per-ns-tq`
+would receive the system worker's tasks.
+
 ## Drift checks (run on every Temporal upgrade)
 
 `authz/policy_test.go` reflects over the `WorkflowService`, `OperatorService`
@@ -79,11 +116,14 @@ Each API deny logs `Temporal API call denied` (warn) with `identity`, `api`,
 `cert_issuer`. Each command deny logs `Temporal workflow command denied`
 (**error**, `alert=true`) with the same fields plus `workflow_id`,
 `command_index`, `target_workflow_id` (when the command has one) and `detail`.
+Each D9a/D9b deny logs `Temporal workload denied` the same way (`command`
+`none`, `command_index` `-1`); the type or queue name is in `detail`.
 Both increment `nava_authz_denied{identity,api,namespace,reason,command}`.
 
 Metric tags are bounded: `none`/`other` for unknown values, `command` is a
-command type name or `unknown`. Workflow ids carry the tenant and are
-unbounded, so they are in the log line only, never in a tag. The Prometheus
+command type name, `StickyAttributes` or `unknown`. Workflow ids, types and
+queue names are client-supplied and unbounded, so they are in the log line
+only, never in a tag. The Prometheus
 reporter rewrites `-` and `/` in tag values to `_`. The caller only sees a
 generic `PermissionDenied`.
 
@@ -97,6 +137,12 @@ page. The alert rule, once an alerting backend exists (not in M1 compose):
   annotations:
     summary: "nava-worker sent a cross-tenant or unlisted workflow command"
     description: "Find workflow_id and the certificate in the error log line 'Temporal workflow command denied'."
+- alert: TemporalWorkloadDenied
+  expr: sum by (identity, reason) (increase(nava_authz_denied{command="none", reason=~"workflow_type_not_allowed|task_queue_not_allowed|task_queue_kind_not_allowed|sticky_queue_not_allowed|workflow_id_no_tenant"}[5m])) > 0
+  labels: {severity: page}
+  annotations:
+    summary: "a platform certificate named a workflow type, task queue or workflow id off the D9 allow-list"
+    description: "Find the certificate and detail in the error log line 'Temporal workload denied'."
 ```
 
 ## Local use

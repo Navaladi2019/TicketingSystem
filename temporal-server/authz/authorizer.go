@@ -6,6 +6,10 @@ import (
 	"strconv"
 	"strings"
 
+	commonpb "go.temporal.io/api/common/v1"
+	enumspb "go.temporal.io/api/enums/v1"
+	taskqueuepb "go.temporal.io/api/taskqueue/v1"
+	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/server/common/authorization"
 	"go.temporal.io/server/common/log"
 	"go.temporal.io/server/common/log/tag"
@@ -13,9 +17,9 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 
-	// Register the service descriptors used to find namespace-scoped requests.
+	// Register the service descriptors used to find namespace-scoped requests
+	// (workflowservice is registered by the import above).
 	_ "go.temporal.io/api/operatorservice/v1"
-	_ "go.temporal.io/api/workflowservice/v1"
 	_ "go.temporal.io/server/api/adminservice/v1"
 )
 
@@ -31,11 +35,24 @@ const (
 	ReasonInternal   = "internal_error"
 )
 
+// D9 deny reasons (workload allow-list), used as the `reason` log field and
+// metric tag. A start or signal without a tenant prefix is ReasonNoTenantPrefix.
+const (
+	ReasonWorkflowType  = "workflow_type_not_allowed"
+	ReasonTaskQueue     = "task_queue_not_allowed"
+	ReasonTaskQueueKind = "task_queue_kind_not_allowed"
+	ReasonStickyQueue   = "sticky_queue_not_allowed"
+)
+
 // maxLoggedNamespace bounds the client-supplied namespace written to the log.
 const maxLoggedNamespace = 128
 
 // maxLoggedWorkflowID bounds a client-supplied workflow id written to the log.
 const maxLoggedWorkflowID = 256
+
+// maxLoggedName bounds a client-supplied workflow type or task queue name
+// written to the log.
+const maxLoggedName = 128
 
 var (
 	allow = authorization.Result{Decision: authorization.DecisionAllow}
@@ -106,11 +123,145 @@ func (a *Authorizer) Authorize(
 	}
 	if id == Worker && api == respondWorkflowTaskCompleted {
 		if d := inspectCommands(target.Request); d != nil {
-			a.recordCommandDeny(ctx, id, api, namespace, d)
+			a.recordCommandDeny(ctx, id, api, namespace, "Temporal workflow command denied", d)
+			return deny, nil
+		}
+	}
+	if check, ok := workloadChecks[id][api]; ok {
+		if d := check(target.Request); d != nil {
+			a.recordCommandDeny(ctx, id, api, namespace, "Temporal workload denied", d)
 			return deny, nil
 		}
 	}
 	return allow, nil
+}
+
+// workloadChecks is D9a and D9b: the request inspection for each allow-listed
+// API that names a workflow type, a task queue or a workflow id. D9c is in
+// checkCommand. System is absent: it is exempt.
+var workloadChecks = map[Identity]map[string]func(request any) *commandDenial{
+	Relay: {
+		wf + "StartWorkflowExecution":           checkStartRequest,
+		wf + "SignalWithStartWorkflowExecution": checkStartRequest,
+		wf + "SignalWorkflowExecution":          checkSignalRequest,
+	},
+	Worker: {
+		wf + "PollWorkflowTaskQueue": checkWorkflowTaskPoll,
+		wf + "PollActivityTaskQueue": checkActivityTaskPoll,
+	},
+}
+
+// checkStartRequest is D9a for starts: the workflow type and the task queue are
+// allow-listed, the queue is NORMAL, and the workflow id has a tenant prefix.
+func checkStartRequest(request any) *commandDenial {
+	var workflowID string
+	var wt *commonpb.WorkflowType
+	var tq *taskqueuepb.TaskQueue
+	switch req := request.(type) {
+	case *workflowservice.StartWorkflowExecutionRequest:
+		workflowID, wt, tq = req.GetWorkflowId(), req.GetWorkflowType(), req.GetTaskQueue()
+	case *workflowservice.SignalWithStartWorkflowExecutionRequest:
+		workflowID, wt, tq = req.GetWorkflowId(), req.GetWorkflowType(), req.GetTaskQueue()
+	default:
+		return malformed(request)
+	}
+	reason, detail := checkWorkflowType(wt.GetName())
+	if reason == "" {
+		reason, detail = checkNormalTaskQueue(tq)
+	}
+	if reason == "" {
+		if _, ok := tenantOf(workflowID); !ok {
+			reason = ReasonNoTenantPrefix
+		}
+	}
+	if reason == "" {
+		return nil
+	}
+	return &commandDenial{reason: reason, command: commandNone, index: -1, workflowID: workflowID, detail: detail}
+}
+
+// checkSignalRequest is D9a for signals: the target workflow id has a tenant
+// prefix, so no relay signal reaches a `temporal-sys-*` workflow.
+func checkSignalRequest(request any) *commandDenial {
+	req, ok := request.(*workflowservice.SignalWorkflowExecutionRequest)
+	if !ok {
+		return malformed(request)
+	}
+	workflowID := req.GetWorkflowExecution().GetWorkflowId()
+	if _, ok := tenantOf(workflowID); !ok {
+		return &commandDenial{reason: ReasonNoTenantPrefix, command: commandNone, index: -1, workflowID: workflowID}
+	}
+	return nil
+}
+
+// checkWorkflowTaskPoll is D9b for workflow tasks: a NORMAL poll names a
+// platform queue and a STICKY poll follows the sticky rule.
+func checkWorkflowTaskPoll(request any) *commandDenial {
+	req, ok := request.(*workflowservice.PollWorkflowTaskQueueRequest)
+	if !ok {
+		return malformed(request)
+	}
+	if req.GetTaskQueue().GetKind() == enumspb.TASK_QUEUE_KIND_STICKY {
+		return pollDenial(checkStickyTaskQueue(req.GetTaskQueue()))
+	}
+	return pollDenial(checkNormalTaskQueue(req.GetTaskQueue()))
+}
+
+// checkActivityTaskPoll is D9b for activity tasks: a NORMAL platform queue.
+// Activities have no sticky queue, so a STICKY activity poll is denied.
+func checkActivityTaskPoll(request any) *commandDenial {
+	req, ok := request.(*workflowservice.PollActivityTaskQueueRequest)
+	if !ok {
+		return malformed(request)
+	}
+	return pollDenial(checkNormalTaskQueue(req.GetTaskQueue()))
+}
+
+func pollDenial(reason, detail string) *commandDenial {
+	if reason == "" {
+		return nil
+	}
+	return &commandDenial{reason: reason, command: commandNone, index: -1, detail: detail}
+}
+
+func malformed(request any) *commandDenial {
+	return &commandDenial{reason: ReasonMalformedRequest, command: commandNone, index: -1,
+		detail: fmt.Sprintf("request type %T", request)}
+}
+
+// checkWorkflowType allows only a platform workflow type; "" is denied.
+func checkWorkflowType(name string) (reason, detail string) {
+	if inSet(platformWorkflowTypes, name) {
+		return "", ""
+	}
+	return ReasonWorkflowType, "workflow type " + strconv.Quote(truncate(name, maxLoggedName))
+}
+
+// checkNormalTaskQueue allows a NORMAL (or UNSPECIFIED) platform task queue.
+func checkNormalTaskQueue(tq *taskqueuepb.TaskQueue) (reason, detail string) {
+	switch tq.GetKind() {
+	case enumspb.TASK_QUEUE_KIND_NORMAL, enumspb.TASK_QUEUE_KIND_UNSPECIFIED:
+	default:
+		return ReasonTaskQueueKind, "task queue kind " + tq.GetKind().String()
+	}
+	if !inSet(platformTaskQueues, tq.GetName()) {
+		return ReasonTaskQueue, "task queue " + strconv.Quote(truncate(tq.GetName(), maxLoggedName))
+	}
+	return "", ""
+}
+
+// checkStickyTaskQueue is the D9b STICKY rule, whatever the queue's Kind field
+// says: an SDK-shaped `<host>:<uuid>` name that is not itself a platform queue,
+// for a platform NormalName (an empty NormalName is denied).
+func checkStickyTaskQueue(tq *taskqueuepb.TaskQueue) (reason, detail string) {
+	name := tq.GetName()
+	if !stickyQueueName.MatchString(name) || inSet(platformTaskQueues, name) {
+		return ReasonStickyQueue, "sticky task queue " + strconv.Quote(truncate(name, maxLoggedName))
+	}
+	if !inSet(platformTaskQueues, tq.GetNormalName()) {
+		return ReasonStickyQueue, "sticky normal name " + strconv.Quote(truncate(tq.GetNormalName(), maxLoggedName))
+	}
+	return "", ""
 }
 
 // decide returns "" to allow, or the deny reason.
@@ -154,13 +305,15 @@ func (a *Authorizer) recordDeny(ctx context.Context, id Identity, api, namespace
 	a.logger.Warn("Temporal API call denied", tags...)
 }
 
-// recordCommandDeny logs a denied workflow task response at error level with
-// alert=true: the task retries until someone acts, so each one must page. The
-// workflow ids go to the log line only; they hold the tenant and are unbounded.
+// recordCommandDeny logs a denied workflow task response, or a D9 workload
+// deny, at error level with alert=true: a denied task retries until someone
+// acts, and a denied workload request means a misused certificate, so each one
+// must page. The workflow ids, types and queue names go to the log line only;
+// they hold the tenant and are unbounded.
 //
 // TODO(TODO-004): no alert rule is installed yet; install the
-// nava_authz_denied{command!="none"} rule from docs/temporal-server.md.
-func (a *Authorizer) recordCommandDeny(ctx context.Context, id Identity, api, namespace string, d *commandDenial) {
+// nava_authz_denied alert rules (commands and D9 workload) from docs/temporal-server.md.
+func (a *Authorizer) recordCommandDeny(ctx context.Context, id Identity, api, namespace, msg string, d *commandDenial) {
 	defer func() { _ = recover() }()
 
 	tags := a.denyTags(ctx, id, api, namespace, d.reason, d.command)
@@ -175,7 +328,7 @@ func (a *Authorizer) recordCommandDeny(ctx context.Context, id Identity, api, na
 	if d.detail != "" {
 		tags = append(tags, tag.NewStringTag("detail", d.detail))
 	}
-	a.logger.Error("Temporal workflow command denied", tags...)
+	a.logger.Error(msg, tags...)
 }
 
 // denyTags increments DeniedMetric and returns the log tags common to every deny.

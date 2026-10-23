@@ -46,6 +46,11 @@ func jsonString(s string) *commonpb.Payload {
 }
 
 // startChild is a child with the tenantA header, the shape tenantA's worker sends.
+// platformType and platformQueue are the D9 allow-list's entries, so that the
+// E1 tests exercise the tenant checks with an allow-listed workload.
+func platformType() string  { return sortedKeys(platformWorkflowTypes)[0] }
+func platformQueue() string { return sortedKeys(platformTaskQueues)[0] }
+
 func startChild(namespace, workflowID string) *commandpb.Command {
 	return startChildWith(namespace, workflowID, jsonString("tenantA"), nil)
 }
@@ -54,7 +59,8 @@ func startChild(namespace, workflowID string) *commandpb.Command {
 // leaving each out if nil.
 func startChildWith(namespace, workflowID string, header, sa *commonpb.Payload) *commandpb.Command {
 	attrs := &commandpb.StartChildWorkflowExecutionCommandAttributes{
-		Namespace: namespace, WorkflowId: workflowID, Header: tenantHeader(header), SearchAttributes: tenantSearchAttrs(sa)}
+		Namespace: namespace, WorkflowId: workflowID, WorkflowType: &commonpb.WorkflowType{Name: platformType()},
+		Header: tenantHeader(header), SearchAttributes: tenantSearchAttrs(sa)}
 	return &commandpb.Command{
 		CommandType: enumspb.COMMAND_TYPE_START_CHILD_WORKFLOW_EXECUTION,
 		Attributes:  &commandpb.Command_StartChildWorkflowExecutionCommandAttributes{StartChildWorkflowExecutionCommandAttributes: attrs},
@@ -113,6 +119,7 @@ func continueAsNew(header *commonpb.Payload, cron string) *commandpb.Command {
 // continueAsNewWith also sets NavaTenantId to sa, if not nil.
 func continueAsNewWith(header, sa *commonpb.Payload, cron string) *commandpb.Command {
 	attrs := &commandpb.ContinueAsNewWorkflowExecutionCommandAttributes{
+		WorkflowType: &commonpb.WorkflowType{Name: platformType()},
 		CronSchedule: cron, Header: tenantHeader(header), SearchAttributes: tenantSearchAttrs(sa)}
 	return &commandpb.Command{
 		CommandType: enumspb.COMMAND_TYPE_CONTINUE_AS_NEW_WORKFLOW_EXECUTION,
