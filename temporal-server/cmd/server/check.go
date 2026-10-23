@@ -45,12 +45,13 @@ func (g guardedClient) GetValue(key dynamicconfig.Key) []dynamicconfig.Constrain
 // pinKey normalises a key the way the file client does: keys are case-insensitive.
 func pinKey(k dynamicconfig.Key) string { return strings.ToLower(k.String()) }
 
-// guardedKey is one dynamic-config row of the D6-K table (ADR-001 A1). Every
-// value of the key, per-namespace constrained values included, must be false.
-// requireExplicit keys default to true in the server, so a missing
-// unconstrained value refuses too.
+// guardedKey is one dynamic-config row of the D6-K table (ADR-001 A1, A2).
+// Every value of the key, per-namespace constrained values included, must be
+// want. A requireExplicit key with no unconstrained value refuses too: most
+// default to the forbidden value in the server.
 type guardedKey struct {
 	key             dynamicconfig.Key
+	want            bool
 	requireExplicit bool
 }
 
@@ -58,13 +59,13 @@ type guardedKey struct {
 // removed key fails to compile. services.frontend.rpc.httpPort is the static
 // row; checkSecurityConfig checks it on the config.
 var d6kKeys = []guardedKey{
-	{dynamicconfig.DisableStreamingAuthorizer.Key(), false},
-	{dynamicconfig.ExposeAuthorizerErrors.Key(), false},
-	{dynamicconfig.EnableCrossNamespaceCommands.Key(), true},
-	{dynamicconfig.EnableBatcherNamespace.Key(), true},
-	{dynamicconfig.WorkerEnableScheduler.Key(), true},
-	{dynamicconfig.FrontendEnableSchedules.Key(), true},
-	{dynamicconfig.FrontendEnableBatcher.Key(), true},
+	{key: dynamicconfig.DisableStreamingAuthorizer.Key(), want: false, requireExplicit: false},
+	{key: dynamicconfig.ExposeAuthorizerErrors.Key(), want: false, requireExplicit: false},
+	{key: dynamicconfig.EnableCrossNamespaceCommands.Key(), want: false, requireExplicit: true},
+	{key: dynamicconfig.EnableBatcherNamespace.Key(), want: false, requireExplicit: true},
+	{key: dynamicconfig.WorkerEnableScheduler.Key(), want: false, requireExplicit: true},
+	{key: dynamicconfig.FrontendEnableSchedules.Key(), want: false, requireExplicit: true},
+	{key: dynamicconfig.FrontendEnableBatcher.Key(), want: false, requireExplicit: true},
 }
 
 // SecurityConfigError is the named error checkSecurityConfig returns for each
@@ -105,13 +106,17 @@ func (g guardedKey) check(dc dynamicconfig.Client) error {
 	}
 	explicit := false
 	for _, v := range values {
-		if b, err := parseBool(v.Value); err != nil || b {
-			return &SecurityConfigError{g.key.String(), fmt.Sprintf("must be false, has %v (constraints %+v)", v.Value, v.Constraints)}
+		if b, err := parseBool(v.Value); err != nil || b != g.want {
+			return &SecurityConfigError{g.key.String(), fmt.Sprintf("must be %v, has %v (constraints %+v)", g.want, v.Value, v.Constraints)}
 		}
 		explicit = explicit || v.Constraints == (dynamicconfig.Constraints{})
 	}
 	if g.requireExplicit && !explicit {
-		return &SecurityConfigError{g.key.String(), "must be set to false explicitly: the server default is true"}
+		reason := fmt.Sprintf("must be set to %v explicitly", g.want)
+		if !g.want {
+			reason += ": the server default is true"
+		}
+		return &SecurityConfigError{g.key.String(), reason}
 	}
 	return nil
 }
