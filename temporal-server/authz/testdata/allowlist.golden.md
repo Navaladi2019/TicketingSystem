@@ -169,15 +169,29 @@ go.temporal.io/api v1.53.0, go.temporal.io/server v1.29.7. `Y` = allowed in name
 
 ## D9 workload allow-list
 
-A request to one of these APIs is allowed only if every workflow type, task queue and workflow id it names is allow-listed. `nava-worker` `RespondWorkflowTaskCompleted` commands and `StickyAttributes` are checked the same way (D9c). `temporal-system` is exempt.
+A request to one of these APIs is allowed only if every workflow type, task queue and workflow id it names is allow-listed. `nava-worker` `RespondWorkflowTaskCompleted` commands and `StickyAttributes` are checked the same way (E1, D9c). `temporal-system` is exempt, and `nava-operator` is outside D9.
 
-| Identity | Method |
-|---|---|
-| `nava-relay` | SignalWithStartWorkflowExecution |
-| `nava-relay` | SignalWorkflowExecution |
-| `nava-relay` | StartWorkflowExecution |
-| `nava-worker` | PollActivityTaskQueue |
-| `nava-worker` | PollWorkflowTaskQueue |
+| Identity | Method | Rule |
+|---|---|---|
+| `nava-core` | DescribeWorkflowExecution | D9f |
+| `nava-core` | GetWorkflowExecutionHistory | D9f |
+| `nava-core` | QueryWorkflow | D9f |
+| `nava-core` | RequestCancelWorkflowExecution | D9f |
+| `nava-core` | UpdateWorkflowExecution | D9f |
+| `nava-relay` | SignalWithStartWorkflowExecution | D9a |
+| `nava-relay` | SignalWorkflowExecution | D9a |
+| `nava-relay` | StartWorkflowExecution | D9a |
+| `nava-worker` | GetWorkflowExecutionHistory | D9e |
+| `nava-worker` | PollActivityTaskQueue | D9b, D9b+ |
+| `nava-worker` | PollWorkflowTaskQueue | D9b, D9b+ |
+| `nava-worker` | RecordActivityTaskHeartbeat | D9d |
+| `nava-worker` | RecordWorkerHeartbeat | D9g |
+| `nava-worker` | RespondActivityTaskCanceled | D9d |
+| `nava-worker` | RespondActivityTaskCompleted | D9d |
+| `nava-worker` | RespondActivityTaskFailed | D9d |
+| `nava-worker` | RespondQueryTaskCompleted | D9d query clause |
+| `nava-worker` | RespondWorkflowTaskFailed | D9d |
+| `nava-worker` | ShutdownWorker | D9g |
 
 | Set | Entries |
 |---|---|
@@ -185,3 +199,11 @@ A request to one of these APIs is allowed only if every workflow type, task queu
 | `platformTaskQueues` | `nava-tq` |
 
 A STICKY queue name must match `^[^/]+:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`, must not be in `platformTaskQueues`, and its `NormalName` must be in `platformTaskQueues`.
+
+| Rule | Must hold |
+|---|---|
+| D9b+ | `DeploymentOptions.WorkerVersioningMode` is unspecified or `UNVERSIONED`, and `WorkerVersionCapabilities.UseVersioning` is false. |
+| D9d | `TaskToken` decodes as `token.v1.Task` and its `WorkflowId` has a `t:<tenant>:` prefix. |
+| D9d query clause | `TaskToken` decodes as `token.v1.QueryTask` and its `TaskQueue` is in `platformTaskQueues` or sticky-shaped. |
+| D9e, D9f | The request's workflow id has a `t:<tenant>:` prefix. |
+| D9g | `StickyTaskQueue` is empty or sticky-shaped and not in `platformTaskQueues`; every `WorkerHeartbeat.TaskQueue` is in `platformTaskQueues`. |

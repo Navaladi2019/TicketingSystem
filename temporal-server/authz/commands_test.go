@@ -511,9 +511,10 @@ func TestCommandInspectionScope(t *testing.T) {
 			t.Errorf("%s RespondWorkflowTaskCompleted allowed", id)
 		}
 	}
-	// Other worker APIs carry no commands and are not inspected.
+	// Other worker APIs carry no commands and are not inspected (D9d checks
+	// only their token).
 	res, _ = a.Authorize(context.Background(), claimsFor(Worker), &authorization.CallTarget{
-		APIName: wf + "RespondWorkflowTaskFailed", Namespace: Namespace, Request: &workflowservice.RespondWorkflowTaskFailedRequest{}})
+		APIName: wf + "RespondWorkflowTaskFailed", Namespace: Namespace, Request: &workflowservice.RespondWorkflowTaskFailedRequest{TaskToken: taskToken(t, wfA)}})
 	if res.Decision != authorization.DecisionAllow {
 		t.Error("worker RespondWorkflowTaskFailed denied")
 	}

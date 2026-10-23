@@ -5,7 +5,7 @@ Temporal `go.temporal.io/server` v1.29.7 + `go.temporal.io/api` v1.53.0 (ADR-001
 main schema 1.18, visibility 1.9) with a
 deny-by-default Authorizer and a certificate ClaimMapper, plus worker command
 inspection (T27b, ADR-001 erratum E1, tightened by T27c) and the D9 workload
-allow-list (T27e, ADR-001-A1). Compose wiring (T28) is in `compose.yaml` and `deploy/compose/README.md`.
+allow-list (T27e, ADR-001-A1; extended by T27i, ADR-001-A2). Compose wiring (T28) is in `compose.yaml` and `deploy/compose/README.md`.
 
 ```mermaid
 flowchart LR
@@ -13,7 +13,7 @@ flowchart LR
   F --> CM[ClaimMapper<br/>CN to identity]
   CM --> AZ{Authorizer}
   AZ -->|identity, API and namespace allowed| CI{nava-worker<br/>RespondWorkflowTaskCompleted?}
-  CI -->|no| WL{D9a/D9b: workflow type,<br/>task queue, workflow id<br/>all allow-listed?}
+  CI -->|no| WL{D9a/b/d/e/f/g: workflow type,<br/>task queue, workflow id<br/>all allow-listed?}
   WL -->|yes, or not a D9 API| H[handler]
   WL -->|no| DC
   CI -->|yes| INS{every command inside the<br/>task's tenant and on the<br/>D9c allow-list?}
@@ -90,11 +90,28 @@ prints both sets.
 | D9c | `StartChildWorkflowExecution`, `ContinueAsNewWorkflowExecution` | type not in the set (empty is denied, not inherited) | `workflow_type_not_allowed` |
 | | | queue set and not in the set | `task_queue_not_allowed` |
 | D9c | `StickyAttributes` (`command=StickyAttributes`) | the D9b STICKY rule fails | `sticky_queue_not_allowed` |
+| D9b+ | `nava-worker` `PollWorkflowTaskQueue`, `PollActivityTaskQueue` | `DeploymentOptions.WorkerVersioningMode` not unspecified / `UNVERSIONED`, or `WorkerVersionCapabilities.UseVersioning` true | `worker_versioning_not_allowed` |
+| D9d | `nava-worker` `RespondWorkflowTaskFailed`, `RespondActivityTaskCompleted` / `Failed` / `Canceled`, `RecordActivityTaskHeartbeat` | task token does not decode as `token.v1.Task` | `task_token_invalid` |
+| | | token workflow id without `t:<tenant>:` | `workflow_id_no_tenant` |
+| D9d query clause | `nava-worker` `RespondQueryTaskCompleted` | task token does not decode as `token.v1.QueryTask` | `task_token_invalid` |
+| | | token task queue neither in the set nor `<host>:<uuid>` | `task_queue_not_allowed` |
+| D9e | `nava-worker` `GetWorkflowExecutionHistory` | workflow id without `t:<tenant>:` | `workflow_id_no_tenant` |
+| D9f | `nava-core` `RequestCancelWorkflowExecution`, `UpdateWorkflowExecution`, `QueryWorkflow`, `DescribeWorkflowExecution`, `GetWorkflowExecutionHistory` | workflow id without `t:<tenant>:` (empty included) | `workflow_id_no_tenant` |
+| D9g | `nava-worker` `ShutdownWorker` | `StickyTaskQueue` set and not `<host>:<uuid>`, or in the set | `sticky_queue_not_allowed` |
+| | `ShutdownWorker`, `RecordWorkerHeartbeat` | a present `WorkerHeartbeat` whose `TaskQueue` is not in the set (empty included) | `task_queue_not_allowed` |
 
 A missing or mistyped request body is `request_malformed`. The sticky rule
 exists because, at server v1.29.7, a sticky partition and the normal partition
 of the same name share a key, so a STICKY poll named `temporal-sys-per-ns-tq`
 would receive the system worker's tasks.
+
+D9b+ to D9g are ADR-001-A2 (T27i). Task tokens are unsigned protos, so D9d
+checks the token's own workflow id with the same decode as E1 (`taskTokenTenant`).
+D9b+ stops a versioned poll from making matching start the
+`temporal-sys-worker-deployment*` workflows in `nava`. D9g stops `ShutdownWorker`
+force-unloading the `nava-tq` root partition. D9e and D9f prove the workflow is
+*a* tenant's, not *which* tenant's: the `nava-core` and `nava-worker`
+certificates carry no tenant. `nava-operator` stays outside D9.
 
 ## Drift checks (run on every Temporal upgrade)
 
@@ -130,7 +147,7 @@ Each API deny logs `Temporal API call denied` (warn) with `identity`, `api`,
 `cert_issuer`. Each command deny logs `Temporal workflow command denied`
 (**error**, `alert=true`) with the same fields plus `workflow_id`,
 `command_index`, `target_workflow_id` (when the command has one) and `detail`.
-Each D9a/D9b deny logs `Temporal workload denied` the same way (`command`
+Each D9 request deny (D9a, D9b(+), D9d to D9g) logs `Temporal workload denied` the same way (`command`
 `none`, `command_index` `-1`); the type or queue name is in `detail`.
 Both increment `nava_authz_denied{identity,api,namespace,reason,command}`.
 
@@ -152,7 +169,7 @@ page. The alert rule, once an alerting backend exists (not in M1 compose):
     summary: "nava-worker sent a cross-tenant or unlisted workflow command"
     description: "Find workflow_id and the certificate in the error log line 'Temporal workflow command denied'."
 - alert: TemporalWorkloadDenied
-  expr: sum by (identity, reason) (increase(nava_authz_denied{command="none", reason=~"workflow_type_not_allowed|task_queue_not_allowed|task_queue_kind_not_allowed|sticky_queue_not_allowed|workflow_id_no_tenant"}[5m])) > 0
+  expr: sum by (identity, reason) (increase(nava_authz_denied{command="none", reason=~"workflow_type_not_allowed|task_queue_not_allowed|task_queue_kind_not_allowed|sticky_queue_not_allowed|workflow_id_no_tenant|worker_versioning_not_allowed|task_token_invalid"}[5m])) > 0
   labels: {severity: page}
   annotations:
     summary: "a platform certificate named a workflow type, task queue or workflow id off the D9 allow-list"

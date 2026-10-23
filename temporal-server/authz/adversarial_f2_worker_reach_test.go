@@ -28,8 +28,6 @@ func TestAdversarialF2WorkerHistoryTenantPrefix(t *testing.T) {
 	called, err := callUnary(t, worker, wf+"GetWorkflowExecutionHistory", history(wfA))
 	requireAllowed(t, called, err)
 
-	t.Skip("F2-5 (TICK-129): open. nava-worker GetWorkflowExecutionHistory accepts a workflow id with no " +
-		"t:<tenant>: prefix.")
 	for _, id := range append(systemWorkflowIDs(), "", "t:", "t::x", "tenantA:x") {
 		called, err := callUnary(t, worker, wf+"GetWorkflowExecutionHistory", history(id))
 		if err == nil || called {
@@ -55,8 +53,6 @@ func TestAdversarialF2WorkerShutdownTaskQueue(t *testing.T) {
 		requireAllowed(t, called, err)
 	}
 
-	t.Skip("F2-6 (TICK-129): open. ShutdownWorker.StickyTaskQueue and WorkerHeartbeat.TaskQueue are not " +
-		"checked; a worker cert force-unloads the nava-tq root partition.")
 	for _, sticky := range []string{platformQueue(), perNSQueue, "temporal-sys-x", "nava-tq:not-a-uuid"} {
 		called, err := callUnary(t, worker, wf+"ShutdownWorker",
 			&workflowservice.ShutdownWorkerRequest{Namespace: Namespace, StickyTaskQueue: sticky})
@@ -77,25 +73,27 @@ func TestAdversarialF2WorkerShutdownTaskQueue(t *testing.T) {
 	}
 }
 
+// queryToken is a token.v1.QueryTask for a query task on tq.
+func queryToken(t testing.TB, tq string) []byte {
+	t.Helper()
+	b, err := (&tokenspb.QueryTask{NamespaceId: "ns-id", TaskQueue: tq, TaskId: "id"}).Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
 // RespondQueryTaskCompleted's token names a task queue (TA round-1 item 8).
 func TestAdversarialF2WorkerQueryTokenTaskQueue(t *testing.T) {
 	worker := peerCtx(string(Worker), true)
-	queryToken := func(tq string) []byte {
-		b, err := (&tokenspb.QueryTask{NamespaceId: "ns-id", TaskQueue: tq, TaskId: "id"}).Marshal()
-		if err != nil {
-			t.Fatal(err)
-		}
-		return b
-	}
 	for _, tq := range []string{platformQueue(), sdkStickyQueue} {
 		called, err := callUnary(t, worker, wf+"RespondQueryTaskCompleted",
-			&workflowservice.RespondQueryTaskCompletedRequest{Namespace: Namespace, TaskToken: queryToken(tq)})
+			&workflowservice.RespondQueryTaskCompletedRequest{Namespace: Namespace, TaskToken: queryToken(t, tq)})
 		requireAllowed(t, called, err)
 	}
 
-	t.Skip("F2-6 (TICK-129): open. RespondQueryTaskCompleted does not check the query token's task queue.")
 	called, err := callUnary(t, worker, wf+"RespondQueryTaskCompleted",
-		&workflowservice.RespondQueryTaskCompletedRequest{Namespace: Namespace, TaskToken: queryToken(perNSQueue)})
+		&workflowservice.RespondQueryTaskCompletedRequest{Namespace: Namespace, TaskToken: queryToken(t, perNSQueue)})
 	if err == nil || called {
 		t.Errorf("RespondQueryTaskCompleted with a %q token allowed", perNSQueue)
 	}
