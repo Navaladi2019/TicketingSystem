@@ -312,7 +312,7 @@ func (a *Authorizer) recordDeny(ctx context.Context, id Identity, api, namespace
 // they hold the tenant and are unbounded.
 //
 // TODO(TODO-004): no alert rule is installed yet; install the
-// nava_authz_denied{command!="none"} rule from docs/temporal-server.md.
+// nava_authz_denied alert rules (commands and D9 workload) from docs/temporal-server.md.
 func (a *Authorizer) recordCommandDeny(ctx context.Context, id Identity, api, namespace, msg string, d *commandDenial) {
 	defer func() { _ = recover() }()
 
