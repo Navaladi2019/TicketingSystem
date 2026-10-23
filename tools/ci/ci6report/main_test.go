@@ -97,3 +97,28 @@ func TestBuildFailure(t *testing.T) {
 		t.Fatalf("problems %v, want every case missing plus the package", problems)
 	}
 }
+
+func TestSkippedSubtestFails(t *testing.T) {
+	name := contract()[4].Test
+	in := stream(t, nil) + `{"Action":"skip","Test":"` + name + `/nava-core"}` + "\n"
+	out, problems := run(t, in)
+	if len(problems) != 1 || !strings.Contains(problems[0], name+"/nava-core: SKIP") {
+		t.Fatalf("problems %v, want the skipped subtest", problems)
+	}
+	if !strings.Contains(out, "subtest(s) SKIPPED") {
+		t.Errorf("report does not show the skipped subtest:\n%s", out)
+	}
+}
+
+func TestSkippedOtherTestFails(t *testing.T) {
+	in := strings.Replace(stream(t, nil), `"Action":"pass","Package":"","Test":"TestCIHReservedSystemWorkloadDenied"`,
+		`"Action":"skip","Package":"","Test":"TestCIHReservedSystemWorkloadDenied"`, 1)
+	_, problems := run(t, in)
+	if len(problems) != 1 || problems[0] != "TestCIHReservedSystemWorkloadDenied: SKIP" {
+		t.Fatalf("problems %v, want the skipped CI-H test", problems)
+	}
+	in = stream(t, nil) + `{"Action":"skip","Test":"TestCIHReservedSystemWorkloadDenied/sub"}` + "\n"
+	if _, problems := run(t, in); len(problems) != 1 {
+		t.Fatalf("problems %v, want the skipped CI-H subtest", problems)
+	}
+}

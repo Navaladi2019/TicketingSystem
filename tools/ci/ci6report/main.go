@@ -3,7 +3,8 @@
 // writes the CI-6 report (PLAN-001 task T32a): every contract case of ADR-001
 // Annex B CI-6, first block (erratum E1), with the named test that proves it and
 // its result. It exits 1 when a case's test failed, was skipped or did not run,
-// or when the package failed (a build error, a panic).
+// or had a skipped subtest; when any other test in the run failed or was
+// skipped; or when the package failed (a build error, a panic).
 //
 // Usage: go test -tags temporalstack -json ./internal/temporalstack | ci6report -out ci6-report.md
 package main
@@ -61,9 +62,10 @@ type event struct {
 
 // result is what the stream says about one top-level test.
 type result struct {
-	Action  string // pass, fail, skip; "" if it never finished
-	Elapsed float64
-	Subs    int
+	Action      string // pass, fail, skip; "" if it never finished
+	Elapsed     float64
+	Subs        int      // subtests that passed
+	SkippedSubs []string // subtests that were skipped; a skip proves nothing
 }
 
 // summary is the whole run.
@@ -106,8 +108,12 @@ func read(r io.Reader, echo io.Writer) (*summary, error) {
 		switch e.Action {
 		case "pass", "fail", "skip":
 			if isSub {
-				if e.Action == "pass" && sub != "" {
+				switch {
+				case sub == "":
+				case e.Action == "pass":
 					res.Subs++
+				case e.Action == "skip":
+					res.SkippedSubs = append(res.SkippedSubs, e.Test)
 				}
 				continue
 			}
@@ -143,6 +149,12 @@ func report(w io.Writer, s *summary, now time.Time) []string {
 		if status != "PASS" {
 			problems = append(problems, fmt.Sprintf("%s: %s (%s)", c.Test, status, c.Case))
 		}
+		if res != nil && len(res.SkippedSubs) > 0 {
+			status += fmt.Sprintf(", %d subtest(s) SKIPPED", len(res.SkippedSubs))
+			for _, sub := range res.SkippedSubs {
+				problems = append(problems, sub+": SKIP ("+c.Case+")")
+			}
+		}
 		p("| %d | %s | `%s` | %s | %s | %s |\n", i+1, c.Case, c.Test, status, subs, elapsed)
 	}
 	var others []string
@@ -157,8 +169,11 @@ func report(w io.Writer, s *summary, now time.Time) []string {
 		for _, name := range others {
 			res := s.tests[name]
 			p("| `%s` | %s |\n", name, strings.ToUpper(res.Action))
-			if res.Action == "fail" {
-				problems = append(problems, name+": FAIL")
+			switch {
+			case res.Action == "fail", res.Action == "skip":
+				problems = append(problems, name+": "+strings.ToUpper(res.Action))
+			case len(res.SkippedSubs) > 0:
+				problems = append(problems, fmt.Sprintf("%s: %d subtest(s) SKIPPED", name, len(res.SkippedSubs)))
 			}
 		}
 	}

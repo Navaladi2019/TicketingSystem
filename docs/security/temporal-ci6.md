@@ -9,7 +9,7 @@ is stubbed. Source of the rules: ADR-001 Annex B CI-6 and Annex A.2, erratum E1
   `ci6_helpers_test.go`). Every test is named `TestCI6_*`. The file name matches
   the `**/*isolation*_test.go` pattern in `docs/delivery/review-paths.yaml`, so
   removing it, or adding a skip to it, needs CTO sign-off.
-- Run: `make stack-up`, then `make stack-test-sdk`. This writes the report
+- Run: `make stack-up`, then `make stack-test-sdk`. To run a second stack on the same host, set `COMPOSE_PROJECT_NAME` and the port variables, then point the tests at it with `NAVA_TEST_COMPOSE_PROJECT` and `NAVA_TEST_TEMPORAL_ADDR`. This writes the report
   (`ci6-report.md`) through `tools/ci/ci6report`. The CI `stack` job already runs
   this step. Uploading the report as the `ci6-report` artifact needs a change to
   `.github/workflows/ci.yml`, which is attached to TICK-79 because the agent token
@@ -59,13 +59,13 @@ sequenceDiagram
 | Case | Proof |
 |---|---|
 | Rogue CA | A `nava-relay` certificate signed by a fresh CA, and no certificate at all, each get a TLS alert from the server. The real `nava-relay` certificate gets none (control). |
-| Unlisted CN | `nava-unknown`, from the installation CA (`make dev-ca` writes it and nothing mounts it), passes the handshake. Every call is then `PermissionDenied`, and the log records `reason=no_identity`. |
+| Unlisted CN | `nava-unknown`, from the installation CA (`make dev-ca` writes it and nothing mounts it), passes the handshake. Every call is then `PermissionDenied`. The log has a `reason=no_identity` line for each call, after this run's anchor (a deny that carries a unique namespace). `nava_authz_denied{identity=none,reason=no_identity}` rises by at least 5, and the denied start's workflow id is `NotFound`. |
 | Internal ports | One container on `internal` gets OPEN for `temporal:7233` (control) and CLOSED for every internode, membership and metrics port, on `temporal` and on `temporal-server`. |
 | Internode handshake | Run inside the server's network namespace. History (7234) and matching (7235) serve the internode certificate (control) and refuse all five platform certificates. 7239 has no listener at v1.29.7. |
 | Allow-list sweep | For `nava-relay`, `nava-core`, `nava-worker` and `nava-operator`, every unary method in `temporal-server/authz/testdata/allowlist.golden.md` that is not on the identity's row is `PermissionDenied`. Each request carries namespace `nava`, so it reaches the Authorizer. Real requests aimed at a running tenant-B workflow leave it RUNNING and unsignaled. |
-| Operator pinned list | `ReapplyEvents`, `ImportWorkflowExecution`, `DeleteWorkflowExecution` (admin and workflow service) and `DeleteNamespace`, all aimed at a real victim and at `nava`, are denied and logged as `api_not_allowed`. The victim and the namespace survive. |
-| Worker commands (E1) | A raw `nava-worker` poll takes the task of a fresh `t:A:` workflow and answers it with the attack command. The test requires `PermissionDenied`, an `alert=true` error log line (certificate, workflow id, command, reason), a rise in `nava_authz_denied{identity,reason,command}`, and no matching event in either history. |
-| Token | An undecodable token is denied with `task_token_invalid`. A real task of an unprefixed workflow id (started by `temporal-system`, which is exempt) is denied with `workflow_id_no_tenant`. |
+| Operator pinned list | `ReapplyEvents`, `ImportWorkflowExecution`, `DeleteWorkflowExecution` (admin and workflow service) and `DeleteNamespace` are each aimed at a real victim and at `nava`. Each is denied, with an `api_not_allowed` log line after this run's anchor, and `nava_authz_denied` rises by at least 5. The victim and the namespace survive. |
+| Worker commands (E1) | A raw `nava-worker` poll takes the task of a fresh `t:A:` workflow and answers it with the attack command. The test requires `PermissionDenied`, an `alert=true` error log line (certificate, workflow id, command, reason), a rise in `nava_authz_denied{identity,reason,command}`, and no `WorkflowTaskCompleted` in the attacker's history: a denied response never reaches history, whatever the command. The cross-tenant tests also check the victim's history. |
+| Token | An undecodable token is denied with `task_token_invalid`. A real task of an unprefixed workflow id (started by `temporal-system`, which is exempt) is denied with `workflow_id_no_tenant`, under the same four checks as the worker commands. |
 | Allowed | A real SDK worker, whose propagator adds `nava-tenant`, runs a parent that starts a same-tenant child, and both complete. Each SDK identity dials and its worker starts. |
 
 A mutation check was run by hand. With the child target switched to the

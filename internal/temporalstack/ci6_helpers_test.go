@@ -272,14 +272,24 @@ func historyHas(ctx context.Context, t *testing.T, c client.Client, id string, e
 
 // --- the server's deny log and metric -------------------------------------
 
+// composeProject is the compose project of the stack under test: `nava` (the
+// name in compose.yaml) unless NAVA_TEST_COMPOSE_PROJECT names another, for a
+// second stack on the same host (COMPOSE_PROJECT_NAME).
+func composeProject() string {
+	if p := os.Getenv("NAVA_TEST_COMPOSE_PROJECT"); p != "" {
+		return p
+	}
+	return "nava"
+}
+
 // containerOf returns the id of the compose service's running container.
 func containerOf(t *testing.T, service string) string {
 	t.Helper()
-	out := docker(t, "ps", "-q", "--filter", "label=com.docker.compose.project=nava",
+	out := docker(t, "ps", "-q", "--filter", "label=com.docker.compose.project="+composeProject(),
 		"--filter", "label=com.docker.compose.service="+service)
 	id := strings.TrimSpace(strings.SplitN(out, "\n", 2)[0])
 	if id == "" {
-		t.Fatalf("no running %s container in compose project nava", service)
+		t.Fatalf("no running %s container in compose project %s", service, composeProject())
 	}
 	return id
 }
@@ -287,11 +297,11 @@ func containerOf(t *testing.T, service string) string {
 // networkOf returns the id of the compose network (internal, temporal-backplane, ...).
 func networkOf(t *testing.T, name string) string {
 	t.Helper()
-	out := docker(t, "network", "ls", "-q", "--filter", "label=com.docker.compose.project=nava",
+	out := docker(t, "network", "ls", "-q", "--filter", "label=com.docker.compose.project="+composeProject(),
 		"--filter", "label=com.docker.compose.network="+name)
 	id := strings.TrimSpace(strings.SplitN(out, "\n", 2)[0])
 	if id == "" {
-		t.Fatalf("no compose network %s in project nava", name)
+		t.Fatalf("no compose network %s in project %s", name, composeProject())
 	}
 	return id
 }
@@ -337,6 +347,51 @@ func awaitDenyLog(t *testing.T, mark string, want map[string]string) map[string]
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("no temporal-server log line with %v", want)
+		}
+		time.Sleep(time.Second)
+	}
+}
+
+// awaitDenyLogsAfter waits up to 20s until the temporal-server log, since mark,
+// holds a line matching anchor and, after it, a line matching each of wants.
+// The anchor is a deny this run caused with a unique value (an API deny's log
+// line carries no workflow id), so a line from an earlier run cannot match.
+func awaitDenyLogsAfter(t *testing.T, mark string, anchor map[string]string, wants []map[string]string) {
+	t.Helper()
+	srv := containerOf(t, "temporal-server")
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		out, _ := exec.CommandContext(context.Background(), "docker", "logs", "--since", mark, srv).CombinedOutput()
+		sc := bufio.NewScanner(bytes.NewReader(out))
+		sc.Buffer(make([]byte, 1<<20), 1<<20)
+		anchored, seen := false, make([]bool, len(wants))
+		for sc.Scan() {
+			var line map[string]any
+			if json.Unmarshal(sc.Bytes(), &line) != nil {
+				continue
+			}
+			if !anchored {
+				anchored = logMatches(line, anchor)
+				continue
+			}
+			for i, w := range wants {
+				seen[i] = seen[i] || logMatches(line, w)
+			}
+		}
+		var missing []map[string]string
+		if !anchored {
+			missing = append(missing, anchor)
+		}
+		for i, ok := range seen {
+			if !ok {
+				missing = append(missing, wants[i])
+			}
+		}
+		if len(missing) == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("temporal-server log lacks, after this run's anchor %v: %v", anchor, missing)
 		}
 		time.Sleep(time.Second)
 	}
@@ -408,46 +463,60 @@ func promValue(v string) string {
 	}, v)
 }
 
-// awaitDeniedCount waits up to 20s for the counter to exceed before.
-func awaitDeniedCount(t *testing.T, want map[string]string, before float64) {
+// awaitDeniedCount waits up to 20s for the counter to rise by at least n.
+func awaitDeniedCount(t *testing.T, want map[string]string, before float64, n int) {
 	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
 	for {
-		if got := deniedCount(t, want); got > before {
+		got := deniedCount(t, want)
+		if got >= before+float64(n) {
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("nava_authz_denied%v did not rise above %v", want, before)
+			t.Fatalf("nava_authz_denied%v rose from %v to %v, want a rise of at least %d", want, before, got, n)
 		}
 		time.Sleep(time.Second)
 	}
 }
 
-// expectCommandDeny polls the task of a fresh tenant-A workflow, responds with
-// commands, and requires the Authorizer's deny, an alert=true error log line
-// with the certificate, workflow id and command, and a nava_authz_denied rise.
-// It returns the attacking workflow's id.
+// expectCommandDeny polls the task of a fresh tenant-A workflow and answers it
+// with commands; see respondExpectDeny. It returns the attacking workflow's id.
 func expectCommandDeny(ctx context.Context, t *testing.T, reason, command string, commands func(attackID string) []*commandpb.Command) string {
 	t.Helper()
-	relay, workerConn := dial(t, "nava-relay"), rawConnAs(t, "nava-worker")
-	worker := workflowservice.NewWorkflowServiceClient(workerConn)
 	attackID := uniqueID("A", "attack")
-	startOnPlatformQueue(ctx, t, relay, attackID, 0, "ci6")
-	task := pollTaskFor(ctx, t, worker, attackID)
+	startOnPlatformQueue(ctx, t, dial(t, "nava-relay"), attackID, 0, "ci6")
+	respondExpectDeny(ctx, t, attackID, reason, command, commands(attackID))
+	return attackID
+}
+
+// respondExpectDeny polls nava-tq as nava-worker for the task of workflowID,
+// responds with commands, and requires all four parts of a deny:
+// PermissionDenied; an alert=true error log line with the certificate, the
+// workflow id, the reason and the command; a rise in
+// nava_authz_denied{identity,reason,command}; and no WorkflowTaskCompleted in
+// the workflow's history (a denied response never reaches history, whatever
+// the command).
+func respondExpectDeny(ctx context.Context, t *testing.T, workflowID, reason, command string, commands []*commandpb.Command) {
+	t.Helper()
+	worker := workflowservice.NewWorkflowServiceClient(rawConnAs(t, "nava-worker"))
+	task := pollTaskFor(ctx, t, worker, workflowID)
 
 	labels := map[string]string{"identity": "nava-worker", "reason": reason, "command": command}
 	before := deniedCount(t, labels)
 	mark := logMark()
 	_, err := worker.RespondWorkflowTaskCompleted(ctx, &workflowservice.RespondWorkflowTaskCompletedRequest{
-		Namespace: namespace, TaskToken: task.GetTaskToken(), Identity: "ci6-attacker",
-		Commands: commands(attackID),
+		Namespace: namespace, TaskToken: task.GetTaskToken(), Identity: "ci6-attacker", Commands: commands,
 	})
-	wantDenied(t, "nava-worker RespondWorkflowTaskCompleted ("+reason+")", err)
+	if status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("nava-worker RespondWorkflowTaskCompleted (%s): got %v (code %v), want PermissionDenied", reason, err, status.Code(err))
+	}
 	awaitDenyLog(t, mark, map[string]string{
 		"level": "error", "alert": "true", "msg": "Temporal workflow command denied",
 		"identity": "nava-worker", "api": "/temporal.api.workflowservice.v1.WorkflowService/RespondWorkflowTaskCompleted",
-		"reason": reason, "command": command, "workflow_id": attackID, "cert_subject": "~CN=nava-worker",
+		"reason": reason, "command": command, "workflow_id": workflowID, "cert_subject": "~CN=nava-worker",
 	})
-	awaitDeniedCount(t, labels, before)
-	return attackID
+	awaitDeniedCount(t, labels, before, 1)
+	if historyHas(ctx, t, dial(t, "temporal-system"), workflowID, enumspb.EVENT_TYPE_WORKFLOW_TASK_COMPLETED) {
+		t.Errorf("%s: a WorkflowTaskCompleted reached history; the response was not denied", workflowID)
+	}
 }

@@ -43,6 +43,9 @@ import (
 	"google.golang.org/protobuf/types/dynamicpb"
 )
 
+// wfAPI prefixes a WorkflowService method's full name.
+const wfAPI = "/temporal.api.workflowservice.v1.WorkflowService/"
+
 func ci6Context(t *testing.T) context.Context {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	t.Cleanup(cancel)
@@ -78,13 +81,21 @@ func TestCI6_UnlistedCertificateDeniedByAuthorizer(t *testing.T) {
 	}
 	conn := rawConnAs(t, unlistedCN)
 	wf := workflowservice.NewWorkflowServiceClient(conn)
+	labels := map[string]string{"identity": "none", "reason": "no_identity"}
+	before := deniedCount(t, labels)
 	mark := logMark()
-	_, err := wf.GetSystemInfo(ctx, &workflowservice.GetSystemInfoRequest{})
+	// The anchor: a deny only this run can cause, its unique namespace logged.
+	runNamespace := fmt.Sprintf("ci6-run-%d", time.Now().UnixNano())
+	_, err := wf.DescribeNamespace(ctx, &workflowservice.DescribeNamespaceRequest{Namespace: runNamespace})
+	wantDenied(t, unlistedCN+" DescribeNamespace (anchor)", err)
+
+	_, err = wf.GetSystemInfo(ctx, &workflowservice.GetSystemInfoRequest{})
 	wantDenied(t, unlistedCN+" GetSystemInfo", err)
 	_, err = wf.DescribeNamespace(ctx, &workflowservice.DescribeNamespaceRequest{Namespace: namespace})
 	wantDenied(t, unlistedCN+" DescribeNamespace", err)
+	startID := uniqueID("A", "unlisted")
 	_, err = wf.StartWorkflowExecution(ctx, &workflowservice.StartWorkflowExecutionRequest{
-		Namespace: namespace, WorkflowId: uniqueID("A", "unlisted"), RequestId: fmt.Sprint(time.Now().UnixNano()),
+		Namespace: namespace, WorkflowId: startID, RequestId: fmt.Sprint(time.Now().UnixNano()),
 		WorkflowType: &commonpb.WorkflowType{Name: echoType},
 		TaskQueue:    &taskqueuepb.TaskQueue{Name: taskQueue, Kind: enumspb.TASK_QUEUE_KIND_NORMAL},
 	})
@@ -92,10 +103,22 @@ func TestCI6_UnlistedCertificateDeniedByAuthorizer(t *testing.T) {
 	_, err = operatorservice.NewOperatorServiceClient(conn).ListSearchAttributes(ctx,
 		&operatorservice.ListSearchAttributesRequest{Namespace: namespace})
 	wantDenied(t, unlistedCN+" ListSearchAttributes", err)
-	awaitDenyLog(t, mark, map[string]string{
-		"msg": "Temporal API call denied", "identity": "none", "reason": "no_identity",
-		"cert_subject": "~CN=" + unlistedCN,
+
+	line := func(api string) map[string]string {
+		return map[string]string{"msg": "Temporal API call denied", "identity": "none", "reason": "no_identity",
+			"cert_subject": "~CN=" + unlistedCN, "api": api}
+	}
+	anchor := line(wfAPI + "DescribeNamespace")
+	anchor["namespace"] = runNamespace
+	awaitDenyLogsAfter(t, mark, anchor, []map[string]string{
+		line(wfAPI + "GetSystemInfo"), line(wfAPI + "DescribeNamespace"), line(wfAPI + "StartWorkflowExecution"),
+		line("/temporal.api.operatorservice.v1.OperatorService/ListSearchAttributes"),
 	})
+	awaitDeniedCount(t, labels, before, 5)
+	var notFound *serviceerror.NotFound
+	if _, err := dial(t, "temporal-system").DescribeWorkflowExecution(ctx, startID, ""); !errors.As(err, &notFound) {
+		t.Errorf("the denied start %s: got %v, want NotFound", startID, err)
+	}
 }
 
 // --- network -------------------------------------------------------------------
@@ -388,7 +411,14 @@ func TestCI6_OperatorLimitedToPinnedList(t *testing.T) {
 	conn := rawConnAs(t, "nava-operator")
 	execution := adminBody(1, victimID, 2, victim.GetRunID())
 	const adm = "/temporal.server.api.adminservice.v1.AdminService/"
+	labels := map[string]string{"identity": "nava-operator", "reason": "api_not_allowed"}
+	before := deniedCount(t, labels)
 	mark := logMark()
+	// The anchor: a deny only this run can cause (an allowed read aimed at a
+	// namespace that is not nava), its unique namespace logged.
+	runNamespace := fmt.Sprintf("ci6-run-%d", time.Now().UnixNano())
+	_, err = workflowservice.NewWorkflowServiceClient(conn).DescribeNamespace(ctx, &workflowservice.DescribeNamespaceRequest{Namespace: runNamespace})
+	wantDenied(t, "nava-operator DescribeNamespace (anchor)", err)
 	pinned := map[string][]byte{
 		adm + "ReapplyEvents":           adminBody(4, ns.GetNamespaceInfo().GetId(), 2, execution),
 		adm + "ImportWorkflowExecution": adminBody(1, namespace, 2, execution),
@@ -404,10 +434,15 @@ func TestCI6_OperatorLimitedToPinnedList(t *testing.T) {
 	wantDenied(t, "nava-operator WorkflowService/DeleteWorkflowExecution", err)
 	_, err = operatorservice.NewOperatorServiceClient(conn).DeleteNamespace(ctx, &operatorservice.DeleteNamespaceRequest{Namespace: namespace})
 	wantDenied(t, "nava-operator OperatorService/DeleteNamespace", err)
+	var wants []map[string]string
 	for _, api := range []string{adm + "ReapplyEvents", adm + "ImportWorkflowExecution", adm + "DeleteWorkflowExecution",
-		"/temporal.api.operatorservice.v1.OperatorService/DeleteNamespace"} {
-		awaitDenyLog(t, mark, map[string]string{"identity": "nava-operator", "api": api, "reason": "api_not_allowed"})
+		wfAPI + "DeleteWorkflowExecution", "/temporal.api.operatorservice.v1.OperatorService/DeleteNamespace"} {
+		wants = append(wants, map[string]string{"identity": "nava-operator", "api": api, "reason": "api_not_allowed",
+			"cert_subject": "~CN=nava-operator"})
 	}
+	awaitDenyLogsAfter(t, mark, map[string]string{"identity": "nava-operator", "reason": "namespace_not_allowed",
+		"api": wfAPI + "DescribeNamespace", "namespace": runNamespace}, wants)
+	awaitDeniedCount(t, labels, before, len(wants))
 
 	if n := sweepOutsideAllowList(ctx, t, "nava-operator"); n < 50 {
 		t.Errorf("nava-operator: only %d methods swept", n)
@@ -606,27 +641,17 @@ func TestCI6_WorkerUndecodableTaskTokenDenied(t *testing.T) {
 		"level": "error", "alert": "true", "identity": "nava-worker", "reason": "task_token_invalid",
 		"command": "none", "cert_subject": "~CN=nava-worker",
 	})
-	awaitDeniedCount(t, labels, before)
+	awaitDeniedCount(t, labels, before, 1)
 }
 
 // Erratum E1: a task whose workflow id has no t:<tenant>: prefix is denied as a
 // whole (the server's own identity can start one; no platform identity can).
 func TestCI6_WorkerTaskWithoutTenantPrefixDenied(t *testing.T) {
 	ctx := ci6Context(t)
-	system := dial(t, "temporal-system")
 	id := fmt.Sprintf("ci6-noprefix-%d", time.Now().UnixNano())
-	startOnPlatformQueue(ctx, t, system, id, 0, "ci6")
-	worker := workflowservice.NewWorkflowServiceClient(rawConnAs(t, "nava-worker"))
-	task := pollTaskFor(ctx, t, worker, id)
-	mark := logMark()
-	_, err := worker.RespondWorkflowTaskCompleted(ctx, &workflowservice.RespondWorkflowTaskCompletedRequest{
-		Namespace: namespace, TaskToken: task.GetTaskToken(), Identity: "ci6-attacker",
-		Commands: []*commandpb.Command{{CommandType: enumspb.COMMAND_TYPE_COMPLETE_WORKFLOW_EXECUTION}},
-	})
-	wantDenied(t, "nava-worker RespondWorkflowTaskCompleted for an unprefixed workflow id", err)
-	awaitDenyLog(t, mark, map[string]string{
-		"level": "error", "alert": "true", "identity": "nava-worker", "reason": "workflow_id_no_tenant", "workflow_id": id,
-	})
+	startOnPlatformQueue(ctx, t, dial(t, "temporal-system"), id, 0, "ci6")
+	respondExpectDeny(ctx, t, id, "workflow_id_no_tenant", "none",
+		[]*commandpb.Command{{CommandType: enumspb.COMMAND_TYPE_COMPLETE_WORKFLOW_EXECUTION}})
 }
 
 // --- allowed ------------------------------------------------------------------
