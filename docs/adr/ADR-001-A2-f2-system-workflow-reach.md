@@ -2,7 +2,7 @@
 type: adr-amendment
 id: ADR-001-A2
 title: Erratum E2 and amendment A2 to ADR-001-A1, closing system-workflow and task-queue reach via service certificates (F2)
-status: PROPOSED
+status: ACCEPTED
 date: 2026-10-23
 issue: TICK-129
 rfc: docs/adr/ADR-001/rfc/RFC-003-a1-f2-system-workflow-reach.md (rev 1, archived; thread under TICK-129 comment 01a16771-d2e9-75b0-9a17-dc83bc9d3097)
@@ -10,12 +10,12 @@ supersedes: "the ADR-001-A1 sentence \"D9 doesn't change ... `nava-core`\" (for 
 amends: "[[ADR-001-A1-temporal-server-1-29-7-workload-allow-list]] D9, D6-K; [[ADR-001-platform-blueprint]] Annex A.2"
 source: TICK-122 findings (Security & Multi-Tenancy Reviewer), PR #36 skipped tests (incl. commit 92d0863), RFC-003 rounds 1 and 2
 deciders: Solution Architect (author), Technical Architect (APPROVE, round 2), Security & Multi-Tenancy Reviewer (APPROVE, round 2), CTO
-signs: pending (human sign-off)
+signs: nava (signed 2026-10-23: "Approved")
 ---
 
 # ADR-001 amendment A2: close F2 (erratum E2 + amendment A2)
 
-> **Status: PROPOSED, 2026-10-23.** RFC-003 rev 1 was approved in round 2 by the Technical Architect and the Security & Multi-Tenancy Reviewer, and the CTO closed it (TICK-129). This record waits for human sign-off.
+> **Status: ACCEPTED, 2026-10-23.** nava approved it on TICK-129 (comment `01a1695d`: "Approved"), and the CTO recorded the approval in comment `01a1695e`. RFC-003 rev 1 was approved in round 2 by the Technical Architect and the Security & Multi-Tenancy Reviewer. Implementation is planned in TICK-130.
 
 > **Invariants source.** The project description defines no invariants. As in A1, this is checked against [[ADR-001-platform-blueprint]] §1 I1–I9. If the project is meant to have its own list of eight, these checks are incomplete against it.
 

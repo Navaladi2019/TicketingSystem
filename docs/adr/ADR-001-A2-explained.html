@@ -62,12 +62,12 @@ dl.gloss dt{font-weight:700;overflow-wrap:anywhere} dl.gloss dd{margin:0}
 <body><div class="layout">
 <nav class="toc"><b>ADR-001-A2 explained</b><a href="#how">How to read this</a><a href="#basics">Part 1. Temporal from zero</a><a class="sub" href="#b-wf">Workflows and activities</a><a class="sub" href="#b-ns">Namespaces</a><a class="sub" href="#b-tq">Task queues and polling</a><a class="sub" href="#b-tok">Tokens</a><a class="sub" href="#b-sys">Temporal's own workflows</a><a href="#ours">Part 2. How we use it</a><a class="sub" href="#o-parts">Our four components</a><a class="sub" href="#o-auth">The Authorizer</a><a class="sub" href="#o-prefix">The t:&lt;tenant&gt;: label</a><a class="sub" href="#o-limit">What a label can't prove</a><a href="#threat">Part 3. The threat: a stolen cert</a><a href="#findings">Part 4. The six findings</a><a class="sub" href="#f21">F2-1 versioned poll</a><a class="sub" href="#f22">F2-2 core reaches system ids</a><a class="sub" href="#f23">F2-3 forged job tokens</a><a class="sub" href="#f23b">F2-3b token namespace</a><a class="sub" href="#f24">F2-4 core changes routing</a><a class="sub" href="#f25">F2-5 worker reads history</a><a class="sub" href="#f26">F2-6 unplugging nava-tq</a><a href="#rcore">Part 5. R-CORE</a><a href="#principle">Part 6. The one principle</a><a href="#kind">Part 7. Erratum vs amendment</a><a href="#drift">Part 8. The CI drift golden</a><a href="#options">Part 9. Options we rejected</a><a href="#risks">Part 10. Accepted risks</a><a href="#evidence">Part 11. Evidence and tests</a><a href="#next">Part 12. What happens next</a><a href="#glossary">Glossary</a></nav>
 <main>
-<div class="banner"><span class="pill">READING GUIDE &middot; ADR-001 A2 PROPOSED</span>
+<div class="banner"><span class="pill">READING GUIDE &middot; ADR-001 A2 ACCEPTED</span>
 <span class="src">This companion explains <code>ADR-001-A2-f2-system-workflow-reach.md</code>. It isn't a decision record and changes nothing. Every blue "decision text" box is copied word for word from the ADR.</span></div>
 <table class="front"><tbody>
 <tr><th>title</th><td>ADR-001 amendment A2 explained: how a stolen service certificate could reach Temporal's own machinery, and the rules that stop it</td></tr>
 <tr><th>type</th><td>explainer and teaching walkthrough (not a decision record)</td></tr>
-<tr><th>explains</th><td>ADR-001-A2 (status PROPOSED, 2026-10-23), from RFC-003 on TICK-129</td></tr>
+<tr><th>explains</th><td>ADR-001-A2 (status ACCEPTED, 2026-10-23), from RFC-003 on TICK-129</td></tr>
 <tr><th>date</th><td>2026-10-23</td></tr>
 <tr><th>audience</th><td>the decision-maker. It assumes no prior knowledge of Temporal or of the review debate.</td></tr>
 </tbody></table>
