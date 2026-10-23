@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-001 amendment A2 explained (reading guide)</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:32px 24px 80px}
+.banner{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.pill{font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left;min-width:0;overflow-wrap:anywhere}
+th{background:var(--soft)}
+table.front th{width:120px}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:36px}
+h3{font-size:18px;margin-top:28px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;background:var(--soft);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft);color:var(--fg)}
+hr{border:0;border-top:1px solid var(--bd);margin:32px 0}
+a{color:var(--acc)}
+figure.diagram{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure.diagram svg{max-width:100%;height:auto;display:block;margin:0 auto;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:12px;margin:12px 0 20px}
+.card{border:1px solid var(--bd);border-radius:8px;padding:12px 14px;background:var(--soft);min-width:0}
+.card h4{margin:0 0 6px;font-size:15px}
+.card p{margin:0}
+.red{color:var(--bad);font-weight:700}
+.green{color:var(--good);font-weight:700}
+.tag{display:inline-block;font-size:12px;font-weight:700;padding:1px 8px;border-radius:999px}
+.tag.red{background:var(--badbg);border:1px solid var(--bad)}
+.tag.green{background:var(--goodbg);border:1px solid var(--good)}
+@media print{.banner{display:none} table{display:table}}
+</style></head>
+<body><main>
+<div class="banner"><span class="pill">READING GUIDE · ADR-001 A1 ACCEPTED</span>
+<span class="src">Companion to ADR-001-A1-temporal-server-1-29-7-workload-allow-list.md. It isn't a decision record and changes nothing.</span></div>
+</head>
+<body><main>
+<div class="banner"><span class="pill">READING GUIDE · ADR-001 A2 PROPOSED</span>
+<span class="src">Companion to ADR-001-A2-f2-system-workflow-reach.md. It isn't a decision record and changes nothing.</span></div>
+<table class="front"><tbody>
+<tr><th>title</th><td>ADR-001 amendment A2 explained: closing the last ways a stolen service certificate reaches Temporal's own machinery</td></tr>
+<tr><th>type</th><td>explainer (not a decision record)</td></tr>
+<tr><th>explains</th><td>ADR-001-A2 (status PROPOSED, 2026-10-23), from RFC-003 on TICK-129</td></tr>
+<tr><th>date</th><td>2026-10-23</td></tr>
+<tr><th>audience</th><td>nava, as the decision-maker. You don't need any of the review debate to follow it.</td></tr>
+</tbody></table>
+
+<h1>ADR-001 amendment A2 explained</h1>
+
+<blockquote><strong>The decision in three lines.</strong>
+(1) Tighten our gatekeeper, the Authorizer, so that a platform component can name only <em>tenant</em> workflows and <em>our</em> task queues, never Temporal's internal ones. Seven small rules do this.
+(2) Add one startup check, so Temporal refuses to start if a token-safety setting is switched off.
+(3) Write down a hard rule for our core API, <strong>R-CORE</strong>: it works out which tenant a workflow belongs to only from the user's login token, and it never passes a client's opaque token on to Temporal.</blockquote>
+
+<p>Words used throughout:</p>
+<ul>
+<li><strong>Temporal</strong> is the engine that runs our long-running background jobs, called <em>workflows</em>. We run our own copy of it, in one partition (a <em>namespace</em>) called <code>nava</code>, which all tenants share.</li>
+<li>A <strong>tenant</strong> is one customer organisation. Each tenant's workflows are labelled <code>t:&lt;tenant&gt;:…</code>. The top rule (ADR-001 I2) is that no tenant can see or change another tenant's data.</li>
+<li>Temporal also runs <strong>its own internal workflows</strong> inside <code>nava</code>, such as schedulers and deployment bookkeeping. Their names start with <code>temporal-sys-</code>.</li>
+<li>A <strong>task queue</strong> is a named inbox. Our workers listen on one platform queue, <code>nava-tq</code>. A <strong>sticky queue</strong> is a worker's private cache inbox, named <code>&lt;host&gt;:&lt;random id&gt;</code>.</li>
+<li>A <strong>service certificate</strong> is how our own components (<code>nava-relay</code>, <code>nava-core</code> and <code>nava-worker</code>) prove who they are to Temporal. The <strong>Authorizer</strong> is our gatekeeper code inside Temporal. It checks every request against the caller's allow-list.</li>
+<li>A <strong>task token</strong> or a <strong>page token</strong> is an opaque blob that Temporal hands out ("here is your job", "here is page 2") and that the caller sends back later.</li>
+<li>An <strong>erratum</strong> means our earlier decision (A1) already required the check and the code missed a case. An <strong>amendment</strong> is a new rule.</li>
+</ul>
+
+<hr />
+<h2>1. The problem, in plain words</h2>
+
+<p>Amendment A1 (20 October) added a rule: a request that names a workflow, a workflow type or a task queue is allowed only if <em>every</em> such name is on our list. A follow-up security audit (TICK-122) and this review found places where that promise still had holes. Every one of them needs an attacker who has <strong>already stolen one of our service certificates</strong>. None of them lets one tenant reach another tenant directly. This is clean-up of the wall, not a breach.</p>
+
+<div class="cards">
+<div class="card"><h4>Reading or steering Temporal's internals</h4><p>With a stolen worker or core certificate, someone could read the history of Temporal's internal workflows and could cancel or update them. In one case they could change how work is routed to our queue (F2-2, F2-4, F2-5).</p></div>
+<div class="card"><h4>Making Temporal start internal workflows</h4><p>A worker that says "I use versioning" makes Temporal start its own deployment-tracking workflows inside <code>nava</code> (F2-1).</p></div>
+<div class="card"><h4>Forged tokens</h4><p>Several "I finished this job" calls don't check whose job the token names. If one setting is switched off, the token can even point at a different namespace (F2-3, F2-3b).</p></div>
+<div class="card"><h4>Unplugging the shared inbox</h4><p>A worker's "I'm shutting down, drop my private inbox" call accepts <em>any</em> queue name. Naming <code>nava-tq</code> makes Temporal briefly drop the main inbox that every tenant uses (F2-6). This affects availability only.</p></div>
+</div>
+
+<figure class="diagram">
+<svg viewBox="0 0 1060 260" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="F2-6: a worker with a stolen certificate sends ShutdownWorker naming nava-tq; the Authorizer allows it; Temporal unloads the shared inbox for every tenant">
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#cf222e"/></marker></defs>
+<g font-size="14" fill="#1f2328">
+<rect x="10" y="60" width="210" height="120" rx="10" fill="#f6f8fa" stroke="#59636e"/>
+<text x="115" y="92" text-anchor="middle" font-weight="700">1. Stolen worker cert</text>
+<text x="115" y="118" text-anchor="middle">"I'm shutting down,</text>
+<text x="115" y="138" text-anchor="middle">drop my inbox nava-tq"</text>
+<rect x="290" y="60" width="210" height="120" rx="10" fill="#fff8c5" stroke="#9a6700"/>
+<text x="395" y="92" text-anchor="middle" font-weight="700">2. Authorizer today</text>
+<text x="395" y="118" text-anchor="middle">"workers may shut</text>
+<text x="395" y="138" text-anchor="middle">down" → ALLOW</text>
+<text x="395" y="162" text-anchor="middle" font-size="12" fill="#9a6700">never checks the queue name</text>
+<rect x="570" y="60" width="210" height="120" rx="10" fill="#ffebe9" stroke="#cf222e"/>
+<text x="675" y="92" text-anchor="middle" font-weight="700">3. Temporal</text>
+<text x="675" y="118" text-anchor="middle">unloads partition 0</text>
+<text x="675" y="138" text-anchor="middle">of nava-tq</text>
+<rect x="850" y="60" width="200" height="120" rx="10" fill="#ffebe9" stroke="#cf222e" stroke-width="2"/>
+<text x="950" y="92" text-anchor="middle" font-weight="700">4. Every tenant</text>
+<text x="950" y="118" text-anchor="middle">waiting jobs dropped,</text>
+<text x="950" y="138" text-anchor="middle">dispatch rebuilt</text>
+<line x1="220" y1="120" x2="286" y2="120" stroke="#cf222e" stroke-width="2.5" marker-end="url(#ar)"/>
+<line x1="500" y1="120" x2="566" y2="120" stroke="#cf222e" stroke-width="2.5" marker-end="url(#ar)"/>
+<line x1="780" y1="120" x2="846" y2="120" stroke="#cf222e" stroke-width="2.5" marker-end="url(#ar)"/>
+<text x="530" y="225" text-anchor="middle" font-size="13" fill="#59636e">Repeated in a loop, it keeps the shared queue restarting. The fix, D9g, allows only the shape of the caller's own private inbox.</text>
+</g></svg>
+<figcaption>F2-6, found during this review. The other items follow the same pattern: an allowed call names something, and nobody checks the name.</figcaption>
+</figure>
+
+<hr />
+<h2>2. What we decided</h2>
+
+<p>One principle runs all the way through, so the rule is a list of what is allowed, not a list of what is banned:</p>
+<blockquote>Every workflow name a platform component sends must carry a tenant label, <code>t:&lt;tenant&gt;:</code>. Every queue name must be our queue, or a private-inbox name of the right shape. That includes names hidden inside tokens and heartbeats. If a Temporal upgrade adds a new field, our build fails until someone decides how to check it.</blockquote>
+
+<table><thead><tr><th>Item</th><th>Rule</th><th>What it does, in plain words</th><th>Kind</th></tr></thead><tbody>
+<tr><td>F2-1</td><td>D9b+</td><td>A worker can't ask for "versioned" mode, so Temporal never starts its deployment-tracking workflows. Our workers don't use versioning today.</td><td>Amendment</td></tr>
+<tr><td>F2-2, F2-4</td><td>D9f</td><td>Our core API can cancel, update, query, describe or read only workflows that carry a tenant label.</td><td>Amendment</td></tr>
+<tr><td>F2-3</td><td>D9d</td><td>Every "job finished" token must name a tenant-labelled workflow. A1 covered only one of these calls.</td><td>Erratum</td></tr>
+<tr><td>F2-3b</td><td>D6-K row</td><td>Temporal refuses to start if the setting "a token may act only in its own namespace" is off or missing.</td><td>Amendment</td></tr>
+<tr><td>F2-5</td><td>D9e</td><td>Workers can read the history of tenant-labelled workflows only.</td><td>Erratum</td></tr>
+<tr><td>F2-6</td><td>D9g, D9d query clause</td><td>"Shutting down" and "heartbeat" calls can name only our queue or the shape of the caller's own private inbox. Query answers can point only at those queues.</td><td>Erratum</td></tr>
+<tr><td>at scale</td><td>R-CORE</td><td>The core API takes the tenant only from the user's login token. It never forwards a page token or any other opaque Temporal token that came from the client.</td><td>Amendment</td></tr>
+</tbody></table>
+
+<h3>Why R-CORE has to be a written rule</h3>
+<p>The core API serves every tenant with <strong>one</strong> certificate. So the gatekeeper can check that a request names <em>some</em> tenant's workflow, but not <em>which</em> tenant. The only thing between tenant A's login and tenant B's workflow is how the core API builds the name.</p>
+<p>The review also found a subtler path. When Temporal is asked for "page 2" of a workflow's history, it follows the page token, not the workflow name in the request. If the core API ever passed a client's page token straight through, someone holding a leaked tenant-B token could read B's history through tenant A's own record. No code does this today, because the core API doesn't call Temporal yet. R-CORE makes sure the first code that does is built correctly.</p>
+
+<figure class="diagram">
+<svg viewBox="0 0 1060 230" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="R-CORE: the tenant comes from the login token, the record is read under row-level security, and the workflow id is built server side; client ids and client page tokens are never forwarded">
+<defs><marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#1a7f37"/></marker></defs>
+<g font-size="14" fill="#1f2328">
+<rect x="10" y="40" width="220" height="110" rx="10" fill="#f6f8fa" stroke="#59636e"/>
+<text x="120" y="72" text-anchor="middle" font-weight="700">User request</text>
+<text x="120" y="96" text-anchor="middle">login token (tenant A)</text>
+<text x="120" y="118" text-anchor="middle" font-size="12" fill="#59636e">+ path, body, page token</text>
+<rect x="300" y="40" width="220" height="110" rx="10" fill="#dafbe1" stroke="#1a7f37"/>
+<text x="410" y="72" text-anchor="middle" font-weight="700">Core API</text>
+<text x="410" y="96" text-anchor="middle">tenant ← login token only</text>
+<text x="410" y="118" text-anchor="middle">record ← database, A's view</text>
+<rect x="590" y="40" width="220" height="110" rx="10" fill="#dafbe1" stroke="#1a7f37"/>
+<text x="700" y="72" text-anchor="middle" font-weight="700">One id builder</text>
+<text x="700" y="96" text-anchor="middle">t:A:&lt;key&gt;</text>
+<text x="700" y="118" text-anchor="middle" font-size="12" fill="#59636e">cursor kept server-side</text>
+<rect x="880" y="40" width="170" height="110" rx="10" fill="#f6f8fa" stroke="#59636e"/>
+<text x="965" y="72" text-anchor="middle" font-weight="700">Temporal</text>
+<text x="965" y="96" text-anchor="middle">only A's workflow</text>
+<line x1="230" y1="95" x2="296" y2="95" stroke="#1a7f37" stroke-width="2.5" marker-end="url(#ag)"/>
+<line x1="520" y1="95" x2="586" y2="95" stroke="#1a7f37" stroke-width="2.5" marker-end="url(#ag)"/>
+<line x1="810" y1="95" x2="876" y2="95" stroke="#1a7f37" stroke-width="2.5" marker-end="url(#ag)"/>
+<text x="530" y="195" text-anchor="middle" font-size="13" fill="#cf222e">Never forwarded: a workflow id from the path or body, or a raw page token from the client. Someone else's record gets the same "not found".</text>
+</g></svg>
+<figcaption>R-CORE: the tenant comes only from the login token.</figcaption>
+</figure>
+
+<hr />
+<h2>3. Options we considered</h2>
+<table><thead><tr><th>Option</th><th>Outcome</th><th>Why</th></tr></thead><tbody>
+<tr><td>F2-1: switch off Temporal's versioning feature server-wide with a config setting</td><td>Rejected</td><td>Config is checked only at startup, and this setting can differ per namespace. The gatekeeper check runs on every request and names the certificate that tried. If we ever want versioning, that's one reviewed rule change.</td></tr>
+<tr><td>F2-1: do both</td><td>Rejected</td><td>Once the gatekeeper rule and the build-time field check are both in place, the config setting adds very little.</td></tr>
+<tr><td>Ban names that start with <code>temporal-sys-</code></td><td>Rejected</td><td>A ban list lets through anything Temporal adds later. We allow known-good names only.</td></tr>
+<tr><td>Give the core API one certificate per tenant</td><td>Rejected</td><td>Issuing and rotating certificates would grow with every customer. R-CORE plus row security in the database gives the same guarantee.</td></tr>
+<tr><td>Leave the core-API items until it actually calls Temporal</td><td>Rejected</td><td>It's a few lines of code now. Waiting would let the first caller ship without the wall.</td></tr>
+<tr><td>Accept the heartbeat and query-token gaps as known risks</td><td>Rejected (CTO ruling)</td><td>The rules are cheap, and Security asked for them.</td></tr>
+</tbody></table>
+
+<hr />
+<h2>4. The fix</h2>
+<ul>
+<li><strong>Gatekeeper code</strong> (<code>temporal-server/authz</code>): the seven rules above, each one denying with an alert. This is one <code>core-dev</code> task, which the Technical Lead plans.</li>
+<li><strong>Startup check</strong> (<code>temporal-server/cmd/server</code>): a new "must be true" mode, used for the token-namespace setting.</li>
+<li><strong>Build-time field check</strong>: CI keeps a list of every field in every request our components are allowed to send. If a Temporal upgrade adds a field, the build fails until someone decides how to check it. That is exactly how F2-6 slipped in: the shutdown request gained new fields over recent releases.</li>
+<li><strong>No configuration change and no data migration.</strong> Our current workers send nothing that the new rules deny. We checked this against the SDK source, and acceptance includes a smoke test of a normal worker shutdown.</li>
+</ul>
+
+<hr />
+<h2>5. What we are accepting (residual risks)</h2>
+<div class="cards">
+<div class="card"><h4>RS6: R-CORE is a code rule, not a gatekeeper rule</h4><p>The gatekeeper can't tell tenants apart for the core API, and it can't see inside a page token. Correctness depends on one id-building helper and two tests: R-CORE-1 (someone else's record looks "not found") and R-CORE-2 (a client's page token is never forwarded). Security reviews the first core-API change that calls Temporal. <strong>Owner:</strong> Security &amp; Multi-Tenancy Reviewer.</p></div>
+<div class="card"><h4>RS7: one worker can drop a sibling's private inbox</h4><p>The new shutdown rule checks the <em>shape</em> of a private-inbox name, not who owns it, so one worker pod could drop another pod's private inbox. This is harmless: Temporal falls back to the main queue, so the job still runs, just without the cache. <strong>Owner:</strong> Security &amp; Multi-Tenancy Reviewer. <strong>Revisit</strong> if worker certificates become per-pod or per-tenant.</p></div>
+<div class="card"><h4>RS2 (widened): startup-only check</h4><p>Like the other setting checks, the new one runs only when Temporal starts. Revisit if we ever add a way to change settings while Temporal is running.</p></div>
+</div>
+
+<hr />
+<h2>6. Evidence</h2>
+<table><thead><tr><th>What</th><th>Who</th><th>Result</th></tr></thead><tbody>
+<tr><td>Attack tests for every item, committed but skipped, in PR #36. They include <code>TestAdversarialF2WorkerHistoryTenantPrefix</code>, <code>TestAdversarialF2WorkerShutdownTaskQueue</code> and <code>TestAdversarialF2WorkerQueryTokenTaskQueue</code> at commit <code>92d0863</code>.</td><td>Security &amp; Multi-Tenancy Reviewer</td><td><span class="tag red">red today</span> with the skip removed, and <span class="tag green">green</span> once the fix lands. Normal SDK traffic stays allowed.</td></tr>
+<tr><td>In-process gatekeeper spike. Every F2 request is allowed today. The shutdown call unloads exactly the shared <code>nava-tq</code> inbox. Only polling can start deployment workflows.</td><td>Technical Architect</td><td>Reproduced. The program and its output are in <code>docs/adr/ADR-001/spikes/technical-architect/rfc-003-round-1/</code>.</td></tr>
+<tr><td>Source check that our SDK version sends nothing the new rules deny</td><td>Solution Architect, Technical Architect</td><td>Confirmed from the sdk-go v1.49.0 source.</td></tr>
+<tr><td>Review rounds</td><td>Technical Architect, Security, CTO</td><td>Round 1 asked for changes, and they were made. Round 2: <span class="tag green">APPROVE</span> from both reviewers.</td></tr>
+</tbody></table>
+
+<p class="src">The full decision is in <code>docs/adr/ADR-001-A2-f2-system-workflow-reach.md</code>. The archived RFC is <code>docs/adr/ADR-001/rfc/RFC-003-a1-f2-system-workflow-reach.md</code>.</p>
+</main></body></html>
