@@ -1,4 +1,4 @@
-// Command server runs Temporal 1.28.4 with nava's deny-by-default Authorizer and
+// Command server runs Temporal 1.29.7 with nava's deny-by-default Authorizer and
 // certificate ClaimMapper (ADR-001 D22, Annex A.2).
 //
 // Two helper subcommands run from the same image: `health` (a probe that dials
@@ -68,15 +68,9 @@ func run(configDir, env, zone string, boot bool) error {
 	}
 	logger := log.NewZapLogger(log.BuildZapLogger(cfg.Log))
 
-	var dc dynamicconfig.Client = dynamicconfig.NewNoopClient()
-	if cfg.DynamicConfigClient != nil {
-		if !filepath.IsAbs(cfg.DynamicConfigClient.Filepath) {
-			cfg.DynamicConfigClient.Filepath = filepath.Join(configDir, cfg.DynamicConfigClient.Filepath)
-		}
-		dc, err = dynamicconfig.NewFileBasedClient(cfg.DynamicConfigClient, logger, temporal.InterruptCh())
-		if err != nil {
-			return fmt.Errorf("dynamic config: %w", err)
-		}
+	dc, err := dynamicConfigClient(cfg, configDir, logger, temporal.InterruptCh())
+	if err != nil {
+		return err
 	}
 
 	s, err := newServer(cfg, logger, dc, temporal.InterruptOn(temporal.InterruptCh()))
@@ -99,10 +93,27 @@ func run(configDir, env, zone string, boot bool) error {
 	return s.Start()
 }
 
+// dynamicConfigClient reads the dynamic config file the config names, relative
+// to configDir. With none named there are no values, and checkSecurityConfig
+// refuses to start (D6-K needs explicit values).
+func dynamicConfigClient(cfg *config.Config, configDir string, logger log.Logger, done <-chan interface{}) (dynamicconfig.Client, error) {
+	if cfg.DynamicConfigClient == nil {
+		return dynamicconfig.NewNoopClient(), nil
+	}
+	if !filepath.IsAbs(cfg.DynamicConfigClient.Filepath) {
+		cfg.DynamicConfigClient.Filepath = filepath.Join(configDir, cfg.DynamicConfigClient.Filepath)
+	}
+	dc, err := dynamicconfig.NewFileBasedClient(cfg.DynamicConfigClient, logger, done)
+	if err != nil {
+		return nil, fmt.Errorf("dynamic config: %w", err)
+	}
+	return dc, nil
+}
+
 // newServer builds the server with the nava Authorizer and ClaimMapper. It
-// refuses a config that weakens them (see checkConfig).
+// refuses a config that weakens them (see checkSecurityConfig).
 func newServer(cfg *config.Config, logger log.Logger, dc dynamicconfig.Client, extra ...temporal.ServerOption) (temporal.Server, error) {
-	if err := checkConfig(cfg, dc); err != nil {
+	if err := checkSecurityConfig(cfg, dc); err != nil {
 		return nil, err
 	}
 	dc = guardedClient{dc}

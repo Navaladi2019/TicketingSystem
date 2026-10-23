@@ -85,6 +85,8 @@ services:
   frontend:
     rpc:
       grpcPort: 7233
+      # D6-K: the HTTP API stays off; checkSecurityConfig refuses a non-zero port.
+      httpPort: 0
       membershipPort: 6933
       bindOnIP: "{{ $frontendIP }}"
   matching:

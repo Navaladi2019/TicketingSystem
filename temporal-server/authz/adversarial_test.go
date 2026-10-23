@@ -10,6 +10,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"fmt"
 	"math/big"
 	"net"
 	"testing"
@@ -31,7 +32,14 @@ type anyNamespace struct{}
 
 func (anyNamespace) Exists(namespace.Name) error { return nil }
 
-func newTestInterceptor() *authorization.Interceptor {
+// newTestInterceptor wires the interceptor the way the server runs it: the
+// shipped D6-K values (ADR-001 A1).
+func newTestInterceptor() *authorization.Interceptor { return newInterceptor(false) }
+
+// newInterceptor passes v1.29.7's three trailing dynamic-config arguments in
+// order: (exposeAuthorizerErrors, enableCrossNamespaceCommands,
+// disableStreamingAuthorizer).
+func newInterceptor(crossNamespaceCommands bool) *authorization.Interceptor {
 	return authorization.NewInterceptor(
 		ClaimMapper{},
 		NewAuthorizer(log.NewNoopLogger(), metrics.NoopMetricsHandler),
@@ -39,8 +47,9 @@ func newTestInterceptor() *authorization.Interceptor {
 		log.NewNoopLogger(),
 		anyNamespace{},
 		nil, "", "",
-		func() bool { return true },  // system.enableCrossNamespaceCommands (server default)
-		func() bool { return false }, // system.disableStreamingAuthorizer (server default)
+		func() bool { return false },                  // frontend.exposeAuthorizerErrors
+		func() bool { return crossNamespaceCommands }, // system.enableCrossNamespaceCommands
+		func() bool { return false },                  // system.disableStreamingAuthorizer
 	)
 }
 
@@ -60,7 +69,12 @@ func peerCtx(cn string, verified bool) context.Context {
 
 func callUnary(t *testing.T, ctx context.Context, method string, req any) (called bool, err error) {
 	t.Helper()
-	_, err = newTestInterceptor().Intercept(ctx, req, &grpc.UnaryServerInfo{FullMethod: method},
+	return callUnaryWith(t, newTestInterceptor(), ctx, method, req)
+}
+
+func callUnaryWith(t *testing.T, ic *authorization.Interceptor, ctx context.Context, method string, req any) (called bool, err error) {
+	t.Helper()
+	_, err = ic.Intercept(ctx, req, &grpc.UnaryServerInfo{FullMethod: method},
 		func(context.Context, any) (any, error) { called = true; return nil, nil })
 	return called, err
 }
@@ -102,8 +116,19 @@ func TestAdversarialNamespaceLookalikesDenied(t *testing.T) {
 
 // A compromised worker certificate cannot use workflow-task commands to start,
 // signal or cancel in another namespace (e.g. the system namespace), while the
-// same commands inside `nava` pass only for the task's own tenant.
+// same commands inside `nava` pass only for the task's own tenant. The denial
+// must not depend on system.enableCrossNamespaceCommands (CI-F): with it on,
+// the interceptor re-authorizes the target namespace; with it off (shipped),
+// only the Authorizer's command inspection stands.
 func TestAdversarialWorkerCrossNamespaceCommandsDenied(t *testing.T) {
+	for _, crossNS := range []bool{true, false} {
+		t.Run(fmt.Sprintf("enableCrossNamespaceCommands=%v", crossNS), func(t *testing.T) {
+			testWorkerCrossNamespaceCommands(t, newInterceptor(crossNS))
+		})
+	}
+}
+
+func testWorkerCrossNamespaceCommands(t *testing.T, ic *authorization.Interceptor) {
 	commands := map[string]*commandpb.Command{
 		"start child": {
 			CommandType: enumspb.COMMAND_TYPE_START_CHILD_WORKFLOW_EXECUTION,
@@ -123,7 +148,7 @@ func TestAdversarialWorkerCrossNamespaceCommandsDenied(t *testing.T) {
 	}
 	for name, cmd := range commands {
 		t.Run(name, func(t *testing.T) {
-			called, err := callUnary(t, peerCtx(string(Worker), true), wf+"RespondWorkflowTaskCompleted",
+			called, err := callUnaryWith(t, ic, peerCtx(string(Worker), true), wf+"RespondWorkflowTaskCompleted",
 				&workflowservice.RespondWorkflowTaskCompletedRequest{Namespace: Namespace, Commands: []*commandpb.Command{cmd}})
 			requireDenied(t, called, err)
 		})
@@ -131,13 +156,13 @@ func TestAdversarialWorkerCrossNamespaceCommandsDenied(t *testing.T) {
 
 	// Inside `nava`, a same-tenant child passes; another tenant's is denied (T27b).
 	tok := taskToken(t, "t:tenantA:parent")
-	called, err := callUnary(t, peerCtx(string(Worker), true), wf+"RespondWorkflowTaskCompleted",
+	called, err := callUnaryWith(t, ic, peerCtx(string(Worker), true), wf+"RespondWorkflowTaskCompleted",
 		&workflowservice.RespondWorkflowTaskCompletedRequest{Namespace: Namespace, TaskToken: tok,
 			Commands: []*commandpb.Command{startChild(Namespace, "t:tenantA:child")}})
 	if err != nil || !called {
 		t.Fatalf("same-tenant child denied: err=%v called=%v", err, called)
 	}
-	called, err = callUnary(t, peerCtx(string(Worker), true), wf+"RespondWorkflowTaskCompleted",
+	called, err = callUnaryWith(t, ic, peerCtx(string(Worker), true), wf+"RespondWorkflowTaskCompleted",
 		&workflowservice.RespondWorkflowTaskCompletedRequest{Namespace: Namespace, TaskToken: tok,
 			Commands: []*commandpb.Command{startChild(Namespace, "t:tenantB:child")}})
 	requireDenied(t, called, err)

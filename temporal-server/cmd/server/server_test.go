@@ -21,7 +21,6 @@ import (
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/server/api/adminservice/v1"
 	"go.temporal.io/server/common/config"
-	"go.temporal.io/server/common/dynamicconfig"
 	"go.temporal.io/server/common/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -182,7 +181,14 @@ func startInProcess(t *testing.T) (addr, certDir, metricsURL string) {
 	if err != nil {
 		t.Fatalf("load dev config: %v", err)
 	}
-	s, err := newServer(cfg, log.NewNoopLogger(), dynamicconfig.NewNoopClient())
+	// The shipped dynamic config, so the suite runs with the D6-K values.
+	done := make(chan interface{})
+	t.Cleanup(func() { close(done) })
+	dc, err := dynamicConfigClient(cfg, configDir, log.NewNoopLogger(), done)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := newServer(cfg, log.NewNoopLogger(), dc)
 	if err != nil {
 		t.Fatal(err)
 	}

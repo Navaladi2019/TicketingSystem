@@ -1,6 +1,20 @@
 # Dynamic config for the compose Temporal server.
-# Schedules are not part of the M1 contract: refuse them in the frontend as well
-# as in the Authorizer. system.disableStreamingAuthorizer must never appear here:
-# the server refuses to start on it, and ignores it if added later.
+# D6-K (ADR-001 A1): every key below is set explicitly to its shipped value,
+# and checkSecurityConfig refuses to start if any value of one of them, per
+# namespace included, is not false. The cross-namespace, batcher, scheduler and
+# schedules keys default to true in the server, so leaving one out refuses too.
+# Keep temporal-server/config/dynamicconfig/development.yaml in step.
+system.disableStreamingAuthorizer:
+  - value: false
+frontend.exposeAuthorizerErrors:
+  - value: false
+system.enableCrossNamespaceCommands:
+  - value: false
+worker.enableNamespaceBatcher:
+  - value: false
+worker.enableScheduler:
+  - value: false
 frontend.enableSchedules:
+  - value: false
+frontend.enableBatcher:
   - value: false

@@ -1,7 +1,8 @@
 # Custom Temporal server (`temporal-server/`)
 
 ADR-001 D22 and Annex A.2, plan task T27a. A separate Go module (R7) that builds
-Temporal `go.temporal.io/server` v1.28.4 + `go.temporal.io/api` v1.50.1 with a
+Temporal `go.temporal.io/server` v1.29.7 + `go.temporal.io/api` v1.53.0 (ADR-001-A1;
+main schema 1.18, visibility 1.9) with a
 deny-by-default Authorizer and a certificate ClaimMapper, plus worker command
 inspection (T27b, ADR-001 erratum E1, tightened by T27c) and the D9 workload
 allow-list (T27e, ADR-001-A1). Compose wiring (T28) is in `compose.yaml` and `deploy/compose/README.md`.
@@ -109,6 +110,19 @@ and `AdminService` gRPC descriptors at the pinned versions and fails if:
 `gomod_test.go` fails on any `replace`, any dependency on a platform module, a
 direct `go.temporal.io/sdk` dependency, or a moved pin.
 
+The five methods new at api v1.53.0 (`DescribeWorker`, `FetchWorkerConfig`,
+`UpdateWorkerConfig`, `SetWorkerDeploymentManager`, `UpdateTaskQueueConfig`)
+are in `deniedByDefault`, `DescribeWorker` included even though the operator's
+`Describe*` rule would match it (ADR-001-A1, TICK-121). api v1.53.0 adds no
+command type.
+
+## Vulnerability gate
+
+`make vulncheck-temporal-server` is a required step of the `temporal-server` CI
+job and of `make ci-lint`. It must report zero findings. There is no exception
+and no allowlist (ADR-001-A1 Decision 3): a finding is a new decision for the
+triad, not a pin bump in passing.
+
 ## Observability
 
 Each API deny logs `Temporal API call denied` (warn) with `identity`, `api`,
@@ -156,14 +170,37 @@ make temporal-server-run         # dev certs + run the image on :7233 (in-memory
 The `nava` namespace can only be registered with the `temporal-system`
 certificate; no other identity may call `RegisterNamespace`.
 
-## Startup refusals (T28)
+## Startup refusals (T28; D6-K, ADR-001-A1)
 
-`checkConfig` refuses to start when: frontend `requireClientAuth` is false; the
-frontend client CA is not a self-signed root with path length 0; the same CA is
-trusted on frontend and internode (internode ports have no Authorizer, so it has
-its own CA and certificate); `services.frontend.rpc.httpPort` is set;
-`system.disableStreamingAuthorizer` is true (the dynamic config client also hides
-that key, so a later file edit cannot enable it). The operator's admin
+`checkSecurityConfig` (`cmd/server/check.go`) refuses to start when: frontend
+`requireClientAuth` is false; the frontend client CA is not a self-signed root
+with path length 0; the same CA is trusted on frontend and internode (internode
+ports have no Authorizer, so it has its own CA and certificate); or any D6-K
+setting breaks its rule. Each D6-K refusal is a `*SecurityConfigError` naming
+the key.
+
+| Key | Refuse start if | Shipped |
+|---|---|---|
+| `system.disableStreamingAuthorizer` | `true` | `false` |
+| `frontend.exposeAuthorizerErrors` | `true` | `false` |
+| `system.enableCrossNamespaceCommands` | not `false` (missing refuses) | `false` |
+| `worker.enableNamespaceBatcher` | not `false` (missing refuses) | `false` |
+| `worker.enableScheduler` | not `false` (missing refuses) | `false` |
+| `frontend.enableSchedules` | not `false` (missing refuses) | `false` |
+| `frontend.enableBatcher` | not `false` (missing refuses) | `false` |
+| `services.frontend.rpc.httpPort` (static) | non-zero | `0` |
+
+Every value of a key counts, per-namespace constrained ones included, and a
+value is read the way the server reads it (`"true"` as a string is true; a
+non-bool refuses). "Missing" means no unconstrained value: a namespace-only
+`false` leaves every other namespace on the server default, `true`. The guard
+holds each key by its Go symbol (`dynamicconfig.EnableBatcherNamespace.Key()`
+and so on), so a key renamed by a Temporal upgrade fails to compile.
+`config/dynamicconfig/development.yaml` and
+`deploy/compose/temporal/config/dynamicconfig/compose.yaml` set every key
+explicitly. The check runs once at startup (residual RS2); the dynamic config
+client also hides `system.disableStreamingAuthorizer`, so a later file edit
+cannot enable it. The operator's admin
 `GetWorkflowExecutionRawHistory[V2]` calls are denied: they skip the namespace
 gate and `GetWorkflowExecutionHistory` covers the need.
 

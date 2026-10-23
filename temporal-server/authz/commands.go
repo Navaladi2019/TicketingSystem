@@ -53,7 +53,7 @@ const (
 	commandStickyAttributes = "StickyAttributes"
 )
 
-// commandNames is every command type of go.temporal.io/api v1.50.1, by the name
+// commandNames is every command type of go.temporal.io/api v1.53.0 (unchanged since v1.50.1), by the name
 // used for the `command` metric tag and log field. A type added by a later API
 // version is tagged `unknown` (and denied, since it is not in allowedCommands).
 var commandNames = map[enumspb.CommandType]string{
