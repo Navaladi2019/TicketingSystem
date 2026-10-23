@@ -3,7 +3,7 @@
 Delivery decisions that change a task's contract, newest first.
 
 ## 2026-10-23: PLAN-001-A2 splits ADR-001-A2 delivery into three tasks; R-CORE gates the first nava-core Temporal call
-- **Decided by:** the Technical Lead on TICK-130 (`docs/delivery/plan-adr-001-a2.md`). ADR-001-A2 was approved by nava on TICK-129 (2026-10-23).
+- **Decided by:** the Technical Lead on TICK-130 (`docs/delivery/plan-adr-001-a2.md`). Approved by nava on TICK-130 (2026-10-23). ADR-001-A2 was approved by nava on TICK-129 (2026-10-23).
 - **Decision:** the ADR's single `core-dev` acceptance becomes three PRs under S7 (TICK-49), each waiting for PR #38 to merge:
   - T27i (TICK-131): D9b+, D9d (both clauses), D9e, D9f and D9g. Un-skips F2-1 to F2-6.
   - T27j (TICK-132), in parallel: the D6-K row `frontend.enableTokenNamespaceEnforcement` must be `true`. Un-skips F2-3b.

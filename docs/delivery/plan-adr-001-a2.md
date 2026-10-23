@@ -4,7 +4,7 @@ id: PLAN-001-A2
 title: Implementing ADR-001 amendment A2 (erratum E2, amendment A2, F2 closure)
 adr: "[[ADR-001-A2-f2-system-workflow-reach]] (APPROVED by nava 2026-10-23, TICK-129; PR #38)"
 issue: TICK-130
-status: PROPOSED
+status: APPROVED by nava 2026-10-23 (TICK-130)
 date: 2026-10-23
 owner: Technical Lead
 ---
