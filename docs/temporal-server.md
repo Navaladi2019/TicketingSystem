@@ -198,9 +198,11 @@ holds each key by its Go symbol (`dynamicconfig.EnableBatcherNamespace.Key()`
 and so on), so a key renamed by a Temporal upgrade fails to compile.
 `config/dynamicconfig/development.yaml` and
 `deploy/compose/temporal/config/dynamicconfig/compose.yaml` set every key
-explicitly. The check runs once at startup (residual RS2); the dynamic config
-client also hides `system.disableStreamingAuthorizer`, so a later file edit
-cannot enable it. The operator's admin
+explicitly. The check runs once at startup, on a snapshot of the seven
+dynamic-config keys that the server then keeps for its whole life (RS2): a
+later edit of the file cannot change any of them, while every other key still
+reloads. Hiding a key would not do, because most default to `true`. The
+operator's admin
 `GetWorkflowExecutionRawHistory[V2]` calls are denied: they skip the namespace
 gate and `GetWorkflowExecutionHistory` covers the need.
 
