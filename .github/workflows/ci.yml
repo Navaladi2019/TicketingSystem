@@ -4,7 +4,8 @@
 #   lint             gofmt, go vet, golangci-lint, fixtures, pins, OpenAPI,
 #                    govulncheck (no containers)
 #   unit             go test -race (no containers)
-#   temporal-server  the custom server module's unit tests (no containers)
+#   temporal-server  the custom server module's unit tests and govulncheck
+#                    (no containers)
 #   integration      -tags integration against a throwaway PostgreSQL
 #   stack            image build, compose up, smoke, platform and Temporal tests
 #   stack-db         a second stack: db-roles/migrate idempotency, role and hba tests
@@ -123,6 +124,11 @@ jobs:
             go-${{ github.job }}-
       - name: temporal-server unit tests
         run: make temporal-server-test
+      - name: Install govulncheck
+        run: make tools-govulncheck
+      # ADR-001 A1 Decision 3: zero findings, no exception and no allowlist.
+      - name: govulncheck (temporal-server)
+        run: make vulncheck-temporal-server
 
   integration:
     runs-on: ubuntu-latest
