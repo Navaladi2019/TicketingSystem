@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -15,19 +16,34 @@ import (
 	"go.temporal.io/server/common/dynamicconfig"
 )
 
-// disableStreamingAuthorizerKey turns off the Authorizer on streaming calls.
-var disableStreamingAuthorizerKey = dynamicconfig.DisableStreamingAuthorizer.Key()
+// guardedClient pins the D6-K keys to a snapshot taken at startup, so that
+// editing the dynamic config file afterwards cannot change them (RS2). Hiding a
+// key is not enough: most D6-K keys default to true in the server. Every other
+// key passes through to the wrapped client.
+type guardedClient struct {
+	dynamicconfig.Client
+	pinned map[string][]dynamicconfig.ConstrainedValue
+}
 
-// guardedClient hides disableStreamingAuthorizerKey, so that editing the
-// dynamic config file after the startup check cannot switch it on.
-type guardedClient struct{ dynamicconfig.Client }
+// newGuardedClient snapshots every D6-K key of dc. newServer validates the
+// snapshot itself, so the values the server runs with are the checked ones.
+func newGuardedClient(dc dynamicconfig.Client) guardedClient {
+	g := guardedClient{Client: dc, pinned: make(map[string][]dynamicconfig.ConstrainedValue, len(d6kKeys))}
+	for _, k := range d6kKeys {
+		g.pinned[pinKey(k.key)] = slices.Clone(dc.GetValue(k.key))
+	}
+	return g
+}
 
 func (g guardedClient) GetValue(key dynamicconfig.Key) []dynamicconfig.ConstrainedValue {
-	if strings.EqualFold(string(key), string(disableStreamingAuthorizerKey)) {
-		return nil
+	if v, ok := g.pinned[pinKey(key)]; ok {
+		return slices.Clone(v)
 	}
 	return g.Client.GetValue(key)
 }
+
+// pinKey normalises a key the way the file client does: keys are case-insensitive.
+func pinKey(k dynamicconfig.Key) string { return strings.ToLower(k.String()) }
 
 // guardedKey is one dynamic-config row of the D6-K table (ADR-001 A1). Every
 // value of the key, per-namespace constrained values included, must be false.

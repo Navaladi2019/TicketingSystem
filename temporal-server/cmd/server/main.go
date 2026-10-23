@@ -111,12 +111,14 @@ func dynamicConfigClient(cfg *config.Config, configDir string, logger log.Logger
 }
 
 // newServer builds the server with the nava Authorizer and ClaimMapper. It
-// refuses a config that weakens them (see checkSecurityConfig).
+// refuses a config that weakens them (see checkSecurityConfig) and pins the
+// D6-K keys at their checked values (see guardedClient).
 func newServer(cfg *config.Config, logger log.Logger, dc dynamicconfig.Client, extra ...temporal.ServerOption) (temporal.Server, error) {
-	if err := checkSecurityConfig(cfg, dc); err != nil {
+	// Check the snapshot the server will run with, not a second read of the file.
+	g := newGuardedClient(dc)
+	if err := checkSecurityConfig(cfg, g); err != nil {
 		return nil, err
 	}
-	dc = guardedClient{dc}
 	mh, err := metrics.MetricsHandlerFromConfig(logger, cfg.Global.Metrics)
 	if err != nil {
 		return nil, fmt.Errorf("metrics: %w", err)
@@ -126,7 +128,7 @@ func newServer(cfg *config.Config, logger log.Logger, dc dynamicconfig.Client, e
 		temporal.WithConfig(cfg),
 		temporal.WithLogger(logger),
 		temporal.WithCustomMetricsHandler(mh),
-		temporal.WithDynamicConfigClient(dc),
+		temporal.WithDynamicConfigClient(g),
 		temporal.WithAuthorizer(authz.NewAuthorizer(logger, mh)),
 		temporal.WithClaimMapper(func(*config.Config) authorization.ClaimMapper { return authz.ClaimMapper{} }),
 	}, extra...)

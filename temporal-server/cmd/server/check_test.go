@@ -222,13 +222,91 @@ func TestShippedDynamicConfigStarts(t *testing.T) {
 	}
 }
 
-func TestGuardedClientIgnoresDisableStreamingAuthorizer(t *testing.T) {
-	dc := guardedClient{staticDC{disableStreamingAuthorizerKey: true, "other.key": 1}}
-	if got := dc.GetValue("System.DisableStreamingAuthorizer"); len(got) != 0 {
-		t.Errorf("guarded client returned %v", got)
+// RS2: after startup, a rewrite of the dynamic config file cannot change a
+// D6-K key, while every other key is still picked up. Reads the shipped file
+// with the server's file client and waits for a real poll.
+func TestGuardedClientPinsD6KKeysAtRuntime(t *testing.T) {
+	shipped, err := os.ReadFile(filepath.Join("..", "..", "config", "dynamicconfig", "development.yaml"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := dc.GetValue("other.key"); len(got) != 1 {
-		t.Errorf("guarded client dropped an unrelated key: %v", got)
+	path := filepath.Join(t.TempDir(), "dynamicconfig.yaml")
+	if err := os.WriteFile(path, shipped, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const poll = 5 * time.Second // the file client's minimum
+	done := make(chan interface{})
+	defer close(done)
+	file, err := dynamicconfig.NewFileBasedClient(&dynamicconfig.FileBasedClientConfig{
+		Filepath: path, PollInterval: poll,
+	}, log.NewNoopLogger(), done)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dc := newGuardedClient(file)
+	if err := checkSecurityConfig(validConfig(t), dc); err != nil {
+		t.Fatalf("shipped file refused: %v", err)
+	}
+
+	other := dynamicconfig.FrontendRPS.Key()
+	var flipped strings.Builder
+	for _, tc := range d6kCases {
+		flipped.WriteString(tc.key.String() + ":\n  - value: true\n")
+	}
+	flipped.WriteString(other.String() + ":\n  - value: 1234\n")
+	if err := os.WriteFile(path, []byte(flipped.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// The file client reloads only on a newer modification time.
+	future := time.Now().Add(time.Minute)
+	if err := os.Chtimes(path, future, future); err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait until the file client has loaded the rewrite.
+	for deadline := time.Now().Add(3 * poll); ; time.Sleep(100 * time.Millisecond) {
+		if v := file.GetValue(other); len(v) == 1 && v[0].Value == 1234 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the file client did not reload %s within %v", path, 3*poll)
+		}
+	}
+
+	t.Run("non-D6-K key passes through", func(t *testing.T) {
+		if got := dc.GetValue(other); len(got) != 1 || got[0].Value != 1234 {
+			t.Errorf("%s = %+v, want the new value 1234", other, got)
+		}
+	})
+	for _, tc := range d6kCases {
+		t.Run(tc.key.String(), func(t *testing.T) {
+			if got := file.GetValue(tc.key); len(got) != 1 || got[0].Value != true {
+				t.Fatalf("file client has %+v, want the rewritten true", got)
+			}
+			for _, k := range []dynamicconfig.Key{tc.key, dynamicconfig.Key(strings.ToUpper(tc.key.String()))} {
+				if got := dc.GetValue(k); len(got) != 1 || got[0].Value != false {
+					t.Errorf("GetValue(%s) = %+v, want the startup value false", k, got)
+				}
+			}
+		})
+	}
+}
+
+// The snapshot is taken once: a caller that changes the returned slice does not
+// change what the server reads next, and a key missing at startup stays missing.
+func TestGuardedClientSnapshotIsImmutable(t *testing.T) {
+	src := shippedDC()
+	delete(src, dynamicconfig.ExposeAuthorizerErrors.Key())
+	dc := newGuardedClient(src)
+	key := dynamicconfig.EnableCrossNamespaceCommands.Key()
+	dc.GetValue(key)[0].Value = true
+	src[key] = true
+	src[dynamicconfig.ExposeAuthorizerErrors.Key()] = true
+	if got := dc.GetValue(key); len(got) != 1 || got[0].Value != false {
+		t.Errorf("%s = %+v, want false", key, got)
+	}
+	if got := dc.GetValue(dynamicconfig.ExposeAuthorizerErrors.Key()); len(got) != 0 {
+		t.Errorf("a key missing at startup came back as %+v", got)
 	}
 }
 
