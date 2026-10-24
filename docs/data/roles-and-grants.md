@@ -99,7 +99,8 @@ every grant.
 - Default `USAGE` on new types still goes to PUBLIC; A.3 revokes only function
   `EXECUTE`. CI-3 (T10) decides whether types count as platform objects.
 - The post-run RLS/FORCE check belongs to T10. Per-table grants and policies
-  for the D28 roles arrive with T09 and T16.
+  for the D28 roles arrive with T09 ([platform-tables.md](platform-tables.md))
+  and T16.
 - PUBLIC keeps `CONNECT` on the `postgres` maintenance database, which is not
   in the manifest. `pg_hba` already refuses `pgadmin` and `nava_backup` there
   over TCP.
