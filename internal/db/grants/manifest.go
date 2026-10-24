@@ -288,3 +288,10 @@ func sortedKeys[V any](m map[string]V) []string {
 	sort.Strings(keys)
 	return keys
 }
+
+// SplitTable splits a manifest table name, "schema.table" or a bare "table"
+// (schema public).
+func SplitTable(t string) (schema, table string, err error) { return splitTable(t) }
+
+// NormalizeFunction qualifies a bare manifest function with public.
+func NormalizeFunction(f string) (string, error) { return normalizeFunction(f) }

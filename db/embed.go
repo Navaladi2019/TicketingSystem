@@ -13,6 +13,9 @@ var migrations embed.FS
 //go:embed grants.yaml
 var grants []byte
 
+//go:embed global-tables.yaml
+var globalTables []byte
+
 // Migrations returns the goose migration files, rooted at the migrations directory.
 func Migrations() fs.FS {
 	sub, err := fs.Sub(migrations, "migrations")
@@ -24,3 +27,6 @@ func Migrations() fs.FS {
 
 // Grants returns db/grants.yaml.
 func Grants() []byte { return grants }
+
+// GlobalTables returns db/global-tables.yaml.
+func GlobalTables() []byte { return globalTables }

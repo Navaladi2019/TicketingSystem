@@ -60,8 +60,12 @@ cto_signoff:
     # The isolation registry.
     - internal/tenancy/isolation/registry.go
     - internal/tenancy/isolation/registry.yaml
-    # The RLS allow-list (ADR-001 A.3, CI-1).
+    # The RLS allow-list (ADR-001 A.3, CI-1). T09 pinned it in Go; T10 moved
+    # it into the catalogue gate, which enforces it after every migrator run.
     - db/rls-allowlist.yaml
+    - internal/db/catalog/policy.go
+    # Tenant tables are every platform table not listed here (D-P16).
+    - db/global-tables.yaml
   # Registered isolation tests: removing one of these files, adding a
   # t.Skip / t.SkipNow / t.Skipf / testing.Short() guard to one, or adding or
   # changing a build constraint (`//go:build ignore` and the like) that can

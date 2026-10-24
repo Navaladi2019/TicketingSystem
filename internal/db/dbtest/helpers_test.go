@@ -31,6 +31,7 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/Navaladi2019/TicketingSystem/db"
+	"github.com/Navaladi2019/TicketingSystem/internal/db/catalog"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/grants"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/migrate"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/roles"
@@ -159,16 +160,34 @@ func freshCluster(t *testing.T) *grants.Manifest {
 	return m
 }
 
+func globalTables(t *testing.T) *catalog.GlobalTables {
+	t.Helper()
+	g, err := catalog.ParseGlobalTables(db.GlobalTables())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return g
+}
+
 // migrateAll runs the migrator, as nava_migrator, with the real migrations.
+// The catalogue gate runs at the end of every run, so every test that
+// migrates also proves the real migrations pass it.
 func migrateAll(t *testing.T, m *grants.Manifest) migrate.Result {
 	t.Helper()
-	log, _ := newLog()
-	res, err := migrate.Run(context.Background(), roleConfig(t, m.Owner(), m.PlatformDatabase),
-		db.Migrations(), m, log, migrate.Options{LockRetrySeconds: 1})
+	res, err := migrateFS(t, m, db.Migrations())
 	if err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	return res
+}
+
+// migrateFS runs the migrator, as nava_migrator, with fsys and
+// db/global-tables.yaml.
+func migrateFS(t *testing.T, m *grants.Manifest, fsys fs.FS) (migrate.Result, error) {
+	t.Helper()
+	log, _ := newLog()
+	return migrate.Run(context.Background(), roleConfig(t, m.Owner(), m.PlatformDatabase),
+		fsys, m, globalTables(t), log, migrate.Options{LockRetrySeconds: 1})
 }
 
 // connectErr connects and closes, returning the connection error.
