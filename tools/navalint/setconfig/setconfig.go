@@ -9,6 +9,13 @@
 // set_config(..., false) leaks (TICK-61 decision 2026-10-24). Its non-test
 // files, and any other package named dbtest, are not.
 //
+// internal/db/catalog may read the setting, nothing more: the catalogue gate
+// compares every policy against the deparsed predicate
+// current_setting('app.tenant_id'::text, true) (T10, TICK-149). In that one
+// package a constant is checked with its current_setting('app.tenant_id')
+// reads removed, so set_config and a SET of app.tenant_id are still reported,
+// in the same constant or alone. Reads anywhere else are still reported.
+//
 // SQL files are not Go source and are not checked: the row-level security
 // policies under db/ read current_setting('app.tenant_id') by design.
 //
@@ -21,6 +28,7 @@ import (
 	"go/ast"
 	"go/constant"
 	"go/token"
+	"regexp"
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
@@ -29,11 +37,19 @@ import (
 // TenancyPkg is the one package allowed to use the needles, with its tests.
 const TenancyPkg = "github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 
-// needles are matched case-insensitively: SQL keywords and function names
-// are, and quoted "app.tenant_id" is the same setting.
 // PolicyTestPkg is the package whose _test.go files may use the needles.
 const PolicyTestPkg = "github.com/Navaladi2019/TicketingSystem/internal/db/dbtest"
 
+// CatalogPkg is the package, with its tests, that may read app.tenant_id
+// with current_setting.
+const CatalogPkg = "github.com/Navaladi2019/TicketingSystem/internal/db/catalog"
+
+// tenantRead is a current_setting read of app.tenant_id as written by hand or
+// deparsed by PostgreSQL, matched against the lowered constant.
+var tenantRead = regexp.MustCompile(`current_setting\s*\(\s*'app\.tenant_id'(::text)?`)
+
+// needles are matched case-insensitively: SQL keywords and function names
+// are, and quoted "app.tenant_id" is the same setting.
 var needles = []string{"set_config", "app.tenant_id"}
 
 // Analyzer reports the needles in string constants outside TenancyPkg.
@@ -66,7 +82,7 @@ func run(pass *analysis.Pass) (any, error) {
 			if !ok || tv.Value == nil || tv.Value.Kind() != constant.String {
 				return true
 			}
-			if needle := match(constant.StringVal(tv.Value)); needle != "" {
+			if needle := match(constant.StringVal(tv.Value), path == CatalogPkg); needle != "" {
 				report(pass, e.Pos(), needle)
 			}
 			// The outermost constant is reported once; its parts are not
@@ -77,8 +93,13 @@ func run(pass *analysis.Pass) (any, error) {
 	return nil, nil
 }
 
-func match(s string) string {
+// match returns the first needle in s; with reads, current_setting reads of
+// app.tenant_id are not counted.
+func match(s string, reads bool) string {
 	s = strings.ToLower(s)
+	if reads {
+		s = tenantRead.ReplaceAllString(s, "")
+	}
 	for _, n := range needles {
 		if strings.Contains(s, n) {
 			return n

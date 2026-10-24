@@ -1,4 +1,6 @@
-TEMPORAL_SERVER_IMAGE ?= nava/temporal-server:dev
+# Tag of the nava/* images compose.yaml builds; `make ci-isolated` sets one per run.
+export NAVA_IMAGE_TAG ?= dev
+TEMPORAL_SERVER_IMAGE ?= nava/temporal-server:$(NAVA_IMAGE_TAG)
 
 .PHONY: temporal-server-test temporal-server-image temporal-server-dev-certs temporal-server-run dev-ca operator-tunnel
 
@@ -25,8 +27,10 @@ temporal-server-run: temporal-server-dev-certs
 #
 # Gates, in order (each stage stops the run when it fails):
 #   ci-lint         gofmt, go vet, golangci-lint (+ fixture), check-taskfile,
-#                   check-pins, check-openapi, govulncheck (both modules). No containers.
-#   ci-unit         go test -race ./..., temporal-server unit tests. No containers.
+#                   check-pins, check-openapi, govulncheck (both modules, once a
+#                   day per dependency set). No containers.
+#   ci-unit         go test -race ./... (one at a time per host), temporal-server
+#                   unit tests. No containers.
 #   ci-integration  -tags integration against a throwaway PostgreSQL (Docker).
 #   ci-stack        image build, compose up, GET /healthz smoke, stack tests.
 
@@ -36,7 +40,7 @@ GOLANGCI_LINT_VERSION := 2.14.0
 GOVULNCHECK_VERSION := v1.9.0
 
 .PHONY: build run test test-integration lint generate check-openapi
-.PHONY: ci ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity 	image image-ci stack-up stack-down stack-logs stack-internal smoke
+.PHONY: ci ci-isolated ci-changed ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity 	image image-ci stack-up stack-down stack-logs stack-internal stack-internal-beside stack-main ci-stack-run stack-tests smoke
 
 build:
 	go build -o bin/nava-core ./cmd/nava-core
@@ -48,9 +52,14 @@ run:
 
 # The navalint analyzers are their own module (tools/navalint), so ./...
 # does not reach them.
+# -trimpath keeps the checkout path out of the build and test cache keys, so a
+# new checkout reuses the cached results (TICK-153 O5). Not for navalint: it
+# makes its analysistest runs slower. racelock: one go test -race at a time on
+# the host, across every checkout and agent (TICK-153 D3); NAVA_RACE_LOCK=off
+# skips it.
 test:
-	go test -race ./...
-	go -C tools/navalint test -race ./...
+	go run ./tools/ci/racelock -- go test -race -trimpath ./...
+	go run ./tools/ci/racelock -- go -C tools/navalint test -race ./...
 
 # Every package with `//go:build integration` tests, against a throwaway
 # postgres container the script starts and removes (needs Docker). Pass
@@ -79,7 +88,29 @@ check-openapi:
 
 ci: ci-lint ci-unit ci-integration ci-stack
 
-ci-lint: check-tools fmt-check vet lint lint-fixture check-taskfile check-pins check-openapi vulncheck vulncheck-temporal-server
+# The four stages on a stack of its own, so several PRs run at once on one
+# Docker host (TICK-147, docs/quality/ci-pipeline.md "Parallel runs"): compose
+# project nava-<ID>, image tag <ID>, host ports derived from ID. Removes its
+# own containers, volumes, networks and image tags on exit, nothing shared.
+ci-isolated:
+	@[ -n "$(ID)" ] || { echo "usage: make ci-isolated ID=<pr-or-sha>"; exit 2; }
+	sh scripts/ci/ci-isolated.sh $(ID)
+
+# ci-isolated with only the stages the change against BASE needs
+# (tools/ci/cichanged, TICK-153 O7): docs only is ci-lint, a package no
+# integration test, image or stack test depends on skips those stages, and a
+# file no rule knows runs all four.
+ci-changed:
+	@[ -n "$(ID)" ] || { echo "usage: make ci-changed ID=<pr-or-sha>"; exit 2; }
+	@stages=$$(go run ./tools/ci/cichanged -v -base $(BASE)) && echo "ci-changed: $$stages" && \
+		STAGES="$$stages" sh scripts/ci/ci-isolated.sh $(ID)
+
+# Tears down what a killed ci-isolated run left behind (its own project and tags).
+ci-isolated-down:
+	@[ -n "$(ID)" ] || { echo "usage: make ci-isolated-down ID=<pr-or-sha>"; exit 2; }
+	sh scripts/ci/ci-isolated.sh --down $(ID)
+
+ci-lint: check-tools fmt-check vet lint lint-fixture check-taskfile check-pins check-openapi vulncheck-ci
 
 ci-unit: test temporal-server-test
 
@@ -88,9 +119,54 @@ ci-integration: test-integration
 # Builds the images, brings the stack up, runs every stack test, then tears
 # it down (logs first on failure). The workflow runs the same targets one step
 # at a time.
-STACK_TESTS := healthy smoke pgbouncer temporal temporal_handshake temporal_isolation temporal_custody temporal_operator_reach temporal_health sdk identity dependencies trace logs redact idempotent dbroles hba
-ci-stack: image
-	@status=0; $(MAKE) --no-print-directory stack-up $(addprefix stack-test-,$(STACK_TESTS)) stack-internal || status=$$?; 	if [ $$status -ne 0 ]; then $(MAKE) --no-print-directory stack-logs; fi; 	$(MAKE) --no-print-directory stack-down; exit $$status
+# healthy gates the rest. The read-only checks and the two Go suites then run
+# at once (TICK-153 O10): none changes what another reads, and each matches
+# only lines it caused. The rest run one at a time, in this order: dependencies
+# stops Keycloak, trace counts every trace the Collector saw, idempotent
+# restarts the stack, and dbroles changes roles.
+STACK_TESTS_PARALLEL := smoke pgbouncer temporal temporal_handshake temporal_isolation temporal_custody temporal_operator_reach temporal_health hba sdk identity
+STACK_TESTS_SERIAL := dependencies trace logs redact idempotent dbroles
+STACK_TESTS := healthy $(STACK_TESTS_PARALLEL) $(STACK_TESTS_SERIAL)
+stack-tests:
+	$(MAKE) --no-print-directory -j1 stack-test-healthy
+	$(MAKE) --no-print-directory -j $(words $(STACK_TESTS_PARALLEL)) --output-sync=target $(addprefix stack-test-,$(STACK_TESTS_PARALLEL))
+	$(MAKE) --no-print-directory -j1 $(addprefix stack-test-,$(STACK_TESTS_SERIAL))
+ci-stack: $(if $(IMAGE_CACHE),image-ci,image)
+	@$(STACK_LOCK) $(MAKE) --no-print-directory ci-stack-run
+
+# The main stack and its tests, and the internal overlay on a project of its
+# own, after it or beside it (STACK_INTERNAL, TICK-153 O8).
+# Each tears its project down; the main one prints its logs first on failure.
+# The certificates come first: a bind mount of a missing file would make
+# Docker create a directory in its place.
+# Only this throwaway run, which ends in down -v, gets the no-durability
+# Postgres (deploy/compose/compose.ci.yaml); make stack-up on the dev project
+# never does.
+ci-stack-run: export COMPOSE_FILE := compose.yaml:deploy/compose/compose.test.yaml:deploy/compose/compose.ci.yaml
+ci-stack-run: dev-ca
+	@$(MAKE) --no-print-directory $(if $(filter after,$(STACK_INTERNAL)),-j1,-j 2) stack-main stack-internal-beside
+
+stack-main:
+	@status=0; $(MAKE) --no-print-directory -j1 stack-up stack-tests || status=$$?; if [ $$status -ne 0 ]; then $(MAKE) --no-print-directory stack-logs; fi; $(MAKE) --no-print-directory stack-down; exit $$status
+
+# The internal overlay needs a fresh stack. Host ports 0: Docker picks free
+# ones, so it cannot collide with the main stack's.
+INTERNAL_PROJECT = $(COMPOSE_PROJECT)-int
+INTERNAL_LOG = $(or $(TMPDIR),/tmp)/$(INTERNAL_PROJECT).log
+stack-internal-beside:
+	@echo "stack-internal-beside: $(INTERNAL_PROJECT), log in $(INTERNAL_LOG), printed when it ends"; status=0; COMPOSE_PROJECT_NAME=$(INTERNAL_PROJECT) NAVA_CORE_PORT=0 KEYCLOAK_PORT=0 sh deploy/compose/test/stack-test.sh internal >"$(INTERNAL_LOG)" 2>&1 || status=$$?; if [ $$status -ne 0 ]; then COMPOSE_PROJECT_NAME=$(INTERNAL_PROJECT) docker compose $(STACK_FILES) logs --no-color --tail 200 >>"$(INTERNAL_LOG)" 2>&1; fi; COMPOSE_PROJECT_NAME=$(INTERNAL_PROJECT) docker compose $(STACK_FILES) down -v --remove-orphans >>"$(INTERNAL_LOG)" 2>&1; echo "=== stack-internal-beside log"; cat "$(INTERNAL_LOG)"; echo "stack-internal-beside: exit $$status"; exit $$status
+
+# At most STACK_SLOTS compose stacks on the host at once, the rest queued
+# (TICK-153 D4); a ci-stack run holds one, or two with STACK_INTERNAL=beside.
+# N = 7 from the measured memory, docs/quality/ci-optimizations.md.
+# NAVA_STACK_SLOTS=off skips the queue.
+# STACK_INTERNAL=after (the default) runs the internal overlay after the main
+# stack, on one slot; =beside runs it at the same time, on two. Measured on
+# this host, after is faster: two Keycloaks starting at once cost more than
+# the overlap saves (669 s against 698 s, docs/quality/ci-optimizations.md).
+STACK_SLOTS ?= 7
+STACK_INTERNAL ?= after
+STACK_LOCK = go run ./tools/ci/racelock -port 47620 -slots $(STACK_SLOTS) -take $(if $(filter after,$(STACK_INTERNAL)),1,2) -env NAVA_STACK_SLOTS -what "compose stack" --
 
 # Installs the pinned CI tools into $$(go env GOPATH)/bin.
 tools:
@@ -124,6 +200,12 @@ check-pins:
 vulncheck:
 	govulncheck ./...
 
+# ci-lint's govulncheck: both modules at once, each when its go.mod or go.sum
+# has not passed a scan today on this host (TICK-153 D2, ADR-001-A1 R7).
+# VULNCHECK=all scans both regardless.
+vulncheck-ci:
+	sh scripts/ci/vulncheck.sh
+
 # Required in CI (temporal-server job and ci-lint): zero findings, with no
 # exception or allowlist (ADR-001 A1 Decision 3).
 vulncheck-temporal-server:
@@ -144,6 +226,9 @@ export COMPOSE_FILE ?= compose.yaml:deploy/compose/compose.test.yaml
 # Windows Docker splits COMPOSE_FILE on ";" unless told otherwise.
 export COMPOSE_PATH_SEPARATOR ?= :
 STACK_FILES := -f compose.yaml -f deploy/compose/compose.internal.yaml
+# The compose project: `name: nava` in compose.yaml unless COMPOSE_PROJECT_NAME
+# names another.
+COMPOSE_PROJECT := $(or $(COMPOSE_PROJECT_NAME),nava)
 
 image:
 	docker compose build
@@ -153,11 +238,16 @@ image:
 # cache (needs a docker-container builder and the Actions runtime env), so an
 # unchanged image is a cache hit and a source change rebuilds one layer.
 # db-roles and migrate share nava/nava-db; only db-roles writes its cache.
+# IMAGE_CACHE=local keeps the layers in the local builder's own BuildKit cache,
+# which concurrent builds share safely (a type=local cache directory is not
+# safe for two writers at once), and pulls only the registry images that are
+# missing. With IMAGE_CACHE set, ci-stack builds with image-ci.
 BAKE_CACHED := db-roles nava-core otel-collector temporal-server
 BAKE_CACHE_GHA := $(foreach t,$(BAKE_CACHED),--set $(t).cache-from=type=gha,scope=$(t) --set $(t).cache-to=type=gha,scope=$(t),mode=max) --set migrate.cache-from=type=gha,scope=db-roles
 BAKE_CACHE := $(if $(filter gha,$(IMAGE_CACHE)),$(BAKE_CACHE_GHA))
+PULL_POLICY := $(if $(filter local,$(IMAGE_CACHE)),--policy missing)
 image-ci:
-	@docker compose pull --quiet --ignore-buildable --ignore-pull-failures & pull=$$!; \
+	@docker compose pull --quiet --ignore-buildable --ignore-pull-failures $(PULL_POLICY) & pull=$$!; \
 	docker buildx bake -f compose.yaml --load $(BAKE_CACHE); status=$$?; \
 	wait $$pull; exit $$status
 
@@ -210,4 +300,4 @@ dev-ca:
 # network reaches the UI through host.docker.internal and acts as nava-operator.
 UI_PORT ?= 18233
 operator-tunnel:
-	docker run --rm --name nava-operator-tunnel -p 127.0.0.1:$(UI_PORT):8080 		--network $$(docker network ls -q --filter label=com.docker.compose.project=nava --filter label=com.docker.compose.network=operator) 		--entrypoint /usr/local/bin/temporal-server nava/temporal-server:dev proxy -listen :8080 -to temporal-ui:8080
+	docker run --rm --name $(COMPOSE_PROJECT)-operator-tunnel -p 127.0.0.1:$(UI_PORT):8080 		--network $$(docker network ls -q --filter label=com.docker.compose.project=$(COMPOSE_PROJECT) --filter label=com.docker.compose.network=operator) 		--entrypoint /usr/local/bin/temporal-server $(TEMPORAL_SERVER_IMAGE) proxy -listen :8080 -to temporal-ui:8080
