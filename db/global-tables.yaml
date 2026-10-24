@@ -1,0 +1,15 @@
+# Platform-schema tables that are NOT tenant tables (PLAN-001 D-P16, T10).
+# Read through internal/platform/strictyaml by the catalogue gate
+# (internal/db/catalog), which runs after every migrator run and in CI.
+#
+# Every table in a platform schema (any schema not pg_* or
+# information_schema) is a tenant table unless it is listed here: it must be
+# under ENABLE + FORCE ROW LEVEL SECURITY and carry its tenant key
+# (`tenant_id uuid NOT NULL`; `id` for public.tenants). A listed table skips
+# those two checks only; its policies still pass the allow-list guard and its
+# grants still equal db/grants.yaml.
+#
+# Format:  schema.table (or a bare name, schema public): { reason: "..." }
+# Adding an entry is a security-review change (D-P10). Empty in M1.
+
+tables: {}

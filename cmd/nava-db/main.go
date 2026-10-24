@@ -4,7 +4,8 @@
 //	nava-db roles    db-roles: as the bootstrap superuser, converge roles,
 //	                 memberships, databases and the PgBouncer lookup to db/grants.yaml
 //	nava-db migrate  as nava_migrator, directly to PostgreSQL (not PgBouncer):
-//	                 apply the migrations, then the grant manifest
+//	                 apply the migrations, then the grant manifest, then the
+//	                 catalogue gate (ADR-001 CI-1, CI-3, CI-4)
 //
 // The connection comes from the libpq environment (PGHOST, PGPORT, PGUSER,
 // ...). PGPASSWORD_FILE, when set, is read for the password, so a secret
@@ -25,6 +26,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/Navaladi2019/TicketingSystem/db"
+	"github.com/Navaladi2019/TicketingSystem/internal/db/catalog"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/grants"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/migrate"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/roles"
@@ -64,8 +66,12 @@ func run(ctx context.Context, args []string, lookup config.LookupFunc, log *slog
 			return lookup(roles.PasswordEnv(role))
 		}, log)
 	case "migrate":
+		var g *catalog.GlobalTables
+		if g, err = catalog.ParseGlobalTables(db.GlobalTables()); err != nil {
+			return err
+		}
 		cfg.Database = m.PlatformDatabase
-		_, err = migrate.Run(ctx, cfg, db.Migrations(), m, log, migrate.Options{})
+		_, err = migrate.Run(ctx, cfg, db.Migrations(), m, g, log, migrate.Options{})
 	}
 	return err
 }
