@@ -38,7 +38,7 @@ GOLANGCI_LINT_VERSION := 2.14.0
 GOVULNCHECK_VERSION := v1.9.0
 
 .PHONY: build run test test-integration lint generate check-openapi
-.PHONY: ci ci-isolated ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity 	image image-ci stack-up stack-down stack-logs stack-internal smoke
+.PHONY: ci ci-isolated ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity 	image image-ci stack-up stack-down stack-logs stack-internal smoke
 
 build:
 	go build -o bin/nava-core ./cmd/nava-core
@@ -88,6 +88,11 @@ ci: ci-lint ci-unit ci-integration ci-stack
 ci-isolated:
 	@[ -n "$(ID)" ] || { echo "usage: make ci-isolated ID=<pr-or-sha>"; exit 2; }
 	sh scripts/ci/ci-isolated.sh $(ID)
+
+# Tears down what a killed ci-isolated run left behind (its own project and tags).
+ci-isolated-down:
+	@[ -n "$(ID)" ] || { echo "usage: make ci-isolated-down ID=<pr-or-sha>"; exit 2; }
+	sh scripts/ci/ci-isolated.sh --down $(ID)
 
 ci-lint: check-tools fmt-check vet lint lint-fixture check-taskfile check-pins check-openapi vulncheck vulncheck-temporal-server
 

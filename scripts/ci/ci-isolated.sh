@@ -9,10 +9,14 @@
 # its own project and image tags, then fails if anything of nava-<id> is left.
 # One run per checkout at a time (certificates and ci6-report.md live in it).
 # STAGES="ci-unit ci-stack" runs a subset, in the given order.
+# --down <id> (make ci-isolated-down) only tears down, for a run that was
+# killed before its EXIT trap ran.
 set -eu
 cd "$(dirname "$0")/../.."
 
-[ $# -eq 1 ] || { echo "usage: $0 <pr-or-sha>" >&2; exit 2; }
+down=
+[ "${1:-}" = --down ] && { down=1; shift; }
+[ $# -eq 1 ] || { echo "usage: $0 [--down] <pr-or-sha>" >&2; exit 2; }
 # Docker tags and compose project names: lowercase letters, digits, - and _.
 id=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_-' '-' | sed 's/^[^a-z0-9]*//' | cut -c 1-40)
 case "$id" in
@@ -75,6 +79,8 @@ finish() {
     echo "ci-isolated: $COMPOSE_PROJECT_NAME $( [ "$status" -eq 0 ] && echo PASS || echo "FAIL ($status)" ) in $(( $(date +%s) - start ))s"
     exit "$status"
 }
+[ -z "$down" ] || { teardown; exit; }
+
 start=$(date +%s)
 trap finish EXIT
 trap 'exit 130' INT TERM
