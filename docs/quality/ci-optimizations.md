@@ -97,6 +97,40 @@ O11). The remaining floor after the stack:
 - **Lint in a new checkout, 274 s,** with govulncheck skipped: golangci-lint
   and `go vet` rebuild their caches for the new path.
 
+### Measured result (Phase 2, 2026-10-24)
+
+The stack stage alone (`STAGES=ci-stack PARALLEL=0`), seconds:
+
+| Step | Before (`72da3a7`) | After, internal beside | After, internal after (default) |
+| --- | --- | --- | --- |
+| Build, `compose up` | 47 | 39 | 35 |
+| Start-up until `healthy` | 112 | 233 (two Keycloaks at once) | 140 |
+| Read-only checks and Go suites | 218, one at a time (Temporal suite 133) | 192 at once (Temporal suite 67) | 119 at once (Temporal suite 100) |
+| dependencies, trace, logs, redact | 66 | 66 | 56 |
+| idempotent (down, up, healthy again) | 136 | 136 | 125 |
+| dbroles, hba, down | 39 | 24 | 23 |
+| Internal overlay | 157, after | beside | 173, after |
+| **Stack stage** | **774** | **698** | **669** |
+
+The same 65 stack checks and 24 Go stack tests pass in each.
+
+Full `make ci-isolated` at the Phase 2 head (`b32827c`), all four stages at
+once, from a new checkout: **PASS in 991 s** (lint 504, unit 983, integration
+337, stack 976), against 1646 s at the start. Integration ran 70 top-level
+tests (49 of 49 dbtest), the stack its 65 checks.
+
+**Target, after Phase 2.** A code-only PR (`make ci-changed`, warm) stays at
+about 3 minutes. A full run is not near 5 minutes, and the stack stage cannot
+get there on this host while it starts Keycloak three times: the first
+start-up, `idempotent`'s second `up` on the used volume, and the internal
+overlay's fresh stack, each 100 to 140 s. The floor without dropping any of
+them is about 8 to 9 minutes for the stack alone. On a new checkout, ci-unit
+(navalint's analysistest runs, about 4 minutes cold) runs as long as the stack
+when the four stages share the host. What would still cut it, none of them in
+TICK-153's scope: a pre-augmented Keycloak image (`kc.sh build` at image build
+time, so no start re-augments, about 40 s each start), and `ci-changed` as the
+gate, which the Technical Lead ruled out for now.
+
 ## Open decisions
 
 - **O8:** the rule (beside when N >= 4) assumed beside is faster; measured, it
