@@ -40,7 +40,7 @@ GOLANGCI_LINT_VERSION := 2.14.0
 GOVULNCHECK_VERSION := v1.9.0
 
 .PHONY: build run test test-integration lint generate check-openapi
-.PHONY: ci ci-isolated ci-changed ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity 	image image-ci stack-up stack-down stack-logs stack-internal smoke
+.PHONY: ci ci-isolated ci-changed ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity 	image image-ci stack-up stack-down stack-logs stack-internal stack-internal-beside stack-main ci-stack-run stack-tests smoke
 
 build:
 	go build -o bin/nava-core ./cmd/nava-core
@@ -119,9 +119,42 @@ ci-integration: test-integration
 # Builds the images, brings the stack up, runs every stack test, then tears
 # it down (logs first on failure). The workflow runs the same targets one step
 # at a time.
-STACK_TESTS := healthy smoke pgbouncer temporal temporal_handshake temporal_isolation temporal_custody temporal_operator_reach temporal_health sdk identity dependencies trace logs redact idempotent dbroles hba
+# healthy gates the rest. The read-only checks and the two Go suites then run
+# at once (TICK-153 O10): none changes what another reads, and each matches
+# only lines it caused. The rest run one at a time, in this order: dependencies
+# stops Keycloak, trace counts every trace the Collector saw, idempotent
+# restarts the stack, and dbroles changes roles.
+STACK_TESTS_PARALLEL := smoke pgbouncer temporal temporal_handshake temporal_isolation temporal_custody temporal_operator_reach temporal_health hba sdk identity
+STACK_TESTS_SERIAL := dependencies trace logs redact idempotent dbroles
+STACK_TESTS := healthy $(STACK_TESTS_PARALLEL) $(STACK_TESTS_SERIAL)
+stack-tests:
+	$(MAKE) --no-print-directory stack-test-healthy
+	$(MAKE) --no-print-directory -j $(words $(STACK_TESTS_PARALLEL)) --output-sync=target $(addprefix stack-test-,$(STACK_TESTS_PARALLEL))
+	$(MAKE) --no-print-directory $(addprefix stack-test-,$(STACK_TESTS_SERIAL))
 ci-stack: $(if $(IMAGE_CACHE),image-ci,image)
-	@status=0; $(MAKE) --no-print-directory stack-up $(addprefix stack-test-,$(STACK_TESTS)) stack-internal || status=$$?; 	if [ $$status -ne 0 ]; then $(MAKE) --no-print-directory stack-logs; fi; 	$(MAKE) --no-print-directory stack-down; exit $$status
+	@$(STACK_LOCK) $(MAKE) --no-print-directory ci-stack-run
+
+# The main stack and its tests, and beside it the internal overlay on a
+# project of its own (TICK-153 O8: N >= 4, decided by the Technical Lead).
+# Each tears its project down; the main one prints its logs first on failure.
+ci-stack-run:
+	@$(MAKE) --no-print-directory -j 2 --output-sync=target stack-main stack-internal-beside
+
+stack-main:
+	@status=0; $(MAKE) --no-print-directory stack-up stack-tests || status=$$?; if [ $$status -ne 0 ]; then $(MAKE) --no-print-directory stack-logs; fi; $(MAKE) --no-print-directory stack-down; exit $$status
+
+# The internal overlay needs a fresh stack. Host ports 0: Docker picks free
+# ones, so it cannot collide with the main stack's.
+INTERNAL_PROJECT = $(COMPOSE_PROJECT)-int
+stack-internal-beside:
+	@status=0; COMPOSE_PROJECT_NAME=$(INTERNAL_PROJECT) NAVA_CORE_PORT=0 KEYCLOAK_PORT=0 sh deploy/compose/test/stack-test.sh internal || status=$$?; if [ $$status -ne 0 ]; then COMPOSE_PROJECT_NAME=$(INTERNAL_PROJECT) docker compose $(STACK_FILES) logs --no-color --tail 200; fi; COMPOSE_PROJECT_NAME=$(INTERNAL_PROJECT) docker compose $(STACK_FILES) down -v --remove-orphans; exit $$status
+
+# At most STACK_SLOTS compose stacks on the host at once, the rest queued
+# (TICK-153 D4); a ci-stack run holds two, its main and internal stacks.
+# N = 8 from the measured memory, docs/quality/ci-optimizations.md.
+# NAVA_STACK_SLOTS=off skips the queue.
+STACK_SLOTS ?= 8
+STACK_LOCK = go run ./tools/ci/racelock -port 47620 -slots $(STACK_SLOTS) -take 2 -env NAVA_STACK_SLOTS -what "compose stack" --
 
 # Installs the pinned CI tools into $$(go env GOPATH)/bin.
 tools:
