@@ -7,7 +7,11 @@
 // The _test.go files of internal/db/dbtest are also exempt: the RLS policy
 // tests set app.tenant_id directly to test the policies themselves, including
 // set_config(..., false) leaks (TICK-61 decision 2026-10-24). Its non-test
-// files, and any other package named dbtest, are not.
+// files, and any other package named dbtest, are not. The _test.go files of
+// internal/tenancy/isolation are exempt for the same reason: the CI-2 suite
+// (T11, TICK-67) sets no tenant, '' and a prior tenant by hand to prove each
+// gives 0 rows. Its registry (registry.go) is not exempt; registered paths
+// scope their transactions with tenancy.InTenantTx.
 //
 // internal/db/catalog may read the setting, nothing more: the catalogue gate
 // compares every policy against the deparsed predicate
@@ -40,6 +44,10 @@ const TenancyPkg = "github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 // PolicyTestPkg is the package whose _test.go files may use the needles.
 const PolicyTestPkg = "github.com/Navaladi2019/TicketingSystem/internal/db/dbtest"
 
+// IsolationTestPkg is the CI-2 isolation suite, whose _test.go files may use
+// them.
+const IsolationTestPkg = "github.com/Navaladi2019/TicketingSystem/internal/tenancy/isolation"
+
 // CatalogPkg is the package, with its tests, that may read app.tenant_id
 // with current_setting.
 const CatalogPkg = "github.com/Navaladi2019/TicketingSystem/internal/db/catalog"
@@ -65,7 +73,7 @@ func run(pass *analysis.Pass) (any, error) {
 		return nil, nil
 	}
 	for _, f := range pass.Files {
-		if path == PolicyTestPkg && strings.HasSuffix(pass.Fset.File(f.Pos()).Name(), "_test.go") {
+		if (path == PolicyTestPkg || path == IsolationTestPkg) && strings.HasSuffix(pass.Fset.File(f.Pos()).Name(), "_test.go") {
 			continue
 		}
 		ast.Inspect(f, func(n ast.Node) bool {

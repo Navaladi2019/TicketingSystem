@@ -5,3 +5,4 @@
 .env
 /deploy/compose/certs/
 /ci6-report.md
+/isolation-report.md

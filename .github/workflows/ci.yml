@@ -6,7 +6,8 @@
 #   unit             go test -race (no containers)
 #   temporal-server  the custom server module's unit tests and govulncheck
 #                    (no containers)
-#   integration      -tags integration against a throwaway PostgreSQL
+#   integration      -tags integration against a throwaway PostgreSQL, then
+#                    the isolation suite (report kept as an artifact)
 #   stack            image build, compose up, smoke, platform and Temporal tests
 #   stack-db         a second stack: db-roles/migrate idempotency, role and hba tests
 #   stack-internal   the internal overlay on a fresh stack
@@ -192,6 +193,15 @@ jobs:
             go-${{ github.job }}-
       - name: Integration tests (-tags integration)
         run: make test-integration
+      - name: Tenant isolation suite (CI-2, T11)
+        run: make isolation
+      - name: Isolation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: isolation-report
+          path: isolation-report.md
+          if-no-files-found: warn
 
   stack:
     # Platform and Temporal stack tests; the database tests run in stack-db.

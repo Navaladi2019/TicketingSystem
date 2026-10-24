@@ -47,6 +47,7 @@ func TestClassify(t *testing.T) {
 		{"root dependencies", []string{"go.sum"}, "ci-lint ci-unit ci-integration ci-stack"},
 		{"CI definition", []string{"Makefile"}, "ci-lint ci-unit ci-integration ci-stack"},
 		{"integration script", []string{"scripts/ci/test-integration.sh", "scripts/ci/pgbouncer/pooled.ini"}, "ci-lint ci-integration"},
+		{"isolation script", []string{"scripts/ci/isolation.sh", "scripts/ci/pgbouncer/isolation.ini"}, "ci-lint ci-integration"},
 		{"lint script", []string{"scripts/ci/vulncheck.sh"}, "ci-lint"},
 		{"other CI script", []string{"scripts/ci/ci-isolated.sh"}, "ci-lint ci-unit ci-integration ci-stack"},
 		{"unknown directory", []string{"newdir/thing.yaml"}, "ci-lint ci-unit ci-integration ci-stack"},
