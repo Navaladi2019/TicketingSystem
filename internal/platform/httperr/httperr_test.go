@@ -4,6 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -20,6 +24,7 @@ import (
 
 	"github.com/Navaladi2019/TicketingSystem/api"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/httperr"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/httpobs"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/logging"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
@@ -177,5 +182,111 @@ func TestRecordErrorOnlyInHelper(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestTypeOfIsTheRootType(t *testing.T) {
+	t.Parallel()
+	root := errors.New("pq: " + secret)
+	wrapped := fmt.Errorf("load item: %w", fmt.Errorf("query: %w", root))
+	if got := httperr.TypeOf(wrapped); got != "*errors.errorString" {
+		t.Errorf("TypeOf(wrapped) = %q, want the root type *errors.errorString", got)
+	}
+	if got := httperr.TypeOf(root); got != "*errors.errorString" {
+		t.Errorf("TypeOf(root) = %q", got)
+	}
+}
+
+// TestRegistryWriteIsClientErrorsOnly: Registry.Write and Body send a problem
+// without reporting a cause, so they may only be given a constant code whose
+// registry status is below 500. A 5xx goes through WriteError. The 501
+// not_implemented placeholder is the one allowed exception.
+func TestRegistryWriteIsClientErrorsOnly(t *testing.T) {
+	t.Parallel()
+	data, err := api.Files.ReadFile("errors.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg, err := problem.LoadRegistry(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fset := token.NewFileSet()
+
+	// const name -> code value, from the problem package itself.
+	pf, err := parser.ParseFile(fset, filepath.Join("..", "problem", "problem.go"), nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	consts := map[string]problem.Code{}
+	for _, d := range pf.Decls {
+		if gd, ok := d.(*ast.GenDecl); ok && gd.Tok == token.CONST {
+			for _, spec := range gd.Specs {
+				vs := spec.(*ast.ValueSpec)
+				for i, n := range vs.Names {
+					if lit, ok := vs.Values[i].(*ast.BasicLit); ok {
+						consts[n.Name] = problem.Code(strings.Trim(lit.Value, `"`))
+					}
+				}
+			}
+		}
+	}
+
+	allowed := map[string]bool{ // file -> NotImplemented placeholder
+		filepath.Join("..", "..", "server", "api.go"): true,
+	}
+	root := filepath.Join("..", "..")
+	calls := 0
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") ||
+			filepath.Base(filepath.Dir(path)) == "problem" {
+			return err
+		}
+		f, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			return err
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			idx := -1
+			switch {
+			case sel.Sel.Name == "Write" && len(call.Args) >= 3: // reg.Write(w, r, code, ...)
+				idx = 2
+			case sel.Sel.Name == "Body" && len(call.Args) >= 2: // reg.Body(ctx, code, ...)
+				idx = 1
+			default:
+				return true
+			}
+			calls++
+			pos := fset.Position(call.Pos())
+			arg, ok := call.Args[idx].(*ast.SelectorExpr)
+			if !ok {
+				t.Errorf("%s: %s code is not a problem.<Const>; use WriteError for anything that can be a 5xx", pos, sel.Sel.Name)
+				return true
+			}
+			code, known := consts[arg.Sel.Name]
+			e, registered := reg.Lookup(code)
+			switch {
+			case !known || !registered:
+				t.Errorf("%s: %s.%s is not a registered problem code", pos, sel.Sel.Name, arg.Sel.Name)
+			case e.Status >= http.StatusInternalServerError && !(allowed[path] && code == problem.NotImplemented):
+				t.Errorf("%s: %s sends %s (%d); use WriteError so the cause is reported", pos, sel.Sel.Name, code, e.Status)
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls == 0 {
+		t.Error("found no registry Write or Body calls; the scan is broken")
 	}
 }

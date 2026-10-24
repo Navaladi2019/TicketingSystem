@@ -110,9 +110,11 @@ type Body struct {
 	Errors   []FieldError `json:"errors,omitempty"`
 }
 
-// Write sends the problem for code. The status comes from the registry, so a
-// handler cannot send a code with a status the registry does not list. An
-// unregistered code is a programming error and is sent as internal_error.
+// Write sends the problem for code, for a 4xx only: a 5xx goes through
+// WriteError, which reports the cause (a test enforces it). The status comes
+// from the registry, so a handler cannot send a code with a status the
+// registry does not list. An unregistered code is a programming error and is
+// sent as internal_error.
 func (reg *Registry) Write(w http.ResponseWriter, r *http.Request, code Code, errs ...FieldError) {
 	write(w, r, reg.Body(r.Context(), code, errs...))
 }

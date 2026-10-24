@@ -10,6 +10,7 @@ package httperr
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -18,9 +19,17 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// TypeOf is the bounded error.type for err: its Go type, never its text.
+// TypeOf is the bounded error.type for err: the Go type of the root of its
+// Unwrap chain, never its text. Most errors are wrapped with fmt.Errorf("%w"),
+// and the outermost type would group nearly every failure as *fmt.wrapError.
 func TypeOf(err error) string {
-	return fmt.Sprintf("%T", err)
+	for {
+		next := errors.Unwrap(err)
+		if next == nil {
+			return fmt.Sprintf("%T", err)
+		}
+		err = next
+	}
 }
 
 // Report marks the span of ctx as failed with the bounded errType and logs msg
