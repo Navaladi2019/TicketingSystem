@@ -54,11 +54,11 @@ short parallel `STAGES=stack` smoke run.
 
 | # | Optimization | Stage | Expected gain | Status |
 | --- | --- | --- | --- | --- |
-| O1 | Test Postgres with `fsync=off`, `synchronous_commit=off`, `full_page_writes=off` in `scripts/ci/test-integration.sh` | Integration | Large cut to dbtest's 224 s | Edited, uncommitted, not measured |
+| O1 | Test Postgres with `fsync=off`, `synchronous_commit=off`, `full_page_writes=off` in `scripts/ci/test-integration.sh` | Integration | Large cut to dbtest's 224 s | Done (TICK-153 PR 1). dbtest 117.9 s to 86.3 s on `main` + O1, host shared with another CI run |
 | O2 | Faster `freshCluster`: a pre-migrated template database (`CREATE DATABASE … TEMPLATE`), keeping a full rebuild only for tests of role or migration behaviour from scratch. Needs care: roles are cluster-wide and some tests corrupt them on purpose | Integration | Most of the remaining dbtest time | Proposed |
 | O3 | Shard `dbtest` across 2 to 3 Postgres containers instead of `-p 1` | Integration | Parallel packages | Proposed |
 | O4 | Run the four stages in parallel inside `ci-isolated` | All | Total becomes the slowest stage, not the sum | Proposed |
-| O5 | `GOFLAGS=-trimpath` for the CI targets | Lint, unit | No cold compile in a new workspace | Proposed |
+| O5 | `-trimpath` for the CI Go builds | Lint, unit | No cold compile in a new workspace | Done (TICK-153 PR 1), narrowed: `-trimpath` on the root module's `go test -race` only. New checkout: 94 s to 61 s. On every CI target it made `go vet` and navalint's analysistest runs slower (navalint 115 s to 241 s in a new checkout), so it is not in `GOFLAGS` |
 | O6 | govulncheck per D2 | Lint | Most of the two scans | Decided (D2) |
 | O7 | `make ci-changed`: pick the stages from `git diff origin/main`, so most PRs skip integration and stack | All | Whole stages for most PRs | Proposed |
 | O8 | Stack stage: run `stack-internal` as its own project **at the same time** as the main stack | Stack | One full start-up off the wall clock; uses 2 slots | Open decision |
