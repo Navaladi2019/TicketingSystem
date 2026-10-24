@@ -162,9 +162,12 @@ stack-up: dev-ca
 stack-test-%:
 	sh deploy/compose/test/stack-test.sh $*
 
-# SDK clients dial with their certificates and a worker runs (T28).
+# The Temporal stack suite over mTLS: SDK clients dial and a worker runs (T28),
+# CI-H, and the CI-6 certificate, network and Authorizer cases (T32a). Writes
+# the CI-6 report to CI6_REPORT and fails when a CI-6 case did not pass.
+CI6_REPORT ?= ci6-report.md
 stack-test-sdk:
-	go test -tags temporalstack -count=1 ./internal/temporalstack
+	go test -tags temporalstack -count=1 -json ./internal/temporalstack | go run ./tools/ci/ci6report -out $(CI6_REPORT)
 
 # The compose smoke: GET /healthz from inside the compose network.
 smoke: stack-test-smoke
@@ -184,10 +187,11 @@ CERT_DIR ?= deploy/compose/certs
 
 ## Dev installation CA for the compose stack (ADR-001 D22, T28): the installation
 ## (frontend client) CA, a separate internode CA, the frontend and internode
-## certificates, and the five platform certificates, written to
+## certificates, the five platform certificates and nava-unknown (a CN that is
+## no identity, for the CI-6 suite; never mounted), written to
 ## deploy/compose/certs/ (git-ignored). Keeps existing certificates; FORCE=1 reissues.
 dev-ca:
-	@if [ -f $(CERT_DIR)/ca.pem ] && [ -z "$(FORCE)" ]; then echo "$(CERT_DIR) already holds a dev CA (FORCE=1 to reissue)"; 	else cd temporal-server && go run ./cmd/devcerts -installation -out ../$(CERT_DIR); fi
+	@if [ -f $(CERT_DIR)/ca.pem ] && [ -z "$(FORCE)" ]; then echo "$(CERT_DIR) already holds a dev CA (FORCE=1 to reissue)"; 	else cd temporal-server && go run ./cmd/devcerts -installation -unlisted -out ../$(CERT_DIR); fi
 
 ## Explicit operator tunnel to the Temporal UI (profile operator): forwards
 ## 127.0.0.1:$(UI_PORT) to the UI until interrupted. The UI publishes no port.
