@@ -5,6 +5,7 @@ package dbtest
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -27,21 +28,137 @@ func platformTables() []string {
 	return []string{"idempotency_keys", "outbox", "records", "tenant_identity_binding", "tenants", "workflow_ref"}
 }
 
+// policy is one row of pg_policies as the allow-list guard compares it: the
+// command, the sorted roles and the deparsed USING and WITH CHECK ("" when
+// absent).
+type policy struct{ cmd, roles, qual, check string }
+
+// tenantPred is the deparsed tenant predicate on column col.
+func tenantPred(col string) string {
+	return "(" + col + " = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+}
+
 // allowList is ADR-001 A.3: the only policies that do not test app.tenant_id,
-// each with its command and roles.
-func allowList() map[string]string {
-	return map[string]string{
-		"outbox_relay_select":       "SELECT TO nava_relay",
-		"outbox_relay_update":       "UPDATE TO nava_relay",
-		"binding_lookup":            "SELECT TO nava_app,nava_groupsync",
-		"binding_onboard":           "INSERT TO nava_onboard",
-		"idempotency_purge":         "DELETE TO nava_purge",
-		"idempotency_purge_select":  "SELECT TO nava_purge",
-		"outbox_purge":              "DELETE TO nava_purge",
-		"outbox_purge_select":       "SELECT TO nava_purge",
-		"workflow_ref_purge":        "DELETE TO nava_purge",
-		"workflow_ref_purge_select": "SELECT TO nava_purge",
+// each pinned to its command, roles and exact predicates.
+func allowList() map[string]policy {
+	pending := "((dispatched_at IS NULL) AND (dead_at IS NULL))"
+	outboxExpired := "((dispatched_at < (now() - '7 days'::interval)) OR (dead_at < (now() - '30 days'::interval)))"
+	refExpired := "(closed_at < (now() - '30 days'::interval))"
+	keyExpired := "(expires_at < now())"
+	return map[string]policy{
+		"outbox_relay_select":       {"SELECT", "nava_relay", "true", ""},
+		"outbox_relay_update":       {"UPDATE", "nava_relay", pending, "true"},
+		"binding_lookup":            {"SELECT", "nava_app,nava_groupsync", "true", ""},
+		"binding_onboard":           {"INSERT", "nava_onboard", "", "(tenant_id IN ( SELECT tenants.id\n   FROM tenants\n  WHERE (tenants.state = 'provisioning'::text)))"},
+		"idempotency_purge":         {"DELETE", "nava_purge", keyExpired, ""},
+		"idempotency_purge_select":  {"SELECT", "nava_purge", keyExpired, ""},
+		"outbox_purge":              {"DELETE", "nava_purge", outboxExpired, ""},
+		"outbox_purge_select":       {"SELECT", "nava_purge", outboxExpired, ""},
+		"workflow_ref_purge":        {"DELETE", "nava_purge", refExpired, ""},
+		"workflow_ref_purge_select": {"SELECT", "nava_purge", refExpired, ""},
 	}
+}
+
+// pinnedTenantPolicies are the tenant policies whose predicate adds a state
+// test to the tenant predicate (the onboarding path).
+func pinnedTenantPolicies() map[string]policy {
+	own := tenantPred("id")
+	and := func(state string) string { return "(" + own + " AND (state = '" + state + "'::text))" }
+	return map[string]policy{
+		"tenants_onboard_insert": {"INSERT", "nava_onboard", "", and("provisioning")},
+		"tenants_activate":       {"UPDATE", "nava_onboard", and("provisioning"), and("active")},
+	}
+}
+
+// testsTenant reports whether p scopes every clause its command uses by
+// exactly the tenant predicate on col: USING for SELECT and DELETE, WITH
+// CHECK for INSERT, both for UPDATE. Other text, a missing clause or an extra
+// one does not count, so neither "current_setting(...) IS NOT NULL" nor
+// WITH CHECK (true) passes.
+func testsTenant(p policy, col string) bool {
+	want := tenantPred(col)
+	switch p.cmd {
+	case "SELECT", "DELETE":
+		return p.qual == want && p.check == ""
+	case "INSERT":
+		return p.qual == "" && p.check == want
+	case "UPDATE":
+		return p.qual == want && p.check == want
+	}
+	return false
+}
+
+type querier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
+// policyProblems is the allow-list guard (CI-1, I1). It reports every policy
+// in schema public that is FOR ALL or TO PUBLIC, an allow-listed or pinned
+// policy that differs from its pinned form or is missing, and any other
+// policy whose predicate is not exactly the tenant predicate. untested lists
+// the policies that do not test app.tenant_id.
+func policyProblems(ctx context.Context, q querier) (problems, untested []string, err error) {
+	rows, err := q.Query(ctx, `
+		SELECT tablename, policyname, cmd, roles::text[], coalesce(qual, ''), coalesce(with_check, '')
+		FROM pg_policies WHERE schemaname = 'public' ORDER BY policyname`)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	allow, pinned := allowList(), pinnedTenantPolicies()
+	seen := map[string]bool{}
+	for rows.Next() {
+		var table, name string
+		var roles []string
+		var p policy
+		if err := rows.Scan(&table, &name, &p.cmd, &roles, &p.qual, &p.check); err != nil {
+			return nil, nil, err
+		}
+		slices.Sort(roles)
+		p.roles = strings.Join(roles, ",")
+		seen[name] = true
+		if p.cmd == "ALL" {
+			problems = append(problems, fmt.Sprintf("%s on %s is FOR ALL", name, table))
+		}
+		if slices.Contains(roles, "public") {
+			problems = append(problems, fmt.Sprintf("%s on %s is TO PUBLIC", name, table))
+		}
+		if want, ok := allow[name]; ok {
+			untested = append(untested, name)
+			if p != want {
+				problems = append(problems, fmt.Sprintf("%s (allow-listed) = %q, want %q", name, p, want))
+			}
+			continue
+		}
+		if want, ok := pinned[name]; ok {
+			if p != want {
+				problems = append(problems, fmt.Sprintf("%s = %q, want %q", name, p, want))
+			}
+			continue
+		}
+		col := "tenant_id"
+		if table == "tenants" {
+			col = "id"
+		}
+		if !testsTenant(p, col) {
+			untested = append(untested, name)
+			problems = append(problems, fmt.Sprintf("%s on %s %q does not test exactly %s and is not on the allow-list",
+				name, table, p, tenantPred(col)))
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	for _, m := range []map[string]policy{allow, pinned} {
+		for name := range m {
+			if !seen[name] {
+				problems = append(problems, name+" is missing")
+			}
+		}
+	}
+	slices.Sort(problems)
+	slices.Sort(untested)
+	return problems, untested, nil
 }
 
 // migratedPlatform is a fresh cluster with every migration and grant applied.
@@ -333,52 +450,68 @@ func TestT09OnboardCannotBindOtherProvisioningTenant(t *testing.T) {
 }
 
 // Acceptance: exactly 10 policies do not reference app.tenant_id, and they
-// are the A.3 allow-list, each FOR its one command and TO its named roles.
-// No policy anywhere is TO PUBLIC.
+// are the A.3 allow-list, each pinned to its command, roles and predicates.
+// Every other policy's predicate is exactly the tenant predicate, and no
+// policy is FOR ALL or TO PUBLIC (CI-1).
 func TestT09PolicyAllowList(t *testing.T) {
 	migratedPlatform(t)
-	super := superNava(t)
-	rows, err := super.Query(context.Background(), `
-		SELECT tablename, policyname, cmd, roles::text[],
-		       coalesce(qual, '') || ' ' || coalesce(with_check, '') LIKE '%app.tenant_id%'
-		FROM pg_policies WHERE schemaname = 'public' ORDER BY policyname`)
+	problems, untested, err := policyProblems(context.Background(), superNava(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := map[string]string{}
-	total := 0
-	for rows.Next() {
-		var table, name, cmd string
-		var roles []string
-		var tested bool
-		if err := rows.Scan(&table, &name, &cmd, &roles, &tested); err != nil {
-			t.Fatal(err)
-		}
-		total++
-		if slices.Contains(roles, "public") {
-			t.Errorf("policy %s on %s is TO PUBLIC", name, table)
-		}
-		if !tested {
-			slices.Sort(roles)
-			got[name] = cmd + " TO " + strings.Join(roles, ",")
-		}
+	for _, p := range problems {
+		t.Error(p)
 	}
-	if err := rows.Err(); err != nil {
-		t.Fatal(err)
+	want := slices.Sorted(maps.Keys(allowList()))
+	if !slices.Equal(untested, want) {
+		t.Errorf("policies that do not test app.tenant_id = %v, want the 10 of the allow-list %v", untested, want)
 	}
-	want := allowList()
-	if len(got) != 10 || len(want) != 10 {
-		t.Errorf("%d policies do not test app.tenant_id (of %d), want 10: %v", len(got), total, got)
-	}
-	for name, w := range want {
-		if got[name] != w {
-			t.Errorf("allow-listed %s = %q, want %q", name, got[name], w)
-		}
-	}
-	for name, g := range got {
-		if _, ok := want[name]; !ok {
-			t.Errorf("policy %s (%s) does not test app.tenant_id and is not on the allow-list", name, g)
-		}
+}
+
+// The guard catches a policy that names app.tenant_id without scoping by it.
+// Each case adds one policy in a rolled-back transaction and expects the
+// guard to flag that policy and nothing else.
+func TestT09PolicyAllowListCatchesLeaks(t *testing.T) {
+	migratedPlatform(t)
+	super := superNava(t)
+	ctx := context.Background()
+	canon := "tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid"
+	for _, c := range []struct{ name, ddl string }{
+		// Names the setting, scopes nothing: a tenant-A session inserts B's rows.
+		{"leak_is_not_null", "CREATE POLICY leak_is_not_null ON records FOR INSERT TO nava_app " +
+			"WITH CHECK (current_setting('app.tenant_id', true) IS NOT NULL)"},
+		// Tenant-scoped USING, open WITH CHECK: an update moves a row to another tenant.
+		{"leak_check_true", "CREATE POLICY leak_check_true ON records FOR UPDATE TO nava_app " +
+			"USING (" + canon + ") WITH CHECK (true)"},
+		// The tenant predicate, widened.
+		{"leak_or_true", "CREATE POLICY leak_or_true ON records FOR SELECT TO nava_app " +
+			"USING (" + canon + " OR true)"},
+		// The tenant predicate, but FOR ALL.
+		{"leak_for_all", "CREATE POLICY leak_for_all ON records TO nava_app " +
+			"USING (" + canon + ") WITH CHECK (" + canon + ")"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			tx, err := super.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = tx.Rollback(ctx) }()
+			if _, err := tx.Exec(ctx, c.ddl); err != nil {
+				t.Fatalf("%s: %v", c.ddl, err)
+			}
+			problems, _, err := policyProblems(ctx, tx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(problems) == 0 {
+				t.Fatalf("guard passed %s", c.ddl)
+			}
+			for _, p := range problems {
+				if !strings.HasPrefix(p, c.name+" ") {
+					t.Errorf("unexpected problem: %s", p)
+				}
+			}
+		})
 	}
 }
 

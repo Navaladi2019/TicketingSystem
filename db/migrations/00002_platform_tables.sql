@@ -4,12 +4,14 @@
 -- Every policy tests app.tenant_id, through
 --     NULLIF(current_setting('app.tenant_id', true), '')::uuid
 -- (no tenant set, or an empty one, matches no row), except the 10 on the A.3
--- allow-list, each FOR one command and TO named roles:
+-- allow-list. Every policy, allow-listed or not, is FOR one command (never
+-- ALL) and TO named roles (CI-1). The allow-list:
 --     outbox_relay_select, outbox_relay_update, binding_lookup, binding_onboard,
 --     idempotency_purge, idempotency_purge_select, outbox_purge,
 --     outbox_purge_select, workflow_ref_purge, workflow_ref_purge_select.
--- TestPolicyAllowList keeps it that way. A new policy that does not test
--- app.tenant_id is an ADR change, not a migration.
+-- TestT09PolicyAllowList keeps it that way: every other policy's predicate
+-- must equal the canonical tenant predicate exactly. A new policy that does
+-- not test app.tenant_id is an ADR change, not a migration.
 --
 -- Empty new tables, so plain CREATE INDEX holds no lock worth planning for.
 
@@ -80,7 +82,12 @@ CREATE TABLE records (
 ALTER TABLE records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE records FORCE ROW LEVEL SECURITY;
 
-CREATE POLICY records_tenant ON records TO nava_app, nava_worker
+-- One policy per command the grants allow (CI-1: never FOR ALL). No DELETE.
+CREATE POLICY records_select ON records FOR SELECT TO nava_app, nava_worker
+    USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
+CREATE POLICY records_insert ON records FOR INSERT TO nava_app, nava_worker
+    WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
+CREATE POLICY records_update ON records FOR UPDATE TO nava_app, nava_worker
     USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
     WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
 
@@ -115,8 +122,10 @@ CREATE INDEX outbox_pending_target ON outbox (tenant_id, target_key, target_seq)
 ALTER TABLE outbox ENABLE ROW LEVEL SECURITY;
 ALTER TABLE outbox FORCE ROW LEVEL SECURITY;
 
-CREATE POLICY outbox_tenant ON outbox TO nava_app, nava_worker
-    USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
+-- Producers insert and read back (RETURNING, dedupe conflict); no UPDATE or DELETE.
+CREATE POLICY outbox_select ON outbox FOR SELECT TO nava_app, nava_worker
+    USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
+CREATE POLICY outbox_insert ON outbox FOR INSERT TO nava_app, nava_worker
     WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
 -- The relay polls every tenant. Its column grants hide dedupe_key and
 -- last_error and let it write only the dispatch columns; it updates only
@@ -148,7 +157,12 @@ CREATE INDEX workflow_ref_record ON workflow_ref (tenant_id, record_id, kind, cr
 ALTER TABLE workflow_ref ENABLE ROW LEVEL SECURITY;
 ALTER TABLE workflow_ref FORCE ROW LEVEL SECURITY;
 
-CREATE POLICY workflow_ref_tenant ON workflow_ref TO nava_app, nava_worker
+-- Only the worker updates (closed_at); no DELETE but purge.
+CREATE POLICY workflow_ref_select ON workflow_ref FOR SELECT TO nava_app, nava_worker
+    USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
+CREATE POLICY workflow_ref_insert ON workflow_ref FOR INSERT TO nava_app, nava_worker
+    WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
+CREATE POLICY workflow_ref_update ON workflow_ref FOR UPDATE TO nava_worker
     USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
     WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
 CREATE POLICY workflow_ref_purge_select ON workflow_ref FOR SELECT TO nava_purge
@@ -174,7 +188,12 @@ CREATE TABLE idempotency_keys (
 ALTER TABLE idempotency_keys ENABLE ROW LEVEL SECURITY;
 ALTER TABLE idempotency_keys FORCE ROW LEVEL SECURITY;
 
-CREATE POLICY idempotency_tenant ON idempotency_keys TO nava_app
+-- No DELETE but purge.
+CREATE POLICY idempotency_select ON idempotency_keys FOR SELECT TO nava_app
+    USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
+CREATE POLICY idempotency_insert ON idempotency_keys FOR INSERT TO nava_app
+    WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
+CREATE POLICY idempotency_update ON idempotency_keys FOR UPDATE TO nava_app
     USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
     WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
 CREATE POLICY idempotency_purge_select ON idempotency_keys FOR SELECT TO nava_purge
