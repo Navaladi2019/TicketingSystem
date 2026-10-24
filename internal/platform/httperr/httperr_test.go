@@ -255,7 +255,7 @@ func TestRegistryWriteIsClientErrorsOnly(t *testing.T) {
 			if !ok {
 				return true
 			}
-			idx := -1
+			var idx int
 			switch {
 			case sel.Sel.Name == "Write" && len(call.Args) >= 3: // reg.Write(w, r, code, ...)
 				idx = 2
@@ -276,7 +276,7 @@ func TestRegistryWriteIsClientErrorsOnly(t *testing.T) {
 			switch {
 			case !known || !registered:
 				t.Errorf("%s: %s.%s is not a registered problem code", pos, sel.Sel.Name, arg.Sel.Name)
-			case e.Status >= http.StatusInternalServerError && !(allowed[path] && code == problem.NotImplemented):
+			case e.Status >= http.StatusInternalServerError && (!allowed[path] || code != problem.NotImplemented):
 				t.Errorf("%s: %s sends %s (%d); use WriteError so the cause is reported", pos, sel.Sel.Name, code, e.Status)
 			}
 			return true
