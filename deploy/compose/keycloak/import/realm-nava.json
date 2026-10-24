@@ -5,6 +5,12 @@
   "registrationAllowed": false,
   "accessTokenLifespan": 300,
   "defaultSignatureAlgorithm": "RS256",
+  "defaultDefaultClientScopes": [
+    "basic",
+    "roles",
+    "profile",
+    "email"
+  ],
   "sslRequired": "external",
   "roles": {
     "realm": [
@@ -331,6 +337,9 @@
       "standardFlowEnabled": false,
       "directAccessGrantsEnabled": true,
       "fullScopeAllowed": false,
+      "authenticationFlowBindingOverrides": {
+        "direct_grant": "00000000-0000-4000-8000-0000000000f1"
+      },
       "defaultClientScopes": [
         "basic",
         "roles",
@@ -514,6 +523,7 @@
   ],
   "organizations": [
     {
+      "id": "00000000-0000-4000-8000-0000000000a1",
       "name": "tenant-a",
       "alias": "tenant-a",
       "enabled": true,
@@ -541,6 +551,7 @@
       ]
     },
     {
+      "id": "00000000-0000-4000-8000-0000000000b1",
       "name": "tenant-b",
       "alias": "tenant-b",
       "enabled": true,
@@ -565,7 +576,71 @@
       ]
     }
   ],
+  "authenticatorConfig": [
+    {
+      "alias": "nava-deny-non-operator",
+      "config": {
+        "condUserRole": "nava-operator",
+        "negate": "true"
+      }
+    }
+  ],
   "authenticationFlows": [
+    {
+      "id": "00000000-0000-4000-8000-0000000000f1",
+      "alias": "nava-operator-direct-grant",
+      "description": "Direct grant for nava-operator-cli: only holders of nava-operator get a token (the audience mapper alone does not check the role).",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "direct-grant-validate-username",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "direct-grant-validate-password",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "userSetupAllowed": false
+        },
+        {
+          "flowAlias": "nava-operator-direct-grant-role-check",
+          "authenticatorFlow": true,
+          "requirement": "CONDITIONAL",
+          "priority": 30,
+          "userSetupAllowed": false
+        }
+      ]
+    },
+    {
+      "alias": "nava-operator-direct-grant-role-check",
+      "description": "Deny unless the user holds nava-operator.",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "conditional-user-role",
+          "authenticatorConfig": "nava-deny-non-operator",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "deny-access-authenticator",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "userSetupAllowed": false
+        }
+      ]
+    },
     {
       "alias": "nava-first-broker-login",
       "description": "ADR-001 A.1: create if unique, then add to the organization. No link, no confirm, no email verification.",

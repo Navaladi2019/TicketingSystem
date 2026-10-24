@@ -3,6 +3,7 @@ package identitystack
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -14,10 +15,15 @@ func TestRealmFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	var r struct {
-		Realm                string `json:"realm"`
-		OrganizationsEnabled bool   `json:"organizationsEnabled"`
-		AccessTokenLifespan  int    `json:"accessTokenLifespan"`
-		ClientScopes         []struct {
+		Realm                string   `json:"realm"`
+		OrganizationsEnabled bool     `json:"organizationsEnabled"`
+		AccessTokenLifespan  int      `json:"accessTokenLifespan"`
+		DefaultScopes        []string `json:"defaultDefaultClientScopes"`
+		Clients              []struct {
+			ClientID  string            `json:"clientId"`
+			Overrides map[string]string `json:"authenticationFlowBindingOverrides"`
+		} `json:"clients"`
+		ClientScopes []struct {
 			Name            string `json:"name"`
 			ProtocolMappers []struct {
 				ProtocolMapper string            `json:"protocolMapper"`
@@ -29,6 +35,7 @@ func TestRealmFile(t *testing.T) {
 			TrustEmail                       bool
 		} `json:"identityProviders"`
 		Flows []struct {
+			ID         string `json:"id"`
 			Alias      string `json:"alias"`
 			Executions []struct {
 				Authenticator string `json:"authenticator"`
@@ -36,6 +43,7 @@ func TestRealmFile(t *testing.T) {
 			} `json:"authenticationExecutions"`
 		} `json:"authenticationFlows"`
 		Organizations []struct {
+			ID      string `json:"id"`
 			Alias   string `json:"alias"`
 			Domains []struct {
 				Verified bool `json:"verified"`
@@ -58,7 +66,7 @@ func TestRealmFile(t *testing.T) {
 			switch m.ProtocolMapper {
 			case "oidc-organization-membership-mapper":
 				org = true
-				if c["addOrganizationId"] != "true" || c["addOrganizationAttributes"] != "false" || c["jsonType.label"] != "JSON" || c["access.token.claim"] != "true" {
+				if c["addOrganizationId"] != "true" || c["addOrganizationAttributes"] != "false" || c["multivalued"] != "true" || c["addOrganizationDomain"] != "false" || c["jsonType.label"] != "JSON" || c["access.token.claim"] != "true" {
 					t.Errorf("organization mapper config = %v", c)
 				}
 			case "oidc-usersessionmodel-note-mapper":
@@ -74,9 +82,10 @@ func TestRealmFile(t *testing.T) {
 	if !org || !idp {
 		t.Errorf("organization mapper present=%v, idp mapper present=%v", org, idp)
 	}
-	flows := map[string]bool{}
+	flows, flowIDs := map[string]bool{}, map[string]string{}
 	for _, f := range r.Flows {
 		flows[f.Alias] = true
+		flowIDs[f.Alias] = f.ID
 		if f.Alias != "nava-first-broker-login" {
 			continue
 		}
@@ -96,6 +105,25 @@ func TestRealmFile(t *testing.T) {
 	for _, p := range r.IdentityProviders {
 		if p.TrustEmail || p.FirstBrokerLoginFlowAlias != "nava-first-broker-login" {
 			t.Errorf("idp %s: trustEmail=%v flow=%q", p.Alias, p.TrustEmail, p.FirstBrokerLoginFlowAlias)
+		}
+	}
+	if got := strings.Join(r.DefaultScopes, ","); got != "basic,roles,profile,email" {
+		t.Errorf("defaultDefaultClientScopes = %q, want basic,roles,profile,email", got)
+	}
+	// Stable organization ids (the tenant UUIDs) for T15 seeds.
+	wantOrg := map[string]string{"tenant-a": "00000000-0000-4000-8000-0000000000a1", "tenant-b": "00000000-0000-4000-8000-0000000000b1"}
+	for _, o := range r.Organizations {
+		if o.ID != wantOrg[o.Alias] {
+			t.Errorf("organization %s id = %q, want %q", o.Alias, o.ID, wantOrg[o.Alias])
+		}
+	}
+	// The operator audience is only for nava-operator holders.
+	if !flows["nava-operator-direct-grant"] || flowIDs["nava-operator-direct-grant"] != "00000000-0000-4000-8000-0000000000f1" {
+		t.Error("flow nava-operator-direct-grant missing")
+	}
+	for _, c := range r.Clients {
+		if c.ClientID == "nava-operator-cli" && c.Overrides["direct_grant"] != "00000000-0000-4000-8000-0000000000f1" {
+			t.Errorf("nava-operator-cli direct_grant override = %q", c.Overrides["direct_grant"])
 		}
 	}
 	for _, o := range r.Organizations {

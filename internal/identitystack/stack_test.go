@@ -23,6 +23,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -361,7 +362,11 @@ func TestPlatformServiceAccountCanAssignOperator(t *testing.T) {
 	if code, b = admin(t, svc, http.MethodPost, path, []map[string]any{role}); code != http.StatusNoContent {
 		t.Fatalf("assign: %d %s", code, b)
 	}
-	t.Cleanup(func() { admin(t, svc, http.MethodDelete, path, []map[string]any{role}) })
+	t.Cleanup(func() {
+		if code, b := admin(t, svc, http.MethodDelete, path, []map[string]any{role}); code != http.StatusNoContent {
+			t.Errorf("cleanup: could not remove nava-operator from bob: %d %s", code, b)
+		}
+	})
 }
 
 func TestGroupSubtree(t *testing.T) {
@@ -416,7 +421,7 @@ func TestRealmRoundTrip(t *testing.T) {
 			if gm["protocolMapper"] != wmm["protocolMapper"] {
 				t.Errorf("mapper %v type %v != %v", wmm["name"], gm["protocolMapper"], wmm["protocolMapper"])
 			}
-			for _, k := range []string{"addOrganizationId", "addOrganizationAttributes", "jsonType.label", "user.session.note", "claim.name", "access.token.claim", "id.token.claim", "included.client.audience"} {
+			for _, k := range []string{"addOrganizationId", "addOrganizationAttributes", "addOrganizationDomain", "multivalued", "jsonType.label", "user.session.note", "claim.name", "access.token.claim", "id.token.claim", "included.client.audience"} {
 				if wv, ok := wmm["config"].(map[string]any)[k]; ok && wv != gm["config"].(map[string]any)[k] {
 					t.Errorf("mapper %v config %s: exported %v, imported %v", wmm["name"], k, gm["config"].(map[string]any)[k], wv)
 				}
@@ -455,6 +460,8 @@ func TestRealmRoundTrip(t *testing.T) {
 			t.Errorf("client %s not exported", id)
 		}
 	}
+	roundTripClients(t, want, got)
+	roundTripOrganizations(t, want)
 	roles := got["roles"].(map[string]any)["realm"]
 	if find(roles, "name", "nava-operator") == nil {
 		t.Error("realm role nava-operator not exported")
@@ -469,4 +476,146 @@ func find(list any, key string, val any) map[string]any {
 		}
 	}
 	return nil
+}
+
+// roundTripClients compares the client settings the operator audience and the
+// token contents depend on.
+func roundTripClients(t *testing.T, want, got map[string]any) {
+	t.Helper()
+	if g, w := fmt.Sprint(got["defaultDefaultClientScopes"]), fmt.Sprint(want["defaultDefaultClientScopes"]); g != w {
+		t.Errorf("defaultDefaultClientScopes: exported %s, imported %s", g, w)
+	}
+	for _, wc := range want["clients"].([]any) {
+		wcm := wc.(map[string]any)
+		id := wcm["clientId"]
+		gc := find(got["clients"], "clientId", id)
+		if gc == nil {
+			t.Errorf("client %v not exported", id)
+			continue
+		}
+		for _, k := range []string{"fullScopeAllowed", "bearerOnly", "serviceAccountsEnabled", "publicClient", "directAccessGrantsEnabled"} {
+			// An absent key in the file means the Keycloak default, which is false here.
+			w := wcm[k]
+			if w == nil {
+				w = false
+			}
+			if fmt.Sprint(gc[k]) != fmt.Sprint(w) {
+				t.Errorf("client %v %s: exported %v, imported %v", id, k, gc[k], w)
+			}
+		}
+		for _, k := range []string{"defaultClientScopes", "authenticationFlowBindingOverrides"} {
+			if wv, ok := wcm[k]; ok && canon(wv) != canon(gc[k]) {
+				t.Errorf("client %v %s: exported %v, imported %v", id, k, gc[k], wv)
+			}
+		}
+	}
+	// Realm role scope mappings of the clients (the operator role only for the CLI).
+	wsm, _ := want["scopeMappings"].([]any)
+	gsm, _ := got["scopeMappings"].([]any)
+	nClient := 0
+	for _, g := range gsm {
+		if _, ok := g.(map[string]any)["client"]; ok { // Keycloak adds its own client-scope entry (offline_access)
+			nClient++
+		}
+	}
+	if nClient != len(wsm) {
+		t.Errorf("scopeMappings: exported %d client entries, imported %d", nClient, len(wsm))
+	}
+	for _, w := range wsm {
+		wm := w.(map[string]any)
+		gm := find(got["scopeMappings"], "client", wm["client"])
+		if gm == nil {
+			t.Errorf("scopeMappings for client %v not exported", wm["client"])
+			continue
+		}
+		if g, w := sortedStrings(gm["roles"]), sortedStrings(wm["roles"]); g != w {
+			t.Errorf("scopeMappings %v roles: exported %s, imported %s", wm["client"], g, w)
+		}
+	}
+}
+
+// canon renders a value so that list order does not matter.
+func canon(v any) string {
+	if _, ok := v.([]any); ok {
+		return sortedStrings(v)
+	}
+	return fmt.Sprint(v)
+}
+
+func sortedStrings(v any) string {
+	var out []string
+	l, _ := v.([]any)
+	for _, e := range l {
+		out = append(out, fmt.Sprint(e))
+	}
+	sort.Strings(out)
+	return strings.Join(out, ",")
+}
+
+// roundTripOrganizations compares the organizations of the running realm with
+// the file. partial-export leaves organizations out, so this reads them through
+// the admin API: id, verified domains and the identity provider link.
+func roundTripOrganizations(t *testing.T, want map[string]any) {
+	t.Helper()
+	svc := masterToken(t) // the platform service account may not read identity providers
+	for _, wo := range want["organizations"].([]any) {
+		wom := wo.(map[string]any)
+		alias := fmt.Sprint(wom["alias"])
+		id := orgID(t, svc, alias)
+		if wid, _ := wom["id"].(string); wid != "" && id != wid {
+			t.Errorf("organization %s: running id %s, imported id %s", alias, id, wid)
+		}
+		// The admin API serves the domains on the organization itself.
+		code, b := admin(t, svc, http.MethodGet, "/organizations/"+id, nil)
+		var org struct {
+			Domains []struct {
+				Name     string
+				Verified bool
+			}
+		}
+		if code != http.StatusOK || json.Unmarshal(b, &org) != nil {
+			t.Errorf("organization %s: %d %s", alias, code, b)
+			continue
+		}
+		domains := org.Domains
+		var gd, wd []string
+		for _, d := range domains {
+			if !d.Verified {
+				t.Errorf("organization %s: domain %s is not verified", alias, d.Name)
+			}
+			gd = append(gd, d.Name)
+		}
+		for _, d := range wom["domains"].([]any) {
+			wd = append(wd, fmt.Sprint(d.(map[string]any)["name"]))
+		}
+		sort.Strings(gd)
+		sort.Strings(wd)
+		if strings.Join(gd, ",") != strings.Join(wd, ",") {
+			t.Errorf("organization %s domains: running %v, imported %v", alias, gd, wd)
+		}
+		code, b = admin(t, svc, http.MethodGet, "/organizations/"+id+"/identity-providers", nil)
+		var idps []struct {
+			Alias             string
+			OrganizationLinks []struct{ OrganizationID string }
+		}
+		if code != http.StatusOK || json.Unmarshal(b, &idps) != nil {
+			t.Errorf("organization %s identity providers: %d %s", alias, code, b)
+			continue
+		}
+		var gi, wi []string
+		for _, p := range idps {
+			gi = append(gi, p.Alias)
+			if len(p.OrganizationLinks) != 1 || p.OrganizationLinks[0].OrganizationID != id {
+				t.Errorf("idp %s is linked to %v, want only organization %s", p.Alias, p.OrganizationLinks, alias)
+			}
+		}
+		for _, p := range wom["identityProviders"].([]any) {
+			wi = append(wi, fmt.Sprint(p.(map[string]any)["alias"]))
+		}
+		sort.Strings(gi)
+		sort.Strings(wi)
+		if strings.Join(gi, ",") != strings.Join(wi, ",") {
+			t.Errorf("organization %s identity providers: running %v, imported %v", alias, gi, wi)
+		}
+	}
 }
