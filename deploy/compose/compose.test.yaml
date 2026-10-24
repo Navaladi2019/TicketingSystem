@@ -1,18 +1,10 @@
-# Overlay for the stack tests (make ci-stack sets COMPOSE_FILE to include it).
+# Overlay for the Temporal stack test (internal/temporalstack): publishes the
+# gateway on the host loopback so a Go test can dial it from outside Docker.
 #   docker compose -f compose.yaml -f deploy/compose/compose.test.yaml up -d
-# Never part of the dev or production stack.
+# Only 7233 is published; every other Temporal port stays unreachable.
+# make stack-up uses it on the dev project too, so it changes nothing else;
+# what only a throwaway CI stack may have is in compose.ci.yaml.
 services:
-  # Publishes the gateway on the host loopback so a Go test
-  # (internal/temporalstack) can dial it from outside Docker. Only 7233 is
-  # published; every other Temporal port stays unreachable.
   temporal:
     ports:
       - "127.0.0.1:${TEMPORAL_TEST_PORT:-17233}:7233"
-  # A test cluster is thrown away with its volume, so no durability
-  # (TICK-153 O11): faster db-roles, migrate and service start-up. The command
-  # replaces compose.yaml's whole list, so its hba_file comes along.
-  postgres:
-    command: ["postgres", "-c", "hba_file=/etc/postgresql/pg_hba.conf",
-              "-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off"]
-    environment:
-      POSTGRES_INITDB_ARGS: --no-sync

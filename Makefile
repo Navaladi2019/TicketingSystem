@@ -139,6 +139,10 @@ ci-stack: $(if $(IMAGE_CACHE),image-ci,image)
 # Each tears its project down; the main one prints its logs first on failure.
 # The certificates come first: a bind mount of a missing file would make
 # Docker create a directory in its place.
+# Only this throwaway run, which ends in down -v, gets the no-durability
+# Postgres (deploy/compose/compose.ci.yaml); make stack-up on the dev project
+# never does.
+ci-stack-run: export COMPOSE_FILE := compose.yaml:deploy/compose/compose.test.yaml:deploy/compose/compose.ci.yaml
 ci-stack-run: dev-ca
 	@$(MAKE) --no-print-directory $(if $(filter after,$(STACK_INTERNAL)),-j1,-j 2) stack-main stack-internal-beside
 

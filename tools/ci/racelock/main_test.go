@@ -98,9 +98,21 @@ func TestAcquireSlots(t *testing.T) {
 		t.Fatal("took two slots while only one was free")
 	case <-time.After(time.Second):
 	}
-	// The waiting run must not sit on the one free slot.
-	probe := hold(t, port+2)
-	_ = probe.Close()
+	// The waiting run must not sit on the one free slot. It binds and releases
+	// it for a moment on every retry, so one failed bind is not proof: a slot
+	// it sat on would refuse every attempt.
+	free := false
+	for range 20 {
+		if l, err := new(net.ListenConfig).Listen(context.Background(), "tcp", "127.0.0.1:"+strconv.Itoa(port+2)); err == nil {
+			_ = l.Close()
+			free = true
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !free {
+		t.Fatal("the waiting run holds the one free slot")
+	}
 
 	_ = busy.Close()
 	select {

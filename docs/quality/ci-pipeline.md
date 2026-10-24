@@ -33,10 +33,11 @@ smoke, PgBouncer, every `temporal_*` case, hba, SDK, identity) then run at
 once, and `dependencies`, `trace`, `logs`, `redact`, `idempotent` and `dbroles`
 run one at a time after them (`STACK_TESTS_SERIAL`): `dependencies` stops
 Keycloak, `trace` counts every trace the Collector saw, `idempotent` restarts
-the stack and `dbroles` changes roles. The test overlay
-(`deploy/compose/compose.test.yaml`) runs the stack's PostgreSQL with
-`fsync`, `synchronous_commit` and `full_page_writes` off; the dev and
-production files never do.
+the stack and `dbroles` changes roles. `ci-stack` alone adds the CI overlay
+(`deploy/compose/compose.ci.yaml`), which runs the stack's PostgreSQL with
+`fsync`, `synchronous_commit` and `full_page_writes` off; that run ends in
+`down -v`. The test overlay (`compose.test.yaml`, which `make stack-up` uses on
+the dev project) and the dev and production files never set them.
 
 **Time budget: under 5 minutes wall clock on a warm cache.** What keeps it there:
 - Each job restores its own Go module and build cache (`actions/cache`, key per
