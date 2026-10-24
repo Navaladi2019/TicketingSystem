@@ -16,7 +16,8 @@ In GitHub, the `temporal-server` job runs the module's tests and then
 `make vulncheck-temporal-server`, which must report zero findings: there is no
 exception and no allowlist (ADR-001 A1 Decision 3, TICK-121).
 `lint`, `unit`, `temporal-server`, `integration`, `stack`,
-`stack-db` and `stack-internal` run as seven parallel jobs, each a separate
+`stack-db` and `stack-internal` run as seven parallel jobs (the ones a pull
+request needs, see "In GitHub" below), each a separate
 check (decision log, 2026-10-20). Inside each job, steps follow the order above
 and the first failure stops the job. The stack tests are split over three jobs,
 each with its own compose stack: `stack` (healthy, smoke, PgBouncer, every
@@ -142,8 +143,29 @@ collector files) and `ci-stack`; the integration script adds `ci-integration`.
 `go.mod`, `go.sum`, `docs/pins.md`, the Makefile, and any file no rule knows
 run all four. A renamed file counts at both paths (`git diff --no-renames`).
 `go run ./tools/ci/cichanged -v` prints the reason for each file. Whether a
-`ci-changed` run can replace the full pipeline as a PR's final gate (D5) is
-the Technical Lead's decision; until then the full run stays the gate.
+`ci-changed` run can replace the full pipeline as a PR's final gate (D5) was
+settled by the human on 2026-10-25 (decision log): it can.
+
+### In GitHub
+
+A pull request runs only the jobs its change needs. The `changes` job runs
+`make ci-stages`, which prints the same stages `cichanged` picks and writes
+`unit`, `integration` and `stack` as `true` or `false` for the job conditions:
+
+| Stage needed | Jobs that run |
+| --- | --- |
+| always | `changes`, `lint` |
+| `ci-unit` | `unit`, `temporal-server` |
+| `ci-integration` | `integration` |
+| `ci-stack` | `stack`, `stack-db`, `stack-internal` |
+
+A change under `.github/workflows` runs every job, since only a full run proves
+a workflow edit. A skipped job shows as skipped, not failed. Nothing runs on a
+push to `main`. For a full run on any branch, start the `ci` workflow by hand
+from the Actions tab (`workflow_dispatch`, or `gh workflow run ci --ref
+<branch>`); it sets `CI_ALL=1`, so every job runs. Locally, `make ci-stages`
+prints the stages for the current branch and `CI_ALL=1 make ci-stages` prints
+all four.
 
 ## Parallel runs (TICK-147)
 
