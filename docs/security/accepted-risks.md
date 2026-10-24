@@ -1,0 +1,68 @@
+# Accepted risks
+
+One register of every risk the project has knowingly accepted, gathered from
+the ADRs, the decision log, the security notes and the architecture notes.
+Each row links to where the risk was recorded, so it can be picked up and fixed
+later. The source document stays authoritative; this page is the index.
+
+Gaps that already have a `TODO-NNN` row live in
+[`docs/delivery/todo.md`](../delivery/todo.md) and are not repeated here.
+Findings that a rule or fix closed (for example ADR-001-A2's F2-1 to F2-6) are
+not accepted risks and are left out.
+
+## Severity
+
+| Flag | Meaning |
+| --- | --- |
+| 🔴 High | A tenant-isolation break if one precondition fails (for example, one stolen credential) |
+| 🟠 Medium | Data exposure or a weakened control, but needs more than one failure, or the control is in doubt |
+| 🟡 Low | Availability, cost or operability; no tenant data at risk |
+| ⚪ Info | Process cost or a known limitation |
+
+A severity marked † was assessed when this register was built (2026-10-24),
+because the source gives none. An unmarked severity is the source's own rating.
+
+Status: **Accepted** (signed off as is), **Fix proposed** (a cheap fix is
+written down; prefer fixing over keeping it), **Control disputed** (the
+recorded mitigation does not hold as written; re-decide).
+
+## Register
+
+| ID | Sev | Risk | Status | Owner | Revisit trigger / proposed fix | Source |
+| --- | --- | --- | --- | --- | --- | --- |
+| AR-001 (R8) | 🔴 High† | A stolen `nava-worker` certificate polls every tenant's tasks and histories and can set any `app.tenant_id`, so it reads and writes any tenant under RLS. A stolen `nava-relay` or `nava-core` certificate can start or signal for any tenant. | Accepted | Security reviewer | Any new holder of a Temporal certificate, or per-tenant workers required | [ADR-001 §5](../adr/ADR-001-platform-blueprint.md#5-residuals-accepted-by-nava-2026-10-15) |
+| AR-002 (R1) | 🟠 Medium† | Temporal histories are cross-tenant data and are not encrypted in M1. | Accepted | Solution Architect | First regulated-data tenant, or TICK-41 decided; then a per-tenant encrypting codec | [ADR-001 §5](../adr/ADR-001-platform-blueprint.md#5-residuals-accepted-by-nava-2026-10-15) |
+| AR-003 (R2) | 🟠 Medium† | The migrator is all-powerful over its tables; the backup role and backup set hold every byte, including Keycloak and Temporal if they share the cluster. | Accepted | Technical Lead | Any request to run DDL from a runtime process, or a logical-dump requirement | [ADR-001 §5](../adr/ADR-001-platform-blueprint.md#5-residuals-accepted-by-nava-2026-10-15) |
+| AR-004 (RS6) | 🟠 Medium† | R-CORE (workflow ids built from the JWT tenant; no client-supplied opaque token forwarded) is enforced by `nava-core` code and tests, not by the Authorizer. | Accepted | Security & Multi-Tenancy Reviewer | First `nava-core` Temporal call; any API that paginates Temporal results; any path running tenant-supplied code | [ADR-001-A2](../adr/ADR-001-A2-f2-system-workflow-reach.md) (residuals table), [plan-adr-001-a2 D-A2-4](../delivery/plan-adr-001-a2.md) |
+| AR-005 | 🟠 Medium† | The `set_config` lint rule sees constants only; SQL built at run time bypasses it. The doc says "the database grants are the control (TICK-94 item 15)", but item 15 is the golangci-lint plugin ban, and no grant stops `set_config` or `SET app.tenant_id` (`00001_global_revokes.sql` revokes only on future `nava_migrator` functions). Today lint plus review is the only control. | **Control disputed** | Security & Multi-Tenancy Reviewer | Fix the doc's citation and claim; then decide on a real backstop (runtime tracer guard, or a verified tenant token in the RLS check) | [tenant-transactions.html §4](../architecture/tenant-transactions.html#risks), [`00001_global_revokes.sql`](../../db/migrations/00001_global_revokes.sql) |
+| AR-006 | 🟠 Medium† | A recovered panic value is logged as is; a panic message built from input can log client data. | Accepted (untracked) | Technical Lead† | Give it a TODO row, or redact the panic value in recovery | [observability-notes §2.7](../architecture/observability-notes.md#27-known-gaps) |
+| AR-007 | 🟡 Low | Operator UI tunnel: while it is open, a compromised `nava-core` can reach the UI through `host.docker.internal` and act as `nava-operator`. | Accepted | Technical Lead | With TODO-006: UI reachable without a tunnel, a shared or non-local stack, or M1 closes | [decision-log 2026-10-19](../delivery/decision-log.md#2026-10-19-t28-operator-ui-reached-only-through-a-tunnel-ui-login-deferred) |
+| AR-008 | 🟡 Low | `InTenantTx`: if `fn` calls `runtime.Goexit` (for example `t.FailNow`), the transaction is neither committed nor rolled back and the pool slot leaks for good. Slot leak, not tenant leak; in tests it shows up as hangs on pool exhaustion. | Fix proposed | Technical Lead† | Track a `committed` flag; roll back in the defer whenever it is false | [tenant-transactions.html §4](../architecture/tenant-transactions.html#risks), [`tenancy.go:48`](../../internal/tenancy/tenancy.go#L48) |
+| AR-009 | 🟡 Low | `InTenantTx` rolls back with the caller's `ctx`; on a cancelled request the rollback fails and pgx closes the connection (safe, but a reconnect, worst under load). | Fix proposed | Technical Lead† | `context.WithTimeout(context.WithoutCancel(ctx), ~5s)`; plain `WithoutCancel` drops the deadline and can hang | [tenant-transactions.html §4](../architecture/tenant-transactions.html#risks), [`tenancy.go:50`](../../internal/tenancy/tenancy.go#L50) |
+| AR-010 | 🟡 Low | `boundedToken` accepts a bare UUID or single word, so a library writing a bare id as `error.type` would export it. None does today. | Accepted | Technical Lead† | A library on the path writes ids into `error.type`; then restrict to known type and code shapes | [tenant-transactions.html §4](../architecture/tenant-transactions.html#risks), [`filter.go:83`](../../internal/platform/telemetry/filter.go#L83) |
+| AR-011 | 🟡 Low | Undecodable-token denies (`task_token_invalid`, `request_malformed`) carry `command="none"`, so neither documented paging rule fires on them. | Accepted | Whoever installs the rules (TODO-004) | When TODO-004 installs the rules, add both reasons to the second rule | [temporal-ci6.md, observation 1](temporal-ci6.md) |
+| AR-012 | 🟡 Low | Prometheus rewrites label values (`nava-worker` → `nava_worker`); a rule filtering on the original value never matches. | Accepted | Whoever installs the rules (TODO-004) | Use the rewritten values when writing rules | [temporal-ci6.md, observation 2](temporal-ci6.md) |
+| AR-013 (R7) | 🟡 Low† | A custom Temporal server build to own (the Authorizer module). | Accepted | Technical Lead | Every Temporal upgrade, or any Go vuln DB advisory against the pinned server (A1) | [ADR-001 §5](../adr/ADR-001-platform-blueprint.md#5-residuals-accepted-by-nava-2026-10-15), [ADR-001-A1](../adr/ADR-001-A1-temporal-server-1-29-7-workload-allow-list.md) |
+| AR-014 (R9) | 🟡 Low† | Head-of-line blocking per target while a signal backs off. | Accepted | Technical Lead | Epic 08 flood test | [ADR-001 §5](../adr/ADR-001-platform-blueprint.md#5-residuals-accepted-by-nava-2026-10-15) |
+| AR-015 (RS1) | 🟡 Low† | Temporal 1.29's support horizon is unknown. | Accepted | Technical Lead | Unfixed advisory, 1.29 end-of-support announcement, or M2 planning | [ADR-001-A1](../adr/ADR-001-A1-temporal-server-1-29-7-workload-allow-list.md) (residuals table) |
+| AR-016 (RS2) | 🟡 Low† | D6-K dynamic-config checks, including A2's new row, run only at startup. | Accepted | Security & Multi-Tenancy Reviewer | Any runtime write path to dynamic config | [ADR-001-A1](../adr/ADR-001-A1-temporal-server-1-29-7-workload-allow-list.md), [ADR-001-A2](../adr/ADR-001-A2-f2-system-workflow-reach.md) |
+| AR-017 (RS3) | 🟡 Low† | SDK v1.49.0 against server 1.29.7 is proven only by CI-D. | Accepted | Technical Architect | CI-D failure | [ADR-001-A1](../adr/ADR-001-A1-temporal-server-1-29-7-workload-allow-list.md) |
+| AR-018 (RS4) | 🟡 Low† | Turning off system features could break an internal Temporal workflow. | Accepted | Technical Architect | CI-G failure: drop that one D6-K key and record why; never widen D9 | [ADR-001-A1](../adr/ADR-001-A1-temporal-server-1-29-7-workload-allow-list.md) |
+| AR-019 (RS7) | 🟡 Low | One `nava-worker` pod can unload a sibling's SDK-shaped sticky queue (`stickyQueueName` checks shape, not owner). Source calls it harmless. | Accepted | Security & Multi-Tenancy Reviewer | Per-pod or per-tenant worker certificates; sticky queues gain a tenant meaning | [ADR-001-A2](../adr/ADR-001-A2-f2-system-workflow-reach.md), [plan-adr-001-a2](../delivery/plan-adr-001-a2.md) |
+| AR-020 | 🟡 Low† | OTLP transport security comes from env; a misconfiguration gives plain `http://` or no auth. | Accepted | T02 deployment | T02 deployment | [observability-notes §2.7](../architecture/observability-notes.md#27-known-gaps) |
+| AR-021 | 🟡 Low† | `WithGroup` nests correlation ids (`x.trace_id`), breaking log joins. Documentation-only rule. | Accepted | Technical Lead† | Adopt a fix from observability-notes §6 (stopgap: `forbidigo` ban on `.WithGroup(`) | [observability-notes §2.7](../architecture/observability-notes.md#27-known-gaps), [§6](../architecture/observability-notes.md#6-logging-the-withgroup-caveat-and-options) |
+| AR-022 (R3) | ⚪ Info† | No tenant self-administration of Keycloak in M1; the platform API does it. | Accepted | CTO / nava | Epic 26 scoping | [ADR-001 §5](../adr/ADR-001-platform-blueprint.md#5-residuals-accepted-by-nava-2026-10-15) |
+| AR-023 (RS5) | ⚪ Info | Every new workflow type or task queue needs a policy PR and an image rebuild. | Accepted | Technical Lead | More than about one change a week, or Epic 09's interpreter needs a type per definition | [ADR-001-A1](../adr/ADR-001-A1-temporal-server-1-29-7-workload-allow-list.md), [plan-adr-001-a1 D-A1-4](../delivery/plan-adr-001-a1.md) |
+| AR-024 | ⚪ Info† | The span allow-list drops unknown keys silently; a useful key from a new library is lost until listed. | Accepted | Technical Lead† | Review each new instrumentation; add keys to `spanAttributeAllowed` | [observability-notes §2.7](../architecture/observability-notes.md#27-known-gaps) |
+
+## Maintaining this register
+
+- **New accepted risk:** add a row here in the same change that records it in
+  its source document. Use the next `AR-NNN`, put the source's own id (R8,
+  RS6) in brackets, and link the source.
+- **Fixed or retired:** delete the row and note the fix in the source document.
+  Keep IDs stable; never renumber.
+- **Becomes deferred work with code:** move it to `docs/delivery/todo.md` with
+  a `TODO(TODO-NNN)` comment and delete the row here.
+- Owners marked † were inferred from the area of the code; confirm them when
+  the risk is next reviewed.
