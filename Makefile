@@ -27,8 +27,10 @@ temporal-server-run: temporal-server-dev-certs
 #
 # Gates, in order (each stage stops the run when it fails):
 #   ci-lint         gofmt, go vet, golangci-lint (+ fixture), check-taskfile,
-#                   check-pins, check-openapi, govulncheck (both modules). No containers.
-#   ci-unit         go test -race ./..., temporal-server unit tests. No containers.
+#                   check-pins, check-openapi, govulncheck (both modules, once a
+#                   day per dependency set). No containers.
+#   ci-unit         go test -race ./... (one at a time per host), temporal-server
+#                   unit tests. No containers.
 #   ci-integration  -tags integration against a throwaway PostgreSQL (Docker).
 #   ci-stack        image build, compose up, GET /healthz smoke, stack tests.
 
@@ -38,7 +40,7 @@ GOLANGCI_LINT_VERSION := 2.14.0
 GOVULNCHECK_VERSION := v1.9.0
 
 .PHONY: build run test test-integration lint generate check-openapi
-.PHONY: ci ci-isolated ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity 	image image-ci stack-up stack-down stack-logs stack-internal smoke
+.PHONY: ci ci-isolated ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity 	image image-ci stack-up stack-down stack-logs stack-internal smoke
 
 build:
 	go build -o bin/nava-core ./cmd/nava-core
@@ -52,10 +54,12 @@ run:
 # does not reach them.
 # -trimpath keeps the checkout path out of the build and test cache keys, so a
 # new checkout reuses the cached results (TICK-153 O5). Not for navalint: it
-# makes its analysistest runs slower.
+# makes its analysistest runs slower. racelock: one go test -race at a time on
+# the host, across every checkout and agent (TICK-153 D3); NAVA_RACE_LOCK=off
+# skips it.
 test:
-	go test -race -trimpath ./...
-	go -C tools/navalint test -race ./...
+	go run ./tools/ci/racelock -- go test -race -trimpath ./...
+	go run ./tools/ci/racelock -- go -C tools/navalint test -race ./...
 
 # Every package with `//go:build integration` tests, against a throwaway
 # postgres container the script starts and removes (needs Docker). Pass
@@ -97,7 +101,7 @@ ci-isolated-down:
 	@[ -n "$(ID)" ] || { echo "usage: make ci-isolated-down ID=<pr-or-sha>"; exit 2; }
 	sh scripts/ci/ci-isolated.sh --down $(ID)
 
-ci-lint: check-tools fmt-check vet lint lint-fixture check-taskfile check-pins check-openapi vulncheck vulncheck-temporal-server
+ci-lint: check-tools fmt-check vet lint lint-fixture check-taskfile check-pins check-openapi vulncheck-ci
 
 ci-unit: test temporal-server-test
 
@@ -141,6 +145,12 @@ check-pins:
 
 vulncheck:
 	govulncheck ./...
+
+# ci-lint's govulncheck: both modules at once, each when its go.mod or go.sum
+# has not passed a scan today on this host (TICK-153 D2, ADR-001-A1 R7).
+# VULNCHECK=all scans both regardless.
+vulncheck-ci:
+	sh scripts/ci/vulncheck.sh
 
 # Required in CI (temporal-server job and ci-lint): zero findings, with no
 # exception or allowlist (ADR-001 A1 Decision 3).
