@@ -51,7 +51,16 @@ func temporalImage() string {
 	if i := os.Getenv("NAVA_TEST_TEMPORAL_IMAGE"); i != "" {
 		return i
 	}
-	return "nava/temporal-server:dev"
+	return "nava/temporal-server:" + imageTag()
+}
+
+// imageTag is the tag of the nava/* images compose built: NAVA_IMAGE_TAG
+// (make ci-isolated), else dev.
+func imageTag() string {
+	if t := os.Getenv("NAVA_IMAGE_TAG"); t != "" {
+		return t
+	}
+	return "dev"
 }
 
 // pairOf loads the certificate and key of cn from the dev CA directory.
@@ -273,10 +282,13 @@ func historyHas(ctx context.Context, t *testing.T, c client.Client, id string, e
 // --- the server's deny log and metric -------------------------------------
 
 // composeProject is the compose project of the stack under test: `nava` (the
-// name in compose.yaml) unless NAVA_TEST_COMPOSE_PROJECT names another, for a
-// second stack on the same host (COMPOSE_PROJECT_NAME).
+// name in compose.yaml) unless NAVA_TEST_COMPOSE_PROJECT or, failing that,
+// COMPOSE_PROJECT_NAME names another, for a second stack on the same host.
 func composeProject() string {
 	if p := os.Getenv("NAVA_TEST_COMPOSE_PROJECT"); p != "" {
+		return p
+	}
+	if p := os.Getenv("COMPOSE_PROJECT_NAME"); p != "" {
 		return p
 	}
 	return "nava"
@@ -421,7 +433,7 @@ func logMatches(line map[string]any, want map[string]string) bool {
 func deniedCount(t *testing.T, want map[string]string) float64 {
 	t.Helper()
 	out, err := dockerRun("--network", networkOf(t, "temporal-backplane"), "--entrypoint", "wget",
-		"nava/nava-core:dev", "-q", "-O", "-", "http://temporal-server:9090/metrics")
+		"nava/nava-core:"+imageTag(), "-q", "-O", "-", "http://temporal-server:9090/metrics")
 	if err != nil {
 		t.Fatalf("scrape temporal-server metrics: %v\n%s", err, out)
 	}

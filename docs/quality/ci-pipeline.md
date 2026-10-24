@@ -70,4 +70,52 @@ make tools        # once
 make ci           # all four stages
 make ci-lint      # or one stage
 NAVA_CI_CANARY=fail make test-integration ARGS="-run TestCICanary"   # canary, must fail
+make ci-isolated ID=pr-57   # all four stages on a stack of its own (below)
 ```
+
+## Parallel runs (TICK-147)
+
+`make ci-isolated ID=<pr-or-sha>` (`task ci:isolated ID=...`) runs the same four
+stages as `make ci`, on a stack nothing else shares, so several checkouts run
+CI at once on one Docker host. Run it from each PR's own checkout; one run per
+checkout at a time (the dev certificates and `ci6-report.md` live in it).
+
+| Shared on the host before | Per run now | Set by |
+| --- | --- | --- |
+| compose project `nava` (containers, networks, volumes) | `nava-<ID>` | `COMPOSE_PROJECT_NAME` |
+| image tags `nava/*:dev` | `nava/*:<ID>` | `NAVA_IMAGE_TAG` (compose.yaml, `TEMPORAL_SERVER_IMAGE`, the stack tests) |
+| host ports 18080, 18081, 17233, 18233 | four ports in 20000-21999 from a checksum of ID, skipping ports a running container publishes; printed at the start | `NAVA_CORE_PORT`, `KEYCLOAK_PORT`, `TEMPORAL_TEST_PORT`, `UI_PORT` |
+
+The ID is lowercased; characters other than `a-z 0-9 _ -` become `-`; `dev`
+is refused. On exit, pass or fail, the run removes its project
+(`down -v --remove-orphans`) and untags its four `nava/*:<ID>` images. It never
+prunes, so shared layers and the build cache stay. It then fails if any
+`nava-<ID>` container, volume, network or image tag is left.
+`STAGES="ci-unit ci-stack"` runs a subset. A run killed outright (SIGKILL,
+a closed session) skips that cleanup; `make ci-isolated-down ID=<ID>` does it.
+The `integration` stage was already safe in parallel: it names its containers
+by PID and takes random host ports.
+
+**Caches, shared by every run.** Nothing is set per run and nothing is cleaned.
+- Go: the per-user `GOCACHE`, `GOMODCACHE` and golangci-lint cache, safe for
+  concurrent use. The `go1.26.10` toolchain downloads once (`GOTOOLCHAIN=auto`).
+- Pinned tools: `make tools` runs only when `make check-tools` fails.
+- Images: `IMAGE_CACHE=local` makes `ci-stack` build with `make image-ci`
+  (`buildx bake`) on the local builder. Its BuildKit cache is shared by every
+  tag and safe for concurrent builds, so per-run tags still share layers. There
+  is no `type=local` cache directory, because two concurrent exports to one
+  directory can corrupt it.
+- Registry images: `image-ci` pulls with `--policy missing`, `compose up`
+  pulls only missing images, and the integration script's `docker run` uses the
+  local copy.
+
+**How many fit.** Measured on this host (16 CPU, about 20 GB for Docker); see
+TICK-147 for the runs. One stack holds about 1.2 GB at rest; Keycloak (about
+0.8 GB) is the largest part. The limit is memory during `ci-unit`, not the
+stacks: `go test -race ./...` across both modules peaks at several GB, and a
+fully loaded host has hit `fatal error: runtime: cannot allocate memory`
+there. **Run at most 3 at once**, or 2 while other agents build. Stacks alone
+would allow about 8.
+
+`make ci` and `make stack-up` with no variables behave as before (project
+`nava`, tag `dev`, the old ports). The GitHub workflow is unchanged.

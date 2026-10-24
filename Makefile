@@ -1,4 +1,6 @@
-TEMPORAL_SERVER_IMAGE ?= nava/temporal-server:dev
+# Tag of the nava/* images compose.yaml builds; `make ci-isolated` sets one per run.
+export NAVA_IMAGE_TAG ?= dev
+TEMPORAL_SERVER_IMAGE ?= nava/temporal-server:$(NAVA_IMAGE_TAG)
 
 .PHONY: temporal-server-test temporal-server-image temporal-server-dev-certs temporal-server-run dev-ca operator-tunnel
 
@@ -36,7 +38,7 @@ GOLANGCI_LINT_VERSION := 2.14.0
 GOVULNCHECK_VERSION := v1.9.0
 
 .PHONY: build run test test-integration lint generate check-openapi
-.PHONY: ci ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity 	image image-ci stack-up stack-down stack-logs stack-internal smoke
+.PHONY: ci ci-isolated ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity 	image image-ci stack-up stack-down stack-logs stack-internal smoke
 
 build:
 	go build -o bin/nava-core ./cmd/nava-core
@@ -79,6 +81,19 @@ check-openapi:
 
 ci: ci-lint ci-unit ci-integration ci-stack
 
+# The four stages on a stack of its own, so several PRs run at once on one
+# Docker host (TICK-147, docs/quality/ci-pipeline.md "Parallel runs"): compose
+# project nava-<ID>, image tag <ID>, host ports derived from ID. Removes its
+# own containers, volumes, networks and image tags on exit, nothing shared.
+ci-isolated:
+	@[ -n "$(ID)" ] || { echo "usage: make ci-isolated ID=<pr-or-sha>"; exit 2; }
+	sh scripts/ci/ci-isolated.sh $(ID)
+
+# Tears down what a killed ci-isolated run left behind (its own project and tags).
+ci-isolated-down:
+	@[ -n "$(ID)" ] || { echo "usage: make ci-isolated-down ID=<pr-or-sha>"; exit 2; }
+	sh scripts/ci/ci-isolated.sh --down $(ID)
+
 ci-lint: check-tools fmt-check vet lint lint-fixture check-taskfile check-pins check-openapi vulncheck vulncheck-temporal-server
 
 ci-unit: test temporal-server-test
@@ -89,7 +104,7 @@ ci-integration: test-integration
 # it down (logs first on failure). The workflow runs the same targets one step
 # at a time.
 STACK_TESTS := healthy smoke pgbouncer temporal temporal_handshake temporal_isolation temporal_custody temporal_operator_reach temporal_health sdk identity dependencies trace logs redact idempotent dbroles hba
-ci-stack: image
+ci-stack: $(if $(IMAGE_CACHE),image-ci,image)
 	@status=0; $(MAKE) --no-print-directory stack-up $(addprefix stack-test-,$(STACK_TESTS)) stack-internal || status=$$?; 	if [ $$status -ne 0 ]; then $(MAKE) --no-print-directory stack-logs; fi; 	$(MAKE) --no-print-directory stack-down; exit $$status
 
 # Installs the pinned CI tools into $$(go env GOPATH)/bin.
@@ -144,6 +159,9 @@ export COMPOSE_FILE ?= compose.yaml:deploy/compose/compose.test.yaml
 # Windows Docker splits COMPOSE_FILE on ";" unless told otherwise.
 export COMPOSE_PATH_SEPARATOR ?= :
 STACK_FILES := -f compose.yaml -f deploy/compose/compose.internal.yaml
+# The compose project: `name: nava` in compose.yaml unless COMPOSE_PROJECT_NAME
+# names another.
+COMPOSE_PROJECT := $(or $(COMPOSE_PROJECT_NAME),nava)
 
 image:
 	docker compose build
@@ -153,11 +171,16 @@ image:
 # cache (needs a docker-container builder and the Actions runtime env), so an
 # unchanged image is a cache hit and a source change rebuilds one layer.
 # db-roles and migrate share nava/nava-db; only db-roles writes its cache.
+# IMAGE_CACHE=local keeps the layers in the local builder's own BuildKit cache,
+# which concurrent builds share safely (a type=local cache directory is not
+# safe for two writers at once), and pulls only the registry images that are
+# missing. With IMAGE_CACHE set, ci-stack builds with image-ci.
 BAKE_CACHED := db-roles nava-core otel-collector temporal-server
 BAKE_CACHE_GHA := $(foreach t,$(BAKE_CACHED),--set $(t).cache-from=type=gha,scope=$(t) --set $(t).cache-to=type=gha,scope=$(t),mode=max) --set migrate.cache-from=type=gha,scope=db-roles
 BAKE_CACHE := $(if $(filter gha,$(IMAGE_CACHE)),$(BAKE_CACHE_GHA))
+PULL_POLICY := $(if $(filter local,$(IMAGE_CACHE)),--policy missing)
 image-ci:
-	@docker compose pull --quiet --ignore-buildable --ignore-pull-failures & pull=$$!; \
+	@docker compose pull --quiet --ignore-buildable --ignore-pull-failures $(PULL_POLICY) & pull=$$!; \
 	docker buildx bake -f compose.yaml --load $(BAKE_CACHE); status=$$?; \
 	wait $$pull; exit $$status
 
@@ -210,4 +233,4 @@ dev-ca:
 # network reaches the UI through host.docker.internal and acts as nava-operator.
 UI_PORT ?= 18233
 operator-tunnel:
-	docker run --rm --name nava-operator-tunnel -p 127.0.0.1:$(UI_PORT):8080 		--network $$(docker network ls -q --filter label=com.docker.compose.project=nava --filter label=com.docker.compose.network=operator) 		--entrypoint /usr/local/bin/temporal-server nava/temporal-server:dev proxy -listen :8080 -to temporal-ui:8080
+	docker run --rm --name $(COMPOSE_PROJECT)-operator-tunnel -p 127.0.0.1:$(UI_PORT):8080 		--network $$(docker network ls -q --filter label=com.docker.compose.project=$(COMPOSE_PROJECT) --filter label=com.docker.compose.network=operator) 		--entrypoint /usr/local/bin/temporal-server $(TEMPORAL_SERVER_IMAGE) proxy -listen :8080 -to temporal-ui:8080

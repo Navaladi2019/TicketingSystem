@@ -273,7 +273,7 @@ t_internal() {
     export COMPOSE_FILE_ARGS
     compose up -d
     wait_healthy "${WAIT_SECONDS:-300}"
-    for net in $(docker network ls -q --filter label=com.docker.compose.project=nava); do
+    for net in $(docker network ls -q --filter label=com.docker.compose.project=$PROJECT); do
         [ "$(docker network inspect -f '{{.Internal}}' "$net")" = true ] || fail "a network is not internal"
     done
     if compose exec -T nava-core wget -q -T 5 -O /dev/null http://example.com 2>/dev/null; then
@@ -287,11 +287,11 @@ t_internal() {
 # platform network (`internal`), the way nava-core and the other platform
 # processes see Temporal.
 CERTS="$ROOT/deploy/compose/certs"
-TEMPORAL_IMAGE=nava/temporal-server:dev
+TEMPORAL_IMAGE=nava/temporal-server:${NAVA_IMAGE_TAG:-dev}
 
 # platform_net: the compose network that carries the platform processes.
 platform_net() {
-    docker network ls -q --filter label=com.docker.compose.project=nava \
+    docker network ls -q --filter label=com.docker.compose.project=$PROJECT \
         --filter label=com.docker.compose.network=internal | head -n 1
 }
 
@@ -382,7 +382,7 @@ t_temporal_operator_reach() {
         fi
     done
     for net in internal default; do
-        id=$(docker network ls -q --filter label=com.docker.compose.project=nava \
+        id=$(docker network ls -q --filter label=com.docker.compose.project=$PROJECT \
             --filter label=com.docker.compose.network=$net | head -n 1)
         for target in "host.docker.internal:$ui_port" "gateway.docker.internal:$ui_port"; do
             if docker run --rm --network "$id" --entrypoint /usr/local/bin/temporal-server "$TEMPORAL_IMAGE" \

@@ -31,7 +31,7 @@ membership ports (7234, 7235, 7239, 6933-6939) are on `temporal-backplane`, whic
 no platform process joins; the gateway forwards 7233 only. `FORCE=1 make dev-ca`
 reissues. Cron on a started workflow cannot be seen by the Authorizer (T27b).
 
-Host ports (bound to 127.0.0.1): nava-core `18080`, Keycloak `18081`.
+Host ports (bound to 127.0.0.1): nava-core `18080`, Keycloak `18081` (`NAVA_CORE_PORT`, `KEYCLOAK_PORT`). A second stack on the same host: `make ci-isolated ID=...` (`docs/quality/ci-pipeline.md`, "Parallel runs").
 
 **Adding a role or database.** List it in `db/grants.yaml` (see `db/README.md`);
 db-roles creates it on the next `up`. A LOGIN role also needs a
