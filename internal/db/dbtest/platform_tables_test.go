@@ -34,8 +34,7 @@ func platformTables() []string {
 // migratedPlatform is a fresh cluster with every migration and grant applied.
 func migratedPlatform(t *testing.T) {
 	t.Helper()
-	m := freshCluster(t)
-	migrateAll(t, m)
+	migratedCluster(t)
 }
 
 // superNava connects as the bootstrap superuser to the platform database. It

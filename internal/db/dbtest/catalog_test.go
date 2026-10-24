@@ -72,7 +72,7 @@ func TestT10GateFailsMigratorRun(t *testing.T) {
 			"CI-1: materialized view public.t10_mv exists"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			m := freshCluster(t)
+			m := migratedCluster(t)
 			_, err := migrateFS(t, m, withExtraMigration(t, "99999_t10_fixture.sql", "-- +goose Up\n"+c.up+"\n"))
 			if err == nil {
 				t.Fatalf("migrator passed the gate with %s", c.up)
@@ -86,7 +86,7 @@ func TestT10GateFailsMigratorRun(t *testing.T) {
 
 // A security_invoker view passes; the gate is not just failing every view.
 func TestT10GatePassesSecurityInvokerView(t *testing.T) {
-	m := freshCluster(t)
+	m := migratedCluster(t)
 	fsys := withExtraMigration(t, "99999_t10_fixture.sql",
 		"-- +goose Up\nCREATE VIEW t10_view WITH (security_invoker = true) AS SELECT id FROM records;\n")
 	if _, err := migrateFS(t, m, fsys); err != nil {
@@ -97,8 +97,7 @@ func TestT10GatePassesSecurityInvokerView(t *testing.T) {
 // R2: a migrator run with nothing to apply still runs the gate, so a fault
 // made outside the migrations fails the next run.
 func TestT10GateRunsWhenNothingToApply(t *testing.T) {
-	m := freshCluster(t)
-	migrateAll(t, m)
+	m := migratedCluster(t)
 	exec(t, superNava(t), "CREATE TABLE t10_drift (tenant_id uuid NOT NULL)")
 	res, err := migrateFS(t, m, db.Migrations())
 	if len(res.Applied) != 0 {

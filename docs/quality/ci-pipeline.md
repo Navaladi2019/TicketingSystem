@@ -9,7 +9,7 @@ calls only `make` targets. Install the pinned tools once with `make tools`.
 | --- | --- | --- | --- |
 | Lint | `ci-lint` | tool versions differ from `docs/pins.md`, `gofmt`, `go vet`, golangci-lint, `lint-fixture` (exactly 5 forbidigo findings), `check-taskfile`, `check-pins`, `check-openapi`, `govulncheck ./...` in both modules (`vulncheck`, `vulncheck-temporal-server`) | none |
 | Unit | `ci-unit` | `go test -race ./...`, temporal-server unit tests | none |
-| Integration | `ci-integration` | any `//go:build integration` test (`internal/db/dbtest`, `internal/db/pooltest`, `internal/platform/health`) against a throwaway PostgreSQL and two PgBouncers in front of it (tags from `docs/pins.md`) | Docker |
+| Integration | `ci-integration` | any `//go:build integration` test (`internal/db/dbtest`, `internal/db/pooltest`, `internal/tenancy`, `internal/platform/health`) against throwaway PostgreSQL clusters and two PgBouncers (tags from `docs/pins.md`), or the dbtest shards running fewer tests than the package lists | Docker |
 | Stack | `ci-stack` | image build, every container healthy, `GET /healthz` smoke from inside the compose network, then the stack tests (`pgbouncer`, `temporal`, `dependencies`, `trace`, `redact`, `idempotent`, `dbroles`, `hba`, `internal`) | compose |
 
 In GitHub, the `temporal-server` job runs the module's tests and then
@@ -39,13 +39,33 @@ runs all of them on one stack locally.
 A change to `go.sum` or a Dockerfile base stage is a cold run (about 8 to 10
 minutes); the next run is warm again.
 
-Containers: `scripts/ci/test-integration.sh` owns the shared PostgreSQL that the
-dbtest suites use, plus the two PgBouncers of the load test (T06,
-`docs/quality/pgbouncer-load.md`) on a private network, and removes them on
-exit, Ctrl-C or TERM. Every container a Go
-test starts itself is removed in `t.Cleanup`. Image tags come from
-`docs/pins.md`: the script exports the `postgres` row as `NAVA_TEST_PG_IMAGE`
-and starts the `edoburu/pgbouncer` row.
+Containers: `scripts/ci/test-integration.sh` owns, on a private network, one
+shared PostgreSQL with the two PgBouncers of the load test (T06,
+`docs/quality/pgbouncer-load.md`) in front of it, plus `DBTEST_SHARDS` (default
+3) more clusters for dbtest, and removes them on exit, Ctrl-C or TERM. Every
+container a Go test starts itself is removed in `t.Cleanup`. Image tags come
+from `docs/pins.md`: the script exports the `postgres` row as
+`NAVA_TEST_PG_IMAGE` and starts the `edoburu/pgbouncer` row. Every cluster runs
+with `fsync`, `synchronous_commit` and `full_page_writes` off: they are thrown
+away, and the dev and production compose files never set these (TICK-153 O1).
+
+Three groups run at once (TICK-153 O3): dbtest's top-level tests, dealt
+round-robin over the shard clusters, one `go test -run` each; the other
+packages that use the shared cluster (`pooltest`, `tenancy`, `-p 1`, since they
+create the same role); and the packages that use none (`health`, which starts
+its own container). The script lists dbtest's tests first and fails unless the
+shards ran every one of them. Extra arguments (`ARGS=-run ...`) run every
+package one after another on the shared cluster, as before.
+
+Inside dbtest, `migratedCluster` copies each manifest database from a template
+taken after the first real db-roles and migrator run in the process
+(`CREATE DATABASE ... TEMPLATE`, TICK-153 O2), and gives the copy its grants
+again. It copies only while every role, membership and role setting is still
+byte for byte what it was when the templates were taken, and falls back to the
+full rebuild otherwise; `TestMigratedClusterMatchesFreshRun` proves a copy
+matches a real run. Tests of db-roles or of a migrator run from scratch
+(`roles_test.go`, `d28_test.go`, and the migrate tests that read the run's own
+result) still call `freshCluster`.
 
 ## Risks and the layer that covers them
 
