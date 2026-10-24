@@ -7,8 +7,8 @@ calls only `make` targets. Install the pinned tools once with `make tools`.
 
 | Stage | Make target | What fails it | Containers |
 | --- | --- | --- | --- |
-| Lint | `ci-lint` | tool versions differ from `docs/pins.md`, `gofmt`, `go vet`, golangci-lint, `lint-fixture` (exactly 5 forbidigo findings), `check-taskfile`, `check-pins`, `check-openapi`, `govulncheck ./...` in both modules (`vulncheck`, `vulncheck-temporal-server`) | none |
-| Unit | `ci-unit` | `go test -race ./...`, temporal-server unit tests | none |
+| Lint | `ci-lint` | tool versions differ from `docs/pins.md`, `gofmt`, `go vet`, golangci-lint, `lint-fixture` (exactly 5 forbidigo findings), `check-taskfile`, `check-pins`, `check-openapi`, `govulncheck ./...` in both modules at once (`vulncheck-ci`, below) | none |
+| Unit | `ci-unit` | `go test -race ./...` under the host-wide race lock (below), temporal-server unit tests | none |
 | Integration | `ci-integration` | any `//go:build integration` test (`internal/db/dbtest`, `internal/db/pooltest`, `internal/tenancy`, `internal/platform/health`) against throwaway PostgreSQL clusters and two PgBouncers (tags from `docs/pins.md`), or the dbtest shards running fewer tests than the package lists | Docker |
 | Stack | `ci-stack` | image build, every container healthy, `GET /healthz` smoke from inside the compose network, then the stack tests (`pgbouncer`, `temporal`, `dependencies`, `trace`, `redact`, `idempotent`, `dbroles`, `hba`, `internal`) | compose |
 
@@ -66,6 +66,26 @@ full rebuild otherwise; `TestMigratedClusterMatchesFreshRun` proves a copy
 matches a real run. Tests of db-roles or of a migrator run from scratch
 (`roles_test.go`, `d28_test.go`, and the migrate tests that read the run's own
 result) still call `freshCluster`.
+
+**govulncheck once a day per dependency set (TICK-153 D2).** `make
+vulncheck-ci` (`scripts/ci/vulncheck.sh`) scans the root module and
+`temporal-server/` at the same time. A module is skipped when a scan of its
+current `go.mod` and `go.sum`, with the same Go and govulncheck versions,
+already passed on this host today (a stamp under `$(go env GOCACHE)/nava-vulncheck`).
+So a dependency change is always scanned, and the first CI run of each day
+scans both modules for new advisories (ADR-001-A1's R7 trigger). The trade-off,
+accepted in D2: a code-only change that starts calling an already-listed
+vulnerable symbol is caught by the next day's first run, not the same run.
+`VULNCHECK=all make vulncheck-ci` scans regardless; `make vulncheck` and
+`make vulncheck-temporal-server` always scan, and the GitHub workflow still
+calls those.
+
+**One race-detector run per host (TICK-153 D3).** `make test` and `task test`
+run `go test -race` through `tools/ci/racelock`, which holds a listener on
+`127.0.0.1:47613` (`NAVA_RACE_LOCK_PORT`) while the command runs. A second run
+on the host, from any checkout or agent, waits and says so every 30 s; the OS
+releases the lock when the holder exits or is killed, so there is no stale
+lock. `NAVA_RACE_LOCK=off` skips it.
 
 ## Risks and the layer that covers them
 
@@ -134,7 +154,8 @@ TICK-147 for the runs. One stack holds about 1.2 GB at rest; Keycloak (about
 0.8 GB) is the largest part. The limit is memory during `ci-unit`, not the
 stacks: `go test -race ./...` across both modules peaks at several GB, and a
 fully loaded host has hit `fatal error: runtime: cannot allocate memory`
-there. **Run at most 3 at once**, or 2 while other agents build. Stacks alone
+there. The race lock (D3) now runs those one at a time on the host, so
+parallel runs queue in `ci-unit` instead of running out of memory. Stacks alone
 would allow about 8.
 
 `make ci` and `make stack-up` with no variables behave as before (project
