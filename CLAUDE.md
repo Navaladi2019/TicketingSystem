@@ -24,6 +24,20 @@ As the **final step** of any task that changed code, check lazily:
    from the code.
 3. Otherwise leave the tracker alone.
 
+## Accepted risks
+
+Every knowingly accepted risk is indexed, with a severity flag and a link to
+its source, in
+[`docs/security/accepted-risks.md`](docs/security/accepted-risks.md). Read it
+when a task touches tenancy, Temporal authorization, telemetry or the
+database roles, or when asked what to fix next.
+
+- When a decision, ADR, review or doc accepts a new risk, add an `AR-NNN` row
+  in the same change.
+- When a change fixes one, delete its row and note the fix at the source.
+- If the risk becomes deferred code work, move it to `docs/delivery/todo.md`
+  instead.
+
 ## Commands
 
 Use the reusable task commands from `Taskfile.yml` (go-task v3) instead of
