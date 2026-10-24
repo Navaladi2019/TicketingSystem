@@ -4,6 +4,11 @@
 // a second place could set another tenant's id, or a session-wide one that
 // outlives the transaction on a pooled connection.
 //
+// The _test.go files of internal/db/dbtest are also exempt: the RLS policy
+// tests set app.tenant_id directly to test the policies themselves, including
+// set_config(..., false) leaks (TICK-61 decision 2026-10-24). Its non-test
+// files, and any other package named dbtest, are not.
+//
 // SQL files are not Go source and are not checked: the row-level security
 // policies under db/ read current_setting('app.tenant_id') by design.
 //
@@ -26,6 +31,9 @@ const TenancyPkg = "github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 
 // needles are matched case-insensitively: SQL keywords and function names
 // are, and quoted "app.tenant_id" is the same setting.
+// PolicyTestPkg is the package whose _test.go files may use the needles.
+const PolicyTestPkg = "github.com/Navaladi2019/TicketingSystem/internal/db/dbtest"
+
 var needles = []string{"set_config", "app.tenant_id"}
 
 // Analyzer reports the needles in string constants outside TenancyPkg.
@@ -36,10 +44,14 @@ var Analyzer = &analysis.Analyzer{
 }
 
 func run(pass *analysis.Pass) (any, error) {
-	if path := strings.TrimSuffix(pass.Pkg.Path(), "_test"); path == TenancyPkg {
+	path := strings.TrimSuffix(pass.Pkg.Path(), "_test")
+	if path == TenancyPkg {
 		return nil, nil
 	}
 	for _, f := range pass.Files {
+		if path == PolicyTestPkg && strings.HasSuffix(pass.Fset.File(f.Pos()).Name(), "_test.go") {
+			continue
+		}
 		ast.Inspect(f, func(n ast.Node) bool {
 			e, ok := n.(ast.Expr)
 			if !ok {

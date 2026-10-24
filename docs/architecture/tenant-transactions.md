@@ -60,7 +60,7 @@ otelpgx span name to `_OTHER`.
 
 | Rule | Where | What fails |
 |---|---|---|
-| `navalint` `setconfig` | `tools/navalint`, its own module, run by `make lint` as `go vet -vettool`, once untagged and once with `-tags integration,temporalstack` | `set_config` or `app.tenant_id` in a Go string constant outside `internal/tenancy`. SQL files are not checked, so policies may use `current_setting('app.tenant_id')` |
+| `navalint` `setconfig` | `tools/navalint`, its own module, run by `make lint` as `go vet -vettool`, once untagged and once with `-tags integration,temporalstack` | `set_config` or `app.tenant_id` in a Go string constant outside `internal/tenancy`, except in the `_test.go` files of `internal/db/dbtest` (the RLS policy tests set the GUC directly). SQL files are not checked, so policies may use `current_setting('app.tenant_id')` |
 | `forbidigo` | `.golangci.yml` | `otelpgx.WithIncludeQueryParameters` anywhere |
 
 `make lint-fixture` checks that both rules still fire on
