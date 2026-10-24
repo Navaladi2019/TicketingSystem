@@ -66,8 +66,7 @@ func TestFirstMigrationGlobalRevokes(t *testing.T) {
 }
 
 func TestAppCannotRunDDL(t *testing.T) {
-	m := freshCluster(t)
-	migrateAll(t, m)
+	migratedCluster(t)
 	app := connect(t, roleConfig(t, "nava_app", "nava"))
 	for _, stmt := range []string{
 		"CREATE TABLE public.t03_app_table (id int)",
@@ -99,8 +98,7 @@ func TestManifestAppliedTwiceIsNoOp(t *testing.T) {
 }
 
 func TestManifestRevokesAndLogsExtraGrants(t *testing.T) {
-	m := freshCluster(t)
-	migrateAll(t, m)
+	m := migratedCluster(t)
 	mig := connect(t, roleConfig(t, "nava_migrator", "nava"))
 	exec(t, mig, "CREATE TABLE public.t03_extra (id int, secret text)")
 	exec(t, mig, "CREATE SEQUENCE public.t03_seq")
@@ -182,8 +180,7 @@ func TestManifestRevokesAndLogsExtraGrants(t *testing.T) {
 // The applier grants exactly the listed columns, and a table-level grant in
 // place of a column-level one is replaced.
 func TestManifestColumnGrants(t *testing.T) {
-	m := freshCluster(t)
-	migrateAll(t, m)
+	m := migratedCluster(t)
 	mig := connect(t, roleConfig(t, "nava_migrator", "nava"))
 	exec(t, mig, "CREATE TABLE public.t03_cols (id int, tenant_id uuid, secret text)")
 	app := m.Roles["nava_app"]
@@ -228,8 +225,7 @@ func TestManifestColumnGrants(t *testing.T) {
 }
 
 func TestManifestRejectsMissingObjects(t *testing.T) {
-	m := freshCluster(t)
-	migrateAll(t, m)
+	m := migratedCluster(t)
 	mig := connect(t, roleConfig(t, "nava_migrator", "nava"))
 	app := m.Roles["nava_app"]
 	app.Tables = map[string]map[string][]string{"no_such_table": {"SELECT": {}}}
@@ -241,8 +237,7 @@ func TestManifestRejectsMissingObjects(t *testing.T) {
 }
 
 func TestManifestRefusesWrongRole(t *testing.T) {
-	m := freshCluster(t)
-	migrateAll(t, m)
+	m := migratedCluster(t)
 	log, _ := newLog()
 	for _, cfg := range []struct{ role, db string }{{"nava_app", "nava"}} {
 		conn := connect(t, roleConfig(t, cfg.role, cfg.db))
@@ -307,8 +302,7 @@ func TestConcurrentMigratorWaitsForSessionLock(t *testing.T) {
 // state with no marker when it fails, so it must be safe to run again.
 // Re-run every such file over a migrated database; it must not fail.
 func TestNoTransactionMigrationsAreIdempotent(t *testing.T) {
-	m := freshCluster(t)
-	migrateAll(t, m)
+	m := migratedCluster(t)
 	only := fstest.MapFS{}
 	entries, err := fs.ReadDir(db.Migrations(), ".")
 	if err != nil {

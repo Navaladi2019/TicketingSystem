@@ -141,12 +141,14 @@ func sqlState(err error) string {
 }
 
 // freshCluster drops every database and role in the manifest and runs
-// db-roles, leaving the cluster as a first `docker compose up` would.
+// db-roles, leaving the cluster as a first `docker compose up` would. A test
+// that only needs a migrated cluster uses migratedCluster, which is faster.
 func freshCluster(t *testing.T) *grants.Manifest {
 	t.Helper()
 	ctx := context.Background()
 	m := manifest(t)
 	conn := connect(t, superConfig(t))
+	dropTemplates(t, conn, m)
 	for _, d := range m.DatabaseNames() {
 		exec(t, conn, "DROP DATABASE IF EXISTS "+pgx.Identifier{d}.Sanitize()+" WITH (FORCE)")
 	}
