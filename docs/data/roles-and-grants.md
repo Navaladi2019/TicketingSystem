@@ -69,6 +69,15 @@ would reach PostgreSQL over TCP through the catch-all. A manifest role with
    grants on objects it owns. `pgbouncer.get_auth` and its schema are owned by
    the bootstrap superuser (the function reads `pg_shadow`), so db-roles
    converges them, as the manifest's single `infrastructure_exceptions` entry.
+   db-roles checks that ownership before it creates or replaces either one,
+   and fails, naming the object and its owner, when a non-superuser owns
+   them. `CREATE OR REPLACE` keeps the existing owner, so db-roles does not
+   repair ownership; a person must drop the object or change its owner
+   (TICK-107).
+   An object the check found absent is created with plain `CREATE SCHEMA` /
+   `CREATE FUNCTION`, so one created after the check fails the run instead
+   of being adopted; `OR REPLACE` only rewrites a function the check saw
+   superuser-owned, which no other role can drop or re-own.
 4. **Passwords go to PostgreSQL as SCRAM verifiers.** db-roles computes the
    verifier client-side and changes a role only when the stored verifier does
    not match. A re-run is a true no-op (`rolpassword` unchanged), and no
