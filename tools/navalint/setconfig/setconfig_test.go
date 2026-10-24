@@ -40,3 +40,17 @@ func TestOtherDbtestIsReported(t *testing.T) {
 func TestSQLPolicyIsNotChecked(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), setconfig.Analyzer, "db")
 }
+
+// TestCatalogMayRead: internal/db/catalog and its tests may read app.tenant_id
+// with current_setting, as the catalogue gate's predicate does (TICK-149);
+// set_config and SET of app.tenant_id there are still reported.
+func TestCatalogMayRead(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), setconfig.Analyzer,
+		setconfig.CatalogPkg)
+}
+
+// TestOtherPackageMayNotRead: the same predicate in another package is
+// reported, and so is SET LOCAL; the read exemption is by exact package path.
+func TestOtherPackageMayNotRead(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), setconfig.Analyzer, "b")
+}
