@@ -216,10 +216,19 @@ func TestT31_SignalsUpdatesAndContinueAsNew(t *testing.T) {
 	signal(own, "outbox", s1) // a relay redelivery
 	signal(own, "outbox", s2)
 
-	_, err := core.UpdateWorkflow(wrong, client.UpdateWorkflowOptions{
+	// SDK v1.49: UpdateWorkflow returns (handle, nil) for a rejected update
+	// and keeps the rejection on the handle (internal_workflow_client.go,
+	// updateHandleFromResponse), so the rejection is read from Get.
+	rejected, err := core.UpdateWorkflow(wrong, client.UpdateWorkflowOptions{
 		WorkflowID: id, UpdateName: "inc", WaitForStage: client.WorkflowUpdateStageCompleted,
 	})
-	if err == nil || !strings.Contains(err.Error(), "tenant guard denied update: mismatch") {
+	if err != nil {
+		t.Fatalf("wrong-tenant update request: %v", err)
+	}
+	err = rejected.Get(ctx, nil)
+	var app *temporal.ApplicationError
+	if !errors.As(err, &app) || app.Type() != workerguard.ErrTypeTenantGuard ||
+		!strings.Contains(app.Error(), "tenant guard denied update: mismatch") {
 		t.Fatalf("wrong-tenant update: %v; want the validator's rejection", err)
 	}
 	h, err := core.UpdateWorkflow(own, client.UpdateWorkflowOptions{
@@ -266,5 +275,15 @@ func TestT31_SignalsUpdatesAndContinueAsNew(t *testing.T) {
 	}
 	if mismatches != 2 {
 		t.Errorf("%d signal alerts for %s, want 2:\n%s", mismatches, id, logs.String())
+	}
+	var updateAlerts int
+	for line := range strings.Lines(logs.String()) {
+		if strings.Contains(line, `"alert":true`) && strings.Contains(line, `"guard":"update"`) &&
+			strings.Contains(line, `"outcome":"mismatch"`) && strings.Contains(line, id) {
+			updateAlerts++
+		}
+	}
+	if updateAlerts != 1 {
+		t.Errorf("%d update alerts for %s, want 1", updateAlerts, id)
 	}
 }

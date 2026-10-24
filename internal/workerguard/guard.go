@@ -4,10 +4,14 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"reflect"
+	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/metric"
 	commonpb "go.temporal.io/api/common/v1"
+	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/interceptor"
 	"go.temporal.io/sdk/temporal"
@@ -138,7 +142,19 @@ func (w *workflowInbound) ExecuteWorkflow(ctx workflow.Context, in *interceptor.
 	if outcome != outcomeAllow {
 		return nil, guardError(guardWorkflowStart, outcome)
 	}
-	return w.Next.ExecuteWorkflow(ctx, in)
+	result, err := w.Next.ExecuteWorkflow(ctx, in)
+	// The ContinueAsNewError is plain data: workflow code can change its
+	// header after NewContinueAsNewError checked it. Check again what the
+	// command will carry (TICK-65 security review, finding 2).
+	var can *workflow.ContinueAsNewError
+	if errors.As(err, &can) {
+		outcome := check(func() string { return continueAsNewOutcome(can.Header, workflow.GetInfo(ctx)) })
+		if outcome != outcomeAllow {
+			w.rec.record(ctx, guardContinueAsNew, outcome)
+			return nil, guardError(guardContinueAsNew, outcome)
+		}
+	}
+	return result, err
 }
 
 // HandleSignal drops a signal whose header is not this tenant's. Returning nil
@@ -338,11 +354,19 @@ func tenantSearchAttributeKey() temporal.SearchAttributeKeyKeyword {
 	return temporal.NewSearchAttributeKeyKeyword(TenantSearchAttribute)
 }
 
-// childSearchAttributesOK: NavaTenantId, if a child sets it, is the tenant.
+// childSearchAttributesOK: NavaTenantId, if a child sets it, is the tenant,
+// through a Keyword key. A typed key is name plus type, so GetKeyword misses a
+// Text or KeywordList key of the same name, which the SDK still encodes as
+// NavaTenantId; any such key is denied (TICK-65 security review, finding 1).
 func childSearchAttributesOK(opts workflow.ChildWorkflowOptions, tenant uuid.UUID) bool {
 	//nolint:staticcheck // SA1019: the untyped map is deprecated, but a workflow can still set it.
 	if v, set := opts.SearchAttributes[TenantSearchAttribute]; set {
 		if s, ok := v.(string); !ok || s != tenant.String() {
+			return false
+		}
+	}
+	for key := range opts.TypedSearchAttributes.GetUntypedValues() {
+		if key.GetName() == TenantSearchAttribute && key.GetValueType() != enumspb.INDEXED_VALUE_TYPE_KEYWORD {
 			return false
 		}
 	}
@@ -357,12 +381,47 @@ func childSearchAttributesOK(opts workflow.ChildWorkflowOptions, tenant uuid.UUI
 const untouched = "\x00untouched"
 
 // typedUpsertOK applies updates over a NavaTenantId of `untouched`: an update
-// that unsets it removes it, one that sets it changes it.
+// that unsets it removes it, one that sets it changes it. It must stay
+// untouched or become the tenant. NavaTenantId keys of every other type are
+// seeded too, twice with different values, and must come out unchanged: an
+// update through any of them, set or unset, is denied (finding 1).
 func typedUpsertOK(updates []temporal.SearchAttributeUpdate, tenant uuid.UUID) bool {
 	key := tenantSearchAttributeKey()
 	all := append([]temporal.SearchAttributeUpdate{key.ValueSet(untouched)}, updates...)
 	got, set := temporal.NewSearchAttributes(all...).GetKeyword(key)
-	return set && (got == untouched || got == tenant.String())
+	if !set || (got != untouched && got != tenant.String()) {
+		return false
+	}
+	for pass := range 2 {
+		seeds, values := otherTypeSeeds(pass)
+		after := temporal.NewSearchAttributes(append(seeds, updates...)...).GetUntypedValues()
+		for k, want := range values {
+			if v, ok := after[k]; !ok || !reflect.DeepEqual(v, want) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// otherTypeSeeds returns an update setting a NavaTenantId key of each
+// non-Keyword type, and the value each holds. Pass 0 and pass 1 use different
+// values, so an update that sets a key to its seed is still seen.
+func otherTypeSeeds(pass int) ([]temporal.SearchAttributeUpdate, map[temporal.SearchAttributeKey]any) {
+	text := temporal.NewSearchAttributeKeyString(TenantSearchAttribute)
+	list := temporal.NewSearchAttributeKeyKeywordList(TenantSearchAttribute)
+	i64 := temporal.NewSearchAttributeKeyInt64(TenantSearchAttribute)
+	f64 := temporal.NewSearchAttributeKeyFloat64(TenantSearchAttribute)
+	flag := temporal.NewSearchAttributeKeyBool(TenantSearchAttribute)
+	at := temporal.NewSearchAttributeKeyTime(TenantSearchAttribute)
+	sv, n, b := untouched+strconv.Itoa(pass), int64(pass), pass == 1
+	tv := time.Unix(int64(pass), 0).UTC()
+	return []temporal.SearchAttributeUpdate{
+			text.ValueSet(sv), list.ValueSet([]string{sv}), i64.ValueSet(n),
+			f64.ValueSet(float64(n)), flag.ValueSet(b), at.ValueSet(tv),
+		}, map[temporal.SearchAttributeKey]any{
+			text: sv, list: []string{sv}, i64: n, f64: float64(n), flag: b, at: tv,
+		}
 }
 
 // indexedTenantOK: NavaTenantId in the encoded attributes, if present, is the

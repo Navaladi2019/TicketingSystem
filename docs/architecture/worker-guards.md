@@ -36,10 +36,10 @@ workflow's own id, never a context value.
 | Signal | header missing or another tenant | **dropped**; the workflow keeps running |
 | Update | header missing or another tenant | rejected by the validator |
 | Activity | header missing or another tenant (TICK-84 finding 1) | fails non-retryably; the body never runs |
-| Child | id not prefixed with this tenant (the SDK default `<runID>_<n>` is not), other namespace, cron, `NavaTenantId` of another tenant | the child future fails |
+| Child | id not prefixed with this tenant (the SDK default `<runID>_<n>` is not), other namespace, cron, `NavaTenantId` of another tenant, or under a non-Keyword key | the child future fails |
 | Signal-external, cancel-external | target id not prefixed with this tenant, other namespace | the future fails |
-| Continue-as-new | header not this tenant (no Propagator), a cron schedule copied from a cron-started run, or the copied `NavaTenantId` is another tenant's | the workflow fails instead of continuing |
-| Upsert `NavaTenantId` | another value, or unset | the upsert fails |
+| Continue-as-new | header not this tenant (no Propagator, or rewritten on the returned error: checked again when the workflow returns), a cron schedule copied from a cron-started run, or the copied `NavaTenantId` is another tenant's | the workflow fails instead of continuing |
+| Upsert `NavaTenantId` | another value, or unset; or any change through a non-Keyword key of the same name (Text, KeywordList, ...), which the SDK encodes under the same name | the upsert fails |
 | Nexus | always | the future fails |
 
 Every decision adds to `nava.worker.guard.decisions{guard, outcome}` (no tenant
