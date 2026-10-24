@@ -126,15 +126,18 @@ func TestMalformedTokens(t *testing.T) {
 	tok, _ := kr.Encode(base(), []byte("p"))
 	parts := strings.Split(tok, ".")
 	for name, bad := range map[string]string{
-		"empty":         "",
-		"one part":      "k1",
-		"two parts":     parts[0] + "." + parts[1],
-		"four parts":    tok + ".x",
-		"not base64":    "k1.!!!.!!!",
-		"unknown key":   "k9." + parts[1] + "." + parts[2],
-		"empty key id":  "." + parts[1] + "." + parts[2],
-		"truncated mac": tok[:len(tok)-2],
-		"huge":          strings.Repeat("a", 5000),
+		"empty":               "",
+		"one part":            "k1",
+		"two parts":           parts[0] + "." + parts[1],
+		"four parts":          tok + ".x",
+		"not base64":          "k1.!!!.!!!",
+		"unknown key":         "k9." + parts[1] + "." + parts[2],
+		"empty key id":        "." + parts[1] + "." + parts[2],
+		"truncated mac":       tok[:len(tok)-2],
+		"newline in position": parts[0] + "." + parts[1][:1] + "\n" + parts[1][1:] + "." + parts[2],
+		"newline in mac":      parts[0] + "." + parts[1] + "." + parts[2][:1] + "\n" + parts[2][1:],
+		"trailing crlf":       tok + "\r\n",
+		"huge":                strings.Repeat("a", 5000),
 	} {
 		if _, err := kr.Decode(base(), bad); !errors.Is(err, cursor.ErrInvalid) {
 			t.Fatalf("%s: got %v", name, err)

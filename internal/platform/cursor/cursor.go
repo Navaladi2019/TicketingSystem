@@ -112,8 +112,10 @@ func (kr *Keyring) Decode(claims Claims, token string) ([]byte, error) {
 	if err != nil {
 		return nil, ErrInvalid
 	}
+	// The base64 decoder skips CR and LF, so a token holding either would
+	// decode to the same bytes as the clean one; Strict does not stop that.
 	parts := strings.Split(token, ".")
-	if len(token) > maxTokenLen || len(parts) != tokenParts {
+	if len(token) > maxTokenLen || len(parts) != tokenParts || strings.ContainsAny(token, "\r\n") {
 		return nil, ErrInvalid
 	}
 	enc := base64.RawURLEncoding.Strict()
