@@ -355,3 +355,29 @@ func TestExportedLogRecordDropsDeniedAttributes(t *testing.T) {
 		}
 	}
 }
+
+type leakyValuer struct{}
+
+func (leakyValuer) LogValue() slog.Value {
+	return slog.GroupValue(slog.String("url.full", "https://x/?token=1"), slog.String("ok", "1"))
+}
+
+// A LogValuer that expands to a group is filtered after it is resolved.
+func TestExportedLogRecordFiltersResolvedLogValuer(t *testing.T) {
+	t.Parallel()
+	rec := &logRecorder{}
+	tel, err := telemetry.New(t.Context(), load(t, nil), telemetry.WithLogExporter(rec))
+	if err != nil {
+		t.Fatal(err)
+	}
+	slog.New(tel.LogHandler()).InfoContext(t.Context(), "m", slog.Any("req", leakyValuer{}))
+	if len(rec.recs) != 1 {
+		t.Fatalf("exported %d records, want 1", len(rec.recs))
+	}
+	rec.recs[0].WalkAttributes(func(kv attribute.KeyValue) bool {
+		if s := kv.Value.Emit(); strings.Contains(s, "url.full") || strings.Contains(s, "token") {
+			t.Errorf("denied value exported: %s=%s", kv.Key, s)
+		}
+		return true
+	})
+}

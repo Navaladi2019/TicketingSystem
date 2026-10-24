@@ -219,6 +219,7 @@ func denyAttrs(path string, attrs []slog.Attr) []slog.Attr {
 		if logAttributeDenied(a.Key) || logAttributeDenied(full) {
 			continue
 		}
+		a.Value = a.Value.Resolve() // a LogValuer may expand to a group
 		if a.Value.Kind() == slog.KindGroup {
 			sub := path
 			if a.Key != "" {
