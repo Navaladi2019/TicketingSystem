@@ -18,35 +18,37 @@ func TenantPred(col string) string {
 }
 
 // AllowList is ADR-001 A.3: the only policies that do not test app.tenant_id,
-// each pinned to its command, roles and exact predicates (T09, TICK-64).
-// Editing it needs CTO sign-off (PLAN-001 D-P10).
+// keyed on schema.table.name and each pinned to its command, roles and exact
+// predicates (T09, TICK-64). The key carries the table because PostgreSQL
+// names policies per table: a copy of binding_lookup on records is not
+// binding_lookup. Editing it needs CTO sign-off (PLAN-001 D-P10).
 func AllowList() map[string]Policy {
 	pending := "((dispatched_at IS NULL) AND (dead_at IS NULL))"
 	outboxExpired := "((dispatched_at < (now() - '7 days'::interval)) OR (dead_at < (now() - '30 days'::interval)))"
 	refExpired := "(closed_at < (now() - '30 days'::interval))"
 	keyExpired := "(expires_at < now())"
 	return map[string]Policy{
-		"outbox_relay_select":       {"SELECT", "nava_relay", "true", ""},
-		"outbox_relay_update":       {"UPDATE", "nava_relay", pending, "true"},
-		"binding_lookup":            {"SELECT", "nava_app,nava_groupsync", "true", ""},
-		"binding_onboard":           {"INSERT", "nava_onboard", "", "(tenant_id IN ( SELECT tenants.id\n   FROM tenants\n  WHERE (tenants.state = 'provisioning'::text)))"},
-		"idempotency_purge":         {"DELETE", "nava_purge", keyExpired, ""},
-		"idempotency_purge_select":  {"SELECT", "nava_purge", keyExpired, ""},
-		"outbox_purge":              {"DELETE", "nava_purge", outboxExpired, ""},
-		"outbox_purge_select":       {"SELECT", "nava_purge", outboxExpired, ""},
-		"workflow_ref_purge":        {"DELETE", "nava_purge", refExpired, ""},
-		"workflow_ref_purge_select": {"SELECT", "nava_purge", refExpired, ""},
+		"public.outbox.outbox_relay_select":                {"SELECT", "nava_relay", "true", ""},
+		"public.outbox.outbox_relay_update":                {"UPDATE", "nava_relay", pending, "true"},
+		"public.tenant_identity_binding.binding_lookup":    {"SELECT", "nava_app,nava_groupsync", "true", ""},
+		"public.tenant_identity_binding.binding_onboard":   {"INSERT", "nava_onboard", "", "(tenant_id IN ( SELECT tenants.id\n   FROM tenants\n  WHERE (tenants.state = 'provisioning'::text)))"},
+		"public.idempotency_keys.idempotency_purge":        {"DELETE", "nava_purge", keyExpired, ""},
+		"public.idempotency_keys.idempotency_purge_select": {"SELECT", "nava_purge", keyExpired, ""},
+		"public.outbox.outbox_purge":                       {"DELETE", "nava_purge", outboxExpired, ""},
+		"public.outbox.outbox_purge_select":                {"SELECT", "nava_purge", outboxExpired, ""},
+		"public.workflow_ref.workflow_ref_purge":           {"DELETE", "nava_purge", refExpired, ""},
+		"public.workflow_ref.workflow_ref_purge_select":    {"SELECT", "nava_purge", refExpired, ""},
 	}
 }
 
 // PinnedTenantPolicies are the tenant policies whose predicate adds a state
-// test to the tenant predicate (the onboarding path).
+// test to the tenant predicate (the onboarding path), keyed as AllowList.
 func PinnedTenantPolicies() map[string]Policy {
 	own := TenantPred("id")
 	and := func(state string) string { return "(" + own + " AND (state = '" + state + "'::text))" }
 	return map[string]Policy{
-		"tenants_onboard_insert": {"INSERT", "nava_onboard", "", and("provisioning")},
-		"tenants_activate":       {"UPDATE", "nava_onboard", and("provisioning"), and("active")},
+		"public.tenants.tenants_onboard_insert": {"INSERT", "nava_onboard", "", and("provisioning")},
+		"public.tenants.tenants_activate":       {"UPDATE", "nava_onboard", and("provisioning"), and("active")},
 	}
 }
 
@@ -69,10 +71,11 @@ func testsTenant(p Policy, col string) bool {
 }
 
 // PolicyProblems is the allow-list guard (CI-1, I1). It reports every policy
-// in a platform schema that is FOR ALL or TO PUBLIC, an allow-listed or
-// pinned policy that differs from its pinned form or is missing, and any
-// other policy whose predicate is not exactly the tenant predicate. untested
-// lists the policies that do not test app.tenant_id.
+// in a platform schema that is FOR ALL or TO PUBLIC, a policy name used more
+// than once, an allow-listed or pinned policy that differs from its pinned
+// form or is missing, and any other policy whose predicate is not exactly the
+// tenant predicate. Policies are matched on schema.table.name. untested lists,
+// by that key, the policies that do not test app.tenant_id.
 func PolicyProblems(ctx context.Context, q Querier) (problems, untested []string, err error) {
 	rows, err := q.Query(ctx, `
 		SELECT schemaname::text, tablename::text, policyname::text, cmd, roles::text[], coalesce(qual, ''), coalesce(with_check, '')
@@ -83,6 +86,7 @@ func PolicyProblems(ctx context.Context, q Querier) (problems, untested []string
 	defer rows.Close()
 	allow, pinned := AllowList(), PinnedTenantPolicies()
 	seen := map[string]bool{}
+	tablesOf := map[string][]string{}
 	for rows.Next() {
 		var schema, table, name string
 		var roles []string
@@ -92,21 +96,23 @@ func PolicyProblems(ctx context.Context, q Querier) (problems, untested []string
 		}
 		slices.Sort(roles)
 		p.Roles = strings.Join(roles, ",")
-		seen[name] = true
+		key := schema + "." + table + "." + name
+		seen[key] = true
+		tablesOf[name] = append(tablesOf[name], schema+"."+table)
 		if p.Cmd == "ALL" {
 			problems = append(problems, fmt.Sprintf("%s on %s is FOR ALL", name, table))
 		}
 		if slices.Contains(roles, "public") {
 			problems = append(problems, fmt.Sprintf("%s on %s is TO PUBLIC", name, table))
 		}
-		if want, ok := allow[name]; ok {
-			untested = append(untested, name)
+		if want, ok := allow[key]; ok {
+			untested = append(untested, key)
 			if p != want {
 				problems = append(problems, fmt.Sprintf("%s (allow-listed) = %q, want %q", name, p, want))
 			}
 			continue
 		}
-		if want, ok := pinned[name]; ok {
+		if want, ok := pinned[key]; ok {
 			if p != want {
 				problems = append(problems, fmt.Sprintf("%s = %q, want %q", name, p, want))
 			}
@@ -114,7 +120,7 @@ func PolicyProblems(ctx context.Context, q Querier) (problems, untested []string
 		}
 		col := tenantKey(schema, table)
 		if !testsTenant(p, col) {
-			untested = append(untested, name)
+			untested = append(untested, key)
 			problems = append(problems, fmt.Sprintf("%s on %s %q does not test exactly %s and is not on the allow-list",
 				name, table, p, TenantPred(col)))
 		}
@@ -122,10 +128,16 @@ func PolicyProblems(ctx context.Context, q Querier) (problems, untested []string
 	if err := rows.Err(); err != nil {
 		return nil, nil, err
 	}
+	for name, tables := range tablesOf {
+		if len(tables) > 1 {
+			slices.Sort(tables)
+			problems = append(problems, fmt.Sprintf("%s is used by more than one policy, on %s", name, strings.Join(tables, ", ")))
+		}
+	}
 	for _, m := range []map[string]Policy{allow, pinned} {
-		for name := range m {
-			if !seen[name] {
-				problems = append(problems, name+" is missing")
+		for key := range m {
+			if !seen[key] {
+				problems = append(problems, key+" is missing")
 			}
 		}
 	}

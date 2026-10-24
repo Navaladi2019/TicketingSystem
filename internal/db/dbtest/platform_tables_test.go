@@ -356,6 +356,9 @@ func TestT09PolicyAllowListCatchesLeaks(t *testing.T) {
 		// The tenant predicate, widened.
 		{"leak_or_true", "CREATE POLICY leak_or_true ON records FOR SELECT TO nava_app " +
 			"USING (" + canon + " OR true)"},
+		// An allow-listed name on another table (TICK-138): matched on
+		// schema.table.name, so it is off the list, and the name is reused.
+		{"outbox_relay_select", "CREATE POLICY outbox_relay_select ON records FOR SELECT TO nava_relay USING (true)"},
 		// The tenant predicate, but FOR ALL.
 		{"leak_for_all", "CREATE POLICY leak_for_all ON records TO nava_app " +
 			"USING (" + canon + ") WITH CHECK (" + canon + ")"},

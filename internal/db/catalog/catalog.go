@@ -15,6 +15,13 @@
 //     (plus the sequence, schema and database forms) equal db/grants.yaml
 //     exactly for every role but the owner.
 //
+// Out of scope, as no path to tenant rows: USAGE on a type granted to a
+// runtime role (CI-4's set has no has_type_privilege, and a type holds no
+// rows), PUBLIC on large objects (the platform stores none and the runtime
+// roles own none) and PUBLIC on languages (USAGE on sql and plpgsql only lets
+// a role write functions in schemas where it already has CREATE, which CI-4
+// pins).
+//
 // Tenant tables are discovered fail-closed (PLAN-001 D-P16): a platform
 // schema is any schema not named pg_* or information_schema, and every table
 // in one is a tenant table unless db/global-tables.yaml lists it.
@@ -178,7 +185,9 @@ func ci1Policies(ctx context.Context, q Querier, _ *grants.Manifest, _ *GlobalTa
 // ci1SecurityDefiner: no SECURITY DEFINER function but the manifest's
 // infrastructure exceptions.
 func ci1SecurityDefiner(ctx context.Context, q Querier, m *grants.Manifest, _ *GlobalTables) ([]string, error) {
-	var allowed []string
+	// Never nil: pgx sends a nil slice as NULL, and x <> ALL (NULL) is never
+	// true, so an empty exception list would pass every function.
+	allowed := []string{}
 	for _, ex := range m.InfrastructureExceptions {
 		if ex.SecurityDefiner {
 			fn, err := grants.NormalizeFunction(ex.Function)
