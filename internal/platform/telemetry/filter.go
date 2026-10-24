@@ -142,6 +142,29 @@ func dbSpanName(name string) string {
 	return DBSpanName(name)
 }
 
+// otelhttpScope is the instrumentation scope name of otelhttp, whose client
+// spans OutboundClient names "<method> <route template>" (WithRoute).
+const otelhttpScope = "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+
+// routeTemplate is the shape of a WithRoute template: segments that are
+// lowercase words or {params}, plus vN versions. A digit anywhere else, an
+// @ or a query means a real path (ids, emails) was passed instead.
+var routeTemplate = regexp.MustCompile(`^(/([a-z._-]+|v[0-9]+|\{[a-z_]+\})?)*$`)
+
+// outboundSpanName is the exported name of an outbound client span: the name
+// if it is a standard method and a route template, else _OTHER. JWKS,
+// discovery and Keycloak calls are named this way (T15 carry-over).
+func outboundSpanName(name string) string {
+	method, route, _ := strings.Cut(name, " ")
+	switch method {
+	case "GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS":
+		if routeTemplate.MatchString(route) {
+			return name
+		}
+	}
+	return otherValue
+}
+
 // filteringExporter applies the allow-list at export, so it holds however the
 // data reached the span: start options, SetAttributes, events (RecordError),
 // links or the status. Every exporter, test ones included, sits behind it.
@@ -166,11 +189,15 @@ type filteredSpan struct {
 	sdktrace.ReadOnlySpan
 }
 
-// Name keeps every span name except an otelpgx one outside dbSpanName.
+// Name keeps every span name except an otelpgx one outside dbSpanName and
+// an outbound client one outside outboundSpanName.
 func (s filteredSpan) Name() string {
 	name := s.ReadOnlySpan.Name()
-	if s.InstrumentationScope().Name == otelpgxScope {
+	switch scope := s.InstrumentationScope().Name; {
+	case scope == otelpgxScope:
 		return dbSpanName(name)
+	case scope == otelhttpScope && s.SpanKind() == trace.SpanKindClient:
+		return outboundSpanName(name)
 	}
 	return name
 }
