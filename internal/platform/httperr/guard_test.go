@@ -52,8 +52,9 @@ func repoAllowed() guardAllowed {
 //     parameter, typed var, or struct field anywhere in the module) or as some
 //     other declared type; a receiver the guard cannot resolve (:=, untyped
 //     var, call result) is a violation when the call has the registry's arity,
-//     or when it is an uncalled .Write (an uncalled .Body is usually a field
-//     such as resp.Body);
+//     or when it is uncalled (a .Write or .Body method value); an uncalled
+//     .Body is exempt only in a file that does not import problem, where it
+//     is a field such as resp.Body;
 //   - a Write or Body method value, a method expression, and an embedded
 //     problem.Registry are violations.
 //
@@ -94,6 +95,9 @@ func TestGuardFixtures(t *testing.T) {
 		{"embedded", 1, []string{"embeds problem.Registry"}},
 		{"callresult", 0, []string{"cannot resolve the receiver"}},
 		{"internalvalue", 0, []string{"problem.Internal", "problem.Internal"}},
+		{"bodyvalue", 0, []string{"cannot resolve the receiver"}},
+		{"bodyarg", 0, []string{"cannot resolve the receiver"}},
+		{"respbody", 0, nil},
 		{"crosspkg", 1, []string{"use WriteError"}},
 	}
 	for _, tc := range tests {
@@ -389,9 +393,10 @@ func (c *guardCtx) checkFile(gf *guardFile) (violations []string, calls int) {
 					}
 				}
 			case recvUnresolved:
-				// An uncalled .Body is nearly always a field such as resp.Body, so
-				// only an uncalled .Write on an unresolved receiver is reported.
-				if (call == nil && n.Sel.Name == "Write") || hasArity {
+				// An uncalled .Body on an unresolved receiver is a method value
+				// that can send a 5xx, so it fails in any file that imports
+				// problem. Files that do not import it may use resp.Body.
+				if (call == nil && (n.Sel.Name == "Write" || gf.pname != "")) || hasArity {
 					report(n.Pos(), "cannot resolve the receiver of %s; declare it with an explicit type (*problem.Registry or another)", n.Sel.Name)
 				}
 			}
