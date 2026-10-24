@@ -25,6 +25,10 @@ linters:
         - pattern: ^http\.(DefaultClient|DefaultTransport|Get|Head|Post|PostForm|Client|Transport)$
           pkg: ^net/http$
           msg: use telemetry.NewOutboundClient
+        # Bind parameters (tenant data, emails) as span attributes (TICK-94 item 4).
+        - pattern: ^otelpgx\.WithIncludeQueryParameters$
+          pkg: ^github\.com/exaring/otelpgx$
+          msg: query parameters must not reach spans; db.NewPool traces without them
     sloglint:
       attr-only: true # slog.String(...) attributes, never loose key/value pairs
       context: all # *Context methods only, so every line carries the request ids

@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tenant-scoped transactions (T07) explained</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--accbg:#ddf4ff;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--accbg:#0c2d6b;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+.layout{display:grid;grid-template-columns:230px minmax(0,1fr);max-width:1280px;margin:0 auto}
+nav.toc{position:sticky;top:0;align-self:start;max-height:100vh;overflow:auto;padding:28px 12px 28px 20px;font-size:13.5px;border-right:1px solid var(--bd)}
+nav.toc a{display:block;color:var(--muted);text-decoration:none;padding:3px 6px;border-radius:5px}
+nav.toc a:hover{background:var(--soft);color:var(--fg)}
+nav.toc .sub{padding-left:16px;font-size:13px}
+nav.toc b{display:block;margin:0 6px 8px;color:var(--fg)}
+main{min-width:0;padding:32px 36px 100px;max-width:1040px}
+@media (max-width:900px){.layout{grid-template-columns:minmax(0,1fr)} nav.toc{display:none} main{padding:24px 16px 80px}}
+.banner{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.pill{font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--goodbg);color:var(--good);border:1px solid var(--good)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left;overflow-wrap:break-word}
+th{background:var(--soft)}
+h1{font-size:30px;border-bottom:1px solid var(--bd);padding-bottom:8px;margin-top:8px}
+h2{font-size:23px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:48px;scroll-margin-top:12px}
+h3{font-size:18.5px;margin-top:30px;scroll-margin-top:12px}
+code,pre{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace}
+code{background:var(--soft);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+pre{background:var(--soft);border:1px solid var(--bd);border-radius:8px;padding:12px 14px;overflow-x:auto}
+pre code{background:none;padding:0}
+a{color:var(--acc)}
+.callout{margin:14px 0;padding:10px 14px;border-left:4px solid var(--acc);background:var(--accbg);border-radius:0 6px 6px 0}
+.callout.warn{border-color:var(--warn);background:var(--warnbg)}
+figure.diagram{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure.diagram svg{width:100%;min-width:680px;height:auto;display:block;margin:0 auto;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:12px;margin:12px 0 20px}
+.card{border:1px solid var(--bd);border-radius:8px;padding:12px 14px;background:var(--soft)}
+.card h4{margin:0 0 6px;font-size:15px}
+.card p{margin:0}
+.tag{display:inline-block;font-size:12px;font-weight:700;padding:1px 9px;border-radius:999px;white-space:nowrap}
+.tag.good{color:var(--good);background:var(--goodbg)}
+.tag.warn{color:var(--warn);background:var(--warnbg)}
+.tag.bad{color:var(--bad);background:var(--badbg)}
+</style></head>
+<body><div class="layout">
+<nav class="toc">
+<b>T07 explained</b>
+<a href="#problem">1. The problem</a>
+<a href="#contract">2. The contract</a>
+<a class="sub" href="#sequence">Sequence</a>
+<a href="#decisions">3. Options and decisions</a>
+<a class="sub" href="#d-setconfig">set_config(…, true)</a>
+<a class="sub" href="#d-otelpgx">otelpgx v0.13.0</a>
+<a class="sub" href="#d-uuid">google/uuid</a>
+<a class="sub" href="#d-navalint">tools/navalint</a>
+<a class="sub" href="#d-tagged">Tagged lint pass</a>
+<a class="sub" href="#d-dbtest">dbtest exemption</a>
+<a href="#risks">4. Accepted risks</a>
+<a href="#evidence">5. Evidence</a>
+<a class="sub" href="#e-tests">Acceptance → tests</a>
+<a class="sub" href="#e-ci">Local CI at 6883d8f</a>
+</nav>
+<main>
+<div class="banner"><span class="pill">IMPLEMENTED</span><span class="src">PLAN-001 task T07 (TICK-61), PR #46. Companion to <a href="tenant-transactions.md">tenant-transactions.md</a>, which stays the short reference.</span></div>
+<h1>Tenant-scoped transactions: <code>tenancy.InTenantTx</code></h1>
+<p>Every tenant-scoped database access goes through one function. It sets <code>app.tenant_id</code> for one transaction only, and it refuses to run without a tenant. A lint rule keeps everyone else from setting that value.</p>
+
+<h2 id="problem">1. The problem: tenant isolation through PgBouncer</h2>
+<p>Row-level security (RLS) policies under <code>db/</code> filter every tenant table on <code>current_setting('app.tenant_id')</code>. That only isolates tenants if the setting is always right for the current work.</p>
+<p>The app reaches PostgreSQL through <strong>PgBouncer in transaction mode</strong>. A server connection belongs to a client only for the length of one transaction. After that it goes back to the pool, and the next transaction on it may come from any client and any tenant.</p>
+<div class="callout warn"><strong>The failure we must prevent:</strong> a setting made at session level outlives the transaction. Tenant A's id would stay on the server connection, and tenant B's next transaction on that connection would see tenant A's rows.</div>
+<p>There is a second risk: code paths that set the tenant by hand. Each extra place is one more chance to set the wrong id, or a session-wide one. So there is exactly one place (<code>internal/tenancy</code>), and lint enforces it (PG-N1, R8).</p>
+
+<h2 id="contract">2. The contract</h2>
+<pre><code>// internal/tenancy
+var ErrNoTenant = errors.New("tenancy: no tenant")
+
+func InTenantTx(ctx context.Context, pool *pgxpool.Pool, tenantID uuid.UUID, fn func(pgx.Tx) error) error</code></pre>
+<table>
+<tr><th>Case</th><th>Behaviour</th></tr>
+<tr><td><code>tenantID == uuid.Nil</code></td><td>Returns <code>ErrNoTenant</code>. <strong>No transaction is opened.</strong></td></tr>
+<tr><td>Normal path</td><td><code>BEGIN</code>, then <code>SELECT set_config('app.tenant_id', $1, true)</code> with the id as a bind parameter, then <code>fn(tx)</code>, then <code>COMMIT</code>.</td></tr>
+<tr><td><code>fn</code> returns an error</td><td>Rolls back and returns the error <strong>unwrapped</strong>, so <code>errors.Is</code> still works. If the rollback also fails, its error is joined (<code>errors.Join</code>). pgx has then closed the connection, so the tenant cannot leak.</td></tr>
+<tr><td><code>fn</code> panics</td><td>Rolls back, then <strong>re-raises the panic</strong>.</td></tr>
+<tr><td>Commit fails</td><td>Returns <code>tenancy: commit: …</code>. The deferred rollback ignores <code>pgx.ErrTxClosed</code>.</td></tr>
+<tr><td>Where <code>tenantID</code> comes from</td><td>Only the validated token's tenant claim, carried in the request context. Never a path, query or body.</td></tr>
+</table>
+
+<h3 id="sequence">Sequence</h3>
+<figure class="diagram">
+<svg viewBox="0 0 900 540" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="InTenantTx sequence diagram">
+<defs>
+<marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#333"/></marker>
+</defs>
+<style>
+.box{fill:#ddf4ff;stroke:#0969da;stroke-width:1.2}
+.lane{stroke:#8c959f;stroke-width:1;stroke-dasharray:4 4}
+.msg{stroke:#333;stroke-width:1.3;fill:none}
+.ret{stroke:#333;stroke-width:1.3;fill:none;stroke-dasharray:6 4}
+.frame{fill:none;stroke:#8c959f;stroke-width:1.2}
+.sep{stroke:#8c959f;stroke-width:1;stroke-dasharray:5 4}
+.lbl{font-size:13px;fill:#1f2328}
+.hd{font-size:13.5px;font-weight:600;fill:#1f2328;text-anchor:middle}
+.cond{font-size:12px;fill:#59636e;font-style:italic}
+.kw{font-size:11.5px;font-weight:700;fill:#1f2328}
+.kwbg{fill:#eaeef2;stroke:#8c959f;stroke-width:1}
+.bad{fill:#cf222e}
+</style>
+<!-- participants -->
+<g>
+<rect class="box" x="30" y="16" width="130" height="40" rx="6"/><text class="hd" x="95" y="41">handler</text>
+<rect class="box" x="215" y="16" width="160" height="40" rx="6"/><text class="hd" x="295" y="41">tenancy.InTenantTx</text>
+<rect class="box" x="420" y="16" width="160" height="40" rx="6"/><text class="hd" x="500" y="35">PgBouncer</text><text class="hd" x="500" y="50" style="font-size:11px;font-weight:400">(transaction mode)</text>
+<rect class="box" x="640" y="16" width="140" height="40" rx="6"/><text class="hd" x="710" y="41">PostgreSQL</text>
+</g>
+<line class="lane" x1="95" y1="56" x2="95" y2="484"/>
+<line class="lane" x1="295" y1="56" x2="295" y2="484"/>
+<line class="lane" x1="500" y1="56" x2="500" y2="484"/>
+<line class="lane" x1="710" y1="56" x2="710" y2="484"/>
+
+<!-- H -> T -->
+<text class="lbl" x="105" y="84">tenantID (from token claim), fn</text>
+<line class="msg" x1="95" y1="92" x2="293" y2="92" marker-end="url(#arr)"/>
+
+<!-- outer alt -->
+<rect class="frame" x="60" y="108" width="820" height="352"/>
+<path class="kwbg" d="M60,108 h44 v16 l-8,8 h-36 z"/><text class="kw" x="68" y="125">alt</text>
+<text class="cond" x="114" y="125">[tenantID == uuid.Nil]</text>
+<text class="lbl" x="110" y="146"><tspan class="bad">ErrNoTenant</tspan> (no BEGIN)</text>
+<line class="ret" x1="295" y1="154" x2="97" y2="154" marker-end="url(#arr)"/>
+<line class="sep" x1="60" y1="170" x2="880" y2="170"/>
+<text class="cond" x="68" y="186">[else]</text>
+
+<text class="lbl" x="380" y="202">BEGIN</text>
+<line class="msg" x1="295" y1="210" x2="498" y2="210" marker-end="url(#arr)"/>
+<text class="lbl" x="512" y="232">BEGIN on any server connection</text>
+<line class="msg" x1="500" y1="240" x2="708" y2="240" marker-end="url(#arr)"/>
+<text class="lbl" x="310" y="262">SELECT set_config('app.tenant_id', $1, true)</text>
+<line class="msg" x1="295" y1="270" x2="708" y2="270" marker-end="url(#arr)"/>
+<text class="lbl" x="310" y="292">fn(tx): queries filtered by RLS</text>
+<line class="msg" x1="295" y1="300" x2="708" y2="300" marker-end="url(#arr)"/>
+
+<!-- inner alt -->
+<rect class="frame" x="240" y="314" width="560" height="98"/>
+<path class="kwbg" d="M240,314 h44 v16 l-8,8 h-36 z"/><text class="kw" x="248" y="331">alt</text>
+<text class="cond" x="294" y="331">[fn ok]</text>
+<text class="lbl" x="310" y="348">COMMIT (setting ends)</text>
+<line class="msg" x1="295" y1="356" x2="708" y2="356" marker-end="url(#arr)"/>
+<line class="sep" x1="240" y1="366" x2="800" y2="366"/>
+<text class="cond" x="248" y="381">[fn error or panic]</text>
+<text class="lbl" x="420" y="394">ROLLBACK (setting ends)</text>
+<line class="msg" x1="295" y1="402" x2="708" y2="402" marker-end="url(#arr)"/>
+
+<!-- B self -->
+<path class="msg" d="M500,424 h34 v20 h-32" marker-end="url(#arr)"/>
+<rect x="540" y="428" width="330" height="20" fill="#fff"/>
+<text class="lbl" x="544" y="443">server connection returned to the pool, no tenant</text>
+
+<!-- footers -->
+<rect class="box" x="30" y="484" width="130" height="40" rx="6"/><text class="hd" x="95" y="509">handler</text>
+<rect class="box" x="215" y="484" width="160" height="40" rx="6"/><text class="hd" x="295" y="509">tenancy.InTenantTx</text>
+<rect class="box" x="420" y="484" width="160" height="40" rx="6"/><text class="hd" x="500" y="509">PgBouncer</text>
+<rect class="box" x="640" y="484" width="140" height="40" rx="6"/><text class="hd" x="710" y="509">PostgreSQL</text>
+</svg>
+<figcaption>The same sequence as the Mermaid diagram in tenant-transactions.md. Every path ends the transaction, so the setting ends with it.</figcaption>
+</figure>
+
+<h2 id="decisions">3. Options and decisions</h2>
+
+<h3 id="d-setconfig"><code>set_config(…, true)</code> versus a session setting</h3>
+<table>
+<tr><th>Option</th><th>Effect through PgBouncer (transaction mode)</th><th>Verdict</th></tr>
+<tr><td><code>SET app.tenant_id</code> / <code>set_config(…, false)</code> (session)</td><td>Stays on the server connection after <code>COMMIT</code>. The next client's transaction inherits the tenant.</td><td><span class="tag bad">Rejected</span></td></tr>
+<tr><td><code>SET LOCAL</code></td><td>Transaction-local, but it cannot take a bind parameter, so the id would be built into the SQL text.</td><td><span class="tag bad">Rejected</span></td></tr>
+<tr><td><code>SELECT set_config('app.tenant_id', $1, true)</code></td><td>Transaction-local, with the id as a bind parameter. The setting ends with <code>COMMIT</code> or <code>ROLLBACK</code>, and the tracer never records parameters.</td><td><span class="tag good">Chosen</span></td></tr>
+</table>
+
+<h3 id="d-otelpgx">otelpgx v0.13.0 with the export allow-list</h3>
+<p><strong>Accepted in TICK-94 item 4.</strong> <code>github.com/exaring/otelpgx v0.13.0</code> traces the pool. Its precondition was T01g (TICK-105, item 3): the span exporter became an allow-list, because otelpgx writes Postgres error text into exception messages, event attributes and status descriptions.</p>
+<ul>
+<li><code>internal/platform/db.NewPool</code> always passes the tracer, meter and stats meter providers from <code>telemetry.Telemetry</code>. It returns <code>ErrNilProvider</code> if any is nil, because otelpgx would otherwise fall back to the global providers, which bypass the allow-list.</li>
+<li>No SQL text and no parameter values are recorded. Span names are SQL keywords (<code>telemetry.DBSpanName</code>). Any other otelpgx span name becomes <code>_OTHER</code>.</li>
+<li>Only allow-listed <code>db.*</code> keys are exported. <code>db.query.text</code> and parameters stay out.</li>
+<li><code>error.type</code>, <code>exception.type</code> and <code>exception.stacktrace</code> are exported only if they match <code>boundedToken</code> (<code>^[A-Za-z0-9_.*/\[\]-]{1,64}$</code>). Anything else becomes <code>_OTHER</code>.</li>
+<li><code>otelpgx.WithIncludeQueryParameters</code> is banned with <code>forbidigo</code> in <code>.golangci.yml</code>.</li>
+</ul>
+
+<h3 id="d-uuid"><code>github.com/google/uuid</code> v1.6.0</h3>
+<p><strong>Accepted in TICK-94 item 10.</strong> <code>gofrs/uuid</code> is forbidden. pgx v5 encodes <code>uuid.UUID</code> through <code>driver.Valuer</code> and <code>sql.Scanner</code>, and an integration test proves the round trip. <code>uuid.Nil</code> is the "no tenant" value that <code>InTenantTx</code> refuses.</p>
+
+<h3 id="d-navalint"><code>go/analysis</code> in its own <code>tools/navalint</code> module</h3>
+<table>
+<tr><th>Option</th><th>Verdict</th><th>Why</th></tr>
+<tr><td>golangci-lint module plugins</td><td><span class="tag bad">Forbidden</span></td><td>TICK-94 item 15.</td></tr>
+<tr><td><code>go/analysis</code> analyzer in the root module</td><td><span class="tag bad">Rejected</span></td><td>Pulls <code>golang.org/x/tools</code> into the production dependency graph.</td></tr>
+<tr><td><code>go/analysis</code> analyzer built with <code>unitchecker.Main</code>, in the separate module <code>tools/navalint</code>, run as <code>go vet -vettool=…/navalint ./...</code></td><td><span class="tag good">Chosen</span></td><td><code>golang.org/x/tools v0.52.0</code> stays out of the root <code>go.mod</code>. T15 adds its claim analyzers to the same module.</td></tr>
+</table>
+<p>The <code>setconfig</code> analyzer reports <code>set_config</code> or <code>app.tenant_id</code> (case-insensitive) in any Go string constant outside <code>internal/tenancy</code>. It folds constant expressions, so <code>"set_" + "config"</code> is caught. SQL files are not Go source and are not checked, so RLS policies under <code>db/</code> may use <code>current_setting('app.tenant_id')</code>.</p>
+
+<h3 id="d-tagged">The tagged lint pass</h3>
+<p>Without build tags, <code>go vet</code> skips files under <code>//go:build integration</code> or <code>//go:build temporalstack</code>. Those are exactly the files most likely to talk to the database by hand. So <code>scripts/ci/navalint.sh</code> runs <strong>two passes</strong>: one untagged, and one with <code>-tags integration,temporalstack</code>. <code>make lint-fixture</code> proves that both passes fire, using <code>setconfig_integration.go</code> and <code>setconfig_temporalstack.go</code> in <code>internal/platform/lintfixture</code>. This came out of the round-1 review (<code>f25f927</code>).</p>
+
+<h3 id="d-dbtest">The 2026-10-24 <code>internal/db/dbtest</code> <code>_test.go</code> exemption</h3>
+<p><strong>Why it was needed.</strong> T09 (PR #44, <code>ad49237</code>) added <code>internal/db/dbtest/platform_tables_test.go</code>. That file tests the RLS policies themselves, so it has to set <code>app.tenant_id</code> directly. That includes the <code>set_config(…, false)</code> leak cases and a tenant other than the one set. Once T09 was on <code>main</code>, the tagged pass reported 7 findings in that file, and merging PR #46 would have turned <code>main</code>'s <code>lint</code> job red.</p>
+<table>
+<tr><th>Option</th><th>Verdict</th><th>Why</th></tr>
+<tr><td>1. Exempt the <code>_test.go</code> files of <code>internal/db/dbtest</code> by exact package path</td><td><span class="tag good">Chosen</span></td><td>Keeps every policy test. Production isolation does not change, because only test files are exempt and the database grants remain the control.</td></tr>
+<tr><td>2. Rewrite T09's tests through <code>InTenantTx</code> and move policy DDL into SQL fixtures</td><td><span class="tag bad">Rejected</span></td><td>Loses the leak cases, which <code>InTenantTx</code> cannot express by design.</td></tr>
+</table>
+<p><strong>How narrow it is.</strong> A file is skipped only when its package path, after trimming <code>_test</code>, is exactly <code>github.com/Navaladi2019/TicketingSystem/internal/db/dbtest</code> <em>and</em> its name ends in <code>_test.go</code>. The path is matched the same way as the <code>internal/tenancy</code> exemption. Non-test files in that package, and any other package named <code>dbtest</code>, are still reported.</p>
+
+<h2 id="risks">4. Accepted risks</h2>
+<p>None of these can leak a tenant's setting to another tenant. The first three came from the Security &amp; Multi-Tenancy Reviewer's pass and are rated Low, "will bite us at scale".</p>
+<div class="cards">
+<div class="card"><h4>The <code>Goexit</code> slot leak <span class="tag warn">Low</span></h4><p>If <code>fn</code> calls <code>runtime.Goexit</code> (for example <code>t.FailNow</code> in a test helper), <code>recover()</code> returns nil and <code>err</code> is nil. The transaction is neither committed nor rolled back, and the pooled connection stays checked out for good. <strong>A slot leak, not a tenant leak:</strong> that connection never goes back to the pool. Proposed fix: keep a <code>committed</code> flag and roll back in the defer whenever it is false.</p></div>
+<div class="card"><h4>Rollback on a cancelled context churns connections <span class="tag warn">Low</span></h4><p>The rollback uses the caller's <code>ctx</code>. When the error or panic comes from a cancelled request, the rollback fails, and pgx closes the connection instead of reusing it. Safe, because a closed connection carries no tenant (<code>TestFailedRollbackIsJoined</code> proves it), but it costs a reconnect. Proposed fix: <code>tx.Rollback(context.WithoutCancel(ctx))</code>.</p></div>
+<div class="card"><h4><code>boundedToken</code> accepts a bare id <span class="tag warn">Low</span></h4><p>The pattern accepts a bare UUID or any single-word value. A library that wrote a bare id as <code>err.Error()</code> into <code>error.type</code> would export it. No library on today's path does this. Already recorded at T01g. If one appears, restrict <code>error.type</code> to the known type and code shapes.</p></div>
+<div class="card"><h4>String-concatenation bypass of the lint rule <span class="tag warn">Defence in depth</span></h4><p>The analyzer sees constants only. A string built at run time, such as <code>a + b</code> from variables, is not caught. The rule is defence in depth. <strong>The database grants are the control</strong> (TICK-94 item 15).</p></div>
+</div>
+
+<h2 id="evidence">5. Evidence</h2>
+<h3 id="e-tests">Acceptance item → test</h3>
+<table>
+<tr><th>Acceptance item (issue TICK-61)</th><th>Test</th></tr>
+<tr><td><code>InTenantTx(uuid.Nil)</code> returns <code>ErrNoTenant</code></td><td><code>TestNoTenant</code> (<code>internal/tenancy/tenancy_test.go</code>)</td></tr>
+<tr><td>Through PgBouncer, tenant set in tx 1 is not visible in tx 2 on the same pooled connection</td><td><code>TestTenantNotVisibleThroughPgBouncer</code>, plus <code>TestTenantIsTransactionLocal</code> direct to PostgreSQL (<code>internal/tenancy/integration_test.go</code>)</td></tr>
+<tr><td>A fixture calling <code>set_config</code> outside the package fails</td><td><code>make lint-fixture</code> (<code>ok, 6 setconfig findings</code>), and <code>TestOutsideTenancy</code> (<code>tools/navalint/setconfig</code>)</td></tr>
+<tr><td>A panic in <code>fn</code> rolls back and is re-raised</td><td><code>TestPanicRollsBackAndReraises</code></td></tr>
+<tr><td>A policy in <code>db/*.sql</code> using <code>current_setting('app.tenant_id')</code> does not fail</td><td><code>TestSQLPolicyIsNotChecked</code></td></tr>
+<tr><td>A traced <code>InTenantTx</code> exports no SQL parameter values in attributes, events or status</td><td><code>TestTracedTxExportsNoValues</code> (includes a real 22P02)</td></tr>
+<tr><td>The pool constructor errors when any provider is nil</td><td><code>TestNewPoolRejectsNilProviders</code> (<code>internal/platform/db/pool_test.go</code>)</td></tr>
+<tr><td>A fixture calling <code>otelpgx.WithIncludeQueryParameters</code> fails <code>make lint</code></td><td><code>make lint-fixture</code> (<code>ok, 6 forbidigo findings</code>, checks this call is reported)</td></tr>
+<tr><td>A <code>uuid.UUID</code> round-trips through pgx</td><td><code>TestUUIDRoundTrip</code></td></tr>
+<tr><td><code>golang.org/x/tools</code> absent from the root <code>go.mod</code></td><td><code>TestXToolsStaysOutOfProduction</code> (<code>tools/navalint/module_test.go</code>)</td></tr>
+<tr><td>Carry-over: <code>error.type</code> and exception keys bounded, else <code>_OTHER</code></td><td><code>TestBoundedTokens</code>, <code>TestStatusDescriptionIsErrorType</code> (<code>internal/platform/telemetry/filter_test.go</code>)</td></tr>
+<tr><td>Carry-over: otelpgx 22P02 case exports no <code>alice@</code></td><td><code>TestSpikeFilterBypass</code> / <code>otelpgx 22P02</code></td></tr>
+<tr><td>Carry-over: otelpgx span names never contain SQL</td><td><code>TestDBSpanNames</code></td></tr>
+<tr><td>Carry-over: <code>db.*</code> keys added one by one</td><td><code>TestDBAttributes</code>, <code>TestUnlistedKeysAreDropped</code></td></tr>
+<tr><td>Carry-over: <code>nava.tenant_id</code> only from the token</td><td><code>InTenantTx</code> never sets it. <code>TestTracedTxExportsNoValues</code> asserts no tenant id is exported.</td></tr>
+<tr><td>Extra: an <code>fn</code> error rolls back; a failed rollback is joined and the pool stays clean</td><td><code>TestErrorRollsBack</code>, <code>TestFailedRollbackIsJoined</code></td></tr>
+<tr><td>2026-10-24: <code>dbtest</code> <code>_test.go</code> not reported; non-test file in <code>dbtest</code> reported; <code>_test.go</code> in another <code>dbtest</code> reported</td><td><code>TestPolicyTestsAreAllowed</code>, <code>TestOtherDbtestIsReported</code>. Mutation-checked in the Technical Lead's round-3 review.</td></tr>
+<tr><td>2026-10-24: after rebasing onto <code>main</code>, <code>make lint</code> (both passes) and <code>make lint-fixture</code> are clean with T09's tests present</td><td><code>lint</code> job at <code>6883d8f</code> (below)</td></tr>
+</table>
+
+<h3 id="e-ci">Local CI at <code>6883d8f</code></h3>
+<p>GitHub Actions was unavailable (billing), so a full local run of every <code>ci.yml</code> job replaced the CI gate. The Quality, Testing &amp; CI Advisor ran it on a fresh checkout on Windows with Git Bash and Docker 28.0.1, one stack at a time, with <code>make stack-down</code> between jobs. The head already contains <code>main</code> (<code>ad49237</code>).</p>
+<table>
+<tr><th>Job</th><th>Result</th><th>Key output</th></tr>
+<tr><td><code>lint</code></td><td><span class="tag good">PASS</span></td><td><code>0 issues.</code>, both navalint passes clean with <code>platform_tables_test.go</code> present; <code>lint-fixture: ok, 6 forbidigo findings</code> / <code>ok, 6 setconfig findings</code>; <code>No vulnerabilities found.</code></td></tr>
+<tr><td><code>unit</code></td><td><span class="tag good">PASS</span></td><td>22 packages <code>ok</code>, including <code>internal/tenancy</code>, <code>internal/platform/db</code>, <code>tools/navalint</code>, <code>tools/navalint/setconfig</code></td></tr>
+<tr><td><code>temporal-server</code></td><td><span class="tag good">PASS</span></td><td><code>Your code is affected by 0 vulnerabilities.</code></td></tr>
+<tr><td><code>integration</code></td><td><span class="tag good">PASS</span></td><td>dbtest, pooltest, health and tenancy <code>ok</code>; the T09 policy tests and all 8 T07 tests pass</td></tr>
+<tr><td><code>stack</code></td><td><span class="tag good">PASS</span></td><td><code>ok: GET /healthz 200 from inside the compose network</code>; <code>ok: one request produced one trace in the Collector</code>; <code>ok: denied span, event and status values redacted</code></td></tr>
+<tr><td><code>stack-db</code></td><td><span class="tag good">PASS</span></td><td><code>ok: second up on a used volume is a no-op</code>; <code>ok: stray membership revoked</code></td></tr>
+<tr><td><code>stack-internal</code></td><td><span class="tag good">PASS</span></td><td><code>ok: overlay up, every network internal, no egress</code></td></tr>
+</table>
+<p class="src">Not reproducible locally: the <code>gha</code> image cache and the Actions runtime, <code>setup-buildx-action</code>, <code>actions/cache</code> and the <code>ubuntu-latest</code> host. The run used the local buildx cache, Docker Desktop's builder, tools matching the pins, and cgo with mingw gcc for <code>-race</code>.</p>
+</main></div></body></html>

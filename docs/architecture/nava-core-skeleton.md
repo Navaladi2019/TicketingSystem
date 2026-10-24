@@ -16,6 +16,9 @@ flows, the security controls behind these rules, and options for later tasks.
 | `internal/platform/httpobs` | The public-listener edge: request id → `otelhttp` → access log → panic recovery. Only the public listener uses it. Exact `METHOD /path` routes can be marked untraced (a route that needs no span, which also covers `HEAD`); they keep the request id and panic recovery |
 | `internal/server` | `NewHandler` (public API listener) and `New` for its `*http.Server`; later tasks register routes here |
 | `internal/platform/health` | `Monitor`: probes PostgreSQL (critical), Keycloak (management port) and Temporal (`GetSystemInfo`) in the background, caches the result, and serves `/healthz` (`{status, checks}`) and `/readyz` on the admin listener. Only PostgreSQL gates `/readyz`; the others show as `degraded` and in `nava.dependency.degraded{dependency}` |
+| `internal/platform/db` | `NewPool`: the traced pgx pool (otelpgx with explicit providers, no SQL text or parameters) |
+| `internal/tenancy` | `InTenantTx`: the only way to scope a transaction to a tenant ([tenant-transactions.md](tenant-transactions.md)) |
+| `tools/navalint` | The `go/analysis` analyzers `make lint` runs as `go vet -vettool`, in their own module |
 | `api/`, `db/`, `deploy/compose/` | Placeholders for T20, T03 and T02 |
 | `docs/` | ADRs, the delivery plan, the decision log and notes. Its own `go.mod` keeps the ADR spike code out of `go build ./...` |
 
