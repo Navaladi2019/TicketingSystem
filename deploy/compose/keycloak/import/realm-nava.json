@@ -1,0 +1,714 @@
+{
+  "realm": "nava",
+  "enabled": true,
+  "organizationsEnabled": true,
+  "registrationAllowed": false,
+  "accessTokenLifespan": 300,
+  "defaultSignatureAlgorithm": "RS256",
+  "defaultDefaultClientScopes": [
+    "basic",
+    "roles",
+    "profile",
+    "email"
+  ],
+  "sslRequired": "external",
+  "roles": {
+    "realm": [
+      {
+        "name": "nava-operator",
+        "description": "Platform operator (D-P12). Assignable only by the platform service account."
+      },
+      {
+        "name": "tenant-admin",
+        "description": "Administrator of the user's own tenant. Holds no realm-management role."
+      }
+    ]
+  },
+  "clientScopes": [
+    {
+      "name": "basic",
+      "description": "Subject and auth_time (rebuilt: the import replaces the built-in scopes).",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "false",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "sub",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-sub-mapper",
+          "consentRequired": false,
+          "config": {
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "name": "auth_time",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usersessionmodel-note-mapper",
+          "consentRequired": false,
+          "config": {
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true",
+            "userinfo.token.claim": "false",
+            "user.session.note": "AUTH_TIME",
+            "claim.name": "auth_time",
+            "jsonType.label": "long"
+          }
+        }
+      ]
+    },
+    {
+      "name": "roles",
+      "description": "Realm roles and audience resolution.",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "false",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "realm roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true",
+            "userinfo.token.claim": "false",
+            "multivalued": "true",
+            "claim.name": "realm_access.roles",
+            "jsonType.label": "String"
+          }
+        },
+        {
+          "name": "client roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-client-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true",
+            "userinfo.token.claim": "false",
+            "multivalued": "true",
+            "claim.name": "resource_access.${client_id}.roles",
+            "jsonType.label": "String"
+          }
+        },
+        {
+          "name": "audience resolve",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-resolve-mapper",
+          "consentRequired": false,
+          "config": {
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ]
+    },
+    {
+      "name": "profile",
+      "description": "Name claims.",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "username",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "user.attribute": "username",
+            "claim.name": "preferred_username",
+            "jsonType.label": "String"
+          }
+        },
+        {
+          "name": "given name",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "user.attribute": "firstName",
+            "claim.name": "given_name",
+            "jsonType.label": "String"
+          }
+        },
+        {
+          "name": "family name",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "user.attribute": "lastName",
+            "claim.name": "family_name",
+            "jsonType.label": "String"
+          }
+        }
+      ]
+    },
+    {
+      "name": "email",
+      "description": "Email claims.",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "email",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "user.attribute": "email",
+            "claim.name": "email",
+            "jsonType.label": "String"
+          }
+        },
+        {
+          "name": "email verified",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-property-mapper",
+          "consentRequired": false,
+          "config": {
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "user.attribute": "emailVerified",
+            "claim.name": "email_verified",
+            "jsonType.label": "boolean"
+          }
+        }
+      ]
+    },
+    {
+      "name": "organization",
+      "description": "Organization claim for the access token (ADR-001 A.1).",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "organization",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-organization-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "addOrganizationId": "true",
+            "addOrganizationAttributes": "false",
+            "jsonType.label": "JSON",
+            "claim.name": "organization",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true",
+            "userinfo.token.claim": "false",
+            "multivalued": "true",
+            "addOrganizationDomain": "false"
+          }
+        }
+      ]
+    },
+    {
+      "name": "nava-idp",
+      "description": "idp claim for the access token (ADR-001 A.1).",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "false",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "idp",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usersessionmodel-note-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.session.note": "identity_provider",
+            "claim.name": "idp",
+            "jsonType.label": "String",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ]
+    },
+    {
+      "name": "nava-operator-audience",
+      "description": "Audience nava-operator-api for operator tokens (D-P12).",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "false",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "nava-operator-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "nava-operator-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "nava-web",
+      "name": "Platform sign-in (dev and tests)",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": false,
+      "redirectUris": [
+        "http://localhost:*",
+        "http://127.0.0.1:*"
+      ],
+      "webOrigins": [
+        "+"
+      ],
+      "defaultClientScopes": [
+        "basic",
+        "profile",
+        "email",
+        "roles",
+        "organization",
+        "nava-idp"
+      ],
+      "optionalClientScopes": []
+    },
+    {
+      "clientId": "nava-operator-api",
+      "name": "Operator API audience (bearer only)",
+      "enabled": true,
+      "bearerOnly": true,
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "fullScopeAllowed": false
+    },
+    {
+      "clientId": "nava-operator-cli",
+      "name": "Operator sign-in (dev and tests)",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "fullScopeAllowed": false,
+      "authenticationFlowBindingOverrides": {
+        "direct_grant": "00000000-0000-4000-8000-0000000000f1"
+      },
+      "defaultClientScopes": [
+        "basic",
+        "roles",
+        "nava-operator-audience"
+      ],
+      "optionalClientScopes": []
+    },
+    {
+      "clientId": "nava-platform",
+      "name": "Platform service account (Keycloak admin API)",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "dev-only-platform-secret",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "fullScopeAllowed": true,
+      "defaultClientScopes": [
+        "basic",
+        "roles"
+      ],
+      "optionalClientScopes": []
+    }
+  ],
+  "scopeMappings": [
+    {
+      "client": "nava-web",
+      "roles": [
+        "tenant-admin"
+      ]
+    },
+    {
+      "client": "nava-operator-cli",
+      "roles": [
+        "nava-operator"
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "service-account-nava-platform",
+      "enabled": true,
+      "serviceAccountClientId": "nava-platform",
+      "clientRoles": {
+        "realm-management": [
+          "manage-users",
+          "view-users",
+          "query-users",
+          "query-groups",
+          "view-realm",
+          "manage-realm"
+        ]
+      }
+    },
+    {
+      "username": "alice@tenant-a.test",
+      "email": "alice@tenant-a.test",
+      "emailVerified": true,
+      "firstName": "Alice",
+      "lastName": "A",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dev-only-alice",
+          "temporary": false
+        }
+      ],
+      "groups": [
+        "/t/00000000-0000-4000-8000-0000000000a1/ou/eng/platform"
+      ]
+    },
+    {
+      "username": "admin@tenant-a.test",
+      "email": "admin@tenant-a.test",
+      "emailVerified": true,
+      "firstName": "Admin",
+      "lastName": "A",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dev-only-admin-a",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "tenant-admin"
+      ],
+      "groups": [
+        "/t/00000000-0000-4000-8000-0000000000a1"
+      ]
+    },
+    {
+      "username": "bob@tenant-b.test",
+      "email": "bob@tenant-b.test",
+      "emailVerified": true,
+      "firstName": "Bob",
+      "lastName": "B",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dev-only-bob",
+          "temporary": false
+        }
+      ],
+      "groups": [
+        "/t/00000000-0000-4000-8000-0000000000b1/ou/eng/platform"
+      ]
+    },
+    {
+      "username": "operator@nava.test",
+      "email": "operator@nava.test",
+      "emailVerified": true,
+      "firstName": "Op",
+      "lastName": "Erator",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dev-only-operator",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "nava-operator"
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "name": "t",
+      "path": "/t",
+      "subGroups": [
+        {
+          "name": "00000000-0000-4000-8000-0000000000a1",
+          "subGroups": [
+            {
+              "name": "ou",
+              "subGroups": [
+                {
+                  "name": "eng",
+                  "subGroups": [
+                    {
+                      "name": "platform"
+                    }
+                  ]
+                },
+                {
+                  "name": "support"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "00000000-0000-4000-8000-0000000000b1",
+          "subGroups": [
+            {
+              "name": "ou",
+              "subGroups": [
+                {
+                  "name": "eng",
+                  "subGroups": [
+                    {
+                      "name": "platform"
+                    }
+                  ]
+                },
+                {
+                  "name": "support"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "organizations": [
+    {
+      "id": "00000000-0000-4000-8000-0000000000a1",
+      "name": "tenant-a",
+      "alias": "tenant-a",
+      "enabled": true,
+      "domains": [
+        {
+          "name": "tenant-a.test",
+          "verified": true
+        }
+      ],
+      "identityProviders": [
+        {
+          "alias": "idp-tenant-a",
+          "config": {
+            "kc.org.domain": "tenant-a.test"
+          }
+        }
+      ],
+      "members": [
+        {
+          "username": "alice@tenant-a.test"
+        },
+        {
+          "username": "admin@tenant-a.test"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000b1",
+      "name": "tenant-b",
+      "alias": "tenant-b",
+      "enabled": true,
+      "domains": [
+        {
+          "name": "tenant-b.test",
+          "verified": true
+        }
+      ],
+      "identityProviders": [
+        {
+          "alias": "idp-tenant-b",
+          "config": {
+            "kc.org.domain": "tenant-b.test"
+          }
+        }
+      ],
+      "members": [
+        {
+          "username": "bob@tenant-b.test"
+        }
+      ]
+    }
+  ],
+  "authenticatorConfig": [
+    {
+      "alias": "nava-deny-non-operator",
+      "config": {
+        "condUserRole": "nava-operator",
+        "negate": "true"
+      }
+    }
+  ],
+  "authenticationFlows": [
+    {
+      "id": "00000000-0000-4000-8000-0000000000f1",
+      "alias": "nava-operator-direct-grant",
+      "description": "Direct grant for nava-operator-cli: only holders of nava-operator get a token (the audience mapper alone does not check the role).",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "direct-grant-validate-username",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "direct-grant-validate-password",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "userSetupAllowed": false
+        },
+        {
+          "flowAlias": "nava-operator-direct-grant-role-check",
+          "authenticatorFlow": true,
+          "requirement": "CONDITIONAL",
+          "priority": 30,
+          "userSetupAllowed": false
+        }
+      ]
+    },
+    {
+      "alias": "nava-operator-direct-grant-role-check",
+      "description": "Deny unless the user holds nava-operator.",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "conditional-user-role",
+          "authenticatorConfig": "nava-deny-non-operator",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "deny-access-authenticator",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "userSetupAllowed": false
+        }
+      ]
+    },
+    {
+      "alias": "nava-first-broker-login",
+      "description": "ADR-001 A.1: create if unique, then add to the organization. No link, no confirm, no email verification.",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "idp-create-user-if-unique",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "idp-add-organization-member",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "userSetupAllowed": false
+        }
+      ]
+    }
+  ],
+  "identityProviders": [
+    {
+      "alias": "idp-tenant-a",
+      "displayName": "Tenant A test IdP",
+      "providerId": "oidc",
+      "enabled": true,
+      "trustEmail": false,
+      "storeToken": false,
+      "linkOnly": false,
+      "firstBrokerLoginFlowAlias": "nava-first-broker-login",
+      "config": {
+        "clientId": "nava-broker",
+        "clientSecret": "dev-only-broker-secret",
+        "clientAuthMethod": "client_secret_post",
+        "authorizationUrl": "http://localhost:18081/realms/idp-tenant-a/protocol/openid-connect/auth",
+        "tokenUrl": "http://localhost:8080/realms/idp-tenant-a/protocol/openid-connect/token",
+        "useJwksUrl": "true",
+        "jwksUrl": "http://localhost:8080/realms/idp-tenant-a/protocol/openid-connect/certs",
+        "validateSignature": "true",
+        "defaultScope": "openid email profile",
+        "syncMode": "IMPORT"
+      }
+    },
+    {
+      "alias": "idp-tenant-b",
+      "displayName": "Tenant B test IdP",
+      "providerId": "oidc",
+      "enabled": true,
+      "trustEmail": false,
+      "storeToken": false,
+      "linkOnly": false,
+      "firstBrokerLoginFlowAlias": "nava-first-broker-login",
+      "config": {
+        "clientId": "nava-broker",
+        "clientSecret": "dev-only-broker-secret",
+        "clientAuthMethod": "client_secret_post",
+        "authorizationUrl": "http://localhost:18081/realms/idp-tenant-b/protocol/openid-connect/auth",
+        "tokenUrl": "http://localhost:8080/realms/idp-tenant-b/protocol/openid-connect/token",
+        "useJwksUrl": "true",
+        "jwksUrl": "http://localhost:8080/realms/idp-tenant-b/protocol/openid-connect/certs",
+        "validateSignature": "true",
+        "defaultScope": "openid email profile",
+        "syncMode": "IMPORT"
+      }
+    }
+  ]
+}

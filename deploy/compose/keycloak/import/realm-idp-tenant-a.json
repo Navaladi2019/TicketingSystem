@@ -1,0 +1,27 @@
+{
+  "realm": "idp-tenant-a",
+  "enabled": true,
+  "sslRequired": "none",
+  "clients": [
+    {
+      "clientId": "nava-broker",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "dev-only-broker-secret",
+      "standardFlowEnabled": true,
+      "redirectUris": ["http://localhost:*", "http://127.0.0.1:*"]
+    }
+  ],
+  "users": [
+    {
+      "username": "carol@tenant-a.test",
+      "email": "carol@tenant-a.test",
+      "emailVerified": true,
+      "firstName": "Carol",
+      "lastName": "A",
+      "enabled": true,
+      "credentials": [{"type": "password", "value": "dev-only-carol", "temporary": false}]
+    }
+  ]
+}

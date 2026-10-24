@@ -47,4 +47,35 @@ with the test overlay, which publishes the gateway on `127.0.0.1:17233`:
 `docker compose -f compose.yaml -f deploy/compose/compose.test.yaml up -d`, then
 `go test -tags temporalstack -count=1 ./internal/temporalstack`.
 
+**Keycloak realm (T14).** `keycloak/import/` holds the realm `nava` (Organizations,
+ADR-001 A.1 mappers and broker flow, operator role, seeded tenants `tenant-a` and
+`tenant-b`, group subtree `/t/<tenant_id>/ou/...`) and two test-only IdP realms,
+`idp-tenant-a` and `idp-tenant-b`, that the tenant IdPs broker to. Keycloak imports
+them on first start (`--import-realm`; existing realms are never overwritten, so a
+change needs a fresh `keycloak` database). The IdP URLs assume the published port
+18081 (`KEYCLOAK_PORT` default). All secrets are dev-only. Test:
+`make stack-test-identity` (`go test -tags identitystack ./internal/identitystack`).
+`TestRealmFile` in the same package checks the file without a container.
+
+Realm decisions to know when you build on it:
+
+- **Client scopes.** The realm file replaces Keycloak's built-in client scopes with
+  `basic`, `roles`, `profile`, `email`, `organization`, `nava-idp` and
+  `nava-operator-audience` (Keycloak adds back only `offline_access`). Dropped
+  built-ins: `acr`, `web-origins`, `service_account`, `address`, `phone`,
+  `microprofile-jwt`, `role_list`, `saml_organization`. `defaultDefaultClientScopes`
+  is `basic`, `roles`, `profile`, `email`, so a client created later through the
+  admin API (T15 onboarding) still gets `sub`.
+- **Organization ids are fixed.** `tenant-a` and `tenant-b` carry the same UUID as
+  their group tree, `00000000-0000-4000-8000-0000000000a1` and `...b1`; the import
+  honours the `id` (checked on 26.8.1). T15 seeds can use that id for
+  `tenant_identity_binding(issuer, org_id)` without a lookup.
+- **Operator audience.** `nava-operator-cli` uses the direct-grant flow
+  `nava-operator-direct-grant`, which denies users without the `nava-operator` role.
+  The audience mapper alone adds `nava-operator-api` to any token, so the operator
+  resolver (T15) must also require the realm role, not only the audience.
+- **Platform service account** holds `manage-realm`, so its secret is the key to
+  every tenant: outside compose supply it from the environment or a secret store,
+  never the `dev-only-platform-secret` literal.
+
 Later tasks mount here: T08 `db/pg_hba.conf`.
