@@ -270,12 +270,12 @@ func platformSuperConfig(t *testing.T, m *grants.Manifest) *pgx.ConnConfig {
 	return cfg
 }
 
-// getAuthState is get_auth's oid, owner and whether the owner is a superuser,
+// getAuthState is get_auth's oid, owner oid and name, and whether the owner is a superuser,
 // then its body, SECURITY DEFINER flag, settings and ACL.
 func getAuthState(t *testing.T, conn *pgx.Conn) (identity, definition string) {
 	t.Helper()
 	if err := conn.QueryRow(context.Background(), `
-		SELECT format('oid=%s owner=%s super=%s', p.oid, r.rolname, r.rolsuper),
+		SELECT format('oid=%s owner=%s(%s) super=%s', p.oid, p.proowner, r.rolname, r.rolsuper),
 		       format('secdef=%s config=%s acl=%s src=%s', p.prosecdef, p.proconfig, p.proacl, p.prosrc)
 		FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner
 		WHERE p.oid = to_regprocedure('pgbouncer.get_auth(text)')`).Scan(&identity, &definition); err != nil {
