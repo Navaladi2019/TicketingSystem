@@ -24,7 +24,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
@@ -77,16 +76,14 @@ func (a *API) validationError(ctx context.Context, err error, w http.ResponseWri
 	case opts.StatusCode == http.StatusUnauthorized:
 		a.reg.Write(w, r, problem.InvalidToken)
 	default:
-		a.internal(ctx, w, r, err)
+		a.internal(w, r, err)
 	}
 }
 
-// internal logs the failure by type only (error text may carry input) and
+// internal reports the failure (span error, log with the error text) and
 // answers internal_error.
-func (a *API) internal(ctx context.Context, w http.ResponseWriter, r *http.Request, err error) {
-	a.log.LogAttrs(ctx, slog.LevelError, "api error",
-		slog.String("error_type", errorType(err)), slog.String("route", r.Pattern))
-	a.reg.Write(w, r, problem.InternalError)
+func (a *API) internal(w http.ResponseWriter, r *http.Request, err error) {
+	a.reg.WriteError(w, r, a.log, problem.InternalError, err, slog.String("route", r.Pattern))
 }
 
 // ErrorHandler is for StdHTTPServerOptions.ErrorHandlerFunc: the generated
@@ -104,7 +101,7 @@ func (a *API) StrictRequestError(w http.ResponseWriter, r *http.Request, err err
 // StrictResponseError is for StrictHTTPServerOptions.ResponseErrorHandlerFunc:
 // a handler returned an error, or its response could not be written.
 func (a *API) StrictResponseError(w http.ResponseWriter, r *http.Request, err error) {
-	a.internal(r.Context(), w, r, err)
+	a.internal(w, r, err)
 }
 
 // Wrap puts the 404/405 problem+json wrapper around mux. ServeMux answers an
@@ -146,17 +143,6 @@ func stringFormats() map[string]openapi3.StringFormatValidator {
 	return map[string]openapi3.StringFormatValidator{
 		"uuid": openapi3.NewRegexpFormatValidator(openapi3.FormatOfStringForUUIDOfRFC9562),
 	}
-}
-
-func errorType(err error) string {
-	var b strings.Builder
-	for ; err != nil; err = errors.Unwrap(err) {
-		if b.Len() > 0 {
-			b.WriteString(">")
-		}
-		fmt.Fprintf(&b, "%T", err)
-	}
-	return b.String()
 }
 
 // LoadSpec parses and validates an OpenAPI 3.x document.

@@ -2,6 +2,7 @@ package httpobs
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -9,9 +10,8 @@ import (
 	"runtime/debug"
 
 	"github.com/felixge/httpsnoop"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/httperr"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/requestid"
 )
@@ -40,8 +40,7 @@ func serve(log *slog.Logger, next http.Handler, w http.ResponseWriter, r *http.R
 			panic(v)
 		}
 		ctx := r.Context()
-		trace.SpanFromContext(ctx).SetStatus(codes.Error, "panic")
-		log.LogAttrs(ctx, slog.LevelError, "http handler panic",
+		httperr.Report(ctx, log, "http handler panic", "panic", fmt.Errorf("panic: %v", v),
 			slog.Any("panic", v), slog.String("stack", string(debug.Stack())))
 		if resp.committed {
 			panic(http.ErrAbortHandler)
