@@ -71,8 +71,9 @@ func (h *ContextHandler) WithGroup(name string) slog.Handler {
 // so stdout output is untouched when log export is off. The bridge takes the
 // trace and span id from the record's context; request_id is added here
 // because the bridge does not know it. The bridge enables every level, so
-// export is gated to level, the configured NAVA_LOG_LEVEL. trace_id and span_id are not added as
-// attributes: the exported record carries them as fields.
+// export is gated to level, the configured NAVA_LOG_LEVEL. trace_id and
+// span_id are not added as attributes: the exported record carries them as
+// fields.
 func WithExport(base *slog.Logger, export slog.Handler, level slog.Leveler) *slog.Logger {
 	if export == nil {
 		return base

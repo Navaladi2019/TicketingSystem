@@ -339,7 +339,7 @@ func TestExportedLogRecordDropsDeniedAttributes(t *testing.T) {
 	for i := range rec.recs {
 		r := rec.recs[i]
 		body := ""
-		r.WalkAttributes(func(kv attribute.KeyValue) bool { body += " " + string(kv.Key) + "=" + kv.Value.Emit(); return true })
+		r.WalkAttributes(func(kv attribute.KeyValue) bool { body += " " + string(kv.Key) + "=" + kv.Value.String(); return true })
 		for _, bad := range []string{"url.path", "url.query", "header.cookie", "exception.message", "db.statement", "client.address", "server.port", "only"} {
 			if strings.Contains(body, bad) {
 				t.Errorf("record %d still carries %q: %s", i, bad, body)
@@ -375,7 +375,7 @@ func TestExportedLogRecordFiltersResolvedLogValuer(t *testing.T) {
 		t.Fatalf("exported %d records, want 1", len(rec.recs))
 	}
 	rec.recs[0].WalkAttributes(func(kv attribute.KeyValue) bool {
-		if s := kv.Value.Emit(); strings.Contains(s, "url.full") || strings.Contains(s, "token") {
+		if s := kv.Value.String(); strings.Contains(s, "url.full") || strings.Contains(s, "token") {
 			t.Errorf("denied value exported: %s=%s", kv.Key, s)
 		}
 		return true
