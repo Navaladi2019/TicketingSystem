@@ -31,7 +31,8 @@ const ErrTypeTenantGuard = "nava.TenantGuard"
 //   - child, signal-external, cancel-external: a target in another namespace,
 //     or whose id is not prefixed with this tenant (the SDK's default child id
 //     is not), fails the call; children start only with ChildWorkflowID;
-//   - continue-as-new: a header that is not this tenant fails the workflow;
+//   - continue-as-new: a header that is not this tenant, or a cron schedule,
+//     fails the workflow;
 //   - NavaTenantId: set on a child, continue-as-new or upsert to another
 //     value, or unset by an upsert, fails the call;
 //   - Nexus: always fails (the Authorizer denies Nexus commands);
@@ -253,25 +254,34 @@ func (o *workflowOutbound) NewContinueAsNewError(ctx workflow.Context, wfn any, 
 	if !errors.As(err, &can) {
 		return err
 	}
-	outcome := check(func() string {
-		tenant, terr := ownTenant(ctx)
-		if terr != nil {
-			return outcomeNoTenant
-		}
-		if out := headerOutcome(can.Header.GetFields(), tenant); out != outcomeAllow {
-			return out
-		}
-		// The encoded form is what the SDK copies onto the command.
-		if !indexedTenantOK(workflow.GetInfo(ctx).SearchAttributes, tenant) { //nolint:staticcheck // SA1019
-			return outcomeSearchAttribute
-		}
-		return outcomeAllow
-	})
+	outcome := check(func() string { return continueAsNewOutcome(can.Header, workflow.GetInfo(ctx)) })
 	o.rec.record(ctx, guardContinueAsNew, outcome)
 	if outcome != outcomeAllow {
 		return guardError(guardContinueAsNew, outcome)
 	}
 	return err
+}
+
+// continueAsNewOutcome checks a continue-as-new command of the run described
+// by info: the header the Propagator wrote, no cron schedule (the SDK copies a
+// cron-started run's schedule onto the command, which the Authorizer denies;
+// no cron in M1), and the NavaTenantId the SDK copies from the start.
+func continueAsNewOutcome(header *commonpb.Header, info *workflow.Info) string {
+	tenant, err := TenantOf(info.WorkflowExecution.ID)
+	if err != nil {
+		return outcomeNoTenant
+	}
+	if out := headerOutcome(header.GetFields(), tenant); out != outcomeAllow {
+		return out
+	}
+	if info.CronSchedule != "" {
+		return outcomeCron
+	}
+	// The encoded form is what the SDK copies onto the command.
+	if !indexedTenantOK(info.SearchAttributes, tenant) { //nolint:staticcheck // SA1019
+		return outcomeSearchAttribute
+	}
+	return outcomeAllow
 }
 
 func (o *workflowOutbound) UpsertSearchAttributes(ctx workflow.Context, attributes map[string]any) error {

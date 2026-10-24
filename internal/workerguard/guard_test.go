@@ -371,6 +371,25 @@ func TestContinueAsNewGuardMissingHeader(t *testing.T) {
 	h.wantDenyAlert(guardContinueAsNew, outcomeMissing, id)
 }
 
+// A cron-started run cannot continue as new: the SDK would copy the schedule
+// onto the command, which the Authorizer denies. The test environment does not
+// set Info.CronSchedule, so this checks the guard's predicate directly.
+func TestContinueAsNewCronCheck(t *testing.T) {
+	info := func(cron string) *workflow.Info {
+		return &workflow.Info{WorkflowExecution: workflow.Execution{ID: idOf(tenantA)}, CronSchedule: cron}
+	}
+	header := headerFor(t, tenantA)
+	if got := continueAsNewOutcome(header, info("")); got != outcomeAllow {
+		t.Errorf("no cron: %q, want allow", got)
+	}
+	if got := continueAsNewOutcome(header, info("* * * * *")); got != outcomeCron {
+		t.Errorf("cron: %q, want %q", got, outcomeCron)
+	}
+	if got := continueAsNewOutcome(headerFor(t, tenantB), info("")); got != outcomeMismatch {
+		t.Errorf("other tenant's header: %q, want %q", got, outcomeMismatch)
+	}
+}
+
 // The SDK copies the start's search attributes onto continue-as-new; another
 // tenant's NavaTenantId there would be denied at the Authorizer, so the guard
 // fails the workflow instead. The test environment drops start search
