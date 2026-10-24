@@ -51,7 +51,7 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 	if err != nil {
 		return err
 	}
-	log = logging.WithExport(log, tel.LogHandler())
+	log = logging.WithExport(log, tel.LogHandler(), cfg.Log.Level)
 
 	pool, err := newPool(ctx, cfg.DatabaseURL)
 	if err != nil {
