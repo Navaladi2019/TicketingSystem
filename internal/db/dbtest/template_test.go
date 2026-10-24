@@ -32,7 +32,7 @@ func migratedCluster(t *testing.T) *grants.Manifest {
 		exec(t, conn, "DROP ROLE IF EXISTS nava_test_intruder")
 		if got := queryString(t, conn, rolesFingerprint); got == tpl.roles {
 			for _, d := range m.DatabaseNames() {
-				exec(t, conn, "CREATE DATABASE "+ident(d)+" TEMPLATE "+ident(templateName(d))+" OWNER "+ident(m.Databases[d].Owner))
+				exec(t, conn, "CREATE DATABASE "+ident(d)+" TEMPLATE "+ident(templateName(d))+" OWNER "+ident(m.Databases[d].Owner)+" STRATEGY FILE_COPY")
 				exec(t, conn, "REVOKE ALL ON DATABASE "+ident(d)+" FROM PUBLIC")
 				for _, g := range tpl.grants[d] {
 					stmt := "GRANT " + g.Priv + " ON DATABASE " + ident(d) + " TO " + g.Grantee
@@ -66,7 +66,7 @@ func migratedCluster(t *testing.T) *grants.Manifest {
 		// A template database must have no other session.
 		exec(t, conn, "SELECT pg_catalog.pg_terminate_backend(pid) FROM pg_catalog.pg_stat_activity WHERE datname = $1 AND pid <> pg_catalog.pg_backend_pid()", d)
 		name := ident(templateName(d))
-		exec(t, conn, "CREATE DATABASE "+name+" TEMPLATE "+ident(d))
+		exec(t, conn, "CREATE DATABASE "+name+" TEMPLATE "+ident(d)+" STRATEGY FILE_COPY")
 		// Nobody connects to it, so nothing changes it between copies.
 		exec(t, conn, "REVOKE ALL ON DATABASE "+name+" FROM PUBLIC")
 		exec(t, conn, "ALTER DATABASE "+name+" WITH IS_TEMPLATE true ALLOW_CONNECTIONS false")
@@ -133,7 +133,9 @@ const databaseGrants = `
 const databasesFingerprint = `
 	SELECT coalesce(string_agg(concat_ws(':', d.datname, pg_catalog.pg_get_userbyid(d.datdba),
 	       (SELECT string_agg(x, ',' ORDER BY x) FROM (
-	            SELECT concat_ws('/', a.grantor, a.grantee, a.privilege_type, a.is_grantable) AS x
+	            SELECT concat_ws('/', pg_catalog.pg_get_userbyid(a.grantor),
+	                   CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(a.grantee) END,
+	                   a.privilege_type, a.is_grantable) AS x
 	            FROM pg_catalog.aclexplode(coalesce(d.datacl, pg_catalog.acldefault('d', d.datdba))) a) s),
 	       d.datallowconn, d.datistemplate, d.datconnlimit, d.encoding, d.datcollate, d.datctype,
 	       (SELECT count(*) FROM pg_catalog.pg_db_role_setting rs WHERE rs.setdatabase = d.oid)),

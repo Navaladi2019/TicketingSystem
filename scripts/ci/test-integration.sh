@@ -42,6 +42,7 @@ logs=$(mktemp -d)
 trap 'docker rm -f "$name" $shard_pgs $bouncers >/dev/null 2>&1 || true; docker network rm "$net" >/dev/null 2>&1 || true; rm -rf "$logs"' EXIT
 trap 'exit 130' INT TERM
 
+t0=$(date +%s)
 docker network create "$net" >/dev/null
 # Throwaway clusters, so no durability (TICK-153 O1): a crash loses nothing
 # that matters, and fsync dominates the dbtest suites' time. Never set these
@@ -50,7 +51,7 @@ start_pg() { # start_pg <name> [docker run options]
     n=$1
     shift
     docker run -d --name "$n" --network "$net" "$@" \
-        -e POSTGRES_USER=pgadmin -e POSTGRES_PASSWORD=test-only \
+        -e POSTGRES_USER=pgadmin -e POSTGRES_PASSWORD=test-only -e POSTGRES_INITDB_ARGS=--no-sync \
         --health-cmd 'pg_isready -h 127.0.0.1 -U pgadmin -d postgres' \
         --health-interval 1s --health-timeout 5s --health-retries 90 \
         -p 127.0.0.1::5432 "$NAVA_TEST_PG_IMAGE" \
@@ -73,6 +74,13 @@ for b in $bouncers; do
     docker start "$b" >/dev/null
 done
 
+pkgs=$(grep -rl --include='*_test.go' '^//go:build integration' cmd internal tools 2>/dev/null |
+    xargs -n 1 dirname | sort -u | sed 's|^|./|')
+echo "integration packages ($NAVA_TEST_PG_IMAGE):" $pkgs
+# Compile every test binary while the clusters start; -run '^$' runs nothing.
+# shellcheck disable=SC2086
+go test -tags integration -count=1 -run '^$' $pkgs >/dev/null
+
 # Gate on each container's health check (postgres: TCP, since the image's
 # init server listens on the socket only, so a TCP answer means the real
 # server is up).
@@ -83,6 +91,7 @@ for c in "$name" $shard_pgs $bouncers; do
         sleep 1
     done
 done
+echo "integration: clusters healthy after $(( $(date +%s) - t0 ))s"
 hostport() { docker port "$1" 5432/tcp | head -n 1 | sed 's/.*://'; }
 pg_url() { echo "postgres://pgadmin:test-only@127.0.0.1:$(hostport "$1")/postgres"; }
 NAVA_TEST_PG_URL=$(pg_url "$name")
@@ -91,9 +100,6 @@ NAVA_TEST_PGBOUNCER_URL="postgres://nava_it_pool:test-only-pool@127.0.0.1:$(host
 NAVA_TEST_PGBOUNCER_NOPREP_URL="postgres://nava_it_pool:test-only-pool@127.0.0.1:$(hostport "$noprep")/nava_it_pool"
 export NAVA_TEST_PG_URL NAVA_TEST_PGBOUNCER_URL NAVA_TEST_PGBOUNCER_NOPREP_URL
 
-pkgs=$(grep -rl --include='*_test.go' '^//go:build integration' cmd internal tools 2>/dev/null |
-    xargs -n 1 dirname | sort -u | sed 's|^|./|')
-echo "integration packages ($NAVA_TEST_PG_IMAGE):" $pkgs
 # -v: the PgBouncer load test logs its SHOW POOLS / SHOW STATS evidence (T06).
 if [ "$shards" -eq 0 ]; then
     # -p 1: the packages share the cluster's roles.
@@ -140,6 +146,7 @@ failed=""
 for j in $procs; do
     wait "${j%%:*}" || { status=1; failed="$failed ${j#*:}"; }
 done
+echo "integration: tests done after $(( $(date +%s) - t0 ))s"
 for f in "$logs"/*; do
     echo "=== integration group $(basename "$f")"
     cat "$f"
