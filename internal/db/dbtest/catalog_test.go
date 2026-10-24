@@ -97,8 +97,7 @@ func TestT10GatePassesSecurityInvokerView(t *testing.T) {
 // R2: a migrator run with nothing to apply still runs the gate, so a fault
 // made outside the migrations fails the next run.
 func TestT10GateRunsWhenNothingToApply(t *testing.T) {
-	m := freshCluster(t)
-	migrateAll(t, m)
+	m := migratedCluster(t)
 	exec(t, superNava(t), "CREATE TABLE t10_drift (tenant_id uuid NOT NULL)")
 	res, err := migrateFS(t, m, db.Migrations())
 	if len(res.Applied) != 0 {
