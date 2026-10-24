@@ -5,8 +5,6 @@ import (
 	"log/slog"
 	"testing"
 
-	dto "github.com/prometheus/client_model/go"
-
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 )
 
@@ -48,7 +46,7 @@ func TestNewTemporalMetricsOnRegistry(t *testing.T) {
 	}
 	for _, f := range families {
 		if f.GetName() == "nava_t31_probe_total" {
-			if f.GetType() != dto.MetricType_COUNTER {
+			if f.GetType().String() != "COUNTER" {
 				t.Errorf("type %v, want COUNTER", f.GetType())
 			}
 			if v := f.GetMetric()[0].GetCounter().GetValue(); v != 2 {
