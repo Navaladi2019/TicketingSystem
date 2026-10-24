@@ -2,6 +2,8 @@ package telemetry
 
 import (
 	"context"
+	"log/slog"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -173,4 +175,93 @@ type attributelessReservoir struct{ exemplar.Reservoir }
 
 func (r attributelessReservoir) Offer(ctx context.Context, t time.Time, val exemplar.Value, _ []attribute.KeyValue) {
 	r.Reservoir.Offer(ctx, t, val, nil)
+}
+
+// deniedLogAttributeKeys and deniedLogAttributePrefix are the log attribute
+// keys that never leave the process. They are the Collector's attributes/deny
+// list (deploy/compose/otel-collector/config.yaml), applied here as well
+// because the Collector only sees top-level keys, not those inside a group.
+// TestLogDenyListMatchesCollector fails when the two drift.
+const deniedLogAttributePrefix = "http.request.header."
+
+//nolint:gochecknoglobals // read-only table
+var deniedLogAttributeKeys = map[string]struct{}{
+	"url.path": {}, "url.query": {}, "url.full": {},
+	"http.url": {}, "http.target": {},
+	"user_agent.original": {}, "http.user_agent": {},
+	"client.address": {}, "client.port": {}, "http.client_ip": {},
+	"network.peer.address": {}, "network.peer.port": {}, "net.sock.peer.addr": {}, "net.peer.ip": {},
+	"server.port":                  {},
+	"http.request.method_original": {},
+	"network.protocol.version":     {},
+	"db.query.text":                {}, "db.statement": {},
+	"exception.message": {},
+}
+
+func logAttributeDenied(key string) bool {
+	if _, ok := deniedLogAttributeKeys[key]; ok {
+		return true
+	}
+	return strings.HasPrefix(key, deniedLogAttributePrefix)
+}
+
+// denyAttrs returns attrs without denied keys, at any depth of slog.Group.
+// path is the dotted group path so far; a key is denied by its own name or by
+// its full dotted path, so both slog.Group("http", "url.path") and a flat
+// "url.path" are caught. A group left empty is dropped.
+func denyAttrs(path string, attrs []slog.Attr) []slog.Attr {
+	out := make([]slog.Attr, 0, len(attrs))
+	for _, a := range attrs {
+		full := a.Key
+		if path != "" && a.Key != "" {
+			full = path + "." + a.Key
+		}
+		if logAttributeDenied(a.Key) || logAttributeDenied(full) {
+			continue
+		}
+		if a.Value.Kind() == slog.KindGroup {
+			sub := path
+			if a.Key != "" {
+				sub = full
+			}
+			kept := denyAttrs(sub, a.Value.Group())
+			if len(kept) == 0 {
+				continue
+			}
+			a = slog.Attr{Key: a.Key, Value: slog.GroupValue(kept...)}
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
+// denyHandler removes denied attributes from every record before next sees it.
+type denyHandler struct {
+	next slog.Handler
+	path string // dotted path of the groups opened with WithGroup
+}
+
+func (h denyHandler) Enabled(ctx context.Context, l slog.Level) bool { return h.next.Enabled(ctx, l) }
+
+func (h denyHandler) Handle(ctx context.Context, r slog.Record) error {
+	var attrs []slog.Attr
+	r.Attrs(func(a slog.Attr) bool { attrs = append(attrs, a); return true })
+	out := slog.NewRecord(r.Time, r.Level, r.Message, r.PC)
+	out.AddAttrs(denyAttrs(h.path, attrs)...)
+	return h.next.Handle(ctx, out)
+}
+
+func (h denyHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return denyHandler{next: h.next.WithAttrs(denyAttrs(h.path, attrs)), path: h.path}
+}
+
+func (h denyHandler) WithGroup(name string) slog.Handler {
+	if name == "" {
+		return h
+	}
+	path := name
+	if h.path != "" {
+		path = h.path + "." + name
+	}
+	return denyHandler{next: h.next.WithGroup(name), path: path}
 }

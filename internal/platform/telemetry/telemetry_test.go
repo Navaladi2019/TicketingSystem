@@ -310,3 +310,48 @@ func TestExportedLogRecordCarriesTraceID(t *testing.T) {
 		t.Errorf("Shutdown: %v", err)
 	}
 }
+
+// A denied key is removed before export, at the top level, inside a
+// slog.Group, and in attributes bound with With and WithGroup.
+func TestExportedLogRecordDropsDeniedAttributes(t *testing.T) {
+	t.Parallel()
+	rec := &logRecorder{}
+	tel, err := telemetry.New(t.Context(), load(t, nil), telemetry.WithLogExporter(rec))
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := slog.New(tel.LogHandler())
+
+	log.InfoContext(t.Context(), "m",
+		slog.String("url.path", "/secret"),
+		slog.String("keep", "ok"),
+		slog.Group("http",
+			slog.String("url.query", "token=x"),
+			slog.String("http.request.header.cookie", "c"),
+			slog.Group("deep", slog.String("exception.message", "boom"), slog.String("ok", "1"))),
+		slog.Group("only", slog.String("db.statement", "select 1")))
+	log.With(slog.String("client.address", "10.0.0.1")).WithGroup("g").
+		InfoContext(t.Context(), "m2", slog.String("server.port", "1"), slog.String("fine", "2"))
+
+	if len(rec.recs) != 2 {
+		t.Fatalf("exported %d records, want 2", len(rec.recs))
+	}
+	for i := range rec.recs {
+		r := rec.recs[i]
+		body := ""
+		r.WalkAttributes(func(kv attribute.KeyValue) bool { body += " " + string(kv.Key) + "=" + kv.Value.Emit(); return true })
+		for _, bad := range []string{"url.path", "url.query", "header.cookie", "exception.message", "db.statement", "client.address", "server.port", "only"} {
+			if strings.Contains(body, bad) {
+				t.Errorf("record %d still carries %q: %s", i, bad, body)
+			}
+		}
+		for _, good := range []string{"keep", "ok", "fine"} {
+			if i == 0 && good == "fine" || i == 1 && good != "fine" {
+				continue
+			}
+			if !strings.Contains(body, good) {
+				t.Errorf("record %d lost %q: %s", i, good, body)
+			}
+		}
+	}
+}

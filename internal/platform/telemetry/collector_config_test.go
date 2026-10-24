@@ -72,12 +72,33 @@ func TestCollectorDenyListMatchesFilter(t *testing.T) {
 	if n := strings.Count(cfg, "attributes/deny:"); n != 1 {
 		t.Errorf("want one attributes/deny definition shared by traces and logs, found %d", n)
 	}
-	logsPipeline := cfg[strings.Index(cfg, "    logs:"):]
+	i := strings.Index(cfg, "    logs:")
+	if i < 0 {
+		t.Fatal("the Collector config has no logs: pipeline")
+	}
+	logsPipeline := cfg[i:]
 	if !strings.Contains(logsPipeline, "attributes/deny") {
 		t.Error("the logs pipeline must run attributes/deny")
 	}
 
 	if !strings.Contains(cfg, `set(status.message, "")`) {
 		t.Error(`transform/deny must clear the status description: set(status.message, "")`)
+	}
+}
+
+// TestLogDenyListMatchesCollector: the in-process log deny-list covers every
+// key the Collector deletes, so the two layers cannot drift.
+func TestLogDenyListMatchesCollector(t *testing.T) {
+	for k := range deniedSpanAttributeKeys {
+		if !logAttributeDenied(string(k)) {
+			t.Errorf("deniedLogAttributeKeys lacks %q", k)
+		}
+	}
+	if len(deniedLogAttributeKeys) != len(deniedSpanAttributeKeys) {
+		t.Errorf("in-process log deny-list has %d keys, Collector list has %d",
+			len(deniedLogAttributeKeys), len(deniedSpanAttributeKeys))
+	}
+	if deniedLogAttributePrefix != deniedSpanAttributePrefix {
+		t.Errorf("header prefix %q != %q", deniedLogAttributePrefix, deniedSpanAttributePrefix)
 	}
 }
