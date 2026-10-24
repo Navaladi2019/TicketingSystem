@@ -70,13 +70,37 @@ func (h *ContextHandler) WithGroup(name string) slog.Handler {
 // OTLP bridge, beside the handler of base. A nil export returns base itself,
 // so stdout output is untouched when log export is off. The bridge takes the
 // trace and span id from the record's context; request_id is added here
-// because the bridge does not know it. trace_id and span_id are not added as
-// attributes: the exported record carries them as fields.
-func WithExport(base *slog.Logger, export slog.Handler) *slog.Logger {
+// because the bridge does not know it. The bridge enables every level, so
+// export is gated to level, the configured NAVA_LOG_LEVEL. trace_id and
+// span_id are not added as attributes: the exported record carries them as
+// fields.
+func WithExport(base *slog.Logger, export slog.Handler, level slog.Leveler) *slog.Logger {
 	if export == nil {
 		return base
 	}
-	return slog.New(slog.NewMultiHandler(base.Handler(), requestIDHandler{next: export}))
+	return slog.New(slog.NewMultiHandler(base.Handler(), requestIDHandler{next: levelHandler{next: export, level: level}}))
+}
+
+// levelHandler enables a record only if it is at or above level.
+type levelHandler struct {
+	next  slog.Handler
+	level slog.Leveler
+}
+
+func (h levelHandler) Enabled(ctx context.Context, l slog.Level) bool {
+	return l >= h.level.Level() && h.next.Enabled(ctx, l)
+}
+
+func (h levelHandler) Handle(ctx context.Context, r slog.Record) error {
+	return h.next.Handle(ctx, r)
+}
+
+func (h levelHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return levelHandler{next: h.next.WithAttrs(attrs), level: h.level}
+}
+
+func (h levelHandler) WithGroup(name string) slog.Handler {
+	return levelHandler{next: h.next.WithGroup(name), level: h.level}
 }
 
 // requestIDHandler adds the request id from the record's context.

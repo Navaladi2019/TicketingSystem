@@ -194,11 +194,13 @@ func (t *Telemetry) Exporting() bool { return t.exporting }
 // LogHandler is the slog handler that exports records over OTLP, or nil when
 // log export is off. It takes the trace and span id from the ctx passed to
 // the *Context logging methods, so call sites must log with the request ctx.
+// Denied attributes (deniedLogAttributeKeys), including those inside a
+// slog.Group, are removed here before the record reaches the exporter.
 func (t *Telemetry) LogHandler() slog.Handler {
 	if t.lp == nil {
 		return nil
 	}
-	return otelslog.NewHandler("nava-core", otelslog.WithLoggerProvider(t.lp))
+	return denyHandler{next: otelslog.NewHandler("nava-core", otelslog.WithLoggerProvider(t.lp))}
 }
 
 // Shutdown flushes and stops the providers.

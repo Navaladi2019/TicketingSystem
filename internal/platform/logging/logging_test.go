@@ -81,7 +81,7 @@ func TestWithExportNilLeavesLoggerUnchanged(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
 	base := logging.New(&buf, config.Log{Level: slog.LevelInfo, Format: config.FormatJSON})
-	if got := logging.WithExport(base, nil); got != base {
+	if got := logging.WithExport(base, nil, slog.LevelInfo); got != base {
 		t.Fatal("WithExport(base, nil) must return base itself")
 	}
 }
@@ -95,11 +95,11 @@ func TestStdoutUnchangedByExport(t *testing.T) {
 	if !strings.Contains(want, `"trace_id":"01000000000000000000000000000000"`) {
 		t.Fatalf("baseline lacks trace_id: %s", want)
 	}
-	if got := logLines(t, func(l *slog.Logger) *slog.Logger { return logging.WithExport(l, nil) }); got != want {
+	if got := logLines(t, func(l *slog.Logger) *slog.Logger { return logging.WithExport(l, nil, slog.LevelInfo) }); got != want {
 		t.Errorf("export off changed stdout:\n got %q\nwant %q", got, want)
 	}
 	exp := &captureHandler{}
-	if got := logLines(t, func(l *slog.Logger) *slog.Logger { return logging.WithExport(l, exp) }); got != want {
+	if got := logLines(t, func(l *slog.Logger) *slog.Logger { return logging.WithExport(l, exp, slog.LevelInfo) }); got != want {
 		t.Errorf("export on changed stdout:\n got %q\nwant %q", got, want)
 	}
 	if len(exp.records) != 2 {
@@ -113,6 +113,27 @@ func TestStdoutUnchangedByExport(t *testing.T) {
 	}
 	if _, ok := got["trace_id"]; ok {
 		t.Error("exported record carries trace_id as an attribute; the bridge sets it as a field")
+	}
+}
+
+// TestExportRespectsLevel: the bridge enables every level, so WithExport
+// gates it. At INFO a DEBUG record reaches neither stdout nor the exporter.
+func TestExportRespectsLevel(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	base := logging.New(&buf, config.Log{Level: slog.LevelInfo, Format: config.FormatJSON})
+	exp := &captureHandler{}
+	log := logging.WithExport(base, exp, slog.LevelInfo)
+	log.DebugContext(t.Context(), "too quiet")
+	if buf.Len() != 0 || len(exp.records) != 0 {
+		t.Fatalf("debug record at INFO: stdout %q, exported %d", buf.String(), len(exp.records))
+	}
+	log.WarnContext(t.Context(), "loud enough")
+	if len(exp.records) != 1 || !strings.Contains(buf.String(), "loud enough") {
+		t.Errorf("warn record: stdout %q, exported %d", buf.String(), len(exp.records))
+	}
+	if log.Enabled(t.Context(), slog.LevelDebug) {
+		t.Error("logger enabled at DEBUG with level INFO")
 	}
 }
 
