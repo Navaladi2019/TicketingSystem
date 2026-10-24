@@ -9,7 +9,7 @@
 // set_config(..., false) leaks (TICK-61 decision 2026-10-24). Its non-test
 // files, and any other package named dbtest, are not. The _test.go files of
 // internal/tenancy/isolation are exempt for the same reason: the CI-2 suite
-// (T11, TICK-67) sets no tenant, '' and a prior tenant by hand to prove each
+// (T11, TICK-67) sets no tenant, an empty one and a prior one by hand to prove each
 // gives 0 rows. Its registry (registry.go) is not exempt; registered paths
 // scope their transactions with tenancy.InTenantTx.
 //
