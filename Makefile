@@ -128,9 +128,9 @@ STACK_TESTS_PARALLEL := smoke pgbouncer temporal temporal_handshake temporal_iso
 STACK_TESTS_SERIAL := dependencies trace logs redact idempotent dbroles
 STACK_TESTS := healthy $(STACK_TESTS_PARALLEL) $(STACK_TESTS_SERIAL)
 stack-tests:
-	$(MAKE) --no-print-directory stack-test-healthy
+	$(MAKE) --no-print-directory -j1 stack-test-healthy
 	$(MAKE) --no-print-directory -j $(words $(STACK_TESTS_PARALLEL)) --output-sync=target $(addprefix stack-test-,$(STACK_TESTS_PARALLEL))
-	$(MAKE) --no-print-directory $(addprefix stack-test-,$(STACK_TESTS_SERIAL))
+	$(MAKE) --no-print-directory -j1 $(addprefix stack-test-,$(STACK_TESTS_SERIAL))
 ci-stack: $(if $(IMAGE_CACHE),image-ci,image)
 	@$(STACK_LOCK) $(MAKE) --no-print-directory ci-stack-run
 
@@ -143,7 +143,7 @@ ci-stack-run: dev-ca
 	@$(MAKE) --no-print-directory -j 2 stack-main stack-internal-beside
 
 stack-main:
-	@status=0; $(MAKE) --no-print-directory stack-up stack-tests || status=$$?; if [ $$status -ne 0 ]; then $(MAKE) --no-print-directory stack-logs; fi; $(MAKE) --no-print-directory stack-down; exit $$status
+	@status=0; $(MAKE) --no-print-directory -j1 stack-up stack-tests || status=$$?; if [ $$status -ne 0 ]; then $(MAKE) --no-print-directory stack-logs; fi; $(MAKE) --no-print-directory stack-down; exit $$status
 
 # The internal overlay needs a fresh stack. Host ports 0: Docker picks free
 # ones, so it cannot collide with the main stack's.
