@@ -31,11 +31,15 @@ trap 'docker rm -f "$name" $bouncers >/dev/null 2>&1 || true; docker network rm 
 trap 'exit 130' INT TERM
 
 docker network create "$net" >/dev/null
+# A throwaway cluster, so no durability (TICK-153 O1): a crash loses nothing
+# that matters, and fsync dominates the dbtest suites' time. Never set these
+# on the dev or production compose stack.
 docker run -d --name "$name" --network "$net" --network-alias pg \
     -e POSTGRES_USER=pgadmin -e POSTGRES_PASSWORD=test-only \
     --health-cmd 'pg_isready -h 127.0.0.1 -U pgadmin -d postgres' \
     --health-interval 1s --health-timeout 5s --health-retries 90 \
-    -p 127.0.0.1::5432 "$NAVA_TEST_PG_IMAGE" >/dev/null
+    -p 127.0.0.1::5432 "$NAVA_TEST_PG_IMAGE" \
+    -c fsync=off -c synchronous_commit=off -c full_page_writes=off >/dev/null
 
 # Two PgBouncers in front of it (T06): pooled.ini is the setting under test,
 # noprep.ini the same with max_prepared_statements = 0 (the negative case).
