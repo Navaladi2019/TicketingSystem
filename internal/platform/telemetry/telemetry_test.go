@@ -2,16 +2,19 @@ package telemetry_test
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"log/slog"
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 
@@ -236,4 +239,74 @@ func span0() trace.SpanContext {
 		TraceID: trace.TraceID{1},
 		SpanID:  trace.SpanID{1},
 	})
+}
+
+type logRecorder struct {
+	mu   sync.Mutex
+	recs []sdklog.Record
+}
+
+func (r *logRecorder) Export(_ context.Context, recs []sdklog.Record) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, rec := range recs {
+		r.recs = append(r.recs, rec.Clone())
+	}
+	return nil
+}
+func (r *logRecorder) Shutdown(context.Context) error   { return nil }
+func (r *logRecorder) ForceFlush(context.Context) error { return nil }
+
+func TestLogHandlerOnlyWithBaseEndpoint(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		env  map[string]string
+		want bool
+	}{
+		{nil, false},
+		{map[string]string{"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://127.0.0.1:4318"}, false},
+		{map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://127.0.0.1:4318"}, true},
+	} {
+		tel, err := telemetry.New(t.Context(), load(t, tc.env))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := tel.LogHandler() != nil; got != tc.want {
+			t.Errorf("env %v: LogHandler non-nil = %v, want %v", tc.env, got, tc.want)
+		}
+		if err := tel.Shutdown(t.Context()); err != nil {
+			t.Errorf("Shutdown: %v", err)
+		}
+	}
+}
+
+// A record logged with the request ctx carries that request's trace and span
+// id as record fields; one logged without it carries none.
+func TestExportedLogRecordCarriesTraceID(t *testing.T) {
+	t.Parallel()
+	rec := &logRecorder{}
+	tel, err := telemetry.New(t.Context(), load(t, nil), telemetry.WithLogExporter(rec))
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := slog.New(tel.LogHandler())
+
+	ctx, span := tel.TracerProvider.Tracer("test").Start(t.Context(), "req")
+	log.InfoContext(ctx, "with ctx", slog.String("k", "v"))
+	log.InfoContext(t.Context(), "without ctx")
+	span.End()
+
+	if len(rec.recs) != 2 {
+		t.Fatalf("exported %d records, want 2", len(rec.recs))
+	}
+	sc := span.SpanContext()
+	if got := rec.recs[0]; got.TraceID() != sc.TraceID() || got.SpanID() != sc.SpanID() {
+		t.Errorf("trace/span = %s/%s, want %s/%s", got.TraceID(), got.SpanID(), sc.TraceID(), sc.SpanID())
+	}
+	if got := rec.recs[1]; got.TraceID().IsValid() {
+		t.Errorf("record logged without ctx has trace id %s", got.TraceID())
+	}
+	if err := tel.Shutdown(t.Context()); err != nil {
+		t.Errorf("Shutdown: %v", err)
+	}
 }

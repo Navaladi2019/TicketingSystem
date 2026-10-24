@@ -5,10 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"regexp"
+	"strings"
 	"testing"
 
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/logging"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/requestid"
 )
@@ -56,3 +59,71 @@ func TestContextHandlerOutsideARequestAddsNothing(t *testing.T) {
 		}
 	}
 }
+
+// logLines runs the same calls through a logger and returns its stdout.
+func logLines(t *testing.T, build func(*slog.Logger) *slog.Logger) string {
+	t.Helper()
+	var buf bytes.Buffer
+	log := build(logging.New(&buf, config.Log{Level: slog.LevelInfo, Format: config.FormatJSON}))
+	sc := trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID: trace.TraceID{1}, SpanID: trace.SpanID{2},
+	})
+	ctx := requestid.NewContext(trace.ContextWithSpanContext(t.Context(), sc), "req-1")
+	log.InfoContext(ctx, "http request", slog.String("route", "/x"), slog.Group("g", slog.Int("n", 1)))
+	log.With(slog.String("listener", "public")).WarnContext(ctx, "second")
+	return timeRE.ReplaceAllString(buf.String(), "")
+}
+
+// timeRE strips the wall-clock field, the one part that differs run to run.
+var timeRE = regexp.MustCompile(`"time":"[^"]*",`)
+
+func TestWithExportNilLeavesLoggerUnchanged(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	base := logging.New(&buf, config.Log{Level: slog.LevelInfo, Format: config.FormatJSON})
+	if got := logging.WithExport(base, nil); got != base {
+		t.Fatal("WithExport(base, nil) must return base itself")
+	}
+}
+
+// TestStdoutUnchangedByExport: with no export handler (endpoint unset) stdout
+// is byte-for-byte what it was before the bridge existed. With one, stdout is
+// still identical: the bridge adds a destination, it does not touch stdout.
+func TestStdoutUnchangedByExport(t *testing.T) {
+	t.Parallel()
+	want := logLines(t, func(l *slog.Logger) *slog.Logger { return l })
+	if !strings.Contains(want, `"trace_id":"01000000000000000000000000000000"`) {
+		t.Fatalf("baseline lacks trace_id: %s", want)
+	}
+	if got := logLines(t, func(l *slog.Logger) *slog.Logger { return logging.WithExport(l, nil) }); got != want {
+		t.Errorf("export off changed stdout:\n got %q\nwant %q", got, want)
+	}
+	exp := &captureHandler{}
+	if got := logLines(t, func(l *slog.Logger) *slog.Logger { return logging.WithExport(l, exp) }); got != want {
+		t.Errorf("export on changed stdout:\n got %q\nwant %q", got, want)
+	}
+	if len(exp.records) != 2 {
+		t.Fatalf("exported %d records, want 2", len(exp.records))
+	}
+	// The exported branch gets the request id but not duplicate trace attrs.
+	got := map[string]string{}
+	exp.records[0].Attrs(func(a slog.Attr) bool { got[a.Key] = a.Value.String(); return true })
+	if got["request_id"] != "req-1" || got["route"] != "/x" {
+		t.Errorf("exported attrs = %v", got)
+	}
+	if _, ok := got["trace_id"]; ok {
+		t.Error("exported record carries trace_id as an attribute; the bridge sets it as a field")
+	}
+}
+
+type captureHandler struct {
+	records []slog.Record
+}
+
+func (h *captureHandler) Enabled(context.Context, slog.Level) bool { return true }
+func (h *captureHandler) Handle(_ context.Context, r slog.Record) error {
+	h.records = append(h.records, r)
+	return nil
+}
+func (h *captureHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h *captureHandler) WithGroup(string) slog.Handler      { return h }

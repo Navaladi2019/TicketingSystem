@@ -68,6 +68,15 @@ func TestCollectorDenyListMatchesFilter(t *testing.T) {
 		t.Errorf("transform/deny (spanevent) lacks the header pattern %q", want)
 	}
 
+	// Logs go through the same attributes/deny processor, not a copy of it.
+	if n := strings.Count(cfg, "attributes/deny:"); n != 1 {
+		t.Errorf("want one attributes/deny definition shared by traces and logs, found %d", n)
+	}
+	logsPipeline := cfg[strings.Index(cfg, "    logs:"):]
+	if !strings.Contains(logsPipeline, "attributes/deny") {
+		t.Error("the logs pipeline must run attributes/deny")
+	}
+
 	if !strings.Contains(cfg, `set(status.message, "")`) {
 		t.Error(`transform/deny must clear the status description: set(status.message, "")`)
 	}
