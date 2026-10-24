@@ -7,7 +7,7 @@
 //	docker compose up -d keycloak
 //	go test -tags identitystack -count=1 ./internal/identitystack
 //
-// NAVA_TEST_KEYCLOAK_URL overrides http://localhost:18081.
+// NAVA_TEST_KEYCLOAK_URL, else KEYCLOAK_PORT, overrides http://localhost:18081.
 package identitystack
 
 import (
@@ -29,11 +29,32 @@ import (
 	"time"
 )
 
+// realmHost is the browser-facing Keycloak address the realm export names in
+// the brokered IdPs' authorizationUrl.
+const realmHost = "localhost:18081"
+
 func baseURL() string {
 	if u := os.Getenv("NAVA_TEST_KEYCLOAK_URL"); u != "" {
 		return strings.TrimRight(u, "/")
 	}
-	return "http://localhost:18081"
+	if p := os.Getenv("KEYCLOAK_PORT"); p != "" {
+		return "http://localhost:" + p
+	}
+	return "http://" + realmHost
+}
+
+// toStack sends requests for realmHost to the Keycloak under test, so a stack
+// on another port (make ci-isolated) never follows a broker redirect into the
+// default stack's Keycloak.
+type toStack struct{ host string }
+
+func (s toStack) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.URL.Host == realmHost && s.host != realmHost {
+		req = req.Clone(req.Context())
+		req.URL.Host = s.host
+		req.Host = s.host
+	}
+	return http.DefaultTransport.RoundTrip(req)
 }
 
 func newClient(t *testing.T) *http.Client {
@@ -42,7 +63,11 @@ func newClient(t *testing.T) *http.Client {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &http.Client{Jar: jar, Timeout: 30 * time.Second}
+	u, err := url.Parse(baseURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &http.Client{Jar: jar, Timeout: 30 * time.Second, Transport: toStack{host: u.Host}}
 }
 
 func do(t *testing.T, c *http.Client, req *http.Request) (int, []byte) {

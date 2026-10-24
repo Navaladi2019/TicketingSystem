@@ -31,7 +31,8 @@ func docker(t *testing.T, args ...string) string {
 
 // startPostgres runs NAVA_TEST_PG_IMAGE (the docs/pins.md postgres row, set by
 // scripts/ci/test-integration.sh) on a fixed free host port, so the address
-// survives docker stop and docker start. With no Docker or no image it skips
+// survives docker stop and docker start, picking another port when one is
+// taken between the pick and the bind. With no Docker or no image it skips
 // the test, or fails it under CI (T05), where a skip would pass the gate
 // unseen. The container is removed in t.Cleanup.
 func startPostgres(t *testing.T) (dsn, container string) {
@@ -50,17 +51,28 @@ func startPostgres(t *testing.T) (dsn, container string) {
 	if err := exec.CommandContext(t.Context(), "docker", "info").Run(); err != nil {
 		skip("docker is not available: %v", err)
 	}
-	l, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	// The port is free when picked but another process (a parallel CI run,
+	// TICK-147) can take it before docker binds it: pick again on a collision.
+	for attempt := 1; ; attempt++ {
+		l, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		port := l.Addr().(*net.TCPAddr).Port
+		_ = l.Close()
+		name := fmt.Sprintf("nava-it-health-%d-%d", os.Getpid(), port)
+		out, err := exec.CommandContext(t.Context(), "docker", "run", "-d", "--name", name,
+			"-e", "POSTGRES_PASSWORD=dev-only", "-p", fmt.Sprintf("127.0.0.1:%d:5432", port), image).CombinedOutput()
+		t.Cleanup(func() {
+			_ = exec.CommandContext(context.WithoutCancel(t.Context()), "docker", "rm", "-f", name).Run()
+		})
+		if err == nil {
+			return fmt.Sprintf("postgres://postgres:dev-only@127.0.0.1:%d/postgres?sslmode=disable", port), name
+		}
+		if attempt == 5 || !strings.Contains(string(out), "address already in use") && !strings.Contains(string(out), "port is already allocated") {
+			t.Fatalf("docker run %s: %v\n%s", image, err, out)
+		}
 	}
-	port := l.Addr().(*net.TCPAddr).Port
-	_ = l.Close()
-	container = docker(t, "run", "-d", "-e", "POSTGRES_PASSWORD=dev-only", "-p", fmt.Sprintf("127.0.0.1:%d:5432", port), image)
-	t.Cleanup(func() {
-		_ = exec.CommandContext(context.WithoutCancel(t.Context()), "docker", "rm", "-f", container).Run()
-	})
-	return fmt.Sprintf("postgres://postgres:dev-only@127.0.0.1:%d/postgres?sslmode=disable", port), container
 }
 
 func waitFor(t *testing.T, limit time.Duration, what string, cond func() bool) time.Duration {

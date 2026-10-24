@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -183,11 +184,36 @@ func TestCI6_PlatformCertificateRejectedAtInternodeHandshake(t *testing.T) {
 			"health", "-addr", "127.0.0.1:"+port, "-server-name", "localhost",
 			"-ca", "/c/ca.pem", "-cert", "/c/client.pem", "-key", "/c/client.key", "-timeout", "5s")
 	}
+	ports := []string{"7234", "7235", "7239"}
+	cns := []string{"internode", "nava-worker", "nava-relay", "nava-core", "nava-operator", "temporal-system"}
+	// Every probe is its own throwaway container and reads nothing another
+	// changes, so all of them run at once (TICK-153 O9): one at a time they
+	// took most of the CI-6 suite's time.
+	type result struct {
+		out string
+		err error
+	}
+	results := make(map[string]result, len(ports)*len(cns))
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for _, port := range ports {
+		for _, cn := range cns {
+			wg.Go(func() {
+				out, err := probe(port, cn+".pem", cn+".key")
+				mu.Lock()
+				results[port+"/"+cn] = result{out, err}
+				mu.Unlock()
+			})
+		}
+	}
+	wg.Wait()
+
 	serving := 0
-	for _, port := range []string{"7234", "7235", "7239"} {
+	for _, port := range ports {
 		// Control: the internode certificate is served on a listening port.
 		// 7239 (worker service) has no gRPC listener at server v1.29.7.
-		out, err := probe(port, "internode.pem", "internode.key")
+		r := results[port+"/internode"]
+		out, err := r.out, r.err
 		listening := err == nil
 		if !listening && !strings.Contains(out, "connection refused") {
 			t.Fatalf("control: the internode certificate on %s: %v\n%s", port, err, out)
@@ -195,8 +221,9 @@ func TestCI6_PlatformCertificateRejectedAtInternodeHandshake(t *testing.T) {
 		if listening {
 			serving++
 		}
-		for _, cn := range []string{"nava-worker", "nava-relay", "nava-core", "nava-operator", "temporal-system"} {
-			out, err := probe(port, cn+".pem", cn+".key")
+		for _, cn := range cns[1:] {
+			r := results[port+"/"+cn]
+			out, err := r.out, r.err
 			switch {
 			case err == nil:
 				t.Errorf("%s completed the internode handshake on %s: %s", cn, port, out)

@@ -1,0 +1,13 @@
+# Overlay for a throwaway CI stack only: `make ci-stack` adds it, and that run
+# ends in `down -v`, so the volume goes with the stack. Never for the dev
+# project (`make stack-up`, `docker compose up`), whose volume persists.
+#   docker compose -f compose.yaml -f deploy/compose/compose.test.yaml -f deploy/compose/compose.ci.yaml up -d
+services:
+  # No durability (TICK-153 O11): faster db-roles, migrate and service
+  # start-up. The command replaces compose.yaml's whole list, so its hba_file
+  # comes along.
+  postgres:
+    command: ["postgres", "-c", "hba_file=/etc/postgresql/pg_hba.conf",
+              "-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off"]
+    environment:
+      POSTGRES_INITDB_ARGS: --no-sync
