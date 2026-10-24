@@ -1,5 +1,5 @@
-// Package migrate runs the platform database's migrations with goose and then
-// applies db/grants.yaml. It runs as nava_migrator in a one-shot job
+// Package migrate runs the platform database's migrations with goose, applies
+// db/grants.yaml, then runs the catalogue gate (ADR-001 CI-1, CI-3, CI-4; R2). It runs as nava_migrator in a one-shot job
 // connected directly to PostgreSQL: goose's session advisory lock needs one
 // server session for the whole run, which PgBouncer's transaction pooling
 // does not give (and get_auth refuses the migrator through the pooler).
@@ -12,12 +12,14 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 	"github.com/pressly/goose/v3/lock"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/db/catalog"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/grants"
 )
 
@@ -36,10 +38,12 @@ type Result struct {
 	Grants  grants.Result
 }
 
-// Run applies every pending migration in fsys, then the grant manifest. Two
-// runs at once are serialised by a session advisory lock: the second waits,
-// then finds nothing to apply.
-func Run(ctx context.Context, cfg *pgx.ConnConfig, fsys fs.FS, m *grants.Manifest, log *slog.Logger, opt Options) (Result, error) {
+// Run applies every pending migration in fsys, then the grant manifest, then
+// the catalogue gate (R2's post-run check): a run that leaves the catalogue
+// off the isolation invariants fails, with every problem logged. Two runs at
+// once are serialised by a session advisory lock: the second waits, then
+// finds nothing to apply.
+func Run(ctx context.Context, cfg *pgx.ConnConfig, fsys fs.FS, m *grants.Manifest, g *catalog.GlobalTables, log *slog.Logger, opt Options) (Result, error) {
 	var res Result
 	applied, err := Up(ctx, cfg, fsys, log, opt)
 	if err != nil {
@@ -55,6 +59,17 @@ func Run(ctx context.Context, cfg *pgx.ConnConfig, fsys fs.FS, m *grants.Manifes
 	res.Grants, err = grants.Apply(ctx, conn, m, log)
 	if err != nil {
 		return res, fmt.Errorf("apply grants manifest: %w", err)
+	}
+	problems, err := catalog.Check(ctx, conn, m, g)
+	if err != nil {
+		return res, err
+	}
+	for _, p := range problems {
+		log.ErrorContext(ctx, "catalogue gate", slog.String("problem", p))
+	}
+	if len(problems) > 0 {
+		return res, fmt.Errorf("catalogue gate (ADR-001 CI-1, CI-3, CI-4): %d problems:\n%s",
+			len(problems), strings.Join(problems, "\n"))
 	}
 	log.InfoContext(ctx, "migrate done",
 		slog.Int("migrations_applied", len(res.Applied)),
