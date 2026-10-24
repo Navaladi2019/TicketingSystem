@@ -21,8 +21,20 @@ check (decision log, 2026-10-20). Inside each job, steps follow the order above
 and the first failure stops the job. The stack tests are split over three jobs,
 each with its own compose stack: `stack` (healthy, smoke, PgBouncer, every
 Temporal case, SDK, dependencies, trace, redact), `stack-db` (idempotent,
-dbroles, hba) and `stack-internal` (the internal overlay). `make ci-stack` still
-runs all of them on one stack locally.
+dbroles, hba) and `stack-internal` (the internal overlay).
+
+`make ci-stack` runs all of them locally (TICK-153): the main stack and,
+beside it, the internal overlay as a project of its own (`<project>-int`,
+host ports 0 so Docker picks free ones). On the main stack, `healthy` gates
+the rest; the read-only checks and the two Go suites (`STACK_TESTS_PARALLEL`:
+smoke, PgBouncer, every `temporal_*` case, hba, SDK, identity) then run at
+once, and `dependencies`, `trace`, `logs`, `redact`, `idempotent` and `dbroles`
+run one at a time after them (`STACK_TESTS_SERIAL`): `dependencies` stops
+Keycloak, `trace` counts every trace the Collector saw, `idempotent` restarts
+the stack and `dbroles` changes roles. The test overlay
+(`deploy/compose/compose.test.yaml`) runs the stack's PostgreSQL with
+`fsync`, `synchronous_commit` and `full_page_writes` off; the dev and
+production files never do.
 
 **Time budget: under 5 minutes wall clock on a warm cache.** What keeps it there:
 - Each job restores its own Go module and build cache (`actions/cache`, key per
@@ -174,8 +186,16 @@ TICK-147 for the runs. One stack holds about 1.2 GB at rest; Keycloak (about
 stacks: `go test -race ./...` across both modules peaks at several GB, and a
 fully loaded host has hit `fatal error: runtime: cannot allocate memory`
 there. The race lock (D3) now runs those one at a time on the host, so
-parallel runs queue in `ci-unit` instead of running out of memory. Stacks alone
-would allow about 8.
+parallel runs queue in `ci-unit` instead of running out of memory.
+
+**Stack slots (TICK-153 D4).** At most 8 compose stacks on the host at once;
+`ci-stack` holds 2 (main and internal) through `tools/ci/racelock -slots 8
+-take 2` on `127.0.0.1:47620-47627`, and waits, saying so every 30 s, when
+fewer are free. N = 8 comes from the memory a stack holds while its tests run
+(1.27 GB, `docker stats`) against the Docker budget (19.4 GiB), less about 4 GB
+for the other agents' containers and the integration clusters, with half again
+as headroom for Keycloak's start-up. `STACK_SLOTS` changes N;
+`NAVA_STACK_SLOTS=off` skips the queue.
 
 `make ci` and `make stack-up` with no variables behave as before (project
 `nava`, tag `dev`, the old ports). The GitHub workflow is unchanged.

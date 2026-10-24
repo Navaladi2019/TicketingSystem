@@ -140,7 +140,7 @@ ci-stack: $(if $(IMAGE_CACHE),image-ci,image)
 # The certificates come first: a bind mount of a missing file would make
 # Docker create a directory in its place.
 ci-stack-run: dev-ca
-	@$(MAKE) --no-print-directory -j 2 stack-main stack-internal-beside
+	@$(MAKE) --no-print-directory $(if $(filter after,$(STACK_INTERNAL)),-j1,-j 2) stack-main stack-internal-beside
 
 stack-main:
 	@status=0; $(MAKE) --no-print-directory -j1 stack-up stack-tests || status=$$?; if [ $$status -ne 0 ]; then $(MAKE) --no-print-directory stack-logs; fi; $(MAKE) --no-print-directory stack-down; exit $$status
@@ -154,10 +154,13 @@ stack-internal-beside:
 
 # At most STACK_SLOTS compose stacks on the host at once, the rest queued
 # (TICK-153 D4); a ci-stack run holds two, its main and internal stacks.
-# N = 8 from the measured memory, docs/quality/ci-optimizations.md.
+# N = 7 from the measured memory, docs/quality/ci-optimizations.md.
 # NAVA_STACK_SLOTS=off skips the queue.
-STACK_SLOTS ?= 8
-STACK_LOCK = go run ./tools/ci/racelock -port 47620 -slots $(STACK_SLOTS) -take 2 -env NAVA_STACK_SLOTS -what "compose stack" --
+# STACK_INTERNAL=after runs the internal overlay after the main stack instead
+# of beside it, on one slot.
+STACK_SLOTS ?= 7
+STACK_INTERNAL ?= beside
+STACK_LOCK = go run ./tools/ci/racelock -port 47620 -slots $(STACK_SLOTS) -take $(if $(filter after,$(STACK_INTERNAL)),1,2) -env NAVA_STACK_SLOTS -what "compose stack" --
 
 # Installs the pinned CI tools into $$(go env GOPATH)/bin.
 tools:
