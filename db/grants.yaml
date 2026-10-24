@@ -37,42 +37,79 @@ roles:
   nava_migrator:
     attributes: [LOGIN]
 
+  # The D28 system actors (A.3), one role each. Table entries: T09
+  # (00002_platform_tables.sql); the identity tables arrive with T16. Every
+  # tenant table is under FORCE RLS, so a grant here reaches only the rows its
+  # policies allow.
   nava_app:
     attributes: [LOGIN]
     pgbouncer_login: true
     database: [CONNECT]
     schemas: { public: [USAGE] }
-    tables: {}
+    tables:
+      tenants: { SELECT: [id, state] }
+      tenant_identity_binding: { SELECT: [tenant_id, issuer, org_id, idp_aliases] } # binding_lookup
+      records: { SELECT: [], INSERT: [], UPDATE: [version] }
+      # INSERT ... RETURNING id and the dedupe-conflict lookup (T29).
+      outbox: { SELECT: [tenant_id, id, dedupe_key], INSERT: [] }
+      workflow_ref: { SELECT: [], INSERT: [] }
+      idempotency_keys: { SELECT: [], INSERT: [], UPDATE: [state, response_status, response_body] }
     functions: {}
 
-  # The other D28 system actors (A.3), one role each. Their table and column
-  # grants and their policies arrive with the migrations that create the
-  # tables (T09, T16).
+  # As nava_app, without idempotency_keys or tenants; the final activity
+  # closes workflow_ref.
   nava_worker:
     attributes: [LOGIN]
     pgbouncer_login: true
     database: [CONNECT]
     schemas: { public: [USAGE] }
+    tables:
+      records: { SELECT: [], INSERT: [], UPDATE: [version] }
+      outbox: { SELECT: [tenant_id, id, dedupe_key], INSERT: [] }
+      workflow_ref: { SELECT: [], INSERT: [], UPDATE: [closed_at] }
+
+  # Every column of outbox but dedupe_key and last_error; writes only the
+  # dispatch columns. Nothing on workflow_ref or records.
   nava_relay:
     attributes: [LOGIN]
     pgbouncer_login: true
     database: [CONNECT]
     schemas: { public: [USAGE] }
+    tables:
+      outbox:
+        SELECT: [id, tenant_id, kind, kind_version, target_key, target_seq, causation_id, causation_depth,
+                 payload, trace_context, created_at, available_at, attempts, dispatched_at, dead_at]
+        UPDATE: [available_at, attempts, last_error, dispatched_at, dead_at]
+
+  # DELETE plus SELECT on the key and expiry-predicate columns, behind the
+  # paired purge policies.
   nava_purge:
     attributes: [LOGIN]
     pgbouncer_login: true
     database: [CONNECT]
     schemas: { public: [USAGE] }
+    tables:
+      outbox: { SELECT: [tenant_id, id, dispatched_at, dead_at], DELETE: [] }
+      workflow_ref: { SELECT: [tenant_id, outbox_id, closed_at], DELETE: [] }
+      idempotency_keys: { SELECT: [tenant_id, principal_id, key, expires_at], DELETE: [] }
+
+  # Creates its own tenant (provisioning), binds it, activates it.
   nava_onboard:
     attributes: [LOGIN]
     pgbouncer_login: true
     database: [CONNECT]
     schemas: { public: [USAGE] }
+    tables:
+      tenants: { SELECT: [], INSERT: [id, state, onboarding_request_hash], UPDATE: [state] }
+      tenant_identity_binding: { INSERT: [tenant_id, issuer, org_id, idp_aliases] }
+
   nava_groupsync:
     attributes: [LOGIN]
     pgbouncer_login: true
     database: [CONNECT]
     schemas: { public: [USAGE] }
+    tables:
+      tenant_identity_binding: { SELECT: [tenant_id, issuer, org_id, idp_aliases] } # binding_lookup
 
   # Physical backups only. No CONNECT on the platform database; db/pg_hba.conf
   # lets it in only as a physical walsender from the backup host and rejects
