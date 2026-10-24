@@ -238,6 +238,29 @@ func TestErrorRollsBack(t *testing.T) {
 	}
 }
 
+// TestFailedRollbackIsJoined: when the rollback after fn's error fails too
+// (here the context is cancelled), both errors reach the caller, and the pool
+// still works with no tenant on the next transaction.
+func TestFailedRollbackIsJoined(t *testing.T) {
+	pool, _, _ := newPool(t, env(t, "NAVA_TEST_PG_URL"), 1)
+	errFn := errors.New("fn failed")
+	ctx, cancel := context.WithCancel(t.Context())
+
+	err := tenancy.InTenantTx(ctx, pool, uuid.New(), func(pgx.Tx) error {
+		cancel()
+		return errFn
+	})
+	if !errors.Is(err, errFn) {
+		t.Errorf("err = %v, want fn's error", err)
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v, want the rollback's context.Canceled joined", err)
+	}
+	if _, got := readTenant(t, pool); got != "" {
+		t.Errorf("after the failed rollback app.tenant_id = %q, want none", got)
+	}
+}
+
 // TestTracedTxExportsNoValues: a traced InTenantTx, including a query that
 // fails with 22P02 quoting its input, exports database spans with no SQL
 // text, no parameter values and no tenant id. TICK-94 item 3 allows the

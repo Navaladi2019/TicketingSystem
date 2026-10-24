@@ -14,7 +14,8 @@ func InTenantTx(ctx context.Context, pool *pgxpool.Pool, tenantID uuid.UUID, fn 
   PgBouncer in transaction mode, the next transaction on the same server
   connection starts with no tenant, even when it belongs to another client.
 - If `fn` returns an error, the transaction rolls back and the error is
-  returned unwrapped. If `fn` panics, the transaction rolls back and the panic
+  returned unwrapped. If the rollback fails too, its error is joined to it.
+  If `fn` panics, the transaction rolls back and the panic
   is re-raised.
 - `tenantID` comes from the validated token's tenant claim in the request
   context. It never comes from a path, query or body.
@@ -59,7 +60,7 @@ otelpgx span name to `_OTHER`.
 
 | Rule | Where | What fails |
 |---|---|---|
-| `navalint` `setconfig` | `tools/navalint`, its own module, run by `make lint` as `go vet -vettool` | `set_config` or `app.tenant_id` in a Go string constant outside `internal/tenancy`. SQL files are not checked, so policies may use `current_setting('app.tenant_id')` |
+| `navalint` `setconfig` | `tools/navalint`, its own module, run by `make lint` as `go vet -vettool`, once untagged and once with `-tags integration,temporalstack` | `set_config` or `app.tenant_id` in a Go string constant outside `internal/tenancy`. SQL files are not checked, so policies may use `current_setting('app.tenant_id')` |
 | `forbidigo` | `.golangci.yml` | `otelpgx.WithIncludeQueryParameters` anywhere |
 
 `make lint-fixture` checks that both rules still fire on

@@ -29,7 +29,9 @@ const setTenantSQL = "SELECT set_config('app.tenant_id', $1, true)"
 
 // InTenantTx runs fn in a transaction whose app.tenant_id is tenantID, and
 // commits if fn returns nil. It rolls back if fn returns an error, which it
-// returns unwrapped, or panics, which it re-raises after the rollback.
+// returns unwrapped, or panics, which it re-raises after the rollback. If the
+// rollback itself fails, its error is joined to fn's; pgx has then closed the
+// connection, so the tenant cannot leak to the next transaction.
 //
 // tenantID must come from the request's resolved principal, never from a
 // path, query or body.
@@ -49,7 +51,10 @@ func InTenantTx(ctx context.Context, pool *pgxpool.Pool, tenantID uuid.UUID, fn 
 			panic(p)
 		}
 		if err != nil {
-			_ = tx.Rollback(ctx)
+			// ErrTxClosed: the transaction already ended (a failed commit).
+			if rbErr := tx.Rollback(ctx); rbErr != nil && !errors.Is(rbErr, pgx.ErrTxClosed) {
+				err = errors.Join(err, fmt.Errorf("tenancy: rollback: %w", rbErr))
+			}
 		}
 	}()
 	if _, err := tx.Exec(ctx, setTenantSQL, tenantID.String()); err != nil {
