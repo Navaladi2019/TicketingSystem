@@ -1,4 +1,4 @@
-# nava-core exports OTLP/HTTP traces here. The debug exporter is the only
+# nava-core exports OTLP/HTTP traces and logs here. The debug exporter is the only
 # destination until a trace backend is chosen.
 extensions:
   health_check:
@@ -18,7 +18,9 @@ processors:
     limit_mib: 256
   # Second layer behind the in-process allow-list in
   # internal/platform/telemetry/filter.go. TestCollectorDenyListMatchesFilter
-  # fails when the two drift.
+  # fails when the two drift. The traces and logs pipelines both use this one
+  # processor, so there is a single deny-list for both signals. On logs it
+  # deletes the keys from log record attributes.
   attributes/deny:
     actions:
       - {key: url.path, action: delete}
@@ -102,4 +104,8 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, attributes/deny, transform/deny, tail_sampling, batch]
+      exporters: [debug]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, attributes/deny, batch]
       exporters: [debug]

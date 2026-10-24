@@ -20,12 +20,15 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
+	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	otelprom "go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -52,6 +55,7 @@ type Telemetry struct {
 
 	tp        *sdktrace.TracerProvider
 	mp        *sdkmetric.MeterProvider
+	lp        *sdklog.LoggerProvider
 	exporting bool
 }
 
@@ -60,8 +64,16 @@ type Telemetry struct {
 type Option func(*options)
 
 type options struct {
-	exporters []sdktrace.SpanExporter
-	sampler   sdktrace.Sampler
+	exporters    []sdktrace.SpanExporter
+	logExporters []sdklog.Exporter
+	sampler      sdktrace.Sampler
+}
+
+// WithLogExporter adds a synchronous log exporter, so a test sees the records
+// the OTLP exporter would send. Unlike the OTLP exporter it does not need
+// cfg.ExportLogs.
+func WithLogExporter(exp sdklog.Exporter) Option {
+	return func(o *options) { o.logExporters = append(o.logExporters, exp) }
 }
 
 // WithSpanExporter adds a synchronous exporter, such as
@@ -142,6 +154,27 @@ func New(ctx context.Context, cfg config.Telemetry, opts ...Option) (_ *Telemetr
 		tpOpts = append(tpOpts, sdktrace.WithSyncer(filteringExporter{next: exp}))
 	}
 	tp := sdktrace.NewTracerProvider(tpOpts...)
+	built = append(built, tp.Shutdown)
+
+	// Log export is off unless OTEL_EXPORTER_OTLP_ENDPOINT is set. The log
+	// provider shares res, so records carry the same service.name as spans.
+	var lp *sdklog.LoggerProvider
+	if cfg.ExportLogs || len(o.logExporters) > 0 {
+		lpOpts := []sdklog.LoggerProviderOption{sdklog.WithResource(res)}
+		if cfg.ExportLogs {
+			// No endpoint option: the exporter resolves OTEL_EXPORTER_OTLP_LOGS_ENDPOINT,
+			// then OTEL_EXPORTER_OTLP_ENDPOINT + /v1/logs.
+			exp, err := otlploghttp.New(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("telemetry: otlp log exporter: %w", err)
+			}
+			lpOpts = append(lpOpts, sdklog.WithProcessor(sdklog.NewBatchProcessor(exp)))
+		}
+		for _, exp := range o.logExporters {
+			lpOpts = append(lpOpts, sdklog.WithProcessor(sdklog.NewSimpleProcessor(exp)))
+		}
+		lp = sdklog.NewLoggerProvider(lpOpts...)
+	}
 
 	return &Telemetry{
 		Registry:       reg,
@@ -150,6 +183,7 @@ func New(ctx context.Context, cfg config.Telemetry, opts ...Option) (_ *Telemetr
 		Propagator:     propagation.TraceContext{},
 		tp:             tp,
 		mp:             mp,
+		lp:             lp,
 		exporting:      cfg.ExportTraces,
 	}, nil
 }
@@ -157,9 +191,23 @@ func New(ctx context.Context, cfg config.Telemetry, opts ...Option) (_ *Telemetr
 // Exporting reports whether a trace exporter was built.
 func (t *Telemetry) Exporting() bool { return t.exporting }
 
-// Shutdown flushes and stops both providers.
+// LogHandler is the slog handler that exports records over OTLP, or nil when
+// log export is off. It takes the trace and span id from the ctx passed to
+// the *Context logging methods, so call sites must log with the request ctx.
+func (t *Telemetry) LogHandler() slog.Handler {
+	if t.lp == nil {
+		return nil
+	}
+	return otelslog.NewHandler("nava-core", otelslog.WithLoggerProvider(t.lp))
+}
+
+// Shutdown flushes and stops the providers.
 func (t *Telemetry) Shutdown(ctx context.Context) error {
-	return errors.Join(t.tp.Shutdown(ctx), t.mp.Shutdown(ctx))
+	errs := []error{t.tp.Shutdown(ctx), t.mp.Shutdown(ctx)}
+	if t.lp != nil {
+		errs = append(errs, t.lp.Shutdown(ctx))
+	}
+	return errors.Join(errs...)
 }
 
 // RouteErrors sends OTel's own errors and internal log lines (failed exports,

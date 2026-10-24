@@ -122,7 +122,7 @@ func TestLoadTelemetryDefaults(t *testing.T) {
 
 func TestLoadTelemetryEitherEndpointExports(t *testing.T) {
 	t.Parallel()
-	for _, key := range []string{"OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"} {
+	for _, key := range []string{"OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"} {
 		cfg, err := config.Load(env(map[string]string{
 			key:                               "http://collector:4318",
 			"NAVA_TELEMETRY_SHUTDOWN_TIMEOUT": "2s",
@@ -130,7 +130,13 @@ func TestLoadTelemetryEitherEndpointExports(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: Load: %v", key, err)
 		}
-		want := config.Telemetry{ExportTraces: true, ShutdownTimeout: 2 * time.Second}
+		// Only the base endpoint turns log export on, and the logs endpoint
+		// alone does not turn trace export on.
+		want := config.Telemetry{
+			ExportTraces:    key != "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+			ExportLogs:      key == "OTEL_EXPORTER_OTLP_ENDPOINT",
+			ShutdownTimeout: 2 * time.Second,
+		}
 		if cfg.Telemetry != want {
 			t.Errorf("%s: Telemetry = %+v, want %+v", key, cfg.Telemetry, want)
 		}
