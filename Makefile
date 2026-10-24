@@ -63,16 +63,20 @@ test:
 	go run ./tools/ci/racelock -- go -C tools/navalint test -race ./...
 
 # Every package with `//go:build integration` tests, against a throwaway
-# postgres container the script starts and removes (needs Docker). Pass
-# ARGS=... to forward flags to go test.
+# postgres container the script starts and removes (needs Docker), then the
+# isolation suite (make isolation). Pass ARGS=... to forward flags to go test;
+# with ARGS the isolation suite does not run.
 test-integration:
 	sh scripts/ci/test-integration.sh $(ARGS)
+	$(if $(ARGS),,sh scripts/ci/isolation.sh)
 
 # The tenant isolation suite (T11, ADR-001 CI-2): its own throwaway
 # PostgreSQL and a PgBouncer with the real auth_query, tenants A and B seeded,
 # every runtime role against every tenant table plus the registered paths
 # (internal/tenancy/isolation). Writes ISOLATION_REPORT (default
-# isolation-report.md), which CI keeps as an artifact. Needs Docker.
+# isolation-report.md). Needs Docker.
+# TODO(TODO-008): the integration job does not upload isolation-report.md as
+# an artifact yet; the workflow step needs a push with `workflow` scope.
 isolation:
 	sh scripts/ci/isolation.sh $(ARGS)
 
@@ -128,7 +132,7 @@ ci-lint: check-tools fmt-check vet lint lint-fixture check-taskfile check-pins c
 
 ci-unit: test temporal-server-test
 
-ci-integration: test-integration isolation
+ci-integration: test-integration
 
 # Builds the images, brings the stack up, runs every stack test, then tears
 # it down (logs first on failure). The workflow runs the same targets one step
