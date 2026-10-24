@@ -140,7 +140,7 @@ ci-stack: $(if $(IMAGE_CACHE),image-ci,image)
 # The certificates come first: a bind mount of a missing file would make
 # Docker create a directory in its place.
 ci-stack-run: dev-ca
-	@$(MAKE) --no-print-directory -j 2 --output-sync=target stack-main stack-internal-beside
+	@$(MAKE) --no-print-directory -j 2 stack-main stack-internal-beside
 
 stack-main:
 	@status=0; $(MAKE) --no-print-directory stack-up stack-tests || status=$$?; if [ $$status -ne 0 ]; then $(MAKE) --no-print-directory stack-logs; fi; $(MAKE) --no-print-directory stack-down; exit $$status
@@ -148,8 +148,9 @@ stack-main:
 # The internal overlay needs a fresh stack. Host ports 0: Docker picks free
 # ones, so it cannot collide with the main stack's.
 INTERNAL_PROJECT = $(COMPOSE_PROJECT)-int
+INTERNAL_LOG = $(or $(TMPDIR),/tmp)/$(INTERNAL_PROJECT).log
 stack-internal-beside:
-	@status=0; COMPOSE_PROJECT_NAME=$(INTERNAL_PROJECT) NAVA_CORE_PORT=0 KEYCLOAK_PORT=0 sh deploy/compose/test/stack-test.sh internal || status=$$?; if [ $$status -ne 0 ]; then COMPOSE_PROJECT_NAME=$(INTERNAL_PROJECT) docker compose $(STACK_FILES) logs --no-color --tail 200; fi; COMPOSE_PROJECT_NAME=$(INTERNAL_PROJECT) docker compose $(STACK_FILES) down -v --remove-orphans; exit $$status
+	@echo "stack-internal-beside: $(INTERNAL_PROJECT), log in $(INTERNAL_LOG), printed when it ends"; status=0; COMPOSE_PROJECT_NAME=$(INTERNAL_PROJECT) NAVA_CORE_PORT=0 KEYCLOAK_PORT=0 sh deploy/compose/test/stack-test.sh internal >"$(INTERNAL_LOG)" 2>&1 || status=$$?; if [ $$status -ne 0 ]; then COMPOSE_PROJECT_NAME=$(INTERNAL_PROJECT) docker compose $(STACK_FILES) logs --no-color --tail 200 >>"$(INTERNAL_LOG)" 2>&1; fi; COMPOSE_PROJECT_NAME=$(INTERNAL_PROJECT) docker compose $(STACK_FILES) down -v --remove-orphans >>"$(INTERNAL_LOG)" 2>&1; echo "=== stack-internal-beside log"; cat "$(INTERNAL_LOG)"; echo "stack-internal-beside: exit $$status"; exit $$status
 
 # At most STACK_SLOTS compose stacks on the host at once, the rest queued
 # (TICK-153 D4); a ci-stack run holds two, its main and internal stacks.
