@@ -3,8 +3,8 @@ package telemetry
 import (
 	"context"
 	"log/slog"
-	"strings"
 	"regexp"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
