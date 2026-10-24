@@ -90,8 +90,8 @@ func NewKeyring(activeID string, keys ...Key) (*Keyring, error) {
 	return kr, nil
 }
 
-// Encode seals position under the active key, bound to claims. It is an
-// error to encode with no claims: an unbound cursor can be replayed by anyone.
+// Encode seals position under the active key, bound to claims. Claims
+// without ClaimTenant are refused with ErrInvalid.
 func (kr *Keyring) Encode(claims Claims, position []byte) (string, error) {
 	if len(position) > maxPosition {
 		return "", fmt.Errorf("cursor: position is longer than %d bytes", maxPosition)
@@ -162,8 +162,10 @@ func validKeyID(id string) bool {
 // canonical encodes claims as sorted, length-prefixed name/value pairs, so no
 // two different claim sets share an encoding.
 func canonical(claims Claims) ([]byte, error) {
-	if len(claims) == 0 {
-		return nil, errors.New("cursor: at least one claim is required")
+	if claims[ClaimTenant] == "" {
+		// A cursor not bound to a tenant could be replayed across tenants, so
+		// the library refuses it rather than leave that to each endpoint.
+		return nil, ErrInvalid
 	}
 	names := make([]string, 0, len(claims))
 	for n, v := range claims {

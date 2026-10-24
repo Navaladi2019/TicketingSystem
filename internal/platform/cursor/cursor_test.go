@@ -101,8 +101,10 @@ func TestWorkflowBinding(t *testing.T) {
 
 func TestClaimEncodingHasNoCollisions(t *testing.T) {
 	kr := ring(t, "k1", cursor.Key{ID: "k1", Secret: secret("a")})
-	tok, _ := kr.Encode(cursor.Claims{"a": "bc", "d": "e"}, []byte("p"))
-	for _, c := range []cursor.Claims{{"a": "b", "cd": "e"}, {"ab": "c", "d": "e"}, {"a": "bcde"}} {
+	tok, _ := kr.Encode(cursor.Claims{"tenant": "t", "a": "bc", "d": "e"}, []byte("p"))
+	for _, c := range []cursor.Claims{
+		{"tenant": "t", "a": "b", "cd": "e"}, {"tenant": "t", "ab": "c", "d": "e"}, {"tenant": "t", "a": "bcde"},
+	} {
 		if _, err := kr.Decode(c, tok); !errors.Is(err, cursor.ErrInvalid) {
 			t.Fatalf("%v decoded", c)
 		}
@@ -218,5 +220,23 @@ func TestQueryHash(t *testing.T) {
 	}
 	if a == cursor.QueryHash(url.Values{"status": {"open"}, "q": {"y"}}) {
 		t.Fatal("hash ignores a changed filter")
+	}
+}
+
+func TestTenantClaimIsRequired(t *testing.T) {
+	kr := ring(t, "k1", cursor.Key{ID: "k1", Secret: secret("a")})
+	noTenant := with(base(), cursor.ClaimTenant, "")
+	if _, err := kr.Encode(noTenant, []byte("p")); !errors.Is(err, cursor.ErrInvalid) {
+		t.Fatalf("Encode without tenant: got %v", err)
+	}
+	if _, err := kr.Encode(cursor.Claims{cursor.ClaimPrincipal: "u"}, []byte("p")); !errors.Is(err, cursor.ErrInvalid) {
+		t.Fatalf("Encode with only a principal: got %v", err)
+	}
+	tok, _ := kr.Encode(base(), []byte("p"))
+	if _, err := kr.Decode(noTenant, tok); !errors.Is(err, cursor.ErrInvalid) {
+		t.Fatalf("Decode without tenant: got %v", err)
+	}
+	if _, err := kr.Decode(cursor.Claims{cursor.ClaimPrincipal: "u"}, tok); !errors.Is(err, cursor.ErrInvalid) {
+		t.Fatalf("Decode with only a principal: got %v", err)
 	}
 }
