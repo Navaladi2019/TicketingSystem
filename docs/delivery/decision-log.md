@@ -2,6 +2,16 @@
 
 Delivery decisions that change a task's contract, newest first.
 
+## 2026-10-25: T13 purge windows are floored by the RLS policies; follow-ups split out
+- **Decided by:** the Technical Lead on TICK-68 (T13, PR #51). The Principal Software Engineer and the Security & Multi-Tenancy Reviewer approved.
+- **Contract clarification:** the three retention windows are still config values, but they can only be *longer* than the policy floors. The floors are 7 days dispatched / 30 days dead for `outbox`, 30 days for `workflow_ref`, and `expires_at` for `idempotency_keys`, all hard-coded in the `*_purge` policies (T09). `LoadPurge` rejects a shorter window at startup, because otherwise it would silently delete nothing. *Trigger:* a D23 change to any window needs a policy migration under the 10-entry allow-list, not just a config change.
+- **Deferred to follow-up tasks, released after PR #51 merged:**
+  - TICK-143: Dockerfile and compose service for `nava-purge`.
+  - TICK-145: startup assertion that the role is `nava_purge` and neither `BYPASSRLS` nor superuser. This was the Security Reviewer's Low finding.
+  - TICK-146: indexes for the purge predicates, or evidence from a measured plan that none are needed.
+- **Not taken:** an exec-mode integration test, quieter shutdown logging, and a timestamp check in `CannotWidenItsReach`. All three were optional review notes.
+- **Dissent:** none.
+
 ## 2026-10-24: T15 operator token through IdentityResolver; JWKS client without a telemetry accessor
 - **Decided by:** the Technical Lead on TICK-150 (review of PR #56, T15 / TICK-63). The Security & Multi-Tenancy Reviewer approved the client deviation on TICK-63.
 - **Erratum to the T15 contract:** "an operator token through `IdentityResolver` returns `ErrTenantUnresolved`" now holds only when the token also carries `aud=nava-api`. With only `aud=nava-operator-api` it returns `ErrInvalidToken`, because TICK-94 item 11 gives each verifier one audience. Both map to 401, so T20 is unchanged.
