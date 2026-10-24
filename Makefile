@@ -50,8 +50,11 @@ run:
 
 # The navalint analyzers are their own module (tools/navalint), so ./...
 # does not reach them.
+# -trimpath keeps the checkout path out of the build and test cache keys, so a
+# new checkout reuses the cached results (TICK-153 O5). Not for navalint: it
+# makes its analysistest runs slower.
 test:
-	go test -race ./...
+	go test -race -trimpath ./...
 	go -C tools/navalint test -race ./...
 
 # Every package with `//go:build integration` tests, against a throwaway
@@ -80,11 +83,6 @@ check-openapi:
 	@if git cat-file -e $(BASE):api/openapi.yaml 2>/dev/null; then 		git show $(BASE):api/openapi.yaml > $${TMPDIR:-/tmp}/openapi.base.yaml && 		go run ./cmd/openapi-compat $${TMPDIR:-/tmp}/openapi.base.yaml api/openapi.yaml; 	else echo "no api/openapi.yaml on $(BASE): nothing to compare"; fi
 
 ci: ci-lint ci-unit ci-integration ci-stack
-
-# Without -trimpath the Go build and test cache keys include the checkout
-# path, so every new workspace recompiles the repo and reruns its unit tests
-# (TICK-153 O5). Target-specific, so the prerequisites and sub-makes get it.
-ci ci-lint ci-unit ci-integration ci-stack: export GOFLAGS += -trimpath
 
 # The four stages on a stack of its own, so several PRs run at once on one
 # Docker host (TICK-147, docs/quality/ci-pipeline.md "Parallel runs"): compose
