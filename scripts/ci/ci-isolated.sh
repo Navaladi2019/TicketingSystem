@@ -8,7 +8,8 @@
 # the BuildKit layer cache and pulled registry images. On exit it removes only
 # its own project and image tags, then fails if anything of nava-<id> is left.
 # One run per checkout at a time (certificates and ci6-report.md live in it).
-# STAGES="ci-unit ci-stack" runs a subset, in the given order.
+# The stages run at the same time; STAGES="ci-unit ci-stack" runs a subset,
+# and PARALLEL=0 runs them one after another, in the given order.
 # --down <id> (make ci-isolated-down) only tears down, for a run that was
 # killed before its EXIT trap ran.
 set -eu
@@ -90,8 +91,51 @@ echo "ci-isolated: project $COMPOSE_PROJECT_NAME, image tag $NAVA_IMAGE_TAG, por
 # The pinned tools install once per version, not on every run.
 make --no-print-directory check-tools >/dev/null 2>&1 || make --no-print-directory tools
 
-for stage in ${STAGES:-ci-lint ci-unit ci-integration ci-stack}; do
-    t=$(date +%s)
-    make --no-print-directory "$stage"
-    echo "ci-isolated: $stage passed in $(( $(date +%s) - t ))s"
+stages=${STAGES:-ci-lint ci-unit ci-integration ci-stack}
+if [ "${PARALLEL:-1}" = 0 ]; then
+    for stage in $stages; do
+        t=$(date +%s)
+        make --no-print-directory "$stage"
+        echo "ci-isolated: $stage passed in $(( $(date +%s) - t ))s"
+    done
+    exit 0
+fi
+
+# The stages run at the same time (TICK-153 O4), so the run takes as long as
+# its slowest stage. Each writes its own log, printed whole when it ends; the
+# logs stay in $logs after the run.
+logs="${TMPDIR:-/tmp}/ci-isolated-$id"
+rm -rf "$logs"
+mkdir -p "$logs"
+echo "ci-isolated: stages $stages at once; logs in $logs"
+procs=""
+for stage in $stages; do
+    # make runs in the background of its subshell, which passes a TERM on, so
+    # stopping the stage stops make too.
+    ( t=$(date +%s)
+      make --no-print-directory "$stage" >"$logs/$stage.log" 2>&1 &
+      m=$!
+      trap 'kill "$m" 2>/dev/null' TERM
+      if wait "$m"; then r=0; else r=$?; fi
+      echo "$r $(( $(date +%s) - t ))" >"$logs/$stage.status"
+      exit "$r" ) &
+    procs="$procs $!:$stage"
 done
+# A run cut short stops its stages before the teardown.
+stop_stages() { for p in $procs; do kill "${p%%:*}" 2>/dev/null || true; done; }
+trap 'stop_stages; exit 130' INT TERM
+
+failed=""
+for p in $procs; do
+    stage=${p#*:}
+    wait "${p%%:*}" || failed="$failed $stage"
+    read -r r took <"$logs/$stage.status" || { r=1; took=?; }
+    echo "=== ci-isolated: $stage log"
+    cat "$logs/$stage.log"
+    if [ "$r" -eq 0 ]; then
+        echo "ci-isolated: $stage passed in ${took}s"
+    else
+        echo "ci-isolated: $stage FAILED ($r) in ${took}s"
+    fi
+done
+[ -z "$failed" ] || { echo "ci-isolated: failed stages:$failed" >&2; exit 1; }

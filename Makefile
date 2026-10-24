@@ -40,7 +40,7 @@ GOLANGCI_LINT_VERSION := 2.14.0
 GOVULNCHECK_VERSION := v1.9.0
 
 .PHONY: build run test test-integration lint generate check-openapi
-.PHONY: ci ci-isolated ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity 	image image-ci stack-up stack-down stack-logs stack-internal smoke
+.PHONY: ci ci-isolated ci-changed ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity 	image image-ci stack-up stack-down stack-logs stack-internal smoke
 
 build:
 	go build -o bin/nava-core ./cmd/nava-core
@@ -95,6 +95,15 @@ ci: ci-lint ci-unit ci-integration ci-stack
 ci-isolated:
 	@[ -n "$(ID)" ] || { echo "usage: make ci-isolated ID=<pr-or-sha>"; exit 2; }
 	sh scripts/ci/ci-isolated.sh $(ID)
+
+# ci-isolated with only the stages the change against BASE needs
+# (tools/ci/cichanged, TICK-153 O7): docs only is ci-lint, a package no
+# integration test, image or stack test depends on skips those stages, and a
+# file no rule knows runs all four.
+ci-changed:
+	@[ -n "$(ID)" ] || { echo "usage: make ci-changed ID=<pr-or-sha>"; exit 2; }
+	@stages=$$(go run ./tools/ci/cichanged -v -base $(BASE)) && echo "ci-changed: $$stages" && \
+		STAGES="$$stages" sh scripts/ci/ci-isolated.sh $(ID)
 
 # Tears down what a killed ci-isolated run left behind (its own project and tags).
 ci-isolated-down:
