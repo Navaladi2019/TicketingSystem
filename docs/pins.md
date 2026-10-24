@@ -82,13 +82,13 @@ item 16, condition 3).
 | `golang.org/x/text` | v0.43.0 | Transitive. Raised from v0.42.0 by goose in T03. | T03 (Security Reviewer, TICK-54) |
 | `github.com/jackc/puddle/v2` | v2.2.3 | Transitive (pgxpool). Raised from v2.2.2 by goose in T03. | T03 (Security Reviewer, TICK-54) |
 | `google.golang.org/genproto/googleapis/api`, `google.golang.org/genproto/googleapis/rpc` | v0.0.0-20261005182115-fad411399dd8 | Transitive (gRPC). Raised by goose in T03. | T03 (Security Reviewer, TICK-54) |
-| `github.com/exaring/otelpgx` | v0.13.0 | pgx tracing; query parameters off by default. Must pass providers; ban `WithIncludeQueryParameters`. Not in the graph yet. | TICK-94 |
+| `github.com/exaring/otelpgx` | v0.13.0 | pgx tracing (`internal/platform/db.NewPool`); query parameters off by default. Must pass providers; `WithIncludeQueryParameters` banned by forbidigo. | TICK-94 item 4, T07 |
 | `go.temporal.io/sdk/contrib/opentelemetry` | v0.8.1 | Temporal tracing and metrics. Imports SDK internals: rebuild on any SDK bump; `OnError` defaults to panic. Not in the graph yet. | TICK-94 |
-| `github.com/google/uuid` | v1.6.0 | UUIDs, including v5. Indirect today. | TICK-94 item 10 |
+| `github.com/google/uuid` | v1.6.0 | UUIDs, including v5 (`internal/tenancy`). `gofrs/uuid` is forbidden. | TICK-94 item 10, T07 |
 | `github.com/lestrrat-go/jwx/v3` | v3.3.0 | JWT and JWKS. jwx v2 before 2.0.21 has CVE-2024-28122 and others; `go-oidc` rejected (kid-miss amplification). Not in the graph yet. | TICK-94 item 11 |
 | `golang.org/x/crypto` | ≥ v0.56.0 | Transitive (jwx). v0.55.0 has GO-2026-6354 and GO-2026-6355. Not in the graph yet. | TICK-94 |
 | `golang.org/x/time` | v0.16.0 | `rate` token bucket. Today the graph holds v0.14.0 indirectly (through the Temporal SDK); the first direct use takes v0.16.0. | TICK-94 |
-| `golang.org/x/tools` | v0.52.0 (`navalint` tools module, when it lands) | `navalint` analyzers. Not a direct require of the production `go.mod`; v0.51.0 is there indirectly (goose, oapi-codegen). | TICK-94 |
+| `golang.org/x/tools` | v0.52.0 @tools/navalint | `navalint` analyzers (`tools/navalint`, its own module). Not a direct require of the production `go.mod`; v0.51.0 is there indirectly (goose, oapi-codegen); `tools/navalint` tests this. | TICK-94 item 15, T07 |
 | `github.com/testcontainers/testcontainers-go` | v0.44.0 (+ `modules/postgres`) | Approved, not adopted (T05 ruling, 2026-10-18). The integration tests use the docker CLI with the `postgres` image from this file (`make test-integration`). If testcontainers is adopted later, it is for Postgres-level tests only, and it brings the `moby/go-archive` ≥ v0.3.0 pin with it: with `moby/go-archive` < v0.3.0 it has GO-2026-6253. | TICK-94 item 16; decision log 2026-10-19 |
 | `github.com/moby/go-archive` | ≥ v0.3.0 | Approved, not adopted (T05 ruling, 2026-10-18). Transitive through testcontainers, so it comes in only if testcontainers is adopted. v0.2.0 has GO-2026-6253. | TICK-94 item 16; decision log 2026-10-19 |
 | Keycloak admin client | none | Hand-written in `internal/identity`. `gocloak` rejected (no organization API in v13; a second JWT path). | TICK-94 item 12 |

@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"regexp"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -40,11 +41,23 @@ const (
 // here.
 //
 // The semconv keys are the ones the httpobs golden key-set test pins for the
-// server span, plus the error keys. exception.message is not listed:
-// instrumentation fills it with err.Error(), which can quote input values.
+// server span, the error keys, and the otelpgx db.* keys below.
+// exception.message is not listed: instrumentation fills it with err.Error(),
+// which can quote input values. The error and exception keys are exported
+// only as bounded tokens (boundAttribute).
+//
+// Each db.* key was checked against the TICK-94 item 3 span id policy; none is
+// an id, a client-supplied value or a person:
+//   - db.system.name: the constant "postgresql".
+//   - db.namespace: the database name from the server's own config.
+//   - db.operation.name: a SQL keyword, bounded by DBSpanName.
+//   - db.operation.batch.size: a count.
+//
+// db.query.text and pgx.query.parameters stay out, as do user.name (the
+// database role) and the pgx.* keys.
 func spanAttributeAllowed(kv attribute.KeyValue) bool {
 	switch kv.Key {
-	case "server.address", // fixed to nava-core (otelhttp.WithServerName)
+	case "server.address", // nava-core (otelhttp.WithServerName), or the database host from config
 		"http.request.method", // standard methods, else _OTHER
 		"http.response.status_code",
 		"http.response.body.size",
@@ -53,6 +66,10 @@ func spanAttributeAllowed(kv attribute.KeyValue) bool {
 		"error.type",
 		"exception.type",
 		"exception.stacktrace",
+		"db.system.name",
+		"db.namespace",
+		"db.operation.name",
+		"db.operation.batch.size",
 		TenantIDKey, RequestIDKey, OutboxIDKey,
 		temporalWorkflowIDKey, temporalRunIDKey:
 		return true
@@ -60,14 +77,67 @@ func spanAttributeAllowed(kv attribute.KeyValue) bool {
 	return false
 }
 
+// otherValue replaces a value outside the expected set, as semconv spells it.
+const otherValue = "_OTHER"
+
+// boundedToken is the shape error.type and the exception keys must have to be
+// exported: a type or code name such as *pgconn.PgError, 500 or
+// context.DeadlineExceeded. A library that writes err.Error() or a formatted
+// stack trace there produces something else, which becomes _OTHER.
+var boundedToken = regexp.MustCompile(`^[A-Za-z0-9_.*/\[\]-]{1,64}$`)
+
+// boundAttribute returns an allowed attribute with any value that must be a
+// bounded token, and is not, replaced by _OTHER.
+func boundAttribute(kv attribute.KeyValue) attribute.KeyValue {
+	switch kv.Key {
+	case semconv.ErrorTypeKey, semconv.ExceptionTypeKey, semconv.ExceptionStacktraceKey:
+		if kv.Value.Type() == attribute.STRING && boundedToken.MatchString(kv.Value.AsString()) {
+			return kv
+		}
+		return kv.Key.String(otherValue)
+	case semconv.DBOperationNameKey:
+		return kv.Key.String(DBSpanName(kv.Value.String()))
+	}
+	return kv
+}
+
 func filterAttributes(kvs []attribute.KeyValue) []attribute.KeyValue {
 	out := kvs[:0:0]
 	for _, kv := range kvs {
 		if spanAttributeAllowed(kv) {
-			out = append(out, kv)
+			out = append(out, boundAttribute(kv))
 		}
 	}
 	return out
+}
+
+// DBSpanName returns op if it is a known SQL keyword, else _OTHER. The pool
+// constructor (internal/platform/db) names otelpgx spans with it, so a span
+// name never carries SQL text.
+func DBSpanName(op string) string {
+	switch op {
+	case "SELECT", "INSERT", "UPDATE", "DELETE", "MERGE", "WITH", "VALUES",
+		"BEGIN", "COMMIT", "ROLLBACK", "SAVEPOINT", "RELEASE",
+		"SET", "SHOW", "RESET", "CALL", "COPY", "LOCK", "TRUNCATE",
+		"UNKNOWN": // otelpgx's name for a statement with no keyword
+		return op
+	}
+	return otherValue
+}
+
+// otelpgxScope is the instrumentation scope name of otelpgx's tracer.
+const otelpgxScope = "github.com/exaring/otelpgx"
+
+// dbSpanName is the exported name of an otelpgx span: one of the fixed names
+// otelpgx uses for connect, acquire and batch spans, or a DBSpanName keyword.
+// otelpgx names a span with the whole statement under WithFullSQLInSpanName,
+// and with the table under copy_from; both become _OTHER.
+func dbSpanName(name string) string {
+	switch name {
+	case "connect", "pool.acquire", "batch start":
+		return name
+	}
+	return DBSpanName(name)
 }
 
 // filteringExporter applies the allow-list at export, so it holds however the
@@ -88,9 +158,19 @@ func (e filteringExporter) ExportSpans(ctx context.Context, spans []sdktrace.Rea
 func (e filteringExporter) Shutdown(ctx context.Context) error { return e.next.Shutdown(ctx) }
 
 // filteredSpan is the exported view of a span: only allowed attributes, no
-// link tracestate, and error.type as the status description.
+// link tracestate, error.type as the status description, and for otelpgx
+// spans only a known name.
 type filteredSpan struct {
 	sdktrace.ReadOnlySpan
+}
+
+// Name keeps every span name except an otelpgx one outside dbSpanName.
+func (s filteredSpan) Name() string {
+	name := s.ReadOnlySpan.Name()
+	if s.InstrumentationScope().Name == otelpgxScope {
+		return dbSpanName(name)
+	}
+	return name
 }
 
 func (s filteredSpan) Attributes() []attribute.KeyValue {
@@ -122,7 +202,7 @@ func (s filteredSpan) Links() []sdktrace.Link {
 }
 
 // Status keeps the code and replaces the description with the span's
-// error.type, or empty if it has none. Instrumentation fills the description
+// error.type as a bounded token, or empty if it has none. Instrumentation fills the description
 // with err.Error(), and a *url.Error, for one, quotes the full URL with its
 // query; a PostgreSQL 22P02 quotes the bad input. Only an Error status carries
 // a description, as in the OTel API.
@@ -131,7 +211,7 @@ func (s filteredSpan) Status() sdktrace.Status {
 	if st.Code == codes.Error {
 		for _, kv := range s.ReadOnlySpan.Attributes() {
 			if kv.Key == semconv.ErrorTypeKey {
-				st.Description = kv.Value.String()
+				st.Description = boundAttribute(kv).Value.AsString()
 			}
 		}
 	}
