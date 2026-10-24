@@ -2,6 +2,16 @@
 
 Delivery decisions that change a task's contract, newest first.
 
+## 2026-10-24: T15 operator token through IdentityResolver; JWKS client without a telemetry accessor
+- **Decided by:** the Technical Lead on TICK-150 (review of PR #56, T15 / TICK-63). The Security & Multi-Tenancy Reviewer approved the client deviation on TICK-63.
+- **Erratum to the T15 contract:** "an operator token through `IdentityResolver` returns `ErrTenantUnresolved`" now holds only when the token also carries `aud=nava-api`. With only `aud=nava-operator-api` it returns `ErrInvalidToken`, because TICK-94 item 11 gives each verifier one audience. Both map to 401, so T20 is unchanged.
+- **Deviation accepted (T04 carry-over):** no telemetry accessor for the JWKS `*http.Client`. jwx and httprc take any `Do` client, so the adapter passes `*telemetry.OutboundClient` through `routedClient`. No `*http.Client` leaves telemetry, there is no forbidigo exception, and URL redaction stays on.
+- **Deferred:**
+  - `jwks_uri` canonicalisation and same-origin redirects: TICK-152 (T15a), released when T15 merges.
+  - The operator role must not be reachable through IdP mappers or default/composite roles: an acceptance criterion on TICK-151.
+  - navalint `idpclaims` flags any `"organization"`/`"idp"` constant outside the adapter. Trigger: the first false positive in a domain package; then add a scoped exemption.
+- **Dissent:** none.
+
 ## 2026-10-23: PLAN-001-A2 splits ADR-001-A2 delivery into three tasks; R-CORE gates the first nava-core Temporal call
 - **Decided by:** the Technical Lead on TICK-130 (`docs/delivery/plan-adr-001-a2.md`). Approved by nava on TICK-130 (2026-10-23). ADR-001-A2 was approved by nava on TICK-129 (2026-10-23).
 - **Decision:** the ADR's single `core-dev` acceptance becomes three PRs under S7 (TICK-49), each waiting for PR #38 to merge:
