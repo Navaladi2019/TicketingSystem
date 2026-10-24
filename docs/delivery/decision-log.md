@@ -2,6 +2,13 @@
 
 Delivery decisions that change a task's contract, newest first.
 
+## 2026-10-25: GitHub CI runs only the jobs a pull request needs; no run on push to main
+- **Decided by:** nava (human), in chat with the Quality, Testing & CI Advisor. This settles TICK-153 D5, which was left to the Technical Lead.
+- **Decision:** a new `changes` job runs `make ci-stages` (`tools/ci/cichanged`, the rules of `make ci-changed`), and `unit`, `temporal-server`, `integration` and the three stack jobs run only when the change needs their stage. `lint` always runs, and a change under `.github/workflows` runs every job. The `push: main` trigger is gone. A full run on any branch is a manual `workflow_dispatch` from the Actions tab.
+- **Supersedes:** "the full run stays the gate" (`docs/quality/ci-pipeline.md`, TICK-153 D5).
+- **Trade-off:** `main` is no longer re-checked after a merge, and a docs-only PR skips `govulncheck` in temporal-server (the root module's still runs in `lint`). A new advisory or a merge-order conflict now shows up on the next PR that needs the stage, or on a manual run.
+- **Dissent:** none.
+
 ## 2026-10-24: T15 operator token through IdentityResolver; JWKS client without a telemetry accessor
 - **Decided by:** the Technical Lead on TICK-150 (review of PR #56, T15 / TICK-63). The Security & Multi-Tenancy Reviewer approved the client deviation on TICK-63.
 - **Erratum to the T15 contract:** "an operator token through `IdentityResolver` returns `ErrTenantUnresolved`" now holds only when the token also carries `aud=nava-api`. With only `aud=nava-operator-api` it returns `ErrInvalidToken`, because TICK-94 item 11 gives each verifier one audience. Both map to 401, so T20 is unchanged.

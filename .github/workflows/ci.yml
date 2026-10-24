@@ -10,6 +10,11 @@
 #   stack            image build, compose up, smoke, platform and Temporal tests
 #   stack-db         a second stack: db-roles/migrate idempotency, role and hba tests
 #   stack-internal   the internal overlay on a fresh stack
+# A pull request runs only the jobs its change needs: the changes job asks
+# `make ci-stages` (tools/ci/cichanged, the rules of `make ci-changed`), lint
+# always runs, and a change under .github/workflows runs everything. Nothing
+# runs on a push to main; run the full pipeline by hand from the Actions tab
+# (workflow_dispatch), which runs every job on the chosen branch.
 # Budget: the whole run finishes in under 5 minutes on a warm cache. Each job
 # keeps its own Go build cache (key per job, refreshed every run), the CI tools
 # are cached by version, and image layers live in the Actions cache (gha).
@@ -17,8 +22,7 @@ name: ci
 
 on:
   pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -28,6 +32,38 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  changes:
+    # Which of unit, integration and the stack jobs this change needs.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      unit: ${{ steps.stages.outputs.unit }}
+      integration: ${{ steps.stages.outputs.integration }}
+      stack: ${{ steps.stages.outputs.stack }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-
+            go-${{ github.job }}-
+      - name: Stages this change needs
+        id: stages
+        env:
+          BASE: origin/${{ github.base_ref || 'main' }}
+          CI_ALL: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+        run: make ci-stages
+
   lint:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -84,6 +120,8 @@ jobs:
         run: make vulncheck
 
   unit:
+    needs: changes
+    if: needs.changes.outputs.unit == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -105,6 +143,8 @@ jobs:
         run: make test
 
   temporal-server:
+    needs: changes
+    if: needs.changes.outputs.unit == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -131,6 +171,8 @@ jobs:
         run: make vulncheck-temporal-server
 
   integration:
+    needs: changes
+    if: needs.changes.outputs.integration == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -153,6 +195,8 @@ jobs:
 
   stack:
     # Platform and Temporal stack tests; the database tests run in stack-db.
+    needs: changes
+    if: needs.changes.outputs.stack == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -215,6 +259,8 @@ jobs:
 
   stack-db:
     # Database stack tests on their own stack, beside stack.
+    needs: changes
+    if: needs.changes.outputs.stack == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -257,6 +303,8 @@ jobs:
 
   stack-internal:
     # The internal overlay brings up its own stack, so it runs beside stack.
+    needs: changes
+    if: needs.changes.outputs.stack == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
