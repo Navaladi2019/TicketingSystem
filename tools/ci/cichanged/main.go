@@ -14,6 +14,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -25,15 +26,17 @@ import (
 	"strings"
 )
 
-// The stages in the order ci-isolated runs them.
-var allStages = []string{"ci-lint", "ci-unit", "ci-integration", "ci-stack"}
+// allStages are the stages in the order ci-isolated lists them.
+func allStages() []string { return []string{"ci-lint", "ci-unit", "ci-integration", "ci-stack"} }
 
-// The Go packages behind the stack: the commands the images build and the
-// stack test suites with their tags.
-var stackRoots = [][]string{
-	{"./cmd/nava-core", "./cmd/nava-db", "./tools/ci/ci6report"},
-	{"-tags", "temporalstack", "-test", "./internal/temporalstack"},
-	{"-tags", "identitystack", "-test", "./internal/identitystack"},
+// stackRoots are the go list arguments for the Go packages behind the stack:
+// the commands the images build and the stack test suites with their tags.
+func stackRoots() [][]string {
+	return [][]string{
+		{"./cmd/nava-core", "./cmd/nava-db", "./tools/ci/ci6report"},
+		{"-tags", "temporalstack", "-test", "./internal/temporalstack"},
+		{"-tags", "identitystack", "-test", "./internal/identitystack"},
+	}
 }
 
 func main() {
@@ -84,7 +87,7 @@ func classify(files []string, g graph) ([]string, []string) {
 		reasons = append(reasons, fmt.Sprintf("%s: %s (%s)", f, strings.Join(s, " "), why))
 	}
 	var out []string
-	for _, st := range allStages {
+	for _, st := range allStages() {
 		if need[st] {
 			out = append(out, st)
 		}
@@ -96,9 +99,9 @@ func fileStages(f string, g graph) ([]string, string) {
 	lint := []string{"ci-lint"}
 	switch {
 	case f == "go.mod" || f == "go.sum":
-		return allStages, "root module dependencies"
+		return allStages(), "root module dependencies"
 	case f == "docs/pins.md":
-		return allStages, "pins pick the test and stack images"
+		return allStages(), "pins pick the test and stack images"
 	case strings.HasPrefix(f, "temporal-server/"):
 		return []string{"ci-lint", "ci-unit", "ci-stack"}, "temporal-server module and image"
 	case strings.HasPrefix(f, "tools/navalint/"):
@@ -126,7 +129,7 @@ func fileStages(f string, g graph) ([]string, string) {
 		}
 		return s, "package " + pkg + strings.Join(append([]string{""}, why...), "; ")
 	}
-	return allStages, "no rule for this file, so every stage"
+	return allStages(), "no rule for this file, so every stage"
 }
 
 // packageOf returns the deepest package directory holding f.
@@ -187,7 +190,7 @@ func loadGraph() (graph, error) {
 		}
 	}
 	g.stack = map[string]bool{}
-	for _, args := range stackRoots {
+	for _, args := range stackRoots() {
 		s, err := dirs(root, append([]string{"-deps"}, args...)...)
 		if err != nil {
 			return g, err
@@ -202,13 +205,14 @@ func loadGraph() (graph, error) {
 // dirs runs go list with args and returns the root module's package
 // directories, as slash paths relative to root.
 func dirs(root string, args ...string) (map[string]bool, error) {
-	cmd := exec.Command("go", append([]string{"list", "-f", "{{if not .Standard}}{{.Dir}}{{end}}"}, args...)...)
+	//nolint:gosec // go list with arguments from this file
+	cmd := exec.CommandContext(context.Background(), "go", append([]string{"list", "-f", "{{if not .Standard}}{{.Dir}}{{end}}"}, args...)...)
 	cmd.Dir = root
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("go list %s: %v\n%s", strings.Join(args, " "), err, stderr.String())
+		return nil, fmt.Errorf("go list %s: %w\n%s", strings.Join(args, " "), err, stderr.String())
 	}
 	m := map[string]bool{}
 	for _, l := range strings.Split(string(out), "\n") {
@@ -231,7 +235,7 @@ var integrationTag = regexp.MustCompile(`(?m)^//go:build integration`)
 func hasIntegrationTests(dir string) bool {
 	files, _ := filepath.Glob(filepath.Join(dir, "*_test.go"))
 	for _, f := range files {
-		b, err := os.ReadFile(f)
+		b, err := os.ReadFile(f) //nolint:gosec // a test file found by the glob
 		if err == nil && integrationTag.Match(b) {
 			return true
 		}
@@ -241,11 +245,11 @@ func hasIntegrationTests(dir string) bool {
 
 func git(args ...string) (string, error) {
 	var stderr bytes.Buffer
-	cmd := exec.Command("git", args...)
+	cmd := exec.CommandContext(context.Background(), "git", args...) //nolint:gosec // git with arguments from this file
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("git %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
 	return string(out), nil
 }

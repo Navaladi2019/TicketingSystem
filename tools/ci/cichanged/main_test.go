@@ -13,10 +13,12 @@ func set(s ...string) map[string]bool {
 	return m
 }
 
-var testGraph = graph{
-	packages:    set("internal/db/roles", "internal/db", "internal/server", "tools/ci/checkpins", "db", "internal/platform/telemetry"),
-	integration: set("internal/db/roles", "db", "internal/platform/telemetry"),
-	stack:       set("internal/server", "db", "internal/platform/telemetry"),
+func testGraph() graph {
+	return graph{
+		packages:    set("internal/db/roles", "internal/db", "internal/server", "tools/ci/checkpins", "db", "internal/platform/telemetry"),
+		integration: set("internal/db/roles", "db", "internal/platform/telemetry"),
+		stack:       set("internal/server", "db", "internal/platform/telemetry"),
+	}
 }
 
 func TestClassify(t *testing.T) {
@@ -46,7 +48,7 @@ func TestClassify(t *testing.T) {
 		{"unknown directory", []string{"newdir/thing.yaml"}, "ci-lint ci-unit ci-integration ci-stack"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			got, reasons := classify(c.files, testGraph)
+			got, reasons := classify(c.files, testGraph())
 			if strings.Join(got, " ") != c.want {
 				t.Fatalf("stages = %q, want %q\n%s", strings.Join(got, " "), c.want, strings.Join(reasons, "\n"))
 			}
