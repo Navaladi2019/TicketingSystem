@@ -137,7 +137,9 @@ ci-stack: $(if $(IMAGE_CACHE),image-ci,image)
 # The main stack and its tests, and beside it the internal overlay on a
 # project of its own (TICK-153 O8: N >= 4, decided by the Technical Lead).
 # Each tears its project down; the main one prints its logs first on failure.
-ci-stack-run:
+# The certificates come first: a bind mount of a missing file would make
+# Docker create a directory in its place.
+ci-stack-run: dev-ca
 	@$(MAKE) --no-print-directory -j 2 --output-sync=target stack-main stack-internal-beside
 
 stack-main:
