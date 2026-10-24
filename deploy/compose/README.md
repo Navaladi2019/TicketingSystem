@@ -47,4 +47,14 @@ with the test overlay, which publishes the gateway on `127.0.0.1:17233`:
 `docker compose -f compose.yaml -f deploy/compose/compose.test.yaml up -d`, then
 `go test -tags temporalstack -count=1 ./internal/temporalstack`.
 
+**Keycloak realm (T14).** `keycloak/import/` holds the realm `nava` (Organizations,
+ADR-001 A.1 mappers and broker flow, operator role, seeded tenants `tenant-a` and
+`tenant-b`, group subtree `/t/<tenant_id>/ou/...`) and two test-only IdP realms,
+`idp-tenant-a` and `idp-tenant-b`, that the tenant IdPs broker to. Keycloak imports
+them on first start (`--import-realm`; existing realms are never overwritten, so a
+change needs a fresh `keycloak` database). The IdP URLs assume the published port
+18081 (`KEYCLOAK_PORT` default). All secrets are dev-only. Test:
+`make stack-test-identity` (`go test -tags identitystack ./internal/identitystack`).
+`TestRealmFile` in the same package checks the file without a container.
+
 Later tasks mount here: T08 `db/pg_hba.conf`.

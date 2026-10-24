@@ -36,7 +36,7 @@ GOLANGCI_LINT_VERSION := 2.14.0
 GOVULNCHECK_VERSION := v1.9.0
 
 .PHONY: build run test test-integration lint generate check-openapi
-.PHONY: ci ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk 	image image-ci stack-up stack-down stack-logs stack-internal smoke
+.PHONY: ci ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity 	image image-ci stack-up stack-down stack-logs stack-internal smoke
 
 build:
 	go build -o bin/nava-core ./cmd/nava-core
@@ -82,7 +82,7 @@ ci-integration: test-integration
 # Builds the images, brings the stack up, runs every stack test, then tears
 # it down (logs first on failure). The workflow runs the same targets one step
 # at a time.
-STACK_TESTS := healthy smoke pgbouncer temporal temporal_handshake temporal_isolation temporal_custody temporal_operator_reach temporal_health sdk dependencies trace redact idempotent dbroles hba
+STACK_TESTS := healthy smoke pgbouncer temporal temporal_handshake temporal_isolation temporal_custody temporal_operator_reach temporal_health sdk identity dependencies trace redact idempotent dbroles hba
 ci-stack: image
 	@status=0; $(MAKE) --no-print-directory stack-up $(addprefix stack-test-,$(STACK_TESTS)) stack-internal || status=$$?; 	if [ $$status -ne 0 ]; then $(MAKE) --no-print-directory stack-logs; fi; 	$(MAKE) --no-print-directory stack-down; exit $$status
 
@@ -168,6 +168,11 @@ stack-test-%:
 CI6_REPORT ?= ci6-report.md
 stack-test-sdk:
 	go test -tags temporalstack -count=1 -json ./internal/temporalstack | go run ./tools/ci/ci6report -out $(CI6_REPORT)
+
+# The realm `nava` of the running Keycloak (T14, ADR-001 A.1): tenant and idp
+# claims, token lifespan, operator role custody, realm export round trip.
+stack-test-identity:
+	go test -tags identitystack -count=1 ./internal/identitystack
 
 # The compose smoke: GET /healthz from inside the compose network.
 smoke: stack-test-smoke

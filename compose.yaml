@@ -121,7 +121,11 @@ services:
 
   keycloak:
     image: quay.io/keycloak/keycloak:26.8.1
-    command: ["start-dev"]
+    # T14: realm `nava` (and the two test IdP realms) are imported from
+    # deploy/compose/keycloak/import; existing realms are left alone.
+    command: ["start-dev", "--import-realm"]
+    volumes:
+      - ./deploy/compose/keycloak/import:/opt/keycloak/data/import:ro
     environment:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
