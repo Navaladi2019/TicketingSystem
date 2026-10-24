@@ -11,6 +11,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -55,7 +56,7 @@ func acquire(addr string, interval time.Duration, report func(time.Duration)) ne
 	start := time.Now()
 	next := interval
 	for {
-		l, err := net.Listen("tcp", addr)
+		l, err := new(net.ListenConfig).Listen(context.Background(), "tcp", addr)
 		if err == nil {
 			if waited := time.Since(start); waited >= time.Second {
 				fmt.Fprintf(os.Stderr, "racelock: acquired after %s\n", waited.Round(time.Second))
@@ -71,7 +72,7 @@ func acquire(addr string, interval time.Duration, report func(time.Duration)) ne
 }
 
 func run(args []string) int {
-	cmd := exec.Command(args[0], args[1:]...)
+	cmd := exec.CommandContext(context.Background(), args[0], args[1:]...) //nolint:gosec // running the given command is the tool's job
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	err := cmd.Run()
 	var exit *exec.ExitError

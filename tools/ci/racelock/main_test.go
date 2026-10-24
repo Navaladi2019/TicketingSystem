@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net"
 	"testing"
 	"time"
@@ -9,7 +10,7 @@ import (
 // A second holder waits until the first releases the lock, and reports
 // while it waits.
 func TestAcquireWaitsForHolder(t *testing.T) {
-	first, err := net.Listen("tcp", "127.0.0.1:0")
+	first, err := new(net.ListenConfig).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
