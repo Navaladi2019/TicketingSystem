@@ -10,8 +10,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/httperr"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/requestid"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/strictyaml"
 )
@@ -108,11 +110,23 @@ type Body struct {
 	Errors   []FieldError `json:"errors,omitempty"`
 }
 
-// Write sends the problem for code. The status comes from the registry, so a
-// handler cannot send a code with a status the registry does not list. An
-// unregistered code is a programming error and is sent as internal_error.
+// Write sends the problem for code, for a 4xx only: a 5xx goes through
+// WriteError, which reports the cause (a test enforces it). The status comes
+// from the registry, so a handler cannot send a code with a status the
+// registry does not list. An unregistered code is a programming error and is
+// sent as internal_error.
 func (reg *Registry) Write(w http.ResponseWriter, r *http.Request, code Code, errs ...FieldError) {
 	write(w, r, reg.Body(r.Context(), code, errs...))
+}
+
+// WriteError sends the problem for code like Write and, for a 5xx, first
+// reports err through httperr.Report: the span is marked failed and the error
+// text goes to the log only. The body never carries err's text.
+func (reg *Registry) WriteError(w http.ResponseWriter, r *http.Request, log *slog.Logger, code Code, err error, attrs ...slog.Attr) {
+	if e, ok := reg.Lookup(code); !ok || e.Status >= http.StatusInternalServerError {
+		httperr.Report(r.Context(), log, "api error", httperr.TypeOf(err), err, attrs...)
+	}
+	reg.Write(w, r, code)
 }
 
 // Body builds the problem for code, with the request id of ctx as instance. An

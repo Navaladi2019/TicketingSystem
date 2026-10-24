@@ -2,6 +2,7 @@ package httpobs
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -9,9 +10,8 @@ import (
 	"runtime/debug"
 
 	"github.com/felixge/httpsnoop"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/httperr"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/requestid"
 )
@@ -40,8 +40,7 @@ func serve(log *slog.Logger, next http.Handler, w http.ResponseWriter, r *http.R
 			panic(v)
 		}
 		ctx := r.Context()
-		trace.SpanFromContext(ctx).SetStatus(codes.Error, "panic")
-		log.LogAttrs(ctx, slog.LevelError, "http handler panic",
+		httperr.Report(ctx, log, "http handler panic", "panic", panicError(v),
 			slog.Any("panic", v), slog.String("stack", string(debug.Stack())))
 		if resp.committed {
 			panic(http.ErrAbortHandler)
@@ -115,4 +114,12 @@ func (s *response) wrap(w http.ResponseWriter) http.ResponseWriter {
 			return func() (net.Conn, *bufio.ReadWriter, error) { s.commit(http.StatusOK); return next() }
 		},
 	})
+}
+
+// panicError is the recovered value as an error, wrapping it when it is one.
+func panicError(v any) error {
+	if err, ok := v.(error); ok {
+		return fmt.Errorf("panic: %w", err)
+	}
+	return fmt.Errorf("panic: %v", v)
 }

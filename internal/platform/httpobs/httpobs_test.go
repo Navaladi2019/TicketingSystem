@@ -466,7 +466,23 @@ func TestHandlerPanicBecomesLogged500(t *testing.T) {
 	if access["status"] != float64(http.StatusInternalServerError) || access["route"] != "GET /panic" {
 		t.Errorf("access line = %v, want status 500 on route GET /panic", access)
 	}
-	if span := h.onlySpan(t); span.Status.Code != codes.Error {
+	if s, _ := panicLine["err"].(string); !strings.Contains(s, "boom") {
+		t.Errorf("panic line err = %v, want the panic text (httperr.Report)", panicLine["err"])
+	}
+	span := h.onlySpan(t)
+	var errType string
+	for _, kv := range span.Attributes {
+		if kv.Key == "error.type" {
+			errType = kv.Value.AsString()
+		}
+	}
+	if errType != "panic" {
+		t.Errorf("span error.type = %q, want panic", errType)
+	}
+	if dump, _ := json.Marshal(struct{ A, E, S any }{span.Attributes, span.Events, span.Status}); strings.Contains(string(dump), "boom") {
+		t.Errorf("exported span carries the panic text: %s", dump)
+	}
+	if span.Status.Code != codes.Error {
 		t.Errorf("span status = %v, want Error", span.Status)
 	}
 }

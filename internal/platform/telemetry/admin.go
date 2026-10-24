@@ -1,6 +1,7 @@
 package telemetry
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
@@ -8,6 +9,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/httperr"
 )
 
 // AdminRoutes registers extra operational routes (health and readiness) on
@@ -64,7 +66,7 @@ func recoverAdmin(log *slog.Logger, next http.Handler) http.Handler {
 			if v == http.ErrAbortHandler { //nolint:errorlint // net/http compares by identity
 				panic(v)
 			}
-			log.ErrorContext(r.Context(), "admin handler panic",
+			httperr.Report(r.Context(), log, "admin handler panic", "panic", fmt.Errorf("panic: %v", v),
 				slog.Any("panic", v), slog.String("stack", string(debug.Stack())))
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		}()
