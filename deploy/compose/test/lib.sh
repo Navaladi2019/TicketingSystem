@@ -5,6 +5,10 @@
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 cd "$ROOT"
 
+# The compose project under test: `name: nava` in compose.yaml unless
+# COMPOSE_PROJECT_NAME names another (make ci-isolated).
+PROJECT=${COMPOSE_PROJECT_NAME:-nava}
+
 compose() {
     # shellcheck disable=SC2086
     docker compose ${COMPOSE_FILE_ARGS:-} "$@"

@@ -80,6 +80,13 @@ tasks:
     vars:
       TMP: '{{.TEMP | default "/tmp"}}'
 
+  ci:isolated:
+    desc: "Run make ci on a stack of its own (project nava-ID, image tag ID, own ports), the same as make ci-isolated; task ci:isolated ID=<pr-or-sha>"
+    requires:
+      vars: [ID]
+    cmds:
+      - sh scripts/ci/ci-isolated.sh {{.ID}}
+
   stack:up:
     desc: Build and start the local compose stack (Postgres, PgBouncer, Keycloak, Temporal, Collector, nava-core)
     cmds:

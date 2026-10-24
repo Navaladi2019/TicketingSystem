@@ -44,6 +44,9 @@ func address() string {
 	if a := os.Getenv("NAVA_TEST_TEMPORAL_ADDR"); a != "" {
 		return a
 	}
+	if p := os.Getenv("TEMPORAL_TEST_PORT"); p != "" {
+		return "127.0.0.1:" + p
+	}
 	return "127.0.0.1:17233"
 }
 
