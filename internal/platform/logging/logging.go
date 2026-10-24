@@ -65,3 +65,40 @@ func (h *ContextHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 func (h *ContextHandler) WithGroup(name string) slog.Handler {
 	return &ContextHandler{next: h.next.WithGroup(name)}
 }
+
+// WithExport returns a logger that also sends every record to export, the
+// OTLP bridge, beside the handler of base. A nil export returns base itself,
+// so stdout output is untouched when log export is off. The bridge takes the
+// trace and span id from the record's context; request_id is added here
+// because the bridge does not know it. trace_id and span_id are not added as
+// attributes: the exported record carries them as fields.
+func WithExport(base *slog.Logger, export slog.Handler) *slog.Logger {
+	if export == nil {
+		return base
+	}
+	return slog.New(slog.NewMultiHandler(base.Handler(), requestIDHandler{next: export}))
+}
+
+// requestIDHandler adds the request id from the record's context.
+type requestIDHandler struct {
+	next slog.Handler
+}
+
+func (h requestIDHandler) Enabled(ctx context.Context, l slog.Level) bool {
+	return h.next.Enabled(ctx, l)
+}
+
+func (h requestIDHandler) Handle(ctx context.Context, r slog.Record) error {
+	if id := requestid.FromContext(ctx); id != "" {
+		r.AddAttrs(slog.String("request_id", id))
+	}
+	return h.next.Handle(ctx, r)
+}
+
+func (h requestIDHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return requestIDHandler{next: h.next.WithAttrs(attrs)}
+}
+
+func (h requestIDHandler) WithGroup(name string) slog.Handler {
+	return requestIDHandler{next: h.next.WithGroup(name)}
+}

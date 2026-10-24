@@ -67,6 +67,9 @@ item 16, condition 3).
 | `go.opentelemetry.io/otel/sdk/metric` | v1.47.0 | Metric SDK. | T01, TICK-89 |
 | `go.opentelemetry.io/otel/exporters/prometheus` | v0.69.0 | Bridges OTel metrics to `/metrics`. | T01, TICK-89 |
 | `go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp` | v1.47.0 | OTLP trace exporter to the Collector. | T01, TICK-89 |
+| `go.opentelemetry.io/contrib/bridges/otelslog` | v0.21.0 | slog bridge: exports log records over OTLP with the request's trace id (OTLP log export, deferred in the 2026-10-16 decision until the Collector existed). | TICK-101 |
+| `go.opentelemetry.io/otel/sdk/log` | v1.47.0 | Log SDK behind the bridge. | TICK-101 |
+| `go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp` | v0.23.0 | OTLP log exporter to the Collector. | TICK-101 |
 | `go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp` | v0.72.0 | HTTP server and outbound-client spans. | T01, TICK-89 |
 | `go.opentelemetry.io/contrib/instrumentation/runtime` | v0.72.0 | Go runtime metrics. | T01, TICK-89 |
 | `github.com/go-logr/logr` | v1.4.4 | Routes the OTel SDK's internal logger into slog (`internal/platform/telemetry`). | T01 |

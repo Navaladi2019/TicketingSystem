@@ -1,0 +1,23 @@
+{
+  "resourceLogs": [{
+    "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "redact-test"}}]},
+    "scopeLogs": [{
+      "scope": {"name": "redact-test"},
+      "logRecords": [{
+        "timeUnixNano": "__NOW__",
+        "severityNumber": 9,
+        "severityText": "INFO",
+        "body": {"stringValue": "redact-log-probe"},
+        "traceId": "__TRACE_ID__",
+        "spanId": "__SPAN_ID__",
+        "attributes": [
+          {"key": "url.path", "value": {"stringValue": "LEAKY-PATH"}},
+          {"key": "http.request.header.authorization", "value": {"stringValue": "LEAKY-HEADER"}},
+          {"key": "db.statement", "value": {"stringValue": "LEAKY-SQL"}},
+          {"key": "exception.message", "value": {"stringValue": "LEAKY-MESSAGE"}},
+          {"key": "keep.me", "value": {"stringValue": "__TRACE_ID__"}}
+        ]
+      }]
+    }]
+  }]
+}

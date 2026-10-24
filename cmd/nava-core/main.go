@@ -46,6 +46,9 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 	if err != nil {
 		return err
 	}
+	// With OTEL_EXPORTER_OTLP_ENDPOINT set, records also go to the Collector.
+	// Unset, log is unchanged.
+	log = logging.WithExport(log, tel.LogHandler())
 	mon, closeDeps, err := newMonitor(ctx, log, tel, cfg)
 	if err != nil {
 		_ = tel.Shutdown(context.WithoutCancel(ctx))

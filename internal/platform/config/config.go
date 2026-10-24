@@ -77,6 +77,10 @@ type Telemetry struct {
 	// ExportTraces is true when OTEL_EXPORTER_OTLP_TRACES_ENDPOINT or
 	// OTEL_EXPORTER_OTLP_ENDPOINT is set. Neither set means no trace exporter.
 	ExportTraces bool
+	// ExportLogs is true when OTEL_EXPORTER_OTLP_ENDPOINT is set. The signal
+	// specific OTEL_EXPORTER_OTLP_LOGS_ENDPOINT alone does not turn it on, so
+	// stdout stays the only log destination until the base endpoint is set.
+	ExportLogs bool
 	// ShutdownTimeout is the flush budget after the HTTP server has drained,
 	// separate from it. NAVA_TELEMETRY_SHUTDOWN_TIMEOUT.
 	ShutdownTimeout time.Duration
@@ -106,8 +110,11 @@ func Load(lookup LookupFunc) (Config, error) {
 	// here, by name, so the exporter only ever sees values it accepts.
 	r.otlpHeaders("OTEL_EXPORTER_OTLP_HEADERS")
 	r.otlpHeaders("OTEL_EXPORTER_OTLP_TRACES_HEADERS")
+	r.otlpHeaders("OTEL_EXPORTER_OTLP_LOGS_HEADERS")
 	r.otlpTimeout("OTEL_EXPORTER_OTLP_TIMEOUT")
 	r.otlpTimeout("OTEL_EXPORTER_OTLP_TRACES_TIMEOUT")
+	r.otlpTimeout("OTEL_EXPORTER_OTLP_LOGS_TIMEOUT")
+	r.endpoint("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT")
 	cfg := Config{
 		HTTP: HTTP{
 			Addr:              r.addr("NAVA_HTTP_ADDR", ":8080"),
@@ -124,6 +131,7 @@ func Load(lookup LookupFunc) (Config, error) {
 		},
 		Telemetry: Telemetry{
 			ExportTraces:    tracesEndpoint || baseEndpoint,
+			ExportLogs:      baseEndpoint,
 			ShutdownTimeout: r.duration("NAVA_TELEMETRY_SHUTDOWN_TIMEOUT", 5*time.Second),
 		},
 	}
