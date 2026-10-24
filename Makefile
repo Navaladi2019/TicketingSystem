@@ -46,8 +46,11 @@ build:
 run:
 	@set -a; [ -f .env ] && . ./.env; set +a; go run ./cmd/nava-core
 
+# The navalint analyzers are their own module (tools/navalint), so ./...
+# does not reach them.
 test:
 	go test -race ./...
+	go -C tools/navalint test -race ./...
 
 # Every package with `//go:build integration` tests, against a throwaway
 # postgres container the script starts and removes (needs Docker). Pass
@@ -55,8 +58,11 @@ test:
 test-integration:
 	sh scripts/ci/test-integration.sh $(ARGS)
 
+# golangci-lint, then the navalint analyzers (tools/navalint, its own module)
+# as go vet's tool.
 lint:
 	$(GOLANGCI_LINT) run ./...
+	sh scripts/ci/navalint.sh
 
 # Regenerates api/api.gen.go from api/openapi.yaml (oapi-codegen v2.8.0, pinned
 # by the go.mod tool directive).

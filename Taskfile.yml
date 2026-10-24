@@ -25,14 +25,16 @@ tasks:
       - go run ./cmd/nava-core
 
   test:
-    desc: Run all tests with the race detector (needs cgo), the same as make test
+    desc: Run all tests with the race detector (needs cgo), navalint's included, the same as make test
     cmds:
       - go test -race ./...
+      - go -C tools/navalint test -race ./...
 
   test:short:
     desc: Run all tests without the race detector, for hosts with no cgo
     cmds:
       - go test ./...
+      - go -C tools/navalint test ./...
 
   test:integration:
     desc: Run every integration-tagged test against a throwaway postgres container (needs Docker), the same as make test-integration
@@ -40,12 +42,13 @@ tasks:
       - sh scripts/ci/test-integration.sh
 
   lint:
-    desc: Run golangci-lint
+    desc: Run golangci-lint, then the navalint analyzers (set_config outside internal/tenancy)
     cmds:
       - golangci-lint run ./...
+      - sh scripts/ci/navalint.sh
 
   lint:fixture:
-    desc: The forbidigo rule must report exactly 5 findings on the raw HTTP client fixtures
+    desc: The forbidigo and navalint rules must report exactly their fixture findings
     cmds:
       - sh scripts/ci/lint-fixture.sh
 

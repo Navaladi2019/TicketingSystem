@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/exaring/otelpgx"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -71,6 +74,153 @@ func TestSpikeFilterBypass(t *testing.T) {
 	if exceptionType == "" {
 		t.Error("the exception event lost exception.type")
 	}
+
+	// The same 22P02 as otelpgx itself records it on a failed query: the
+	// exception event, the status description from err.Error() and
+	// pgx.sql_state, on a span named by otelpgx.
+	t.Run("otelpgx 22P02", func(t *testing.T) {
+		t.Parallel()
+		tel, exp := newExported(t)
+		tracer := otelpgx.NewTracer(
+			otelpgx.WithTracerProvider(tel.TracerProvider),
+			otelpgx.WithMeterProvider(tel.MeterProvider),
+			otelpgx.WithFullSQLInSpanName(), // the worst case: the statement as the name
+		)
+		// otelpgx traces only inside a recording span.
+		ctx, parent := tel.TracerProvider.Tracer("spike").Start(t.Context(), "parent")
+		sql := "SELECT id FROM users WHERE id = 'alice@tenant-a.test'::uuid"
+		ctx = tracer.TraceQueryStart(ctx, nil, pgx.TraceQueryStartData{SQL: sql, Args: []any{"alice@tenant-a.test"}})
+		tracer.TraceQueryEnd(ctx, nil, pgx.TraceQueryEndData{Err: &pgconn.PgError{
+			Severity: "ERROR",
+			Code:     "22P02",
+			Message:  `invalid input syntax for type uuid: "alice@tenant-a.test"`,
+		}})
+		parent.End()
+
+		var db *tracetest.SpanStub
+		for _, s := range exp.GetSpans() {
+			for _, l := range leaks(s, "alice@") {
+				t.Errorf("span %q leaks %s", s.Name, l)
+			}
+			if s.InstrumentationScope.Name == "github.com/exaring/otelpgx" {
+				db = &s
+			}
+		}
+		if db == nil {
+			t.Fatal("otelpgx exported no span")
+		}
+		if db.Name != "_OTHER" {
+			t.Errorf("otelpgx span name = %q, want _OTHER", db.Name)
+		}
+		if db.Status.Code != codes.Error {
+			t.Errorf("status code = %v, want Error", db.Status.Code)
+		}
+		var exceptionType string
+		for _, ev := range db.Events {
+			if ev.Name == "exception" {
+				exceptionType = attrMap(ev.Attributes)["exception.type"]
+			}
+		}
+		if exceptionType != "*pgconn.PgError" {
+			t.Errorf("exception.type = %q, want *pgconn.PgError", exceptionType)
+		}
+	})
+}
+
+// TestDBSpanNames: an otelpgx span keeps a SQL keyword or one of otelpgx's
+// fixed names; any other name becomes _OTHER. Other libraries' span names are
+// left alone.
+func TestDBSpanNames(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		scope, name, want string
+	}{
+		{"github.com/exaring/otelpgx", "SELECT", "SELECT"},
+		{"github.com/exaring/otelpgx", "pool.acquire", "pool.acquire"},
+		{"github.com/exaring/otelpgx", "connect", "connect"},
+		{"github.com/exaring/otelpgx", "batch start", "batch start"},
+		{"github.com/exaring/otelpgx", "UNKNOWN", "UNKNOWN"},
+		{"github.com/exaring/otelpgx", "SELECT * FROM users WHERE email = 'alice@tenant-a.test'", "_OTHER"},
+		{"github.com/exaring/otelpgx", `copy_from "tickets"`, "_OTHER"},
+		{"github.com/exaring/otelpgx", "query SELECT", "_OTHER"},
+		{"github.com/exaring/otelpgx", "select", "_OTHER"},
+		{"other", "GET /api/v1/tickets/{id}", "GET /api/v1/tickets/{id}"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.scope+" "+tc.name, func(t *testing.T) {
+			t.Parallel()
+			tel, exp := newExported(t)
+			_, span := tel.TracerProvider.Tracer(tc.scope).Start(t.Context(), tc.name)
+			span.End()
+			if got := exp.GetSpans()[0].Name; got != tc.want {
+				t.Errorf("exported name = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestBoundedTokens: error.type, exception.type and exception.stacktrace pass
+// only as a bounded token, and the status description copied from error.type
+// with them; db.operation.name only as a known keyword.
+func TestBoundedTokens(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		kv   attribute.KeyValue
+		want string
+	}{
+		{"type name", attribute.String("error.type", "*pgconn.PgError"), "*pgconn.PgError"},
+		{"status code", attribute.String("error.type", "500"), "500"},
+		{"generic type", attribute.String("error.type", "*errors.joinError[]"), "*errors.joinError[]"},
+		{"message as error.type", attribute.String("error.type", "lookup failed for alice@tenant-a.test"), "_OTHER"},
+		{"too long", attribute.String("error.type", strings.Repeat("a", 65)), "_OTHER"},
+		{"empty", attribute.String("error.type", ""), "_OTHER"},
+		{"not a string", attribute.Int("error.type", 22), "_OTHER"},
+		{"exception.type message", attribute.String("exception.type", "bad: alice@tenant-a.test"), "_OTHER"},
+		{"string stack trace", attribute.String("exception.stacktrace", "goroutine 1 [running]:\nmain.lookup(\"alice@tenant-a.test\")"), "_OTHER"},
+		{"db keyword", attribute.String("db.operation.name", "SELECT"), "SELECT"},
+		{"db statement", attribute.String("db.operation.name", "SELECT 'alice@tenant-a.test'"), "_OTHER"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tel, exp := newExported(t)
+			_, span := tel.TracerProvider.Tracer("lib").Start(t.Context(), "op", trace.WithAttributes(tc.kv))
+			span.SetStatus(codes.Error, "lookup failed for alice@tenant-a.test")
+			span.End()
+
+			s := exp.GetSpans()[0]
+			if got := attrMap(s.Attributes)[tc.kv.Key]; got != tc.want {
+				t.Errorf("%s = %q, want %q", tc.kv.Key, got, tc.want)
+			}
+			if tc.kv.Key == "error.type" && s.Status.Description != tc.want {
+				t.Errorf("status description = %q, want %q", s.Status.Description, tc.want)
+			}
+		})
+	}
+}
+
+// TestDBAttributes: the otelpgx db.* keys on the allow-list are kept; the
+// statement, its parameters, the role and the pgx.* keys are dropped.
+func TestDBAttributes(t *testing.T) {
+	t.Parallel()
+	tel, exp := newExported(t)
+	_, span := tel.TracerProvider.Tracer("github.com/exaring/otelpgx").Start(t.Context(), "SELECT", trace.WithAttributes(
+		attribute.String("db.system.name", "postgresql"),
+		attribute.String("db.namespace", "nava"),
+		attribute.String("db.operation.name", "SELECT"),
+		attribute.Int("db.operation.batch.size", 3),
+		attribute.String("db.query.text", "SELECT $1"),
+		attribute.StringSlice("pgx.query.parameters", []string{"alice@tenant-a.test"}),
+		attribute.String("user.name", "nava_app"),
+		attribute.String("pgx.sql_state", "22P02"),
+		attribute.Int64("pgx.rows_affected", 1),
+	))
+	span.End()
+	want := []string{"db.namespace", "db.operation.batch.size", "db.operation.name", "db.system.name"}
+	if got := sortedKeys(exp.GetSpans()[0].Attributes); !slices.Equal(got, want) {
+		t.Errorf("attribute keys = %v, want %v", got, want)
+	}
 }
 
 // TestUnlistedKeysAreDropped: a key not on the allow-list, such as one a new
@@ -82,8 +232,8 @@ func TestUnlistedKeysAreDropped(t *testing.T) {
 
 	attrs := []attribute.KeyValue{
 		attribute.String("foo.bar", "x"),
-		attribute.String("db.system.name", "postgresql"),
-		attribute.String("nava.principal_id", "p-1"), // nava.* but not declared: dropped
+		attribute.String("db.query.text", "SELECT 1"), // the SQL statement: never exported
+		attribute.String("nava.principal_id", "p-1"),  // nava.* but not declared: dropped
 		telemetry.TenantIDKey.String("tenant-a"),
 		attribute.String("temporalWorkflowID", "t:tenant-a:ticket-1"),
 		attribute.String("temporalRunID", "run-1"),
@@ -168,6 +318,7 @@ func leaks(s tracetest.SpanStub, markers ...string) []string {
 		}
 	}
 	check("status", s.Status.Description)
+	check("name", s.Name)
 	return out
 }
 
