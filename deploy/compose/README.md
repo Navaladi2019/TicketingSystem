@@ -57,4 +57,25 @@ change needs a fresh `keycloak` database). The IdP URLs assume the published por
 `make stack-test-identity` (`go test -tags identitystack ./internal/identitystack`).
 `TestRealmFile` in the same package checks the file without a container.
 
+Realm decisions to know when you build on it:
+
+- **Client scopes.** The realm file replaces Keycloak's built-in client scopes with
+  `basic`, `roles`, `profile`, `email`, `organization`, `nava-idp` and
+  `nava-operator-audience` (Keycloak adds back only `offline_access`). Dropped
+  built-ins: `acr`, `web-origins`, `service_account`, `address`, `phone`,
+  `microprofile-jwt`, `role_list`, `saml_organization`. `defaultDefaultClientScopes`
+  is `basic`, `roles`, `profile`, `email`, so a client created later through the
+  admin API (T15 onboarding) still gets `sub`.
+- **Organization ids are fixed.** `tenant-a` and `tenant-b` carry the same UUID as
+  their group tree, `00000000-0000-4000-8000-0000000000a1` and `...b1`; the import
+  honours the `id` (checked on 26.8.1). T15 seeds can use that id for
+  `tenant_identity_binding(issuer, org_id)` without a lookup.
+- **Operator audience.** `nava-operator-cli` uses the direct-grant flow
+  `nava-operator-direct-grant`, which denies users without the `nava-operator` role.
+  The audience mapper alone adds `nava-operator-api` to any token, so the operator
+  resolver (T15) must also require the realm role, not only the audience.
+- **Platform service account** holds `manage-realm`, so its secret is the key to
+  every tenant: outside compose supply it from the environment or a secret store,
+  never the `dev-only-platform-secret` literal.
+
 Later tasks mount here: T08 `db/pg_hba.conf`.
