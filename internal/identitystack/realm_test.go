@@ -38,10 +38,17 @@ func TestRealmFile(t *testing.T) {
 			ID         string `json:"id"`
 			Alias      string `json:"alias"`
 			Executions []struct {
-				Authenticator string `json:"authenticator"`
-				Requirement   string `json:"requirement"`
+				Authenticator       string `json:"authenticator"`
+				AuthenticatorConfig string `json:"authenticatorConfig"`
+				FlowAlias           string `json:"flowAlias"`
+				Requirement         string `json:"requirement"`
+				Priority            int    `json:"priority"`
 			} `json:"authenticationExecutions"`
 		} `json:"authenticationFlows"`
+		AuthenticatorConfig []struct {
+			Alias  string            `json:"alias"`
+			Config map[string]string `json:"config"`
+		} `json:"authenticatorConfig"`
 		Organizations []struct {
 			ID      string `json:"id"`
 			Alias   string `json:"alias"`
@@ -121,6 +128,7 @@ func TestRealmFile(t *testing.T) {
 	if !flows["nava-operator-direct-grant"] || flowIDs["nava-operator-direct-grant"] != "00000000-0000-4000-8000-0000000000f1" {
 		t.Error("flow nava-operator-direct-grant missing")
 	}
+	assertOperatorFlow(t, r.Flows, r.AuthenticatorConfig)
 	for _, c := range r.Clients {
 		if c.ClientID == "nava-operator-cli" && c.Overrides["direct_grant"] != "00000000-0000-4000-8000-0000000000f1" {
 			t.Errorf("nava-operator-cli direct_grant override = %q", c.Overrides["direct_grant"])
@@ -132,5 +140,78 @@ func TestRealmFile(t *testing.T) {
 				t.Errorf("organization %s has an unverified domain", o.Alias)
 			}
 		}
+	}
+}
+
+// assertOperatorFlow pins the direct-grant flow of nava-operator-cli: Password,
+// then a CONDITIONAL subflow that denies users without nava-operator. A broken
+// flow would hand the operator audience to every tenant user.
+func assertOperatorFlow(t *testing.T, flows []struct {
+	ID         string `json:"id"`
+	Alias      string `json:"alias"`
+	Executions []struct {
+		Authenticator       string `json:"authenticator"`
+		AuthenticatorConfig string `json:"authenticatorConfig"`
+		FlowAlias           string `json:"flowAlias"`
+		Requirement         string `json:"requirement"`
+		Priority            int    `json:"priority"`
+	} `json:"authenticationExecutions"`
+}, cfgs []struct {
+	Alias  string            `json:"alias"`
+	Config map[string]string `json:"config"`
+}) {
+	t.Helper()
+	const sub = "nava-operator-direct-grant-role-check"
+	for _, f := range flows {
+		switch f.Alias {
+		case "nava-operator-direct-grant":
+			pw, subAt := -1, -1
+			for _, e := range f.Executions {
+				switch {
+				case e.Authenticator == "direct-grant-validate-password":
+					pw = e.Priority
+					if e.Requirement != "REQUIRED" {
+						t.Errorf("password execution requirement = %s, want REQUIRED", e.Requirement)
+					}
+				case e.FlowAlias == sub:
+					subAt = e.Priority
+					if e.Requirement != "CONDITIONAL" {
+						t.Errorf("role-check subflow requirement = %s, want CONDITIONAL", e.Requirement)
+					}
+				}
+			}
+			if pw < 0 || subAt < 0 || subAt <= pw {
+				t.Errorf("role-check subflow (priority %d) must come after Password (priority %d)", subAt, pw)
+			}
+		case sub:
+			want := []string{"conditional-user-role", "deny-access-authenticator"}
+			if len(f.Executions) != len(want) {
+				t.Fatalf("role-check executions = %+v, want exactly %v", f.Executions, want)
+			}
+			for i, e := range f.Executions {
+				if e.Authenticator != want[i] || e.Requirement != "REQUIRED" {
+					t.Errorf("role-check execution %d = %s %s, want %s REQUIRED", i, e.Authenticator, e.Requirement, want[i])
+				}
+				if i > 0 && e.Priority <= f.Executions[i-1].Priority {
+					t.Errorf("role-check execution %d is not ordered after %d", i, i-1)
+				}
+			}
+			if f.Executions[0].AuthenticatorConfig != "nava-deny-non-operator" {
+				t.Errorf("conditional-user-role config = %q, want nava-deny-non-operator", f.Executions[0].AuthenticatorConfig)
+			}
+		}
+	}
+	found := false
+	for _, c := range cfgs {
+		if c.Alias != "nava-deny-non-operator" {
+			continue
+		}
+		found = true
+		if len(c.Config) != 2 || c.Config["condUserRole"] != "nava-operator" || c.Config["negate"] != "true" {
+			t.Errorf("nava-deny-non-operator = %v, want {condUserRole: nava-operator, negate: true}", c.Config)
+		}
+	}
+	if !found {
+		t.Error("authenticatorConfig nava-deny-non-operator missing")
 	}
 }

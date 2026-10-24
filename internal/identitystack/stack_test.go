@@ -557,16 +557,16 @@ func sortedStrings(v any) string {
 // the admin API: id, verified domains and the identity provider link.
 func roundTripOrganizations(t *testing.T, want map[string]any) {
 	t.Helper()
-	svc := masterToken(t) // the platform service account may not read identity providers
+	adm := masterToken(t) // the platform service account may not read identity providers
 	for _, wo := range want["organizations"].([]any) {
 		wom := wo.(map[string]any)
 		alias := fmt.Sprint(wom["alias"])
-		id := orgID(t, svc, alias)
+		id := orgID(t, adm, alias)
 		if wid, _ := wom["id"].(string); wid != "" && id != wid {
 			t.Errorf("organization %s: running id %s, imported id %s", alias, id, wid)
 		}
 		// The admin API serves the domains on the organization itself.
-		code, b := admin(t, svc, http.MethodGet, "/organizations/"+id, nil)
+		code, b := admin(t, adm, http.MethodGet, "/organizations/"+id, nil)
 		var org struct {
 			Domains []struct {
 				Name     string
@@ -593,7 +593,7 @@ func roundTripOrganizations(t *testing.T, want map[string]any) {
 		if strings.Join(gd, ",") != strings.Join(wd, ",") {
 			t.Errorf("organization %s domains: running %v, imported %v", alias, gd, wd)
 		}
-		code, b = admin(t, svc, http.MethodGet, "/organizations/"+id+"/identity-providers", nil)
+		code, b = admin(t, adm, http.MethodGet, "/organizations/"+id+"/identity-providers", nil)
 		var idps []struct {
 			Alias             string
 			OrganizationLinks []struct{ OrganizationID string }
