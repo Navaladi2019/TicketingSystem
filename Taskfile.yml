@@ -25,10 +25,10 @@ tasks:
       - go run ./cmd/nava-core
 
   test:
-    desc: Run all tests with the race detector (needs cgo), navalint's included, the same as make test
+    desc: Run all tests with the race detector (needs cgo), navalint's included, one race run per host at a time, the same as make test
     cmds:
-      - go test -race -trimpath ./...
-      - go -C tools/navalint test -race ./...
+      - go run ./tools/ci/racelock -- go test -race -trimpath ./...
+      - go run ./tools/ci/racelock -- go -C tools/navalint test -race ./...
 
   test:short:
     desc: Run all tests without the race detector, for hosts with no cgo
