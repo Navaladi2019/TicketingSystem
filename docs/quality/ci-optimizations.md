@@ -38,10 +38,10 @@ workspace recompiles the repo's own packages and reruns the unit tests.
 
 | # | Decision | Status |
 | --- | --- | --- |
-| D1 | **Host-side stack tests run inside the compose network.** The Temporal (`internal/temporalstack`) and Keycloak (`internal/identitystack`) Go tests run in a container on the project network, so CI publishes no host ports and parallel stacks can't collide on ports. Fixed default ports stay for development. Exception: the `health` integration test keeps a fixed port, because it restarts its container and Docker Desktop on Windows can't reach container IPs. | Decided, not started |
+| D1 | **Host-side stack tests run inside the compose network.** The Temporal (`internal/temporalstack`) and Keycloak (`internal/identitystack`) Go tests run in a container on the project network, so CI publishes no host ports and parallel stacks can't collide on ports. Fixed default ports stay for development. Exception: the `health` integration test keeps a fixed port, because it restarts its container and Docker Desktop on Windows can't reach container IPs. | Deferred (TICK-153 Phase 2), for the Technical Lead. The Go suites already take their addresses from the environment (`NAVA_TEST_KEYCLOAK_URL`, `NAVA_TEST_TEMPORAL_ADDR`, `NAVA_TEST_CERT_DIR`), but the CI-6 tests start probe containers with `docker run -v <absolute certificate path>`, which the Docker daemon resolves on the host, so from inside a container they would mount nothing. Moving them means rewriting how the isolation tests reach the certificates, which changes a security test, not just CI. Port collisions, the reason for D1, are already prevented by `ci-isolated`'s per-run port slots (TICK-147), and D1 gives no speed |
 | D2 | **govulncheck once per change.** Each module (root and `temporal-server/`, which have separate `go.mod` files) is scanned only when its `go.sum` changes, plus one daily run of both for new advisories (ADR-001-A1's R7 trigger). The two scans run in parallel. | Done (TICK-153 PR 3): `make vulncheck-ci`. A pass is stamped per module, `go.mod`/`go.sum` checksum, Go and govulncheck version and UTC day, so the first run each day is the daily scan. Both modules, first run of the day: 154 s (was two serial scans in lint's 260 s); stamped: 1 s |
 | D3 | **Race-detector tests: one at a time on the host.** A host-wide lock around `go test -race` for every checkout and agent. Ship it with O5 (`-trimpath`) and O7 (`ci-changed`) so the queue stays short. | Done (TICK-153 PR 3): `tools/ci/racelock`, a listener on `127.0.0.1:47613` around both `go test -race` lines of `make test` and `task test`. Checked: a second holder waited 35 s and reported while waiting |
-| D4 | **Stack slot limit, queued.** At most N compose stacks at once; extra runs wait. Measure N from one stack's real memory (`docker stats`). | Phase 2. Measured: one stack holds 1.19 GB at rest (`docker stats`: Keycloak 840 MiB, Postgres 151 MiB, temporal-server 116 MiB, the rest under 40 MiB each) |
+| D4 | **Stack slot limit, queued.** At most N compose stacks at once; extra runs wait. Measure N from one stack's real memory (`docker stats`). | Done (TICK-153 Phase 2): N = 7. One stack holds 1.34 GB while its tests run (two stacks up); (19.4 GiB - 4 GB for other containers) / (1.34 GB x 1.5 headroom) = 7.6. `tools/ci/racelock -slots 7` around `ci-stack`, one slot per run |
 | D5 | **Verification cost rules for agents** (see `CLAUDE.md`, "Verification cost"): name the cheapest check for each acceptance criterion, with a full pipeline run once as the final gate; confirm `main` is green before starting; never re-run a full pipeline to re-prove something. | Written in `CLAUDE.md`, not yet merged. The Delivery squad pointer needs adding in Multica |
 
 Isolation of networks, containers and volumes between compose projects needs no
@@ -61,10 +61,10 @@ short parallel `STAGES=stack` smoke run.
 | O5 | `-trimpath` for the CI Go builds | Lint, unit | No cold compile in a new workspace | Done (TICK-153 PR 1), narrowed: `-trimpath` on the root module's `go test -race` only. New checkout: 94 s to 61 s. On every CI target it made `go vet` and navalint's analysistest runs slower (navalint 115 s to 241 s in a new checkout), so it is not in `GOFLAGS` |
 | O6 | govulncheck per D2 | Lint | Most of the two scans | Done with D2 |
 | O7 | `make ci-changed`: pick the stages from `git diff origin/main`, so most PRs skip integration and stack | All | Whole stages for most PRs | Done (TICK-153 PR 4): `tools/ci/cichanged` maps each changed file to stages through `go list -deps`; an unknown file runs all four. A code-only change in `internal/tenancy` runs lint, unit and integration: 186 s warm, 456 s in a new checkout |
-| O8 | Stack stage: run `stack-internal` as its own project **at the same time** as the main stack | Stack | One full start-up off the wall clock; uses 2 slots | Open decision |
-| O9 | `t.Parallel()` for the 23 `temporalstack` tests (confirm each uses its own workflow ids and tenants first) | Stack | 133 s → about 30 s | Proposed |
-| O10 | Run the read-only stack checks together (healthy, smoke, pgbouncer, temporal_*); `dependencies`, `dbroles` and `idempotent` stay last and sequential | Stack | 1 to 2 min | Proposed |
-| O11 | `fsync=off` for the stack Postgres, through the test-only compose overlay | Stack | Faster db-roles and migrate | Proposed |
+| O8 | Stack stage: run `stack-internal` as its own project **at the same time** as the main stack | Stack | One full start-up off the wall clock; uses 2 slots | Measured both (TICK-153 Phase 2): N = 7 >= 4, so the rule says beside, but beside is slower on this host: two Keycloaks start at once and the main stack takes 233 s to healthy instead of about 120 s. Stack stage 698 s beside, 669 s after. Default `STACK_INTERNAL=after`; `beside` stays a switch. For the Technical Lead to confirm |
+| O9 | `t.Parallel()` for the 23 `temporalstack` tests (confirm each uses its own workflow ids and tenants first) | Stack | 133 s → about 30 s | Partly done (TICK-153 Phase 2). Not `t.Parallel()` across the suite: every CI-6 test polls the one platform task queue (`nava-tq`) and leaves other workflows' tasks to time out, and some deny-log checks match a log window, so parallel tests would steal each other's tasks and could match another test's line. Instead the internode handshake test runs its 18 probe containers at once: 99 s to 4 s, the suite 133 s to 67-100 s (it now runs beside the other checks) |
+| O10 | Run the read-only stack checks together (healthy, smoke, pgbouncer, temporal_*); `dependencies`, `dbroles` and `idempotent` stay last and sequential | Stack | 1 to 2 min | Done (TICK-153 Phase 2): `healthy`, then smoke, PgBouncer, every `temporal_*` case, hba and the two Go suites at once, then dependencies, trace, logs, redact, idempotent and dbroles in order. The same 65 checks and 24 Go stack tests pass |
+| O11 | `fsync=off` for the stack Postgres, through the test-only compose overlay | Stack | Faster db-roles and migrate | Done (TICK-153 Phase 2): `deploy/compose/compose.test.yaml` sets `fsync`, `synchronous_commit` and `full_page_writes` off and `initdb --no-sync`; `compose.yaml` and the internal overlay are unchanged |
 
 O8 to O11 touch the same files as TICK-147 (compose, Makefile, stack-test
 scripts), so they wait for it to merge. O1 to O3 do not.
@@ -99,10 +99,10 @@ O11). The remaining floor after the stack:
 
 ## Open decisions
 
-- **O8:** decided by the Technical Lead: beside the main stack only if N is at
-  least 4, else sequential. Recorded with Phase 2.
-- **D4:** N, from the 1.19 GB per stack above and the memory the race-test
-  queue (D3) and the integration clusters still need. Recorded with Phase 2.
+- **O8:** the rule (beside when N >= 4) assumed beside is faster; measured, it
+  is not (698 s against 669 s). Default after; the Technical Lead to confirm.
+- **D1:** deferred, see its row; the Technical Lead to decide whether the CI-6
+  certificate mounts are rewritten for it.
 
 ## Lessons from TICK-147
 

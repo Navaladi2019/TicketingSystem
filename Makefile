@@ -134,8 +134,8 @@ stack-tests:
 ci-stack: $(if $(IMAGE_CACHE),image-ci,image)
 	@$(STACK_LOCK) $(MAKE) --no-print-directory ci-stack-run
 
-# The main stack and its tests, and beside it the internal overlay on a
-# project of its own (TICK-153 O8: N >= 4, decided by the Technical Lead).
+# The main stack and its tests, and the internal overlay on a project of its
+# own, after it or beside it (STACK_INTERNAL, TICK-153 O8).
 # Each tears its project down; the main one prints its logs first on failure.
 # The certificates come first: a bind mount of a missing file would make
 # Docker create a directory in its place.
@@ -153,13 +153,15 @@ stack-internal-beside:
 	@echo "stack-internal-beside: $(INTERNAL_PROJECT), log in $(INTERNAL_LOG), printed when it ends"; status=0; COMPOSE_PROJECT_NAME=$(INTERNAL_PROJECT) NAVA_CORE_PORT=0 KEYCLOAK_PORT=0 sh deploy/compose/test/stack-test.sh internal >"$(INTERNAL_LOG)" 2>&1 || status=$$?; if [ $$status -ne 0 ]; then COMPOSE_PROJECT_NAME=$(INTERNAL_PROJECT) docker compose $(STACK_FILES) logs --no-color --tail 200 >>"$(INTERNAL_LOG)" 2>&1; fi; COMPOSE_PROJECT_NAME=$(INTERNAL_PROJECT) docker compose $(STACK_FILES) down -v --remove-orphans >>"$(INTERNAL_LOG)" 2>&1; echo "=== stack-internal-beside log"; cat "$(INTERNAL_LOG)"; echo "stack-internal-beside: exit $$status"; exit $$status
 
 # At most STACK_SLOTS compose stacks on the host at once, the rest queued
-# (TICK-153 D4); a ci-stack run holds two, its main and internal stacks.
+# (TICK-153 D4); a ci-stack run holds one, or two with STACK_INTERNAL=beside.
 # N = 7 from the measured memory, docs/quality/ci-optimizations.md.
 # NAVA_STACK_SLOTS=off skips the queue.
-# STACK_INTERNAL=after runs the internal overlay after the main stack instead
-# of beside it, on one slot.
+# STACK_INTERNAL=after (the default) runs the internal overlay after the main
+# stack, on one slot; =beside runs it at the same time, on two. Measured on
+# this host, after is faster: two Keycloaks starting at once cost more than
+# the overlap saves (669 s against 698 s, docs/quality/ci-optimizations.md).
 STACK_SLOTS ?= 7
-STACK_INTERNAL ?= beside
+STACK_INTERNAL ?= after
 STACK_LOCK = go run ./tools/ci/racelock -port 47620 -slots $(STACK_SLOTS) -take $(if $(filter after,$(STACK_INTERNAL)),1,2) -env NAVA_STACK_SLOTS -what "compose stack" --
 
 # Installs the pinned CI tools into $$(go env GOPATH)/bin.
