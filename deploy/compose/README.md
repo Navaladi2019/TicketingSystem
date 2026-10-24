@@ -14,7 +14,7 @@ docker compose -f compose.yaml -f deploy/compose/compose.internal.yaml up -d   #
 | db-roles | built from the repo (`nava-db roles`) | One-shot, idempotent, bootstrap superuser: converges the roles, memberships, databases and PgBouncer lookup in `db/grants.yaml` |
 | migrate | built from the repo (`nava-db migrate`) | One-shot, as `nava_migrator`, direct to Postgres: goose migrations, then the grant manifest |
 | pgbouncer | `edoburu/pgbouncer:v1.24.1-p1` | Transaction mode, `max_prepared_statements=100`, fronts `nava`; logs in only roles with `pgbouncer_login` |
-| keycloak | `quay.io/keycloak/keycloak:26.8.1` | `start-dev`, own database |
+| keycloak | `nava/keycloak` (built on `quay.io/keycloak/keycloak:26.8.1`) | `start --optimized`, own database |
 | temporal-schema | `nava/temporal-server:dev` | One-shot, idempotent: Temporal schema in `temporal` and `temporal_visibility` |
 | temporal-server | `nava/temporal-server:dev` (T27a) | Frontend and internode mTLS, namespace `nava`, `NavaTenantId`; holds the `temporal-system` certificate; `temporal-backplane` network only |
 | temporal | `nava/temporal-server:dev` | Gateway: forwards TCP 7233 only, no certificate. The only route from the platform network to the server |

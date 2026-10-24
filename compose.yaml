@@ -124,10 +124,18 @@ services:
     restart: unless-stopped
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.8.1
+    build:
+      context: .
+      dockerfile: deploy/compose/keycloak/Dockerfile
+    image: nava/keycloak:${NAVA_IMAGE_TAG:-dev}
     # T14: realm `nava` (and the two test IdP realms) are imported from
     # deploy/compose/keycloak/import; existing realms are left alone.
-    command: ["start-dev", "--import-realm"]
+    # TICK-156: `start --optimized` on an image built with `kc.sh build`.
+    # What `start-dev` gave for free is set here on purpose: plain HTTP (the
+    # published port and the internal network are not TLS) and no strict
+    # hostname (the issuer follows the request host, as before). The proxy
+    # headers stay off, as in dev. KC_CACHE=local (single node) is in the image.
+    command: ["start", "--optimized", "--import-realm"]
     volumes:
       - ./deploy/compose/keycloak/import:/opt/keycloak/data/import:ro
     environment:
@@ -135,7 +143,8 @@ services:
       KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
       KC_DB_USERNAME: keycloak
       KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-dev-only-keycloak}
-      KC_HEALTH_ENABLED: "true"
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-dev-only-admin}
     ports:
@@ -144,13 +153,15 @@ services:
     depends_on:
       db-roles: {condition: service_completed_successfully}
     healthcheck:
-      # The image has no curl; probe the management port with bash.
+      # The image has no curl; probe the management port with bash. Ready is the
+      # 200 status line: the body also holds per-check "status": "UP" lines (Graceful
+      # Shutdown) while Keycloak is still initialising, and matched those (TICK-156).
       test:
         - CMD-SHELL
         - >-
           exec 3<>/dev/tcp/127.0.0.1/9000 &&
           printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
-          grep -q '"status": "UP"' <&3
+          head -n1 <&3 | grep -q ' 200 '
       interval: 10s
       timeout: 5s
       retries: 30
