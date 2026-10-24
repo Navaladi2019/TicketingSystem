@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/db/grants"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/roles"
 )
 
@@ -198,4 +201,71 @@ func TestDBRolesNewPlatformDatabaseHasNoPublicGrants(t *testing.T) {
 			t.Errorf("%s has CONNECT or TEMPORARY on %s before migrate", r, m.PlatformDatabase)
 		}
 	}
+}
+
+// snapshotGetAuth is the pgbouncer schema's and get_auth's owner, body and
+// ACLs: what a refused run must leave untouched.
+func snapshotGetAuth(t *testing.T, m *grants.Manifest) string {
+	t.Helper()
+	conn := connect(t, platformSuperConfig(t, m))
+	return queryString(t, conn, `
+		SELECT coalesce((SELECT format('%s %s', nspowner::regrole, nspacl) FROM pg_namespace WHERE nspname = 'pgbouncer'), 'no schema')
+		    || '|' || coalesce((SELECT format('%s %s %s', proowner::regrole, proacl, prosrc) FROM pg_proc
+		                        WHERE oid = to_regprocedure('pgbouncer.get_auth(text)')), 'no function')`)
+}
+
+// T03 security review (TICK-107): the migrator owns the platform database,
+// so it can create schema pgbouncer before db-roles does. db-roles refuses to
+// put get_auth into it and changes nothing.
+func TestDBRolesRefusesPgBouncerSchemaNotOwnedBySuperuser(t *testing.T) {
+	m := freshCluster(t)
+	sconn := connect(t, platformSuperConfig(t, m))
+	exec(t, sconn, "DROP SCHEMA pgbouncer CASCADE")
+	mig := connect(t, roleConfig(t, m.Owner(), m.PlatformDatabase))
+	exec(t, mig, "CREATE SCHEMA pgbouncer")
+	before := snapshotGetAuth(t, m)
+
+	log, _ := newLog()
+	_, err := roles.Run(context.Background(), superConfig(t), m, passwords, log)
+	if err == nil || !strings.Contains(err.Error(), "schema pgbouncer") || !strings.Contains(err.Error(), `"nava_migrator"`) {
+		t.Fatalf("db-roles with a migrator-owned pgbouncer schema: err = %v, want one naming the schema and nava_migrator", err)
+	}
+	if after := snapshotGetAuth(t, m); after != before {
+		t.Fatalf("a refused run changed the schema:\nbefore %s\nafter  %s", before, after)
+	}
+	if !strings.Contains(before, "no function") {
+		t.Fatalf("get_auth exists in the migrator's schema: %s", before)
+	}
+}
+
+// T03 security review (TICK-107): get_auth owned by a non-superuser in the
+// superuser-owned schema fails the run; CREATE OR REPLACE would keep that
+// owner, so db-roles does not try.
+func TestDBRolesRefusesGetAuthNotOwnedBySuperuser(t *testing.T) {
+	m := freshCluster(t)
+	sconn := connect(t, platformSuperConfig(t, m))
+	exec(t, sconn, "ALTER FUNCTION pgbouncer.get_auth(text) OWNER TO nava_migrator")
+	before := snapshotGetAuth(t, m)
+
+	log, _ := newLog()
+	_, err := roles.Run(context.Background(), superConfig(t), m, passwords, log)
+	if err == nil || !strings.Contains(err.Error(), "function pgbouncer.get_auth(text)") || !strings.Contains(err.Error(), `"nava_migrator"`) {
+		t.Fatalf("db-roles with a migrator-owned get_auth: err = %v, want one naming the function and nava_migrator", err)
+	}
+	if after := snapshotGetAuth(t, m); after != before {
+		t.Fatalf("a refused run changed get_auth:\nbefore %s\nafter  %s", before, after)
+	}
+
+	exec(t, sconn, "ALTER FUNCTION pgbouncer.get_auth(text) OWNER TO CURRENT_USER")
+	if _, err := roles.Run(context.Background(), superConfig(t), m, passwords, log); err != nil {
+		t.Fatalf("db-roles after ownership is restored: %v", err)
+	}
+}
+
+// platformSuperConfig is the bootstrap superuser on the platform database.
+func platformSuperConfig(t *testing.T, m *grants.Manifest) *pgx.ConnConfig {
+	t.Helper()
+	cfg := superConfig(t).Copy()
+	cfg.Database = m.PlatformDatabase
+	return cfg
 }
