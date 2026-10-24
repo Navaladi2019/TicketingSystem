@@ -7,6 +7,7 @@ linters:
   default: standard # errcheck, govet, ineffassign, staticcheck, unused
   enable:
     - bodyclose
+    - depguard
     - errorlint
     - forbidigo
     - gochecknoglobals # config and state go through constructors, never globals
@@ -17,6 +18,26 @@ linters:
     - sloglint
     - unconvert
   settings:
+    depguard:
+      rules:
+        # CI-11 import rule (D-P6, TICK-94 item 15): only the Keycloak adapter
+        # imports a Keycloak client or a JWT/JWKS library; everything else
+        # goes through the identity port. depguard sees direct imports only,
+        # so a re-exporting wrapper gets around it; the contract suite
+        # (internal/identity/contracttest) is the backstop.
+        identity-port:
+          files:
+            - "$all"
+            - "!**/internal/identity/keycloak/**"
+          deny:
+            - pkg: github.com/lestrrat-go/jwx
+              desc: tokens are validated only in internal/identity/keycloak; use identity.IdentityResolver or identity.OperatorResolver
+            - pkg: github.com/lestrrat-go/httprc
+              desc: the JWKS cache lives only in internal/identity/keycloak
+            - pkg: github.com/Nerzal/gocloak
+              desc: forbidden (TICK-94 item 12); the Keycloak client lives in internal/identity/keycloak
+            - pkg: github.com/coreos/go-oidc
+              desc: forbidden (TICK-94 item 11)
     forbidigo:
       # Outbound calls go through telemetry.NewOutboundClient (timeouts, URL
       # redaction, no query or email in spans). A raw client skips all three.
