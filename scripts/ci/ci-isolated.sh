@@ -52,17 +52,23 @@ images="nava/nava-core nava/nava-db nava/otel-collector nava/temporal-server"
 stack_files="-f compose.yaml -f deploy/compose/compose.internal.yaml"
 
 teardown() {
-    # shellcheck disable=SC2086
-    COMPOSE_PROFILES=operator docker compose $stack_files down -v --remove-orphans >/dev/null 2>&1 || true
+    # The main project and the internal overlay's, which runs beside it
+    # (TICK-153 O8).
+    for p in "$COMPOSE_PROJECT_NAME" "$COMPOSE_PROJECT_NAME-int"; do
+        # shellcheck disable=SC2086
+        COMPOSE_PROJECT_NAME=$p COMPOSE_PROFILES=operator docker compose $stack_files down -v --remove-orphans >/dev/null 2>&1 || true
+    done
     # Untags only: layers another tag uses and the build cache stay.
     for i in $images; do docker image rm "$i:$id" >/dev/null 2>&1 || true; done
     left=""
-    for kind in container volume network; do
-        case $kind in
-            container) out=$(docker ps -a -q --filter "label=com.docker.compose.project=$COMPOSE_PROJECT_NAME") ;;
-            *) out=$(docker $kind ls -q --filter "label=com.docker.compose.project=$COMPOSE_PROJECT_NAME") ;;
-        esac
-        [ -z "$out" ] || left="$left $kind:$(echo $out)"
+    for p in "$COMPOSE_PROJECT_NAME" "$COMPOSE_PROJECT_NAME-int"; do
+        for kind in container volume network; do
+            case $kind in
+                container) out=$(docker ps -a -q --filter "label=com.docker.compose.project=$p") ;;
+                *) out=$(docker $kind ls -q --filter "label=com.docker.compose.project=$p") ;;
+            esac
+            [ -z "$out" ] || left="$left $p:$kind:$(echo $out)"
+        done
     done
     for i in $images; do
         [ -z "$(docker images -q "$i:$id")" ] || left="$left image:$i:$id"
@@ -71,7 +77,7 @@ teardown() {
         echo "ci-isolated: teardown left$left" >&2
         return 1
     fi
-    echo "ci-isolated: teardown clean, nothing of $COMPOSE_PROJECT_NAME left"
+    echo "ci-isolated: teardown clean, nothing of $COMPOSE_PROJECT_NAME or $COMPOSE_PROJECT_NAME-int left"
 }
 finish() {
     status=$?

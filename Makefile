@@ -40,7 +40,7 @@ GOLANGCI_LINT_VERSION := 2.14.0
 GOVULNCHECK_VERSION := v1.9.0
 
 .PHONY: build run test test-integration lint generate check-openapi
-.PHONY: ci ci-isolated ci-changed ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity 	image image-ci stack-up stack-down stack-logs stack-internal smoke
+.PHONY: ci ci-isolated ci-changed ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity 	image image-ci stack-up stack-down stack-logs stack-internal stack-internal-beside stack-main ci-stack-run stack-tests smoke
 
 build:
 	go build -o bin/nava-core ./cmd/nava-core
@@ -119,9 +119,54 @@ ci-integration: test-integration
 # Builds the images, brings the stack up, runs every stack test, then tears
 # it down (logs first on failure). The workflow runs the same targets one step
 # at a time.
-STACK_TESTS := healthy smoke pgbouncer temporal temporal_handshake temporal_isolation temporal_custody temporal_operator_reach temporal_health sdk identity dependencies trace logs redact idempotent dbroles hba
+# healthy gates the rest. The read-only checks and the two Go suites then run
+# at once (TICK-153 O10): none changes what another reads, and each matches
+# only lines it caused. The rest run one at a time, in this order: dependencies
+# stops Keycloak, trace counts every trace the Collector saw, idempotent
+# restarts the stack, and dbroles changes roles.
+STACK_TESTS_PARALLEL := smoke pgbouncer temporal temporal_handshake temporal_isolation temporal_custody temporal_operator_reach temporal_health hba sdk identity
+STACK_TESTS_SERIAL := dependencies trace logs redact idempotent dbroles
+STACK_TESTS := healthy $(STACK_TESTS_PARALLEL) $(STACK_TESTS_SERIAL)
+stack-tests:
+	$(MAKE) --no-print-directory -j1 stack-test-healthy
+	$(MAKE) --no-print-directory -j $(words $(STACK_TESTS_PARALLEL)) --output-sync=target $(addprefix stack-test-,$(STACK_TESTS_PARALLEL))
+	$(MAKE) --no-print-directory -j1 $(addprefix stack-test-,$(STACK_TESTS_SERIAL))
 ci-stack: $(if $(IMAGE_CACHE),image-ci,image)
-	@status=0; $(MAKE) --no-print-directory stack-up $(addprefix stack-test-,$(STACK_TESTS)) stack-internal || status=$$?; 	if [ $$status -ne 0 ]; then $(MAKE) --no-print-directory stack-logs; fi; 	$(MAKE) --no-print-directory stack-down; exit $$status
+	@$(STACK_LOCK) $(MAKE) --no-print-directory ci-stack-run
+
+# The main stack and its tests, and the internal overlay on a project of its
+# own, after it or beside it (STACK_INTERNAL, TICK-153 O8).
+# Each tears its project down; the main one prints its logs first on failure.
+# The certificates come first: a bind mount of a missing file would make
+# Docker create a directory in its place.
+# Only this throwaway run, which ends in down -v, gets the no-durability
+# Postgres (deploy/compose/compose.ci.yaml); make stack-up on the dev project
+# never does.
+ci-stack-run: export COMPOSE_FILE := compose.yaml:deploy/compose/compose.test.yaml:deploy/compose/compose.ci.yaml
+ci-stack-run: dev-ca
+	@$(MAKE) --no-print-directory $(if $(filter after,$(STACK_INTERNAL)),-j1,-j 2) stack-main stack-internal-beside
+
+stack-main:
+	@status=0; $(MAKE) --no-print-directory -j1 stack-up stack-tests || status=$$?; if [ $$status -ne 0 ]; then $(MAKE) --no-print-directory stack-logs; fi; $(MAKE) --no-print-directory stack-down; exit $$status
+
+# The internal overlay needs a fresh stack. Host ports 0: Docker picks free
+# ones, so it cannot collide with the main stack's.
+INTERNAL_PROJECT = $(COMPOSE_PROJECT)-int
+INTERNAL_LOG = $(or $(TMPDIR),/tmp)/$(INTERNAL_PROJECT).log
+stack-internal-beside:
+	@echo "stack-internal-beside: $(INTERNAL_PROJECT), log in $(INTERNAL_LOG), printed when it ends"; status=0; COMPOSE_PROJECT_NAME=$(INTERNAL_PROJECT) NAVA_CORE_PORT=0 KEYCLOAK_PORT=0 sh deploy/compose/test/stack-test.sh internal >"$(INTERNAL_LOG)" 2>&1 || status=$$?; if [ $$status -ne 0 ]; then COMPOSE_PROJECT_NAME=$(INTERNAL_PROJECT) docker compose $(STACK_FILES) logs --no-color --tail 200 >>"$(INTERNAL_LOG)" 2>&1; fi; COMPOSE_PROJECT_NAME=$(INTERNAL_PROJECT) docker compose $(STACK_FILES) down -v --remove-orphans >>"$(INTERNAL_LOG)" 2>&1; echo "=== stack-internal-beside log"; cat "$(INTERNAL_LOG)"; echo "stack-internal-beside: exit $$status"; exit $$status
+
+# At most STACK_SLOTS compose stacks on the host at once, the rest queued
+# (TICK-153 D4); a ci-stack run holds one, or two with STACK_INTERNAL=beside.
+# N = 7 from the measured memory, docs/quality/ci-optimizations.md.
+# NAVA_STACK_SLOTS=off skips the queue.
+# STACK_INTERNAL=after (the default) runs the internal overlay after the main
+# stack, on one slot; =beside runs it at the same time, on two. Measured on
+# this host, after is faster: two Keycloaks starting at once cost more than
+# the overlap saves (669 s against 698 s, docs/quality/ci-optimizations.md).
+STACK_SLOTS ?= 7
+STACK_INTERNAL ?= after
+STACK_LOCK = go run ./tools/ci/racelock -port 47620 -slots $(STACK_SLOTS) -take $(if $(filter after,$(STACK_INTERNAL)),1,2) -env NAVA_STACK_SLOTS -what "compose stack" --
 
 # Installs the pinned CI tools into $$(go env GOPATH)/bin.
 tools:
