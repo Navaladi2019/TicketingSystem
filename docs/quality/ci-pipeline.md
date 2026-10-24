@@ -110,13 +110,27 @@ make tools        # once
 make ci           # all four stages
 make ci-lint      # or one stage
 NAVA_CI_CANARY=fail make test-integration ARGS="-run TestCICanary"   # canary, must fail
-make ci-isolated ID=pr-57   # all four stages on a stack of its own (below)
+make ci-isolated ID=pr-57   # all four stages at once, on a stack of its own (below)
+make ci-changed ID=pr-57    # only the stages the change against origin/main needs
 ```
+
+`make ci-changed` (`task ci:changed`, TICK-153 O7) asks `tools/ci/cichanged`
+which stages the files changed since the merge base with `BASE` need,
+uncommitted and untracked files included, and runs `ci-isolated` with them.
+Every change runs `ci-lint`. Documentation alone runs nothing else. A Go
+package's files add `ci-unit`, plus `ci-integration` when an integration test
+depends on the package and `ci-stack` when an image or a stack test does
+(`go list -deps`). Compose and `deploy/` files add `ci-stack`, the integration
+script `ci-integration`. `go.mod`, `go.sum`, `docs/pins.md`, the Makefile, and
+any file no rule knows run all four. `go run ./tools/ci/cichanged -v` prints
+the reason for each file. Before merging, the last run still has to pass the
+stages it picked, at the PR head.
 
 ## Parallel runs (TICK-147)
 
 `make ci-isolated ID=<pr-or-sha>` (`task ci:isolated ID=...`) runs the same four
-stages as `make ci`, on a stack nothing else shares, so several checkouts run
+stages as `make ci`, all at once (TICK-153 O4; `PARALLEL=0` runs them in
+order), on a stack nothing else shares, so several checkouts run
 CI at once on one Docker host. Run it from each PR's own checkout; one run per
 checkout at a time (the dev certificates and `ci6-report.md` live in it).
 
@@ -131,7 +145,8 @@ is refused. On exit, pass or fail, the run removes its project
 (`down -v --remove-orphans`) and untags its four `nava/*:<ID>` images. It never
 prunes, so shared layers and the build cache stay. It then fails if any
 `nava-<ID>` container, volume, network or image tag is left.
-`STAGES="ci-unit ci-stack"` runs a subset. A run killed outright (SIGKILL,
+`STAGES="ci-unit ci-stack"` runs a subset. Each stage writes its own log
+to `$TMPDIR/ci-isolated-<ID>/`, printed whole when the stage ends. A run killed outright (SIGKILL,
 a closed session) skips that cleanup; `make ci-isolated-down ID=<ID>` does it.
 The `integration` stage was already safe in parallel: it names its containers
 by PID and takes random host ports.
