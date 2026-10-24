@@ -101,20 +101,7 @@ type LookupFunc func(key string) (string, bool)
 // are never echoed, because a misplaced secret must not reach the logs.
 func Load(lookup LookupFunc) (Config, error) {
 	r := reader{lookup: lookup}
-	// Both endpoints are validated, so a bad value fails here, by name, before
-	// the exporter would report it with the value.
-	tracesEndpoint := r.endpoint("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
-	baseEndpoint := r.endpoint("OTEL_EXPORTER_OTLP_ENDPOINT")
-	// The exporter parses these itself and logs a bad entry or timeout with
-	// its value, which for headers is a bearer token or API key. Check them
-	// here, by name, so the exporter only ever sees values it accepts.
-	r.otlpHeaders("OTEL_EXPORTER_OTLP_HEADERS")
-	r.otlpHeaders("OTEL_EXPORTER_OTLP_TRACES_HEADERS")
-	r.otlpHeaders("OTEL_EXPORTER_OTLP_LOGS_HEADERS")
-	r.otlpTimeout("OTEL_EXPORTER_OTLP_TIMEOUT")
-	r.otlpTimeout("OTEL_EXPORTER_OTLP_TRACES_TIMEOUT")
-	r.otlpTimeout("OTEL_EXPORTER_OTLP_LOGS_TIMEOUT")
-	r.endpoint("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT")
+	tel := r.telemetry()
 	cfg := Config{
 		HTTP: HTTP{
 			Addr:              r.addr("NAVA_HTTP_ADDR", ":8080"),
@@ -129,11 +116,7 @@ func Load(lookup LookupFunc) (Config, error) {
 			Level:  r.level("NAVA_LOG_LEVEL", slog.LevelInfo),
 			Format: r.oneOf("NAVA_LOG_FORMAT", FormatJSON, FormatJSON, FormatText),
 		},
-		Telemetry: Telemetry{
-			ExportTraces:    tracesEndpoint || baseEndpoint,
-			ExportLogs:      baseEndpoint,
-			ShutdownTimeout: r.duration("NAVA_TELEMETRY_SHUTDOWN_TIMEOUT", 5*time.Second),
-		},
+		Telemetry: tel,
 	}
 	cfg.Deps = Dependencies{
 		DatabaseURL:           r.databaseURL("NAVA_DATABASE_URL"),
@@ -162,6 +145,30 @@ func Load(lookup LookupFunc) (Config, error) {
 type reader struct {
 	lookup LookupFunc
 	errs   []error
+}
+
+// telemetry reads the OTEL_* switches and NAVA_TELEMETRY_SHUTDOWN_TIMEOUT, and
+// checks the OTLP values the exporter would otherwise log with their content.
+func (r *reader) telemetry() Telemetry {
+	// Both endpoints are validated, so a bad value fails here, by name, before
+	// the exporter would report it with the value.
+	tracesEndpoint := r.endpoint("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+	baseEndpoint := r.endpoint("OTEL_EXPORTER_OTLP_ENDPOINT")
+	// The exporter parses these itself and logs a bad entry or timeout with
+	// its value, which for headers is a bearer token or API key. Check them
+	// here, by name, so the exporter only ever sees values it accepts.
+	r.otlpHeaders("OTEL_EXPORTER_OTLP_HEADERS")
+	r.otlpHeaders("OTEL_EXPORTER_OTLP_TRACES_HEADERS")
+	r.otlpHeaders("OTEL_EXPORTER_OTLP_LOGS_HEADERS")
+	r.otlpTimeout("OTEL_EXPORTER_OTLP_TIMEOUT")
+	r.otlpTimeout("OTEL_EXPORTER_OTLP_TRACES_TIMEOUT")
+	r.otlpTimeout("OTEL_EXPORTER_OTLP_LOGS_TIMEOUT")
+	r.endpoint("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT")
+	return Telemetry{
+		ExportTraces:    tracesEndpoint || baseEndpoint,
+		ExportLogs:      baseEndpoint,
+		ShutdownTimeout: r.duration("NAVA_TELEMETRY_SHUTDOWN_TIMEOUT", 5*time.Second),
+	}
 }
 
 // addr checks key is a listen address, host:port with a numeric port (0 picks
