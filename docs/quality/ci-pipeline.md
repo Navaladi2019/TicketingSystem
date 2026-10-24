@@ -117,14 +117,18 @@ make ci-changed ID=pr-57    # only the stages the change against origin/main nee
 `make ci-changed` (`task ci:changed`, TICK-153 O7) asks `tools/ci/cichanged`
 which stages the files changed since the merge base with `BASE` need,
 uncommitted and untracked files included, and runs `ci-isolated` with them.
-Every change runs `ci-lint`. Documentation alone runs nothing else. A Go
-package's files add `ci-unit`, plus `ci-integration` when an integration test
-depends on the package and `ci-stack` when an image or a stack test does
-(`go list -deps`). Compose and `deploy/` files add `ci-stack`, the integration
-script `ci-integration`. `go.mod`, `go.sum`, `docs/pins.md`, the Makefile, and
-any file no rule knows run all four. `go run ./tools/ci/cichanged -v` prints
-the reason for each file. Before merging, the last run still has to pass the
-stages it picked, at the PR head.
+Every change runs `ci-lint`. Documentation (`.md` and `.html` outside a Go
+package and outside `testdata`) runs nothing else; any other file under
+`docs/` runs all four, since tests read some of them. A Go package's files add
+`ci-unit`, plus `ci-integration` when an integration test depends on the
+package and `ci-stack` when an image or a stack test does (`go list -deps`).
+Compose and `deploy/` files add `ci-unit` (unit tests read the compose and
+collector files) and `ci-stack`; the integration script adds `ci-integration`.
+`go.mod`, `go.sum`, `docs/pins.md`, the Makefile, and any file no rule knows
+run all four. A renamed file counts at both paths (`git diff --no-renames`).
+`go run ./tools/ci/cichanged -v` prints the reason for each file. Whether a
+`ci-changed` run can replace the full pipeline as a PR's final gate (D5) is
+the Technical Lead's decision; until then the full run stays the gate.
 
 ## Parallel runs (TICK-147)
 

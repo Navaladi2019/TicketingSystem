@@ -110,8 +110,13 @@ mkdir -p "$logs"
 echo "ci-isolated: stages $stages at once; logs in $logs"
 procs=""
 for stage in $stages; do
+    # make runs in the background of its subshell, which passes a TERM on, so
+    # stopping the stage stops make too.
     ( t=$(date +%s)
-      if make --no-print-directory "$stage" >"$logs/$stage.log" 2>&1; then r=0; else r=$?; fi
+      make --no-print-directory "$stage" >"$logs/$stage.log" 2>&1 &
+      m=$!
+      trap 'kill "$m" 2>/dev/null' TERM
+      if wait "$m"; then r=0; else r=$?; fi
       echo "$r $(( $(date +%s) - t ))" >"$logs/$stage.status"
       exit "$r" ) &
     procs="$procs $!:$stage"

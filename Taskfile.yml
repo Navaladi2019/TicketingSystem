@@ -92,7 +92,7 @@ tasks:
     requires:
       vars: [ID]
     cmds:
-      - STAGES="$(go run ./tools/ci/cichanged -v)" sh scripts/ci/ci-isolated.sh {{.ID}}
+      - stages=$(go run ./tools/ci/cichanged -v) && STAGES="$stages" sh scripts/ci/ci-isolated.sh {{.ID}}
 
   ci:isolated:down:
     desc: "Tear down what a killed ci:isolated run left (its own project and image tags), the same as make ci-isolated-down"

@@ -3,7 +3,8 @@
 // the working tree's uncommitted and untracked files included. `make
 // ci-changed` runs ci-isolated with those stages.
 //
-// Every change runs ci-lint. A Go package's files add ci-unit, plus
+// Every change runs ci-lint. Documentation (.md and .html outside a Go
+// package and testdata) runs nothing else. A Go package's files add ci-unit, plus
 // ci-integration when an integration test depends on the package, plus
 // ci-stack when an image or a stack test does. A file no rule knows runs every
 // stage, so a new kind of file is never skipped by default.
@@ -106,15 +107,21 @@ func fileStages(f string, g graph) ([]string, string) {
 		return []string{"ci-lint", "ci-unit", "ci-stack"}, "temporal-server module and image"
 	case strings.HasPrefix(f, "tools/navalint/"):
 		return []string{"ci-lint", "ci-unit"}, "navalint module"
-	case strings.HasPrefix(f, "docs/") || path.Ext(f) == ".md" || path.Ext(f) == ".html":
-		return lint, "documentation"
+	case (path.Ext(f) == ".md" || path.Ext(f) == ".html") && !strings.Contains("/"+f, "/testdata/"):
+		// Only outside a Go package: a package may embed or read its own
+		// .md files, which the package rule below covers.
+		if _, ok := packageOf(f, g.packages); !ok {
+			return lint, "documentation"
+		}
 	case strings.HasPrefix(f, ".github/") || f == ".golangci.yml" ||
 		f == "scripts/ci/vulncheck.sh" || f == "scripts/ci/navalint.sh" || f == "scripts/ci/lint-fixture.sh":
 		return lint, "lint configuration, lint script or workflows"
 	case f == "scripts/ci/test-integration.sh" || strings.HasPrefix(f, "scripts/ci/pgbouncer/"):
 		return []string{"ci-lint", "ci-integration"}, "integration script"
 	case strings.HasPrefix(f, "deploy/") || strings.HasPrefix(path.Base(f), "compose") || f == ".dockerignore":
-		return []string{"ci-lint", "ci-stack"}, "compose stack"
+		// Unit tests read the compose and collector files too
+		// (cmd/nava-core, internal/platform/telemetry).
+		return []string{"ci-lint", "ci-unit", "ci-stack"}, "compose stack"
 	}
 	if pkg, ok := packageOf(f, g.packages); ok {
 		s := []string{"ci-lint", "ci-unit"}
@@ -149,7 +156,9 @@ func changedFiles(base string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w (fetch %s first)", err, base)
 	}
-	diff, err := git("diff", "--name-only", strings.TrimSpace(mb))
+	// --no-renames: a moved file counts at its old path too, so a file moved
+	// out of a package into docs/ still runs that package's stages.
+	diff, err := git("diff", "--name-only", "--no-renames", strings.TrimSpace(mb))
 	if err != nil {
 		return nil, err
 	}

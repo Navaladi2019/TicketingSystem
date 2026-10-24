@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -37,7 +38,10 @@ func TestClassify(t *testing.T) {
 		{"embedded file in a package subdirectory", []string{"db/migrations/00009_x.sql"}, "ci-lint ci-unit ci-integration ci-stack"},
 		{"deepest package wins", []string{"internal/db/roles/testdata/x.txt"}, "ci-lint ci-unit ci-integration"},
 		{"parent package", []string{"internal/db/pool.go"}, "ci-lint ci-unit"},
-		{"compose", []string{"deploy/compose/keycloak/realm.json", "compose.yaml"}, "ci-lint ci-stack"},
+		{"compose, which unit tests read too", []string{"deploy/compose/keycloak/realm.json", "compose.yaml"}, "ci-lint ci-unit ci-stack"},
+		{"non-documentation file under docs", []string{"docs/delivery/review-paths.yaml"}, "ci-lint ci-unit ci-integration ci-stack"},
+		{"testdata markdown", []string{"tools/ci/checkpins/testdata/pins.md"}, "ci-lint ci-unit"},
+		{"markdown in a package", []string{"internal/server/NOTES.md"}, "ci-lint ci-unit ci-stack"},
 		{"temporal-server module", []string{"temporal-server/authz/authz.go"}, "ci-lint ci-unit ci-stack"},
 		{"navalint module", []string{"tools/navalint/setconfig/setconfig.go"}, "ci-lint ci-unit"},
 		{"root dependencies", []string{"go.sum"}, "ci-lint ci-unit ci-integration ci-stack"},
@@ -83,5 +87,40 @@ func TestLoadGraph(t *testing.T) {
 		if g.integration[c.pkg] != c.integration || g.stack[c.pkg] != c.stack {
 			t.Errorf("%s: integration %v stack %v, want %v %v", c.pkg, g.integration[c.pkg], g.stack[c.pkg], c.integration, c.stack)
 		}
+	}
+}
+
+// A file moved out of a package counts at its old path too.
+func TestChangedFilesSeesBothSidesOfARename(t *testing.T) {
+	t.Chdir(t.TempDir())
+	run := func(args ...string) {
+		t.Helper()
+		if _, err := git(args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run("init", "-q", "-b", "base")
+	run("config", "user.email", "ci@example.invalid")
+	run("config", "user.name", "ci")
+	if err := os.MkdirAll("internal/server", 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("internal/server/notes.go", []byte("package server\n\n// A long enough body for rename detection.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run("add", ".")
+	run("commit", "-q", "-m", "base")
+	run("checkout", "-q", "-b", "change")
+	if err := os.MkdirAll("docs", 0o750); err != nil {
+		t.Fatal(err)
+	}
+	run("mv", "internal/server/notes.go", "docs/notes.md")
+	run("commit", "-q", "-m", "move")
+	files, err := changedFiles("base")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(files, " "); got != "docs/notes.md internal/server/notes.go" {
+		t.Fatalf("changed files = %q, want both paths", got)
 	}
 }
