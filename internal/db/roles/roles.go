@@ -351,7 +351,7 @@ func ensureGetAuth(ctx context.Context, conn *pgx.Conn, m *grants.Manifest, log 
 		" WHERE usename = p_usename AND usename = ANY (" + literal(arr) + "::name[])" +
 		" AND NOT usesuper AND NOT usebypassrls AND NOT userepl"
 
-	schemaExists, err := superuserOwned(ctx, conn, ex.Schema, ex.Function)
+	schemaExists, fnExists, err := superuserOwned(ctx, conn, ex.Schema, ex.Function)
 	if err != nil {
 		return err
 	}
@@ -362,19 +362,30 @@ func ensureGetAuth(ctx context.Context, conn *pgx.Conn, m *grants.Manifest, log 
 			return err
 		}
 	}
-	var src, cfg *string
-	var secdef bool
-	err = conn.QueryRow(ctx, `
-		SELECT p.prosrc, p.prosecdef, array_to_string(p.proconfig, ',')
-		FROM pg_catalog.pg_proc p WHERE p.oid = pg_catalog.to_regprocedure($1)`, ex.Function).Scan(&src, &secdef, &cfg)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return err
+	// The check, not a second read, decides the statement: a function created
+	// since the check makes the plain CREATE fail instead of being compared and
+	// adopted. OR REPLACE only touches a function the check saw superuser-owned,
+	// which no one else can drop or re-own.
+	write := !fnExists
+	if fnExists {
+		var src, cfg *string
+		var secdef bool
+		if err := conn.QueryRow(ctx, `
+			SELECT p.prosrc, p.prosecdef, array_to_string(p.proconfig, ',')
+			FROM pg_catalog.pg_proc p WHERE p.oid = pg_catalog.to_regprocedure($1)`, ex.Function).Scan(&src, &secdef, &cfg); err != nil {
+			return err
+		}
+		write = src == nil || *src != body || !secdef || cfg == nil || *cfg != "search_path=pg_catalog"
 	}
-	if errors.Is(err, pgx.ErrNoRows) || src == nil || *src != body || !secdef || cfg == nil || *cfg != "search_path=pg_catalog" {
-		stmt := fmt.Sprintf(`CREATE OR REPLACE FUNCTION %s.get_auth(p_usename text)
+	if write {
+		create := "CREATE FUNCTION"
+		if fnExists {
+			create = "CREATE OR REPLACE FUNCTION"
+		}
+		stmt := fmt.Sprintf(`%s %s.get_auth(p_usename text)
 			RETURNS TABLE (usename name, passwd text)
 			LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog
-			AS %s`, ident(ex.Schema), literal(body))
+			AS %s`, create, ident(ex.Schema), literal(body))
 		if _, err := conn.Exec(ctx, stmt); err != nil {
 			return err
 		}
@@ -451,8 +462,8 @@ func ensureGetAuth(ctx context.Context, conn *pgx.Conn, m *grants.Manifest, log 
 // migrator as its owner, could create the schema before db-roles and then
 // redefine get_auth; CREATE SCHEMA IF NOT EXISTS and CREATE OR REPLACE keep
 // the existing owner, so db-roles checks before either and repairs nothing
-// (ADR-001 I3, TICK-107). It reports whether the schema exists.
-func superuserOwned(ctx context.Context, conn *pgx.Conn, schema, function string) (bool, error) {
+// (ADR-001 I3, TICK-107). It reports whether the schema and the function exist.
+func superuserOwned(ctx context.Context, conn *pgx.Conn, schema, function string) (schemaExists, fnExists bool, err error) {
 	type owned struct {
 		Kind, Owner string
 		Super       bool
@@ -466,11 +477,11 @@ func superuserOwned(ctx context.Context, conn *pgx.Conn, schema, function string
 		FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_roles r ON r.oid = p.proowner
 		WHERE p.oid = pg_catalog.to_regprocedure($2)`, schema, function)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	objs, err := pgx.CollectRows(rows, pgx.RowToStructByPos[owned])
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	for _, o := range objs {
 		if o.Super {
@@ -480,11 +491,14 @@ func superuserOwned(ctx context.Context, conn *pgx.Conn, schema, function string
 		if o.Kind == "function" {
 			name = function
 		}
-		return false, fmt.Errorf("%s %s is owned by %q, which is not a superuser; drop it or change its owner by hand, db-roles will not repair it",
+		return false, false, fmt.Errorf("%s %s is owned by %q, which is not a superuser; drop it or change its owner by hand, db-roles will not repair it",
 			o.Kind, name, o.Owner)
 	}
-	// The function lives in the schema, so any row means the schema exists.
-	return len(objs) > 0, nil
+	for _, o := range objs {
+		schemaExists = schemaExists || o.Kind == "schema"
+		fnExists = fnExists || o.Kind == "function"
+	}
+	return schemaExists, fnExists, nil
 }
 
 func onOff(on bool, attr string) string {
