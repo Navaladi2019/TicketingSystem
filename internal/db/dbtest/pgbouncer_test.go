@@ -15,8 +15,7 @@ import (
 // role) cannot log in through PgBouncer. The stack test logs in through the
 // real pooler; this one checks the lookup itself.
 func TestGetAuthAllowList(t *testing.T) {
-	m := freshCluster(t)
-	migrateAll(t, m)
+	migratedCluster(t)
 	auth := connect(t, roleConfig(t, "pgbouncer_auth", "nava"))
 	super := connect(t, superConfig(t))
 	me := queryString(t, super, "SELECT current_user::text")
@@ -45,8 +44,7 @@ func TestGetAuthAllowList(t *testing.T) {
 }
 
 func TestGetAuthReachableOnlyByPgBouncerAuth(t *testing.T) {
-	m := freshCluster(t)
-	migrateAll(t, m)
+	m := migratedCluster(t)
 	app := connect(t, roleConfig(t, "nava_app", "nava"))
 	if _, err := app.Exec(context.Background(), "SELECT * FROM pgbouncer.get_auth('nava_app')"); sqlState(err) != "42501" {
 		t.Fatalf("nava_app calling get_auth: err = %v, want insufficient_privilege", err)

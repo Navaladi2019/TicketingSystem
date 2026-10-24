@@ -2,6 +2,8 @@
 # gateway on the host loopback so a Go test can dial it from outside Docker.
 #   docker compose -f compose.yaml -f deploy/compose/compose.test.yaml up -d
 # Only 7233 is published; every other Temporal port stays unreachable.
+# make stack-up uses it on the dev project too, so it changes nothing else;
+# what only a throwaway CI stack may have is in compose.ci.yaml.
 services:
   temporal:
     ports:
