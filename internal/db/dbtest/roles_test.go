@@ -269,3 +269,71 @@ func platformSuperConfig(t *testing.T, m *grants.Manifest) *pgx.ConnConfig {
 	cfg.Database = m.PlatformDatabase
 	return cfg
 }
+
+// getAuthState is get_auth's oid, owner and whether the owner is a superuser,
+// then its body, SECURITY DEFINER flag, settings and ACL.
+func getAuthState(t *testing.T, conn *pgx.Conn) (identity, definition string) {
+	t.Helper()
+	if err := conn.QueryRow(context.Background(), `
+		SELECT format('oid=%s owner=%s super=%s', p.oid, r.rolname, r.rolsuper),
+		       format('secdef=%s config=%s acl=%s src=%s', p.prosecdef, p.proconfig, p.proacl, p.prosrc)
+		FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner
+		WHERE p.oid = to_regprocedure('pgbouncer.get_auth(text)')`).Scan(&identity, &definition); err != nil {
+		t.Fatalf("read get_auth: %v", err)
+	}
+	return identity, definition
+}
+
+// TICK-144 (ADR-001 I3, CI-3): a superuser-owned get_auth whose body or
+// search_path has drifted is rewritten with CREATE OR REPLACE. The canonical
+// definition comes back and the function keeps its oid and its superuser
+// owner, so the repair neither recreates the function nor re-owns it.
+func TestDBRolesRepairsDriftedSuperuserOwnedGetAuth(t *testing.T) {
+	for _, tc := range []struct{ name, drift string }{
+		// The allow-list and the superuser/BYPASSRLS/REPLICATION filters gone.
+		{"body", `CREATE OR REPLACE FUNCTION pgbouncer.get_auth(p_usename text)
+			RETURNS TABLE (usename name, passwd text)
+			LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog
+			AS 'SELECT usename, passwd FROM pg_catalog.pg_shadow WHERE usename = p_usename'`},
+		// A schema the caller can write to ahead of pg_catalog.
+		{"search_path", "ALTER FUNCTION pgbouncer.get_auth(text) SET search_path = public, pg_catalog"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := freshCluster(t)
+			sconn := connect(t, platformSuperConfig(t, m))
+			wantID, wantDef := getAuthState(t, sconn)
+			if !strings.HasSuffix(wantID, " super=t") {
+				t.Fatalf("fresh get_auth is not superuser-owned: %s", wantID)
+			}
+
+			exec(t, sconn, tc.drift)
+			if id, def := getAuthState(t, sconn); id != wantID || def == wantDef {
+				t.Fatalf("drift setup: want same identity and a changed definition, got\n%s\n%s", id, def)
+			}
+
+			log, buf := newLog()
+			res, err := roles.Run(context.Background(), superConfig(t), m, passwords, log)
+			if err != nil {
+				t.Fatalf("db-roles on a drifted get_auth: %v\n%s", err, buf)
+			}
+			if res.Total() != 1 || res.Changed != 1 {
+				t.Fatalf("result = %+v, want exactly one change (the function)\n%s", res, buf)
+			}
+			if !strings.Contains(buf.String(), `"msg":"wrote PgBouncer lookup function"`) {
+				t.Fatalf("rewrite not logged:\n%s", buf)
+			}
+			id, def := getAuthState(t, sconn)
+			if id != wantID {
+				t.Fatalf("get_auth identity changed:\nbefore %s\nafter  %s", wantID, id)
+			}
+			if def != wantDef {
+				t.Fatalf("get_auth not restored:\nwant %s\ngot  %s", wantDef, def)
+			}
+
+			// Converged: the next run changes nothing.
+			if res, err := roles.Run(context.Background(), superConfig(t), m, passwords, log); err != nil || res.Total() != 0 {
+				t.Fatalf("run after the repair: %+v, %v; want no changes", res, err)
+			}
+		})
+	}
+}
