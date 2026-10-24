@@ -159,6 +159,42 @@ func TestDBSpanNames(t *testing.T) {
 	}
 }
 
+// TestOutboundSpanNames: an outbound client span is exported only under a
+// method and a route template; a real path in its place becomes _OTHER.
+// Server spans of the same scope keep their names.
+func TestOutboundSpanNames(t *testing.T) {
+	t.Parallel()
+	const scope = "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	tests := []struct {
+		kind       trace.SpanKind
+		name, want string
+	}{
+		{trace.SpanKindClient, "GET /realms/{realm}/protocol/openid-connect/certs", "GET /realms/{realm}/protocol/openid-connect/certs"},
+		{trace.SpanKindClient, "GET /realms/{realm}/.well-known/openid-configuration", "GET /realms/{realm}/.well-known/openid-configuration"},
+		{trace.SpanKindClient, "POST /api/v1/users/{id}", "POST /api/v1/users/{id}"},
+		{trace.SpanKindClient, "GET ", "GET "},
+		{trace.SpanKindClient, "GET /users/6f1c2a7e-0000-4000-8000-000000000001", "_OTHER"},
+		{trace.SpanKindClient, "GET /users/42", "_OTHER"},
+		{trace.SpanKindClient, "GET /users/alice@tenant-a.test", "_OTHER"},
+		{trace.SpanKindClient, "GET /ping?email=a", "_OTHER"},
+		{trace.SpanKindClient, "GET /Realms/Nava", "_OTHER"},
+		{trace.SpanKindClient, "FETCH /ping", "_OTHER"},
+		{trace.SpanKindClient, "https://idp.test/realms/nava", "_OTHER"},
+		{trace.SpanKindServer, "GET /users/42", "GET /users/42"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tel, exp := newExported(t)
+			_, span := tel.TracerProvider.Tracer(scope).Start(t.Context(), tc.name, trace.WithSpanKind(tc.kind))
+			span.End()
+			if got := exp.GetSpans()[0].Name; got != tc.want {
+				t.Errorf("exported name = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestBoundedTokens: error.type, exception.type and exception.stacktrace pass
 // only as a bounded token, and the status description copied from error.type
 // with them; db.operation.name only as a known keyword.

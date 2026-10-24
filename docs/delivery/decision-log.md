@@ -10,6 +10,11 @@ Delivery decisions that change a task's contract, newest first.
   - TICK-145: startup assertion that the role is `nava_purge` and neither `BYPASSRLS` nor superuser. This was the Security Reviewer's Low finding.
   - TICK-146: indexes for the purge predicates, or evidence from a measured plan that none are needed.
 - **Not taken:** an exec-mode integration test, quieter shutdown logging, and a timestamp check in `CannotWidenItsReach`. All three were optional review notes.
+## 2026-10-25: GitHub CI runs only the jobs a pull request needs; no run on push to main
+- **Decided by:** nava (human), in chat with the Quality, Testing & CI Advisor. This settles TICK-153 D5, which was left to the Technical Lead.
+- **Decision:** a new `changes` job runs `make ci-stages` (`tools/ci/cichanged`, the rules of `make ci-changed`), and `unit`, `temporal-server`, `integration` and the three stack jobs run only when the change needs their stage. `lint` always runs, and a change under `.github/workflows` runs every job. The `push: main` trigger is gone. A full run on any branch is a manual `workflow_dispatch` from the Actions tab.
+- **Supersedes:** "the full run stays the gate" (`docs/quality/ci-pipeline.md`, TICK-153 D5).
+- **Trade-off:** `main` is no longer re-checked after a merge, and a docs-only PR skips `govulncheck` in temporal-server (the root module's still runs in `lint`). A new advisory or a merge-order conflict now shows up on the next PR that needs the stage, or on a manual run.
 - **Dissent:** none.
 
 ## 2026-10-24: T15 operator token through IdentityResolver; JWKS client without a telemetry accessor

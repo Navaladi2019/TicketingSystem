@@ -2,6 +2,7 @@ package telemetry_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -89,6 +90,13 @@ func TestAdminHandlerRecoversPanic(t *testing.T) {
 	}
 	if !strings.Contains(logs.String(), "admin handler panic") {
 		t.Errorf("panic not logged: %s", logs.String())
+	}
+	var line map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(logs.Bytes()), &line); err != nil {
+		t.Fatalf("panic log is not one JSON line: %v\n%s", err, logs.String())
+	}
+	if s, _ := line["err"].(string); !strings.Contains(s, "kaboom") || line["level"] != "ERROR" {
+		t.Errorf("panic line = %v, want level ERROR and err containing kaboom", line)
 	}
 }
 

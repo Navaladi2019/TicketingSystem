@@ -40,7 +40,7 @@ GOLANGCI_LINT_VERSION := 2.14.0
 GOVULNCHECK_VERSION := v1.9.0
 
 .PHONY: build run test test-integration lint generate check-openapi
-.PHONY: ci ci-isolated ci-changed ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity 	image image-ci stack-up stack-down stack-logs stack-internal stack-internal-beside stack-main ci-stack-run stack-tests smoke
+.PHONY: ci ci-isolated ci-changed ci-stages ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity 	image image-ci stack-up stack-down stack-logs stack-internal stack-internal-beside stack-main ci-stack-run stack-tests smoke
 
 build:
 	go build -o bin/nava-core ./cmd/nava-core
@@ -104,6 +104,11 @@ ci-changed:
 	@[ -n "$(ID)" ] || { echo "usage: make ci-changed ID=<pr-or-sha>"; exit 2; }
 	@stages=$$(go run ./tools/ci/cichanged -v -base $(BASE)) && echo "ci-changed: $$stages" && \
 		STAGES="$$stages" sh scripts/ci/ci-isolated.sh $(ID)
+
+# Prints the stages ci-changed would run; the workflow's changes job uses it to
+# skip the jobs a pull request does not need. CI_ALL=1 prints every stage.
+ci-stages:
+	@sh scripts/ci/ci-stages.sh
 
 # Tears down what a killed ci-isolated run left behind (its own project and tags).
 ci-isolated-down:
