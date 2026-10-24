@@ -4,6 +4,9 @@ PLAN-001 T07 (TICK-61). Every tenant-scoped database access goes through
 `tenancy.InTenantTx`. It is the only Go code that sets `app.tenant_id`, the
 setting the row-level security policies under `db/` read.
 
+A longer walkthrough, covering the options, the decisions, the accepted risks and
+the test evidence, is in [tenant-transactions.html](tenant-transactions.html).
+
 ```go
 func InTenantTx(ctx context.Context, pool *pgxpool.Pool, tenantID uuid.UUID, fn func(pgx.Tx) error) error
 ```
