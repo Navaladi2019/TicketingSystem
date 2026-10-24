@@ -8,6 +8,7 @@
 # the BuildKit layer cache and pulled registry images. On exit it removes only
 # its own project and image tags, then fails if anything of nava-<id> is left.
 # One run per checkout at a time (certificates and ci6-report.md live in it).
+# STAGES="ci-unit ci-stack" runs a subset, in the given order.
 set -eu
 cd "$(dirname "$0")/../.."
 
@@ -83,7 +84,7 @@ echo "ci-isolated: project $COMPOSE_PROJECT_NAME, image tag $NAVA_IMAGE_TAG, por
 # The pinned tools install once per version, not on every run.
 make --no-print-directory check-tools >/dev/null 2>&1 || make --no-print-directory tools
 
-for stage in ci-lint ci-unit ci-integration ci-stack; do
+for stage in ${STAGES:-ci-lint ci-unit ci-integration ci-stack}; do
     t=$(date +%s)
     make --no-print-directory "$stage"
     echo "ci-isolated: $stage passed in $(( $(date +%s) - t ))s"
