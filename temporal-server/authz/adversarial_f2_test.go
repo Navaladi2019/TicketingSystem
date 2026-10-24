@@ -109,8 +109,6 @@ func TestAdversarialF2SystemWorkflowsOnPerNSQueue(t *testing.T) {
 				TaskQueue: &taskqueuepb.TaskQueue{Name: platformQueue()}})
 		requireAllowed(t, called, err)
 
-		t.Skip("F2-1 (TICK-122): open. A nava-worker poll with versioned deployment options makes the server " +
-			"start temporal-sys-worker-deployment* workflows in nava; D9b does not inspect deployment options.")
 		versioned := &deploymentpb.WorkerDeploymentOptions{DeploymentName: "nava-worker", BuildId: "build-1",
 			WorkerVersioningMode: enumspb.WORKER_VERSIONING_MODE_VERSIONED}
 		// The deprecated v1 field still reaches matching (DeploymentFromCapabilities), so
@@ -172,8 +170,6 @@ func TestAdversarialF2CoreWorkflowIDTenantPrefix(t *testing.T) {
 		})
 	}
 
-	t.Skip("F2-2 (TICK-122): open. nava-core RequestCancel/Update/Query/Describe/GetHistory accept a workflow id " +
-		"with no t:<tenant>: prefix.")
 	for _, id := range append(systemWorkflowIDs(), "", "t:", "t::x", "T:tenantA:x", "tenantA:x") {
 		for api, req := range coreWorkflowIDRequests(id) {
 			called, err := callUnary(t, core, wf+api, req)
@@ -211,8 +207,6 @@ func TestAdversarialF2ActivityTaskTokenTenantPrefix(t *testing.T) {
 		})
 	}
 
-	t.Skip("F2-3 (TICK-122): open. RespondActivityTask*, RecordActivityTaskHeartbeat and RespondWorkflowTaskFailed " +
-		"do not check the task token's workflow id for the t:<tenant>: prefix.")
 	for _, id := range append(systemWorkflowIDs(), "", "t:", "tenantA:x") {
 		for api, req := range activityTokenRequests(taskToken(t, id)) {
 			called, err := callUnary(t, worker, wf+api, req)
@@ -237,8 +231,6 @@ func TestAdversarialF2CoreUpdateWorkerDeploymentDenied(t *testing.T) {
 	called, err := callUnary(t, core, wf+"UpdateWorkflowExecution", updateRequest(wfA, "approve"))
 	requireAllowed(t, called, err)
 
-	t.Skip("F2-4 (TICK-122): open. nava-core UpdateWorkflowExecution reaches temporal-sys-worker-deployment* " +
-		"workflows; closed by the F2-2 fix.")
 	for _, id := range []string{deploymentID, deploymentVersionID} {
 		for _, update := range []string{"set-current-version", "set-ramping-version", "register-worker-in-deployment",
 			"delete-version", "set-manager-identity"} {

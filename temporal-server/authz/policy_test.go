@@ -271,6 +271,25 @@ func gateRequest(t testing.TB, api string) any {
 		return &workflowservice.PollWorkflowTaskQueueRequest{Namespace: Namespace, TaskQueue: tq}
 	case wf + "PollActivityTaskQueue":
 		return &workflowservice.PollActivityTaskQueueRequest{Namespace: Namespace, TaskQueue: tq}
+	case wf + "RespondWorkflowTaskFailed":
+		return &workflowservice.RespondWorkflowTaskFailedRequest{Namespace: Namespace, TaskToken: taskToken(t, wfID)}
+	case wf + "RespondActivityTaskCompleted":
+		return &workflowservice.RespondActivityTaskCompletedRequest{Namespace: Namespace, TaskToken: taskToken(t, wfID)}
+	case wf + "RespondActivityTaskFailed":
+		return &workflowservice.RespondActivityTaskFailedRequest{Namespace: Namespace, TaskToken: taskToken(t, wfID)}
+	case wf + "RespondActivityTaskCanceled":
+		return &workflowservice.RespondActivityTaskCanceledRequest{Namespace: Namespace, TaskToken: taskToken(t, wfID)}
+	case wf + "RecordActivityTaskHeartbeat":
+		return &workflowservice.RecordActivityTaskHeartbeatRequest{Namespace: Namespace, TaskToken: taskToken(t, wfID)}
+	case wf + "RespondQueryTaskCompleted":
+		return &workflowservice.RespondQueryTaskCompletedRequest{Namespace: Namespace, TaskToken: queryToken(t, tq.GetName())}
+	case wf + "ShutdownWorker":
+		return &workflowservice.ShutdownWorkerRequest{Namespace: Namespace}
+	case wf + "RecordWorkerHeartbeat":
+		return &workflowservice.RecordWorkerHeartbeatRequest{Namespace: Namespace}
+	}
+	if req := coreWorkflowIDRequests(wfID)[strings.TrimPrefix(api, wf)]; req != nil {
+		return req
 	}
 	return nil
 }
@@ -351,12 +370,13 @@ func TestAllowListGolden(t *testing.T) {
 func writeWorkloadTable(b *strings.Builder) {
 	b.WriteString("\n## D9 workload allow-list\n\n")
 	b.WriteString("A request to one of these APIs is allowed only if every workflow type, task queue and workflow id it names is allow-listed. ")
-	b.WriteString("`nava-worker` `RespondWorkflowTaskCompleted` commands and `StickyAttributes` are checked the same way (D9c). `temporal-system` is exempt.\n\n")
-	b.WriteString("| Identity | Method |\n|---|---|\n")
+	b.WriteString("`nava-worker` `RespondWorkflowTaskCompleted` commands and `StickyAttributes` are checked the same way (E1, D9c). ")
+	b.WriteString("`temporal-system` is exempt, and `nava-operator` is outside D9.\n\n")
+	b.WriteString("| Identity | Method | Rule |\n|---|---|---|\n")
 	var rows []string
 	for id, apis := range workloadChecks {
-		for api := range apis {
-			rows = append(rows, fmt.Sprintf("| `%s` | %s |\n", id, strings.TrimPrefix(api, wf)))
+		for api, c := range apis {
+			rows = append(rows, fmt.Sprintf("| `%s` | %s | %s |\n", id, strings.TrimPrefix(api, wf), c.rule))
 		}
 	}
 	sort.Strings(rows)
@@ -371,6 +391,12 @@ func writeWorkloadTable(b *strings.Builder) {
 		fmt.Fprintf(b, "| `%s` | `%s` |\n", set.name, strings.Join(sortedKeys(set.entries), "`, `"))
 	}
 	fmt.Fprintf(b, "\nA STICKY queue name must match `%s`, must not be in `platformTaskQueues`, and its `NormalName` must be in `platformTaskQueues`.\n", stickyQueueName)
+	b.WriteString("\n| Rule | Must hold |\n|---|---|\n")
+	b.WriteString("| D9b+ | `DeploymentOptions.WorkerVersioningMode` is unspecified or `UNVERSIONED`, and `WorkerVersionCapabilities.UseVersioning` is false. |\n")
+	b.WriteString("| D9d | `TaskToken` decodes as `token.v1.Task` and its `WorkflowId` has a `t:<tenant>:` prefix. |\n")
+	b.WriteString("| D9d query clause | `TaskToken` decodes as `token.v1.QueryTask` and its `TaskQueue` is in `platformTaskQueues` or sticky-shaped. |\n")
+	b.WriteString("| D9e, D9f | The request's workflow id has a `t:<tenant>:` prefix. |\n")
+	b.WriteString("| D9g | `StickyTaskQueue` is empty or sticky-shaped and not in `platformTaskQueues`; every `WorkerHeartbeat.TaskQueue` is in `platformTaskQueues`. |\n")
 }
 
 func joinIDs(ids []Identity) string {

@@ -116,14 +116,9 @@ func inspectCommands(request any) *commandDenial {
 		return &commandDenial{reason: ReasonMalformedRequest, command: commandNone, index: -1,
 			detail: fmt.Sprintf("request type %T", request)}
 	}
-	token := &tokenspb.Task{}
-	if err := token.Unmarshal(req.GetTaskToken()); err != nil {
-		return &commandDenial{reason: ReasonTaskToken, command: commandNone, index: -1, detail: err.Error()}
-	}
-	workflowID := token.GetWorkflowId()
-	tenant, ok := tenantOf(workflowID)
-	if !ok {
-		return &commandDenial{reason: ReasonNoTenantPrefix, command: commandNone, index: -1, workflowID: workflowID}
+	workflowID, tenant, d := taskTokenTenant(req.GetTaskToken())
+	if d != nil {
+		return d
 	}
 	// D9c: StickyAttributes name the queue the workflow's next task goes to.
 	if sa := req.GetStickyAttributes(); sa != nil {
@@ -139,6 +134,23 @@ func inspectCommands(request any) *commandDenial {
 		}
 	}
 	return nil
+}
+
+// taskTokenTenant decodes a token.v1.Task task token and returns its workflow id
+// and that id's tenant, or the denial: the token does not decode, or the id has
+// no `t:<tenant>:` prefix. It is E1's first bullet, which D9d (ADR-001-A2)
+// applies to every nava-worker task-token API.
+func taskTokenTenant(taskToken []byte) (workflowID, tenant string, d *commandDenial) {
+	token := &tokenspb.Task{}
+	if err := token.Unmarshal(taskToken); err != nil {
+		return "", "", &commandDenial{reason: ReasonTaskToken, command: commandNone, index: -1, detail: err.Error()}
+	}
+	workflowID = token.GetWorkflowId()
+	tenant, ok := tenantOf(workflowID)
+	if !ok {
+		return workflowID, "", &commandDenial{reason: ReasonNoTenantPrefix, command: commandNone, index: -1, workflowID: workflowID}
+	}
+	return workflowID, tenant, nil
 }
 
 // checkCommand returns "" if the command is allowed for a task of tenant, or

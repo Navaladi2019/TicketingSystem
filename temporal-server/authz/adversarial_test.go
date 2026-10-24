@@ -187,7 +187,7 @@ func TestAdversarialWorkerActivityByIdDenied(t *testing.T) {
 		})
 	}
 	called, err := callUnary(t, ctx, wf+"RespondActivityTaskCompleted",
-		&workflowservice.RespondActivityTaskCompletedRequest{Namespace: Namespace})
+		&workflowservice.RespondActivityTaskCompletedRequest{Namespace: Namespace, TaskToken: taskToken(t, wfA)})
 	if err != nil || !called {
 		t.Fatalf("worker RespondActivityTaskCompleted denied: err=%v called=%v", err, called)
 	}

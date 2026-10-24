@@ -7,9 +7,12 @@ import (
 	"strings"
 
 	commonpb "go.temporal.io/api/common/v1"
+	deploymentpb "go.temporal.io/api/deployment/v1"
 	enumspb "go.temporal.io/api/enums/v1"
 	taskqueuepb "go.temporal.io/api/taskqueue/v1"
+	workerpb "go.temporal.io/api/worker/v1"
 	"go.temporal.io/api/workflowservice/v1"
+	tokenspb "go.temporal.io/server/api/token/v1"
 	"go.temporal.io/server/common/authorization"
 	"go.temporal.io/server/common/log"
 	"go.temporal.io/server/common/log/tag"
@@ -42,6 +45,8 @@ const (
 	ReasonTaskQueue     = "task_queue_not_allowed"
 	ReasonTaskQueueKind = "task_queue_kind_not_allowed"
 	ReasonStickyQueue   = "sticky_queue_not_allowed"
+	// ReasonWorkerVersioning is a versioned poll (D9b+, ADR-001-A2).
+	ReasonWorkerVersioning = "worker_versioning_not_allowed"
 )
 
 // maxLoggedNamespace bounds the client-supplied namespace written to the log.
@@ -127,8 +132,8 @@ func (a *Authorizer) Authorize(
 			return deny, nil
 		}
 	}
-	if check, ok := workloadChecks[id][api]; ok {
-		if d := check(target.Request); d != nil {
+	if c, ok := workloadChecks[id][api]; ok {
+		if d := c.check(target.Request); d != nil {
 			a.recordCommandDeny(ctx, id, api, namespace, "Temporal workload denied", d)
 			return deny, nil
 		}
@@ -136,18 +141,41 @@ func (a *Authorizer) Authorize(
 	return allow, nil
 }
 
-// workloadChecks is D9a and D9b: the request inspection for each allow-listed
-// API that names a workflow type, a task queue or a workflow id. D9c is in
-// checkCommand. System is absent: it is exempt.
-var workloadChecks = map[Identity]map[string]func(request any) *commandDenial{
+// workloadCheck is one D9 request inspection and the ADR rule it implements.
+type workloadCheck struct {
+	rule  string // the Annex A.2 sub-table row, for the golden table
+	check func(request any) *commandDenial
+}
+
+// workloadChecks is D9a, D9b(+), D9d, D9e, D9f and D9g: the request inspection
+// for each allow-listed API that names a workflow type, a task queue or a
+// workflow id (ADR-001-A1, ADR-001-A2). E1 and D9c are in inspectCommands.
+// System is absent: it is exempt. So is Operator: it stays outside D9.
+var workloadChecks = map[Identity]map[string]workloadCheck{
 	Relay: {
-		wf + "StartWorkflowExecution":           checkStartRequest,
-		wf + "SignalWithStartWorkflowExecution": checkStartRequest,
-		wf + "SignalWorkflowExecution":          checkSignalRequest,
+		wf + "StartWorkflowExecution":           {"D9a", checkStartRequest},
+		wf + "SignalWithStartWorkflowExecution": {"D9a", checkStartRequest},
+		wf + "SignalWorkflowExecution":          {"D9a", checkSignalRequest},
+	},
+	Core: {
+		wf + "RequestCancelWorkflowExecution": {"D9f", checkCoreWorkflowID},
+		wf + "UpdateWorkflowExecution":        {"D9f", checkCoreWorkflowID},
+		wf + "QueryWorkflow":                  {"D9f", checkCoreWorkflowID},
+		wf + "DescribeWorkflowExecution":      {"D9f", checkCoreWorkflowID},
+		wf + "GetWorkflowExecutionHistory":    {"D9f", checkCoreWorkflowID},
 	},
 	Worker: {
-		wf + "PollWorkflowTaskQueue": checkWorkflowTaskPoll,
-		wf + "PollActivityTaskQueue": checkActivityTaskPoll,
+		wf + "PollWorkflowTaskQueue":        {"D9b, D9b+", checkWorkflowTaskPoll},
+		wf + "PollActivityTaskQueue":        {"D9b, D9b+", checkActivityTaskPoll},
+		wf + "RespondWorkflowTaskFailed":    {"D9d", checkTaskToken},
+		wf + "RespondActivityTaskCompleted": {"D9d", checkTaskToken},
+		wf + "RespondActivityTaskFailed":    {"D9d", checkTaskToken},
+		wf + "RespondActivityTaskCanceled":  {"D9d", checkTaskToken},
+		wf + "RecordActivityTaskHeartbeat":  {"D9d", checkTaskToken},
+		wf + "RespondQueryTaskCompleted":    {"D9d query clause", checkQueryTaskToken},
+		wf + "GetWorkflowExecutionHistory":  {"D9e", checkWorkerHistory},
+		wf + "ShutdownWorker":               {"D9g", checkShutdownWorker},
+		wf + "RecordWorkerHeartbeat":        {"D9g", checkRecordWorkerHeartbeat},
 	},
 }
 
@@ -187,19 +215,142 @@ func checkSignalRequest(request any) *commandDenial {
 	if !ok {
 		return malformed(request)
 	}
-	workflowID := req.GetWorkflowExecution().GetWorkflowId()
-	if _, ok := tenantOf(workflowID); !ok {
-		return &commandDenial{reason: ReasonNoTenantPrefix, command: commandNone, index: -1, workflowID: workflowID}
+	return tenantPrefixDenial(req.GetWorkflowExecution().GetWorkflowId())
+}
+
+// checkCoreWorkflowID is D9f: the workflow id a nava-core call names carries a
+// tenant prefix. It proves the id is a tenant's, not which tenant's: the
+// nava-core certificate has no tenant (R-CORE binds that in nava-core itself).
+func checkCoreWorkflowID(request any) *commandDenial {
+	var workflowID string
+	switch req := request.(type) {
+	case *workflowservice.RequestCancelWorkflowExecutionRequest:
+		workflowID = req.GetWorkflowExecution().GetWorkflowId()
+	case *workflowservice.UpdateWorkflowExecutionRequest:
+		workflowID = req.GetWorkflowExecution().GetWorkflowId()
+	case *workflowservice.QueryWorkflowRequest:
+		workflowID = req.GetExecution().GetWorkflowId()
+	case *workflowservice.DescribeWorkflowExecutionRequest:
+		workflowID = req.GetExecution().GetWorkflowId()
+	case *workflowservice.GetWorkflowExecutionHistoryRequest:
+		workflowID = req.GetExecution().GetWorkflowId()
+	default:
+		return malformed(request)
+	}
+	return tenantPrefixDenial(workflowID)
+}
+
+// checkWorkerHistory is D9e: a nava-worker history read names a tenant's
+// workflow id.
+func checkWorkerHistory(request any) *commandDenial {
+	req, ok := request.(*workflowservice.GetWorkflowExecutionHistoryRequest)
+	if !ok {
+		return malformed(request)
+	}
+	return tenantPrefixDenial(req.GetExecution().GetWorkflowId())
+}
+
+// checkTaskToken is D9d: the task token decodes as token.v1.Task and names a
+// tenant's workflow id, E1's check on RespondWorkflowTaskCompleted. Tokens are
+// unsigned, so this keeps a forged token off Temporal's own workflows (F2-3).
+func checkTaskToken(request any) *commandDenial {
+	var taskToken []byte
+	switch req := request.(type) {
+	case *workflowservice.RespondWorkflowTaskFailedRequest:
+		taskToken = req.GetTaskToken()
+	case *workflowservice.RespondActivityTaskCompletedRequest:
+		taskToken = req.GetTaskToken()
+	case *workflowservice.RespondActivityTaskFailedRequest:
+		taskToken = req.GetTaskToken()
+	case *workflowservice.RespondActivityTaskCanceledRequest:
+		taskToken = req.GetTaskToken()
+	case *workflowservice.RecordActivityTaskHeartbeatRequest:
+		taskToken = req.GetTaskToken()
+	default:
+		return malformed(request)
+	}
+	_, _, d := taskTokenTenant(taskToken)
+	return d
+}
+
+// checkQueryTaskToken is the D9d query clause: the token decodes as
+// token.v1.QueryTask and its task queue is a platform queue or sticky-shaped.
+func checkQueryTaskToken(request any) *commandDenial {
+	req, ok := request.(*workflowservice.RespondQueryTaskCompletedRequest)
+	if !ok {
+		return malformed(request)
+	}
+	token := &tokenspb.QueryTask{}
+	if err := token.Unmarshal(req.GetTaskToken()); err != nil {
+		return &commandDenial{reason: ReasonTaskToken, command: commandNone, index: -1, detail: err.Error()}
+	}
+	tq := token.GetTaskQueue()
+	if inSet(platformTaskQueues, tq) || stickyQueueName.MatchString(tq) {
+		return nil
+	}
+	return pollDenial(ReasonTaskQueue, "query token task queue "+strconv.Quote(truncate(tq, maxLoggedName)))
+}
+
+// checkShutdownWorker is D9g for ShutdownWorker. The frontend force-unloads the
+// root WORKFLOW partition that StickyTaskQueue names (F2-6), so it must be
+// empty or an SDK-shaped sticky name that is not a platform queue. A heartbeat,
+// if present, names a platform queue.
+func checkShutdownWorker(request any) *commandDenial {
+	req, ok := request.(*workflowservice.ShutdownWorkerRequest)
+	if !ok {
+		return malformed(request)
+	}
+	if name := req.GetStickyTaskQueue(); name != "" && (!stickyQueueName.MatchString(name) || inSet(platformTaskQueues, name)) {
+		return pollDenial(ReasonStickyQueue, "sticky task queue "+strconv.Quote(truncate(name, maxLoggedName)))
+	}
+	if hb := req.GetWorkerHeartbeat(); hb != nil {
+		return pollDenial(checkHeartbeatTaskQueue(hb))
 	}
 	return nil
 }
 
+// checkRecordWorkerHeartbeat is D9g for RecordWorkerHeartbeat: every heartbeat
+// names a platform queue.
+func checkRecordWorkerHeartbeat(request any) *commandDenial {
+	req, ok := request.(*workflowservice.RecordWorkerHeartbeatRequest)
+	if !ok {
+		return malformed(request)
+	}
+	for _, hb := range req.GetWorkerHeartbeat() {
+		if d := pollDenial(checkHeartbeatTaskQueue(hb)); d != nil {
+			return d
+		}
+	}
+	return nil
+}
+
+// checkHeartbeatTaskQueue allows a heartbeat on a platform queue; an empty
+// TaskQueue is denied.
+func checkHeartbeatTaskQueue(hb *workerpb.WorkerHeartbeat) (reason, detail string) {
+	if inSet(platformTaskQueues, hb.GetTaskQueue()) {
+		return "", ""
+	}
+	return ReasonTaskQueue, "heartbeat task queue " + strconv.Quote(truncate(hb.GetTaskQueue(), maxLoggedName))
+}
+
+func tenantPrefixDenial(workflowID string) *commandDenial {
+	if _, ok := tenantOf(workflowID); ok {
+		return nil
+	}
+	return &commandDenial{reason: ReasonNoTenantPrefix, command: commandNone, index: -1, workflowID: workflowID}
+}
+
 // checkWorkflowTaskPoll is D9b for workflow tasks: a NORMAL poll names a
-// platform queue and a STICKY poll follows the sticky rule.
+// platform queue and a STICKY poll follows the sticky rule. D9b+: it is
+// unversioned.
 func checkWorkflowTaskPoll(request any) *commandDenial {
 	req, ok := request.(*workflowservice.PollWorkflowTaskQueueRequest)
 	if !ok {
 		return malformed(request)
+	}
+	//nolint:staticcheck // SA1019: matching still reads the deprecated capabilities, so D9b+ must too
+	if d := pollDenial(checkUnversioned(req.GetDeploymentOptions(), req.GetWorkerVersionCapabilities())); d != nil {
+		return d
 	}
 	if req.GetTaskQueue().GetKind() == enumspb.TASK_QUEUE_KIND_STICKY {
 		return pollDenial(checkStickyTaskQueue(req.GetTaskQueue()))
@@ -208,13 +359,33 @@ func checkWorkflowTaskPoll(request any) *commandDenial {
 }
 
 // checkActivityTaskPoll is D9b for activity tasks: a NORMAL platform queue.
-// Activities have no sticky queue, so a STICKY activity poll is denied.
+// Activities have no sticky queue, so a STICKY activity poll is denied. D9b+:
+// it is unversioned.
 func checkActivityTaskPoll(request any) *commandDenial {
 	req, ok := request.(*workflowservice.PollActivityTaskQueueRequest)
 	if !ok {
 		return malformed(request)
 	}
+	//nolint:staticcheck // SA1019: matching still reads the deprecated capabilities, so D9b+ must too
+	if d := pollDenial(checkUnversioned(req.GetDeploymentOptions(), req.GetWorkerVersionCapabilities())); d != nil {
+		return d
+	}
 	return pollDenial(checkNormalTaskQueue(req.GetTaskQueue()))
+}
+
+// checkUnversioned is D9b+: a versioned poll makes matching register the worker
+// in a deployment, which starts the temporal-sys-worker-deployment* workflows
+// in `nava` (F2-1). Absent options count as unversioned.
+func checkUnversioned(opts *deploymentpb.WorkerDeploymentOptions, caps *commonpb.WorkerVersionCapabilities) (reason, detail string) {
+	switch mode := opts.GetWorkerVersioningMode(); mode {
+	case enumspb.WORKER_VERSIONING_MODE_UNSPECIFIED, enumspb.WORKER_VERSIONING_MODE_UNVERSIONED:
+	default:
+		return ReasonWorkerVersioning, "deployment options versioning mode " + mode.String()
+	}
+	if caps.GetUseVersioning() {
+		return ReasonWorkerVersioning, "worker version capabilities use versioning"
+	}
+	return "", ""
 }
 
 func pollDenial(reason, detail string) *commandDenial {

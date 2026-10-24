@@ -215,11 +215,12 @@ var deniedByDefault = []string{
 	adm + "GetWorkflowExecutionRawHistoryV2",
 }
 
-// D9 workload allow-list (ADR-001 amendment A1, Annex A.2 sub-table). A request
-// from nava-relay or nava-worker that names a workflow type, a task queue or a
-// workflow id is allowed only if every such field is allow-listed; there is no
-// deny-list, so Temporal's own `temporal-sys-*` workloads are out by omission.
-// System is exempt, as it is for the API allow-list. Adding an entry is a policy
+// D9 workload allow-list (ADR-001 amendments A1 and A2, Annex A.2 sub-table). A
+// request from nava-relay, nava-core or nava-worker that names a workflow type,
+// a task queue or a workflow id is allowed only if every such field is
+// allow-listed; there is no deny-list, so Temporal's own `temporal-sys-*`
+// workloads are out by omission. System is exempt, as it is for the API
+// allow-list, and nava-operator stays outside D9. Adding an entry is a policy
 // PR with Security review; TestAllowListGolden prints both sets.
 var (
 	platformTaskQueues    = set("nava-tq")
