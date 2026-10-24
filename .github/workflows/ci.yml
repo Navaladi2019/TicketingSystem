@@ -202,6 +202,8 @@ jobs:
         run: make stack-test-dependencies
       - name: One request, one trace
         run: make stack-test-trace
+      - name: Exported logs reach the Collector
+        run: make stack-test-logs
       - name: Collector redacts denied span values
         run: make stack-test-redact
       - name: Logs on failure
