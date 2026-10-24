@@ -1,8 +1,9 @@
 # Dynamic config for the compose Temporal server.
-# D6-K (ADR-001 A1): every key below is set explicitly to its shipped value,
-# and checkSecurityConfig refuses to start if any value of one of them, per
-# namespace included, is not false. The cross-namespace, batcher, scheduler and
-# schedules keys default to true in the server, so leaving one out refuses too.
+# D6-K (ADR-001 A1, A2): every key below is set explicitly to its shipped
+# value, and checkSecurityConfig refuses to start if any value of one of them,
+# per namespace included, is not that value. Every key is false except
+# frontend.enableTokenNamespaceEnforcement, which must be true. Only the two
+# authorizer keys may be left out; leaving out any other refuses too.
 # Keep temporal-server/config/dynamicconfig/development.yaml in step.
 system.disableStreamingAuthorizer:
   - value: false
@@ -18,3 +19,5 @@ frontend.enableSchedules:
   - value: false
 frontend.enableBatcher:
   - value: false
+frontend.enableTokenNamespaceEnforcement:
+  - value: true

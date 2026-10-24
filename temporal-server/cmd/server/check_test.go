@@ -8,9 +8,11 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"math/big"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -57,27 +59,30 @@ func (s staticDC) GetValue(k dynamicconfig.Key) []dynamicconfig.ConstrainedValue
 	}
 }
 
-// d6kCases is the D6-K table of ADR-001 A1, each key by its Go symbol so that a
-// renamed or removed key fails to compile (CI-E).
+// d6kCases is the D6-K table of ADR-001 A1 and A2, each key by its Go symbol so
+// that a renamed or removed key fails to compile (CI-E).
 var d6kCases = []struct {
 	key dynamicconfig.Key
-	// missingRefuses marks the "not false" rows, whose server default is true.
+	// want is the only value that starts, and the shipped one.
+	want bool
+	// missingRefuses marks the rows that must be set explicitly.
 	missingRefuses bool
 }{
-	{dynamicconfig.DisableStreamingAuthorizer.Key(), false},
-	{dynamicconfig.ExposeAuthorizerErrors.Key(), false},
-	{dynamicconfig.EnableCrossNamespaceCommands.Key(), true},
-	{dynamicconfig.EnableBatcherNamespace.Key(), true},
-	{dynamicconfig.WorkerEnableScheduler.Key(), true},
-	{dynamicconfig.FrontendEnableSchedules.Key(), true},
-	{dynamicconfig.FrontendEnableBatcher.Key(), true},
+	{dynamicconfig.DisableStreamingAuthorizer.Key(), false, false},
+	{dynamicconfig.ExposeAuthorizerErrors.Key(), false, false},
+	{dynamicconfig.EnableCrossNamespaceCommands.Key(), false, true},
+	{dynamicconfig.EnableBatcherNamespace.Key(), false, true},
+	{dynamicconfig.WorkerEnableScheduler.Key(), false, true},
+	{dynamicconfig.FrontendEnableSchedules.Key(), false, true},
+	{dynamicconfig.FrontendEnableBatcher.Key(), false, true},
+	{dynamicconfig.EnableTokenNamespaceEnforcement.Key(), true, true},
 }
 
-// shippedDC has every D6-K key at its shipped value, false.
+// shippedDC has every D6-K key at its shipped value.
 func shippedDC() staticDC {
 	dc := staticDC{}
 	for _, c := range d6kCases {
-		dc[c.key] = false
+		dc[c.key] = c.want
 	}
 	return dc
 }
@@ -122,8 +127,8 @@ func TestCheckSecurityConfigD6K(t *testing.T) {
 	for i, tc := range d6kCases {
 		key := tc.key.String()
 		t.Run(key, func(t *testing.T) {
-			if d6kKeys[i].key != tc.key || d6kKeys[i].requireExplicit != tc.missingRefuses {
-				t.Fatalf("guard row %d is %+v, want %s requireExplicit=%v", i, d6kKeys[i], key, tc.missingRefuses)
+			if g := d6kKeys[i]; g.key != tc.key || g.want != tc.want || g.requireExplicit != tc.missingRefuses {
+				t.Fatalf("guard row %d is %+v, want %s want=%v requireExplicit=%v", i, g, key, tc.want, tc.missingRefuses)
 			}
 			c := validConfig(t)
 			with := func(v any) staticDC {
@@ -138,11 +143,14 @@ func TestCheckSecurityConfigD6K(t *testing.T) {
 				}
 			}
 
-			t.Run("true refuses", func(t *testing.T) { requireRefused(t, checkSecurityConfig(c, with(true)), key) })
-			// The server's convertBool parses strings, so "true" is true.
-			t.Run("string true refuses", func(t *testing.T) { requireRefused(t, checkSecurityConfig(c, with("TRUE")), key) })
+			good, bad := tc.want, !tc.want
+			t.Run(fmt.Sprintf("%v refuses", bad), func(t *testing.T) { requireRefused(t, checkSecurityConfig(c, with(bad)), key) })
+			// The server's convertBool parses strings, so "TRUE" is true.
+			t.Run(fmt.Sprintf("string %v refuses", bad), func(t *testing.T) {
+				requireRefused(t, checkSecurityConfig(c, with(strings.ToUpper(strconv.FormatBool(bad)))), key)
+			})
 			t.Run("non-bool refuses", func(t *testing.T) { requireRefused(t, checkSecurityConfig(c, with(1)), key) })
-			t.Run("false starts", func(t *testing.T) { mustStart(t, with(false)) })
+			t.Run(fmt.Sprintf("%v starts", good), func(t *testing.T) { mustStart(t, with(good)) })
 			t.Run("missing", func(t *testing.T) {
 				dc := shippedDC()
 				delete(dc, tc.key)
@@ -152,17 +160,17 @@ func TestCheckSecurityConfigD6K(t *testing.T) {
 					mustStart(t, dc)
 				}
 			})
-			t.Run("per-namespace true refuses", func(t *testing.T) {
+			t.Run(fmt.Sprintf("per-namespace %v refuses", bad), func(t *testing.T) {
 				requireRefused(t, checkSecurityConfig(c, with([]dynamicconfig.ConstrainedValue{
-					{Value: false}, {Constraints: nava, Value: true},
+					{Value: good}, {Constraints: nava, Value: bad},
 				})), key)
 			})
-			t.Run("per-namespace false starts", func(t *testing.T) {
-				mustStart(t, with([]dynamicconfig.ConstrainedValue{{Value: false}, {Constraints: nava, Value: false}}))
+			t.Run(fmt.Sprintf("per-namespace %v starts", good), func(t *testing.T) {
+				mustStart(t, with([]dynamicconfig.ConstrainedValue{{Value: good}, {Constraints: nava, Value: good}}))
 			})
 			// With only a namespace value, every other namespace gets the server default.
-			t.Run("per-namespace false only", func(t *testing.T) {
-				dc := with([]dynamicconfig.ConstrainedValue{{Constraints: nava, Value: false}})
+			t.Run(fmt.Sprintf("per-namespace %v only", good), func(t *testing.T) {
+				dc := with([]dynamicconfig.ConstrainedValue{{Constraints: nava, Value: good}})
 				if tc.missingRefuses {
 					requireRefused(t, checkSecurityConfig(c, dc), key)
 				} else {
@@ -195,7 +203,7 @@ func TestCheckSecurityConfigD6K(t *testing.T) {
 }
 
 // The shipped dynamic config files, read the way the server reads them, start,
-// and set every D6-K key explicitly to false.
+// and set every D6-K key explicitly to its shipped value.
 func TestShippedDynamicConfigStarts(t *testing.T) {
 	for _, path := range []string{
 		filepath.Join("..", "..", "config", "dynamicconfig", "development.yaml"),
@@ -214,8 +222,8 @@ func TestShippedDynamicConfigStarts(t *testing.T) {
 				t.Fatalf("refused: %v", err)
 			}
 			for _, tc := range d6kCases {
-				if got := dc.GetValue(tc.key); len(got) != 1 || got[0].Value != false {
-					t.Errorf("%s = %+v, want exactly one explicit false", tc.key, got)
+				if got := dc.GetValue(tc.key); len(got) != 1 || got[0].Value != tc.want {
+					t.Errorf("%s = %+v, want exactly one explicit %v", tc.key, got, tc.want)
 				}
 			}
 		})
@@ -251,7 +259,7 @@ func TestGuardedClientPinsD6KKeysAtRuntime(t *testing.T) {
 	other := dynamicconfig.FrontendRPS.Key()
 	var flipped strings.Builder
 	for _, tc := range d6kCases {
-		flipped.WriteString(tc.key.String() + ":\n  - value: true\n")
+		fmt.Fprintf(&flipped, "%s:\n  - value: %v\n", tc.key, !tc.want)
 	}
 	flipped.WriteString(other.String() + ":\n  - value: 1234\n")
 	if err := os.WriteFile(path, []byte(flipped.String()), 0o600); err != nil {
@@ -280,12 +288,12 @@ func TestGuardedClientPinsD6KKeysAtRuntime(t *testing.T) {
 	})
 	for _, tc := range d6kCases {
 		t.Run(tc.key.String(), func(t *testing.T) {
-			if got := file.GetValue(tc.key); len(got) != 1 || got[0].Value != true {
-				t.Fatalf("file client has %+v, want the rewritten true", got)
+			if got := file.GetValue(tc.key); len(got) != 1 || got[0].Value != !tc.want {
+				t.Fatalf("file client has %+v, want the rewritten %v", got, !tc.want)
 			}
 			for _, k := range []dynamicconfig.Key{tc.key, dynamicconfig.Key(strings.ToUpper(tc.key.String()))} {
-				if got := dc.GetValue(k); len(got) != 1 || got[0].Value != false {
-					t.Errorf("GetValue(%s) = %+v, want the startup value false", k, got)
+				if got := dc.GetValue(k); len(got) != 1 || got[0].Value != tc.want {
+					t.Errorf("GetValue(%s) = %+v, want the startup value %v", k, got, tc.want)
 				}
 			}
 		})

@@ -13,14 +13,12 @@ import (
 // (default true) refuses a token whose namespace differs from the request's.
 // Turned off, a nava-worker certificate sending namespace "nava" with a token
 // naming the temporal-system namespace id acts outside `nava`. D6-K must refuse
-// to start with it off, as it does for the keys that must be false.
+// to start with it off (ADR-001-A2, TICK-132).
 func TestAdversarialF2TokenNamespaceEnforcementGuarded(t *testing.T) {
 	if err := checkSecurityConfig(validConfig(t), shippedDC()); err != nil {
 		t.Fatalf("shipped config refused: %v", err)
 	}
 
-	t.Skip("F2-3b (TICK-122): open. D6-K does not guard frontend.enableTokenNamespaceEnforcement, " +
-		"a key that must stay true.")
 	key := dynamicconfig.EnableTokenNamespaceEnforcement.Key()
 	for name, v := range map[string]any{
 		"false":        false,
