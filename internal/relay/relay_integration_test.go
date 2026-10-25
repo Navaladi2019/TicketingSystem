@@ -545,6 +545,36 @@ func TestRelayGrants(t *testing.T) {
 	}
 	tenant := uuid.New()
 	ids := seed(t, e.super, tenant, 1, 1)
+
+	// Writes outside its grant fail at PostgreSQL, whatever the relay's code
+	// does (Security review, PR #87). The catalog test also pins the grants.
+	for _, sql := range []string{
+		"UPDATE outbox SET tenant_id = gen_random_uuid() WHERE id = $1",
+		"UPDATE outbox SET payload = '{}' WHERE id = $1",
+		"UPDATE outbox SET target_key = 'x', target_seq = 0 WHERE id = $1",
+		"DELETE FROM outbox WHERE id = $1",
+		"INSERT INTO outbox (id, tenant_id, kind, dedupe_key, target_key, target_seq) SELECT $1, tenant_id, 'k', 'd', 't', 1 FROM outbox LIMIT 1",
+		"SELECT count(*) FROM records WHERE id = $1",
+		"SELECT count(*) FROM workflow_ref WHERE outbox_id = $1",
+	} {
+		if _, err := e.relay.Exec(ctx, sql, ids[0]); err == nil {
+			t.Errorf("nava_relay ran %q", sql)
+		}
+	}
+
+	// A cause PostgreSQL could not store as text is cleaned, so Backoff
+	// still records the failure.
+	cs, err := newProbe(t, e.relay, Options{}).Claim(ctx)
+	if err != nil || len(cs) != 1 {
+		t.Fatalf("claim %+v, %v", cs, err)
+	}
+	if _, err := newProbe(t, e.relay, Options{}).Backoff(ctx, cs[0], "bad \xff byte and \x00 nul"); err != nil {
+		t.Fatalf("Backoff with an unstorable cause: %v", err)
+	}
+	if n := count(t, e.super, "SELECT count(*) FROM outbox WHERE id = $1 AND last_error = $2",
+		ids[0], "bad � byte and � nul"); n != 1 {
+		t.Error("last_error is not the cleaned cause")
+	}
 	mustExec(t, e.super, "UPDATE outbox SET dispatched_at = now(), attempts = 1 WHERE id = $1", ids[0])
 	r := newProbe(t, e.relay, Options{})
 	if err := r.MarkDead(ctx, Claimed{ID: ids[0], TenantID: tenant, Attempts: 1}, "late"); !errors.Is(err, ErrLeaseLost) {
@@ -584,8 +614,8 @@ func TestExpiredLeaseTakeoverMarksDead(t *testing.T) {
 		t.Fatalf("claim %+v; want only the never-attempted row, at attempt 1", cs)
 	}
 	if n := count(t, e.super, `SELECT count(*) FROM outbox WHERE id = $1 AND dead_at IS NOT NULL
-		AND attempts = 1 AND available_at < now()`, ids[0]); n != 1 {
-		t.Error("the taken-over head is not dead with its attempts and available_at unchanged")
+		AND attempts = 1 AND available_at < now() AND last_error = $2`, ids[0], TakeoverExpiredError); n != 1 {
+		t.Error("the taken-over head is not dead with its last_error, attempts and available_at")
 	}
 	logs := r.logs.String()
 	if !strings.Contains(logs, "max redelivery age") || !strings.Contains(logs, `"tenant_id":"`+crashed.String()+`"`) ||

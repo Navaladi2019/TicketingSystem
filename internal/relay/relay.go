@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -38,6 +39,9 @@ const (
 	MaxRedeliveryAge = 24 * time.Hour
 	// MaxErrorLen bounds last_error, in bytes.
 	MaxErrorLen = 1000
+	// TakeoverExpiredError is the last_error Claim writes when it marks a row
+	// dead at a lease takeover.
+	TakeoverExpiredError = "relay: max redelivery age reached at lease takeover"
 )
 
 // ErrLeaseLost means the row is no longer under this claim: its lease ended
@@ -141,9 +145,10 @@ func New(db Querier, mp metric.MeterProvider, log *slog.Logger, opts Options) (*
 //   - claimed moves each picked row's available_at to the lease end and
 //     increments attempts. A picked row that was attempted before (its lease
 //     ended or its backoff is over) and is $4 (MaxRedeliveryAge) old is
-//     marked dead instead. A crash between dispatch and MarkDispatched never
-//     reaches Backoff, so without this the row would be redelivered past the
-//     worker's signal window. A row never attempted is never marked dead.
+//     marked dead instead, with $5 as last_error (killed). A crash between
+//     dispatch and MarkDispatched never reaches Backoff, so without this the
+//     row would be redelivered past the worker's signal window. A row never
+//     attempted is never marked dead.
 //
 // The result has one row per scanned tenant and claimed or killed row; a
 // tenant with neither has one row with a NULL id.
@@ -195,18 +200,30 @@ picked AS (
 ),
 claimed AS (
     UPDATE outbox o
-    SET available_at = CASE WHEN p.expired THEN o.available_at ELSE now() + make_interval(secs => $3) END,
-        attempts     = CASE WHEN p.expired THEN o.attempts ELSE o.attempts + 1 END,
-        dead_at      = CASE WHEN p.expired THEN now() END
+    SET available_at = now() + make_interval(secs => $3), attempts = o.attempts + 1
     FROM picked p
-    WHERE o.tenant_id = p.tenant_id AND o.id = p.id
+    WHERE o.tenant_id = p.tenant_id AND o.id = p.id AND NOT p.expired
     RETURNING o.tenant_id, o.id, o.kind, o.kind_version, o.target_key, o.target_seq, o.causation_id,
               o.causation_depth, o.payload, o.trace_context, o.created_at, o.attempts, o.available_at,
-              p.expired
+              false AS expired
+),
+-- A separate UPDATE, not a CASE in claimed: keeping last_error on a claimed
+-- row would mean reading it, and nava_relay has no SELECT on last_error.
+killed AS (
+    UPDATE outbox o
+    SET dead_at = now(), last_error = $5
+    FROM picked p
+    WHERE o.tenant_id = p.tenant_id AND o.id = p.id AND p.expired
+    RETURNING o.tenant_id, o.id, o.kind, o.kind_version, o.target_key, o.target_seq, o.causation_id,
+              o.causation_depth, o.payload, o.trace_context, o.created_at, o.attempts, o.available_at,
+              true AS expired
+),
+settled AS (
+    SELECT * FROM claimed UNION ALL SELECT * FROM killed
 )
 SELECT s.tenant_id, s.scanned, c.id, c.kind, c.kind_version, c.target_key, c.target_seq, c.causation_id,
        c.causation_depth, c.payload, c.trace_context, c.created_at, c.attempts, c.available_at, c.expired
-FROM scan s LEFT JOIN claimed c ON c.tenant_id = s.tenant_id
+FROM scan s LEFT JOIN settled c ON c.tenant_id = s.tenant_id
 ORDER BY s.tenant_id, c.target_key, c.target_seq`
 
 // Claim takes at most PerTenant rows of every tenant with pending rows,
@@ -217,7 +234,8 @@ ORDER BY s.tenant_id, c.target_key, c.target_seq`
 // attempted before and is MaxRedeliveryAge old is marked dead, logged and
 // not returned.
 func (r *Relay) Claim(ctx context.Context) ([]Claimed, error) {
-	rows, err := r.db.Query(ctx, claimSQL, ScanCap, PerTenant, r.opts.Lease.Seconds(), MaxRedeliveryAge.Seconds())
+	rows, err := r.db.Query(ctx, claimSQL, ScanCap, PerTenant, r.opts.Lease.Seconds(), MaxRedeliveryAge.Seconds(),
+		TakeoverExpiredError)
 	if err != nil {
 		return nil, fmt.Errorf("relay: claim: %w", err)
 	}
@@ -362,8 +380,11 @@ func (r *Relay) delay(attempts int32) time.Duration {
 	return min(d, r.opts.BackoffMax)
 }
 
-// truncate cuts s to at most MaxErrorLen bytes on a rune boundary.
+// truncate makes s storable as text and cuts it to at most MaxErrorLen bytes
+// on a rune boundary. PostgreSQL rejects invalid UTF-8 and NUL in text, which
+// would fail the whole Backoff or MarkDead, so those bytes are replaced first.
 func truncate(s string) string {
+	s = strings.ReplaceAll(strings.ToValidUTF8(s, "�"), "\x00", "�")
 	if len(s) <= MaxErrorLen {
 		return s
 	}

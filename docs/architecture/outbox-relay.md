@@ -24,7 +24,7 @@ flowchart TD
   W --> P["picked: per tenant at most 2 rows with no lower pending target_seq
   on their target, FOR UPDATE SKIP LOCKED"]
   P --> X{"attempted before and created_at older than 24 h?"}
-  X -->|yes| XD["dead_at = now(), not returned"]
+  X -->|yes| XD["dead_at = now(), last_error set, not returned"]
   X -->|no| L["lease: available_at = now() + Lease, attempts + 1"]
   L --> D{T30b dispatch}
   D -->|ok| MD[MarkDispatched]
@@ -55,7 +55,9 @@ flowchart TD
   does it at a failure. Claim does it instead of claiming when the row was
   attempted before and its lease or backoff is over, so a crash between
   dispatch and `MarkDispatched` cannot redeliver a row past the worker's 48 h
-  signal window. A row with no attempts is never marked dead.
+  signal window; it writes `TakeoverExpiredError` as `last_error`. A row with
+  no attempts is never marked dead. `last_error` is cleaned of invalid UTF-8
+  and NUL, which PostgreSQL would reject, and cut to 1000 bytes.
 - **Grants.** The relay never reads `last_error` or `dedupe_key`, and
   `outbox_relay_update` lets it touch only pending rows.
 - **Accepted worst cases** (decision log, 2026-10-25). A leased head is not

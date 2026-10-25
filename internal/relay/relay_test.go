@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -53,6 +54,13 @@ func TestTruncate(t *testing.T) {
 	long := strings.Repeat("a", MaxErrorLen-1) + "é" // é is 2 bytes and straddles the cut
 	if got := truncate(long); len(got) != MaxErrorLen-1 || !strings.HasSuffix(got, "a") {
 		t.Errorf("truncate cut %d bytes, want %d on a rune boundary", len(got), MaxErrorLen-1)
+	}
+	// PostgreSQL rejects both in text; either would fail the whole Backoff.
+	if got := truncate("bad \xff\xfe byte and \x00 nul"); got != "bad � byte and � nul" {
+		t.Errorf("truncate kept unstorable bytes: %q", got)
+	}
+	if got := truncate(strings.Repeat("\xff", 2*MaxErrorLen)); len(got) > MaxErrorLen || !utf8.ValidString(got) {
+		t.Errorf("truncate of invalid input: %d bytes, valid %v", len(got), utf8.ValidString(got))
 	}
 }
 

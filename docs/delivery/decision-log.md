@@ -12,6 +12,7 @@ Delivery decisions that change a task's contract, newest first.
 - **Accepted deferrals:**
   - A leased head is not backing off, so its available successors can fill its tenant's 200-row scan window until it settles. **Revisit if:** T33's flood test shows it.
   - A poll has no limit on tenants. **Revisit if:** T33 shows poll latency growing with the tenant count.
+- **Accepted risks:** AR-026 (short retry window), AR-027 (successors behind a leased head) and AR-028 (no tenant limit per poll), all 🟡 Low, in `docs/security/accepted-risks.md`.
 - **Dissent:** none.
 
 ## 2026-10-25: T29 carries the trace context through the outbox; signal name is `outbox.kind`
