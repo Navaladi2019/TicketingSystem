@@ -1,0 +1,101 @@
+CREATE ROLE
+CREATE TABLE
+ALTER TABLE
+ALTER TABLE
+GRANT
+CREATE POLICY
+CREATE POLICY
+
+=== Case 1: SELECT policy as shipped (own row, no state predicate) ===
+CREATE POLICY
+SET
+BEGIN
+              set_config              
+--------------------------------------
+ 0190a000-0000-7000-8000-000000000001
+(1 row)
+
+INSERT 0 1
+-- activation with WHERE id = own tenant (the T09 shape)
+UPDATE 1
+-- own row after activation: visible (this is the drift TICK-170 reports)
+                  id                  | state  | hash 
+--------------------------------------+--------+------
+ 0190a000-0000-7000-8000-000000000001 | active | 01
+(1 row)
+
+COMMIT
+RESET
+DROP POLICY
+DELETE 1
+
+=== Case 2: SELECT policy restricted to provisioning (A.3 read literally) ===
+CREATE POLICY
+SET
+BEGIN
+              set_config              
+--------------------------------------
+ 0190a000-0000-7000-8000-000000000002
+(1 row)
+
+INSERT 0 1
+-- 2a: activation with WHERE id = own tenant: expected ERROR 42501 (new row fails the SELECT policy, Table 292 footnote a)
+-- SQLSTATE of the last error:
+42501
+ERROR:  new row violates row-level security policy for table "tenants"
+ROLLBACK
+BEGIN
+              set_config              
+--------------------------------------
+ 0190a000-0000-7000-8000-000000000002
+(1 row)
+
+INSERT 0 1
+-- 2b: activation with RETURNING: expected ERROR 42501
+42501
+ERROR:  new row violates row-level security policy for table "tenants"
+ROLLBACK
+BEGIN
+              set_config              
+--------------------------------------
+ 0190a000-0000-7000-8000-000000000002
+(1 row)
+
+INSERT 0 1
+-- 2c: activation with no WHERE and no RETURNING: no read access needed, so the SELECT policy is not applied; expected UPDATE 1
+UPDATE 1
+-- own row after activation under 2c: expected 0 rows (onboard can no longer read its own tenant)
+ id | state 
+----+-------
+(0 rows)
+
+COMMIT
+RESET
+DROP POLICY
+DELETE 1
+
+=== Case 3: two permissive SELECT policies (provisioning, active) ===
+CREATE POLICY
+CREATE POLICY
+SET
+BEGIN
+              set_config              
+--------------------------------------
+ 0190a000-0000-7000-8000-000000000003
+(1 row)
+
+INSERT 0 1
+-- activation with WHERE: expected UPDATE 1 (the policies OR together, which equals "own row")
+UPDATE 1
+                  id                  | state  
+--------------------------------------+--------
+ 0190a000-0000-7000-8000-000000000003 | active
+(1 row)
+
+COMMIT
+RESET
+                                                       version                                                        
+----------------------------------------------------------------------------------------------------------------------
+ PostgreSQL 16.10 (Debian 16.10-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+(1 row)
+
