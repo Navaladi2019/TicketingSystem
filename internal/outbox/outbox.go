@@ -23,16 +23,16 @@ import (
 )
 
 var (
-	// ErrCascadeTooDeep: the entry's causation depth is beyond
+	// ErrCascadeTooDeep means the entry's causation depth is beyond
 	// config.CascadeDepthLimit (I9). Nothing is written.
 	ErrCascadeTooDeep = errors.New("outbox: cascade too deep")
-	// ErrNoOpenWorkflow: a signal entry found no open workflow_ref of its kind
+	// ErrNoOpenWorkflow means a signal entry found no open workflow_ref of its kind
 	// on the record.
 	ErrNoOpenWorkflow = errors.New("outbox: no open workflow for signal")
-	// ErrRecordNotFound: the transaction's tenant has no such record, or the
+	// ErrRecordNotFound means the transaction's tenant has no such record, or the
 	// transaction has no tenant.
 	ErrRecordNotFound = errors.New("outbox: record not found")
-	// ErrInvalidEntry: the entry breaks the contract below. Nothing is written.
+	// ErrInvalidEntry means the entry breaks the contract below. Nothing is written.
 	ErrInvalidEntry = errors.New("outbox: invalid entry")
 )
 
