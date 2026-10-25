@@ -12,7 +12,7 @@ paths:
     get:
       operationId: getMe
       summary: The calling user and tenant
-      description: Declared by T20; the implementation lands with T17.
+      description: The caller as the access token resolved it (T17). The tenant comes only from the token's organization binding; a tenant named in a header, the query or the body is ignored.
       responses:
         "200":
           description: The caller.
@@ -32,14 +32,24 @@ components:
   schemas:
     Me:
       type: object
-      required: [user_id, tenant_id]
+      required: [user_id, tenant_id, groups, idp_alias]
       properties:
         user_id:
           type: string
           format: uuid
+          description: The platform principal id, not the IdP user id.
         tenant_id:
           type: string
           format: uuid
+        groups:
+          type: array
+          description: Platform group ids of the tenant, never IdP group names.
+          items:
+            type: string
+            format: uuid
+        idp_alias:
+          type: string
+          description: Alias of the brokering IdP bound to the tenant; empty for a local login.
     Problem:
       type: object
       description: RFC 9457 problem details. `code` is registered in api/errors.yaml.

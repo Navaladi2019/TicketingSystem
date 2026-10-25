@@ -188,6 +188,7 @@ type harness struct {
 	clock *fakeClock
 	a     *Adapter
 	spans *tracetest.InMemoryExporter
+	store *memStore
 }
 
 // newHarness builds an adapter that trusts the given realms of a new fake
@@ -219,12 +220,13 @@ func newHarnessFor(t *testing.T, idp *fakeIdP, trusted []string) *harness {
 		issuers[i] = idp.issuer(r)
 	}
 	clock := newFakeClock()
-	a, err := newAdapter(t.Context(), Config{Issuers: issuers, MeterProvider: tel.MeterProvider}, out, clock.now)
+	store := newMemStore()
+	a, err := newAdapter(t.Context(), Config{Issuers: issuers, MeterProvider: tel.MeterProvider, Store: store}, out, clock.now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = a.Close(t.Context()) })
-	return &harness{idp: idp, clock: clock, a: a, spans: spans}
+	return &harness{idp: idp, clock: clock, a: a, spans: spans, store: store}
 }
 
 func slicesClone(s []string) []string { return append([]string(nil), s...) }

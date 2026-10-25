@@ -77,7 +77,8 @@ func TestLoadGraph(t *testing.T) {
 	}{
 		{"internal/db/roles", true, true},
 		{"internal/db/dbtest", true, false},
-		{"internal/server", false, true},
+		{"internal/server", true, true}, // the isolation suite serves its CI-2 HTTP paths through it (T17)
+		{"cmd/nava-core", false, true},
 		{"internal/temporalstack", false, true},
 		{"tools/ci/checkpins", false, false},
 	} {

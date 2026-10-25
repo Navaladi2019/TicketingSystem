@@ -308,6 +308,11 @@ services:
       NAVA_TEMPORAL_TLS_SERVER_NAME: temporal
       # nava_app (db/grants.yaml) through PgBouncer; PostgreSQL gates /readyz.
       NAVA_DATABASE_URL: postgres://nava_app:${NAVA_APP_DB_PASSWORD:-dev-only-app}@pgbouncer:5432/nava?sslmode=disable
+      # Tenant access tokens (T17): the exact iss allow-list. Keycloak names
+      # the issuer after the request host (KC_HOSTNAME_STRICT=false), so only
+      # tokens fetched through http://keycloak:8080 match; keys come from that
+      # issuer's own discovery document.
+      NAVA_OIDC_ISSUERS: http://keycloak:8080/realms/nava
       NAVA_LOG_FORMAT: json
       OTEL_SERVICE_NAME: nava-core
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318

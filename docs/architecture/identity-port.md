@@ -9,7 +9,7 @@ API or reads Keycloak-specific claims.
 | --- | --- | --- |
 | `IdentityResolver`, `OperatorResolver`, `DirectoryAdmin`, `ErrInvalidToken`, `ErrTenantUnresolved` | `internal/identity` | T15 |
 | Access-token validation (A.1 step 1), `ResolveOperator` | `internal/identity/keycloak` | T15 |
-| Tenant resolution (A.1 steps 2–4) | `keycloak.Adapter.Resolve` | T17 (fails closed until then, TODO-007) |
+| Tenant resolution (A.1 steps 2–4) | `keycloak.Adapter.Resolve`, reading `identity.Store` (`internal/identity/pgstore`) | T17, see [tenant-resolution.md](tenant-resolution.md) |
 | `DirectoryAdmin` adapter | `internal/identity/keycloak` | T18 |
 | Contract suite every adapter must pass | `internal/identity/contracttest` | T15 harness; T17, T18, T19 add cases |
 
@@ -31,7 +31,7 @@ flowchart TD
   V -- no --> X
   V -- yes, tenant resolver --> O{exactly one organization?}
   O -- no --> U[ErrTenantUnresolved]
-  O -- yes --> T17[T17: idp checks +<br/>tenant_identity_binding]
+  O -- yes --> T17[T17: binding, idp claim,<br/>federated links]
   V -- yes, operator resolver --> Role{realm role<br/>nava-operator?}
   Role -- no --> X
   Role -- yes --> Op[Operator]

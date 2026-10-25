@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"log/slog"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -251,7 +252,7 @@ func TestDependencyDefaultsAreUnconfigured(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Deps != (config.Dependencies{}) {
+	if !reflect.DeepEqual(cfg.Deps, config.Dependencies{}) {
 		t.Errorf("Deps = %+v, want zero", cfg.Deps)
 	}
 }

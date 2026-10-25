@@ -656,7 +656,7 @@ func roundTripOrganizations(t *testing.T, want map[string]any) {
 // TestAdapterAcceptsTenantToken runs alice's nava-web token through the T15
 // Keycloak adapter against the real realm: audience, issuer, signature and
 // the organization claim all pass, so Resolve fails only at tenant resolution
-// (no tenant binding until T17). The same token is not an operator token.
+// (the adapter has no store here, so it refuses). The same token is not an operator token.
 func TestAdapterAcceptsTenantToken(t *testing.T) {
 	tok := passwordToken(t, "nava-web", "alice@tenant-a.test", "dev-only-alice")
 	iss, _ := claims(t, tok)["iss"].(string)

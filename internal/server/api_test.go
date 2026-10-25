@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	"github.com/Navaladi2019/TicketingSystem/api"
+	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
@@ -20,13 +21,18 @@ import (
 
 func newAPIHandler(t *testing.T) (http.Handler, *tracetest.InMemoryExporter, *problem.Registry) {
 	t.Helper()
+	return newAPIHandlerWith(t, stubResolver{})
+}
+
+func newAPIHandlerWith(t *testing.T, r identity.IdentityResolver) (http.Handler, *tracetest.InMemoryExporter, *problem.Registry) {
+	t.Helper()
 	spans := tracetest.NewInMemoryExporter()
 	tel, err := telemetry.New(t.Context(), config.Telemetry{}, telemetry.WithSpanExporter(spans))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = tel.Shutdown(t.Context()) })
-	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel)
+	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel, r)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,9 +63,9 @@ func routeOf(spans *tracetest.InMemoryExporter, i int) (string, bool) {
 	return "", false
 }
 
-// TestMeIsDeclaredAndRecordsRoute: GET /api/v1/me answers (501 until T17) as
-// a registered problem and records http.route=/api/v1/me; an unknown
-// /api/v1/x is a 404 problem that records no route.
+// TestMeIsDeclaredAndRecordsRoute: GET /api/v1/me without a token answers 401
+// invalid_token as a registered problem and records http.route=/api/v1/me;
+// an unknown /api/v1/x is a 404 problem that records no route.
 func TestMeIsDeclaredAndRecordsRoute(t *testing.T) {
 	t.Parallel()
 	h, spans, reg := newAPIHandler(t)
@@ -69,8 +75,8 @@ func TestMeIsDeclaredAndRecordsRoute(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &b); err != nil {
 		t.Fatalf("body: %v: %s", err, rec.Body)
 	}
-	if _, ok := reg.Lookup(b.Code); !ok || rec.Code != http.StatusNotImplemented || b.Code != problem.NotImplemented {
-		t.Errorf("GET /api/v1/me = %d %+v, want 501 not_implemented", rec.Code, b)
+	if _, ok := reg.Lookup(b.Code); !ok || rec.Code != http.StatusUnauthorized || b.Code != problem.InvalidToken {
+		t.Errorf("GET /api/v1/me = %d %+v, want 401 invalid_token", rec.Code, b)
 	}
 	if !strings.HasPrefix(b.Instance, "urn:nava:request:") || b.Instance == "urn:nava:request:" {
 		t.Errorf("instance = %q", b.Instance)
