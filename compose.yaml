@@ -323,6 +323,44 @@ services:
       retries: 20
     restart: unless-stopped
 
+  # The Temporal worker (T31b): namespace nava, task queue nava-tq, with the
+  # T31 guards. On `internal` only, so it publishes nothing and has no egress.
+  # /metrics, /healthz and /readyz are on its admin listener (NAVA_ADMIN_ADDR,
+  # :9090), never published.
+  nava-worker:
+    build:
+      context: .
+      dockerfile: deploy/compose/nava-worker/Dockerfile
+    image: nava/nava-worker:${NAVA_IMAGE_TAG:-dev}
+    environment:
+      NAVA_TEMPORAL_ADDRESS: temporal:7233
+      # The nava-worker certificate: the only one this service holds.
+      NAVA_TEMPORAL_TLS_CERT_FILE: /run/temporal-tls/nava-worker.pem
+      NAVA_TEMPORAL_TLS_KEY_FILE: /run/temporal-tls/nava-worker.key
+      NAVA_TEMPORAL_TLS_CA_FILE: /run/temporal-tls/ca.pem
+      NAVA_TEMPORAL_TLS_SERVER_NAME: temporal
+      # nava_worker (db/grants.yaml) through PgBouncer, for the workflow_ref
+      # activity. PostgreSQL and Temporal both gate /readyz.
+      NAVA_DATABASE_URL: postgres://nava_worker:${NAVA_WORKER_DB_PASSWORD:-dev-only-worker}@pgbouncer:5432/nava?sslmode=disable
+      NAVA_LOG_FORMAT: json
+      OTEL_SERVICE_NAME: nava-worker
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    volumes:
+      - ./deploy/compose/certs/nava-worker.pem:/run/temporal-tls/nava-worker.pem:ro
+      - ./deploy/compose/certs/nava-worker.key:/run/temporal-tls/nava-worker.key:ro
+      - ./deploy/compose/certs/ca.pem:/run/temporal-tls/ca.pem:ro
+    networks: [internal]
+    depends_on:
+      otel-collector: {condition: service_healthy}
+      temporal: {condition: service_healthy}
+      pgbouncer: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/readyz"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
 networks:
   default: {}
   internal:
