@@ -42,7 +42,9 @@ flowchart TD
   `issuer` must equal `iss` exactly and its `jwks_uri` must lie under `iss`:
   as text (no `..`, `@`, `\`, query or fragment) and parsed with `url.Parse`
   (same scheme and host as `iss`, empty `RawPath`, so no `%2e%2e` or `%2f`, and
-  a `path.Clean`ed path still under the issuer's; T15a, TICK-152). The JWKS URL
+  a `path.Clean`ed path still under the issuer's; T15a, TICK-152). The path
+  after `iss` may hold no `%` and no `//` at all, so a proxy that decodes twice
+  (`%252e`) or merges slashes sees the path Go sent. The JWKS URL
   then goes on the cache's URL allow-list. So a token cannot point key fetches at another host, and a key
   of realm X never verifies a token with `iss=Y`.
 - **Fetch budget** (TICK-94 item 11): background refresh no more often than

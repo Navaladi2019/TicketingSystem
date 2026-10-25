@@ -51,17 +51,15 @@ func TestJWKSURIUnderIssuerExtra(t *testing.T) {
 		iss + "/certs\r\nHost: evil",
 		"https://id.example.test/realms/nava2/certs",
 		"https://id.example.test/realms/NAVA/certs",
+		iss + "/certs%25",
+		iss + "/protocol//openid-connect/certs",
+		iss + "/certs//",
 	} {
-		ok := jwksUnderIssuer(iss, uri)
-		t.Logf("%q -> %v", uri, ok)
-		switch uri {
-		case iss + "/%252e%252e/other/certs", iss + "//other.test/certs":
-			// Same host and under the issuer's path as sent; Keycloak serves
-			// no such path. Logged for the record, not asserted.
-		default:
-			if ok {
-				t.Errorf("jwksUnderIssuer(%q) = true, want false", uri)
-			}
+		// %252e%252e and // are same-host and under the issuer as Go sends
+		// them, but a proxy that decodes twice or merges slashes would not
+		// see them so: rejected outright.
+		if jwksUnderIssuer(iss, uri) {
+			t.Errorf("jwksUnderIssuer(%q) = true, want false", uri)
 		}
 	}
 }

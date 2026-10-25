@@ -248,9 +248,14 @@ func (s *keySource) discover(ctx context.Context, iss string) (string, error) {
 // jwksUnderIssuer reports whether jwksURI names a resource under iss, checked
 // both as text and as the URL the client will request: same scheme and host,
 // no userinfo, query or fragment, no escaped path (RawPath set: %2e%2e,
-// %2f), and a cleaned path still below the issuer's.
+// %2f), and a cleaned path still below the issuer's. The path after iss may
+// hold no % at all and no //: a proxy that decodes twice (%252e) or merges
+// slashes would otherwise see a path Go never sent.
 func jwksUnderIssuer(iss, jwksURI string) bool {
 	if !strings.HasPrefix(jwksURI, iss+"/") || strings.ContainsAny(jwksURI, "?#@\\") || strings.Contains(jwksURI, "..") {
+		return false
+	}
+	if rest := jwksURI[len(iss):]; strings.Contains(rest, "%") || strings.Contains(rest, "//") {
 		return false
 	}
 	is, err := url.Parse(iss)
