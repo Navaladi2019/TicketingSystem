@@ -442,3 +442,38 @@ func TestDBRolesFinalCheckRefusesSuperuserGrantedDuringRun(t *testing.T) {
 		})
 	}
 }
+
+// T08b security review (TICK-114): a superuser's REVOKE acts as the owner, so
+// a PUBLIC grant made by another grantor (through a grant option) survives
+// REVOKE ALL ... FROM PUBLIC. db-roles must then fail the run, as
+// ownerOnlyDatabase does for the service databases, not exit 0 with PUBLIC
+// still holding CONNECT/TEMPORARY on nava.
+func TestDBRolesPublicGrantFromAnotherGrantorFailsRun(t *testing.T) {
+	m := freshCluster(t)
+	conn := connect(t, superConfig(t))
+	nava := pgx.Identifier{m.PlatformDatabase}.Sanitize()
+	// freshCluster drops nava, then nava_test_intruder, before its next run.
+	exec(t, conn, "CREATE ROLE nava_test_intruder")
+	exec(t, conn, "GRANT CONNECT, TEMPORARY ON DATABASE "+nava+" TO nava_test_intruder WITH GRANT OPTION")
+	exec(t, conn, "SET ROLE nava_test_intruder")
+	exec(t, conn, "GRANT CONNECT, TEMPORARY ON DATABASE "+nava+" TO PUBLIC")
+	exec(t, conn, "RESET ROLE")
+	public := func() string {
+		return queryString(t, conn, `
+			SELECT coalesce(string_agg(a.privilege_type, ',' ORDER BY a.privilege_type), '')
+			FROM pg_database d, aclexplode(coalesce(d.datacl, acldefault('d', d.datdba))) a
+			WHERE d.datname = $1 AND a.grantee = 0`, m.PlatformDatabase)
+	}
+	if got := public(); got != "CONNECT,TEMPORARY" {
+		t.Fatalf("setup: PUBLIC holds %q on nava, want CONNECT,TEMPORARY", got)
+	}
+
+	log, buf := newLog()
+	_, err := roles.Run(context.Background(), superConfig(t), m, passwords, log)
+	if got := public(); err == nil && got != "" {
+		t.Fatalf("db-roles exited 0 with PUBLIC holding %s on nava (grantor nava_test_intruder)\n%s", got, buf)
+	}
+	if err != nil && !strings.Contains(err.Error(), "survived its revoke") {
+		t.Fatalf("db-roles failed, but not on the surviving PUBLIC grant: %v\n%s", err, buf)
+	}
+}
