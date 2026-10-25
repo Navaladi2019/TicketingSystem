@@ -122,7 +122,12 @@ func TestReadyzFollowsPostgresOnly(t *testing.T) {
 	// Keycloak and Temporal down: degraded, still ready.
 	kc.down.Store(true)
 	tc.down.Store(true)
-	eventually(t, "degraded", func() bool { _, r := report(t, srv); return r.Status == health.StatusDegraded })
+	// Probes finish independently, so the report turns degraded as soon as the
+	// first of keycloak and temporal fails. Wait until both have.
+	eventually(t, "keycloak and temporal fail", func() bool {
+		_, r := report(t, srv)
+		return r.Checks["keycloak"] == health.StateFail && r.Checks["temporal"] == health.StateFail
+	})
 	if got := readyz(t, srv); got != http.StatusOK {
 		t.Errorf("/readyz with keycloak and temporal down = %d, want 200", got)
 	}
@@ -220,7 +225,11 @@ func TestDegradedMetricHasOnlyDependencyAttribute(t *testing.T) {
 	srv, tel := start(t,
 		health.Check{Name: "postgres", Critical: true, Probe: (&toggle{}).probe},
 		health.Check{Name: "keycloak", Probe: kc.probe})
-	eventually(t, "keycloak degraded", func() bool { _, r := report(t, srv); return r.Checks["keycloak"] == health.StateFail })
+	// Postgres reports 1 while still unknown, so wait for its first probe too.
+	eventually(t, "postgres ok and keycloak fail", func() bool {
+		_, r := report(t, srv)
+		return r.Checks["postgres"] == health.StateOK && r.Checks["keycloak"] == health.StateFail
+	})
 
 	families, err := tel.Registry.Gather()
 	if err != nil {
