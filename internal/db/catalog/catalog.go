@@ -64,8 +64,10 @@ func platformSchema(col string) string {
 // (CI-2) both discover through it and both drop the tables nonTenant names,
 // so the two gates cannot disagree on which tables are tenant tables
 // (TICK-163).
-var platformRelations = `FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+func platformRelations() string {
+	return `FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 		WHERE ` + platformSchema("n.nspname")
+}
 
 // isTable is the SQL test for relation c being a table (ordinary,
 // partitioned or foreign): one that can hold tenant rows.
@@ -140,7 +142,7 @@ func ci1Relations(ctx context.Context, q Querier, _ *grants.Manifest, g *GlobalT
 		                 AND a.attname = CASE WHEN n.nspname = 'public' AND c.relname = 'tenants' THEN 'id' ELSE 'tenant_id' END),
 		       coalesce((SELECT o.option_value::boolean FROM pg_catalog.pg_options_to_table(c.reloptions) o
 		                 WHERE o.option_name = 'security_invoker'), false)
-		`+platformRelations+` AND (`+isTable+` OR c.relkind IN ('v', 'm'))
+		`+platformRelations()+` AND (`+isTable+` OR c.relkind IN ('v', 'm'))
 		ORDER BY 1, 2`)
 	if err != nil {
 		return nil, err
@@ -355,7 +357,7 @@ func (t TenantTable) QualifiedName() string {
 func TenantTables(ctx context.Context, q Querier, g *GlobalTables) ([]TenantTable, error) {
 	rows, err := q.Query(ctx, `
 		SELECT n.nspname::text, c.relname::text, ''::text -- Key, set below
-		`+platformRelations+` AND `+isTable+`
+		`+platformRelations()+` AND `+isTable+`
 		ORDER BY 1, 2`)
 	if err != nil {
 		return nil, err
