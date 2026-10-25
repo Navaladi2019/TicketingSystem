@@ -139,10 +139,14 @@ func New(db Querier, mp metric.MeterProvider, log *slog.Logger, opts Options) (*
 //     tests sit on the locked row, so a row a concurrent claimer leased
 //     since this snapshot fails the recheck and is skipped.
 //   - claimed moves each picked row's available_at to the lease end and
-//     increments attempts.
+//     increments attempts. A picked row that was attempted before (its lease
+//     ended or its backoff is over) and is $4 (MaxRedeliveryAge) old is
+//     marked dead instead. A crash between dispatch and MarkDispatched never
+//     reaches Backoff, so without this the row would be redelivered past the
+//     worker's signal window. A row never attempted is never marked dead.
 //
-// The result has one row per scanned tenant and claimed row; a tenant with
-// nothing claimed has one row with a NULL id.
+// The result has one row per scanned tenant and claimed or killed row; a
+// tenant with neither has one row with a NULL id.
 const claimSQL = `WITH RECURSIVE tenants AS (
     (SELECT tenant_id FROM outbox WHERE dispatched_at IS NULL AND dead_at IS NULL
      ORDER BY tenant_id LIMIT 1)
@@ -171,10 +175,12 @@ scan AS (
     GROUP BY t.tenant_id
 ),
 picked AS (
-    SELECT p.tenant_id, p.id
+    SELECT p.tenant_id, p.id, p.expired
     FROM scan s
     CROSS JOIN LATERAL (
-        SELECT o.tenant_id, o.id FROM window_rows w
+        SELECT o.tenant_id, o.id,
+               o.attempts > 0 AND o.created_at <= now() - make_interval(secs => $4) AS expired
+        FROM window_rows w
         JOIN outbox o ON o.tenant_id = w.tenant_id AND o.id = w.id
         WHERE w.tenant_id = s.tenant_id
           AND o.dispatched_at IS NULL AND o.dead_at IS NULL AND o.available_at <= now()
@@ -189,14 +195,17 @@ picked AS (
 ),
 claimed AS (
     UPDATE outbox o
-    SET available_at = now() + make_interval(secs => $3), attempts = o.attempts + 1
+    SET available_at = CASE WHEN p.expired THEN o.available_at ELSE now() + make_interval(secs => $3) END,
+        attempts     = CASE WHEN p.expired THEN o.attempts ELSE o.attempts + 1 END,
+        dead_at      = CASE WHEN p.expired THEN now() END
     FROM picked p
     WHERE o.tenant_id = p.tenant_id AND o.id = p.id
     RETURNING o.tenant_id, o.id, o.kind, o.kind_version, o.target_key, o.target_seq, o.causation_id,
-              o.causation_depth, o.payload, o.trace_context, o.created_at, o.attempts, o.available_at
+              o.causation_depth, o.payload, o.trace_context, o.created_at, o.attempts, o.available_at,
+              p.expired
 )
 SELECT s.tenant_id, s.scanned, c.id, c.kind, c.kind_version, c.target_key, c.target_seq, c.causation_id,
-       c.causation_depth, c.payload, c.trace_context, c.created_at, c.attempts, c.available_at
+       c.causation_depth, c.payload, c.trace_context, c.created_at, c.attempts, c.available_at, c.expired
 FROM scan s LEFT JOIN claimed c ON c.tenant_id = s.tenant_id
 ORDER BY s.tenant_id, c.target_key, c.target_seq`
 
@@ -204,9 +213,11 @@ ORDER BY s.tenant_id, c.target_key, c.target_seq`
 // scanning at most ScanCap of each tenant's rows, and never a row that has a
 // lower pending target_seq on its target. It records one
 // outbox_relay_rows_scanned observation per tenant, and logs with tenant_id
-// each tenant whose scan reached ScanCap.
+// each tenant whose scan reached ScanCap. A row it would take over that was
+// attempted before and is MaxRedeliveryAge old is marked dead, logged and
+// not returned.
 func (r *Relay) Claim(ctx context.Context) ([]Claimed, error) {
-	rows, err := r.db.Query(ctx, claimSQL, ScanCap, PerTenant, r.opts.Lease.Seconds())
+	rows, err := r.db.Query(ctx, claimSQL, ScanCap, PerTenant, r.opts.Lease.Seconds(), MaxRedeliveryAge.Seconds())
 	if err != nil {
 		return nil, fmt.Errorf("relay: claim: %w", err)
 	}
@@ -234,15 +245,22 @@ func (r *Relay) Claim(ctx context.Context) ([]Claimed, error) {
 			created *time.Time
 			att     *int32
 			lease   *time.Time
+			expired *bool
 		)
 		if err := rows.Scan(&tenant, &scanned, &id, &kind, &kindV, &key, &seq, &c.CausationID, &depth,
-			&c.Payload, &c.TraceContext, &created, &att, &lease); err != nil {
+			&c.Payload, &c.TraceContext, &created, &att, &lease, &expired); err != nil {
 			return nil, fmt.Errorf("relay: claim: %w", err)
 		}
 		if len(scans) == 0 || scans[len(scans)-1].tenant != tenant {
 			scans = append(scans, tenantScan{tenant, scanned})
 		}
 		if id == nil {
+			continue
+		}
+		if *expired {
+			r.log.WarnContext(ctx, "outbox row passed its max redelivery age and was marked dead",
+				slog.String("tenant_id", tenant.String()), slog.String("outbox_id", id.String()),
+				slog.Int("attempts", int(*att)))
 			continue
 		}
 		c.ID, c.TenantID, c.Kind, c.KindVersion, c.TargetKey, c.TargetSeq = *id, tenant, *kind, *kindV, *key, *seq

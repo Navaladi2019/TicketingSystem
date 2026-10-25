@@ -443,14 +443,15 @@ func TestMaxRedeliveryAgeMarksDead(t *testing.T) {
 		t.Fatalf("23 h: dead %v, %v; want a backoff", dead, err)
 	}
 
-	// Past it, the next failure marks it dead and pushes nothing.
-	mustExec(t, e.super, `UPDATE outbox SET created_at = now() - interval '24 hours 1 minute',
-		available_at = now() - interval '1 second' WHERE id = $1`, ids[0])
-	mustExec(t, e.super, "UPDATE outbox SET available_at = now() - interval '1 second' WHERE id <> $1", ids[0])
+	// Past it while claimed, the next failure marks it dead and pushes
+	// nothing. (Past it before the claim, Claim kills it: see
+	// TestExpiredLeaseTakeoverMarksDead.)
+	mustExec(t, e.super, "UPDATE outbox SET available_at = now() - interval '1 second' WHERE tenant_id = $1", tenant)
 	cs, err = r.Claim(ctx)
 	if err != nil || len(cs) != 1 || cs[0].ID != ids[0] {
 		t.Fatalf("claim %+v, %v; want the head", cs, err)
 	}
+	mustExec(t, e.super, "UPDATE outbox SET created_at = now() - interval '24 hours 1 minute' WHERE id = $1", ids[0])
 	dead, err := r.Backoff(ctx, cs[0], "still unavailable")
 	if err != nil || !dead {
 		t.Fatalf("24 h: dead %v, %v; want dead", dead, err)
@@ -555,4 +556,45 @@ func TestRelayGrants(t *testing.T) {
 func val(e metricdata.Extrema[int64]) int64 {
 	v, _ := e.Value()
 	return v
+}
+
+// TL must-change (TICK-74): a crash between dispatch and MarkDispatched never
+// reaches Backoff. When Claim takes such a row over after its lease and it is
+// past MaxRedeliveryAge, it is marked dead, not claimed; a row never
+// attempted is claimed whatever its age.
+func TestExpiredLeaseTakeoverMarksDead(t *testing.T) {
+	e := migrated(t)
+	ctx := context.Background()
+	crashed, fresh := uuid.New(), uuid.New()
+	ids := seed(t, e.super, crashed, 2, 2) // head and successor on one target
+	unattempted := seed(t, e.super, fresh, 1, 1)
+	// The head was claimed and dispatched, then the relay crashed; its lease
+	// has ended. Both tenants' rows are past the age.
+	mustExec(t, e.super, `UPDATE outbox SET attempts = 1, available_at = now() - interval '1 second'
+		WHERE id = $1`, ids[0])
+	mustExec(t, e.super, `UPDATE outbox SET created_at = now() - interval '24 hours 1 minute'
+		WHERE id IN ($1, $2)`, ids[0], unattempted[0])
+	r := newProbe(t, e.relay, Options{})
+
+	cs, err := r.Claim(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cs) != 1 || cs[0].ID != unattempted[0] || cs[0].Attempts != 1 {
+		t.Fatalf("claim %+v; want only the never-attempted row, at attempt 1", cs)
+	}
+	if n := count(t, e.super, `SELECT count(*) FROM outbox WHERE id = $1 AND dead_at IS NOT NULL
+		AND attempts = 1 AND available_at < now()`, ids[0]); n != 1 {
+		t.Error("the taken-over head is not dead with its attempts and available_at unchanged")
+	}
+	logs := r.logs.String()
+	if !strings.Contains(logs, "max redelivery age") || !strings.Contains(logs, `"tenant_id":"`+crashed.String()+`"`) ||
+		!strings.Contains(logs, ids[0].String()) {
+		t.Errorf("no dead-letter log line for the head: %s", logs)
+	}
+
+	cs, err = r.Claim(ctx)
+	if err != nil || len(cs) != 1 || cs[0].ID != ids[1] {
+		t.Fatalf("claim after the death %+v, %v; want the successor", cs, err)
+	}
 }

@@ -23,7 +23,9 @@ flowchart TD
   a capped tenant is logged with tenant_id"]
   W --> P["picked: per tenant at most 2 rows with no lower pending target_seq
   on their target, FOR UPDATE SKIP LOCKED"]
-  P --> L["lease: available_at = now() + Lease, attempts + 1"]
+  P --> X{"attempted before and created_at older than 24 h?"}
+  X -->|yes| XD["dead_at = now(), not returned"]
+  X -->|no| L["lease: available_at = now() + Lease, attempts + 1"]
   L --> D{T30b dispatch}
   D -->|ok| MD[MarkDispatched]
   D -->|terminal| MX[MarkDead]
@@ -48,16 +50,18 @@ flowchart TD
   `target_key == kind + ":" + id.String()` (canonical lowercase UUID).
   Every other row is a signal. Nothing else is parsed from `target_key`.
 - **Retry delay.** 1 s doubled per attempt, capped at 5 min (`Options`).
-- **Dead letter.** Backoff marks a row dead instead once it is
-  `MaxRedeliveryAge` (24 h, D-P8) old. The age is measured from `created_at`,
-  which is never later than the first attempt, so a row is never redelivered
-  for more than 24 h plus one delay, inside the worker's 48 h signal window.
-  A row is only ever marked dead after an attempt.
+- **Dead letter.** A row is marked dead once it is `MaxRedeliveryAge` (24 h,
+  D-P8) old, measured from `created_at` (decision log, 2026-10-25). Backoff
+  does it at a failure. Claim does it instead of claiming when the row was
+  attempted before and its lease or backoff is over, so a crash between
+  dispatch and `MarkDispatched` cannot redeliver a row past the worker's 48 h
+  signal window. A row with no attempts is never marked dead.
 - **Grants.** The relay never reads `last_error` or `dedupe_key`, and
   `outbox_relay_update` lets it touch only pending rows.
-- **Known worst case.** A leased head is not backing off, so its available
-  successors still fill the tenant's 200-row window until it settles. T33's
-  flood test covers it.
+- **Accepted worst cases** (decision log, 2026-10-25). A leased head is not
+  backing off, so its available successors can fill the tenant's 200-row
+  window until it settles; T33's flood test covers it. A poll has no limit on
+  tenants; revisit if T33 shows poll latency growing with the tenant count.
 
 ## Tests
 
@@ -65,5 +69,5 @@ flowchart TD
 `relay_integration_test.go` against real PostgreSQL as `nava_relay`: two
 concurrent claimers, lease takeover, fairness with the capped tenant's log
 line and `le="200"` = `_count`, successor push with 0 rows scanned while the
-head waits, the 24 h dead letter, rows written by `outbox.Enqueue`, and the
-grants.
+head waits, the 24 h dead letter at Backoff and at a lease takeover, rows
+written by `outbox.Enqueue`, and the grants.
