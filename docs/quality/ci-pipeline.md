@@ -39,8 +39,9 @@ Keycloak, `trace` counts every trace the Collector saw, `idempotent` restarts
 the stack and `dbroles` changes roles. `ci-stack` alone adds the CI overlay
 (`deploy/compose/compose.ci.yaml`), which runs the stack's PostgreSQL with
 `fsync`, `synchronous_commit` and `full_page_writes` off; that run ends in
-`down -v`. The test overlay (`compose.test.yaml`, which `make stack-up` uses on
-the dev project) and the dev and production files never set them.
+`down -v`. Since TICK-166 `compose.yaml` sets the same three flags for the dev
+stack too (Keycloak's first boot is fsync-bound), so the overlay is a duplicate
+there; production files never set them.
 
 **Time budget: under 5 minutes wall clock on a warm cache.** What keeps it there:
 - Each job restores its own Go module and build cache (`actions/cache`, key per
@@ -65,7 +66,8 @@ container a Go test starts itself is removed in `t.Cleanup`. Image tags come
 from `docs/pins.md`: the script exports the `postgres` row as
 `NAVA_TEST_PG_IMAGE` and starts the `edoburu/pgbouncer` row. Every cluster runs
 with `fsync`, `synchronous_commit` and `full_page_writes` off: they are thrown
-away, and the dev and production compose files never set these (TICK-153 O1).
+away. The dev compose file sets them for its Postgres since TICK-166; the
+production files never do (TICK-153 O1).
 
 Three groups run at once (TICK-153 O3): dbtest's top-level tests, dealt
 round-robin over the shard clusters, one `go test -run` each; the other

@@ -41,7 +41,7 @@ GOLANGCI_LINT_VERSION := 2.14.0
 GOVULNCHECK_VERSION := v1.9.0
 
 .PHONY: build run test test-integration isolation lint generate check-openapi
-.PHONY: ci ci-isolated ci-changed ci-stages ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity stack-test-worker 	image image-ci stack-up stack-down stack-logs stack-internal stack-internal-beside stack-main ci-stack-run stack-tests smoke
+.PHONY: ci ci-isolated ci-changed ci-stages ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity stack-idp-realms stack-test-worker 	image image-ci stack-up stack-down stack-logs stack-internal stack-internal-beside stack-main ci-stack-run stack-tests smoke
 
 build:
 	go build -o bin/nava-core ./cmd/nava-core
@@ -158,9 +158,9 @@ ci-stack: $(if $(IMAGE_CACHE),image-ci,image)
 # Each tears its project down; the main one prints its logs first on failure.
 # The certificates come first: a bind mount of a missing file would make
 # Docker create a directory in its place.
-# Only this throwaway run, which ends in down -v, gets the no-durability
-# Postgres (deploy/compose/compose.ci.yaml); make stack-up on the dev project
-# never does.
+# This throwaway run, which ends in down -v, adds compose.ci.yaml, whose
+# no-durability Postgres flags are now also in compose.yaml (TICK-166), so the
+# dev project has them too; the overlay is kept as a duplicate.
 ci-stack-run: export COMPOSE_FILE := compose.yaml:deploy/compose/compose.test.yaml:deploy/compose/compose.ci.yaml
 ci-stack-run: dev-ca
 	@$(MAKE) --no-print-directory $(if $(filter after,$(STACK_INTERNAL)),-j1,-j 2) stack-main stack-internal-beside
@@ -292,6 +292,12 @@ stack-test-sdk:
 # yet; the step needs a push with `workflow` scope.
 stack-test-worker:
 	go test -tags workerstack -count=1 ./internal/workerstack
+
+# Creates the two test IdP realms (idp-tenant-a, idp-tenant-b) on the running
+# Keycloak, fresh, with the code the identity tests start with (TICK-166). A
+# plain `docker compose up` imports only `nava`; a manual S2 step needs these.
+stack-idp-realms:
+	go test -tags identitystack -count=1 -run ^TestIdPRealmsExist$$ ./internal/identitystack
 
 # The realm `nava` of the running Keycloak (T14, ADR-001 A.1): tenant and idp
 # claims, token lifespan, operator role custody, realm export round trip.
