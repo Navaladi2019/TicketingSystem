@@ -57,6 +57,9 @@ func (r report) markdown(ok bool) string {
 			}
 			fmt.Fprintf(&b, "| %s | %s | %s | %s |\n", cellText(p.Path.Name), role, p.Status, cellText(p.Detail))
 		}
+		if id == "CI-9" {
+			r.writeFixtures(&b, id)
+		}
 	}
 	return b.String()
 }
@@ -72,12 +75,21 @@ func (r report) writeCI2(b *strings.Builder) {
 	for _, l := range r.ci2 {
 		fmt.Fprintf(b, "| %s | %s | %s | %s |\n", l.Role, l.Table, l.Status, cellText(l.Detail))
 	}
+	r.writeFixtures(b, "CI-2")
+}
+
+// writeFixtures lists the fixtures of ADR test id id.
+func (r report) writeFixtures(b *strings.Builder, id string) {
 	b.WriteString("\n### Fixtures (the checks can fail)\n\n| Fixture | Role | Table | Before | With the fixture |\n|---|---|---|---|---|\n")
-	if len(r.fixtures) == 0 {
-		b.WriteString("| - | - | - | - | did not run |\n")
-	}
+	n := 0
 	for _, f := range r.fixtures {
-		fmt.Fprintf(b, "| %s | %s | %s | %s | %s |\n", f.Name, f.Role, f.Table, f.Before, f.After)
+		if f.Case == id {
+			n++
+			fmt.Fprintf(b, "| %s | %s | %s | %s | %s |\n", cellText(f.Name), f.Role, f.Table, f.Before, f.After)
+		}
+	}
+	if n == 0 {
+		b.WriteString("| - | - | - | - | did not run |\n")
 	}
 }
 
