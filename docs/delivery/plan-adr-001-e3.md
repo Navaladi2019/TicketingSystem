@@ -4,7 +4,7 @@ id: PLAN-001-E3
 title: Implementing ADR-001 erratum E3 (nava_onboard SELECT is its own row, in either state)
 adr: "[[ADR-001-E3-a3-onboard-select-own-row]] (APPROVED by nava 2026-10-25, TICK-170; PR #84)"
 issue: TICK-178
-status: PROPOSED (awaiting nava's approval on TICK-178)
+status: APPROVED by nava 2026-10-25 (TICK-178)
 date: 2026-10-25
 owner: Technical Lead
 ---
