@@ -59,6 +59,30 @@ func platformSchema(col string) string {
 	return "(" + col + " !~ '^pg_' AND " + col + " <> 'information_schema')"
 }
 
+// platformRelations is the FROM and WHERE clause over every relation c, in
+// namespace n, of a platform schema. ci1Relations (CI-1) and TenantTables
+// (CI-2) both discover through it and both drop the tables nonTenant names,
+// so the two gates cannot disagree on which tables are tenant tables
+// (TICK-163).
+func platformRelations() string {
+	return `FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+		WHERE ` + platformSchema("n.nspname")
+}
+
+// isTable is the SQL test for relation c being a table (ordinary,
+// partitioned or foreign): one that can hold tenant rows.
+const isTable = "c.relkind IN ('r', 'p', 'f')"
+
+// nonTenant is the set of tables in platform schemas that are not tenant
+// tables: the goose version table and every table g lists.
+func nonTenant(g *GlobalTables) map[string]bool {
+	out := map[string]bool{versionTable: true}
+	for _, name := range g.Names() {
+		out[name] = true
+	}
+	return out
+}
+
 // funcSig is the SQL for the manifest name of function p in schema n,
 // "schema.name(argtypes)". It is built from the catalogue rather than
 // resolved with to_regprocedure, which needs USAGE on the schema, and the
@@ -111,43 +135,39 @@ func Check(ctx context.Context, q Querier, m *grants.Manifest, g *GlobalTables) 
 // security_invoker, no materialized views.
 func ci1Relations(ctx context.Context, q Querier, _ *grants.Manifest, g *GlobalTables) ([]string, error) {
 	rows, err := q.Query(ctx, `
-		SELECT n.nspname::text, c.relname::text, c.relkind::text, c.relrowsecurity, c.relforcerowsecurity,
+		SELECT n.nspname::text, c.relname::text, c.relkind::text, `+isTable+`, c.relrowsecurity, c.relforcerowsecurity,
 		       EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
 		               WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped AND a.attnotnull
 		                 AND a.atttypid = 'pg_catalog.uuid'::pg_catalog.regtype
 		                 AND a.attname = CASE WHEN n.nspname = 'public' AND c.relname = 'tenants' THEN 'id' ELSE 'tenant_id' END),
 		       coalesce((SELECT o.option_value::boolean FROM pg_catalog.pg_options_to_table(c.reloptions) o
 		                 WHERE o.option_name = 'security_invoker'), false)
-		FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-		WHERE `+platformSchema("n.nspname")+` AND c.relkind IN ('r', 'p', 'f', 'v', 'm')
+		`+platformRelations()+` AND (`+isTable+` OR c.relkind IN ('v', 'm'))
 		ORDER BY 1, 2`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	global := map[string]bool{}
-	for _, name := range g.Names() {
-		global[name] = true
-	}
+	skip := nonTenant(g)
 	seen := map[string]bool{}
 	var out []string
 	for rows.Next() {
 		var schema, table, kind string
-		var rls, force, keyed, invoker bool
-		if err := rows.Scan(&schema, &table, &kind, &rls, &force, &keyed, &invoker); err != nil {
+		var tbl, rls, force, keyed, invoker bool
+		if err := rows.Scan(&schema, &table, &kind, &tbl, &rls, &force, &keyed, &invoker); err != nil {
 			return nil, err
 		}
 		name := schema + "." + table
 		seen[name] = true
-		switch kind {
-		case "m":
+		switch {
+		case kind == "m":
 			out = append(out, "CI-1: materialized view "+name+" exists; a materialized view cannot carry RLS")
-		case "v":
+		case kind == "v":
 			if !invoker {
 				out = append(out, "CI-1: view "+name+" is not security_invoker")
 			}
-		default:
-			if name == versionTable || global[name] {
+		case tbl:
+			if skip[name] {
 				continue
 			}
 			if !rls {
@@ -165,8 +185,8 @@ func ci1Relations(ctx context.Context, q Querier, _ *grants.Manifest, g *GlobalT
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	for name := range global {
-		if !seen[name] {
+	for name := range skip {
+		if name != versionTable && !seen[name] {
 			out = append(out, "CI-1: db/global-tables.yaml lists "+name+", which does not exist")
 		}
 	}
@@ -330,14 +350,14 @@ func (t TenantTable) QualifiedName() string {
 }
 
 // TenantTables lists the tenant tables of the database q is connected to by
-// the rule ci1Relations applies (PLAN-001 D-P16): every table in a platform
-// schema but the goose version table and those g lists. The CI-2 isolation
-// suite (T11) probes each, so a new table is covered without registering it.
+// the rule ci1Relations applies (PLAN-001 D-P16), through the same
+// platformRelations, isTable and nonTenant: every table in a platform schema
+// but the goose version table and those g lists. The CI-2 isolation suite
+// (T11) probes each, so a new table is covered without registering it.
 func TenantTables(ctx context.Context, q Querier, g *GlobalTables) ([]TenantTable, error) {
 	rows, err := q.Query(ctx, `
 		SELECT n.nspname::text, c.relname::text, ''::text -- Key, set below
-		FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-		WHERE `+platformSchema("n.nspname")+` AND c.relkind IN ('r', 'p', 'f')
+		`+platformRelations()+` AND `+isTable+`
 		ORDER BY 1, 2`)
 	if err != nil {
 		return nil, err
@@ -346,13 +366,10 @@ func TenantTables(ctx context.Context, q Querier, g *GlobalTables) ([]TenantTabl
 	if err != nil {
 		return nil, err
 	}
-	global := map[string]bool{versionTable: true}
-	for _, name := range g.Names() {
-		global[name] = true
-	}
+	skip := nonTenant(g)
 	var out []TenantTable
 	for _, t := range all {
-		if !global[t.Schema+"."+t.Name] {
+		if !skip[t.Schema+"."+t.Name] {
 			t.Key = tenantKey(t.Schema, t.Name)
 			out = append(out, t)
 		}

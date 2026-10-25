@@ -68,7 +68,7 @@ test:
 # with ARGS the isolation suite does not run.
 test-integration:
 	sh scripts/ci/test-integration.sh $(ARGS)
-	$(if $(ARGS),,sh scripts/ci/isolation.sh)
+	$(if $(ARGS),@echo "isolation suite skipped (ARGS set); run make isolation",sh scripts/ci/isolation.sh)
 
 # The tenant isolation suite (T11, ADR-001 CI-2): its own throwaway
 # PostgreSQL and a PgBouncer with the real auth_query, tenants A and B seeded,
