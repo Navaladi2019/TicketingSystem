@@ -109,7 +109,7 @@ func (s Suite) Run(t *testing.T) {
 	})
 	t.Run("DirectoryAdmin", func(t *testing.T) {
 		if s.Directory == nil {
-			t.Skip("adapter has no DirectoryAdmin yet (T18)")
+			t.Skip("adapter has no DirectoryAdmin")
 		}
 		for _, c := range s.DirectoryCases {
 			t.Run(c.Name, func(t *testing.T) { c.Run(t, s.Directory) })
@@ -200,4 +200,66 @@ func clip(s string) string {
 		return s[:12] + "…"
 	}
 	return s
+}
+
+// CommonDirectoryCases are the DirectoryAdmin invariants any adapter must keep
+// on a live directory, whatever it stores:
+//   - every method refuses uuid.Nil as the tenant with ErrInvalidInput, before
+//     any call to the IdP;
+//   - ChangesSince is a poll and diff: its cursor, fed back, returns
+//     Unchanged and nothing else, and a stale cursor returns a full snapshot
+//     under the same digest;
+//   - a snapshot of a tenant that has no directory is empty, not an error;
+//   - an unknown principal or group is ErrNotFound.
+func CommonDirectoryCases() []DirectoryCase {
+	ctx := context.Background()
+	return []DirectoryCase{
+		{Name: "nil tenant is refused", Run: func(t *testing.T, d identity.DirectoryAdmin) {
+			if _, err := d.CreateTenantOrg(ctx, uuid.Nil, "x", nil); !errors.Is(err, identity.ErrInvalidInput) {
+				t.Errorf("CreateTenantOrg: %v", err)
+			}
+			if err := d.InviteUser(ctx, uuid.Nil, "a@b.test"); !errors.Is(err, identity.ErrInvalidInput) {
+				t.Errorf("InviteUser: %v", err)
+			}
+			if err := d.DisableUser(ctx, uuid.Nil, uuid.New()); !errors.Is(err, identity.ErrInvalidInput) {
+				t.Errorf("DisableUser: %v", err)
+			}
+			if err := d.SetGroupMembers(ctx, uuid.Nil, uuid.New(), nil); !errors.Is(err, identity.ErrInvalidInput) {
+				t.Errorf("SetGroupMembers: %v", err)
+			}
+			if _, _, err := d.ChangesSince(ctx, uuid.Nil, ""); !errors.Is(err, identity.ErrInvalidInput) {
+				t.Errorf("ChangesSince: %v", err)
+			}
+		}},
+		{Name: "cursor round trip", Run: func(t *testing.T, d identity.DirectoryAdmin) {
+			tenant := uuid.New()
+			first, cur, err := d.ChangesSince(ctx, tenant, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if first.Unchanged || cur == "" {
+				t.Fatalf("first snapshot: unchanged=%v cursor=%q", first.Unchanged, cur)
+			}
+			again, cur2, err := d.ChangesSince(ctx, tenant, cur)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !again.Unchanged || cur2 != cur || len(again.Users)+len(again.Groups)+len(again.OrgUnits) != 0 {
+				t.Errorf("same cursor: %+v %q", again, cur2)
+			}
+			stale, cur3, err := d.ChangesSince(ctx, tenant, "stale")
+			if err != nil || stale.Unchanged || cur3 != cur {
+				t.Errorf("stale cursor: unchanged=%v cursor=%q err=%v", stale.Unchanged, cur3, err)
+			}
+		}},
+		{Name: "unknown principal and group", Run: func(t *testing.T, d identity.DirectoryAdmin) {
+			tenant := uuid.New()
+			if err := d.DisableUser(ctx, tenant, uuid.New()); !errors.Is(err, identity.ErrNotFound) {
+				t.Errorf("DisableUser: %v", err)
+			}
+			if err := d.SetGroupMembers(ctx, tenant, uuid.New(), nil); !errors.Is(err, identity.ErrNotFound) {
+				t.Errorf("SetGroupMembers: %v", err)
+			}
+		}},
+	}
 }

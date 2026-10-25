@@ -16,6 +16,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 // adminRealm calls the admin API of any realm with the master bootstrap admin.
@@ -242,13 +244,60 @@ func TestNoIndirectPathToOperatorRole(t *testing.T) {
 		t.Errorf("nava-operator holders = %+v, want only operator@nava.test", holders)
 	}
 
-	for _, idp := range []string{"idp-tenant-a", "idp-tenant-b"} {
-		_, mb := adminRealm(t, "nava", http.MethodGet, "/identity-provider/instances/"+idp+"/mappers", nil)
+	assertEveryIdPIsTenantBound(t)
+}
+
+// Every IdP in the realm, whoever created it (the import, or the onboarding
+// account through DirectoryAdmin.CreateTenantOrg): linked to exactly one
+// organization, whose alias matches the IdP's; trustEmail off; the first-login
+// flow nava-first-broker-login with no post-login flow; no mapper that can
+// grant a role (T18 widened this from the two fixture IdPs).
+func assertEveryIdPIsTenantBound(t *testing.T) {
+	t.Helper()
+	_, b := adminRealm(t, "nava", http.MethodGet, "/identity-provider/instances", nil)
+	var idps []struct {
+		Alias                     string
+		TrustEmail                bool
+		FirstBrokerLoginFlowAlias string
+		PostBrokerLoginFlowAlias  string
+		OrganizationLinks         []struct{ OrganizationID string }
+	}
+	if err := json.Unmarshal(b, &idps); err != nil || len(idps) < 2 {
+		t.Fatalf("identity providers: %v %s", err, b)
+	}
+	for _, idp := range idps {
+		if idp.TrustEmail {
+			t.Errorf("IdP %s: trustEmail = true", idp.Alias)
+		}
+		if idp.FirstBrokerLoginFlowAlias != "nava-first-broker-login" || idp.PostBrokerLoginFlowAlias != "" {
+			t.Errorf("IdP %s: first-login flow %q, post-login flow %q", idp.Alias, idp.FirstBrokerLoginFlowAlias, idp.PostBrokerLoginFlowAlias)
+		}
+		if len(idp.OrganizationLinks) != 1 {
+			t.Errorf("IdP %s is linked to %d organizations, want exactly 1", idp.Alias, len(idp.OrganizationLinks))
+		} else {
+			_, ob := adminRealm(t, "nava", http.MethodGet, "/organizations/"+idp.OrganizationLinks[0].OrganizationID, nil)
+			var org struct{ Alias string }
+			_ = json.Unmarshal(ob, &org)
+			// The fixture IdPs are idp-<org alias>. A tenant IdP made by
+			// onboarding is idp-<tenant id>, and its organization has no
+			// other IdP.
+			_, lb := adminRealm(t, "nava", http.MethodGet, "/organizations/"+idp.OrganizationLinks[0].OrganizationID+"/identity-providers", nil)
+			var linked []struct{ Alias string }
+			_ = json.Unmarshal(lb, &linked)
+			_, perr := uuid.Parse(strings.TrimPrefix(idp.Alias, "idp-"))
+			switch {
+			case idp.Alias == "idp-"+org.Alias:
+			case perr == nil && strings.HasPrefix(idp.Alias, "idp-") && len(linked) == 1:
+			default:
+				t.Errorf("IdP %s is linked to organization %q: alias does not match (org has %d IdPs)", idp.Alias, org.Alias, len(linked))
+			}
+		}
+		_, mb := adminRealm(t, "nava", http.MethodGet, "/identity-provider/instances/"+url.PathEscape(idp.Alias)+"/mappers", nil)
 		var ms []struct{ Name, IdentityProviderMapper string }
 		_ = json.Unmarshal(mb, &ms)
 		for _, m := range ms {
-			if strings.Contains(m.IdentityProviderMapper, "role") {
-				t.Errorf("IdP %s mapper %s (%s) grants roles from a tenant-controlled IdP", idp, m.Name, m.IdentityProviderMapper)
+			if strings.Contains(strings.ToLower(m.IdentityProviderMapper), "role") {
+				t.Errorf("IdP %s mapper %s (%s) grants roles from a tenant-controlled IdP", idp.Alias, m.Name, m.IdentityProviderMapper)
 			}
 		}
 	}

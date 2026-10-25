@@ -216,7 +216,7 @@ func orgID(t *testing.T, tok, alias string) string {
 func TestAliceTokenCarriesOrganization(t *testing.T) {
 	c := claims(t, passwordToken(t, "nava-web", "alice@tenant-a.test", "dev-only-alice"))
 	entry := orgClaim(t, c, "tenant-a")
-	want := orgID(t, serviceToken(t), "tenant-a")
+	want := orgID(t, masterToken(t), "tenant-a") // the runtime account has no organization read
 	if entry["id"] != want {
 		t.Fatalf("organization.tenant-a.id = %v, want %s", entry["id"], want)
 	}
@@ -336,10 +336,11 @@ func TestOperatorToken(t *testing.T) {
 
 func TestOrgAdminCannotAssignOperator(t *testing.T) {
 	svc := serviceToken(t)
-	// Control: the platform service account can read the role.
-	code, b := admin(t, svc, http.MethodGet, "/roles/nava-operator", nil)
+	// The runtime account has no realm role, so the role is read as the
+	// master admin.
+	code, b := admin(t, masterToken(t), http.MethodGet, "/roles/nava-operator", nil)
 	if code != http.StatusOK {
-		t.Fatalf("service account read role: %d %s", code, b)
+		t.Fatalf("read role: %d %s", code, b)
 	}
 	var role map[string]any
 	_ = json.Unmarshal(b, &role)
@@ -384,7 +385,9 @@ func TestOrgAdminCannotAssignOperator(t *testing.T) {
 
 func TestPlatformServiceAccountCanAssignOperator(t *testing.T) {
 	svc := serviceToken(t)
-	code, b := admin(t, svc, http.MethodGet, "/roles/nava-operator", nil)
+	// The role is read as the master admin: the runtime account has no
+	// realm role, but its manage-users can still map the role it is handed.
+	code, b := admin(t, masterToken(t), http.MethodGet, "/roles/nava-operator", nil)
 	if code != http.StatusOK {
 		t.Fatalf("%d %s", code, b)
 	}
