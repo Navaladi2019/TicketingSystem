@@ -2,20 +2,21 @@
 type: adr-erratum
 id: ADR-001-E3
 title: Erratum E3 to ADR-001 Annex A.3, nava_onboard has SELECT on its own row, not only its own provisioning row
-status: PROPOSED
+status: ACCEPTED
 date: 2026-10-25
+accepted: 2026-10-25 (nava, TICK-170 comment 01a17292-6fb3-7b8e-8679-5d7321698458)
 issue: TICK-170
 rfc: docs/adr/ADR-001/rfc/RFC-004-a3-onboard-select-own-row.md (rev 1, archived; thread under TICK-170 comment 01a17126-ea84-7ce8-83a8-7e228eb5beba)
 supersedes: "the A.3 Onboarding-row clause \"`SELECT` on its own provisioning row\" in [[ADR-001-platform-blueprint]]"
 amends: "[[ADR-001-platform-blueprint]] Annex A.3, Onboarding row"
 source: TICK-71 second review of PR #80 (Postgres & Data Modeling Specialist, comment 01a17125-65dc-7a14-986a-8a953fbe1c49); RFC-004 round 1
 deciders: Solution Architect (author), Technical Architect (no blocking finding, round 1), Security & Multi-Tenancy Reviewer (APPROVE, round 1), CTO
-signs: nava (pending)
+signs: nava (signed 2026-10-25: "APPROVED")
 ---
 
 # ADR-001 erratum E3: `nava_onboard` reads its own row, in either state
 
-> **Status: PROPOSED.** RFC-004 rev 1 was approved in round 1 by the Technical Architect (no blocking finding) and the Security & Multi-Tenancy Reviewer (APPROVE). Awaiting nava's sign-off on TICK-170.
+> **Status: ACCEPTED, 2026-10-25.** nava approved it on TICK-170 (comment `01a17292`: "APPROVED"), and the CTO recorded the approval in comment `01a17292-fe3b`. RFC-004 rev 1 was approved in round 1 by the Technical Architect (no blocking finding) and the Security & Multi-Tenancy Reviewer (APPROVE). Delivery plans the follow-up in TICK-178.
 
 > **Invariants source.** The project description defines no invariants. As in A1 and A2, this is checked against [[ADR-001-platform-blueprint]] §1 I1–I9. If the project is meant to have its own list of eight, these checks are incomplete against it.
 
