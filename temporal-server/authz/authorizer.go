@@ -11,6 +11,7 @@ import (
 	deploymentpb "go.temporal.io/api/deployment/v1"
 	enumspb "go.temporal.io/api/enums/v1"
 	failurepb "go.temporal.io/api/failure/v1"
+	protocolpb "go.temporal.io/api/protocol/v1"
 	taskqueuepb "go.temporal.io/api/taskqueue/v1"
 	workerpb "go.temporal.io/api/worker/v1"
 	"go.temporal.io/api/workflowservice/v1"
@@ -268,12 +269,15 @@ func checkWorkerHistory(request any) *commandDenial {
 // checkTaskToken is D9d: the task token decodes as token.v1.Task and names a
 // tenant's workflow id, E1's check on RespondWorkflowTaskCompleted. Tokens are
 // unsigned, so this keeps a forged token off Temporal's own workflows (F2-3).
+// D9h-failures: a failure, and a workflow task failure's update messages, name
+// only prefixed children.
 func checkTaskToken(request any) *commandDenial {
 	var taskToken []byte
 	var failure *failurepb.Failure
+	var messages []*protocolpb.Message
 	switch req := request.(type) {
 	case *workflowservice.RespondWorkflowTaskFailedRequest:
-		taskToken, failure = req.GetTaskToken(), req.GetFailure()
+		taskToken, failure, messages = req.GetTaskToken(), req.GetFailure(), req.GetMessages()
 	case *workflowservice.RespondActivityTaskCompletedRequest:
 		taskToken = req.GetTaskToken()
 	case *workflowservice.RespondActivityTaskFailedRequest:
@@ -289,7 +293,7 @@ func checkTaskToken(request any) *commandDenial {
 	if d != nil {
 		return d
 	}
-	if d := failureDenial(failure); d != nil {
+	if d := firstDenial(failureDenial(failure), checkMessages(messages)); d != nil {
 		d.workflowID = workflowID
 		return d
 	}
@@ -414,7 +418,7 @@ func failureChildID(f *failurepb.Failure) (id string, ok bool) {
 // failureDenial is D9h-failures for a request-level failure.
 func failureDenial(f *failurepb.Failure) *commandDenial {
 	if id, ok := failureChildID(f); !ok {
-		return &commandDenial{reason: ReasonNoTenantPrefix, command: commandNone, index: -1, target: id, detail: "child failure workflow id"}
+		return &commandDenial{reason: ReasonNoTenantPrefix, command: commandNone, index: -1, target: id, detail: childFailureDetail}
 	}
 	return nil
 }

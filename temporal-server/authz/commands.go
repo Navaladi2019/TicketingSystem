@@ -18,7 +18,10 @@ import (
 	commandpb "go.temporal.io/api/command/v1"
 	commonpb "go.temporal.io/api/common/v1"
 	enumspb "go.temporal.io/api/enums/v1"
+	failurepb "go.temporal.io/api/failure/v1"
+	protocolpb "go.temporal.io/api/protocol/v1"
 	taskqueuepb "go.temporal.io/api/taskqueue/v1"
+	updatepb "go.temporal.io/api/update/v1"
 	"go.temporal.io/api/workflowservice/v1"
 	tokenspb "go.temporal.io/server/api/token/v1"
 )
@@ -45,14 +48,18 @@ const (
 	ReasonCronSchedule      = "continue_as_new_cron"
 	ReasonTenantSearchAttr  = "search_attribute_tenant"
 	ReasonMalformedRequest  = "request_malformed"
+	ReasonProtocolMessage   = "protocol_message_not_allowed"
 )
 
 // Values of the `command` metric tag besides the command names below.
-// commandStickyAttributes tags a denied response-level StickyAttributes (D9c).
+// commandStickyAttributes tags a denied response-level StickyAttributes (D9c);
+// commandMessage tags a denied update protocol message (D9h-failures), whose
+// command_index is its position in Messages.
 const (
 	commandNone             = "none"
 	commandUnknown          = "unknown"
 	commandStickyAttributes = "StickyAttributes"
+	commandMessage          = "Message"
 )
 
 // commandNames is every command type of go.temporal.io/api v1.53.0 (unchanged since v1.50.1), by the name
@@ -103,8 +110,8 @@ var allowedCommands = map[enumspb.CommandType]bool{
 // command are metric tags; the ids go to the log line (and so the alert) only.
 type commandDenial struct {
 	reason  string
-	command string // a commandNames value, commandUnknown, commandNone or commandStickyAttributes
-	index   int    // position in Commands, or -1 for the whole response
+	command string // a commandNames value, commandUnknown, commandNone, commandStickyAttributes or commandMessage
+	index   int    // position in Commands (in Messages for commandMessage), or -1 for the whole response
 	// workflowID is the task token's; target is the command's target id.
 	workflowID, target string
 	detail             string
@@ -134,8 +141,12 @@ func inspectCommands(request any) *commandDenial {
 	for _, k := range slices.Sorted(maps.Keys(results)) {
 		if id, ok := failureChildID(results[k].GetFailure()); !ok {
 			return &commandDenial{reason: ReasonNoTenantPrefix, command: commandNone, index: -1,
-				workflowID: workflowID, target: id, detail: "query result child failure workflow id"}
+				workflowID: workflowID, target: id, detail: "query result " + childFailureDetail}
 		}
+	}
+	if d := checkMessages(req.GetMessages()); d != nil {
+		d.workflowID = workflowID
+		return d
 	}
 	for i, cmd := range req.GetCommands() {
 		if reason, target, detail := checkCommand(cmd, tenant); reason != "" {
@@ -163,8 +174,52 @@ func taskTokenTenant(taskToken []byte) (workflowID, tenant string, d *commandDen
 	return workflowID, tenant, nil
 }
 
-// childFailureDetail is the log detail of a D9h-failures command deny.
+// childFailureDetail is the log detail of a D9h-failures deny.
 const childFailureDetail = "child failure workflow id"
+
+// checkMessages is D9h-failures for update protocol messages, on
+// RespondWorkflowTaskCompleted and RespondWorkflowTaskFailed. A message body
+// is a google.protobuf.Any. At server v1.29.7 it must be an update Acceptance,
+// Rejection or Response (service/history/workflow/update/update.go
+// OnProtocolMessage), and a Rejection's or Response's failure is written to
+// history, so its child failures must name the tenant's workflows. Any other
+// body, or one that does not decode, is denied: the drift golden expands only
+// these three (anyBodies in policy_test.go).
+func checkMessages(msgs []*protocolpb.Message) *commandDenial {
+	for i, m := range msgs {
+		if reason, target, detail := checkMessage(m); reason != "" {
+			return &commandDenial{reason: reason, command: commandMessage, index: i, target: target, detail: detail}
+		}
+	}
+	return nil
+}
+
+func checkMessage(m *protocolpb.Message) (reason, target, detail string) {
+	body := m.GetBody()
+	var failure *failurepb.Failure
+	var err error
+	switch name := body.MessageName(); name {
+	case "temporal.api.update.v1.Acceptance":
+		err = body.UnmarshalTo(&updatepb.Acceptance{})
+	case "temporal.api.update.v1.Rejection":
+		r := &updatepb.Rejection{}
+		err = body.UnmarshalTo(r)
+		failure = r.GetFailure()
+	case "temporal.api.update.v1.Response":
+		r := &updatepb.Response{}
+		err = body.UnmarshalTo(r)
+		failure = r.GetOutcome().GetFailure()
+	default:
+		return ReasonProtocolMessage, "", "message body type " + strconv.Quote(truncate(string(name), maxLoggedName))
+	}
+	if err != nil {
+		return ReasonProtocolMessage, "", "message body: " + err.Error()
+	}
+	if id, ok := failureChildID(failure); !ok {
+		return ReasonNoTenantPrefix, id, "update " + childFailureDetail
+	}
+	return "", "", ""
+}
 
 // checkCommand returns "" if the command is allowed for a task of tenant, or
 // the deny reason with the command's target workflow id, if it has one.

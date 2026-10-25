@@ -476,7 +476,16 @@ const (
 	classD9gPollHB       = "D9g: platform queue (the frontend forwards it to RecordWorkerHeartbeat)"
 	classD9hLink         = "D9h-links: workflow event link with a `t:<tenant>:` prefix"
 	classD9hFailure      = "D9h-failures: `t:<tenant>:` prefix, along the whole cause chain"
+	classD9hBodyType     = "D9h-failures: an update `Acceptance`, `Rejection` or `Response`"
+	classD9hBodyValue    = "D9h-failures: decodes as that type, expanded as `body (Type)`"
 )
+
+// withMessages adds the D9h-failures rules for update protocol messages.
+func withMessages(rules map[string]string) map[string]string {
+	rules["messages[].body.type_url"] = classD9hBodyType
+	rules["messages[].body.value"] = classD9hBodyValue
+	return withFailures(rules, "messages[].body (Rejection).failure.", "messages[].body (Response).outcome.failure.")
+}
 
 // failureTypeName is the one id-shaped field classed notIDOrQueue on purpose:
 // a child failure's workflow type is failure data, and the Annex A.2 statement
@@ -556,7 +565,7 @@ var requestFieldRules = map[Identity]map[string]map[string]string{
 			"worker_version_capabilities.use_versioning": classD9bPlusCaps,
 			"worker_heartbeat.task_queue":                classD9gHeartbeat,
 		},
-		"RespondWorkflowTaskCompleted": withQueues(withFailures(map[string]string{
+		"RespondWorkflowTaskCompleted": withMessages(withQueues(withFailures(map[string]string{
 			"task_token": classE1Token,
 			"sticky_attributes.worker_task_queue.name":        classD9cStickyQueue,
 			"sticky_attributes.worker_task_queue.normal_name": classD9cStickyNormal,
@@ -578,8 +587,8 @@ var requestFieldRules = map[Identity]map[string]map[string]string{
 			cmdCAN + "workflow_type.name":                     classD9cType,
 			cmdUpsert + "search_attributes.":                  classE1SearchAttr,
 		}, "query_results{}.failure.", cmdCAN+"failure.", cmdFail+"failure.", cmdMarker+"failure."),
-			cmdActivity, cmdChild, cmdCAN),
-		"RespondWorkflowTaskFailed":    withFailures(map[string]string{"task_token": classD9dToken}, "failure."),
+			cmdActivity, cmdChild, cmdCAN)),
+		"RespondWorkflowTaskFailed":    withMessages(withFailures(map[string]string{"task_token": classD9dToken}, "failure.")),
 		"RespondActivityTaskCompleted": {"task_token": classD9dToken},
 		"RespondActivityTaskFailed":    withFailures(map[string]string{"task_token": classD9dToken}, "failure."),
 		"RespondActivityTaskCanceled":  {"task_token": classD9dToken},
@@ -616,6 +625,20 @@ type requestField struct {
 	parent protoreflect.FullName
 	kind   protoreflect.Kind
 	cycle  bool // a message type already on the path; the walk stops here
+	// unexpandedAny is a google.protobuf.Any field with no anyBodies entry: its
+	// body hides fields from the golden, so it fails like an unclassified id.
+	unexpandedAny bool
+}
+
+// anyBodies lists, for each google.protobuf.Any field in a walked request, the
+// body types the server accepts there; the walk expands each as `body (Type)`.
+// Protocol message bodies at server v1.29.7: an update Acceptance, Rejection
+// or Response (service/history/workflow/update/update.go OnProtocolMessage).
+// The Authorizer denies any other body (checkMessages).
+var anyBodies = map[protoreflect.FullName][]protoreflect.FullName{
+	"temporal.api.protocol.v1.Message.body": {
+		"temporal.api.update.v1.Acceptance", "temporal.api.update.v1.Rejection", "temporal.api.update.v1.Response",
+	},
 }
 
 // classMessage is the class of a message-typed field that no subtree rule
@@ -655,9 +678,24 @@ func walkRequestFields(md protoreflect.MessageDescriptor) []requestField {
 					row.cycle = true
 				}
 			}
+			if v.Message() != nil && v.Message().FullName() == "google.protobuf.Any" {
+				_, expanded := anyBodies[f.FullName()]
+				row.unexpandedAny = !expanded
+			}
 			out = append(out, row)
 			if v.Message() != nil && !row.cycle {
 				walk(v.Message(), path+".")
+			}
+			for _, body := range anyBodies[f.FullName()] {
+				d, err := protoregistry.GlobalFiles.FindDescriptorByName(body)
+				if err != nil {
+					panic(fmt.Sprintf("anyBodies: %s: %v", body, err))
+				}
+				bm := d.(protoreflect.MessageDescriptor)
+				bodyPath := path + " (" + string(bm.Name()) + ")"
+				out = append(out, requestField{path: bodyPath, typ: string(bm.FullName()), name: string(f.Name()),
+					parent: md.FullName(), kind: protoreflect.MessageKind})
+				walk(bm, bodyPath+".")
 			}
 		}
 	}
@@ -760,7 +798,7 @@ func renderRequestFieldGolden(reqs []allowedRequest) (golden string, unclassifie
 	b.WriteString("# Request fields of the allow-listed D9 APIs\n\n")
 	b.WriteString("go.temporal.io/api v1.53.0. Every field path of the request message of each API that ")
 	b.WriteString("`nava-relay`, `nava-core` or `nava-worker` may call (ADR-001-A2, drift golden CI-C). ")
-	b.WriteString("`[]` marks a repeated field, `{}` a map value, and `→ (Type)` a message type already on the path, where the walk stops. ")
+	b.WriteString("`[]` marks a repeated field, `{}` a map value, `body (Type)` a `google.protobuf.Any` expanded into a body type the server accepts there, and `→ (Type)` a message type already on the path, where the walk stops. ")
 	b.WriteString("A field that names a workflow id, workflow type or task queue must name the rule that checks it.\n")
 	for _, r := range reqs {
 		ids := make([]string, len(r.ids))
@@ -779,6 +817,9 @@ func renderRequestFieldGolden(reqs []allowedRequest) (golden string, unclassifie
 			switch {
 			case f.cycle:
 				class = "cycle: its fields are listed above"
+			case f.unexpandedAny:
+				class = "**unexpanded `Any`**"
+				unclassified = append(unclassified, fmt.Sprintf("%s %s is a google.protobuf.Any with no body types in anyBodies", r.method, f.path))
 			case f.kind == protoreflect.MessageKind && class == notIDOrQueue:
 				class = classMessage
 			}

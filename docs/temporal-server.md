@@ -101,7 +101,8 @@ prints both sets.
 | D9g | `nava-worker` `ShutdownWorker` | `StickyTaskQueue` set and not `<host>:<uuid>`, or in the set | `sticky_queue_not_allowed` |
 | | `ShutdownWorker`, `RecordWorkerHeartbeat`, `PollWorkflowTaskQueue`, `PollActivityTaskQueue` | a present `WorkerHeartbeat` whose `TaskQueue` is not in the set (empty included) | `task_queue_not_allowed` |
 | D9h-links | `nava-relay` `StartWorkflowExecution` (`links`, `completion_callbacks[].links`), `SignalWithStartWorkflowExecution`, `SignalWorkflowExecution`; `nava-core` `RequestCancelWorkflowExecution` | a link that is not a workflow event link, or whose workflow id has no `t:<tenant>:` | `workflow_id_no_tenant` |
-| D9h-failures | `nava-relay` `StartWorkflowExecution` (`continued_failure`); `nava-worker` `RespondWorkflowTaskFailed`, `RespondActivityTaskFailed`, `RespondQueryTaskCompleted`; `RespondWorkflowTaskCompleted` query results and `FailWorkflowExecution`, `RecordMarker`, `ContinueAsNewWorkflowExecution` commands | a `ChildWorkflowExecutionFailureInfo` workflow id anywhere along the `cause` chain without `t:<tenant>:` | `workflow_id_no_tenant` |
+| D9h-failures | `nava-relay` `StartWorkflowExecution` (`continued_failure`); `nava-worker` `RespondWorkflowTaskFailed`, `RespondActivityTaskFailed`, `RespondQueryTaskCompleted`; `RespondWorkflowTaskCompleted` query results and `FailWorkflowExecution`, `RecordMarker`, `ContinueAsNewWorkflowExecution` commands; the update `messages` of `RespondWorkflowTaskCompleted` and `RespondWorkflowTaskFailed` (`Rejection.failure`, `Response.outcome.failure`; `command=Message`, `command_index` is the message's) | a `ChildWorkflowExecutionFailureInfo` workflow id anywhere along the `cause` chain without `t:<tenant>:` | `workflow_id_no_tenant` |
+| | update `messages` | a body that is not an update `Acceptance`, `Rejection` or `Response`, or does not decode | `protocol_message_not_allowed` |
 
 A missing or mistyped request body is `request_malformed`. The sticky rule
 exists because, at server v1.29.7, a sticky partition and the normal partition
@@ -164,7 +165,7 @@ Each D9 request deny (D9a, D9b(+), D9d to D9h) logs `Temporal workload denied` t
 Both increment `nava_authz_denied{identity,api,namespace,reason,command}`.
 
 Metric tags are bounded: `none`/`other` for unknown values, `command` is a
-command type name, `StickyAttributes` or `unknown`. Workflow ids, types and
+command type name, `StickyAttributes`, `Message` or `unknown`. Workflow ids, types and
 queue names are client-supplied and unbounded, so they are in the log line
 only, never in a tag. The Prometheus
 reporter rewrites `-` and `/` in tag values to `_`. The caller only sees a

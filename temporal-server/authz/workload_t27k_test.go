@@ -2,7 +2,8 @@ package authz
 
 // The Authorizer changes the CI-C drift golden forced (T27k, Technical Lead
 // ruling of 2026-10-25 on ADR-001-A2's Annex A.2 statement): D9h-links,
-// D9h-failures, D9g on poll heartbeats and D9c's Kind pin.
+// D9h-failures (update protocol messages included), D9g on poll heartbeats
+// and D9c's Kind pin.
 
 import (
 	"testing"
@@ -11,11 +12,116 @@ import (
 	commonpb "go.temporal.io/api/common/v1"
 	enumspb "go.temporal.io/api/enums/v1"
 	failurepb "go.temporal.io/api/failure/v1"
+	protocolpb "go.temporal.io/api/protocol/v1"
 	querypb "go.temporal.io/api/query/v1"
 	taskqueuepb "go.temporal.io/api/taskqueue/v1"
+	updatepb "go.temporal.io/api/update/v1"
 	workerpb "go.temporal.io/api/worker/v1"
 	"go.temporal.io/api/workflowservice/v1"
+	"go.temporal.io/server/common/authorization"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 )
+
+// updateMessage wraps body as a protocol message, the shape sdk-go sends.
+func updateMessage(t *testing.T, body proto.Message) *protocolpb.Message {
+	t.Helper()
+	a, err := anypb.New(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &protocolpb.Message{Id: "m", ProtocolInstanceId: "update-1", Body: a}
+}
+
+func updateResponse(f *failurepb.Failure) *updatepb.Response {
+	return &updatepb.Response{Meta: &updatepb.Meta{UpdateId: "update-1"},
+		Outcome: &updatepb.Outcome{Value: &updatepb.Outcome_Failure{Failure: f}}}
+}
+
+func updateRejection(f *failurepb.Failure) *updatepb.Rejection {
+	return &updatepb.Rejection{RejectedRequestMessageId: "req", Failure: f}
+}
+
+// D9h-failures on update protocol messages: a Response's or Rejection's child
+// failure names a tenant's workflow id; any body that is not one of the three
+// update messages, or does not decode, is denied. Each deny is tagged
+// command=Message with the message's index.
+func TestUpdateMessageChildFailures(t *testing.T) {
+	tok := taskToken(t, wfA)
+	acceptance := updateMessage(t, &updatepb.Acceptance{AcceptedRequestMessageId: "req"})
+	withMessages := func(msgs ...*protocolpb.Message) *workflowservice.RespondWorkflowTaskCompletedRequest {
+		req := respond(tok)
+		req.Messages = msgs
+		return req
+	}
+	requireCommandAllow(t, withMessages(acceptance))
+	requireCommandAllow(t, withMessages(acceptance, updateMessage(t, updateResponse(childFailure("t:tenantA:child", 2)))))
+	requireCommandAllow(t, withMessages(updateMessage(t, updateRejection(childFailure("t:tenantA:child", 0)))))
+	requireCommandAllow(t, withMessages(updateMessage(t, &updatepb.Response{Meta: &updatepb.Meta{UpdateId: "update-1"},
+		Outcome: &updatepb.Outcome{Value: &updatepb.Outcome_Success{Success: &commonpb.Payloads{}}}})))
+
+	for name, build := range map[string]func(*failurepb.Failure) proto.Message{
+		"Response":  func(f *failurepb.Failure) proto.Message { return updateResponse(f) },
+		"Rejection": func(f *failurepb.Failure) proto.Message { return updateRejection(f) },
+	} {
+		for forgedName, forged := range forgedIDs {
+			t.Run(name+" "+forgedName, func(t *testing.T) {
+				requireCommandDeny(t, denyCase{req: withMessages(acceptance, updateMessage(t, build(childFailure(forged, 2)))),
+					reason: ReasonNoTenantPrefix, command: commandMessage, workflowID: wfA, target: forged, commandIdx: "1"})
+			})
+		}
+	}
+
+	unknown := updateMessage(t, &updatepb.Request{Meta: &updatepb.Meta{UpdateId: "update-1"}})
+	undecodable := updateMessage(t, &updatepb.Response{})
+	undecodable.Body.Value = []byte{0xff, 0xff, 0xff}
+	for name, msg := range map[string]*protocolpb.Message{
+		"unknown body type": unknown,
+		"undecodable body":  undecodable,
+		"no body":           {Id: "m", ProtocolInstanceId: "update-1"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			requireCommandDeny(t, denyCase{req: withMessages(msg), reason: ReasonProtocolMessage,
+				command: commandMessage, workflowID: wfA, commandIdx: "0"})
+		})
+	}
+}
+
+// RespondWorkflowTaskFailed carries update messages too (a worker rejects an
+// update by failing its workflow task); the same check applies.
+func TestWorkflowTaskFailedUpdateMessages(t *testing.T) {
+	api := wf + "RespondWorkflowTaskFailed"
+	failed := func(msgs ...*protocolpb.Message) *workflowservice.RespondWorkflowTaskFailedRequest {
+		return &workflowservice.RespondWorkflowTaskFailedRequest{Namespace: Namespace, TaskToken: taskToken(t, wfA), Messages: msgs}
+	}
+	requireWorkloadAllow(t, Worker, api, failed(updateMessage(t, updateRejection(childFailure("t:tenantA:child", 1)))))
+
+	for name, c := range map[string]struct {
+		msg            *protocolpb.Message
+		reason, target string
+	}{
+		"forged rejection": {updateMessage(t, updateRejection(childFailure(schedulerID, 1))), ReasonNoTenantPrefix, schedulerID},
+		"unknown body":     {updateMessage(t, &updatepb.Request{}), ReasonProtocolMessage, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			decision, recs, logs := authorizeAs(t, Worker, api, failed(c.msg))
+			if decision != authorization.DecisionDeny || len(recs) != 1 || len(logs) != 1 {
+				t.Fatalf("decision=%v metrics=%d logs=%v, want one deny", decision, len(recs), logs)
+			}
+			want := map[string]string{"reason": c.reason, "command": commandMessage}
+			for k, v := range want {
+				if recs[0].Tags[k] != v {
+					t.Errorf("metric tag %s = %q, want %q", k, recs[0].Tags[k], v)
+				}
+			}
+			for k, v := range map[string]string{"alert": "true", "command_index": "0", "workflow_id": wfA, "target_workflow_id": c.target} {
+				if logs[0][k] != v {
+					t.Errorf("log field %s = %q, want %q", k, logs[0][k], v)
+				}
+			}
+		})
+	}
+}
 
 func workflowLink(workflowID string) *commonpb.Link {
 	return &commonpb.Link{Variant: &commonpb.Link_WorkflowEvent_{WorkflowEvent: &commonpb.Link_WorkflowEvent{

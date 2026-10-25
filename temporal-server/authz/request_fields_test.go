@@ -11,6 +11,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
@@ -154,6 +155,47 @@ func TestRequestFieldWalkStopsAtCycles(t *testing.T) {
 		section = section[:strings.Index(section[1:], "\n## ")+1]
 		if !strings.Contains(section, "| `failure.cause → (Failure)` | `temporal.api.failure.v1.Failure` |") {
 			t.Errorf("%s: no failure.cause cycle marker", method)
+		}
+	}
+}
+
+// A google.protobuf.Any hides its body's fields from the walk, so an Any with
+// no anyBodies entry fails even with a matching golden; the protocol message
+// body is expanded into the three update bodies the server accepts.
+func TestRequestFieldGoldenFailsOnUnexpandedAny(t *testing.T) {
+	file := &descriptorpb.FileDescriptorProto{
+		Name:       proto.String("synthetic/v1/any.proto"),
+		Package:    proto.String("synthetic.v1"),
+		Syntax:     proto.String("proto3"),
+		Dependency: []string{"google/protobuf/any.proto"},
+		MessageType: []*descriptorpb.DescriptorProto{{Name: proto.String("Request"), Field: []*descriptorpb.FieldDescriptorProto{
+			scalarField("namespace", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING),
+			{Name: proto.String("body"), Number: proto.Int32(2), Label: descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+				Type: descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(), TypeName: proto.String(".google.protobuf.Any")},
+		}}},
+	}
+	fd, err := protodesc.NewFile(file, protoregistry.GlobalFiles)
+	if err != nil {
+		t.Fatalf("synthetic descriptor: %v", err)
+	}
+	got, unclassified := renderRequestFieldGolden([]allowedRequest{{method: "Synthetic", ids: []Identity{Worker}, input: fd.Messages().ByName("Request")}})
+	problems := requestFieldProblems(got, got, unclassified)
+	if len(problems) != 1 || !strings.Contains(problems[0], "Synthetic body is a google.protobuf.Any") {
+		t.Errorf("problems = %v, want one unexpanded-Any failure", problems)
+	}
+	if !strings.Contains(got, "| `body` | `google.protobuf.Any` | **unexpanded `Any`** |") {
+		t.Errorf("golden row does not flag the Any:\n%s", got)
+	}
+
+	real, _ := renderRequestFieldGolden(d9AllowedRequests(t))
+	for _, row := range []string{
+		"| `messages[].body (Acceptance)` | `temporal.api.update.v1.Acceptance` |",
+		"| `messages[].body (Rejection).failure.child_workflow_execution_failure_info.workflow_execution.workflow_id` | `string` | " + classD9hFailure + " |",
+		"| `messages[].body (Response).outcome.failure.child_workflow_execution_failure_info.workflow_execution.workflow_id` | `string` | " + classD9hFailure + " |",
+		"| `messages[].body (Response).outcome.failure.cause → (Failure)` |",
+	} {
+		if strings.Count(real, row) != 2 { // RespondWorkflowTaskCompleted and RespondWorkflowTaskFailed
+			t.Errorf("want row %s in both workflow task responses", row)
 		}
 	}
 }
