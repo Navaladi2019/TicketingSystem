@@ -3,12 +3,14 @@ package authz
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
 	commonpb "go.temporal.io/api/common/v1"
 	deploymentpb "go.temporal.io/api/deployment/v1"
 	enumspb "go.temporal.io/api/enums/v1"
+	failurepb "go.temporal.io/api/failure/v1"
 	taskqueuepb "go.temporal.io/api/taskqueue/v1"
 	workerpb "go.temporal.io/api/worker/v1"
 	"go.temporal.io/api/workflowservice/v1"
@@ -147,32 +149,33 @@ type workloadCheck struct {
 	check func(request any) *commandDenial
 }
 
-// workloadChecks is D9a, D9b(+), D9d, D9e, D9f and D9g: the request inspection
-// for each allow-listed API that names a workflow type, a task queue or a
-// workflow id (ADR-001-A1, ADR-001-A2). E1 and D9c are in inspectCommands.
+// workloadChecks is D9a, D9b(+), D9d, D9e, D9f, D9g and D9h: the request
+// inspection for each allow-listed API that names a workflow type, a task queue
+// or a workflow id (ADR-001-A1, ADR-001-A2; D9h and D9g on polls are T27k's).
+// E1, D9c and D9h-failures for workflow task responses are in inspectCommands.
 // System is absent: it is exempt. So is Operator: it stays outside D9.
 var workloadChecks = map[Identity]map[string]workloadCheck{
 	Relay: {
-		wf + "StartWorkflowExecution":           {"D9a", checkStartRequest},
-		wf + "SignalWithStartWorkflowExecution": {"D9a", checkStartRequest},
-		wf + "SignalWorkflowExecution":          {"D9a", checkSignalRequest},
+		wf + "StartWorkflowExecution":           {"D9a, D9h-links, D9h-failures", checkStartRequest},
+		wf + "SignalWithStartWorkflowExecution": {"D9a, D9h-links", checkStartRequest},
+		wf + "SignalWorkflowExecution":          {"D9a, D9h-links", checkSignalRequest},
 	},
 	Core: {
-		wf + "RequestCancelWorkflowExecution": {"D9f", checkCoreWorkflowID},
+		wf + "RequestCancelWorkflowExecution": {"D9f, D9h-links", checkCoreWorkflowID},
 		wf + "UpdateWorkflowExecution":        {"D9f", checkCoreWorkflowID},
 		wf + "QueryWorkflow":                  {"D9f", checkCoreWorkflowID},
 		wf + "DescribeWorkflowExecution":      {"D9f", checkCoreWorkflowID},
 		wf + "GetWorkflowExecutionHistory":    {"D9f", checkCoreWorkflowID},
 	},
 	Worker: {
-		wf + "PollWorkflowTaskQueue":        {"D9b, D9b+", checkWorkflowTaskPoll},
-		wf + "PollActivityTaskQueue":        {"D9b, D9b+", checkActivityTaskPoll},
-		wf + "RespondWorkflowTaskFailed":    {"D9d", checkTaskToken},
+		wf + "PollWorkflowTaskQueue":        {"D9b, D9b+, D9g", checkWorkflowTaskPoll},
+		wf + "PollActivityTaskQueue":        {"D9b, D9b+, D9g", checkActivityTaskPoll},
+		wf + "RespondWorkflowTaskFailed":    {"D9d, D9h-failures", checkTaskToken},
 		wf + "RespondActivityTaskCompleted": {"D9d", checkTaskToken},
-		wf + "RespondActivityTaskFailed":    {"D9d", checkTaskToken},
+		wf + "RespondActivityTaskFailed":    {"D9d, D9h-failures", checkTaskToken},
 		wf + "RespondActivityTaskCanceled":  {"D9d", checkTaskToken},
 		wf + "RecordActivityTaskHeartbeat":  {"D9d", checkTaskToken},
-		wf + "RespondQueryTaskCompleted":    {"D9d query clause", checkQueryTaskToken},
+		wf + "RespondQueryTaskCompleted":    {"D9d query clause, D9h-failures", checkQueryTaskToken},
 		wf + "GetWorkflowExecutionHistory":  {"D9e", checkWorkerHistory},
 		wf + "ShutdownWorker":               {"D9g", checkShutdownWorker},
 		wf + "RecordWorkerHeartbeat":        {"D9g", checkRecordWorkerHeartbeat},
@@ -185,13 +188,24 @@ func checkStartRequest(request any) *commandDenial {
 	var workflowID string
 	var wt *commonpb.WorkflowType
 	var tq *taskqueuepb.TaskQueue
+	var links []*commonpb.Link
+	var continued *failurepb.Failure
 	switch req := request.(type) {
 	case *workflowservice.StartWorkflowExecutionRequest:
 		workflowID, wt, tq = req.GetWorkflowId(), req.GetWorkflowType(), req.GetTaskQueue()
+		links, continued = req.GetLinks(), req.GetContinuedFailure()
+		for _, cb := range req.GetCompletionCallbacks() {
+			links = slices.Concat(links, cb.GetLinks())
+		}
 	case *workflowservice.SignalWithStartWorkflowExecutionRequest:
 		workflowID, wt, tq = req.GetWorkflowId(), req.GetWorkflowType(), req.GetTaskQueue()
+		links = req.GetLinks()
 	default:
 		return malformed(request)
+	}
+	if d := firstDenial(linkDenial(links), failureDenial(continued)); d != nil {
+		d.workflowID = workflowID
+		return d
 	}
 	reason, detail := checkWorkflowType(wt.GetName())
 	if reason == "" {
@@ -215,7 +229,7 @@ func checkSignalRequest(request any) *commandDenial {
 	if !ok {
 		return malformed(request)
 	}
-	return tenantPrefixDenial(req.GetWorkflowExecution().GetWorkflowId())
+	return requestIDDenial(req.GetWorkflowExecution().GetWorkflowId(), req.GetLinks())
 }
 
 // checkCoreWorkflowID is D9f: the workflow id a nava-core call names carries a
@@ -223,9 +237,10 @@ func checkSignalRequest(request any) *commandDenial {
 // nava-core certificate has no tenant (R-CORE binds that in nava-core itself).
 func checkCoreWorkflowID(request any) *commandDenial {
 	var workflowID string
+	var links []*commonpb.Link
 	switch req := request.(type) {
 	case *workflowservice.RequestCancelWorkflowExecutionRequest:
-		workflowID = req.GetWorkflowExecution().GetWorkflowId()
+		workflowID, links = req.GetWorkflowExecution().GetWorkflowId(), req.GetLinks()
 	case *workflowservice.UpdateWorkflowExecutionRequest:
 		workflowID = req.GetWorkflowExecution().GetWorkflowId()
 	case *workflowservice.QueryWorkflowRequest:
@@ -237,7 +252,7 @@ func checkCoreWorkflowID(request any) *commandDenial {
 	default:
 		return malformed(request)
 	}
-	return tenantPrefixDenial(workflowID)
+	return requestIDDenial(workflowID, links)
 }
 
 // checkWorkerHistory is D9e: a nava-worker history read names a tenant's
@@ -255,13 +270,14 @@ func checkWorkerHistory(request any) *commandDenial {
 // unsigned, so this keeps a forged token off Temporal's own workflows (F2-3).
 func checkTaskToken(request any) *commandDenial {
 	var taskToken []byte
+	var failure *failurepb.Failure
 	switch req := request.(type) {
 	case *workflowservice.RespondWorkflowTaskFailedRequest:
-		taskToken = req.GetTaskToken()
+		taskToken, failure = req.GetTaskToken(), req.GetFailure()
 	case *workflowservice.RespondActivityTaskCompletedRequest:
 		taskToken = req.GetTaskToken()
 	case *workflowservice.RespondActivityTaskFailedRequest:
-		taskToken = req.GetTaskToken()
+		taskToken, failure = req.GetTaskToken(), req.GetFailure()
 	case *workflowservice.RespondActivityTaskCanceledRequest:
 		taskToken = req.GetTaskToken()
 	case *workflowservice.RecordActivityTaskHeartbeatRequest:
@@ -269,12 +285,20 @@ func checkTaskToken(request any) *commandDenial {
 	default:
 		return malformed(request)
 	}
-	_, _, d := taskTokenTenant(taskToken)
-	return d
+	workflowID, _, d := taskTokenTenant(taskToken)
+	if d != nil {
+		return d
+	}
+	if d := failureDenial(failure); d != nil {
+		d.workflowID = workflowID
+		return d
+	}
+	return nil
 }
 
 // checkQueryTaskToken is the D9d query clause: the token decodes as
 // token.v1.QueryTask and its task queue is a platform queue or sticky-shaped.
+// D9h-failures: the query's failure names only prefixed children.
 func checkQueryTaskToken(request any) *commandDenial {
 	req, ok := request.(*workflowservice.RespondQueryTaskCompletedRequest)
 	if !ok {
@@ -285,10 +309,10 @@ func checkQueryTaskToken(request any) *commandDenial {
 		return &commandDenial{reason: ReasonTaskToken, command: commandNone, index: -1, detail: err.Error()}
 	}
 	tq := token.GetTaskQueue()
-	if inSet(platformTaskQueues, tq) || stickyQueueName.MatchString(tq) {
-		return nil
+	if !inSet(platformTaskQueues, tq) && !stickyQueueName.MatchString(tq) {
+		return pollDenial(ReasonTaskQueue, "query token task queue "+strconv.Quote(truncate(tq, maxLoggedName)))
 	}
-	return pollDenial(ReasonTaskQueue, "query token task queue "+strconv.Quote(truncate(tq, maxLoggedName)))
+	return failureDenial(req.GetFailure())
 }
 
 // checkShutdownWorker is D9g for ShutdownWorker. The frontend force-unloads the
@@ -340,9 +364,74 @@ func tenantPrefixDenial(workflowID string) *commandDenial {
 	return &commandDenial{reason: ReasonNoTenantPrefix, command: commandNone, index: -1, workflowID: workflowID}
 }
 
+// requestIDDenial is D9a (signals) or D9f, then D9h-links: the request's
+// workflow id and every link's workflow id carry a tenant prefix.
+func requestIDDenial(workflowID string, links []*commonpb.Link) *commandDenial {
+	if d := tenantPrefixDenial(workflowID); d != nil {
+		return d
+	}
+	if d := linkDenial(links); d != nil {
+		d.workflowID = workflowID
+		return d
+	}
+	return nil
+}
+
+// linkDenial is D9h-links (ADR-001-A2 Annex A.2: every workflow id an
+// allow-listed API names has a tenant prefix). Each link must be a workflow
+// event link whose workflow id has a tenant prefix. Any other variant (a batch
+// job link names a Temporal batch workflow) is denied too: the platform's SDK
+// sends links only from a Nexus handler, which nava does not run. The link's id
+// goes to the log's target_workflow_id.
+func linkDenial(links []*commonpb.Link) *commandDenial {
+	for _, l := range links {
+		id := l.GetWorkflowEvent().GetWorkflowId()
+		if _, ok := tenantOf(id); !ok || l.GetWorkflowEvent() == nil {
+			return &commandDenial{reason: ReasonNoTenantPrefix, command: commandNone, index: -1, target: id, detail: "link workflow id"}
+		}
+	}
+	return nil
+}
+
+// failureChildID is D9h-failures: it returns the first child workflow id in
+// f's whole cause chain that has no tenant prefix. A tenant's real child
+// failure passes, because E1 only lets it start children under its own prefix.
+// The chain cannot cycle (it is decoded data) and its depth is bounded by the
+// protobuf decoder's recursion limit, the runtime form of the golden walk's
+// stop at `failure.cause → (Failure)`.
+func failureChildID(f *failurepb.Failure) (id string, ok bool) {
+	for ; f != nil; f = f.GetCause() {
+		if info := f.GetChildWorkflowExecutionFailureInfo(); info != nil {
+			id := info.GetWorkflowExecution().GetWorkflowId()
+			if _, ok := tenantOf(id); !ok {
+				return id, false
+			}
+		}
+	}
+	return "", true
+}
+
+// failureDenial is D9h-failures for a request-level failure.
+func failureDenial(f *failurepb.Failure) *commandDenial {
+	if id, ok := failureChildID(f); !ok {
+		return &commandDenial{reason: ReasonNoTenantPrefix, command: commandNone, index: -1, target: id, detail: "child failure workflow id"}
+	}
+	return nil
+}
+
+// firstDenial returns the first non-nil denial.
+func firstDenial(ds ...*commandDenial) *commandDenial {
+	for _, d := range ds {
+		if d != nil {
+			return d
+		}
+	}
+	return nil
+}
+
 // checkWorkflowTaskPoll is D9b for workflow tasks: a NORMAL poll names a
 // platform queue and a STICKY poll follows the sticky rule. D9b+: it is
-// unversioned.
+// unversioned. D9g: its heartbeat names a platform queue.
 func checkWorkflowTaskPoll(request any) *commandDenial {
 	req, ok := request.(*workflowservice.PollWorkflowTaskQueueRequest)
 	if !ok {
@@ -350,6 +439,9 @@ func checkWorkflowTaskPoll(request any) *commandDenial {
 	}
 	//nolint:staticcheck // SA1019: matching still reads the deprecated capabilities, so D9b+ must too
 	if d := pollDenial(checkUnversioned(req.GetDeploymentOptions(), req.GetWorkerVersionCapabilities())); d != nil {
+		return d
+	}
+	if d := pollHeartbeatDenial(req.GetWorkerHeartbeat()); d != nil {
 		return d
 	}
 	if req.GetTaskQueue().GetKind() == enumspb.TASK_QUEUE_KIND_STICKY {
@@ -360,7 +452,7 @@ func checkWorkflowTaskPoll(request any) *commandDenial {
 
 // checkActivityTaskPoll is D9b for activity tasks: a NORMAL platform queue.
 // Activities have no sticky queue, so a STICKY activity poll is denied. D9b+:
-// it is unversioned.
+// it is unversioned. D9g: its heartbeat names a platform queue.
 func checkActivityTaskPoll(request any) *commandDenial {
 	req, ok := request.(*workflowservice.PollActivityTaskQueueRequest)
 	if !ok {
@@ -370,7 +462,22 @@ func checkActivityTaskPoll(request any) *commandDenial {
 	if d := pollDenial(checkUnversioned(req.GetDeploymentOptions(), req.GetWorkerVersionCapabilities())); d != nil {
 		return d
 	}
+	if d := pollHeartbeatDenial(req.GetWorkerHeartbeat()); d != nil {
+		return d
+	}
 	return pollDenial(checkNormalTaskQueue(req.GetTaskQueue()))
+}
+
+// pollHeartbeatDenial is D9g on a poll: the frontend forwards a poll's
+// WorkerHeartbeat to matching's RecordWorkerHeartbeat (server v1.29.7
+// frontend/workflow_handler.go PollWorkflowTaskQueue), so a heartbeat, if
+// present, names a platform queue exactly as on RecordWorkerHeartbeat. sdk-go
+// v1.49.0 sends none on polls.
+func pollHeartbeatDenial(hb *workerpb.WorkerHeartbeat) *commandDenial {
+	if hb == nil {
+		return nil
+	}
+	return pollDenial(checkHeartbeatTaskQueue(hb))
 }
 
 // checkUnversioned is D9b+: a versioned poll makes matching register the worker

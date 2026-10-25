@@ -373,7 +373,7 @@ func TestAllowListGolden(t *testing.T) {
 func writeWorkloadTable(b *strings.Builder) {
 	b.WriteString("\n## D9 workload allow-list\n\n")
 	b.WriteString("A request to one of these APIs is allowed only if every workflow type, task queue and workflow id it names is allow-listed. ")
-	b.WriteString("`nava-worker` `RespondWorkflowTaskCompleted` commands and `StickyAttributes` are checked the same way (E1, D9c). ")
+	b.WriteString("`nava-worker` `RespondWorkflowTaskCompleted` commands, query results and `StickyAttributes` are checked the same way (E1, D9c, D9h-failures). ")
 	b.WriteString("`temporal-system` is exempt, and `nava-operator` is outside D9.\n\n")
 	b.WriteString("| Identity | Method | Rule |\n|---|---|---|\n")
 	var rows []string
@@ -399,7 +399,10 @@ func writeWorkloadTable(b *strings.Builder) {
 	b.WriteString("| D9d | `TaskToken` decodes as `token.v1.Task` and its `WorkflowId` has a `t:<tenant>:` prefix. |\n")
 	b.WriteString("| D9d query clause | `TaskToken` decodes as `token.v1.QueryTask` and its `TaskQueue` is in `platformTaskQueues` or sticky-shaped. |\n")
 	b.WriteString("| D9e, D9f | The request's workflow id has a `t:<tenant>:` prefix. |\n")
-	b.WriteString("| D9g | `StickyTaskQueue` is empty or sticky-shaped and not in `platformTaskQueues`; every `WorkerHeartbeat.TaskQueue` is in `platformTaskQueues`. |\n")
+	b.WriteString("| D9c | A command's task queue has Kind NORMAL or UNSPECIFIED and an empty name or one in `platformTaskQueues`; a child or continue-as-new names a type in `platformWorkflowTypes`. |\n")
+	b.WriteString("| D9g | `StickyTaskQueue` is empty or sticky-shaped and not in `platformTaskQueues`; every `WorkerHeartbeat.TaskQueue`, on polls too, is in `platformTaskQueues`. |\n")
+	b.WriteString("| D9h-links | Every link is a workflow event link whose `WorkflowId` has a `t:<tenant>:` prefix. |\n")
+	b.WriteString("| D9h-failures | Every `ChildWorkflowExecutionFailureInfo` workflow id along a failure's `cause` chain has a `t:<tenant>:` prefix. |\n")
 }
 
 func joinIDs(ids []Identity) string {
@@ -467,8 +470,40 @@ const (
 	classD9cStickyNormal = "D9c: platform queue"
 	classD9cStickyKind   = "D9c: the sticky rule applies whatever Kind says"
 	classD9cQueue        = "D9c: empty (inherited) or a platform queue"
+	classD9cKind         = "D9c: NORMAL or UNSPECIFIED"
+	classD9cNormalName   = "D9c: unused, as Kind is not STICKY (tqid.PartitionFromProto rejects it)"
 	classD9cType         = "D9c: platform workflow type"
+	classD9gPollHB       = "D9g: platform queue (the frontend forwards it to RecordWorkerHeartbeat)"
+	classD9hLink         = "D9h-links: workflow event link with a `t:<tenant>:` prefix"
+	classD9hFailure      = "D9h-failures: `t:<tenant>:` prefix, along the whole cause chain"
 )
+
+// failureTypeName is the one id-shaped field classed notIDOrQueue on purpose:
+// a child failure's workflow type is failure data, and the Annex A.2 statement
+// covers workflow ids and task queues, not type names (Technical Lead,
+// 2026-10-25, docs/delivery/decision-log.md).
+const failureTypeName = "child_workflow_execution_failure_info.workflow_type.name"
+
+// withFailures adds the D9h-failures rules under each Failure-typed field path
+// prefix (ending in "."). The walk stops at `cause`, so these paths stand for
+// the whole cause chain, which failureChildID walks.
+func withFailures(rules map[string]string, prefixes ...string) map[string]string {
+	for _, p := range prefixes {
+		rules[p+"child_workflow_execution_failure_info.workflow_execution.workflow_id"] = classD9hFailure
+		rules[p+failureTypeName] = notIDOrQueue
+	}
+	return rules
+}
+
+// withQueues adds the D9c rules for the command task queue under each prefix.
+func withQueues(rules map[string]string, prefixes ...string) map[string]string {
+	for _, p := range prefixes {
+		rules[p+"task_queue.name"] = classD9cQueue
+		rules[p+"task_queue.kind"] = classD9cKind
+		rules[p+"task_queue.normal_name"] = classD9cNormalName
+	}
+	return rules
+}
 
 const (
 	cmdActivity = "commands[].schedule_activity_task_command_attributes."
@@ -477,6 +512,8 @@ const (
 	cmdCancel   = "commands[].request_cancel_external_workflow_execution_command_attributes."
 	cmdCAN      = "commands[].continue_as_new_workflow_execution_command_attributes."
 	cmdUpsert   = "commands[].upsert_workflow_search_attributes_command_attributes."
+	cmdFail     = "commands[].fail_workflow_execution_command_attributes."
+	cmdMarker   = "commands[].record_marker_command_attributes."
 )
 
 // requestFieldRules is the golden's classification column: per identity and
@@ -486,18 +523,21 @@ const (
 // Security review.
 var requestFieldRules = map[Identity]map[string]map[string]string{
 	Relay: {
-		"StartWorkflowExecution": {
+		"StartWorkflowExecution": withFailures(map[string]string{
 			"workflow_id": classD9aID, "workflow_type.name": classD9aType,
 			"task_queue.name": classD9aQueue, "task_queue.kind": classD9aKind, "task_queue.normal_name": classD9aNormalName,
-		},
+			"links[].workflow_event.workflow_id":                        classD9hLink,
+			"completion_callbacks[].links[].workflow_event.workflow_id": classD9hLink,
+		}, "continued_failure."),
 		"SignalWithStartWorkflowExecution": {
 			"workflow_id": classD9aID, "workflow_type.name": classD9aType,
 			"task_queue.name": classD9aQueue, "task_queue.kind": classD9aKind, "task_queue.normal_name": classD9aNormalName,
+			"links[].workflow_event.workflow_id": classD9hLink,
 		},
-		"SignalWorkflowExecution": {"workflow_execution.workflow_id": classD9aID},
+		"SignalWorkflowExecution": {"workflow_execution.workflow_id": classD9aID, "links[].workflow_event.workflow_id": classD9hLink},
 	},
 	Core: {
-		"RequestCancelWorkflowExecution": {"workflow_execution.workflow_id": classD9fID},
+		"RequestCancelWorkflowExecution": {"workflow_execution.workflow_id": classD9fID, "links[].workflow_event.workflow_id": classD9hLink},
 		"UpdateWorkflowExecution":        {"workflow_execution.workflow_id": classD9fID},
 		"QueryWorkflow":                  {"execution.workflow_id": classD9fID},
 		"DescribeWorkflowExecution":      {"execution.workflow_id": classD9fID},
@@ -508,26 +548,26 @@ var requestFieldRules = map[Identity]map[string]map[string]string{
 			"task_queue.name": classD9bQueue, "task_queue.kind": classD9bKind, "task_queue.normal_name": classD9bNormalName,
 			"deployment_options.worker_versioning_mode":  classD9bPlusMode,
 			"worker_version_capabilities.use_versioning": classD9bPlusCaps,
+			"worker_heartbeat.task_queue":                classD9gPollHB,
 		},
 		"PollActivityTaskQueue": {
 			"task_queue.name": classD9bActQueue, "task_queue.kind": classD9bActKind, "task_queue.normal_name": classD9bActNormal,
 			"deployment_options.worker_versioning_mode":  classD9bPlusMode,
 			"worker_version_capabilities.use_versioning": classD9bPlusCaps,
+			"worker_heartbeat.task_queue":                classD9gHeartbeat,
 		},
-		"RespondWorkflowTaskCompleted": {
+		"RespondWorkflowTaskCompleted": withQueues(withFailures(map[string]string{
 			"task_token": classE1Token,
 			"sticky_attributes.worker_task_queue.name":        classD9cStickyQueue,
 			"sticky_attributes.worker_task_queue.normal_name": classD9cStickyNormal,
 			"sticky_attributes.worker_task_queue.kind":        classD9cStickyKind,
 			"commands[].command_type":                         classE1CommandType,
 			cmdActivity + "header.":                           classE1Header,
-			cmdActivity + "task_queue.name":                   classD9cQueue,
 			cmdChild + "namespace":                            classE1Namespace,
 			cmdChild + "workflow_id":                          classE1Target,
 			cmdChild + "header.":                              classE1Header,
 			cmdChild + "search_attributes.":                   classE1SearchAttr,
 			cmdChild + "workflow_type.name":                   classD9cType,
-			cmdChild + "task_queue.name":                      classD9cQueue,
 			cmdSignal + "namespace":                           classE1Namespace,
 			cmdSignal + "execution.workflow_id":               classE1Target,
 			cmdCancel + "namespace":                           classE1Namespace,
@@ -536,15 +576,15 @@ var requestFieldRules = map[Identity]map[string]map[string]string{
 			cmdCAN + "header.":                                classE1Header,
 			cmdCAN + "search_attributes.":                     classE1SearchAttr,
 			cmdCAN + "workflow_type.name":                     classD9cType,
-			cmdCAN + "task_queue.name":                        classD9cQueue,
 			cmdUpsert + "search_attributes.":                  classE1SearchAttr,
-		},
-		"RespondWorkflowTaskFailed":    {"task_token": classD9dToken},
+		}, "query_results{}.failure.", cmdCAN+"failure.", cmdFail+"failure.", cmdMarker+"failure."),
+			cmdActivity, cmdChild, cmdCAN),
+		"RespondWorkflowTaskFailed":    withFailures(map[string]string{"task_token": classD9dToken}, "failure."),
 		"RespondActivityTaskCompleted": {"task_token": classD9dToken},
-		"RespondActivityTaskFailed":    {"task_token": classD9dToken},
+		"RespondActivityTaskFailed":    withFailures(map[string]string{"task_token": classD9dToken}, "failure."),
 		"RespondActivityTaskCanceled":  {"task_token": classD9dToken},
 		"RecordActivityTaskHeartbeat":  {"task_token": classD9dToken},
-		"RespondQueryTaskCompleted":    {"task_token": classD9dQueryToken},
+		"RespondQueryTaskCompleted":    withFailures(map[string]string{"task_token": classD9dQueryToken}, "failure."),
 		"GetWorkflowExecutionHistory":  {"execution.workflow_id": classD9eID},
 		"ShutdownWorker":               {"sticky_task_queue": classD9gSticky, "worker_heartbeat.task_queue": classD9gHeartbeat},
 		"RecordWorkerHeartbeat":        {"worker_heartbeat[].task_queue": classD9gHeartbeat},
@@ -835,7 +875,7 @@ func TestRequestFieldRulesMatchAuthorizer(t *testing.T) {
 				}
 			}
 			if id == Worker && wf+method == respondWorkflowTaskCompleted {
-				ran["E1"], ran["D9c"] = true, true // inspectCommands
+				ran["E1"], ran["D9c"], ran["D9h-failures"] = true, true, true // inspectCommands
 			}
 			for key, class := range rules {
 				matched := slices.ContainsFunc(paths, func(p string) bool {
@@ -843,6 +883,12 @@ func TestRequestFieldRulesMatchAuthorizer(t *testing.T) {
 				})
 				if !matched {
 					t.Errorf("%s %s: stale rule entry %q matches no request field", id, method, key)
+				}
+				if class == notIDOrQueue {
+					if !strings.HasSuffix(key, failureTypeName) {
+						t.Errorf("%s %s %s: only a child failure's workflow type may be classed %q", id, method, key, notIDOrQueue)
+					}
+					continue
 				}
 				if rule, _, _ := strings.Cut(class, ":"); !ran[rule] {
 					t.Errorf("%s %s %s: class names %s, but the Authorizer runs %v there", id, method, key, rule, ran)

@@ -10,6 +10,8 @@ package authz
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -127,6 +129,14 @@ func inspectCommands(request any) *commandDenial {
 				workflowID: workflowID, detail: detail}
 		}
 	}
+	// D9h-failures: a query result's failure names only the tenant's children.
+	results := req.GetQueryResults()
+	for _, k := range slices.Sorted(maps.Keys(results)) {
+		if id, ok := failureChildID(results[k].GetFailure()); !ok {
+			return &commandDenial{reason: ReasonNoTenantPrefix, command: commandNone, index: -1,
+				workflowID: workflowID, target: id, detail: "query result child failure workflow id"}
+		}
+	}
 	for i, cmd := range req.GetCommands() {
 		if reason, target, detail := checkCommand(cmd, tenant); reason != "" {
 			return &commandDenial{reason: reason, command: commandName(cmd.GetCommandType()), index: i,
@@ -152,6 +162,9 @@ func taskTokenTenant(taskToken []byte) (workflowID, tenant string, d *commandDen
 	}
 	return workflowID, tenant, nil
 }
+
+// childFailureDetail is the log detail of a D9h-failures command deny.
+const childFailureDetail = "child failure workflow id"
 
 // checkCommand returns "" if the command is allowed for a task of tenant, or
 // the deny reason with the command's target workflow id, if it has one.
@@ -195,6 +208,9 @@ func checkCommand(cmd *commandpb.Command, tenant string) (reason, target, detail
 		if a.GetCronSchedule() != "" {
 			return ReasonCronSchedule, "", ""
 		}
+		if id, ok := failureChildID(a.GetFailure()); !ok {
+			return ReasonNoTenantPrefix, id, childFailureDetail
+		}
 		if detail := checkTenantHeader(a.GetHeader(), tenant); detail != "" {
 			return ReasonTenantHeader, "", detail
 		}
@@ -203,6 +219,14 @@ func checkCommand(cmd *commandpb.Command, tenant string) (reason, target, detail
 		}
 		if reason, detail := checkCommandWorkload(a.GetWorkflowType(), a.GetTaskQueue()); reason != "" {
 			return reason, "", detail
+		}
+	case enumspb.COMMAND_TYPE_FAIL_WORKFLOW_EXECUTION:
+		if id, ok := failureChildID(cmd.GetFailWorkflowExecutionCommandAttributes().GetFailure()); !ok {
+			return ReasonNoTenantPrefix, id, childFailureDetail
+		}
+	case enumspb.COMMAND_TYPE_RECORD_MARKER:
+		if id, ok := failureChildID(cmd.GetRecordMarkerCommandAttributes().GetFailure()); !ok {
+			return ReasonNoTenantPrefix, id, childFailureDetail
 		}
 	case enumspb.COMMAND_TYPE_UPSERT_WORKFLOW_SEARCH_ATTRIBUTES:
 		a := cmd.GetUpsertWorkflowSearchAttributesCommandAttributes()
@@ -223,9 +247,16 @@ func checkCommandWorkload(wt *commonpb.WorkflowType, tq *taskqueuepb.TaskQueue) 
 	return checkCommandTaskQueue(tq)
 }
 
-// checkCommandTaskQueue is D9c for a command's task queue: empty (the command
+// checkCommandTaskQueue is D9c for a command's task queue: Kind NORMAL or
+// UNSPECIFIED, so the server never reads NormalName (tqid.PartitionFromProto
+// rejects one on a non-sticky queue), and a name that is empty (the command
 // inherits the workflow's queue) or a platform queue.
 func checkCommandTaskQueue(tq *taskqueuepb.TaskQueue) (reason, detail string) {
+	switch tq.GetKind() {
+	case enumspb.TASK_QUEUE_KIND_NORMAL, enumspb.TASK_QUEUE_KIND_UNSPECIFIED:
+	default:
+		return ReasonTaskQueueKind, "task queue kind " + tq.GetKind().String()
+	}
 	if name := tq.GetName(); name != "" && !inSet(platformTaskQueues, name) {
 		return ReasonTaskQueue, "task queue " + strconv.Quote(truncate(name, maxLoggedName))
 	}
