@@ -107,6 +107,13 @@ func Coverage() map[string]string {
 // design: an ADR-001 A.3 allow-listed policy that does not test
 // app.tenant_id. The generic checks report its rows as ALLOWLISTED instead of
 // failing. Each must match catalog.AllowList (TestExemptionsAreAllowListed).
+//
+// The key is role × table × command, not the policy's predicate: any row that
+// role reaches through that command on that table is ALLOWLISTED. That is safe
+// only because migrate.Run runs catalog.Check, which pins each allow-listed
+// policy's exact USING and WITH CHECK expressions (catalog.PolicyProblems),
+// before the harness seeds; a migration that widens a predicate fails the
+// migrator, so the suite never runs against it.
 type Exemption struct {
 	Role, Table, Command, Policy string
 }

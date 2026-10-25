@@ -265,3 +265,73 @@ func TestT10GateEmptySecurityDefinerExceptions(t *testing.T) {
 	}
 	wantProblem(t, problems, "CI-1: function pgbouncer.get_auth(text) is SECURITY DEFINER")
 }
+
+// TICK-163: tenant table discovery is fail-closed (PLAN-001 D-P16). A table
+// nobody registered, in public or in a schema made after the gate was
+// written, of any table kind and whatever its columns, is a tenant table:
+// TenantTables returns it for CI-2 and Check holds it to CI-1. Only the goose
+// version table and the tables db/global-tables.yaml lists are left out.
+func TestT11TenantTablesFailClosed(t *testing.T) {
+	migratedPlatform(t)
+	super := superNava(t)
+	ctx := context.Background()
+	g, err := catalog.ParseGlobalTables([]byte("tables:\n  t163_global: { reason: test }\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := super.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `
+		CREATE TABLE t163_unlisted (id int);
+		CREATE TABLE t163_parted (tenant_id uuid NOT NULL) PARTITION BY HASH (tenant_id);
+		CREATE SCHEMA t163s;
+		CREATE TABLE t163s.fixture (tenant_id uuid NOT NULL);
+		CREATE TABLE t163_global (code text);
+		CREATE VIEW t163_view WITH (security_invoker = true) AS SELECT id FROM t163_unlisted`); err != nil {
+		t.Fatal(err)
+	}
+	tables, err := catalog.TenantTables(ctx, tx, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, tt := range tables {
+		got[tt.Schema+"."+tt.Name] = tt.Key
+	}
+	for name, key := range map[string]string{
+		"public.t163_unlisted": "tenant_id",
+		"public.t163_parted":   "tenant_id",
+		"t163s.fixture":        "tenant_id",
+		"public.tenants":       "id",
+		"public.records":       "tenant_id",
+	} {
+		if got[name] != key {
+			t.Errorf("TenantTables: %s has key %q, want %q (got %v)", name, got[name], key, got)
+		}
+	}
+	for _, name := range []string{"public.goose_db_version", "public.t163_global", "public.t163_view"} {
+		if _, ok := got[name]; ok {
+			t.Errorf("TenantTables returned %s, which is not a tenant table", name)
+		}
+	}
+
+	// CI-1 holds the same new tables to RLS: the two gates agree.
+	problems, err := catalog.Check(ctx, tx, manifest(t), g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"public.t163_unlisted", "public.t163_parted", "t163s.fixture"} {
+		wantProblem(t, problems, "CI-1: tenant table "+name+" does not ENABLE ROW LEVEL SECURITY")
+	}
+	for _, p := range problems {
+		if !strings.HasPrefix(p, "CI-1: ") {
+			continue
+		}
+		if strings.Contains(p, "t163_global") || strings.Contains(p, "t163_view") || strings.Contains(p, "goose_db_version") {
+			t.Errorf("non-tenant relation reported by CI-1: %s", p)
+		}
+	}
+}
