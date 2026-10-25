@@ -280,9 +280,12 @@ stack-test-%:
 # The Temporal stack suite over mTLS: SDK clients dial and a worker runs (T28),
 # CI-H, and the CI-6 certificate, network and Authorizer cases (T32a). Writes
 # the CI-6 report to CI6_REPORT and fails when a CI-6 case did not pass.
+# The suite takes about 70 s on a GitHub runner but 591-615 s on a host running
+# two ci-isolated stacks, past go test's default 600 s, hence -timeout 20m
+# (TICK-173).
 CI6_REPORT ?= ci6-report.md
 stack-test-sdk:
-	go test -tags temporalstack -count=1 -json ./internal/temporalstack | go run ./tools/ci/ci6report -out $(CI6_REPORT)
+	go test -tags temporalstack -count=1 -timeout 20m -json ./internal/temporalstack | go run ./tools/ci/ci6report -out $(CI6_REPORT)
 
 # The nava-worker service (T31b, TICK-159): ready with /readyz green, /metrics
 # and the probes on its unpublished admin listener without httpobs, and a

@@ -189,9 +189,11 @@ checkout at a time (the dev certificates and `ci6-report.md` live in it).
 
 The ID is lowercased; characters other than `a-z 0-9 _ -` become `-`; `dev`
 is refused. On exit, pass or fail, the run removes its project
-(`down -v --remove-orphans`) and untags its four `nava/*:<ID>` images. It never
+(`down -v --remove-orphans`) and untags its six `nava/*:<ID>` images (keycloak,
+nava-core, nava-db, nava-worker, otel-collector, temporal-server). It never
 prunes, so shared layers and the build cache stay. It then fails if any
-`nava-<ID>` container, volume, network or image tag is left.
+`nava-<ID>` container, volume, network or `nava/*:<ID>` image tag is left, so
+an image added to compose.yaml but not to the script's list fails the run.
 `STAGES="ci-unit ci-stack"` runs a subset. Each stage writes its own log
 to `$TMPDIR/ci-isolated-<ID>/`, printed whole when the stage ends. A run killed outright (SIGKILL,
 a closed session) skips that cleanup; `make ci-isolated-down ID=<ID>` does it.
