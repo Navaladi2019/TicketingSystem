@@ -2,6 +2,14 @@
 
 Delivery decisions that change a task's contract, newest first.
 
+## 2026-10-25: PLAN-001-E3 narrows nava_onboard's SELECT on tenants to a column list; E3's T21 condition joins T21
+- **Decided by:** the Technical Lead on TICK-178 (`docs/delivery/plan-adr-001-e3.md`), after nava approved ADR-001-E3 on TICK-170.
+- **Decision 1 (D-E3-2):** `db/grants.yaml` gives `nava_onboard` `SELECT [id, state, onboarding_request_hash, created_at]` on `tenants` instead of `SELECT: []` (T09d, TICK-180). Today nothing changes. A column added later isn't readable until it's granted on purpose. That closes RS8's "tenants gains a column" trigger by construction. Rejected: a tripwire test that fails on a new column. It fails open, because it depends on someone reading the failure.
+- **Decision 2 (D-E3-3):** T21 (TICK-81) gains two acceptance tests from E3's condition: the onboarding tenant id is derived on the server, and a replayed Idempotency-Key from another operator sees 0 rows. Security reviews T21.
+- **Decision 3 (D-E3-1):** PR #85 lands as T09c (TICK-179), owned by its author and reviewed by the Postgres & Data Modeling Specialist.
+- **Precondition (D-E3-4):** PR #84 conflicts with `main`, where PR #87 took AR-026..028. RS8 is renumbered to the next free id before PR #84 merges. Owner: the Solution Architect.
+- **Dissent:** none.
+
 ## 2026-10-25: T30a anchors the relay's max redelivery age on `created_at`
 - **Decided by:** the Technical Lead on TICK-74 (PR #87), option (a) of the Principal Software Engineer's question.
 - **Decision:** the 24 h max redelivery age (D-P8) is measured from `outbox.created_at`, not from the first attempt as D-P8 and ADR-001 A.2 say. `outbox` has no first-attempt column, and `nava_relay` cannot reconstruct one. `created_at` is never later than the first attempt, so redelivery stays inside the worker's 48 h signal window. No migration.
