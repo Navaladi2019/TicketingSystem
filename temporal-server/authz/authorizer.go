@@ -204,7 +204,7 @@ func checkStartRequest(request any) *commandDenial {
 	default:
 		return malformed(request)
 	}
-	if d := firstDenial(linkDenial(links), failureDenial(continued)); d != nil {
+	if d := firstDenial(linkDenial(links), failureDenial(continued, "")); d != nil {
 		d.workflowID = workflowID
 		return d
 	}
@@ -289,11 +289,11 @@ func checkTaskToken(request any) *commandDenial {
 	default:
 		return malformed(request)
 	}
-	workflowID, _, d := taskTokenTenant(taskToken)
+	workflowID, tenant, d := taskTokenTenant(taskToken)
 	if d != nil {
 		return d
 	}
-	if d := firstDenial(failureDenial(failure), checkMessages(messages)); d != nil {
+	if d := firstDenial(failureDenial(failure, tenant), checkMessages(messages, tenant)); d != nil {
 		d.workflowID = workflowID
 		return d
 	}
@@ -316,7 +316,7 @@ func checkQueryTaskToken(request any) *commandDenial {
 	if !inSet(platformTaskQueues, tq) && !stickyQueueName.MatchString(tq) {
 		return pollDenial(ReasonTaskQueue, "query token task queue "+strconv.Quote(truncate(tq, maxLoggedName)))
 	}
-	return failureDenial(req.GetFailure())
+	return failureDenial(req.GetFailure(), "") // a QueryTask token names no workflow, so no tenant
 }
 
 // checkShutdownWorker is D9g for ShutdownWorker. The frontend force-unloads the
@@ -397,28 +397,38 @@ func linkDenial(links []*commonpb.Link) *commandDenial {
 	return nil
 }
 
-// failureChildID is D9h-failures: it returns the first child workflow id in
-// f's whole cause chain that has no tenant prefix. A tenant's real child
-// failure passes, because E1 only lets it start children under its own prefix.
-// The chain cannot cycle (it is decoded data) and its depth is bounded by the
+// checkFailureChildren is D9h-failures: it returns the deny reason and the
+// first child workflow id in f's whole cause chain that has no tenant prefix
+// (ReasonNoTenantPrefix) or, when tenant is set, another tenant's prefix
+// (ReasonCrossTenant, as E1's checkTarget). Worker paths pass the task's
+// tenant; relay paths, and the query clause whose token names no workflow,
+// pass "" and check the prefix only, as D9a does. A tenant's real child failure
+// passes, because E1 only lets it start children under its own prefix. The
+// chain cannot cycle (it is decoded data) and its depth is bounded by the
 // protobuf decoder's recursion limit, the runtime form of the golden walk's
 // stop at `failure.cause → (Failure)`.
-func failureChildID(f *failurepb.Failure) (id string, ok bool) {
+func checkFailureChildren(f *failurepb.Failure, tenant string) (reason, id string) {
 	for ; f != nil; f = f.GetCause() {
-		if info := f.GetChildWorkflowExecutionFailureInfo(); info != nil {
-			id := info.GetWorkflowExecution().GetWorkflowId()
-			if _, ok := tenantOf(id); !ok {
-				return id, false
-			}
+		info := f.GetChildWorkflowExecutionFailureInfo()
+		if info == nil {
+			continue
+		}
+		id := info.GetWorkflowExecution().GetWorkflowId()
+		got, ok := tenantOf(id)
+		switch {
+		case !ok:
+			return ReasonNoTenantPrefix, id
+		case tenant != "" && got != tenant:
+			return ReasonCrossTenant, id
 		}
 	}
-	return "", true
+	return "", ""
 }
 
 // failureDenial is D9h-failures for a request-level failure.
-func failureDenial(f *failurepb.Failure) *commandDenial {
-	if id, ok := failureChildID(f); !ok {
-		return &commandDenial{reason: ReasonNoTenantPrefix, command: commandNone, index: -1, target: id, detail: childFailureDetail}
+func failureDenial(f *failurepb.Failure, tenant string) *commandDenial {
+	if reason, id := checkFailureChildren(f, tenant); reason != "" {
+		return &commandDenial{reason: reason, command: commandNone, index: -1, target: id, detail: childFailureDetail}
 	}
 	return nil
 }

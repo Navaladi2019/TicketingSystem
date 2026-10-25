@@ -139,12 +139,12 @@ func inspectCommands(request any) *commandDenial {
 	// D9h-failures: a query result's failure names only the tenant's children.
 	results := req.GetQueryResults()
 	for _, k := range slices.Sorted(maps.Keys(results)) {
-		if id, ok := failureChildID(results[k].GetFailure()); !ok {
-			return &commandDenial{reason: ReasonNoTenantPrefix, command: commandNone, index: -1,
+		if reason, id := checkFailureChildren(results[k].GetFailure(), tenant); reason != "" {
+			return &commandDenial{reason: reason, command: commandNone, index: -1,
 				workflowID: workflowID, target: id, detail: "query result " + childFailureDetail}
 		}
 	}
-	if d := checkMessages(req.GetMessages()); d != nil {
+	if d := checkMessages(req.GetMessages(), tenant); d != nil {
 		d.workflowID = workflowID
 		return d
 	}
@@ -185,16 +185,16 @@ const childFailureDetail = "child failure workflow id"
 // history, so its child failures must name the tenant's workflows. Any other
 // body, or one that does not decode, is denied: the drift golden expands only
 // these three (anyBodies in policy_test.go).
-func checkMessages(msgs []*protocolpb.Message) *commandDenial {
+func checkMessages(msgs []*protocolpb.Message, tenant string) *commandDenial {
 	for i, m := range msgs {
-		if reason, target, detail := checkMessage(m); reason != "" {
+		if reason, target, detail := checkMessage(m, tenant); reason != "" {
 			return &commandDenial{reason: reason, command: commandMessage, index: i, target: target, detail: detail}
 		}
 	}
 	return nil
 }
 
-func checkMessage(m *protocolpb.Message) (reason, target, detail string) {
+func checkMessage(m *protocolpb.Message, tenant string) (reason, target, detail string) {
 	body := m.GetBody()
 	var failure *failurepb.Failure
 	var err error
@@ -215,8 +215,8 @@ func checkMessage(m *protocolpb.Message) (reason, target, detail string) {
 	if err != nil {
 		return ReasonProtocolMessage, "", "message body: " + err.Error()
 	}
-	if id, ok := failureChildID(failure); !ok {
-		return ReasonNoTenantPrefix, id, "update " + childFailureDetail
+	if reason, id := checkFailureChildren(failure, tenant); reason != "" {
+		return reason, id, "update " + childFailureDetail
 	}
 	return "", "", ""
 }
@@ -263,8 +263,8 @@ func checkCommand(cmd *commandpb.Command, tenant string) (reason, target, detail
 		if a.GetCronSchedule() != "" {
 			return ReasonCronSchedule, "", ""
 		}
-		if id, ok := failureChildID(a.GetFailure()); !ok {
-			return ReasonNoTenantPrefix, id, childFailureDetail
+		if reason, id := checkFailureChildren(a.GetFailure(), tenant); reason != "" {
+			return reason, id, childFailureDetail
 		}
 		if detail := checkTenantHeader(a.GetHeader(), tenant); detail != "" {
 			return ReasonTenantHeader, "", detail
@@ -276,12 +276,12 @@ func checkCommand(cmd *commandpb.Command, tenant string) (reason, target, detail
 			return reason, "", detail
 		}
 	case enumspb.COMMAND_TYPE_FAIL_WORKFLOW_EXECUTION:
-		if id, ok := failureChildID(cmd.GetFailWorkflowExecutionCommandAttributes().GetFailure()); !ok {
-			return ReasonNoTenantPrefix, id, childFailureDetail
+		if reason, id := checkFailureChildren(cmd.GetFailWorkflowExecutionCommandAttributes().GetFailure(), tenant); reason != "" {
+			return reason, id, childFailureDetail
 		}
 	case enumspb.COMMAND_TYPE_RECORD_MARKER:
-		if id, ok := failureChildID(cmd.GetRecordMarkerCommandAttributes().GetFailure()); !ok {
-			return ReasonNoTenantPrefix, id, childFailureDetail
+		if reason, id := checkFailureChildren(cmd.GetRecordMarkerCommandAttributes().GetFailure(), tenant); reason != "" {
+			return reason, id, childFailureDetail
 		}
 	case enumspb.COMMAND_TYPE_UPSERT_WORKFLOW_SEARCH_ATTRIBUTES:
 		a := cmd.GetUpsertWorkflowSearchAttributesCommandAttributes()

@@ -475,7 +475,8 @@ const (
 	classD9cType         = "D9c: platform workflow type"
 	classD9gPollHB       = "D9g: platform queue (the frontend forwards it to RecordWorkerHeartbeat)"
 	classD9hLink         = "D9h-links: workflow event link with a `t:<tenant>:` prefix"
-	classD9hFailure      = "D9h-failures: `t:<tenant>:` prefix, along the whole cause chain"
+	classD9hFailure      = "D9h-failures: `t:<tenant>:` prefix (the task's own tenant on worker task-token paths), along the whole cause chain"
+	classD9hLinkVariant  = "D9h-links: variant denied"
 	classD9hBodyType     = "D9h-failures: an update `Acceptance`, `Rejection` or `Response`"
 	classD9hBodyValue    = "D9h-failures: decodes as that type, expanded as `body (Type)`"
 )
@@ -495,7 +496,7 @@ const failureTypeName = "child_workflow_execution_failure_info.workflow_type.nam
 
 // withFailures adds the D9h-failures rules under each Failure-typed field path
 // prefix (ending in "."). The walk stops at `cause`, so these paths stand for
-// the whole cause chain, which failureChildID walks.
+// the whole cause chain, which checkFailureChildren walks.
 func withFailures(rules map[string]string, prefixes ...string) map[string]string {
 	for _, p := range prefixes {
 		rules[p+"child_workflow_execution_failure_info.workflow_execution.workflow_id"] = classD9hFailure
@@ -536,21 +537,26 @@ var requestFieldRules = map[Identity]map[string]map[string]string{
 			"workflow_id": classD9aID, "workflow_type.name": classD9aType,
 			"task_queue.name": classD9aQueue, "task_queue.kind": classD9aKind, "task_queue.normal_name": classD9aNormalName,
 			"links[].workflow_event.workflow_id":                        classD9hLink,
+			"links[].batch_job.":                                        classD9hLinkVariant,
 			"completion_callbacks[].links[].workflow_event.workflow_id": classD9hLink,
+			"completion_callbacks[].links[].batch_job.":                 classD9hLinkVariant,
 		}, "continued_failure."),
 		"SignalWithStartWorkflowExecution": {
 			"workflow_id": classD9aID, "workflow_type.name": classD9aType,
 			"task_queue.name": classD9aQueue, "task_queue.kind": classD9aKind, "task_queue.normal_name": classD9aNormalName,
 			"links[].workflow_event.workflow_id": classD9hLink,
+			"links[].batch_job.":                 classD9hLinkVariant,
 		},
-		"SignalWorkflowExecution": {"workflow_execution.workflow_id": classD9aID, "links[].workflow_event.workflow_id": classD9hLink},
+		"SignalWorkflowExecution": {"workflow_execution.workflow_id": classD9aID,
+			"links[].workflow_event.workflow_id": classD9hLink, "links[].batch_job.": classD9hLinkVariant},
 	},
 	Core: {
-		"RequestCancelWorkflowExecution": {"workflow_execution.workflow_id": classD9fID, "links[].workflow_event.workflow_id": classD9hLink},
-		"UpdateWorkflowExecution":        {"workflow_execution.workflow_id": classD9fID},
-		"QueryWorkflow":                  {"execution.workflow_id": classD9fID},
-		"DescribeWorkflowExecution":      {"execution.workflow_id": classD9fID},
-		"GetWorkflowExecutionHistory":    {"execution.workflow_id": classD9fID},
+		"RequestCancelWorkflowExecution": {"workflow_execution.workflow_id": classD9fID,
+			"links[].workflow_event.workflow_id": classD9hLink, "links[].batch_job.": classD9hLinkVariant},
+		"UpdateWorkflowExecution":     {"workflow_execution.workflow_id": classD9fID},
+		"QueryWorkflow":               {"execution.workflow_id": classD9fID},
+		"DescribeWorkflowExecution":   {"execution.workflow_id": classD9fID},
+		"GetWorkflowExecutionHistory": {"execution.workflow_id": classD9fID},
 	},
 	Worker: {
 		"PollWorkflowTaskQueue": {

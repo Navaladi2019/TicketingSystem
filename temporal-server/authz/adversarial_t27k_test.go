@@ -3,8 +3,9 @@ package authz
 // Security review of T27k (PR #102): D9h-failures must hold on every Failure a
 // worker writes to history, including the ones carried inside a protocol
 // message's google.protobuf.Any body (workflow update Response and Rejection).
-// The CI-C walker stops at Any (`messages[].body.value` is classed "not an id or
-// queue"), so neither the golden nor the Authorizer sees these failures.
+// At PR #102 head 92fb820 the CI-C walker stopped at Any (`messages[].body.value`
+// was classed "not an id or queue"), so neither the golden nor the Authorizer
+// saw these failures.
 
 import (
 	"testing"

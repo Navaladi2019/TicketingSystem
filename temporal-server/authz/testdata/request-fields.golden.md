@@ -407,7 +407,7 @@ No fields.
 | `identity` | `string` | not an id or queue |
 | `links[]` | `temporal.api.common.v1.Link` | message: see its fields |
 | `links[].batch_job` | `temporal.api.common.v1.Link.BatchJob` | message: see its fields |
-| `links[].batch_job.job_id` | `string` | not an id or queue |
+| `links[].batch_job.job_id` | `string` | D9h-links: variant denied |
 | `links[].workflow_event` | `temporal.api.common.v1.Link.WorkflowEvent` | message: see its fields |
 | `links[].workflow_event.event_ref` | `temporal.api.common.v1.Link.WorkflowEvent.EventReference` | message: see its fields |
 | `links[].workflow_event.event_ref.event_id` | `int64` | not an id or queue |
@@ -519,7 +519,7 @@ No fields.
 | `failure.child_workflow_execution_failure_info.started_event_id` | `int64` | not an id or queue |
 | `failure.child_workflow_execution_failure_info.workflow_execution` | `temporal.api.common.v1.WorkflowExecution` | message: see its fields |
 | `failure.child_workflow_execution_failure_info.workflow_execution.run_id` | `string` | not an id or queue |
-| `failure.child_workflow_execution_failure_info.workflow_execution.workflow_id` | `string` | D9h-failures: `t:<tenant>:` prefix, along the whole cause chain |
+| `failure.child_workflow_execution_failure_info.workflow_execution.workflow_id` | `string` | D9h-failures: `t:<tenant>:` prefix (the task's own tenant on worker task-token paths), along the whole cause chain |
 | `failure.child_workflow_execution_failure_info.workflow_type` | `temporal.api.common.v1.WorkflowType` | message: see its fields |
 | `failure.child_workflow_execution_failure_info.workflow_type.name` | `string` | not an id or queue |
 | `failure.encoded_attributes` | `temporal.api.common.v1.Payload` | message: see its fields |
@@ -605,7 +605,7 @@ No fields.
 | `failure.child_workflow_execution_failure_info.started_event_id` | `int64` | not an id or queue |
 | `failure.child_workflow_execution_failure_info.workflow_execution` | `temporal.api.common.v1.WorkflowExecution` | message: see its fields |
 | `failure.child_workflow_execution_failure_info.workflow_execution.run_id` | `string` | not an id or queue |
-| `failure.child_workflow_execution_failure_info.workflow_execution.workflow_id` | `string` | D9h-failures: `t:<tenant>:` prefix, along the whole cause chain |
+| `failure.child_workflow_execution_failure_info.workflow_execution.workflow_id` | `string` | D9h-failures: `t:<tenant>:` prefix (the task's own tenant on worker task-token paths), along the whole cause chain |
 | `failure.child_workflow_execution_failure_info.workflow_type` | `temporal.api.common.v1.WorkflowType` | message: see its fields |
 | `failure.child_workflow_execution_failure_info.workflow_type.name` | `string` | not an id or queue |
 | `failure.encoded_attributes` | `temporal.api.common.v1.Payload` | message: see its fields |
@@ -706,7 +706,7 @@ No fields.
 | `commands[].continue_as_new_workflow_execution_command_attributes.failure.child_workflow_execution_failure_info.started_event_id` | `int64` | not an id or queue |
 | `commands[].continue_as_new_workflow_execution_command_attributes.failure.child_workflow_execution_failure_info.workflow_execution` | `temporal.api.common.v1.WorkflowExecution` | message: see its fields |
 | `commands[].continue_as_new_workflow_execution_command_attributes.failure.child_workflow_execution_failure_info.workflow_execution.run_id` | `string` | not an id or queue |
-| `commands[].continue_as_new_workflow_execution_command_attributes.failure.child_workflow_execution_failure_info.workflow_execution.workflow_id` | `string` | D9h-failures: `t:<tenant>:` prefix, along the whole cause chain |
+| `commands[].continue_as_new_workflow_execution_command_attributes.failure.child_workflow_execution_failure_info.workflow_execution.workflow_id` | `string` | D9h-failures: `t:<tenant>:` prefix (the task's own tenant on worker task-token paths), along the whole cause chain |
 | `commands[].continue_as_new_workflow_execution_command_attributes.failure.child_workflow_execution_failure_info.workflow_type` | `temporal.api.common.v1.WorkflowType` | message: see its fields |
 | `commands[].continue_as_new_workflow_execution_command_attributes.failure.child_workflow_execution_failure_info.workflow_type.name` | `string` | not an id or queue |
 | `commands[].continue_as_new_workflow_execution_command_attributes.failure.encoded_attributes` | `temporal.api.common.v1.Payload` | message: see its fields |
@@ -817,7 +817,7 @@ No fields.
 | `commands[].fail_workflow_execution_command_attributes.failure.child_workflow_execution_failure_info.started_event_id` | `int64` | not an id or queue |
 | `commands[].fail_workflow_execution_command_attributes.failure.child_workflow_execution_failure_info.workflow_execution` | `temporal.api.common.v1.WorkflowExecution` | message: see its fields |
 | `commands[].fail_workflow_execution_command_attributes.failure.child_workflow_execution_failure_info.workflow_execution.run_id` | `string` | not an id or queue |
-| `commands[].fail_workflow_execution_command_attributes.failure.child_workflow_execution_failure_info.workflow_execution.workflow_id` | `string` | D9h-failures: `t:<tenant>:` prefix, along the whole cause chain |
+| `commands[].fail_workflow_execution_command_attributes.failure.child_workflow_execution_failure_info.workflow_execution.workflow_id` | `string` | D9h-failures: `t:<tenant>:` prefix (the task's own tenant on worker task-token paths), along the whole cause chain |
 | `commands[].fail_workflow_execution_command_attributes.failure.child_workflow_execution_failure_info.workflow_type` | `temporal.api.common.v1.WorkflowType` | message: see its fields |
 | `commands[].fail_workflow_execution_command_attributes.failure.child_workflow_execution_failure_info.workflow_type.name` | `string` | not an id or queue |
 | `commands[].fail_workflow_execution_command_attributes.failure.encoded_attributes` | `temporal.api.common.v1.Payload` | message: see its fields |
@@ -895,7 +895,7 @@ No fields.
 | `commands[].record_marker_command_attributes.failure.child_workflow_execution_failure_info.started_event_id` | `int64` | not an id or queue |
 | `commands[].record_marker_command_attributes.failure.child_workflow_execution_failure_info.workflow_execution` | `temporal.api.common.v1.WorkflowExecution` | message: see its fields |
 | `commands[].record_marker_command_attributes.failure.child_workflow_execution_failure_info.workflow_execution.run_id` | `string` | not an id or queue |
-| `commands[].record_marker_command_attributes.failure.child_workflow_execution_failure_info.workflow_execution.workflow_id` | `string` | D9h-failures: `t:<tenant>:` prefix, along the whole cause chain |
+| `commands[].record_marker_command_attributes.failure.child_workflow_execution_failure_info.workflow_execution.workflow_id` | `string` | D9h-failures: `t:<tenant>:` prefix (the task's own tenant on worker task-token paths), along the whole cause chain |
 | `commands[].record_marker_command_attributes.failure.child_workflow_execution_failure_info.workflow_type` | `temporal.api.common.v1.WorkflowType` | message: see its fields |
 | `commands[].record_marker_command_attributes.failure.child_workflow_execution_failure_info.workflow_type.name` | `string` | not an id or queue |
 | `commands[].record_marker_command_attributes.failure.encoded_attributes` | `temporal.api.common.v1.Payload` | message: see its fields |
@@ -1147,7 +1147,7 @@ No fields.
 | `messages[].body (Rejection).failure.child_workflow_execution_failure_info.started_event_id` | `int64` | not an id or queue |
 | `messages[].body (Rejection).failure.child_workflow_execution_failure_info.workflow_execution` | `temporal.api.common.v1.WorkflowExecution` | message: see its fields |
 | `messages[].body (Rejection).failure.child_workflow_execution_failure_info.workflow_execution.run_id` | `string` | not an id or queue |
-| `messages[].body (Rejection).failure.child_workflow_execution_failure_info.workflow_execution.workflow_id` | `string` | D9h-failures: `t:<tenant>:` prefix, along the whole cause chain |
+| `messages[].body (Rejection).failure.child_workflow_execution_failure_info.workflow_execution.workflow_id` | `string` | D9h-failures: `t:<tenant>:` prefix (the task's own tenant on worker task-token paths), along the whole cause chain |
 | `messages[].body (Rejection).failure.child_workflow_execution_failure_info.workflow_type` | `temporal.api.common.v1.WorkflowType` | message: see its fields |
 | `messages[].body (Rejection).failure.child_workflow_execution_failure_info.workflow_type.name` | `string` | not an id or queue |
 | `messages[].body (Rejection).failure.encoded_attributes` | `temporal.api.common.v1.Payload` | message: see its fields |
@@ -1234,7 +1234,7 @@ No fields.
 | `messages[].body (Response).outcome.failure.child_workflow_execution_failure_info.started_event_id` | `int64` | not an id or queue |
 | `messages[].body (Response).outcome.failure.child_workflow_execution_failure_info.workflow_execution` | `temporal.api.common.v1.WorkflowExecution` | message: see its fields |
 | `messages[].body (Response).outcome.failure.child_workflow_execution_failure_info.workflow_execution.run_id` | `string` | not an id or queue |
-| `messages[].body (Response).outcome.failure.child_workflow_execution_failure_info.workflow_execution.workflow_id` | `string` | D9h-failures: `t:<tenant>:` prefix, along the whole cause chain |
+| `messages[].body (Response).outcome.failure.child_workflow_execution_failure_info.workflow_execution.workflow_id` | `string` | D9h-failures: `t:<tenant>:` prefix (the task's own tenant on worker task-token paths), along the whole cause chain |
 | `messages[].body (Response).outcome.failure.child_workflow_execution_failure_info.workflow_type` | `temporal.api.common.v1.WorkflowType` | message: see its fields |
 | `messages[].body (Response).outcome.failure.child_workflow_execution_failure_info.workflow_type.name` | `string` | not an id or queue |
 | `messages[].body (Response).outcome.failure.encoded_attributes` | `temporal.api.common.v1.Payload` | message: see its fields |
@@ -1319,7 +1319,7 @@ No fields.
 | `query_results{}.failure.child_workflow_execution_failure_info.started_event_id` | `int64` | not an id or queue |
 | `query_results{}.failure.child_workflow_execution_failure_info.workflow_execution` | `temporal.api.common.v1.WorkflowExecution` | message: see its fields |
 | `query_results{}.failure.child_workflow_execution_failure_info.workflow_execution.run_id` | `string` | not an id or queue |
-| `query_results{}.failure.child_workflow_execution_failure_info.workflow_execution.workflow_id` | `string` | D9h-failures: `t:<tenant>:` prefix, along the whole cause chain |
+| `query_results{}.failure.child_workflow_execution_failure_info.workflow_execution.workflow_id` | `string` | D9h-failures: `t:<tenant>:` prefix (the task's own tenant on worker task-token paths), along the whole cause chain |
 | `query_results{}.failure.child_workflow_execution_failure_info.workflow_type` | `temporal.api.common.v1.WorkflowType` | message: see its fields |
 | `query_results{}.failure.child_workflow_execution_failure_info.workflow_type.name` | `string` | not an id or queue |
 | `query_results{}.failure.encoded_attributes` | `temporal.api.common.v1.Payload` | message: see its fields |
@@ -1421,7 +1421,7 @@ No fields.
 | `failure.child_workflow_execution_failure_info.started_event_id` | `int64` | not an id or queue |
 | `failure.child_workflow_execution_failure_info.workflow_execution` | `temporal.api.common.v1.WorkflowExecution` | message: see its fields |
 | `failure.child_workflow_execution_failure_info.workflow_execution.run_id` | `string` | not an id or queue |
-| `failure.child_workflow_execution_failure_info.workflow_execution.workflow_id` | `string` | D9h-failures: `t:<tenant>:` prefix, along the whole cause chain |
+| `failure.child_workflow_execution_failure_info.workflow_execution.workflow_id` | `string` | D9h-failures: `t:<tenant>:` prefix (the task's own tenant on worker task-token paths), along the whole cause chain |
 | `failure.child_workflow_execution_failure_info.workflow_type` | `temporal.api.common.v1.WorkflowType` | message: see its fields |
 | `failure.child_workflow_execution_failure_info.workflow_type.name` | `string` | not an id or queue |
 | `failure.encoded_attributes` | `temporal.api.common.v1.Payload` | message: see its fields |
@@ -1508,7 +1508,7 @@ No fields.
 | `messages[].body (Rejection).failure.child_workflow_execution_failure_info.started_event_id` | `int64` | not an id or queue |
 | `messages[].body (Rejection).failure.child_workflow_execution_failure_info.workflow_execution` | `temporal.api.common.v1.WorkflowExecution` | message: see its fields |
 | `messages[].body (Rejection).failure.child_workflow_execution_failure_info.workflow_execution.run_id` | `string` | not an id or queue |
-| `messages[].body (Rejection).failure.child_workflow_execution_failure_info.workflow_execution.workflow_id` | `string` | D9h-failures: `t:<tenant>:` prefix, along the whole cause chain |
+| `messages[].body (Rejection).failure.child_workflow_execution_failure_info.workflow_execution.workflow_id` | `string` | D9h-failures: `t:<tenant>:` prefix (the task's own tenant on worker task-token paths), along the whole cause chain |
 | `messages[].body (Rejection).failure.child_workflow_execution_failure_info.workflow_type` | `temporal.api.common.v1.WorkflowType` | message: see its fields |
 | `messages[].body (Rejection).failure.child_workflow_execution_failure_info.workflow_type.name` | `string` | not an id or queue |
 | `messages[].body (Rejection).failure.encoded_attributes` | `temporal.api.common.v1.Payload` | message: see its fields |
@@ -1595,7 +1595,7 @@ No fields.
 | `messages[].body (Response).outcome.failure.child_workflow_execution_failure_info.started_event_id` | `int64` | not an id or queue |
 | `messages[].body (Response).outcome.failure.child_workflow_execution_failure_info.workflow_execution` | `temporal.api.common.v1.WorkflowExecution` | message: see its fields |
 | `messages[].body (Response).outcome.failure.child_workflow_execution_failure_info.workflow_execution.run_id` | `string` | not an id or queue |
-| `messages[].body (Response).outcome.failure.child_workflow_execution_failure_info.workflow_execution.workflow_id` | `string` | D9h-failures: `t:<tenant>:` prefix, along the whole cause chain |
+| `messages[].body (Response).outcome.failure.child_workflow_execution_failure_info.workflow_execution.workflow_id` | `string` | D9h-failures: `t:<tenant>:` prefix (the task's own tenant on worker task-token paths), along the whole cause chain |
 | `messages[].body (Response).outcome.failure.child_workflow_execution_failure_info.workflow_type` | `temporal.api.common.v1.WorkflowType` | message: see its fields |
 | `messages[].body (Response).outcome.failure.child_workflow_execution_failure_info.workflow_type.name` | `string` | not an id or queue |
 | `messages[].body (Response).outcome.failure.encoded_attributes` | `temporal.api.common.v1.Payload` | message: see its fields |
@@ -1761,7 +1761,7 @@ No fields.
 | `input.payloads[].metadata{}` | `bytes` | not an id or queue |
 | `links[]` | `temporal.api.common.v1.Link` | message: see its fields |
 | `links[].batch_job` | `temporal.api.common.v1.Link.BatchJob` | message: see its fields |
-| `links[].batch_job.job_id` | `string` | not an id or queue |
+| `links[].batch_job.job_id` | `string` | D9h-links: variant denied |
 | `links[].workflow_event` | `temporal.api.common.v1.Link.WorkflowEvent` | message: see its fields |
 | `links[].workflow_event.event_ref` | `temporal.api.common.v1.Link.WorkflowEvent.EventReference` | message: see its fields |
 | `links[].workflow_event.event_ref.event_id` | `int64` | not an id or queue |
@@ -1860,7 +1860,7 @@ No fields.
 | `input.payloads[].metadata{}` | `bytes` | not an id or queue |
 | `links[]` | `temporal.api.common.v1.Link` | message: see its fields |
 | `links[].batch_job` | `temporal.api.common.v1.Link.BatchJob` | message: see its fields |
-| `links[].batch_job.job_id` | `string` | not an id or queue |
+| `links[].batch_job.job_id` | `string` | D9h-links: variant denied |
 | `links[].workflow_event` | `temporal.api.common.v1.Link.WorkflowEvent` | message: see its fields |
 | `links[].workflow_event.event_ref` | `temporal.api.common.v1.Link.WorkflowEvent.EventReference` | message: see its fields |
 | `links[].workflow_event.event_ref.event_id` | `int64` | not an id or queue |
@@ -1889,7 +1889,7 @@ No fields.
 | `completion_callbacks[].internal.data` | `bytes` | not an id or queue |
 | `completion_callbacks[].links[]` | `temporal.api.common.v1.Link` | message: see its fields |
 | `completion_callbacks[].links[].batch_job` | `temporal.api.common.v1.Link.BatchJob` | message: see its fields |
-| `completion_callbacks[].links[].batch_job.job_id` | `string` | not an id or queue |
+| `completion_callbacks[].links[].batch_job.job_id` | `string` | D9h-links: variant denied |
 | `completion_callbacks[].links[].workflow_event` | `temporal.api.common.v1.Link.WorkflowEvent` | message: see its fields |
 | `completion_callbacks[].links[].workflow_event.event_ref` | `temporal.api.common.v1.Link.WorkflowEvent.EventReference` | message: see its fields |
 | `completion_callbacks[].links[].workflow_event.event_ref.event_id` | `int64` | not an id or queue |
@@ -1936,7 +1936,7 @@ No fields.
 | `continued_failure.child_workflow_execution_failure_info.started_event_id` | `int64` | not an id or queue |
 | `continued_failure.child_workflow_execution_failure_info.workflow_execution` | `temporal.api.common.v1.WorkflowExecution` | message: see its fields |
 | `continued_failure.child_workflow_execution_failure_info.workflow_execution.run_id` | `string` | not an id or queue |
-| `continued_failure.child_workflow_execution_failure_info.workflow_execution.workflow_id` | `string` | D9h-failures: `t:<tenant>:` prefix, along the whole cause chain |
+| `continued_failure.child_workflow_execution_failure_info.workflow_execution.workflow_id` | `string` | D9h-failures: `t:<tenant>:` prefix (the task's own tenant on worker task-token paths), along the whole cause chain |
 | `continued_failure.child_workflow_execution_failure_info.workflow_type` | `temporal.api.common.v1.WorkflowType` | message: see its fields |
 | `continued_failure.child_workflow_execution_failure_info.workflow_type.name` | `string` | not an id or queue |
 | `continued_failure.encoded_attributes` | `temporal.api.common.v1.Payload` | message: see its fields |
@@ -1985,7 +1985,7 @@ No fields.
 | `last_completion_result.payloads[].metadata{}` | `bytes` | not an id or queue |
 | `links[]` | `temporal.api.common.v1.Link` | message: see its fields |
 | `links[].batch_job` | `temporal.api.common.v1.Link.BatchJob` | message: see its fields |
-| `links[].batch_job.job_id` | `string` | not an id or queue |
+| `links[].batch_job.job_id` | `string` | D9h-links: variant denied |
 | `links[].workflow_event` | `temporal.api.common.v1.Link.WorkflowEvent` | message: see its fields |
 | `links[].workflow_event.event_ref` | `temporal.api.common.v1.Link.WorkflowEvent.EventReference` | message: see its fields |
 | `links[].workflow_event.event_ref.event_id` | `int64` | not an id or queue |

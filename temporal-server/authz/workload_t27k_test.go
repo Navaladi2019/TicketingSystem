@@ -20,18 +20,7 @@ import (
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/server/common/authorization"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/anypb"
 )
-
-// updateMessage wraps body as a protocol message, the shape sdk-go sends.
-func updateMessage(t *testing.T, body proto.Message) *protocolpb.Message {
-	t.Helper()
-	a, err := anypb.New(body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return &protocolpb.Message{Id: "m", ProtocolInstanceId: "update-1", Body: a}
-}
 
 func updateResponse(f *failurepb.Failure) *updatepb.Response {
 	return &updatepb.Response{Meta: &updatepb.Meta{UpdateId: "update-1"},
@@ -144,8 +133,9 @@ func childFailure(childID string, depth int) *failurepb.Failure {
 	return f
 }
 
-// forgedIDs are the ids a forged link or child failure might name: another
-// tenant's (allowed by the prefix rule, as D9a/D9f are), and those that fail it.
+// forgedIDs are the ids a forged link or child failure might name that fail the
+// prefix rule. Another tenant's id passes it on relay and core paths, as D9a
+// and D9f do; on worker paths TestChildFailureOtherTenant denies it.
 var forgedIDs = map[string]string{"system": schedulerID, "unprefixed": "ticket:42", "empty": "", "empty tenant": "t::x"}
 
 // requireTarget asserts the deny log names the offending id.
@@ -352,4 +342,43 @@ func TestCommandTaskQueueKind(t *testing.T) {
 			})
 		}
 	}
+}
+
+// D9h-failures on worker task-token paths binds the task's own tenant, as E1's
+// checkTarget does: a child failure naming `t:tenantB:` in a tenant A task is
+// denied as cross-tenant. The relay's start, whose certificate has no tenant,
+// stays prefix-only, as D9a does.
+func TestChildFailureOtherTenant(t *testing.T) {
+	tok := taskToken(t, wfA)
+	other := childFailure("t:tenantB:child", 2)
+
+	for name, req := range map[string]any{
+		"RespondActivityTaskFailed": &workflowservice.RespondActivityTaskFailedRequest{Namespace: Namespace, TaskToken: tok, Failure: other},
+		"RespondWorkflowTaskFailed": &workflowservice.RespondWorkflowTaskFailedRequest{Namespace: Namespace, TaskToken: tok, Failure: other},
+	} {
+		t.Run(name, func(t *testing.T) {
+			requireWorkloadDeny(t, Worker, wf+name, req, ReasonCrossTenant)
+			requireTarget(t, Worker, wf+name, req, "t:tenantB:child")
+		})
+	}
+
+	failWorkflow := &commandpb.Command{CommandType: enumspb.COMMAND_TYPE_FAIL_WORKFLOW_EXECUTION,
+		Attributes: &commandpb.Command_FailWorkflowExecutionCommandAttributes{
+			FailWorkflowExecutionCommandAttributes: &commandpb.FailWorkflowExecutionCommandAttributes{Failure: other}}}
+	requireCommandDeny(t, denyCase{req: respond(tok, failWorkflow), reason: ReasonCrossTenant,
+		command: "FailWorkflowExecution", workflowID: wfA, target: "t:tenantB:child", commandIdx: "0"})
+
+	withMessage := respond(tok)
+	withMessage.Messages = []*protocolpb.Message{updateMessage(t, updateResponse(other))}
+	requireCommandDeny(t, denyCase{req: withMessage, reason: ReasonCrossTenant,
+		command: commandMessage, workflowID: wfA, target: "t:tenantB:child", commandIdx: "0"})
+
+	withQuery := respond(tok)
+	withQuery.QueryResults = map[string]*querypb.WorkflowQueryResult{"q1": {ResultType: enumspb.QUERY_RESULT_TYPE_FAILED, Failure: other}}
+	requireCommandDeny(t, denyCase{req: withQuery, reason: ReasonCrossTenant,
+		command: commandNone, workflowID: wfA, target: "t:tenantB:child", commandIdx: "-1"})
+
+	start := gateRequest(t, wf+"StartWorkflowExecution").(*workflowservice.StartWorkflowExecutionRequest)
+	start.ContinuedFailure = other
+	requireWorkloadAllow(t, Relay, wf+"StartWorkflowExecution", start)
 }
