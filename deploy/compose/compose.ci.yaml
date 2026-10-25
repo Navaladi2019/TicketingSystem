@@ -1,6 +1,8 @@
 # Overlay for a throwaway CI stack only: `make ci-stack` adds it, and that run
-# ends in `down -v`, so the volume goes with the stack. Never for the dev
-# project (`make stack-up`, `docker compose up`), whose volume persists.
+# ends in `down -v`, so the volume goes with the stack. Its Postgres flags are
+# also in compose.yaml since TICK-166, so the dev project (`make stack-up`,
+# `docker compose up`, whose volume persists) has them too; this overlay is a
+# duplicate kept for CI.
 #   docker compose -f compose.yaml -f deploy/compose/compose.test.yaml -f deploy/compose/compose.ci.yaml up -d
 services:
   # No durability (TICK-153 O11): faster db-roles, migrate and service

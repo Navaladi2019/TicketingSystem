@@ -1,4 +1,4 @@
-# CI optimizations
+# CI optimizations`compose.yaml`, the test overlay `make stack-up` uses on the dev project, and the internal overlay were unchanged. **TICK-166 update:** `compose.yaml` now sets the same three flags (and `initdb --no-sync`) for the dev stack, to bring Keycloak's first boot under 180 s; the overlay is a duplicate there and the dev volume persists, so a host crash can corrupt it (reset with `down -v`) |
 
 Why local CI is slow, what we decided, and what is still open. Target: **a CI
 run takes no more than 5 minutes** (human, 2026-10-24).

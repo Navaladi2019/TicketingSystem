@@ -54,7 +54,10 @@ start (`--import-realm`; existing realms are never overwritten, so a change need
 fresh `keycloak` database). The two test-only IdP realms the tenant IdPs broker to,
 `idp-tenant-a` and `idp-tenant-b`, are in `keycloak/test-realms/` and are not
 imported at first boot (it keeps `docker compose up` fast, TICK-166): the identity
-test creates them through the admin API when it starts. The IdP URLs assume the published port
+test creates them through the admin API when it starts, deleting and creating
+them fresh each run. On a plain `docker compose up`, `make stack-idp-realms`
+(set `KEYCLOAK_PORT` if it is not 18081) creates them with the same code, for a
+manual step that needs the tenant IdPs. The IdP URLs assume the published port
 18081 (`KEYCLOAK_PORT` default). All secrets are dev-only. Test:
 `make stack-test-identity` (`go test -tags identitystack ./internal/identitystack`).
 `TestRealmFile` in the same package checks the file without a container.
