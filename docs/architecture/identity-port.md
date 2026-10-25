@@ -39,9 +39,11 @@ flowchart TD
 
 - **Keys come only from the issuer's own discovery document.** On first use of
   an issuer the adapter reads `<iss>/.well-known/openid-configuration`; its
-  `issuer` must equal `iss` exactly and its `jwks_uri` must lie under `iss`
-  (no `..`, `@`, query or fragment). The JWKS URL then goes on the cache's URL
-  allow-list. So a token cannot point key fetches at another host, and a key
+  `issuer` must equal `iss` exactly and its `jwks_uri` must lie under `iss`:
+  as text (no `..`, `@`, `\`, query or fragment) and parsed with `url.Parse`
+  (same scheme and host as `iss`, empty `RawPath`, so no `%2e%2e` or `%2f`, and
+  a `path.Clean`ed path still under the issuer's; T15a, TICK-152). The JWKS URL
+  then goes on the cache's URL allow-list. So a token cannot point key fetches at another host, and a key
   of realm X never verifies a token with `iss=Y`.
 - **Fetch budget** (TICK-94 item 11): background refresh no more often than
   every 5 minutes (`WithMinInterval(5m)`); an unknown `kid` forces at most one
@@ -62,11 +64,19 @@ flowchart TD
 Discovery and JWKS fetches go through `telemetry.OutboundClient` (TICK-94
 item 2), whose timeouts also bound the background refresh. jwx's cache takes
 any `Do(*http.Request)` client, so the adapter passes the outbound client
-itself, wrapped to set the route template; no `*http.Client` leaves
+itself, wrapped to set the route template and `telemetry.WithoutRedirects`;
+no `*http.Client` leaves
 `internal/platform/telemetry` and no lint exception is needed. Spans are named
 `GET /realms/{realm}/.well-known/openid-configuration` and
 `GET /realms/{realm}/protocol/openid-connect/certs`. The span filter exports an
 outbound client span only under a method and a route template, else `_OTHER`.
+
+**No redirects** (T15a, TICK-152). Both fetches refuse every 3xx, same-origin
+included, and fail closed with `telemetry.ErrRedirectRefused`: the checked URL
+is the only one fetched. A same-host redirect from realm X's certs to realm
+Y's would otherwise undo the `jwks_uri` path check. Keycloak serves both
+documents directly, so nothing legitimate is lost. Other outbound callers keep
+the default policy (up to 10 redirects, any host).
 
 Metric: `nava.identity.jwks.fetch{trigger=initial|unknown_kid, result=ok|error|throttled}`.
 
