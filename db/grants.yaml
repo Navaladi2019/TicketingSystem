@@ -38,7 +38,7 @@ roles:
     attributes: [LOGIN]
 
   # The D28 system actors (A.3), one role each. Table entries: T09
-  # (00002_platform_tables.sql); the identity tables arrive with T16. Every
+  # (00002_platform_tables.sql) and T16 (00003_identity_tables.sql). Every
   # tenant table is under FORCE RLS, so a grant here reaches only the rows its
   # policies allow.
   nava_app:
@@ -54,6 +54,11 @@ roles:
       outbox: { SELECT: [tenant_id, id, dedupe_key], INSERT: [] }
       workflow_ref: { SELECT: [], INSERT: [] }
       idempotency_keys: { SELECT: [], INSERT: [], UPDATE: [state, response_status, response_body] }
+      # Tenant resolution (A.1 step 3, T17) and the principal's groups.
+      principals: { SELECT: [] }
+      groups: { SELECT: [] }
+      group_members: { SELECT: [] }
+      org_units: { SELECT: [] }
     functions: {}
 
   # As nava_app, without idempotency_keys or tenants; the final activity
@@ -103,6 +108,9 @@ roles:
       tenants: { SELECT: [], INSERT: [id, state, onboarding_request_hash], UPDATE: [state] }
       tenant_identity_binding: { INSERT: [tenant_id, issuer, org_id, idp_aliases] }
 
+  # Writes the identity tables (T16), one transaction per tenant. UPDATE
+  # leaves the keys alone: a row is re-keyed by delete and insert, never in
+  # place. group_members is insert and delete only.
   nava_groupsync:
     attributes: [LOGIN]
     pgbouncer_login: true
@@ -110,6 +118,10 @@ roles:
     schemas: { public: [USAGE] }
     tables:
       tenant_identity_binding: { SELECT: [tenant_id, issuer, org_id, idp_aliases] } # binding_lookup
+      principals: { SELECT: [], INSERT: [], UPDATE: [email, enabled, federated_links, synced_at], DELETE: [] }
+      groups: { SELECT: [], INSERT: [], UPDATE: [path], DELETE: [] }
+      group_members: { SELECT: [], INSERT: [], DELETE: [] }
+      org_units: { SELECT: [], INSERT: [], UPDATE: [parent_id, name], DELETE: [] }
 
   # Physical backups only. No CONNECT on the platform database; db/pg_hba.conf
   # lets it in only as a physical walsender from the backup host and rejects

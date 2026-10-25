@@ -276,5 +276,5 @@ tenant = tenant 5 (0.3% of rows).
 - The CI-1 catalogue check across all future tables (RLS, FORCE, allow-list):
   T10.
 - The identity tables (`principals`, `groups`, …) and their `nava_groupsync`
-  grants: T16.
+  grants: T16, in [identity.md](identity.md).
 - `records` columns beyond `version`: PLAN-002.
