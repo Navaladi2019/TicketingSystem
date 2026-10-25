@@ -321,6 +321,45 @@ func ci3Public(ctx context.Context, q Querier, m *grants.Manifest, _ *GlobalTabl
 		SELECT 'CI-3: PUBLIC holds ' || priv || ' on ' || obj FROM acl`, m.Owner())
 }
 
+// TenantTable is a tenant table and the column its rows are scoped by.
+type TenantTable struct{ Schema, Name, Key string }
+
+// QualifiedName is "schema.table", quoted for SQL.
+func (t TenantTable) QualifiedName() string {
+	return pgx.Identifier{t.Schema, t.Name}.Sanitize()
+}
+
+// TenantTables lists the tenant tables of the database q is connected to by
+// the rule ci1Relations applies (PLAN-001 D-P16): every table in a platform
+// schema but the goose version table and those g lists. The CI-2 isolation
+// suite (T11) probes each, so a new table is covered without registering it.
+func TenantTables(ctx context.Context, q Querier, g *GlobalTables) ([]TenantTable, error) {
+	rows, err := q.Query(ctx, `
+		SELECT n.nspname::text, c.relname::text, ''::text -- Key, set below
+		FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+		WHERE `+platformSchema("n.nspname")+` AND c.relkind IN ('r', 'p', 'f')
+		ORDER BY 1, 2`)
+	if err != nil {
+		return nil, err
+	}
+	all, err := pgx.CollectRows(rows, pgx.RowToStructByPos[TenantTable])
+	if err != nil {
+		return nil, err
+	}
+	global := map[string]bool{versionTable: true}
+	for _, name := range g.Names() {
+		global[name] = true
+	}
+	var out []TenantTable
+	for _, t := range all {
+		if !global[t.Schema+"."+t.Name] {
+			t.Key = tenantKey(t.Schema, t.Name)
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+
 // runtimeRoles are every manifest role but the platform database's owner.
 func runtimeRoles(m *grants.Manifest) []string {
 	var out []string

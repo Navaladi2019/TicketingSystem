@@ -116,7 +116,7 @@ func fileStages(f string, g graph) ([]string, string) {
 	case strings.HasPrefix(f, ".github/") || f == ".golangci.yml" ||
 		f == "scripts/ci/vulncheck.sh" || f == "scripts/ci/navalint.sh" || f == "scripts/ci/lint-fixture.sh":
 		return lint, "lint configuration, lint script or workflows"
-	case f == "scripts/ci/test-integration.sh" || strings.HasPrefix(f, "scripts/ci/pgbouncer/"):
+	case f == "scripts/ci/test-integration.sh" || f == "scripts/ci/isolation.sh" || strings.HasPrefix(f, "scripts/ci/pgbouncer/"):
 		return []string{"ci-lint", "ci-integration"}, "integration script"
 	case strings.HasPrefix(f, "deploy/") || strings.HasPrefix(path.Base(f), "compose") || f == ".dockerignore":
 		// Unit tests read the compose and collector files too

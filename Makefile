@@ -31,7 +31,8 @@ temporal-server-run: temporal-server-dev-certs
 #                   day per dependency set). No containers.
 #   ci-unit         go test -race ./... (one at a time per host), temporal-server
 #                   unit tests. No containers.
-#   ci-integration  -tags integration against a throwaway PostgreSQL (Docker).
+#   ci-integration  -tags integration against a throwaway PostgreSQL (Docker),
+#                   then the isolation suite (make isolation).
 #   ci-stack        image build, compose up, GET /healthz smoke, stack tests.
 
 GOLANGCI_LINT ?= golangci-lint
@@ -39,7 +40,7 @@ GOLANGCI_LINT ?= golangci-lint
 GOLANGCI_LINT_VERSION := 2.14.0
 GOVULNCHECK_VERSION := v1.9.0
 
-.PHONY: build run test test-integration lint generate check-openapi
+.PHONY: build run test test-integration isolation lint generate check-openapi
 .PHONY: ci ci-isolated ci-changed ci-stages ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity 	image image-ci stack-up stack-down stack-logs stack-internal stack-internal-beside stack-main ci-stack-run stack-tests smoke
 
 build:
@@ -62,10 +63,22 @@ test:
 	go run ./tools/ci/racelock -- go -C tools/navalint test -race ./...
 
 # Every package with `//go:build integration` tests, against a throwaway
-# postgres container the script starts and removes (needs Docker). Pass
-# ARGS=... to forward flags to go test.
+# postgres container the script starts and removes (needs Docker), then the
+# isolation suite (make isolation). Pass ARGS=... to forward flags to go test;
+# with ARGS the isolation suite does not run.
 test-integration:
 	sh scripts/ci/test-integration.sh $(ARGS)
+	$(if $(ARGS),,sh scripts/ci/isolation.sh)
+
+# The tenant isolation suite (T11, ADR-001 CI-2): its own throwaway
+# PostgreSQL and a PgBouncer with the real auth_query, tenants A and B seeded,
+# every runtime role against every tenant table plus the registered paths
+# (internal/tenancy/isolation). Writes ISOLATION_REPORT (default
+# isolation-report.md). Needs Docker.
+# TODO(TODO-008): the integration job does not upload isolation-report.md as
+# an artifact yet; the workflow step needs a push with `workflow` scope.
+isolation:
+	sh scripts/ci/isolation.sh $(ARGS)
 
 # golangci-lint, then the navalint analyzers (tools/navalint, its own module)
 # as go vet's tool.

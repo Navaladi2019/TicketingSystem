@@ -28,6 +28,13 @@ func TestPolicyTestsAreAllowed(t *testing.T) {
 		setconfig.PolicyTestPkg)
 }
 
+// TestIsolationTestsAreAllowed: the _test.go files of the CI-2 isolation
+// suite may use them; its registry, a non-test file, may not.
+func TestIsolationTestsAreAllowed(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), setconfig.Analyzer,
+		setconfig.IsolationTestPkg)
+}
+
 // TestOtherDbtestIsReported: a _test.go file in another package named dbtest
 // is reported; the exemption is by exact package path.
 func TestOtherDbtestIsReported(t *testing.T) {

@@ -75,7 +75,9 @@ for b in $bouncers; do
 done
 
 pkgs=$(grep -rl --include='*_test.go' '^//go:build integration' cmd internal tools 2>/dev/null |
-    xargs -n 1 dirname | sort -u | sed 's|^|./|')
+    xargs -n 1 dirname | sort -u | sed 's|^|./|' |
+    # The isolation suite needs its own cluster and PgBouncer: make isolation.
+    grep -v '^\./internal/tenancy/isolation$')
 echo "integration packages ($NAVA_TEST_PG_IMAGE):" $pkgs
 # Compile every test binary while the clusters start; -run '^$' runs nothing.
 # shellcheck disable=SC2086
