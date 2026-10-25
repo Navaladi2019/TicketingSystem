@@ -3,12 +3,17 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
+
+	"go.temporal.io/sdk/worker"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
@@ -111,12 +116,79 @@ func TestWorkerOptionsInstallTheGuard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o := workerOptions(g)
+	o := workerOptions(g, make(chan error, 1))
 	if n := len(o.Interceptors); n == 0 || o.Interceptors[n-1] != g {
 		t.Errorf("interceptors %v, want the guard last", o.Interceptors)
 	}
 	if !o.DisableWorkflowWorker {
 		t.Error("the workflow poller is on with no workflow registered")
+	}
+}
+
+// stubWorker records Stop; serve calls nothing else.
+type stubWorker struct {
+	worker.Worker
+	stopped bool
+}
+
+func (s *stubWorker) Stop() { s.stopped = true }
+
+// The SDK stops the worker on a fatal poll error and reports it only through
+// OnFatalError (TICK-168 item 1). serve must return it, so run exits non-zero
+// and compose restarts the process instead of /readyz staying 200 with no
+// poller. A second fatal error never blocks the SDK.
+func TestFatalWorkerErrorEndsServe(t *testing.T) {
+	tel, _ := newTemporal(t)
+	g, err := workerguard.New(slog.New(slog.DiscardHandler), tel.MeterProvider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fatal := make(chan error, 1)
+	o := workerOptions(g, fatal)
+	if o.OnFatalError == nil {
+		t.Fatal("OnFatalError is not set: a fatal worker error would go unnoticed")
+	}
+	cause := errors.New("namespace nava not found")
+	o.OnFatalError(cause)
+	o.OnFatalError(errors.New("second")) // must not block
+
+	var logs bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&logs, nil))
+	admin := &http.Server{Addr: "127.0.0.1:0", ReadHeaderTimeout: time.Second}
+	w := &stubWorker{}
+	done := make(chan error, 1)
+	go func() {
+		done <- serve(t.Context(), log, admin, w, fatal, config.Config{HTTP: config.HTTP{ShutdownTimeout: time.Second}})
+	}()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, cause) {
+			t.Fatalf("serve = %v, want the fatal worker error", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("serve kept running after a fatal worker error")
+	}
+	if !w.stopped {
+		t.Error("serve did not stop the worker")
+	}
+	if !strings.Contains(logs.String(), `"msg":"nava-worker fatal worker error"`) {
+		t.Errorf("no error line for the fatal worker error:\n%s", logs.String())
+	}
+	if err := admin.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+		t.Errorf("ListenAndServe after serve = %v, want ErrServerClosed: the listener was not shut down", err)
+	}
+}
+
+// A signal still ends serve cleanly, with no error.
+func TestServeStopsOnContextWithoutError(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	w := &stubWorker{}
+	admin := &http.Server{Addr: "127.0.0.1:0", ReadHeaderTimeout: time.Second}
+	err := serve(ctx, slog.New(slog.DiscardHandler), admin, w, make(chan error, 1), config.Config{HTTP: config.HTTP{ShutdownTimeout: time.Second}})
+	if err != nil || !w.stopped {
+		t.Fatalf("serve = %v, stopped %v; want nil and the worker stopped", err, w.stopped)
 	}
 }
 

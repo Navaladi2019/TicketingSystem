@@ -54,8 +54,10 @@ func main() {
 }
 
 // run starts the worker, then serves the admin listener until ctx is
-// cancelled or the listener fails. It stops the worker before draining the
-// listener, and flushes telemetry last.
+// cancelled, the listener fails or the worker stops on a fatal error. It stops
+// the worker before draining the listener, and flushes telemetry last. A fatal
+// worker error is returned, so the process exits non-zero and compose
+// restarts it instead of /readyz staying 200 with no poller.
 func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error {
 	cfg, err := config.Load(lookup)
 	if err != nil {
@@ -82,7 +84,8 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 		return err
 	}
 
-	w, mon, closeDeps, err := newWorker(ctx, log, tel, cfg)
+	fatal := make(chan error, 1)
+	w, mon, closeDeps, err := newWorker(ctx, log, tel, cfg, fatal)
 	if err != nil {
 		return errors.Join(err, flush())
 	}
@@ -102,7 +105,7 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 	monCtx, stopMon := context.WithCancel(ctx)
 	monDone := make(chan struct{})
 	go func() { defer close(monDone); mon.Run(monCtx) }()
-	serveErr := serve(ctx, log, admin, w, cfg)
+	serveErr := serve(ctx, log, admin, w, fatal, cfg)
 	stopMon()
 	<-monDone
 	return errors.Join(serveErr, flush())
@@ -111,7 +114,7 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 // newWorker builds the guarded client and worker, the workflow_ref activities'
 // pool and the readiness checks. The returned func closes the client and the
 // pools; call it after the worker has stopped.
-func newWorker(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, cfg config.Config) (worker.Worker, *health.Monitor, func(), error) {
+func newWorker(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, cfg config.Config, fatal chan<- error) (worker.Worker, *health.Monitor, func(), error) {
 	tlsConfig, err := temporalTLS(cfg.Deps.TemporalTLS)
 	if err != nil {
 		return nil, nil, nil, err
@@ -161,7 +164,7 @@ func newWorker(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, 
 		return nil, nil, nil, err
 	}
 
-	w := worker.New(c, taskQueue, workerOptions(g))
+	w := worker.New(c, taskQueue, workerOptions(g, fatal))
 	(&workerguard.Activities{Pool: pool}).Register(w)
 	return w, mon, closeAll, nil
 }
@@ -184,20 +187,36 @@ func clientOptions(log *slog.Logger, address string, tlsConfig *tls.Config, tt *
 // workflow is registered yet (T32b adds the first), so the worker polls
 // activity tasks only: a workflow poller with nothing registered would take
 // workflow tasks on nava-tq and fail them.
-func workerOptions(g *workerguard.Guard) worker.Options {
-	return workerguard.WorkerOptions(worker.Options{DisableWorkflowWorker: true}, g)
+//
+// The SDK stops the worker on a fatal poll error (NamespaceNotFound,
+// InvalidArgument, ...) and reports it only through OnFatalError, which sends
+// it to fatal (the first error; fatal has room for one) for serve.
+func workerOptions(g *workerguard.Guard, fatal chan<- error) worker.Options {
+	return workerguard.WorkerOptions(worker.Options{
+		DisableWorkflowWorker: true,
+		OnFatalError: func(err error) {
+			select {
+			case fatal <- err:
+			default:
+			}
+		},
+	}, g)
 }
 
-// serve runs the admin listener until it fails or ctx is done, then stops the
-// worker (in-flight activities finish or are cancelled) and drains the
-// listener, so /readyz answers while the worker stops.
-func serve(ctx context.Context, log *slog.Logger, admin *http.Server, w worker.Worker, cfg config.Config) error {
+// serve runs the admin listener until it fails, the worker reports a fatal
+// error on fatal, or ctx is done; then it stops the worker (in-flight
+// activities finish or are cancelled) and drains the listener, so /readyz
+// answers while the worker stops. A fatal worker error is returned.
+func serve(ctx context.Context, log *slog.Logger, admin *http.Server, w worker.Worker, fatal <-chan error, cfg config.Config) error {
 	errc := make(chan error, 1)
 	go func() { errc <- recovered(admin.ListenAndServe) }()
 
-	var serveErr error
+	var serveErr, fatalErr error
 	served := false
 	select {
+	case err := <-fatal:
+		fatalErr = fmt.Errorf("temporal worker stopped: %w", err)
+		log.ErrorContext(ctx, "nava-worker fatal worker error", slog.Any("error", err))
 	case serveErr = <-errc:
 		served = true
 		if !errors.Is(serveErr, http.ErrServerClosed) {
@@ -217,7 +236,7 @@ func serve(ctx context.Context, log *slog.Logger, admin *http.Server, w worker.W
 	if errors.Is(serveErr, http.ErrServerClosed) {
 		serveErr = nil
 	}
-	return errors.Join(serveErr, shutErr)
+	return errors.Join(fatalErr, serveErr, shutErr)
 }
 
 // recovered runs fn and turns a panic into an error carrying the stack, so a

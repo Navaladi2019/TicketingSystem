@@ -42,7 +42,9 @@ service `nava-worker` (image `nava/nava-worker`):
 - Admin listener on `NAVA_ADMIN_ADDR` (`:9090`): `telemetry.NewAdminHandler`,
   not wrapped in `httpobs.Middleware`. `/metrics` carries
   `nava_worker_guard_decisions_total` and the SDK metrics; `/readyz` is 200
-  once the worker has started and PostgreSQL and Temporal both answer. Never
+  once the worker has started and PostgreSQL and Temporal both answer. A fatal worker error
+  (the SDK stops the worker, for example on `NamespaceNotFound`) reaches
+  `OnFatalError` and ends the process non-zero, so compose restarts it. Never
   published: the service is on `internal` only.
 
 ```mermaid
