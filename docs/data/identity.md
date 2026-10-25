@@ -126,8 +126,9 @@ Also covered: `TestT16FederatedLinksFailClosed`, `TestT16KeysArePerTenant`
 
 ## Evidence
 
-Measured on 2026-10-25 with `sh scratch/identity-bench/run.sh`. Full output:
-`scratch/identity-bench/output.txt`. Setup: PostgreSQL 16.10
+Measured on 2026-10-25 with `sh docs/data/identity-bench/run.sh`, which
+writes its full output to `bin/identity-bench-output.txt` (gitignored).
+Setup: PostgreSQL 16.10
 (`postgres:16.10`) on Docker Desktop 28.0.1 under Windows 11, 16 CPUs,
 19.4 GiB in the VM, `shared_buffers=1GB`. The roles and every migration were
 applied by `nava-db roles` and `nava-db migrate`, so the catalogue gate

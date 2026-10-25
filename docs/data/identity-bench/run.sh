@@ -2,18 +2,20 @@
 # T16 (TICK-69) identity-table benchmark: a throwaway postgres from
 # docs/pins.md, db-roles and every migration through nava-db, the seed in
 # 01_seed.sql, then the plans as the runtime roles with RLS on. Output in
-# scratch/identity-bench/output.txt. Needs Docker and Go.
-#   sh scratch/identity-bench/run.sh
+# bin/identity-bench-output.txt (gitignored). Needs Docker and Go.
+#   sh docs/data/identity-bench/run.sh
 set -eu
-cd "$(dirname "$0")/../.."
+cd "$(dirname "$0")/../../.."
 tag=$(sed -n 's/^| `postgres` | \([^ |]*\) |.*/\1/p' docs/pins.md)
 name="nava-t16-bench-$$"
-out=scratch/identity-bench/output.txt
+dir=docs/data/identity-bench
+out=bin/identity-bench-output.txt
+bin=bin/identity-bench-nava-db$(go env GOEXE)
 MSYS_NO_PATHCONV=1
 export MSYS_NO_PATHCONV
-trap 'docker rm -f "$name" >/dev/null 2>&1 || true' EXIT
+trap 'docker rm -f "$name" >/dev/null 2>&1 || true; rm -f "$bin"' EXIT
 
-bin=scratch/identity-bench/nava-db$(go env GOEXE)
+mkdir -p bin
 go build -o "$bin" ./cmd/nava-db
 docker run -d --name "$name" --shm-size=1g -e POSTGRES_USER=pgadmin -e POSTGRES_PASSWORD=bench \
     -p 127.0.0.1::5432 "postgres:$tag" -c shared_buffers=1GB >/dev/null
@@ -33,14 +35,13 @@ psql_as() { # psql_as <role> <file>
 {
     echo "### host: $(uname -s), $(nproc 2>/dev/null || echo ?) CPUs; docker $(docker version --format '{{.Server.Version}}')"
     docker info --format 'docker VM: {{.NCPU}} CPUs, {{.MemTotal}} bytes'
-    echo "### seed (pgadmin)"; psql_as pgadmin scratch/identity-bench/01_seed.sql
-    echo "### resolver (nava_app)"; psql_as nava_app scratch/identity-bench/02_resolver.sql
-    echo "### resolver, second run (warm)"; psql_as nava_app scratch/identity-bench/02_resolver.sql
-    echo "### sync (nava_groupsync)"; psql_as nava_groupsync scratch/identity-bench/03_sync.sql
-    echo "### sizes (pgadmin)"; psql_as pgadmin scratch/identity-bench/04_sizes.sql
-    echo "### variant: three-column membership index (pgadmin)"; psql_as pgadmin scratch/identity-bench/05_variant.sql
-    echo "### resolver with the three-column index (nava_app)"; psql_as nava_app scratch/identity-bench/02_resolver.sql
-    echo "### resolver with the three-column index, warm (nava_app)"; psql_as nava_app scratch/identity-bench/02_resolver.sql
+    echo "### seed (pgadmin)"; psql_as pgadmin "$dir/01_seed.sql"
+    echo "### resolver (nava_app)"; psql_as nava_app "$dir/02_resolver.sql"
+    echo "### resolver, second run (warm)"; psql_as nava_app "$dir/02_resolver.sql"
+    echo "### sync (nava_groupsync)"; psql_as nava_groupsync "$dir/03_sync.sql"
+    echo "### sizes (pgadmin)"; psql_as pgadmin "$dir/04_sizes.sql"
+    echo "### variant: three-column membership index (pgadmin)"; psql_as pgadmin "$dir/05_variant.sql"
+    echo "### resolver with the three-column index (nava_app)"; psql_as nava_app "$dir/02_resolver.sql"
+    echo "### resolver with the three-column index, warm (nava_app)"; psql_as nava_app "$dir/02_resolver.sql"
 } > "$out" 2>&1
-rm -f "$bin"
 echo "wrote $out"
