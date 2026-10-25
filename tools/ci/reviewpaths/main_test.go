@@ -1,8 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -52,12 +55,12 @@ func TestSecurityPaths(t *testing.T) {
 		"internal/platform/telemetry/filter.go",
 		"docs/delivery/review-paths.yaml",
 	} {
-		if !matchAny(cfg.Security, p) {
+		if !matchAny(cfg.Security.Patterns(), p) {
 			t.Errorf("%s is not on the security list", p)
 		}
 	}
 	for _, p := range []string{"databases.md", "internal/dbx/x.go", "deploy/compose/test/stack-test.sh"} {
-		if matchAny(cfg.Security, p) {
+		if matchAny(cfg.Security.Patterns(), p) {
 			t.Errorf("%s matched the security list", p)
 		}
 	}
@@ -76,7 +79,8 @@ func TestCTOSignoff(t *testing.T) {
 		added   map[string][]string
 		want    string
 	}{
-		{"allow-list edited", "M\tdb/rls-allowlist.yaml", nil, "db/rls-allowlist.yaml (changed)"},
+		{"allow-list edited", "M\tinternal/db/catalog/policy.go", nil, "internal/db/catalog/policy.go (changed)"},
+		{"isolation registry edited", "M\tinternal/tenancy/isolation/registry.go", nil, "internal/tenancy/isolation/registry.go (changed)"},
 		{"isolation test removed", "D\t" + iso, nil, iso + " (isolation test removed)"},
 		{"isolation test skipped", "M\t" + iso, map[string][]string{iso: {"\tt.Skip(\"flaky\")"}}, iso + " (isolation test skipped or excluded)"},
 		{"short guard", "M\t" + iso, map[string][]string{iso: {"\tif testing.Short() {"}}, iso + " (isolation test skipped or excluded)"},
@@ -104,5 +108,114 @@ func TestCTOSignoff(t *testing.T) {
 				t.Fatalf("CTO = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// TICK-183: the realm export lives under deploy/compose/keycloak/ (since
+// TICK-57); a realm change must be flagged.
+func TestFixturePRTouchingRealmIsFlagged(t *testing.T) {
+	changes := parseNameStatus("M\tdeploy/compose/keycloak/import/realm-nava.json\n")
+	got := Evaluate(repoConfig(t), changes, nil).String()
+	want := "security review required: yes\nCTO sign-off required: no\n  security: deploy/compose/keycloak/import/realm-nava.json\n"
+	if got != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// plannedRe is the marker a pattern with no tracked file yet must carry: the
+// PLAN-001 task that creates it.
+var plannedRe = regexp.MustCompile(`^PLAN-001 T\d{2}[a-z]?$`)
+
+// staleEntries checks a path list against the tracked files, with the gate's
+// own matching: a pattern no tracked file matches must carry a planned marker
+// naming its task, and a planned pattern that now matches must drop it.
+func staleEntries(list string, es Entries, tracked []string) []string {
+	var bad []string
+	for _, e := range es {
+		live := false
+		for _, f := range tracked {
+			if matchAny([]string{e.Path}, f) {
+				live = true
+				break
+			}
+		}
+		switch {
+		case e.Planned != "" && !plannedRe.MatchString(e.Planned):
+			bad = append(bad, fmt.Sprintf("%s: %s: planned %q does not name a task (want \"PLAN-001 T<nn>\")", list, e.Path, e.Planned))
+		case live && e.Planned != "":
+			bad = append(bad, fmt.Sprintf("%s: %s: exists now, drop planned %q", list, e.Path, e.Planned))
+		case !live && e.Planned == "":
+			bad = append(bad, fmt.Sprintf("%s: %s: matches no tracked file (fix the path, or mark it planned: \"PLAN-001 T<nn>\")", list, e.Path))
+		}
+	}
+	return bad
+}
+
+func TestStaleEntries(t *testing.T) {
+	tracked := []string{"compose.yaml", "deploy/compose/keycloak/import/realm-nava.json", "internal/db/catalog/policy.go"}
+	for _, tc := range []struct {
+		name string
+		e    Entry
+		ok   bool
+	}{
+		{"file", Entry{Path: "compose.yaml"}, true},
+		{"directory", Entry{Path: "deploy/compose/keycloak/"}, true},
+		{"glob", Entry{Path: "internal/db/catalog/*.go"}, true},
+		{"any-depth glob", Entry{Path: "**/realm-*.json"}, true},
+		{"missing file", Entry{Path: "db/rls-allowlist.yaml"}, false},
+		{"missing directory", Entry{Path: "deploy/keycloak/"}, false},
+		{"directory prefix is not a file", Entry{Path: "deploy/compose/keycloak"}, false},
+		{"glob matching nothing", Entry{Path: "db/*.yaml"}, false},
+		{"planned", Entry{Path: "cmd/nava-relay/", Planned: "PLAN-001 T30b"}, true},
+		{"planned without task", Entry{Path: "cmd/nava-relay/", Planned: "later"}, false},
+		{"planned without plan", Entry{Path: "cmd/nava-relay/", Planned: "T30b"}, false},
+		{"planned but exists", Entry{Path: "compose.yaml", Planned: "PLAN-001 T02"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bad := staleEntries("security", Entries{tc.e}, tracked)
+			if (len(bad) == 0) != tc.ok {
+				t.Fatalf("ok = %v, want %v: %v", len(bad) == 0, tc.ok, bad)
+			}
+		})
+	}
+}
+
+// TICK-183: a pattern that matches nothing flags nothing, silently. Every
+// security and cto_signoff.paths entry must match a tracked file or name the
+// PLAN-001 task that creates it.
+func TestPathsMatchTrackedFiles(t *testing.T) {
+	cmd := exec.Command("git", "ls-files", "--full-name") //nolint:noctx // runs to completion
+	cmd.Dir = filepath.Join("..", "..", "..")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git ls-files (this check needs the git checkout): %v", err)
+	}
+	tracked := strings.Fields(string(out))
+	cfg := repoConfig(t)
+	bad := staleEntries("security", cfg.Security, tracked)
+	bad = append(bad, staleEntries("cto_signoff.paths", cfg.CTOSignoff.Paths, tracked)...)
+	for _, b := range bad {
+		t.Error(b)
+	}
+}
+
+func TestEntryForms(t *testing.T) {
+	var cfg Config
+	err := strictyaml.Decode([]byte("security:\n  - db/\n  - path: cmd/nava-relay/\n    planned: \"PLAN-001 T30b\"\n"), &cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Entries{{Path: "db/"}, {Path: "cmd/nava-relay/", Planned: "PLAN-001 T30b"}}
+	if len(cfg.Security) != 2 || cfg.Security[0] != want[0] || cfg.Security[1] != want[1] {
+		t.Fatalf("got %+v", cfg.Security)
+	}
+	for _, doc := range []string{
+		"security:\n  - path: db/\n    plan: \"PLAN-001 T09\"\n", // misspelt key
+		"security:\n  - planned: \"PLAN-001 T09\"\n",             // no path
+		"security:\n  - [db/]\n",                                 // neither form
+	} {
+		if err := strictyaml.Decode([]byte(doc), &Config{}); err == nil {
+			t.Errorf("decoded %q", doc)
+		}
 	}
 }
