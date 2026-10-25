@@ -8,13 +8,15 @@ import (
 
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/requestid"
 )
 
 // New returns a structured logger writing to w. JSON is the container
 // format; text is for local reading. Every record logged through a *Context
-// method carries the request's trace_id, span_id and request_id.
+// method carries the request's trace_id, span_id and request_id, and, after
+// authentication, its tenant_id and principal_id.
 func New(w io.Writer, cfg config.Log) *slog.Logger {
 	opts := &slog.HandlerOptions{Level: cfg.Level}
 	if cfg.Format == config.FormatText {
@@ -24,7 +26,9 @@ func New(w io.Writer, cfg config.Log) *slog.Logger {
 }
 
 // ContextHandler adds request correlation attributes from the record's
-// context: trace_id and span_id from the active span, and request_id.
+// context: trace_id and span_id from the active span, request_id, and the
+// resolved tenant_id and principal_id (TICK-93). The two ids are log fields
+// only, never metric attributes.
 type ContextHandler struct {
 	next slog.Handler
 }
@@ -50,7 +54,15 @@ func (h *ContextHandler) Handle(ctx context.Context, r slog.Record) error {
 	if id := requestid.FromContext(ctx); id != "" {
 		r.AddAttrs(slog.String("request_id", id))
 	}
+	addPrincipal(ctx, &r)
 	return h.next.Handle(ctx, r)
+}
+
+// addPrincipal adds the request's resolved tenant and principal ids, if any.
+func addPrincipal(ctx context.Context, r *slog.Record) {
+	if p, ok := identity.FromContext(ctx); ok {
+		r.AddAttrs(slog.String("tenant_id", p.TenantID.String()), slog.String("principal_id", p.PrincipalID.String()))
+	}
 }
 
 // WithAttrs implements slog.Handler.
@@ -103,7 +115,8 @@ func (h levelHandler) WithGroup(name string) slog.Handler {
 	return levelHandler{next: h.next.WithGroup(name), level: h.level}
 }
 
-// requestIDHandler adds the request id from the record's context.
+// requestIDHandler adds the request id, tenant id and principal id from the
+// record's context.
 type requestIDHandler struct {
 	next slog.Handler
 }
@@ -116,6 +129,7 @@ func (h requestIDHandler) Handle(ctx context.Context, r slog.Record) error {
 	if id := requestid.FromContext(ctx); id != "" {
 		r.AddAttrs(slog.String("request_id", id))
 	}
+	addPrincipal(ctx, &r)
 	return h.next.Handle(ctx, r)
 }
 

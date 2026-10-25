@@ -23,13 +23,20 @@ type pathResult struct {
 }
 
 // TestRegisteredPaths runs every registered path: SQL as its role inside
-// tenancy.InTenantTx(tenant A), aimed at tenant B; checks in process;
-// DB paths against the suite's database; pending paths are listed, not run.
+// tenancy.InTenantTx(tenant A), aimed at tenant B; HTTP through the real API
+// handler with a token for tenant A; checks in process; DB paths against the
+// suite's database; pending paths are listed, not run.
 func TestRegisteredPaths(t *testing.T) {
 	pools := map[string]*pgxpool.Pool{}
 	for _, p := range Paths() {
 		if _, ok := pools[p.Role]; p.SQL != nil && !ok {
 			pools[p.Role] = suite.pool(t, p.Role, suite.m.Roles[p.Role].PgBouncerLogin)
+		}
+	}
+	var api *apiRunner
+	for _, p := range Paths() {
+		if p.HTTP != nil && p.Pending == "" && api == nil {
+			api = newAPIRunner(t)
 		}
 	}
 	for _, p := range Paths() {
@@ -49,8 +56,10 @@ func TestRegisteredPaths(t *testing.T) {
 				}
 			case p.SQL != nil:
 				res.Status, res.Detail = runSQLPath(t, pools[p.Role], p.SQL)
+			case p.HTTP != nil:
+				res.Status, res.Detail = api.run(t, p.HTTP)
 			default:
-				res.Status, res.Detail = statusFail, "no runner for this path; T17 adds the HTTP runner"
+				res.Status, res.Detail = statusFail, "no runner for this path"
 			}
 			if res.Status == statusFail {
 				t.Error(res.Detail)

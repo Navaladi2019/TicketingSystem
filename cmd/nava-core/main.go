@@ -55,7 +55,13 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 		return err
 	}
 	defer closeDeps()
-	public, err := server.NewHandler(log, tel)
+	resolver, closeResolver, err := newResolver(ctx, log, tel, cfg)
+	if err != nil {
+		_ = tel.Shutdown(context.WithoutCancel(ctx))
+		return err
+	}
+	defer closeResolver()
+	public, err := server.NewHandler(log, tel, resolver)
 	if err != nil {
 		_ = tel.Shutdown(context.WithoutCancel(ctx))
 		return err

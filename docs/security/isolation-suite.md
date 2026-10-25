@@ -48,7 +48,7 @@ sequenceDiagram
 - A tenant table with no seed rows for both tenants fails, because 0 rows from an empty table proves nothing. A migration that adds a tenant table also adds its rows to `seed.sql`.
 - A role that may touch rows of a table but cannot read its tenant key fails, because "other tenants' rows" cannot be expressed for it.
 - Cross-tenant reach is accepted only through `Exemptions()`, and only for an A.3 allow-listed policy whose `USING` is `true` (`TestExemptionsAreAllowListed`). Today those are `outbox_relay_select`, `outbox_relay_update` and `binding_lookup`. The purge policies are not exempt: the seed has no expired rows, so a purge policy that stops testing expiry fails.
-- An HTTP path must stay `Pending` until the HTTP runner exists (T17). A non-pending HTTP path fails.
+- HTTP paths run through the real API handler (T17): the Keycloak adapter, trusting a test realm whose organization is bound to tenant A for the run, reads bindings and principals as `nava_app` through PgBouncer. A baseline `GET /api/v1/me` must answer 200 for tenant A first, so no path can pass on a 401. A path passes only on a 200 whose body names tenant A and never tenant B. A path marked `NoRoute` (its route lands in a later task) passes only on 404 or 405.
 - Pending paths use no `t.Skip`. The skip guard in `docs/delivery/review-paths.yaml` stays meaningful.
 
 ## Registering a path (later epics)
@@ -62,7 +62,6 @@ Editing `registry.go` needs CTO sign-off (D-P10).
 
 ## Not covered here (owner)
 
-- Forged tenant in the payload, a header or the query, over HTTP. Registered as pending, waiting on T17 (TICK-72).
 - Byte-identical 404, `If-Match` 412 and the masked-field filter: CI-8 rest, TICK-87.
 - Write cascades: CI-10, TICK-88.
 - Generic INSERT probes. `WITH CHECK` is covered by the registered insert paths for every table a runtime role may insert into.

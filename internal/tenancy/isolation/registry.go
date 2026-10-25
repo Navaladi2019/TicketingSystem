@@ -79,6 +79,10 @@ type HTTPCall struct {
 	Path   string // with the query string
 	Header http.Header
 	Body   string
+	// NoRoute names the task that adds this route. Until then the call must
+	// get 404 or 405; without it, the call must get 200 with tenant A's data,
+	// so a validator regression that starts refusing it cannot hide.
+	NoRoute string
 }
 
 // Cluster is the suite's database, as a DB path sees it.
@@ -119,7 +123,7 @@ type Path struct {
 // "Annex B coverage"). The report prints it above each group.
 func Coverage() map[string]string {
 	return map[string]string{
-		"CI-2":  "full: generic checks on every tenant table; forged-tenant HTTP paths pending T17",
+		"CI-2":  "full: generic checks on every tenant table; forged-tenant HTTP paths (T17)",
 		"CI-9":  "full: nava_relay, nava_purge, nava_onboard and nava_backup reach (T12); nava_backup through T08's pg_hba cases",
 		"CI-8":  "partial → TICK-87 (byte-identical 404, stale If-Match 412, masked-field filter 400); cursor cases from T23",
 		"CI-10": "partial → TICK-88; no path registered yet (T29 depth limit is a unit test)",
@@ -159,7 +163,7 @@ func Paths() []Path {
 		return Path{Name: name, Case: "CI-2", Role: role, SQL: &SQLCall{Query: query, Args: args, Expect: expect}}
 	}
 	forged := func(name string, c HTTPCall) Path {
-		return Path{Name: name, Case: "CI-2", HTTP: &c, Pending: "T17 (TICK-72) tenant resolution"}
+		return Path{Name: name, Case: "CI-2", HTTP: &c}
 	}
 	paths := []Path{
 		// IDOR by id: the id alone must not find tenant B's row.
@@ -202,13 +206,19 @@ func Paths() []Path {
 			"INSERT INTO tenant_identity_binding (tenant_id, issuer, org_id) VALUES ($1, 'https://idp.example/realms/iso', 'org-iso')", TenantA),
 
 		// Forged tenant: a valid token for tenant A names tenant B in the
-		// payload, a header or the query. The tenant comes only from the
-		// token's binding (ADR-001 I2).
+		// payload, a header, the query or baggage. The tenant comes only from
+		// the token's binding (ADR-001 I2). The payload path has no route yet
+		// (PLAN-002 records), so it proves only that a 4xx keeps B out.
 		forged("forged tenant in the query string", HTTPCall{Method: http.MethodGet, Path: "/api/v1/me?tenant_id=" + TenantB}),
 		forged("forged tenant in a header", HTTPCall{Method: http.MethodGet, Path: "/api/v1/me",
 			Header: http.Header{"X-Tenant-Id": {TenantB}, "X-Nava-Tenant": {TenantB}}}),
 		forged("forged tenant in the payload", HTTPCall{Method: http.MethodPost, Path: "/api/v1/records",
+			Body: `{"tenant_id":"` + TenantB + `"}`, NoRoute: "PLAN-002 records"}),
+		forged("forged tenant in the body of GET /api/v1/me", HTTPCall{Method: http.MethodGet, Path: "/api/v1/me",
 			Body: `{"tenant_id":"` + TenantB + `"}`}),
+		// TICK-93: baggage is never read; the edge propagator drops it.
+		forged("forged tenant in baggage", HTTPCall{Method: http.MethodGet, Path: "/api/v1/me",
+			Header: http.Header{"Baggage": {"tenant_id=" + TenantB + ",nava.tenant_id=" + TenantB}}}),
 	}
 	paths = append(paths, cursorPaths()...)
 	return append(paths, rolePaths()...)

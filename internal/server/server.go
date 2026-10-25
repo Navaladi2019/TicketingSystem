@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/httpobs"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
@@ -15,10 +16,11 @@ import (
 
 // NewHandler returns the public root handler, served on NAVA_HTTP_ADDR. It
 // serves /api/v1/* only: /metrics, /healthz and /readyz live on the admin
-// listener (telemetry.NewAdminHandler).
-func NewHandler(log *slog.Logger, tel *telemetry.Telemetry) (http.Handler, error) {
+// listener (telemetry.NewAdminHandler). Every contract operation authenticates
+// through resolver (internal/platform/auth).
+func NewHandler(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.IdentityResolver) (http.Handler, error) {
 	mux := http.NewServeMux()
-	a, err := newAPI(log, mux)
+	a, err := newAPI(log, tel, resolver, mux)
 	if err != nil {
 		return nil, err
 	}
