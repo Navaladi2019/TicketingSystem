@@ -2,6 +2,20 @@
 
 Delivery decisions that change a task's contract, newest first.
 
+## 2026-10-25: T31 worker guards land as a library; worker binary, alert rule and query guards deferred
+- **Decided by:** the Technical Lead on TICK-65 (PR #73, merged as `85a9202`; reviews TICK-158 and TICK-162), with the Security & Multi-Tenancy Reviewer's approval of `e29682b`.
+- **Decision:** `internal/workerguard` enforces every ADR-001 A.2 worker guard, writes the `nava-tenant` header on outbound commands, and dedupes signals for 48 h across continue-as-new. The shared Temporal telemetry constructor is `telemetry.NewTemporal`. T31 landed first, so T30b (TICK-85) reuses it and `workerguard.ConfigureClient`.
+- **Also decided:** the Security Reviewer's two Low findings were fixed in this PR, and the worker now rejects both:
+  - `NavaTenantId` set through a key type other than Keyword;
+  - a continue-as-new header rewritten after the early check.
+  - **Reason:** the contract says these commands are "rejected in the worker", and the Authorizer denying them only leaves the task stuck. PR #75's adversarial tests stay as regression guards.
+- **Deferred:**
+  - The `cmd/nava-worker` binary, its compose service and the `NAVA_ADMIN_ADDR` admin listener (TICK-94 item 1), as TICK-159 (T31b). Trigger: released now; needed before T32b (TICK-86) runs the worker in the stack.
+  - The alert rule on `nava.worker.guard.decisions{outcome!="allow"}`. Owner: TODO-004, next to AR-011 and AR-012.
+  - Query guards. Queries are read-only, and the Authorizer gates who can query. Trigger: a query handler returns tenant data that is not from its own workflow.
+- **Accepted risk:** AR-025 (Low): history paging and task-token APIs need a compromised worker process.
+- **Dissent:** none.
+
 ## 2026-10-25: T13 purge windows are floored by the RLS policies; follow-ups split out
 - **Decided by:** the Technical Lead on TICK-68 (T13, PR #51). The Principal Software Engineer and the Security & Multi-Tenancy Reviewer approved.
 - **Contract clarification:** the three retention windows are still config values, but they can only be *longer* than the policy floors. The floors are 7 days dispatched / 30 days dead for `outbox`, 30 days for `workflow_ref`, and `expires_at` for `idempotency_keys`, all hard-coded in the `*_purge` policies (T09). `LoadPurge` rejects a shorter window at startup, because otherwise it would silently delete nothing. *Trigger:* a D23 change to any window needs a policy migration under the 10-entry allow-list, not just a config change.
