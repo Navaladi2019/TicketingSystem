@@ -38,9 +38,6 @@ const (
 	statusPending = "PENDING"
 )
 
-// errRollback ends a tenancy.InTenantTx callback so the probe is rolled back.
-var errRollback = errors.New("rollback")
-
 // TestCI2EveryRoleEveryTenantTable is ADR-001 CI-2 over every tenant table
 // and every runtime role: with no tenant, an empty one and after a prior SET LOCAL,
 // directly and through PgBouncer, every granted SELECT, UPDATE and DELETE

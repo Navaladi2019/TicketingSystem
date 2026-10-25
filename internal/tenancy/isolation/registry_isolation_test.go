@@ -30,13 +30,13 @@ func TestRegistryIsWellFormed(t *testing.T) {
 			t.Errorf("path %q: case %q is not in Coverage", p.Name, p.Case)
 		}
 		calls := 0
-		for _, set := range []bool{p.SQL != nil, p.HTTP != nil, p.Check != nil} {
+		for _, set := range []bool{p.SQL != nil, p.HTTP != nil, p.Check != nil, p.DB != nil} {
 			if set {
 				calls++
 			}
 		}
 		if calls != 1 {
-			t.Errorf("path %q: %d calls, want exactly one of SQL, HTTP, Check", p.Name, calls)
+			t.Errorf("path %q: %d calls, want exactly one of SQL, HTTP, Check, DB", p.Name, calls)
 		}
 		if p.SQL != nil {
 			r, ok := m.Roles[p.Role]

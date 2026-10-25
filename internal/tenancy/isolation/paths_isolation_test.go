@@ -24,7 +24,7 @@ type pathResult struct {
 
 // TestRegisteredPaths runs every registered path: SQL as its role inside
 // tenancy.InTenantTx(tenant A), aimed at tenant B; checks in process;
-// pending paths are listed, not run.
+// DB paths against the suite's database; pending paths are listed, not run.
 func TestRegisteredPaths(t *testing.T) {
 	pools := map[string]*pgxpool.Pool{}
 	for _, p := range Paths() {
@@ -41,6 +41,10 @@ func TestRegisteredPaths(t *testing.T) {
 				t.Log(res.Detail)
 			case p.Check != nil:
 				if err := p.Check(t.Context()); err != nil {
+					res.Status, res.Detail = statusFail, err.Error()
+				}
+			case p.DB != nil:
+				if err := p.DB(t.Context(), cluster{t: t, e: suite}); err != nil {
 					res.Status, res.Detail = statusFail, err.Error()
 				}
 			case p.SQL != nil:

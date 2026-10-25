@@ -10,7 +10,9 @@
 //     must reach 0 rows or fail; with tenant A set it must reach none of
 //     tenant B's rows. A new table needs no registration, only seed rows;
 //   - runs every registered Path below as its role, scoped to tenant A with
-//     tenancy.InTenantTx, aimed at tenant B's data;
+//     tenancy.InTenantTx, aimed at tenant B's data; a DB path drives the
+//     database itself, for the CI-9 role reach checks that need seeded rows
+//     or a positive control;
 //   - writes a report, one line per role × table, grouped by ADR test id, so
 //     partial coverage (CI-8, CI-10) stays visible.
 //
@@ -22,6 +24,9 @@ package isolation
 import (
 	"context"
 	"net/http"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // The seeded tenants (testdata/seed.sql). Every registered path runs as
@@ -74,8 +79,19 @@ type HTTPCall struct {
 	Body   string
 }
 
-// Path is one registered route to tenant data. Exactly one of SQL, HTTP and
-// Check is set.
+// Cluster is the suite's database, as a DB path sees it.
+type Cluster interface {
+	// Pool is a one-connection pool logged in as role, through PgBouncer for
+	// roles on its login allow-list.
+	Pool(role string) (*pgxpool.Pool, error)
+	// Super is the bootstrap superuser on the platform database, which RLS
+	// does not hold. A DB path that seeds rows with it deletes them before
+	// it returns, so later checks see the seed unchanged.
+	Super() (*pgx.Conn, error)
+}
+
+// Path is one registered route to tenant data. Exactly one of SQL, HTTP,
+// Check and DB is set.
 type Path struct {
 	Name string
 	// Case is the ADR-001 Annex B test id the path proves ("CI-2", "CI-8",
@@ -88,6 +104,10 @@ type Path struct {
 	// Check is an in-process check; it returns an error when isolation does
 	// not hold.
 	Check func(context.Context) error
+	// DB is a check against the suite's database; it returns an error when
+	// the role reaches more than ADR-001 A.3 gives it, or when its positive
+	// control fails (so a broken check cannot pass as a denial).
+	DB func(context.Context, Cluster) error
 	// Pending names the task that makes the path runnable. A pending path is
 	// listed in the report and not run.
 	Pending string
@@ -98,6 +118,7 @@ type Path struct {
 func Coverage() map[string]string {
 	return map[string]string{
 		"CI-2":  "full: generic checks on every tenant table; forged-tenant HTTP paths pending T17",
+		"CI-9":  "full: nava_relay, nava_purge, nava_onboard and nava_backup reach (T12); nava_backup through T08's pg_hba cases",
 		"CI-8":  "partial → TICK-87 (byte-identical 404, stale If-Match 412, masked-field filter 400); cursor cases from T23",
 		"CI-10": "partial → TICK-88; no path registered yet (T29 depth limit is a unit test)",
 	}
@@ -180,5 +201,6 @@ func Paths() []Path {
 		forged("forged tenant in the payload", HTTPCall{Method: http.MethodPost, Path: "/api/v1/records",
 			Body: `{"tenant_id":"` + TenantB + `"}`}),
 	}
-	return append(paths, cursorPaths()...)
+	paths = append(paths, cursorPaths()...)
+	return append(paths, rolePaths()...)
 }
