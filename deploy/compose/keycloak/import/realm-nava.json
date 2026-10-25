@@ -383,11 +383,28 @@
     },
     {
       "clientId": "nava-platform",
-      "name": "Platform service account (Keycloak admin API)",
+      "name": "Runtime directory service account (Keycloak admin API): users and groups only; no realm or IdP role",
       "enabled": true,
       "publicClient": false,
       "clientAuthenticatorType": "client-secret",
       "secret": "dev-only-platform-secret",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "fullScopeAllowed": true,
+      "defaultClientScopes": [
+        "basic",
+        "roles"
+      ],
+      "optionalClientScopes": []
+    },
+    {
+      "clientId": "nava-onboarding",
+      "name": "Onboarding service account: creates a tenant organization and its IdP (manage-realm, manage-identity-providers; no manage-users)",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "dev-only-onboarding-secret",
       "standardFlowEnabled": false,
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": true,
@@ -423,9 +440,18 @@
           "manage-users",
           "view-users",
           "query-users",
-          "query-groups",
-          "view-realm",
-          "manage-realm"
+          "query-groups"
+        ]
+      }
+    },
+    {
+      "username": "service-account-nava-onboarding",
+      "enabled": true,
+      "serviceAccountClientId": "nava-onboarding",
+      "clientRoles": {
+        "realm-management": [
+          "manage-realm",
+          "manage-identity-providers"
         ]
       }
     },
