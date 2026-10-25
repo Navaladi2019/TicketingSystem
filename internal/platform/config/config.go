@@ -86,6 +86,12 @@ type Telemetry struct {
 	ShutdownTimeout time.Duration
 }
 
+// CascadeDepthLimit is the deepest causation depth an outbox row may carry
+// (ADR-001 I9, PLAN-001 D-P7). It is platform configuration, the same for
+// every tenant and never read from the environment; PLAN-002 confirms or
+// changes it.
+const CascadeDepthLimit = 8
+
 // Log formats.
 const (
 	FormatJSON = "json"

@@ -2,6 +2,15 @@
 
 Delivery decisions that change a task's contract, newest first.
 
+## 2026-10-25: T29 carries the trace context through the outbox; signal name is `outbox.kind`
+- **Decided by:** the Principal Software Engineer on TICK-70, the decision the TICK-93 audit asked for before coding. Resolves the TICK-89 deferral "trace continuity across the outbox" (trigger: T29 and T30a start).
+- **Decision 1 (adopt, no migration):** `outbox.Enqueue` stores the W3C `traceparent` of the caller's span in the existing nullable `outbox.trace_context` column (T09, ADR-001 A.3). `nava_relay` already has `SELECT` on it in `db/grants.yaml`, so no migration and no grant change. NULL when the caller has no valid span.
+  - **Only `traceparent` crosses.** `tracestate` is dropped (vendor-defined, free text), and baggage never crosses: the producer runs only `propagation.TraceContext{}` and keeps one key.
+  - **Relay (T30a, T30b):** extracts it with `propagation.TraceContext{}` and starts the dispatch span as a **new root with a link** to it, never as its child, matching the edge rule of 2026-10-16.
+- **Decision 2:** the pinned `Entry` has `Kind` and the target's kind or signal name, but `outbox` has no signal-name or start/signal column. So `outbox.kind` is the Temporal name the relay dispatches to: the workflow type for a start (`Entry.Kind` must equal `TargetStart.Kind`) and the signal name for a signal (`Entry.Kind` must equal `TargetSignal.SignalName`). The relay tells a start from a signal by `target_key`: only a start row's `target_key` ends in its own id. Kinds match `^[a-z][a-z0-9._-]{0,99}$`, so `target_key` (`<kind>:<uuid>`) carries no PII (TICK-94 item 3, for T30b).
+- **Also decided:** the payload check is code (`outbox.ValidatePayload`): a JSON object whose values are UUID strings or arrays of them. T32b's CI-7 schema reuses or replaces it.
+- **Dissent:** none. The Technical Lead confirms Decision 2 in the PR review.
+
 ## 2026-10-25: T31 worker guards land as a library; worker binary, alert rule and query guards deferred
 - **Decided by:** the Technical Lead on TICK-65 (PR #73, merged as `85a9202`; reviews TICK-158 and TICK-162), with the Security & Multi-Tenancy Reviewer's approval of `e29682b`.
 - **Decision:** `internal/workerguard` enforces every ADR-001 A.2 worker guard, writes the `nava-tenant` header on outbound commands, and dedupes signals for 48 h across continue-as-new. The shared Temporal telemetry constructor is `telemetry.NewTemporal`. T31 landed first, so T30b (TICK-85) reuses it and `workerguard.ConfigureClient`.
