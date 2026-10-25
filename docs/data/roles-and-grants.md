@@ -38,7 +38,11 @@ run where PUBLIC holds any privilege on `nava` (read with `aclexplode`, a
 NULL `datacl` counted as PostgreSQL's default), so PUBLIC has no
 `CONNECT`/`TEMPORARY` there while `keycloak` and `temporal` start and
 `migrate` has not yet run, even after a db-roles run that died between
-`CREATE DATABASE` and the revoke (T08 security review, T08b).
+`CREATE DATABASE` and the revoke (T08 security review, T08b). It reads the
+ACL again after the revoke: a superuser's `REVOKE` acts as the owner, so a
+grant to PUBLIC from another grantor (through a grant option) survives it,
+and db-roles then fails, naming the grantor, instead of exiting 0. So when
+db-roles exits 0, PUBLIC holds nothing on `nava`.
 
 db-roles fails, before it changes anything, if any role outside the manifest
 other than the bootstrap superuser has `rolsuper`, and names it. The

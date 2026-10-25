@@ -473,7 +473,7 @@ func TestDBRolesPublicGrantFromAnotherGrantorFailsRun(t *testing.T) {
 	if got := public(); err == nil && got != "" {
 		t.Fatalf("db-roles exited 0 with PUBLIC holding %s on nava (grantor nava_test_intruder)\n%s", got, buf)
 	}
-	if err != nil && !strings.Contains(err.Error(), "survived its revoke") {
-		t.Fatalf("db-roles failed, but not on the surviving PUBLIC grant: %v\n%s", err, buf)
+	if err != nil && (!strings.Contains(err.Error(), "survived its revoke") || !strings.Contains(err.Error(), `"nava_test_intruder"`)) {
+		t.Fatalf("db-roles failed, but not on the surviving PUBLIC grant naming its grantor: %v\n%s", err, buf)
 	}
 }

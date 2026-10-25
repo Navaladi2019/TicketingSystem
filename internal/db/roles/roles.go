@@ -279,19 +279,40 @@ func ensureDatabase(ctx context.Context, conn *pgx.Conn, name, owner string, log
 // nothing when PUBLIC holds none. created only picks the log line: on a
 // database db-roles did not just create, a PUBLIC privilege is drift.
 func revokePublic(ctx context.Context, conn *pgx.Conn, name string, created bool, log *slog.Logger, res *Result) error {
-	var privs []string
-	if err := conn.QueryRow(ctx, `
-		SELECT coalesce(array_agg(a.privilege_type::text ORDER BY a.privilege_type), '{}')
-		FROM pg_catalog.pg_database d,
-		     pg_catalog.aclexplode(coalesce(d.datacl, pg_catalog.acldefault('d', d.datdba))) a
-		WHERE d.datname = $1 AND a.grantee = 0`, name).Scan(&privs); err != nil {
-		return err
+	// A superuser's REVOKE acts as the owner, so a grant to PUBLIC made by
+	// anyone else (only possible through a grant option) would survive it:
+	// read twice, as ownerOnlyDatabase does.
+	type acl struct{ Priv, Grantor string }
+	read := func() ([]acl, error) {
+		rows, err := conn.Query(ctx, `
+			SELECT a.privilege_type, pg_catalog.pg_get_userbyid(a.grantor)::text
+			FROM pg_catalog.pg_database d,
+			     pg_catalog.aclexplode(coalesce(d.datacl, pg_catalog.acldefault('d', d.datdba))) a
+			WHERE d.datname = $1 AND a.grantee = 0
+			ORDER BY 1, 2`, name)
+		if err != nil {
+			return nil, err
+		}
+		return pgx.CollectRows(rows, pgx.RowToStructByPos[acl])
 	}
-	if len(privs) == 0 {
-		return nil
+	acls, err := read()
+	if err != nil || len(acls) == 0 {
+		return err
 	}
 	if _, err := conn.Exec(ctx, "REVOKE ALL ON DATABASE "+ident(name)+" FROM PUBLIC"); err != nil {
 		return err
+	}
+	if left, err := read(); err != nil {
+		return err
+	} else if len(left) > 0 {
+		return fmt.Errorf("PUBLIC %s on database %s granted by %q survived its revoke; its grantor is not the owner",
+			left[0].Priv, name, left[0].Grantor)
+	}
+	privs := make([]string, 0, len(acls))
+	for _, a := range acls {
+		if !slices.Contains(privs, a.Priv) {
+			privs = append(privs, a.Priv)
+		}
 	}
 	if created {
 		log.InfoContext(ctx, "revoked PUBLIC grants on new database", slog.String("database", name))
