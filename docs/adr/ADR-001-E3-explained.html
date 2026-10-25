@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-001 erratum E3 explained: why the onboarding role can read its own tenant row after activation</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--accbg:#ddf4ff;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--accbg:#0c2d6b;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.banner{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.pill{font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left;overflow-wrap:break-word}
+th{background:var(--soft)}
+table.front th{width:120px}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px;margin-top:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:44px}
+h3{font-size:18px;margin-top:28px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;background:var(--soft);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+pre{background:var(--soft);border:1px solid var(--bd);border-radius:6px;padding:10px 12px;overflow-x:auto}
+pre code{background:none;padding:0}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+figure.diagram{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure.diagram svg{width:100%;min-width:600px;height:auto;display:block;margin:0 auto;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+.tag{display:inline-block;font-size:12px;font-weight:700;padding:1px 9px;border-radius:999px;white-space:nowrap}
+.tag.red{color:var(--bad);background:var(--badbg);border:1px solid var(--bad)}
+.tag.green{color:var(--good);background:var(--goodbg);border:1px solid var(--good)}
+.tag.amber{color:var(--warn);background:var(--warnbg);border:1px solid var(--warn)}
+.verbatim{border:1px solid var(--acc);border-left:5px solid var(--acc);background:var(--accbg);border-radius:6px;padding:8px 14px;margin:12px 0}
+.vlabel{font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--acc)}
+.callout{border:1px solid var(--warn);background:var(--warnbg);border-radius:8px;padding:10px 14px;margin:14px 0}
+dl.gloss{display:grid;grid-template-columns:minmax(140px,220px) minmax(0,1fr);gap:6px 18px}
+dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
+@media (max-width:640px){dl.gloss{grid-template-columns:minmax(0,1fr)} dl.gloss dd{margin-bottom:8px}}
+@media print{table{display:table}}
+</style></head>
+<body><main>
+<div class="banner"><span class="pill">READING GUIDE &middot; ADR-001 E3 ACCEPTED</span>
+<span class="src">This companion explains <code>ADR-001-E3-a3-onboard-select-own-row.md</code>. It is not a decision record and changes nothing. Every blue "decision text" box is copied word for word from the erratum.</span></div>
+<table class="front"><tbody>
+<tr><th>title</th><td>ADR-001 erratum E3 explained: why the onboarding role can read its own tenant row after activation, and why that is the right rule</td></tr>
+<tr><th>type</th><td>explainer for the decision-maker (not a decision record)</td></tr>
+<tr><th>explains</th><td>ADR-001-E3 (status ACCEPTED, 2026-10-25: nava approved on TICK-170), from RFC-004 on TICK-170</td></tr>
+<tr><th>date</th><td>2026-10-25</td></tr>
+<tr><th>audience</th><td>the person signing off. It assumes no knowledge of PostgreSQL row security or of the review that found the gap.</td></tr>
+</tbody></table>
+
+<h1>ADR-001 erratum E3, explained</h1>
+
+<blockquote><strong>The whole decision in three sentences.</strong>
+(1) Our signed blueprint says the onboarding service may read "its own provisioning row" in the tenant table. (2) The database rule we actually shipped lets it read its own row in <em>any</em> state, because PostgreSQL cannot activate a tenant otherwise. (3) We correct the words of the blueprint, not the database, and you accept one small residual: the onboarding service can see four fields of the one tenant it just created.</blockquote>
+
+<div class="callout"><strong>How serious is this?</strong> Not a security gap. No tenant can see another tenant. The onboarding service is bound to one tenant per transaction and sees only that tenant's single row, which it wrote itself minutes earlier. This is a case of the paperwork lagging the code, found by a reviewer doing their job.</div>
+
+<h2 id="problem">1. The problem in plain words</h2>
+<p>Each customer of the platform is a <strong>tenant</strong>. The table <code>tenants</code> has one row per customer, with an <code>id</code>, a <code>state</code> (<code>provisioning</code> while being set up, then <code>active</code>), an <code>onboarding_request_hash</code> (a fingerprint of the request that created it, so a repeated request is recognised) and a <code>created_at</code> timestamp.</p>
+<p>A dedicated database login, <code>nava_onboard</code>, creates tenants. Our blueprint (ADR-001, Annex A.3) lists what each login may do. For <code>nava_onboard</code> it says:</p>
+<div class="verbatim"><div class="vlabel">ADR-001 Annex A.3, as signed</div><p>&ldquo;<code>INSERT</code> on <code>tenants</code> and <code>tenant_identity_binding</code>. <code>SELECT</code> on its own provisioning row.&rdquo;</p></div>
+<p>While reviewing PR #80, the Postgres &amp; Data Modeling Specialist noticed that the database rule is wider than those words. The rule says "own row", full stop, with no "provisioning" condition. So after the onboarding service flips its tenant to <code>active</code>, it can still read that row. The signed text says it should not. One of the two had to change.</p>
+
+<h2 id="rls">2. Background: how PostgreSQL row security works</h2>
+<p><strong>Row-level security (RLS)</strong> is a PostgreSQL feature where each table carries <strong>policies</strong>: small rules that decide, per login and per kind of statement, which rows are visible or writable. Our tenant wall rests on it: every tenant table has a policy that says "only rows whose tenant matches the tenant of this transaction".</p>
+<p>Policies come in kinds. A <code>SELECT</code> policy says which rows a login may <em>read</em>. An <code>UPDATE</code> policy has two parts: which existing rows may be changed (<code>USING</code>) and what the changed row is allowed to look like afterwards (<code>WITH CHECK</code>).</p>
+<p>The detail that matters here is a documented rule about <code>UPDATE</code>. When an update statement needs to <em>read</em> the table, for example because it has a <code>WHERE id = ...</code> clause, PostgreSQL also runs the <code>SELECT</code> policy, and it runs it on <strong>both</strong> the old row and the <strong>new</strong> row. If the new row would not be readable, the update fails with an error.</p>
+<div class="verbatim"><div class="vlabel">PostgreSQL 16 reference, CREATE POLICY, table "Policies Applied by Command Type", row UPDATE, SELECT-policy column</div>
+<p>&ldquo;Filter existing row [a] &amp; check new row [a]&rdquo;</p>
+<p>&ldquo;[a] If read access is required to either the existing or new row (for example, a <code>WHERE</code> or <code>RETURNING</code> clause that refers to columns from the relation).&rdquo;</p></div>
+
+<h2 id="why">3. Why the words cannot be implemented as written</h2>
+<p>Activating a tenant is one statement: <code>UPDATE tenants SET state = 'active' WHERE id = &lt;my tenant&gt;</code>. The <code>WHERE</code> reads the <code>id</code> column, so the <code>SELECT</code> policy is applied to the new row. If that policy only allowed <code>provisioning</code> rows, the new row, which is <code>active</code>, would fail it. PostgreSQL would refuse the activation.</p>
+<figure class="diagram"><svg viewBox="0 0 1000 420" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="An UPDATE passes through four policy checks; the SELECT policy is applied to the new row too">
+<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#59636e"/></marker></defs>
+<rect x="20" y="30" width="300" height="70" rx="8" fill="#f6f8fa" stroke="#d1d9e0"/>
+<text x="170" y="58" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">UPDATE tenants</text>
+<text x="170" y="82" text-anchor="middle" font-size="13" fill="#59636e">SET state = 'active' WHERE id = mine</text>
+<rect x="400" y="20" width="270" height="56" rx="8" fill="#dafbe1" stroke="#1a7f37"/>
+<text x="535" y="43" text-anchor="middle" font-size="13" font-weight="700" fill="#1a7f37">UPDATE policy, USING</text>
+<text x="535" y="63" text-anchor="middle" font-size="12" fill="#1f2328">old row: mine and provisioning</text>
+<rect x="400" y="96" width="270" height="56" rx="8" fill="#dafbe1" stroke="#1a7f37"/>
+<text x="535" y="119" text-anchor="middle" font-size="13" font-weight="700" fill="#1a7f37">UPDATE policy, WITH CHECK</text>
+<text x="535" y="139" text-anchor="middle" font-size="12" fill="#1f2328">new row: mine and active</text>
+<rect x="400" y="172" width="270" height="56" rx="8" fill="#dafbe1" stroke="#1a7f37"/>
+<text x="535" y="195" text-anchor="middle" font-size="13" font-weight="700" fill="#1a7f37">SELECT policy on the old row</text>
+<text x="535" y="215" text-anchor="middle" font-size="12" fill="#1f2328">because WHERE reads a column</text>
+<rect x="400" y="248" width="270" height="56" rx="8" fill="#fff8c5" stroke="#9a6700"/>
+<text x="535" y="271" text-anchor="middle" font-size="13" font-weight="700" fill="#9a6700">SELECT policy on the NEW row</text>
+<text x="535" y="291" text-anchor="middle" font-size="12" fill="#1f2328">the step that decides this erratum</text>
+<path d="M320 65 L400 48" stroke="#59636e" stroke-width="1.5" marker-end="url(#arr)"/>
+<path d="M320 65 L400 124" stroke="#59636e" stroke-width="1.5" marker-end="url(#arr)"/>
+<path d="M320 65 L400 200" stroke="#59636e" stroke-width="1.5" marker-end="url(#arr)"/>
+<path d="M320 65 L400 276" stroke="#59636e" stroke-width="1.5" marker-end="url(#arr)"/>
+<rect x="720" y="236" width="260" height="80" rx="8" fill="#ffebe9" stroke="#cf222e"/>
+<text x="850" y="262" text-anchor="middle" font-size="13" font-weight="700" fill="#cf222e">If the SELECT policy says</text>
+<text x="850" y="282" text-anchor="middle" font-size="13" font-weight="700" fill="#cf222e">"provisioning only"</text>
+<text x="850" y="302" text-anchor="middle" font-size="12" fill="#1f2328">ERROR 42501, activation fails</text>
+<rect x="720" y="20" width="260" height="80" rx="8" fill="#dafbe1" stroke="#1a7f37"/>
+<text x="850" y="46" text-anchor="middle" font-size="13" font-weight="700" fill="#1a7f37">If the SELECT policy says</text>
+<text x="850" y="66" text-anchor="middle" font-size="13" font-weight="700" fill="#1a7f37">"own row" (as shipped)</text>
+<text x="850" y="86" text-anchor="middle" font-size="12" fill="#1f2328">UPDATE 1, tenant is active</text>
+<path d="M670 276 L720 276" stroke="#cf222e" stroke-width="1.5" marker-end="url(#arr)"/>
+<path d="M670 276 L720 60" stroke="#1a7f37" stroke-width="1.5" marker-end="url(#arr)"/>
+<text x="500" y="370" text-anchor="middle" font-size="13" fill="#59636e">All four checks must pass. Three are the same under either wording. The fourth is why "own provisioning row" cannot work.</text>
+<text x="500" y="395" text-anchor="middle" font-size="12" fill="#59636e">Source: PostgreSQL 16, CREATE POLICY, "Policies Applied by Command Type". Reproduced by the spike in section 5.</text>
+</svg><figcaption>An activation update passes through four checks. The fourth, the SELECT policy on the new row, is what rules out the literal wording.</figcaption></figure>
+
+<h2 id="options">4. Options considered</h2>
+<table><thead><tr><th>Option</th><th>What would change</th><th>Verdict</th></tr></thead><tbody>
+<tr><td><strong>Fix the words</strong> (chosen)</td><td>Annex A.3 says "own row (the tenant of its transaction, in either state)". Nothing in the database changes.</td><td><span class="tag green">chosen</span> Matches the only rule PostgreSQL can execute on this path. Also matches another sentence in the same row of A.3, "idempotent on the request id", which needs the service to read the fingerprint of a tenant that may already be active.</td></tr>
+<tr><td>Fix the database: add "provisioning only" to the read rule</td><td>One line in the policy.</td><td><span class="tag red">rejected</span> Activation fails with error 42501. The existing test <code>TestT09OnboardActivation</code> turns red. Shown by the spike, case 2a.</td></tr>
+<tr><td>Fix the database and rewrite the activation statement so it reads no column (no <code>WHERE</code>, no <code>RETURNING</code>)</td><td>One policy line plus an unusual SQL shape.</td><td><span class="tag red">rejected</span> Works today (spike case 2c) but breaks the moment anyone adds a <code>WHERE</code>, <code>RETURNING</code> or <code>SET</code> that mentions a column. Afterwards the service cannot read its own tenant at all, so the repeated-request check cannot work. An update with no <code>WHERE</code> on a platform table is also not something we accept in review.</td></tr>
+<tr><td>Two read rules: one for provisioning rows, one for active rows</td><td>Two policies instead of one.</td><td><span class="tag red">rejected</span> PostgreSQL combines them with OR, which is exactly "own row" again (spike case 3). Same behaviour, more to maintain: both rules would have to be pinned in our CI list of tenant policies that carry an extra state test (<code>PinnedTenantPolicies</code>, where the activation rule already sits), because neither is the plain tenant rule our checker accepts.</td></tr>
+</tbody></table>
+
+<h2 id="evidence">5. Evidence</h2>
+<p>Both reviewers approved in round 1. The Technical Architect re-ran the spike from scratch on PostgreSQL 16.10, 15.19 and 17.11 and got identical results, and added checks that another tenant, or no tenant, sees nothing. The Security &amp; Multi-Tenancy Reviewer judged the residual Info, not an isolation finding, and added the test in PR #85.</p>
+<p>The original spike ran on the exact database image we pin, <code>postgres:16.10</code>, with the <code>tenants</code> table and its three onboarding policies copied from our migration. Script and raw output: <code>docs/adr/ADR-001/spikes/postgres/rfc-004/</code>.</p>
+<table><thead><tr><th>Case</th><th>Read rule</th><th>Statement</th><th>Result</th></tr></thead><tbody>
+<tr><td>1</td><td>as shipped ("own row")</td><td>activate with <code>WHERE id = mine</code></td><td><span class="tag green">UPDATE 1</span> and the active row is readable afterwards (the gap the reviewer saw)</td></tr>
+<tr><td>2a</td><td>"own provisioning row"</td><td>activate with <code>WHERE id = mine</code></td><td><span class="tag red">ERROR 42501</span> new row violates row-level security policy</td></tr>
+<tr><td>2b</td><td>"own provisioning row"</td><td>activate with <code>RETURNING id</code></td><td><span class="tag red">ERROR 42501</span></td></tr>
+<tr><td>2c</td><td>"own provisioning row"</td><td>activate with no <code>WHERE</code></td><td><span class="tag amber">UPDATE 1</span>, but the service can no longer read its own tenant (0 rows)</td></tr>
+<tr><td>3</td><td>provisioning rule OR active rule</td><td>activate with <code>WHERE id = mine</code></td><td><span class="tag green">UPDATE 1</span>, identical to case 1</td></tr>
+</tbody></table>
+<pre><code>-- case 2a, verbatim from output.txt
+UPDATE tenants SET state = 'active' WHERE id = '0190a000-0000-7000-8000-000000000002';
+42501
+ERROR:  new row violates row-level security policy for table "tenants"</code></pre>
+
+<h2 id="decision">6. The decision</h2>
+<div class="verbatim"><div class="vlabel">Decision text, ADR-001-E3</div>
+<p>&ldquo;<strong>The words change; the code does not.</strong> In Annex A.3, row <em>Onboarding</em> (<code>nava_onboard</code>), the clause &lsquo;<code>SELECT</code> on its own provisioning row.&rsquo; reads from now on &lsquo;<code>SELECT</code> on its own row (the tenant of its transaction, in either state).&rsquo;&rdquo;</p></div>
+<p>The signed ADR-001 file is not edited. The erratum is a separate file beside the two earlier amendments, the same way errata E1 and E2 were recorded. A test now pins the behaviour: <code>TestT09OnboardReadsOnlyOwnRowInEitherState</code> (PR #85). After activation, the onboarding service reads its own tenant's active row and zero rows of any other tenant, or of any tenant when none is set.</p>
+
+<h2 id="accept">7. What you are accepting</h2>
+<table><thead><tr><th>#</th><th>Residual risk</th><th>Owner</th><th>We look again when</th></tr></thead><tbody>
+<tr><td>RS8</td><td>The onboarding login, while working for tenant A, can read A's row after activation: <code>id</code>, <code>state</code>, <code>onboarding_request_hash</code>, <code>created_at</code>. It wrote three of those itself. It cannot read any other row or any other tenant; that part of the rule is unchanged and already enforced by a CI test.</td><td>Security &amp; Multi-Tenancy Reviewer</td><td>the <code>tenants</code> table gains a column the onboarding login must not see (then we restrict the grant to named columns), onboarding stops running inside a per-tenant transaction, or the onboarding API lets a caller influence which tenant it is bound to</td></tr>
+</tbody></table>
+<div class="callout"><strong>The condition that makes "own" mean something.</strong> The onboarding service is bound to a tenant by a setting called <code>app.tenant_id</code>. That value must be <strong>computed by our server</strong> from the operator's identity and the request's idempotency key, and <strong>never taken from the caller</strong> (request body, path, query string or header). If the onboarding API (task T21) ever let a caller pick it, an operator could point the onboarding service at any active tenant and read its row. The Security &amp; Multi-Tenancy Reviewer will hold T21's review to this, with one adversarial test: a second operator replaying the first operator's key gets a different tenant and sees nothing.</div>
+<p>There is no migration, no change to database grants or policies, and no code change to approve. The tenant wall (invariant I1) is untouched. Narrowing the onboarding login's read grant to named columns is optional hardening that Delivery may choose; it is not part of this decision.</p>
+
+<h2 id="gloss">Glossary</h2>
+<dl class="gloss">
+<dt>Annex A.3</dt><dd>The section of ADR-001 that lists every database login and what it may do.</dd>
+<dt>Erratum</dt><dd>A correction to a decision record where the text and the implementation disagree and the text is the one that is wrong. E1 and E2 came before this one.</dd>
+<dt><code>nava_onboard</code></dt><dd>The database login used only to create and activate tenants.</dd>
+<dt>Policy (RLS)</dt><dd>A PostgreSQL rule attached to a table that says which rows a login may read or write.</dd>
+<dt>Provisioning / active</dt><dd>The two states of a tenant: being set up, and ready for use. Nothing moves back.</dd>
+<dt>Row-level security (RLS)</dt><dd>The PostgreSQL feature our tenant wall is built on. Each query sees only the rows its policies allow.</dd>
+<dt>Spike</dt><dd>A short, timeboxed experiment that settles a factual question.</dd>
+<dt>SQLSTATE 42501</dt><dd>PostgreSQL's "insufficient privilege" error code. Row security violations report it.</dd>
+<dt>T21</dt><dd>The delivery task that builds the onboarding API, the only production caller of the onboarding login.</dd>
+<dt>Tenant</dt><dd>One customer organisation. Every table row belongs to exactly one tenant.</dd>
+</dl>
+
+<p class="src">The full decision is in <code>docs/adr/ADR-001-E3-a3-onboard-select-own-row.md</code>. The RFC is <code>docs/adr/ADR-001/rfc/RFC-004-a3-onboard-select-own-row.md</code>, and the spike is in <code>docs/adr/ADR-001/spikes/postgres/rfc-004/</code>.</p>
+</main></body></html>
