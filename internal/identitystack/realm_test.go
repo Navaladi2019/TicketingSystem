@@ -2,6 +2,7 @@ package identitystack
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -214,4 +215,101 @@ func assertOperatorFlow(t *testing.T, flows []struct {
 	if !found {
 		t.Error("authenticatorConfig nava-deny-non-operator missing")
 	}
+}
+
+// TestRealmFileOperatorCustody pins, on the import file, that nothing hands
+// nava-operator to a tenant user by configuration (security review of PR #56,
+// risk 3): no identity provider mapper targets the role, the role is in no
+// default role and in no composite role, and nava-web carries the tenant
+// audience but not the operator one (T14a).
+func TestRealmFileOperatorCustody(t *testing.T) {
+	raw, err := os.ReadFile("../../deploy/compose/keycloak/import/realm-nava.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var r map[string]any
+	if err := json.Unmarshal(raw, &r); err != nil {
+		t.Fatal(err)
+	}
+	const role = "nava-operator"
+	// Identity provider mappers: top level and any other place the key appears.
+	for _, key := range []string{"identityProviderMappers", "identityProviderMapper"} {
+		if m, ok := r[key].([]any); ok {
+			for _, e := range m {
+				if strings.Contains(fmt.Sprint(e), role) {
+					t.Errorf("%s targets %s: %v", key, role, e)
+				}
+			}
+		}
+	}
+	if idps, ok := r["identityProviders"].([]any); ok {
+		for _, p := range idps {
+			if strings.Contains(fmt.Sprint(p.(map[string]any)["mappers"]), role) {
+				t.Errorf("identity provider mapper targets %s: %v", role, p)
+			}
+		}
+	}
+	// default-roles-* and every composite.
+	if rs, ok := r["roles"].(map[string]any); ok {
+		for kind, list := range rs {
+			l, _ := list.([]any)
+			for _, e := range l {
+				m := e.(map[string]any)
+				if c, ok := m["composites"]; ok && c != nil && strings.Contains(fmt.Sprint(c), role) {
+					t.Errorf("%s role %v has composite %s", kind, m["name"], role)
+				}
+				if m["composite"] == true && m["name"] != role {
+					if strings.Contains(fmt.Sprint(m["composites"]), role) {
+						t.Errorf("composite role %v contains %s", m["name"], role)
+					}
+				}
+				if strings.HasPrefix(fmt.Sprint(m["name"]), "default-roles-") && strings.Contains(fmt.Sprint(m), role) {
+					t.Errorf("%v contains %s", m["name"], role)
+				}
+			}
+		}
+	}
+	if dr, ok := r["defaultRole"]; ok && strings.Contains(fmt.Sprint(dr), role) {
+		t.Errorf("defaultRole contains %s: %v", role, dr)
+	}
+	if dr, ok := r["defaultRoles"]; ok && strings.Contains(fmt.Sprint(dr), role) {
+		t.Errorf("defaultRoles contains %s: %v", role, dr)
+	}
+	// Groups and users: only operator@nava.test holds the role.
+	if g, ok := r["groups"]; ok && strings.Contains(fmt.Sprint(g), role) {
+		t.Errorf("a group maps %s: %v", role, g)
+	}
+	for _, u := range r["users"].([]any) {
+		um := u.(map[string]any)
+		if strings.Contains(fmt.Sprint(um["realmRoles"]), role) && um["username"] != "operator@nava.test" {
+			t.Errorf("user %v holds %s", um["username"], role)
+		}
+	}
+	// nava-web: tenant audience scope, no operator audience scope.
+	scopes := map[string][]string{}
+	for _, c := range r["clients"].([]any) {
+		cm := c.(map[string]any)
+		for _, k := range []string{"defaultClientScopes", "optionalClientScopes"} {
+			l, _ := cm[k].([]any)
+			for _, s := range l {
+				scopes[fmt.Sprint(cm["clientId"])] = append(scopes[fmt.Sprint(cm["clientId"])], fmt.Sprint(s))
+			}
+		}
+	}
+	web := strings.Join(scopes["nava-web"], ",")
+	if !strings.Contains(web, "nava-api-audience") || strings.Contains(web, "nava-operator-audience") {
+		t.Errorf("nava-web client scopes = %q, want nava-api-audience and not nava-operator-audience", web)
+	}
+	for _, s := range r["clientScopes"].([]any) {
+		sm := s.(map[string]any)
+		if sm["name"] != "nava-api-audience" {
+			continue
+		}
+		cfg := sm["protocolMappers"].([]any)[0].(map[string]any)["config"].(map[string]any)
+		if cfg["included.client.audience"] != "nava-api" || cfg["access.token.claim"] != "true" {
+			t.Errorf("nava-api-audience mapper config = %v", cfg)
+		}
+		return
+	}
+	t.Error("client scope nava-api-audience missing")
 }

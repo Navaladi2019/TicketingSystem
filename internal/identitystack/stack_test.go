@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"io"
@@ -27,6 +28,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/identity"
+	"github.com/Navaladi2019/TicketingSystem/internal/identity/keycloak"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
 )
 
 // realmHost is the browser-facing Keycloak address the realm export names in
@@ -480,7 +486,7 @@ func TestRealmRoundTrip(t *testing.T) {
 		t.Errorf("broker flow = %s", g)
 	}
 	// Clients and realm roles.
-	for _, id := range []string{"nava-web", "nava-operator-api", "nava-operator-cli", "nava-platform"} {
+	for _, id := range []string{"nava-web", "nava-api", "nava-operator-api", "nava-operator-cli", "nava-platform"} {
 		if find(got["clients"], "clientId", id) == nil {
 			t.Errorf("client %s not exported", id)
 		}
@@ -642,5 +648,68 @@ func roundTripOrganizations(t *testing.T, want map[string]any) {
 		if strings.Join(gi, ",") != strings.Join(wi, ",") {
 			t.Errorf("organization %s identity providers: running %v, imported %v", alias, gi, wi)
 		}
+	}
+}
+
+// TestTenantTokenAudience: a nava-web access token carries aud nava-api and
+// not nava-operator-api (T14a), for a password-grant and a brokered login.
+func TestTenantTokenAudience(t *testing.T) {
+	for name, tok := range map[string]string{
+		"alice": passwordToken(t, "nava-web", "alice@tenant-a.test", "dev-only-alice"),
+		"admin": passwordToken(t, "nava-web", "admin@tenant-a.test", "dev-only-admin-a"),
+		"bob":   passwordToken(t, "nava-web", "bob@tenant-b.test", "dev-only-bob"),
+	} {
+		aud := fmt.Sprint(claims(t, tok)["aud"])
+		if !strings.Contains(aud, "nava-api") || strings.Contains(aud, "nava-operator-api") {
+			t.Errorf("%s: aud = %v, want nava-api and not nava-operator-api", name, aud)
+		}
+	}
+	// The operator token is for the operator API only.
+	op := fmt.Sprint(claims(t, passwordToken(t, "nava-operator-cli", "operator@nava.test", "dev-only-operator"))["aud"])
+	if strings.Contains(op, "nava-api") && !strings.Contains(op, "nava-operator-api") {
+		t.Errorf("operator aud = %v", op)
+	}
+}
+
+// TestAdapterAcceptsTenantToken runs alice's nava-web token through the T15
+// Keycloak adapter against the real realm: audience, issuer, signature and
+// the organization claim all pass, so Resolve fails only at tenant resolution
+// (no tenant binding until T17). The same token is not an operator token.
+func TestAdapterAcceptsTenantToken(t *testing.T) {
+	tok := passwordToken(t, "nava-web", "alice@tenant-a.test", "dev-only-alice")
+	iss, _ := claims(t, tok)["iss"].(string)
+	if iss == "" {
+		t.Fatal("token has no iss")
+	}
+	cfg, err := config.Load(func(string) (string, bool) { return "", false })
+	if err != nil {
+		t.Fatal(err)
+	}
+	tel, err := telemetry.New(t.Context(), cfg.Telemetry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tel.Shutdown(context.Background()) })
+	out, err := telemetry.NewOutboundClient(tel, telemetry.OutboundOptions{Timeout: 5 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := keycloak.New(t.Context(), keycloak.Config{Issuers: []string{iss}, MeterProvider: tel.MeterProvider}, out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close(context.Background()) })
+
+	_, err = a.Resolve(t.Context(), tok)
+	if !errors.Is(err, identity.ErrTenantUnresolved) {
+		t.Errorf("Resolve = %v, want ErrTenantUnresolved (token valid, no binding yet)", err)
+	}
+	if _, err := a.ResolveOperator(t.Context(), tok); !errors.Is(err, identity.ErrInvalidToken) {
+		t.Errorf("ResolveOperator(tenant token) = %v, want ErrInvalidToken", err)
+	}
+	// The operator token still resolves as an operator.
+	op := passwordToken(t, "nava-operator-cli", "operator@nava.test", "dev-only-operator")
+	if _, err := a.ResolveOperator(t.Context(), op); err != nil {
+		t.Errorf("ResolveOperator(operator token) = %v", err)
 	}
 }

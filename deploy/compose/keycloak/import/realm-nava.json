@@ -269,6 +269,29 @@
       ]
     },
     {
+      "name": "nava-api-audience",
+      "description": "Audience nava-api for tenant access tokens (what IdentityResolver.Resolve requires).",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "false",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "nava-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "nava-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
       "name": "nava-operator-audience",
       "description": "Audience nava-operator-api for operator tokens (D-P12).",
       "protocol": "openid-connect",
@@ -315,9 +338,20 @@
         "email",
         "roles",
         "organization",
-        "nava-idp"
+        "nava-idp",
+        "nava-api-audience"
       ],
       "optionalClientScopes": []
+    },
+    {
+      "clientId": "nava-api",
+      "name": "Tenant API audience (bearer only)",
+      "enabled": true,
+      "bearerOnly": true,
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "fullScopeAllowed": false
     },
     {
       "clientId": "nava-operator-api",
