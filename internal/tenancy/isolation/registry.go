@@ -35,6 +35,8 @@ const (
 	TenantA = "0a000000-0000-4000-8000-00000000000a"
 	TenantB = "0b000000-0000-4000-8000-00000000000b"
 
+	// RecordA1 is one of tenant A's records.
+	RecordA1 = "0a000000-0000-4000-8000-0000000000a1"
 	// RecordB1 is one of tenant B's records.
 	RecordB1 = "0b000000-0000-4000-8000-0000000000b1"
 	// SharedDedupeKey and SharedIdempotencyKey exist in both tenants, so a

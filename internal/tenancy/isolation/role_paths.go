@@ -122,13 +122,16 @@ func relayCannotReadRecords(ctx context.Context, c Cluster) error {
 	if err != nil {
 		return err
 	}
-	var granted bool
-	if err := super.QueryRow(ctx,
-		"SELECT has_any_column_privilege('nava_relay', 'public.records', 'SELECT, INSERT, UPDATE, REFERENCES')").Scan(&granted); err != nil {
+	// Column grants, then table grants (TRUNCATE and the rest have no
+	// column form).
+	var column, table bool
+	if err := super.QueryRow(ctx, `SELECT
+		has_any_column_privilege('nava_relay', 'public.records', 'SELECT, INSERT, UPDATE, REFERENCES'),
+		has_table_privilege('nava_relay', 'public.records', 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')`).Scan(&column, &table); err != nil {
 		return err
 	}
-	if granted {
-		errs = append(errs, errors.New("nava_relay holds a privilege on records"))
+	if column || table {
+		errs = append(errs, fmt.Errorf("nava_relay holds a privilege on records (column %v, table %v)", column, table))
 	}
 	return errors.Join(errs...)
 }
@@ -195,7 +198,10 @@ func purgeReach(ctx context.Context, c Cluster) (err error) {
 		"SELECT kind, target_key, last_error FROM outbox",
 		"SELECT record_id FROM workflow_ref",
 		"SELECT kind FROM workflow_ref",
+		// Every column, so one added later cannot slip past the list above.
+		"SELECT * FROM idempotency_keys",
 		"SELECT * FROM outbox",
+		"SELECT * FROM workflow_ref",
 	} {
 		_, err := pool.Exec(ctx, q)
 		errs = append(errs, refused(q, err))
@@ -264,7 +270,7 @@ func seedPurgeRows(ctx context.Context, super *pgx.Conn) ([]purgeRow, func() err
 		}
 		return errors.Join(errs...)
 	}
-	record := map[string]string{TenantA: "0a000000-0000-4000-8000-0000000000a1", TenantB: RecordB1}
+	record := map[string]string{TenantA: RecordA1, TenantB: RecordB1}
 	type ages struct{ idempotency, dispatched, dead, closed string }
 	byExpiry := map[bool]ages{
 		true:  {"-1 hour", "8 days", "31 days", "31 days"},
@@ -356,10 +362,19 @@ func onboardCannotWriteActive(ctx context.Context, c Cluster) error {
 						errs = append(errs, errors.Join(fmt.Errorf("in tenant %s, %s on %s: %d rows", w.ctxTenant, q, w.target, n), err))
 					}
 				}
-				// A second row for an active tenant: the policy refuses it
-				// for another tenant; for its own the key does.
+				// A second row for an active tenant. As 'active',
+				// tenants_onboard_insert refuses it whatever the tenant.
 				_, err := execOne(ctx, tx, "INSERT INTO tenants (id, state) VALUES ($1, 'active')", w.target)
 				errs = append(errs, refused(fmt.Sprintf("in tenant %s, insert %s as active", w.ctxTenant, w.target), err))
+				// As 'provisioning', the policy refuses another tenant; for
+				// its own it passes and the primary key refuses the row.
+				_, err = execOne(ctx, tx, "INSERT INTO tenants (id, state) VALUES ($1, 'provisioning')", w.target)
+				what := fmt.Sprintf("in tenant %s, insert %s as provisioning", w.ctxTenant, w.target)
+				if w.ctxTenant != w.target {
+					errs = append(errs, refused(what, err))
+				} else if code := sqlState(err); code != "23505" {
+					errs = append(errs, errors.Join(fmt.Errorf("%s: SQLSTATE %q, want 23505 from the primary key", what, code), err))
+				}
 				return errors.Join(errs...)
 			})
 			errs = append(errs, err)
