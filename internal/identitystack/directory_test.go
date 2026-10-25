@@ -661,6 +661,18 @@ func TestCreateTenantOrgRefusesExistingLinkedIdP(t *testing.T) {
 	if _, err := d.CreateTenantOrg(t.Context(), tenant, alias, nil); !errors.Is(err, identity.ErrAlreadyExists) {
 		t.Fatalf("CreateTenantOrg over a linked idp = %v, want ErrAlreadyExists", err)
 	}
+	// Keycloak answers 400, not 409, for a bad config on an existing alias.
+	// The refusal must come first, so the live IdP survives an invalid spec.
+	bad := newDirectory(t, newRegistry(), true, func(context.Context, uuid.UUID) (keycloak.IdPSpec, error) {
+		return keycloak.IdPSpec{ProviderID: "oidc", Config: map[string]string{
+			"clientId": "x", "authorizationUrl": "not a url", "pkceMethod": "bogus"}}, nil
+	})
+	if _, err := bad.CreateTenantOrg(t.Context(), tenant, alias, nil); !errors.Is(err, identity.ErrAlreadyExists) {
+		t.Fatalf("CreateTenantOrg over a linked idp with an invalid config = %v, want ErrAlreadyExists", err)
+	}
+	if code, _ := adminRealm(t, "nava", http.MethodGet, "/identity-provider/instances/"+idpAlias, nil); code != http.StatusOK {
+		t.Fatalf("the existing idp was deleted: %d", code)
+	}
 	_, ob := adminRealm(t, "nava", http.MethodGet, "/organizations?exact=true&search="+alias, nil)
 	if strings.Contains(string(ob), `"alias":"`+alias+`"`) {
 		t.Error("the organization was left behind")

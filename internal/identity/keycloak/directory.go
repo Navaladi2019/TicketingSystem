@@ -380,7 +380,10 @@ func (d *Directory) InviteUser(ctx context.Context, tenantID uuid.UUID, email st
 		case errors.Is(err, identity.ErrAlreadyExists):
 			// A concurrent invite created the user between our lookup and
 			// our create: take the user that now exists, under the rules
-			// for an existing user.
+			// for an existing user. The other invite has not placed them in
+			// the group yet, so this one can be refused (ErrInviteRefused);
+			// the caller answers a refusal like a success and the other
+			// invite completes it.
 			if userID, err = d.findByEmail(ctx, email); err != nil {
 				return err
 			}
@@ -728,6 +731,18 @@ func (d *Directory) CreateTenantOrg(ctx context.Context, tenantID uuid.UUID, ali
 	}
 	idpAlias := TenantIdPAlias(tenantID)
 
+	// An IdP under the derived alias that already exists is not ours to
+	// touch: refuse before writing anything. Keycloak validates the config
+	// before it looks for a duplicate alias, so a bad config on an existing
+	// alias is a 400, not a 409, and the rollback below would otherwise
+	// delete a live tenant's IdP.
+	switch _, err := d.readIdP(ctx, idpAlias); {
+	case err == nil:
+		return "", fmt.Errorf("%w: idp", identity.ErrAlreadyExists)
+	case !errors.Is(err, identity.ErrNotFound):
+		return "", err
+	}
+
 	doms := make([]map[string]any, 0, len(domains))
 	for _, dom := range domains {
 		doms = append(doms, map[string]any{"name": dom, "verified": false})
@@ -745,9 +760,14 @@ func (d *Directory) CreateTenantOrg(ctx context.Context, tenantID uuid.UUID, ali
 	fail := func(err error) (string, error) {
 		rb, cancel := context.WithTimeout(context.WithoutCancel(ctx), rollbackTimeout)
 		defer cancel()
+		// The alias was absent before we started, so an IdP under it is ours
+		// if we may have created it. Delete it only if it is unlinked or
+		// linked to the organization we just made.
 		if idpCreated {
-			_, _ = d.api.do(rb, d.onboarding, http.MethodDelete, "/identity-provider/instances/{alias}",
-				"/identity-provider/instances/"+url.PathEscape(idpAlias), nil, nil, http.StatusNoContent)
+			if idp, rerr := d.readIdP(rb, idpAlias); rerr == nil && onlyLinkedTo(idp, orgID) {
+				_, _ = d.api.do(rb, d.onboarding, http.MethodDelete, "/identity-provider/instances/{alias}",
+					"/identity-provider/instances/"+url.PathEscape(idpAlias), nil, nil, http.StatusNoContent)
+			}
 		}
 		_, _ = d.api.do(rb, d.onboarding, http.MethodDelete, "/organizations/{id}",
 			"/organizations/"+url.PathEscape(orgID), nil, nil, http.StatusNoContent)
@@ -768,8 +788,8 @@ func (d *Directory) CreateTenantOrg(ctx context.Context, tenantID uuid.UUID, ali
 		}, http.StatusCreated)
 	if err != nil {
 		// The create may have reached Keycloak though the reply was lost:
-		// delete the server-derived alias, except on a 409, where the IdP
-		// is not ours.
+		// clean up the alias (absent at the pre-check), except on a 409,
+		// where someone else created it meanwhile and it is not ours.
 		idpCreated = !errors.Is(err, identity.ErrAlreadyExists)
 		return fail(err)
 	}
@@ -805,6 +825,17 @@ func (d *Directory) CreateTenantOrg(ctx context.Context, tenantID uuid.UUID, ali
 		return fail(errors.New("keycloak: new idp has a mapper"))
 	}
 	return orgID, nil
+}
+
+// onlyLinkedTo reports whether the IdP has no organization link, or only one
+// to orgID.
+func onlyLinkedTo(idp kcIdP, orgID string) bool {
+	for _, l := range idp.OrganizationLinks {
+		if l.OrganizationID != orgID {
+			return false
+		}
+	}
+	return true
 }
 
 type kcIdP struct {

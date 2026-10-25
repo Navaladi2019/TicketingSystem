@@ -463,24 +463,45 @@ func TestIdPConfigAllowList(t *testing.T) {
 func TestCreateTenantOrgRollsBackIdP(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
-		name       string
-		status     int
-		wantDelete bool
-	}{{"server error", http.StatusInternalServerError, true}, {"conflict", http.StatusConflict, false}} {
+		name        string
+		idpExists   bool // the derived alias exists before the call
+		status      int  // answer to the IdP create
+		wantErr     error
+		wantIdPDel  bool
+		wantOrgMade bool
+		wantOrgGone bool
+	}{
+		{name: "server error on a fresh alias", status: http.StatusInternalServerError, wantIdPDel: true, wantOrgMade: true, wantOrgGone: true},
+		{name: "conflict on a fresh alias", status: http.StatusConflict, wantOrgMade: true, wantOrgGone: true},
+		// Keycloak answers 400, not 409, for a bad config on an existing
+		// alias: the live IdP must survive, and nothing is written.
+		{name: "existing idp, create returns 400", idpExists: true, status: http.StatusBadRequest, wantErr: identity.ErrAlreadyExists},
+	} {
 		t.Run(c.name, func(t *testing.T) {
-			var delIdP, delOrg atomic.Bool
+			var delIdP, madeOrg, delOrg atomic.Bool
+			var idpMade atomic.Bool
 			mux := http.NewServeMux()
 			mux.HandleFunc("POST /realms/nava/protocol/openid-connect/token", func(w http.ResponseWriter, _ *http.Request) {
 				fmt.Fprint(w, `{"access_token":"tok","expires_in":300}`)
 			})
+			idpPath := "/admin/realms/nava/identity-provider/instances/" + TenantIdPAlias(dirTenantA)
+			mux.HandleFunc("GET "+idpPath, func(w http.ResponseWriter, _ *http.Request) {
+				if c.idpExists || idpMade.Load() {
+					fmt.Fprintf(w, `{"alias":%q,"organizationLinks":[]}`, TenantIdPAlias(dirTenantA))
+					return
+				}
+				w.WriteHeader(http.StatusNotFound)
+			})
 			mux.HandleFunc("POST /admin/realms/nava/organizations", func(w http.ResponseWriter, _ *http.Request) {
+				madeOrg.Store(true)
 				w.Header().Set("Location", "http://x/admin/realms/nava/organizations/org-1")
 				w.WriteHeader(http.StatusCreated)
 			})
 			mux.HandleFunc("POST /admin/realms/nava/identity-provider/instances", func(w http.ResponseWriter, _ *http.Request) {
+				idpMade.Store(c.status == http.StatusInternalServerError) // the create landed, the reply failed
 				w.WriteHeader(c.status)
 			})
-			mux.HandleFunc("DELETE /admin/realms/nava/identity-provider/instances/"+TenantIdPAlias(dirTenantA), func(w http.ResponseWriter, _ *http.Request) {
+			mux.HandleFunc("DELETE "+idpPath, func(w http.ResponseWriter, _ *http.Request) {
 				delIdP.Store(true)
 				w.WriteHeader(http.StatusNoContent)
 			})
@@ -491,12 +512,58 @@ func TestCreateTenantOrgRollsBackIdP(t *testing.T) {
 			srv := httptest.NewServer(mux)
 			t.Cleanup(srv.Close)
 			d, _ := directoryFor(t, srv.URL, withOnboarding)
-			if _, err := d.CreateTenantOrg(t.Context(), dirTenantA, "tenant-a", nil); err == nil {
+			_, err := d.CreateTenantOrg(t.Context(), dirTenantA, "tenant-a", nil)
+			if err == nil {
 				t.Fatal("CreateTenantOrg succeeded")
 			}
-			if delIdP.Load() != c.wantDelete || !delOrg.Load() {
-				t.Errorf("deleted idp = %v (want %v), org = %v (want true)", delIdP.Load(), c.wantDelete, delOrg.Load())
+			if c.wantErr != nil && !errors.Is(err, c.wantErr) {
+				t.Errorf("err = %v, want %v", err, c.wantErr)
+			}
+			if delIdP.Load() != c.wantIdPDel || madeOrg.Load() != c.wantOrgMade || delOrg.Load() != c.wantOrgGone {
+				t.Errorf("idp deleted %v (want %v), org created %v (want %v), org deleted %v (want %v)",
+					delIdP.Load(), c.wantIdPDel, madeOrg.Load(), c.wantOrgMade, delOrg.Load(), c.wantOrgGone)
 			}
 		})
+	}
+}
+
+// The IdP that the rollback finds linked to another organization is never
+// deleted, whatever the create said.
+func TestCreateTenantOrgRollbackSparesAnIdPLinkedElsewhere(t *testing.T) {
+	t.Parallel()
+	var delIdP atomic.Bool
+	var reads atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /realms/nava/protocol/openid-connect/token", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"access_token":"tok","expires_in":300}`)
+	})
+	idpPath := "/admin/realms/nava/identity-provider/instances/" + TenantIdPAlias(dirTenantA)
+	mux.HandleFunc("GET "+idpPath, func(w http.ResponseWriter, _ *http.Request) {
+		// Absent at the pre-check; by rollback time it is linked elsewhere.
+		if reads.Add(1) == 1 {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		fmt.Fprint(w, `{"organizationLinks":[{"organizationId":"someone-else"}]}`)
+	})
+	mux.HandleFunc("POST /admin/realms/nava/organizations", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Location", "http://x/admin/realms/nava/organizations/org-1")
+		w.WriteHeader(http.StatusCreated)
+	})
+	mux.HandleFunc("POST /admin/realms/nava/identity-provider/instances", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	mux.HandleFunc("DELETE "+idpPath, func(w http.ResponseWriter, _ *http.Request) { delIdP.Store(true) })
+	mux.HandleFunc("DELETE /admin/realms/nava/organizations/org-1", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	d, _ := directoryFor(t, srv.URL, withOnboarding)
+	if _, err := d.CreateTenantOrg(t.Context(), dirTenantA, "tenant-a", nil); err == nil {
+		t.Fatal("CreateTenantOrg succeeded")
+	}
+	if delIdP.Load() {
+		t.Error("an IdP linked to another organization was deleted")
 	}
 }
