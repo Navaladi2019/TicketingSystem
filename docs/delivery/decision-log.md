@@ -2,6 +2,19 @@
 
 Delivery decisions that change a task's contract, newest first.
 
+## 2026-10-25: T30a anchors the relay's max redelivery age on `created_at`
+- **Decided by:** the Technical Lead on TICK-74 (PR #87), option (a) of the Principal Software Engineer's question.
+- **Decision:** the 24 h max redelivery age (D-P8) is measured from `outbox.created_at`, not from the first attempt as D-P8 and ADR-001 A.2 say. `outbox` has no first-attempt column, and `nava_relay` cannot reconstruct one. `created_at` is never later than the first attempt, so redelivery stays inside the worker's 48 h signal window. No migration.
+  - **Where it applies:** `Backoff` marks a failed row dead once it is 24 h old. `Claim` marks a row dead instead of claiming it when the row was attempted before (`attempts > 0`, its lease or backoff over) and is 24 h old. That covers a crash between dispatch and `MarkDispatched`, which never reaches `Backoff`. Without it the row would be redelivered past 48 h and could start a second workflow.
+  - A row with no attempts is never marked dead.
+- **Accepted cost:** a row that waited a long time before its first attempt (behind a backing-off head, or through a relay outage) gets fewer than 24 h of retries.
+  - **Revisit if:** T33 or the operators see rows marked dead after fewer than 3 attempts. Then do option (b): a `first_attempt_at` column, owned by the Postgres & Data Modeling Specialist.
+- **Accepted deferrals:**
+  - A leased head is not backing off, so its available successors can fill its tenant's 200-row scan window until it settles. **Revisit if:** T33's flood test shows it.
+  - A poll has no limit on tenants. **Revisit if:** T33 shows poll latency growing with the tenant count.
+- **Accepted risks:** AR-026 (short retry window), AR-027 (successors behind a leased head) and AR-028 (no tenant limit per poll), all 🟡 Low, in `docs/security/accepted-risks.md`.
+- **Dissent:** none.
+
 ## 2026-10-25: T29 carries the trace context through the outbox; signal name is `outbox.kind`
 - **Decided by:** the Principal Software Engineer on TICK-70, the decision the TICK-93 audit asked for before coding. Resolves the TICK-89 deferral "trace continuity across the outbox" (trigger: T29 and T30a start).
 - **Decision 1 (adopt, no migration):** `outbox.Enqueue` stores the W3C `traceparent` of the caller's span in the existing nullable `outbox.trace_context` column (T09, ADR-001 A.3). `nava_relay` already has `SELECT` on it in `db/grants.yaml`, so no migration and no grant change. NULL when the caller has no valid span.
