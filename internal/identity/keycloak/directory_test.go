@@ -33,9 +33,30 @@ func (noRegistry) GroupKeycloakID(context.Context, uuid.UUID, uuid.UUID) (string
 	return "", ErrRegistryNotFound
 }
 
-func (noRegistry) BoundIdPAliases(context.Context, uuid.UUID) ([]string, error) { return nil, nil }
+func (noRegistry) BoundIdPAliases(context.Context, uuid.UUID) ([]string, error) {
+	return []string{"idp-a"}, nil
+}
 
-func directoryFor(t *testing.T, baseURL string) (*Directory, *tracetest.InMemoryExporter) {
+func (noRegistry) TenantOwnsEmailDomain(_ context.Context, _ uuid.UUID, domain string) (bool, error) {
+	return domain == "tenant-a.test", nil
+}
+
+type userRegistry struct{ noRegistry }
+
+func (userRegistry) UserKeycloakID(context.Context, uuid.UUID, uuid.UUID) (string, error) {
+	return "u-1", nil
+}
+
+func withUser(c *DirectoryConfig) { c.Registry = userRegistry{} }
+
+func withOnboarding(c *DirectoryConfig) {
+	c.Onboarding = &ClientCredentials{ClientID: "nava-onboarding", ClientSecret: "s"}
+	c.IdPs = func(context.Context, uuid.UUID) (IdPSpec, error) {
+		return IdPSpec{ProviderID: "oidc", Config: map[string]string{"clientId": "x"}}, nil
+	}
+}
+
+func directoryFor(t *testing.T, baseURL string, opts ...func(*DirectoryConfig)) (*Directory, *tracetest.InMemoryExporter) {
 	t.Helper()
 	spans := tracetest.NewInMemoryExporter()
 	cfg, err := config.Load(func(string) (string, bool) { return "", false })
@@ -51,9 +72,13 @@ func directoryFor(t *testing.T, baseURL string) (*Directory, *tracetest.InMemory
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := NewDirectory(DirectoryConfig{
+	dc := DirectoryConfig{
 		BaseURL: baseURL, Runtime: ClientCredentials{ClientID: "nava-platform", ClientSecret: "s"}, Registry: noRegistry{},
-	}, out)
+	}
+	for _, o := range opts {
+		o(&dc)
+	}
+	d, err := NewDirectory(dc, out)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -289,8 +314,8 @@ func TestInviteUserRetriesAfterConflict(t *testing.T) {
 	mux.HandleFunc("POST /admin/realms/nava/users", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusConflict)
 	})
-	mux.HandleFunc("GET /admin/realms/nava/users/u-raced/federated-identity", func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprint(w, `[]`)
+	mux.HandleFunc("GET /admin/realms/nava/users/u-raced/groups", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintf(w, `[{"id":"g-root","path":%q}]`, rootPath(dirTenantA))
 	})
 	mux.HandleFunc("PUT /admin/realms/nava/users/u-raced/groups/g-root", func(w http.ResponseWriter, _ *http.Request) {
 		placed.Store(true)
@@ -304,5 +329,174 @@ func TestInviteUserRetriesAfterConflict(t *testing.T) {
 	}
 	if !placed.Load() {
 		t.Error("the raced user was not placed in the tenant group")
+	}
+}
+
+// existingUserServer serves one existing user with the given groups and
+// federated links, and records whether anything was written.
+func existingUserServer(t *testing.T, groups, links string) (*httptest.Server, *atomic.Bool) {
+	t.Helper()
+	var wrote atomic.Bool
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /realms/nava/protocol/openid-connect/token", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"access_token":"tok","expires_in":300}`)
+	})
+	mux.HandleFunc("GET /admin/realms/nava/group-by-path/t/"+dirTenantA.String(), func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintf(w, `{"id":"g-root","name":%q,"path":%q}`, dirTenantA.String(), rootPath(dirTenantA))
+	})
+	mux.HandleFunc("GET /admin/realms/nava/users", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintf(w, `[{"id":"u-1","email":%q}]`, secretEmail)
+	})
+	mux.HandleFunc("GET /admin/realms/nava/users/u-1/groups", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, groups) })
+	mux.HandleFunc("GET /admin/realms/nava/users/u-1/federated-identity", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, links)
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			wrote.Store(true)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv, &wrote
+}
+
+func TestInviteExistingUserRules(t *testing.T) {
+	t.Parallel()
+	inA := fmt.Sprintf(`[{"id":"g","path":"/t/%s/ou/eng"}]`, dirTenantA)
+	inB := `[{"id":"g","path":"/t/0b000000-0000-4000-8000-00000000000b"}]`
+	for _, c := range []struct {
+		name, groups, links string
+		want                error
+	}{
+		{"already in the tenant", inA, `[]`, nil},
+		{"local user in no tenant (operator)", `[]`, `[]`, identity.ErrInviteRefused},
+		{"local user of another tenant", inB, `[]`, identity.ErrInviteRefused},
+		{"federated to the tenant, in no group", `[]`, `[{"identityProvider":"idp-a"}]`, nil},
+		{"federated to another tenant's IdP", `[]`, `[{"identityProvider":"idp-b"}]`, identity.ErrInviteRefused},
+		{"federated to both", `[]`, `[{"identityProvider":"idp-a"},{"identityProvider":"idp-b"}]`, identity.ErrInviteRefused},
+		{"federated to the tenant but in another tenant's group", inB, `[{"identityProvider":"idp-a"}]`, identity.ErrInviteRefused},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			srv, wrote := existingUserServer(t, c.groups, c.links)
+			d, _ := directoryFor(t, srv.URL)
+			err := d.InviteUser(t.Context(), dirTenantA, secretEmail)
+			if c.want == nil {
+				if err != nil || !wrote.Load() {
+					t.Fatalf("err = %v, wrote = %v, want accepted", err, wrote.Load())
+				}
+				return
+			}
+			if !errors.Is(err, c.want) || wrote.Load() {
+				t.Fatalf("err = %v, wrote = %v, want %v and no write", err, wrote.Load(), c.want)
+			}
+		})
+	}
+}
+
+// An address in a domain the tenant does not own creates no user.
+func TestInviteUnownedDomainIsRefusedWithoutWrite(t *testing.T) {
+	t.Parallel()
+	var wrote atomic.Bool
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /realms/nava/protocol/openid-connect/token", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"access_token":"tok","expires_in":300}`)
+	})
+	mux.HandleFunc("GET /admin/realms/nava/group-by-path/t/"+dirTenantA.String(), func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintf(w, `{"id":"g-root","path":%q}`, rootPath(dirTenantA))
+	})
+	mux.HandleFunc("GET /admin/realms/nava/users", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, `[]`) })
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) { wrote.Store(true) })
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	d, _ := directoryFor(t, srv.URL)
+	if err := d.InviteUser(t.Context(), dirTenantA, "squatter@tenant-b.test"); !errors.Is(err, identity.ErrInviteRefused) {
+		t.Fatalf("err = %v, want ErrInviteRefused", err)
+	}
+	if wrote.Load() {
+		t.Error("a write was made")
+	}
+}
+
+func TestDisableUserRefusesAnyGroupOutsideTheTenant(t *testing.T) {
+	t.Parallel()
+	for name, path := range map[string]string{
+		"other tenant":        "/t/0b000000-0000-4000-8000-00000000000b/ou/x",
+		"top-level t":         "/t",
+		"other tenant's root": "/t/0b000000-0000-4000-8000-00000000000b",
+	} {
+		t.Run(name, func(t *testing.T) {
+			groups := fmt.Sprintf(`[{"id":"a","path":"/t/%s"},{"id":"b","path":%q}]`, dirTenantA, path)
+			srv, wrote := existingUserServer(t, groups, `[]`)
+			d, _ := directoryFor(t, srv.URL, withUser)
+			if err := d.DisableUser(t.Context(), dirTenantA, uuid.New()); !errors.Is(err, identity.ErrInviteRefused) {
+				t.Fatalf("err = %v, want ErrInviteRefused", err)
+			}
+			if wrote.Load() {
+				t.Error("a write was made")
+			}
+		})
+	}
+}
+
+func TestIdPConfigAllowList(t *testing.T) {
+	t.Parallel()
+	ok := IdPSpec{ProviderID: "oidc", Config: map[string]string{"clientId": "x", "tokenUrl": "https://i/t"}}
+	if err := checkIdPConfig(ok); err != nil {
+		t.Errorf("allowed config refused: %v", err)
+	}
+	for _, key := range []string{"kc.org.domain", "kc.org.broker.redirect.mode.email-matches", "hideOnLoginPage", "trustEmail", "postBrokerLoginFlowAlias", "authenticateByDefault"} {
+		bad := IdPSpec{ProviderID: "oidc", Config: map[string]string{"clientId": "x", key: "v"}}
+		if err := checkIdPConfig(bad); !errors.Is(err, identity.ErrInvalidInput) {
+			t.Errorf("key %q: err = %v, want ErrInvalidInput", key, err)
+		}
+	}
+	if err := checkIdPConfig(IdPSpec{ProviderID: "saml", Config: map[string]string{"clientId": "x"}}); err == nil {
+		t.Error("an OIDC key is allowed on a SAML IdP")
+	}
+}
+
+// If the IdP create fails other than with a 409 the server-derived alias is
+// deleted (the create may have landed though the reply was lost); on a 409 it
+// is not, because the IdP is not ours. The organization is removed either way.
+func TestCreateTenantOrgRollsBackIdP(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name       string
+		status     int
+		wantDelete bool
+	}{{"server error", http.StatusInternalServerError, true}, {"conflict", http.StatusConflict, false}} {
+		t.Run(c.name, func(t *testing.T) {
+			var delIdP, delOrg atomic.Bool
+			mux := http.NewServeMux()
+			mux.HandleFunc("POST /realms/nava/protocol/openid-connect/token", func(w http.ResponseWriter, _ *http.Request) {
+				fmt.Fprint(w, `{"access_token":"tok","expires_in":300}`)
+			})
+			mux.HandleFunc("POST /admin/realms/nava/organizations", func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Location", "http://x/admin/realms/nava/organizations/org-1")
+				w.WriteHeader(http.StatusCreated)
+			})
+			mux.HandleFunc("POST /admin/realms/nava/identity-provider/instances", func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(c.status)
+			})
+			mux.HandleFunc("DELETE /admin/realms/nava/identity-provider/instances/"+TenantIdPAlias(dirTenantA), func(w http.ResponseWriter, _ *http.Request) {
+				delIdP.Store(true)
+				w.WriteHeader(http.StatusNoContent)
+			})
+			mux.HandleFunc("DELETE /admin/realms/nava/organizations/org-1", func(w http.ResponseWriter, _ *http.Request) {
+				delOrg.Store(true)
+				w.WriteHeader(http.StatusNoContent)
+			})
+			srv := httptest.NewServer(mux)
+			t.Cleanup(srv.Close)
+			d, _ := directoryFor(t, srv.URL, withOnboarding)
+			if _, err := d.CreateTenantOrg(t.Context(), dirTenantA, "tenant-a", nil); err == nil {
+				t.Fatal("CreateTenantOrg succeeded")
+			}
+			if delIdP.Load() != c.wantDelete || !delOrg.Load() {
+				t.Errorf("deleted idp = %v (want %v), org = %v (want true)", delIdP.Load(), c.wantDelete, delOrg.Load())
+			}
+		})
 	}
 }

@@ -72,9 +72,11 @@ var (
 	// ErrAlreadyExists: the organization or IdP already exists, or an IdP is
 	// already linked to an organization.
 	ErrAlreadyExists = errors.New("directory: already exists")
-	// ErrUserShared: DisableUser refused because the user is also in another
-	// tenant's subtree; disabling is realm-wide. Nothing was changed.
-	ErrUserShared = errors.New("directory: user belongs to another tenant too")
+	// ErrInviteRefused: InviteUser refused an existing user, or an address in
+	// a domain the tenant does not own; DisableUser refused a user who is in
+	// another tenant's subtree (disabling is realm-wide). Nothing was
+	// changed. Callers must not tell the requester which case it was.
+	ErrInviteRefused = errors.New("directory: refused")
 	// ErrInvalidInput: an argument is malformed.
 	ErrInvalidInput = errors.New("directory: invalid input")
 )

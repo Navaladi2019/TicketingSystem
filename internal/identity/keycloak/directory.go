@@ -65,6 +65,11 @@ type Registry interface {
 	GroupKeycloakID(ctx context.Context, tenantID, groupID uuid.UUID) (string, error)
 	// BoundIdPAliases are the IdP aliases bound to the tenant.
 	BoundIdPAliases(ctx context.Context, tenantID uuid.UUID) ([]string, error)
+	// TenantOwnsEmailDomain reports whether the tenant owns the email domain
+	// (lower case, no "@"). InviteUser creates a user only for an owned
+	// domain, so a tenant cannot pre-create an address in another tenant's
+	// domain and block that tenant's first brokered login (TICK-194).
+	TenantOwnsEmailDomain(ctx context.Context, tenantID uuid.UUID, domain string) (bool, error)
 }
 
 // IdPSpec is what a tenant's IdP needs beyond what the platform fixes. The
@@ -179,7 +184,7 @@ func inTenant(tenantID uuid.UUID, path string) bool {
 // inOtherTenant reports whether path is in some tenant's subtree other than
 // tenantID's.
 func inOtherTenant(tenantID uuid.UUID, path string) bool {
-	return strings.HasPrefix(path, "/t/") && !inTenant(tenantID, path)
+	return (path == "/t" || strings.HasPrefix(path, "/t/")) && !inTenant(tenantID, path)
 }
 
 // inTenantGroup reports whether the user is a member of a group in the
@@ -333,9 +338,18 @@ func registryErr(err error) error {
 
 // ---- DirectoryAdmin --------------------------------------------------------
 
-// InviteUser puts the invitee in /t/<tenant_id>, creating the user when the
-// email is new. The email only ever travels in a request body or a query that
-// the outbound client reduces to its route template.
+// InviteUser puts the invitee in /t/<tenant_id>. The email only ever travels
+// in a request body or a query that the outbound client reduces to its route
+// template.
+//
+// A new email gets a new user only when the tenant owns the email's domain
+// (Registry.TenantOwnsEmailDomain). An existing user is accepted only when
+// (a) already in the tenant's subtree (idempotent), or (b) all of their
+// federated links are bound to the tenant and they are in no /t/ group outside
+// it. Anything else is ErrInviteRefused and changes nothing; a local user
+// joining a second tenant needs a consent step that does not exist yet. The
+// caller must answer a refusal like a success, so the call is no oracle for
+// "this email exists elsewhere".
 func (d *Directory) InviteUser(ctx context.Context, tenantID uuid.UUID, email string) error {
 	if err := requireTenant(tenantID); err != nil {
 		return err
@@ -348,23 +362,33 @@ func (d *Directory) InviteUser(ctx context.Context, tenantID uuid.UUID, email st
 	if err != nil {
 		return err
 	}
-	existing, err := d.findByEmail(ctx, email)
+	userID, err := d.findByEmail(ctx, email)
 	if err != nil {
 		return err
 	}
-	userID, created := existing, false
 	if userID == "" {
+		owns, err := d.reg.TenantOwnsEmailDomain(ctx, tenantID, email[strings.LastIndex(email, "@")+1:])
+		if err != nil {
+			return fmt.Errorf("keycloak: email domain: %w", registryErr(err))
+		}
+		if !owns {
+			return identity.ErrInviteRefused
+		}
 		r, err := d.api.do(ctx, d.runtime, http.MethodPost, "/users", "/users", nil,
 			kcUser{Username: email, Email: email, Enabled: true}, http.StatusCreated)
 		switch {
 		case errors.Is(err, identity.ErrAlreadyExists):
 			// A concurrent invite created the user between our lookup and
-			// our create: take the user that now exists.
+			// our create: take the user that now exists, under the rules
+			// for an existing user.
 			if userID, err = d.findByEmail(ctx, email); err != nil {
 				return err
 			}
 			if userID == "" {
 				return identity.ErrAlreadyExists
+			}
+			if err := d.checkInvitable(ctx, tenantID, userID); err != nil {
+				return err
 			}
 		case err != nil:
 			return err
@@ -373,17 +397,44 @@ func (d *Directory) InviteUser(ctx context.Context, tenantID uuid.UUID, email st
 			if userID, ok = idFromLocation(r.header); !ok {
 				return errors.New("keycloak: created user has no location")
 			}
-			created = true
 		}
-	}
-	if !created {
-		if err := d.checkBound(ctx, tenantID, userID); err != nil {
-			return err
-		}
+	} else if err := d.checkInvitable(ctx, tenantID, userID); err != nil {
+		return err
 	}
 	_, err = d.api.do(ctx, d.runtime, http.MethodPut, "/users/{id}/groups/{groupId}",
 		"/users/"+url.PathEscape(userID)+"/groups/"+url.PathEscape(root.ID), nil, nil, http.StatusNoContent)
 	return err
+}
+
+// checkInvitable applies the rules for inviting an existing user.
+func (d *Directory) checkInvitable(ctx context.Context, tenantID uuid.UUID, kcUserID string) error {
+	groups, err := pages[kcGroup](ctx, d.api, d.runtime, "/users/{id}/groups", "/users/"+url.PathEscape(kcUserID)+"/groups", nil)
+	if err != nil {
+		return err
+	}
+	if slices.ContainsFunc(groups, func(g kcGroup) bool { return inTenant(tenantID, g.Path) }) {
+		return nil
+	}
+	if slices.ContainsFunc(groups, func(g kcGroup) bool { return inOtherTenant(tenantID, g.Path) }) {
+		return identity.ErrInviteRefused
+	}
+	links, err := d.federatedLinks(ctx, kcUserID)
+	if err != nil {
+		return err
+	}
+	if len(links) == 0 {
+		return identity.ErrInviteRefused // a local user, or the platform operator
+	}
+	bound, err := d.reg.BoundIdPAliases(ctx, tenantID)
+	if err != nil {
+		return fmt.Errorf("keycloak: bound idps: %w", registryErr(err))
+	}
+	for _, l := range links {
+		if !slices.Contains(bound, l.IdentityProvider) {
+			return identity.ErrInviteRefused
+		}
+	}
+	return nil
 }
 
 func normalizeEmail(email string) (string, error) {
@@ -427,10 +478,10 @@ func (d *Directory) DisableUser(ctx context.Context, tenantID, principalID uuid.
 	if !slices.ContainsFunc(groups, func(g kcGroup) bool { return inTenant(tenantID, g.Path) }) {
 		return identity.ErrNotFound
 	}
-	// Disabling is realm-wide, so a user who is also in another tenant's
-	// subtree is not disabled: the other tenant's tokens would stop too.
+	// Disabling is realm-wide: unless every /t/ group of the user is in this
+	// tenant's subtree, it would also stop another tenant's tokens.
 	if slices.ContainsFunc(groups, func(g kcGroup) bool { return inOtherTenant(tenantID, g.Path) }) {
-		return identity.ErrUserShared
+		return identity.ErrInviteRefused
 	}
 	// Send the whole representation back: a partial PUT can blank profile
 	// attributes.
@@ -672,6 +723,9 @@ func (d *Directory) CreateTenantOrg(ctx context.Context, tenantID uuid.UUID, ali
 	if spec.ProviderID != "oidc" && spec.ProviderID != "saml" {
 		return "", fmt.Errorf("%w: idp provider", identity.ErrInvalidInput)
 	}
+	if err := checkIdPConfig(spec); err != nil {
+		return "", err
+	}
 	idpAlias := TenantIdPAlias(tenantID)
 
 	doms := make([]map[string]any, 0, len(domains))
@@ -713,6 +767,10 @@ func (d *Directory) CreateTenantOrg(ctx context.Context, tenantID uuid.UUID, ali
 			"config":                    spec.Config,
 		}, http.StatusCreated)
 	if err != nil {
+		// The create may have reached Keycloak though the reply was lost:
+		// delete the server-derived alias, except on a 409, where the IdP
+		// is not ours.
+		idpCreated = !errors.Is(err, identity.ErrAlreadyExists)
 		return fail(err)
 	}
 	idpCreated = true
@@ -764,4 +822,39 @@ func (d *Directory) readIdP(ctx context.Context, alias string) (kcIdP, error) {
 	err := d.api.getJSON(ctx, d.onboarding, "/identity-provider/instances/{alias}",
 		"/identity-provider/instances/"+url.PathEscape(alias), nil, &idp)
 	return idp, err
+}
+
+// Config keys an IdPSpec may carry. Anything else, such as kc.org.* or a
+// policy key, is refused: the platform sets those itself.
+//
+//nolint:gochecknoglobals // read-only allow-lists
+var (
+	oidcConfigKeys = toSet("clientId", "clientSecret", "clientAuthMethod", "authorizationUrl", "tokenUrl", "logoutUrl",
+		"userInfoUrl", "issuer", "jwksUrl", "useJwksUrl", "validateSignature", "defaultScope", "syncMode", "pkceEnabled",
+		"pkceMethod", "uiLocales", "prompt", "loginHint", "disableUserInfo", "metadataDescriptorUrl", "allowedClockSkew")
+	samlConfigKeys = toSet("entityId", "singleSignOnServiceUrl", "singleLogoutServiceUrl", "nameIDPolicyFormat", "principalType",
+		"principalAttribute", "signingCertificate", "validateSignature", "wantAssertionsSigned", "wantAssertionsEncrypted",
+		"wantAuthnRequestsSigned", "postBindingResponse", "postBindingAuthnRequest", "postBindingLogout", "forceAuthn",
+		"signatureAlgorithm", "allowCreate", "syncMode", "metadataDescriptorUrl")
+)
+
+func toSet(keys ...string) map[string]bool {
+	m := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		m[k] = true
+	}
+	return m
+}
+
+func checkIdPConfig(spec IdPSpec) error {
+	allowed := oidcConfigKeys
+	if spec.ProviderID == "saml" {
+		allowed = samlConfigKeys
+	}
+	for k := range spec.Config {
+		if !allowed[k] {
+			return fmt.Errorf("%w: idp config key %q", identity.ErrInvalidInput, k)
+		}
+	}
+	return nil
 }

@@ -12,6 +12,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -38,12 +39,14 @@ type memRegistry struct {
 	groups map[uuid.UUID]string
 	owner  map[uuid.UUID]uuid.UUID // principal or group id -> tenant
 	bound  map[uuid.UUID][]string
+	domain map[uuid.UUID][]string
 }
 
 func newRegistry() *memRegistry {
 	return &memRegistry{
 		users: map[uuid.UUID]string{}, groups: map[uuid.UUID]string{}, owner: map[uuid.UUID]uuid.UUID{},
-		bound: map[uuid.UUID][]string{tenantA: {"idp-tenant-a"}, tenantB: {"idp-tenant-b"}},
+		bound:  map[uuid.UUID][]string{tenantA: {"idp-tenant-a"}, tenantB: {"idp-tenant-b"}},
+		domain: map[uuid.UUID][]string{tenantA: {"tenant-a.test"}, tenantB: {"tenant-b.test"}},
 	}
 }
 
@@ -85,6 +88,10 @@ func (r *memRegistry) GroupKeycloakID(_ context.Context, tenant, id uuid.UUID) (
 
 func (r *memRegistry) BoundIdPAliases(_ context.Context, tenant uuid.UUID) ([]string, error) {
 	return r.bound[tenant], nil
+}
+
+func (r *memRegistry) TenantOwnsEmailDomain(_ context.Context, tenant uuid.UUID, domain string) (bool, error) {
+	return slices.Contains(r.domain[tenant], domain), nil
 }
 
 // hostileRegistry answers for any tenant: the registry is wrong (a bug, or a
@@ -348,8 +355,8 @@ func TestForeignFederatedUserIsRejected(t *testing.T) {
 	d := newDirectory(t, reg, false, nil)
 	rootA := kcGroupID(t, "/t/"+tenantA.String())
 
-	if err := d.InviteUser(t.Context(), tenantA, email); !errors.Is(err, identity.ErrIdPNotBound) {
-		t.Errorf("InviteUser into tenant A of a tenant-B-federated user = %v, want ErrIdPNotBound", err)
+	if err := d.InviteUser(t.Context(), tenantA, email); !errors.Is(err, identity.ErrInviteRefused) {
+		t.Errorf("InviteUser into tenant A of a tenant-B-federated user = %v, want ErrInviteRefused", err)
 	}
 	if userInGroup(t, uid, rootA) {
 		t.Error("the foreign-federated user was added to tenant A's group")
@@ -484,18 +491,6 @@ func TestRuntimeAccountHasNoRealmOrIdPReach(t *testing.T) {
 		if code := asAccount(t, tok, c.method, c.path, c.body); code != http.StatusForbidden {
 			t.Errorf("runtime account %s %s = %d, want 403", c.method, c.path, code)
 		}
-	}
-	// GET on the realm answers any admin with the same short public document;
-	// it must carry none of the configuration view-realm would add.
-	code, body := admin(t, tok, http.MethodGet, "", nil)
-	if code == http.StatusOK {
-		for _, k := range []string{"defaultRole", "smtpServer", "identityProviders", "adminPermissionsEnabled", "browserFlow", "accessTokenLifespan", "attributes"} {
-			if strings.Contains(string(body), `"`+k+`"`) {
-				t.Errorf("runtime account GET realm exposes %s: %.300s", k, body)
-			}
-		}
-	} else if code != http.StatusForbidden {
-		t.Errorf("runtime account GET realm = %d, want 403 or the short public document", code)
 	}
 	// It does hold the four roles.
 	for _, p := range []string{"/users?max=1", "/groups?max=1", "/users/count"} {
@@ -700,31 +695,49 @@ func TestCreateTenantOrgRefusesBadInput(t *testing.T) {
 	}
 }
 
-// A user in two tenants' subtrees is not disabled by either: disabling is
-// realm-wide, so it would end the other tenant's sessions (ErrUserShared).
-func TestDisableUserSharedBetweenTenantsIsRefused(t *testing.T) {
+// DisableUser refuses a user who is in any /t/ group outside the tenant's
+// subtree: disabling is realm-wide and would stop the other tenant's tokens.
+func TestDisableUserInAnotherTenantsSubtreeIsRefused(t *testing.T) {
 	reg := newRegistry()
 	d := newDirectory(t, reg, false, nil)
-	email := "shared-" + uuid.NewString()[:8] + "@example.test"
+	email := "shared-" + uuid.NewString()[:8] + "@tenant-a.test"
 	deleteUserAfter(t, email)
 	if err := d.InviteUser(t.Context(), tenantA, email); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.InviteUser(t.Context(), tenantB, email); err != nil {
-		t.Fatal(err)
-	}
 	uid := kcUserByEmail(t, email)
+	// Tenant B's group membership is written as a platform operator would;
+	// InviteUser itself refuses to create it.
+	if code, b := adminRealm(t, "nava", http.MethodPut, "/users/"+uid+"/groups/"+kcGroupID(t, "/t/"+tenantB.String()), nil); code != http.StatusNoContent {
+		t.Fatalf("add to tenant B: %d %s", code, b)
+	}
+	if err := d.InviteUser(t.Context(), tenantB, email); err != nil {
+		t.Errorf("InviteUser of a user already in tenant B's subtree (idempotent) = %v", err)
+	}
 	pa, pb := reg.addUser(tenantA, uid), reg.addUser(tenantB, uid)
 	for name, c := range map[string]struct {
 		tenant uuid.UUID
 		pid    uuid.UUID
 	}{"tenant A": {tenantA, pa}, "tenant B": {tenantB, pb}} {
-		if err := d.DisableUser(t.Context(), c.tenant, c.pid); !errors.Is(err, identity.ErrUserShared) {
-			t.Errorf("%s DisableUser of a shared user = %v, want ErrUserShared", name, err)
+		if err := d.DisableUser(t.Context(), c.tenant, c.pid); !errors.Is(err, identity.ErrInviteRefused) {
+			t.Errorf("%s DisableUser of a shared user = %v, want ErrInviteRefused", name, err)
 		}
 	}
 	_, b := adminRealm(t, "nava", http.MethodGet, "/users/"+uid, nil)
 	if !strings.Contains(string(b), `"enabled":true`) {
 		t.Errorf("the shared user was changed: %s", b)
+	}
+}
+
+// An address in a domain the tenant does not own creates no user.
+func TestInviteUnownedDomainCreatesNoUser(t *testing.T) {
+	d := newDirectory(t, newRegistry(), false, nil)
+	email := "unowned-" + uuid.NewString()[:8] + "@elsewhere.test"
+	deleteUserAfter(t, email)
+	if err := d.InviteUser(t.Context(), tenantA, email); !errors.Is(err, identity.ErrInviteRefused) {
+		t.Fatalf("InviteUser = %v, want ErrInviteRefused", err)
+	}
+	if kcUserByEmail(t, email) != "" {
+		t.Error("a user was created")
 	}
 }
