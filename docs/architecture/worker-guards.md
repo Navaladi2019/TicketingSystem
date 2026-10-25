@@ -28,6 +28,42 @@ call's context with `workerguard.ContextWithTenant`; the Propagator writes it as
 the header. From workflow code the Propagator writes the tenant of the
 workflow's own id, never a context value.
 
+## The `nava-worker` process (T31b)
+
+`cmd/nava-worker` is the setup above and nothing more, run as the compose
+service `nava-worker` (image `nava/nava-worker`):
+
+- Client: namespace `nava`, the `nava-worker` certificate over mTLS through the
+  `temporal` gateway, options from `ConfigureClient`. Worker: queue `nava-tq`,
+  options from `WorkerOptions`. Activity code gets no client (AR-025).
+- Hosts the `workflow_ref` activity only, as `nava_worker` through PgBouncer.
+  No workflow is registered yet, so the workflow poller is off
+  (`DisableWorkflowWorker`); T32b registers the first workflow and turns it on.
+- Admin listener on `NAVA_ADMIN_ADDR` (`:9090`): `telemetry.NewAdminHandler`,
+  not wrapped in `httpobs.Middleware`. `/metrics` carries
+  `nava_worker_guard_decisions_total` and the SDK metrics; `/readyz` is 200
+  once the worker has started and PostgreSQL and Temporal both answer. A fatal worker error
+  (the SDK stops the worker, for example on `NamespaceNotFound`) reaches
+  `OnFatalError` and ends the process non-zero, so compose restarts it. Never
+  published: the service is on `internal` only.
+
+```mermaid
+flowchart LR
+  subgraph internal
+    W[nava-worker<br/>guard + workflow_ref activity] -- "mTLS, nava-worker cert" --> T[temporal gateway :7233]
+    W -- nava_worker --> B[pgbouncer]
+    P[probe / scraper] -- ":9090 /metrics /readyz" --> W
+  end
+  T --> S[temporal-server + Authorizer]
+```
+
+`make stack-test-worker` (`internal/workerstack`): the service is ready,
+`/healthz` reports PostgreSQL and Temporal ok, `/metrics` answers without the
+httpobs request id, the admin port is not published, and a relay-started
+workflow's `workflow_ref` activity runs in the service: the guard allows it and
+`/metrics` counts it, and the activity returns `nava.WorkflowRefNotFound` from
+PostgreSQL. It runs after `stack-test-sdk`, whose workers also poll `nava-tq`.
+
 ## Guards
 
 | Call | Wrong or missing `nava-tenant` header, or bad target | Outcome |
@@ -93,8 +129,7 @@ flowchart LR
 
 | Item | Owner | Revisit trigger |
 | --- | --- | --- |
-| Worker binary (`cmd/nava-worker`) and compose service, serving `/metrics` and the probes on `NAVA_ADMIN_ADDR` with the T04 listener, not wrapped in `httpobs.Middleware` (TICK-94 item 1). Nothing hosts the worker yet. | Technical Lead (TICK-159, T31b) | When T32b runs the worker in the stack |
-| Alert rule on `nava.worker.guard.decisions{outcome!="allow"}` (Prometheus: `nava_worker_guard_decisions_total`). Denies are already logged with `alert=true`. | Whoever installs the rules (TODO-004, with AR-011 and AR-012; tracked in TICK-159) | When TODO-004 installs the alert rules |
+| Alert rule on `nava.worker.guard.decisions{outcome!="allow"}` (Prometheus: `nava_worker_guard_decisions_total`). Denies are already logged with `alert=true`, and `nava-worker` now exports the counter (T31b). No Prometheus or Alertmanager runs in the stack yet, so there is nowhere to install it. | Whoever installs the rules (TODO-004, with AR-011 and AR-012; deferred from TICK-159) | When TODO-004 installs the alert rules |
 | Queries are not guarded: they are not in the A.2 contract. `nava-core` builds query ids from the token's tenant (AR-004). | Security & Multi-Tenancy Reviewer | First `nava-core` query call, or a query that returns tenant data |
 
 ## Tests

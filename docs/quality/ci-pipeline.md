@@ -32,8 +32,9 @@ host that is slower (698 s against 669 s), since two Keycloaks then start
 together. On the main stack, `healthy` gates
 the rest; the read-only checks and the two Go suites (`STACK_TESTS_PARALLEL`:
 smoke, PgBouncer, every `temporal_*` case, hba, SDK, identity) then run at
-once, and `dependencies`, `trace`, `logs`, `redact`, `idempotent` and `dbroles`
-run one at a time after them (`STACK_TESTS_SERIAL`): `dependencies` stops
+once, and `worker`, `dependencies`, `trace`, `logs`, `redact`, `idempotent` and `dbroles`
+run one at a time after them (`STACK_TESTS_SERIAL`): `worker` polls `nava-tq`
+like the SDK suite's workers, `dependencies` stops
 Keycloak, `trace` counts every trace the Collector saw, `idempotent` restarts
 the stack and `dbroles` changes roles. `ci-stack` alone adds the CI overlay
 (`deploy/compose/compose.ci.yaml`), which runs the stack's PostgreSQL with

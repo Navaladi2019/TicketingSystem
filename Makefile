@@ -41,7 +41,7 @@ GOLANGCI_LINT_VERSION := 2.14.0
 GOVULNCHECK_VERSION := v1.9.0
 
 .PHONY: build run test test-integration isolation lint generate check-openapi
-.PHONY: ci ci-isolated ci-changed ci-stages ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity 	image image-ci stack-up stack-down stack-logs stack-internal stack-internal-beside stack-main ci-stack-run stack-tests smoke
+.PHONY: ci ci-isolated ci-changed ci-stages ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity stack-test-worker 	image image-ci stack-up stack-down stack-logs stack-internal stack-internal-beside stack-main ci-stack-run stack-tests smoke
 
 build:
 	go build -o bin/nava-core ./cmd/nava-core
@@ -141,9 +141,10 @@ ci-integration: test-integration
 # at once (TICK-153 O10): none changes what another reads, and each matches
 # only lines it caused. The rest run one at a time, in this order: dependencies
 # stops Keycloak, trace counts every trace the Collector saw, idempotent
-# restarts the stack, and dbroles changes roles.
+# restarts the stack, and dbroles changes roles. worker polls nava-tq, the
+# queue the sdk suite's workers poll, so it runs after that suite.
 STACK_TESTS_PARALLEL := smoke pgbouncer temporal temporal_handshake temporal_isolation temporal_custody temporal_operator_reach temporal_health hba sdk identity
-STACK_TESTS_SERIAL := dependencies trace logs redact idempotent dbroles
+STACK_TESTS_SERIAL := worker dependencies trace logs redact idempotent dbroles
 STACK_TESTS := healthy $(STACK_TESTS_PARALLEL) $(STACK_TESTS_SERIAL)
 stack-tests:
 	$(MAKE) --no-print-directory -j1 stack-test-healthy
@@ -260,7 +261,7 @@ image:
 # which concurrent builds share safely (a type=local cache directory is not
 # safe for two writers at once), and pulls only the registry images that are
 # missing. With IMAGE_CACHE set, ci-stack builds with image-ci.
-BAKE_CACHED := db-roles keycloak nava-core otel-collector temporal-server
+BAKE_CACHED := db-roles keycloak nava-core nava-worker otel-collector temporal-server
 BAKE_CACHE_GHA := $(foreach t,$(BAKE_CACHED),--set $(t).cache-from=type=gha,scope=$(t) --set $(t).cache-to=type=gha,scope=$(t),mode=max) --set migrate.cache-from=type=gha,scope=db-roles
 BAKE_CACHE := $(if $(filter gha,$(IMAGE_CACHE)),$(BAKE_CACHE_GHA))
 PULL_POLICY := $(if $(filter local,$(IMAGE_CACHE)),--policy missing)
@@ -282,6 +283,15 @@ stack-test-%:
 CI6_REPORT ?= ci6-report.md
 stack-test-sdk:
 	go test -tags temporalstack -count=1 -json ./internal/temporalstack | go run ./tools/ci/ci6report -out $(CI6_REPORT)
+
+# The nava-worker service (T31b, TICK-159): ready with /readyz green, /metrics
+# and the probes on its unpublished admin listener without httpobs, and a
+# workflow's workflow_ref activity run in the service through the guard, which
+# /metrics counts.
+# TODO(TODO-009): the GitHub workflow's stack job has no step for this target
+# yet; the step needs a push with `workflow` scope.
+stack-test-worker:
+	go test -tags workerstack -count=1 ./internal/workerstack
 
 # The realm `nava` of the running Keycloak (T14, ADR-001 A.1): tenant and idp
 # claims, token lifespan, operator role custody, realm export round trip.
