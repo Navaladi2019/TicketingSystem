@@ -360,7 +360,8 @@ t_temporal_custody() {
                 */certs/nava-core.*) [ "$svc" = nava-core ] || bad="$bad $svc:$src" ;;
                 */certs/nava-operator.*) [ "$svc" = temporal-ui ] || bad="$bad $svc:$src" ;;
                 */certs/nava-worker.*) [ "$svc" = nava-worker ] || bad="$bad $svc:$src" ;;
-                */certs/nava-relay.*|*/certs/nava-unknown.*) bad="$bad $svc:$src" ;;
+                */certs/nava-relay.*) [ "$svc" = nava-relay ] || bad="$bad $svc:$src" ;;
+                */certs/nava-unknown.*) bad="$bad $svc:$src" ;;
             esac
         done
     done
