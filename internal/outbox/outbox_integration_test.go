@@ -557,28 +557,39 @@ func TestCI10_SignalWithNoOpenWorkflow(t *testing.T) {
 }
 
 // TestEnqueueTenantIsolation: tenant A's transaction cannot reach tenant B's
-// record, workflow or dedupe key, even where B uses the same ids.
+// record, workflow or dedupe key, even where B uses the same ids. It runs as
+// each producer role: nava_worker takes its tenant from a header, so its
+// transactions must be held to the same policies as nava_app's.
 func TestEnqueueTenantIsolation(t *testing.T) {
 	e := migrated(t)
+	for _, p := range []struct {
+		role string
+		pool *pgxpool.Pool
+	}{{"nava_app", e.app}, {"nava_worker", e.worker}} {
+		t.Run(p.role, func(t *testing.T) { tenantIsolation(t, e, p.pool) })
+	}
+}
+
+func tenantIsolation(t *testing.T, e env, pool *pgxpool.Pool) {
 	ctx := context.Background()
 	a, b, shared := uuid.New(), uuid.New(), uuid.New()
 	seedRecord(t, e.super, a, shared)
 	seedRecord(t, e.super, b, shared)
 	bOnly := uuid.New()
 	seedRecord(t, e.super, b, bOnly)
-	bStart, err := enqueue(ctx, e.app, b, start(shared, "shared-key"))
+	bStart, err := enqueue(ctx, pool, b, start(shared, "shared-key"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	bVersion := version(t, e.super, b, shared)
 
-	if _, err := enqueue(ctx, e.app, a, start(bOnly, "a1")); !errors.Is(err, outbox.ErrRecordNotFound) {
+	if _, err := enqueue(ctx, pool, a, start(bOnly, "a1")); !errors.Is(err, outbox.ErrRecordNotFound) {
 		t.Errorf("B's record from A: %v, want ErrRecordNotFound", err)
 	}
-	if _, err := enqueue(ctx, e.app, a, signal(shared, "a2")); !errors.Is(err, outbox.ErrNoOpenWorkflow) {
+	if _, err := enqueue(ctx, pool, a, signal(shared, "a2")); !errors.Is(err, outbox.ErrNoOpenWorkflow) {
 		t.Errorf("signal B's open workflow from A: %v, want ErrNoOpenWorkflow", err)
 	}
-	aStart, err := enqueue(ctx, e.app, a, start(shared, "shared-key"))
+	aStart, err := enqueue(ctx, pool, a, start(shared, "shared-key"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -596,11 +607,11 @@ func TestEnqueueTenantIsolation(t *testing.T) {
 	}
 
 	// A transaction with no tenant sees no record at all.
-	tx, err := e.app.Begin(ctx)
+	tx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := outbox.Enqueue(ctx, tx, start(shared, "no-tenant")); !errors.Is(err, outbox.ErrRecordNotFound) {
 		t.Errorf("no tenant: %v, want ErrRecordNotFound", err)
 	}

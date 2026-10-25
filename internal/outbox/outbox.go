@@ -111,6 +111,7 @@ RETURNING id`
 // row's id and a nil error and writes nothing more. Only when the duplicate
 // commits concurrently has the record's version already been bumped; a gap in
 // target_seq is harmless, because the relay orders on it and never counts it.
+// So a nil error does not mean the record changed or a row was written.
 //
 // The W3C traceparent of ctx's span, if any, is stored in trace_context so the
 // relay can link the workflow to the request that wrote the row. tracestate

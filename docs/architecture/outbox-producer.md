@@ -57,11 +57,17 @@ flowchart TD
   record. A duplicate that commits concurrently has already bumped it; the
   gap in `target_seq` is harmless because the relay orders on it and never
   counts it.
+- **A nil error does not mean the record changed.** A concurrent duplicate
+  writes no outbox row, but it still bumps `records.version`, and Enqueue
+  returns the first row's id with a nil error. A caller must not read "Enqueue
+  returned nil" as "the record changed" or "a row was written", and must not
+  use `version` as a count of real changes.
 - **No tenant:** a transaction without one sees no record, so Enqueue returns
   `ErrRecordNotFound` and writes nothing.
 - **Deferred:** the cycle check (`ErrCascadeCycle`) and the audit row for a
   rejected cascade are TICK-88 (PLAN-002), against the record's own causation
   fields.
 - **Tests:** `internal/outbox` unit tests, and `outbox_integration_test.go`
-  against real PostgreSQL as `nava_app` and `nava_worker`. The `TestCI10_`
-  tests are the CI-10 cases T29 owns.
+  against real PostgreSQL as `nava_app` and `nava_worker`;
+  `TestEnqueueTenantIsolation` runs as each. The `TestCI10_` tests are the
+  CI-10 cases T29 owns.
