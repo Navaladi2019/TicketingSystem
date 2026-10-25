@@ -52,6 +52,7 @@ func TestTenantCannotRequestOperatorAudience(t *testing.T) {
 		"resource-param":      {"scope": {"openid"}, "resource": {"nava-operator-api"}},
 		"operator-scope-only": {"scope": {"nava-operator-audience"}},
 	}
+	issued := map[string]bool{}
 	for name, extra := range attempts {
 		t.Run(name, func(t *testing.T) {
 			form := url.Values{}
@@ -65,11 +66,17 @@ func TestTenantCannotRequestOperatorAudience(t *testing.T) {
 			if code != http.StatusOK {
 				return // refused: no token, nothing to leak
 			}
+			issued[name] = true
 			tok, _ := out["access_token"].(string)
 			if a := auds(t, tok); slices.Contains(a, "nava-operator-api") {
 				t.Errorf("nava-web token aud = %v, contains nava-operator-api", a)
 			}
 		})
+	}
+	// At least the audience-param attempt is answered 200 (Keycloak ignores
+	// the unknown parameter), so the aud check above ran on a real token.
+	if len(issued) == 0 || !issued["audience-param"] {
+		t.Errorf("attempts answered 200: %v, want at least audience-param, or the test checked nothing", issued)
 	}
 }
 
@@ -160,7 +167,10 @@ func TestAudienceClientsHoldNoGrantSurface(t *testing.T) {
 	}
 	get := func(clientID string) client {
 		t.Helper()
-		_, b := adminRealm(t, "nava", http.MethodGet, "/clients?clientId="+url.QueryEscape(clientID), nil)
+		code, b := adminRealm(t, "nava", http.MethodGet, "/clients?clientId="+url.QueryEscape(clientID), nil)
+		if code != http.StatusOK {
+			t.Fatalf("client %s: admin API %d %s", clientID, code, b)
+		}
 		var cs []client
 		if err := json.Unmarshal(b, &cs); err != nil || len(cs) != 1 {
 			t.Fatalf("client %s: %v %s", clientID, err, b)
@@ -172,7 +182,10 @@ func TestAudienceClientsHoldNoGrantSurface(t *testing.T) {
 		if !c.BearerOnly || c.PublicClient || c.ServiceAccountsEnabled || c.FullScopeAllowed {
 			t.Errorf("%s: bearerOnly=%v public=%v serviceAccounts=%v fullScope=%v", id, c.BearerOnly, c.PublicClient, c.ServiceAccountsEnabled, c.FullScopeAllowed)
 		}
-		_, rb := adminRealm(t, "nava", http.MethodGet, "/clients/"+c.ID+"/roles", nil)
+		code, rb := adminRealm(t, "nava", http.MethodGet, "/clients/"+c.ID+"/roles", nil)
+		if code != http.StatusOK {
+			t.Fatalf("%s client roles: admin API %d %s", id, code, rb)
+		}
 		if strings.TrimSpace(string(rb)) != "[]" {
 			t.Errorf("%s defines client roles %s: a scope mapping to one would add its aud via audience-resolve", id, rb)
 		}
@@ -187,11 +200,17 @@ func TestAudienceClientsHoldNoGrantSurface(t *testing.T) {
 	if web.FullScopeAllowed {
 		t.Error("nava-web fullScopeAllowed = true: every role of the user, and its client's aud, would enter the token")
 	}
-	_, ob := adminRealm(t, "nava", http.MethodGet, "/clients/"+web.ID+"/optional-client-scopes", nil)
+	code, ob := adminRealm(t, "nava", http.MethodGet, "/clients/"+web.ID+"/optional-client-scopes", nil)
+	if code != http.StatusOK {
+		t.Fatalf("nava-web optional scopes: admin API %d %s", code, ob)
+	}
 	if strings.Contains(string(ob), "nava-operator-audience") {
 		t.Errorf("nava-web optional scopes include nava-operator-audience: %s", ob)
 	}
-	_, db := adminRealm(t, "nava", http.MethodGet, "/clients/"+web.ID+"/default-client-scopes", nil)
+	code, db := adminRealm(t, "nava", http.MethodGet, "/clients/"+web.ID+"/default-client-scopes", nil)
+	if code != http.StatusOK {
+		t.Fatalf("nava-web default scopes: admin API %d %s", code, db)
+	}
 	if strings.Contains(string(db), "nava-operator-audience") || !strings.Contains(string(db), `"nava-api-audience"`) {
 		t.Errorf("nava-web default scopes = %s, want nava-api-audience and not nava-operator-audience", db)
 	}

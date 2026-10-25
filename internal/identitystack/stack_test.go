@@ -24,6 +24,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -316,8 +317,9 @@ func TestAccessTokenLifespanAtMostFiveMinutes(t *testing.T) {
 }
 
 func TestOperatorToken(t *testing.T) {
-	c := claims(t, passwordToken(t, "nava-operator-cli", "operator@nava.test", "dev-only-operator"))
-	if !audHas(c["aud"], "nava-operator-api") || audHas(c["aud"], "nava-api") {
+	tok := passwordToken(t, "nava-operator-cli", "operator@nava.test", "dev-only-operator")
+	c := claims(t, tok)
+	if !audHas(t, tok, "nava-operator-api") || audHas(t, tok, "nava-api") {
 		t.Errorf("aud = %v, want nava-operator-api and not nava-api", c["aud"])
 	}
 	roles := fmt.Sprint(c["realm_access"])
@@ -325,8 +327,9 @@ func TestOperatorToken(t *testing.T) {
 		t.Errorf("realm_access = %v, want nava-operator", c["realm_access"])
 	}
 	// A tenant user holds neither the role nor the audience.
-	a := claims(t, passwordToken(t, "nava-web", "alice@tenant-a.test", "dev-only-alice"))
-	if audHas(a["aud"], "nava-operator-api") || strings.Contains(fmt.Sprint(a["realm_access"]), "nava-operator") {
+	at := passwordToken(t, "nava-web", "alice@tenant-a.test", "dev-only-alice")
+	a := claims(t, at)
+	if audHas(t, at, "nava-operator-api") || strings.Contains(fmt.Sprint(a["realm_access"]), "nava-operator") {
 		t.Errorf("alice token has operator aud or role: aud=%v realm_access=%v", a["aud"], a["realm_access"])
 	}
 }
@@ -650,26 +653,6 @@ func roundTripOrganizations(t *testing.T, want map[string]any) {
 	}
 }
 
-// TestTenantTokenAudience: a nava-web access token carries aud nava-api and
-// not nava-operator-api (T14a), for a password-grant and a brokered login.
-func TestTenantTokenAudience(t *testing.T) {
-	for name, tok := range map[string]string{
-		"alice": passwordToken(t, "nava-web", "alice@tenant-a.test", "dev-only-alice"),
-		"admin": passwordToken(t, "nava-web", "admin@tenant-a.test", "dev-only-admin-a"),
-		"bob":   passwordToken(t, "nava-web", "bob@tenant-b.test", "dev-only-bob"),
-	} {
-		aud := claims(t, tok)["aud"]
-		if !audHas(aud, "nava-api") || audHas(aud, "nava-operator-api") {
-			t.Errorf("%s: aud = %v, want nava-api and not nava-operator-api", name, aud)
-		}
-	}
-	// The operator token is for the operator API only.
-	op := claims(t, passwordToken(t, "nava-operator-cli", "operator@nava.test", "dev-only-operator"))["aud"]
-	if !audHas(op, "nava-operator-api") || audHas(op, "nava-api") {
-		t.Errorf("operator aud = %v, want nava-operator-api and not nava-api", op)
-	}
-}
-
 // TestAdapterAcceptsTenantToken runs alice's nava-web token through the T15
 // Keycloak adapter against the real realm: audience, issuer, signature and
 // the organization claim all pass, so Resolve fails only at tenant resolution
@@ -713,19 +696,9 @@ func TestAdapterAcceptsTenantToken(t *testing.T) {
 	}
 }
 
-// audHas reports whether the aud claim, a string or an array of strings, holds
-// want as one whole entry (not as a substring: nava-api is inside
-// nava-operator-api).
-func audHas(aud any, want string) bool {
-	switch v := aud.(type) {
-	case string:
-		return v == want
-	case []any:
-		for _, e := range v {
-			if s, ok := e.(string); ok && s == want {
-				return true
-			}
-		}
-	}
-	return false
+// audHas reports whether the access token's aud holds want as one whole
+// element (auds), not as a substring: nava-api is inside nava-operator-api.
+func audHas(t *testing.T, tok, want string) bool {
+	t.Helper()
+	return slices.Contains(auds(t, tok), want)
 }
