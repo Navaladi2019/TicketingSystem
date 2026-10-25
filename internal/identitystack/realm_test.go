@@ -251,17 +251,24 @@ func TestRealmFileOperatorCustody(t *testing.T) {
 	}
 	// default-roles-* and every composite.
 	if rs, ok := r["roles"].(map[string]any); ok {
-		for kind, list := range rs {
-			l, _ := list.([]any)
+		// roles.realm is a list; roles.client maps a client id to a list.
+		lists := map[string][]any{}
+		for kind, v := range rs {
+			switch x := v.(type) {
+			case []any:
+				lists[kind] = x
+			case map[string]any:
+				for cid, cl := range x {
+					l, _ := cl.([]any)
+					lists[kind+" "+cid] = l
+				}
+			}
+		}
+		for kind, l := range lists {
 			for _, e := range l {
 				m := e.(map[string]any)
-				if c, ok := m["composites"]; ok && c != nil && strings.Contains(fmt.Sprint(c), role) {
+				if m["name"] != role && strings.Contains(fmt.Sprint(m["composites"]), role) {
 					t.Errorf("%s role %v has composite %s", kind, m["name"], role)
-				}
-				if m["composite"] == true && m["name"] != role {
-					if strings.Contains(fmt.Sprint(m["composites"]), role) {
-						t.Errorf("composite role %v contains %s", m["name"], role)
-					}
 				}
 				if strings.HasPrefix(fmt.Sprint(m["name"]), "default-roles-") && strings.Contains(fmt.Sprint(m), role) {
 					t.Errorf("%v contains %s", m["name"], role)
@@ -283,6 +290,11 @@ func TestRealmFileOperatorCustody(t *testing.T) {
 		um := u.(map[string]any)
 		if strings.Contains(fmt.Sprint(um["realmRoles"]), role) && um["username"] != "operator@nava.test" {
 			t.Errorf("user %v holds %s", um["username"], role)
+		}
+		for _, k := range []string{"clientRoles", "groups"} {
+			if strings.Contains(fmt.Sprint(um[k]), role) {
+				t.Errorf("user %v: %s names %s: %v", um["username"], k, role, um[k])
+			}
 		}
 	}
 	// nava-web: tenant audience scope, no operator audience scope.

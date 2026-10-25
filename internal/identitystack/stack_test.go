@@ -317,9 +317,8 @@ func TestAccessTokenLifespanAtMostFiveMinutes(t *testing.T) {
 
 func TestOperatorToken(t *testing.T) {
 	c := claims(t, passwordToken(t, "nava-operator-cli", "operator@nava.test", "dev-only-operator"))
-	aud := fmt.Sprint(c["aud"])
-	if !strings.Contains(aud, "nava-operator-api") {
-		t.Errorf("aud = %v, want nava-operator-api", c["aud"])
+	if !audHas(c["aud"], "nava-operator-api") || audHas(c["aud"], "nava-api") {
+		t.Errorf("aud = %v, want nava-operator-api and not nava-api", c["aud"])
 	}
 	roles := fmt.Sprint(c["realm_access"])
 	if !strings.Contains(roles, "nava-operator") {
@@ -327,7 +326,7 @@ func TestOperatorToken(t *testing.T) {
 	}
 	// A tenant user holds neither the role nor the audience.
 	a := claims(t, passwordToken(t, "nava-web", "alice@tenant-a.test", "dev-only-alice"))
-	if strings.Contains(fmt.Sprint(a["aud"]), "nava-operator-api") || strings.Contains(fmt.Sprint(a["realm_access"]), "nava-operator") {
+	if audHas(a["aud"], "nava-operator-api") || strings.Contains(fmt.Sprint(a["realm_access"]), "nava-operator") {
 		t.Errorf("alice token has operator aud or role: aud=%v realm_access=%v", a["aud"], a["realm_access"])
 	}
 }
@@ -659,15 +658,15 @@ func TestTenantTokenAudience(t *testing.T) {
 		"admin": passwordToken(t, "nava-web", "admin@tenant-a.test", "dev-only-admin-a"),
 		"bob":   passwordToken(t, "nava-web", "bob@tenant-b.test", "dev-only-bob"),
 	} {
-		aud := fmt.Sprint(claims(t, tok)["aud"])
-		if !strings.Contains(aud, "nava-api") || strings.Contains(aud, "nava-operator-api") {
+		aud := claims(t, tok)["aud"]
+		if !audHas(aud, "nava-api") || audHas(aud, "nava-operator-api") {
 			t.Errorf("%s: aud = %v, want nava-api and not nava-operator-api", name, aud)
 		}
 	}
 	// The operator token is for the operator API only.
-	op := fmt.Sprint(claims(t, passwordToken(t, "nava-operator-cli", "operator@nava.test", "dev-only-operator"))["aud"])
-	if strings.Contains(op, "nava-api") && !strings.Contains(op, "nava-operator-api") {
-		t.Errorf("operator aud = %v", op)
+	op := claims(t, passwordToken(t, "nava-operator-cli", "operator@nava.test", "dev-only-operator"))["aud"]
+	if !audHas(op, "nava-operator-api") || audHas(op, "nava-api") {
+		t.Errorf("operator aud = %v, want nava-operator-api and not nava-api", op)
 	}
 }
 
@@ -712,4 +711,21 @@ func TestAdapterAcceptsTenantToken(t *testing.T) {
 	if _, err := a.ResolveOperator(t.Context(), op); err != nil {
 		t.Errorf("ResolveOperator(operator token) = %v", err)
 	}
+}
+
+// audHas reports whether the aud claim, a string or an array of strings, holds
+// want as one whole entry (not as a substring: nava-api is inside
+// nava-operator-api).
+func audHas(aud any, want string) bool {
+	switch v := aud.(type) {
+	case string:
+		return v == want
+	case []any:
+		for _, e := range v {
+			if s, ok := e.(string); ok && s == want {
+				return true
+			}
+		}
+	}
+	return false
 }
