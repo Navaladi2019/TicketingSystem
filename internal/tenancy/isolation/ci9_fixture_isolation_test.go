@@ -4,7 +4,10 @@ package isolation
 
 import (
 	"context"
+	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // TestCI9FixturesMakePathsFail: each fixture widens one role's reach the
@@ -76,9 +79,18 @@ func TestCI9FixturesMakePathsFail(t *testing.T) {
 				t.Fatalf("before the fixture %q is %s, want PASS", f.path, before)
 			}
 			super := suite.superConn(t)
+			snap := aclSnapshot(t.Context(), t, super)
 			t.Cleanup(func() {
-				if _, err := super.Exec(context.Background(), f.undo); err != nil {
+				ctx := context.Background()
+				if _, err := super.Exec(ctx, f.undo); err != nil {
 					t.Errorf("undo fixture: %v", err)
+					return
+				}
+				// The undo text is hand-written: it must restore the
+				// policies and grants exactly, or every later test runs
+				// on a schema the migrations never built.
+				if got := aclSnapshot(ctx, t, super); got != snap {
+					t.Errorf("the undo did not restore the policies and grants:\nbefore %s\nafter  %s", snap, got)
 				}
 			})
 			if _, err := super.Exec(t.Context(), f.apply); err != nil {
@@ -86,9 +98,14 @@ func TestCI9FixturesMakePathsFail(t *testing.T) {
 			}
 			err := p.DB(t.Context(), cluster{t: t, e: suite})
 			after := statusOf(err)
-			if after != statusFail {
+			switch {
+			case after != statusFail:
 				t.Errorf("with the fixture %q is %s, want FAIL", f.path, after)
-			} else {
+			case strings.Contains(err.Error(), "control:"):
+				// A broken positive control proves nothing about the denial.
+				after = statusFail + " (control)"
+				t.Errorf("with the fixture %q failed its positive control, not a denial: %v", f.path, err)
+			default:
 				t.Logf("caught: %v", err)
 			}
 			suite.report.fixtures = append(suite.report.fixtures, fixtureResult{
@@ -108,4 +125,25 @@ func statusOf(err error) string {
 		return statusFail
 	}
 	return statusPass
+}
+
+// aclSnapshot is every policy and every ACL of the platform database's
+// public tables, their columns and the database itself, as one string.
+// ACLs are what has_table_privilege, has_any_column_privilege and
+// has_database_privilege read, for every role at once.
+func aclSnapshot(ctx context.Context, t *testing.T, super *pgx.Conn) string {
+	t.Helper()
+	var s string
+	if err := super.QueryRow(ctx, `SELECT concat_ws(chr(10),
+		(SELECT string_agg(format('%s.%s %s %s using=%s check=%s', tablename, policyname, cmd, roles, qual, with_check), chr(10)
+		        ORDER BY tablename, policyname) FROM pg_policies WHERE schemaname = 'public'),
+		(SELECT string_agg(format('%s %s', c.relname, c.relacl), chr(10) ORDER BY c.relname)
+		   FROM pg_class c WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p', 'v', 'm')),
+		(SELECT string_agg(format('%s.%s %s', c.relname, a.attname, a.attacl), chr(10) ORDER BY c.relname, a.attname)
+		   FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid
+		  WHERE c.relnamespace = 'public'::regnamespace AND a.attacl IS NOT NULL),
+		(SELECT format('database %s', datacl) FROM pg_database WHERE datname = current_database()))`).Scan(&s); err != nil {
+		t.Fatal(err)
+	}
+	return s
 }

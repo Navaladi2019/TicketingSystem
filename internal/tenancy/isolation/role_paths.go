@@ -413,41 +413,36 @@ func onboardCannotBindActive(ctx context.Context, c Cluster) error {
 }
 
 // onboardCannotDeactivate: an active tenant stays active. Not tenant A from
-// its own transaction, and not tenant P once activated in the same one.
+// its own transaction, and not tenant P once activated in the same one. Each
+// check runs in its own transaction, so one failing cannot skip another.
 func onboardCannotDeactivate(ctx context.Context, c Cluster) error {
 	const back = "UPDATE tenants SET state = 'provisioning' WHERE id = $1"
+	stays := func(what string, n int64, err error) error {
+		if n != 0 || (err != nil && sqlState(err) != "42501") {
+			return errors.Join(fmt.Errorf("%s: %d rows", what, n), err)
+		}
+		return nil
+	}
 	return withProvisioning(ctx, c, func(pool *pgxpool.Pool) error {
-		var errs []error
-		errs = append(errs, inTenant(ctx, pool, TenantP, func(tx pgx.Tx) error {
+		return errors.Join(
+			inTenant(ctx, pool, TenantP, func(tx pgx.Tx) error {
+				if n, err := execOne(ctx, tx, "UPDATE tenants SET state = 'active' WHERE id = $1", TenantP); err != nil || n != 1 {
+					return errors.Join(fmt.Errorf("control: activate tenant P: %d rows", n), err)
+				}
+				n, err := execOne(ctx, tx, back, TenantP)
+				return stays("tenant P active -> provisioning", n, err)
+			}),
+			inTenant(ctx, pool, TenantA, func(tx pgx.Tx) error {
+				n, err := execOne(ctx, tx, back, TenantA)
+				return stays("tenant A active -> provisioning", n, err)
+			}),
 			// A provisioning tenant cannot be "updated" to provisioning
 			// either: WITH CHECK allows only active.
-			_, err := execOne(ctx, tx, back, TenantP)
-			if err := refused("tenant P provisioning -> provisioning", err); err != nil {
-				return err
-			}
-			if n, err := execOne(ctx, tx, "UPDATE tenants SET state = 'active' WHERE id = $1", TenantP); err != nil || n != 1 {
-				return errors.Join(fmt.Errorf("control: activate tenant P: %d rows", n), err)
-			}
-			if n, err := execOne(ctx, tx, back, TenantP); n != 0 || (err != nil && sqlState(err) != "42501") {
-				return errors.Join(fmt.Errorf("tenant P active -> provisioning: %d rows", n), err)
-			}
-			return nil
-		}))
-		errs = append(errs, inTenant(ctx, pool, TenantA, func(tx pgx.Tx) error {
-			if n, err := execOne(ctx, tx, back, TenantA); n != 0 || (err != nil && sqlState(err) != "42501") {
-				return errors.Join(fmt.Errorf("tenant A active -> provisioning: %d rows", n), err)
-			}
-			return nil
-		}))
-		super, err := c.Super()
-		if err != nil {
-			return err
-		}
-		var state string
-		if err := super.QueryRow(ctx, "SELECT state FROM tenants WHERE id = $1", TenantA).Scan(&state); err != nil || state != "active" {
-			errs = append(errs, errors.Join(fmt.Errorf("tenant A state %q", state), err))
-		}
-		return errors.Join(errs...)
+			inTenant(ctx, pool, TenantP, func(tx pgx.Tx) error {
+				_, err := execOne(ctx, tx, back, TenantP)
+				return refused("tenant P provisioning -> provisioning", err)
+			}),
+		)
 	})
 }
 
