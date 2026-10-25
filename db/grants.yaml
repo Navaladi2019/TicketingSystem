@@ -105,7 +105,7 @@ roles:
     database: [CONNECT]
     schemas: { public: [USAGE] }
     tables:
-      tenants: { SELECT: [], INSERT: [id, state, onboarding_request_hash], UPDATE: [state] }
+      tenants: { SELECT: [id, state, onboarding_request_hash, created_at], INSERT: [id, state, onboarding_request_hash], UPDATE: [state] }
       tenant_identity_binding: { INSERT: [tenant_id, issuer, org_id, idp_aliases] }
 
   # Writes the identity tables (T16), one transaction per tenant. UPDATE

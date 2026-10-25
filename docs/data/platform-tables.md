@@ -110,7 +110,10 @@ refused.
 
 Column grants narrow what the allow-list opens. `nava_relay` cannot read
 `dedupe_key`, `last_error`, `records` or `workflow_ref`, and writes only the
-dispatch columns. `nava_purge` reads only key and expiry columns.
+dispatch columns. `nava_purge` reads only key and expiry columns. `nava_onboard`
+reads `id`, `state`, `onboarding_request_hash` and `created_at` of `tenants`
+as a column list, so a column added later stays unreadable to it until
+granted (AR-029, TICK-180).
 
 ## Evidence
 
