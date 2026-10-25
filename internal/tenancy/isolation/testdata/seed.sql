@@ -39,3 +39,26 @@ INSERT INTO idempotency_keys (tenant_id, principal_id, key, request_hash, expire
     ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000002a1', 'shared-idempotency-key', '\x00', now() + interval '1 day'),
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000002b1', 'shared-idempotency-key', '\x00', now() + interval '1 day'),
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000002b1', 'b-only', '\x00', now() + interval '1 day');
+
+-- Identity tables (T16). The Keycloak ids repeat across tenants on purpose,
+-- like the dedupe keys: a lookup by one alone would find both tenants' rows.
+INSERT INTO principals (tenant_id, id, keycloak_user_id, email, enabled, federated_links, synced_at) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000003a1', 'kc-user-shared', 'a1@tenant-a.test', true, '[]', now()),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000003b1', 'kc-user-shared', 'b1@tenant-b.test', true,
+        '[{"identityProvider": "idp-b", "userId": "b1", "userName": "b1"}]', now()),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000003b2', 'kc-user-b2', NULL, true, NULL, now());
+
+INSERT INTO groups (tenant_id, id, keycloak_group_id, path) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000004a1', 'kc-group-shared', '/t/0a000000-0000-4000-8000-00000000000a/agents'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000004b1', 'kc-group-shared', '/t/0b000000-0000-4000-8000-00000000000b/agents'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000004b2', 'kc-group-b2', '/t/0b000000-0000-4000-8000-00000000000b/admins');
+
+INSERT INTO group_members (tenant_id, group_id, principal_id) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000004a1', '0a000000-0000-4000-8000-0000000003a1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000004b1', '0b000000-0000-4000-8000-0000000003b1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000004b2', '0b000000-0000-4000-8000-0000000003b2');
+
+INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000005a1', NULL, 'kc-ou-shared', 'Root A'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000005b1', NULL, 'kc-ou-shared', 'Root B'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000005b2', '0b000000-0000-4000-8000-0000000005b1', 'kc-ou-b2', 'Support B');
