@@ -176,6 +176,22 @@ func inTenant(tenantID uuid.UUID, path string) bool {
 	return path == root || strings.HasPrefix(path, root+"/")
 }
 
+// inOtherTenant reports whether path is in some tenant's subtree other than
+// tenantID's.
+func inOtherTenant(tenantID uuid.UUID, path string) bool {
+	return strings.HasPrefix(path, "/t/") && !inTenant(tenantID, path)
+}
+
+// inTenantGroup reports whether the user is a member of a group in the
+// tenant's subtree.
+func (d *Directory) inTenantGroup(ctx context.Context, tenantID uuid.UUID, kcUserID string) (bool, error) {
+	groups, err := pages[kcGroup](ctx, d.api, d.runtime, "/users/{id}/groups", "/users/"+url.PathEscape(kcUserID)+"/groups", nil)
+	if err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(groups, func(g kcGroup) bool { return inTenant(tenantID, g.Path) }), nil
+}
+
 func isOrgUnit(tenantID uuid.UUID, path string) bool {
 	return strings.HasPrefix(path, rootPath(tenantID)+"/ou/")
 }
@@ -336,21 +352,33 @@ func (d *Directory) InviteUser(ctx context.Context, tenantID uuid.UUID, email st
 	if err != nil {
 		return err
 	}
-	var userID string
-	if existing != "" {
-		if err := d.checkBound(ctx, tenantID, existing); err != nil {
-			return err
-		}
-		userID = existing
-	} else {
+	userID, created := existing, false
+	if userID == "" {
 		r, err := d.api.do(ctx, d.runtime, http.MethodPost, "/users", "/users", nil,
 			kcUser{Username: email, Email: email, Enabled: true}, http.StatusCreated)
-		if err != nil {
+		switch {
+		case errors.Is(err, identity.ErrAlreadyExists):
+			// A concurrent invite created the user between our lookup and
+			// our create: take the user that now exists.
+			if userID, err = d.findByEmail(ctx, email); err != nil {
+				return err
+			}
+			if userID == "" {
+				return identity.ErrAlreadyExists
+			}
+		case err != nil:
 			return err
+		default:
+			var ok bool
+			if userID, ok = idFromLocation(r.header); !ok {
+				return errors.New("keycloak: created user has no location")
+			}
+			created = true
 		}
-		var ok bool
-		if userID, ok = idFromLocation(r.header); !ok {
-			return errors.New("keycloak: created user has no location")
+	}
+	if !created {
+		if err := d.checkBound(ctx, tenantID, userID); err != nil {
+			return err
 		}
 	}
 	_, err = d.api.do(ctx, d.runtime, http.MethodPut, "/users/{id}/groups/{groupId}",
@@ -399,6 +427,11 @@ func (d *Directory) DisableUser(ctx context.Context, tenantID, principalID uuid.
 	if !slices.ContainsFunc(groups, func(g kcGroup) bool { return inTenant(tenantID, g.Path) }) {
 		return identity.ErrNotFound
 	}
+	// Disabling is realm-wide, so a user who is also in another tenant's
+	// subtree is not disabled: the other tenant's tokens would stop too.
+	if slices.ContainsFunc(groups, func(g kcGroup) bool { return inOtherTenant(tenantID, g.Path) }) {
+		return identity.ErrUserShared
+	}
 	// Send the whole representation back: a partial PUT can blank profile
 	// attributes.
 	var raw map[string]any
@@ -415,7 +448,14 @@ func (d *Directory) DisableUser(ctx context.Context, tenantID, principalID uuid.
 
 // SetGroupMembers makes members exactly the members of the group. The group
 // must be in the tenant's subtree; every added user must pass the
-// federated-link guard. Nothing changes if any check fails.
+// federated-link guard and already be in a group under /t/<tenant_id>/
+// (ErrNotFound otherwise: a new user enters through InviteUser). Nothing
+// changes if any check fails.
+//
+// It is not atomic: Keycloak has no transaction, so a write that fails
+// halfway leaves the group partly changed, and two concurrent calls on one
+// group can interleave. The caller (T25) takes a per-tenant lock and repeats
+// the call; a repeat converges.
 func (d *Directory) SetGroupMembers(ctx context.Context, tenantID, groupID uuid.UUID, members []uuid.UUID) error {
 	if err := requireTenant(tenantID); err != nil {
 		return err
@@ -460,6 +500,13 @@ func (d *Directory) SetGroupMembers(ctx context.Context, tenantID, groupID uuid.
 	for _, id := range add {
 		if err := d.checkBound(ctx, tenantID, id); err != nil {
 			return err
+		}
+		member, err := d.inTenantGroup(ctx, tenantID, id)
+		if err != nil {
+			return err
+		}
+		if !member {
+			return identity.ErrNotFound
 		}
 	}
 	for _, id := range add {

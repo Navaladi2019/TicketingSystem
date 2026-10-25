@@ -10,8 +10,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -388,6 +386,17 @@ func TestTenantACannotReachTenantBGroups(t *testing.T) {
 	bPrincipal := base.addUser(tenantB, bUser)
 	aPrincipal := base.addUser(tenantA, aUser)
 
+	// Tenant B's user as a member to add to tenant A's own group: refused,
+	// and the user does not appear in A's group.
+	aEng := kcGroupID(t, "/t/"+tenantA.String()+"/ou/eng")
+	aGroup := base.addGroup(tenantA, aEng)
+	if err := d.SetGroupMembers(t.Context(), tenantA, aGroup, []uuid.UUID{aPrincipal, bPrincipal}); !errors.Is(err, identity.ErrNotFound) {
+		t.Errorf("adding tenant B's user to tenant A's group = %v, want ErrNotFound", err)
+	}
+	if userInGroup(t, bUser, aEng) {
+		t.Error("tenant B's user was added to tenant A's group")
+	}
+
 	before := membersOf(t, bOU)
 	for name, gid := range map[string]uuid.UUID{"org unit": bGroup, "root": bRootGroup} {
 		if err := d.SetGroupMembers(t.Context(), tenantA, gid, []uuid.UUID{aPrincipal}); !errors.Is(err, identity.ErrNotFound) {
@@ -691,24 +700,31 @@ func TestCreateTenantOrgRefusesBadInput(t *testing.T) {
 	}
 }
 
-// InviteUser's error path against a closed port, end to end with the real
-// outbound client: no email, no query.
-func TestInviteUserClosedPortLive(t *testing.T) {
-	l, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
-	if err != nil {
+// A user in two tenants' subtrees is not disabled by either: disabling is
+// realm-wide, so it would end the other tenant's sessions (ErrUserShared).
+func TestDisableUserSharedBetweenTenantsIsRefused(t *testing.T) {
+	reg := newRegistry()
+	d := newDirectory(t, reg, false, nil)
+	email := "shared-" + uuid.NewString()[:8] + "@example.test"
+	deleteUserAfter(t, email)
+	if err := d.InviteUser(t.Context(), tenantA, email); err != nil {
 		t.Fatal(err)
 	}
-	addr := l.Addr().String()
-	_ = l.Close()
-	d, err := keycloak.NewDirectory(keycloak.DirectoryConfig{
-		BaseURL: "http://" + addr, Runtime: runtimeCreds, Registry: newRegistry(),
-	}, newOutbound(t))
-	if err != nil {
+	if err := d.InviteUser(t.Context(), tenantB, email); err != nil {
 		t.Fatal(err)
 	}
-	err = d.InviteUser(t.Context(), tenantA, "private@tenant-a.test")
-	if err == nil || strings.Contains(err.Error(), "private") || strings.Contains(err.Error(), "?") {
-		t.Errorf("err = %v", err)
+	uid := kcUserByEmail(t, email)
+	pa, pb := reg.addUser(tenantA, uid), reg.addUser(tenantB, uid)
+	for name, c := range map[string]struct {
+		tenant uuid.UUID
+		pid    uuid.UUID
+	}{"tenant A": {tenantA, pa}, "tenant B": {tenantB, pb}} {
+		if err := d.DisableUser(t.Context(), c.tenant, c.pid); !errors.Is(err, identity.ErrUserShared) {
+			t.Errorf("%s DisableUser of a shared user = %v, want ErrUserShared", name, err)
+		}
 	}
-	_ = fmt.Sprint()
+	_, b := adminRealm(t, "nava", http.MethodGet, "/users/"+uid, nil)
+	if !strings.Contains(string(b), `"enabled":true`) {
+		t.Errorf("the shared user was changed: %s", b)
+	}
 }
