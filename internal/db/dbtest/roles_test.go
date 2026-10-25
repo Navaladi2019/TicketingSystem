@@ -6,6 +6,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -333,6 +334,110 @@ func TestDBRolesRepairsDriftedSuperuserOwnedGetAuth(t *testing.T) {
 			// Converged: the next run changes nothing.
 			if res, err := roles.Run(context.Background(), superConfig(t), m, passwords, log); err != nil || res.Total() != 0 {
 				t.Fatalf("run after the repair: %+v, %v; want no changes", res, err)
+			}
+		})
+	}
+}
+
+// T08b (TICK-114): PUBLIC holds nothing on the platform database after any
+// db-roles run, not only the one that creates it, so a run that died between
+// CREATE DATABASE and the revoke is repaired before migrate runs.
+func TestDBRolesRevokesPublicOnExistingPlatformDatabase(t *testing.T) {
+	for _, tc := range []struct{ name, setup string }{
+		// The first run died after CREATE DATABASE: PostgreSQL's default ACL.
+		{"died after create", "CREATE DATABASE nava OWNER nava_migrator"},
+		{"explicit grant", "GRANT CONNECT, TEMPORARY ON DATABASE nava TO PUBLIC"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := freshCluster(t)
+			conn := connect(t, superConfig(t))
+			if strings.HasPrefix(tc.setup, "CREATE DATABASE") {
+				exec(t, conn, "DROP DATABASE nava WITH (FORCE)")
+			}
+			exec(t, conn, tc.setup)
+			public := func() string {
+				return queryString(t, conn, `
+					SELECT coalesce(string_agg(a.privilege_type, ',' ORDER BY a.privilege_type), '')
+					FROM pg_database d, aclexplode(coalesce(d.datacl, acldefault('d', d.datdba))) a
+					WHERE d.datname = $1 AND a.grantee = 0`, m.PlatformDatabase)
+			}
+			if got := public(); got != "CONNECT,TEMPORARY" {
+				t.Fatalf("setup: PUBLIC holds %q on nava, want CONNECT,TEMPORARY", got)
+			}
+
+			log, buf := newLog()
+			res, err := roles.Run(context.Background(), superConfig(t), m, passwords, log)
+			if err != nil {
+				t.Fatalf("db-roles: %v\n%s", err, buf)
+			}
+			// Plus, after the drop, PUBLIC's default EXECUTE on the rebuilt get_auth.
+			if want := map[bool]int{true: 2, false: 1}[strings.HasPrefix(tc.setup, "CREATE DATABASE")]; res.Revoked != want {
+				t.Fatalf("revoked = %d, want %d\n%s", res.Revoked, want, buf)
+			}
+			if !strings.Contains(buf.String(), `"msg":"revoked PUBLIC grants on database","database":"nava","privileges":"CONNECT,TEMPORARY"`) {
+				t.Fatalf("revocation not logged:\n%s", buf)
+			}
+			if got := public(); got != "" {
+				t.Fatalf("PUBLIC holds %s on nava after db-roles, before migrate", got)
+			}
+
+			migrateAll(t, m)
+			if res, err := roles.Run(context.Background(), superConfig(t), m, passwords, log); err != nil || res.Total() != 0 {
+				t.Fatalf("db-roles after migrate: %+v, %v; want no changes", res, err)
+			}
+		})
+	}
+}
+
+// T08b (TICK-114): a role made SUPERUSER while db-roles runs, after its
+// first check, fails the run at its last check, which excludes no manifest
+// role. The test holds db-roles on CREATE SCHEMA pgbouncer with an
+// uncommitted CREATE SCHEMA of the same name, grants SUPERUSER, then lets it go.
+func TestDBRolesFinalCheckRefusesSuperuserGrantedDuringRun(t *testing.T) {
+	for _, tc := range []struct{ name, role, grant, undo string }{
+		{"outside manifest", "nava_test_intruder", "CREATE ROLE nava_test_intruder SUPERUSER", "DROP ROLE nava_test_intruder"},
+		{"manifest role", "nava_app", "ALTER ROLE nava_app SUPERUSER", "ALTER ROLE nava_app NOSUPERUSER"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			m := freshCluster(t)
+			conn := connect(t, superConfig(t))
+			sconn := connect(t, platformSuperConfig(t, m))
+			exec(t, sconn, "DROP SCHEMA pgbouncer CASCADE")
+			holder := connect(t, platformSuperConfig(t, m))
+			exec(t, holder, "BEGIN")
+			exec(t, holder, "CREATE SCHEMA pgbouncer")
+
+			log, buf := newLog()
+			done := make(chan error, 1)
+			go func() {
+				_, err := roles.Run(ctx, superConfig(t), m, passwords, log)
+				done <- err
+			}()
+			deadline := time.Now().Add(30 * time.Second)
+			for !queryBool(t, conn, `SELECT EXISTS (SELECT FROM pg_stat_activity
+				WHERE wait_event_type = 'Lock' AND query LIKE 'CREATE SCHEMA%pgbouncer%' AND pid <> pg_backend_pid())`) {
+				select {
+				case err := <-done:
+					t.Fatalf("db-roles finished before it reached CREATE SCHEMA: %v\n%s", err, buf)
+				default:
+				}
+				if time.Now().After(deadline) {
+					t.Fatalf("db-roles never blocked on CREATE SCHEMA pgbouncer\n%s", buf)
+				}
+				time.Sleep(20 * time.Millisecond)
+			}
+
+			exec(t, conn, tc.grant)
+			t.Cleanup(func() { _, _ = conn.Exec(ctx, tc.undo) })
+			exec(t, holder, "ROLLBACK")
+
+			err := <-done
+			if err == nil || !strings.Contains(err.Error(), "must be the only superuser") || !strings.Contains(err.Error(), tc.role) {
+				t.Fatalf("db-roles with %s made SUPERUSER mid-run: err = %v, want one naming it\n%s", tc.role, err, buf)
+			}
+			if strings.Contains(buf.String(), `"msg":"db-roles done"`) {
+				t.Fatalf("a failed run logged done:\n%s", buf)
 			}
 		})
 	}

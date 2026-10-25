@@ -5,7 +5,8 @@
 // NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS (ADR-001 A.3), so the
 // migrator cannot create roles and this job does it instead. A second run
 // changes nothing, and a cluster with a second superuser fails the run before
-// it changes anything.
+// it changes anything. A run that exits 0 leaves the bootstrap superuser as
+// the cluster's only superuser.
 package roles
 
 import (
@@ -94,12 +95,11 @@ func Run(ctx context.Context, cfg *pgx.ConnConfig, m *grants.Manifest, passwords
 		if name == m.PlatformDatabase {
 			// Its grants are the migrator's (grants.Apply). Until migrate runs,
 			// PostgreSQL's default would give PUBLIC CONNECT and TEMPORARY on
-			// it while keycloak and temporal start, so a new one starts with
-			// no PUBLIC grants at all.
-			if created {
-				if err := revokePublic(ctx, conn, name, log, &res); err != nil {
-					return res, fmt.Errorf("database %s: %w", name, err)
-				}
+			// it while keycloak and temporal start, so PUBLIC holds nothing on
+			// it after any run, including one after a run that died between
+			// CREATE DATABASE and the revoke.
+			if err := revokePublic(ctx, conn, name, created, log, &res); err != nil {
+				return res, fmt.Errorf("database %s: %w", name, err)
 			}
 			continue
 		}
@@ -117,6 +117,11 @@ func Run(ctx context.Context, cfg *pgx.ConnConfig, m *grants.Manifest, passwords
 	defer func() { _ = pconn.Close(context.WithoutCancel(ctx)) }()
 	if err := ensureGetAuth(ctx, pconn, m, log, &res); err != nil {
 		return res, fmt.Errorf("%s: %w", getAuthException, err)
+	}
+	// After every change, with no manifest exclusion: a role made SUPERUSER
+	// while the run converged, a manifest role included, fails it.
+	if err := onlySuperuser(ctx, conn, me, []string{}); err != nil {
+		return res, err
 	}
 	log.InfoContext(ctx, "db-roles done",
 		slog.Int("created", res.Created), slog.Int("changed", res.Changed),
@@ -220,16 +225,18 @@ func convergeMemberships(ctx context.Context, conn *pgx.Conn, m *grants.Manifest
 	return nil
 }
 
-// onlySuperuser fails unless me is the cluster's only superuser once the
-// manifest roles are converged: ensureRole makes those NOSUPERUSER, so only a
-// superuser outside the manifest fails the run. The superuser rules in
+// onlySuperuser fails unless me is the cluster's only superuser, apart from
+// the roles in exclude. Before any change exclude is the manifest roles:
+// ensureRole makes those NOSUPERUSER, so only a superuser outside the
+// manifest fails the run. At the end of the run exclude is empty. The
+// superuser rules in
 // db/pg_hba.conf match the bootstrap superuser by name, so a second superuser
 // would log in over TCP through the catch-all.
-func onlySuperuser(ctx context.Context, conn *pgx.Conn, me string, managed []string) error {
+func onlySuperuser(ctx context.Context, conn *pgx.Conn, me string, exclude []string) error {
 	var others []string
 	if err := conn.QueryRow(ctx, `
 		SELECT coalesce(array_agg(rolname::text ORDER BY rolname), '{}')
-		FROM pg_catalog.pg_roles WHERE rolsuper AND rolname <> $1 AND rolname <> ALL ($2)`, me, managed).Scan(&others); err != nil {
+		FROM pg_catalog.pg_roles WHERE rolsuper AND rolname <> $1 AND rolname <> ALL ($2)`, me, exclude).Scan(&others); err != nil {
 		return err
 	}
 	if len(others) > 0 {
@@ -267,13 +274,31 @@ func ensureDatabase(ctx context.Context, conn *pgx.Conn, name, owner string, log
 	return false, nil
 }
 
-// revokePublic removes PostgreSQL's default CONNECT and TEMPORARY for PUBLIC
-// from a database db-roles has just created.
-func revokePublic(ctx context.Context, conn *pgx.Conn, name string, log *slog.Logger, res *Result) error {
+// revokePublic revokes every privilege PUBLIC holds on a database, explicit
+// or PostgreSQL's default CONNECT and TEMPORARY (a NULL datacl), and does
+// nothing when PUBLIC holds none. created only picks the log line: on a
+// database db-roles did not just create, a PUBLIC privilege is drift.
+func revokePublic(ctx context.Context, conn *pgx.Conn, name string, created bool, log *slog.Logger, res *Result) error {
+	var privs []string
+	if err := conn.QueryRow(ctx, `
+		SELECT coalesce(array_agg(a.privilege_type::text ORDER BY a.privilege_type), '{}')
+		FROM pg_catalog.pg_database d,
+		     pg_catalog.aclexplode(coalesce(d.datacl, pg_catalog.acldefault('d', d.datdba))) a
+		WHERE d.datname = $1 AND a.grantee = 0`, name).Scan(&privs); err != nil {
+		return err
+	}
+	if len(privs) == 0 {
+		return nil
+	}
 	if _, err := conn.Exec(ctx, "REVOKE ALL ON DATABASE "+ident(name)+" FROM PUBLIC"); err != nil {
 		return err
 	}
-	log.InfoContext(ctx, "revoked PUBLIC grants on new database", slog.String("database", name))
+	if created {
+		log.InfoContext(ctx, "revoked PUBLIC grants on new database", slog.String("database", name))
+	} else {
+		log.WarnContext(ctx, "revoked PUBLIC grants on database", slog.String("database", name),
+			slog.String("privileges", strings.Join(privs, ",")))
+	}
 	res.Revoked++
 	return nil
 }
