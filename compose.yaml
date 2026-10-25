@@ -25,8 +25,14 @@ services:
     image: postgres:16.10
     # db/pg_hba.conf replaces the image's file, which trusts the socket and
     # lets every role in, the superuser included, from any container.
-    command: ["postgres", "-c", "hba_file=/etc/postgresql/pg_hba.conf"]
+    # TICK-166: no durability, as in compose.ci.yaml. Keycloak's first-boot
+    # schema init and realm import are fsync-bound. Dev data is disposable
+    # (`down -v`); a host crash can corrupt this volume, so reset it then.
+    # The flags are runtime settings, so an existing dev volume gets them too.
+    command: ["postgres", "-c", "hba_file=/etc/postgresql/pg_hba.conf",
+              "-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off"]
     environment:
+      POSTGRES_INITDB_ARGS: --no-sync
       POSTGRES_USER: pgadmin
       POSTGRES_PASSWORD_FILE: /run/pg_superuser_password
       POSTGRES_DB: postgres
@@ -128,8 +134,10 @@ services:
       context: .
       dockerfile: deploy/compose/keycloak/Dockerfile
     image: nava/keycloak:${NAVA_IMAGE_TAG:-dev}
-    # T14: realm `nava` (and the two test IdP realms) are imported from
-    # deploy/compose/keycloak/import; existing realms are left alone.
+    # T14: realm `nava` is imported from deploy/compose/keycloak/import;
+    # existing realms are left alone. The two test IdP realms are not: each one
+    # imported at first boot lengthened it (TICK-166); make stack-test-identity
+    # imports them from deploy/compose/keycloak/test-realms.
     # TICK-156: `start --optimized` on an image built with `kc.sh build`.
     # What `start-dev` gave for free is set here on purpose: plain HTTP (the
     # published port and the internal network are not TLS) and no strict
