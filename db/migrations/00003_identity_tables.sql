@@ -77,7 +77,10 @@ CREATE POLICY groups_delete ON groups FOR DELETE TO nava_groupsync
 -- principal to another tenant's group. Removing a principal or a group
 -- removes its memberships (same tenant only: the key includes tenant_id).
 -- The primary key serves the group side; group_members_principal serves the
--- resolver (a principal's groups) and principal_fkey's cascade.
+-- resolver (a principal's groups) and principal_fkey's cascade. It is two
+-- columns, not three with group_id: B-tree deduplication folds a principal's
+-- entries into one, so it is about a fifth of the size for ~0.07 ms more per
+-- lookup (docs/data/identity.md).
 CREATE TABLE group_members (
     tenant_id    uuid NOT NULL,
     group_id     uuid NOT NULL,
@@ -88,7 +91,7 @@ CREATE TABLE group_members (
     CONSTRAINT group_members_principal_fkey FOREIGN KEY (tenant_id, principal_id)
         REFERENCES principals (tenant_id, id) ON DELETE CASCADE
 );
-CREATE INDEX group_members_principal ON group_members (tenant_id, principal_id, group_id);
+CREATE INDEX group_members_principal ON group_members (tenant_id, principal_id);
 ALTER TABLE group_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE group_members FORCE ROW LEVEL SECURITY;
 

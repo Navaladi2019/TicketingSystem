@@ -109,7 +109,7 @@ every grant.
   `EXECUTE`. CI-3 (T10) decides whether types count as platform objects.
 - The post-run RLS/FORCE check belongs to T10. Per-table grants and policies
   for the D28 roles arrive with T09 ([platform-tables.md](platform-tables.md))
-  and T16.
+  and T16 ([identity.md](identity.md)).
 - PUBLIC keeps `CONNECT` on the `postgres` maintenance database, which is not
   in the manifest. `pg_hba` already refuses `pgadmin` and `nava_backup` there
   over TCP.

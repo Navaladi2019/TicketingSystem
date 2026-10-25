@@ -1,0 +1,264 @@
+# Identity tables under forced RLS (T16)
+
+Scope: TICK-69. ADR-001 A.1 (step 3 and platform rules), A.3 (group sync
+row), PLAN-001 T16 and D-P13. Migration
+`db/migrations/00003_identity_tables.sql`, grants in `db/grants.yaml`.
+PostgreSQL 16.10.
+
+Group sync (`nava_groupsync`, T25) writes these tables from the Keycloak
+admin API, one transaction per tenant. Tenant resolution (`nava_app`, T17)
+reads them. Keycloak user and group ids come only from these rows, read
+under RLS (A.1).
+
+## Tables
+
+```mermaid
+erDiagram
+    tenants ||--o{ principals : "tenant_id"
+    tenants ||--o{ groups : "tenant_id"
+    tenants ||--o{ org_units : "tenant_id"
+    principals ||--o{ group_members : "(tenant_id, principal_id) CASCADE"
+    groups ||--o{ group_members : "(tenant_id, group_id) CASCADE"
+    org_units |o--o{ org_units : "(tenant_id, parent_id)"
+
+    principals {
+        uuid tenant_id PK,FK
+        uuid id PK
+        text keycloak_user_id "UNIQUE (tenant_id, keycloak_user_id)"
+        text email "nullable"
+        boolean enabled
+        jsonb federated_links "NULL = unknown; no default"
+        timestamptz synced_at
+    }
+    groups {
+        uuid tenant_id PK,FK
+        uuid id PK
+        text keycloak_group_id "UNIQUE (tenant_id, keycloak_group_id)"
+        text path "under /t/<tenant_id>/"
+    }
+    group_members {
+        uuid tenant_id PK,FK
+        uuid group_id PK,FK
+        uuid principal_id PK,FK
+    }
+    org_units {
+        uuid tenant_id PK,FK
+        uuid id PK
+        uuid parent_id FK "NULL = root"
+        text keycloak_group_id "UNIQUE (tenant_id, keycloak_group_id)"
+        text name
+    }
+```
+
+Every table is `ENABLE` + `FORCE ROW LEVEL SECURITY`. Every primary key,
+unique key and foreign key leads with `tenant_id`, so a membership cannot
+join a principal to another tenant's group and an org unit cannot hang under
+another tenant's unit. The database refuses both with SQLSTATE 23503, even
+when the tenant's own sync writes them.
+
+### `federated_links`: NULL fails closed
+
+| Value | Meaning | Resolver (A.1 step 3) |
+| --- | --- | --- |
+| `NULL` | Unknown: sync has not recorded the user's links | 401 |
+| `'[]'` | Synced, no federated identity | Passes the link check |
+| `'[{"identityProvider": "idp-a", ...}]'` | Synced links, as the Keycloak admin API returns them | Every `identityProvider` must be a bound alias, else 401 |
+| no row | User not synced yet | 401 (unknown, the same as `NULL`) |
+
+The column is `jsonb` with no `NOT NULL` and no default. A writer that omits
+it stores `NULL`. `NOT NULL DEFAULT '[]'` would turn "not synced" into
+"synced, no links" and fail open. `TestT16FederatedLinksFailClosed` reads
+`attnotnull` and `atthasdef` from the catalogue and fails if either is set.
+
+`principals_federated_links_check` accepts only `NULL` or an array whose
+elements are all objects with a string `identityProvider`. It rejects `{}`,
+`null`, `[1]`, `["idp-a"]`, `[{"userId": "u1"}]` and
+`[{"identityProvider": 7}]`. The resolver therefore never sees a link that it
+cannot compare with the bound aliases and might skip.
+
+### Other constraints
+
+- `groups_path_check`: `path` starts with `/t/<own tenant_id>/`. A group from
+  another tenant's subtree, or from the realm root, is refused (23514), even
+  when sync maps it wrongly.
+- `org_units_parent_check`: a unit cannot be its own parent.
+- `group_members` FKs are `ON DELETE CASCADE`, so deleting a principal or a
+  group removes its memberships. The key includes `tenant_id`, so the cascade
+  stays inside one tenant (tested).
+- `org_units_parent_fkey` is `NO ACTION`. A parent with children cannot be
+  deleted on its own, but sync can delete a whole subtree in one statement.
+
+## Policies and grants
+
+Each policy uses the canonical tenant predicate
+`tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid`, is
+`FOR` one command and is `TO` named roles. None is on the A.3 allow-list, so
+`TestT09PolicyAllowList` still counts 10 allow-listed policies, and the
+catalogue gate checks the 15 new ones.
+
+| Table | `nava_app` | `nava_groupsync` |
+| --- | --- | --- |
+| `principals` | SELECT | SELECT, INSERT, UPDATE (`email`, `enabled`, `federated_links`, `synced_at`), DELETE |
+| `groups` | SELECT | SELECT, INSERT, UPDATE (`path`), DELETE |
+| `group_members` | SELECT | SELECT, INSERT, DELETE |
+| `org_units` | SELECT | SELECT, INSERT, UPDATE (`parent_id`, `name`), DELETE |
+
+Policy names are `<table>_select` (TO `nava_app`, `nava_groupsync`) and
+`<table>_insert`, `_update`, `_delete` (TO `nava_groupsync`).
+`group_members` has no UPDATE grant or policy. `UPDATE` never covers a key
+column: sync re-keys a row by deleting and inserting it, so a bug cannot
+point an existing id at a different Keycloak user (`TestT16WriteGrants`).
+No other role holds anything on these tables.
+
+## Tests
+
+| Acceptance criterion | Test |
+| --- | --- |
+| RLS hides tenant B's rows from tenant A in every new table | `TestT16TenantRowsInvisible`: as `nava_app` and `nava_groupsync`, with tenant A, an empty tenant and none. Also: A's inserts of B rows are refused (42501); A's updates and deletes reach 0 of B's rows |
+| FKs reject cross-tenant references | `TestT16ForeignKeysRejectCrossTenant` |
+| A `group_members` row cannot reference another tenant's group | `TestT16ForeignKeysRejectCrossTenant` (23503); also another tenant's principal and parent unit |
+| T10/T11 pick the tables up from the catalogue | The catalogue gate runs after every migration in every dbtest. `make isolation` runs CI-2 over all four tables as every runtime role, directly and through PgBouncer. Its seed (`internal/tenancy/isolation/testdata/seed.sql`) has rows of both tenants, with the Keycloak ids repeated across tenants. |
+
+Also covered: `TestT16FederatedLinksFailClosed`, `TestT16KeysArePerTenant`
+(Keycloak ids are unique per tenant, not globally; group path check),
+`TestT16DeletesCascadeWithinTenant`, `TestT16WriteGrants`.
+`TestT09EveryTableForcesRLS` now expects the 4 new tables as well.
+
+## Evidence
+
+Measured on 2026-10-25 with `sh scratch/identity-bench/run.sh`. Full output:
+`scratch/identity-bench/output.txt`. Setup: PostgreSQL 16.10
+(`postgres:16.10`) on Docker Desktop 28.0.1 under Windows 11, 16 CPUs,
+19.4 GiB in the VM, `shared_buffers=1GB`. The roles and every migration were
+applied by `nava-db roles` and `nava-db migrate`, so the catalogue gate
+passed on this schema.
+
+The data covers 200 tenants. Ten large tenants are at the acceptance volume,
+each with **50,000 principals, 5,000 groups**, 8 memberships per principal
+and 500 org units. 190 small tenants each have 100 principals and 10 groups.
+The large tenants hold 96% of the rows. Totals: `principals` 519,000,
+`groups` 51,900, `group_members` 4,154,300, `org_units` 11,900. One
+principal per tenant is in 200 groups, the worst case the resolver reads.
+One principal in three has a federated link.
+
+Each plan ran as the role that issues the query, with RLS on and the tenant
+set transaction-locally, as `InTenantTx` does it. None ran as the owner or a
+superuser.
+
+### The resolver lookup (A.1 step 3)
+
+After the binding lookup (T09 Q1: 0.239 ms) has given the tenant, T17 reads
+the principal, its links and its group ids in one statement:
+
+```sql
+SELECT p.id, p.enabled, p.federated_links,
+       ARRAY(SELECT gm.group_id FROM group_members gm
+             WHERE gm.tenant_id = p.tenant_id AND gm.principal_id = p.id
+             ORDER BY gm.group_id) AS groups
+FROM principals p
+WHERE p.tenant_id = $1 AND p.keycloak_user_id = $2;
+```
+
+| Query (`nava_app`) | Plan | Buffers (warm) | Time cold / warm |
+| --- | --- | --- | --- |
+| R1 Large tenant, user in 8 groups | Index Scan `principals_keycloak_user_key` + Index Scan `group_members_principal` | 18 | 0.941 / 0.497 ms |
+| R1b Large tenant, user in 200 groups | same | 10 | 0.523 / 0.412 ms |
+| R1c R1 with RLS as the only tenant filter | same, RLS predicate in both Index Conds | 15 | 0.224 / 0.128 ms |
+| R1d Unknown user (no row, 401) | Index Scan `principals_keycloak_user_key`, 0 rows | 3 | 0.256 / 0.096 ms |
+| R1e Small tenant, user in 8 groups | same as R1 | 15 | 0.499 / 0.783 ms |
+
+"Cold" is the first run after the seed and `VACUUM ANALYZE`, and "warm" is
+the second. Every Index Cond leads with `tenant_id`, including R1c, where
+the only tenant filter is the RLS policy. That works because `uuid =` and
+`text =` are leakproof. No query reads `federated_links` through an
+operator, so the column needs no GIN index. The resolver reads it whole and
+compares it in Go.
+
+An earlier run with the same index measured R1 warm at 0.311 ms, with the
+same plan and buffer count. The spread comes from the shared laptop.
+
+### Group sync (T25, `nava_groupsync`, large tenant)
+
+| Query | Plan | Buffers | Time |
+| --- | --- | --- | --- |
+| S1 Snapshot of all 50,000 principals | Bitmap Heap Scan via `principals_pkey` | 1,432 | 53.8 ms |
+| S2 Snapshot of all 400,192 memberships | Index Only Scan `group_members_pkey`, 0 heap fetches | 93,381 | 364 ms |
+| S3 Members of one group (81) | Index Only Scan `group_members_pkey` | 23 | 1.69 ms |
+| S4 Children of an org unit | Index Scan `org_units_parent` | 3 | 0.127 ms |
+| S5 Delete a principal, cascading to 8 memberships | `principals_pkey`; cascade trigger 2.13 ms | 10 | 3.69 ms |
+| S6 Delete a group, cascading to its members | `groups_pkey`; cascade trigger | 9 | 6.02 ms |
+| S7 Delete a leaf org unit (FK check for children) | `org_units_pkey`; FK check trigger | 8 | 1.55 ms |
+
+S2 is the most expensive read: a full snapshot of a 50k-user tenant, once
+per 5-minute tick (D-P13). It reads the primary key only.
+
+### Index choice: `group_members (tenant_id, principal_id)`
+
+I measured the description's two-column index against a covering
+`(tenant_id, principal_id, group_id)`, which allows an index-only scan. Both
+were freshly built on the same 4.15 M rows:
+
+| Index | Size | R1 plan | R1 buffers (warm) | R1 warm |
+| --- | --- | --- | --- | --- |
+| `(tenant_id, principal_id)` (shipped) | **51 MB** (69 MB as built by inserts) | Index Scan + 8 heap rows | 18 | 0.497 ms |
+| `(tenant_id, principal_id, group_id)` | 269 MB | Index Only Scan, 0 heap fetches | 10 | 0.502 ms |
+
+The two-column index is about a fifth of the size. B-tree deduplication
+(PostgreSQL 13+) folds each principal's 8 entries into one posting list,
+while three unique columns cannot deduplicate. It costs 8 more buffer hits
+per lookup and no measurable time. The migration ships the two-column form.
+
+### Index cost
+
+| Index | Size | Why it exists |
+| --- | --- | --- |
+| `group_members_pkey` | 363 MB | PK; sync snapshot (S2), members of a group (S3), the group FK's cascade |
+| `group_members_principal` | 69 MB | resolver (R1), the principal FK's cascade |
+| `principals_keycloak_user_key` | 52 MB | resolver lookup by Keycloak user id; sync upsert |
+| `principals_pkey` | 34 MB | PK; FK target |
+| `groups_keycloak_group_key`, `groups_pkey` | 5.2 MB, 3.3 MB | sync upsert by Keycloak id; PK |
+| `org_units_keycloak_group_key`, `org_units_pkey`, `org_units_parent` | 592 kB, 416 kB, 136 kB | sync upsert; PK; the self-FK's check on delete and children-of (S4) |
+
+Heaps: `group_members` 309 MB, `principals` 92 MB, `groups` 7.6 MB,
+`org_units` 728 kB. Two indexes go beyond the description's contract.
+`org_units_keycloak_group_key` exists because sync upserts units by Keycloak
+id, the same as groups. `org_units_parent` backs the self-FK: without it,
+every delete checks for children with a sequential scan, and because RI
+checks bypass RLS, that scan covers every tenant's units. There is no JSONB
+index.
+
+Write cost as `nava_groupsync` in one tenant transaction, with every index,
+FK check and `WITH CHECK`, over three runs on the same host. The first run
+had the three-column membership index; the other two had the shipped
+schema:
+
+| Write | Rows | Time | Per row |
+| --- | --- | --- | --- |
+| W1a Insert principals | 10,000 | 330–726 ms | 33–73 µs |
+| W1b Insert memberships (2 indexes, 2 FK checks) | 80,000 | 3.5–8.7 s | 44–109 µs |
+| W2 Touch every principal of a tenant (`synced_at`, `federated_links`) | 60,000 | 1.27–2.56 s | 21–43 µs |
+
+The runs vary by up to 2.5x on a shared laptop. Treat these as ranges until
+they run on dedicated hardware, as in [platform-tables.md](platform-tables.md).
+A full 50k-user resync touches every principal in about 2.6 s at worst. Sync
+should still write only the rows that changed (T25's diff), because W2
+rewrites every principal row and its indexes.
+
+## Migration safety
+
+All four tables are new and empty, so `CREATE TABLE`, the constraints and the
+plain `CREATE INDEX` statements take no lock on existing data. They run in
+one goose transaction. No tenant is locked, and no per-tenant DDL is needed.
+Later column additions go through expand/contract. A new index on a populated
+table needs `CREATE INDEX CONCURRENTLY` in its own `NO TRANSACTION`
+migration (db/README.md).
+
+## Not done here (owners)
+
+- The resolver query in Go, the `idp` claim check, and 401 for `NULL` links
+  or a missing row: T17 (TICK-72). The query above is the one measured.
+- The sync diff, the per-tenant advisory lock, and writing only changed rows:
+  T25.
+- Registered named isolation paths for these tables (`Paths()` in
+  `internal/tenancy/isolation/registry.go`). That file needs CTO sign-off,
+  and the generic CI-2 checks already cover all four tables.
