@@ -4,8 +4,12 @@
 set -eu
 . "$(dirname "$0")/lib.sh"
 
-# Every container healthy, db-roles and migrate done.
-t_healthy() { wait_healthy "${WAIT_SECONDS:-300}"; }
+# Every container healthy, db-roles and migrate done, within the S1 budget of
+# 180 s from the first container's creation, so `up -d` counts (TICK-164). The
+# test and CI overlays only publish a port and drop durability, and the
+# operator profile adds the Temporal UI, so the CI stack has the same budget.
+# The internal overlay keeps 300 s (t_internal).
+t_healthy() { wait_healthy "${WAIT_SECONDS:-180}" "$(stack_created)"; }
 
 # The compose smoke (T05): GET /healthz on nava-core's admin listener answers
 # 200 from another container on the compose network, the way a probe would
@@ -272,6 +276,7 @@ t_internal() {
     COMPOSE_FILE_ARGS="-f compose.yaml -f deploy/compose/compose.internal.yaml"
     export COMPOSE_FILE_ARGS
     compose up -d
+    # 300 s: an overlay of its own, not the S1 stack.
     wait_healthy "${WAIT_SECONDS:-300}"
     for net in $(docker network ls -q --filter label=com.docker.compose.project=$PROJECT); do
         [ "$(docker network inspect -f '{{.Internal}}' "$net")" = true ] || fail "a network is not internal"

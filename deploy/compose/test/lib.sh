@@ -33,10 +33,32 @@ JOBS="db-roles migrate temporal-schema"
 # services: every long-running service.
 services() { compose config --services | grep -v -x -e db-roles -e migrate -e temporal-schema; }
 
-# wait_healthy [seconds]: block until every long-running service is healthy
-# and every job has exited 0; print each one's state and fail on timeout.
+# epoch_of <RFC 3339 UTC time>: seconds since 1970. awk, not GNU date -d, so
+# it runs on a macOS laptop too.
+epoch_of() {
+    printf '%s\n' "$1" | awk -F'[-T:.Z]' '{
+        y = $1; m = $2 + 0
+        if (m <= 2) { y--; m += 12 }
+        days = 365 * y + int(y / 4) - int(y / 100) + int(y / 400) + int((153 * (m - 3) + 2) / 5) + $3 - 719469
+        print days * 86400 + $4 * 3600 + $5 * 60 + int($6)
+    }'
+}
+
+# stack_created: when the project's first container was created, in seconds
+# since 1970.
+stack_created() {
+    first=$(docker inspect -f '{{.Created}}' $(compose ps -a -q) | sort | head -n 1)
+    [ -n "$first" ] || fail "no container in project $PROJECT"
+    epoch_of "$first"
+}
+
+# wait_healthy [seconds] [since]: block until every long-running service is
+# healthy and every job has exited 0; print each one's state and fail on
+# timeout. The deadline is seconds after since (seconds since 1970), or after
+# now.
 wait_healthy() {
-    deadline=$(( $(date +%s) + ${1:-300} ))
+    since=${2:-$(date +%s)}
+    deadline=$(( since + ${1:-300} ))
     while :; do
         bad=""
         for s in $(services); do
@@ -53,6 +75,7 @@ wait_healthy() {
         fi
         sleep 3
     done
+    pass "healthy $(( $(date +%s) - since )) s after the start, budget ${1:-300} s"
     for s in $(services); do pass "$s healthy"; done
     for j in $JOBS; do pass "$j exited 0"; done
 }
