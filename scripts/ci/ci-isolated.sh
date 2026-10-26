@@ -48,7 +48,9 @@ UI_PORT=${UI_PORT:-$((base + 3))}
 TEMPORAL_UI_PORT=$UI_PORT
 export NAVA_CORE_PORT KEYCLOAK_PORT TEMPORAL_TEST_PORT UI_PORT TEMPORAL_UI_PORT
 
-images="nava/nava-core nava/nava-db nava/otel-collector nava/temporal-server"
+# Every nava/* image compose.yaml builds; the teardown check fails on any
+# nava/*:<id> tag left, so an image added there and missed here shows up.
+images="nava/keycloak nava/nava-core nava/nava-db nava/nava-relay nava/nava-worker nava/otel-collector nava/temporal-server"
 stack_files="-f compose.yaml -f deploy/compose/compose.internal.yaml"
 
 teardown() {
@@ -70,8 +72,8 @@ teardown() {
             [ -z "$out" ] || left="$left $p:$kind:$(echo $out)"
         done
     done
-    for i in $images; do
-        [ -z "$(docker images -q "$i:$id")" ] || left="$left image:$i:$id"
+    for i in $(docker images --format '{{.Repository}}:{{.Tag}}' --filter "reference=nava/*:$id"); do
+        left="$left image:$i"
     done
     if [ -n "$left" ]; then
         echo "ci-isolated: teardown left$left" >&2
