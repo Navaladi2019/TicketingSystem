@@ -3,10 +3,13 @@
 package dbtest
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/identity/pgstore"
 )
@@ -121,6 +124,32 @@ func TestT18aDomainCheck(t *testing.T) {
 	for _, d := range []string{"x.test", "mail.x-1.example", "xn--bcher-kva.example"} {
 		if _, err := execIn(onboard, tenantX, insertDomain, tenantX, d); err != nil {
 			t.Errorf("claim %s: %v", d, err)
+		}
+	}
+}
+
+// Adversarial (security review of PR #115): when an onboarding claim
+// collides with a domain another tenant owns, the 23505 must not name the
+// owner. The key is (domain) INCLUDE (tenant_id) and nava_onboard is under
+// FORCE RLS, so PostgreSQL must leave the DETAIL ("Key (...)=(...)") out:
+// neither the domain nor the owning tenant's id may appear in any field of
+// the error.
+func TestT18aDuplicateDomainErrorHidesOwner(t *testing.T) {
+	migratedPlatform(t)
+	super := superNava(t)
+	seedTenants(t, super, []string{tenantB}, []string{tenantX})
+	exec(t, super, insertDomain, tenantB, "tenant-b.test")
+
+	_, err := execIn(asRole(t, "nava_onboard"), tenantX, insertDomain, tenantX, "tenant-b.test")
+	wantSQLState(t, "X claims B's domain", err, "23505")
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		t.Fatalf("err = %v, want a *pgconn.PgError", err)
+	}
+	for _, field := range []string{pgErr.Message, pgErr.Detail, pgErr.Hint, pgErr.Where, pgErr.InternalQuery} {
+		if strings.Contains(field, tenantB) || strings.Contains(field, "tenant-b.test") {
+			t.Errorf("23505 leaks the owner or the key: message %q, detail %q, hint %q, where %q",
+				pgErr.Message, pgErr.Detail, pgErr.Hint, pgErr.Where)
 		}
 	}
 }
