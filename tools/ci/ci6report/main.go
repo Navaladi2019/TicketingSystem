@@ -68,6 +68,7 @@ func contract() []contractCase {
 		{"NotFound on a signal is terminal", "TestCI6_RelaySignalNotFoundIsTerminal"},
 		{"Producer schema rejects record-data fields", "TestCI7_ProducerSchemaRejectsRecordDataFields"},
 		{"Workflow input and signal bodies in history are references only", "TestCI7_RelayDeliveryInHistoryIsReferencesOnly"},
+		{"Record-data payload written outside Enqueue refused; nothing reaches the history (TICK-214)", "TestCI7_RelayRefusesRecordDataPayloadWrittenOutsideEnqueue"},
 		{"Recorded headers carry only nava-tenant and trace context, never baggage (TICK-93)", "TestCI7_RecordedHeadersCarryOnlyTenantAndTraceContext"},
 	}
 }
