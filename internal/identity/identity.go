@@ -60,12 +60,35 @@ type OperatorResolver interface {
 	ResolveOperator(ctx context.Context, rawAccessToken string) (Operator, error)
 }
 
+// The errors a DirectoryAdmin returns for a request it refuses. Match with
+// errors.Is; the text never carries an email or an id.
+var (
+	// ErrNotFound: the user or group is unknown, or is not in the tenant's
+	// subtree. The two cases are not told apart.
+	ErrNotFound = errors.New("directory: not found")
+	// ErrIdPNotBound: the user is federated to an IdP that is not bound to the
+	// target tenant (A.1 platform rules).
+	ErrIdPNotBound = errors.New("directory: federated to an IdP not bound to the tenant")
+	// ErrAlreadyExists: the organization or IdP already exists, or an IdP is
+	// already linked to an organization.
+	ErrAlreadyExists = errors.New("directory: already exists")
+	// ErrInviteRefused: InviteUser refused an existing user, or an address in
+	// a domain the tenant does not own; DisableUser refused a user who is in
+	// another tenant's subtree (disabling is realm-wide). Nothing was
+	// changed. Callers must not tell the requester which case it was.
+	ErrInviteRefused = errors.New("directory: refused")
+	// ErrInvalidInput: an argument is malformed.
+	ErrInvalidInput = errors.New("directory: invalid input")
+)
+
 // DirectoryAdmin manages tenant organizations, users and groups in the IdP.
 // Only tenant onboarding (nava_onboard) and group sync (nava_groupsync) call
 // it. T18 (TICK-73) implements it for Keycloak.
 type DirectoryAdmin interface {
 	CreateTenantOrg(ctx context.Context, tenantID uuid.UUID, alias string, domains []string) (orgID string, err error)
-	// InviteUser rejects a user federated to an IdP not bound to the tenant.
+	// InviteUser puts the invitee in the tenant's group (creating the user if
+	// the email is new). It rejects a user federated to an IdP not bound to the
+	// tenant with ErrIdPNotBound.
 	InviteUser(ctx context.Context, tenantID uuid.UUID, email string) error
 	DisableUser(ctx context.Context, tenantID, principalID uuid.UUID) error
 	SetGroupMembers(ctx context.Context, tenantID, groupID uuid.UUID, members []uuid.UUID) error
@@ -74,24 +97,39 @@ type DirectoryAdmin interface {
 	ChangesSince(ctx context.Context, tenantID uuid.UUID, cursor string) (DirectoryChanges, string, error)
 }
 
-// DirectoryChanges is one ChangesSince snapshot. T18 (TICK-73) completes the
-// user and group shapes.
+// DirectoryChanges is one ChangesSince snapshot. Directory membership is
+// membership of a group under /t/<tenant_id>/ (TICK-73 ruling 2026-10-25), so
+// Users are the members of those groups, not the members of the Keycloak
+// organization.
 type DirectoryChanges struct {
 	Unchanged bool
-	Users     []DirectoryUser
-	Groups    []DirectoryGroup
-	OrgUnits  []DirectoryGroup
+	Users     []DirectoryUser  // members of any group under /t/<tenant_id>/
+	Groups    []DirectoryGroup // under /t/<tenant_id>/, excluding /ou/
+	OrgUnits  []DirectoryGroup // under /t/<tenant_id>/ou/
 }
 
 // DirectoryUser is a user in a tenant's directory snapshot.
 type DirectoryUser struct {
-	PrincipalID uuid.UUID
+	KeycloakUserID string
+	Email          string
+	Enabled        bool
+	FederatedLinks []FederatedLink
+}
+
+// FederatedLink is one federated identity of a user.
+type FederatedLink struct {
+	IdPAlias       string
+	ExternalUserID string
 }
 
 // DirectoryGroup is a group or org unit in a tenant's directory snapshot.
+// ParentKeycloakGroupID is empty for a top-level group or unit.
 type DirectoryGroup struct {
-	GroupID uuid.UUID
-	Members []uuid.UUID
+	KeycloakGroupID       string
+	ParentKeycloakGroupID string
+	Path                  string
+	Name                  string
+	MemberKeycloakUserIDs []string
 }
 
 // Binding is a tenant_identity_binding row: the tenant an (issuer,
