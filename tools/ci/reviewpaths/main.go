@@ -116,8 +116,13 @@ func (e *Entry) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind != yaml.MappingNode {
 		return fmt.Errorf("line %d: a path entry is a string or a {path, planned} mapping", node.Line)
 	}
+	seen := map[string]bool{}
 	for i := 0; i+1 < len(node.Content); i += 2 {
 		k, v := node.Content[i], node.Content[i+1]
+		if seen[k.Value] {
+			return fmt.Errorf("line %d: field %s already set in path entry", k.Line, k.Value)
+		}
+		seen[k.Value] = true
 		var dst *string
 		switch k.Value {
 		case "path":
