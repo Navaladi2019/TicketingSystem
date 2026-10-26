@@ -78,7 +78,7 @@ func operatorAuth(reg *problem.Registry, log *slog.Logger, ops identity.Operator
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
 			if ops == nil {
-				reg.Write(w, r, problem.NotImplemented)
+				reg.WriteError(w, r, log, problem.NotImplemented, errors.New("operator routes not configured"))
 				return
 			}
 			raw, ok := bearerToken(r.Header)
@@ -143,12 +143,12 @@ func (h *handlers) OnboardTenant(ctx context.Context, req api.OnboardTenantReque
 		AdminEmail:   req.Body.AdminEmail,
 		EmailDomains: req.Body.EmailDomains,
 		IdP: onboard.IdPRequest{
-			ProviderID: string(req.Body.Idp.ProviderId),
-			Config:     req.Body.Idp.Config,
+			ProviderID: string(req.Body.IdentityProvider.ProviderId),
+			Config:     req.Body.IdentityProvider.Config,
 		},
 	}
-	if req.Body.Idp.DisplayName != nil {
-		in.IdP.DisplayName = *req.Body.Idp.DisplayName
+	if req.Body.IdentityProvider.DisplayName != nil {
+		in.IdP.DisplayName = *req.Body.IdentityProvider.DisplayName
 	}
 	res, err := h.onboarder.Onboard(ctx, call.operator, req.Params.IdempotencyKey, call.hash, in)
 	if err != nil {

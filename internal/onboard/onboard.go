@@ -186,7 +186,7 @@ func (s *Service) org(ctx context.Context, tenantID uuid.UUID, alias string, dom
 	case errors.Is(err, identity.ErrAlreadyExists):
 		return "", ErrConflict
 	case errors.Is(err, identity.ErrInvalidInput):
-		return "", &FieldError{Pointer: "/idp"}
+		return "", &FieldError{Pointer: "/identity_provider"}
 	case err != nil:
 		return "", fmt.Errorf("onboard: create org: %w", err)
 	}

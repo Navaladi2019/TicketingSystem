@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -52,7 +53,41 @@ type Dependencies struct {
 	// http://keycloak:8080/realms/nava. Empty: every API request is refused
 	// with 401 (fail closed).
 	OIDCIssuers []string
+	// Operators is NAVA_OPERATORS, the operator allow-list: comma-separated
+	// "issuer|subject" pairs (AR-030). Empty refuses every operator token.
+	Operators []OperatorEntry
+	// Onboarding configures operator tenant onboarding (T21). The zero value
+	// leaves the operator routes answering 501.
+	Onboarding Onboarding
 }
+
+// OperatorEntry is one operator allow-list entry.
+type OperatorEntry struct{ Issuer, Subject string }
+
+// Onboarding is the operator onboarding configuration. All of it is set or
+// none of it is.
+type Onboarding struct {
+	// DatabaseURL is NAVA_ONBOARD_DATABASE_URL, connecting as nava_onboard. It
+	// holds a password: never logged, never echoed in an error.
+	DatabaseURL string
+	// KeycloakURL and KeycloakRealm: NAVA_KEYCLOAK_URL, NAVA_KEYCLOAK_REALM.
+	KeycloakURL   string
+	KeycloakRealm string
+	// Issuer is NAVA_ONBOARD_ISSUER, the realm issuer written to the tenant
+	// binding. It must be one of NAVA_OIDC_ISSUERS.
+	Issuer string
+	// RuntimeClientID/Secret invite the first admin
+	// (NAVA_DIRECTORY_CLIENT_ID, NAVA_DIRECTORY_CLIENT_SECRET); the secret is
+	// never logged. OnboardClientID/Secret are the onboarding service account
+	// (NAVA_ONBOARD_CLIENT_ID, NAVA_ONBOARD_CLIENT_SECRET).
+	RuntimeClientID     string
+	RuntimeClientSecret string
+	OnboardClientID     string
+	OnboardClientSecret string
+}
+
+// Enabled reports whether onboarding is configured.
+func (o Onboarding) Enabled() bool { return o.DatabaseURL != "" }
 
 // TemporalTLS locates nava-core's mTLS identity for the Temporal frontend (the
 // `nava-core` certificate). The key is read from a file, never from a variable.
@@ -135,6 +170,8 @@ func Load(lookup LookupFunc) (Config, error) {
 		TemporalAddress:       r.hostPort("NAVA_TEMPORAL_ADDRESS"),
 		OIDCIssuers:           r.urlList("NAVA_OIDC_ISSUERS"),
 	}
+	cfg.Deps.Operators = r.operators("NAVA_OPERATORS")
+	cfg.Deps.Onboarding = r.onboarding(cfg.Deps.OIDCIssuers)
 	cfg.Deps.TemporalTLS = TemporalTLS{
 		CertFile:   r.str("NAVA_TEMPORAL_TLS_CERT_FILE"),
 		KeyFile:    r.str("NAVA_TEMPORAL_TLS_KEY_FILE"),
@@ -384,4 +421,50 @@ func (r *reader) otlpTimeout(key string) {
 	if ms, err := strconv.Atoi(strings.TrimSpace(v)); err != nil || ms < 0 {
 		r.errs = append(r.errs, fmt.Errorf("%s: want a whole number of milliseconds such as 10000", key))
 	}
+}
+
+// operators reads "issuer|subject" pairs. A malformed entry is an error that
+// does not echo the value.
+func (r *reader) operators(key string) []OperatorEntry {
+	v, _ := r.lookup(key)
+	if strings.TrimSpace(v) == "" {
+		return nil
+	}
+	var out []OperatorEntry
+	for _, s := range strings.Split(v, ",") {
+		iss, sub, ok := strings.Cut(strings.TrimSpace(s), "|")
+		if !ok || !isBaseURL(iss) || strings.TrimSpace(sub) == "" {
+			r.errs = append(r.errs, fmt.Errorf("%s: want comma-separated issuer|subject pairs", key))
+			return nil
+		}
+		out = append(out, OperatorEntry{Issuer: iss, Subject: strings.TrimSpace(sub)})
+	}
+	return out
+}
+
+// onboarding reads the NAVA_ONBOARD_* settings: all set, or none.
+func (r *reader) onboarding(issuers []string) Onboarding {
+	o := Onboarding{
+		DatabaseURL:         r.databaseURL("NAVA_ONBOARD_DATABASE_URL"),
+		KeycloakURL:         r.baseURL("NAVA_KEYCLOAK_URL"),
+		KeycloakRealm:       r.str("NAVA_KEYCLOAK_REALM"),
+		Issuer:              r.str("NAVA_ONBOARD_ISSUER"),
+		RuntimeClientID:     r.str("NAVA_DIRECTORY_CLIENT_ID"),
+		RuntimeClientSecret: r.str("NAVA_DIRECTORY_CLIENT_SECRET"),
+		OnboardClientID:     r.str("NAVA_ONBOARD_CLIENT_ID"),
+		OnboardClientSecret: r.str("NAVA_ONBOARD_CLIENT_SECRET"),
+	}
+	if o.DatabaseURL == "" {
+		return Onboarding{}
+	}
+	if o.KeycloakURL == "" || o.Issuer == "" || o.RuntimeClientID == "" || o.RuntimeClientSecret == "" ||
+		o.OnboardClientID == "" || o.OnboardClientSecret == "" {
+		r.errs = append(r.errs, errors.New("NAVA_ONBOARD_DATABASE_URL is set: NAVA_KEYCLOAK_URL, NAVA_ONBOARD_ISSUER, NAVA_DIRECTORY_CLIENT_ID, NAVA_DIRECTORY_CLIENT_SECRET, NAVA_ONBOARD_CLIENT_ID and NAVA_ONBOARD_CLIENT_SECRET are required"))
+		return Onboarding{}
+	}
+	if !slices.Contains(issuers, o.Issuer) {
+		r.errs = append(r.errs, errors.New("NAVA_ONBOARD_ISSUER: must be one of NAVA_OIDC_ISSUERS"))
+		return Onboarding{}
+	}
+	return o
 }

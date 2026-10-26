@@ -88,8 +88,8 @@ type OnboardTenantRequest struct {
 	AdminEmail string `json:"admin_email"`
 
 	// EmailDomains Email domains the operator attests the tenant owns. Public email-provider domains are refused.
-	EmailDomains []string   `json:"email_domains"`
-	Idp          OnboardIdP `json:"idp"`
+	EmailDomains     []string   `json:"email_domains"`
+	IdentityProvider OnboardIdP `json:"identity_provider"`
 }
 
 // OnboardedTenant defines model for OnboardedTenant.

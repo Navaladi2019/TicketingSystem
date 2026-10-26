@@ -3,7 +3,6 @@ package onboard
 import (
 	"context"
 	"errors"
-	"io"
 	"log/slog"
 	"net/netip"
 	"sync"
@@ -121,6 +120,7 @@ func (r fakeResolver) LookupNetIP(_ context.Context, _, host string) ([]netip.Ad
 	return out, nil
 }
 
+//nolint:gochecknoglobals // test fixtures
 var okResolver = fakeResolver{"idp.example.org": {"203.0.113.10"}, "internal.example.org": {"10.0.0.5"}, "meta.example.org": {"169.254.169.254"}}
 
 func newSvc(t *testing.T) (*Service, *fakeStore, *fakeDir) {
@@ -129,7 +129,7 @@ func newSvc(t *testing.T) (*Service, *fakeStore, *fakeDir) {
 	specs := NewSpecs()
 	dir := &fakeDir{orgs: map[uuid.UUID]string{}, specs: specs}
 	svc, err := New(Options{Store: st, Directory: dir, Finder: dir, Specs: specs, Resolver: okResolver,
-		Issuer: "https://kc/realms/nava", Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
+		Issuer: "https://kc/realms/nava", Log: slog.New(slog.DiscardHandler)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,6 +147,7 @@ func validReq() Request {
 	}
 }
 
+//nolint:gochecknoglobals // test fixtures
 var op1 = identity.Operator{PrincipalID: "op-1"}
 
 func TestOnboardCreatesAndActivates(t *testing.T) {
@@ -289,15 +290,15 @@ func TestOnboardRejectsInvalidRequests(t *testing.T) {
 		"bad domain":            {func(r *Request) { r.EmailDomains = []string{"nodot"} }, "/email_domains"},
 		"admin outside domains": {func(r *Request) { r.AdminEmail = "a@other.test" }, "/admin_email"},
 		"bad admin":             {func(r *Request) { r.AdminEmail = "not an email" }, "/admin_email"},
-		"bad provider":          {func(r *Request) { r.IdP.ProviderID = "ldap" }, "/idp/provider_id"},
-		"http url":              {func(r *Request) { r.IdP.Config["tokenUrl"] = "http://idp.example.org/token" }, "/idp/config"},
-		"private host":          {func(r *Request) { r.IdP.Config["jwksUrl"] = "https://internal.example.org/jwks" }, "/idp/config"},
-		"metadata ip":           {func(r *Request) { r.IdP.Config["authorizationUrl"] = "https://meta.example.org/x" }, "/idp/config"},
-		"literal loopback":      {func(r *Request) { r.IdP.Config["tokenUrl"] = "https://127.0.0.1/token" }, "/idp/config"},
-		"literal link-local":    {func(r *Request) { r.IdP.Config["tokenUrl"] = "https://[fe80::1]/token" }, "/idp/config"},
-		"unresolvable":          {func(r *Request) { r.IdP.Config["tokenUrl"] = "https://nope.example.org/t" }, "/idp/config"},
-		"localhost":             {func(r *Request) { r.IdP.Config["tokenUrl"] = "https://localhost/t" }, "/idp/config"},
-		"userinfo in url":       {func(r *Request) { r.IdP.Config["tokenUrl"] = "https://u:p@idp.example.org/t" }, "/idp/config"},
+		"bad provider":          {func(r *Request) { r.IdP.ProviderID = "ldap" }, "/identity_provider/provider_id"},
+		"http url":              {func(r *Request) { r.IdP.Config["tokenUrl"] = "http://idp.example.org/token" }, "/identity_provider/config"},
+		"private host":          {func(r *Request) { r.IdP.Config["jwksUrl"] = "https://internal.example.org/jwks" }, "/identity_provider/config"},
+		"metadata ip":           {func(r *Request) { r.IdP.Config["authorizationUrl"] = "https://meta.example.org/x" }, "/identity_provider/config"},
+		"literal loopback":      {func(r *Request) { r.IdP.Config["tokenUrl"] = "https://127.0.0.1/token" }, "/identity_provider/config"},
+		"literal link-local":    {func(r *Request) { r.IdP.Config["tokenUrl"] = "https://[fe80::1]/token" }, "/identity_provider/config"},
+		"unresolvable":          {func(r *Request) { r.IdP.Config["tokenUrl"] = "https://nope.example.org/t" }, "/identity_provider/config"},
+		"localhost":             {func(r *Request) { r.IdP.Config["tokenUrl"] = "https://localhost/t" }, "/identity_provider/config"},
+		"userinfo in url":       {func(r *Request) { r.IdP.Config["tokenUrl"] = "https://u:p@idp.example.org/t" }, "/identity_provider/config"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -330,7 +331,8 @@ func TestOnboardOverridesSignatureAndSyncMode(t *testing.T) {
 }
 
 func TestTenantIDIsStableAndPerOperator(t *testing.T) {
-	if TenantID("a", "k") != TenantID("a", "k") || TenantID("a", "k") == TenantID("b", "k") || TenantID("a", "k") == TenantID("a", "j") {
+	a := TenantID("a", "k")
+	if a != TenantID("a", "k") || TenantID("a", "k") == TenantID("b", "k") || TenantID("a", "k") == TenantID("a", "j") {
 		t.Fatal("tenant id derivation")
 	}
 	if TenantID("ab", "c") == TenantID("a", "bc") {

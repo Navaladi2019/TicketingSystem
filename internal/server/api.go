@@ -48,17 +48,11 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 	}
 
 	a := apihttp.New(spec, reg, log, baseURL)
+	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder}
 	api.HandlerWithOptions(
-		api.NewStrictHandlerWithOptions(&handlers{reg: reg, log: log, onboarder: opts.onboarder}, nil, api.StrictHTTPServerOptions{
-			RequestErrorHandlerFunc: a.StrictRequestError,
-			ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
-				var pe *problemError
-				if errors.As(err, &pe) {
-					reg.Write(w, r, pe.code, pe.fields...)
-					return
-				}
-				a.StrictResponseError(w, r, err)
-			},
+		api.NewStrictHandlerWithOptions(h, nil, api.StrictHTTPServerOptions{
+			RequestErrorHandlerFunc:  a.StrictRequestError,
+			ResponseErrorHandlerFunc: h.responseError(a),
 		}),
 		api.StdHTTPServerOptions{
 			BaseURL:    baseURL,
@@ -97,4 +91,21 @@ func (h *handlers) GetMe(ctx context.Context, _ api.GetMeRequestObject) (api.Get
 		groups = []uuid.UUID{}
 	}
 	return api.GetMe200JSONResponse{UserId: p.PrincipalID, TenantId: p.TenantID, Groups: groups, IdpAlias: p.IdPAlias}, nil
+}
+
+// responseError answers a handler's problemError with its registered code and
+// hands every other error to the shared handler.
+func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http.Request, error) {
+	return func(w http.ResponseWriter, r *http.Request, err error) {
+		var pe *problemError
+		if errors.As(err, &pe) {
+			if pe.code == problem.ValidationFailed {
+				h.reg.Write(w, r, problem.ValidationFailed, pe.fields...)
+				return
+			}
+			h.reg.WriteError(w, r, h.log, pe.code, pe.err)
+			return
+		}
+		a.StrictResponseError(w, r, err)
+	}
 }

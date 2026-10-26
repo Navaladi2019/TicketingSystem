@@ -47,22 +47,22 @@ const (
 // returned string is the JSON pointer of the first failing field.
 func buildSpec(ctx context.Context, res Resolver, in IdPRequest) (keycloak.IdPSpec, string) {
 	if in.ProviderID != "oidc" && in.ProviderID != "saml" {
-		return keycloak.IdPSpec{}, "/idp/provider_id"
+		return keycloak.IdPSpec{}, "/identity_provider/provider_id"
 	}
 	if len(in.DisplayName) > maxDisplayName {
-		return keycloak.IdPSpec{}, "/idp/display_name"
+		return keycloak.IdPSpec{}, "/identity_provider/display_name"
 	}
 	if len(in.Config) > maxConfigKeys {
-		return keycloak.IdPSpec{}, "/idp/config"
+		return keycloak.IdPSpec{}, "/identity_provider/config"
 	}
 	cfg := make(map[string]string, len(in.Config)+2)
 	for k, v := range in.Config {
 		if len(v) > maxConfigValue {
-			return keycloak.IdPSpec{}, "/idp/config"
+			return keycloak.IdPSpec{}, "/identity_provider/config"
 		}
 		if urlKeys[k] {
 			if err := checkPublicHTTPS(ctx, res, v); err != nil {
-				return keycloak.IdPSpec{}, "/idp/config"
+				return keycloak.IdPSpec{}, "/identity_provider/config"
 			}
 		}
 		cfg[k] = v

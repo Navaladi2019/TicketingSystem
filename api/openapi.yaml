@@ -106,7 +106,7 @@ components:
           description: Alias of the brokering IdP bound to the tenant; empty for a local login.
     OnboardTenantRequest:
       type: object
-      required: [admin_email, email_domains, idp]
+      required: [admin_email, email_domains, identity_provider]
       properties:
         admin_email:
           type: string
@@ -122,7 +122,7 @@ components:
           items:
             type: string
             maxLength: 253
-        idp:
+        identity_provider:
           $ref: "#/components/schemas/OnboardIdP"
     OnboardIdP:
       type: object
