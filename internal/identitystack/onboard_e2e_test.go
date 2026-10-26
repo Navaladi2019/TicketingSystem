@@ -274,7 +274,7 @@ func createIdPRealm(t *testing.T, realm, email, pass string) {
 // pointIdPAt repoints the onboarded IdP's endpoints from the placeholder
 // public addresses to the test realm, the way the idp-tenant-* fixtures are
 // configured (browser endpoint by name, back channel to Keycloak itself).
-// Only the URLs change: alias, organization link, first-login flow and the
+// Only the URLs change (and the secret is re-entered, unchanged): alias, organization link, first-login flow and the
 // pinned validateSignature/syncMode stay as onboarding created them.
 func pointIdPAt(t *testing.T, alias, realm string) {
 	t.Helper()
@@ -290,6 +290,9 @@ func pointIdPAt(t *testing.T, alias, realm string) {
 	cfg["authorizationUrl"] = "http://" + inNetHost + "/realms/" + realm + "/protocol/openid-connect/auth"
 	cfg["tokenUrl"] = "http://localhost:8080/realms/" + realm + "/protocol/openid-connect/token"
 	cfg["jwksUrl"] = "http://localhost:8080/realms/" + realm + "/protocol/openid-connect/certs"
+	// The GET masks the secret, and Keycloak wants it re-entered when the
+	// token URL changes: the same value the onboarding request sent.
+	cfg["clientSecret"] = "dev-only-broker-secret"
 	if code, b := adminRealm(t, "nava", http.MethodPut, "/identity-provider/instances/"+url.PathEscape(alias), idp); code != http.StatusNoContent {
 		t.Fatalf("repoint IdP %s: %d %s", alias, code, b)
 	}
