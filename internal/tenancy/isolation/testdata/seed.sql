@@ -62,3 +62,9 @@ INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name) VALUES
     ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000005a1', NULL, 'kc-ou-shared', 'Root A'),
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000005b1', NULL, 'kc-ou-shared', 'Root B'),
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000005b2', '0b000000-0000-4000-8000-0000000005b1', 'kc-ou-b2', 'Support B');
+
+-- Email domains (T18a). A domain is unique realm-wide, so they cannot repeat.
+INSERT INTO tenant_email_domain (tenant_id, domain) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', 'tenant-a.test'),
+    ('0b000000-0000-4000-8000-00000000000b', 'tenant-b.test'),
+    ('0b000000-0000-4000-8000-00000000000b', 'b2.tenant-b.test');

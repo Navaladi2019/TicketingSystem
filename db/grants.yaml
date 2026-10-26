@@ -38,7 +38,8 @@ roles:
     attributes: [LOGIN]
 
   # The D28 system actors (A.3), one role each. Table entries: T09
-  # (00002_platform_tables.sql) and T16 (00003_identity_tables.sql). Every
+  # (00002_platform_tables.sql), T16 (00003_identity_tables.sql) and T18a
+  # (00004_tenant_email_domain.sql). Every
   # tenant table is under FORCE RLS, so a grant here reaches only the rows its
   # policies allow.
   nava_app:
@@ -59,6 +60,8 @@ roles:
       groups: { SELECT: [] }
       group_members: { SELECT: [] }
       org_units: { SELECT: [] }
+      # Keycloak Registry.TenantOwnsEmailDomain (T18a).
+      tenant_email_domain: { SELECT: [] }
     functions: {}
 
   # As nava_app, without idempotency_keys or tenants; the final activity
@@ -107,6 +110,7 @@ roles:
     tables:
       tenants: { SELECT: [id, state, onboarding_request_hash, created_at], INSERT: [id, state, onboarding_request_hash], UPDATE: [state] }
       tenant_identity_binding: { INSERT: [tenant_id, issuer, org_id, idp_aliases] }
+      tenant_email_domain: { INSERT: [tenant_id, domain] } # T18a, next to the binding
 
   # Writes the identity tables (T16), one transaction per tenant. UPDATE
   # leaves the keys alone: a row is re-keyed by delete and insert, never in

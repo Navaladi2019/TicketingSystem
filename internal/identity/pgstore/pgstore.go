@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -34,6 +35,11 @@ const principalSQL = `SELECT p.id, p.enabled, p.federated_links,
              ORDER BY gm.group_id) AS groups
 FROM principals p
 WHERE p.tenant_id = $1 AND p.keycloak_user_id = $2`
+
+// emailDomainSQL is the statement measured in docs/data/identity.md (T18a):
+// an index-only scan of tenant_email_domain_pkey.
+const emailDomainSQL = `SELECT EXISTS (SELECT 1 FROM tenant_email_domain
+WHERE tenant_id = $1 AND domain = $2)`
 
 // Store reads the identity rows through pool, which must log in as nava_app.
 type Store struct {
@@ -108,4 +114,19 @@ func (s *Store) Principal(ctx context.Context, tenantID uuid.UUID, subject strin
 		rec.Groups = []uuid.UUID{}
 	}
 	return rec, nil
+}
+
+// TenantOwnsEmailDomain implements keycloak.Registry's method of that name
+// (T18a). It reads inside tenancy.InTenantTx, so another tenant's domain is
+// no row and reads as false, the same as a domain nobody owns: the answer
+// never tells the caller that someone else owns it.
+func (s *Store) TenantOwnsEmailDomain(ctx context.Context, tenantID uuid.UUID, domain string) (bool, error) {
+	var owns bool
+	err := tenancy.InTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, emailDomainSQL, tenantID, strings.ToLower(domain)).Scan(&owns)
+	})
+	if err != nil {
+		return false, fmt.Errorf("pgstore: email domain: %w", err)
+	}
+	return owns, nil
 }
