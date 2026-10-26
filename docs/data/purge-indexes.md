@@ -61,8 +61,8 @@ their `tenant_id`-leading indexes ([platform-tables.md](platform-tables.md)).
 
 - PostgreSQL 16.10 (`postgres:16.10`, the `docs/pins.md` pin) on Docker
   Desktop 29.9.2, Windows 11.
-- 16 CPUs and 20.8 GB for the Docker VM, on a shared laptop where other
-  tasks' test runs were active.
+- Intel Core i7-1260P laptop, 40 GB RAM; 16 CPUs and 20.8 GB for the Docker
+  VM. The host was shared with other tasks' test runs.
 - `shared_buffers=1GB`. `synchronize_seqscans=off`, so a scan does not
   resume where the last one stopped. `full_page_writes=off`, so the WAL
   figures are records, not checkpoint page images.
