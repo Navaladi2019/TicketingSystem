@@ -41,7 +41,7 @@ GOLANGCI_LINT ?= golangci-lint
 GOLANGCI_LINT_VERSION := 2.14.0
 GOVULNCHECK_VERSION := v1.9.0
 
-.PHONY: build run test test-integration isolation lint generate check-openapi
+.PHONY: build run test test-integration bench-relay isolation lint generate check-openapi
 .PHONY: ci ci-isolated ci-changed ci-stages ci-isolated-down test-ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity stack-idp-realms stack-test-worker 	image image-ci stack-up stack-down stack-logs stack-internal stack-internal-beside stack-main ci-stack-run stack-tests smoke
 
 build:
@@ -71,6 +71,15 @@ test-integration:
 	sh scripts/ci/test-integration.sh $(ARGS)
 	$(if $(ARGS),@echo "isolation suite skipped (ARGS set); run make isolation",sh scripts/ci/isolation.sh)
 	$(if $(ARGS),@echo "ci-isolated --down check skipped (ARGS set); run make test-ci-isolated-down",sh scripts/ci/test-ci-isolated-down.sh)
+
+# T33: the relay's claim latency (BenchmarkClaim, internal/relay) against
+# ADR-001's 5.4 ms baseline, on the same throwaway clusters as
+# test-integration. Report-only: a nightly workflow runs it and nothing
+# gates on it. Needs Docker.
+# TODO(TODO-011): no nightly workflow runs it yet; the agent token cannot add
+# .github/workflows/nightly.yml (no `workflow` scope).
+bench-relay:
+	sh scripts/ci/test-integration.sh -run '^$$' -bench '^BenchmarkClaim$$' -benchtime 200x
 
 # The tenant isolation suite (T11, ADR-001 CI-2): its own throwaway
 # PostgreSQL and a PgBouncer with the real auth_query, tenants A and B seeded,
