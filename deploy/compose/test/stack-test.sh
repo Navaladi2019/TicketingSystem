@@ -347,11 +347,13 @@ t_temporal_isolation() {
     done
     # Judge by the answer, not the exit code: BusyBox nslookup exits 0 when one of
     # its A/AAAA queries is NXDOMAIN and the other NODATA, with no address (TICK-206).
-    # "Server:" proves the lookup ran, so a failed exec cannot pass.
-    ns=$(compose exec -T nava-core nslookup temporal-server 2>&1) || true
+    # "Server:" proves the lookup ran, so a failed exec cannot pass. RESOLVE_NAME
+    # points the check at a name that does resolve, to prove it can fail (TICK-197).
+    name=${RESOLVE_NAME:-temporal-server}
+    ns=$(compose exec -T nava-core nslookup "$name" 2>&1) || true
     case $ns in *Server:*) ;; *) fail "nslookup did not run in nava-core: $ns" ;; esac
     if printf '%s\n' "$ns" | grep -q '^Name:'; then
-        fail "the platform network can resolve temporal-server: $ns"
+        fail "the platform network can resolve $name: $ns"
     fi
     gw=$(docker inspect -f '{{range $n, $c := .NetworkSettings.Networks}}{{$n}} {{end}}' "$(container_of temporal-server)")
     case $gw in *_internal*) fail "temporal-server is on the platform network: $gw" ;; esac
