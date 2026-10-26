@@ -157,7 +157,7 @@ sequenceDiagram
    - **Status:** values fixed by TICK-214; keys open (follow-up TICK-240)
      (`db/migrations/00006_outbox_payload_references.sql`,
      [outbox-payload-check.md](../data/outbox-payload-check.md)); the relay
-     check (TICK-215) is still open.
+     check is fixed by TICK-215.
    - **Severity:** Medium.
    - **Fix, at the lowest layer:** a `CHECK` on `outbox.payload` with the same
      rule as `ValidatePayload`: a jsonb object whose values are UUID strings or
