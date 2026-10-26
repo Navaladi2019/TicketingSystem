@@ -73,9 +73,37 @@ func TestValidatePayload(t *testing.T) {
 	for _, bad := range []string{
 		`null`, `[]`, `"x"`, `{"n":1}`, `{"b":true}`, `{"s":"text"}`, `{"o":{"id":"` + id + `"}}`,
 		`{"ids":["` + id + `","x"]}`, `{"z":null}`, `{`,
+		// Keys (TICK-240).
+		`{"printer on fire":"` + id + `"}`, `{"Ticket_id":"` + id + `"}`, `{"ticket.id":"` + id + `"}`,
+		`{"1d":"` + id + `"}`, `{"":"` + id + `"}`, `{"` + strings.Repeat("a", 33) + `":"` + id + `"}`,
+		// Non-canonical values (TICK-240).
+		`{"ticket_id":"` + strings.ToUpper(id) + `"}`, `{"ticket_id":"urn:uuid:` + id + `"}`,
+		`{"ticket_id":"{` + id + `}"}`, `{"ticket_id":"` + strings.ReplaceAll(id, "-", "") + `"}`,
+		`{"ids":["` + id + `","` + strings.ToUpper(id) + `"]}`,
 	} {
 		if err := ValidatePayload(json.RawMessage(bad)); !errors.Is(err, ErrInvalidEntry) {
 			t.Errorf("%s: %v, want ErrInvalidEntry", bad, err)
+		}
+	}
+	if err := ValidatePayload(json.RawMessage(`{"` + strings.Repeat("a", 32) + `":"` + id + `"}`)); err != nil {
+		t.Errorf("32-character key: %v", err)
+	}
+}
+
+// A refusal never quotes the payload, not even the key (TICK-240).
+func TestValidatePayloadErrorOmitsPayload(t *testing.T) {
+	const marker = "printer on fire alice"
+	for _, p := range []string{
+		`{"` + marker + `":"` + uuid.NewString() + `"}`,
+		`{"note":"` + marker + `"}`,
+		`{"ids":["` + marker + `"]}`,
+	} {
+		err := ValidatePayload(json.RawMessage(p))
+		if err == nil {
+			t.Fatalf("%s accepted", p)
+		}
+		if strings.Contains(err.Error(), "printer") {
+			t.Errorf("error %q quotes the payload", err)
 		}
 	}
 }

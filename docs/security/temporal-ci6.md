@@ -140,7 +140,7 @@ sequenceDiagram
 | `NotFound` on a signal is terminal | A signal to a start that was never dispatched, and a signal to a completed workflow. Each is dead at attempt 1 with `CauseTargetMissing` and unchanged after four more polls. The relay logs the workflow id, and `outbox_relay_signal_target_missing_total` rises. |
 | CI-7 producer schema | `outbox.ValidatePayload` rejects text, numbers, booleans, nested objects, mixed arrays, a text field next to a reference, and anything that is not an object. |
 | CI-7 history input | The `outbox.Delivery` Go type has only UUID, int16 and payload fields. The recorded start and signal inputs of a relay-started workflow have only its JSON keys, and each payload passes the producer schema. |
-| CI-7 payload outside `Enqueue` | Added by TICK-214 with its fix (finding T32b-1). A start row with record data, inserted directly as the superuser, is refused by `outbox_payload_references_check`; no row is stored and no workflow exists. |
+| CI-7 payload outside `Enqueue` | Added by TICK-214 with its fix (finding T32b-1). A start row with record data, inserted directly as the superuser, is refused by `outbox_payload_check` (`outbox_payload_references_check` until TICK-240); no row is stored and no workflow exists. |
 | CI-7 activity payload (TICK-216) | The relay-started workflow schedules an activity whose argument holds a ticket title. No event in the history holds the title, only the `workflow_ref` close is scheduled, and the guard alerts `activity_args`/`record_data`. |
 | CI-7 child payload (TICK-216) | The workflow starts a same-tenant child (`ChildWorkflowID`) whose argument holds the title. No child is initiated, no event holds the title, and the guard alerts `child`/`record_data`. |
 | CI-7 continue-as-new payload (TICK-216) | The workflow continues as new with the title in `RunInput.Refs`. The workflow fails with `nava.TenantGuard` instead, no event holds the title, and the guard alerts `continue_as_new`/`record_data`. |
@@ -157,10 +157,13 @@ sequenceDiagram
      outbox column. The relay dispatches the payload unchecked, so the record
      data lands in the cross-tenant, unencrypted Temporal history (R1). No
      endpoint writes outbox rows today, so a tenant token cannot trigger it.
-   - **Status:** values fixed by TICK-214; keys open (follow-up TICK-240)
-     (`db/migrations/00006_outbox_payload_references.sql`,
+   - **Status:** fixed (values: TICK-214; keys and canonical form: TICK-240)
+     (`db/migrations/00006_outbox_payload_references.sql`, replaced by
+     `db/migrations/00007_outbox_payload_keys.sql`,
      [outbox-payload-check.md](../data/outbox-payload-check.md)); the relay
-     check is fixed by TICK-215.
+     check is fixed by TICK-215. Keys use the fallback pattern
+     `^[a-z][a-z0-9_]{0,31}$`, not a per-kind allow-list; the residual is
+     AR-032 in [accepted-risks.md](accepted-risks.md).
    - **Severity:** Medium.
    - **Fix, at the lowest layer:** a `CHECK` on `outbox.payload` with the same
      rule as `ValidatePayload`: a jsonb object whose values are UUID strings or
