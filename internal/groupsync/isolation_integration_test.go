@@ -15,6 +15,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/groupsync"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
@@ -56,6 +58,18 @@ func victimSnapshot(b uuid.UUID) identity.DirectoryChanges {
 	}
 }
 
+// twoTenants returns two tenant ids with a sorting first. Once visits tenants
+// ORDER BY tenant_id, so "A fails or is locked, B still syncs" only proves
+// something when A is visited before B. Postgres orders uuids as their
+// lowercase hex strings.
+func twoTenants() (a, b uuid.UUID) {
+	a, b = uuid.New(), uuid.New()
+	if a.String() > b.String() {
+		a, b = b, a
+	}
+	return a, b
+}
+
 func syncAll(t *testing.T, s *groupsync.Syncer) map[uuid.UUID]groupsync.Result {
 	t.Helper()
 	rs, err := s.Once(context.Background())
@@ -73,7 +87,7 @@ func syncAll(t *testing.T, s *groupsync.Syncer) map[uuid.UUID]groupsync.Result {
 // then turns empty. B's rows never change, and A's rows are A's own.
 func TestHostileSnapshotNeverTouchesAnotherTenant(t *testing.T) {
 	super, pool := cluster(t)
-	a, b := uuid.New(), uuid.New()
+	a, b := twoTenants()
 	seedTenant(t, super, a, 1)
 	seedTenant(t, super, b, 2)
 	dir := &fakeDir{snaps: map[uuid.UUID]identity.DirectoryChanges{}}
@@ -128,8 +142,11 @@ func TestHostileSnapshotNeverTouchesAnotherTenant(t *testing.T) {
 		t.Errorf("tenant A has %d org units under tenant B's org units", n)
 	}
 
-	// 2. A names an org-unit parent it does not have (B's only): refused,
-	//    and B is untouched.
+	// 2. A names an org-unit parent it does not have (B's only): refused.
+	//    A rolls back alone: A's rows are unchanged (apply had already
+	//    deleted A's principals and groups before the org units failed), and
+	//    B, visited after A, still syncs.
+	attacker := tenantRows(t, super, a)
 	dir.set(a, identity.DirectoryChanges{OrgUnits: []identity.DirectoryGroup{
 		unit("ou-a", "ou-b-only", path(a, "/ou/x")),
 	}})
@@ -140,6 +157,9 @@ func TestHostileSnapshotNeverTouchesAnotherTenant(t *testing.T) {
 	rs := syncAll(t, s)
 	if !errors.Is(rs[a].Err, groupsync.ErrBadSnapshot) {
 		t.Errorf("tenant A parent in tenant B: err = %v, want ErrBadSnapshot", rs[a].Err)
+	}
+	if got := tenantRows(t, super, a); got != attacker {
+		t.Errorf("tenant A's refused sync did not roll back:\n before %s\n after  %s", attacker, got)
 	}
 	if rs[b].Err != nil {
 		t.Fatalf("tenant B must still sync when tenant A fails: %v", rs[b].Err)
@@ -164,7 +184,7 @@ func TestHostileSnapshotNeverTouchesAnotherTenant(t *testing.T) {
 // tenant A sees none of B's.
 func TestTenantContextDoesNotLeakAcrossPooledConnections(t *testing.T) {
 	super, pool := cluster(t)
-	a, b := uuid.New(), uuid.New()
+	a, b := twoTenants()
 	seedTenant(t, super, a, 1)
 	seedTenant(t, super, b, 2)
 	dir := &fakeDir{snaps: map[uuid.UUID]identity.DirectoryChanges{}}
@@ -177,18 +197,35 @@ func TestTenantContextDoesNotLeakAcrossPooledConnections(t *testing.T) {
 		}
 	}
 	ctx := context.Background()
-	// Touch every pooled connection: none may still carry B's setting.
-	for range 2 * int(pool.Config().MaxConns) {
+	// Hold every pooled connection at once, so each one is checked, the
+	// connections the sync used included: none may still carry B's setting.
+	conns := make([]*pgxpool.Conn, 0, pool.Config().MaxConns)
+	release := func() {
+		for _, c := range conns {
+			c.Release()
+		}
+		conns = nil
+	}
+	defer release()
+	for range pool.Config().MaxConns {
+		c, err := pool.Acquire(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		conns = append(conns, c)
+	}
+	for i, c := range conns {
 		for _, table := range []string{"principals", "groups", "group_members", "org_units"} {
 			var n int
-			if err := pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&n); err != nil {
+			if err := c.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&n); err != nil {
 				t.Fatal(err)
 			}
 			if n != 0 {
-				t.Fatalf("nava_groupsync with no tenant set sees %d %s rows", n, table)
+				t.Fatalf("pooled connection %d: nava_groupsync with no tenant set sees %d %s rows", i, n, table)
 			}
 		}
 	}
+	release() // InTenantTx below needs a connection
 	err := tenancy.InTenantTx(ctx, pool, a, func(tx pgx.Tx) error {
 		for _, table := range []string{"principals", "groups", "group_members", "org_units"} {
 			var n int
@@ -199,10 +236,16 @@ func TestTenantContextDoesNotLeakAcrossPooledConnections(t *testing.T) {
 				t.Errorf("a transaction for tenant A sees %d of tenant B's %s rows", n, table)
 			}
 		}
-		// A write naming B's tenant id is refused by WITH CHECK.
-		_, err := tx.Exec(ctx, `INSERT INTO groups (tenant_id, id, keycloak_group_id, path) VALUES ($1, $2, 'x', '/t/x/y')`, b, uuid.New())
-		if err == nil {
+		// A write naming B's tenant id, with a path valid for B so that
+		// groups_path_check passes: only the RLS WITH CHECK can refuse it.
+		_, err := tx.Exec(ctx, `INSERT INTO groups (tenant_id, id, keycloak_group_id, path) VALUES ($1, $2, 'x', $3)`,
+			b, uuid.New(), path(b, "/y"))
+		var pgErr *pgconn.PgError
+		switch {
+		case err == nil:
 			t.Error("a transaction for tenant A inserted a group for tenant B")
+		case !errors.As(err, &pgErr) || pgErr.Code != "42501":
+			t.Errorf("cross-tenant insert: err = %v, want the RLS refusal (SQLSTATE 42501)", err)
 		}
 		return errors.New("rollback")
 	})
@@ -214,7 +257,7 @@ func TestTenantContextDoesNotLeakAcrossPooledConnections(t *testing.T) {
 // Holding tenant A's advisory lock skips A only; B still syncs.
 func TestOneTenantsLockDoesNotBlockAnother(t *testing.T) {
 	super, pool := cluster(t)
-	a, b := uuid.New(), uuid.New()
+	a, b := twoTenants()
 	seedTenant(t, super, a, 1)
 	seedTenant(t, super, b, 2)
 	dir := &fakeDir{snaps: map[uuid.UUID]identity.DirectoryChanges{}}
