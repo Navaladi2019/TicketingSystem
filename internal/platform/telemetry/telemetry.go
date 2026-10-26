@@ -192,15 +192,16 @@ func New(ctx context.Context, cfg config.Telemetry, opts ...Option) (_ *Telemetr
 func (t *Telemetry) Exporting() bool { return t.exporting }
 
 // LogHandler is the slog handler that exports records over OTLP, or nil when
-// log export is off. It takes the trace and span id from the ctx passed to
+// log export is off. service is the calling binary, such as nava-worker; it
+// names the instrumentation scope of every exported record. It takes the trace and span id from the ctx passed to
 // the *Context logging methods, so call sites must log with the request ctx.
 // Denied attributes (deniedLogAttributeKeys), including those inside a
 // slog.Group, are removed here before the record reaches the exporter.
-func (t *Telemetry) LogHandler() slog.Handler {
+func (t *Telemetry) LogHandler(service string) slog.Handler {
 	if t.lp == nil {
 		return nil
 	}
-	return denyHandler{next: otelslog.NewHandler("nava-core", otelslog.WithLoggerProvider(t.lp))}
+	return denyHandler{next: otelslog.NewHandler(service, otelslog.WithLoggerProvider(t.lp))}
 }
 
 // Shutdown flushes and stops the providers.

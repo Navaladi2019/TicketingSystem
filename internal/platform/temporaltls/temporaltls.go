@@ -1,4 +1,7 @@
-package main
+// Package temporaltls builds the mTLS client config every platform binary
+// dials the Temporal frontend with. nava-core, nava-worker and nava-relay all
+// load their certificate here, so the three cannot drift apart.
+package temporaltls
 
 import (
 	"crypto/tls"
@@ -9,11 +12,11 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 )
 
-// temporalTLS builds the client TLS config for the Temporal frontend from the
-// nava-relay certificate, or returns nil (plaintext) when none is configured.
-// File errors name the variable, not the path contents. It is nava-core's
-// temporalTLS (cmd/nava-core/deps.go) and nava-worker's; keep the three the same.
-func temporalTLS(t config.TemporalTLS) (*tls.Config, error) {
+// Load builds the client TLS config from the binary's certificate, or returns
+// nil (plaintext) when none is configured. The frontend is trusted only
+// through the configured CA, never the system pool. File errors name the
+// variable, not the path or the file contents.
+func Load(t config.TemporalTLS) (*tls.Config, error) {
 	if !t.Enabled() {
 		return nil, nil
 	}
