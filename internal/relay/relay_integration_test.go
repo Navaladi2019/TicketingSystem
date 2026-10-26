@@ -628,3 +628,46 @@ func TestExpiredLeaseTakeoverMarksDead(t *testing.T) {
 		t.Fatalf("claim after the death %+v, %v; want the successor", cs, err)
 	}
 }
+
+// TICK-248: heads whose lease ended unsettled sort behind their successors.
+// When those fill the tenant's window, Claim still takes the heads of the
+// window's targets, oldest target first, and kills one past MaxRedeliveryAge
+// as it would inside the window. Targets with no row in the window wait.
+func TestClaimTakesStrandedHeads(t *testing.T) {
+	e := migrated(t)
+	ctx := context.Background()
+	tenant := uuid.New()
+	const depth = ScanCap/2 + 1 // a head and ScanCap/2 successors
+	ids := seed(t, e.super, tenant, 4*depth, depth)
+	heads := []uuid.UUID{ids[0], ids[depth], ids[2*depth], ids[3*depth]}
+	mustExec(t, e.super, `UPDATE outbox SET attempts = 1, available_at = now() - interval '1 second'
+		WHERE id = ANY($1)`, heads)
+	mustExec(t, e.super, `UPDATE outbox SET created_at = now() - interval '24 hours 1 minute'
+		WHERE id = $1`, heads[0])
+	r := newProbe(t, e.relay, Options{})
+
+	// The window is the successors of targets 0 and 1. Target 0's head is
+	// killed, so target 1's is the only one claimed.
+	cs, err := r.Claim(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cs) != 1 || cs[0].ID != heads[1] || cs[0].Attempts != 2 {
+		t.Fatalf("claim %+v; want target 1's head at attempt 2", cs)
+	}
+	if n := count(t, e.super, `SELECT count(*) FROM outbox WHERE id = $1 AND dead_at IS NOT NULL
+		AND last_error = $2`, heads[0], TakeoverExpiredError); n != 1 {
+		t.Error("target 0's head, past the age, is not dead")
+	}
+
+	// Target 0's successor is now its head, inside the window, and claimed.
+	// Target 1's head is leased again and targets 2 and 3 have no row in the
+	// window, so nothing else is.
+	cs, err = r.Claim(ctx)
+	if err != nil || len(cs) != 1 || cs[0].ID != ids[1] {
+		t.Fatalf("claim %+v, %v; want only target 0's successor", cs, err)
+	}
+	if n := count(t, e.super, "SELECT count(*) FROM outbox WHERE id = ANY($1) AND attempts = 1", heads[2:]); n != 2 {
+		t.Errorf("%d of targets 2 and 3's heads untouched, want 2", n)
+	}
+}

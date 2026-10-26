@@ -142,8 +142,19 @@ func New(db Querier, mp metric.MeterProvider, log *slog.Logger, opts Options) (*
 //     target), locking them FOR UPDATE SKIP LOCKED. The pending and available
 //     tests sit on the locked row, so a row a concurrent claimer leased
 //     since this snapshot fails the recheck and is skipped.
-//   - claimed moves each picked row's available_at to the lease end and
-//     increments attempts. A picked row that was attempted before (its lease
+//   - stranded finds heads that sort behind their own successors (TICK-248).
+//     A claim moves a head's available_at to the lease end and leaves its
+//     successors where they are, so a head whose lease ended with no settle
+//     (relay crash, settle_failed) sorts after them. With ScanCap of them
+//     older, the window holds only blocked successors and never the head.
+//     For a tenant whose window is full and that picked fewer than $2 rows,
+//     stranded takes the rest from the heads of the window's targets that
+//     sort outside it (a pending target_seq below the target's lowest in the
+//     window): one outbox_pending_target probe per target, at most $1,
+//     oldest target first, with the same locks and rechecks as picked. A
+//     head inside the window is picked's, not stranded's.
+//   - claimed moves each picked or stranded row's available_at to the lease
+//     end and increments attempts. One that was attempted before (its lease
 //     ended or its backoff is over) and is $4 (MaxRedeliveryAge) old is
 //     marked dead instead, with $5 as last_error (killed). A crash between
 //     dispatch and MarkDispatched never reaches Backoff, so without this the
@@ -162,10 +173,10 @@ const claimSQL = `WITH RECURSIVE tenants AS (
     FROM tenants t WHERE t.tenant_id IS NOT NULL
 ),
 window_rows AS MATERIALIZED (
-    SELECT w.tenant_id, w.id, w.available_at
+    SELECT w.tenant_id, w.id, w.target_key, w.target_seq, w.available_at
     FROM tenants t
     CROSS JOIN LATERAL (
-        SELECT o.tenant_id, o.id, o.available_at FROM outbox o
+        SELECT o.tenant_id, o.id, o.target_key, o.target_seq, o.available_at FROM outbox o
         WHERE o.tenant_id = t.tenant_id AND o.dispatched_at IS NULL AND o.dead_at IS NULL
           AND o.available_at <= now()
         ORDER BY o.available_at, o.id
@@ -198,10 +209,43 @@ picked AS (
         FOR UPDATE OF o SKIP LOCKED
     ) p
 ),
+room AS (
+    SELECT s.tenant_id, $2 - count(p.id) AS room
+    FROM scan s LEFT JOIN picked p ON p.tenant_id = s.tenant_id
+    WHERE s.scanned >= $1
+    GROUP BY s.tenant_id
+    HAVING count(p.id) < $2
+),
+stranded AS (
+    SELECT p.tenant_id, p.id, p.expired
+    FROM room r
+    CROSS JOIN LATERAL (
+        SELECT o.tenant_id, o.id,
+               o.attempts > 0 AND o.created_at <= now() - make_interval(secs => $4) AS expired
+        FROM (SELECT w.target_key, min(w.target_seq) AS low, min(w.available_at) AS since
+              FROM window_rows w WHERE w.tenant_id = r.tenant_id
+              GROUP BY w.target_key) k
+        CROSS JOIN LATERAL (
+            SELECT h.id FROM outbox h
+            WHERE h.tenant_id = r.tenant_id AND h.target_key = k.target_key AND h.target_seq < k.low
+              AND h.dispatched_at IS NULL AND h.dead_at IS NULL
+            ORDER BY h.target_seq
+            LIMIT 1
+        ) hd
+        JOIN outbox o ON o.tenant_id = r.tenant_id AND o.id = hd.id
+        WHERE o.dispatched_at IS NULL AND o.dead_at IS NULL AND o.available_at <= now()
+        ORDER BY k.since, k.target_key
+        LIMIT r.room
+        FOR UPDATE OF o SKIP LOCKED
+    ) p
+),
+candidates AS (
+    SELECT * FROM picked UNION ALL SELECT * FROM stranded
+),
 claimed AS (
     UPDATE outbox o
     SET available_at = now() + make_interval(secs => $3), attempts = o.attempts + 1
-    FROM picked p
+    FROM candidates p
     WHERE o.tenant_id = p.tenant_id AND o.id = p.id AND NOT p.expired
     RETURNING o.tenant_id, o.id, o.kind, o.kind_version, o.target_key, o.target_seq, o.causation_id,
               o.causation_depth, o.payload, o.trace_context, o.created_at, o.attempts, o.available_at,
@@ -212,7 +256,7 @@ claimed AS (
 killed AS (
     UPDATE outbox o
     SET dead_at = now(), last_error = $5
-    FROM picked p
+    FROM candidates p
     WHERE o.tenant_id = p.tenant_id AND o.id = p.id AND p.expired
     RETURNING o.tenant_id, o.id, o.kind, o.kind_version, o.target_key, o.target_seq, o.causation_id,
               o.causation_depth, o.payload, o.trace_context, o.created_at, o.attempts, o.available_at,
