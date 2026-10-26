@@ -39,6 +39,7 @@ flowchart TD
 | PostgreSQL store, as `nava_app` | `internal/identity/pgstore` (query measured in [identity.md](../data/identity.md)) |
 | Middleware, `nava.auth.requests{result}` | `internal/platform/auth` |
 | `tenant_id`, `principal_id` on every log record after auth | `internal/platform/logging` |
+| `nava.tenant_id` on the server span after auth (T17b) | `internal/platform/auth` |
 | `GET /api/v1/me` | `internal/server/api.go` |
 | Wiring, `NAVA_OIDC_ISSUERS` | `cmd/nava-core/identity.go` |
 | Fake realm for tests outside the adapter | `internal/identity/keycloak/keycloaktest` |
@@ -58,6 +59,16 @@ flowchart TD
   (`tenant_unresolved: federated links unknown`), never the token or a claim
   value. `tenant_id` and `principal_id` are log fields only, never metric
   attributes.
+- **What is on the span (T17b, TICK-190).** Checked against the TICK-94
+  item 3 span id policy and the T01g allow-list (`spanAttributeAllowed`,
+  TICK-105):
+  - **Tenant id: yes.** It is platform-generated and resolved server-side,
+    and `nava.tenant_id` is already on the allow-list. After resolution the
+    middleware sets it on the server span; a refused request has none.
+  - **Principal id: no.** The policy keeps ids that identify a person off
+    spans ("principal id goes in logs only"), so there is no
+    `nava.principal_id` key and the allow-list would drop one. Adding it
+    needs a new ruling on TICK-94 item 3.
 
 ## Tests
 
@@ -67,3 +78,5 @@ flowchart TD
 | Forged tenant in query, header, body, baggage only touches A | CI-2 paths in `internal/tenancy/isolation/registry.go`, run by the HTTP runner; `server.TestMeIgnoresForgedTenant`; `auth.TestForgedBaggageIsNotInTheContext` |
 | Handler log line carries both ids; no token in logs | `auth.TestHandlerLogCarriesTenantAndPrincipal`, `auth.TestRefusalLogsNoToken` |
 | Error mapping, `WWW-Authenticate`, no echo | `server.TestMeRefusals` |
+| Exported server span has `nava.tenant_id` after a 200, none after a 401, never a principal id | `auth.TestServerSpanCarriesTenantOnlyAfterAuth` |
+| No tenant or principal on `nava.auth.requests` | `auth.TestMetricHasNoTenantAttribute` |

@@ -16,6 +16,8 @@ import (
 	"go.opentelemetry.io/otel/baggage"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	"github.com/Navaladi2019/TicketingSystem/api"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
@@ -84,17 +86,21 @@ type stack struct {
 	h      http.Handler
 	logs   *syncBuffer
 	reader *sdkmetric.ManualReader
+	spans  *tracetest.InMemoryExporter
 	seen   chan context.Context
 }
 
 // newStack is the public edge as nava-core builds it: httpobs, then the auth
 // middleware, then a handler that logs one line and hands its context over.
+// Every span is sampled and read as exported, behind the allow-list.
 func newStack(t *testing.T) *stack {
 	t.Helper()
 	logs := &syncBuffer{}
 	log := logging.New(logs, config.Log{Level: slog.LevelDebug, Format: config.FormatJSON})
 	reader := sdkmetric.NewManualReader()
-	tel, err := telemetry.New(t.Context(), config.Telemetry{})
+	spans := tracetest.NewInMemoryExporter()
+	tel, err := telemetry.New(t.Context(), config.Telemetry{},
+		telemetry.WithSpanExporter(spans), telemetry.WithSampler(sdktrace.AlwaysSample()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +124,7 @@ func newStack(t *testing.T) *stack {
 		seen <- r.Context()
 		w.WriteHeader(http.StatusNoContent)
 	})))
-	return &stack{h: httpobs.Middleware(log, tel, mux), logs: logs, reader: reader, seen: seen}
+	return &stack{h: httpobs.Middleware(log, tel, mux), logs: logs, reader: reader, spans: spans, seen: seen}
 }
 
 func (s *stack) get(t *testing.T, hdr http.Header) *httptest.ResponseRecorder {
@@ -231,5 +237,48 @@ func TestMetricHasNoTenantAttribute(t *testing.T) {
 	}
 	if got["ok"] != 1 || got["invalid_token"] != 2 {
 		t.Errorf("nava.auth.requests = %v, want ok 1, invalid_token 2", got)
+	}
+}
+
+// T17b: the exported server span carries nava.tenant_id after a 200 and not
+// after a 401, and never the principal id (TICK-94 item 3: logs only).
+func TestServerSpanCarriesTenantOnlyAfterAuth(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name       string
+		hdr        http.Header
+		code       int
+		wantTenant bool
+	}{
+		{"resolved", http.Header{"Authorization": {"Bearer " + secretToken}}, http.StatusNoContent, true},
+		{"refused token", http.Header{"Authorization": {"Bearer nope"}}, http.StatusUnauthorized, false},
+		{"no token", http.Header{}, http.StatusUnauthorized, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s := newStack(t)
+			if rec := s.get(t, tc.hdr); rec.Code != tc.code {
+				t.Fatalf("= %d %s, want %d", rec.Code, rec.Body, tc.code)
+			}
+			got := s.spans.GetSpans()
+			if len(got) != 1 {
+				t.Fatalf("%d exported spans, want the server span", len(got))
+			}
+			var tenant string
+			for _, kv := range got[0].Attributes {
+				if kv.Key == telemetry.TenantIDKey {
+					tenant = kv.Value.String()
+				}
+				if strings.Contains(string(kv.Key), "principal") || kv.Value.String() == principalA.String() {
+					t.Errorf("principal on the span: %s=%s", kv.Key, kv.Value.String())
+				}
+			}
+			switch {
+			case tc.wantTenant && tenant != tenantA.String():
+				t.Errorf("nava.tenant_id = %q, want %s", tenant, tenantA)
+			case !tc.wantTenant && tenant != "":
+				t.Errorf("nava.tenant_id = %q on a refused request", tenant)
+			}
+		})
 	}
 }

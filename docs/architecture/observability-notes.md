@@ -82,7 +82,8 @@ cleared.
 
 Span id policy: only ids the platform generates go on spans. Principal ids,
 emails, names, raw paths, queries, payloads and SQL parameters never do;
-principal id goes in logs only (T17). A new `nava.*` key is a change to
+principal id goes in logs only (T17). The auth middleware sets
+`nava.tenant_id` on the server span after resolution (T17b). A new `nava.*` key is a change to
 `filter.go` and is reviewed against this policy.
 
 Backing tests, all on the exporter's output: `filter_test.go` covers the
