@@ -76,10 +76,16 @@ type Registry interface {
 // that has no Keycloak user yet (TICK-252). The caller backs it with a
 // transaction that sets app.tenant_id, so row-level security scopes the write
 // to the tenant. Re-recording a pending invite moves its expiry; a consumed
-// invite stays consumed.
+// invite stays consumed and is ErrInviteConsumed.
 type InviteWriter interface {
 	RecordInvite(ctx context.Context, tenantID uuid.UUID, email string, expiresAt time.Time) error
 }
+
+// ErrInviteConsumed is what an InviteWriter returns when the email's invite
+// was already consumed: the invitee has signed in and been placed, and an
+// invite cannot be re-armed. InviteUser passes it on; it is not a refusal to
+// hide, because the caller is the platform operator.
+var ErrInviteConsumed = errors.New("keycloak: invite already consumed")
 
 // DefaultInviteTTL is how long a pending invite stays valid when
 // DirectoryConfig.InviteTTL is zero.

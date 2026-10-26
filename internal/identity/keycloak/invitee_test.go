@@ -221,3 +221,19 @@ func TestPlaceInviteeRefusesBadInput(t *testing.T) {
 		t.Errorf("bad email err = %v", err)
 	}
 }
+
+type consumedInvites struct{}
+
+func (consumedInvites) RecordInvite(context.Context, uuid.UUID, string, time.Time) error {
+	return ErrInviteConsumed
+}
+
+// A writer that reports a consumed invite makes InviteUser fail, never succeed.
+func TestInviteUserConsumedInviteIsAnError(t *testing.T) {
+	t.Parallel()
+	srv := fakeKeycloak(t)
+	d, _ := directoryFor(t, srv.URL, func(c *DirectoryConfig) { c.Invites = consumedInvites{} })
+	if err := d.InviteUser(t.Context(), dirTenantA, "admin@tenant-a.test"); !errors.Is(err, ErrInviteConsumed) {
+		t.Fatalf("err = %v, want ErrInviteConsumed", err)
+	}
+}

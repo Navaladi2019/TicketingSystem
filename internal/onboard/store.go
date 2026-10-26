@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/identity/keycloak"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
@@ -199,11 +200,21 @@ func (s *PGStore) Activate(ctx context.Context, tenantID uuid.UUID) error {
 // nava_onboard in InTenantTx, so the row-level policy scopes it to the tenant.
 func (s *PGStore) RecordInvite(ctx context.Context, tenantID uuid.UUID, email string, expiresAt time.Time) error {
 	err := tenancy.InTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `INSERT INTO pending_invite (tenant_id, email, expires_at) VALUES ($1, $2, $3)
+		// SET names expires_at only: nava_onboard has no grant on consumed_at.
+		tag, err := tx.Exec(ctx, `INSERT INTO pending_invite (tenant_id, email, expires_at) VALUES ($1, $2, $3)
 			ON CONFLICT (tenant_id, email) DO UPDATE SET expires_at = EXCLUDED.expires_at
 			WHERE pending_invite.consumed_at IS NULL`, tenantID, email, expiresAt)
-		return err
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return keycloak.ErrInviteConsumed
+		}
+		return nil
 	})
+	if errors.Is(err, keycloak.ErrInviteConsumed) {
+		return err
+	}
 	if err != nil {
 		return fmt.Errorf("onboard: record invite: %w", err)
 	}
