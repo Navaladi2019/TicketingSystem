@@ -80,10 +80,10 @@ It is opt-in and skipped by default, because it needs its own Keycloak: `make id
 
 `internal/tenancy/isolation` registers every CI-5 id (`ci5_paths.go`). Some cases run there:
 
-- the token shapes as HTTP paths through the real API handler, which must answer 401: CI-5.01, .02, .03, .09, .10 (seed principal `kc-user-a-foreign`) and .13 (`kc-user-b2`, a principal only of B);
+- the token shapes as HTTP paths through the real API handler, which must answer 401, and the resolver must refuse the same token with the stated sentinel and reason, so a 401 for another reason fails: CI-5.01, .02, .03, .09 (`idp-b` against a binding that lists `idp-a`), .10 (seed principal `kc-user-a-foreign`, reason `federated link not bound`) and .13 (`kc-user-b2`, a principal only of B);
 - CI-5.12 as a DB path.
 
-The cases only Keycloak can show are listed as pending on `make identity-attacks`.
+The cases only Keycloak can show are `Stack` paths on `TestCI5` with `StackTarget: make identity-attacks`, so `TestStackPathsExist` fails if that test is renamed or removed, and the report names the target that runs it.
 
 ## Findings
 

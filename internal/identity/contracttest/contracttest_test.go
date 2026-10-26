@@ -1,7 +1,11 @@
 package contracttest
 
 import (
+	"errors"
+	"os"
+	"os/exec"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -47,4 +51,41 @@ func TestCaseName(t *testing.T) {
 	if got := caseName("", "x"); got != "x" {
 		t.Errorf("caseName untagged = %q", got)
 	}
+}
+
+// TestSuiteRunFailsWhenACaseIsMissing runs Suite.Run itself, in a child test
+// process, with CI-5.06 left out of an otherwise full suite: the run must
+// fail and name the missing case. A failing *testing.T cannot be observed in
+// process, hence the re-exec.
+func TestSuiteRunFailsWhenACaseIsMissing(t *testing.T) {
+	if os.Getenv("CONTRACTTEST_MISSING_CASE_CHILD") == "1" {
+		var scenarios []ScenarioCase
+		for _, e := range CI5Cases() {
+			if e.ID != CI5OrgPickerTamper {
+				scenarios = append(scenarios, ScenarioCase{Name: "covered", Case: e.ID, Run: func(*testing.T) {}})
+			}
+		}
+		Suite{Require: []string{"CI-5"}, Scenarios: scenarios}.Run(t)
+		return
+	}
+	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestSuiteRunFailsWhenACaseIsMissing$", "-test.v")
+	cmd.Env = append(os.Environ(), "CONTRACTTEST_MISSING_CASE_CHILD=1")
+	out, err := cmd.CombinedOutput()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) {
+		t.Fatalf("Suite.Run with CI-5.06 missing did not fail (err %v):\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "no case covers "+CI5OrgPickerTamper) || !strings.Contains(string(out), "--- FAIL: TestSuiteRunFailsWhenACaseIsMissing/coverage") {
+		t.Errorf("the failure does not name the missing case:\n%s", out)
+	}
+}
+
+// TestSuiteRunPassesWhenEveryCaseIsCovered is the control of the test above:
+// the same suite with every case passes, so that failure is the gap.
+func TestSuiteRunPassesWhenEveryCaseIsCovered(t *testing.T) {
+	var scenarios []ScenarioCase
+	for _, e := range CI5Cases() {
+		scenarios = append(scenarios, ScenarioCase{Name: "covered", Case: e.ID, Run: func(*testing.T) {}})
+	}
+	Suite{Require: []string{"CI-5"}, Scenarios: scenarios}.Run(t)
 }

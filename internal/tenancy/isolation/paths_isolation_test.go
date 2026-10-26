@@ -60,7 +60,11 @@ func TestRegisteredPaths(t *testing.T) {
 					res.Status, res.Detail = statusFail, err.Error()
 				}
 			case p.Stack != "":
-				res.Status, res.Detail = statusStack, "run by make stack-test-identity: "+p.Stack
+				target := p.StackTarget
+				if target == "" {
+					target = DefaultStackTarget
+				}
+				res.Status, res.Detail = statusStack, "run by "+target+": "+p.Stack
 				t.Log(res.Detail)
 			case p.SQL != nil:
 				res.Status, res.Detail = runSQLPath(t, pools[p.Role], p.SQL)

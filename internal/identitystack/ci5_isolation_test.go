@@ -198,10 +198,15 @@ func ci5OrgPickerTamper(t *testing.T, e *ci5Env) {
 // linking by email: no token, and alice gains no federated identity.
 func ci5BrokerExistingEmail(t *testing.T, e *ci5Env) {
 	seedIdPUser(t, "idp-tenant-b", "alice@tenant-a.test", "alice@tenant-a.test", "dev-only-mallory")
-	if tok, _ := brokerAttempt(t, "idp-tenant-b", "alice@tenant-a.test", "dev-only-mallory"); tok != "" {
+	tok, page := brokerAttempt(t, "idp-tenant-b", "alice@tenant-a.test", "dev-only-mallory")
+	if tok != "" {
 		c := claims(t, tok)
 		wantNotTenant(t, e, tok, tenantA)
 		t.Errorf("tenant B's IdP colliding with alice got a token: sub=%v organization=%v", c["sub"], c["organization"])
+	} else if !strings.Contains(string(page), "already exists") {
+		// The refusal must come from first-broker-login (create-if-unique),
+		// not from a login that never reached Keycloak's broker.
+		t.Errorf("no token, but the login did not reach first-broker-login's duplicate check: %.600s", page)
 	}
 	alice := userID(t, serviceToken(t), "alice@tenant-a.test")
 	if code, b := admin(t, serviceToken(t), http.MethodGet, "/users/"+alice+"/federated-identity", nil); code != http.StatusOK || strings.TrimSpace(string(b)) != "[]" {
@@ -215,9 +220,14 @@ func ci5BrokerExistingEmail(t *testing.T, e *ci5Env) {
 func ci5BrokerOutOfDomain(t *testing.T, e *ci5Env) {
 	user := "oscar-" + uuid.NewString()[:8]
 	seedIdPUser(t, "idp-tenant-a", user, user+"@elsewhere.invalid", "dev-only-oscar")
-	tok, _ := brokerAttempt(t, "idp-tenant-a", user, "dev-only-oscar")
+	tok, page := brokerAttempt(t, "idp-tenant-a", user, "dev-only-oscar")
+	// The address is unique, so first-broker-login creates the user in realm
+	// nava: proof the login reached it, whatever it then decided.
+	if kcUserByEmail(t, user+"@elsewhere.invalid") == "" {
+		t.Fatalf("the brokered login never reached first-broker-login (no user created): %.600s", page)
+	}
 	if tok == "" {
-		t.Log("the brokered login was refused with no token")
+		t.Log("first-broker-login created the user but issued no token")
 		return
 	}
 	t.Log("the brokered login got a token; it must name no organization and resolve to no tenant")
@@ -281,12 +291,21 @@ func ci5ForeignIdPAtInvite(t *testing.T, d identity.DirectoryAdmin) {
 // CI-5.12. (issuer, organization) is unique across tenants, for every role,
 // the superuser included; tenant A still resolves to tenant A afterwards.
 func ci5DuplicateBinding(t *testing.T, e *ci5Env, aliceTok string) {
-	for name, tenant := range map[string]uuid.UUID{"for tenant B": tenantB, "for tenant A again": tenantA} {
+	// Only the tenant B insert proves cross-tenant uniqueness: the primary key
+	// holds tenant_id, so the tenant A insert hits it, never issuer_org_key.
+	for _, c := range []struct {
+		name       string
+		tenant     uuid.UUID
+		constraint string
+	}{
+		{"for tenant B", tenantB, "tenant_identity_binding_issuer_org_key"},
+		{"for tenant A again", tenantA, "tenant_identity_binding_pkey"},
+	} {
 		_, err := e.super.Exec(t.Context(),
-			"INSERT INTO tenant_identity_binding (tenant_id, issuer, org_id) VALUES ($1, $2, $3)", tenant, e.iss, e.orgA)
+			"INSERT INTO tenant_identity_binding (tenant_id, issuer, org_id) VALUES ($1, $2, $3)", c.tenant, e.iss, e.orgA)
 		var pg *pgconn.PgError
-		if !errors.As(err, &pg) || pg.Code != "23505" {
-			t.Errorf("%s: a second binding of tenant-a's organization = %v, want unique violation 23505", name, err)
+		if !errors.As(err, &pg) || pg.Code != "23505" || pg.ConstraintName != c.constraint {
+			t.Errorf("%s: a second binding of tenant-a's organization = %v, want unique violation 23505 on %s", c.name, err, c.constraint)
 		}
 	}
 	if p, err := e.resolver.Resolve(t.Context(), aliceTok); err != nil || p.TenantID != tenantA {

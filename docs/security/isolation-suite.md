@@ -67,10 +67,10 @@ Editing `registry.go` needs CTO sign-off (D-P10).
 
 Every CI-5 id is registered (`ci5_paths.go`), so the report lists all fourteen. Some run here:
 
-- the token shapes: an `HTTPCall` with `Token` set. The runner mints it, from a second, untrusted realm for CI-5.03. It passes only on 401.
+- the token shapes: an `HTTPCall` with `Token` set. The runner mints it, from a second, untrusted realm for CI-5.03. It passes only on 401, and only when the resolver refuses the same token with the path's `WantErr` sentinel and `WantReason`.
 - the duplicate binding: a DB path, with a fresh binding as its control.
 
-The cases only Keycloak can show (its broker, the organization picker, its keys and ID tokens) are pending on `make identity-attacks`. That suite runs the whole catalogue against the compose Keycloak and writes `ci5-report.md`; see [identity-ci5.md](identity-ci5.md).
+The cases only Keycloak can show (its broker, the organization picker, its keys and ID tokens) are `Stack` paths on `TestCI5`, with `StackTarget` naming `make identity-attacks`, so `TestStackPathsExist` covers them. That suite runs the whole catalogue against the compose Keycloak and writes `ci5-report.md`; see [identity-ci5.md](identity-ci5.md).
 
 ## Not covered here (owner)
 
