@@ -94,6 +94,10 @@ type Cluster interface {
 	// the suite's PgBouncer gives a role one server connection, so a check
 	// that holds one while another request needs its own cannot use it.
 	PoolSize(role string, conns int32) (*pgxpool.Pool, error)
+	// PooledSize is Pool with room for conns client connections, all through
+	// PgBouncer's one server connection for the role: a check that holds a
+	// server connection while another request needs one waits forever.
+	PooledSize(role string, conns int32) (*pgxpool.Pool, error)
 	// Super is the bootstrap superuser on the platform database, which RLS
 	// does not hold. A DB path that seeds rows with it deletes them before
 	// it returns, so later checks see the seed unchanged.
@@ -198,6 +202,11 @@ func Paths() []Path {
 			TenantB, NewID),
 		sql("idempotency_keys: overwrite tenant B's stored response", "nava_app", Denied,
 			"UPDATE idempotency_keys SET response_body = 'x' WHERE tenant_id = $1", TenantB),
+		// T22a (TICK-212): the takeover lease nava_app may move forward.
+		sql("idempotency_keys: extend tenant B's lease", "nava_app", Denied,
+			"UPDATE idempotency_keys SET lease_until = now() + interval '1 hour' WHERE tenant_id = $1", TenantB),
+		sql("idempotency_keys: reset tenant B's lease so a takeover can run", "nava_app", Denied,
+			"UPDATE idempotency_keys SET lease_until = now() - interval '1 hour' WHERE tenant_id = $1", TenantB),
 		sql("tenants: read tenant B", "nava_app", OwnRowsOnly,
 			"SELECT id FROM tenants WHERE id = $1", TenantB),
 		sql("tenants: onboarding creates a tenant other than its own", "nava_onboard", Denied,
