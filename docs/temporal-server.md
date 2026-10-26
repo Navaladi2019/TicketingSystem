@@ -89,6 +89,7 @@ prints both sets.
 | D9c | `ScheduleActivityTask` | queue set and not in the set | `task_queue_not_allowed` |
 | D9c | `StartChildWorkflowExecution`, `ContinueAsNewWorkflowExecution` | type not in the set (empty is denied, not inherited) | `workflow_type_not_allowed` |
 | | | queue set and not in the set | `task_queue_not_allowed` |
+| D9c | `ScheduleActivityTask`, `StartChildWorkflowExecution`, `ContinueAsNewWorkflowExecution` | queue kind not NORMAL / UNSPECIFIED | `task_queue_kind_not_allowed` |
 | D9c | `StickyAttributes` (`command=StickyAttributes`) | the D9b STICKY rule fails | `sticky_queue_not_allowed` |
 | D9b+ | `nava-worker` `PollWorkflowTaskQueue`, `PollActivityTaskQueue` | `DeploymentOptions.WorkerVersioningMode` not unspecified / `UNVERSIONED`, or `WorkerVersionCapabilities.UseVersioning` true | `worker_versioning_not_allowed` |
 | D9d | `nava-worker` `RespondWorkflowTaskFailed`, `RespondActivityTaskCompleted` / `Failed` / `Canceled`, `RecordActivityTaskHeartbeat` | task token does not decode as `token.v1.Task` | `task_token_invalid` |
@@ -98,7 +99,11 @@ prints both sets.
 | D9e | `nava-worker` `GetWorkflowExecutionHistory` | workflow id without `t:<tenant>:` | `workflow_id_no_tenant` |
 | D9f | `nava-core` `RequestCancelWorkflowExecution`, `UpdateWorkflowExecution`, `QueryWorkflow`, `DescribeWorkflowExecution`, `GetWorkflowExecutionHistory` | workflow id without `t:<tenant>:` (empty included) | `workflow_id_no_tenant` |
 | D9g | `nava-worker` `ShutdownWorker` | `StickyTaskQueue` set and not `<host>:<uuid>`, or in the set | `sticky_queue_not_allowed` |
-| | `ShutdownWorker`, `RecordWorkerHeartbeat` | a present `WorkerHeartbeat` whose `TaskQueue` is not in the set (empty included) | `task_queue_not_allowed` |
+| | `ShutdownWorker`, `RecordWorkerHeartbeat`, `PollWorkflowTaskQueue`, `PollActivityTaskQueue` | a present `WorkerHeartbeat` whose `TaskQueue` is not in the set (empty included) | `task_queue_not_allowed` |
+| D9h-links | `nava-relay` `StartWorkflowExecution` (`links`, `completion_callbacks[].links`), `SignalWithStartWorkflowExecution`, `SignalWorkflowExecution`; `nava-core` `RequestCancelWorkflowExecution` | a link that is not a workflow event link, or whose workflow id has no `t:<tenant>:` | `workflow_id_no_tenant` |
+| D9h-failures | `nava-relay` `StartWorkflowExecution` (`continued_failure`); `nava-worker` `RespondWorkflowTaskFailed`, `RespondActivityTaskFailed`, `RespondQueryTaskCompleted`; `RespondWorkflowTaskCompleted` query results and `FailWorkflowExecution`, `RecordMarker`, `ContinueAsNewWorkflowExecution` commands; the update `messages` of `RespondWorkflowTaskCompleted` and `RespondWorkflowTaskFailed` (`Rejection.failure`, `Response.outcome.failure`; `command=Message`, `command_index` is the message's) | a `ChildWorkflowExecutionFailureInfo` workflow id anywhere along the `cause` chain without `t:<tenant>:` | `workflow_id_no_tenant` |
+| | worker task-token paths (all of the above except the relay's start and `RespondQueryTaskCompleted`, whose token names no workflow) | that workflow id names another tenant than the task's | `command_cross_tenant` |
+| | update `messages` | a body that is not an update `Acceptance`, `Rejection` or `Response`, or does not decode | `protocol_message_not_allowed` |
 
 A missing or mistyped request body is `request_malformed`. The sticky rule
 exists because, at server v1.29.7, a sticky partition and the normal partition
@@ -112,6 +117,15 @@ D9b+ stops a versioned poll from making matching start the
 force-unloading the `nava-tq` root partition. D9e and D9f prove the workflow is
 *a* tenant's, not *which* tenant's: the `nava-core` and `nava-worker`
 certificates carry no tenant. `nava-operator` stays outside D9.
+
+D9h and the poll-heartbeat and Kind clauses of D9g and D9c are T27k's
+(TICK-133). They enforce ADR-001-A2 Annex A.2's statement that every workflow id
+and task queue an allow-listed API names is checked. The CI-C drift golden,
+`temporal-server/authz/testdata/request-fields.golden.md`
+(`TestRequestFieldGolden`), lists every request field of the `nava-relay`,
+`nava-core` and `nava-worker` APIs with the rule that checks it. A
+`go.temporal.io/api` bump that changes a field, or an id- or queue-shaped field
+with no rule, fails CI until a policy PR classifies it.
 
 ## Drift checks (run on every Temporal upgrade)
 
@@ -147,12 +161,12 @@ Each API deny logs `Temporal API call denied` (warn) with `identity`, `api`,
 `cert_issuer`. Each command deny logs `Temporal workflow command denied`
 (**error**, `alert=true`) with the same fields plus `workflow_id`,
 `command_index`, `target_workflow_id` (when the command has one) and `detail`.
-Each D9 request deny (D9a, D9b(+), D9d to D9g) logs `Temporal workload denied` the same way (`command`
+Each D9 request deny (D9a, D9b(+), D9d to D9h) logs `Temporal workload denied` the same way (`command`
 `none`, `command_index` `-1`); the type or queue name is in `detail`.
 Both increment `nava_authz_denied{identity,api,namespace,reason,command}`.
 
 Metric tags are bounded: `none`/`other` for unknown values, `command` is a
-command type name, `StickyAttributes` or `unknown`. Workflow ids, types and
+command type name, `StickyAttributes`, `Message` or `unknown`. Workflow ids, types and
 queue names are client-supplied and unbounded, so they are in the log line
 only, never in a tag. The Prometheus
 reporter rewrites `-` and `/` in tag values to `_`. The caller only sees a

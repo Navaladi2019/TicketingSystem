@@ -233,6 +233,17 @@ func TestDiscoveryDocumentChecked(t *testing.T) {
 			d["jwks_uri"] = d["issuer"].(string) + "/../other/protocol/openid-connect/certs"
 		},
 		"jwks_uri with userinfo": func(_ string, d map[string]any) { d["jwks_uri"] = d["issuer"].(string) + "/certs@evil.test" },
+		// T15a (TICK-152): escaped dot segments and slashes the text check
+		// cannot see; url.Parse sets RawPath for both.
+		"jwks_uri with %2e%2e": func(_ string, d map[string]any) {
+			d["jwks_uri"] = d["issuer"].(string) + "/%2e%2e/other/protocol/openid-connect/certs"
+		},
+		"jwks_uri with %2f": func(_ string, d map[string]any) {
+			d["jwks_uri"] = d["issuer"].(string) + "/..%2f..%2fother/protocol/openid-connect/certs"
+		},
+		"jwks_uri with lone %2f": func(_ string, d map[string]any) {
+			d["jwks_uri"] = d["issuer"].(string) + "/protocol%2fopenid-connect/certs"
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -243,6 +254,11 @@ func TestDiscoveryDocumentChecked(t *testing.T) {
 			wantInvalid(t, err)
 			if n := idp.jwksHits.Load(); n != 0 {
 				t.Fatalf("%d JWKS fetches after a bad discovery document", n)
+			}
+			// Discovery only: a fetch of a rejected jwks_uri can 404 and so
+			// miss jwksHits, but it still counts here.
+			if n := idp.requests.Load(); n != 1 {
+				t.Fatalf("%d requests after a bad discovery document, want 1", n)
 			}
 		})
 	}

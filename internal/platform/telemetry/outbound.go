@@ -66,6 +66,36 @@ func traced(r *http.Request) bool {
 	return !off
 }
 
+type noRedirectKey struct{}
+
+// WithoutRedirects returns ctx marked so that an outbound call made with it
+// follows no redirect: a 3xx with a Location fails with ErrRedirectRefused,
+// whatever host it names. It is for fetches whose URL was checked before the
+// call, such as JWKS and OIDC discovery: a redirect, even to the same host,
+// would fetch from a URL that check never saw.
+func WithoutRedirects(ctx context.Context) context.Context {
+	return context.WithValue(ctx, noRedirectKey{}, true)
+}
+
+// ErrRedirectRefused is the cause of the error a call made with
+// WithoutRedirects returns when the server answers with a redirect.
+var ErrRedirectRefused = errors.New("outbound: redirect refused")
+
+// maxRedirects is http.Client's own default limit, kept for unmarked calls.
+const maxRedirects = 10
+
+// checkRedirect refuses every redirect of a WithoutRedirects call. req is the
+// next request; its context is the original request's.
+func checkRedirect(req *http.Request, via []*http.Request) error {
+	if off, _ := req.Context().Value(noRedirectKey{}).(bool); off {
+		return ErrRedirectRefused
+	}
+	if len(via) >= maxRedirects {
+		return errors.New("stopped after 10 redirects")
+	}
+	return nil
+}
+
 // OutboundClient is the one HTTP client for calls leaving the process
 // (Keycloak, webhooks, LLM providers). Build it with NewOutboundClient; do not
 // make an http.Client of your own.
@@ -112,7 +142,11 @@ func NewOutboundClient(tel *Telemetry, opts OutboundOptions) (*OutboundClient, e
 			return r.Method + " " + routeFrom(r.Context())
 		}),
 	)
-	return &OutboundClient{hc: &http.Client{Transport: redactingTransport{next: instrumented}, Timeout: opts.Timeout}}, nil
+	return &OutboundClient{hc: &http.Client{
+		Transport:     redactingTransport{next: instrumented},
+		CheckRedirect: checkRedirect,
+		Timeout:       opts.Timeout,
+	}}, nil
 }
 
 func orDefault(d, def time.Duration) time.Duration {
@@ -173,7 +207,8 @@ func safeCause(ctx context.Context, err error) error {
 	switch {
 	case errors.As(err, &nested):
 		return redactURLError(ctx, err)
-	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded),
+	case errors.Is(err, ErrRedirectRefused),
+		errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded),
 		errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF),
 		errors.As(err, &netErr), errors.As(err, &certErr), errors.As(err, &alert),
 		errors.As(err, &record), errors.As(err, &unknown), errors.As(err, &host),

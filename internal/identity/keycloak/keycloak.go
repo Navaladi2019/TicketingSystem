@@ -9,6 +9,9 @@
 //     request, so a token cannot make the service fetch from a host it names;
 //   - the signing key comes only from the JWKS that iss's own discovery
 //     document names, so a key of realm X never verifies a token with iss=Y;
+//     that jwks_uri must parse to iss's scheme and host and a cleaned,
+//     unescaped path under iss's, and neither fetch follows a redirect,
+//     same-origin included (T15a, TICK-152);
 //   - alg must be RS256 and kid must be set;
 //   - exp is required; exp and nbf allow 30 s of skew;
 //   - typ must be Bearer and azp set, so an ID token is rejected;

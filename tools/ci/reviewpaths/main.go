@@ -17,6 +17,8 @@ import (
 	"regexp"
 	"strings"
 
+	"go.yaml.in/yaml/v3"
+
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/strictyaml"
 )
 
@@ -84,14 +86,69 @@ func git(args ...string) (string, error) {
 
 // Config is docs/delivery/review-paths.yaml.
 type Config struct {
-	Security   []string `yaml:"security"`
+	Security   Entries `yaml:"security"`
 	CTOSignoff struct {
-		Paths          []string `yaml:"paths"`
+		Paths          Entries  `yaml:"paths"`
 		IsolationTests []string `yaml:"isolation_tests"`
 	} `yaml:"cto_signoff"`
 }
 
 func (c Config) isIsolationTest(p string) bool { return matchAny(c.CTOSignoff.IsolationTests, p) }
+
+// Entry is one pattern of a path list: a bare string, or a mapping
+//
+//   - path: cmd/nava-relay/
+//     planned: "PLAN-001 T30b"
+//
+// for a pattern that matches no tracked file yet. Planned names the task that
+// creates it (TestPathsMatchTrackedFiles holds both forms to that).
+type Entry struct {
+	Path    string
+	Planned string
+}
+
+// UnmarshalYAML accepts both forms. node.Decode does not inherit the
+// decoder's KnownFields, so the mapping keys are checked here.
+func (e *Entry) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.ScalarNode {
+		return node.Decode(&e.Path)
+	}
+	if node.Kind != yaml.MappingNode {
+		return fmt.Errorf("line %d: a path entry is a string or a {path, planned} mapping", node.Line)
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		k, v := node.Content[i], node.Content[i+1]
+		var dst *string
+		switch k.Value {
+		case "path":
+			dst = &e.Path
+		case "planned":
+			dst = &e.Planned
+		default:
+			return fmt.Errorf("line %d: field %s not found in path entry", k.Line, k.Value)
+		}
+		if err := v.Decode(dst); err != nil {
+			return err
+		}
+	}
+	if e.Path == "" {
+		return fmt.Errorf("line %d: path entry has no path", node.Line)
+	}
+	return nil
+}
+
+// Entries is a path list.
+type Entries []Entry
+
+// Patterns returns the patterns, planned or not: a planned path is flagged
+// from the PR that creates it.
+func (es Entries) Patterns() []string {
+	out := make([]string, len(es))
+	for i, e := range es {
+		out[i] = e.Path
+	}
+	return out
+}
 
 // Change is one line of `git diff --name-status`.
 type Change struct {
@@ -162,11 +219,11 @@ var constraintRe = regexp.MustCompile(`^\s*//\s*(go:build|\+build)\b`)
 func Evaluate(cfg Config, changes []Change, added map[string][]string) Result {
 	var r Result
 	for _, c := range changes {
-		if matchAny(cfg.Security, c.Path) {
+		if matchAny(cfg.Security.Patterns(), c.Path) {
 			r.Security = append(r.Security, c.Path)
 		}
 		switch {
-		case matchAny(cfg.CTOSignoff.Paths, c.Path):
+		case matchAny(cfg.CTOSignoff.Paths.Patterns(), c.Path):
 			r.CTO = append(r.CTO, c.Path+" (changed)")
 		case cfg.isIsolationTest(c.Path) && c.Status == "D":
 			r.CTO = append(r.CTO, c.Path+" (isolation test removed)")

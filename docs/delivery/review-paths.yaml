@@ -12,9 +12,13 @@
 # is a path.Match glob against the whole repo-relative path.
 #
 # Several packages below do not exist yet. Their paths are the names PLAN-001
-# gives them; the task that creates a package under a different name updates
-# this file in the same PR (and that PR is itself flagged, since this file is
-# on the list).
+# gives them, written as `- path: <pattern>` with `planned: "PLAN-001 T<nn>"`,
+# the task that creates them. The task that creates one updates this file in
+# the same PR: it drops the marker, or fixes the path if the package got
+# another name (and that PR is itself flagged, since this file is on the
+# list). TestPathsMatchTrackedFiles (tools/ci/reviewpaths) fails on an entry
+# of `security` or `cto_signoff.paths` that matches no tracked file and has no
+# marker, on a marker that names no task, and on a marker whose path exists.
 
 security:
   - internal/tenancy/
@@ -28,18 +32,21 @@ security:
   - internal/platform/auth/
   # Cursor and idempotency.
   - internal/platform/cursor/
-  - internal/platform/idempotency/
+  - path: internal/platform/idempotency/
+    planned: "PLAN-001 T22"
   - cmd/nava-purge/
-  - cmd/nava-groupsync/
+  - path: cmd/nava-groupsync/
+    planned: "PLAN-001 T25"
   # The operator onboarding handler.
-  - internal/onboarding/
+  - path: internal/onboarding/
+    planned: "PLAN-001 T21"
   - temporal-server/
   # Including pg_hba.conf, grants.yaml and every migration.
   - db/
   - cmd/nava-db/
   - internal/db/
-  # The realm export.
-  - deploy/keycloak/
+  # The realm export and the Keycloak image build (here since TICK-57).
+  - deploy/compose/keycloak/
   # The compose network files.
   - compose.yaml
   - deploy/compose/compose.internal.yaml
@@ -57,12 +64,10 @@ security:
 cto_signoff:
   # Editing any of these needs CTO sign-off.
   paths:
-    # The isolation registry.
+    # The isolation registry. T11 built it in Go; there is no YAML form.
     - internal/tenancy/isolation/registry.go
-    - internal/tenancy/isolation/registry.yaml
     # The RLS allow-list (ADR-001 A.3, CI-1). T09 pinned it in Go; T10 moved
     # it into the catalogue gate, which enforces it after every migrator run.
-    - db/rls-allowlist.yaml
     - internal/db/catalog/policy.go
     # Tenant tables are every platform table not listed here (D-P16).
     - db/global-tables.yaml

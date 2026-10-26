@@ -10,13 +10,18 @@ package authz
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 
 	commandpb "go.temporal.io/api/command/v1"
 	commonpb "go.temporal.io/api/common/v1"
 	enumspb "go.temporal.io/api/enums/v1"
+	failurepb "go.temporal.io/api/failure/v1"
+	protocolpb "go.temporal.io/api/protocol/v1"
 	taskqueuepb "go.temporal.io/api/taskqueue/v1"
+	updatepb "go.temporal.io/api/update/v1"
 	"go.temporal.io/api/workflowservice/v1"
 	tokenspb "go.temporal.io/server/api/token/v1"
 )
@@ -43,14 +48,18 @@ const (
 	ReasonCronSchedule      = "continue_as_new_cron"
 	ReasonTenantSearchAttr  = "search_attribute_tenant"
 	ReasonMalformedRequest  = "request_malformed"
+	ReasonProtocolMessage   = "protocol_message_not_allowed"
 )
 
 // Values of the `command` metric tag besides the command names below.
-// commandStickyAttributes tags a denied response-level StickyAttributes (D9c).
+// commandStickyAttributes tags a denied response-level StickyAttributes (D9c);
+// commandMessage tags a denied update protocol message (D9h-failures), whose
+// command_index is its position in Messages.
 const (
 	commandNone             = "none"
 	commandUnknown          = "unknown"
 	commandStickyAttributes = "StickyAttributes"
+	commandMessage          = "Message"
 )
 
 // commandNames is every command type of go.temporal.io/api v1.53.0 (unchanged since v1.50.1), by the name
@@ -101,8 +110,8 @@ var allowedCommands = map[enumspb.CommandType]bool{
 // command are metric tags; the ids go to the log line (and so the alert) only.
 type commandDenial struct {
 	reason  string
-	command string // a commandNames value, commandUnknown, commandNone or commandStickyAttributes
-	index   int    // position in Commands, or -1 for the whole response
+	command string // a commandNames value, commandUnknown, commandNone, commandStickyAttributes or commandMessage
+	index   int    // position in Commands (in Messages for commandMessage), or -1 for the whole response
 	// workflowID is the task token's; target is the command's target id.
 	workflowID, target string
 	detail             string
@@ -126,6 +135,18 @@ func inspectCommands(request any) *commandDenial {
 			return &commandDenial{reason: reason, command: commandStickyAttributes, index: -1,
 				workflowID: workflowID, detail: detail}
 		}
+	}
+	// D9h-failures: a query result's failure names only the tenant's children.
+	results := req.GetQueryResults()
+	for _, k := range slices.Sorted(maps.Keys(results)) {
+		if reason, id := checkFailureChildren(results[k].GetFailure(), tenant); reason != "" {
+			return &commandDenial{reason: reason, command: commandNone, index: -1,
+				workflowID: workflowID, target: id, detail: "query result " + childFailureDetail}
+		}
+	}
+	if d := checkMessages(req.GetMessages(), tenant); d != nil {
+		d.workflowID = workflowID
+		return d
 	}
 	for i, cmd := range req.GetCommands() {
 		if reason, target, detail := checkCommand(cmd, tenant); reason != "" {
@@ -151,6 +172,53 @@ func taskTokenTenant(taskToken []byte) (workflowID, tenant string, d *commandDen
 		return workflowID, "", &commandDenial{reason: ReasonNoTenantPrefix, command: commandNone, index: -1, workflowID: workflowID}
 	}
 	return workflowID, tenant, nil
+}
+
+// childFailureDetail is the log detail of a D9h-failures deny.
+const childFailureDetail = "child failure workflow id"
+
+// checkMessages is D9h-failures for update protocol messages, on
+// RespondWorkflowTaskCompleted and RespondWorkflowTaskFailed. A message body
+// is a google.protobuf.Any. At server v1.29.7 it must be an update Acceptance,
+// Rejection or Response (service/history/workflow/update/update.go
+// OnProtocolMessage), and a Rejection's or Response's failure is written to
+// history, so its child failures must name the tenant's workflows. Any other
+// body, or one that does not decode, is denied: the drift golden expands only
+// these three (anyBodies in policy_test.go).
+func checkMessages(msgs []*protocolpb.Message, tenant string) *commandDenial {
+	for i, m := range msgs {
+		if reason, target, detail := checkMessage(m, tenant); reason != "" {
+			return &commandDenial{reason: reason, command: commandMessage, index: i, target: target, detail: detail}
+		}
+	}
+	return nil
+}
+
+func checkMessage(m *protocolpb.Message, tenant string) (reason, target, detail string) {
+	body := m.GetBody()
+	var failure *failurepb.Failure
+	var err error
+	switch name := body.MessageName(); name {
+	case "temporal.api.update.v1.Acceptance":
+		err = body.UnmarshalTo(&updatepb.Acceptance{})
+	case "temporal.api.update.v1.Rejection":
+		r := &updatepb.Rejection{}
+		err = body.UnmarshalTo(r)
+		failure = r.GetFailure()
+	case "temporal.api.update.v1.Response":
+		r := &updatepb.Response{}
+		err = body.UnmarshalTo(r)
+		failure = r.GetOutcome().GetFailure()
+	default:
+		return ReasonProtocolMessage, "", "message body type " + strconv.Quote(truncate(string(name), maxLoggedName))
+	}
+	if err != nil {
+		return ReasonProtocolMessage, "", "message body: " + err.Error()
+	}
+	if reason, id := checkFailureChildren(failure, tenant); reason != "" {
+		return reason, id, "update " + childFailureDetail
+	}
+	return "", "", ""
 }
 
 // checkCommand returns "" if the command is allowed for a task of tenant, or
@@ -195,6 +263,9 @@ func checkCommand(cmd *commandpb.Command, tenant string) (reason, target, detail
 		if a.GetCronSchedule() != "" {
 			return ReasonCronSchedule, "", ""
 		}
+		if reason, id := checkFailureChildren(a.GetFailure(), tenant); reason != "" {
+			return reason, id, childFailureDetail
+		}
 		if detail := checkTenantHeader(a.GetHeader(), tenant); detail != "" {
 			return ReasonTenantHeader, "", detail
 		}
@@ -203,6 +274,14 @@ func checkCommand(cmd *commandpb.Command, tenant string) (reason, target, detail
 		}
 		if reason, detail := checkCommandWorkload(a.GetWorkflowType(), a.GetTaskQueue()); reason != "" {
 			return reason, "", detail
+		}
+	case enumspb.COMMAND_TYPE_FAIL_WORKFLOW_EXECUTION:
+		if reason, id := checkFailureChildren(cmd.GetFailWorkflowExecutionCommandAttributes().GetFailure(), tenant); reason != "" {
+			return reason, id, childFailureDetail
+		}
+	case enumspb.COMMAND_TYPE_RECORD_MARKER:
+		if reason, id := checkFailureChildren(cmd.GetRecordMarkerCommandAttributes().GetFailure(), tenant); reason != "" {
+			return reason, id, childFailureDetail
 		}
 	case enumspb.COMMAND_TYPE_UPSERT_WORKFLOW_SEARCH_ATTRIBUTES:
 		a := cmd.GetUpsertWorkflowSearchAttributesCommandAttributes()
@@ -223,9 +302,16 @@ func checkCommandWorkload(wt *commonpb.WorkflowType, tq *taskqueuepb.TaskQueue) 
 	return checkCommandTaskQueue(tq)
 }
 
-// checkCommandTaskQueue is D9c for a command's task queue: empty (the command
+// checkCommandTaskQueue is D9c for a command's task queue: Kind NORMAL or
+// UNSPECIFIED, so the server never reads NormalName (tqid.PartitionFromProto
+// rejects one on a non-sticky queue), and a name that is empty (the command
 // inherits the workflow's queue) or a platform queue.
 func checkCommandTaskQueue(tq *taskqueuepb.TaskQueue) (reason, detail string) {
+	switch tq.GetKind() {
+	case enumspb.TASK_QUEUE_KIND_NORMAL, enumspb.TASK_QUEUE_KIND_UNSPECIFIED:
+	default:
+		return ReasonTaskQueueKind, "task queue kind " + tq.GetKind().String()
+	}
 	if name := tq.GetName(); name != "" && !inSet(platformTaskQueues, name) {
 		return ReasonTaskQueue, "task queue " + strconv.Quote(truncate(name, maxLoggedName))
 	}
