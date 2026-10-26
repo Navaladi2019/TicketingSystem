@@ -44,7 +44,7 @@ sequenceDiagram
 
 ## Steps (two rounds maximum, never a third)
 
-1. **Frame (Solution Architect).** `01_Architecture/RFC-NNN-<slug>.md`: recommendation, context, bounded contexts and domain model, two or three candidate designs, the invariants touched, and the assumptions you have *not* verified. If tenant data or identity is touched, the CTO also mentions the Security & Multi-Tenancy Reviewer for a parallel review; data-model questions bring in the Postgres & Data Modeling Specialist.
+1. **Frame (Solution Architect).** `RFC-NNN-<slug>.md`, written in your workdir and posted as an issue comment attachment; the RFC enters the repo only in step 4. Contents: recommendation, context, bounded contexts and domain model, two or three candidate designs, the invariants touched, and the assumptions you have *not* verified. If tenant data or identity is touched, the CTO also mentions the Security & Multi-Tenancy Reviewer for a parallel review; data-model questions bring in the Postgres & Data Modeling Specialist.
 2. **Challenge (Technical Architect).** Append `## Critique — round N` to the RFC. Label every objection:
    - `blocking` — wrong or unsafe as written; include the failing scenario.
    - `non-blocking` — a real cost worth recording in the ADR.
@@ -52,11 +52,31 @@ sequenceDiagram
    - `confirmed` — you checked it and it holds. Say so explicitly.
    Every objection names the mechanism, a concrete failing scenario with inputs, and what would change your mind. Any `blocking` → `VERDICT: CHANGES`; otherwise `VERDICT: APPROVE` listing the non-blocking items.
 3. **Converge (Solution Architect).** One revision. Add `## Response — round N` and resolve every `blocking` item: accepted (and how the design changed), rejected (with the reason), or deferred (with a named trigger). Do not reopen items a spike settled. On re-check the Technical Architect judges only whether each blocking item was resolved; no new objections. Still split → the tie-break ladder.
-4. **Record (Solution Architect).** `01_Architecture/ADR-NNN-<slug>.md` from the approved RFC: decisions only, two pages at most, rejected options and recorded dissent. Status stays `PROPOSED`. Move the RFC to `01_Architecture/_archive/`.
-5. **Sign-off (the human).** The CTO sets the issue to `in_review` and mentions the human with a link to the ADR and its summary. The human replies `APPROVED` or `REJECTED: <why>`.
-   - `APPROVED` → the CTO mentions the Solution Architect to set the ADR to `ACCEPTED`, then goes to step 6.
+4. **Record (Solution Architect).** `docs/adr/ADR-NNN-<slug>.md` from the approved RFC: decisions only, two pages at most, rejected options and recorded dissent. Status stays `PROPOSED`. Ship it on a design PR (see [Branch and PR](#branch-and-pr)) before the sign-off request.
+5. **Sign-off (the human).** The CTO sets the issue to `in_review` and mentions the human with the design PR link, the `.html` explainer and the ADR summary. The human replies `APPROVED` or `REJECTED: <why>`.
+   - `APPROVED` → the CTO mentions the Solution Architect to set the ADR to `ACCEPTED` in both the `.md` and the `.html` (same PR if still open, otherwise a follow-up design PR) and add `MergePr`, then goes to step 6.
    - `REJECTED` → back to step 3 with the human's notes; this does not count as a debate round.
-6. **Close (CTO creates, Technical Lead plans).** The CTO creates `Plan ADR-NNN` assigned directly to the Technical Lead, linking only the ADR, and leaves the RFC issue in `in_review` for the human to mark `done`. The Technical Lead plans per the `delivery-planning` skill.
+6. **Close (CTO creates, Technical Lead plans).** The CTO creates `Plan ADR-NNN` assigned directly to the Technical Lead, linking only the ADR, and leaves the RFC issue in `in_review` for the human to mark `done`. The Technical Lead plans per the `delivery-planning` skill. A plan that splits work into stories keeps them independent: each story lists the files and packages it touches, no two stories touch the same file, and a real dependency is sequenced explicitly (`Depends on: <story>`, which starts only after that story is merged into `main`).
+
+## Where design artefacts live
+
+| Artefact | Path |
+|---|---|
+| ADR | `docs/adr/ADR-NNN-<slug>.md` |
+| Amendment / erratum | `docs/adr/ADR-NNN-A<k>-<slug>.md` / `docs/adr/ADR-NNN-E<k>-<slug>.md` |
+| HTML explainer (self-contained, for the decision-maker) | `docs/adr/ADR-NNN[-A<k>\|-E<k>]-explained.html` |
+| Archived RFC (final text, plus earlier revisions) | `docs/adr/ADR-NNN/rfc/RFC-NNN-<slug>.md`, `docs/adr/ADR-NNN/rfc/rev-<n>/` |
+| Spike code and output | `docs/adr/ADR-NNN/spikes/<area>/<round-or-rfc>/` |
+| Plan | `docs/delivery/plan-adr-NNN[-a<k>].md` |
+
+Amendments and errata archive their RFC and spikes under the parent ADR's directory. ADR frontmatter: `type, id, title, status, date, issue, rfc, supersedes`.
+
+## Branch and PR
+
+- **Branch:** `TICK-<issue-no>/<short-kebab-description>`, where the number is the design issue (RFC, ADR, erratum or plan issue), e.g. `TICK-129/adr-001-a2-system-workflow-reach`. `multica repo checkout` creates an `agent/...` branch; rename it before the first push (`git branch -m`). No other prefixes.
+- **Target:** the story branch when the artefact belongs to one story (`TICK-<story-no>/<story-slug>`); otherwise `main`. Docs-only design work (RFC, ADR, amendment, erratum, plan) to `main` is the only task-level exception to "nothing goes straight to `main`" (`docs/delivery/branching-strategy.md`).
+- **Contents:** docs only, under `docs/adr/` (plans under `docs/delivery/`). An ADR PR carries the `.md`, the `.html` explainer, and the archived RFC and spikes. A fix that needs code is a task under a story, not part of the design PR.
+- **Title and labels:** `TICK-<no>: <ADR id> <title>`. Add the `PR #N` label to the issue; add `MergePr` only after the human's `APPROVED` and the status update. Never merge it yourself.
 
 ## Review checklists for the critique
 - **Solution level:** every stated goal maps to a capability; module boundaries do not leak; integration contracts are versionable; multi-tenancy and embedding are addressed; non-goals are explicit.

@@ -17,7 +17,9 @@ description: "How to write RFCs, ADRs and PLANs that the human can review in fif
 
 **ADR (the decision, after the RFC is approved)** — at most two pages: decision, context it rests on, consequences, rejected options, recorded dissent, revisit triggers. Status stays `PROPOSED` until the human signs off; never set `ACCEPTED` yourself — the sign-off is the decision. No debate history (it stays in the archived RFC).
 
-**PLAN** — summary, critical path, sequencing with reasons, what the milestone cannot absorb and the proposed cut, then the task graph. Each task: one outcome, acceptance criteria, the interface contract it must honour, dependencies, a role tag.
+**PLAN** — summary, critical path, sequencing with reasons, what the milestone cannot absorb and the proposed cut, then the task graph. Each task: one outcome, acceptance criteria, the interface contract it must honour, dependencies, a role tag. When the plan splits work into stories, each story lists the files and packages it touches, and no two stories touch the same file; a real dependency is written `Depends on: <story>`, and that story starts only after the one it depends on is merged into `main`.
+
+**Where they live and how they ship** — paths, branch name and PR target are in the `design-triad` skill ("Where design artefacts live", "Branch and PR").
 
 **Writing**
 - Claims that rest on measurement cite the spike or file that measured them; unverified claims say "unverified" and how to verify. A confident wrong number costs more than an honest "unknown".
