@@ -35,8 +35,18 @@ func runFixture(t *testing.T, o options) (int, string) {
 	if err != nil {
 		t.Fatalf("run: %v\n%s", err, out.String())
 	}
+	_, rep, _ := strings.Cut(out.String(), "suiteran: registered")
+	for _, l := range strings.Split(rep, "\n") {
+		if goMatcherRe.MatchString(l) {
+			t.Errorf("report line %q looks like a Go compiler error to setup-go's problem matcher", l)
+		}
+	}
 	return code, out.String()
 }
+
+// goMatcherRe is setup-go's problem matcher (matchers.json): a line it matches
+// becomes an error annotation on the pull request.
+var goMatcherRe = regexp.MustCompile(`^\s*(.+\.go):(?:(\d+):(\d+):)? (.*)`)
 
 func TestFixture(t *testing.T) {
 	for _, tc := range []struct {
@@ -52,10 +62,10 @@ func TestFixture(t *testing.T) {
 			tags: []string{"fixturetag"},
 			args: goTest("-json", "-tags", "fixturetag", "./..."),
 			want: []string{
-				"ok    early/early_suite_test.go: ran 1 of 1 tests",
-				"ok    tagged/tagged_suite_test.go: ran 1 of 1 tests",
-				"ok    skipped/skipped_suite_test.go: ran 1 of 1 tests",
-				"-     helpers/helpers_suite_test.go: defines no test",
+				"ok    early/early_suite_test.go, ran 1 of 1 tests",
+				"ok    tagged/tagged_suite_test.go, ran 1 of 1 tests",
+				"ok    skipped/skipped_suite_test.go, ran 1 of 1 tests",
+				"-     helpers/helpers_suite_test.go, defines no test",
 				"0 registered files are outside this run",
 			},
 		},
@@ -65,14 +75,14 @@ func TestFixture(t *testing.T) {
 			tags: []string{"fixturetag"},
 			args: goTest("-json", "-tags", "fixturetag", "./..."),
 			code: 1,
-			want: []string{"FAIL  early/early_suite_test.go: ran 0 of 1 tests", "1 registered isolation suites ran zero tests"},
+			want: []string{"FAIL  early/early_suite_test.go, ran 0 of 1 tests", "1 registered isolation suites ran zero tests"},
 		},
 		{
 			name: "go test drops the build tag",
 			tags: []string{"fixturetag"},
 			args: goTest("-json", "./..."),
 			code: 1,
-			want: []string{"FAIL  tagged/tagged_suite_test.go: ran 0 of 1 tests"},
+			want: []string{"FAIL  tagged/tagged_suite_test.go, ran 0 of 1 tests"},
 		},
 		{
 			name: "every test of a suite skips",
@@ -80,14 +90,14 @@ func TestFixture(t *testing.T) {
 			tags: []string{"fixturetag"},
 			args: goTest("-json", "-tags", "fixturetag", "./..."),
 			code: 1,
-			want: []string{"FAIL  skipped/skipped_suite_test.go: ran 0 of 1 tests"},
+			want: []string{"FAIL  skipped/skipped_suite_test.go, ran 0 of 1 tests"},
 		},
 		{
 			name: "a -run filter leaves a suite out",
 			tags: []string{"fixturetag"},
 			args: goTest("-json", "-tags", "fixturetag", "-run", "^TestPlain$", "./tagged"),
 			code: 1,
-			want: []string{"FAIL  tagged/tagged_suite_test.go: ran 0 of 1 tests", "3 registered files are outside this run"},
+			want: []string{"FAIL  tagged/tagged_suite_test.go, ran 0 of 1 tests", "3 registered files are outside this run"},
 		},
 		{
 			name: "a step without the tag does not expect the tagged suite",
@@ -167,7 +177,7 @@ func TestIn(t *testing.T) {
 		t.Errorf("one shard: exit %d, want 1\n%s", code, out)
 	}
 	code, out = runFixture(t, options{in: true, args: []string{a, b}})
-	if code != 0 || !strings.Contains(out, "ok    early/early_suite_test.go: ran 1 of 1") || !strings.Contains(out, "=== shard-2") {
+	if code != 0 || !strings.Contains(out, "ok    early/early_suite_test.go, ran 1 of 1") || !strings.Contains(out, "=== shard-2") {
 		t.Errorf("both shards: exit %d, want 0\n%s", code, out)
 	}
 }

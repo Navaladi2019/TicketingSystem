@@ -465,11 +465,11 @@ func (r report) String(tags []string) string {
 		in++
 		switch {
 		case f.Defined == 0:
-			fmt.Fprintf(&b, "  -     %s: defines no test\n", f.Path)
+			fmt.Fprintf(&b, "  -     %s, defines no test\n", f.Path)
 		case f.Ran == 0:
-			fmt.Fprintf(&b, "  FAIL  %s: ran 0 of %d tests\n", f.Path, f.Defined)
+			fmt.Fprintf(&b, "  FAIL  %s, ran 0 of %d tests\n", f.Path, f.Defined)
 		default:
-			fmt.Fprintf(&b, "  ok    %s: ran %d of %d tests\n", f.Path, f.Ran, f.Defined)
+			fmt.Fprintf(&b, "  ok    %s, ran %d of %d tests\n", f.Path, f.Ran, f.Defined)
 		}
 	}
 	if in == 0 {
