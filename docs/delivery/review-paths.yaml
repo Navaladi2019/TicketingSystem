@@ -45,6 +45,9 @@ security:
   - internal/db/
   # The realm export and the Keycloak image build (here since TICK-57).
   - deploy/compose/keycloak/
+  # The realm and directory adversarial tests, run against that stack
+  # (TICK-209).
+  - internal/identitystack/
   # The compose network files.
   - compose.yaml
   - deploy/compose/compose.internal.yaml
@@ -78,3 +81,7 @@ cto_signoff:
     - internal/tenancy/isolation/*_test.go
     # The T27a CI-6 namespace-isolation suite.
     - temporal-server/authz/adversarial_test.go
+    # The realm adversarial suites (TICK-209) and the T18 directory one.
+    - internal/identitystack/adversarial_test.go
+    - internal/identitystack/audience_attack_test.go
+    - internal/identitystack/directory_adversarial_test.go
