@@ -62,6 +62,16 @@ teardown() {
     done
     # Untags only: layers another tag uses and the build cache stay.
     for i in $images; do docker image rm "$i:$id" >/dev/null 2>&1 || true; done
+    # --down: a killed run can leave a tag of an image compose.yaml no longer
+    # builds (renamed or dropped since), which $images misses and the check
+    # below reports on every later run with this ID, so untag every
+    # nava/*:<id>. After compose down: without -f Docker keeps a tag a
+    # container still uses. The sanitised id has no glob characters.
+    if [ -n "$down" ]; then
+        for i in $(docker images --format '{{.Repository}}:{{.Tag}}' --filter "reference=nava/*:$id"); do
+            docker image rm "$i" >/dev/null 2>&1 || true
+        done
+    fi
     left=""
     for p in "$COMPOSE_PROJECT_NAME" "$COMPOSE_PROJECT_NAME-int"; do
         for kind in container volume network; do
@@ -88,17 +98,7 @@ finish() {
     echo "ci-isolated: $COMPOSE_PROJECT_NAME $( [ "$status" -eq 0 ] && echo PASS || echo "FAIL ($status)" ) in $(( $(date +%s) - start ))s"
     exit "$status"
 }
-if [ -n "$down" ]; then
-    # A killed run can leave a tag of an image compose.yaml no longer builds
-    # (renamed or dropped since), which $images misses and the check above
-    # reports on every later run with this ID: untag every nava/*:<id> first.
-    # Untags only, as in teardown; the sanitised id has no glob characters.
-    for i in $(docker images --format '{{.Repository}}:{{.Tag}}' --filter "reference=nava/*:$id"); do
-        docker image rm "$i" >/dev/null 2>&1 || true
-    done
-    teardown
-    exit
-fi
+[ -z "$down" ] || { teardown; exit; }
 
 start=$(date +%s)
 trap finish EXIT
