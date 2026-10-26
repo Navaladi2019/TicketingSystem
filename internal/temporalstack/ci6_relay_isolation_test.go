@@ -249,9 +249,13 @@ func TestCI6_RelaySignalQueuesBehindItsStart(t *testing.T) {
 	}
 }
 
-// Two more relay processes beside the stack's claim from the same outbox at
-// once. Each target's signals are applied in exactly their target_seq order,
-// and both extra relays dispatched some of them.
+// Two more relay processes beside the stack's take over one another's
+// targets partway through, and each target's signals are still applied in
+// exactly their target_seq order. The hand-off is forced, not hoped for:
+// extra relay 0 serves the first notes alone (the others paused), extra relay
+// 1 the next ones alone, then all three run for done. Each phase waits until
+// its rows are settled before the next relay takes over, so the paused relay
+// holds no lease, and each extra relay must have dispatched some signals.
 func TestCI6_RelayTwoRelaysNeverReorderOneTarget(t *testing.T) {
 	ctx := ci6Context(t)
 	s := newRelayStack(t)
@@ -260,25 +264,82 @@ func TestCI6_RelayTwoRelaysNeverReorderOneTarget(t *testing.T) {
 	for i, c := range extras {
 		before[i] = relayMetric(t, c, "outbox_relay_dispatches_total", `op="signal"`, `outcome="dispatched"`)
 	}
+	stack := containerOf(t, "nava-relay")
+	all := append([]string{stack}, extras...)
+	paused := map[string]bool{}
+	pause := func(ids ...string) {
+		t.Helper()
+		for _, id := range ids {
+			if !paused[id] {
+				docker(t, "pause", id)
+				paused[id] = true
+			}
+		}
+	}
+	unpause := func(ids ...string) {
+		t.Helper()
+		for _, id := range ids {
+			if paused[id] {
+				docker(t, "unpause", id)
+				paused[id] = false
+			}
+		}
+	}
+	// A failed run must not leave a relay paused for the next test.
+	t.Cleanup(func() {
+		for _, id := range all {
+			if paused[id] {
+				_, _ = dockerOut("unpause", id)
+			}
+		}
+	})
 
-	const targets, notes = 3, 15
-	var sql strings.Builder
+	const targets, firstNotes, secondNotes = 3, 8, 7
 	tgs := make([]*target, targets)
 	want := make([][]string, targets)
+	// phase writes n notes on every target (and the start first, if start)
+	// in one transaction, and waits until the last note of each is settled:
+	// rows of one target dispatch in target_seq order, so all are.
+	phase := func(name string, n int, start bool) {
+		t.Helper()
+		var sql strings.Builder
+		last := make([]uuid.UUID, targets)
+		for i, tg := range tgs {
+			if start {
+				sql.WriteString(tg.startSQL(tg.refs()))
+			}
+			for range n {
+				id, q := tg.signalSQL(t, sigNote)
+				want[i] = append(want[i], id.String())
+				last[i] = id
+				sql.WriteString(q)
+			}
+		}
+		psqlSuper(t, sql.String())
+		for i, id := range last {
+			if r := awaitSettled(t, id); !r.dispatched {
+				t.Fatalf("%s: target %d note %s %+v, want dispatched", name, i, id, r)
+			}
+		}
+	}
 	for i := range tgs {
 		tgs[i] = newTarget(t)
-		sql.WriteString(tgs[i].startSQL(tgs[i].refs()))
-		for range notes {
-			n, q := tgs[i].signalSQL(t, sigNote)
-			want[i] = append(want[i], n.String())
-			sql.WriteString(q)
-		}
-		_, q := tgs[i].signalSQL(t, sigDone)
-		sql.WriteString(q)
 		s.terminateAtEnd(t, tgs[i].workflowID())
 	}
-	psqlSuper(t, sql.String())
 
+	pause(stack, extras[1])
+	phase("extra relay 0 alone", firstNotes, true)
+	pause(extras[0])
+	unpause(extras[1])
+	phase("extra relay 1 alone", secondNotes, false)
+	unpause(all...)
+
+	var done strings.Builder
+	for _, tg := range tgs {
+		_, q := tg.signalSQL(t, sigDone)
+		done.WriteString(q)
+	}
+	psqlSuper(t, done.String())
 	for i, tg := range tgs {
 		if out := s.result(ctx, t, tg.workflowID()); out != strings.Join(want[i], ",") {
 			t.Errorf("target %d applied\n%s\nwant target_seq order\n%s", i, out, strings.Join(want[i], ","))
@@ -286,7 +347,7 @@ func TestCI6_RelayTwoRelaysNeverReorderOneTarget(t *testing.T) {
 	}
 	for i, c := range extras {
 		if n := relayMetric(t, c, "outbox_relay_dispatches_total", `op="signal"`, `outcome="dispatched"`) - before[i]; n <= 0 {
-			t.Errorf("extra relay %d dispatched %v signals, want some: the case needs two relays claiming", i, n)
+			t.Errorf("extra relay %d dispatched %v signals, want some: it served a phase alone", i, n)
 		}
 	}
 }
