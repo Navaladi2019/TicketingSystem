@@ -16,6 +16,18 @@ codes:
     status: 409
     title: Idempotency key reused
     detail: The Idempotency-Key was already used with a different request.
+  - code: forbidden
+    status: 403
+    title: Forbidden
+    detail: The token does not allow this operation.
+  - code: domain_claimed
+    status: 409
+    title: Email domain already claimed
+    detail: An email domain of the request is already claimed by a tenant.
+  - code: onboarding_conflict
+    status: 409
+    title: Onboarding conflict
+    detail: The organization or identity provider for this tenant already exists and cannot be reused.
   - code: idempotency_in_flight
     status: 409
     title: Request in progress

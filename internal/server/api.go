@@ -25,7 +25,7 @@ const baseURL = ""
 // behind the authentication middleware and then the validator, and returns
 // the error-contract helper whose Wrap goes around mux. The spec and docs
 // routes are public.
-func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.IdentityResolver, mux *http.ServeMux) (*apihttp.API, error) {
+func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.IdentityResolver, mux *http.ServeMux, opts options) (*apihttp.API, error) {
 	specData, err := api.Files.ReadFile("openapi.yaml")
 	if err != nil {
 		return nil, fmt.Errorf("read openapi.yaml: %w", err)
@@ -49,16 +49,23 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 
 	a := apihttp.New(spec, reg, log, baseURL)
 	api.HandlerWithOptions(
-		api.NewStrictHandlerWithOptions(&handlers{reg: reg, log: log}, nil, api.StrictHTTPServerOptions{
-			RequestErrorHandlerFunc:  a.StrictRequestError,
-			ResponseErrorHandlerFunc: a.StrictResponseError,
+		api.NewStrictHandlerWithOptions(&handlers{reg: reg, log: log, onboarder: opts.onboarder}, nil, api.StrictHTTPServerOptions{
+			RequestErrorHandlerFunc: a.StrictRequestError,
+			ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+				var pe *problemError
+				if errors.As(err, &pe) {
+					reg.Write(w, r, pe.code, pe.fields...)
+					return
+				}
+				a.StrictResponseError(w, r, err)
+			},
 		}),
 		api.StdHTTPServerOptions{
 			BaseURL:    baseURL,
 			BaseRouter: mux,
 			// The last one is outermost: an unauthenticated request gets 401
 			// before the validator looks at its input.
-			Middlewares:      []api.MiddlewareFunc{a.Middleware(), authn.Middleware},
+			Middlewares:      []api.MiddlewareFunc{a.Middleware(), routeAuth(authn.Middleware, operatorAuth(reg, log, opts.operators, resolver))},
 			ErrorHandlerFunc: a.ErrorHandler,
 		},
 	)
@@ -70,8 +77,9 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 // handlers implements the generated strict server. Operations the contract
 // declares but a later task implements answer 501 not_implemented.
 type handlers struct {
-	reg *problem.Registry
-	log *slog.Logger
+	reg       *problem.Registry
+	log       *slog.Logger
+	onboarder Onboarder
 }
 
 // errNoPrincipal means a handler ran outside the authentication middleware:

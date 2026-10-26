@@ -12,8 +12,42 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/oapi-codegen/runtime"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
+
+// Defines values for OnboardIdPProviderId.
+const (
+	Oidc OnboardIdPProviderId = "oidc"
+	Saml OnboardIdPProviderId = "saml"
+)
+
+// Valid indicates whether the value is a known member of the OnboardIdPProviderId enum.
+func (e OnboardIdPProviderId) Valid() bool {
+	switch e {
+	case Oidc:
+		return true
+	case Saml:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OnboardedTenantState.
+const (
+	Active OnboardedTenantState = "active"
+)
+
+// Valid indicates whether the value is a known member of the OnboardedTenantState enum.
+func (e OnboardedTenantState) Valid() bool {
+	switch e {
+	case Active:
+		return true
+	default:
+		return false
+	}
+}
 
 // FieldError defines model for FieldError.
 type FieldError struct {
@@ -37,6 +71,38 @@ type Me struct {
 	UserId openapi_types.UUID `json:"user_id"`
 }
 
+// OnboardIdP defines model for OnboardIdP.
+type OnboardIdP struct {
+	// Config Provider settings (endpoints, client id and secret). URLs must be https and resolve to public hosts. validateSignature and syncMode are set by the platform whatever is sent.
+	Config      map[string]string    `json:"config"`
+	DisplayName *string              `json:"display_name,omitempty"`
+	ProviderId  OnboardIdPProviderId `json:"provider_id"`
+}
+
+// OnboardIdPProviderId defines model for OnboardIdP.ProviderId.
+type OnboardIdPProviderId string
+
+// OnboardTenantRequest defines model for OnboardTenantRequest.
+type OnboardTenantRequest struct {
+	// AdminEmail The first tenant admin. Its domain must be one of email_domains.
+	AdminEmail string `json:"admin_email"`
+
+	// EmailDomains Email domains the operator attests the tenant owns. Public email-provider domains are refused.
+	EmailDomains []string   `json:"email_domains"`
+	Idp          OnboardIdP `json:"idp"`
+}
+
+// OnboardedTenant defines model for OnboardedTenant.
+type OnboardedTenant struct {
+	State OnboardedTenantState `json:"state"`
+
+	// TenantId Derived on the server from the operator and the Idempotency-Key.
+	TenantId openapi_types.UUID `json:"tenant_id"`
+}
+
+// OnboardedTenantState defines model for OnboardedTenant.State.
+type OnboardedTenantState string
+
 // Problem RFC 9457 problem details. `code` is registered in api/errors.yaml.
 type Problem struct {
 	Code string `json:"code"`
@@ -56,11 +122,22 @@ type Problem struct {
 	Type string `json:"type"`
 }
 
+// OnboardTenantParams defines parameters for OnboardTenant.
+type OnboardTenantParams struct {
+	IdempotencyKey string `json:"Idempotency-Key"`
+}
+
+// OnboardTenantJSONRequestBody defines body for OnboardTenant for application/json ContentType.
+type OnboardTenantJSONRequestBody = OnboardTenantRequest
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// GetMe The calling user and tenant
 	// (GET /api/v1/me)
 	GetMe(w http.ResponseWriter, r *http.Request)
+	// OnboardTenant Onboard a tenant (operator token only)
+	// (POST /api/v1/operator/tenants)
+	OnboardTenant(w http.ResponseWriter, r *http.Request, params OnboardTenantParams)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -77,6 +154,51 @@ func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetMe(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// OnboardTenant operation middleware
+func (siw *ServerInterfaceWrapper) OnboardTenant(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params OnboardTenantParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.OnboardTenant(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -207,6 +329,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	}
 
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/me", wrapper.GetMe)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/operator/tenants", wrapper.OnboardTenant)
 
 	return m
 }
@@ -292,11 +415,151 @@ func (response GetMe501ApplicationProblemPlusJSONResponse) VisitGetMeResponse(w 
 	return err
 }
 
+type OnboardTenantRequestObject struct {
+	Params OnboardTenantParams
+	Body   *OnboardTenantJSONRequestBody
+}
+
+type OnboardTenantResponseObject interface {
+	VisitOnboardTenantResponse(w http.ResponseWriter) error
+}
+
+type OnboardTenant200JSONResponse OnboardedTenant
+
+func (response OnboardTenant200JSONResponse) VisitOnboardTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type OnboardTenant201JSONResponse OnboardedTenant
+
+func (response OnboardTenant201JSONResponse) VisitOnboardTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type OnboardTenant400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response OnboardTenant400ApplicationProblemPlusJSONResponse) VisitOnboardTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type OnboardTenant401ApplicationProblemPlusJSONResponse Problem
+
+func (response OnboardTenant401ApplicationProblemPlusJSONResponse) VisitOnboardTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type OnboardTenant403ApplicationProblemPlusJSONResponse Problem
+
+func (response OnboardTenant403ApplicationProblemPlusJSONResponse) VisitOnboardTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type OnboardTenant409ApplicationProblemPlusJSONResponse Problem
+
+func (response OnboardTenant409ApplicationProblemPlusJSONResponse) VisitOnboardTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type OnboardTenant429ApplicationProblemPlusJSONResponse Problem
+
+func (response OnboardTenant429ApplicationProblemPlusJSONResponse) VisitOnboardTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type OnboardTenant500ApplicationProblemPlusJSONResponse Problem
+
+func (response OnboardTenant500ApplicationProblemPlusJSONResponse) VisitOnboardTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type OnboardTenant501ApplicationProblemPlusJSONResponse Problem
+
+func (response OnboardTenant501ApplicationProblemPlusJSONResponse) VisitOnboardTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// GetMe The calling user and tenant
 	// (GET /api/v1/me)
 	GetMe(ctx context.Context, request GetMeRequestObject) (GetMeResponseObject, error)
+	// OnboardTenant Onboard a tenant (operator token only)
+	// (POST /api/v1/operator/tenants)
+	OnboardTenant(ctx context.Context, request OnboardTenantRequestObject) (OnboardTenantResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -355,6 +618,39 @@ func (sh *strictHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetMeResponseObject); ok {
 		if err := validResponse.VisitGetMeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// OnboardTenant operation middleware
+func (sh *strictHandler) OnboardTenant(w http.ResponseWriter, r *http.Request, params OnboardTenantParams) {
+	var request OnboardTenantRequestObject
+
+	request.Params = params
+
+	var body OnboardTenantJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.OnboardTenant(ctx, request.(OnboardTenantRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "OnboardTenant")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(OnboardTenantResponseObject); ok {
+		if err := validResponse.VisitOnboardTenantResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
