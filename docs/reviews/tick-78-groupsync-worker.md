@@ -4,11 +4,21 @@
 - Head reviewed: `4b25bce`; finding 1 re-checked at `360846f`
 - CI: green at `4b25bce` ([run 40280627013](https://github.com/Navaladi2019/TicketingSystem/actions/runs/40280627013)) and at `360846f` ([run 40281777224](https://github.com/Navaladi2019/TicketingSystem/actions/runs/40281777224)). All 8 jobs pass, and the 6 groupsync integration tests ran against PostgreSQL 16.10.
 - Specs: TICK-78 contract and acceptance criteria, the T16 carry-forward (TICK-69), audit TICK-93, the 2026-10-25 ruling on directory membership, and PLAN-001 D-P9, D-P10 and D-P13.
-- Out of scope: tenant isolation. That review belongs to the Security & Multi-Tenancy Reviewer (D-P10: `cmd/nava-groupsync/` is a security path).
+- Out of scope: tenant isolation. That review belongs to the Security & Multi-Tenancy Reviewer (D-P10: `cmd/nava-groupsync/` is a security path). Their adversarial tests are in PR #125, which QA approved at `884ccd1`.
+- Merged: PR #113 and PR #125 on 2026-10-26.
 
 ## Verdict
 
 Approve. Finding 1 is closed at `360846f`. Findings 2 to 5 are follow-ups and do not block the merge.
+
+| Finding | Status | Tracked in |
+|---|---|---|
+| 1. CRLF in `review-paths.yaml` | closed at `360846f` | n/a |
+| 2. Deleting a referenced principal | open; must close before any new table with a foreign key to `principals` merges | TICK-220 |
+| 3. One failing tenant does not stop the others | partly closed by PR #125; the rest is open | TICK-221 |
+| 4. Snapshot read inside the open transaction | accepted, no action at current scale | n/a |
+| 5. Two replicas and a directory revert | accepted, documented in code | n/a |
+| CI harness: integration hang leaves no output | open | TICK-225 |
 
 ## Acceptance criteria
 
@@ -36,10 +46,13 @@ Closed: at `360846f` the file is LF and its diff against `main` is the one real 
 
 `applyPrincipals` hard-deletes principals that leave the directory. Today only `group_members` references `principals`, with `ON DELETE CASCADE`. When a later table references a principal, for example a ticket assignee or an audit actor, with the default NO ACTION, that DELETE fails. That tenant's transaction then rolls back on every cycle, so its sync stops and the lag grows without bound.
 Route to the Postgres & Data Modeling Specialist for a decision before the first table that references `principals` lands. The options are soft-delete (`enabled=false` plus a `removed_at`) or a cascade rule. Missing test: an integration test that removes a principal referenced by another row.
+Tracked in TICK-220 (backlog).
 
 ### 3. Missing test: one failing tenant does not stop the others
 
 The package doc and `Once` promise that "a failing tenant rolls back alone and does not stop the others". No test covers it. Add one: two tenants, where one has a snapshot that fails (for example an org unit whose parent is not in the subtree, which gives `ErrBadSnapshot`). Assert that the failing tenant's tables are unchanged, the other tenant is written, and `Result.Err` is set only on the first. This also covers the `ErrBadSnapshot` rollback, which no test exercises today.
+
+Partly closed by PR #125 (`TestHostileSnapshotNeverTouchesAnotherTenant`, step 2). Tenant A sorts first, its snapshot names an org-unit parent it does not have, and the test asserts that `Result.Err` is `ErrBadSnapshot`, A's rows are unchanged, and B still syncs. That covers "a failing tenant rolls back alone" and the `ErrBadSnapshot` rollback. Still open in TICK-221: an assertion on the `ErrBadSnapshot` log line, a parent missing from the snapshot altogether, and the comment fix at `apply.go:340`.
 
 ### 4. Breaks under a slow Keycloak (low): the directory snapshot is read inside the open tenant transaction
 
@@ -51,8 +64,9 @@ The per-process cursor can skip a tenant whose tables another replica changed. T
 
 ## Follow-ups outside this PR
 
-- There is no compose service for `nava-groupsync` yet. T19 or T26 adds it with `NAVA_KEYCLOAK_URL`, `NAVA_KEYCLOAK_REALM`, `NAVA_GROUPSYNC_CLIENT_ID` and `NAVA_GROUPSYNC_CLIENT_SECRET`.
-- CI harness (owned by Quality): `scripts/ci/test-integration.sh` prints group logs only after every group finishes, and `go test` uses the default 10m `-timeout`, the same as the job timeout. A hang (as on the first run of this PR) therefore leaves no output. Fix: a shorter `-timeout`, and logs printed when the step is cancelled.
+- There is no compose service for `nava-groupsync` yet. T19 (TICK-75) or T26 (TICK-82) adds it with `NAVA_KEYCLOAK_URL`, `NAVA_KEYCLOAK_REALM`, `NAVA_GROUPSYNC_CLIENT_ID` and `NAVA_GROUPSYNC_CLIENT_SECRET`.
+- CI harness (owned by Quality): `scripts/ci/test-integration.sh` prints group logs only after every group finishes, and `go test` uses the default 10m `-timeout`, the same as the job timeout. A hang (as on the first run of this PR) therefore leaves no output. Fix: a shorter `-timeout`, and logs printed when the step is cancelled. Tracked in TICK-225 (backlog, Quality).
+- Security review risks, filed by the Technical Lead: TICK-222 (refuse to start as a superuser or `BYPASSRLS` role) and TICK-223 (filter `federated_links` to the tenant's bound IdP aliases).
 
 ## How to rerun
 
