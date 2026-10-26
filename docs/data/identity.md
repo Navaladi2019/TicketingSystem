@@ -267,8 +267,9 @@ migration (db/README.md).
 ## Tenant email domains (T18a)
 
 Scope: TICK-194, security finding 3 on PR #101 (T18). Migration
-`db/migrations/00004_tenant_email_domain.sql`. Keycloak `InviteUser` creates
-a new user only for an email whose domain the tenant owns
+`db/migrations/00004_tenant_email_domain.sql`. Keycloak `InviteUser` accepts
+a new email (it records a pending invite, see `docs/operator/onboarding.md`) only
+when the email's domain is one the tenant owns
 (`Registry.TenantOwnsEmailDomain`, implemented by `pgstore.Store`). Without
 this rule, tenant A could pre-create `anyone@tenant-b.test` and lock B's
 federated user out of their first brokered login.

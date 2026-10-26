@@ -72,6 +72,19 @@ type Registry interface {
 	TenantOwnsEmailDomain(ctx context.Context, tenantID uuid.UUID, domain string) (bool, error)
 }
 
+// InviteWriter records the pending admin invite InviteUser makes for an email
+// that has no Keycloak user yet (TICK-252). The caller backs it with a
+// transaction that sets app.tenant_id, so row-level security scopes the write
+// to the tenant. Re-recording a pending invite moves its expiry; a consumed
+// invite stays consumed.
+type InviteWriter interface {
+	RecordInvite(ctx context.Context, tenantID uuid.UUID, email string, expiresAt time.Time) error
+}
+
+// DefaultInviteTTL is how long a pending invite stays valid when
+// DirectoryConfig.InviteTTL is zero.
+const DefaultInviteTTL = 7 * 24 * time.Hour
+
 // IdPSpec is what a tenant's IdP needs beyond what the platform fixes. The
 // alias, trustEmail, the first-login flow and mappers are never taken from it.
 type IdPSpec struct {
@@ -93,7 +106,8 @@ type DirectoryConfig struct {
 	// Realm defaults to "nava".
 	Realm string
 	// Runtime is the runtime service account (manage-users, query-users,
-	// query-groups, view-users). Required.
+	// query-groups, view-users, and view-realm to read organization membership
+	// in PlaceInvitee). Required.
 	Runtime ClientCredentials
 	// Onboarding is the onboarding service account (manage-realm,
 	// manage-identity-providers). Nil on every runtime path.
@@ -102,6 +116,12 @@ type DirectoryConfig struct {
 	Registry Registry
 	// IdPs is required for CreateTenantOrg.
 	IdPs IdPSource
+	// Invites is required to invite an email that has no user yet. Leave it
+	// nil on a process that never invites: such an invite then fails closed.
+	Invites InviteWriter
+	// InviteTTL is how long a pending invite is valid. Zero is
+	// DefaultInviteTTL.
+	InviteTTL time.Duration
 }
 
 // Directory implements identity.DirectoryAdmin.
@@ -111,6 +131,9 @@ type Directory struct {
 	onboarding *account
 	reg        Registry
 	idps       IdPSource
+	invites    InviteWriter
+	inviteTTL  time.Duration
+	now        func() time.Time
 }
 
 var _ identity.DirectoryAdmin = (*Directory)(nil)
@@ -141,11 +164,18 @@ func NewDirectory(cfg DirectoryConfig, out *telemetry.OutboundClient) (*Director
 	if cfg.Realm == "" {
 		cfg.Realm = "nava"
 	}
+	if cfg.InviteTTL < 0 {
+		return nil, errors.New("keycloak: invite TTL must not be negative")
+	}
+	if cfg.InviteTTL == 0 {
+		cfg.InviteTTL = DefaultInviteTTL
+	}
 	d := &Directory{
 		api:     &admin{base: strings.TrimRight(cfg.BaseURL, "/"), realm: cfg.Realm, out: out, now: time.Now},
 		runtime: &account{creds: cfg.Runtime},
 		reg:     cfg.Registry,
 		idps:    cfg.IdPs,
+		invites: cfg.Invites, inviteTTL: cfg.InviteTTL, now: time.Now,
 	}
 	if cfg.Onboarding != nil {
 		d.onboarding = &account{creds: *cfg.Onboarding}
@@ -338,18 +368,24 @@ func registryErr(err error) error {
 
 // ---- DirectoryAdmin --------------------------------------------------------
 
-// InviteUser puts the invitee in /t/<tenant_id>. The email only ever travels
-// in a request body or a query that the outbound client reduces to its route
+// InviteUser invites the email to the tenant. The email only ever travels in
+// a request body or a query that the outbound client reduces to its route
 // template.
 //
-// A new email gets a new user only when the tenant owns the email's domain
-// (Registry.TenantOwnsEmailDomain). An existing user is accepted only when
-// (a) already in the tenant's subtree (idempotent), or (b) all of their
-// federated links are bound to the tenant and they are in no /t/ group outside
-// it. Anything else is ErrInviteRefused and changes nothing; a local user
-// joining a second tenant needs a consent step that does not exist yet. The
-// caller must answer a refusal like a success, so the call is no oracle for
-// "this email exists elsewhere".
+// A new email gets no Keycloak user. When the tenant owns the email's domain
+// (Registry.TenantOwnsEmailDomain), InviteUser records a pending invite
+// (InviteWriter) that expires after the invite TTL. The invitee's first login
+// through the tenant's IdP creates the user (nava-first-broker-login: create
+// if unique, add to the organization; nothing is ever linked by email), and
+// group sync then places that user in /t/<tenant_id> and consumes the invite
+// (PlaceInvitee). Nothing here calls Keycloak's invitation API.
+//
+// An existing user is accepted only when (a) already in the tenant's subtree
+// (idempotent), or (b) all of their federated links are bound to the tenant
+// and they are in no /t/ group outside it. Anything else is ErrInviteRefused
+// and changes nothing; a local user joining a second tenant needs a consent
+// step that does not exist yet. The caller must answer a refusal like a
+// success, so the call is no oracle for "this email exists elsewhere".
 func (d *Directory) InviteUser(ctx context.Context, tenantID uuid.UUID, email string) error {
 	if err := requireTenant(tenantID); err != nil {
 		return err
@@ -374,33 +410,10 @@ func (d *Directory) InviteUser(ctx context.Context, tenantID uuid.UUID, email st
 		if !owns {
 			return identity.ErrInviteRefused
 		}
-		r, err := d.api.do(ctx, d.runtime, http.MethodPost, "/users", "/users", nil,
-			kcUser{Username: email, Email: email, Enabled: true}, http.StatusCreated)
-		switch {
-		case errors.Is(err, identity.ErrAlreadyExists):
-			// A concurrent invite created the user between our lookup and
-			// our create: take the user that now exists, under the rules
-			// for an existing user. The other invite has not placed them in
-			// the group yet, so this one can be refused (ErrInviteRefused);
-			// the caller answers a refusal like a success and the other
-			// invite completes it.
-			if userID, err = d.findByEmail(ctx, email); err != nil {
-				return err
-			}
-			if userID == "" {
-				return identity.ErrAlreadyExists
-			}
-			if err := d.checkInvitable(ctx, tenantID, userID); err != nil {
-				return err
-			}
-		case err != nil:
-			return err
-		default:
-			var ok bool
-			if userID, ok = idFromLocation(r.header); !ok {
-				return errors.New("keycloak: created user has no location")
-			}
+		if d.invites == nil {
+			return errors.New("keycloak: invites are not configured")
 		}
+		return d.invites.RecordInvite(ctx, tenantID, email, d.now().Add(d.inviteTTL))
 	} else if err := d.checkInvitable(ctx, tenantID, userID); err != nil {
 		return err
 	}

@@ -90,7 +90,8 @@ Headers: `Authorization: Bearer <operator token>`, `Idempotency-Key: <1..255 cha
    constraint: `tenant_email_domain_pkey` is `domain_claimed`, the `(issuer, org id)`
    key is `onboarding_conflict`. The service then reads ownership of every domain
    with `WHERE tenant_id` as a second check.
-5. `DirectoryAdmin.InviteUser` for the admin. A refused invite (`ErrInviteRefused`)
+5. `DirectoryAdmin.InviteUser` for the admin (see "Admin invite lifecycle"
+   below). A refused invite (`ErrInviteRefused`)
    is answered exactly like a sent one. Any other invite error is `5xx`, on the
    first call and on every replay.
 6. Activation (`tenants_activate`) is the last step.
@@ -98,6 +99,32 @@ Headers: `Authorization: Bearer <operator token>`, `Idempotency-Key: <1..255 cha
 A failure before step 6, including a failed invite, leaves the tenant `provisioning`;
 the same key completes it. The tenant is never `active` without its binding, its
 domains and an invited admin.
+
+## Admin invite lifecycle (TICK-252)
+
+`InviteUser` creates no Keycloak user for an email that has none. It writes a
+`pending_invite` row (`tenant_id`, normalized `email`, `expires_at`,
+`consumed_at`) as `nava_onboard`, only when the tenant owns the email's domain.
+Re-onboarding moves the expiry of a pending invite and never revives a consumed
+one. An email that already has a user takes the unchanged existing-user path
+(`checkInvitable`).
+
+1. The admin signs in through the tenant's IdP. `nava-first-broker-login`
+   creates the user and adds them to the tenant's organization. Nothing is ever
+   linked to an existing user, and `trustEmail` stays false. A user that already
+   exists with that email makes this login fail closed.
+2. The next group sync cycle (`nava-groupsync`, at most 5 minutes) places the
+   user in `/t/<tenant_id>/` and consumes the invite, in one transaction with
+   `app.tenant_id` set (`UPDATE ... WHERE consumed_at IS NULL AND expires_at > now()`).
+   It does so only if the user is enabled, has an email equal to the invite's,
+   has at least one federated link and every link is an IdP bound to the tenant,
+   is a member of the tenant's organization and of no other, and is in no
+   tenant's group yet. Otherwise the invite stays as it was.
+3. An invite not used within `NAVA_INVITE_TTL` expires. Run onboarding again with
+   the same key and body to issue a new one, or invite again.
+
+The pending admin cannot sign in before step 1: there is no local user and no
+password. The accepted squatting risk is AR-033.
 
 ## Configuration (nava-onboard)
 
@@ -115,7 +142,8 @@ when its input ends, and the server cancels the request on that EOF. The admin's
 `NAVA_ONBOARD_ISSUER` (one of them), `NAVA_OPERATORS` (`issuer|subject,...`),
 `NAVA_KEYCLOAK_URL`, `NAVA_KEYCLOAK_REALM`, `NAVA_DIRECTORY_CLIENT_ID/SECRET` (runtime
 account, for the invite) and `NAVA_ONBOARD_CLIENT_ID/SECRET` (onboarding account).
-Every one but the realm is required; the process refuses to start without them.
+`NAVA_INVITE_TTL` (default `168h`, at most `720h`) is how long a pending admin invite
+stays valid. Every one but the realm and the TTL is required; the process refuses to start without them.
 
 ## TODO: abandoning a provisioning tenant
 

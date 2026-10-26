@@ -499,7 +499,7 @@ func TestRuntimeAccountHasNoRealmOrIdPReach(t *testing.T) {
 		}
 	}
 	// And holds exactly those client roles on realm-management, no realm role.
-	checkAccountRoles(t, "service-account-nava-platform", []string{"manage-users", "query-groups", "query-users", "view-users"})
+	checkAccountRoles(t, "service-account-nava-platform", []string{"manage-users", "query-groups", "query-users", "view-realm", "view-users"})
 }
 
 func TestOnboardingAccountHasNoUserReach(t *testing.T) {

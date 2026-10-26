@@ -440,7 +440,8 @@
           "manage-users",
           "view-users",
           "query-users",
-          "query-groups"
+          "query-groups",
+          "view-realm"
         ]
       }
     },

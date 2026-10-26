@@ -203,6 +203,13 @@ func (s *Syncer) syncTenant(ctx context.Context, tenantID uuid.UUID) Result {
 			res.Skipped = true
 			return nil
 		}
+		// Invited users who have signed in are placed before the snapshot,
+		// so this cycle's snapshot already holds them.
+		if p, ok := s.dir.(InviteePlacer); ok {
+			if err := s.placeInvitees(ctx, tx, tenantID, p); err != nil {
+				return err
+			}
+		}
 		// The snapshot is read under the lock, so a process that waited out
 		// another's sync never applies an older snapshot over a newer one.
 		snapAt = s.opts.Now()
