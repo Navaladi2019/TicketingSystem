@@ -198,7 +198,7 @@ func TestT33CrashBetweenClaimAndStart(t *testing.T) {
 			fe.addExecution(workflowID, false)
 			once.Do(func() { close(accepted) })
 			<-release
-			return serviceerror.NewUnavailable("relay gone")
+			return serviceerror.NewFailedPrecondition("relay gone")
 		})
 
 		dead, _ := relayProcessLease(t, addr, false, crashLease)
@@ -385,7 +385,9 @@ func TestT33EveryHeadBackingOff(t *testing.T) {
 	bStart := b.start()
 	fe.setFail(func(method, workflowID string) error {
 		if strings.HasPrefix(workflowID, "t:"+a.String()+":") {
-			return serviceerror.NewUnavailable("temporal down for A")
+			// Not Unavailable: the SDK retries that itself until the
+			// dispatch deadline (half a lease) before the relay sees it.
+			return serviceerror.NewFailedPrecondition("temporal refuses A")
 		}
 		return nil
 	})
