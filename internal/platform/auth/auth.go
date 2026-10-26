@@ -11,6 +11,10 @@
 //
 // The raw token and its claims are never logged; a refusal logs only the
 // resolver's fixed reason.
+//
+// After resolution the server span gets nava.tenant_id (T17b). The principal
+// id never goes on a span: it identifies a person, and the TICK-94 item 3
+// span id policy keeps it in logs only.
 package auth
 
 import (
@@ -22,9 +26,11 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
 )
 
 // Results recorded on nava.auth.requests, beside the two 401 codes. Never a
@@ -86,6 +92,7 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 			return
 		}
 		a.requests.Add(ctx, 1, metric.WithAttributes(attribute.String("result", resultOK)))
+		trace.SpanFromContext(ctx).SetAttributes(telemetry.TenantIDKey.String(p.TenantID.String()))
 		next.ServeHTTP(w, r.WithContext(identity.NewContext(ctx, p)))
 	})
 }
