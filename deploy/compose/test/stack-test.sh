@@ -345,13 +345,16 @@ t_temporal_isolation() {
     for port in 7234 7235 7239 6933 6934 6935 6936 6937 6938 6939 9090; do
         nc_ok temporal "$port" && fail "port $port is reachable from the platform network through the gateway"
     done
-    # An address in the answer is the failure, not the resolver's exit code:
-    # busybox nslookup exits 0 on NODATA, which Docker Desktop DNS returns for
-    # unknown names (TICK-197). RESOLVE_NAME points the check at a name that
-    # does resolve, to prove it can fail.
+    # Judge by the answer, not the exit code: BusyBox nslookup exits 0 when one of
+    # its A/AAAA queries is NXDOMAIN and the other NODATA, with no address (TICK-206).
+    # "Server:" proves the lookup ran, so a failed exec cannot pass. RESOLVE_NAME
+    # points the check at a name that does resolve, to prove it can fail (TICK-197).
     name=${RESOLVE_NAME:-temporal-server}
-    addr=$(compose exec -T nava-core getent hosts "$name" 2>/dev/null | awk '$1 ~ /^[0-9a-fA-F.:]+$/ {print $1; exit}') || true
-    [ -z "$addr" ] || fail "the platform network can resolve $name: $addr"
+    ns=$(compose exec -T nava-core nslookup "$name" 2>&1) || true
+    case $ns in *Server:*) ;; *) fail "nslookup did not run in nava-core: $ns" ;; esac
+    if printf '%s\n' "$ns" | grep -q '^Name:'; then
+        fail "the platform network can resolve $name: $ns"
+    fi
     gw=$(docker inspect -f '{{range $n, $c := .NetworkSettings.Networks}}{{$n}} {{end}}' "$(container_of temporal-server)")
     case $gw in *_internal*) fail "temporal-server is on the platform network: $gw" ;; esac
     pass "7233 reachable; 7234, 7235, 7239, 6933-6939 and 9090 are not; temporal-server is not on the platform network"
