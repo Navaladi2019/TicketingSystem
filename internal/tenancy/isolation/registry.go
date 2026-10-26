@@ -83,6 +83,9 @@ type HTTPCall struct {
 	// get 404 or 405; without it, the call must get 200 with tenant A's data,
 	// so a validator regression that starts refusing it cannot hide.
 	NoRoute string
+	// Token, when set, replaces the tenant A token with this shape (CI-5).
+	// The call then passes only on 401: the shape must not resolve at all.
+	Token *TokenShape
 }
 
 // Cluster is the suite's database, as a DB path sees it.
@@ -174,6 +177,7 @@ func Coverage() map[string]string {
 		"CI-8":  "partial → TICK-87 (byte-identical 404, stale If-Match 412, masked-field filter 400); cursor cases from T23; idempotency cases from T22",
 		"CI-10": "partial → TICK-88; no path registered yet (T29 depth limit is a unit test)",
 		"T26":   "full: deprovisioning within D-P9's 10 minutes and the Epic 03 identity boundary (TICK-82); cases 1, 2, 6 and 8 run here, cases 3, 4, 5 and 7 need the real Keycloak and run in make stack-test-identity",
+		"CI-5":  "full in make identity-attacks (real Keycloak, ci5-report artifact); here every case is registered: token shapes through the API handler (401), the duplicate binding on this database, Keycloak-only cases pending on that suite",
 	}
 }
 
@@ -269,6 +273,7 @@ func Paths() []Path {
 	}
 	paths = append(paths, cursorPaths()...)
 	paths = append(paths, idempotencyPaths()...)
+	paths = append(paths, ci5Paths()...)
 	paths = append(paths, rolePaths()...)
 	return append(paths, boundaryPaths()...)
 }

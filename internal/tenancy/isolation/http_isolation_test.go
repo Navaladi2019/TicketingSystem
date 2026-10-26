@@ -29,7 +29,7 @@ import (
 // realm's organization is bound to tenant A, and its subject is tenant A's
 // seeded principal kc-user-shared (a Keycloak id tenant B also has).
 const (
-	isoOrgID   = "org-a-http"
+	isoOrgID   = HTTPOrgA
 	isoSubject = "kc-user-shared"
 )
 
@@ -39,6 +39,8 @@ type apiRunner struct {
 	token    string
 	realm    *keycloaktest.Realm
 	resolver *keycloak.Adapter
+	// untrusted is a second realm the API does not trust (CI-5.03).
+	untrusted *keycloaktest.Realm
 }
 
 var _ Server = (*apiRunner)(nil)
@@ -81,7 +83,7 @@ func newAPIRunner(t *testing.T) *apiRunner {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := &apiRunner{t: t, h: h, realm: realm, resolver: resolver}
+	r := &apiRunner{t: t, h: h, realm: realm, resolver: resolver, untrusted: keycloaktest.New(t)}
 	r.token = r.Mint(Token{Subject: isoSubject})
 
 	// Without this baseline every path could pass on a 401: the token must
@@ -131,7 +133,15 @@ func (r *apiRunner) do(t *testing.T, c *HTTPCall) *httptest.ResponseRecorder {
 	if c.Body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	req.Header.Set("Authorization", "Bearer "+r.token)
+	token := r.token
+	if s := c.Token; s != nil {
+		issuer := r.realm
+		if s.Untrusted {
+			issuer = r.untrusted
+		}
+		token = issuer.Mint(t, keycloaktest.Token{Subject: s.Subject, Orgs: s.Orgs, IdP: s.IdP})
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	r.h.ServeHTTP(rec, req)
 	return rec
@@ -146,6 +156,14 @@ func (r *apiRunner) run(t *testing.T, c *HTTPCall) (status, detail string) {
 	t.Helper()
 	rec := r.do(t, c)
 	body := rec.Body.String()
+	if c.Token != nil {
+		// CI-5: the shape must not resolve; 401 is the pass, anything else a
+		// reach (200) or a request that proves nothing.
+		if rec.Code != http.StatusUnauthorized {
+			return statusFail, fmt.Sprintf("%d, want 401 for this token: %s", rec.Code, body)
+		}
+		return statusPass, "401, the token resolves to no tenant"
+	}
 	switch {
 	case rec.Code == http.StatusUnauthorized:
 		return statusFail, "401: the token for tenant A was not honoured, so this proves nothing: " + body

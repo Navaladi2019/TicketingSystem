@@ -24,6 +24,11 @@ import (
 var testRealms = []string{"idp-tenant-a", "idp-tenant-b"}
 
 func TestMain(m *testing.M) {
+	// make identity-attacks-fixture runs only the CI-5.06 negative fixture,
+	// against its own Keycloak 26.1.2 and with no stack to import into.
+	if os.Getenv("NAVA_CI5_KC_FIXTURE_URL") != "" {
+		os.Exit(m.Run())
+	}
 	if err := importTestRealms(); err != nil {
 		fmt.Fprintln(os.Stderr, "identitystack:", err)
 		os.Exit(1)
