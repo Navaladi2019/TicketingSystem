@@ -197,6 +197,10 @@ an image added to compose.yaml but not to the script's list fails the run.
 `STAGES="ci-unit ci-stack"` runs a subset. Each stage writes its own log
 to `$TMPDIR/ci-isolated-<ID>/`, printed whole when the stage ends. A run killed outright (SIGKILL,
 a closed session) skips that cleanup; `make ci-isolated-down ID=<ID>` does it.
+It first untags every `nava/*:<ID>` tag Docker lists, not only the seven, so a
+tag of an image renamed or dropped since the killed run no longer fails every
+later run with that ID (TICK-211; `make test-ci-isolated-down` checks it on
+throwaway tags).
 The `integration` stage was already safe in parallel: it names its containers
 by PID and takes random host ports.
 

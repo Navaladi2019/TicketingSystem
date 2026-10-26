@@ -32,7 +32,8 @@ temporal-server-run: temporal-server-dev-certs
 #   ci-unit         go test -race ./... (one at a time per host), temporal-server
 #                   unit tests. No containers.
 #   ci-integration  -tags integration against a throwaway PostgreSQL (Docker),
-#                   then the isolation suite (make isolation).
+#                   then the isolation suite (make isolation), then the
+#                   ci-isolated --down tag check (test-ci-isolated-down).
 #   ci-stack        image build, compose up, GET /healthz smoke, stack tests.
 
 GOLANGCI_LINT ?= golangci-lint
@@ -41,7 +42,7 @@ GOLANGCI_LINT_VERSION := 2.14.0
 GOVULNCHECK_VERSION := v1.9.0
 
 .PHONY: build run test test-integration isolation lint generate check-openapi
-.PHONY: ci ci-isolated ci-changed ci-stages ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity stack-idp-realms stack-test-worker 	image image-ci stack-up stack-down stack-logs stack-internal stack-internal-beside stack-main ci-stack-run stack-tests smoke
+.PHONY: ci ci-isolated ci-changed ci-stages ci-isolated-down test-ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity stack-idp-realms stack-test-worker 	image image-ci stack-up stack-down stack-logs stack-internal stack-internal-beside stack-main ci-stack-run stack-tests smoke
 
 build:
 	go build -o bin/nava-core ./cmd/nava-core
@@ -64,11 +65,12 @@ test:
 
 # Every package with `//go:build integration` tests, against a throwaway
 # postgres container the script starts and removes (needs Docker), then the
-# isolation suite (make isolation). Pass ARGS=... to forward flags to go test;
-# with ARGS the isolation suite does not run.
+# isolation suite (make isolation), then make test-ci-isolated-down. Pass
+# ARGS=... to forward flags to go test; with ARGS neither of those runs.
 test-integration:
 	sh scripts/ci/test-integration.sh $(ARGS)
 	$(if $(ARGS),@echo "isolation suite skipped (ARGS set); run make isolation",sh scripts/ci/isolation.sh)
+	$(if $(ARGS),@echo "ci-isolated --down check skipped (ARGS set); run make test-ci-isolated-down",sh scripts/ci/test-ci-isolated-down.sh)
 
 # The tenant isolation suite (T11, ADR-001 CI-2): its own throwaway
 # PostgreSQL and a PgBouncer with the real auth_query, tenants A and B seeded,
@@ -127,6 +129,11 @@ ci-stages:
 ci-isolated-down:
 	@[ -n "$(ID)" ] || { echo "usage: make ci-isolated-down ID=<pr-or-sha>"; exit 2; }
 	sh scripts/ci/ci-isolated.sh --down $(ID)
+
+# ci-isolated-down untags every nava/*:<id> tag and nothing else (TICK-211):
+# throwaway tags on an empty imported image, a fresh id per run. Needs Docker.
+test-ci-isolated-down:
+	sh scripts/ci/test-ci-isolated-down.sh
 
 ci-lint: check-tools fmt-check vet lint lint-fixture check-taskfile check-pins check-openapi vulncheck-ci
 

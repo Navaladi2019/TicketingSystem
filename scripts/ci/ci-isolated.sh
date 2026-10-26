@@ -88,7 +88,17 @@ finish() {
     echo "ci-isolated: $COMPOSE_PROJECT_NAME $( [ "$status" -eq 0 ] && echo PASS || echo "FAIL ($status)" ) in $(( $(date +%s) - start ))s"
     exit "$status"
 }
-[ -z "$down" ] || { teardown; exit; }
+if [ -n "$down" ]; then
+    # A killed run can leave a tag of an image compose.yaml no longer builds
+    # (renamed or dropped since), which $images misses and the check above
+    # reports on every later run with this ID: untag every nava/*:<id> first.
+    # Untags only, as in teardown; the sanitised id has no glob characters.
+    for i in $(docker images --format '{{.Repository}}:{{.Tag}}' --filter "reference=nava/*:$id"); do
+        docker image rm "$i" >/dev/null 2>&1 || true
+    done
+    teardown
+    exit
+fi
 
 start=$(date +%s)
 trap finish EXIT
