@@ -55,10 +55,19 @@ func TestSecurityPaths(t *testing.T) {
 		"internal/platform/telemetry/filter.go",
 		"docs/delivery/review-paths.yaml",
 		"internal/identitystack/stack_test.go",
+		"internal/platform/auth/middleware.go",
+		"cmd/nava-relay/main.go",
+		// Planned (PLAN-001 T21): flagged from the PR that creates it.
+		"internal/onboarding/handler.go",
 	} {
 		if !matchAny(cfg.Security.Patterns(), p) {
 			t.Errorf("%s is not on the security list", p)
 		}
+	}
+	// Still holds once the repo has no planned entry left.
+	planned := Entries{{Path: "internal/next/", Planned: "PLAN-001 T99"}}
+	if !matchAny(planned.Patterns(), "internal/next/x.go") {
+		t.Error("a planned entry is not matched")
 	}
 	for _, p := range []string{"databases.md", "internal/dbx/x.go", "deploy/compose/test/stack-test.sh"} {
 		if matchAny(cfg.Security.Patterns(), p) {
@@ -250,6 +259,7 @@ func TestEntryForms(t *testing.T) {
 		"security:\n  - path: db/\n    plan: \"PLAN-001 T09\"\n", // misspelt key
 		"security:\n  - planned: \"PLAN-001 T09\"\n",             // no path
 		"security:\n  - [db/]\n",                                 // neither form
+		"security:\n  - path: db/\n    path: deploy/\n",          // repeated key
 	} {
 		if err := strictyaml.Decode([]byte(doc), &Config{}); err == nil {
 			t.Errorf("decoded %q", doc)
