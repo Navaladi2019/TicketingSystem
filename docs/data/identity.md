@@ -263,3 +263,155 @@ migration (db/README.md).
 - Registered named isolation paths for these tables (`Paths()` in
   `internal/tenancy/isolation/registry.go`). That file needs CTO sign-off,
   and the generic CI-2 checks already cover all four tables.
+
+## Tenant email domains (T18a)
+
+Scope: TICK-194, security finding 3 on PR #101 (T18). Migration
+`db/migrations/00004_tenant_email_domain.sql`. Keycloak `InviteUser` creates
+a new user only for an email whose domain the tenant owns
+(`Registry.TenantOwnsEmailDomain`, implemented by `pgstore.Store`). Without
+this rule, tenant A could pre-create `anyone@tenant-b.test` and lock B's
+federated user out of their first brokered login.
+
+```mermaid
+erDiagram
+    tenants ||--o{ tenant_email_domain : "tenant_id"
+    tenant_email_domain {
+        text domain PK "global; INCLUDE (tenant_id)"
+        uuid tenant_id FK
+    }
+```
+
+- **One owner per domain, realm-wide.** The primary key is `(domain)`, not
+  `(tenant_id, domain)`, for the same reason
+  `tenant_identity_binding`'s `UNIQUE (issuer, org_id)` is global: two
+  tenants claiming one domain is the conflict this table exists to refuse
+  (SQLSTATE 23505).
+- **`CHECK`**: lower-case ASCII labels (an IDN in punycode form), at least
+  two labels, at most 253 bytes. A mixed-case row would never match the
+  lower-cased lookup. The store lower-cases its input too.
+- **Policies.** `email_domain_select`: `nava_app`, canonical tenant
+  predicate. Another tenant's domain is no row, so it reads as `false`, the
+  same as a domain nobody owns, and the caller never learns who owns it.
+  `email_domain_onboard`: `nava_onboard` `INSERT` (columns `tenant_id`,
+  `domain`), tenant predicate **and** "tenant is provisioning". This is
+  pinned in `catalog.PinnedTenantPolicies`, like `binding_onboard`, so
+  domains are claimed only in T21's onboarding transaction, never added to
+  an active tenant. No role has `UPDATE` or `DELETE`.
+
+### Evidence
+
+PostgreSQL 16.10 (`postgres:16.10`, Docker 29.9.2), fsync off. Intel
+i7-1260P, 16 threads, 19 GB RAM, Windows 11 host. 25,000 rows: 10,000
+active tenants with 1–3 domains each, plus one large tenant with 5,000
+domains. The `EXPLAIN` ran as `nava_app` with FORCE RLS on, in a
+transaction with `app.tenant_id` set (queries under "Reproducing" below).
+Statement: `pgstore.emailDomainSQL`.
+
+| Case (tenant context) | Plan | Buffers | Execution |
+| --- | --- | --- | --- |
+| Own domain, small tenant | Index Only Scan `tenant_email_domain_pkey`, Heap Fetches 0 | 4 hit | 0.150 ms |
+| Large tenant's domain, from a small tenant | same; Rows Removed by Filter 1 | 4 hit | 0.104 ms |
+| Domain nobody owns | same | 3 hit | 0.071 ms |
+| Own domain, large tenant | same | 4 hit | 0.183 ms |
+
+```text
+Result  (actual time=0.054..0.056 rows=1 loops=1)
+  InitPlan 1 (returns $0)
+    ->  Result  (actual time=0.051..0.052 rows=0 loops=1)
+          One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '...0005'::uuid)
+          ->  Index Only Scan using tenant_email_domain_pkey on tenant_email_domain  (actual time=0.039..0.040 rows=0 loops=1)
+                Index Cond: (domain = 'big-d17.example'::text)
+                Filter: (tenant_id = '...0005'::uuid)
+                Rows Removed by Filter: 1
+                Heap Fetches: 0
+```
+
+The planner turns the RLS predicate into a one-time filter, because the
+query names the same tenant. The unique `domain` key finds at most one
+entry, and the `INCLUDE`d `tenant_id` answers the tenant predicate from the
+index, without touching the heap. The tenant predicate is index-backed for
+every tenant size.
+
+### Index cost
+
+The shape comparison under "Reproducing" compared the chosen key with the binding's
+shape, `PRIMARY KEY (tenant_id, domain)` + `UNIQUE (domain)`, on the same
+25,000 rows inserted in random order:
+
+| Shape | Indexes | Index size | Heap | Insert of 25,000 rows (median of 5) |
+| --- | --- | --- | --- | --- |
+| `PRIMARY KEY (domain) INCLUDE (tenant_id)` (chosen) | 1 | 1,952 kB | 1,656 kB | 329 ms |
+| `PK (tenant_id, domain)` + `UNIQUE (domain)` | 2 | 3,192 kB | 1,656 kB | 376 ms |
+
+The second index would add one index write per row and 64% more index
+storage. It would serve only "all domains of a tenant", and no query asks
+for that yet. Writes are rare (onboarding only), so either shape is cheap.
+The rule of the fewest indexes decides. The foreign key to `tenants` has no
+index of its own, because tenants are never deleted at runtime. The table
+holds two short columns, so a seq-scanned FK check on a tenant delete would
+read about 1.6 MB at 25,000 rows.
+
+### Reproducing
+
+As the superuser on a migrated `nava` database (a dbtest cluster), load the
+volume, then run the lookups as `nava_app`:
+
+```sql
+INSERT INTO tenants (id, state)
+SELECT ('00000000-0000-4000-8000-' || lpad(to_hex(g), 12, '0'))::uuid, 'active'
+FROM generate_series(1, 10001) g;
+-- 10,000 tenants with 1-3 domains each
+INSERT INTO tenant_email_domain (tenant_id, domain)
+SELECT ('00000000-0000-4000-8000-' || lpad(to_hex(g), 12, '0'))::uuid, 't' || g || '-d' || d || '.example'
+FROM generate_series(1, 10000) g, generate_series(1, 1 + g % 3) d;
+-- the large tenant (0x2711 = 10001): 5,000 domains
+INSERT INTO tenant_email_domain (tenant_id, domain)
+SELECT '00000000-0000-4000-8000-000000002711', 'big-d' || d || '.example'
+FROM generate_series(1, 5000) d;
+VACUUM ANALYZE tenant_email_domain;
+
+SET ROLE nava_app;
+BEGIN;
+SELECT set_config('app.tenant_id', '00000000-0000-4000-8000-000000000005', true);
+EXPLAIN (ANALYZE, BUFFERS) SELECT EXISTS (SELECT 1 FROM tenant_email_domain
+WHERE tenant_id = '00000000-0000-4000-8000-000000000005' AND domain = 't5-d2.example');   -- own
+-- the same with domain = 'big-d17.example' (another tenant's) and
+-- 'nobody.example' (nobody's)
+COMMIT;
+BEGIN;
+SELECT set_config('app.tenant_id', '00000000-0000-4000-8000-000000002711', true);
+EXPLAIN (ANALYZE, BUFFERS) SELECT EXISTS (SELECT 1 FROM tenant_email_domain
+WHERE tenant_id = '00000000-0000-4000-8000-000000002711' AND domain = 'big-d4999.example');
+COMMIT;
+RESET ROLE;
+```
+
+The index-shape comparison, as the superuser on the same database. Run the
+`TRUNCATE` and the two timed inserts (psql `\timing on`) five times and take
+the median:
+
+```sql
+CREATE TABLE bench_one (tenant_id uuid NOT NULL, domain text NOT NULL,
+    PRIMARY KEY (domain) INCLUDE (tenant_id));
+CREATE TABLE bench_two (tenant_id uuid NOT NULL, domain text NOT NULL,
+    PRIMARY KEY (tenant_id, domain), UNIQUE (domain));
+CREATE TEMP TABLE src AS SELECT tenant_id, domain FROM tenant_email_domain ORDER BY random();
+TRUNCATE bench_one, bench_two;
+INSERT INTO bench_one SELECT * FROM src;
+INSERT INTO bench_two SELECT * FROM src;
+SELECT relname, pg_size_pretty(pg_indexes_size(oid)) AS indexes, pg_size_pretty(pg_relation_size(oid)) AS heap
+FROM pg_class WHERE relname IN ('bench_one', 'bench_two');
+DROP TABLE bench_one, bench_two;
+```
+
+### Not done here (owners)
+
+- Inserting the domains in `CreateTenantOrg`, in the binding's
+  transaction: T21 (TICK-81). The contract is one `INSERT` per domain into
+  `tenant_email_domain (tenant_id, domain)`, as `nava_onboard`, inside
+  `tenancy.InTenantTx` for the provisioning tenant. A 23505 means another
+  tenant already owns the domain. T21 decides how an operator verifies that
+  the tenant really owns a domain before claiming it. The first claim wins.
+- A Postgres implementation of the rest of `keycloak.Registry` (user, group
+  and alias lookups). Only `TenantOwnsEmailDomain` is in `pgstore` so far.
