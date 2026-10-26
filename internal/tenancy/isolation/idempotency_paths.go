@@ -74,6 +74,33 @@ func idempotencyPaths() []Path {
 			}
 			return e.executed(2)
 		}),
+		// The leak case: an identical request (same key, same body) from
+		// another tenant must run on its own, never replay tenant A's stored
+		// response.
+		db("tenant B replaying tenant A's key and body gets no stored response", func(ctx context.Context, e *idemEnv) error {
+			h := e.handler(nil)
+			a := e.do(h, e.tenantA, e.principalA, "k-tenant-replay", `{"a":1}`)
+			b := e.do(h, e.tenantB, e.principalA, "k-tenant-replay", `{"a":1}`)
+			if b.Code != http.StatusCreated || b.Header().Get(idempotency.ReplayedHeader) != "" || bytes.Equal(bodyBytes(b), bodyBytes(a)) {
+				return fmt.Errorf("tenant B = %d %q replayed=%q, tenant A = %q; want B's own execution",
+					b.Code, bodyOf(b), b.Header().Get(idempotency.ReplayedHeader), bodyOf(a))
+			}
+			return e.executed(2)
+		}),
+		// RLS scopes idempotency_keys by tenant only; the principal is an
+		// application predicate. Another user of the same tenant must not get
+		// the first user's stored response.
+		db("another principal of the same tenant gets no stored response", func(ctx context.Context, e *idemEnv) error {
+			h := e.handler(nil)
+			other := uuid.New()
+			a := e.do(h, e.tenantA, e.principalA, "k-principal-replay", `{"a":1}`)
+			b := e.do(h, e.tenantA, other, "k-principal-replay", `{"a":1}`)
+			if b.Code != http.StatusCreated || b.Header().Get(idempotency.ReplayedHeader) != "" || bytes.Equal(bodyBytes(b), bodyBytes(a)) {
+				return fmt.Errorf("other principal = %d %q replayed=%q, first = %q; want its own execution",
+					b.Code, bodyOf(b), b.Header().Get(idempotency.ReplayedHeader), bodyOf(a))
+			}
+			return e.executed(2)
+		}),
 		db("a replay is byte-identical", func(ctx context.Context, e *idemEnv) error {
 			h := e.handler(nil)
 			a := e.do(h, e.tenantA, e.principalA, "k-replay", `{"b": 2, "a": 1}`)
