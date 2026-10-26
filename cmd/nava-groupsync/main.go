@@ -73,6 +73,10 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer, once b
 		return err
 	}
 	defer pool.Close()
+	if err := groupsync.AssertRole(ctx, pool); err != nil {
+		_ = flush()
+		return err
+	}
 	out, err := telemetry.NewOutboundClient(tel, telemetry.OutboundOptions{})
 	if err != nil {
 		_ = flush()
