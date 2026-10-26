@@ -29,27 +29,21 @@ import (
 	"github.com/google/uuid"
 )
 
-// OrgAliasPrefix prefixes the alias of a tenant's Keycloak organization.
-const OrgAliasPrefix = "t-"
-
-// TenantOrgAlias is the alias of the tenant's organization, derived from the
-// tenant id alone.
-func TenantOrgAlias(tenantID uuid.UUID) string { return OrgAliasPrefix + tenantID.String() }
-
 type kcOrgRef struct {
-	ID    string `json:"id"`
-	Alias string `json:"alias"`
+	ID string `json:"id"`
 }
 
 // PlaceInvitee places the user whose email is email in /t/<tenant_id>, if the
-// conditions in the file comment hold. bound are the IdP aliases bound to the
-// tenant, read by the caller under row-level security. consume marks the
+// conditions in the file comment hold. bound are the IdP aliases and orgIDs the
+// Keycloak organization ids bound to the tenant (tenant_identity_binding), read
+// by the caller under row-level security. The organization is matched by id,
+// never by an alias rebuilt from the tenant id. consume marks the
 // tenant's invite for email consumed and reports whether it did (an unexpired,
 // unconsumed invite existed); it runs after every Keycloak check and before
 // the group write, so an invite is never consumed for a user who is not
 // placed, and one invite places one user. It reports whether the user was
 // placed. A refusal is (false, nil).
-func (d *Directory) PlaceInvitee(ctx context.Context, tenantID uuid.UUID, email string, bound []string,
+func (d *Directory) PlaceInvitee(ctx context.Context, tenantID uuid.UUID, email string, bound, orgIDs []string,
 	consume func(context.Context) (bool, error)) (bool, error) {
 	if err := requireTenant(tenantID); err != nil {
 		return false, err
@@ -58,7 +52,7 @@ func (d *Directory) PlaceInvitee(ctx context.Context, tenantID uuid.UUID, email 
 	if err != nil {
 		return false, err
 	}
-	if len(bound) == 0 {
+	if len(bound) == 0 || len(orgIDs) == 0 {
 		return false, nil
 	}
 	user, err := d.userByEmail(ctx, email)
@@ -90,7 +84,7 @@ func (d *Directory) PlaceInvitee(ctx context.Context, tenantID uuid.UUID, email 
 		"/organizations/members/"+url.PathEscape(user.ID)+"/organizations", nil, &orgs); err != nil {
 		return false, err
 	}
-	if len(orgs) == 0 || slices.ContainsFunc(orgs, func(o kcOrgRef) bool { return o.Alias != TenantOrgAlias(tenantID) }) {
+	if len(orgs) == 0 || slices.ContainsFunc(orgs, func(o kcOrgRef) bool { return !slices.Contains(orgIDs, o.ID) }) {
 		return false, nil
 	}
 	root, err := d.rootGroup(ctx, tenantID)

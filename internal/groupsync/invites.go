@@ -16,8 +16,9 @@ import (
 type InviteePlacer interface {
 	// PlaceInvitee places the user with this email in the tenant's group if
 	// every placement condition holds, calling consume once they do, and
-	// reports whether it placed them. bound are the tenant's bound IdP aliases.
-	PlaceInvitee(ctx context.Context, tenantID uuid.UUID, email string, bound []string,
+	// reports whether it placed them. bound are the tenant's bound IdP aliases
+	// and orgIDs its bound Keycloak organization ids.
+	PlaceInvitee(ctx context.Context, tenantID uuid.UUID, email string, bound, orgIDs []string,
 		consume func(context.Context) (bool, error)) (bool, error)
 }
 
@@ -26,7 +27,7 @@ type InviteePlacer interface {
 const maxInvitesPerCycle = 100
 
 const (
-	boundSQL   = `SELECT idp_aliases FROM tenant_identity_binding WHERE tenant_id = $1::uuid`
+	boundSQL   = `SELECT idp_aliases, org_id FROM tenant_identity_binding WHERE tenant_id = $1::uuid`
 	pendingSQL = `SELECT email FROM pending_invite
 		WHERE tenant_id = $1::uuid AND consumed_at IS NULL AND expires_at > now()
 		ORDER BY created_at LIMIT $2`
@@ -62,18 +63,20 @@ func (s *Syncer) placeInvitees(ctx context.Context, tx pgx.Tx, tenantID uuid.UUI
 	if len(emails) == 0 {
 		return nil
 	}
-	var bound []string
+	var bound, orgIDs []string
 	brows, err := tx.Query(ctx, boundSQL, tenantID.String())
 	if err != nil {
 		return fmt.Errorf("read bound idps: %w", err)
 	}
 	for brows.Next() {
 		var a []string
-		if err := brows.Scan(&a); err != nil {
+		var org string
+		if err := brows.Scan(&a, &org); err != nil {
 			brows.Close()
 			return fmt.Errorf("read bound idps: %w", err)
 		}
 		bound = append(bound, a...)
+		orgIDs = append(orgIDs, org)
 	}
 	brows.Close()
 	if err := brows.Err(); err != nil {
@@ -85,7 +88,7 @@ func (s *Syncer) placeInvitees(ctx context.Context, tx pgx.Tx, tenantID uuid.UUI
 		if err != nil {
 			return fmt.Errorf("invite savepoint: %w", err)
 		}
-		placed, err := p.PlaceInvitee(ctx, tenantID, email, bound, func(ctx context.Context) (bool, error) {
+		placed, err := p.PlaceInvitee(ctx, tenantID, email, bound, orgIDs, func(ctx context.Context) (bool, error) {
 			var got string
 			err := sp.QueryRow(ctx, consumeSQL, tenantID.String(), email).Scan(&got)
 			if errors.Is(err, pgx.ErrNoRows) {

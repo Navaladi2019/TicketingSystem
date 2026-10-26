@@ -91,12 +91,15 @@ type invitee struct {
 	orgs    string // JSON array
 }
 
+// orgA is the Keycloak organization id the tenant is bound to.
+var orgA = []string{"org-a"} //nolint:gochecknoglobals // read-only test fixture
+
 func goodInvitee() invitee {
 	return invitee{
 		email: "admin@tenant-a.test", enabled: true,
 		links:  `[{"identityProvider":"idp-a","userId":"x"}]`,
 		groups: `[]`,
-		orgs:   fmt.Sprintf(`[{"id":"o1","alias":%q}]`, TenantOrgAlias(dirTenantA)),
+		orgs:   `[{"id":"org-a"}]`,
 	}
 }
 
@@ -151,9 +154,9 @@ func TestPlaceInvitee(t *testing.T) {
 		{"disabled", bad(func(u *invitee) { u.enabled = false }), idpA, false},
 		{"different email on the user", bad(func(u *invitee) { u.email = "other@tenant-a.test" }), idpA, false},
 		{"not an org member", bad(func(u *invitee) { u.orgs = `[]` }), idpA, false},
-		{"member of another org", bad(func(u *invitee) { u.orgs = fmt.Sprintf(`[{"id":"o2","alias":%q}]`, TenantOrgAlias(other)) }), idpA, false},
+		{"member of another org", bad(func(u *invitee) { u.orgs = `[{"id":"org-b"}]` }), idpA, false},
 		{"member of two orgs", bad(func(u *invitee) {
-			u.orgs = fmt.Sprintf(`[{"id":"o1","alias":%q},{"id":"o2","alias":%q}]`, TenantOrgAlias(dirTenantA), TenantOrgAlias(other))
+			u.orgs = `[{"id":"org-a"},{"id":"org-b"}]`
 		}), idpA, false},
 		{"in another tenant's group", bad(func(u *invitee) { u.groups = fmt.Sprintf(`[{"id":"gb","path":%q}]`, rootPath(other)) }), idpA, false},
 		{"already in the tenant's group", bad(func(u *invitee) { u.groups = fmt.Sprintf(`[{"id":"g-root","path":%q}]`, rootPath(dirTenantA)) }), idpA, false},
@@ -164,7 +167,7 @@ func TestPlaceInvitee(t *testing.T) {
 			var placed, consumed atomic.Bool
 			srv := inviteeServer(t, tc.u, &placed)
 			d, _ := directoryFor(t, srv.URL)
-			got, err := d.PlaceInvitee(t.Context(), dirTenantA, "admin@tenant-a.test", tc.bound, func(context.Context) (bool, error) {
+			got, err := d.PlaceInvitee(t.Context(), dirTenantA, "admin@tenant-a.test", tc.bound, orgA, func(context.Context) (bool, error) {
 				consumed.Store(true)
 				return true, nil
 			})
@@ -188,7 +191,7 @@ func TestPlaceInviteeNoUserYet(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	d, _ := directoryFor(t, srv.URL)
-	got, err := d.PlaceInvitee(t.Context(), dirTenantA, "admin@tenant-a.test", []string{"idp-a"}, func(context.Context) (bool, error) {
+	got, err := d.PlaceInvitee(t.Context(), dirTenantA, "admin@tenant-a.test", []string{"idp-a"}, orgA, func(context.Context) (bool, error) {
 		t.Error("consumed an invite with no user")
 		return true, nil
 	})
@@ -204,7 +207,7 @@ func TestPlaceInviteeSpentInvitePlacesNobody(t *testing.T) {
 	var placed atomic.Bool
 	srv := inviteeServer(t, goodInvitee(), &placed)
 	d, _ := directoryFor(t, srv.URL)
-	got, err := d.PlaceInvitee(t.Context(), dirTenantA, "admin@tenant-a.test", []string{"idp-a"}, func(context.Context) (bool, error) { return false, nil })
+	got, err := d.PlaceInvitee(t.Context(), dirTenantA, "admin@tenant-a.test", []string{"idp-a"}, orgA, func(context.Context) (bool, error) { return false, nil })
 	if got || err != nil || placed.Load() {
 		t.Fatalf("placed = %v, %v, group written %v", got, err, placed.Load())
 	}
@@ -214,10 +217,10 @@ func TestPlaceInviteeRefusesBadInput(t *testing.T) {
 	t.Parallel()
 	d, _ := directoryFor(t, "http://127.0.0.1:1")
 	ok := func(context.Context) (bool, error) { return true, nil }
-	if _, err := d.PlaceInvitee(t.Context(), uuid.Nil, "a@tenant-a.test", []string{"idp-a"}, ok); err == nil {
+	if _, err := d.PlaceInvitee(t.Context(), uuid.Nil, "a@tenant-a.test", []string{"idp-a"}, orgA, ok); err == nil {
 		t.Error("nil tenant accepted")
 	}
-	if _, err := d.PlaceInvitee(t.Context(), dirTenantA, "not an email", []string{"idp-a"}, ok); !errors.Is(err, identity.ErrInvalidInput) {
+	if _, err := d.PlaceInvitee(t.Context(), dirTenantA, "not an email", []string{"idp-a"}, orgA, ok); !errors.Is(err, identity.ErrInvalidInput) {
 		t.Errorf("bad email err = %v", err)
 	}
 }
@@ -235,5 +238,16 @@ func TestInviteUserConsumedInviteIsAnError(t *testing.T) {
 	d, _ := directoryFor(t, srv.URL, func(c *DirectoryConfig) { c.Invites = consumedInvites{} })
 	if err := d.InviteUser(t.Context(), dirTenantA, "admin@tenant-a.test"); !errors.Is(err, ErrInviteConsumed) {
 		t.Fatalf("err = %v, want ErrInviteConsumed", err)
+	}
+}
+
+func TestPlaceInviteeNeedsABoundOrgID(t *testing.T) {
+	t.Parallel()
+	var placed atomic.Bool
+	srv := inviteeServer(t, goodInvitee(), &placed)
+	d, _ := directoryFor(t, srv.URL)
+	got, err := d.PlaceInvitee(t.Context(), dirTenantA, "admin@tenant-a.test", []string{"idp-a"}, nil, func(context.Context) (bool, error) { return true, nil })
+	if got || err != nil || placed.Load() {
+		t.Fatalf("placed = %v, %v, group written %v", got, err, placed.Load())
 	}
 }
