@@ -79,6 +79,22 @@ type Entry struct {
 // (<kind>:<uuid>) can carry no free text and so no PII (TICK-94 item 3).
 var kindPattern = regexp.MustCompile(`^[a-z][a-z0-9._-]{0,99}$`)
 
+// ValidKind reports whether s may be a kind, a target kind or a signal name.
+// The relay checks every row it dispatches with it.
+func ValidKind(s string) bool { return kindPattern.MatchString(s) }
+
+// Delivery is the single argument the relay passes to Temporal for one row:
+// the input of a started workflow, or the body of a signal. Like the row it
+// comes from, it holds references only (CI-7). OutboxID is the id the
+// workflow's signal handler dedupes on (I7, workerguard.AppliedSignals).
+type Delivery struct {
+	OutboxID       uuid.UUID       `json:"outbox_id"`
+	KindVersion    int16           `json:"kind_version"`
+	CausationID    *uuid.UUID      `json:"causation_id,omitempty"`
+	CausationDepth int16           `json:"causation_depth"`
+	Payload        json.RawMessage `json:"payload"`
+}
+
 const maxDedupeKeyLen = 200
 
 const (

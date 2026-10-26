@@ -374,6 +374,41 @@ services:
       retries: 20
     restart: unless-stopped
 
+  nava-relay:
+    build:
+      context: .
+      dockerfile: deploy/compose/nava-relay/Dockerfile
+    image: nava/nava-relay:${NAVA_IMAGE_TAG:-dev}
+    environment:
+      NAVA_TEMPORAL_ADDRESS: temporal:7233
+      # The nava-relay certificate: the only one this service holds.
+      NAVA_TEMPORAL_TLS_CERT_FILE: /run/temporal-tls/nava-relay.pem
+      NAVA_TEMPORAL_TLS_KEY_FILE: /run/temporal-tls/nava-relay.key
+      NAVA_TEMPORAL_TLS_CA_FILE: /run/temporal-tls/ca.pem
+      NAVA_TEMPORAL_TLS_SERVER_NAME: temporal
+      # nava_relay (db/grants.yaml) through PgBouncer: every tenant's pending
+      # outbox rows, dispatch columns only. PostgreSQL and Temporal both gate
+      # /readyz.
+      NAVA_DATABASE_URL: postgres://nava_relay:${NAVA_RELAY_DB_PASSWORD:-dev-only-relay}@pgbouncer:5432/nava?sslmode=disable
+      NAVA_LOG_FORMAT: json
+      OTEL_SERVICE_NAME: nava-relay
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    volumes:
+      - ./deploy/compose/certs/nava-relay.pem:/run/temporal-tls/nava-relay.pem:ro
+      - ./deploy/compose/certs/nava-relay.key:/run/temporal-tls/nava-relay.key:ro
+      - ./deploy/compose/certs/ca.pem:/run/temporal-tls/ca.pem:ro
+    networks: [internal]
+    depends_on:
+      otel-collector: {condition: service_healthy}
+      temporal: {condition: service_healthy}
+      pgbouncer: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/readyz"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
 networks:
   default: {}
   internal:
