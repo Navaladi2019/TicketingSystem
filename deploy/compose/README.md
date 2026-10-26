@@ -84,5 +84,10 @@ Realm decisions to know when you build on it:
 - **Platform service account** holds `manage-realm`, so its secret is the key to
   every tenant: outside compose supply it from the environment or a secret store,
   never the `dev-only-platform-secret` literal.
+- **Group sync service account** (`nava-groupsync`) holds the four runtime roles
+  plus `view-organizations` (TICK-252), which reads every organization realm-wide
+  and is used only by `PlaceInvitee`. Outside compose supply
+  `NAVA_GROUPSYNC_CLIENT_SECRET` from the environment or a secret store, never the
+  `dev-only-groupsync-secret` literal.
 
 Later tasks mount here: T08 `db/pg_hba.conf`.
