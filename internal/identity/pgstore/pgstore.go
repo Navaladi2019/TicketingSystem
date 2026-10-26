@@ -3,7 +3,9 @@
 // nava_app, which may only SELECT them.
 //
 // The binding lookup runs before any tenant is known, through the
-// allow-listed binding_lookup policy. The principal lookup runs inside
+// allow-listed binding_lookup policy. The bound tenant's state is read right
+// after it, inside tenancy.InTenantTx for that tenant (tenants_tenant lets
+// nava_app see only that row). The principal lookup runs inside
 // tenancy.InTenantTx for the bound tenant, so row-level security holds it to
 // that tenant even though the query names the tenant too.
 package pgstore
@@ -27,6 +29,10 @@ import (
 // second one is an error, not a choice (A.1 step 4).
 const bindingSQL = `SELECT tenant_id, idp_aliases FROM tenant_identity_binding
 WHERE issuer = $1 AND org_id = $2`
+
+// tenantStateSQL reads the bound tenant's state by primary key, inside
+// InTenantTx(tenant_id) so tenants_tenant lets the row through.
+const tenantStateSQL = `SELECT state FROM tenants WHERE id = $1`
 
 // principalSQL is the statement measured in docs/data/identity.md (R1).
 const principalSQL = `SELECT p.id, p.enabled, p.federated_links,
@@ -69,10 +75,21 @@ func (s *Store) Binding(ctx context.Context, issuer, orgID string) (identity.Bin
 	case 0:
 		return identity.Binding{}, identity.ErrNoBinding
 	case 1:
-		if found[0].TenantID == uuid.Nil {
+		b := found[0]
+		if b.TenantID == uuid.Nil {
 			return identity.Binding{}, errors.New("pgstore: binding has a nil tenant")
 		}
-		return found[0], nil
+		err := tenancy.InTenantTx(ctx, s.pool, b.TenantID, func(tx pgx.Tx) error {
+			return tx.QueryRow(ctx, tenantStateSQL, b.TenantID).Scan(&b.TenantState)
+		})
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			// tenant_identity_binding_tenant_fkey makes this a broken database.
+			return identity.Binding{}, errors.New("pgstore: binding's tenant row not found")
+		case err != nil:
+			return identity.Binding{}, fmt.Errorf("pgstore: tenant state: %w", err)
+		}
+		return b, nil
 	}
 	return identity.Binding{}, fmt.Errorf("pgstore: %d bindings for one (issuer, org_id)", len(found))
 }

@@ -178,7 +178,8 @@ func (a *Adapter) Close(ctx context.Context) error { return a.keys.close(ctx) }
 // steps 1-4). Every check fails closed:
 //   - exactly one organization (step 2);
 //   - the binding of (iss, organization id) gives the tenant (step 4), never
-//     a claim value (I2);
+//     a claim value (I2), and that tenant must be active: one still
+//     provisioning is refused (T17a);
 //   - an idp claim, if present, must be one of the tenant's bound aliases
 //     (step 3);
 //   - independently of the claim, the principal synced for sub must exist,
@@ -212,6 +213,9 @@ func (a *Adapter) Resolve(ctx context.Context, raw string) (identity.Principal, 
 		return identity.Principal{}, unresolved("no tenant binding")
 	case err != nil:
 		return identity.Principal{}, fmt.Errorf("keycloak: resolve: %w", err)
+	}
+	if b.TenantState != identity.TenantStateActive {
+		return identity.Principal{}, unresolved("tenant not active")
 	}
 	if idp != "" && !slices.Contains(b.IdPAliases, idp) {
 		return identity.Principal{}, unresolved("idp not bound")
