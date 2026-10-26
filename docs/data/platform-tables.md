@@ -160,6 +160,10 @@ Every tenant-scoped read is an index scan whose Index Cond leads with
 | `workflow_ref_record` | 95 MB | open-workflow lookup and the FK's index |
 | `records_pkey`, `idempotency_keys_pkey` | 64 MB, 76 MB | PK |
 
+The four purge indexes (`outbox_purge_dispatched`, `outbox_purge_dead`,
+`workflow_ref_purge_closed`, `idempotency_keys_purge_expires`) came later in
+`00005`; their cost and plans are in [purge-indexes.md](purge-indexes.md).
+
 Write cost as `nava_app` in one tenant transaction, with all indexes and RLS
 checks: 10,000 `outbox` rows took 927 ms (93 µs/row, 4 indexes), and
 10,000 `idempotency_keys` rows took 160 ms (16 µs/row). The earlier run
