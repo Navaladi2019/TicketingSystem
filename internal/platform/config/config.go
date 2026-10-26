@@ -45,7 +45,7 @@ type Dependencies struct {
 	KeycloakManagementURL string
 	// TemporalAddress is NAVA_TEMPORAL_ADDRESS, the frontend host:port.
 	TemporalAddress string
-	// TemporalTLS is the client certificate nava-core dials the frontend with.
+	// TemporalTLS is the client certificate the binary dials the frontend with.
 	TemporalTLS TemporalTLS
 	// OIDCIssuers is NAVA_OIDC_ISSUERS, the comma-separated exact iss
 	// allow-list of tenant access tokens, such as
@@ -54,8 +54,9 @@ type Dependencies struct {
 	OIDCIssuers []string
 }
 
-// TemporalTLS locates nava-core's mTLS identity for the Temporal frontend (the
-// `nava-core` certificate). The key is read from a file, never from a variable.
+// TemporalTLS locates the binary's mTLS identity for the Temporal frontend
+// (the `nava-core`, `nava-worker` or `nava-relay` certificate), which
+// temporaltls.Load turns into a client config. The key is read from a file, never from a variable.
 // CertFile, KeyFile and CAFile are set together or not at all.
 type TemporalTLS struct {
 	CertFile   string // NAVA_TEMPORAL_TLS_CERT_FILE

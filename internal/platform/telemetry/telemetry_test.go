@@ -271,8 +271,31 @@ func TestLogHandlerOnlyWithBaseEndpoint(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := tel.LogHandler() != nil; got != tc.want {
+		if got := tel.LogHandler("nava-core") != nil; got != tc.want {
 			t.Errorf("env %v: LogHandler non-nil = %v, want %v", tc.env, got, tc.want)
+		}
+		if err := tel.Shutdown(t.Context()); err != nil {
+			t.Errorf("Shutdown: %v", err)
+		}
+	}
+}
+
+// Exported records carry the service name the caller passes, as their
+// instrumentation scope.
+func TestLogHandlerNamesTheCaller(t *testing.T) {
+	t.Parallel()
+	for _, service := range []string{"nava-core", "nava-worker"} {
+		rec := &logRecorder{}
+		tel, err := telemetry.New(t.Context(), load(t, nil), telemetry.WithLogExporter(rec))
+		if err != nil {
+			t.Fatal(err)
+		}
+		slog.New(tel.LogHandler(service)).InfoContext(t.Context(), "m")
+		if len(rec.recs) != 1 {
+			t.Fatalf("%s: exported %d records, want 1", service, len(rec.recs))
+		}
+		if got := rec.recs[0].InstrumentationScope().Name; got != service {
+			t.Errorf("scope name = %q, want %q", got, service)
 		}
 		if err := tel.Shutdown(t.Context()); err != nil {
 			t.Errorf("Shutdown: %v", err)
@@ -289,7 +312,7 @@ func TestExportedLogRecordCarriesTraceID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	log := slog.New(tel.LogHandler())
+	log := slog.New(tel.LogHandler("nava-core"))
 
 	ctx, span := tel.TracerProvider.Tracer("test").Start(t.Context(), "req")
 	log.InfoContext(ctx, "with ctx", slog.String("k", "v"))
@@ -320,7 +343,7 @@ func TestExportedLogRecordDropsDeniedAttributes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	log := slog.New(tel.LogHandler())
+	log := slog.New(tel.LogHandler("nava-core"))
 
 	log.InfoContext(t.Context(), "m",
 		slog.String("url.path", "/secret"),
@@ -370,7 +393,7 @@ func TestExportedLogRecordFiltersResolvedLogValuer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	slog.New(tel.LogHandler()).InfoContext(t.Context(), "m", slog.Any("req", leakyValuer{}))
+	slog.New(tel.LogHandler("nava-core")).InfoContext(t.Context(), "m", slog.Any("req", leakyValuer{}))
 	if len(rec.recs) != 1 {
 		t.Fatalf("exported %d records, want 1", len(rec.recs))
 	}
