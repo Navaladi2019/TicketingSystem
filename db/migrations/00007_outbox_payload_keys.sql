@@ -34,11 +34,20 @@
 -- An existing row that breaks the rule fails VALIDATE, and so the migration,
 -- with "check constraint "outbox_payload_check" of relation "outbox" is
 -- violated by some row"; no version row is written, the 00006 constraint is
--- still there and the new one stays NOT VALID, still guarding new rows. Find
--- the rows as the superuser (FORCE RLS hides them from nava_migrator) with
+-- still there and the new one stays NOT VALID, still guarding new rows.
+--
+-- A NOT VALID CHECK also refuses every UPDATE of an old bad row, so in that
+-- state a pending bad row stops the relay for every tenant: its claim
+-- UPDATE (attempts = attempts + 1) fails the whole statement on every poll.
+-- Deleting the rows is urgent, not housekeeping. As the superuser (FORCE RLS
+-- hides them from nava_migrator):
 --   SELECT tenant_id, id FROM outbox WHERE NOT (<the CHECK expression>);
--- mark them dead or delete them, then re-run the migrator. Never copy their
--- payload into a ticket or log: it may be the record data this rule keeps out.
+--   DELETE FROM outbox WHERE NOT (<the CHECK expression>);
+-- then re-run the migrator. Select only tenant_id and id, never SELECT *.
+-- Never UPDATE them (for example SET dead_at = now()): it fails with 23514,
+-- and as the superuser the error's DETAIL prints the whole row, payload
+-- included. Never copy their payload into a ticket or log: it may be the
+-- record data this rule keeps out.
 --
 -- No index, no grant and no policy changes.
 

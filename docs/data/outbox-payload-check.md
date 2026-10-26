@@ -92,16 +92,18 @@ with a matching CHECK, first. It is not workable today, for three reasons:
    UPDATE of that row.
 
 The pattern closes the reported channel: no spaces, punctuation, `@`, capitals
-or non-ASCII, and at most 32 characters per key. What is left is recorded as
-[AR-032](../security/accepted-risks.md): identifier-shaped words such as
-`alice_tenant_a` still fit in a key, and the number of keys is not bounded.
-Revisit once real kinds exist. A per-kind allow-list can then be added in Go
-for `Enqueue` and the relay, on top of this pattern, as a second line.
+or non-ASCII, and at most 32 characters per key. The rule bounds accidental
+record data, such as a producer bug that writes a title or an email. It does not
+stop a deliberate encoder. Key words, the number of keys, array length and the
+122 writer-chosen bits of each UUID all stay under the writer's control. That
+residual is [AR-032](../security/accepted-risks.md). Revisit once real kinds
+exist: a per-kind allow-list can then be added in Go for `Enqueue` and the
+relay, on top of this pattern, as a second line.
 
 ## Parity
 
 `TestPayloadCheckMatchesValidatePayload` (`internal/outbox`, integration) runs
-59 cases, each as a `t.Run` subtest, through both checks. Each case states the
+60 cases, each as a `t.Run` subtest, through both checks. Each case states the
 expected outcome, and both checks must match it:
 
 - the CI-7 record-data shapes;
@@ -152,9 +154,26 @@ If an existing row breaks the new rule, the migration fails loudly:
   (`TestT240PayloadKeysMigrationFailsOnExistingRow`, which also covers the
   clean re-run).
 
-To recover, find the rows as the superuser. FORCE RLS hides them from
-`nava_migrator`. Mark them dead or delete them, then re-run the migrator. The
-migration comment gives the query. Never copy their payload anywhere.
+**The failed state stops the relay for every tenant.** A `NOT VALID` CHECK
+also refuses every UPDATE of an old row that breaks it. While such a row is
+still pending, the relay's claim (`attempts = attempts + 1`) fails as one
+statement across all tenants, and every poll picks the same row again. So
+outbox delivery stops for all tenants until the row is gone. Deleting it is
+urgent, not housekeeping.
+
+To recover, act as the superuser, because FORCE RLS hides the rows from
+`nava_migrator`:
+
+1. Find the rows, selecting only `tenant_id, id` and never `SELECT *`:
+   `SELECT tenant_id, id FROM outbox WHERE NOT (<the CHECK expression>);`
+2. **Delete** them: `DELETE FROM outbox WHERE NOT (<the CHECK expression>);`,
+   or by `tenant_id, id`.
+3. Re-run the migrator.
+
+Never UPDATE them, for example `SET dead_at = now()`. The UPDATE fails with
+`23514`, and as the superuser the error's `DETAIL` prints the whole row,
+payload included (`TestT240PayloadKeysMigrationFailsOnExistingRow` pins the
+refusal). Never copy their payload anywhere.
 
 ## Cost
 

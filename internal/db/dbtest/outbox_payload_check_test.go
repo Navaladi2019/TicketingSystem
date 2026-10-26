@@ -82,7 +82,8 @@ func TestT214PayloadCheckMigrationFailsOnExistingRecordData(t *testing.T) {
 // TICK-240: 00007 fails loudly, naming its constraint, when an existing row
 // passed 00006 but breaks the stricter rule (a free-text key, or a UUID in a
 // form other than canonical). It records no version, keeps the 00006
-// constraint, and leaves the new one NOT VALID but refusing new rows. Once the
+// constraint, and leaves the new one NOT VALID but refusing new rows and
+// UPDATEs of the old ones, so recovery is a DELETE. Once the
 // rows are gone, a re-run validates it and drops the 00006 constraint, and a
 // further run changes nothing.
 func TestT240PayloadKeysMigrationFailsOnExistingRow(t *testing.T) {
@@ -117,6 +118,12 @@ func TestT240PayloadKeysMigrationFailsOnExistingRow(t *testing.T) {
 	}
 	if _, err := super.Exec(t.Context(), insert, tenantB, "new-free-text-key", `{"call alice":"`+tenantB+`"}`); sqlState(err) != "23514" {
 		t.Fatalf("new free-text key under the NOT VALID constraint: %v, want 23514", err)
+	}
+	// The NOT VALID constraint refuses an UPDATE of an old bad row too, so
+	// "mark it dead" is no recovery (and the relay's claim UPDATE stalls on
+	// it): the rows must be deleted.
+	if _, err := super.Exec(t.Context(), "UPDATE outbox SET dead_at = now() WHERE dedupe_key = 'old-free-text-key'"); sqlState(err) != "23514" {
+		t.Fatalf("marking an old bad row dead under the NOT VALID constraint: %v, want 23514", err)
 	}
 
 	exec(t, super, "DELETE FROM outbox WHERE dedupe_key IN ('old-free-text-key', 'old-urn')")
