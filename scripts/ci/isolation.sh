@@ -58,4 +58,10 @@ NAVA_ISOLATION_PGBOUNCER_ADDR="127.0.0.1:$(hostport "$bouncer")"
 NAVA_ISOLATION_REPORT="${ISOLATION_REPORT:-$(pwd -W 2>/dev/null || pwd)/isolation-report.md}"
 export NAVA_TEST_PG_URL NAVA_ISOLATION_PGBOUNCER_ADDR NAVA_ISOLATION_REPORT
 
+# With no extra arguments, tools/ci/suiteran (TICK-230) also fails the run
+# when a registered isolation suite ran zero tests. Extra arguments (a -run
+# filter) may leave a suite out on purpose, so they skip that check.
+if [ $# -eq 0 ]; then
+    exec go run ./tools/ci/suiteran -tags integration -v -- go test -tags integration -count=1 -json ./internal/tenancy/isolation
+fi
 go test -tags integration -count=1 -v ./internal/tenancy/isolation "$@"

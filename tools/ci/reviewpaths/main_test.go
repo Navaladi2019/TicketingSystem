@@ -266,3 +266,19 @@ func TestEntryForms(t *testing.T) {
 		}
 	}
 }
+
+// TICK-230 bypass guard: the CI scripts decide which tags, packages and -run
+// filters the isolation suites run with, and suiteran trusts their -tags. An
+// edit there that drops both -tags (or the package, or adds -run) leaves the
+// suite out of the run with CI green, so it must get the Security review.
+func TestCIScriptsAreSecurityPaths(t *testing.T) {
+	cfg := repoConfig(t)
+	for _, p := range []string{
+		"scripts/ci/isolation.sh",
+		"scripts/ci/test-integration.sh",
+	} {
+		if !matchAny(cfg.Security.Patterns(), p) {
+			t.Errorf("%s is not on the security list: an edit to it can drop an isolation suite from CI without Security review", p)
+		}
+	}
+}

@@ -117,12 +117,14 @@ lock. `NAVA_RACE_LOCK=off` skips it.
 | A forbidden or unpinned module or image gets in | `check-pins` (fixture tests in `tools/ci/checkpins`) |
 | Taskfile and Makefile drift apart, so local runs differ from CI | `check-taskfile` (drift fixture in `tools/ci/checktaskfile`) |
 | A security-path change goes without the D-P10 review | `review-paths` prints the summary lines on every PR (fixture: a PR touching `db/`) |
+| A registered isolation suite runs zero tests and CI stays green (a `TestMain` exiting before `m.Run`, a step dropping `-tags`) | `tools/ci/suiteran` (TICK-230) wraps `go test -json` in `test`, `temporal-server-test`, `test-integration`, `isolation`, `stack-test-identity` and `stack-test-sdk`: every `cto_signoff.isolation_tests` file whose package ran and whose build constraints hold for the step's `-tags` must have at least one of its tests pass or fail. Fixtures in `tools/ci/suiteran/testdata/fixture`; `TestEveryRegisteredSuiteHasACheckedStep` fails when a registered suite has no step whose `-tags` builds it |
 | A shallow clone passes `check-openapi` with nothing to compare against | `check-openapi` fails when `BASE` is missing |
 | pgx's prepared-statement cache breaks through PgBouncer in transaction mode | `internal/db/pooltest` (T06): 50 clients, 10k statements, zero errors; a second PgBouncer with `max_prepared_statements = 0` must fail |
 | nava-core goes ready without PostgreSQL | compose healthcheck on `/readyz`, plus the `dependencies` case (200 with Keycloak stopped) |
 
 ## Deliberately not covered
 
+- **A suite dropped by editing the step itself.** suiteran trusts the step's own `-tags` and package list. Removing both `-tags`, narrowing the packages, adding a `-run` filter or removing the suiteran call passes the check, so each of those is an edit to `.github/`, the `Makefile` or `scripts/ci/`, all on the `security` list in `review-paths.yaml` (`TestCIScriptsAreSecurityPaths` in `tools/ci/reviewpaths` pins the two scripts). Extra `ARGS` to `make test-integration` or `make isolation` skip the check, since a `-run` filter leaves suites out on purpose; CI never sets `ARGS`.
 - **testcontainers-go.** Approved, not adopted (decision log, 2026-10-19). The integration tests start a pinned container through the docker CLI, the way T03 and T04 built them.
 
 ## Run it
