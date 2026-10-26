@@ -103,9 +103,10 @@ domains and an invited admin.
 
 On the compose stack `nava-onboard` is its own service on the `internal` network,
 with no published port: the tenant ingress (nava-core's port) answers the operator
-route 501. From the host, call it inside its container, for example
-`docker compose exec -T nava-onboard nc 127.0.0.1 8081` with a raw HTTP/1.0 request,
-as `make stack-test-onboard` does. The admin's first sign-in resolves in
+route 501. From the host, call it inside its container, as `make stack-test-onboard`
+does: `docker compose exec -T nava-onboard wget -S -O - --header ... --post-data '<body>'
+http://127.0.0.1:8081/api/v1/operator/tenants`. Not `nc`: it half-closes the connection
+when its input ends, and the server cancels the request on that EOF. The admin's first sign-in resolves in
 `GET /api/v1/me` only after a `nava-groupsync` cycle has synced them.
 
 
