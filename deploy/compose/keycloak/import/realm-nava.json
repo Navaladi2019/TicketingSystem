@@ -399,6 +399,23 @@
       "optionalClientScopes": []
     },
     {
+      "clientId": "nava-groupsync",
+      "name": "Group sync service account: users and groups, plus view-organizations to read a user's organization membership (PlaceInvitee only); no realm or IdP role",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "dev-only-groupsync-secret",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "fullScopeAllowed": true,
+      "defaultClientScopes": [
+        "basic",
+        "roles"
+      ],
+      "optionalClientScopes": []
+    },
+    {
       "clientId": "nava-onboarding",
       "name": "Onboarding service account: creates a tenant organization and its IdP (manage-realm, manage-identity-providers; no manage-users)",
       "enabled": true,
@@ -440,8 +457,21 @@
           "manage-users",
           "view-users",
           "query-users",
+          "query-groups"
+        ]
+      }
+    },
+    {
+      "username": "service-account-nava-groupsync",
+      "enabled": true,
+      "serviceAccountClientId": "nava-groupsync",
+      "clientRoles": {
+        "realm-management": [
+          "manage-users",
+          "view-users",
+          "query-users",
           "query-groups",
-          "view-realm"
+          "view-organizations"
         ]
       }
     },

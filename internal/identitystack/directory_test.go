@@ -137,6 +137,7 @@ func newOutbound(t *testing.T) *telemetry.OutboundClient {
 var (
 	runtimeCreds    = keycloak.ClientCredentials{ClientID: "nava-platform", ClientSecret: "dev-only-platform-secret"}
 	onboardingCreds = keycloak.ClientCredentials{ClientID: "nava-onboarding", ClientSecret: "dev-only-onboarding-secret"}
+	groupsyncCreds  = keycloak.ClientCredentials{ClientID: "nava-groupsync", ClientSecret: "dev-only-groupsync-secret"}
 )
 
 func newDirectory(t *testing.T, reg keycloak.Registry, onboarding bool, idps keycloak.IdPSource) *keycloak.Directory {
@@ -499,7 +500,49 @@ func TestRuntimeAccountHasNoRealmOrIdPReach(t *testing.T) {
 		}
 	}
 	// And holds exactly those client roles on realm-management, no realm role.
-	checkAccountRoles(t, "service-account-nava-platform", []string{"manage-users", "query-groups", "query-users", "view-realm", "view-users"})
+	checkAccountRoles(t, "service-account-nava-platform", []string{"manage-users", "query-groups", "query-users", "view-users"})
+}
+
+// TestGroupsyncAccountFloor pins the group sync account (TICK-252): the four
+// runtime roles plus view-organizations, which PlaceInvitee needs to read a
+// user's organization membership, and nothing else. view-realm would not open
+// that read and would open /roles and /authentication/flows;
+// query-organizations answers 200 with an empty list. The 200 below must name
+// the seeded member's real organization, which catches that silent-empty case.
+func TestGroupsyncAccountFloor(t *testing.T) {
+	tok := accountToken(t, groupsyncCreds)
+	master := masterToken(t)
+	a := orgID(t, master, "tenant-a")
+	alice := userID(t, master, "alice@tenant-a.test")
+
+	code, body := admin(t, tok, http.MethodGet, "/organizations/members/"+alice+"/organizations", nil)
+	var orgs []struct{ ID string }
+	if code != http.StatusOK || json.Unmarshal(body, &orgs) != nil || len(orgs) != 1 || orgs[0].ID != a {
+		t.Fatalf("groupsync account GET member organizations = %d %s, want 200 with tenant-a (%s)", code, body, a)
+	}
+	for _, p := range []string{"/users?max=1", "/groups?max=1", "/users/count"} {
+		if code := asAccount(t, tok, http.MethodGet, p, nil); code != http.StatusOK {
+			t.Errorf("groupsync account GET %s = %d, want 200", p, code)
+		}
+	}
+	for _, c := range []struct {
+		method, path string
+		body         any
+	}{
+		{http.MethodPut, "", map[string]any{"displayName": "pwned"}},
+		{http.MethodGet, "/roles", nil},
+		{http.MethodGet, "/authentication/flows", nil},
+		{http.MethodGet, "/identity-provider/instances", nil},
+		{http.MethodPost, "/organizations/" + a + "/members", alice},
+		{http.MethodDelete, "/organizations/" + a + "/members/" + alice, nil},
+		{http.MethodPut, "/organizations/" + a, map[string]any{"name": "pwned", "alias": "tenant-a"}},
+		{http.MethodPost, "/organizations/" + a + "/identity-providers", "idp-tenant-b"},
+	} {
+		if code := asAccount(t, tok, c.method, c.path, c.body); code != http.StatusForbidden {
+			t.Errorf("groupsync account %s %s = %d, want 403", c.method, c.path, code)
+		}
+	}
+	checkAccountRoles(t, "service-account-nava-groupsync", []string{"manage-users", "query-groups", "query-users", "view-organizations", "view-users"})
 }
 
 func TestOnboardingAccountHasNoUserReach(t *testing.T) {

@@ -11,11 +11,14 @@ package keycloak
 //     for it);
 //   - the user has at least one federated link and every link is an IdP bound
 //     to the tenant;
-//   - the user is a member of the tenant's organization and of no other;
+//   - the user is a member of the tenant's organization (matched by the org
+//     id in tenant_identity_binding) and of no other;
 //   - the user is in no other tenant's /t/ group;
 //   - the invite is unexpired and unconsumed, which consume decides (2d).
 //
-// Any failed condition places nobody and leaves the invite untouched. Nothing
+// A user already in this tenant's group, with every other condition true, has
+// the invite consumed and no second group write. Any failed condition places
+// nobody and leaves the invite untouched. Nothing
 // here links an identity to a user: a user the tenant's IdP did not create is
 // not placed.
 
@@ -75,10 +78,13 @@ func (d *Directory) PlaceInvitee(ctx context.Context, tenantID uuid.UUID, email 
 	if err != nil {
 		return false, err
 	}
-	if slices.ContainsFunc(groups, func(g kcGroup) bool { return inTenant(tenantID, g.Path) || inOtherTenant(tenantID, g.Path) }) {
-		// Already placed, or in another tenant: nothing to do here.
+	if slices.ContainsFunc(groups, func(g kcGroup) bool { return inOtherTenant(tenantID, g.Path) }) {
 		return false, nil
 	}
+	// A user already in this tenant's group (an earlier cycle placed them but
+	// its transaction did not commit) is not written again, but the invite is
+	// still consumed so it does not stay open.
+	inTenantAlready := slices.ContainsFunc(groups, func(g kcGroup) bool { return inTenant(tenantID, g.Path) })
 	var orgs []kcOrgRef
 	if err := d.api.getJSON(ctx, d.runtime, "/organizations/members/{id}/organizations",
 		"/organizations/members/"+url.PathEscape(user.ID)+"/organizations", nil, &orgs); err != nil {
@@ -97,6 +103,9 @@ func (d *Directory) PlaceInvitee(ctx context.Context, tenantID uuid.UUID, email 
 	}
 	if !ok {
 		return false, nil
+	}
+	if inTenantAlready {
+		return true, nil
 	}
 	if _, err := d.api.do(ctx, d.runtime, http.MethodPut, "/users/{id}/groups/{groupId}",
 		"/users/"+url.PathEscape(user.ID)+"/groups/"+url.PathEscape(root.ID), nil, nil, http.StatusNoContent); err != nil {

@@ -159,7 +159,6 @@ func TestPlaceInvitee(t *testing.T) {
 			u.orgs = `[{"id":"org-a"},{"id":"org-b"}]`
 		}), idpA, false},
 		{"in another tenant's group", bad(func(u *invitee) { u.groups = fmt.Sprintf(`[{"id":"gb","path":%q}]`, rootPath(other)) }), idpA, false},
-		{"already in the tenant's group", bad(func(u *invitee) { u.groups = fmt.Sprintf(`[{"id":"g-root","path":%q}]`, rootPath(dirTenantA)) }), idpA, false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -249,5 +248,41 @@ func TestPlaceInviteeNeedsABoundOrgID(t *testing.T) {
 	got, err := d.PlaceInvitee(t.Context(), dirTenantA, "admin@tenant-a.test", []string{"idp-a"}, nil, func(context.Context) (bool, error) { return true, nil })
 	if got || err != nil || placed.Load() {
 		t.Fatalf("placed = %v, %v, group written %v", got, err, placed.Load())
+	}
+}
+
+// A user already in this tenant's group (a cycle placed them but did not
+// commit) has the invite consumed and no second group write.
+func TestPlaceInviteeAlreadyInTenantGroupConsumesWithoutWrite(t *testing.T) {
+	t.Parallel()
+	u := goodInvitee()
+	u.groups = fmt.Sprintf(`[{"id":"g-root","path":%q}]`, rootPath(dirTenantA))
+	var placed, consumed atomic.Bool
+	srv := inviteeServer(t, u, &placed)
+	d, _ := directoryFor(t, srv.URL)
+	got, err := d.PlaceInvitee(t.Context(), dirTenantA, "admin@tenant-a.test", []string{"idp-a"}, orgA, func(context.Context) (bool, error) {
+		consumed.Store(true)
+		return true, nil
+	})
+	if err != nil || !got || !consumed.Load() || placed.Load() {
+		t.Fatalf("placed=%v err=%v consumed=%v group written=%v; want true, nil, true, false", got, err, consumed.Load(), placed.Load())
+	}
+}
+
+// ... but if another condition fails, the invite is not consumed.
+func TestPlaceInviteeAlreadyInTenantGroupStillNeedsTheOtherConditions(t *testing.T) {
+	t.Parallel()
+	u := goodInvitee()
+	u.groups = fmt.Sprintf(`[{"id":"g-root","path":%q}]`, rootPath(dirTenantA))
+	u.links = `[{"identityProvider":"idp-b","userId":"x"}]`
+	var placed atomic.Bool
+	srv := inviteeServer(t, u, &placed)
+	d, _ := directoryFor(t, srv.URL)
+	got, err := d.PlaceInvitee(t.Context(), dirTenantA, "admin@tenant-a.test", []string{"idp-a"}, orgA, func(context.Context) (bool, error) {
+		t.Error("consumed")
+		return true, nil
+	})
+	if got || err != nil {
+		t.Fatalf("= %v, %v", got, err)
 	}
 }
