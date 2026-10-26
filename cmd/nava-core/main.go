@@ -61,7 +61,7 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 		return err
 	}
 	defer closeResolver()
-	public, err := server.NewHandler(log, tel, resolver)
+	public, err := server.NewHandler(log, tel, resolver, server.WithRateLimit(cfg.RateLimit))
 	if err != nil {
 		_ = tel.Shutdown(context.WithoutCancel(ctx))
 		return err
