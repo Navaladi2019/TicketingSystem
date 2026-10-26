@@ -140,7 +140,7 @@ sequenceDiagram
 | `NotFound` on a signal is terminal | A signal to a start that was never dispatched, and a signal to a completed workflow. Each is dead at attempt 1 with `CauseTargetMissing` and unchanged after four more polls. The relay logs the workflow id, and `outbox_relay_signal_target_missing_total` rises. |
 | CI-7 producer schema | `outbox.ValidatePayload` rejects text, numbers, booleans, nested objects, mixed arrays, a text field next to a reference, and anything that is not an object. |
 | CI-7 history input | The `outbox.Delivery` Go type has only UUID, int16 and payload fields. The recorded start and signal inputs of a relay-started workflow have only its JSON keys, and each payload passes the producer schema. |
-| CI-7 payload outside `Enqueue` | Not in this PR. The test lands with its fix in TICK-214 (finding T32b-1). |
+| CI-7 payload outside `Enqueue` | Added by TICK-214 with its fix (finding T32b-1). A start row with record data, inserted directly as the superuser, is refused by `outbox_payload_references_check`; no row is stored and no workflow exists. |
 | CI-7 activity payload | Not in this PR. The test lands with its fix in TICK-216 (finding T32b-2). |
 | CI-7 headers (TICK-93) | Every `Header` anywhere in both runs' histories is walked: start, signals, activity, continue-as-new. The keys are only `nava-tenant` and `_tracer-data`, and `_tracer-data` holds only `traceparent` and `tracestate`. A signal sent with baggage in its context leaves no trace of it. |
 
@@ -154,7 +154,10 @@ sequenceDiagram
      outbox column. The relay dispatches the payload unchecked, so the record
      data lands in the cross-tenant, unencrypted Temporal history (R1). No
      endpoint writes outbox rows today, so a tenant token cannot trigger it.
-   - **Status:** will bite us at scale.
+   - **Status:** values fixed by TICK-214; keys open (follow-up TICK-240)
+     (`db/migrations/00006_outbox_payload_references.sql`,
+     [outbox-payload-check.md](../data/outbox-payload-check.md)); the relay
+     check (TICK-215) is still open.
    - **Severity:** Medium.
    - **Fix, at the lowest layer:** a `CHECK` on `outbox.payload` with the same
      rule as `ValidatePayload`: a jsonb object whose values are UUID strings or
@@ -163,9 +166,9 @@ sequenceDiagram
      before each call and mark a failing row dead with a fixed cause, as a
      second line.
    - **Owners:** TICK-214 (the `CHECK`) and TICK-215 (the relay check).
-   - **Test:** `TestCI7_RelayRefusesRecordDataPayloadWrittenOutsideEnqueue`,
-     which lands with TICK-214. Its code is on branch
-     `security/tick-86-ci7-gap-tests`.
+   - **Test:** `TestCI7_RelayRefusesRecordDataPayloadWrittenOutsideEnqueue`
+     (TICK-214): the direct INSERT is refused, and nothing reaches the
+     history.
 2. **T32b-2: activity arguments are not checked.**
    - **Attack:** workflow code schedules an activity whose argument holds record
      data, and `ActivityTaskScheduled` records it in the history. Nothing in
@@ -186,4 +189,5 @@ sequenceDiagram
 Neither finding lets tenant A reach tenant B's data. Both are R1 creep, which is
 what CI-7 exists to catch. CI-7 is partly met at T32b: three of its five cases
 are here, and the other two are acceptance criteria of TICK-214 and TICK-216
-(Technical Lead decision, TICK-86).
+(Technical Lead decision, TICK-86). TICK-214 adds the fourth; TICK-216's is
+still open.

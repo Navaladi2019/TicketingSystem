@@ -151,14 +151,22 @@ func guardAlerts(logs *lockedBuffer, workflowID, guard, outcome string) int {
 // returns the unaligned, tuples-only output.
 func psqlSuper(t *testing.T, sql string) string {
 	t.Helper()
+	out, err := psqlSuperErr(t, sql)
+	if err != nil {
+		t.Fatalf("psql: %v\n%s\n-- sql:\n%s", err, out, sql)
+	}
+	return out
+}
+
+// psqlSuperErr is psqlSuper for SQL that may fail: it returns psql's output,
+// the error text included, and its error.
+func psqlSuperErr(t *testing.T, sql string) (string, error) {
+	t.Helper()
 	cmd := exec.CommandContext(context.Background(), "docker", "exec", "-i", containerOf(t, "postgres"), "sh", "-c",
 		`PGPASSWORD=$(cat /run/pg_superuser_password) exec psql -X -q -t -A -1 -v ON_ERROR_STOP=1 -U pgadmin -d nava -f -`)
 	cmd.Stdin = strings.NewReader(sql)
 	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("psql: %v\n%s\n-- sql:\n%s", err, out, sql)
-	}
-	return strings.TrimSpace(string(out))
+	return strings.TrimSpace(string(out)), err
 }
 
 // target is one record of one tenant and the relay-started workflow on it.
