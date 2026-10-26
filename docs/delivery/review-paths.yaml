@@ -32,8 +32,7 @@ security:
   - internal/platform/auth/
   # Cursor and idempotency.
   - internal/platform/cursor/
-  - path: internal/platform/idempotency/
-    planned: "PLAN-001 T22"
+  - internal/platform/idempotency/
   - cmd/nava-purge/
   - path: cmd/nava-groupsync/
     planned: "PLAN-001 T25"
