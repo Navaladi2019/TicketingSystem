@@ -163,6 +163,8 @@ sequenceDiagram
      before each call and mark a failing row dead with a fixed cause, as a
      second line.
    - **Owners:** TICK-214 (the `CHECK`) and TICK-215 (the relay check).
+     The relay check is in `relay.Dispatcher` (TICK-215): a failing row is
+     dead with `CauseInvalidPayload` and alerts, without a Temporal call.
    - **Test:** `TestCI7_RelayRefusesRecordDataPayloadWrittenOutsideEnqueue`,
      which lands with TICK-214. Its code is on branch
      `security/tick-86-ci7-gap-tests`.
