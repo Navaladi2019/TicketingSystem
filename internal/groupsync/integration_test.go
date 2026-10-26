@@ -121,13 +121,11 @@ func cluster(t *testing.T) (*pgx.Conn, *pgxpool.Pool) {
 	}
 	t.Cleanup(func() { _ = super.Close(ctx) })
 
-	pc, err := pgxpool.ParseConfig("postgres://")
+	pc, err := pgxpool.ParseConfig(os.Getenv("NAVA_TEST_PG_URL"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	pc.ConnConfig.Host, pc.ConnConfig.Port = sup.Host, sup.Port
 	pc.ConnConfig.User, pc.ConnConfig.Password, pc.ConnConfig.Database = "nava_groupsync", password("nava_groupsync"), m.PlatformDatabase
-	pc.ConnConfig.TLSConfig = sup.TLSConfig
 	pc.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
 	pc.MaxConns = 4
 	pool, err := pgxpool.NewWithConfig(ctx, pc)
