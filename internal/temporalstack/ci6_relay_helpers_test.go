@@ -22,7 +22,6 @@ import (
 
 	"github.com/google/uuid"
 	"go.temporal.io/sdk/client"
-	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 
@@ -36,14 +35,10 @@ import (
 // (temporal-server/authz/policy.go) that an outbox kind can name. The signal
 // names below are outbox kinds too.
 const (
-	relayType      = "nava.smoke.relay"
-	sigNote        = "ci6.note"
-	sigRollover    = "ci6.rollover"
-	sigDone        = "ci6.done"
-	sigCI7Activity = "ci7.activity"
-	// ci7ProbeActivity is not registered anywhere: the CI-7 case only needs
-	// its scheduling to reach (or not reach) the history.
-	ci7ProbeActivity = "ci7.probe"
+	relayType   = "nava.smoke.relay"
+	sigNote     = "ci6.note"
+	sigRollover = "ci6.rollover"
+	sigDone     = "ci6.done"
 )
 
 // relayRun is relayProbe's input: the relay's outbox.Delivery on the first
@@ -58,7 +53,6 @@ type relayRun struct {
 // relayProbe is the workflow the relay starts (type relayType):
 //   - ci6.note applies its outbox id once (I7) and records the order;
 //   - ci6.rollover drains pending notes and continues as new;
-//   - ci7.activity schedules ci7.probe with a record-data argument (CI-7);
 //   - ci6.done closes workflow_ref (the nava-worker service runs that
 //     activity as nava_worker) and returns the applied ids, comma-joined.
 func relayProbe(ctx workflow.Context, in relayRun) (string, error) {
@@ -74,7 +68,7 @@ func relayProbe(ctx workflow.Context, in relayRun) (string, error) {
 		var next string
 		sel := workflow.NewSelector(ctx)
 		sel.AddReceive(notes, func(c workflow.ReceiveChannel, _ bool) { apply(c) })
-		for _, name := range []string{sigRollover, sigDone, sigCI7Activity} {
+		for _, name := range []string{sigRollover, sigDone} {
 			sel.AddReceive(workflow.GetSignalChannel(ctx, name), func(c workflow.ReceiveChannel, _ bool) {
 				c.Receive(ctx, nil)
 				next = name
@@ -87,14 +81,6 @@ func relayProbe(ctx workflow.Context, in relayRun) (string, error) {
 				apply(notes)
 			}
 			return "", workflow.NewContinueAsNewError(ctx, relayType, in)
-		case sigCI7Activity:
-			actx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-				StartToCloseTimeout: 5 * time.Second,
-				RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
-			})
-			// The outcome does not matter; whether the argument reached the
-			// history does.
-			_ = workflow.ExecuteActivity(actx, ci7ProbeActivity, map[string]string{"title": ci7Marker}).Get(ctx, nil)
 		case sigDone:
 			if err := workerguard.CloseWorkflowRef(ctx); err != nil {
 				return "", err

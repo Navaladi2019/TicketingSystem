@@ -140,8 +140,8 @@ sequenceDiagram
 | `NotFound` on a signal is terminal | A signal to a start that was never dispatched, and a signal to a completed workflow. Each is dead at attempt 1 with `CauseTargetMissing` and unchanged after four more polls. The relay logs the workflow id, and `outbox_relay_signal_target_missing_total` rises. |
 | CI-7 producer schema | `outbox.ValidatePayload` rejects text, numbers, booleans, nested objects, mixed arrays, a text field next to a reference, and anything that is not an object. |
 | CI-7 history input | The `outbox.Delivery` Go type has only UUID, int16 and payload fields. The recorded start and signal inputs of a relay-started workflow have only its JSON keys, and each payload passes the producer schema. |
-| CI-7 payload outside `Enqueue` | A start row whose payload holds a ticket title, written directly. It must be refused before Temporal. **Fails today:** finding T32b-1. |
-| CI-7 activity payload | The workflow schedules an activity with a ticket title as its argument. The history must not hold the title. **Fails today:** finding T32b-2. |
+| CI-7 payload outside `Enqueue` | Not in this PR. The test lands with its fix in TICK-214 (finding T32b-1). |
+| CI-7 activity payload | Not in this PR. The test lands with its fix in TICK-216 (finding T32b-2). |
 | CI-7 headers (TICK-93) | Every `Header` anywhere in both runs' histories is walked: start, signals, activity, continue-as-new. The keys are only `nava-tenant` and `_tracer-data`, and `_tracer-data` holds only `traceparent` and `tracestate`. A signal sent with baggage in its context leaves no trace of it. |
 
 ### Findings (T32b)
@@ -162,7 +162,10 @@ sequenceDiagram
      function is needed. The relay should also run `outbox.ValidatePayload`
      before each call and mark a failing row dead with a fixed cause, as a
      second line.
-   - **Test:** `TestCI7_RelayRefusesRecordDataPayloadWrittenOutsideEnqueue`.
+   - **Owners:** TICK-214 (the `CHECK`) and TICK-215 (the relay check).
+   - **Test:** `TestCI7_RelayRefusesRecordDataPayloadWrittenOutsideEnqueue`,
+     which lands with TICK-214. Its code is on branch
+     `security/tick-86-ci7-gap-tests`.
 2. **T32b-2: activity arguments are not checked.**
    - **Attack:** workflow code schedules an activity whose argument holds record
      data, and `ActivityTaskScheduled` records it in the history. Nothing in
@@ -175,8 +178,12 @@ sequenceDiagram
      `ExecuteLocalActivity`, child and continue-as-new arguments, and an inbound
      check on update arguments. Each applies the references-only rule and fails
      with a non-retryable error before the command is sent.
-   - **Test:** `TestCI7_ActivityPayloadWithRecordDataNotRecorded`.
+   - **Owner:** TICK-216.
+   - **Test:** `TestCI7_ActivityPayloadWithRecordDataNotRecorded`, which lands
+     with TICK-216. Its code is on branch `security/tick-86-ci7-gap-tests`,
+     together with the `ci7.activity` branch of `relayProbe`.
 
 Neither finding lets tenant A reach tenant B's data. Both are R1 creep, which is
-what CI-7 exists to catch. Both tests fail until the fixes land, so CI-7 is red
-on purpose.
+what CI-7 exists to catch. CI-7 is partly met at T32b: three of its five cases
+are here, and the other two are acceptance criteria of TICK-214 and TICK-216
+(Technical Lead decision, TICK-86).

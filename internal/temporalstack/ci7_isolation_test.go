@@ -23,7 +23,6 @@ import (
 	commonpb "go.temporal.io/api/common/v1"
 	enumspb "go.temporal.io/api/enums/v1"
 	historypb "go.temporal.io/api/history/v1"
-	"go.temporal.io/api/serviceerror"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
@@ -134,54 +133,6 @@ func TestCI7_RelayDeliveryInHistoryIsReferencesOnly(t *testing.T) {
 	}
 }
 
-// A row whose payload holds record data, written without outbox.Enqueue
-// (nava_app and nava_worker may INSERT any outbox column, db/grants.yaml),
-// must never reach Temporal: the relay must refuse it, so no workflow starts
-// and the text is in no history.
-func TestCI7_RelayRefusesRecordDataPayloadWrittenOutsideEnqueue(t *testing.T) {
-	ctx := ci6Context(t)
-	s := newRelayStack(t)
-	tg := newTarget(t)
-	psqlSuper(t, tg.startSQL(`{"record_id":"`+tg.record.String()+`","title":"`+ci7Marker+`"}`))
-	id := tg.workflowID()
-	s.terminateAtEnd(t, id)
-
-	r := awaitSettled(t, tg.start)
-	if _, err := s.core.DescribeWorkflowExecution(ctx, id, ""); err == nil {
-		t.Fatalf("the relay started %s with record data in its input (row %+v); the history now holds %q", id, r, ci7Marker)
-	} else if nf := (*serviceerror.NotFound)(nil); !errors.As(err, &nf) {
-		t.Fatalf("describe %s: %v", id, err)
-	}
-	if !r.dead || r.dispatched {
-		t.Errorf("row %+v, want dead without a dispatch", r)
-	}
-}
-
-// An activity scheduled with record data in its argument must never be
-// recorded: the history of the workflow must not hold the text.
-func TestCI7_ActivityPayloadWithRecordDataNotRecorded(t *testing.T) {
-	ctx := ci6Context(t)
-	s := newRelayStack(t)
-	tg := newTarget(t)
-	_, actSQL := tg.signalSQL(t, sigCI7Activity)
-	_, doneSQL := tg.signalSQL(t, sigDone)
-	psqlSuper(t, tg.startSQL(tg.refs())+actSQL+doneSQL)
-	id := tg.workflowID()
-	s.terminateAtEnd(t, id)
-	// The result does not matter: a guard may fail the workflow instead.
-	_ = s.core.GetWorkflow(ctx, id, "").Get(ctx, nil)
-
-	for _, ev := range history(ctx, t, s, id, "") {
-		b, err := proto.Marshal(ev)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if strings.Contains(string(b), ci7Marker) {
-			t.Fatalf("event %d %v records the activity's record data %q", ev.GetEventId(), ev.GetEventType(), ci7Marker)
-		}
-	}
-}
-
 // Every header recorded in a history, on the start, signals, the activity,
 // continue-as-new and the new run, carries only nava-tenant and the trace
 // context (_tracer-data with traceparent and tracestate), never baggage:
@@ -252,8 +203,8 @@ func TestCI7_RecordedHeadersCarryOnlyTenantAndTraceContext(t *testing.T) {
 			}
 		}
 	}
-	// Start, three signals and an activity in the first run; at least the
-	// continue-as-new start, two signals and the final activity in the second.
+	// Start, three signals and continue-as-new in the first run; at least the
+	// new run's start, a signal and the final activity in the second.
 	if tenantHeaders < 8 {
 		t.Errorf("%d recorded nava-tenant headers, want at least 8: the walk found too few headers", tenantHeaders)
 	}
