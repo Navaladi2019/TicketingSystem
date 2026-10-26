@@ -48,17 +48,14 @@ func (s *stubOnboarder) Onboard(_ context.Context, op identity.Operator, key str
 
 const onboardBody = `{"admin_email":"a@acme.test","email_domains":["acme.test"],"identity_provider":{"provider_id":"oidc","config":{"clientId":"c"}},"tenant_id":"11111111-1111-1111-1111-111111111111"}`
 
-func operatorHandler(t *testing.T, o server.Option) http.Handler {
+func operatorHandler(t *testing.T, o ...server.Option) http.Handler {
 	t.Helper()
 	tel, err := telemetry.New(t.Context(), config.Telemetry{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = tel.Shutdown(t.Context()) })
-	opts := []server.Option{}
-	if o != nil {
-		opts = append(opts, o)
-	}
+	opts := o
 	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel, stubResolver{}, opts...)
 	if err != nil {
 		t.Fatal(err)
@@ -167,7 +164,7 @@ func TestOperatorOnboardErrorMapping(t *testing.T) {
 		{onboard.ErrKeyReuse, 409, "idempotency_key_reuse"},
 		{onboard.ErrDomainClaimed, 409, "domain_claimed"},
 		{onboard.ErrConflict, 409, "onboarding_conflict"},
-		{&onboard.FieldError{Pointer: "/idp/config"}, 400, "validation_failed"},
+		{&onboard.FieldError{Pointer: "/identity_provider/config"}, 422, "invalid_idp_config"},
 		{errors.New("boom secret"), 500, "internal_error"},
 	}
 	for _, c := range cases {
@@ -198,8 +195,23 @@ func TestOperatorOnboardValidation(t *testing.T) {
 }
 
 func TestOperatorRouteNotConfigured(t *testing.T) {
-	h := operatorHandler(t, nil)
+	h := operatorHandler(t)
 	if rec := postOnboard(t, h, "op-token", "k", onboardBody, "", nil); rec.Code != 501 || code(t, rec) != "not_implemented" {
 		t.Errorf("status %d: %s", rec.Code, rec.Body)
+	}
+}
+
+// The nava-onboard process mounts the operator routes only.
+func TestOperatorOnlyHandlerServesNothingElse(t *testing.T) {
+	h := operatorHandler(t, server.WithOperator(stubOperators{}, &stubOnboarder{}), server.OperatorOnly())
+	if rec := postOnboard(t, h, "op-token", "k", onboardBody, "", nil); rec.Code != http.StatusCreated {
+		t.Fatalf("operator route: %d", rec.Code)
+	}
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/me", nil)
+	req.Header.Set("Authorization", "Bearer token-a")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("GET /me on the onboarding process: %d, want 404", rec.Code)
 	}
 }

@@ -36,7 +36,13 @@ type Option func(*options)
 type options struct {
 	operators identity.OperatorResolver
 	onboarder Onboarder
+	// operatorOnly makes every route but /api/v1/operator/* answer 404: the
+	// nava-onboard process mounts the operator routes only.
+	operatorOnly bool
 }
+
+// OperatorOnly restricts the handler to the operator routes.
+func OperatorOnly() Option { return func(o *options) { o.operatorOnly = true } }
 
 // WithOperator turns the operator routes on: operators authenticates their
 // tokens and onboarder serves POST /api/v1/operator/tenants. Without it those
@@ -54,12 +60,16 @@ type operatorCall struct {
 
 // routeAuth sends operator routes to the operator authentication and every
 // other route to the tenant authentication.
-func routeAuth(tenant, operator func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+func routeAuth(reg *problem.Registry, operatorOnly bool, tenant, operator func(http.Handler) http.Handler) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		t, o := tenant(next), operator(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if strings.HasPrefix(r.URL.Path, operatorPrefix) {
 				o.ServeHTTP(w, r)
+				return
+			}
+			if operatorOnly {
+				reg.Write(w, r, problem.NotFound)
 				return
 			}
 			t.ServeHTTP(w, r)
@@ -175,6 +185,8 @@ func (e *problemError) Unwrap() error { return e.err }
 func onboardError(err error) error {
 	var fe *onboard.FieldError
 	switch {
+	case errors.As(err, &fe) && strings.HasPrefix(fe.Pointer, "/identity_provider/"):
+		return &problemError{problem.InvalidIdPConfig, []problem.FieldError{{Pointer: fe.Pointer, Rule: "invalid"}}, err}
 	case errors.As(err, &fe):
 		return &problemError{problem.ValidationFailed, []problem.FieldError{{Pointer: fe.Pointer, Rule: "invalid"}}, err}
 	case errors.Is(err, onboard.ErrKeyReuse):

@@ -23,16 +23,16 @@ import (
 // nava_app through NAVA_DATABASE_URL. With either unset it returns a
 // resolver that refuses every token, so the API fails closed. The returned
 // func closes the adapter and the pool.
-func newResolver(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, cfg config.Config) (identity.IdentityResolver, identity.OperatorResolver, func(), error) {
+func newResolver(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, cfg config.Config) (identity.IdentityResolver, func(), error) {
 	if len(cfg.Deps.OIDCIssuers) == 0 || cfg.Deps.DatabaseURL == "" {
 		log.WarnContext(ctx, "tenant resolution not configured: every API request is refused",
 			slog.Bool("issuers_set", len(cfg.Deps.OIDCIssuers) > 0), slog.Bool("database_set", cfg.Deps.DatabaseURL != ""))
-		return refuseAll{}, nil, func() {}, nil
+		return refuseAll{}, func() {}, nil
 	}
 	poolCfg, err := pgxpool.ParseConfig(cfg.Deps.DatabaseURL)
 	if err != nil {
 		// The error quotes the connection string, which is a credential.
-		return nil, nil, nil, errors.New("config: NAVA_DATABASE_URL is not a valid PostgreSQL connection string")
+		return nil, nil, errors.New("config: NAVA_DATABASE_URL is not a valid PostgreSQL connection string")
 	}
 	// Unnamed statements, so the pool works behind PgBouncer's transaction
 	// mode.
@@ -40,29 +40,24 @@ func newResolver(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry
 	poolCfg.ConnConfig.ConnectTimeout = 5 * time.Second
 	pool, err := db.NewPool(ctx, poolCfg, tel)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	out, err := telemetry.NewOutboundClient(tel, telemetry.OutboundOptions{})
 	if err != nil {
 		pool.Close()
-		return nil, nil, nil, err
-	}
-	ops := make([]keycloak.OperatorSubject, 0, len(cfg.Deps.Operators))
-	for _, o := range cfg.Deps.Operators {
-		ops = append(ops, keycloak.OperatorSubject{Issuer: o.Issuer, Subject: o.Subject})
+		return nil, nil, err
 	}
 	a, err := keycloak.New(ctx, keycloak.Config{
 		Issuers:       cfg.Deps.OIDCIssuers,
-		Operators:     ops,
 		Logger:        log,
 		MeterProvider: tel.MeterProvider,
 		Store:         pgstore.New(pool),
 	}, out)
 	if err != nil {
 		pool.Close()
-		return nil, nil, nil, fmt.Errorf("identity: %w", err)
+		return nil, nil, fmt.Errorf("identity: %w", err)
 	}
-	return a, a, func() { _ = a.Close(context.WithoutCancel(ctx)); pool.Close() }, nil
+	return a, func() { _ = a.Close(context.WithoutCancel(ctx)); pool.Close() }, nil
 }
 
 // refuseAll is the resolver when tenant resolution is not configured.

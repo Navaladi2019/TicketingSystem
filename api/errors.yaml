@@ -20,6 +20,10 @@ codes:
     status: 403
     title: Forbidden
     detail: The token does not allow this operation.
+  - code: invalid_idp_config
+    status: 422
+    title: Invalid identity provider settings
+    detail: The identity provider settings are not accepted. See errors for the failing fields.
   - code: domain_claimed
     status: 409
     title: Email domain already claimed

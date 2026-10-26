@@ -59,7 +59,7 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 			BaseRouter: mux,
 			// The last one is outermost: an unauthenticated request gets 401
 			// before the validator looks at its input.
-			Middlewares:      []api.MiddlewareFunc{a.Middleware(), routeAuth(authn.Middleware, operatorAuth(reg, log, opts.operators, resolver))},
+			Middlewares:      []api.MiddlewareFunc{a.Middleware(), routeAuth(reg, opts.operatorOnly, authn.Middleware, operatorAuth(reg, log, opts.operators, resolver))},
 			ErrorHandlerFunc: a.ErrorHandler,
 		},
 	)

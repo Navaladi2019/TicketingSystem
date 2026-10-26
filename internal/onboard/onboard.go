@@ -77,9 +77,15 @@ type Store interface {
 	// Begin records the provisioning row with the request hash, or reports the
 	// existing one. A different stored hash is ErrKeyReuse.
 	Begin(ctx context.Context, tenantID uuid.UUID, hash []byte) (State, error)
-	// Complete writes the binding and the email domains and activates the
-	// tenant in one transaction.
-	Complete(ctx context.Context, tenantID uuid.UUID, issuer, orgID, idpAlias string, domains []string) error
+	// Bind writes the binding and the email domains while the tenant is
+	// provisioning. It is idempotent for the tenant's own rows (ON CONFLICT DO
+	// NOTHING on the primary keys); a domain or organization bound to another
+	// tenant is not silently skipped for the binding (23505), and is caught for
+	// domains by the ownership check in Onboard.
+	Bind(ctx context.Context, tenantID uuid.UUID, issuer, orgID, idpAlias string, domains []string) error
+	// Activate moves the tenant from provisioning to active. An already-active
+	// tenant is an error.
+	Activate(ctx context.Context, tenantID uuid.UUID) error
 }
 
 // Directory is the part of identity.DirectoryAdmin onboarding uses.
@@ -96,13 +102,21 @@ type OrgFinder interface {
 	FindTenantOrg(ctx context.Context, tenantID uuid.UUID, alias string) (orgID string, found bool, err error)
 }
 
+// DomainOwnership reports whether tenantID owns an email domain, read under
+// the tenant predicate (keycloak.Registry.TenantOwnsEmailDomain).
+type DomainOwnership interface {
+	TenantOwnsEmailDomain(ctx context.Context, tenantID uuid.UUID, domain string) (bool, error)
+}
+
 // Options configures Service.
 type Options struct {
 	Store     Store
 	Directory Directory
 	Finder    OrgFinder // optional
-	Specs     *Specs
-	Resolver  Resolver
+	// Domains reads, as nava_app under RLS, whether the tenant owns a domain.
+	Domains  DomainOwnership
+	Specs    *Specs
+	Resolver Resolver
 	// Issuer is the realm issuer written to tenant_identity_binding.
 	Issuer string
 	Log    *slog.Logger
@@ -115,8 +129,8 @@ type Service struct {
 
 // New returns a Service.
 func New(o Options) (*Service, error) {
-	if o.Store == nil || o.Directory == nil || o.Specs == nil || o.Resolver == nil || o.Log == nil || o.Issuer == "" {
-		return nil, errors.New("onboard: store, directory, specs, resolver, issuer and logger are required")
+	if o.Store == nil || o.Directory == nil || o.Specs == nil || o.Domains == nil || o.Resolver == nil || o.Log == nil || o.Issuer == "" {
+		return nil, errors.New("onboard: store, directory, domains, specs, resolver, issuer and logger are required")
 	}
 	return &Service{o: o}, nil
 }
@@ -149,7 +163,8 @@ func (s *Service) Onboard(ctx context.Context, operator identity.Operator, key s
 		return Result{}, err
 	}
 	if st.Active {
-		s.invite(ctx, tenantID, req.AdminEmail)
+		// Activation is the last step: an active tenant was bound and its
+		// admin invited, so a replay changes nothing.
 		return Result{TenantID: tenantID, Replayed: true}, nil
 	}
 
@@ -158,11 +173,24 @@ func (s *Service) Onboard(ctx context.Context, operator identity.Operator, key s
 	if err != nil {
 		return Result{}, err
 	}
-	idpAlias := keycloak.TenantIdPAlias(tenantID)
-	if err := s.o.Store.Complete(ctx, tenantID, s.o.Issuer, orgID, idpAlias, domains); err != nil {
+	if err := s.o.Store.Bind(ctx, tenantID, s.o.Issuer, orgID, keycloak.TenantIdPAlias(tenantID), domains); err != nil {
 		return Result{}, err
 	}
+	// Bind skips rows that already exist, whoever owns them. The tenant must
+	// own every domain it asked for, read under its own tenant predicate.
+	for _, d := range domains {
+		owns, err := s.o.Domains.TenantOwnsEmailDomain(ctx, tenantID, d)
+		if err != nil {
+			return Result{}, fmt.Errorf("onboard: domain ownership: %w", err)
+		}
+		if !owns {
+			return Result{}, ErrDomainClaimed
+		}
+	}
 	if err := s.inviteAdmin(ctx, tenantID, req.AdminEmail); err != nil {
+		return Result{}, err
+	}
+	if err := s.o.Store.Activate(ctx, tenantID); err != nil {
 		return Result{}, err
 	}
 	s.o.Log.InfoContext(ctx, "tenant onboarded", slog.String("tenant_id", tenantID.String()))
@@ -203,15 +231,6 @@ func (s *Service) inviteAdmin(ctx context.Context, tenantID uuid.UUID, email str
 		return nil
 	default:
 		return fmt.Errorf("onboard: invite admin: %w", err)
-	}
-}
-
-// invite re-runs the invitation of an already-active tenant on a replay, so a
-// failed invite is completed by the retry. Its outcome never reaches the
-// response.
-func (s *Service) invite(ctx context.Context, tenantID uuid.UUID, email string) {
-	if err := s.inviteAdmin(ctx, tenantID, email); err != nil {
-		s.o.Log.WarnContext(ctx, "admin invitation on replay failed", slog.String("tenant_id", tenantID.String()), slog.Any("error", err))
 	}
 }
 

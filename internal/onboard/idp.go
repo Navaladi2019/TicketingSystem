@@ -57,6 +57,12 @@ func buildSpec(ctx context.Context, res Resolver, in IdPRequest) (keycloak.IdPSp
 	}
 	cfg := make(map[string]string, len(in.Config)+2)
 	for k, v := range in.Config {
+		// An allow-list, not a deny-list: a key that is not known for the
+		// provider (alias, kc.org.*, artifactResolutionServiceUrl, ...) is
+		// refused, so no unvetted URL-valued key reaches Keycloak.
+		if !keycloak.IdPConfigKeyAllowed(in.ProviderID, k) {
+			return keycloak.IdPSpec{}, "/identity_provider/config"
+		}
 		if len(v) > maxConfigValue {
 			return keycloak.IdPSpec{}, "/identity_provider/config"
 		}
@@ -104,12 +110,33 @@ func checkPublicAddr(a netip.Addr) error {
 		a.IsMulticast() || a.IsUnspecified() || a.IsInterfaceLocalMulticast() {
 		return fmt.Errorf("address refused")
 	}
-	// Carrier-grade NAT 100.64.0.0/10 is not covered by IsPrivate.
-	if cgnat := netip.MustParsePrefix("100.64.0.0/10"); cgnat.Contains(a) {
-		return fmt.Errorf("address refused")
+	for _, p := range reservedPrefixes {
+		if p.Contains(a) {
+			return fmt.Errorf("address refused")
+		}
+	}
+	// NAT64 embeds an IPv4 address in the low 32 bits: judge that address.
+	if netip.MustParsePrefix("64:ff9b::/96").Contains(a) {
+		b := a.As16()
+		return checkPublicAddr(netip.AddrFrom4([4]byte{b[12], b[13], b[14], b[15]}))
 	}
 	return nil
 }
+
+// reservedPrefixes are special-purpose ranges that IsPrivate and friends do
+// not cover.
+//
+//nolint:gochecknoglobals // read-only table
+var reservedPrefixes = func() []netip.Prefix {
+	var out []netip.Prefix
+	for _, s := range []string{
+		"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24", "198.18.0.0/15", "198.51.100.0/24",
+		"203.0.113.0/24", "240.0.0.0/4", "255.255.255.255/32", "64:ff9b:1::/48", "100::/64", "2001:db8::/32",
+	} {
+		out = append(out, netip.MustParsePrefix(s))
+	}
+	return out
+}()
 
 // netResolver adapts net.Resolver.
 type netResolver struct{ r *net.Resolver }
