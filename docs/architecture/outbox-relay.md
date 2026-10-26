@@ -94,6 +94,11 @@ flowchart TD
   with a link to the producer's `traceparent` and carries `nava.outbox_id`.
   The SDK's child span adds the workflow and run id. The `_tracer-data` header
   holds only `traceparent` (and `tracestate`); baggage is off.
+  A failed call sets the dispatch span's status to Error with the gRPC code
+  as `error.type` and description. The SDK child span records the full
+  error message (`exception.message`, status description); the export filter
+  in `internal/platform/telemetry` drops both, so no error text is exported
+  (TICK-191, `TestDispatchErrorTextNeverReachesASpan`).
 - **Metrics** (no tenant or workflow attribute):
   `outbox_relay_dispatches_total{op, outcome}`, where `outcome` is one of
   `dispatched`, `already_started`, `target_missing`, `invalid_target`,
