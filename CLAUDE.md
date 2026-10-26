@@ -7,6 +7,15 @@ For the full platform goal and architecture decisions, read
 when the task needs that context, for example a new component or a design
 choice.
 
+## Design principles
+
+Follow the design rules in [`README.md`](README.md#design-principles) for any
+code change: apply SOLID, and reach every third-party service (identity
+provider, workflow engine, broker, storage, email and so on) only through a
+core-owned port and a single adapter package, as `internal/identity` and
+`internal/identity/keycloak` do. Use other patterns only where the problem
+needs them.
+
 ## Known gaps
 
 Deferred work is tracked as a table in
