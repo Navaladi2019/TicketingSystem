@@ -182,6 +182,12 @@ func (s *Syncer) syncTenant(ctx context.Context, tenantID uuid.UUID) Result {
 	res := Result{TenantID: tenantID}
 	ctx, cancel := context.WithTimeout(ctx, s.opts.TenantTimeout)
 	defer cancel()
+	// The cursor is this process's own: it skips the apply only when the
+	// directory is unchanged since this process last applied it. With two
+	// replicas, one may apply a snapshot, the other a later one, and the
+	// directory then return to the first; this process sees "unchanged" and
+	// skips until the other replica's next turn corrects the tables. Bounded
+	// by one interval, and only while this process keeps losing the lock.
 	s.mu.Lock()
 	cursor := s.cursors[tenantID]
 	s.mu.Unlock()

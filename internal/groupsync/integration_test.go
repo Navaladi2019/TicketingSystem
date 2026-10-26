@@ -9,7 +9,10 @@ package groupsync_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"strconv"
@@ -162,13 +165,19 @@ func (f *fakeDir) set(id uuid.UUID, c identity.DirectoryChanges) {
 	f.snaps[id] = c
 }
 
-func (f *fakeDir) ChangesSince(_ context.Context, id uuid.UUID, _ string) (identity.DirectoryChanges, string, error) {
+func (f *fakeDir) ChangesSince(_ context.Context, id uuid.UUID, cursor string) (identity.DirectoryChanges, string, error) {
 	if f.hook != nil {
 		f.hook(id)
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.snaps[id], time.Now().String(), nil
+	snap := f.snaps[id]
+	b, _ := json.Marshal(snap)
+	digest := fmt.Sprintf("%x", sha256.Sum256(b))
+	if cursor == digest {
+		return identity.DirectoryChanges{Unchanged: true}, digest, nil
+	}
+	return snap, digest, nil
 }
 
 func newSyncer(t *testing.T, pool *pgxpool.Pool, dir identity.DirectoryAdmin) *groupsync.Syncer {
@@ -428,12 +437,41 @@ func TestTwoSyncersNeverSyncOneTenantConcurrently(t *testing.T) {
 	}
 	a, b := newSyncer(t, pool, dir), newSyncer(t, pool, dir)
 
-	done := make(chan groupsync.Result, 1)
-	go func() { done <- once(t, a) }()
-	<-entered
+	type outcome struct {
+		res groupsync.Result
+		err error
+	}
+	const wait = 30 * time.Second
+	done := make(chan outcome, 1)
+	go func() {
+		rs, err := a.Once(context.Background())
+		o := outcome{err: err}
+		if err == nil && len(rs) == 1 {
+			o.res = rs[0]
+		} else if err == nil {
+			o.err = fmt.Errorf("syncer a visited %d tenants, want 1", len(rs))
+		}
+		done <- o
+	}()
+	select {
+	case <-entered:
+	case o := <-done:
+		t.Fatalf("syncer a ended before reading the snapshot: %+v", o)
+	case <-time.After(wait):
+		t.Fatal("syncer a never reached ChangesSince")
+	}
 	rb := once(t, b)
 	close(release)
-	ra := <-done
+	var ra groupsync.Result
+	select {
+	case o := <-done:
+		if o.err != nil {
+			t.Fatal(o.err)
+		}
+		ra = o.res
+	case <-time.After(wait):
+		t.Fatal("syncer a did not finish")
+	}
 
 	if !rb.Skipped {
 		t.Errorf("second syncer ran the tenant while the first held it: %+v", rb)
@@ -445,5 +483,31 @@ func TestTwoSyncersNeverSyncOneTenantConcurrently(t *testing.T) {
 	defer mu.Unlock()
 	if maxInside != 1 || calls != 1 {
 		t.Errorf("concurrent syncs = %d, snapshots = %d; want 1 and 1", maxInside, calls)
+	}
+}
+
+// A second cycle over an unchanged directory skips the apply, and a change
+// after it is applied.
+func TestUnchangedSnapshotSkipsApply(t *testing.T) {
+	super, pool := cluster(t)
+	tid := uuid.New()
+	seedTenant(t, super, tid, 1)
+	dir := &fakeDir{snaps: map[uuid.UUID]identity.DirectoryChanges{}}
+	s := newSyncer(t, pool, dir)
+	snap := identity.DirectoryChanges{Users: []identity.DirectoryUser{{KeycloakUserID: "u1", Enabled: true}}}
+	dir.set(tid, snap)
+	if r := once(t, s); r.Err != nil || r.Unchanged {
+		t.Fatalf("first cycle = %+v", r)
+	}
+	if r := once(t, s); r.Err != nil || !r.Unchanged {
+		t.Fatalf("second cycle = %+v, want Unchanged", r)
+	}
+	snap.Users[0].Enabled = false
+	dir.set(tid, snap)
+	if r := once(t, s); r.Err != nil || r.Unchanged {
+		t.Fatalf("third cycle = %+v", r)
+	}
+	if n := count(t, super, "SELECT count(*) FROM principals WHERE tenant_id = $1 AND NOT enabled", tid); n != 1 {
+		t.Errorf("change after an unchanged cycle not applied")
 	}
 }

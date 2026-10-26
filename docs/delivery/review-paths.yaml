@@ -35,8 +35,7 @@ security:
   - path: internal/platform/idempotency/
     planned: "PLAN-001 T22"
   - cmd/nava-purge/
-  - path: cmd/nava-groupsync/
-    planned: "PLAN-001 T25"
+  - cmd/nava-groupsync/
   # The operator onboarding handler.
   - path: internal/onboarding/
     planned: "PLAN-001 T21"
