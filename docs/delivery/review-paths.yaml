@@ -26,8 +26,7 @@ security:
   - internal/outbox/
   # The relay and the worker guard.
   - internal/relay/
-  - path: cmd/nava-relay/
-    planned: "PLAN-001 T30b"
+  - cmd/nava-relay/
   - internal/workerguard/
   # The auth middleware.
   - internal/platform/auth/
