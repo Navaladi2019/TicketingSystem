@@ -19,10 +19,12 @@
 //     idempotency_in_flight and never runs the handler.
 //  3. An in_flight row older than Lease (by created_at, on the database
 //     clock) is abandoned: its owner crashed or was cut off. The grants allow
-//     no update of created_at, so a retaker takes a row lock (FOR UPDATE
-//     NOWAIT) and runs the handler inside that transaction; a second retaker
-//     finds the row locked and gets 409 idempotency_in_flight. The lock
-//     dies with the connection if the retaker crashes.
+//     no update of created_at, so a retaker opens a second transaction, takes
+//     a row lock (FOR UPDATE NOWAIT) and runs the handler inside it. A second
+//     retaker finds the row locked, rolls back and gets 409
+//     idempotency_in_flight; so does a retaker that finds the retake slots
+//     (see Handler) taken. The lock dies with the connection if the
+//     retaker crashes.
 //  4. A 5xx response is not stored: the row stays in_flight and the client may
 //     retry after the lease.
 //
@@ -77,6 +79,14 @@ const (
 	lockNotAvailable = "55P03"
 )
 
+// errRetakeBusy rolls a retake transaction back when another retaker holds
+// the row lock. A failed NOWAIT aborts the transaction, so it cannot commit.
+var errRetakeBusy = errors.New("idempotency: another request is retaking the key")
+
+// errStale means the first transaction found an abandoned row, which a
+// retake takes over in a transaction of its own.
+var errStale = errors.New("idempotency: the in_flight row is abandoned")
+
 // Results recorded on nava.idempotency.requests. Never a tenant, principal or
 // key: those are unbounded.
 const (
@@ -97,6 +107,10 @@ type Middleware struct {
 	reg      *problem.Registry
 	log      *slog.Logger
 	requests metric.Int64Counter
+	// retakes holds one token per retake in progress. A retake keeps a
+	// connection for as long as the handler runs, and the handler needs a
+	// second one, so unbounded retakes could take the whole pool.
+	retakes chan struct{}
 }
 
 // New returns a Middleware that stores keys through pool, which must log in
@@ -112,12 +126,23 @@ func New(pool *pgxpool.Pool, reg *problem.Registry, log *slog.Logger, mp metric.
 	if err != nil {
 		return nil, err
 	}
-	return &Middleware{pool: pool, reg: reg, log: log, requests: c}, nil
+	return &Middleware{pool: pool, reg: reg, log: log, requests: c,
+		retakes: make(chan struct{}, max(1, pool.Config().MaxConns/4))}, nil
 }
 
 // Handler wraps next. Reads (GET, HEAD, OPTIONS, TRACE) pass through; every
 // other method needs the header. Operator routes are not wrapped (T21 does its
 // own idempotency).
+//
+// The response of the first run is normalised so a replay is byte-identical:
+// a body is sent as application/json below 400 and application/problem+json
+// from 400 (ContentTypeFor), and a response without a body has no Content-Type.
+//
+// A retake of an abandoned row holds one connection for as long as the handler
+// runs, and the handler needs a second; at most max(1, MaxConns/4) retakes run
+// at once and the rest get 409 idempotency_in_flight. If storing the response
+// or committing fails after the handler has committed its own work, the key
+// stays in_flight and a retry after the lease runs the handler again.
 func (m *Middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -264,13 +289,14 @@ ON CONFLICT (tenant_id, principal_id, key) DO NOTHING`,
 		case !stale:
 			out = &outcome{kind: outcomeInFlight}
 		default:
-			var err error
-			out, err = m.retake(ctx, tx, req, run)
-			return err
+			return errStale
 		}
 		return nil
 	})
-	if err != nil {
+	switch {
+	case errors.Is(err, errStale):
+		return m.retake(ctx, req, run)
+	case err != nil:
 		return nil, err
 	}
 	if out.kind == outcomeRan && out.resp == nil {
@@ -281,34 +307,58 @@ ON CONFLICT (tenant_id, principal_id, key) DO NOTHING`,
 }
 
 // retake locks an abandoned row and runs the handler under the lock. It
-// returns in_flight when another retaker holds the lock, and a replay when one
-// finished first.
-func (m *Middleware) retake(ctx context.Context, tx pgx.Tx, req request, run func() *captured) (*outcome, error) {
-	var (
-		state  string
-		status *int16
-		body   []byte
-	)
-	err := tx.QueryRow(ctx, `
+// returns in_flight when another retaker holds the lock or the retake slots
+// are taken, and a replay when one finished first. The transaction and the
+// store do not follow the request's cancellation: the handler has committed
+// its own work by then.
+func (m *Middleware) retake(ctx context.Context, req request, run func() *captured) (*outcome, error) {
+	select {
+	case m.retakes <- struct{}{}:
+		defer func() { <-m.retakes }()
+	default:
+		return &outcome{kind: outcomeInFlight}, nil
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), Lease+completeTimeout)
+	defer cancel()
+	var out *outcome
+	err := tenancy.InTenantTx(ctx, m.pool, req.p.TenantID, func(tx pgx.Tx) error {
+		var (
+			state  string
+			status *int16
+			body   []byte
+		)
+		err := tx.QueryRow(ctx, `
 SELECT state, response_status, response_body FROM idempotency_keys
  WHERE tenant_id = $1 AND principal_id = $2 AND key = $3
    FOR UPDATE NOWAIT`, req.p.TenantID, req.p.PrincipalID, req.key).Scan(&state, &status, &body)
-	var pgErr *pgconn.PgError
+		var pgErr *pgconn.PgError
+		switch {
+		case errors.As(err, &pgErr) && pgErr.Code == lockNotAvailable:
+			return errRetakeBusy
+		case err != nil:
+			return fmt.Errorf("idempotency: lock: %w", err)
+		case state == "completed" && status != nil: // finished before the lock
+			out = &outcome{kind: outcomeReplay, status: int(*status), body: body}
+			return nil
+		}
+		resp := run()
+		if resp.storable() {
+			sctx, scancel := context.WithTimeout(context.WithoutCancel(ctx), completeTimeout)
+			defer scancel()
+			if err := store(sctx, tx, req, resp); err != nil {
+				return err
+			}
+		}
+		out = &outcome{kind: outcomeRan, resp: resp, result: resultRetaken}
+		return nil
+	})
 	switch {
-	case errors.As(err, &pgErr) && pgErr.Code == lockNotAvailable:
+	case errors.Is(err, errRetakeBusy):
 		return &outcome{kind: outcomeInFlight}, nil
 	case err != nil:
-		return nil, fmt.Errorf("idempotency: lock: %w", err)
-	case state == "completed" && status != nil:
-		return &outcome{kind: outcomeReplay, status: int(*status), body: body}, nil
+		return nil, err
 	}
-	resp := run()
-	if resp.storable() {
-		if err := store(ctx, tx, req, resp); err != nil {
-			return nil, err
-		}
-	}
-	return &outcome{kind: outcomeRan, resp: resp, result: resultRetaken}, nil
+	return out, nil
 }
 
 // complete stores the response of the request that won the key. The handler's
@@ -355,10 +405,17 @@ type captured struct {
 // storable: a 5xx is not remembered, so a retry can succeed.
 func (c *captured) storable() bool { return c.status < http.StatusInternalServerError }
 
+// flush sends the response as writeStored would replay it: Content-Type from
+// the status, none without a body.
 func (c *captured) flush(w http.ResponseWriter) {
 	h := w.Header()
 	for k, v := range c.header {
 		h[k] = v
+	}
+	h.Del("Content-Type")
+	if len(c.body) > 0 {
+		h.Set("Content-Type", ContentTypeFor(c.status))
+		h.Set("Content-Length", strconv.Itoa(len(c.body)))
 	}
 	w.WriteHeader(c.status)
 	_, _ = w.Write(c.body)

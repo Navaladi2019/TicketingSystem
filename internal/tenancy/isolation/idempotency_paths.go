@@ -25,9 +25,9 @@ import (
 // middleware against the suite's real nava_app role and idempotency_keys
 // table. They use keys no seed row has and delete what they insert.
 func idempotencyPaths() []Path {
-	db := func(name string, fn func(context.Context, *idemEnv) error) Path {
+	dbN := func(conns int32, name string, fn func(context.Context, *idemEnv) error) Path {
 		return Path{Name: "idempotency: " + name, Case: "CI-8", DB: func(ctx context.Context, c Cluster) error {
-			e, err := newIdemEnv(c)
+			e, err := newIdemEnv(c, conns)
 			if err != nil {
 				return err
 			}
@@ -35,7 +35,37 @@ func idempotencyPaths() []Path {
 			return fn(ctx, e)
 		}}
 	}
+	db := func(name string, fn func(context.Context, *idemEnv) error) Path { return dbN(1, name, fn) }
+	// A retake holds a connection while its handler runs, so two concurrent
+	// retakers need a pool with room for both. With 8 connections two retakes
+	// may run (MaxConns/4), so the second is stopped by the row lock; with 4
+	// only one may, so the second is stopped by the limit.
+	twoRetakers := func(conns int32, name string) Path {
+		return dbN(conns, name, func(ctx context.Context, e *idemEnv) error {
+			if err := e.seedInFlight(ctx, "k-two-retakers", `{"a":1}`, "2 minutes"); err != nil {
+				return err
+			}
+			release := make(chan struct{})
+			started := make(chan struct{})
+			var once sync.Once
+			h := e.handler(func() { once.Do(func() { close(started) }); <-release })
+			first := make(chan *httptest.ResponseRecorder, 1)
+			go func() { first <- e.do(h, e.tenantA, e.principalA, "k-two-retakers", `{"a":1}`) }()
+			<-started
+			second := e.do(h, e.tenantA, e.principalA, "k-two-retakers", `{"a":1}`)
+			close(release)
+			if got := (<-first).Code; got != http.StatusCreated {
+				return fmt.Errorf("first retaker = %d, want 201", got)
+			}
+			if second.Code != http.StatusConflict || e.code(second) != problem.IdempotencyInFlight {
+				return fmt.Errorf("second retaker = %d %s, want 409 idempotency_in_flight", second.Code, bodyOf(second))
+			}
+			return e.executed(1)
+		})
+	}
 	return []Path{
+		twoRetakers(8, "a second retaker of one stale row (row lock) gets 409 and the handler runs once"),
+		twoRetakers(4, "a retaker over the concurrent-retake limit gets 409 and the handler runs once"),
 		db("two concurrent identical requests execute once", func(ctx context.Context, e *idemEnv) error {
 			release := make(chan struct{})
 			started := make(chan struct{})
@@ -113,6 +143,9 @@ func idempotencyPaths() []Path {
 			if b.Header().Get(idempotency.ReplayedHeader) != "true" {
 				return fmt.Errorf("replay lacks %s", idempotency.ReplayedHeader)
 			}
+			if ct := a.Header().Get("Content-Type"); ct != "application/json" {
+				return fmt.Errorf("first response Content-Type = %q, want the canonical application/json", ct)
+			}
 			// A stored problem keeps its status, body and problem+json type.
 			e1 := e.do(h, e.tenantA, e.principalA, "k-replay-4xx", `{"fail":true}`)
 			e2 := e.do(h, e.tenantA, e.principalA, "k-replay-4xx", `{"fail":true}`)
@@ -160,8 +193,8 @@ type idemEnv struct {
 	runs             atomic.Int64
 }
 
-func newIdemEnv(c Cluster) (*idemEnv, error) {
-	pool, err := c.Pool("nava_app")
+func newIdemEnv(c Cluster, conns int32) (*idemEnv, error) {
+	pool, err := c.PoolSize("nava_app", conns)
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +226,9 @@ func (e *idemEnv) handler(before func()) http.Handler {
 			e.reg.Write(w, r, problem.ValidationFailed)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
+		// Not the canonical type: the middleware must normalise it on the
+		// first run, so a replay is byte-identical.
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusCreated)
 		_, _ = fmt.Fprintf(w, `{"run":%d}`, n)
 	}))

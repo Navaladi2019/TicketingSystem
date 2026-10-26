@@ -90,6 +90,10 @@ type Cluster interface {
 	// Pool is a one-connection pool logged in as role, through PgBouncer for
 	// roles on its login allow-list.
 	Pool(role string) (*pgxpool.Pool, error)
+	// PoolSize is Pool with room for conns connections, logged in directly:
+	// the suite's PgBouncer gives a role one server connection, so a check
+	// that holds one while another request needs its own cannot use it.
+	PoolSize(role string, conns int32) (*pgxpool.Pool, error)
 	// Super is the bootstrap superuser on the platform database, which RLS
 	// does not hold. A DB path that seeds rows with it deletes them before
 	// it returns, so later checks see the seed unchanged.
