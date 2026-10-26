@@ -52,13 +52,18 @@ func TestPathRules(t *testing.T) {
 }
 
 func TestLinksJSON(t *testing.T) {
-	got, err := linksJSON(nil)
+	got, err := linksJSON(nil, nil)
 	if err != nil || string(got) != "[]" {
 		t.Fatalf("no links = %s, %v; want [] (NULL would mean never synced)", got, err)
 	}
-	got, err = linksJSON([]identity.FederatedLink{{IdPAlias: "idp-a", ExternalUserID: "x1"}})
+	in := []identity.FederatedLink{{IdPAlias: "idp-a", ExternalUserID: "x1"}, {IdPAlias: "idp-b", ExternalUserID: "x2"}}
+	got, err = linksJSON(in, map[string]bool{"idp-a": true})
 	if err != nil || string(got) != `[{"identityProvider":"idp-a","userId":"x1"}]` {
-		t.Fatalf("links = %s, %v", got, err)
+		t.Fatalf("links = %s, %v; want only the bound alias", got, err)
+	}
+	got, err = linksJSON(in, nil)
+	if err != nil || string(got) != "[]" {
+		t.Fatalf("unbound tenant links = %s, %v; want []", got, err)
 	}
 	if !sameJSON([]byte(`[ ]`), []byte(`[]`)) || sameJSON([]byte(`[]`), nil) {
 		t.Error("sameJSON compares values, and NULL is never equal")
