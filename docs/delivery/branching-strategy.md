@@ -9,7 +9,7 @@ Nothing at task level merges straight into `main`. Work flows from a task branch
 | Branch | Name | Created from | PR targets | Merged by | Merge method |
 |---|---|---|---|---|---|
 | Story | `TICK-<story-no>/<story-slug>`, e.g. `TICK-46/operator-onboards-tenant` | `main`, by the Technical Lead when the story's first task starts | `main` | the owner, after story acceptance (`MergePr`) | squash or merge commit, per repo setting |
-| Task | `TICK-<task-no>/<short-kebab-description>`, e.g. `TICK-81/operator-onboarding-api` | the parent story branch | the parent story branch, never `main` | see [Who merges task PRs](#who-merges-task-prs) | squash, then delete the branch |
+| Task | `TICK-<task-no>/<short-kebab-description>`, e.g. `TICK-81/operator-onboarding-api` | the parent story branch | the parent story branch, never `main` | see [Who merges](#who-merges) | squash, then delete the branch |
 
 ## Naming
 
