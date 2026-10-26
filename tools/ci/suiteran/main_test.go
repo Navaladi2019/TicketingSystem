@@ -308,3 +308,20 @@ func TestRepoRegisteredFiles(t *testing.T) {
 		}
 	}
 }
+
+func TestStepTags(t *testing.T) {
+	for _, tc := range []struct {
+		tags, args []string
+		in         bool
+		want       string
+	}{
+		{nil, []string{"go", "test", "-json", "./..."}, false, ""},
+		{nil, []string{"go", "test", "-json", "-race", "./..."}, false, "race"},
+		{[]string{"integration"}, []string{"go", "test", "-race=true"}, false, "integration,race"},
+		{nil, []string{"-race"}, true, ""},
+	} {
+		if got := strings.Join(stepTags(tc.tags, tc.args, tc.in), ","); got != tc.want {
+			t.Errorf("stepTags(%q, %q, %v) = %q, want %q", tc.tags, tc.args, tc.in, got, tc.want)
+		}
+	}
+}

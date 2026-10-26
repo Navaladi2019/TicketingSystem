@@ -118,8 +118,9 @@ func run(o options, out io.Writer) (int, error) {
 	if err != nil {
 		return 2, err
 	}
-	rep := check(s, files, o.tags)
-	fmt.Fprint(out, rep.String(o.tags))
+	tags := stepTags(o.tags, o.args, o.in)
+	rep := check(s, files, tags)
+	fmt.Fprint(out, rep.String(tags))
 
 	switch {
 	case cmdCode != 0:
@@ -128,6 +129,20 @@ func run(o options, out io.Writer) (int, error) {
 		return 1, nil
 	}
 	return 0, nil
+}
+
+// stepTags adds the race tag when the command is a -race run, as go test
+// does, so a //go:build race file counts as in that run.
+func stepTags(tags, args []string, in bool) []string {
+	if in {
+		return tags
+	}
+	for _, a := range args {
+		if a == "-race" || a == "-race=true" {
+			return append(append([]string{}, tags...), "race")
+		}
+	}
+	return tags
 }
 
 func readFile(s *stream, file string) error {

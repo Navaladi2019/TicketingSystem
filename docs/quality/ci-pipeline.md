@@ -124,7 +124,7 @@ lock. `NAVA_RACE_LOCK=off` skips it.
 
 ## Deliberately not covered
 
-- **A suite dropped by editing both `-tags` of a step.** suiteran's `-tags` sit beside `go test`'s on purpose; removing both is an edit to the `Makefile` or `scripts/ci/`, which `review-paths` flags for Security review. Extra `ARGS` to `make test-integration` or `make isolation` skip the check, since a `-run` filter leaves suites out on purpose.
+- **A suite dropped by editing the step itself.** suiteran trusts the step's own `-tags` and package list. Removing both `-tags`, narrowing the packages, adding a `-run` filter or removing the suiteran call passes the check, so each of those is an edit to `.github/`, the `Makefile` or `scripts/ci/`, all on the `security` list in `review-paths.yaml` (`TestCIScriptsAreSecurityPaths` in `tools/ci/reviewpaths` pins the two scripts). Extra `ARGS` to `make test-integration` or `make isolation` skip the check, since a `-run` filter leaves suites out on purpose; CI never sets `ARGS`.
 - **testcontainers-go.** Approved, not adopted (decision log, 2026-10-19). The integration tests start a pinned container through the docker CLI, the way T03 and T04 built them.
 
 ## Run it
