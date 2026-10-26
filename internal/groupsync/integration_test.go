@@ -151,8 +151,15 @@ func seedTenant(t *testing.T, super *pgx.Conn, id uuid.UUID, n int) {
 // bindAliases sets the IdP aliases a tenant binds.
 func bindAliases(t *testing.T, super *pgx.Conn, id uuid.UUID, aliases ...string) {
 	t.Helper()
-	if _, err := super.Exec(context.Background(), "UPDATE tenant_identity_binding SET idp_aliases = $2 WHERE tenant_id = $1", id, aliases); err != nil {
+	if aliases == nil {
+		aliases = []string{} // a nil slice is NULL, and idp_aliases is NOT NULL
+	}
+	tag, err := super.Exec(context.Background(), "UPDATE tenant_identity_binding SET idp_aliases = $2 WHERE tenant_id = $1", id, aliases)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if tag.RowsAffected() != 1 {
+		t.Fatalf("bindAliases updated %d rows, want 1", tag.RowsAffected())
 	}
 }
 

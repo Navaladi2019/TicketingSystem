@@ -314,7 +314,7 @@ func TestFederatedLinksKeepOnlyTheTenantsBoundAliases(t *testing.T) {
 	} {
 		if n := count(t, super, "SELECT count(*) FROM principals WHERE tenant_id = $1 AND keycloak_user_id = 'u-both' AND federated_links = $2::jsonb", tid, want); n != 1 {
 			var got string
-			_ = super.QueryRow(context.Background(), "SELECT federated_links::text FROM principals WHERE tenant_id = $1", tid).Scan(&got)
+			_ = super.QueryRow(context.Background(), "SELECT federated_links::text FROM principals WHERE tenant_id = $1 AND keycloak_user_id = 'u-both'", tid).Scan(&got)
 			t.Errorf("tenant %s federated_links = %s, want %s", tid, got, want)
 		}
 	}
@@ -324,7 +324,9 @@ func TestFederatedLinksKeepOnlyTheTenantsBoundAliases(t *testing.T) {
 	dir.set(a, identity.DirectoryChanges{Users: []identity.DirectoryUser{
 		{KeycloakUserID: "u-both", Email: "both@example.test", Enabled: true, FederatedLinks: both},
 	}})
-	syncAll(t, newSyncer(t, pool, dir))
+	if r := syncAll(t, newSyncer(t, pool, dir))[a]; r.Err != nil {
+		t.Fatalf("resync of tenant %s: %v", a, r.Err)
+	}
 	if n := count(t, super, "SELECT count(*) FROM principals WHERE tenant_id = $1 AND federated_links = '[]'::jsonb", a); n != 1 {
 		t.Errorf("a tenant with no bound alias must store no links")
 	}
