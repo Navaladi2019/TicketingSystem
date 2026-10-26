@@ -11,6 +11,19 @@ Delivery decisions that change a task's contract, newest first.
 - **Supersedes:** any earlier "never merge the PR yourself" or "only the human sets a task `done`" instruction for task PRs.
 - **Dissent:** none.
 
+## 2026-10-26: Task PRs target story branches; branches are named `TICK-<no>/<description>`
+- **Decided by:** nava (human), on TICK-231. Written up by the Technical Lead in `docs/delivery/branching-strategy.md`.
+- **Decision:** the flow is task branch → story branch → `main`. Story branches start from `main` and the owner merges them after acceptance. Task PRs never target `main`.
+- **Technical Lead calls:**
+  - Open PRs #116, #126, #129 and #130 were retargeted to their story branches. Their `agent/...` head names stay, because renaming a PR's head branch closes the PR on GitHub.
+  - Who merges is settled by the TICK-243 entry above: agents merge task PRs into story branches, and the owner merges story → `main` PRs and ADRs.
+  - TICK-231 itself has no story, so it targets `main`.
+- **Addendum (owner, same day):** stories must not share files. A dependent story waits in `backlog` until the story it depends on has merged into `main`. A story → `main` PR needs: `main` merged into the story branch, a full CI re-run, a whole-diff review by the Principal Software Engineer (plus Security when tenant data, auth or ACLs are touched), QA's green CI and acceptance kit, and the list of files it changes.
+- **Deferred:**
+  - Branch protection on `main` and on story branches. Today nothing is protected. Owner: the CTO with the Quality, Testing & CI Advisor (TICK-232). The owner applies the settings.
+  - Deleting about 60 legacy branches. Trigger: the owner approves the cleanup.
+- **Dissent:** none.
+
 ## 2026-10-25: T27k classifies every id-shaped request field by a rule; the Authorizer gains D9h and closes D9g and D9c gaps
 - **Decided by:** the Technical Lead on TICK-133 (PR #102), answering the Principal Software Engineer's three questions.
 - **Decision:** T27k: no inert class; link and child-failure workflow ids get prefix rules; failure `workflow_type.name` classed not-id; D9g also applies to poll heartbeats; D9c pins Kind. Decided by the Technical Lead, 2026-10-25, per the ADR-001-A2 Annex A.2 statement.
