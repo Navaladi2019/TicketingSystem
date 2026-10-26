@@ -342,8 +342,25 @@ func brokeredSignIn(t *testing.T, idp, user, pass string) string {
 	})
 }
 
+// stopGroupsync stops the long-running nava-groupsync for the test and brings
+// it back, healthy, in Cleanup: while it runs, a cycle of its own can hold a
+// tenant's lock, so the --once cycle skips that tenant, exits 0, and /me
+// fails for a reason that is not the one under test.
+func stopGroupsync(t *testing.T) {
+	t.Helper()
+	if out, err := dockerOut(t, "", "compose", "stop", "nava-groupsync"); err != nil {
+		t.Fatalf("stop nava-groupsync: %v\n%s", err, out)
+	}
+	t.Cleanup(func() {
+		if out, err := dockerOut(t, "", "compose", "up", "-d", "--no-deps", "--wait", "nava-groupsync"); err != nil {
+			t.Errorf("restart nava-groupsync: %v\n%s", err, out)
+		}
+	})
+}
+
 // groupsyncOnce runs one nava-groupsync cycle, which syncs every bound
-// tenant's principals; it exits non-zero when any tenant failed.
+// tenant's principals; it exits non-zero when any tenant failed. Call
+// stopGroupsync first.
 func groupsyncOnce(t *testing.T) {
 	t.Helper()
 	if out, err := dockerOut(t, "", "compose", "run", "--rm", "--no-deps", "-T", "nava-groupsync", "--once"); err != nil {
@@ -403,6 +420,7 @@ func newOnboarding(t *testing.T) (key string, tenant uuid.UUID, domain, email st
 // sign in as the invited admin through the tenant's IdP, sync, and GET
 // /api/v1/me on nava-core resolves the new tenant and no other.
 func TestOnboardedAdminSignsInAndMeShowsTenant(t *testing.T) {
+	stopGroupsync(t)
 	key, tenant, domain, email := newOnboarding(t)
 	alias, idpAlias := onboard.Alias(tenant), keycloak.TenantIdPAlias(tenant)
 	idpRealm, pass := "onb-"+tenant.String()[:8], "dev-only-"+uuid.NewString()[:8]
@@ -512,7 +530,9 @@ func TestOnboardDeploymentSeparation(t *testing.T) {
 	}
 	ports, nets, _ := strings.Cut(strings.TrimSpace(out), "|")
 	var bindings map[string][]struct{ HostPort string }
-	_ = json.Unmarshal([]byte(ports), &bindings)
+	if err := json.Unmarshal([]byte(ports), &bindings); err != nil {
+		t.Fatalf("nava-onboard ports %q: %v", ports, err)
+	}
 	for p, bs := range bindings {
 		if len(bs) != 0 {
 			t.Errorf("nava-onboard publishes %s on the host: %+v", p, bs)
