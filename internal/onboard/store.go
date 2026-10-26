@@ -113,11 +113,11 @@ type BindingReader interface {
 // ErrConflict (the stored org was lost outside the platform and this attempt
 // resolved another), and the tenant stays provisioning. Otherwise it is a
 // first bind: plain INSERTs of the binding and every domain in one
-// transaction as nava_onboard. A unique violation
-// rolls everything back: on tenant_email_domain_pkey the domain belongs to
-// another tenant (ErrDomainClaimed); on the (issuer, org id) key the
-// organization is bound to another tenant (ErrConflict). The caller still
-// reads domain ownership under the tenant predicate as a second check.
+// transaction as nava_onboard. A unique violation rolls everything back: on
+// tenant_email_domain_pkey the domain belongs to another tenant
+// (ErrDomainClaimed); on the (issuer, org id) key the organization is bound to
+// another tenant (ErrConflict). The caller still reads domain ownership as a
+// second check.
 func (s *PGStore) Bind(ctx context.Context, tenantID uuid.UUID, issuer, orgID, idpAlias string, domains []string) error {
 	// Only a provisioning tenant is bound, whether or not a binding row exists:
 	// this refusal comes before the retry decision. nava_onboard reads its own
