@@ -497,6 +497,62 @@ func TestInvalidTargetKeyIsDead(t *testing.T) {
 	}
 }
 
+// T32b finding 1, second line: a row whose payload is not references only
+// (written around Enqueue) never reaches Temporal. It is dead at its first
+// attempt with a fixed cause, and it alerts; nothing of the payload reaches
+// the log, last_error or the span.
+func TestRecordDataPayloadIsRefusedBeforeDispatch(t *testing.T) {
+	for name, payload := range map[string]string{
+		"string value":  `{"record_id":"` + recordXID + `","email":"` + recordMarker + `"}`,
+		"object value":  `{"record":{"email":"` + recordMarker + `"}}`,
+		"array value":   `{"ids":["` + recordXID + `","` + recordMarker + `"]}`,
+		"number value":  `{"amount":42}`,
+		"not an object": `["` + recordMarker + `"]`,
+		"bare string":   `"` + recordMarker + `"`,
+		"null":          `null`,
+	} {
+		for _, op := range []string{opStart, opSignal} {
+			t.Run(name+"/"+op, func(t *testing.T) {
+				h := newHarness(t)
+				start := startRow()
+				c := start
+				if op == opSignal {
+					h.fe.addExecution(wfID(start), false)
+					c = signalRow(start, 2)
+				}
+				c.Payload = json.RawMessage(payload)
+				h.dispatch(t.Context(), c)
+
+				if _, starts, signals := h.fe.counts(); starts+signals != 0 {
+					t.Errorf("%d Temporal calls, want 0", starts+signals)
+				}
+				if got := h.db.only(t); got.op != "dead" || got.id != c.ID || got.cause != CauseInvalidPayload {
+					t.Errorf("settled %+v, want dead %q at its first attempt", got, CauseInvalidPayload)
+				}
+				if sum, points := h.counter(t, "outbox_relay_payload_refused", nil); sum != 1 || points != 1 {
+					t.Errorf("alert metric %d over %d points, want 1 over 1 (no attributes)", sum, points)
+				}
+				if sum, _ := h.counter(t, "outbox_relay_dispatches", map[string]string{"op": op, "outcome": outcomeInvalidPayload}); sum != 1 {
+					t.Errorf("outbox_relay_dispatches{outcome=invalid_payload} = %d, want 1", sum)
+				}
+				logs := h.logs.String()
+				if !strings.Contains(logs, `"alert":true`) || !strings.Contains(logs, `"outbox_id":"`+c.ID.String()+`"`) {
+					t.Errorf("no alert log line naming the outbox id:\n%s", logs)
+				}
+				spans := h.spans.GetSpans()
+				if len(spans) == 0 {
+					t.Fatal("no dispatch span")
+				}
+				for _, where := range []string{logs, fmt.Sprintf("%+v", spans)} {
+					if strings.Contains(where, recordMarker) {
+						t.Errorf("the payload marker leaked:\n%s", where)
+					}
+				}
+			})
+		}
+	}
+}
+
 func TestWorkflowID(t *testing.T) {
 	c := startRow()
 	if got, ok := WorkflowID(c); !ok || got != "t:"+tenantAID+":"+c.TargetKey {

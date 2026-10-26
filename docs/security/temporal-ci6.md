@@ -157,7 +157,7 @@ sequenceDiagram
    - **Status:** values fixed by TICK-214; keys open (follow-up TICK-240)
      (`db/migrations/00006_outbox_payload_references.sql`,
      [outbox-payload-check.md](../data/outbox-payload-check.md)); the relay
-     check (TICK-215) is still open.
+     check is fixed by TICK-215.
    - **Severity:** Medium.
    - **Fix, at the lowest layer:** a `CHECK` on `outbox.payload` with the same
      rule as `ValidatePayload`: a jsonb object whose values are UUID strings or
@@ -166,9 +166,12 @@ sequenceDiagram
      before each call and mark a failing row dead with a fixed cause, as a
      second line.
    - **Owners:** TICK-214 (the `CHECK`) and TICK-215 (the relay check).
+     The relay check is in `relay.Dispatcher` (TICK-215): a failing row is
+     dead with `CauseInvalidPayload` and alerts, without a Temporal call.
    - **Test:** `TestCI7_RelayRefusesRecordDataPayloadWrittenOutsideEnqueue`
      (TICK-214): the direct INSERT is refused, and nothing reaches the
-     history.
+     history. `TestRecordDataPayloadIsRefusedBeforeDispatch` (TICK-215)
+     covers the relay check.
 2. **T32b-2: activity arguments are not checked.**
    - **Attack:** workflow code schedules an activity whose argument holds record
      data, and `ActivityTaskScheduled` records it in the history. Nothing in
