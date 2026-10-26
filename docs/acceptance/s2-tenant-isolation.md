@@ -1,16 +1,16 @@
 # Acceptance kit: S2, a query without the right tenant returns nothing
 
 Story: TICK-44. Plan: PLAN-001 (`docs/delivery/plan-platform-foundation.md`). Design: ADR-001, Annex A.3 (D28) and Annex B (CI-1 to CI-4, CI-9).
-Verified on `main` at `9f8c39a` on 2026-10-26 by the Quality, Testing & CI Advisor.
+Verified on 2026-10-26 by the Quality, Testing & CI Advisor: first on `main` at `9f8c39a` (fresh stack, all criteria), then again on `main` at `d32a18c`, after the criterion 3 fix (`make isolation`, and the hand-grant probe in CI).
 
-**Status: NOT READY.** Criterion 3 fails: a grant added by hand does not fail CI. Fix task: TICK-233. The story stays with the agents until that fix merges and this kit is re-run. It has not been handed to the human.
+**Status: READY for the human.** All 4 criteria pass. The first run failed criterion 3; TICK-233 (PR #139) and TICK-235 (PR #145) fixed it.
 
 ## What you can now do
 
 - The database itself keeps each tenant's rows away from every other tenant. A query that names no tenant, an empty tenant, or a tenant left over from an earlier transaction gets nothing back.
 - Every part of the platform (API, worker, relay, purge, onboarding, group sync, backup) logs in as its own database user. Each can do only its own job.
 - One command, `make isolation`, proves this and writes a report with one line per user and table.
-- A pull request that adds a table without the tenant wall fails CI.
+- A pull request that adds a table without the tenant wall, or grants a database privilege outside the manifest, fails CI.
 
 ## Try it (about 10 minutes, most of it waiting)
 
@@ -21,7 +21,7 @@ Needs Docker and Go 1.26, from a fresh clone of `main`.
    make isolation
    ```
    It should end with `ok ... internal/tenancy/isolation`. Open `isolation-report.md` at the repository root: the first line reads `Result: **PASS**`.
-2. In the report, read the table **Every runtime role × every tenant table**. Every line is `PASS` (0 rows, or an error such as "permission denied" or "cannot connect"), except the three `ALLOWLISTED` lines described under Known limits.
+2. In the report, read the table **Every runtime role × every tenant table**. Every line is `PASS` (0 rows, or an error such as "permission denied" or "cannot connect"), except three `ALLOWLISTED` lines. Those are intentional exceptions, explained under criterion 1 below.
 3. Optional: start the full stack and look at the database users yourself.
    ```sh
    make dev-ca
@@ -32,7 +32,9 @@ Needs Docker and Go 1.26, from a fresh clone of `main`.
    SQL
    ```
    Every `nava_*` user shows `f | f`. Clean up with `docker compose down -v`.
-4. Optional: look at the checks on probe PR #132 (closed, never merged). It adds a tenant table without `FORCE ROW LEVEL SECURITY`, and its `integration` and `stack*` jobs are red.
+4. Optional: look at the checks on the two probe PRs (closed, never merged). Both have red `integration` and `stack*` jobs:
+   - PR #132 adds a tenant table without `FORCE ROW LEVEL SECURITY`.
+   - PR #143 adds `GRANT SELECT ON records TO nava_relay` in a migration.
 
 No sign-in or UI is involved. This story is entirely in the database.
 
@@ -40,15 +42,15 @@ No sign-in or UI is involved. This story is entirely in the database.
 
 | # | Criterion | Result | Evidence |
 |---|---|---|---|
-| 1 | As each runtime role, a query with no tenant, an empty tenant, or a tenant left over on a pooled connection returns 0 rows or an error | ✅ (3 by-design allow-listed lines, see Known limits) | `make isolation` report; fresh-stack probe |
-| 2 | No runtime role is a superuser, has `BYPASSRLS`, owns an object or is a member of any role | ✅ | Fresh-stack catalogue queries; CI `integration` (`TestD28*`, `TestDBRoles*`) |
-| 3 | Granted privileges equal `db/grants.yaml` exactly; **adding a grant by hand fails CI** | ❌ first half ✅, second half fails | Throwaway PR #133 is green. Fix: TICK-233 |
+| 1 | As each runtime role, a query with no tenant, an empty tenant, or a tenant left over on a pooled connection returns 0 rows or an error | ✅, with 3 intentional exceptions (allow-listed policies, see below) | `make isolation` report on `d32a18c` and `9f8c39a`; fresh-stack probe |
+| 2 | No runtime role is a superuser, has `BYPASSRLS`, owns an object or is a member of any role | ✅ | Fresh-stack catalogue queries; CI tests `TestD28*` and `TestDBRoles*`, and the CI-3 gate. Not a section of the `make isolation` report: see Known limits |
+| 3 | Granted privileges equal `db/grants.yaml` exactly; adding a grant by hand fails CI | ✅ | Probe PR #143 is red, CI run [40317464391](https://github.com/Navaladi2019/TicketingSystem/actions/runs/40317464391) |
 | 4 | `nava_relay` cannot read tenant data tables; `nava_backup` cannot open a SQL session | ✅ | `make isolation` CI-9 section; fresh-stack probe |
 | extra | A tenant table without `FORCE ROW LEVEL SECURITY` fails CI (story "How to try it" step 3) | ✅ | Throwaway PR #132 is red |
 
 ### Criterion 1 evidence
 
-`make isolation` on `9f8c39a` passed in 3 min 26 s, `Result: **PASS**`. The report has 121 lines for runtime role × tenant table: 11 roles, including the owner `nava_migrator`, × 11 tenant tables. None is FAIL. Every line was run with no tenant, `''` and a prior `SET LOCAL` of tenant A, directly and through PgBouncer, and then with tenant A aimed at tenant B's rows.
+`make isolation` passed with `Result: **PASS**` on `9f8c39a` (3 min 26 s) and again on `d32a18c`, with the same counts. The report has 121 lines for runtime role × tenant table: 11 roles, including the owner `nava_migrator`, × 11 tenant tables. None is FAIL. Every line was run with no tenant, `''` and a prior `SET LOCAL` of tenant A, directly and through PgBouncer, and then with tenant A aimed at tenant B's rows.
 
 | Status | Lines | What it means |
 |---|---|---|
@@ -56,7 +58,17 @@ No sign-in or UI is involved. This story is entirely in the database.
 | PASS, no grant | 53 | The role has no SELECT, UPDATE or DELETE on the table |
 | PASS, cannot connect (42501) | 33 | `keycloak`, `temporal` and `nava_backup` have no `CONNECT` on `nava` |
 | PASS, owner subject to `FORCE` | 11 | `nava_migrator`: 0 rows everywhere |
-| ALLOWLISTED | 3 | See Known limits |
+| ALLOWLISTED | 3 | Intentional exceptions, below |
+
+**The 3 intentional exceptions.** ADR-001 I1 and Annex A.3 allow these policies by name. The report marks their lines `ALLOWLISTED` instead of hiding them, so they show rows with no tenant set:
+
+| Role | Table | Policy | Why it does not test the tenant |
+|---|---|---|---|
+| `nava_app` | `tenant_identity_binding` | `binding_lookup` | Maps an identity provider's issuer and organisation to a tenant at sign-in, before any tenant is known |
+| `nava_groupsync` | `tenant_identity_binding` | `binding_lookup` | The same lookup, for group sync |
+| `nava_relay` | `outbox` | `outbox_relay_select`, `outbox_relay_update` | The relay delivers every tenant's events. It cannot read `dedupe_key` or `last_error` on `outbox`, or any other table (criterion 4) |
+
+Any other policy that skips the tenant test fails CI: the allow-list has exactly 10 entries (CI-1).
 
 The four fixtures in the report show that each check can fail: FORCE removed, RLS disabled, a fail-open policy, and a session-wide SET through PgBouncer each turn PASS into FAIL.
 
@@ -86,29 +98,24 @@ Fresh compose stack, `docker compose down -v`, then `up --wait`: healthy in 188 
 - Every public table except goose's bookkeeping table has `relrowsecurity` and `relforcerowsecurity` set to true.
 - The same facts are gated on every PR by `TestD28NoSuperuserOrBypassRLS`, `TestD28NoRoleMembershipsRecursive`, `TestDBRolesRolesHaveNoDangerousAttributes` and the CI-3 catalogue gate. All passed in CI run [40306371162](https://github.com/Navaladi2019/TicketingSystem/actions/runs/40306371162).
 
-The `make isolation` report has no separate role-attribute section, although the story text points to one. The facts are covered by the tests above, not by the report. Owner: Technical Lead, if the report section is still wanted.
-
 ### Criterion 3 evidence
 
 **Granted privileges equal the manifest: ✅.** The migrator's catalogue gate (CI-1, CI-3, CI-4) runs after every migrator run. On the fresh stack, `migrate done` reported `migrations_applied: 5, grants_granted: 119, grants_revoked: 0`, with no gate problems. `TestT10GateCatchesCatalogueDrift` covers 20 drift cases, for example `GRANT DELETE ON records TO nava_app` added directly on the database.
 
-**Adding a grant by hand fails CI: ❌.** Throwaway PR #133 adds this migration:
+**Adding a grant by hand fails CI: ✅.** Probe PR #143, on `main` after the fix, adds this migration:
 
 ```sql
 -- +goose Up
 GRANT SELECT ON records TO nava_relay;
 ```
 
-CI run [40306371162](https://github.com/Navaladi2019/TicketingSystem/actions/runs/40306371162) passed every job: `integration`, `stack`, `stack-db`, `stack-internal`, `unit` and `lint`.
-
-Reproduced on the fresh stack: `GRANT SELECT ON records TO nava_relay` was run as the superuser, then `docker compose run --rm migrate`. The migrator exited 0:
+CI run [40317464391](https://github.com/Navaladi2019/TicketingSystem/actions/runs/40317464391) failed `integration`, `stack`, `stack-db` and `stack-internal` with:
 
 ```
-WARN "revoked grant not in manifest" grant="SELECT table public.records TO nava_relay"
-INFO "migrate done" migrations_applied=0 grants_granted=0 grants_revoked=1
+CI-4: a migration granted SELECT table public.records TO nava_relay, which db/grants.yaml does not list (revoked on a fresh database; grant it in db/grants.yaml, not in a migration)
 ```
 
-The migrator converges grants by design (`docs/data/roles-and-grants.md` decision 3). The extra grant is revoked before the gate looks, so the privilege never survives, but nothing turns red. The fix, TICK-233, makes a revoke on a fresh cluster fail CI.
+History: the first run on `9f8c39a` failed this half. Probe PR #133 had the same migration and stayed green, because the migrator revoked the grant and only logged a warning. TICK-233 (PR #139) makes any revoke on a fresh database a CI-4 problem. TICK-235 (PR #145) adds adversarial cases: column, `PUBLIC`, `WITH GRANT OPTION`, schema, database, function and default-privilege grants. On an already-deployed database the migrator still revokes and logs, and the run passes (AR-031).
 
 ### Criterion 4 evidence
 
@@ -150,13 +157,13 @@ Tenant A and tenant B were both seeded in the `make isolation` suite and on the 
 
 ## Known limits
 
-- **Three `ALLOWLISTED` lines read rows with no tenant set, by design.** ADR-001 I1 and A.3 allow-list these policies by name. They are not a failure, but they do not literally read "0 rows / error":
-  - `nava_app` and `nava_groupsync` on `tenant_identity_binding` use `binding_lookup`, which maps an IdP issuer and org to a tenant before any tenant is known.
-  - `nava_relay` on `outbox` uses `outbox_relay_select` and `outbox_relay_update`. The relay dispatches every tenant's events by design, but cannot read `dedupe_key` or `last_error`, or any other table.
-  The suite marks these lines and fails any policy that is not on the 10-entry allow-list (CI-1). If the human wants criterion 1 to read "0 rows / error, except the allow-listed policies", the story text needs that change.
+- **The `make isolation` report has no role-attribute section**, although the story's criterion 2 points to one. Criterion 2 is proven on every PR by these `integration` tests instead: `TestD28NoSuperuserOrBypassRLS`, `TestD28NoRoleMembershipsRecursive`, `TestDBRolesRolesHaveNoDangerousAttributes`, `TestDBRolesRevokesStrayMemberships`, and the CI-3 catalogue gate after every migrator run. The fresh-stack queries above show the same facts. If you want the section printed in the report, say so and the Technical Lead will file a follow-up.
+- **Two accepted low risks from the criterion 3 fix**, with no task: AR-031 and AR-032 in `docs/security/accepted-risks.md`.
+  - A first production deploy with a hand grant revokes it, fails, then passes on a re-run. This fails safe.
+  - The grant check does not cover types or foreign-data wrappers, which cannot reach tenant rows.
 - `nava_backup` has `REPLICATION`. That is how physical backups work (ADR-001 D28). `pg_hba` allows it only to the replication pseudo-database from the backup host.
 - The fresh full stack took 188 s to become healthy on a host that also ran 27 other containers. That is above S1's 180 s gate, which applies to CI, not to this story.
 
 ## Throwaway PRs
 
-#132 and #133 were draft probe PRs. They are closed, never merged, and their branches are deleted. To re-run the probes after TICK-233 merges, push the same migrations from this kit onto a branch of the new `main`.
+#132, #133 and #143 were draft probe PRs. They are closed and were never merged. To re-run a probe, push its migration from this kit onto a branch of `main` and open a draft PR.
