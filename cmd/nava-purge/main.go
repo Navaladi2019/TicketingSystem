@@ -59,6 +59,10 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 		return err
 	}
 	defer pool.Close()
+	if err := assertRole(ctx, pool); err != nil {
+		_ = tel.Shutdown(context.WithoutCancel(ctx))
+		return err
+	}
 	purger, err := purge.New(pool, tel.MeterProvider, log, purge.Options{
 		Interval: cfg.Interval,
 		Windows: purge.Windows{
@@ -137,6 +141,29 @@ func newPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 		return nil, errors.New("cannot create the PostgreSQL pool")
 	}
 	return pool, nil
+}
+
+// rowQuerier is the part of the pool assertRole needs.
+type rowQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// assertRole refuses to run unless the connection is nava_purge and that role
+// has neither BYPASSRLS nor SUPERUSER, so the RLS policy floor always applies
+// (TICK-145). Errors name the role, never the DSN.
+func assertRole(ctx context.Context, db rowQuerier) error {
+	var role string
+	var ok bool
+	err := db.QueryRow(ctx, `SELECT current_user::text,
+		current_user = 'nava_purge' AND NOT rolbypassrls AND NOT rolsuper
+		FROM pg_roles WHERE rolname = current_user`).Scan(&role, &ok)
+	if err != nil {
+		return errors.New("cannot verify the database role of nava-purge")
+	}
+	if !ok {
+		return fmt.Errorf("nava-purge must connect as nava_purge without BYPASSRLS or SUPERUSER; connected as %q", role)
+	}
+	return nil
 }
 
 // recovered turns a panic in fn into an error carrying the stack, so a
