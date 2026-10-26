@@ -141,7 +141,10 @@ sequenceDiagram
 | CI-7 producer schema | `outbox.ValidatePayload` rejects text, numbers, booleans, nested objects, mixed arrays, a text field next to a reference, and anything that is not an object. |
 | CI-7 history input | The `outbox.Delivery` Go type has only UUID, int16 and payload fields. The recorded start and signal inputs of a relay-started workflow have only its JSON keys, and each payload passes the producer schema. |
 | CI-7 payload outside `Enqueue` | Not in this PR. The test lands with its fix in TICK-214 (finding T32b-1). |
-| CI-7 activity payload | Not in this PR. The test lands with its fix in TICK-216 (finding T32b-2). |
+| CI-7 activity payload (TICK-216) | The relay-started workflow schedules an activity whose argument holds a ticket title. No event in the history holds the title, only the `workflow_ref` close is scheduled, and the guard alerts `activity_args`/`record_data`. |
+| CI-7 child payload (TICK-216) | The workflow starts a same-tenant child (`ChildWorkflowID`) whose argument holds the title. No child is initiated, no event holds the title, and the guard alerts `child`/`record_data`. |
+| CI-7 continue-as-new payload (TICK-216) | The workflow continues as new with the title in `RunInput.Refs`. The workflow fails with `nava.TenantGuard` instead, no event holds the title, and the guard alerts `continue_as_new`/`record_data`. |
+| CI-7 update payload (TICK-216) | `nava-core`, with the right tenant (`ContextWithTenant`), sends an update whose argument holds the title: the validator rejects it with no title in the error. A references-only update on the same workflow is accepted. Exactly one update is in the history, and no event holds the title. |
 | CI-7 headers (TICK-93) | Every `Header` anywhere in both runs' histories is walked: start, signals, activity, continue-as-new. The keys are only `nava-tenant` and `_tracer-data`, and `_tracer-data` holds only `traceparent` and `tracestate`. A signal sent with baggage in its context leaves no trace of it. |
 
 ### Findings (T32b)
@@ -179,6 +182,13 @@ sequenceDiagram
      check on update arguments. Each applies the references-only rule and fails
      with a non-retryable error before the command is sent.
    - **Owner:** TICK-216.
+   - **Fixed (TICK-216):** `workerguard` checks the arguments of
+     `ExecuteActivity`, `ExecuteLocalActivity`, `ExecuteChildWorkflow`,
+     continue-as-new (again when the workflow returns the error) and updates
+     (in the validator). The rule is in `docs/architecture/worker-guards.md`
+     ("Arguments: references only"). Residual: update arguments are checked as
+     decoded, so what the handler's decoding drops is recorded unchecked
+     (TODO-010, Low).
    - **Test:** `TestCI7_ActivityPayloadWithRecordDataNotRecorded`, which lands
      with TICK-216. Its code is on branch `security/tick-86-ci7-gap-tests`,
      together with the `ci7.activity` branch of `relayProbe`.

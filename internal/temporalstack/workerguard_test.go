@@ -10,6 +10,7 @@ package temporalstack
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"strconv"
@@ -25,33 +26,46 @@ import (
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
 	"github.com/Navaladi2019/TicketingSystem/internal/workerguard"
 )
 
-// guardedInput selects what guardedWorkflow does; Seen and Applied carry the
-// applied-signal set across continue-as-new.
+// guardedInput selects what guardedWorkflow does. A child gets no arguments
+// and a continued run gets the workerguard.RunInput its first run carried
+// (the CI-7 argument rule accepts nothing else), so neither has a Mode.
 type guardedInput struct {
-	Mode    string
-	Seen    workerguard.AppliedSignals
-	Applied []string
+	Mode string `json:"mode,omitempty"`
+	workerguard.RunInput
+}
+
+// guardedRefs is what guardedSignals carries in RunInput.Refs.
+type guardedRefs struct {
+	Applied []string `json:"applied"`
 }
 
 // guardedWorkflow is registered as the allow-listed nava.smoke.Echo.
-//   - "leaf" returns "leaf";
+//   - "leaf", or no mode in a first run (a child), returns "leaf";
 //   - "child-helper" starts a "leaf" child named with ChildWorkflowID;
 //   - "child-default" starts one with the SDK's default id;
-//   - "signals" applies "outbox" signals once each by outbox id, continues as
-//     new on "rollover", and returns what it applied on "done"; update "inc"
-//     counts too.
+//   - "signals", or no mode in a continued run, applies "outbox" signals once
+//     each by outbox id, continues as new on "rollover", and returns what it
+//     applied on "done"; update "inc" counts too.
 func guardedWorkflow(ctx workflow.Context, in guardedInput) (string, error) {
-	switch in.Mode {
+	mode := in.Mode
+	if mode == "" {
+		mode = "leaf"
+		if workflow.GetInfo(ctx).ContinuedExecutionRunID != "" {
+			mode = "signals"
+		}
+	}
+	switch mode {
 	case "leaf":
 		return "leaf", nil
 	case "child-helper", "child-default":
 		opts := workflow.ChildWorkflowOptions{TaskQueue: taskQueue}
-		if in.Mode == "child-helper" {
+		if mode == "child-helper" {
 			id, err := workerguard.ChildWorkflowID(ctx, "leaf")
 			if err != nil {
 				return "", err
@@ -59,43 +73,54 @@ func guardedWorkflow(ctx workflow.Context, in guardedInput) (string, error) {
 			opts.WorkflowID = id
 		}
 		var out string
-		err := workflow.ExecuteChildWorkflow(workflow.WithChildOptions(ctx, opts), echoType, guardedInput{Mode: "leaf"}).Get(ctx, &out)
+		err := workflow.ExecuteChildWorkflow(workflow.WithChildOptions(ctx, opts), echoType).Get(ctx, &out)
 		return "child:" + out, err
 	case "signals":
-		return guardedSignals(ctx, in)
+		return guardedSignals(ctx, in.RunInput)
 	}
 	return "", errors.New("unknown mode")
 }
 
-func guardedSignals(ctx workflow.Context, in guardedInput) (string, error) {
+func guardedSignals(ctx workflow.Context, in workerguard.RunInput) (string, error) {
+	var refs guardedRefs
+	if in.Refs != nil {
+		if err := json.Unmarshal(in.Refs, &refs); err != nil {
+			return "", err
+		}
+	}
 	updates := 0
 	if err := workflow.SetUpdateHandler(ctx, "inc", func(workflow.Context) (int, error) { updates++; return updates, nil }); err != nil {
 		return "", err
 	}
-	outbox := workflow.GetSignalChannel(ctx, "outbox")
+	signals := workflow.GetSignalChannel(ctx, "outbox")
 	apply := func(c workflow.ReceiveChannel) {
 		var id uuid.UUID
 		c.Receive(ctx, &id)
 		if in.Seen.TryApply(ctx, id) {
-			in.Applied = append(in.Applied, id.String())
+			refs.Applied = append(refs.Applied, id.String())
 		}
 	}
 	for {
 		var next string
 		sel := workflow.NewSelector(ctx)
-		sel.AddReceive(outbox, func(c workflow.ReceiveChannel, _ bool) { apply(c) })
+		sel.AddReceive(signals, func(c workflow.ReceiveChannel, _ bool) { apply(c) })
 		sel.AddReceive(workflow.GetSignalChannel(ctx, "rollover"), func(c workflow.ReceiveChannel, _ bool) { c.Receive(ctx, nil); next = "rollover" })
 		sel.AddReceive(workflow.GetSignalChannel(ctx, "done"), func(c workflow.ReceiveChannel, _ bool) { c.Receive(ctx, nil); next = "done" })
 		sel.Select(ctx)
 		switch next {
 		case "rollover":
 			// Drain what arrived with the rollover, so no signal is lost.
-			for outbox.Len() > 0 {
-				apply(outbox)
+			for signals.Len() > 0 {
+				apply(signals)
 			}
+			b, err := json.Marshal(refs)
+			if err != nil {
+				return "", err
+			}
+			in.Refs = b
 			return "", workflow.NewContinueAsNewError(ctx, echoType, in)
 		case "done":
-			return strings.Join(in.Applied, ",") + "|updates=" + strconv.Itoa(updates), nil
+			return strings.Join(refs.Applied, ",") + "|updates=" + strconv.Itoa(updates), nil
 		}
 	}
 }
@@ -149,9 +174,15 @@ func guardedStack(t *testing.T) (relay, core client.Client, logs *lockedBuffer) 
 // t:<tenant>:<kind>:<outbox id>, the tenant on the context for the header.
 func guardedStart(ctx context.Context, t *testing.T, relay client.Client, tenant uuid.UUID, mode string) (string, client.WorkflowRun) {
 	t.Helper()
-	id := "t:" + tenant.String() + ":t31:" + uuid.NewString()
+	start := uuid.New()
+	id := "t:" + tenant.String() + ":t31:" + start.String()
+	// The relay's Delivery for the start row: its payload is carried across
+	// continue-as-new, so it must be references only.
+	in := guardedInput{Mode: mode, RunInput: workerguard.RunInput{
+		Delivery: outbox.Delivery{OutboxID: start, KindVersion: 1, Payload: json.RawMessage(`{}`)},
+	}}
 	run, err := relay.ExecuteWorkflow(workerguard.ContextWithTenant(ctx, tenant),
-		client.StartWorkflowOptions{ID: id, TaskQueue: taskQueue}, echoType, guardedInput{Mode: mode})
+		client.StartWorkflowOptions{ID: id, TaskQueue: taskQueue}, echoType, in)
 	if err != nil {
 		t.Fatalf("start %s: %v", id, err)
 	}

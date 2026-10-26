@@ -43,11 +43,11 @@ func TestCI6_WorkerStartWithMissingOrMismatchedHeaderFailsWorkflow(t *testing.T)
 		start         func(id string, tenant uuid.UUID) (client.WorkflowRun, error)
 	}{
 		{"missing", "missing", func(id string, _ uuid.UUID) (client.WorkflowRun, error) {
-			return bare.ExecuteWorkflow(ctx, client.StartWorkflowOptions{ID: id, TaskQueue: taskQueue}, relayType, relayRun{})
+			return bare.ExecuteWorkflow(ctx, client.StartWorkflowOptions{ID: id, TaskQueue: taskQueue}, relayType, workerguard.RunInput{})
 		}},
 		{"mismatched", "mismatch", func(id string, _ uuid.UUID) (client.WorkflowRun, error) {
 			return s.relay.ExecuteWorkflow(workerguard.ContextWithTenant(ctx, uuid.New()),
-				client.StartWorkflowOptions{ID: id, TaskQueue: taskQueue}, relayType, relayRun{})
+				client.StartWorkflowOptions{ID: id, TaskQueue: taskQueue}, relayType, workerguard.RunInput{})
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

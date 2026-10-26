@@ -77,6 +77,7 @@ PostgreSQL. It runs after `stack-test-sdk`, whose workers also poll `nava-tq`.
 | Continue-as-new | header not this tenant (no Propagator, or rewritten on the returned error: checked again when the workflow returns), a cron schedule copied from a cron-started run, or the copied `NavaTenantId` is another tenant's | the workflow fails instead of continuing |
 | Upsert `NavaTenantId` | another value, or unset; or any change through a non-Keyword key of the same name (Text, KeywordList, ...), which the SDK encodes under the same name | the upsert fails |
 | Nexus | always | the future fails |
+| Arguments (CI-7, TICK-216) | an activity, local activity, child, continue-as-new or update argument that is not references only (see below) | the future fails (`activity_args`, `local_activity_args`, `child`), the workflow fails (`continue_as_new`), or the validator rejects the update (`update`); outcome `record_data` |
 
 Every decision adds to `nava.worker.guard.decisions{guard, outcome}` (no tenant
 or workflow id on the metric). Every deny logs `worker tenant guard denied` at
@@ -99,6 +100,40 @@ flowchart LR
   A -- otherwise --> F[non-retryable + alert]
 ```
 
+## Arguments: references only (CI-7)
+
+Histories are cross-tenant and unencrypted (ADR-001 R1), so the guard checks
+every argument a workflow hands to Temporal before the command exists. The Go
+type picks the rule; the JSON the default converter encodes, which is what the
+history records, is what is checked (`argOK`, TICK-216 contract decision):
+
+| Go type | Accepted when |
+| --- | --- |
+| `outbox.Delivery` | `Payload` passes `outbox.ValidatePayload` (the relay's rule) |
+| `workerguard.RunInput` | `Delivery.Payload` and `Refs` pass it; every `Seen` key is a UUID and every value an RFC3339 time |
+| anything else | its encoding is a JSON object that passes it (UUIDs and UUID arrays only) |
+
+No arguments is allowed. A struct with the same JSON shape as `RunInput` is
+"anything else" and fails. `RunInput` embeds `Delivery`, so a relay-started
+workflow takes it as its input and carries it, with its applied-signal set and
+its own references in `Refs`, across continue-as-new. `ContinueAsNewError` is
+plain data, so when the workflow returns it the input must be one
+`NewContinueAsNewError` checked. The deny is the fixed `nava.TenantGuard` error
+and alert; neither carries an argument value.
+
+```mermaid
+flowchart LR
+  W[workflow code] -- "activity / local activity / child / continue-as-new args" --> G{argOK}
+  C[nava-core update] -- args --> V{validator: argOK}
+  G -- references only --> S[Temporal history]
+  V -- references only --> S
+  G -- otherwise --> F[guard error + alert<br/>nothing recorded]
+  V -- otherwise --> F
+```
+
+Update arguments are checked as the handler's parameter types decoded them;
+what the decoding drops is recorded unchecked (TODO-010).
+
 ## Children, signals and `workflow_ref`
 
 - **Child ids:** `workerguard.ChildWorkflowID(ctx, kind)` returns
@@ -107,7 +142,7 @@ flowchart LR
 - **Signal dedupe (I7):** each signal carries its `outbox.id`.
   `AppliedSignals.TryApply` applies an id once and forgets it 48 h later
   (`SignalDedupeWindow`, D-P8: longer than the relay's 24 h redelivery age).
-  Pass the set in the continue-as-new input, and drain pending signal channels
+  Pass the set in the continue-as-new input (`RunInput.Seen`), and drain pending signal channels
   before continuing as new, or a signal that arrived with the rollover is lost.
 - **`workflow_ref.closed_at` (A.3):** a relay-started workflow calls
   `workerguard.CloseWorkflowRef(ctx)` as its final activity. The activity finds
@@ -122,6 +157,8 @@ flowchart LR
   takes any workflow id, and the task-token APIs, which the Authorizer does not
   inspect. Activity code must never get a raw Temporal client
   ([AR-025](../security/accepted-risks.md)).
+- Update arguments a handler's decoding drops (an unknown field, a payload
+  past its last parameter) reach the history unchecked (TODO-010).
 - Within 48 h the applied-signal set grows with every distinct signal; a flood
   to one workflow grows its continue-as-new input (Epic 08 flood test, R9).
 

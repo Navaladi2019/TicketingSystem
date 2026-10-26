@@ -42,7 +42,10 @@ const ErrTypeTenantGuard = "nava.TenantGuard"
 //   - Nexus: always fails (the Authorizer denies Nexus commands);
 //   - activity: a header that is missing or differs from its workflow id's
 //     tenant fails it non-retryably; otherwise the tenant is on its context
-//     for InTenantTx.
+//     for InTenantTx;
+//   - arguments of an activity, local activity, child, continue-as-new or
+//     update that are not references only (argOK, CI-7) fail the call, or
+//     reject the update, before anything reaches the history.
 //
 // Every deny adds to DecisionsMetric and logs an alert. No guard panics: a
 // panic in a workflow task is a poison loop, so a guard that fails internally
@@ -109,18 +112,24 @@ func (r *recorder) record(ctx workflow.Context, guard, outcome string, attrs ...
 
 // InterceptWorkflow implements interceptor.WorkerInterceptor.
 func (g *Guard) InterceptWorkflow(_ workflow.Context, next interceptor.WorkflowInboundInterceptor) interceptor.WorkflowInboundInterceptor {
-	return &workflowInbound{WorkflowInboundInterceptorBase: interceptor.WorkflowInboundInterceptorBase{Next: next}, rec: g.rec}
+	return &workflowInbound{
+		WorkflowInboundInterceptorBase: interceptor.WorkflowInboundInterceptorBase{Next: next},
+		rec:                            g.rec,
+		cans:                           &checkedInputs{},
+	}
 }
 
 type workflowInbound struct {
 	interceptor.WorkflowInboundInterceptorBase
-	rec *recorder
+	rec  *recorder
+	cans *checkedInputs
 }
 
 func (w *workflowInbound) Init(outbound interceptor.WorkflowOutboundInterceptor) error {
 	return w.Next.Init(&workflowOutbound{
 		WorkflowOutboundInterceptorBase: interceptor.WorkflowOutboundInterceptorBase{Next: outbound},
 		rec:                             w.rec,
+		cans:                            w.cans,
 	})
 }
 
@@ -144,11 +153,17 @@ func (w *workflowInbound) ExecuteWorkflow(ctx workflow.Context, in *interceptor.
 	}
 	result, err := w.Next.ExecuteWorkflow(ctx, in)
 	// The ContinueAsNewError is plain data: workflow code can change its
-	// header after NewContinueAsNewError checked it. Check again what the
-	// command will carry (TICK-65 security review, finding 2).
+	// header or input after NewContinueAsNewError checked it. Check again
+	// what the command will carry (TICK-65 security review, finding 2): the
+	// input must be one NewContinueAsNewError checked (CI-7).
 	var can *workflow.ContinueAsNewError
 	if errors.As(err, &can) {
-		outcome := check(func() string { return continueAsNewOutcome(can.Header, workflow.GetInfo(ctx)) })
+		outcome := check(func() string {
+			if !w.cans.has(can.Input) {
+				return outcomeRecordData
+			}
+			return continueAsNewOutcome(can.Header, workflow.GetInfo(ctx))
+		})
 		if outcome != outcomeAllow {
 			w.rec.record(ctx, guardContinueAsNew, outcome)
 			return nil, guardError(guardContinueAsNew, outcome)
@@ -168,10 +183,20 @@ func (w *workflowInbound) HandleSignal(ctx workflow.Context, in *interceptor.Han
 	return w.Next.HandleSignal(ctx, in)
 }
 
-// ValidateUpdate rejects an update whose header is not this tenant's. The SDK
-// runs validators only when not replaying, so an accepted update was checked.
+// ValidateUpdate rejects an update whose header is not this tenant's, or
+// whose arguments are not references only (CI-7): a rejected update is never
+// recorded. The SDK runs validators only when not replaying, so an accepted
+// update was checked.
+//
+// The arguments are checked as the handler's parameter types decoded them.
+// TODO(TODO-010): the raw payloads are not visible here, so whatever the
+// decoding drops (an unknown field, a payload past the last parameter) is
+// recorded unchecked.
 func (w *workflowInbound) ValidateUpdate(ctx workflow.Context, in *interceptor.UpdateInput) error {
 	outcome := inboundHeader(ctx)
+	if outcome == outcomeAllow {
+		outcome = check(func() string { return argsOutcome(in.Args) })
+	}
 	w.rec.record(ctx, guardUpdate, outcome, slog.String("update", in.Name))
 	if outcome != outcomeAllow {
 		return guardError(guardUpdate, outcome)
@@ -183,7 +208,29 @@ func (w *workflowInbound) ValidateUpdate(ctx workflow.Context, in *interceptor.U
 
 type workflowOutbound struct {
 	interceptor.WorkflowOutboundInterceptorBase
-	rec *recorder
+	rec  *recorder
+	cans *checkedInputs
+}
+
+// ExecuteActivity fails the activity, before it is scheduled, if its
+// arguments are not references only (CI-7).
+func (o *workflowOutbound) ExecuteActivity(ctx workflow.Context, activityType string, args ...any) workflow.Future {
+	outcome := check(func() string { return argsOutcome(args) })
+	o.rec.record(ctx, guardActivityArgs, outcome, slog.String("activity_type", activityType))
+	if outcome != outcomeAllow {
+		return failedFuture(ctx, guardError(guardActivityArgs, outcome))
+	}
+	return o.Next.ExecuteActivity(ctx, activityType, args...)
+}
+
+// ExecuteLocalActivity is ExecuteActivity for a local activity.
+func (o *workflowOutbound) ExecuteLocalActivity(ctx workflow.Context, activityType string, args ...any) workflow.Future {
+	outcome := check(func() string { return argsOutcome(args) })
+	o.rec.record(ctx, guardLocalActivityArgs, outcome, slog.String("activity_type", activityType))
+	if outcome != outcomeAllow {
+		return failedFuture(ctx, guardError(guardLocalActivityArgs, outcome))
+	}
+	return o.Next.ExecuteLocalActivity(ctx, activityType, args...)
 }
 
 // sameNamespace reports whether ns names the workflow's own namespace. Empty
@@ -221,7 +268,7 @@ func (o *workflowOutbound) ExecuteChildWorkflow(ctx workflow.Context, childWorkf
 		if !childSearchAttributesOK(opts, tenant) {
 			return outcomeSearchAttribute
 		}
-		return outcomeAllow
+		return argsOutcome(args)
 	})
 	o.rec.record(ctx, guardChild, outcome, slog.String("target_workflow_id", opts.WorkflowID))
 	if outcome != outcomeAllow {
@@ -261,10 +308,16 @@ func (o *workflowOutbound) RequestCancelExternalWorkflow(ctx workflow.Context, w
 	return o.Next.RequestCancelExternalWorkflow(ctx, workflowID, runID)
 }
 
-// NewContinueAsNewError checks what the command will carry: the header the
-// Propagator wrote, and the search attributes the SDK copies from the start.
-// On a deny the workflow fails with the guard error instead of continuing.
+// NewContinueAsNewError checks what the command will carry: arguments that
+// are references only (CI-7), the header the Propagator wrote, and the search
+// attributes the SDK copies from the start. On a deny the workflow fails with
+// the guard error instead of continuing. The checked input is kept for the
+// re-check in ExecuteWorkflow.
 func (o *workflowOutbound) NewContinueAsNewError(ctx workflow.Context, wfn any, args ...any) error {
+	if outcome := check(func() string { return argsOutcome(args) }); outcome != outcomeAllow {
+		o.rec.record(ctx, guardContinueAsNew, outcome)
+		return guardError(guardContinueAsNew, outcome)
+	}
 	err := o.Next.NewContinueAsNewError(ctx, wfn, args...)
 	var can *workflow.ContinueAsNewError
 	if !errors.As(err, &can) {
@@ -275,6 +328,7 @@ func (o *workflowOutbound) NewContinueAsNewError(ctx workflow.Context, wfn any, 
 	if outcome != outcomeAllow {
 		return guardError(guardContinueAsNew, outcome)
 	}
+	o.cans.add(can.Input)
 	return err
 }
 

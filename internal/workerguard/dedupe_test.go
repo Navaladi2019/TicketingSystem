@@ -1,6 +1,7 @@
 package workerguard
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -9,23 +10,34 @@ import (
 	"github.com/google/uuid"
 	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/workflow"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
 )
 
 // dedupeWorkflow applies "outbox" signals (the arg is the outbox id) once
-// each, continues as new on "rollover" carrying the set and what it applied,
-// and returns what it applied on "done".
-func dedupeWorkflow(ctx workflow.Context, seen AppliedSignals, applied []string) ([]string, error) {
-	outbox := workflow.GetSignalChannel(ctx, "outbox")
+// each, continues as new on "rollover" carrying the set and what it applied
+// (a RunInput, the one shape the argument rule accepts), and returns what it
+// applied on "done".
+func dedupeWorkflow(ctx workflow.Context, in RunInput) ([]string, error) {
+	var refs struct {
+		Applied []string `json:"applied"`
+	}
+	if in.Refs != nil {
+		if err := json.Unmarshal(in.Refs, &refs); err != nil {
+			return nil, err
+		}
+	}
+	signals := workflow.GetSignalChannel(ctx, "outbox")
 	rollover := workflow.GetSignalChannel(ctx, "rollover")
 	done := workflow.GetSignalChannel(ctx, "done")
 	for {
 		var next string
 		sel := workflow.NewSelector(ctx)
-		sel.AddReceive(outbox, func(c workflow.ReceiveChannel, _ bool) {
+		sel.AddReceive(signals, func(c workflow.ReceiveChannel, _ bool) {
 			var id uuid.UUID
 			c.Receive(ctx, &id)
-			if seen.TryApply(ctx, id) {
-				applied = append(applied, id.String())
+			if in.Seen.TryApply(ctx, id) {
+				refs.Applied = append(refs.Applied, id.String())
 			}
 		})
 		sel.AddReceive(rollover, func(c workflow.ReceiveChannel, _ bool) { c.Receive(ctx, nil); next = "rollover" })
@@ -33,9 +45,14 @@ func dedupeWorkflow(ctx workflow.Context, seen AppliedSignals, applied []string)
 		sel.Select(ctx)
 		switch next {
 		case "rollover":
-			return nil, workflow.NewContinueAsNewError(ctx, dedupeWorkflow, seen, applied)
+			b, err := json.Marshal(refs)
+			if err != nil {
+				return nil, err
+			}
+			in.Refs = b
+			return nil, workflow.NewContinueAsNewError(ctx, dedupeWorkflow, in)
 		case "done":
-			return applied, nil
+			return refs.Applied, nil
 		}
 	}
 }
@@ -55,20 +72,21 @@ func TestSignalAppliedOnceAcrossContinueAsNew(t *testing.T) {
 	}{{"outbox", s1}, {"outbox", s1}, {"outbox", s2}, {"rollover", nil}} {
 		h.env.RegisterDelayedCallback(func() { h.env.SignalWorkflow(sig.name, sig.arg) }, time.Duration(i+1)*time.Second)
 	}
-	h.env.ExecuteWorkflow(dedupeWorkflow, AppliedSignals{}, []string(nil))
+	start := RunInput{Delivery: outboxDelivery(uuid.New())}
+	h.env.ExecuteWorkflow(dedupeWorkflow, start)
 	var can *workflow.ContinueAsNewError
 	if err := h.env.GetWorkflowError(); !errors.As(err, &can) {
 		t.Fatalf("first run: %v, want continue-as-new", err)
 	}
-	var (
-		seen    AppliedSignals
-		applied []string
-	)
-	if err := converter.GetDefaultDataConverter().FromPayloads(can.Input, &seen, &applied); err != nil {
+	var carried RunInput
+	if err := converter.GetDefaultDataConverter().FromPayloads(can.Input, &carried); err != nil {
 		t.Fatalf("decode continue-as-new input: %v", err)
 	}
-	if seen.Len() != 2 || strings.Join(applied, ",") != s1.String()+","+s2.String() {
-		t.Fatalf("first run applied %v (set of %d), want s1, s2 once", applied, seen.Len())
+	if want := `{"applied":["` + s1.String() + `","` + s2.String() + `"]}`; carried.Seen.Len() != 2 || string(carried.Refs) != want {
+		t.Fatalf("first run carried refs %s (set of %d), want s1, s2 once", carried.Refs, carried.Seen.Len())
+	}
+	if carried.OutboxID != start.OutboxID {
+		t.Errorf("carried outbox id %s, want the start's %s", carried.OutboxID, start.OutboxID)
 	}
 
 	// Second run, from the continue-as-new input: s1 and s2 are redelivered
@@ -81,7 +99,7 @@ func TestSignalAppliedOnceAcrossContinueAsNew(t *testing.T) {
 	}{{"outbox", s1}, {"outbox", s3}, {"outbox", s2}, {"done", nil}} {
 		h2.env.RegisterDelayedCallback(func() { h2.env.SignalWorkflow(sig.name, sig.arg) }, time.Duration(i+1)*time.Second)
 	}
-	h2.env.ExecuteWorkflow(dedupeWorkflow, seen, applied)
+	h2.env.ExecuteWorkflow(dedupeWorkflow, carried)
 	var final []string
 	if err := h2.env.GetWorkflowResult(&final); err != nil {
 		t.Fatal(err)
@@ -134,4 +152,9 @@ func TestAppliedSignalsWindow(t *testing.T) {
 	if SignalDedupeWindow != 48*time.Hour {
 		t.Errorf("SignalDedupeWindow = %v, want 48h (D-P8)", SignalDedupeWindow)
 	}
+}
+
+// outboxDelivery is the start input the relay sends for outbox row id.
+func outboxDelivery(id uuid.UUID) outbox.Delivery {
+	return outbox.Delivery{OutboxID: id, KindVersion: 1, Payload: json.RawMessage(`{}`)}
 }
