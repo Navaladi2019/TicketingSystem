@@ -177,6 +177,62 @@ func TestT21BindRetryChangesNothing(t *testing.T) {
 	}
 }
 
+// A retry that resolved a different org than the stored binding names is
+// refused: the binding and domains are unchanged and the tenant stays
+// provisioning, so it is never activated against an org that is gone.
+func TestT21BindRefusesARetryWithADifferentOrg(t *testing.T) {
+	migratedPlatform(t)
+	s := onboardStore(t, 4)
+	id := uuid.New()
+	if _, err := s.Begin(t.Context(), id, []byte("h")); err != nil {
+		t.Fatal(err)
+	}
+	const issuer = "https://kc/realms/nava"
+	if err := s.Bind(t.Context(), id, issuer, "org-a", "idp-a", []string{"a.test"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ issuer, org string }{{issuer, "org-b"}, {"https://other/realms/nava", "org-a"}} {
+		if err := s.Bind(t.Context(), id, c.issuer, c.org, "idp-b", []string{"a.test"}); !errors.Is(err, onboard.ErrConflict) {
+			t.Fatalf("Bind(%s, %s) after a binding to org-a: %v, want ErrConflict", c.issuer, c.org, err)
+		}
+	}
+	if st := queryString(t, superNava(t), "SELECT state FROM tenants WHERE id = $1", id); st != "provisioning" {
+		t.Errorf("tenant state = %s, want provisioning", st)
+	}
+	if got := queryString(t, superNava(t), "SELECT issuer || '|' || org_id || '|' || idp_aliases[1] FROM tenant_identity_binding WHERE tenant_id = $1", id); got != issuer+"|org-a|idp-a" {
+		t.Errorf("binding = %q, want unchanged", got)
+	}
+	if d := countRows(t, "SELECT count(*) FROM tenant_email_domain WHERE tenant_id = $1", id); d != 1 {
+		t.Errorf("domains = %d, want 1", d)
+	}
+}
+
+// Binding reads are scoped by WHERE tenant_id: another tenant's binding
+// (nava_app can read every row) must not make a first Bind look like a retry.
+func TestT21BindIgnoresAnotherTenantsBinding(t *testing.T) {
+	migratedPlatform(t)
+	s := onboardStore(t, 4)
+	a, b := uuid.New(), uuid.New()
+	for _, id := range []uuid.UUID{a, b} {
+		if _, err := s.Begin(t.Context(), id, []byte("h")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const issuer = "https://kc/realms/nava"
+	if err := s.Bind(t.Context(), a, issuer, "org-a", "idp-a", []string{"a.test"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Bind(t.Context(), b, issuer, "org-b", "idp-b", []string{"b.test"}); err != nil {
+		t.Fatalf("first Bind of tenant B after tenant A's: %v, want nil", err)
+	}
+	if got := queryString(t, superNava(t), "SELECT org_id FROM tenant_identity_binding WHERE tenant_id = $1", a); got != "org-a" {
+		t.Errorf("tenant A's org = %q, want org-a", got)
+	}
+	if got := queryString(t, superNava(t), "SELECT org_id FROM tenant_identity_binding WHERE tenant_id = $1", b); got != "org-b" {
+		t.Errorf("tenant B's org = %q, want org-b", got)
+	}
+}
+
 // The same (issuer, org id) cannot be bound to a second tenant: a different
 // unique key, so it fails with ErrConflict and rolls back.
 func TestT21BindRefusesAnOrgBoundToAnotherTenant(t *testing.T) {

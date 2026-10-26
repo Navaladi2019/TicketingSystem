@@ -2,6 +2,7 @@ package onboard
 
 import (
 	"context"
+	"errors"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -38,14 +39,19 @@ func (*Registry) GroupKeycloakID(context.Context, uuid.UUID, uuid.UUID) (string,
 	return "", keycloak.ErrRegistryNotFound
 }
 
-// HasBinding implements BindingReader: whether the tenant has a binding row,
-// read in InTenantTx under the tenant predicate.
-func (r *Registry) HasBinding(ctx context.Context, tenantID uuid.UUID) (bool, error) {
-	var ok bool
-	err := tenancy.InTenantTx(ctx, r.pool, tenantID, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM tenant_identity_binding WHERE tenant_id = $1)", tenantID).Scan(&ok)
+// Binding implements BindingReader: the (issuer, org id) the tenant is bound
+// to, read in InTenantTx as nava_app. binding_lookup is USING (true) for
+// nava_app, so the WHERE clause on tenant_id scopes the read, not an RLS policy.
+func (r *Registry) Binding(ctx context.Context, tenantID uuid.UUID) (issuer, orgID string, found bool, err error) {
+	err = tenancy.InTenantTx(ctx, r.pool, tenantID, func(tx pgx.Tx) error {
+		e := tx.QueryRow(ctx, "SELECT issuer, org_id FROM tenant_identity_binding WHERE tenant_id = $1", tenantID).Scan(&issuer, &orgID)
+		if errors.Is(e, pgx.ErrNoRows) {
+			return nil
+		}
+		found = e == nil
+		return e
 	})
-	return ok, err
+	return issuer, orgID, found, err
 }
 
 // BoundIdPAliases implements keycloak.Registry.

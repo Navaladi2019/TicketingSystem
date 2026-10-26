@@ -23,9 +23,9 @@ type PGStore struct {
 	// sem bounds concurrent onboardings. It is per process, like the pool it
 	// protects: two nava-onboard processes each hold their own pool and their
 	// own sem, and the advisory lock is what serialises one tenant across them.
-	// Each holds one connection for its lock and takes a second for every statement transaction, so at most
-	// MaxConns/2 may run at once; more would each hold a lock connection and
-	// wait for a second one that never frees.
+	// Each holds one connection for its lock and takes a second for every
+	// statement transaction, so at most MaxConns/2 may run at once; more would
+	// each hold a lock connection and wait for a second one that never frees.
 	sem      chan struct{}
 	bindings BindingReader
 }
@@ -98,18 +98,22 @@ func (s *PGStore) Begin(ctx context.Context, tenantID uuid.UUID, hash []byte) (S
 	return st, nil
 }
 
-// BindingReader reports whether the tenant already has its binding row. It
-// reads as nava_app, under the tenant predicate: nava_onboard has no SELECT on
+// BindingReader returns the (issuer, org id) the tenant is already bound to,
+// found false when it has no binding row. It reads as nava_app, scoped by
+// WHERE tenant_id (not by an RLS policy): nava_onboard has no SELECT on
 // tenant_identity_binding, and its grants are the isolation control.
 type BindingReader interface {
-	HasBinding(ctx context.Context, tenantID uuid.UUID) (bool, error)
+	Binding(ctx context.Context, tenantID uuid.UUID) (issuer, orgID string, found bool, err error)
 }
 
 // Bind implements Store. The caller holds the per-tenant lock. If the tenant's
 // binding row exists, an earlier Bind committed the binding and every domain
 // in one transaction (and the request hash fixes the domain set), so a retry
-// inserts nothing. Otherwise it is a first bind: plain INSERTs of the binding
-// and every domain in one transaction as nava_onboard. A unique violation
+// with the same (issuer, org id) inserts nothing; a different pair is
+// ErrConflict (the stored org was lost outside the platform and this attempt
+// resolved another), and the tenant stays provisioning. Otherwise it is a
+// first bind: plain INSERTs of the binding and every domain in one
+// transaction as nava_onboard. A unique violation
 // rolls everything back: on tenant_email_domain_pkey the domain belongs to
 // another tenant (ErrDomainClaimed); on the (issuer, org id) key the
 // organization is bound to another tenant (ErrConflict). The caller still
@@ -127,11 +131,14 @@ func (s *PGStore) Bind(ctx context.Context, tenantID uuid.UUID, issuer, orgID, i
 	if state != "provisioning" {
 		return ErrNotProvisioning
 	}
-	bound, err := s.bindings.HasBinding(ctx, tenantID)
+	boundIssuer, boundOrg, bound, err := s.bindings.Binding(ctx, tenantID)
 	if err != nil {
 		return fmt.Errorf("onboard: bind: %w", err)
 	}
 	if bound {
+		if boundIssuer != issuer || boundOrg != orgID {
+			return ErrConflict
+		}
 		return nil
 	}
 	err = tenancy.InTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
