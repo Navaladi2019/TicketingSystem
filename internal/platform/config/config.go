@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net"
 	"net/url"
 	"strconv"
@@ -20,6 +21,7 @@ type Config struct {
 	Log       Log
 	Telemetry Telemetry
 	Deps      Dependencies
+	RateLimit RateLimit
 }
 
 // HTTP configures the two listeners. Both use the same timeouts.
@@ -31,6 +33,14 @@ type HTTP struct {
 	WriteTimeout      time.Duration // NAVA_HTTP_WRITE_TIMEOUT
 	IdleTimeout       time.Duration // NAVA_HTTP_IDLE_TIMEOUT
 	ShutdownTimeout   time.Duration // NAVA_HTTP_SHUTDOWN_TIMEOUT
+}
+
+// RateLimit configures the per-tenant request limit. The limit is per nava-core
+// replica: N replicas allow N times the rate for one tenant.
+type RateLimit struct {
+	Rate    float64       // NAVA_RATE_LIMIT_RPS: sustained requests per second per tenant
+	Burst   int           // NAVA_RATE_LIMIT_BURST: bucket size per tenant
+	IdleTTL time.Duration // NAVA_RATE_LIMIT_IDLE_TTL: idle age after which a tenant's bucket is evicted
 }
 
 // Dependencies locates what the health checks probe. An empty value means
@@ -128,6 +138,11 @@ func Load(lookup LookupFunc) (Config, error) {
 			Format: r.oneOf("NAVA_LOG_FORMAT", FormatJSON, FormatJSON, FormatText),
 		},
 		Telemetry: tel,
+		RateLimit: RateLimit{
+			Rate:    r.float("NAVA_RATE_LIMIT_RPS", 50),
+			Burst:   r.posInt("NAVA_RATE_LIMIT_BURST", 100),
+			IdleTTL: r.duration("NAVA_RATE_LIMIT_IDLE_TTL", 10*time.Minute),
+		},
 	}
 	cfg.Deps = Dependencies{
 		DatabaseURL:           r.databaseURL("NAVA_DATABASE_URL"),
@@ -290,6 +305,32 @@ func (r *reader) duration(key string, def time.Duration) time.Duration {
 		return def
 	}
 	return d
+}
+
+func (r *reader) float(key string, def float64) float64 {
+	v, ok := r.lookup(key)
+	if !ok || v == "" {
+		return def
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil || f <= 0 || math.IsInf(f, 0) || math.IsNaN(f) {
+		r.errs = append(r.errs, fmt.Errorf("%s: want a positive number such as 50", key))
+		return def
+	}
+	return f
+}
+
+func (r *reader) posInt(key string, def int) int {
+	v, ok := r.lookup(key)
+	if !ok || v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		r.errs = append(r.errs, fmt.Errorf("%s: want a positive integer such as 100", key))
+		return def
+	}
+	return n
 }
 
 func (r *reader) level(key string, def slog.Level) slog.Level {

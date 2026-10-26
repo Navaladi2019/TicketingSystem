@@ -14,6 +14,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/apihttp"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/auth"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/ratelimit"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
 )
 
@@ -25,7 +26,7 @@ const baseURL = ""
 // behind the authentication middleware and then the validator, and returns
 // the error-contract helper whose Wrap goes around mux. The spec and docs
 // routes are public.
-func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.IdentityResolver, mux *http.ServeMux) (*apihttp.API, error) {
+func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.IdentityResolver, limiter ratelimit.Limiter, mux *http.ServeMux) (*apihttp.API, error) {
 	specData, err := api.Files.ReadFile("openapi.yaml")
 	if err != nil {
 		return nil, fmt.Errorf("read openapi.yaml: %w", err)
@@ -47,6 +48,11 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 		return nil, err
 	}
 
+	limit, err := ratelimit.New(limiter, reg, log)
+	if err != nil {
+		return nil, err
+	}
+
 	a := apihttp.New(spec, reg, log, baseURL)
 	api.HandlerWithOptions(
 		api.NewStrictHandlerWithOptions(&handlers{reg: reg, log: log}, nil, api.StrictHTTPServerOptions{
@@ -57,8 +63,9 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 			BaseURL:    baseURL,
 			BaseRouter: mux,
 			// The last one is outermost: an unauthenticated request gets 401
-			// before the validator looks at its input.
-			Middlewares:      []api.MiddlewareFunc{a.Middleware(), authn.Middleware},
+			// first, then a tenant over its limit gets 429, both before the
+			// validator looks at the input.
+			Middlewares:      []api.MiddlewareFunc{a.Middleware(), limit.Handler, authn.Middleware},
 			ErrorHandlerFunc: a.ErrorHandler,
 		},
 	)
