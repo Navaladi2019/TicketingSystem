@@ -58,6 +58,21 @@ func TestAllPass(t *testing.T) {
 		if !strings.Contains(out, "`"+c.Test+"` | PASS | 1 | 1.5s |") {
 			t.Errorf("report lacks a PASS row for %s:\n%s", c.Test, out)
 		}
+		// The tag comes from the rendered row, not from c.tag(): a CI-7 case
+		// must read CI-7 in the artifact.
+		want := "CI-6"
+		if strings.HasPrefix(c.Test, "TestCI7_") {
+			want = "CI-7"
+		}
+		if !strings.Contains(out, " | "+want+" | "+c.Case+" | `"+c.Test+"` |") {
+			t.Errorf("report row for %s does not carry tag %s:\n%s", c.Test, want, out)
+		}
+	}
+	if !strings.Contains(out, "| CI-7 | Producer schema rejects record-data fields | `TestCI7_ProducerSchemaRejectsRecordDataFields` |") {
+		t.Errorf("report does not list the CI-7 producer schema case as CI-7:\n%s", out)
+	}
+	if !strings.Contains(out, "| CI-6 | NotFound on a signal is terminal | `TestCI6_RelaySignalNotFoundIsTerminal` |") {
+		t.Errorf("report does not list the CI-6 NotFound case as CI-6:\n%s", out)
 	}
 	if !strings.Contains(out, "`TestCIHReservedSystemWorkloadDenied` | PASS |") {
 		t.Errorf("report lacks the other test:\n%s", out)
@@ -67,8 +82,8 @@ func TestAllPass(t *testing.T) {
 func TestEveryCaseHasItsOwnCI6Test(t *testing.T) {
 	seen := map[string]bool{}
 	for _, c := range contract() {
-		if !strings.HasPrefix(c.Test, "TestCI6_") {
-			t.Errorf("%s is not tagged CI-6 (TestCI6_ prefix)", c.Test)
+		if !strings.HasPrefix(c.Test, "TestCI6_") && !strings.HasPrefix(c.Test, "TestCI7_") {
+			t.Errorf("%s is not tagged CI-6 or CI-7 (TestCI6_ or TestCI7_ prefix)", c.Test)
 		}
 		if seen[c.Test] {
 			t.Errorf("%s proves two cases", c.Test)
@@ -84,7 +99,7 @@ func TestFailures(t *testing.T) {
 	if len(problems) != 3 {
 		t.Fatalf("problems %v, want 3", problems)
 	}
-	for _, want := range []string{"`" + first + "` | FAIL", "`" + second + "` | SKIP", "`" + third + "` | MISSING", "CI-6 FAILED", "detail of " + first} {
+	for _, want := range []string{"`" + first + "` | FAIL", "`" + second + "` | SKIP", "`" + third + "` | MISSING", "CI-6 and CI-7 FAILED", "detail of " + first} {
 		if !strings.Contains(out, want) {
 			t.Errorf("report lacks %q:\n%s", want, out)
 		}

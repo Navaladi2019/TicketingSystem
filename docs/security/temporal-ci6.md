@@ -92,3 +92,98 @@ type.
    none. A call to a task-token API with no namespace and no token gets
    `InvalidArgument` ("Task token not set") instead of `PermissionDenied`. The
    answer depends only on the shape of the request and reveals no tenant data.
+
+## CI-6 relay and worker cases, and CI-7 (T32b)
+
+The second CI-6 block and every CI-7 case. Source: ADR-001 Annex B CI-6 "Other
+cases", CI-7 and R1, A.2, and the TICK-93 audit (headers). The relay under test
+is the stack's own `nava-relay` service. The test writes outbox rows the way
+`outbox.Enqueue` does, as the superuser inside the postgres container, because
+the database port is never published. The service claims the rows as
+`nava_relay` and dispatches them with its own certificate. A worker set up with
+`workerguard` runs the workflow `nava.smoke.relay`. This is the D9 allow-list's
+first lowercase type, the only form an outbox kind can name. The
+`workflow_ref` activity runs in the `nava-worker` service.
+
+- Tests: `internal/temporalstack/ci6_relay_isolation_test.go` (`TestCI6_*`) and
+  `ci7_isolation_test.go` (`TestCI7_*`), with helpers in
+  `ci6_relay_helpers_test.go`. `make stack-test-sdk` runs them, and
+  `tools/ci/ci6report` lists each one in the report with its tag.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant X as attacker holding the nava-relay certificate
+    participant DB as outbox (PostgreSQL)
+    participant R as nava-relay (1..3 processes)
+    participant T as Temporal + Authorizer
+    participant W as guarded worker
+    X->>T: Start t:A:nava.smoke.relay:… with no header / with tenant B's header
+    T->>W: workflow task
+    W--xT: workflow FAILED nava.TenantGuard (alert)
+    X->>T: Signal t:A:… with tenant B's header ("done")
+    T->>W: signal
+    W-->>W: dropped (alert); the workflow keeps running
+    DB->>R: rows claimed head first (target_seq), leased
+    R->>T: start / signal, header = row tenant
+    Note over R,T: redelivered start → AlreadyStarted, no second run<br/>redelivered signal → applied once (outbox id), across continue-as-new<br/>signal on a missing or closed target → NotFound → dead, alert, never retried
+```
+
+| Case | Proof |
+|---|---|
+| No or mismatched header fails the workflow | A `nava-relay` client with no propagator, and one that puts another tenant on the header, each start `t:A:…`. The Authorizer lets both through. Each workflow ends FAILED with `nava.TenantGuard` `workflow_start: missing` or `mismatch`, and the guard logs one alert. |
+| Wrong-tenant signal dropped | A note and a `done` with tenant B's header reach tenant A's relay-started workflow. Both signals log alerts and are dropped, and the workflow stays RUNNING. A note and a `done` written to the outbox afterwards return only the own note. |
+| Redelivered start after completion | A start and `done` are written and the workflow completes, with `workflow_ref.closed_at` set by `nava_worker`. The start row is then made pending again. It is dispatched at attempt 2 (AlreadyStarted), and the latest run is still the completed one. |
+| Redelivered signal applied once | One note is delivered three times: before continue-as-new, again before it, and again after it. A second note follows. The result is the two notes, each once. |
+| Signal queues behind its start | The start, a note and `done` are written in one transaction, with the start held 15 s. For 3 s (six polls) no row is attempted. Afterwards every row is dispatched at its first attempt, in the order start, note, done. |
+| Two relays never reorder | Two more `nava-relay` containers run beside the stack's: same image, environment, certificate and network. The hand-off is forced with `docker pause`. Extra relay 0 alone dispatches each of three targets' start and first 8 notes. Extra relay 1 alone dispatches the next 7. Then all three relays run for `done`. Each phase waits until its rows are settled, so a paused relay holds no lease, and a cleanup unpauses every relay. Each target applies its 15 notes in exact `target_seq` order. Both extra relays have `outbox_relay_dispatches_total{op="signal",outcome="dispatched"}` above zero. |
+| `NotFound` on a signal is terminal | A signal to a start that was never dispatched, and a signal to a completed workflow. Each is dead at attempt 1 with `CauseTargetMissing` and unchanged after four more polls. The relay logs the workflow id, and `outbox_relay_signal_target_missing_total` rises. |
+| CI-7 producer schema | `outbox.ValidatePayload` rejects text, numbers, booleans, nested objects, mixed arrays, a text field next to a reference, and anything that is not an object. |
+| CI-7 history input | The `outbox.Delivery` Go type has only UUID, int16 and payload fields. The recorded start and signal inputs of a relay-started workflow have only its JSON keys, and each payload passes the producer schema. |
+| CI-7 payload outside `Enqueue` | Not in this PR. The test lands with its fix in TICK-214 (finding T32b-1). |
+| CI-7 activity payload | Not in this PR. The test lands with its fix in TICK-216 (finding T32b-2). |
+| CI-7 headers (TICK-93) | Every `Header` anywhere in both runs' histories is walked: start, signals, activity, continue-as-new. The keys are only `nava-tenant` and `_tracer-data`, and `_tracer-data` holds only `traceparent` and `tracestate`. A signal sent with baggage in its context leaves no trace of it. |
+
+### Findings (T32b)
+
+1. **T32b-1: a record-data payload written outside `Enqueue` reaches the
+   history.**
+   - **Attack:** code running as `nava_app` or `nava_worker` inserts an outbox
+     row whose payload holds record data, for example a feature that bypasses
+     `Enqueue`, or an injection. `db/grants.yaml` lets both roles INSERT every
+     outbox column. The relay dispatches the payload unchecked, so the record
+     data lands in the cross-tenant, unencrypted Temporal history (R1). No
+     endpoint writes outbox rows today, so a tenant token cannot trigger it.
+   - **Status:** will bite us at scale.
+   - **Severity:** Medium.
+   - **Fix, at the lowest layer:** a `CHECK` on `outbox.payload` with the same
+     rule as `ValidatePayload`: a jsonb object whose values are UUID strings or
+     arrays of them, written with `jsonb_path_exists` and `like_regex`, so no
+     function is needed. The relay should also run `outbox.ValidatePayload`
+     before each call and mark a failing row dead with a fixed cause, as a
+     second line.
+   - **Owners:** TICK-214 (the `CHECK`) and TICK-215 (the relay check).
+   - **Test:** `TestCI7_RelayRefusesRecordDataPayloadWrittenOutsideEnqueue`,
+     which lands with TICK-214. Its code is on branch
+     `security/tick-86-ci7-gap-tests`.
+2. **T32b-2: activity arguments are not checked.**
+   - **Attack:** workflow code schedules an activity whose argument holds record
+     data, and `ActivityTaskScheduled` records it in the history. Nothing in
+     `workerguard` inspects payloads. Update arguments from `nava-core` take
+     the same unchecked path. Today the only activity, `workflow_ref`, takes no
+     argument, and no update handler exists, so nothing is exposed yet.
+   - **Status:** will bite us at scale, once Epic 05 workflows land.
+   - **Severity:** Medium.
+   - **Fix:** a `workerguard` outbound check on `ExecuteActivity`,
+     `ExecuteLocalActivity`, child and continue-as-new arguments, and an inbound
+     check on update arguments. Each applies the references-only rule and fails
+     with a non-retryable error before the command is sent.
+   - **Owner:** TICK-216.
+   - **Test:** `TestCI7_ActivityPayloadWithRecordDataNotRecorded`, which lands
+     with TICK-216. Its code is on branch `security/tick-86-ci7-gap-tests`,
+     together with the `ci7.activity` branch of `relayProbe`.
+
+Neither finding lets tenant A reach tenant B's data. Both are R1 creep, which is
+what CI-7 exists to catch. CI-7 is partly met at T32b: three of its five cases
+are here, and the other two are acceptance criteria of TICK-214 and TICK-216
+(Technical Lead decision, TICK-86).

@@ -70,7 +70,7 @@ So a platform identity must never name a workflow type or task queue it does not
 own (S1: a relay start of `temporal-sys-batch-workflow` terminated another
 tenant's workflow). A request is allowed only if **every** workflow type, task
 queue and workflow id it names is on the compiled-in allow-list in
-`authz/policy.go` (`platformWorkflowTypes = {nava.smoke.Echo}`,
+`authz/policy.go` (`platformWorkflowTypes = {nava.smoke.Echo, nava.smoke.relay}`,
 `platformTaskQueues = {nava-tq}`). There is no deny-list. `temporal-system` is
 exempt. Adding an entry is a policy PR with Security review; the golden table
 prints both sets.

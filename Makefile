@@ -285,8 +285,9 @@ stack-test-%:
 	sh deploy/compose/test/stack-test.sh $*
 
 # The Temporal stack suite over mTLS: SDK clients dial and a worker runs (T28),
-# CI-H, and the CI-6 certificate, network and Authorizer cases (T32a). Writes
-# the CI-6 report to CI6_REPORT and fails when a CI-6 case did not pass.
+# CI-H, the CI-6 certificate, network and Authorizer cases (T32a), and the
+# CI-6 relay and worker cases and CI-7 (T32b). Writes the CI-6 and CI-7 report
+# to CI6_REPORT and fails when a case did not pass.
 # The suite takes about 70 s on a GitHub runner but 591-615 s on a host running
 # two ci-isolated stacks, past go test's default 600 s, hence -timeout 20m
 # (TICK-173).
