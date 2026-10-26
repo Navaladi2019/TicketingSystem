@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
@@ -246,6 +247,14 @@ func (d *Dispatcher) dispatch(ctx context.Context, c Claimed, deadline time.Time
 		err = d.temporal.SignalWorkflow(tctx, workflowID, "", c.Kind, delivery)
 	}
 	outcome, cause := classify(op, err)
+	if err != nil && outcome != outcomeAlreadyStarted {
+		// The span carries the gRPC code, never the message. The SDK's child
+		// span records the message too; the export filter drops it there
+		// (TICK-191).
+		code := errorCode(err)
+		span.SetAttributes(attribute.String("error.type", code))
+		span.SetStatus(codes.Error, code)
+	}
 	if outcome == outcomeBackoff {
 		// The error's message is not logged: Temporal and SDK errors can
 		// quote a payload. Its gRPC code is.

@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel/baggage"
+	otelcodes "go.opentelemetry.io/otel/codes"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -288,6 +289,113 @@ func TestSignalRequest(t *testing.T) {
 	}
 }
 
+// markedDispatchErrors are Temporal errors whose message quotes record data,
+// keyed by gRPC code. None of them is retried inside the SDK, and each one is
+// backed off. NotFoundOnStart applies to a start only.
+func markedDispatchErrors() map[string]error {
+	return map[string]error{
+		"InvalidArgument":    serviceerror.NewInvalidArgument("bad input " + recordMarker),
+		"PermissionDenied":   serviceerror.NewPermissionDenied("denied for "+recordMarker, "workflow_type_not_allowed"),
+		"Internal":           serviceerror.NewInternal("history said " + recordMarker),
+		"FailedPrecondition": status.Error(codes.FailedPrecondition, "precondition "+recordMarker),
+		// NotFound on a start is not terminal.
+		"NotFoundOnStart": serviceerror.NewNotFound("namespace " + recordMarker),
+	}
+}
+
+// TICK-191 (T30b security review): the SDK's tracing interceptor records the
+// full error message on its child span (RecordError, and SetStatus with
+// err.Error()). No exported span, event or status description carries it;
+// the dispatch span's status is Error with the gRPC code, and the SDK span's
+// status is still Error.
+func TestDispatchErrorTextNeverReachesASpan(t *testing.T) {
+	cases := markedDispatchErrors()
+	// The SDK retries Internal until the deadline, so the code is
+	// DeadlineExceeded and each case takes half a lease; the rest cover it.
+	delete(cases, "Internal")
+	cases["NotFoundOnSignal"] = serviceerror.NewNotFound("workflow " + recordMarker)
+	for name, injected := range cases {
+		for _, op := range []string{opStart, opSignal} {
+			if (name == "NotFoundOnStart" && op == opSignal) || (name == "NotFoundOnSignal" && op == opStart) {
+				continue
+			}
+			t.Run(name+"/"+op, func(t *testing.T) {
+				h := newHarness(t)
+				start := startRow()
+				c := start
+				if op == opSignal {
+					h.fe.addExecution(wfID(start), false)
+					c = signalRow(start, 2)
+				}
+				h.fe.setFail(func(string, string) error { return injected })
+				h.dispatch(t.Context(), c)
+
+				code := strings.TrimSuffix(strings.TrimSuffix(name, "OnStart"), "OnSignal")
+				var dispatch, sdk int
+				for _, s := range h.spans.GetSpans() {
+					for _, leak := range spanLeaks(s, recordMarker) {
+						t.Errorf("span %q exports the error text: %s", s.Name, leak)
+					}
+					switch {
+					case s.Name == "outbox.dispatch "+op:
+						dispatch++
+						if s.Status.Code != otelcodes.Error || s.Status.Description != code {
+							t.Errorf("dispatch span status %+v, want Error %q", s.Status, code)
+						}
+					case s.InstrumentationScope.Name == "temporal-sdk-go":
+						sdk++
+						if s.Status.Code != otelcodes.Error {
+							t.Errorf("SDK span %q status %+v, want Error", s.Name, s.Status)
+						}
+						if !hasEvent(s, "exception") {
+							t.Errorf("SDK span %q has no exception event; the test no longer covers RecordError", s.Name)
+						}
+					}
+				}
+				if dispatch != 1 || sdk == 0 {
+					t.Fatalf("%d dispatch and %d SDK spans, want 1 and at least 1", dispatch, sdk)
+				}
+			})
+		}
+	}
+}
+
+// spanLeaks lists every exported field of s that contains marker.
+func spanLeaks(s tracetest.SpanStub, marker string) []string {
+	var out []string
+	check := func(where, v string) {
+		if strings.Contains(v, marker) {
+			out = append(out, fmt.Sprintf("%s = %q", where, v))
+		}
+	}
+	check("name", s.Name)
+	check("status", s.Status.Description)
+	for _, kv := range s.Attributes {
+		check("attr "+string(kv.Key), kv.Value.String())
+	}
+	for _, ev := range s.Events {
+		check("event name", ev.Name)
+		for _, kv := range ev.Attributes {
+			check("event "+ev.Name+" "+string(kv.Key), kv.Value.String())
+		}
+	}
+	for _, l := range s.Links {
+		for _, kv := range l.Attributes {
+			check("link "+string(kv.Key), kv.Value.String())
+		}
+	}
+	return out
+}
+
+func hasEvent(s tracetest.SpanStub, name string) bool {
+	for _, ev := range s.Events {
+		if ev.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 // causeShape is every cause the dispatcher writes for a retried failure.
 var causeShape = regexp.MustCompile(`^relay: temporal (start|signal) failed: [A-Za-z]+$`)
 
@@ -296,15 +404,7 @@ var causeShape = regexp.MustCompile(`^relay: temporal (start|signal) failed: [A-
 // Every error path calls Backoff (or MarkDead / MarkDispatched): exactly one
 // settle per row.
 func TestEveryDispatchErrorBacksOffWithACleanCause(t *testing.T) {
-	cases := map[string]error{
-		"InvalidArgument":    serviceerror.NewInvalidArgument("bad input " + recordMarker),
-		"PermissionDenied":   serviceerror.NewPermissionDenied("denied for "+recordMarker, "workflow_type_not_allowed"),
-		"Internal":           serviceerror.NewInternal("history said " + recordMarker),
-		"FailedPrecondition": status.Error(codes.FailedPrecondition, "precondition "+recordMarker),
-		// NotFound on a start is not terminal.
-		"NotFoundOnStart": serviceerror.NewNotFound("namespace " + recordMarker),
-	}
-	for name, injected := range cases {
+	for name, injected := range markedDispatchErrors() {
 		for _, op := range []string{opStart, opSignal} {
 			if name == "NotFoundOnStart" && op == opSignal {
 				continue
