@@ -1,6 +1,7 @@
 package keycloak
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/x509"
@@ -304,12 +305,15 @@ func TestResolveOperator(t *testing.T) {
 	roleNoAud := h.idp.operatorClaims(realmNava, now)
 	roleNoAud["aud"] = []string{DefaultAudience}
 	tenant := h.idp.tenantClaims(realmNava, now)
+	unlisted := h.idp.operatorClaims(realmNava, now) // AR-030: role mapped to a user the platform did not list
+	unlisted["sub"] = "6f1c2a7e-0000-4000-8000-0000000000ff"
 
 	for name, c := range map[string]claims{
 		"aud nava-operator-api, no nava-operator role": noRole,
 		"role only as a client role":                   clientRole,
 		"role but tenant audience":                     roleNoAud,
 		"tenant token":                                 tenant,
+		"role and audience, sub not allow-listed":      unlisted,
 	} {
 		_, err := h.a.ResolveOperator(t.Context(), sign(t, s, c))
 		if !errors.Is(err, identity.ErrInvalidToken) {
@@ -373,6 +377,32 @@ func TestFetchSpansNamedByTemplate(t *testing.T) {
 	}
 }
 
+// The operator allow-list is keyed by (iss, sub): the listed subject in
+// another trusted realm is not an operator, and an adapter with no list
+// refuses every operator token (AR-030).
+func TestOperatorAllowList(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, []string{realmNava, "other"})
+	now := h.clock.now()
+	other := sign(t, h.idp.signer("other"), h.idp.operatorClaims("other", now))
+	if _, err := h.a.ResolveOperator(t.Context(), other); !errors.Is(err, identity.ErrInvalidToken) {
+		t.Errorf("listed sub, other issuer: err = %v, want ErrInvalidToken", err)
+	}
+
+	empty, err := newAdapter(t.Context(), Config{Issuers: h.a.issuers}, h.a.keys.out, h.clock.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = empty.Close(context.Background()) })
+	op := sign(t, h.idp.signer(realmNava), h.idp.operatorClaims(realmNava, now))
+	if _, err := empty.ResolveOperator(t.Context(), op); !errors.Is(err, identity.ErrInvalidToken) {
+		t.Errorf("no allow-list: err = %v, want ErrInvalidToken", err)
+	}
+	if _, err := h.a.ResolveOperator(t.Context(), op); err != nil {
+		t.Errorf("listed operator: %v", err)
+	}
+}
+
 func TestNewRejectsBadConfig(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, []string{realmNava})
@@ -382,6 +412,10 @@ func TestNewRejectsBadConfig(t *testing.T) {
 		"empty issuer":    {Issuers: []string{""}},
 		"same audiences":  {Issuers: []string{"https://x"}, Audience: "a", OperatorAudience: "a"},
 		"default overlap": {Issuers: []string{"https://x"}, Audience: DefaultOperatorAudience},
+		"empty operator subject": {Issuers: []string{"https://x"},
+			Operators: []OperatorSubject{{Issuer: "https://x"}}},
+		"operator issuer not trusted": {Issuers: []string{"https://x"},
+			Operators: []OperatorSubject{{Issuer: "https://y", Subject: defaultSub}}},
 	} {
 		if _, err := New(t.Context(), cfg, out); err == nil {
 			t.Errorf("%s: New accepted it", name)

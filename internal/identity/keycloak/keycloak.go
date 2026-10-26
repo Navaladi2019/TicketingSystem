@@ -16,7 +16,9 @@
 //   - exp is required; exp and nbf allow 30 s of skew;
 //   - typ must be Bearer and azp set, so an ID token is rejected;
 //   - one audience per resolver: nava-api for tenants, nava-operator-api for
-//     operators.
+//     operators;
+//   - an operator must also be on Config.Operators, so a role mapping alone
+//     never makes anyone an operator (AR-030).
 //
 // An unknown kid forces at most one JWKS fetch per issuer per 30 s, shared by
 // concurrent callers, then looks once more; so a rotated key is accepted
@@ -76,6 +78,19 @@ type Config struct {
 	// steps 3-4). Without one, Resolve refuses every token: an operator-only
 	// adapter needs none.
 	Store identity.Store
+	// Operators is the operator allow-list, from platform config and never
+	// from a request (AR-030). ResolveOperator accepts a token only if its
+	// (iss, sub) is listed, as well as holding the nava-operator role. Empty
+	// refuses every operator token.
+	Operators []OperatorSubject
+}
+
+// OperatorSubject is one operator allow-list entry: the IdP user id (sub) in
+// one trusted issuer. The issuer is part of the key, so a user of another
+// trusted realm with the same id is not an operator.
+type OperatorSubject struct {
+	Issuer  string
+	Subject string
 }
 
 // Adapter validates access tokens. It is an identity.IdentityResolver and an
@@ -86,6 +101,8 @@ type Adapter struct {
 	issuers          []string
 	audience         string
 	operatorAudience string
+	operators        map[OperatorSubject]bool
+	log              *slog.Logger
 	now              func() time.Time
 }
 
@@ -122,6 +139,16 @@ func newAdapter(ctx context.Context, cfg Config, out *telemetry.OutboundClient, 
 	if cfg.Audience == cfg.OperatorAudience {
 		return nil, errors.New("keycloak: tenant and operator audiences must differ")
 	}
+	operators := make(map[OperatorSubject]bool, len(cfg.Operators))
+	for _, o := range cfg.Operators {
+		if o.Subject == "" {
+			return nil, errors.New("keycloak: empty operator subject")
+		}
+		if !slices.Contains(cfg.Issuers, o.Issuer) {
+			return nil, errors.New("keycloak: operator issuer is not a trusted issuer")
+		}
+		operators[o] = true
+	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
@@ -138,6 +165,8 @@ func newAdapter(ctx context.Context, cfg Config, out *telemetry.OutboundClient, 
 		issuers:          slices.Clone(cfg.Issuers),
 		audience:         cfg.Audience,
 		operatorAudience: cfg.OperatorAudience,
+		operators:        operators,
+		log:              cfg.Logger,
 		now:              now,
 	}, nil
 }
@@ -214,7 +243,8 @@ func (a *Adapter) Resolve(ctx context.Context, raw string) (identity.Principal, 
 }
 
 // ResolveOperator validates an operator access token: audience
-// nava-operator-api and realm role nava-operator, both required.
+// nava-operator-api, realm role nava-operator, and (iss, sub) on the
+// operator allow-list, all required.
 func (a *Adapter) ResolveOperator(ctx context.Context, raw string) (identity.Operator, error) {
 	tok, err := a.verify(ctx, raw, a.operatorAudience)
 	if err != nil {
@@ -223,7 +253,15 @@ func (a *Adapter) ResolveOperator(ctx context.Context, raw string) (identity.Ope
 	if !hasRealmRole(tok, OperatorRole) {
 		return identity.Operator{}, invalid("not an operator")
 	}
+	iss, _ := tok.Issuer()
 	sub, _ := tok.Subject()
+	if !a.operators[OperatorSubject{Issuer: iss, Subject: sub}] {
+		// A valid token holding the role for an unlisted user means the role
+		// was mapped outside the platform's control: worth an alert. The
+		// subject is not logged; the IdP's admin events name the user.
+		a.log.WarnContext(ctx, "operator token refused: subject not on the operator allow-list")
+		return identity.Operator{}, invalid("not an allow-listed operator")
+	}
 	return identity.Operator{PrincipalID: sub}, nil
 }
 

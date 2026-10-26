@@ -34,7 +34,9 @@ flowchart TD
   O -- yes --> T17[T17: binding, idp claim,<br/>federated links]
   V -- yes, operator resolver --> Role{realm role<br/>nava-operator?}
   Role -- no --> X
-  Role -- yes --> Op[Operator]
+  Role -- yes --> AL{iss, sub on<br/>Config.Operators?}
+  AL -- no --> X
+  AL -- yes --> Op[Operator]
 ```
 
 - **Keys come only from the issuer's own discovery document.** On first use of
@@ -57,6 +59,13 @@ flowchart TD
 - **One audience per resolver:** `nava-api` for `Resolve`, `nava-operator-api`
   for `ResolveOperator`. The operator resolver also requires the realm role
   `nava-operator`: audience alone is never enough (TICK-57).
+- **Operator allow-list** (AR-030, TICK-195): `ResolveOperator` also requires
+  the token's `(iss, sub)` to be on `Config.Operators`, which comes from
+  platform config, never from a request. An empty list refuses every operator
+  token. So a role mapping alone, such as one made with a stolen runtime-account
+  secret, never makes anyone an operator. On the stack the list is the pinned
+  id of `operator@nava.test`, and `TestOperatorRoleMembersAllowListed` fails if
+  `nava-operator` has any other member, directly or through a group.
 - **Errors** wrap one of the two sentinels with a fixed reason (`expired`,
   `issuer`, `kid`, …). Library error text, which can quote token values, never
   leaves the adapter.
