@@ -3,7 +3,10 @@ package keycloak
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -32,10 +35,15 @@ type fakeIdP struct {
 	realms map[string]*fakeRealm
 	// discoveryHook, if set, rewrites a realm's discovery document.
 	discoveryHook func(realm string, doc map[string]any)
+	// redirect, if set and returning a URL, answers the request with a 302
+	// to it instead of serving it.
+	redirect func(path string) string
+	hits     map[string]int // requests by path, guarded by mu
 
 	requests  atomic.Int64 // every request
 	jwksHits  atomic.Int64 // JWKS requests, all realms
 	discovery atomic.Int64
+	conns     atomic.Int64 // accepted connections
 }
 
 type fakeRealm struct {
@@ -49,14 +57,46 @@ type signer struct {
 
 func newFakeIdP(t *testing.T, realms ...string) *fakeIdP {
 	t.Helper()
-	f := &fakeIdP{t: t, realms: map[string]*fakeRealm{}}
+	return startFakeIdP(t, false, realms)
+}
+
+// newFakeTLSIdP is newFakeIdP over https; the harness trusts its certificate.
+func newFakeTLSIdP(t *testing.T, realms ...string) *fakeIdP {
+	t.Helper()
+	return startFakeIdP(t, true, realms)
+}
+
+func startFakeIdP(t *testing.T, useTLS bool, realms []string) *fakeIdP {
+	t.Helper()
+	f := &fakeIdP{t: t, realms: map[string]*fakeRealm{}, hits: map[string]int{}}
 	for _, r := range realms {
 		f.realms[r] = &fakeRealm{keys: []signer{newSigner(t, r+"-k1")}}
 	}
-	f.srv = httptest.NewServer(http.HandlerFunc(f.serve))
+	f.srv = httptest.NewUnstartedServer(http.HandlerFunc(f.serve))
+	// Counted at accept, so a plain-http request to the TLS port, which never
+	// reaches the handler, still shows.
+	f.srv.Config.ConnState = func(_ net.Conn, st http.ConnState) {
+		if st == http.StateNew {
+			f.conns.Add(1)
+		}
+	}
+	if useTLS {
+		f.srv.StartTLS()
+	} else {
+		f.srv.Start()
+	}
 	t.Cleanup(f.srv.Close)
 	return f
 }
+
+// hitsOn returns the number of requests for path.
+func (f *fakeIdP) hitsOn(path string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.hits[path]
+}
+
+func jwksPath(realm string) string { return "/realms/" + realm + "/protocol/openid-connect/certs" }
 
 func newSigner(t *testing.T, kid string) signer {
 	t.Helper()
@@ -87,6 +127,15 @@ func (f *fakeIdP) rotate(realm, kid string) signer {
 
 func (f *fakeIdP) serve(w http.ResponseWriter, r *http.Request) {
 	f.requests.Add(1)
+	f.mu.Lock()
+	f.hits[r.URL.Path]++
+	f.mu.Unlock()
+	if f.redirect != nil {
+		if to := f.redirect(r.URL.Path); to != "" {
+			http.Redirect(w, r, to, http.StatusFound)
+			return
+		}
+	}
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/realms/"), "/")
 	f.mu.Lock()
 	realm, ok := f.realms[parts[0]]
@@ -211,7 +260,13 @@ func newHarnessFor(t *testing.T, idp *fakeIdP, trusted []string) *harness {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = tel.Shutdown(t.Context()) })
-	out, err := telemetry.NewOutboundClient(tel, telemetry.OutboundOptions{Timeout: 2 * time.Second})
+	opts := telemetry.OutboundOptions{Timeout: 2 * time.Second}
+	if crt := idp.srv.Certificate(); crt != nil {
+		roots := x509.NewCertPool()
+		roots.AddCert(crt)
+		opts.TLSConfig = &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
+	}
+	out, err := telemetry.NewOutboundClient(tel, opts)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -8,6 +8,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"path"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -48,15 +50,21 @@ var (
 )
 
 // routedClient sends every request through the shared outbound client with a
-// fixed route template. httprc builds its requests on its own context, so the
-// template cannot come from the caller.
+// fixed route template, following no redirect. httprc builds its requests on
+// its own context, so neither marker can come from the caller.
 type routedClient struct {
 	out   *telemetry.OutboundClient
 	route string
 }
 
 func (c routedClient) Do(req *http.Request) (*http.Response, error) {
-	return c.out.Do(req.WithContext(telemetry.WithRoute(req.Context(), c.route)))
+	return c.out.Do(req.WithContext(fetchContext(req.Context(), c.route)))
+}
+
+// fetchContext marks a discovery or JWKS fetch: route template for spans and
+// errors, and no redirects, so the checked URL is the only one fetched.
+func fetchContext(ctx context.Context, route string) context.Context {
+	return telemetry.WithoutRedirects(telemetry.WithRoute(ctx, route))
 }
 
 // keySource holds the signing keys of each allowed issuer, each set fetched
@@ -209,7 +217,7 @@ func (s *keySource) register(ctx context.Context, ik *issuerKeys) error {
 // issuer must equal iss exactly and the jwks_uri must lie under iss, so a
 // document can never point key fetches at another host or realm.
 func (s *keySource) discover(ctx context.Context, iss string) (string, error) {
-	req, err := http.NewRequestWithContext(telemetry.WithRoute(ctx, discoveryRoute), http.MethodGet, iss+"/.well-known/openid-configuration", nil)
+	req, err := http.NewRequestWithContext(fetchContext(ctx, discoveryRoute), http.MethodGet, iss+"/.well-known/openid-configuration", nil)
 	if err != nil {
 		return "", err
 	}
@@ -231,8 +239,36 @@ func (s *keySource) discover(ctx context.Context, iss string) (string, error) {
 	if doc.Issuer != iss {
 		return "", errors.New("discovery: issuer mismatch")
 	}
-	if !strings.HasPrefix(doc.JWKSURI, iss+"/") || strings.ContainsAny(doc.JWKSURI, "?#@\\") || strings.Contains(doc.JWKSURI, "..") {
+	if !jwksUnderIssuer(iss, doc.JWKSURI) {
 		return "", errors.New("discovery: jwks_uri outside the issuer")
 	}
 	return doc.JWKSURI, nil
+}
+
+// jwksUnderIssuer reports whether jwksURI names a resource under iss, checked
+// both as text and as the URL the client will request: same scheme and host,
+// no userinfo, query or fragment, no escaped path (RawPath set: %2e%2e,
+// %2f), and a cleaned path still below the issuer's. The path after iss may
+// hold no % at all and no //: a proxy that decodes twice (%252e) or merges
+// slashes would otherwise see a path Go never sent.
+func jwksUnderIssuer(iss, jwksURI string) bool {
+	if !strings.HasPrefix(jwksURI, iss+"/") || strings.ContainsAny(jwksURI, "?#@\\") || strings.Contains(jwksURI, "..") {
+		return false
+	}
+	if rest := jwksURI[len(iss):]; strings.Contains(rest, "%") || strings.Contains(rest, "//") {
+		return false
+	}
+	is, err := url.Parse(iss)
+	if err != nil {
+		return false
+	}
+	u, err := url.Parse(jwksURI)
+	if err != nil {
+		return false
+	}
+	if u.Scheme != is.Scheme || u.Host != is.Host || u.User != nil || u.Opaque != "" ||
+		u.RawPath != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
+		return false
+	}
+	return strings.HasPrefix(path.Clean(u.Path), path.Clean(is.Path)+"/")
 }
