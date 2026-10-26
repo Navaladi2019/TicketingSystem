@@ -139,7 +139,7 @@ func TestCI7_RelayDeliveryInHistoryIsReferencesOnly(t *testing.T) {
 
 // A start row with record data in its payload, written directly rather than
 // through outbox.Enqueue (finding T32b-1), is refused by the database
-// (outbox_payload_references_check, TICK-214), so the relay never sees it and
+// (outbox_payload_check, TICK-214 and TICK-240), so the relay never sees it and
 // nothing reaches a history. The superuser skips RLS but not the CHECK.
 func TestCI7_RelayRefusesRecordDataPayloadWrittenOutsideEnqueue(t *testing.T) {
 	ctx := ci6Context(t)
@@ -148,8 +148,8 @@ func TestCI7_RelayRefusesRecordDataPayloadWrittenOutsideEnqueue(t *testing.T) {
 	id := tg.workflowID()
 	s.terminateAtEnd(t, id)
 	out, err := psqlSuperErr(t, tg.startSQL(`{"record_id":"`+tg.record.String()+`","title":"`+ci7Marker+`"}`))
-	if err == nil || !strings.Contains(out, "outbox_payload_references_check") {
-		t.Fatalf("direct INSERT with record data: %v\n%s\nwant a violation of outbox_payload_references_check", err, out)
+	if err == nil || !strings.Contains(out, "outbox_payload_check") {
+		t.Fatalf("direct INSERT with record data: %v\n%s\nwant a violation of outbox_payload_check", err, out)
 	}
 	if n := psqlSuper(t, "SELECT count(*) FROM outbox WHERE id = '"+tg.start.String()+"';"); n != "0" {
 		t.Fatalf("%s outbox rows stored after the refused INSERT", n)
