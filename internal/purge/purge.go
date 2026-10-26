@@ -135,6 +135,24 @@ func targetList() []target {
 	}
 }
 
+// Statement is one table's batch DELETE with its arguments.
+type Statement struct {
+	Table string
+	SQL   string
+	Args  []any
+}
+
+// Statements are the batch DELETEs a run executes, in order, for EXPLAIN in
+// tests (TICK-146: each must be able to use its purge index).
+func Statements(batch int, w Windows) []Statement {
+	ts := targetList()
+	out := make([]Statement, 0, len(ts))
+	for _, t := range ts {
+		out = append(out, Statement{Table: t.table, SQL: t.sql, Args: t.args(batch, w)})
+	}
+	return out
+}
+
 // LockName is the text whose hash is the advisory lock key of table's batches.
 func LockName(table string) string { return "nava-purge:" + table }
 
