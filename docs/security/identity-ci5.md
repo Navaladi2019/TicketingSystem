@@ -19,7 +19,7 @@ The suite is `internal/identitystack` `TestCI5`, run against the compose Keycloa
 
 The cases are registered in the T15 contract harness (`internal/identity/contracttest`) with `Require: ["CI-5"]`. The run fails if any entry of `contracttest.CI5Cases()` has no case, so a future adapter inherits the whole list. The fake-IdP contract (`internal/identity/keycloak` `TestContract`) tags the token shapes it can mint, without `Require`.
 
-`tools/ci/ci5report` writes `ci5-report.md`, which CI keeps as the `ci5-report` artifact. It has one line per case with its named subtest and result. A case with no subtest, or a subtest that failed or was skipped, fails the run.
+`tools/ci/ci5report` writes `ci5-report.md`. It is meant to be the `ci5-report` CI artifact, but the GitHub step is not added yet: the agent token cannot change the workflow (TODO-011). It has one line per case with its named subtest and result. A case with no subtest, or a subtest that failed or was skipped, fails the run.
 
 | Id | Attack | Must happen | Control in the same case |
 | --- | --- | --- | --- |

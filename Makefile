@@ -320,6 +320,8 @@ stack-test-identity:
 # running Keycloak, with a throwaway PostgreSQL for the platform database the
 # resolver and one real group sync use. Writes the CI-5 report to CI5_REPORT
 # and fails when a CI-5 case did not pass. Needs the stack's Keycloak.
+# TODO(TODO-011): the GitHub workflow's stack job has no step for this target
+# yet; the step and the ci5-report upload need a push with `workflow` scope.
 CI5_REPORT ?= ci5-report.md
 identity-attacks:
 	CI5_REPORT=$(CI5_REPORT) sh scripts/ci/identity-attacks.sh
