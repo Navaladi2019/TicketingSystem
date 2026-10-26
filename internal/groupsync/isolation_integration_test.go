@@ -286,3 +286,46 @@ func TestOneTenantsLockDoesNotBlockAnother(t *testing.T) {
 		t.Errorf("tenant B principals = %d, want 2", n)
 	}
 }
+
+// A user in tenants A and B federates to both tenants' IdPs. Each tenant's
+// snapshot carries every link; each row keeps only the tenant's own.
+func TestFederatedLinksKeepOnlyTheTenantsBoundAliases(t *testing.T) {
+	super, pool := cluster(t)
+	a, b := twoTenants()
+	seedTenant(t, super, a, 1)
+	seedTenant(t, super, b, 2)
+	bindAliases(t, super, a, "idp-a")
+	bindAliases(t, super, b, "idp-b")
+	dir := &fakeDir{snaps: map[uuid.UUID]identity.DirectoryChanges{}}
+	both := []identity.FederatedLink{{IdPAlias: "idp-a", ExternalUserID: "ext-a"}, {IdPAlias: "idp-b", ExternalUserID: "ext-b"}}
+	for _, tid := range []uuid.UUID{a, b} {
+		dir.set(tid, identity.DirectoryChanges{Users: []identity.DirectoryUser{
+			{KeycloakUserID: "u-both", Email: "both@example.test", Enabled: true, FederatedLinks: both},
+		}})
+	}
+	for id, r := range syncAll(t, newSyncer(t, pool, dir)) {
+		if r.Err != nil {
+			t.Fatalf("tenant %s: %v", id, r.Err)
+		}
+	}
+	for tid, want := range map[uuid.UUID]string{
+		a: `[{"userId": "ext-a", "identityProvider": "idp-a"}]`,
+		b: `[{"userId": "ext-b", "identityProvider": "idp-b"}]`,
+	} {
+		if n := count(t, super, "SELECT count(*) FROM principals WHERE tenant_id = $1 AND keycloak_user_id = 'u-both' AND federated_links = $2::jsonb", tid, want); n != 1 {
+			var got string
+			_ = super.QueryRow(context.Background(), "SELECT federated_links::text FROM principals WHERE tenant_id = $1", tid).Scan(&got)
+			t.Errorf("tenant %s federated_links = %s, want %s", tid, got, want)
+		}
+	}
+
+	// Rebinding drops the link on the next sync.
+	bindAliases(t, super, a)
+	dir.set(a, identity.DirectoryChanges{Users: []identity.DirectoryUser{
+		{KeycloakUserID: "u-both", Email: "both@example.test", Enabled: true, FederatedLinks: both},
+	}})
+	syncAll(t, newSyncer(t, pool, dir))
+	if n := count(t, super, "SELECT count(*) FROM principals WHERE tenant_id = $1 AND federated_links = '[]'::jsonb", a); n != 1 {
+		t.Errorf("a tenant with no bound alias must store no links")
+	}
+}
