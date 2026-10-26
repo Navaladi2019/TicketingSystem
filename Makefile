@@ -6,7 +6,8 @@ TEMPORAL_SERVER_IMAGE ?= nava/temporal-server:$(NAVA_IMAGE_TAG)
 
 ## Unit, policy and end-to-end tests of the custom Temporal server module.
 temporal-server-test:
-	cd temporal-server && go vet ./... && go test ./...
+	cd temporal-server && go vet ./...
+	go run ./tools/ci/suiteran -- go -C temporal-server test -json ./...
 
 ## Build the custom Temporal server image (ADR-001 D22, task T27a).
 temporal-server-image:
@@ -59,8 +60,12 @@ run:
 # makes its analysistest runs slower. racelock: one go test -race at a time on
 # the host, across every checkout and agent (TICK-153 D3); NAVA_RACE_LOCK=off
 # skips it.
+# suiteran (TICK-230) fails a go test -json run in which a registered
+# isolation suite (review-paths.yaml, cto_signoff.isolation_tests) ran zero
+# tests; its -tags are the tags the step means to test with, so keep them
+# beside go test's own.
 test:
-	go run ./tools/ci/racelock -- go test -race -trimpath ./...
+	go run ./tools/ci/racelock -- go run ./tools/ci/suiteran -- go test -json -race -trimpath ./...
 	go run ./tools/ci/racelock -- go -C tools/navalint test -race ./...
 
 # Every package with `//go:build integration` tests, against a throwaway
@@ -287,12 +292,18 @@ stack-test-%:
 # The Temporal stack suite over mTLS: SDK clients dial and a worker runs (T28),
 # CI-H, and the CI-6 certificate, network and Authorizer cases (T32a). Writes
 # the CI-6 report to CI6_REPORT and fails when a CI-6 case did not pass.
+# suiteran prints the run and keeps the raw stream in CI6_JSON, which
+# ci6report then reads (its echo of the same output is dropped).
 # The suite takes about 70 s on a GitHub runner but 591-615 s on a host running
 # two ci-isolated stacks, past go test's default 600 s, hence -timeout 20m
 # (TICK-173).
 CI6_REPORT ?= ci6-report.md
+CI6_JSON ?= ci6-test.json
 stack-test-sdk:
-	go test -tags temporalstack -count=1 -timeout 20m -json ./internal/temporalstack | go run ./tools/ci/ci6report -out $(CI6_REPORT)
+	@status=0; go run ./tools/ci/suiteran -tags temporalstack -tee $(CI6_JSON) -- \
+		go test -tags temporalstack -count=1 -timeout 20m -json ./internal/temporalstack || status=$$?; \
+	go run ./tools/ci/ci6report -out $(CI6_REPORT) < $(CI6_JSON) >/dev/null || status=1; \
+	exit $$status
 
 # The nava-worker service (T31b, TICK-159): ready with /readyz green, /metrics
 # and the probes on its unpublished admin listener without httpobs, and a
@@ -312,7 +323,7 @@ stack-idp-realms:
 # The realm `nava` of the running Keycloak (T14, ADR-001 A.1): tenant and idp
 # claims, token lifespan, operator role custody, realm export round trip.
 stack-test-identity:
-	go test -tags identitystack -count=1 ./internal/identitystack
+	go run ./tools/ci/suiteran -tags identitystack -- go test -tags identitystack -count=1 -json ./internal/identitystack
 
 # The compose smoke: GET /healthz from inside the compose network.
 smoke: stack-test-smoke
