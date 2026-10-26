@@ -409,6 +409,31 @@ services:
       retries: 20
     restart: unless-stopped
 
+  # The retention purge (T13): deletes expired idempotency_keys, outbox and
+  # workflow_ref rows as nava_purge (db/grants.yaml) through PgBouncer. It does
+  # not use Temporal, so it holds no certificate. On `internal` only; /readyz
+  # (PostgreSQL) is on its admin listener (NAVA_ADMIN_ADDR, :9090), never published.
+  nava-purge:
+    build:
+      context: .
+      dockerfile: deploy/compose/nava-purge/Dockerfile
+    image: nava/nava-purge:${NAVA_IMAGE_TAG:-dev}
+    environment:
+      NAVA_DATABASE_URL: postgres://nava_purge:${NAVA_PURGE_DB_PASSWORD:-dev-only-purge}@pgbouncer:5432/nava?sslmode=disable
+      NAVA_LOG_FORMAT: json
+      OTEL_SERVICE_NAME: nava-purge
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    networks: [internal]
+    depends_on:
+      otel-collector: {condition: service_healthy}
+      pgbouncer: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/readyz"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
 networks:
   default: {}
   internal:

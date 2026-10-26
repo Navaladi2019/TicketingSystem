@@ -50,7 +50,7 @@ export NAVA_CORE_PORT KEYCLOAK_PORT TEMPORAL_TEST_PORT UI_PORT TEMPORAL_UI_PORT
 
 # Every nava/* image compose.yaml builds; the teardown check fails on any
 # nava/*:<id> tag left, so an image added there and missed here shows up.
-images="nava/keycloak nava/nava-core nava/nava-db nava/nava-relay nava/nava-worker nava/otel-collector nava/temporal-server"
+images="nava/keycloak nava/nava-core nava/nava-db nava/nava-purge nava/nava-relay nava/nava-worker nava/otel-collector nava/temporal-server"
 stack_files="-f compose.yaml -f deploy/compose/compose.internal.yaml"
 
 teardown() {
