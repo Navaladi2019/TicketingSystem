@@ -308,9 +308,9 @@ ON CONFLICT (tenant_id, principal_id, key) DO NOTHING`,
 
 // retake locks an abandoned row and runs the handler under the lock. It
 // returns in_flight when another retaker holds the lock or the retake slots
-// are taken, and a replay when one finished first. The transaction and the
-// store do not follow the request's cancellation: the handler has committed
-// its own work by then.
+// are taken, and a replay when one finished first. The transaction does not
+// follow the request's cancellation and has no deadline, and the store has
+// completeTimeout: the handler has committed its own work by then.
 func (m *Middleware) retake(ctx context.Context, req request, run func() *captured) (*outcome, error) {
 	select {
 	case m.retakes <- struct{}{}:
@@ -318,8 +318,8 @@ func (m *Middleware) retake(ctx context.Context, req request, run func() *captur
 	default:
 		return &outcome{kind: outcomeInFlight}, nil
 	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), Lease+completeTimeout)
-	defer cancel()
+	// no deadline on this transaction: the commit must not be cut off after a slow handler
+	ctx = context.WithoutCancel(ctx)
 	var out *outcome
 	err := tenancy.InTenantTx(ctx, m.pool, req.p.TenantID, func(tx pgx.Tx) error {
 		var (
@@ -327,7 +327,9 @@ func (m *Middleware) retake(ctx context.Context, req request, run func() *captur
 			status *int16
 			body   []byte
 		)
-		err := tx.QueryRow(ctx, `
+		lockCtx, lockCancel := context.WithTimeout(ctx, completeTimeout)
+		defer lockCancel()
+		err := tx.QueryRow(lockCtx, `
 SELECT state, response_status, response_body FROM idempotency_keys
  WHERE tenant_id = $1 AND principal_id = $2 AND key = $3
    FOR UPDATE NOWAIT`, req.p.TenantID, req.p.PrincipalID, req.key).Scan(&state, &status, &body)

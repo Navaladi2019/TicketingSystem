@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel/metric/noop"
 
 	"github.com/Navaladi2019/TicketingSystem/api"
@@ -35,37 +36,85 @@ func idempotencyPaths() []Path {
 			return fn(ctx, e)
 		}}
 	}
-	db := func(name string, fn func(context.Context, *idemEnv) error) Path { return dbN(1, name, fn) }
+	db := func(name string, fn func(context.Context, *idemEnv) error) Path { return dbN(0, name, fn) }
 	// A retake holds a connection while its handler runs, so two concurrent
-	// retakers need a pool with room for both. With 8 connections two retakes
-	// may run (MaxConns/4), so the second is stopped by the row lock; with 4
-	// only one may, so the second is stopped by the limit.
-	twoRetakers := func(conns int32, name string) Path {
+	// retakers need a pool with room for both (PoolSize, direct, since the
+	// suite's PgBouncer gives a role one server connection). With 8
+	// connections two retakes may run (MaxConns/4), so the second is stopped
+	// by the row lock; with 4 only one may, so the second is stopped by the
+	// limit.
+	retakers := func(conns int32, name, key1, key2 string, check func(ctx context.Context, e *idemEnv, h http.Handler, second *httptest.ResponseRecorder, release func(), first <-chan *httptest.ResponseRecorder) error) Path {
 		return dbN(conns, name, func(ctx context.Context, e *idemEnv) error {
-			if err := e.seedInFlight(ctx, "k-two-retakers", `{"a":1}`, "2 minutes"); err != nil {
-				return err
+			for i, k := range []string{key1, key2} {
+				if i == 1 && k == key1 {
+					break
+				}
+				if err := e.seedInFlight(ctx, k, `{"a":1}`, "2 minutes"); err != nil {
+					return err
+				}
 			}
 			release := make(chan struct{})
 			started := make(chan struct{})
 			var once sync.Once
 			h := e.handler(func() { once.Do(func() { close(started) }); <-release })
 			first := make(chan *httptest.ResponseRecorder, 1)
-			go func() { first <- e.do(h, e.tenantA, e.principalA, "k-two-retakers", `{"a":1}`) }()
+			go func() { first <- e.do(h, e.tenantA, e.principalA, key1, `{"a":1}`) }()
 			<-started
-			second := e.do(h, e.tenantA, e.principalA, "k-two-retakers", `{"a":1}`)
-			close(release)
-			if got := (<-first).Code; got != http.StatusCreated {
-				return fmt.Errorf("first retaker = %d, want 201", got)
-			}
-			if second.Code != http.StatusConflict || e.code(second) != problem.IdempotencyInFlight {
-				return fmt.Errorf("second retaker = %d %s, want 409 idempotency_in_flight", second.Code, bodyOf(second))
-			}
-			return e.executed(1)
+			second := e.do(h, e.tenantA, e.principalA, key2, `{"a":1}`)
+			var once2 sync.Once
+			return check(ctx, e, h, second, func() { once2.Do(func() { close(release) }) }, first)
 		})
 	}
+	busy := func(e *idemEnv, second *httptest.ResponseRecorder) error {
+		if second.Code != http.StatusConflict || e.code(second) != problem.IdempotencyInFlight {
+			return fmt.Errorf("second retaker = %d %s, want 409 idempotency_in_flight", second.Code, bodyOf(second))
+		}
+		return nil
+	}
+	finish := func(release func(), first <-chan *httptest.ResponseRecorder) error {
+		release()
+		if got := (<-first).Code; got != http.StatusCreated {
+			return fmt.Errorf("first retaker = %d, want 201", got)
+		}
+		return nil
+	}
+	// Both retakers aim at one stale row: only the row lock can stop the second.
+	sameRow := func(ctx context.Context, e *idemEnv, _ http.Handler, second *httptest.ResponseRecorder, release func(), first <-chan *httptest.ResponseRecorder) error {
+		if err := busy(e, second); err != nil {
+			release()
+			<-first
+			return err
+		}
+		if err := finish(release, first); err != nil {
+			return err
+		}
+		return e.executed(1)
+	}
+	// Two stale rows: only the limit can stop the second, and once the first
+	// retaker is done the same request goes through.
+	limit := func(ctx context.Context, e *idemEnv, h http.Handler, second *httptest.ResponseRecorder, release func(), first <-chan *httptest.ResponseRecorder) error {
+		if err := busy(e, second); err != nil {
+			release()
+			<-first
+			return err
+		}
+		if err := finish(release, first); err != nil {
+			return err
+		}
+		if err := e.executed(1); err != nil {
+			return err
+		}
+		retry := e.do(h, e.tenantA, e.principalA, "k-retake-limit-2", `{"a":1}`)
+		if retry.Code != http.StatusCreated {
+			return fmt.Errorf("second key after the first retaker finished = %d %s, want 201", retry.Code, bodyOf(retry))
+		}
+		return e.executed(2)
+	}
 	return []Path{
-		twoRetakers(8, "a second retaker of one stale row (row lock) gets 409 and the handler runs once"),
-		twoRetakers(4, "a retaker over the concurrent-retake limit gets 409 and the handler runs once"),
+		retakers(8, "a second retaker of one stale row (row lock) gets 409 and the handler runs once",
+			"k-two-retakers", "k-two-retakers", sameRow),
+		retakers(4, "a retaker over the concurrent-retake limit gets 409, then succeeds once the first is done",
+			"k-retake-limit-1", "k-retake-limit-2", limit),
 		db("two concurrent identical requests execute once", func(ctx context.Context, e *idemEnv) error {
 			release := make(chan struct{})
 			started := make(chan struct{})
@@ -194,7 +243,13 @@ type idemEnv struct {
 }
 
 func newIdemEnv(c Cluster, conns int32) (*idemEnv, error) {
-	pool, err := c.PoolSize("nava_app", conns)
+	var pool *pgxpool.Pool
+	var err error
+	if conns == 0 {
+		pool, err = c.Pool("nava_app") // through PgBouncer, one connection
+	} else {
+		pool, err = c.PoolSize("nava_app", conns)
+	}
 	if err != nil {
 		return nil, err
 	}
