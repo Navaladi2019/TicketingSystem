@@ -172,6 +172,9 @@ func applyPrincipals(ctx context.Context, tx pgx.Tx, tid string, users []identit
 		if u.KeycloakUserID == "" {
 			return nil, fmt.Errorf("%w: user without an id", ErrBadSnapshot)
 		}
+		if want[u.KeycloakUserID] {
+			return nil, fmt.Errorf("%w: user id appears twice", ErrBadSnapshot)
+		}
 		want[u.KeycloakUserID] = true
 		links, err := linksJSON(u.FederatedLinks)
 		if err != nil {
@@ -276,6 +279,9 @@ func applyGroups(ctx context.Context, tx pgx.Tx, tid string, groups []identity.D
 		if g.KeycloakGroupID == "" {
 			return fmt.Errorf("%w: group without an id", ErrBadSnapshot)
 		}
+		if want[g.KeycloakGroupID] {
+			return fmt.Errorf("%w: group id appears twice", ErrBadSnapshot)
+		}
 		want[g.KeycloakGroupID] = true
 		cur, ok := have[g.KeycloakGroupID]
 		id := cur.id
@@ -337,8 +343,9 @@ type unitRow struct {
 }
 
 // applyOrgUnits writes the tree. New units go in as roots, then parents are
-// set, then removed units go; the walk that proves the result has no cycle
-// and is not deeper than maxDepth runs before anything commits.
+// set, then removed units go. Before anything commits, a walk up from each
+// moved unit checks that its chain to the root has no cycle and is no longer
+// than maxDepth. It does not bound the depth of a moved unit's descendants.
 func applyOrgUnits(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, units []identity.DirectoryGroup, maxDepth int, st *stats) error {
 	tid := tenantID.String()
 	rows, err := tx.Query(ctx, `SELECT id, parent_id, keycloak_group_id, name FROM org_units WHERE tenant_id = $1::uuid`, tid)
@@ -365,6 +372,9 @@ func applyOrgUnits(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, units []i
 	for _, u := range units {
 		if u.KeycloakGroupID == "" {
 			return fmt.Errorf("%w: org unit without an id", ErrBadSnapshot)
+		}
+		if _, dup := idOf[u.KeycloakGroupID]; dup {
+			return fmt.Errorf("%w: org unit id appears twice", ErrBadSnapshot)
 		}
 		if cur, ok := have[u.KeycloakGroupID]; ok {
 			idOf[u.KeycloakGroupID] = cur.id
