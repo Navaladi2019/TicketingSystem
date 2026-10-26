@@ -58,9 +58,16 @@ gh pr create --base TICK-<story-no>/<story-slug> --title "TICK-<task-no>: <title
 - Before review, rebase on the story branch: `git fetch origin && git rebase origin/TICK-<story-no>/<story-slug>`, then `git push --force-with-lease`. Force-push only your own task branch.
 - Delete the branch after merge.
 
-## Who merges task PRs
+## Who merges
 
-The owner allowed the Technical Lead to merge task PRs into story branches once the reviewers approve and CI is green. The Technical Lead's standing agent instructions still say "never merge the PR yourself", and those instructions take precedence. **So until the owner updates the Technical Lead's agent instructions, task PRs follow the existing `MergePr` flow and the owner merges them.** To change this, update the "Pull request labeling" section of the Technical Lead's instructions to allow merges into `TICK-*` story branches only.
+The owner's merge and close policy (decision log, TICK-243) settles this:
+
+| PR | Merged by |
+|---|---|
+| A task PR into its story branch | the reviewer or the implementer, once every reviewer has approved and CI is green. Then the task is set to `done`. |
+| A standalone task PR into `main` (no story, the Technical Lead's call) | the same: the reviewer, implementer or Technical Lead, once it is approved and CI is green |
+| A story → `main` PR | the owner, after `ACCEPTED`. Agents add `MergePr`. |
+| An ADR, amendment or erratum | the owner, after sign-off. Agents add `MergePr`. |
 
 ## Exceptions
 
