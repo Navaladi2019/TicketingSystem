@@ -100,8 +100,41 @@ type Cluster interface {
 	Super() (*pgx.Conn, error)
 }
 
+// Server is the real nava-core API handler the HTTP paths run against, as an
+// API path sees it. Its resolver is the Keycloak adapter trusting the
+// suite's test realm, whose organization OrgA is bound to tenant A, reading
+// bindings and principals as nava_app through PgBouncer; OperatorSubject is
+// on its operator allow-list.
+type Server interface {
+	// Mint signs an access token from the test realm, valid for five minutes.
+	Mint(tok Token) string
+	// Do sends an /api/v1 request with token as its bearer and returns the
+	// status and body.
+	Do(ctx context.Context, method, path, token, body string) (int, string)
+	// ResolveOperator is the adapter's operator verdict on token, the check
+	// the operator routes authenticate with: nil for an allow-listed
+	// operator.
+	ResolveOperator(ctx context.Context, token string) error
+}
+
+// OperatorSubject is the operator the test realm's adapter allow-lists.
+const OperatorSubject = "op-isolation"
+
+// Token describes a test-realm access token.
+type Token struct {
+	// Subject is sub, principals.keycloak_user_id.
+	Subject string
+	// NoOrg leaves the organization claim out; otherwise the token names the
+	// organization bound to tenant A.
+	NoOrg bool
+	// Audiences is aud; empty means nava-api.
+	Audiences []string
+	// RealmRoles are realm_access.roles.
+	RealmRoles []string
+}
+
 // Path is one registered route to tenant data. Exactly one of SQL, HTTP,
-// Check and DB is set.
+// Check, DB, API and Stack is set.
 type Path struct {
 	Name string
 	// Case is the ADR-001 Annex B test id the path proves ("CI-2", "CI-8",
@@ -118,6 +151,15 @@ type Path struct {
 	// the role reaches more than ADR-001 A.3 gives it, or when its positive
 	// control fails (so a broken check cannot pass as a denial).
 	DB func(context.Context, Cluster) error
+	// API is a check that drives the database and the real API handler
+	// together; it returns an error when isolation does not hold or its
+	// positive control fails.
+	API func(context.Context, Cluster, Server) error
+	// Stack names the test in internal/identitystack that proves the path
+	// against the real Keycloak (make stack-test-identity, the CI stack
+	// job). The suite lists it and TestStackPathsExist fails when the test
+	// is gone, so the registration cannot go stale.
+	Stack string
 	// Pending names the task that makes the path runnable. A pending path is
 	// listed in the report and not run.
 	Pending string
@@ -131,6 +173,7 @@ func Coverage() map[string]string {
 		"CI-9":  "full: nava_relay, nava_purge, nava_onboard and nava_backup reach (T12); nava_backup through T08's pg_hba cases",
 		"CI-8":  "partial → TICK-87 (byte-identical 404, stale If-Match 412, masked-field filter 400); cursor cases from T23; idempotency cases from T22",
 		"CI-10": "partial → TICK-88; no path registered yet (T29 depth limit is a unit test)",
+		"T26":   "full: deprovisioning within D-P9's 10 minutes and the Epic 03 identity boundary (TICK-82); cases 1, 2, 6 and 8 run here, cases 3, 4, 5 and 7 need the real Keycloak and run in make stack-test-identity",
 	}
 }
 
@@ -226,5 +269,6 @@ func Paths() []Path {
 	}
 	paths = append(paths, cursorPaths()...)
 	paths = append(paths, idempotencyPaths()...)
-	return append(paths, rolePaths()...)
+	paths = append(paths, rolePaths()...)
+	return append(paths, boundaryPaths()...)
 }

@@ -25,7 +25,8 @@ type pathResult struct {
 // TestRegisteredPaths runs every registered path: SQL as its role inside
 // tenancy.InTenantTx(tenant A), aimed at tenant B; HTTP through the real API
 // handler with a token for tenant A; checks in process; DB paths against the
-// suite's database; pending paths are listed, not run.
+// suite's database; API paths against both; pending paths and Stack paths
+// (proved on the real Keycloak) are listed, not run.
 func TestRegisteredPaths(t *testing.T) {
 	pools := map[string]*pgxpool.Pool{}
 	for _, p := range Paths() {
@@ -35,7 +36,7 @@ func TestRegisteredPaths(t *testing.T) {
 	}
 	var api *apiRunner
 	for _, p := range Paths() {
-		if p.HTTP != nil && p.Pending == "" && api == nil {
+		if (p.HTTP != nil || p.API != nil) && p.Pending == "" && api == nil {
 			api = newAPIRunner(t)
 		}
 	}
@@ -54,6 +55,13 @@ func TestRegisteredPaths(t *testing.T) {
 				if err := p.DB(t.Context(), cluster{t: t, e: suite}); err != nil {
 					res.Status, res.Detail = statusFail, err.Error()
 				}
+			case p.API != nil:
+				if err := p.API(t.Context(), cluster{t: t, e: suite}, api); err != nil {
+					res.Status, res.Detail = statusFail, err.Error()
+				}
+			case p.Stack != "":
+				res.Status, res.Detail = statusStack, "run by make stack-test-identity: "+p.Stack
+				t.Log(res.Detail)
 			case p.SQL != nil:
 				res.Status, res.Detail = runSQLPath(t, pools[p.Role], p.SQL)
 			case p.HTTP != nil:
