@@ -38,7 +38,7 @@ import (
 
 func testPassword(role string) (string, bool) { return "test-pw-" + role, true }
 
-func superConfig(t *testing.T) *pgx.ConnConfig {
+func superConfig(t testing.TB) *pgx.ConnConfig {
 	t.Helper()
 	url := os.Getenv("NAVA_TEST_PG_URL")
 	if url == "" {
@@ -60,7 +60,7 @@ type env struct {
 // migrated recreates the manifest's roles and databases, runs the real
 // migrations, and opens nava_app and nava_relay pools on the platform
 // database.
-func migrated(t *testing.T) env {
+func migrated(t testing.TB) env {
 	t.Helper()
 	ctx := context.Background()
 	m, err := grants.Parse(db.Grants())
@@ -117,7 +117,7 @@ func migrated(t *testing.T) env {
 	return env{super: conn, app: pool("nava_app"), relay: pool("nava_relay")}
 }
 
-func roleConfig(t *testing.T, role, database string) *pgx.ConnConfig {
+func roleConfig(t testing.TB, role, database string) *pgx.ConnConfig {
 	t.Helper()
 	cfg := superConfig(t).Copy()
 	cfg.User = role
@@ -126,14 +126,14 @@ func roleConfig(t *testing.T, role, database string) *pgx.ConnConfig {
 	return cfg
 }
 
-func mustExec(t *testing.T, conn *pgx.Conn, sql string, args ...any) {
+func mustExec(t testing.TB, conn *pgx.Conn, sql string, args ...any) {
 	t.Helper()
 	if _, err := conn.Exec(context.Background(), sql, args...); err != nil {
 		t.Fatalf("%s: %v", sql, err)
 	}
 }
 
-func count(t *testing.T, conn *pgx.Conn, sql string, args ...any) int {
+func count(t testing.TB, conn *pgx.Conn, sql string, args ...any) int {
 	t.Helper()
 	var n int
 	if err := conn.QueryRow(context.Background(), sql, args...).Scan(&n); err != nil {
