@@ -54,6 +54,7 @@ func TestSecurityPaths(t *testing.T) {
 		".golangci.yml",
 		"internal/platform/telemetry/filter.go",
 		"docs/delivery/review-paths.yaml",
+		"internal/identitystack/stack_test.go",
 	} {
 		if !matchAny(cfg.Security.Patterns(), p) {
 			t.Errorf("%s is not on the security list", p)
@@ -71,6 +72,8 @@ func TestCTOSignoff(t *testing.T) {
 	const (
 		iso  = "internal/tenancy/isolation/records_test.go"
 		ci6  = "temporal-server/authz/adversarial_test.go"
+		aud  = "internal/identitystack/audience_attack_test.go"
+		dir  = "internal/identitystack/directory_adversarial_test.go"
 		deep = "internal/a/b/c/tenant_isolation_test.go"
 	)
 	for _, tc := range []struct {
@@ -88,6 +91,11 @@ func TestCTOSignoff(t *testing.T) {
 		// PR #19 round 1: the CI-6 suite is registered.
 		{"CI-6 suite removed", "D\t" + ci6, nil, ci6 + " (isolation test removed)"},
 		{"CI-6 suite skipped", "M\t" + ci6, map[string][]string{ci6: {"\tt.Skipf(\"%s\", why)"}}, ci6 + " (isolation test skipped or excluded)"},
+		// TICK-209: the identitystack adversarial suites are registered; the
+		// rest of the package is not.
+		{"audience suite skipped", "M\t" + aud, map[string][]string{aud: {"\tt.Skip(\"keycloak\")"}}, aud + " (isolation test skipped or excluded)"},
+		{"directory suite removed", "D\t" + dir, nil, dir + " (isolation test removed)"},
+		{"realm test removed", "D\tinternal/identitystack/realm_test.go", nil, ""},
 		// *isolation*_test.go at any depth, and at the root.
 		{"deep isolation test removed", "D\t" + deep, nil, deep + " (isolation test removed)"},
 		{"root isolation test removed", "D\tisolation_test.go", nil, "isolation_test.go (isolation test removed)"},
@@ -119,6 +127,35 @@ func TestFixturePRTouchingRealmIsFlagged(t *testing.T) {
 	want := "security review required: yes\nCTO sign-off required: no\n  security: deploy/compose/keycloak/import/realm-nava.json\n"
 	if got != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// TICK-209: the realm tests under internal/identitystack/ need Security
+// review, and deleting a registered adversarial suite also needs CTO sign-off.
+func TestFixturePRTouchingIdentitystackIsFlagged(t *testing.T) {
+	for _, tc := range []struct {
+		name, changes, want string
+	}{
+		{
+			"realm test changed",
+			"M\tinternal/identitystack/realm_test.go\n",
+			"security review required: yes\nCTO sign-off required: no\n" +
+				"  security: internal/identitystack/realm_test.go\n",
+		},
+		{
+			"adversarial suite deleted",
+			"D\tinternal/identitystack/adversarial_test.go\n",
+			"security review required: yes\nCTO sign-off required: yes\n" +
+				"  security: internal/identitystack/adversarial_test.go\n" +
+				"  CTO: internal/identitystack/adversarial_test.go (isolation test removed)\n",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Evaluate(repoConfig(t), parseNameStatus(tc.changes), nil).String()
+			if got != tc.want {
+				t.Fatalf("got:\n%s\nwant:\n%s", got, tc.want)
+			}
+		})
 	}
 }
 
