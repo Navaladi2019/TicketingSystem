@@ -207,6 +207,10 @@ func workerOptions(g *workerguard.Guard, fatal chan<- error) worker.Options {
 // error on fatal, or ctx is done; then it stops the worker (in-flight
 // activities finish or are cancelled) and drains the listener, so /readyz
 // answers while the worker stops. A fatal worker error is returned.
+//
+// On a fatal error serve does not call w.Stop: the SDK calls Stop itself right
+// after OnFatalError, and two concurrent AggregatedWorker.Stop calls can both
+// pass its stopC check and close stopC twice, which panics (TICK-171).
 func serve(ctx context.Context, log *slog.Logger, admin *http.Server, w worker.Worker, fatal <-chan error, cfg config.Config) error {
 	errc := make(chan error, 1)
 	go func() { errc <- recovered(admin.ListenAndServe) }()
@@ -225,7 +229,9 @@ func serve(ctx context.Context, log *slog.Logger, admin *http.Server, w worker.W
 	case <-ctx.Done():
 	}
 	log.InfoContext(ctx, "nava-worker shutting down")
-	w.Stop()
+	if fatalErr == nil {
+		w.Stop()
+	}
 
 	drainCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cfg.HTTP.ShutdownTimeout)
 	defer cancel()

@@ -136,7 +136,8 @@ func (s *stubWorker) Stop() { s.stopped = true }
 // The SDK stops the worker on a fatal poll error and reports it only through
 // OnFatalError (TICK-168 item 1). serve must return it, so run exits non-zero
 // and compose restarts the process instead of /readyz staying 200 with no
-// poller. A second fatal error never blocks the SDK.
+// poller. A second fatal error never blocks the SDK. serve must not call Stop:
+// the SDK already does, and two concurrent Stops panic (TICK-171).
 func TestFatalWorkerErrorEndsServe(t *testing.T) {
 	tel, _ := newTemporal(t)
 	g, err := workerguard.New(slog.New(slog.DiscardHandler), tel.MeterProvider)
@@ -169,8 +170,8 @@ func TestFatalWorkerErrorEndsServe(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("serve kept running after a fatal worker error")
 	}
-	if !w.stopped {
-		t.Error("serve did not stop the worker")
+	if w.stopped {
+		t.Error("serve stopped the worker on a fatal error; the SDK already stops it")
 	}
 	if !strings.Contains(logs.String(), `"msg":"nava-worker fatal worker error"`) {
 		t.Errorf("no error line for the fatal worker error:\n%s", logs.String())
@@ -189,6 +190,16 @@ func TestServeStopsOnContextWithoutError(t *testing.T) {
 	err := serve(ctx, slog.New(slog.DiscardHandler), admin, w, make(chan error, 1), config.Config{HTTP: config.HTTP{ShutdownTimeout: time.Second}})
 	if err != nil || !w.stopped {
 		t.Fatalf("serve = %v, stopped %v; want nil and the worker stopped", err, w.stopped)
+	}
+}
+
+// A failed admin listener still stops the worker and returns the error.
+func TestServeStopsOnListenerError(t *testing.T) {
+	w := &stubWorker{}
+	admin := &http.Server{Addr: "127.0.0.1:-1", ReadHeaderTimeout: time.Second}
+	err := serve(t.Context(), slog.New(slog.DiscardHandler), admin, w, make(chan error, 1), config.Config{HTTP: config.HTTP{ShutdownTimeout: time.Second}})
+	if err == nil || !w.stopped {
+		t.Fatalf("serve = %v, stopped %v; want the listener error and the worker stopped", err, w.stopped)
 	}
 }
 
