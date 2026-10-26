@@ -47,8 +47,8 @@ func payloadCases() []string {
 		`{"record_id":"{` + ref + `}"}`,
 		`{"record_id":"x` + ref + `!"}`, // uuid.Parse ignores both wrapping characters
 		`{"record_id":"` + strings.ReplaceAll(ref, "-", "") + `"}`,
-		`{"record_id":"0190a3b2-1c2d-7e8f-9a0b-1c2d3e4f5a6b"}`, // escaped, decodes to ref
-		`{"a":"` + ref + `","a":"` + ref + `"}`,                // duplicate key, last wins in both
+		`{"record_id":"\u0030190a3b2-1c2d-7e8f-9a0b-1c2d3e4f5a6b"}`, // JSON escape, decodes to ref
+		`{"a":"` + ref + `","a":"` + ref + `"}`,                     // duplicate key, last wins in both
 		`{"a":"free text","a":"` + ref + `"}`,
 		// Record data and other shapes.
 		`{"title":"` + recordDataText + `"}`,

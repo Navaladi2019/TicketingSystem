@@ -154,7 +154,7 @@ sequenceDiagram
      outbox column. The relay dispatches the payload unchecked, so the record
      data lands in the cross-tenant, unencrypted Temporal history (R1). No
      endpoint writes outbox rows today, so a tenant token cannot trigger it.
-   - **Status:** fixed at the database by TICK-214
+   - **Status:** values fixed by TICK-214; keys open (follow-up TICK-240)
      (`db/migrations/00006_outbox_payload_references.sql`,
      [outbox-payload-check.md](../data/outbox-payload-check.md)); the relay
      check (TICK-215) is still open.
