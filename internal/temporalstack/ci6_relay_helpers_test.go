@@ -279,8 +279,14 @@ func redeliver(t *testing.T, id uuid.UUID) {
 
 // result waits for the workflow's result, read by nava-core (the relay may
 // not read history).
+//
+// It first waits for the relay to start the workflow: the rows were only
+// written, and GetWorkflow on an id that does not exist yet is NotFound at once
+// (the first stack run of T32b failed so, while the relay started each one
+// shortly after).
 func (s relayStack) result(ctx context.Context, t *testing.T, id string) string {
 	t.Helper()
+	s.awaitStarted(ctx, t, id)
 	var out string
 	if err := s.core.GetWorkflow(ctx, id, "").Get(ctx, &out); err != nil {
 		t.Fatalf("result of %s: %v", id, err)
