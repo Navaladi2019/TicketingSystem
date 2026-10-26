@@ -165,10 +165,23 @@ func TestCI7_RecordedHeadersCarryOnlyTenantAndTraceContext(t *testing.T) {
 		t.Fatalf("signal with baggage: %v", err)
 	}
 
-	_, rollSQL := tg.signalSQL(t, sigRollover)
+	// The rollover goes alone: a done buffered in the same workflow task
+	// would be dropped by the continue-as-new, so wait for the new run first.
+	roll, rollSQL := tg.signalSQL(t, sigRollover)
+	psqlSuper(t, rollSQL)
+	if r := awaitSettled(t, roll); !r.dispatched {
+		t.Fatalf("rollover row %+v, want dispatched", r)
+	}
+	deadline := time.Now().Add(60 * time.Second)
+	for s.awaitStarted(ctx, t, id) == firstRun {
+		if time.Now().After(deadline) {
+			t.Fatalf("no new run of %s after continue-as-new within 60 s", id)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
 	_, n2SQL := tg.signalSQL(t, sigNote)
 	_, doneSQL := tg.signalSQL(t, sigDone)
-	psqlSuper(t, rollSQL+n2SQL+doneSQL)
+	psqlSuper(t, n2SQL+doneSQL)
 	s.result(ctx, t, id)
 
 	var tenantHeaders int

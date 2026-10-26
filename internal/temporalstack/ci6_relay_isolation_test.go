@@ -223,7 +223,7 @@ func TestCI6_RelaySignalQueuesBehindItsStart(t *testing.T) {
 	tg := newTarget(t)
 	note, noteSQL := tg.signalSQL(t, sigNote)
 	done, doneSQL := tg.signalSQL(t, sigDone)
-	hold := "UPDATE outbox SET available_at = now() + interval '5 seconds' WHERE id = '" + tg.start.String() + "';\n"
+	hold := "UPDATE outbox SET available_at = now() + interval '15 seconds' WHERE id = '" + tg.start.String() + "';\n"
 	psqlSuper(t, tg.startSQL(tg.refs())+hold+noteSQL+doneSQL)
 	id := tg.workflowID()
 	s.terminateAtEnd(t, id)
