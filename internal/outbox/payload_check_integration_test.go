@@ -76,7 +76,7 @@ func payloadCases() []payloadCase {
 		bad("empty key", `{"":"`+ref+`"}`),
 		bad("33-character key", `{"`+strings.Repeat("a", 33)+`":"`+ref+`"}`),
 		bad("escaped space in a key", `{"record\u0020id":"`+ref+`"}`),
-	bad("key with a trailing newline", `{"record_id\n":"`+ref+`"}`),
+		bad("key with a trailing newline", `{"record_id\n":"`+ref+`"}`),
 		bad("key with a non-ASCII letter", `{"récord_id":"`+ref+`"}`),
 		bad("bad key next to a good one", `{"record_id":"`+ref+`","alice at tenant a":"`+ref+`"}`),
 		{name: "key with NUL", payload: `{"a\u0000":"` + ref + `"}`, dbCode: untranslatable},
