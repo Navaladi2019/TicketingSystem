@@ -583,7 +583,10 @@ func TestUserCannotSelfAssignOperatorRole(t *testing.T) {
 			code, out := tokenForm(t, "nava", url.Values{
 				"grant_type": {"password"}, "client_id": {"nava-operator-cli"}, "username": {u.user}, "password": {u.pass},
 			})
-			if code == http.StatusOK {
+			if code != http.StatusOK {
+				// Only the role-mapping and group state above ran.
+				t.Logf("nava-operator-cli password grant for %s: %d %v; claim and ResolveOperator checks not run", u.user, code, out)
+			} else {
 				tok, _ := out["access_token"].(string)
 				if strings.Contains(fmt.Sprint(claims(t, tok)["realm_access"]), "nava-operator") {
 					t.Errorf("%s holds nava-operator after the attempts", u.user)

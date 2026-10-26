@@ -21,6 +21,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/api"
 	"github.com/Navaladi2019/TicketingSystem/internal/groupsync"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 )
 
 // boundaryPaths are the eight cases of T26 (TICK-82, PLAN-001 D-P9, Epic 03
@@ -194,10 +195,17 @@ func deprovision(ctx context.Context, c Cluster, s Server, subject string,
 }
 
 // withinBound checks the two halves of D-P9 against the code and the realm:
-// the default sync interval, and the realm's access token lifespan.
+// the longest sync interval nava-groupsync accepts (config.MaxGroupsyncInterval,
+// the cap on NAVA_GROUPSYNC_INTERVAL) and its default, and the realm's access
+// token lifespan.
 func withinBound() error {
-	if groupsync.DefaultInterval > deprovisionBound-maxTokenLifespan {
-		return fmt.Errorf("groupsync.DefaultInterval = %v: with a %v token the bound exceeds %v", groupsync.DefaultInterval, maxTokenLifespan, deprovisionBound)
+	for name, d := range map[string]time.Duration{
+		"config.MaxGroupsyncInterval": config.MaxGroupsyncInterval,
+		"groupsync.DefaultInterval":   groupsync.DefaultInterval,
+	} {
+		if d > deprovisionBound-maxTokenLifespan {
+			return fmt.Errorf("%s = %v: with a %v token the bound exceeds %v", name, d, maxTokenLifespan, deprovisionBound)
+		}
 	}
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
