@@ -93,7 +93,12 @@ db-roles exits 0, `pgadmin` is the only superuser (T08b).
    plaintext password reaches the server or its statement log.
 5. **PUBLIC counts as drift.** The applier reads `coalesce(acl, acldefault())`,
    so implicit PUBLIC grants (and a missing global function default) are
-   revoked like explicit ones.
+   revoked like explicit ones. On a deployed database a revoke is logged and
+   the run succeeds. On a fresh one (the run applied the first migration)
+   only a migration can have made the grant, so each revoke is also a gate
+   problem, `CI-4: a migration granted ...`, and the run fails (TICK-233).
+   CI migrates fresh databases, so a hand-written `GRANT` or
+   `ALTER DEFAULT PRIVILEGES ... GRANT` in a migration turns CI red.
 6. **The superuser reaches PostgreSQL only through a shared Unix socket (T08).**
    The issue allowed "local socket, or only from db-init". Container
    addresses are dynamic, so an address rule for db-roles would need a fixed
