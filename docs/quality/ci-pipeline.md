@@ -1,6 +1,8 @@
 # CI pipeline (T05)
 
-`make ci` runs every gate locally. The GitHub workflow `.github/workflows/ci.yml`
+`make ci` runs every gate locally, for a human debugging a failure. **Agents
+verify in GitHub, not locally:** push the branch or open a PR and read the `ci`
+workflow, or run `gh workflow run ci --ref <branch>` for a full run. The GitHub workflow `.github/workflows/ci.yml`
 calls only `make` targets. Install the pinned tools once with `make tools`.
 
 ## Gates, in order

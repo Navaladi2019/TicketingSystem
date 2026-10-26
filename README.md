@@ -22,7 +22,7 @@ task lint
 ```
 
 Run `task` to list every available task, and `make ci` to run the whole CI
-pipeline locally (see [`docs/quality/ci-pipeline.md`](docs/quality/ci-pipeline.md)).
+pipeline locally when debugging (agents use the GitHub `ci` workflow instead; see [`docs/quality/ci-pipeline.md`](docs/quality/ci-pipeline.md)).
 
 ## Design principles
 
