@@ -80,13 +80,16 @@ Headers: `Authorization: Bearer <operator token>`, `Idempotency-Key: <1..255 cha
    SELECT on these tables (its grants are the isolation control), so the retry
    decision is made without `ON CONFLICT`, which needs SELECT privilege and fails
    with 42501 under those grants. Under the per-tenant lock the service first
-   reads, as `nava_app` under the tenant predicate, whether the tenant's binding
-   row exists. If it does, an earlier call committed the binding and every domain
-   together (the request hash fixes the domain set) and nothing is inserted. If
+   reads, as `nava_app` with `WHERE tenant_id` (the clause scopes the read; no RLS
+   policy does), the `(issuer, org id)` the tenant's binding row names. If it
+   exists, an earlier call committed the binding and every domain together (the
+   request hash fixes the domain set). The same pair inserts nothing; a different
+   pair (the organization was deleted outside the platform and this attempt
+   resolved another) is `onboarding_conflict` and the tenant stays `provisioning`. If
    not, plain INSERTs run; a unique violation rolls the transaction back and maps by
    constraint: `tenant_email_domain_pkey` is `domain_claimed`, the `(issuer, org id)`
    key is `onboarding_conflict`. The service then reads ownership of every domain
-   under the tenant predicate as a second check.
+   with `WHERE tenant_id` as a second check.
 5. `DirectoryAdmin.InviteUser` for the admin. A refused invite (`ErrInviteRefused`)
    is answered exactly like a sent one. Any other invite error is `5xx`, on the
    first call and on every replay.
@@ -111,5 +114,6 @@ There is no way to abandon a `provisioning` tenant. A tenant whose onboarding ne
 completes keeps its Keycloak organization, its IdP, and (once bound) its
 `tenant_identity_binding` and `tenant_email_domain` rows, so the domains stay
 claimed. Only the operator's own retry (same key and body) can finish or reuse it.
-Recorded as AR-032; needs an operator "abandon" operation that removes the Keycloak
+Recorded as AR-032, which also covers the tenant a binding/org mismatch
+(`onboarding_conflict` on retry) leaves `provisioning`; needs an operator "abandon" operation that removes the Keycloak
 objects and releases the rows.
