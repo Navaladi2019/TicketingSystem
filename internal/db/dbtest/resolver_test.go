@@ -5,10 +5,12 @@ package dbtest
 import (
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
@@ -18,7 +20,8 @@ import (
 )
 
 // T17 (TICK-72): tenant resolution (ADR-001 A.1 steps 2-4) through the real
-// Keycloak adapter and pgstore, reading as nava_app under FORCE RLS.
+// Keycloak adapter and pgstore, reading as nava_app under FORCE RLS. T17a
+// (TICK-189) adds the tenant state check.
 
 const (
 	t17PrincipalA   = "0190a000-0000-7000-8000-0000000003a1"
@@ -184,5 +187,61 @@ func TestT17StoreReadsOneTenant(t *testing.T) {
 	// The binding is per issuer.
 	if _, err := s.Binding(t.Context(), "https://kc.example/realms/other", "org-b"); !errors.Is(err, identity.ErrNoBinding) {
 		t.Errorf("org-b under another issuer: err = %v, want ErrNoBinding", err)
+	}
+}
+
+// T17a (TICK-189): the resolver refuses a binding to a tenant that is not
+// active, reading the state as nava_app. tenants_state_check allows only
+// provisioning and active, so provisioning is the one non-active state a row
+// can hold; the test proves the CHECK too, so a new state cannot slip past it.
+func TestT17aRefusesNonActiveTenant(t *testing.T) {
+	realm, r := newT17Resolver(t)
+	super := superNava(t)
+	orgA := map[string]string{"tenant-a": "org-a"}
+	resolve := func() (identity.Principal, error) {
+		return r.Resolve(t.Context(), realm.Mint(t, keycloaktest.Token{Subject: "kc-shared", Orgs: orgA}))
+	}
+
+	if got, err := resolve(); err != nil || got.TenantID != uuid.MustParse(tenantA) {
+		t.Fatalf("active tenant: %+v, %v; want tenant A", got, err)
+	}
+
+	exec(t, super, "UPDATE tenants SET state = 'provisioning' WHERE id = $1", tenantA)
+	got, err := resolve()
+	if !errors.Is(err, identity.ErrTenantUnresolved) || !strings.HasSuffix(err.Error(), ": tenant not active") || !reflect.DeepEqual(got, identity.Principal{}) {
+		t.Fatalf("provisioning tenant: %+v, %v; want tenant_unresolved: tenant not active", got, err)
+	}
+	// Tenant B, still active, is unaffected: the state read is per tenant.
+	got, err = r.Resolve(t.Context(), realm.Mint(t, keycloaktest.Token{Subject: "kc-shared", Orgs: map[string]string{"tenant-b": "org-b"}}))
+	if err != nil || got.TenantID != uuid.MustParse(tenantB) {
+		t.Fatalf("tenant B while A provisions: %+v, %v", got, err)
+	}
+
+	for _, state := range []string{"suspended", "deleted", "disabled", "", "ACTIVE"} {
+		_, err := super.Exec(t.Context(), "UPDATE tenants SET state = $2 WHERE id = $1", tenantA, state)
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || pgErr.ConstraintName != "tenants_state_check" {
+			t.Errorf("state %q: err = %v, want a tenants_state_check violation", state, err)
+		}
+	}
+
+	exec(t, super, "UPDATE tenants SET state = 'active' WHERE id = $1", tenantA)
+	if got, err := resolve(); err != nil || got.TenantID != uuid.MustParse(tenantA) {
+		t.Fatalf("re-activated tenant: %+v, %v; want tenant A", got, err)
+	}
+}
+
+// pgstore returns the bound tenant's state read under RLS as nava_app.
+func TestT17aStoreReadsTenantState(t *testing.T) {
+	migratedPlatform(t)
+	super := superNava(t)
+	seedResolution(t, super, "https://kc.example/realms/nava")
+	exec(t, super, "UPDATE tenants SET state = 'provisioning' WHERE id = $1", tenantB)
+	s := pgstore.New(appPool(t))
+	for org, want := range map[string]string{"org-a": "active", "org-b": "provisioning"} {
+		b, err := s.Binding(t.Context(), "https://kc.example/realms/nava", org)
+		if err != nil || b.TenantState != want {
+			t.Errorf("%s: %+v, %v; want state %s", org, b, err, want)
+		}
 	}
 }

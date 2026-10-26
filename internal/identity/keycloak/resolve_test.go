@@ -91,7 +91,7 @@ const (
 )
 
 func bindDefault(h *harness) {
-	h.store.bind(h.idp.issuer(realmNava), defaultOrg, identity.Binding{TenantID: tenantA, IdPAliases: []string{"idp-a"}})
+	h.store.bind(h.idp.issuer(realmNava), defaultOrg, identity.Binding{TenantID: tenantA, IdPAliases: []string{"idp-a"}, TenantState: identity.TenantStateActive})
 	h.store.addPrincipal(tenantA, defaultSub, identity.PrincipalRecord{
 		ID: principalA, Enabled: true, LinksKnown: true, FederatedIdPs: []string{}, Groups: []uuid.UUID{groupA},
 	})
@@ -219,7 +219,7 @@ func TestResolveTwoBindingsRefused(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, []string{realmNava})
 	bindDefault(h)
-	h.store.bind(h.idp.issuer(realmNava), defaultOrg, identity.Binding{TenantID: tenantB})
+	h.store.bind(h.idp.issuer(realmNava), defaultOrg, identity.Binding{TenantID: tenantB, TenantState: identity.TenantStateActive})
 	got, err := h.a.Resolve(t.Context(), sign(t, h.idp.signer(realmNava), h.idp.tenantClaims(realmNava, h.clock.now())))
 	if err == nil || !reflect.DeepEqual(got, identity.Principal{}) {
 		t.Fatalf("two bindings: %+v, %v; want an error and no principal", got, err)
@@ -257,5 +257,24 @@ func TestResolveErrorsQuoteNoClaim(t *testing.T) {
 		if err == nil || strings.Contains(err.Error(), "secret") {
 			t.Errorf("err = %v: must be a fixed reason", err)
 		}
+	}
+}
+
+// T17a (TICK-189): a binding to a tenant that is not active resolves to no
+// tenant, whatever the state; the zero value is not active either.
+func TestResolveTenantNotActive(t *testing.T) {
+	t.Parallel()
+	for _, state := range []string{"provisioning", "suspended", "", "Active"} {
+		t.Run(state, func(t *testing.T) {
+			t.Parallel()
+			h := newHarness(t, []string{realmNava})
+			bindDefault(h)
+			h.store.bindings[[2]string{h.idp.issuer(realmNava), defaultOrg}][0].TenantState = state
+			got, err := h.a.Resolve(t.Context(), sign(t, h.idp.signer(realmNava), h.idp.tenantClaims(realmNava, h.clock.now())))
+			wantUnresolved(t, err)
+			if !strings.HasSuffix(err.Error(), ": tenant not active") || !reflect.DeepEqual(got, identity.Principal{}) {
+				t.Fatalf("state %q: %+v, %v; want reason \"tenant not active\" and no principal", state, got, err)
+			}
+		})
 	}
 }
