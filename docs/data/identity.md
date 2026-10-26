@@ -305,7 +305,7 @@ PostgreSQL 16.10 (`postgres:16.10`, Docker 29.9.2), fsync off. Intel
 i7-1260P, 16 threads, 19 GB RAM, Windows 11 host. 25,000 rows: 10,000
 active tenants with 1–3 domains each, plus one large tenant with 5,000
 domains. The `EXPLAIN` ran as `nava_app` with FORCE RLS on, in a
-transaction with `app.tenant_id` set (`scratch/t18a_email_domain_bench.sql`).
+transaction with `app.tenant_id` set (queries under "Reproducing" below).
 Statement: `pgstore.emailDomainSQL`.
 
 | Case (tenant context) | Plan | Buffers | Execution |
@@ -335,7 +335,7 @@ every tenant size.
 
 ### Index cost
 
-`scratch/t18a_index_shapes.sql` compared the chosen key with the binding's
+The shape comparison under "Reproducing" compared the chosen key with the binding's
 shape, `PRIMARY KEY (tenant_id, domain)` + `UNIQUE (domain)`, on the same
 25,000 rows inserted in random order:
 
@@ -351,6 +351,59 @@ The rule of the fewest indexes decides. The foreign key to `tenants` has no
 index of its own, because tenants are never deleted at runtime. The table
 holds two short columns, so a seq-scanned FK check on a tenant delete would
 read about 1.6 MB at 25,000 rows.
+
+### Reproducing
+
+As the superuser on a migrated `nava` database (a dbtest cluster), load the
+volume, then run the lookups as `nava_app`:
+
+```sql
+INSERT INTO tenants (id, state)
+SELECT ('00000000-0000-4000-8000-' || lpad(to_hex(g), 12, '0'))::uuid, 'active'
+FROM generate_series(1, 10001) g;
+-- 10,000 tenants with 1-3 domains each
+INSERT INTO tenant_email_domain (tenant_id, domain)
+SELECT ('00000000-0000-4000-8000-' || lpad(to_hex(g), 12, '0'))::uuid, 't' || g || '-d' || d || '.example'
+FROM generate_series(1, 10000) g, generate_series(1, 1 + g % 3) d;
+-- the large tenant (0x2711 = 10001): 5,000 domains
+INSERT INTO tenant_email_domain (tenant_id, domain)
+SELECT '00000000-0000-4000-8000-000000002711', 'big-d' || d || '.example'
+FROM generate_series(1, 5000) d;
+VACUUM ANALYZE tenant_email_domain;
+
+SET ROLE nava_app;
+BEGIN;
+SELECT set_config('app.tenant_id', '00000000-0000-4000-8000-000000000005', true);
+EXPLAIN (ANALYZE, BUFFERS) SELECT EXISTS (SELECT 1 FROM tenant_email_domain
+WHERE tenant_id = '00000000-0000-4000-8000-000000000005' AND domain = 't5-d2.example');   -- own
+-- the same with domain = 'big-d17.example' (another tenant's) and
+-- 'nobody.example' (nobody's)
+COMMIT;
+BEGIN;
+SELECT set_config('app.tenant_id', '00000000-0000-4000-8000-000000002711', true);
+EXPLAIN (ANALYZE, BUFFERS) SELECT EXISTS (SELECT 1 FROM tenant_email_domain
+WHERE tenant_id = '00000000-0000-4000-8000-000000002711' AND domain = 'big-d4999.example');
+COMMIT;
+RESET ROLE;
+```
+
+The index-shape comparison, as the superuser on the same database. Run the
+`TRUNCATE` and the two timed inserts (psql `\timing on`) five times and take
+the median:
+
+```sql
+CREATE TABLE bench_one (tenant_id uuid NOT NULL, domain text NOT NULL,
+    PRIMARY KEY (domain) INCLUDE (tenant_id));
+CREATE TABLE bench_two (tenant_id uuid NOT NULL, domain text NOT NULL,
+    PRIMARY KEY (tenant_id, domain), UNIQUE (domain));
+CREATE TEMP TABLE src AS SELECT tenant_id, domain FROM tenant_email_domain ORDER BY random();
+TRUNCATE bench_one, bench_two;
+INSERT INTO bench_one SELECT * FROM src;
+INSERT INTO bench_two SELECT * FROM src;
+SELECT relname, pg_size_pretty(pg_indexes_size(oid)) AS indexes, pg_size_pretty(pg_relation_size(oid)) AS heap
+FROM pg_class WHERE relname IN ('bench_one', 'bench_two');
+DROP TABLE bench_one, bench_two;
+```
 
 ### Not done here (owners)
 
