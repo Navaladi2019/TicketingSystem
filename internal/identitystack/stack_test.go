@@ -455,6 +455,89 @@ func TestOperatorRoleMembersAllowListed(t *testing.T) {
 	}
 }
 
+// TestOperatorRoleIsNoComposite closes the gap TestOperatorRoleMembersAllowListed
+// leaves (TICK-219): a role that lists nava-operator as a composite hands it to
+// every holder, and /roles/nava-operator/users does not list them. With it in
+// default-roles-nava, every user of the realm would carry the role. A chain
+// ends in a role that holds nava-operator directly, so checking each role's
+// direct composites covers the transitive case. The probes prove the check
+// sees realm and client roles.
+func TestOperatorRoleIsNoComposite(t *testing.T) {
+	adm := masterToken(t)
+	if got := operatorHolders(t, adm); len(got) != 0 {
+		t.Errorf("roles with nava-operator as a composite, whose holders bypass the allow-list check: %v", got)
+	}
+
+	code, b := admin(t, adm, http.MethodGet, "/roles/nava-operator", nil)
+	var op map[string]any
+	if code != http.StatusOK || json.Unmarshal(b, &op) != nil {
+		t.Fatalf("nava-operator: %d %s", code, b)
+	}
+	code, b = admin(t, adm, http.MethodGet, "/clients?clientId=nava-platform", nil)
+	var cs []struct{ ID string }
+	if code != http.StatusOK || json.Unmarshal(b, &cs) != nil || len(cs) != 1 {
+		t.Fatalf("client nava-platform: %d %s", code, b)
+	}
+	// A probe role grants nothing: no user or group holds it.
+	name := fmt.Sprintf("tick219-probe-%d", time.Now().UnixNano())
+	for _, base := range []string{"/roles", "/clients/" + cs[0].ID + "/roles"} {
+		if code, b := admin(t, adm, http.MethodPost, base, map[string]any{"name": name}); code != http.StatusCreated {
+			t.Fatalf("create probe %s/%s: %d %s", base, name, code, b)
+		}
+		code, b := admin(t, adm, http.MethodGet, base+"/"+name, nil)
+		var probe struct{ ID string }
+		if code != http.StatusOK || json.Unmarshal(b, &probe) != nil {
+			t.Fatalf("probe %s: %d %s", base, code, b)
+		}
+		t.Cleanup(func() {
+			if code, b := admin(t, adm, http.MethodDelete, "/roles-by-id/"+probe.ID, nil); code != http.StatusNoContent {
+				t.Errorf("cleanup: could not delete probe role %s: %d %s", probe.ID, code, b)
+			}
+		})
+		if code, b := admin(t, adm, http.MethodPost, "/roles-by-id/"+probe.ID+"/composites", []map[string]any{op}); code != http.StatusNoContent {
+			t.Fatalf("make nava-operator a composite of probe %s: %d %s", base, code, b)
+		}
+		if got := operatorHolders(t, adm); !slices.Contains(got, probe.ID) {
+			t.Errorf("probe %s/%s holds nava-operator as a composite and the check missed it: %v", base, name, got)
+		}
+	}
+}
+
+type kcRole struct{ ID, Name string }
+
+// operatorHolders returns the ids of the realm and client roles of `nava`
+// that list the realm role nava-operator among their direct composites.
+func operatorHolders(t *testing.T, adm string) []string {
+	t.Helper()
+	list := func(path string) []kcRole {
+		code, b := admin(t, adm, http.MethodGet, path, nil)
+		var out []kcRole
+		if code != http.StatusOK || json.Unmarshal(b, &out) != nil {
+			t.Fatalf("%s: %d %s", path, code, b)
+		}
+		return out
+	}
+	code, b := admin(t, adm, http.MethodGet, "/roles/nava-operator", nil)
+	var op struct{ ID string }
+	if code != http.StatusOK || json.Unmarshal(b, &op) != nil || op.ID == "" {
+		t.Fatalf("nava-operator: %d %s", code, b)
+	}
+	roles := list("/roles?max=10000")
+	if !slices.ContainsFunc(roles, func(r kcRole) bool { return r.Name == "default-roles-nava" }) {
+		t.Fatalf("default-roles-nava not listed: the realm role listing is incomplete")
+	}
+	for _, c := range list("/clients?max=10000") {
+		roles = append(roles, list("/clients/"+c.ID+"/roles?max=10000")...)
+	}
+	var out []string
+	for _, r := range roles {
+		if slices.ContainsFunc(list("/roles-by-id/"+r.ID+"/composites"), func(c kcRole) bool { return c.ID == op.ID }) {
+			out = append(out, r.ID)
+		}
+	}
+	return out
+}
+
 // stackAdapter is the Keycloak adapter trusting tok's issuer, with the
 // stack's operator allow-list.
 func stackAdapter(t *testing.T, tok string) *keycloak.Adapter {
