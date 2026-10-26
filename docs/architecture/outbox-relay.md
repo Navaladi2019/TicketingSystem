@@ -41,7 +41,11 @@ flowchart TD
   C[Claim] --> V{"target_key is &lt;kind&gt;:&lt;uuid&gt;
   and kind valid?"}
   V -->|no| DI["MarkDead: CauseInvalidTarget"]
-  V -->|yes| DL{"before the dispatch deadline
+  V -->|yes| P{"payload references only?
+  (outbox.ValidatePayload)"}
+  P -->|no| DP["MarkDead: CauseInvalidPayload
+  + outbox_relay_payload_refused"]
+  P -->|yes| DL{"before the dispatch deadline
   (claim + Lease/2)?"}
   DL -->|no| BL["Backoff: CauseLeaseTooShort"]
   DL -->|yes| K{IsStart?}
@@ -69,6 +73,13 @@ flowchart TD
   the target workflow's start key, copied from `workflow_ref`. Neither part
   can hold free text, so no workflow id carries PII. Any other form is marked
   dead without a Temporal call.
+- **Payload check (T32b finding 1, second line; TICK-215).** Before any start
+  or signal the dispatcher runs `outbox.ValidatePayload`, the rule `Enqueue`
+  applies. A row that fails it (record data written around `Enqueue`) is
+  marked dead at once with `CauseInvalidPayload`, never retried and never sent
+  to Temporal. The alert is an error log with `alert=true` and the outbox id,
+  plus `outbox_relay_payload_refused_total`. Neither the validation error nor
+  any payload text is logged, stored or put on the span.
 - **Input.** One argument, `outbox.Delivery`: `outbox_id` (the signal dedupe
   key, I7), `kind_version`, `causation_id`, `causation_depth` and `payload`
   (references only, CI-7).
@@ -102,9 +113,10 @@ flowchart TD
 - **Metrics** (no tenant or workflow attribute):
   `outbox_relay_dispatches_total{op, outcome}`, where `outcome` is one of
   `dispatched`, `already_started`, `target_missing`, `invalid_target`,
-  `backoff`, `dead`, `lease_lost` and `settle_failed`. The alert metric is
-  `outbox_relay_signal_target_missing_total`; the workflow id is in its log
-  line. `nava-relay` serves `/metrics`, `/healthz` and `/readyz` on
+  `invalid_payload`, `backoff`, `dead`, `lease_lost` and `settle_failed`. The
+  alert metrics are `outbox_relay_signal_target_missing_total` and
+  `outbox_relay_payload_refused_total`; the workflow and outbox ids are in
+  their log lines. `nava-relay` serves `/metrics`, `/healthz` and `/readyz` on
   `NAVA_ADMIN_ADDR` (PostgreSQL and Temporal gate readiness).
 
 ### Crash seam (for T33)

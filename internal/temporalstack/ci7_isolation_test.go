@@ -24,6 +24,7 @@ import (
 	commonpb "go.temporal.io/api/common/v1"
 	enumspb "go.temporal.io/api/enums/v1"
 	historypb "go.temporal.io/api/history/v1"
+	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/temporal"
 	"google.golang.org/protobuf/proto"
@@ -133,6 +134,30 @@ func TestCI7_RelayDeliveryInHistoryIsReferencesOnly(t *testing.T) {
 	}
 	if deliveries != 3 {
 		t.Errorf("%d deliveries in the history, want 3 (start, note, done)", deliveries)
+	}
+}
+
+// A start row with record data in its payload, written directly rather than
+// through outbox.Enqueue (finding T32b-1), is refused by the database
+// (outbox_payload_references_check, TICK-214), so the relay never sees it and
+// nothing reaches a history. The superuser skips RLS but not the CHECK.
+func TestCI7_RelayRefusesRecordDataPayloadWrittenOutsideEnqueue(t *testing.T) {
+	ctx := ci6Context(t)
+	s := newRelayStack(t)
+	tg := newTarget(t)
+	id := tg.workflowID()
+	s.terminateAtEnd(t, id)
+	out, err := psqlSuperErr(t, tg.startSQL(`{"record_id":"`+tg.record.String()+`","title":"`+ci7Marker+`"}`))
+	if err == nil || !strings.Contains(out, "outbox_payload_references_check") {
+		t.Fatalf("direct INSERT with record data: %v\n%s\nwant a violation of outbox_payload_references_check", err, out)
+	}
+	if n := psqlSuper(t, "SELECT count(*) FROM outbox WHERE id = '"+tg.start.String()+"';"); n != "0" {
+		t.Fatalf("%s outbox rows stored after the refused INSERT", n)
+	}
+	if _, err := s.core.DescribeWorkflowExecution(ctx, id, ""); err == nil {
+		t.Fatalf("workflow %s exists; its history may hold %q", id, ci7Marker)
+	} else if nf := (*serviceerror.NotFound)(nil); !errors.As(err, &nf) {
+		t.Fatalf("describe %s: %v", id, err)
 	}
 }
 

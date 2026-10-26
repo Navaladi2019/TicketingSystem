@@ -1,5 +1,7 @@
 // Package migrate runs the platform database's migrations with goose, applies
-// db/grants.yaml, then runs the catalogue gate (ADR-001 CI-1, CI-3, CI-4; R2). It runs as nava_migrator in a one-shot job
+// db/grants.yaml, then runs the catalogue gate (ADR-001 CI-1, CI-3, CI-4; R2).
+// On a fresh database a grant the manifest step revokes also fails the run
+// (TICK-233). It runs as nava_migrator in a one-shot job
 // connected directly to PostgreSQL: goose's session advisory lock needs one
 // server session for the whole run, which PgBouncer's transaction pooling
 // does not give (and get_auth refuses the migrator through the pooler).
@@ -43,9 +45,17 @@ type Result struct {
 // off the isolation invariants fails, with every problem logged. Two runs at
 // once are serialised by a session advisory lock: the second waits, then
 // finds nothing to apply.
+//
+// The manifest step revokes, and logs, every grant db/grants.yaml does not
+// list, so the gate then sees a healed catalogue. On a deployed database that
+// is drift made outside the migrations and the run still succeeds. On a fresh
+// one, a run that applied the first migration, nothing but the migrations can
+// have made the grant, so each revoke is a gate problem too (ADR-001 A.3:
+// grants come only from the manifest). CI migrates fresh databases, so a
+// migration that grants by hand fails there.
 func Run(ctx context.Context, cfg *pgx.ConnConfig, fsys fs.FS, m *grants.Manifest, g *catalog.GlobalTables, log *slog.Logger, opt Options) (Result, error) {
 	var res Result
-	applied, err := Up(ctx, cfg, fsys, log, opt)
+	applied, fresh, err := upFresh(ctx, cfg, fsys, log, opt)
 	if err != nil {
 		return res, err
 	}
@@ -64,6 +74,12 @@ func Run(ctx context.Context, cfg *pgx.ConnConfig, fsys fs.FS, m *grants.Manifes
 	if err != nil {
 		return res, err
 	}
+	if fresh {
+		for _, r := range res.Grants.Revoked {
+			problems = append(problems, "CI-4: a migration granted "+r+", which db/grants.yaml does not list "+
+				"(revoked on a fresh database; grant it in db/grants.yaml, not in a migration)")
+		}
+	}
 	for _, p := range problems {
 		log.ErrorContext(ctx, "catalogue gate", slog.String("problem", p))
 	}
@@ -81,6 +97,13 @@ func Run(ctx context.Context, cfg *pgx.ConnConfig, fsys fs.FS, m *grants.Manifes
 // Up applies the pending migrations under the session lock and returns the
 // names of the files it applied.
 func Up(ctx context.Context, cfg *pgx.ConnConfig, fsys fs.FS, log *slog.Logger, opt Options) ([]string, error) {
+	applied, _, err := upFresh(ctx, cfg, fsys, log, opt)
+	return applied, err
+}
+
+// upFresh is Up, and reports whether the run applied the first migration in
+// fsys: the database had none applied before it.
+func upFresh(ctx context.Context, cfg *pgx.ConnConfig, fsys fs.FS, log *slog.Logger, opt Options) ([]string, bool, error) {
 	if opt.LockRetrySeconds == 0 {
 		opt.LockRetrySeconds = 2
 	}
@@ -89,28 +112,31 @@ func Up(ctx context.Context, cfg *pgx.ConnConfig, fsys fs.FS, log *slog.Logger, 
 	}
 	locker, err := lock.NewPostgresSessionLocker(lock.WithLockTimeout(opt.LockRetrySeconds, opt.LockAttempts))
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	db := stdlib.OpenDB(*cfg)
 	defer func() { _ = db.Close() }()
 	return up(ctx, db, fsys, locker, log)
 }
 
-func up(ctx context.Context, db *sql.DB, fsys fs.FS, locker lock.SessionLocker, log *slog.Logger) ([]string, error) {
+func up(ctx context.Context, db *sql.DB, fsys fs.FS, locker lock.SessionLocker, log *slog.Logger) ([]string, bool, error) {
 	p, err := goose.NewProvider(goose.DialectPostgres, db, fsys,
 		goose.WithSessionLocker(locker),
 		goose.WithDisableGlobalRegistry(true),
 		goose.WithSlog(log))
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	results, err := p.Up(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("migrate: %w", err)
+		return nil, false, fmt.Errorf("migrate: %w", err)
 	}
 	names := make([]string, 0, len(results))
 	for _, r := range results {
 		names = append(names, r.Source.Path)
 	}
-	return names, nil
+	// Sources are in version order; results in the order applied.
+	sources := p.ListSources()
+	fresh := len(results) > 0 && len(sources) > 0 && results[0].Source.Version == sources[0].Version
+	return names, fresh, nil
 }
