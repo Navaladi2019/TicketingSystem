@@ -26,8 +26,15 @@ type FieldError struct {
 
 // Me defines model for Me.
 type Me struct {
+	// Groups Platform group ids of the tenant, never IdP group names.
+	Groups []openapi_types.UUID `json:"groups"`
+
+	// IdpAlias Alias of the brokering IdP bound to the tenant; empty for a local login.
+	IdpAlias string             `json:"idp_alias"`
 	TenantId openapi_types.UUID `json:"tenant_id"`
-	UserId   openapi_types.UUID `json:"user_id"`
+
+	// UserId The platform principal id, not the IdP user id.
+	UserId openapi_types.UUID `json:"user_id"`
 }
 
 // Problem RFC 9457 problem details. `code` is registered in api/errors.yaml.

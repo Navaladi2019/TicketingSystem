@@ -26,7 +26,6 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Navaladi2019/TicketingSystem/db"
@@ -202,14 +201,22 @@ func (e *env) pool(t *testing.T, role string, pooled bool) *pgxpool.Pool {
 	return p
 }
 
-// sqlState returns err's SQLSTATE, or "" when it is not a server error.
-func sqlState(err error) string {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
-		return pgErr.Code
-	}
-	return ""
+// cluster is the Cluster a DB path gets: pools and the superuser, closed
+// when the test ends.
+type cluster struct {
+	t *testing.T
+	e *env
 }
+
+func (c cluster) Pool(role string) (*pgxpool.Pool, error) {
+	r, ok := c.e.m.Roles[role]
+	if !ok {
+		return nil, fmt.Errorf("%s is not a manifest role", role)
+	}
+	return c.e.pool(c.t, role, r.PgBouncerLogin), nil
+}
+
+func (c cluster) Super() (*pgx.Conn, error) { return c.e.superConn(c.t), nil }
 
 // runtimeRoles are the roles CI-2 runs as: every manifest role but the
 // owner (as catalog's CI-3 and CI-4 count them), then the owner, whom only

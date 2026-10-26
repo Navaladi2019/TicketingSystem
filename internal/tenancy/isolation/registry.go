@@ -10,7 +10,9 @@
 //     must reach 0 rows or fail; with tenant A set it must reach none of
 //     tenant B's rows. A new table needs no registration, only seed rows;
 //   - runs every registered Path below as its role, scoped to tenant A with
-//     tenancy.InTenantTx, aimed at tenant B's data;
+//     tenancy.InTenantTx, aimed at tenant B's data; a DB path drives the
+//     database itself, for the CI-9 role reach checks that need seeded rows
+//     or a positive control;
 //   - writes a report, one line per role × table, grouped by ADR test id, so
 //     partial coverage (CI-8, CI-10) stays visible.
 //
@@ -22,6 +24,9 @@ package isolation
 import (
 	"context"
 	"net/http"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // The seeded tenants (testdata/seed.sql). Every registered path runs as
@@ -30,6 +35,8 @@ const (
 	TenantA = "0a000000-0000-4000-8000-00000000000a"
 	TenantB = "0b000000-0000-4000-8000-00000000000b"
 
+	// RecordA1 is one of tenant A's records.
+	RecordA1 = "0a000000-0000-4000-8000-0000000000a1"
 	// RecordB1 is one of tenant B's records.
 	RecordB1 = "0b000000-0000-4000-8000-0000000000b1"
 	// SharedDedupeKey and SharedIdempotencyKey exist in both tenants, so a
@@ -72,10 +79,25 @@ type HTTPCall struct {
 	Path   string // with the query string
 	Header http.Header
 	Body   string
+	// NoRoute names the task that adds this route. Until then the call must
+	// get 404 or 405; without it, the call must get 200 with tenant A's data,
+	// so a validator regression that starts refusing it cannot hide.
+	NoRoute string
 }
 
-// Path is one registered route to tenant data. Exactly one of SQL, HTTP and
-// Check is set.
+// Cluster is the suite's database, as a DB path sees it.
+type Cluster interface {
+	// Pool is a one-connection pool logged in as role, through PgBouncer for
+	// roles on its login allow-list.
+	Pool(role string) (*pgxpool.Pool, error)
+	// Super is the bootstrap superuser on the platform database, which RLS
+	// does not hold. A DB path that seeds rows with it deletes them before
+	// it returns, so later checks see the seed unchanged.
+	Super() (*pgx.Conn, error)
+}
+
+// Path is one registered route to tenant data. Exactly one of SQL, HTTP,
+// Check and DB is set.
 type Path struct {
 	Name string
 	// Case is the ADR-001 Annex B test id the path proves ("CI-2", "CI-8",
@@ -88,6 +110,10 @@ type Path struct {
 	// Check is an in-process check; it returns an error when isolation does
 	// not hold.
 	Check func(context.Context) error
+	// DB is a check against the suite's database; it returns an error when
+	// the role reaches more than ADR-001 A.3 gives it, or when its positive
+	// control fails (so a broken check cannot pass as a denial).
+	DB func(context.Context, Cluster) error
 	// Pending names the task that makes the path runnable. A pending path is
 	// listed in the report and not run.
 	Pending string
@@ -97,7 +123,8 @@ type Path struct {
 // "Annex B coverage"). The report prints it above each group.
 func Coverage() map[string]string {
 	return map[string]string{
-		"CI-2":  "full: generic checks on every tenant table; forged-tenant HTTP paths pending T17",
+		"CI-2":  "full: generic checks on every tenant table; forged-tenant HTTP paths (T17)",
+		"CI-9":  "full: nava_relay, nava_purge, nava_onboard and nava_backup reach (T12); nava_backup through T08's pg_hba cases",
 		"CI-8":  "partial → TICK-87 (byte-identical 404, stale If-Match 412, masked-field filter 400); cursor cases from T23",
 		"CI-10": "partial → TICK-88; no path registered yet (T29 depth limit is a unit test)",
 	}
@@ -136,7 +163,7 @@ func Paths() []Path {
 		return Path{Name: name, Case: "CI-2", Role: role, SQL: &SQLCall{Query: query, Args: args, Expect: expect}}
 	}
 	forged := func(name string, c HTTPCall) Path {
-		return Path{Name: name, Case: "CI-2", HTTP: &c, Pending: "T17 (TICK-72) tenant resolution"}
+		return Path{Name: name, Case: "CI-2", HTTP: &c}
 	}
 	paths := []Path{
 		// IDOR by id: the id alone must not find tenant B's row.
@@ -179,13 +206,20 @@ func Paths() []Path {
 			"INSERT INTO tenant_identity_binding (tenant_id, issuer, org_id) VALUES ($1, 'https://idp.example/realms/iso', 'org-iso')", TenantA),
 
 		// Forged tenant: a valid token for tenant A names tenant B in the
-		// payload, a header or the query. The tenant comes only from the
-		// token's binding (ADR-001 I2).
+		// payload, a header, the query or baggage. The tenant comes only from
+		// the token's binding (ADR-001 I2). The payload path has no route yet
+		// (PLAN-002 records), so it proves only that a 4xx keeps B out.
 		forged("forged tenant in the query string", HTTPCall{Method: http.MethodGet, Path: "/api/v1/me?tenant_id=" + TenantB}),
 		forged("forged tenant in a header", HTTPCall{Method: http.MethodGet, Path: "/api/v1/me",
 			Header: http.Header{"X-Tenant-Id": {TenantB}, "X-Nava-Tenant": {TenantB}}}),
 		forged("forged tenant in the payload", HTTPCall{Method: http.MethodPost, Path: "/api/v1/records",
+			Body: `{"tenant_id":"` + TenantB + `"}`, NoRoute: "PLAN-002 records"}),
+		forged("forged tenant in the body of GET /api/v1/me", HTTPCall{Method: http.MethodGet, Path: "/api/v1/me",
 			Body: `{"tenant_id":"` + TenantB + `"}`}),
+		// TICK-93: baggage is never read; the edge propagator drops it.
+		forged("forged tenant in baggage", HTTPCall{Method: http.MethodGet, Path: "/api/v1/me",
+			Header: http.Header{"Baggage": {"tenant_id=" + TenantB + ",nava.tenant_id=" + TenantB}}}),
 	}
-	return append(paths, cursorPaths()...)
+	paths = append(paths, cursorPaths()...)
+	return append(paths, rolePaths()...)
 }

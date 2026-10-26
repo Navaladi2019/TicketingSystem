@@ -40,8 +40,10 @@ type Principal struct {
 // IdentityResolver turns a raw access token into a tenant principal. Only the
 // core API's authentication middleware calls it.
 //
-// It returns an error wrapping ErrInvalidToken or ErrTenantUnresolved, and a
-// zero Principal with any error.
+// It returns an error wrapping ErrInvalidToken or ErrTenantUnresolved for a
+// token it refuses, and a zero Principal with any error. An error wrapping
+// neither means it could not decide (its Store failed); the middleware answers
+// that with 500, never with a 401 that would make a client drop a good token.
 type IdentityResolver interface { //nolint:revive // name fixed by PLAN-001's interface contract
 	Resolve(ctx context.Context, rawAccessToken string) (Principal, error)
 }
@@ -90,4 +92,60 @@ type DirectoryUser struct {
 type DirectoryGroup struct {
 	GroupID uuid.UUID
 	Members []uuid.UUID
+}
+
+// Binding is a tenant_identity_binding row: the tenant an (issuer,
+// organization id) pair is bound to, and the IdP aliases bound to it.
+type Binding struct {
+	TenantID   uuid.UUID
+	IdPAliases []string
+}
+
+// PrincipalRecord is a principals row as group sync recorded it, with the
+// principal's group ids.
+type PrincipalRecord struct {
+	ID      uuid.UUID
+	Enabled bool
+	// LinksKnown is false when federated_links is NULL: sync has not recorded
+	// the user's links, which the resolver treats as unknown and refuses
+	// (A.1 step 3, docs/data/identity.md).
+	LinksKnown bool
+	// FederatedIdPs are the identityProvider aliases of the user's federated
+	// links. Empty with LinksKnown means synced, no federated identity.
+	FederatedIdPs []string
+	Groups        []uuid.UUID
+}
+
+// Errors a Store returns when a row is missing. A resolver refuses the token
+// with ErrTenantUnresolved for either.
+var (
+	ErrNoBinding   = errors.New("identity: no tenant binding")
+	ErrNoPrincipal = errors.New("identity: no principal")
+)
+
+// Store reads the platform's own identity rows (A.1 steps 3-4). An adapter's
+// resolver calls it after validating the token; internal/identity/pgstore is
+// the PostgreSQL implementation.
+type Store interface {
+	// Binding looks (issuer, orgID) up in tenant_identity_binding. It returns
+	// ErrNoBinding for no row, and an error for more than one.
+	Binding(ctx context.Context, issuer, orgID string) (Binding, error)
+	// Principal reads the principal whose IdP user id is subject, in tenantID
+	// only. It returns ErrNoPrincipal for no row.
+	Principal(ctx context.Context, tenantID uuid.UUID, subject string) (PrincipalRecord, error)
+}
+
+type ctxKey struct{}
+
+// NewContext returns ctx carrying p. Only the authentication middleware calls
+// it, with the principal its resolver returned.
+func NewContext(ctx context.Context, p Principal) context.Context {
+	return context.WithValue(ctx, ctxKey{}, p)
+}
+
+// FromContext returns the request's resolved principal, and false outside an
+// authenticated request.
+func FromContext(ctx context.Context) (Principal, bool) {
+	p, ok := ctx.Value(ctxKey{}).(Principal)
+	return p, ok
 }

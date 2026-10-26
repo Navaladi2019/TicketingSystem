@@ -319,6 +319,61 @@ func TestT09OnboardCannotBindOtherProvisioningTenant(t *testing.T) {
 	}
 }
 
+// Adversarial (TICK-170, ADR-001-E3, AR-026): tenants_onboard_select has no
+// state test, so nava_onboard reads its own tenant's row in either state. The
+// residual stays one row: after activating X, onboard in InTenantTx(X) reads
+// X's active row and nothing of active A or provisioning Y, reads nothing with
+// no tenant set, and the wider read does not let it bind X once active.
+func TestT09OnboardReadsOnlyOwnRowInEitherState(t *testing.T) {
+	migratedPlatform(t)
+	seedTenants(t, superNava(t), []string{tenantA}, []string{tenantY})
+	onboard := asRole(t, "nava_onboard")
+	rowsIn := func(tenant, sql string, args ...any) []string {
+		t.Helper()
+		var got []string
+		err := inTenantTx(onboard, tenant, func(tx pgx.Tx) error {
+			rows, err := tx.Query(context.Background(), sql, args...)
+			if err != nil {
+				return err
+			}
+			for rows.Next() {
+				var id, state string
+				if err := rows.Scan(&id, &state); err != nil {
+					return err
+				}
+				got = append(got, id+"/"+state)
+			}
+			return rows.Err()
+		})
+		if err != nil {
+			t.Fatalf("%s in InTenantTx(%q): %v", sql, tenant, err)
+		}
+		return got
+	}
+	const all = "SELECT id::text, state FROM tenants ORDER BY id"
+
+	if _, err := execIn(onboard, tenantX, "INSERT INTO tenants (id, state, onboarding_request_hash) VALUES ($1, 'provisioning', '\\x01')", tenantX); err != nil {
+		t.Fatalf("create X: %v", err)
+	}
+	if got, want := rowsIn(tenantX, all), []string{tenantX + "/provisioning"}; !slices.Equal(got, want) {
+		t.Errorf("provisioning X sees %v, want %v", got, want)
+	}
+	if n, err := execIn(onboard, tenantX, "UPDATE tenants SET state = 'active' WHERE id = $1", tenantX); err != nil || n != 1 {
+		t.Fatalf("activate X: %d rows, %v; want 1, nil", n, err)
+	}
+	if got, want := rowsIn(tenantX, all), []string{tenantX + "/active"}; !slices.Equal(got, want) {
+		t.Errorf("active X sees %v, want %v", got, want)
+	}
+	if got := rowsIn(tenantX, "SELECT id::text, state FROM tenants WHERE id = ANY($1::uuid[])", []string{tenantA, tenantY}); len(got) != 0 {
+		t.Errorf("X reads A or Y by id: %v, want none", got)
+	}
+	if got := rowsIn("", all); len(got) != 0 {
+		t.Errorf("no tenant set sees %v, want none", got)
+	}
+	_, err := execIn(onboard, tenantX, "INSERT INTO tenant_identity_binding (tenant_id, issuer, org_id) VALUES ($1, 'https://kc/realms/nava', 'org-x')", tenantX)
+	wantSQLState(t, "bind X after activation", err, "42501")
+}
+
 // Acceptance: exactly 10 policies do not reference app.tenant_id, and they
 // are the A.3 allow-list, each pinned to its command, roles and predicates.
 // Every other policy's predicate is exactly the tenant predicate, and no

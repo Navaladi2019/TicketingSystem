@@ -12,8 +12,7 @@ import (
 
 // TestRegistryIsWellFormed: every path has a unique name, a covered ADR test
 // id and exactly one call; SQL paths run as a manifest role that may connect
-// to the platform database; only a pending path may be HTTP until T17 adds
-// the HTTP runner.
+// to the platform database; HTTP paths name an /api/v1 route.
 func TestRegistryIsWellFormed(t *testing.T) {
 	m, err := grants.Parse(db.Grants())
 	if err != nil {
@@ -30,13 +29,13 @@ func TestRegistryIsWellFormed(t *testing.T) {
 			t.Errorf("path %q: case %q is not in Coverage", p.Name, p.Case)
 		}
 		calls := 0
-		for _, set := range []bool{p.SQL != nil, p.HTTP != nil, p.Check != nil} {
+		for _, set := range []bool{p.SQL != nil, p.HTTP != nil, p.Check != nil, p.DB != nil} {
 			if set {
 				calls++
 			}
 		}
 		if calls != 1 {
-			t.Errorf("path %q: %d calls, want exactly one of SQL, HTTP, Check", p.Name, calls)
+			t.Errorf("path %q: %d calls, want exactly one of SQL, HTTP, Check, DB", p.Name, calls)
 		}
 		if p.SQL != nil {
 			r, ok := m.Roles[p.Role]
@@ -47,8 +46,8 @@ func TestRegistryIsWellFormed(t *testing.T) {
 				t.Errorf("path %q: no expectation", p.Name)
 			}
 		}
-		if p.HTTP != nil && p.Pending == "" {
-			t.Errorf("path %q: HTTP paths have no runner yet; T17 adds it with the first runnable one", p.Name)
+		if p.HTTP != nil && (p.HTTP.Method == "" || !strings.HasPrefix(p.HTTP.Path, "/api/v1/")) {
+			t.Errorf("path %q: an HTTP path needs a method and an /api/v1 path", p.Name)
 		}
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -160,6 +161,14 @@ func (a *transportActivity) ExecuteActivity(ctx context.Context, in *interceptor
 	return a.Next.ExecuteActivity(ctx, in)
 }
 
+// testDeadlockDetectionTimeout replaces the SDK's 1 s default in the test
+// environment only (TICK-184). The detector measures wall-clock time between
+// yields, so on a loaded CI host a workflow task that needs well under a
+// millisecond of CPU can still be descheduled for over 1 s and fail with
+// TMPRL1101. Ten seconds still catches a workflow that really never yields.
+// Production workers keep the SDK default.
+const testDeadlockDetectionTimeout = 10 * time.Second
+
 // harness is a test environment with the Propagator, the transport and the
 // Guard, a metric reader for DecisionsMetric and a buffer for the alert log.
 type harness struct {
@@ -218,7 +227,10 @@ func newHarness(t *testing.T, workflowID string, opts ...harnessOption) *harness
 	}
 	tr := &transport{}
 	interceptors := append(append([]interceptor.WorkerInterceptor(nil), cfg.before...), tr)
-	env.SetWorkerOptions(WorkerOptions(worker.Options{Interceptors: interceptors}, g))
+	env.SetWorkerOptions(WorkerOptions(worker.Options{
+		Interceptors:             interceptors,
+		DeadlockDetectionTimeout: testDeadlockDetectionTimeout,
+	}, g))
 	if !cfg.noPropagator {
 		env.SetContextPropagators([]workflow.ContextPropagator{Propagator{}})
 	}

@@ -9,7 +9,7 @@ import (
 
 // fixtureResult is one fixture in the report.
 type fixtureResult struct {
-	Name, Role, Table, Before, After string
+	Case, Name, Role, Table, Before, After string
 }
 
 // TestFixturesMakeTheSuiteFail is T11's second acceptance criterion and its
@@ -78,7 +78,7 @@ func TestFixturesMakeTheSuiteFail(t *testing.T) {
 				t.Errorf("with the fixture %s × %s is %s, want FAIL: %s", f.role, f.table, after.Status, after.Detail)
 			}
 			suite.report.fixtures = append(suite.report.fixtures, fixtureResult{
-				Name: f.name, Role: f.role, Table: f.table, Before: before.Status, After: after.Status,
+				Case: "CI-2", Name: f.name, Role: f.role, Table: f.table, Before: before.Status, After: after.Status,
 			})
 		})
 	}

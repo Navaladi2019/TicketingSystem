@@ -47,6 +47,11 @@ type Dependencies struct {
 	TemporalAddress string
 	// TemporalTLS is the client certificate nava-core dials the frontend with.
 	TemporalTLS TemporalTLS
+	// OIDCIssuers is NAVA_OIDC_ISSUERS, the comma-separated exact iss
+	// allow-list of tenant access tokens, such as
+	// http://keycloak:8080/realms/nava. Empty: every API request is refused
+	// with 401 (fail closed).
+	OIDCIssuers []string
 }
 
 // TemporalTLS locates nava-core's mTLS identity for the Temporal frontend (the
@@ -128,6 +133,7 @@ func Load(lookup LookupFunc) (Config, error) {
 		DatabaseURL:           r.databaseURL("NAVA_DATABASE_URL"),
 		KeycloakManagementURL: strings.TrimRight(r.baseURL("NAVA_KEYCLOAK_MANAGEMENT_URL"), "/"),
 		TemporalAddress:       r.hostPort("NAVA_TEMPORAL_ADDRESS"),
+		OIDCIssuers:           r.urlList("NAVA_OIDC_ISSUERS"),
 	}
 	cfg.Deps.TemporalTLS = TemporalTLS{
 		CertFile:   r.str("NAVA_TEMPORAL_TLS_CERT_FILE"),
@@ -217,13 +223,36 @@ func (r *reader) baseURL(key string) string {
 	if !ok || v == "" {
 		return ""
 	}
-	u, err := url.Parse(v)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" ||
-		u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+	if !isBaseURL(v) {
 		r.errs = append(r.errs, fmt.Errorf("%s: want an http or https URL without credentials or query", key))
 		return ""
 	}
 	return v
+}
+
+func isBaseURL(v string) bool {
+	u, err := url.Parse(v)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" &&
+		u.User == nil && u.RawQuery == "" && u.Fragment == ""
+}
+
+// urlList reads a comma-separated list of URLs, each checked as baseURL
+// checks one. Empty is "not configured".
+func (r *reader) urlList(key string) []string {
+	v, ok := r.lookup(key)
+	if !ok || strings.TrimSpace(v) == "" {
+		return nil
+	}
+	var out []string
+	for _, s := range strings.Split(v, ",") {
+		s = strings.TrimSpace(s)
+		if !isBaseURL(s) {
+			r.errs = append(r.errs, fmt.Errorf("%s: want comma-separated http or https URLs without credentials or query", key))
+			return nil
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 // str returns key's value, empty when unset.

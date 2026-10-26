@@ -4,16 +4,22 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity/contracttest"
 )
 
-// TestContract runs the identity port's contract suite against the adapter.
-// T17 replaces the "one organization" case with resolving ones, T18 adds the
-// DirectoryAdmin, T19 its adversarial cases.
+// TestContract runs the identity port's contract suite against the adapter,
+// with T17's tenant-resolution cases. T18 adds the DirectoryAdmin, T19 its
+// adversarial cases.
 func TestContract(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, []string{realmNava})
+	bindDefault(h)
+	// Subjects for the TICK-69 carry-forward cases.
+	h.store.addPrincipal(tenantA, "kc-links-null", identity.PrincipalRecord{ID: uuid.New(), Enabled: true, LinksKnown: false})
+	h.store.addPrincipal(tenantA, "kc-foreign-link", identity.PrincipalRecord{ID: uuid.New(), Enabled: true, LinksKnown: true, FederatedIdPs: []string{"idp-b"}})
 	s := h.idp.signer(realmNava)
 	now := h.clock.now()
 	tenant := func(edit func(claims)) string {
@@ -30,14 +36,25 @@ func TestContract(t *testing.T) {
 	contracttest.Suite{
 		Resolver: h.a,
 		ResolverCases: []contracttest.ResolverCase{
-			{Name: "one organization, no binding yet", Token: tenant(func(claims) {}), WantErr: identity.ErrTenantUnresolved},
+			{Name: "bound tenant", Token: tenant(func(claims) {}),
+				Want: &identity.Principal{TenantID: tenantA, PrincipalID: principalA, Groups: []uuid.UUID{groupA}}},
 			{Name: "no organization", Token: tenant(func(c claims) { delete(c, "organization") }), WantErr: identity.ErrTenantUnresolved},
+			{Name: "two organizations", Token: tenant(func(c claims) {
+				c["organization"] = map[string]any{"a": map[string]any{"id": defaultOrg}, "b": map[string]any{"id": "org-b"}}
+			}), WantErr: identity.ErrTenantUnresolved},
+			{Name: "unbound organization", Token: tenant(func(c claims) {
+				c["organization"] = map[string]any{"x": map[string]any{"id": "org-x"}}
+			}), WantErr: identity.ErrTenantUnresolved},
+			{Name: "unbound idp", Token: tenant(func(c claims) { c["idp"] = "idp-evil" }), WantErr: identity.ErrTenantUnresolved},
+			{Name: "federated link to a foreign IdP", Token: tenant(func(c claims) { c["sub"] = "kc-foreign-link" }), WantErr: identity.ErrTenantUnresolved},
+			{Name: "federated links unknown (NULL)", Token: tenant(func(c claims) { c["sub"] = "kc-links-null" }), WantErr: identity.ErrTenantUnresolved},
+			{Name: "no principal for the subject", Token: tenant(func(c claims) { c["sub"] = "kc-nobody" }), WantErr: identity.ErrTenantUnresolved},
 			{Name: "expired", Token: tenant(func(c claims) { c["exp"] = now.Add(-time.Minute).Unix() }), WantErr: identity.ErrInvalidToken},
 			{Name: "operator token", Token: operator(func(claims) {}), WantErr: identity.ErrInvalidToken},
 		},
 		Operator: h.a,
 		OperatorCases: []contracttest.OperatorCase{
-			{Name: "operator", Token: operator(func(claims) {}), Want: &identity.Operator{PrincipalID: "6f1c2a7e-0000-4000-8000-000000000001"}},
+			{Name: "operator", Token: operator(func(claims) {}), Want: &identity.Operator{PrincipalID: defaultSub}},
 			{Name: "no role", Token: operator(func(c claims) { delete(c, "realm_access") }), WantErr: identity.ErrInvalidToken},
 			{Name: "tenant token", Token: tenant(func(claims) {}), WantErr: identity.ErrInvalidToken},
 		},

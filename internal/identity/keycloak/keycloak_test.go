@@ -266,37 +266,6 @@ func TestDiscoveryFailureThrottled(t *testing.T) {
 	}
 }
 
-func TestResolve(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t, []string{realmNava})
-	s := h.idp.signer(realmNava)
-	now := h.clock.now()
-
-	c := h.idp.tenantClaims(realmNava, now)
-	_, err := h.a.Resolve(t.Context(), sign(t, s, c))
-	if !errors.Is(err, identity.ErrTenantUnresolved) {
-		t.Fatalf("one organization: err = %v, want ErrTenantUnresolved until T17 binds it", err)
-	}
-	for name, org := range map[string]any{
-		"none":       nil,
-		"two":        map[string]any{"a": map[string]any{"id": "1"}, "b": map[string]any{"id": "2"}},
-		"empty":      map[string]any{},
-		"no id":      map[string]any{"a": map[string]any{}},
-		"not object": []string{"a"},
-	} {
-		c := h.idp.tenantClaims(realmNava, now)
-		if org == nil {
-			delete(c, "organization")
-		} else {
-			c["organization"] = org
-		}
-		_, err := h.a.Resolve(t.Context(), sign(t, s, c))
-		if !errors.Is(err, identity.ErrTenantUnresolved) {
-			t.Errorf("organization %s: err = %v, want ErrTenantUnresolved", name, err)
-		}
-	}
-}
-
 func TestResolveOperator(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, []string{realmNava})

@@ -30,6 +30,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/lestrrat-go/jwx/v3/jwa"
 	"github.com/lestrrat-go/jwx/v3/jwk"
 	"github.com/lestrrat-go/jwx/v3/jws"
@@ -68,12 +69,17 @@ type Config struct {
 	Logger *slog.Logger
 	// MeterProvider records nava.identity.jwks.fetch. Nil records nothing.
 	MeterProvider metric.MeterProvider
+	// Store holds the tenant bindings and principals Resolve reads (A.1
+	// steps 3-4). Without one, Resolve refuses every token: an operator-only
+	// adapter needs none.
+	Store identity.Store
 }
 
 // Adapter validates access tokens. It is an identity.IdentityResolver and an
 // identity.OperatorResolver. Close it to stop the key refresh.
 type Adapter struct {
 	keys             *keySource
+	store            identity.Store
 	issuers          []string
 	audience         string
 	operatorAudience string
@@ -125,6 +131,7 @@ func newAdapter(ctx context.Context, cfg Config, out *telemetry.OutboundClient, 
 	}
 	return &Adapter{
 		keys:             keys,
+		store:            cfg.Store,
 		issuers:          slices.Clone(cfg.Issuers),
 		audience:         cfg.Audience,
 		operatorAudience: cfg.OperatorAudience,
@@ -135,20 +142,72 @@ func newAdapter(ctx context.Context, cfg Config, out *telemetry.OutboundClient, 
 // Close stops the key cache.
 func (a *Adapter) Close(ctx context.Context) error { return a.keys.close(ctx) }
 
-// Resolve validates a tenant access token and resolves its tenant.
+// Resolve validates a tenant access token and resolves its tenant (A.1
+// steps 1-4). Every check fails closed:
+//   - exactly one organization (step 2);
+//   - the binding of (iss, organization id) gives the tenant (step 4), never
+//     a claim value (I2);
+//   - an idp claim, if present, must be one of the tenant's bound aliases
+//     (step 3);
+//   - independently of the claim, the principal synced for sub must exist,
+//     its federated links must be known (not NULL) and each one a bound
+//     alias, and it must be enabled (step 3, TICK-69 review).
+//
+// A refusal wraps ErrTenantUnresolved or ErrInvalidToken with a fixed reason
+// that never quotes a claim. A store failure wraps neither, for a 500.
 func (a *Adapter) Resolve(ctx context.Context, raw string) (identity.Principal, error) {
 	tok, err := a.verify(ctx, raw, a.audience)
 	if err != nil {
 		return identity.Principal{}, err
 	}
-	if _, err := organizationID(tok); err != nil {
+	orgID, err := organizationID(tok)
+	if err != nil {
 		return identity.Principal{}, err
 	}
-	// TODO(TODO-007): T17 (A.1 steps 3-4) checks the idp claim and the
-	// user's federated links, then looks the tenant up in
-	// tenant_identity_binding by (issuer, org id). Until then no token
-	// resolves: fail closed.
-	return identity.Principal{}, fmt.Errorf("%w: no tenant binding", identity.ErrTenantUnresolved)
+	idp, err := idpAlias(tok)
+	if err != nil {
+		return identity.Principal{}, err
+	}
+	if a.store == nil {
+		return identity.Principal{}, unresolved("no store")
+	}
+	iss, _ := tok.Issuer()
+	sub, _ := tok.Subject()
+
+	b, err := a.store.Binding(ctx, iss, orgID)
+	switch {
+	case errors.Is(err, identity.ErrNoBinding):
+		return identity.Principal{}, unresolved("no tenant binding")
+	case err != nil:
+		return identity.Principal{}, fmt.Errorf("keycloak: resolve: %w", err)
+	}
+	if idp != "" && !slices.Contains(b.IdPAliases, idp) {
+		return identity.Principal{}, unresolved("idp not bound")
+	}
+
+	p, err := a.store.Principal(ctx, b.TenantID, sub)
+	switch {
+	case errors.Is(err, identity.ErrNoPrincipal):
+		return identity.Principal{}, unresolved("principal not synced")
+	case err != nil:
+		return identity.Principal{}, fmt.Errorf("keycloak: resolve: %w", err)
+	}
+	if !p.LinksKnown {
+		return identity.Principal{}, unresolved("federated links unknown")
+	}
+	for _, l := range p.FederatedIdPs {
+		if !slices.Contains(b.IdPAliases, l) {
+			return identity.Principal{}, unresolved("federated link not bound")
+		}
+	}
+	if !p.Enabled {
+		return identity.Principal{}, unresolved("principal disabled")
+	}
+	groups := p.Groups
+	if groups == nil {
+		groups = []uuid.UUID{}
+	}
+	return identity.Principal{TenantID: b.TenantID, PrincipalID: p.ID, Groups: groups, IdPAlias: idp}, nil
 }
 
 // ResolveOperator validates an operator access token: audience
@@ -167,6 +226,10 @@ func (a *Adapter) ResolveOperator(ctx context.Context, raw string) (identity.Ope
 
 func invalid(reason string) error {
 	return fmt.Errorf("%w: %s", identity.ErrInvalidToken, reason)
+}
+
+func unresolved(reason string) error {
+	return fmt.Errorf("%w: %s", identity.ErrTenantUnresolved, reason)
 }
 
 // verify checks raw for audience aud and returns its claims. Every error
@@ -301,6 +364,20 @@ func organizationID(tok jwt.Token) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("%w: organization id", identity.ErrTenantUnresolved)
+}
+
+// idpAlias reads the idp claim: the brokering IdP's alias, written by the
+// realm's session note mapper (A.1 realm export). Absent means a local login
+// and returns "". A claim that is present but not a non-empty string is
+// refused, never read as absent.
+func idpAlias(tok jwt.Token) (string, error) {
+	if !tok.Has("idp") {
+		return "", nil
+	}
+	if s, ok := stringClaim(tok, "idp"); ok && s != "" {
+		return s, nil
+	}
+	return "", unresolved("idp claim")
 }
 
 // hasRealmRole reports whether realm_access.roles holds role.
