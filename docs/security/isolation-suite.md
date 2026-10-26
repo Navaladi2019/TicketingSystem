@@ -20,6 +20,9 @@ A throwaway PostgreSQL gets db-roles and every migration, the same as a first `d
    - `nava_onboard` binds P (the control), but cannot bind P once activated, or A or B.
    - `nava_onboard` cannot move A, or P once activated in the same transaction, back to `provisioning`.
    - `nava_backup` runs T08's `pg_hba` cases (`internal/db/hba.BackupCases`, which `db/pg_hba_test.go` runs too) on the embedded `db/pg_hba.conf`, and gets 42501 connecting to `nava` (no CONNECT, under the `pg_hba` reject). `make stack-test-hba` proves the reject on the running stack.
+   T26 (TICK-82) adds the eight deprovisioning and identity-boundary cases (`boundary_paths.go`, case `T26`; see [deprovisioning-identity-boundary.md](deprovisioning-identity-boundary.md)). Two new path kinds:
+   - `API` paths drive the database (`Cluster`) and the real handler (`Server`: mint test-realm tokens, call `/api/v1`, ask the operator resolver) together. Cases 1 and 2 run a real `nava-groupsync` cycle between two calls with the same token. Cases 6 and 8 hold the operator boundary.
+   - `Stack` paths name an `internal/identitystack` test that needs the real Keycloak (cases 3, 4, 5 and 7). They run in `make stack-test-identity`, the report lists them as `STACK`, and `TestStackPathsExist` fails when the named test is missing.
 3. **Fixtures.** Each one breaks a single control and must turn a PASS line into a FAIL:
    - `NO FORCE` on `records`, which the owner line catches;
    - RLS disabled on `outbox`;

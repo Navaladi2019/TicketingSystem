@@ -93,9 +93,13 @@ func (r report) writeFixtures(b *strings.Builder, id string) {
 	}
 }
 
+// idNum orders ADR test ids by number; a task id such as T26 comes after them.
 func idNum(id string) int {
 	var n int
-	_, _ = fmt.Sscanf(id, "CI-%d", &n)
+	if _, err := fmt.Sscanf(id, "CI-%d", &n); err != nil {
+		_, _ = fmt.Sscanf(id, "T%d", &n)
+		return 1000 + n
+	}
 	return n
 }
 

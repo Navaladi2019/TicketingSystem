@@ -36,6 +36,9 @@ const (
 	statusFail    = "FAIL"
 	statusAllowed = "ALLOWLISTED"
 	statusPending = "PENDING"
+	// statusStack is a path proved by an internal/identitystack test on the
+	// real Keycloak; TestStackPathsExist checks the test is there.
+	statusStack = "STACK"
 )
 
 // TestCI2EveryRoleEveryTenantTable is ADR-001 CI-2 over every tenant table

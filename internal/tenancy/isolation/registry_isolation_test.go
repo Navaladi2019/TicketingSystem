@@ -1,6 +1,10 @@
 package isolation
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -29,13 +33,13 @@ func TestRegistryIsWellFormed(t *testing.T) {
 			t.Errorf("path %q: case %q is not in Coverage", p.Name, p.Case)
 		}
 		calls := 0
-		for _, set := range []bool{p.SQL != nil, p.HTTP != nil, p.Check != nil, p.DB != nil} {
+		for _, set := range []bool{p.SQL != nil, p.HTTP != nil, p.Check != nil, p.DB != nil, p.API != nil, p.Stack != ""} {
 			if set {
 				calls++
 			}
 		}
 		if calls != 1 {
-			t.Errorf("path %q: %d calls, want exactly one of SQL, HTTP, Check, DB", p.Name, calls)
+			t.Errorf("path %q: %d calls, want exactly one of SQL, HTTP, Check, DB, API, Stack", p.Name, calls)
 		}
 		if p.SQL != nil {
 			r, ok := m.Roles[p.Role]
@@ -82,5 +86,42 @@ func TestCursorPathsHold(t *testing.T) {
 		if err := p.Check(t.Context()); err != nil {
 			t.Errorf("%s: %v", p.Name, err)
 		}
+	}
+}
+
+// TestStackPathsExist: every Stack path names a Test function of
+// internal/identitystack, so renaming or deleting the live-Keycloak test
+// fails here (ci-unit) instead of leaving a registration that proves nothing.
+func TestStackPathsExist(t *testing.T) {
+	dir := filepath.Join("..", "..", "identitystack")
+	files, err := filepath.Glob(filepath.Join(dir, "*_test.go"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no tests in %s: %v", dir, err)
+	}
+	tests := map[string]bool{}
+	fset := token.NewFileSet()
+	for _, f := range files {
+		af, err := parser.ParseFile(fset, f, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, d := range af.Decls {
+			if fn, ok := d.(*ast.FuncDecl); ok && fn.Recv == nil && strings.HasPrefix(fn.Name.Name, "Test") {
+				tests[fn.Name.Name] = true
+			}
+		}
+	}
+	n := 0
+	for _, p := range Paths() {
+		if p.Stack == "" {
+			continue
+		}
+		n++
+		if !tests[p.Stack] {
+			t.Errorf("path %q: %s is not a test in internal/identitystack", p.Name, p.Stack)
+		}
+	}
+	if n == 0 {
+		t.Error("no Stack path registered: T26 cases 3, 4, 5 and 7 are missing")
 	}
 }

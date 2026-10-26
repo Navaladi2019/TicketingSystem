@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/identity/keycloak"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity/keycloak/keycloaktest"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity/pgstore"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
@@ -33,9 +34,14 @@ const (
 )
 
 type apiRunner struct {
-	h     http.Handler
-	token string
+	t        *testing.T
+	h        http.Handler
+	token    string
+	realm    *keycloaktest.Realm
+	resolver *keycloak.Adapter
 }
+
+var _ Server = (*apiRunner)(nil)
 
 func newAPIRunner(t *testing.T) *apiRunner {
 	t.Helper()
@@ -70,11 +76,13 @@ func newAPIRunner(t *testing.T) *apiRunner {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = tel.Shutdown(context.Background()) })
-	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel, realm.Resolver(t, pgstore.New(pool)))
+	resolver := realm.Resolver(t, pgstore.New(pool), OperatorSubject)
+	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel, resolver)
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := &apiRunner{h: h, token: realm.Mint(t, keycloaktest.Token{Subject: isoSubject, Orgs: map[string]string{"tenant-a": isoOrgID}})}
+	r := &apiRunner{t: t, h: h, realm: realm, resolver: resolver}
+	r.token = r.Mint(Token{Subject: isoSubject})
 
 	// Without this baseline every path could pass on a 401: the token must
 	// really resolve to tenant A.
@@ -83,6 +91,33 @@ func newAPIRunner(t *testing.T) *apiRunner {
 		t.Fatalf("baseline GET /api/v1/me with tenant A's token = %d %s; want 200 for tenant A", rec.Code, rec.Body)
 	}
 	return r
+}
+
+// Mint implements Server.
+func (r *apiRunner) Mint(tok Token) string {
+	kt := keycloaktest.Token{Subject: tok.Subject, Audiences: tok.Audiences, RealmRoles: tok.RealmRoles}
+	if !tok.NoOrg {
+		kt.Orgs = map[string]string{"tenant-a": isoOrgID}
+	}
+	return r.realm.Mint(r.t, kt)
+}
+
+// Do implements Server.
+func (r *apiRunner) Do(ctx context.Context, method, path, token, body string) (int, string) {
+	req := httptest.NewRequestWithContext(ctx, method, path, strings.NewReader(body))
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	r.h.ServeHTTP(rec, req)
+	return rec.Code, rec.Body.String()
+}
+
+// ResolveOperator implements Server.
+func (r *apiRunner) ResolveOperator(ctx context.Context, token string) error {
+	_, err := r.resolver.ResolveOperator(ctx, token)
+	return err
 }
 
 func (r *apiRunner) do(t *testing.T, c *HTTPCall) *httptest.ResponseRecorder {
