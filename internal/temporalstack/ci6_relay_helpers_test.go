@@ -28,6 +28,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
+	"github.com/Navaladi2019/TicketingSystem/internal/relay"
 	"github.com/Navaladi2019/TicketingSystem/internal/workerguard"
 )
 
@@ -189,9 +190,19 @@ WHERE tenant_id = '%s' AND dispatched_at IS NULL AND dead_at IS NULL;`, tg.tenan
 	return tg
 }
 
-// workflowID is the id the relay gives the start (relay.WorkflowID).
-func (tg *target) workflowID() string {
-	return "t:" + tg.tenant.String() + ":" + relayType + ":" + tg.start.String()
+// workflowID is the id the relay gives the start.
+func (tg *target) workflowID() string { return relayWorkflowID(tg.tenant, tg.start) }
+
+// relayWorkflowID is the id relay.WorkflowID, the single source the relay
+// uses (docs/architecture/outbox-relay.md), gives a relayType start row of
+// tenant with outbox id start. It panics if the relay would refuse the row:
+// that is a broken fixture, not a test result.
+func relayWorkflowID(tenant, start uuid.UUID) string {
+	id, ok := relay.WorkflowID(relay.Claimed{ID: start, TenantID: tenant, Kind: relayType, TargetKey: relayType + ":" + start.String()})
+	if !ok {
+		panic("relay.WorkflowID refused the " + relayType + " fixture")
+	}
+	return id
 }
 
 // refs is a references-only payload (outbox.ValidatePayload).

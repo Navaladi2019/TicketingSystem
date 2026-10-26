@@ -71,6 +71,9 @@ func TestAllPass(t *testing.T) {
 	if !strings.Contains(out, "| CI-7 | Producer schema rejects record-data fields | `TestCI7_ProducerSchemaRejectsRecordDataFields` |") {
 		t.Errorf("report does not list the CI-7 producer schema case as CI-7:\n%s", out)
 	}
+	if !strings.Contains(out, "| CI-6 | NotFound on a signal is terminal | `TestCI6_RelaySignalNotFoundIsTerminal` |") {
+		t.Errorf("report does not list the CI-6 NotFound case as CI-6:\n%s", out)
+	}
 	if !strings.Contains(out, "`TestCIHReservedSystemWorkloadDenied` | PASS |") {
 		t.Errorf("report lacks the other test:\n%s", out)
 	}

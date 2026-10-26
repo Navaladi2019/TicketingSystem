@@ -52,7 +52,7 @@ func TestCI6_WorkerStartWithMissingOrMismatchedHeaderFailsWorkflow(t *testing.T)
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tenant := uuid.New()
-			id := "t:" + tenant.String() + ":" + relayType + ":" + uuid.NewString()
+			id := relayWorkflowID(tenant, uuid.New())
 			run, err := tc.start(id, tenant)
 			if err != nil {
 				t.Fatalf("start %s: %v (the Authorizer must let it reach the worker)", id, err)
