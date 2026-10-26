@@ -13,9 +13,13 @@ codes:
     title: Invalid token
     detail: The access token is missing, expired or invalid.
   - code: idempotency_key_reuse
-    status: 422
+    status: 409
     title: Idempotency key reused
     detail: The Idempotency-Key was already used with a different request.
+  - code: idempotency_in_flight
+    status: 409
+    title: Request in progress
+    detail: A request with this Idempotency-Key is still being processed. Retry after the interval in Retry-After.
   - code: invalid_cursor
     status: 400
     title: Invalid cursor

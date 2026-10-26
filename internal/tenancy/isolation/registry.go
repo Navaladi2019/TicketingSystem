@@ -125,7 +125,7 @@ func Coverage() map[string]string {
 	return map[string]string{
 		"CI-2":  "full: generic checks on every tenant table; forged-tenant HTTP paths (T17)",
 		"CI-9":  "full: nava_relay, nava_purge, nava_onboard and nava_backup reach (T12); nava_backup through T08's pg_hba cases",
-		"CI-8":  "partial → TICK-87 (byte-identical 404, stale If-Match 412, masked-field filter 400); cursor cases from T23",
+		"CI-8":  "partial → TICK-87 (byte-identical 404, stale If-Match 412, masked-field filter 400); cursor cases from T23; idempotency cases from T22",
 		"CI-10": "partial → TICK-88; no path registered yet (T29 depth limit is a unit test)",
 	}
 }
@@ -221,5 +221,6 @@ func Paths() []Path {
 			Header: http.Header{"Baggage": {"tenant_id=" + TenantB + ",nava.tenant_id=" + TenantB}}}),
 	}
 	paths = append(paths, cursorPaths()...)
+	paths = append(paths, idempotencyPaths()...)
 	return append(paths, rolePaths()...)
 }
