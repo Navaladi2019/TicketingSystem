@@ -395,15 +395,24 @@ func TestWalkStopsAtDepthBound(t *testing.T) {
 	if _, err := super.Exec(ctx, "UPDATE org_units SET parent_id = $3 WHERE tenant_id = $1 AND id = $2", tid, ids[0], ids[11]); err != nil {
 		t.Fatal(err)
 	}
-	done := make(chan error, 1)
-	go func() { done <- walk(ids[5], 5) }()
-	select {
-	case err := <-done:
-		if !errors.Is(err, groupsync.ErrOrgUnitCycle) {
-			t.Errorf("cycle: err = %v, want ErrOrgUnitCycle", err)
+	// Both walks run on the 12-unit cycle. With a bound of 5 the walk hits the
+	// bound before it returns to its start, so it fails closed with
+	// ErrOrgUnitDepth; with a bound of 20 it comes back around and reports the
+	// cycle. Either way it must stop.
+	for _, c := range []struct {
+		bound int
+		want  error
+	}{{5, groupsync.ErrOrgUnitDepth}, {20, groupsync.ErrOrgUnitCycle}} {
+		done := make(chan error, 1)
+		go func() { done <- walk(ids[5], c.bound) }()
+		select {
+		case err := <-done:
+			if !errors.Is(err, c.want) {
+				t.Errorf("cycle with a bound of %d: err = %v, want %v", c.bound, err, c.want)
+			}
+		case <-time.After(30 * time.Second):
+			t.Fatalf("the walk did not stop on a cycle with a bound of %d", c.bound)
 		}
-	case <-time.After(30 * time.Second):
-		t.Fatal("the walk did not stop on a cycle")
 	}
 }
 
