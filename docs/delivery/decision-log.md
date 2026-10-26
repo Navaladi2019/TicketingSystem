@@ -18,6 +18,7 @@ Delivery decisions that change a task's contract, newest first.
   - Open PRs #116, #126, #129 and #130 were retargeted to their story branches. Their `agent/...` head names stay, because renaming a PR's head branch closes the PR on GitHub.
   - Who merges is settled by the TICK-243 entry above: agents merge task PRs into story branches, and the owner merges story → `main` PRs and ADRs.
   - TICK-231 itself has no story, so it targets `main`.
+- **Addendum (owner, same day):** stories must not share files. A dependent story waits in `backlog` until the story it depends on has merged into `main`. A story → `main` PR needs: `main` merged into the story branch, a full CI re-run, a whole-diff review by the Principal Software Engineer (plus Security when tenant data, auth or ACLs are touched), QA's green CI and acceptance kit, and the list of files it changes.
 - **Deferred:**
   - Branch protection on `main` and on story branches. Today nothing is protected. Owner: the CTO with the Quality, Testing & CI Advisor (TICK-232). The owner applies the settings.
   - Deleting about 60 legacy branches. Trigger: the owner approves the cleanup.

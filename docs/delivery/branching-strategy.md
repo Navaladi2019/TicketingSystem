@@ -21,7 +21,27 @@ Nothing at task level merges straight into `main`. Work flows from a task branch
 
 - The Technical Lead creates the story branch from `main` and names it on the story and on every task under it.
 - Keep it fresh by merging `main` into it. Story branches are shared, so never force-push them and never rebase them.
-- The story → `main` PR opens only when every task PR has merged into the story branch and the acceptance kit has passed on the story branch (`story-acceptance`). The owner merges it. Agents never merge into `main`.
+- Create a story branch only when its story is free to start (see [Story independence](#story-independence)).
+
+## Story independence
+
+- **Stories must be independent: no two stories may touch the same file.** When a plan or grooming splits work into stories, list the files and packages each story is expected to change. Check the lists for overlap before any story starts.
+- **A dependent story waits.** If story 2 depends on story 1, because they share files or story 2 needs story 1's code:
+  - keep story 2 in `backlog` with `Depends on: <story 1>`;
+  - do not create its story branch until story 1 has merged into `main`;
+  - then create it from the updated `main`.
+- **An overlap found mid-flight stops the later story.** Tell the owner and re-sequence. Never resolve an overlap by merging stories into each other.
+
+## Story branch → `main`
+
+Take the utmost care here. Before the story PR opens:
+
+1. Merge the current `main` into the story branch and resolve any conflict there, never on `main`. Re-run the full GitHub Actions suite on the result, including the tenancy-isolation tests (`gh workflow run ci --ref <story-branch>`).
+2. The Principal Software Engineer reviews the whole story diff against `main`, not task by task. The Security & Multi-Tenancy Reviewer joins when the diff touches tenant data, auth or ACLs.
+3. The Quality, Testing & CI Advisor confirms that every job is green and that the story's acceptance kit passed on a fresh stack (`story-acceptance`).
+4. The story PR lists the files it changes and confirms that no other open story touches them.
+
+Every task PR must already have merged into the story branch. Only then add `MergePr` to the story PR. The owner merges it. Agents never merge into `main`.
 
 ## Task branches
 
@@ -81,3 +101,5 @@ On 2026-10-26 these PRs were retargeted from `main` to their story branches. The
 `TICK-48/api-ground-rules` was also created, for in-flight TICK-212 and TICK-77.
 
 The head branches of these four PRs keep their `agent/...` names. On GitHub, renaming a PR's head branch closes the PR ([GitHub docs](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-branches-in-your-repository/renaming-a-branch)), which would lose review threads and CI history. Every new task branch, and every PR still to be opened for an in-flight task, uses the new names. About 60 legacy branches (`agent/*`, `docs/*`, `sec/*` and others) remain. Deleting the merged ones is a cleanup for the owner to approve.
+
+**Overlap found at cutover (2026-10-26):** `cmd/nava-groupsync/main.go` is changed by #129 (TICK-222, story TICK-47) and by #126 (TICK-174, story TICK-49). That breaks the story-independence rule. The Technical Lead has asked the owner on TICK-231 how to re-sequence. No other pair of open task PRs shares a file.
