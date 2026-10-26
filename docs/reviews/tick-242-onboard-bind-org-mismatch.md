@@ -30,3 +30,7 @@ Tenant isolation is not reviewed in depth here (Security & Multi-Tenancy Reviewe
 ## CI
 
 GitHub `ci` run 40353754271 on `482f5f9`: changes, lint, unit, temporal-server, integration, stack, stack-db and stack-internal all passed.
+
+## Closure
+
+QA confirmed all three findings closed on `4005b68`. The two follow-ups that came out of the review (the service-level assertion on a Bind conflict, and the one-binding-per-tenant assumption in `Registry.Binding`) were done in TICK-249.

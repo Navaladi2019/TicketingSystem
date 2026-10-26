@@ -307,10 +307,11 @@ func TestOnboardDomainOwnedByAnotherTenant(t *testing.T) {
 }
 
 func TestOnboardBindConflict(t *testing.T) {
-	svc, st, _ := newSvc(t)
+	svc, st, dir := newSvc(t)
 	st.failOnce = ErrConflict
-	if _, err := svc.Onboard(t.Context(), op1, "k", []byte("h"), validReq()); !errors.Is(err, ErrConflict) {
-		t.Fatalf("err = %v", err)
+	_, err := svc.Onboard(t.Context(), op1, "k", []byte("h"), validReq())
+	if !errors.Is(err, ErrConflict) || len(dir.invites) != 0 || st.active[TenantID("op-1", "k")] {
+		t.Fatalf("err=%v invites=%d", err, len(dir.invites))
 	}
 }
 

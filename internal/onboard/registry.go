@@ -42,6 +42,14 @@ func (*Registry) GroupKeycloakID(context.Context, uuid.UUID, uuid.UUID) (string,
 // Binding implements BindingReader: the (issuer, org id) the tenant is bound
 // to, read in InTenantTx as nava_app. binding_lookup is USING (true) for
 // nava_app, so the WHERE clause on tenant_id scopes the read, not an RLS policy.
+//
+// It assumes one binding row per tenant. The primary key (tenant_id, issuer,
+// org_id) allows several and QueryRow has no ORDER BY, so with more than one
+// row it reads an arbitrary one; Bind then compares against it and fails
+// closed with a false ErrConflict. Revisit trigger: if a second binding writer
+// (re-binding, IdP migration) is ever designed, that design must add
+// UNIQUE (tenant_id) or make Binding fail on more than one row, and the check
+// becomes "a row with exactly (tenant, issuer, org) exists".
 func (r *Registry) Binding(ctx context.Context, tenantID uuid.UUID) (issuer, orgID string, found bool, err error) {
 	err = tenancy.InTenantTx(ctx, r.pool, tenantID, func(tx pgx.Tx) error {
 		e := tx.QueryRow(ctx, "SELECT issuer, org_id FROM tenant_identity_binding WHERE tenant_id = $1", tenantID).Scan(&issuer, &orgID)
