@@ -403,6 +403,89 @@ func TestPlatformServiceAccountCanAssignOperator(t *testing.T) {
 			t.Errorf("cleanup: could not remove nava-operator from bob: %d %s", code, b)
 		}
 	})
+
+	// AR-030: the mapping gets bob a real operator token, and ResolveOperator
+	// still refuses it, because bob is not on the operator allow-list.
+	tok := passwordToken(t, "nava-operator-cli", "bob@tenant-b.test", "dev-only-bob")
+	c := claims(t, tok)
+	if !strings.Contains(fmt.Sprint(c["realm_access"]), "nava-operator") || !audHas(t, tok, "nava-operator-api") {
+		t.Fatalf("bob's token is not an operator token: realm_access=%v aud=%v", c["realm_access"], c["aud"])
+	}
+	a := stackAdapter(t, tok)
+	if _, err := a.ResolveOperator(t.Context(), tok); !errors.Is(err, identity.ErrInvalidToken) {
+		t.Errorf("ResolveOperator(role-mapped, not allow-listed) = %v, want ErrInvalidToken", err)
+	}
+	op := passwordToken(t, "nava-operator-cli", "operator@nava.test", "dev-only-operator")
+	if _, err := a.ResolveOperator(t.Context(), op); err != nil {
+		t.Errorf("ResolveOperator(allow-listed operator) = %v", err)
+	}
+}
+
+// stackOperatorID is the Keycloak id of operator@nava.test, pinned in the
+// realm export so the stack's operator allow-list is platform config, not a
+// lookup in the IdP it guards (AR-030).
+const stackOperatorID = "00000000-0000-4000-8000-00000000f001"
+
+// TestOperatorRoleMembersAllowListed is AR-030's live check: every user who
+// holds the realm role nava-operator, directly or through a group, is on the
+// stack's operator allow-list. A role mapping made outside the platform fails
+// it.
+func TestOperatorRoleMembersAllowListed(t *testing.T) {
+	allow := []string{stackOperatorID}
+	adm := masterToken(t)
+	code, b := admin(t, adm, http.MethodGet, "/roles/nava-operator/users?max=1000", nil)
+	var users []struct{ ID, Username string }
+	if code != http.StatusOK || json.Unmarshal(b, &users) != nil {
+		t.Fatalf("nava-operator users: %d %s", code, b)
+	}
+	if len(users) == 0 {
+		t.Fatal("nava-operator has no members: the check would pass vacuously")
+	}
+	for _, u := range users {
+		if !slices.Contains(allow, u.ID) {
+			t.Errorf("nava-operator member %s (%s) is not on the operator allow-list", u.Username, u.ID)
+		}
+	}
+	code, b = admin(t, adm, http.MethodGet, "/roles/nava-operator/groups", nil)
+	if code != http.StatusOK {
+		t.Fatalf("nava-operator groups: %d %s", code, b)
+	}
+	if strings.TrimSpace(string(b)) != "[]" {
+		t.Errorf("nava-operator is mapped to groups, whose members bypass this check: %s", b)
+	}
+}
+
+// stackAdapter is the Keycloak adapter trusting tok's issuer, with the
+// stack's operator allow-list.
+func stackAdapter(t *testing.T, tok string) *keycloak.Adapter {
+	t.Helper()
+	iss, _ := claims(t, tok)["iss"].(string)
+	if iss == "" {
+		t.Fatal("token has no iss")
+	}
+	cfg, err := config.Load(func(string) (string, bool) { return "", false })
+	if err != nil {
+		t.Fatal(err)
+	}
+	tel, err := telemetry.New(t.Context(), cfg.Telemetry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tel.Shutdown(context.Background()) })
+	out, err := telemetry.NewOutboundClient(tel, telemetry.OutboundOptions{Timeout: 5 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := keycloak.New(t.Context(), keycloak.Config{
+		Issuers:       []string{iss},
+		MeterProvider: tel.MeterProvider,
+		Operators:     []keycloak.OperatorSubject{{Issuer: iss, Subject: stackOperatorID}},
+	}, out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close(context.Background()) })
+	return a
 }
 
 func TestGroupSubtree(t *testing.T) {
@@ -662,30 +745,9 @@ func roundTripOrganizations(t *testing.T, want map[string]any) {
 // (the adapter has no store here, so it refuses). The same token is not an operator token.
 func TestAdapterAcceptsTenantToken(t *testing.T) {
 	tok := passwordToken(t, "nava-web", "alice@tenant-a.test", "dev-only-alice")
-	iss, _ := claims(t, tok)["iss"].(string)
-	if iss == "" {
-		t.Fatal("token has no iss")
-	}
-	cfg, err := config.Load(func(string) (string, bool) { return "", false })
-	if err != nil {
-		t.Fatal(err)
-	}
-	tel, err := telemetry.New(t.Context(), cfg.Telemetry)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = tel.Shutdown(context.Background()) })
-	out, err := telemetry.NewOutboundClient(tel, telemetry.OutboundOptions{Timeout: 5 * time.Second})
-	if err != nil {
-		t.Fatal(err)
-	}
-	a, err := keycloak.New(t.Context(), keycloak.Config{Issuers: []string{iss}, MeterProvider: tel.MeterProvider}, out)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = a.Close(context.Background()) })
+	a := stackAdapter(t, tok)
 
-	_, err = a.Resolve(t.Context(), tok)
+	_, err := a.Resolve(t.Context(), tok)
 	if !errors.Is(err, identity.ErrTenantUnresolved) {
 		t.Errorf("Resolve = %v, want ErrTenantUnresolved (token valid, no binding yet)", err)
 	}

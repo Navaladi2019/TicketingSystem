@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -221,7 +222,12 @@ func newHarnessFor(t *testing.T, idp *fakeIdP, trusted []string) *harness {
 	}
 	clock := newFakeClock()
 	store := newMemStore()
-	a, err := newAdapter(t.Context(), Config{Issuers: issuers, MeterProvider: tel.MeterProvider, Store: store}, out, clock.now)
+	// defaultSub is the one allow-listed operator, in realm nava when trusted.
+	var operators []OperatorSubject
+	if slices.Contains(trusted, realmNava) {
+		operators = []OperatorSubject{{Issuer: idp.issuer(realmNava), Subject: defaultSub}}
+	}
+	a, err := newAdapter(t.Context(), Config{Issuers: issuers, MeterProvider: tel.MeterProvider, Store: store, Operators: operators}, out, clock.now)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -513,6 +513,7 @@
       ]
     },
     {
+      "id": "00000000-0000-4000-8000-00000000f001",
       "username": "operator@nava.test",
       "email": "operator@nava.test",
       "emailVerified": true,
