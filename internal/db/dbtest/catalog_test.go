@@ -4,6 +4,7 @@ package dbtest
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -81,6 +82,57 @@ func TestT10GateFailsMigratorRun(t *testing.T) {
 				t.Fatalf("migrate error does not contain %q:\n%v", c.want, err)
 			}
 		})
+	}
+}
+
+// TICK-233: on a fresh database the migrations grant nothing off
+// db/grants.yaml. The manifest step would revoke such a grant, so the gate
+// alone, run on the healed catalogue, cannot see it; the revoke itself fails.
+func TestT10FreshMigrateRevokesNothing(t *testing.T) {
+	res, err := migrateFS(t, freshCluster(t), db.Migrations())
+	if err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if len(res.Grants.Revoked) != 0 {
+		t.Errorf("a fresh migrate revoked %q", res.Grants.Revoked)
+	}
+}
+
+// Negative fixtures: a migration that grants by hand, plainly or as a default
+// privilege, fails a fresh migrator run, which names the grant.
+func TestT10GateFailsHandGrantOnFreshCluster(t *testing.T) {
+	for _, c := range []struct{ name, up, want string }{
+		{"grant",
+			"GRANT SELECT ON records TO nava_relay;",
+			"CI-4: a migration granted SELECT table public.records TO nava_relay, which db/grants.yaml does not list"},
+		{"default_privilege",
+			"ALTER DEFAULT PRIVILEGES FOR ROLE nava_migrator GRANT SELECT ON TABLES TO nava_relay;",
+			"CI-4: a migration granted SELECT default DEFAULT TABLES TO nava_relay, which db/grants.yaml does not list"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			m := freshCluster(t)
+			_, err := migrateFS(t, m, withExtraMigration(t, "99999_t10_fixture.sql", "-- +goose Up\n"+c.up+"\n"))
+			if err == nil {
+				t.Fatalf("migrator passed a fresh run with %s", c.up)
+			}
+			if !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("migrate error does not contain %q:\n%v", c.want, err)
+			}
+		})
+	}
+}
+
+// On a database already migrated, the same grant is drift the manifest step
+// heals: it revokes and logs it, and the run passes (db/README.md).
+func TestT10HandGrantHealedOnDeployedDatabase(t *testing.T) {
+	m := migratedCluster(t)
+	res, err := migrateFS(t, m, withExtraMigration(t, "99999_t10_fixture.sql",
+		"-- +goose Up\nGRANT SELECT ON records TO nava_relay;\n"))
+	if err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if want := []string{"SELECT table public.records TO nava_relay"}; !slices.Equal(res.Grants.Revoked, want) {
+		t.Errorf("revoked %q, want %q", res.Grants.Revoked, want)
 	}
 }
 
