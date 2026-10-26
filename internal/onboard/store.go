@@ -20,7 +20,9 @@ import (
 // that tenant's rows (ADR-001-E3).
 type PGStore struct {
 	pool *pgxpool.Pool
-	// sem bounds concurrent onboardings. Each holds one connection for its
+	// sem bounds concurrent onboardings. It is per process, like the pool it
+	// protects: two nava-onboard processes each hold their own pool and their
+	// own sem, and the advisory lock is what serialises one tenant across them. Each holds one connection for its
 	// lock and takes a second for every statement transaction, so at most
 	// MaxConns/2 may run at once; more would each hold a lock connection and
 	// wait for a second one that never frees.
@@ -95,21 +97,33 @@ func (s *PGStore) Begin(ctx context.Context, tenantID uuid.UUID, hash []byte) (S
 // CONSTRAINT <primary key> DO NOTHING, which needs INSERT privilege only: a
 // retry skips the tenant's own rows. A binding of the same (issuer, org id) to
 // another tenant is a different unique key and still fails with 23505. A
-// domain another tenant owns is skipped too (the conflict check ignores RLS),
-// so the caller reads ownership afterwards under the tenant predicate.
+// domain another tenant owns is skipped by DO NOTHING (the conflict check
+// ignores RLS); on a first bind that is ErrDomainClaimed and the transaction
+// rolls back. The caller still reads ownership under the tenant predicate as a
+// second check.
 func (s *PGStore) Bind(ctx context.Context, tenantID uuid.UUID, issuer, orgID, idpAlias string, domains []string) error {
 	err := tenancy.InTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx,
+		bound, err := tx.Exec(ctx,
 			`INSERT INTO tenant_identity_binding (tenant_id, issuer, org_id, idp_aliases) VALUES ($1, $2, $3, $4)
 ON CONFLICT ON CONSTRAINT tenant_identity_binding_pkey DO NOTHING`,
-			tenantID, issuer, orgID, []string{idpAlias}); err != nil {
+			tenantID, issuer, orgID, []string{idpAlias})
+		if err != nil {
 			return err
 		}
+		// A first bind (the binding row is new) owns every domain it inserts:
+		// a domain insert that affects 0 rows lost to another tenant's row, so
+		// the whole transaction rolls back. On a retry (the binding row
+		// existed) a 0-row domain insert is this tenant's own earlier row.
+		first := bound.RowsAffected() == 1
 		for _, d := range domains {
-			if _, err := tx.Exec(ctx,
+			tag, err := tx.Exec(ctx,
 				`INSERT INTO tenant_email_domain (tenant_id, domain) VALUES ($1, $2)
-ON CONFLICT ON CONSTRAINT tenant_email_domain_pkey DO NOTHING`, tenantID, d); err != nil {
+ON CONFLICT ON CONSTRAINT tenant_email_domain_pkey DO NOTHING`, tenantID, d)
+			if err != nil {
 				return err
+			}
+			if first && tag.RowsAffected() != 1 {
+				return ErrDomainClaimed
 			}
 		}
 		return nil
@@ -118,6 +132,8 @@ ON CONFLICT ON CONSTRAINT tenant_email_domain_pkey DO NOTHING`, tenantID, d); er
 	switch {
 	case err == nil:
 		return nil
+	case errors.Is(err, ErrDomainClaimed):
+		return ErrDomainClaimed
 	case errors.As(err, &pgErr) && pgErr.Code == "23505":
 		return ErrConflict
 	default:

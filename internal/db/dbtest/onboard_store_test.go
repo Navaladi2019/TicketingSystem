@@ -120,10 +120,11 @@ func TestT21BindIsIdempotentAndActivationIsLast(t *testing.T) {
 	}
 }
 
-// A domain owned by another tenant is skipped by Bind (the conflict check
-// ignores RLS) and reads as "not owned" for the new tenant; the other tenant's
-// row is untouched. The service turns that into domain_claimed.
-func TestT21BindSkipsADomainAnotherTenantOwns(t *testing.T) {
+// A domain owned by another tenant fails a first Bind with ErrDomainClaimed and
+// rolls the whole transaction back: no binding row and no row for the tenant's
+// other domain. The other tenant's row is untouched. nava_app still reads the
+// domain as not owned (the second check).
+func TestT21BindRefusesADomainAnotherTenantOwns(t *testing.T) {
 	migratedPlatform(t)
 	super := superNava(t)
 	seedTenants(t, super, []string{tenantA}, nil)
@@ -133,18 +134,42 @@ func TestT21BindSkipsADomainAnotherTenantOwns(t *testing.T) {
 	if _, err := s.Begin(t.Context(), id, []byte("h")); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Bind(t.Context(), id, "https://kc/realms/nava", "org-b", "idp-b", []string{"taken.test", "mine.test"}); err != nil {
-		t.Fatalf("Bind: %v", err)
+	err := s.Bind(t.Context(), id, "https://kc/realms/nava", "org-b", "idp-b", []string{"mine.test", "taken.test"})
+	if !errors.Is(err, onboard.ErrDomainClaimed) {
+		t.Fatalf("Bind = %v, want ErrDomainClaimed", err)
+	}
+	if n := countRows(t, "SELECT count(*) FROM tenant_email_domain WHERE tenant_id = $1", id); n != 0 {
+		t.Errorf("tenant has %d domain rows after a refused Bind (mine.test must roll back), want 0", n)
+	}
+	if n := countRows(t, "SELECT count(*) FROM tenant_identity_binding WHERE tenant_id = $1", id); n != 0 {
+		t.Errorf("tenant has %d binding rows after a refused Bind, want 0", n)
 	}
 	reg := onboard.NewRegistry(rolePool(t, "nava_app", 2))
-	for domain, want := range map[string]bool{"taken.test": false, "mine.test": true} {
-		got, err := reg.TenantOwnsEmailDomain(t.Context(), id, domain)
-		if err != nil || got != want {
-			t.Errorf("TenantOwnsEmailDomain(%s) = %v, %v; want %v", domain, got, err, want)
-		}
+	if got, err := reg.TenantOwnsEmailDomain(t.Context(), id, "taken.test"); err != nil || got {
+		t.Errorf("TenantOwnsEmailDomain(taken.test) = %v, %v; want false", got, err)
 	}
 	if owner := queryString(t, super, "SELECT tenant_id::text FROM tenant_email_domain WHERE domain = 'taken.test'"); owner != tenantA {
 		t.Errorf("taken.test owner = %s, want %s", owner, tenantA)
+	}
+}
+
+// A same-arguments retry of a successful Bind succeeds and changes nothing:
+// the 0-row domain inserts are the tenant's own rows.
+func TestT21BindRetryChangesNothing(t *testing.T) {
+	migratedPlatform(t)
+	s := onboardStore(t, 4)
+	id := uuid.New()
+	if _, err := s.Begin(t.Context(), id, []byte("h")); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 3 {
+		if err := s.Bind(t.Context(), id, "https://kc/realms/nava", "org-r", "idp-r", []string{"r1.test", "r2.test"}); err != nil {
+			t.Fatalf("Bind #%d: %v", i+1, err)
+		}
+	}
+	if b, d := countRows(t, "SELECT count(*) FROM tenant_identity_binding WHERE tenant_id = $1", id),
+		countRows(t, "SELECT count(*) FROM tenant_email_domain WHERE tenant_id = $1", id); b != 1 || d != 2 {
+		t.Errorf("bindings=%d domains=%d, want 1 and 2", b, d)
 	}
 }
 

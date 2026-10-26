@@ -76,11 +76,13 @@ Headers: `Authorization: Bearer <operator token>`, `Idempotency-Key: <1..255 cha
    asks `Directory.FindTenantOrg`: a complete org and IdP are reused, a lone
    organization is deleted and recreated, anything else is `onboarding_conflict`.
 4. Binding and one `tenant_email_domain` row per domain, in one transaction, while
-   the tenant is still `provisioning`. The inserts are `ON CONFLICT ON CONSTRAINT
-   <primary key> DO NOTHING`, so a retry skips the tenant's own rows. A skipped
-   domain row may belong to another tenant, so the service then reads ownership of
-   every domain under the tenant predicate and answers `domain_claimed` if any is
-   not the tenant's.
+   the tenant is still `provisioning`. On a first bind every domain insert must
+   affect one row; a domain another tenant owns affects none, the transaction rolls
+   back and the call is `domain_claimed`. On a retry (the binding row existed) a
+   zero-row domain insert is the tenant's own earlier row. The inserts are `ON CONFLICT ON CONSTRAINT
+   <primary key> DO NOTHING`, so a retry skips the tenant's own rows. The service
+   then reads ownership of every domain under the tenant predicate as a second
+   check.
 5. `DirectoryAdmin.InviteUser` for the admin. A refused invite (`ErrInviteRefused`)
    is answered exactly like a sent one. Any other invite error is `5xx`, on the
    first call and on every replay.
@@ -98,3 +100,12 @@ domains and an invited admin.
 `NAVA_KEYCLOAK_URL`, `NAVA_KEYCLOAK_REALM`, `NAVA_DIRECTORY_CLIENT_ID/SECRET` (runtime
 account, for the invite) and `NAVA_ONBOARD_CLIENT_ID/SECRET` (onboarding account).
 Every one but the realm is required; the process refuses to start without them.
+
+## TODO: abandoning a provisioning tenant
+
+There is no way to abandon a `provisioning` tenant. A tenant whose onboarding never
+completes keeps its Keycloak organization, its IdP, and (once bound) its
+`tenant_identity_binding` and `tenant_email_domain` rows, so the domains stay
+claimed. Only the operator's own retry (same key and body) can finish or reuse it.
+Recorded as AR-032; needs an operator "abandon" operation that removes the Keycloak
+objects and releases the rows.
