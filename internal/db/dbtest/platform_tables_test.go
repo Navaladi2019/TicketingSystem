@@ -319,7 +319,7 @@ func TestT09OnboardCannotBindOtherProvisioningTenant(t *testing.T) {
 	}
 }
 
-// Adversarial (TICK-170, ADR-001-E3, AR-026): tenants_onboard_select has no
+// Adversarial (TICK-170, ADR-001-E3, AR-029): tenants_onboard_select has no
 // state test, so nava_onboard reads its own tenant's row in either state. The
 // residual stays one row: after activating X, onboard in InTenantTx(X) reads
 // X's active row and nothing of active A or provisioning Y, reads nothing with
@@ -372,6 +372,39 @@ func TestT09OnboardReadsOnlyOwnRowInEitherState(t *testing.T) {
 	}
 	_, err := execIn(onboard, tenantX, "INSERT INTO tenant_identity_binding (tenant_id, issuer, org_id) VALUES ($1, 'https://kc/realms/nava', 'org-x')", tenantX)
 	wantSQLState(t, "bind X after activation", err, "42501")
+}
+
+// Acceptance (TICK-180, AR-029): nava_onboard's SELECT on tenants is a
+// column list, so a column added later is unreadable to it until granted,
+// while the four granted columns and both activation shapes still work. The
+// database is a fresh copy of the template, so the ALTER does not leak.
+func TestT09OnboardSelectIsColumnList(t *testing.T) {
+	migratedPlatform(t)
+	super := superNava(t)
+	exec(t, super, "ALTER TABLE tenants ADD COLUMN probe text")
+	onboard := asRole(t, "nava_onboard")
+	ctx := context.Background()
+
+	if _, err := execIn(onboard, tenantX, "INSERT INTO tenants (id, state, onboarding_request_hash) VALUES ($1, 'provisioning', '\\x01')", tenantX); err != nil {
+		t.Fatalf("create X: %v", err)
+	}
+	_, err := execIn(onboard, tenantX, "SELECT probe FROM tenants")
+	wantSQLState(t, "read a column added after the grant", err, "42501")
+	var id, state string
+	err = inTenantTx(onboard, tenantX, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, "SELECT id::text, state, onboarding_request_hash, created_at FROM tenants").Scan(&id, &state, new([]byte), new(any))
+	})
+	if err != nil || id != tenantX || state != "provisioning" {
+		t.Fatalf("read granted columns: %s/%s, %v; want %s/provisioning", id, state, err, tenantX)
+	}
+
+	if n, err := execIn(onboard, tenantX, "UPDATE tenants SET state = 'active' WHERE id = $1 RETURNING id", tenantX); err != nil || n != 1 {
+		t.Fatalf("activate X with RETURNING id: %d rows, %v; want 1, nil", n, err)
+	}
+	exec(t, super, "UPDATE tenants SET state = 'provisioning' WHERE id = $1", tenantX)
+	if n, err := execIn(onboard, tenantX, "UPDATE tenants SET state = 'active' WHERE id = $1", tenantX); err != nil || n != 1 {
+		t.Fatalf("activate X: %d rows, %v; want 1, nil", n, err)
+	}
 }
 
 // Acceptance: exactly 10 policies do not reference app.tenant_id, and they
