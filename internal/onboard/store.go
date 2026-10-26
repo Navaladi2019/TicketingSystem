@@ -115,6 +115,18 @@ type BindingReader interface {
 // organization is bound to another tenant (ErrConflict). The caller still
 // reads domain ownership under the tenant predicate as a second check.
 func (s *PGStore) Bind(ctx context.Context, tenantID uuid.UUID, issuer, orgID, idpAlias string, domains []string) error {
+	// Only a provisioning tenant is bound, whether or not a binding row exists:
+	// this refusal comes before the retry decision. nava_onboard reads its own
+	// tenant's row in either state (ADR-001-E3).
+	var state string
+	if err := tenancy.InTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, "SELECT state FROM tenants WHERE id = $1", tenantID).Scan(&state)
+	}); err != nil {
+		return fmt.Errorf("onboard: bind: %w", err)
+	}
+	if state != "provisioning" {
+		return ErrNotProvisioning
+	}
 	bound, err := s.bindings.HasBinding(ctx, tenantID)
 	if err != nil {
 		return fmt.Errorf("onboard: bind: %w", err)

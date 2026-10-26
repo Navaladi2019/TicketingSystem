@@ -112,8 +112,12 @@ func TestT21BindIsIdempotentAndActivationIsLast(t *testing.T) {
 	if err := s.Activate(t.Context(), id); !errors.Is(err, onboard.ErrNotProvisioning) {
 		t.Errorf("Activate on an active tenant: %v, want ErrNotProvisioning", err)
 	}
-	if err := s.Bind(t.Context(), id, "https://kc/realms/nava", "org-other", "idp-x", []string{"late.test"}); err == nil {
-		t.Error("Bind on an active tenant succeeded")
+	if err := s.Bind(t.Context(), id, "https://kc/realms/nava", "org-other", "idp-x", []string{"late.test"}); !errors.Is(err, onboard.ErrNotProvisioning) {
+		t.Errorf("Bind on an active tenant = %v, want ErrNotProvisioning", err)
+	}
+	// Refused even when the binding row exists (the retry path): same arguments.
+	if err := s.Bind(t.Context(), id, "https://kc/realms/nava", "org-"+id.String(), "idp-x", []string{"acme.test", "acme.example"}); !errors.Is(err, onboard.ErrNotProvisioning) {
+		t.Errorf("same-args Bind on an active tenant = %v, want ErrNotProvisioning", err)
 	}
 	if n := countRows(t, "SELECT count(*) FROM tenant_identity_binding WHERE tenant_id = $1", id); n != 1 {
 		t.Errorf("bindings after refused Bind = %d, want 1", n)
