@@ -66,6 +66,10 @@ func TestT13PurgeAssertRoleRealRoles(t *testing.T) {
 		t.Errorf("nava_purge after revert: %v, want nil", err)
 	}
 
+	// A plain role other than nava_purge, so dropping the current_user
+	// clause fails too.
+	wantRefused("nava_app", assertAs(roleConfig(t, "nava_app", "nava")), "nava_app")
+
 	// pg_roles is cluster-wide, so the intruder checks from the postgres
 	// database, which it may connect to without a grant.
 	exec(t, super, "CREATE ROLE nava_test_intruder LOGIN NOSUPERUSER BYPASSRLS PASSWORD '"+
