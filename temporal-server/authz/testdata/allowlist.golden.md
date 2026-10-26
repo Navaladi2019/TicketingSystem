@@ -169,28 +169,28 @@ go.temporal.io/api v1.53.0, go.temporal.io/server v1.29.7. `Y` = allowed in name
 
 ## D9 workload allow-list
 
-A request to one of these APIs is allowed only if every workflow type, task queue and workflow id it names is allow-listed. `nava-worker` `RespondWorkflowTaskCompleted` commands and `StickyAttributes` are checked the same way (E1, D9c). `temporal-system` is exempt, and `nava-operator` is outside D9.
+A request to one of these APIs is allowed only if every workflow type, task queue and workflow id it names is allow-listed. `nava-worker` `RespondWorkflowTaskCompleted` commands, query results and `StickyAttributes` are checked the same way (E1, D9c, D9h-failures). `temporal-system` is exempt, and `nava-operator` is outside D9.
 
 | Identity | Method | Rule |
 |---|---|---|
 | `nava-core` | DescribeWorkflowExecution | D9f |
 | `nava-core` | GetWorkflowExecutionHistory | D9f |
 | `nava-core` | QueryWorkflow | D9f |
-| `nava-core` | RequestCancelWorkflowExecution | D9f |
+| `nava-core` | RequestCancelWorkflowExecution | D9f, D9h-links |
 | `nava-core` | UpdateWorkflowExecution | D9f |
-| `nava-relay` | SignalWithStartWorkflowExecution | D9a |
-| `nava-relay` | SignalWorkflowExecution | D9a |
-| `nava-relay` | StartWorkflowExecution | D9a |
+| `nava-relay` | SignalWithStartWorkflowExecution | D9a, D9h-links |
+| `nava-relay` | SignalWorkflowExecution | D9a, D9h-links |
+| `nava-relay` | StartWorkflowExecution | D9a, D9h-links, D9h-failures |
 | `nava-worker` | GetWorkflowExecutionHistory | D9e |
-| `nava-worker` | PollActivityTaskQueue | D9b, D9b+ |
-| `nava-worker` | PollWorkflowTaskQueue | D9b, D9b+ |
+| `nava-worker` | PollActivityTaskQueue | D9b, D9b+, D9g |
+| `nava-worker` | PollWorkflowTaskQueue | D9b, D9b+, D9g |
 | `nava-worker` | RecordActivityTaskHeartbeat | D9d |
 | `nava-worker` | RecordWorkerHeartbeat | D9g |
 | `nava-worker` | RespondActivityTaskCanceled | D9d |
 | `nava-worker` | RespondActivityTaskCompleted | D9d |
-| `nava-worker` | RespondActivityTaskFailed | D9d |
-| `nava-worker` | RespondQueryTaskCompleted | D9d query clause |
-| `nava-worker` | RespondWorkflowTaskFailed | D9d |
+| `nava-worker` | RespondActivityTaskFailed | D9d, D9h-failures |
+| `nava-worker` | RespondQueryTaskCompleted | D9d query clause, D9h-failures |
+| `nava-worker` | RespondWorkflowTaskFailed | D9d, D9h-failures |
 | `nava-worker` | ShutdownWorker | D9g |
 
 | Set | Entries |
@@ -206,4 +206,7 @@ A STICKY queue name must match `^[^/]+:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 | D9d | `TaskToken` decodes as `token.v1.Task` and its `WorkflowId` has a `t:<tenant>:` prefix. |
 | D9d query clause | `TaskToken` decodes as `token.v1.QueryTask` and its `TaskQueue` is in `platformTaskQueues` or sticky-shaped. |
 | D9e, D9f | The request's workflow id has a `t:<tenant>:` prefix. |
-| D9g | `StickyTaskQueue` is empty or sticky-shaped and not in `platformTaskQueues`; every `WorkerHeartbeat.TaskQueue` is in `platformTaskQueues`. |
+| D9c | A command's task queue has Kind NORMAL or UNSPECIFIED and an empty name or one in `platformTaskQueues`; a child or continue-as-new names a type in `platformWorkflowTypes`. |
+| D9g | `StickyTaskQueue` is empty or sticky-shaped and not in `platformTaskQueues`; every `WorkerHeartbeat.TaskQueue`, on polls too, is in `platformTaskQueues`. |
+| D9h-links | Every link is a workflow event link whose `WorkflowId` has a `t:<tenant>:` prefix. |
+| D9h-failures | Every `ChildWorkflowExecutionFailureInfo` workflow id along a failure's `cause` chain has a `t:<tenant>:` prefix. |

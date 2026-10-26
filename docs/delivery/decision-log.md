@@ -2,6 +2,15 @@
 
 Delivery decisions that change a task's contract, newest first.
 
+## 2026-10-25: T27k classifies every id-shaped request field by a rule; the Authorizer gains D9h and closes D9g and D9c gaps
+- **Decided by:** the Technical Lead on TICK-133 (PR #102), answering the Principal Software Engineer's three questions.
+- **Decision:** T27k: no inert class; link and child-failure workflow ids get prefix rules; failure `workflow_type.name` classed not-id; D9g also applies to poll heartbeats; D9c pins Kind. Decided by the Technical Lead, 2026-10-25, per the ADR-001-A2 Annex A.2 statement.
+  - **D9h-links:** every link on a relay start, signal-with-start or signal, or a core cancel (including `completion_callbacks[].links[]`), is a workflow event link whose workflow id has a `t:<tenant>:` prefix.
+  - **D9h-failures:** every `ChildWorkflowExecutionFailureInfo` workflow id along a failure's whole `cause` chain has the prefix. This covers worker task failures, query failures, `FailWorkflowExecution`, `RecordMarker` and continue-as-new command failures, query results and the relay's `continued_failure`. It also covers update protocol `messages` on `RespondWorkflowTaskCompleted` and `RespondWorkflowTaskFailed` (`Rejection.failure`, `Response.outcome.failure`). A message body that is not an update `Acceptance`, `Rejection` or `Response`, or that does not decode, is denied, and the drift golden expands those three bodies of the `google.protobuf.Any` (Technical Lead review of PR #102). On worker task-token paths the child id must carry the task's own tenant, as E1's `checkTarget` requires, and another tenant's id is `command_cross_tenant`. The relay's start and `RespondQueryTaskCompleted` stay prefix-only. In the golden, `links[].batch_job.job_id` is classed `D9h-links: variant denied` (Security findings 2 and 3, ruled by the Technical Lead).
+- **Supersedes:** TICK-133's contract wording "workflow type". A child failure's `workflow_type.name` is failure data, not an id or queue.
+- **Revisit if:** a legitimate path carries an unprefixed id in a link or child failure. That is an ADR erratum for the Solution Architect, not a new class.
+- **Dissent:** none.
+
 ## 2026-10-25: PLAN-001-E3 narrows nava_onboard's SELECT on tenants to a column list; E3's T21 condition joins T21
 - **Decided by:** the Technical Lead on TICK-178 (`docs/delivery/plan-adr-001-e3.md`), after nava approved ADR-001-E3 on TICK-170.
 - **Decision 1 (D-E3-2):** `db/grants.yaml` gives `nava_onboard` `SELECT [id, state, onboarding_request_hash, created_at]` on `tenants` instead of `SELECT: []` (T09d, TICK-180). Today nothing changes. A column added later isn't readable until it's granted on purpose. That closes RS8's "tenants gains a column" trigger by construction. Rejected: a tripwire test that fails on a new column. It fails open, because it depends on someone reading the failure.
