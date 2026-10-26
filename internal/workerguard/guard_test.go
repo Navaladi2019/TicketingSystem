@@ -334,16 +334,15 @@ func TestPropagatorHeaderOnActivityAndChild(t *testing.T) {
 	h.wantNoAlerts()
 }
 
-func continueOnce(ctx workflow.Context, again bool) error {
-	if again {
-		return workflow.NewContinueAsNewError(ctx, continueOnce, false)
-	}
-	return nil
+// continueOnce continues as new with no arguments: the test environment ends
+// the run there and does not start the next.
+func continueOnce(ctx workflow.Context) error {
+	return workflow.NewContinueAsNewError(ctx, continueOnce)
 }
 
 func TestPropagatorHeaderOnContinueAsNew(t *testing.T) {
 	h := newHarness(t, idOf(tenantA))
-	h.env.ExecuteWorkflow(continueOnce, true)
+	h.env.ExecuteWorkflow(continueOnce)
 	var can *workflow.ContinueAsNewError
 	if err := h.env.GetWorkflowError(); !errors.As(err, &can) {
 		t.Fatalf("error %v, want continue-as-new", err)
@@ -366,7 +365,7 @@ func TestPropagatorHeaderOnContinueAsNew(t *testing.T) {
 func TestContinueAsNewGuardMissingHeader(t *testing.T) {
 	id := idOf(tenantA)
 	h := newHarness(t, id, withoutPropagator())
-	h.env.ExecuteWorkflow(continueOnce, true)
+	h.env.ExecuteWorkflow(continueOnce)
 	wantGuardError(t, h.env.GetWorkflowError(), guardContinueAsNew, outcomeMissing)
 	h.wantDenyAlert(guardContinueAsNew, outcomeMissing, id)
 }

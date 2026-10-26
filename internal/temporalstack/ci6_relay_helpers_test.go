@@ -11,6 +11,7 @@ package temporalstack
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/google/uuid"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 
@@ -40,36 +42,61 @@ const (
 	sigNote     = "ci6.note"
 	sigRollover = "ci6.rollover"
 	sigDone     = "ci6.done"
+	// The CI-7 probes (TICK-216): each hands record data to one path into
+	// the history, which the guard must refuse.
+	sigCI7Activity = "ci7.activity"
+	sigCI7Child    = "ci7.child"
+	sigCI7Rollover = "ci7.rollover"
+	updCI7         = "ci7.update"
+	// ci7ProbeActivity is not registered anywhere: the CI-7 case only needs
+	// its scheduling to reach (or not reach) the history.
+	ci7ProbeActivity = "ci7.probe"
 )
 
-// relayRun is relayProbe's input: the relay's outbox.Delivery on the first
-// run, plus the applied-signal set and the applied order carried across
-// continue-as-new.
-type relayRun struct {
-	outbox.Delivery
-	Seen  workerguard.AppliedSignals `json:"seen"`
-	Order []string                   `json:"order"`
+// relayRefs is relayProbe's own state in workerguard.RunInput.Refs: the
+// applied order, outbox ids only.
+type relayRefs struct {
+	Order []string `json:"order"`
 }
 
-// relayProbe is the workflow the relay starts (type relayType):
+// relayProbe is the workflow the relay starts (type relayType). Its input is
+// a workerguard.RunInput: the relay's outbox.Delivery on the first run, plus
+// the applied-signal set and the applied order carried across continue-as-new.
 //   - ci6.note applies its outbox id once (I7) and records the order;
 //   - ci6.rollover drains pending notes and continues as new;
+//   - ci7.activity schedules ci7.probe with a record-data argument (CI-7);
+//   - ci7.child starts a same-tenant child with a record-data argument;
+//   - ci7.rollover continues as new with record data in Refs;
+//   - update ci7.update takes a map, which may hold record data;
 //   - ci6.done closes workflow_ref (the nava-worker service runs that
 //     activity as nava_worker) and returns the applied ids, comma-joined.
-func relayProbe(ctx workflow.Context, in relayRun) (string, error) {
+//
+// The CI-7 outcomes do not matter; whether the record data reached the
+// history does.
+func relayProbe(ctx workflow.Context, in workerguard.RunInput) (string, error) {
+	var refs relayRefs
+	if in.Refs != nil {
+		if err := json.Unmarshal(in.Refs, &refs); err != nil {
+			return "", err
+		}
+	}
+	if err := workflow.SetUpdateHandler(ctx, updCI7, func(workflow.Context, map[string]string) error { return nil }); err != nil {
+		return "", err
+	}
 	notes := workflow.GetSignalChannel(ctx, sigNote)
 	apply := func(c workflow.ReceiveChannel) {
 		var d outbox.Delivery
 		c.Receive(ctx, &d)
 		if in.Seen.TryApply(ctx, d.OutboxID) {
-			in.Order = append(in.Order, d.OutboxID.String())
+			refs.Order = append(refs.Order, d.OutboxID.String())
 		}
 	}
+	title := map[string]string{"title": ci7Marker}
 	for {
 		var next string
 		sel := workflow.NewSelector(ctx)
 		sel.AddReceive(notes, func(c workflow.ReceiveChannel, _ bool) { apply(c) })
-		for _, name := range []string{sigRollover, sigDone} {
+		for _, name := range []string{sigRollover, sigDone, sigCI7Activity, sigCI7Child, sigCI7Rollover} {
 			sel.AddReceive(workflow.GetSignalChannel(ctx, name), func(c workflow.ReceiveChannel, _ bool) {
 				c.Receive(ctx, nil)
 				next = name
@@ -81,12 +108,37 @@ func relayProbe(ctx workflow.Context, in relayRun) (string, error) {
 			for notes.Len() > 0 {
 				apply(notes)
 			}
+			b, err := json.Marshal(refs)
+			if err != nil {
+				return "", err
+			}
+			in.Refs = b
+			return "", workflow.NewContinueAsNewError(ctx, relayType, in)
+		case sigCI7Activity:
+			actx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+				StartToCloseTimeout: 5 * time.Second,
+				RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
+			})
+			_ = workflow.ExecuteActivity(actx, ci7ProbeActivity, title).Get(ctx, nil)
+		case sigCI7Child:
+			id, err := workerguard.ChildWorkflowID(ctx, "probe")
+			if err != nil {
+				return "", err
+			}
+			cctx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{WorkflowID: id, TaskQueue: taskQueue})
+			_ = workflow.ExecuteChildWorkflow(cctx, relayType, title).Get(ctx, nil)
+		case sigCI7Rollover:
+			b, err := json.Marshal(title)
+			if err != nil {
+				return "", err
+			}
+			in.Refs = b
 			return "", workflow.NewContinueAsNewError(ctx, relayType, in)
 		case sigDone:
 			if err := workerguard.CloseWorkflowRef(ctx); err != nil {
 				return "", err
 			}
-			return strings.Join(in.Order, ","), nil
+			return strings.Join(refs.Order, ","), nil
 		}
 	}
 }

@@ -39,7 +39,8 @@ func (c contractCase) tag() string {
 // CI-6 relay and worker cases and CI-7, in the order of the T32b issue. The
 // first block lives in internal/temporalstack/ci6_isolation_test.go, except
 // its last case, which T28 wrote in stack_test.go; the T32b cases live in
-// ci6_relay_isolation_test.go and ci7_isolation_test.go.
+// ci6_relay_isolation_test.go and ci7_isolation_test.go, and so do the
+// TICK-216 argument cases.
 func contract() []contractCase {
 	return []contractCase{
 		{"Unlisted certificate (installation CA, CN no identity) denied", "TestCI6_UnlistedCertificateDeniedByAuthorizer"},
@@ -69,6 +70,10 @@ func contract() []contractCase {
 		{"Producer schema rejects record-data fields", "TestCI7_ProducerSchemaRejectsRecordDataFields"},
 		{"Workflow input and signal bodies in history are references only", "TestCI7_RelayDeliveryInHistoryIsReferencesOnly"},
 		{"Record-data payload written outside Enqueue refused; nothing reaches the history (TICK-214)", "TestCI7_RelayRefusesRecordDataPayloadWrittenOutsideEnqueue"},
+		{"Activity payload with record data is not recorded (TICK-216)", "TestCI7_ActivityPayloadWithRecordDataNotRecorded"},
+		{"Child payload with record data is not recorded (TICK-216)", "TestCI7_ChildPayloadWithRecordDataNotRecorded"},
+		{"Continue-as-new payload with record data is not recorded (TICK-216)", "TestCI7_ContinueAsNewPayloadWithRecordDataNotRecorded"},
+		{"Update payload with record data is rejected, not recorded (TICK-216)", "TestCI7_UpdatePayloadWithRecordDataNotRecorded"},
 		{"Recorded headers carry only nava-tenant and trace context, never baggage (TICK-93)", "TestCI7_RecordedHeadersCarryOnlyTenantAndTraceContext"},
 	}
 }

@@ -6,7 +6,8 @@ package temporalstack
 // histories are cross-tenant and unencrypted, so the workflow input, signal
 // bodies, activity payloads and headers they record must hold references
 // only, never record data, and headers only the tenant and trace context,
-// never baggage. One named test per case, each named TestCI7_*;
+// never baggage. The activity, child, continue-as-new and update cases are
+// TICK-216's: the worker guard refuses record-data arguments (argOK). One named test per case, each named TestCI7_*;
 // tools/ci/ci6report lists them.
 
 import (
@@ -24,6 +25,8 @@ import (
 	enumspb "go.temporal.io/api/enums/v1"
 	historypb "go.temporal.io/api/history/v1"
 	"go.temporal.io/api/serviceerror"
+	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/temporal"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
@@ -156,6 +159,158 @@ func TestCI7_RelayRefusesRecordDataPayloadWrittenOutsideEnqueue(t *testing.T) {
 	} else if nf := (*serviceerror.NotFound)(nil); !errors.As(err, &nf) {
 		t.Fatalf("describe %s: %v", id, err)
 	}
+}
+
+// wantMarkerNotRecorded fails if any event of the run holds ci7Marker.
+func wantMarkerNotRecorded(ctx context.Context, t *testing.T, s relayStack, id string) []*historypb.HistoryEvent {
+	t.Helper()
+	events := history(ctx, t, s, id, "")
+	for _, ev := range events {
+		b, err := proto.Marshal(ev)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(b), ci7Marker) {
+			t.Fatalf("event %d %v records the record data %q", ev.GetEventId(), ev.GetEventType(), ci7Marker)
+		}
+	}
+	return events
+}
+
+// wantGuardAlert fails unless the guard alerted guard/record_data for id:
+// the guard refused the argument, not something else on the way.
+func wantGuardAlert(t *testing.T, s relayStack, id, guard string) {
+	t.Helper()
+	if n := guardAlerts(s.logs, id, guard, "record_data"); n < 1 {
+		t.Errorf("no %s/record_data guard alert for %s; log:\n%s", guard, id, s.logs.String())
+	}
+}
+
+func countEvents(events []*historypb.HistoryEvent, et enumspb.EventType) int {
+	n := 0
+	for _, ev := range events {
+		if ev.GetEventType() == et {
+			n++
+		}
+	}
+	return n
+}
+
+// An activity scheduled with record data in its argument must never be
+// recorded: the history of the workflow must not hold the text.
+func TestCI7_ActivityPayloadWithRecordDataNotRecorded(t *testing.T) {
+	ctx := ci6Context(t)
+	s := newRelayStack(t)
+	tg := newTarget(t)
+	_, actSQL := tg.signalSQL(t, sigCI7Activity)
+	_, doneSQL := tg.signalSQL(t, sigDone)
+	psqlSuper(t, tg.startSQL(tg.refs())+actSQL+doneSQL)
+	id := tg.workflowID()
+	s.terminateAtEnd(t, id)
+	s.awaitStarted(ctx, t, id)
+	// The result does not matter: a guard may fail the workflow instead.
+	_ = s.core.GetWorkflow(ctx, id, "").Get(ctx, nil)
+
+	events := wantMarkerNotRecorded(ctx, t, s, id)
+	if n := countEvents(events, enumspb.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED); n != 1 {
+		t.Errorf("%d activities scheduled, want 1: the workflow_ref close only", n)
+	}
+	wantGuardAlert(t, s, id, "activity_args")
+}
+
+// A child started with record data in its argument must never be recorded:
+// no child is initiated, and the parent's history does not hold the text.
+func TestCI7_ChildPayloadWithRecordDataNotRecorded(t *testing.T) {
+	ctx := ci6Context(t)
+	s := newRelayStack(t)
+	tg := newTarget(t)
+	_, childSQL := tg.signalSQL(t, sigCI7Child)
+	_, doneSQL := tg.signalSQL(t, sigDone)
+	psqlSuper(t, tg.startSQL(tg.refs())+childSQL+doneSQL)
+	id := tg.workflowID()
+	s.terminateAtEnd(t, id)
+	s.result(ctx, t, id)
+
+	events := wantMarkerNotRecorded(ctx, t, s, id)
+	if n := countEvents(events, enumspb.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED); n != 0 {
+		t.Errorf("%d children initiated, want 0", n)
+	}
+	wantGuardAlert(t, s, id, "child")
+}
+
+// A continue-as-new with record data in its input (here in RunInput.Refs,
+// the one place a workflow may carry its own state) must never be recorded:
+// the workflow fails instead of continuing.
+func TestCI7_ContinueAsNewPayloadWithRecordDataNotRecorded(t *testing.T) {
+	ctx := ci6Context(t)
+	s := newRelayStack(t)
+	tg := newTarget(t)
+	_, rollSQL := tg.signalSQL(t, sigCI7Rollover)
+	psqlSuper(t, tg.startSQL(tg.refs())+rollSQL)
+	id := tg.workflowID()
+	s.terminateAtEnd(t, id)
+	s.awaitStarted(ctx, t, id)
+	err := s.core.GetWorkflow(ctx, id, "").Get(ctx, nil)
+	var app *temporal.ApplicationError
+	if !errors.As(err, &app) || app.Type() != workerguard.ErrTypeTenantGuard {
+		t.Fatalf("result: %v; want the guard's failure", err)
+	}
+
+	events := wantMarkerNotRecorded(ctx, t, s, id)
+	if n := countEvents(events, enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_CONTINUED_AS_NEW); n != 0 {
+		t.Errorf("%d continue-as-new events, want 0", n)
+	}
+	if n := countEvents(events, enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED); n != 1 {
+		t.Errorf("%d failed events, want 1", n)
+	}
+	wantGuardAlert(t, s, id, "continue_as_new")
+}
+
+// An update from nava-core, with the right tenant, whose argument holds
+// record data is rejected in the validator and never recorded. A
+// references-only update on the same workflow is accepted.
+func TestCI7_UpdatePayloadWithRecordDataNotRecorded(t *testing.T) {
+	ctx := ci6Context(t)
+	s := newRelayStack(t)
+	tg := newTarget(t)
+	psqlSuper(t, tg.startSQL(tg.refs()))
+	id := tg.workflowID()
+	s.terminateAtEnd(t, id)
+	s.awaitStarted(ctx, t, id)
+	own := workerguard.ContextWithTenant(ctx, tg.tenant)
+	update := func(arg map[string]string) error {
+		t.Helper()
+		// SDK v1.49 keeps a rejection on the handle (see workerguard_test.go).
+		h, err := s.core.UpdateWorkflow(own, client.UpdateWorkflowOptions{
+			WorkflowID: id, UpdateName: updCI7, Args: []any{arg}, WaitForStage: client.WorkflowUpdateStageCompleted,
+		})
+		if err != nil {
+			return err
+		}
+		return h.Get(ctx, nil)
+	}
+
+	err := update(map[string]string{"title": ci7Marker})
+	var app *temporal.ApplicationError
+	if !errors.As(err, &app) || app.Type() != workerguard.ErrTypeTenantGuard ||
+		!strings.Contains(app.Error(), "tenant guard denied update: record_data") {
+		t.Fatalf("record-data update: %v; want the validator's rejection", err)
+	}
+	if strings.Contains(err.Error(), ci7Marker) {
+		t.Errorf("the rejection holds the record data: %v", err)
+	}
+	if err := update(map[string]string{"record_id": tg.record.String()}); err != nil {
+		t.Fatalf("references-only update: %v", err)
+	}
+	_, doneSQL := tg.signalSQL(t, sigDone)
+	psqlSuper(t, doneSQL)
+	s.result(ctx, t, id)
+
+	events := wantMarkerNotRecorded(ctx, t, s, id)
+	if n := countEvents(events, enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ACCEPTED); n != 1 {
+		t.Errorf("%d updates accepted, want 1: the references-only one", n)
+	}
+	wantGuardAlert(t, s, id, "update")
 }
 
 // Every header recorded in a history, on the start, signals, the activity,
