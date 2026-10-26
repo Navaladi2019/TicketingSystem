@@ -1,14 +1,14 @@
 # Review: T25 group sync worker (TICK-78, PR #113)
 
 - Reviewer: Quality, Testing & CI Advisor
-- Head reviewed: `4b25bce`
-- CI: green, [run 40280627013](https://github.com/Navaladi2019/TicketingSystem/actions/runs/40280627013). All 8 jobs pass, and the 6 groupsync integration tests ran against PostgreSQL 16.10.
+- Head reviewed: `4b25bce`; finding 1 re-checked at `360846f`
+- CI: green at `4b25bce` ([run 40280627013](https://github.com/Navaladi2019/TicketingSystem/actions/runs/40280627013)) and at `360846f` ([run 40281777224](https://github.com/Navaladi2019/TicketingSystem/actions/runs/40281777224)). All 8 jobs pass, and the 6 groupsync integration tests ran against PostgreSQL 16.10.
 - Specs: TICK-78 contract and acceptance criteria, the T16 carry-forward (TICK-69), audit TICK-93, the 2026-10-25 ruling on directory membership, and PLAN-001 D-P9, D-P10 and D-P13.
 - Out of scope: tenant isolation. That review belongs to the Security & Multi-Tenancy Reviewer (D-P10: `cmd/nava-groupsync/` is a security path).
 
 ## Verdict
 
-Approve once finding 1 is fixed. Findings 2 to 5 are follow-ups and do not block the merge.
+Approve. Finding 1 is closed at `360846f`. Findings 2 to 5 are follow-ups and do not block the merge.
 
 ## Acceptance criteria
 
@@ -26,10 +26,11 @@ Approve once finding 1 is fixed. Findings 2 to 5 are follow-ups and do not block
 
 ## Findings
 
-### 1. Bug: `docs/delivery/review-paths.yaml` committed with CRLF line endings
+### 1. Bug: `docs/delivery/review-paths.yaml` committed with CRLF line endings (closed at `360846f`)
 
 `.gitattributes` sets `*.yaml text eol=lf`, but the PR's blob has CRLF line endings. The only real change is one line (`cmd/nava-groupsync/` loses `planned: "PLAN-001 T25"`). The PR diff shows all 163 lines of a D-P10, CTO-gated file rewritten, which hides the real edit from its reviewers and rewrites the blame for the whole file.
 Fix: `git add --renormalize docs/delivery/review-paths.yaml`, then commit. The PR diff for that file should then be about 2 lines.
+Closed: at `360846f` the file is LF and its diff against `main` is the one real change (3 lines: 2 removed, 1 added).
 
 ### 2. Breaks under a schema change: deleting a principal fails once another table references `principals`
 
