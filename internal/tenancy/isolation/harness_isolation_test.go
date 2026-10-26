@@ -228,6 +228,17 @@ func (c cluster) PoolSize(role string, conns int32) (*pgxpool.Pool, error) {
 	return c.e.poolSize(c.t, role, false, conns), nil
 }
 
+func (c cluster) PooledSize(role string, conns int32) (*pgxpool.Pool, error) {
+	r, ok := c.e.m.Roles[role]
+	if !ok {
+		return nil, fmt.Errorf("%s is not a manifest role", role)
+	}
+	if !r.PgBouncerLogin {
+		return nil, fmt.Errorf("%s does not log in through PgBouncer", role)
+	}
+	return c.e.poolSize(c.t, role, true, conns), nil
+}
+
 func (c cluster) Super() (*pgx.Conn, error) { return c.e.superConn(c.t), nil }
 
 // runtimeRoles are the roles CI-2 runs as: every manifest role but the
