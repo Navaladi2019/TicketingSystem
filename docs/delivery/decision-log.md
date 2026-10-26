@@ -2,6 +2,15 @@
 
 Delivery decisions that change a task's contract, newest first.
 
+## 2026-10-26: agents merge task PRs and close tasks; stories and ADRs stay with the human
+- **Decided by:** vknavaladi (workspace merge and close policy), recorded by the Technical Lead on TICK-243.
+- **Decision:**
+  - **Tasks and subtasks** (anything that is not a story task or an ADR): once the reviewer's `VERDICT: APPROVE` is in, CI is green and the acceptance criteria are met, the reviewer or implementer merges the task PR into the story branch and sets the task `done`.
+  - **Story tasks and story → `main` PRs:** agents never merge or close them. Add the `MergePr` label to the issue and the PR; the human merges after replying `ACCEPTED`.
+  - **ADRs, amendments and errata:** agents never merge or close them. Add `MergePr` after the human's sign-off; the human merges. The ADR still needs its `.md` and self-contained `.html` under `docs/adr/`.
+- **Supersedes:** any earlier "never merge the PR yourself" or "only the human sets a task `done`" instruction for task PRs.
+- **Dissent:** none.
+
 ## 2026-10-25: T27k classifies every id-shaped request field by a rule; the Authorizer gains D9h and closes D9g and D9c gaps
 - **Decided by:** the Technical Lead on TICK-133 (PR #102), answering the Principal Software Engineer's three questions.
 - **Decision:** T27k: no inert class; link and child-failure workflow ids get prefix rules; failure `workflow_type.name` classed not-id; D9g also applies to poll heartbeats; D9c pins Kind. Decided by the Technical Lead, 2026-10-25, per the ADR-001-A2 Annex A.2 statement.
