@@ -177,8 +177,9 @@ func (s *Service) Onboard(ctx context.Context, operator identity.Operator, key s
 	if err := s.o.Store.Bind(ctx, tenantID, s.o.Issuer, orgID, keycloak.TenantIdPAlias(tenantID), domains); err != nil {
 		return Result{}, err
 	}
-	// Bind skips rows that already exist, whoever owns them. The tenant must
-	// own every domain it asked for, read under its own tenant predicate.
+	// Bind inserts the domains in one transaction and a domain owned by
+	// another tenant fails it (ErrDomainClaimed). The tenant must still own
+	// every domain it asked for, read with WHERE tenant_id as a second check.
 	for _, d := range domains {
 		owns, err := s.o.Domains.TenantOwnsEmailDomain(ctx, tenantID, d)
 		if err != nil {

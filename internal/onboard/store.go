@@ -111,8 +111,9 @@ type BindingReader interface {
 // in one transaction (and the request hash fixes the domain set), so a retry
 // with the same (issuer, org id) inserts nothing; a different pair is
 // ErrConflict (the stored org was lost outside the platform and this attempt
-// resolved another), and the tenant stays provisioning. Otherwise it is a first bind: plain INSERTs of the binding
-// and every domain in one transaction as nava_onboard. A unique violation
+// resolved another), and the tenant stays provisioning. Otherwise it is a
+// first bind: plain INSERTs of the binding and every domain in one
+// transaction as nava_onboard. A unique violation
 // rolls everything back: on tenant_email_domain_pkey the domain belongs to
 // another tenant (ErrDomainClaimed); on the (issuer, org id) key the
 // organization is bound to another tenant (ErrConflict). The caller still

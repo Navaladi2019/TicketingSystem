@@ -115,5 +115,6 @@ completes keeps its Keycloak organization, its IdP, and (once bound) its
 `tenant_identity_binding` and `tenant_email_domain` rows, so the domains stay
 claimed. Only the operator's own retry (same key and body) can finish or reuse it.
 Recorded as AR-032, which also covers the tenant a binding/org mismatch
-(`onboarding_conflict` on retry) leaves `provisioning`; needs an operator "abandon" operation that removes the Keycloak
+(`onboarding_conflict` on retry) leaves `provisioning`; needs an operator
+"abandon" operation that removes the Keycloak
 objects and releases the rows.
