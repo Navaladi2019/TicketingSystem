@@ -30,8 +30,7 @@ security:
     planned: "PLAN-001 T30b"
   - internal/workerguard/
   # The auth middleware.
-  - path: internal/platform/auth/
-    planned: "PLAN-001 T17"
+  - internal/platform/auth/
   # Cursor and idempotency.
   - internal/platform/cursor/
   - path: internal/platform/idempotency/
