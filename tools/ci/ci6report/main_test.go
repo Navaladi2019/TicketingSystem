@@ -67,8 +67,11 @@ func TestAllPass(t *testing.T) {
 func TestEveryCaseHasItsOwnCI6Test(t *testing.T) {
 	seen := map[string]bool{}
 	for _, c := range contract() {
-		if !strings.HasPrefix(c.Test, "TestCI6_") {
-			t.Errorf("%s is not tagged CI-6 (TestCI6_ prefix)", c.Test)
+		if !strings.HasPrefix(c.Test, "TestCI6_") && !strings.HasPrefix(c.Test, "TestCI7_") {
+			t.Errorf("%s is not tagged CI-6 or CI-7 (TestCI6_ or TestCI7_ prefix)", c.Test)
+		}
+		if want := strings.TrimPrefix(c.Test[:len("TestCIx")], "Test"); "CI-"+want[2:] != c.tag() {
+			t.Errorf("%s is in the report as %s", c.Test, c.tag())
 		}
 		if seen[c.Test] {
 			t.Errorf("%s proves two cases", c.Test)
