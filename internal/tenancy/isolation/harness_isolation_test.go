@@ -187,12 +187,17 @@ func (e *env) connect(t *testing.T, role string, pooled bool) (*pgx.Conn, string
 // pool is a one-connection pgxpool for tenancy.InTenantTx.
 func (e *env) pool(t *testing.T, role string, pooled bool) *pgxpool.Pool {
 	t.Helper()
+	return e.poolSize(t, role, pooled, 1)
+}
+
+func (e *env) poolSize(t *testing.T, role string, pooled bool, conns int32) *pgxpool.Pool {
+	t.Helper()
 	cfg, err := pgxpool.ParseConfig("")
 	if err != nil {
 		t.Fatal(err)
 	}
 	cfg.ConnConfig = e.roleConfig(role, pooled)
-	cfg.MaxConns = 1
+	cfg.MaxConns = conns
 	p, err := pgxpool.NewWithConfig(t.Context(), cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -214,6 +219,13 @@ func (c cluster) Pool(role string) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("%s is not a manifest role", role)
 	}
 	return c.e.pool(c.t, role, r.PgBouncerLogin), nil
+}
+
+func (c cluster) PoolSize(role string, conns int32) (*pgxpool.Pool, error) {
+	if _, ok := c.e.m.Roles[role]; !ok {
+		return nil, fmt.Errorf("%s is not a manifest role", role)
+	}
+	return c.e.poolSize(c.t, role, false, conns), nil
 }
 
 func (c cluster) Super() (*pgx.Conn, error) { return c.e.superConn(c.t), nil }
