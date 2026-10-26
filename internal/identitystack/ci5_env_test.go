@@ -381,7 +381,7 @@ func freshClaims(t *testing.T, tok string) map[string]any {
 // ---- the organization picker -----------------------------------------------
 
 var (
-	anyForm = regexp.MustCompile(`(?s)<form[^>]*action="([^"]+)"`)
+	pickerForm = regexp.MustCompile(`(?s)<form[^>]*action="([^"]+)"`)
 	// The picker's choices: a script assignment up to 26.1, a button since.
 	pickerOrg = regexp.MustCompile(`\['kc\.org'\]\.value\s*=\s*'([^']+)'|name="kc\.org"\s+value="([^"]+)"`)
 )
@@ -427,7 +427,7 @@ func orgPicker(t *testing.T, c *http.Client, base, realm, client, user, pass, pi
 			break
 		}
 		res.Page = string(page)
-		m := anyForm.FindSubmatch(page)
+		m := pickerForm.FindSubmatch(page)
 		if m == nil {
 			return res
 		}

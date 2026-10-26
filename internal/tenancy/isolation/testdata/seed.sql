@@ -48,7 +48,7 @@ INSERT INTO principals (tenant_id, id, keycloak_user_id, email, enabled, federat
         '[{"identityProvider": "idp-b", "userId": "b1", "userName": "b1"}]', now()),
     -- CI-5.10: a tenant A principal federated to tenant B's IdP.
     ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000003a2', 'kc-user-a-foreign', NULL, true,
-        '[{"identityProvider": "idp-b", "userId": "a2", "userName": "a2"}]', now()),
+        '[{"identityProvider": "idp-b", "userId": "a2"}]', now()),
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000003b2', 'kc-user-b2', NULL, true, NULL, now());
 
 INSERT INTO groups (tenant_id, id, keycloak_group_id, path) VALUES
