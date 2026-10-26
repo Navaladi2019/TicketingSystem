@@ -21,6 +21,8 @@ docker compose -f compose.yaml -f deploy/compose/compose.internal.yaml up -d   #
 | temporal-ui | `temporalio/ui:2.40.1` | Profile `operator` only, on the `operator` network with the `nava-operator` certificate; `http://127.0.0.1:18233` |
 | otel-collector | built from `contrib:0.139.0` | Internal network only; tail sampling; debug exporter |
 | nava-core | built from the repo | Exports OTLP traces to the Collector |
+| nava-onboard | built from the repo (`cmd/nava-onboard`) | Operator onboarding API on `:8081`, `internal` network only, never published; the only holder of the onboarding secret and the `nava_onboard` URL. Reach it with `docker compose exec` (`docs/operator/onboarding.md`) |
+| nava-groupsync | built from the repo (`cmd/nava-groupsync`) | Syncs `/t/<tenant_id>/` users and groups into the identity tables every `NAVA_GROUPSYNC_INTERVAL` (default 5m); one cycle on demand: `docker compose run --rm --no-deps nava-groupsync --once` |
 
 **Temporal mTLS (T28).** `make dev-ca` writes, to `deploy/compose/certs/`
 (git-ignored): the installation CA (`ca.pem`, path length 0, signs the frontend

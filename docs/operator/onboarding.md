@@ -101,6 +101,14 @@ domains and an invited admin.
 
 ## Configuration (nava-onboard)
 
+On the compose stack `nava-onboard` is its own service on the `internal` network,
+with no published port: the tenant ingress (nava-core's port) answers the operator
+route 501. From the host, call it inside its container, for example
+`docker compose exec -T nava-onboard nc 127.0.0.1 8081` with a raw HTTP/1.0 request,
+as `make stack-test-onboard` does. The admin's first sign-in resolves in
+`GET /api/v1/me` only after a `nava-groupsync` cycle has synced them.
+
+
 `NAVA_ONBOARD_ADDR`, `NAVA_ADMIN_ADDR`, `NAVA_DATABASE_URL` (as `nava_app`),
 `NAVA_ONBOARD_DATABASE_URL` (as `nava_onboard`), `NAVA_OIDC_ISSUERS`,
 `NAVA_ONBOARD_ISSUER` (one of them), `NAVA_OPERATORS` (`issuer|subject,...`),

@@ -42,7 +42,7 @@ GOLANGCI_LINT_VERSION := 2.14.0
 GOVULNCHECK_VERSION := v1.9.0
 
 .PHONY: build run test test-integration isolation lint generate check-openapi
-.PHONY: ci ci-isolated ci-changed ci-stages ci-isolated-down test-ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity stack-idp-realms stack-test-worker 	image image-ci stack-up stack-down stack-logs stack-internal stack-internal-beside stack-main ci-stack-run stack-tests smoke
+.PHONY: ci ci-isolated ci-changed ci-stages ci-isolated-down test-ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity stack-test-onboard stack-idp-realms stack-test-worker 	image image-ci stack-up stack-down stack-logs stack-internal stack-internal-beside stack-main ci-stack-run stack-tests smoke
 
 build:
 	go build -o bin/nava-core ./cmd/nava-core
@@ -268,7 +268,7 @@ image:
 # which concurrent builds share safely (a type=local cache directory is not
 # safe for two writers at once), and pulls only the registry images that are
 # missing. With IMAGE_CACHE set, ci-stack builds with image-ci.
-BAKE_CACHED := db-roles keycloak nava-core nava-purge nava-relay nava-worker otel-collector temporal-server
+BAKE_CACHED := db-roles keycloak nava-core nava-groupsync nava-onboard nava-purge nava-relay nava-worker otel-collector temporal-server
 BAKE_CACHE_GHA := $(foreach t,$(BAKE_CACHED),--set $(t).cache-from=type=gha,scope=$(t) --set $(t).cache-to=type=gha,scope=$(t),mode=max) --set migrate.cache-from=type=gha,scope=db-roles
 BAKE_CACHE := $(if $(filter gha,$(IMAGE_CACHE)),$(BAKE_CACHE_GHA))
 PULL_POLICY := $(if $(filter local,$(IMAGE_CACHE)),--policy missing)
@@ -311,8 +311,21 @@ stack-idp-realms:
 
 # The realm `nava` of the running Keycloak (T14, ADR-001 A.1): tenant and idp
 # claims, token lifespan, operator role custody, realm export round trip.
+# It also runs the onboarding tests below (stack-test-onboard).
+# TODO(TODO-012): the GitHub workflow's stack job has no step for
+# stack-test-onboard yet (the step needs a push with `workflow` scope), so this
+# target runs those tests too; once the step exists, add -skip '$(ONBOARD_TESTS)'.
 stack-test-identity:
 	go test -tags identitystack -count=1 ./internal/identitystack
+
+# Onboarding end to end (T21b, TICK-234): nava-onboard onboards a tenant, the
+# invited admin signs in through the tenant's IdP, one nava-groupsync cycle
+# runs, and nava-core's GET /api/v1/me shows the new tenant and no other; the
+# nava-onboard/nava-core separation; kill before the binding, then retry,
+# against the real nava_onboard PGStore. Needs the stack up (make stack-up).
+ONBOARD_TESTS := ^TestOnboard(edAdminSignsInAndMeShowsTenant|DeploymentSeparation|KillBeforeBindThenRetryLiveStack)$$
+stack-test-onboard:
+	go test -tags identitystack -count=1 -run '$(ONBOARD_TESTS)' ./internal/identitystack
 
 # The compose smoke: GET /healthz from inside the compose network.
 smoke: stack-test-smoke
