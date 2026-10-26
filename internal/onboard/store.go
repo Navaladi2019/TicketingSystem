@@ -22,22 +22,27 @@ type PGStore struct {
 	pool *pgxpool.Pool
 	// sem bounds concurrent onboardings. It is per process, like the pool it
 	// protects: two nava-onboard processes each hold their own pool and their
-	// own sem, and the advisory lock is what serialises one tenant across them. Each holds one connection for its
-	// lock and takes a second for every statement transaction, so at most
+	// own sem, and the advisory lock is what serialises one tenant across them.
+	// Each holds one connection for its lock and takes a second for every statement transaction, so at most
 	// MaxConns/2 may run at once; more would each hold a lock connection and
 	// wait for a second one that never frees.
-	sem chan struct{}
+	sem      chan struct{}
+	bindings BindingReader
 }
 
 var _ Store = (*PGStore)(nil)
 
 // NewPGStore returns a PGStore on pool, which needs at least two connections.
-func NewPGStore(pool *pgxpool.Pool) (*PGStore, error) {
+// bindings reads as nava_app (onboard.Registry).
+func NewPGStore(pool *pgxpool.Pool, bindings BindingReader) (*PGStore, error) {
+	if bindings == nil {
+		return nil, errors.New("onboard: a binding reader is required")
+	}
 	n := int(pool.Config().MaxConns) / 2
 	if n < 1 {
 		return nil, errors.New("onboard: the nava_onboard pool needs at least 2 connections")
 	}
-	return &PGStore{pool: pool, sem: make(chan struct{}, n)}, nil
+	return &PGStore{pool: pool, sem: make(chan struct{}, n), bindings: bindings}, nil
 }
 
 // Lock holds a transaction-scoped advisory lock keyed on the tenant until
@@ -93,37 +98,39 @@ func (s *PGStore) Begin(ctx context.Context, tenantID uuid.UUID, hash []byte) (S
 	return st, nil
 }
 
-// Bind implements Store. The statements are INSERT ... ON CONFLICT ON
-// CONSTRAINT <primary key> DO NOTHING, which needs INSERT privilege only: a
-// retry skips the tenant's own rows. A binding of the same (issuer, org id) to
-// another tenant is a different unique key and still fails with 23505. A
-// domain another tenant owns is skipped by DO NOTHING (the conflict check
-// ignores RLS); on a first bind that is ErrDomainClaimed and the transaction
-// rolls back. The caller still reads ownership under the tenant predicate as a
-// second check.
+// BindingReader reports whether the tenant already has its binding row. It
+// reads as nava_app, under the tenant predicate: nava_onboard has no SELECT on
+// tenant_identity_binding, and its grants are the isolation control.
+type BindingReader interface {
+	HasBinding(ctx context.Context, tenantID uuid.UUID) (bool, error)
+}
+
+// Bind implements Store. The caller holds the per-tenant lock. If the tenant's
+// binding row exists, an earlier Bind committed the binding and every domain
+// in one transaction (and the request hash fixes the domain set), so a retry
+// inserts nothing. Otherwise it is a first bind: plain INSERTs of the binding
+// and every domain in one transaction as nava_onboard. A unique violation
+// rolls everything back: on tenant_email_domain_pkey the domain belongs to
+// another tenant (ErrDomainClaimed); on the (issuer, org id) key the
+// organization is bound to another tenant (ErrConflict). The caller still
+// reads domain ownership under the tenant predicate as a second check.
 func (s *PGStore) Bind(ctx context.Context, tenantID uuid.UUID, issuer, orgID, idpAlias string, domains []string) error {
-	err := tenancy.InTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
-		bound, err := tx.Exec(ctx,
-			`INSERT INTO tenant_identity_binding (tenant_id, issuer, org_id, idp_aliases) VALUES ($1, $2, $3, $4)
-ON CONFLICT ON CONSTRAINT tenant_identity_binding_pkey DO NOTHING`,
-			tenantID, issuer, orgID, []string{idpAlias})
-		if err != nil {
+	bound, err := s.bindings.HasBinding(ctx, tenantID)
+	if err != nil {
+		return fmt.Errorf("onboard: bind: %w", err)
+	}
+	if bound {
+		return nil
+	}
+	err = tenancy.InTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx,
+			"INSERT INTO tenant_identity_binding (tenant_id, issuer, org_id, idp_aliases) VALUES ($1, $2, $3, $4)",
+			tenantID, issuer, orgID, []string{idpAlias}); err != nil {
 			return err
 		}
-		// A first bind (the binding row is new) owns every domain it inserts:
-		// a domain insert that affects 0 rows lost to another tenant's row, so
-		// the whole transaction rolls back. On a retry (the binding row
-		// existed) a 0-row domain insert is this tenant's own earlier row.
-		first := bound.RowsAffected() == 1
 		for _, d := range domains {
-			tag, err := tx.Exec(ctx,
-				`INSERT INTO tenant_email_domain (tenant_id, domain) VALUES ($1, $2)
-ON CONFLICT ON CONSTRAINT tenant_email_domain_pkey DO NOTHING`, tenantID, d)
-			if err != nil {
+			if _, err := tx.Exec(ctx, "INSERT INTO tenant_email_domain (tenant_id, domain) VALUES ($1, $2)", tenantID, d); err != nil {
 				return err
-			}
-			if first && tag.RowsAffected() != 1 {
-				return ErrDomainClaimed
 			}
 		}
 		return nil
@@ -132,7 +139,7 @@ ON CONFLICT ON CONSTRAINT tenant_email_domain_pkey DO NOTHING`, tenantID, d)
 	switch {
 	case err == nil:
 		return nil
-	case errors.Is(err, ErrDomainClaimed):
+	case errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "tenant_email_domain_pkey":
 		return ErrDomainClaimed
 	case errors.As(err, &pgErr) && pgErr.Code == "23505":
 		return ErrConflict

@@ -159,7 +159,7 @@ func build(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, cfg 
 		closeAll()
 		return nil, nil, nil, fmt.Errorf("directory: %w", err)
 	}
-	store, err := onboard.NewPGStore(onboardPool)
+	store, err := onboard.NewPGStore(onboardPool, registry)
 	if err != nil {
 		closeAll()
 		return nil, nil, nil, err

@@ -75,14 +75,18 @@ Headers: `Authorization: Bearer <operator token>`, `Idempotency-Key: <1..255 cha
 3. Keycloak organization and IdP (`DirectoryAdmin.CreateTenantOrg`). A retry first
    asks `Directory.FindTenantOrg`: a complete org and IdP are reused, a lone
    organization is deleted and recreated, anything else is `onboarding_conflict`.
-4. Binding and one `tenant_email_domain` row per domain, in one transaction, while
-   the tenant is still `provisioning`. On a first bind every domain insert must
-   affect one row; a domain another tenant owns affects none, the transaction rolls
-   back and the call is `domain_claimed`. On a retry (the binding row existed) a
-   zero-row domain insert is the tenant's own earlier row. The inserts are `ON CONFLICT ON CONSTRAINT
-   <primary key> DO NOTHING`, so a retry skips the tenant's own rows. The service
-   then reads ownership of every domain under the tenant predicate as a second
-   check.
+4. Binding and one `tenant_email_domain` row per domain, in one transaction as
+   `nava_onboard`, while the tenant is still `provisioning`. `nava_onboard` has no
+   SELECT on these tables (its grants are the isolation control), so the retry
+   decision is made without `ON CONFLICT`, which needs SELECT privilege and fails
+   with 42501 under those grants. Under the per-tenant lock the service first
+   reads, as `nava_app` under the tenant predicate, whether the tenant's binding
+   row exists. If it does, an earlier call committed the binding and every domain
+   together (the request hash fixes the domain set) and nothing is inserted. If
+   not, plain INSERTs run; a unique violation rolls the transaction back and maps by
+   constraint: `tenant_email_domain_pkey` is `domain_claimed`, the `(issuer, org id)`
+   key is `onboarding_conflict`. The service then reads ownership of every domain
+   under the tenant predicate as a second check.
 5. `DirectoryAdmin.InviteUser` for the admin. A refused invite (`ErrInviteRefused`)
    is answered exactly like a sent one. Any other invite error is `5xx`, on the
    first call and on every replay.

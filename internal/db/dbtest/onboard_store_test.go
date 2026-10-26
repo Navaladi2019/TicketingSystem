@@ -38,7 +38,7 @@ func rolePool(t *testing.T, role string, maxConns int32) *pgxpool.Pool {
 
 func onboardStore(t *testing.T, maxConns int32) *onboard.PGStore {
 	t.Helper()
-	s, err := onboard.NewPGStore(rolePool(t, "nava_onboard", maxConns))
+	s, err := onboard.NewPGStore(rolePool(t, "nava_onboard", maxConns), onboard.NewRegistry(rolePool(t, "nava_app", 2)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestT21BeginInsertsReplaysAndDetectsKeyReuse(t *testing.T) {
 }
 
 // Bind, then Activate, under the provisioning WITH CHECKs; Bind a second time
-// is a no-op (ON CONFLICT DO NOTHING needs INSERT privilege only).
+// is a no-op (the existing binding row, read as nava_app, skips the inserts).
 func TestT21BindIsIdempotentAndActivationIsLast(t *testing.T) {
 	migratedPlatform(t)
 	s := onboardStore(t, 4)
@@ -174,7 +174,7 @@ func TestT21BindRetryChangesNothing(t *testing.T) {
 }
 
 // The same (issuer, org id) cannot be bound to a second tenant: a different
-// unique key from the one DO NOTHING arbitrates, so it still fails.
+// unique key, so it fails with ErrConflict and rolls back.
 func TestT21BindRefusesAnOrgBoundToAnotherTenant(t *testing.T) {
 	migratedPlatform(t)
 	s := onboardStore(t, 4)
@@ -241,7 +241,7 @@ func TestT21OperatorTwoSeesNothingOfOperatorOnesTenant(t *testing.T) {
 // a pool of 1 is refused up front.
 func TestT21LockPoolDoesNotSelfDeadlock(t *testing.T) {
 	migratedPlatform(t)
-	if _, err := onboard.NewPGStore(rolePool(t, "nava_onboard", 1)); err == nil {
+	if _, err := onboard.NewPGStore(rolePool(t, "nava_onboard", 1), onboard.NewRegistry(rolePool(t, "nava_app", 2))); err == nil {
 		t.Error("a 1-connection pool was accepted")
 	}
 	s := onboardStore(t, 2)

@@ -38,6 +38,16 @@ func (*Registry) GroupKeycloakID(context.Context, uuid.UUID, uuid.UUID) (string,
 	return "", keycloak.ErrRegistryNotFound
 }
 
+// HasBinding implements BindingReader: whether the tenant has a binding row,
+// read in InTenantTx under the tenant predicate.
+func (r *Registry) HasBinding(ctx context.Context, tenantID uuid.UUID) (bool, error) {
+	var ok bool
+	err := tenancy.InTenantTx(ctx, r.pool, tenantID, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM tenant_identity_binding WHERE tenant_id = $1)", tenantID).Scan(&ok)
+	})
+	return ok, err
+}
+
 // BoundIdPAliases implements keycloak.Registry.
 func (r *Registry) BoundIdPAliases(ctx context.Context, tenantID uuid.UUID) ([]string, error) {
 	var out []string

@@ -78,10 +78,11 @@ type Store interface {
 	// existing one. A different stored hash is ErrKeyReuse.
 	Begin(ctx context.Context, tenantID uuid.UUID, hash []byte) (State, error)
 	// Bind writes the binding and the email domains while the tenant is
-	// provisioning. It is idempotent for the tenant's own rows (ON CONFLICT DO
-	// NOTHING on the primary keys); a domain or organization bound to another
-	// tenant is not silently skipped for the binding (23505), and is caught for
-	// domains by the ownership check in Onboard.
+	// provisioning, in one transaction. It is idempotent: if the tenant's
+	// binding row already exists (read as nava_app) it inserts nothing. A domain
+	// owned by another tenant is ErrDomainClaimed and an organization bound to
+	// another tenant is ErrConflict; both roll everything back. Onboard then
+	// reads domain ownership under the tenant predicate as a second check.
 	Bind(ctx context.Context, tenantID uuid.UUID, issuer, orgID, idpAlias string, domains []string) error
 	// Activate moves the tenant from provisioning to active. An already-active
 	// tenant is an error.
