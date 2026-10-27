@@ -30,7 +30,7 @@ const (
 	boundSQL   = `SELECT idp_aliases, org_id FROM tenant_identity_binding WHERE tenant_id = $1::uuid`
 	pendingSQL = `SELECT email FROM pending_invite
 		WHERE tenant_id = $1::uuid AND consumed_at IS NULL AND expires_at > now()
-		ORDER BY created_at LIMIT $2`
+		ORDER BY expires_at LIMIT $2`
 	// consumeSQL is single use: of two racing cycles only one gets a row.
 	consumeSQL = `UPDATE pending_invite SET consumed_at = now()
 		WHERE tenant_id = $1::uuid AND email = $2 AND consumed_at IS NULL AND expires_at > now()
