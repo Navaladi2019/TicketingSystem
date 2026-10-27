@@ -96,7 +96,23 @@ Containers: `scripts/ci/test-integration.sh` owns, on a private network, one
 shared PostgreSQL with the two PgBouncers of the load test (T06,
 `docs/quality/pgbouncer-load.md`) in front of it, plus `DBTEST_SHARDS` (default
 3) more clusters for dbtest, and removes them on exit, Ctrl-C or TERM. Every
-container a Go test starts itself is removed in `t.Cleanup`. Image tags come
+container a Go test starts itself is removed in `t.Cleanup`.
+
+Leftovers (TICK-185): the integration and isolation scripts never `exec` their
+last command, since `exec` drops the EXIT trap; until TICK-185 every
+`make test-integration ARGS=...` run left its cluster, PgBouncers and network
+running, and 23 such networks on the shared host exhausted Docker's address
+pools. They run each long `go` command in the background and wait for it, so
+INT or TERM sent to the script alone reaches the trap at once and stops them.
+`make test-integration-cleanup` (in `ci-integration` and its own `ci.yml`
+step, as TICK-224) checks that an `ARGS` run and a TERM part way leave nothing
+named for the run (`NAVA_IT_ID`, default the shell's pid). SIGKILL, or a host killing
+the whole process tree, still skips the trap: `make reap-integration`
+(`task reap:integration`, `tools/ci/itreap`) removes `nava-it-*` and
+`nava-iso-*` containers and networks older than `REAP_OLDER` (default `6h`),
+matching only the scripts' exact name forms and skipping anything with a
+compose project label, so `nava`, `nava-<id>` and a run in progress are never
+touched. `REAP_DRY=1` lists without removing. Image tags come
 from `docs/pins.md`: the script exports the `postgres` row as
 `NAVA_TEST_PG_IMAGE` and starts the `edoburu/pgbouncer` row. Every cluster runs
 with `fsync`, `synchronous_commit` and `full_page_writes` off: they are thrown
@@ -110,6 +126,27 @@ create the same role); and the packages that use none (`health`, which starts
 its own container). The script lists dbtest's tests first and fails unless the
 shards ran every one of them. Extra arguments (`ARGS=-run ...`) run every
 package one after another on the shared cluster, as before.
+
+**Integration timeout and the log (TICK-225).** Every `go test` in the script
+runs with `-timeout 6m`, against the job's `timeout-minutes: 10`. A green run
+starts its tests about 2 minutes into the job (set-up 17 s, clusters and test
+compile 85 to 100 s) and they take under a minute, so 6 minutes is several
+times the need and still ends, dump printed, before GitHub cancels the step at
+10. Without it, Go's default `-timeout` of 10m equalled the job limit, GitHub
+cancelled first and the log was empty (PR #113, run 40276586007). A later
+`-timeout` in `ARGS` overrides it. Each group's output streams to the log as
+it arrives, every line prefixed with the group (`[dbtest-1]`, `[shared]`,
+`[own]`, by `tools/ci/testlog`), so even a cancelled step shows it; at the end
+suiteran repeats, per group, the package results and the output of every
+failed test, then the `dbtest: N of M` check and the failed-group summary.
+
+Reading a timeout dump: search the job log for `panic: test timed out`. The
+lines after it, under the same `[group]` prefix, list the test or tests
+`running` with how long each ran; that is the stuck test. Then the goroutine
+dump: find the goroutine whose stack goes through that test's function, and
+the frame above it (a `pgx` query, a channel receive, `time.Sleep`) is where it
+waits. The package then fails as `FAIL <package> 6m0.0s`, and the group is
+named in `integration: failed groups:`.
 
 Inside dbtest, `migratedCluster` copies each manifest database from a template
 taken after the first real db-roles and migrator run in the process
@@ -150,6 +187,7 @@ lock. `NAVA_RACE_LOCK=off` skips it.
 | Taskfile and Makefile drift apart, so local runs differ from CI | `check-taskfile` (drift fixture in `tools/ci/checktaskfile`) |
 | A security-path change goes without the D-P10 review | `review-paths` prints the summary lines on every PR (fixture: a PR touching `db/`) |
 | A registered isolation suite runs zero tests and CI stays green (a `TestMain` exiting before `m.Run`, a step dropping `-tags`) | `tools/ci/suiteran` (TICK-230) wraps `go test -json` in `test`, `temporal-server-test`, `test-integration`, `isolation`, `stack-test-identity` and `stack-test-sdk`: every `cto_signoff.isolation_tests` file whose package ran and whose build constraints hold for the step's `-tags` must have at least one of its tests pass or fail. Fixtures in `tools/ci/suiteran/testdata/fixture`; `TestEveryRegisteredSuiteHasACheckedStep` fails when a registered suite has no step whose `-tags` builds it |
+| An integration test hangs and the cancelled job's log is empty, so nobody can tell which test | `go test -timeout 6m` in `test-integration.sh` (below the job's 10 minutes) and the groups' output streamed through `tools/ci/testlog` (TICK-225). Unit tests in `tools/ci/testlog`; the hang itself was proven once on a throwaway PR (not merged) |
 | A shallow clone passes `check-openapi` with nothing to compare against | `check-openapi` fails when `BASE` is missing |
 | pgx's prepared-statement cache breaks through PgBouncer in transaction mode | `internal/db/pooltest` (T06): 50 clients, 10k statements, zero errors; a second PgBouncer with `max_prepared_statements = 0` must fail |
 | nava-core goes ready without PostgreSQL | compose healthcheck on `/readyz`, plus the `dependencies` case (200 with Keycloak stopped) |
@@ -157,6 +195,7 @@ lock. `NAVA_RACE_LOCK=off` skips it.
 ## Deliberately not covered
 
 - **A suite dropped by editing the step itself.** suiteran trusts the step's own `-tags` and package list. Removing both `-tags`, narrowing the packages, adding a `-run` filter or removing the suiteran call passes the check, so each of those is an edit to `.github/`, the `Makefile` or `scripts/ci/`, all on the `security` list in `review-paths.yaml` (`TestCIScriptsAreSecurityPaths` in `tools/ci/reviewpaths` pins the two scripts). Extra `ARGS` to `make test-integration` or `make isolation` skip the check, since a `-run` filter leaves suites out on purpose; CI never sets `ARGS`.
+- **A hang in the isolation suite.** `scripts/ci/isolation.sh` runs after `test-integration.sh` in the same step and keeps Go's default `-timeout` of 10m, so a hang there is still cancelled by the job before Go's dump. Its output does stream (suiteran prints as it reads), so the log shows how far it got. Follow-up, not in TICK-225's scope.
 - **testcontainers-go.** Approved, not adopted (decision log, 2026-10-19). The integration tests start a pinned container through the docker CLI, the way T03 and T04 built them.
 
 ## Run it
@@ -168,6 +207,7 @@ make ci-lint      # or one stage
 NAVA_CI_CANARY=fail make test-integration ARGS="-run TestCICanary"   # canary, must fail
 make ci-isolated ID=pr-57   # all four stages at once, on a stack of its own (below)
 make ci-changed ID=pr-57    # only the stages the change against origin/main needs
+make reap-integration REAP_DRY=1   # integration leftovers older than 6h; drop REAP_DRY to remove
 ```
 
 `make ci-changed` (`task ci:changed`, TICK-153 O7) asks `tools/ci/cichanged`

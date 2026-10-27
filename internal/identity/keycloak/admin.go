@@ -121,8 +121,10 @@ func (a *admin) bearer(ctx context.Context, acct *account) (string, error) {
 	return acct.token, nil
 }
 
+// send refuses every redirect: the token endpoint would resend the client
+// secret and the admin API the bearer token to a URL nobody checked.
 func (a *admin) send(req *http.Request) (reply, error) {
-	resp, err := a.out.Do(req)
+	resp, err := a.out.Do(req.WithContext(telemetry.WithoutRedirects(req.Context())))
 	if err != nil {
 		return reply{}, err
 	}

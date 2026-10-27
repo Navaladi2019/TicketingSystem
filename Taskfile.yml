@@ -101,6 +101,11 @@ tasks:
     cmds:
       - sh scripts/ci/ci-isolated.sh --down {{.ID}}
 
+  reap:integration:
+    desc: "Remove the nava-it-*/nava-iso-* containers and networks killed integration runs left, older than REAP_OLDER (default 6h), never a compose stack; REAP_DRY=1 lists them only. The same as make reap-integration"
+    cmds:
+      - go run ./tools/ci/itreap -older {{.REAP_OLDER | default "6h"}} {{if .REAP_DRY}}-n{{end}}
+
   stack:up:
     desc: Build and start the local compose stack (Postgres, PgBouncer, Keycloak, Temporal, Collector, nava-core)
     cmds:

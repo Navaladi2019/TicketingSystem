@@ -1,0 +1,5 @@
+services:
+  keycloak:
+    image: nava/keycloak:${NAVA_IMAGE_TAG:-dev}
+  core:
+    image: "nava/nava-core:${NAVA_IMAGE_TAG-dev}"
