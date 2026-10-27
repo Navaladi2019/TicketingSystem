@@ -265,6 +265,8 @@ jobs:
       # After the SDK suite: the worker polls nava-tq, the queue its workers poll.
       - name: nava-worker ready, admin listener, guarded activity
         run: make stack-test-worker
+      - name: S7 demo, make demo-outbox twice with one key, one workflow and two signals
+        run: make stack-test-demo_outbox
       - name: Dependency probes, /readyz 200 with Keycloak stopped
         run: make stack-test-dependencies
       - name: One request, one trace
