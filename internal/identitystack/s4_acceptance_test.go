@@ -19,8 +19,10 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -67,6 +69,28 @@ func redactBody(body []byte) string {
 	}
 	out, _ := json.MarshalIndent(m, "", "  ")
 	return string(out)
+}
+
+// onboardPostRaw is onboardPost through busybox nc, which, unlike wget,
+// returns the body of an error status. stdin stays open while the server
+// answers (a half-close would cancel the request); the token is passed in the
+// environment, never argv.
+func onboardPostRaw(t *testing.T, token, key string, body []byte) (int, []byte) {
+	t.Helper()
+	cmd := exec.CommandContext(t.Context(), "docker", "compose", "exec", "-T", "-e", "NAVA_OPERATOR_TOKEN", "nava-onboard", "sh", "-c",
+		`{ printf 'POST /api/v1/operator/tenants HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer %s\r\nIdempotency-Key: %s\r\n`+
+			`Content-Type: application/json\r\nContent-Length: %s\r\nConnection: close\r\n\r\n%s' "$NAVA_OPERATOR_TOKEN" "$1" "${#2}" "$2"; sleep 15; } | nc -w 20 127.0.0.1 8081`,
+		"sh", key, string(body))
+	cmd.Dir = repoRoot
+	cmd.Env = append(os.Environ(), "NAVA_OPERATOR_TOKEN="+token)
+	out, _ := cmd.Output()
+	head, rest, _ := bytes.Cut(out, []byte("\r\n\r\n"))
+	m := statusLine.FindSubmatch(head)
+	if m == nil {
+		t.Fatalf("no HTTP response from nava-onboard: %.400s", out)
+	}
+	code, _ := strconv.Atoi(string(m[1]))
+	return code, rest
 }
 
 // feedback is the sentence around Keycloak's error on a login page's text.
@@ -216,15 +240,28 @@ func TestS4Acceptance(t *testing.T) {
 			"`%s` is not in `/t/%s/` and not a member of organization `%s`", me.admin, other.tenant, other.alias)
 		e.check(t, !slices.Contains(fedLinks(t, me.admin), other.idpAlias), "`%s` holds no link to `%s`", me.admin, other.idpAlias)
 	}
-	// Claiming A's domain for another tenant is refused; A keeps it.
+	// Claiming A's domain for another tenant is 409 domain_claimed (TICK-271):
+	// the body names neither A nor its organization, and the refused tenant
+	// leaves no tenants row and no Keycloak organization.
 	{
 		key := uuid.NewString()
+		refused := onboard.TenantID(operatorSub, key)
 		stolen := onboardBody("admin@"+a.domain, a.domain)
-		cleanupTenantOrg(t, onboard.TenantID(operatorSub, key), onboard.Alias(onboard.TenantID(operatorSub, key)))
-		code, resp := onboardPost(t, op, key, stolen)
+		cleanupTenantOrg(t, refused, onboard.Alias(refused))
+		code, resp := onboardPostRaw(t, op, key, stolen)
 		e.exchange("A new tenant claims tenant A's domain:", onboardReq(key, stolen), code, resp)
+		var problem struct{ Code string }
+		_ = json.Unmarshal(resp, &problem)
+		e.check(t, code == http.StatusConflict && problem.Code == "domain_claimed", "%d `%s` (want 409 `domain_claimed`)", code, problem.Code)
+		leaks := []string{a.tenant.String(), a.alias, a.orgID, a.idpAlias}
+		e.check(t, !slices.ContainsFunc(leaks, func(s string) bool { return bytes.Contains(resp, []byte(s)) }),
+			"the body names neither tenant A (`%s`) nor its organization (`%s`, id `%s`) nor its IdP", a.tenant, a.alias, a.orgID)
 		owner := psqlSuper(t, fmt.Sprintf("SELECT tenant_id FROM tenant_email_domain WHERE domain = '%s'", a.domain))
-		e.check(t, code == http.StatusConflict && owner == a.tenant.String(), "%d (want 409 `domain_claimed`); `%s` is still owned by `%s` (got `%s`)", code, a.domain, a.tenant, owner)
+		e.check(t, owner == a.tenant.String(), "`%s` is still owned by tenant A (got `%s`)", a.domain, owner)
+		rows := psqlSuper(t, fmt.Sprintf("SELECT count(*) FROM tenants WHERE id = '%s'", refused))
+		e.check(t, rows == "0", "no `tenants` row (provisioning or otherwise) for the refused tenant `%s` (got %s)", refused, rows)
+		orgs := orgsByAlias(t, onboard.Alias(refused))
+		e.check(t, len(orgs) == 0, "no Keycloak organization `%s` (got %v)", onboard.Alias(refused), orgs)
 		e.check(t, inviteState(t, a.tenant, a.admin) == "consumed" && psqlSuper(t,
 			fmt.Sprintf("SELECT count(*) FROM pending_invite WHERE email = 'admin@%s'", a.domain)) == "1",
 			"no second invite for `admin@%s`", a.domain)

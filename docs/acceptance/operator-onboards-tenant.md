@@ -2,9 +2,9 @@
 
 Story: TICK-46. Plan: PLAN-001 (`docs/delivery/plan-platform-foundation.md`). Design: ADR-001. Operator reference: [`docs/operator/onboarding.md`](../operator/onboarding.md).
 
-The Quality, Testing & CI Advisor verified this on 2026-10-27, on `TICK-46/operator-onboards-tenant` at `8cf0c88` (current `main` merged in). The fresh stack came up with `docker compose down -v`, then `docker compose up --wait`. Every service was healthy and `/readyz` returned `ok` on `nava-core`, `nava-onboard` and `nava-groupsync`. The full GitHub `ci` run on the same commit is green: [40536668822](https://github.com/Navaladi2019/TicketingSystem/actions/runs/40536668822).
+The Quality, Testing & CI Advisor verified this on 2026-10-28, on `TICK-46/operator-onboards-tenant` at `d256e86` (current `main` merged in at `8cf0c88`, then the TICK-271 fix, PR #209, and its guard test, PR #213). The first run, on 2026-10-27 at `8cf0c88`, failed one isolation item; TICK-271 fixed it. The fresh stack came up with `docker compose down -v`, then `docker compose up --wait`. Every service was healthy and `/readyz` returned `ok` on `nava-core`, `nava-onboard` and `nava-groupsync`. CI: the full `ci` run after the `main` merge was green ([40536668822](https://github.com/Navaladi2019/TicketingSystem/actions/runs/40536668822)), and PRs #209 and #213 merged with all 8 jobs green.
 
-**Status: NOT READY.** All 3 acceptance criteria pass, and the isolation check shows no tenant reaching another. One item of the isolation check fails. When an operator names a domain that another tenant already owns, the call answers `500` instead of the documented `409 domain_claimed`. The fix task is TICK-271. When it merges, `TestS4Acceptance` is rerun on a fresh stack, and the story goes to the human only if every item passes.
+**Status: READY for the human.** All 3 acceptance criteria and every item of the isolation check pass: 42 of 42 checks in `TestS4Acceptance`, on a stack started with `docker compose down -v`.
 
 ## What you can now do
 
@@ -30,7 +30,7 @@ You need Docker and Go 1.26. Start from a clean checkout of `TICK-46/operator-on
      go test -tags 'identitystack acceptance' -count=1 -v -run '^TestS4Acceptance$' ./internal/identitystack
    ```
    It signs in as the seeded operator `operator@nava.test`. It onboards tenants A, B and C, each with its own domain `onb-<8 hex>.test` and its own IdP realm. It signs both admins in through their tenant's IdP and calls `GET /api/v1/me` with each admin's token.
-3. Open `s4-evidence.md`. Every request and response is there, under one heading per criterion, with tokens left out and the IdP client secret redacted. Every line reads **PASS** except the domain-claim line, until TICK-271 merges.
+3. Open `s4-evidence.md`. Every request and response is there, under one heading per criterion, with tokens left out and the IdP client secret redacted. Every line reads **PASS**.
 4. To call onboarding by hand, use the operator command in `docs/operator/onboarding.md` ("Configuration (nava-onboard)"). It passes the token through the environment, never on the command line.
 5. Clean up with `docker compose down -v`.
 
@@ -61,18 +61,17 @@ As a control, another user of C's IdP signs in, which shows the refusal is about
 | B's admin calls `/me` naming A, with `X-Tenant-Id` and with `?tenant_id=`, and A's admin does the same naming B | ✅ Always the caller's own tenant |
 | Each admin's membership in the other tenant | ✅ Not in the other's group or organization, and no link to the other's IdP |
 | B's admin replays A's onboarding request on `nava-core` (the tenant ingress) | ✅ `501`; nothing changes for A |
-| A new tenant claims A's email domain | ❌ A keeps the domain and no second invite is written, so isolation holds. But the answer is `500`, not `409 domain_claimed`, and the refused tenant's row stays `provisioning`. **TICK-271** |
+| A new tenant claims A's email domain (TICK-271) | ✅ `409 domain_claimed`, and the body names neither tenant A, its organization nor its IdP. A keeps the domain. The refused tenant has no `tenants` row and no Keycloak organization, and no second invite is written |
 
 ## Not included
 
-- **The invitation email.** The story's "How to try it" step 2 says to accept an invitation mailed to the dev mail catcher. The stack has no mail catcher and sends no email. Since TICK-252, the invite is a pending row, and the admin signs in through their company IdP with no password to set. The story text predates that change.
+- **The invitation email.** The story's "How to try it" step 2 says to accept an invitation mailed to the dev mail catcher. The stack has no mail catcher and sends no email. Since TICK-252, the invite is a pending row, and the admin signs in through their company IdP with no password to set. The story text predates that change; the CTO confirmed on 2026-10-27 that TICK-252 supersedes it.
 - **Abandoning a half-onboarded tenant.** There is no operation for it (AR-036).
 - **An operator UI.** Onboarding is API only.
 
 ## Known limits
 
 - **A refused invite is answered like a sent one.** In criterion 3, onboarding C returns `201`, and C is `active` with no admin who can sign in. The operator is not told. This is the documented design (`docs/operator/onboarding.md` step 5). If you want the operator to see it, that is a new requirement.
-- **The domain-claim `500`** (TICK-271, above). The fix is underway, and this item blocks the hand-off.
 - **A replay answers `200`, not `201`**, with the same body. This is what the operator reference documents.
 - **The new admin's `/me` works only after the next group sync cycle**, at most 5 minutes after their first sign-in. The walkthrough runs one cycle by hand.
 - **The tenant's IdP URLs must be public https.** On the stack, the harness points them at a test realm afterwards, as the Keycloak master admin.
