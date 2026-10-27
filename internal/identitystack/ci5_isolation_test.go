@@ -250,8 +250,9 @@ func ci5ForeignIdPAtLogin(t *testing.T, e *ci5Env) {
 	if p, err := e.resolver.Resolve(t.Context(), before); err != nil || p.TenantID != tenantA {
 		t.Fatalf("control: the unlinked user = %+v, %v; want tenant A", p, err)
 	}
+	extID := "ext-" + uuid.NewString()
 	if code, b := adminRealm(t, "nava", http.MethodPost, "/users/"+id+"/federated-identity/idp-tenant-b", map[string]any{
-		"identityProvider": "idp-tenant-b", "userId": "ext-" + uuid.NewString(), "userName": user,
+		"identityProvider": "idp-tenant-b", "userId": extID, "userName": user,
 	}); code != http.StatusNoContent && code != http.StatusCreated {
 		t.Fatalf("link the user to idp-tenant-b: %d %s", code, b)
 	}
@@ -259,7 +260,10 @@ func ci5ForeignIdPAtLogin(t *testing.T, e *ci5Env) {
 	var links string
 	if err := e.super.QueryRow(t.Context(), "SELECT federated_links::text FROM principals WHERE tenant_id = $1 AND keycloak_user_id = $2",
 		tenantA, id).Scan(&links); err != nil || !strings.Contains(links, "idp-tenant-b") {
-		t.Fatalf("group sync did not record the link: %q %v", links, err)
+		t.Fatalf("group sync did not mark the foreign link: %q %v", links, err)
+	}
+	if strings.Contains(links, extID) {
+		t.Errorf("tenant A's row carries tenant B's external user id: %q", links)
 	}
 	for name, tok := range map[string]string{"token from before the link": before, "new token": passwordToken(t, "nava-web", user, pass)} {
 		if p, err := e.resolver.Resolve(t.Context(), tok); !errors.Is(err, identity.ErrTenantUnresolved) {

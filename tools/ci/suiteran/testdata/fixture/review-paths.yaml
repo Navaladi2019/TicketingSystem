@@ -1,0 +1,6 @@
+# The suiteran fixture's path list: every *_suite_test.go file is registered.
+security: []
+cto_signoff:
+  paths: []
+  isolation_tests:
+    - "**/*_suite_test.go"

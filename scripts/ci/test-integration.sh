@@ -128,7 +128,7 @@ procs=""
 run() { # run <log> <go test arguments>: in the background, output to $logs/<log>
     l=$1
     shift
-    go test -tags integration -count=1 -v "$@" >"$logs/$l" 2>&1 &
+    go test -tags integration -count=1 -json "$@" >"$logs/$l" 2>&1 &
     procs="$procs $!:$l"
 }
 i=1
@@ -149,12 +149,13 @@ for j in $procs; do
     wait "${j%%:*}" || { status=1; failed="$failed ${j#*:}"; }
 done
 echo "integration: tests done after $(( $(date +%s) - t0 ))s"
-for f in "$logs"/*; do
-    echo "=== integration group $(basename "$f")"
-    cat "$f"
-done
+# Each group's output, as go test -v prints it, then the check that every
+# registered isolation suite in these packages ran a test (tools/ci/suiteran,
+# TICK-230): the groups are checked together, since a dbtest shard runs only
+# some of the package's tests.
+go run ./tools/ci/suiteran -tags integration -v -in "$logs"/* || status=1
 # Every dbtest test ran, exactly once over the shards.
-ran=$(cat "$logs"/dbtest-* | grep -c '^=== RUN   Test[^/]*$' || true)
+ran=$(grep -h '"Action":"run"' "$logs"/dbtest-* | grep -vc '"Test":"[^"]*/' || true)
 echo "dbtest: $ran of $total top-level tests ran"
 [ "$ran" -eq "$total" ] || { echo "dbtest: the shards ran $ran tests, want $total" >&2; status=1; }
 [ "$status" -eq 0 ] || echo "integration: failed groups:$failed" >&2

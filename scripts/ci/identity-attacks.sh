@@ -67,5 +67,19 @@ wait_healthy "$pg" 120
 NAVA_TEST_PG_URL="postgres://pgadmin:test-only@127.0.0.1:$(hostport "$pg" 5432)/postgres"
 export NAVA_TEST_PG_URL
 
-go test -tags identitystack -count=1 -json -run '^TestCI5$' ./internal/identitystack "$@" |
-    go run ./tools/ci/ci5report -out "${CI5_REPORT:-ci5-report.md}"
+# The CI-5 stream, then the check. Two streams cover the identitystack
+# registered suites: this one (TestCI5, ci5_isolation_test.go) and the stack
+# one make stack-test-identity writes (every other test in the package, with
+# -skip '^TestCI5$'). suiteran -in checks them together: a skip is never
+# counted as a run (TICK-230), and the pipe cannot hide a failing go test.
+ci5_stream="${CI5_STREAM:-ci5.json}"
+stack_stream="${IDENTITY_STREAM:-identity-stream.json}"
+status=0
+go test -tags identitystack -count=1 -json -run '^TestCI5$' ./internal/identitystack "$@" >"$ci5_stream" || status=1
+go run ./tools/ci/ci5report -out "${CI5_REPORT:-ci5-report.md}" <"$ci5_stream" || status=1
+# Standalone run: make stack-test-identity has not written its stream.
+if [ ! -s "$stack_stream" ]; then
+    go test -tags identitystack -count=1 -json -skip '^TestCI5$' ./internal/identitystack >"$stack_stream" || status=1
+fi
+go run ./tools/ci/suiteran -tags identitystack -in "$stack_stream" "$ci5_stream" || status=1
+exit "$status"

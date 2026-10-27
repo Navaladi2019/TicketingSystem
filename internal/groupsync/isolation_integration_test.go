@@ -11,6 +11,7 @@ package groupsync_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -291,5 +292,69 @@ func TestOneTenantsLockDoesNotBlockAnother(t *testing.T) {
 	}
 	if n := count(t, super, "SELECT count(*) FROM principals WHERE tenant_id = $1", b); n != 2 {
 		t.Errorf("tenant B principals = %d, want 2", n)
+	}
+}
+
+// A user in tenants A and B federates to both tenants' IdPs. Each tenant's
+// snapshot carries every link; each row keeps the tenant's own links whole and the other's as an alias-only marker (no external user id).
+func TestFederatedLinksMarkUnboundAliasesWithoutTheExternalUserId(t *testing.T) {
+	super, pool := cluster(t)
+	a, b := twoTenants()
+	seedTenant(t, super, a, 1)
+	seedTenant(t, super, b, 2)
+	bindAliases(t, super, a, "idp-a")
+	bindAliases(t, super, b, "idp-b")
+	dir := &fakeDir{snaps: map[uuid.UUID]identity.DirectoryChanges{}}
+	both := []identity.FederatedLink{{IdPAlias: "idp-a", ExternalUserID: "ext-a"}, {IdPAlias: "idp-b", ExternalUserID: "ext-b"}}
+	for _, tid := range []uuid.UUID{a, b} {
+		dir.set(tid, identity.DirectoryChanges{Users: []identity.DirectoryUser{
+			{KeycloakUserID: "u-both", Email: "both@example.test", Enabled: true, FederatedLinks: both},
+		}})
+	}
+	for id, r := range syncAll(t, newSyncer(t, pool, dir)) {
+		if r.Err != nil {
+			t.Fatalf("tenant %s: %v", id, r.Err)
+		}
+	}
+	for tid, want := range map[uuid.UUID]string{
+		a: `[{"userId": "ext-a", "identityProvider": "idp-a"}, {"identityProvider": "idp-b"}]`,
+		b: `[{"identityProvider": "idp-a"}, {"userId": "ext-b", "identityProvider": "idp-b"}]`,
+	} {
+		if n := count(t, super, "SELECT count(*) FROM principals WHERE tenant_id = $1 AND keycloak_user_id = 'u-both' AND federated_links = $2::jsonb", tid, want); n != 1 {
+			var got string
+			_ = super.QueryRow(context.Background(), "SELECT federated_links::text FROM principals WHERE tenant_id = $1 AND keycloak_user_id = 'u-both'", tid).Scan(&got)
+			t.Errorf("tenant %s federated_links = %s, want %s", tid, got, want)
+		}
+		var raw string
+		_ = super.QueryRow(context.Background(), "SELECT federated_links::text FROM principals WHERE tenant_id = $1 AND keycloak_user_id = 'u-both'", tid).Scan(&raw)
+		if other := map[uuid.UUID]string{a: "ext-b", b: "ext-a"}[tid]; strings.Contains(raw, other) {
+			t.Errorf("tenant %s row carries the other tenant's external user id: %s", tid, raw)
+		}
+	}
+
+	// A row an older sync wrote, with the foreign external user id, is rewritten to
+	// the marker by one sync.
+	if _, err := super.Exec(context.Background(), `UPDATE principals SET federated_links = '[{"identityProvider": "idp-a", "userId": "ext-a"}, {"identityProvider": "idp-b", "userId": "ext-b"}]'::jsonb WHERE tenant_id = $1`, a); err != nil {
+		t.Fatal(err)
+	}
+	if r := syncAll(t, newSyncer(t, pool, dir))[a]; r.Err != nil {
+		t.Fatalf("resync of tenant %s: %v", a, r.Err)
+	}
+	var rewritten string
+	_ = super.QueryRow(context.Background(), "SELECT federated_links::text FROM principals WHERE tenant_id = $1 AND keycloak_user_id = 'u-both'", a).Scan(&rewritten)
+	if strings.Contains(rewritten, "ext-b") || !strings.Contains(rewritten, "idp-b") {
+		t.Errorf("a stored full foreign link must become the marker after one sync, got %s", rewritten)
+	}
+
+	// Unbinding leaves the link as a marker on the next sync.
+	bindAliases(t, super, a)
+	dir.set(a, identity.DirectoryChanges{Users: []identity.DirectoryUser{
+		{KeycloakUserID: "u-both", Email: "both@example.test", Enabled: true, FederatedLinks: both},
+	}})
+	if r := syncAll(t, newSyncer(t, pool, dir))[a]; r.Err != nil {
+		t.Fatalf("resync of tenant %s: %v", a, r.Err)
+	}
+	if n := count(t, super, "SELECT count(*) FROM principals WHERE tenant_id = $1 AND federated_links = '[{\"identityProvider\": \"idp-a\"}, {\"identityProvider\": \"idp-b\"}]'::jsonb", a); n != 1 {
+		t.Errorf("a tenant with no bound alias must store alias-only markers, no external user id")
 	}
 }

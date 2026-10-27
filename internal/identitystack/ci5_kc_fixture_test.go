@@ -9,7 +9,10 @@ package identitystack
 // a Keycloak 26.1.2, and requires the tamper to SUCCEED there: it proves the
 // case can see the break, so its pass on the pinned Keycloak means something.
 //
-// Skipped by default: it needs its own Keycloak. make identity-attacks-fixture
+// Skipped by default: it needs its own Keycloak. TICK-263: deliberately not a
+// registered isolation suite (the file name has no "isolation"), because no CI
+// run has that Keycloak and suiteran counts a skip as no run. CTO sign-off
+// recorded in the PR. make identity-attacks-fixture
 // starts the negative-fixture Keycloak docs/pins.md names and sets
 // NAVA_CI5_KC_FIXTURE_URL.
 

@@ -6,7 +6,8 @@
 #   unit             go test -race (no containers)
 #   temporal-server  the custom server module's unit tests and govulncheck
 #                    (no containers)
-#   integration      -tags integration against a throwaway PostgreSQL
+#   integration      -tags integration against a throwaway PostgreSQL, the
+#                    isolation suite, then the ci-isolated --down tag check
 #   stack            image build, compose up, smoke, platform and Temporal tests
 #   stack-db         a second stack: db-roles/migrate idempotency, role and hba tests
 #   stack-internal   the internal overlay on a fresh stack
@@ -15,9 +16,11 @@
 # always runs, and a change under .github/workflows runs everything. Nothing
 # runs on a push to main; run the full pipeline by hand from the Actions tab
 # (workflow_dispatch), which runs every job on the chosen branch.
-# Budget: the whole run finishes in under 5 minutes on a warm cache. Each job
-# keeps its own Go build cache (key per job, refreshed every run), the CI tools
-# are cached by version, and image layers live in the Actions cache (gha).
+# Budget: see "Job time budgets" in docs/quality/ci-pipeline.md. The three
+# stack jobs build the images first (7.5 to 10 minutes of each run), so their
+# timeout-minutes is 25 (TICK-258); the others stay at 10. Each job keeps its
+# own Go build cache (key per job, refreshed every run), the CI tools are cached
+# by version, and image layers live in the Actions cache (gha).
 name: ci
 
 on:
@@ -192,13 +195,16 @@ jobs:
             go-${{ github.job }}-
       - name: Integration tests (-tags integration)
         run: make test-integration
+      # Its own step, not part of make test-integration (TICK-224).
+      - name: ci-isolated --down untags only its own tags
+        run: make test-ci-isolated-down
 
   stack:
     # Platform and Temporal stack tests; the database tests run in stack-db.
     needs: changes
     if: needs.changes.outputs.stack == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
       IMAGE_CACHE: gha
     steps:
@@ -254,6 +260,9 @@ jobs:
           name: ci5-report
           path: ci5-report.md
           if-no-files-found: error
+      # After the SDK suite: the worker polls nava-tq, the queue its workers poll.
+      - name: nava-worker ready, admin listener, guarded activity
+        run: make stack-test-worker
       - name: Dependency probes, /readyz 200 with Keycloak stopped
         run: make stack-test-dependencies
       - name: One request, one trace
@@ -274,7 +283,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.stack == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
       IMAGE_CACHE: gha
     steps:
@@ -318,7 +327,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.stack == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
       IMAGE_CACHE: gha
     steps:
