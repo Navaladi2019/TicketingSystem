@@ -50,6 +50,13 @@ linters:
         - pattern: ^otelpgx\.WithIncludeQueryParameters$
           pkg: ^github\.com/exaring/otelpgx$
           msg: query parameters must not reach spans; db.NewPool traces without them
+        # ADR-002: group paths are display-only; only GetMe reads them.
+        - pattern: ^identity\.GroupPathReader\.GroupPaths$
+          pkg: ^github\.com/Navaladi2019/TicketingSystem/internal/identity$
+          msg: group paths are display-only (ADR-002); only GetMe may call GroupPaths
+        - pattern: ^pgstore\.Store\.GroupPaths$
+          pkg: ^github\.com/Navaladi2019/TicketingSystem/internal/identity/pgstore$
+          msg: group paths are display-only (ADR-002); only GetMe may call GroupPaths
     sloglint:
       attr-only: true # slog.String(...) attributes, never loose key/value pairs
       context: all # *Context methods only, so every line carries the request ids
@@ -67,6 +74,8 @@ linters:
       - path: _test\.go
         linters: [gosec, forbidigo]
       - path: ^internal/platform/telemetry/
+        linters: [forbidigo]
+      - path: ^internal/server/api\.go$
         linters: [forbidigo]
 
 formatters:
