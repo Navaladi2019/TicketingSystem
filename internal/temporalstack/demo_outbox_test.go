@@ -1,4 +1,4 @@
-//go:build temporalstack
+//go:build temporalstack && demooutbox
 
 package temporalstack
 
@@ -9,13 +9,12 @@ package temporalstack
 // stack's nava-relay service hands them to Temporal. The test's worker runs
 // relayProbe as that type, which has no demo.note channel, so the signals stay
 // unapplied and the history is the evidence. Run by
-// make stack-test-demo_outbox only (NAVA_TEST_DEMO_OUTBOX=1), not by the
+// make stack-test-demo_outbox only (build tag demooutbox), not by the
 // whole-package stack-test-sdk run.
 
 import (
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -56,9 +55,6 @@ func runDemo(t *testing.T, key string) map[string]string {
 }
 
 func TestDemoOutboxTwiceWithOneKeyIsOneWorkflowWithTwoSignalsInOrder(t *testing.T) {
-	if os.Getenv("NAVA_TEST_DEMO_OUTBOX") == "" {
-		t.Skip("run by make stack-test-demo_outbox")
-	}
 	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Minute)
 	defer cancel()
 	s := newRelayStack(t)

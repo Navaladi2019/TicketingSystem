@@ -389,6 +389,6 @@ demo-outbox:
 
 # Runs make demo-outbox twice with one key and asserts one workflow whose
 # history holds the two signals in commit order (internal/temporalstack,
-# TestDemoOutbox). Skipped in stack-test-sdk's whole-package run.
+# TestDemoOutbox). Behind the demooutbox tag, so stack-test-sdk's whole-package run (and its report gate) never compiles it.
 stack-test-demo_outbox:
-	NAVA_TEST_DEMO_OUTBOX=1 go test -tags temporalstack -count=1 -timeout 5m -run '^TestDemoOutbox' ./internal/temporalstack
+	go test -tags temporalstack,demooutbox -count=1 -timeout 5m -run '^TestDemoOutbox' ./internal/temporalstack
