@@ -366,19 +366,91 @@ func TestUnverifiedUpstreamEmailNotPlaced(t *testing.T) {
 	f.requirePlaced(t, ctl)
 }
 
-// accountUpdate posts changes to the signed-in user's own profile through the
-// account API, with a token from the account-console client. It returns the
-// status and body. The current representation is read first, so required
-// fields are present and only the named change differs.
-func accountUpdate(t *testing.T, tok string, change func(rep map[string]any)) (int, string) {
+// accountGet reads the signed-in user's own account with a token from the
+// account-console client.
+func accountGet(t *testing.T, tok string) (int, []byte) {
 	t.Helper()
-	c := newInNetClient(t)
 	get, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+inNetHost+"/realms/nava/account/", nil)
 	get.Header.Set("Authorization", "Bearer "+tok)
 	get.Header.Set("Accept", "application/json")
-	code, b := do(t, c, get)
+	return do(t, newInNetClient(t), get)
+}
+
+// logAccountToken logs what decides the account API's answer: the token's
+// audience and account roles, and the composites of default-roles-nava.
+func logAccountToken(t *testing.T, tok string) {
+	t.Helper()
+	c := claims(t, tok)
+	var roles any
+	if ra, ok := c["resource_access"].(map[string]any); ok {
+		if acct, ok := ra["account"].(map[string]any); ok {
+			roles = acct["roles"]
+		}
+	}
+	code, comp := adminRealm(t, "nava", http.MethodGet, "/roles/default-roles-nava/composites", nil)
+	var names []string
+	var cs []struct {
+		Name        string
+		ContainerID string
+		ClientRole  bool
+	}
+	if json.Unmarshal(comp, &cs) == nil {
+		for _, r := range cs {
+			names = append(names, r.Name)
+		}
+	}
+	t.Logf("account token: aud=%v resource_access.account.roles=%v; default-roles-nava composites (%d)=%v", c["aud"], roles, code, names)
+}
+
+// grantAccountRoles gives view-profile and manage-account on the account
+// client to the one nava user with this email, through the admin API. It is a
+// test fixture for the user-profile control: the realm's default roles stay
+// as they are, and TestAccountAPIClosedToPlainBrokeredUser pins that.
+func grantAccountRoles(t *testing.T, email string) {
+	t.Helper()
+	uid := kcUserByEmail(t, email)
+	if uid == "" {
+		t.Fatalf("no user %s to grant account roles to", email)
+	}
+	_, cb := adminRealm(t, "nava", http.MethodGet, "/clients?clientId=account", nil)
+	var cs []struct{ ID string }
+	if json.Unmarshal(cb, &cs) != nil || len(cs) != 1 {
+		t.Fatalf("account client: %s", cb)
+	}
+	var reps []json.RawMessage
+	for _, name := range []string{"view-profile", "manage-account"} {
+		code, rb := adminRealm(t, "nava", http.MethodGet, "/clients/"+cs[0].ID+"/roles/"+name, nil)
+		if code != http.StatusOK {
+			t.Fatalf("account role %s: %d %s", name, code, rb)
+		}
+		reps = append(reps, rb)
+	}
+	if code, b := adminRealm(t, "nava", http.MethodPost, "/users/"+uid+"/role-mappings/clients/"+cs[0].ID, reps); code != http.StatusNoContent {
+		t.Fatalf("grant account roles to %s: %d %s", email, code, b)
+	}
+}
+
+// grantedAccountToken signs the user in through the tenant IdP (which creates
+// them), grants only that user the account roles, and signs in again: roles
+// are fixed when a token is issued, so the second token carries them.
+func grantedAccountToken(t *testing.T, f tenantFx, email string) string {
+	t.Helper()
+	accountConsoleSignIn(t, f.idpAlias, email, f.pass)
+	grantAccountRoles(t, email)
+	tok := accountConsoleSignIn(t, f.idpAlias, email, f.pass)
+	logAccountToken(t, tok)
+	return tok
+}
+
+// accountUpdate posts changes to the signed-in user's own profile through the
+// account API. The current representation is read first, so required fields
+// are present and only the named change differs.
+func accountUpdate(t *testing.T, tok string, change func(rep map[string]any)) (int, string) {
+	t.Helper()
+	code, b := accountGet(t, tok)
 	var rep map[string]any
 	if code != http.StatusOK || json.Unmarshal(b, &rep) != nil {
+		logAccountToken(t, tok)
 		t.Fatalf("GET the account: %d %.300s (the token must be accepted by the account API)", code, b)
 	}
 	change(rep)
@@ -386,8 +458,22 @@ func accountUpdate(t *testing.T, tok string, change func(rep map[string]any)) (i
 	post, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://"+inNetHost+"/realms/nava/account/", bytes.NewReader(body))
 	post.Header.Set("Authorization", "Bearer "+tok)
 	post.Header.Set("Content-Type", "application/json")
-	code, b = do(t, c, post)
+	code, b = do(t, newInNetClient(t), post)
 	return code, string(b)
+}
+
+// TestAccountAPIClosedToPlainBrokeredUser pins the production default the two
+// read-only tests depend on: a brokered tenant user with no grant gets 403 from
+// the account API. If someone adds manage-account to the default roles, this
+// fails; the user-profile control is proven separately with a per-user grant.
+func TestAccountAPIClosedToPlainBrokeredUser(t *testing.T) {
+	stopGroupsync(t)
+	f := onboardFx(t)
+	tok := accountConsoleSignIn(t, f.idpAlias, f.admin, f.pass)
+	logAccountToken(t, tok)
+	if code, b := accountGet(t, tok); code != http.StatusForbidden {
+		t.Errorf("GET the account as a plain brokered user = %d %.200s, want 403", code, b)
+	}
 }
 
 // TestIdPEmailVerifiedAttributeNotUserEditable: a signed-in user sets
@@ -402,7 +488,7 @@ func TestIdPEmailVerifiedAttributeNotUserEditable(t *testing.T) {
 	ctl := f.control(t)
 	setUpstreamEmailVerified(t, f.realm, f.admin, false)
 
-	tok := accountConsoleSignIn(t, f.idpAlias, f.admin, f.pass)
+	tok := grantedAccountToken(t, f, f.admin)
 	code, resp := accountUpdate(t, tok, func(rep map[string]any) {
 		attrs, _ := rep["attributes"].(map[string]any)
 		if attrs == nil {
@@ -437,7 +523,7 @@ func TestUserCannotRenameEmailToPendingInvite(t *testing.T) {
 	seedIdPUser(t, f.realm, mallory, mallory, f.pass)
 	deleteUserAfter(t, mallory)
 
-	tok := accountConsoleSignIn(t, f.idpAlias, mallory, f.pass)
+	tok := grantedAccountToken(t, f, mallory)
 	code, resp := accountUpdate(t, tok, func(rep map[string]any) { rep["email"] = f.admin })
 	if code != http.StatusBadRequest || !strings.Contains(resp, "error-user-attribute-read-only") {
 		t.Errorf("account API rename of email = %d %.300s, want 400 error-user-attribute-read-only", code, resp)
