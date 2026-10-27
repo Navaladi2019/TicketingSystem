@@ -6,7 +6,8 @@
 #   unit             go test -race (no containers)
 #   temporal-server  the custom server module's unit tests and govulncheck
 #                    (no containers)
-#   integration      -tags integration against a throwaway PostgreSQL
+#   integration      -tags integration against a throwaway PostgreSQL, the
+#                    isolation suite, then the ci-isolated --down tag check
 #   stack            image build, compose up, smoke, platform and Temporal tests
 #   stack-db         a second stack: db-roles/migrate idempotency, role and hba tests
 #   stack-internal   the internal overlay on a fresh stack
@@ -15,9 +16,11 @@
 # always runs, and a change under .github/workflows runs everything. Nothing
 # runs on a push to main; run the full pipeline by hand from the Actions tab
 # (workflow_dispatch), which runs every job on the chosen branch.
-# Budget: the whole run finishes in under 5 minutes on a warm cache. Each job
-# keeps its own Go build cache (key per job, refreshed every run), the CI tools
-# are cached by version, and image layers live in the Actions cache (gha).
+# Budget: see "Job time budgets" in docs/quality/ci-pipeline.md. The three
+# stack jobs build the images first (7.5 to 10 minutes of each run), so their
+# timeout-minutes is 25 (TICK-258); the others stay at 10. Each job keeps its
+# own Go build cache (key per job, refreshed every run), the CI tools are cached
+# by version, and image layers live in the Actions cache (gha).
 name: ci
 
 on:
@@ -192,6 +195,13 @@ jobs:
             go-${{ github.job }}-
       - name: Integration tests (-tags integration)
         run: make test-integration
+      # Its own step, not part of make test-integration (TICK-224).
+      - name: ci-isolated --down untags only its own tags
+        run: make test-ci-isolated-down
+      # Its own step too (TICK-185): a run with ARGS or a TERM part way
+      # leaves no nava-it-* container or network.
+      - name: Integration script leaves nothing behind
+        run: make test-integration-cleanup
       - name: Isolation report
         if: always()
         uses: actions/upload-artifact@v4
@@ -205,7 +215,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.stack == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
       IMAGE_CACHE: gha
     steps:
@@ -249,11 +259,12 @@ jobs:
         run: make stack-test-temporal_health
       - name: SDK clients dial with their certificates and a worker runs
         run: make stack-test-sdk
-      - name: nava-worker ready, admin listener, guarded activity
-        run: make stack-test-worker
       # Before the dependency probes, which stop Keycloak.
       - name: Realm nava, operator custody and the Keycloak adapter
         run: make stack-test-identity
+      # After the SDK suite: the worker polls nava-tq, the queue its workers poll.
+      - name: nava-worker ready, admin listener, guarded activity
+        run: make stack-test-worker
       - name: Dependency probes, /readyz 200 with Keycloak stopped
         run: make stack-test-dependencies
       - name: One request, one trace
@@ -274,7 +285,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.stack == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
       IMAGE_CACHE: gha
     steps:
@@ -318,7 +329,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.stack == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
       IMAGE_CACHE: gha
     steps:
