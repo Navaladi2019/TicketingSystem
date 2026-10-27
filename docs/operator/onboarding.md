@@ -129,7 +129,11 @@ tenant IdP one mapper that copies the upstream `email_verified` claim to the use
 attribute `nava_idp_email_verified` (admin-only in realm `nava`'s user profile, so a
 user cannot set it). Group sync places the invitee only when it is exactly `true`.
 An IdP that sends no `email_verified`, or anything else, leaves the invited admin
-unplaced and the invite pending: it fails closed. Microsoft Entra does not emit a
+unplaced and the invite pending: it fails closed. A SAML IdP has no standard
+`email_verified` attribute, so it must send an attribute named `email_verified`
+with the value `true`; the SAML mapper reads that attribute name. A tenant user's
+email is admin-only in realm `nava`'s user profile, so it comes from the IdP and
+nowhere else. Microsoft Entra does not emit a
 usable `email_verified` by default; map the verified-email claim (`xms_edov`) or a
 verified-domain claim to `email_verified` before onboarding a tenant on Entra. An
 IdP bound to a multi-tenant issuer (such as Entra `common`) or with open

@@ -366,28 +366,54 @@ func TestUnverifiedUpstreamEmailNotPlaced(t *testing.T) {
 	f.requirePlaced(t, ctl)
 }
 
+// accountUpdate posts changes to the signed-in user's own profile through the
+// account API, with a token from the account-console client. It returns the
+// status and body. The current representation is read first, so required
+// fields are present and only the named change differs.
+func accountUpdate(t *testing.T, tok string, change func(rep map[string]any)) (int, string) {
+	t.Helper()
+	c := newInNetClient(t)
+	get, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+inNetHost+"/realms/nava/account/", nil)
+	get.Header.Set("Authorization", "Bearer "+tok)
+	get.Header.Set("Accept", "application/json")
+	code, b := do(t, c, get)
+	var rep map[string]any
+	if code != http.StatusOK || json.Unmarshal(b, &rep) != nil {
+		t.Fatalf("GET the account: %d %.300s (the token must be accepted by the account API)", code, b)
+	}
+	change(rep)
+	body, _ := json.Marshal(rep)
+	post, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://"+inNetHost+"/realms/nava/account/", bytes.NewReader(body))
+	post.Header.Set("Authorization", "Bearer "+tok)
+	post.Header.Set("Content-Type", "application/json")
+	code, b = do(t, c, post)
+	return code, string(b)
+}
+
 // TestIdPEmailVerifiedAttributeNotUserEditable: a signed-in user sets
-// nava_idp_email_verified=true through the account API. It is refused or
-// ignored, and the admin API still shows the IdP's value; group sync then
-// still does not place them.
+// nava_idp_email_verified=true through the account API. The update is refused
+// with 400 error-user-attribute-read-only, the admin API still shows the IdP's
+// value, and group sync still does not place them. The token comes from
+// account-console, which the account API accepts, so the refusal is the user
+// profile's and not a missing audience.
 func TestIdPEmailVerifiedAttributeNotUserEditable(t *testing.T) {
 	stopGroupsync(t)
 	f := onboardFx(t)
 	ctl := f.control(t)
 	setUpstreamEmailVerified(t, f.realm, f.admin, false)
 
-	tok := brokeredSignIn(t, f.idpAlias, f.admin, f.pass)
-	c := newInNetClient(t)
-	body, _ := json.Marshal(map[string]any{
-		"username": f.admin, "email": f.admin,
-		"attributes": map[string][]string{keycloak.EmailVerifiedAttribute: {"true"}},
+	tok := accountConsoleSignIn(t, f.idpAlias, f.admin, f.pass)
+	code, resp := accountUpdate(t, tok, func(rep map[string]any) {
+		attrs, _ := rep["attributes"].(map[string]any)
+		if attrs == nil {
+			attrs = map[string]any{}
+		}
+		attrs[keycloak.EmailVerifiedAttribute] = []string{"true"}
+		rep["attributes"] = attrs
 	})
-	req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://"+inNetHost+"/realms/nava/account/", bytes.NewReader(body))
-	req.Header.Set("Authorization", "Bearer "+tok)
-	req.Header.Set("Content-Type", "application/json")
-	code, resp := do(t, c, req)
-	t.Logf("account API update: %d %.200s", code, resp)
-
+	if code != http.StatusBadRequest || !strings.Contains(resp, "error-user-attribute-read-only") {
+		t.Errorf("account API update of %s = %d %.300s, want 400 error-user-attribute-read-only", keycloak.EmailVerifiedAttribute, code, resp)
+	}
 	if got := storedEmailVerified(t, f.admin); got != "false" {
 		t.Errorf("after the account API call %s = %q, want the IdP's \"false\"", keycloak.EmailVerifiedAttribute, got)
 	}
@@ -396,4 +422,42 @@ func TestIdPEmailVerifiedAttributeNotUserEditable(t *testing.T) {
 		t.Error("a user who set the attribute themselves was placed")
 	}
 	f.requirePlaced(t, ctl)
+}
+
+// TestUserCannotRenameEmailToPendingInvite: Mallory, a verified user of the
+// tenant's own IdP, tries to rename her email to the pending admin address
+// before the admin signs in. The profile makes email admin-only, so the
+// account API answers 400 error-user-attribute-read-only and her email is
+// unchanged. After a sync cycle the invite is still pending and nobody is
+// placed under that address; then the real admin signs in and is placed.
+func TestUserCannotRenameEmailToPendingInvite(t *testing.T) {
+	stopGroupsync(t)
+	f := onboardFx(t)
+	mallory := "mallory-" + uuid.NewString()[:8] + "@" + f.domain
+	seedIdPUser(t, f.realm, mallory, mallory, f.pass)
+	deleteUserAfter(t, mallory)
+
+	tok := accountConsoleSignIn(t, f.idpAlias, mallory, f.pass)
+	code, resp := accountUpdate(t, tok, func(rep map[string]any) { rep["email"] = f.admin })
+	if code != http.StatusBadRequest || !strings.Contains(resp, "error-user-attribute-read-only") {
+		t.Errorf("account API rename of email = %d %.300s, want 400 error-user-attribute-read-only", code, resp)
+	}
+	if kcUserByEmail(t, mallory) == "" {
+		t.Error("Mallory's email changed")
+	}
+	if kcUserByEmail(t, f.admin) != "" {
+		t.Fatalf("a user holds the pending admin address %s", f.admin)
+	}
+	groupsyncOnce(t)
+	if f.placed(t, mallory) || f.placed(t, f.admin) {
+		t.Error("someone was placed through the renamed email")
+	}
+	if got := inviteState(t, f.tenant, f.admin); got != "pending" {
+		t.Errorf("invite = %q, want pending", got)
+	}
+
+	// Positive control: the real admin signs in and is placed.
+	brokeredSignIn(t, f.idpAlias, f.admin, f.pass)
+	groupsyncOnce(t)
+	f.requirePlaced(t, f.admin)
 }

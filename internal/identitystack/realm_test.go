@@ -394,6 +394,13 @@ func TestRealmFileEmailVerifiedMapper(t *testing.T) {
 	}
 	found := false
 	for _, a := range prof.Attributes {
+		// A tenant user's email comes from their IdP and nowhere else: a user
+		// who could rename it could take a pending admin invite (TICK-252).
+		if a.Name == "email" {
+			if strings.Join(a.Permissions.View, ",") != "admin,user" || strings.Join(a.Permissions.Edit, ",") != "admin" {
+				t.Errorf("email permissions = view %v edit %v, want view admin,user and edit admin only", a.Permissions.View, a.Permissions.Edit)
+			}
+		}
 		if a.Name == "nava_idp_email_verified" {
 			found = true
 			if strings.Join(a.Permissions.View, ",") != "admin" || strings.Join(a.Permissions.Edit, ",") != "admin" {

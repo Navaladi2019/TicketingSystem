@@ -24,6 +24,8 @@ package identitystack
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -316,8 +318,26 @@ func brokeredSignIn(t *testing.T, idp, user, pass string) string {
 // token and the text of the last page) instead of failing the test.
 func brokeredAttempt(t *testing.T, idp, user, pass string) (token, page string) {
 	t.Helper()
+	return brokeredAttemptAs(t, "nava-web", "http://localhost:9/cb", false, idp, user, pass)
+}
+
+// accountConsoleSignIn signs in through the tenant IdP as the built-in
+// account-console client, whose tokens the account API accepts (it carries the
+// account audience and roles). The client is public and requires PKCE.
+func accountConsoleSignIn(t *testing.T, idp, user, pass string) string {
+	t.Helper()
+	tok, page := brokeredAttemptAs(t, "account-console", "http://"+inNetHost+"/realms/nava/account/", true, idp, user, pass)
+	if tok == "" {
+		t.Fatalf("the account-console sign-in returned no code; last page: %.600s", page)
+	}
+	return tok
+}
+
+// brokeredAttemptAs is brokeredAttempt for any public client and redirect URI;
+// pkce adds an S256 code challenge and sends the verifier at the token call.
+func brokeredAttemptAs(t *testing.T, clientID, redirect string, pkce bool, idp, user, pass string) (token, page string) {
+	t.Helper()
 	c := newInNetClient(t)
-	redirect := "http://localhost:9/cb"
 	var final *url.URL
 	c.CheckRedirect = func(req *http.Request, _ []*http.Request) error {
 		if strings.HasPrefix(req.URL.String(), redirect) {
@@ -327,8 +347,14 @@ func brokeredAttempt(t *testing.T, idp, user, pass string) (token, page string) 
 		return nil
 	}
 	q := url.Values{
-		"client_id": {"nava-web"}, "response_type": {"code"}, "scope": {"openid"},
+		"client_id": {clientID}, "response_type": {"code"}, "scope": {"openid"},
 		"redirect_uri": {redirect}, "kc_idp_hint": {idp},
+	}
+	verifier := strings.ReplaceAll(uuid.NewString()+uuid.NewString(), "-", "")
+	if pkce {
+		sum := sha256.Sum256([]byte(verifier))
+		q.Set("code_challenge", base64.RawURLEncoding.EncodeToString(sum[:]))
+		q.Set("code_challenge_method", "S256")
 	}
 	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, inNetIssuer+"/protocol/openid-connect/auth?"+q.Encode(), nil)
 	_, login := do(t, c, req)
@@ -346,10 +372,14 @@ func brokeredAttempt(t *testing.T, idp, user, pass string) (token, page string) 
 	if final == nil || final.Query().Get("code") == "" {
 		return "", strings.Join(strings.Fields(html.UnescapeString(pageText.ReplaceAllString(string(body), " "))), " ")
 	}
-	return inNetToken(t, c, url.Values{
-		"grant_type": {"authorization_code"}, "client_id": {"nava-web"},
+	form := url.Values{
+		"grant_type": {"authorization_code"}, "client_id": {clientID},
 		"code": {final.Query().Get("code")}, "redirect_uri": {redirect},
-	}), ""
+	}
+	if pkce {
+		form.Set("code_verifier", verifier)
+	}
+	return inNetToken(t, c, form), ""
 }
 
 // stopGroupsync stops the long-running nava-groupsync for the test and brings
