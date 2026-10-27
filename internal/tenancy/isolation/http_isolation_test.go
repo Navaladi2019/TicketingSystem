@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -80,7 +81,7 @@ func newAPIRunner(t *testing.T) *apiRunner {
 	}
 	t.Cleanup(func() { _ = tel.Shutdown(context.Background()) })
 	resolver := realm.Resolver(t, pgstore.New(pool), OperatorSubject)
-	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel, resolver)
+	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel, resolver, pgstore.New(pool))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,10 +167,27 @@ func (r *apiRunner) run(t *testing.T, c *HTTPCall) (status, detail string) {
 		return statusFail, fmt.Sprintf("%d with tenant B in the body: %s", rec.Code, body)
 	}
 	var v struct {
-		TenantID string `json:"tenant_id"`
+		TenantID   string `json:"tenant_id"`
+		GroupPaths []struct {
+			ID string `json:"id"`
+		} `json:"group_paths"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &v); err != nil || v.TenantID != TenantA {
 		return statusFail, fmt.Sprintf("%d, tenant_id %q, want tenant A: %s", rec.Code, v.TenantID, body)
+	}
+	// ADR-002 AC2: /me lists exactly the caller's memberships, never another
+	// tenant's marker group and never a tenant A group the caller is not in.
+	if strings.HasPrefix(c.Path, "/api/v1/me") {
+		if strings.Contains(body, "b-only-marker") {
+			return statusFail, fmt.Sprintf("%d with tenant B's group marker in the body: %s", rec.Code, body)
+		}
+		got := make([]string, 0, len(v.GroupPaths))
+		for _, g := range v.GroupPaths {
+			got = append(got, g.ID)
+		}
+		if !slices.Equal(got, []string{groupA1}) {
+			return statusFail, fmt.Sprintf("%d, group_paths ids %v, want exactly the caller's membership [%s]: %s", rec.Code, got, groupA1, body)
+		}
 	}
 	return statusPass, fmt.Sprintf("%d, tenant A only", rec.Code)
 }
