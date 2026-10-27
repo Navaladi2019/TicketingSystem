@@ -73,8 +73,3 @@ func (refuseAll) Resolve(context.Context, string) (identity.Principal, error) {
 func (refuseAll) GroupPaths(context.Context, uuid.UUID, uuid.UUID) ([]identity.GroupPath, error) {
 	return nil, errors.New("tenant resolution not configured")
 }
-
-// AC8 red step: a disallowed GroupPaths call, removed in the next commit.
-func redStep(ctx context.Context, r identity.GroupPathReader) {
-	_, _ = r.GroupPaths(ctx, uuid.Nil, uuid.Nil)
-}
