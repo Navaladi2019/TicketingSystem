@@ -312,14 +312,21 @@ const (
 	helperLease   = "NAVA_RELAY_TEST_LEASE"
 )
 
-// TestRelayProcess is the relay subprocess of TestCrashSeam, not a test of
-// its own: with NAVA_RELAY_TEST_HELPER=1 it runs a Dispatcher as nava_relay
-// until it is killed, pausing every start at StdinPause when
-// NAVA_RELAY_TEST_PAUSE=1, exactly as a relaytest build of nava-relay does
-// with NAVA_RELAYTEST_PAUSE=1. Its lease is NAVA_RELAY_TEST_LEASE.
+// TestRelayProcess is the relay subprocess of TestCrashSeam and
+// TestT33CrashBetweenClaimAndStart, not a test of its own: with
+// NAVA_RELAY_TEST_HELPER=1 it runs a Dispatcher as nava_relay until it is
+// killed, pausing every start at StdinPause when NAVA_RELAY_TEST_PAUSE=1,
+// exactly as a relaytest build of nava-relay does with
+// NAVA_RELAYTEST_PAUSE=1. Its lease is NAVA_RELAY_TEST_LEASE.
+//
+// Run directly by `go test` it always skips, by design (since T30b, TICK-85):
+// relayProcessLease re-executes the test binary with -test.run=^TestRelayProcess$
+// and the helper environment, and those parent tests run in the integration
+// job (make ci-integration). A SKIP here in that job is expected.
 func TestRelayProcess(t *testing.T) {
 	if os.Getenv(helperEnv) != "1" {
-		t.Skip("subprocess of TestCrashSeam")
+		t.Skip("intended: helper subprocess started by TestCrashSeam and TestT33CrashBetweenClaimAndStart " +
+			"with " + helperEnv + "=1; its behaviour is covered by those tests in the integration job (make ci-integration)")
 	}
 	pool, err := pgxpool.New(context.Background(), os.Getenv(helperDSNEnv))
 	if err != nil {
