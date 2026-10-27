@@ -887,5 +887,13 @@ func checkIdPConfig(spec IdPSpec) error {
 			return fmt.Errorf("%w: idp config key %q", identity.ErrInvalidInput, k)
 		}
 	}
+	for k, v := range spec.Config {
+		if !idpURLKeys[k] {
+			continue
+		}
+		if err := checkIdPURL(v); err != nil {
+			return fmt.Errorf("%w: idp config key %q: %w", identity.ErrInvalidInput, k, err)
+		}
+	}
 	return nil
 }

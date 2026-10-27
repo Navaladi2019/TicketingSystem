@@ -1,15 +1,25 @@
 package httperr_test
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"fmt"
 	"go/ast"
+	"go/constant"
+	"go/importer"
 	"go/parser"
 	"go/token"
-	"io/fs"
+	"go/types"
+	"io"
 	"net/http"
+	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/Navaladi2019/TicketingSystem/api"
@@ -20,6 +30,12 @@ const (
 	modulePath = "github.com/Navaladi2019/TicketingSystem"
 	problemPkg = modulePath + "/internal/platform/problem"
 	moduleRoot = "../../.."
+	fixtures   = "internal/platform/httperr/testdata/guard"
+
+	// guardTags selects the files that build only under a tag, so the scan
+	// covers them too. relaytest and spike are left out: relaytest excludes a
+	// file that the plain build has, and neither holds a handler.
+	guardTags = "integration,identitystack,temporalstack,lintfixture"
 )
 
 // guardAllowed lists the files, relative to the module root, that may break a
@@ -42,24 +58,20 @@ func repoAllowed() guardAllowed {
 // not_implemented placeholder is the one allowed exception. problem.Internal
 // also reports nothing, so only the panic recovery path may reference it.
 //
-// There is no type-checking (the go/build source importer did not finish
-// loading the module's dependencies in reasonable time), so the guard resolves
-// by import path and declared type, and fails closed:
-//   - a dot-import of problem is a violation;
-//   - any reference to <problem>.Internal outside the allowed file is one,
-//     called or not;
-//   - a Write or Body receiver must be declared as *problem.Registry (typed
-//     parameter, typed var, or struct field anywhere in the module) or as some
-//     other declared type; a receiver the guard cannot resolve (:=, untyped
-//     var, call result) is a violation when the call has the registry's arity,
-//     or when it is uncalled (a .Write or .Body method value); an uncalled
-//     .Body is exempt only in a file that does not import problem, where it
-//     is a field such as resp.Body;
-//   - a Write or Body method value, a method expression, and an embedded
-//     problem.Registry are violations.
-//
-// A legitimate call the guard cannot resolve is fixed by giving its receiver
-// a typed declaration.
+// The guard type-checks the scanned packages with go/types, so a receiver is
+// resolved by its type however it was obtained (a := call, a field of another
+// package, an embedded struct). Standard-library imports come from the export data of one
+// batched `go list -export` run; module packages are checked from source and
+// third-party packages are stubs, so only the standard library is compiled.
+// The guard reports:
+//   - a dot-import of problem;
+//   - any reference to problem.Internal outside the allowed file, called or
+//     not;
+//   - a Write or Body method value or method expression on *problem.Registry,
+//     in any file, because the code argument is then out of sight;
+//   - a struct that embeds problem.Registry;
+//   - a Write or Body call whose code is not a problem.<Const> naming a
+//     registered code with a status below 500.
 func TestRegistryWriteIsClientErrorsOnly(t *testing.T) {
 	t.Parallel()
 	violations, calls := checkProblemCalls(t, loadRegistry(t), repoAllowed(), "internal", "cmd")
@@ -72,11 +84,10 @@ func TestRegistryWriteIsClientErrorsOnly(t *testing.T) {
 }
 
 // TestGuardFixtures runs the guard over testdata packages. Each bypass row has
-// a fixture that must fail; binarywrite and okcall must pass.
+// a fixture that must fail; binarywrite, okcall and respbody must pass.
 func TestGuardFixtures(t *testing.T) {
 	t.Parallel()
 	reg := loadRegistry(t)
-	const base = "internal/platform/httperr/testdata/guard/"
 	tests := []struct {
 		pkg       string
 		wantCalls int
@@ -88,22 +99,23 @@ func TestGuardFixtures(t *testing.T) {
 		{"badcode", 2, []string{"use WriteError", "not a problem.<Const>"}},
 		{"aliasimport", 1, []string{"problem.Internal", "use WriteError"}},
 		{"dotimport", 0, []string{"dot-import"}},
-		{"shortvar", 0, []string{"cannot resolve the receiver"}},
-		{"untypedvar", 0, []string{"cannot resolve the receiver"}},
+		{"shortvar", 1, []string{"use WriteError"}},
+		{"untypedvar", 1, []string{"use WriteError"}},
 		{"methodvalue", 0, []string{"method value"}},
 		{"methodexpr", 0, []string{"method expression"}},
-		{"embedded", 1, []string{"embeds problem.Registry"}},
-		{"callresult", 0, []string{"cannot resolve the receiver"}},
+		{"embedded", 2, []string{"embeds problem.Registry", "use WriteError"}},
+		{"callresult", 1, []string{"use WriteError"}},
 		{"internalvalue", 0, []string{"problem.Internal", "problem.Internal"}},
-		{"bodyvalue", 0, []string{"cannot resolve the receiver"}},
-		{"bodyarg", 0, []string{"cannot resolve the receiver"}},
+		{"bodyvalue", 0, []string{"method value"}},
+		{"bodyarg", 0, []string{"method value"}},
 		{"respbody", 0, nil},
 		{"crosspkg", 1, []string{"use WriteError"}},
+		{"crosspkgvalue", 0, []string{"method value"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.pkg, func(t *testing.T) {
 			t.Parallel()
-			violations, calls := checkProblemCalls(t, reg, repoAllowed(), base+tc.pkg)
+			violations, calls := checkProblemCalls(t, reg, repoAllowed(), fixtures+"/"+tc.pkg)
 			if calls != tc.wantCalls {
 				t.Errorf("registry calls = %d, want %d", calls, tc.wantCalls)
 			}
@@ -132,272 +144,311 @@ func loadRegistry(t *testing.T) *problem.Registry {
 	return reg
 }
 
-// problemConsts maps each constant name of the problem package to its code. A
-// constant without a literal of its own (an implicit repeat, or another
-// constant) is left out, so a use of it fails as an unregistered code.
-func problemConsts(t *testing.T, fset *token.FileSet) map[string]problem.Code {
-	t.Helper()
-	pf, err := parser.ParseFile(fset, filepath.Join(moduleRoot, "internal", "platform", "problem", "problem.go"), nil, 0)
+// listedPkg is the part of `go list -json` the guard reads.
+type listedPkg struct {
+	ImportPath string
+	Dir        string
+	GoFiles    []string
+	Export     string
+	Standard   bool
+	Error      *struct{ Err string }
+}
+
+// guardWorld is the package graph of the scanned roots, listed once for all
+// tests of the run.
+type guardWorld struct {
+	absRoot string
+	pkgs    map[string]*listedPkg
+	err     error
+}
+
+//nolint:gochecknoglobals // listing the module once keeps the guard tests fast
+var (
+	worldOnce sync.Once
+	world     guardWorld
+)
+
+// goList runs `go list -e -json=<fields> args...` in the module root and
+// decodes the stream of packages.
+func goList(dir, fields string, args ...string) ([]*listedPkg, error) {
+	cmd := exec.CommandContext(context.Background(), "go", append([]string{"list", "-e", "-json=" + fields}, args...)...)
+	cmd.Dir = dir
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
 	if err != nil {
-		t.Fatal(err)
+		return nil, fmt.Errorf("go list: %w\n%s", err, stderr.String())
 	}
-	consts := map[string]problem.Code{}
-	for _, d := range pf.Decls {
-		if gd, ok := d.(*ast.GenDecl); ok && gd.Tok == token.CONST {
-			for _, spec := range gd.Specs {
-				vs := spec.(*ast.ValueSpec)
-				for i, n := range vs.Names {
-					if i >= len(vs.Values) {
-						continue
-					}
-					if lit, ok := vs.Values[i].(*ast.BasicLit); ok {
-						consts[n.Name] = problem.Code(strings.Trim(lit.Value, `"`))
-					}
-				}
+	var pkgs []*listedPkg
+	dec := json.NewDecoder(bytes.NewReader(out))
+	for {
+		var p listedPkg
+		if err := dec.Decode(&p); err == io.EOF {
+			return pkgs, nil
+		} else if err != nil {
+			return nil, err
+		}
+		pkgs = append(pkgs, &p)
+	}
+}
+
+// loadWorld lists internal/..., cmd/... and the fixtures with their
+// dependencies, then fetches export data for the standard-library packages
+// only. Module packages are type-checked from source and third-party packages
+// are stubs, so nothing outside the standard library is compiled.
+func loadWorld(t *testing.T) *guardWorld {
+	t.Helper()
+	worldOnce.Do(func() {
+		abs, err := filepath.Abs(moduleRoot)
+		if err != nil {
+			world.err = err
+			return
+		}
+		world.absRoot = abs
+		listed, err := goList(abs, "ImportPath,Dir,GoFiles,Standard,Error", "-deps", "-tags", guardTags,
+			"./internal/...", "./cmd/...", "./"+fixtures+"/...")
+		if err != nil {
+			world.err = err
+			return
+		}
+		world.pkgs = map[string]*listedPkg{}
+		var std []string
+		for _, p := range listed {
+			world.pkgs[p.ImportPath] = p
+			if p.Standard {
+				std = append(std, p.ImportPath)
 			}
 		}
+		exports, err := goList(abs, "ImportPath,Export", append([]string{"-export", "-tags", guardTags}, std...)...)
+		if err != nil {
+			world.err = err
+			return
+		}
+		for _, e := range exports {
+			world.pkgs[e.ImportPath].Export = e.Export
+		}
+	})
+	if world.err != nil {
+		t.Fatal(world.err)
 	}
-	return consts
+	return &world
 }
 
-// guardFile is one parsed non-test source file.
-type guardFile struct {
-	f       *ast.File
-	rel     string          // path relative to the module root
-	pname   string          // local name of the problem package, or ""
-	imports map[string]bool // local names of every import
+// selected reports whether dir (absolute) is under one of roots (relative to
+// the module root), outside any testdata directory below the root.
+func (w *guardWorld) selected(dir string, roots []string) bool {
+	rel, err := filepath.Rel(w.absRoot, dir)
+	if err != nil {
+		return false
+	}
+	for _, r := range roots {
+		r = filepath.FromSlash(r)
+		if rel == r {
+			return true
+		}
+		if sub, ok := strings.CutPrefix(rel, r+string(filepath.Separator)); ok &&
+			!slices.Contains(strings.Split(sub, string(filepath.Separator)), "testdata") {
+			return true
+		}
+	}
+	return false
 }
 
-// guardCtx is what the checks share: the registry codes, and the struct field
-// names declared anywhere in the scanned files, by whether they hold a
-// *problem.Registry.
+// checked is one module package, type-checked from source.
+type checked struct {
+	pkg   *types.Package
+	files []*ast.File
+	info  *types.Info
+}
+
+// guardImporter resolves an import path: the standard library from export
+// data, a module package from source (once, so type identity holds across
+// packages), and anything else as an empty stub whose uses are type errors
+// that the guard ignores.
+type guardImporter struct {
+	t    *testing.T
+	w    *guardWorld
+	fset *token.FileSet
+	std  types.Importer
+	done map[string]*checked
+	stub map[string]*types.Package
+}
+
+func (g *guardImporter) Import(p string) (*types.Package, error) {
+	lp := g.w.pkgs[p]
+	switch {
+	case lp != nil && lp.Standard:
+		return g.std.Import(p)
+	case strings.HasPrefix(p, modulePath+"/"):
+		return g.check(p).pkg, nil
+	}
+	if s, ok := g.stub[p]; ok {
+		return s, nil
+	}
+	s := types.NewPackage(p, path.Base(p))
+	s.MarkComplete()
+	g.stub[p] = s
+	return s, nil
+}
+
+func (g *guardImporter) check(p string) *checked {
+	if c, ok := g.done[p]; ok {
+		return c
+	}
+	lp := g.w.pkgs[p]
+	if lp == nil {
+		g.t.Fatalf("package %s is not in the go list output", p)
+	}
+	if lp.Error != nil {
+		g.t.Fatalf("package %s: %s", p, lp.Error.Err)
+	}
+	c := &checked{info: &types.Info{
+		Types:      map[ast.Expr]types.TypeAndValue{},
+		Uses:       map[*ast.Ident]types.Object{},
+		Selections: map[*ast.SelectorExpr]*types.Selection{},
+	}}
+	g.done[p] = c
+	for _, name := range lp.GoFiles {
+		f, err := parser.ParseFile(g.fset, filepath.Join(lp.Dir, name), nil, parser.SkipObjectResolution)
+		if err != nil {
+			g.t.Fatal(err)
+		}
+		c.files = append(c.files, f)
+	}
+	conf := types.Config{Importer: g, Error: func(error) {}}
+	c.pkg, _ = conf.Check(p, g.fset, c.files, c.info)
+	return c
+}
+
+// guardCtx is what the checks share.
 type guardCtx struct {
-	fset      *token.FileSet
-	reg       *problem.Registry
-	consts    map[string]problem.Code
-	allowed   guardAllowed
-	regFields map[string]bool
-	otherFlds map[string]bool
+	fset    *token.FileSet
+	reg     *problem.Registry
+	allowed guardAllowed
+	absRoot string
 }
 
-// checkProblemCalls scans the non-test Go files under roots (relative to the
-// module root, testdata skipped) and returns one message per violation and the
-// number of *problem.Registry Write and Body calls it inspected.
+// checkProblemCalls type-checks the non-test Go packages under roots (relative
+// to the module root, testdata skipped) and returns one message per violation
+// and the number of *problem.Registry Write and Body calls it inspected.
 func checkProblemCalls(t *testing.T, reg *problem.Registry, allowed guardAllowed, roots ...string) (violations []string, calls int) {
 	t.Helper()
+	w := loadWorld(t)
 	fset := token.NewFileSet()
-	ctx := &guardCtx{
-		fset: fset, reg: reg, consts: problemConsts(t, fset), allowed: allowed,
-		regFields: map[string]bool{}, otherFlds: map[string]bool{},
+	g := &guardImporter{
+		t: t, w: w, fset: fset,
+		done: map[string]*checked{}, stub: map[string]*types.Package{},
 	}
-	problemDir := filepath.Join(moduleRoot, "internal", "platform", "problem")
-	var files []*guardFile
-	for _, r := range roots {
-		root := filepath.Join(moduleRoot, r)
-		err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-			switch {
-			case err != nil:
-				return err
-			case d.IsDir() && d.Name() == "testdata" && p != root:
-				return filepath.SkipDir
-			case d.IsDir(), !strings.HasSuffix(p, ".go"), strings.HasSuffix(p, "_test.go"),
-				filepath.Dir(p) == problemDir:
-				return nil
-			}
-			f, err := parser.ParseFile(fset, p, nil, 0)
-			if err != nil {
-				return err
-			}
-			rel, _ := filepath.Rel(moduleRoot, p)
-			gf := &guardFile{f: f, rel: rel, imports: map[string]bool{}}
-			for _, imp := range f.Imports {
-				ipath := strings.Trim(imp.Path.Value, `"`)
-				name := path.Base(ipath)
-				if imp.Name != nil {
-					name = imp.Name.Name
-				}
-				gf.imports[name] = true
-				if ipath == problemPkg && name != "." && name != "_" {
-					gf.pname = name
-				}
-			}
-			files = append(files, gf)
-			return nil
-		})
-		if err != nil {
-			t.Fatal(err)
+	g.std = importer.ForCompiler(fset, "gc", func(p string) (io.ReadCloser, error) {
+		lp := w.pkgs[p]
+		if lp == nil || lp.Export == "" {
+			return nil, fmt.Errorf("no export data for %q", p)
 		}
+		return os.Open(lp.Export)
+	})
+	ctx := &guardCtx{fset: fset, reg: reg, allowed: allowed, absRoot: w.absRoot}
+
+	paths := make([]string, 0, len(w.pkgs))
+	for p := range w.pkgs {
+		paths = append(paths, p)
 	}
-	for _, gf := range files {
-		ctx.collectFields(gf)
-	}
-	for _, gf := range files {
-		v, c := ctx.checkFile(gf)
-		violations, calls = append(violations, v...), calls+c
+	slices.Sort(paths)
+	for _, p := range paths {
+		lp := w.pkgs[p]
+		if lp.Standard || p == problemPkg || len(lp.GoFiles) == 0 || !w.selected(lp.Dir, roots) {
+			continue
+		}
+		c := g.check(p)
+		for _, f := range c.files {
+			v, n := ctx.checkFile(f, c.info)
+			violations, calls = append(violations, v...), calls+n
+		}
 	}
 	return violations, calls
 }
 
-// isRegistryType reports whether e is problem.Registry or *problem.Registry,
-// under the local name pname.
-func isRegistryType(e ast.Expr, pname string) bool {
-	if star, ok := e.(*ast.StarExpr); ok {
-		e = star.X
+// isRegistry reports whether typ is problem.Registry or a pointer to it.
+func isRegistry(typ types.Type) bool {
+	if p, ok := typ.(*types.Pointer); ok {
+		typ = p.Elem()
 	}
-	sel, ok := e.(*ast.SelectorExpr)
-	if !ok {
-		return false
-	}
-	id, ok := sel.X.(*ast.Ident)
-	return ok && pname != "" && id.Name == pname && sel.Sel.Name == "Registry"
+	n, ok := typ.(*types.Named)
+	return ok && n.Obj().Pkg() != nil && n.Obj().Pkg().Path() == problemPkg && n.Obj().Name() == "Registry"
 }
 
-// collectFields records every struct field name of gf, by whether its type is
-// a registry. An embedded registry is recorded under the name "Registry".
-func (c *guardCtx) collectFields(gf *guardFile) {
-	ast.Inspect(gf.f, func(n ast.Node) bool {
-		st, ok := n.(*ast.StructType)
-		if !ok {
-			return true
-		}
-		for _, fld := range st.Fields.List {
-			isReg := isRegistryType(fld.Type, gf.pname)
-			switch {
-			case len(fld.Names) == 0 && isReg:
-				c.regFields["Registry"] = true
-			case isReg:
-				for _, name := range fld.Names {
-					c.regFields[name.Name] = true
-				}
-			default:
-				for _, name := range fld.Names {
-					c.otherFlds[name.Name] = true
-				}
-			}
-		}
-		return true
-	})
+// isRegistryMethod reports whether obj is Write or Body of problem.Registry,
+// however the receiver was reached, and which of the two it is.
+func isRegistryMethod(obj types.Object) (string, bool) {
+	fn, ok := obj.(*types.Func)
+	if !ok || (fn.Name() != "Write" && fn.Name() != "Body") {
+		return "", false
+	}
+	recv := fn.Type().(*types.Signature).Recv()
+	return fn.Name(), recv != nil && isRegistry(recv.Type())
 }
 
-type recvKind int
-
-const (
-	recvOther recvKind = iota // a declared type that is not the registry
-	recvRegistry
-	recvUnresolved
-	recvMethodExpr
-)
-
-// classify decides what the receiver x of a Write or Body selector is.
-func (c *guardCtx) classify(gf *guardFile, x ast.Expr) recvKind {
-	byType := func(t ast.Expr) recvKind {
-		if isRegistryType(t, gf.pname) {
-			return recvRegistry
-		}
-		return recvOther
+func (c *guardCtx) checkFile(f *ast.File, info *types.Info) (violations []string, calls int) {
+	filename := c.fset.Position(f.Pos()).Filename
+	rel, err := filepath.Rel(c.absRoot, filename)
+	if err != nil {
+		rel = filename
 	}
-	switch x := x.(type) {
-	case *ast.Ident:
-		if x.Obj == nil {
-			if gf.imports[x.Name] { // a package name, as in binary.Write
-				return recvOther
-			}
-			return recvUnresolved
-		}
-		switch d := x.Obj.Decl.(type) {
-		case *ast.Field: // parameter, result or receiver
-			return byType(d.Type)
-		case *ast.ValueSpec:
-			if d.Type != nil {
-				return byType(d.Type)
-			}
-		}
-		return recvUnresolved // :=, range, untyped var
-	case *ast.SelectorExpr:
-		if id, ok := x.X.(*ast.Ident); ok && id.Obj == nil && gf.imports[id.Name] {
-			switch {
-			case id.Name != gf.pname:
-				return recvOther // os.Stdout.Write
-			case x.Sel.Name == "Registry":
-				return recvMethodExpr // problem.Registry.Write
-			}
-			return recvUnresolved
-		}
-		switch {
-		case c.regFields[x.Sel.Name]:
-			return recvRegistry
-		case c.otherFlds[x.Sel.Name]:
-			return recvOther
-		}
-	case *ast.ParenExpr:
-		if isRegistryType(x.X, gf.pname) {
-			return recvMethodExpr // (*problem.Registry).Write
-		}
-	}
-	return recvUnresolved
-}
-
-func (c *guardCtx) checkFile(gf *guardFile) (violations []string, calls int) {
 	report := func(pos token.Pos, format string, args ...any) {
-		violations = append(violations, fmt.Sprintf("%s: %s", c.fset.Position(pos), fmt.Sprintf(format, args...)))
+		p := c.fset.Position(pos)
+		violations = append(violations, fmt.Sprintf("%s:%d: %s", filepath.ToSlash(rel), p.Line, fmt.Sprintf(format, args...)))
 	}
-	for _, imp := range gf.f.Imports {
+	for _, imp := range f.Imports {
 		if imp.Name != nil && imp.Name.Name == "." && strings.Trim(imp.Path.Value, `"`) == problemPkg {
 			report(imp.Pos(), "dot-import of problem hides problem.Internal and the registry calls; import it by name")
 		}
 	}
 	called := map[*ast.SelectorExpr]*ast.CallExpr{}
-	ast.Inspect(gf.f, func(n ast.Node) bool {
+	ast.Inspect(f, func(n ast.Node) bool {
 		if call, ok := n.(*ast.CallExpr); ok {
-			if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+			if sel, ok := ast.Unparen(call.Fun).(*ast.SelectorExpr); ok {
 				called[sel] = call
 			}
 		}
 		return true
 	})
-	ast.Inspect(gf.f, func(n ast.Node) bool {
+	ast.Inspect(f, func(n ast.Node) bool {
 		switch n := n.(type) {
 		case *ast.StructType:
 			for _, fld := range n.Fields.List {
-				if len(fld.Names) == 0 && isRegistryType(fld.Type, gf.pname) {
+				if len(fld.Names) == 0 && isRegistry(info.TypeOf(fld.Type)) {
 					report(fld.Pos(), "struct embeds problem.Registry, which hides its Write and Body calls; use a named field")
 				}
 			}
 		case *ast.SelectorExpr:
-			if id, ok := n.X.(*ast.Ident); ok && gf.pname != "" && id.Name == gf.pname && id.Obj == nil && n.Sel.Name == "Internal" {
-				if gf.rel != c.allowed.internal {
+			if obj, ok := info.Uses[n.Sel].(*types.Func); ok && obj.Pkg() != nil && obj.Pkg().Path() == problemPkg &&
+				obj.Name() == "Internal" && obj.Type().(*types.Signature).Recv() == nil {
+				if rel != c.allowed.internal {
 					report(n.Pos(), "problem.Internal reports no cause; only %s may reference it", c.allowed.internal)
 				}
 				return true
 			}
-			if n.Sel.Name != "Write" && n.Sel.Name != "Body" {
+			sel := info.Selections[n]
+			if sel == nil {
+				return true
+			}
+			method, ok := isRegistryMethod(sel.Obj())
+			if !ok {
 				return true
 			}
 			call := called[n]
 			idx := 2 // reg.Write(w, r, code, ...)
-			if n.Sel.Name == "Body" {
+			if method == "Body" {
 				idx = 1 // reg.Body(ctx, code, ...)
 			}
-			hasArity := call != nil && len(call.Args) > idx
-			switch c.classify(gf, n.X) {
-			case recvMethodExpr:
-				report(n.Pos(), "%s method expression on problem.Registry hides its code argument; call it on a typed receiver", n.Sel.Name)
-			case recvRegistry:
-				switch {
-				case call == nil:
-					report(n.Pos(), "%s method value on a problem.Registry hides its code argument; call it directly", n.Sel.Name)
-				case hasArity:
-					calls++
-					if msg := c.checkCode(gf, call.Args[idx], n.Sel.Name); msg != "" {
-						report(call.Pos(), "%s", msg)
-					}
-				}
-			case recvUnresolved:
-				// An uncalled .Body on an unresolved receiver is a method value
-				// that can send a 5xx, so it fails in any file that imports
-				// problem. Files that do not import it may use resp.Body.
-				if (call == nil && (n.Sel.Name == "Write" || gf.pname != "")) || hasArity {
-					report(n.Pos(), "cannot resolve the receiver of %s; declare it with an explicit type (*problem.Registry or another)", n.Sel.Name)
+			switch {
+			case sel.Kind() == types.MethodExpr:
+				report(n.Pos(), "%s method expression on problem.Registry hides its code argument; call it on a typed receiver", method)
+			case call == nil:
+				report(n.Pos(), "%s method value on a problem.Registry hides its code argument; call it directly", method)
+			default:
+				calls++
+				if msg := c.checkCode(rel, info, call, idx, method); msg != "" {
+					report(call.Pos(), "%s", msg)
 				}
 			}
 		}
@@ -406,23 +457,31 @@ func (c *guardCtx) checkFile(gf *guardFile) (violations []string, calls int) {
 	return violations, calls
 }
 
-// checkCode returns a message when arg is not a problem.<Const> naming a
-// registered code with a status below 500 (501 not_implemented where allowed).
-func (c *guardCtx) checkCode(gf *guardFile, arg ast.Expr, method string) string {
+// checkCode returns a message when the code argument of call is not a
+// problem.<Const> naming a registered code with a status below 500 (501
+// not_implemented where allowed).
+func (c *guardCtx) checkCode(rel string, info *types.Info, call *ast.CallExpr, idx int, method string) string {
 	const notConst = "%s code is not a problem.<Const>; use WriteError for anything that can be a 5xx"
-	sel, ok := arg.(*ast.SelectorExpr)
-	if !ok {
+	if len(call.Args) <= idx {
 		return fmt.Sprintf(notConst, method)
 	}
-	if id, ok := sel.X.(*ast.Ident); !ok || gf.pname == "" || id.Name != gf.pname {
+	var id *ast.Ident
+	switch a := ast.Unparen(call.Args[idx]).(type) {
+	case *ast.SelectorExpr:
+		id = a.Sel
+	default:
 		return fmt.Sprintf(notConst, method)
 	}
-	code, known := c.consts[sel.Sel.Name]
+	k, ok := info.Uses[id].(*types.Const)
+	if !ok || k.Pkg() == nil || k.Pkg().Path() != problemPkg || k.Val().Kind() != constant.String {
+		return fmt.Sprintf(notConst, method)
+	}
+	code := problem.Code(constant.StringVal(k.Val()))
 	e, registered := c.reg.Lookup(code)
 	switch {
-	case !known || !registered:
-		return fmt.Sprintf("%s.%s is not a registered problem code", method, sel.Sel.Name)
-	case e.Status >= http.StatusInternalServerError && (gf.rel != c.allowed.notImplemented || code != problem.NotImplemented):
+	case !registered:
+		return fmt.Sprintf("%s.%s is not a registered problem code", method, k.Name())
+	case e.Status >= http.StatusInternalServerError && (rel != c.allowed.notImplemented || code != problem.NotImplemented):
 		return fmt.Sprintf("%s sends %s (%d); use WriteError so the cause is reported", method, code, e.Status)
 	}
 	return ""

@@ -52,14 +52,30 @@ stack_created() {
     epoch_of "$first"
 }
 
-# wait_healthy [seconds] [since]: block until every long-running service is
-# healthy and every job has exited 0; print each one's state and fail on
-# timeout. The deadline is seconds after since (seconds since 1970), or after
-# now.
+# other_stacks: the other compose projects with a running container on this
+# Docker host, one per line.
+other_stacks() {
+    docker ps --filter label=com.docker.compose.project --format '{{.Label "com.docker.compose.project"}}' \
+        | sort -u | grep -v -x -e "$PROJECT" || true
+}
+
+# wait_healthy [seconds] [since] [contended]: block until every long-running
+# service is healthy and every job has exited 0; print each one's state and
+# fail on timeout. The deadline is seconds after since (seconds since 1970), or
+# after now. With contended, the deadline is contended seconds after since
+# instead whenever another compose stack ran on the host during the wait: the
+# stacks share CPU, and Keycloak's first boot slows most (TICK-200). The pass
+# line then says the budget was exceeded and why.
 wait_healthy() {
     since=${2:-$(date +%s)}
     deadline=$(( since + ${1:-300} ))
+    others=""
     while :; do
+        if [ -n "${3:-}" ]; then
+            now_others=$(other_stacks)
+            [ -z "$now_others" ] || others=$(printf '%s\n%s\n' "$others" "$now_others" | grep -v '^$' | sort -u)
+            [ -z "$others" ] || deadline=$(( since + $3 ))
+        fi
         bad=""
         for s in $(services); do
             [ "$(health_of "$s")" = healthy ] || bad="$bad $s"
@@ -75,7 +91,12 @@ wait_healthy() {
         fi
         sleep 3
     done
-    pass "healthy $(( $(date +%s) - since )) s after the start, budget ${1:-300} s"
+    took=$(( $(date +%s) - since ))
+    if [ -n "$others" ] && [ "$took" -gt "${1:-300}" ]; then
+        pass "healthy $took s after the start: over the ${1:-300} s budget, allowed up to $3 s because other stacks shared the host:" $others
+    else
+        pass "healthy $took s after the start, budget ${1:-300} s"
+    fi
     for s in $(services); do pass "$s healthy"; done
     for j in $JOBS; do pass "$j exited 0"; done
 }

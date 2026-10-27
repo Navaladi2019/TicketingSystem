@@ -176,3 +176,133 @@ func TestVersionListed(t *testing.T) {
 		}
 	}
 }
+
+// writeFile replaces the contents of dir/rel.
+func writeFile(t *testing.T, dir, rel, data string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(rel)), []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// replaceIn swaps old for new in dir/rel, failing if old is not there.
+func replaceIn(t *testing.T, dir, rel, old, new string) {
+	t.Helper()
+	path := filepath.Join(dir, filepath.FromSlash(rel))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), old) {
+		t.Fatalf("%s does not contain %q", rel, old)
+	}
+	writeFile(t, dir, rel, strings.Replace(string(data), old, new, 1))
+}
+
+// TICK-193: a locally built nava/* image spelled ${NAVA_IMAGE_TAG:-dev} is
+// checked against its row, in compose.yaml and in the overlays.
+func TestBuiltImageDefaultPasses(t *testing.T) {
+	if got := run(t, fixture(t, "built")); got != "" {
+		t.Fatalf("want no problems, got:\n%s", got)
+	}
+}
+
+func TestBuiltImageTagDriftFails(t *testing.T) {
+	dir := fixture(t, "built")
+	replaceIn(t, dir, "compose.yaml", "nava/keycloak:${NAVA_IMAGE_TAG:-dev}", "nava/keycloak:${NAVA_IMAGE_TAG:-dev2}")
+	replaceIn(t, dir, "deploy/compose/compose.ci.yaml", "${NAVA_IMAGE_TAG:-dev}", "26.8.1")
+	got := run(t, dir)
+	want := `compose.yaml:3: image nava/keycloak:dev2, but docs/pins.md pins "dev"` + "\n" +
+		`deploy/compose/compose.ci.yaml:4: image nava/keycloak:26.8.1, but docs/pins.md pins "dev"`
+	if got != want {
+		t.Fatalf("got:\n%s\nwant exactly:\n%s", got, want)
+	}
+}
+
+// A value in .env.example wins over the default, as it does once copied to
+// .env; an empty value falls back to the default for :- only.
+func TestBuiltImageTagFromEnvExample(t *testing.T) {
+	dir := fixture(t, "built")
+	writeFile(t, dir, ".env.example", "# sample\nNAVA_IMAGE_TAG=\"v9\"\n")
+	got := run(t, dir)
+	for _, want := range []string{
+		`compose.yaml:3: image nava/keycloak:v9, but docs/pins.md pins "dev"`,
+		`compose.yaml:5: image nava/nava-core:v9, but docs/pins.md pins "dev"`,
+		`deploy/compose/compose.ci.yaml:4: image nava/keycloak:v9, but docs/pins.md pins "dev"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+
+	writeFile(t, dir, ".env.example", "NAVA_IMAGE_TAG=\n")
+	got = run(t, dir)
+	want := `compose.yaml:5: image nava/nava-core: has no exact tag`
+	if got != want {
+		t.Fatalf("NAVA_IMAGE_TAG empty: got:\n%s\nwant exactly:\n%s", got, want)
+	}
+}
+
+func TestBuiltImageWithoutRowOrValueFails(t *testing.T) {
+	dir := fixture(t, "built")
+	replaceIn(t, dir, "compose.yaml", "nava/nava-core:", "nava/nava-purge:")
+	replaceIn(t, dir, "deploy/compose/compose.ci.yaml", "${NAVA_IMAGE_TAG:-dev}", "${NAVA_KC_TAG}")
+	got := run(t, dir)
+	want := `compose.yaml:5: image nava/nava-purge has no row in docs/pins.md` + "\n" +
+		`deploy/compose/compose.ci.yaml:4: image nava/keycloak:${NAVA_KC_TAG}: ${NAVA_KC_TAG} has no value in .env.example and no default`
+	if got != want {
+		t.Fatalf("got:\n%s\nwant exactly:\n%s", got, want)
+	}
+}
+
+// The TICK-193 acceptance probe on the real files: bumping the nava/keycloak
+// tag in compose.yaml without touching docs/pins.md fails the check.
+func TestRepositoryKeycloakTagDriftFails(t *testing.T) {
+	root := filepath.Join("..", "..", "..")
+	dir := t.TempDir()
+	for _, rel := range []string{"compose.yaml", ".env.example", "docs/pins.md"} {
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(dir, filepath.Dir(filepath.FromSlash(rel))), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, dir, rel, string(data))
+	}
+	if got, err := check(dir, filepath.Join(dir, "docs", "pins.md")); err != nil || len(got) > 0 {
+		t.Fatalf("unchanged copy: problems %q, err %v", got, err)
+	}
+	replaceIn(t, dir, "compose.yaml", "nava/keycloak:${NAVA_IMAGE_TAG:-dev}", "nava/keycloak:${NAVA_IMAGE_TAG:-26.8.1}")
+	got, err := check(dir, filepath.Join(dir, "docs", "pins.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || !strings.Contains(got[0], "image nava/keycloak:26.8.1, but docs/pins.md pins") ||
+		!strings.HasPrefix(got[0], "compose.yaml:") {
+		t.Fatalf("want one drift problem on compose.yaml, got %q", got)
+	}
+}
+
+func TestResolveRef(t *testing.T) {
+	env := map[string]string{"SET": "v1", "EMPTY": ""}
+	for _, tc := range []struct {
+		ref, want string
+		ok        bool
+	}{
+		{"nava/x:${SET:-dev}", "nava/x:v1", true},
+		{"nava/x:${UNSET:-dev}", "nava/x:dev", true},
+		{"nava/x:${EMPTY:-dev}", "nava/x:dev", true},
+		{"nava/x:${EMPTY-dev}", "nava/x:", true},
+		{"nava/x:${UNSET-dev}", "nava/x:dev", true},
+		{"nava/x:${SET}", "nava/x:v1", true},
+		{"nava/x:$SET", "nava/x:v1", true},
+		{"nava/x:${UNSET}", "", false},
+		{"nava/x:${UNSET:?required}", "", false},
+	} {
+		got, err := resolveRef(tc.ref, env)
+		if (err == nil) != tc.ok || got != tc.want {
+			t.Errorf("resolveRef(%q) = %q, %v; want %q, ok %v", tc.ref, got, err, tc.want, tc.ok)
+		}
+	}
+}

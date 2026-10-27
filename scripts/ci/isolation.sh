@@ -21,8 +21,14 @@ export MSYS_NO_PATHCONV
 pg="nava-iso-pg-$$"
 bouncer="nava-iso-pgb-$$"
 net="nava-iso-net-$$"
+# INT and TERM stop the running go command and exit through the EXIT trap.
+# Never `exec` the last command: exec drops the EXIT trap (TICK-185).
+fgpid=""
 trap 'docker rm -f "$pg" "$bouncer" >/dev/null 2>&1 || true; docker network rm "$net" >/dev/null 2>&1 || true' EXIT
-trap 'exit 130' INT TERM
+trap '[ -z "$fgpid" ] || kill "$fgpid" 2>/dev/null; exit 130' INT
+trap '[ -z "$fgpid" ] || kill "$fgpid" 2>/dev/null; exit 143' TERM
+# fgrun <command>: as in test-integration.sh, so a signal reaches the trap at once.
+fgrun() { "$@" & fgpid=$!; wait "$fgpid"; }
 
 docker network create "$net" >/dev/null
 # Throwaway cluster, so no durability (as test-integration.sh).
@@ -42,7 +48,7 @@ docker start "$bouncer" >/dev/null
 
 # Compile while the containers start (TestMain needs the cluster, so not
 # go test -run '^$').
-go vet -tags integration ./internal/tenancy/isolation
+fgrun go vet -tags integration ./internal/tenancy/isolation
 
 deadline=$(( $(date +%s) + 120 ))
 for c in "$pg" "$bouncer"; do
@@ -58,4 +64,11 @@ NAVA_ISOLATION_PGBOUNCER_ADDR="127.0.0.1:$(hostport "$bouncer")"
 NAVA_ISOLATION_REPORT="${ISOLATION_REPORT:-$(pwd -W 2>/dev/null || pwd)/isolation-report.md}"
 export NAVA_TEST_PG_URL NAVA_ISOLATION_PGBOUNCER_ADDR NAVA_ISOLATION_REPORT
 
-go test -tags integration -count=1 -v ./internal/tenancy/isolation "$@"
+# With no extra arguments, tools/ci/suiteran (TICK-230) also fails the run
+# when a registered isolation suite ran zero tests. Extra arguments (a -run
+# filter) may leave a suite out on purpose, so they skip that check.
+if [ $# -eq 0 ]; then
+    fgrun go run ./tools/ci/suiteran -tags integration -v -- go test -tags integration -count=1 -json ./internal/tenancy/isolation
+    exit 0
+fi
+fgrun go test -tags integration -count=1 -v ./internal/tenancy/isolation "$@"

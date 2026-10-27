@@ -1,6 +1,7 @@
 # Acceptance kit: S2, a query without the right tenant returns nothing
 
 Story: TICK-44. Plan: PLAN-001 (`docs/delivery/plan-platform-foundation.md`). Design: ADR-001, Annex A.3 (D28) and Annex B (CI-1 to CI-4, CI-9).
+Plain-language explainer for readers new to the architecture: [`s2-tenant-isolation-explained.html`](s2-tenant-isolation-explained.html) (open it in a browser).
 Verified on 2026-10-26 by the Quality, Testing & CI Advisor: first on `main` at `9f8c39a` (fresh stack, all criteria), then again on `main` at `d32a18c`, after the criterion 3 fix (`make isolation`, and the hand-grant probe in CI).
 
 **Status: READY for the human.** All 4 criteria pass. The first run failed criterion 3; TICK-233 (PR #139) and TICK-235 (PR #145) fixed it.
