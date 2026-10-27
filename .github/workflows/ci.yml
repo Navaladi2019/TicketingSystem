@@ -198,6 +198,10 @@ jobs:
       # Its own step, not part of make test-integration (TICK-224).
       - name: ci-isolated --down untags only its own tags
         run: make test-ci-isolated-down
+      # Its own step too (TICK-185): a run with ARGS or a TERM part way
+      # leaves no nava-it-* container or network.
+      - name: Integration script leaves nothing behind
+        run: make test-integration-cleanup
 
   stack:
     # Platform and Temporal stack tests; the database tests run in stack-db.
