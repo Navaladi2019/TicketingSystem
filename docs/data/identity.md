@@ -469,15 +469,27 @@ RETURNING tenant_id, email;
   the same form `keycloak.normalizeEmail` returns, so a row that the
   normalized lookup could never match cannot be written. A second CHECK
   requires `expires_at > created_at`.
-- **Policies.** There is one policy per command, each using the canonical
-  tenant predicate (on both USING and WITH CHECK for UPDATE):
+- **Policies.** There is one policy per command and role. Each tests the
+  canonical tenant predicate (on both USING and WITH CHECK for UPDATE), and
+  the `nava_onboard` write policies also require the tenant to be
+  provisioning:
   - `pending_invite_select`: `nava_onboard` and `nava_groupsync`.
-  - `pending_invite_insert`: `nava_onboard`.
-  - `pending_invite_update`: `nava_onboard` and `nava_groupsync`.
-    `nava_onboard` needs this policy because `ON CONFLICT DO UPDATE` checks
-    the existing row against the UPDATE policy. Without it, a re-invite
-    fails with `new row violates row-level security policy (USING
-    expression)` (checked on PG 16.10).
+  - `pending_invite_insert`: `nava_onboard`, tenant predicate **and**
+    `tenant_id IN (SELECT id FROM tenants WHERE state = 'provisioning')`.
+  - `pending_invite_reinvite`: `nava_onboard` UPDATE, the same guard on
+    USING and WITH CHECK. `nava_onboard` needs an UPDATE policy because
+    `ON CONFLICT DO UPDATE` checks the existing row against it. Without one,
+    a re-invite fails with `new row violates row-level security policy
+    (USING expression)` (checked on PG 16.10).
+  - `pending_invite_consume`: `nava_groupsync` UPDATE, tenant predicate
+    only, because group sync consumes invites in active tenants.
+
+  The guard matches `email_domain_onboard` and `binding_onboard`: every
+  `nava_onboard` write is limited to its own tenant while that tenant is
+  provisioning, so onboarding cannot plant or extend an invite in an active
+  tenant (security finding 1 on PR #164). `inviteAdmin` runs before
+  `Activate`, so InviteUser's statements are unchanged. Both guarded
+  policies are pinned in `catalog.PinnedTenantPolicies`.
 - **Grants** (`db/grants.yaml`):
   - `nava_onboard`: SELECT `(tenant_id, email, expires_at, consumed_at)`,
     INSERT `(tenant_id, email, expires_at)`, UPDATE `(expires_at)`. The
@@ -505,8 +517,9 @@ PostgreSQL 16.10 (`postgres:16.10`, Docker 29.9.2), on an Intel i7-1260P
 (16 threads, 19 GB RAM) with a Windows 11 host. The table holds 70,000 rows:
 10,000 tenants with 1–3 invites each, plus one large tenant with 50,000. A
 third of all rows are consumed. Each `EXPLAIN (ANALYZE, BUFFERS)` ran as its
-runtime role, with FORCE RLS on and `app.tenant_id` set. Script:
-`scratch/t252a_pending_invite_bench.sql`.
+runtime role, with FORCE RLS on and `app.tenant_id` set. The two re-invite
+rows were measured before the provisioning guard was added; the guard adds
+one `tenants` primary-key lookup to each.
 
 | Case (role, tenant context) | Plan | Buffers | Execution |
 | --- | --- | --- | --- |
@@ -549,16 +562,24 @@ its own, because tenants are never deleted at runtime (the same as T18a).
   - Security's negative test 10, the table part: from tenant B's
     transaction, and with `app.tenant_id` unset or empty, neither role reads,
     inserts, re-invites, extends or consumes tenant A's invite.
-  - The lifecycle: invite, extend, consume once, then a second consume and
-    a re-invite of the consumed invite both change nothing; an expired
-    invite cannot be consumed.
+  - The lifecycle, in a provisioning tenant: invite, extend, consume once,
+    then a second consume and a re-invite of the consumed invite both change
+    nothing; an expired invite cannot be consumed. Once the tenant is
+    active, `nava_onboard` can neither invite nor extend there (42501 and 0
+    rows), and `nava_groupsync` still consumes.
   - The grants: no DELETE, `nava_onboard` cannot touch `consumed_at`,
     `nava_groupsync` writes only `consumed_at`, and no other role can read
     the table.
   - The CHECKs.
 - Isolation suite: generic CI-2 checks over every role, plus six registered
   `pending_invite:` paths in `internal/tenancy/isolation/registry.go`. Its
-  seed has the same email invited by both tenants.
+  seed has the same email invited by both tenants. The CI-9 path
+  `onboardCannotWriteActive` also covers the insert, the re-invite upsert
+  and the `expires_at` update. From tenant A's own transaction, against A
+  against B from A's, and against A from P's, all of them are refused or reach 0
+  rows. Its positive control (`onboardInvitesOnlyProvisioning`) runs the
+  same statements for provisioning tenant P and each reaches a row; after
+  P is activated in the same transaction, none of them do.
 
 ### Not done here (owners)
 

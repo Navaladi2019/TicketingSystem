@@ -104,42 +104,58 @@ func TestT252aInvitesInvisibleAcrossTenants(t *testing.T) {
 	}
 }
 
-// The lifecycle: invite, re-invite extends it, consume once, a second
-// consume and a re-invite of the consumed invite change nothing, and an
-// expired invite cannot be consumed.
+// The lifecycle, in a provisioning tenant as onboarding runs it: invite,
+// re-invite extends it, consume once, a second consume and a re-invite of
+// the consumed invite change nothing, and an expired invite cannot be
+// consumed. Once the tenant is active, nava_onboard can neither invite nor
+// extend an invite there, and nava_groupsync still consumes.
 func TestT252aInviteLifecycle(t *testing.T) {
 	migratedPlatform(t)
 	super := superNava(t)
-	seedTenants(t, super, []string{tenantA}, nil)
+	seedTenants(t, super, nil, []string{tenantX})
 	onboard, sync := asRole(t, "nava_onboard"), asRole(t, "nava_groupsync")
 
-	if n, err := execIn(onboard, tenantA, reinvite, tenantA, inviteEmail); err != nil || n != 1 {
+	if n, err := execIn(onboard, tenantX, reinvite, tenantX, inviteEmail); err != nil || n != 1 {
 		t.Fatalf("first invite: %d rows, %v; want 1, nil", n, err)
 	}
-	if n, err := execIn(onboard, tenantA, reinvite, tenantA, inviteEmail); err != nil || n != 1 {
+	if n, err := execIn(onboard, tenantX, reinvite, tenantX, inviteEmail); err != nil || n != 1 {
 		t.Fatalf("re-invite a pending invite: %d rows, %v; want 1, nil", n, err)
 	}
-	if got := queryString(t, super, "SELECT (expires_at > now() + interval '29 days')::text FROM pending_invite WHERE tenant_id = $1", tenantA); got != "true" {
+	if got := queryString(t, super, "SELECT (expires_at > now() + interval '29 days')::text FROM pending_invite WHERE tenant_id = $1", tenantX); got != "true" {
 		t.Errorf("re-invite did not extend expires_at")
 	}
 
-	if n, err := execIn(sync, tenantA, consumeInvite, tenantA, inviteEmail); err != nil || n != 1 {
+	if n, err := execIn(sync, tenantX, consumeInvite, tenantX, inviteEmail); err != nil || n != 1 {
 		t.Fatalf("consume: %d rows, %v; want 1, nil", n, err)
 	}
-	if n, err := execIn(sync, tenantA, consumeInvite, tenantA, inviteEmail); err != nil || n != 0 {
+	if n, err := execIn(sync, tenantX, consumeInvite, tenantX, inviteEmail); err != nil || n != 0 {
 		t.Errorf("consume twice: %d rows, %v; want 0, nil", n, err)
 	}
-	if n, err := execIn(onboard, tenantA, reinvite, tenantA, inviteEmail); err != nil || n != 0 {
+	if n, err := execIn(onboard, tenantX, reinvite, tenantX, inviteEmail); err != nil || n != 0 {
 		t.Errorf("re-invite a consumed invite: %d rows, %v; want 0, nil", n, err)
 	}
-	if got := queryString(t, super, "SELECT (consumed_at IS NOT NULL)::text FROM pending_invite WHERE tenant_id = $1", tenantA); got != "true" {
+	if got := queryString(t, super, "SELECT (consumed_at IS NOT NULL)::text FROM pending_invite WHERE tenant_id = $1", tenantX); got != "true" {
 		t.Errorf("the consumed invite was reopened")
 	}
 
 	exec(t, super, `INSERT INTO pending_invite (tenant_id, email, expires_at, created_at)
-		VALUES ($1, 'late@tenant.test', now() - interval '1 day', now() - interval '8 days')`, tenantA)
-	if n, err := execIn(sync, tenantA, consumeInvite, tenantA, "late@tenant.test"); err != nil || n != 0 {
+		VALUES ($1, 'late@tenant.test', now() - interval '1 day', now() - interval '8 days')`, tenantX)
+	if n, err := execIn(sync, tenantX, consumeInvite, tenantX, "late@tenant.test"); err != nil || n != 0 {
 		t.Errorf("consume an expired invite: %d rows, %v; want 0, nil", n, err)
+	}
+
+	// Activated: onboarding's writes stop, group sync's do not.
+	exec(t, super, insertInvite, tenantX, "open@tenant.test")
+	exec(t, super, "UPDATE tenants SET state = 'active' WHERE id = $1", tenantX)
+	_, err := execIn(onboard, tenantX, insertInvite, tenantX, "new@tenant.test")
+	wantSQLState(t, "invite in the active tenant", err, "42501")
+	_, err = execIn(onboard, tenantX, reinvite, tenantX, "new@tenant.test")
+	wantSQLState(t, "re-invite in the active tenant", err, "42501")
+	if n, err := execIn(onboard, tenantX, "UPDATE pending_invite SET expires_at = now() + interval '30 days' WHERE tenant_id = $1", tenantX); err != nil || n != 0 {
+		t.Errorf("extend invites in the active tenant: %d rows, %v; want 0, nil", n, err)
+	}
+	if n, err := execIn(sync, tenantX, consumeInvite, tenantX, "open@tenant.test"); err != nil || n != 1 {
+		t.Errorf("consume in the active tenant: %d rows, %v; want 1, nil", n, err)
 	}
 }
 
@@ -194,15 +210,15 @@ func TestT252aGrantsAreNarrow(t *testing.T) {
 func TestT252aInviteChecks(t *testing.T) {
 	migratedPlatform(t)
 	super := superNava(t)
-	seedTenants(t, super, []string{tenantA}, nil)
+	seedTenants(t, super, nil, []string{tenantX})
 	onboard := asRole(t, "nava_onboard")
 	for _, e := range []string{"Admin@tenant.test", " admin@tenant.test", "admin@tenant.test ", "admin", ""} {
-		_, err := execIn(onboard, tenantA, insertInvite, tenantA, e)
+		_, err := execIn(onboard, tenantX, insertInvite, tenantX, e)
 		wantSQLState(t, "invite "+e, err, "23514")
 	}
-	_, err := execIn(onboard, tenantA, "INSERT INTO pending_invite (tenant_id, email, expires_at) VALUES ($1, 'a@tenant.test', now())", tenantA)
+	_, err := execIn(onboard, tenantX, "INSERT INTO pending_invite (tenant_id, email, expires_at) VALUES ($1, 'a@tenant.test', now())", tenantX)
 	wantSQLState(t, "invite expiring at creation", err, "23514")
-	if _, err := execIn(onboard, tenantA, insertInvite, tenantA, "admin@tenant.test"); err != nil {
+	if _, err := execIn(onboard, tenantX, insertInvite, tenantX, "admin@tenant.test"); err != nil {
 		t.Errorf("control: invite admin@tenant.test: %v", err)
 	}
 }

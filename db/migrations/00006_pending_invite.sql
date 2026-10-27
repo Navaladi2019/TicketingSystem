@@ -10,9 +10,13 @@
 -- nava_onboard (through internal/onboard) invites: it inserts and re-invites
 -- with INSERT ... ON CONFLICT (tenant_id, email) DO UPDATE SET expires_at =
 -- EXCLUDED.expires_at WHERE pending_invite.consumed_at IS NULL. ON CONFLICT
--- DO UPDATE runs the UPDATE policy on the existing row, so nava_onboard is on
--- it; its UPDATE grant is expires_at alone, so it can never clear consumed_at
--- and a consumed invite stays consumed. nava_groupsync consumes: UPDATE ...
+-- DO UPDATE runs an UPDATE policy on the existing row, so nava_onboard has
+-- one; its UPDATE grant is expires_at alone, so it can never clear consumed_at
+-- and a consumed invite stays consumed. Like every other nava_onboard write,
+-- both its policies hold only while its tenant is provisioning (pinned in
+-- catalog.PinnedTenantPolicies), so it cannot plant or extend an invite in an
+-- active tenant (security finding 1 on PR #164). nava_groupsync consumes,
+-- in active tenants, under its own unguarded policy: UPDATE ...
 -- SET consumed_at = now() WHERE ... consumed_at IS NULL AND expires_at >
 -- now() RETURNING, in its tenant transaction (TICK-252 condition 2d). No role
 -- may DELETE: a row is the record that an invite was issued and used.
@@ -42,8 +46,16 @@ ALTER TABLE pending_invite FORCE ROW LEVEL SECURITY;
 
 CREATE POLICY pending_invite_select ON pending_invite FOR SELECT TO nava_onboard, nava_groupsync
     USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
+-- tenants_onboard_select shows nava_onboard only the tenant of its
+-- transaction, so each subquery adds "and that tenant is provisioning".
 CREATE POLICY pending_invite_insert ON pending_invite FOR INSERT TO nava_onboard
-    WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
-CREATE POLICY pending_invite_update ON pending_invite FOR UPDATE TO nava_onboard, nava_groupsync
+    WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
+                AND tenant_id IN (SELECT id FROM tenants WHERE state = 'provisioning'));
+CREATE POLICY pending_invite_reinvite ON pending_invite FOR UPDATE TO nava_onboard
+    USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
+           AND tenant_id IN (SELECT id FROM tenants WHERE state = 'provisioning'))
+    WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
+                AND tenant_id IN (SELECT id FROM tenants WHERE state = 'provisioning'));
+CREATE POLICY pending_invite_consume ON pending_invite FOR UPDATE TO nava_groupsync
     USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
     WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
