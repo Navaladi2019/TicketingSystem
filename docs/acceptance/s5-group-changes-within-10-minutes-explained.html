@@ -264,8 +264,8 @@
 <h2 id="try">10. Try it yourself (about 10 minutes)</h2>
 <p>The full step-by-step kit will be in <code>docs/acceptance/</code> once QA has verified it. In short:</p>
 <ol>
-  <li>Start the stack, then sign in as the seeded user <code>alice@tenant-a.test</code> (Company A) and call <code>GET /api/v1/me</code>. You'll see her team (seeded as <code>eng/platform</code>; the story text's "service-desk" is an example name).</li>
-  <li>In the Keycloak admin console, remove Alice from that group.</li>
+  <li>Start the stack, then sign in as the seeded user <code>alice@tenant-a.test</code> (Company A) and call <code>GET /api/v1/me</code>. Run <code>nava-groupsync --once</code> first so the seed has been synced. <code>/me</code> lists her groups as ids, not names, and the seed gives her exactly one group, <code>service-desk</code>, so the single id in <code>"groups"</code> is hers. (She is also in <code>eng/platform</code>, but that is an org unit, not a group, so <code>/me</code> does not list it.)</li>
+  <li>In the Keycloak admin console, remove Alice from <code>service-desk</code> (Groups, then <code>t</code>, Company A's id, <code>service-desk</code>, Members).</li>
   <li>Call <code>GET /api/v1/me</code> again with the same token. Within one sync cycle (≤ 5 min; promised ≤ 10), the group is gone. Run <code>nava-groupsync --once</code> to skip the wait.</li>
   <li>Disable Alice in the admin console. After the next sync her existing token gets <code>401</code>.</li>
   <li>Run <code>make identity-attacks</code> and open <code>ci5-report.md</code>: one line per attack, all passing.</li>
@@ -295,17 +295,17 @@
       { t: "Alice signs in at Keycloak and receives a badge (token) for Company A, valid for 5 minutes.", n: ["user","kc"], e: ["e-user-kc"] },
       { t: "She calls GET /api/v1/me with the badge.", n: ["user","api"], e: ["e-user-api"] },
       { t: "The API checks the badge is genuine and maps organisation tenant-a to Company A through the company binding.", n: ["api"], e: [] },
-      { t: "The API looks Alice up in our records, inside Company A's wall only: enabled, team eng/platform.", n: ["api","db"], e: ["e-api-db"] },
+      { t: "The API looks Alice up in our records, inside Company A's wall only: enabled, group service-desk.", n: ["api","db"], e: ["e-api-db"] },
       { t: "The API answers 200 with her current teams.", n: ["api","user"], e: ["e-user-api"], c: "good" }
     ], v: ["good", "Allowed. Teams come from our records, not from the badge."] },
 
     removal: { label: "Remove from a team", tag: "criterion 1", user: ["Alice", "Company A user"], steps: [
-      { t: "Minute 0: Alice has a valid badge. /me lists team eng/platform.", n: ["user","api","db"], e: ["e-user-api","e-api-db"], k: "t = 0 min" },
+      { t: "Minute 0: Alice has a valid badge. /me lists her service-desk group.", n: ["user","api","db"], e: ["e-user-api","e-api-db"], k: "t = 0 min" },
       { t: "An administrator removes Alice from the team in the Keycloak admin console. Alice's badge doesn't change.", n: ["kc"], e: [], k: "t = 0 min" },
       { t: "Within 5 minutes, groupsync reads Company A's snapshot from Keycloak.", n: ["kc","gs"], e: ["e-kc-gs"], k: "t ≤ 5 min" },
       { t: "groupsync deletes the membership row in Company A's own transaction. Other companies aren't touched.", n: ["gs","db"], e: ["e-gs-db"], k: "t ≤ 5 min" },
       { t: "Alice calls /me again with the SAME unexpired badge.", n: ["user","api"], e: ["e-user-api"], k: "t ≤ 5 min" },
-      { t: "The API reads our records: the team is gone. Answer: 200 without eng/platform.", n: ["api","db"], e: ["e-api-db"], c: "good", k: "well inside 10 min" }
+      { t: "The API reads our records: the team is gone. Answer: 200 with an empty groups list.", n: ["api","db"], e: ["e-api-db"], c: "good", k: "well inside 10 min" }
     ], v: ["good", "Change visible after one sync cycle, even on an old badge. Tested by T26-1."] },
 
     disable: { label: "Disable a user", tag: "criterion 2", user: ["Alice", "Company A user"], steps: [
