@@ -142,13 +142,19 @@ func TestCTOSignoff(t *testing.T) {
 }
 
 // TICK-183: the realm export lives under deploy/compose/keycloak/ (since
-// TICK-57); a realm change must be flagged.
+// TICK-57); a realm change must be flagged. TICK-181: so must the external
+// IdP test realms under test-realms/ (since PR #90).
 func TestFixturePRTouchingRealmIsFlagged(t *testing.T) {
-	changes := parseNameStatus("M\tdeploy/compose/keycloak/import/realm-nava.json\n")
-	got := Evaluate(repoConfig(t), changes, nil).String()
-	want := "security review required: yes\nCTO sign-off required: no\n  security: deploy/compose/keycloak/import/realm-nava.json\n"
-	if got != want {
-		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
+	for _, f := range []string{
+		"deploy/compose/keycloak/import/realm-nava.json",
+		"deploy/compose/keycloak/test-realms/realm-idp-tenant-a.json",
+	} {
+		changes := parseNameStatus("M\t" + f + "\n")
+		got := Evaluate(repoConfig(t), changes, nil).String()
+		want := "security review required: yes\nCTO sign-off required: no\n  security: " + f + "\n"
+		if got != want {
+			t.Errorf("%s: got:\n%s\nwant:\n%s", f, got, want)
+		}
 	}
 }
 
