@@ -45,14 +45,19 @@ func AllowList() map[string]Policy {
 // test to the tenant predicate (the onboarding path), keyed as AllowList.
 // email_domain_onboard (T18a) lets nava_onboard claim email domains only for
 // its own tenant while it is provisioning, as binding_onboard binds one.
+// pending_invite_insert and pending_invite_reinvite (T252a) do the same for
+// the invites InviteUser writes (security finding 1 on PR #164).
 func PinnedTenantPolicies() map[string]Policy {
 	own := TenantPred("id")
 	and := func(state string) string { return "(" + own + " AND (state = '" + state + "'::text))" }
 	provisioning := "(tenant_id IN ( SELECT tenants.id\n   FROM tenants\n  WHERE (tenants.state = 'provisioning'::text)))"
+	ownProvisioning := "(" + TenantPred("tenant_id") + " AND " + provisioning + ")"
 	return map[string]Policy{
 		"public.tenants.tenants_onboard_insert":           {"INSERT", "nava_onboard", "", and("provisioning")},
 		"public.tenants.tenants_activate":                 {"UPDATE", "nava_onboard", and("provisioning"), and("active")},
-		"public.tenant_email_domain.email_domain_onboard": {"INSERT", "nava_onboard", "", "(" + TenantPred("tenant_id") + " AND " + provisioning + ")"},
+		"public.tenant_email_domain.email_domain_onboard": {"INSERT", "nava_onboard", "", ownProvisioning},
+		"public.pending_invite.pending_invite_insert":     {"INSERT", "nava_onboard", "", ownProvisioning},
+		"public.pending_invite.pending_invite_reinvite":   {"UPDATE", "nava_onboard", ownProvisioning, ownProvisioning},
 	}
 }
 
