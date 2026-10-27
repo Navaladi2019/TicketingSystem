@@ -4,7 +4,7 @@ Story: TICK-46. Plan: PLAN-001 (`docs/delivery/plan-platform-foundation.md`). De
 
 The Quality, Testing & CI Advisor verified this on 2026-10-28, on `TICK-46/operator-onboards-tenant` at `d256e86` (current `main` merged in at `8cf0c88`, then the TICK-271 fix, PR #209, and its guard test, PR #213). The first run, on 2026-10-27 at `8cf0c88`, failed one isolation item; TICK-271 fixed it. The fresh stack came up with `docker compose down -v`, then `docker compose up --wait`. Every service was healthy and `/readyz` returned `ok` on `nava-core`, `nava-onboard` and `nava-groupsync`. CI: the full `ci` run after the `main` merge was green ([40536668822](https://github.com/Navaladi2019/TicketingSystem/actions/runs/40536668822)), and PRs #209 and #213 merged with all 8 jobs green.
 
-**Status: READY for the human.** All 3 acceptance criteria and every item of the isolation check pass: 42 of 42 checks in `TestS4Acceptance`, on a stack started with `docker compose down -v`.
+**Status: NOT READY (2026-10-28).** The results below are from `d256e86`, where 42 of 42 checks passed. Merging current `main` (`8ef35f2`) brought in TICK-160, which pins Keycloak's issuer. `nava-onboard` still trusts the old issuer, so operator onboarding answers `401` and criterion 1 fails on the merged branch. The fix task is TICK-278. When it merges, `TestS4Acceptance` is rerun on a fresh stack.
 
 ## What you can now do
 
