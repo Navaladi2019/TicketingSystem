@@ -37,8 +37,11 @@ const (
 
 	// RecordA1 is one of tenant A's records.
 	RecordA1 = "0a000000-0000-4000-8000-0000000000a1"
+
 	// RecordB1 is one of tenant B's records.
 	RecordB1 = "0b000000-0000-4000-8000-0000000000b1"
+	// PrincipalB1 is a tenant B principal who is a member of a group.
+	PrincipalB1 = "0b000000-0000-4000-8000-0000000003b1"
 	// SharedDedupeKey and SharedIdempotencyKey exist in both tenants, so a
 	// lookup by them alone would return both rows without isolation.
 	SharedDedupeKey      = "shared-dedupe-key"
@@ -251,6 +254,12 @@ func Paths() []Path {
 			TenantB, NewID),
 		sql("idempotency_keys: overwrite tenant B's stored response", "nava_app", Denied,
 			"UPDATE idempotency_keys SET response_body = 'x' WHERE tenant_id = $1", TenantB),
+		// ADR-002 AC5: the /me statement with the wrong tenant predicate. Run
+		// as tenant A, row-level security hides tenant B's membership and
+		// group rows, so the join finds nothing.
+		sql("groups: list tenant B principal's group paths with tenant B's predicate", "nava_app", Denied,
+			"SELECT g.id, g.path FROM group_members gm JOIN groups g ON g.tenant_id = gm.tenant_id AND g.id = gm.group_id WHERE gm.tenant_id = $1 AND gm.principal_id = $2 ORDER BY g.id",
+			TenantB, PrincipalB1),
 		sql("tenants: read tenant B", "nava_app", OwnRowsOnly,
 			"SELECT id FROM tenants WHERE id = $1", TenantB),
 		sql("tenants: onboarding creates a tenant other than its own", "nava_onboard", Denied,

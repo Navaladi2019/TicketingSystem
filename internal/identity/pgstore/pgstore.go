@@ -41,12 +41,23 @@ WHERE p.tenant_id = $1 AND p.keycloak_user_id = $2`
 const emailDomainSQL = `SELECT EXISTS (SELECT 1 FROM tenant_email_domain
 WHERE tenant_id = $1 AND domain = $2)`
 
+// groupPathsSQL reads the caller's groups by principal, never by group id
+// (ADR-002 section 3). Every predicate and join key names tenant_id.
+const groupPathsSQL = `SELECT g.id, g.path
+FROM group_members gm
+JOIN groups g ON g.tenant_id = gm.tenant_id AND g.id = gm.group_id
+WHERE gm.tenant_id = $1 AND gm.principal_id = $2
+ORDER BY g.id`
+
 // Store reads the identity rows through pool, which must log in as nava_app.
 type Store struct {
 	pool *pgxpool.Pool
 }
 
-var _ identity.Store = (*Store)(nil)
+var (
+	_ identity.Store           = (*Store)(nil)
+	_ identity.GroupPathReader = (*Store)(nil)
+)
 
 // New returns a Store on pool.
 func New(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
@@ -129,4 +140,30 @@ func (s *Store) TenantOwnsEmailDomain(ctx context.Context, tenantID uuid.UUID, d
 		return false, fmt.Errorf("pgstore: email domain: %w", err)
 	}
 	return owns, nil
+}
+
+// GroupPaths implements identity.GroupPathReader. It returns the raw
+// groups.path, prefix included, for the groups principalID belongs to in
+// tenantID.
+func (s *Store) GroupPaths(ctx context.Context, tenantID, principalID uuid.UUID) ([]identity.GroupPath, error) {
+	var out []identity.GroupPath
+	err := tenancy.InTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, groupPathsSQL, tenantID, principalID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var gp identity.GroupPath
+			if err := rows.Scan(&gp.ID, &gp.Path); err != nil {
+				return err
+			}
+			out = append(out, gp)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return nil, fmt.Errorf("pgstore: group paths: %w", err)
+	}
+	return out, nil
 }

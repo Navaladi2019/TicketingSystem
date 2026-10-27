@@ -6,7 +6,8 @@ TEMPORAL_SERVER_IMAGE ?= nava/temporal-server:$(NAVA_IMAGE_TAG)
 
 ## Unit, policy and end-to-end tests of the custom Temporal server module.
 temporal-server-test:
-	cd temporal-server && go vet ./... && go test ./...
+	cd temporal-server && go vet ./...
+	go run ./tools/ci/suiteran -- go -C temporal-server test -json ./...
 
 ## Build the custom Temporal server image (ADR-001 D22, task T27a).
 temporal-server-image:
@@ -41,7 +42,7 @@ GOLANGCI_LINT ?= golangci-lint
 GOLANGCI_LINT_VERSION := 2.14.0
 GOVULNCHECK_VERSION := v1.9.0
 
-.PHONY: build run test test-integration isolation lint generate check-openapi
+.PHONY: build run test test-integration test-integration-cleanup reap-integration isolation lint generate check-openapi
 .PHONY: ci ci-isolated ci-changed ci-stages ci-isolated-down test-ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity identity-attacks identity-attacks-fixture stack-idp-realms stack-test-worker 	image image-ci stack-up stack-down stack-logs stack-internal stack-internal-beside stack-main ci-stack-run stack-tests smoke
 
 build:
@@ -59,18 +60,37 @@ run:
 # makes its analysistest runs slower. racelock: one go test -race at a time on
 # the host, across every checkout and agent (TICK-153 D3); NAVA_RACE_LOCK=off
 # skips it.
+# suiteran (TICK-230) fails a go test -json run in which a registered
+# isolation suite (review-paths.yaml, cto_signoff.isolation_tests) ran zero
+# tests; its -tags are the tags the step means to test with, so keep them
+# beside go test's own.
 test:
-	go run ./tools/ci/racelock -- go test -race -trimpath ./...
+	go run ./tools/ci/racelock -- go run ./tools/ci/suiteran -- go test -json -race -trimpath ./...
 	go run ./tools/ci/racelock -- go -C tools/navalint test -race ./...
 
 # Every package with `//go:build integration` tests, against a throwaway
 # postgres container the script starts and removes (needs Docker), then the
-# isolation suite (make isolation), then make test-ci-isolated-down. Pass
-# ARGS=... to forward flags to go test; with ARGS neither of those runs.
+# isolation suite (make isolation). Pass ARGS=... to forward flags to go test;
+# with ARGS the isolation suite does not run. The ci-isolated --down tag check
+# is its own target (test-ci-isolated-down, in ci-integration and its own
+# workflow step), so this loop stays fast (TICK-224).
 test-integration:
 	sh scripts/ci/test-integration.sh $(ARGS)
 	$(if $(ARGS),@echo "isolation suite skipped (ARGS set); run make isolation",sh scripts/ci/isolation.sh)
-	$(if $(ARGS),@echo "ci-isolated --down check skipped (ARGS set); run make test-ci-isolated-down",sh scripts/ci/test-ci-isolated-down.sh)
+
+# test-integration.sh leaves no container or network behind after a run with
+# go test arguments or a TERM part way (TICK-185). Its own ci.yml step and in
+# ci-integration, not part of make test-integration (as TICK-224). Needs Docker.
+test-integration-cleanup:
+	sh scripts/ci/test-integration-cleanup.sh
+
+# Removes the nava-it-* and nava-iso-* containers and networks that a killed
+# integration or isolation run left, once older than REAP_OLDER (a Go
+# duration, default 6h): never a compose stack (nava, nava-<id>) or a younger
+# run (TICK-185). REAP_DRY=1 lists them only. Needs Docker.
+REAP_OLDER ?= 6h
+reap-integration:
+	go run ./tools/ci/itreap -older $(REAP_OLDER) $(if $(REAP_DRY),-n)
 
 # The tenant isolation suite (T11, ADR-001 CI-2): its own throwaway
 # PostgreSQL and a PgBouncer with the real auth_query, tenants A and B seeded,
@@ -139,7 +159,7 @@ ci-lint: check-tools fmt-check vet lint lint-fixture check-taskfile check-pins c
 
 ci-unit: test temporal-server-test
 
-ci-integration: test-integration
+ci-integration: test-integration test-ci-isolated-down test-integration-cleanup
 
 # Builds the images, brings the stack up, runs every stack test, then tears
 # it down (logs first on failure). The workflow runs the same targets one step
@@ -287,19 +307,23 @@ stack-test-%:
 # The Temporal stack suite over mTLS: SDK clients dial and a worker runs (T28),
 # CI-H, and the CI-6 certificate, network and Authorizer cases (T32a). Writes
 # the CI-6 report to CI6_REPORT and fails when a CI-6 case did not pass.
+# suiteran prints the run and keeps the raw stream in CI6_JSON, which
+# ci6report then reads (its echo of the same output is dropped).
 # The suite takes about 70 s on a GitHub runner but 591-615 s on a host running
 # two ci-isolated stacks, past go test's default 600 s, hence -timeout 20m
 # (TICK-173).
 CI6_REPORT ?= ci6-report.md
+CI6_JSON ?= ci6-test.json
 stack-test-sdk:
-	go test -tags temporalstack -count=1 -timeout 20m -json ./internal/temporalstack | go run ./tools/ci/ci6report -out $(CI6_REPORT)
+	@status=0; go run ./tools/ci/suiteran -tags temporalstack -tee $(CI6_JSON) -- \
+		go test -tags temporalstack -count=1 -timeout 20m -json ./internal/temporalstack || status=$$?; \
+	go run ./tools/ci/ci6report -out $(CI6_REPORT) < $(CI6_JSON) >/dev/null || status=1; \
+	exit $$status
 
 # The nava-worker service (T31b, TICK-159): ready with /readyz green, /metrics
 # and the probes on its unpublished admin listener without httpobs, and a
 # workflow's workflow_ref activity run in the service through the guard, which
 # /metrics counts.
-# TODO(TODO-009): the GitHub workflow's stack job has no step for this target
-# yet; the step needs a push with `workflow` scope.
 stack-test-worker:
 	go test -tags workerstack -count=1 ./internal/workerstack
 
@@ -314,15 +338,17 @@ stack-idp-realms:
 # TestCI5 needs a platform database: make identity-attacks runs it. The
 # CI-5.06 negative fixture needs Keycloak 26.1.2: make identity-attacks-fixture.
 stack-test-identity:
-	go test -tags identitystack -count=1 -skip '^(TestCI5|TestKC2612Fixture.*)$$' ./internal/identitystack
+	rm -f $(IDENTITY_STREAM)
+	go test -tags identitystack -count=1 -skip '^TestCI5$$' -json ./internal/identitystack > $(IDENTITY_STREAM) || { cat $(IDENTITY_STREAM); exit 1; }
 
 # The CI-5 adversarial identity suite (T19, ADR-001 Annex B CI-5) against the
 # running Keycloak, with a throwaway PostgreSQL for the platform database the
 # resolver and one real group sync use. Writes the CI-5 report to CI5_REPORT
 # and fails when a CI-5 case did not pass. Needs the stack's Keycloak.
 CI5_REPORT ?= ci5-report.md
+IDENTITY_STREAM ?= identity-stream.json
 identity-attacks:
-	CI5_REPORT=$(CI5_REPORT) sh scripts/ci/identity-attacks.sh
+	CI5_REPORT=$(CI5_REPORT) IDENTITY_STREAM=$(IDENTITY_STREAM) sh scripts/ci/identity-attacks.sh
 
 # The CI-5.06 negative fixture: the same kc.org tamper must SUCCEED on a
 # throwaway Keycloak 26.1.2 (the known-broken pin), so CI-5.06 passing on the

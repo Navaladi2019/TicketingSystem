@@ -1,4 +1,4 @@
-== 07:54:28 Isolation: identity tables as nava_app through PgBouncer
+== 20:24:34 Isolation: identity tables as nava_app through PgBouncer
 -- app.tenant_id=''
  tbl | tenant_id | email 
 -----+-----------+-------
@@ -26,32 +26,33 @@
 (1 row)
 
 -- app.tenant_id='00000000-0000-4000-8000-0000000000b1'
-    tbl     |              tenant_id               |       email       
-------------+--------------------------------------+-------------------
+    tbl     |              tenant_id               |                        email                         
+------------+--------------------------------------+------------------------------------------------------
+ groups     | 00000000-0000-4000-8000-0000000000b1 | /t/00000000-0000-4000-8000-0000000000b1/service-desk
  org_units  | 00000000-0000-4000-8000-0000000000b1 | eng
  org_units  | 00000000-0000-4000-8000-0000000000b1 | platform
  org_units  | 00000000-0000-4000-8000-0000000000b1 | support
  principals | 00000000-0000-4000-8000-0000000000b1 | bob@tenant-b.test
-(4 rows)
+(5 rows)
 
  rows_of_other_tenant 
 ----------------------
                     0
 (1 row)
 
-== 07:54:56 Tenant admin A (admin@tenant-a.test)
-claims: {"iss": "http://keycloak:8080/realms/nava", "sub": "cd5c9301-d9e6-4ea3-b2a8-a349ed87a6b3", "aud": "nava-api", "azp": "nava-web", "typ": "Bearer", "organization": {"tenant-a": {"id": "00000000-0000-4000-8000-0000000000a1"}}, "realm_access": {"roles": ["tenant-admin"]}, "iat": 1793087696, "exp": 1793087996}
-GET /api/v1/me                  -> 200 {"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"2b8f8518-ef77-4266-9cd6-dfcd31286e30"}
-GET /api/v1/operator/tenants    -> 404 {"type":"urn:nava:problem:not_found","title":"Not found","status":404,"code":"not_found","detail":"The resource does not exist.","instance":"urn:nava:request:1048dd21410ff71c4d8b4fd7ab580e4f"}
-== 07:54:58 ID token used as an access token
-id_token claims: {"iss": "http://keycloak:8080/realms/nava", "sub": "cd5c9301-d9e6-4ea3-b2a8-a349ed87a6b3", "aud": "nava-web", "azp": "nava-web", "typ": "ID", "iat": 1793087696, "exp": 1793087996}
-GET /api/v1/me with id_token    -> 401 {"type":"urn:nava:problem:invalid_token","title":"Invalid token","status":401,"code":"invalid_token","detail":"The access token is missing, expired or invalid.","instance":"urn:nava:request:12d341aafdfffb7a6af7d82e855fc5a4"}
-== 07:54:59 Operator token on a tenant endpoint
-claims: {"iss": "http://keycloak:8080/realms/nava", "sub": "00000000-0000-4000-8000-00000000f001", "aud": "nava-operator-api", "azp": "nava-operator-cli", "typ": "Bearer", "realm_access": {"roles": ["nava-operator"]}, "iat": 1793087699, "exp": 1793087999}
-GET /api/v1/me with operator    -> 401 {"type":"urn:nava:problem:invalid_token","title":"Invalid token","status":401,"code":"invalid_token","detail":"The access token is missing, expired or invalid.","instance":"urn:nava:request:9004f8b3ea20d208ff5e8be27adcef01"}
+== 20:24:36 Tenant admin A (admin@tenant-a.test)
+claims: {"iss": "http://localhost:18081/realms/nava", "sub": "0dfa8902-f832-4814-b4c0-a3307cdbae38", "aud": "nava-api", "azp": "nava-web", "typ": "Bearer", "organization": {"tenant-a": {"id": "00000000-0000-4000-8000-0000000000a1"}}, "realm_access": {"roles": ["tenant-admin"]}, "iat": 1793132676, "exp": 1793132976}
+GET /api/v1/me                  -> 200 {"group_paths":[],"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"007708ec-8294-4051-b883-ea03dd8c6c42"}
+GET /api/v1/operator/tenants    -> 404 {"type":"urn:nava:problem:not_found","title":"Not found","status":404,"code":"not_found","detail":"The resource does not exist.","instance":"urn:nava:request:4186075b275db88e54353f9bacb4a9d2"}
+== 20:24:37 ID token used as an access token
+id_token claims: {"iss": "http://localhost:18081/realms/nava", "sub": "0dfa8902-f832-4814-b4c0-a3307cdbae38", "aud": "nava-web", "azp": "nava-web", "typ": "ID", "iat": 1793132676, "exp": 1793132976}
+GET /api/v1/me with id_token    -> 401 {"type":"urn:nava:problem:invalid_token","title":"Invalid token","status":401,"code":"invalid_token","detail":"The access token is missing, expired or invalid.","instance":"urn:nava:request:60823a045361eb39ac78b2265b236dd0"}
+== 20:24:38 Operator token on a tenant endpoint
+claims: {"iss": "http://localhost:18081/realms/nava", "sub": "00000000-0000-4000-8000-00000000f001", "aud": "nava-operator-api", "azp": "nava-operator-cli", "typ": "Bearer", "realm_access": {"roles": ["nava-operator"]}, "iat": 1793132678, "exp": 1793132978}
+GET /api/v1/me with operator    -> 401 {"type":"urn:nava:problem:invalid_token","title":"Invalid token","status":401,"code":"invalid_token","detail":"The access token is missing, expired or invalid.","instance":"urn:nava:request:bfb1b7d610322583ccbfa686cf1d4b8b"}
 non-operator via operator client: Keycloak error page "We are sorry... Access denied" (HTML trimmed)
-== 07:55:01 kc.org tamper: Bob (tenant B) asks for organization tenant-a
-scope 'openid organization:tenant-a' -> token organization=None; /me -> 401 {"type":"urn:nava:problem:tenant_unresolved","title":"Tenant unresolved","status":401,"code":"tenant_unresolved","detail":"The request could not be tied to a tenant.","instance":"urn:nava:request:b6946d0278e53308988682d6669f3d50"}
+== 20:24:39 kc.org tamper: Bob (tenant B) asks for organization tenant-a
+scope 'openid organization:tenant-a' -> token organization=None; /me -> 401 {"type":"urn:nava:problem:tenant_unresolved","title":"Tenant unresolved","status":401,"code":"tenant_unresolved","detail":"The request could not be tied to a tenant.","instance":"urn:nava:request:5954592b8ba95020a386ec812dd8e58d"}
 scope 'openid organization:00000000-0000-4000-8000-0000000000a1' -> {"error":"invalid_scope","error_description":"Invalid scopes: openid organization:00000000-0000-4000-8000-0000000000a1"}
-scope 'openid organization:*' -> token organization={'tenant-b': {'id': '00000000-0000-4000-8000-0000000000b1'}}; /me -> 200 {"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000b1","user_id":"e19bb006-5b73-4a2a-bffe-0dad7829d3b7"}
-== 07:55:05 Tenant B user token with tenant A's org id in the request path is not a thing: /me derives the tenant from the token only
+scope 'openid organization:*' -> token organization={'tenant-b': {'id': '00000000-0000-4000-8000-0000000000b1'}}; /me -> 200 {"group_paths":[{"id":"54b08478-61c5-4295-9801-4e3294e2e82e","path":"/service-desk"}],"groups":["54b08478-61c5-4295-9801-4e3294e2e82e"],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000b1","user_id":"b403a1a2-0751-4986-b69c-a61434bf58e0"}
+

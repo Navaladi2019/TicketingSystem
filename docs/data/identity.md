@@ -415,3 +415,8 @@ DROP TABLE bench_one, bench_two;
   the tenant really owns a domain before claiming it. The first claim wins.
 - A Postgres implementation of the rest of `keycloak.Registry` (user, group
   and alias lookups). Only `TenantOwnsEmailDomain` is in `pgstore` so far.
+
+## Removed principals (TICK-220)
+
+A principal who leaves the directory is tombstoned (`deleted_at`), not
+deleted. See [principal-tombstone.md](principal-tombstone.md).

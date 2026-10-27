@@ -52,6 +52,11 @@ type Dependencies struct {
 	// http://keycloak:8080/realms/nava. Empty: every API request is refused
 	// with 401 (fail closed).
 	OIDCIssuers []string
+	// OIDCFetchBaseURL is NAVA_OIDC_FETCH_BASE_URL, an optional scheme://host[:port]
+	// to fetch discovery and JWKS from instead of the issuer's host, such as
+	// http://keycloak:8080 when the pinned issuer is the browser URL. It never
+	// widens the iss allow-list.
+	OIDCFetchBaseURL string
 }
 
 // TemporalTLS locates nava-core's mTLS identity for the Temporal frontend (the
@@ -134,6 +139,7 @@ func Load(lookup LookupFunc) (Config, error) {
 		KeycloakManagementURL: strings.TrimRight(r.baseURL("NAVA_KEYCLOAK_MANAGEMENT_URL"), "/"),
 		TemporalAddress:       r.hostPort("NAVA_TEMPORAL_ADDRESS"),
 		OIDCIssuers:           r.urlList("NAVA_OIDC_ISSUERS"),
+		OIDCFetchBaseURL:      strings.TrimRight(r.baseURL("NAVA_OIDC_FETCH_BASE_URL"), "/"),
 	}
 	cfg.Deps.TemporalTLS = TemporalTLS{
 		CertFile:   r.str("NAVA_TEMPORAL_TLS_CERT_FILE"),

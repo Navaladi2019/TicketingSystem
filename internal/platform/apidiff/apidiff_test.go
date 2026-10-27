@@ -39,7 +39,7 @@ func TestRemovingAResponseFieldFails(t *testing.T) {
 	t.Parallel()
 	base := spec(t)
 	next := strings.Replace(base, "        tenant_id:\n          type: string\n          format: uuid\n", "", 1)
-	next = strings.Replace(next, "required: [user_id, tenant_id, groups, idp_alias]", "required: [user_id, groups, idp_alias]", 1)
+	next = strings.Replace(next, "required: [user_id, tenant_id, groups, idp_alias, group_paths]", "required: [user_id, groups, idp_alias, group_paths]", 1)
 	if next == base {
 		t.Fatal("test edit did not change the spec")
 	}
@@ -56,7 +56,7 @@ func TestBreakingChanges(t *testing.T) {
 		{"type changed", "        tenant_id:\n          type: string\n          format: uuid", "        tenant_id:\n          type: integer\n          format: uuid", "type changed"},
 		{"format changed", "        user_id:\n          type: string\n          format: uuid", "        user_id:\n          type: string\n          format: date", "format changed"},
 		{"response removed", "        \"501\":\n          $ref: \"#/components/responses/Problem\"\n", "", "response 501 removed"},
-		{"required dropped", "required: [user_id, tenant_id, groups, idp_alias]", "required: [user_id, groups, idp_alias]", "no longer always present"},
+		{"required dropped", "required: [user_id, tenant_id, groups, idp_alias, group_paths]", "required: [user_id, groups, idp_alias, group_paths]", "no longer always present"},
 		{"path removed", "  /api/v1/me:", "  /api/v1/other:", "path /api/v1/me removed"},
 		{"operation removed", "    get:\n      operationId: getMe", "    head:\n      operationId: getMe", "GET /api/v1/me removed"},
 	}

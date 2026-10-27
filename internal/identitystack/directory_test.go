@@ -568,8 +568,8 @@ func sortStrings(s []string) {
 func oidcSpec(context.Context, uuid.UUID) (keycloak.IdPSpec, error) {
 	return keycloak.IdPSpec{ProviderID: "oidc", DisplayName: "Onboarded IdP", Config: map[string]string{
 		"clientId": "nava-broker", "clientSecret": "dev-only-broker-secret", "clientAuthMethod": "client_secret_post",
-		"authorizationUrl": "http://localhost:18081/realms/idp-tenant-a/protocol/openid-connect/auth",
-		"tokenUrl":         "http://localhost:8080/realms/idp-tenant-a/protocol/openid-connect/token",
+		"authorizationUrl": "https://idp-tenant-a.example.com/realms/idp-tenant-a/protocol/openid-connect/auth",
+		"tokenUrl":         "https://idp-tenant-a.example.com/realms/idp-tenant-a/protocol/openid-connect/token",
 		"defaultScope":     "openid email profile", "syncMode": "IMPORT",
 	}}, nil
 }
@@ -665,7 +665,7 @@ func TestCreateTenantOrgRefusesExistingLinkedIdP(t *testing.T) {
 	// The refusal must come first, so the live IdP survives an invalid spec.
 	bad := newDirectory(t, newRegistry(), true, func(context.Context, uuid.UUID) (keycloak.IdPSpec, error) {
 		return keycloak.IdPSpec{ProviderID: "oidc", Config: map[string]string{
-			"clientId": "x", "authorizationUrl": "not a url", "pkceMethod": "bogus"}}, nil
+			"clientId": "x", "authorizationUrl": "https://idp-tenant-a.example.com/auth", "pkceMethod": "bogus"}}, nil
 	})
 	if _, err := bad.CreateTenantOrg(t.Context(), tenant, alias, nil); !errors.Is(err, identity.ErrAlreadyExists) {
 		t.Fatalf("CreateTenantOrg over a linked idp with an invalid config = %v, want ErrAlreadyExists", err)

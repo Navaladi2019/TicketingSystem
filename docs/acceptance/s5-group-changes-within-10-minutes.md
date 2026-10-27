@@ -2,43 +2,38 @@
 
 Story: TICK-47. Plan: PLAN-001 (`docs/delivery/plan-platform-foundation.md`), tasks T19, T25 and T26. Design: ADR-001 Annex A.1 and Annex B (CI-5), D-P9.
 Plain-language explainer: [`s5-group-changes-within-10-minutes-explained.html`](s5-group-changes-within-10-minutes-explained.html) (open it in a browser).
-Verified on 2026-10-27 by the Quality, Testing & CI Advisor, on a fresh compose stack built from the story branch `TICK-47/group-changes-within-10-minutes` (`cd715c4`) with `origin/main` (`a665f40`) merged in locally. The merge was not pushed. Its conflicts (`.gitignore`, `Makefile`, `docs/security/accepted-risks.md`) were resolved by keeping both sides. Evidence: [`s5-evidence/`](s5-evidence/).
+Verified on 2026-10-27 by the Quality, Testing & CI Advisor, on a fresh compose stack built from `TICK-47/group-changes-within-10-minutes` at `0135a08`. That commit already contains `main` (`8cb0d54`). Tenants A and B were seeded, and the walk used the real Keycloak and a real `nava-groupsync`. Evidence: [`s5-evidence/`](s5-evidence/).
 
-**Status: NOT READY for the human.** Two fix tasks are open under the story:
+**Status: READY for the human.** All six criteria pass. Criterion 6's 403 half is a known limit (TODO-010), not a failure.
 
-| Task | Severity | What fails |
-|---|---|---|
-| TICK-263 | **Bug** (security, appears on merge) | With `main` merged in, a tenant A user linked to tenant B's IdP is **accepted** as tenant A. CI-5.10 fails. `main`'s TICK-223 (PR #147) drops unbound links before the resolver can refuse them. The story branch alone is correct. |
-| TICK-264 | **Spec drift** | Story step 1 cannot be done on the seeded stack. Alice's seeded `eng/platform` is an org unit, not a group, so `GET /api/v1/me` shows `"groups":[]`. `/me` also lists group ids, not names. |
-
-Every other criterion passes, below. After the two fixes merge, QA re-runs criteria 3 and 4 and the "Try it" walk, then hands the story over.
+History: the first run on 2026-10-27 (`cd715c4` with `main` merged locally) found two problems. TICK-263: once `main` was in, a user linked to another tenant's login provider was accepted. TICK-264: story step 1 could not be done on the seed. Both are fixed (TICK-263, TICK-264, TICK-268), and this run re-checks them.
 
 ## What you can now do
 
 - When an administrator removes someone from a team in Keycloak, the platform stops treating them as a member within 10 minutes, even on a sign-in they already hold.
-- When an administrator disables someone, their existing sign-in stops working within 10 minutes, and they cannot sign in again.
+- When an administrator disables someone, they cannot sign in again, and the sign-in they already hold stops working within 10 minutes.
 - Each customer's copy of its users and teams holds only its own people.
-- A set of automated attacks on sign-in (forged or swapped tokens, tampering with the login page, another customer's login system) runs on every PR and is refused.
+- A set of automated attacks on sign-in (forged or swapped tokens, tampering with the login page, another customer's login system) is refused, and the suite runs on every PR.
 
 ## Try it (about 15 minutes, most of it waiting)
 
-Needs Docker and Go 1.26, from a fresh clone of the story branch. The seeded users and their dev-only passwords are in `deploy/compose/keycloak/import/realm-nava.json`. The Keycloak admin is `admin`, with the dev-only password in `compose.yaml`.
+Needs Docker, Go 1.26 and `jq`, from a fresh clone of the story branch. The seeded users and their dev-only passwords are in `deploy/compose/keycloak/import/realm-nava.json`. The Keycloak admin is `admin`, with the dev-only password in `compose.yaml`.
 
 1. Start the stack:
    ```sh
    make dev-ca
    docker compose build && docker compose up --wait
    ```
-2. Seed tenants A and B in the platform database. The stack has no onboarding API yet. The two ids are the Keycloak organisations' fixed ids.
+2. Seed tenants A and B in the platform database. The stack has no onboarding API yet. The ids are the Keycloak organisations' fixed ids, and the issuer is the pinned `KEYCLOAK_PUBLIC_URL`.
    ```sh
    docker compose exec -T postgres sh -c 'PGPASSWORD=$(cat /run/pg_superuser_password) psql -U pgadmin -d nava' <<'SQL'
    INSERT INTO tenants (id, state) VALUES ('00000000-0000-4000-8000-0000000000a1','active'), ('00000000-0000-4000-8000-0000000000b1','active');
    INSERT INTO tenant_identity_binding (tenant_id, issuer, org_id, idp_aliases) VALUES
-    ('00000000-0000-4000-8000-0000000000a1','http://keycloak:8080/realms/nava','00000000-0000-4000-8000-0000000000a1','{idp-tenant-a}'),
-    ('00000000-0000-4000-8000-0000000000b1','http://keycloak:8080/realms/nava','00000000-0000-4000-8000-0000000000b1','{idp-tenant-b}');
+    ('00000000-0000-4000-8000-0000000000a1','http://localhost:18081/realms/nava','00000000-0000-4000-8000-0000000000a1','{idp-tenant-a}'),
+    ('00000000-0000-4000-8000-0000000000b1','http://localhost:18081/realms/nava','00000000-0000-4000-8000-0000000000b1','{idp-tenant-b}');
    SQL
    ```
-3. Run group sync. The stack has no `nava-groupsync` service yet, so run it once from the repository. It reaches PgBouncer and Keycloak on the stack's `internal` network:
+3. Run group sync. The stack has no `nava-groupsync` service yet, so run it from the repository on the stack's `internal` network:
    ```sh
    CGO_ENABLED=0 GOOS=linux go build -o bin/linux/nava-groupsync ./cmd/nava-groupsync
    docker run --rm --network nava_internal -v "$PWD/bin/linux:/b:ro" --entrypoint /b/nava-groupsync \
@@ -46,94 +41,100 @@ Needs Docker and Go 1.26, from a fresh clone of the story branch. The seeded use
      -e NAVA_KEYCLOAK_URL=http://keycloak:8080 -e NAVA_GROUPSYNC_CLIENT_ID=nava-platform \
      -e NAVA_GROUPSYNC_CLIENT_SECRET=dev-only-platform-secret postgres:16.10 --once
    ```
-   Drop `--once` and add `-d --name nava-groupsync` to run it as the worker, every 5 minutes.
-4. Sign in as Alice and call the API. The token must come through the host name `keycloak:8080`, because that is the only issuer nava-core trusts:
+   To run it as the worker (every 5 minutes), replace `--rm` with `-d --name nava-groupsync` and drop `--once`.
+4. **Story step 1.** Sign in as Alice and call the API:
    ```sh
-   TOKEN=$(curl -s -H 'Host: keycloak:8080' http://127.0.0.1:18081/realms/nava/protocol/openid-connect/token \
+   TOKEN=$(curl -s http://localhost:18081/realms/nava/protocol/openid-connect/token \
      -d grant_type=password -d client_id=nava-web -d scope=openid \
      -d username=alice@tenant-a.test -d password=<Alice's dev-only password> | jq -r .access_token)
    curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:18080/api/v1/me
    ```
-   You should see `"tenant_id":"00000000-0000-4000-8000-0000000000a1"`. `"groups"` is empty: see TICK-264. Until it is fixed, open the admin console at `http://127.0.0.1:18081/admin` (realm `nava`). Create a group `service-desk` under `t › 00000000-…-0000000000a1`, add Alice to it, run step 3 again, and call `/me` again. You see one group id.
-5. In the admin console, remove Alice from `service-desk`. Call `/me` with the **same** `$TOKEN`. After the next sync (run step 3, or wait for the worker), `"groups":[]`.
-6. Get a fresh `$TOKEN` (step 4), then disable Alice in the admin console. A new sign-in now fails with `Account disabled`. After the next sync, the same `$TOKEN` gets `401 tenant_unresolved`.
-7. **Re-enable Alice**, then run the attack suite. Its tests sign in as Alice, so it fails at once while she is disabled.
+   You should see tenant `…0000000000a1` and `"group_paths":[{"id":"…","path":"/service-desk"}]`.
+5. **Story steps 2–3.** In the admin console (`http://localhost:18081/admin`, realm `nava`), go to Groups › `t` › `00000000-…-0000000000a1` › `service-desk` › Members and remove Alice. Call `/me` with the **same** `$TOKEN`. After the next sync (run step 3 again, or wait for the worker), `group_paths` and `groups` are empty. A token lasts 5 minutes, so get a new one (step 4) if it expired while you waited.
+6. **Story step 4.** Get a fresh `$TOKEN`, then disable Alice (Users › alice › Enabled off). A new sign-in now fails with `Account disabled`. After the next sync, the same `$TOKEN` gets `401 tenant_unresolved`.
+7. **Story step 5.** **Re-enable Alice first**: the attack suite signs in as her and fails at once while she is disabled. Then:
    ```sh
    make identity-attacks
    ```
-   Open `ci5-report.md`: 14 rows, all `PASS`. On the story branch with `main` merged in, CI-5.10 fails until TICK-263 is fixed.
+   Open `ci5-report.md`: 14 rows, all `PASS`.
 8. Clean up with `docker compose down -v`.
 
-If another stack already runs on the machine, set `COMPOSE_PROJECT_NAME`, `NAVA_CORE_PORT=0` and `KEYCLOAK_PORT=0`, and read the ports from `docker compose port`. The network is then `<project>_internal`, and `make identity-attacks` needs `KEYCLOAK_PORT=<port>`.
+If another stack already uses ports 18080/18081, set `COMPOSE_PROJECT_NAME`, `NAVA_CORE_PORT`, `KEYCLOAK_PORT` and `KEYCLOAK_PUBLIC_URL=http://localhost:<KEYCLOAK_PORT>` together. Use that issuer in step 2, `<project>_internal` as the network in step 3, and `KEYCLOAK_PORT=<port>` for `make identity-attacks`.
 
 ## Acceptance criteria
 
 | # | Criterion | Result | Evidence |
 |---|---|---|---|
-| 1 | Group removal is reflected within 10 minutes (test asserts the bound) | ✅ 180 s on a live worker | [04](s5-evidence/04-group-removal-timed.txt); T26 path `groupRemovalWithinBound` |
-| 2 | A disabled user's already-issued token stops working within 10 minutes | ✅ 199 s on a live worker | [05](s5-evidence/05-disable-timed.txt); T26 path `disabledUserWithinBound` |
+| 1 | Group removal is reflected within 10 minutes (test asserts the bound) | ✅ 244 s on a live worker, same unexpired token | [04](s5-evidence/04-group-removal-timed.txt); T26 path `groupRemovalWithinBound` |
+| 2 | A disabled user's already-issued token stops working within 10 minutes | ✅ 266 s on a live worker, same unexpired token | [05](s5-evidence/05-disable-timed.txt); T26 path `disabledUserWithinBound` |
 | 3 | Synced identity tables never show another tenant's users | ✅ | [06](s5-evidence/06-boundaries.txt), isolation section |
-| 4 | `kc.org` tamper, ID token as access token, foreign-IdP user all rejected | ❌ **with `main` merged**: CI-5.10 fails (TICK-263). ✅ on the story branch alone, 14/14 | [ci5 merged](s5-evidence/ci5-report-merged-main.md), [ci5 story](s5-evidence/ci5-report-story-branch.md), [08](s5-evidence/08-foreign-link-merged.txt), [09](s5-evidence/09-foreign-link-story-branch.txt) |
-| 5 | Tenant B's admin cannot obtain a token the API accepts for tenant A | ✅ | CI-5.13 PASS in both reports; Bob's `kc.org` tamper by hand in [06](s5-evidence/06-boundaries.txt) |
-| 6 | Tenant admin gets 403 on `/api/v1/operator/*`; operator token gets 401 on a tenant endpoint | 401 half ✅. 403 half: **404 today**, as documented (S4 not on `main`, TODO-010) | [06](s5-evidence/06-boundaries.txt) |
-| Try it | Story step 1, "`/me` shows group service-desk", on the seeded stack | ❌ (TICK-264) | [02](s5-evidence/02-first-sync.txt) |
+| 4 | `kc.org` tamper, ID token as access token, foreign-IdP user all rejected | ✅ CI-5 14/14 locally, and CI-5.10 by hand | [ci5-report](s5-evidence/ci5-report.md), [08](s5-evidence/08-foreign-link-ci5-10.txt), [06](s5-evidence/06-boundaries.txt) |
+| 5 | Tenant B's admin cannot obtain a token the API accepts for tenant A | ✅ | CI-5.13 PASS; Bob's `kc.org` tamper by hand in [06](s5-evidence/06-boundaries.txt) |
+| 6 | Tenant admin gets 403 on `/api/v1/operator/*`; operator token gets 401 on a tenant endpoint | 401 half ✅. 403 half: known limit, **404** until S4 is on `main` (TODO-010) | [06](s5-evidence/06-boundaries.txt) |
+| Story steps 1–3 | `/me` shows `service-desk`; removing Alice in Keycloak removes it | ✅ | [01](s5-evidence/01-seed-and-step1.txt), [04](s5-evidence/04-group-removal-timed.txt) |
+
+GitHub `ci` on the same tree: run [40553475037](https://github.com/Navaladi2019/TicketingSystem/actions/runs/40553475037), all 8 jobs green, with the `ci5-report` artifact showing 14/14. It ran on the PR #211 head `b3e7518`, whose tree is identical to `0135a08`.
 
 ### Criteria 1 and 2 evidence: the 10-minute bound on a live worker
 
-`nava-groupsync` ran as a worker with its default interval (5 minutes, the maximum it accepts), against the real Keycloak. Each change was made through the Keycloak admin API on a freshly issued token (lifespan 300 s). That token then called `/me` every 15 s.
+`nava-groupsync` ran as a worker with its default interval: 5 minutes, the most it accepts. Each change was made through the Keycloak admin API, after a token was freshly issued (lifespan 300 s). That token then called `/me` every 15 s.
 
 | Change | Made at (UTC) | Worker cycle | Same token's `/me` | Token still unexpired? |
 |---|---|---|---|---|
-| Remove Alice from `service-desk` | 07:44:51 | 07:47:44 | `200`, `"groups":[]` at +180 s | yes, it expired at 07:49:51 |
-| Disable Alice | 07:49:34 | 07:52:44 | `401 tenant_unresolved` at +199 s | yes, it expired at 07:54:32 |
+| Remove Alice from `service-desk` | 18:05:11 | 18:09:07 | `200`, `"group_paths":[]` at +244 s | yes, it expired at 18:10:10 |
+| Disable Alice | 20:19:52 | 20:24:06 | `401 tenant_unresolved` at +266 s | yes, it expired at 20:24:49 |
 
-A new sign-in right after the disable failed with `invalid_grant: Account disabled`. Bob (tenant B) got `200` throughout. The worst case is one full interval (5 min), then one full token lifespan (5 min): 10 minutes, which is what `withinBound()` in the T26 test asserts against `config.MaxGroupsyncInterval` and the realm's `accessTokenLifespan`. The T26 tests replace Keycloak with a fixed snapshot. This walk is the end-to-end check against the real Keycloak.
+A new sign-in right after the disable failed with `invalid_grant: Account disabled`. Bob (tenant B) kept `200` and his own `/service-desk` throughout. The worst case is one full interval (5 min) plus one token lifespan (5 min), which makes 10 minutes. `withinBound()` in the T26 test asserts that bound against `config.MaxGroupsyncInterval` and the realm's `accessTokenLifespan`. The T26 tests use a fixed directory snapshot, so this walk is the end-to-end check against the real Keycloak.
+
+The worker logs `group sync applied` only for a tenant whose snapshot changed. Its `groupsync_lag_seconds` histogram counted 54 observations over 27 cycles in about 2 h 15 min, all under 5 s.
 
 ### Criterion 3 evidence: isolation of the synced tables
 
-The check ran as `nava_app` through PgBouncer, after a real sync of both tenants:
+As `nava_app` through PgBouncer, after a real sync of both tenants:
 
 | `app.tenant_id` | Rows visible in `principals`, `groups`, `org_units` | Rows of the other tenant |
 |---|---|---|
 | none / `''` | 0 | 0 |
-| tenant A | 2 principals (admin, alice), 1 group, 3 org units, all tenant A | 0 |
-| tenant B | 1 principal (bob), 3 org units, all tenant B | 0 |
+| tenant A | 2 principals (admin, alice), `/service-desk`, 3 org units, all A | 0 |
+| tenant B | 1 principal (bob), `/service-desk`, 3 org units, all B | 0 |
 
-Sync logged `ignored_outside_subtree=0` for both tenants. The CI isolation suite (`internal/groupsync` isolation tests) covers a group outside `/t/<tenant>/`.
+Both tenants have a group named `service-desk`. Each sees only its own, with a different id.
 
-### Criterion 4 evidence and the merge bug (TICK-263)
+### Criterion 4 evidence: CI-5.10 on the merged tree (TICK-263)
 
-| Run | Code | Result |
-|---|---|---|
-| `make identity-attacks` | story branch alone (`cd715c4`) | **14/14 PASS** |
-| `make identity-attacks` | story branch + `main` | 13 PASS, **CI-5.10 FAIL**: `group sync did not record the link: "[]"` |
-| By hand: link Alice to `idp-tenant-b`, sync, `/me` | story branch alone | `federated_links` holds the link; `/me` **401** |
-| Same | story branch + `main` | `federated_links = []`; old and new token `/me` **200 as tenant A** |
+| Step at `0135a08` | Result |
+|---|---|
+| Control: Alice, no links, `/me` | 200, tenant A |
+| Link Alice to `idp-tenant-b` in Keycloak, then one sync | `federated_links = [{"identityProvider": "idp-tenant-b"}]`, an alias-only marker |
+| Rows anywhere holding the foreign external id `ext-qa-s5` | 0 |
+| Alice's token from before the link, `/me` | **401** `tenant_unresolved` |
+| A new token, `/me` | **401** `tenant_unresolved` |
+| Unlink, one sync, `/me` | 200, tenant A |
 
-By hand, an ID token on `/me` got `401 invalid_token`. Bob asking for `organization:tenant-a` got a token with no organisation and `401 tenant_unresolved`. `organization:*` still gave him only tenant B. The CI-5.06 negative fixture (26.1.2) was not re-run. It needs no stack, and the T19 review records it.
+`make identity-attacks` at `0135a08` passed 14/14 in 135 s ([ci5-report](s5-evidence/ci5-report.md)). By hand: an ID token on `/me` got `401 invalid_token`, and Bob asking for `organization:tenant-a` got a token with no organisation, then `401`. Asking for `organization:*` still gave him only tenant B.
 
 ### Criterion 6 evidence
 
 | Token | Request | Result |
 |---|---|---|
 | `admin@tenant-a.test` (`tenant-admin`) | `GET /api/v1/me` | 200, tenant A |
-| `admin@tenant-a.test` | `GET /api/v1/operator/tenants` | **404** (route not on this branch, TODO-010) |
+| `admin@tenant-a.test` | `GET /api/v1/operator/tenants` | **404**: the route is not on this branch (known limit) |
 | `operator@nava.test` via `nava-operator-cli` | `GET /api/v1/me` | **401** `invalid_token` |
 | `bob@tenant-b.test` via `nava-operator-cli` | sign-in | refused, "Access denied" |
 
 ## Isolation check
 
-Covered by criteria 3, 4 and 5: tenant B's user and admin cannot get a tenant A answer from the API, and each tenant's identity rows are invisible to the other. The one cross-tenant failure is TICK-263, which appears only on the merge with `main`.
+Tenant B's user and admin cannot get a tenant A answer from the API (criteria 4 and 5, CI-5.13). Each tenant's synced rows are invisible to the other (criterion 3). A tenant A user linked to tenant B's login provider is refused, and tenant B's external id never reaches tenant A's row (criterion 4).
 
 ## Not included
 
-- An onboarding API that creates tenants and bindings. Seeded by hand above (S3/T15 onboarding lives elsewhere).
-- A `nava-groupsync` service in `compose.yaml`. Run by hand above.
+- An onboarding API that creates tenants and bindings: this kit seeds them by hand.
+- A `nava-groupsync` service in `compose.yaml`: this kit runs it by hand.
 - Operator routes `/api/v1/operator/*` (story S4).
 
 ## Known limits
 
-- **The 403 on operator routes is unproven until S4 and S5 meet on `main`** (TODO-010). Today the route is 404, and the test is built to require 403 once it exists.
-- **The story's "Try it" order breaks step 5.** Step 4 disables Alice, and `make identity-attacks` signs in as Alice, so it fails at once (`Account disabled`) unless she is re-enabled. The kit says so. A clearer test message would help (preference).
-- **Leftover Docker networks.** On a shared dev host, leftover `nava-it-net-*` networks from killed integration runs can exhaust Docker's address pools. `up` then fails with `all predefined address pools have been fully subnetted`. Removing the networks with no containers fixed it.
-- **Startup took 221 s** on a host running about 45 other test containers.
+- **The 403 on operator routes is unproven until S4 and S5 are both on `main`** (TODO-010). Today the route returns 404. The test is built to require 403 once the route exists.
+- **The story's "Try it" order.** Step 4 disables Alice, and step 5's attack suite signs in as her. Re-enable her in between, as above.
+- **A 5-minute token can expire while you wait for a sync** (step 5). Within the bound that is the same outcome, a refusal, but it hides which mechanism acted. Use `nava-groupsync --once` to see the sync effect itself.
+- **Leftover Docker networks.** On a shared dev host, leftover `nava-it-net-*` networks from killed integration runs can exhaust Docker's address pools, and `up` fails with `all predefined address pools have been fully subnetted`. Removing the networks with no containers fixed it on 2026-10-27.

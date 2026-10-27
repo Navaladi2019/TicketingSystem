@@ -32,9 +32,9 @@ var (
 
 // stats counts the rows one apply wrote and removed.
 type stats struct {
-	PrincipalsWritten, PrincipalsDeleted int
-	GroupsWritten, GroupsDeleted         int
-	OrgUnitsWritten, OrgUnitsDeleted     int
+	PrincipalsWritten, PrincipalsTombstoned int
+	GroupsWritten, GroupsDeleted            int
+	OrgUnitsWritten, OrgUnitsDeleted        int
 	// Ignored is the number of snapshot groups and org units whose path is
 	// outside the subtree they may be written to.
 	Ignored int
@@ -42,17 +42,15 @@ type stats struct {
 
 // ---- path rules ------------------------------------------------------------
 
-func tenantPrefix(tenantID uuid.UUID) string { return "/t/" + tenantID.String() + "/" }
-
 // isOrgUnitPath: strictly below /t/<tenant_id>/ou/.
 func isOrgUnitPath(tenantID uuid.UUID, path string) bool {
-	rest, ok := strings.CutPrefix(path, tenantPrefix(tenantID)+"ou/")
+	rest, ok := strings.CutPrefix(path, identity.TenantGroupPrefix(tenantID)+"ou/")
 	return ok && rest != ""
 }
 
 // isGroupPath: below /t/<tenant_id>/ and not the ou container or below it.
 func isGroupPath(tenantID uuid.UUID, path string) bool {
-	rest, ok := strings.CutPrefix(path, tenantPrefix(tenantID))
+	rest, ok := strings.CutPrefix(path, identity.TenantGroupPrefix(tenantID))
 	if !ok || rest == "" {
 		return false
 	}
@@ -86,7 +84,11 @@ func apply(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, changes identity.
 		}
 	}
 
-	userIDs, err := applyPrincipals(ctx, tx, tid, changes.Users, now, &st)
+	bound, err := boundAliases(ctx, tx, tid)
+	if err != nil {
+		return st, err
+	}
+	userIDs, err := applyPrincipals(ctx, tx, tid, changes.Users, bound, now, &st)
 	if err != nil {
 		return st, err
 	}
@@ -114,17 +116,51 @@ func send(ctx context.Context, tx pgx.Tx, b *pgx.Batch) error {
 	return br.Close()
 }
 
+// linkJSON is one element of federated_links. UserID is set only for an alias
+// the tenant binds; for any other alias it is nil and omitted: the row holds
+// the foreign-link marker, never another IdP's external user id.
 type linkJSON struct {
-	IdentityProvider string `json:"identityProvider"`
-	UserID           string `json:"userId"`
+	IdentityProvider string  `json:"identityProvider"`
+	UserID           *string `json:"userId,omitempty"`
+}
+
+// boundAliases is the set of IdP aliases the tenant binds. A tenant with no
+// binding row has none, so no link is written for it (fail closed).
+func boundAliases(ctx context.Context, tx pgx.Tx, tid string) (map[string]bool, error) {
+	rows, err := tx.Query(ctx, `SELECT DISTINCT unnest(idp_aliases) FROM tenant_identity_binding WHERE tenant_id = $1::uuid`, tid)
+	if err != nil {
+		return nil, fmt.Errorf("read bound idps: %w", err)
+	}
+	defer rows.Close()
+	bound := map[string]bool{}
+	for rows.Next() {
+		var a string
+		if err := rows.Scan(&a); err != nil {
+			return nil, fmt.Errorf("read bound idps: %w", err)
+		}
+		bound[a] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read bound idps: %w", err)
+	}
+	return bound, nil
 }
 
 // linksJSON is federated_links as the table documents it. A user with none
 // gets '[]', never NULL: NULL means "never synced" and the resolver refuses it.
-func linksJSON(links []identity.FederatedLink) ([]byte, error) {
+// A link to an IdP the tenant does not bind is kept as a marker: the alias
+// only, without the external user id (that id is the other tenant's data). The
+// resolver refuses a principal with any alias the tenant does not bind, so the
+// marker must stay: dropping it would leave the resolver an empty list to accept.
+func linksJSON(links []identity.FederatedLink, bound map[string]bool) ([]byte, error) {
 	out := make([]linkJSON, 0, len(links))
 	for _, l := range links {
-		out = append(out, linkJSON{IdentityProvider: l.IdPAlias, UserID: l.ExternalUserID})
+		if !bound[l.IdPAlias] {
+			out = append(out, linkJSON{IdentityProvider: l.IdPAlias})
+			continue
+		}
+		uid := l.ExternalUserID
+		out = append(out, linkJSON{IdentityProvider: l.IdPAlias, UserID: &uid})
 	}
 	return json.Marshal(out)
 }
@@ -142,11 +178,12 @@ type principalRow struct {
 	email   *string
 	enabled bool
 	links   []byte
+	deleted bool // tombstoned: deleted_at is set
 }
 
 // applyPrincipals returns the Keycloak user id -> principal id map.
-func applyPrincipals(ctx context.Context, tx pgx.Tx, tid string, users []identity.DirectoryUser, now time.Time, st *stats) (map[string]uuid.UUID, error) {
-	rows, err := tx.Query(ctx, `SELECT id, keycloak_user_id, email, enabled, federated_links FROM principals WHERE tenant_id = $1::uuid`, tid)
+func applyPrincipals(ctx context.Context, tx pgx.Tx, tid string, users []identity.DirectoryUser, bound map[string]bool, now time.Time, st *stats) (map[string]uuid.UUID, error) {
+	rows, err := tx.Query(ctx, `SELECT id, keycloak_user_id, email, enabled, federated_links, deleted_at IS NOT NULL FROM principals WHERE tenant_id = $1::uuid`, tid)
 	if err != nil {
 		return nil, fmt.Errorf("read principals: %w", err)
 	}
@@ -154,7 +191,7 @@ func applyPrincipals(ctx context.Context, tx pgx.Tx, tid string, users []identit
 	for rows.Next() {
 		var kc string
 		var r principalRow
-		if err := rows.Scan(&r.id, &kc, &r.email, &r.enabled, &r.links); err != nil {
+		if err := rows.Scan(&r.id, &kc, &r.email, &r.enabled, &r.links, &r.deleted); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("read principals: %w", err)
 		}
@@ -176,7 +213,7 @@ func applyPrincipals(ctx context.Context, tx pgx.Tx, tid string, users []identit
 			return nil, fmt.Errorf("%w: user id appears twice", ErrBadSnapshot)
 		}
 		want[u.KeycloakUserID] = true
-		links, err := linksJSON(u.FederatedLinks)
+		links, err := linksJSON(u.FederatedLinks, bound)
 		if err != nil {
 			return nil, fmt.Errorf("federated links: %w", err)
 		}
@@ -194,6 +231,14 @@ func applyPrincipals(ctx context.Context, tx pgx.Tx, tid string, users []identit
 			st.PrincipalsWritten++
 		default:
 			ids[u.KeycloakUserID] = cur.id
+			if cur.deleted {
+				// A user who came back keeps the row and id; their
+				// memberships are re-created by applyGroups.
+				b.Queue(`UPDATE principals SET email = $3, enabled = $4, federated_links = $5::jsonb, deleted_at = NULL, synced_at = $6
+					WHERE tenant_id = $1::uuid AND id = $2::uuid`, tid, cur.id.String(), email, u.Enabled, string(links), now)
+				st.PrincipalsWritten++
+				continue
+			}
 			if ptrEq(cur.email, email) && cur.enabled == u.Enabled && sameJSON(cur.links, links) {
 				continue
 			}
@@ -202,16 +247,19 @@ func applyPrincipals(ctx context.Context, tx pgx.Tx, tid string, users []identit
 			st.PrincipalsWritten++
 		}
 	}
-	// Removing a principal removes its memberships (ON DELETE CASCADE).
+	// A principal that left the directory is tombstoned, never deleted, so a
+	// foreign key to it cannot fail the sync. It is not in userIDs, so
+	// applyGroups removes its memberships. Tombstoned rows are left alone.
 	var gone []string
 	for kc, r := range have {
-		if !want[kc] {
+		if !want[kc] && !r.deleted {
 			gone = append(gone, r.id.String())
 		}
 	}
 	if len(gone) > 0 {
-		b.Queue(`DELETE FROM principals WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[])`, tid, gone)
-		st.PrincipalsDeleted = len(gone)
+		b.Queue(`UPDATE principals SET enabled = false, deleted_at = $3, synced_at = $3
+			WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[])`, tid, gone, now)
+		st.PrincipalsTombstoned = len(gone)
 	}
 	if err := send(ctx, tx, b); err != nil {
 		return nil, fmt.Errorf("write principals: %w", err)

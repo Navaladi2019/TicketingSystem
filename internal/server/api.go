@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -25,7 +26,7 @@ const baseURL = ""
 // behind the authentication middleware and then the validator, and returns
 // the error-contract helper whose Wrap goes around mux. The spec and docs
 // routes are public.
-func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.IdentityResolver, mux *http.ServeMux) (*apihttp.API, error) {
+func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.IdentityResolver, paths identity.GroupPathReader, mux *http.ServeMux) (*apihttp.API, error) {
 	specData, err := api.Files.ReadFile("openapi.yaml")
 	if err != nil {
 		return nil, fmt.Errorf("read openapi.yaml: %w", err)
@@ -49,7 +50,7 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 
 	a := apihttp.New(spec, reg, log, baseURL)
 	api.HandlerWithOptions(
-		api.NewStrictHandlerWithOptions(&handlers{reg: reg, log: log}, nil, api.StrictHTTPServerOptions{
+		api.NewStrictHandlerWithOptions(&handlers{reg: reg, log: log, paths: paths}, nil, api.StrictHTTPServerOptions{
 			RequestErrorHandlerFunc:  a.StrictRequestError,
 			ResponseErrorHandlerFunc: a.StrictResponseError,
 		}),
@@ -72,6 +73,8 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 type handlers struct {
 	reg *problem.Registry
 	log *slog.Logger
+	// paths is read by GetMe only (ADR-002).
+	paths identity.GroupPathReader
 }
 
 // errNoPrincipal means a handler ran outside the authentication middleware:
@@ -88,5 +91,22 @@ func (h *handlers) GetMe(ctx context.Context, _ api.GetMeRequestObject) (api.Get
 	if groups == nil {
 		groups = []uuid.UUID{}
 	}
-	return api.GetMe200JSONResponse{UserId: p.PrincipalID, TenantId: p.TenantID, Groups: groups, IdpAlias: p.IdPAlias}, nil
+	raw, err := h.paths.GroupPaths(ctx, p.TenantID, p.PrincipalID)
+	if err != nil {
+		return nil, err
+	}
+	// Strip the tenant prefix; an entry without it is dropped and logged
+	// without its path, so one bad row cannot take /me down (ADR-002 section 3).
+	prefix := identity.TenantGroupPrefix(p.TenantID)
+	paths := make([]api.GroupPath, 0, len(raw))
+	for _, gp := range raw {
+		rest, ok := strings.CutPrefix(gp.Path, prefix)
+		if !ok {
+			h.log.ErrorContext(ctx, "group path outside tenant prefix",
+				slog.String("tenant_id", p.TenantID.String()), slog.String("group_id", gp.ID.String()))
+			continue
+		}
+		paths = append(paths, api.GroupPath{Id: gp.ID, Path: "/" + rest})
+	}
+	return api.GetMe200JSONResponse{UserId: p.PrincipalID, TenantId: p.TenantID, Groups: groups, IdpAlias: p.IdPAlias, GroupPaths: paths}, nil
 }

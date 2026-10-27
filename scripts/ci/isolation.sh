@@ -18,21 +18,33 @@ bouncer_tag=$(sed -n 's/^| `edoburu\/pgbouncer` | \([^ |]*\) |.*/\1/p' docs/pins
 MSYS_NO_PATHCONV=1
 export MSYS_NO_PATHCONV
 
-pg="nava-iso-pg-$$"
-bouncer="nava-iso-pgb-$$"
-net="nava-iso-net-$$"
+# Pid plus a random suffix, and the labels, as test-integration.sh (TICK-182).
+id=$$$(od -An -N2 -tu2 /dev/urandom | awk '{printf "%05d", $1}')
+pg="nava-iso-pg-$id"
+bouncer="nava-iso-pgb-$id"
+net="nava-iso-net-$id"
+labels="--label nava.ci.run=nava-iso-$id --label nava.ci.owner=${COMPOSE_PROJECT_NAME:-none}"
+# INT and TERM stop the running go command and exit through the EXIT trap.
+# Never `exec` the last command: exec drops the EXIT trap (TICK-185).
+fgpid=""
 trap 'docker rm -f "$pg" "$bouncer" >/dev/null 2>&1 || true; docker network rm "$net" >/dev/null 2>&1 || true' EXIT
-trap 'exit 130' INT TERM
+trap '[ -z "$fgpid" ] || kill "$fgpid" 2>/dev/null; exit 130' INT
+trap '[ -z "$fgpid" ] || kill "$fgpid" 2>/dev/null; exit 143' TERM
+# fgrun <command>: as in test-integration.sh, so a signal reaches the trap at once.
+fgrun() { "$@" & fgpid=$!; wait "$fgpid"; }
 
-docker network create "$net" >/dev/null
+# shellcheck disable=SC2086
+docker network create $labels "$net" >/dev/null
 # Throwaway cluster, so no durability (as test-integration.sh).
-docker run -d --name "$pg" --network "$net" --network-alias pg \
+# shellcheck disable=SC2086
+docker run -d --name "$pg" --network "$net" --network-alias pg $labels \
     -e POSTGRES_USER=pgadmin -e POSTGRES_PASSWORD=test-only -e POSTGRES_INITDB_ARGS=--no-sync \
     --health-cmd 'pg_isready -h 127.0.0.1 -U pgadmin -d postgres' \
     --health-interval 1s --health-timeout 5s --health-retries 90 \
     -p 127.0.0.1::5432 "postgres:$tag" \
     -c fsync=off -c synchronous_commit=off -c full_page_writes=off >/dev/null
-docker create --name "$bouncer" --network "$net" \
+# shellcheck disable=SC2086
+docker create --name "$bouncer" --network "$net" $labels \
     --health-cmd 'pg_isready -h 127.0.0.1 -p 5432' \
     --health-interval 1s --health-timeout 5s --health-retries 90 \
     -p 127.0.0.1::5432 "edoburu/pgbouncer:$bouncer_tag" >/dev/null
@@ -42,11 +54,15 @@ docker start "$bouncer" >/dev/null
 
 # Compile while the containers start (TestMain needs the cluster, so not
 # go test -run '^$').
-go vet -tags integration ./internal/tenancy/isolation
+fgrun go vet -tags integration ./internal/tenancy/isolation
 
 deadline=$(( $(date +%s) + 120 ))
 for c in "$pg" "$bouncer"; do
-    until [ "$(docker inspect -f '{{.State.Health.Status}}' "$c")" = healthy ]; do
+    while :; do
+        # Gone: fail at once, not after 120 s of "No such object" (TICK-182).
+        st=$(docker inspect -f '{{.State.Health.Status}}' "$c" 2>/dev/null) ||
+            { echo "isolation: container $c vanished: something outside this run removed it" >&2; exit 1; }
+        [ "$st" != healthy ] || break
         [ "$(date +%s)" -lt "$deadline" ] || { docker logs "$c"; echo "$c not healthy within 120s" >&2; exit 1; }
         sleep 1
     done
@@ -58,4 +74,11 @@ NAVA_ISOLATION_PGBOUNCER_ADDR="127.0.0.1:$(hostport "$bouncer")"
 NAVA_ISOLATION_REPORT="${ISOLATION_REPORT:-$(pwd -W 2>/dev/null || pwd)/isolation-report.md}"
 export NAVA_TEST_PG_URL NAVA_ISOLATION_PGBOUNCER_ADDR NAVA_ISOLATION_REPORT
 
-go test -tags integration -count=1 -v ./internal/tenancy/isolation "$@"
+# With no extra arguments, tools/ci/suiteran (TICK-230) also fails the run
+# when a registered isolation suite ran zero tests. Extra arguments (a -run
+# filter) may leave a suite out on purpose, so they skip that check.
+if [ $# -eq 0 ]; then
+    fgrun go run ./tools/ci/suiteran -tags integration -v -- go test -tags integration -count=1 -json ./internal/tenancy/isolation
+    exit 0
+fi
+fgrun go test -tags integration -count=1 -v ./internal/tenancy/isolation "$@"
