@@ -68,3 +68,11 @@ INSERT INTO tenant_email_domain (tenant_id, domain) VALUES
     ('0a000000-0000-4000-8000-00000000000a', 'tenant-a.test'),
     ('0b000000-0000-4000-8000-00000000000b', 'tenant-b.test'),
     ('0b000000-0000-4000-8000-00000000000b', 'b2.tenant-b.test');
+
+-- Pending invites (T252a). The same email is invited by both tenants, so a
+-- lookup by email alone would find both rows without isolation; B also has a
+-- consumed invite.
+INSERT INTO pending_invite (tenant_id, email, expires_at, consumed_at) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', 'shared-invite@example.test', now() + interval '7 days', NULL),
+    ('0b000000-0000-4000-8000-00000000000b', 'shared-invite@example.test', now() + interval '7 days', NULL),
+    ('0b000000-0000-4000-8000-00000000000b', 'used-invite@example.test', now() + interval '7 days', now());
