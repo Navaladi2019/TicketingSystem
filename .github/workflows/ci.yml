@@ -15,9 +15,11 @@
 # always runs, and a change under .github/workflows runs everything. Nothing
 # runs on a push to main; run the full pipeline by hand from the Actions tab
 # (workflow_dispatch), which runs every job on the chosen branch.
-# Budget: the whole run finishes in under 5 minutes on a warm cache. Each job
-# keeps its own Go build cache (key per job, refreshed every run), the CI tools
-# are cached by version, and image layers live in the Actions cache (gha).
+# Budget: see "Job time budgets" in docs/quality/ci-pipeline.md. The three
+# stack jobs build the images first (7.5 to 10 minutes of each run), so their
+# timeout-minutes is 25 (TICK-258); the others stay at 10. Each job keeps its
+# own Go build cache (key per job, refreshed every run), the CI tools are cached
+# by version, and image layers live in the Actions cache (gha).
 name: ci
 
 on:
@@ -198,7 +200,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.stack == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
       IMAGE_CACHE: gha
     steps:
@@ -265,7 +267,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.stack == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
       IMAGE_CACHE: gha
     steps:
@@ -309,7 +311,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.stack == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
       IMAGE_CACHE: gha
     steps:
