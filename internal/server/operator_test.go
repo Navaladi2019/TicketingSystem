@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -213,5 +214,23 @@ func TestOperatorOnlyHandlerServesNothingElse(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("GET /me on the onboarding process: %d, want 404", rec.Code)
+	}
+}
+
+// TICK-271: a refused claim is 409 domain_claimed and the body names neither
+// the owning tenant nor its organization, even when the service error carries
+// them. The operator learns only that the domain is taken.
+func TestOperatorOnboardDomainClaimedHidesOwner(t *testing.T) {
+	const owner, org = "8f1d2c3b-0000-4000-8000-00000000000b", "org-of-tenant-b"
+	err := fmt.Errorf("tenant %s organization %s: %w", owner, org, onboard.ErrDomainClaimed)
+	h := operatorHandler(t, server.WithOperator(stubOperators{}, &stubOnboarder{err: err}))
+	rec := postOnboard(t, h, "op-token", "k", onboardBody, "", nil)
+	if rec.Code != http.StatusConflict || code(t, rec) != "domain_claimed" {
+		t.Fatalf("status %d code %q, want 409 domain_claimed", rec.Code, code(t, rec))
+	}
+	for _, leak := range []string{owner, org} {
+		if strings.Contains(rec.Body.String(), leak) {
+			t.Errorf("409 body leaks %q: %s", leak, rec.Body)
+		}
 	}
 }
