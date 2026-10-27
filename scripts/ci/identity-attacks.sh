@@ -43,11 +43,11 @@ if [ "$mode" = fixture ]; then
         --health-cmd "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 && head -n1 <&3 | grep -q ' 200 '" \
         --health-interval 3s --health-timeout 5s --health-retries 100 \
         "quay.io/keycloak/keycloak:$kc_tag" start-dev >/dev/null
-    go vet -tags identitystack ./internal/identitystack
+    go vet -tags identitystack,identityfixture ./internal/identitystack
     wait_healthy "$kc" 300
     NAVA_CI5_KC_FIXTURE_URL="http://127.0.0.1:$(hostport "$kc" 8080)"
     export NAVA_CI5_KC_FIXTURE_URL
-    exec go test -tags identitystack -count=1 -v -run '^TestKC2612FixtureOrgPickerTamperSucceeds$' ./internal/identitystack "$@"
+    exec go test -tags identitystack,identityfixture -count=1 -v -run '^TestKC2612FixtureOrgPickerTamperSucceeds$' ./internal/identitystack "$@"
 fi
 
 tag=$(sed -n 's/^| `postgres` | \([^ |]*\) |.*/\1/p' docs/pins.md)
@@ -67,5 +67,19 @@ wait_healthy "$pg" 120
 NAVA_TEST_PG_URL="postgres://pgadmin:test-only@127.0.0.1:$(hostport "$pg" 5432)/postgres"
 export NAVA_TEST_PG_URL
 
-go test -tags identitystack -count=1 -json -run '^TestCI5$' ./internal/identitystack "$@" |
-    go run ./tools/ci/ci5report -out "${CI5_REPORT:-ci5-report.md}"
+# The CI-5 stream, then the check. Two streams cover the identitystack
+# registered suites: this one (TestCI5, ci5_isolation_test.go) and the stack
+# one make stack-test-identity writes (every other test in the package, with
+# -skip '^TestCI5$'). suiteran -in checks them together: a skip is never
+# counted as a run (TICK-230), and the pipe cannot hide a failing go test.
+ci5_stream="${CI5_STREAM:-ci5.json}"
+stack_stream="${IDENTITY_STREAM:-identity-stream.json}"
+status=0
+go test -tags identitystack -count=1 -json -run '^TestCI5$' ./internal/identitystack "$@" >"$ci5_stream" || status=1
+go run ./tools/ci/ci5report -out "${CI5_REPORT:-ci5-report.md}" <"$ci5_stream" || status=1
+# Standalone run: make stack-test-identity has not written its stream.
+if [ ! -s "$stack_stream" ]; then
+    go test -tags identitystack -count=1 -json -skip '^TestCI5$' ./internal/identitystack >"$stack_stream" || status=1
+fi
+go run ./tools/ci/suiteran -tags identitystack -in "$stack_stream" "$ci5_stream" || status=1
+exit "$status"

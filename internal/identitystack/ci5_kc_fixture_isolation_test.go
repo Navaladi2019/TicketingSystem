@@ -1,4 +1,4 @@
-//go:build identitystack
+//go:build identitystack && identityfixture
 
 package identitystack
 
@@ -9,7 +9,10 @@ package identitystack
 // a Keycloak 26.1.2, and requires the tamper to SUCCEED there: it proves the
 // case can see the break, so its pass on the pinned Keycloak means something.
 //
-// Skipped by default: it needs its own Keycloak. make identity-attacks-fixture
+// Opt-in: built only with the identityfixture tag, because it needs its own
+// Keycloak and no CI run has one. (TICK-263: with the tag off, the file is out
+// of every suiteran run; zero tests is a failure there and a skip never counts.)
+// make identity-attacks-fixture
 // starts the negative-fixture Keycloak docs/pins.md names and sets
 // NAVA_CI5_KC_FIXTURE_URL.
 

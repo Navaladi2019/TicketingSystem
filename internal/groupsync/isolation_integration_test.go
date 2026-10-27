@@ -325,6 +325,20 @@ func TestFederatedLinksMarkUnboundAliasesWithoutTheExternalUserId(t *testing.T) 
 		}
 	}
 
+	// A row an older sync wrote, with the foreign external user id, is rewritten to
+	// the marker by one sync.
+	if _, err := super.Exec(context.Background(), `UPDATE principals SET federated_links = '[{"identityProvider": "idp-a", "userId": "ext-a"}, {"identityProvider": "idp-b", "userId": "ext-b"}]'::jsonb WHERE tenant_id = $1`, a); err != nil {
+		t.Fatal(err)
+	}
+	if r := syncAll(t, newSyncer(t, pool, dir))[a]; r.Err != nil {
+		t.Fatalf("resync of tenant %s: %v", a, r.Err)
+	}
+	var rewritten string
+	_ = super.QueryRow(context.Background(), "SELECT federated_links::text FROM principals WHERE tenant_id = $1 AND keycloak_user_id = 'u-both'", a).Scan(&rewritten)
+	if strings.Contains(rewritten, "ext-b") || !strings.Contains(rewritten, "idp-b") {
+		t.Errorf("a stored full foreign link must become the marker after one sync, got %s", rewritten)
+	}
+
 	// Unbinding leaves the link as a marker on the next sync.
 	bindAliases(t, super, a)
 	dir.set(a, identity.DirectoryChanges{Users: []identity.DirectoryUser{

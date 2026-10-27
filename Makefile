@@ -324,15 +324,16 @@ stack-idp-realms:
 # TestCI5 needs a platform database: make identity-attacks runs it. The
 # CI-5.06 negative fixture needs Keycloak 26.1.2: make identity-attacks-fixture.
 stack-test-identity:
-	go run ./tools/ci/suiteran -tags identitystack -- go test -tags identitystack -count=1 -skip '^(TestCI5|TestKC2612Fixture.*)$$' -json ./internal/identitystack
+	go test -tags identitystack -count=1 -skip '^TestCI5$$' -json ./internal/identitystack > $(IDENTITY_STREAM) || { cat $(IDENTITY_STREAM); exit 1; }
 
 # The CI-5 adversarial identity suite (T19, ADR-001 Annex B CI-5) against the
 # running Keycloak, with a throwaway PostgreSQL for the platform database the
 # resolver and one real group sync use. Writes the CI-5 report to CI5_REPORT
 # and fails when a CI-5 case did not pass. Needs the stack's Keycloak.
 CI5_REPORT ?= ci5-report.md
+IDENTITY_STREAM ?= identity-stream.json
 identity-attacks:
-	CI5_REPORT=$(CI5_REPORT) sh scripts/ci/identity-attacks.sh
+	CI5_REPORT=$(CI5_REPORT) IDENTITY_STREAM=$(IDENTITY_STREAM) sh scripts/ci/identity-attacks.sh
 
 # The CI-5.06 negative fixture: the same kc.org tamper must SUCCEED on a
 # throwaway Keycloak 26.1.2 (the known-broken pin), so CI-5.06 passing on the
