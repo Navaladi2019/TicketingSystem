@@ -34,12 +34,19 @@ shards=${DBTEST_SHARDS:-3}
 shard_pgs=""
 i=1
 while [ "$i" -le "$shards" ]; do shard_pgs="$shard_pgs nava-it-pg-$$-s$i"; i=$((i + 1)); done
+# Every go test gets a -timeout well below the integration job's
+# timeout-minutes (10), so a hung test panics with Go's goroutine dump, which
+# names it, before GitHub cancels the step with an empty log (TICK-225). The
+# tests take under a minute and start about two minutes into the job. A later
+# -timeout in the script's arguments wins.
+timeout=6m
 logs=$(mktemp -d)
+codes=$(mktemp -d)
 # This script owns the clusters, the network and the logs: remove them on any
 # exit. INT and TERM exit through the EXIT trap, which dash skips on a bare
 # signal.
 # shellcheck disable=SC2086
-trap 'docker rm -f "$name" $shard_pgs $bouncers >/dev/null 2>&1 || true; docker network rm "$net" >/dev/null 2>&1 || true; rm -rf "$logs"' EXIT
+trap 'docker rm -f "$name" $shard_pgs $bouncers >/dev/null 2>&1 || true; docker network rm "$net" >/dev/null 2>&1 || true; rm -rf "$logs" "$codes"' EXIT
 trap 'exit 130' INT TERM
 
 t0=$(date +%s)
@@ -79,9 +86,11 @@ pkgs=$(grep -rl --include='*_test.go' '^//go:build integration' cmd internal too
     # The isolation suite needs its own cluster and PgBouncer: make isolation.
     grep -v '^\./internal/tenancy/isolation$')
 echo "integration packages ($NAVA_TEST_PG_IMAGE):" $pkgs
-# Compile every test binary while the clusters start; -run '^$' runs nothing.
+# Compile every test binary, and the log printer, while the clusters start;
+# -run '^$' runs nothing.
 # shellcheck disable=SC2086
 go test -tags integration -count=1 -run '^$' $pkgs >/dev/null
+go run ./tools/ci/testlog warm-up </dev/null
 
 # Gate on each container's health check (postgres: TCP, since the image's
 # init server listens on the socket only, so a TCP answer means the real
@@ -106,7 +115,7 @@ export NAVA_TEST_PG_URL NAVA_TEST_PGBOUNCER_URL NAVA_TEST_PGBOUNCER_NOPREP_URL
 if [ "$shards" -eq 0 ]; then
     # -p 1: the packages share the cluster's roles.
     # shellcheck disable=SC2086
-    exec go test -tags integration -p 1 -count=1 -v "$@" $pkgs
+    exec go test -tags integration -p 1 -count=1 -timeout "$timeout" -v "$@" $pkgs
 fi
 
 # Three groups run at the same time:
@@ -125,10 +134,16 @@ total=$(echo "$tests" | wc -l | tr -d ' ')
 echo "dbtest: $total tests over $shards clusters; shared cluster:$shared; own cluster:$own"
 
 procs=""
-run() { # run <log> <go test arguments>: in the background, output to $logs/<log>
+# run <group> <go test arguments>: in the background. The output streams to
+# the log as it arrives, each line prefixed with [<group>] (tools/ci/testlog),
+# so a cancelled step still shows it (TICK-225), and the -json stream is kept
+# in $logs/<group> for the checks below; go test's exit code goes to
+# $codes/<group>.
+run() {
     l=$1
     shift
-    go test -tags integration -count=1 -json "$@" >"$logs/$l" 2>&1 &
+    { go test -tags integration -count=1 -timeout "$timeout" -json "$@" 2>&1; echo $? >"$codes/$l"; } |
+        tee "$logs/$l" | go run ./tools/ci/testlog "$l" &
     procs="$procs $!:$l"
 }
 i=1
@@ -146,14 +161,17 @@ done
 status=0
 failed=""
 for j in $procs; do
-    wait "${j%%:*}" || { status=1; failed="$failed ${j#*:}"; }
+    l=${j#*:}
+    wait "${j%%:*}" || { echo "integration: testlog failed for $l" >&2; status=1; }
+    [ "$(cat "$codes/$l" 2>/dev/null)" = 0 ] || { status=1; failed="$failed $l"; }
 done
 echo "integration: tests done after $(( $(date +%s) - t0 ))s"
-# Each group's output, as go test -v prints it, then the check that every
+# The groups' output was streamed above; this repeats, per group, the package
+# results and the output of every failed test, then checks that every
 # registered isolation suite in these packages ran a test (tools/ci/suiteran,
 # TICK-230): the groups are checked together, since a dbtest shard runs only
 # some of the package's tests.
-go run ./tools/ci/suiteran -tags integration -v -in "$logs"/* || status=1
+go run ./tools/ci/suiteran -tags integration -in "$logs"/* || status=1
 # Every dbtest test ran, exactly once over the shards.
 ran=$(grep -h '"Action":"run"' "$logs"/dbtest-* | grep -vc '"Test":"[^"]*/' || true)
 echo "dbtest: $ran of $total top-level tests ran"
