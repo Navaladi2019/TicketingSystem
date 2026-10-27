@@ -32,9 +32,9 @@ var (
 
 // stats counts the rows one apply wrote and removed.
 type stats struct {
-	PrincipalsWritten, PrincipalsDeleted int
-	GroupsWritten, GroupsDeleted         int
-	OrgUnitsWritten, OrgUnitsDeleted     int
+	PrincipalsWritten, PrincipalsTombstoned int
+	GroupsWritten, GroupsDeleted            int
+	OrgUnitsWritten, OrgUnitsDeleted        int
 	// Ignored is the number of snapshot groups and org units whose path is
 	// outside the subtree they may be written to.
 	Ignored int
@@ -142,11 +142,12 @@ type principalRow struct {
 	email   *string
 	enabled bool
 	links   []byte
+	deleted bool // tombstoned: deleted_at is set
 }
 
 // applyPrincipals returns the Keycloak user id -> principal id map.
 func applyPrincipals(ctx context.Context, tx pgx.Tx, tid string, users []identity.DirectoryUser, now time.Time, st *stats) (map[string]uuid.UUID, error) {
-	rows, err := tx.Query(ctx, `SELECT id, keycloak_user_id, email, enabled, federated_links FROM principals WHERE tenant_id = $1::uuid`, tid)
+	rows, err := tx.Query(ctx, `SELECT id, keycloak_user_id, email, enabled, federated_links, deleted_at IS NOT NULL FROM principals WHERE tenant_id = $1::uuid`, tid)
 	if err != nil {
 		return nil, fmt.Errorf("read principals: %w", err)
 	}
@@ -154,7 +155,7 @@ func applyPrincipals(ctx context.Context, tx pgx.Tx, tid string, users []identit
 	for rows.Next() {
 		var kc string
 		var r principalRow
-		if err := rows.Scan(&r.id, &kc, &r.email, &r.enabled, &r.links); err != nil {
+		if err := rows.Scan(&r.id, &kc, &r.email, &r.enabled, &r.links, &r.deleted); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("read principals: %w", err)
 		}
@@ -194,6 +195,14 @@ func applyPrincipals(ctx context.Context, tx pgx.Tx, tid string, users []identit
 			st.PrincipalsWritten++
 		default:
 			ids[u.KeycloakUserID] = cur.id
+			if cur.deleted {
+				// A user who came back keeps the row and id; their
+				// memberships are re-created by applyGroups.
+				b.Queue(`UPDATE principals SET email = $3, enabled = $4, federated_links = $5::jsonb, deleted_at = NULL, synced_at = $6
+					WHERE tenant_id = $1::uuid AND id = $2::uuid`, tid, cur.id.String(), email, u.Enabled, string(links), now)
+				st.PrincipalsWritten++
+				continue
+			}
 			if ptrEq(cur.email, email) && cur.enabled == u.Enabled && sameJSON(cur.links, links) {
 				continue
 			}
@@ -202,16 +211,19 @@ func applyPrincipals(ctx context.Context, tx pgx.Tx, tid string, users []identit
 			st.PrincipalsWritten++
 		}
 	}
-	// Removing a principal removes its memberships (ON DELETE CASCADE).
+	// A principal that left the directory is tombstoned, never deleted, so a
+	// foreign key to it cannot fail the sync. It is not in userIDs, so
+	// applyGroups removes its memberships. Tombstoned rows are left alone.
 	var gone []string
 	for kc, r := range have {
-		if !want[kc] {
+		if !want[kc] && !r.deleted {
 			gone = append(gone, r.id.String())
 		}
 	}
 	if len(gone) > 0 {
-		b.Queue(`DELETE FROM principals WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[])`, tid, gone)
-		st.PrincipalsDeleted = len(gone)
+		b.Queue(`UPDATE principals SET enabled = false, deleted_at = $3, synced_at = $3
+			WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[])`, tid, gone, now)
+		st.PrincipalsTombstoned = len(gone)
 	}
 	if err := send(ctx, tx, b); err != nil {
 		return nil, fmt.Errorf("write principals: %w", err)

@@ -85,7 +85,7 @@ func TestT16TenantRowsInvisible(t *testing.T) {
 		"UPDATE principals SET enabled = false, federated_links = NULL WHERE tenant_id = $1",
 		"UPDATE groups SET path = path WHERE tenant_id = $1",
 		"UPDATE org_units SET name = 'x' WHERE tenant_id = $1",
-		"DELETE FROM principals WHERE tenant_id = $1",
+		"UPDATE principals SET enabled = false, deleted_at = now() WHERE tenant_id = $1",
 		"DELETE FROM groups WHERE tenant_id = $1",
 		"DELETE FROM group_members WHERE tenant_id = $1",
 		"DELETE FROM org_units WHERE tenant_id = $1",
@@ -135,7 +135,7 @@ func TestT16ForeignKeysRejectCrossTenant(t *testing.T) {
 	wantSQLState(t, "an org unit as its own parent", err, "23514")
 }
 
-// Removing a principal or a group removes its memberships, in its own
+// Removing a group removes its memberships, in its own
 // tenant only; a parent unit with children cannot be removed alone, but its
 // subtree can in one statement.
 func TestT16DeletesCascadeWithinTenant(t *testing.T) {
@@ -148,11 +148,15 @@ func TestT16DeletesCascadeWithinTenant(t *testing.T) {
 		return queryString(t, super, "SELECT count(*)::text FROM group_members WHERE tenant_id = $1", tenant)
 	}
 
-	if _, err := execIn(sync, tenantA, "DELETE FROM principals WHERE tenant_id = $1", tenantA); err != nil {
-		t.Fatalf("delete A's principal: %v", err)
+	// A tombstone does not cascade: group sync deletes the memberships itself.
+	if _, err := execIn(sync, tenantA, "UPDATE principals SET enabled = false, deleted_at = now() WHERE tenant_id = $1", tenantA); err != nil {
+		t.Fatalf("tombstone A's principal: %v", err)
+	}
+	if _, err := execIn(sync, tenantA, "DELETE FROM group_members WHERE tenant_id = $1 AND principal_id = $1", tenantA); err != nil {
+		t.Fatalf("delete A's tombstoned memberships: %v", err)
 	}
 	if members(tenantA) != "0" || members(tenantB) != "1" {
-		t.Errorf("memberships after deleting A's principal: A %s, B %s; want 0, 1", members(tenantA), members(tenantB))
+		t.Errorf("memberships after tombstoning A's principal: A %s, B %s; want 0, 1", members(tenantA), members(tenantB))
 	}
 	if _, err := execIn(sync, tenantB, "DELETE FROM groups WHERE tenant_id = $1", tenantB); err != nil {
 		t.Fatalf("delete B's group: %v", err)
@@ -299,7 +303,7 @@ func TestT220PrincipalTombstone(t *testing.T) {
 	sync := asRole(t, "nava_groupsync")
 
 	_, err := execIn(sync, tenantA, "DELETE FROM principals WHERE tenant_id = $1", tenantA)
-	wantSQLState(t, "hard delete of a referenced principal", err, "23503")
+	wantSQLState(t, "hard delete of a principal by nava_groupsync", err, "42501")
 
 	_, err = execIn(sync, tenantA, "UPDATE principals SET deleted_at = now() WHERE tenant_id = $1", tenantA)
 	wantSQLState(t, "an enabled tombstone", err, "23514")

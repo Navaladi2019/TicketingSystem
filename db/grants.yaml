@@ -122,7 +122,7 @@ roles:
     schemas: { public: [USAGE] }
     tables:
       tenant_identity_binding: { SELECT: [tenant_id, issuer, org_id, idp_aliases] } # binding_lookup
-      principals: { SELECT: [], INSERT: [], UPDATE: [email, enabled, federated_links, synced_at, deleted_at], DELETE: [] }
+      principals: { SELECT: [], INSERT: [], UPDATE: [email, enabled, federated_links, synced_at, deleted_at] }
       groups: { SELECT: [], INSERT: [], UPDATE: [path], DELETE: [] }
       group_members: { SELECT: [], INSERT: [], DELETE: [] }
       org_units: { SELECT: [], INSERT: [], UPDATE: [parent_id, name], DELETE: [] }

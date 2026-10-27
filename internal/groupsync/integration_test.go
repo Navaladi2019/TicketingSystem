@@ -518,3 +518,81 @@ func TestUnchangedSnapshotSkipsApply(t *testing.T) {
 		t.Errorf("change after an unchanged cycle not applied")
 	}
 }
+
+// TICK-265: a user who leaves the directory is tombstoned even when a table
+// with a default (NO ACTION) foreign key references them; a second sync with
+// nothing new writes nothing; the user who comes back keeps the same row.
+func TestRemovedPrincipalTombstonedAndRevived(t *testing.T) {
+	super, pool := cluster(t)
+	ctx := context.Background()
+	tid := uuid.New()
+	seedTenant(t, super, tid, 1)
+	if _, err := super.Exec(ctx, `CREATE TABLE t265_ref (tenant_id uuid NOT NULL, principal_id uuid NOT NULL,
+		FOREIGN KEY (tenant_id, principal_id) REFERENCES principals (tenant_id, id))`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = super.Exec(ctx, "DROP TABLE IF EXISTS t265_ref") })
+	dir := &fakeDir{snaps: map[uuid.UUID]identity.DirectoryChanges{}}
+	s := newSyncer(t, pool, dir)
+
+	u1 := identity.DirectoryUser{KeycloakUserID: "u1", Email: "a@example.test", Enabled: true}
+	u2 := identity.DirectoryUser{KeycloakUserID: "u2", Email: "b@example.test", Enabled: true}
+	g1 := func(members ...string) identity.DirectoryGroup {
+		return identity.DirectoryGroup{KeycloakGroupID: "g1", Path: path(tid, "/agents"), Name: "agents", MemberKeycloakUserIDs: members}
+	}
+	step := func(c identity.DirectoryChanges) {
+		t.Helper()
+		dir.set(tid, c)
+		if r := once(t, s); r.Err != nil {
+			t.Fatal(r.Err)
+		}
+	}
+	step(identity.DirectoryChanges{Users: []identity.DirectoryUser{u1, u2}, Groups: []identity.DirectoryGroup{g1("u1", "u2")}})
+	var id2 uuid.UUID
+	if err := super.QueryRow(ctx, "SELECT id FROM principals WHERE tenant_id = $1 AND keycloak_user_id = 'u2'", tid).Scan(&id2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := super.Exec(ctx, "INSERT INTO t265_ref VALUES ($1, $2)", tid, id2); err != nil {
+		t.Fatal(err)
+	}
+
+	// u2 leaves the directory: the sync commits and tombstones them.
+	step(identity.DirectoryChanges{Users: []identity.DirectoryUser{u1}, Groups: []identity.DirectoryGroup{g1("u1")}})
+	if n := count(t, super, "SELECT count(*) FROM principals WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NOT NULL AND NOT enabled", tid, id2); n != 1 {
+		t.Fatalf("tombstoned rows for u2 = %d, want 1", n)
+	}
+	if n := count(t, super, "SELECT count(*) FROM group_members WHERE tenant_id = $1 AND principal_id = $2", tid, id2); n != 0 {
+		t.Errorf("tombstoned principal still has %d memberships", n)
+	}
+	if n := count(t, super, "SELECT count(*) FROM t265_ref WHERE tenant_id = $1", tid); n != 1 {
+		t.Errorf("reference row lost")
+	}
+
+	// A later cycle that changes something else leaves the tombstone alone.
+	var xminBefore string
+	q := "SELECT xmin::text FROM principals WHERE tenant_id = $1 AND id = $2"
+	if err := super.QueryRow(ctx, q, tid, id2).Scan(&xminBefore); err != nil {
+		t.Fatal(err)
+	}
+	step(identity.DirectoryChanges{Users: []identity.DirectoryUser{u1}, Groups: []identity.DirectoryGroup{g1("u1"),
+		{KeycloakGroupID: "g3", Path: path(tid, "/other"), Name: "other"}}})
+	var xminAfter string
+	if err := super.QueryRow(ctx, q, tid, id2).Scan(&xminAfter); err != nil {
+		t.Fatal(err)
+	}
+	if xminBefore != xminAfter {
+		t.Errorf("an unchanged tombstone was rewritten (xmin %s -> %s)", xminBefore, xminAfter)
+	}
+
+	// u2 comes back: same row, enabled from Keycloak, memberships restored.
+	step(identity.DirectoryChanges{Users: []identity.DirectoryUser{u1, u2}, Groups: []identity.DirectoryGroup{g1("u1", "u2")}})
+	if n := count(t, super, "SELECT count(*) FROM principals WHERE tenant_id = $1 AND keycloak_user_id = 'u2'", tid); n != 1 {
+		t.Fatalf("rows for u2 = %d, want 1", n)
+	}
+	if n := count(t, super, "SELECT count(*) FROM principals WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL AND enabled", tid, id2); n != 1 {
+		t.Errorf("u2 not revived under the same id")
+	}
+	if n := count(t, super, "SELECT count(*) FROM group_members WHERE tenant_id = $1 AND principal_id = $2", tid, id2); n != 1 {
+		t.Errorf("memberships not restored")
+	}
+}
