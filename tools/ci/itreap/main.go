@@ -4,7 +4,8 @@
 // nava-it-net-<pid>), scripts/ci/isolation.sh (nava-iso-pg-<pid>,
 // nava-iso-pgb-<pid>, nava-iso-net-<pid>) and the health integration test
 // (nava-it-health-<pid>-<port>). Those scripts remove their own resources on
-// every exit they can trap; only SIGKILL, or a host killing the process tree,
+// every exit they can trap (<pid> is the pid plus a random suffix since
+// TICK-182, still digits); only SIGKILL, or a host killing the process tree,
 // leaves them, and every leftover holds one of Docker's address pools.
 //
 // Only a resource whose name has exactly one of those forms, that carries no
