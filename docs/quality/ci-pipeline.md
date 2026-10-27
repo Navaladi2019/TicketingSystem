@@ -13,6 +13,7 @@ calls only `make` targets. Install the pinned tools once with `make tools`.
 | Unit | `ci-unit` | `go test -race ./...` under the host-wide race lock (below), temporal-server unit tests | none |
 | Integration | `ci-integration` | any `//go:build integration` test (`internal/db/dbtest`, `internal/db/pooltest`, `internal/tenancy`, `internal/platform/health`) against throwaway PostgreSQL clusters and two PgBouncers (tags from `docs/pins.md`), or the dbtest shards running fewer tests than the package lists | Docker |
 | Isolation (in `ci-integration`, after `test-integration`) | `isolation` | the tenant isolation suite (`internal/tenancy/isolation`, T11, ADR-001 CI-2): any role × tenant table, registered path or fixture failing; writes the report `isolation-report.md` at the repository root (not yet uploaded as an artifact: TODO-008) | Docker |
+| ci-isolated `--down` (in `ci-integration`, after `isolation`; its own step in the `integration` job) | `test-ci-isolated-down` | `make ci-isolated-down ID=<ID>` leaves a `nava/*:<ID>` tag or removes one of another ID (TICK-211, throwaway tags on an empty imported image). Not part of `make test-integration`, so the local integration loop does not pay for it (TICK-224) | Docker |
 | Stack | `ci-stack` | image build, every container healthy, `GET /healthz` smoke from inside the compose network, then the stack tests (`pgbouncer`, `temporal`, `dependencies`, `trace`, `redact`, `idempotent`, `dbroles`, `hba`, `internal`) | compose |
 
 In GitHub, the `temporal-server` job runs the module's tests and then
@@ -59,6 +60,37 @@ there; production files never set them.
   suite.
 A change to `go.sum` or a Dockerfile base stage is a cold run (about 8 to 10
 minutes); the next run is warm again.
+
+**Job time budgets (TICK-258).** The 5-minute figure above was the target; the
+stack jobs do not meet it, because `make image-ci` alone takes 450 to 600 s of
+every run. `timeout-minutes` is a hang guard, not a speed target: it must sit
+above the slowest run in which every step passes, or a green run is cancelled
+and blocks the merge (PR #165, runs 40443438351 and 40448981983: both cancelled
+at 931 s while `stack-test-identity` was still running after its tests passed).
+
+Measured on the 11 green `stack` runs of 2026-10-26/27 (runs 40425133930 to
+40454453376; `stack-db` and `stack-internal` from six of them), job wall clock
+including set-up and post steps:
+
+| Job | Green runs, min / max | Slowest step seen | `timeout-minutes` |
+|---|---|---|---|
+| `stack` | 511 s / 763 s; first attempts cancelled at 931 s | image build 600 s, SDK 109 s, identity 154 s | 25 (was 15) |
+| `stack-db` | 515 s / 795 s | image build | 25 (was 15) |
+| `stack-internal` | 374 s / 687 s | image build | 25 (was 15) |
+| `lint`, `unit`, `temporal-server`, `integration` | under 5 min | | 10 |
+| `changes` | under 1 min | | 5 |
+
+How 25 was chosen: the worst case of each `stack` step taken from different
+runs adds up to about 1,010 s (17 min: build 600, stack up 41, SDK 109,
+identity 154, the rest about 100). 25 minutes leaves about 45 % above that
+for a slow runner or a cold image cache. All three stack jobs get it since
+they share the image build. A real hang (a test stuck until Go's own
+`-timeout`) still ends within 25 minutes.
+
+Revisit when: a green `stack` run exceeds 20 minutes (raise the bound or split
+`make image-ci` into its own job that pushes the images for the three stack
+jobs), or the image build drops under 3 minutes (lower the bound back towards
+15).
 
 Containers: `scripts/ci/test-integration.sh` owns, on a private network, one
 shared PostgreSQL with the two PgBouncers of the load test (T06,
@@ -117,12 +149,14 @@ lock. `NAVA_RACE_LOCK=off` skips it.
 | A forbidden or unpinned module or image gets in | `check-pins` (fixture tests in `tools/ci/checkpins`) |
 | Taskfile and Makefile drift apart, so local runs differ from CI | `check-taskfile` (drift fixture in `tools/ci/checktaskfile`) |
 | A security-path change goes without the D-P10 review | `review-paths` prints the summary lines on every PR (fixture: a PR touching `db/`) |
+| A registered isolation suite runs zero tests and CI stays green (a `TestMain` exiting before `m.Run`, a step dropping `-tags`) | `tools/ci/suiteran` (TICK-230) wraps `go test -json` in `test`, `temporal-server-test`, `test-integration`, `isolation`, `stack-test-identity` and `stack-test-sdk`: every `cto_signoff.isolation_tests` file whose package ran and whose build constraints hold for the step's `-tags` must have at least one of its tests pass or fail. Fixtures in `tools/ci/suiteran/testdata/fixture`; `TestEveryRegisteredSuiteHasACheckedStep` fails when a registered suite has no step whose `-tags` builds it |
 | A shallow clone passes `check-openapi` with nothing to compare against | `check-openapi` fails when `BASE` is missing |
 | pgx's prepared-statement cache breaks through PgBouncer in transaction mode | `internal/db/pooltest` (T06): 50 clients, 10k statements, zero errors; a second PgBouncer with `max_prepared_statements = 0` must fail |
 | nava-core goes ready without PostgreSQL | compose healthcheck on `/readyz`, plus the `dependencies` case (200 with Keycloak stopped) |
 
 ## Deliberately not covered
 
+- **A suite dropped by editing the step itself.** suiteran trusts the step's own `-tags` and package list. Removing both `-tags`, narrowing the packages, adding a `-run` filter or removing the suiteran call passes the check, so each of those is an edit to `.github/`, the `Makefile` or `scripts/ci/`, all on the `security` list in `review-paths.yaml` (`TestCIScriptsAreSecurityPaths` in `tools/ci/reviewpaths` pins the two scripts). Extra `ARGS` to `make test-integration` or `make isolation` skip the check, since a `-run` filter leaves suites out on purpose; CI never sets `ARGS`.
 - **testcontainers-go.** Approved, not adopted (decision log, 2026-10-19). The integration tests start a pinned container through the docker CLI, the way T03 and T04 built them.
 
 ## Run it
