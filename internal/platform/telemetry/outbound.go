@@ -5,10 +5,12 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -34,6 +36,18 @@ type OutboundOptions struct {
 	// TLSConfig is the client TLS configuration (CA pool, client certificate).
 	// Nil uses the system roots.
 	TLSConfig *tls.Config
+	// Egress is the destination policy. The zero value, EgressAny, is for
+	// URLs the platform configures; a URL a tenant or a third party controls
+	// needs EgressPublicOnly.
+	Egress Egress
+	// EgressPorts are the ports EgressPublicOnly allows. Empty means 443 and
+	// 8443.
+	EgressPorts []int
+	// EgressAllowHTTP lets EgressPublicOnly use plain http as well as https.
+	// A redirect from https to http is refused either way.
+	EgressAllowHTTP bool
+
+	egressHooks *egressHooks // tests only, see egressHooks
 }
 
 type routeKey struct{}
@@ -66,39 +80,87 @@ func traced(r *http.Request) bool {
 	return !off
 }
 
-type noRedirectKey struct{}
+type redirectKey struct{}
+
+// redirectPolicy is how a call treats a 3xx with a Location.
+type redirectPolicy int
+
+const (
+	redirectNone       redirectPolicy = iota // the default: refuse every redirect
+	redirectAny                              // follow, to any host the egress policy allows
+	redirectSameOrigin                       // follow only to the original scheme, host and port
+)
 
 // WithoutRedirects returns ctx marked so that an outbound call made with it
 // follows no redirect: a 3xx with a Location fails with ErrRedirectRefused,
-// whatever host it names. It is for fetches whose URL was checked before the
-// call, such as JWKS and OIDC discovery: a redirect, even to the same host,
-// would fetch from a URL that check never saw.
+// whatever host it names. It is the default since TICK-261; the marker stays
+// for callers that state it, such as JWKS and OIDC discovery, whose URL was
+// checked before the call.
 func WithoutRedirects(ctx context.Context) context.Context {
-	return context.WithValue(ctx, noRedirectKey{}, true)
+	return context.WithValue(ctx, redirectKey{}, redirectNone)
 }
 
-// ErrRedirectRefused is the cause of the error a call made with
-// WithoutRedirects returns when the server answers with a redirect.
+// WithRedirects returns ctx marked so that an outbound call made with it
+// follows up to maxRedirects redirects to any host. Each hop goes through
+// the client's egress policy, and none may go from https to http.
+func WithRedirects(ctx context.Context) context.Context {
+	return context.WithValue(ctx, redirectKey{}, redirectAny)
+}
+
+// WithSameOriginRedirects is WithRedirects limited to the scheme, host and
+// port of the first request, as for an allow-listed LLM provider.
+func WithSameOriginRedirects(ctx context.Context) context.Context {
+	return context.WithValue(ctx, redirectKey{}, redirectSameOrigin)
+}
+
+// ErrRedirectRefused is the cause of the error a call returns when the server
+// answers with a redirect the call's policy does not allow. Without a
+// WithRedirects or WithSameOriginRedirects marker that is every redirect, so
+// a webhook delivery answered with a 3xx fails.
 var ErrRedirectRefused = errors.New("outbound: redirect refused")
 
-// maxRedirects is http.Client's own default limit, kept for unmarked calls.
-const maxRedirects = 10
+// maxRedirects bounds the hops of a call that opts into redirects.
+const maxRedirects = 3
 
-// checkRedirect refuses every redirect of a WithoutRedirects call. req is the
-// next request; its context is the original request's.
+// checkRedirect applies the call's redirect policy. req is the next request;
+// its context is the original request's. The egress policy is applied to the
+// hop by the transport, as to any request.
 func checkRedirect(req *http.Request, via []*http.Request) error {
-	if off, _ := req.Context().Value(noRedirectKey{}).(bool); off {
+	policy, _ := req.Context().Value(redirectKey{}).(redirectPolicy)
+	if policy == redirectNone {
 		return ErrRedirectRefused
 	}
 	if len(via) >= maxRedirects {
-		return errors.New("stopped after 10 redirects")
+		return fmt.Errorf("%w: more than %d redirects", ErrRedirectRefused, maxRedirects)
+	}
+	if via[len(via)-1].URL.Scheme == "https" && req.URL.Scheme != "https" {
+		return fmt.Errorf("%w: https to %s", ErrRedirectRefused, req.URL.Scheme)
+	}
+	if policy == redirectSameOrigin && origin(req.URL) != origin(via[0].URL) {
+		return fmt.Errorf("%w: not same-origin", ErrRedirectRefused)
 	}
 	return nil
 }
 
+// origin is scheme://host:port with the scheme's default port filled in.
+func origin(u *url.URL) string {
+	port := u.Port()
+	if port == "" {
+		switch u.Scheme {
+		case "https":
+			port = "443"
+		case "http":
+			port = "80"
+		}
+	}
+	return strings.ToLower(u.Scheme) + "://" + net.JoinHostPort(strings.ToLower(u.Hostname()), port)
+}
+
 // OutboundClient is the one HTTP client for calls leaving the process
 // (Keycloak, webhooks, LLM providers). Build it with NewOutboundClient; do not
-// make an http.Client of your own.
+// make an http.Client of your own. A URL a tenant or a third party controls
+// needs a client built with EgressPublicOnly; calls follow no redirect unless
+// marked with WithRedirects or WithSameOriginRedirects.
 //
 // It traces and measures each call with the explicit providers, sets timeouts
 // at every layer, and guarantees that no error it returns carries a query
@@ -109,7 +171,7 @@ type OutboundClient struct {
 }
 
 // NewOutboundClient builds the client. It reports an error for a negative
-// timeout.
+// timeout, an unknown Egress or an egress port outside 1-65535.
 func NewOutboundClient(tel *Telemetry, opts OutboundOptions) (*OutboundClient, error) {
 	for _, d := range []time.Duration{opts.Timeout, opts.DialTimeout, opts.TLSHandshakeTimeout} {
 		if d < 0 {
@@ -120,10 +182,26 @@ func NewOutboundClient(tel *Telemetry, opts OutboundOptions) (*OutboundClient, e
 	opts.DialTimeout = orDefault(opts.DialTimeout, defaultOutboundDial)
 	opts.TLSHandshakeTimeout = orDefault(opts.TLSHandshakeTimeout, defaultOutboundTLS)
 
+	dial := (&net.Dialer{Timeout: opts.DialTimeout, KeepAlive: 30 * time.Second}).DialContext
+	var guard *egressGuard
+	switch opts.Egress {
+	case EgressAny:
+	case EgressPublicOnly:
+		g, err := newEgressGuard(opts)
+		if err != nil {
+			return nil, err
+		}
+		guard, dial = g, g.dialContext
+	default:
+		return nil, errors.New("telemetry: unknown egress policy")
+	}
+
 	// A fresh transport, not http.DefaultTransport: no ambient proxy from the
-	// environment and no sharing with code that changes the default.
+	// environment (Proxy stays nil, which EgressPublicOnly relies on: a proxy
+	// would connect on our behalf, past the dial guard) and no sharing with
+	// code that changes the default.
 	base := &http.Transport{
-		DialContext:           (&net.Dialer{Timeout: opts.DialTimeout, KeepAlive: 30 * time.Second}).DialContext,
+		DialContext:           dial,
 		TLSClientConfig:       opts.TLSConfig,
 		TLSHandshakeTimeout:   opts.TLSHandshakeTimeout,
 		ResponseHeaderTimeout: opts.Timeout,
@@ -133,7 +211,11 @@ func NewOutboundClient(tel *Telemetry, opts OutboundOptions) (*OutboundClient, e
 		IdleConnTimeout:       90 * time.Second,
 		ForceAttemptHTTP2:     true,
 	}
-	instrumented := otelhttp.NewTransport(base,
+	var inner http.RoundTripper = base
+	if guard != nil {
+		inner = schemeGuard{next: base, allowHTTP: guard.allowHTTP}
+	}
+	instrumented := otelhttp.NewTransport(inner,
 		otelhttp.WithFilter(traced),
 		otelhttp.WithTracerProvider(tel.TracerProvider),
 		otelhttp.WithMeterProvider(tel.MeterProvider),
@@ -207,7 +289,7 @@ func safeCause(ctx context.Context, err error) error {
 	switch {
 	case errors.As(err, &nested):
 		return redactURLError(ctx, err)
-	case errors.Is(err, ErrRedirectRefused),
+	case errors.Is(err, ErrRedirectRefused), errors.Is(err, ErrEgressRefused),
 		errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded),
 		errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF),
 		errors.As(err, &netErr), errors.As(err, &certErr), errors.As(err, &alert),
