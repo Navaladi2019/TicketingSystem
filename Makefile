@@ -19,7 +19,7 @@ temporal-server-dev-certs:
 
 ## Run the image with the dev config and dev certificates (foreground).
 temporal-server-run: temporal-server-dev-certs
-	docker run --rm --name nava-temporal-dev -p 7233:7233 -p 9090:9090 \
+	MSYS_NO_PATHCONV=1 docker run --rm --name nava-temporal-dev -p 7233:7233 -p 9090:9090 \
 		-v "$(CURDIR)/temporal-server/.devcerts:/etc/temporal/certs:ro" $(TEMPORAL_SERVER_IMAGE)
 # CI entry point (T05). The GitHub workflows only call targets from this file,
 # so `make ci` runs the same gates on a laptop (Linux, macOS, or Windows with
@@ -378,7 +378,7 @@ dev-ca:
 # network reaches the UI through host.docker.internal and acts as nava-operator.
 UI_PORT ?= 18233
 operator-tunnel:
-	docker run --rm --name $(COMPOSE_PROJECT)-operator-tunnel -p 127.0.0.1:$(UI_PORT):8080 		--network $$(docker network ls -q --filter label=com.docker.compose.project=$(COMPOSE_PROJECT) --filter label=com.docker.compose.network=operator) 		--entrypoint /usr/local/bin/temporal-server $(TEMPORAL_SERVER_IMAGE) proxy -listen :8080 -to temporal-ui:8080
+	MSYS_NO_PATHCONV=1 docker run --rm --name $(COMPOSE_PROJECT)-operator-tunnel -p 127.0.0.1:$(UI_PORT):8080 		--network $$(docker network ls -q --filter label=com.docker.compose.project=$(COMPOSE_PROJECT) --filter label=com.docker.compose.network=operator) 		--entrypoint /usr/local/bin/temporal-server $(TEMPORAL_SERVER_IMAGE) proxy -listen :8080 -to temporal-ui:8080
 
 # The S7 demo (TICK-275): a start row and two signal rows for a record of tenant-a,
 # written through outbox.Enqueue in InTenantTx, then handed to Temporal by the
