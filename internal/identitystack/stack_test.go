@@ -561,6 +561,7 @@ func stackAdapter(t *testing.T, tok string) *keycloak.Adapter {
 	}
 	a, err := keycloak.New(t.Context(), keycloak.Config{
 		Issuers:       []string{iss},
+		FetchBaseURL:  baseURL(),
 		MeterProvider: tel.MeterProvider,
 		Operators:     []keycloak.OperatorSubject{{Issuer: iss, Subject: stackOperatorID}},
 	}, out)
