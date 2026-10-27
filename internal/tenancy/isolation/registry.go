@@ -183,7 +183,7 @@ func Coverage() map[string]string {
 		"CI-8":  "partial → TICK-87 (byte-identical 404, stale If-Match 412, masked-field filter 400); cursor cases from T23; idempotency cases from T22",
 		"CI-10": "partial → TICK-88; no path registered yet (T29 depth limit is a unit test)",
 		"T26":   "full: deprovisioning within D-P9's 10 minutes and the Epic 03 identity boundary (TICK-82); cases 1, 2, 6 and 8 run here, cases 3, 4, 5 and 7 need the real Keycloak and run in make stack-test-identity",
-		"CI-5":  "full in make identity-attacks (real Keycloak, ci5-report.md; not in GitHub Actions until TODO-011); here every case is registered: token shapes through the API handler (401 for the stated reason), the duplicate binding on this database, Keycloak-only cases as Stack paths on TestCI5",
+		"CI-5":  "full in make identity-attacks (real Keycloak, the CI stack job, ci5-report artifact); here every case is registered: token shapes through the API handler (401 for the stated reason), the duplicate binding on this database, Keycloak-only cases as Stack paths on TestCI5",
 	}
 }
 
