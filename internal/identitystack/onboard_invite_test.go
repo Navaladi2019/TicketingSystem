@@ -14,11 +14,12 @@ package identitystack
 //	make stack-test-onboard
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -376,146 +377,225 @@ func accountGet(t *testing.T, tok string) (int, []byte) {
 	return do(t, newInNetClient(t), get)
 }
 
-// logAccountToken logs what decides the account API's answer: the token's
-// audience and account roles, and the composites of default-roles-nava.
-func logAccountToken(t *testing.T, tok string) {
+// accountClaims returns the token's audience and its account client roles
+// (nil when the claim is absent).
+func accountClaims(t *testing.T, tok string) (aud, roles any) {
 	t.Helper()
 	c := claims(t, tok)
-	var roles any
 	if ra, ok := c["resource_access"].(map[string]any); ok {
 		if acct, ok := ra["account"].(map[string]any); ok {
 			roles = acct["roles"]
 		}
 	}
-	code, comp := adminRealm(t, "nava", http.MethodGet, "/roles/default-roles-nava/composites", nil)
-	var names []string
-	var cs []struct {
-		Name        string
-		ContainerID string
-		ClientRole  bool
-	}
-	if json.Unmarshal(comp, &cs) == nil {
-		for _, r := range cs {
-			names = append(names, r.Name)
-		}
-	}
-	t.Logf("account token: aud=%v resource_access.account.roles=%v; default-roles-nava composites (%d)=%v", c["aud"], roles, code, names)
+	return c["aud"], roles
 }
 
-// grantAccountRoles gives view-profile and manage-account on the account
-// client to the one nava user with this email, through the admin API. It is a
-// test fixture for the user-profile control: the realm's default roles stay
-// as they are, and TestAccountAPIClosedToPlainBrokeredUser pins that.
-func grantAccountRoles(t *testing.T, email string) {
-	t.Helper()
-	uid := kcUserByEmail(t, email)
-	if uid == "" {
-		t.Fatalf("no user %s to grant account roles to", email)
-	}
-	_, cb := adminRealm(t, "nava", http.MethodGet, "/clients?clientId=account", nil)
-	var cs []struct{ ID string }
-	if json.Unmarshal(cb, &cs) != nil || len(cs) != 1 {
-		t.Fatalf("account client: %s", cb)
-	}
-	var reps []json.RawMessage
-	for _, name := range []string{"view-profile", "manage-account"} {
-		code, rb := adminRealm(t, "nava", http.MethodGet, "/clients/"+cs[0].ID+"/roles/"+name, nil)
-		if code != http.StatusOK {
-			t.Fatalf("account role %s: %d %s", name, code, rb)
-		}
-		reps = append(reps, rb)
-	}
-	if code, b := adminRealm(t, "nava", http.MethodPost, "/users/"+uid+"/role-mappings/clients/"+cs[0].ID, reps); code != http.StatusNoContent {
-		t.Fatalf("grant account roles to %s: %d %s", email, code, b)
-	}
-}
-
-// grantedAccountToken signs the user in through the tenant IdP (which creates
-// them), grants only that user the account roles, and signs in again: roles
-// are fixed when a token is issued, so the second token carries them.
-func grantedAccountToken(t *testing.T, f tenantFx, email string) string {
-	t.Helper()
-	accountConsoleSignIn(t, f.idpAlias, email, f.pass)
-	grantAccountRoles(t, email)
-	tok := accountConsoleSignIn(t, f.idpAlias, email, f.pass)
-	logAccountToken(t, tok)
-	return tok
-}
-
-// accountUpdate posts changes to the signed-in user's own profile through the
-// account API. The current representation is read first, so required fields
-// are present and only the named change differs.
-func accountUpdate(t *testing.T, tok string, change func(rep map[string]any)) (int, string) {
-	t.Helper()
-	code, b := accountGet(t, tok)
-	var rep map[string]any
-	if code != http.StatusOK || json.Unmarshal(b, &rep) != nil {
-		logAccountToken(t, tok)
-		t.Fatalf("GET the account: %d %.300s (the token must be accepted by the account API)", code, b)
-	}
-	change(rep)
-	body, _ := json.Marshal(rep)
-	post, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://"+inNetHost+"/realms/nava/account/", bytes.NewReader(body))
-	post.Header.Set("Authorization", "Bearer "+tok)
-	post.Header.Set("Content-Type", "application/json")
-	code, b = do(t, newInNetClient(t), post)
-	return code, string(b)
-}
-
-// TestAccountAPIClosedToPlainBrokeredUser pins the production default the two
-// read-only tests depend on: a brokered tenant user with no grant gets 403 from
-// the account API. If someone adds manage-account to the default roles, this
-// fails; the user-profile control is proven separately with a per-user grant.
+// TestAccountAPIClosedToPlainBrokeredUser is a canary, not a control. A plain
+// brokered user's account-console token has aud=account but no
+// resource_access.account claim, and the account API answers 403. That is an
+// accident of token mapping (every user holds manage-account and view-profile
+// through default-roles-nava, but the claim is not minted), so it protects
+// nothing. If this starts failing, the account API has become reachable for
+// tenant users, and the profile tests below still cover the fields: they use
+// the application-initiated action forms, which need no account role. Realm
+// nava's user profile is the control.
 func TestAccountAPIClosedToPlainBrokeredUser(t *testing.T) {
 	stopGroupsync(t)
 	f := onboardFx(t)
 	tok := accountConsoleSignIn(t, f.idpAlias, f.admin, f.pass)
-	logAccountToken(t, tok)
+	aud, roles := accountClaims(t, tok)
+	t.Logf("account token: aud=%v resource_access.account.roles=%v", aud, roles)
+	if roles != nil {
+		t.Errorf("the token carries resource_access.account.roles = %v: the canary's premise no longer holds", roles)
+	}
 	if code, b := accountGet(t, tok); code != http.StatusForbidden {
 		t.Errorf("GET the account as a plain brokered user = %d %.200s, want 403", code, b)
 	}
 }
 
-// TestIdPEmailVerifiedAttributeNotUserEditable: a signed-in user sets
-// nava_idp_email_verified=true through the account API. The update is refused
-// with 400 error-user-attribute-read-only, the admin API still shows the IdP's
-// value, and group sync still does not place them. The token comes from
-// account-console, which the account API accepts, so the refusal is the user
-// profile's and not a missing audience.
+// ---- application-initiated actions (AIA) through nava-web -------------------
+//
+// A tenant user reaches their own profile through the account API, which is
+// closed to them (see the canary), and through required-action forms that need
+// no account role: kc_action=UPDATE_PROFILE and UPDATE_EMAIL on a nava-web
+// sign-in. Those are the self-edit paths the user profile must hold.
+
+var (
+	formTag  = regexp.MustCompile(`(?s)<form[^>]*>`)
+	inputTag = regexp.MustCompile(`(?s)<input[^>]*>`)
+	attrName = regexp.MustCompile(`\bname="([^"]*)"`)
+	attrVal  = regexp.MustCompile(`\bvalue="([^"]*)"`)
+	attrType = regexp.MustCompile(`\btype="([^"]*)"`)
+	attrAct  = regexp.MustCompile(`\baction="([^"]*)"`)
+	attrLock = regexp.MustCompile(`\b(readonly|disabled)\b`)
+)
+
+// formField is one <input> of a form.
+type formField struct {
+	value  string
+	locked bool // readonly or disabled: the browser does not offer it for editing
+}
+
+// aiaForm is the required-action form Keycloak showed.
+type aiaForm struct {
+	action string
+	fields map[string]formField
+}
+
+const aiaRedirect = "http://localhost:9/cb"
+
+// aiaSignIn starts a nava-web sign-in through the tenant IdP with
+// kc_action=action, logs in at the IdP, and returns the client (cookies kept)
+// and the page Keycloak shows next.
+func aiaSignIn(t *testing.T, f tenantFx, user, action string) (*http.Client, string) {
+	t.Helper()
+	c := newInNetClient(t)
+	c.CheckRedirect = func(req *http.Request, _ []*http.Request) error {
+		if strings.HasPrefix(req.URL.String(), aiaRedirect) {
+			return http.ErrUseLastResponse
+		}
+		return nil
+	}
+	q := url.Values{
+		"client_id": {"nava-web"}, "response_type": {"code"}, "scope": {"openid"},
+		"redirect_uri": {aiaRedirect}, "kc_idp_hint": {f.idpAlias}, "kc_action": {action},
+	}
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, inNetIssuer+"/protocol/openid-connect/auth?"+q.Encode(), nil)
+	_, login := do(t, c, req)
+	m := formAction.FindSubmatch(login)
+	if m == nil {
+		m = formActionAlt.FindSubmatch(login)
+	}
+	if m == nil {
+		t.Fatalf("no login form from the tenant IdP: %.400s", login)
+	}
+	post, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, html.UnescapeString(string(m[1])),
+		strings.NewReader(url.Values{"username": {user}, "password": {f.pass}}.Encode()))
+	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	_, page := do(t, c, post)
+	return c, string(page)
+}
+
+func pageSummary(page string) string {
+	return strings.Join(strings.Fields(html.UnescapeString(pageText.ReplaceAllString(page, " "))), " ")
+}
+
+// parseForm finds the form with this id in the page and its inputs.
+func parseForm(page, id string) (aiaForm, bool) {
+	for _, loc := range formTag.FindAllStringIndex(page, -1) {
+		tag := page[loc[0]:loc[1]]
+		if !strings.Contains(tag, `id="`+id+`"`) {
+			continue
+		}
+		act := attrAct.FindStringSubmatch(tag)
+		if act == nil {
+			continue
+		}
+		end := strings.Index(page[loc[1]:], "</form>")
+		if end < 0 {
+			end = len(page) - loc[1]
+		}
+		form := aiaForm{action: html.UnescapeString(act[1]), fields: map[string]formField{}}
+		for _, in := range inputTag.FindAllString(page[loc[1]:loc[1]+end], -1) {
+			n := attrName.FindStringSubmatch(in)
+			if n == nil {
+				continue
+			}
+			if ty := attrType.FindStringSubmatch(in); ty != nil && ty[1] == "submit" {
+				continue
+			}
+			ff := formField{locked: attrLock.MatchString(in)}
+			if v := attrVal.FindStringSubmatch(in); v != nil {
+				ff.value = html.UnescapeString(v[1])
+			}
+			form.fields[n[1]] = ff
+		}
+		return form, true
+	}
+	return aiaForm{}, false
+}
+
+// requireForm signs in with kc_action=action and fails the test if Keycloak
+// does not offer the form with this id.
+func requireForm(t *testing.T, f tenantFx, user, action, formID string) (*http.Client, aiaForm) {
+	t.Helper()
+	c, page := aiaSignIn(t, f, user, action)
+	form, ok := parseForm(page, formID)
+	if !ok {
+		t.Fatalf("kc_action=%s offered no form %q; last page: %.600s", action, formID, pageSummary(page))
+	}
+	return c, form
+}
+
+// submit posts the form as a browser would (every unlocked field with its
+// shown value), with forged overriding or adding fields, and returns the
+// status and the text of the page it gets back.
+func (fm aiaForm) submit(t *testing.T, c *http.Client, forged url.Values) (int, string) {
+	t.Helper()
+	v := url.Values{}
+	for n, ff := range fm.fields {
+		if !ff.locked {
+			v.Set(n, ff.value)
+		}
+	}
+	for n, vals := range forged {
+		v[n] = vals
+	}
+	post, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, fm.action, strings.NewReader(v.Encode()))
+	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	code, b := do(t, c, post)
+	return code, pageSummary(string(b))
+}
+
+// requireNotEditable fails if the form offers email or the verified attribute
+// for editing.
+func (fm aiaForm) requireNotEditable(t *testing.T) {
+	t.Helper()
+	if ff, ok := fm.fields["email"]; ok && !ff.locked {
+		t.Error("the update-profile form offers email for editing")
+	}
+	if ff, ok := fm.fields[keycloak.EmailVerifiedAttribute]; ok && !ff.locked {
+		t.Errorf("the update-profile form offers %s for editing", keycloak.EmailVerifiedAttribute)
+	}
+}
+
+// TestIdPEmailVerifiedAttributeNotUserEditable: through the UPDATE_PROFILE
+// required action at nava-web, a signed-in user forges
+// nava_idp_email_verified=true. The form does not offer the attribute, the
+// forged value is rejected or ignored, the admin API still shows the IdP's
+// value, and group sync does not place them. The same tenant and IdP place the
+// control invitee. If the form is not offered, the test fails.
 func TestIdPEmailVerifiedAttributeNotUserEditable(t *testing.T) {
 	stopGroupsync(t)
 	f := onboardFx(t)
 	ctl := f.control(t)
 	setUpstreamEmailVerified(t, f.realm, f.admin, false)
 
-	tok := grantedAccountToken(t, f, f.admin)
-	code, resp := accountUpdate(t, tok, func(rep map[string]any) {
-		attrs, _ := rep["attributes"].(map[string]any)
-		if attrs == nil {
-			attrs = map[string]any{}
-		}
-		attrs[keycloak.EmailVerifiedAttribute] = []string{"true"}
-		rep["attributes"] = attrs
-	})
-	if code != http.StatusBadRequest || !strings.Contains(resp, "error-user-attribute-read-only") {
-		t.Errorf("account API update of %s = %d %.300s, want 400 error-user-attribute-read-only", keycloak.EmailVerifiedAttribute, code, resp)
-	}
+	c, form := requireForm(t, f, f.admin, "UPDATE_PROFILE", "kc-update-profile-form")
+	form.requireNotEditable(t)
+	code, page := form.submit(t, c, url.Values{keycloak.EmailVerifiedAttribute: {"true"}})
+	t.Logf("UPDATE_PROFILE with a forged %s: %d %.200s", keycloak.EmailVerifiedAttribute, code, page)
+
 	if got := storedEmailVerified(t, f.admin); got != "false" {
-		t.Errorf("after the account API call %s = %q, want the IdP's \"false\"", keycloak.EmailVerifiedAttribute, got)
+		t.Errorf("after the forged update %s = %q, want the IdP's \"false\"", keycloak.EmailVerifiedAttribute, got)
 	}
 	groupsyncOnce(t)
 	if f.placed(t, f.admin) {
-		t.Error("a user who set the attribute themselves was placed")
+		t.Error("a user who forged the attribute was placed")
+	}
+	if got := inviteState(t, f.tenant, f.admin); got != "pending" {
+		t.Errorf("invite = %q, want pending", got)
 	}
 	f.requirePlaced(t, ctl)
 }
 
 // TestUserCannotRenameEmailToPendingInvite: Mallory, a verified user of the
 // tenant's own IdP, tries to rename her email to the pending admin address
-// before the admin signs in. The profile makes email admin-only, so the
-// account API answers 400 error-user-attribute-read-only and her email is
-// unchanged. After a sync cycle the invite is still pending and nobody is
-// placed under that address; then the real admin signs in and is placed.
+// before the admin signs in, through UPDATE_PROFILE and then UPDATE_EMAIL at
+// nava-web. The profile makes email admin-only, so her email is unchanged and
+// nobody holds the admin address. After a sync cycle the invite is still
+// pending and nobody is placed under it; then the real admin signs in and is
+// placed. If the update-profile form is not offered, the test fails.
 func TestUserCannotRenameEmailToPendingInvite(t *testing.T) {
 	stopGroupsync(t)
 	f := onboardFx(t)
@@ -523,17 +603,33 @@ func TestUserCannotRenameEmailToPendingInvite(t *testing.T) {
 	seedIdPUser(t, f.realm, mallory, mallory, f.pass)
 	deleteUserAfter(t, mallory)
 
-	tok := grantedAccountToken(t, f, mallory)
-	code, resp := accountUpdate(t, tok, func(rep map[string]any) { rep["email"] = f.admin })
-	if code != http.StatusBadRequest || !strings.Contains(resp, "error-user-attribute-read-only") {
-		t.Errorf("account API rename of email = %d %.300s, want 400 error-user-attribute-read-only", code, resp)
+	assertUntouched := func(step string) {
+		t.Helper()
+		if kcUserByEmail(t, mallory) == "" {
+			t.Errorf("%s: Mallory's email changed", step)
+		}
+		if kcUserByEmail(t, f.admin) != "" {
+			t.Fatalf("%s: a user holds the pending admin address %s", step, f.admin)
+		}
 	}
-	if kcUserByEmail(t, mallory) == "" {
-		t.Error("Mallory's email changed")
+
+	c, form := requireForm(t, f, mallory, "UPDATE_PROFILE", "kc-update-profile-form")
+	form.requireNotEditable(t)
+	code, page := form.submit(t, c, url.Values{"email": {f.admin}})
+	t.Logf("UPDATE_PROFILE with email=%s: %d %.200s", f.admin, code, page)
+	assertUntouched("UPDATE_PROFILE")
+
+	// UPDATE_EMAIL is off unless the update-email feature is on: either the
+	// action is not offered, or it changes nothing. Both are fine.
+	uc, after := aiaSignIn(t, f, mallory, "UPDATE_EMAIL")
+	if ef, ok := parseForm(after, "kc-update-email-form"); ok {
+		code, page := ef.submit(t, uc, url.Values{"email": {f.admin}})
+		t.Logf("UPDATE_EMAIL with email=%s: %d %.200s", f.admin, code, page)
+	} else {
+		t.Logf("UPDATE_EMAIL offered no form: %.200s", pageSummary(after))
 	}
-	if kcUserByEmail(t, f.admin) != "" {
-		t.Fatalf("a user holds the pending admin address %s", f.admin)
-	}
+	assertUntouched("UPDATE_EMAIL")
+
 	groupsyncOnce(t)
 	if f.placed(t, mallory) || f.placed(t, f.admin) {
 		t.Error("someone was placed through the renamed email")
