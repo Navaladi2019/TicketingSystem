@@ -132,6 +132,9 @@ type reply struct {
 type statusError struct {
 	method, route string
 	status        int
+	// message is Keycloak's errorMessage, bounded. Error never prints it; it
+	// exists so a caller can match one precise refusal.
+	message string
 }
 
 func (e *statusError) Error() string {
@@ -175,7 +178,7 @@ func (a *admin) bearer(ctx context.Context, acct *account) (string, error) {
 		return "", fmt.Errorf("keycloak admin: token: %w", err)
 	}
 	if r.status != http.StatusOK {
-		return "", &statusError{http.MethodPost, route, r.status}
+		return "", &statusError{method: http.MethodPost, route: route, status: r.status}
 	}
 	var tok struct {
 		AccessToken string `json:"access_token"`
@@ -259,8 +262,19 @@ func (a *admin) do(ctx context.Context, acct *account, method, route, path strin
 				return r, nil
 			}
 		}
-		return reply{}, &statusError{method, full, r.status}
+		return reply{}, &statusError{method: method, route: full, status: r.status, message: errorMessage(r.body)}
 	}
+}
+
+// errorMessage returns the errorMessage field of a Keycloak error body, or "".
+func errorMessage(body []byte) string {
+	var e struct {
+		ErrorMessage string `json:"errorMessage"`
+	}
+	if json.Unmarshal(body, &e) != nil || len(e.ErrorMessage) > 512 {
+		return ""
+	}
+	return e.ErrorMessage
 }
 
 // getJSON GETs path and decodes the 200 body into v.

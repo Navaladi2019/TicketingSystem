@@ -215,6 +215,10 @@ func (s *Service) org(ctx context.Context, tenantID uuid.UUID, alias string, dom
 	switch {
 	case errors.Is(err, identity.ErrAlreadyExists):
 		return "", ErrConflict
+	case errors.Is(err, keycloak.ErrDomainLinked):
+		// Another organization already holds a requested domain: the race
+		// where two requests both passed the ownership read.
+		return "", ErrDomainClaimed
 	case errors.Is(err, identity.ErrInvalidInput):
 		return "", &FieldError{Pointer: "/identity_provider"}
 	case err != nil:

@@ -49,6 +49,15 @@ const (
 	rollbackTimeout   = 10 * time.Second
 )
 
+// ErrDomainLinked is returned by CreateTenantOrg when Keycloak refuses the
+// organization because one of its domains is already linked to another
+// organization. Nothing was created.
+var ErrDomainLinked = errors.New("keycloak: email domain already linked to an organization")
+
+// domainLinkedRE is Keycloak's refusal text: "Domain <name> is already linked
+// to organization <id> in realm <realm>". It is matched on a 400 only.
+var domainLinkedRE = regexp.MustCompile(`^Domain \S+ is already linked to organization `)
+
 // ErrOnboardingDisabled is returned by CreateTenantOrg on a Directory built
 // without onboarding credentials.
 var ErrOnboardingDisabled = errors.New("keycloak: onboarding account not configured")
@@ -771,6 +780,10 @@ func (d *Directory) CreateTenantOrg(ctx context.Context, tenantID uuid.UUID, ali
 	r, err := d.api.do(ctx, d.onboarding, http.MethodPost, "/organizations", "/organizations", nil,
 		map[string]any{"name": alias, "alias": alias, "enabled": true, "domains": doms}, http.StatusCreated)
 	if err != nil {
+		var se *statusError
+		if errors.As(err, &se) && se.status == http.StatusBadRequest && domainLinkedRE.MatchString(se.message) {
+			return "", ErrDomainLinked
+		}
 		return "", err
 	}
 	orgID, ok := idFromLocation(r.header)

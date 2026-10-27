@@ -3,6 +3,7 @@ package onboard
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/netip"
 	"sync"
@@ -97,6 +98,7 @@ type fakeDir struct {
 	creates   int
 	invites   []string
 	inviteErr error
+	createErr error
 	specSeen  keycloak.IdPSpec
 	specs     *Specs
 }
@@ -104,6 +106,9 @@ type fakeDir struct {
 func (d *fakeDir) CreateTenantOrg(ctx context.Context, id uuid.UUID, _ string, _ []string) (string, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.createErr != nil {
+		return "", d.createErr
+	}
 	if _, ok := d.orgs[id]; ok {
 		return "", identity.ErrAlreadyExists
 	}
@@ -408,5 +413,19 @@ func TestTenantIDIsStableAndPerOperator(t *testing.T) {
 func TestSpecsSourceWithoutSpecFails(t *testing.T) {
 	if _, err := NewSpecs().Source(t.Context(), uuid.New()); err == nil {
 		t.Fatal("want error")
+	}
+}
+
+// Keycloak refuses an organization with a linked domain before Bind runs: the
+// service answers ErrDomainClaimed, not an opaque create error.
+func TestOnboardKeycloakDomainLinkedIsDomainClaimed(t *testing.T) {
+	svc, st, dir := newSvc(t)
+	dir.createErr = fmt.Errorf("keycloak admin: create: %w", keycloak.ErrDomainLinked)
+	_, err := svc.Onboard(t.Context(), op1, "k", []byte("h"), validReq())
+	if !errors.Is(err, ErrDomainClaimed) {
+		t.Fatalf("err = %v, want ErrDomainClaimed", err)
+	}
+	if len(st.bindings) != 0 || len(dir.invites) != 0 {
+		t.Errorf("bindings=%v invites=%v after a refused onboarding", st.bindings, dir.invites)
 	}
 }
