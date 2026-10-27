@@ -3,8 +3,11 @@
 Why local CI is slow, what we decided, and what is still open. Target: **a CI
 run takes no more than 5 minutes** (human, 2026-10-24).
 
-GitHub Actions is off (billing), so local Docker CI is the merge gate for every
-PR. The host is shared by every Multica agent: 16 CPUs, about 20 GB for Docker.
+Phases 1 and 2 below were measured while GitHub Actions was off (billing) and
+local Docker CI was the merge gate, on a host shared by every Multica agent: 16
+CPUs, about 20 GB for Docker. GitHub Actions runs the `ci` workflow again and
+is the gate now (`CLAUDE.md`); agents no longer run the pipeline locally. The
+GitHub numbers are in [TICK-154](#measured-result-tick-154-github-actions-2026-10-27).
 For how the pipeline works, see [ci-pipeline.md](ci-pipeline.md).
 
 ## Baseline (2026-10-24)
@@ -130,6 +133,68 @@ when the four stages share the host. What would still cut it, none of them in
 TICK-153's scope: a pre-augmented Keycloak image (`kc.sh build` at image build
 time, so no start re-augments, about 40 s each start), and `ci-changed` as the
 gate, which the Technical Lead ruled out for now.
+
+### Measured result (TICK-154, GitHub Actions, 2026-10-27)
+
+TICK-154 set out to cut Keycloak's start-up cost in the stack stage. It needed
+no code change:
+
+- The pre-augmented image already exists. TICK-156 (`e3a2c16`) builds Keycloak
+  with `kc.sh build` in `deploy/compose/keycloak/Dockerfile`, and
+  `compose.yaml` starts it with `start --optimized`. No overlay overrides that,
+  so every stack, CI or dev, starts the optimized image.
+- On GitHub, the stack stage is three jobs on separate runners at once:
+  `stack`, `stack-db` and `stack-internal`. A Keycloak start in `stack-db` or
+  `stack-internal` is off the critical path.
+
+A full `gh workflow run ci --ref main` at `1e52de2` (run 40543834430) passed in
+**685 s (11 min 25 s)**, start to finish. Seconds:
+
+| Job | Total | Image build | Stack `up` + healthy | Tests | Keycloak starts |
+| --- | --- | --- | --- | --- | --- |
+| `stack` (critical path) | 651 | 433 | 25 + 12 | 121 | 1 |
+| `stack-db` | 517 | 398 | 25 + 6 | 31 idempotent, 3 dbroles and hba | 2 (first `up`, `idempotent`'s second `up`) |
+| `stack-internal` | 536 | 438 | 36, `make stack-internal` | in the 36 | 1 |
+| lint, unit, integration, temporal-server | 151, 185, 187, 214 | | | | |
+
+The three stacks start Keycloak four times, about 25 to 36 s each. None of
+them is removed:
+
+| Start | Needed by | Verdict |
+| --- | --- | --- |
+| `stack`: `make stack-up` | every main-stack check, the identity suite, `dependencies` (stops Keycloak) | Needed. The only one on the critical path |
+| `stack-db`: `make stack-up` | `idempotent`, which needs a used volume to restart on | Needed |
+| `stack-db`: `idempotent`'s `down` and `up` | The idempotency check also covers Keycloak booting a second time on its used database, with `--import-realm` leaving the existing realm alone. Restarting only Postgres, db-roles and migrate would drop that | Kept: dropping it weakens an idempotency test, and the job is off the critical path |
+| `stack-internal`: a fresh stack on the internal overlay | The no-egress isolation check. A network can't become `internal` in place, and the test proves that Keycloak, with the rest of the stack, boots without egress | Kept: isolation coverage |
+
+Dropping any of them saves no wall-clock time: only the `stack` job's start is
+on the critical path, and it costs 37 s.
+
+**What dominates now: the image build, 398 to 438 s in each stack job,** about
+two thirds of the run. With the layer cache in `gha`, a `main` or PR commit
+still rebuilds every Go service. Each Dockerfile copies the source before
+`go build`, so any source change invalidates the layer, and the Go build cache
+does not survive between runners. In the `stack-db` log: `temporal-server`'s
+`go build` 203 s, `nava-core`, `nava-relay`, `nava-worker` and `nava-purge`
+150 to 161 s each (in parallel), `db-roles` 64 s, then exporting the layer
+cache to `gha` (134 s for `temporal-server` alone, 28 s of it preparing). All three stack jobs do the same build. Without the build, the
+critical path is about 220 s.
+
+Paths under 5 minutes, each its own change and none in TICK-154's scope:
+
+1. Build the Go binaries on the runner, with the Go build cache in
+   `actions/cache`, and copy them into the images, or mount a BuildKit Go
+   cache that is saved between runs. Cuts most of the 150 to 200 s compiles.
+2. Rebuild `temporal-server` only when `temporal-server/` changes: it is a
+   pinned upstream build, not this repo's code.
+3. Build the images once in one job and pass them to the three stack jobs.
+   This saves runner minutes and the two extra `gha` cache exports, not wall
+   clock, unless 1 or 2 makes the build short.
+
+No compose, Makefile, workflow or test file changed, so the stack checks are
+the ones `main` runs, and all three stack jobs passed. The 65 checks and 24 Go
+stack tests counted in Phase 2 were for `ci-isolated`; nobody has recounted
+them for the GitHub jobs.
 
 ## Open decisions
 

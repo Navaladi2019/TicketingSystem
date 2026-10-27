@@ -51,6 +51,7 @@ func newResolver(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry
 	store := pgstore.New(pool)
 	a, err := keycloak.New(ctx, keycloak.Config{
 		Issuers:       cfg.Deps.OIDCIssuers,
+		FetchBaseURL:  cfg.Deps.OIDCFetchBaseURL,
 		Logger:        log,
 		MeterProvider: tel.MeterProvider,
 		Store:         store,

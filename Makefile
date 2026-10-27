@@ -42,7 +42,7 @@ GOLANGCI_LINT ?= golangci-lint
 GOLANGCI_LINT_VERSION := 2.14.0
 GOVULNCHECK_VERSION := v1.9.0
 
-.PHONY: build run test test-integration isolation lint generate check-openapi
+.PHONY: build run test test-integration test-integration-cleanup reap-integration isolation lint generate check-openapi
 .PHONY: ci ci-isolated ci-changed ci-stages ci-isolated-down test-ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity identity-attacks identity-attacks-fixture stack-idp-realms stack-test-worker 	image image-ci stack-up stack-down stack-logs stack-internal stack-internal-beside stack-main ci-stack-run stack-tests smoke
 
 build:
@@ -77,6 +77,20 @@ test:
 test-integration:
 	sh scripts/ci/test-integration.sh $(ARGS)
 	$(if $(ARGS),@echo "isolation suite skipped (ARGS set); run make isolation",sh scripts/ci/isolation.sh)
+
+# test-integration.sh leaves no container or network behind after a run with
+# go test arguments or a TERM part way (TICK-185). Its own ci.yml step and in
+# ci-integration, not part of make test-integration (as TICK-224). Needs Docker.
+test-integration-cleanup:
+	sh scripts/ci/test-integration-cleanup.sh
+
+# Removes the nava-it-* and nava-iso-* containers and networks that a killed
+# integration or isolation run left, once older than REAP_OLDER (a Go
+# duration, default 6h): never a compose stack (nava, nava-<id>) or a younger
+# run (TICK-185). REAP_DRY=1 lists them only. Needs Docker.
+REAP_OLDER ?= 6h
+reap-integration:
+	go run ./tools/ci/itreap -older $(REAP_OLDER) $(if $(REAP_DRY),-n)
 
 # The tenant isolation suite (T11, ADR-001 CI-2): its own throwaway
 # PostgreSQL and a PgBouncer with the real auth_query, tenants A and B seeded,
@@ -145,7 +159,7 @@ ci-lint: check-tools fmt-check vet lint lint-fixture check-taskfile check-pins c
 
 ci-unit: test temporal-server-test
 
-ci-integration: test-integration test-ci-isolated-down
+ci-integration: test-integration test-ci-isolated-down test-integration-cleanup
 
 # Builds the images, brings the stack up, runs every stack test, then tears
 # it down (logs first on failure). The workflow runs the same targets one step

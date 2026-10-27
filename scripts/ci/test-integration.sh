@@ -21,10 +21,24 @@ bouncer_image="edoburu/pgbouncer:$bouncer_tag"
 MSYS_NO_PATHCONV=1
 export MSYS_NO_PATHCONV
 
-name="nava-it-pg-$$"
-net="nava-it-net-$$"
-pooled="nava-it-pgb-pooled-$$"
-noprep="nava-it-pgb-noprep-$$"
+# NAVA_IT_ID (digits) names this run's containers and network; make
+# test-integration-cleanup sets it to find them. The default is this shell's
+# pid plus a random suffix: a pid alone repeats across PID namespaces (Git
+# Bash, WSL, a container on the host's Docker), and two runs of one name
+# remove each other's clusters (TICK-182).
+id=${NAVA_IT_ID:-$$$(od -An -N2 -tu2 /dev/urandom | awk '{printf "%05d", $1}')}
+case $id in '' | *[!0-9]*) echo "NAVA_IT_ID=$id: digits only" >&2; exit 2 ;; esac
+# Labels on every container and the network: nava.ci.run is this run,
+# nava.ci.owner the ci-isolated project (COMPOSE_PROJECT_NAME, nava-<id>)
+# that started it, whose teardown removes and checks them
+# (scripts/ci/ci-isolated.sh); "none" outside ci-isolated. Not the compose
+# project label: compose down and make reap-integration treat that as a stack.
+owner=${COMPOSE_PROJECT_NAME:-none}
+labels="--label nava.ci.run=nava-it-$id --label nava.ci.owner=$owner"
+name="nava-it-pg-$id"
+net="nava-it-net-$id"
+pooled="nava-it-pgb-pooled-$id"
+noprep="nava-it-pgb-noprep-$id"
 bouncers="$pooled $noprep"
 # dbtest runs as DBTEST_SHARDS processes, each on a cluster of its own
 # (TICK-153 O3): its tests drop and create cluster-wide roles, so no two of
@@ -33,24 +47,44 @@ shards=${DBTEST_SHARDS:-3}
 [ $# -eq 0 ] || shards=0
 shard_pgs=""
 i=1
-while [ "$i" -le "$shards" ]; do shard_pgs="$shard_pgs nava-it-pg-$$-s$i"; i=$((i + 1)); done
+while [ "$i" -le "$shards" ]; do shard_pgs="$shard_pgs nava-it-pg-$id-s$i"; i=$((i + 1)); done
+# Every go test gets a -timeout well below the integration job's
+# timeout-minutes (10), so a hung test panics with Go's goroutine dump, which
+# names it, before GitHub cancels the step with an empty log (TICK-225). The
+# tests take under a minute and start about two minutes into the job. A later
+# -timeout in the script's arguments wins.
+timeout=6m
 logs=$(mktemp -d)
+pipes=$(mktemp -d)
 # This script owns the clusters, the network and the logs: remove them on any
 # exit. INT and TERM exit through the EXIT trap, which dash skips on a bare
-# signal.
+# signal, after stopping the go commands still running. Never `exec` the last
+# command: exec drops the EXIT trap, and every `ARGS=...` run left its
+# clusters and network behind (TICK-185). Only SIGKILL skips the trap; make
+# reap-integration removes what such a run left.
+fgpid=""
+procs=""
+printers=""
+stop() { for j in $fgpid $procs; do kill "${j%%:*}" 2>/dev/null || true; done; }
 # shellcheck disable=SC2086
-trap 'docker rm -f "$name" $shard_pgs $bouncers >/dev/null 2>&1 || true; docker network rm "$net" >/dev/null 2>&1 || true; rm -rf "$logs"' EXIT
-trap 'exit 130' INT TERM
+trap 'docker rm -f "$name" $shard_pgs $bouncers >/dev/null 2>&1 || true; docker network rm "$net" >/dev/null 2>&1 || true; rm -rf "$logs" "$pipes"' EXIT
+trap 'stop; exit 130' INT
+trap 'stop; exit 143' TERM
+# fgrun <command>: runs it in the background and waits, so INT and TERM reach the
+# trap at once; the shell runs a trap only after a foreground command ends.
+fgrun() { "$@" & fgpid=$!; wait "$fgpid"; }
 
 t0=$(date +%s)
-docker network create "$net" >/dev/null
+# shellcheck disable=SC2086
+docker network create $labels "$net" >/dev/null
 # Throwaway clusters, so no durability (TICK-153 O1): a crash loses nothing
 # that matters, and fsync dominates the dbtest suites' time. Never set these
 # on the dev or production compose stack.
 start_pg() { # start_pg <name> [docker run options]
     n=$1
     shift
-    docker run -d --name "$n" --network "$net" "$@" \
+    # shellcheck disable=SC2086
+    docker run -d --name "$n" --network "$net" $labels "$@" \
         -e POSTGRES_USER=pgadmin -e POSTGRES_PASSWORD=test-only -e POSTGRES_INITDB_ARGS=--no-sync \
         --health-cmd 'pg_isready -h 127.0.0.1 -U pgadmin -d postgres' \
         --health-interval 1s --health-timeout 5s --health-retries 90 \
@@ -64,7 +98,8 @@ for c in $shard_pgs; do start_pg "$c"; done
 # setting under test, noprep.ini the same with max_prepared_statements = 0
 # (the negative case).
 for b in $bouncers; do
-    docker create --name "$b" --network "$net" \
+    # shellcheck disable=SC2086
+    docker create --name "$b" --network "$net" $labels \
         --health-cmd 'pg_isready -h 127.0.0.1 -p 5432' \
         --health-interval 1s --health-timeout 5s --health-retries 90 \
         -p 127.0.0.1::5432 "$bouncer_image" >/dev/null
@@ -79,16 +114,32 @@ pkgs=$(grep -rl --include='*_test.go' '^//go:build integration' cmd internal too
     # The isolation suite needs its own cluster and PgBouncer: make isolation.
     grep -v '^\./internal/tenancy/isolation$')
 echo "integration packages ($NAVA_TEST_PG_IMAGE):" $pkgs
-# Compile every test binary while the clusters start; -run '^$' runs nothing.
+# Compile every test binary, and the log printer, while the clusters start;
+# -run '^$' runs nothing.
 # shellcheck disable=SC2086
-go test -tags integration -count=1 -run '^$' $pkgs >/dev/null
+fgrun go test -tags integration -count=1 -run '^$' $pkgs >/dev/null
+fgrun go run ./tools/ci/testlog warm-up </dev/null
 
 # Gate on each container's health check (postgres: TCP, since the image's
 # init server listens on the socket only, so a TCP answer means the real
-# server is up).
+# server is up). A container that is gone, has exited or is unhealthy fails
+# at once: polling a removed one only repeats "No such object" until the
+# deadline (TICK-182).
 deadline=$(( $(date +%s) + 120 ))
 for c in "$name" $shard_pgs $bouncers; do
-    until [ "$(docker inspect -f '{{.State.Health.Status}}' "$c")" = healthy ]; do
+    while :; do
+        st=$(docker inspect -f '{{.State.Status}} {{.State.Health.Status}}' "$c" 2>/dev/null) || {
+            echo "integration: container $c of run $id vanished: something outside this run removed it" \
+                "(a run with the same NAVA_IT_ID, make reap-integration, or a manual docker rm)" >&2
+            exit 1
+        }
+        case $st in
+            "running healthy") break ;;
+            "running unhealthy" | exited* | dead*)
+                docker logs "$c" 2>&1 | tail -n 50
+                echo "integration: container $c is $st" >&2
+                exit 1 ;;
+        esac
         [ "$(date +%s)" -lt "$deadline" ] || { docker logs "$c"; echo "$c not healthy within 120s" >&2; exit 1; }
         sleep 1
     done
@@ -106,7 +157,8 @@ export NAVA_TEST_PG_URL NAVA_TEST_PGBOUNCER_URL NAVA_TEST_PGBOUNCER_NOPREP_URL
 if [ "$shards" -eq 0 ]; then
     # -p 1: the packages share the cluster's roles.
     # shellcheck disable=SC2086
-    exec go test -tags integration -p 1 -count=1 -v "$@" $pkgs
+    fgrun go test -tags integration -p 1 -count=1 -timeout "$timeout" -v "$@" $pkgs
+    exit 0
 fi
 
 # Three groups run at the same time:
@@ -124,11 +176,19 @@ tests=$(go test -tags integration -list . ./internal/db/dbtest | grep '^Test')
 total=$(echo "$tests" | wc -l | tr -d ' ')
 echo "dbtest: $total tests over $shards clusters; shared cluster:$shared; own cluster:$own"
 
-procs=""
-run() { # run <log> <go test arguments>: in the background, output to $logs/<log>
+# run <group> <go test arguments>: in the background. The output streams to
+# the log as it arrives, each line prefixed with [<group>] (tools/ci/testlog),
+# so a cancelled step still shows it (TICK-225), and the -json stream is kept
+# in $logs/<group> for the checks below. go test writes into a FIFO the
+# printer reads, so $! is go test itself: wait gets its exit code and stop
+# kills it, after which the printer reads EOF and ends.
+run() {
     l=$1
     shift
-    go test -tags integration -count=1 -json "$@" >"$logs/$l" 2>&1 &
+    mkfifo "$pipes/$l"
+    tee "$logs/$l" <"$pipes/$l" | go run ./tools/ci/testlog "$l" &
+    printers="$printers $!:$l"
+    go test -tags integration -count=1 -timeout "$timeout" -json "$@" >"$pipes/$l" 2>&1 &
     procs="$procs $!:$l"
 }
 i=1
@@ -148,12 +208,16 @@ failed=""
 for j in $procs; do
     wait "${j%%:*}" || { status=1; failed="$failed ${j#*:}"; }
 done
+for j in $printers; do
+    wait "${j%%:*}" || { echo "integration: testlog failed for ${j#*:}" >&2; status=1; }
+done
 echo "integration: tests done after $(( $(date +%s) - t0 ))s"
-# Each group's output, as go test -v prints it, then the check that every
+# The groups' output was streamed above; this repeats, per group, the package
+# results and the output of every failed test, then checks that every
 # registered isolation suite in these packages ran a test (tools/ci/suiteran,
 # TICK-230): the groups are checked together, since a dbtest shard runs only
 # some of the package's tests.
-go run ./tools/ci/suiteran -tags integration -v -in "$logs"/* || status=1
+fgrun go run ./tools/ci/suiteran -tags integration -in "$logs"/* || status=1
 # Every dbtest test ran, exactly once over the shards.
 ran=$(grep -h '"Action":"run"' "$logs"/dbtest-* | grep -vc '"Test":"[^"]*/' || true)
 echo "dbtest: $ran of $total top-level tests ran"
