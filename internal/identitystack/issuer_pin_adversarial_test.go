@@ -107,7 +107,9 @@ func forgedRequest(t *testing.T, req *http.Request, host string, header http.Hea
 }
 
 // forgedToken is alice's nava-web password-grant token, requested with the
-// forged Host and headers.
+// forged Host and headers. It is "" when Keycloak refuses the request with a
+// 4xx (a malformed Host such as keycloak:8080.evil.example gets 400): no token
+// was issued, so there is no iss to check. Any other non-200 is fatal.
 func forgedToken(t *testing.T, host string, header http.Header) string {
 	t.Helper()
 	form := url.Values{
@@ -118,6 +120,10 @@ func forgedToken(t *testing.T, host string, header http.Header) string {
 		baseURL()+"/realms/nava/protocol/openid-connect/token", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	code, body := forgedRequest(t, req, host, header)
+	if code >= 400 && code < 500 {
+		t.Logf("token request refused: %d %s", code, body)
+		return ""
+	}
 	if code != http.StatusOK {
 		t.Fatalf("token request: %d %s", code, body)
 	}
@@ -152,6 +158,9 @@ func TestForgedIssuerTokenRejectedByAPI(t *testing.T) {
 	// Control: a token issued under the pinned issuer is not invalid_token
 	// (200 or tenant_unresolved, depending on the stack's bindings).
 	ctl := forgedToken(t, pinnedHost, nil)
+	if ctl == "" {
+		t.Fatal("control token request refused")
+	}
 	if iss := claims(t, ctl)["iss"]; iss != pinned {
 		t.Fatalf("control token iss = %v, want %s", iss, pinned)
 	}
@@ -159,9 +168,14 @@ func TestForgedIssuerTokenRejectedByAPI(t *testing.T) {
 		t.Fatalf("control token refused as invalid_token: the API does not trust the pinned issuer, so the refusals below prove nothing: %s", body)
 	}
 
+	issued := 0
 	for name, f := range forgedHeaders() {
 		t.Run(name, func(t *testing.T) {
 			tok := forgedToken(t, f.host, f.header)
+			if tok == "" {
+				return // refused at issue: no token reaches the API
+			}
+			issued++
 			iss, _ := claims(t, tok)["iss"].(string)
 			if strings.Contains(iss, "evil.example") {
 				t.Logf("Keycloak issued iss %s from a forged header (TICK-160 pins it)", iss)
@@ -178,6 +192,11 @@ func TestForgedIssuerTokenRejectedByAPI(t *testing.T) {
 			}
 		})
 	}
+	// Keycloak answers most forged shapes (X-Forwarded-Host is ignored with
+	// proxy headers off), so a run where every one is refused checked nothing.
+	if issued == 0 {
+		t.Error("every forged token request was refused: the API checks above never ran")
+	}
 }
 
 // TestIssuerPinnedRegardlessOfHost is the TICK-160 Done list on the running
@@ -187,22 +206,37 @@ func TestForgedIssuerTokenRejectedByAPI(t *testing.T) {
 // and in the discovery document (whose endpoints are the redirect base).
 func TestIssuerPinnedRegardlessOfHost(t *testing.T) {
 	pinned := pinnedIssuer(t)
-	hosts := map[string]forgery{
+	// The legitimate addresses must issue a token; only forged ones may be
+	// refused.
+	legit := map[string]forgery{
 		"browser":      {host: realmHost},
 		"back-channel": {host: "keycloak:8080"},
 		"loopback-ip":  {host: "127.0.0.1:18081"},
+	}
+	hosts := map[string]forgery{}
+	for k, v := range legit {
+		hosts[k] = v
 	}
 	for k, v := range forgedHeaders() {
 		hosts[k] = v
 	}
 	for name, h := range hosts {
 		t.Run(name, func(t *testing.T) {
-			if iss := claims(t, forgedToken(t, h.host, h.header))["iss"]; iss != pinned {
-				t.Errorf("token iss = %v, want %s", iss, pinned)
+			_, isLegit := legit[name]
+			switch tok := forgedToken(t, h.host, h.header); {
+			case tok == "" && isLegit:
+				t.Errorf("token request from %s refused", h.host)
+			case tok != "":
+				if iss := claims(t, tok)["iss"]; iss != pinned {
+					t.Errorf("token iss = %v, want %s", iss, pinned)
+				}
 			}
 			req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 				baseURL()+"/realms/nava/.well-known/openid-configuration", nil)
 			code, body := forgedRequest(t, req, h.host, h.header)
+			if code >= 400 && code < 500 && !isLegit {
+				return // refused: no document, no endpoint to follow
+			}
 			if code != http.StatusOK {
 				t.Fatalf("discovery: %d %s", code, body)
 			}
