@@ -112,10 +112,24 @@ func forgedRequest(t *testing.T, req *http.Request, host string, header http.Hea
 // was issued, so there is no iss to check. Any other non-200 is fatal.
 func forgedToken(t *testing.T, host string, header http.Header) string {
 	t.Helper()
-	form := url.Values{
+	return forgedTokenFor(t, host, header, url.Values{
 		"grant_type": {"password"}, "client_id": {"nava-web"},
 		"username": {"alice@tenant-a.test"}, "password": {"dev-only-alice"}, "scope": {"openid"},
-	}
+	})
+}
+
+// forgedOperatorToken is forgedToken for operator@nava.test through
+// nava-operator-cli, the token nava-onboard accepts.
+func forgedOperatorToken(t *testing.T, host string, header http.Header) string {
+	t.Helper()
+	return forgedTokenFor(t, host, header, url.Values{
+		"grant_type": {"password"}, "client_id": {"nava-operator-cli"},
+		"username": {"operator@nava.test"}, "password": {operatorPass}, "scope": {"openid"},
+	})
+}
+
+func forgedTokenFor(t *testing.T, host string, header http.Header, form url.Values) string {
+	t.Helper()
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost,
 		baseURL()+"/realms/nava/protocol/openid-connect/token", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -200,10 +214,11 @@ func TestForgedIssuerTokenRejectedByAPI(t *testing.T) {
 }
 
 // TestForgedIssuerTokenRejectedByOnboard is the same check on the operator
-// onboarding endpoint: a token whose iss is not the pinned issuer gets 401 from
-// nava-onboard. A pinned-issuer token (Keycloak ignored the forgery) must get
-// past the issuer check, so it is not 401: alice is no operator, so it is
-// refused later with 403. That control proves the 401s come from the issuer.
+// onboarding endpoint, with the operator's token: one whose iss is not the
+// pinned issuer gets 401 from nava-onboard. A pinned-issuer operator token
+// (Keycloak ignored the forgery) is legitimate and onboards a fresh tenant, so
+// it must be neither 401 nor 403; that control proves the 401s below come from
+// the issuer and not from the operator checks.
 func TestForgedIssuerTokenRejectedByOnboard(t *testing.T) {
 	pinned := pinnedIssuer(t)
 	pinnedHost := strings.TrimPrefix(strings.TrimPrefix(pinned, "http://"), "https://")
@@ -214,18 +229,21 @@ func TestForgedIssuerTokenRejectedByOnboard(t *testing.T) {
 		code, _ := onboardPost(t, tok, key, onboardBody(email, domain))
 		return code
 	}
-	ctl := forgedToken(t, pinnedHost, nil)
+	ctl := forgedOperatorToken(t, pinnedHost, nil)
 	if ctl == "" {
 		t.Fatal("control token request refused")
 	}
-	if code := post(ctl); code == http.StatusUnauthorized {
-		t.Fatalf("control token refused with 401: nava-onboard does not trust the pinned issuer, so the refusals below prove nothing")
+	if iss := claims(t, ctl)["iss"]; iss != pinned {
+		t.Fatalf("control token iss = %v, want %s", iss, pinned)
+	}
+	if code := post(ctl); code == http.StatusUnauthorized || code == http.StatusForbidden {
+		t.Fatalf("control operator token refused with %d: the refusals below prove nothing", code)
 	}
 
-	issued := 0
+	issued, foreign := 0, 0
 	for name, f := range forgedHeaders() {
 		t.Run(name, func(t *testing.T) {
-			tok := forgedToken(t, f.host, f.header)
+			tok := forgedOperatorToken(t, f.host, f.header)
 			if tok == "" {
 				return // refused at issue: no token reaches the API
 			}
@@ -233,11 +251,13 @@ func TestForgedIssuerTokenRejectedByOnboard(t *testing.T) {
 			if iss, _ := claims(t, tok)["iss"].(string); iss == pinned {
 				return // Keycloak ignored the forgery: legitimate issuer
 			}
+			foreign++
 			if code := post(tok); code != http.StatusUnauthorized {
 				t.Errorf("token with a foreign iss: %d, want 401", code)
 			}
 		})
 	}
+	t.Logf("%d forged token requests issued a token, %d with a foreign iss", issued, foreign)
 	if issued == 0 {
 		t.Error("every forged token request was refused: the onboarding checks above never ran")
 	}
