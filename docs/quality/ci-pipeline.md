@@ -106,7 +106,7 @@ pools. They run each long `go` command in the background and wait for it, so
 INT or TERM sent to the script alone reaches the trap at once and stops them.
 `make test-integration-cleanup` (in `ci-integration` and its own `ci.yml`
 step, as TICK-224) checks that an `ARGS` run and a TERM part way leave nothing
-named for the run (`NAVA_IT_ID`, default the shell's pid). SIGKILL, or a host killing
+named for the run (`NAVA_IT_ID`, default the shell's pid plus a random suffix), that a run beside a TERM-stopped one still passes, and that a cluster removed under a run fails it at once (TICK-182). SIGKILL, or a host killing
 the whole process tree, still skips the trap: `make reap-integration`
 (`task reap:integration`, `tools/ci/itreap`) removes `nava-it-*` and
 `nava-iso-*` containers and networks older than `REAP_OLDER` (default `6h`),
@@ -275,8 +275,15 @@ It first untags every `nava/*:<ID>` tag Docker lists, not only the seven, so a
 tag of an image renamed or dropped since the killed run no longer fails every
 later run with that ID (TICK-211; `make test-ci-isolated-down` checks it on
 throwaway tags).
-The `integration` stage was already safe in parallel: it names its containers
-by PID and takes random host ports.
+The `integration` stage takes random host ports and, since TICK-182, names
+its `nava-it-*` and `nava-iso-*` containers and networks by PID plus a random
+suffix (a PID alone repeated across PID namespaces on one Docker host, and one
+run's cleanup removed another's cluster). It labels each with
+`nava.ci.run=<name>` and `nava.ci.owner=<COMPOSE_PROJECT_NAME>` (`none`
+outside ci-isolated); the teardown removes and then leak-checks the objects
+labelled with its own project only. A cluster removed under a run fails its
+health gate at once with "container ... vanished", not after 120 s of
+`No such object`.
 
 **Caches, shared by every run.** Nothing is set per run and nothing is cleaned.
 - Go: the per-user `GOCACHE`, `GOMODCACHE` and golangci-lint cache, safe for
