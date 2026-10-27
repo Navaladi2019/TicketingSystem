@@ -573,7 +573,7 @@ func TestIdPConfigRefusesUnsafeURLs(t *testing.T) {
 	bad := []string{
 		"http://169.254.169.254/", "https://10.0.0.5/", "https://127.0.0.1/", "https://[::1]/", "https://[::ffff:10.0.0.1]/",
 		"https://100.64.0.1/", "https://[fd00::1]/", "https://0.0.0.0/", "https://localhost/", "https://a.localhost/",
-		"https://keycloak/", "https://u:p@idp.example.com/", "https://2130706433/", "https://0x7f.1/", "ftp://idp.example.com/",
+		"https://keycloak/", "https://u:p@idp.example.com/", "https://2130706433/", "https://0x7f.1/", "https://0x7f.0xa/", "https://10.0xa/", "https://[::127.0.0.1]/", "ftp://idp.example.com/",
 		"//idp.example.com/", "", "https:///x", "https://metadata.internal/",
 	}
 	for key := range idpURLKeys {

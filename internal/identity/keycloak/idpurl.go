@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/netip"
 	"net/url"
+	"regexp"
 	"strings"
 )
 
@@ -19,6 +20,7 @@ var idpURLKeys = toSet("authorizationUrl", "tokenUrl", "logoutUrl", "userInfoUrl
 //
 //nolint:gochecknoglobals // read-only list
 var blockedPrefixes = []netip.Prefix{
+	netip.MustParsePrefix("::/96"), // IPv4-compatible
 	netip.MustParsePrefix("0.0.0.0/8"),
 	netip.MustParsePrefix("100.64.0.0/10"), // carrier-grade NAT
 	netip.MustParsePrefix("192.0.0.0/24"),
@@ -26,6 +28,8 @@ var blockedPrefixes = []netip.Prefix{
 	netip.MustParsePrefix("240.0.0.0/4"),
 	netip.MustParsePrefix("64:ff9b::/96"), // NAT64
 }
+
+var numericLabelRE = regexp.MustCompile(`^(0[xX][0-9a-fA-F]*|[0-9]+)$`)
 
 var errIdPURL = errors.New("url refused")
 
@@ -55,7 +59,7 @@ func checkIdPURL(raw string) error {
 		strings.HasSuffix(host, ".internal") || strings.HasSuffix(host, ".local") {
 		return errors.Join(errIdPURL, errors.New("host must be a public multi-label name"))
 	}
-	if allDigitsAndDots(host) {
+	if numericLastLabel(host) {
 		return errors.Join(errIdPURL, errors.New("host is a non-canonical IP literal"))
 	}
 	return nil
@@ -74,17 +78,9 @@ func blockedAddr(a netip.Addr) bool {
 	return false
 }
 
-// allDigitsAndDots catches forms such as 0x7f.1 or 1.2.3 that some resolvers
-// read as IPv4 although netip does not parse them.
-func allDigitsAndDots(h string) bool {
-	last := h[strings.LastIndex(h, ".")+1:]
-	if last == "" {
-		return true
-	}
-	for _, r := range last {
-		if (r < '0' || r > '9') && r != 'x' && r != 'X' {
-			return false
-		}
-	}
-	return true
+// numericLastLabel catches forms such as 0x7f.0xa, 10.0xa or 2130706433 that
+// glibc's getaddrinfo reads as IPv4 (inet_aton) although netip does not parse
+// them: a last label of decimal digits or a 0x-prefixed hex number.
+func numericLastLabel(h string) bool {
+	return numericLabelRE.MatchString(h[strings.LastIndex(h, ".")+1:])
 }
