@@ -203,7 +203,7 @@ func TestT21BeginConcurrentClaimsOneWinner(t *testing.T) {
 }
 
 // A same-arguments retry of a successful Bind succeeds and changes nothing:
-// the 0-row domain inserts are the tenant's own rows.
+// the tenant's domain rows stay as Begin wrote them.
 func TestT21BindRetryChangesNothing(t *testing.T) {
 	migratedPlatform(t)
 	s := onboardStore(t, 4)
@@ -284,8 +284,8 @@ func TestT21BindRefusesAnOrgBoundToAnotherTenant(t *testing.T) {
 	migratedPlatform(t)
 	s := onboardStore(t, 4)
 	a, b := uuid.New(), uuid.New()
-	for _, id := range []uuid.UUID{a, b} {
-		if _, err := s.Begin(t.Context(), id, []byte("h"), nil); err != nil {
+	for id, domains := range map[uuid.UUID][]string{a: nil, b: {"b-keeps.test"}} {
+		if _, err := s.Begin(t.Context(), id, []byte("h"), domains); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -295,8 +295,8 @@ func TestT21BindRefusesAnOrgBoundToAnotherTenant(t *testing.T) {
 	if err := s.Bind(t.Context(), b, "https://kc/realms/nava", "org-shared", "idp-b"); !errors.Is(err, onboard.ErrConflict) {
 		t.Fatalf("Bind of an org bound elsewhere: %v, want ErrConflict", err)
 	}
-	if n := countRows(t, "SELECT count(*) FROM tenant_email_domain WHERE tenant_id = $1", b); n != 0 {
-		t.Errorf("a refused Bind left %d domain rows", n)
+	if n := countRows(t, "SELECT count(*) FROM tenant_email_domain WHERE tenant_id = $1", b); n != 1 {
+		t.Errorf("a refused Bind left %d domain rows of B, want the 1 Begin claimed", n)
 	}
 }
 

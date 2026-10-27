@@ -219,7 +219,8 @@ func (s *Service) org(ctx context.Context, tenantID uuid.UUID, alias string, dom
 		return "", ErrConflict
 	case errors.Is(err, keycloak.ErrDomainLinked):
 		// Defence in depth: Begin already refused a domain another tenant
-		// owns, so this is a Keycloak organization of a deleted tenant.
+		// owns, so this is an organization created or left outside the platform
+		// (e.g. a deleted tenant's).
 		return "", ErrDomainClaimed
 	case errors.Is(err, identity.ErrInvalidInput):
 		return "", &FieldError{Pointer: "/identity_provider"}
