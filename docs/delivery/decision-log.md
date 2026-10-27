@@ -2,6 +2,26 @@
 
 Delivery decisions that change a task's contract, newest first.
 
+## 2026-10-27: a principal who leaves the directory is tombstoned, not deleted
+- **Decided by:** the Postgres & Data Modeling Specialist on TICK-220, on QA finding 2 of the T25 review (`docs/reviews/tick-78-groupsync-worker.md`, PR #121).
+- **Decision:** option 1, soft-delete. `principals.deleted_at` (migrations `00006_principal_tombstone.sql` and `00007_principal_tombstone_validate.sql`) marks a principal removed from the Keycloak directory. `CHECK (deleted_at IS NULL OR NOT enabled)` makes every tombstone disabled, so the resolver's existing `enabled` test refuses it with no new read. Group sync tombstones the principal (`enabled = false, deleted_at = now()`) and removes its memberships. It no longer deletes the row. A user who comes back keeps the same row and id, and sync clears `deleted_at`.
+- **Reason:**
+  - The tables coming next point at people: ticket reporter and assignee, comment author, audit actor. With option 2 they would need `CASCADE`, which deletes a ticket when its reporter leaves, or `SET NULL`, which erases who did what. Both are wrong for a ticketing system. With a tombstone they keep the default `NO ACTION` and the history stays intact.
+  - It is cheaper to reverse. Turning tombstones into hard deletes later is one `DELETE`. Rebuilding authorship after `SET NULL` cannot be done.
+  - Cost (`docs/data/principal-tombstone.md`, 519,000 principals, PostgreSQL 16.10):
+    - The migration holds ACCESS EXCLUSIVE for about 5 ms. The CHECK is validated in a separate migration that blocks nothing (86 to 172 ms).
+    - Removing 1,000 users from a 50,000-user tenant takes 90.1 ms as a tombstone, against 95.8 ms for a hard delete.
+    - A tombstone stays in the table, about 330 bytes with its index entries. No new index.
+- **Rejected:** option 2. A lint cannot tell an explicit `NO ACTION` from the default (`pg_constraint` stores both as `a`), and every allowed action loses ticket data.
+- **Contract (expand, then contract):**
+  1. This change: the column, the CHECK (validated in its own migration), and `deleted_at` in `nava_groupsync`'s `UPDATE` grant. Sync is unchanged and still correct.
+  2. A Senior Software Engineer task, filed from TICK-220: `applyPrincipals` tombstones instead of deleting. Its test is a table with a `NO ACTION` foreign key to `principals`, and sync still commits when that user leaves.
+  3. In the same PR as step 2: revoke `DELETE` on `principals` from `nava_groupsync` and drop `principals_delete`. Sync can then no longer hard-delete, even by mistake. `TestT16DeletesCascadeWithinTenant` and the cross-tenant `DELETE` probe in `TestT16TenantRowsInvisible` move to the tombstone.
+- **Rule for new tables:** a foreign key to `principals` keeps the default `NO ACTION`. Readers that list people filter `deleted_at IS NULL`. Readers that show history do not.
+- **Open, same hazard:** `applyGroups` and `applyOrgUnits` also hard-delete. Today nothing outside the identity tables references `groups` or `org_units`. Trigger: the first such foreign key, for example a ticket queue that points at a group. Give that table the same tombstone first.
+- **Deferred:** erasing a departed user's personal data (`email`) from the tombstone. Trigger: a right-to-erasure requirement, or a tenant asking for it.
+- **Dissent:** none.
+
 ## 2026-10-26: agents merge task PRs and close tasks; stories and ADRs stay with the human
 - **Decided by:** vknavaladi (workspace merge and close policy), recorded by the Technical Lead on TICK-243.
 - **Decision:**
