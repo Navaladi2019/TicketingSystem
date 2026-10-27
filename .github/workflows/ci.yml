@@ -6,7 +6,8 @@
 #   unit             go test -race (no containers)
 #   temporal-server  the custom server module's unit tests and govulncheck
 #                    (no containers)
-#   integration      -tags integration against a throwaway PostgreSQL
+#   integration      -tags integration against a throwaway PostgreSQL, the
+#                    isolation suite, then the ci-isolated --down tag check
 #   stack            image build, compose up, smoke, platform and Temporal tests
 #   stack-db         a second stack: db-roles/migrate idempotency, role and hba tests
 #   stack-internal   the internal overlay on a fresh stack
@@ -192,6 +193,9 @@ jobs:
             go-${{ github.job }}-
       - name: Integration tests (-tags integration)
         run: make test-integration
+      # Its own step, not part of make test-integration (TICK-224).
+      - name: ci-isolated --down untags only its own tags
+        run: make test-ci-isolated-down
 
   stack:
     # Platform and Temporal stack tests; the database tests run in stack-db.
