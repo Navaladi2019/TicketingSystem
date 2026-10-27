@@ -14,17 +14,20 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
 )
 
+// dedupeRefs is what dedupeWorkflow carries and returns: outbox ids.
+type dedupeRefs struct {
+	Applied []string `json:"applied,omitempty"`
+}
+
 // dedupeWorkflow applies "outbox" signals (the arg is the outbox id) once
 // each, continues as new on "rollover" carrying the set and what it applied
 // (a RunInput, the one shape the argument rule accepts), and returns what it
-// applied on "done".
-func dedupeWorkflow(ctx workflow.Context, in RunInput) ([]string, error) {
-	var refs struct {
-		Applied []string `json:"applied"`
-	}
+// applied on "done", as a references-only object (a result is recorded too).
+func dedupeWorkflow(ctx workflow.Context, in RunInput) (dedupeRefs, error) {
+	var refs dedupeRefs
 	if in.Refs != nil {
 		if err := json.Unmarshal(in.Refs, &refs); err != nil {
-			return nil, err
+			return refs, err
 		}
 	}
 	signals := workflow.GetSignalChannel(ctx, "outbox")
@@ -47,12 +50,12 @@ func dedupeWorkflow(ctx workflow.Context, in RunInput) ([]string, error) {
 		case "rollover":
 			b, err := json.Marshal(refs)
 			if err != nil {
-				return nil, err
+				return refs, err
 			}
 			in.Refs = b
-			return nil, workflow.NewContinueAsNewError(ctx, dedupeWorkflow, in)
+			return dedupeRefs{}, workflow.NewContinueAsNewError(ctx, dedupeWorkflow, in)
 		case "done":
-			return refs.Applied, nil
+			return refs, nil
 		}
 	}
 }
@@ -100,11 +103,11 @@ func TestSignalAppliedOnceAcrossContinueAsNew(t *testing.T) {
 		h2.env.RegisterDelayedCallback(func() { h2.env.SignalWorkflow(sig.name, sig.arg) }, time.Duration(i+1)*time.Second)
 	}
 	h2.env.ExecuteWorkflow(dedupeWorkflow, carried)
-	var final []string
+	var final dedupeRefs
 	if err := h2.env.GetWorkflowResult(&final); err != nil {
 		t.Fatal(err)
 	}
-	if want := strings.Join([]string{s1.String(), s2.String(), s3.String()}, ","); strings.Join(final, ",") != want {
+	if want := strings.Join([]string{s1.String(), s2.String(), s3.String()}, ","); strings.Join(final.Applied, ",") != want {
 		t.Errorf("applied %v across continue-as-new, want each of s1, s2, s3 once", final)
 	}
 }

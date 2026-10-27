@@ -13,6 +13,7 @@ import (
 	commonpb "go.temporal.io/api/common/v1"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/interceptor"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
@@ -43,6 +44,9 @@ const ErrTypeTenantGuard = "nava.TenantGuard"
 //   - activity: a header that is missing or differs from its workflow id's
 //     tenant fails it non-retryably; otherwise the tenant is on its context
 //     for InTenantTx;
+//   - results and failures of an activity, workflow or update, and SideEffect
+//     values: a result that is not references only fails, and failure text is
+//     withheld unless its type is allowed (results.go, TICK-245);
 //   - arguments of an activity, local activity, child, continue-as-new,
 //     update, signal-external or signal-child that are not references only
 //     (argOK, CI-7) fail the call, or reject the update, before anything
@@ -170,8 +174,16 @@ func (w *workflowInbound) ExecuteWorkflow(ctx workflow.Context, in *interceptor.
 			w.rec.record(ctx, guardContinueAsNew, outcome)
 			return nil, guardError(guardContinueAsNew, outcome)
 		}
+		return result, err
 	}
-	return result, err
+	return w.rec.workflowOutcome(ctx, guardWorkflowResult, guardWorkflowFailure, result, err)
+}
+
+// ExecuteUpdate checks what an accepted update ends with, as ExecuteWorkflow
+// checks the run's result and failure (TICK-245).
+func (w *workflowInbound) ExecuteUpdate(ctx workflow.Context, in *interceptor.UpdateInput) (any, error) {
+	result, err := w.Next.ExecuteUpdate(ctx, in)
+	return w.rec.workflowOutcome(ctx, guardUpdateResult, guardUpdateFailure, result, err, slog.String("update", in.Name))
 }
 
 // HandleSignal drops a signal whose header is not this tenant's. Returning nil
@@ -216,6 +228,8 @@ type workflowOutbound struct {
 
 // ExecuteActivity fails the activity, before it is scheduled, if its
 // arguments are not references only (CI-7).
+// TODO(TODO-013): user metadata (the Summary option here, child, timer and
+// side-effect summaries) is recorded too and is not checked.
 func (o *workflowOutbound) ExecuteActivity(ctx workflow.Context, activityType string, args ...any) workflow.Future {
 	outcome := check(func() string { return argsOutcome(args) })
 	o.rec.record(ctx, guardActivityArgs, outcome, slog.String("activity_type", activityType))
@@ -427,6 +441,47 @@ func (o *workflowOutbound) UpsertTypedSearchAttributes(ctx workflow.Context, att
 	return o.Next.UpsertTypedSearchAttributes(ctx, attributes...)
 }
 
+// SideEffect records the value f returns only if sideEffectValueOK accepts
+// it; otherwise the marker holds sideEffectDenied and Get returns the guard
+// error. The decision is read back from the marker, so a replay, which does
+// not run f, sees the same result (TICK-245).
+func (o *workflowOutbound) SideEffect(ctx workflow.Context, f func(ctx workflow.Context) any) converter.EncodedValue {
+	return sideEffectValue{o.Next.SideEffect(ctx, o.checkedSideEffect(f))}
+}
+
+func (o *workflowOutbound) SideEffectWithOptions(ctx workflow.Context, options workflow.SideEffectOptions, f func(ctx workflow.Context) any) converter.EncodedValue {
+	return sideEffectValue{o.Next.SideEffectWithOptions(ctx, options, o.checkedSideEffect(f))}
+}
+
+func (o *workflowOutbound) checkedSideEffect(f func(workflow.Context) any) func(workflow.Context) any {
+	return func(ctx workflow.Context) any {
+		v := f(ctx)
+		outcome := check(func() string {
+			if sideEffectValueOK(v) {
+				return outcomeAllow
+			}
+			return outcomeRecordData
+		})
+		o.rec.record(ctx, guardSideEffect, outcome)
+		if outcome != outcomeAllow {
+			return sideEffectDenied
+		}
+		return v
+	}
+}
+
+// MutableSideEffect always fails, without running f: the platform does not
+// use it, and a sentinel marker would not work, because the SDK decodes the
+// recorded value into the type of the new one and panics on a mismatch.
+func (o *workflowOutbound) MutableSideEffect(ctx workflow.Context, _ string, _ func(ctx workflow.Context) any, _ func(a, b any) bool) converter.EncodedValue {
+	o.rec.record(ctx, guardSideEffect, outcomeNotAllowed)
+	return deniedValue{guardError(guardSideEffect, outcomeNotAllowed)}
+}
+
+func (o *workflowOutbound) MutableSideEffectWithOptions(ctx workflow.Context, id string, _ workflow.MutableSideEffectOptions, f func(ctx workflow.Context) any, equals func(a, b any) bool) converter.EncodedValue {
+	return o.MutableSideEffect(ctx, id, f, equals)
+}
+
 // ExecuteNexusOperation always fails: the platform has no Nexus endpoints and
 // the Authorizer denies every Nexus command.
 func (o *workflowOutbound) ExecuteNexusOperation(ctx workflow.Context, _ interceptor.ExecuteNexusOperationInput) workflow.NexusOperationFuture {
@@ -573,13 +628,29 @@ func (a *activityInbound) ExecuteActivity(ctx context.Context, in *interceptor.E
 		tenant = t
 		return headerOutcome(interceptor.Header(ctx), t)
 	})
+	attrs := []slog.Attr{
+		slog.String("workflow_id", info.WorkflowExecution.ID),
+		slog.String("run_id", info.WorkflowExecution.RunID),
+		slog.String("activity_type", info.ActivityType.Name),
+	}
 	if outcome != outcomeAllow {
-		a.rec.deny(guardActivity, outcome,
-			slog.String("workflow_id", info.WorkflowExecution.ID),
-			slog.String("run_id", info.WorkflowExecution.RunID),
-			slog.String("activity_type", info.ActivityType.Name))
+		a.rec.deny(guardActivity, outcome, attrs...)
 		return nil, guardError(guardActivity, outcome)
 	}
 	a.rec.allow(guardActivity)
-	return a.Next.ExecuteActivity(ContextWithTenant(ctx, tenant), in)
+	return a.execute(ContextWithTenant(ctx, tenant), in, attrs)
+}
+
+// execute runs the activity and checks its result or failure (TICK-245). A
+// panic is recovered here, before the SDK would record its value and stack,
+// and is withheld like any other failure.
+// TODO(TODO-012): heartbeat details are recorded too and are not checked.
+func (a *activityInbound) execute(ctx context.Context, in *interceptor.ExecuteActivityInput, attrs []slog.Attr) (result any, err error) {
+	defer func() {
+		if recover() != nil {
+			result, err = a.rec.activityOutcome(nil, activityPanic{}, attrs...)
+		}
+	}()
+	result, err = a.Next.ExecuteActivity(ctx, in)
+	return a.rec.activityOutcome(result, err, attrs...)
 }

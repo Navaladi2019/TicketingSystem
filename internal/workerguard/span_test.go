@@ -56,6 +56,8 @@ func activityThenFail(ctx workflow.Context) error {
 
 // TICK-94: a guard failure whose error carries a payload value produces an
 // exported span with no payload value in its attributes, events or status.
+// Since TICK-245 the guard withholds the failure text, so no span, filtered
+// or not, sees the value.
 // The worker's spans come from the shared Temporal constructor, so they pass
 // the same export allow-list as every other span.
 func TestGuardFailureSpanCarriesNoPayloadValue(t *testing.T) {
@@ -81,24 +83,23 @@ func TestGuardFailureSpanCarriesNoPayloadValue(t *testing.T) {
 	h.tr.setActivity(stringPayload(t, payloadMarker))
 	h.env.ExecuteWorkflow(activityThenFail)
 	err = h.env.GetWorkflowError()
-	var actErr *temporal.ActivityError
-	if !errors.As(err, &actErr) {
-		t.Fatalf("workflow error %v, want an activity failure", err)
+	// The workflow quoted the marker in its failure; the guard withheld that
+	// text (TICK-245) before the tracing interceptor, which runs outside it,
+	// saw the failure.
+	var app *temporal.ApplicationError
+	if !errors.As(err, &app) || app.Type() != ErrTypeOpaque {
+		t.Fatalf("workflow error %v, want the withheld %s failure", err, ErrTypeOpaque)
 	}
-	wantGuardError(t, actErr.Unwrap(), guardActivity, outcomeMismatch)
-	if !strings.Contains(err.Error(), payloadMarker) {
-		t.Fatalf("workflow error %q does not carry the marker; the test proves nothing", err)
+	if strings.Contains(err.Error(), payloadMarker) {
+		t.Errorf("workflow error %q carries the marker", err)
 	}
 	if strings.Contains(h.logs.String(), payloadMarker) {
-		t.Errorf("the guard logged the header value:\n%s", h.logs.String())
+		t.Errorf("the guard logged the payload value:\n%s", h.logs.String())
 	}
-
-	var rawHasMarker bool
 	for _, s := range raw.GetSpans() {
-		rawHasMarker = rawHasMarker || strings.Contains(spanText(s), payloadMarker)
-	}
-	if !rawHasMarker {
-		t.Fatal("no unfiltered span carries the marker; the test proves nothing")
+		if strings.Contains(spanText(s), payloadMarker) {
+			t.Errorf("unfiltered span %q carries the marker: the guard must withhold it first", s.Name)
+		}
 	}
 
 	spans := exp.GetSpans()

@@ -65,16 +65,18 @@ func TestCheckNeverPanics(t *testing.T) {
 
 // --- workflow start -------------------------------------------------------------
 
-func echo(ctx workflow.Context, in string) (string, error) { return "echo:" + in, nil }
+// Workflows in these tests report what they saw through a closure, not a
+// result: a result is recorded in the history, so the guard accepts only a
+// references-only one (TICK-245).
 
 func TestStartGuard(t *testing.T) {
 	id := idOf(tenantA)
 	t.Run("allow", func(t *testing.T) {
 		h := newHarness(t, id)
-		h.env.ExecuteWorkflow(echo, "x")
-		var out string
-		if err := h.env.GetWorkflowResult(&out); err != nil || out != "echo:x" {
-			t.Fatalf("result %q, %v", out, err)
+		ran := false
+		h.env.ExecuteWorkflow(func(workflow.Context) error { ran = true; return nil })
+		if err := h.env.GetWorkflowError(); err != nil || !ran {
+			t.Fatalf("ran %v, %v", ran, err)
 		}
 		h.wantNoAlerts()
 		if got := h.decisions()[guardWorkflowStart+"/"+outcomeAllow]; got != 1 {
@@ -141,10 +143,10 @@ func TestSignalGuard(t *testing.T) {
 	h.env.RegisterDelayedCallback(func() { send(stringPayload(t, tenantB.String()), "done", "") }, 4*time.Second)
 	h.env.RegisterDelayedCallback(func() { send(stringPayload(t, tenantA.String()), "add", "own-2") }, 5*time.Second)
 	h.env.RegisterDelayedCallback(func() { send(stringPayload(t, tenantA.String()), "done", "") }, 6*time.Second)
-	h.env.ExecuteWorkflow(collect)
-
 	var got []string
-	if err := h.env.GetWorkflowResult(&got); err != nil {
+	h.env.ExecuteWorkflow(func(ctx workflow.Context) (err error) { got, err = collect(ctx); return err })
+
+	if err := h.env.GetWorkflowError(); err != nil {
 		t.Fatalf("the workflow failed: %v", err)
 	}
 	if strings.Join(got, ",") != "own,own-2" {
@@ -170,19 +172,16 @@ func TestSignalGuard(t *testing.T) {
 
 // --- updates --------------------------------------------------------------------
 
-func withUpdate(ctx workflow.Context) (int, error) {
-	n := 0
-	if err := workflow.SetUpdateHandler(ctx, "inc", func(ctx workflow.Context) (int, error) { n++; return n, nil }); err != nil {
-		return 0, err
+// withUpdate counts "inc" updates in n.
+func withUpdate(ctx workflow.Context, n *int) error {
+	if err := workflow.SetUpdateHandler(ctx, "inc", func(ctx workflow.Context) error { *n++; return nil }); err != nil {
+		return err
 	}
-	if err := workflow.Await(ctx, func() bool { return n >= 1 }); err != nil {
-		return 0, err
+	if err := workflow.Await(ctx, func() bool { return *n >= 1 }); err != nil {
+		return err
 	}
 	// Leave time for the rejected updates below to arrive.
-	if err := workflow.Sleep(ctx, time.Hour); err != nil {
-		return 0, err
-	}
-	return n, nil
+	return workflow.Sleep(ctx, time.Hour)
 }
 
 type updateResult struct {
@@ -207,10 +206,10 @@ func TestUpdateGuard(t *testing.T) {
 	h.env.RegisterDelayedCallback(func() { update("other-tenant", stringPayload(t, tenantB.String())) }, time.Second)
 	h.env.RegisterDelayedCallback(func() { update("no-header", nil) }, 2*time.Second)
 	h.env.RegisterDelayedCallback(func() { update("own", stringPayload(t, tenantA.String())) }, 3*time.Second)
-	h.env.ExecuteWorkflow(withUpdate)
-
 	var n int
-	if err := h.env.GetWorkflowResult(&n); err != nil || n != 1 {
+	h.env.ExecuteWorkflow(func(ctx workflow.Context) error { return withUpdate(ctx, &n) })
+
+	if err := h.env.GetWorkflowError(); err != nil || n != 1 {
 		t.Fatalf("result %d, %v; want 1 applied update", n, err)
 	}
 	wantGuardError(t, results["other-tenant"].rejected, guardUpdate, outcomeMismatch)
@@ -224,13 +223,14 @@ func TestUpdateGuard(t *testing.T) {
 
 // --- activities -----------------------------------------------------------------
 
-// seenTenant is an activity that returns the tenant on its context.
-func seenTenant(ctx context.Context) (string, error) {
+// seenTenant is an activity that returns the tenant on its context, as a
+// reference.
+func seenTenant(ctx context.Context) (map[string]string, error) {
 	tenant, ok := TenantFromContext(ctx)
 	if !ok {
-		return "", errors.New("no tenant on the activity context")
+		return nil, errors.New("no tenant on the activity context")
 	}
-	return tenant.String(), nil
+	return map[string]string{"tenant_id": tenant.String()}, nil
 }
 
 func callSeenTenant(ctx workflow.Context) (string, error) {
@@ -238,9 +238,9 @@ func callSeenTenant(ctx workflow.Context) (string, error) {
 		StartToCloseTimeout: time.Minute,
 		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 5},
 	})
-	var out string
+	var out map[string]string
 	err := workflow.ExecuteActivity(ctx, seenTenant).Get(ctx, &out)
-	return out, err
+	return out["tenant_id"], err
 }
 
 func TestActivityGuard(t *testing.T) {
@@ -248,9 +248,9 @@ func TestActivityGuard(t *testing.T) {
 	t.Run("allow puts the tenant on the context", func(t *testing.T) {
 		h := newHarness(t, id)
 		h.env.RegisterActivity(seenTenant)
-		h.env.ExecuteWorkflow(callSeenTenant)
 		var out string
-		if err := h.env.GetWorkflowResult(&out); err != nil || out != tenantA.String() {
+		h.env.ExecuteWorkflow(func(ctx workflow.Context) (err error) { out, err = callSeenTenant(ctx); return err })
+		if err := h.env.GetWorkflowError(); err != nil || out != tenantA.String() {
 			t.Fatalf("result %q, %v; want %s", out, err, tenantA)
 		}
 		h.wantNoAlerts()
@@ -266,7 +266,7 @@ func TestActivityGuard(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHarness(t, id)
 			attempts := 0
-			h.env.RegisterActivityWithOptions(func(ctx context.Context) (string, error) {
+			h.env.RegisterActivityWithOptions(func(ctx context.Context) (map[string]string, error) {
 				attempts++
 				return seenTenant(ctx)
 			}, activity.RegisterOptions{Name: "seenTenant"})
@@ -307,16 +307,16 @@ func headersParent(ctx workflow.Context) (string, error) {
 		return "", err
 	}
 	cctx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{WorkflowID: id})
-	return id, workflow.ExecuteChildWorkflow(cctx, child).Get(ctx, nil)
+	return id, workflow.ExecuteChildWorkflow(cctx, "child").Get(ctx, nil)
 }
 
 func TestPropagatorHeaderOnActivityAndChild(t *testing.T) {
 	h := newHarness(t, idOf(tenantA))
 	h.env.RegisterActivity(noop)
-	h.env.RegisterWorkflow(child)
-	h.env.ExecuteWorkflow(headersParent)
+	h.env.RegisterWorkflowWithOptions(child, workflow.RegisterOptions{Name: "child"})
 	var childID string
-	if err := h.env.GetWorkflowResult(&childID); err != nil {
+	h.env.ExecuteWorkflow(func(ctx workflow.Context) (err error) { childID, err = headersParent(ctx); return err })
+	if err := h.env.GetWorkflowError(); err != nil {
 		t.Fatal(err)
 	}
 	for what, p := range map[string]*commonpb.Payload{
@@ -415,12 +415,10 @@ func TestContinueAsNewSearchAttributeCheck(t *testing.T) {
 
 // --- children -------------------------------------------------------------------
 
-func child(ctx workflow.Context) (string, error) {
-	return workflow.GetInfo(ctx).WorkflowExecution.ID, nil
-}
+func child(workflow.Context) error { return nil }
 
-// startChild starts child with opts, after setting its id with the helper if
-// useHelper, and returns the child's own id.
+// startChild starts the workflow registered as "child" with opts, after
+// setting its id with the helper if useHelper, and returns the id it set.
 func startChild(ctx workflow.Context, useHelper bool, opts workflow.ChildWorkflowOptions) (string, error) {
 	if useHelper {
 		id, err := ChildWorkflowID(ctx, "approval")
@@ -429,19 +427,23 @@ func startChild(ctx workflow.Context, useHelper bool, opts workflow.ChildWorkflo
 		}
 		opts.WorkflowID = id
 	}
-	var out string
-	err := workflow.ExecuteChildWorkflow(workflow.WithChildOptions(ctx, opts), child).Get(ctx, &out)
-	return out, err
+	return opts.WorkflowID, workflow.ExecuteChildWorkflow(workflow.WithChildOptions(ctx, opts), "child").Get(ctx, nil)
 }
 
 func TestChildGuard(t *testing.T) {
 	id := idOf(tenantA)
 	t.Run("helper id starts", func(t *testing.T) {
 		h := newHarness(t, id)
-		h.env.RegisterWorkflow(child)
-		h.env.ExecuteWorkflow(startChild, true, workflow.ChildWorkflowOptions{})
 		var out string
-		if err := h.env.GetWorkflowResult(&out); err != nil {
+		h.env.RegisterWorkflowWithOptions(func(ctx workflow.Context) error {
+			out = workflow.GetInfo(ctx).WorkflowExecution.ID
+			return nil
+		}, workflow.RegisterOptions{Name: "child"})
+		h.env.ExecuteWorkflow(func(ctx workflow.Context) error {
+			_, err := startChild(ctx, true, workflow.ChildWorkflowOptions{})
+			return err
+		})
+		if err := h.env.GetWorkflowError(); err != nil {
 			t.Fatalf("child with the helper id: %v", err)
 		}
 		prefix := "t:" + tenantA.String() + ":approval:"
@@ -489,11 +491,12 @@ func TestChildGuard(t *testing.T) {
 	}
 	t.Run("NavaTenantId of its own tenant", func(t *testing.T) {
 		h := newHarness(t, id)
-		h.env.RegisterWorkflow(child)
-		h.env.ExecuteWorkflow(func(ctx workflow.Context) (string, error) {
-			return startChild(ctx, true, workflow.ChildWorkflowOptions{
+		h.env.RegisterWorkflowWithOptions(child, workflow.RegisterOptions{Name: "child"})
+		h.env.ExecuteWorkflow(func(ctx workflow.Context) error {
+			_, err := startChild(ctx, true, workflow.ChildWorkflowOptions{
 				TypedSearchAttributes: temporal.NewSearchAttributes(tenantSearchAttributeKey().ValueSet(tenantA.String())),
 			})
+			return err
 		})
 		if err := h.env.GetWorkflowError(); err != nil {
 			t.Fatal(err)
@@ -519,27 +522,29 @@ func TestChildWorkflowIDRejectsBadKind(t *testing.T) {
 
 // --- signal-external and cancel-external ----------------------------------------
 
-// waitForSignal blocks until "ping" or cancellation, and reports which.
-func waitForSignal(ctx workflow.Context) (string, error) {
-	var got string
+// waitForSignal blocks until "ping", and completes, or until cancellation,
+// and fails with the canceled error.
+func waitForSignal(ctx workflow.Context) error {
+	var err error
 	sel := workflow.NewSelector(ctx)
-	sel.AddReceive(workflow.GetSignalChannel(ctx, "ping"), func(c workflow.ReceiveChannel, _ bool) { c.Receive(ctx, nil); got = "ping" })
-	sel.AddReceive(ctx.Done(), func(workflow.ReceiveChannel, bool) { got = "cancelled" })
+	sel.AddReceive(workflow.GetSignalChannel(ctx, "ping"), func(c workflow.ReceiveChannel, _ bool) { c.Receive(ctx, nil) })
+	sel.AddReceive(ctx.Done(), func(workflow.ReceiveChannel, bool) { err = temporal.NewCanceledError() })
 	sel.Select(ctx)
-	return got, nil
+	return err
 }
 
 // external starts a waiting child, then signals (or cancels) target, or the
-// child itself if target is empty, and returns the child's result.
-func external(ctx workflow.Context, cancel bool, target, namespace string) (string, error) {
+// child itself if target is empty. It succeeds once the child ended as asked:
+// completed on the signal, or cancelled.
+func external(ctx workflow.Context, cancel bool, target, namespace string) error {
 	id, err := ChildWorkflowID(ctx, "waiter")
 	if err != nil {
-		return "", err
+		return err
 	}
 	cctx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{WorkflowID: id})
 	fut := workflow.ExecuteChildWorkflow(cctx, waitForSignal)
 	if err := fut.GetChildWorkflowExecution().Get(ctx, nil); err != nil {
-		return "", err
+		return err
 	}
 	if target == "" {
 		target = id
@@ -551,14 +556,16 @@ func external(ctx workflow.Context, cancel bool, target, namespace string) (stri
 		err = workflow.SignalExternalWorkflow(octx, target, "", "ping", map[string]string{"record_id": uuid.NewString()}).Get(ctx, nil)
 	}
 	if err != nil {
-		return "", err
+		return err
 	}
-	var out string
-	err = fut.Get(ctx, &out)
-	if cancel && temporal.IsCanceledError(err) {
-		return "cancelled", nil
+	err = fut.Get(ctx, nil)
+	if cancel {
+		if temporal.IsCanceledError(err) {
+			return nil
+		}
+		return errors.Join(errors.New("the child was not cancelled"), err)
 	}
-	return out, err
+	return err
 }
 
 func TestSignalAndCancelExternalGuard(t *testing.T) {
@@ -567,18 +574,16 @@ func TestSignalAndCancelExternalGuard(t *testing.T) {
 		name   string
 		cancel bool
 		guard  string
-		want   string
 	}{
-		{"signal", false, guardSignalExternal, "ping"},
-		{"cancel", true, guardCancelExternal, "cancelled"},
+		{"signal", false, guardSignalExternal},
+		{"cancel", true, guardCancelExternal},
 	} {
 		t.Run(tc.name+" same tenant", func(t *testing.T) {
 			h := newHarness(t, id)
 			h.env.RegisterWorkflow(waitForSignal)
 			h.env.ExecuteWorkflow(external, tc.cancel, "", "")
-			var out string
-			if err := h.env.GetWorkflowResult(&out); err != nil || out != tc.want {
-				t.Fatalf("result %q, %v; want %q", out, err, tc.want)
+			if err := h.env.GetWorkflowError(); err != nil {
+				t.Fatalf("%s: %v", tc.name, err)
 			}
 			h.wantNoAlerts()
 		})

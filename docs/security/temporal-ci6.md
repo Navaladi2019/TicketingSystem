@@ -146,6 +146,7 @@ sequenceDiagram
 | CI-7 continue-as-new payload (TICK-216) | The workflow continues as new with the title in `RunInput.Refs`. The workflow fails with `nava.TenantGuard` instead, no event holds the title, and the guard alerts `continue_as_new`/`record_data`. |
 | CI-7 update payload (TICK-216) | `nava-core`, with the right tenant (`ContextWithTenant`), sends an update whose argument holds the title: the validator rejects it with no title in the error. A references-only update on the same workflow is accepted. Exactly one update is in the history, and no event holds the title. |
 | CI-7 signal-external and signal-child payload (TICK-245) | The workflow starts a same-tenant child with references, then signals it the title through `SignalExternalWorkflow` (or the child future). No signal is initiated, the child is never signaled, neither history holds the title, and the guard alerts `signal_external`/`record_data`. |
+| CI-7 results and failure text (TICK-245) | The workflow runs a local activity that returns the title, or fails with it in its message; records the title in a `SideEffect`; returns it as its result, or fails with it; and answers updates with it, or fails them with it. No event holds the title in any case. A result is replaced by the guard error (`activity_result`, `workflow_result`, `update_result`), a `SideEffect` marker holds the sentinel (`side_effect`), and a failure becomes `nava.Opaque` (`activity_failure`, `workflow_failure`, `update_failure`). Each alerts, and the guard log has the failure's shape and never the title. |
 | CI-7 memo (TICK-245) | The workflow starts a same-tenant child with the title in its memo, or upserts the title into its own memo. No child is initiated, no `WorkflowPropertiesModified` event is recorded, the memo stays empty, no event holds the title, and the guard alerts `child`/`record_data` or `memo`/`record_data`. |
 | CI-7 headers (TICK-93) | Every `Header` anywhere in both runs' histories is walked: start, signals, activity, continue-as-new. The keys are only `nava-tenant` and `_tracer-data`, and `_tracer-data` holds only `traceparent` and `tracestate`. A signal sent with baggage in its context leaves no trace of it. |
 
@@ -214,19 +215,41 @@ still open.
 
 TICK-216 checks activity, local-activity, child, continue-as-new and update
 arguments. Workflow code can also write to its own history in the ways below.
-No production workflow uses any of them yet. Status of each:
+No production workflow uses any of them yet. The Security & Multi-Tenancy
+Reviewer triaged each path on TICK-245 (rules and severities below). None lets
+tenant A read tenant B's data; each is R1 creep into tenant A's own history.
 
-| Path | Recorded in | Status | Proof |
-| --- | --- | --- | --- |
-| `SignalExternalWorkflow` argument | the sender's `SignalExternalWorkflowExecutionInitiated`, before the receiver's guard runs | **Guarded.** `argOK` before the command; nil allowed; deny `signal_external`/`record_data` | `TestCI7_SignalExternalPayloadWithRecordDataNotRecorded`, `TestSignalArgsGuard` |
-| `SignalChildWorkflow` argument | the same event | **Guarded**, as above | `TestCI7_SignalChildPayloadWithRecordDataNotRecorded`, `TestSignalArgsGuard` |
-| `ChildWorkflowOptions.Memo` | `StartChildWorkflowExecutionInitiated` | **Guarded.** Any non-empty memo is denied (`child`/`record_data`): the platform names no memo key | `TestCI7_ChildMemoWithRecordDataNotRecorded`, `TestChildMemoGuard` |
-| `workflow.UpsertMemo` | `WorkflowPropertiesModified` | **Guarded.** Any non-empty upsert is denied (`memo`/`record_data`) | `TestCI7_UpsertMemoWithRecordDataNotRecorded`, `TestUpsertMemoGuard` |
-| Converter drift: `argOK` checks one encoding, the worker records another | every payload | **Guarded.** `ConfigureClient` sets `workerguard.DataConverter` on every client; `forbidigo` rejects `workflow.WithDataConverter` | `TestConfigureClientUsesTheGuardsDataConverter`, lint fixture `dataconverter.go` |
-| `SideEffect` / `MutableSideEffect` value | `MarkerRecorded` | **Open: awaiting the Security & Multi-Tenancy Reviewer's triage and severity.** Guardable in `workerguard`: the outbound interceptor receives `f` and can check its value | none yet |
-| Activity result | `ActivityTaskCompleted` | **Open: awaiting triage.** Guardable: the activity inbound interceptor sees the result before it is sent | none yet |
-| Workflow result | `WorkflowExecutionCompleted` | **Open: awaiting triage.** Guardable: the workflow inbound `ExecuteWorkflow` sees the result | none yet |
-| Failure text (`ApplicationError` message and details) | `ActivityTaskFailed`, `WorkflowExecutionFailed`, child and update failures | **Open: awaiting triage.** Details are payloads and can be checked like results; the message is free text, which `argOK` cannot judge, so this may need a review rule instead of a guard | none yet |
+| # | Path (event) | Severity | Status | Rule on deny (outcome `record_data`) | Proof |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Signal-external and signal-child argument (`SignalExternalWorkflowExecutionInitiated`) | Medium | **Guarded** | `argOK` before the command; nil allowed; `signal_external` | `TestCI7_SignalExternalPayloadWithRecordDataNotRecorded`, `TestCI7_SignalChildPayloadWithRecordDataNotRecorded`, `TestSignalArgsGuard` |
+| 2 | Memo (`StartChildWorkflowExecutionInitiated`, `WorkflowPropertiesModified`) | Low | **Guarded** | any non-empty memo; the platform needs no memo key; `child` or `memo` | `TestCI7_ChildMemoWithRecordDataNotRecorded`, `TestCI7_UpsertMemoWithRecordDataNotRecorded`, `TestChildMemoGuard`, `TestUpsertMemoGuard` |
+| 3 | Activity and local-activity result (`ActivityTaskCompleted`, local-activity marker) | Medium | **Guarded** | nil or `argOK`, else the guard error; `activity_result` | `TestCI7_ActivityResultWithRecordDataNotRecorded` (local activity; a regular one takes the same interceptor path), `TestActivityResultGuard` |
+| 4 | Workflow result (`WorkflowExecutionCompleted`) | Medium | **Guarded** | nil or `argOK`, else the workflow fails with the guard error; `workflow_result` | `TestCI7_WorkflowResultWithRecordDataNotRecorded`, `TestWorkflowResultGuard` |
+| 5 | Update result (`WorkflowExecutionUpdateCompleted`) | Low | **Guarded** | as #3; `update_result` | `TestCI7_UpdateResultWithRecordDataNotRecorded`, `TestUpdateResultAndFailureGuard` |
+| 6 | `SideEffect` value (`MarkerRecorded`) | Low | **Guarded** | nil, a canonical UUID, an RFC3339 time, a number, a bool or `argOK`; otherwise the marker holds a fixed sentinel and `Get` returns the guard error, so a replay reads the same decision; `side_effect`. **`MutableSideEffect` is denied outright** (`not_allowed`, `f` never runs): a sentinel cannot work there, because the SDK decodes the recorded value into the new value's type and panics on a mismatch. Nothing uses it. | `TestCI7_SideEffectWithRecordDataNotRecorded`, `TestSideEffectGuard`, `TestSideEffectValueOK` |
+| 7 | Failure text: activity, workflow and update errors (`*Failed` events, message, details, type) | Medium | **Guarded** | SDK cancel, timeout, async-completion, activity and child wrapper errors pass. An `ApplicationError` of an allowed type (`nava.TenantGuard`, `nava.WorkflowRefNotFound`; messages are constants or ids, a review rule) with no cause keeps its message and type and only the details `argOK` accepts. Anything else becomes `nava.Opaque` with fixed text and the same non-retryable flag. An activity panic is recovered and withheld, with no value or stack. `activity_failure`, `workflow_failure`, `update_failure` | `TestCI7_ActivityFailureWithRecordDataNotRecorded`, `TestCI7_WorkflowFailureWithRecordDataNotRecorded`, `TestCI7_UpdateResultWithRecordDataNotRecorded`, `TestActivityFailureWithheld`, `TestWorkflowFailureWithheld`, `TestRecordablePassesSDKErrors` |
+| 7a | Workflow panic (`WorkflowTaskFailed`: value and stack) | Low | **Not guarded: review rule** | Recovering it in the guard would turn a task retry into a workflow failure. Rule: workflow code never panics with a value built from data. AR-033. Revisit at the first feature workflow | doc only |
+| 8 | Activity heartbeat details (pending info, timeout failure) | Low | **Not guarded: outside this contract**, TODO-012 | proposed: `argsOutcome(details)`; on a deny, heartbeat with no details and alert | none yet |
+| 9 | User metadata (summary and details on scheduled, timer, child and marker events) | Low | **Not guarded: outside this contract**, TODO-013 | proposed: deny any non-empty summary or details, except the SDK's own timer summary `AwaitWithTimeout` | none yet |
+| — | Query results | — | Out of scope | not recorded in history | — |
+| — | Converter drift: `argOK` checks one encoding, the worker records another | — | **Guarded** | `ConfigureClient` sets `workerguard.DataConverter` and the SDK's default `FailureConverter` on every client; `forbidigo` rejects `workflow.WithDataConverter` | `TestConfigureClientUsesTheGuardsDataConverter`, lint fixture `dataconverter.go` |
 
-`ChildWorkflowID` draws its id in a `SideEffect`: a guard on `SideEffect`
-values must allow a bare UUID.
+**Withheld failures are logged by shape, not text.** The triage asked for
+the original error in the worker log. The house observability rule is "log
+ids and shapes, not contents", and the text is exactly what may hold record
+data, so the guard logs `error_shape` (the Go types of the chain and any
+`ApplicationError` type, for example
+`*fmt.wrapError / *internal.ApplicationError[nava.TenantGuard]`) next to the
+`alert=true` deny line, with the workflow, run and activity ids. A developer
+reproduces the text locally. This is a deviation from the triage; raise it
+on TICK-245 if the text is needed.
+
+**Retry types.** A withheld failure has type `nava.Opaque`, so a
+`RetryPolicy.NonRetryableErrorTypes` entry naming the original type no longer
+matches it (AR-034). The non-retryable flag is kept.
+
+**Backstop (follow-up, not in TICK-245):** the Authorizer already inspects
+every command (`temporal-server/authz/commands.go`). It could deny
+`ModifyWorkflowProperties`, a `StartChildWorkflowExecution` with a memo, and
+any command with non-empty `user_metadata` (apart from the SDK constant), so a
+worker without the guard still cannot write a memo or a summary.
