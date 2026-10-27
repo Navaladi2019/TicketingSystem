@@ -137,11 +137,21 @@ func New(db Querier, mp metric.MeterProvider, log *slog.Logger, opts Options) (*
 //     scan (nava_relay cannot read tenants).
 //   - window is each tenant's available pending rows, oldest first, at most
 //     $1 (ScanCap): the rows the poll scans.
+//   - scan counts each tenant's window and keeps its last row's
+//     (available_at, id), the window's end.
 //   - picked takes at most $2 (PerTenant) rows per tenant from its window
 //     that have no lower pending target_seq on their target (FIFO per
 //     target), locking them FOR UPDATE SKIP LOCKED. The pending and available
 //     tests sit on the locked row, so a row a concurrent claimer leased
-//     since this snapshot fails the recheck and is skipped.
+//     since this snapshot fails the recheck and is skipped. It walks
+//     outbox_pending_available up to the window's end and stops at its $2th
+//     row, so it probes the heads of only the rows before that (TICK-250); it
+//     does not re-read window_rows, which a CTE scan would filter once per
+//     tenant. Rows with equal available_at come in index order, not by id.
+//     The head test is target_seq <= the target's lowest pending target_seq,
+//     which for a pending row is equality: written as <= so the planner
+//     estimates a third of rows pass, not 0.5%, and keeps the claim's cost
+//     under jit_above_cost.
 //   - stranded finds heads that sort behind their own successors (TICK-248).
 //     A claim moves a head's available_at to the lease end and leaves its
 //     successors where they are, so a head whose lease ended with no settle
@@ -185,7 +195,8 @@ window_rows AS MATERIALIZED (
     WHERE t.tenant_id IS NOT NULL
 ),
 scan AS (
-    SELECT t.tenant_id, count(w.id) AS scanned
+    SELECT t.tenant_id, count(w.id) AS scanned, max(w.available_at) AS last_at,
+           (array_agg(w.id ORDER BY w.available_at DESC, w.id DESC))[1] AS last_id
     FROM tenants t LEFT JOIN window_rows w ON w.tenant_id = t.tenant_id
     WHERE t.tenant_id IS NOT NULL
     GROUP BY t.tenant_id
@@ -196,15 +207,15 @@ picked AS (
     CROSS JOIN LATERAL (
         SELECT o.tenant_id, o.id,
                o.attempts > 0 AND o.created_at <= now() - make_interval(secs => $4) AS expired
-        FROM window_rows w
-        JOIN outbox o ON o.tenant_id = w.tenant_id AND o.id = w.id
-        WHERE w.tenant_id = s.tenant_id
+        FROM outbox o
+        WHERE o.tenant_id = s.tenant_id
           AND o.dispatched_at IS NULL AND o.dead_at IS NULL AND o.available_at <= now()
-          AND NOT EXISTS (
-              SELECT 1 FROM outbox h
+          AND (o.available_at, o.id) <= (s.last_at, s.last_id)
+          AND o.target_seq <= (
+              SELECT min(h.target_seq) FROM outbox h
               WHERE h.tenant_id = o.tenant_id AND h.target_key = o.target_key
-                AND h.target_seq < o.target_seq AND h.dispatched_at IS NULL AND h.dead_at IS NULL)
-        ORDER BY w.available_at, w.id
+                AND h.dispatched_at IS NULL AND h.dead_at IS NULL)
+        ORDER BY o.available_at
         LIMIT $2
         FOR UPDATE OF o SKIP LOCKED
     ) p

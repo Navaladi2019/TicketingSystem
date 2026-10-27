@@ -720,3 +720,34 @@ func TestClaimStrandedStaysInTenant(t *testing.T) {
 		t.Error("tenant A's claim touched tenant B's row on the shared target key")
 	}
 }
+
+// TICK-250 isolation guard: picked's head test compares a row's target_seq
+// with the lowest pending target_seq on its target, and target keys are not
+// unique across tenants. Tenant B holds a lower pending target_seq on the
+// key of A's only row, leased so B's own claim takes nothing. A head test
+// that lost its tenant predicate would see B's row as A's head and never
+// claim A's row; A's row must be claimed, and B's left alone.
+func TestClaimHeadTestStaysInTenant(t *testing.T) {
+	e := migrated(t)
+	ctx := context.Background()
+	a, b := uuid.New(), uuid.New()
+	shared := "ticket.approval:shared-" + uuid.NewString()
+	for _, tenant := range []uuid.UUID{a, b} {
+		mustExec(t, e.super, "INSERT INTO tenants (id, state) VALUES ($1, 'active') ON CONFLICT DO NOTHING", tenant)
+	}
+	victim, aHead := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	mustExec(t, e.super, `INSERT INTO outbox (id, tenant_id, kind, dedupe_key, target_key, target_seq,
+		attempts, available_at) VALUES ($1, $2, 'approve', 'victim', $3, 1, 1, now() + interval '1 hour')`,
+		victim, b, shared)
+	mustExec(t, e.super, `INSERT INTO outbox (id, tenant_id, kind, dedupe_key, target_key, target_seq, available_at)
+		VALUES ($1, $2, 'approve', 'a-head', $3, 5, now() - interval '1 minute')`, aHead, a, shared)
+	r := newProbe(t, e.relay, Options{})
+
+	cs, err := r.Claim(ctx)
+	if err != nil || len(cs) != 1 || cs[0].ID != aHead || cs[0].TenantID != a {
+		t.Fatalf("claim %+v, %v; want only A's head, which B's lower target_seq must not block", cs, err)
+	}
+	if n := count(t, e.super, "SELECT count(*) FROM outbox WHERE id = $1 AND attempts = 1", victim); n != 1 {
+		t.Error("tenant A's claim touched tenant B's row on the shared target key")
+	}
+}
