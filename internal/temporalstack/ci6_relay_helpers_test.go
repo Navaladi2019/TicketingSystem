@@ -53,15 +53,24 @@ const (
 	sigCI7SignalChild    = "ci7.signal-child"
 	sigCI7ChildMemo      = "ci7.child-memo"
 	sigCI7UpsertMemo     = "ci7.upsert-memo"
+	// TICK-245: results, side effects and failure text.
+	sigCI7ActivityResult  = "ci7.activity-result"
+	sigCI7ActivityFailure = "ci7.activity-failure"
+	sigCI7SideEffect      = "ci7.side-effect"
+	sigCI7Result          = "ci7.result"
+	sigCI7Failure         = "ci7.failure"
+	sigCI7Canceled        = "ci7.canceled"
+	updCI7Result          = "ci7.update-result"
+	updCI7Failure         = "ci7.update-failure"
 	// ci7ProbeActivity is not registered anywhere: the CI-7 case only needs
 	// its scheduling to reach (or not reach) the history.
 	ci7ProbeActivity = "ci7.probe"
 )
 
-// relayRefs is relayProbe's own state in workerguard.RunInput.Refs: the
-// applied order, outbox ids only.
+// relayRefs is relayProbe's own state in workerguard.RunInput.Refs, and its
+// result: the applied order, outbox ids only. Empty, it encodes as {}.
 type relayRefs struct {
-	Order []string `json:"order"`
+	Order []string `json:"order,omitempty"`
 }
 
 // relayProbe is the workflow the relay starts (type relayType). Its input is
@@ -77,20 +86,39 @@ type relayRefs struct {
 //     references, then signal it record data through that path;
 //   - ci7.child-memo starts a same-tenant child with record data in its memo;
 //   - ci7.upsert-memo upserts record data into the workflow's own memo;
+//   - ci7.activity-result and ci7.activity-failure run a local activity that
+//     returns record data, or fails with it in its message;
+//   - ci7.side-effect records record data in a SideEffect;
+//   - ci7.result and ci7.failure end the workflow with record data as its
+//     result, or in its failure message; ci7.canceled ends it with a cancel
+//     error whose details hold record data;
+//   - updates ci7.update-result and ci7.update-failure return record data, or
+//     fail with it;
 //   - ci6.done closes workflow_ref (the nava-worker service runs that
-//     activity as nava_worker) and returns the applied ids, comma-joined.
+//     activity as nava_worker) and returns the applied ids as relayRefs.
 //
 // The CI-7 outcomes do not matter; whether the record data reached the
 // history does.
-func relayProbe(ctx workflow.Context, in workerguard.RunInput) (string, error) {
+func relayProbe(ctx workflow.Context, in workerguard.RunInput) (any, error) {
 	var refs relayRefs
 	if in.Refs != nil {
 		if err := json.Unmarshal(in.Refs, &refs); err != nil {
-			return "", err
+			return nil, err
 		}
 	}
-	if err := workflow.SetUpdateHandler(ctx, updCI7, func(workflow.Context, map[string]string) error { return nil }); err != nil {
-		return "", err
+	title := map[string]string{"title": ci7Marker}
+	// A slice, not a map: workflow code runs in a fixed order.
+	for _, u := range []struct {
+		name    string
+		handler any
+	}{
+		{updCI7, func(workflow.Context, map[string]string) error { return nil }},
+		{updCI7Result, func(workflow.Context) (map[string]string, error) { return title, nil }},
+		{updCI7Failure, func(workflow.Context) error { return fmt.Errorf("ticket %q stuck", ci7Marker) }},
+	} {
+		if err := workflow.SetUpdateHandler(ctx, u.name, u.handler); err != nil {
+			return nil, err
+		}
 	}
 	notes := workflow.GetSignalChannel(ctx, sigNote)
 	apply := func(c workflow.ReceiveChannel) {
@@ -100,13 +128,17 @@ func relayProbe(ctx workflow.Context, in workerguard.RunInput) (string, error) {
 			refs.Order = append(refs.Order, d.OutboxID.String())
 		}
 	}
-	title := map[string]string{"title": ci7Marker}
+	lactx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
+		StartToCloseTimeout: 5 * time.Second,
+		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
+	})
 	for {
 		var next string
 		sel := workflow.NewSelector(ctx)
 		sel.AddReceive(notes, func(c workflow.ReceiveChannel, _ bool) { apply(c) })
 		for _, name := range []string{sigRollover, sigDone, sigCI7Activity, sigCI7Child, sigCI7Rollover,
-			sigCI7SignalExternal, sigCI7SignalChild, sigCI7ChildMemo, sigCI7UpsertMemo} {
+			sigCI7SignalExternal, sigCI7SignalChild, sigCI7ChildMemo, sigCI7UpsertMemo,
+			sigCI7ActivityResult, sigCI7ActivityFailure, sigCI7SideEffect, sigCI7Result, sigCI7Failure, sigCI7Canceled} {
 			sel.AddReceive(workflow.GetSignalChannel(ctx, name), func(c workflow.ReceiveChannel, _ bool) {
 				c.Receive(ctx, nil)
 				next = name
@@ -120,10 +152,10 @@ func relayProbe(ctx workflow.Context, in workerguard.RunInput) (string, error) {
 			}
 			b, err := json.Marshal(refs)
 			if err != nil {
-				return "", err
+				return nil, err
 			}
 			in.Refs = b
-			return "", workflow.NewContinueAsNewError(ctx, relayType, in)
+			return nil, workflow.NewContinueAsNewError(ctx, relayType, in)
 		case sigCI7Activity:
 			actx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 				StartToCloseTimeout: 5 * time.Second,
@@ -133,14 +165,14 @@ func relayProbe(ctx workflow.Context, in workerguard.RunInput) (string, error) {
 		case sigCI7Child:
 			id, err := workerguard.ChildWorkflowID(ctx, "probe")
 			if err != nil {
-				return "", err
+				return nil, err
 			}
 			cctx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{WorkflowID: id, TaskQueue: taskQueue})
 			_ = workflow.ExecuteChildWorkflow(cctx, relayType, title).Get(ctx, nil)
 		case sigCI7SignalExternal, sigCI7SignalChild:
 			fut, id, err := startProbeChild(ctx, workflow.ChildWorkflowOptions{}, in.Payload)
 			if err != nil {
-				return "", err
+				return nil, err
 			}
 			if next == sigCI7SignalChild {
 				_ = fut.SignalChildWorkflow(ctx, sigNote, title).Get(ctx, nil)
@@ -151,18 +183,31 @@ func relayProbe(ctx workflow.Context, in workerguard.RunInput) (string, error) {
 			_, _, _ = startProbeChild(ctx, workflow.ChildWorkflowOptions{Memo: map[string]any{"title": ci7Marker}}, in.Payload)
 		case sigCI7UpsertMemo:
 			_ = workflow.UpsertMemo(ctx, map[string]any{"title": ci7Marker})
+		case sigCI7ActivityResult:
+			_ = workflow.ExecuteLocalActivity(lactx, func(context.Context) (map[string]string, error) { return title, nil }).Get(ctx, nil)
+		case sigCI7ActivityFailure:
+			_ = workflow.ExecuteLocalActivity(lactx, func(context.Context) error { return fmt.Errorf("ticket %q not found", ci7Marker) }).Get(ctx, nil)
+		case sigCI7SideEffect:
+			var v map[string]string
+			_ = workflow.SideEffect(ctx, func(workflow.Context) any { return title }).Get(&v)
+		case sigCI7Result:
+			return title, nil
+		case sigCI7Failure:
+			return nil, fmt.Errorf("ticket %q stuck", ci7Marker)
+		case sigCI7Canceled:
+			return nil, temporal.NewCanceledError(title)
 		case sigCI7Rollover:
 			b, err := json.Marshal(title)
 			if err != nil {
-				return "", err
+				return nil, err
 			}
 			in.Refs = b
-			return "", workflow.NewContinueAsNewError(ctx, relayType, in)
+			return nil, workflow.NewContinueAsNewError(ctx, relayType, in)
 		case sigDone:
 			if err := workerguard.CloseWorkflowRef(ctx); err != nil {
-				return "", err
+				return nil, err
 			}
-			return strings.Join(refs.Order, ","), nil
+			return refs, nil
 		}
 	}
 }
@@ -376,7 +421,7 @@ func redeliver(t *testing.T, id uuid.UUID) {
 }
 
 // result waits for the workflow's result, read by nava-core (the relay may
-// not read history).
+// not read history), and returns its applied ids, comma-joined.
 //
 // It first waits for the relay to start the workflow: the rows were only
 // written, and GetWorkflow on an id that does not exist yet is NotFound at once
@@ -385,11 +430,11 @@ func redeliver(t *testing.T, id uuid.UUID) {
 func (s relayStack) result(ctx context.Context, t *testing.T, id string) string {
 	t.Helper()
 	s.awaitStarted(ctx, t, id)
-	var out string
+	var out relayRefs
 	if err := s.core.GetWorkflow(ctx, id, "").Get(ctx, &out); err != nil {
 		t.Fatalf("result of %s: %v", id, err)
 	}
-	return out
+	return strings.Join(out.Order, ",")
 }
 
 // terminateAtEnd terminates the workflow, if still open, when the test ends.

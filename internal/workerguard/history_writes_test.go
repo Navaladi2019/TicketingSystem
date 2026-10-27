@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
@@ -17,16 +18,16 @@ import (
 // signal-external and signal-child arguments, and memos.
 
 // signalWaiter starts a waitForSignal child, signals it with arg through
-// SignalExternalWorkflow or, if viaChild, the child future, and returns what
-// the child returns.
-func signalWaiter(ctx workflow.Context, viaChild bool, arg any) (string, error) {
+// SignalExternalWorkflow or, if viaChild, the child future, and waits for the
+// child, which completes on the signal.
+func signalWaiter(ctx workflow.Context, viaChild bool, arg any) error {
 	id, err := ChildWorkflowID(ctx, "waiter")
 	if err != nil {
-		return "", err
+		return err
 	}
 	fut := workflow.ExecuteChildWorkflow(workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{WorkflowID: id}), waitForSignal)
 	if err := fut.GetChildWorkflowExecution().Get(ctx, nil); err != nil {
-		return "", err
+		return err
 	}
 	if viaChild {
 		err = fut.SignalChildWorkflow(ctx, "ping", arg).Get(ctx, nil)
@@ -34,11 +35,9 @@ func signalWaiter(ctx workflow.Context, viaChild bool, arg any) (string, error) 
 		err = workflow.SignalExternalWorkflow(ctx, id, "", "ping", arg).Get(ctx, nil)
 	}
 	if err != nil {
-		return "", err
+		return err
 	}
-	var out string
-	err = fut.Get(ctx, &out)
-	return out, err
+	return fut.Get(ctx, nil)
 }
 
 func TestSignalArgsGuard(t *testing.T) {
@@ -59,7 +58,7 @@ func TestSignalArgsGuard(t *testing.T) {
 				h := newHarness(t, id)
 				h.env.RegisterWorkflow(waitForSignal)
 				// A closure: a Delivery argument would decode as a map.
-				h.env.ExecuteWorkflow(func(ctx workflow.Context) (string, error) { return signalWaiter(ctx, via.viaChild, tc.arg) })
+				h.env.ExecuteWorkflow(func(ctx workflow.Context) error { return signalWaiter(ctx, via.viaChild, tc.arg) })
 				err := h.env.GetWorkflowError()
 				wantGuardError(t, err, guardSignalExternal, outcomeRecordData)
 				h.wantDenyAlert(guardSignalExternal, outcomeRecordData, id)
@@ -78,10 +77,9 @@ func TestSignalArgsGuard(t *testing.T) {
 				h := newHarness(t, id)
 				h.env.RegisterWorkflow(waitForSignal)
 				// A closure: a Delivery argument would decode as a map.
-				h.env.ExecuteWorkflow(func(ctx workflow.Context) (string, error) { return signalWaiter(ctx, via.viaChild, tc.arg) })
-				var out string
-				if err := h.env.GetWorkflowResult(&out); err != nil || out != "ping" {
-					t.Fatalf("result %q, %v; want the signal delivered", out, err)
+				h.env.ExecuteWorkflow(func(ctx workflow.Context) error { return signalWaiter(ctx, via.viaChild, tc.arg) })
+				if err := h.env.GetWorkflowError(); err != nil {
+					t.Fatalf("%v; want the signal delivered", err)
 				}
 				h.wantNoAlerts()
 				if d := h.decisions()[guardSignalExternal+"/"+outcomeAllow]; d != 1 {
@@ -134,9 +132,10 @@ func TestChildMemoGuard(t *testing.T) {
 	}
 	t.Run("an empty memo starts it", func(t *testing.T) {
 		h := newHarness(t, id)
-		h.env.RegisterWorkflow(child)
-		h.env.ExecuteWorkflow(func(ctx workflow.Context) (string, error) {
-			return startChild(ctx, true, workflow.ChildWorkflowOptions{Memo: map[string]any{}})
+		h.env.RegisterWorkflowWithOptions(child, workflow.RegisterOptions{Name: "child"})
+		h.env.ExecuteWorkflow(func(ctx workflow.Context) error {
+			_, err := startChild(ctx, true, workflow.ChildWorkflowOptions{Memo: map[string]any{}})
+			return err
 		})
 		if err := h.env.GetWorkflowError(); err != nil {
 			t.Fatal(err)
@@ -168,9 +167,16 @@ func TestUpsertMemoGuard(t *testing.T) {
 	// refuses it.
 	t.Run("an empty upsert is the SDK's error, not a deny", func(t *testing.T) {
 		h := newHarness(t, id)
-		h.env.ExecuteWorkflow(func(ctx workflow.Context) error { return workflow.UpsertMemo(ctx, map[string]any{}) })
-		if err := h.env.GetWorkflowError(); err == nil || strings.Contains(err.Error(), ErrTypeTenantGuard) {
-			t.Fatalf("error %v, want the SDK's empty-memo error", err)
+		var upsertErr error
+		h.env.ExecuteWorkflow(func(ctx workflow.Context) error {
+			upsertErr = workflow.UpsertMemo(ctx, map[string]any{})
+			return nil
+		})
+		if err := h.env.GetWorkflowError(); err != nil {
+			t.Fatal(err)
+		}
+		if upsertErr == nil || strings.Contains(upsertErr.Error(), ErrTypeTenantGuard) {
+			t.Fatalf("upsert error %v, want the SDK's empty-memo error", upsertErr)
 		}
 		h.wantNoAlerts()
 	})
@@ -196,6 +202,9 @@ func TestConfigureClientUsesTheGuardsDataConverter(t *testing.T) {
 			ConfigureClient(&o, &telemetry.Temporal{})
 			if o.DataConverter != DataConverter() {
 				t.Fatalf("client converter %T, want workerguard.DataConverter", o.DataConverter)
+			}
+			if o.FailureConverter != temporal.GetDefaultFailureConverter() {
+				t.Errorf("client failure converter %T, want the SDK default", o.FailureConverter)
 			}
 			arg := validRunInput(t)
 			recorded, err := o.DataConverter.ToPayload(arg)

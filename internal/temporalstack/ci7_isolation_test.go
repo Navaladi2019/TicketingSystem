@@ -8,8 +8,9 @@ package temporalstack
 // only, never record data, and headers only the tenant and trace context,
 // never baggage. The activity, child, continue-as-new and update cases are
 // TICK-216's: the worker guard refuses record-data arguments (argOK). The
-// signal-external, signal-child and memo cases are TICK-245's. One named test
-// per case, each named TestCI7_*; tools/ci/ci6report lists them.
+// signal-external, signal-child, memo, result, side-effect and failure cases
+// are TICK-245's. One named test per case, each named TestCI7_*;
+// tools/ci/ci6report lists them.
 
 import (
 	"context"
@@ -415,6 +416,212 @@ func TestCI7_UpsertMemoWithRecordDataNotRecorded(t *testing.T) {
 		t.Errorf("memo has %d fields, want none", len(f))
 	}
 	wantGuardAlert(t, s, id, "memo")
+}
+
+// endsRun lists the probe signals on which relayProbe returns: no done
+// follows them, or it races them into the same workflow task, the close
+// command is rejected (UnhandledCommand) and the retry may take done instead
+// (CI on #200, run 40534142609).
+func endsRun(kind string) bool {
+	return kind == sigCI7Result || kind == sigCI7Failure || kind == sigCI7Canceled
+}
+
+// runCI7Probe sends the probe signal kind, then done unless kind ends the
+// run, and returns the stack, the workflow id and how the run ended.
+func runCI7Probe(t *testing.T, kind string) (context.Context, relayStack, string, error) {
+	t.Helper()
+	ctx := ci6Context(t)
+	s := newRelayStack(t)
+	tg := newTarget(t)
+	_, kindSQL := tg.signalSQL(t, kind)
+	if !endsRun(kind) {
+		_, doneSQL := tg.signalSQL(t, sigDone)
+		kindSQL += doneSQL
+	}
+	psqlSuper(t, tg.startSQL(tg.refs())+kindSQL)
+	id := tg.workflowID()
+	s.terminateAtEnd(t, id)
+	s.awaitStarted(ctx, t, id)
+	return ctx, s, id, s.core.GetWorkflow(ctx, id, "").Get(ctx, nil)
+}
+
+// wantClosedBy fails unless the run's last event is one of want: a
+// WorkflowExecutionCompleted holding refs means the probe never fired.
+func wantClosedBy(t *testing.T, events []*historypb.HistoryEvent, want ...enumspb.EventType) {
+	t.Helper()
+	if len(events) == 0 {
+		t.Fatal("empty history")
+	}
+	last := events[len(events)-1].GetEventType()
+	for _, w := range want {
+		if last == w {
+			return
+		}
+	}
+	t.Fatalf("the run closed with %v, want one of %v: the probe did not end it", last, want)
+}
+
+// wantWithheld fails unless the guard logged a withheld line for guard and
+// id, and no guard log line holds the record data: the log gets the
+// failure's shape, never its text.
+func wantWithheld(t *testing.T, s relayStack, id, guard string) {
+	t.Helper()
+	var n int
+	for line := range strings.Lines(s.logs.String()) {
+		if strings.Contains(line, "withheld a failure") && strings.Contains(line, `"guard":"`+guard+`"`) && strings.Contains(line, id) {
+			n++
+		}
+	}
+	if n < 1 {
+		t.Errorf("no %s withheld line for %s; log:\n%s", guard, id, s.logs.String())
+	}
+	if strings.Contains(s.logs.String(), ci7Marker) {
+		t.Errorf("the guard log holds the record data")
+	}
+}
+
+// wantOpaque fails unless err is the withheld failure, with no record data.
+func wantOpaque(t *testing.T, err error) {
+	t.Helper()
+	var app *temporal.ApplicationError
+	if !errors.As(err, &app) || app.Type() != workerguard.ErrTypeOpaque {
+		t.Fatalf("error %v, want the withheld %s failure", err, workerguard.ErrTypeOpaque)
+	}
+	if strings.Contains(err.Error(), ci7Marker) {
+		t.Errorf("the failure holds the record data: %v", err)
+	}
+}
+
+// A local activity that returns record data must never have it recorded: the
+// result is replaced by the guard error (TICK-245, triage row 3).
+func TestCI7_ActivityResultWithRecordDataNotRecorded(t *testing.T) {
+	ctx, s, id, err := runCI7Probe(t, sigCI7ActivityResult)
+	if err != nil {
+		t.Fatalf("result: %v", err)
+	}
+	wantMarkerNotRecorded(ctx, t, s, id)
+	wantGuardAlert(t, s, id, "activity_result")
+}
+
+// A local activity that fails with record data in its message must never
+// have it recorded: the failure is withheld, and the log has its shape only
+// (TICK-245, triage row 7).
+func TestCI7_ActivityFailureWithRecordDataNotRecorded(t *testing.T) {
+	ctx, s, id, err := runCI7Probe(t, sigCI7ActivityFailure)
+	if err != nil {
+		t.Fatalf("result: %v", err)
+	}
+	wantMarkerNotRecorded(ctx, t, s, id)
+	wantGuardAlert(t, s, id, "activity_failure")
+	wantWithheld(t, s, id, "activity_failure")
+}
+
+// A SideEffect whose value is record data must never have it recorded: the
+// marker holds the guard's sentinel instead (TICK-245, triage row 6).
+func TestCI7_SideEffectWithRecordDataNotRecorded(t *testing.T) {
+	ctx, s, id, err := runCI7Probe(t, sigCI7SideEffect)
+	if err != nil {
+		t.Fatalf("result: %v", err)
+	}
+	events := wantMarkerNotRecorded(ctx, t, s, id)
+	if n := countEvents(events, enumspb.EVENT_TYPE_MARKER_RECORDED); n != 1 {
+		t.Errorf("%d markers recorded, want 1: the side effect's, holding the sentinel", n)
+	}
+	wantGuardAlert(t, s, id, "side_effect")
+}
+
+// A workflow that returns record data must never have it recorded: it fails
+// with the guard error instead (TICK-245, triage row 4).
+func TestCI7_WorkflowResultWithRecordDataNotRecorded(t *testing.T) {
+	ctx, s, id, err := runCI7Probe(t, sigCI7Result)
+	wantClosedBy(t, history(ctx, t, s, id, ""), enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED)
+	var app *temporal.ApplicationError
+	if !errors.As(err, &app) || app.Type() != workerguard.ErrTypeTenantGuard ||
+		!strings.Contains(app.Error(), "tenant guard denied workflow_result: record_data") {
+		t.Fatalf("result: %v; want the guard's failure", err)
+	}
+	events := wantMarkerNotRecorded(ctx, t, s, id)
+	if n := countEvents(events, enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED); n != 0 {
+		t.Errorf("%d completed events, want 0", n)
+	}
+	wantGuardAlert(t, s, id, "workflow_result")
+}
+
+// A workflow that fails with record data in its message must never have it
+// recorded: the failure is withheld (TICK-245, triage row 7).
+func TestCI7_WorkflowFailureWithRecordDataNotRecorded(t *testing.T) {
+	ctx, s, id, err := runCI7Probe(t, sigCI7Failure)
+	wantClosedBy(t, history(ctx, t, s, id, ""), enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED)
+	wantOpaque(t, err)
+	events := wantMarkerNotRecorded(ctx, t, s, id)
+	if n := countEvents(events, enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED); n != 1 {
+		t.Errorf("%d failed events, want 1", n)
+	}
+	wantGuardAlert(t, s, id, "workflow_failure")
+	wantWithheld(t, s, id, "workflow_failure")
+}
+
+// A workflow that ends with a cancel error whose details hold record data
+// must never have them recorded: the details are dropped, the type kept
+// (TICK-245 security review, finding 1).
+func TestCI7_CanceledDetailsWithRecordDataNotRecorded(t *testing.T) {
+	ctx, s, id, err := runCI7Probe(t, sigCI7Canceled)
+	// The SDK sends a cancel command for a returned cancel error; it records
+	// the details only.
+	wantClosedBy(t, history(ctx, t, s, id, ""),
+		enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_CANCELED, enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED)
+	if err == nil {
+		t.Fatal("the run completed; want it canceled or failed")
+	}
+	if strings.Contains(err.Error(), ci7Marker) {
+		t.Errorf("the run's error holds the record data: %v", err)
+	}
+	wantMarkerNotRecorded(ctx, t, s, id)
+	wantGuardAlert(t, s, id, "workflow_failure")
+	wantWithheld(t, s, id, "workflow_failure")
+}
+
+// An update that returns record data, or fails with it, must never have it
+// recorded: the result is replaced by the guard error, the failure withheld
+// (TICK-245, triage rows 5 and 7).
+func TestCI7_UpdateResultWithRecordDataNotRecorded(t *testing.T) {
+	ctx := ci6Context(t)
+	s := newRelayStack(t)
+	tg := newTarget(t)
+	psqlSuper(t, tg.startSQL(tg.refs()))
+	id := tg.workflowID()
+	s.terminateAtEnd(t, id)
+	s.awaitStarted(ctx, t, id)
+	own := workerguard.ContextWithTenant(ctx, tg.tenant)
+	update := func(name string) error {
+		t.Helper()
+		h, err := s.core.UpdateWorkflow(own, client.UpdateWorkflowOptions{
+			WorkflowID: id, UpdateName: name, WaitForStage: client.WorkflowUpdateStageCompleted,
+		})
+		if err != nil {
+			return err
+		}
+		return h.Get(ctx, nil)
+	}
+
+	err := update(updCI7Result)
+	var app *temporal.ApplicationError
+	if !errors.As(err, &app) || app.Type() != workerguard.ErrTypeTenantGuard ||
+		!strings.Contains(app.Error(), "tenant guard denied update_result: record_data") {
+		t.Fatalf("record-data update result: %v; want the guard error", err)
+	}
+	wantOpaque(t, update(updCI7Failure))
+	_, doneSQL := tg.signalSQL(t, sigDone)
+	psqlSuper(t, doneSQL)
+	s.result(ctx, t, id)
+
+	events := wantMarkerNotRecorded(ctx, t, s, id)
+	if n := countEvents(events, enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_COMPLETED); n != 2 {
+		t.Errorf("%d updates completed, want 2", n)
+	}
+	wantGuardAlert(t, s, id, "update_result")
+	wantGuardAlert(t, s, id, "update_failure")
+	wantWithheld(t, s, id, "update_failure")
 }
 
 // Every header recorded in a history, on the start, signals, the activity,

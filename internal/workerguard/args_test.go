@@ -358,18 +358,15 @@ func TestCheckedInputs(t *testing.T) {
 	}
 }
 
-func withRefsUpdate(ctx workflow.Context) (int, error) {
-	n := 0
-	if err := workflow.SetUpdateHandler(ctx, "refs", func(_ workflow.Context, _ map[string]string) (int, error) { n++; return n, nil }); err != nil {
-		return 0, err
+// withRefsUpdate counts "refs" updates in n.
+func withRefsUpdate(ctx workflow.Context, n *int) error {
+	if err := workflow.SetUpdateHandler(ctx, "refs", func(_ workflow.Context, _ map[string]string) error { *n++; return nil }); err != nil {
+		return err
 	}
-	if err := workflow.Await(ctx, func() bool { return n >= 1 }); err != nil {
-		return 0, err
+	if err := workflow.Await(ctx, func() bool { return *n >= 1 }); err != nil {
+		return err
 	}
-	if err := workflow.Sleep(ctx, time.Hour); err != nil {
-		return 0, err
-	}
-	return n, nil
+	return workflow.Sleep(ctx, time.Hour)
 }
 
 func TestUpdateArgsGuard(t *testing.T) {
@@ -388,10 +385,10 @@ func TestUpdateArgsGuard(t *testing.T) {
 	}
 	h.env.RegisterDelayedCallback(func() { update("title", map[string]string{"title": recordData}) }, time.Second)
 	h.env.RegisterDelayedCallback(func() { update("refs", map[string]string{"record_id": uuid.NewString()}) }, 2*time.Second)
-	h.env.ExecuteWorkflow(withRefsUpdate)
-
 	var n int
-	if err := h.env.GetWorkflowResult(&n); err != nil || n != 1 {
+	h.env.ExecuteWorkflow(func(ctx workflow.Context) error { return withRefsUpdate(ctx, &n) })
+
+	if err := h.env.GetWorkflowError(); err != nil || n != 1 {
 		t.Fatalf("result %d, %v; want 1 applied update", n, err)
 	}
 	if r := results["title"]; r.accepted {

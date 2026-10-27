@@ -78,6 +78,13 @@ func contract() []contractCase {
 		{"Signal-child payload with record data is not recorded in either history (TICK-245)", "TestCI7_SignalChildPayloadWithRecordDataNotRecorded"},
 		{"Child memo with record data is not recorded (TICK-245)", "TestCI7_ChildMemoWithRecordDataNotRecorded"},
 		{"UpsertMemo with record data is not recorded (TICK-245)", "TestCI7_UpsertMemoWithRecordDataNotRecorded"},
+		{"Activity result with record data is not recorded (TICK-245)", "TestCI7_ActivityResultWithRecordDataNotRecorded"},
+		{"Activity failure text with record data is withheld (TICK-245)", "TestCI7_ActivityFailureWithRecordDataNotRecorded"},
+		{"SideEffect value with record data is not recorded (TICK-245)", "TestCI7_SideEffectWithRecordDataNotRecorded"},
+		{"Workflow result with record data is not recorded (TICK-245)", "TestCI7_WorkflowResultWithRecordDataNotRecorded"},
+		{"Workflow failure text with record data is withheld (TICK-245)", "TestCI7_WorkflowFailureWithRecordDataNotRecorded"},
+		{"Cancel-error details with record data are not recorded (TICK-245 finding 1)", "TestCI7_CanceledDetailsWithRecordDataNotRecorded"},
+		{"Update result and failure with record data are not recorded (TICK-245)", "TestCI7_UpdateResultWithRecordDataNotRecorded"},
 		{"Recorded headers carry only nava-tenant and trace context, never baggage (TICK-93)", "TestCI7_RecordedHeadersCarryOnlyTenantAndTraceContext"},
 	}
 }

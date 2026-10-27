@@ -22,6 +22,14 @@ const (
 	guardNexus           = "nexus"
 	// guardMemo checks workflow.UpsertMemo; a child's memo is guardChild's.
 	guardMemo = "memo"
+	// Results, side effects and failure text (TICK-245, results.go).
+	guardActivityResult  = "activity_result"
+	guardActivityFailure = "activity_failure"
+	guardWorkflowResult  = "workflow_result"
+	guardWorkflowFailure = "workflow_failure"
+	guardUpdateResult    = "update_result"
+	guardUpdateFailure   = "update_failure"
+	guardSideEffect      = "side_effect"
 	// guardActivityArgs and guardLocalActivityArgs check what a workflow
 	// schedules; guardActivity checks what an activity worker receives.
 	guardActivityArgs      = "activity_args"
