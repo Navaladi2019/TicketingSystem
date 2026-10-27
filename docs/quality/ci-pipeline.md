@@ -60,6 +60,37 @@ there; production files never set them.
 A change to `go.sum` or a Dockerfile base stage is a cold run (about 8 to 10
 minutes); the next run is warm again.
 
+**Job time budgets (TICK-258).** The 5-minute figure above was the target; the
+stack jobs do not meet it, because `make image-ci` alone takes 450 to 600 s of
+every run. `timeout-minutes` is a hang guard, not a speed target: it must sit
+above the slowest run in which every step passes, or a green run is cancelled
+and blocks the merge (PR #165, runs 40443438351 and 40448981983: both cancelled
+at 931 s while `stack-test-identity` was still running after its tests passed).
+
+Measured on the 11 green `stack` runs of 2026-10-26/27 (runs 40425133930 to
+40454453376; `stack-db` and `stack-internal` from six of them), job wall clock
+including set-up and post steps:
+
+| Job | Green runs, min / max | Slowest step seen | `timeout-minutes` |
+|---|---|---|---|
+| `stack` | 511 s / 763 s; first attempts cancelled at 931 s | image build 600 s, SDK 109 s, identity 154 s | 25 (was 15) |
+| `stack-db` | 515 s / 795 s | image build | 25 (was 15) |
+| `stack-internal` | 374 s / 687 s | image build | 25 (was 15) |
+| `lint`, `unit`, `temporal-server`, `integration` | under 5 min | | 10 |
+| `changes` | under 1 min | | 5 |
+
+How 25 was chosen: the worst case of each `stack` step taken from different
+runs adds up to about 1,010 s (17 min: build 600, stack up 41, SDK 109,
+identity 154, the rest about 100). 25 minutes leaves about 45 % above that
+for a slow runner or a cold image cache. All three stack jobs get it since
+they share the image build. A real hang (a test stuck until Go's own
+`-timeout`) still ends within 25 minutes.
+
+Revisit when: a green `stack` run exceeds 20 minutes (raise the bound or split
+`make image-ci` into its own job that pushes the images for the three stack
+jobs), or the image build drops under 3 minutes (lower the bound back towards
+15).
+
 Containers: `scripts/ci/test-integration.sh` owns, on a private network, one
 shared PostgreSQL with the two PgBouncers of the load test (T06,
 `docs/quality/pgbouncer-load.md`) in front of it, plus `DBTEST_SHARDS` (default
