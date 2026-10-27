@@ -39,10 +39,11 @@ func hasDuplicateKeys(body []byte) bool {
 		case string:
 			if expectKey {
 				seen := stack[len(stack)-1]
-				if _, dup := seen[t]; dup {
+				k := strings.ToLower(t) // encoding/json matches field names case-insensitively
+				if _, dup := seen[k]; dup {
 					return true
 				}
-				seen[t] = struct{}{}
+				seen[k] = struct{}{}
 				expectKey = false
 				continue
 			}
