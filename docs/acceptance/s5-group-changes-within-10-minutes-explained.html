@@ -262,13 +262,13 @@
 </ul>
 
 <h2 id="try">10. Try it yourself (about 10 minutes)</h2>
-<p>The full step-by-step kit will be in <code>docs/acceptance/</code> once QA has verified it. In short:</p>
+<p>The full step-by-step kit, with the evidence of every check, is <a href="s5-group-changes-within-10-minutes.md"><code>docs/acceptance/s5-group-changes-within-10-minutes.md</code></a>. <span class="pill warn">QA verdict 2026-10-27: not ready yet</span> Merging today's <code>main</code> into this story re-opens the foreign login provider attack (CI-5.10, fix TICK-263). Step 1 below also cannot be done on the seeded stack yet (TICK-264). QA re-checks both before you are asked to decide. In short:</p>
 <ol>
-  <li>Start the stack, then sign in as the seeded user <code>alice@tenant-a.test</code> (Company A) and call <code>GET /api/v1/me</code>. You'll see her team (seeded as <code>eng/platform</code>; the story text's "service-desk" is an example name).</li>
+  <li>Start the stack, then sign in as the seeded user <code>alice@tenant-a.test</code> (Company A) and call <code>GET /api/v1/me</code>. You'll see her company. Her seeded <code>eng/platform</code> is a department (org unit), not a team, so <code>groups</code> is empty for now (TICK-264). Until that is fixed, create a team <code>service-desk</code> for Company A in the admin console, add Alice, and sync once.</li>
   <li>In the Keycloak admin console, remove Alice from that group.</li>
   <li>Call <code>GET /api/v1/me</code> again with the same token. Within one sync cycle (≤ 5 min; promised ≤ 10), the group is gone. Run <code>nava-groupsync --once</code> to skip the wait.</li>
   <li>Disable Alice in the admin console. After the next sync her existing token gets <code>401</code>.</li>
-  <li>Run <code>make identity-attacks</code> and open <code>ci5-report.md</code>: one line per attack, all passing.</li>
+  <li>Re-enable Alice (the attack tests sign in as her), then run <code>make identity-attacks</code> and open <code>ci5-report.md</code>: one line per attack, all passing.</li>
 </ol>
 
 <h2 id="gloss">11. Glossary</h2>

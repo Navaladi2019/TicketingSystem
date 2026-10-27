@@ -1,0 +1,19 @@
+== 07:42:14 start nava-groupsync as a worker, default interval (NAVA_GROUPSYNC_INTERVAL unset = 5m)
+time=2026-10-27T07:42:44.543Z level=INFO msg="group sync applied" tenant_id=00000000-0000-4000-8000-0000000000a1 principals_written=0 principals_deleted=0 groups_written=0 groups_deleted=0 org_units_written=0 org_units_deleted=0 ignored_outside_subtree=0
+time=2026-10-27T07:42:44.721Z level=INFO msg="group sync applied" tenant_id=00000000-0000-4000-8000-0000000000b1 principals_written=0 principals_deleted=0 groups_written=0 groups_deleted=0 org_units_written=0 org_units_deleted=0 ignored_outside_subtree=0
+== 07:44:51 fresh Alice token, exp 07:49:51
+before: 200 {"groups":["3c7d56ac-0f7f-45ac-8d8c-b77fabc21f9b"],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"1f92eb04-8073-4736-9944-39f907cfbb4f"}
+== 07:44:51 Keycloak admin: remove Alice from service-desk -> 204
++0s token_valid=yes 200 {"groups":["3c7d56ac-0f7f-45ac-8d8c-b77fabc21f9b"],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"1f92eb04-8073-4736-9944-39f907cfbb4f"}
++17s token_valid=yes 200 {"groups":["3c7d56ac-0f7f-45ac-8d8c-b77fabc21f9b"],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"1f92eb04-8073-4736-9944-39f907cfbb4f"}
++34s token_valid=yes 200 {"groups":["3c7d56ac-0f7f-45ac-8d8c-b77fabc21f9b"],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"1f92eb04-8073-4736-9944-39f907cfbb4f"}
++50s token_valid=yes 200 {"groups":["3c7d56ac-0f7f-45ac-8d8c-b77fabc21f9b"],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"1f92eb04-8073-4736-9944-39f907cfbb4f"}
++68s token_valid=yes 200 {"groups":["3c7d56ac-0f7f-45ac-8d8c-b77fabc21f9b"],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"1f92eb04-8073-4736-9944-39f907cfbb4f"}
++110s token_valid=yes 200 {"groups":["3c7d56ac-0f7f-45ac-8d8c-b77fabc21f9b"],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"1f92eb04-8073-4736-9944-39f907cfbb4f"}
++142s token_valid=yes 200 {"groups":["3c7d56ac-0f7f-45ac-8d8c-b77fabc21f9b"],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"1f92eb04-8073-4736-9944-39f907cfbb4f"}
++164s token_valid=yes 200 {"groups":["3c7d56ac-0f7f-45ac-8d8c-b77fabc21f9b"],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"1f92eb04-8073-4736-9944-39f907cfbb4f"}
++180s token_valid=yes 200 {"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"1f92eb04-8073-4736-9944-39f907cfbb4f"}
+== 07:47:53 worker log since start
+2026-10-27T07:42:44.543Z level=INFO msg="group sync applied" tenant_id=00000000-0000-4000-8000-0000000000a1 principals_written=0 principals_deleted=0 groups_written=0 groups_deleted=0 org_units_written=0 org_units_delete
+2026-10-27T07:42:44.721Z level=INFO msg="group sync applied" tenant_id=00000000-0000-4000-8000-0000000000b1 principals_written=0 principals_deleted=0 groups_written=0 groups_deleted=0 org_units_written=0 org_units_delete
+2026-10-27T07:47:44.602Z level=INFO msg="group sync applied" tenant_id=00000000-0000-4000-8000-0000000000a1 principals_written=0 principals_deleted=0 groups_written=0 groups_deleted=0 org_units_written=0 org_units_delete

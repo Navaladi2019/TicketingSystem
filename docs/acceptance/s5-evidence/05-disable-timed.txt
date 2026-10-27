@@ -1,0 +1,26 @@
+== 07:49:34 fresh Alice token, exp 07:54:32
+before: 200 {"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"1f92eb04-8073-4736-9944-39f907cfbb4f"}
+== 07:49:34 Keycloak admin: disable Alice -> 204
+new token for Alice after disable: {"error":"invalid_grant","error_description":"Account disabled"}
++0s token_valid=yes 200 {"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"1f92eb04-8073-4736-9944-39f907cfbb4f"}
++20s token_valid=yes 200 {"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"1f92eb04-8073-4736-9944-39f907cfbb4f"}
++56s token_valid=yes 200 {"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"1f92eb04-8073-4736-9944-39f907cfbb4f"}
++78s token_valid=yes 200 {"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"1f92eb04-8073-4736-9944-39f907cfbb4f"}
++95s token_valid=yes 200 {"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"1f92eb04-8073-4736-9944-39f907cfbb4f"}
++111s token_valid=yes 200 {"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"1f92eb04-8073-4736-9944-39f907cfbb4f"}
++134s token_valid=yes 200 {"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"1f92eb04-8073-4736-9944-39f907cfbb4f"}
++165s token_valid=yes 200 {"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"1f92eb04-8073-4736-9944-39f907cfbb4f"}
++183s token_valid=yes 200 {"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"1f92eb04-8073-4736-9944-39f907cfbb4f"}
++199s token_valid=yes 401 {"type":"urn:nava:problem:tenant_unresolved","title":"Tenant unresolved","status":401,"code":"tenant_unresolved","detail":"The request could not be tied to a tenant.","instance":"urn:nava:request:e7620ad5860f1b51063e074ebe5d28ee"}
+bob (tenant B) at the same moment: 200 {"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000b1","user_id":"e19bb006-5b73-4a2a-bffe-0dad7829d3b7"}
+              tenant_id               |        email        | enabled |           synced_at           
+--------------------------------------+---------------------+---------+-------------------------------
+ 00000000-0000-4000-8000-0000000000a1 | admin@tenant-a.test | t       | 2026-10-27 07:38:08.903669+00
+ 00000000-0000-4000-8000-0000000000a1 | alice@tenant-a.test | f       | 2026-10-27 07:52:44.626108+00
+ 00000000-0000-4000-8000-0000000000b1 | bob@tenant-b.test   | t       | 2026-10-27 07:38:09.301747+00
+(3 rows)
+
+== worker log
+time=2026-10-27T07:42:44.721Z level=INFO msg="group sync applied" tenant_id=00000000-0000-4000-8000-0000000000b1 principals_written=0 principals_deleted=0 groups_written=0 groups_deleted=0 org_units_w
+time=2026-10-27T07:47:44.602Z level=INFO msg="group sync applied" tenant_id=00000000-0000-4000-8000-0000000000a1 principals_written=0 principals_deleted=0 groups_written=0 groups_deleted=0 org_units_w
+time=2026-10-27T07:52:44.635Z level=INFO msg="group sync applied" tenant_id=00000000-0000-4000-8000-0000000000a1 principals_written=1 principals_deleted=0 groups_written=0 groups_deleted=0 org_units_w

@@ -1,0 +1,14 @@
+== 07:40:36 Keycloak admin: create group /t/00000000-0000-4000-8000-0000000000a1/service-desk, add Alice
+create group -> 201
+add alice -> 204
+kc group id 2d8c660c-7204-44b2-86e4-6327c78a134d; alice kc id 0378eca1-0fad-4094-a3e9-dd08fe425eb6
+time=2026-10-27T07:41:02.537Z level=INFO msg="group sync applied" tenant_id=00000000-0000-4000-8000-0000000000a1 principals_written=0 principals_deleted=0 groups_written=1 groups_deleted=0 org_units_written=0 org_units_deleted=0 ignored_outside_subtree=0
+time=2026-10-27T07:41:02.760Z level=INFO msg="group sync applied" tenant_id=00000000-0000-4000-8000-0000000000b1 principals_written=0 principals_deleted=0 groups_written=0 groups_deleted=0 org_units_written=0 org_units_deleted=0 ignored_outside_subtree=0
+time=2026-10-27T07:41:02.761Z level=INFO msg="nava-groupsync --once done" tenants=2 failed=0
+              tenant_id               |                  id                  |                         path                         |        email        
+--------------------------------------+--------------------------------------+------------------------------------------------------+---------------------
+ 00000000-0000-4000-8000-0000000000a1 | 3c7d56ac-0f7f-45ac-8d8c-b77fabc21f9b | /t/00000000-0000-4000-8000-0000000000a1/service-desk | alice@tenant-a.test
+(1 row)
+
+alice GET /api/v1/me -> 200 {"groups":["3c7d56ac-0f7f-45ac-8d8c-b77fabc21f9b"],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"1f92eb04-8073-4736-9944-39f907cfbb4f"}
+bob   GET /api/v1/me -> 200 {"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000b1","user_id":"e19bb006-5b73-4a2a-bffe-0dad7829d3b7"}

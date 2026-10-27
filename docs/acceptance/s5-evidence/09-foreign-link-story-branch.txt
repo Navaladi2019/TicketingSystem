@@ -1,0 +1,8 @@
+== 08:13:41 Alice still linked to idp-tenant-b; one sync with the story branch alone (cd715c4)
+time=2026-10-27T08:13:55.032Z level=INFO msg="nava-groupsync --once done" tenants=2 failed=0
+        email        | enabled |                        federated_links                        
+---------------------+---------+---------------------------------------------------------------
+ alice@tenant-a.test | t       | [{"userId": "ext-qa-s5", "identityProvider": "idp-tenant-b"}]
+(1 row)
+
+new token /me -> 401 {"type":"urn:nava:problem:tenant_unresolved","title":"Tenant unresolved","status":401,"code":"tenant_unresolved","detail":"The request could not be tied to a tenant.","instance":"urn:nava:request:a639f7cf48be465d5409af46c1e4a048"}

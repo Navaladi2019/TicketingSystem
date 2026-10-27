@@ -1,0 +1,34 @@
+== 07:31:48 seed tenants A and B (platform DB, as bootstrap superuser)
+                  id                  | state  |              issuer              |                org_id                
+--------------------------------------+--------+----------------------------------+--------------------------------------
+ 00000000-0000-4000-8000-0000000000a1 | active | http://keycloak:8080/realms/nava | 00000000-0000-4000-8000-0000000000a1
+ 00000000-0000-4000-8000-0000000000b1 | active | http://keycloak:8080/realms/nava | 00000000-0000-4000-8000-0000000000b1
+(2 rows)
+
+== 07:32:06 Alice before any sync
+claims: {"iss": "http://keycloak:8080/realms/nava", "sub": "0378eca1-0fad-4094-a3e9-dd08fe425eb6", "aud": "nava-api", "azp": "nava-web", "typ": "Bearer", "organization": {"tenant-a": {"id": "00000000-0000-4000-8000-0000000000a1"}}, "iat": 1793086330, "exp": 1793086630}
+cat: /tmp/s5body: No such file or directory
+GET /api/v1/me -> 401 
+== 07:32:18 nava-groupsync --once
+docker: --env-file: open /c/Users/vknav/multica_workspaces/ticket-4c6f7183f414/tick-47-9113f1dc2302/workdir/qa-bin/gs.env: The system cannot find the path specified.
+
+Run 'docker run --help' for more information
+== 07:32:44 identity tables after sync (superuser view, both tenants)
+ tenant_id | keycloak_user_id | email | enabled 
+-----------+------------------+-------+---------
+(0 rows)
+
+ tenant_id | id | path 
+-----------+----+------
+(0 rows)
+
+ tenant_id | path | email 
+-----------+------+-------
+(0 rows)
+
+== 07:33:08 Alice (tenant A) and Bob (tenant B) after sync
+cat: /tmp/s5body: No such file or directory
+alice GET /api/v1/me -> 401 
+bob claims: {"iss": "http://keycloak:8080/realms/nava", "sub": "3c9e5c51-e468-4293-b1c9-832e1253459f", "aud": "nava-api", "azp": "nava-web", "typ": "Bearer", "organization": {"tenant-b": {"id": "00000000-0000-4000-8000-0000000000b1"}}, "iat": 1793086395, "exp": 1793086695}
+cat: /tmp/s5body: No such file or directory
+bob   GET /api/v1/me -> 401 
