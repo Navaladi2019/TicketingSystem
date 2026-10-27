@@ -55,6 +55,7 @@ const (
 
 // ErrOrgRouteDenied is returned, with nothing sent, for a request to an
 // /organizations route the account may not call.
+// It also covers a non-canonical path outside /organizations (see allows).
 var ErrOrgRouteDenied = errors.New("keycloak admin: organizations route not allowed for this account")
 
 // allows reports whether the account may send method to path (the real path
