@@ -1,25 +1,25 @@
 # S4 acceptance evidence (TICK-46)
 
-Recorded by `TestS4Acceptance` (`internal/identitystack/s4_acceptance_test.go`) on 2026-10-27T21:21:20Z. Tokens are never recorded; the IdP client secret is redacted.
+Recorded by `TestS4Acceptance` (`internal/identitystack/s4_acceptance_test.go`) on 2026-10-27T23:29:22Z. Tokens are never recorded; the IdP client secret is redacted.
 
-Tenant A: `bbb083da-f46c-5ea4-afe3-d844c007e16d`, domain `onb-bbb083da.test`, admin `admin@onb-bbb083da.test`.
-Tenant B: `89f34f39-3b83-59b0-9000-5d62fe331118`, domain `onb-89f34f39.test`, admin `admin@onb-89f34f39.test`.
+Tenant A: `04406bef-2a3e-5698-9ce8-6e79c88968a2`, domain `onb-04406bef.test`, admin `admin@onb-04406bef.test`.
+Tenant B: `3c10c663-6833-5bea-96ff-1eb9f1201e72`, domain `onb-3c10c663.test`, admin `admin@onb-3c10c663.test`.
 
 
 ## Criterion 1: 201 with the tenant id; a replay returns the same body and creates nothing
 
-First call, tenant onb-bbb083da.test:
+First call, tenant onb-04406bef.test:
 
 ```http
 POST /api/v1/operator/tenants (nava-onboard :8081)
 Authorization: Bearer <operator@nava.test token>
-Idempotency-Key: e5b0895b-0ede-4a87-b0fd-94db8f00c2e2
+Idempotency-Key: 8dcc6eda-1d8e-45b9-b0ca-856a05ab8264
 Content-Type: application/json
 
 {
-  "admin_email": "admin@onb-bbb083da.test",
+  "admin_email": "admin@onb-04406bef.test",
   "email_domains": [
-    "onb-bbb083da.test"
+    "onb-04406bef.test"
   ],
   "identity_provider": {
     "config": {
@@ -32,7 +32,7 @@ Content-Type: application/json
       "tokenUrl": "https://93.184.216.34/token",
       "useJwksUrl": "true"
     },
-    "display_name": "Onboarded onb-bbb083da.test",
+    "display_name": "Onboarded onb-04406bef.test",
     "provider_id": "oidc"
   }
 }
@@ -41,22 +41,22 @@ Content-Type: application/json
 ```http
 HTTP/1.1 201
 
-{"state":"active","tenant_id":"bbb083da-f46c-5ea4-afe3-d844c007e16d"}
+{"state":"active","tenant_id":"04406bef-2a3e-5698-9ce8-6e79c88968a2"}
 ```
 
-- **PASS** first call: 201, tenant_id `bbb083da-f46c-5ea4-afe3-d844c007e16d`, state `active` (want 201, `bbb083da-f46c-5ea4-afe3-d844c007e16d`, `active`)
+- **PASS** first call: 201, tenant_id `04406bef-2a3e-5698-9ce8-6e79c88968a2`, state `active` (want 201, `04406bef-2a3e-5698-9ce8-6e79c88968a2`, `active`)
 Replay, same key and body:
 
 ```http
 POST /api/v1/operator/tenants (nava-onboard :8081)
 Authorization: Bearer <operator@nava.test token>
-Idempotency-Key: e5b0895b-0ede-4a87-b0fd-94db8f00c2e2
+Idempotency-Key: 8dcc6eda-1d8e-45b9-b0ca-856a05ab8264
 Content-Type: application/json
 
 {
-  "admin_email": "admin@onb-bbb083da.test",
+  "admin_email": "admin@onb-04406bef.test",
   "email_domains": [
-    "onb-bbb083da.test"
+    "onb-04406bef.test"
   ],
   "identity_provider": {
     "config": {
@@ -69,7 +69,7 @@ Content-Type: application/json
       "tokenUrl": "https://93.184.216.34/token",
       "useJwksUrl": "true"
     },
-    "display_name": "Onboarded onb-bbb083da.test",
+    "display_name": "Onboarded onb-04406bef.test",
     "provider_id": "oidc"
   }
 }
@@ -78,24 +78,24 @@ Content-Type: application/json
 ```http
 HTTP/1.1 200
 
-{"state":"active","tenant_id":"bbb083da-f46c-5ea4-afe3-d844c007e16d"}
+{"state":"active","tenant_id":"04406bef-2a3e-5698-9ce8-6e79c88968a2"}
 ```
 
 - **PASS** replay status 200 (documented: 200 for a replay of a completed request)
 - **PASS** replay body is byte-identical to the first body
-- **PASS** nothing new: before replay `1 tenants, 1 bindings, 1 email domains, 1 invites, 1 Keycloak organizations t-bbb083da-f46c-5ea4-afe3-d844c007e16d`, after `1 tenants, 1 bindings, 1 email domains, 1 invites, 1 Keycloak organizations t-bbb083da-f46c-5ea4-afe3-d844c007e16d`
+- **PASS** nothing new: before replay `1 tenants, 1 bindings, 1 email domains, 1 invites, 1 Keycloak organizations t-04406bef-2a3e-5698-9ce8-6e79c88968a2`, after `1 tenants, 1 bindings, 1 email domains, 1 invites, 1 Keycloak organizations t-04406bef-2a3e-5698-9ce8-6e79c88968a2`
 Same key, different body:
 
 ```http
 POST /api/v1/operator/tenants (nava-onboard :8081)
 Authorization: Bearer <operator@nava.test token>
-Idempotency-Key: e5b0895b-0ede-4a87-b0fd-94db8f00c2e2
+Idempotency-Key: 8dcc6eda-1d8e-45b9-b0ca-856a05ab8264
 Content-Type: application/json
 
 {
-  "admin_email": "admin@onb-bbb083da.test",
+  "admin_email": "admin@onb-04406bef.test",
   "email_domains": [
-    "onb-bbb083da.test"
+    "onb-04406bef.test"
   ],
   "identity_provider": {
     "config": {
@@ -108,7 +108,7 @@ Content-Type: application/json
       "tokenUrl": "https://93.184.216.34/token",
       "useJwksUrl": "true"
     },
-    "display_name": "Changed onb-bbb083da.test",
+    "display_name": "Changed onb-04406bef.test",
     "provider_id": "oidc"
   }
 }
@@ -122,19 +122,19 @@ HTTP/1.1 409
 
 - **PASS** same key with a different body: 409 (want 409 `idempotency_key_reuse`)
 - **PASS** nothing new after the conflicting call
-- **PASS** the admin `admin@onb-bbb083da.test` has a pending invite and no Keycloak user yet
-First call, tenant onb-89f34f39.test:
+- **PASS** the admin `admin@onb-04406bef.test` has a pending invite and no Keycloak user yet
+First call, tenant onb-3c10c663.test:
 
 ```http
 POST /api/v1/operator/tenants (nava-onboard :8081)
 Authorization: Bearer <operator@nava.test token>
-Idempotency-Key: cf448165-f42e-4e2b-b500-4712c404feed
+Idempotency-Key: b1ede569-5148-4a47-a9bc-17c68b48b9c3
 Content-Type: application/json
 
 {
-  "admin_email": "admin@onb-89f34f39.test",
+  "admin_email": "admin@onb-3c10c663.test",
   "email_domains": [
-    "onb-89f34f39.test"
+    "onb-3c10c663.test"
   ],
   "identity_provider": {
     "config": {
@@ -147,7 +147,7 @@ Content-Type: application/json
       "tokenUrl": "https://93.184.216.34/token",
       "useJwksUrl": "true"
     },
-    "display_name": "Onboarded onb-89f34f39.test",
+    "display_name": "Onboarded onb-3c10c663.test",
     "provider_id": "oidc"
   }
 }
@@ -156,22 +156,22 @@ Content-Type: application/json
 ```http
 HTTP/1.1 201
 
-{"state":"active","tenant_id":"89f34f39-3b83-59b0-9000-5d62fe331118"}
+{"state":"active","tenant_id":"3c10c663-6833-5bea-96ff-1eb9f1201e72"}
 ```
 
-- **PASS** first call: 201, tenant_id `89f34f39-3b83-59b0-9000-5d62fe331118`, state `active` (want 201, `89f34f39-3b83-59b0-9000-5d62fe331118`, `active`)
+- **PASS** first call: 201, tenant_id `3c10c663-6833-5bea-96ff-1eb9f1201e72`, state `active` (want 201, `3c10c663-6833-5bea-96ff-1eb9f1201e72`, `active`)
 Replay, same key and body:
 
 ```http
 POST /api/v1/operator/tenants (nava-onboard :8081)
 Authorization: Bearer <operator@nava.test token>
-Idempotency-Key: cf448165-f42e-4e2b-b500-4712c404feed
+Idempotency-Key: b1ede569-5148-4a47-a9bc-17c68b48b9c3
 Content-Type: application/json
 
 {
-  "admin_email": "admin@onb-89f34f39.test",
+  "admin_email": "admin@onb-3c10c663.test",
   "email_domains": [
-    "onb-89f34f39.test"
+    "onb-3c10c663.test"
   ],
   "identity_provider": {
     "config": {
@@ -184,7 +184,7 @@ Content-Type: application/json
       "tokenUrl": "https://93.184.216.34/token",
       "useJwksUrl": "true"
     },
-    "display_name": "Onboarded onb-89f34f39.test",
+    "display_name": "Onboarded onb-3c10c663.test",
     "provider_id": "oidc"
   }
 }
@@ -193,24 +193,24 @@ Content-Type: application/json
 ```http
 HTTP/1.1 200
 
-{"state":"active","tenant_id":"89f34f39-3b83-59b0-9000-5d62fe331118"}
+{"state":"active","tenant_id":"3c10c663-6833-5bea-96ff-1eb9f1201e72"}
 ```
 
 - **PASS** replay status 200 (documented: 200 for a replay of a completed request)
 - **PASS** replay body is byte-identical to the first body
-- **PASS** nothing new: before replay `2 tenants, 2 bindings, 2 email domains, 2 invites, 1 Keycloak organizations t-89f34f39-3b83-59b0-9000-5d62fe331118`, after `2 tenants, 2 bindings, 2 email domains, 2 invites, 1 Keycloak organizations t-89f34f39-3b83-59b0-9000-5d62fe331118`
+- **PASS** nothing new: before replay `2 tenants, 2 bindings, 2 email domains, 2 invites, 1 Keycloak organizations t-3c10c663-6833-5bea-96ff-1eb9f1201e72`, after `2 tenants, 2 bindings, 2 email domains, 2 invites, 1 Keycloak organizations t-3c10c663-6833-5bea-96ff-1eb9f1201e72`
 Same key, different body:
 
 ```http
 POST /api/v1/operator/tenants (nava-onboard :8081)
 Authorization: Bearer <operator@nava.test token>
-Idempotency-Key: cf448165-f42e-4e2b-b500-4712c404feed
+Idempotency-Key: b1ede569-5148-4a47-a9bc-17c68b48b9c3
 Content-Type: application/json
 
 {
-  "admin_email": "admin@onb-89f34f39.test",
+  "admin_email": "admin@onb-3c10c663.test",
   "email_domains": [
-    "onb-89f34f39.test"
+    "onb-3c10c663.test"
   ],
   "identity_provider": {
     "config": {
@@ -223,7 +223,7 @@ Content-Type: application/json
       "tokenUrl": "https://93.184.216.34/token",
       "useJwksUrl": "true"
     },
-    "display_name": "Changed onb-89f34f39.test",
+    "display_name": "Changed onb-3c10c663.test",
     "provider_id": "oidc"
   }
 }
@@ -237,121 +237,121 @@ HTTP/1.1 409
 
 - **PASS** same key with a different body: 409 (want 409 `idempotency_key_reuse`)
 - **PASS** nothing new after the conflicting call
-- **PASS** the admin `admin@onb-89f34f39.test` has a pending invite and no Keycloak user yet
+- **PASS** the admin `admin@onb-3c10c663.test` has a pending invite and no Keycloak user yet
 
 ## Criterion 2: the new admin signs in and is scoped to the new tenant
 
-- **PASS** `admin@onb-bbb083da.test` signed in through IdP `idp-bbb083da-f46c-5ea4-afe3-d844c007e16d`; the token's `organization` claim is exactly `t-bbb083da-f46c-5ea4-afe3-d844c007e16d`
-- **PASS** `admin@onb-89f34f39.test` signed in through IdP `idp-89f34f39-3b83-59b0-9000-5d62fe331118`; the token's `organization` claim is exactly `t-89f34f39-3b83-59b0-9000-5d62fe331118`
+- **PASS** `admin@onb-04406bef.test` signed in through IdP `idp-04406bef-2a3e-5698-9ce8-6e79c88968a2`; the token's `organization` claim is exactly `t-04406bef-2a3e-5698-9ce8-6e79c88968a2`
+- **PASS** `admin@onb-3c10c663.test` signed in through IdP `idp-3c10c663-6833-5bea-96ff-1eb9f1201e72`; the token's `organization` claim is exactly `t-3c10c663-6833-5bea-96ff-1eb9f1201e72`
 One `nava-groupsync --once` cycle ran (the long-running service is paused for the test so its own cycle cannot hold a tenant's lock).
 
-Admin of onb-bbb083da.test:
+Admin of onb-04406bef.test:
 
 ```http
 GET /api/v1/me (nava-core)
-Authorization: Bearer <admin@onb-bbb083da.test token>
+Authorization: Bearer <admin@onb-04406bef.test token>
 ```
 
 ```http
 HTTP/1.1 200
 
-{"groups":[],"idp_alias":"idp-bbb083da-f46c-5ea4-afe3-d844c007e16d","tenant_id":"bbb083da-f46c-5ea4-afe3-d844c007e16d","user_id":"762c9186-11a7-45d4-ab84-4808eb7f0e2d"}
+{"groups":[],"idp_alias":"idp-04406bef-2a3e-5698-9ce8-6e79c88968a2","tenant_id":"04406bef-2a3e-5698-9ce8-6e79c88968a2","user_id":"6fe48e19-a350-47ff-9859-aa2b26a50b12"}
 ```
 
-- **PASS** `/me` is tenant `bbb083da-f46c-5ea4-afe3-d844c007e16d` via `idp-bbb083da-f46c-5ea4-afe3-d844c007e16d` (got 200, tenant `bbb083da-f46c-5ea4-afe3-d844c007e16d`, idp `idp-bbb083da-f46c-5ea4-afe3-d844c007e16d`)
-- **PASS** `admin@onb-bbb083da.test` is in `/t/bbb083da-f46c-5ea4-afe3-d844c007e16d/` and the invite is consumed
-Admin of onb-89f34f39.test:
+- **PASS** `/me` is tenant `04406bef-2a3e-5698-9ce8-6e79c88968a2` via `idp-04406bef-2a3e-5698-9ce8-6e79c88968a2` (got 200, tenant `04406bef-2a3e-5698-9ce8-6e79c88968a2`, idp `idp-04406bef-2a3e-5698-9ce8-6e79c88968a2`)
+- **PASS** `admin@onb-04406bef.test` is in `/t/04406bef-2a3e-5698-9ce8-6e79c88968a2/` and the invite is consumed
+Admin of onb-3c10c663.test:
 
 ```http
 GET /api/v1/me (nava-core)
-Authorization: Bearer <admin@onb-89f34f39.test token>
+Authorization: Bearer <admin@onb-3c10c663.test token>
 ```
 
 ```http
 HTTP/1.1 200
 
-{"groups":[],"idp_alias":"idp-89f34f39-3b83-59b0-9000-5d62fe331118","tenant_id":"89f34f39-3b83-59b0-9000-5d62fe331118","user_id":"76201aad-325d-4ea9-8b45-e1b00675d756"}
+{"groups":[],"idp_alias":"idp-3c10c663-6833-5bea-96ff-1eb9f1201e72","tenant_id":"3c10c663-6833-5bea-96ff-1eb9f1201e72","user_id":"287d9116-9b3c-4698-959b-c4612180be1a"}
 ```
 
-- **PASS** `/me` is tenant `89f34f39-3b83-59b0-9000-5d62fe331118` via `idp-89f34f39-3b83-59b0-9000-5d62fe331118` (got 200, tenant `89f34f39-3b83-59b0-9000-5d62fe331118`, idp `idp-89f34f39-3b83-59b0-9000-5d62fe331118`)
-- **PASS** `admin@onb-89f34f39.test` is in `/t/89f34f39-3b83-59b0-9000-5d62fe331118/` and the invite is consumed
+- **PASS** `/me` is tenant `3c10c663-6833-5bea-96ff-1eb9f1201e72` via `idp-3c10c663-6833-5bea-96ff-1eb9f1201e72` (got 200, tenant `3c10c663-6833-5bea-96ff-1eb9f1201e72`, idp `idp-3c10c663-6833-5bea-96ff-1eb9f1201e72`)
+- **PASS** `admin@onb-3c10c663.test` is in `/t/3c10c663-6833-5bea-96ff-1eb9f1201e72/` and the invite is consumed
 
 ## Isolation check: tenant B cannot see or change what onboarding created for tenant A
 
-Admin of onb-89f34f39.test names tenant onb-bbb083da.test:
+Admin of onb-3c10c663.test names tenant onb-04406bef.test:
 
 ```http
 GET /api/v1/me (nava-core)
-Authorization: Bearer <admin@onb-89f34f39.test token>
-X-Tenant-Id: bbb083da-f46c-5ea4-afe3-d844c007e16d
+Authorization: Bearer <admin@onb-3c10c663.test token>
+X-Tenant-Id: 04406bef-2a3e-5698-9ce8-6e79c88968a2
 ```
 
 ```http
 HTTP/1.1 200
 
-{"groups":[],"idp_alias":"idp-89f34f39-3b83-59b0-9000-5d62fe331118","tenant_id":"89f34f39-3b83-59b0-9000-5d62fe331118","user_id":"76201aad-325d-4ea9-8b45-e1b00675d756"}
+{"groups":[],"idp_alias":"idp-3c10c663-6833-5bea-96ff-1eb9f1201e72","tenant_id":"3c10c663-6833-5bea-96ff-1eb9f1201e72","user_id":"287d9116-9b3c-4698-959b-c4612180be1a"}
 ```
 
-- **PASS** still tenant `89f34f39-3b83-59b0-9000-5d62fe331118`, never `bbb083da-f46c-5ea4-afe3-d844c007e16d`
-Admin of onb-89f34f39.test names tenant onb-bbb083da.test:
+- **PASS** still tenant `3c10c663-6833-5bea-96ff-1eb9f1201e72`, never `04406bef-2a3e-5698-9ce8-6e79c88968a2`
+Admin of onb-3c10c663.test names tenant onb-04406bef.test:
 
 ```http
-GET /api/v1/me?tenant_id=bbb083da-f46c-5ea4-afe3-d844c007e16d (nava-core)
-Authorization: Bearer <admin@onb-89f34f39.test token>
+GET /api/v1/me?tenant_id=04406bef-2a3e-5698-9ce8-6e79c88968a2 (nava-core)
+Authorization: Bearer <admin@onb-3c10c663.test token>
 ```
 
 ```http
 HTTP/1.1 200
 
-{"groups":[],"idp_alias":"idp-89f34f39-3b83-59b0-9000-5d62fe331118","tenant_id":"89f34f39-3b83-59b0-9000-5d62fe331118","user_id":"76201aad-325d-4ea9-8b45-e1b00675d756"}
+{"groups":[],"idp_alias":"idp-3c10c663-6833-5bea-96ff-1eb9f1201e72","tenant_id":"3c10c663-6833-5bea-96ff-1eb9f1201e72","user_id":"287d9116-9b3c-4698-959b-c4612180be1a"}
 ```
 
-- **PASS** still tenant `89f34f39-3b83-59b0-9000-5d62fe331118`, never `bbb083da-f46c-5ea4-afe3-d844c007e16d`
-- **PASS** `admin@onb-89f34f39.test` is not in `/t/bbb083da-f46c-5ea4-afe3-d844c007e16d/` and not a member of organization `t-bbb083da-f46c-5ea4-afe3-d844c007e16d`
-- **PASS** `admin@onb-89f34f39.test` holds no link to `idp-bbb083da-f46c-5ea4-afe3-d844c007e16d`
-Admin of onb-bbb083da.test names tenant onb-89f34f39.test:
+- **PASS** still tenant `3c10c663-6833-5bea-96ff-1eb9f1201e72`, never `04406bef-2a3e-5698-9ce8-6e79c88968a2`
+- **PASS** `admin@onb-3c10c663.test` is not in `/t/04406bef-2a3e-5698-9ce8-6e79c88968a2/` and not a member of organization `t-04406bef-2a3e-5698-9ce8-6e79c88968a2`
+- **PASS** `admin@onb-3c10c663.test` holds no link to `idp-04406bef-2a3e-5698-9ce8-6e79c88968a2`
+Admin of onb-04406bef.test names tenant onb-3c10c663.test:
 
 ```http
 GET /api/v1/me (nava-core)
-Authorization: Bearer <admin@onb-bbb083da.test token>
-X-Tenant-Id: 89f34f39-3b83-59b0-9000-5d62fe331118
+Authorization: Bearer <admin@onb-04406bef.test token>
+X-Tenant-Id: 3c10c663-6833-5bea-96ff-1eb9f1201e72
 ```
 
 ```http
 HTTP/1.1 200
 
-{"groups":[],"idp_alias":"idp-bbb083da-f46c-5ea4-afe3-d844c007e16d","tenant_id":"bbb083da-f46c-5ea4-afe3-d844c007e16d","user_id":"762c9186-11a7-45d4-ab84-4808eb7f0e2d"}
+{"groups":[],"idp_alias":"idp-04406bef-2a3e-5698-9ce8-6e79c88968a2","tenant_id":"04406bef-2a3e-5698-9ce8-6e79c88968a2","user_id":"6fe48e19-a350-47ff-9859-aa2b26a50b12"}
 ```
 
-- **PASS** still tenant `bbb083da-f46c-5ea4-afe3-d844c007e16d`, never `89f34f39-3b83-59b0-9000-5d62fe331118`
-Admin of onb-bbb083da.test names tenant onb-89f34f39.test:
+- **PASS** still tenant `04406bef-2a3e-5698-9ce8-6e79c88968a2`, never `3c10c663-6833-5bea-96ff-1eb9f1201e72`
+Admin of onb-04406bef.test names tenant onb-3c10c663.test:
 
 ```http
-GET /api/v1/me?tenant_id=89f34f39-3b83-59b0-9000-5d62fe331118 (nava-core)
-Authorization: Bearer <admin@onb-bbb083da.test token>
+GET /api/v1/me?tenant_id=3c10c663-6833-5bea-96ff-1eb9f1201e72 (nava-core)
+Authorization: Bearer <admin@onb-04406bef.test token>
 ```
 
 ```http
 HTTP/1.1 200
 
-{"groups":[],"idp_alias":"idp-bbb083da-f46c-5ea4-afe3-d844c007e16d","tenant_id":"bbb083da-f46c-5ea4-afe3-d844c007e16d","user_id":"762c9186-11a7-45d4-ab84-4808eb7f0e2d"}
+{"groups":[],"idp_alias":"idp-04406bef-2a3e-5698-9ce8-6e79c88968a2","tenant_id":"04406bef-2a3e-5698-9ce8-6e79c88968a2","user_id":"6fe48e19-a350-47ff-9859-aa2b26a50b12"}
 ```
 
-- **PASS** still tenant `bbb083da-f46c-5ea4-afe3-d844c007e16d`, never `89f34f39-3b83-59b0-9000-5d62fe331118`
-- **PASS** `admin@onb-bbb083da.test` is not in `/t/89f34f39-3b83-59b0-9000-5d62fe331118/` and not a member of organization `t-89f34f39-3b83-59b0-9000-5d62fe331118`
-- **PASS** `admin@onb-bbb083da.test` holds no link to `idp-89f34f39-3b83-59b0-9000-5d62fe331118`
+- **PASS** still tenant `04406bef-2a3e-5698-9ce8-6e79c88968a2`, never `3c10c663-6833-5bea-96ff-1eb9f1201e72`
+- **PASS** `admin@onb-04406bef.test` is not in `/t/3c10c663-6833-5bea-96ff-1eb9f1201e72/` and not a member of organization `t-3c10c663-6833-5bea-96ff-1eb9f1201e72`
+- **PASS** `admin@onb-04406bef.test` holds no link to `idp-3c10c663-6833-5bea-96ff-1eb9f1201e72`
 A new tenant claims tenant A's domain:
 
 ```http
 POST /api/v1/operator/tenants (nava-onboard :8081)
 Authorization: Bearer <operator@nava.test token>
-Idempotency-Key: 01060071-9a58-4904-beee-9344c1110dde
+Idempotency-Key: a0eba041-b6d0-4191-ba7f-877646a17fbc
 Content-Type: application/json
 
 {
-  "admin_email": "admin@onb-bbb083da.test",
+  "admin_email": "admin@onb-04406bef.test",
   "email_domains": [
-    "onb-bbb083da.test"
+    "onb-04406bef.test"
   ],
   "identity_provider": {
     "config": {
@@ -364,7 +364,7 @@ Content-Type: application/json
       "tokenUrl": "https://93.184.216.34/token",
       "useJwksUrl": "true"
     },
-    "display_name": "Onboarded onb-bbb083da.test",
+    "display_name": "Onboarded onb-04406bef.test",
     "provider_id": "oidc"
   }
 }
@@ -373,46 +373,47 @@ Content-Type: application/json
 ```http
 HTTP/1.1 409
 
-{"type":"urn:nava:problem:domain_claimed","title":"Email domain already claimed","status":409,"code":"domain_claimed","detail":"An email domain of the request is already claimed by a tenant.","instance":"urn:nava:request:67d9ea77ebe051e11f317b95b1f4ea7c"}
+{"type":"urn:nava:problem:domain_claimed","title":"Email domain already claimed","status":409,"code":"domain_claimed","detail":"An email domain of the request is already claimed by a tenant.","instance":"urn:nava:request:bd135e5c03ab013bf516e3549cadcc3c"}
 ```
 
 - **PASS** 409 `domain_claimed` (want 409 `domain_claimed`)
-- **PASS** the body names neither tenant A (`bbb083da-f46c-5ea4-afe3-d844c007e16d`) nor its organization (`t-bbb083da-f46c-5ea4-afe3-d844c007e16d`, id `56f0ad23-448d-4506-96ff-9d5b96a28fdc`) nor its IdP
-- **PASS** `onb-bbb083da.test` is still owned by tenant A (got `bbb083da-f46c-5ea4-afe3-d844c007e16d`)
-- **PASS** no `tenants` row (provisioning or otherwise) for the refused tenant `2366ef6b-254b-5919-8f53-0fb2980f16a4` (got 0)
-- **PASS** no Keycloak organization `t-2366ef6b-254b-5919-8f53-0fb2980f16a4` (got [])
-- **PASS** no second invite for `admin@onb-bbb083da.test`
+- **PASS** the body names neither tenant A (`04406bef-2a3e-5698-9ce8-6e79c88968a2`) nor its organization (`t-04406bef-2a3e-5698-9ce8-6e79c88968a2`, id `7da4873b-8001-40cc-9d1f-d2051492f966`) nor its IdP
+- **PASS** `onb-04406bef.test` is still owned by tenant A (got `04406bef-2a3e-5698-9ce8-6e79c88968a2`)
+- **PASS** no `tenants` row (provisioning or otherwise) for the refused tenant `5597daa7-c51a-5fa1-9433-2822a19960f0` (got 0)
+- **PASS** no Keycloak organization `t-5597daa7-c51a-5fa1-9433-2822a19960f0` (got [])
+- **PASS** no `tenant_email_domain` row for the refused tenant (got 0)
+- **PASS** no second invite for `admin@onb-04406bef.test`
 Tenant B's admin replays A's onboarding on nava-core:
 
 ```http
 POST /api/v1/operator/tenants (nava-core)
-Authorization: Bearer <admin@onb-89f34f39.test token>
-Idempotency-Key: e5b0895b-0ede-4a87-b0fd-94db8f00c2e2
+Authorization: Bearer <admin@onb-3c10c663.test token>
+Idempotency-Key: 8dcc6eda-1d8e-45b9-b0ca-856a05ab8264
 ```
 
 ```http
 HTTP/1.1 501
 
-{"type":"urn:nava:problem:not_implemented","title":"Not implemented","status":501,"code":"not_implemented","detail":"This operation is declared in the contract but not implemented yet.","instance":"urn:nava:request:394bb8e7d033c47519fbd6f78b641220"}
+{"type":"urn:nava:problem:not_implemented","title":"Not implemented","status":501,"code":"not_implemented","detail":"This operation is declared in the contract but not implemented yet.","instance":"urn:nava:request:6c00fd266872381c44a3abe2b2ea93a9"}
 ```
 
-- **PASS** refused with 501; nothing changes for tenant A (`2 tenants, 2 bindings, 2 email domains, 2 invites, 1 Keycloak organizations t-bbb083da-f46c-5ea4-afe3-d844c007e16d`)
+- **PASS** refused with 501; nothing changes for tenant A (`2 tenants, 2 bindings, 2 email domains, 2 invites, 1 Keycloak organizations t-04406bef-2a3e-5698-9ce8-6e79c88968a2`)
 
 ## Criterion 3: inviting a user already federated to another tenant's IdP is rejected
 
-- **PASS** precondition: `lead-bb1e4165@onb-aca5b34b.test` exists and is federated to tenant B's IdP only (`[idp-89f34f39-3b83-59b0-9000-5d62fe331118]`)
+- **PASS** precondition: `lead-3ccf9c8a@onb-09676af6.test` exists and is federated to tenant B's IdP only (`[idp-3c10c663-6833-5bea-96ff-1eb9f1201e72]`)
 Onboard tenant C naming that user as admin:
 
 ```http
 POST /api/v1/operator/tenants (nava-onboard :8081)
 Authorization: Bearer <operator@nava.test token>
-Idempotency-Key: 0931defe-1583-46ff-af33-542fe7fca8cc
+Idempotency-Key: 3e063cc3-b857-4033-86eb-71b92a645b10
 Content-Type: application/json
 
 {
-  "admin_email": "lead-bb1e4165@onb-aca5b34b.test",
+  "admin_email": "lead-3ccf9c8a@onb-09676af6.test",
   "email_domains": [
-    "onb-aca5b34b.test"
+    "onb-09676af6.test"
   ],
   "identity_provider": {
     "config": {
@@ -425,7 +426,7 @@ Content-Type: application/json
       "tokenUrl": "https://93.184.216.34/token",
       "useJwksUrl": "true"
     },
-    "display_name": "Onboarded onb-aca5b34b.test",
+    "display_name": "Onboarded onb-09676af6.test",
     "provider_id": "oidc"
   }
 }
@@ -434,28 +435,28 @@ Content-Type: application/json
 ```http
 HTTP/1.1 201
 
-{"state":"active","tenant_id":"aca5b34b-183f-5a7c-bd8d-aec2f9261d51"}
+{"state":"active","tenant_id":"09676af6-99d9-54b8-ae2e-2fdc73b27a35"}
 ```
 
 Status 201. By design (`docs/operator/onboarding.md` step 5) a refused invite is answered exactly like a sent one.
 
-- **PASS** no invite for `lead-bb1e4165@onb-aca5b34b.test` in tenant C (got `missing`)
-- **PASS** signing in through tenant C's IdP as `lead-bb1e4165@onb-aca5b34b.test` is refused because the account already exists (Keycloak says: "efox = true; nava We are sorry... User with email lead-bb1e4165@onb-aca5b34b.test already exists. Please login to account management to link the accou")
-- **PASS** control: `admin@onb-aca5b34b.test` signs in through the same IdP of tenant C (no error text on the page)
-- **PASS** after a group sync cycle `lead-bb1e4165@onb-aca5b34b.test` is not in `/t/aca5b34b-183f-5a7c-bd8d-aec2f9261d51/` and not a member of `t-aca5b34b-183f-5a7c-bd8d-aec2f9261d51`
-- **PASS** `lead-bb1e4165@onb-aca5b34b.test` holds no link to tenant C's IdP
-`lead-bb1e4165@onb-aca5b34b.test` (signed in through B's IdP) names tenant C:
+- **PASS** no invite for `lead-3ccf9c8a@onb-09676af6.test` in tenant C (got `missing`)
+- **PASS** signing in through tenant C's IdP as `lead-3ccf9c8a@onb-09676af6.test` is refused because the account already exists (Keycloak says: "efox = true; nava We are sorry... User with email lead-3ccf9c8a@onb-09676af6.test already exists. Please login to account management to link the accou")
+- **PASS** control: `admin@onb-09676af6.test` signs in through the same IdP of tenant C (no error text on the page)
+- **PASS** after a group sync cycle `lead-3ccf9c8a@onb-09676af6.test` is not in `/t/09676af6-99d9-54b8-ae2e-2fdc73b27a35/` and not a member of `t-09676af6-99d9-54b8-ae2e-2fdc73b27a35`
+- **PASS** `lead-3ccf9c8a@onb-09676af6.test` holds no link to tenant C's IdP
+`lead-3ccf9c8a@onb-09676af6.test` (signed in through B's IdP) names tenant C:
 
 ```http
 GET /api/v1/me (nava-core)
-Authorization: Bearer <lead-bb1e4165@onb-aca5b34b.test token>
-X-Tenant-Id: aca5b34b-183f-5a7c-bd8d-aec2f9261d51
+Authorization: Bearer <lead-3ccf9c8a@onb-09676af6.test token>
+X-Tenant-Id: 09676af6-99d9-54b8-ae2e-2fdc73b27a35
 ```
 
 ```http
 HTTP/1.1 401
 
-{"type":"urn:nava:problem:tenant_unresolved","title":"Tenant unresolved","status":401,"code":"tenant_unresolved","detail":"The request could not be tied to a tenant.","instance":"urn:nava:request:0c8b6f5153cfa27f6a70fdf6b43b2115"}
+{"type":"urn:nava:problem:tenant_unresolved","title":"Tenant unresolved","status":401,"code":"tenant_unresolved","detail":"The request could not be tied to a tenant.","instance":"urn:nava:request:6159f109d8ab4ee31e4f9d1b3fe6b6b1"}
 ```
 
 - **PASS** `/me` never resolves tenant C (got 401, tenant `00000000-0000-0000-0000-000000000000`)

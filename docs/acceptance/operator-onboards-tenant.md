@@ -2,9 +2,9 @@
 
 Story: TICK-46. Plan: PLAN-001 (`docs/delivery/plan-platform-foundation.md`). Design: ADR-001. Operator reference: [`docs/operator/onboarding.md`](../operator/onboarding.md).
 
-The Quality, Testing & CI Advisor verified this on 2026-10-28, on `TICK-46/operator-onboards-tenant` at `299bdff`: current `main` merged in at `8ef35f2`, including TICK-160, which pins Keycloak's issuer, then the TICK-278 fix (PR #217), which makes `nava-onboard` trust that pinned issuer. The run itself was on PR #217's head `f38301c`, whose tree is identical to `299bdff`. The fresh stack came up with `docker compose down -v`, then `docker compose build && docker compose up --wait`, with the "Try it" ports below. Every service was healthy. `TestS4Acceptance` passed 42 of 42 checks. CI: PR #217 merged with all 8 jobs green ([40584903710](https://github.com/Navaladi2019/TicketingSystem/actions/runs/40584903710)).
+The Quality, Testing & CI Advisor verified this on 2026-10-28, on `TICK-46/operator-onboards-tenant` at `a7408454`. That head is up to date with `main` and includes PRs #218 (TICK-279), #220 (TICK-280, how `nava_onboard` releases a refused tenant's email domains) and #219 (TICK-276). The fresh stack came up with `docker compose down -v`, then `docker compose build && docker compose up --wait`, with the "Try it" ports below. Every service was healthy, and `/readyz` returned `ok` on `nava-core`, `nava-onboard` and `nava-groupsync`. `TestS4Acceptance` passed 43 of 43 checks: the earlier 42, plus a new check that a refused domain claim leaves no `tenant_email_domain` row. CI: story PR #215 at `a7408454`, all 8 jobs green ([40601794092](https://github.com/Navaladi2019/TicketingSystem/actions/runs/40601794092)).
 
-Earlier runs: 42 of 42 at `d256e86`, before the `main` merge. The first run, on 2026-10-27 at `8cf0c88`, failed one isolation item, which TICK-271 fixed. At `8ef35f2`, operator onboarding answered `401` because `nava-onboard` still trusted the pre-TICK-160 issuer; TICK-278 fixed that.
+Earlier runs: 42 of 42 at `299bdff`, before PRs #218, #220 and #219. 42 of 42 at `d256e86`, before the `main` merge. The first run, on 2026-10-27 at `8cf0c88`, failed one isolation item, which TICK-271 fixed. At `8ef35f2`, operator onboarding answered `401` because `nava-onboard` still trusted the pre-TICK-160 issuer; TICK-278 fixed that.
 
 **Status: READY (2026-10-28).**
 
@@ -63,7 +63,7 @@ As a control, another user of C's IdP signs in, which shows the refusal is about
 | B's admin calls `/me` naming A, with `X-Tenant-Id` and with `?tenant_id=`, and A's admin does the same naming B | ✅ Always the caller's own tenant |
 | Each admin's membership in the other tenant | ✅ Not in the other's group or organization, and no link to the other's IdP |
 | B's admin replays A's onboarding request on `nava-core` (the tenant ingress) | ✅ `501`; nothing changes for A |
-| A new tenant claims A's email domain (TICK-271) | ✅ `409 domain_claimed`, and the body names neither tenant A, its organization nor its IdP. A keeps the domain. The refused tenant has no `tenants` row and no Keycloak organization, and no second invite is written |
+| A new tenant claims A's email domain (TICK-271) | ✅ `409 domain_claimed`, and the body names neither tenant A, its organization nor its IdP. A keeps the domain. The refused tenant has no `tenants` row, no `tenant_email_domain` row and no Keycloak organization, and no second invite is written |
 
 ## Not included
 

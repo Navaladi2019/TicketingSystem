@@ -242,7 +242,7 @@ func TestS4Acceptance(t *testing.T) {
 	}
 	// Claiming A's domain for another tenant is 409 domain_claimed (TICK-271):
 	// the body names neither A nor its organization, and the refused tenant
-	// leaves no tenants row and no Keycloak organization.
+	// leaves no tenants row, no email-domain row and no Keycloak organization.
 	{
 		key := uuid.NewString()
 		refused := onboard.TenantID(operatorSub, key)
@@ -262,6 +262,8 @@ func TestS4Acceptance(t *testing.T) {
 		e.check(t, rows == "0", "no `tenants` row (provisioning or otherwise) for the refused tenant `%s` (got %s)", refused, rows)
 		orgs := orgsByAlias(t, onboard.Alias(refused))
 		e.check(t, len(orgs) == 0, "no Keycloak organization `%s` (got %v)", onboard.Alias(refused), orgs)
+		doms := psqlSuper(t, fmt.Sprintf("SELECT count(*) FROM tenant_email_domain WHERE tenant_id = '%s'", refused))
+		e.check(t, doms == "0", "no `tenant_email_domain` row for the refused tenant (got %s)", doms)
 		e.check(t, inviteState(t, a.tenant, a.admin) == "consumed" && psqlSuper(t,
 			fmt.Sprintf("SELECT count(*) FROM pending_invite WHERE email = 'admin@%s'", a.domain)) == "1",
 			"no second invite for `admin@%s`", a.domain)
