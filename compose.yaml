@@ -141,8 +141,12 @@ services:
     # TICK-156: `start --optimized` on an image built with `kc.sh build`.
     # What `start-dev` gave for free is set here on purpose: plain HTTP (the
     # published port and the internal network are not TLS) and no strict
-    # hostname (the issuer follows the request host, as before). The proxy
-    # headers stay off, as in dev. KC_CACHE=local (single node) is in the image.
+    # hostname. TICK-160: the issuer is pinned. KC_HOSTNAME is the full public
+    # URL, so `iss` no longer follows the Host or X-Forwarded-Host header, and
+    # nava-core's allow-list holds that one value (KEYCLOAK_PUBLIC_URL, default
+    # the compose-network URL). Proxy headers stay off: KC_PROXY_HEADERS only
+    # together with KC_PROXY_TRUSTED_ADDRESSES (TestComposeKeycloakIssuerPinned).
+    # KC_CACHE=local (single node) is in the image.
     command: ["start", "--optimized", "--import-realm"]
     volumes:
       - ./deploy/compose/keycloak/import:/opt/keycloak/data/import:ro
@@ -152,7 +156,9 @@ services:
       KC_DB_USERNAME: keycloak
       KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-dev-only-keycloak}
       KC_HTTP_ENABLED: "true"
-      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME: ${KEYCLOAK_PUBLIC_URL:-http://keycloak:8080}
+      KC_HOSTNAME_STRICT: "true"
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "false"
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-dev-only-admin}
     ports:
@@ -308,11 +314,10 @@ services:
       NAVA_TEMPORAL_TLS_SERVER_NAME: temporal
       # nava_app (db/grants.yaml) through PgBouncer; PostgreSQL gates /readyz.
       NAVA_DATABASE_URL: postgres://nava_app:${NAVA_APP_DB_PASSWORD:-dev-only-app}@pgbouncer:5432/nava?sslmode=disable
-      # Tenant access tokens (T17): the exact iss allow-list. Keycloak names
-      # the issuer after the request host (KC_HOSTNAME_STRICT=false), so only
-      # tokens fetched through http://keycloak:8080 match; keys come from that
-      # issuer's own discovery document.
-      NAVA_OIDC_ISSUERS: http://keycloak:8080/realms/nava
+      # Tenant access tokens (T17): the exact iss allow-list, one value. It is
+      # the pinned issuer (KC_HOSTNAME, TICK-160), whatever Host the token
+      # request used; keys come from that issuer's own discovery document.
+      NAVA_OIDC_ISSUERS: ${KEYCLOAK_PUBLIC_URL:-http://keycloak:8080}/realms/nava
       NAVA_LOG_FORMAT: json
       OTEL_SERVICE_NAME: nava-core
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
