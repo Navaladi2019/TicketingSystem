@@ -64,16 +64,6 @@ const (
 // there so COMPOSE_FILE and COMPOSE_PROJECT_NAME from make apply.
 const repoRoot = "../.."
 
-func coreURL() string {
-	if u := os.Getenv("NAVA_TEST_CORE_URL"); u != "" {
-		return strings.TrimRight(u, "/")
-	}
-	if p := os.Getenv("NAVA_CORE_PORT"); p != "" {
-		return "http://localhost:" + p
-	}
-	return "http://localhost:18080"
-}
-
 func dockerOut(t *testing.T, stdin string, args ...string) (string, error) {
 	t.Helper()
 	// Not t.Context() alone: it is already canceled when a Cleanup runs.
@@ -410,14 +400,14 @@ func groupsyncOnce(t *testing.T) {
 	}
 }
 
-type me struct {
+type meResp struct {
 	UserID   uuid.UUID   `json:"user_id"`
 	TenantID uuid.UUID   `json:"tenant_id"`
 	Groups   []uuid.UUID `json:"groups"`
 	IdPAlias string      `json:"idp_alias"`
 }
 
-func getMe(t *testing.T, token, query string, header http.Header) (int, me, []byte) {
+func getMe(t *testing.T, token, query string, header http.Header) (int, meResp, []byte) {
 	t.Helper()
 	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, coreURL()+"/api/v1/me"+query, nil)
 	for k, v := range header {
@@ -425,7 +415,7 @@ func getMe(t *testing.T, token, query string, header http.Header) (int, me, []by
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	code, b := do(t, &http.Client{Timeout: 30 * time.Second}, req)
-	var m me
+	var m meResp
 	_ = json.Unmarshal(b, &m)
 	return code, m, b
 }

@@ -223,7 +223,7 @@ func TestS4Acceptance(t *testing.T) {
 	// Isolation: neither admin reaches the other tenant.
 	e.h("Isolation check: tenant B cannot see or change what onboarding created for tenant A")
 	for _, pair := range [][2]s4Tenant{{b, a}, {a, b}} {
-		me, other := pair[0], pair[1]
+		self, other := pair[0], pair[1]
 		for _, try := range []struct {
 			query  string
 			header http.Header
@@ -231,14 +231,14 @@ func TestS4Acceptance(t *testing.T) {
 			{header: http.Header{"X-Tenant-Id": {other.tenant.String()}}},
 			{query: "?tenant_id=" + other.tenant.String()},
 		} {
-			code, m, raw := getMe(t, toks[me.tenant], try.query, try.header)
-			e.exchange("Admin of "+me.domain+" names tenant "+other.domain+":", meReq(try.query, try.header, me.admin), code, raw)
-			e.check(t, code == http.StatusOK && m.TenantID == me.tenant, "still tenant `%s`, never `%s`", me.tenant, other.tenant)
+			code, m, raw := getMe(t, toks[self.tenant], try.query, try.header)
+			e.exchange("Admin of "+self.domain+" names tenant "+other.domain+":", meReq(try.query, try.header, self.admin), code, raw)
+			e.check(t, code == http.StatusOK && m.TenantID == self.tenant, "still tenant `%s`, never `%s`", self.tenant, other.tenant)
 		}
-		id := kcUserByEmail(t, me.admin)
+		id := kcUserByEmail(t, self.admin)
 		e.check(t, !userInGroup(t, id, kcGroupID(t, "/t/"+other.tenant.String())) && !slices.Contains(orgMembers(t, other.orgID), id),
-			"`%s` is not in `/t/%s/` and not a member of organization `%s`", me.admin, other.tenant, other.alias)
-		e.check(t, !slices.Contains(fedLinks(t, me.admin), other.idpAlias), "`%s` holds no link to `%s`", me.admin, other.idpAlias)
+			"`%s` is not in `/t/%s/` and not a member of organization `%s`", self.admin, other.tenant, other.alias)
+		e.check(t, !slices.Contains(fedLinks(t, self.admin), other.idpAlias), "`%s` holds no link to `%s`", self.admin, other.idpAlias)
 	}
 	// Claiming A's domain for another tenant is 409 domain_claimed (TICK-271):
 	// the body names neither A nor its organization, and the refused tenant
