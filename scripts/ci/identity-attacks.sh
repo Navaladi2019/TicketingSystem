@@ -43,11 +43,11 @@ if [ "$mode" = fixture ]; then
         --health-cmd "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 && head -n1 <&3 | grep -q ' 200 '" \
         --health-interval 3s --health-timeout 5s --health-retries 100 \
         "quay.io/keycloak/keycloak:$kc_tag" start-dev >/dev/null
-    go vet -tags identitystack ./internal/identitystack
+    go vet -tags identitystack,identityfixture ./internal/identitystack
     wait_healthy "$kc" 300
     NAVA_CI5_KC_FIXTURE_URL="http://127.0.0.1:$(hostport "$kc" 8080)"
     export NAVA_CI5_KC_FIXTURE_URL
-    exec go test -tags identitystack -count=1 -v -run '^TestKC2612FixtureOrgPickerTamperSucceeds$' ./internal/identitystack "$@"
+    exec go test -tags identitystack,identityfixture -count=1 -v -run '^TestKC2612FixtureOrgPickerTamperSucceeds$' ./internal/identitystack "$@"
 fi
 
 tag=$(sed -n 's/^| `postgres` | \([^ |]*\) |.*/\1/p' docs/pins.md)

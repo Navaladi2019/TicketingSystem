@@ -324,7 +324,6 @@ stack-idp-realms:
 # TestCI5 needs a platform database: make identity-attacks runs it. The
 # CI-5.06 negative fixture needs Keycloak 26.1.2: make identity-attacks-fixture.
 stack-test-identity:
-	rm -f $(IDENTITY_STREAM)
 	go test -tags identitystack -count=1 -skip '^TestCI5$$' -json ./internal/identitystack > $(IDENTITY_STREAM) || { cat $(IDENTITY_STREAM); exit 1; }
 
 # The CI-5 adversarial identity suite (T19, ADR-001 Annex B CI-5) against the
