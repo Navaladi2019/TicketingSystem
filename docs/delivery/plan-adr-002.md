@@ -4,7 +4,7 @@ id: PLAN-002
 title: Implementing ADR-002 (GET /api/v1/me exposes the caller's group paths)
 adr: "[[ADR-002-me-group-paths]] (APPROVED by nava 2026-10-27, TICK-266 comment 01a17de9; PR #197)"
 issue: TICK-270
-status: PROPOSED
+status: APPROVED by nava 2026-10-27 (TICK-270)
 date: 2026-10-27
 owner: Technical Lead
 ---
