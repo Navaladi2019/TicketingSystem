@@ -15,9 +15,9 @@ package identitystack
 //	make stack-up
 //	make stack-test-onboard
 //
-// The tokens are fetched as http://keycloak:8080, the issuer nava-core and
-// nava-onboard accept (NAVA_OIDC_ISSUERS): Keycloak names the issuer after the
-// request host (KC_HOSTNAME_STRICT=false), so inNet sends that Host header to
+// The tokens are fetched as the pinned issuer (KC_HOSTNAME, TICK-160), the one
+// nava-core and nava-onboard accept (NAVA_OIDC_ISSUERS): Keycloak names it
+// whatever Host the request used, so inNet sends requests for that address to
 // the published port. nava-onboard is never published; the test reaches it
 // with `docker compose exec`, as an operator on the host would.
 
@@ -48,9 +48,6 @@ import (
 )
 
 const (
-	// inNetHost is Keycloak as the platform containers reach it.
-	inNetHost   = "keycloak:8080"
-	inNetIssuer = "http://" + inNetHost + "/realms/nava"
 	// operatorSub is operator@nava.test's fixed id in the realm export, the
 	// subject on NAVA_OPERATORS in compose.yaml.
 	operatorSub  = "00000000-0000-4000-8000-00000000f001"
@@ -103,13 +100,29 @@ func psqlSuper(t *testing.T, sql string) string {
 	return strings.TrimSpace(out)
 }
 
-// inNet is a client whose requests for keycloak:8080 (and for realmHost)
-// go to the Keycloak under test with that Host header kept, so issuers,
-// redirects and cookies are the ones the platform containers see.
-type inNet struct{ host string }
+// pinnedBase is the scheme://host[:port] of the pinned issuer, the address
+// browsers (and the tests) use for Keycloak; pinnedHost is its host[:port].
+func pinnedBase(t *testing.T) string {
+	t.Helper()
+	return strings.TrimSuffix(pinnedIssuer(t), "/realms/nava")
+}
+
+func pinnedHost(t *testing.T) string {
+	t.Helper()
+	u, err := url.Parse(pinnedBase(t))
+	if err != nil || u.Host == "" {
+		t.Fatalf("pinned issuer %q has no host", pinnedIssuer(t))
+	}
+	return u.Host
+}
+
+// inNet is a client whose requests for the pinned address (and for realmHost)
+// go to the Keycloak under test, so issuers, redirects and cookies are the
+// ones a browser sees.
+type inNet struct{ host, pinned string }
 
 func (s inNet) RoundTrip(req *http.Request) (*http.Response, error) {
-	if req.URL.Host == inNetHost || req.URL.Host == realmHost {
+	if req.URL.Host == s.pinned || req.URL.Host == realmHost {
 		host := req.URL.Host
 		req = req.Clone(req.Context())
 		req.URL.Host = s.host
@@ -122,7 +135,7 @@ func (s inNet) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 // secureJar keeps Keycloak's Secure cookies over plain HTTP: the cookiejar
-// treats only localhost as a secure origin, not keycloak:8080.
+// treats only localhost as a secure origin, not the pinned host.
 type secureJar struct{ http.CookieJar }
 
 func asHTTPS(u *url.URL) *url.URL {
@@ -144,23 +157,23 @@ func newInNetClient(t *testing.T) *http.Client {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &http.Client{Jar: secureJar{jar}, Timeout: 30 * time.Second, Transport: inNet{host: u.Host}}
+	return &http.Client{Jar: secureJar{jar}, Timeout: 30 * time.Second, Transport: inNet{host: u.Host, pinned: pinnedHost(t)}}
 }
 
 func inNetToken(t *testing.T, c *http.Client, form url.Values) string {
 	t.Helper()
 	req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost,
-		inNetIssuer+"/protocol/openid-connect/token", strings.NewReader(form.Encode()))
+		pinnedIssuer(t)+"/protocol/openid-connect/token", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	code, body := do(t, c, req)
 	var out struct {
 		AccessToken string `json:"access_token"`
 	}
 	if code != http.StatusOK || json.Unmarshal(body, &out) != nil || out.AccessToken == "" {
-		t.Fatalf("token as %s: %d %.300s", inNetHost, code, body)
+		t.Fatalf("token as %s: %d %.300s", pinnedHost(t), code, body)
 	}
-	if iss, _ := claims(t, out.AccessToken)["iss"].(string); iss != inNetIssuer {
-		t.Fatalf("token iss = %q, want %q", iss, inNetIssuer)
+	if iss, _ := claims(t, out.AccessToken)["iss"].(string); iss != pinnedIssuer(t) {
+		t.Fatalf("token iss = %q, want %q", iss, pinnedIssuer(t))
 	}
 	return out.AccessToken
 }
@@ -244,7 +257,7 @@ func createIdPRealm(t *testing.T, realm, email, pass string) {
 		"clients": []map[string]any{{
 			"clientId": "nava-broker", "enabled": true, "publicClient": false, "clientAuthenticatorType": "client-secret",
 			"secret": "dev-only-broker-secret", "standardFlowEnabled": true,
-			"redirectUris": []string{"http://" + inNetHost + "/realms/nava/broker/*"},
+			"redirectUris": []string{pinnedBase(t) + "/realms/nava/broker/*"},
 		}},
 		"users": []map[string]any{{
 			"username": email, "email": email, "emailVerified": true, "enabled": true, "firstName": "Onboarded", "lastName": "Admin",
@@ -281,7 +294,7 @@ func pointIdPAt(t *testing.T, alias, realm string) {
 	if cfg == nil || cfg["validateSignature"] != "true" || cfg["syncMode"] != "IMPORT" {
 		t.Fatalf("IdP %s config as onboarded = %v, want validateSignature=true and syncMode=IMPORT", alias, cfg)
 	}
-	cfg["authorizationUrl"] = "http://" + inNetHost + "/realms/" + realm + "/protocol/openid-connect/auth"
+	cfg["authorizationUrl"] = pinnedBase(t) + "/realms/" + realm + "/protocol/openid-connect/auth"
 	cfg["tokenUrl"] = "http://localhost:8080/realms/" + realm + "/protocol/openid-connect/token"
 	cfg["jwksUrl"] = "http://localhost:8080/realms/" + realm + "/protocol/openid-connect/certs"
 	// The GET masks the secret, and Keycloak wants it re-entered when the
@@ -294,7 +307,7 @@ func pointIdPAt(t *testing.T, alias, realm string) {
 
 var pageText = regexp.MustCompile(`(?s)<[^>]*>`)
 
-// brokeredSignIn runs the code flow of nava-web as keycloak:8080 with the
+// brokeredSignIn runs the code flow of nava-web at the pinned address with the
 // tenant IdP hinted, signs in at the IdP, and exchanges the code. It fails
 // with the text of the last page when Keycloak does not return a code.
 func brokeredSignIn(t *testing.T, idp, user, pass string) string {
@@ -318,7 +331,7 @@ func brokeredAttempt(t *testing.T, idp, user, pass string) (token, page string) 
 // account audience and roles). The client is public and requires PKCE.
 func accountConsoleSignIn(t *testing.T, idp, user, pass string) string {
 	t.Helper()
-	tok, page := brokeredAttemptAs(t, "account-console", "http://"+inNetHost+"/realms/nava/account/", true, idp, user, pass)
+	tok, page := brokeredAttemptAs(t, "account-console", pinnedBase(t)+"/realms/nava/account/", true, idp, user, pass)
 	if tok == "" {
 		t.Fatalf("the account-console sign-in returned no code; last page: %.600s", page)
 	}
@@ -348,7 +361,7 @@ func brokeredAttemptAs(t *testing.T, clientID, redirect string, pkce bool, idp, 
 		q.Set("code_challenge", base64.RawURLEncoding.EncodeToString(sum[:]))
 		q.Set("code_challenge_method", "S256")
 	}
-	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, inNetIssuer+"/protocol/openid-connect/auth?"+q.Encode(), nil)
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, pinnedIssuer(t)+"/protocol/openid-connect/auth?"+q.Encode(), nil)
 	_, login := do(t, c, req)
 	m := formAction.FindSubmatch(login)
 	if m == nil {
@@ -470,8 +483,8 @@ func TestOnboardedAdminSignsInAndMeShowsTenant(t *testing.T) {
 	}
 	if got := psqlSuper(t, fmt.Sprintf(
 		"SELECT t.state || '|' || b.issuer || '|' || b.org_id || '|' || array_to_string(b.idp_aliases, ',') "+
-			"FROM tenants t JOIN tenant_identity_binding b ON b.tenant_id = t.id WHERE t.id = '%s'", tenant)); got != "active|"+inNetIssuer+"|"+orgs[0]+"|"+idpAlias {
-		t.Fatalf("tenant row and binding = %q, want active, bound to %s %s with IdP %s", got, inNetIssuer, orgs[0], idpAlias)
+			"FROM tenants t JOIN tenant_identity_binding b ON b.tenant_id = t.id WHERE t.id = '%s'", tenant)); got != "active|"+pinnedIssuer(t)+"|"+orgs[0]+"|"+idpAlias {
+		t.Fatalf("tenant row and binding = %q, want active, bound to %s %s with IdP %s", got, pinnedIssuer(t), orgs[0], idpAlias)
 	}
 
 	// Option 2 (TICK-252): onboarding wrote a pending invite and created no

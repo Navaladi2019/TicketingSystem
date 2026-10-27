@@ -136,6 +136,7 @@ func build(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, cfg 
 	}
 	adapter, err = keycloak.New(ctx, keycloak.Config{
 		Issuers:       cfg.OIDCIssuers,
+		FetchBaseURL:  cfg.OIDCFetchBaseURL,
 		Operators:     ops,
 		Logger:        log,
 		MeterProvider: tel.MeterProvider,

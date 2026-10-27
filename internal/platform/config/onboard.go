@@ -33,6 +33,10 @@ type Onboard struct {
 	// them, written to the tenant binding.
 	OIDCIssuers []string
 	Issuer      string
+	// OIDCFetchBaseURL is NAVA_OIDC_FETCH_BASE_URL, the optional back-channel
+	// scheme://host[:port] for discovery and JWKS, as for nava-core. It never
+	// widens the iss allow-list.
+	OIDCFetchBaseURL string
 	// Operators is NAVA_OPERATORS: comma-separated "issuer|subject" pairs
 	// (AR-030). Required: empty would refuse every call.
 	Operators []OperatorEntry
@@ -83,6 +87,7 @@ func LoadOnboard(lookup LookupFunc) (Onboard, error) {
 		OnboardDatabaseURL:  r.databaseURL("NAVA_ONBOARD_DATABASE_URL"),
 		OIDCIssuers:         r.urlList("NAVA_OIDC_ISSUERS"),
 		Issuer:              r.str("NAVA_ONBOARD_ISSUER"),
+		OIDCFetchBaseURL:    strings.TrimRight(r.baseURL("NAVA_OIDC_FETCH_BASE_URL"), "/"),
 		Operators:           r.operators("NAVA_OPERATORS"),
 		KeycloakURL:         r.baseURL("NAVA_KEYCLOAK_URL"),
 		KeycloakRealm:       r.str("NAVA_KEYCLOAK_REALM"),
