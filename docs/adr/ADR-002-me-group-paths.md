@@ -2,19 +2,20 @@
 type: adr
 id: ADR-002
 title: GET /api/v1/me exposes the caller's group paths, tenant-scoped and with the tenant prefix stripped
-status: PROPOSED
+status: ACCEPTED
 date: 2026-10-27
+accepted: 2026-10-27 (nava, TICK-266 comment 01a17de9-2f30-7a42-b1a1-957f349c7122)
 issue: TICK-266
 rfc: docs/adr/ADR-002/rfc/RFC-005-me-group-paths.md (rev 1, archived; thread under TICK-266 comment 01a17cba-2c9e-78fa-ba17-44c5b412abf2)
 supersedes: none
 source: TICK-264 (S5 acceptance, story step 1: "As Alice, GET /api/v1/me shows group service-desk")
 deciders: Solution Architect (author), Technical Architect (APPROVE after R1–R4, round 2), Security & Multi-Tenancy Reviewer (APPROVE, round 1), CTO
-signs: nava (pending)
+signs: nava (signed 2026-10-27: "APPROVED")
 ---
 
 # ADR-002: `/me` shows the caller's group paths
 
-> **Status: PROPOSED, 2026-10-27.** This ADR comes from RFC-005 rev 1. The Security & Multi-Tenancy Reviewer approved it in round 1, and the Technical Architect approved it in round 2 once R1–R4 were applied. The CTO had those corrections folded in here without a further review round (TICK-266 comment `01a17cd9`). It waits for nava's sign-off. The plain-language explainer is `ADR-002-explained.html`.
+> **Status: ACCEPTED, 2026-10-27.** nava approved it on TICK-266 (comment `01a17de9`: "APPROVED"), accepting residuals R-a to R-d (§7). Delivery plans the implementation in TICK-270. This ADR comes from RFC-005 rev 1. The Security & Multi-Tenancy Reviewer approved it in round 1, and the Technical Architect approved it in round 2 once R1–R4 were applied. The CTO had those corrections folded in here without a further review round (TICK-266 comment `01a17cd9`). The plain-language explainer is `ADR-002-explained.html`.
 
 ## 1. Decision
 
