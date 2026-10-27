@@ -19,7 +19,10 @@ cd "$(dirname "$0")/../.."
 fail=0
 pids=""
 ids=""
-base=$(date +%s)
+# Unique per run, as the scripts' own default id (TICK-182): the epoch second
+# alone repeats when two ci-isolated runs start this stage in the same second,
+# and their runs would then remove each other's clusters.
+base=$(date +%s)$$$(od -An -N2 -tu2 /dev/urandom | awk '{printf "%05d", $1}')
 check() { if eval "$2"; then echo "ok:   $1"; else echo "FAIL: $1" >&2; fail=1; fi; }
 # left <id>: the containers and network of the run with that NAVA_IT_ID.
 left() {

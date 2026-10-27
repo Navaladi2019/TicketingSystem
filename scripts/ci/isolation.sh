@@ -19,7 +19,7 @@ MSYS_NO_PATHCONV=1
 export MSYS_NO_PATHCONV
 
 # Pid plus a random suffix, and the labels, as test-integration.sh (TICK-182).
-id=$$$(od -An -N2 -tu2 /dev/urandom | tr -d ' ')
+id=$$$(od -An -N2 -tu2 /dev/urandom | awk '{printf "%05d", $1}')
 pg="nava-iso-pg-$id"
 bouncer="nava-iso-pgb-$id"
 net="nava-iso-net-$id"

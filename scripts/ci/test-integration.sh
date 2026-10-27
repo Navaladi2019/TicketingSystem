@@ -26,7 +26,7 @@ export MSYS_NO_PATHCONV
 # pid plus a random suffix: a pid alone repeats across PID namespaces (Git
 # Bash, WSL, a container on the host's Docker), and two runs of one name
 # remove each other's clusters (TICK-182).
-id=${NAVA_IT_ID:-$$$(od -An -N2 -tu2 /dev/urandom | tr -d ' ')}
+id=${NAVA_IT_ID:-$$$(od -An -N2 -tu2 /dev/urandom | awk '{printf "%05d", $1}')}
 case $id in '' | *[!0-9]*) echo "NAVA_IT_ID=$id: digits only" >&2; exit 2 ;; esac
 # Labels on every container and the network: nava.ci.run is this run,
 # nava.ci.owner the ci-isolated project (COMPOSE_PROJECT_NAME, nava-<id>)
