@@ -55,9 +55,8 @@ const (
 	// subject on NAVA_OPERATORS in compose.yaml.
 	operatorSub  = "00000000-0000-4000-8000-00000000f001"
 	operatorPass = "dev-only-operator"
-	// The onboarding account's secret and the nava_onboard database URL's
-	// user: neither may appear in nava-core's environment.
-	onboardSecret = "dev-only-onboarding-secret"
+	// The nava_onboard database URL's user: it may not appear in nava-core's
+	// environment. The secret values are read from nava-onboard at run time.
 	onboardDBUser = "nava_onboard:"
 )
 
@@ -211,11 +210,14 @@ func onboardPost(t *testing.T, token, key string, body []byte) (int, []byte) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 3*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "docker", "compose", "exec", "-T", "nava-onboard", "wget", "-S", "-T", "120", "-O", "-",
-		"--header", "Authorization: Bearer "+token, "--header", "Idempotency-Key: "+key,
-		"--header", "Content-Type: application/json", "--post-data", string(body),
-		"http://127.0.0.1:8081/api/v1/operator/tenants")
+	// The token goes through the environment, never argv, as
+	// docs/operator/onboarding.md tells the operator to call it.
+	cmd := exec.CommandContext(ctx, "docker", "compose", "exec", "-T", "-e", "NAVA_OPERATOR_TOKEN", "nava-onboard", "sh", "-c",
+		`exec wget -S -T 120 -O - --header "Authorization: Bearer $NAVA_OPERATOR_TOKEN" --header "Idempotency-Key: $1" `+
+			`--header "Content-Type: application/json" --post-data "$2" http://127.0.0.1:8081/api/v1/operator/tenants`,
+		"sh", key, string(body))
 	cmd.Dir = repoRoot
+	cmd.Env = append(os.Environ(), "NAVA_OPERATOR_TOKEN="+token)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	_ = cmd.Run() // non-zero for any error status; the status line decides
@@ -530,8 +532,8 @@ func TestOnboardedAdminSignsInAndMeShowsTenant(t *testing.T) {
 	}
 
 	// Security condition: the token resolves to the new tenant only, whatever
-	// tenant the request names.
-	other := uuid.NewString()
+	// tenant the request names, including a real seeded tenant.
+	other := tenantA.String()
 	for name, try := range map[string]struct {
 		query  string
 		header http.Header
@@ -564,22 +566,48 @@ func TestOnboardDeploymentSeparation(t *testing.T) {
 		}
 		return vs
 	}
-	holdsOnboarding := func(vs []string) []string {
-		var bad []string
+	// The values the running nava-onboard holds, not the compose defaults:
+	// an overridden secret or password must not reach nava-core either.
+	onbEnv := env(onb)
+	lookup := func(vs []string, key string) string {
 		for _, v := range vs {
-			name, val, _ := strings.Cut(v, "=")
-			if strings.HasPrefix(name, "NAVA_ONBOARD_") || strings.Contains(val, onboardSecret) || strings.Contains(val, onboardDBUser) {
-				bad = append(bad, name)
+			if name, val, _ := strings.Cut(v, "="); name == key {
+				return val
 			}
 		}
-		return bad
+		return ""
 	}
-	if bad := holdsOnboarding(env(core)); len(bad) != 0 {
-		t.Errorf("nava-core's environment holds onboarding variables or secrets: %v", bad)
+	secret := lookup(onbEnv, "NAVA_ONBOARD_CLIENT_SECRET")
+	dbURL, err := url.Parse(lookup(onbEnv, "NAVA_ONBOARD_DATABASE_URL"))
+	if err != nil {
+		t.Fatalf("nava-onboard's NAVA_ONBOARD_DATABASE_URL: %v", err)
 	}
-	// The check's control: the same scan finds them in nava-onboard.
-	if bad := holdsOnboarding(env(onb)); !slices.Contains(bad, "NAVA_ONBOARD_CLIENT_SECRET") || !slices.Contains(bad, "NAVA_ONBOARD_DATABASE_URL") {
-		t.Errorf("the scan does not find the onboarding secrets in nava-onboard (%v): it proves nothing about nava-core", bad)
+	dbPass, _ := dbURL.User.Password()
+	if secret == "" || dbPass == "" || dbURL.User.Username() != "nava_onboard" {
+		t.Fatalf("nava-onboard holds no onboarding client secret or nava_onboard password (secret set %t, password set %t, user %q)",
+			secret != "", dbPass != "", dbURL.User.Username())
+	}
+	// holdsOnboarding returns the variables named NAVA_ONBOARD_* or naming the
+	// nava_onboard user, and, separately, those whose value holds the secret
+	// or the password.
+	holdsOnboarding := func(vs []string) (named, byValue []string) {
+		for _, v := range vs {
+			name, val, _ := strings.Cut(v, "=")
+			if strings.HasPrefix(name, "NAVA_ONBOARD_") || strings.Contains(val, onboardDBUser) {
+				named = append(named, name)
+			}
+			if strings.Contains(val, secret) || strings.Contains(val, dbPass) {
+				byValue = append(byValue, name)
+			}
+		}
+		return named, byValue
+	}
+	if named, byValue := holdsOnboarding(env(core)); len(named) != 0 || len(byValue) != 0 {
+		t.Errorf("nava-core's environment holds onboarding variables %v or the onboarding secret values %v", named, byValue)
+	}
+	// The check's control: the same scan finds both values in nava-onboard.
+	if _, byValue := holdsOnboarding(onbEnv); !slices.Contains(byValue, "NAVA_ONBOARD_CLIENT_SECRET") || !slices.Contains(byValue, "NAVA_ONBOARD_DATABASE_URL") {
+		t.Errorf("the scan does not find the onboarding secret values in nava-onboard (%v): it proves nothing about nava-core", byValue)
 	}
 
 	out, err := dockerOut(t, "", "inspect", "-f", "{{json .NetworkSettings.Ports}}|{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}", onb)
