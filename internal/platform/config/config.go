@@ -57,7 +57,9 @@ type Dependencies struct {
 // TemporalTLS locates the binary's mTLS identity for the Temporal frontend
 // (the `nava-core`, `nava-worker` or `nava-relay` certificate), which
 // temporaltls.Load turns into a client config. The key is read from a file, never from a variable.
-// CertFile, KeyFile and CAFile are set together or not at all.
+// CertFile, KeyFile and CAFile are set together or not at all, and ServerName
+// is required with them: an empty name would make gRPC check the certificate
+// against the host in NAVA_TEMPORAL_ADDRESS instead of the pinned name.
 type TemporalTLS struct {
 	CertFile   string // NAVA_TEMPORAL_TLS_CERT_FILE
 	KeyFile    string // NAVA_TEMPORAL_TLS_KEY_FILE
@@ -145,6 +147,9 @@ func Load(lookup LookupFunc) (Config, error) {
 	if t := cfg.Deps.TemporalTLS; (t.CertFile != "" || t.KeyFile != "" || t.CAFile != "") &&
 		(t.CertFile == "" || t.KeyFile == "" || t.CAFile == "") {
 		r.errs = append(r.errs, errors.New("NAVA_TEMPORAL_TLS_CERT_FILE, NAVA_TEMPORAL_TLS_KEY_FILE and NAVA_TEMPORAL_TLS_CA_FILE: set all three or none"))
+	}
+	if t := cfg.Deps.TemporalTLS; t.CertFile != "" && t.KeyFile != "" && t.CAFile != "" && t.ServerName == "" {
+		r.errs = append(r.errs, errors.New("NAVA_TEMPORAL_TLS_SERVER_NAME: required when the Temporal TLS files are set"))
 	}
 	if cfg.HTTP.Addr == cfg.HTTP.AdminAddr {
 		r.errs = append(r.errs, errors.New("NAVA_ADMIN_ADDR: must differ from NAVA_HTTP_ADDR"))
