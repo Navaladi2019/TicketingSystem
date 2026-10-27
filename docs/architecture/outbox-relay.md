@@ -22,7 +22,10 @@ flowchart TD
   a capped tenant is logged with tenant_id"]
   W --> P["picked: per tenant at most 2 rows with no lower pending target_seq
   on their target, FOR UPDATE SKIP LOCKED"]
-  P --> X{"attempted before and created_at older than 24 h?"}
+  P --> S["stranded: window full and fewer than 2 picked: the rest from heads
+  of the window's targets that sort outside it (a lease that ended unsettled)"]
+  P --> X
+  S --> X{"attempted before and created_at older than 24 h?"}
   X -->|yes| XD["dead_at = now(), last_error set, not returned"]
   X -->|no| L["lease: available_at = now() + Lease, attempts + 1"]
   L --> D{T30b dispatch}
@@ -164,9 +167,17 @@ same `StdinPause` in a subprocess.
   and NUL, which PostgreSQL would reject, and cut to 1000 bytes.
 - **Grants.** The relay never reads `last_error` or `dedupe_key`, and
   `outbox_relay_update` lets it touch only pending rows.
+- **A head whose lease ended is found again** (TICK-248). A claim moves the
+  head's `available_at` to the lease end and leaves its successors where they
+  are, so after a relay crash or `settle_failed` the head sorts behind them.
+  When a tenant's window is full and `picked` found fewer than 2 rows, the
+  `stranded` step takes the rest from the heads of the window's targets that
+  sort outside the window: one `outbox_pending_target` probe per target, at
+  most 200, only for that tenant. Pushing successors at claim, as Backoff
+  does, was rejected: a target would then drain one row per lease.
 - **Accepted worst cases** (decision log, 2026-10-25). A leased head is not
   backing off, so its available successors can fill the tenant's 200-row
-  window until it settles; T33's flood test covers it. A poll has no limit on
+  window until the lease ends (AR-027); T33's flood test covers it. A poll has no limit on
   tenants; revisit if T33 shows poll latency growing with the tenant count.
 
 ## Tests

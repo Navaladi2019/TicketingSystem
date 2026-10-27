@@ -41,6 +41,11 @@ tasks:
     cmds:
       - sh scripts/ci/test-integration.sh
 
+  bench:relay:
+    desc: Run the relay claim-latency benchmark (T33, report-only) against a throwaway postgres container (needs Docker), the same as make bench-relay
+    cmds:
+      - sh scripts/ci/test-integration.sh -run '^$' -bench '^BenchmarkClaim$' -benchtime 200x
+
   lint:
     desc: Run golangci-lint, then the navalint analyzers (set_config outside internal/tenancy)
     cmds:
