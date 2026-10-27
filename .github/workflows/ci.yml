@@ -251,6 +251,9 @@ jobs:
       # Before the dependency probes, which stop Keycloak.
       - name: Realm nava, operator custody and the Keycloak adapter
         run: make stack-test-identity
+      # After the SDK suite: the worker polls nava-tq, the queue its workers poll.
+      - name: nava-worker ready, admin listener, guarded activity
+        run: make stack-test-worker
       - name: Dependency probes, /readyz 200 with Keycloak stopped
         run: make stack-test-dependencies
       - name: One request, one trace
