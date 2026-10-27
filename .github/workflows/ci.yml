@@ -259,6 +259,14 @@ jobs:
         run: make stack-test-temporal_health
       - name: SDK clients dial with their certificates and a worker runs
         run: make stack-test-sdk
+      # The CI-6 and CI-7 report stack-test-sdk writes (TICK-49 acceptance).
+      - name: CI-6 report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci6-report
+          path: ci6-report.md
+          if-no-files-found: error
       # Before the dependency probes, which stop Keycloak.
       - name: Realm nava, operator custody and the Keycloak adapter
         run: make stack-test-identity
