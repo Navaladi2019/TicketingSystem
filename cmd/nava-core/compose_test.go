@@ -92,19 +92,16 @@ func TestComposeKeycloakIssuerPinned(t *testing.T) {
 	} else if fb.Host == u.Host {
 		t.Error("NAVA_OIDC_FETCH_BASE_URL is the browser address: nava-core cannot reach it from inside the network")
 	}
-	// Every other service that validates tokens trusts the same one issuer,
-	// fetches keys from the back channel, and (nava-onboard) writes that
-	// issuer to the tenant binding (TICK-278).
-	for _, svc := range []string{"nava-onboard"} {
-		env := composeEnv(t, "../../compose.yaml", svc)
-		if got, want := env["NAVA_OIDC_ISSUERS"], host+"/realms/nava"; got != want {
-			t.Errorf("%s NAVA_OIDC_ISSUERS = %q, want exactly %q", svc, got, want)
-		}
-		if got := env["NAVA_OIDC_FETCH_BASE_URL"]; got != core["NAVA_OIDC_FETCH_BASE_URL"] {
-			t.Errorf("%s NAVA_OIDC_FETCH_BASE_URL = %q, want %q", svc, got, core["NAVA_OIDC_FETCH_BASE_URL"])
-		}
-	}
+	// nava-onboard also validates tokens: it trusts the same one issuer,
+	// fetches keys from the back channel, and writes that issuer to the
+	// tenant binding (TICK-278).
 	ob := composeEnv(t, "../../compose.yaml", "nava-onboard")
+	if got, want := ob["NAVA_OIDC_ISSUERS"], host+"/realms/nava"; got != want {
+		t.Errorf("nava-onboard NAVA_OIDC_ISSUERS = %q, want exactly %q", got, want)
+	}
+	if got := ob["NAVA_OIDC_FETCH_BASE_URL"]; got != core["NAVA_OIDC_FETCH_BASE_URL"] {
+		t.Errorf("nava-onboard NAVA_OIDC_FETCH_BASE_URL = %q, want %q", got, core["NAVA_OIDC_FETCH_BASE_URL"])
+	}
 	if got, want := ob["NAVA_ONBOARD_ISSUER"], host+"/realms/nava"; got != want {
 		t.Errorf("NAVA_ONBOARD_ISSUER = %q, want the pinned issuer %q", got, want)
 	}

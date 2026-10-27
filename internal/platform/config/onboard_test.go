@@ -115,8 +115,10 @@ func TestLoadOnboardFetchBaseURL(t *testing.T) {
 	if cfg, err = config.LoadOnboard(lookup(env)); err != nil || cfg.OIDCFetchBaseURL != "http://keycloak:8080" {
 		t.Errorf("set: %q, %v", cfg.OIDCFetchBaseURL, err)
 	}
-	env["NAVA_OIDC_FETCH_BASE_URL"] = "http://keycloak:8080/realms/nava?x=1"
-	if _, err = config.LoadOnboard(lookup(env)); err == nil {
-		t.Error("want error for a fetch base URL with a path and query")
+	for _, bad := range []string{"http://keycloak:8080/realms/nava", "http://keycloak:8080?x=1", "http://keycloak:8080/realms/nava?x=1"} {
+		env["NAVA_OIDC_FETCH_BASE_URL"] = bad
+		if _, err = config.LoadOnboard(lookup(env)); err == nil {
+			t.Errorf("NAVA_OIDC_FETCH_BASE_URL=%q accepted", bad)
+		}
 	}
 }
