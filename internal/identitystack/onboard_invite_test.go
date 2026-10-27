@@ -186,6 +186,17 @@ func TestInviteIsSingleUse(t *testing.T) {
 	f.requirePlaced(t, f.admin)
 	before := fedLinks(t, f.admin)
 
+	// The upstream realm refuses a second user with the same email, so the
+	// admin's upstream user goes first: the second subject is a new subject
+	// of the same IdP asserting the same address. Realm nava is not touched.
+	_, ub := adminRealm(t, f.realm, http.MethodGet, "/users?exact=true&email="+url.QueryEscape(f.admin), nil)
+	var ups []struct{ ID string }
+	if json.Unmarshal(ub, &ups) != nil || len(ups) != 1 {
+		t.Fatalf("upstream users with %s: %s", f.admin, ub)
+	}
+	if code, b := adminRealm(t, f.realm, http.MethodDelete, "/users/"+ups[0].ID, nil); code != http.StatusNoContent {
+		t.Fatalf("delete the admin's upstream user: %d %s", code, b)
+	}
 	seedIdPUser(t, f.realm, "second-subject", f.admin, f.pass)
 	if tok, _ := brokeredAttempt(t, f.idpAlias, "second-subject", f.pass); tok != "" {
 		t.Fatalf("a second subject with the admin's email got a token: %v", claims(t, tok)["sub"])

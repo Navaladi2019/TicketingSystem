@@ -34,11 +34,15 @@ func TestT252RecordInvite(t *testing.T) {
 
 	// Only group sync consumes.
 	exec(t, super, "UPDATE pending_invite SET consumed_at = now() WHERE tenant_id = $1", tenantX)
+	before := queryString(t, super, "SELECT expires_at::text FROM pending_invite WHERE tenant_id = $1", tenantX)
 	if err := s.RecordInvite(t.Context(), id, inviteEmail, exp.Add(72*time.Hour)); !errors.Is(err, keycloak.ErrInviteConsumed) {
 		t.Fatalf("re-invite of a consumed invite: %v, want ErrInviteConsumed", err)
 	}
-	if got := queryString(t, super, "SELECT (consumed_at IS NOT NULL AND expires_at < now() + interval '40 hours')::text FROM pending_invite WHERE tenant_id = $1", tenantX); got != "true" {
-		t.Error("the consumed invite was reopened or extended")
+	if got := queryString(t, super, "SELECT expires_at::text FROM pending_invite WHERE tenant_id = $1", tenantX); got != before {
+		t.Errorf("the consumed invite's expires_at changed: %s, was %s", got, before)
+	}
+	if got := queryString(t, super, "SELECT (consumed_at IS NOT NULL)::text FROM pending_invite WHERE tenant_id = $1", tenantX); got != "true" {
+		t.Error("the consumed invite was reopened")
 	}
 
 	// An active tenant takes no new invite.
