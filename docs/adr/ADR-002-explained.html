@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-002 explained: letting people see their own group memberships in /me</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--accbg:#ddf4ff;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--accbg:#0c2d6b;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.banner{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.pill{font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left;overflow-wrap:break-word}
+th{background:var(--soft)}
+table.front th{width:120px}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px;margin-top:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:44px}
+h3{font-size:18px;margin-top:28px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;background:var(--soft);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+pre{background:var(--soft);border:1px solid var(--bd);border-radius:6px;padding:10px 12px;overflow-x:auto}
+pre code{background:none;padding:0}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+figure.diagram{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure.diagram svg{width:100%;min-width:600px;height:auto;display:block;margin:0 auto;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+.tag{display:inline-block;font-size:12px;font-weight:700;padding:1px 9px;border-radius:999px;white-space:nowrap}
+.tag.red{color:var(--bad);background:var(--badbg);border:1px solid var(--bad)}
+.tag.green{color:var(--good);background:var(--goodbg);border:1px solid var(--good)}
+.tag.amber{color:var(--warn);background:var(--warnbg);border:1px solid var(--warn)}
+.verbatim{border:1px solid var(--acc);border-left:5px solid var(--acc);background:var(--accbg);border-radius:6px;padding:8px 14px;margin:12px 0}
+.vlabel{font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--acc)}
+.callout{border:1px solid var(--warn);background:var(--warnbg);border-radius:8px;padding:10px 14px;margin:14px 0}
+dl.gloss{display:grid;grid-template-columns:minmax(140px,220px) minmax(0,1fr);gap:6px 18px}
+dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
+@media (max-width:640px){dl.gloss{grid-template-columns:minmax(0,1fr)} dl.gloss dd{margin-bottom:8px}}
+@media print{table{display:table}}
+</style></head>
+<body><main>
+<div class="banner"><span class="pill">READING GUIDE &middot; ADR-002 PROPOSED</span>
+<span class="src">This companion explains <code>ADR-002-me-group-paths.md</code>. It is not a decision record and changes nothing. Every blue "decision text" box is copied word for word from the ADR.</span></div>
+<table class="front"><tbody>
+<tr><th>title</th><td>ADR-002 explained: letting people see their own group memberships through <code>GET /api/v1/me</code></td></tr>
+<tr><th>type</th><td>explainer for the decision-maker (not a decision record)</td></tr>
+<tr><th>explains</th><td>ADR-002 (status PROPOSED, 2026-10-27), from RFC-005 on TICK-266</td></tr>
+<tr><th>date</th><td>2026-10-27</td></tr>
+<tr><th>audience</th><td>the person signing off. It assumes no knowledge of the identity code or of the review rounds.</td></tr>
+</tbody></table>
+
+<h1>ADR-002, explained</h1>
+
+<blockquote><strong>The whole decision in three sentences.</strong>
+(1) A user currently has no way to see which groups they belong to without someone running SQL, because <code>/me</code> returns only random-looking ids. (2) We add a field that lists each of the caller's groups with a readable path such as <code>/service-desk</code>, and only the caller's own groups in the caller's own tenant. (3) We drop the internal <code>/t/&lt;tenant-id&gt;</code> part of the path, and we lock the field down so it can never become an input to security decisions.</blockquote>
+
+<div class="callout"><strong>How big is this?</strong> It is a small change that only adds things. One new response field and one database read, on one endpoint. No invariant changes, the database schema does not change, and no existing field changes. It needs a decision record because it adds a permanent field to the public v1 API, and it sits on the identity path, where getting tenant isolation wrong would be serious.</div>
+
+<h2 id="terms">Terms used here</h2>
+<dl class="gloss">
+<dt>Tenant</dt><dd>One customer of the platform. Tenants share the database, but must never see each other's data.</dd>
+<dt><code>/me</code></dt><dd>The API endpoint that answers "who does the platform think I am?" It returns the user id, the tenant and the user's groups.</dd>
+<dt>Group path</dt><dd>A group's name in the identity provider (Keycloak), written like a folder path. We store it as <code>/t/&lt;tenant-id&gt;/service-desk</code>.</dd>
+<dt>Row-level security (RLS)</dt><dd>A PostgreSQL feature that makes the database itself hide every row that does not belong to the current tenant, even if the query forgets to filter.</dd>
+<dt>Port</dt><dd>A small interface in our code through which the API reaches the database or an outside service. Keeping it narrow limits who can call it.</dd>
+<dt>Lint rule</dt><dd>An automatic check that runs on every pull request and refuses certain code patterns.</dd>
+<dt>v1 additive-only</dt><dd>Our rule that the public v1 API may gain fields but never lose or narrow them. Anything we publish there is permanent.</dd>
+</dl>
+
+<h2 id="problem">1. The problem in plain words</h2>
+<p>Story S5, step 1 says: <em>"As Alice, <code>GET /api/v1/me</code> shows group <code>service-desk</code>."</em> During acceptance (TICK-264) this step could not pass. <code>/me</code> returns Alice's groups only as internal ids, for example <code>0a000000-…-4a1</code>. These ids are generated at random when groups are synced, and no endpoint turns them into names. Alice is in the right group, but nobody can tell without querying the database.</p>
+
+<h2 id="options">2. Options considered</h2>
+<table><thead><tr><th>Option</th><th>Verdict</th><th>Why</th></tr></thead><tbody>
+<tr><td>Change the story text so it no longer says "shows group service-desk"</td><td><span class="tag red">rejected</span></td><td>That makes the story pass on paper, but users still cannot see their memberships.</td></tr>
+<tr><td>A plain list of path strings next to the ids</td><td><span class="tag red">rejected</span></td><td>Two lists that line up only by position break silently if one changes.</td></tr>
+<tr><td>Group names only (the last part of the path)</td><td><span class="tag red">rejected</span></td><td><code>/emea/leads</code> and <code>/apac/leads</code> would both show as <code>leads</code>.</td></tr>
+<tr><td>Keep the full path, <code>/t/&lt;tenant-id&gt;/service-desk</code></td><td><span class="tag red">rejected</span></td><td>That prefix is how our Keycloak setup happens to be laid out. Because v1 fields are permanent, publishing it would tie us to Keycloak's layout for good.</td></tr>
+<tr><td>A new "look up group by id" endpoint</td><td><span class="tag amber">later</span></td><td>It needs its own rules on who may look up which group. That is more than this story needs.</td></tr>
+<tr><td><strong>A list of <code>{id, path}</code> pairs, with the prefix removed, showing only the caller's own groups</strong></td><td><span class="tag green">chosen</span></td><td>It is the smallest change that makes the story true, and it cannot leak across tenants.</td></tr>
+</tbody></table>
+
+<h2 id="decision">3. The decision</h2>
+<div class="verbatim"><div class="vlabel">Decision text (ADR-002 §1, items 1–3)</div>
+<ol>
+<li><strong><code>GET /api/v1/me</code> gains <code>group_paths</code>.</strong>
+<ul><li>The field is an array of <code>GroupPath {id, path}</code>. It is always present and may be empty.</li>
+<li><code>path</code> is the group's path relative to the tenant root. Alice sees <code>/service-desk</code>, and a nested group reads <code>/service-desk/tier-2</code>.</li>
+<li><code>groups</code> (the uuid array) does not change.</li></ul></li>
+<li><strong>The field is tenant-scoped and membership-scoped.</strong>
+<ul><li>It lists only the groups the calling principal belongs to, in the caller's own tenant.</li>
+<li>Membership is checked in SQL, under row-level security on both <code>groups</code> and <code>group_members</code> (I1).</li></ul></li>
+<li><strong>The tenant prefix <code>/t/&lt;tenant_id&gt;</code> is stripped.</strong> It describes how the Keycloak adapter lays out groups (D26). It is not a product promise, and v1 is additive-only, so it stays out of the contract.</li>
+</ol></div>
+<p>What Alice's <code>/me</code> response gains:</p>
+<pre><code>"groups":      ["0a000000-0000-4000-8000-0000000004a1"],          // unchanged
+"group_paths": [{"id": "0a000000-0000-4000-8000-0000000004a1",
+                 "path": "/service-desk"}]                         // new</code></pre>
+
+<figure class="diagram"><svg viewBox="0 0 1000 330" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Request flow: the token resolves the tenant and the principal, GetMe reads the caller's memberships under row-level security, strips the prefix, and returns group_paths">
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#59636e"/></marker></defs>
+<rect x="20" y="40" width="170" height="80" rx="8" fill="#ddf4ff" stroke="#0969da"/>
+<text x="105" y="72" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">Alice's token</text>
+<text x="105" y="96" text-anchor="middle" font-size="13" fill="#59636e">GET /api/v1/me</text>
+<rect x="250" y="40" width="210" height="80" rx="8" fill="#f6f8fa" stroke="#d1d9e0"/>
+<text x="355" y="68" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">Authentication</text>
+<text x="355" y="90" text-anchor="middle" font-size="13" fill="#59636e">tenant + principal</text>
+<text x="355" y="108" text-anchor="middle" font-size="13" fill="#59636e">(unchanged, no paths)</text>
+<rect x="520" y="40" width="200" height="80" rx="8" fill="#f6f8fa" stroke="#d1d9e0"/>
+<text x="620" y="68" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">GetMe handler</text>
+<text x="620" y="90" text-anchor="middle" font-size="13" fill="#59636e">the only allowed caller</text>
+<text x="620" y="108" text-anchor="middle" font-size="13" fill="#59636e">of GroupPaths</text>
+<rect x="780" y="40" width="200" height="80" rx="8" fill="#dafbe1" stroke="#1a7f37"/>
+<text x="880" y="68" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">Response</text>
+<text x="880" y="92" text-anchor="middle" font-size="13" fill="#1f2328">path: /service-desk</text>
+<line x1="190" y1="80" x2="248" y2="80" stroke="#59636e" stroke-width="2" marker-end="url(#ar)"/>
+<line x1="460" y1="80" x2="518" y2="80" stroke="#59636e" stroke-width="2" marker-end="url(#ar)"/>
+<line x1="720" y1="80" x2="778" y2="80" stroke="#59636e" stroke-width="2" marker-end="url(#ar)"/>
+<rect x="430" y="190" width="380" height="110" rx="8" fill="#fff8c5" stroke="#9a6700"/>
+<text x="620" y="218" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">Database, tenant A only (RLS)</text>
+<text x="620" y="242" text-anchor="middle" font-size="13" fill="#1f2328">my memberships JOIN groups</text>
+<text x="620" y="264" text-anchor="middle" font-size="13" fill="#1f2328">returns /t/&lt;A&gt;/service-desk</text>
+<text x="620" y="286" text-anchor="middle" font-size="13" fill="#59636e">tenant B's rows are invisible</text>
+<line x1="600" y1="122" x2="600" y2="188" stroke="#59636e" stroke-width="2" marker-end="url(#ar)"/>
+<line x1="645" y1="188" x2="645" y2="122" stroke="#59636e" stroke-width="2" marker-end="url(#ar)"/>
+<text x="660" y="160" font-size="12.5" fill="#59636e">strip /t/&lt;A&gt; here; if missing: drop entry + log ids only</text>
+</svg><figcaption>Paths are read only on <code>/me</code>, only for the caller's own memberships, and the tenant prefix is removed before they leave the server.</figcaption></figure>
+
+<h2 id="fix">4. What gets built</h2>
+<p>This is one implementation task for Delivery:</p>
+<ul>
+<li><strong>The API contract.</strong> A new <code>group_paths</code> field and a <code>GroupPath</code> type in <code>api/openapi.yaml</code>. Existing clients ignore the extra field.</li>
+<li><strong>A narrow read port, <code>GroupPathReader</code>.</strong> Its one query joins "my memberships" to "groups" inside the tenant-scoped transaction. Because the query starts from the caller's memberships, a caller can only ever see their own groups. They cannot see other groups in their tenant, and they cannot see another tenant's groups.</li>
+<li><strong>The handler.</strong> <code>GetMe</code> removes the <code>/t/&lt;tenant&gt;/</code> prefix. The database already guarantees every stored path has that prefix. If a row ever breaks that rule, the entry is left out and an error is logged with only the ids, never the path, so <code>/me</code> keeps working.</li>
+<li><strong>No migration.</strong> The schema does not change.</li>
+</ul>
+
+<h3>Guards that keep paths "display only"</h3>
+<p>Paths are written by tenant admins. They are not unique across tenants (both tenants can have <code>/agents</code>), and they change when a group is renamed. Any security rule that keyed on a path would mix tenants up or break on a rename. So:</p>
+<table><thead><tr><th>Guard</th><th>What it stops</th></tr></thead><tbody>
+<tr><td>A test that pins the fields of the <code>Principal</code> type (the identity every request runs as)</td><td>Someone adding names or paths to the security context. The test fails until Security reviews the change.</td></tr>
+<tr><td>A lint rule: only <code>api.go</code> may call <code>GroupPaths</code></td><td>Other code starting to read paths</td></tr>
+<tr><td>Tracker item TODO-013: the future access-control compiler must use group ids only, with a test</td><td>Access rules keyed on paths. The compiler does not exist yet.</td></tr>
+</tbody></table>
+
+<h2 id="accepting">5. What you are accepting</h2>
+<table><thead><tr><th>Residual risk</th><th>Impact</th><th>Why it is acceptable</th></tr></thead><tbody>
+<tr><td>A tenant admin could name a group so that its path <em>looks like</em> another tenant's path</td><td><span class="tag green">low</span></td><td>Only that tenant's own members see it. No data crosses tenants.</td></tr>
+<tr><td>The lint rule allows any handler in <code>api.go</code> to call <code>GroupPaths</code>, not just <code>GetMe</code></td><td><span class="tag green">low</span></td><td>The tool works per file. Narrowing it further would need a custom checker. Code review covers <code>api.go</code>.</td></tr>
+<tr><td>The response format rules are not checked at runtime</td><td><span class="tag green">low</span></td><td>Unit tests cover the cases that matter: an empty list, and a bad path being dropped.</td></tr>
+<tr><td>If a group sync lands mid-request, <code>group_paths</code> can differ from <code>groups</code> for one request</td><td><span class="tag green">low</span></td><td>This is display data, and the next request is consistent.</td></tr>
+</tbody></table>
+<p>No new entry in the accepted-risks register is needed.</p>
+
+<h2 id="evidence">6. Evidence</h2>
+<ul>
+<li><strong>The contract check passes.</strong> The Technical Architect ran the repo's API-compatibility tool on the exact edit, and it exits 0, so the change counts as additive. The run also showed a test fixture that would go red, and the fix is now an acceptance criterion. Raw output: <code>ADR-002/spikes/technical-architect/apidiff-openapi-compat.md</code>.</li>
+<li><strong>The lint rule works.</strong> The rule first proposed (rev 1) caught <strong>0 of 3</strong> forbidden calls in a test fixture: <span class="tag red">red</span>. The adopted type-qualified rule catches <strong>3 of 3</strong>, and does not flag the harmless response field: <span class="tag green">green</span>. Raw output: <code>ADR-002/spikes/technical-architect/forbidigo-scope.md</code>.</li>
+<li><strong>Isolation tests a leak would fail.</strong>
+<ul><li>The isolation suite gets a group that exists only in tenant B, and a test that fails if it ever shows up in tenant A's <code>/me</code>.</li>
+<li>Tenant A gets a second group that Alice is not in, and the test requires Alice's list to match her memberships exactly.</li>
+<li>A database test runs the query with the wrong tenant on purpose and must get no rows back.</li>
+<li>The CTO signed off on changing these protected test files (TICK-266 comments <code>01a17cc5</code> and <code>01a17cd9</code>).</li></ul></li>
+</ul>
+
+<h2 id="review">7. How it was reviewed</h2>
+<table><thead><tr><th>Round</th><th>Reviewer</th><th>Outcome</th></tr></thead><tbody>
+<tr><td>1</td><td>Security &amp; Multi-Tenancy Reviewer</td><td><span class="tag green">APPROVE</span> with two fixes: a membership check inside the query, and an isolation test that can actually see a leak. Both adopted.</td></tr>
+<tr><td>1</td><td>Technical Architect</td><td>Approve with changes: a test fixture, a named type, a shared prefix helper, and "drop and log" instead of an error page. All adopted.</td></tr>
+<tr><td>2</td><td>Technical Architect</td><td><span class="tag green">APPROVE</span> once four text corrections were made: where the logging code sits, the tracker number, a working lint rule, and an exact-membership test. All folded into ADR-002, as the CTO instructed.</td></tr>
+</tbody></table>
+<p>The full RFC history is archived under <code>docs/adr/ADR-002/rfc/</code>: rev 0, rev 1, and the version that was approved.</p>
+
+<h2 id="ask">8. What we need from you</h2>
+<p>A reply of <strong>APPROVED</strong> on TICK-266 accepts ADR-002 and the four residuals in §5. Delivery then gets the single implementation task described in ADR-002 §4.</p>
+</main></body></html>
