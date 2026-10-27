@@ -178,13 +178,13 @@ func NewDirectory(cfg DirectoryConfig, out *telemetry.OutboundClient) (*Director
 	}
 	d := &Directory{
 		api:     &admin{base: strings.TrimRight(cfg.BaseURL, "/"), realm: cfg.Realm, out: out, now: time.Now},
-		runtime: &account{creds: cfg.Runtime},
+		runtime: &account{creds: cfg.Runtime, orgs: orgMemberRead},
 		reg:     cfg.Registry,
 		idps:    cfg.IdPs,
 		invites: cfg.Invites, inviteTTL: cfg.InviteTTL, now: time.Now,
 	}
 	if cfg.Onboarding != nil {
-		d.onboarding = &account{creds: *cfg.Onboarding}
+		d.onboarding = &account{creds: *cfg.Onboarding, orgs: orgAll}
 	}
 	return d, nil
 }
