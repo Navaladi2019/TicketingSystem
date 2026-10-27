@@ -42,17 +42,15 @@ type stats struct {
 
 // ---- path rules ------------------------------------------------------------
 
-func tenantPrefix(tenantID uuid.UUID) string { return "/t/" + tenantID.String() + "/" }
-
 // isOrgUnitPath: strictly below /t/<tenant_id>/ou/.
 func isOrgUnitPath(tenantID uuid.UUID, path string) bool {
-	rest, ok := strings.CutPrefix(path, tenantPrefix(tenantID)+"ou/")
+	rest, ok := strings.CutPrefix(path, identity.TenantGroupPrefix(tenantID)+"ou/")
 	return ok && rest != ""
 }
 
 // isGroupPath: below /t/<tenant_id>/ and not the ou container or below it.
 func isGroupPath(tenantID uuid.UUID, path string) bool {
-	rest, ok := strings.CutPrefix(path, tenantPrefix(tenantID))
+	rest, ok := strings.CutPrefix(path, identity.TenantGroupPrefix(tenantID))
 	if !ok || rest == "" {
 		return false
 	}

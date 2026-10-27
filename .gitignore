@@ -10,3 +10,5 @@
 /isolation-report.md
 /ci5.json
 /identity-stream.json
+
+__pycache__/

@@ -26,13 +26,18 @@ func newAPIHandler(t *testing.T) (http.Handler, *tracetest.InMemoryExporter, *pr
 
 func newAPIHandlerWith(t *testing.T, r identity.IdentityResolver) (http.Handler, *tracetest.InMemoryExporter, *problem.Registry) {
 	t.Helper()
+	return newAPIHandlerFull(t, r, stubPaths{}, slog.New(slog.DiscardHandler))
+}
+
+func newAPIHandlerFull(t *testing.T, r identity.IdentityResolver, paths identity.GroupPathReader, log *slog.Logger) (http.Handler, *tracetest.InMemoryExporter, *problem.Registry) {
+	t.Helper()
 	spans := tracetest.NewInMemoryExporter()
 	tel, err := telemetry.New(t.Context(), config.Telemetry{}, telemetry.WithSpanExporter(spans))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = tel.Shutdown(t.Context()) })
-	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel, r)
+	h, err := server.NewHandler(log, tel, r, paths)
 	if err != nil {
 		t.Fatal(err)
 	}
