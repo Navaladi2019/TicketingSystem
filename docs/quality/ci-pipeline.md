@@ -96,7 +96,23 @@ Containers: `scripts/ci/test-integration.sh` owns, on a private network, one
 shared PostgreSQL with the two PgBouncers of the load test (T06,
 `docs/quality/pgbouncer-load.md`) in front of it, plus `DBTEST_SHARDS` (default
 3) more clusters for dbtest, and removes them on exit, Ctrl-C or TERM. Every
-container a Go test starts itself is removed in `t.Cleanup`. Image tags come
+container a Go test starts itself is removed in `t.Cleanup`.
+
+Leftovers (TICK-185): the integration and isolation scripts never `exec` their
+last command, since `exec` drops the EXIT trap; until TICK-185 every
+`make test-integration ARGS=...` run left its cluster, PgBouncers and network
+running, and 23 such networks on the shared host exhausted Docker's address
+pools. They run each long `go` command in the background and wait for it, so
+INT or TERM sent to the script alone reaches the trap at once and stops them.
+`make test-integration-cleanup` (in `ci-integration` and its own `ci.yml`
+step, as TICK-224) checks that an `ARGS` run and a TERM part way leave nothing
+named for the run (`NAVA_IT_ID`, default the shell's pid). SIGKILL, or a host killing
+the whole process tree, still skips the trap: `make reap-integration`
+(`task reap:integration`, `tools/ci/itreap`) removes `nava-it-*` and
+`nava-iso-*` containers and networks older than `REAP_OLDER` (default `6h`),
+matching only the scripts' exact name forms and skipping anything with a
+compose project label, so `nava`, `nava-<id>` and a run in progress are never
+touched. `REAP_DRY=1` lists without removing. Image tags come
 from `docs/pins.md`: the script exports the `postgres` row as
 `NAVA_TEST_PG_IMAGE` and starts the `edoburu/pgbouncer` row. Every cluster runs
 with `fsync`, `synchronous_commit` and `full_page_writes` off: they are thrown
@@ -168,6 +184,7 @@ make ci-lint      # or one stage
 NAVA_CI_CANARY=fail make test-integration ARGS="-run TestCICanary"   # canary, must fail
 make ci-isolated ID=pr-57   # all four stages at once, on a stack of its own (below)
 make ci-changed ID=pr-57    # only the stages the change against origin/main needs
+make reap-integration REAP_DRY=1   # integration leftovers older than 6h; drop REAP_DRY to remove
 ```
 
 `make ci-changed` (`task ci:changed`, TICK-153 O7) asks `tools/ci/cichanged`
