@@ -28,6 +28,9 @@ import (
 // the worker log only.
 const ErrTypeOpaque = "nava.Opaque"
 
+// canceledMessage is the message the SDK gives a cancel error with none set.
+const canceledMessage = "canceled"
+
 const opaqueMessage = "error withheld from the history; the worker log has its shape"
 
 // sideEffectDenied is what a denied SideEffect records in its marker instead
@@ -121,7 +124,8 @@ func passesUnchanged(err error) bool {
 // recordable returns whether the guard changed err, and err as it may be
 // recorded in a history:
 //   - SDK wrappers pass unchanged (passesUnchanged);
-//   - a cancel error keeps only the details argOK accepts; a timeout error
+//   - a cancel error keeps only the details argOK accepts, and loses any
+//     message or cause workflow code set; a timeout error
 //     keeps its type, its cause as recordable leaves it, and only the last
 //     heartbeat details argOK accepts;
 //   - an ApplicationError of an allowed type with no cause keeps its message,
@@ -141,8 +145,10 @@ func recordable(err error) (changed bool, out error) {
 	}
 	switch e := err.(type) { //nolint:errorlint // the top level is what the SDK records
 	case *temporal.CanceledError:
+		// NewCanceledErrorWithOptions sets a message and a cause too; only the
+		// SDK's own "canceled" with no cause keeps them (finding 1b).
 		kept, dropped := checkedDetails(e.HasDetails(), e.Details)
-		if !dropped {
+		if !dropped && e.Unwrap() == nil && e.Error() == canceledMessage {
 			return false, err
 		}
 		return true, temporal.NewCanceledError(kept...)

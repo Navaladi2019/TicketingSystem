@@ -221,6 +221,31 @@ func TestRecordableChecksCancelAndTimeoutContent(t *testing.T) {
 			t.Errorf("a second detail survived: %v", extra)
 		}
 	})
+	// Finding 1b: NewCanceledErrorWithOptions sets a message and a cause too.
+	for name, opts := range map[string]temporal.CanceledErrorOptions{
+		"canceled with a record-data message": {Message: recordData},
+		"canceled with a record-data cause":   {Cause: fmt.Errorf("ticket %s", recordData)},
+		"canceled with both and details":      {Message: recordData, Cause: errors.New(recordData), Details: []any{titled()}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			changed, out := recordable(temporal.NewCanceledErrorWithOptions(opts))
+			var c *temporal.CanceledError
+			if !changed || !errors.As(out, &c) || c.HasDetails() || c.Error() != canceledMessage {
+				t.Fatalf("recordable: %v, %v; want the SDK's plain canceled error", changed, out)
+			}
+			for e := out; e != nil; e = errors.Unwrap(e) {
+				if strings.Contains(e.Error(), "printer on fire") {
+					t.Errorf("the chain holds the record data: %v", e)
+				}
+			}
+		})
+	}
+	t.Run("the SDK's plain canceled error passes", func(t *testing.T) {
+		in := temporal.NewCanceledErrorWithOptions(temporal.CanceledErrorOptions{Details: []any{refs()}})
+		if changed, out := recordable(in); changed || out != in { //nolint:errorlint // identity is the point
+			t.Errorf("recordable changed it to %v", out)
+		}
+	})
 	t.Run("timeout with a record-data cause", func(t *testing.T) {
 		changed, out := recordable(temporal.NewTimeoutError(enumspb.TIMEOUT_TYPE_START_TO_CLOSE, fmt.Errorf("ticket %s", recordData)))
 		var to *temporal.TimeoutError
