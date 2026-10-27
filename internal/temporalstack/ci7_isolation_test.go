@@ -7,8 +7,9 @@ package temporalstack
 // bodies, activity payloads and headers they record must hold references
 // only, never record data, and headers only the tenant and trace context,
 // never baggage. The activity, child, continue-as-new and update cases are
-// TICK-216's: the worker guard refuses record-data arguments (argOK). One named test per case, each named TestCI7_*;
-// tools/ci/ci6report lists them.
+// TICK-216's: the worker guard refuses record-data arguments (argOK). The
+// signal-external, signal-child and memo cases are TICK-245's. One named test
+// per case, each named TestCI7_*; tools/ci/ci6report lists them.
 
 import (
 	"context"
@@ -311,6 +312,109 @@ func TestCI7_UpdatePayloadWithRecordDataNotRecorded(t *testing.T) {
 		t.Errorf("%d updates accepted, want 1: the references-only one", n)
 	}
 	wantGuardAlert(t, s, id, "update")
+}
+
+// probeChildID is the id of the one child the probe initiated, read from
+// its history; "" if none.
+func probeChildID(events []*historypb.HistoryEvent) string {
+	for _, ev := range events {
+		if a := ev.GetStartChildWorkflowExecutionInitiatedEventAttributes(); a != nil {
+			return a.GetWorkflowId()
+		}
+	}
+	return ""
+}
+
+// runCI7Signal sends the probe signal kind, which starts a references-only
+// child and signals it record data, then closes the probe. The record data
+// must be in neither history: not the sender's, where
+// SignalExternalWorkflowExecutionInitiated would record it before the
+// receiver's guard ran, nor the child's.
+func runCI7Signal(t *testing.T, kind string) {
+	t.Helper()
+	ctx := ci6Context(t)
+	s := newRelayStack(t)
+	tg := newTarget(t)
+	_, sigSQL := tg.signalSQL(t, kind)
+	_, doneSQL := tg.signalSQL(t, sigDone)
+	psqlSuper(t, tg.startSQL(tg.refs())+sigSQL+doneSQL)
+	id := tg.workflowID()
+	s.terminateAtEnd(t, id)
+	s.result(ctx, t, id)
+
+	events := wantMarkerNotRecorded(ctx, t, s, id)
+	if n := countEvents(events, enumspb.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED); n != 1 {
+		t.Fatalf("%d children initiated, want 1: the signal's references-only target", n)
+	}
+	if n := countEvents(events, enumspb.EVENT_TYPE_SIGNAL_EXTERNAL_WORKFLOW_EXECUTION_INITIATED); n != 0 {
+		t.Errorf("%d signals initiated, want 0", n)
+	}
+	child := probeChildID(events)
+	s.terminateAtEnd(t, child)
+	childEvents := wantMarkerNotRecorded(ctx, t, s, child)
+	if n := countEvents(childEvents, enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED); n != 0 {
+		t.Errorf("child %s was signaled %d times, want 0", child, n)
+	}
+	wantGuardAlert(t, s, id, "signal_external")
+}
+
+// A signal-external with record data in its argument must never be recorded,
+// in the sender's history or the target's (TICK-245).
+func TestCI7_SignalExternalPayloadWithRecordDataNotRecorded(t *testing.T) {
+	runCI7Signal(t, sigCI7SignalExternal)
+}
+
+// A signal-child with record data in its argument must never be recorded,
+// in the parent's history or the child's (TICK-245).
+func TestCI7_SignalChildPayloadWithRecordDataNotRecorded(t *testing.T) {
+	runCI7Signal(t, sigCI7SignalChild)
+}
+
+// A child started with record data in its memo must never be recorded: no
+// child is initiated (TICK-245).
+func TestCI7_ChildMemoWithRecordDataNotRecorded(t *testing.T) {
+	ctx := ci6Context(t)
+	s := newRelayStack(t)
+	tg := newTarget(t)
+	_, memoSQL := tg.signalSQL(t, sigCI7ChildMemo)
+	_, doneSQL := tg.signalSQL(t, sigDone)
+	psqlSuper(t, tg.startSQL(tg.refs())+memoSQL+doneSQL)
+	id := tg.workflowID()
+	s.terminateAtEnd(t, id)
+	s.result(ctx, t, id)
+
+	events := wantMarkerNotRecorded(ctx, t, s, id)
+	if n := countEvents(events, enumspb.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED); n != 0 {
+		t.Errorf("%d children initiated, want 0", n)
+	}
+	wantGuardAlert(t, s, id, "child")
+}
+
+// An UpsertMemo with record data must never be recorded: no
+// WorkflowPropertiesModified event, and the memo stays empty (TICK-245).
+func TestCI7_UpsertMemoWithRecordDataNotRecorded(t *testing.T) {
+	ctx := ci6Context(t)
+	s := newRelayStack(t)
+	tg := newTarget(t)
+	_, memoSQL := tg.signalSQL(t, sigCI7UpsertMemo)
+	_, doneSQL := tg.signalSQL(t, sigDone)
+	psqlSuper(t, tg.startSQL(tg.refs())+memoSQL+doneSQL)
+	id := tg.workflowID()
+	s.terminateAtEnd(t, id)
+	s.result(ctx, t, id)
+
+	events := wantMarkerNotRecorded(ctx, t, s, id)
+	if n := countEvents(events, enumspb.EVENT_TYPE_WORKFLOW_PROPERTIES_MODIFIED); n != 0 {
+		t.Errorf("%d memo upserts recorded, want 0", n)
+	}
+	desc, err := s.core.DescribeWorkflowExecution(ctx, id, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f := desc.GetWorkflowExecutionInfo().GetMemo().GetFields(); len(f) != 0 {
+		t.Errorf("memo has %d fields, want none", len(f))
+	}
+	wantGuardAlert(t, s, id, "memo")
 }
 
 // Every header recorded in a history, on the start, signals, the activity,

@@ -48,6 +48,11 @@ const (
 	sigCI7Child    = "ci7.child"
 	sigCI7Rollover = "ci7.rollover"
 	updCI7         = "ci7.update"
+	// TICK-245: the other ways a workflow writes to its own history.
+	sigCI7SignalExternal = "ci7.signal-external"
+	sigCI7SignalChild    = "ci7.signal-child"
+	sigCI7ChildMemo      = "ci7.child-memo"
+	sigCI7UpsertMemo     = "ci7.upsert-memo"
 	// ci7ProbeActivity is not registered anywhere: the CI-7 case only needs
 	// its scheduling to reach (or not reach) the history.
 	ci7ProbeActivity = "ci7.probe"
@@ -68,6 +73,10 @@ type relayRefs struct {
 //   - ci7.child starts a same-tenant child with a record-data argument;
 //   - ci7.rollover continues as new with record data in Refs;
 //   - update ci7.update takes a map, which may hold record data;
+//   - ci7.signal-external and ci7.signal-child start a same-tenant child with
+//     references, then signal it record data through that path;
+//   - ci7.child-memo starts a same-tenant child with record data in its memo;
+//   - ci7.upsert-memo upserts record data into the workflow's own memo;
 //   - ci6.done closes workflow_ref (the nava-worker service runs that
 //     activity as nava_worker) and returns the applied ids, comma-joined.
 //
@@ -96,7 +105,8 @@ func relayProbe(ctx workflow.Context, in workerguard.RunInput) (string, error) {
 		var next string
 		sel := workflow.NewSelector(ctx)
 		sel.AddReceive(notes, func(c workflow.ReceiveChannel, _ bool) { apply(c) })
-		for _, name := range []string{sigRollover, sigDone, sigCI7Activity, sigCI7Child, sigCI7Rollover} {
+		for _, name := range []string{sigRollover, sigDone, sigCI7Activity, sigCI7Child, sigCI7Rollover,
+			sigCI7SignalExternal, sigCI7SignalChild, sigCI7ChildMemo, sigCI7UpsertMemo} {
 			sel.AddReceive(workflow.GetSignalChannel(ctx, name), func(c workflow.ReceiveChannel, _ bool) {
 				c.Receive(ctx, nil)
 				next = name
@@ -127,6 +137,20 @@ func relayProbe(ctx workflow.Context, in workerguard.RunInput) (string, error) {
 			}
 			cctx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{WorkflowID: id, TaskQueue: taskQueue})
 			_ = workflow.ExecuteChildWorkflow(cctx, relayType, title).Get(ctx, nil)
+		case sigCI7SignalExternal, sigCI7SignalChild:
+			fut, id, err := startProbeChild(ctx, workflow.ChildWorkflowOptions{}, in.Payload)
+			if err != nil {
+				return "", err
+			}
+			if next == sigCI7SignalChild {
+				_ = fut.SignalChildWorkflow(ctx, sigNote, title).Get(ctx, nil)
+			} else {
+				_ = workflow.SignalExternalWorkflow(ctx, id, "", sigNote, title).Get(ctx, nil)
+			}
+		case sigCI7ChildMemo:
+			_, _, _ = startProbeChild(ctx, workflow.ChildWorkflowOptions{Memo: map[string]any{"title": ci7Marker}}, in.Payload)
+		case sigCI7UpsertMemo:
+			_ = workflow.UpsertMemo(ctx, map[string]any{"title": ci7Marker})
 		case sigCI7Rollover:
 			b, err := json.Marshal(title)
 			if err != nil {
@@ -141,6 +165,20 @@ func relayProbe(ctx workflow.Context, in workerguard.RunInput) (string, error) {
 			return strings.Join(refs.Order, ","), nil
 		}
 	}
+}
+
+// startProbeChild starts a same-tenant relayProbe child with opts and a
+// references-only Delivery, waits until it has started, and returns it and
+// its id. The child runs until the parent closes (the default parent close
+// policy terminates it).
+func startProbeChild(ctx workflow.Context, opts workflow.ChildWorkflowOptions, refs json.RawMessage) (workflow.ChildWorkflowFuture, string, error) {
+	id, err := workerguard.ChildWorkflowID(ctx, "probe")
+	if err != nil {
+		return nil, "", err
+	}
+	opts.WorkflowID, opts.TaskQueue = id, taskQueue
+	fut := workflow.ExecuteChildWorkflow(workflow.WithChildOptions(ctx, opts), relayType, outbox.Delivery{Payload: refs})
+	return fut, id, fut.GetChildWorkflowExecution().Get(ctx, nil)
 }
 
 // ci7Marker is record data: a ticket title a tenant typed. It must never be

@@ -73,11 +73,12 @@ PostgreSQL. It runs after `stack-test-sdk`, whose workers also poll `nava-tq`.
 | Update | header missing or another tenant | rejected by the validator |
 | Activity | header missing or another tenant (TICK-84 finding 1) | fails non-retryably; the body never runs |
 | Child | id not prefixed with this tenant (the SDK default `<runID>_<n>` is not), other namespace, cron, `NavaTenantId` of another tenant, or under a non-Keyword key | the child future fails |
-| Signal-external, cancel-external | target id not prefixed with this tenant, other namespace | the future fails |
+| Signal-external, signal-child, cancel-external | target id not prefixed with this tenant, other namespace | the future fails |
 | Continue-as-new | header not this tenant (no Propagator, or rewritten on the returned error: checked again when the workflow returns), a cron schedule copied from a cron-started run, or the copied `NavaTenantId` is another tenant's | the workflow fails instead of continuing |
 | Upsert `NavaTenantId` | another value, or unset; or any change through a non-Keyword key of the same name (Text, KeywordList, ...), which the SDK encodes under the same name | the upsert fails |
 | Nexus | always | the future fails |
-| Arguments (CI-7, TICK-216) | an activity, local activity, child, continue-as-new or update argument that is not references only (see below) | the future fails (`activity_args`, `local_activity_args`, `child`), the workflow fails (`continue_as_new`), or the validator rejects the update (`update`); outcome `record_data` |
+| Arguments (CI-7, TICK-216, TICK-245) | an activity, local activity, child, continue-as-new, update, signal-external or signal-child argument that is not references only (see below) | the future fails (`activity_args`, `local_activity_args`, `child`, `signal_external`), the workflow fails (`continue_as_new`), or the validator rejects the update (`update`); outcome `record_data` |
+| Memo (CI-7, TICK-245) | any memo on a child, any `UpsertMemo` (the platform names no memo key) | the child future fails (`child`) or the upsert fails (`memo`); outcome `record_data` |
 
 Every decision adds to `nava.worker.guard.decisions{guard, outcome}` (no tenant
 or workflow id on the metric). Every deny logs `worker tenant guard denied` at
@@ -104,7 +105,7 @@ flowchart LR
 
 Histories are cross-tenant and unencrypted (ADR-001 R1), so the guard checks
 every argument a workflow hands to Temporal before the command exists. The Go
-type picks the rule; the JSON the default converter encodes, which is what the
+type picks the rule; the JSON `workerguard.DataConverter` encodes, which is what the
 history records, is what is checked (`argOK`, TICK-216 contract decision):
 
 | Go type | Accepted when |
@@ -113,7 +114,7 @@ history records, is what is checked (`argOK`, TICK-216 contract decision):
 | `workerguard.RunInput` | `Delivery.Payload` and `Refs` pass it; every `Seen` key is a UUID and every value an RFC3339 time |
 | anything else | its encoding is a JSON object that passes it (UUIDs and UUID arrays only) |
 
-No arguments is allowed. A struct with the same JSON shape as `RunInput` is
+No arguments is allowed, and so is a nil signal argument. A struct with the same JSON shape as `RunInput` is
 "anything else" and fails. `RunInput` embeds `Delivery`, so a relay-started
 workflow takes it as its input and carries it, with its applied-signal set and
 its own references in `Refs`, across continue-as-new. `ContinueAsNewError` is
@@ -123,7 +124,7 @@ and alert; neither carries an argument value.
 
 ```mermaid
 flowchart LR
-  W[workflow code] -- "activity / local activity / child / continue-as-new args" --> G{argOK}
+  W[workflow code] -- "activity / local activity / child / continue-as-new / signal args" --> G{argOK}
   C[nava-core update] -- args --> V{validator: argOK}
   G -- references only --> S[Temporal history]
   V -- references only --> S
@@ -133,6 +134,17 @@ flowchart LR
 
 Update arguments are checked as the handler's parameter types decoded them;
 what the decoding drops is recorded unchecked (TODO-010).
+
+**One converter (TICK-245).** `argOK` checks the encoding of
+`workerguard.DataConverter`. `ConfigureClient` sets that converter on every
+platform client, replacing any other, so the worker records exactly the bytes
+the guard checked (`TestConfigureClientUsesTheGuardsDataConverter`). Workflow
+code could still swap it for one context with `workflow.WithDataConverter`,
+which an interceptor cannot see, so the `forbidigo` lint rejects that call.
+
+Results (activity and workflow results, `SideEffect` and `MutableSideEffect`
+markers) and failure text are not guarded yet: see TICK-245 in
+`docs/security/temporal-ci6.md`.
 
 ## Children, signals and `workflow_ref`
 

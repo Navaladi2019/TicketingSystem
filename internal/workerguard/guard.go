@@ -43,9 +43,11 @@ const ErrTypeTenantGuard = "nava.TenantGuard"
 //   - activity: a header that is missing or differs from its workflow id's
 //     tenant fails it non-retryably; otherwise the tenant is on its context
 //     for InTenantTx;
-//   - arguments of an activity, local activity, child, continue-as-new or
-//     update that are not references only (argOK, CI-7) fail the call, or
-//     reject the update, before anything reaches the history.
+//   - arguments of an activity, local activity, child, continue-as-new,
+//     update, signal-external or signal-child that are not references only
+//     (argOK, CI-7) fail the call, or reject the update, before anything
+//     reaches the history;
+//   - memo: any on a child, or any upsert, fails the call (TICK-245).
 //
 // Every deny adds to DecisionsMetric and logs an alert. No guard panics: a
 // panic in a workflow task is a poison loop, so a guard that fails internally
@@ -268,6 +270,11 @@ func (o *workflowOutbound) ExecuteChildWorkflow(ctx workflow.Context, childWorkf
 		if !childSearchAttributesOK(opts, tenant) {
 			return outcomeSearchAttribute
 		}
+		// StartChildWorkflowExecutionInitiated records the memo; the platform
+		// names no memo key, so none is allowed (TICK-245).
+		if len(opts.Memo) > 0 {
+			return outcomeRecordData
+		}
 		return argsOutcome(args)
 	})
 	o.rec.record(ctx, guardChild, outcome, slog.String("target_workflow_id", opts.WorkflowID))
@@ -277,9 +284,23 @@ func (o *workflowOutbound) ExecuteChildWorkflow(ctx workflow.Context, childWorkf
 	return o.Next.ExecuteChildWorkflow(ctx, childWorkflowType, args...)
 }
 
+// signalOutcome checks a signal-external or signal-child: the target, then
+// the argument, which the sender's SignalExternalWorkflowExecutionInitiated
+// event records before the receiver's guard runs (TICK-245). A nil argument
+// carries nothing and is allowed.
+func signalOutcome(ctx workflow.Context, namespace, workflowID string, arg any) string {
+	if out := targetOutcome(ctx, namespace, workflowID); out != outcomeAllow {
+		return out
+	}
+	if arg == nil {
+		return outcomeAllow
+	}
+	return argsOutcome([]any{arg})
+}
+
 func (o *workflowOutbound) SignalExternalWorkflow(ctx workflow.Context, workflowID, runID, signalName string, arg any) workflow.Future {
 	ns := workflow.GetChildWorkflowOptions(ctx).Namespace //nolint:staticcheck // SA1019: see ExecuteChildWorkflow
-	outcome := check(func() string { return targetOutcome(ctx, ns, workflowID) })
+	outcome := check(func() string { return signalOutcome(ctx, ns, workflowID, arg) })
 	o.rec.record(ctx, guardSignalExternal, outcome, slog.String("target_workflow_id", workflowID), slog.String("signal", signalName))
 	if outcome != outcomeAllow {
 		return failedFuture(ctx, guardError(guardSignalExternal, outcome))
@@ -288,9 +309,10 @@ func (o *workflowOutbound) SignalExternalWorkflow(ctx workflow.Context, workflow
 }
 
 // SignalChildWorkflow signals a child whose id ExecuteChildWorkflow already
-// checked; the check here costs nothing and keeps the rule in one place.
+// checked; the check here costs nothing and keeps the rule in one place. The
+// argument is checked as SignalExternalWorkflow checks it.
 func (o *workflowOutbound) SignalChildWorkflow(ctx workflow.Context, workflowID, signalName string, arg any) workflow.Future {
-	outcome := check(func() string { return targetOutcome(ctx, "", workflowID) })
+	outcome := check(func() string { return signalOutcome(ctx, "", workflowID, arg) })
 	o.rec.record(ctx, guardSignalExternal, outcome, slog.String("target_workflow_id", workflowID), slog.String("signal", signalName))
 	if outcome != outcomeAllow {
 		return failedFuture(ctx, guardError(guardSignalExternal, outcome))
@@ -374,6 +396,17 @@ func (o *workflowOutbound) UpsertSearchAttributes(ctx workflow.Context, attribut
 		return guardError(guardSearchAttribute, outcome)
 	}
 	return o.Next.UpsertSearchAttributes(ctx, attributes)
+}
+
+// UpsertMemo fails on any memo: WorkflowPropertiesModified records it, and
+// the platform names no memo key (TICK-245). An empty upsert changes nothing
+// and passes.
+func (o *workflowOutbound) UpsertMemo(ctx workflow.Context, memo map[string]any) error {
+	if len(memo) == 0 {
+		return o.Next.UpsertMemo(ctx, memo)
+	}
+	o.rec.record(ctx, guardMemo, outcomeRecordData)
+	return guardError(guardMemo, outcomeRecordData)
 }
 
 func (o *workflowOutbound) UpsertTypedSearchAttributes(ctx workflow.Context, attributes ...temporal.SearchAttributeUpdate) error {
