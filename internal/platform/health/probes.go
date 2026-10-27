@@ -56,7 +56,7 @@ func Keycloak(managementURL string, client *telemetry.OutboundClient) Check {
 		return c
 	}
 	c.Probe = func(ctx context.Context) error {
-		ctx = telemetry.WithoutTrace(telemetry.WithRoute(ctx, "/health/ready"))
+		ctx = telemetry.WithoutRedirects(telemetry.WithoutTrace(telemetry.WithRoute(ctx, "/health/ready")))
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, managementURL+"/health/ready", nil)
 		if err != nil {
 			return errors.New("health: bad Keycloak management URL")

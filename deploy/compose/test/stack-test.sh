@@ -1,5 +1,5 @@
 #!/bin/sh
-# Stack tests for T02 to T05, T08 and T28. Usage: stack-test.sh <healthy|smoke|pgbouncer|temporal|dependencies|trace|logs|redact|idempotent|dbroles|hba|internal|temporal_handshake|temporal_isolation|temporal_custody|temporal_operator_reach|temporal_health>
+# Stack tests for T02 to T05, T08 and T28. Usage: stack-test.sh <healthy|smoke|pgbouncer|temporal|dependencies|trace|logs|redact|idempotent|dbroles|hba|internal|temporal_handshake|temporal_isolation|temporal_confinement|temporal_custody|temporal_operator_reach|temporal_health>
 # Needs the stack up (task stack:up); `internal` brings up its own overlay.
 set -eu
 . "$(dirname "$0")/lib.sh"
@@ -8,8 +8,12 @@ set -eu
 # 180 s from the first container's creation, so `up -d` counts (TICK-164). The
 # test and CI overlays only publish a port and drop durability, and the
 # operator profile adds the Temporal UI, so the CI stack has the same budget.
-# The internal overlay keeps 300 s (t_internal).
-t_healthy() { wait_healthy "${WAIT_SECONDS:-180}" "$(stack_created)"; }
+# The internal overlay keeps 300 s (t_internal). The 180 s gate holds when the
+# stack has the host to itself, as on a GitHub runner. While other compose
+# stacks run on the host it stretches to CONTENDED_WAIT_SECONDS (300 s): two
+# Keycloaks booting at once took 233 s (docs/quality/ci-optimizations.md), and
+# a busy host failed the 180 s budget with nothing wrong (TICK-200).
+t_healthy() { wait_healthy "${WAIT_SECONDS:-180}" "$(stack_created)" "${CONTENDED_WAIT_SECONDS:-300}"; }
 
 # The compose smoke (T05): GET /healthz on nava-core's admin listener answers
 # 200 from another container on the compose network, the way a probe would
@@ -336,6 +340,31 @@ t_temporal_handshake() {
     pass "nava-core dials; a rogue-CA certificate and no certificate fail the handshake"
 }
 
+# The authoritative half of temporal_isolation, also runnable on its own.
+# Docker resolves a container's name on every network it is on, alias or not,
+# and an IP is reachable whatever DNS says, so judge by network membership
+# (TICK-199): temporal-server is on temporal-backplane and nothing else, and
+# shares no network with a platform process. The gateway (temporal) is on both
+# by design and out of scope.
+t_temporal_confinement() {
+    nets_of() {
+        cid=$(container_of "$1")
+        [ -n "$cid" ] || fail "no container for $1"
+        docker inspect -f '{{range $n, $c := .NetworkSettings.Networks}}{{$n}} {{end}}' "$cid"
+    }
+    srv=$(nets_of temporal-server)
+    [ "$srv" = "${PROJECT}_temporal-backplane " ] || fail "temporal-server is on networks other than temporal-backplane: $srv"
+    for svc in nava-core nava-worker nava-relay nava-purge; do
+        # An assignment, so set -e stops on a failed lookup; a bare $(...) in
+        # the for list would let a missing container pass with no networks.
+        nets=$(nets_of "$svc")
+        for n in $nets; do
+            case " $srv " in *" $n "*) fail "temporal-server shares $n with $svc" ;; esac
+        done
+    done
+    pass "temporal-server is only on temporal-backplane and shares no network with a platform process"
+}
+
 # A container on the platform network reaches 7233 through the gateway and none of
 # the internode (7234, 7235, 7239) or membership (6933-6939) ports, and cannot
 # even resolve the server.
@@ -355,9 +384,8 @@ t_temporal_isolation() {
     if printf '%s\n' "$ns" | grep -q '^Name:'; then
         fail "the platform network can resolve $name: $ns"
     fi
-    gw=$(docker inspect -f '{{range $n, $c := .NetworkSettings.Networks}}{{$n}} {{end}}' "$(container_of temporal-server)")
-    case $gw in *_internal*) fail "temporal-server is on the platform network: $gw" ;; esac
-    pass "7233 reachable; 7234, 7235, 7239, 6933-6939 and 9090 are not; temporal-server is not on the platform network"
+    t_temporal_confinement
+    pass "7233 reachable; 7234, 7235, 7239, 6933-6939 and 9090 are not; temporal-server does not resolve"
 }
 
 # Each certificate is mounted only into the service that owns it. temporal-system
@@ -469,5 +497,5 @@ t_temporal_health() {
     pass "temporal-server bootstrapped (nava, NavaTenantId); /healthz reports temporal ok over mTLS"
 }
 
-[ $# -eq 1 ] || fail "usage: stack-test.sh <healthy|smoke|pgbouncer|temporal|dependencies|trace|logs|redact|idempotent|dbroles|hba|internal|temporal_handshake|temporal_isolation|temporal_custody|temporal_operator_reach|temporal_health>"
+[ $# -eq 1 ] || fail "usage: stack-test.sh <healthy|smoke|pgbouncer|temporal|dependencies|trace|logs|redact|idempotent|dbroles|hba|internal|temporal_handshake|temporal_isolation|temporal_confinement|temporal_custody|temporal_operator_reach|temporal_health>"
 "t_$1"

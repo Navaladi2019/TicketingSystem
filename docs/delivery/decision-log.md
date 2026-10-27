@@ -2,6 +2,12 @@
 
 Delivery decisions that change a task's contract, newest first.
 
+## 2026-10-27: PLAN-002 implements ADR-002 as one task, TICK-268
+- **Decided by:** the Technical Lead on TICK-270 (`docs/delivery/plan-adr-002.md`).
+- **Decision:** ADR-002 ships as TICK-268 (`backend-dev`, under S5). It restarts from the story branch, because commit `62d604e` changed `groups` itself and is not the design. The S5 explainer's section 10 moves from TICK-268 to the acceptance kit (PR #187), so no two open PRs share that file. AC5's new entry in `registry.go` needs CTO sign-off, which ADR §6 did not list; the implementer asks for it on TICK-268. TICK-268 and TICK-265 both touch `groupsync/apply.go` and run in parallel; whichever merges second rebases.
+- **Deferred:** the ACL-compiler test (TODO-013). Trigger: the first I5 ACL compiler PR.
+- **Dissent:** none.
+
 ## 2026-10-26: agents merge task PRs and close tasks; stories and ADRs stay with the human
 - **Decided by:** vknavaladi (workspace merge and close policy), recorded by the Technical Lead on TICK-243.
 - **Decision:**
@@ -9,6 +15,19 @@ Delivery decisions that change a task's contract, newest first.
   - **Story tasks and story → `main` PRs:** agents never merge or close them. Add the `MergePr` label to the issue and the PR; the human merges after replying `ACCEPTED`.
   - **ADRs, amendments and errata:** agents never merge or close them. Add `MergePr` after the human's sign-off; the human merges. The ADR still needs its `.md` and self-contained `.html` under `docs/adr/`.
 - **Supersedes:** any earlier "never merge the PR yourself" or "only the human sets a task `done`" instruction for task PRs.
+- **Dissent:** none.
+
+## 2026-10-26: Task PRs target story branches; branches are named `TICK-<no>/<description>`
+- **Decided by:** nava (human), on TICK-231. Written up by the Technical Lead in `docs/delivery/branching-strategy.md`.
+- **Decision:** the flow is task branch → story branch → `main`. Story branches start from `main` and the owner merges them after acceptance. Task PRs never target `main`.
+- **Technical Lead calls:**
+  - Open PRs #116, #126, #129 and #130 were retargeted to their story branches. Their `agent/...` head names stay, because renaming a PR's head branch closes the PR on GitHub.
+  - Who merges is settled by the TICK-243 entry above: agents merge task PRs into story branches, and the owner merges story → `main` PRs and ADRs.
+  - TICK-231 itself has no story, so it targets `main`.
+- **Addendum (owner, same day):** stories must not share files. A dependent story waits in `backlog` until the story it depends on has merged into `main`. A story → `main` PR needs: `main` merged into the story branch, a full CI re-run, a whole-diff review by the Principal Software Engineer (plus Security when tenant data, auth or ACLs are touched), QA's green CI and acceptance kit, and the list of files it changes.
+- **Deferred:**
+  - Branch protection on `main` and on story branches. Today nothing is protected. Owner: the CTO with the Quality, Testing & CI Advisor (TICK-232). The owner applies the settings.
+  - Deleting about 60 legacy branches. Trigger: the owner approves the cleanup.
 - **Dissent:** none.
 
 ## 2026-10-25: T27k classifies every id-shaped request field by a rule; the Authorizer gains D9h and closes D9g and D9c gaps

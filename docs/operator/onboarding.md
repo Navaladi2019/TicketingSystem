@@ -49,9 +49,9 @@ Headers: `Authorization: Bearer <operator token>`, `Idempotency-Key: <1..255 cha
 ## Validation
 
 - `email_domains`: 1 to 20, valid DNS names; **public email-provider domains are
-  refused** (a short best-effort list, see AR-031). `admin_email` must be in one of
+  refused** (a short best-effort list, see AR-035). `admin_email` must be in one of
   them. Domain ownership is first-claim-wins: the operator calling the API attests
-  the tenant owns the domains (AR-031).
+  the tenant owns the domains (AR-035).
 - IdP `config` is an **allow-list of keys per provider** (the same list
   `CreateTenantOrg` enforces). An unknown key (`alias`, `kc.org.*`, SAML
   `artifactResolutionServiceUrl`, ...) is `422`.
@@ -59,7 +59,7 @@ Headers: `Authorization: Bearer <operator token>`, `Idempotency-Key: <1..255 cha
   loopback, link-local, carrier-grade NAT, benchmark, reserved or multicast address,
   or a NAT64 address embedding one, is refused. The check happens once, at
   onboarding; Keycloak resolves the name again later, so DNS rebinding is an
-  accepted residual (AR-031).
+  accepted residual (AR-035).
 - `validateSignature=true` and `syncMode=IMPORT` are set by the platform whatever
   the request says. The IdP alias is derived from the tenant id.
 
@@ -140,7 +140,7 @@ IdP bound to a multi-tenant issuer (such as Entra `common`) or with open
 self-registration and no email verification must not be used for a tenant.
 
 The pending admin cannot sign in before step 1: there is no local user and no
-password. The accepted squatting risk is AR-033.
+password. The accepted squatting risk is AR-037.
 
 ## Configuration (nava-onboard)
 
@@ -183,7 +183,7 @@ There is no way to abandon a `provisioning` tenant. A tenant whose onboarding ne
 completes keeps its Keycloak organization, its IdP, and (once bound) its
 `tenant_identity_binding` and `tenant_email_domain` rows, so the domains stay
 claimed. Only the operator's own retry (same key and body) can finish or reuse it.
-Recorded as AR-032, which also covers the tenant a binding/org mismatch
+Recorded as AR-036, which also covers the tenant a binding/org mismatch
 (`onboarding_conflict` on retry) leaves `provisioning`; needs an operator
 "abandon" operation that removes the Keycloak
 objects and releases the rows.

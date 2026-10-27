@@ -1,0 +1,4 @@
+# Overlay: the same image under another name.
+services:
+  keycloak-ci:
+    image: nava/keycloak:${NAVA_IMAGE_TAG:-dev}

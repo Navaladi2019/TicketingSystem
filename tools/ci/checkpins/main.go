@@ -9,12 +9,19 @@
 // temporal-server/go.mod (for images: Dockerfiles under that directory).
 // Parenthesised text in a cell is a note and never matches.
 //
+// A compose image ref that uses ${VAR}, ${VAR:-default} or ${VAR-default}
+// (TICK-193) is resolved before the comparison: the value .env.example sets
+// for VAR, else the default. A ref that does not resolve is a problem, so the
+// locally built nava/* images are checked like any other. Dockerfiles still
+// skip a FROM that names a build ARG.
+//
 // Usage: checkpins [-root dir] [-pins file]. It exits 1 and prints one line
 // per problem when anything is out of step.
 package main
 
 import (
 	"bufio"
+	"errors"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -56,12 +63,16 @@ type pins struct {
 	images    map[string]string // image name -> version cell
 	forbidden []string          // module path prefixes
 	literalRe *regexp.Regexp    // a pinned image name followed by a tag
+	env       map[string]string // .env.example, for compose image refs
 }
 
 // check returns one line per problem found under root.
 func check(root, pinsPath string) ([]string, error) {
 	p, err := parsePins(pinsPath)
 	if err != nil {
+		return nil, err
+	}
+	if p.env, err = parseEnv(filepath.Join(root, ".env.example")); err != nil {
 		return nil, err
 	}
 	var problems []string
@@ -95,11 +106,11 @@ func check(root, pinsPath string) ([]string, error) {
 			problems = append(problems, ps...)
 			return err
 		case d.Name() == "Dockerfile" || strings.HasSuffix(d.Name(), ".Dockerfile"):
-			ps, err := checkImages(path, rel, p, fromRe)
+			ps, err := checkImages(path, rel, p, fromRe, false)
 			problems = append(problems, ps...)
 			return err
 		case isComposeFile(rel):
-			ps, err := checkImages(path, rel, p, imageRe)
+			ps, err := checkImages(path, rel, p, imageRe, true)
 			problems = append(problems, ps...)
 			return err
 		}
@@ -127,7 +138,70 @@ var (
 	noteRe = regexp.MustCompile(`\([^)]*\)`)
 	// Version tokens in a version cell.
 	tokenRe = regexp.MustCompile(`[A-Za-z0-9][A-Za-z0-9.+_-]*`)
+	// $$, $VAR, ${VAR}, ${VAR:-default}, ${VAR-default}, or any other ${...}.
+	varRe = regexp.MustCompile(`\$\$|\$([A-Za-z_][A-Za-z0-9_]*)|\$\{([A-Za-z_][A-Za-z0-9_]*)(?:(:?-)([^}]*))?\}|\$\{[^}]*\}`)
 )
+
+// parseEnv reads KEY=VALUE lines from an env file such as .env.example. A
+// missing file is an empty environment.
+func parseEnv(path string) (map[string]string, error) {
+	env := map[string]string{}
+	data, err := os.ReadFile(path) //nolint:gosec // root/.env.example
+	if errors.Is(err, fs.ErrNotExist) {
+		return env, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	for raw := range strings.SplitSeq(string(data), "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = strings.TrimPrefix(line, "export ")
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		v = strings.TrimSpace(v)
+		if len(v) >= 2 && (v[0] == '"' || v[0] == '\'') && v[len(v)-1] == v[0] {
+			v = v[1 : len(v)-1]
+		}
+		env[strings.TrimSpace(k)] = v
+	}
+	return env, nil
+}
+
+// resolveRef expands the variables of a compose image ref the way docker
+// compose does with env as the environment. It fails on a variable that has
+// no value and no default, and on any form other than those in varRe.
+func resolveRef(ref string, env map[string]string) (string, error) {
+	var bad string
+	out := varRe.ReplaceAllStringFunc(ref, func(m string) string {
+		if m == "$$" {
+			return "$"
+		}
+		sm := varRe.FindStringSubmatch(m)
+		name, op, def := sm[1]+sm[2], sm[3], sm[4]
+		if name == "" {
+			bad = m
+			return m
+		}
+		v, set := env[name]
+		switch {
+		case op == ":-" && v == "", op == "-" && !set:
+			return def
+		case !set:
+			bad = m
+			return m
+		}
+		return v
+	})
+	if bad != "" {
+		return "", fmt.Errorf("%s has no value in .env.example and no default", bad)
+	}
+	return out, nil
+}
 
 // parsePins reads the Images, Go modules and Forbidden tables. Any other
 // section is documentation only.
@@ -291,37 +365,51 @@ func forbiddenMatch(mod string, forbidden []string) string {
 	return ""
 }
 
-func checkImages(path, rel string, p *pins, re *regexp.Regexp) ([]string, error) {
+// checkImages checks each image ref that re finds in a file. compose refs are
+// resolved first (resolveRef); a Dockerfile FROM that names an ARG is skipped.
+func checkImages(path, rel string, p *pins, re *regexp.Regexp, compose bool) ([]string, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // a file found by the walk
 	if err != nil {
 		return nil, err
 	}
 	stages := map[string]bool{} // FROM <earlier stage>
 	var problems []string
-	for raw := range strings.SplitSeq(string(data), "\n") {
+	for i, raw := range strings.Split(string(data), "\n") {
 		m := re.FindStringSubmatch(raw)
 		if m == nil {
 			continue
 		}
+		at := fmt.Sprintf("%s:%d", rel, i+1)
 		ref := m[1]
 		if f := strings.Fields(raw); len(f) >= 4 && strings.EqualFold(f[len(f)-2], "AS") {
 			stages[strings.ToLower(f[len(f)-1])] = true
 		}
-		if stages[strings.ToLower(ref)] || strings.Contains(ref, "$") {
+		if stages[strings.ToLower(ref)] {
 			continue
+		}
+		if strings.Contains(ref, "$") {
+			if !compose {
+				continue
+			}
+			resolved, err := resolveRef(ref, p.env)
+			if err != nil {
+				problems = append(problems, fmt.Sprintf("%s: image %s: %v", at, ref, err))
+				continue
+			}
+			ref = resolved
 		}
 		name, tag := splitImage(ref)
 		if tag == "" || tag == "latest" {
-			problems = append(problems, fmt.Sprintf("%s: image %s has no exact tag", rel, ref))
+			problems = append(problems, fmt.Sprintf("%s: image %s has no exact tag", at, ref))
 			continue
 		}
 		cell, ok := p.images[name]
 		if !ok {
-			problems = append(problems, fmt.Sprintf("%s: image %s has no row in docs/pins.md", rel, name))
+			problems = append(problems, fmt.Sprintf("%s: image %s has no row in docs/pins.md", at, name))
 			continue
 		}
 		if !versionListed(cell, tag, filepath.ToSlash(filepath.Dir(rel)), true) {
-			problems = append(problems, fmt.Sprintf("%s: image %s:%s, but docs/pins.md pins %q", rel, name, tag, strings.TrimSpace(cell)))
+			problems = append(problems, fmt.Sprintf("%s: image %s:%s, but docs/pins.md pins %q", at, name, tag, strings.TrimSpace(cell)))
 		}
 	}
 	return problems, nil

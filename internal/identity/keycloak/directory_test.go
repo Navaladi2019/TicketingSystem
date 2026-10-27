@@ -426,7 +426,7 @@ func TestDisableUserRefusesAnyGroupOutsideTheTenant(t *testing.T) {
 
 func TestIdPConfigAllowList(t *testing.T) {
 	t.Parallel()
-	ok := IdPSpec{ProviderID: "oidc", Config: map[string]string{"clientId": "x", "tokenUrl": "https://i/t"}}
+	ok := IdPSpec{ProviderID: "oidc", Config: map[string]string{"clientId": "x", "tokenUrl": "https://idp.example.com/t"}}
 	if err := checkIdPConfig(ok); err != nil {
 		t.Errorf("allowed config refused: %v", err)
 	}
@@ -549,5 +549,30 @@ func TestCreateTenantOrgRollbackSparesAnIdPLinkedElsewhere(t *testing.T) {
 	}
 	if delIdP.Load() {
 		t.Error("an IdP linked to another organization was deleted")
+	}
+}
+
+func TestIdPConfigRefusesUnsafeURLs(t *testing.T) {
+	t.Parallel()
+	bad := []string{
+		"http://169.254.169.254/", "https://10.0.0.5/", "https://127.0.0.1/", "https://[::1]/", "https://[::ffff:10.0.0.1]/",
+		"https://100.64.0.1/", "https://[fd00::1]/", "https://0.0.0.0/", "https://localhost/", "https://a.localhost/",
+		"https://keycloak/", "https://u:p@idp.example.com/", "https://2130706433/", "https://0x7f.1/", "https://0x7f.0xa/", "https://10.0xa/", "https://[::127.0.0.1]/", "ftp://idp.example.com/",
+		"//idp.example.com/", "", "https:///x", "https://metadata.internal/",
+	}
+	for key := range idpURLKeys {
+		for _, v := range bad {
+			spec := IdPSpec{ProviderID: "oidc", Config: map[string]string{key: v}}
+			if key == "singleSignOnServiceUrl" || key == "singleLogoutServiceUrl" {
+				spec.ProviderID = "saml"
+			}
+			if err := checkIdPConfig(spec); !errors.Is(err, identity.ErrInvalidInput) {
+				t.Errorf("%s=%q: err = %v, want ErrInvalidInput", key, v, err)
+			}
+		}
+	}
+	good := IdPSpec{ProviderID: "oidc", Config: map[string]string{"jwksUrl": "https://login.example.com:8443/certs", "issuer": "https://8.8.8.8/"}}
+	if err := checkIdPConfig(good); err != nil {
+		t.Errorf("public URL refused: %v", err)
 	}
 }

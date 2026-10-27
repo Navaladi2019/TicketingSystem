@@ -86,7 +86,11 @@ func apply(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, changes identity.
 		}
 	}
 
-	userIDs, err := applyPrincipals(ctx, tx, tid, changes.Users, now, &st)
+	bound, err := boundAliases(ctx, tx, tid)
+	if err != nil {
+		return st, err
+	}
+	userIDs, err := applyPrincipals(ctx, tx, tid, changes.Users, bound, now, &st)
 	if err != nil {
 		return st, err
 	}
@@ -119,11 +123,38 @@ type linkJSON struct {
 	UserID           string `json:"userId"`
 }
 
+// boundAliases is the set of IdP aliases the tenant binds. A tenant with no
+// binding row has none, so no link is written for it (fail closed).
+func boundAliases(ctx context.Context, tx pgx.Tx, tid string) (map[string]bool, error) {
+	rows, err := tx.Query(ctx, `SELECT DISTINCT unnest(idp_aliases) FROM tenant_identity_binding WHERE tenant_id = $1::uuid`, tid)
+	if err != nil {
+		return nil, fmt.Errorf("read bound idps: %w", err)
+	}
+	defer rows.Close()
+	bound := map[string]bool{}
+	for rows.Next() {
+		var a string
+		if err := rows.Scan(&a); err != nil {
+			return nil, fmt.Errorf("read bound idps: %w", err)
+		}
+		bound[a] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read bound idps: %w", err)
+	}
+	return bound, nil
+}
+
 // linksJSON is federated_links as the table documents it. A user with none
 // gets '[]', never NULL: NULL means "never synced" and the resolver refuses it.
-func linksJSON(links []identity.FederatedLink) ([]byte, error) {
+// Only links whose IdP alias the tenant binds are kept: a link to another
+// tenant's IdP carries that tenant's id and the external user id.
+func linksJSON(links []identity.FederatedLink, bound map[string]bool) ([]byte, error) {
 	out := make([]linkJSON, 0, len(links))
 	for _, l := range links {
+		if !bound[l.IdPAlias] {
+			continue
+		}
 		out = append(out, linkJSON{IdentityProvider: l.IdPAlias, UserID: l.ExternalUserID})
 	}
 	return json.Marshal(out)
@@ -145,7 +176,7 @@ type principalRow struct {
 }
 
 // applyPrincipals returns the Keycloak user id -> principal id map.
-func applyPrincipals(ctx context.Context, tx pgx.Tx, tid string, users []identity.DirectoryUser, now time.Time, st *stats) (map[string]uuid.UUID, error) {
+func applyPrincipals(ctx context.Context, tx pgx.Tx, tid string, users []identity.DirectoryUser, bound map[string]bool, now time.Time, st *stats) (map[string]uuid.UUID, error) {
 	rows, err := tx.Query(ctx, `SELECT id, keycloak_user_id, email, enabled, federated_links FROM principals WHERE tenant_id = $1::uuid`, tid)
 	if err != nil {
 		return nil, fmt.Errorf("read principals: %w", err)
@@ -173,7 +204,7 @@ func applyPrincipals(ctx context.Context, tx pgx.Tx, tid string, users []identit
 			return nil, fmt.Errorf("%w: user without an id", ErrBadSnapshot)
 		}
 		want[u.KeycloakUserID] = true
-		links, err := linksJSON(u.FederatedLinks)
+		links, err := linksJSON(u.FederatedLinks, bound)
 		if err != nil {
 			return nil, fmt.Errorf("federated links: %w", err)
 		}

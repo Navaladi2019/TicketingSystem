@@ -47,7 +47,7 @@ const (
 	_ orgAccess = iota
 	// orgMemberRead: only GET /organizations/members/{id}/organizations, the
 	// one organization read group sync's view-organizations role is accepted
-	// for (AR-034). It shows one user's organization ids.
+	// for (AR-038). It shows one user's organization ids.
 	orgMemberRead
 	// orgAll: every route, for the onboarding account.
 	orgAll
@@ -189,8 +189,10 @@ func (a *admin) bearer(ctx context.Context, acct *account) (string, error) {
 	return acct.token, nil
 }
 
+// send refuses every redirect: the token endpoint would resend the client
+// secret and the admin API the bearer token to a URL nobody checked.
 func (a *admin) send(req *http.Request) (reply, error) {
-	resp, err := a.out.Do(req)
+	resp, err := a.out.Do(req.WithContext(telemetry.WithoutRedirects(req.Context())))
 	if err != nil {
 		return reply{}, err
 	}

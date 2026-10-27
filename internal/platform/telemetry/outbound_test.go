@@ -117,7 +117,7 @@ func TestOutboundTimeoutAndRedirectDoNotLeak(t *testing.T) {
 		http.Redirect(w, r, "http://"+dead+"/next?email=alice@tenant-a.test", http.StatusFound)
 	}))
 	t.Cleanup(redir.Close)
-	req, _ = http.NewRequestWithContext(t.Context(), http.MethodGet, redir.URL, nil)
+	req, _ = http.NewRequestWithContext(telemetry.WithRedirects(t.Context()), http.MethodGet, redir.URL, nil)
 	if err = doErr(c, req); err == nil || strings.Contains(err.Error(), "alice") {
 		t.Errorf("redirect error = %v, want a failure without the email", err)
 	}

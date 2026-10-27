@@ -39,7 +39,7 @@ Host ports (bound to 127.0.0.1): nava-core `18080`, Keycloak `18081` (`NAVA_CORE
 db-roles creates it on the next `up`. A LOGIN role also needs a
 `DBROLES_PASSWORD_<ROLE>` variable on the db-roles service.
 
-**Tests.** `sh deploy/compose/test/stack-test.sh <healthy|pgbouncer|temporal|trace|redact|idempotent|dbroles|internal|temporal_handshake|temporal_isolation|temporal_custody|temporal_health>`
+**Tests.** `sh deploy/compose/test/stack-test.sh <healthy|pgbouncer|temporal|trace|redact|idempotent|dbroles|internal|temporal_handshake|temporal_isolation|temporal_confinement|temporal_custody|temporal_health>`
 (`task stack:test`). Start the stack with `OTEL_TAIL_SAMPLE_PERCENT=100` for the
 `trace` test: an ordinary 404 is otherwise sampled out. CI runs them in
 the `stack` job in `.github/workflows/ci.yml`.

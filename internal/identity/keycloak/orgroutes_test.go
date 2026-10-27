@@ -10,7 +10,7 @@ import (
 )
 
 // TestRuntimeAccountOrganizationRoutes pins what admin.do lets each account
-// send under /organizations (TICK-252, AR-034). The check reads the path that
+// send under /organizations (TICK-252, AR-038). The check reads the path that
 // is sent, before the token fetch, so every refused call reaches the fake
 // server zero times, token endpoint included.
 func TestRuntimeAccountOrganizationRoutes(t *testing.T) {

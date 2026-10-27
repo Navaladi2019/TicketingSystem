@@ -26,7 +26,7 @@ Tests: `internal/identitystack/onboard_e2e_test.go` (build tag `identitystack`).
 - Per run: a fresh `Idempotency-Key`, so a fresh tenant id; domain `onb-<8 hex>.test`;
   an IdP realm `onb-<8 hex>` with client `nava-broker` and the admin user. Removed after
   the test, with the tenant's organization, IdP and `nava` user. Tenant rows stay
-  (there is no abandon operation yet, AR-032); every run's are distinct.
+  (there is no abandon operation yet, AR-036); every run's are distinct.
 - Tokens are fetched with `Host: keycloak:8080`, so their issuer is the one the
   platform containers accept.
 

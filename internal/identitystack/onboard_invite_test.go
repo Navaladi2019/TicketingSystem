@@ -123,7 +123,7 @@ func (f tenantFx) requirePlaced(t *testing.T, email string) {
 // pending A invite. The user it creates is not placed in /t/<A>/, holds no
 // link to A's IdP, and A's invite stays unconsumed. (Security tests 1 and 10,
 // writer part, and the CTO's squatting case; the squatted admin is refused
-// later, AR-033.)
+// later, AR-037.)
 func squatAdminOfA(t *testing.T) {
 	stopGroupsync(t)
 	a, b := onboardFx(t), onboardFx(t)

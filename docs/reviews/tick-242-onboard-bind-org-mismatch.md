@@ -10,7 +10,7 @@ Reviewer: Quality, Testing & CI Advisor. Head `482f5f9`, base `TICK-46/operator-
 |---|---|---|
 | Bind (issuer, org A), then Bind (issuer, org B) returns `ErrConflict`, tenant stays `provisioning`, binding unchanged | Pass | `TestT21BindRefusesARetryWithADifferentOrg` checks a different org and a different issuer. It asserts state, the binding row and the domain count. It passed in the CI integration job (run 40353754271). |
 | A same-args retry still succeeds with no change | Pass | `TestT21BindRetryChangesNothing` and `TestT21BindIsIdempotentAndActivationIsLast` are unchanged and green. |
-| AR-032 covers the stuck tenant | Pass | AR-032 row and `docs/operator/onboarding.md` updated |
+| AR-036 covers the stuck tenant | Pass | AR-036 row and `docs/operator/onboarding.md` updated |
 
 ## End-to-end path
 
