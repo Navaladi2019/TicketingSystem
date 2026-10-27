@@ -298,7 +298,36 @@ erDiagram
   `domain`), tenant predicate **and** "tenant is provisioning". This is
   pinned in `catalog.PinnedTenantPolicies`, like `binding_onboard`, so
   domains are claimed only in T21's onboarding transaction, never added to
-  an active tenant. No role has `UPDATE` or `DELETE`.
+  an active tenant.
+  `email_domain_release` (TICK-280, `00007_email_domain_release.sql`):
+  `nava_onboard` `DELETE`, the same guard on `USING`, also pinned, so a
+  stuck provisioning tenant can free its domains (AR-036) and an active
+  tenant's never move. `email_domain_onboard_select`: `nava_onboard`
+  `SELECT` on `tenant_id` alone, canonical tenant predicate. The release
+  (`DELETE ... WHERE tenant_id = $1`) reads `tenant_id`, and CI-2 needs the
+  key readable to prove another tenant's rows are out of reach. A `DELETE`
+  that reads a column runs under both policies, so the guard holds. No
+  role has `UPDATE`.
+
+### Release evidence (TICK-280)
+
+Same host and image as below; 25,003 rows (the volume below, plus one
+provisioning tenant with 3 domains). `EXPLAIN (ANALYZE, BUFFERS)` as
+`nava_onboard`, FORCE RLS on, warm. Script: `scratch/tick280-release-bench/`.
+
+| Case (tenant context) | No extra index | With `(tenant_id)` index |
+| --- | --- | --- |
+| Stuck provisioning tenant, 3 rows freed | Seq Scan, 210 hit, 2.32 ms | Index Scan, 9 hit, 0.13 ms |
+| Active tenant, own transaction, 0 rows | Seq Scan, 210 hit, 1.60 ms | Index Scan, 6 hit, 0.06 ms |
+| Large active tenant (5,000 domains), 0 rows | Seq Scan, 210 hit, 1.46 ms | Index Scan, 52 hit, 0.55 ms |
+
+The provisioning test is a hashed subplan on `tenants_pkey` (3 buffers).
+**No index added.** The release runs once per abandoned tenant, an
+operator action; 2.3 ms at 25,003 rows grows linearly (about 23 ms at
+250,000). The index would cost 504 kB (21 % on top of the 2,440 kB
+primary key) and a second index write on every domain claim, to save 2 ms
+on a rare path. Revisit if the release joins a hot path or the table
+passes about 1 M rows.
 
 ### Evidence
 
