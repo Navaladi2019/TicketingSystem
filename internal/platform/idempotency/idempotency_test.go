@@ -59,6 +59,32 @@ func TestRequestHash(t *testing.T) {
 	}
 }
 
+func TestRequestHashAmbiguousBodies(t *testing.T) {
+	t.Parallel()
+	h := func(b string) string { return string(idempotency.RequestHash("POST", "/x", []byte(b))) }
+	pairs := [][2]string{
+		{"{\"a\":\"\xff\"}", "{\"a\":\"\xfe\"}"},
+		{"{\"a\":\"\xff\"}", "{\"a\":\"\xef\xbf\xbd\"}"},
+		{`{"a":1,"a":2}`, `{"a":2}`},
+		{`{"a":1,"a":2}`, `{"a":1}`},
+		{`{"o":{"k":1,"k":2}}`, `{"o":{"k":2}}`},
+		{`[{"k":1},{"k":1,"k":2}]`, `[{"k":1},{"k":2}]`},
+		{`{"o":{"x":1},"a":1,"a":2}`, `{"o":{"x":1},"a":2}`},
+	}
+	for _, p := range pairs {
+		if h(p[0]) == h(p[1]) {
+			t.Errorf("%q and %q must not hash alike", p[0], p[1])
+		}
+	}
+	// Same key in different objects is not a duplicate: still canonical.
+	if h(`{"a":{"k":1},"b":{"k":1}}`) != h(`{"b":{"k":1},"a":{"k":1}}`) {
+		t.Error("reordered objects with repeated nested keys should hash alike")
+	}
+	if h(`[{"k":1},{"k":2}]`) != h(` [ {"k":1} , {"k":2} ] `) {
+		t.Error("reformatted array should hash alike")
+	}
+}
+
 func newMW(t *testing.T) (http.Handler, *int) {
 	t.Helper()
 	// A lazy pool that is never dialled: these cases end before the database.
