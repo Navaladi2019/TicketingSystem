@@ -7,7 +7,55 @@ import (
 	"encoding/json"
 	"io"
 	"strings"
+	"unicode/utf8"
 )
+
+// hasDuplicateKeys reports whether any JSON object in body repeats a key. A
+// body that does not tokenise reports false; the caller's decode handles it.
+func hasDuplicateKeys(body []byte) bool {
+	dec := json.NewDecoder(bytes.NewReader(body))
+	// One entry per open container: a key set for an object, nil for an array.
+	var stack []map[string]struct{}
+	expectKey := false
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return false
+		}
+		switch t := tok.(type) {
+		case json.Delim:
+			switch t {
+			case '{':
+				stack = append(stack, map[string]struct{}{})
+				expectKey = true
+				continue
+			case '[':
+				stack = append(stack, nil)
+				expectKey = false
+				continue
+			}
+			stack = stack[:len(stack)-1]
+			expectKey = len(stack) > 0 && stack[len(stack)-1] != nil
+		case string:
+			if expectKey {
+				seen := stack[len(stack)-1]
+				k := strings.ToLower(t) // encoding/json matches field names case-insensitively
+				if _, dup := seen[k]; dup {
+					return true
+				}
+				seen[k] = struct{}{}
+				expectKey = false
+				continue
+			}
+			expectKey = len(stack) > 0 && stack[len(stack)-1] != nil
+		default:
+			expectKey = len(stack) > 0 && stack[len(stack)-1] != nil
+		}
+		if len(stack) == 0 {
+			return false
+		}
+	}
+}
 
 // Body kinds in the hash input, so a raw body that happens to spell a JSON
 // document's canonical text never collides with that document.
@@ -48,6 +96,11 @@ func RequestHash(method, path string, body []byte) []byte {
 func canonicalBody(body []byte) (byte, []byte) {
 	if len(bytes.TrimSpace(body)) == 0 {
 		return kindEmpty, nil
+	}
+	// Re-encoding would change what these bodies mean (U+FFFD substitution,
+	// last duplicate key wins), so two different bodies could share a hash.
+	if !utf8.Valid(body) || hasDuplicateKeys(body) {
+		return kindRaw, body
 	}
 	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.UseNumber()
