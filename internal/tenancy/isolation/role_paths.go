@@ -338,7 +338,7 @@ func withProvisioning(ctx context.Context, c Cluster, fn func(*pgxpool.Pool) err
 // tenant (control), and writes nothing to an active one: neither its own
 // (tenant A) nor another (tenant B), nor tenant A from tenant P's
 // transaction. That includes pending_invite (T252a): no invite, re-invite or
-// extension.
+// extension; and tenant_email_domain (TICK-280): no release.
 func onboardCannotWriteActive(ctx context.Context, c Cluster) error {
 	return withProvisioning(ctx, c, func(pool *pgxpool.Pool) error {
 		var errs []error
@@ -386,6 +386,12 @@ func onboardCannotWriteActive(ctx context.Context, c Cluster) error {
 					_, err := execOne(ctx, tx, q, w.target)
 					errs = append(errs, refused(fmt.Sprintf("in tenant %s, %s for %s", w.ctxTenant, q, w.target), err))
 				}
+				// TICK-280: no domain release for an active tenant. Tenants A
+				// and B own seeded domains, so the guard, not a missing row,
+				// must stop it.
+				if n, err := execOne(ctx, tx, releaseDomains, w.target); n != 0 || err != nil {
+					errs = append(errs, errors.Join(fmt.Errorf("in tenant %s, release %s's domains: %d rows", w.ctxTenant, w.target, n), err))
+				}
 				return errors.Join(errs...)
 			})
 			errs = append(errs, err)
@@ -401,6 +407,8 @@ const (
 	reinviteShared = `INSERT INTO pending_invite (tenant_id, email, expires_at) VALUES ($1, '` + SharedInviteEmail + `', now() + interval '30 days')
 		ON CONFLICT (tenant_id, email) DO UPDATE SET expires_at = EXCLUDED.expires_at WHERE pending_invite.consumed_at IS NULL`
 	extendInvites = "UPDATE pending_invite SET expires_at = now() + interval '30 days' WHERE tenant_id = $1"
+	// TICK-280's domain release, the same shape.
+	releaseDomains = "DELETE FROM tenant_email_domain WHERE tenant_id = $1"
 )
 
 // onboardInvitesOnlyProvisioning is the positive control for the

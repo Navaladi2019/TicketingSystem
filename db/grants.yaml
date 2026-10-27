@@ -39,9 +39,9 @@ roles:
 
   # The D28 system actors (A.3), one role each. Table entries: T09
   # (00002_platform_tables.sql), T16 (00003_identity_tables.sql), T18a
-  # (00004_tenant_email_domain.sql) and T252a (00006_pending_invite.sql). Every
-  # tenant table is under FORCE RLS, so a grant here reaches only the rows its
-  # policies allow.
+  # (00004_tenant_email_domain.sql, 00007_email_domain_release.sql) and T252a
+  # (00006_pending_invite.sql). Every tenant table is under FORCE RLS, so a
+  # grant here reaches only the rows its policies allow.
   nava_app:
     attributes: [LOGIN]
     pgbouncer_login: true
@@ -110,7 +110,9 @@ roles:
     tables:
       tenants: { SELECT: [id, state, onboarding_request_hash, created_at], INSERT: [id, state, onboarding_request_hash], UPDATE: [state] }
       tenant_identity_binding: { INSERT: [tenant_id, issuer, org_id, idp_aliases] }
-      tenant_email_domain: { INSERT: [tenant_id, domain] } # T18a, next to the binding
+      # T18a claims domains next to the binding; TICK-280 releases a
+      # provisioning tenant's (DELETE ... WHERE tenant_id = $1).
+      tenant_email_domain: { SELECT: [tenant_id], INSERT: [tenant_id, domain], DELETE: [] }
       # InviteUser's insert and re-invite upsert (T252a): SELECT for the
       # conflict target, the DO UPDATE WHERE and EXCLUDED.expires_at; UPDATE
       # only expires_at, so a consumed invite cannot be reopened.

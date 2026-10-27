@@ -153,3 +153,108 @@ func TestT18aDuplicateDomainErrorHidesOwner(t *testing.T) {
 		}
 	}
 }
+
+// releaseDomains is the statement a domain release runs (TICK-280, AR-036)
+// in the tenant transaction, with the tenant as $1.
+const releaseDomains = "DELETE FROM tenant_email_domain WHERE tenant_id = $1"
+
+// TICK-280: nava_onboard frees the domains of its own provisioning tenant,
+// and no other: not those of an active tenant, its own or another's, nor
+// another provisioning tenant's, nor any with no tenant set. Activated in
+// the same transaction, its own tenant releases nothing more.
+func TestTICK280OnlyProvisioningTenantReleasesDomains(t *testing.T) {
+	migratedPlatform(t)
+	super := superNava(t)
+	seedTenants(t, super, []string{tenantA, tenantB}, []string{tenantX, tenantY})
+	for _, d := range []struct{ tenant, domain string }{
+		{tenantA, "a.test"}, {tenantB, "b.test"}, {tenantX, "x.test"}, {tenantX, "x2.test"}, {tenantY, "y.test"},
+	} {
+		exec(t, super, insertDomain, d.tenant, d.domain)
+	}
+	onboard := asRole(t, "nava_onboard")
+	owned := func() string {
+		return queryString(t, super, "SELECT string_agg(domain, ',' ORDER BY domain COLLATE \"C\") FROM tenant_email_domain")
+	}
+
+	// Each attempt reaches no row, without an error.
+	for _, w := range []struct{ ctxTenant, target string }{
+		{tenantA, tenantA}, // its own, but active
+		{tenantA, tenantB}, // another active tenant
+		{tenantX, tenantA}, // an active tenant from X's transaction
+		{tenantX, tenantY}, // another provisioning tenant
+		{"", tenantX},      // no tenant set
+	} {
+		if n, err := execIn(onboard, w.ctxTenant, releaseDomains, w.target); err != nil || n != 0 {
+			t.Errorf("nava_onboard in tenant %q releases %d of %s's domains, %v; want 0, nil", w.ctxTenant, n, w.target, err)
+		}
+	}
+	if got := owned(); got != "a.test,b.test,x.test,x2.test,y.test" {
+		t.Fatalf("after the refused releases the domains are %s, want all five", got)
+	}
+
+	// Control: X releases both of its own, and Y's stays.
+	if n, err := execIn(onboard, tenantX, releaseDomains, tenantX); err != nil || n != 2 {
+		t.Fatalf("control: X releases %d domains, %v; want 2, nil", n, err)
+	}
+	if got := owned(); got != "a.test,b.test,y.test" {
+		t.Errorf("after X's release the domains are %s, want a.test,b.test,y.test", got)
+	}
+
+	// Y activated in the same transaction keeps its domain.
+	err := inTenantTx(onboard, tenantY, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(t.Context(), "UPDATE tenants SET state = 'active' WHERE id = $1", tenantY); err != nil {
+			return err
+		}
+		tag, err := tx.Exec(t.Context(), releaseDomains, tenantY)
+		if err == nil && tag.RowsAffected() != 0 {
+			t.Errorf("Y after activation releases %d domains, want 0", tag.RowsAffected())
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatalf("Y activates and releases: %v", err)
+	}
+	if got := owned(); got != "a.test,b.test,y.test" {
+		t.Errorf("after Y's activation the domains are %s, want a.test,b.test,y.test", got)
+	}
+}
+
+// TICK-280: nava_onboard reads tenant_id alone, and only its own tenant's;
+// a release or read that names the domain is refused. The other roles
+// cannot release at all.
+func TestTICK280OnboardReadsOnlyOwnTenantID(t *testing.T) {
+	migratedPlatform(t)
+	super := superNava(t)
+	seedTenants(t, super, []string{tenantA}, []string{tenantX})
+	exec(t, super, insertDomain, tenantX, "x.test")
+	exec(t, super, insertDomain, tenantA, "a.test")
+	onboard := asRole(t, "nava_onboard")
+
+	for _, tenant := range []string{tenantX, tenantA} {
+		var n int
+		err := inTenantTx(onboard, tenant, func(tx pgx.Tx) error {
+			return tx.QueryRow(t.Context(), "SELECT count(*) FROM tenant_email_domain WHERE tenant_id <> $1", tenant).Scan(&n)
+		})
+		if err != nil || n != 0 {
+			t.Errorf("nava_onboard in tenant %s sees %d other tenants' rows, %v; want 0, nil", tenant, n, err)
+		}
+	}
+	for _, c := range []struct {
+		q    string
+		args []any
+	}{
+		{"DELETE FROM tenant_email_domain WHERE domain = 'x.test'", nil},
+		{releaseDomains + " RETURNING domain", []any{tenantX}},
+		{"SELECT domain FROM tenant_email_domain", nil},
+	} {
+		_, err := execIn(onboard, tenantX, c.q, c.args...)
+		wantSQLState(t, "nava_onboard: "+c.q, err, "42501")
+	}
+	for _, role := range []string{"nava_app", "nava_groupsync"} {
+		_, err := execIn(asRole(t, role), tenantA, releaseDomains, tenantA)
+		wantSQLState(t, role+" releases A's domains", err, "42501")
+	}
+	if n := queryString(t, super, "SELECT count(*)::text FROM tenant_email_domain"); n != "2" {
+		t.Errorf("tenant_email_domain holds %s rows, want 2", n)
+	}
+}
