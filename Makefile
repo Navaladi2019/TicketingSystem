@@ -42,7 +42,7 @@ GOLANGCI_LINT_VERSION := 2.14.0
 GOVULNCHECK_VERSION := v1.9.0
 
 .PHONY: build run test test-integration isolation lint generate check-openapi
-.PHONY: ci ci-isolated ci-changed ci-stages ci-isolated-down test-ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity stack-idp-realms stack-test-worker 	image image-ci stack-up stack-down stack-logs stack-internal stack-internal-beside stack-main ci-stack-run stack-tests smoke
+.PHONY: ci ci-isolated ci-changed ci-stages ci-isolated-down test-ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity identity-attacks identity-attacks-fixture stack-idp-realms stack-test-worker 	image image-ci stack-up stack-down stack-logs stack-internal stack-internal-beside stack-main ci-stack-run stack-tests smoke
 
 build:
 	go build -o bin/nava-core ./cmd/nava-core
@@ -311,8 +311,24 @@ stack-idp-realms:
 
 # The realm `nava` of the running Keycloak (T14, ADR-001 A.1): tenant and idp
 # claims, token lifespan, operator role custody, realm export round trip.
+# TestCI5 needs a platform database: make identity-attacks runs it. The
+# CI-5.06 negative fixture needs Keycloak 26.1.2: make identity-attacks-fixture.
 stack-test-identity:
-	go test -tags identitystack -count=1 ./internal/identitystack
+	go test -tags identitystack -count=1 -skip '^(TestCI5|TestKC2612Fixture.*)$$' ./internal/identitystack
+
+# The CI-5 adversarial identity suite (T19, ADR-001 Annex B CI-5) against the
+# running Keycloak, with a throwaway PostgreSQL for the platform database the
+# resolver and one real group sync use. Writes the CI-5 report to CI5_REPORT
+# and fails when a CI-5 case did not pass. Needs the stack's Keycloak.
+CI5_REPORT ?= ci5-report.md
+identity-attacks:
+	CI5_REPORT=$(CI5_REPORT) sh scripts/ci/identity-attacks.sh
+
+# The CI-5.06 negative fixture: the same kc.org tamper must SUCCEED on a
+# throwaway Keycloak 26.1.2 (the known-broken pin), so CI-5.06 passing on the
+# pinned Keycloak means something. Needs Docker, not the stack. Opt-in.
+identity-attacks-fixture:
+	sh scripts/ci/identity-attacks.sh fixture
 
 # The compose smoke: GET /healthz from inside the compose network.
 smoke: stack-test-smoke

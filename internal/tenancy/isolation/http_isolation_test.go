@@ -5,6 +5,7 @@ package isolation
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -29,7 +30,7 @@ import (
 // realm's organization is bound to tenant A, and its subject is tenant A's
 // seeded principal kc-user-shared (a Keycloak id tenant B also has).
 const (
-	isoOrgID   = "org-a-http"
+	isoOrgID   = HTTPOrgA
 	isoSubject = "kc-user-shared"
 )
 
@@ -39,6 +40,8 @@ type apiRunner struct {
 	token    string
 	realm    *keycloaktest.Realm
 	resolver *keycloak.Adapter
+	// untrusted is a second realm the API does not trust (CI-5.03).
+	untrusted *keycloaktest.Realm
 }
 
 var _ Server = (*apiRunner)(nil)
@@ -50,8 +53,8 @@ func newAPIRunner(t *testing.T) *apiRunner {
 	// Bind the test realm's organization to tenant A for this test only.
 	super := suite.superConn(t)
 	if _, err := super.Exec(t.Context(),
-		"INSERT INTO tenant_identity_binding (tenant_id, issuer, org_id) VALUES ($1, $2, $3)",
-		TenantA, realm.Issuer(), isoOrgID); err != nil {
+		"INSERT INTO tenant_identity_binding (tenant_id, issuer, org_id, idp_aliases) VALUES ($1, $2, $3, $4)",
+		TenantA, realm.Issuer(), isoOrgID, []string{HTTPIdPA}); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
@@ -81,7 +84,7 @@ func newAPIRunner(t *testing.T) *apiRunner {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := &apiRunner{t: t, h: h, realm: realm, resolver: resolver}
+	r := &apiRunner{t: t, h: h, realm: realm, resolver: resolver, untrusted: keycloaktest.New(t)}
 	r.token = r.Mint(Token{Subject: isoSubject})
 
 	// Without this baseline every path could pass on a 401: the token must
@@ -144,6 +147,9 @@ func (r *apiRunner) do(t *testing.T, c *HTTPCall) *httptest.ResponseRecorder {
 // starts refusing the request.
 func (r *apiRunner) run(t *testing.T, c *HTTPCall) (status, detail string) {
 	t.Helper()
+	if c.Token != nil {
+		return r.runShape(t, c)
+	}
 	rec := r.do(t, c)
 	body := rec.Body.String()
 	switch {
@@ -166,4 +172,29 @@ func (r *apiRunner) run(t *testing.T, c *HTTPCall) (status, detail string) {
 		return statusFail, fmt.Sprintf("%d, tenant_id %q, want tenant A: %s", rec.Code, v.TenantID, body)
 	}
 	return statusPass, fmt.Sprintf("%d, tenant A only", rec.Code)
+}
+
+// runShape runs a CI-5 Token path: the API must answer 401, and the resolver
+// must refuse the same token with the path's sentinel and reason, so a 401
+// for another reason (a missing seed row, an unbound organization) fails.
+func (r *apiRunner) runShape(t *testing.T, c *HTTPCall) (status, detail string) {
+	t.Helper()
+	s := c.Token
+	if s.WantErr == nil || s.WantReason == "" {
+		return statusFail, "a Token path needs WantErr and WantReason"
+	}
+	issuer := r.realm
+	if s.Untrusted {
+		issuer = r.untrusted
+	}
+	token := issuer.Mint(t, keycloaktest.Token{Subject: s.Subject, Orgs: s.Orgs, IdP: s.IdP})
+	code, body := r.Do(t.Context(), c.Method, c.Path, token, c.Body)
+	if code != http.StatusUnauthorized {
+		return statusFail, fmt.Sprintf("%d, want 401 for this token: %s", code, body)
+	}
+	p, err := r.resolver.Resolve(t.Context(), token)
+	if !errors.Is(err, s.WantErr) || !strings.Contains(err.Error(), s.WantReason) {
+		return statusFail, fmt.Sprintf("401, but the resolver gave %+v, %v; want %v (%s)", p, err, s.WantErr, s.WantReason)
+	}
+	return statusPass, fmt.Sprintf("401, refused: %s", s.WantReason)
 }

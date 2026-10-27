@@ -5,6 +5,7 @@ import (
 	"go/build/constraint"
 	"go/parser"
 	"go/token"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -54,7 +55,35 @@ func TestRegistryIsWellFormed(t *testing.T) {
 		if p.HTTP != nil && (p.HTTP.Method == "" || !strings.HasPrefix(p.HTTP.Path, "/api/v1/")) {
 			t.Errorf("path %q: an HTTP path needs a method and an /api/v1 path", p.Name)
 		}
+		if p.HTTP != nil && p.HTTP.Token != nil && (p.HTTP.Token.WantErr == nil || p.HTTP.Token.WantReason == "") {
+			t.Errorf("path %q: a Token path needs WantErr and WantReason, or any 401 would pass", p.Name)
+		}
+		if p.StackTarget != "" {
+			target, ok := strings.CutPrefix(p.StackTarget, "make ")
+			switch {
+			case p.Stack == "":
+				t.Errorf("path %q: StackTarget without Stack", p.Name)
+			case !ok || !makeTargets(t)[target]:
+				t.Errorf("path %q: StackTarget %q is not a make target of the Makefile", p.Name, p.StackTarget)
+			}
+		}
 	}
+}
+
+// makeTargets are the rule names of the repository's Makefile.
+func makeTargets(t *testing.T) map[string]bool {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "Makefile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]bool{}
+	for _, line := range strings.Split(string(raw), "\n") {
+		if name, _, ok := strings.Cut(line, ":"); ok && name != "" && !strings.ContainsAny(name, " \t=$#.%") {
+			out[name] = true
+		}
+	}
+	return out
 }
 
 // TestExemptionsAreAllowListed: an exemption names an ADR-001 A.3 policy, on
