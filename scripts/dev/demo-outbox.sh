@@ -10,6 +10,10 @@
 set -eu
 cd "$(dirname "$0")/../.."
 
+# Git Bash would rewrite the container paths (--entrypoint /demo-outbox, docker cp).
+MSYS_NO_PATHCONV=1
+export MSYS_NO_PATHCONV
+
 # Like make run: .env values (NAVA_APP_DB_PASSWORD, NAVA_IMAGE_TAG) apply as they do to compose.
 if [ -f .env ]; then set -a; . ./.env; set +a; fi
 

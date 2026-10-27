@@ -54,6 +54,13 @@ it twice with the same key and the second run writes nothing and prints the same
 ids, still one workflow; a new key makes a new workflow. `make stack-test-demo_outbox`
 runs exactly that and checks the history (CI: the `stack` job).
 
+**Git Bash on Windows.** MSYS rewrites a leading-slash container path in a
+`docker` argument (`--entrypoint /demo-outbox` becomes `C:/Program Files/Git/demo-outbox`).
+`make demo-outbox`, `make operator-tunnel`, `make temporal-server-run` and
+`deploy/compose/test/stack-test.sh` set
+`MSYS_NO_PATHCONV=1` themselves, so no `export` is needed. A `docker run`, `create`
+or `exec` you add with a container path must do the same.
+
 **Tests.** `sh deploy/compose/test/stack-test.sh <healthy|pgbouncer|temporal|trace|redact|idempotent|dbroles|internal|temporal_handshake|temporal_isolation|temporal_confinement|temporal_custody|temporal_health>`
 (`task stack:test`). Start the stack with `OTEL_TAIL_SAMPLE_PERCENT=100` for the
 `trace` test: an ordinary 404 is otherwise sampled out. CI runs them in
