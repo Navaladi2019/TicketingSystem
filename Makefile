@@ -43,6 +43,7 @@ GOLANGCI_LINT_VERSION := 2.14.0
 GOVULNCHECK_VERSION := v1.9.0
 
 .PHONY: build run test test-integration test-integration-cleanup reap-integration bench-relay isolation lint generate check-openapi
+.PHONY: demo-outbox stack-test-demo_outbox
 .PHONY: ci ci-isolated ci-changed ci-stages ci-isolated-down test-ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity stack-idp-realms stack-test-worker 	image image-ci stack-up stack-down stack-logs stack-internal stack-internal-beside stack-main ci-stack-run stack-tests smoke
 
 build:
@@ -179,7 +180,7 @@ ci-integration: test-integration test-ci-isolated-down test-integration-cleanup
 # restarts the stack, and dbroles changes roles. worker polls nava-tq, the
 # queue the sdk suite's workers poll, so it runs after that suite.
 STACK_TESTS_PARALLEL := smoke pgbouncer temporal temporal_handshake temporal_isolation temporal_custody temporal_operator_reach temporal_health hba sdk identity
-STACK_TESTS_SERIAL := worker dependencies trace logs redact idempotent dbroles
+STACK_TESTS_SERIAL := worker demo_outbox dependencies trace logs redact idempotent dbroles
 STACK_TESTS := healthy $(STACK_TESTS_PARALLEL) $(STACK_TESTS_SERIAL)
 stack-tests:
 	$(MAKE) --no-print-directory -j1 stack-test-healthy
@@ -378,3 +379,16 @@ dev-ca:
 UI_PORT ?= 18233
 operator-tunnel:
 	docker run --rm --name $(COMPOSE_PROJECT)-operator-tunnel -p 127.0.0.1:$(UI_PORT):8080 		--network $$(docker network ls -q --filter label=com.docker.compose.project=$(COMPOSE_PROJECT) --filter label=com.docker.compose.network=operator) 		--entrypoint /usr/local/bin/temporal-server $(TEMPORAL_SERVER_IMAGE) proxy -listen :8080 -to temporal-ui:8080
+
+# The S7 demo (TICK-275): a start row and two signal rows for a record of tenant-a,
+# written through outbox.Enqueue in InTenantTx, then handed to Temporal by the
+# relay. Needs the stack up (make stack-up). DEDUPE_KEY names the rows.
+DEDUPE_KEY ?= demo-outbox
+demo-outbox:
+	DEDUPE_KEY=$(DEDUPE_KEY) sh scripts/dev/demo-outbox.sh
+
+# Runs make demo-outbox twice with one key and asserts one workflow whose
+# history holds the two signals in commit order (internal/temporalstack,
+# TestDemoOutbox). Behind the demooutbox tag, so stack-test-sdk's whole-package run (and its report gate) never compiles it.
+stack-test-demo_outbox:
+	go test -tags temporalstack,demooutbox -count=1 -timeout 5m -run '^TestDemoOutbox' ./internal/temporalstack
