@@ -1,0 +1,352 @@
+# T05 pipeline. Every step calls a Makefile target, so `make ci` runs the same
+# gates locally. The jobs run in parallel; inside each, steps run in the
+# Makefile's gate order and the first failure stops the job:
+#   lint             gofmt, go vet, golangci-lint, fixtures, pins, OpenAPI,
+#                    govulncheck (no containers)
+#   unit             go test -race (no containers)
+#   temporal-server  the custom server module's unit tests and govulncheck
+#                    (no containers)
+#   integration      -tags integration against a throwaway PostgreSQL, the
+#                    isolation suite, then the ci-isolated --down tag check
+#   stack            image build, compose up, smoke, platform and Temporal tests
+#   stack-db         a second stack: db-roles/migrate idempotency, role and hba tests
+#   stack-internal   the internal overlay on a fresh stack
+# A pull request runs only the jobs its change needs: the changes job asks
+# `make ci-stages` (tools/ci/cichanged, the rules of `make ci-changed`), lint
+# always runs, and a change under .github/workflows runs everything. Nothing
+# runs on a push to main; run the full pipeline by hand from the Actions tab
+# (workflow_dispatch), which runs every job on the chosen branch.
+# Budget: see "Job time budgets" in docs/quality/ci-pipeline.md. The three
+# stack jobs build the images first (7.5 to 10 minutes of each run), so their
+# timeout-minutes is 25 (TICK-258); the others stay at 10. Each job keeps its
+# own Go build cache (key per job, refreshed every run), the CI tools are cached
+# by version, and image layers live in the Actions cache (gha).
+name: ci
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  changes:
+    # Which of unit, integration and the stack jobs this change needs.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      unit: ${{ steps.stages.outputs.unit }}
+      integration: ${{ steps.stages.outputs.integration }}
+      stack: ${{ steps.stages.outputs.stack }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-
+            go-${{ github.job }}-
+      - name: Stages this change needs
+        id: stages
+        env:
+          BASE: origin/${{ github.base_ref || 'main' }}
+          CI_ALL: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+        run: make ci-stages
+
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # check-openapi and review-paths diff against the pull request's base.
+      BASE: origin/${{ github.base_ref || 'main' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+            ~/.cache/golangci-lint
+          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-
+            go-${{ github.job }}-
+      - name: Cache pinned tools
+        id: tools
+        uses: actions/cache@v4
+        with:
+          path: ~/go/bin
+          key: tools-${{ hashFiles('Makefile') }}
+      - name: Install pinned tools
+        if: steps.tools.outputs.cache-hit != 'true'
+        run: make tools
+      - name: Review paths (D-P10)
+        if: github.event_name == 'pull_request'
+        run: make review-paths
+      - name: Tool versions
+        run: make check-tools
+      - name: gofmt
+        run: make fmt-check
+      - name: go vet
+        run: make vet
+      - name: golangci-lint
+        run: make lint
+      - name: Lint fixture (exact forbidigo finding count)
+        run: make lint-fixture
+      - name: Taskfile matches Makefile
+        run: make check-taskfile
+      - name: Pins and forbidden modules
+        run: make check-pins
+      - name: OpenAPI additive-only
+        run: make check-openapi
+      - name: govulncheck
+        run: make vulncheck
+
+  unit:
+    needs: changes
+    if: needs.changes.outputs.unit == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-
+            go-${{ github.job }}-
+      - name: go test -race
+        run: make test
+
+  temporal-server:
+    needs: changes
+    if: needs.changes.outputs.unit == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: temporal-server/go.mod
+          cache: false
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-
+            go-${{ github.job }}-
+      - name: temporal-server unit tests
+        run: make temporal-server-test
+      - name: Install govulncheck
+        run: make tools-govulncheck
+      # ADR-001 A1 Decision 3: zero findings, no exception and no allowlist.
+      - name: govulncheck (temporal-server)
+        run: make vulncheck-temporal-server
+
+  integration:
+    needs: changes
+    if: needs.changes.outputs.integration == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-
+            go-${{ github.job }}-
+      - name: Integration tests (-tags integration)
+        run: make test-integration
+      # Its own step, not part of make test-integration (TICK-224).
+      - name: ci-isolated --down untags only its own tags
+        run: make test-ci-isolated-down
+
+  stack:
+    # Platform and Temporal stack tests; the database tests run in stack-db.
+    needs: changes
+    if: needs.changes.outputs.stack == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      IMAGE_CACHE: gha
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-
+            go-${{ github.job }}-
+      - uses: docker/setup-buildx-action@v3
+      - uses: crazy-max/ghaction-github-runtime@v3
+      - name: Build images (layer cache in gha)
+        run: make image-ci
+      - name: Start the stack
+        run: make stack-up
+      - name: Every container healthy
+        run: make stack-test-healthy
+      - name: Compose smoke, GET /healthz from the compose network
+        run: make smoke
+      - name: PgBouncer settings
+        run: make stack-test-pgbouncer
+      - name: Keycloak and Temporal databases
+        run: make stack-test-temporal
+      - name: Temporal handshake (rogue CA refused)
+        run: make stack-test-temporal_handshake
+      - name: Temporal internal ports unreachable from the platform network
+        run: make stack-test-temporal_isolation
+      - name: Temporal certificates mounted only where owned
+        run: make stack-test-temporal_custody
+      - name: No platform process reaches the Temporal UI
+        run: make stack-test-temporal_operator_reach
+      - name: Temporal bootstrapped, nava-core healthz ok over mTLS
+        run: make stack-test-temporal_health
+      - name: SDK clients dial with their certificates and a worker runs
+        run: make stack-test-sdk
+      # Before the dependency probes, which stop Keycloak.
+      - name: Realm nava, operator custody and the Keycloak adapter
+        run: make stack-test-identity
+      # After the SDK suite: the worker polls nava-tq, the queue its workers poll.
+      - name: nava-worker ready, admin listener, guarded activity
+        run: make stack-test-worker
+      - name: Dependency probes, /readyz 200 with Keycloak stopped
+        run: make stack-test-dependencies
+      - name: One request, one trace
+        run: make stack-test-trace
+      - name: Exported logs reach the Collector
+        run: make stack-test-logs
+      - name: Collector redacts denied span values
+        run: make stack-test-redact
+      - name: Logs on failure
+        if: failure()
+        run: make stack-logs
+      - name: Tear down
+        if: always()
+        run: make stack-down
+
+  stack-db:
+    # Database stack tests on their own stack, beside stack.
+    needs: changes
+    if: needs.changes.outputs.stack == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      IMAGE_CACHE: gha
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-
+            go-${{ github.job }}-
+      - uses: docker/setup-buildx-action@v3
+      - uses: crazy-max/ghaction-github-runtime@v3
+      - name: Build images (layer cache in gha)
+        run: make image-ci
+      - name: Start the stack
+        run: make stack-up
+      - name: Every container healthy
+        run: make stack-test-healthy
+      - name: db-roles and migrate are idempotent
+        run: make stack-test-idempotent
+      - name: db-roles revokes stray memberships
+        run: make stack-test-dbroles
+      - name: pg_hba keeps pgadmin and nava_backup out
+        run: make stack-test-hba
+      - name: Logs on failure
+        if: failure()
+        run: make stack-logs
+      - name: Tear down
+        if: always()
+        run: make stack-down
+
+  stack-internal:
+    # The internal overlay brings up its own stack, so it runs beside stack.
+    needs: changes
+    if: needs.changes.outputs.stack == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      IMAGE_CACHE: gha
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-
+            go-${{ github.job }}-
+      - uses: docker/setup-buildx-action@v3
+      - uses: crazy-max/ghaction-github-runtime@v3
+      - name: Build images (layer cache in gha)
+        run: make image-ci
+      - name: Dev installation CA
+        run: make dev-ca
+      - name: Internal overlay comes up
+        run: make stack-internal
+      - name: Logs on failure
+        if: failure()
+        run: make stack-logs
+      - name: Tear down
+        if: always()
+        run: make stack-down
