@@ -5,6 +5,7 @@
 | Component | Version | Why | Source |
 | --- | --- | --- | --- |
 | `postgres` | 16.10 | fixture | fixture |
+| `nava/keycloak`, `nava/nava-core` | dev | built locally | fixture |
 
 ## Go modules
 
