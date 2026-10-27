@@ -13,6 +13,7 @@ calls only `make` targets. Install the pinned tools once with `make tools`.
 | Unit | `ci-unit` | `go test -race ./...` under the host-wide race lock (below), temporal-server unit tests | none |
 | Integration | `ci-integration` | any `//go:build integration` test (`internal/db/dbtest`, `internal/db/pooltest`, `internal/tenancy`, `internal/platform/health`) against throwaway PostgreSQL clusters and two PgBouncers (tags from `docs/pins.md`), or the dbtest shards running fewer tests than the package lists | Docker |
 | Isolation (in `ci-integration`, after `test-integration`) | `isolation` | the tenant isolation suite (`internal/tenancy/isolation`, T11, ADR-001 CI-2): any role × tenant table, registered path or fixture failing; writes the report `isolation-report.md` at the repository root (not yet uploaded as an artifact: TODO-008) | Docker |
+| ci-isolated `--down` (in `ci-integration`, after `isolation`; its own step in the `integration` job) | `test-ci-isolated-down` | `make ci-isolated-down ID=<ID>` leaves a `nava/*:<ID>` tag or removes one of another ID (TICK-211, throwaway tags on an empty imported image). Not part of `make test-integration`, so the local integration loop does not pay for it (TICK-224) | Docker |
 | Stack | `ci-stack` | image build, every container healthy, `GET /healthz` smoke from inside the compose network, then the stack tests (`pgbouncer`, `temporal`, `dependencies`, `trace`, `redact`, `idempotent`, `dbroles`, `hba`, `internal`) | compose |
 
 In GitHub, the `temporal-server` job runs the module's tests and then
