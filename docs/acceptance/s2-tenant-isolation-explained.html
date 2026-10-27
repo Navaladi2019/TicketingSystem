@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Story S2 explained: a query without the right tenant returns nothing</title>
+<style>
+  :root { --ink:#1f2937; --muted:#6b7280; --line:#e5e7eb; --bg:#ffffff; --soft:#f8fafc;
+          --blue:#2563eb; --green:#059669; --red:#dc2626; --amber:#b45309; --violet:#7c3aed; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink:#e5e7eb; --muted:#9ca3af; --line:#374151; --bg:#111827; --soft:#1f2937;
+            --blue:#60a5fa; --green:#34d399; --red:#f87171; --amber:#fbbf24; --violet:#a78bfa; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:16px/1.6 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  main { max-width: 920px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { font-size: 1.9rem; line-height:1.25; margin: 0 0 6px; }
+  h2 { font-size: 1.35rem; margin: 44px 0 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+  h3 { font-size: 1.05rem; margin: 22px 0 6px; }
+  p.lead { font-size: 1.1rem; color: var(--muted); margin-top: 0; }
+  code { font-family: Consolas, "SFMono-Regular", Menlo, monospace; font-size: .9em;
+         background: var(--soft); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+  .card { background: var(--soft); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin: 14px 0; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+  .pill { display:inline-block; font-size:.78rem; font-weight:600; padding:2px 8px; border-radius:999px; border:1px solid currentColor; }
+  .ok { color: var(--green); } .bad { color: var(--red); } .warn { color: var(--amber); } .info { color: var(--blue); }
+  table { width:100%; border-collapse: collapse; margin: 10px 0; font-size: .95rem; }
+  th, td { text-align:left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  th { background: var(--soft); font-weight: 600; }
+  .gloss dt { font-weight: 700; margin-top: 10px; }
+  .gloss dd { margin: 2px 0 0 0; color: var(--ink); }
+  svg text { font-family: inherit; fill: var(--ink); }
+  .small { font-size: .88rem; color: var(--muted); }
+  ol li, ul li { margin: 4px 0; }
+  .tldr { border-left: 4px solid var(--blue); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Story S2: a query without the right tenant returns nothing</h1>
+<p class="lead">A plain-language explainer of what this story built, why it matters, how we know it works, and what to check before you accept it. No prior knowledge of the architecture is assumed.</p>
+
+<div class="card tldr">
+  <strong>In one paragraph.</strong> Many customer organisations ("tenants") will share one database. This story makes the <em>database itself</em> refuse to show one customer's data to another, even if our application code has a bug. Every part of the platform now logs in to the database as its own user, with only the permissions it needs. And automated checks on every code change fail if anyone weakens those protections.
+  <div style="margin-top:8px"><span class="pill ok">All 4 acceptance criteria pass</span> <span class="pill info">Waiting on your ACCEPTED / REJECTED</span></div>
+</div>
+
+<h2>1. The problem, in everyday terms</h2>
+<p>Think of the database as a large shared filing cabinet. Every customer organisation (a <strong>tenant</strong>) keeps its tickets, users and groups in the same cabinet. The single worst thing that can happen is for Company A to see a ticket that belongs to Company B.</p>
+<p>The usual protection is "the application code remembers to filter by customer". That breaks the first time a developer forgets a filter. This story adds a second, independent protection <strong>inside the database</strong>: every drawer is locked unless the request names exactly one tenant, and then only that tenant's folders are visible.</p>
+
+<div class="grid">
+  <div class="card"><h3 style="margin-top:0">Before this story</h3>
+    <p class="bad">One forgotten filter could expose every customer's data.</p></div>
+  <div class="card"><h3 style="margin-top:0">After this story</h3>
+    <p class="ok">A forgotten filter returns <strong>nothing</strong> or an error. The database enforces the wall, not the developer's memory.</p></div>
+</div>
+
+<h2>2. How the wall works</h2>
+<svg viewBox="0 0 860 300" width="100%" role="img" aria-label="Diagram: a request names its tenant, the database shows only that tenant's rows">
+  <defs>
+    <marker id="arr" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/></marker>
+  </defs>
+  <rect x="10" y="40" width="200" height="70" rx="10" fill="none" stroke="#2563eb" stroke-width="2"/>
+  <text x="110" y="70" text-anchor="middle" font-weight="700">Request from Company A</text>
+  <text x="110" y="92" text-anchor="middle" font-size="13">"I am tenant A"</text>
+
+  <rect x="10" y="180" width="200" height="70" rx="10" fill="none" stroke="#dc2626" stroke-width="2"/>
+  <text x="110" y="210" text-anchor="middle" font-weight="700">Request naming no tenant</text>
+  <text x="110" y="232" text-anchor="middle" font-size="13">(a bug, or a leftover)</text>
+
+  <line x1="210" y1="75" x2="320" y2="120" stroke="#6b7280" stroke-width="2" marker-end="url(#arr)"/>
+  <line x1="210" y1="215" x2="320" y2="170" stroke="#6b7280" stroke-width="2" marker-end="url(#arr)"/>
+
+  <rect x="325" y="90" width="190" height="110" rx="10" fill="none" stroke="#7c3aed" stroke-width="2"/>
+  <text x="420" y="125" text-anchor="middle" font-weight="700">Database tenant wall</text>
+  <text x="420" y="148" text-anchor="middle" font-size="13">(row-level security,</text>
+  <text x="420" y="166" text-anchor="middle" font-size="13">forced on every table)</text>
+
+  <line x1="515" y1="120" x2="610" y2="75" stroke="#059669" stroke-width="2" marker-end="url(#arr)"/>
+  <line x1="515" y1="170" x2="610" y2="215" stroke="#dc2626" stroke-width="2" marker-end="url(#arr)"/>
+
+  <rect x="615" y="40" width="235" height="70" rx="10" fill="none" stroke="#059669" stroke-width="2"/>
+  <text x="732" y="70" text-anchor="middle" font-weight="700">Only Company A's rows</text>
+  <text x="732" y="92" text-anchor="middle" font-size="13">B's rows are invisible</text>
+
+  <rect x="615" y="180" width="235" height="70" rx="10" fill="none" stroke="#dc2626" stroke-width="2"/>
+  <text x="732" y="210" text-anchor="middle" font-weight="700">0 rows, or an error</text>
+  <text x="732" y="232" text-anchor="middle" font-size="13">never "everything"</text>
+</svg>
+
+<ol>
+  <li><strong>Every request names its tenant.</strong> The platform's database helper (<code>InTenantTx</code>) opens a short transaction and stamps it "tenant = A". The stamp is valid only inside that transaction.</li>
+  <li><strong>Every customer table has the wall switched on and forced.</strong> "Forced" means even the table's owner can't skip it.</li>
+  <li><strong>Without a valid stamp, the wall shows nothing.</strong> That covers a missing tenant, a blank tenant, and a stamp left behind by a previous request on a reused (pooled) connection.</li>
+  <li><strong>A code check (lint rule)</strong> stops developers from setting the tenant stamp by hand anywhere except the helper, so nobody can make it last longer than one transaction.</li>
+</ol>
+
+<h2>3. Each part of the platform gets its own key</h2>
+<p>Previously one database user could do everything. Now each component logs in as its own user, which can touch only the tables and columns it needs. None of them is an administrator, none can bypass the wall, none owns any table, and none inherits rights from another user.</p>
+<table>
+  <tr><th>Database user</th><th>Which component</th><th>What it can do</th></tr>
+  <tr><td><code>nava_app</code></td><td>The main API</td><td>Read and write tickets and requests, behind the wall</td></tr>
+  <tr><td><code>nava_worker</code></td><td>Background workflow workers</td><td>Like the API, but narrower</td></tr>
+  <tr><td><code>nava_relay</code></td><td>Event delivery</td><td>Only the outgoing-events queue (the "outbox"). <span class="ok">Cannot read tickets.</span></td></tr>
+  <tr><td><code>nava_purge</code></td><td>Cleanup job</td><td>Deletes expired housekeeping rows, and nothing else</td></tr>
+  <tr><td><code>nava_onboard</code></td><td>New-customer sign-up</td><td>Creates and activates a tenant</td></tr>
+  <tr><td><code>nava_groupsync</code></td><td>Sync of users and groups from the login system</td><td>Writes users, groups and org units</td></tr>
+  <tr><td><code>nava_backup</code></td><td>Backups</td><td>Copies raw database files only. <span class="ok">Cannot open a query session at all.</span></td></tr>
+  <tr><td><code>nava_migrator</code></td><td>Schema changes</td><td>Owns the tables, never used by running services</td></tr>
+</table>
+<p>All of these permissions are written in <strong>one file</strong>, <code>db/grants.yaml</code>. It is the only place a permission may come from. If the real database ever differs from that file, the difference is removed. A brand-new database that differs makes the build fail.</p>
+
+<h2>4. Automatic guards on every code change</h2>
+<p>Protections decay when nobody checks them. These checks run in CI (the automated test pipeline) on every pull request, and a change that fails any of them can't merge.</p>
+<table>
+  <tr><th>Check</th><th>What it catches</th></tr>
+  <tr><td><strong>CI-1</strong> wall on every table</td><td>A new customer table without the forced wall. Also catches an unexpected access rule ("policy") that isn't on the approved list.</td></tr>
+  <tr><td><strong>CI-2</strong> isolation suite (<code>make isolation</code>)</td><td>Seeds two tenants and tries every database user against every customer table with no tenant, a blank tenant, and a leftover tenant. Every attempt must get 0 rows or an error.</td></tr>
+  <tr><td><strong>CI-3</strong> user attributes</td><td>A service user that becomes an administrator, can bypass the wall, owns a table, or inherits another user's rights.</td></tr>
+  <tr><td><strong>CI-4</strong> permissions match the file</td><td>A permission added by hand instead of through <code>db/grants.yaml</code>.</td></tr>
+  <tr><td><strong>CI-9</strong> user reach</td><td>Proves, for example, that the event-delivery user can't read tickets and the backup user can't log in for queries.</td></tr>
+</table>
+
+<h2>5. What we checked for you (acceptance criteria)</h2>
+<p>The QA agent ran these on a freshly built stack from the main branch, then tried to break them with deliberately bad pull requests.</p>
+<table>
+  <tr><th>#</th><th>Your criterion, in plain words</th><th>Result</th><th>How it was proven</th></tr>
+  <tr><td>1</td><td>No tenant, a blank tenant, or a leftover tenant gets nothing back</td><td><span class="pill ok">PASS</span></td><td><code>make isolation</code>: 121 user×table checks, none failing. Repeated by hand, directly and through the connection pool.</td></tr>
+  <tr><td>2</td><td>No service user is an admin, bypasses the wall, owns tables, or inherits rights</td><td><span class="pill ok">PASS</span></td><td>Database catalogue queries on a fresh stack, plus automated tests and the CI-3 check</td></tr>
+  <tr><td>3</td><td>Permissions equal <code>db/grants.yaml</code>, and a hand-added permission fails CI</td><td><span class="pill ok">PASS</span></td><td>A test pull request (#143) granting the event user read access to tickets turned CI red, naming the exact permission</td></tr>
+  <tr><td>4</td><td>Event delivery can't read customer data, and backup can't open a query session</td><td><span class="pill ok">PASS</span></td><td>Event user: "permission denied". Backup user: rejected at login.</td></tr>
+  <tr><td>+</td><td>A table without the wall fails CI</td><td><span class="pill ok">PASS</span></td><td>A test pull request (#132) turned CI red: "does not FORCE ROW LEVEL SECURITY"</td></tr>
+</table>
+
+<h2>6. Problems found on the way, and fixed</h2>
+<div class="card">
+  <p><strong>A copied access rule could have leaked data.</strong> The security reviewer showed that copying an approved rule onto the tickets table would have given every tenant's tickets to the API, and the check would have let it through. The check now matches each approved rule on <em>table and name</em>, and rejects duplicates. Fixed before merge (PR #48).</p>
+  <p><strong>A hand-added permission was quietly removed instead of failing the build.</strong> The first acceptance run found that criterion 3 failed: the system cleaned up the bad permission silently, so CI stayed green and nobody would have noticed the mistake. Now, on a fresh database, the same situation fails the build and names the permission (PR #139, with stricter tests in PR #145). We re-tested it and it now goes red.</p>
+</div>
+
+<h2>7. Also delivered in this story</h2>
+<ul>
+  <li><strong>Cleanup job</strong> (<code>nava-purge</code>): deletes expired duplicate-request keys, sent events and finished workflow references. It has its own minimal database user, refuses to start if that user has admin powers, and has indexes so cleanup stays fast.</li>
+  <li><strong>Safer diagnostics:</strong> tracing data sent to monitoring now uses an allow-list, so new fields (which might hold customer data) are dropped unless someone approves them explicitly.</li>
+  <li><strong>Locked-down administrator:</strong> exactly one database administrator exists, reachable only from inside the database machine, and default public access to the main database is closed.</li>
+</ul>
+
+<h2>8. What you'll see that might look odd</h2>
+<div class="card">
+  <p><span class="pill warn">3 lines read ALLOWLISTED</span> In the isolation report, three lines say <code>ALLOWLISTED</code> instead of <code>0 rows</code>. These are deliberate, approved exceptions from the architecture decision (ADR-001):</p>
+  <ul>
+    <li><code>binding_lookup</code> for the API and the user-sync job. Before anyone is logged in, the system must look up "which tenant does this login belong to?". It reads only that mapping, not tickets.</li>
+    <li>The event-delivery user's <code>outbox</code> rules. It delivers events for all tenants, so it reads the outgoing queue across tenants, but nothing else.</li>
+  </ul>
+  <p><span class="pill warn">No user-attributes section in the report</span> Your criterion 2 mentions a "report section". The report doesn't print one. The same facts are proven by automated tests and the CI-3 check instead. If you'd like it printed in the report, say so and I'll add a small follow-up task.</p>
+</div>
+
+<h2>9. Risks we accepted (low)</h2>
+<table>
+  <tr><th>Risk</th><th>Why it's acceptable</th><th>When we revisit</th></tr>
+  <tr><td>On the very first production deploy, a hand-added permission is removed and the deploy fails once. A re-run then passes.</td><td>Fails safe: the bad permission never survives. CI catches it long before production.</td><td>If first-deploy tooling changes</td></tr>
+  <tr><td>The permission check doesn't cover a few exotic database object types (custom types, foreign data wrappers).</td><td>None of them can reach customer rows.</td><td>If the permission file starts covering those objects</td></tr>
+</table>
+
+<h2>10. Not in this story</h2>
+<p>This story protects the <strong>database layer</strong> only. You won't see any screens or ticket features here. Login, the ticket API and the user interface come in later stories of the same plan (PLAN-001), and they build on this wall.</p>
+
+<h2>11. Try it yourself (about 10 minutes)</h2>
+<ol>
+  <li>From a fresh copy of the <code>main</code> branch, run <code>make isolation</code>.</li>
+  <li>Open <code>isolation-report.md</code>. The top should read <code>Result: PASS</code>, with one line per database user and table, each showing <code>0 rows / error</code> (or <code>ALLOWLISTED</code> for the 3 exceptions above).</li>
+  <li>Optional: look at closed test pull requests #132 and #143 on GitHub. Both show red CI with the messages quoted above.</li>
+</ol>
+<p class="small">Full step-by-step kit: <code>docs/acceptance/s2-tenant-isolation.md</code>.</p>
+
+<h2>12. How to reply on the issue</h2>
+<ul>
+  <li><code>ACCEPTED</code>: the story is done.</li>
+  <li><code>ACCEPTED with notes: ...</code>: done, and I turn each note into a follow-up task.</li>
+  <li><code>REJECTED: what you did / what you expected / what happened</code>: I create one fix task per problem.</li>
+</ul>
+
+<h2>Glossary</h2>
+<dl class="gloss">
+  <dt>Tenant</dt><dd>One customer organisation using the platform. Its data must never be visible to another tenant.</dd>
+  <dt>Row-level security (RLS)</dt><dd>A PostgreSQL feature that filters which rows a query can see, according to rules ("policies") stored in the database itself.</dd>
+  <dt>FORCE row-level security</dt><dd>Applies those rules even to the table's owner, so nobody skips the wall by accident.</dd>
+  <dt>Role / database user</dt><dd>The identity a component uses to log in to the database. Permissions are attached to it.</dd>
+  <dt>Grant</dt><dd>A single permission, such as "the event user may read the outbox table".</dd>
+  <dt>Connection pool (PgBouncer)</dt><dd>Reuses database connections between requests for speed. That's why "a tenant left over from a previous request" had to be tested.</dd>
+  <dt>Migration</dt><dd>A versioned script that changes the database structure.</dd>
+  <dt>CI</dt><dd>The automated pipeline on GitHub that builds and tests every proposed change before it can merge.</dd>
+  <dt>ADR-001</dt><dd>The accepted architecture decision record that set these rules.</dd>
+</dl>
+
+<p class="small" style="margin-top:40px">Story TICK-44 · PLAN-001 · Prepared by the Technical Lead, 2026-10-26.</p>
+</main>
+</body>
+</html>

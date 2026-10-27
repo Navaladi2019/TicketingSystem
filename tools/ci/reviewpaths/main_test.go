@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -55,10 +56,19 @@ func TestSecurityPaths(t *testing.T) {
 		"internal/platform/telemetry/filter.go",
 		"docs/delivery/review-paths.yaml",
 		"internal/identitystack/stack_test.go",
+		"internal/platform/auth/middleware.go",
+		"cmd/nava-relay/main.go",
+		// Planned (PLAN-001 T21): flagged from the PR that creates it.
+		"internal/onboarding/handler.go",
 	} {
 		if !matchAny(cfg.Security.Patterns(), p) {
 			t.Errorf("%s is not on the security list", p)
 		}
+	}
+	// Still holds once the repo has no planned entry left.
+	planned := Entries{{Path: "internal/next/", Planned: "PLAN-001 T99"}}
+	if !matchAny(planned.Patterns(), "internal/next/x.go") {
+		t.Error("a planned entry is not matched")
 	}
 	for _, p := range []string{"databases.md", "internal/dbx/x.go", "deploy/compose/test/stack-test.sh"} {
 		if matchAny(cfg.Security.Patterns(), p) {
@@ -75,6 +85,9 @@ func TestCTOSignoff(t *testing.T) {
 		aud  = "internal/identitystack/audience_attack_test.go"
 		dir  = "internal/identitystack/directory_adversarial_test.go"
 		deep = "internal/a/b/c/tenant_isolation_test.go"
+		cur  = "internal/platform/cursor/cursor_adversarial_test.go"
+		t27k = "temporal-server/authz/adversarial_t27k_test.go"
+		sa   = "internal/workerguard/adversarial_sa_keytype_test.go"
 	)
 	for _, tc := range []struct {
 		name    string
@@ -106,6 +119,15 @@ func TestCTOSignoff(t *testing.T) {
 		// PR #19 round 2: a new isolation test needs its build tag; that is no skip.
 		{"new isolation test", "A\t" + deep, map[string][]string{deep: {"//go:build integration", "package c"}}, ""},
 		{"new isolation test skipped", "A\t" + deep, map[string][]string{deep: {"//go:build integration", "\tt.Skip(\"todo\")"}}, deep + " (isolation test skipped or excluded)"},
+		// TICK-229: every *adversarial*_test.go suite is registered, by the
+		// **/*adversarial*_test.go glob, as suffix, prefix or whole name.
+		{"cursor suite removed", "D\t" + cur, nil, cur + " (isolation test removed)"},
+		{"T27k suite skipped", "M\t" + t27k, map[string][]string{t27k: {"\tt.Skip(\"flaky\")"}}, t27k + " (isolation test skipped or excluded)"},
+		{"adversarial_ prefix suite removed", "D\t" + sa, nil, sa + " (isolation test removed)"},
+		{"adversarial suite extended", "M\t" + cur, map[string][]string{cur: {"\tassertRejected(t, err)"}}, ""},
+		// Not a test file, or "adversarial" only in a directory name.
+		{"adversarial helper removed", "D\tinternal/platform/cursor/adversarial_helpers.go", nil, ""},
+		{"adversarial directory test removed", "D\tinternal/adversarial/x_test.go", nil, ""},
 		// Not an isolation test: no CTO line.
 		{"ordinary test removed", "D\tinternal/server/api_test.go", nil, ""},
 	} {
@@ -120,13 +142,19 @@ func TestCTOSignoff(t *testing.T) {
 }
 
 // TICK-183: the realm export lives under deploy/compose/keycloak/ (since
-// TICK-57); a realm change must be flagged.
+// TICK-57); a realm change must be flagged. TICK-181: so must the external
+// IdP test realms under test-realms/ (since PR #90).
 func TestFixturePRTouchingRealmIsFlagged(t *testing.T) {
-	changes := parseNameStatus("M\tdeploy/compose/keycloak/import/realm-nava.json\n")
-	got := Evaluate(repoConfig(t), changes, nil).String()
-	want := "security review required: yes\nCTO sign-off required: no\n  security: deploy/compose/keycloak/import/realm-nava.json\n"
-	if got != want {
-		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
+	for _, f := range []string{
+		"deploy/compose/keycloak/import/realm-nava.json",
+		"deploy/compose/keycloak/test-realms/realm-idp-tenant-a.json",
+	} {
+		changes := parseNameStatus("M\t" + f + "\n")
+		got := Evaluate(repoConfig(t), changes, nil).String()
+		want := "security review required: yes\nCTO sign-off required: no\n  security: " + f + "\n"
+		if got != want {
+			t.Errorf("%s: got:\n%s\nwant:\n%s", f, got, want)
+		}
 	}
 }
 
@@ -156,6 +184,46 @@ func TestFixturePRTouchingIdentitystackIsFlagged(t *testing.T) {
 				t.Fatalf("got:\n%s\nwant:\n%s", got, tc.want)
 			}
 		})
+	}
+}
+
+// TICK-229 acceptance fixture: deleting the cursor suite needs Security review
+// and CTO sign-off.
+func TestFixturePRDeletingCursorSuiteIsFlagged(t *testing.T) {
+	const f = "internal/platform/cursor/cursor_adversarial_test.go"
+	got := Evaluate(repoConfig(t), parseNameStatus("D\t"+f+"\n"), nil).String()
+	want := "security review required: yes\nCTO sign-off required: yes\n" +
+		"  security: " + f + "\n" +
+		"  CTO: " + f + " (isolation test removed)\n"
+	if got != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// TICK-229: an adversarial suite missing from isolation_tests can be deleted
+// or skipped with Security review alone. Every tracked *adversarial*_test.go
+// file must be a registered isolation test.
+func TestAdversarialSuitesAreRegistered(t *testing.T) {
+	cmd := exec.Command("git", "ls-files", "--full-name") //nolint:noctx // runs to completion
+	cmd.Dir = filepath.Join("..", "..", "..")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git ls-files (this check needs the git checkout): %v", err)
+	}
+	cfg := repoConfig(t)
+	n := 0
+	for _, f := range strings.Fields(string(out)) {
+		base := path.Base(f)
+		if !strings.HasSuffix(base, "_test.go") || !strings.Contains(base, "adversarial") || strings.Contains(f, "/testdata/") {
+			continue
+		}
+		n++
+		if !cfg.IsIsolationTest(f) {
+			t.Errorf("%s is not in cto_signoff.isolation_tests: deleting or skipping it would need no CTO sign-off", f)
+		}
+	}
+	if n == 0 {
+		t.Fatal("no tracked adversarial test file found")
 	}
 }
 
@@ -250,9 +318,26 @@ func TestEntryForms(t *testing.T) {
 		"security:\n  - path: db/\n    plan: \"PLAN-001 T09\"\n", // misspelt key
 		"security:\n  - planned: \"PLAN-001 T09\"\n",             // no path
 		"security:\n  - [db/]\n",                                 // neither form
+		"security:\n  - path: db/\n    path: deploy/\n",          // repeated key
 	} {
 		if err := strictyaml.Decode([]byte(doc), &Config{}); err == nil {
 			t.Errorf("decoded %q", doc)
+		}
+	}
+}
+
+// TICK-230 bypass guard: the CI scripts decide which tags, packages and -run
+// filters the isolation suites run with, and suiteran trusts their -tags. An
+// edit there that drops both -tags (or the package, or adds -run) leaves the
+// suite out of the run with CI green, so it must get the Security review.
+func TestCIScriptsAreSecurityPaths(t *testing.T) {
+	cfg := repoConfig(t)
+	for _, p := range []string{
+		"scripts/ci/isolation.sh",
+		"scripts/ci/test-integration.sh",
+	} {
+		if !matchAny(cfg.Security.Patterns(), p) {
+			t.Errorf("%s is not on the security list: an edit to it can drop an isolation suite from CI without Security review", p)
 		}
 	}
 }

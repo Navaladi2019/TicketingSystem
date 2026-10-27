@@ -259,7 +259,10 @@ func ci5ForeignIdPAtLogin(t *testing.T, e *ci5Env) {
 	var links string
 	if err := e.super.QueryRow(t.Context(), "SELECT federated_links::text FROM principals WHERE tenant_id = $1 AND keycloak_user_id = $2",
 		tenantA, id).Scan(&links); err != nil || !strings.Contains(links, "idp-tenant-b") {
-		t.Fatalf("group sync did not record the link: %q %v", links, err)
+		t.Fatalf("group sync did not mark the foreign link: %q %v", links, err)
+	}
+	if strings.Contains(links, "ext-") {
+		t.Errorf("tenant A's row carries tenant B's external user id: %q", links)
 	}
 	for name, tok := range map[string]string{"token from before the link": before, "new token": passwordToken(t, "nava-web", user, pass)} {
 		if p, err := e.resolver.Resolve(t.Context(), tok); !errors.Is(err, identity.ErrTenantUnresolved) {
