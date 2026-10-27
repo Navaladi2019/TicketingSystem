@@ -146,6 +146,11 @@ func build(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, cfg 
 		return nil, nil, nil, fmt.Errorf("identity: %w", err)
 	}
 	registry := onboard.NewRegistry(appPool)
+	store, err := onboard.NewPGStore(onboardPool, registry)
+	if err != nil {
+		closeAll()
+		return nil, nil, nil, err
+	}
 	specs := onboard.NewSpecs()
 	dir, err := keycloak.NewDirectory(keycloak.DirectoryConfig{
 		BaseURL:    cfg.KeycloakURL,
@@ -154,15 +159,12 @@ func build(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, cfg 
 		Onboarding: &keycloak.ClientCredentials{ClientID: cfg.OnboardClientID, ClientSecret: cfg.OnboardClientSecret},
 		Registry:   registry,
 		IdPs:       specs.Source,
+		Invites:    store,
+		InviteTTL:  cfg.InviteTTL,
 	}, out)
 	if err != nil {
 		closeAll()
 		return nil, nil, nil, fmt.Errorf("directory: %w", err)
-	}
-	store, err := onboard.NewPGStore(onboardPool, registry)
-	if err != nil {
-		closeAll()
-		return nil, nil, nil, err
 	}
 	svc, err := onboard.New(onboard.Options{
 		Store: store, Directory: dir, Finder: dir, Domains: registry, Specs: specs,

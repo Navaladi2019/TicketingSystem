@@ -492,8 +492,8 @@ services:
       NAVA_DATABASE_URL: postgres://nava_groupsync:${NAVA_GROUPSYNC_DB_PASSWORD:-dev-only-groupsync}@pgbouncer:5432/nava?sslmode=disable
       NAVA_KEYCLOAK_URL: http://keycloak:8080
       NAVA_KEYCLOAK_REALM: nava
-      NAVA_GROUPSYNC_CLIENT_ID: nava-platform
-      NAVA_GROUPSYNC_CLIENT_SECRET: ${NAVA_PLATFORM_CLIENT_SECRET:-dev-only-platform-secret}
+      NAVA_GROUPSYNC_CLIENT_ID: nava-groupsync
+      NAVA_GROUPSYNC_CLIENT_SECRET: ${NAVA_GROUPSYNC_CLIENT_SECRET:-dev-only-groupsync-secret}
       NAVA_GROUPSYNC_INTERVAL: ${NAVA_GROUPSYNC_INTERVAL:-5m}
       NAVA_LOG_FORMAT: json
       OTEL_SERVICE_NAME: nava-groupsync

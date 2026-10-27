@@ -16,6 +16,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -37,9 +38,52 @@ type ClientCredentials struct {
 	ClientSecret string
 }
 
+// orgAccess says which /organizations routes an account may call. The zero
+// value allows none, so an account built without a choice fails closed.
+type orgAccess int
+
+const (
+	// The zero value allows no /organizations route.
+	_ orgAccess = iota
+	// orgMemberRead: only GET /organizations/members/{id}/organizations, the
+	// one organization read group sync's view-organizations role is accepted
+	// for (AR-034). It shows one user's organization ids.
+	orgMemberRead
+	// orgAll: every route, for the onboarding account.
+	orgAll
+)
+
+// ErrOrgRouteDenied is returned, with nothing sent, for a request to an
+// /organizations route the account may not call.
+var ErrOrgRouteDenied = errors.New("keycloak admin: organizations route not allowed for this account")
+
+// memberOrgsRE is the one runtime organization route.
+var memberOrgsRE = regexp.MustCompile(`^/organizations/members/[^/]+/organizations$`)
+
+// allows reports whether the account may send method to path (the real path
+// below /admin/realms/{realm}, escaped). A path with a "." or ".." segment is
+// refused for an account that does not have orgAll, so it cannot reach
+// /organizations by traversal.
+func (a *account) allows(method, path string) bool {
+	if a.orgs == orgAll {
+		return true
+	}
+	for _, seg := range strings.Split(path, "/") {
+		u, err := url.PathUnescape(seg)
+		if err != nil || u == "." || u == ".." || strings.Contains(u, "/") {
+			return false
+		}
+	}
+	if path != "/organizations" && !strings.HasPrefix(path, "/organizations/") {
+		return true
+	}
+	return a.orgs == orgMemberRead && method == http.MethodGet && memberOrgsRE.MatchString(path)
+}
+
 // account is one service account and its cached token.
 type account struct {
 	creds ClientCredentials
+	orgs  orgAccess
 	mu    sync.Mutex
 	token string
 	exp   time.Time
@@ -148,6 +192,11 @@ func (a *admin) do(ctx context.Context, acct *account, method, route, path strin
 	}
 	if len(ok) == 0 {
 		ok = []int{http.StatusOK}
+	}
+	// Before the token fetch and before anything is sent: the check reads the
+	// path that is sent, so it holds however the path was built.
+	if !acct.allows(method, path) {
+		return reply{}, ErrOrgRouteDenied
 	}
 	full := "/admin/realms/{realm}" + route
 	for attempt := 0; ; attempt++ {

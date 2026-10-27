@@ -84,3 +84,21 @@ func TestLoadIgnoresOnboardingSecrets(t *testing.T) {
 		t.Errorf("Load read NAVA_ONBOARD_DATABASE_URL: %v", err)
 	}
 }
+
+func TestLoadOnboardInviteTTL(t *testing.T) {
+	cfg, err := config.LoadOnboard(lookup(onboardEnv()))
+	if err != nil || cfg.InviteTTL != config.DefaultInviteTTL {
+		t.Fatalf("default: %v, %v", cfg.InviteTTL, err)
+	}
+	env := onboardEnv()
+	env["NAVA_INVITE_TTL"] = "24h"
+	if cfg, err = config.LoadOnboard(lookup(env)); err != nil || cfg.InviteTTL.Hours() != 24 {
+		t.Fatalf("24h: %v, %v", cfg.InviteTTL, err)
+	}
+	for _, bad := range []string{"0s", "-1h", "721h", "soon"} {
+		env["NAVA_INVITE_TTL"] = bad
+		if _, err := config.LoadOnboard(lookup(env)); err == nil {
+			t.Errorf("NAVA_INVITE_TTL=%q accepted", bad)
+		}
+	}
+}

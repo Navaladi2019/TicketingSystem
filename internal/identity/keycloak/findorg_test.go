@@ -1,8 +1,10 @@
 package keycloak
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -19,6 +21,7 @@ type findRealm struct {
 	orgs     string // JSON array answered to the organization search
 	idp      string // JSON of the IdP, or "" for none
 	mappers  string
+	posts    atomic.Int32
 	deletes  atomic.Int32
 	orgDel   atomic.Bool
 	idpDel   atomic.Bool
@@ -52,6 +55,20 @@ func (f *findRealm) server(t *testing.T) *httptest.Server {
 		}
 		fmt.Fprint(w, f.mappers)
 	})
+	mux.HandleFunc("POST "+idpPath+"/mappers", func(w http.ResponseWriter, r *http.Request) {
+		f.posts.Add(1)
+		raw, _ := io.ReadAll(r.Body)
+		f.mappers = "[" + string(raw) + "]"
+		var m struct {
+			IdentityProviderMapper string            `json:"identityProviderMapper"`
+			Config                 map[string]string `json:"config"`
+		}
+		if json.Unmarshal(raw, &m) != nil || m.IdentityProviderMapper != "oidc-user-attribute-idp-mapper" ||
+			m.Config["claim"] != "email_verified" || m.Config["user.attribute"] != EmailVerifiedAttribute || m.Config["syncMode"] != "FORCE" {
+			t.Errorf("mapper posted = %+v", m)
+		}
+		w.WriteHeader(http.StatusCreated)
+	})
 	mux.HandleFunc("DELETE /admin/realms/nava/organizations/org-1", func(w http.ResponseWriter, _ *http.Request) {
 		f.deletes.Add(1)
 		f.orgDel.Store(true)
@@ -72,6 +89,9 @@ func (f *findRealm) server(t *testing.T) *httptest.Server {
 	return srv
 }
 
+const goodMapper = `[{"name":"nava-idp-email-verified","identityProviderMapper":"oidc-user-attribute-idp-mapper",` +
+	`"config":{"syncMode":"FORCE","claim":"email_verified","user.attribute":"nava_idp_email_verified"}}]`
+
 const (
 	oneOrg  = `[{"id":"org-1","alias":"` + findAlias + `"}]`
 	goodIdP = `{"alias":"x","trustEmail":false,"firstBrokerLoginFlowAlias":"nava-first-broker-login",` +
@@ -88,9 +108,14 @@ func TestFindTenantOrg(t *testing.T) {
 		wantFound bool
 		wantErr   error
 		wantOrgDe bool
+		wantPosts int32
 	}{
 		{name: "neither exists", orgs: `[]`},
-		{name: "org and policy-conforming idp: reused", orgs: oneOrg, idp: goodIdP, wantOrg: "org-1", wantFound: true},
+		// An IdP a crash left without its mapper gets it, once.
+		{name: "org and policy-conforming idp: reused, mapper repaired", orgs: oneOrg, idp: goodIdP, wantOrg: "org-1", wantFound: true, wantPosts: 1},
+		{name: "org and idp with the email_verified mapper: reused", orgs: oneOrg, idp: goodIdP, mappers: goodMapper, wantOrg: "org-1", wantFound: true},
+		{name: "idp with the mapper but a wrong claim", orgs: oneOrg, idp: goodIdP, wantErr: identity.ErrAlreadyExists,
+			mappers: `[{"name":"nava-idp-email-verified","identityProviderMapper":"oidc-user-attribute-idp-mapper","config":{"syncMode":"FORCE","claim":"email","user.attribute":"nava_idp_email_verified"}}]`},
 		{name: "org alone: deleted, not found", orgs: oneOrg, wantOrgDe: true},
 		{name: "idp alone", orgs: `[]`, idp: goodIdP, wantErr: identity.ErrAlreadyExists},
 		{
@@ -132,6 +157,9 @@ func TestFindTenantOrg(t *testing.T) {
 			}
 			if org != c.wantOrg || found != c.wantFound {
 				t.Errorf("org=%q found=%v, want %q %v", org, found, c.wantOrg, c.wantFound)
+			}
+			if f.posts.Load() != c.wantPosts {
+				t.Errorf("mapper posts = %d, want %d", f.posts.Load(), c.wantPosts)
 			}
 			if f.orgDel.Load() != c.wantOrgDe {
 				t.Errorf("org deleted = %v, want %v", f.orgDel.Load(), c.wantOrgDe)

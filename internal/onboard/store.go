@@ -5,12 +5,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/identity/keycloak"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
@@ -187,6 +189,34 @@ func (s *PGStore) Activate(ctx context.Context, tenantID uuid.UUID) error {
 			return err
 		}
 		return fmt.Errorf("onboard: activate: %w", err)
+	}
+	return nil
+}
+
+// RecordInvite implements keycloak.InviteWriter: it writes the tenant's
+// pending invite for email, or moves the expiry of one that is still pending.
+// A consumed invite stays consumed (the conflict update matches no row), so a
+// repeat onboarding cannot re-arm an admin who has already signed in. Runs as
+// nava_onboard in InTenantTx, so the row-level policy scopes it to the tenant.
+func (s *PGStore) RecordInvite(ctx context.Context, tenantID uuid.UUID, email string, expiresAt time.Time) error {
+	err := tenancy.InTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
+		// SET names expires_at only: nava_onboard has no grant on consumed_at.
+		tag, err := tx.Exec(ctx, `INSERT INTO pending_invite (tenant_id, email, expires_at) VALUES ($1, $2, $3)
+			ON CONFLICT (tenant_id, email) DO UPDATE SET expires_at = EXCLUDED.expires_at
+			WHERE pending_invite.consumed_at IS NULL`, tenantID, email, expiresAt)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return keycloak.ErrInviteConsumed
+		}
+		return nil
+	})
+	if errors.Is(err, keycloak.ErrInviteConsumed) {
+		return err
+	}
+	if err != nil {
+		return fmt.Errorf("onboard: record invite: %w", err)
 	}
 	return nil
 }
