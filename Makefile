@@ -324,8 +324,6 @@ stack-test-sdk:
 # and the probes on its unpublished admin listener without httpobs, and a
 # workflow's workflow_ref activity run in the service through the guard, which
 # /metrics counts.
-# TODO(TODO-009): the GitHub workflow's stack job has no step for this target
-# yet; the step needs a push with `workflow` scope.
 stack-test-worker:
 	go test -tags workerstack -count=1 ./internal/workerstack
 
