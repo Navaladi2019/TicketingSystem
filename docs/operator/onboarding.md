@@ -147,8 +147,24 @@ password. The accepted squatting risk is AR-033.
 On the compose stack `nava-onboard` is its own service on the `internal` network,
 with no published port: the tenant ingress (nava-core's port) answers the operator
 route 501. From the host, call it inside its container, as `make stack-test-onboard`
-does: `docker compose exec -T nava-onboard wget -S -O - --header ... --post-data '<body>'
-http://127.0.0.1:8081/api/v1/operator/tenants`. Not `nc`: it half-closes the connection
+does, with the operator token in the environment, not on the command line:
+
+```sh
+NAVA_OPERATOR_TOKEN=$(<command that prints the operator access token>) \
+docker compose exec -T -e NAVA_OPERATOR_TOKEN nava-onboard sh -c \
+  'exec wget -S -O - --header "Authorization: Bearer $NAVA_OPERATOR_TOKEN" \
+     --header "Idempotency-Key: $1" --header "Content-Type: application/json" \
+     --post-data "$2" http://127.0.0.1:8081/api/v1/operator/tenants' \
+  sh '<idempotency key>' '<body>'
+```
+
+`-e NAVA_OPERATOR_TOKEN` with no value copies the variable from your shell into
+the container, and the single quotes keep your shell from expanding it, so the
+token never appears in an argument list.
+
+The operator token is a short-lived access token. Never paste it inline into a
+command: argv is visible in the process list on the host and in the container,
+and lands in shell history. Not `nc`: it half-closes the connection
 when its input ends, and the server cancels the request on that EOF. The admin's first sign-in resolves in
 `GET /api/v1/me` only after a `nava-groupsync` cycle has synced them.
 
