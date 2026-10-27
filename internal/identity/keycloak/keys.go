@@ -110,7 +110,7 @@ func newKeySource(ctx context.Context, out *telemetry.OutboundClient, issuers []
 	s := &keySource{out: out, cache: cache, whitelist: wl, issuers: map[string]*issuerKeys{}, now: now, log: log, fetches: fetches}
 	if fetchBase != "" {
 		b, err := url.Parse(fetchBase)
-		if err != nil || (b.Scheme != "http" && b.Scheme != "https") || b.Host == "" || b.User != nil {
+		if err != nil || (b.Scheme != "http" && b.Scheme != "https") || b.Host == "" || b.User != nil || (b.Path != "" && b.Path != "/") || b.RawQuery != "" || b.Fragment != "" {
 			return nil, errors.New("keycloak: invalid fetch base URL")
 		}
 		s.fetchBase = b
@@ -250,10 +250,21 @@ func (s *keySource) discover(ctx context.Context, iss string) (string, error) {
 	if doc.Issuer != iss {
 		return "", errors.New("discovery: issuer mismatch")
 	}
-	if !jwksUnderIssuer(iss, doc.JWKSURI) {
+	jwks := doc.JWKSURI
+	// With a fetch base, a back-channel discovery document names jwks_uri on
+	// that base (Keycloak's dynamic back-channel hostname). Check it as the
+	// same path under the issuer.
+	if s.fetchBase != nil {
+		if origin := s.fetchBase.Scheme + "://" + s.fetchBase.Host; strings.HasPrefix(jwks, origin+"/") {
+			if is, err := url.Parse(iss); err == nil {
+				jwks = is.Scheme + "://" + is.Host + strings.TrimPrefix(jwks, origin)
+			}
+		}
+	}
+	if !jwksUnderIssuer(iss, jwks) {
 		return "", errors.New("discovery: jwks_uri outside the issuer")
 	}
-	return s.reach(iss, doc.JWKSURI), nil
+	return s.reach(iss, jwks), nil
 }
 
 // jwksUnderIssuer reports whether jwksURI names a resource under iss, checked

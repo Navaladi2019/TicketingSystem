@@ -71,13 +71,53 @@ func TestComposeKeycloakIssuerPinned(t *testing.T) {
 	if kc["KC_HOSTNAME_STRICT"] != "true" {
 		t.Errorf("KC_HOSTNAME_STRICT = %q, want true", kc["KC_HOSTNAME_STRICT"])
 	}
-	if kc["KC_HOSTNAME_BACKCHANNEL_DYNAMIC"] == "true" {
-		t.Error("KC_HOSTNAME_BACKCHANNEL_DYNAMIC is true: back-channel iss would follow the Host header")
+	// The host is what a browser reaches: front-channel URLs (login redirects)
+	// are built from it. It must be the published port, not a service name.
+	if got, want := u.Host, "localhost:"+publishedKeycloakPort(t); got != want {
+		t.Errorf("KC_HOSTNAME host = %q, want the host-published address %q", got, want)
+	}
+	// Dynamic back-channel URLs keep discovery's token and JWKS endpoints on
+	// the host the caller used, so they stay reachable inside the network.
+	// iss does not follow it: it stays KC_HOSTNAME.
+	if kc["KC_HOSTNAME_BACKCHANNEL_DYNAMIC"] != "true" {
+		t.Errorf("KC_HOSTNAME_BACKCHANNEL_DYNAMIC = %q, want true", kc["KC_HOSTNAME_BACKCHANNEL_DYNAMIC"])
 	}
 	core := composeEnv(t, "../../compose.yaml", "nava-core")
 	if got, want := core["NAVA_OIDC_ISSUERS"], host+"/realms/nava"; got != want {
 		t.Errorf("NAVA_OIDC_ISSUERS = %q, want exactly %q", got, want)
 	}
+	fb, err := url.Parse(core["NAVA_OIDC_FETCH_BASE_URL"])
+	if err != nil || fb.Host == "" || (fb.Path != "" && fb.Path != "/") {
+		t.Errorf("NAVA_OIDC_FETCH_BASE_URL = %q, want scheme://host[:port]", core["NAVA_OIDC_FETCH_BASE_URL"])
+	} else if fb.Host == u.Host {
+		t.Error("NAVA_OIDC_FETCH_BASE_URL is the browser address: nava-core cannot reach it from inside the network")
+	}
+}
+
+// publishedKeycloakPort is the host port compose.yaml publishes Keycloak on
+// (KEYCLOAK_PORT's default), the one KC_HOSTNAME must name.
+func publishedKeycloakPort(t *testing.T) string {
+	t.Helper()
+	b, err := os.ReadFile("../../compose.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Services map[string]struct {
+			Ports []string `yaml:"ports"`
+		} `yaml:"services"`
+	}
+	if err := yaml.Unmarshal(b, &doc); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range doc.Services["keycloak"].Ports {
+		p = composeDefault.ReplaceAllString(p, "$1")
+		if parts := strings.Split(p, ":"); len(parts) == 3 && parts[2] == "8080" {
+			return parts[1]
+		}
+	}
+	t.Fatal("keycloak publishes no port for 8080")
+	return ""
 }
 
 // TestKeycloakProxyHeadersNeedTrustedAddresses: a proxy-header setting without

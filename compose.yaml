@@ -144,7 +144,7 @@ services:
     # hostname. TICK-160: the issuer is pinned. KC_HOSTNAME is the full public
     # URL, so `iss` no longer follows the Host or X-Forwarded-Host header, and
     # nava-core's allow-list holds that one value (KEYCLOAK_PUBLIC_URL, default
-    # the compose-network URL). Proxy headers stay off: KC_PROXY_HEADERS only
+    # the browser URL, the published port). Proxy headers stay off: KC_PROXY_HEADERS only
     # together with KC_PROXY_TRUSTED_ADDRESSES (TestComposeKeycloakIssuerPinned).
     # KC_CACHE=local (single node) is in the image.
     command: ["start", "--optimized", "--import-realm"]
@@ -156,9 +156,9 @@ services:
       KC_DB_USERNAME: keycloak
       KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-dev-only-keycloak}
       KC_HTTP_ENABLED: "true"
-      KC_HOSTNAME: ${KEYCLOAK_PUBLIC_URL:-http://keycloak:8080}
+      KC_HOSTNAME: ${KEYCLOAK_PUBLIC_URL:-http://localhost:18081}
       KC_HOSTNAME_STRICT: "true"
-      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "false"
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-dev-only-admin}
     ports:
@@ -317,7 +317,9 @@ services:
       # Tenant access tokens (T17): the exact iss allow-list, one value. It is
       # the pinned issuer (KC_HOSTNAME, TICK-160), whatever Host the token
       # request used; keys come from that issuer's own discovery document.
-      NAVA_OIDC_ISSUERS: ${KEYCLOAK_PUBLIC_URL:-http://keycloak:8080}/realms/nava
+      NAVA_OIDC_ISSUERS: ${KEYCLOAK_PUBLIC_URL:-http://localhost:18081}/realms/nava
+      # Where discovery and JWKS are fetched (back-channel); never trusted as iss.
+      NAVA_OIDC_FETCH_BASE_URL: http://keycloak:8080
       NAVA_LOG_FORMAT: json
       OTEL_SERVICE_NAME: nava-core
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
