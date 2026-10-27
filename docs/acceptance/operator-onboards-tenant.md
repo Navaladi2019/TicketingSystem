@@ -2,9 +2,11 @@
 
 Story: TICK-46. Plan: PLAN-001 (`docs/delivery/plan-platform-foundation.md`). Design: ADR-001. Operator reference: [`docs/operator/onboarding.md`](../operator/onboarding.md).
 
-The Quality, Testing & CI Advisor verified this on 2026-10-28, on `TICK-46/operator-onboards-tenant` at `d256e86` (current `main` merged in at `8cf0c88`, then the TICK-271 fix, PR #209, and its guard test, PR #213). The first run, on 2026-10-27 at `8cf0c88`, failed one isolation item; TICK-271 fixed it. The fresh stack came up with `docker compose down -v`, then `docker compose up --wait`. Every service was healthy and `/readyz` returned `ok` on `nava-core`, `nava-onboard` and `nava-groupsync`. CI: the full `ci` run after the `main` merge was green ([40536668822](https://github.com/Navaladi2019/TicketingSystem/actions/runs/40536668822)), and PRs #209 and #213 merged with all 8 jobs green.
+The Quality, Testing & CI Advisor verified this on 2026-10-28, on `TICK-46/operator-onboards-tenant` at `299bdff`: current `main` merged in at `8ef35f2`, including TICK-160, which pins Keycloak's issuer, then the TICK-278 fix (PR #217), which makes `nava-onboard` trust that pinned issuer. The run itself was on PR #217's head `f38301c`, whose tree is identical to `299bdff`. The fresh stack came up with `docker compose down -v`, then `docker compose build && docker compose up --wait`, with the "Try it" ports below. Every service was healthy. `TestS4Acceptance` passed 42 of 42 checks. CI: PR #217 merged with all 8 jobs green ([40584903710](https://github.com/Navaladi2019/TicketingSystem/actions/runs/40584903710)).
 
-**Status: NOT READY (2026-10-28).** The results below are from `d256e86`, where 42 of 42 checks passed. Merging current `main` (`8ef35f2`) brought in TICK-160, which pins Keycloak's issuer. `nava-onboard` still trusts the old issuer, so operator onboarding answers `401` and criterion 1 fails on the merged branch. The fix task is TICK-278. When it merges, `TestS4Acceptance` is rerun on a fresh stack.
+Earlier runs: 42 of 42 at `d256e86`, before the `main` merge. The first run, on 2026-10-27 at `8cf0c88`, failed one isolation item, which TICK-271 fixed. At `8ef35f2`, operator onboarding answered `401` because `nava-onboard` still trusted the pre-TICK-160 issuer; TICK-278 fixed that.
+
+**Status: READY (2026-10-28).**
 
 ## What you can now do
 
