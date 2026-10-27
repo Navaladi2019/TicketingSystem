@@ -156,9 +156,11 @@ Failures keep their text only when it is known not to hold data:
 
 ```mermaid
 flowchart TD
-  E[failure] --> S{SDK cancel, timeout, result pending,<br/>activity or child wrapper?}
+  E[failure] --> S{result pending,<br/>activity or child wrapper?}
   S -- yes --> P[recorded unchanged]
-  S -- no --> A{ApplicationError of an allowed type<br/>nava.TenantGuard, nava.WorkflowRefNotFound<br/>with no cause?}
+  S -- no --> C{cancel or timeout error?}
+  C -- yes --> K[type kept; cause checked the same way;<br/>details argOK rejects dropped]
+  C -- no --> A{ApplicationError of an allowed type<br/>nava.TenantGuard, nava.WorkflowRefNotFound<br/>with no cause?}
   A -- yes --> D[message and type kept;<br/>details argOK rejects dropped]
   A -- no --> O[nava.Opaque, fixed text,<br/>same non-retryable flag]
   O --> L[deny alert + withheld line<br/>with the error's shape, never its text]

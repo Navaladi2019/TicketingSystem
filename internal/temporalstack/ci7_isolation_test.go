@@ -532,6 +532,22 @@ func TestCI7_WorkflowFailureWithRecordDataNotRecorded(t *testing.T) {
 	wantWithheld(t, s, id, "workflow_failure")
 }
 
+// A workflow that ends with a cancel error whose details hold record data
+// must never have them recorded: the details are dropped, the type kept
+// (TICK-245 security review, finding 1).
+func TestCI7_CanceledDetailsWithRecordDataNotRecorded(t *testing.T) {
+	ctx, s, id, err := runCI7Probe(t, sigCI7Canceled)
+	if err == nil {
+		t.Fatal("the run completed; want it canceled or failed")
+	}
+	if strings.Contains(err.Error(), ci7Marker) {
+		t.Errorf("the run's error holds the record data: %v", err)
+	}
+	wantMarkerNotRecorded(ctx, t, s, id)
+	wantGuardAlert(t, s, id, "workflow_failure")
+	wantWithheld(t, s, id, "workflow_failure")
+}
+
 // An update that returns record data, or fails with it, must never have it
 // recorded: the result is replaced by the guard error, the failure withheld
 // (TICK-245, triage rows 5 and 7).

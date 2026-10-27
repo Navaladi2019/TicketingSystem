@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
@@ -193,6 +194,66 @@ func TestRecordablePassesSDKErrors(t *testing.T) {
 	if changed, out := recordable(nil); changed || out != nil {
 		t.Errorf("nil: %v, %v", out, changed)
 	}
+}
+
+// SDK cancel and timeout errors have public constructors that take details
+// and a cause, so workflow or activity code can put record data in them; the
+// guard keeps their type and drops the data (TICK-245 security review,
+// finding 1).
+func TestRecordableChecksCancelAndTimeoutContent(t *testing.T) {
+	t.Run("canceled with record-data details", func(t *testing.T) {
+		changed, out := recordable(temporal.NewCanceledError(titled()))
+		var c *temporal.CanceledError
+		if !changed || !errors.As(out, &c) || c.HasDetails() {
+			t.Fatalf("recordable: %v, %v; want a canceled error with no details", changed, out)
+		}
+	})
+	t.Run("canceled keeps reference details", func(t *testing.T) {
+		ref := refs()
+		changed, out := recordable(temporal.NewCanceledError(ref, titled()))
+		var c *temporal.CanceledError
+		var got map[string]string
+		if !changed || !errors.As(out, &c) || c.Details(&got) != nil || got["record_id"] != ref["record_id"] {
+			t.Fatalf("recordable: %v, %v (%v); want the reference detail kept", changed, out, got)
+		}
+		var extra any
+		if c.Details(&got, &extra) == nil {
+			t.Errorf("a second detail survived: %v", extra)
+		}
+	})
+	t.Run("timeout with a record-data cause", func(t *testing.T) {
+		changed, out := recordable(temporal.NewTimeoutError(enumspb.TIMEOUT_TYPE_START_TO_CLOSE, fmt.Errorf("ticket %s", recordData)))
+		var to *temporal.TimeoutError
+		if !changed || !errors.As(out, &to) || to.TimeoutType() != enumspb.TIMEOUT_TYPE_START_TO_CLOSE {
+			t.Fatalf("recordable: %v, %v; want a start-to-close timeout", changed, out)
+		}
+		if strings.Contains(out.Error(), "printer on fire") {
+			t.Errorf("the timeout holds the record data: %v", out)
+		}
+		var app *temporal.ApplicationError
+		if !errors.As(out, &app) || app.Type() != ErrTypeOpaque {
+			t.Errorf("cause %v, want it withheld", errors.Unwrap(out))
+		}
+	})
+	t.Run("heartbeat timeout with record-data details", func(t *testing.T) {
+		changed, out := recordable(temporal.NewHeartbeatTimeoutError(recordData))
+		var to *temporal.TimeoutError
+		if !changed || !errors.As(out, &to) || to.TimeoutType() != enumspb.TIMEOUT_TYPE_HEARTBEAT || to.HasLastHeartbeatDetails() {
+			t.Fatalf("recordable: %v, %v; want a heartbeat timeout with no details", changed, out)
+		}
+	})
+	t.Run("a workflow failing with canceled record data alerts", func(t *testing.T) {
+		id := idOf(tenantA)
+		h := newHarness(t, id)
+		h.env.ExecuteWorkflow(func(workflow.Context) error { return temporal.NewCanceledError(titled()) })
+		err := h.env.GetWorkflowError()
+		var c *temporal.CanceledError
+		if !errors.As(err, &c) || c.HasDetails() {
+			t.Fatalf("workflow error %v, want a canceled error with no details", err)
+		}
+		h.wantDenyAlert(guardWorkflowFailure, outcomeRecordData, id)
+		h.wantWithheldLogged(guardWorkflowFailure, "*internal.CanceledError")
+	})
 }
 
 func TestWorkflowResultGuard(t *testing.T) {

@@ -59,6 +59,7 @@ const (
 	sigCI7SideEffect      = "ci7.side-effect"
 	sigCI7Result          = "ci7.result"
 	sigCI7Failure         = "ci7.failure"
+	sigCI7Canceled        = "ci7.canceled"
 	updCI7Result          = "ci7.update-result"
 	updCI7Failure         = "ci7.update-failure"
 	// ci7ProbeActivity is not registered anywhere: the CI-7 case only needs
@@ -89,7 +90,8 @@ type relayRefs struct {
 //     returns record data, or fails with it in its message;
 //   - ci7.side-effect records record data in a SideEffect;
 //   - ci7.result and ci7.failure end the workflow with record data as its
-//     result, or in its failure message;
+//     result, or in its failure message; ci7.canceled ends it with a cancel
+//     error whose details hold record data;
 //   - updates ci7.update-result and ci7.update-failure return record data, or
 //     fail with it;
 //   - ci6.done closes workflow_ref (the nava-worker service runs that
@@ -136,7 +138,7 @@ func relayProbe(ctx workflow.Context, in workerguard.RunInput) (any, error) {
 		sel.AddReceive(notes, func(c workflow.ReceiveChannel, _ bool) { apply(c) })
 		for _, name := range []string{sigRollover, sigDone, sigCI7Activity, sigCI7Child, sigCI7Rollover,
 			sigCI7SignalExternal, sigCI7SignalChild, sigCI7ChildMemo, sigCI7UpsertMemo,
-			sigCI7ActivityResult, sigCI7ActivityFailure, sigCI7SideEffect, sigCI7Result, sigCI7Failure} {
+			sigCI7ActivityResult, sigCI7ActivityFailure, sigCI7SideEffect, sigCI7Result, sigCI7Failure, sigCI7Canceled} {
 			sel.AddReceive(workflow.GetSignalChannel(ctx, name), func(c workflow.ReceiveChannel, _ bool) {
 				c.Receive(ctx, nil)
 				next = name
@@ -192,6 +194,8 @@ func relayProbe(ctx workflow.Context, in workerguard.RunInput) (any, error) {
 			return title, nil
 		case sigCI7Failure:
 			return nil, fmt.Errorf("ticket %q stuck", ci7Marker)
+		case sigCI7Canceled:
+			return nil, temporal.NewCanceledError(title)
 		case sigCI7Rollover:
 			b, err := json.Marshal(title)
 			if err != nil {

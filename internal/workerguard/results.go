@@ -103,14 +103,15 @@ func failureTypeAllowed(t string) bool {
 	return t == ErrTypeTenantGuard || t == ErrTypeWorkflowRef
 }
 
-// passesUnchanged: SDK errors whose text the SDK writes (cancel, timeout,
-// async completion), and the wrappers of an activity or child failure, whose
-// cause the guard of the worker that ran it already checked. Only the top
-// level counts: a wrapper built around one has workflow code's text.
+// passesUnchanged: async completion, and the wrappers of an activity or child
+// failure, which have no public constructor and whose cause the guard of the
+// worker that ran it already checked. Only the top level counts: a wrapper
+// built around one has workflow code's text. Cancel and timeout errors do have
+// public constructors that take details and a cause, so recordable checks
+// those (TICK-245 security review, finding 1).
 func passesUnchanged(err error) bool {
 	switch err.(type) { //nolint:errorlint // the top level only, as above
-	case *temporal.CanceledError, *temporal.TimeoutError, *temporal.ActivityError,
-		*temporal.ChildWorkflowExecutionError, *workflow.ContinueAsNewError:
+	case *temporal.ActivityError, *temporal.ChildWorkflowExecutionError, *workflow.ContinueAsNewError:
 		return true
 	}
 	//nolint:errorlint // the top level only
@@ -119,7 +120,10 @@ func passesUnchanged(err error) bool {
 
 // recordable returns whether the guard changed err, and err as it may be
 // recorded in a history:
-//   - SDK errors pass unchanged (passesUnchanged);
+//   - SDK wrappers pass unchanged (passesUnchanged);
+//   - a cancel error keeps only the details argOK accepts; a timeout error
+//     keeps its type, its cause as recordable leaves it, and only the last
+//     heartbeat details argOK accepts;
 //   - an ApplicationError of an allowed type with no cause keeps its message,
 //     type and flags, and only the details argOK accepts;
 //   - anything else becomes ErrTypeOpaque with fixed text and the same
@@ -135,9 +139,24 @@ func recordable(err error) (changed bool, out error) {
 	if err == nil || passesUnchanged(err) {
 		return false, err
 	}
+	switch e := err.(type) { //nolint:errorlint // the top level is what the SDK records
+	case *temporal.CanceledError:
+		kept, dropped := checkedDetails(e.HasDetails(), e.Details)
+		if !dropped {
+			return false, err
+		}
+		return true, temporal.NewCanceledError(kept...)
+	case *temporal.TimeoutError:
+		causeChanged, cause := recordable(e.Unwrap())
+		kept, dropped := checkedDetails(e.HasLastHeartbeatDetails(), e.LastHeartbeatDetails)
+		if !causeChanged && !dropped {
+			return false, err
+		}
+		return true, temporal.NewTimeoutError(e.TimeoutType(), cause, kept...)
+	}
 	app, isApp := err.(*temporal.ApplicationError) //nolint:errorlint // the top level is what the SDK records
 	if isApp && failureTypeAllowed(app.Type()) && app.Unwrap() == nil {
-		kept, dropped := checkedDetails(app)
+		kept, dropped := checkedDetails(app.HasDetails(), app.Details)
 		if !dropped {
 			return false, err
 		}
@@ -153,11 +172,11 @@ func recordable(err error) (changed bool, out error) {
 // maxDetails bounds the details read from one error.
 const maxDetails = 16
 
-// checkedDetails returns the details of app that argOK accepts, and whether
-// any was dropped. The SDK has no count, so they are read one more at a time
-// until it reports too many.
-func checkedDetails(app *temporal.ApplicationError) ([]any, bool) {
-	if !app.HasDetails() {
+// checkedDetails returns the details get reads that argOK accepts, and whether
+// any was dropped; has says whether there are any. The SDK has no count, so
+// they are read one more at a time until it reports too many.
+func checkedDetails(has bool, get func(...any) error) ([]any, bool) {
+	if !has {
 		return nil, false
 	}
 	var all []any
@@ -167,7 +186,7 @@ func checkedDetails(app *temporal.ApplicationError) ([]any, bool) {
 		for i := range ptrs {
 			ptrs[i] = &vals[i]
 		}
-		if app.Details(ptrs...) != nil {
+		if get(ptrs...) != nil {
 			break
 		}
 		all = vals
