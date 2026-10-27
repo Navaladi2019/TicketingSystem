@@ -347,7 +347,7 @@ stack-test-identity:
 # runs, and nava-core's GET /api/v1/me shows the new tenant and no other; the
 # nava-onboard/nava-core separation; kill before the binding, then retry,
 # against the real nava_onboard PGStore. Needs the stack up (make stack-up).
-ONBOARD_TESTS := ^(TestOnboard(edAdminSignsInAndMeShowsTenant|DeploymentSeparation|KillBeforeBindThenRetryLiveStack)|TestInvitedToTenantANotLinkedThroughTenantBIdP|TestSquattedInviteeIsNotPlacedInTheOtherTenant|TestUninvitedLocalUserNotLinked|TestInviteIsSingleUse|TestExpiredInviteNotLinked|TestInvitedUserInTwoTenantsNotLinked|TestInvitedUserHasNoLocalLogin|TestDisabledInviteeNotLinked|TestUnverifiedUpstreamEmailNotPlaced|TestIdPEmailVerifiedAttributeNotUserEditable|TestUserCannotRenameEmailToPendingInvite|TestAccountAPIClosedToPlainBrokeredUser|TestRealmFileEmailVerifiedMapper)$$
+ONBOARD_TESTS := ^(TestOnboard(edAdminSignsInAndMeShowsTenant|DeploymentSeparation|KillBeforeBindThenRetryLiveStack|DomainClaimedIsConflict)|TestInvitedToTenantANotLinkedThroughTenantBIdP|TestSquattedInviteeIsNotPlacedInTheOtherTenant|TestUninvitedLocalUserNotLinked|TestInviteIsSingleUse|TestExpiredInviteNotLinked|TestInvitedUserInTwoTenantsNotLinked|TestInvitedUserHasNoLocalLogin|TestDisabledInviteeNotLinked|TestUnverifiedUpstreamEmailNotPlaced|TestIdPEmailVerifiedAttributeNotUserEditable|TestUserCannotRenameEmailToPendingInvite|TestAccountAPIClosedToPlainBrokeredUser|TestRealmFileEmailVerifiedMapper)$$
 stack-test-onboard:
 	go test -tags identitystack -count=1 -run '$(ONBOARD_TESTS)' ./internal/identitystack
 

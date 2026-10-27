@@ -71,7 +71,7 @@ func (s *PGStore) Lock(ctx context.Context, tenantID uuid.UUID) (func(), error) 
 }
 
 // Begin implements Store.
-func (s *PGStore) Begin(ctx context.Context, tenantID uuid.UUID, hash []byte) (State, error) {
+func (s *PGStore) Begin(ctx context.Context, tenantID uuid.UUID, hash []byte, domains []string) (State, error) {
 	var st State
 	err := tenancy.InTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
 		var state string
@@ -81,7 +81,19 @@ func (s *PGStore) Begin(ctx context.Context, tenantID uuid.UUID, hash []byte) (S
 		case errors.Is(err, pgx.ErrNoRows):
 			_, err = tx.Exec(ctx,
 				"INSERT INTO tenants (id, state, onboarding_request_hash) VALUES ($1, 'provisioning', $2)", tenantID, hash)
-			return err
+			if err != nil {
+				return err
+			}
+			// The claim is the ownership check: the primary key is on domain
+			// alone, so a domain another tenant owns fails the whole
+			// transaction, the tenants row included, and Keycloak is never
+			// called. Two requests for one domain serialise on the key.
+			for _, d := range domains {
+				if _, err := tx.Exec(ctx, "INSERT INTO tenant_email_domain (tenant_id, domain) VALUES ($1, $2)", tenantID, d); err != nil {
+					return err
+				}
+			}
+			return nil
 		case err != nil:
 			return err
 		}
@@ -94,6 +106,10 @@ func (s *PGStore) Begin(ctx context.Context, tenantID uuid.UUID, hash []byte) (S
 	if err != nil {
 		if errors.Is(err, ErrKeyReuse) {
 			return State{}, err
+		}
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "tenant_email_domain_pkey" {
+			return State{}, ErrDomainClaimed
 		}
 		return State{}, fmt.Errorf("onboard: begin: %w", err)
 	}
@@ -109,18 +125,14 @@ type BindingReader interface {
 }
 
 // Bind implements Store. The caller holds the per-tenant lock. If the tenant's
-// binding row exists, an earlier Bind committed the binding and every domain
-// in one transaction (and the request hash fixes the domain set), so a retry
-// with the same (issuer, org id) inserts nothing; a different pair is
-// ErrConflict (the stored org was lost outside the platform and this attempt
-// resolved another), and the tenant stays provisioning. Otherwise it is a
-// first bind: plain INSERTs of the binding and every domain in one
-// transaction as nava_onboard. A unique violation rolls everything back: on
-// tenant_email_domain_pkey the domain belongs to another tenant
-// (ErrDomainClaimed); on the (issuer, org id) key the organization is bound to
-// another tenant (ErrConflict). The caller still reads domain ownership as a
-// second check.
-func (s *PGStore) Bind(ctx context.Context, tenantID uuid.UUID, issuer, orgID, idpAlias string, domains []string) error {
+// binding row exists, an earlier Bind committed it, so a retry with the same
+// (issuer, org id) inserts nothing; a different pair is ErrConflict (the stored
+// org was lost outside the platform and this attempt resolved another), and
+// the tenant stays provisioning. Otherwise it is a first bind: a plain INSERT
+// of the binding as nava_onboard. A unique violation on the (issuer, org id)
+// key means the organization is bound to another tenant (ErrConflict). The
+// domains were claimed in Begin; the caller reads ownership as a second check.
+func (s *PGStore) Bind(ctx context.Context, tenantID uuid.UUID, issuer, orgID, idpAlias string) error {
 	// Only a provisioning tenant is bound, whether or not a binding row exists:
 	// this refusal comes before the retry decision. nava_onboard reads its own
 	// tenant's row in either state (ADR-001-E3).
@@ -149,19 +161,12 @@ func (s *PGStore) Bind(ctx context.Context, tenantID uuid.UUID, issuer, orgID, i
 			tenantID, issuer, orgID, []string{idpAlias}); err != nil {
 			return err
 		}
-		for _, d := range domains {
-			if _, err := tx.Exec(ctx, "INSERT INTO tenant_email_domain (tenant_id, domain) VALUES ($1, $2)", tenantID, d); err != nil {
-				return err
-			}
-		}
 		return nil
 	})
 	var pgErr *pgconn.PgError
 	switch {
 	case err == nil:
 		return nil
-	case errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "tenant_email_domain_pkey":
-		return ErrDomainClaimed
 	case errors.As(err, &pgErr) && pgErr.Code == "23505":
 		return ErrConflict
 	default:

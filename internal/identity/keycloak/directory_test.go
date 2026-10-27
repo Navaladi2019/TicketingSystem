@@ -576,3 +576,54 @@ func TestIdPConfigRefusesUnsafeURLs(t *testing.T) {
 		t.Errorf("public URL refused: %v", err)
 	}
 }
+
+// Keycloak refuses an organization whose domain is already linked with a 400.
+// Only that refusal is ErrDomainLinked: any other 400 stays an opaque error,
+// and nothing is created either way.
+func TestCreateTenantOrgDomainLinked(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name   string
+		status int
+		body   string
+		want   bool
+	}{
+		{"duplicate domain", http.StatusBadRequest, `{"errorMessage":"Domain a.test is already linked to organization 1f in realm nava"}`, true},
+		{"other 400", http.StatusBadRequest, `{"errorMessage":"Organization name is invalid"}`, false},
+		{"400 without body", http.StatusBadRequest, ``, false},
+		{"same text on a 409", http.StatusConflict, `{"errorMessage":"Domain a.test is already linked to organization 1f in realm nava"}`, false},
+		{"same text on a 500", http.StatusInternalServerError, `{"errorMessage":"Domain a.test is already linked to organization 1f in realm nava"}`, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var idpPosts atomic.Int32
+			mux := http.NewServeMux()
+			mux.HandleFunc("POST /realms/nava/protocol/openid-connect/token", func(w http.ResponseWriter, _ *http.Request) {
+				fmt.Fprint(w, `{"access_token":"tok","expires_in":300}`)
+			})
+			mux.HandleFunc("GET /admin/realms/nava/identity-provider/instances/"+TenantIdPAlias(dirTenantA), func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusNotFound)
+			})
+			mux.HandleFunc("POST /admin/realms/nava/organizations", func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(c.status)
+				fmt.Fprint(w, c.body)
+			})
+			mux.HandleFunc("POST /admin/realms/nava/identity-provider/instances", func(w http.ResponseWriter, _ *http.Request) {
+				idpPosts.Add(1)
+				w.WriteHeader(http.StatusCreated)
+			})
+			srv := httptest.NewServer(mux)
+			t.Cleanup(srv.Close)
+			d, _ := directoryFor(t, srv.URL, withOnboarding)
+			_, err := d.CreateTenantOrg(t.Context(), dirTenantA, "tenant-a", []string{"a.test"})
+			if err == nil {
+				t.Fatal("CreateTenantOrg succeeded")
+			}
+			if got := errors.Is(err, ErrDomainLinked); got != c.want {
+				t.Errorf("errors.Is(ErrDomainLinked) = %v, want %v (err = %v)", got, c.want, err)
+			}
+			if idpPosts.Load() != 0 {
+				t.Error("an IdP was created after the organization was refused")
+			}
+		})
+	}
+}

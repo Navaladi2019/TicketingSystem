@@ -3,6 +3,7 @@ package onboard
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/netip"
 	"sync"
@@ -42,7 +43,7 @@ func (s *fakeStore) Lock(_ context.Context, id uuid.UUID) (func(), error) {
 	return m.Unlock, nil
 }
 
-func (s *fakeStore) Begin(_ context.Context, id uuid.UUID, hash []byte) (State, error) {
+func (s *fakeStore) Begin(_ context.Context, id uuid.UUID, hash []byte, domains []string) (State, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if h, ok := s.rows[id]; ok {
@@ -51,11 +52,19 @@ func (s *fakeStore) Begin(_ context.Context, id uuid.UUID, hash []byte) (State, 
 		}
 		return State{Active: s.active[id]}, nil
 	}
+	for _, d := range domains {
+		if owner, taken := s.domains[d]; taken && owner != id {
+			return State{}, ErrDomainClaimed
+		}
+	}
+	for _, d := range domains {
+		s.domains[d] = id
+	}
 	s.rows[id] = hash
 	return State{}, nil
 }
 
-func (s *fakeStore) Bind(_ context.Context, id uuid.UUID, _, orgID, _ string, domains []string) error {
+func (s *fakeStore) Bind(_ context.Context, id uuid.UUID, _, orgID, _ string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.failOnce != nil {
@@ -65,11 +74,6 @@ func (s *fakeStore) Bind(_ context.Context, id uuid.UUID, _, orgID, _ string, do
 	}
 	s.bindings[id] = orgID
 	s.binds++
-	for _, d := range domains {
-		if _, taken := s.domains[d]; !taken {
-			s.domains[d] = id
-		}
-	}
 	return nil
 }
 
@@ -97,6 +101,7 @@ type fakeDir struct {
 	creates   int
 	invites   []string
 	inviteErr error
+	createErr error
 	specSeen  keycloak.IdPSpec
 	specs     *Specs
 }
@@ -104,6 +109,9 @@ type fakeDir struct {
 func (d *fakeDir) CreateTenantOrg(ctx context.Context, id uuid.UUID, _ string, _ []string) (string, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.createErr != nil {
+		return "", d.createErr
+	}
 	if _, ok := d.orgs[id]; ok {
 		return "", identity.ErrAlreadyExists
 	}
@@ -408,5 +416,36 @@ func TestTenantIDIsStableAndPerOperator(t *testing.T) {
 func TestSpecsSourceWithoutSpecFails(t *testing.T) {
 	if _, err := NewSpecs().Source(t.Context(), uuid.New()); err == nil {
 		t.Fatal("want error")
+	}
+}
+
+// Keycloak refuses an organization with a linked domain before Bind runs: the
+// service answers ErrDomainClaimed, not an opaque create error.
+func TestOnboardKeycloakDomainLinkedIsDomainClaimed(t *testing.T) {
+	svc, st, dir := newSvc(t)
+	dir.createErr = fmt.Errorf("keycloak admin: create: %w", keycloak.ErrDomainLinked)
+	_, err := svc.Onboard(t.Context(), op1, "k", []byte("h"), validReq())
+	if !errors.Is(err, ErrDomainClaimed) {
+		t.Fatalf("err = %v, want ErrDomainClaimed", err)
+	}
+	if len(st.bindings) != 0 || len(dir.invites) != 0 {
+		t.Errorf("bindings=%v invites=%v after a refused onboarding", st.bindings, dir.invites)
+	}
+}
+
+// Another tenant owns the domain: Begin refuses it, Keycloak is never called
+// and no row is left for the refused tenant.
+func TestOnboardRefusesADomainAnotherTenantOwnsBeforeKeycloak(t *testing.T) {
+	svc, st, dir := newSvc(t)
+	if _, err := svc.Onboard(t.Context(), op1, "a", []byte("h"), validReq()); err != nil {
+		t.Fatal(err)
+	}
+	creates := dir.creates
+	_, err := svc.Onboard(t.Context(), op1, "b", []byte("h2"), validReq())
+	if !errors.Is(err, ErrDomainClaimed) {
+		t.Fatalf("err = %v, want ErrDomainClaimed", err)
+	}
+	if _, left := st.rows[TenantID("op-1", "b")]; left || dir.creates != creates {
+		t.Errorf("row left = %v, creates %d -> %d", left, creates, dir.creates)
 	}
 }
