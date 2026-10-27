@@ -371,7 +371,7 @@ func TestUnverifiedUpstreamEmailNotPlaced(t *testing.T) {
 // account-console client.
 func accountGet(t *testing.T, tok string) (int, []byte) {
 	t.Helper()
-	get, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+inNetHost+"/realms/nava/account/", nil)
+	get, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, pinnedBase(t)+"/realms/nava/account/", nil)
 	get.Header.Set("Authorization", "Bearer "+tok)
 	get.Header.Set("Accept", "application/json")
 	return do(t, newInNetClient(t), get)
@@ -460,7 +460,7 @@ func aiaSignIn(t *testing.T, f tenantFx, user, action string) (*http.Client, str
 		"client_id": {"nava-web"}, "response_type": {"code"}, "scope": {"openid"},
 		"redirect_uri": {aiaRedirect}, "kc_idp_hint": {f.idpAlias}, "kc_action": {action},
 	}
-	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, inNetIssuer+"/protocol/openid-connect/auth?"+q.Encode(), nil)
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, pinnedIssuer(t)+"/protocol/openid-connect/auth?"+q.Encode(), nil)
 	_, login := do(t, c, req)
 	m := formAction.FindSubmatch(login)
 	if m == nil {

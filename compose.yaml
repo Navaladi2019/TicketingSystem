@@ -459,10 +459,14 @@ services:
       # nava_onboard for the onboarding writes; both through PgBouncer.
       NAVA_DATABASE_URL: postgres://nava_app:${NAVA_APP_DB_PASSWORD:-dev-only-app}@pgbouncer:5432/nava?sslmode=disable
       NAVA_ONBOARD_DATABASE_URL: postgres://nava_onboard:${NAVA_ONBOARD_DB_PASSWORD:-dev-only-onboard}@pgbouncer:5432/nava?sslmode=disable
-      NAVA_OIDC_ISSUERS: http://keycloak:8080/realms/nava
-      NAVA_ONBOARD_ISSUER: http://keycloak:8080/realms/nava
+      # The pinned issuer (KC_HOSTNAME, TICK-160), the same one value nava-core
+      # trusts; the binding issuer must equal it or /me cannot resolve the
+      # tenant. Keys come from the back channel, never trusted as iss.
+      NAVA_OIDC_ISSUERS: ${KEYCLOAK_PUBLIC_URL:-http://localhost:18081}/realms/nava
+      NAVA_OIDC_FETCH_BASE_URL: http://keycloak:8080
+      NAVA_ONBOARD_ISSUER: ${KEYCLOAK_PUBLIC_URL:-http://localhost:18081}/realms/nava
       # operator@nava.test, the realm export's only nava-operator (fixed id).
-      NAVA_OPERATORS: http://keycloak:8080/realms/nava|00000000-0000-4000-8000-00000000f001
+      NAVA_OPERATORS: ${KEYCLOAK_PUBLIC_URL:-http://localhost:18081}/realms/nava|00000000-0000-4000-8000-00000000f001
       NAVA_KEYCLOAK_URL: http://keycloak:8080
       NAVA_KEYCLOAK_REALM: nava
       NAVA_DIRECTORY_CLIENT_ID: nava-platform

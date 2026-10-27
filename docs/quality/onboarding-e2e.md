@@ -27,8 +27,10 @@ Tests: `internal/identitystack/onboard_e2e_test.go` (build tag `identitystack`).
   an IdP realm `onb-<8 hex>` with client `nava-broker` and the admin user. Removed after
   the test, with the tenant's organization, IdP and `nava` user. Tenant rows stay
   (there is no abandon operation yet, AR-036); every run's are distinct.
-- Tokens are fetched with `Host: keycloak:8080`, so their issuer is the one the
-  platform containers accept.
+- Tokens are fetched from the published port; their issuer is the pinned
+  `KC_HOSTNAME` (`KEYCLOAK_PUBLIC_URL`, default `http://localhost:18081`), whatever
+  Host the request used, and it is the one `nava-core` and `nava-onboard` accept
+  (TICK-160). The tests read it with `pinnedIssuer`, from `compose.yaml`.
 
 ## Deliberately not covered, and why
 

@@ -170,6 +170,14 @@ docker compose exec -T -e NAVA_OPERATOR_TOKEN nava-onboard sh -c \
 the container, and the single quotes keep your shell from expanding it, so the
 token never appears in an argument list.
 
+Get the operator token from Keycloak's published port (`http://localhost:18081`,
+or your `KEYCLOAK_PUBLIC_URL`). Its issuer is the pinned one (`KC_HOSTNAME`), whatever
+Host the request used, and `NAVA_OIDC_ISSUERS`, `NAVA_ONBOARD_ISSUER` and the issuer
+in `NAVA_OPERATORS` must all be exactly that value, the one `nava-core` trusts: the
+binding issuer is what `GET /api/v1/me` resolves the new admin's tenant by. On the
+compose stack they are set to `${KEYCLOAK_PUBLIC_URL:-http://localhost:18081}/realms/nava`,
+and `NAVA_OIDC_FETCH_BASE_URL` (`http://keycloak:8080`) is where keys are fetched.
+
 The operator token is a short-lived access token. Never paste it inline into a
 command: argv is visible in the process list on the host and in the container,
 and lands in shell history. Not `nc`: it half-closes the connection
@@ -180,10 +188,11 @@ when its input ends, and the server cancels the request on that EOF. The admin's
 `NAVA_ONBOARD_ADDR`, `NAVA_ADMIN_ADDR`, `NAVA_DATABASE_URL` (as `nava_app`),
 `NAVA_ONBOARD_DATABASE_URL` (as `nava_onboard`), `NAVA_OIDC_ISSUERS`,
 `NAVA_ONBOARD_ISSUER` (one of them), `NAVA_OPERATORS` (`issuer|subject,...`),
+`NAVA_OIDC_FETCH_BASE_URL` (optional back channel for discovery and JWKS),
 `NAVA_KEYCLOAK_URL`, `NAVA_KEYCLOAK_REALM`, `NAVA_DIRECTORY_CLIENT_ID/SECRET` (runtime
 account, for the invite) and `NAVA_ONBOARD_CLIENT_ID/SECRET` (onboarding account).
 `NAVA_INVITE_TTL` (default `168h`, at most `720h`) is how long a pending admin invite
-stays valid. Every one but the realm and the TTL is required; the process refuses to start without them.
+stays valid. Every one but the realm, the TTL and the fetch base URL is required; the process refuses to start without them.
 
 ## TODO: abandoning a provisioning tenant
 
