@@ -36,6 +36,40 @@ func TestRuntimeAccountOrganizationRoutes(t *testing.T) {
 		{http.MethodGet, "/users/../organizations"},
 		{http.MethodGet, "/users/%2e%2e/organizations"},
 		{http.MethodGet, "/users/%2F..%2Forganizations"},
+		// Non-canonical spellings of an organization route (TICK-255).
+		{http.MethodGet, "/organizations;x"},
+		{http.MethodGet, "/organizations;x/o1/members"},
+		{http.MethodGet, "/%6Frganizations"},
+		{http.MethodGet, "/%6frganizations/o1/members"},
+		{http.MethodGet, "//organizations"},
+		{http.MethodGet, "/Organizations"},
+		{http.MethodGet, "/ORGANIZATIONS/o1/members"},
+		{http.MethodGet, "/organizations/members;x/u1/organizations"},
+		{http.MethodGet, "/organizations/members/u1;x/organizations"},
+		{http.MethodGet, "/Organizations/members/u1/organizations"},
+		{http.MethodGet, "/organizations/members/u1/organizations/"},
+		{http.MethodGet, "/organizations//members/u1/organizations"},
+		{http.MethodGet, "/organizations/%6Dembers/u1/organizations"},
+		{http.MethodGet, "/organizations/members/%2e%2e/organizations"},
+		{http.MethodGet, "/users/%6Frganizations"},
+		{http.MethodGet, "/users;x"},
+		{http.MethodGet, "/organizations?first=0"},
+		{http.MethodGet, "/organizations?x"},
+		{http.MethodGet, "/organizations?/members/u/organizations"},
+		{http.MethodGet, "/organizations/members/%252e%252e%252f%252e%252e/organizations"},
+		{http.MethodGet, "/organizations#x"},
+		{http.MethodGet, "/organizations?/o1/members"},
+		{http.MethodGet, "/users?x"},
+		{http.MethodGet, "/users\\x"},
+		{http.MethodGet, "/organizations\\o1"},
+		{http.MethodGet, "/users/a\nb"},
+		{http.MethodGet, "/organizations/members/u1/organizations\x00"},
+		{http.MethodGet, "/organizations/members/%2e%2e%252f%2e%2e/organizations"},
+		{http.MethodGet, "/organizations/members/%5C..%5C/organizations"},
+		{http.MethodGet, "/organizations/members/a%3Bb/organizations"},
+		{http.MethodGet, "/organizations/members/a%3Fb/organizations"},
+		{http.MethodGet, "/organizations/members/a%23b/organizations"},
+		{http.MethodGet, "/organizations/members/a%0Ab/organizations"},
 	}
 	for _, c := range refused {
 		_, err := d.api.do(t.Context(), d.runtime, c.method, c.path, c.path, nil, nil)
@@ -48,7 +82,7 @@ func TestRuntimeAccountOrganizationRoutes(t *testing.T) {
 	}
 
 	// The one allowed route works, and so does a route outside /organizations.
-	for _, p := range []string{"/organizations/members/u1/organizations", "/users"} {
+	for _, p := range []string{"/organizations/members/u1/organizations", "/organizations/members/a%40b%20c/organizations", "/users"} {
 		if _, err := d.api.do(t.Context(), d.runtime, http.MethodGet, p, p, nil, nil); err != nil {
 			t.Errorf("runtime GET %s: %v", p, err)
 		}

@@ -591,6 +591,29 @@ func TestGroupsyncAccountFloor(t *testing.T) {
 	checkAccountRoles(t, "service-account-nava-groupsync", []string{"manage-users", "query-groups", "query-users", "view-organizations", "view-users"})
 }
 
+// TestKeycloakRejectsNonCanonicalOrgPaths sends non-canonical spellings of
+// /organizations routes raw, bypassing admin.do, with the real nava-groupsync
+// token (TICK-255, AR-034). admin.do refuses them before sending; this pins
+// the second layer, so a Keycloak upgrade that starts normalising these paths
+// and would let the account read every organization fails here.
+func TestKeycloakRejectsNonCanonicalOrgPaths(t *testing.T) {
+	tok := accountToken(t, groupsyncCreds)
+	b := orgID(t, masterToken(t), "tenant-b")
+	for _, p := range []string{
+		"/organizations;x",
+		"/organizations;x/" + b + "/members",
+		"/%6Frganizations",
+		"/%6frganizations/" + b + "/members",
+		"//organizations",
+		"/Organizations",
+		"/ORGANIZATIONS/" + b + "/members",
+	} {
+		if code := asAccount(t, tok, http.MethodGet, p, nil); code == http.StatusOK {
+			t.Errorf("groupsync account GET %s = 200, want a refusal", p)
+		}
+	}
+}
+
 func TestOnboardingAccountHasNoUserReach(t *testing.T) {
 	tok := accountToken(t, onboardingCreds)
 	for _, c := range []struct{ method, path string }{

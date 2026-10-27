@@ -16,10 +16,10 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
@@ -55,29 +55,53 @@ const (
 
 // ErrOrgRouteDenied is returned, with nothing sent, for a request to an
 // /organizations route the account may not call.
+// It also covers a non-canonical path outside /organizations (see allows).
 var ErrOrgRouteDenied = errors.New("keycloak admin: organizations route not allowed for this account")
 
-// memberOrgsRE is the one runtime organization route.
-var memberOrgsRE = regexp.MustCompile(`^/organizations/members/[^/]+/organizations$`)
-
 // allows reports whether the account may send method to path (the real path
-// below /admin/realms/{realm}, escaped). A path with a "." or ".." segment is
-// refused for an account that does not have orgAll, so it cannot reach
-// /organizations by traversal.
+// below /admin/realms/{realm}, escaped). An account without orgAll may send
+// only a canonical path: no "?", "#", "\\" or control byte anywhere, no empty
+// segment, no ";" and no "%" (the one escaped
+// {id} segment of the member-organizations route aside), and no "." or ".."
+// segment. So a path that Keycloak or a proxy in front of it might normalise
+// into /organizations (";x", "%6F", "//", "..") is refused before it is sent.
+// "organizations" is compared case-insensitively, so /Organizations is an
+// organization route too.
 func (a *account) allows(method, path string) bool {
 	if a.orgs == orgAll {
 		return true
 	}
-	for _, seg := range strings.Split(path, "/") {
-		u, err := url.PathUnescape(seg)
-		if err != nil || u == "." || u == ".." || strings.Contains(u, "/") {
+	if !strings.HasPrefix(path, "/") {
+		return false
+	}
+	if strings.ContainsAny(path, "?#\\") || strings.IndexFunc(path, unicode.IsControl) >= 0 {
+		return false
+	}
+	segs := strings.Split(path[1:], "/")
+	memberRoute := len(segs) == 4 && segs[0] == "organizations" && segs[1] == "members" &&
+		segs[2] != "" && segs[3] == "organizations"
+	for i, seg := range segs {
+		if seg == "" || seg == "." || seg == ".." || strings.Contains(seg, ";") {
+			return false
+		}
+		if strings.Contains(seg, "%") && (!memberRoute || i != 2) {
 			return false
 		}
 	}
-	if path != "/organizations" && !strings.HasPrefix(path, "/organizations/") {
-		return true
+	if memberRoute {
+		u, err := url.PathUnescape(segs[2])
+		// A decoded id must not hold anything a second decode (a proxy, a
+		// future Keycloak) could turn into a separator or traversal.
+		if err != nil || u == "." || u == ".." || strings.ContainsAny(u, "/%\\;?#") ||
+			strings.IndexFunc(u, unicode.IsControl) >= 0 {
+			return false
+		}
+		return a.orgs == orgMemberRead && method == http.MethodGet
 	}
-	return a.orgs == orgMemberRead && method == http.MethodGet && memberOrgsRE.MatchString(path)
+	if strings.EqualFold(segs[0], "organizations") {
+		return false
+	}
+	return true
 }
 
 // account is one service account and its cached token.
