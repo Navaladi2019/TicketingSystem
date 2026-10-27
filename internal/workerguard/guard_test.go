@@ -523,7 +523,7 @@ func TestChildWorkflowIDRejectsBadKind(t *testing.T) {
 func waitForSignal(ctx workflow.Context) (string, error) {
 	var got string
 	sel := workflow.NewSelector(ctx)
-	sel.AddReceive(workflow.GetSignalChannel(ctx, "ping"), func(c workflow.ReceiveChannel, _ bool) { c.Receive(ctx, &got) })
+	sel.AddReceive(workflow.GetSignalChannel(ctx, "ping"), func(c workflow.ReceiveChannel, _ bool) { c.Receive(ctx, nil); got = "ping" })
 	sel.AddReceive(ctx.Done(), func(workflow.ReceiveChannel, bool) { got = "cancelled" })
 	sel.Select(ctx)
 	return got, nil
@@ -548,7 +548,7 @@ func external(ctx workflow.Context, cancel bool, target, namespace string) (stri
 	if cancel {
 		err = workflow.RequestCancelExternalWorkflow(octx, target, "").Get(ctx, nil)
 	} else {
-		err = workflow.SignalExternalWorkflow(octx, target, "", "ping", "pong").Get(ctx, nil)
+		err = workflow.SignalExternalWorkflow(octx, target, "", "ping", map[string]string{"record_id": uuid.NewString()}).Get(ctx, nil)
 	}
 	if err != nil {
 		return "", err
@@ -569,7 +569,7 @@ func TestSignalAndCancelExternalGuard(t *testing.T) {
 		guard  string
 		want   string
 	}{
-		{"signal", false, guardSignalExternal, "pong"},
+		{"signal", false, guardSignalExternal, "ping"},
 		{"cancel", true, guardCancelExternal, "cancelled"},
 	} {
 		t.Run(tc.name+" same tenant", func(t *testing.T) {

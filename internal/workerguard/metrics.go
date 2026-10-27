@@ -20,6 +20,8 @@ const (
 	guardContinueAsNew   = "continue_as_new"
 	guardSearchAttribute = "search_attribute"
 	guardNexus           = "nexus"
+	// guardMemo checks workflow.UpsertMemo; a child's memo is guardChild's.
+	guardMemo = "memo"
 	// guardActivityArgs and guardLocalActivityArgs check what a workflow
 	// schedules; guardActivity checks what an activity worker receives.
 	guardActivityArgs      = "activity_args"

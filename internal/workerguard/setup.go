@@ -15,9 +15,12 @@ import (
 //   - the SDK tracing interceptor first, then any interceptors o already has;
 //   - the SDK metrics handler;
 //   - no worker heartbeats (TICK-94 item 5): with them on, every process adds
-//     a new task_queue series.
+//     a new task_queue series;
+//   - DataConverter, the converter argOK checks with (TICK-245); any other is
+//     replaced.
 func ConfigureClient(o *client.Options, tt *telemetry.Temporal) {
 	o.ContextPropagators = []workflow.ContextPropagator{Propagator{}}
+	o.DataConverter = DataConverter()
 	o.Interceptors = append([]interceptor.ClientInterceptor{tt.Tracing}, o.Interceptors...)
 	o.MetricsHandler = tt.Metrics
 	o.WorkerHeartbeatInterval = -1

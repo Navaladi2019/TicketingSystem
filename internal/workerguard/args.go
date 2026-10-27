@@ -32,6 +32,12 @@ var (
 	runInputType = reflect.TypeFor[RunInput]()
 )
 
+// DataConverter is the converter argOK encodes with. ConfigureClient sets it
+// on every platform client, so a worker encodes arguments into its histories
+// exactly as the guard checked them (TICK-245): with another converter the
+// guard would check a different encoding from the one recorded.
+func DataConverter() converter.DataConverter { return converter.GetDefaultDataConverter() }
+
 // argsOutcome applies the references-only rule (ADR-001 R1, CI-7) to the
 // arguments of an activity, local activity, child, continue-as-new or update:
 // outcomeAllow if every one is accepted, outcomeRecordData if not. No
@@ -46,8 +52,8 @@ func argsOutcome(args []any) string {
 }
 
 // argOK reports whether arg may be recorded in a history (TICK-216 contract
-// decision). The Go type decides the rule, the JSON the default converter
-// encodes is what is checked, since that is what the history records:
+// decision). The Go type decides the rule, the JSON DataConverter encodes is
+// what is checked, since that is what the history records:
 //   - outbox.Delivery: Payload passes outbox.ValidatePayload (the relay's rule);
 //   - RunInput: Payload and Refs pass it, and every Seen key is a UUID and
 //     every value an RFC3339 time;
@@ -56,7 +62,7 @@ func argsOutcome(args []any) string {
 // A pointer is matched as the type it points to. A struct of another type
 // with the same JSON shape as RunInput is "any other value", and fails.
 func argOK(arg any) bool {
-	p, err := converter.GetDefaultDataConverter().ToPayload(arg)
+	p, err := DataConverter().ToPayload(arg)
 	if err != nil {
 		return false
 	}

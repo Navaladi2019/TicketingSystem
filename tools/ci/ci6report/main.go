@@ -74,6 +74,10 @@ func contract() []contractCase {
 		{"Child payload with record data is not recorded (TICK-216)", "TestCI7_ChildPayloadWithRecordDataNotRecorded"},
 		{"Continue-as-new payload with record data is not recorded (TICK-216)", "TestCI7_ContinueAsNewPayloadWithRecordDataNotRecorded"},
 		{"Update payload with record data is rejected, not recorded (TICK-216)", "TestCI7_UpdatePayloadWithRecordDataNotRecorded"},
+		{"Signal-external payload with record data is not recorded in either history (TICK-245)", "TestCI7_SignalExternalPayloadWithRecordDataNotRecorded"},
+		{"Signal-child payload with record data is not recorded in either history (TICK-245)", "TestCI7_SignalChildPayloadWithRecordDataNotRecorded"},
+		{"Child memo with record data is not recorded (TICK-245)", "TestCI7_ChildMemoWithRecordDataNotRecorded"},
+		{"UpsertMemo with record data is not recorded (TICK-245)", "TestCI7_UpsertMemoWithRecordDataNotRecorded"},
 		{"Recorded headers carry only nava-tenant and trace context, never baggage (TICK-93)", "TestCI7_RecordedHeadersCarryOnlyTenantAndTraceContext"},
 	}
 }

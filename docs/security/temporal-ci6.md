@@ -145,6 +145,8 @@ sequenceDiagram
 | CI-7 child payload (TICK-216) | The workflow starts a same-tenant child (`ChildWorkflowID`) whose argument holds the title. No child is initiated, no event holds the title, and the guard alerts `child`/`record_data`. |
 | CI-7 continue-as-new payload (TICK-216) | The workflow continues as new with the title in `RunInput.Refs`. The workflow fails with `nava.TenantGuard` instead, no event holds the title, and the guard alerts `continue_as_new`/`record_data`. |
 | CI-7 update payload (TICK-216) | `nava-core`, with the right tenant (`ContextWithTenant`), sends an update whose argument holds the title: the validator rejects it with no title in the error. A references-only update on the same workflow is accepted. Exactly one update is in the history, and no event holds the title. |
+| CI-7 signal-external and signal-child payload (TICK-245) | The workflow starts a same-tenant child with references, then signals it the title through `SignalExternalWorkflow` (or the child future). No signal is initiated, the child is never signaled, neither history holds the title, and the guard alerts `signal_external`/`record_data`. |
+| CI-7 memo (TICK-245) | The workflow starts a same-tenant child with the title in its memo, or upserts the title into its own memo. No child is initiated, no `WorkflowPropertiesModified` event is recorded, the memo stays empty, no event holds the title, and the guard alerts `child`/`record_data` or `memo`/`record_data`. |
 | CI-7 headers (TICK-93) | Every `Header` anywhere in both runs' histories is walked: start, signals, activity, continue-as-new. The keys are only `nava-tenant` and `_tracer-data`, and `_tracer-data` holds only `traceparent` and `tracestate`. A signal sent with baggage in its context leaves no trace of it. |
 
 ### Findings (T32b)
@@ -207,3 +209,24 @@ what CI-7 exists to catch. CI-7 is partly met at T32b: three of its five cases
 are here, and the other two are acceptance criteria of TICK-214 and TICK-216
 (Technical Lead decision, TICK-86). TICK-214 adds the fourth; TICK-216's is
 still open.
+
+### Remaining history-write paths (TICK-245, T32h)
+
+TICK-216 checks activity, local-activity, child, continue-as-new and update
+arguments. Workflow code can also write to its own history in the ways below.
+No production workflow uses any of them yet. Status of each:
+
+| Path | Recorded in | Status | Proof |
+| --- | --- | --- | --- |
+| `SignalExternalWorkflow` argument | the sender's `SignalExternalWorkflowExecutionInitiated`, before the receiver's guard runs | **Guarded.** `argOK` before the command; nil allowed; deny `signal_external`/`record_data` | `TestCI7_SignalExternalPayloadWithRecordDataNotRecorded`, `TestSignalArgsGuard` |
+| `SignalChildWorkflow` argument | the same event | **Guarded**, as above | `TestCI7_SignalChildPayloadWithRecordDataNotRecorded`, `TestSignalArgsGuard` |
+| `ChildWorkflowOptions.Memo` | `StartChildWorkflowExecutionInitiated` | **Guarded.** Any non-empty memo is denied (`child`/`record_data`): the platform names no memo key | `TestCI7_ChildMemoWithRecordDataNotRecorded`, `TestChildMemoGuard` |
+| `workflow.UpsertMemo` | `WorkflowPropertiesModified` | **Guarded.** Any non-empty upsert is denied (`memo`/`record_data`) | `TestCI7_UpsertMemoWithRecordDataNotRecorded`, `TestUpsertMemoGuard` |
+| Converter drift: `argOK` checks one encoding, the worker records another | every payload | **Guarded.** `ConfigureClient` sets `workerguard.DataConverter` on every client; `forbidigo` rejects `workflow.WithDataConverter` | `TestConfigureClientUsesTheGuardsDataConverter`, lint fixture `dataconverter.go` |
+| `SideEffect` / `MutableSideEffect` value | `MarkerRecorded` | **Open: awaiting the Security & Multi-Tenancy Reviewer's triage and severity.** Guardable in `workerguard`: the outbound interceptor receives `f` and can check its value | none yet |
+| Activity result | `ActivityTaskCompleted` | **Open: awaiting triage.** Guardable: the activity inbound interceptor sees the result before it is sent | none yet |
+| Workflow result | `WorkflowExecutionCompleted` | **Open: awaiting triage.** Guardable: the workflow inbound `ExecuteWorkflow` sees the result | none yet |
+| Failure text (`ApplicationError` message and details) | `ActivityTaskFailed`, `WorkflowExecutionFailed`, child and update failures | **Open: awaiting triage.** Details are payloads and can be checked like results; the message is free text, which `argOK` cannot judge, so this may need a review rule instead of a guard | none yet |
+
+`ChildWorkflowID` draws its id in a `SideEffect`: a guard on `SideEffect`
+values must allow a bare UUID.
