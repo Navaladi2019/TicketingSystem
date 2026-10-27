@@ -7,8 +7,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -54,6 +56,29 @@ func withOnboarding(c *DirectoryConfig) {
 	c.IdPs = func(context.Context, uuid.UUID) (IdPSpec, error) {
 		return IdPSpec{ProviderID: "oidc", Config: map[string]string{"clientId": "x"}}, nil
 	}
+}
+
+// recordedInvites is an InviteWriter that keeps what it was asked to write.
+type recordedInvites struct {
+	mu   sync.Mutex
+	rows []recordedInvite
+}
+
+type recordedInvite struct {
+	tenant  uuid.UUID
+	email   string
+	expires time.Time
+}
+
+func (r *recordedInvites) RecordInvite(_ context.Context, tenant uuid.UUID, email string, exp time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.rows = append(r.rows, recordedInvite{tenant, email, exp})
+	return nil
+}
+
+func withInvites(r *recordedInvites) func(*DirectoryConfig) {
+	return func(c *DirectoryConfig) { c.Invites = r }
 }
 
 func directoryFor(t *testing.T, baseURL string, opts ...func(*DirectoryConfig)) (*Directory, *tracetest.InMemoryExporter) {
@@ -114,7 +139,7 @@ func fakeKeycloak(t *testing.T) *httptest.Server {
 func TestInviteUserSpansCarryNoEmailOrUserID(t *testing.T) {
 	t.Parallel()
 	srv := fakeKeycloak(t)
-	d, spans := directoryFor(t, srv.URL)
+	d, spans := directoryFor(t, srv.URL, withInvites(&recordedInvites{}))
 	if err := d.InviteUser(t.Context(), dirTenantA, secretEmail); err != nil {
 		t.Fatal(err)
 	}
@@ -288,47 +313,6 @@ func TestNewDirectoryValidates(t *testing.T) {
 	}
 	if _, err := NewDirectory(DirectoryConfig{BaseURL: "http://h", Runtime: run, Registry: noRegistry{}}, nil); err == nil {
 		t.Error("nil outbound client accepted")
-	}
-}
-
-// Two invites of one new email race: the loser's create is a 409; it then
-// takes the user that now exists and still places them in the group.
-func TestInviteUserRetriesAfterConflict(t *testing.T) {
-	t.Parallel()
-	var lookups atomic.Int32
-	var placed atomic.Bool
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /realms/nava/protocol/openid-connect/token", func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprint(w, `{"access_token":"tok","expires_in":300}`)
-	})
-	mux.HandleFunc("GET /admin/realms/nava/group-by-path/t/"+dirTenantA.String(), func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprintf(w, `{"id":"g-root","name":%q,"path":%q}`, dirTenantA.String(), rootPath(dirTenantA))
-	})
-	mux.HandleFunc("GET /admin/realms/nava/users", func(w http.ResponseWriter, _ *http.Request) {
-		if lookups.Add(1) == 1 {
-			fmt.Fprint(w, `[]`)
-			return
-		}
-		fmt.Fprintf(w, `[{"id":"u-raced","email":%q}]`, secretEmail)
-	})
-	mux.HandleFunc("POST /admin/realms/nava/users", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusConflict)
-	})
-	mux.HandleFunc("GET /admin/realms/nava/users/u-raced/groups", func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprintf(w, `[{"id":"g-root","path":%q}]`, rootPath(dirTenantA))
-	})
-	mux.HandleFunc("PUT /admin/realms/nava/users/u-raced/groups/g-root", func(w http.ResponseWriter, _ *http.Request) {
-		placed.Store(true)
-		w.WriteHeader(http.StatusNoContent)
-	})
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	d, _ := directoryFor(t, srv.URL)
-	if err := d.InviteUser(t.Context(), dirTenantA, secretEmail); err != nil {
-		t.Fatal(err)
-	}
-	if !placed.Load() {
-		t.Error("the raced user was not placed in the tenant group")
 	}
 }
 

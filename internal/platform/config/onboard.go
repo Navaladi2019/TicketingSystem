@@ -47,7 +47,17 @@ type Onboard struct {
 	RuntimeClientSecret string
 	OnboardClientID     string
 	OnboardClientSecret string
+	// InviteTTL is how long a pending admin invite stays valid
+	// (NAVA_INVITE_TTL, default 168h). An invitee who has not signed in by
+	// then needs a new onboarding call.
+	InviteTTL time.Duration
 }
+
+// DefaultInviteTTL and MaxInviteTTL bound NAVA_INVITE_TTL.
+const (
+	DefaultInviteTTL = 7 * 24 * time.Hour
+	MaxInviteTTL     = 30 * 24 * time.Hour
+)
 
 // LoadOnboard reads the nava-onboard configuration through lookup, with the
 // same rules as Load.
@@ -80,6 +90,7 @@ func LoadOnboard(lookup LookupFunc) (Onboard, error) {
 		RuntimeClientSecret: r.str("NAVA_DIRECTORY_CLIENT_SECRET"),
 		OnboardClientID:     r.str("NAVA_ONBOARD_CLIENT_ID"),
 		OnboardClientSecret: r.str("NAVA_ONBOARD_CLIENT_SECRET"),
+		InviteTTL:           r.duration("NAVA_INVITE_TTL", DefaultInviteTTL),
 	}
 	if cfg.KeycloakRealm == "" {
 		cfg.KeycloakRealm = "nava"
@@ -102,6 +113,9 @@ func LoadOnboard(lookup LookupFunc) (Onboard, error) {
 	}
 	if cfg.Issuer != "" && !slices.Contains(cfg.OIDCIssuers, cfg.Issuer) {
 		r.errs = append(r.errs, errors.New("NAVA_ONBOARD_ISSUER: must be one of NAVA_OIDC_ISSUERS"))
+	}
+	if cfg.InviteTTL <= 0 || cfg.InviteTTL > MaxInviteTTL {
+		r.errs = append(r.errs, fmt.Errorf("NAVA_INVITE_TTL: must be positive and at most %s", MaxInviteTTL))
 	}
 	if cfg.Addr == cfg.AdminAddr {
 		r.errs = append(r.errs, errors.New("NAVA_ADMIN_ADDR: must differ from NAVA_ONBOARD_ADDR"))
