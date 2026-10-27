@@ -58,13 +58,13 @@ func TestT21BeginInsertsReplaysAndDetectsKeyReuse(t *testing.T) {
 	migratedPlatform(t)
 	s := onboardStore(t, 4)
 	id := uuid.New()
-	if st, err := s.Begin(t.Context(), id, []byte("h1")); err != nil || st.Active {
+	if st, err := s.Begin(t.Context(), id, []byte("h1"), nil); err != nil || st.Active {
 		t.Fatalf("first Begin: %+v, %v", st, err)
 	}
-	if st, err := s.Begin(t.Context(), id, []byte("h1")); err != nil || st.Active {
+	if st, err := s.Begin(t.Context(), id, []byte("h1"), nil); err != nil || st.Active {
 		t.Fatalf("replay Begin: %+v, %v", st, err)
 	}
-	if _, err := s.Begin(t.Context(), id, []byte("h2")); !errors.Is(err, onboard.ErrKeyReuse) {
+	if _, err := s.Begin(t.Context(), id, []byte("h2"), nil); !errors.Is(err, onboard.ErrKeyReuse) {
 		t.Fatalf("different hash: %v, want ErrKeyReuse", err)
 	}
 	if n := countRows(t, "SELECT count(*) FROM tenants WHERE id = $1", id); n != 1 {
@@ -82,11 +82,11 @@ func TestT21BindIsIdempotentAndActivationIsLast(t *testing.T) {
 	migratedPlatform(t)
 	s := onboardStore(t, 4)
 	id := uuid.New()
-	if _, err := s.Begin(t.Context(), id, []byte("h")); err != nil {
+	if _, err := s.Begin(t.Context(), id, []byte("h"), []string{"acme.test", "acme.example"}); err != nil {
 		t.Fatal(err)
 	}
 	for i := range 2 {
-		if err := s.Bind(t.Context(), id, "https://kc/realms/nava", "org-"+id.String(), "idp-x", []string{"acme.test", "acme.example"}); err != nil {
+		if err := s.Bind(t.Context(), id, "https://kc/realms/nava", "org-"+id.String(), "idp-x"); err != nil {
 			t.Fatalf("Bind #%d: %v", i+1, err)
 		}
 	}
@@ -105,18 +105,18 @@ func TestT21BindIsIdempotentAndActivationIsLast(t *testing.T) {
 	if st := queryString(t, superNava(t), "SELECT state FROM tenants WHERE id = $1", id); st != "active" {
 		t.Fatalf("state after Activate = %s", st)
 	}
-	if st, err := s.Begin(t.Context(), id, []byte("h")); err != nil || !st.Active {
+	if st, err := s.Begin(t.Context(), id, []byte("h"), nil); err != nil || !st.Active {
 		t.Errorf("Begin after Activate: %+v, %v", st, err)
 	}
 	// An active tenant is never bound or activated again.
 	if err := s.Activate(t.Context(), id); !errors.Is(err, onboard.ErrNotProvisioning) {
 		t.Errorf("Activate on an active tenant: %v, want ErrNotProvisioning", err)
 	}
-	if err := s.Bind(t.Context(), id, "https://kc/realms/nava", "org-other", "idp-x", []string{"late.test"}); !errors.Is(err, onboard.ErrNotProvisioning) {
+	if err := s.Bind(t.Context(), id, "https://kc/realms/nava", "org-other", "idp-x"); !errors.Is(err, onboard.ErrNotProvisioning) {
 		t.Errorf("Bind on an active tenant = %v, want ErrNotProvisioning", err)
 	}
 	// Refused even when the binding row exists (the retry path): same arguments.
-	if err := s.Bind(t.Context(), id, "https://kc/realms/nava", "org-"+id.String(), "idp-x", []string{"acme.test", "acme.example"}); !errors.Is(err, onboard.ErrNotProvisioning) {
+	if err := s.Bind(t.Context(), id, "https://kc/realms/nava", "org-"+id.String(), "idp-x"); !errors.Is(err, onboard.ErrNotProvisioning) {
 		t.Errorf("same-args Bind on an active tenant = %v, want ErrNotProvisioning", err)
 	}
 	if n := countRows(t, "SELECT count(*) FROM tenant_identity_binding WHERE tenant_id = $1", id); n != 1 {
@@ -124,29 +124,26 @@ func TestT21BindIsIdempotentAndActivationIsLast(t *testing.T) {
 	}
 }
 
-// A domain owned by another tenant fails a first Bind with ErrDomainClaimed and
-// rolls the whole transaction back: no binding row and no row for the tenant's
-// other domain. The other tenant's row is untouched. nava_app still reads the
-// domain as not owned (the second check).
-func TestT21BindRefusesADomainAnotherTenantOwns(t *testing.T) {
+// A domain owned by another tenant fails Begin with ErrDomainClaimed and rolls
+// the whole transaction back: no tenants row and no row for the tenant's other
+// domain. The other tenant's row is untouched. nava_app still reads the domain
+// as not owned (the second check).
+func TestT21BeginRefusesADomainAnotherTenantOwns(t *testing.T) {
 	migratedPlatform(t)
 	super := superNava(t)
 	seedTenants(t, super, []string{tenantA}, nil)
 	exec(t, super, insertDomain, tenantA, "taken.test")
 	s := onboardStore(t, 4)
 	id := uuid.New()
-	if _, err := s.Begin(t.Context(), id, []byte("h")); err != nil {
-		t.Fatal(err)
-	}
-	err := s.Bind(t.Context(), id, "https://kc/realms/nava", "org-b", "idp-b", []string{"mine.test", "taken.test"})
+	_, err := s.Begin(t.Context(), id, []byte("h"), []string{"mine.test", "taken.test"})
 	if !errors.Is(err, onboard.ErrDomainClaimed) {
-		t.Fatalf("Bind = %v, want ErrDomainClaimed", err)
+		t.Fatalf("Begin = %v, want ErrDomainClaimed", err)
+	}
+	if n := countRows(t, "SELECT count(*) FROM tenants WHERE id = $1", id); n != 0 {
+		t.Errorf("a refused Begin left %d tenants rows, want 0", n)
 	}
 	if n := countRows(t, "SELECT count(*) FROM tenant_email_domain WHERE tenant_id = $1", id); n != 0 {
-		t.Errorf("tenant has %d domain rows after a refused Bind (mine.test must roll back), want 0", n)
-	}
-	if n := countRows(t, "SELECT count(*) FROM tenant_identity_binding WHERE tenant_id = $1", id); n != 0 {
-		t.Errorf("tenant has %d binding rows after a refused Bind, want 0", n)
+		t.Errorf("tenant has %d domain rows after a refused Begin (mine.test must roll back), want 0", n)
 	}
 	reg := onboard.NewRegistry(rolePool(t, "nava_app", 2))
 	if got, err := reg.TenantOwnsEmailDomain(t.Context(), id, "taken.test"); err != nil || got {
@@ -157,17 +154,65 @@ func TestT21BindRefusesADomainAnotherTenantOwns(t *testing.T) {
 	}
 }
 
+// A same-key retry finds its tenants row, inserts nothing and keeps its
+// domains (a retry after a Keycloak failure).
+func TestT21BeginRetryKeepsItsDomains(t *testing.T) {
+	migratedPlatform(t)
+	s := onboardStore(t, 4)
+	id := uuid.New()
+	for i := range 2 {
+		if _, err := s.Begin(t.Context(), id, []byte("h"), []string{"k1.test", "k2.test"}); err != nil {
+			t.Fatalf("Begin #%d: %v", i+1, err)
+		}
+	}
+	if n := countRows(t, "SELECT count(*) FROM tenant_email_domain WHERE tenant_id = $1", id); n != 2 {
+		t.Errorf("domains = %d, want 2", n)
+	}
+}
+
+// Tenants claim one domain at once: the primary key serialises them, one wins
+// and the others are ErrDomainClaimed with no tenants row.
+func TestT21BeginConcurrentClaimsOneWinner(t *testing.T) {
+	migratedPlatform(t)
+	s := onboardStore(t, 8)
+	ids := []uuid.UUID{uuid.New(), uuid.New(), uuid.New(), uuid.New()}
+	errs := make([]error, len(ids))
+	var wg sync.WaitGroup
+	for i, id := range ids {
+		wg.Go(func() {
+			_, errs[i] = s.Begin(t.Context(), id, []byte("h"), []string{"race.test"})
+		})
+	}
+	wg.Wait()
+	wins := 0
+	for i, err := range errs {
+		switch {
+		case err == nil:
+			wins++
+		case errors.Is(err, onboard.ErrDomainClaimed):
+			if n := countRows(t, "SELECT count(*) FROM tenants WHERE id = $1", ids[i]); n != 0 {
+				t.Errorf("loser %d left a tenants row", i)
+			}
+		default:
+			t.Errorf("Begin %d: %v", i, err)
+		}
+	}
+	if wins != 1 {
+		t.Errorf("winners = %d, want 1", wins)
+	}
+}
+
 // A same-arguments retry of a successful Bind succeeds and changes nothing:
 // the 0-row domain inserts are the tenant's own rows.
 func TestT21BindRetryChangesNothing(t *testing.T) {
 	migratedPlatform(t)
 	s := onboardStore(t, 4)
 	id := uuid.New()
-	if _, err := s.Begin(t.Context(), id, []byte("h")); err != nil {
+	if _, err := s.Begin(t.Context(), id, []byte("h"), []string{"r1.test", "r2.test"}); err != nil {
 		t.Fatal(err)
 	}
 	for i := range 3 {
-		if err := s.Bind(t.Context(), id, "https://kc/realms/nava", "org-r", "idp-r", []string{"r1.test", "r2.test"}); err != nil {
+		if err := s.Bind(t.Context(), id, "https://kc/realms/nava", "org-r", "idp-r"); err != nil {
 			t.Fatalf("Bind #%d: %v", i+1, err)
 		}
 	}
@@ -184,15 +229,15 @@ func TestT21BindRefusesARetryWithADifferentOrg(t *testing.T) {
 	migratedPlatform(t)
 	s := onboardStore(t, 4)
 	id := uuid.New()
-	if _, err := s.Begin(t.Context(), id, []byte("h")); err != nil {
+	if _, err := s.Begin(t.Context(), id, []byte("h"), []string{"a.test"}); err != nil {
 		t.Fatal(err)
 	}
 	const issuer = "https://kc/realms/nava"
-	if err := s.Bind(t.Context(), id, issuer, "org-a", "idp-a", []string{"a.test"}); err != nil {
+	if err := s.Bind(t.Context(), id, issuer, "org-a", "idp-a"); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range []struct{ issuer, org string }{{issuer, "org-b"}, {"https://other/realms/nava", "org-a"}} {
-		if err := s.Bind(t.Context(), id, c.issuer, c.org, "idp-b", []string{"a.test"}); !errors.Is(err, onboard.ErrConflict) {
+		if err := s.Bind(t.Context(), id, c.issuer, c.org, "idp-b"); !errors.Is(err, onboard.ErrConflict) {
 			t.Fatalf("Bind(%s, %s) after a binding to org-a: %v, want ErrConflict", c.issuer, c.org, err)
 		}
 	}
@@ -214,15 +259,15 @@ func TestT21BindIgnoresAnotherTenantsBinding(t *testing.T) {
 	s := onboardStore(t, 4)
 	a, b := uuid.New(), uuid.New()
 	for _, id := range []uuid.UUID{a, b} {
-		if _, err := s.Begin(t.Context(), id, []byte("h")); err != nil {
+		if _, err := s.Begin(t.Context(), id, []byte("h"), nil); err != nil {
 			t.Fatal(err)
 		}
 	}
 	const issuer = "https://kc/realms/nava"
-	if err := s.Bind(t.Context(), a, issuer, "org-a", "idp-a", []string{"a.test"}); err != nil {
+	if err := s.Bind(t.Context(), a, issuer, "org-a", "idp-a"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Bind(t.Context(), b, issuer, "org-b", "idp-b", []string{"b.test"}); err != nil {
+	if err := s.Bind(t.Context(), b, issuer, "org-b", "idp-b"); err != nil {
 		t.Fatalf("first Bind of tenant B after tenant A's: %v, want nil", err)
 	}
 	if got := queryString(t, superNava(t), "SELECT org_id FROM tenant_identity_binding WHERE tenant_id = $1", a); got != "org-a" {
@@ -240,14 +285,14 @@ func TestT21BindRefusesAnOrgBoundToAnotherTenant(t *testing.T) {
 	s := onboardStore(t, 4)
 	a, b := uuid.New(), uuid.New()
 	for _, id := range []uuid.UUID{a, b} {
-		if _, err := s.Begin(t.Context(), id, []byte("h")); err != nil {
+		if _, err := s.Begin(t.Context(), id, []byte("h"), nil); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := s.Bind(t.Context(), a, "https://kc/realms/nava", "org-shared", "idp-a", []string{"a.test"}); err != nil {
+	if err := s.Bind(t.Context(), a, "https://kc/realms/nava", "org-shared", "idp-a"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Bind(t.Context(), b, "https://kc/realms/nava", "org-shared", "idp-b", []string{"b.test"}); !errors.Is(err, onboard.ErrConflict) {
+	if err := s.Bind(t.Context(), b, "https://kc/realms/nava", "org-shared", "idp-b"); !errors.Is(err, onboard.ErrConflict) {
 		t.Fatalf("Bind of an org bound elsewhere: %v, want ErrConflict", err)
 	}
 	if n := countRows(t, "SELECT count(*) FROM tenant_email_domain WHERE tenant_id = $1", b); n != 0 {
@@ -266,16 +311,16 @@ func TestT21OperatorTwoSeesNothingOfOperatorOnesTenant(t *testing.T) {
 	if t1 == t2 {
 		t.Fatal("tenant ids collide")
 	}
-	if _, err := s.Begin(t.Context(), t1, []byte("h")); err != nil {
+	if _, err := s.Begin(t.Context(), t1, []byte("h"), nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Bind(t.Context(), t1, "https://kc/realms/nava", "org-1", "idp-1", []string{"one.test"}); err != nil {
+	if err := s.Bind(t.Context(), t1, "https://kc/realms/nava", "org-1", "idp-1"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Activate(t.Context(), t1); err != nil {
 		t.Fatal(err)
 	}
-	if st, err := s.Begin(t.Context(), t2, []byte("h")); err != nil || st.Active {
+	if st, err := s.Begin(t.Context(), t2, []byte("h"), nil); err != nil || st.Active {
 		t.Fatalf("operator 2 Begin: %+v, %v", st, err)
 	}
 	onb := asRole(t, "nava_onboard")
@@ -317,7 +362,7 @@ func TestT21LockPoolDoesNotSelfDeadlock(t *testing.T) {
 				return
 			}
 			defer release()
-			if _, err := s.Begin(ctx, id, []byte("h")); err != nil {
+			if _, err := s.Begin(ctx, id, []byte("h"), nil); err != nil {
 				t.Errorf("Begin under the lock: %v", err)
 			}
 		})

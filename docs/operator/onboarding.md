@@ -69,27 +69,35 @@ Headers: `Authorization: Bearer <operator token>`, `Idempotency-Key: <1..255 cha
    whole call, so two calls for one tenant run one after the other. At most half the
    `nava_onboard` pool's connections run onboardings at once (each takes a lock
    connection and one for its statements).
-2. `tenants` row in `provisioning` with the request hash (as `nava_onboard`, inside
-   `InTenantTx(newTenantID)`). An `active` tenant ends here: a replay returns `200`
-   and changes nothing.
+2. `tenants` row in `provisioning` with the request hash, and one
+   `tenant_email_domain` row per domain, in one transaction as `nava_onboard`
+   (inside `InTenantTx(newTenantID)`). The domain claim is the ownership check:
+   the primary key is on `domain` alone, so a domain another tenant owns is a
+   unique violation on `tenant_email_domain_pkey`, mapped to `domain_claimed`
+   (`409`). The transaction rolls back, so no `provisioning` row is left and
+   Keycloak is never called. Two requests for one domain serialise on the key:
+   one wins. A retry that finds its own `tenants` row inserts nothing (it
+   already owns its domains). An `active` tenant ends here: a replay returns
+   `200` and changes nothing. A request that fails after this step keeps its
+   domains held by the `provisioning` tenant until the same key completes it.
 3. Keycloak organization and IdP (`DirectoryAdmin.CreateTenantOrg`). A retry first
    asks `Directory.FindTenantOrg`: a complete org and IdP are reused, a lone
    organization is deleted and recreated, anything else is `onboarding_conflict`.
-4. Binding and one `tenant_email_domain` row per domain, in one transaction as
-   `nava_onboard`, while the tenant is still `provisioning`. `nava_onboard` has no
-   SELECT on these tables (its grants are the isolation control), so the retry
-   decision is made without `ON CONFLICT`, which needs SELECT privilege and fails
-   with 42501 under those grants. Under the per-tenant lock the service first
-   reads, as `nava_app` with `WHERE tenant_id` (the clause scopes the read; no RLS
-   policy does), the `(issuer, org id)` the tenant's binding row names. If it
-   exists, an earlier call committed the binding and every domain together (the
-   request hash fixes the domain set). The same pair inserts nothing; a different
-   pair (the organization was deleted outside the platform and this attempt
-   resolved another) is `onboarding_conflict` and the tenant stays `provisioning`. If
-   not, plain INSERTs run; a unique violation rolls the transaction back and maps by
-   constraint: `tenant_email_domain_pkey` is `domain_claimed`, the `(issuer, org id)`
-   key is `onboarding_conflict`. The service then reads ownership of every domain
-   with `WHERE tenant_id` as a second check.
+4. Binding, in one transaction as `nava_onboard`, while the tenant is still
+   `provisioning`. `nava_onboard` has no SELECT on this table (its grants are the
+   isolation control), so the retry decision is made without `ON CONFLICT`, which
+   needs SELECT privilege and fails with 42501 under those grants. Under the
+   per-tenant lock the service first reads, as `nava_app` with `WHERE tenant_id`
+   (the clause scopes the read; no RLS policy does), the `(issuer, org id)` the
+   tenant's binding row names. If it exists, an earlier call committed it. The
+   same pair inserts nothing; a different pair (the organization was deleted
+   outside the platform and this attempt resolved another) is
+   `onboarding_conflict` and the tenant stays `provisioning`. If not, a plain
+   INSERT runs; a unique violation on the `(issuer, org id)` key is
+   `onboarding_conflict`. The service then reads ownership of every domain with
+   `WHERE tenant_id` as a second check. Keycloak's refusal of a domain that is
+   already linked to another organization (a `400` on organization create, step
+   3) is also `domain_claimed`, as defence in depth.
 5. `DirectoryAdmin.InviteUser` for the admin (see "Admin invite lifecycle"
    below). A refused invite (`ErrInviteRefused`)
    is answered exactly like a sent one. Any other invite error is `5xx`, on the

@@ -74,16 +74,18 @@ type State struct{ Active bool }
 type Store interface {
 	// Lock holds the per-tenant lock until the returned func is called.
 	Lock(ctx context.Context, tenantID uuid.UUID) (release func(), err error)
-	// Begin records the provisioning row with the request hash, or reports the
-	// existing one. A different stored hash is ErrKeyReuse.
-	Begin(ctx context.Context, tenantID uuid.UUID, hash []byte) (State, error)
-	// Bind writes the binding and the email domains while the tenant is
-	// provisioning, in one transaction. It is idempotent: if the tenant's
-	// binding row already exists (read as nava_app) it inserts nothing. A domain
-	// owned by another tenant is ErrDomainClaimed and an organization bound to
-	// another tenant is ErrConflict; both roll everything back. Onboard then
-	// reads domain ownership under the tenant predicate as a second check.
-	Bind(ctx context.Context, tenantID uuid.UUID, issuer, orgID, idpAlias string, domains []string) error
+	// Begin records the provisioning row with the request hash and claims the
+	// email domains, in one transaction, or reports the existing row. A
+	// different stored hash is ErrKeyReuse. A domain owned by another tenant is
+	// ErrDomainClaimed and rolls the row back too, so nothing is left behind.
+	// An existing row already owns its domains: nothing is inserted.
+	Begin(ctx context.Context, tenantID uuid.UUID, hash []byte, domains []string) (State, error)
+	// Bind writes the binding while the tenant is provisioning. It is
+	// idempotent: if the tenant's binding row already exists (read as nava_app)
+	// it inserts nothing. An organization bound to another tenant is
+	// ErrConflict and rolls back. Onboard then reads domain ownership under the
+	// tenant predicate as a second check.
+	Bind(ctx context.Context, tenantID uuid.UUID, issuer, orgID, idpAlias string) error
 	// Activate moves the tenant from provisioning to active. An already-active
 	// tenant is an error.
 	Activate(ctx context.Context, tenantID uuid.UUID) error
@@ -159,7 +161,7 @@ func (s *Service) Onboard(ctx context.Context, operator identity.Operator, key s
 	}
 	defer release()
 
-	st, err := s.o.Store.Begin(ctx, tenantID, hash)
+	st, err := s.o.Store.Begin(ctx, tenantID, hash, domains)
 	if err != nil {
 		return Result{}, err
 	}
@@ -174,12 +176,12 @@ func (s *Service) Onboard(ctx context.Context, operator identity.Operator, key s
 	if err != nil {
 		return Result{}, err
 	}
-	if err := s.o.Store.Bind(ctx, tenantID, s.o.Issuer, orgID, keycloak.TenantIdPAlias(tenantID), domains); err != nil {
+	if err := s.o.Store.Bind(ctx, tenantID, s.o.Issuer, orgID, keycloak.TenantIdPAlias(tenantID)); err != nil {
 		return Result{}, err
 	}
-	// Bind inserts the domains in one transaction and a domain owned by
-	// another tenant fails it (ErrDomainClaimed). The tenant must still own
-	// every domain it asked for, read with WHERE tenant_id as a second check.
+	// Begin claimed the domains, and a domain owned by another tenant failed it
+	// (ErrDomainClaimed). The tenant must still own every domain it asked for,
+	// read with WHERE tenant_id as a second check.
 	for _, d := range domains {
 		owns, err := s.o.Domains.TenantOwnsEmailDomain(ctx, tenantID, d)
 		if err != nil {
@@ -216,8 +218,8 @@ func (s *Service) org(ctx context.Context, tenantID uuid.UUID, alias string, dom
 	case errors.Is(err, identity.ErrAlreadyExists):
 		return "", ErrConflict
 	case errors.Is(err, keycloak.ErrDomainLinked):
-		// Another organization already holds a requested domain: the race
-		// where two requests both passed the ownership read.
+		// Defence in depth: Begin already refused a domain another tenant
+		// owns, so this is a Keycloak organization of a deleted tenant.
 		return "", ErrDomainClaimed
 	case errors.Is(err, identity.ErrInvalidInput):
 		return "", &FieldError{Pointer: "/identity_provider"}

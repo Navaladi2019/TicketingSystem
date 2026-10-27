@@ -43,7 +43,7 @@ func (s *fakeStore) Lock(_ context.Context, id uuid.UUID) (func(), error) {
 	return m.Unlock, nil
 }
 
-func (s *fakeStore) Begin(_ context.Context, id uuid.UUID, hash []byte) (State, error) {
+func (s *fakeStore) Begin(_ context.Context, id uuid.UUID, hash []byte, domains []string) (State, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if h, ok := s.rows[id]; ok {
@@ -52,11 +52,19 @@ func (s *fakeStore) Begin(_ context.Context, id uuid.UUID, hash []byte) (State, 
 		}
 		return State{Active: s.active[id]}, nil
 	}
+	for _, d := range domains {
+		if owner, taken := s.domains[d]; taken && owner != id {
+			return State{}, ErrDomainClaimed
+		}
+	}
+	for _, d := range domains {
+		s.domains[d] = id
+	}
 	s.rows[id] = hash
 	return State{}, nil
 }
 
-func (s *fakeStore) Bind(_ context.Context, id uuid.UUID, _, orgID, _ string, domains []string) error {
+func (s *fakeStore) Bind(_ context.Context, id uuid.UUID, _, orgID, _ string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.failOnce != nil {
@@ -66,11 +74,6 @@ func (s *fakeStore) Bind(_ context.Context, id uuid.UUID, _, orgID, _ string, do
 	}
 	s.bindings[id] = orgID
 	s.binds++
-	for _, d := range domains {
-		if _, taken := s.domains[d]; !taken {
-			s.domains[d] = id
-		}
-	}
 	return nil
 }
 
@@ -427,5 +430,22 @@ func TestOnboardKeycloakDomainLinkedIsDomainClaimed(t *testing.T) {
 	}
 	if len(st.bindings) != 0 || len(dir.invites) != 0 {
 		t.Errorf("bindings=%v invites=%v after a refused onboarding", st.bindings, dir.invites)
+	}
+}
+
+// Another tenant owns the domain: Begin refuses it, Keycloak is never called
+// and no row is left for the refused tenant.
+func TestOnboardRefusesADomainAnotherTenantOwnsBeforeKeycloak(t *testing.T) {
+	svc, st, dir := newSvc(t)
+	if _, err := svc.Onboard(t.Context(), op1, "a", []byte("h"), validReq()); err != nil {
+		t.Fatal(err)
+	}
+	creates := dir.creates
+	_, err := svc.Onboard(t.Context(), op1, "b", []byte("h2"), validReq())
+	if !errors.Is(err, ErrDomainClaimed) {
+		t.Fatalf("err = %v, want ErrDomainClaimed", err)
+	}
+	if _, left := st.rows[TenantID("op-1", "b")]; left || dir.creates != creates {
+		t.Errorf("row left = %v, creates %d -> %d", left, creates, dir.creates)
 	}
 }

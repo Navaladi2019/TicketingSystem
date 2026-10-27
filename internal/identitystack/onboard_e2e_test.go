@@ -694,3 +694,30 @@ func TestOnboardKillBeforeBindThenRetryLiveStack(t *testing.T) {
 		t.Errorf("the organization has %d IdPs, want 1", n)
 	}
 }
+
+// TestOnboardDomainClaimedIsConflict (TICK-271): onboarding a tenant with a
+// domain an active tenant owns is 409 domain_claimed, refused before Keycloak:
+// tenant A keeps the domain, no organization exists for the refused tenant and
+// its tenants row was never left in provisioning.
+func TestOnboardDomainClaimedIsConflict(t *testing.T) {
+	keyA, tenantA, domain, email := newOnboarding(t)
+	op := operatorToken(t)
+	mustOnboard(t, op, keyA, onboardBody(email, domain), http.StatusCreated, tenantA)
+
+	keyB := uuid.NewString()
+	tenantB := onboard.TenantID(operatorSub, keyB)
+	cleanupTenantOrg(t, tenantB, onboard.Alias(tenantB))
+	code, resp := onboardPost(t, op, keyB, onboardBody(email, domain))
+	if code != http.StatusConflict {
+		t.Fatalf("claiming %s: %d %.400s, want 409 domain_claimed", domain, code, resp)
+	}
+	if owner := psqlSuper(t, fmt.Sprintf("SELECT tenant_id FROM tenant_email_domain WHERE domain = '%s'", domain)); owner != tenantA.String() {
+		t.Errorf("%s is owned by %s, want %s", domain, owner, tenantA)
+	}
+	if orgs := orgsByAlias(t, onboard.Alias(tenantB)); len(orgs) != 0 {
+		t.Errorf("organizations for the refused tenant: %v, want none", orgs)
+	}
+	if n := psqlSuper(t, fmt.Sprintf("SELECT count(*) FROM tenants WHERE id = '%s'", tenantB)); n != "0" {
+		t.Errorf("the refused tenant left %s tenants rows, want 0", n)
+	}
+}

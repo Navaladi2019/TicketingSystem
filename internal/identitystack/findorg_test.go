@@ -178,16 +178,19 @@ type resumeStore struct {
 
 func (s *resumeStore) Lock(context.Context, uuid.UUID) (func(), error) { return func() {}, nil }
 
-func (s *resumeStore) Begin(_ context.Context, _ uuid.UUID, h []byte) (onboard.State, error) {
+func (s *resumeStore) Begin(_ context.Context, id uuid.UUID, h []byte, domains []string) (onboard.State, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.hash == nil {
 		s.hash = h
+		for _, d := range domains {
+			s.domains[d] = id
+		}
 	}
 	return onboard.State{Active: s.active}, nil
 }
 
-func (s *resumeStore) Bind(_ context.Context, id uuid.UUID, _, orgID, _ string, domains []string) error {
+func (s *resumeStore) Bind(_ context.Context, _ uuid.UUID, _, orgID, _ string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.failing {
@@ -197,9 +200,6 @@ func (s *resumeStore) Bind(_ context.Context, id uuid.UUID, _, orgID, _ string, 
 		s.binds++
 	}
 	s.orgID = orgID
-	for _, d := range domains {
-		s.domains[d] = id
-	}
 	return nil
 }
 
