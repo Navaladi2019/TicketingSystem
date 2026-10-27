@@ -2,6 +2,12 @@
 
 Delivery decisions that change a task's contract, newest first.
 
+## 2026-10-27: PLAN-002 implements ADR-002 as one task, TICK-268
+- **Decided by:** the Technical Lead on TICK-270 (`docs/delivery/plan-adr-002.md`).
+- **Decision:** ADR-002 ships as TICK-268 (`backend-dev`, under S5). It restarts from the story branch, because commit `62d604e` changed `groups` itself and is not the design. The S5 explainer's section 10 moves from TICK-268 to the acceptance kit (PR #187), so no two open PRs share that file. AC5's new entry in `registry.go` needs CTO sign-off, which ADR §6 did not list; the implementer asks for it on TICK-268. TICK-268 and TICK-265 both touch `groupsync/apply.go` and run in parallel; whichever merges second rebases.
+- **Deferred:** the ACL-compiler test (TODO-013). Trigger: the first I5 ACL compiler PR.
+- **Dissent:** none.
+
 ## 2026-10-26: agents merge task PRs and close tasks; stories and ADRs stay with the human
 - **Decided by:** vknavaladi (workspace merge and close policy), recorded by the Technical Lead on TICK-243.
 - **Decision:**
