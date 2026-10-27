@@ -294,6 +294,9 @@ func TestRepoRegisteredFiles(t *testing.T) {
 		"internal/identitystack/adversarial_test.go":       "github.com/Navaladi2019/TicketingSystem/internal/identitystack",
 		"temporal-server/authz/adversarial_test.go":        "github.com/Navaladi2019/TicketingSystem/temporal-server/authz",
 		"internal/tenancy/isolation/ci2_isolation_test.go": "github.com/Navaladi2019/TicketingSystem/internal/tenancy/isolation",
+		// TICK-229: registered by the **/*adversarial*_test.go glob.
+		"internal/platform/cursor/cursor_adversarial_test.go": "github.com/Navaladi2019/TicketingSystem/internal/platform/cursor",
+		"temporal-server/cmd/server/adversarial_f2_test.go":   "github.com/Navaladi2019/TicketingSystem/temporal-server/cmd/server",
 	}
 	got := map[string]string{}
 	for _, f := range files {

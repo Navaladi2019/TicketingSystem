@@ -80,6 +80,10 @@ cto_signoff:
   # leave it out of the run, needs CTO sign-off.
   isolation_tests:
     - "**/*isolation*_test.go"
+    # Every adversarial suite, at any depth: *_adversarial_test.go,
+    # adversarial_*_test.go and adversarial_test.go (TICK-229). The explicit
+    # entries below are kept as a record of what each suite guards.
+    - "**/*adversarial*_test.go"
     - internal/tenancy/isolation/*_test.go
     # The T27a CI-6 namespace-isolation suite.
     - temporal-server/authz/adversarial_test.go
