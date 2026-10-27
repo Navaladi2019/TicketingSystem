@@ -101,10 +101,12 @@ func read(r io.Reader, echo io.Writer) (*summary, error) {
 			}
 			continue
 		}
-		if e.Action == "fail" {
+		top, sub, isSub := strings.Cut(e.Test, "/")
+		// Only a top-level fail counts: Go fails the parent of a failed subtest,
+		// but a timeout panic leaves the parent with no fail event.
+		if e.Action == "fail" && !isSub {
 			testFailed = true
 		}
-		top, sub, isSub := strings.Cut(e.Test, "/")
 		res := s.tests[top]
 		if res == nil {
 			res = &result{}

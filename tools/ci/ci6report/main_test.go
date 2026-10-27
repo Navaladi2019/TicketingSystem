@@ -116,6 +116,21 @@ func TestFailedSubtestIsNotAPackageFailure(t *testing.T) {
 	}
 }
 
+// A go test timeout panic fails a subtest but never finishes its parent; the
+// package failure is then the only signal.
+func TestFailedSubtestOfUnfinishedTestIsAPackageFailure(t *testing.T) {
+	in := stream(t, nil) +
+		`{"Action":"run","Test":"TestOther"}` + "\n" +
+		`{"Action":"run","Test":"TestOther/sub"}` + "\n" +
+		`{"Action":"fail","Test":"TestOther/sub"}` + "\n" +
+		`{"Action":"output","Package":"x","Output":"panic: test timed out after 10m0s\n"}` + "\n" +
+		`{"Action":"fail","Package":"x","Elapsed":600}` + "\n"
+	_, problems := run(t, in)
+	if len(problems) != 1 || problems[0] != packageMsg {
+		t.Fatalf("problems %v, want the package failure", problems)
+	}
+}
+
 // Go 1.24+ reports build errors as JSON (build-output, build-fail), then a
 // package fail with no test events.
 func TestJSONBuildFailure(t *testing.T) {
