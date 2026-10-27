@@ -198,6 +198,25 @@ func (s *PGStore) Activate(ctx context.Context, tenantID uuid.UUID) error {
 	return nil
 }
 
+// ReleaseDomains deletes the email domains the tenant claimed in Begin and
+// returns how many it freed. The email_domain_release policy limits the
+// DELETE to the tenant of the transaction while it is provisioning, so an
+// active tenant's rows, and another tenant's, are no rows and the count is 0.
+// It is not on Store: whether the abandon operation (AR-036) calls it is that
+// operation's design.
+func (s *PGStore) ReleaseDomains(ctx context.Context, tenantID uuid.UUID) (int64, error) {
+	var n int64
+	err := tenancy.InTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, "DELETE FROM tenant_email_domain WHERE tenant_id = $1", tenantID)
+		n = tag.RowsAffected()
+		return err
+	})
+	if err != nil {
+		return 0, fmt.Errorf("onboard: release domains: %w", err)
+	}
+	return n, nil
+}
+
 // RecordInvite implements keycloak.InviteWriter: it writes the tenant's
 // pending invite for email, or moves the expiry of one that is still pending.
 // A consumed invite stays consumed (the conflict update matches no row), so a
