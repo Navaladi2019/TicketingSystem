@@ -1,6 +1,7 @@
 package telemetry_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -65,7 +66,7 @@ func TestOutboundMalformedRedirectDoesNotEchoLocation(t *testing.T) {
 	}))
 	t.Cleanup(redir.Close)
 	c, _, _ := outbound(t, telemetry.OutboundOptions{})
-	req, _ := http.NewRequestWithContext(telemetry.WithRoute(t.Context(), "/start"),
+	req, _ := http.NewRequestWithContext(telemetry.WithRedirects(telemetry.WithRoute(t.Context(), "/start")),
 		http.MethodGet, redir.URL+"/start", nil)
 	resp, err := c.Do(req)
 	if err == nil {
@@ -77,9 +78,9 @@ func TestOutboundMalformedRedirectDoesNotEchoLocation(t *testing.T) {
 	}
 }
 
-// WithoutRedirects refuses a redirect to the same host as well as to another
-// one: the target is never asked, and the error says why without quoting the
-// Location. Unmarked calls still follow redirects.
+// WithoutRedirects, and since TICK-261 an unmarked call, refuses a redirect
+// to the same host as well as to another one: the target is never asked, and
+// the error says why without quoting the Location. WithRedirects follows.
 func TestOutboundWithoutRedirectsRefusesEveryRedirect(t *testing.T) {
 	t.Parallel()
 	var targetHits atomic.Int64
@@ -103,28 +104,30 @@ func TestOutboundWithoutRedirectsRefusesEveryRedirect(t *testing.T) {
 	t.Cleanup(redir.Close)
 	c, _, _ := outbound(t, telemetry.OutboundOptions{})
 
-	for _, p := range []string{"/same", "/cross"} {
-		ctx := telemetry.WithoutRedirects(telemetry.WithRoute(t.Context(), "/start"))
-		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, redir.URL+p, nil)
-		err := doErr(c, req)
-		if !errors.Is(err, telemetry.ErrRedirectRefused) {
-			t.Fatalf("%s: err = %v, want ErrRedirectRefused", p, err)
-		}
-		if strings.Contains(err.Error(), "alice") || strings.Contains(err.Error(), "?email") {
-			t.Errorf("%s: error echoes the Location: %v", p, err)
+	route := telemetry.WithRoute(t.Context(), "/start")
+	for _, ctx := range []context.Context{telemetry.WithoutRedirects(route), route} {
+		for _, p := range []string{"/same", "/cross"} {
+			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, redir.URL+p, nil)
+			err := doErr(c, req)
+			if !errors.Is(err, telemetry.ErrRedirectRefused) {
+				t.Fatalf("%s: err = %v, want ErrRedirectRefused", p, err)
+			}
+			if strings.Contains(err.Error(), "alice") || strings.Contains(err.Error(), "?email") {
+				t.Errorf("%s: error echoes the Location: %v", p, err)
+			}
 		}
 	}
 	if n := targetHits.Load() + sameHostHits.Load(); n != 0 {
 		t.Fatalf("refused redirects reached their target %d times", n)
 	}
 
-	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, redir.URL+"/same", nil)
+	req, _ := http.NewRequestWithContext(telemetry.WithRedirects(t.Context()), http.MethodGet, redir.URL+"/same", nil)
 	resp, err := c.Do(req)
 	if err != nil {
-		t.Fatalf("unmarked call did not follow a redirect: %v", err)
+		t.Fatalf("WithRedirects call did not follow a redirect: %v", err)
 	}
 	_ = resp.Body.Close()
 	if sameHostHits.Load() != 1 {
-		t.Fatal("unmarked call did not reach the redirect target")
+		t.Fatal("WithRedirects call did not reach the redirect target")
 	}
 }

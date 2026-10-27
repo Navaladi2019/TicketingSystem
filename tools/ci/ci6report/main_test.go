@@ -106,10 +106,80 @@ func TestFailures(t *testing.T) {
 	}
 }
 
+const packageMsg = "the package failed (build error or panic): see the test output"
+
+// go test -json ends every package with a failed test with a package-level
+// fail; that is not a package failure.
+func TestFailedTestIsNotAPackageFailure(t *testing.T) {
+	first := contract()[0].Test
+	in := stream(t, map[string]string{first: "fail"}) + `{"Action":"fail","Package":"x","Elapsed":3}` + "\n"
+	_, problems := run(t, in)
+	if len(problems) != 1 || !strings.HasPrefix(problems[0], first+": FAIL") {
+		t.Fatalf("problems %v, want only the failed test", problems)
+	}
+}
+
+// The same for a failed subtest of a test outside the contract.
+func TestFailedSubtestIsNotAPackageFailure(t *testing.T) {
+	in := stream(t, nil) +
+		`{"Action":"fail","Test":"TestOther/sub"}` + "\n" +
+		`{"Action":"fail","Test":"TestOther"}` + "\n" +
+		`{"Action":"fail","Package":"x"}` + "\n"
+	_, problems := run(t, in)
+	if len(problems) != 1 || problems[0] != "TestOther: FAIL" {
+		t.Fatalf("problems %v, want only the failed test", problems)
+	}
+}
+
+// A go test timeout panic fails a subtest but never finishes its parent; the
+// package failure is then the only signal.
+func TestFailedSubtestOfUnfinishedTestIsAPackageFailure(t *testing.T) {
+	in := stream(t, nil) +
+		`{"Action":"run","Test":"TestOther"}` + "\n" +
+		`{"Action":"run","Test":"TestOther/sub"}` + "\n" +
+		`{"Action":"fail","Test":"TestOther/sub"}` + "\n" +
+		`{"Action":"output","Package":"x","Output":"panic: test timed out after 10m0s\n"}` + "\n" +
+		`{"Action":"fail","Package":"x","Elapsed":600}` + "\n"
+	_, problems := run(t, in)
+	if len(problems) != 1 || problems[0] != packageMsg {
+		t.Fatalf("problems %v, want the package failure", problems)
+	}
+}
+
+// Go 1.24+ reports build errors as JSON (build-output, build-fail), then a
+// package fail with no test events.
+func TestJSONBuildFailure(t *testing.T) {
+	in := `{"ImportPath":"x","Action":"build-output","Output":"./a.go:1: syntax error\n"}` + "\n" +
+		`{"ImportPath":"x","Action":"build-fail"}` + "\n" +
+		`{"Action":"output","Package":"x","Output":"FAIL\tx [build failed]\n"}` + "\n" +
+		`{"Action":"fail","Package":"x","FailedBuild":"x"}` + "\n"
+	_, problems := run(t, in)
+	if len(problems) != len(contract())+1 || problems[len(problems)-1] != packageMsg {
+		t.Fatalf("problems %v, want every case missing plus the package", problems)
+	}
+}
+
+// A package that fails after every test passed (a panic in TestMain, a leak
+// check) is a package failure.
+func TestPackageFailsWithNoFailedTest(t *testing.T) {
+	_, problems := run(t, stream(t, nil)+`{"Action":"fail","Package":"x"}`+"\n")
+	if len(problems) != 1 || problems[0] != packageMsg {
+		t.Fatalf("problems %v, want the package failure", problems)
+	}
+}
+
 func TestBuildFailure(t *testing.T) {
 	_, problems := run(t, "# github.com/x\n./a.go:1: syntax error\n"+`{"Action":"fail","Package":"x"}`+"\n")
-	if len(problems) != len(contract())+1 {
+	if len(problems) != len(contract())+1 || problems[len(problems)-1] != packageMsg {
 		t.Fatalf("problems %v, want every case missing plus the package", problems)
+	}
+}
+
+// Plain text in the stream is a package failure even when every test passed.
+func TestNonJSONOutputIsAPackageFailure(t *testing.T) {
+	_, problems := run(t, stream(t, nil)+"panic: something outside test2json\n")
+	if len(problems) != 1 || problems[0] != packageMsg {
+		t.Fatalf("problems %v, want the package failure", problems)
 	}
 }
 

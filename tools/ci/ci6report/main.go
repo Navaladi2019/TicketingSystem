@@ -108,7 +108,11 @@ type result struct {
 
 // summary is the whole run.
 type summary struct {
-	tests      map[string]*result
+	tests map[string]*result
+	// packageBad: the package failed on its own (a build error, a panic outside
+	// a test) or go test printed plain text. go test -json ends every package
+	// that has a failed test with a package-level fail, so that event alone is
+	// not a package failure.
 	packageBad bool
 	failOutput map[string][]string // test -> its output lines, kept for failures
 }
@@ -117,6 +121,7 @@ func read(r io.Reader, echo io.Writer) (*summary, error) {
 	s := &summary{tests: map[string]*result{}, failOutput: map[string][]string{}}
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 1<<20), 1<<24)
+	var packageFailed, testFailed bool
 	for sc.Scan() {
 		var e event
 		if err := json.Unmarshal(sc.Bytes(), &e); err != nil {
@@ -130,11 +135,16 @@ func read(r io.Reader, echo io.Writer) (*summary, error) {
 		}
 		if e.Test == "" {
 			if e.Action == "fail" {
-				s.packageBad = true
+				packageFailed = true
 			}
 			continue
 		}
 		top, sub, isSub := strings.Cut(e.Test, "/")
+		// Only a top-level fail counts: Go fails the parent of a failed subtest,
+		// but a timeout panic leaves the parent with no fail event.
+		if e.Action == "fail" && !isSub {
+			testFailed = true
+		}
 		res := s.tests[top]
 		if res == nil {
 			res = &result{}
@@ -157,6 +167,9 @@ func read(r io.Reader, echo io.Writer) (*summary, error) {
 			}
 			res.Action, res.Elapsed = e.Action, e.Elapsed
 		}
+	}
+	if packageFailed && !testFailed {
+		s.packageBad = true
 	}
 	return s, sc.Err()
 }
