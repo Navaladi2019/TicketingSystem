@@ -53,6 +53,20 @@ func TestRuntimeAccountOrganizationRoutes(t *testing.T) {
 		{http.MethodGet, "/organizations/members/%2e%2e/organizations"},
 		{http.MethodGet, "/users/%6Frganizations"},
 		{http.MethodGet, "/users;x"},
+		{http.MethodGet, "/organizations?first=0"},
+		{http.MethodGet, "/organizations#x"},
+		{http.MethodGet, "/organizations?/o1/members"},
+		{http.MethodGet, "/users?x"},
+		{http.MethodGet, "/users\\x"},
+		{http.MethodGet, "/organizations\\o1"},
+		{http.MethodGet, "/users/a\nb"},
+		{http.MethodGet, "/organizations/members/u1/organizations\x00"},
+		{http.MethodGet, "/organizations/members/%2e%2e%252f%2e%2e/organizations"},
+		{http.MethodGet, "/organizations/members/%5C..%5C/organizations"},
+		{http.MethodGet, "/organizations/members/a%3Bb/organizations"},
+		{http.MethodGet, "/organizations/members/a%3Fb/organizations"},
+		{http.MethodGet, "/organizations/members/a%23b/organizations"},
+		{http.MethodGet, "/organizations/members/a%0Ab/organizations"},
 	}
 	for _, c := range refused {
 		_, err := d.api.do(t.Context(), d.runtime, c.method, c.path, c.path, nil, nil)

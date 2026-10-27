@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
@@ -58,7 +59,8 @@ var ErrOrgRouteDenied = errors.New("keycloak admin: organizations route not allo
 
 // allows reports whether the account may send method to path (the real path
 // below /admin/realms/{realm}, escaped). An account without orgAll may send
-// only a canonical path: no empty segment, no ";" and no "%" (the one escaped
+// only a canonical path: no "?", "#", "\\" or control byte anywhere, no empty
+// segment, no ";" and no "%" (the one escaped
 // {id} segment of the member-organizations route aside), and no "." or ".."
 // segment. So a path that Keycloak or a proxy in front of it might normalise
 // into /organizations (";x", "%6F", "//", "..") is refused before it is sent.
@@ -69,6 +71,9 @@ func (a *account) allows(method, path string) bool {
 		return true
 	}
 	if !strings.HasPrefix(path, "/") {
+		return false
+	}
+	if strings.ContainsAny(path, "?#\\") || strings.IndexFunc(path, unicode.IsControl) >= 0 {
 		return false
 	}
 	segs := strings.Split(path[1:], "/")
@@ -84,7 +89,10 @@ func (a *account) allows(method, path string) bool {
 	}
 	if memberRoute {
 		u, err := url.PathUnescape(segs[2])
-		if err != nil || u == "." || u == ".." || strings.Contains(u, "/") {
+		// A decoded id must not hold anything a second decode (a proxy, a
+		// future Keycloak) could turn into a separator or traversal.
+		if err != nil || u == "." || u == ".." || strings.ContainsAny(u, "/%\\;?#") ||
+			strings.IndexFunc(u, unicode.IsControl) >= 0 {
 			return false
 		}
 		return a.orgs == orgMemberRead && method == http.MethodGet
