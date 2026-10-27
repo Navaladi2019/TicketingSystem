@@ -115,6 +115,17 @@ func TestRealmFile(t *testing.T) {
 			t.Errorf("idp %s: trustEmail=%v flow=%q", p.Alias, p.TrustEmail, p.FirstBrokerLoginFlowAlias)
 		}
 	}
+	// TICK-252 (Security test 11): no flow of the realm has an authenticator
+	// that links or verifies by email. Nothing may ever link a brokered login
+	// to an existing user.
+	for _, f := range r.Flows {
+		for _, e := range f.Executions {
+			switch e.Authenticator {
+			case "idp-auto-link", "idp-confirm-link", "idp-email-verification", "idp-detect-existing-broker-user":
+				t.Errorf("flow %s has the linking authenticator %s", f.Alias, e.Authenticator)
+			}
+		}
+	}
 	if got := strings.Join(r.DefaultScopes, ","); got != "basic,roles,profile,email" {
 		t.Errorf("defaultDefaultClientScopes = %q, want basic,roles,profile,email", got)
 	}

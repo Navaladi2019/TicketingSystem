@@ -305,6 +305,17 @@ var pageText = regexp.MustCompile(`(?s)<[^>]*>`)
 // with the text of the last page when Keycloak does not return a code.
 func brokeredSignIn(t *testing.T, idp, user, pass string) string {
 	t.Helper()
+	tok, page := brokeredAttempt(t, idp, user, pass)
+	if tok == "" {
+		t.Fatalf("the brokered sign-in returned no code; last page: %.600s", page)
+	}
+	return tok
+}
+
+// brokeredAttempt is brokeredSignIn that reports a refused login (an empty
+// token and the text of the last page) instead of failing the test.
+func brokeredAttempt(t *testing.T, idp, user, pass string) (token, page string) {
+	t.Helper()
 	c := newInNetClient(t)
 	redirect := "http://localhost:9/cb"
 	var final *url.URL
@@ -331,15 +342,14 @@ func brokeredSignIn(t *testing.T, idp, user, pass string) string {
 	post, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, html.UnescapeString(string(m[1])),
 		strings.NewReader(url.Values{"username": {user}, "password": {pass}}.Encode()))
 	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	_, page := do(t, c, post)
+	_, body := do(t, c, post)
 	if final == nil || final.Query().Get("code") == "" {
-		text := strings.Join(strings.Fields(html.UnescapeString(pageText.ReplaceAllString(string(page), " "))), " ")
-		t.Fatalf("the brokered sign-in returned no code; last page: %.600s", text)
+		return "", strings.Join(strings.Fields(html.UnescapeString(pageText.ReplaceAllString(string(body), " "))), " ")
 	}
 	return inNetToken(t, c, url.Values{
 		"grant_type": {"authorization_code"}, "client_id": {"nava-web"},
 		"code": {final.Query().Get("code")}, "redirect_uri": {redirect},
-	})
+	}), ""
 }
 
 // stopGroupsync stops the long-running nava-groupsync for the test and brings
@@ -442,26 +452,44 @@ func TestOnboardedAdminSignsInAndMeShowsTenant(t *testing.T) {
 		t.Fatalf("tenant row and binding = %q, want active, bound to %s %s with IdP %s", got, inNetIssuer, orgs[0], idpAlias)
 	}
 
+	// Option 2 (TICK-252): onboarding wrote a pending invite and created no
+	// Keycloak user, so the admin cannot sign in locally and nothing can
+	// collide with the first brokered login.
+	if kcUserByEmail(t, email) != "" {
+		t.Fatalf("onboarding created a Keycloak user for %s: the invite must not", email)
+	}
+	if got := inviteState(t, tenant, email); got != "pending" {
+		t.Fatalf("invite after onboarding = %q, want pending", got)
+	}
+
 	pointIdPAt(t, idpAlias, idpRealm)
 	tok := brokeredSignIn(t, idpAlias, email, pass)
 	c := claims(t, tok)
 	orgClaim(t, c, alias) // exactly one organization, the new tenant's
 
-	// Ruling 2026-10-25 on TICK-81: the admin is both an org member (the
-	// first-login flow) and in the tenant group (the invite), as one user.
+	// The first login created the user and made them an org member; group
+	// sync has not placed them yet.
 	sub, _ := c["sub"].(string)
-	invited := kcUserByEmail(t, email)
-	if invited == "" || sub != invited {
-		t.Fatalf("token sub = %q, the user with %s = %q: the sign-in did not land on the invited user", sub, email, invited)
+	created := kcUserByEmail(t, email)
+	if created == "" || sub != created {
+		t.Fatalf("token sub = %q, the user with %s = %q", sub, email, created)
 	}
-	if !userInGroup(t, invited, kcGroupID(t, "/t/"+tenant.String())) {
-		t.Errorf("the admin is not a member of /t/%s", tenant)
-	}
-	if !slices.Contains(orgMembers(t, orgs[0]), invited) {
+	if !slices.Contains(orgMembers(t, orgs[0]), created) {
 		t.Errorf("the admin is not a member of organization %s", alias)
+	}
+	if userInGroup(t, created, kcGroupID(t, "/t/"+tenant.String())) {
+		t.Errorf("the admin is in /t/%s before any group sync cycle", tenant)
 	}
 
 	groupsyncOnce(t)
+
+	// The cycle placed the admin and consumed the invite.
+	if !userInGroup(t, created, kcGroupID(t, "/t/"+tenant.String())) {
+		t.Errorf("the admin is not a member of /t/%s after the cycle", tenant)
+	}
+	if got := inviteState(t, tenant, email); got != "consumed" {
+		t.Errorf("invite after the cycle = %q, want consumed", got)
+	}
 
 	code, got, raw := getMe(t, tok, "", nil)
 	if code != http.StatusOK {
