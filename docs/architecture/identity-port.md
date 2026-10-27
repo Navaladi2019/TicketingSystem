@@ -86,8 +86,9 @@ outbound client span only under a method and a route template, else `_OTHER`.
 included, and fail closed with `telemetry.ErrRedirectRefused`: the checked URL
 is the only one fetched. A same-host redirect from realm X's certs to realm
 Y's would otherwise undo the `jwks_uri` path check. Keycloak serves both
-documents directly, so nothing legitimate is lost. Other outbound callers keep
-the default policy (up to 10 redirects, any host).
+documents directly, so nothing legitimate is lost. Since TICK-261 refusing
+redirects is the default for every outbound call; the explicit marker stays
+(see `docs/architecture/outbound-egress.md`).
 
 Metric: `nava.identity.jwks.fetch{trigger=initial|unknown_kid, result=ok|error|throttled}`.
 
