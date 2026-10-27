@@ -192,12 +192,14 @@ func NewDirectory(cfg DirectoryConfig, out *telemetry.OutboundClient) (*Director
 // ---- Keycloak representations ----------------------------------------------
 
 type kcUser struct {
-	ID        string `json:"id"`
-	Email     string `json:"email"`
-	Enabled   bool   `json:"enabled"`
-	Username  string `json:"username"`
-	FirstName string `json:"firstName,omitempty"`
-	LastName  string `json:"lastName,omitempty"`
+	ID       string `json:"id"`
+	Email    string `json:"email"`
+	Enabled  bool   `json:"enabled"`
+	Username string `json:"username"`
+	// Attributes are read by PlaceInvitee; nothing here writes them.
+	Attributes map[string][]string `json:"attributes,omitempty"`
+	FirstName  string              `json:"firstName,omitempty"`
+	LastName   string              `json:"lastName,omitempty"`
 }
 
 type kcGroup struct {
@@ -835,13 +837,8 @@ func (d *Directory) CreateTenantOrg(ctx context.Context, tenantID uuid.UUID, ali
 		idp.TrustEmail || idp.FirstBrokerLoginFlowAlias != FirstBrokerLoginFlow || idp.PostBrokerLoginFlowAlias != "" {
 		return fail(errors.New("keycloak: created idp does not match the onboarding policy"))
 	}
-	var mappers []json.RawMessage
-	if err := d.api.getJSON(ctx, d.onboarding, "/identity-provider/instances/{alias}/mappers",
-		"/identity-provider/instances/"+url.PathEscape(idpAlias)+"/mappers", nil, &mappers); err != nil {
+	if err := d.ensureEmailVerifiedMapper(ctx, idpAlias, spec.ProviderID); err != nil {
 		return fail(err)
-	}
-	if len(mappers) != 0 {
-		return fail(errors.New("keycloak: new idp has a mapper"))
 	}
 	return orgID, nil
 }
@@ -859,6 +856,7 @@ func onlyLinkedTo(idp kcIdP, orgID string) bool {
 
 type kcIdP struct {
 	Alias                     string `json:"alias"`
+	ProviderID                string `json:"providerId"`
 	TrustEmail                bool   `json:"trustEmail"`
 	FirstBrokerLoginFlowAlias string `json:"firstBrokerLoginFlowAlias"`
 	PostBrokerLoginFlowAlias  string `json:"postBrokerLoginFlowAlias"`

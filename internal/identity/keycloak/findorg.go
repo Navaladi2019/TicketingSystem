@@ -2,7 +2,6 @@ package keycloak
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -71,13 +70,8 @@ func (d *Directory) FindTenantOrg(ctx context.Context, tenantID uuid.UUID, alias
 		idp.TrustEmail || idp.FirstBrokerLoginFlowAlias != FirstBrokerLoginFlow || idp.PostBrokerLoginFlowAlias != "" {
 		return "", false, fmt.Errorf("%w: existing idp does not match the onboarding policy", identity.ErrAlreadyExists)
 	}
-	var mappers []json.RawMessage
-	if err := d.api.getJSON(ctx, d.onboarding, "/identity-provider/instances/{alias}/mappers",
-		"/identity-provider/instances/"+url.PathEscape(idpAlias)+"/mappers", nil, &mappers); err != nil {
+	if err := d.ensureEmailVerifiedMapper(ctx, idpAlias, idp.ProviderID); err != nil {
 		return "", false, err
-	}
-	if len(mappers) != 0 {
-		return "", false, fmt.Errorf("%w: existing idp has a mapper", identity.ErrAlreadyExists)
 	}
 	return orgID, true, nil
 }

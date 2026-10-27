@@ -117,11 +117,23 @@ one. An email that already has a user takes the unchanged existing-user path
    user in `/t/<tenant_id>/` and consumes the invite, in one transaction with
    `app.tenant_id` set (`UPDATE ... WHERE consumed_at IS NULL AND expires_at > now()`).
    It does so only if the user is enabled, has an email equal to the invite's,
+   the tenant's IdP asserted `email_verified=true` (see below),
    has at least one federated link and every link is an IdP bound to the tenant,
    is a member of the tenant's organization and of no other, and is in no
    tenant's group yet. Otherwise the invite stays as it was.
 3. An invite not used within `NAVA_INVITE_TTL` expires. Run onboarding again with
    the same key and body to issue a new one, or invite again.
+
+**The tenant's IdP must emit `email_verified`.** `CreateTenantOrg` gives every
+tenant IdP one mapper that copies the upstream `email_verified` claim to the user
+attribute `nava_idp_email_verified` (admin-only in realm `nava`'s user profile, so a
+user cannot set it). Group sync places the invitee only when it is exactly `true`.
+An IdP that sends no `email_verified`, or anything else, leaves the invited admin
+unplaced and the invite pending: it fails closed. Microsoft Entra does not emit a
+usable `email_verified` by default; map the verified-email claim (`xms_edov`) or a
+verified-domain claim to `email_verified` before onboarding a tenant on Entra. An
+IdP bound to a multi-tenant issuer (such as Entra `common`) or with open
+self-registration and no email verification must not be used for a tenant.
 
 The pending admin cannot sign in before step 1: there is no local user and no
 password. The accepted squatting risk is AR-033.

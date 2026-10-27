@@ -89,6 +89,8 @@ type invitee struct {
 	links   string // JSON array
 	groups  string // JSON array
 	orgs    string // JSON array
+	// attrs is the JSON of the user's attributes.
+	attrs string
 }
 
 // orgA is the Keycloak organization id the tenant is bound to.
@@ -100,6 +102,7 @@ func goodInvitee() invitee {
 		links:  `[{"identityProvider":"idp-a","userId":"x"}]`,
 		groups: `[]`,
 		orgs:   `[{"id":"org-a"}]`,
+		attrs:  `{"` + EmailVerifiedAttribute + `":["true"]}`,
 	}
 }
 
@@ -114,6 +117,9 @@ func inviteeServer(t *testing.T, u invitee, placed *atomic.Bool) *httptest.Serve
 	})
 	mux.HandleFunc("GET /admin/realms/nava/users", func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintf(w, `[{"id":"u1","email":%q,"enabled":%v}]`, u.email, u.enabled)
+	})
+	mux.HandleFunc("GET /admin/realms/nava/users/u1", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintf(w, `{"id":"u1","email":%q,"enabled":%v,"attributes":%s}`, u.email, u.enabled, u.attrs)
 	})
 	mux.HandleFunc("GET /admin/realms/nava/users/u1/federated-identity", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, u.links) })
 	mux.HandleFunc("GET /admin/realms/nava/users/u1/groups", func(w http.ResponseWriter, r *http.Request) {
@@ -151,6 +157,10 @@ func TestPlaceInvitee(t *testing.T) {
 			u.links = `[{"identityProvider":"idp-a","userId":"x"},{"identityProvider":"idp-b","userId":"y"}]`
 		}), idpA, false},
 		{"local user without a link", bad(func(u *invitee) { u.links = `[]` }), idpA, false},
+		{"upstream email_verified false", bad(func(u *invitee) { u.attrs = `{"` + EmailVerifiedAttribute + `":["false"]}` }), idpA, false},
+		{"upstream email_verified missing", bad(func(u *invitee) { u.attrs = `{}` }), idpA, false},
+		{"upstream email_verified not exactly true", bad(func(u *invitee) { u.attrs = `{"` + EmailVerifiedAttribute + `":["True"]}` }), idpA, false},
+		{"upstream email_verified true and false", bad(func(u *invitee) { u.attrs = `{"` + EmailVerifiedAttribute + `":["true","false"]}` }), idpA, false},
 		{"disabled", bad(func(u *invitee) { u.enabled = false }), idpA, false},
 		{"different email on the user", bad(func(u *invitee) { u.email = "other@tenant-a.test" }), idpA, false},
 		{"not an org member", bad(func(u *invitee) { u.orgs = `[]` }), idpA, false},

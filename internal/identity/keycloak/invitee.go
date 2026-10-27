@@ -9,6 +9,8 @@ package keycloak
 //     email the tenant's IdP asserted at first login; trustEmail is false, so
 //     it is a claim, not a proof, and the IdP binding below is what vouches
 //     for it);
+//   - the IdP asserted email_verified=true (EmailVerifiedAttribute is exactly
+//     "true"; missing or anything else places nobody);
 //   - the user has at least one federated link and every link is an IdP bound
 //     to the tenant;
 //   - the user is a member of the tenant's organization (matched by the org
@@ -61,6 +63,15 @@ func (d *Directory) PlaceInvitee(ctx context.Context, tenantID uuid.UUID, email 
 	user, err := d.userByEmail(ctx, email)
 	if err != nil || user.ID == "" || !user.Enabled {
 		return false, err
+	}
+	// The upstream email_verified claim, copied by the IdP mapper to an
+	// attribute only an admin can edit, must be exactly "true".
+	var full kcUser
+	if err := d.api.getJSON(ctx, d.runtime, "/users/{id}", "/users/"+url.PathEscape(user.ID), nil, &full); err != nil {
+		return false, err
+	}
+	if v := full.Attributes[EmailVerifiedAttribute]; len(v) != 1 || v[0] != "true" {
+		return false, nil
 	}
 	links, err := d.federatedLinks(ctx, user.ID)
 	if err != nil {

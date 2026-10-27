@@ -14,11 +14,13 @@ package identitystack
 //	make stack-test-onboard
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -303,6 +305,95 @@ func TestDisabledInviteeNotLinked(t *testing.T) {
 	}
 	if got := inviteState(t, f.tenant, f.admin); got != "pending" {
 		t.Errorf("invite = %q, want pending", got)
+	}
+	f.requirePlaced(t, ctl)
+}
+
+// setUpstreamEmailVerified sets emailVerified on the user with this email in
+// the tenant's upstream IdP realm; the realm's email_verified claim follows.
+func setUpstreamEmailVerified(t *testing.T, realm, email string, verified bool) {
+	t.Helper()
+	_, b := adminRealm(t, realm, http.MethodGet, "/users?exact=true&email="+url.QueryEscape(email), nil)
+	var us []map[string]any
+	if json.Unmarshal(b, &us) != nil || len(us) != 1 {
+		t.Fatalf("upstream users with %s in %s: %s", email, realm, b)
+	}
+	us[0]["emailVerified"] = verified
+	if code, body := adminRealm(t, realm, http.MethodPut, "/users/"+us[0]["id"].(string), us[0]); code != http.StatusNoContent {
+		t.Fatalf("set emailVerified=%v: %d %s", verified, code, body)
+	}
+}
+
+// storedEmailVerified is the nava_idp_email_verified attribute the IdP mapper
+// wrote, as the admin API shows it ("" when absent).
+func storedEmailVerified(t *testing.T, email string) string {
+	t.Helper()
+	id := kcUserByEmail(t, email)
+	if id == "" {
+		return ""
+	}
+	_, b := adminRealm(t, "nava", http.MethodGet, "/users/"+id, nil)
+	var u struct{ Attributes map[string][]string }
+	_ = json.Unmarshal(b, &u)
+	return strings.Join(u.Attributes[keycloak.EmailVerifiedAttribute], ",")
+}
+
+// TestUnverifiedUpstreamEmailNotPlaced: the tenant's own IdP asserts the
+// invited address with email_verified=false. The user signs in, but is not
+// placed and the invite stays pending. Positive control: the same tenant and
+// IdP with email_verified=true is placed and its invite consumed.
+func TestUnverifiedUpstreamEmailNotPlaced(t *testing.T) {
+	stopGroupsync(t)
+	f := onboardFx(t)
+	ctl := f.control(t)
+	setUpstreamEmailVerified(t, f.realm, f.admin, false)
+
+	brokeredSignIn(t, f.idpAlias, f.admin, f.pass)
+	if got := storedEmailVerified(t, f.admin); got != "false" {
+		t.Errorf("stored %s = %q, want the IdP's value \"false\"", keycloak.EmailVerifiedAttribute, got)
+	}
+	groupsyncOnce(t)
+
+	if f.placed(t, f.admin) {
+		t.Error("an invitee whose IdP asserted email_verified=false was placed")
+	}
+	if got := inviteState(t, f.tenant, f.admin); got != "pending" {
+		t.Errorf("invite = %q, want pending", got)
+	}
+	if got := storedEmailVerified(t, ctl); got != "true" {
+		t.Errorf("control %s = %q, want \"true\"", keycloak.EmailVerifiedAttribute, got)
+	}
+	f.requirePlaced(t, ctl)
+}
+
+// TestIdPEmailVerifiedAttributeNotUserEditable: a signed-in user sets
+// nava_idp_email_verified=true through the account API. It is refused or
+// ignored, and the admin API still shows the IdP's value; group sync then
+// still does not place them.
+func TestIdPEmailVerifiedAttributeNotUserEditable(t *testing.T) {
+	stopGroupsync(t)
+	f := onboardFx(t)
+	ctl := f.control(t)
+	setUpstreamEmailVerified(t, f.realm, f.admin, false)
+
+	tok := brokeredSignIn(t, f.idpAlias, f.admin, f.pass)
+	c := newInNetClient(t)
+	body, _ := json.Marshal(map[string]any{
+		"username": f.admin, "email": f.admin,
+		"attributes": map[string][]string{keycloak.EmailVerifiedAttribute: {"true"}},
+	})
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://"+inNetHost+"/realms/nava/account/", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Content-Type", "application/json")
+	code, resp := do(t, c, req)
+	t.Logf("account API update: %d %.200s", code, resp)
+
+	if got := storedEmailVerified(t, f.admin); got != "false" {
+		t.Errorf("after the account API call %s = %q, want the IdP's \"false\"", keycloak.EmailVerifiedAttribute, got)
+	}
+	groupsyncOnce(t)
+	if f.placed(t, f.admin) {
+		t.Error("a user who set the attribute themselves was placed")
 	}
 	f.requirePlaced(t, ctl)
 }

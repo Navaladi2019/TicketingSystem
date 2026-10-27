@@ -711,8 +711,13 @@ func TestCreateTenantOrg(t *testing.T) {
 		t.Errorf("idp links = %+v, want only org %s", idp.OrganizationLinks, id)
 	}
 	_, mb := adminRealm(t, "nava", http.MethodGet, "/identity-provider/instances/"+idpAlias+"/mappers", nil)
-	if strings.TrimSpace(string(mb)) != "[]" {
-		t.Errorf("new idp has mappers: %s", mb)
+	var ms []struct {
+		IdentityProviderMapper string
+		Config                 map[string]string
+	}
+	if json.Unmarshal(mb, &ms) != nil || len(ms) != 1 || ms[0].IdentityProviderMapper != "oidc-user-attribute-idp-mapper" ||
+		ms[0].Config["claim"] != "email_verified" || ms[0].Config["user.attribute"] != "nava_idp_email_verified" || ms[0].Config["syncMode"] != "FORCE" {
+		t.Errorf("new idp mappers = %s, want exactly the email_verified mapper", mb)
 	}
 	code, ob := adminRealm(t, "nava", http.MethodGet, "/organizations/"+id, nil)
 	if code != http.StatusOK || !strings.Contains(string(ob), alias+".test") {
