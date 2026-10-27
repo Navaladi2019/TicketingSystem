@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -60,11 +61,26 @@ func pinnedIssuer(t *testing.T) string {
 	if err := yaml.Unmarshal(raw, &c); err != nil {
 		t.Fatal(err)
 	}
-	v := strings.TrimSpace(c.Services["nava-core"].Environment["NAVA_OIDC_ISSUERS"])
+	v := strings.TrimSpace(composeExpand(c.Services["nava-core"].Environment["NAVA_OIDC_ISSUERS"]))
 	if v == "" || strings.Contains(v, ",") {
 		t.Fatalf("nava-core NAVA_OIDC_ISSUERS = %q, want exactly one issuer", v)
 	}
 	return v
+}
+
+// composeDefault is ${VAR:-default}, the only interpolation compose.yaml uses.
+var composeDefault = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*):-([^}]*)\}`)
+
+// composeExpand resolves ${VAR:-default} as docker compose does: the
+// variable when set and non-empty, else the default.
+func composeExpand(s string) string {
+	return composeDefault.ReplaceAllStringFunc(s, func(m string) string {
+		g := composeDefault.FindStringSubmatch(m)
+		if v := os.Getenv(g[1]); v != "" {
+			return v
+		}
+		return g[2]
+	})
 }
 
 func coreURL() string {
