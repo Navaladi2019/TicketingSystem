@@ -102,3 +102,17 @@ Metric: `nava.identity.jwks.fetch{trigger=initial|unknown_kid, result=ok|error|t
 
 depguard sees direct imports only; a re-exporting wrapper would get around it,
 which is why the contract suite stays as the backstop.
+
+## IdP spec URLs and SSRF through Keycloak
+
+`checkIdPConfig` validates every URL-valued key of an `IdPSpec` (`authorizationUrl`,
+`tokenUrl`, `logoutUrl`, `userInfoUrl`, `issuer`, `jwksUrl`, `metadataDescriptorUrl`,
+`singleSignOnServiceUrl`, `singleLogoutServiceUrl`) before any admin call: `https` only, no
+userinfo, no IP literal in a loopback, private, link-local, CGNAT, multicast or reserved range,
+and no `localhost`, `.local`, `.internal` or single-label host.
+
+This is a syntax check only. The adapter cannot check what a public-looking name resolves to,
+and Keycloak resolves it later. The deployment must therefore apply a network egress policy on
+the Keycloak container that denies Postgres, Temporal, the management port and the cloud
+metadata address. The local compose stack has no such policy; that is a known limit of local
+development, so do not feed tenant-supplied IdP specs to a local stack that holds real data.
