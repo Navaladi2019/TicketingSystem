@@ -296,6 +296,27 @@ func TestTemporalTLSFilesAreAllOrNone(t *testing.T) {
 	}
 }
 
+func TestLoadRateLimit(t *testing.T) {
+	t.Parallel()
+	cfg, err := config.Load(env(nil))
+	if err != nil || cfg.RateLimit.Rate != 50 || cfg.RateLimit.Burst != 100 || cfg.RateLimit.IdleTTL != 10*time.Minute {
+		t.Fatalf("defaults = %+v, %v", cfg.RateLimit, err)
+	}
+	cfg, err = config.Load(env(map[string]string{
+		"NAVA_RATE_LIMIT_RPS": "2.5", "NAVA_RATE_LIMIT_BURST": "7", "NAVA_RATE_LIMIT_IDLE_TTL": "30s",
+	}))
+	if err != nil || cfg.RateLimit.Rate != 2.5 || cfg.RateLimit.Burst != 7 || cfg.RateLimit.IdleTTL != 30*time.Second {
+		t.Fatalf("overrides = %+v, %v", cfg.RateLimit, err)
+	}
+	for _, key := range []string{"NAVA_RATE_LIMIT_RPS", "NAVA_RATE_LIMIT_BURST", "NAVA_RATE_LIMIT_IDLE_TTL"} {
+		for _, bad := range []string{"0", "-1", "abc"} {
+			if _, err := config.Load(env(map[string]string{key: bad})); err == nil || !strings.Contains(err.Error(), key) || strings.Contains(err.Error(), bad+"\"") {
+				t.Errorf("%s=%q: err = %v, want a named error", key, bad, err)
+			}
+		}
+	}
+}
+
 func TestTemporalTLSRequiresServerName(t *testing.T) {
 	t.Parallel()
 	load := func(env map[string]string) (config.Config, error) {
