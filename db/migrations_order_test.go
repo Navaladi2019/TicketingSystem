@@ -15,16 +15,20 @@ import (
 
 // TICK-299 (follow-up to TICK-290, plan TICK-288): a fresh database migrates
 // in version order, a deployed one in merge order (out-of-order is allowed).
-// A migration a pull request adds must sort after every migration on its base
-// branch, so CI applies migrations in the order deployed databases will.
+// A migration a pull request adds must sort after every migration on main,
+// so CI applies migrations in the order deployed databases will.
 // The rule: re-stamp the branch's migration before merging (README.md).
 //
-// BASE names the base branch's commit (origin/main in the ci workflow's unit
-// job). Without it the test skips: a laptop's origin/main may be stale.
+// TICK-309: the reference is main, what has shipped, even for a pull request
+// into a story branch. A migration is new when main lacks it, so main's own
+// migrations are never new, and a story may renumber its unshipped ones.
+//
+// BASE names main's commit (origin/main in the ci workflow's unit job, for
+// every event). Without it the test skips: a laptop's origin/main may be stale.
 func TestNewMigrationsLaterThanBase(t *testing.T) {
 	base := os.Getenv("BASE")
 	if base == "" {
-		t.Skip("BASE not set: set BASE=origin/main (after git fetch) to check new migrations against the base branch")
+		t.Skip("BASE not set: set BASE=origin/main (after git fetch origin main) to check new migrations against main")
 	}
 	// --full-tree: go test runs in db/, and ls-tree otherwise lists only the
 	// paths under the working directory, which would be none.
@@ -35,7 +39,7 @@ func TestNewMigrationsLaterThanBase(t *testing.T) {
 		if errors.As(err, &ee) {
 			stderr = strings.TrimSpace(string(ee.Stderr))
 		}
-		t.Fatalf("git ls-tree %s:db/migrations: %v %s (fetch the base branch first; the checkout needs its history)", base, err, stderr)
+		t.Fatalf("git ls-tree %s:db/migrations: %v %s (fetch main first; the checkout needs its history)", base, err, stderr)
 	}
 	baseNames := strings.Fields(string(out))
 	if !slices.ContainsFunc(baseNames, func(n string) bool { _, ok := migrationVersion(n); return ok }) {
@@ -133,6 +137,41 @@ func TestCheckLaterThanBase(t *testing.T) {
 	t.Run("base without migrations", func(t *testing.T) {
 		if err := checkLaterThanBase("origin/main", nil, []string{"00001_a.sql"}); err != nil {
 			t.Fatalf("want no error, got %v", err)
+		}
+	})
+}
+
+// TestCheckLaterThanMainForStoryBranch is the TICK-309 case: a pull request
+// into a story branch is checked against main. main has shipped 00008 and
+// 00009 (S7); the story branch has merged main and renumbered its own
+// unshipped 00008 to 00010 into 00010 to 00012 (S5).
+func TestCheckLaterThanMainForStoryBranch(t *testing.T) {
+	main := []string{"00001_a.sql", "00002_b.sql", "00007_c.sql", "00008_outbox_refs.sql", "00009_outbox_keys.sql", "README.md"}
+	shipped := []string{"00001_a.sql", "00002_b.sql", "00007_c.sql", "00008_outbox_refs.sql", "00009_outbox_keys.sql"}
+	t.Run("main's migrations are not new", func(t *testing.T) {
+		if err := checkLaterThanBase("origin/main", main, shipped); err != nil {
+			t.Fatalf("want no error, got %v", err)
+		}
+	})
+	t.Run("renumbered story migrations later than main's newest", func(t *testing.T) {
+		head := append(slices.Clone(shipped), "00010_group_a.sql", "00011_group_b.sql", "00012_group_c.sql")
+		if err := checkLaterThanBase("origin/main", main, head); err != nil {
+			t.Fatalf("want no error, got %v", err)
+		}
+	})
+	t.Run("new migration not later than main's newest", func(t *testing.T) {
+		head := append(slices.Clone(shipped), "00009_group_a.sql", "00010_group_b.sql")
+		err := checkLaterThanBase("origin/main", main, head)
+		if err == nil {
+			t.Fatal("want an error for 00009_group_a.sql, got none")
+		}
+		for _, w := range []string{"1 new migrations", "db/migrations/00009_group_a.sql: version 9 is not later than origin/main's newest migration version 9 (00009_outbox_keys.sql)"} {
+			if !strings.Contains(err.Error(), w) {
+				t.Errorf("error %q does not contain %q", err, w)
+			}
+		}
+		if strings.Contains(err.Error(), "00010_group_b.sql") {
+			t.Errorf("error %q names 00010_group_b.sql, which is later than main's newest", err)
 		}
 	})
 }

@@ -344,10 +344,15 @@ func TestServerSpanAttributeKeysAreGolden(t *testing.T) {
 				t.Errorf("server.address = %q, want nava-core", attrs["server.address"])
 			}
 			for k, v := range attrs {
-				for _, raw := range []string{"tenant-a.evil.test", "198.51.100.23", "4567", xff, agent, "a@b.test", "s3cr3t", "/items/42", "FOO"} {
+				// The ports are checked by whole value or with their colon: a bare
+				// "4567" substring matches random hex ids such as nava.request_id.
+				for _, raw := range []string{"tenant-a.evil.test", "198.51.100.23", ":4567", xff, agent, "a@b.test", "s3cr3t", "/items/42", "FOO"} {
 					if strings.Contains(v, raw) {
 						t.Errorf("span attribute %s = %q leaks client value %q", k, v, raw)
 					}
+				}
+				if v == "4567" {
+					t.Errorf("span attribute %s = %q is the client's port", k, v)
 				}
 				if v == "9" {
 					t.Errorf("span attribute %s = %q is the Host header's port", k, v)
