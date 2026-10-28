@@ -559,7 +559,7 @@ pm.test('Account disabled', () => pm.expect(pm.response.json().error_description
 def s6():
     return {
         "name": "S6 — API ground rules",
-        "description": "TICK-48. Problem bodies, unknown routes, method rules, the published contract and request ids. Idempotent replay is in S4 (S4.9, S4.10). Per-tenant rate limits and cursors are not on `main` (see the guide's coverage page).",
+        "description": "TICK-48. Problem bodies, unknown routes, method rules, the published contract and request ids. Idempotent replay is in S4 (S4.9, S4.10). S6.11–S6.13: tenant A over its per-tenant rate limit gets 429 while tenant B's calls succeed. Tenant-bound cursors have no route on `main` yet (see the guide's coverage page).",
         "item": [
             req("S6.1 GET /api/v1/openapi.yaml (public)", "GET", "{{core_url}}/api/v1/openapi.yaml",
                 desc="The contract, with no token.",
@@ -594,6 +594,62 @@ pm.test('the caller\\'s trace id is not echoed back', () => pm.expect(pm.respons
                         "{{core_url}}/api/v1/nope-<script>alert(1)</script>", "not_found", 404, auth="alice_token",
                         desc="`detail` is fixed text per code; the path is not echoed.",
                         extra="N.noLeak('<script>', 'nope-');"),
+            token("S6.11 Sign in as Bob (tenant B)", "bob_username", "bob_password", "bob_token"),
+            req("S6.12 Tenant A over its limit gets 429 while tenant B succeeds", "GET", "{{core_url}}/api/v1/me",
+                auth="bob_token",
+                desc="Before this request, Alice (tenant A) fires `rate_burst_requests` (default 300) `GET /api/v1/me` calls at once, more than tenant A's bucket holds (`NAVA_RATE_LIMIT_BURST`, 100 by default, refilled at `NAVA_RATE_LIMIT_RPS`, 50/s), and Bob (tenant B) fires 20 in the same burst. Tenant A must see 429 `rate_limited` with `Retry-After`; every call of Bob's, and this request, must be 200 for tenant B. The limit is keyed only on the tenant in the token.",
+                pre="""const n = Number(pm.variables.get('rate_burst_requests') || 300);
+const me = pm.variables.replaceIn('{{core_url}}/api/v1/me');
+const call = (tok, who) => pm.sendRequest({ url: me, method: 'GET', header: { Authorization: 'Bearer ' + tok } }, (err, res) => {
+  const k = err ? 'error' : String(res.code);
+  st[who][k] = (st[who][k] || 0) + 1;
+  if (!err && res.code === 429 && !sample) {
+    sample = { code: res.code, ct: res.headers.get('Content-Type') || '', retry: res.headers.get('Retry-After'),
+      rid: res.headers.get('X-Request-Id'), body: res.text() };
+  }
+  if (!err && who === 'b' && res.code === 200) { try { st.bTenants.push(res.json().tenant_id); } catch (e) {} }
+  if (--left === 0) {
+    pm.collectionVariables.set('rl_stats', JSON.stringify(st));
+    pm.collectionVariables.set('rl_sample', JSON.stringify(sample || {}));
+    pm.collectionVariables.set('rl_burst_end', String(Date.now()));
+  }
+});
+const st = { a: {}, b: {}, bTenants: [] };
+let sample = null;
+let left = n + 20;
+const a = pm.collectionVariables.get('alice_token'), b = pm.collectionVariables.get('bob_token');
+// Bob's 20 calls are spread through Alice's burst, not sent after it.
+const step = Math.max(1, Math.floor(n / 20));
+let sentB = 0;
+for (let i = 0; i < n; i++) { call(a, 'a'); if (i % step === 0 && sentB < 20) { call(b, 'b'); sentB++; } }
+while (sentB < 20) { call(b, 'b'); sentB++; }""",
+                tests=f"""const st = JSON.parse(pm.collectionVariables.get('rl_stats') || '{{}}');
+const s = JSON.parse(pm.collectionVariables.get('rl_sample') || '{{}}');
+console.log('burst results (status: count): tenant A', JSON.stringify(st.a), 'tenant B', JSON.stringify(st.b));
+pm.test('tenant A: some calls got 429', () => pm.expect(st.a && st.a['429'] || 0).to.be.above(0));
+pm.test('tenant A: the calls within its burst got 200', () => pm.expect(st.a && st.a['200'] || 0).to.be.above(0));
+pm.test('tenant A: nothing but 200 and 429', () => pm.expect(Object.keys(st.a || {{}}).filter(k => k !== '200' && k !== '429')).to.eql([]));
+pm.test('the 429 is problem+json rate_limited', () => {{
+  pm.expect(s.ct).to.include('application/problem+json');
+  const b = JSON.parse(s.body);
+  pm.expect(b.code).to.eql('rate_limited');
+  pm.expect(b.status).to.eql(429);
+  pm.expect(b.type).to.eql('urn:nava:problem:rate_limited');
+  pm.expect(N.REGISTERED).to.include(b.code);
+  pm.expect(b.instance).to.eql('urn:nava:request:' + s.rid);
+}});
+pm.test('the 429 carries Retry-After in whole seconds, at least 1', () => pm.expect(Number(s.retry)).to.be.at.least(1));
+pm.test('the 429 names no tenant', () => pm.expect(s.body).to.not.include('{A}'));
+pm.collectionVariables.set('rl_retry_after', String(s.retry || 2));
+pm.test('tenant B: all 20 calls in the same burst got 200', () => pm.expect(st.b).to.eql({{ '200': 20 }}));
+pm.test('tenant B: each answered for tenant B', () => (st.bTenants || []).forEach(t => pm.expect(t).to.eql('{B}')));
+N.me('{B}');"""),
+            req("S6.13 Tenant A is served again after Retry-After", "GET", "{{core_url}}/api/v1/me", auth="alice_token",
+                desc="Waits the `Retry-After` seconds from S6.12, then calls as Alice: the bucket has refilled, so 200 for tenant A. A by-hand run: wait a couple of seconds after S6.12.",
+                pre="""const end = Number(pm.collectionVariables.get('rl_burst_end') || 0);
+const wait = Math.max(0, end + 1000 * Number(pm.collectionVariables.get('rl_retry_after') || 2) + 500 - Date.now());
+if (wait > 0) setTimeout(() => {}, wait);""",
+                tests=f"N.me('{A}');"),
         ],
     }
 
@@ -697,6 +753,7 @@ def build():
                 ("poll_interval_ms", "10000", "default"),
                 ("poll_limit_seconds", "660", "default"),
                 ("demo_workflow_id", "", "default"),
+                ("rate_burst_requests", "300", "default"),
             ]
         ],
         "_postman_variable_scope": "environment",
