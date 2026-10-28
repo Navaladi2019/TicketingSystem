@@ -16,14 +16,25 @@ invalid timestamp, and any file goose cannot parse, such as one missing
 ## Re-stamp before merging
 
 Before a pull request merges, every migration it adds must have a version later
-than the newest migration on its base branch. When the base has moved past
-yours, re-stamp yours: rename it to a fresh timestamp (`goose create <name> sql`
-gives one, then move your SQL into it). This is safe because no shared database
+than the newest migration on `main`. This holds whatever the pull request's
+base is:
+
+- **Into `main`:** a migration not on `main` must sort after `main`'s newest.
+- **Into a story branch:** it is measured against `main` too, not the story
+  branch. Migrations already on `main` (brought in by merging `main` into the
+  story) are not new and are skipped; every other migration, the story's own
+  included, must sort after `main`'s newest. Story-branch databases are not
+  deployed and are not protected by this rule: rebuild one after a renumber.
+  Two tasks of one story that take the same version fail
+  `TestMigrationVersions` (unique, contiguous sequential versions).
+
+When `main` has moved past yours, re-stamp yours: rename it to a fresh
+timestamp (`goose create <name> sql` gives one, then move your SQL into it). This is safe because no shared database
 ever applies a branch's migration. It keeps fresh CI databases (version order)
 and deployed ones (merge order) applying migrations in the same order;
 out-of-order stays enabled as a safety net only (TICK-299).
 
 The ci workflow's unit job enforces it: `TestNewMigrationsLaterThanBase` fails
-and names each added file, its version and the base's newest version. Locally
+and names each added file, its version and `main`'s newest version. Locally
 it runs only with `BASE` set: `git fetch origin main && BASE=origin/main go test
 ./db/`.
