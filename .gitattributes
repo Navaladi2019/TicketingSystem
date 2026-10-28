@@ -13,6 +13,14 @@ Taskfile.yml text eol=lf
 docs/**  -text
 docs/go.mod text eol=lf
 
+# Shared append-only tables: two stories that each append a row merge without a
+# conflict (TICK-295, merge-safety D6). Union merge needs the files to be text,
+# which `docs/** -text` above would otherwise turn off.
+docs/delivery/todo.md            text eol=lf merge=union
+docs/security/accepted-risks.md  text eol=lf merge=union
+docs/pins.md                     text eol=lf merge=union
+.gitignore                       text eol=lf merge=union
+
 # Scripts that run in Linux containers.
 *.sh     text eol=lf
 Dockerfile text eol=lf
