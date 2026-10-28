@@ -43,7 +43,10 @@ func TestAdversarialClaimValueSmuggling(t *testing.T) {
 		return string(binary.BigEndian.AppendUint64(nil, uint64(len(s)))) + s
 	}
 	for _, c := range []cursor.Claims{
-		{"principal": "user-1" + lp("tenant") + lp("tenant-a")},
+		// Same tenant as the minted claims, so only the smuggled principal
+		// differs. A tenant claim is present, or the tenant guard would
+		// reject it before the encoding is compared.
+		{"principal": "user-1" + lp("tenant") + lp("tenant-a"), "tenant": "tenant-a"},
 		{"principal": "user-1", "tenant": "tenant-a\x00"},
 		{"principal": "user-1tenant", "tenant": "-a"},
 		{"Principal": "user-1", "tenant": "tenant-a"},
