@@ -1,7 +1,7 @@
 #!/bin/sh
 # TICK-220 principal tombstone benchmark: the identity bench's container,
 # roles, migrations and seed (docs/data/identity-bench), then the cost of
-# migrations 00006 and 00007 and of a tombstone against a hard delete. Output in
+# migrations 00008 and 00009 and of a tombstone against a hard delete. Output in
 # bin/principal-tombstone-bench-output.txt (gitignored). Needs Docker and Go.
 #   sh docs/data/principal-tombstone-bench/run.sh
 set -eu

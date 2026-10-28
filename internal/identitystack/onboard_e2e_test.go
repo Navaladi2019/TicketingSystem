@@ -22,6 +22,7 @@ package identitystack
 // with `docker compose exec`, as an operator on the host would.
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -29,6 +30,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -38,6 +40,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -211,6 +214,16 @@ func onboardBody(email, domain string) []byte {
 // 5xx comes back with an empty body.
 func onboardPost(t *testing.T, token, key string, body []byte) (int, []byte) {
 	t.Helper()
+	code, b, stderr := onboardPostRaw(t, token, key, body)
+	if code == 0 {
+		t.Fatalf("no HTTP response from nava-onboard: %.400s", stderr)
+	}
+	return code, b
+}
+
+// onboardPostRaw is onboardPost that reports no response (code 0, and wget's
+// output) instead of failing the test, so it may run on another goroutine.
+func onboardPostRaw(t *testing.T, token, key string, body []byte) (code int, resp []byte, stderrText string) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 3*time.Minute)
 	defer cancel()
 	// The token goes through the environment, never argv, as
@@ -226,10 +239,10 @@ func onboardPost(t *testing.T, token, key string, body []byte) (int, []byte) {
 	_ = cmd.Run() // non-zero for any error status; the status line decides
 	m := statusLine.FindAllStringSubmatch(stderr.String(), -1)
 	if m == nil {
-		t.Fatalf("no HTTP response from nava-onboard: %.400s", stderr.String())
+		return 0, stdout.Bytes(), stderr.String()
 	}
-	code, _ := strconv.Atoi(m[len(m)-1][1])
-	return code, stdout.Bytes()
+	code, _ = strconv.Atoi(m[len(m)-1][1])
+	return code, stdout.Bytes(), stderr.String()
 }
 
 var statusLine = regexp.MustCompile(`HTTP/1\.[01] (\d{3})`)
@@ -647,43 +660,94 @@ func TestOnboardDeploymentSeparation(t *testing.T) {
 	}
 }
 
-// TestOnboardKillBeforeBindThenRetryLiveStack: the Keycloak organization is
-// created, then the binding insert fails (a trigger stands in for the process
-// dying there; the transaction never commits). The domain is held from Begin,
-// so the provisioning tenant keeps it through the kill. The retry with the
-// same key, against the real nava_onboard PGStore and Keycloak, ends with
-// exactly one organization, one binding naming it, and the tenant active.
+// TestOnboardKillBeforeBindThenRetryLiveStack (TICK-253): nava-onboard is
+// killed with `docker kill` after it created the Keycloak organization and
+// before its binding commits, then restarted, and the same key is retried.
+//
+// The test holds a SHARE lock on tenant_identity_binding, so the binding
+// INSERT waits on it: the organization exists, nothing is bound, and the
+// process is mid-request with its advisory-lock transaction open through
+// PgBouncer. It is killed there. The advisory lock must then be free through
+// PgBouncer within lockReleaseBound while the test still holds the table lock
+// (the release cannot depend on the stuck INSERT), and the dead INSERT must
+// end without committing. The retry gives exactly one organization, one
+// binding naming it, one domain and the tenant active.
 func TestOnboardKillBeforeBindThenRetryLiveStack(t *testing.T) {
+	const lockReleaseBound = 30 * time.Second
 	key, tenant, domain, email := newOnboarding(t)
 	alias := onboard.Alias(tenant)
-	fn := "tick234_kill_" + strings.ReplaceAll(tenant.String()[:8], "-", "")
-	psqlSuper(t, "CREATE FUNCTION public."+fn+"() RETURNS trigger LANGUAGE plpgsql AS $f$ BEGIN RAISE EXCEPTION 'killed before the binding'; END $f$")
-	drop := func() {
-		psqlSuper(t, "DROP TRIGGER IF EXISTS "+fn+" ON tenant_identity_binding")
-		psqlSuper(t, "DROP FUNCTION IF EXISTS public."+fn+"()")
-	}
-	t.Cleanup(drop)
-	psqlSuper(t, fmt.Sprintf("CREATE TRIGGER %s BEFORE INSERT ON tenant_identity_binding FOR EACH ROW WHEN (NEW.tenant_id = '%s') EXECUTE FUNCTION public.%s()", fn, tenant, fn))
+	onbURL := onboardDatabaseURL(t)
+	// However the test ends, nava-onboard is running and healthy for the next.
+	t.Cleanup(func() { startOnboard(t) })
 
-	op := operatorToken(t)
-	body := onboardBody(email, domain)
-	code, resp := onboardPost(t, op, key, body)
-	if code < 500 {
-		t.Fatalf("first call: %d %s, want 5xx at the binding", code, resp)
-	}
-	if n := len(orgsByAlias(t, alias)); n != 1 {
-		t.Fatalf("after the kill: %d organizations, want 1 (created before the binding)", n)
-	}
 	state := func() string {
 		return psqlSuper(t, fmt.Sprintf("SELECT t.state || '|' || (SELECT count(*) FROM tenant_identity_binding WHERE tenant_id = t.id) || '|' || "+
 			"(SELECT count(*) FROM tenant_email_domain WHERE tenant_id = t.id) FROM tenants t WHERE t.id = '%s'", tenant))
+	}
+	// A nava_onboard backend still in its binding INSERT's transaction.
+	const bindingInsert = "FROM pg_stat_activity WHERE usename = 'nava_onboard' AND query LIKE 'INSERT INTO tenant_identity_binding%' AND state <> 'idle'"
+
+	releaseTable := holdBindingInserts(t)
+	op := operatorToken(t)
+	body := onboardBody(email, domain)
+	type reply struct {
+		code int
+		body []byte
+	}
+	first := make(chan reply, 1)
+	go func() {
+		code, b, _ := onboardPostRaw(t, op, key, body)
+		first <- reply{code, b}
+	}()
+
+	// nava-onboard is in Bind: its INSERT waits on the test's table lock.
+	within(t, 2*time.Minute, "the binding INSERT waiting on the table lock", func() bool {
+		return psqlSuper(t, "SELECT count(*) "+bindingInsert+" AND wait_event_type = 'Lock'") == "1"
+	})
+	if n := len(orgsByAlias(t, alias)); n != 1 {
+		t.Fatalf("before the kill: %d organizations, want 1 (created before the binding)", n)
+	}
+	// The control: the onboarding holds the tenant's advisory lock, and the
+	// check through PgBouncer sees it held.
+	if tryOnboardLock(t, onbURL, tenant) {
+		t.Fatal("the tenant's advisory lock is free while nava-onboard onboards it: the check proves nothing")
+	}
+
+	if out, err := dockerOut(t, "", "kill", containerOf(t, "nava-onboard")); err != nil {
+		t.Fatalf("docker kill nava-onboard: %v\n%s", err, out)
+	}
+	killed := time.Now()
+	select {
+	case r := <-first:
+		if r.code != 0 {
+			t.Fatalf("the killed request answered %d %.400s, want no response", r.code, r.body)
+		}
+	case <-time.After(time.Minute):
+		t.Fatal("the request to the killed nava-onboard did not end within 1m")
+	}
+
+	// The dead connection's advisory lock is free through PgBouncer, the
+	// table lock still held.
+	within(t, lockReleaseBound, "the advisory lock acquired through PgBouncer after the kill", func() bool {
+		return tryOnboardLock(t, onbURL, tenant)
+	})
+	t.Logf("advisory lock acquired through PgBouncer %s after the kill", time.Since(killed).Round(10*time.Millisecond))
+
+	// Unblocked, the dead INSERT must end without committing: a backend left
+	// idle in its transaction would hold the binding key and block the retry.
+	releaseTable()
+	within(t, lockReleaseBound, "the dead binding INSERT gone", func() bool {
+		return psqlSuper(t, "SELECT count(*) "+bindingInsert) == "0"
+	})
+	if n := len(orgsByAlias(t, alias)); n != 1 {
+		t.Fatalf("after the kill: %d organizations, want 1", n)
 	}
 	if got := state(); got != "provisioning|0|1" {
 		t.Fatalf("after the kill: state|bindings|domains = %q, want provisioning|0|1", got)
 	}
 
-	drop()
-	mustOnboard(t, op, key, body, http.StatusCreated, tenant)
+	startOnboard(t)
+	mustOnboard(t, operatorToken(t), key, body, http.StatusCreated, tenant)
 	ids := orgsByAlias(t, alias)
 	if len(ids) != 1 {
 		t.Fatalf("after the retry: organizations %v, want exactly one", ids)
@@ -697,6 +761,138 @@ func TestOnboardKillBeforeBindThenRetryLiveStack(t *testing.T) {
 	if n := orgIdPCount(t, ids[0]); n != 1 {
 		t.Errorf("the organization has %d IdPs, want 1", n)
 	}
+}
+
+// within polls cond every 250ms until it holds, and fails the test after d.
+func within(t *testing.T, d time.Duration, what string, cond func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(d); !cond(); time.Sleep(250 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("%s: not within %s", what, d)
+		}
+	}
+}
+
+// startOnboard starts nava-onboard (a no-op while it runs) and waits until it
+// is healthy.
+func startOnboard(t *testing.T) {
+	t.Helper()
+	if out, err := dockerOut(t, "", "compose", "up", "-d", "--no-deps", "--wait", "nava-onboard"); err != nil {
+		t.Errorf("start nava-onboard: %v\n%s", err, out)
+	}
+}
+
+// onboardDatabaseURL is the nava_onboard URL the running nava-onboard holds; it
+// goes through PgBouncer.
+func onboardDatabaseURL(t *testing.T) string {
+	t.Helper()
+	out, err := dockerOut(t, "", "inspect", "-f", "{{json .Config.Env}}", containerOf(t, "nava-onboard"))
+	var env []string
+	if err != nil || json.Unmarshal([]byte(out), &env) != nil {
+		t.Fatalf("env of nava-onboard: %v", err)
+	}
+	for _, v := range env {
+		if name, val, _ := strings.Cut(v, "="); name == "NAVA_ONBOARD_DATABASE_URL" {
+			if u, err := url.Parse(val); err != nil || u.Host != "pgbouncer:5432" {
+				t.Fatal("nava-onboard's NAVA_ONBOARD_DATABASE_URL does not go through pgbouncer:5432")
+			}
+			return val
+		}
+	}
+	t.Fatal("nava-onboard has no NAVA_ONBOARD_DATABASE_URL")
+	return ""
+}
+
+// tryOnboardLock tries the tenant's onboarding advisory lock (PGStore.Lock's
+// key) as nava_onboard through PgBouncer, from the postgres container, and
+// reports whether it was free; the transaction-scoped lock ends with the
+// statement. The URL holds a password, so it goes through the environment.
+func tryOnboardLock(t *testing.T, dbURL string, tenant uuid.UUID) bool {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "docker", "compose", "exec", "-T", "-e", "NAVA_ONBOARD_DATABASE_URL", "postgres", "sh", "-c",
+		`exec psql -X -q -t -A -v ON_ERROR_STOP=1 "$NAVA_ONBOARD_DATABASE_URL" -c "$0"`,
+		fmt.Sprintf("SELECT pg_try_advisory_xact_lock(hashtextextended('nava-onboard:%s', 0))", tenant))
+	cmd.Dir = repoRoot
+	cmd.Env = append(os.Environ(), "NAVA_ONBOARD_DATABASE_URL="+dbURL)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("try the advisory lock through PgBouncer: %v: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	return strings.TrimSpace(string(out)) == "t"
+}
+
+// holdBindingInserts holds a SHARE lock on tenant_identity_binding from a
+// superuser session until release (or Cleanup): every INSERT into it waits,
+// reads do not. Should the psql client be lost, release terminates the
+// backend, and idle_in_transaction_session_timeout ends it in any case.
+func holdBindingInserts(t *testing.T) (release func()) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.WithoutCancel(t.Context()))
+	cmd := exec.CommandContext(ctx, "docker", "compose", "exec", "-T", "postgres", "sh", "-c",
+		`PGPASSWORD=$(cat /run/pg_superuser_password) exec psql -X -q -t -A -v ON_ERROR_STOP=1 -U pgadmin -d nava`)
+	cmd.Dir = repoRoot
+	in, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("psql: %v", err)
+	}
+	_, _ = io.WriteString(in, "SET idle_in_transaction_session_timeout = '5min';\nBEGIN;\n"+
+		"LOCK TABLE tenant_identity_binding IN SHARE MODE;\nSELECT 'locked|' || pg_backend_pid();\n")
+	line := make(chan string, 1)
+	go func() {
+		defer close(line)
+		for s := bufio.NewScanner(stdout); s.Scan(); {
+			if l := strings.TrimSpace(s.Text()); l != "" {
+				line <- l
+				return
+			}
+		}
+	}()
+	var pid string
+	select {
+	case l := <-line:
+		var ok bool
+		if pid, ok = strings.CutPrefix(l, "locked|"); !ok {
+			cancel()
+			_ = cmd.Wait()
+			t.Fatalf("lock tenant_identity_binding: %q %s", l, strings.TrimSpace(stderr.String()))
+		}
+	case <-time.After(time.Minute):
+		cancel()
+		_ = cmd.Wait()
+		t.Fatalf("lock tenant_identity_binding: not within 1m: %s", strings.TrimSpace(stderr.String()))
+	}
+	var once sync.Once
+	release = func() {
+		once.Do(func() {
+			_, _ = io.WriteString(in, "ROLLBACK;\n")
+			_ = in.Close()
+			done := make(chan struct{})
+			go func() { _ = cmd.Wait(); close(done) }()
+			select {
+			case <-done:
+			case <-time.After(30 * time.Second):
+				cancel()
+				<-done
+			}
+			cancel()
+			psqlSuper(t, "SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE pid = "+pid)
+		})
+	}
+	t.Cleanup(release)
+	return release
 }
 
 // TestOnboardDomainClaimedIsConflict (TICK-271): onboarding a tenant with a

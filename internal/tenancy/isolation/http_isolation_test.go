@@ -17,9 +17,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity/keycloak"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity/keycloak/keycloaktest"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity/pgstore"
+	"github.com/Navaladi2019/TicketingSystem/internal/onboard"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
 	"github.com/Navaladi2019/TicketingSystem/internal/server"
@@ -81,7 +83,8 @@ func newAPIRunner(t *testing.T) *apiRunner {
 	}
 	t.Cleanup(func() { _ = tel.Shutdown(context.Background()) })
 	resolver := realm.Resolver(t, pgstore.New(pool), OperatorSubject)
-	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel, resolver, pgstore.New(pool))
+	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel, resolver, pgstore.New(pool),
+		server.WithOperator(resolver, refusingOnboarder{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,6 +100,15 @@ func newAPIRunner(t *testing.T) *apiRunner {
 	return r
 }
 
+// refusingOnboarder stands in for the onboarding service (T26 case 6): the
+// operator routes are on, so a tenant token is refused by the operator
+// authentication before any handler runs. Reaching it is a failure.
+type refusingOnboarder struct{}
+
+func (refusingOnboarder) Onboard(context.Context, identity.Operator, string, []byte, onboard.Request) (onboard.Result, error) {
+	return onboard.Result{}, errors.New("the onboarder was reached")
+}
+
 // Mint implements Server.
 func (r *apiRunner) Mint(tok Token) string {
 	kt := keycloaktest.Token{Subject: tok.Subject, Audiences: tok.Audiences, RealmRoles: tok.RealmRoles}
@@ -107,10 +119,15 @@ func (r *apiRunner) Mint(tok Token) string {
 }
 
 // Do implements Server.
-func (r *apiRunner) Do(ctx context.Context, method, path, token, body string) (int, string) {
+func (r *apiRunner) Do(ctx context.Context, method, path, token, body string, header http.Header) (int, string) {
 	req := httptest.NewRequestWithContext(ctx, method, path, strings.NewReader(body))
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	for k, vs := range header {
+		for _, v := range vs {
+			req.Header.Add(k, v)
+		}
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
@@ -206,7 +223,7 @@ func (r *apiRunner) runShape(t *testing.T, c *HTTPCall) (status, detail string) 
 		issuer = r.untrusted
 	}
 	token := issuer.Mint(t, keycloaktest.Token{Subject: s.Subject, Orgs: s.Orgs, IdP: s.IdP})
-	code, body := r.Do(t.Context(), c.Method, c.Path, token, c.Body)
+	code, body := r.Do(t.Context(), c.Method, c.Path, token, c.Body, nil)
 	if code != http.StatusUnauthorized {
 		return statusFail, fmt.Sprintf("%d, want 401 for this token: %s", code, body)
 	}
