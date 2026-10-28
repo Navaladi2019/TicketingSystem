@@ -22,6 +22,12 @@ steps:
     run: make check-openapi
     why: /api/v1 loses an operation or field without review
 
+  # Story work that never reaches main (TICK-322, after S6 and the S5
+  # post-merge PRs, TICK-286).
+  - job: story-branches
+    run: make check-story-branches
+    why: a story branch's changes stay off main once its story PR merged, or forever
+
   # suiteran: a registered isolation suite that runs zero tests fails the step (TICK-230).
   - job: unit
     run: make test

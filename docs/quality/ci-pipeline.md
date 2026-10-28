@@ -187,6 +187,7 @@ lock. `NAVA_RACE_LOCK=off` skips it.
 | Taskfile and Makefile drift apart, so local runs differ from CI | `check-taskfile` (drift fixture in `tools/ci/checktaskfile`) |
 | `api/api.gen.go` is stale against `api/openapi.yaml` (TICK-281: a 422 response in the spec since #130 was never generated) | `check-generate` in the lint job: `go generate ./api/... && git diff --exit-code -- api/`. Fix: `make generate` and commit |
 | A suite or report upload drops out of `ci.yml` and CI stays green because it never ran (TICK-281: an API upload of `ci.yml` lost `make identity-attacks` and the `ci5-report` upload) | `check-ci-steps` in the lint job (`tools/ci/cisteps`): every step in `tools/ci/cisteps/required.yaml`, the one list, must be in its job, not `if: false`, not `continue-on-error`, and a report upload must keep `if-no-files-found: error`. Edit fixtures in `TestEditsFail`; `TestDroppingAnyRequiredStepFails` deletes each listed step from the real `ci.yml` and expects exactly that failure |
+| A story's work never reaches `main`: its story branch gets task PRs after the story PR squash-merged (S5: #251, #252, #255), or the story is closed with no PR to `main` at all (S6, TICK-48), and CI on `main` stays green because the work is not there to test (TICK-286) | `story-branches` job, `make check-story-branches` (`tools/ci/storybranches`, TICK-322), below. Rules in `TestMilestone1Replay` and its neighbours; the tree comparison against a real squash merge in `TestLandedSquashMerge` |
 | A security-path change goes without the D-P10 review | `review-paths` prints the summary lines on every PR (fixture: a PR touching `db/`) |
 | A registered isolation suite runs zero tests and CI stays green (a `TestMain` exiting before `m.Run`, a step dropping `-tags`) | `tools/ci/suiteran` (TICK-230) wraps `go test -json` in `test`, `temporal-server-test`, `test-integration`, `isolation`, `stack-test-identity` and `stack-test-sdk`: every `cto_signoff.isolation_tests` file whose package ran and whose build constraints hold for the step's `-tags` must have at least one of its tests pass or fail. Fixtures in `tools/ci/suiteran/testdata/fixture`; `TestEveryRegisteredSuiteHasACheckedStep` fails when a registered suite has no step whose `-tags` builds it |
 | An integration test hangs and the cancelled job's log is empty, so nobody can tell which test | `go test -timeout 6m` in `test-integration.sh` (below the job's 10 minutes) and the groups' output streamed through `tools/ci/testlog` (TICK-225). Unit tests in `tools/ci/testlog`; the hang itself was proven once on a throwaway PR (not merged) |
@@ -255,11 +256,67 @@ cross the `/`; it matches task branches too, which then run the full suite on
 every push (an accepted cost: a glob cannot tell the two apart). Each push has its own concurrency group (per ref and sha), so a newer
 merge neither cancels nor replaces the run of an older one. When any job of a
 push to `main` fails, the `main-red` job (`scripts/ci/main-red.sh`, the only
-job with `issues: write`) opens a GitHub issue `main is red: <short sha>`
+job with `issues: write` besides `story-branches`) opens a GitHub issue `main is red: <short sha>`
 labelled `P0`, with the failing jobs and the run URL; while one such issue is
 open, a later red push comments on it instead. Close it once `main` is green. Locally, `make ci-stages`
 prints the stages for the current branch and `CI_ALL=1 make ci-stages` prints
 all four.
+
+### Story branches (TICK-322)
+
+The `story-branches` job runs `make check-story-branches` on every event, and
+every 6 hours on `main` (`schedule`; a scheduled run skips every other job). It
+reads the remote's branches and every pull request, not the checked-out tree,
+so its result is about the repository: it can go red on a pull request that
+did not cause it. It is not a branch-protection check and not in `main-red`'s
+`needs`.
+
+CI cannot read Multica, so **a merged story PR is the "story closed" signal**.
+A **story branch** is a `TICK-<n>/<slug>` branch that at least one merged pull
+request targets (task PRs merge into it). Its **story PR** is the newest merged
+pull request out of it, into `main` or, for a nested branch, into another
+story branch. An open pull request out of it means the story is still in
+flight, and nothing below fires for it.
+
+| Finding | Fires when | Clear it by |
+| --- | --- | --- |
+| `story PR #N merged …, but changes since then are not on main` | the branch gained changes after its story PR merged (a PR merged into it, or a push) and they are not on `main` | a PR into `main` that carries them (TICK-316, #267), or a `resolved.yaml` entry |
+| `orphaned: …` | the branch has merged task PRs, no merged or open PR out of it, and its changes are not on `main` | open its story PR (TICK-314, #266), delete the branch if the work is abandoned, or a `resolved.yaml` entry |
+| `open PR #N targets it, but its story PR #M merged …` | an open pull request targets a story branch whose story PR has merged | retarget the pull request to `main` |
+
+**"On main" compares trees, not commits.** Squash merges keep the tree and drop
+the ancestry, so `git merge-base --is-ancestor` cannot answer. The check runs
+`git merge-tree --write-tree --merge-base=<story PR head> origin/main <branch>`
+(git 2.40 or later): when the result is `main`'s own tree, merging what the
+branch gained since its story PR would change nothing, so it is on `main`, by
+whichever PR it got there. A conflict counts as not on `main`. For an orphan,
+git picks the merge base. The story PR's head is GitHub's `headRefOid`, which
+stays fetchable even when the branch was force-pushed.
+
+**Accepting a branch.** `tools/ci/storybranches/resolved.yaml` lists a branch
+with its full head sha and why (the issue that decided it). It is accepted at
+that head only; a later push flags it again. Deleting an abandoned branch is
+usually better.
+
+**The issue.** On `main` (push, schedule or manual run), a red check opens one
+issue, `Story branches out of step with main`, labelled `story-drift`, with the
+report (`scripts/ci/story-branches-issue.sh`, `make story-branches-issue`). A
+later red run comments only when the findings changed; the first green run
+closes it. Pull requests and other branches never touch the issue.
+
+**Replay.** `-as-of <RFC 3339 time>` judges the pull requests as they stood
+then (created later: ignored; merged or closed later: open). Branch heads stay
+current. Locally, with `gh` signed in:
+
+```sh
+make check-story-branches                                          # now
+go run ./tools/ci/storybranches -as-of 2026-10-28T18:00:00Z        # before #266 opened
+```
+
+**Not covered.** A story closed in Multica while its story PR is still open
+(S6 since #266 opened on 2026-10-28 18:04Z): CI sees an open PR and treats the
+story as in flight. Branches outside `TICK-<n>/` (`agent/...`), and pull
+requests from forks, are not story branches.
 
 ## Parallel runs (TICK-147)
 
