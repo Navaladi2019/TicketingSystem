@@ -1,8 +1,8 @@
 # T05 pipeline. Every step calls a Makefile target, so `make ci` runs the same
 # gates locally. The jobs run in parallel; inside each, steps run in the
 # Makefile's gate order and the first failure stops the job:
-#   lint             gofmt, go vet, golangci-lint, fixtures, pins, OpenAPI,
-#                    govulncheck (no containers)
+#   lint             gofmt, go vet, golangci-lint, fixtures, pins, generated
+#                    code, required CI steps, OpenAPI, govulncheck (no containers)
 #   unit             go test -race (no containers)
 #   temporal-server  the custom server module's unit tests and govulncheck
 #                    (no containers)
@@ -17,6 +17,9 @@
 # main or to a TICK-** branch runs every job on the merged tree (TICK-289),
 # and a red push to main opens a P0 issue (main-red). Run the full pipeline by
 # hand from the Actions tab (workflow_dispatch) on any branch.
+# A step listed in tools/ci/cisteps/required.yaml must stay: make
+# check-ci-steps fails the lint job when one is removed, disabled or allowed to
+# fail (TICK-297).
 # Budget: see "Job time budgets" in docs/quality/ci-pipeline.md. The three
 # stack jobs build the images first (7.5 to 10 minutes of each run), so their
 # timeout-minutes is 25 (TICK-258); the others stay at 10. Each job keeps its
@@ -130,6 +133,11 @@ jobs:
         run: make check-taskfile
       - name: Pins and forbidden modules
         run: make check-pins
+      - name: api.gen.go matches openapi.yaml
+        run: make check-generate
+      # The list is tools/ci/cisteps/required.yaml (TICK-297).
+      - name: ci.yml keeps every required step
+        run: make check-ci-steps
       - name: OpenAPI additive-only
         run: make check-openapi
       - name: govulncheck

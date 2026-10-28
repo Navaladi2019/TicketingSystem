@@ -42,7 +42,7 @@ GOLANGCI_LINT ?= golangci-lint
 GOLANGCI_LINT_VERSION := 2.14.0
 GOVULNCHECK_VERSION := v1.9.0
 
-.PHONY: build run test test-integration test-integration-cleanup reap-integration bench-relay isolation lint generate check-openapi
+.PHONY: build run test test-integration test-integration-cleanup reap-integration bench-relay isolation lint generate check-generate check-openapi check-ci-steps
 .PHONY: demo-outbox stack-test-demo_outbox
 .PHONY: ci ci-isolated ci-changed ci-stages ci-isolated-down test-ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity identity-attacks identity-attacks-fixture stack-test-onboard stack-idp-realms stack-test-worker 	image image-ci stack-up stack-down stack-logs stack-internal stack-internal-beside stack-main ci-stack-run stack-tests smoke
 
@@ -112,16 +112,29 @@ isolation:
 	sh scripts/ci/isolation.sh $(ARGS)
 
 # golangci-lint, then the navalint analyzers (tools/navalint, its own module)
-# as go vet's tool, then the ADR-002-E1 nolint allow-list gate.
+# as go vet's tool, then the ADR-002-E1 nolint allow-list gate, then the decision-log index check.
 lint:
 	$(GOLANGCI_LINT) run ./...
 	sh scripts/ci/navalint.sh
 	sh scripts/ci/nolint-allowlist.sh
+	go run ./tools/docindex -check
 
 # Regenerates api/api.gen.go from api/openapi.yaml (oapi-codegen v2.8.0, pinned
 # by the go.mod tool directive).
 generate:
 	go generate ./...
+
+# Fails when api/api.gen.go is not what api/openapi.yaml generates (TICK-297):
+# regenerates it, then any difference from the committed file is drift. Run
+# make generate and commit the result.
+check-generate:
+	go generate ./api/... && git diff --exit-code -- api/
+
+# Fails when .github/workflows/ci.yml stops running a step listed in
+# tools/ci/cisteps/required.yaml (TICK-297): a suite or report upload removed,
+# disabled or allowed to fail.
+check-ci-steps:
+	go run ./tools/ci/cisteps
 
 # Additive-only rule for /api/v1: fails when api/openapi.yaml removes or
 # narrows anything the base branch (BASE, default origin/main) offers. A
@@ -165,7 +178,7 @@ ci-isolated-down:
 test-ci-isolated-down:
 	sh scripts/ci/test-ci-isolated-down.sh
 
-ci-lint: check-tools fmt-check vet lint lint-fixture check-taskfile check-pins check-openapi vulncheck-ci
+ci-lint: check-tools fmt-check vet lint lint-fixture check-taskfile check-pins check-generate check-ci-steps check-openapi vulncheck-ci
 
 ci-unit: test temporal-server-test
 
@@ -355,9 +368,12 @@ stack-idp-realms:
 # TODO(TODO-014): the GitHub workflow's stack job has no step for
 # stack-test-onboard yet (the step needs a push with `workflow` scope), so this
 # target runs those tests too; once the step exists, add -skip '$(ONBOARD_TESTS)'.
+# suiteran fails the target on its own when a registered suite ran zero tests
+# (TICK-283); TestCI5 is behind the ci5 tag, so it is not expected here. The
+# stream is kept for make identity-attacks, which checks it with the CI-5 one.
 stack-test-identity:
 	rm -f $(IDENTITY_STREAM)
-	go test -tags identitystack -count=1 -skip '^TestCI5$$' -json ./internal/identitystack > $(IDENTITY_STREAM) || { cat $(IDENTITY_STREAM); exit 1; }
+	go run ./tools/ci/suiteran -tags identitystack -tee $(IDENTITY_STREAM) -- go test -tags identitystack -count=1 -json ./internal/identitystack
 
 # The CI-5 adversarial identity suite (T19, ADR-001 Annex B CI-5) against the
 # running Keycloak, with a throwaway PostgreSQL for the platform database the

@@ -120,29 +120,45 @@ func TestCursorPathsHold(t *testing.T) {
 }
 
 // TestStackPathsExist: every Stack path names a Test function of
-// internal/identitystack in a file built under the identitystack tag, which
-// make stack-test-identity sets. Renaming or deleting the live-Keycloak test,
-// or moving it to a file under another tag, fails here (ci-unit) instead of
-// leaving a registration that proves nothing.
+// internal/identitystack in a file built under its target's tags and not
+// without them. Renaming or deleting the
+// live-Keycloak test, or moving it to a file under another tag, fails here
+// (ci-unit) instead of leaving a registration that proves nothing.
 func TestStackPathsExist(t *testing.T) {
 	dir := filepath.Join("..", "..", "identitystack")
 	files, err := filepath.Glob(filepath.Join(dir, "*_test.go"))
 	if err != nil || len(files) == 0 {
 		t.Fatalf("no tests in %s: %v", dir, err)
 	}
-	tests := map[string]bool{}
+	// The build tags each Stack target runs internal/identitystack with: make
+	// identity-attacks adds ci5, the tag TestCI5 sits behind so make
+	// stack-test-identity runs the rest under suiteran with no -skip
+	// (TICK-283).
+	stackTargetTags := map[string][]string{
+		DefaultStackTarget:    {"identitystack"},
+		identityAttacksTarget: {"identitystack", "ci5"},
+	}
 	fset := token.NewFileSet()
+	parsed := make([]*ast.File, 0, len(files))
 	for _, f := range files {
 		af, err := parser.ParseFile(fset, f, nil, parser.SkipObjectResolution|parser.ParseComments)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !builtWithIdentityStack(af) {
-			continue
-		}
-		for _, d := range af.Decls {
-			if fn, ok := d.(*ast.FuncDecl); ok && fn.Recv == nil && strings.HasPrefix(fn.Name.Name, "Test") {
-				tests[fn.Name.Name] = true
+		parsed = append(parsed, af)
+	}
+	// tests[target] are the Test functions the target's tags build.
+	tests := map[string]map[string]bool{}
+	for target, tags := range stackTargetTags {
+		tests[target] = map[string]bool{}
+		for _, af := range parsed {
+			if !builtOnlyWith(af, tags) {
+				continue
+			}
+			for _, d := range af.Decls {
+				if fn, ok := d.(*ast.FuncDecl); ok && fn.Recv == nil && strings.HasPrefix(fn.Name.Name, "Test") {
+					tests[target][fn.Name.Name] = true
+				}
 			}
 		}
 	}
@@ -152,8 +168,17 @@ func TestStackPathsExist(t *testing.T) {
 			continue
 		}
 		n++
-		if !tests[p.Stack] {
-			t.Errorf("path %q: %s is not a test in an identitystack-tagged file of internal/identitystack", p.Name, p.Stack)
+		target := p.StackTarget
+		if target == "" {
+			target = DefaultStackTarget
+		}
+		built, ok := tests[target]
+		if !ok {
+			t.Errorf("path %q: StackTarget %q has no build tags here", p.Name, target)
+			continue
+		}
+		if !built[p.Stack] {
+			t.Errorf("path %q: %s is not a test in a file of internal/identitystack built with %s's tags %q", p.Name, p.Stack, target, stackTargetTags[target])
 		}
 	}
 	if n == 0 {
@@ -161,10 +186,10 @@ func TestStackPathsExist(t *testing.T) {
 	}
 }
 
-// builtWithIdentityStack reports whether f has a //go:build line that holds
-// with the identitystack tag and fails without it, so the file's tests run in
-// make stack-test-identity and only there.
-func builtWithIdentityStack(f *ast.File) bool {
+// builtOnlyWith reports whether f has a //go:build line that holds with tags
+// and fails with no tag, so the file's tests run in a target that sets tags
+// and in no plain go test.
+func builtOnlyWith(f *ast.File, tags []string) bool {
 	for _, cg := range f.Comments {
 		if cg.Pos() > f.Package {
 			break
@@ -177,7 +202,7 @@ func builtWithIdentityStack(f *ast.File) bool {
 			if err != nil {
 				return false
 			}
-			return expr.Eval(func(tag string) bool { return tag == "identitystack" }) &&
+			return expr.Eval(func(tag string) bool { return slices.Contains(tags, tag) }) &&
 				!expr.Eval(func(string) bool { return false })
 		}
 	}

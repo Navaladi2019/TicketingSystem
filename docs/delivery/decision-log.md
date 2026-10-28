@@ -1,6 +1,14 @@
 # Decision log
 
+**Entry rule:** a new decision is its own file, `docs/delivery/decisions/<YYYY-MM-DD>-<slug>.md`, starting with a `## <title>` heading; then run `go run ./tools/docindex` to refresh this index (`task lint` fails when it is stale). Entries below the index are the older ones, newest first.
+
 Delivery decisions that change a task's contract, newest first.
+
+<!-- docindex:start -->
+
+- [2026-10-28: shared tables are append-safe: story-prefixed ids, `merge=union`, one file per decision](decisions/2026-10-28-append-safe-shared-tables.md)
+
+<!-- docindex:end -->
 
 ## 2026-10-28: migration order is checked against `main`, not the pull request's base
 - **Decided by:** the Technical Lead on TICK-309, after PR #244 (TICK-281/TICK-284) went red only on `TestNewMigrationsLaterThanBase`.
