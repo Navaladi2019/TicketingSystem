@@ -95,3 +95,24 @@
 | S3.22 Negative: expired token | 1 | 401 | 4 | 0 |
 
 Tokens and response bodies are left out; the raw Newman JSON holds bearer tokens and is not published.
+
+## TICK-317: S6 folder re-run on `main` after PR #266 (per-tenant 429)
+
+- `main` at `2cc0f21` (PR #266 merged). Fresh stack: `docker compose down -v`, `make dev-ca`, images built from that commit, `up --wait`, `tools/seed.sh`. `.env` from `.env.example` (default limit: `NAVA_RATE_LIMIT_RPS=50`, `NAVA_RATE_LIMIT_BURST=100`).
+- `newman run … --folder "S6 — API ground rules"`, 2026-10-28, 5.3 s. Run three times; all three passed.
+
+| | executed | failed |
+|---|---|---|
+| requests (S6.12 sends a 320-request burst) | 333 | 0 |
+| assertions | 49 | 0 |
+
+**Result: PASS**
+
+| Request | Last status | Assertions passed | Failed |
+|---|---|---|---|
+| S6.1–S6.10 (unchanged) | as above | 37 | 0 |
+| S6.11 Sign in as Bob (tenant B) | 200 | 3 | 0 |
+| S6.12 Tenant A over its limit gets 429 while tenant B succeeds | 200 (Bob) | 11 | 0 |
+| S6.13 Tenant A is served again after Retry-After | 200 | 3 | 0 |
+
+S6.12 burst counts per run (status: count): tenant A `{200: 118, 429: 182}`, `{200: 121, 429: 179}`, `{200: 117, 429: 183}`; tenant B `{200: 20}` every time.

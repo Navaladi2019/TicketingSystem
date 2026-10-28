@@ -31,11 +31,13 @@ import (
 func allStages() []string { return []string{"ci-lint", "ci-unit", "ci-integration", "ci-stack"} }
 
 // stackRoots are the go list arguments for the Go packages behind the stack:
-// the commands the images build and the stack test suites with their tags.
+// the commands the images build, the S7 demo binary stack-test-demo_outbox
+// builds (cmd/demo-outbox), and the stack test suites with their tags
+// (demooutbox: the S7 suite, TICK-292).
 func stackRoots() [][]string {
 	return [][]string{
-		{"./cmd/nava-core", "./cmd/nava-db", "./cmd/nava-worker", "./cmd/nava-relay", "./cmd/nava-onboard", "./cmd/nava-groupsync", "./tools/ci/ci6report", "./tools/ci/ci5report"},
-		{"-tags", "temporalstack", "-test", "./internal/temporalstack"},
+		{"./cmd/nava-core", "./cmd/nava-db", "./cmd/nava-worker", "./cmd/nava-relay", "./cmd/nava-onboard", "./cmd/nava-groupsync", "./cmd/nava-purge", "./cmd/demo-outbox", "./tools/ci/ci6report", "./tools/ci/ci5report"},
+		{"-tags", "temporalstack,demooutbox", "-test", "./internal/temporalstack"},
 		{"-tags", "identitystack", "-test", "./internal/identitystack"},
 		{"-tags", "workerstack", "-test", "./internal/workerstack"},
 	}
@@ -186,7 +188,7 @@ func loadGraph() (graph, error) {
 	}
 	root = strings.TrimSpace(root)
 	g := graph{}
-	if g.packages, err = dirs(root, "-tags", "integration,temporalstack,identitystack", "./..."); err != nil {
+	if g.packages, err = dirs(root, "-tags", "integration,temporalstack,identitystack,workerstack,demooutbox", "./..."); err != nil {
 		return g, err
 	}
 	var integ []string
