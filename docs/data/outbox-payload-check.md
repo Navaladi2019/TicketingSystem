@@ -96,7 +96,7 @@ or non-ASCII, and at most 32 characters per key. The rule bounds accidental
 record data, such as a producer bug that writes a title or an email. It does not
 stop a deliberate encoder. Key words, the number of keys, array length and the
 122 writer-chosen bits of each UUID all stay under the writer's control. That
-residual is [AR-036](../security/accepted-risks.md). Revisit once real kinds
+residual is [AR-040](../security/accepted-risks.md). Revisit once real kinds
 exist: a per-kind allow-list can then be added in Go for `Enqueue` and the
 relay, on top of this pattern, as a second line.
 

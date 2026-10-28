@@ -137,11 +137,32 @@ func newOutbound(t *testing.T) *telemetry.OutboundClient {
 var (
 	runtimeCreds    = keycloak.ClientCredentials{ClientID: "nava-platform", ClientSecret: "dev-only-platform-secret"}
 	onboardingCreds = keycloak.ClientCredentials{ClientID: "nava-onboarding", ClientSecret: "dev-only-onboarding-secret"}
+	groupsyncCreds  = keycloak.ClientCredentials{ClientID: "nava-groupsync", ClientSecret: "dev-only-groupsync-secret"}
 )
+
+// recordingInvites is an InviteWriter that keeps what InviteUser wrote.
+type recordingInvites struct {
+	mu     sync.Mutex
+	tenant []uuid.UUID
+	emails []string
+}
+
+func (r *recordingInvites) RecordInvite(_ context.Context, tenant uuid.UUID, email string, _ time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.tenant = append(r.tenant, tenant)
+	r.emails = append(r.emails, email)
+	return nil
+}
 
 func newDirectory(t *testing.T, reg keycloak.Registry, onboarding bool, idps keycloak.IdPSource) *keycloak.Directory {
 	t.Helper()
-	cfg := keycloak.DirectoryConfig{BaseURL: baseURL(), Runtime: runtimeCreds, Registry: reg, IdPs: idps}
+	return newDirectoryWith(t, reg, onboarding, idps, nil)
+}
+
+func newDirectoryWith(t *testing.T, reg keycloak.Registry, onboarding bool, idps keycloak.IdPSource, invites keycloak.InviteWriter) *keycloak.Directory {
+	t.Helper()
+	cfg := keycloak.DirectoryConfig{BaseURL: baseURL(), Runtime: runtimeCreds, Registry: reg, IdPs: idps, Invites: invites}
 	if onboarding {
 		cfg.Onboarding = &onboardingCreds
 	}
@@ -171,6 +192,25 @@ func kcUserByEmail(t *testing.T, email string) string {
 		return ""
 	}
 	return us[0].ID
+}
+
+// seedTenantUser creates a Keycloak user and puts them in the tenant's group
+// directly, as the pre-option-2 InviteUser did: InviteUser now writes a pending
+// invite and creates no user. The user is removed after the test.
+func seedTenantUser(t *testing.T, tenant uuid.UUID, email string) string {
+	t.Helper()
+	deleteUserAfter(t, email)
+	if code, b := adminRealm(t, "nava", http.MethodPost, "/users", map[string]any{"username": email, "email": email, "enabled": true}); code != http.StatusCreated {
+		t.Fatalf("seed %s: %d %s", email, code, b)
+	}
+	uid := kcUserByEmail(t, email)
+	if uid == "" {
+		t.Fatalf("seeded user %s not found", email)
+	}
+	if code, b := adminRealm(t, "nava", http.MethodPut, "/users/"+uid+"/groups/"+kcGroupID(t, "/t/"+tenant.String()), nil); code != http.StatusNoContent {
+		t.Fatalf("put %s in /t/%s: %d %s", email, tenant, code, b)
+	}
+	return uid
 }
 
 func deleteUserAfter(t *testing.T, email string) {
@@ -267,27 +307,34 @@ func TestChangesSinceSnapshotAndCursor(t *testing.T) {
 
 func TestInviteAndDisableUser(t *testing.T) {
 	reg := newRegistry()
-	d := newDirectory(t, reg, false, nil)
+	inv := &recordingInvites{}
+	d := newDirectoryWith(t, reg, false, nil, inv)
 	email := "invitee-" + uuid.NewString()[:8] + "@tenant-a.test"
 	deleteUserAfter(t, email)
 
+	// Option 2 (TICK-252): an unknown email creates no Keycloak user. It
+	// records one pending invite, normalized, for the tenant.
 	if err := d.InviteUser(t.Context(), tenantA, email); err != nil {
 		t.Fatalf("InviteUser: %v", err)
 	}
-	uid := kcUserByEmail(t, email)
-	if uid == "" || !userInGroup(t, uid, kcGroupID(t, "/t/"+tenantA.String())) {
-		t.Fatal("invitee not created or not in the tenant group")
+	if kcUserByEmail(t, email) != "" {
+		t.Fatal("InviteUser created a Keycloak user")
 	}
 	if err := d.InviteUser(t.Context(), tenantA, strings.ToUpper(email)); err != nil {
-		t.Errorf("second invite (idempotent, case-insensitive): %v", err)
+		t.Errorf("second invite (case-insensitive): %v", err)
 	}
+	if len(inv.emails) != 2 || inv.emails[0] != email || inv.emails[1] != email || inv.tenant[0] != tenantA {
+		t.Errorf("invite writes = %v for %v, want the normalized email twice for tenant A", inv.emails, inv.tenant)
+	}
+
+	uid := seedTenantUser(t, tenantA, "seeded-"+uuid.NewString()[:8]+"@tenant-a.test")
 	snap, _, _ := d.ChangesSince(t.Context(), tenantA, "")
 	found := false
 	for _, u := range snap.Users {
-		found = found || (u.Email == email && u.Enabled)
+		found = found || u.KeycloakUserID == uid
 	}
 	if !found {
-		t.Error("invitee missing from the snapshot")
+		t.Error("the seeded user is missing from the snapshot")
 	}
 
 	pid := reg.addUser(tenantA, uid)
@@ -502,6 +549,71 @@ func TestRuntimeAccountHasNoRealmOrIdPReach(t *testing.T) {
 	checkAccountRoles(t, "service-account-nava-platform", []string{"manage-users", "query-groups", "query-users", "view-users"})
 }
 
+// TestGroupsyncAccountFloor pins the group sync account (TICK-252): the four
+// runtime roles plus view-organizations, which PlaceInvitee needs to read a
+// user's organization membership, and nothing else. view-realm would not open
+// that read and would open /roles and /authentication/flows;
+// query-organizations answers 200 with an empty list. The 200 below must name
+// the seeded member's real organization, which catches that silent-empty case.
+func TestGroupsyncAccountFloor(t *testing.T) {
+	tok := accountToken(t, groupsyncCreds)
+	master := masterToken(t)
+	a := orgID(t, master, "tenant-a")
+	alice := userID(t, master, "alice@tenant-a.test")
+
+	code, body := admin(t, tok, http.MethodGet, "/organizations/members/"+alice+"/organizations", nil)
+	var orgs []struct{ ID string }
+	if code != http.StatusOK || json.Unmarshal(body, &orgs) != nil || len(orgs) != 1 || orgs[0].ID != a {
+		t.Fatalf("groupsync account GET member organizations = %d %s, want 200 with tenant-a (%s)", code, body, a)
+	}
+	for _, p := range []string{"/users?max=1", "/groups?max=1", "/users/count"} {
+		if code := asAccount(t, tok, http.MethodGet, p, nil); code != http.StatusOK {
+			t.Errorf("groupsync account GET %s = %d, want 200", p, code)
+		}
+	}
+	for _, c := range []struct {
+		method, path string
+		body         any
+	}{
+		{http.MethodPut, "", map[string]any{"displayName": "pwned"}},
+		{http.MethodGet, "/roles", nil},
+		{http.MethodGet, "/authentication/flows", nil},
+		{http.MethodGet, "/identity-provider/instances", nil},
+		{http.MethodPost, "/organizations/" + a + "/members", alice},
+		{http.MethodDelete, "/organizations/" + a + "/members/" + alice, nil},
+		{http.MethodPut, "/organizations/" + a, map[string]any{"name": "pwned", "alias": "tenant-a"}},
+		{http.MethodPost, "/organizations/" + a + "/identity-providers", "idp-tenant-b"},
+	} {
+		if code := asAccount(t, tok, c.method, c.path, c.body); code != http.StatusForbidden {
+			t.Errorf("groupsync account %s %s = %d, want 403", c.method, c.path, code)
+		}
+	}
+	checkAccountRoles(t, "service-account-nava-groupsync", []string{"manage-users", "query-groups", "query-users", "view-organizations", "view-users"})
+}
+
+// TestKeycloakRejectsNonCanonicalOrgPaths sends non-canonical spellings of
+// /organizations routes raw, bypassing admin.do, with the real nava-groupsync
+// token (TICK-255, AR-038). admin.do refuses them before sending; this pins
+// the second layer, so a Keycloak upgrade that starts normalising these paths
+// and would let the account read every organization fails here.
+func TestKeycloakRejectsNonCanonicalOrgPaths(t *testing.T) {
+	tok := accountToken(t, groupsyncCreds)
+	b := orgID(t, masterToken(t), "tenant-b")
+	for _, p := range []string{
+		"/organizations;x",
+		"/organizations;x/" + b + "/members",
+		"/%6Frganizations",
+		"/%6frganizations/" + b + "/members",
+		"//organizations",
+		"/Organizations",
+		"/ORGANIZATIONS/" + b + "/members",
+	} {
+		if code := asAccount(t, tok, http.MethodGet, p, nil); code == http.StatusOK {
+			t.Errorf("groupsync account GET %s = 200, want a refusal", p)
+		}
+	}
+}
+
 func TestOnboardingAccountHasNoUserReach(t *testing.T) {
 	tok := accountToken(t, onboardingCreds)
 	for _, c := range []struct{ method, path string }{
@@ -622,8 +734,13 @@ func TestCreateTenantOrg(t *testing.T) {
 		t.Errorf("idp links = %+v, want only org %s", idp.OrganizationLinks, id)
 	}
 	_, mb := adminRealm(t, "nava", http.MethodGet, "/identity-provider/instances/"+idpAlias+"/mappers", nil)
-	if strings.TrimSpace(string(mb)) != "[]" {
-		t.Errorf("new idp has mappers: %s", mb)
+	var ms []struct {
+		IdentityProviderMapper string
+		Config                 map[string]string
+	}
+	if json.Unmarshal(mb, &ms) != nil || len(ms) != 1 || ms[0].IdentityProviderMapper != "oidc-user-attribute-idp-mapper" ||
+		ms[0].Config["claim"] != "email_verified" || ms[0].Config["user.attribute"] != "nava_idp_email_verified" || ms[0].Config["syncMode"] != "FORCE" {
+		t.Errorf("new idp mappers = %s, want exactly the email_verified mapper", mb)
 	}
 	code, ob := adminRealm(t, "nava", http.MethodGet, "/organizations/"+id, nil)
 	if code != http.StatusOK || !strings.Contains(string(ob), alias+".test") {
@@ -713,11 +830,7 @@ func TestDisableUserInAnotherTenantsSubtreeIsRefused(t *testing.T) {
 	reg := newRegistry()
 	d := newDirectory(t, reg, false, nil)
 	email := "shared-" + uuid.NewString()[:8] + "@tenant-a.test"
-	deleteUserAfter(t, email)
-	if err := d.InviteUser(t.Context(), tenantA, email); err != nil {
-		t.Fatal(err)
-	}
-	uid := kcUserByEmail(t, email)
+	uid := seedTenantUser(t, tenantA, email)
 	// Tenant B's group membership is written as a platform operator would;
 	// InviteUser itself refuses to create it.
 	if code, b := adminRealm(t, "nava", http.MethodPut, "/users/"+uid+"/groups/"+kcGroupID(t, "/t/"+tenantB.String()), nil); code != http.StatusNoContent {

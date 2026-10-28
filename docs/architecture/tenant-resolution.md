@@ -1,7 +1,8 @@
 # Tenant resolution and the auth middleware (T17)
 
 Scope: TICK-72. ADR-001 A.1 steps 2–5, PLAN-001 T17, TICK-93 (log ids,
-baggage), TICK-69 security review (NULL links, missing row).
+baggage), TICK-69 security review (NULL links, missing row), T17a TICK-189
+(tenant must be active).
 
 Every `/api/v1` operation runs behind `internal/platform/auth`. It reads the
 bearer token, calls `identity.IdentityResolver.Resolve`, and puts the
@@ -21,7 +22,11 @@ flowchart TD
   O -- yes --> B[Store.Binding iss, org id<br/>binding_lookup, no tenant set]
   B -- no row --> U401
   B -- 2+ rows / DB error --> E500[500 internal_error]
-  B --> C{idp claim absent,<br/>or a bound alias?}
+  B --> S[tenants.state of the bound tenant<br/>inside InTenantTx tenant]
+  S -- DB error --> E500
+  S --> A{state = active?}
+  A -- no --> U401
+  A -- yes --> C{idp claim absent,<br/>or a bound alias?}
   C -- no --> U401
   C -- yes --> P[Store.Principal tenant, sub<br/>inside InTenantTx tenant]
   P -- no row --> U401
@@ -46,6 +51,16 @@ flowchart TD
 
 ## Rules
 
+- **Only an active tenant resolves (T17a).** `pgstore.Binding` reads the
+  bound tenant's `tenants.state` right after the binding, as `nava_app`
+  inside `InTenantTx(tenant)` (`tenants_tenant` shows only that row). Any
+  state but `active` is 401 `tenant_unresolved` with the reason
+  `tenant not active`. T21 onboarding invites the first admin and then
+  activates the tenant in the same request; the admin can only sign in
+  after accepting the invite and group sync recording the principal, so the
+  first login lands after activation. If activation fails, the tenant stays
+  `provisioning` and its logins are refused until the operator's retry
+  activates it. No ADR exception is needed.
 - **Fail closed.** `federated_links IS NULL` (sync has not recorded the
   links) and no `principals` row for `sub` are both 401
   `tenant_unresolved`, as are a disabled principal and a link to an IdP not
@@ -75,6 +90,7 @@ flowchart TD
 | Criterion | Test |
 | --- | --- |
 | Zero / two orgs, unbound `idp`, foreign link, NULL links, no row → 401 | `keycloak.TestResolveRefusals`, `TestContract`; against PostgreSQL `dbtest.TestT17RefusalsAgainstPostgres`; over HTTP `server.TestMeThroughKeycloakAdapter` |
+| Binding to a non-active tenant → 401 `tenant not active`; active resolves | `keycloak.TestResolveTenantNotActive`; against PostgreSQL `dbtest.TestT17aRefusesNonActiveTenant`, `dbtest.TestT17aStoreReadsTenantState` |
 | Forged tenant in query, header, body, baggage only touches A | CI-2 paths in `internal/tenancy/isolation/registry.go`, run by the HTTP runner; `server.TestMeIgnoresForgedTenant`; `auth.TestForgedBaggageIsNotInTheContext` |
 | Handler log line carries both ids; no token in logs | `auth.TestHandlerLogCarriesTenantAndPrincipal`, `auth.TestRefusalLogsNoToken` |
 | Error mapping, `WWW-Authenticate`, no echo | `server.TestMeRefusals` |

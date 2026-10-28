@@ -164,7 +164,7 @@ sequenceDiagram
      [outbox-payload-check.md](../data/outbox-payload-check.md)); the relay
      check is fixed by TICK-215. Keys use the fallback pattern
      `^[a-z][a-z0-9_]{0,31}$`, not a per-kind allow-list; the residual is
-     AR-036 in [accepted-risks.md](accepted-risks.md).
+     AR-040 in [accepted-risks.md](accepted-risks.md).
    - **Severity:** Medium.
    - **Fix, at the lowest layer:** a `CHECK` on `outbox.payload` with the same
      rule as `ValidatePayload`: a jsonb object whose values are UUID strings or
@@ -226,7 +226,7 @@ tenant A read tenant B's data; each is R1 creep into tenant A's own history.
 | 5 | Update result (`WorkflowExecutionUpdateCompleted`) | Low | **Guarded** | as #3; `update_result` | `TestCI7_UpdateResultWithRecordDataNotRecorded`, `TestUpdateResultAndFailureGuard` |
 | 6 | `SideEffect` value (`MarkerRecorded`) | Low | **Guarded** | nil, a canonical UUID, an RFC3339 time, a number, a bool or `argOK`; otherwise the marker holds a fixed sentinel and `Get` returns the guard error, so a replay reads the same decision; `side_effect`. **`MutableSideEffect` is denied outright** (`not_allowed`, `f` never runs): a sentinel cannot work there, because the SDK decodes the recorded value into the new value's type and panics on a mismatch. Nothing uses it. | `TestCI7_SideEffectWithRecordDataNotRecorded`, `TestSideEffectGuard`, `TestSideEffectValueOK` |
 | 7 | Failure text: activity, workflow and update errors (`*Failed` events, message, details, type) | Medium | **Guarded** | Async completion and the activity and child wrappers (no public constructor) pass. A cancel error keeps only the details `argOK` accepts, and loses any message or cause set through `NewCanceledErrorWithOptions` (finding 1b); a timeout error keeps its type, its cause checked by the same rule and only the heartbeat details `argOK` accepts (security review finding 1: both have public constructors). An `ApplicationError` of an allowed type (`nava.TenantGuard`, `nava.WorkflowRefNotFound`; messages are constants or ids, a review rule) with no cause keeps its message and type and only the details `argOK` accepts. Anything else becomes `nava.Opaque` with fixed text and the same non-retryable flag. An activity panic is recovered and withheld, with no value or stack. `activity_failure`, `workflow_failure`, `update_failure` | `TestCI7_ActivityFailureWithRecordDataNotRecorded`, `TestCI7_WorkflowFailureWithRecordDataNotRecorded`, `TestCI7_UpdateResultWithRecordDataNotRecorded`, `TestActivityFailureWithheld`, `TestWorkflowFailureWithheld`, `TestRecordablePassesSDKErrors`, `TestRecordableChecksCancelAndTimeoutContent`, `TestCI7_CanceledDetailsWithRecordDataNotRecorded` |
-| 7a | Workflow panic (`WorkflowTaskFailed`: value and stack) | Low | **Not guarded: review rule** | Recovering it in the guard would turn a task retry into a workflow failure. Rule: workflow code never panics with a value built from data. AR-037. Revisit at the first feature workflow | doc only |
+| 7a | Workflow panic (`WorkflowTaskFailed`: value and stack) | Low | **Not guarded: review rule** | Recovering it in the guard would turn a task retry into a workflow failure. Rule: workflow code never panics with a value built from data. AR-041. Revisit at the first feature workflow | doc only |
 | 8 | Activity heartbeat details (pending info, timeout failure) | Low | **Not guarded: outside this contract**, TODO-012 | proposed: `argsOutcome(details)`; on a deny, heartbeat with no details and alert | none yet |
 | 9 | User metadata (summary and details on scheduled, timer, child and marker events) | Low | **Not guarded: outside this contract**, TODO-013 | proposed: deny any non-empty summary or details, except the SDK's own timer summary `AwaitWithTimeout` | none yet |
 | — | Query results | — | Out of scope | not recorded in history | — |
@@ -244,11 +244,11 @@ accepted denying `MutableSideEffect` outright (revisit at its first caller).
 
 **Allowed types are strings.** Workflow code can build
 `temporal.NewApplicationError(text, "nava.TenantGuard")` and its message passes
-as is. A review rule covers it today (AR-039).
+as is. A review rule covers it today (AR-043).
 
 **Retry types.** A withheld failure has type `nava.Opaque`, so a
 `RetryPolicy.NonRetryableErrorTypes` entry naming the original type no longer
-matches it (AR-038). The non-retryable flag is kept.
+matches it (AR-042). The non-retryable flag is kept.
 
 **Backstop (follow-up, not in TICK-245):** the Authorizer already inspects
 every command (`temporal-server/authz/commands.go`). It could deny

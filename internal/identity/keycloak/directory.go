@@ -49,6 +49,15 @@ const (
 	rollbackTimeout   = 10 * time.Second
 )
 
+// ErrDomainLinked is returned by CreateTenantOrg when Keycloak refuses the
+// organization because one of its domains is already linked to another
+// organization. Nothing was created.
+var ErrDomainLinked = errors.New("keycloak: email domain already linked to an organization")
+
+// domainLinkedRE is Keycloak's refusal text: "Domain <name> is already linked
+// to organization <id> in realm <realm>". It is matched on a 400 only.
+var domainLinkedRE = regexp.MustCompile(`^Domain \S+ is already linked to organization `)
+
 // ErrOnboardingDisabled is returned by CreateTenantOrg on a Directory built
 // without onboarding credentials.
 var ErrOnboardingDisabled = errors.New("keycloak: onboarding account not configured")
@@ -72,6 +81,25 @@ type Registry interface {
 	TenantOwnsEmailDomain(ctx context.Context, tenantID uuid.UUID, domain string) (bool, error)
 }
 
+// InviteWriter records the pending admin invite InviteUser makes for an email
+// that has no Keycloak user yet (TICK-252). The caller backs it with a
+// transaction that sets app.tenant_id, so row-level security scopes the write
+// to the tenant. Re-recording a pending invite moves its expiry; a consumed
+// invite stays consumed and is ErrInviteConsumed.
+type InviteWriter interface {
+	RecordInvite(ctx context.Context, tenantID uuid.UUID, email string, expiresAt time.Time) error
+}
+
+// ErrInviteConsumed is what an InviteWriter returns when the email's invite
+// was already consumed: the invitee has signed in and been placed, and an
+// invite cannot be re-armed. InviteUser passes it on; it is not a refusal to
+// hide, because the caller is the platform operator.
+var ErrInviteConsumed = errors.New("keycloak: invite already consumed")
+
+// DefaultInviteTTL is how long a pending invite stays valid when
+// DirectoryConfig.InviteTTL is zero.
+const DefaultInviteTTL = 7 * 24 * time.Hour
+
 // IdPSpec is what a tenant's IdP needs beyond what the platform fixes. The
 // alias, trustEmail, the first-login flow and mappers are never taken from it.
 type IdPSpec struct {
@@ -93,7 +121,8 @@ type DirectoryConfig struct {
 	// Realm defaults to "nava".
 	Realm string
 	// Runtime is the runtime service account (manage-users, query-users,
-	// query-groups, view-users). Required.
+	// query-groups, view-users, and view-realm to read organization membership
+	// in PlaceInvitee). Required.
 	Runtime ClientCredentials
 	// Onboarding is the onboarding service account (manage-realm,
 	// manage-identity-providers). Nil on every runtime path.
@@ -102,6 +131,12 @@ type DirectoryConfig struct {
 	Registry Registry
 	// IdPs is required for CreateTenantOrg.
 	IdPs IdPSource
+	// Invites is required to invite an email that has no user yet. Leave it
+	// nil on a process that never invites: such an invite then fails closed.
+	Invites InviteWriter
+	// InviteTTL is how long a pending invite is valid. Zero is
+	// DefaultInviteTTL.
+	InviteTTL time.Duration
 }
 
 // Directory implements identity.DirectoryAdmin.
@@ -111,6 +146,9 @@ type Directory struct {
 	onboarding *account
 	reg        Registry
 	idps       IdPSource
+	invites    InviteWriter
+	inviteTTL  time.Duration
+	now        func() time.Time
 }
 
 var _ identity.DirectoryAdmin = (*Directory)(nil)
@@ -141,14 +179,21 @@ func NewDirectory(cfg DirectoryConfig, out *telemetry.OutboundClient) (*Director
 	if cfg.Realm == "" {
 		cfg.Realm = "nava"
 	}
+	if cfg.InviteTTL < 0 {
+		return nil, errors.New("keycloak: invite TTL must not be negative")
+	}
+	if cfg.InviteTTL == 0 {
+		cfg.InviteTTL = DefaultInviteTTL
+	}
 	d := &Directory{
 		api:     &admin{base: strings.TrimRight(cfg.BaseURL, "/"), realm: cfg.Realm, out: out, now: time.Now},
-		runtime: &account{creds: cfg.Runtime},
+		runtime: &account{creds: cfg.Runtime, orgs: orgMemberRead},
 		reg:     cfg.Registry,
 		idps:    cfg.IdPs,
+		invites: cfg.Invites, inviteTTL: cfg.InviteTTL, now: time.Now,
 	}
 	if cfg.Onboarding != nil {
-		d.onboarding = &account{creds: *cfg.Onboarding}
+		d.onboarding = &account{creds: *cfg.Onboarding, orgs: orgAll}
 	}
 	return d, nil
 }
@@ -156,12 +201,14 @@ func NewDirectory(cfg DirectoryConfig, out *telemetry.OutboundClient) (*Director
 // ---- Keycloak representations ----------------------------------------------
 
 type kcUser struct {
-	ID        string `json:"id"`
-	Email     string `json:"email"`
-	Enabled   bool   `json:"enabled"`
-	Username  string `json:"username"`
-	FirstName string `json:"firstName,omitempty"`
-	LastName  string `json:"lastName,omitempty"`
+	ID       string `json:"id"`
+	Email    string `json:"email"`
+	Enabled  bool   `json:"enabled"`
+	Username string `json:"username"`
+	// Attributes are read by PlaceInvitee; nothing here writes them.
+	Attributes map[string][]string `json:"attributes,omitempty"`
+	FirstName  string              `json:"firstName,omitempty"`
+	LastName   string              `json:"lastName,omitempty"`
 }
 
 type kcGroup struct {
@@ -338,18 +385,24 @@ func registryErr(err error) error {
 
 // ---- DirectoryAdmin --------------------------------------------------------
 
-// InviteUser puts the invitee in /t/<tenant_id>. The email only ever travels
-// in a request body or a query that the outbound client reduces to its route
+// InviteUser invites the email to the tenant. The email only ever travels in
+// a request body or a query that the outbound client reduces to its route
 // template.
 //
-// A new email gets a new user only when the tenant owns the email's domain
-// (Registry.TenantOwnsEmailDomain). An existing user is accepted only when
-// (a) already in the tenant's subtree (idempotent), or (b) all of their
-// federated links are bound to the tenant and they are in no /t/ group outside
-// it. Anything else is ErrInviteRefused and changes nothing; a local user
-// joining a second tenant needs a consent step that does not exist yet. The
-// caller must answer a refusal like a success, so the call is no oracle for
-// "this email exists elsewhere".
+// A new email gets no Keycloak user. When the tenant owns the email's domain
+// (Registry.TenantOwnsEmailDomain), InviteUser records a pending invite
+// (InviteWriter) that expires after the invite TTL. The invitee's first login
+// through the tenant's IdP creates the user (nava-first-broker-login: create
+// if unique, add to the organization; nothing is ever linked by email), and
+// group sync then places that user in /t/<tenant_id> and consumes the invite
+// (PlaceInvitee). Nothing here calls Keycloak's invitation API.
+//
+// An existing user is accepted only when (a) already in the tenant's subtree
+// (idempotent), or (b) all of their federated links are bound to the tenant
+// and they are in no /t/ group outside it. Anything else is ErrInviteRefused
+// and changes nothing; a local user joining a second tenant needs a consent
+// step that does not exist yet. The caller must answer a refusal like a
+// success, so the call is no oracle for "this email exists elsewhere".
 func (d *Directory) InviteUser(ctx context.Context, tenantID uuid.UUID, email string) error {
 	if err := requireTenant(tenantID); err != nil {
 		return err
@@ -374,33 +427,10 @@ func (d *Directory) InviteUser(ctx context.Context, tenantID uuid.UUID, email st
 		if !owns {
 			return identity.ErrInviteRefused
 		}
-		r, err := d.api.do(ctx, d.runtime, http.MethodPost, "/users", "/users", nil,
-			kcUser{Username: email, Email: email, Enabled: true}, http.StatusCreated)
-		switch {
-		case errors.Is(err, identity.ErrAlreadyExists):
-			// A concurrent invite created the user between our lookup and
-			// our create: take the user that now exists, under the rules
-			// for an existing user. The other invite has not placed them in
-			// the group yet, so this one can be refused (ErrInviteRefused);
-			// the caller answers a refusal like a success and the other
-			// invite completes it.
-			if userID, err = d.findByEmail(ctx, email); err != nil {
-				return err
-			}
-			if userID == "" {
-				return identity.ErrAlreadyExists
-			}
-			if err := d.checkInvitable(ctx, tenantID, userID); err != nil {
-				return err
-			}
-		case err != nil:
-			return err
-		default:
-			var ok bool
-			if userID, ok = idFromLocation(r.header); !ok {
-				return errors.New("keycloak: created user has no location")
-			}
+		if d.invites == nil {
+			return errors.New("keycloak: invites are not configured")
 		}
+		return d.invites.RecordInvite(ctx, tenantID, email, d.now().Add(d.inviteTTL))
 	} else if err := d.checkInvitable(ctx, tenantID, userID); err != nil {
 		return err
 	}
@@ -750,6 +780,10 @@ func (d *Directory) CreateTenantOrg(ctx context.Context, tenantID uuid.UUID, ali
 	r, err := d.api.do(ctx, d.onboarding, http.MethodPost, "/organizations", "/organizations", nil,
 		map[string]any{"name": alias, "alias": alias, "enabled": true, "domains": doms}, http.StatusCreated)
 	if err != nil {
+		var se *statusError
+		if errors.As(err, &se) && se.status == http.StatusBadRequest && domainLinkedRE.MatchString(se.message) {
+			return "", ErrDomainLinked
+		}
 		return "", err
 	}
 	orgID, ok := idFromLocation(r.header)
@@ -816,13 +850,8 @@ func (d *Directory) CreateTenantOrg(ctx context.Context, tenantID uuid.UUID, ali
 		idp.TrustEmail || idp.FirstBrokerLoginFlowAlias != FirstBrokerLoginFlow || idp.PostBrokerLoginFlowAlias != "" {
 		return fail(errors.New("keycloak: created idp does not match the onboarding policy"))
 	}
-	var mappers []json.RawMessage
-	if err := d.api.getJSON(ctx, d.onboarding, "/identity-provider/instances/{alias}/mappers",
-		"/identity-provider/instances/"+url.PathEscape(idpAlias)+"/mappers", nil, &mappers); err != nil {
+	if err := d.ensureEmailVerifiedMapper(ctx, idpAlias, spec.ProviderID); err != nil {
 		return fail(err)
-	}
-	if len(mappers) != 0 {
-		return fail(errors.New("keycloak: new idp has a mapper"))
 	}
 	return orgID, nil
 }
@@ -840,6 +869,7 @@ func onlyLinkedTo(idp kcIdP, orgID string) bool {
 
 type kcIdP struct {
 	Alias                     string `json:"alias"`
+	ProviderID                string `json:"providerId"`
 	TrustEmail                bool   `json:"trustEmail"`
 	FirstBrokerLoginFlowAlias string `json:"firstBrokerLoginFlowAlias"`
 	PostBrokerLoginFlowAlias  string `json:"postBrokerLoginFlowAlias"`

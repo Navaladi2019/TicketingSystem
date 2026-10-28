@@ -18,9 +18,13 @@ import (
 // serves /api/v1/* only: /metrics, /healthz and /readyz live on the admin
 // listener (telemetry.NewAdminHandler). Every contract operation authenticates
 // through resolver (internal/platform/auth).
-func NewHandler(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.IdentityResolver) (http.Handler, error) {
+func NewHandler(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.IdentityResolver, opts ...Option) (http.Handler, error) {
+	var o options
+	for _, f := range opts {
+		f(&o)
+	}
 	mux := http.NewServeMux()
-	a, err := newAPI(log, tel, resolver, mux)
+	a, err := newAPI(log, tel, resolver, mux, o)
 	if err != nil {
 		return nil, err
 	}

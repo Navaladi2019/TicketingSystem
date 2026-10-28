@@ -169,7 +169,7 @@ flowchart TD
 Add a type to the allowed list only after a review that its messages are
 constants or ids. An activity panic is recovered in the guard and withheld,
 so neither its value nor its stack is recorded. A workflow panic is not: see
-AR-037. The full path table, with severities, is in
+AR-041. The full path table, with severities, is in
 `docs/security/temporal-ci6.md` ("Remaining history-write paths").
 
 ## Children, signals and `workflow_ref`
@@ -197,7 +197,7 @@ AR-037. The full path table, with severities, is in
   ([AR-025](../security/accepted-risks.md)).
 - Update arguments a handler's decoding drops (an unknown field, a payload
   past its last parameter) reach the history unchecked (TODO-010).
-- A workflow panic's value and stack reach `WorkflowTaskFailed` (AR-037);
+- A workflow panic's value and stack reach `WorkflowTaskFailed` (AR-041);
   activity heartbeat details (TODO-012) and user metadata summaries
   (TODO-013) are not checked.
 - Within 48 h the applied-signal set grows with every distinct signal; a flood

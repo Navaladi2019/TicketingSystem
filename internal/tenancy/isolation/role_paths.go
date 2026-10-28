@@ -323,8 +323,9 @@ func withProvisioning(ctx context.Context, c Cluster, fn func(*pgxpool.Pool) err
 	defer func() {
 		ctx := context.WithoutCancel(ctx)
 		_, e1 := super.Exec(ctx, "DELETE FROM tenant_identity_binding WHERE tenant_id = $1", TenantP)
+		_, e3 := super.Exec(ctx, "DELETE FROM pending_invite WHERE tenant_id = $1", TenantP)
 		_, e2 := super.Exec(ctx, "DELETE FROM tenants WHERE id = $1", TenantP)
-		err = errors.Join(err, e1, e2)
+		err = errors.Join(err, e1, e3, e2)
 	}()
 	pool, err := c.Pool("nava_onboard")
 	if err != nil {
@@ -336,7 +337,8 @@ func withProvisioning(ctx context.Context, c Cluster, fn func(*pgxpool.Pool) err
 // onboardCannotWriteActive: nava_onboard activates its own provisioning
 // tenant (control), and writes nothing to an active one: neither its own
 // (tenant A) nor another (tenant B), nor tenant A from tenant P's
-// transaction.
+// transaction. That includes pending_invite (T252a): no invite, re-invite or
+// extension; and tenant_email_domain (TICK-280): no release.
 func onboardCannotWriteActive(ctx context.Context, c Cluster) error {
 	return withProvisioning(ctx, c, func(pool *pgxpool.Pool) error {
 		var errs []error
@@ -348,6 +350,7 @@ func onboardCannotWriteActive(ctx context.Context, c Cluster) error {
 			return nil
 		})
 		errs = append(errs, err)
+		errs = append(errs, onboardInvitesOnlyProvisioning(ctx, pool))
 		for _, w := range []struct{ ctxTenant, target string }{
 			{TenantA, TenantA}, {TenantA, TenantB}, {TenantP, TenantA},
 		} {
@@ -356,6 +359,9 @@ func onboardCannotWriteActive(ctx context.Context, c Cluster) error {
 				for _, q := range []string{
 					"UPDATE tenants SET state = 'active' WHERE id = $1",
 					"UPDATE tenants SET state = state WHERE id = $1",
+					// T252a: tenant A has an invite for SharedInviteEmail, so
+					// the guard, not a missing row, must stop the extension.
+					extendInvites,
 				} {
 					n, err := execOne(ctx, tx, q, w.target)
 					if n != 0 || (err != nil && sqlState(err) != "42501") {
@@ -375,9 +381,58 @@ func onboardCannotWriteActive(ctx context.Context, c Cluster) error {
 				} else if code := sqlState(err); code != "23505" {
 					errs = append(errs, errors.Join(fmt.Errorf("%s: SQLSTATE %q, want 23505 from the primary key", what, code), err))
 				}
+				// T252a: no invite, new or re-invited, for an active tenant.
+				for _, q := range []string{inviteNew, reinviteShared} {
+					_, err := execOne(ctx, tx, q, w.target)
+					errs = append(errs, refused(fmt.Sprintf("in tenant %s, %s for %s", w.ctxTenant, q, w.target), err))
+				}
+				// TICK-280: no domain release for an active tenant. Tenants A
+				// and B own seeded domains, so the guard, not a missing row,
+				// must stop it.
+				if n, err := execOne(ctx, tx, releaseDomains, w.target); n != 0 || err != nil {
+					errs = append(errs, errors.Join(fmt.Errorf("in tenant %s, release %s's domains: %d rows", w.ctxTenant, w.target, n), err))
+				}
 				return errors.Join(errs...)
 			})
 			errs = append(errs, err)
+		}
+		return errors.Join(errs...)
+	})
+}
+
+// The pending_invite statements InviteUser runs (T252a), each with the
+// target tenant as $1.
+const (
+	inviteNew      = "INSERT INTO pending_invite (tenant_id, email, expires_at) VALUES ($1, 'ci9-invite@example.test', now() + interval '7 days')"
+	reinviteShared = `INSERT INTO pending_invite (tenant_id, email, expires_at) VALUES ($1, '` + SharedInviteEmail + `', now() + interval '30 days')
+		ON CONFLICT (tenant_id, email) DO UPDATE SET expires_at = EXCLUDED.expires_at WHERE pending_invite.consumed_at IS NULL`
+	extendInvites = "UPDATE pending_invite SET expires_at = now() + interval '30 days' WHERE tenant_id = $1"
+	// TICK-280's domain release, the same shape.
+	releaseDomains = "DELETE FROM tenant_email_domain WHERE tenant_id = $1"
+)
+
+// onboardInvitesOnlyProvisioning is the positive control for the
+// pending_invite guard (security finding 1 on PR #164): in provisioning
+// tenant P's own transaction, the insert, the re-invite upsert of that row
+// and the expires_at update each reach one row. Activated in the same
+// transaction, P takes none of them.
+func onboardInvitesOnlyProvisioning(ctx context.Context, pool *pgxpool.Pool) error {
+	return inTenant(ctx, pool, TenantP, func(tx pgx.Tx) error {
+		var errs []error
+		for _, q := range []string{inviteNew, reinviteShared, reinviteShared, extendInvites} {
+			if n, err := execOne(ctx, tx, q, TenantP); err != nil || n < 1 {
+				errs = append(errs, errors.Join(fmt.Errorf("control: in tenant P, %s: %d rows", q, n), err))
+			}
+		}
+		if n, err := execOne(ctx, tx, "UPDATE tenants SET state = 'active' WHERE id = $1", TenantP); err != nil || n != 1 {
+			return errors.Join(append(errs, fmt.Errorf("control: activate tenant P: %d rows", n), err)...)
+		}
+		for _, q := range []string{inviteNew, reinviteShared} {
+			_, err := execOne(ctx, tx, q, TenantP)
+			errs = append(errs, refused("in tenant P after activation, "+q, err))
+		}
+		if n, err := execOne(ctx, tx, extendInvites, TenantP); n != 0 || (err != nil && sqlState(err) != "42501") {
+			errs = append(errs, errors.Join(fmt.Errorf("in tenant P after activation, %s: %d rows", extendInvites, n), err))
 		}
 		return errors.Join(errs...)
 	})

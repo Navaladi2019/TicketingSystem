@@ -14,7 +14,7 @@ Verified on 2026-10-27 by the Quality, Testing & CI Advisor, on a fresh stack bu
 
 ## Try it (about 10 minutes, most of it the first image build)
 
-Needs Docker and Go 1.26, from a fresh clone of the story branch. **On Windows Git Bash, run `export MSYS_NO_PATHCONV=1` first.** Without it, `make demo-outbox` and `make operator-tunnel` fail with `stat C:/Program Files/Git/...` (TICK-277).
+Needs Docker and Go 1.26, from a fresh clone of the story branch. Windows Git Bash works as is: the targets set `MSYS_NO_PATHCONV=1` themselves (TICK-277).
 
 1. Start a fresh stack:
    ```sh
@@ -77,8 +77,7 @@ At the Temporal layer, CI-6 cases 7 to 11, 15 and 19 cover a worker that holds t
 
 ## Known limits
 
-- **Windows Git Bash:** `make demo-outbox` and `make operator-tunnel` need `export MSYS_NO_PATHCONV=1`, because MSYS rewrites the container paths. Fix task: TICK-277.
 - **Criterion 2, "applied once":** the demo shows ordering and exactly-once delivery into history. "Applied once" by a worker is proved only by the CI-6 cases above, because no worker runs the demo type.
 - **Committed CI-6 report:** `docs/security/ci6-report.md` is the 2026-10-23 T32a run (17 cases). The current 43-case report is the `ci6-report` CI artifact, uploaded since PR #214.
 - **Plain `docker compose up`:** this does not start the Temporal UI. `make stack-up` does, because the Makefile sets `COMPOSE_PROFILES=operator`.
-- Accepted risks recorded for this story: AR-035 to AR-039 in `docs/security/accepted-risks.md`.
+- Accepted risks recorded for this story: AR-039 to AR-043 in `docs/security/accepted-risks.md`.
