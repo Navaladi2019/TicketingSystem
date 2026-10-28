@@ -256,7 +256,7 @@
 <h2 id="limits">9. Known limits, honestly</h2>
 <ul>
   <li><span class="pill ok">Fixed</span> <strong>The 403 for company admins on operator routes.</strong> The operator routes were built in story S4, and S4 and S5 are now both on <code>main</code>. The test (T26-6) builds the handler with the operator routes on, sends a valid request with a company admin's badge, and requires 403 (tracked as TODO-010, now <strong>Fixed</strong>).</li>
-  <li><span class="pill info">Accepted risk AR-039 (low)</span> <strong>Self-service email change.</strong> If the account console were ever re-enabled, a user could change their own email without verification. That can't change their company, role or teams (tested), but it could block another company from inviting that address. Recommended fix at the login-system layer is recorded.</li>
+  <li><span class="pill info">Accepted risk AR-040 (low)</span> <strong>Self-service email change.</strong> If the account console were ever re-enabled, a user could change their own email without verification. That can't change their company, role or teams (tested), but it could block another company from inviting that address. Recommended fix at the login-system layer is recorded.</li>
   <li><span class="pill info">Deferred, with a trigger</span> <strong>TICK-220.</strong> When a person leaves Keycloak, the worker deletes their row. That's fine today. The first future table that points at a person without a delete rule would break sync for that company. The rule must be decided before any such table merges.</li>
   <li><span class="pill ok">Fixed</span> The attack suite now runs in GitHub Actions on every PR and keeps the <code>ci5-report</code> artifact (TODO-011).</li>
 </ul>
