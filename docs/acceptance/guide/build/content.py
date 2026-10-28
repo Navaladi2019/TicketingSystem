@@ -404,7 +404,7 @@ PAGES = [
              "expect": "`WorkflowExecutionStarted`, then two `WorkflowExecutionSignaled` events named `demo.note`, in the order of signal rows 1 and 2.",
              "fail": "One signal, three, or out of order."},
             {"do": "Run Postman **S7.1** and **S7.2**: the same checks through the Temporal UI's HTTP API.", "where": "Postman",
-             "expect": "Every `nava.smoke.relay` workflow id appears once, and the first one's history holds exactly two `demo.note` signals.",
+             "expect": "Every `nava.smoke.relay` workflow id appears once, and the demo workflow's history holds exactly two `demo.note` signals. S7.2 checks the workflow id in the environment variable `demo_workflow_id` (paste the `workflow id` the demo printed), or the most recently started demo workflow when it is empty.",
              "fail": "S7.1 has no executions: run the demo first."},
             {"do": "Optional: look at the outbox rows.", "where": "Git Bash",
              "pre": "docker compose exec -T postgres sh -c 'PGPASSWORD=$(cat /run/pg_superuser_password) psql -U pgadmin -d nava' <<'SQL'\nSELECT kind, attempts, dispatched_at IS NOT NULL AS dispatched FROM outbox ORDER BY created_at;\nSQL",

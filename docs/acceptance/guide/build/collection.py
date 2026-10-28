@@ -208,11 +208,12 @@ def s1():
             req("S1.1 Liveness: GET /healthz lists every dependency", "GET", "{{admin_url}}/healthz",
                 desc="nava-core's admin listener, through the tunnel. Every dependency is `ok`.",
                 tests="""
-pm.test('HTTP 200', () => pm.response.to.have.status(200));
+const down = 'a dependency is down or still starting: start the stack (docker compose up --wait) and check docker compose ps';
+pm.test('HTTP 200', () => pm.expect(pm.response.code, down).to.eql(200));
 const b = pm.response.json();
-pm.test('status ok', () => pm.expect(b.status).to.eql('ok'));
+pm.test('status ok', () => pm.expect(b.status, b.status === 'degraded' ? down : 'unexpected status').to.eql('ok'));
 pm.test('checks keycloak, postgres and temporal, all ok', () => {
-  pm.expect(b.checks).to.include({ keycloak: 'ok', postgres: 'ok', temporal: 'ok' });
+  pm.expect(b.checks, down).to.include({ keycloak: 'ok', postgres: 'ok', temporal: 'ok' });
 });
 """),
             req("S1.2 Readiness: GET /readyz", "GET", "{{admin_url}}/readyz",
@@ -614,7 +615,12 @@ const ids = ex.map(e => e.execution.workflowId);
 pm.test('each workflow id has exactly one run', () => pm.expect(new Set(ids).size).to.eql(ids.length));
 pm.test('ids are tenant-scoped: t:<tenant-a>:nava.smoke.relay:<start row>', () =>
   ids.forEach(i => pm.expect(i).to.match(/^t:{A}:nava\\.smoke\\.relay:[0-9a-f-]{{36}}$/)));
-const accept = ex.find(e => true);
+// S7.2 checks the demo's own workflow: demo_workflow_id from the environment
+// (the `workflow id` make demo-outbox prints), else the latest-started demo run.
+const wanted = pm.variables.get('demo_workflow_id');
+const accept = wanted ? ex.find(e => e.execution.workflowId === wanted)
+  : ex.slice().sort((x, y) => String(y.startTime).localeCompare(String(x.startTime)))[0];
+if (wanted) pm.test('demo_workflow_id is listed', () => pm.expect(accept, wanted).to.exist);
 if (accept) {{ pm.collectionVariables.set('wf_id', accept.execution.workflowId); pm.collectionVariables.set('wf_run', accept.execution.runId); }}"""),
             req("S7.2 Temporal: its history holds the start and two signals in commit order", "GET",
                 "{{temporal_ui_url}}/api/v1/namespaces/nava/workflows/{{wf_id}}/history",
@@ -690,6 +696,7 @@ def build():
                 ("kc_admin_password", "dev-only-admin", "secret"),
                 ("poll_interval_ms", "10000", "default"),
                 ("poll_limit_seconds", "660", "default"),
+                ("demo_workflow_id", "", "default"),
             ]
         ],
         "_postman_variable_scope": "environment",
