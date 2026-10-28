@@ -1,0 +1,28 @@
+name: ci
+on: pull_request
+jobs:
+  unit:
+    if: needs.changes.outputs.unit == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: go test -race
+        run: make test
+  stack:
+    runs-on: ubuntu-latest
+    steps:
+      - name: CI-5 adversarial identity suite (T19)
+        run: |
+          make stack-up
+          make   identity-attacks
+        continue-on-error: false
+      - name: CI-5 report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci5-report
+          path: ci5-report.md
+          if-no-files-found: error
+          retention-days: 5

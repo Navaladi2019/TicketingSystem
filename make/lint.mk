@@ -1,6 +1,6 @@
-.PHONY: lint check-openapi tools check-tools fmt-check vet lint-fixture check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck
+.PHONY: lint check-generate check-ci-steps check-openapi tools check-tools fmt-check vet lint-fixture check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck
 
-ci-lint: check-tools fmt-check vet lint lint-fixture check-taskfile check-pins check-openapi vulncheck-ci
+ci-lint: check-tools fmt-check vet lint lint-fixture check-taskfile check-pins check-generate check-ci-steps check-openapi vulncheck-ci
 
 # golangci-lint, then the navalint analyzers (tools/navalint, its own module)
 # as go vet's tool, then the ADR-002-E1 nolint allow-list gate, then the decision-log index check.
@@ -9,6 +9,18 @@ lint:
 	sh scripts/ci/navalint.sh
 	sh scripts/ci/nolint-allowlist.sh
 	go run ./tools/docindex -check
+
+# Fails when api/api.gen.go is not what api/openapi.yaml generates (TICK-297):
+# regenerates it, then any difference from the committed file is drift. Run
+# make generate and commit the result.
+check-generate:
+	go generate ./api/... && git diff --exit-code -- api/
+
+# Fails when .github/workflows/ci.yml stops running a step listed in
+# tools/ci/cisteps/required.yaml (TICK-297): a suite or report upload removed,
+# disabled or allowed to fail.
+check-ci-steps:
+	go run ./tools/ci/cisteps
 
 # Additive-only rule for /api/v1: fails when api/openapi.yaml removes or
 # narrows anything the base branch (BASE, default origin/main) offers. A

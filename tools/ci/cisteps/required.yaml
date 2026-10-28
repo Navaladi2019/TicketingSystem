@@ -1,0 +1,56 @@
+# The CI steps .github/workflows/ci.yml must keep (TICK-297). make check-ci-steps
+# fails when a step below is missing from its job, renamed to another target,
+# disabled (`if: false`), allowed to fail (`continue-on-error`) or, for a report,
+# no longer uploaded with if-no-files-found: error.
+#
+# This file is the one list. Add a step here when a suite or report must not be
+# dropped silently; removing one is a deliberate edit, reviewed like ci.yml.
+#
+#   job       the ci.yml job id
+#   run       a line of the step's run: block, exactly (a make target)
+#   artifact  the name of an actions/upload-artifact step
+#   why       what goes unchecked without it
+steps:
+  # The lint gates that guard the rest.
+  - job: lint
+    run: make check-generate
+    why: api/api.gen.go drifts from api/openapi.yaml unnoticed (TICK-297)
+  - job: lint
+    run: make check-ci-steps
+    why: this list stops being enforced (TICK-297)
+  - job: lint
+    run: make check-openapi
+    why: /api/v1 loses an operation or field without review
+
+  # suiteran: a registered isolation suite that runs zero tests fails the step (TICK-230).
+  - job: unit
+    run: make test
+    why: go test -race under suiteran
+  - job: temporal-server
+    run: make temporal-server-test
+    why: the temporal-server module's tests under suiteran
+
+  # The tenant isolation suite (T11, ADR-001 CI-2).
+  - job: integration
+    run: make test-integration
+    why: integration tests and then the isolation suite, under suiteran
+  - job: integration
+    artifact: isolation-report
+    why: the CI-2 isolation report
+
+  # Stack suites and their reports.
+  - job: stack
+    run: make stack-test-sdk
+    why: the CI-6 and CI-7 SDK suite, under suiteran
+  - job: stack
+    artifact: ci6-report
+    why: the CI-6 report (TICK-49)
+  - job: stack
+    run: make stack-test-identity
+    why: realm nava, operator custody and the Keycloak adapter
+  - job: stack
+    run: make identity-attacks
+    why: the CI-5 adversarial identity suite (T19), checked with suiteran -in
+  - job: stack
+    artifact: ci5-report
+    why: the CI-5 report
