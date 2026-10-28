@@ -12,8 +12,10 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/api"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/onboard"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/idempotency"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/ratelimit"
 )
 
 // operatorPrefix is the part of the contract served to operators only. Its
@@ -39,6 +41,9 @@ type options struct {
 	// operatorOnly makes every route but /api/v1/operator/* answer 404: the
 	// nava-onboard process mounts the operator routes only.
 	operatorOnly bool
+	// rate and shared configure the per-tenant limiter (T24).
+	rate   config.RateLimit
+	shared ratelimit.Limiter
 }
 
 // OperatorOnly restricts the handler to the operator routes.
