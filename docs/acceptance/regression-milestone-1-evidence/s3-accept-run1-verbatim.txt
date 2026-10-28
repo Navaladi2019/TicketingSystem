@@ -1,0 +1,70 @@
+baseline: GET /api/v1/me with no token -> 401 {"type":"urn:nava:problem:invalid_token","title":"Invalid token","status":401,"code":"invalid_token","detail":"The access token is missing, expired or invalid.","instance":"urn:nava:request:bfa9558af0b7836c5b43c0e5abd49474"}
+seeded:
+tenant 00000000-0000-4000-8000-0000000000a1 active
+tenant 00000000-0000-4000-8000-0000000000b1 active
+binding 00000000-0000-4000-8000-0000000000a1 http://keycloak:8080/realms/nava org=00000000-0000-4000-8000-0000000000a1
+binding 00000000-0000-4000-8000-0000000000b1 http://keycloak:8080/realms/nava org=00000000-0000-4000-8000-0000000000b1
+principal 00000000-0000-4000-8000-0000000000a1 admin@tenant-a.test id=523255c4-d17c-4891-8b7a-27633c316947
+principal 00000000-0000-4000-8000-0000000000a1 alice@tenant-a.test id=e236cc3e-bdde-45b9-ad83-2a2d338b9362
+principal 00000000-0000-4000-8000-0000000000b1 bob@tenant-b.test id=70a3387d-8388-4265-a5e6-4fe5dad60f4d
+group 00000000-0000-4000-8000-0000000000a1 /t/00000000-0000-4000-8000-0000000000a1/ou/eng/platform id=5cbfcb0f-be83-424f-abf5-d589070aeff9 members=1
+group 00000000-0000-4000-8000-0000000000a1 /t/00000000-0000-4000-8000-0000000000a1/service-desk id=7ebfea97-28dc-4544-84b7-931e9f6ff22e members=1
+group 00000000-0000-4000-8000-0000000000b1 /t/00000000-0000-4000-8000-0000000000b1/ou/eng/platform id=1984fd50-6dda-48f3-9252-2d585f3d9f44 members=1
+group 00000000-0000-4000-8000-0000000000b1 /t/00000000-0000-4000-8000-0000000000b1/service-desk id=6860fab6-3150-477e-be16-933b6ce5ecde members=1
+
+## Criterion 1: GET /api/v1/me as Alice shows tenant A and her groups
+  alice access token claims: {"aud": "nava-api", "azp": "nava-web", "iss": "http://localhost:28081/realms/nava", "organization": {"tenant-a": {"id": "00000000-0000-4000-8000-0000000000a1"}}, "typ": "Bearer"}
+  FAIL alice -> tenant A, her one group
+       -> 401 {"type":"urn:nava:problem:tenant_unresolved","title":"Tenant unresolved","status":401,"code":"tenant_unresolved","detail":"The request could not be tied to a tenant.","instance":"urn:nava:request:d9a322ac0b3676fb3e592eff2ff896bb"}
+  FAIL admin@tenant-a -> tenant A, no groups
+       -> 401 {"type":"urn:nava:problem:tenant_unresolved","title":"Tenant unresolved","status":401,"code":"tenant_unresolved","detail":"The request could not be tied to a tenant.","instance":"urn:nava:request:e23031da90d920a2ff2a7bdbe58de814"}
+
+## Story step 3: tenant B's id in a header, the query string or the body still returns tenant A
+  FAIL header X-Tenant-Id / X-Nava-Tenant: B
+       -> 401 {"type":"urn:nava:problem:tenant_unresolved","title":"Tenant unresolved","status":401,"code":"tenant_unresolved","detail":"The request could not be tied to a tenant.","instance":"urn:nava:request:ed4edb1a1556541fa1e06d13ca900b08"}
+  FAIL query ?tenant_id=B&tenant=B
+       -> 401 {"type":"urn:nava:problem:tenant_unresolved","title":"Tenant unresolved","status":401,"code":"tenant_unresolved","detail":"The request could not be tied to a tenant.","instance":"urn:nava:request:6bf4ce53d719d24bb01e11f548194534"}
+  FAIL JSON body {tenant_id: B} on GET
+       -> 401 {"type":"urn:nava:problem:tenant_unresolved","title":"Tenant unresolved","status":401,"code":"tenant_unresolved","detail":"The request could not be tied to a tenant.","instance":"urn:nava:request:d940ecfefab8fc0753d1ce0c79456332"}
+  FAIL baggage nava.tenant_id=B
+       -> 401 {"type":"urn:nava:problem:tenant_unresolved","title":"Tenant unresolved","status":401,"code":"tenant_unresolved","detail":"The request could not be tied to a tenant.","instance":"urn:nava:request:20cb40505a5d995d0306750629ada116"}
+  FAIL POST /api/v1/records with body tenant_id B does not reach B
+       -> 401 {"type":"urn:nava:problem:tenant_unresolved","title":"Tenant unresolved","status":401,"code":"tenant_unresolved","detail":"The request could not be tied to a tenant.","instance":"urn:nava:request:53ebfaf4edf71f4576848c9a54073873"}
+
+## Criterion 2: a token naming two organizations, or none, gets 401 tenant_unresolved
+  two-org token claims: {"aud": "nava-api", "azp": "nava-web", "iss": "http://localhost:28081/realms/nava", "organization": {"tenant-a": {"id": "00000000-0000-4000-8000-0000000000a1"}, "tenant-b": {"id": "00000000-0000-4000-8000-0000000000b1"}}, "typ": "Bearer"}
+  two-org token claims, default scope: {"aud": "nava-api", "azp": "nava-web", "iss": "http://localhost:28081/realms/nava", "typ": "Bearer"}
+  no-org token claims:  {"aud": "nava-api", "azp": "nava-web", "iss": "http://localhost:28081/realms/nava", "typ": "Bearer"}
+  PASS two organizations -> 401 tenant_unresolved
+       -> 401 WWW-Authenticate: Bearer {"type":"urn:nava:problem:tenant_unresolved","title":"Tenant unresolved","status":401,"code":"tenant_unresolved","detail":"The request could not be tied to a tenant.","instance":"urn:nava:request:8d9e26e89ee810cabbe4064a598b7895"}
+       logged reason: tenant_unresolved: organization count
+  PASS two organizations, default scope (claim omitted) -> 401 tenant_unresolved
+       -> 401 WWW-Authenticate: Bearer {"type":"urn:nava:problem:tenant_unresolved","title":"Tenant unresolved","status":401,"code":"tenant_unresolved","detail":"The request could not be tied to a tenant.","instance":"urn:nava:request:65a2d651cab216530c7ff19099f222a9"}
+       logged reason: tenant_unresolved: no organization
+  PASS no organization -> 401 tenant_unresolved
+       -> 401 WWW-Authenticate: Bearer {"type":"urn:nava:problem:tenant_unresolved","title":"Tenant unresolved","status":401,"code":"tenant_unresolved","detail":"The request could not be tied to a tenant.","instance":"urn:nava:request:9c9ec6a594c584811cf67246a75bd45f"}
+       logged reason: tenant_unresolved: no organization
+
+## Criterion 3: an ID token used as an access token, and a token from an issuer not on the allow-list, are rejected
+  alice ID token claims: {"aud": "nava-web", "azp": "nava-web", "iss": "http://localhost:28081/realms/nava", "typ": "ID"}
+  PASS ID token as bearer -> 401 invalid_token
+       -> 401 WWW-Authenticate: Bearer {"type":"urn:nava:problem:invalid_token","title":"Invalid token","status":401,"code":"invalid_token","detail":"The access token is missing, expired or invalid.","instance":"urn:nava:request:9e26610529a21d7da98d9ed2dc996901"}
+       logged reason: invalid_token: audience
+  untrusted-issuer token claims: {"aud": "nava-api", "azp": "nava-web", "iss": "http://localhost:28081/realms/nava", "organization": {"tenant-a": {"id": "00000000-0000-4000-8000-0000000000a1"}}, "typ": "Bearer"}
+  FAIL same realm, issuer http://127.0.0.1:<port>/realms/nava (not allow-listed) -> 401 invalid_token
+       -> 401 WWW-Authenticate: Bearer {"type":"urn:nava:problem:tenant_unresolved","title":"Tenant unresolved","status":401,"code":"tenant_unresolved","detail":"The request could not be tied to a tenant.","instance":"urn:nava:request:b3c6e44f1f21e7bce97566e205107ec6"}
+       logged reason: tenant_unresolved: no tenant binding
+  master-realm token claims: {"azp": "admin-cli", "iss": "http://localhost:28081/realms/master", "typ": "Bearer"}
+  PASS realm master, issuer http://keycloak:8080/realms/master -> 401 invalid_token
+       -> 401 WWW-Authenticate: Bearer {"type":"urn:nava:problem:invalid_token","title":"Invalid token","status":401,"code":"invalid_token","detail":"The access token is missing, expired or invalid.","instance":"urn:nava:request:cdc2967e428949a382b02ca8a441f7f4"}
+       logged reason: invalid_token: issuer
+
+## Cross-tenant: a tenant B user gets tenant B and never sees tenant A data
+  FAIL bob -> tenant B, his one group
+       -> 401 {"type":"urn:nava:problem:tenant_unresolved","title":"Tenant unresolved","status":401,"code":"tenant_unresolved","detail":"The request could not be tied to a tenant.","instance":"urn:nava:request:1aa3f36ab4187bff299a062248a2a743"}
+  PASS bob's groups and alice's groups are disjoint
+       bob=None alice=['5cbfcb0f-be83-424f-abf5-d589070aeff9', '7ebfea97-28dc-4544-84b7-931e9f6ff22e']
+  FAIL bob with header/query/body naming A -> still tenant B
+       -> 401 {"type":"urn:nava:problem:tenant_unresolved","title":"Tenant unresolved","status":401,"code":"tenant_unresolved","detail":"The request could not be tied to a tenant.","instance":"urn:nava:request:a54c4061027e59b9949577847f9af0cc"}
+
+result: FAIL: alice -> tenant A, her one group; admin@tenant-a -> tenant A, no groups; header X-Tenant-Id / X-Nava-Tenant: B; query ?tenant_id=B&tenant=B; JSON body {tenant_id: B} on GET; baggage nava.tenant_id=B; POST /api/v1/records with body tenant_id B does not reach B; same realm, issuer http://127.0.0.1:<port>/realms/nava (not allow-listed) -> 401 invalid_token; bob -> tenant B, his one group; bob with header/query/body naming A -> still tenant B
