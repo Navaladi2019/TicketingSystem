@@ -507,7 +507,7 @@ t_temporal_health() {
 # container.
 issue_code() { # HTTP status of a token request; empty when none came back
     compose exec -T nava-core wget -q -S -O /dev/null -T 5         --post-data 'grant_type=client_credentials&client_id=nava-platform&client_secret=dev-only-platform-secret'         http://keycloak:8080/realms/nava/protocol/openid-connect/token 2>&1 |
-        sed -n 's/^ *HTTP\/[0-9.]* \([0-9]*\).*//p' | head -n 1 || true
+        sed -n 's/^ *HTTP\/[0-9.]* \([0-9]*\).*/\1/p' | head -n 1 || true
 }
 t_keycloak_restart() {
     await_check keycloak ok 120
