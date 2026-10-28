@@ -116,9 +116,9 @@ type Cluster interface {
 type Server interface {
 	// Mint signs an access token from the test realm, valid for five minutes.
 	Mint(tok Token) string
-	// Do sends an /api/v1 request with token as its bearer and returns the
-	// status and body.
-	Do(ctx context.Context, method, path, token, body string) (int, string)
+	// Do sends an /api/v1 request with token as its bearer and header as
+	// extra request headers (nil for none), and returns the status and body.
+	Do(ctx context.Context, method, path, token, body string, header http.Header) (int, string)
 	// ResolveOperator is the adapter's operator verdict on token, the check
 	// the operator routes authenticate with: nil for an allow-listed
 	// operator.

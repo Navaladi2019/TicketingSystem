@@ -119,10 +119,15 @@ func (r *apiRunner) Mint(tok Token) string {
 }
 
 // Do implements Server.
-func (r *apiRunner) Do(ctx context.Context, method, path, token, body string) (int, string) {
+func (r *apiRunner) Do(ctx context.Context, method, path, token, body string, header http.Header) (int, string) {
 	req := httptest.NewRequestWithContext(ctx, method, path, strings.NewReader(body))
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	for k, vs := range header {
+		for _, v := range vs {
+			req.Header.Add(k, v)
+		}
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
@@ -218,7 +223,7 @@ func (r *apiRunner) runShape(t *testing.T, c *HTTPCall) (status, detail string) 
 		issuer = r.untrusted
 	}
 	token := issuer.Mint(t, keycloaktest.Token{Subject: s.Subject, Orgs: s.Orgs, IdP: s.IdP})
-	code, body := r.Do(t.Context(), c.Method, c.Path, token, c.Body)
+	code, body := r.Do(t.Context(), c.Method, c.Path, token, c.Body, nil)
 	if code != http.StatusUnauthorized {
 		return statusFail, fmt.Sprintf("%d, want 401 for this token: %s", code, body)
 	}

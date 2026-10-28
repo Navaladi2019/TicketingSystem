@@ -5,6 +5,7 @@
 package server
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 
@@ -18,18 +19,21 @@ import (
 // serves /api/v1/* only: /metrics, /healthz and /readyz live on the admin
 // listener (telemetry.NewAdminHandler). Every contract operation authenticates
 // through resolver (internal/platform/auth); GET /api/v1/me reads the caller's
-// group paths through paths.
+// group paths through paths, which may be nil only with OperatorOnly.
 func NewHandler(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.IdentityResolver, paths identity.GroupPathReader, opts ...Option) (http.Handler, error) {
 	var o options
 	for _, f := range opts {
 		f(&o)
 	}
+	if paths == nil && !o.operatorOnly {
+		return nil, errors.New("server: paths is nil; only an OperatorOnly handler may omit it")
+	}
 	mux := http.NewServeMux()
-	a, err := newAPI(log, tel, resolver, paths, mux, o)
+	h, err := newAPI(log, tel, resolver, paths, mux, o)
 	if err != nil {
 		return nil, err
 	}
-	return httpobs.Middleware(log, tel, a.Wrap(mux)), nil
+	return httpobs.Middleware(log, tel, h), nil
 }
 
 // New returns an *http.Server on addr with every timeout set from cfg.
