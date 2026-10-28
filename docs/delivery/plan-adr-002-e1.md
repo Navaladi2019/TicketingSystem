@@ -2,9 +2,9 @@
 type: plan
 id: PLAN-002-E1
 title: Implementing ADR-002 erratum E1 (a line-scoped nolint pinned by a CI gate replaces the api.go forbidigo exclusion)
-adr: "[[ADR-002-E1-line-scoped-nolint]] (PROPOSED, awaiting nava's sign-off on TICK-272; PR #225)"
+adr: "[[ADR-002-E1-line-scoped-nolint]] (APPROVED by nava 2026-10-28, TICK-272; PR #225 merged)"
 issue: TICK-301
-status: DRAFT, awaiting nava's approval (TICK-301)
+status: APPROVED by nava 2026-10-28 (TICK-301)
 date: 2026-10-28
 owner: Technical Lead
 ---
