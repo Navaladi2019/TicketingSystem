@@ -2,6 +2,14 @@
 
 Delivery decisions that change a task's contract, newest first.
 
+## 2026-10-28: migration order is checked against `main`, not the pull request's base
+- **Decided by:** the Technical Lead on TICK-309, after PR #244 (TICK-281/TICK-284) went red only on `TestNewMigrationsLaterThanBase`.
+- **Decision:** every pull request, including one into a story branch, checks its migrations against `origin/main`. A migration is new when `main` does not have it, and it must be later than `main`'s newest version. The ci `unit` job sets `BASE=origin/main` for every event, no longer `github.base_ref`. The invariant (TICK-299) protects databases that applied shipped migrations, and only `main` ships.
+- **Allowed:** a story renumbers its own unshipped migrations (S5: `00008`–`00010` → `00010`–`00012`).
+- **Accepted risk:** a long-lived database built from a story branch must be rebuilt after the story renumbers its migrations.
+- **Unchanged:** `ci-stages`, `review-paths` and `check-openapi` still diff against the pull request's base.
+- **Dissent:** none.
+
 ## 2026-10-28: PLAN-002-E1 implements ADR-002-E1 as one task, TICK-302, under S5
 - **Decided by:** the Technical Lead on TICK-301 (`docs/delivery/plan-adr-002-e1.md`).
 - **Decision:** ADR-002-E1 ships as TICK-302 (`qa`, reviewed by the Security & Multi-Tenancy Reviewer). It waits in `backlog` until nava signs TICK-272. It targets the S5 story branch, because the `api.go` exclusion exists only there, so `main` never carries R-b. TICK-302, TICK-298 and TICK-300 all edit `internal/server/api.go`; whichever merges second rebases. `docs/security/accepted-risks.md` stays with PR #225, which adds AR-039.
