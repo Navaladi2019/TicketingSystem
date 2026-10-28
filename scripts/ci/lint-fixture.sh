@@ -46,3 +46,20 @@ test "$n" -eq "$want" || { echo "lint-fixture: expected $want idpclaims findings
 echo "$out" | grep -q 'Keycloak claim "organization"' || { echo "lint-fixture: the organization claim read was not reported"; exit 1; }
 echo "$out" | grep -q "Keycloak admin API" || { echo "lint-fixture: the admin API path was not reported"; exit 1; }
 echo "lint-fixture: ok, $n idpclaims findings"
+
+# ADR-002-E1: api.go carries one line-scoped waiver, not a file exclusion, so
+# the raw http.Client ban must still fire in that very file. Append a raw
+# client use to a copy-restored api.go and expect exactly that finding.
+api=internal/server/api.go
+bak=$(mktemp)
+cp "$api" "$bak"
+trap 'cp "$bak" "$api"; rm -f "$bak"' EXIT
+printf '
+// LintFixtureRawClient exists only while lint-fixture.sh runs.
+func LintFixtureRawClient() *http.Client { return http.DefaultClient }
+' >> "$api"
+grep -q '"net/http"' "$api" || sed -i '0,/^import (/s//import (\n\t"net\/http"/' "$api"
+code=0; out=$(${GOLANGCI_LINT:-golangci-lint} run ./internal/server/ 2>&1) || code=$?
+echo "$out"
+echo "$out" | grep -q "api.go:.*use telemetry.NewOutboundClient" || { echo "lint-fixture: the http.Client ban did not fire in $api"; exit 1; }
+echo "lint-fixture: ok, http.Client ban fires in $api"
