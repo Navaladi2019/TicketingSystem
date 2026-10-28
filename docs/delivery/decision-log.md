@@ -10,6 +10,24 @@ Delivery decisions that change a task's contract, newest first.
 - **Unchanged:** `ci-stages`, `review-paths` and `check-openapi` still diff against the pull request's base.
 - **Dissent:** none.
 
+## 2026-10-28: Merge safety: `main` is protected and tested after every merge; shared files are split
+- **Decided by:** the Technical Lead on TICK-288 (`docs/delivery/merge-safety.md`), at the request of vknavaladi after S5 (PR #221) and S7 (PR #223) broke on late merges of `main`.
+- **Decision:**
+  - D1: `main` gets branch protection. Every `ci.yml` job is required, the branch must be up to date, and direct pushes are blocked. The owner applies it.
+  - D2: `ci.yml` runs on `push` to `main` and `TICK-*`, and a red `main` opens a P0 issue (TICK-289).
+  - D3: new migrations use timestamp versions, and `task test` fails on a duplicate or malformed version (TICK-290).
+  - D4–D7: `Makefile`, `api/openapi.yaml`, the shared doc tables and the stack tests are split so each story adds new files (TICK-293 to TICK-296).
+  - D8: the Technical Lead merges `main` into every open story branch after each merge to `main`.
+  - D9: a test checks that every token-validating service trusts the pinned issuer (TICK-291), and every landed story suite runs on `main` (TICK-292).
+  - Review standard: a PR merges only if it is green against the current tip of its base branch.
+- **Sequencing:** D1, TICK-289, TICK-290 and TICK-291 start now and do not touch `Makefile`. The splits wait for TICK-47 and TICK-49 to land, so that the split itself does not conflict with them.
+- **Supersedes:** the 2026-10-25 "no run on push to main" decision (its accepted trade-off is what let S5 and S7 break unseen; vknavaladi approved the change on TICK-288), and the 2026-10-26 deferral of branch protection on `main` (TICK-231 entry). Pull requests keep the change-based job selection. Story branches stay unprotected.
+- **Applied (2026-10-28):** protection is on `main` (the eight `ci.yml` jobs are required, the branch must be up to date, admins are included, no force pushes); the Technical Lead applied it with the owner's go-ahead on TICK-288. A new `ci.yml` job must be added to the required list in the same PR.
+- **Deferred:**
+  - Merge queue. Trigger: more than three PRs a day waiting on rebases.
+  - One file per entry for `todo.md` and `accepted-risks.md`. Trigger: a union merge produces a malformed table.
+- **Dissent:** none.
+
 ## 2026-10-28: PLAN-002-E1 implements ADR-002-E1 as one task, TICK-302, under S5
 - **Decided by:** the Technical Lead on TICK-301 (`docs/delivery/plan-adr-002-e1.md`).
 - **Decision:** ADR-002-E1 ships as TICK-302 (`qa`, reviewed by the Security & Multi-Tenancy Reviewer). It waits in `backlog` until nava signs TICK-272. It targets the S5 story branch, because the `api.go` exclusion exists only there, so `main` never carries R-b. TICK-302, TICK-298 and TICK-300 all edit `internal/server/api.go`; whichever merges second rebases. `docs/security/accepted-risks.md` stays with PR #225, which adds AR-039.
