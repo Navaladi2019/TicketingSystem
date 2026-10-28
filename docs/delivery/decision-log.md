@@ -2,9 +2,16 @@
 
 Delivery decisions that change a task's contract, newest first.
 
+## 2026-10-28: PLAN-002-E1 implements ADR-002-E1 as one task, TICK-302, under S5
+- **Decided by:** the Technical Lead on TICK-301 (`docs/delivery/plan-adr-002-e1.md`).
+- **Decision:** ADR-002-E1 ships as TICK-302 (`qa`, reviewed by the Security & Multi-Tenancy Reviewer). It waits in `backlog` until nava signs TICK-272. It targets the S5 story branch, because the `api.go` exclusion exists only there, so `main` never carries R-b. TICK-302, TICK-298 and TICK-300 all edit `internal/server/api.go`; whichever merges second rebases. `docs/security/accepted-risks.md` stays with PR #225, which adds AR-039.
+- **Fallback:** if TICK-272 is still unsigned when every other S5 task is `done`, TICK-302 leaves S5 and targets `main` after S5 merges, so S5 acceptance is not held up.
+- **Deferred:** the `navalint` `grouppaths` analyzer (R-e). Trigger: a second `forbidigo` waiver is needed, or the directive line is moved once. Owner: the Solution Architect.
+- **Dissent:** none.
+
 ## 2026-10-27: a principal who leaves the directory is tombstoned, not deleted
 - **Decided by:** the Postgres & Data Modeling Specialist on TICK-220, on QA finding 2 of the T25 review (`docs/reviews/tick-78-groupsync-worker.md`, PR #121).
-- **Decision:** option 1, soft-delete. `principals.deleted_at` (migrations `00008_principal_tombstone.sql` and `00009_principal_tombstone_validate.sql`) marks a principal removed from the Keycloak directory. `CHECK (deleted_at IS NULL OR NOT enabled)` makes every tombstone disabled, so the resolver's existing `enabled` test refuses it with no new read. Group sync tombstones the principal (`enabled = false, deleted_at = now()`) and removes its memberships. It no longer deletes the row. A user who comes back keeps the same row and id, and sync clears `deleted_at`.
+- **Decision:** option 1, soft-delete. `principals.deleted_at` (migrations `00010_principal_tombstone.sql` and `00011_principal_tombstone_validate.sql`) marks a principal removed from the Keycloak directory. `CHECK (deleted_at IS NULL OR NOT enabled)` makes every tombstone disabled, so the resolver's existing `enabled` test refuses it with no new read. Group sync tombstones the principal (`enabled = false, deleted_at = now()`) and removes its memberships. It no longer deletes the row. A user who comes back keeps the same row and id, and sync clears `deleted_at`.
 - **Reason:**
   - The tables coming next point at people: ticket reporter and assignee, comment author, audit actor. With option 2 they would need `CASCADE`, which deletes a ticket when its reporter leaves, or `SET NULL`, which erases who did what. Both are wrong for a ticketing system. With a tombstone they keep the default `NO ACTION` and the history stays intact.
   - It is cheaper to reverse. Turning tombstones into hard deletes later is one `DELETE`. Rebuilding authorship after `SET NULL` cannot be done.

@@ -22,7 +22,8 @@ import (
 
 // replayHistory is the history of one run of collect in tenantA: started with
 // tenantA's header, then "add" with tenantB's header (a deny when it ran),
-// "add" and "done" with tenantA's, then completed.
+// "add" and "done" with tenantA's, then completed with no result (a result is
+// checked too, TICK-245).
 func replayHistory(t *testing.T) *historypb.History {
 	t.Helper()
 	dc := converter.GetDefaultDataConverter()
@@ -81,7 +82,7 @@ func replayHistory(t *testing.T) *historypb.History {
 	task()
 	add(enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED, func(e *historypb.HistoryEvent) {
 		e.Attributes = &historypb.HistoryEvent_WorkflowExecutionCompletedEventAttributes{WorkflowExecutionCompletedEventAttributes: &historypb.WorkflowExecutionCompletedEventAttributes{
-			Result: payloads([]string{"own"}), WorkflowTaskCompletedEventId: int64(len(events)),
+			WorkflowTaskCompletedEventId: int64(len(events)),
 		}}
 	})
 	return &historypb.History{Events: events}
@@ -105,10 +106,10 @@ func TestReplayRecordsNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	var applied []string
-	r.RegisterWorkflowWithOptions(func(ctx workflow.Context) ([]string, error) {
+	r.RegisterWorkflowWithOptions(func(ctx workflow.Context) error {
 		got, err := collect(ctx)
 		applied = got
-		return got, err
+		return err
 	}, workflow.RegisterOptions{Name: "collect"})
 
 	err = r.ReplayWorkflowHistoryWithOptions(nil, replayHistory(t), worker.ReplayWorkflowHistoryOptions{

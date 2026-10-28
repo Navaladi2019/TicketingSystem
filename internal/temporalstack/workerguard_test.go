@@ -10,9 +10,9 @@ package temporalstack
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -25,77 +25,100 @@ import (
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
 	"github.com/Navaladi2019/TicketingSystem/internal/workerguard"
 )
 
-// guardedInput selects what guardedWorkflow does; Seen and Applied carry the
-// applied-signal set across continue-as-new.
+// guardedInput selects what guardedWorkflow does. A child gets no arguments
+// and a continued run gets the workerguard.RunInput its first run carried
+// (the CI-7 argument rule accepts nothing else), so neither has a Mode.
 type guardedInput struct {
-	Mode    string
-	Seen    workerguard.AppliedSignals
-	Applied []string
+	Mode string `json:"mode,omitempty"`
+	workerguard.RunInput
+}
+
+// guardedRefs is what guardedSignals carries in RunInput.Refs, and what
+// guardedWorkflow returns: outbox ids only (a result is recorded too, so the
+// guard accepts nothing else, TICK-245). Empty, it encodes as {}.
+type guardedRefs struct {
+	Applied []string `json:"applied,omitempty"`
 }
 
 // guardedWorkflow is registered as the allow-listed nava.smoke.Echo.
-//   - "leaf" returns "leaf";
+//   - "leaf", or no mode in a first run (a child), completes;
 //   - "child-helper" starts a "leaf" child named with ChildWorkflowID;
 //   - "child-default" starts one with the SDK's default id;
-//   - "signals" applies "outbox" signals once each by outbox id, continues as
-//     new on "rollover", and returns what it applied on "done"; update "inc"
-//     counts too.
-func guardedWorkflow(ctx workflow.Context, in guardedInput) (string, error) {
-	switch in.Mode {
+//   - "signals", or no mode in a continued run, applies "outbox" signals once
+//     each by outbox id, continues as new on "rollover", and returns what it
+//     applied on "done"; update "inc" is accepted too.
+func guardedWorkflow(ctx workflow.Context, in guardedInput) (guardedRefs, error) {
+	mode := in.Mode
+	if mode == "" {
+		mode = "leaf"
+		if workflow.GetInfo(ctx).ContinuedExecutionRunID != "" {
+			mode = "signals"
+		}
+	}
+	switch mode {
 	case "leaf":
-		return "leaf", nil
+		return guardedRefs{}, nil
 	case "child-helper", "child-default":
 		opts := workflow.ChildWorkflowOptions{TaskQueue: taskQueue}
-		if in.Mode == "child-helper" {
+		if mode == "child-helper" {
 			id, err := workerguard.ChildWorkflowID(ctx, "leaf")
 			if err != nil {
-				return "", err
+				return guardedRefs{}, err
 			}
 			opts.WorkflowID = id
 		}
-		var out string
-		err := workflow.ExecuteChildWorkflow(workflow.WithChildOptions(ctx, opts), echoType, guardedInput{Mode: "leaf"}).Get(ctx, &out)
-		return "child:" + out, err
+		return guardedRefs{}, workflow.ExecuteChildWorkflow(workflow.WithChildOptions(ctx, opts), echoType).Get(ctx, nil)
 	case "signals":
-		return guardedSignals(ctx, in)
+		return guardedSignals(ctx, in.RunInput)
 	}
-	return "", errors.New("unknown mode")
+	return guardedRefs{}, errors.New("unknown mode")
 }
 
-func guardedSignals(ctx workflow.Context, in guardedInput) (string, error) {
-	updates := 0
-	if err := workflow.SetUpdateHandler(ctx, "inc", func(workflow.Context) (int, error) { updates++; return updates, nil }); err != nil {
-		return "", err
+func guardedSignals(ctx workflow.Context, in workerguard.RunInput) (guardedRefs, error) {
+	var refs guardedRefs
+	if in.Refs != nil {
+		if err := json.Unmarshal(in.Refs, &refs); err != nil {
+			return guardedRefs{}, err
+		}
 	}
-	outbox := workflow.GetSignalChannel(ctx, "outbox")
+	if err := workflow.SetUpdateHandler(ctx, "inc", func(workflow.Context) error { return nil }); err != nil {
+		return guardedRefs{}, err
+	}
+	signals := workflow.GetSignalChannel(ctx, "outbox")
 	apply := func(c workflow.ReceiveChannel) {
 		var id uuid.UUID
 		c.Receive(ctx, &id)
 		if in.Seen.TryApply(ctx, id) {
-			in.Applied = append(in.Applied, id.String())
+			refs.Applied = append(refs.Applied, id.String())
 		}
 	}
 	for {
 		var next string
 		sel := workflow.NewSelector(ctx)
-		sel.AddReceive(outbox, func(c workflow.ReceiveChannel, _ bool) { apply(c) })
+		sel.AddReceive(signals, func(c workflow.ReceiveChannel, _ bool) { apply(c) })
 		sel.AddReceive(workflow.GetSignalChannel(ctx, "rollover"), func(c workflow.ReceiveChannel, _ bool) { c.Receive(ctx, nil); next = "rollover" })
 		sel.AddReceive(workflow.GetSignalChannel(ctx, "done"), func(c workflow.ReceiveChannel, _ bool) { c.Receive(ctx, nil); next = "done" })
 		sel.Select(ctx)
 		switch next {
 		case "rollover":
 			// Drain what arrived with the rollover, so no signal is lost.
-			for outbox.Len() > 0 {
-				apply(outbox)
+			for signals.Len() > 0 {
+				apply(signals)
 			}
-			return "", workflow.NewContinueAsNewError(ctx, echoType, in)
+			b, err := json.Marshal(refs)
+			if err != nil {
+				return guardedRefs{}, err
+			}
+			in.Refs = b
+			return guardedRefs{}, workflow.NewContinueAsNewError(ctx, echoType, in)
 		case "done":
-			return strings.Join(in.Applied, ",") + "|updates=" + strconv.Itoa(updates), nil
+			return refs, nil
 		}
 	}
 }
@@ -149,9 +172,15 @@ func guardedStack(t *testing.T) (relay, core client.Client, logs *lockedBuffer) 
 // t:<tenant>:<kind>:<outbox id>, the tenant on the context for the header.
 func guardedStart(ctx context.Context, t *testing.T, relay client.Client, tenant uuid.UUID, mode string) (string, client.WorkflowRun) {
 	t.Helper()
-	id := "t:" + tenant.String() + ":t31:" + uuid.NewString()
+	start := uuid.New()
+	id := "t:" + tenant.String() + ":t31:" + start.String()
+	// The relay's Delivery for the start row: its payload is carried across
+	// continue-as-new, so it must be references only.
+	in := guardedInput{Mode: mode, RunInput: workerguard.RunInput{
+		Delivery: outbox.Delivery{OutboxID: start, KindVersion: 1, Payload: json.RawMessage(`{}`)},
+	}}
 	run, err := relay.ExecuteWorkflow(workerguard.ContextWithTenant(ctx, tenant),
-		client.StartWorkflowOptions{ID: id, TaskQueue: taskQueue}, echoType, guardedInput{Mode: mode})
+		client.StartWorkflowOptions{ID: id, TaskQueue: taskQueue}, echoType, in)
 	if err != nil {
 		t.Fatalf("start %s: %v", id, err)
 	}
@@ -169,13 +198,13 @@ func TestT31_ChildIDBuilderThroughAuthorizer(t *testing.T) {
 	tenant := uuid.New()
 
 	_, run := guardedStart(ctx, t, relay, tenant, "child-helper")
-	var out string
-	if err := core.GetWorkflow(ctx, run.GetID(), run.GetRunID()).Get(ctx, &out); err != nil || out != "child:leaf" {
-		t.Fatalf("helper child: %q, %v; want child:leaf", out, err)
+	// The parent completes only after its child completed.
+	if err := core.GetWorkflow(ctx, run.GetID(), run.GetRunID()).Get(ctx, nil); err != nil {
+		t.Fatalf("helper child: %v; want parent and child completed", err)
 	}
 
 	id, run := guardedStart(ctx, t, relay, tenant, "child-default")
-	err := core.GetWorkflow(ctx, run.GetID(), run.GetRunID()).Get(ctx, &out)
+	err := core.GetWorkflow(ctx, run.GetID(), run.GetRunID()).Get(ctx, nil)
 	var app *temporal.ApplicationError
 	if !errors.As(err, &app) || app.Type() != workerguard.ErrTypeTenantGuard || !strings.Contains(app.Error(), "child: cross_tenant") {
 		t.Fatalf("default-id child: %v; want the worker's child cross_tenant guard error", err)
@@ -237,9 +266,8 @@ func TestT31_SignalsUpdatesAndContinueAsNew(t *testing.T) {
 	if err != nil {
 		t.Fatalf("own-tenant update: %v", err)
 	}
-	var n int
-	if err := h.Get(ctx, &n); err != nil || n != 1 {
-		t.Fatalf("own-tenant update result %d, %v", n, err)
+	if err := h.Get(ctx, nil); err != nil {
+		t.Fatalf("own-tenant update: %v", err)
 	}
 
 	signal(own, "rollover", nil)
@@ -260,12 +288,12 @@ func TestT31_SignalsUpdatesAndContinueAsNew(t *testing.T) {
 	signal(own, "outbox", s2) // redelivered after continue-as-new
 	signal(own, "done", nil)
 
-	var out string
+	var out guardedRefs
 	if err := core.GetWorkflow(ctx, id, "").Get(ctx, &out); err != nil {
 		t.Fatalf("result: %v", err)
 	}
-	if want := s1.String() + "," + s2.String() + "," + s3.String() + "|updates=0"; out != want {
-		t.Errorf("result %q, want %q: each signal once across continue-as-new", out, want)
+	if got, want := strings.Join(out.Applied, ","), s1.String()+","+s2.String()+","+s3.String(); got != want {
+		t.Errorf("result %q, want %q: each signal once across continue-as-new", got, want)
 	}
 	var mismatches int
 	for line := range strings.Lines(logs.String()) {

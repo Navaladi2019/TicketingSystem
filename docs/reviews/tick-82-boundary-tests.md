@@ -13,7 +13,7 @@ Read against: the TICK-82 contract, PLAN-001 D-P9 / D-P10, ADR-001 A.1, and the 
 - `operatorRoutesInContract()` (`internal/tenancy/isolation/boundary_paths.go:530`) looks for `/api/v1/operator/` in the embedded `api/openapi.yaml`. If the file can't be read, it returns true, so it fails closed.
 - On S4 that string is present (`/api/v1/operator/tenants`, `api/openapi.yaml:31`). When S4 is merged into S5, T26-6 fails in the `integration` job with a message that names the fix. It can't pass silently on a 404.
 - On this branch the test proves both inputs to S4's 403 branch (`operatorAuth`, `internal/server/operator.go` on S4): `ResolveOperator` returns `ErrInvalidToken` for the tenant admin, and the tenant resolver accepts the same token (`GET /api/v1/me` returns 200 for tenant A). It also has a positive control: the allow-listed operator is accepted. So it covers the essence of the contract before the route exists.
-- TODO-010's fix ("wire `server.WithOperator`, require 403") matches what S4 really does: a valid tenant token on an operator route gets 403, and an invalid token gets 401.
+- TODO-015's fix ("wire `server.WithOperator`, require 403") matches what S4 really does: a valid tenant token on an operator route gets 403, and an invalid token gets 401.
 
 ### 2. Case 8: does asserting both 401 variants still pin the contract? Yes.
 
@@ -44,5 +44,5 @@ Read against: the TICK-82 contract, PLAN-001 D-P9 / D-P10, ADR-001 A.1, and the 
 ## Merge prerequisites (not review findings)
 
 - The CTO's sign-off on the isolation-registry change (D-P10) has to be recorded before merge.
-- TODO-010 is recorded in `docs/delivery/todo.md` with its code comment. When S4 is merged into S5, T26-6 fails until it is switched to 403.
+- TODO-015 is recorded in `docs/delivery/todo.md` with its code comment. When S4 is merged into S5, T26-6 fails until it is switched to 403.
 - The accepted at-scale risk the Security Reviewer raised (unverified email change through the account API once client scopes return) is written up in `docs/security/deprovisioning-identity-boundary.md`. Per the repo rule, an accepted risk also needs an `AR-NNN` row in `docs/security/accepted-risks.md`. That routes to the Security & Multi-Tenancy Reviewer; it is not part of this review.

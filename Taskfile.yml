@@ -41,6 +41,11 @@ tasks:
     cmds:
       - sh scripts/ci/test-integration.sh
 
+  bench:relay:
+    desc: Run the relay claim-latency benchmark (T33, report-only) against a throwaway postgres container (needs Docker), the same as make bench-relay
+    cmds:
+      - sh scripts/ci/test-integration.sh -run '^$' -bench '^BenchmarkClaim$' -benchtime 200x
+
   lint:
     desc: Run golangci-lint, then the navalint analyzers (set_config outside internal/tenancy), then the ADR-002-E1 nolint allow-list gate
     cmds:
@@ -123,3 +128,10 @@ tasks:
     cmds:
       - for: [healthy, smoke, pgbouncer, temporal, temporal_handshake, temporal_isolation, temporal_custody, temporal_operator_reach, temporal_health, dependencies, trace, logs, redact, idempotent, dbroles, hba]
         cmd: sh deploy/compose/test/stack-test.sh {{.ITEM}}
+
+  demo:outbox:
+    desc: "S7 demo, the same as make demo-outbox: a start row and two signal rows for tenant-a through outbox.Enqueue, one workflow; task demo:outbox DEDUPE_KEY=<key> (needs the stack up)"
+    cmds:
+      - sh scripts/dev/demo-outbox.sh
+    env:
+      DEDUPE_KEY: '{{.DEDUPE_KEY | default "demo-outbox"}}'

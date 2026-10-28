@@ -236,6 +236,29 @@ func TestManifestRejectsMissingObjects(t *testing.T) {
 	}
 }
 
+// TICK-281: partial-migration tests skip the manifest (migrateOnlyFS), so this
+// pins that the full path stays strict: a column grant on a column the
+// migrations never create fails the run, as it does in production.
+func TestFullMigrateFailsOnGrantToMissingColumn(t *testing.T) {
+	m := freshCluster(t)
+	gs := m.Roles["nava_groupsync"]
+	if _, ok := gs.Tables["principals"]; !ok {
+		t.Fatal("db/grants.yaml: nava_groupsync has no grant on principals; pick another real table for this test")
+	}
+	gs.Tables["principals"]["UPDATE"] = append(gs.Tables["principals"]["UPDATE"], "t281_no_such_column")
+	m.Roles["nava_groupsync"] = gs
+
+	_, err := migrateFS(t, m, db.Migrations())
+	if err == nil {
+		t.Fatal("full migrate with a grant on a missing column succeeded; want it to fail")
+	}
+	for _, want := range []string{"column", "does not exist", "t281_no_such_column"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want it to contain %q", err, want)
+		}
+	}
+}
+
 func TestManifestRefusesWrongRole(t *testing.T) {
 	m := migratedCluster(t)
 	log, _ := newLog()

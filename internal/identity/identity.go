@@ -200,7 +200,7 @@ type GroupPath struct {
 // may key on one. Only GetMe calls it; the forbidigo rules in .golangci.yml
 // hold that. It is separate from Store so the resolver never sees paths.
 //
-// TODO(TODO-014): the I5 ACL compiler takes group uuids only; a test asserts
+// TODO(TODO-017): the I5 ACL compiler takes group uuids only; a test asserts
 // it never reads groups.path or identity.GroupPath.
 type GroupPathReader interface {
 	GroupPaths(ctx context.Context, tenantID, principalID uuid.UUID) ([]GroupPath, error)

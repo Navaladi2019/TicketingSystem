@@ -238,7 +238,7 @@
   <tr><td>Synced identity tables never show another tenant's users</td><td class="ok">Pass</td><td><code>internal/groupsync</code> isolation integration tests, isolation report</td></tr>
   <tr><td><code>kc.org</code> tamper, ID token as access token, foreign-IdP user all rejected</td><td class="ok">Pass</td><td>CI-5.06, .05, .09–.11 in <code>ci5-report.md</code> (<code>make identity-attacks</code>)</td></tr>
   <tr><td>Tenant B's admin cannot obtain a token the API accepts for tenant A</td><td class="ok">Pass</td><td>CI-5.13</td></tr>
-  <tr><td>Tenant admin gets 403 on <code>/api/v1/operator/*</code>; operator token gets 401 on a tenant endpoint</td><td class="ok">401 half: pass. 403 half: proven</td><td><code>T26-8</code> passes. <code>T26-6</code> sends a valid request to the real operator route with the admin's badge and requires <strong>403</strong>. Story S4's operator routes are on <code>main</code> now, and TODO-010 is <strong>Fixed</strong> (section 9).</td></tr>
+  <tr><td>Tenant admin gets 403 on <code>/api/v1/operator/*</code>; operator token gets 401 on a tenant endpoint</td><td class="ok">401 half: pass. 403 half: proven</td><td><code>T26-8</code> passes. <code>T26-6</code> sends a valid request to the real operator route with the admin's badge and requires <strong>403</strong>. Story S4's operator routes are on <code>main</code> now, and TODO-015 is <strong>Fixed</strong> (section 9).</td></tr>
 </table>
 <p class="small">QA re-ran every criterion on a fresh stack at <code>0135a08</code> (story branch with <code>main</code> merged) on 2026-10-27. All pass. That run predates the switch to a required 403; <code>T26-6</code> now requires it. Evidence: the acceptance kit (section 10).</p>
 
@@ -255,10 +255,10 @@
 
 <h2 id="limits">9. Known limits, honestly</h2>
 <ul>
-  <li><span class="pill ok">Fixed</span> <strong>The 403 for company admins on operator routes.</strong> The operator routes were built in story S4, and S4 and S5 are now both on <code>main</code>. The test (T26-6) builds the handler with the operator routes on, sends a valid request with a company admin's badge, and requires 403 (tracked as TODO-010, now <strong>Fixed</strong>).</li>
-  <li><span class="pill info">Accepted risk AR-039 (low)</span> <strong>Self-service email change.</strong> If the account console were ever re-enabled, a user could change their own email without verification. That can't change their company, role or teams (tested), but it could block another company from inviting that address. Recommended fix at the login-system layer is recorded.</li>
+  <li><span class="pill ok">Fixed</span> <strong>The 403 for company admins on operator routes.</strong> The operator routes were built in story S4, and S4 and S5 are now both on <code>main</code>. The test (T26-6) builds the handler with the operator routes on, sends a valid request with a company admin's badge, and requires 403 (tracked as TODO-015, now <strong>Fixed</strong>).</li>
+  <li><span class="pill info">Accepted risk AR-045 (low)</span> <strong>Self-service email change.</strong> If the account console were ever re-enabled, a user could change their own email without verification. That can't change their company, role or teams (tested), but it could block another company from inviting that address. Recommended fix at the login-system layer is recorded.</li>
   <li><span class="pill info">Deferred, with a trigger</span> <strong>TICK-220.</strong> When a person leaves Keycloak, the worker deletes their row. That's fine today. The first future table that points at a person without a delete rule would break sync for that company. The rule must be decided before any such table merges.</li>
-  <li><span class="pill ok">Fixed</span> The attack suite now runs in GitHub Actions on every PR and keeps the <code>ci5-report</code> artifact (TODO-011).</li>
+  <li><span class="pill ok">Fixed</span> The attack suite now runs in GitHub Actions on every PR and keeps the <code>ci5-report</code> artifact (TODO-016).</li>
 </ul>
 
 <h2 id="try">10. Try it yourself (about 15 minutes)</h2>
