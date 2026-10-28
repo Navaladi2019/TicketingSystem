@@ -127,8 +127,14 @@ jobs:
     if: needs.changes.outputs.unit == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      # TestNewMigrationsLaterThanBase compares added migrations with the
+      # base branch's newest (TICK-299), so the checkout needs its history.
+      BASE: origin/${{ github.base_ref || 'main' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
