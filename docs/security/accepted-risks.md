@@ -1,5 +1,7 @@
 # Accepted risks
 
+**Id rule:** a new row is `AR-<story>-NN` (for example `AR-S5-01`); work outside a story uses the task id (`AR-TICK-288-01`). Existing `AR-NNN` ids stay. Append the row at the end of the register.
+
 One register of every risk the project has knowingly accepted, gathered from
 the ADRs, the decision log, the security notes and the architecture notes.
 Each row links to where the risk was recorded, so it can be picked up and fixed
