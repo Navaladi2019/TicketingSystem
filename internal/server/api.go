@@ -28,8 +28,10 @@ const baseURL = ""
 // and header parameters before it runs a MiddlewareFunc, so an auth
 // middleware inside it would answer 400 to an unauthenticated request with a
 // bad or missing parameter. Behind authentication each route runs the
-// validator. The spec and docs routes are public, and a request no route
-// matches gets the 404/405 problem without authentication.
+// validator. Only the spec and docs routes are public. Every other path under
+// /api/v1, matched or not, is authenticated first (fail closed): an unknown
+// path or wrong method with no token is 401, and 404/405 only behind a valid
+// token. Paths outside /api/v1 get the 404 problem.
 func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.IdentityResolver, paths identity.GroupPathReader, mux *http.ServeMux, opts options) (http.Handler, error) {
 	specData, err := api.Files.ReadFile("openapi.yaml")
 	if err != nil {
@@ -73,13 +75,20 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 	authed := routeAuth(reg, opts.operatorOnly, authn.Middleware, operatorAuth(reg, log, opts.operators, resolver))(served)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, pattern := mux.Handler(r)
-		if pattern == "" || pattern == specPattern || pattern == docsPattern {
+		if pattern == specPattern || pattern == docsPattern || (pattern == "" && !underAPI(r.URL.Path)) {
 			served.ServeHTTP(w, r)
 			return
 		}
 		r.Pattern = pattern // the authentication logs name the route
 		authed.ServeHTTP(w, r)
 	}), nil
+}
+
+// underAPI reports whether path is the contract's /api/v1 prefix or below it.
+// The prefix is matched as written: a differently cased or encoded spelling
+// cannot match a route either, so it gets 404 and no data.
+func underAPI(path string) bool {
+	return path == "/api/v1" || strings.HasPrefix(path, "/api/v1/")
 }
 
 const (
