@@ -1,65 +1,92 @@
 package api_test
 
 import (
+	"os"
 	"reflect"
-	"slices"
 	"testing"
 
-	"github.com/getkin/kin-openapi/openapi3"
 	"go.yaml.in/yaml/v3"
 
 	"github.com/Navaladi2019/TicketingSystem/api"
 )
 
-func bundle(t *testing.T) []byte {
+// The split must lose nothing. These tests compare the bundle with the
+// single-file contract it replaced (testdata/openapi.presplit.yaml) as a
+// subset: whatever the bundle adds (a later story's endpoint) is ignored, so
+// adding an endpoint never edits this file. Additive-only against main is
+// enforced by check-openapi.
+
+func load(t *testing.T, data []byte) map[string]any {
+	t.Helper()
+	var m map[string]any
+	if err := yaml.Unmarshal(data, &m); err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+func specs(t *testing.T) (pre, bundle map[string]any) {
 	t.Helper()
 	data, err := api.Files.ReadFile(api.SpecFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return data
-}
-
-// TestBundleOperationIDsMatchPreSplit: splitting the source must not add,
-// drop or rename an operation. The ids below are the pre-split set.
-func TestBundleOperationIDsMatchPreSplit(t *testing.T) {
-	t.Parallel()
-	spec, err := openapi3.NewLoader().LoadFromData(bundle(t))
+	old, err := os.ReadFile("testdata/openapi.presplit.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var got []string
-	for _, item := range spec.Paths.Map() {
-		for _, op := range item.Operations() {
-			got = append(got, op.OperationID)
+	return load(t, old), load(t, data)
+}
+
+func operationIDs(t *testing.T, spec map[string]any) map[string]bool {
+	t.Helper()
+	ids := map[string]bool{}
+	for _, item := range spec["paths"].(map[string]any) {
+		for _, op := range item.(map[string]any) {
+			if m, ok := op.(map[string]any); ok {
+				if id, ok := m["operationId"].(string); ok {
+					ids[id] = true
+				}
+			}
 		}
 	}
-	slices.Sort(got)
-	want := []string{"getMe", "onboardTenant"}
-	if !slices.Equal(got, want) {
-		t.Errorf("operation ids = %v, want %v", got, want)
+	return ids
+}
+
+// TestBundleKeepsEveryPreSplitOperationID: no operation was dropped or renamed.
+func TestBundleKeepsEveryPreSplitOperationID(t *testing.T) {
+	t.Parallel()
+	pre, bundle := specs(t)
+	want, got := operationIDs(t, pre), operationIDs(t, bundle)
+	if len(want) == 0 {
+		t.Fatal("pre-split snapshot has no operations")
+	}
+	for id := range want {
+		if !got[id] {
+			t.Errorf("operation id %q is missing from the bundle", id)
+		}
 	}
 }
 
-// TestBundleIsSemanticallyThePreSplitSpec compares the bundle with the single
-// file contract it replaced (testdata/openapi.presplit.yaml): same document,
-// whatever the key order or the file it came from. The only allowed
-// difference is the description, which now explains the source tree.
-func TestBundleIsSemanticallyThePreSplitSpec(t *testing.T) {
+// TestBundleKeepsPreSplitPathsAndComponents: every pre-split path item and
+// component is in the bundle, equal in meaning (key order and the file it
+// came from do not matter).
+func TestBundleKeepsPreSplitPathsAndComponents(t *testing.T) {
 	t.Parallel()
-	load := func(data []byte) map[string]any {
-		var m map[string]any
-		if err := yaml.Unmarshal(data, &m); err != nil {
-			t.Fatal(err)
+	pre, bundle := specs(t)
+	prePaths, bundlePaths := pre["paths"].(map[string]any), bundle["paths"].(map[string]any)
+	for p, item := range prePaths {
+		if !reflect.DeepEqual(bundlePaths[p], item) {
+			t.Errorf("path %s differs from the pre-split spec", p)
 		}
-		delete(m["info"].(map[string]any), "description")
-		return m
 	}
-	pre, err := readTestdata()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(load(bundle(t)), load(pre)) {
-		t.Error("bundle differs in meaning from testdata/openapi.presplit.yaml")
+	preC, bundleC := pre["components"].(map[string]any), bundle["components"].(map[string]any)
+	for section, entries := range preC {
+		got, _ := bundleC[section].(map[string]any)
+		for name, def := range entries.(map[string]any) {
+			if !reflect.DeepEqual(got[name], def) {
+				t.Errorf("components.%s.%s differs from the pre-split spec", section, name)
+			}
+		}
 	}
 }

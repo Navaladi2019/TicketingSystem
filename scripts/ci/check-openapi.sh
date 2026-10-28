@@ -6,11 +6,13 @@
 set -eu
 cd "$(dirname "$0")/../.."
 base=${1:-origin/main}
-tmp=${TMPDIR:-${TEMP:-/tmp}}
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
 for f in api/openapi.bundled.yaml api/openapi.yaml; do
 	if git cat-file -e "$base:$f" 2>/dev/null; then
 		git show "$base:$f" > "$tmp/openapi.base.yaml"
-		exec go run ./cmd/openapi-compat "$tmp/openapi.base.yaml" api/openapi.bundled.yaml
+		go run ./cmd/openapi-compat "$tmp/openapi.base.yaml" api/openapi.bundled.yaml
+		exit $?
 	fi
 done
 echo "no api spec on $base: nothing to compare"
