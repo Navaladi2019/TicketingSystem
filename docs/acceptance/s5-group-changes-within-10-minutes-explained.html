@@ -240,7 +240,7 @@
   <tr><td>Tenant B's admin cannot obtain a token the API accepts for tenant A</td><td class="ok">Pass</td><td>CI-5.13</td></tr>
   <tr><td>Tenant admin gets 403 on <code>/api/v1/operator/*</code>; operator token gets 401 on a tenant endpoint</td><td class="warn">401 half: pass. 403 half: partly proven</td><td><code>T26-8</code> passes. <code>T26-6</code> proves the admin's badge is refused by the operator check. The 403 itself needs the operator routes from story S4, which aren't on this branch yet (section 9).</td></tr>
 </table>
-<p class="small">QA will re-run every criterion on a fresh stack for the acceptance kit before you're asked to decide.</p>
+<p class="small">QA re-ran every criterion on a fresh stack at <code>0135a08</code> (story branch with <code>main</code> merged) on 2026-10-27. All pass; the 403 half above is the known limit. Evidence: the acceptance kit (section 10).</p>
 
 <h2 id="work">8. What was built</h2>
 <table>
@@ -261,14 +261,14 @@
   <li><span class="pill ok">Fixed</span> The attack suite now runs in GitHub Actions on every PR and keeps the <code>ci5-report</code> artifact (TODO-011).</li>
 </ul>
 
-<h2 id="try">10. Try it yourself (about 10 minutes)</h2>
-<p>The full step-by-step kit will be in <code>docs/acceptance/</code> once QA has verified it. In short:</p>
+<h2 id="try">10. Try it yourself (about 15 minutes)</h2>
+<p>The full step-by-step kit, with the exact commands and the evidence of every check, is <a href="s5-group-changes-within-10-minutes.md"><code>docs/acceptance/s5-group-changes-within-10-minutes.md</code></a>. <span class="pill ok">QA verified 2026-10-27 at 0135a08: all criteria pass</span> In short:</p>
 <ol>
-  <li>Start the stack, then sign in as the seeded user <code>alice@tenant-a.test</code> (Company A) and call <code>GET /api/v1/me</code>. Run <code>nava-groupsync --once</code> first so the seed has been synced. <code>/me</code> lists her groups as ids, not names, and the seed gives her exactly one group, <code>service-desk</code>, so the single id in <code>"groups"</code> is hers. (She is also in <code>eng/platform</code>, but that is an org unit, not a group, so <code>/me</code> does not list it.)</li>
+  <li>Start the stack, seed Company A and Company B (one SQL block in the kit), and run <code>nava-groupsync --once</code>. Sign in as the seeded user <code>alice@tenant-a.test</code> (Company A) and call <code>GET /api/v1/me</code>. <code>group_paths</code> shows her team, <code>/service-desk</code>. (Her <code>eng/platform</code> is a department, an org unit, so it isn't listed.)</li>
   <li>In the Keycloak admin console, remove Alice from <code>service-desk</code> (Groups, then <code>t</code>, Company A's id, <code>service-desk</code>, Members).</li>
-  <li>Call <code>GET /api/v1/me</code> again with the same token. Within one sync cycle (≤ 5 min; promised ≤ 10), the group is gone. Run <code>nava-groupsync --once</code> to skip the wait.</li>
-  <li>Disable Alice in the admin console. After the next sync her existing token gets <code>401</code>.</li>
-  <li>Run <code>make identity-attacks</code> and open <code>ci5-report.md</code>: one line per attack, all passing.</li>
+  <li>Call <code>GET /api/v1/me</code> again with the same token. After the next sync, <code>group_paths</code> is empty. QA measured 244 s with the worker on its 5-minute default; the promise is 10 minutes. Run <code>nava-groupsync --once</code> to skip the wait.</li>
+  <li>Disable Alice in the admin console. She can't sign in again at once, and after the next sync her existing token gets <code>401</code> (QA: 266 s, with the token not yet expired).</li>
+  <li>Re-enable Alice (the attack tests sign in as her), then run <code>make identity-attacks</code> and open <code>ci5-report.md</code>: 14 lines, all <code>PASS</code>.</li>
 </ol>
 
 <h2 id="gloss">11. Glossary</h2>

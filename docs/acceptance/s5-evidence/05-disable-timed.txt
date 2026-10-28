@@ -1,0 +1,34 @@
+== 20:19:15 worker cycle observed (lag count 56)
+== 20:19:51 fresh Alice token, exp 20:24:49
+before: 200 {"group_paths":[],"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"01d0ed07-c1ed-4645-876c-bfca246aa0a4"}
+== 20:19:52 Keycloak admin: disable Alice -> 204
+new token for Alice after disable: {"error":"invalid_grant","error_description":"Account disabled"}
++1s token_valid=yes 200 {"group_paths":[],"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"01d0ed07-c1ed-4645-876c-bfca246aa0a4"}
++16s token_valid=yes 200 {"group_paths":[],"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"01d0ed07-c1ed-4645-876c-bfca246aa0a4"}
++32s token_valid=yes 200 {"group_paths":[],"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"01d0ed07-c1ed-4645-876c-bfca246aa0a4"}
++48s token_valid=yes 200 {"group_paths":[],"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"01d0ed07-c1ed-4645-876c-bfca246aa0a4"}
++63s token_valid=yes 200 {"group_paths":[],"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"01d0ed07-c1ed-4645-876c-bfca246aa0a4"}
++79s token_valid=yes 200 {"group_paths":[],"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"01d0ed07-c1ed-4645-876c-bfca246aa0a4"}
++94s token_valid=yes 200 {"group_paths":[],"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"01d0ed07-c1ed-4645-876c-bfca246aa0a4"}
++110s token_valid=yes 200 {"group_paths":[],"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"01d0ed07-c1ed-4645-876c-bfca246aa0a4"}
++126s token_valid=yes 200 {"group_paths":[],"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"01d0ed07-c1ed-4645-876c-bfca246aa0a4"}
++141s token_valid=yes 200 {"group_paths":[],"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"01d0ed07-c1ed-4645-876c-bfca246aa0a4"}
++157s token_valid=yes 200 {"group_paths":[],"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"01d0ed07-c1ed-4645-876c-bfca246aa0a4"}
++173s token_valid=yes 200 {"group_paths":[],"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"01d0ed07-c1ed-4645-876c-bfca246aa0a4"}
++188s token_valid=yes 200 {"group_paths":[],"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"01d0ed07-c1ed-4645-876c-bfca246aa0a4"}
++203s token_valid=yes 200 {"group_paths":[],"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"01d0ed07-c1ed-4645-876c-bfca246aa0a4"}
++219s token_valid=yes 200 {"group_paths":[],"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"01d0ed07-c1ed-4645-876c-bfca246aa0a4"}
++235s token_valid=yes 200 {"group_paths":[],"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"01d0ed07-c1ed-4645-876c-bfca246aa0a4"}
++250s token_valid=yes 200 {"group_paths":[],"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"01d0ed07-c1ed-4645-876c-bfca246aa0a4"}
++266s token_valid=yes 401 {"type":"urn:nava:problem:tenant_unresolved","title":"Tenant unresolved","status":401,"code":"tenant_unresolved","detail":"The request could not be tied to a tenant.","instance":"urn:nava:request:1b8001fa4bc6f0651a579cb59c78ff05"}
+bob (tenant B) at the same moment: 200 {"group_paths":[{"id":"54b08478-61c5-4295-9801-4e3294e2e82e","path":"/service-desk"}],"groups":["54b08478-61c5-4295-9801-4e3294e2e82e"],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000b1","user_id":"b403a1a2-0751-4986-b69c-a61434bf58e0"}
+              tenant_id               |        email        | enabled |           synced_at           
+--------------------------------------+---------------------+---------+-------------------------------
+ 00000000-0000-4000-8000-0000000000a1 | admin@tenant-a.test | t       | 2026-10-27 18:03:33.118111+00
+ 00000000-0000-4000-8000-0000000000a1 | alice@tenant-a.test | f       | 2026-10-27 20:24:06.941764+00
+ 00000000-0000-4000-8000-0000000000b1 | bob@tenant-b.test   | t       | 2026-10-27 18:03:33.612963+00
+(3 rows)
+
+== worker log
+time=2026-10-27T18:09:07.641Z level=INFO msg="group sync applied" tenant_id=00000000-0000-4000-8000-0000000000a1 principals_written=0 principals_tombstoned=0 groups_written=0 groups_deleted=0 org_unit
+time=2026-10-27T20:24:06.960Z level=INFO msg="group sync applied" tenant_id=00000000-0000-4000-8000-0000000000a1 principals_written=1 principals_tombstoned=0 groups_written=0 groups_deleted=0 org_unit

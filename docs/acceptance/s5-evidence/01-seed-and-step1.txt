@@ -1,0 +1,29 @@
+== 18:03:12 commit 0135a08; seed tenants A and B (platform DB, bootstrap superuser)
+                  id                  | state  |               issuer               |                org_id                |  idp_aliases   
+--------------------------------------+--------+------------------------------------+--------------------------------------+----------------
+ 00000000-0000-4000-8000-0000000000a1 | active | http://localhost:18081/realms/nava | 00000000-0000-4000-8000-0000000000a1 | {idp-tenant-a}
+ 00000000-0000-4000-8000-0000000000b1 | active | http://localhost:18081/realms/nava | 00000000-0000-4000-8000-0000000000b1 | {idp-tenant-b}
+(2 rows)
+
+alice claims: {"iss": "http://localhost:18081/realms/nava", "sub": "4ae5119a-7616-4135-b2ec-5b814884eee9", "aud": "nava-api", "azp": "nava-web", "typ": "Bearer", "organization": {"tenant-a": {"id": "00000000-0000-4000-8000-0000000000a1"}}, "iat": 1793124196, "exp": 1793124496}
+alice /me before any sync -> 401 {"type":"urn:nava:problem:tenant_unresolved","title":"Tenant unresolved","status":401,"code":"tenant_unresolved","detail":"The request could not be tied to a tenant.","instance":"urn:nava:request:d896d21275af52c295250099decd4bf7"}
+== 18:03:19 nava-groupsync --once
+time=2026-10-27T18:03:33.145Z level=INFO msg="group sync applied" tenant_id=00000000-0000-4000-8000-0000000000a1 principals_written=2 principals_tombstoned=0 groups_written=1 groups_deleted=0 org_units_written=3 org_units_deleted=0 ignored_outside_subtree=0
+time=2026-10-27T18:03:33.623Z level=INFO msg="group sync applied" tenant_id=00000000-0000-4000-8000-0000000000b1 principals_written=1 principals_tombstoned=0 groups_written=1 groups_deleted=0 org_units_written=3 org_units_deleted=0 ignored_outside_subtree=0
+time=2026-10-27T18:03:33.624Z level=INFO msg="nava-groupsync --once done" tenants=2 failed=0
+              tenant_id               |        email        | enabled | federated_links 
+--------------------------------------+---------------------+---------+-----------------
+ 00000000-0000-4000-8000-0000000000a1 | admin@tenant-a.test | t       | []
+ 00000000-0000-4000-8000-0000000000a1 | alice@tenant-a.test | t       | []
+ 00000000-0000-4000-8000-0000000000b1 | bob@tenant-b.test   | t       | []
+(3 rows)
+
+              tenant_id               |                         path                         |        email        
+--------------------------------------+------------------------------------------------------+---------------------
+ 00000000-0000-4000-8000-0000000000a1 | /t/00000000-0000-4000-8000-0000000000a1/service-desk | alice@tenant-a.test
+ 00000000-0000-4000-8000-0000000000b1 | /t/00000000-0000-4000-8000-0000000000b1/service-desk | bob@tenant-b.test
+(2 rows)
+
+== 18:03:36 Story step 1: as Alice, GET /api/v1/me
+alice /me -> 200 {"group_paths":[{"id":"c68b5406-783b-4e9a-af71-10a7309fa55c","path":"/service-desk"}],"groups":["c68b5406-783b-4e9a-af71-10a7309fa55c"],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"01d0ed07-c1ed-4645-876c-bfca246aa0a4"}
+bob   /me -> 200 {"group_paths":[{"id":"54b08478-61c5-4295-9801-4e3294e2e82e","path":"/service-desk"}],"groups":["54b08478-61c5-4295-9801-4e3294e2e82e"],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000b1","user_id":"b403a1a2-0751-4986-b69c-a61434bf58e0"}
