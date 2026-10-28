@@ -120,7 +120,11 @@ func upFresh(ctx context.Context, cfg *pgx.ConnConfig, fsys fs.FS, log *slog.Log
 }
 
 func up(ctx context.Context, db *sql.DB, fsys fs.FS, locker lock.SessionLocker, log *slog.Logger) ([]string, bool, error) {
+	// Out of order: new migrations carry timestamp versions (TICK-290), and
+	// one from a long-lived branch can be older than one already applied.
+	// goose applies such a missing migration instead of refusing the run.
 	p, err := goose.NewProvider(goose.DialectPostgres, db, fsys,
+		goose.WithAllowOutofOrder(true),
 		goose.WithSessionLocker(locker),
 		goose.WithDisableGlobalRegistry(true),
 		goose.WithSlog(log))

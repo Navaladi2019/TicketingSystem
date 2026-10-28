@@ -330,3 +330,22 @@ func TestNoTransactionMigrationsAreIdempotent(t *testing.T) {
 		t.Fatalf("re-running NO TRANSACTION migrations: %v", err)
 	}
 }
+
+// TICK-290: a timestamp migration from a long-lived branch can be older than
+// one already applied. The migrator applies it instead of refusing the run.
+func TestOutOfOrderMigrationApplies(t *testing.T) {
+	m := migratedCluster(t)
+	late := withExtraMigration(t, "29991231000001_t290_late.sql", "-- +goose Up\nSELECT 1;\n")
+	if _, err := migrateFS(t, m, late); err != nil {
+		t.Fatalf("migrate with the later migration: %v", err)
+	}
+	both := late.(fstest.MapFS)
+	both["29991231000000_t290_early.sql"] = &fstest.MapFile{Data: []byte("-- +goose Up\nSELECT 1;\n")}
+	res, err := migrateFS(t, m, both)
+	if err != nil {
+		t.Fatalf("migrate with an older, unapplied migration: %v", err)
+	}
+	if len(res.Applied) != 1 || res.Applied[0] != "29991231000000_t290_early.sql" {
+		t.Fatalf("applied %v, want only the older migration", res.Applied)
+	}
+}
