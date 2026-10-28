@@ -4,6 +4,8 @@ Owner: Technical Lead. Issue: TICK-288. Measured on `main` at `68fbff5` (2026-10
 
 **Decided:** `main` is protected and tested after every merge. Migration versions become timestamps, and a test catches a duplicate version. The files every story edits are split so each story adds new files. Eight tasks (TICK-289 to TICK-296) do the work. TICK-289, TICK-290 and TICK-291 start now. The file splits wait until S5 (TICK-47) and S7 (TICK-49) are on `main`.
 
+**Status (2026-10-28):** D1 is applied. `main` requires the eight `ci.yml` jobs (`changes`, `lint`, `unit`, `temporal-server`, `integration`, `stack`, `stack-db`, `stack-internal`), requires the branch to be up to date, includes admins, and blocks force pushes. A PR that adds a `ci.yml` job adds it to the required list in the same change. D2 reverses the 2026-10-25 "no run on push to main" decision. Pull requests keep their change-based job selection.
+
 ## 1. Why S5 and S7 broke
 
 ### 1.1 Text conflicts: the same files every time

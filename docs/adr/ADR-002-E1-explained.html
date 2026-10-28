@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-002 erratum E1 explained: one line, not one file, is exempt from the display-only group paths rule</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--accbg:#ddf4ff;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--accbg:#0c2d6b;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.banner{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.pill{font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left;overflow-wrap:break-word}
+th{background:var(--soft)}
+table.front th{width:120px}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px;margin-top:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:44px}
+h3{font-size:18px;margin-top:28px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;background:var(--soft);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+pre{background:var(--soft);border:1px solid var(--bd);border-radius:6px;padding:10px 12px;overflow-x:auto}
+pre code{background:none;padding:0}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+figure.diagram{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure.diagram svg{width:100%;min-width:600px;height:auto;display:block;margin:0 auto;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+.tag{display:inline-block;font-size:12px;font-weight:700;padding:1px 9px;border-radius:999px;white-space:nowrap}
+.tag.red{color:var(--bad);background:var(--badbg);border:1px solid var(--bad)}
+.tag.green{color:var(--good);background:var(--goodbg);border:1px solid var(--good)}
+.tag.amber{color:var(--warn);background:var(--warnbg);border:1px solid var(--warn)}
+.verbatim{border:1px solid var(--acc);border-left:5px solid var(--acc);background:var(--accbg);border-radius:6px;padding:8px 14px;margin:12px 0}
+.vlabel{font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--acc)}
+.callout{border:1px solid var(--warn);background:var(--warnbg);border-radius:8px;padding:10px 14px;margin:14px 0}
+dl.gloss{display:grid;grid-template-columns:minmax(140px,220px) minmax(0,1fr);gap:6px 18px}
+dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
+@media (max-width:640px){dl.gloss{grid-template-columns:minmax(0,1fr)} dl.gloss dd{margin-bottom:8px}}
+@media print{table{display:table}}
+</style></head>
+</head>
+<body><main>
+<div class="banner"><span class="pill">READING GUIDE &middot; ADR-002 E1 ACCEPTED</span>
+<span class="src">This companion explains <code>ADR-002-E1-line-scoped-nolint.md</code>. It is not a decision record and changes nothing. Every blue "decision text" box is copied word for word from the erratum.</span></div>
+<table class="front"><tbody>
+<tr><th>title</th><td>ADR-002 erratum E1 explained: why one line, not one file, is exempt from the "display-only group paths" lint rule</td></tr>
+<tr><th>type</th><td>explainer for the decision-maker (not a decision record)</td></tr>
+<tr><th>explains</th><td>ADR-002-E1 (status ACCEPTED, 2026-10-28: nava approved on TICK-272), from RFC-006 on TICK-272</td></tr>
+<tr><th>date</th><td>2026-10-28</td></tr>
+<tr><th>audience</th><td>the person signing off. It assumes no knowledge of Go linters or of the reviews that shaped this.</td></tr>
+</tbody></table>
+
+<h1>ADR-002 erratum E1, explained</h1>
+
+<blockquote><strong>The whole decision in three sentences.</strong>
+(1) To let the <code>/me</code> endpoint read a user's group paths, ADR-002 switched off a set of code-safety checks for the <em>whole</em> file that endpoint lives in. (2) We replace that with an exemption on the <em>one</em> line that needs it, plus a small CI script that fails the build if anyone moves, copies or widens that exemption. (3) You accept one small residual: the same line of code could be moved into a different handler in that file, and only code review would notice.</blockquote>
+
+<div class="callout"><strong>How serious is this?</strong> Low, and not exploitable today. No tenant can see another tenant's data through this; group paths are the caller's own tenant's display text. The point is to stop a guardrail from quietly being off for the file where new API handlers get written.</div>
+
+<h2 id="terms">Terms used here</h2>
+<dl class="gloss">
+<dt>linter</dt><dd>A tool that reads source code and fails the build when it finds a forbidden pattern. We run <code>golangci-lint</code>, which bundles many linters.</dd>
+<dt><code>forbidigo</code></dt><dd>The linter that bans specific calls. We use it for three rules: no raw HTTP client (use our instrumented one), no logging of database query parameters (<code>otelpgx</code>), and since ADR-002, no reading of group paths (<code>GroupPaths</code>) except by <code>/me</code>.</dd>
+<dt>exclusion</dt><dd>A line in <code>.golangci.yml</code> that turns a linter off for a whole file or folder.</dd>
+<dt><code>//nolint</code> directive</dt><dd>A comment in the code that turns a linter off for one line. If it sits on its own line above <code>package</code> or <code>func</code>, it covers the whole file or function instead.</dd>
+<dt><code>nolintlint</code></dt><dd>A linter that checks the <code>//nolint</code> comments themselves: that they name a linter, give a reason, and actually suppress something.</dd>
+<dt>gate</dt><dd>A short CI script that fails the build when a fixed condition is not met.</dd>
+<dt>generated-file header</dt><dd>The comment <code>// Code generated ... DO NOT EDIT.</code>. <code>golangci-lint</code> skips every linter on a file that carries it, because machine-generated code is not hand-reviewed.</dd>
+</dl>
+
+<h2 id="problem">1. The problem in plain words</h2>
+<p>ADR-002 made group paths (names like <code>/service-desk/tier-2</code>) <strong>display-only</strong>: they may be shown to the user, never used to decide what someone may do. To enforce that, a lint rule forbids calling <code>GroupPaths</code> anywhere, and exactly one place, the <code>GetMe</code> handler behind <code>GET /api/v1/me</code>, is allowed.</p>
+<p>The linter cannot say "allowed in this one function". So ADR-002 turned <code>forbidigo</code> off for the whole file <code>internal/server/api.go</code>. That also turned off the other two rules for that file. A new handler added to <code>api.go</code> could use a raw HTTP client, log query parameters, or read group paths, and CI would stay green. The Security &amp; Multi-Tenancy Reviewer flagged this on TICK-268 (finding 2, Low).</p>
+
+<h2 id="harder">2. Why "just put a comment on the line" was not enough</h2>
+<p>The first draft (RFC-006 rev 0) moved the exemption onto the one line and counted that there was exactly one such comment. Both reviewers broke it in round 1, and both found a third trick in round 2:</p>
+<table><thead><tr><th>Trick</th><th>What it does</th><th>Who found it</th></tr></thead><tbody>
+<tr><td>Move the one comment above <code>package server</code></td><td>Same comment count, but now it exempts the <strong>whole file</strong> again</td><td>Both reviewers, round 1</td></tr>
+<tr><td>Move it above <code>func GetMe</code></td><td>Exempts the whole function</td><td>Technical Architect, round 1</td></tr>
+<tr><td>Write <code>//nolint:FORBIDIGO</code> or <code>//nolint: forbidigo</code></td><td>The linter honours it; a simple text count does not see it</td><td>Technical Architect, round 1</td></tr>
+<tr><td>Add <code>// Code generated by hand. DO NOT EDIT.</code> to <code>api.go</code></td><td>Every linter skips the file, with no config change and no new comment</td><td>Both reviewers, round 2 (F3)</td></tr>
+</tbody></table>
+
+<h2 id="options">3. Options considered</h2>
+<table><thead><tr><th>Option</th><th>Result</th></tr></thead><tbody>
+<tr><td>Keep the file exclusion</td><td><span class="tag red">rejected</span> It is the finding.</td></tr>
+<tr><td>Narrow the exclusion to the <code>GroupPaths</code> message</td><td><span class="tag red">rejected</span> Still the whole file for <code>GroupPaths</code>.</td></tr>
+<tr><td>Move <code>GetMe</code> into its own file and exclude that file</td><td><span class="tag red">rejected</span> The same hole, just smaller.</td></tr>
+<tr><td>One-line comment plus a comment count (rev 0)</td><td><span class="tag red">rejected</span> Beaten by the tricks above.</td></tr>
+<tr><td><strong>One-line comment, pinned word for word by a CI gate that also checks the config and generated-file headers</strong></td><td><span class="tag green">chosen</span> About 50 lines of shell script. Every trick fails the build.</td></tr>
+<tr><td>A custom code check that allows only the <code>GetMe</code> function</td><td><span class="tag amber">deferred</span> The ideal shape, about 60 lines plus tests. Worth it when a second exemption is needed.</td></tr>
+</tbody></table>
+
+<h2 id="decision">4. The decision</h2>
+<div class="verbatim"><div class="vlabel">ADR-002-E1, Decision (abridged to its four steps)</div>
+<ol>
+<li><strong>No <code>forbidigo</code> exclusion for <code>internal/server/api.go</code>.</strong></li>
+<li><strong>One line-scoped waiver.</strong> <code>raw, err := h.paths.GroupPaths(ctx, p.TenantID, p.PrincipalID) //nolint:forbidigo // ADR-002: GetMe is the one allowed GroupPaths caller</code></li>
+<li><strong><code>nolintlint</code> enabled</strong>, with <code>require-specific: true</code>, <code>require-explanation: true</code> and <code>allow-unused: false</code>.</li>
+<li><strong><code>scripts/ci/nolint-allowlist.sh</code>, run from <code>make lint</code></strong>, with three checks. Each one fails closed: Directives, Config, Generated files (F3).</li>
+</ol></div>
+
+<figure class="diagram"><svg viewBox="0 0 1000 380" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Five layers that each stop a different way of adding a second GroupPaths caller">
+<rect x="20" y="20" width="250" height="60" rx="8" fill="#f6f8fa" stroke="#d1d9e0"/>
+<text x="145" y="46" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">A second GroupPaths</text>
+<text x="145" y="66" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">caller appears</text>
+<g font-size="13">
+<rect x="330" y="20" width="640" height="52" rx="8" fill="#dafbe1" stroke="#1a7f37"/>
+<text x="345" y="42" font-weight="700" fill="#1a7f37">forbidigo rule (ADR-002, unchanged)</text>
+<text x="345" y="62" fill="#1f2328">in any other file, or in api.go with no comment</text>
+<rect x="330" y="86" width="640" height="52" rx="8" fill="#dafbe1" stroke="#1a7f37"/>
+<text x="345" y="108" font-weight="700" fill="#1a7f37">nolintlint (new)</text>
+<text x="345" y="128" fill="#1f2328">bare, unexplained, leading-space or unused comments; a comment left beside an old exclusion</text>
+<rect x="330" y="152" width="640" height="52" rx="8" fill="#ddf4ff" stroke="#0969da"/>
+<text x="345" y="174" font-weight="700" fill="#0969da">Gate, directive check (new)</text>
+<text x="345" y="194" fill="#1f2328">a copied, respelled or listed comment; the comment moved above package or func</text>
+<rect x="330" y="218" width="640" height="52" rx="8" fill="#ddf4ff" stroke="#0969da"/>
+<text x="345" y="240" font-weight="700" fill="#0969da">Gate, config and generated-file checks (new)</text>
+<text x="345" y="260" fill="#1f2328">an exclusion put back in .golangci.yml; a fake "DO NOT EDIT" header</text>
+<rect x="330" y="284" width="640" height="52" rx="8" fill="#fff8c5" stroke="#9a6700"/>
+<text x="345" y="306" font-weight="700" fill="#9a6700">Code review of api.go (residual R-e)</text>
+<text x="345" y="326" fill="#1f2328">the exact same line moved into a different handler</text>
+</g>
+<path d="M270 50 L325 46" stroke="#59636e" stroke-width="2" fill="none"/>
+<path d="M300 50 L300 310 L325 310" stroke="#59636e" stroke-width="2" fill="none" stroke-dasharray="5 4"/>
+</svg><figcaption>Each layer stops a different way of adding a second caller. Only the last, yellow case relies on a person.</figcaption></figure>
+
+<h2 id="fix">5. What changes, and how</h2>
+<p>There is no runtime change. One Delivery task, created by the CTO after you sign, does five things:</p>
+<ol>
+<li>Deletes the two-line <code>api.go</code> exclusion from <code>.golangci.yml</code> and turns on <code>nolintlint</code>.</li>
+<li>Adds the comment to the one call line in <code>GetMe</code>.</li>
+<li>Adds <code>scripts/ci/nolint-allowlist.sh</code> to <code>make lint</code>, with the PR showing it red before and green after. It must also show each trick from section 2 failing.</li>
+<li>Keeps the existing lint fixture count at 6.</li>
+<li>Deletes the one existing <code>//nolint</code> comment that <code>nolintlint</code> reports as unused (in a test file).</li>
+</ol>
+<p>ADR-002's signed text is not edited. This erratum sits beside it and replaces its "Lint rule" row and its residual R-b.</p>
+
+<h2 id="accept">6. What you are accepting</h2>
+<table><thead><tr><th>#</th><th>Residual</th><th>Severity</th><th>Revisit when</th></tr></thead><tbody>
+<tr><td>R-e (AR-039)</td><td>The gate pins the exempt line's <em>text</em>, not where it sits. Someone could delete it from <code>GetMe</code> and paste the same line into another handler in <code>api.go</code>. Code review of <code>api.go</code> is the only control for that.</td><td><span class="tag amber">Low</span> Not a tenant-isolation gap</td><td>A second exemption is needed, or this happens once. Then build the function-level check.</td></tr>
+</tbody></table>
+<p>This replaces ADR-002's R-b, which was much wider: <em>any</em> handler in <code>api.go</code> could read group paths, and all three rules were off for the file.</p>
+
+<h2 id="evidence">7. Evidence</h2>
+<p>All runs used golangci-lint 2.14.0 on the S5 branch (PR #221). The gate spike tried 17 cases against the gate script. All behaved as intended:</p>
+<table><thead><tr><th>Case</th><th>Gate</th></tr></thead><tbody>
+<tr><td>The branch as it is today (file exclusion, no comment)</td><td><span class="tag red">fails</span> (red before the change)</td></tr>
+<tr><td>The change applied</td><td><span class="tag green">passes</span> (green after)</td></tr>
+<tr><td>Comment copied onto a second caller; respelled <code>FORBIDIGO</code>, <code>: forbidigo</code>, or in a list <code>gosec,forbidigo</code></td><td><span class="tag red">fails</span></td></tr>
+<tr><td>Comment moved above <code>package</code> or above <code>func GetMe</code></td><td><span class="tag red">fails</span></td></tr>
+<tr><td>Comment in a brand-new file not yet committed</td><td><span class="tag red">fails</span></td></tr>
+<tr><td>The <code>api.go</code> exclusion put back (two YAML forms), a rule with no path, a global path exclusion</td><td><span class="tag red">fails</span></td></tr>
+<tr><td>A fake <code>DO NOT EDIT</code> header on <code>api.go</code> or on a new file</td><td><span class="tag red">fails</span></td></tr>
+<tr><td>An unrelated exclusion for another linter; a comment in a test file</td><td><span class="tag green">passes</span> (correctly out of scope)</td></tr>
+</tbody></table>
+<p>The reviewers also ran lint over the whole repository with the new settings. It took 278 seconds and found exactly one stale comment, which the Delivery task deletes. The Technical Architect checked the script on Linux's <code>mawk</code> as well as <code>gawk</code>, and the output was identical. Full logs and scripts are in <code>docs/adr/ADR-002/spikes/solution-architect/rfc-006/</code>.</p>
+
+<h2 id="invariants">8. Platform invariants</h2>
+<p>These were checked against the nine invariants in ADR-001 §1. The change touches lint configuration, one comment and one CI script. It touches nothing that runs in production. <strong>I5 (one authorization layer)</strong> is strengthened: the rule that keeps group paths out of authorization now has a one-line gap instead of a whole-file gap. The other eight are not touched.</p>
+
+<h2 id="next">9. What happens next</h2>
+<p>nava approved this erratum on 2026-10-28 (TICK-272, &ldquo;APPROVED&rdquo;). The Technical Lead plans the Delivery task in TICK-301, with the five acceptance criteria from section 5.</p>
+</main></body></html>

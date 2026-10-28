@@ -150,14 +150,11 @@ func closedAt(t *testing.T, conn *pgx.Conn, tenant, outboxID uuid.UUID) *time.Ti
 
 // relayWorkflow is a relay-started workflow: it does its work, then closes
 // its workflow_ref as its final activity.
-func relayWorkflow(ctx workflow.Context) (string, error) {
+func relayWorkflow(ctx workflow.Context) error {
 	if err := workflow.Sleep(ctx, time.Minute); err != nil {
-		return "", err
+		return err
 	}
-	if err := CloseWorkflowRef(ctx); err != nil {
-		return "", err
-	}
-	return "done", nil
+	return CloseWorkflowRef(ctx)
 }
 
 // A completed workflow has closed_at set on its workflow_ref row, written by
@@ -171,9 +168,8 @@ func TestCompletedWorkflowClosesItsWorkflowRef(t *testing.T) {
 	h := newHarness(t, id)
 	(&Activities{Pool: pool}).Register(h.env)
 	h.env.ExecuteWorkflow(relayWorkflow)
-	var out string
-	if err := h.env.GetWorkflowResult(&out); err != nil || out != "done" {
-		t.Fatalf("workflow: %q, %v", out, err)
+	if err := h.env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow: %v", err)
 	}
 	first := closedAt(t, conn, tenantA, outboxID)
 	if first == nil {

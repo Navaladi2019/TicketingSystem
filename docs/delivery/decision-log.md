@@ -13,10 +13,18 @@ Delivery decisions that change a task's contract, newest first.
   - D9: a test checks that every token-validating service trusts the pinned issuer (TICK-291), and every landed story suite runs on `main` (TICK-292).
   - Review standard: a PR merges only if it is green against the current tip of its base branch.
 - **Sequencing:** D1, TICK-289, TICK-290 and TICK-291 start now and do not touch `Makefile`. The splits wait for TICK-47 and TICK-49 to land, so that the split itself does not conflict with them.
-- **Supersedes:** the 2026-10-26 deferral of branch protection on `main` (TICK-231 entry). Story branches stay unprotected.
+- **Supersedes:** the 2026-10-25 "no run on push to main" decision (its accepted trade-off is what let S5 and S7 break unseen; vknavaladi approved the change on TICK-288), and the 2026-10-26 deferral of branch protection on `main` (TICK-231 entry). Pull requests keep the change-based job selection. Story branches stay unprotected.
+- **Applied (2026-10-28):** protection is on `main` (the eight `ci.yml` jobs are required, the branch must be up to date, admins are included, no force pushes); the Technical Lead applied it with the owner's go-ahead on TICK-288. A new `ci.yml` job must be added to the required list in the same PR.
 - **Deferred:**
   - Merge queue. Trigger: more than three PRs a day waiting on rebases.
   - One file per entry for `todo.md` and `accepted-risks.md`. Trigger: a union merge produces a malformed table.
+- **Dissent:** none.
+
+## 2026-10-28: PLAN-002-E1 implements ADR-002-E1 as one task, TICK-302, under S5
+- **Decided by:** the Technical Lead on TICK-301 (`docs/delivery/plan-adr-002-e1.md`).
+- **Decision:** ADR-002-E1 ships as TICK-302 (`qa`, reviewed by the Security & Multi-Tenancy Reviewer). It waits in `backlog` until nava signs TICK-272. It targets the S5 story branch, because the `api.go` exclusion exists only there, so `main` never carries R-b. TICK-302, TICK-298 and TICK-300 all edit `internal/server/api.go`; whichever merges second rebases. `docs/security/accepted-risks.md` stays with PR #225, which adds AR-039.
+- **Fallback:** if TICK-272 is still unsigned when every other S5 task is `done`, TICK-302 leaves S5 and targets `main` after S5 merges, so S5 acceptance is not held up.
+- **Deferred:** the `navalint` `grouppaths` analyzer (R-e). Trigger: a second `forbidigo` waiver is needed, or the directive line is moved once. Owner: the Solution Architect.
 - **Dissent:** none.
 
 ## 2026-10-27: PLAN-002 implements ADR-002 as one task, TICK-268

@@ -60,7 +60,7 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer, once b
 	if err != nil {
 		return err
 	}
-	log = logging.WithExport(log, tel.LogHandler(), cfg.Log.Level)
+	log = logging.WithExport(log, tel.LogHandler("nava-groupsync"), cfg.Log.Level)
 	flush := func() error {
 		flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cfg.Telemetry.ShutdownTimeout)
 		defer cancel()

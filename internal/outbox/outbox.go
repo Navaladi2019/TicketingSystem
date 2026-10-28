@@ -255,33 +255,61 @@ func validate(e Entry) (json.RawMessage, error) {
 	return payload, nil
 }
 
+// payloadKeyPattern bounds every payload key (TICK-240), so a key can carry
+// no free text: no spaces, punctuation, digits first or capitals, and at most
+// 32 characters. outbox_payload_check (db/migrations/00009) uses the same
+// pattern. A per-kind key allow-list was not workable; see
+// docs/data/outbox-payload-check.md.
+var payloadKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
+
 // ValidatePayload enforces references only (ADR-001 R1, CI-7): a JSON object
-// whose every value is a UUID string or an array of UUID strings. Record data
-// never enters an outbox row, so it never reaches a Temporal history.
+// whose every key matches payloadKeyPattern and whose every value is a
+// canonical UUID string or an array of them. Record data never enters an
+// outbox row, so it never reaches a Temporal history.
+//
+// The error never quotes the payload, not even a key: a refused key may be
+// the record data the rule keeps out.
 func ValidatePayload(p json.RawMessage) error {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(p, &fields); err != nil || fields == nil {
 		return fmt.Errorf("%w: payload must be a JSON object", ErrInvalidEntry)
 	}
 	for name, v := range fields {
-		var one string
-		if json.Unmarshal(v, &one) == nil {
-			if _, err := uuid.Parse(one); err != nil {
-				return fmt.Errorf("%w: payload field %q is not a reference", ErrInvalidEntry, name)
-			}
-			continue
+		if !payloadKeyPattern.MatchString(name) {
+			return fmt.Errorf("%w: payload key must match %s", ErrInvalidEntry, payloadKeyPattern)
 		}
-		var many []string
-		if err := json.Unmarshal(v, &many); err != nil {
-			return fmt.Errorf("%w: payload field %q is not a reference", ErrInvalidEntry, name)
-		}
-		for _, s := range many {
-			if _, err := uuid.Parse(s); err != nil {
-				return fmt.Errorf("%w: payload field %q is not a reference", ErrInvalidEntry, name)
-			}
+		if !isReference(v) {
+			return fmt.Errorf("%w: payload value is not a canonical UUID or an array of them", ErrInvalidEntry)
 		}
 	}
 	return nil
+}
+
+// isReference reports whether v is a canonical UUID string or an array
+// (possibly empty) of them.
+func isReference(v json.RawMessage) bool {
+	var one string
+	if json.Unmarshal(v, &one) == nil {
+		return canonicalUUID(one)
+	}
+	var many []string
+	if json.Unmarshal(v, &many) != nil {
+		return false
+	}
+	for _, s := range many {
+		if !canonicalUUID(s) {
+			return false
+		}
+	}
+	return true
+}
+
+// canonicalUUID reports whether s is a UUID in the one form uuid.UUID.String
+// writes: 36 characters, lowercase hex, hyphenated. uuid.Parse alone also
+// takes the URN, braced and 32-digit forms, and either case.
+func canonicalUUID(s string) bool {
+	u, err := uuid.Parse(s)
+	return err == nil && u.String() == s
 }
 
 // traceparent is ctx's span context as a W3C traceparent, or nil (NULL) when

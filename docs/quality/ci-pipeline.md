@@ -12,7 +12,7 @@ calls only `make` targets. Install the pinned tools once with `make tools`.
 | Lint | `ci-lint` | tool versions differ from `docs/pins.md`, `gofmt`, `go vet`, golangci-lint, `lint-fixture` (exactly 5 forbidigo findings), `check-taskfile`, `check-pins`, `check-openapi`, `govulncheck ./...` in both modules at once (`vulncheck-ci`, below) | none |
 | Unit | `ci-unit` | `go test -race ./...` under the host-wide race lock (below), temporal-server unit tests | none |
 | Integration | `ci-integration` | any `//go:build integration` test (`internal/db/dbtest`, `internal/db/pooltest`, `internal/tenancy`, `internal/platform/health`) against throwaway PostgreSQL clusters and two PgBouncers (tags from `docs/pins.md`), or the dbtest shards running fewer tests than the package lists | Docker |
-| Isolation (in `ci-integration`, after `test-integration`) | `isolation` | the tenant isolation suite (`internal/tenancy/isolation`, T11, ADR-001 CI-2): any role × tenant table, registered path or fixture failing; writes the report `isolation-report.md` at the repository root (not yet uploaded as an artifact: TODO-008) | Docker |
+| Isolation (in `ci-integration`, after `test-integration`) | `isolation` | the tenant isolation suite (`internal/tenancy/isolation`, T11, ADR-001 CI-2): any role × tenant table, registered path or fixture failing; writes the report `isolation-report.md` at the repository root (uploaded as the `isolation-report` artifact, even when the job fails) | Docker |
 | ci-isolated `--down` (in `ci-integration`, after `isolation`; its own step in the `integration` job) | `test-ci-isolated-down` | `make ci-isolated-down ID=<ID>` leaves a `nava/*:<ID>` tag or removes one of another ID (TICK-211, throwaway tags on an empty imported image). Not part of `make test-integration`, so the local integration loop does not pay for it (TICK-224) | Docker |
 | Stack | `ci-stack` | image build, every container healthy, `GET /healthz` smoke from inside the compose network, then the stack tests (`pgbouncer`, `temporal`, `dependencies`, `trace`, `redact`, `idempotent`, `dbroles`, `hba`, `internal`) | compose |
 
@@ -189,6 +189,7 @@ lock. `NAVA_RACE_LOCK=off` skips it.
 | A registered isolation suite runs zero tests and CI stays green (a `TestMain` exiting before `m.Run`, a step dropping `-tags`) | `tools/ci/suiteran` (TICK-230) wraps `go test -json` in `test`, `temporal-server-test`, `test-integration`, `isolation`, `stack-test-identity` and `stack-test-sdk`: every `cto_signoff.isolation_tests` file whose package ran and whose build constraints hold for the step's `-tags` must have at least one of its tests pass or fail. Fixtures in `tools/ci/suiteran/testdata/fixture`; `TestEveryRegisteredSuiteHasACheckedStep` fails when a registered suite has no step whose `-tags` builds it |
 | An integration test hangs and the cancelled job's log is empty, so nobody can tell which test | `go test -timeout 6m` in `test-integration.sh` (below the job's 10 minutes) and the groups' output streamed through `tools/ci/testlog` (TICK-225). Unit tests in `tools/ci/testlog`; the hang itself was proven once on a throwaway PR (not merged) |
 | A shallow clone passes `check-openapi` with nothing to compare against | `check-openapi` fails when `BASE` is missing |
+| A branch's migration merges with a version older than one already on the base, so fresh CI databases and deployed ones migrate in different orders | `TestNewMigrationsLaterThanBase` in `db/` (TICK-299), in the `unit` job with `BASE` set and full history: fails naming each added migration, its version and the base's newest version. Skips locally unless `BASE` is set. Rule: `db/migrations/README.md` |
 | pgx's prepared-statement cache breaks through PgBouncer in transaction mode | `internal/db/pooltest` (T06): 50 clients, 10k statements, zero errors; a second PgBouncer with `max_prepared_statements = 0` must fail |
 | nava-core goes ready without PostgreSQL | compose healthcheck on `/readyz`, plus the `dependencies` case (200 with Keycloak stopped) |
 
@@ -240,10 +241,21 @@ A pull request runs only the jobs its change needs. The `changes` job runs
 | `ci-stack` | `stack`, `stack-db`, `stack-internal` |
 
 A change under `.github/workflows` runs every job, since only a full run proves
-a workflow edit. A skipped job shows as skipped, not failed. Nothing runs on a
-push to `main`. For a full run on any branch, start the `ci` workflow by hand
-from the Actions tab (`workflow_dispatch`, or `gh workflow run ci --ref
-<branch>`); it sets `CI_ALL=1`, so every job runs. Locally, `make ci-stages`
+a workflow edit. A skipped job shows as skipped, not failed. For a full run on
+any branch, start the `ci` workflow by hand from the Actions tab
+(`workflow_dispatch`, or `gh workflow run ci --ref <branch>`); it sets
+`CI_ALL=1`, so every job runs.
+
+A push to `main` or to any `TICK-**` branch (TICK-289) also sets `CI_ALL=1`:
+the merged tree runs every job, since a merge result has no meaningful diff
+base. Story branches are `TICK-<story>/<slug>`, so the filter needs `**` to
+cross the `/`; it matches task branches too, which then run the full suite on
+every push (an accepted cost: a glob cannot tell the two apart). Each push has its own concurrency group (per ref and sha), so a newer
+merge neither cancels nor replaces the run of an older one. When any job of a
+push to `main` fails, the `main-red` job (`scripts/ci/main-red.sh`, the only
+job with `issues: write`) opens a GitHub issue `main is red: <short sha>`
+labelled `P0`, with the failing jobs and the run URL; while one such issue is
+open, a later red push comments on it instead. Close it once `main` is green. Locally, `make ci-stages`
 prints the stages for the current branch and `CI_ALL=1 make ci-stages` prints
 all four.
 

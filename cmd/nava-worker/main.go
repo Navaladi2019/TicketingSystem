@@ -33,6 +33,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/health"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/logging"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/temporaltls"
 	"github.com/Navaladi2019/TicketingSystem/internal/workerguard"
 )
 
@@ -42,6 +43,9 @@ const (
 	namespace = "nava"
 	taskQueue = "nava-tq"
 )
+
+// service names the binary on the logs it exports.
+const service = "nava-worker"
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -73,7 +77,7 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 	if err != nil {
 		return err
 	}
-	log = logging.WithExport(log, tel.LogHandler(), cfg.Log.Level)
+	log = exportLogs(log, tel, cfg.Log.Level)
 	flush := func() error {
 		flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cfg.Telemetry.ShutdownTimeout)
 		defer cancel()
@@ -111,11 +115,17 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 	return errors.Join(serveErr, flush())
 }
 
+// exportLogs adds OTLP export, under the nava-worker name, to log. It returns
+// log unchanged when log export is off.
+func exportLogs(log *slog.Logger, tel *telemetry.Telemetry, level slog.Leveler) *slog.Logger {
+	return logging.WithExport(log, tel.LogHandler(service), level)
+}
+
 // newWorker builds the guarded client and worker, the workflow_ref activities'
 // pool and the readiness checks. The returned func closes the client and the
 // pools; call it after the worker has stopped.
 func newWorker(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, cfg config.Config, fatal chan<- error) (worker.Worker, *health.Monitor, func(), error) {
-	tlsConfig, err := temporalTLS(cfg.Deps.TemporalTLS)
+	tlsConfig, err := temporaltls.Load(cfg.Deps.TemporalTLS)
 	if err != nil {
 		return nil, nil, nil, err
 	}
