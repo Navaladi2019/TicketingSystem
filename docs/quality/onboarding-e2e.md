@@ -56,4 +56,4 @@ make stack-test-onboard
 ```
 
 In CI: the `stack` job's `make stack-test-identity` step runs these tests until the
-workflow has its own `make stack-test-onboard` step (TODO-012).
+workflow has its own `make stack-test-onboard` step (TODO-014).

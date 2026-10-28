@@ -2,6 +2,9 @@
 # Stack tests for T02 to T05, T08 and T28. Usage: stack-test.sh <healthy|smoke|pgbouncer|temporal|dependencies|trace|logs|redact|idempotent|dbroles|hba|internal|temporal_handshake|temporal_isolation|temporal_confinement|temporal_custody|temporal_operator_reach|temporal_health>
 # Needs the stack up (task stack:up); `internal` brings up its own overlay.
 set -eu
+# Git Bash would rewrite the container paths given to docker run and compose exec.
+MSYS_NO_PATHCONV=1
+export MSYS_NO_PATHCONV
 . "$(dirname "$0")/lib.sh"
 
 # Every container healthy, db-roles and migrate done, within the S1 budget of
@@ -145,7 +148,7 @@ t_redact() {
         -e "s/__START__/${now}000000000/g" -e "s/__END__/$((now + 1))000000000/" \
         "$ROOT/deploy/compose/test/redact-span.json" |
         compose exec -T nava-core sh -c 'cat > /tmp/redact-span.json'
-    MSYS_NO_PATHCONV=1 compose exec -T nava-core wget -q -O /dev/null \
+    compose exec -T nava-core wget -q -O /dev/null \
         --header 'Content-Type: application/json' --post-file /tmp/redact-span.json \
         http://otel-collector:4318/v1/traces || fail "the Collector rejected the span"
 
@@ -308,7 +311,6 @@ platform_net() {
 # throwaway container on the platform network, through the gateway, with the named
 # certificate. Prints the command's output; exit status is the probe's.
 dial_as() {
-    export MSYS_NO_PATHCONV=1 # Git Bash on Windows would rewrite the /c/ paths
     if [ "$1" = none ]; then
         certs="-ca /c/ca.pem -cert= -key="
         mounts="-v $2/ca.pem:/c/ca.pem:ro"
@@ -478,7 +480,7 @@ t_logs() {
     sed -e "s/__TRACE_ID__/$ptid/g" -e "s/__SPAN_ID__/$(rand_hex 8)/" -e "s/__NOW__/$(date +%s)000000000/" \
         "$ROOT/deploy/compose/test/redact-log.json" |
         compose exec -T nava-core sh -c 'cat > /tmp/redact-log.json'
-    MSYS_NO_PATHCONV=1 compose exec -T nava-core wget -q -O /dev/null \
+    compose exec -T nava-core wget -q -O /dev/null \
         --header 'Content-Type: application/json' --post-file /tmp/redact-log.json \
         http://otel-collector:4318/v1/logs || fail "the Collector rejected the log record"
     until [ -n "$(log_records_for "$ptid")" ]; do

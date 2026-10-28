@@ -10,9 +10,11 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.temporal.io/sdk/worker"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
@@ -49,11 +51,12 @@ func TestRunNeedsTemporalAndDatabase(t *testing.T) {
 func TestRunTLSErrorsNameTheVariable(t *testing.T) {
 	dir := t.TempDir()
 	env := map[string]string{
-		"NAVA_TEMPORAL_ADDRESS":       "127.0.0.1:1",
-		"NAVA_DATABASE_URL":           "postgres://nava_worker@127.0.0.1:1/nava",
-		"NAVA_TEMPORAL_TLS_CERT_FILE": filepath.Join(dir, "secret-name.pem"),
-		"NAVA_TEMPORAL_TLS_KEY_FILE":  filepath.Join(dir, "secret-name.key"),
-		"NAVA_TEMPORAL_TLS_CA_FILE":   filepath.Join(dir, "ca.pem"),
+		"NAVA_TEMPORAL_ADDRESS":         "127.0.0.1:1",
+		"NAVA_DATABASE_URL":             "postgres://nava_worker@127.0.0.1:1/nava",
+		"NAVA_TEMPORAL_TLS_CERT_FILE":   filepath.Join(dir, "secret-name.pem"),
+		"NAVA_TEMPORAL_TLS_KEY_FILE":    filepath.Join(dir, "secret-name.key"),
+		"NAVA_TEMPORAL_TLS_CA_FILE":     filepath.Join(dir, "ca.pem"),
+		"NAVA_TEMPORAL_TLS_SERVER_NAME": "temporal",
 	}
 	err := run(t.Context(), lookup(env), &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "NAVA_TEMPORAL_TLS_CERT_FILE") || strings.Contains(err.Error(), "secret-name") {
@@ -61,12 +64,40 @@ func TestRunTLSErrorsNameTheVariable(t *testing.T) {
 	}
 }
 
-func TestTemporalTLSUnconfiguredIsPlaintext(t *testing.T) {
-	got, err := temporalTLS(config.TemporalTLS{})
-	if got != nil || err != nil {
-		t.Fatalf("got %v, %v; want nil, nil", got, err)
+// The logs nava-worker exports carry its own name, not nava-core's.
+func TestExportedLogsCarryTheWorkerName(t *testing.T) {
+	rec := &logRecorder{}
+	tel, err := telemetry.New(t.Context(), config.Telemetry{}, telemetry.WithLogExporter(rec))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tel.Shutdown(context.Background()) })
+
+	exportLogs(slog.New(slog.DiscardHandler), tel, slog.LevelInfo).InfoContext(t.Context(), "m")
+
+	if len(rec.recs) != 1 {
+		t.Fatalf("exported %d records, want 1", len(rec.recs))
+	}
+	if got := rec.recs[0].InstrumentationScope().Name; got != "nava-worker" {
+		t.Errorf("scope name = %q, want nava-worker", got)
 	}
 }
+
+type logRecorder struct {
+	mu   sync.Mutex
+	recs []sdklog.Record
+}
+
+func (r *logRecorder) Export(_ context.Context, recs []sdklog.Record) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, rec := range recs {
+		r.recs = append(r.recs, rec.Clone())
+	}
+	return nil
+}
+func (r *logRecorder) Shutdown(context.Context) error   { return nil }
+func (r *logRecorder) ForceFlush(context.Context) error { return nil }
 
 func newTemporal(t *testing.T) (*telemetry.Telemetry, *telemetry.Temporal) {
 	t.Helper()

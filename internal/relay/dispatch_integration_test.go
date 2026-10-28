@@ -309,23 +309,35 @@ const (
 	helperDSNEnv  = "NAVA_RELAY_TEST_DSN"
 	helperAddrEnv = "NAVA_RELAY_TEST_FRONTEND"
 	helperPause   = "NAVA_RELAY_TEST_PAUSE"
+	helperLease   = "NAVA_RELAY_TEST_LEASE"
 )
 
-// TestRelayProcess is the relay subprocess of TestCrashSeam, not a test of
-// its own: with NAVA_RELAY_TEST_HELPER=1 it runs a Dispatcher as nava_relay
-// until it is killed, pausing every start at StdinPause when
-// NAVA_RELAY_TEST_PAUSE=1, exactly as a relaytest build of nava-relay does
-// with NAVA_RELAYTEST_PAUSE=1.
+// TestRelayProcess is the relay subprocess of TestCrashSeam and
+// TestT33CrashBetweenClaimAndStart, not a test of its own: with
+// NAVA_RELAY_TEST_HELPER=1 it runs a Dispatcher as nava_relay until it is
+// killed, pausing every start at StdinPause when NAVA_RELAY_TEST_PAUSE=1,
+// exactly as a relaytest build of nava-relay does with
+// NAVA_RELAYTEST_PAUSE=1. Its lease is NAVA_RELAY_TEST_LEASE.
+//
+// Run directly by `go test` it always skips, by design (since T30b, TICK-85):
+// relayProcessLease re-executes the test binary with -test.run=^TestRelayProcess$
+// and the helper environment, and those parent tests run in the integration
+// job (make ci-integration). A SKIP here in that job is expected.
 func TestRelayProcess(t *testing.T) {
 	if os.Getenv(helperEnv) != "1" {
-		t.Skip("subprocess of TestCrashSeam")
+		t.Skip("intended: helper subprocess started by TestCrashSeam and TestT33CrashBetweenClaimAndStart " +
+			"with " + helperEnv + "=1; its behaviour is covered by those tests in the integration job (make ci-integration)")
 	}
 	pool, err := pgxpool.New(context.Background(), os.Getenv(helperDSNEnv))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	d, _, _ := dispatcherOn(t, pool, os.Getenv(helperAddrEnv), Options{Lease: 2 * time.Second})
+	lease, err := time.ParseDuration(os.Getenv(helperLease))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, _, _ := dispatcherOn(t, pool, os.Getenv(helperAddrEnv), Options{Lease: lease})
 	if os.Getenv(helperPause) == "1" {
 		d.beforeStart = StdinPause(os.Stdin, os.Stderr)
 	}
@@ -346,16 +358,23 @@ func relayDSN(t *testing.T) string {
 	return u.String()
 }
 
-// relayProcess starts TestRelayProcess and returns it with a channel of its
-// stderr lines.
+// relayProcess starts TestRelayProcess with a 2 s lease and returns it with a
+// channel of its stderr lines.
 func relayProcess(t *testing.T, addr string, pause bool) (*exec.Cmd, <-chan string) {
+	t.Helper()
+	return relayProcessLease(t, addr, pause, 2*time.Second)
+}
+
+// relayProcessLease is relayProcess with the given lease.
+func relayProcessLease(t *testing.T, addr string, pause bool, lease time.Duration) (*exec.Cmd, <-chan string) {
 	t.Helper()
 	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestRelayProcess$", "-test.count=1")
 	p := "0"
 	if pause {
 		p = "1"
 	}
-	cmd.Env = append(os.Environ(), helperEnv+"=1", helperDSNEnv+"="+relayDSN(t), helperAddrEnv+"="+addr, helperPause+"="+p)
+	cmd.Env = append(os.Environ(), helperEnv+"=1", helperDSNEnv+"="+relayDSN(t), helperAddrEnv+"="+addr, helperPause+"="+p,
+		helperLease+"="+lease.String())
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatal(err)

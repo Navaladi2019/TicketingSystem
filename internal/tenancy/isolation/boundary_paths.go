@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -18,8 +19,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	metricnoop "go.opentelemetry.io/otel/metric/noop"
 
+	"github.com/Navaladi2019/TicketingSystem/api"
 	"github.com/Navaladi2019/TicketingSystem/internal/groupsync"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/apihttp"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 )
 
@@ -345,9 +348,10 @@ func (d oneTenantDirectory) ChangesSince(_ context.Context, tenantID uuid.UUID, 
 // tenantAdminRefusedOnOperatorRoutes (T26 case 6): admin@tenant-a holds a
 // valid token with tenant-admin, which GET /api/v1/me honours for tenant A.
 // The operator resolver, which authenticates every /api/v1/operator/* route,
-// refuses it, while it accepts the allow-listed operator (the control). A
-// call to POST /api/v1/operator/tenants with it gets 403 from the suite's
-// handler, built with server.WithOperator, and reaches no operator handler.
+// refuses it, while it accepts the allow-listed operator (the control). On
+// every operator route of the contract it gets 403 from the suite's handler,
+// built with server.WithOperator, with or without the route's required
+// header and body, and reaches no operator handler.
 func tenantAdminRefusedOnOperatorRoutes(ctx context.Context, _ Cluster, s Server) error {
 	admin := s.Mint(Token{Subject: isoTenantSubject, RealmRoles: []string{"tenant-admin"}})
 	if status, body := s.Do(ctx, http.MethodGet, "/api/v1/me", admin, "", nil); status != http.StatusOK || !strings.Contains(body, TenantA) {
@@ -359,15 +363,67 @@ func tenantAdminRefusedOnOperatorRoutes(ctx context.Context, _ Cluster, s Server
 	if err := s.ResolveOperator(ctx, admin); !errors.Is(err, identity.ErrInvalidToken) {
 		return fmt.Errorf("ResolveOperator(tenant admin) = %w, want ErrInvalidToken", err)
 	}
-	// A contract-valid request, so the 403 comes from authentication and not
-	// from the validator rejecting the input.
-	status, body := s.Do(ctx, http.MethodPost, "/api/v1/operator/tenants", admin, onboardRequestBody,
-		http.Header{"Idempotency-Key": {"t26-6"}})
-	if status != http.StatusForbidden {
-		return fmt.Errorf("POST /api/v1/operator/tenants with a tenant admin token: %d %s, want 403", status, body)
+	routes, err := operatorRoutes()
+	if err != nil {
+		return err
 	}
-	return nil
+	if len(routes) == 0 {
+		return errors.New("the contract has no /api/v1/operator/* route: T26 case 6 proves nothing")
+	}
+	// A contract-valid request, so the 403 comes from authentication and not
+	// from the validator rejecting the input; and requests missing the
+	// required header or body, so authentication answers before the contract
+	// does (TICK-298).
+	key := http.Header{"Idempotency-Key": {"t26-6"}}
+	var errs []error
+	for _, rt := range routes {
+		for _, c := range []struct {
+			name   string
+			header http.Header
+			body   string
+		}{
+			{"a contract-valid request", key, onboardRequestBody},
+			{"no Idempotency-Key", nil, onboardRequestBody},
+			{"no body", key, ""},
+		} {
+			status, body := s.Do(ctx, rt.method, rt.path, admin, c.body, c.header)
+			if status != http.StatusForbidden || !strings.Contains(body, `"forbidden"`) {
+				errs = append(errs, fmt.Errorf("%s %s with a tenant admin token (%s): %d %s, want 403 forbidden", rt.method, rt.path, c.name, status, body))
+			}
+		}
+	}
+	return errors.Join(errs...)
 }
+
+type operatorRoute struct{ method, path string }
+
+// operatorRoutes lists every operation the contract has under
+// /api/v1/operator/, path parameters filled with tenant B's id.
+func operatorRoutes() ([]operatorRoute, error) {
+	data, err := api.Files.ReadFile("openapi.yaml")
+	if err != nil {
+		return nil, fmt.Errorf("read openapi.yaml: %w", err)
+	}
+	spec, err := apihttp.LoadSpec(data)
+	if err != nil {
+		return nil, err
+	}
+	var out []operatorRoute
+	for p, item := range spec.Paths.Map() {
+		if !strings.HasPrefix(p, "/api/v1/operator/") {
+			continue
+		}
+		path := pathParam.ReplaceAllString(p, TenantB)
+		for m := range item.Operations() {
+			out = append(out, operatorRoute{m, path})
+		}
+	}
+	slices.SortFunc(out, func(a, b operatorRoute) int { return strings.Compare(a.path+" "+a.method, b.path+" "+b.method) })
+	return out, nil
+}
+
+// pathParam is a {param} segment of a contract path.
+var pathParam = regexp.MustCompile(`\{[^}]+\}`)
 
 // onboardRequestBody is a well-formed POST /api/v1/operator/tenants body.
 const onboardRequestBody = `{"admin_email":"admin@acme.test","email_domains":["acme.test"],"identity_provider":{"provider_id":"oidc","config":{"clientId":"c"}}}`

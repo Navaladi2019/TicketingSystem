@@ -232,7 +232,7 @@ func TestEveryRegisteredSuiteHasACheckedStep(t *testing.T) {
 	sources = append(sources, scripts...)
 	var tagSets [][]string
 	for _, s := range sources {
-		b, err := os.ReadFile(s) //nolint:gosec // the repository's own files
+		b, err := os.ReadFile(s)
 		if err != nil {
 			t.Fatal(err)
 		}

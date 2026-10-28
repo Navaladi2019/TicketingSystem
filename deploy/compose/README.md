@@ -39,6 +39,30 @@ Host ports (bound to 127.0.0.1): nava-core `18080`, Keycloak `18081` (`NAVA_CORE
 db-roles creates it on the next `up`. A LOGIN role also needs a
 `DBROLES_PASSWORD_<ROLE>` variable on the db-roles service.
 
+**S7 demo: `make demo-outbox`** (`task demo:outbox`). With the stack up
+(`make stack-up`), it writes a start row and two signal rows for a record of the
+seeded tenant `tenant-a` (`00000000-0000-4000-8000-0000000000a1`) through
+`outbox.Enqueue` in `InTenantTx`, as `nava_app`, so `outbox_payload_check` and
+row-level security apply as in the product (`cmd/demo-outbox`, run from a
+throwaway container on the `internal` network by `scripts/dev/demo-outbox.sh`;
+the database port is never published). It needs only what `.env.example` and
+`make dev-ca` provide. The relay starts one workflow `t:<tenant-a id>:nava.smoke.relay:<start row id>`
+and signals it twice with `demo.note`, in commit order. The command prints the
+workflow id. To see it: `make operator-tunnel`, open `http://127.0.0.1:18233`,
+namespace `nava`, and open that workflow; its history holds the two signals. No
+worker runs this workflow type in the stack, so it stays Running.
+`DEDUPE_KEY=<key>` names the rows (default `demo-outbox`) and picks the record: run
+it twice with the same key and the second run writes nothing and prints the same
+ids, still one workflow; a new key makes a new workflow. `make stack-test-demo_outbox`
+runs exactly that and checks the history (CI: the `stack` job).
+
+**Git Bash on Windows.** MSYS rewrites a leading-slash container path in a
+`docker` argument (`--entrypoint /demo-outbox` becomes `C:/Program Files/Git/demo-outbox`).
+`make demo-outbox`, `make operator-tunnel`, `make temporal-server-run` and
+`deploy/compose/test/stack-test.sh` set
+`MSYS_NO_PATHCONV=1` themselves, so no `export` is needed. A `docker run`, `create`
+or `exec` you add with a container path must do the same.
+
 **Tests.** `sh deploy/compose/test/stack-test.sh <healthy|pgbouncer|temporal|trace|redact|idempotent|dbroles|internal|temporal_handshake|temporal_isolation|temporal_confinement|temporal_custody|temporal_health>`
 (`task stack:test`). Start the stack with `OTEL_TAIL_SAMPLE_PERCENT=100` for the
 `trace` test: an ordinary 404 is otherwise sampled out. CI runs them in
