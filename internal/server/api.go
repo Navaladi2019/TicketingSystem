@@ -22,11 +22,15 @@ import (
 // contract's paths already start with /api/v1, so both are empty.
 const baseURL = ""
 
-// newAPI registers the /api/v1 routes of the embedded contract on mux, each
-// behind the authentication middleware and then the validator, and returns
-// the error-contract helper whose Wrap goes around mux. The spec and docs
-// routes are public.
-func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.IdentityResolver, paths identity.GroupPathReader, mux *http.ServeMux, opts options) (*apihttp.API, error) {
+// newAPI registers the /api/v1 routes of the embedded contract on mux and
+// returns the handler to serve. Authentication (routeAuth) wraps the whole
+// mux, outside the generated router: the generated wrapper binds path, query
+// and header parameters before it runs a MiddlewareFunc, so an auth
+// middleware inside it would answer 400 to an unauthenticated request with a
+// bad or missing parameter. Behind authentication each route runs the
+// validator. The spec and docs routes are public, and a request no route
+// matches gets the 404/405 problem without authentication.
+func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.IdentityResolver, paths identity.GroupPathReader, mux *http.ServeMux, opts options) (http.Handler, error) {
 	specData, err := api.Files.ReadFile("openapi.yaml")
 	if err != nil {
 		return nil, fmt.Errorf("read openapi.yaml: %w", err)
@@ -56,18 +60,32 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 			ResponseErrorHandlerFunc: h.responseError(a),
 		}),
 		api.StdHTTPServerOptions{
-			BaseURL:    baseURL,
-			BaseRouter: mux,
-			// The last one is outermost: an unauthenticated request gets 401
-			// before the validator looks at its input.
-			Middlewares:      []api.MiddlewareFunc{a.Middleware(), routeAuth(reg, opts.operatorOnly, authn.Middleware, operatorAuth(reg, log, opts.operators, resolver))},
+			BaseURL:          baseURL,
+			BaseRouter:       mux,
+			Middlewares:      []api.MiddlewareFunc{a.Middleware()},
 			ErrorHandlerFunc: a.ErrorHandler,
 		},
 	)
-	mux.Handle("GET /api/v1/openapi.yaml", specHandler(specData))
-	mux.Handle("GET /api/v1/docs", docsHandler(spec))
-	return a, nil
+	mux.Handle(specPattern, specHandler(specData))
+	mux.Handle(docsPattern, docsHandler(spec))
+
+	served := a.Wrap(mux)
+	authed := routeAuth(reg, opts.operatorOnly, authn.Middleware, operatorAuth(reg, log, opts.operators, resolver))(served)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, pattern := mux.Handler(r)
+		if pattern == "" || pattern == specPattern || pattern == docsPattern {
+			served.ServeHTTP(w, r)
+			return
+		}
+		r.Pattern = pattern // the authentication logs name the route
+		authed.ServeHTTP(w, r)
+	}), nil
 }
+
+const (
+	specPattern = "GET /api/v1/openapi.yaml"
+	docsPattern = "GET /api/v1/docs"
+)
 
 // handlers implements the generated strict server. Operations the contract
 // declares but a later task implements answer 501 not_implemented.

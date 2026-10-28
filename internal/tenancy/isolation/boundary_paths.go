@@ -18,7 +18,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	metricnoop "go.opentelemetry.io/otel/metric/noop"
 
-	"github.com/Navaladi2019/TicketingSystem/api"
 	"github.com/Navaladi2019/TicketingSystem/internal/groupsync"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
@@ -133,7 +132,7 @@ func deprovision(ctx context.Context, c Cluster, s Server, subject string,
 
 	// Positive control: before the change the token reads tenant A with A1.
 	tok := s.Mint(Token{Subject: subject})
-	status, body := s.Do(ctx, http.MethodGet, "/api/v1/me", tok, "")
+	status, body := s.Do(ctx, http.MethodGet, "/api/v1/me", tok, "", nil)
 	if me, err := readMe(body); status != http.StatusOK || err != nil || me.TenantID != TenantA || !slices.Contains(me.Groups, groupA1) {
 		return fmt.Errorf("before the change: %d %s, want 200 for tenant A in group A1", status, body)
 	}
@@ -174,7 +173,7 @@ func deprovision(ctx context.Context, c Cluster, s Server, subject string,
 		return fmt.Errorf("the cycle did not apply tenant A's snapshot: %+v", results)
 	}
 
-	status, body = s.Do(ctx, http.MethodGet, "/api/v1/me", tok, "")
+	status, body = s.Do(ctx, http.MethodGet, "/api/v1/me", tok, "", nil)
 	if err := check(status, body); err != nil {
 		return err
 	}
@@ -347,10 +346,11 @@ func (d oneTenantDirectory) ChangesSince(_ context.Context, tenantID uuid.UUID, 
 // valid token with tenant-admin, which GET /api/v1/me honours for tenant A.
 // The operator resolver, which authenticates every /api/v1/operator/* route,
 // refuses it, while it accepts the allow-listed operator (the control). A
-// call to POST /api/v1/operator/tenants with it reaches no operator handler.
+// call to POST /api/v1/operator/tenants with it gets 403 from the suite's
+// handler, built with server.WithOperator, and reaches no operator handler.
 func tenantAdminRefusedOnOperatorRoutes(ctx context.Context, _ Cluster, s Server) error {
 	admin := s.Mint(Token{Subject: isoTenantSubject, RealmRoles: []string{"tenant-admin"}})
-	if status, body := s.Do(ctx, http.MethodGet, "/api/v1/me", admin, ""); status != http.StatusOK || !strings.Contains(body, TenantA) {
+	if status, body := s.Do(ctx, http.MethodGet, "/api/v1/me", admin, "", nil); status != http.StatusOK || !strings.Contains(body, TenantA) {
 		return fmt.Errorf("the tenant admin's token on GET /api/v1/me: %d %s, want 200 for tenant A", status, body)
 	}
 	if err := s.ResolveOperator(ctx, operatorToken(s, false)); err != nil {
@@ -359,18 +359,18 @@ func tenantAdminRefusedOnOperatorRoutes(ctx context.Context, _ Cluster, s Server
 	if err := s.ResolveOperator(ctx, admin); !errors.Is(err, identity.ErrInvalidToken) {
 		return fmt.Errorf("ResolveOperator(tenant admin) = %w, want ErrInvalidToken", err)
 	}
-	status, body := s.Do(ctx, http.MethodPost, "/api/v1/operator/tenants", admin, `{"name":"evil"}`)
-	if operatorRoutesInContract() {
-		// TODO(TODO-010): T21's operator routes are in the contract once the
-		// S4 story branch (TICK-46) meets this one. Then build the suite's
-		// handler with server.WithOperator and require 403 here.
-		return fmt.Errorf("the contract has /api/v1/operator/* on this branch (%d %s): wire server.WithOperator into the suite's handler and require 403", status, body)
-	}
-	if status != http.StatusNotFound && status != http.StatusMethodNotAllowed {
-		return fmt.Errorf("POST /api/v1/operator/tenants with a tenant admin token: %d %s, want 404 or 405 while the route is not in the contract", status, body)
+	// A contract-valid request, so the 403 comes from authentication and not
+	// from the validator rejecting the input.
+	status, body := s.Do(ctx, http.MethodPost, "/api/v1/operator/tenants", admin, onboardRequestBody,
+		http.Header{"Idempotency-Key": {"t26-6"}})
+	if status != http.StatusForbidden {
+		return fmt.Errorf("POST /api/v1/operator/tenants with a tenant admin token: %d %s, want 403", status, body)
 	}
 	return nil
 }
+
+// onboardRequestBody is a well-formed POST /api/v1/operator/tenants body.
+const onboardRequestBody = `{"admin_email":"admin@acme.test","email_domains":["acme.test"],"identity_provider":{"provider_id":"oidc","config":{"clientId":"c"}}}`
 
 // operatorTokenRefusedOnTenantRoutes (T26 case 8): the allow-listed
 // operator's token (the control: the operator resolver accepts it) on GET
@@ -387,7 +387,7 @@ func operatorTokenRefusedOnTenantRoutes(ctx context.Context, _ Cluster, s Server
 		if err := s.ResolveOperator(ctx, tok); err != nil {
 			return fmt.Errorf("control: the operator token (both audiences %v) was refused: %w", c.both, err)
 		}
-		status, body := s.Do(ctx, http.MethodGet, "/api/v1/me", tok, "")
+		status, body := s.Do(ctx, http.MethodGet, "/api/v1/me", tok, "", nil)
 		if status != http.StatusUnauthorized || !strings.Contains(body, `"`+c.code+`"`) {
 			return fmt.Errorf("operator token (both audiences %v) on GET /api/v1/me: %d %s, want 401 %s", c.both, status, body, c.code)
 		}
@@ -410,11 +410,4 @@ func operatorToken(s Server, both bool) string {
 		aud = append(aud, "nava-api")
 	}
 	return s.Mint(Token{Subject: OperatorSubject, NoOrg: true, Audiences: aud, RealmRoles: []string{"nava-operator"}})
-}
-
-// operatorRoutesInContract reports whether this branch's OpenAPI contract
-// has the operator routes (T21).
-func operatorRoutesInContract() bool {
-	spec, err := api.Files.ReadFile("openapi.yaml")
-	return err != nil || strings.Contains(string(spec), "/api/v1/operator/")
 }
