@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // landed against a real repository: a squash merge keeps the tree, not the
@@ -45,12 +46,13 @@ func TestLandedSquashMerge(t *testing.T) {
 	run("checkout", "-q", "main")
 	write("b", "task 1\n")
 	commit("story (#1)")
+	merged := time.Now().Add(-time.Minute)
 	write("c", "other\n")
 	commit("unrelated")
 
 	check := func(base, head string) bool {
 		t.Helper()
-		ok, err := landed("origin", "main", run("rev-parse", "main^{tree}"), base, head)
+		ok, err := landed("origin", "main", base, head, merged)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -77,6 +79,17 @@ func TestLandedSquashMerge(t *testing.T) {
 	commit("sync late task (#2)")
 	if !check(storyHead, late) {
 		t.Fatal("after the sync PR the story branch is on main")
+	}
+
+	// main edits the synced file again: merging the old branch into the tip
+	// now conflicts, but the change did land (TICK-322 review, item 1).
+	write("d", "late task, edited on main\n")
+	commit("edit d on main")
+	if !check(storyHead, late) {
+		t.Fatal("a later edit on main must not unland the synced change")
+	}
+	if !check("", late) {
+		t.Fatal("orphan check: a later edit on main must not unland the synced change")
 	}
 
 	// A conflicting late change counts as not on main.

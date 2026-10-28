@@ -80,13 +80,8 @@ func run(remote, mainBranch, asOf, resolvedFile, report string) error {
 		return err
 	}
 	mainRef := remote + "/" + mainBranch
-	mainTree, err := git("rev-parse", mainRef+"^{tree}")
-	if err != nil {
-		return err
-	}
-
-	findings, accepted, err := Check(in, func(base, head string) (bool, error) {
-		return landed(remote, mainRef, mainTree, base, head)
+	findings, accepted, err := Check(in, func(base, head string, since time.Time) (bool, error) {
+		return landed(remote, mainRef, base, head, since)
 	})
 	if err != nil {
 		return err
@@ -131,9 +126,10 @@ func markdown(findings []Finding, accepted []string, mainRef, when string) strin
 	return b.String()
 }
 
-// landed: see Landed. A merge conflict counts as not on main.
-func landed(remote, mainRef, mainTree, base, head string) (bool, error) {
-	args := []string{"merge-tree", "--write-tree", "--no-messages"}
+// landed: see Landed. A merge conflict counts as not on main at that commit.
+// It tries main's first-parent commits newest first, back to an hour before
+// since (committer clocks), at most maxCandidates of them.
+func landed(remote, mainRef, base, head string, since time.Time) (bool, error) {
 	if base != "" {
 		if _, err := git("cat-file", "-e", base+"^{commit}"); err != nil {
 			// The story PR's head is gone from every branch (force-pushed or
@@ -142,9 +138,45 @@ func landed(remote, mainRef, mainTree, base, head string) (bool, error) {
 				return false, err
 			}
 		}
+	}
+	if since.IsZero() {
+		at, err := git("log", "-1", "--format=%cI", head)
+		if err != nil {
+			return false, err
+		}
+		if since, err = time.Parse(time.RFC3339, at); err != nil {
+			return false, fmt.Errorf("commit time of %s: %w", head, err)
+		}
+	}
+	list, err := git("rev-list", "--first-parent", fmt.Sprintf("--max-count=%d", maxCandidates),
+		"--since="+since.Add(-time.Hour).UTC().Format(time.RFC3339), mainRef)
+	if err != nil {
+		return false, err
+	}
+	candidates := strings.Fields(list)
+	if len(candidates) == 0 {
+		candidates = []string{mainRef}
+	}
+	for _, c := range candidates {
+		ok, err := mergesClean(base, c, head)
+		if ok || err != nil {
+			return ok, err
+		}
+	}
+	return false, nil
+}
+
+// maxCandidates bounds the main commits landed tries per branch.
+const maxCandidates = 500
+
+// mergesClean reports whether merging head into commit c (merge base base, or
+// git's when "") yields c's own tree.
+func mergesClean(base, c, head string) (bool, error) {
+	args := []string{"merge-tree", "--write-tree", "--no-messages"}
+	if base != "" {
 		args = append(args, "--merge-base="+base)
 	}
-	cmd := exec.CommandContext(context.Background(), "git", append(args, mainRef, head)...) //nolint:gosec // git with refs and shas from git and gh
+	cmd := exec.CommandContext(context.Background(), "git", append(args, c, head)...) //nolint:gosec // git with refs and shas from git and gh
 	var out, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &stderr
 	err := cmd.Run()
@@ -156,7 +188,11 @@ func landed(remote, mainRef, mainTree, base, head string) (bool, error) {
 		return false, fmt.Errorf("git %s: %w: %s", strings.Join(cmd.Args[1:], " "), err, stderr.String())
 	}
 	tree, _, _ := strings.Cut(out.String(), "\n")
-	return strings.TrimSpace(tree) == mainTree, nil
+	cTree, err := git("rev-parse", c+"^{tree}")
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(tree) == cTree, nil
 }
 
 func branches(remote string) (map[string]string, error) {

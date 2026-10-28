@@ -57,11 +57,16 @@ func milestone1() Input {
 }
 
 // landedAt says which (base, head) pairs are on main; anything else is not.
+// It records each call as base..head, plus @hh:mm for a non-zero since.
 func landedAt(on ...string) (Landed, *[]string) {
 	var calls []string
-	return func(base, head string) (bool, error) {
+	return func(base, head string, since time.Time) (bool, error) {
 		k := base + ".." + head
-		calls = append(calls, k)
+		c := k
+		if !since.IsZero() {
+			c += "@" + since.UTC().Format("15:04")
+		}
+		calls = append(calls, c)
 		return slices.Contains(on, k), nil
 	}, &calls
 }
@@ -88,8 +93,9 @@ func TestMilestone1Replay(t *testing.T) {
 	if got := texts(fs); !slices.Equal(got, want) {
 		t.Fatalf("findings:\n got %q\nwant %q", got, want)
 	}
-	// Story PR heads are the merge base; an orphan lets git pick one.
-	wantCalls := []string{"s5-story..s5-late", "..s6-head", "s7-head..s7-head"}
+	// Story PR heads are the merge base and main is searched from the story
+	// PR's merge on; an orphan lets git pick both.
+	wantCalls := []string{"s5-story..s5-late@16:47", "..s6-head", "s7-head..s7-head@12:00"}
 	if !slices.Equal(*calls, wantCalls) {
 		t.Fatalf("landed calls: got %q, want %q", *calls, wantCalls)
 	}
@@ -177,7 +183,7 @@ func TestResolvedPinsHead(t *testing.T) {
 }
 
 func TestLandedErrorStops(t *testing.T) {
-	_, _, err := Check(milestone1(), func(string, string) (bool, error) { return false, fmt.Errorf("boom") })
+	_, _, err := Check(milestone1(), func(string, string, time.Time) (bool, error) { return false, fmt.Errorf("boom") })
 	if err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("want the landed error, got %v", err)
 	}

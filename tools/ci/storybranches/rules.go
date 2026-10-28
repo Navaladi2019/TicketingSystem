@@ -50,11 +50,15 @@ type Resolved struct {
 	Why    string `yaml:"why"`
 }
 
-// Landed reports whether merging head into main would leave main's tree
-// unchanged, taking base as the merge base ("" lets git pick it). That is
-// "every change head carries since base is already on main", whatever the
-// ancestry: a squash merge keeps the tree, not the commits.
-type Landed func(base, head string) (bool, error)
+// Landed reports whether every change head carries since base is on main:
+// merging head into some first-parent main commit made at or after since
+// leaves that commit's tree unchanged, taking base as the merge base ("" lets
+// git pick it; a zero since means head's own commit time). Trees, not
+// ancestry, since a squash merge keeps the tree and drops the commits. Any
+// main commit since, not only the tip: once the changes land, main may edit
+// the same files again, and merging the old branch into the tip would then
+// conflict or differ although nothing is missing (TICK-322 review).
+type Landed func(base, head string, since time.Time) (bool, error)
 
 // Input is everything the rules look at.
 type Input struct {
@@ -130,7 +134,7 @@ func Check(in Input, landed Landed) (findings []Finding, accepted []string, err 
 
 		tasks := merged(into[b], in.AsOf, time.Time{})
 		if story == nil {
-			ok, err := landed("", head)
+			ok, err := landed("", head, time.Time{})
 			if err != nil {
 				return nil, nil, fmt.Errorf("%s: %w", b, err)
 			}
@@ -151,7 +155,7 @@ func Check(in Input, landed Landed) (findings []Finding, accepted []string, err 
 			}
 		}
 
-		ok, err := landed(story.HeadOid, head)
+		ok, err := landed(story.HeadOid, head, story.MergedAt)
 		if err != nil {
 			return nil, nil, fmt.Errorf("%s: %w", b, err)
 		}

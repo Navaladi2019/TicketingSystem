@@ -285,13 +285,20 @@ flight, and nothing below fires for it.
 | `open PR #N targets it, but its story PR #M merged …` | an open pull request targets a story branch whose story PR has merged | retarget the pull request to `main` |
 
 **"On main" compares trees, not commits.** Squash merges keep the tree and drop
-the ancestry, so `git merge-base --is-ancestor` cannot answer. The check runs
-`git merge-tree --write-tree --merge-base=<story PR head> origin/main <branch>`
-(git 2.40 or later): when the result is `main`'s own tree, merging what the
-branch gained since its story PR would change nothing, so it is on `main`, by
-whichever PR it got there. A conflict counts as not on `main`. For an orphan,
-git picks the merge base. The story PR's head is GitHub's `headRefOid`, which
-stays fetchable even when the branch was force-pushed.
+the ancestry, so `git merge-base --is-ancestor` cannot answer. For each
+first-parent `main` commit `c` since the story PR merged (newest first, from an
+hour before the merge, at most 500), the check runs
+`git merge-tree --write-tree --merge-base=<story PR head> c <branch>` (git 2.40
+or later). If any result is `c`'s own tree, the branch's changes since its
+story PR were all on `main` at `c`, by whichever PR they got there. The search
+covers more than `main`'s tip because, once the changes land, `main` may edit
+the same files again, and merging the old branch into the tip would then
+conflict although nothing is missing. A conflict at `c` means "not on main at
+`c`". For an orphan, git picks the merge base and the search starts at the
+branch head's commit time. The story PR's head is GitHub's `headRefOid`, which
+stays fetchable even when the branch was force-pushed. The cost of searching
+history: a change that landed and was later reverted on `main` on purpose
+counts as on `main`.
 
 **Accepting a branch.** `tools/ci/storybranches/resolved.yaml` lists a branch
 with its full head sha and why (the issue that decided it). It is accepted at
@@ -301,8 +308,15 @@ usually better.
 **The issue.** On `main` (push, schedule or manual run), a red check opens one
 issue, `Story branches out of step with main`, labelled `story-drift`, with the
 report (`scripts/ci/story-branches-issue.sh`, `make story-branches-issue`). A
-later red run comments only when the findings changed; the first green run
-closes it. Pull requests and other branches never touch the issue.
+later red run comments only when the findings differ from the last report the
+workflow posted (people's comments do not count); the first green run closes
+it. Runs that can touch the issue share the job concurrency group
+`story-drift-issue`, so they queue rather than race; a newer queued run can
+replace an older pending one, which then shows as cancelled. If two issues
+open anyway, a red run keeps the oldest and closes the others as duplicates,
+and a green run closes them all. A red check with no `story-branches.md` means
+the tool errored (exit 2): the issue step logs that and leaves the issue
+alone. Pull requests and other branches never touch the issue.
 
 **Replay.** `-as-of <RFC 3339 time>` judges the pull requests as they stood
 then (created later: ignored; merged or closed later: open). Branch heads stay
