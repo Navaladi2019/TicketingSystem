@@ -137,7 +137,14 @@ type DirectoryGroup struct {
 type Binding struct {
 	TenantID   uuid.UUID
 	IdPAliases []string
+	// TenantState is the bound tenant's tenants.state. A resolver refuses
+	// every state but TenantStateActive, the zero value included (T17a).
+	TenantState string
 }
+
+// TenantStateActive is the only tenants.state a resolver accepts. Onboarding
+// moves a tenant from provisioning to active as its last step (T21).
+const TenantStateActive = "active"
 
 // PrincipalRecord is a principals row as group sync recorded it, with the
 // principal's group ids.
@@ -165,8 +172,9 @@ var (
 // resolver calls it after validating the token; internal/identity/pgstore is
 // the PostgreSQL implementation.
 type Store interface {
-	// Binding looks (issuer, orgID) up in tenant_identity_binding. It returns
-	// ErrNoBinding for no row, and an error for more than one.
+	// Binding looks (issuer, orgID) up in tenant_identity_binding, with the
+	// bound tenant's state. It returns ErrNoBinding for no row, and an error
+	// for more than one.
 	Binding(ctx context.Context, issuer, orgID string) (Binding, error)
 	// Principal reads the principal whose IdP user id is subject, in tenantID
 	// only. It returns ErrNoPrincipal for no row.
