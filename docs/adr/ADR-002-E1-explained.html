@@ -39,12 +39,12 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 </style></head>
 </head>
 <body><main>
-<div class="banner"><span class="pill">READING GUIDE &middot; ADR-002 E1 PROPOSED</span>
+<div class="banner"><span class="pill">READING GUIDE &middot; ADR-002 E1 ACCEPTED</span>
 <span class="src">This companion explains <code>ADR-002-E1-line-scoped-nolint.md</code>. It is not a decision record and changes nothing. Every blue "decision text" box is copied word for word from the erratum.</span></div>
 <table class="front"><tbody>
 <tr><th>title</th><td>ADR-002 erratum E1 explained: why one line, not one file, is exempt from the "display-only group paths" lint rule</td></tr>
 <tr><th>type</th><td>explainer for the decision-maker (not a decision record)</td></tr>
-<tr><th>explains</th><td>ADR-002-E1 (status PROPOSED, 2026-10-28), from RFC-006 on TICK-272</td></tr>
+<tr><th>explains</th><td>ADR-002-E1 (status ACCEPTED, 2026-10-28: nava approved on TICK-272), from RFC-006 on TICK-272</td></tr>
 <tr><th>date</th><td>2026-10-28</td></tr>
 <tr><th>audience</th><td>the person signing off. It assumes no knowledge of Go linters or of the reviews that shaped this.</td></tr>
 </tbody></table>
@@ -158,9 +158,6 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 <h2 id="invariants">8. Platform invariants</h2>
 <p>These were checked against the nine invariants in ADR-001 §1. The change touches lint configuration, one comment and one CI script. It touches nothing that runs in production. <strong>I5 (one authorization layer)</strong> is strengthened: the rule that keeps group paths out of authorization now has a one-line gap instead of a whole-file gap. The other eight are not touched.</p>
 
-<h2 id="next">9. What happens after you sign</h2>
-<ol>
-<li>The status changes to ACCEPTED in the <code>.md</code> file and this page, and the PR is labelled for the owner to merge.</li>
-<li>The CTO creates the Delivery task with the five acceptance criteria from section 5.</li>
-</ol>
+<h2 id="next">9. What happens next</h2>
+<p>nava approved this erratum on 2026-10-28 (TICK-272, &ldquo;APPROVED&rdquo;). The Technical Lead plans the Delivery task in TICK-301, with the five acceptance criteria from section 5.</p>
 </main></body></html>

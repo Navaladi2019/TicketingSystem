@@ -2,20 +2,21 @@
 type: adr-erratum
 id: ADR-002-E1
 title: Erratum E1 to ADR-002, a line-scoped nolint pinned by a CI gate replaces the api.go forbidigo exclusion
-status: PROPOSED
+status: ACCEPTED
 date: 2026-10-28
+accepted: 2026-10-28 (nava, TICK-272 comment 01a18105-fb21-7b3f-a337-c42df39e03d8)
 issue: TICK-272
 rfc: docs/adr/ADR-002/rfc/RFC-006-adr-002-e1-line-scoped-nolint.md (rev 1, archived; thread under TICK-272 comment 01a18067-6c25-7b6e-9480-792ee59b7f17)
 supersedes: "[[ADR-002-me-group-paths]] §3 'Lint rule' row (the per-file exclusion for internal/server/api.go) and §7 residual R-b"
 amends: "[[ADR-002-me-group-paths]] §3 'Lint rule' row, §5 AC8 row, §7 R-b"
 source: TICK-268 / PR #204, Security & Multi-Tenancy Reviewer finding 2 (Low)
 deciders: Solution Architect (author), Technical Architect (APPROVE, round 2), Security & Multi-Tenancy Reviewer (APPROVE, round 2), CTO
-signs: pending (nava)
+signs: nava (signed 2026-10-28: "APPROVED")
 ---
 
 # ADR-002 erratum E1: one line waives `forbidigo` for `GroupPaths`, not the whole of `api.go`
 
-> **Status: PROPOSED, 2026-10-28.** This erratum comes from RFC-006 rev 1. Both reviewers asked for changes in round 1, to the same bypass of the step-4 gate. Both approved rev 1 in round 2: the Technical Architect in comment `01a180a3` and the Security & Multi-Tenancy Reviewer in comment `01a180a0`. The CTO accepted it for write-up in comment `01a180a4` and folded the generated-file check (F3) into AC3. It awaits nava's sign-off. The plain-language explainer is `ADR-002-E1-explained.html`.
+> **Status: ACCEPTED, 2026-10-28.** nava approved it on TICK-272 (comment `01a18105`: "APPROVED"), accepting residual R-e (AR-039). Delivery plans the implementation in TICK-301. This erratum comes from RFC-006 rev 1. Both reviewers asked for changes in round 1, to the same bypass of the step-4 gate. Both approved rev 1 in round 2: the Technical Architect in comment `01a180a3` and the Security & Multi-Tenancy Reviewer in comment `01a180a0`. The CTO accepted it for write-up in comment `01a180a4` and folded the generated-file check (F3) into AC3. The plain-language explainer is `ADR-002-E1-explained.html`.
 
 > **Invariants source.** The project description defines no invariants. As in ADR-002 and ADR-001 A1, A2 and E3, this erratum is checked against [[ADR-001-platform-blueprint]] §1 I1–I9.
 
