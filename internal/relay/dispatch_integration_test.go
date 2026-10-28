@@ -113,7 +113,7 @@ func TestForcedRedeliveryStartsOneWorkflow(t *testing.T) {
 		t.Fatalf("claim %+v, %v", cs, err)
 	}
 	// The first delivery: the start reaches Temporal, nothing is marked.
-	if _, err := d.temporal.ExecuteWorkflow(ctx, startOptions(p.workflowID(start)), "ticket.approval", nil); err != nil {
+	if _, err := d.temporal.ExecuteWorkflow(ctx, startOptions(p.workflowID(start), p.tenant), "ticket.approval", nil); err != nil {
 		t.Fatal(err)
 	}
 	mustExec(t, e.super, "UPDATE outbox SET available_at = now() - interval '1 second' WHERE id = $1", start)
