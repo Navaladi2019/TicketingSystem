@@ -19,69 +19,38 @@ import (
 // so CI applies migrations in the order deployed databases will.
 // The rule: re-stamp the branch's migration before merging (README.md).
 //
-// BASE names the pull request's base branch (origin/<base_ref> in the ci
-// workflow's unit job). Without it the test skips: a laptop's refs may be
-// stale. Whatever the base, migrations are measured against main (see
-// mainRef).
+// TICK-309: the reference is main, what has shipped, even for a pull request
+// into a story branch. A migration is new when main lacks it, so main's own
+// migrations are never new, and a story may renumber its unshipped ones.
+//
+// BASE names main's commit (origin/main in the ci workflow's unit job, for
+// every event). Without it the test skips: a laptop's origin/main may be stale.
 func TestNewMigrationsLaterThanBase(t *testing.T) {
 	base := os.Getenv("BASE")
 	if base == "" {
-		t.Skip("BASE not set: set BASE=origin/main (after git fetch) to check new migrations against the base branch")
+		t.Skip("BASE not set: set BASE=origin/main (after git fetch origin main) to check new migrations against main")
+	}
+	// --full-tree: go test runs in db/, and ls-tree otherwise lists only the
+	// paths under the working directory, which would be none.
+	out, err := exec.CommandContext(t.Context(), "git", "ls-tree", "--full-tree", "--name-only", base+":db/migrations").Output()
+	if err != nil {
+		var stderr string
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			stderr = strings.TrimSpace(string(ee.Stderr))
+		}
+		t.Fatalf("git ls-tree %s:db/migrations: %v %s (fetch main first; the checkout needs its history)", base, err, stderr)
+	}
+	baseNames := strings.Fields(string(out))
+	if !slices.ContainsFunc(baseNames, func(n string) bool { _, ok := migrationVersion(n); return ok }) {
+		t.Fatalf("git ls-tree %s:db/migrations listed no migrations (%q); the check would compare against nothing", base, baseNames)
 	}
 	head, err := fs.Glob(Migrations(), "*.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := checkNewMigrations(base, gitMigrations(t), head); err != nil {
+	if err := checkLaterThanBase(base, baseNames, head); err != nil {
 		t.Fatal(err)
-	}
-}
-
-// mainRef is the ref added migrations are measured against, for a pull
-// request into main and for one into a story branch alike. Main's migrations
-// reach a story branch by merge, so they are not new there; the story's own
-// migrations must sort after main's newest, because that is the order they
-// apply in once the story merges. Story-branch databases are not deployed, so
-// this rule does not protect them (an accepted risk: rebuild them after a
-// renumber). Two tasks of one story that take the same version are
-// TestMigrationVersions' job.
-const mainRef = "origin/main"
-
-// checkNewMigrations reports every migration in head that is not on mainRef
-// and is not later than its newest migration. base is the pull request's base
-// branch; list returns the migration file names on a ref.
-func checkNewMigrations(base string, list func(ref string) ([]string, error), head []string) error {
-	names, err := list(mainRef)
-	if err != nil {
-		return err
-	}
-	if !slices.ContainsFunc(names, func(n string) bool { _, ok := migrationVersion(n); return ok }) {
-		return fmt.Errorf("%s:db/migrations lists no migrations (%q); the check would compare against nothing", mainRef, names)
-	}
-	if err := checkLaterThanBase(mainRef, names, head); err != nil {
-		if base != mainRef {
-			return fmt.Errorf("pull request into %s, measured against %s (TICK-299): %w", base, mainRef, err)
-		}
-		return err
-	}
-	return nil
-}
-
-// gitMigrations lists db/migrations on a ref with git ls-tree.
-func gitMigrations(t *testing.T) func(ref string) ([]string, error) {
-	return func(ref string) ([]string, error) {
-		// --full-tree: go test runs in db/, and ls-tree otherwise lists only
-		// the paths under the working directory, which would be none.
-		out, err := exec.CommandContext(t.Context(), "git", "ls-tree", "--full-tree", "--name-only", ref+":db/migrations").Output()
-		if err != nil {
-			var stderr string
-			var ee *exec.ExitError
-			if errors.As(err, &ee) {
-				stderr = strings.TrimSpace(string(ee.Stderr))
-			}
-			return nil, fmt.Errorf("git ls-tree %s:db/migrations: %w %s (fetch %s first; the checkout needs its history)", ref, err, stderr, ref)
-		}
-		return strings.Fields(string(out)), nil
 	}
 }
 
@@ -172,72 +141,37 @@ func TestCheckLaterThanBase(t *testing.T) {
 	})
 }
 
-// TestCheckNewMigrationsMeasuresAgainstMain: a pull request into a story
-// branch is measured against main, not against the story branch; a pull
-// request into main keeps the rule it always had.
-func TestCheckNewMigrationsMeasuresAgainstMain(t *testing.T) {
-	const story = "origin/TICK-47/story"
-	refs := map[string][]string{
-		// main has S7's 00008/00009.
-		mainRef: {"00001_a.sql", "00007_g.sql", "00008_s7.sql", "00009_s7.sql", "README.md"},
-		// The story branch still has its own migrations at 00008-00010.
-		story: {"00001_a.sql", "00007_g.sql", "00008_s5.sql", "00009_s5.sql", "00010_s5.sql"},
-	}
-	list := func(ref string) ([]string, error) {
-		names, ok := refs[ref]
-		if !ok {
-			return nil, fmt.Errorf("unknown ref %s", ref)
-		}
-		return names, nil
-	}
-	merged := []string{"00001_a.sql", "00007_g.sql", "00008_s7.sql", "00009_s7.sql", "00010_s5.sql", "00011_s5.sql", "00012_s5.sql"}
-	cases := []struct {
-		name  string
-		base  string
-		head  []string
-		wants []string // substrings of the error; nil means no error
-	}{
-		{name: "story base: main's migrations are not new, the story's sort after main's", base: story, head: merged},
-		{name: "story base: a version not later than main's newest fails", base: story,
-			head:  []string{"00001_a.sql", "00007_g.sql", "00008_s7.sql", "00009_s7.sql", "00009_late.sql"},
-			wants: []string{"pull request into " + story + ", measured against origin/main", "00009_late.sql: version 9 is not later than origin/main's newest migration version 9"}},
-		{name: "story base: an old story-branch version still fails against main", base: story,
-			head:  []string{"00001_a.sql", "00007_g.sql", "00008_s5.sql"},
-			wants: []string{"00008_s5.sql: version 8 is not later than origin/main's newest migration version 9"}},
-		{name: "main base: a later migration passes", base: mainRef, head: append(slices.Clone(refs[mainRef][:4]), "20261028130000_x.sql")},
-		{name: "main base: out of order still fails", base: mainRef,
-			head:  []string{"00001_a.sql", "00007_g.sql", "00008_s7.sql", "00009_s7.sql", "00005_old.sql"},
-			wants: []string{"00005_old.sql: version 5 is not later than origin/main's newest migration version 9"}},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			err := checkNewMigrations(c.base, list, c.head)
-			if c.wants == nil {
-				if err != nil {
-					t.Fatalf("want no error, got %v", err)
-				}
-				return
-			}
-			if err == nil {
-				t.Fatalf("want an error containing %q, got none", c.wants)
-			}
-			for _, w := range c.wants {
-				if !strings.Contains(err.Error(), w) {
-					t.Errorf("error %q does not contain %q", err, w)
-				}
-			}
-		})
-	}
-	t.Run("main base: an error names main only", func(t *testing.T) {
-		err := checkNewMigrations(mainRef, list, []string{"00005_old.sql"})
-		if err == nil || strings.Contains(err.Error(), "pull request into") {
-			t.Fatalf("want the plain main-base error, got %v", err)
+// TestCheckLaterThanMainForStoryBranch is the TICK-309 case: a pull request
+// into a story branch is checked against main. main has shipped 00008 and
+// 00009 (S7); the story branch has merged main and renumbered its own
+// unshipped 00008 to 00010 into 00010 to 00012 (S5).
+func TestCheckLaterThanMainForStoryBranch(t *testing.T) {
+	main := []string{"00001_a.sql", "00002_b.sql", "00007_c.sql", "00008_outbox_refs.sql", "00009_outbox_keys.sql", "README.md"}
+	shipped := []string{"00001_a.sql", "00002_b.sql", "00007_c.sql", "00008_outbox_refs.sql", "00009_outbox_keys.sql"}
+	t.Run("main's migrations are not new", func(t *testing.T) {
+		if err := checkLaterThanBase("origin/main", main, shipped); err != nil {
+			t.Fatalf("want no error, got %v", err)
 		}
 	})
-	t.Run("ref without migrations", func(t *testing.T) {
-		empty := func(string) ([]string, error) { return []string{"README.md"}, nil }
-		if err := checkNewMigrations(story, empty, merged); err == nil || !strings.Contains(err.Error(), "lists no migrations") {
-			t.Fatalf("want a lists-no-migrations error, got %v", err)
+	t.Run("renumbered story migrations later than main's newest", func(t *testing.T) {
+		head := append(slices.Clone(shipped), "00010_group_a.sql", "00011_group_b.sql", "00012_group_c.sql")
+		if err := checkLaterThanBase("origin/main", main, head); err != nil {
+			t.Fatalf("want no error, got %v", err)
+		}
+	})
+	t.Run("new migration not later than main's newest", func(t *testing.T) {
+		head := append(slices.Clone(shipped), "00009_group_a.sql", "00010_group_b.sql")
+		err := checkLaterThanBase("origin/main", main, head)
+		if err == nil {
+			t.Fatal("want an error for 00009_group_a.sql, got none")
+		}
+		for _, w := range []string{"1 new migrations", "db/migrations/00009_group_a.sql: version 9 is not later than origin/main's newest migration version 9 (00009_outbox_keys.sql)"} {
+			if !strings.Contains(err.Error(), w) {
+				t.Errorf("error %q does not contain %q", err, w)
+			}
+		}
+		if strings.Contains(err.Error(), "00010_group_b.sql") {
+			t.Errorf("error %q names 00010_group_b.sql, which is later than main's newest", err)
 		}
 	})
 }
