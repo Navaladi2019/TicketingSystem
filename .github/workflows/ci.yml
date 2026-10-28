@@ -36,11 +36,13 @@ on:
 permissions:
   contents: read
 
-# A push gets a group of its own (per sha), so a newer merge neither cancels
-# nor replaces a queued run: GitHub keeps one pending run per group even with
-# cancel-in-progress off. Pull requests still cancel their older run.
+# A push gets a group of its own (per ref and sha), so a newer merge neither
+# cancels nor replaces a queued run: GitHub keeps one pending run per group even
+# with cancel-in-progress off. The ref keeps the same sha pushed to main and to
+# a TICK-** branch from sharing a group. Pull requests still cancel their older
+# run.
 concurrency:
-  group: ${{ github.event_name == 'push' && format('ci-push-{0}', github.sha) || format('ci-{0}', github.ref) }}
+  group: ${{ github.event_name == 'push' && format('ci-push-{0}-{1}', github.ref, github.sha) || format('ci-{0}', github.ref) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
