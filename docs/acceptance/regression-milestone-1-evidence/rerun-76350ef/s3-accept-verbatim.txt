@@ -1,0 +1,69 @@
+baseline: GET /api/v1/me with no token -> 401 {"type":"urn:nava:problem:invalid_token","title":"Invalid token","status":401,"code":"invalid_token","detail":"The access token is missing, expired or invalid.","instance":"urn:nava:request:cce3518ef9ea367d99a38be21c01fcf8"}
+seeded:
+tenant 00000000-0000-4000-8000-0000000000a1 active
+tenant 00000000-0000-4000-8000-0000000000b1 active
+binding 00000000-0000-4000-8000-0000000000a1 http://localhost:28081/realms/nava org=00000000-0000-4000-8000-0000000000a1
+binding 00000000-0000-4000-8000-0000000000b1 http://localhost:28081/realms/nava org=00000000-0000-4000-8000-0000000000b1
+principal 00000000-0000-4000-8000-0000000000a1 admin@tenant-a.test id=28e393ce-8de2-4374-b713-6ce9f4a2818f
+principal 00000000-0000-4000-8000-0000000000a1 alice@tenant-a.test id=e070bb96-861c-495a-a771-f43f38e17682
+principal 00000000-0000-4000-8000-0000000000b1 bob@tenant-b.test id=aff7692f-b3bc-4bc6-a55d-54ceb791b3ab
+group 00000000-0000-4000-8000-0000000000a1 /t/00000000-0000-4000-8000-0000000000a1/service-desk id=fbb81a6d-69e5-4dd5-a68d-d6c72e5953a4 members=1
+group 00000000-0000-4000-8000-0000000000a1 /t/00000000-0000-4000-8000-0000000000a1/ou/eng/platform id=2b074d9d-0d80-4756-af56-eef72dde25a7 members=1
+group 00000000-0000-4000-8000-0000000000b1 /t/00000000-0000-4000-8000-0000000000b1/service-desk id=f66af762-60ab-4878-9a32-3503da428ca5 members=1
+group 00000000-0000-4000-8000-0000000000b1 /t/00000000-0000-4000-8000-0000000000b1/ou/eng/platform id=ffffd9dc-daa5-4be0-a5a2-f11b6337073e members=1
+
+## Criterion 1: GET /api/v1/me as Alice shows tenant A and her groups
+  alice access token claims: {"aud": "nava-api", "azp": "nava-web", "iss": "http://localhost:28081/realms/nava", "organization": {"tenant-a": {"id": "00000000-0000-4000-8000-0000000000a1"}}, "typ": "Bearer"}
+  PASS alice -> tenant A, her one group
+       -> 200 {"group_paths":[{"id":"2b074d9d-0d80-4756-af56-eef72dde25a7","path":"/ou/eng/platform"},{"id":"fbb81a6d-69e5-4dd5-a68d-d6c72e5953a4","path":"/service-desk"}],"groups":["2b074d9d-0d80-4756-af56-eef72dde25a7","fbb81a6d-69e5-4dd5-a68d-d6c72e5953a4"],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"e070bb96-861c-495a-a771-f43f38e17682"}
+  PASS admin@tenant-a -> tenant A, no groups
+       -> 200 {"group_paths":[],"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"28e393ce-8de2-4374-b713-6ce9f4a2818f"}
+
+## Story step 3: tenant B's id in a header, the query string or the body still returns tenant A
+  PASS header X-Tenant-Id / X-Nava-Tenant: B
+       -> 200 {"group_paths":[{"id":"2b074d9d-0d80-4756-af56-eef72dde25a7","path":"/ou/eng/platform"},{"id":"fbb81a6d-69e5-4dd5-a68d-d6c72e5953a4","path":"/service-desk"}],"groups":["2b074d9d-0d80-4756-af56-eef72dde25a7","fbb81a6d-69e5-4dd5-a68d-d6c72e5953a4"],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"e070bb96-861c-495a-a771-f43f38e17682"}
+  PASS query ?tenant_id=B&tenant=B
+       -> 200 {"group_paths":[{"id":"2b074d9d-0d80-4756-af56-eef72dde25a7","path":"/ou/eng/platform"},{"id":"fbb81a6d-69e5-4dd5-a68d-d6c72e5953a4","path":"/service-desk"}],"groups":["2b074d9d-0d80-4756-af56-eef72dde25a7","fbb81a6d-69e5-4dd5-a68d-d6c72e5953a4"],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"e070bb96-861c-495a-a771-f43f38e17682"}
+  PASS JSON body {tenant_id: B} on GET
+       -> 200 {"group_paths":[{"id":"2b074d9d-0d80-4756-af56-eef72dde25a7","path":"/ou/eng/platform"},{"id":"fbb81a6d-69e5-4dd5-a68d-d6c72e5953a4","path":"/service-desk"}],"groups":["2b074d9d-0d80-4756-af56-eef72dde25a7","fbb81a6d-69e5-4dd5-a68d-d6c72e5953a4"],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"e070bb96-861c-495a-a771-f43f38e17682"}
+  PASS baggage nava.tenant_id=B
+       -> 200 {"group_paths":[{"id":"2b074d9d-0d80-4756-af56-eef72dde25a7","path":"/ou/eng/platform"},{"id":"fbb81a6d-69e5-4dd5-a68d-d6c72e5953a4","path":"/service-desk"}],"groups":["2b074d9d-0d80-4756-af56-eef72dde25a7","fbb81a6d-69e5-4dd5-a68d-d6c72e5953a4"],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"e070bb96-861c-495a-a771-f43f38e17682"}
+  PASS POST /api/v1/records with body tenant_id B does not reach B
+       -> 404 {"type":"urn:nava:problem:not_found","title":"Not found","status":404,"code":"not_found","detail":"The resource does not exist.","instance":"urn:nava:request:ad150cf5e71e629c67999b8a3284ebec"}
+
+## Criterion 2: a token naming two organizations, or none, gets 401 tenant_unresolved
+  two-org token claims: {"aud": "nava-api", "azp": "nava-web", "iss": "http://localhost:28081/realms/nava", "organization": {"tenant-a": {"id": "00000000-0000-4000-8000-0000000000a1"}, "tenant-b": {"id": "00000000-0000-4000-8000-0000000000b1"}}, "typ": "Bearer"}
+  two-org token claims, default scope: {"aud": "nava-api", "azp": "nava-web", "iss": "http://localhost:28081/realms/nava", "typ": "Bearer"}
+  no-org token claims:  {"aud": "nava-api", "azp": "nava-web", "iss": "http://localhost:28081/realms/nava", "typ": "Bearer"}
+  PASS two organizations -> 401 tenant_unresolved
+       -> 401 WWW-Authenticate: Bearer {"type":"urn:nava:problem:tenant_unresolved","title":"Tenant unresolved","status":401,"code":"tenant_unresolved","detail":"The request could not be tied to a tenant.","instance":"urn:nava:request:dd9d2b137fe7de3e69d1c702e54d515e"}
+       logged reason: tenant_unresolved: organization count
+  PASS two organizations, default scope (claim omitted) -> 401 tenant_unresolved
+       -> 401 WWW-Authenticate: Bearer {"type":"urn:nava:problem:tenant_unresolved","title":"Tenant unresolved","status":401,"code":"tenant_unresolved","detail":"The request could not be tied to a tenant.","instance":"urn:nava:request:fb99b1d55ebae2a2bbd6c4d7f3bcff1c"}
+       logged reason: tenant_unresolved: no organization
+  PASS no organization -> 401 tenant_unresolved
+       -> 401 WWW-Authenticate: Bearer {"type":"urn:nava:problem:tenant_unresolved","title":"Tenant unresolved","status":401,"code":"tenant_unresolved","detail":"The request could not be tied to a tenant.","instance":"urn:nava:request:ce78072d4f6b96f9752df44905ca072e"}
+       logged reason: tenant_unresolved: no organization
+
+## Criterion 3: an ID token used as an access token, and a token from an issuer not on the allow-list, are rejected
+  alice ID token claims: {"aud": "nava-web", "azp": "nava-web", "iss": "http://localhost:28081/realms/nava", "typ": "ID"}
+  PASS ID token as bearer -> 401 invalid_token
+       -> 401 WWW-Authenticate: Bearer {"type":"urn:nava:problem:invalid_token","title":"Invalid token","status":401,"code":"invalid_token","detail":"The access token is missing, expired or invalid.","instance":"urn:nava:request:5107ab3284caefd66bca6dc1ac37a26d"}
+       logged reason: invalid_token: audience
+  other-Host token claims: {"aud": "nava-api", "azp": "nava-web", "iss": "http://localhost:28081/realms/nava", "organization": {"tenant-a": {"id": "00000000-0000-4000-8000-0000000000a1"}}, "typ": "Bearer"}
+  PASS same realm via another Host keeps the pinned issuer http://localhost:28081/realms/nava -> tenant A
+       -> 200 {"group_paths":[{"id":"2b074d9d-0d80-4756-af56-eef72dde25a7","path":"/ou/eng/platform"},{"id":"fbb81a6d-69e5-4dd5-a68d-d6c72e5953a4","path":"/service-desk"}],"groups":["2b074d9d-0d80-4756-af56-eef72dde25a7","fbb81a6d-69e5-4dd5-a68d-d6c72e5953a4"],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"e070bb96-861c-495a-a771-f43f38e17682"}
+  master-realm token claims: {"azp": "admin-cli", "iss": "http://localhost:28081/realms/master", "typ": "Bearer"}
+  PASS realm master (a different issuer) -> 401 invalid_token
+       -> 401 WWW-Authenticate: Bearer {"type":"urn:nava:problem:invalid_token","title":"Invalid token","status":401,"code":"invalid_token","detail":"The access token is missing, expired or invalid.","instance":"urn:nava:request:3ab814cc21c09974463de50e576041e3"}
+       logged reason: invalid_token: issuer
+
+## Cross-tenant: a tenant B user gets tenant B and never sees tenant A data
+  PASS bob -> tenant B, his one group
+       -> 200 {"group_paths":[{"id":"f66af762-60ab-4878-9a32-3503da428ca5","path":"/service-desk"},{"id":"ffffd9dc-daa5-4be0-a5a2-f11b6337073e","path":"/ou/eng/platform"}],"groups":["f66af762-60ab-4878-9a32-3503da428ca5","ffffd9dc-daa5-4be0-a5a2-f11b6337073e"],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000b1","user_id":"aff7692f-b3bc-4bc6-a55d-54ceb791b3ab"}
+  PASS bob's groups and alice's groups are disjoint
+       bob=['f66af762-60ab-4878-9a32-3503da428ca5', 'ffffd9dc-daa5-4be0-a5a2-f11b6337073e'] alice=['2b074d9d-0d80-4756-af56-eef72dde25a7', 'fbb81a6d-69e5-4dd5-a68d-d6c72e5953a4']
+  PASS bob with header/query/body naming A -> still tenant B
+       -> 200 {"group_paths":[{"id":"f66af762-60ab-4878-9a32-3503da428ca5","path":"/service-desk"},{"id":"ffffd9dc-daa5-4be0-a5a2-f11b6337073e","path":"/ou/eng/platform"}],"groups":["f66af762-60ab-4878-9a32-3503da428ca5","ffffd9dc-daa5-4be0-a5a2-f11b6337073e"],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000b1","user_id":"aff7692f-b3bc-4bc6-a55d-54ceb791b3ab"}
+
+result: PASS
