@@ -1,5 +1,5 @@
 -- T32f (TICK-240), CI-7 finding T32b-1 remainder (docs/security/temporal-ci6.md):
--- 00006 checks an outbox payload's values only. A key such as
+-- 00008 checks an outbox payload's values only. A key such as
 -- "printer on fire, call alice@tenant-a.test" passed, and so did up to two
 -- free characters per value through the forms uuid.Parse tolerates. This
 -- constraint replaces outbox_payload_references_check with the stricter rule.
@@ -27,13 +27,13 @@
 --      only (no scan), under lock_timeout; new rows are checked from then on.
 --   2. VALIDATE: scans existing rows under SHARE UPDATE EXCLUSIVE, which
 --      blocks no reads or writes.
---   3. DROP the 00006 constraint, now implied by this one: ACCESS EXCLUSIVE
+--   3. DROP the 00008 constraint, now implied by this one: ACCESS EXCLUSIVE
 --      for a catalog update, under lock_timeout. Dropping it halves the
 --      per-row cost the relay's UPDATEs pay.
 --
 -- An existing row that breaks the rule fails VALIDATE, and so the migration,
 -- with "check constraint "outbox_payload_check" of relation "outbox" is
--- violated by some row"; no version row is written, the 00006 constraint is
+-- violated by some row"; no version row is written, the 00008 constraint is
 -- still there and the new one stays NOT VALID, still guarding new rows.
 --
 -- A NOT VALID CHECK also refuses every UPDATE of an old bad row, so in that

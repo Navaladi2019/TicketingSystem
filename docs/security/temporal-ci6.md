@@ -159,8 +159,8 @@ sequenceDiagram
      data lands in the cross-tenant, unencrypted Temporal history (R1). No
      endpoint writes outbox rows today, so a tenant token cannot trigger it.
    - **Status:** fixed (values: TICK-214; keys and canonical form: TICK-240)
-     (`db/migrations/00006_outbox_payload_references.sql`, replaced by
-     `db/migrations/00007_outbox_payload_keys.sql`,
+     (`db/migrations/00008_outbox_payload_references.sql`, replaced by
+     `db/migrations/00009_outbox_payload_keys.sql`,
      [outbox-payload-check.md](../data/outbox-payload-check.md)); the relay
      check is fixed by TICK-215. Keys use the fallback pattern
      `^[a-z][a-z0-9_]{0,31}$`, not a per-kind allow-list; the residual is
