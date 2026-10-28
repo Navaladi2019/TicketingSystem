@@ -260,10 +260,10 @@ vet:
 # go vet once per build-tag set the Go files use (TICK-320): make vet builds
 # untagged files only, so a broken //go:build identitystack && acceptance file
 # went unnoticed on main (TICK-286 finding 4). The sets come from the
-# //go:build lines (tools/ci/buildtags), so a new tag needs no edit here.
+# //go:build lines of every module (tools/ci/buildtags), so a new tag or
+# module needs no edit here.
 vet-tags:
 	go run ./tools/ci/buildtags
-	go run ./tools/ci/buildtags -dir temporal-server
 
 lint-fixture:
 	sh scripts/ci/lint-fixture.sh

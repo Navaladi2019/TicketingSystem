@@ -1,4 +1,5 @@
 //go:build innertag
 
-// Package inner is another module: buildtags must not see its tag.
+// Package inner is a module inside the fixture module: discover skips it,
+// modules finds it and run vets it on its own.
 package inner

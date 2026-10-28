@@ -58,7 +58,6 @@ tasks:
     desc: Run go vet once per build-tag set the //go:build lines use, so a tagged test that stops compiling fails (TICK-320), the same as make vet-tags
     cmds:
       - go run ./tools/ci/buildtags
-      - go run ./tools/ci/buildtags -dir temporal-server
 
   lint:fixture:
     desc: The forbidigo and navalint rules must report exactly their fixture findings
