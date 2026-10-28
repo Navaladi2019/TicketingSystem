@@ -2,4 +2,5 @@
 // registry, and the server code generated from the contract.
 package api
 
-//go:generate go tool oapi-codegen -config oapi-codegen.yaml openapi.yaml
+//go:generate go run ../tools/openapibundle -root openapi.yaml -out openapi.bundled.yaml
+//go:generate go tool oapi-codegen -config oapi-codegen.yaml openapi.bundled.yaml

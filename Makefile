@@ -113,12 +113,14 @@ isolation:
 
 # golangci-lint, then the navalint analyzers (tools/navalint, its own module)
 # as go vet's tool, then the ADR-002-E1 nolint allow-list gate.
+# A last step regenerates api/ and fails on any diff (scripts/ci/openapi-generated.sh).
 lint:
 	$(GOLANGCI_LINT) run ./...
 	sh scripts/ci/navalint.sh
 	sh scripts/ci/nolint-allowlist.sh
+	sh scripts/ci/openapi-generated.sh
 
-# Regenerates api/api.gen.go from api/openapi.yaml (oapi-codegen v2.8.0, pinned
+# Bundles api/openapi.yaml + api/paths/*.yaml, then regenerates api/api.gen.go (oapi-codegen v2.8.0, pinned
 # by the go.mod tool directive).
 generate:
 	go generate ./...
@@ -129,7 +131,7 @@ generate:
 BASE ?= origin/main
 check-openapi:
 	@git rev-parse -q --verify $(BASE) >/dev/null || { echo "check-openapi: $(BASE) not found; fetch it first (git fetch origin main)"; exit 1; }
-	@if git cat-file -e $(BASE):api/openapi.yaml 2>/dev/null; then 		git show $(BASE):api/openapi.yaml > $${TMPDIR:-/tmp}/openapi.base.yaml && 		go run ./cmd/openapi-compat $${TMPDIR:-/tmp}/openapi.base.yaml api/openapi.yaml; 	else echo "no api/openapi.yaml on $(BASE): nothing to compare"; fi
+	@sh scripts/ci/check-openapi.sh $(BASE)
 
 ci: ci-lint ci-unit ci-integration ci-stack
 

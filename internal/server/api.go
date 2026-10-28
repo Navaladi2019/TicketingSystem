@@ -33,9 +33,9 @@ const baseURL = ""
 // path or wrong method with no token is 401, and 404/405 only behind a valid
 // token. Paths outside /api/v1 get the 404 problem.
 func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.IdentityResolver, paths identity.GroupPathReader, mux *http.ServeMux, opts options) (http.Handler, error) {
-	specData, err := api.Files.ReadFile("openapi.yaml")
+	specData, err := api.Files.ReadFile(api.SpecFile)
 	if err != nil {
-		return nil, fmt.Errorf("read openapi.yaml: %w", err)
+		return nil, fmt.Errorf("read %s: %w", api.SpecFile, err)
 	}
 	spec, err := apihttp.LoadSpec(specData)
 	if err != nil {
