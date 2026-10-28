@@ -12,6 +12,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/httpobs"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/ratelimit"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
 )
 
@@ -34,6 +35,20 @@ func NewHandler(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Id
 		return nil, err
 	}
 	return httpobs.Middleware(log, tel, h), nil
+}
+
+// WithRateLimit sets the per-tenant limit. Without it the ratelimit defaults
+// apply.
+func WithRateLimit(c config.RateLimit) Option { return func(o *options) { o.rate = c } }
+
+// WithLimiter replaces the in-memory limiter, for a shared store or a test.
+func WithLimiter(l ratelimit.Limiter) Option { return func(o *options) { o.shared = l } }
+
+func (o options) limiter() ratelimit.Limiter {
+	if o.shared != nil {
+		return o.shared
+	}
+	return ratelimit.NewMemory(ratelimit.Config{Rate: o.rate.Rate, Burst: o.rate.Burst, IdleTTL: o.rate.IdleTTL}, nil)
 }
 
 // New returns an *http.Server on addr with every timeout set from cfg.

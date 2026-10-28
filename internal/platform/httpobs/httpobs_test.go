@@ -3,6 +3,7 @@ package httpobs_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -343,22 +344,65 @@ func TestServerSpanAttributeKeysAreGolden(t *testing.T) {
 			if attrs["server.address"] != "nava-core" {
 				t.Errorf("server.address = %q, want nava-core", attrs["server.address"])
 			}
+			if id := attrs[httpobs.RequestIDAttribute]; !hex32.MatchString(id) {
+				t.Errorf("span attribute %s = %q, want 32 lowercase hex", httpobs.RequestIDAttribute, id)
+			}
+			raws := []string{"tenant-a.evil.test", "198.51.100.23", "4567", ":4567", xff, agent, "a@b.test", "s3cr3t", "/items/42", "FOO"}
+			for _, leak := range clientValueLeaks(attrs, raws) {
+				t.Error(leak)
+			}
 			for k, v := range attrs {
-				// The ports are checked by whole value or with their colon: a bare
-				// "4567" substring matches random hex ids such as nava.request_id.
-				for _, raw := range []string{"tenant-a.evil.test", "198.51.100.23", ":4567", xff, agent, "a@b.test", "s3cr3t", "/items/42", "FOO"} {
-					if strings.Contains(v, raw) {
-						t.Errorf("span attribute %s = %q leaks client value %q", k, v, raw)
-					}
-				}
-				if v == "4567" {
-					t.Errorf("span attribute %s = %q is the client's port", k, v)
-				}
 				if v == "9" {
 					t.Errorf("span attribute %s = %q is the Host header's port", k, v)
 				}
 			}
 		})
+	}
+}
+
+// clientValueLeaks reports every attribute whose value contains one of raws.
+// The request id is random hex and can contain any hex-looking client value
+// (the port "4567") by chance, so it is skipped here; callers assert its
+// format instead.
+func clientValueLeaks(attrs map[attribute.Key]string, raws []string) []string {
+	var leaks []string
+	for k, v := range attrs {
+		if k == httpobs.RequestIDAttribute {
+			continue
+		}
+		for _, raw := range raws {
+			if strings.Contains(v, raw) {
+				leaks = append(leaks, fmt.Sprintf("span attribute %s = %q leaks client value %q", k, v, raw))
+			}
+		}
+	}
+	return leaks
+}
+
+// TestClientValueLeaksCatchesPlantedLeak keeps the request-id exemption
+// narrow: a client value in any other attribute is still reported.
+func TestClientValueLeaksCatchesPlantedLeak(t *testing.T) {
+	t.Parallel()
+	raws := []string{"4567", "a@b.test"}
+	attrs := map[attribute.Key]string{
+		httpobs.RequestIDAttribute: "d436714567d0aaaaaaaaaaaaaaaaaaaa",
+		"server.address":           "nava-core",
+	}
+	if leaks := clientValueLeaks(attrs, raws); len(leaks) != 0 {
+		t.Fatalf("clean attributes reported leaks: %v", leaks)
+	}
+	for _, planted := range []struct{ key, value string }{
+		{"url.scheme", "http4567"},
+		{"server.address", "a@b.test"},
+		{"http.route", "/items/4567"},
+	} {
+		attrs := map[attribute.Key]string{
+			httpobs.RequestIDAttribute: "d436714567d0aaaaaaaaaaaaaaaaaaaa",
+			attribute.Key(planted.key): planted.value,
+		}
+		if leaks := clientValueLeaks(attrs, raws); len(leaks) != 1 {
+			t.Errorf("planted %s = %q: got %d leaks %v, want 1", planted.key, planted.value, len(leaks), leaks)
+		}
 	}
 }
 

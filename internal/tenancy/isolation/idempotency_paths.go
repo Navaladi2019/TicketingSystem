@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -26,9 +27,9 @@ import (
 // middleware against the suite's real nava_app role and idempotency_keys
 // table. They use keys no seed row has and delete what they insert.
 func idempotencyPaths() []Path {
-	dbN := func(conns int32, name string, fn func(context.Context, *idemEnv) error) Path {
+	dbP := func(pk poolKind, name string, fn func(context.Context, *idemEnv) error) Path {
 		return Path{Name: "idempotency: " + name, Case: "CI-8", DB: func(ctx context.Context, c Cluster) error {
-			e, err := newIdemEnv(c, conns)
+			e, err := newIdemEnv(c, pk)
 			if err != nil {
 				return err
 			}
@@ -36,85 +37,187 @@ func idempotencyPaths() []Path {
 			return fn(ctx, e)
 		}}
 	}
-	db := func(name string, fn func(context.Context, *idemEnv) error) Path { return dbN(0, name, fn) }
-	// A retake holds a connection while its handler runs, so two concurrent
-	// retakers need a pool with room for both (PoolSize, direct, since the
-	// suite's PgBouncer gives a role one server connection). With 8
-	// connections two retakes may run (MaxConns/4), so the second is stopped
-	// by the row lock; with 4 only one may, so the second is stopped by the
-	// limit.
-	retakers := func(conns int32, name, key1, key2 string, check func(ctx context.Context, e *idemEnv, h http.Handler, second *httptest.ResponseRecorder, release func(), first <-chan *httptest.ResponseRecorder) error) Path {
-		return dbN(conns, name, func(ctx context.Context, e *idemEnv) error {
-			for i, k := range []string{key1, key2} {
-				if i == 1 && k == key1 {
-					break
+	db := func(name string, fn func(context.Context, *idemEnv) error) Path { return dbP(poolKind{}, name, fn) }
+	// N+1 takeovers of N+1 abandoned keys on a pool of N (T22a, TICK-212).
+	// Every handler waits until all of them have started, then needs a
+	// connection of its own: if a takeover held a connection while its
+	// handler ran, the handlers could not all start, or could not get one,
+	// and the case would time out. Through PgBouncer the pool is N clients on
+	// one server connection, as R nava-core replicas share default_pool_size.
+	overflow := func(pk poolKind, how string) Path {
+		return dbP(pk, fmt.Sprintf("%d concurrent takeovers on a pool of %d (%s) all finish, each handler once", pk.conns+1, pk.conns, how),
+			func(ctx context.Context, e *idemEnv) error {
+				n := int(pk.conns) + 1
+				keys := make([]string, n)
+				for i := range keys {
+					keys[i] = fmt.Sprintf("k-overflow-%d", i)
+					if err := e.seedInFlight(ctx, e.tenantA, e.principalA, keys[i], `{"a":1}`, "2 minutes"); err != nil {
+						return err
+					}
 				}
-				if err := e.seedInFlight(ctx, k, `{"a":1}`, "2 minutes"); err != nil {
+				var arrived atomic.Int64
+				all := make(chan struct{})
+				var failed atomic.Value
+				h := e.handler(func() {
+					if arrived.Add(1) == int64(n) {
+						close(all)
+					}
+					select {
+					case <-all:
+					case <-time.After(15 * time.Second):
+						failed.Store(fmt.Sprintf("only %d of %d handlers ran at once", arrived.Load(), n))
+						return
+					}
+					qctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+					defer cancel()
+					if _, err := e.pool.Exec(qctx, "SELECT 1"); err != nil {
+						failed.Store("a handler could not get a connection: " + err.Error())
+					}
+				})
+				recs := make([]*httptest.ResponseRecorder, n)
+				var wg sync.WaitGroup
+				for i, k := range keys {
+					wg.Go(func() { recs[i] = e.do(h, e.tenantA, e.principalA, k, `{"a":1}`) })
+				}
+				wg.Wait()
+				if f := failed.Load(); f != nil {
+					return fmt.Errorf("%s", f)
+				}
+				for i, rec := range recs {
+					if rec.Code != http.StatusCreated {
+						return fmt.Errorf("takeover of %s = %d %s, want 201", keys[i], rec.Code, bodyOf(rec))
+					}
+				}
+				if err := e.executed(int64(n)); err != nil {
 					return err
 				}
-			}
-			release := make(chan struct{})
-			started := make(chan struct{})
-			var once sync.Once
-			h := e.handler(func() { once.Do(func() { close(started) }); <-release })
-			first := make(chan *httptest.ResponseRecorder, 1)
-			go func() { first <- e.do(h, e.tenantA, e.principalA, key1, `{"a":1}`) }()
-			<-started
-			second := e.do(h, e.tenantA, e.principalA, key2, `{"a":1}`)
-			var once2 sync.Once
-			return check(ctx, e, h, second, func() { once2.Do(func() { close(release) }) }, first)
-		})
-	}
-	busy := func(e *idemEnv, second *httptest.ResponseRecorder) error {
-		if second.Code != http.StatusConflict || e.code(second) != problem.IdempotencyInFlight {
-			return fmt.Errorf("second retaker = %d %s, want 409 idempotency_in_flight", second.Code, bodyOf(second))
-		}
-		return nil
-	}
-	finish := func(release func(), first <-chan *httptest.ResponseRecorder) error {
-		release()
-		if got := (<-first).Code; got != http.StatusCreated {
-			return fmt.Errorf("first retaker = %d, want 201", got)
-		}
-		return nil
-	}
-	// Both retakers aim at one stale row: only the row lock can stop the second.
-	sameRow := func(ctx context.Context, e *idemEnv, _ http.Handler, second *httptest.ResponseRecorder, release func(), first <-chan *httptest.ResponseRecorder) error {
-		if err := busy(e, second); err != nil {
-			release()
-			<-first
-			return err
-		}
-		if err := finish(release, first); err != nil {
-			return err
-		}
-		return e.executed(1)
-	}
-	// Two stale rows: only the limit can stop the second, and once the first
-	// retaker is done the same request goes through.
-	limit := func(ctx context.Context, e *idemEnv, h http.Handler, second *httptest.ResponseRecorder, release func(), first <-chan *httptest.ResponseRecorder) error {
-		if err := busy(e, second); err != nil {
-			release()
-			<-first
-			return err
-		}
-		if err := finish(release, first); err != nil {
-			return err
-		}
-		if err := e.executed(1); err != nil {
-			return err
-		}
-		retry := e.do(h, e.tenantA, e.principalA, "k-retake-limit-2", `{"a":1}`)
-		if retry.Code != http.StatusCreated {
-			return fmt.Errorf("second key after the first retaker finished = %d %s, want 201", retry.Code, bodyOf(retry))
-		}
-		return e.executed(2)
+				return e.completed(ctx, keys...)
+			})
 	}
 	return []Path{
-		retakers(8, "a second retaker of one stale row (row lock) gets 409 and the handler runs once",
-			"k-two-retakers", "k-two-retakers", sameRow),
-		retakers(4, "a retaker over the concurrent-retake limit gets 409, then succeeds once the first is done",
-			"k-retake-limit-1", "k-retake-limit-2", limit),
+		overflow(poolKind{conns: 4}, "direct"),
+		overflow(poolKind{conns: 4, pooled: true}, "through PgBouncer, one server connection"),
+		// Both takeovers read the row as abandoned, then queue on its row
+		// lock behind a transaction the case holds open, so their UPDATEs
+		// race for certain. The first commits a fresh lease; the second
+		// re-checks the row after that commit, matches nothing and gets 409.
+		dbP(poolKind{conns: 4}, "two concurrent takeovers of one abandoned row run the handler once, the other gets 409",
+			func(ctx context.Context, e *idemEnv) error {
+				const key = "k-takeover-race"
+				if err := e.seedInFlight(ctx, e.tenantA, e.principalA, key, `{"a":1}`, "2 minutes"); err != nil {
+					return err
+				}
+				holder, err := e.c.Super()
+				if err != nil {
+					return err
+				}
+				tx, err := holder.Begin(ctx)
+				if err != nil {
+					return err
+				}
+				defer func() { _ = tx.Rollback(ctx) }()
+				if _, err := tx.Exec(ctx, "SELECT 1 FROM idempotency_keys WHERE tenant_id = $1 AND principal_id = $2 AND key = $3 FOR UPDATE",
+					e.tenantA, e.principalA, key); err != nil {
+					return err
+				}
+				h := e.handler(nil)
+				recs := make(chan *httptest.ResponseRecorder, 2)
+				for range 2 {
+					go func() { recs <- e.do(h, e.tenantA, e.principalA, key, `{"a":1}`) }()
+				}
+				if err := e.waitLockWaiters(ctx, 2); err != nil {
+					_ = tx.Rollback(ctx)
+					<-recs
+					<-recs
+					return err
+				}
+				if err := tx.Commit(ctx); err != nil {
+					return err
+				}
+				codes := map[int]int{}
+				for range 2 {
+					rec := <-recs
+					codes[rec.Code]++
+					if rec.Code == http.StatusConflict && e.code(rec) != problem.IdempotencyInFlight {
+						return fmt.Errorf("loser = 409 %s, want idempotency_in_flight", bodyOf(rec))
+					}
+				}
+				if codes[http.StatusCreated] != 1 || codes[http.StatusConflict] != 1 {
+					return fmt.Errorf("takeovers = %v, want one 201 and one 409", codes)
+				}
+				return e.executed(1)
+			}),
+		// T22's semaphore let one tenant's takeovers fill every slot and turn
+		// another tenant's away. Takeovers now hold nothing while the handler
+		// runs, so tenant A's stuck handlers leave tenant B's takeover alone.
+		dbP(poolKind{conns: 4}, "a tenant's stuck takeovers do not turn another tenant's takeover away",
+			func(ctx context.Context, e *idemEnv) error {
+				const stuck = 3 // over T22's MaxConns/4 = 1 slot
+				for i := range stuck {
+					if err := e.seedInFlight(ctx, e.tenantA, e.principalA, fmt.Sprintf("k-fair-a-%d", i), `{"a":1}`, "2 minutes"); err != nil {
+						return err
+					}
+				}
+				if err := e.seedInFlight(ctx, e.tenantB, e.principalA, "k-fair-b", `{"a":1}`, "2 minutes"); err != nil {
+					return err
+				}
+				release := make(chan struct{})
+				startedA := make(chan struct{}, stuck)
+				h := e.handler(nil)
+				blockA := e.handler(func() { startedA <- struct{}{}; <-release })
+				var wg sync.WaitGroup
+				recsA := make([]*httptest.ResponseRecorder, stuck)
+				for i := range stuck {
+					wg.Go(func() { recsA[i] = e.do(blockA, e.tenantA, e.principalA, fmt.Sprintf("k-fair-a-%d", i), `{"a":1}`) })
+				}
+				for i := range stuck {
+					select {
+					case <-startedA:
+					case <-time.After(15 * time.Second):
+						close(release)
+						wg.Wait()
+						return fmt.Errorf("only %d of tenant A's %d takeovers ran at once", i, stuck)
+					}
+				}
+				b := e.do(h, e.tenantB, e.principalA, "k-fair-b", `{"a":1}`)
+				close(release)
+				wg.Wait()
+				if b.Code != http.StatusCreated {
+					return fmt.Errorf("tenant B's takeover while tenant A's are running = %d %s, want 201", b.Code, bodyOf(b))
+				}
+				for i, rec := range recsA {
+					if rec.Code != http.StatusCreated {
+						return fmt.Errorf("tenant A's takeover %d = %d %s, want 201", i, rec.Code, bodyOf(rec))
+					}
+				}
+				return e.executed(stuck + 1)
+			}),
+		// The principal is an application predicate (there is no
+		// app.principal_id setting): another user of the same tenant sending
+		// the same key gets a row of its own and never moves the first user's
+		// lease.
+		db("another principal's request with the same key leaves the abandoned row's lease alone", func(ctx context.Context, e *idemEnv) error {
+			const key = "k-lease-principal"
+			if err := e.seedInFlight(ctx, e.tenantA, e.principalA, key, `{"a":1}`, "2 minutes"); err != nil {
+				return err
+			}
+			before, err := e.lease(ctx, e.tenantA, e.principalA, key)
+			if err != nil {
+				return err
+			}
+			h := e.handler(nil)
+			if rec := e.do(h, e.tenantA, uuid.New(), key, `{"a":1}`); rec.Code != http.StatusCreated {
+				return fmt.Errorf("other principal = %d %s, want 201 (its own key)", rec.Code, bodyOf(rec))
+			}
+			after, err := e.lease(ctx, e.tenantA, e.principalA, key)
+			if err != nil {
+				return err
+			}
+			if !after.Equal(before) {
+				return fmt.Errorf("first principal's lease moved from %s to %s", before, after)
+			}
+			return e.executed(1)
+		}),
 		db("two concurrent identical requests execute once", func(ctx context.Context, e *idemEnv) error {
 			release := make(chan struct{})
 			started := make(chan struct{})
@@ -206,10 +309,10 @@ func idempotencyPaths() []Path {
 		}),
 		db("an in_flight row past the 60 s lease is retaken, a younger one is not", func(ctx context.Context, e *idemEnv) error {
 			h := e.handler(nil)
-			if err := e.seedInFlight(ctx, "k-lease-old", `{"a":1}`, "2 minutes"); err != nil {
+			if err := e.seedInFlight(ctx, e.tenantA, e.principalA, "k-lease-old", `{"a":1}`, "2 minutes"); err != nil {
 				return err
 			}
-			if err := e.seedInFlight(ctx, "k-lease-young", `{"a":1}`, "10 seconds"); err != nil {
+			if err := e.seedInFlight(ctx, e.tenantA, e.principalA, "k-lease-young", `{"a":1}`, "10 seconds"); err != nil {
 				return err
 			}
 			young := e.do(h, e.tenantA, e.principalA, "k-lease-young", `{"a":1}`)
@@ -235,6 +338,7 @@ func idempotencyPaths() []Path {
 // idemEnv is a middleware on the suite's nava_app pool and two fresh tenants.
 type idemEnv struct {
 	c                Cluster
+	pool             *pgxpool.Pool
 	mw               *idempotency.Middleware
 	reg              *problem.Registry
 	tenantA, tenantB uuid.UUID
@@ -242,13 +346,24 @@ type idemEnv struct {
 	runs             atomic.Int64
 }
 
-func newIdemEnv(c Cluster, conns int32) (*idemEnv, error) {
+// poolKind is the middleware's nava_app pool: the zero value is one
+// connection through PgBouncer; conns > 0 is that many connections, direct,
+// or through PgBouncer's one server connection when pooled.
+type poolKind struct {
+	conns  int32
+	pooled bool
+}
+
+func newIdemEnv(c Cluster, pk poolKind) (*idemEnv, error) {
 	var pool *pgxpool.Pool
 	var err error
-	if conns == 0 {
-		pool, err = c.Pool("nava_app") // through PgBouncer, one connection
-	} else {
-		pool, err = c.PoolSize("nava_app", conns)
+	switch {
+	case pk.conns == 0:
+		pool, err = c.Pool("nava_app")
+	case pk.pooled:
+		pool, err = c.PooledSize("nava_app", pk.conns)
+	default:
+		pool, err = c.PoolSize("nava_app", pk.conns)
 	}
 	if err != nil {
 		return nil, err
@@ -265,7 +380,7 @@ func newIdemEnv(c Cluster, conns int32) (*idemEnv, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &idemEnv{c: c, mw: mw, reg: reg, tenantA: uuid.New(), tenantB: uuid.New(), principalA: uuid.New()}, nil
+	return &idemEnv{c: c, pool: pool, mw: mw, reg: reg, tenantA: uuid.New(), tenantB: uuid.New(), principalA: uuid.New()}, nil
 }
 
 // handler is a write: 201 with a body that is unique per execution, or a 400
@@ -311,19 +426,73 @@ func (e *idemEnv) executed(want int64) error {
 	return nil
 }
 
-// seedInFlight inserts an in_flight row for tenant A created age ago, as a
-// request that died would have left it. The hash is the one the middleware
-// computes for the same request.
-func (e *idemEnv) seedInFlight(ctx context.Context, key, body, age string) error {
+// seedInFlight inserts an in_flight row created age ago, with the 60 s lease
+// it was given then, as a request that died would have left it. The hash is
+// the one the middleware computes for the same request.
+func (e *idemEnv) seedInFlight(ctx context.Context, tenant, principal uuid.UUID, key, body, age string) error {
 	conn, err := e.c.Super()
 	if err != nil {
 		return err
 	}
 	_, err = conn.Exec(ctx, `
-INSERT INTO idempotency_keys (tenant_id, principal_id, key, request_hash, created_at, expires_at)
-VALUES ($1, $2, $3, $4, now() - $5::interval, now() + interval '1 day')`,
-		e.tenantA, e.principalA, key, idempotency.RequestHash(http.MethodPost, "/api/v1/things", []byte(body)), age)
+INSERT INTO idempotency_keys (tenant_id, principal_id, key, request_hash, created_at, lease_until, expires_at)
+VALUES ($1, $2, $3, $4, now() - $5::interval, now() - $5::interval + interval '60 seconds', now() + interval '1 day')`,
+		tenant, principal, key, idempotency.RequestHash(http.MethodPost, "/api/v1/things", []byte(body)), age)
 	return err
+}
+
+// lease reads a row's lease_until as the superuser.
+func (e *idemEnv) lease(ctx context.Context, tenant, principal uuid.UUID, key string) (time.Time, error) {
+	conn, err := e.c.Super()
+	if err != nil {
+		return time.Time{}, err
+	}
+	var t time.Time
+	err = conn.QueryRow(ctx, "SELECT lease_until FROM idempotency_keys WHERE tenant_id = $1 AND principal_id = $2 AND key = $3",
+		tenant, principal, key).Scan(&t)
+	return t, err
+}
+
+// completed checks that tenant A's principal stored a response for every key.
+func (e *idemEnv) completed(ctx context.Context, keys ...string) error {
+	conn, err := e.c.Super()
+	if err != nil {
+		return err
+	}
+	var n int
+	if err := conn.QueryRow(ctx, `
+SELECT count(*) FROM idempotency_keys
+ WHERE tenant_id = $1 AND principal_id = $2 AND key = ANY($3) AND state = 'completed'`,
+		e.tenantA, e.principalA, keys).Scan(&n); err != nil {
+		return err
+	}
+	if n != len(keys) {
+		return fmt.Errorf("%d of %d keys completed", n, len(keys))
+	}
+	return nil
+}
+
+// waitLockWaiters waits until n nava_app backends wait on a lock.
+func (e *idemEnv) waitLockWaiters(ctx context.Context, n int) error {
+	conn, err := e.c.Super()
+	if err != nil {
+		return err
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		var got int
+		if err := conn.QueryRow(ctx, `
+SELECT count(*) FROM pg_stat_activity WHERE usename = 'nava_app' AND wait_event_type = 'Lock'`).Scan(&got); err != nil {
+			return err
+		}
+		if got >= n {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("%d of %d takeovers queued on the row lock", got, n)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 // cleanup deletes every row the case made, as the superuser (nava_app cannot
