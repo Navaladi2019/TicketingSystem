@@ -41,7 +41,7 @@ bundle kin-openapi rejects.
 
 ## Gates
 
-- `task lint` / `make lint` run `scripts/ci/openapi-generated.sh`: regenerate
+- `make check-generate` (in `ci-lint`) runs `scripts/ci/openapi-generated.sh`: regenerate
   and fail on any `git diff` under `api/`, so a source edit without
   regenerating fails.
 - Additive only within v1: `task check-openapi` diffs `openapi.bundled.yaml`

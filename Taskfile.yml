@@ -52,7 +52,6 @@ tasks:
       - golangci-lint run ./...
       - sh scripts/ci/navalint.sh
       - sh scripts/ci/nolint-allowlist.sh
-      - sh scripts/ci/openapi-generated.sh
       - go run ./tools/docindex -check
 
   lint:fixture:

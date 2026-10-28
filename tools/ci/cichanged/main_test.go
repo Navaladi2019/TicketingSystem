@@ -2,6 +2,8 @@ package main
 
 import (
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -46,6 +48,8 @@ func TestClassify(t *testing.T) {
 		{"navalint module", []string{"tools/navalint/setconfig/setconfig.go"}, "ci-lint ci-unit"},
 		{"root dependencies", []string{"go.sum"}, "ci-lint ci-unit ci-integration ci-stack"},
 		{"CI definition", []string{"Makefile"}, "ci-lint ci-unit ci-integration ci-stack"},
+		{"make fragment", []string{"make/lint.mk"}, "ci-lint ci-unit ci-integration ci-stack"},
+		{"new make fragment beside a doc", []string{"make/new-story.mk", "docs/quality/ci-pipeline.md"}, "ci-lint ci-unit ci-integration ci-stack"},
 		{"integration script", []string{"scripts/ci/test-integration.sh", "scripts/ci/pgbouncer/pooled.ini"}, "ci-lint ci-integration"},
 		{"isolation script", []string{"scripts/ci/isolation.sh", "scripts/ci/pgbouncer/isolation.ini"}, "ci-lint ci-integration"},
 		{"lint script", []string{"scripts/ci/vulncheck.sh"}, "ci-lint"},
@@ -88,6 +92,73 @@ func TestLoadGraph(t *testing.T) {
 		}
 		if g.integration[c.pkg] != c.integration || g.stack[c.pkg] != c.stack {
 			t.Errorf("%s: integration %v stack %v, want %v %v", c.pkg, g.integration[c.pkg], g.stack[c.pkg], c.integration, c.stack)
+		}
+	}
+}
+
+// Every landed story suite (ADR-001 Annex B CI-1 to CI-7, the S7 demo) runs
+// in the ci.yml job its stage selects, so a change to a file a suite covers
+// must select that stage (TICK-292, docs/delivery/merge-safety.md "Story
+// suites on main"). The real graph: a pull request that touches only one of
+// these files must not skip the suite.
+func TestStorySuitesSelected(t *testing.T) {
+	g, err := loadGraph()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		suite, file, stage string
+	}{
+		{"CI-1/3/4 catalogue gate", "internal/db/dbtest/catalog_test.go", "ci-integration"},
+		{"CI-1/3/4 catalogue gate", "internal/db/catalog/privileges.go", "ci-integration"},
+		{"CI-2 isolation suite", "internal/tenancy/isolation/registry.go", "ci-integration"},
+		{"CI-2 isolation suite", "scripts/ci/isolation.sh", "ci-integration"},
+		{"CI-5 identity attacks", "internal/identitystack/ci5_isolation_test.go", "ci-stack"},
+		{"CI-5 identity attacks", "internal/identity/contracttest/ci5.go", "ci-stack"},
+		{"CI-5 identity attacks", "tools/ci/ci5report/main.go", "ci-stack"},
+		{"CI-5 identity attacks", "scripts/ci/identity-attacks.sh", "ci-stack"},
+		{"CI-6 Temporal suite", "internal/temporalstack/ci6_isolation_test.go", "ci-stack"},
+		{"CI-6 Temporal suite", "internal/workerguard/guard.go", "ci-stack"},
+		{"CI-6 Temporal suite", "tools/ci/ci6report/main.go", "ci-stack"},
+		{"CI-6 Authorizer unit tests", "temporal-server/authz/adversarial_test.go", "ci-unit"},
+		{"CI-6 Authorizer image", "temporal-server/authz/adversarial_test.go", "ci-stack"},
+		{"CI-7 payload schema", "internal/temporalstack/ci7_isolation_test.go", "ci-stack"},
+		{"CI-7 payload check", "internal/outbox/outbox.go", "ci-integration"},
+		{"CI-7 payload check", "internal/outbox/outbox.go", "ci-stack"},
+		{"S7 demo", "internal/temporalstack/demo_outbox_test.go", "ci-stack"},
+		{"S7 demo", "cmd/demo-outbox/main.go", "ci-stack"},
+		{"S7 demo", "scripts/dev/demo-outbox.sh", "ci-stack"},
+		{"S7 worker", "internal/workerstack/stack_test.go", "ci-stack"},
+	} {
+		t.Run(c.suite+" "+c.file+" "+c.stage, func(t *testing.T) {
+			got, reasons := classify([]string{c.file}, g)
+			if !slices.Contains(got, c.stage) {
+				t.Fatalf("%s: stages = %q, want %s\n%s", c.suite, strings.Join(got, " "), c.stage, strings.Join(reasons, "\n"))
+			}
+		})
+	}
+}
+
+// Every command under cmd/ is an image, a stack test's binary, or listed
+// here as neither, so a new command cannot skip the stack stage unseen.
+func TestEveryCommandIsAStackRoot(t *testing.T) {
+	notStack := map[string]bool{"cmd/openapi-compat": true} // lint's check-openapi
+	g, err := loadGraph()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := git("rev-parse", "--show-toplevel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(filepath.Join(strings.TrimSpace(root), "cmd"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		d := "cmd/" + e.Name()
+		if e.IsDir() && !notStack[d] && !g.stack[d] {
+			t.Errorf("%s is not in stackRoots: add it there, or to notStack if no image or stack test builds it", d)
 		}
 	}
 }
