@@ -301,13 +301,6 @@ jobs:
         run: make stack-test-identity
       - name: CI-5 adversarial identity suite (T19)
         run: make identity-attacks
-      - name: CI-5 report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ci5-report
-          path: ci5-report.md
-          if-no-files-found: error
       # After the SDK suite: the worker polls nava-tq, the queue its workers poll.
       - name: nava-worker ready, admin listener, guarded activity
         run: make stack-test-worker
