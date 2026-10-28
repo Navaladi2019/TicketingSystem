@@ -2,6 +2,14 @@
 
 Delivery decisions that change a task's contract, newest first.
 
+## 2026-10-28: migration order is checked against `main`, not the pull request's base
+- **Decided by:** the Technical Lead on TICK-309, after PR #244 (TICK-281/TICK-284) went red only on `TestNewMigrationsLaterThanBase`.
+- **Decision:** every pull request, including one into a story branch, checks its migrations against `origin/main`. A migration is new when `main` does not have it, and it must be later than `main`'s newest version. The ci `unit` job sets `BASE=origin/main` for every event, no longer `github.base_ref`. The invariant (TICK-299) protects databases that applied shipped migrations, and only `main` ships.
+- **Allowed:** a story renumbers its own unshipped migrations (S5: `00008`–`00010` → `00010`–`00012`).
+- **Accepted risk:** a long-lived database built from a story branch must be rebuilt after the story renumbers its migrations.
+- **Unchanged:** `ci-stages`, `review-paths` and `check-openapi` still diff against the pull request's base.
+- **Dissent:** none.
+
 ## 2026-10-28: Merge safety: `main` is protected and tested after every merge; shared files are split
 - **Decided by:** the Technical Lead on TICK-288 (`docs/delivery/merge-safety.md`), at the request of vknavaladi after S5 (PR #221) and S7 (PR #223) broke on late merges of `main`.
 - **Decision:**
