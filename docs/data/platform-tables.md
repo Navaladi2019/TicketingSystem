@@ -57,6 +57,7 @@ erDiagram
         text state "in_flight | completed"
         smallint response_status
         bytea response_body "byte-identical replay"
+        timestamptz lease_until "takeover lease (00006, idempotency-lease.md)"
         timestamptz expires_at
     }
 ```

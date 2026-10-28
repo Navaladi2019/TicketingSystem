@@ -54,7 +54,8 @@ roles:
       # INSERT ... RETURNING id and the dedupe-conflict lookup (T29).
       outbox: { SELECT: [tenant_id, id, dedupe_key], INSERT: [] }
       workflow_ref: { SELECT: [], INSERT: [] }
-      idempotency_keys: { SELECT: [], INSERT: [], UPDATE: [state, response_status, response_body] }
+      # lease_until: a takeover extends the lease of its own tenant's abandoned row (T22a, 00006).
+      idempotency_keys: { SELECT: [], INSERT: [], UPDATE: [state, response_status, response_body, lease_until] }
       # Tenant resolution (A.1 step 3, T17) and the principal's groups.
       principals: { SELECT: [] }
       groups: { SELECT: [] }
