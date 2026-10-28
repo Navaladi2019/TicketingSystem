@@ -20,7 +20,9 @@ migrates.
 
 ## Adding a migration
 
-- Files are `NNNNN_name.sql`, goose format (`-- +goose Up`). Forward only.
+- New files are `YYYYMMDDHHMMSS_name.sql` (`goose create name sql`), goose
+  format (`-- +goose Up`). Forward only. See
+  [`migrations/README.md`](migrations/README.md).
 - A migration that creates a table adds that table's grants to `grants.yaml`
   in the same change. Policies stay in SQL.
 - A `-- +goose NO TRANSACTION` file (e.g. `CREATE INDEX CONCURRENTLY`) must be
@@ -40,7 +42,8 @@ for a database owner or a `REPLICATION` role.
 `task test:integration` (or `make test-integration` with `NAVA_TEST_PG_URL`
 pointing at a throwaway cluster's superuser) runs `internal/db/dbtest`. The
 compose-level checks are `stack-test.sh pgbouncer|idempotent|dbroles|hba`.
-`go test ./db/` checks `pg_hba.conf` line by line.
+`go test ./db/` checks `pg_hba.conf` line by line, and the migration names,
+versions and goose parse.
 
 ## pg_hba.conf
 
