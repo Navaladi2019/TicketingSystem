@@ -141,9 +141,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      # TestNewMigrationsLaterThanBase compares added migrations with the
-      # base branch's newest (TICK-299), so the checkout needs its history.
-      BASE: origin/${{ github.base_ref || 'main' }}
+      # TestNewMigrationsLaterThanBase compares added migrations with main's
+      # newest (TICK-299), so the checkout needs main's history. Always main,
+      # even for a pull request into a story branch: only migrations that
+      # have shipped bind deployed databases (TICK-309).
+      BASE: origin/main
     steps:
       - uses: actions/checkout@v4
         with:
