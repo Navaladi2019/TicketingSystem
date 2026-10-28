@@ -192,6 +192,19 @@ func migrateFS(t *testing.T, m *grants.Manifest, fsys fs.FS) (migrate.Result, er
 		fsys, m, globalTables(t), log, migrate.Options{LockRetrySeconds: 1})
 }
 
+// migrateOnlyFS applies the pending migrations in fsys as nava_migrator and
+// stops: no grants manifest, no catalogue gate. A test that runs only some of
+// the migrations uses it, since the manifest is written for the full set and
+// grants columns a partial schema does not have yet. The final full
+// migrateFS run still applies the manifest and the gate.
+func migrateOnlyFS(t *testing.T, m *grants.Manifest, fsys fs.FS) error {
+	t.Helper()
+	log, _ := newLog()
+	_, err := migrate.Up(context.Background(), roleConfig(t, m.Owner(), m.PlatformDatabase),
+		fsys, log, migrate.Options{LockRetrySeconds: 1})
+	return err
+}
+
 // connectErr connects and closes, returning the connection error.
 func connectErr(cfg *pgx.ConnConfig) (struct{}, error) {
 	conn, err := pgx.ConnectConfig(context.Background(), cfg)

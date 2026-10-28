@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Story S5 explained: group changes and deprovisioning take effect within 10 minutes</title>
+<style>
+  :root { --ink:#1f2937; --muted:#6b7280; --line:#e5e7eb; --bg:#ffffff; --soft:#f8fafc;
+          --blue:#2563eb; --green:#059669; --red:#dc2626; --amber:#b45309; --violet:#7c3aed; --hl:#fef3c7; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink:#e5e7eb; --muted:#9ca3af; --line:#374151; --bg:#111827; --soft:#1f2937;
+            --blue:#60a5fa; --green:#34d399; --red:#f87171; --amber:#fbbf24; --violet:#a78bfa; --hl:#422006; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:16px/1.6 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { font-size: 1.9rem; line-height:1.25; margin: 0 0 6px; }
+  h2 { font-size: 1.35rem; margin: 44px 0 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+  h3 { font-size: 1.05rem; margin: 22px 0 6px; }
+  p.lead { font-size: 1.1rem; color: var(--muted); margin-top: 0; }
+  code { font-family: Consolas, "SFMono-Regular", Menlo, monospace; font-size: .9em;
+         background: var(--soft); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+  pre { background: var(--soft); border: 1px solid var(--line); border-radius: 8px; padding: 12px; overflow-x: auto; font-size: .88rem; }
+  .card { background: var(--soft); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin: 14px 0; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+  .pill { display:inline-block; font-size:.78rem; font-weight:600; padding:2px 8px; border-radius:999px; border:1px solid currentColor; }
+  .ok { color: var(--green); } .bad { color: var(--red); } .warn { color: var(--amber); } .info { color: var(--blue); }
+  table { width:100%; border-collapse: collapse; margin: 10px 0; font-size: .95rem; }
+  th, td { text-align:left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  th { background: var(--soft); font-weight: 600; }
+  .gloss dt { font-weight: 700; margin-top: 10px; }
+  .gloss dd { margin: 2px 0 0 0; }
+  svg text { font-family: inherit; fill: var(--ink); }
+  .small { font-size: .88rem; color: var(--muted); }
+  ol li, ul li { margin: 4px 0; }
+  .tldr { border-left: 4px solid var(--blue); }
+  nav.toc a { color: var(--blue); text-decoration: none; margin-right: 14px; white-space: nowrap; }
+
+  /* Scenario player */
+  .scen-buttons { display:flex; flex-wrap:wrap; gap:8px; margin: 10px 0 14px; }
+  .scen-buttons button, .controls button {
+    font: inherit; font-size: .9rem; cursor: pointer; border-radius: 8px; padding: 6px 12px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+  .scen-buttons button.active { border-color: var(--blue); color: var(--blue); font-weight: 600; }
+  .scen-buttons button .tag { font-size: .72rem; margin-left: 6px; }
+  .controls { display:flex; gap:8px; align-items:center; margin-top: 10px; flex-wrap: wrap; }
+  .controls .count { color: var(--muted); font-size: .9rem; }
+  .node rect { fill: var(--bg); stroke: var(--line); stroke-width: 2; transition: all .25s; }
+  .node.on rect { stroke: var(--blue); stroke-width: 3; fill: var(--hl); }
+  .node.badnode rect { stroke: var(--red); stroke-width: 3; }
+  .node.goodnode rect { stroke: var(--green); stroke-width: 3; }
+  .edge { stroke: var(--line); stroke-width: 2; fill: none; transition: all .25s; }
+  .edge.on { stroke: var(--blue); stroke-width: 4; }
+  .edge.on.bad { stroke: var(--red); }
+  .edge.on.good { stroke: var(--green); }
+  .steps { margin: 12px 0 0; padding-left: 22px; }
+  .steps li { color: var(--muted); padding: 3px 6px; border-radius: 6px; cursor: pointer; }
+  .steps li.done { color: var(--ink); }
+  .steps li.current { color: var(--ink); background: var(--hl); font-weight: 600; }
+  .verdict { margin-top: 12px; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--line); display: none; }
+  .verdict.show { display: block; }
+  .verdict.good { border-color: var(--green); }
+  .verdict.bad { border-color: var(--red); }
+  details { margin: 8px 0; }
+  details summary { cursor: pointer; font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Story S5: group changes and deprovisioning take effect within 10 minutes</h1>
+<p class="lead">A plain-language explainer of what this story built, why it matters, how we know it works, and what to check before you accept it. You don't need to know anything about the project to follow it.</p>
+
+<nav class="toc small">
+  <a href="#problem">1. The problem</a><a href="#cast">2. The cast</a><a href="#flow">3. The big picture</a>
+  <a href="#play">4. Play a scenario</a><a href="#clock">5. Why 10 minutes</a><a href="#attacks">6. Attacks we tried</a>
+  <a href="#criteria">7. Acceptance criteria</a><a href="#work">8. What was built</a><a href="#limits">9. Known limits</a>
+  <a href="#try">10. Try it yourself</a><a href="#gloss">11. Glossary</a>
+</nav>
+
+<div class="card tldr">
+  <strong>In one paragraph.</strong> People log in through a separate login system (Keycloak). That system decides who belongs to which customer organisation and which teams they're in. This story copies that information into our own database every 5 minutes. The API checks the copy on <em>every</em> request, not the person's login ticket. So when an administrator removes someone from a team, or switches off their account, the change takes effect within 10 minutes, even for a login ticket that hasn't expired yet. It also adds a set of automated "attacks": tests that try to trick the platform into letting someone from one customer into another customer's data. Every attack is refused.
+  <div style="margin-top:8px"><span class="pill ok">All code tasks merged into the story branch</span> <span class="pill ok">All 6 criteria proven: S4 and S5 are on <code>main</code> (section 9)</span> <span class="pill info">Next: acceptance kit, then your ACCEPTED / REJECTED</span></div>
+</div>
+
+<h2 id="problem">1. The problem, in everyday terms</h2>
+<p>Think of an office building with many companies inside (each company is a <strong>tenant</strong>). There's one security desk at the entrance, Keycloak, which hands out <strong>visitor badges</strong> (login tokens). A badge says "Alice, Company A" and is valid for a few minutes.</p>
+<p>Inside the building, each company's rooms are locked by our platform. The question this story answers is: <strong>what happens when Company A fires Alice, or moves her out of the Support team?</strong></p>
+<div class="grid">
+  <div class="card"><h3 style="margin-top:0">The risk</h3>
+    <p class="bad">If our rooms trusted the badge alone, Alice could keep walking in until her badge expired, and the badge could even claim teams she has since left.</p></div>
+  <div class="card"><h3 style="margin-top:0">What this story does</h3>
+    <p class="ok">Our platform keeps its own up-to-date staff list per company, refreshed every 5 minutes, and checks it at every door. A removed or disabled person loses access within 10 minutes, whatever their badge says.</p></div>
+</div>
+<p>Because one building hosts many companies, a second question matters just as much: <strong>can anyone get a badge for a company they don't belong to?</strong> Section 6 lists every trick we tried. All of them fail.</p>
+
+<h2 id="cast">2. The cast</h2>
+<table>
+  <tr><th>Who / what</th><th>Plain words</th><th>Technical name</th></tr>
+  <tr><td>Login system</td><td>The security desk. Knows every person, which company (organisation) they're in, their teams (groups), and whether their account is switched on.</td><td>Keycloak, realm <code>nava</code></td></tr>
+  <tr><td>Login token</td><td>The visitor badge. Valid for at most 5 minutes.</td><td>OAuth access token (JWT)</td></tr>
+  <tr><td>Sync worker</td><td>A clerk who walks to the security desk every 5 minutes, copies each company's staff list, and updates our records. One company at a time, so a problem with one company doesn't stop the others.</td><td><code>nava-groupsync</code></td></tr>
+  <tr><td>Our records</td><td>Our copy of people, teams and memberships, walled off per company (story S2).</td><td>PostgreSQL tables <code>principals</code>, <code>groups</code>, <code>group_members</code>, <code>org_units</code></td></tr>
+  <tr><td>The API</td><td>The door guard for every request. Reads the badge to learn <em>who</em> you are and <em>which company</em>. Then it checks <em>our records</em> for your current teams and whether you're still switched on.</td><td><code>nava-core</code></td></tr>
+  <tr><td>Company binding</td><td>A fixed table that says "Keycloak organisation <code>tenant-a</code> is our Company A". It's the only way a badge maps to a company.</td><td><code>tenant_identity_binding</code></td></tr>
+</table>
+
+<h2 id="flow">3. The big picture</h2>
+<p>Two loops run side by side. The <strong>sync loop</strong> (top) keeps our records fresh. The <strong>request loop</strong> (bottom) checks those records on every call.</p>
+<svg viewBox="0 0 900 360" width="100%" role="img" aria-label="Flowchart: Keycloak feeds the sync worker, which writes our records; the API reads the records on every request">
+  <defs>
+    <marker id="a1" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/></marker>
+  </defs>
+  <rect x="20" y="30" width="200" height="80" rx="10" fill="none" stroke="#7c3aed" stroke-width="2"/>
+  <text x="120" y="62" text-anchor="middle" font-weight="700">Admin changes Keycloak</text>
+  <text x="120" y="84" text-anchor="middle" font-size="13">remove from team / disable</text>
+
+  <rect x="350" y="30" width="200" height="80" rx="10" fill="none" stroke="#2563eb" stroke-width="2"/>
+  <text x="450" y="62" text-anchor="middle" font-weight="700">nava-groupsync</text>
+  <text x="450" y="84" text-anchor="middle" font-size="13">every ≤ 5 min, per company</text>
+
+  <rect x="680" y="30" width="200" height="80" rx="10" fill="none" stroke="#059669" stroke-width="2"/>
+  <text x="780" y="62" text-anchor="middle" font-weight="700">Our records</text>
+  <text x="780" y="84" text-anchor="middle" font-size="13">people, teams, enabled?</text>
+
+  <line x1="220" y1="70" x2="345" y2="70" stroke="#6b7280" stroke-width="2" marker-end="url(#a1)"/>
+  <text x="283" y="60" text-anchor="middle" font-size="12">reads snapshot</text>
+  <line x1="550" y1="70" x2="675" y2="70" stroke="#6b7280" stroke-width="2" marker-end="url(#a1)"/>
+  <text x="613" y="60" text-anchor="middle" font-size="12">applies the difference</text>
+
+  <rect x="20" y="230" width="200" height="80" rx="10" fill="none" stroke="#b45309" stroke-width="2"/>
+  <text x="120" y="262" text-anchor="middle" font-weight="700">Alice calls the API</text>
+  <text x="120" y="284" text-anchor="middle" font-size="13">with her badge (token)</text>
+
+  <rect x="350" y="230" width="200" height="80" rx="10" fill="none" stroke="#2563eb" stroke-width="2"/>
+  <text x="450" y="258" text-anchor="middle" font-weight="700">nava-core</text>
+  <text x="450" y="278" text-anchor="middle" font-size="13">1. badge genuine? which company?</text>
+  <text x="450" y="296" text-anchor="middle" font-size="13">2. look her up in our records</text>
+
+  <line x1="220" y1="270" x2="345" y2="270" stroke="#6b7280" stroke-width="2" marker-end="url(#a1)"/>
+  <path d="M550,255 C620,255 700,200 760,115" stroke="#6b7280" stroke-width="2" fill="none" marker-end="url(#a1)"/>
+  <text x="680" y="210" text-anchor="middle" font-size="12">current teams + enabled flag</text>
+
+  <rect x="680" y="250" width="200" height="40" rx="8" fill="none" stroke="#059669" stroke-width="2"/>
+  <text x="780" y="275" text-anchor="middle" font-size="13">200 with today's teams</text>
+  <rect x="680" y="300" width="200" height="40" rx="8" fill="none" stroke="#dc2626" stroke-width="2"/>
+  <text x="780" y="325" text-anchor="middle" font-size="13">401 if disabled or not bound</text>
+  <line x1="550" y1="280" x2="675" y2="270" stroke="#059669" stroke-width="2" marker-end="url(#a1)"/>
+  <line x1="550" y1="295" x2="675" y2="320" stroke="#dc2626" stroke-width="2" marker-end="url(#a1)"/>
+</svg>
+<p class="small">The key design choice: the API never takes your teams or your "switched on" status from the badge. Your company comes from the badge (through the company binding). Everything else comes from our records.</p>
+
+<h2 id="play">4. Play a scenario</h2>
+<p>Pick a scenario, then press <strong>Next</strong> (or click any step) to walk through it. The diagram highlights who is talking at each step.</p>
+
+<div class="card">
+  <div class="scen-buttons" id="scenButtons"></div>
+
+  <svg viewBox="0 0 900 250" width="100%" id="player" role="img" aria-label="Scenario diagram">
+    <defs>
+      <marker id="a2" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/></marker>
+    </defs>
+    <!-- edges -->
+    <path class="edge" id="e-user-kc"  d="M150,60 L330,60"/>
+    <path class="edge" id="e-user-api" d="M100,85 L100,170 L330,190"/>
+    <path class="edge" id="e-kc-gs"    d="M430,85 L430,105 L600,105 L600,85"/>
+    <path class="edge" id="e-gs-db"    d="M700,60 L760,60 L760,165"/>
+    <path class="edge" id="e-api-db"   d="M530,190 L690,190"/>
+    <path class="edge" id="e-api-kc"   d="M430,165 L430,85"/>
+    <path class="edge" id="e-admin-kc" d="M430,10 L430,35"/>
+    <!-- nodes -->
+    <g class="node" id="n-user"><rect x="20" y="35" width="130" height="50" rx="10"/><text x="85" y="58" text-anchor="middle" font-weight="700" id="n-user-label">Alice</text><text x="85" y="76" text-anchor="middle" font-size="12" id="n-user-sub">Company A user</text></g>
+    <g class="node" id="n-kc"><rect x="330" y="35" width="200" height="50" rx="10"/><text x="430" y="58" text-anchor="middle" font-weight="700">Keycloak</text><text x="430" y="76" text-anchor="middle" font-size="12">login system</text></g>
+    <g class="node" id="n-gs"><rect x="560" y="35" width="140" height="50" rx="10"/><text x="630" y="58" text-anchor="middle" font-weight="700">groupsync</text><text x="630" y="76" text-anchor="middle" font-size="12">every ≤ 5 min</text></g>
+    <g class="node" id="n-api"><rect x="330" y="165" width="200" height="50" rx="10"/><text x="430" y="188" text-anchor="middle" font-weight="700">nava-core API</text><text x="430" y="206" text-anchor="middle" font-size="12">door guard</text></g>
+    <g class="node" id="n-db"><rect x="690" y="165" width="190" height="50" rx="10"/><text x="785" y="188" text-anchor="middle" font-weight="700">Our records</text><text x="785" y="206" text-anchor="middle" font-size="12">PostgreSQL, per company</text></g>
+    <g class="node" id="n-admin"><rect x="360" y="0" width="140" height="0" rx="0"/></g>
+    <text x="20" y="240" font-size="12" class="small" id="clockText"></text>
+  </svg>
+
+  <ol class="steps" id="steps"></ol>
+  <div class="controls">
+    <button id="prev">◀ Back</button><button id="next">Next ▶</button><button id="reset">Restart</button>
+    <span class="count" id="count"></span>
+  </div>
+  <div class="verdict" id="verdict"></div>
+</div>
+
+<h2 id="clock">5. Why "within 10 minutes" holds</h2>
+<p>Two clocks matter. Both are capped at 5 minutes, and the tests check both caps.</p>
+<svg viewBox="0 0 900 170" width="100%" role="img" aria-label="Timeline: change at minute 0, sync by minute 5, badge expiry by minute 5, bound at minute 10">
+  <line x1="40" y1="80" x2="860" y2="80" stroke="#6b7280" stroke-width="2"/>
+  <g font-size="12">
+    <line x1="60" y1="70" x2="60" y2="90" stroke="#6b7280" stroke-width="2"/><text x="60" y="110" text-anchor="middle">0 min</text>
+    <line x1="440" y1="70" x2="440" y2="90" stroke="#6b7280" stroke-width="2"/><text x="440" y="110" text-anchor="middle">5 min</text>
+    <line x1="820" y1="70" x2="820" y2="90" stroke="#dc2626" stroke-width="3"/><text x="820" y="110" text-anchor="middle" font-weight="700">10 min (the promise)</text>
+  </g>
+  <rect x="60" y="30" width="380" height="26" rx="6" fill="#2563eb" opacity=".25"/>
+  <text x="250" y="48" text-anchor="middle" font-size="13">next sync cycle happens somewhere in here</text>
+  <rect x="60" y="125" width="380" height="26" rx="6" fill="#b45309" opacity=".25"/>
+  <text x="250" y="143" text-anchor="middle" font-size="13">any badge issued before the change expires in here</text>
+  <text x="60" y="20" font-size="12">Admin removes Alice from a team, or disables her</text>
+</svg>
+<ul>
+  <li><strong>Sync interval ≤ 5 minutes.</strong> The worker refuses a configured interval above 5 minutes (<code>config.MaxGroupsyncInterval</code>). Its default is 5 minutes.</li>
+  <li><strong>Badge lifetime ≤ 5 minutes.</strong> Keycloak's <code>accessTokenLifespan</code> is 300 seconds.</li>
+  <li><strong>In practice the change lands after one sync, so within 5 minutes.</strong> The API reads teams and the enabled flag from our records on every request, so an unexpired badge already sees the change. The 10-minute figure is the documented, safe upper bound.</li>
+  <li><strong>If sync falls behind</strong>, the worker reports <code>groupsync_lag_seconds</code> and names any company that's more than 10 minutes behind in a log line, so operations can see it.</li>
+</ul>
+
+<h2 id="attacks">6. Attacks we tried (and the platform refused)</h2>
+<p>A security specialist wrote one automated test per trick. They run against a real Keycloak, not a mock. The run produces a report (<code>ci5-report.md</code>). A trick with no test, or a test that's skipped, fails the run. Click a row to see it in plain words.</p>
+<table>
+  <tr><th>Id</th><th>The trick</th><th>Result</th></tr>
+  <tr><td>CI-5.01 / .02</td><td>A badge with no company, or with two companies</td><td class="ok">Refused</td></tr>
+  <tr><td>CI-5.03 / .04</td><td>A badge from a different login realm, or one forged with another realm's key</td><td class="ok">Refused</td></tr>
+  <tr><td>CI-5.05</td><td>Using an <em>ID token</em> ("this is who I am") as an <em>access token</em> ("let me in")</td><td class="ok">Refused</td></tr>
+  <tr><td>CI-5.06</td><td>Tampering with the company picker on the login page (<code>kc.org</code>) to ask for a company you're not in</td><td class="ok">Refused</td></tr>
+  <tr><td>CI-5.07 / .08</td><td>Company B's own login provider claims to be Alice from Company A, or vouches for an outside address</td><td class="ok">Refused</td></tr>
+  <tr><td>CI-5.09 / .10 / .11</td><td>A user who came in through another company's login provider ("foreign IdP"), at login or at invitation</td><td class="ok">Refused</td></tr>
+  <tr><td>CI-5.12</td><td>Binding Company A's Keycloak organisation to a second company</td><td class="ok">Database refuses (duplicate)</td></tr>
+  <tr><td>CI-5.13</td><td>Company B's administrator, with full rights in B, tries every route to a badge for Company A</td><td class="ok">Refused; still only Company B</td></tr>
+  <tr><td>CI-5.14</td><td>Control: a legitimate user of Company A's own login provider</td><td class="ok">Allowed, as it should be</td></tr>
+</table>
+<details><summary>How do we know the tamper test (CI-5.06) would catch the real bug?</summary>
+<p>Older Keycloak versions (26.0.0 to 26.1.2) really did have this bug. We keep a pinned copy of version 26.1.2 and run the same test against it, where the tamper must <em>succeed</em> (<code>make identity-attacks-fixture</code>). Last run on 2026-10-26: the tamper worked on 26.1.2 and failed on our version, 26.8.1. So the test can see the bug, and our version doesn't have it.</p>
+</details>
+<details><summary>What about administrators and the platform operator?</summary>
+<p>The operator (who runs the whole building) and company administrators get different badges for different doors. A company admin's badge gets <strong>403</strong> on operator routes (<code>/api/v1/operator/*</code>). An operator's badge gets <strong>401</strong> on a company route. Other tests check that people can't edit their own company, role or team through the self-service profile page, can't give themselves the operator role, can't swap their badge for another (token exchange is off), and that machine accounts can't act inside any company.</p>
+</details>
+
+<h2 id="criteria">7. Acceptance criteria</h2>
+<table>
+  <tr><th>Criterion</th><th>Status</th><th>Evidence</th></tr>
+  <tr><td>Group removal is reflected within 10 minutes (test asserts the bound)</td><td class="ok">Pass</td><td>Isolation path <code>T26-1</code> (<code>groupRemovalWithinBound</code>), <code>make isolation</code></td></tr>
+  <tr><td>A disabled user's already-issued token stops working within 10 minutes</td><td class="ok">Pass</td><td>Isolation path <code>T26-2</code> (<code>disabledUserWithinBound</code>)</td></tr>
+  <tr><td>Synced identity tables never show another tenant's users</td><td class="ok">Pass</td><td><code>internal/groupsync</code> isolation integration tests, isolation report</td></tr>
+  <tr><td><code>kc.org</code> tamper, ID token as access token, foreign-IdP user all rejected</td><td class="ok">Pass</td><td>CI-5.06, .05, .09–.11 in <code>ci5-report.md</code> (<code>make identity-attacks</code>)</td></tr>
+  <tr><td>Tenant B's admin cannot obtain a token the API accepts for tenant A</td><td class="ok">Pass</td><td>CI-5.13</td></tr>
+  <tr><td>Tenant admin gets 403 on <code>/api/v1/operator/*</code>; operator token gets 401 on a tenant endpoint</td><td class="ok">401 half: pass. 403 half: proven</td><td><code>T26-8</code> passes. <code>T26-6</code> sends a valid request to the real operator route with the admin's badge and requires <strong>403</strong>. Story S4's operator routes are on <code>main</code> now, and TODO-015 is <strong>Fixed</strong> (section 9).</td></tr>
+</table>
+<p class="small">QA re-ran every criterion on a fresh stack at <code>0135a08</code> (story branch with <code>main</code> merged) on 2026-10-27. All pass. That run predates the switch to a required 403; <code>T26-6</code> now requires it. Evidence: the acceptance kit (section 10).</p>
+
+<h2 id="work">8. What was built</h2>
+<table>
+  <tr><th>Task</th><th>What it delivered</th><th>Pull requests</th></tr>
+  <tr><td>T25 (TICK-78)</td><td>The sync worker <code>nava-groupsync</code>: per-company transaction, a lock so two copies never sync the same company at once, a lag metric, and <code>--once</code> mode for tests</td><td>#113, #121, #125</td></tr>
+  <tr><td>T19 (TICK-75)</td><td>The adversarial identity suite (CI-5), its report, and the pinned 26.1.2 negative fixture</td><td>#159</td></tr>
+  <tr><td>T26 (TICK-82)</td><td>The 10-minute deprovisioning tests and the remaining identity-boundary tests (self-service, service accounts, token exchange, operator role)</td><td>#153 (review notes #155)</td></tr>
+  <tr><td>TICK-221</td><td>One bad company snapshot rolls back alone; tests for broken snapshots</td><td>#152</td></tr>
+  <tr><td>TICK-222</td><td>The worker refuses to start with a database login that could bypass the company wall</td><td>#129</td></tr>
+  <tr><td>TICK-223</td><td>Only login-provider links bound to the person's own company are copied</td><td>#147</td></tr>
+</table>
+
+<h2 id="limits">9. Known limits, honestly</h2>
+<ul>
+  <li><span class="pill ok">Fixed</span> <strong>The 403 for company admins on operator routes.</strong> The operator routes were built in story S4, and S4 and S5 are now both on <code>main</code>. The test (T26-6) builds the handler with the operator routes on, sends a valid request with a company admin's badge, and requires 403 (tracked as TODO-015, now <strong>Fixed</strong>).</li>
+  <li><span class="pill info">Accepted risk AR-045 (low)</span> <strong>Self-service email change.</strong> If the account console were ever re-enabled, a user could change their own email without verification. That can't change their company, role or teams (tested), but it could block another company from inviting that address. Recommended fix at the login-system layer is recorded.</li>
+  <li><span class="pill info">Deferred, with a trigger</span> <strong>TICK-220.</strong> When a person leaves Keycloak, the worker deletes their row. That's fine today. The first future table that points at a person without a delete rule would break sync for that company. The rule must be decided before any such table merges.</li>
+  <li><span class="pill ok">Fixed</span> The attack suite now runs in GitHub Actions on every PR and keeps the <code>ci5-report</code> artifact (TODO-016).</li>
+</ul>
+
+<h2 id="try">10. Try it yourself (about 15 minutes)</h2>
+<p>The full step-by-step kit, with the exact commands and the evidence of every check, is <a href="s5-group-changes-within-10-minutes.md"><code>docs/acceptance/s5-group-changes-within-10-minutes.md</code></a>. <span class="pill ok">QA verified 2026-10-27 at 0135a08: all criteria pass</span> In short:</p>
+<ol>
+  <li>Start the stack, seed Company A and Company B (one SQL block in the kit), and run <code>nava-groupsync --once</code>. Sign in as the seeded user <code>alice@tenant-a.test</code> (Company A) and call <code>GET /api/v1/me</code>. <code>group_paths</code> shows her team, <code>/service-desk</code>. (Her <code>eng/platform</code> is a department, an org unit, so it isn't listed.)</li>
+  <li>In the Keycloak admin console, remove Alice from <code>service-desk</code> (Groups, then <code>t</code>, Company A's id, <code>service-desk</code>, Members).</li>
+  <li>Call <code>GET /api/v1/me</code> again with the same token. After the next sync, <code>group_paths</code> is empty. QA measured 244 s with the worker on its 5-minute default; the promise is 10 minutes. Run <code>nava-groupsync --once</code> to skip the wait.</li>
+  <li>Disable Alice in the admin console. She can't sign in again at once, and after the next sync her existing token gets <code>401</code> (QA: 266 s, with the token not yet expired).</li>
+  <li>Re-enable Alice (the attack tests sign in as her), then run <code>make identity-attacks</code> and open <code>ci5-report.md</code>: 14 lines, all <code>PASS</code>.</li>
+</ol>
+
+<h2 id="gloss">11. Glossary</h2>
+<dl class="gloss">
+  <dt>Tenant</dt><dd>One customer organisation using the platform. Its data is walled off from every other tenant's.</dd>
+  <dt>Keycloak / realm / organisation</dt><dd>The login system. A realm is one login space (ours is <code>nava</code>). Inside it, each tenant is a Keycloak "organisation".</dd>
+  <dt>Token (access token / ID token)</dt><dd>The short-lived signed badge you present to the API. An ID token only says who you are and must never be accepted as an access token.</dd>
+  <dt>IdP (identity provider) / brokered login</dt><dd>A company's own login system (for example their corporate sign-in) that Keycloak trusts for that company's users. "Foreign IdP" means another company's.</dd>
+  <dt>Group / org unit</dt><dd>Teams and departments. In Keycloak they sit under <code>/t/&lt;tenant id&gt;/…</code>. The sync worker refuses anything outside the tenant's own path.</dd>
+  <dt>Deprovisioning</dt><dd>Removing someone's access: taking them off a team, or disabling their account.</dd>
+  <dt>401 / 403</dt><dd>401 means "we don't accept who you are here". 403 means "we know who you are, but you may not do this".</dd>
+  <dt>CI</dt><dd>The automated test pipeline that runs on every proposed code change. A failing check blocks the merge.</dd>
+</dl>
+
+<p class="small" style="margin-top:40px">Story TICK-47 · Plan PLAN-001 (TICK-42) · Design ADR-001 platform blueprint. Detailed sources: <code>docs/security/deprovisioning-identity-boundary.md</code>, <code>docs/security/identity-ci5.md</code>, <code>docs/reviews/tick-75-ci5-adversarial-identity-suite.md</code>, <code>docs/reviews/tick-78-groupsync-worker.md</code>.</p>
+
+</main>
+
+<script>
+(function () {
+  // Each step: text, nodes to highlight, edges to highlight, optional edge colour, optional clock text.
+  var S = {
+    normal: { label: "Normal request", tag: "baseline", user: ["Alice", "Company A user"], steps: [
+      { t: "Alice signs in at Keycloak and receives a badge (token) for Company A, valid for 5 minutes.", n: ["user","kc"], e: ["e-user-kc"] },
+      { t: "She calls GET /api/v1/me with the badge.", n: ["user","api"], e: ["e-user-api"] },
+      { t: "The API checks the badge is genuine and maps organisation tenant-a to Company A through the company binding.", n: ["api"], e: [] },
+      { t: "The API looks Alice up in our records, inside Company A's wall only: enabled, group service-desk.", n: ["api","db"], e: ["e-api-db"] },
+      { t: "The API answers 200 with her current teams.", n: ["api","user"], e: ["e-user-api"], c: "good" }
+    ], v: ["good", "Allowed. Teams come from our records, not from the badge."] },
+
+    removal: { label: "Remove from a team", tag: "criterion 1", user: ["Alice", "Company A user"], steps: [
+      { t: "Minute 0: Alice has a valid badge. /me lists her service-desk group.", n: ["user","api","db"], e: ["e-user-api","e-api-db"], k: "t = 0 min" },
+      { t: "An administrator removes Alice from the team in the Keycloak admin console. Alice's badge doesn't change.", n: ["kc"], e: [], k: "t = 0 min" },
+      { t: "Within 5 minutes, groupsync reads Company A's snapshot from Keycloak.", n: ["kc","gs"], e: ["e-kc-gs"], k: "t ≤ 5 min" },
+      { t: "groupsync deletes the membership row in Company A's own transaction. Other companies aren't touched.", n: ["gs","db"], e: ["e-gs-db"], k: "t ≤ 5 min" },
+      { t: "Alice calls /me again with the SAME unexpired badge.", n: ["user","api"], e: ["e-user-api"], k: "t ≤ 5 min" },
+      { t: "The API reads our records: the team is gone. Answer: 200 with an empty groups list.", n: ["api","db"], e: ["e-api-db"], c: "good", k: "well inside 10 min" }
+    ], v: ["good", "Change visible after one sync cycle, even on an old badge. Tested by T26-1."] },
+
+    disable: { label: "Disable a user", tag: "criterion 2", user: ["Alice", "Company A user"], steps: [
+      { t: "Alice has a valid badge and is working normally.", n: ["user","api"], e: ["e-user-api"], k: "t = 0 min" },
+      { t: "An administrator disables Alice's account in Keycloak.", n: ["kc"], e: [], k: "t = 0 min" },
+      { t: "groupsync copies the change: enabled = false on Alice's record.", n: ["kc","gs","db"], e: ["e-kc-gs","e-gs-db"], k: "t ≤ 5 min" },
+      { t: "Alice tries again with her still-unexpired badge.", n: ["user","api"], e: ["e-user-api"], k: "t ≤ 5 min" },
+      { t: "The API finds enabled = false and refuses: 401 tenant_unresolved.", n: ["api","db"], e: ["e-api-db"], c: "bad", k: "well inside 10 min" }
+    ], v: ["good", "Access stops before the badge expires. Tested by T26-2."] },
+
+    crossadmin: { label: "Company B admin wants A", tag: "CI-5.13", user: ["Bob's admin", "full rights in Company B"], steps: [
+      { t: "Company B's administrator asks Keycloak for a badge naming organisation tenant-a.", n: ["user","kc"], e: ["e-user-kc"] },
+      { t: "Keycloak issues a badge WITHOUT tenant-a: the admin isn't a member.", n: ["kc"], e: [] },
+      { t: "The admin tries token exchange, and the admin API to join tenant-a and its team.", n: ["user","kc"], e: ["e-user-kc"], c: "bad" },
+      { t: "Token exchange is off; admin API calls return 401/403. No membership is created.", n: ["kc"], e: [] },
+      { t: "Whatever badge they present, the API maps it to Company B, or to nothing.", n: ["user","api","db"], e: ["e-user-api","e-api-db"], c: "bad" }
+    ], v: ["good", "Refused. Never Company A, before or after the attempt."] },
+
+    tamper: { label: "Login-page tamper (kc.org)", tag: "CI-5.06", user: ["Mallory", "member of A + a decoy"], steps: [
+      { t: "Mallory belongs to two organisations, so Keycloak shows a company picker at login.", n: ["user","kc"], e: ["e-user-kc"] },
+      { t: "She edits the form and submits kc.org = tenant-b, a company she isn't in.", n: ["user","kc"], e: ["e-user-kc"], c: "bad" },
+      { t: "Keycloak 26.8.1 issues no badge naming tenant-b and adds no membership.", n: ["kc"], e: [] },
+      { t: "The same test against the known-broken 26.1.2 DOES get a tenant-b badge, which proves the test can see the bug.", n: ["kc"], e: [] }
+    ], v: ["good", "Refused on our version."] },
+
+    foreign: { label: "Foreign login provider", tag: "CI-5.07/.10", user: ["Company B's IdP", "attacker-controlled"], steps: [
+      { t: "Company B's own login provider sends a login claiming to be alice@tenant-a.test.", n: ["user","kc"], e: ["e-user-kc"], c: "bad" },
+      { t: "Keycloak refuses: no linking accounts by email, no trusting the provider's email.", n: ["kc"], e: [] },
+      { t: "Variant: a Company A user somehow gets linked to Company B's provider. groupsync copies that link.", n: ["kc","gs","db"], e: ["e-kc-gs","e-gs-db"] },
+      { t: "The next request: the API sees a link to a provider not bound to Company A and answers 401.", n: ["api","db"], e: ["e-api-db"], c: "bad" }
+    ], v: ["good", "Refused at login and at every request after sync."] },
+
+    operator: { label: "Admin vs operator doors", tag: "criterion 6", user: ["Company admin", "tenant-admin role"], steps: [
+      { t: "A Company A administrator calls /api/v1/operator/tenants.", n: ["user","api"], e: ["e-user-api"] },
+      { t: "The operator check refuses the badge: it isn't an operator badge. Answer: 403. The operator routes from S4 are on <code>main</code>, and the test requires 403 (section 9).", n: ["api"], e: [], c: "bad" },
+      { t: "Reverse: the platform operator calls a company endpoint with an operator badge.", n: ["user","api"], e: ["e-user-api"] },
+      { t: "The badge's audience is operator-only, so the API answers 401. It names no company.", n: ["api"], e: [], c: "bad" }
+    ], v: ["good", "Each kind of badge works only at its own door."] }
+  };
+
+  var cur = "normal", idx = -1;
+  var btns = document.getElementById("scenButtons"), list = document.getElementById("steps");
+  Object.keys(S).forEach(function (k) {
+    var b = document.createElement("button");
+    b.innerHTML = S[k].label + '<span class="tag pill info">' + S[k].tag + "</span>";
+    b.onclick = function () { load(k); };
+    b.id = "b-" + k;
+    btns.appendChild(b);
+  });
+
+  function load(k) {
+    cur = k; idx = -1;
+    Array.prototype.forEach.call(btns.children, function (b) { b.classList.toggle("active", b.id === "b-" + k); });
+    document.getElementById("n-user-label").textContent = S[k].user[0];
+    document.getElementById("n-user-sub").textContent = S[k].user[1];
+    list.innerHTML = "";
+    S[k].steps.forEach(function (s, i) {
+      var li = document.createElement("li");
+      li.textContent = s.t;
+      li.onclick = function () { go(i); };
+      list.appendChild(li);
+    });
+    go(-1);
+  }
+
+  function go(i) {
+    var sc = S[cur], n = sc.steps.length;
+    idx = Math.max(-1, Math.min(i, n - 1));
+    document.querySelectorAll("#player .node").forEach(function (g) { g.classList.remove("on", "badnode", "goodnode"); });
+    document.querySelectorAll("#player .edge").forEach(function (e) { e.classList.remove("on", "bad", "good"); });
+    Array.prototype.forEach.call(list.children, function (li, j) {
+      li.className = j < idx ? "done" : (j === idx ? "current" : "");
+    });
+    var clock = "";
+    if (idx >= 0) {
+      var s = sc.steps[idx];
+      s.n.forEach(function (id) { var g = document.getElementById("n-" + id); if (g) g.classList.add("on"); });
+      s.e.forEach(function (id) { var e = document.getElementById(id); if (e) { e.classList.add("on"); if (s.c) e.classList.add(s.c); } });
+      if (s.c && s.n.length) {
+        var last = document.getElementById("n-" + s.n[s.n.length - 1]);
+        if (last) last.classList.add(s.c === "bad" ? "badnode" : "goodnode");
+      }
+      clock = s.k ? "Clock: " + s.k : "";
+    }
+    document.getElementById("clockText").textContent = clock;
+    document.getElementById("count").textContent = idx < 0 ? "Press Next to start" : "Step " + (idx + 1) + " of " + n;
+    var v = document.getElementById("verdict");
+    if (idx === n - 1) { v.className = "verdict show " + sc.v[0]; v.innerHTML = "<strong>Outcome:</strong> " + sc.v[1]; }
+    else { v.className = "verdict"; }
+  }
+
+  document.getElementById("next").onclick = function () { go(idx + 1); };
+  document.getElementById("prev").onclick = function () { go(idx - 1); };
+  document.getElementById("reset").onclick = function () { go(-1); };
+  load("normal");
+})();
+</script>
+</body>
+</html>

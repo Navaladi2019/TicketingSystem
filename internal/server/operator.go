@@ -59,17 +59,17 @@ type operatorCall struct {
 }
 
 // routeAuth sends operator routes to the operator authentication and every
-// other route to the tenant authentication.
+// other route to the tenant authentication. On the operator-only process a
+// non-operator route is authenticated too, then answered 404.
 func routeAuth(reg *problem.Registry, operatorOnly bool, tenant, operator func(http.Handler) http.Handler) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		t, o := tenant(next), operator(next)
+		if operatorOnly {
+			t = tenant(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { reg.Write(w, r, problem.NotFound) }))
+		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if strings.HasPrefix(r.URL.Path, operatorPrefix) {
 				o.ServeHTTP(w, r)
-				return
-			}
-			if operatorOnly {
-				reg.Write(w, r, problem.NotFound)
 				return
 			}
 			t.ServeHTTP(w, r)

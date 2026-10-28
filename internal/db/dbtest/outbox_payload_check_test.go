@@ -44,7 +44,7 @@ func migrationsBefore(t *testing.T, name string) fs.FS {
 // constraint.
 func TestT214PayloadCheckMigrationFailsOnExistingRecordData(t *testing.T) {
 	m := freshCluster(t)
-	if _, err := migrateFS(t, m, migrationsBefore(t, outboxPayloadMigration)); err != nil {
+	if err := migrateOnlyFS(t, m, migrationsBefore(t, outboxPayloadMigration)); err != nil {
 		t.Fatalf("migrate to 00007: %v", err)
 	}
 	super := superNava(t)
@@ -54,7 +54,7 @@ func TestT214PayloadCheckMigrationFailsOnExistingRecordData(t *testing.T) {
 	exec(t, super, insert, tenantB, "old-record-data", `{"title":"printer on fire"}`)
 
 	upTo8 := migrationsBefore(t, outboxKeysMigration)
-	_, err := migrateFS(t, m, upTo8)
+	err := migrateOnlyFS(t, m, upTo8)
 	if err == nil || !strings.Contains(err.Error(), "outbox_payload_references_check") {
 		t.Fatalf("migrate over a record-data row: %v, want a violation of outbox_payload_references_check", err)
 	}
@@ -70,7 +70,7 @@ func TestT214PayloadCheckMigrationFailsOnExistingRecordData(t *testing.T) {
 	}
 
 	exec(t, super, "DELETE FROM outbox WHERE dedupe_key = 'old-record-data'")
-	if _, err := migrateFS(t, m, upTo8); err != nil {
+	if err := migrateOnlyFS(t, m, upTo8); err != nil {
 		t.Fatalf("re-run after removing the row: %v", err)
 	}
 	if !queryBool(t, super, `SELECT convalidated FROM pg_constraint
@@ -88,7 +88,7 @@ func TestT214PayloadCheckMigrationFailsOnExistingRecordData(t *testing.T) {
 // further run changes nothing.
 func TestT240PayloadKeysMigrationFailsOnExistingRow(t *testing.T) {
 	m := freshCluster(t)
-	if _, err := migrateFS(t, m, migrationsBefore(t, outboxKeysMigration)); err != nil {
+	if err := migrateOnlyFS(t, m, migrationsBefore(t, outboxKeysMigration)); err != nil {
 		t.Fatalf("migrate to 00008: %v", err)
 	}
 	super := superNava(t)

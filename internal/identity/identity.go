@@ -181,6 +181,31 @@ type Store interface {
 	Principal(ctx context.Context, tenantID uuid.UUID, subject string) (PrincipalRecord, error)
 }
 
+// TenantGroupPrefix is the path prefix of every group of a tenant in the
+// directory: groups sit at /t/<tenant_id>/... (D26). Group sync and /me both
+// use it, so the layout is written down once.
+func TenantGroupPrefix(tenantID uuid.UUID) string { return "/t/" + tenantID.String() + "/" }
+
+// GroupPath is one group a principal belongs to, with the group's raw path as
+// stored (it still carries TenantGroupPrefix).
+type GroupPath struct {
+	ID   uuid.UUID
+	Path string
+}
+
+// GroupPathReader reads the paths of the groups a principal belongs to, in
+// tenantID only, sorted by group id. It reads by principal, never by group id,
+// so a caller cannot list groups it is not in. Paths are for display only
+// (ADR-002 section 1.4): no authorization decision, ACL, cache key or metric
+// may key on one. Only GetMe calls it; the forbidigo rules in .golangci.yml
+// hold that. It is separate from Store so the resolver never sees paths.
+//
+// TODO(TODO-017): the I5 ACL compiler takes group uuids only; a test asserts
+// it never reads groups.path or identity.GroupPath.
+type GroupPathReader interface {
+	GroupPaths(ctx context.Context, tenantID, principalID uuid.UUID) ([]GroupPath, error)
+}
+
 type ctxKey struct{}
 
 // NewContext returns ctx carrying p. Only the authentication middleware calls

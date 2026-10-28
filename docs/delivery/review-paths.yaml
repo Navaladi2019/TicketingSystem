@@ -91,3 +91,7 @@ cto_signoff:
     - internal/identitystack/adversarial_test.go
     - internal/identitystack/audience_attack_test.go
     - internal/identitystack/directory_adversarial_test.go
+    # The T19 CI-5 suite: its environment, and the catalogue Require checks
+    # (dropping an entry would drop its case from every adapter's run).
+    - internal/identitystack/ci5_env_test.go
+    - internal/identity/contracttest/ci5.go

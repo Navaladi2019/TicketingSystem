@@ -20,6 +20,9 @@ A throwaway PostgreSQL gets db-roles and every migration, the same as a first `d
    - `nava_onboard` binds P (the control), but cannot bind P once activated, or A or B.
    - `nava_onboard` cannot move A, or P once activated in the same transaction, back to `provisioning`.
    - `nava_backup` runs T08's `pg_hba` cases (`internal/db/hba.BackupCases`, which `db/pg_hba_test.go` runs too) on the embedded `db/pg_hba.conf`, and gets 42501 connecting to `nava` (no CONNECT, under the `pg_hba` reject). `make stack-test-hba` proves the reject on the running stack.
+   T26 (TICK-82) adds the eight deprovisioning and identity-boundary cases (`boundary_paths.go`, case `T26`; see [deprovisioning-identity-boundary.md](deprovisioning-identity-boundary.md)). Two new path kinds:
+   - `API` paths drive the database (`Cluster`) and the real handler (`Server`: mint test-realm tokens, call `/api/v1`, ask the operator resolver) together. Cases 1 and 2 run a real `nava-groupsync` cycle between two calls with the same token. Cases 6 and 8 hold the operator boundary.
+   - `Stack` paths name an `internal/identitystack` test that needs the real Keycloak (cases 3, 4, 5 and 7). They run in `make stack-test-identity`, the report lists them as `STACK`, and `TestStackPathsExist` fails when the named test is missing.
 3. **Fixtures.** Each one breaks a single control and must turn a PASS line into a FAIL:
    - `NO FORCE` on `records`, which the owner line catches;
    - RLS disabled on `outbox`;
@@ -59,6 +62,15 @@ Add a `Path` to `Paths()` with `Case` set to its ADR id. SQL paths run as `Role`
 - `Denied`: an error or 0 rows. Aim UPDATE and DELETE where an integrity error cannot hide a reached row.
 
 Editing `registry.go` needs CTO sign-off (D-P10).
+
+## CI-5 (T19)
+
+Every CI-5 id is registered (`ci5_paths.go`), so the report lists all fourteen. Some run here:
+
+- the token shapes: an `HTTPCall` with `Token` set. The runner mints it, from a second, untrusted realm for CI-5.03. It passes only on 401, and only when the resolver refuses the same token with the path's `WantErr` sentinel and `WantReason`.
+- the duplicate binding: a DB path, with a fresh binding as its control.
+
+The cases only Keycloak can show (its broker, the organization picker, its keys and ID tokens) are `Stack` paths on `TestCI5`, with `StackTarget` naming `make identity-attacks`, so `TestStackPathsExist` covers them. That suite runs the whole catalogue against the compose Keycloak and writes `ci5-report.md`; see [identity-ci5.md](identity-ci5.md).
 
 ## Not covered here (owner)
 

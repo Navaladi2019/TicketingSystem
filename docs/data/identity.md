@@ -446,6 +446,11 @@ DROP TABLE bench_one, bench_two;
 - A Postgres implementation of the rest of `keycloak.Registry` (user, group
   and alias lookups). Only `TenantOwnsEmailDomain` is in `pgstore` so far.
 
+## Removed principals (TICK-220)
+
+A principal who leaves the directory is tombstoned (`deleted_at`), not
+deleted. See [principal-tombstone.md](principal-tombstone.md).
+
 ## Pending invites (T252a)
 
 Scope: TICK-254, the schema for the option-2 fix to TICK-252 (CTO,

@@ -1,0 +1,23 @@
+== 20:24:49 control: Alice enabled, no federated links
+time=2026-10-27T20:24:53.245Z level=INFO msg="nava-groupsync --once done" tenants=2 failed=0
+alice /me -> 200 {"group_paths":[],"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"01d0ed07-c1ed-4645-876c-bfca246aa0a4"}
+== 20:24:54 Keycloak admin: link Alice to tenant B's IdP (idp-tenant-b)
+link -> 204
+[{"identityProvider":"idp-tenant-b","userId":"ext-qa-s5","userName":"alice@tenant-a.test"}]
+== 20:24:54 one sync at 0135a08 (story branch with main merged, TICK-263 marker)
+time=2026-10-27T20:24:58.231Z level=INFO msg="nava-groupsync --once done" tenants=2 failed=0
+        email        | enabled |            federated_links             
+---------------------+---------+----------------------------------------
+ alice@tenant-a.test | t       | [{"identityProvider": "idp-tenant-b"}]
+(1 row)
+
+old token  /me -> 401 {"type":"urn:nava:problem:tenant_unresolved","title":"Tenant unresolved","status":401,"code":"tenant_unresolved","detail":"The request could not be tied to a tenant.","instance":"urn:nava:request:b0a689d31f5d2d159aff1846eea2bbc3"}
+new token  /me -> 401 {"type":"urn:nava:problem:tenant_unresolved","title":"Tenant unresolved","status":401,"code":"tenant_unresolved","detail":"The request could not be tied to a tenant.","instance":"urn:nava:request:90b9ce9738bb5319d467c2aaeec4b36f"}
+ rows_holding_foreign_external_id 
+----------------------------------
+                                0
+(1 row)
+
+unlink -> 204
+time=2026-10-27T20:25:13.707Z level=INFO msg="nava-groupsync --once done" tenants=2 failed=0
+alice /me -> 200 {"group_paths":[],"groups":[],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"01d0ed07-c1ed-4645-876c-bfca246aa0a4"}

@@ -337,6 +337,72 @@ func TestRealmFileOperatorCustody(t *testing.T) {
 	t.Error("client scope nava-api-audience missing")
 }
 
+// TestRealmFileSeedsServiceDesk pins the S5 "how to try it" seed: each tenant
+// has a real (non-/ou/) service-desk group, and Alice and Bob belong to their
+// own tenant's group only.
+func TestRealmFileSeedsServiceDesk(t *testing.T) {
+	raw, err := os.ReadFile("../../deploy/compose/keycloak/import/realm-nava.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var r struct {
+		Users []struct {
+			Username string   `json:"username"`
+			Groups   []string `json:"groups"`
+		} `json:"users"`
+	}
+	if err := json.Unmarshal(raw, &r); err != nil {
+		t.Fatal(err)
+	}
+	const tenantA, tenantB = "00000000-0000-4000-8000-0000000000a1", "00000000-0000-4000-8000-0000000000b1"
+	// Realm groups nest by name; flatten the tree to paths.
+	var raw2 struct {
+		Groups []groupNode `json:"groups"`
+	}
+	if err := json.Unmarshal(raw, &raw2); err != nil {
+		t.Fatal(err)
+	}
+	paths := map[string]bool{}
+	for _, g := range raw2.Groups {
+		walkGroups("", g, paths)
+	}
+	member := map[string][]string{}
+	for _, u := range r.Users {
+		member[u.Username] = u.Groups
+	}
+	for user, tenant := range map[string]string{"alice@tenant-a.test": tenantA, "bob@tenant-b.test": tenantB} {
+		want := "/t/" + tenant + "/service-desk"
+		if !paths[want] {
+			t.Errorf("group %s is not defined in the realm", want)
+		}
+		found := false
+		for _, g := range member[user] {
+			if g == want {
+				found = true
+			}
+			if strings.HasPrefix(g, "/t/") && !strings.HasPrefix(g, "/t/"+tenant+"/") {
+				t.Errorf("%s is a member of another tenant's group %s", user, g)
+			}
+		}
+		if !found {
+			t.Errorf("%s is not a member of %s: %v", user, want, member[user])
+		}
+	}
+}
+
+type groupNode struct {
+	Name      string      `json:"name"`
+	SubGroups []groupNode `json:"subGroups"`
+}
+
+func walkGroups(parent string, g groupNode, out map[string]bool) {
+	p := parent + "/" + g.Name
+	out[p] = true
+	for _, s := range g.SubGroups {
+		walkGroups(p, s, out)
+	}
+}
+
 // TestRealmFileEmailVerifiedMapper pins TICK-252's upstream email_verified
 // capture on the import file: every seeded tenant IdP has exactly one mapper,
 // oidc-user-attribute-idp-mapper copying email_verified (FORCE) to

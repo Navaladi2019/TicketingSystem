@@ -58,12 +58,19 @@ func TestLinksJSON(t *testing.T) {
 	}
 	in := []identity.FederatedLink{{IdPAlias: "idp-a", ExternalUserID: "x1"}, {IdPAlias: "idp-b", ExternalUserID: "x2"}}
 	got, err = linksJSON(in, map[string]bool{"idp-a": true})
-	if err != nil || string(got) != `[{"identityProvider":"idp-a","userId":"x1"}]` {
-		t.Fatalf("links = %s, %v; want only the bound alias", got, err)
+	if err != nil || string(got) != `[{"identityProvider":"idp-a","userId":"x1"},{"identityProvider":"idp-b"}]` {
+		t.Fatalf("links = %s, %v; want the bound link whole and the unbound one as an alias-only marker", got, err)
 	}
 	got, err = linksJSON(in, nil)
-	if err != nil || string(got) != "[]" {
-		t.Fatalf("unbound tenant links = %s, %v; want []", got, err)
+	if err != nil || string(got) != `[{"identityProvider":"idp-a"},{"identityProvider":"idp-b"}]` {
+		t.Fatalf("unbound tenant links = %s, %v; want alias-only markers, never an empty list", got, err)
+	}
+	got, err = linksJSON([]identity.FederatedLink{{IdPAlias: "", ExternalUserID: "x3"}}, map[string]bool{"idp-a": true})
+	if err != nil || string(got) != `[{"identityProvider":""}]` {
+		t.Fatalf("empty alias = %s, %v; want a marker (never bound, so the resolver refuses it)", got, err)
+	}
+	if sameJSON([]byte(`[{"identityProvider":"idp-b","userId":"x2"}]`), []byte(`[{"identityProvider":"idp-b"}]`)) {
+		t.Error("a stored full foreign link must differ from its marker, so the next sync rewrites the row")
 	}
 	if !sameJSON([]byte(`[ ]`), []byte(`[]`)) || sameJSON([]byte(`[]`), nil) {
 		t.Error("sameJSON compares values, and NULL is never equal")

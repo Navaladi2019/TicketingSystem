@@ -542,6 +542,12 @@ func operatorHolders(t *testing.T, adm string) []string {
 // stack's operator allow-list.
 func stackAdapter(t *testing.T, tok string) *keycloak.Adapter {
 	t.Helper()
+	return stackAdapterWithStore(t, tok, nil)
+}
+
+// stackAdapterWithStore is stackAdapter resolving tenants through store.
+func stackAdapterWithStore(t *testing.T, tok string, store identity.Store) *keycloak.Adapter {
+	t.Helper()
 	iss, _ := claims(t, tok)["iss"].(string)
 	if iss == "" {
 		t.Fatal("token has no iss")
@@ -564,6 +570,7 @@ func stackAdapter(t *testing.T, tok string) *keycloak.Adapter {
 		FetchBaseURL:  baseURL(),
 		MeterProvider: tel.MeterProvider,
 		Operators:     []keycloak.OperatorSubject{{Issuer: iss, Subject: stackOperatorID}},
+		Store:         store,
 	}, out)
 	if err != nil {
 		t.Fatal(err)

@@ -57,7 +57,7 @@ func operatorHandler(t *testing.T, o ...server.Option) http.Handler {
 	}
 	t.Cleanup(func() { _ = tel.Shutdown(t.Context()) })
 	opts := o
-	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel, stubResolver{}, opts...)
+	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel, stubResolver{}, stubPaths{}, opts...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,6 +136,23 @@ func TestOperatorOnboardIgnoresSuppliedTenantID(t *testing.T) {
 
 func TestOperatorOnboardAuthFailures(t *testing.T) {
 	h := operatorHandler(t, server.WithOperator(stubOperators{}, &stubOnboarder{}))
+	// Authentication runs before parameter binding: a missing Idempotency-Key
+	// does not turn a 401 or 403 into a 400.
+	for _, c := range []struct {
+		name, token string
+		status      int
+		code        string
+	}{
+		{"no token and no key", "", 401, "invalid_token"},
+		{"tenant token and no key", "token-a", 403, "forbidden"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			rec := postOnboard(t, h, c.token, "", onboardBody, "", nil)
+			if rec.Code != c.status || code(t, rec) != c.code {
+				t.Errorf("status %d code %q: %s", rec.Code, code(t, rec), rec.Body)
+			}
+		})
+	}
 	cases := []struct {
 		name, token string
 		status      int
@@ -231,6 +248,51 @@ func TestOperatorOnboardDomainClaimedHidesOwner(t *testing.T) {
 	for _, leak := range []string{owner, org} {
 		if strings.Contains(rec.Body.String(), leak) {
 			t.Errorf("409 body leaks %q: %s", leak, rec.Body)
+		}
+	}
+}
+
+func TestNewHandlerRejectsNilPaths(t *testing.T) {
+	tel, err := telemetry.New(t.Context(), config.Telemetry{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tel.Shutdown(t.Context()) })
+	log := slog.New(slog.DiscardHandler)
+	if _, err := server.NewHandler(log, tel, stubResolver{}, nil); err == nil {
+		t.Error("NewHandler with nil paths succeeded, want an error")
+	}
+	if _, err := server.NewHandler(log, tel, stubResolver{}, nil, server.OperatorOnly()); err != nil {
+		t.Errorf("OperatorOnly with nil paths: %v", err)
+	}
+}
+
+// TICK-298 (T26 case 6): the operator boundary answers before the contract
+// does. A tenant token is 403 and no token is 401 on every operator route,
+// whatever headers or body the caller sends; a missing Idempotency-Key must
+// not turn the refusal into a 400 that reaches parameter binding first.
+func TestOperatorBoundaryPrecedesParameterBinding(t *testing.T) {
+	h := operatorHandler(t, server.WithOperator(stubOperators{}, &stubOnboarder{}))
+	for _, c := range []struct {
+		name, token string
+		status      int
+		code        string
+	}{
+		{"tenant token", "token-a", http.StatusForbidden, "forbidden"},
+		{"no token", "", http.StatusUnauthorized, "invalid_token"},
+	} {
+		for name, in := range map[string]struct{ key, body string }{
+			"full request": {"k", onboardBody},
+			"no key":       {"", onboardBody},
+			"no body":      {"k", ""},
+			"nothing":      {"", ""},
+		} {
+			t.Run(c.name+"/"+name, func(t *testing.T) {
+				rec := postOnboard(t, h, c.token, in.key, in.body, "", nil)
+				if rec.Code != c.status || code(t, rec) != c.code {
+					t.Errorf("status %d code %q, want %d %s: %s", rec.Code, code(t, rec), c.status, c.code, rec.Body)
+				}
+			})
 		}
 	}
 }

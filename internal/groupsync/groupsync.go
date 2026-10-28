@@ -227,7 +227,7 @@ func (s *Syncer) syncTenant(ctx context.Context, tenantID uuid.UUID) Result {
 			return err
 		}
 		s.log.InfoContext(ctx, "group sync applied", slog.String("tenant_id", tenantID.String()),
-			slog.Int("principals_written", st.PrincipalsWritten), slog.Int("principals_deleted", st.PrincipalsDeleted),
+			slog.Int("principals_written", st.PrincipalsWritten), slog.Int("principals_tombstoned", st.PrincipalsTombstoned),
 			slog.Int("groups_written", st.GroupsWritten), slog.Int("groups_deleted", st.GroupsDeleted),
 			slog.Int("org_units_written", st.OrgUnitsWritten), slog.Int("org_units_deleted", st.OrgUnitsDeleted),
 			slog.Int("ignored_outside_subtree", st.Ignored))

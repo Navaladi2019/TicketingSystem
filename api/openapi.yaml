@@ -88,7 +88,7 @@ components:
   schemas:
     Me:
       type: object
-      required: [user_id, tenant_id, groups, idp_alias]
+      required: [user_id, tenant_id, groups, idp_alias, group_paths]
       properties:
         user_id:
           type: string
@@ -106,6 +106,25 @@ components:
         idp_alias:
           type: string
           description: Alias of the brokering IdP bound to the tenant; empty for a local login.
+        group_paths:
+          type: array
+          description: >
+            The caller's groups in this tenant, with each path relative to the
+            tenant root. For display only: authorization keys on `groups` ids,
+            never on a path. Paths are not unique across tenants and change when
+            a group is renamed. Sorted by id; match entries by `id`, never by position.
+          items:
+            $ref: "#/components/schemas/GroupPath"
+    GroupPath:
+      type: object
+      required: [id, path]
+      properties:
+        id:
+          type: string
+          format: uuid
+        path:
+          type: string
+          pattern: "^/"
     OnboardTenantRequest:
       type: object
       required: [admin_email, email_domains, identity_provider]

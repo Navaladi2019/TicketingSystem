@@ -1,10 +1,12 @@
 package server_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -41,6 +43,27 @@ func (stubResolver) Resolve(_ context.Context, raw string) (identity.Principal, 
 	return identity.Principal{}, fmt.Errorf("%w: signature", identity.ErrInvalidToken)
 }
 
+// stubPaths reads the stored raw paths of tenant A's principal; any other
+// caller is in no group.
+type stubPaths struct{}
+
+func (stubPaths) GroupPaths(_ context.Context, tenantID, principalID uuid.UUID) ([]identity.GroupPath, error) {
+	if tenantID == tenantA && principalID == principalA {
+		return []identity.GroupPath{{ID: groupA, Path: identity.TenantGroupPrefix(tenantA) + "service-desk"}}, nil
+	}
+	return nil, nil
+}
+
+// fakePaths returns fixed rows or an error.
+type fakePaths struct {
+	rows []identity.GroupPath
+	err  error
+}
+
+func (f fakePaths) GroupPaths(context.Context, uuid.UUID, uuid.UUID) ([]identity.GroupPath, error) {
+	return f.rows, f.err
+}
+
 func get(t *testing.T, h http.Handler, target string, hdr http.Header) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
@@ -71,7 +94,10 @@ func TestMeReturnsResolvedPrincipal(t *testing.T) {
 	h, _, _ := newAPIHandler(t)
 	for _, scheme := range []string{"Bearer", "bearer", "BEARER"} {
 		me := decodeMe(t, get(t, h, "/api/v1/me", http.Header{"Authorization": {scheme + " token-a"}}))
-		want := api.Me{UserId: principalA, TenantId: tenantA, Groups: []uuid.UUID{groupA}, IdpAlias: "idp-a"}
+		want := api.Me{
+			UserId: principalA, TenantId: tenantA, Groups: []uuid.UUID{groupA}, IdpAlias: "idp-a",
+			GroupPaths: []api.GroupPath{{Id: groupA, Path: "/service-desk"}},
+		}
 		if fmt.Sprint(me) != fmt.Sprint(want) {
 			t.Errorf("%s: me = %+v, want %+v", scheme, me, want)
 		}
@@ -206,4 +232,80 @@ func (s *fixedStore) Principal(_ context.Context, tenant uuid.UUID, subject stri
 		return identity.PrincipalRecord{ID: uuid.New(), Enabled: true, LinksKnown: true, FederatedIdPs: []string{"idp-b"}}, nil
 	}
 	return identity.PrincipalRecord{}, identity.ErrNoPrincipal
+}
+
+const bearerA = "Bearer token-a"
+
+func meWith(t *testing.T, paths identity.GroupPathReader, log *slog.Logger) *httptest.ResponseRecorder {
+	t.Helper()
+	h, _, _ := newAPIHandlerFull(t, stubResolver{}, paths, log)
+	return get(t, h, "/api/v1/me", http.Header{"Authorization": {bearerA}})
+}
+
+// AC3: no groups gives [], never null.
+func TestMeNoGroupsGivesEmptyGroupPaths(t *testing.T) {
+	t.Parallel()
+	for name, rows := range map[string][]identity.GroupPath{"nil": nil, "empty": {}} {
+		rec := meWith(t, fakePaths{rows: rows}, slog.New(slog.DiscardHandler))
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"group_paths":[]`) {
+			t.Errorf("%s: %d %s, want 200 with group_paths []", name, rec.Code, rec.Body)
+		}
+	}
+}
+
+// AC4: a path outside the caller's tenant prefix is dropped and logged once,
+// by ids only; groups is unchanged and no path text reaches the body or logs.
+func TestMeDropsPathWithoutTenantPrefix(t *testing.T) {
+	t.Parallel()
+	stray := uuid.MustParse("0a000000-0000-4000-8000-0000000004a2")
+	const leak = "/t/" + "0b000000-0000-4000-8000-00000000000b" + "/b-only-marker"
+	var buf bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&buf, nil))
+	rec := meWith(t, fakePaths{rows: []identity.GroupPath{
+		{ID: groupA, Path: identity.TenantGroupPrefix(tenantA) + "service-desk/tier-2"},
+		{ID: stray, Path: leak},
+	}}, log)
+	me := decodeMe(t, rec)
+	if len(me.GroupPaths) != 1 || me.GroupPaths[0].Id != groupA || me.GroupPaths[0].Path != "/service-desk/tier-2" {
+		t.Errorf("group_paths = %+v, want only the prefixed entry, stripped", me.GroupPaths)
+	}
+	if len(me.Groups) != 1 || me.Groups[0] != groupA {
+		t.Errorf("groups = %v, want unchanged", me.Groups)
+	}
+	var errLines int
+	for _, line := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+		if line == "" {
+			continue
+		}
+		var rec map[string]any
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			t.Fatalf("log line: %v: %s", err, line)
+		}
+		if rec["level"] == "ERROR" {
+			errLines++
+			if rec["tenant_id"] != tenantA.String() || rec["group_id"] != stray.String() {
+				t.Errorf("ERROR line = %v, want tenant_id and group_id", rec)
+			}
+		}
+	}
+	if errLines != 1 {
+		t.Errorf("ERROR lines = %d, want 1: %s", errLines, buf.String())
+	}
+	for _, text := range []string{"b-only-marker", "service-desk", leak} {
+		if strings.Contains(buf.String(), text) {
+			t.Errorf("log contains path text %q: %s", text, buf.String())
+		}
+	}
+	if strings.Contains(rec.Body.String(), "b-only-marker") {
+		t.Errorf("body contains the dropped path: %s", rec.Body)
+	}
+}
+
+// A store failure is a 500 whose body does not carry the error.
+func TestMeGroupPathsStoreErrorIs500(t *testing.T) {
+	t.Parallel()
+	rec := meWith(t, fakePaths{err: errors.New("pgstore: dial tcp 10.0.0.9:5432: secret-host-detail")}, slog.New(slog.DiscardHandler))
+	if rec.Code != http.StatusInternalServerError || strings.Contains(rec.Body.String(), "secret") {
+		t.Errorf("= %d %s, want 500 without the error text", rec.Code, rec.Body)
+	}
 }

@@ -58,8 +58,17 @@ type FieldError struct {
 	Rule *string `json:"rule,omitempty"`
 }
 
+// GroupPath defines model for GroupPath.
+type GroupPath struct {
+	Id   openapi_types.UUID `json:"id"`
+	Path string             `json:"path"`
+}
+
 // Me defines model for Me.
 type Me struct {
+	// GroupPaths The caller's groups in this tenant, with each path relative to the tenant root. For display only: authorization keys on `groups` ids, never on a path. Paths are not unique across tenants and change when a group is renamed. Sorted by id; match entries by `id`, never by position.
+	GroupPaths []GroupPath `json:"group_paths"`
+
 	// Groups Platform group ids of the tenant, never IdP group names.
 	Groups []openapi_types.UUID `json:"groups"`
 
@@ -506,6 +515,20 @@ func (response OnboardTenant409ApplicationProblemPlusJSONResponse) VisitOnboardT
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type OnboardTenant422ApplicationProblemPlusJSONResponse Problem
+
+func (response OnboardTenant422ApplicationProblemPlusJSONResponse) VisitOnboardTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
 	_, err := buf.WriteTo(w)
 	return err
 }

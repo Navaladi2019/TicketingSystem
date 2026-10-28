@@ -44,7 +44,7 @@ GOVULNCHECK_VERSION := v1.9.0
 
 .PHONY: build run test test-integration test-integration-cleanup reap-integration bench-relay isolation lint generate check-openapi
 .PHONY: demo-outbox stack-test-demo_outbox
-.PHONY: ci ci-isolated ci-changed ci-stages ci-isolated-down test-ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity stack-test-onboard stack-idp-realms stack-test-worker 	image image-ci stack-up stack-down stack-logs stack-internal stack-internal-beside stack-main ci-stack-run stack-tests smoke
+.PHONY: ci ci-isolated ci-changed ci-stages ci-isolated-down test-ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity identity-attacks identity-attacks-fixture stack-test-onboard stack-idp-realms stack-test-worker 	image image-ci stack-up stack-down stack-logs stack-internal stack-internal-beside stack-main ci-stack-run stack-tests smoke
 
 build:
 	go build -o bin/nava-core ./cmd/nava-core
@@ -112,10 +112,11 @@ isolation:
 	sh scripts/ci/isolation.sh $(ARGS)
 
 # golangci-lint, then the navalint analyzers (tools/navalint, its own module)
-# as go vet's tool.
+# as go vet's tool, then the ADR-002-E1 nolint allow-list gate.
 lint:
 	$(GOLANGCI_LINT) run ./...
 	sh scripts/ci/navalint.sh
+	sh scripts/ci/nolint-allowlist.sh
 
 # Regenerates api/api.gen.go from api/openapi.yaml (oapi-codegen v2.8.0, pinned
 # by the go.mod tool directive).
@@ -348,12 +349,30 @@ stack-idp-realms:
 
 # The realm `nava` of the running Keycloak (T14, ADR-001 A.1): tenant and idp
 # claims, token lifespan, operator role custody, realm export round trip.
+# TestCI5 needs a platform database: make identity-attacks runs it. The
+# CI-5.06 negative fixture needs Keycloak 26.1.2: make identity-attacks-fixture.
 # It also runs the onboarding tests below (stack-test-onboard).
 # TODO(TODO-014): the GitHub workflow's stack job has no step for
 # stack-test-onboard yet (the step needs a push with `workflow` scope), so this
 # target runs those tests too; once the step exists, add -skip '$(ONBOARD_TESTS)'.
 stack-test-identity:
-	go run ./tools/ci/suiteran -tags identitystack -- go test -tags identitystack -count=1 -json ./internal/identitystack
+	rm -f $(IDENTITY_STREAM)
+	go test -tags identitystack -count=1 -skip '^TestCI5$$' -json ./internal/identitystack > $(IDENTITY_STREAM) || { cat $(IDENTITY_STREAM); exit 1; }
+
+# The CI-5 adversarial identity suite (T19, ADR-001 Annex B CI-5) against the
+# running Keycloak, with a throwaway PostgreSQL for the platform database the
+# resolver and one real group sync use. Writes the CI-5 report to CI5_REPORT
+# and fails when a CI-5 case did not pass. Needs the stack's Keycloak.
+CI5_REPORT ?= ci5-report.md
+IDENTITY_STREAM ?= identity-stream.json
+identity-attacks:
+	CI5_REPORT=$(CI5_REPORT) IDENTITY_STREAM=$(IDENTITY_STREAM) sh scripts/ci/identity-attacks.sh
+
+# The CI-5.06 negative fixture: the same kc.org tamper must SUCCEED on a
+# throwaway Keycloak 26.1.2 (the known-broken pin), so CI-5.06 passing on the
+# pinned Keycloak means something. Needs Docker, not the stack. Opt-in.
+identity-attacks-fixture:
+	sh scripts/ci/identity-attacks.sh fixture
 
 # Onboarding end to end (T21b, TICK-234): nava-onboard onboards a tenant, the
 # invited admin signs in through the tenant's IdP, one nava-groupsync cycle
