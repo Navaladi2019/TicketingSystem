@@ -240,10 +240,21 @@ A pull request runs only the jobs its change needs. The `changes` job runs
 | `ci-stack` | `stack`, `stack-db`, `stack-internal` |
 
 A change under `.github/workflows` runs every job, since only a full run proves
-a workflow edit. A skipped job shows as skipped, not failed. Nothing runs on a
-push to `main`. For a full run on any branch, start the `ci` workflow by hand
-from the Actions tab (`workflow_dispatch`, or `gh workflow run ci --ref
-<branch>`); it sets `CI_ALL=1`, so every job runs. Locally, `make ci-stages`
+a workflow edit. A skipped job shows as skipped, not failed. For a full run on
+any branch, start the `ci` workflow by hand from the Actions tab
+(`workflow_dispatch`, or `gh workflow run ci --ref <branch>`); it sets
+`CI_ALL=1`, so every job runs.
+
+A push to `main` or to any `TICK-**` branch (TICK-289) also sets `CI_ALL=1`:
+the merged tree runs every job, since a merge result has no meaningful diff
+base. Story branches are `TICK-<story>/<slug>`, so the filter needs `**` to
+cross the `/`; it matches task branches too, which then run the full suite on
+every push (an accepted cost: a glob cannot tell the two apart). Each push has its own concurrency group (per ref and sha), so a newer
+merge neither cancels nor replaces the run of an older one. When any job of a
+push to `main` fails, the `main-red` job (`scripts/ci/main-red.sh`, the only
+job with `issues: write`) opens a GitHub issue `main is red: <short sha>`
+labelled `P0`, with the failing jobs and the run URL; while one such issue is
+open, a later red push comments on it instead. Close it once `main` is green. Locally, `make ci-stages`
 prints the stages for the current branch and `CI_ALL=1 make ci-stages` prints
 all four.
 
