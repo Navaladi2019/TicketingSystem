@@ -24,7 +24,7 @@ INSERT INTO tenants (id, state) VALUES (pg_temp.u('t1'), 'active'), (pg_temp.u('
 INSERT INTO outbox (id, tenant_id, kind, dedupe_key, target_key, target_seq, payload,
                     created_at, available_at, dispatched_at, dead_at, attempts)
 SELECT pg_temp.u('o' || i), pg_temp.t(i), 'record.changed', 'd' || i, 'rec:' || (i % 50000), i,
-       -- References only (00006 CHECK, CI-7).
+       -- References only (00008 CHECK, CI-7).
        jsonb_build_object('record_id', pg_temp.u('r' || (i % 50000)),
                           'watchers', jsonb_build_array(pg_temp.u('w' || i), pg_temp.u('x' || i))),
        c, c,

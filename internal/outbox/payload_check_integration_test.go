@@ -1,7 +1,7 @@
 //go:build integration
 
 // T32c (TICK-214) and T32f (TICK-240), CI-7 finding T32b-1:
-// outbox_payload_check (db/migrations/00007_outbox_payload_keys.sql) holds
+// outbox_payload_check (db/migrations/00009_outbox_payload_keys.sql) holds
 // every outbox row to ValidatePayload's references-only rule, keys included,
 // whoever writes it.
 

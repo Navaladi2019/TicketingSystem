@@ -257,7 +257,7 @@ func validate(e Entry) (json.RawMessage, error) {
 
 // payloadKeyPattern bounds every payload key (TICK-240), so a key can carry
 // no free text: no spaces, punctuation, digits first or capitals, and at most
-// 32 characters. outbox_payload_check (db/migrations/00007) uses the same
+// 32 characters. outbox_payload_check (db/migrations/00009) uses the same
 // pattern. A per-kind key allow-list was not workable; see
 // docs/data/outbox-payload-check.md.
 var payloadKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)

@@ -1,9 +1,9 @@
 # outbox.payload: references only, in the database
 
 CI-7 finding T32b-1 ([temporal-ci6.md](../security/temporal-ci6.md)).
-Values: TICK-214 (T32c), migration `db/migrations/00006_outbox_payload_references.sql`.
+Values: TICK-214 (T32c), migration `db/migrations/00008_outbox_payload_references.sql`.
 Keys and canonical form: TICK-240 (T32f), migration
-`db/migrations/00007_outbox_payload_keys.sql`, which replaces the 00006
+`db/migrations/00009_outbox_payload_keys.sql`, which replaces the 00008
 constraint.
 
 ## Requirement
@@ -132,7 +132,7 @@ payload. Callers log the constraint name, tenant ID and row ID only.
 ## Migration
 
 The `outbox` table is live: producers insert into it, and the relay updates it
-every poll. So 00007 is a `NO TRANSACTION` file with three steps, expand then
+every poll. So 00009 is a `NO TRANSACTION` file with three steps, expand then
 contract. Each step can be re-run safely.
 
 1. `ADD CONSTRAINT outbox_payload_check … NOT VALID`, inside a `DO` block that
@@ -149,7 +149,7 @@ If an existing row breaks the new rule, the migration fails loudly:
 
 - `VALIDATE` reports `check constraint "outbox_payload_check" … is violated by
   some row`;
-- goose records no version, the 00006 constraint is still there, and the new
+- goose records no version, the 00008 constraint is still there, and the new
   constraint stays `NOT VALID` but still guards new rows
   (`TestT240PayloadKeysMigrationFailsOnExistingRow`, which also covers the
   clean re-run).
@@ -187,13 +187,13 @@ WAL work. There were 5 runs, alternating between the expressions.
 | Expression | 200k rows | Per row |
 | --- | --- | --- |
 | none (`true`) | 36–73 ms | — |
-| 00006 `outbox_payload_references_check` | 10.8–14.3 s | 54–72 µs |
-| 00007 `outbox_payload_check` | 7.6–10.5 s | 38–52 µs |
+| 00008 `outbox_payload_references_check` | 10.8–14.3 s | 54–72 µs |
+| 00009 `outbox_payload_check` | 7.6–10.5 s | 38–52 µs |
 
 The new rule checks more, keys included, and still costs about 30 % less. The
-canonical-only value pattern is a single fixed shape, while 00006 needed a
+canonical-only value pattern is a single fixed shape, while 00008 needed a
 four-way alternation for parity with `uuid.Parse`. That saving is larger than
-the cost of three short key matches. 00007 drops the 00006 constraint, so
+the cost of three short key matches. 00009 drops the 00008 constraint, so
 `Enqueue` and every relay UPDATE pay less after this change, not more. Almost
 all of the cost is still the regular expressions: PostgreSQL rebuilds their
 DFA states on every call.
