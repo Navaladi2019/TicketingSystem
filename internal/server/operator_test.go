@@ -234,3 +234,33 @@ func TestOperatorOnboardDomainClaimedHidesOwner(t *testing.T) {
 		}
 	}
 }
+
+// TICK-298 (T26 case 6): the operator boundary answers before the contract
+// does. A tenant token is 403 and no token is 401 on every operator route,
+// whatever headers or body the caller sends; a missing Idempotency-Key must
+// not turn the refusal into a 400 that reaches parameter binding first.
+func TestOperatorBoundaryPrecedesParameterBinding(t *testing.T) {
+	h := operatorHandler(t, server.WithOperator(stubOperators{}, &stubOnboarder{}))
+	for _, c := range []struct {
+		name, token string
+		status      int
+		code        string
+	}{
+		{"tenant token", "token-a", http.StatusForbidden, "forbidden"},
+		{"no token", "", http.StatusUnauthorized, "invalid_token"},
+	} {
+		for name, in := range map[string]struct{ key, body string }{
+			"full request": {"k", onboardBody},
+			"no key":       {"", onboardBody},
+			"no body":      {"k", ""},
+			"nothing":      {"", ""},
+		} {
+			t.Run(c.name+"/"+name, func(t *testing.T) {
+				rec := postOnboard(t, h, c.token, in.key, in.body, "", nil)
+				if rec.Code != c.status || code(t, rec) != c.code {
+					t.Errorf("status %d code %q, want %d %s: %s", rec.Code, code(t, rec), c.status, c.code, rec.Body)
+				}
+			})
+		}
+	}
+}

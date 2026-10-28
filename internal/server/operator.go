@@ -58,21 +58,52 @@ type operatorCall struct {
 	hash     []byte
 }
 
-// routeAuth sends operator routes to the operator authentication and every
-// other route to the tenant authentication.
-func routeAuth(reg *problem.Registry, operatorOnly bool, tenant, operator func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+// publicRoutes is the allow-list of /api/v1 routes served without a token. The
+// match is exact on the decoded path (no prefix, case folding or trailing
+// slash), and on GET or HEAD only.
+//
+//nolint:gochecknoglobals // fixed allow-list, never written
+var publicRoutes = map[string]bool{
+	"/api/v1/openapi.yaml": true,
+	"/api/v1/docs":         true,
+}
+
+// authGate authenticates a request before anything reads its input: it wraps
+// the whole router, outside the generated parameter binding. Public routes
+// pass; operator routes go to the operator authentication; every other path
+// under /api/v1 fails closed through the tenant authentication, so an unknown path with no
+// token is 401, never 404 or 400. On the operator-only process a
+// non-operator path is authenticated and then answered 404.
+func authGate(reg *problem.Registry, operatorOnly bool, tenant, operator func(http.Handler) http.Handler) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
-		t, o := tenant(next), operator(next)
+		tenantNext := next
+		if operatorOnly {
+			tenantNext = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { reg.Write(w, r, problem.NotFound) })
+		}
+		// The middleware hands next a copy of the request carrying the
+		// principal, and ServeMux sets r.Pattern on that copy. The access log
+		// and span read it from the original, so copy it back.
+		through := func(auth func(http.Handler) http.Handler, next http.Handler, w http.ResponseWriter, r *http.Request) {
+			var inner *http.Request
+			auth(http.HandlerFunc(func(w http.ResponseWriter, r2 *http.Request) {
+				inner = r2
+				next.ServeHTTP(w, r2)
+			})).ServeHTTP(w, r)
+			if inner != nil {
+				r.Pattern = inner.Pattern
+			}
+		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if strings.HasPrefix(r.URL.Path, operatorPrefix) {
-				o.ServeHTTP(w, r)
-				return
+			switch {
+			case (r.Method == http.MethodGet || r.Method == http.MethodHead) && publicRoutes[r.URL.Path]:
+				next.ServeHTTP(w, r)
+			case !strings.HasPrefix(r.URL.Path, "/api/v1"):
+				next.ServeHTTP(w, r) // not contract: the router answers 404
+			case strings.HasPrefix(r.URL.Path, operatorPrefix):
+				through(operator, next, w, r)
+			default:
+				through(tenant, tenantNext, w, r)
 			}
-			if operatorOnly {
-				reg.Write(w, r, problem.NotFound)
-				return
-			}
-			t.ServeHTTP(w, r)
 		})
 	}
 }

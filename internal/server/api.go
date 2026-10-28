@@ -22,11 +22,12 @@ import (
 // contract's paths already start with /api/v1, so both are empty.
 const baseURL = ""
 
-// newAPI registers the /api/v1 routes of the embedded contract on mux, each
-// behind the authentication middleware and then the validator, and returns
-// the error-contract helper whose Wrap goes around mux. The spec and docs
-// routes are public.
-func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.IdentityResolver, paths identity.GroupPathReader, mux *http.ServeMux, opts options) (*apihttp.API, error) {
+// newAPI registers the /api/v1 routes of the embedded contract on mux and
+// returns the handler to serve: the error-contract wrapper around mux behind
+// the authentication gate. The gate runs before the generated wrapper binds
+// any header, query or path parameter, so no input is read ahead of
+// authentication. The spec and docs routes are public.
+func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.IdentityResolver, paths identity.GroupPathReader, mux *http.ServeMux, opts options) (http.Handler, error) {
 	specData, err := api.Files.ReadFile("openapi.yaml")
 	if err != nil {
 		return nil, fmt.Errorf("read openapi.yaml: %w", err)
@@ -58,15 +59,16 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 		api.StdHTTPServerOptions{
 			BaseURL:    baseURL,
 			BaseRouter: mux,
-			// The last one is outermost: an unauthenticated request gets 401
-			// before the validator looks at its input.
-			Middlewares:      []api.MiddlewareFunc{a.Middleware(), routeAuth(reg, opts.operatorOnly, authn.Middleware, operatorAuth(reg, log, opts.operators, resolver))},
+			// Authentication is not here: HandlerMiddlewares run after the
+			// generated wrapper has bound the parameters. authGate owns it.
+			Middlewares:      []api.MiddlewareFunc{a.Middleware()},
 			ErrorHandlerFunc: a.ErrorHandler,
 		},
 	)
 	mux.Handle("GET /api/v1/openapi.yaml", specHandler(specData))
 	mux.Handle("GET /api/v1/docs", docsHandler(spec))
-	return a, nil
+	gate := authGate(reg, opts.operatorOnly, authn.Middleware, operatorAuth(reg, log, opts.operators, resolver))
+	return gate(a.Wrap(mux)), nil
 }
 
 // handlers implements the generated strict server. Operations the contract

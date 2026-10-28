@@ -70,7 +70,8 @@ func routeOf(spans *tracetest.InMemoryExporter, i int) (string, bool) {
 
 // TestMeIsDeclaredAndRecordsRoute: GET /api/v1/me without a token answers 401
 // invalid_token as a registered problem and records http.route=/api/v1/me;
-// an unknown /api/v1/x is a 404 problem that records no route.
+// an unknown /api/v1/x is a 401 without a token and, with one, a 404 problem
+// that records no route.
 func TestMeIsDeclaredAndRecordsRoute(t *testing.T) {
 	t.Parallel()
 	h, spans, reg := newAPIHandler(t)
@@ -88,14 +89,26 @@ func TestMeIsDeclaredAndRecordsRoute(t *testing.T) {
 	}
 
 	rec = serve(t, h, http.MethodGet, "/api/v1/x")
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("GET /api/v1/x without a token = %d, want 401 (fail closed)", rec.Code)
+	}
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/x", nil)
+	req.Header.Set("Authorization", "Bearer token-a")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound || rec.Header().Get("Content-Type") != problem.ContentType {
 		t.Errorf("GET /api/v1/x = %d %s, want a 404 problem", rec.Code, rec.Header().Get("Content-Type"))
 	}
 
-	if got, ok := routeOf(spans, 0); !ok || got != "/api/v1/me" {
+	// The gate answers before routing, so a refused request records no route.
+	req = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/me", nil)
+	req.Header.Set("Authorization", "Bearer token-a")
+	h.ServeHTTP(httptest.NewRecorder(), req)
+
+	if got, ok := routeOf(spans, 3); !ok || got != "/api/v1/me" {
 		t.Errorf("http.route = %q (set %v), want /api/v1/me", got, ok)
 	}
-	if got, ok := routeOf(spans, 1); ok {
+	if got, ok := routeOf(spans, 2); ok {
 		t.Errorf("unknown /api/v1/x http.route = %q, want none", got)
 	}
 }
@@ -103,7 +116,10 @@ func TestMeIsDeclaredAndRecordsRoute(t *testing.T) {
 func TestMethodNotAllowedIsAProblem(t *testing.T) {
 	t.Parallel()
 	h, _, _ := newAPIHandler(t)
-	rec := serve(t, h, http.MethodPost, "/api/v1/me")
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/me", nil)
+	req.Header.Set("Authorization", "Bearer token-a")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusMethodNotAllowed || rec.Header().Get("Content-Type") != problem.ContentType ||
 		rec.Header().Get("Allow") == "" || !strings.Contains(rec.Body.String(), `"code":"method_not_allowed"`) {
 		t.Errorf("POST /api/v1/me = %d %v %s", rec.Code, rec.Header(), rec.Body)
@@ -122,5 +138,33 @@ func TestDocsAndSpecAreServed(t *testing.T) {
 	rec = serve(t, h, http.MethodGet, "/api/v1/openapi.yaml")
 	if rec.Code != http.StatusOK || !strings.HasPrefix(rec.Body.String(), "openapi: 3.1") {
 		t.Errorf("openapi.yaml = %d %.40s", rec.Code, rec.Body)
+	}
+}
+
+// TICK-300: authentication precedes everything the router reads. An unmatched
+// /api/v1 path, whatever its spelling, is 401 without a token; only the
+// allow-listed spec and docs routes are public.
+func TestUnmatchedAndTrickedPathsFailClosed(t *testing.T) {
+	t.Parallel()
+	h, _, _ := newAPIHandler(t)
+	for _, c := range []struct{ method, target string }{
+		{http.MethodGet, "/api/v1/nothing"},
+		{http.MethodGet, "/api/v1/openapi.yaml/"},
+		{http.MethodGet, "/api/v1/OpenAPI.yaml"},
+		{http.MethodGet, "/api/v1/docs/"},
+		{http.MethodPost, "/api/v1/openapi.yaml"},
+		{http.MethodGet, "/api/v1/%6Fpenapi.yaml/x"},
+		{http.MethodGet, "/api/v1/x/../openapi.yaml"},
+		{http.MethodGet, "/api/v1/me/"},
+		{http.MethodGet, "/api/v1/operator"},
+	} {
+		if rec := serve(t, h, c.method, c.target); rec.Code != http.StatusUnauthorized {
+			t.Errorf("%s %s without a token = %d, want 401", c.method, c.target, rec.Code)
+		}
+	}
+	for _, p := range []string{"/api/v1/openapi.yaml", "/api/v1/docs"} {
+		if rec := serve(t, h, http.MethodGet, p); rec.Code != http.StatusOK {
+			t.Errorf("public GET %s = %d, want 200", p, rec.Code)
+		}
 	}
 }

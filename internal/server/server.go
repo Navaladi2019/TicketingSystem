@@ -25,11 +25,11 @@ func NewHandler(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Id
 		f(&o)
 	}
 	mux := http.NewServeMux()
-	a, err := newAPI(log, tel, resolver, paths, mux, o)
+	api, err := newAPI(log, tel, resolver, paths, mux, o)
 	if err != nil {
 		return nil, err
 	}
-	return httpobs.Middleware(log, tel, a.Wrap(mux)), nil
+	return httpobs.Middleware(log, tel, api), nil
 }
 
 // New returns an *http.Server on addr with every timeout set from cfg.
