@@ -367,9 +367,12 @@ stack-idp-realms:
 # TODO(TODO-014): the GitHub workflow's stack job has no step for
 # stack-test-onboard yet (the step needs a push with `workflow` scope), so this
 # target runs those tests too; once the step exists, add -skip '$(ONBOARD_TESTS)'.
+# suiteran fails the target on its own when a registered suite ran zero tests
+# (TICK-283); TestCI5 is behind the ci5 tag, so it is not expected here. The
+# stream is kept for make identity-attacks, which checks it with the CI-5 one.
 stack-test-identity:
 	rm -f $(IDENTITY_STREAM)
-	go test -tags identitystack -count=1 -skip '^TestCI5$$' -json ./internal/identitystack > $(IDENTITY_STREAM) || { cat $(IDENTITY_STREAM); exit 1; }
+	go run ./tools/ci/suiteran -tags identitystack -tee $(IDENTITY_STREAM) -- go test -tags identitystack -count=1 -json ./internal/identitystack
 
 # The CI-5 adversarial identity suite (T19, ADR-001 Annex B CI-5) against the
 # running Keycloak, with a throwaway PostgreSQL for the platform database the
