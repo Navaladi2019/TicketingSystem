@@ -20,6 +20,7 @@ type Config struct {
 	Log       Log
 	Telemetry Telemetry
 	Deps      Dependencies
+	Cursor    Cursor
 }
 
 // HTTP configures the two listeners. Both use the same timeouts.
@@ -136,6 +137,7 @@ func Load(lookup LookupFunc) (Config, error) {
 			Format: r.oneOf("NAVA_LOG_FORMAT", FormatJSON, FormatJSON, FormatText),
 		},
 		Telemetry: tel,
+		Cursor:    r.cursor(),
 	}
 	cfg.Deps = Dependencies{
 		DatabaseURL:           r.databaseURL("NAVA_DATABASE_URL"),
