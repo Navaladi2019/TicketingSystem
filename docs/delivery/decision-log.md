@@ -2,6 +2,23 @@
 
 Delivery decisions that change a task's contract, newest first.
 
+## 2026-10-28: Merge safety: `main` is protected and tested after every merge; shared files are split
+- **Decided by:** the Technical Lead on TICK-288 (`docs/delivery/merge-safety.md`), at the request of vknavaladi after S5 (PR #221) and S7 (PR #223) broke on late merges of `main`.
+- **Decision:**
+  - D1: `main` gets branch protection. Every `ci.yml` job is required, the branch must be up to date, and direct pushes are blocked. The owner applies it.
+  - D2: `ci.yml` runs on `push` to `main` and `TICK-*`, and a red `main` opens a P0 issue (TICK-289).
+  - D3: new migrations use timestamp versions, and `task test` fails on a duplicate or malformed version (TICK-290).
+  - D4–D7: `Makefile`, `api/openapi.yaml`, the shared doc tables and the stack tests are split so each story adds new files (TICK-293 to TICK-296).
+  - D8: the Technical Lead merges `main` into every open story branch after each merge to `main`.
+  - D9: a test checks that every token-validating service trusts the pinned issuer (TICK-291), and every landed story suite runs on `main` (TICK-292).
+  - Review standard: a PR merges only if it is green against the current tip of its base branch.
+- **Sequencing:** D1, TICK-289, TICK-290 and TICK-291 start now and do not touch `Makefile`. The splits wait for TICK-47 and TICK-49 to land, so that the split itself does not conflict with them.
+- **Supersedes:** the 2026-10-26 deferral of branch protection on `main` (TICK-231 entry). Story branches stay unprotected.
+- **Deferred:**
+  - Merge queue. Trigger: more than three PRs a day waiting on rebases.
+  - One file per entry for `todo.md` and `accepted-risks.md`. Trigger: a union merge produces a malformed table.
+- **Dissent:** none.
+
 ## 2026-10-27: PLAN-002 implements ADR-002 as one task, TICK-268
 - **Decided by:** the Technical Lead on TICK-270 (`docs/delivery/plan-adr-002.md`).
 - **Decision:** ADR-002 ships as TICK-268 (`backend-dev`, under S5). It restarts from the story branch, because commit `62d604e` changed `groups` itself and is not the design. The S5 explainer's section 10 moves from TICK-268 to the acceptance kit (PR #187), so no two open PRs share that file. AC5's new entry in `registry.go` needs CTO sign-off, which ADR §6 did not list; the implementer asks for it on TICK-268. TICK-268 and TICK-265 both touch `groupsync/apply.go` and run in parallel; whichever merges second rebases.
