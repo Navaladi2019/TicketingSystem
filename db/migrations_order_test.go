@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -25,7 +26,9 @@ func TestNewMigrationsLaterThanBase(t *testing.T) {
 	if base == "" {
 		t.Skip("BASE not set: set BASE=origin/main (after git fetch) to check new migrations against the base branch")
 	}
-	out, err := exec.CommandContext(t.Context(), "git", "ls-tree", "--name-only", base+":db/migrations").Output()
+	// --full-tree: go test runs in db/, and ls-tree otherwise lists only the
+	// paths under the working directory, which would be none.
+	out, err := exec.CommandContext(t.Context(), "git", "ls-tree", "--full-tree", "--name-only", base+":db/migrations").Output()
 	if err != nil {
 		var stderr string
 		var ee *exec.ExitError
@@ -34,11 +37,15 @@ func TestNewMigrationsLaterThanBase(t *testing.T) {
 		}
 		t.Fatalf("git ls-tree %s:db/migrations: %v %s (fetch the base branch first; the checkout needs its history)", base, err, stderr)
 	}
+	baseNames := strings.Fields(string(out))
+	if !slices.ContainsFunc(baseNames, func(n string) bool { _, ok := migrationVersion(n); return ok }) {
+		t.Fatalf("git ls-tree %s:db/migrations listed no migrations (%q); the check would compare against nothing", base, baseNames)
+	}
 	head, err := fs.Glob(Migrations(), "*.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := checkLaterThanBase(base, strings.Fields(string(out)), head); err != nil {
+	if err := checkLaterThanBase(base, baseNames, head); err != nil {
 		t.Fatal(err)
 	}
 }
