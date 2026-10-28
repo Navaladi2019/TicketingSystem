@@ -14,7 +14,7 @@
 # A pull request runs only the jobs its change needs: the changes job asks
 # `make ci-stages` (tools/ci/cichanged, the rules of `make ci-changed`), lint
 # always runs, and a change under .github/workflows runs everything. A push to
-# main or to a TICK-* story branch runs every job on the merged tree (TICK-289),
+# main or to a TICK-** branch runs every job on the merged tree (TICK-289),
 # and a red push to main opens a P0 issue (main-red). Run the full pipeline by
 # hand from the Actions tab (workflow_dispatch) on any branch.
 # Budget: see "Job time budgets" in docs/quality/ci-pipeline.md. The three
@@ -27,9 +27,10 @@ name: ci
 on:
   pull_request:
   push:
-    # 'TICK-*' matches story branches (TICK-46), not task branches
-    # (TICK-253/...): a glob * stops at /.
-    branches: [main, 'TICK-*']
+    # 'TICK-**' (** crosses /) matches story branches (TICK-<story>/<slug>)
+    # and task branches alike: a glob cannot tell them apart, and the extra
+    # runs on task branches are an accepted cost (TICK-289).
+    branches: [main, 'TICK-**']
   workflow_dispatch:
 
 permissions:
