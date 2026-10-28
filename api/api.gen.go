@@ -519,20 +519,6 @@ func (response OnboardTenant409ApplicationProblemPlusJSONResponse) VisitOnboardT
 	return err
 }
 
-type OnboardTenant422ApplicationProblemPlusJSONResponse Problem
-
-func (response OnboardTenant422ApplicationProblemPlusJSONResponse) VisitOnboardTenantResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(422)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
 type OnboardTenant429ApplicationProblemPlusJSONResponse Problem
 
 func (response OnboardTenant429ApplicationProblemPlusJSONResponse) VisitOnboardTenantResponse(w http.ResponseWriter) error {
