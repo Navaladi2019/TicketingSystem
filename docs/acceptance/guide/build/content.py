@@ -331,11 +331,12 @@ PAGES = [
     # ------------------------------------------------------------------ S6
     {
         "id": "s6", "short": "S6", "title": "API ground rules",
-        "blurb": "Problem bodies, 404/405 rules, the published contract, request ids.",
+        "blurb": "Problem bodies, 404/405 rules, the published contract, request ids, per-tenant 429.",
         "story": "Story S6, TICK-48. Contract: `api/openapi.yaml`; error codes: `api/errors.yaml`.",
         "what": [
             "Every error is `application/problem+json` (RFC 9457) with a registered `code`, a `type` of `urn:nava:problem:<code>`, fixed `detail` text and an `instance` equal to the response's `X-Request-Id`. Under `/api/v1`, authentication runs first, so an anonymous caller learns nothing about which routes exist. The contract is published at `/api/v1/openapi.yaml` and `/api/v1/docs`. Idempotent replay is tested in S4 (S4.9, S4.10).",
-            ("note", "Per-tenant rate limits (429) and tenant-bound cursors are **not on `main`**: see Home › What is not on main."),
+            "Each tenant has its own request budget: a tenant that sends more than its limit gets 429 `rate_limited` with `Retry-After`, and other tenants' calls keep succeeding.",
+            ("note", "Tenant-bound cursors are **not externally callable on `main`** (no route lists anything yet): see Home › What is not on main."),
         ],
         "flows": [{
             "title": "How a request is answered",
@@ -351,6 +352,11 @@ PAGES = [
                 ("nava-core", "Postman", "405 method_not_allowed + Allow", "fail"),
                 ("Postman", "nava-core", "S6.9 GET /me + traceparent", "req"),
                 ("nava-core", "Postman", "200 + X-Request-Id", "ok"),
+                ("Postman", "nava-core", "S6.12 Alice bursts 300 × /me; Bob 20 × /me", "req"),
+                ("nava-core", "Postman", "Alice: 429 rate_limited + Retry-After", "fail"),
+                ("nava-core", "Postman", "Bob: 200 every time", "ok"),
+                ("Postman", "nava-core", "S6.13 Alice after Retry-After", "req"),
+                ("nava-core", "Postman", "200 tenant A", "ok"),
             ],
         }],
         "steps": [
@@ -366,8 +372,11 @@ PAGES = [
              "fail": "No `X-Request-Id`, or no log line with it."},
             {"do": "Run **S6.10**: a path with markup in it.", "where": "Postman",
              "expect": "404 with fixed text: the path is not echoed.", "fail": "The body contains `<script>`."},
+            {"do": "Run **S6.11**–**S6.13**: sign in as Bob, then Alice sends 300 requests at once while Bob sends 20 in the same burst, then Alice waits `Retry-After` and tries again.", "where": "Postman",
+             "expect": "S6.12: Alice's first requests are 200 and the rest are 429 `rate_limited` problems with `Retry-After`; all 20 of Bob's and S6.12 itself are 200 for tenant B. The console line `burst results` shows the counts. S6.13: Alice is 200 again.",
+             "fail": "No 429 for Alice (no limiter, or a limit above 300 requests in `.env`), or any 429 for Bob (the limit is shared across tenants)."},
         ],
-        "postman": [POSTMAN_HOW, "Folder **S6 — API ground rules**: S6.1–S6.10. Every problem test also checks the code against the registry in `api/errors.yaml`."],
+        "postman": [POSTMAN_HOW, "Folder **S6 — API ground rules**: S6.1–S6.13. Every problem test also checks the code against the registry in `api/errors.yaml`. S6.12 assumes the default limit (`NAVA_RATE_LIMIT_BURST=100`, `NAVA_RATE_LIMIT_RPS=50`); with a higher limit in `.env`, raise the `rate_burst_requests` environment variable above it."],
     },
     # ------------------------------------------------------------------ S7
     {
@@ -518,7 +527,7 @@ sh docs/acceptance/guide/tools/tunnels.sh up"""),
 
 # Route coverage: (service and listener, route, callable from the host?, covered by).
 ROUTES = [
-    ("nava-core public `:8080` (host `:18080`)", "`GET /api/v1/me`", "Yes", "S2.3–S2.6, S3.2–S3.22, S5.4–S5.17, S6.9"),
+    ("nava-core public `:8080` (host `:18080`)", "`GET /api/v1/me`", "Yes", "S2.3–S2.6, S3.2–S3.22, S5.4–S5.17, S6.9, S6.12, S6.13"),
     ("nava-core public", "`POST /api/v1/operator/tenants`", "Yes, answers 501 by design (not configured there)", "S4.5"),
     ("nava-core public", "`GET /api/v1/openapi.yaml`", "Yes, no token", "S6.1"),
     ("nava-core public", "`GET /api/v1/docs`", "Yes, no token", "S6.2"),
@@ -538,9 +547,6 @@ ROUTES = [
 
 NOT_ON_MAIN = [
     ("table", ["Story text", "Status on `main`", "Why it is not in the collection"], [
-        ("S6: \"Tenant A gets 429 while tenant B's calls succeed\" (T24 per-tenant rate limits)",
-         "**Not merged.** The limiter is on the S6 story branch `TICK-48/api-ground-rules` (PR #136), which has no pull request into `main`. `main` has the `rate_limited` code registered but no limiter.",
-         "No request can produce a 429 on `main`. Raised with the CTO on TICK-287."),
         ("S6: \"A cursor from tenant A replayed by tenant B returns 400\" (T23 cursors)",
          "The cursor library and `invalid_cursor` code are on `main`, but no route lists anything, so no route takes a cursor.",
          "Not externally callable until a list endpoint exists."),
