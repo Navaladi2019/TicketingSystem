@@ -48,7 +48,7 @@ flowchart TD
 | `target_key` | `<workflow kind>:<start row id>`; a start row's ends in its own id |
 | `target_seq` | the record's `version` after the bump, so producers on one record get consecutive values in commit order |
 | `causation_id`, `causation_depth` | `Entry.Causation`; NULL origin only at depth 0 |
-| `payload` | references only: an object of UUID strings or arrays of them |
+| `payload` | references only: an object whose keys match `^[a-z][a-z0-9_]{0,31}$` and whose values are canonical UUID strings or arrays of them (`outbox_payload_check`) |
 | `trace_context` | the caller span's W3C `traceparent`, or NULL; never `tracestate` or baggage |
 
 ## Notes

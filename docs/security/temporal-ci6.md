@@ -10,10 +10,8 @@ is stubbed. Source of the rules: ADR-001 Annex B CI-6 and Annex A.2, erratum E1
   the `**/*isolation*_test.go` pattern in `docs/delivery/review-paths.yaml`, so
   removing it, or adding a skip to it, needs CTO sign-off.
 - Run: `make stack-up`, then `make stack-test-sdk`. To run a second stack on the same host, set `COMPOSE_PROJECT_NAME` and the port variables, then point the tests at it with `NAVA_TEST_COMPOSE_PROJECT` and `NAVA_TEST_TEMPORAL_ADDR`. This writes the report
-  (`ci6-report.md`) through `tools/ci/ci6report`. The CI `stack` job already runs
-  this step. Uploading the report as the `ci6-report` artifact needs a change to
-  `.github/workflows/ci.yml`, which is attached to TICK-79 because the agent token
-  cannot push workflow files. The step fails if a contract case fails, is skipped or is
+  (`ci6-report.md`) through `tools/ci/ci6report`. The CI `stack` job runs this
+  step and uploads the report as the `ci6-report` artifact. The step fails if a contract case fails, is skipped or is
   missing.
 - Last local report: [`ci6-report.md`](ci6-report.md).
 
@@ -92,3 +90,168 @@ type.
    none. A call to a task-token API with no namespace and no token gets
    `InvalidArgument` ("Task token not set") instead of `PermissionDenied`. The
    answer depends only on the shape of the request and reveals no tenant data.
+
+## CI-6 relay and worker cases, and CI-7 (T32b)
+
+The second CI-6 block and every CI-7 case. Source: ADR-001 Annex B CI-6 "Other
+cases", CI-7 and R1, A.2, and the TICK-93 audit (headers). The relay under test
+is the stack's own `nava-relay` service. The test writes outbox rows the way
+`outbox.Enqueue` does, as the superuser inside the postgres container, because
+the database port is never published. The service claims the rows as
+`nava_relay` and dispatches them with its own certificate. A worker set up with
+`workerguard` runs the workflow `nava.smoke.relay`. This is the D9 allow-list's
+first lowercase type, the only form an outbox kind can name. The
+`workflow_ref` activity runs in the `nava-worker` service.
+
+- Tests: `internal/temporalstack/ci6_relay_isolation_test.go` (`TestCI6_*`) and
+  `ci7_isolation_test.go` (`TestCI7_*`), with helpers in
+  `ci6_relay_helpers_test.go`. `make stack-test-sdk` runs them, and
+  `tools/ci/ci6report` lists each one in the report with its tag.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant X as attacker holding the nava-relay certificate
+    participant DB as outbox (PostgreSQL)
+    participant R as nava-relay (1..3 processes)
+    participant T as Temporal + Authorizer
+    participant W as guarded worker
+    X->>T: Start t:A:nava.smoke.relay:… with no header / with tenant B's header
+    T->>W: workflow task
+    W--xT: workflow FAILED nava.TenantGuard (alert)
+    X->>T: Signal t:A:… with tenant B's header ("done")
+    T->>W: signal
+    W-->>W: dropped (alert); the workflow keeps running
+    DB->>R: rows claimed head first (target_seq), leased
+    R->>T: start / signal, header = row tenant
+    Note over R,T: redelivered start → AlreadyStarted, no second run<br/>redelivered signal → applied once (outbox id), across continue-as-new<br/>signal on a missing or closed target → NotFound → dead, alert, never retried
+```
+
+| Case | Proof |
+|---|---|
+| No or mismatched header fails the workflow | A `nava-relay` client with no propagator, and one that puts another tenant on the header, each start `t:A:…`. The Authorizer lets both through. Each workflow ends FAILED with `nava.TenantGuard` `workflow_start: missing` or `mismatch`, and the guard logs one alert. |
+| Wrong-tenant signal dropped | A note and a `done` with tenant B's header reach tenant A's relay-started workflow. Both signals log alerts and are dropped, and the workflow stays RUNNING. A note and a `done` written to the outbox afterwards return only the own note. |
+| Redelivered start after completion | A start and `done` are written and the workflow completes, with `workflow_ref.closed_at` set by `nava_worker`. The start row is then made pending again. It is dispatched at attempt 2 (AlreadyStarted), and the latest run is still the completed one. |
+| Redelivered signal applied once | One note is delivered three times: before continue-as-new, again before it, and again after it. A second note follows. The result is the two notes, each once. |
+| Signal queues behind its start | The start, a note and `done` are written in one transaction, with the start held 15 s. For 3 s (six polls) no row is attempted. Afterwards every row is dispatched at its first attempt, in the order start, note, done. |
+| Two relays never reorder | Two more `nava-relay` containers run beside the stack's: same image, environment, certificate and network. The hand-off is forced with `docker pause`. Extra relay 0 alone dispatches each of three targets' start and first 8 notes. Extra relay 1 alone dispatches the next 7. Then all three relays run for `done`. Each phase waits until its rows are settled, so a paused relay holds no lease, and a cleanup unpauses every relay. Each target applies its 15 notes in exact `target_seq` order. Both extra relays have `outbox_relay_dispatches_total{op="signal",outcome="dispatched"}` above zero. |
+| `NotFound` on a signal is terminal | A signal to a start that was never dispatched, and a signal to a completed workflow. Each is dead at attempt 1 with `CauseTargetMissing` and unchanged after four more polls. The relay logs the workflow id, and `outbox_relay_signal_target_missing_total` rises. |
+| CI-7 producer schema | `outbox.ValidatePayload` rejects text, numbers, booleans, nested objects, mixed arrays, a text field next to a reference, and anything that is not an object. |
+| CI-7 history input | The `outbox.Delivery` Go type has only UUID, int16 and payload fields. The recorded start and signal inputs of a relay-started workflow have only its JSON keys, and each payload passes the producer schema. |
+| CI-7 payload outside `Enqueue` | Added by TICK-214 with its fix (finding T32b-1). A start row with record data, inserted directly as the superuser, is refused by `outbox_payload_check` (`outbox_payload_references_check` until TICK-240); no row is stored and no workflow exists. |
+| CI-7 activity payload (TICK-216) | The relay-started workflow schedules an activity whose argument holds a ticket title. No event in the history holds the title, only the `workflow_ref` close is scheduled, and the guard alerts `activity_args`/`record_data`. |
+| CI-7 child payload (TICK-216) | The workflow starts a same-tenant child (`ChildWorkflowID`) whose argument holds the title. No child is initiated, no event holds the title, and the guard alerts `child`/`record_data`. |
+| CI-7 continue-as-new payload (TICK-216) | The workflow continues as new with the title in `RunInput.Refs`. The workflow fails with `nava.TenantGuard` instead, no event holds the title, and the guard alerts `continue_as_new`/`record_data`. |
+| CI-7 update payload (TICK-216) | `nava-core`, with the right tenant (`ContextWithTenant`), sends an update whose argument holds the title: the validator rejects it with no title in the error. A references-only update on the same workflow is accepted. Exactly one update is in the history, and no event holds the title. |
+| CI-7 signal-external and signal-child payload (TICK-245) | The workflow starts a same-tenant child with references, then signals it the title through `SignalExternalWorkflow` (or the child future). No signal is initiated, the child is never signaled, neither history holds the title, and the guard alerts `signal_external`/`record_data`. |
+| CI-7 results and failure text (TICK-245) | The workflow runs a local activity that returns the title, or fails with it in its message; records the title in a `SideEffect`; returns it as its result, or fails with it; and answers updates with it, or fails them with it. No event holds the title in any case. A result is replaced by the guard error (`activity_result`, `workflow_result`, `update_result`), a `SideEffect` marker holds the sentinel (`side_effect`), and a failure becomes `nava.Opaque` (`activity_failure`, `workflow_failure`, `update_failure`). Each alerts, and the guard log has the failure's shape and never the title. |
+| CI-7 memo (TICK-245) | The workflow starts a same-tenant child with the title in its memo, or upserts the title into its own memo. No child is initiated, no `WorkflowPropertiesModified` event is recorded, the memo stays empty, no event holds the title, and the guard alerts `child`/`record_data` or `memo`/`record_data`. |
+| CI-7 headers (TICK-93) | Every `Header` anywhere in both runs' histories is walked: start, signals, activity, continue-as-new. The keys are only `nava-tenant` and `_tracer-data`, and `_tracer-data` holds only `traceparent` and `tracestate`. A signal sent with baggage in its context leaves no trace of it. |
+
+### Findings (T32b)
+
+1. **T32b-1: a record-data payload written outside `Enqueue` reaches the
+   history.**
+   - **Attack:** code running as `nava_app` or `nava_worker` inserts an outbox
+     row whose payload holds record data, for example a feature that bypasses
+     `Enqueue`, or an injection. `db/grants.yaml` lets both roles INSERT every
+     outbox column. The relay dispatches the payload unchecked, so the record
+     data lands in the cross-tenant, unencrypted Temporal history (R1). No
+     endpoint writes outbox rows today, so a tenant token cannot trigger it.
+   - **Status:** fixed (values: TICK-214; keys and canonical form: TICK-240)
+     (`db/migrations/00008_outbox_payload_references.sql`, replaced by
+     `db/migrations/00009_outbox_payload_keys.sql`,
+     [outbox-payload-check.md](../data/outbox-payload-check.md)); the relay
+     check is fixed by TICK-215. Keys use the fallback pattern
+     `^[a-z][a-z0-9_]{0,31}$`, not a per-kind allow-list; the residual is
+     AR-041 in [accepted-risks.md](accepted-risks.md).
+   - **Severity:** Medium.
+   - **Fix, at the lowest layer:** a `CHECK` on `outbox.payload` with the same
+     rule as `ValidatePayload`: a jsonb object whose values are UUID strings or
+     arrays of them, written with `jsonb_path_exists` and `like_regex`, so no
+     function is needed. The relay should also run `outbox.ValidatePayload`
+     before each call and mark a failing row dead with a fixed cause, as a
+     second line.
+   - **Owners:** TICK-214 (the `CHECK`) and TICK-215 (the relay check).
+     The relay check is in `relay.Dispatcher` (TICK-215): a failing row is
+     dead with `CauseInvalidPayload` and alerts, without a Temporal call.
+   - **Test:** `TestCI7_RelayRefusesRecordDataPayloadWrittenOutsideEnqueue`
+     (TICK-214): the direct INSERT is refused, and nothing reaches the
+     history. `TestRecordDataPayloadIsRefusedBeforeDispatch` (TICK-215)
+     covers the relay check.
+2. **T32b-2: activity arguments are not checked.**
+   - **Attack:** workflow code schedules an activity whose argument holds record
+     data, and `ActivityTaskScheduled` records it in the history. Nothing in
+     `workerguard` inspects payloads. Update arguments from `nava-core` take
+     the same unchecked path. Today the only activity, `workflow_ref`, takes no
+     argument, and no update handler exists, so nothing is exposed yet.
+   - **Status:** will bite us at scale, once Epic 05 workflows land.
+   - **Severity:** Medium.
+   - **Fix:** a `workerguard` outbound check on `ExecuteActivity`,
+     `ExecuteLocalActivity`, child and continue-as-new arguments, and an inbound
+     check on update arguments. Each applies the references-only rule and fails
+     with a non-retryable error before the command is sent.
+   - **Owner:** TICK-216.
+   - **Fixed (TICK-216):** `workerguard` checks the arguments of
+     `ExecuteActivity`, `ExecuteLocalActivity`, `ExecuteChildWorkflow`,
+     continue-as-new (again when the workflow returns the error) and updates
+     (in the validator). The rule is in `docs/architecture/worker-guards.md`
+     ("Arguments: references only"). Residual: update arguments are checked as
+     decoded, so what the handler's decoding drops is recorded unchecked
+     (TODO-010, Low).
+   - **Test:** `TestCI7_ActivityPayloadWithRecordDataNotRecorded`, which lands
+     with TICK-216. Its code is on branch `security/tick-86-ci7-gap-tests`,
+     together with the `ci7.activity` branch of `relayProbe`.
+
+Neither finding lets tenant A reach tenant B's data. Both are R1 creep, which is
+what CI-7 exists to catch. CI-7 is partly met at T32b: three of its five cases
+are here, and the other two are acceptance criteria of TICK-214 and TICK-216
+(Technical Lead decision, TICK-86). TICK-214 adds the fourth; TICK-216's is
+still open.
+
+### Remaining history-write paths (TICK-245, T32h)
+
+TICK-216 checks activity, local-activity, child, continue-as-new and update
+arguments. Workflow code can also write to its own history in the ways below.
+No production workflow uses any of them yet. The Security & Multi-Tenancy
+Reviewer triaged each path on TICK-245 (rules and severities below). None lets
+tenant A read tenant B's data; each is R1 creep into tenant A's own history.
+
+| # | Path (event) | Severity | Status | Rule on deny (outcome `record_data`) | Proof |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Signal-external and signal-child argument (`SignalExternalWorkflowExecutionInitiated`) | Medium | **Guarded** | `argOK` before the command; nil allowed; `signal_external` | `TestCI7_SignalExternalPayloadWithRecordDataNotRecorded`, `TestCI7_SignalChildPayloadWithRecordDataNotRecorded`, `TestSignalArgsGuard` |
+| 2 | Memo (`StartChildWorkflowExecutionInitiated`, `WorkflowPropertiesModified`) | Low | **Guarded** | any non-empty memo; the platform needs no memo key; `child` or `memo` | `TestCI7_ChildMemoWithRecordDataNotRecorded`, `TestCI7_UpsertMemoWithRecordDataNotRecorded`, `TestChildMemoGuard`, `TestUpsertMemoGuard` |
+| 3 | Activity and local-activity result (`ActivityTaskCompleted`, local-activity marker) | Medium | **Guarded** | nil or `argOK`, else the guard error; `activity_result` | `TestCI7_ActivityResultWithRecordDataNotRecorded` (local activity; a regular one takes the same interceptor path), `TestActivityResultGuard` |
+| 4 | Workflow result (`WorkflowExecutionCompleted`) | Medium | **Guarded** | nil or `argOK`, else the workflow fails with the guard error; `workflow_result` | `TestCI7_WorkflowResultWithRecordDataNotRecorded`, `TestWorkflowResultGuard` |
+| 5 | Update result (`WorkflowExecutionUpdateCompleted`) | Low | **Guarded** | as #3; `update_result` | `TestCI7_UpdateResultWithRecordDataNotRecorded`, `TestUpdateResultAndFailureGuard` |
+| 6 | `SideEffect` value (`MarkerRecorded`) | Low | **Guarded** | nil, a canonical UUID, an RFC3339 time, a number, a bool or `argOK`; otherwise the marker holds a fixed sentinel and `Get` returns the guard error, so a replay reads the same decision; `side_effect`. **`MutableSideEffect` is denied outright** (`not_allowed`, `f` never runs): a sentinel cannot work there, because the SDK decodes the recorded value into the new value's type and panics on a mismatch. Nothing uses it. | `TestCI7_SideEffectWithRecordDataNotRecorded`, `TestSideEffectGuard`, `TestSideEffectValueOK` |
+| 7 | Failure text: activity, workflow and update errors (`*Failed` events, message, details, type) | Medium | **Guarded** | Async completion and the activity and child wrappers (no public constructor) pass. A cancel error keeps only the details `argOK` accepts, and loses any message or cause set through `NewCanceledErrorWithOptions` (finding 1b); a timeout error keeps its type, its cause checked by the same rule and only the heartbeat details `argOK` accepts (security review finding 1: both have public constructors). An `ApplicationError` of an allowed type (`nava.TenantGuard`, `nava.WorkflowRefNotFound`; messages are constants or ids, a review rule) with no cause keeps its message and type and only the details `argOK` accepts. Anything else becomes `nava.Opaque` with fixed text and the same non-retryable flag. An activity panic is recovered and withheld, with no value or stack. `activity_failure`, `workflow_failure`, `update_failure` | `TestCI7_ActivityFailureWithRecordDataNotRecorded`, `TestCI7_WorkflowFailureWithRecordDataNotRecorded`, `TestCI7_UpdateResultWithRecordDataNotRecorded`, `TestActivityFailureWithheld`, `TestWorkflowFailureWithheld`, `TestRecordablePassesSDKErrors`, `TestRecordableChecksCancelAndTimeoutContent`, `TestCI7_CanceledDetailsWithRecordDataNotRecorded` |
+| 7a | Workflow panic (`WorkflowTaskFailed`: value and stack) | Low | **Not guarded: review rule** | Recovering it in the guard would turn a task retry into a workflow failure. Rule: workflow code never panics with a value built from data. AR-042. Revisit at the first feature workflow | doc only |
+| 8 | Activity heartbeat details (pending info, timeout failure) | Low | **Not guarded: outside this contract**, TODO-012 | proposed: `argsOutcome(details)`; on a deny, heartbeat with no details and alert | none yet |
+| 9 | User metadata (summary and details on scheduled, timer, child and marker events) | Low | **Not guarded: outside this contract**, TODO-013 | proposed: deny any non-empty summary or details, except the SDK's own timer summary `AwaitWithTimeout` | none yet |
+| — | Query results | — | Out of scope | not recorded in history | — |
+| — | Converter drift: `argOK` checks one encoding, the worker records another | — | **Guarded** | `ConfigureClient` sets `workerguard.DataConverter` and the SDK's default `FailureConverter` on every client; `forbidigo` rejects `workflow.WithDataConverter` | `TestConfigureClientUsesTheGuardsDataConverter`, lint fixture `dataconverter.go` |
+
+**Withheld failures are logged by shape, not text.** The triage asked for
+the original error in the worker log. The house observability rule is "log
+ids and shapes, not contents", and the text is exactly what may hold record
+data, so the guard logs `error_shape` (the Go types of the chain and any
+`ApplicationError` type, for example
+`*fmt.wrapError / *internal.ApplicationError[nava.TenantGuard]`) next to the
+`alert=true` deny line, with the workflow, run and activity ids. The Security
+& Multi-Tenancy Reviewer accepted this on the PR #200 review, and also
+accepted denying `MutableSideEffect` outright (revisit at its first caller).
+
+**Allowed types are strings.** Workflow code can build
+`temporal.NewApplicationError(text, "nava.TenantGuard")` and its message passes
+as is. A review rule covers it today (AR-044).
+
+**Retry types.** A withheld failure has type `nava.Opaque`, so a
+`RetryPolicy.NonRetryableErrorTypes` entry naming the original type no longer
+matches it (AR-043). The non-retryable flag is kept.
+
+**Backstop (follow-up, not in TICK-245):** the Authorizer already inspects
+every command (`temporal-server/authz/commands.go`). It could deny
+`ModifyWorkflowProperties`, a `StartChildWorkflowExecution` with a memo, and
+any command with non-empty `user_metadata` (apart from the SDK constant), so a
+worker without the guard still cannot write a memo or a summary.

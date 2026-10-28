@@ -46,11 +46,12 @@ func TestRunNeedsTemporalAndDatabase(t *testing.T) {
 func TestRunTLSErrorsNameTheVariable(t *testing.T) {
 	dir := t.TempDir()
 	env := map[string]string{
-		"NAVA_TEMPORAL_ADDRESS":       "127.0.0.1:1",
-		"NAVA_DATABASE_URL":           "postgres://nava_relay@127.0.0.1:1/nava",
-		"NAVA_TEMPORAL_TLS_CERT_FILE": filepath.Join(dir, "secret-name.pem"),
-		"NAVA_TEMPORAL_TLS_KEY_FILE":  filepath.Join(dir, "secret-name.key"),
-		"NAVA_TEMPORAL_TLS_CA_FILE":   filepath.Join(dir, "ca.pem"),
+		"NAVA_TEMPORAL_ADDRESS":         "127.0.0.1:1",
+		"NAVA_DATABASE_URL":             "postgres://nava_relay@127.0.0.1:1/nava",
+		"NAVA_TEMPORAL_TLS_CERT_FILE":   filepath.Join(dir, "secret-name.pem"),
+		"NAVA_TEMPORAL_TLS_KEY_FILE":    filepath.Join(dir, "secret-name.key"),
+		"NAVA_TEMPORAL_TLS_CA_FILE":     filepath.Join(dir, "ca.pem"),
+		"NAVA_TEMPORAL_TLS_SERVER_NAME": "temporal",
 	}
 	err := run(t.Context(), lookup(env), &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "NAVA_TEMPORAL_TLS_CERT_FILE") || strings.Contains(err.Error(), "secret-name") {

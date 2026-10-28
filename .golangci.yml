@@ -50,6 +50,12 @@ linters:
         - pattern: ^otelpgx\.WithIncludeQueryParameters$
           pkg: ^github\.com/exaring/otelpgx$
           msg: query parameters must not reach spans; db.NewPool traces without them
+        # The worker guard checks arguments as workerguard.DataConverter
+        # encodes them; a per-context converter would record a different
+        # encoding from the one checked (TICK-245). The guard cannot see it.
+        - pattern: ^workflow\.WithDataConverter$
+          pkg: ^go\.temporal\.io/sdk/workflow$
+          msg: workflow code uses the client's converter (workerguard.DataConverter), never its own
     sloglint:
       attr-only: true # slog.String(...) attributes, never loose key/value pairs
       context: all # *Context methods only, so every line carries the request ids

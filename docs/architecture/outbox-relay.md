@@ -22,7 +22,10 @@ flowchart TD
   a capped tenant is logged with tenant_id"]
   W --> P["picked: per tenant at most 2 rows with no lower pending target_seq
   on their target, FOR UPDATE SKIP LOCKED"]
-  P --> X{"attempted before and created_at older than 24 h?"}
+  P --> S["stranded: window full and fewer than 2 picked: the rest from heads
+  of the window's targets that sort outside it (a lease that ended unsettled)"]
+  P --> X
+  S --> X{"attempted before and created_at older than 24 h?"}
   X -->|yes| XD["dead_at = now(), last_error set, not returned"]
   X -->|no| L["lease: available_at = now() + Lease, attempts + 1"]
   L --> D{T30b dispatch}
@@ -41,7 +44,11 @@ flowchart TD
   C[Claim] --> V{"target_key is &lt;kind&gt;:&lt;uuid&gt;
   and kind valid?"}
   V -->|no| DI["MarkDead: CauseInvalidTarget"]
-  V -->|yes| DL{"before the dispatch deadline
+  V -->|yes| P{"payload references only?
+  (outbox.ValidatePayload)"}
+  P -->|no| DP["MarkDead: CauseInvalidPayload
+  + outbox_relay_payload_refused"]
+  P -->|yes| DL{"before the dispatch deadline
   (claim + Lease/2)?"}
   DL -->|no| BL["Backoff: CauseLeaseTooShort"]
   DL -->|yes| K{IsStart?}
@@ -69,6 +76,13 @@ flowchart TD
   the target workflow's start key, copied from `workflow_ref`. Neither part
   can hold free text, so no workflow id carries PII. Any other form is marked
   dead without a Temporal call.
+- **Payload check (T32b finding 1, second line; TICK-215).** Before any start
+  or signal the dispatcher runs `outbox.ValidatePayload`, the rule `Enqueue`
+  applies. A row that fails it (record data written around `Enqueue`) is
+  marked dead at once with `CauseInvalidPayload`, never retried and never sent
+  to Temporal. The alert is an error log with `alert=true` and the outbox id,
+  plus `outbox_relay_payload_refused_total`. Neither the validation error nor
+  any payload text is logged, stored or put on the span.
 - **Input.** One argument, `outbox.Delivery`: `outbox_id` (the signal dedupe
   key, I7), `kind_version`, `causation_id`, `causation_depth` and `payload`
   (references only, CI-7).
@@ -94,12 +108,18 @@ flowchart TD
   with a link to the producer's `traceparent` and carries `nava.outbox_id`.
   The SDK's child span adds the workflow and run id. The `_tracer-data` header
   holds only `traceparent` (and `tracestate`); baggage is off.
+  A failed call sets the dispatch span's status to Error with the gRPC code
+  as `error.type` and description. The SDK child span records the full
+  error message (`exception.message`, status description); the export filter
+  in `internal/platform/telemetry` drops both, so no error text is exported
+  (TICK-191, `TestDispatchErrorTextNeverReachesASpan`).
 - **Metrics** (no tenant or workflow attribute):
   `outbox_relay_dispatches_total{op, outcome}`, where `outcome` is one of
   `dispatched`, `already_started`, `target_missing`, `invalid_target`,
-  `backoff`, `dead`, `lease_lost` and `settle_failed`. The alert metric is
-  `outbox_relay_signal_target_missing_total`; the workflow id is in its log
-  line. `nava-relay` serves `/metrics`, `/healthz` and `/readyz` on
+  `invalid_payload`, `backoff`, `dead`, `lease_lost` and `settle_failed`. The
+  alert metrics are `outbox_relay_signal_target_missing_total` and
+  `outbox_relay_payload_refused_total`; the workflow and outbox ids are in
+  their log lines. `nava-relay` serves `/metrics`, `/healthz` and `/readyz` on
   `NAVA_ADMIN_ADDR` (PostgreSQL and Temporal gate readiness).
 
 ### Crash seam (for T33)
@@ -147,9 +167,17 @@ same `StdinPause` in a subprocess.
   and NUL, which PostgreSQL would reject, and cut to 1000 bytes.
 - **Grants.** The relay never reads `last_error` or `dedupe_key`, and
   `outbox_relay_update` lets it touch only pending rows.
+- **A head whose lease ended is found again** (TICK-248). A claim moves the
+  head's `available_at` to the lease end and leaves its successors where they
+  are, so after a relay crash or `settle_failed` the head sorts behind them.
+  When a tenant's window is full and `picked` found fewer than 2 rows, the
+  `stranded` step takes the rest from the heads of the window's targets that
+  sort outside the window: one `outbox_pending_target` probe per target, at
+  most 200, only for that tenant. Pushing successors at claim, as Backoff
+  does, was rejected: a target would then drain one row per lease.
 - **Accepted worst cases** (decision log, 2026-10-25). A leased head is not
   backing off, so its available successors can fill the tenant's 200-row
-  window until it settles; T33's flood test covers it. A poll has no limit on
+  window until the lease ends (AR-027); T33's flood test covers it. A poll has no limit on
   tenants; revisit if T33 shows poll latency growing with the tenant count.
 
 ## Tests

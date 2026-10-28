@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
@@ -37,6 +38,10 @@ const (
 	// CauseInvalidTarget is a row whose target_key or kind is not in the only
 	// form the relay dispatches (TICK-94 item 3).
 	CauseInvalidTarget = "relay: target_key is not <kind>:<uuid>"
+	// CauseInvalidPayload is a row whose payload is not references only
+	// (outbox.ValidatePayload, CI-7): record data written outside Enqueue
+	// (T32b finding 1, second line). It never reaches Temporal.
+	CauseInvalidPayload = "relay: payload is not references only"
 	// CauseLeaseTooShort is a row the poll claimed but reached only after its
 	// dispatch deadline.
 	CauseLeaseTooShort = "relay: dispatch deadline passed before the temporal call"
@@ -58,6 +63,7 @@ const (
 	outcomeAlreadyStarted = "already_started"
 	outcomeTargetMissing  = "target_missing"
 	outcomeInvalidTarget  = "invalid_target"
+	outcomeInvalidPayload = "invalid_payload"
 	outcomeBackoff        = "backoff"
 	outcomeDead           = "dead" // Backoff found the row MaxRedeliveryAge old
 	outcomeLeaseLost      = "lease_lost"
@@ -96,6 +102,7 @@ type Dispatcher struct {
 
 	dispatches metric.Int64Counter
 	missing    metric.Int64Counter
+	refused    metric.Int64Counter
 
 	// beforeStart runs after the claim and before each StartWorkflow call. It
 	// is the crash seam (T33): a no-op unless the binary is built with the
@@ -126,10 +133,15 @@ func NewDispatcher(r *Relay, tc Temporal, tp trace.TracerProvider, mp metric.Met
 	if err != nil {
 		return nil, err
 	}
+	refused, err := meter.Int64Counter("outbox_relay_payload_refused",
+		metric.WithDescription("Outbox rows marked dead because their payload is not references only (CI-7). Alert on any increase; the outbox id is in the log line, not here."))
+	if err != nil {
+		return nil, err
+	}
 	return &Dispatcher{
 		relay: r, temporal: tc, log: log, opts: opts,
 		tracer:     tp.Tracer("github.com/Navaladi2019/TicketingSystem/internal/relay"),
-		dispatches: dispatches, missing: missing,
+		dispatches: dispatches, missing: missing, refused: refused,
 		beforeStart: crashSeam, now: time.Now,
 	}, nil
 }
@@ -212,6 +224,12 @@ func (d *Dispatcher) dispatch(ctx context.Context, c Claimed, deadline time.Time
 		return
 	}
 	log = log.With(slog.String("workflow_id", workflowID))
+	// The same rule Enqueue applies, so a row written around it (T32b finding
+	// 1) is never sent. The error is not logged: it names a payload field.
+	if outbox.ValidatePayload(c.Payload) != nil {
+		d.settle(ctx, log, c, op, outcomeInvalidPayload, CauseInvalidPayload)
+		return
+	}
 	if !d.now().Before(deadline) {
 		d.settle(ctx, log, c, op, outcomeBackoff, CauseLeaseTooShort)
 		return
@@ -229,6 +247,14 @@ func (d *Dispatcher) dispatch(ctx context.Context, c Claimed, deadline time.Time
 		err = d.temporal.SignalWorkflow(tctx, workflowID, "", c.Kind, delivery)
 	}
 	outcome, cause := classify(op, err)
+	if err != nil && outcome != outcomeAlreadyStarted {
+		// The span carries the gRPC code, never the message. The SDK's child
+		// span records the message too; the export filter drops it there
+		// (TICK-191).
+		code := errorCode(err)
+		span.SetAttributes(attribute.String("error.type", code))
+		span.SetStatus(codes.Error, code)
+	}
 	if outcome == outcomeBackoff {
 		// The error's message is not logged: Temporal and SDK errors can
 		// quote a payload. Its gRPC code is.
@@ -246,7 +272,7 @@ func (d *Dispatcher) settle(ctx context.Context, log *slog.Logger, c Claimed, op
 	switch outcome {
 	case outcomeDispatched, outcomeAlreadyStarted:
 		err = d.relay.MarkDispatched(sctx, c)
-	case outcomeTargetMissing, outcomeInvalidTarget:
+	case outcomeTargetMissing, outcomeInvalidTarget, outcomeInvalidPayload:
 		err = d.relay.MarkDead(sctx, c, cause)
 	default:
 		var dead bool
@@ -272,6 +298,10 @@ func (d *Dispatcher) settle(ctx context.Context, log *slog.Logger, c Claimed, op
 		log.ErrorContext(ctx, "outbox signal target workflow not found or completed; row marked dead")
 	case outcomeInvalidTarget:
 		log.ErrorContext(ctx, "outbox row target_key is not <kind>:<uuid>; row marked dead")
+	case outcomeInvalidPayload:
+		d.refused.Add(ctx, 1)
+		log.ErrorContext(ctx, "outbox row payload is not references only; row marked dead without a temporal call",
+			slog.Bool("alert", true))
 	case outcomeDead:
 		log.ErrorContext(ctx, "outbox row passed its max redelivery age and was marked dead", slog.String("cause", cause))
 	case outcomeBackoff:
