@@ -2,6 +2,13 @@
 
 Delivery decisions that change a task's contract, newest first.
 
+## 2026-10-28: PLAN-002-E1 implements ADR-002-E1 as one task, TICK-302, under S5
+- **Decided by:** the Technical Lead on TICK-301 (`docs/delivery/plan-adr-002-e1.md`).
+- **Decision:** ADR-002-E1 ships as TICK-302 (`qa`, reviewed by the Security & Multi-Tenancy Reviewer). It waits in `backlog` until nava signs TICK-272. It targets the S5 story branch, because the `api.go` exclusion exists only there, so `main` never carries R-b. TICK-302, TICK-298 and TICK-300 all edit `internal/server/api.go`; whichever merges second rebases. `docs/security/accepted-risks.md` stays with PR #225, which adds AR-039.
+- **Fallback:** if TICK-272 is still unsigned when every other S5 task is `done`, TICK-302 leaves S5 and targets `main` after S5 merges, so S5 acceptance is not held up.
+- **Deferred:** the `navalint` `grouppaths` analyzer (R-e). Trigger: a second `forbidigo` waiver is needed, or the directive line is moved once. Owner: the Solution Architect.
+- **Dissent:** none.
+
 ## 2026-10-27: PLAN-002 implements ADR-002 as one task, TICK-268
 - **Decided by:** the Technical Lead on TICK-270 (`docs/delivery/plan-adr-002.md`).
 - **Decision:** ADR-002 ships as TICK-268 (`backend-dev`, under S5). It restarts from the story branch, because commit `62d604e` changed `groups` itself and is not the design. The S5 explainer's section 10 moves from TICK-268 to the acceptance kit (PR #187), so no two open PRs share that file. AC5's new entry in `registry.go` needs CTO sign-off, which ADR §6 did not list; the implementer asks for it on TICK-268. TICK-268 and TICK-265 both touch `groupsync/apply.go` and run in parallel; whichever merges second rebases.
