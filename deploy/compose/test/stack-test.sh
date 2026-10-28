@@ -502,7 +502,11 @@ t_temporal_health() {
 # TICK-328 (R4): restart PostgreSQL. Keycloak must issue tokens again within
 # RECOVER_SECONDS (90) with no restart of its own, and /healthz must not report
 # keycloak ok while issuance fails: a sample counts when issuance failed just
-# before it and just after it. Issuance is a client_credentials grant for
+# before it and just after it, and had been failing for more than
+# STALE_SECONDS (5). /healthz serves the last probe round, which lags by up to
+# the round interval plus the probe timeout (1 s + 2 s, health.Options), so a
+# sample in the first seconds after the restart can still be the round before
+# it. Issuance is a client_credentials grant for
 # nava-platform (dev secret from the realm import), sent from nava-core's
 # container.
 issue_code() { # HTTP status of a token request; empty when none came back
@@ -515,14 +519,16 @@ t_keycloak_restart() {
     compose restart postgres
     start=$(date +%s)
     deadline=$(( start + ${RECOVER_SECONDS:-90} ))
+    failing_since=
     while :; do
         before=$(issue_code)
         [ "$before" != 200 ] || break
+        [ -n "$failing_since" ] || failing_since=$(date +%s)
         healthz_ok=0
         admin_get /healthz | grep -q '"keycloak":"ok"' && healthz_ok=1
         after=$(issue_code)
         [ "$after" != 200 ] || break
-        [ "$healthz_ok" = 0 ] || fail "/healthz reported keycloak ok while token issuance failed (HTTP ${before:-none}, then ${after:-none})"
+        [ "$healthz_ok" = 0 ] || [ $(( $(date +%s) - failing_since )) -le "${STALE_SECONDS:-5}" ] || fail "/healthz reported keycloak ok while token issuance failed (HTTP ${before:-none}, then ${after:-none})"
         [ "$(date +%s)" -lt "$deadline" ] || fail "no token ${RECOVER_SECONDS:-90}s after the PostgreSQL restart (last HTTP ${after:-none})"
         sleep 1
     done
