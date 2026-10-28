@@ -17,7 +17,7 @@
 --
 -- Both statements are catalogue changes under a short ACCESS EXCLUSIVE lock
 -- (3 ms on the 519,000-row identity bench). The CHECK is NOT VALID here and
--- validated by 00007 under SHARE UPDATE EXCLUSIVE, which blocks neither reads
+-- validated by 00009 under SHARE UPDATE EXCLUSIVE, which blocks neither reads
 -- nor writes: validating here would hold ACCESS EXCLUSIVE for the whole scan,
 -- 95-143 ms over four runs on the bench, and growing with the table
 -- (docs/data/principal-tombstone.md). New and updated rows are checked from

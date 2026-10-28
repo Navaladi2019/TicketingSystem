@@ -294,7 +294,7 @@ func TestT220PrincipalTombstone(t *testing.T) {
 	seedTenants(t, super, []string{tenantA}, nil)
 	seedIdentity(t, super, tenantA)
 	if !queryBool(t, super, "SELECT convalidated FROM pg_constraint WHERE conname = 'principals_tombstone_check'") {
-		t.Error("principals_tombstone_check is not validated after 00007")
+		t.Error("principals_tombstone_check is not validated after 00009")
 	}
 	exec(t, super, `CREATE TABLE t220_ref (
 		tenant_id uuid NOT NULL, principal_id uuid NOT NULL,
