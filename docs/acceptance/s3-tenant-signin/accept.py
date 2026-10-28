@@ -26,17 +26,15 @@ import urllib.request
 
 CORE = "http://127.0.0.1:%s" % os.environ.get("NAVA_CORE_PORT", "18080")
 KC = "http://127.0.0.1:%s" % os.environ.get("KEYCLOAK_PORT", "18081")
-# nava-core trusts exactly http://keycloak:8080/realms/nava. Keycloak names
-# the issuer after the request host (KC_HOSTNAME_STRICT=false), so a token
-# fetched with this Host header is the one the platform accepts; the same
-# request without it gets issuer http://127.0.0.1:<port>/realms/nava, which
-# is not on the allow-list.
-TRUSTED_HOST = "keycloak:8080"
+# nava-core trusts exactly one issuer: KEYCLOAK_PUBLIC_URL + /realms/nava, the
+# same value compose.yaml gives Keycloak (KC_HOSTNAME) and NAVA_OIDC_ISSUERS
+# (TICK-160). Keycloak pins `iss` to it whatever Host the request carries.
+PUBLIC_URL = os.environ.get("KEYCLOAK_PUBLIC_URL", "http://localhost:18081").rstrip("/")
 ADMIN_PASSWORD = os.environ.get("KEYCLOAK_ADMIN_PASSWORD", "dev-only-admin")
 
 TENANT_A = "00000000-0000-4000-8000-0000000000a1"
 TENANT_B = "00000000-0000-4000-8000-0000000000b1"
-ISSUER = "http://keycloak:8080/realms/nava"
+ISSUER = PUBLIC_URL + "/realms/nava"
 
 USERS = {
     "alice@tenant-a.test": ("dev-only-alice", TENANT_A),
@@ -82,7 +80,7 @@ def show_claims(tok):
     return json.dumps(keep, sort_keys=True)
 
 
-def token(user, password, host=TRUSTED_HOST, realm="nava", client="nava-web", scope="openid"):
+def token(user, password, host=None, realm="nava", client="nava-web", scope="openid"):
     st, _, b = http("POST", "%s/realms/%s/protocol/openid-connect/token" % (KC, realm),
                     headers={"Host": host} if host else None,
                     form={"grant_type": "password", "client_id": client, "username": user,
@@ -267,13 +265,14 @@ def main():
     out("\n## Criterion 3: an ID token used as an access token, and a token from an issuer not on the allow-list, are rejected")
     out("  alice ID token claims: " + show_claims(alice["id_token"]))
     expect_401("ID token as bearer -> 401 invalid_token", alice["id_token"], "invalid_token", "audience")
-    foreign = token("alice@tenant-a.test", "dev-only-alice", host=None)["access_token"]
-    out("  untrusted-issuer token claims: " + show_claims(foreign))
-    expect_401("same realm, issuer http://127.0.0.1:<port>/realms/nava (not allow-listed) -> 401 invalid_token",
-               foreign, "invalid_token", "issuer")
-    master = token("admin", ADMIN_PASSWORD, realm="master", client="admin-cli", host=TRUSTED_HOST)["access_token"]
+    # Since TICK-160 the issuer is pinned: a request for the same realm under
+    # another Host still yields the one trusted issuer, so it is accepted.
+    other_host = token("alice@tenant-a.test", "dev-only-alice", host="other.invalid")["access_token"]
+    out("  other-Host token claims: " + show_claims(other_host))
+    expect_me("same realm via another Host keeps the pinned issuer %s -> tenant A" % ISSUER, other_host, TENANT_A, alice_groups)
+    master = token("admin", ADMIN_PASSWORD, realm="master", client="admin-cli")["access_token"]
     out("  master-realm token claims: " + show_claims(master))
-    expect_401("realm master, issuer http://keycloak:8080/realms/master -> 401 invalid_token", master, "invalid_token", "issuer")
+    expect_401("realm master (a different issuer) -> 401 invalid_token", master, "invalid_token", "issuer")
 
     out("\n## Cross-tenant: a tenant B user gets tenant B and never sees tenant A data")
     b_tok = bob["access_token"]

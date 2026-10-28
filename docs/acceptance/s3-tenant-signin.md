@@ -29,14 +29,14 @@ Needs Docker, Go 1.26 (for `make dev-ca`) and Python 3, from the repository root
    It ends with `result: PASS`. It prints decoded token claims and each API response, but never a token.
 3. Optional, by hand: get Alice's token and call the API.
    ```sh
-   TOKEN=$(curl -s -H 'Host: keycloak:8080' http://127.0.0.1:18081/realms/nava/protocol/openid-connect/token \
+   TOKEN=$(curl -s "${KEYCLOAK_PUBLIC_URL:-http://localhost:18081}/realms/nava/protocol/openid-connect/token" \
      -d grant_type=password -d client_id=nava-web -d scope=openid \
      -d username=alice@tenant-a.test -d password=dev-only-alice | python -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
    curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:18080/api/v1/me
    curl -s -H "Authorization: Bearer $TOKEN" -H 'X-Tenant-Id: 00000000-0000-4000-8000-0000000000b1' \
      'http://127.0.0.1:18080/api/v1/me?tenant_id=00000000-0000-4000-8000-0000000000b1'
    ```
-   Both calls show `"tenant_id":"00000000-0000-4000-8000-0000000000a1"` (tenant A). The `Host: keycloak:8080` header matters: the platform trusts only the issuer `http://keycloak:8080/realms/nava`. Leave the header out and the same call returns 401 (criterion 3).
+   Both calls show `"tenant_id":"00000000-0000-4000-8000-0000000000a1"` (tenant A). The platform trusts only the pinned issuer `${KEYCLOAK_PUBLIC_URL}/realms/nava` (default `http://localhost:18081/realms/nava`), which Keycloak puts in every token whatever the request Host.
 4. Clean up: `docker compose down -v`.
 
 Seeded users, all with dev-only passwords from `deploy/compose/keycloak/import/realm-nava.json`: `alice@tenant-a.test` and `admin@tenant-a.test` (tenant A), `bob@tenant-b.test` (tenant B). The script also creates `carol@two-orgs.test` (in both organizations) and `dave@no-org.test` (in none).
@@ -57,13 +57,13 @@ The full transcript of the run is [`s3-tenant-signin/transcript.txt`](s3-tenant-
 
 ### Seed
 
-Tenants A (`...a1`) and B (`...b1`) are `active`. Each is bound to its Keycloak organization under the issuer `http://keycloak:8080/realms/nava`. The tenant id is the organization id, as the realm file fixes. Alice, admin-a and Bob are principals with their Keycloak user ids and groups: Alice is in `/t/<A>/ou/eng/platform`, Bob in `/t/<B>/ou/eng/platform`, and admin-a in none.
+Tenants A (`...a1`) and B (`...b1`) are `active`. Each is bound to its Keycloak organization under the pinned issuer `${KEYCLOAK_PUBLIC_URL}/realms/nava`. The tenant id is the organization id, as the realm file fixes. Alice, admin-a and Bob are principals with their Keycloak user ids and groups: Alice is in `/t/<A>/ou/eng/platform`, Bob in `/t/<B>/ou/eng/platform`, and admin-a in none.
 
 In production, onboarding (T15) and group sync (T25) write these rows. Neither runs as a compose service yet, so the script writes them as the bootstrap superuser. See Known limits.
 
 ### Criterion 1
 
-Alice's access token has `iss http://keycloak:8080/realms/nava`, `aud nava-api`, `typ Bearer`, `azp nava-web` and `organization {"tenant-a": {"id": "...a1"}}`.
+Alice's access token has `iss ${KEYCLOAK_PUBLIC_URL}/realms/nava`, `aud nava-api`, `typ Bearer`, `azp nava-web` and `organization {"tenant-a": {"id": "...a1"}}`.
 
 ```
 GET /api/v1/me   (Alice)
@@ -99,8 +99,8 @@ The reason was matched to each response through its request id in the `nava-core
 | Token | Claims | Response | Logged reason |
 |---|---|---|---|
 | Alice's **ID token** as the bearer | `typ ID`, `aud nava-web` | 401 `invalid_token` | `audience` |
-| Alice's access token from the same realm, fetched without the `Host` header | `iss http://127.0.0.1:18081/realms/nava`, otherwise a valid tenant A token | 401 `invalid_token` | `issuer` |
-| Keycloak admin token, realm `master` | `iss http://keycloak:8080/realms/master` | 401 `invalid_token` | `issuer` |
+| Alice's access token from the same realm, fetched under another `Host` | the pinned `iss` (TICK-160), a valid tenant A token | 200, tenant A | n/a |
+| Keycloak admin token, realm `master` | `iss ${KEYCLOAK_PUBLIC_URL}/realms/master` | 401 `invalid_token` | `issuer` |
 
 On the stack, Keycloak gives an ID token the client's audience. The audience check therefore refuses it before the `typ` check runs. The `typ` check alone is covered by `TestIDTokenRejected` and the table cases `typ ID (an ID token)`, `typ Refresh` and `no typ` in `internal/identity/keycloak/keycloak_test.go`, where a token with `aud nava-api` and `typ ID` is still refused.
 
@@ -121,5 +121,5 @@ On the stack, Keycloak gives an ID token the client's audience. The audience che
 ## Known limits
 
 - **There is no seed command yet.** Bindings and principals are written as the bootstrap superuser by `accept.py`. In production, onboarding (T15) and group sync (T25) write them. Until group sync runs in compose, a Keycloak user who has not been synced gets 401 `tenant_unresolved` (`principal not synced`), even when their organization is bound. That fails closed. A seed target for the local stack would make "Try it" one command; if you want one, say so and the Technical Lead will file it.
-- **The trusted issuer is the in-network Keycloak name.** A token fetched from the host through `127.0.0.1:18081` has a different `iss` and is refused, which is the point of criterion 3. To get a usable token from the host, send `Host: keycloak:8080`, as in "Try it".
+- **The trusted issuer is pinned to `KEYCLOAK_PUBLIC_URL`** (TICK-160). Every token carries it whatever Host fetched it, so no `Host` header is needed. A token from another realm is still refused.
 - The fresh stack took 220 s to become healthy on this host. That is above S1's 180 s CI gate, which this story does not change.
