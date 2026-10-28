@@ -44,7 +44,7 @@ GOVULNCHECK_VERSION := v1.9.0
 
 .PHONY: build run test test-integration test-integration-cleanup reap-integration bench-relay isolation lint generate check-generate check-openapi check-ci-steps
 .PHONY: demo-outbox stack-test-demo_outbox
-.PHONY: ci ci-isolated ci-changed ci-stages ci-isolated-down test-ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity identity-attacks identity-attacks-fixture stack-test-onboard stack-idp-realms stack-test-worker 	image image-ci stack-up stack-down stack-logs stack-internal stack-internal-beside stack-main ci-stack-run stack-tests smoke
+.PHONY: ci ci-isolated ci-changed ci-stages ci-isolated-down test-ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet vet-tags lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity identity-attacks identity-attacks-fixture stack-test-onboard stack-idp-realms stack-test-worker 	image image-ci stack-up stack-down stack-logs stack-internal stack-internal-beside stack-main ci-stack-run stack-tests smoke
 
 build:
 	go build -o bin/nava-core ./cmd/nava-core
@@ -178,7 +178,7 @@ ci-isolated-down:
 test-ci-isolated-down:
 	sh scripts/ci/test-ci-isolated-down.sh
 
-ci-lint: check-tools fmt-check vet lint lint-fixture check-taskfile check-pins check-generate check-ci-steps check-openapi vulncheck-ci
+ci-lint: check-tools fmt-check vet vet-tags lint lint-fixture check-taskfile check-pins check-generate check-ci-steps check-openapi vulncheck-ci
 
 ci-unit: test temporal-server-test
 
@@ -256,6 +256,14 @@ fmt-check:
 
 vet:
 	go vet ./...
+
+# go vet once per build-tag set the Go files use (TICK-320): make vet builds
+# untagged files only, so a broken //go:build identitystack && acceptance file
+# went unnoticed on main (TICK-286 finding 4). The sets come from the
+# //go:build lines (tools/ci/buildtags), so a new tag needs no edit here.
+vet-tags:
+	go run ./tools/ci/buildtags
+	go run ./tools/ci/buildtags -dir temporal-server
 
 lint-fixture:
 	sh scripts/ci/lint-fixture.sh
