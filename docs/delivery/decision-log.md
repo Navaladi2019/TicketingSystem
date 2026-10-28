@@ -2,6 +2,65 @@
 
 Delivery decisions that change a task's contract, newest first.
 
+## 2026-10-28: migration order is checked against `main`, not the pull request's base
+- **Decided by:** the Technical Lead on TICK-309, after PR #244 (TICK-281/TICK-284) went red only on `TestNewMigrationsLaterThanBase`.
+- **Decision:** every pull request, including one into a story branch, checks its migrations against `origin/main`. A migration is new when `main` does not have it, and it must be later than `main`'s newest version. The ci `unit` job sets `BASE=origin/main` for every event, no longer `github.base_ref`. The invariant (TICK-299) protects databases that applied shipped migrations, and only `main` ships.
+- **Allowed:** a story renumbers its own unshipped migrations (S5: `00008`–`00010` → `00010`–`00012`).
+- **Accepted risk:** a long-lived database built from a story branch must be rebuilt after the story renumbers its migrations.
+- **Unchanged:** `ci-stages`, `review-paths` and `check-openapi` still diff against the pull request's base.
+- **Dissent:** none.
+
+## 2026-10-28: Merge safety: `main` is protected and tested after every merge; shared files are split
+- **Decided by:** the Technical Lead on TICK-288 (`docs/delivery/merge-safety.md`), at the request of vknavaladi after S5 (PR #221) and S7 (PR #223) broke on late merges of `main`.
+- **Decision:**
+  - D1: `main` gets branch protection. Every `ci.yml` job is required, the branch must be up to date, and direct pushes are blocked. The owner applies it.
+  - D2: `ci.yml` runs on `push` to `main` and `TICK-*`, and a red `main` opens a P0 issue (TICK-289).
+  - D3: new migrations use timestamp versions, and `task test` fails on a duplicate or malformed version (TICK-290).
+  - D4–D7: `Makefile`, `api/openapi.yaml`, the shared doc tables and the stack tests are split so each story adds new files (TICK-293 to TICK-296).
+  - D8: the Technical Lead merges `main` into every open story branch after each merge to `main`.
+  - D9: a test checks that every token-validating service trusts the pinned issuer (TICK-291), and every landed story suite runs on `main` (TICK-292).
+  - Review standard: a PR merges only if it is green against the current tip of its base branch.
+- **Sequencing:** D1, TICK-289, TICK-290 and TICK-291 start now and do not touch `Makefile`. The splits wait for TICK-47 and TICK-49 to land, so that the split itself does not conflict with them.
+- **Supersedes:** the 2026-10-25 "no run on push to main" decision (its accepted trade-off is what let S5 and S7 break unseen; vknavaladi approved the change on TICK-288), and the 2026-10-26 deferral of branch protection on `main` (TICK-231 entry). Pull requests keep the change-based job selection. Story branches stay unprotected.
+- **Applied (2026-10-28):** protection is on `main` (the eight `ci.yml` jobs are required, the branch must be up to date, admins are included, no force pushes); the Technical Lead applied it with the owner's go-ahead on TICK-288. A new `ci.yml` job must be added to the required list in the same PR.
+- **Deferred:**
+  - Merge queue. Trigger: more than three PRs a day waiting on rebases.
+  - One file per entry for `todo.md` and `accepted-risks.md`. Trigger: a union merge produces a malformed table.
+- **Dissent:** none.
+
+## 2026-10-28: PLAN-002-E1 implements ADR-002-E1 as one task, TICK-302, under S5
+- **Decided by:** the Technical Lead on TICK-301 (`docs/delivery/plan-adr-002-e1.md`).
+- **Decision:** ADR-002-E1 ships as TICK-302 (`qa`, reviewed by the Security & Multi-Tenancy Reviewer). It waits in `backlog` until nava signs TICK-272. It targets the S5 story branch, because the `api.go` exclusion exists only there, so `main` never carries R-b. TICK-302, TICK-298 and TICK-300 all edit `internal/server/api.go`; whichever merges second rebases. `docs/security/accepted-risks.md` stays with PR #225, which adds AR-039.
+- **Fallback:** if TICK-272 is still unsigned when every other S5 task is `done`, TICK-302 leaves S5 and targets `main` after S5 merges, so S5 acceptance is not held up.
+- **Deferred:** the `navalint` `grouppaths` analyzer (R-e). Trigger: a second `forbidigo` waiver is needed, or the directive line is moved once. Owner: the Solution Architect.
+- **Dissent:** none.
+
+## 2026-10-27: a principal who leaves the directory is tombstoned, not deleted
+- **Decided by:** the Postgres & Data Modeling Specialist on TICK-220, on QA finding 2 of the T25 review (`docs/reviews/tick-78-groupsync-worker.md`, PR #121).
+- **Decision:** option 1, soft-delete. `principals.deleted_at` (migrations `00010_principal_tombstone.sql` and `00011_principal_tombstone_validate.sql`) marks a principal removed from the Keycloak directory. `CHECK (deleted_at IS NULL OR NOT enabled)` makes every tombstone disabled, so the resolver's existing `enabled` test refuses it with no new read. Group sync tombstones the principal (`enabled = false, deleted_at = now()`) and removes its memberships. It no longer deletes the row. A user who comes back keeps the same row and id, and sync clears `deleted_at`.
+- **Reason:**
+  - The tables coming next point at people: ticket reporter and assignee, comment author, audit actor. With option 2 they would need `CASCADE`, which deletes a ticket when its reporter leaves, or `SET NULL`, which erases who did what. Both are wrong for a ticketing system. With a tombstone they keep the default `NO ACTION` and the history stays intact.
+  - It is cheaper to reverse. Turning tombstones into hard deletes later is one `DELETE`. Rebuilding authorship after `SET NULL` cannot be done.
+  - Cost (`docs/data/principal-tombstone.md`, 519,000 principals, PostgreSQL 16.10):
+    - The migration holds ACCESS EXCLUSIVE for about 5 ms. The CHECK is validated in a separate migration that blocks nothing (86 to 172 ms).
+    - Removing 1,000 users from a 50,000-user tenant takes 90.1 ms as a tombstone, against 95.8 ms for a hard delete.
+    - A tombstone stays in the table, about 330 bytes with its index entries. No new index.
+- **Rejected:** option 2. A lint cannot tell an explicit `NO ACTION` from the default (`pg_constraint` stores both as `a`), and every allowed action loses ticket data.
+- **Contract (expand, then contract):**
+  1. This change: the column, the CHECK (validated in its own migration), and `deleted_at` in `nava_groupsync`'s `UPDATE` grant. Sync is unchanged and still correct.
+  2. A Senior Software Engineer task, filed from TICK-220: `applyPrincipals` tombstones instead of deleting. Its test is a table with a `NO ACTION` foreign key to `principals`, and sync still commits when that user leaves.
+  3. In the same PR as step 2: revoke `DELETE` on `principals` from `nava_groupsync` and drop `principals_delete`. Sync can then no longer hard-delete, even by mistake. `TestT16DeletesCascadeWithinTenant` and the cross-tenant `DELETE` probe in `TestT16TenantRowsInvisible` move to the tombstone.
+- **Rule for new tables:** a foreign key to `principals` keeps the default `NO ACTION`. Readers that list people filter `deleted_at IS NULL`. Readers that show history do not.
+- **Open, same hazard:** `applyGroups` and `applyOrgUnits` also hard-delete. Today nothing outside the identity tables references `groups` or `org_units`. Trigger: the first such foreign key, for example a ticket queue that points at a group. Give that table the same tombstone first.
+- **Deferred:** erasing a departed user's personal data (`email`) from the tombstone. Trigger: a right-to-erasure requirement, or a tenant asking for it.
+- **Dissent:** none.
+
+## 2026-10-27: PLAN-002 implements ADR-002 as one task, TICK-268
+- **Decided by:** the Technical Lead on TICK-270 (`docs/delivery/plan-adr-002.md`).
+- **Decision:** ADR-002 ships as TICK-268 (`backend-dev`, under S5). It restarts from the story branch, because commit `62d604e` changed `groups` itself and is not the design. The S5 explainer's section 10 moves from TICK-268 to the acceptance kit (PR #187), so no two open PRs share that file. AC5's new entry in `registry.go` needs CTO sign-off, which ADR §6 did not list; the implementer asks for it on TICK-268. TICK-268 and TICK-265 both touch `groupsync/apply.go` and run in parallel; whichever merges second rebases.
+- **Deferred:** the ACL-compiler test (TODO-013). Trigger: the first I5 ACL compiler PR.
+- **Dissent:** none.
+
 ## 2026-10-26: agents merge task PRs and close tasks; stories and ADRs stay with the human
 - **Decided by:** vknavaladi (workspace merge and close policy), recorded by the Technical Lead on TICK-243.
 - **Decision:**
@@ -9,6 +68,19 @@ Delivery decisions that change a task's contract, newest first.
   - **Story tasks and story → `main` PRs:** agents never merge or close them. Add the `MergePr` label to the issue and the PR; the human merges after replying `ACCEPTED`.
   - **ADRs, amendments and errata:** agents never merge or close them. Add `MergePr` after the human's sign-off; the human merges. The ADR still needs its `.md` and self-contained `.html` under `docs/adr/`.
 - **Supersedes:** any earlier "never merge the PR yourself" or "only the human sets a task `done`" instruction for task PRs.
+- **Dissent:** none.
+
+## 2026-10-26: Task PRs target story branches; branches are named `TICK-<no>/<description>`
+- **Decided by:** nava (human), on TICK-231. Written up by the Technical Lead in `docs/delivery/branching-strategy.md`.
+- **Decision:** the flow is task branch → story branch → `main`. Story branches start from `main` and the owner merges them after acceptance. Task PRs never target `main`.
+- **Technical Lead calls:**
+  - Open PRs #116, #126, #129 and #130 were retargeted to their story branches. Their `agent/...` head names stay, because renaming a PR's head branch closes the PR on GitHub.
+  - Who merges is settled by the TICK-243 entry above: agents merge task PRs into story branches, and the owner merges story → `main` PRs and ADRs.
+  - TICK-231 itself has no story, so it targets `main`.
+- **Addendum (owner, same day):** stories must not share files. A dependent story waits in `backlog` until the story it depends on has merged into `main`. A story → `main` PR needs: `main` merged into the story branch, a full CI re-run, a whole-diff review by the Principal Software Engineer (plus Security when tenant data, auth or ACLs are touched), QA's green CI and acceptance kit, and the list of files it changes.
+- **Deferred:**
+  - Branch protection on `main` and on story branches. Today nothing is protected. Owner: the CTO with the Quality, Testing & CI Advisor (TICK-232). The owner applies the settings.
+  - Deleting about 60 legacy branches. Trigger: the owner approves the cleanup.
 - **Dissent:** none.
 
 ## 2026-10-25: T27k classifies every id-shaped request field by a rule; the Authorizer gains D9h and closes D9g and D9c gaps

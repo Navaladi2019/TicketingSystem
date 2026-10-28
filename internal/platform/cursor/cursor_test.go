@@ -101,7 +101,10 @@ func TestWorkflowBinding(t *testing.T) {
 
 func TestClaimEncodingHasNoCollisions(t *testing.T) {
 	kr := ring(t, "k1", cursor.Key{ID: "k1", Secret: secret("a")})
-	tok, _ := kr.Encode(cursor.Claims{"tenant": "t", "a": "bc", "d": "e"}, []byte("p"))
+	tok, err := kr.Encode(cursor.Claims{"tenant": "t", "a": "bc", "d": "e"}, []byte("p"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, c := range []cursor.Claims{
 		{"tenant": "t", "a": "b", "cd": "e"}, {"tenant": "t", "ab": "c", "d": "e"}, {"tenant": "t", "a": "bcde"},
 	} {

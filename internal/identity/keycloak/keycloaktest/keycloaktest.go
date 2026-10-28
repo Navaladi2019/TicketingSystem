@@ -82,16 +82,25 @@ type Token struct {
 	Orgs map[string]string
 	// IdP is the brokering IdP's alias; empty for a local login.
 	IdP string
+	// Audiences is aud; empty means the tenant audience nava-api alone.
+	Audiences []string
+	// RealmRoles are realm_access.roles; empty leaves the claim out.
+	RealmRoles []string
 }
 
-// Mint signs a tenant access token valid for five minutes from now.
+// Mint signs an access token valid for five minutes from now, the realm's
+// access token lifespan (D-P9).
 func (r *Realm) Mint(t testing.TB, tok Token) string {
 	t.Helper()
 	now := time.Now()
+	aud := tok.Audiences
+	if len(aud) == 0 {
+		aud = []string{keycloak.DefaultAudience}
+	}
 	c := map[string]any{
 		"iss": r.Issuer(),
 		"sub": tok.Subject,
-		"aud": []string{keycloak.DefaultAudience},
+		"aud": aud,
 		"azp": "nava-web",
 		"typ": "Bearer",
 		"iat": now.Unix(),
@@ -106,6 +115,9 @@ func (r *Realm) Mint(t testing.TB, tok Token) string {
 	}
 	if tok.IdP != "" {
 		c["idp"] = tok.IdP
+	}
+	if len(tok.RealmRoles) > 0 {
+		c["realm_access"] = map[string]any{"roles": tok.RealmRoles}
 	}
 	jt := jwt.New()
 	for k, v := range c {
@@ -124,8 +136,9 @@ func (r *Realm) Mint(t testing.TB, tok Token) string {
 }
 
 // Resolver returns a real adapter that trusts only this realm and resolves
-// tenants through store. It is closed with the test.
-func (r *Realm) Resolver(t testing.TB, store identity.Store) *keycloak.Adapter {
+// tenants through store; operators are the subjects on its operator
+// allow-list. It is closed with the test.
+func (r *Realm) Resolver(t testing.TB, store identity.Store, operators ...string) *keycloak.Adapter {
 	t.Helper()
 	tel, err := telemetry.New(t.Context(), config.Telemetry{})
 	if err != nil {
@@ -136,7 +149,11 @@ func (r *Realm) Resolver(t testing.TB, store identity.Store) *keycloak.Adapter {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err := keycloak.New(t.Context(), keycloak.Config{Issuers: []string{r.Issuer()}, Store: store}, out)
+	ops := make([]keycloak.OperatorSubject, 0, len(operators))
+	for _, sub := range operators {
+		ops = append(ops, keycloak.OperatorSubject{Issuer: r.Issuer(), Subject: sub})
+	}
+	a, err := keycloak.New(t.Context(), keycloak.Config{Issuers: []string{r.Issuer()}, Store: store, Operators: ops}, out)
 	if err != nil {
 		t.Fatal(err)
 	}

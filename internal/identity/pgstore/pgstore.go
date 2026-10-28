@@ -3,7 +3,9 @@
 // nava_app, which may only SELECT them.
 //
 // The binding lookup runs before any tenant is known, through the
-// allow-listed binding_lookup policy. The principal lookup runs inside
+// allow-listed binding_lookup policy. The bound tenant's state is read right
+// after it, inside tenancy.InTenantTx for that tenant (tenants_tenant lets
+// nava_app see only that row). The principal lookup runs inside
 // tenancy.InTenantTx for the bound tenant, so row-level security holds it to
 // that tenant even though the query names the tenant too.
 package pgstore
@@ -28,6 +30,10 @@ import (
 const bindingSQL = `SELECT tenant_id, idp_aliases FROM tenant_identity_binding
 WHERE issuer = $1 AND org_id = $2`
 
+// tenantStateSQL reads the bound tenant's state by primary key, inside
+// InTenantTx(tenant_id) so tenants_tenant lets the row through.
+const tenantStateSQL = `SELECT state FROM tenants WHERE id = $1`
+
 // principalSQL is the statement measured in docs/data/identity.md (R1).
 const principalSQL = `SELECT p.id, p.enabled, p.federated_links,
        ARRAY(SELECT gm.group_id FROM group_members gm
@@ -41,12 +47,23 @@ WHERE p.tenant_id = $1 AND p.keycloak_user_id = $2`
 const emailDomainSQL = `SELECT EXISTS (SELECT 1 FROM tenant_email_domain
 WHERE tenant_id = $1 AND domain = $2)`
 
+// groupPathsSQL reads the caller's groups by principal, never by group id
+// (ADR-002 section 3). Every predicate and join key names tenant_id.
+const groupPathsSQL = `SELECT g.id, g.path
+FROM group_members gm
+JOIN groups g ON g.tenant_id = gm.tenant_id AND g.id = gm.group_id
+WHERE gm.tenant_id = $1 AND gm.principal_id = $2
+ORDER BY g.id`
+
 // Store reads the identity rows through pool, which must log in as nava_app.
 type Store struct {
 	pool *pgxpool.Pool
 }
 
-var _ identity.Store = (*Store)(nil)
+var (
+	_ identity.Store           = (*Store)(nil)
+	_ identity.GroupPathReader = (*Store)(nil)
+)
 
 // New returns a Store on pool.
 func New(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
@@ -69,10 +86,21 @@ func (s *Store) Binding(ctx context.Context, issuer, orgID string) (identity.Bin
 	case 0:
 		return identity.Binding{}, identity.ErrNoBinding
 	case 1:
-		if found[0].TenantID == uuid.Nil {
+		b := found[0]
+		if b.TenantID == uuid.Nil {
 			return identity.Binding{}, errors.New("pgstore: binding has a nil tenant")
 		}
-		return found[0], nil
+		err := tenancy.InTenantTx(ctx, s.pool, b.TenantID, func(tx pgx.Tx) error {
+			return tx.QueryRow(ctx, tenantStateSQL, b.TenantID).Scan(&b.TenantState)
+		})
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			// tenant_identity_binding_tenant_fkey makes this a broken database.
+			return identity.Binding{}, errors.New("pgstore: binding's tenant row not found")
+		case err != nil:
+			return identity.Binding{}, fmt.Errorf("pgstore: tenant state: %w", err)
+		}
+		return b, nil
 	}
 	return identity.Binding{}, fmt.Errorf("pgstore: %d bindings for one (issuer, org_id)", len(found))
 }
@@ -129,4 +157,30 @@ func (s *Store) TenantOwnsEmailDomain(ctx context.Context, tenantID uuid.UUID, d
 		return false, fmt.Errorf("pgstore: email domain: %w", err)
 	}
 	return owns, nil
+}
+
+// GroupPaths implements identity.GroupPathReader. It returns the raw
+// groups.path, prefix included, for the groups principalID belongs to in
+// tenantID.
+func (s *Store) GroupPaths(ctx context.Context, tenantID, principalID uuid.UUID) ([]identity.GroupPath, error) {
+	var out []identity.GroupPath
+	err := tenancy.InTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, groupPathsSQL, tenantID, principalID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var gp identity.GroupPath
+			if err := rows.Scan(&gp.ID, &gp.Path); err != nil {
+				return err
+			}
+			out = append(out, gp)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return nil, fmt.Errorf("pgstore: group paths: %w", err)
+	}
+	return out, nil
 }

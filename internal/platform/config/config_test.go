@@ -246,6 +246,24 @@ func TestRejectsBadBadDependencyValuesByName(t *testing.T) {
 	}
 }
 
+// NAVA_OIDC_FETCH_BASE_URL is a plain scheme://host[:port]: a path or query is
+// refused (TICK-279), a trailing slash is trimmed.
+func TestLoadFetchBaseURL(t *testing.T) {
+	t.Parallel()
+	load := func(v string) (config.Config, error) {
+		return config.Load(func(k string) (string, bool) { return v, k == "NAVA_OIDC_FETCH_BASE_URL" })
+	}
+	cfg, err := load("http://keycloak:8080/")
+	if err != nil || cfg.Deps.OIDCFetchBaseURL != "http://keycloak:8080" {
+		t.Errorf("trailing slash: %q, %v", cfg.Deps.OIDCFetchBaseURL, err)
+	}
+	for _, bad := range []string{"http://keycloak:8080/realms/nava", "http://keycloak:8080?x=1", "http://keycloak:8080/realms/nava?x=1"} {
+		if _, err := load(bad); err == nil || !strings.Contains(err.Error(), "NAVA_OIDC_FETCH_BASE_URL") {
+			t.Errorf("NAVA_OIDC_FETCH_BASE_URL=%q: error = %v, want one naming the key", bad, err)
+		}
+	}
+}
+
 func TestDependencyDefaultsAreUnconfigured(t *testing.T) {
 	t.Parallel()
 	cfg, err := config.Load(func(string) (string, bool) { return "", false })
@@ -296,5 +314,33 @@ func TestLoadRateLimit(t *testing.T) {
 				t.Errorf("%s=%q: err = %v, want a named error", key, bad, err)
 			}
 		}
+	}
+}
+
+func TestTemporalTLSRequiresServerName(t *testing.T) {
+	t.Parallel()
+	load := func(env map[string]string) (config.Config, error) {
+		return config.Load(func(k string) (string, bool) { v, ok := env[k]; return v, ok })
+	}
+	files := map[string]string{
+		"NAVA_TEMPORAL_TLS_CERT_FILE": "c.pem", "NAVA_TEMPORAL_TLS_KEY_FILE": "c.key",
+		"NAVA_TEMPORAL_TLS_CA_FILE": "ca.pem",
+	}
+	_, err := load(files)
+	if err == nil || !strings.Contains(err.Error(), "NAVA_TEMPORAL_TLS_SERVER_NAME") {
+		t.Fatalf("TLS on, no server name: %v, want an error naming NAVA_TEMPORAL_TLS_SERVER_NAME", err)
+	}
+	files["NAVA_TEMPORAL_TLS_SERVER_NAME"] = "temporal"
+	if cfg, err := load(files); err != nil || cfg.Deps.TemporalTLS.ServerName != "temporal" {
+		t.Fatalf("TLS on with server name: %+v, %v", cfg.Deps.TemporalTLS, err)
+	}
+	if _, err := load(nil); err != nil {
+		t.Fatalf("TLS off, nothing set: %v", err)
+	}
+	// A partial file set reports only the all-or-none error, not a second one
+	// about the server name.
+	_, err = load(map[string]string{"NAVA_TEMPORAL_TLS_CERT_FILE": "c.pem"})
+	if err == nil || strings.Contains(err.Error(), "NAVA_TEMPORAL_TLS_SERVER_NAME") {
+		t.Fatalf("partial set: %v, want only the all-or-none error", err)
 	}
 }

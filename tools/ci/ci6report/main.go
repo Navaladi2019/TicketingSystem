@@ -1,8 +1,8 @@
 // Command ci6report reads `go test -json` of the Temporal stack suite
 // (internal/temporalstack) on stdin, prints the test output as it streams, and
-// writes the CI-6 report (PLAN-001 task T32a): every contract case of ADR-001
-// Annex B CI-6, first block (erratum E1), with the named test that proves it and
-// its result. It exits 1 when a case's test failed, was skipped or did not run,
+// writes the CI-6 report (PLAN-001 tasks T32a and T32b): every contract case of
+// ADR-001 Annex B CI-6 (first block with erratum E1, then the relay and worker
+// cases) and CI-7, with the named test that proves it and its result. It exits 1 when a case's test failed, was skipped or did not run,
 // or had a skipped subtest; when any other test in the run failed or was
 // skipped; or when the package failed (a build error, a panic).
 //
@@ -21,14 +21,26 @@ import (
 	"time"
 )
 
-// contractCase is one CI-6 contract case and the test that proves it.
+// contractCase is one CI-6 or CI-7 contract case and the test that proves it;
+// the tag is the TestCI6_ or TestCI7_ prefix.
 type contractCase struct {
 	Case, Test string
 }
 
-// contract is the CI-6 first block, in the order of the T32a issue. Each test
-// lives in internal/temporalstack/ci6_isolation_test.go, except the last, which
-// T28 wrote in stack_test.go.
+// tag is the case's Annex B row, from its test name.
+func (c contractCase) tag() string {
+	if strings.HasPrefix(c.Test, "TestCI7_") {
+		return "CI-7"
+	}
+	return "CI-6"
+}
+
+// contract is the CI-6 first block, in the order of the T32a issue, then the
+// CI-6 relay and worker cases and CI-7, in the order of the T32b issue. The
+// first block lives in internal/temporalstack/ci6_isolation_test.go, except
+// its last case, which T28 wrote in stack_test.go; the T32b cases live in
+// ci6_relay_isolation_test.go and ci7_isolation_test.go, and so do the
+// TICK-216 argument cases.
 func contract() []contractCase {
 	return []contractCase{
 		{"Unlisted certificate (installation CA, CN no identity) denied", "TestCI6_UnlistedCertificateDeniedByAuthorizer"},
@@ -48,6 +60,32 @@ func contract() []contractCase {
 		{"Task of a workflow id without a tenant prefix denied (E1)", "TestCI6_WorkerTaskWithoutTenantPrefixDenied"},
 		{"Allowed: same-tenant child completes", "TestCI6_Allowed_SameTenantChildCompletes"},
 		{"Allowed: every SDK client dials and its worker starts", "TestCI6_Allowed_EverySDKClientDialsAndItsWorkerStarts"},
+		{"No or mismatched nava-tenant header on a start fails the workflow", "TestCI6_WorkerStartWithMissingOrMismatchedHeaderFailsWorkflow"},
+		{"Wrong-tenant signal dropped with an alert; the workflow keeps running", "TestCI6_WorkerWrongTenantSignalDroppedWithAlertWorkflowKeepsRunning"},
+		{"Redelivered start after completion starts no second run", "TestCI6_RelayRedeliveredStartAfterCompletionStartsNoSecondRun"},
+		{"Redelivered signal applied once, including across continue-as-new", "TestCI6_RelayRedeliveredSignalAppliedOnceAcrossContinueAsNew"},
+		{"Signal queues behind its start", "TestCI6_RelaySignalQueuesBehindItsStart"},
+		{"Two relays never reorder one target", "TestCI6_RelayTwoRelaysNeverReorderOneTarget"},
+		{"NotFound on a signal is terminal", "TestCI6_RelaySignalNotFoundIsTerminal"},
+		{"Producer schema rejects record-data fields", "TestCI7_ProducerSchemaRejectsRecordDataFields"},
+		{"Workflow input and signal bodies in history are references only", "TestCI7_RelayDeliveryInHistoryIsReferencesOnly"},
+		{"Record-data payload written outside Enqueue refused; nothing reaches the history (TICK-214)", "TestCI7_RelayRefusesRecordDataPayloadWrittenOutsideEnqueue"},
+		{"Activity payload with record data is not recorded (TICK-216)", "TestCI7_ActivityPayloadWithRecordDataNotRecorded"},
+		{"Child payload with record data is not recorded (TICK-216)", "TestCI7_ChildPayloadWithRecordDataNotRecorded"},
+		{"Continue-as-new payload with record data is not recorded (TICK-216)", "TestCI7_ContinueAsNewPayloadWithRecordDataNotRecorded"},
+		{"Update payload with record data is rejected, not recorded (TICK-216)", "TestCI7_UpdatePayloadWithRecordDataNotRecorded"},
+		{"Signal-external payload with record data is not recorded in either history (TICK-245)", "TestCI7_SignalExternalPayloadWithRecordDataNotRecorded"},
+		{"Signal-child payload with record data is not recorded in either history (TICK-245)", "TestCI7_SignalChildPayloadWithRecordDataNotRecorded"},
+		{"Child memo with record data is not recorded (TICK-245)", "TestCI7_ChildMemoWithRecordDataNotRecorded"},
+		{"UpsertMemo with record data is not recorded (TICK-245)", "TestCI7_UpsertMemoWithRecordDataNotRecorded"},
+		{"Activity result with record data is not recorded (TICK-245)", "TestCI7_ActivityResultWithRecordDataNotRecorded"},
+		{"Activity failure text with record data is withheld (TICK-245)", "TestCI7_ActivityFailureWithRecordDataNotRecorded"},
+		{"SideEffect value with record data is not recorded (TICK-245)", "TestCI7_SideEffectWithRecordDataNotRecorded"},
+		{"Workflow result with record data is not recorded (TICK-245)", "TestCI7_WorkflowResultWithRecordDataNotRecorded"},
+		{"Workflow failure text with record data is withheld (TICK-245)", "TestCI7_WorkflowFailureWithRecordDataNotRecorded"},
+		{"Cancel-error details with record data are not recorded (TICK-245 finding 1)", "TestCI7_CanceledDetailsWithRecordDataNotRecorded"},
+		{"Update result and failure with record data are not recorded (TICK-245)", "TestCI7_UpdateResultWithRecordDataNotRecorded"},
+		{"Recorded headers carry only nava-tenant and trace context, never baggage (TICK-93)", "TestCI7_RecordedHeadersCarryOnlyTenantAndTraceContext"},
 	}
 }
 
@@ -70,7 +108,11 @@ type result struct {
 
 // summary is the whole run.
 type summary struct {
-	tests      map[string]*result
+	tests map[string]*result
+	// packageBad: the package failed on its own (a build error, a panic outside
+	// a test) or go test printed plain text. go test -json ends every package
+	// that has a failed test with a package-level fail, so that event alone is
+	// not a package failure.
 	packageBad bool
 	failOutput map[string][]string // test -> its output lines, kept for failures
 }
@@ -79,6 +121,7 @@ func read(r io.Reader, echo io.Writer) (*summary, error) {
 	s := &summary{tests: map[string]*result{}, failOutput: map[string][]string{}}
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 1<<20), 1<<24)
+	var packageFailed, testFailed bool
 	for sc.Scan() {
 		var e event
 		if err := json.Unmarshal(sc.Bytes(), &e); err != nil {
@@ -92,11 +135,16 @@ func read(r io.Reader, echo io.Writer) (*summary, error) {
 		}
 		if e.Test == "" {
 			if e.Action == "fail" {
-				s.packageBad = true
+				packageFailed = true
 			}
 			continue
 		}
 		top, sub, isSub := strings.Cut(e.Test, "/")
+		// Only a top-level fail counts: Go fails the parent of a failed subtest,
+		// but a timeout panic leaves the parent with no fail event.
+		if e.Action == "fail" && !isSub {
+			testFailed = true
+		}
 		res := s.tests[top]
 		if res == nil {
 			res = &result{}
@@ -120,6 +168,9 @@ func read(r io.Reader, echo io.Writer) (*summary, error) {
 			res.Action, res.Elapsed = e.Action, e.Elapsed
 		}
 	}
+	if packageFailed && !testFailed {
+		s.packageBad = true
+	}
 	return s, sc.Err()
 }
 
@@ -127,10 +178,10 @@ func read(r io.Reader, echo io.Writer) (*summary, error) {
 func report(w io.Writer, s *summary, now time.Time) []string {
 	var problems []string
 	p := func(format string, a ...any) { _, _ = fmt.Fprintf(w, format, a...) }
-	p("# CI-6 report: certificate, network and Authorizer suite\n\n")
+	p("# CI-6 and CI-7 report: certificate, network, Authorizer, relay and worker suite\n\n")
 	p("Generated by `make stack-test-sdk` (tools/ci/ci6report) on %s, against the compose Temporal over mTLS (no stubbed Authorizer). ", now.UTC().Format(time.RFC3339))
-	p("ADR-001 Annex B CI-6, first block, with erratum E1; PLAN-001 task T32a.\n\n")
-	p("| # | Contract case | Test (`CI-6`) | Result | Subtests | Time |\n|---|---|---|---|---|---|\n")
+	p("ADR-001 Annex B CI-6 (first block with erratum E1; relay and worker cases) and CI-7; PLAN-001 tasks T32a and T32b.\n\n")
+	p("| # | Tag | Contract case | Test | Result | Subtests | Time |\n|---|---|---|---|---|---|---|\n")
 	listed := map[string]bool{}
 	for i, c := range contract() {
 		listed[c.Test] = true
@@ -155,7 +206,7 @@ func report(w io.Writer, s *summary, now time.Time) []string {
 				problems = append(problems, sub+": SKIP ("+c.Case+")")
 			}
 		}
-		p("| %d | %s | `%s` | %s | %s | %s |\n", i+1, c.Case, c.Test, status, subs, elapsed)
+		p("| %d | %s | %s | `%s` | %s | %s | %s |\n", i+1, c.tag(), c.Case, c.Test, status, subs, elapsed)
 	}
 	var others []string
 	for name := range s.tests {
@@ -181,10 +232,10 @@ func report(w io.Writer, s *summary, now time.Time) []string {
 		problems = append(problems, "the package failed (build error or panic): see the test output")
 	}
 	if len(problems) == 0 {
-		p("\n**All %d CI-6 cases pass.**\n", len(contract()))
+		p("\n**All %d CI-6 and CI-7 cases pass.**\n", len(contract()))
 		return nil
 	}
-	p("\n**CI-6 FAILED:**\n\n")
+	p("\n**CI-6 and CI-7 FAILED:**\n\n")
 	for _, pr := range problems {
 		p("- %s\n", pr)
 	}

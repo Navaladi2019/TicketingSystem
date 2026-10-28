@@ -5,6 +5,7 @@
 package server
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 
@@ -18,26 +19,22 @@ import (
 // NewHandler returns the public root handler, served on NAVA_HTTP_ADDR. It
 // serves /api/v1/* only: /metrics, /healthz and /readyz live on the admin
 // listener (telemetry.NewAdminHandler). Every contract operation authenticates
-// through resolver (internal/platform/auth).
-func NewHandler(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.IdentityResolver, opts ...Option) (http.Handler, error) {
+// through resolver (internal/platform/auth); GET /api/v1/me reads the caller's
+// group paths through paths, which may be nil only with OperatorOnly.
+func NewHandler(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.IdentityResolver, paths identity.GroupPathReader, opts ...Option) (http.Handler, error) {
 	var o options
-	for _, opt := range opts {
-		opt(&o)
+	for _, f := range opts {
+		f(&o)
+	}
+	if paths == nil && !o.operatorOnly {
+		return nil, errors.New("server: paths is nil; only an OperatorOnly handler may omit it")
 	}
 	mux := http.NewServeMux()
-	a, err := newAPI(log, tel, resolver, o.limiter(), mux)
+	h, err := newAPI(log, tel, resolver, paths, mux, o)
 	if err != nil {
 		return nil, err
 	}
-	return httpobs.Middleware(log, tel, a.Wrap(mux)), nil
-}
-
-// Option customises NewHandler.
-type Option func(*options)
-
-type options struct {
-	rate   config.RateLimit
-	shared ratelimit.Limiter
+	return httpobs.Middleware(log, tel, h), nil
 }
 
 // WithRateLimit sets the per-tenant limit. Without it the ratelimit defaults

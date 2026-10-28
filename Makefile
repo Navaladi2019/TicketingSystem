@@ -6,7 +6,8 @@ TEMPORAL_SERVER_IMAGE ?= nava/temporal-server:$(NAVA_IMAGE_TAG)
 
 ## Unit, policy and end-to-end tests of the custom Temporal server module.
 temporal-server-test:
-	cd temporal-server && go vet ./... && go test ./...
+	cd temporal-server && go vet ./...
+	go run ./tools/ci/suiteran -- go -C temporal-server test -json ./...
 
 ## Build the custom Temporal server image (ADR-001 D22, task T27a).
 temporal-server-image:
@@ -18,7 +19,7 @@ temporal-server-dev-certs:
 
 ## Run the image with the dev config and dev certificates (foreground).
 temporal-server-run: temporal-server-dev-certs
-	docker run --rm --name nava-temporal-dev -p 7233:7233 -p 9090:9090 \
+	MSYS_NO_PATHCONV=1 docker run --rm --name nava-temporal-dev -p 7233:7233 -p 9090:9090 \
 		-v "$(CURDIR)/temporal-server/.devcerts:/etc/temporal/certs:ro" $(TEMPORAL_SERVER_IMAGE)
 # CI entry point (T05). The GitHub workflows only call targets from this file,
 # so `make ci` runs the same gates on a laptop (Linux, macOS, or Windows with
@@ -41,8 +42,9 @@ GOLANGCI_LINT ?= golangci-lint
 GOLANGCI_LINT_VERSION := 2.14.0
 GOVULNCHECK_VERSION := v1.9.0
 
-.PHONY: build run test test-integration isolation lint generate check-openapi
-.PHONY: ci ci-isolated ci-changed ci-stages ci-isolated-down test-ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity stack-idp-realms stack-test-worker 	image image-ci stack-up stack-down stack-logs stack-internal stack-internal-beside stack-main ci-stack-run stack-tests smoke
+.PHONY: build run test test-integration test-integration-cleanup reap-integration bench-relay isolation lint generate check-openapi
+.PHONY: demo-outbox stack-test-demo_outbox
+.PHONY: ci ci-isolated ci-changed ci-stages ci-isolated-down test-ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity identity-attacks identity-attacks-fixture stack-test-onboard stack-idp-realms stack-test-worker 	image image-ci stack-up stack-down stack-logs stack-internal stack-internal-beside stack-main ci-stack-run stack-tests smoke
 
 build:
 	go build -o bin/nava-core ./cmd/nava-core
@@ -59,34 +61,62 @@ run:
 # makes its analysistest runs slower. racelock: one go test -race at a time on
 # the host, across every checkout and agent (TICK-153 D3); NAVA_RACE_LOCK=off
 # skips it.
+# suiteran (TICK-230) fails a go test -json run in which a registered
+# isolation suite (review-paths.yaml, cto_signoff.isolation_tests) ran zero
+# tests; its -tags are the tags the step means to test with, so keep them
+# beside go test's own.
 test:
-	go run ./tools/ci/racelock -- go test -race -trimpath ./...
+	go run ./tools/ci/racelock -- go run ./tools/ci/suiteran -- go test -json -race -trimpath ./...
 	go run ./tools/ci/racelock -- go -C tools/navalint test -race ./...
 
 # Every package with `//go:build integration` tests, against a throwaway
 # postgres container the script starts and removes (needs Docker), then the
-# isolation suite (make isolation), then make test-ci-isolated-down. Pass
-# ARGS=... to forward flags to go test; with ARGS neither of those runs.
+# isolation suite (make isolation). Pass ARGS=... to forward flags to go test;
+# with ARGS the isolation suite does not run. The ci-isolated --down tag check
+# is its own target (test-ci-isolated-down, in ci-integration and its own
+# workflow step), so this loop stays fast (TICK-224).
 test-integration:
 	sh scripts/ci/test-integration.sh $(ARGS)
 	$(if $(ARGS),@echo "isolation suite skipped (ARGS set); run make isolation",sh scripts/ci/isolation.sh)
-	$(if $(ARGS),@echo "ci-isolated --down check skipped (ARGS set); run make test-ci-isolated-down",sh scripts/ci/test-ci-isolated-down.sh)
+
+# test-integration.sh leaves no container or network behind after a run with
+# go test arguments or a TERM part way (TICK-185). Its own ci.yml step and in
+# ci-integration, not part of make test-integration (as TICK-224). Needs Docker.
+test-integration-cleanup:
+	sh scripts/ci/test-integration-cleanup.sh
+
+# Removes the nava-it-* and nava-iso-* containers and networks that a killed
+# integration or isolation run left, once older than REAP_OLDER (a Go
+# duration, default 6h): never a compose stack (nava, nava-<id>) or a younger
+# run (TICK-185). REAP_DRY=1 lists them only. Needs Docker.
+REAP_OLDER ?= 6h
+reap-integration:
+	go run ./tools/ci/itreap -older $(REAP_OLDER) $(if $(REAP_DRY),-n)
+
+# T33: the relay's claim latency (BenchmarkClaim, internal/relay) against
+# ADR-001's 5.4 ms baseline, on the same throwaway clusters as
+# test-integration. Report-only: a nightly workflow runs it and nothing
+# gates on it. Needs Docker.
+# TODO(TODO-011): no nightly workflow runs it yet; the agent token cannot add
+# .github/workflows/nightly.yml (no `workflow` scope).
+bench-relay:
+	sh scripts/ci/test-integration.sh -run '^$$' -bench '^BenchmarkClaim$$' -benchtime 200x
 
 # The tenant isolation suite (T11, ADR-001 CI-2): its own throwaway
 # PostgreSQL and a PgBouncer with the real auth_query, tenants A and B seeded,
 # every runtime role against every tenant table plus the registered paths
 # (internal/tenancy/isolation). Writes ISOLATION_REPORT (default
 # isolation-report.md). Needs Docker.
-# TODO(TODO-008): the integration job does not upload isolation-report.md as
-# an artifact yet; the workflow step needs a push with `workflow` scope.
+# The integration job uploads it as the isolation-report artifact.
 isolation:
 	sh scripts/ci/isolation.sh $(ARGS)
 
 # golangci-lint, then the navalint analyzers (tools/navalint, its own module)
-# as go vet's tool.
+# as go vet's tool, then the ADR-002-E1 nolint allow-list gate.
 lint:
 	$(GOLANGCI_LINT) run ./...
 	sh scripts/ci/navalint.sh
+	sh scripts/ci/nolint-allowlist.sh
 
 # Regenerates api/api.gen.go from api/openapi.yaml (oapi-codegen v2.8.0, pinned
 # by the go.mod tool directive).
@@ -139,7 +169,7 @@ ci-lint: check-tools fmt-check vet lint lint-fixture check-taskfile check-pins c
 
 ci-unit: test temporal-server-test
 
-ci-integration: test-integration
+ci-integration: test-integration test-ci-isolated-down test-integration-cleanup
 
 # Builds the images, brings the stack up, runs every stack test, then tears
 # it down (logs first on failure). The workflow runs the same targets one step
@@ -151,7 +181,7 @@ ci-integration: test-integration
 # restarts the stack, and dbroles changes roles. worker polls nava-tq, the
 # queue the sdk suite's workers poll, so it runs after that suite.
 STACK_TESTS_PARALLEL := smoke pgbouncer temporal temporal_handshake temporal_isolation temporal_custody temporal_operator_reach temporal_health hba sdk identity
-STACK_TESTS_SERIAL := worker dependencies trace logs redact idempotent dbroles
+STACK_TESTS_SERIAL := worker demo_outbox dependencies trace logs redact idempotent dbroles
 STACK_TESTS := healthy $(STACK_TESTS_PARALLEL) $(STACK_TESTS_SERIAL)
 stack-tests:
 	$(MAKE) --no-print-directory -j1 stack-test-healthy
@@ -268,8 +298,11 @@ image:
 # which concurrent builds share safely (a type=local cache directory is not
 # safe for two writers at once), and pulls only the registry images that are
 # missing. With IMAGE_CACHE set, ci-stack builds with image-ci.
-BAKE_CACHED := db-roles keycloak nava-core nava-purge nava-relay nava-worker otel-collector temporal-server
-BAKE_CACHE_GHA := $(foreach t,$(BAKE_CACHED),--set $(t).cache-from=type=gha,scope=$(t) --set $(t).cache-to=type=gha,scope=$(t),mode=max) --set migrate.cache-from=type=gha,scope=db-roles
+# The gha cache-to is best effort (ignore-error=true): concurrent runs that
+# export the same scope can race on a blob (BlobNotFound, not_found), and a
+# failed cache write must only cost build time, never fail the build.
+BAKE_CACHED := db-roles keycloak nava-core nava-groupsync nava-onboard nava-purge nava-relay nava-worker otel-collector temporal-server
+BAKE_CACHE_GHA := $(foreach t,$(BAKE_CACHED),--set $(t).cache-from=type=gha,scope=$(t) --set $(t).cache-to=type=gha,scope=$(t),mode=max,ignore-error=true) --set migrate.cache-from=type=gha,scope=db-roles
 BAKE_CACHE := $(if $(filter gha,$(IMAGE_CACHE)),$(BAKE_CACHE_GHA))
 PULL_POLICY := $(if $(filter local,$(IMAGE_CACHE)),--policy missing)
 image-ci:
@@ -285,21 +318,26 @@ stack-test-%:
 	sh deploy/compose/test/stack-test.sh $*
 
 # The Temporal stack suite over mTLS: SDK clients dial and a worker runs (T28),
-# CI-H, and the CI-6 certificate, network and Authorizer cases (T32a). Writes
-# the CI-6 report to CI6_REPORT and fails when a CI-6 case did not pass.
+# CI-H, the CI-6 certificate, network and Authorizer cases (T32a), and the
+# CI-6 relay and worker cases and CI-7 (T32b). Writes the CI-6 and CI-7 report
+# to CI6_REPORT and fails when a case did not pass.
+# suiteran prints the run and keeps the raw stream in CI6_JSON, which
+# ci6report then reads (its echo of the same output is dropped).
 # The suite takes about 70 s on a GitHub runner but 591-615 s on a host running
 # two ci-isolated stacks, past go test's default 600 s, hence -timeout 20m
 # (TICK-173).
 CI6_REPORT ?= ci6-report.md
+CI6_JSON ?= ci6-test.json
 stack-test-sdk:
-	go test -tags temporalstack -count=1 -timeout 20m -json ./internal/temporalstack | go run ./tools/ci/ci6report -out $(CI6_REPORT)
+	@status=0; go run ./tools/ci/suiteran -tags temporalstack -tee $(CI6_JSON) -- \
+		go test -tags temporalstack -count=1 -timeout 20m -json ./internal/temporalstack || status=$$?; \
+	go run ./tools/ci/ci6report -out $(CI6_REPORT) < $(CI6_JSON) >/dev/null || status=1; \
+	exit $$status
 
 # The nava-worker service (T31b, TICK-159): ready with /readyz green, /metrics
 # and the probes on its unpublished admin listener without httpobs, and a
 # workflow's workflow_ref activity run in the service through the guard, which
 # /metrics counts.
-# TODO(TODO-009): the GitHub workflow's stack job has no step for this target
-# yet; the step needs a push with `workflow` scope.
 stack-test-worker:
 	go test -tags workerstack -count=1 ./internal/workerstack
 
@@ -311,8 +349,39 @@ stack-idp-realms:
 
 # The realm `nava` of the running Keycloak (T14, ADR-001 A.1): tenant and idp
 # claims, token lifespan, operator role custody, realm export round trip.
+# TestCI5 needs a platform database: make identity-attacks runs it. The
+# CI-5.06 negative fixture needs Keycloak 26.1.2: make identity-attacks-fixture.
+# It also runs the onboarding tests below (stack-test-onboard).
+# TODO(TODO-014): the GitHub workflow's stack job has no step for
+# stack-test-onboard yet (the step needs a push with `workflow` scope), so this
+# target runs those tests too; once the step exists, add -skip '$(ONBOARD_TESTS)'.
 stack-test-identity:
-	go test -tags identitystack -count=1 ./internal/identitystack
+	rm -f $(IDENTITY_STREAM)
+	go test -tags identitystack -count=1 -skip '^TestCI5$$' -json ./internal/identitystack > $(IDENTITY_STREAM) || { cat $(IDENTITY_STREAM); exit 1; }
+
+# The CI-5 adversarial identity suite (T19, ADR-001 Annex B CI-5) against the
+# running Keycloak, with a throwaway PostgreSQL for the platform database the
+# resolver and one real group sync use. Writes the CI-5 report to CI5_REPORT
+# and fails when a CI-5 case did not pass. Needs the stack's Keycloak.
+CI5_REPORT ?= ci5-report.md
+IDENTITY_STREAM ?= identity-stream.json
+identity-attacks:
+	CI5_REPORT=$(CI5_REPORT) IDENTITY_STREAM=$(IDENTITY_STREAM) sh scripts/ci/identity-attacks.sh
+
+# The CI-5.06 negative fixture: the same kc.org tamper must SUCCEED on a
+# throwaway Keycloak 26.1.2 (the known-broken pin), so CI-5.06 passing on the
+# pinned Keycloak means something. Needs Docker, not the stack. Opt-in.
+identity-attacks-fixture:
+	sh scripts/ci/identity-attacks.sh fixture
+
+# Onboarding end to end (T21b, TICK-234): nava-onboard onboards a tenant, the
+# invited admin signs in through the tenant's IdP, one nava-groupsync cycle
+# runs, and nava-core's GET /api/v1/me shows the new tenant and no other; the
+# nava-onboard/nava-core separation; kill before the binding, then retry,
+# against the real nava_onboard PGStore. Needs the stack up (make stack-up).
+ONBOARD_TESTS := ^(TestOnboard(edAdminSignsInAndMeShowsTenant|DeploymentSeparation|KillBeforeBindThenRetryLiveStack|DomainClaimedIsConflict)|TestInvitedToTenantANotLinkedThroughTenantBIdP|TestSquattedInviteeIsNotPlacedInTheOtherTenant|TestUninvitedLocalUserNotLinked|TestInviteIsSingleUse|TestExpiredInviteNotLinked|TestInvitedUserInTwoTenantsNotLinked|TestInvitedUserHasNoLocalLogin|TestDisabledInviteeNotLinked|TestUnverifiedUpstreamEmailNotPlaced|TestIdPEmailVerifiedAttributeNotUserEditable|TestUserCannotRenameEmailToPendingInvite|TestAccountAPIClosedToPlainBrokeredUser|TestRealmFileEmailVerifiedMapper)$$
+stack-test-onboard:
+	go test -tags identitystack -count=1 -run '$(ONBOARD_TESTS)' ./internal/identitystack
 
 # The compose smoke: GET /healthz from inside the compose network.
 smoke: stack-test-smoke
@@ -344,4 +413,17 @@ dev-ca:
 # network reaches the UI through host.docker.internal and acts as nava-operator.
 UI_PORT ?= 18233
 operator-tunnel:
-	docker run --rm --name $(COMPOSE_PROJECT)-operator-tunnel -p 127.0.0.1:$(UI_PORT):8080 		--network $$(docker network ls -q --filter label=com.docker.compose.project=$(COMPOSE_PROJECT) --filter label=com.docker.compose.network=operator) 		--entrypoint /usr/local/bin/temporal-server $(TEMPORAL_SERVER_IMAGE) proxy -listen :8080 -to temporal-ui:8080
+	MSYS_NO_PATHCONV=1 docker run --rm --name $(COMPOSE_PROJECT)-operator-tunnel -p 127.0.0.1:$(UI_PORT):8080 		--network $$(docker network ls -q --filter label=com.docker.compose.project=$(COMPOSE_PROJECT) --filter label=com.docker.compose.network=operator) 		--entrypoint /usr/local/bin/temporal-server $(TEMPORAL_SERVER_IMAGE) proxy -listen :8080 -to temporal-ui:8080
+
+# The S7 demo (TICK-275): a start row and two signal rows for a record of tenant-a,
+# written through outbox.Enqueue in InTenantTx, then handed to Temporal by the
+# relay. Needs the stack up (make stack-up). DEDUPE_KEY names the rows.
+DEDUPE_KEY ?= demo-outbox
+demo-outbox:
+	DEDUPE_KEY=$(DEDUPE_KEY) sh scripts/dev/demo-outbox.sh
+
+# Runs make demo-outbox twice with one key and asserts one workflow whose
+# history holds the two signals in commit order (internal/temporalstack,
+# TestDemoOutbox). Behind the demooutbox tag, so stack-test-sdk's whole-package run (and its report gate) never compiles it.
+stack-test-demo_outbox:
+	go test -tags temporalstack,demooutbox -count=1 -timeout 5m -run '^TestDemoOutbox' ./internal/temporalstack

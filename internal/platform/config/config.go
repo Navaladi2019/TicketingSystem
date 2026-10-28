@@ -22,6 +22,7 @@ type Config struct {
 	Telemetry Telemetry
 	Deps      Dependencies
 	RateLimit RateLimit
+	Cursor    Cursor
 }
 
 // HTTP configures the two listeners. Both use the same timeouts.
@@ -55,18 +56,26 @@ type Dependencies struct {
 	KeycloakManagementURL string
 	// TemporalAddress is NAVA_TEMPORAL_ADDRESS, the frontend host:port.
 	TemporalAddress string
-	// TemporalTLS is the client certificate nava-core dials the frontend with.
+	// TemporalTLS is the client certificate the binary dials the frontend with.
 	TemporalTLS TemporalTLS
 	// OIDCIssuers is NAVA_OIDC_ISSUERS, the comma-separated exact iss
 	// allow-list of tenant access tokens, such as
 	// http://keycloak:8080/realms/nava. Empty: every API request is refused
 	// with 401 (fail closed).
 	OIDCIssuers []string
+	// OIDCFetchBaseURL is NAVA_OIDC_FETCH_BASE_URL, an optional scheme://host[:port]
+	// to fetch discovery and JWKS from instead of the issuer's host, such as
+	// http://keycloak:8080 when the pinned issuer is the browser URL. It never
+	// widens the iss allow-list.
+	OIDCFetchBaseURL string
 }
 
-// TemporalTLS locates nava-core's mTLS identity for the Temporal frontend (the
-// `nava-core` certificate). The key is read from a file, never from a variable.
-// CertFile, KeyFile and CAFile are set together or not at all.
+// TemporalTLS locates the binary's mTLS identity for the Temporal frontend
+// (the `nava-core`, `nava-worker` or `nava-relay` certificate), which
+// temporaltls.Load turns into a client config. The key is read from a file, never from a variable.
+// CertFile, KeyFile and CAFile are set together or not at all, and ServerName
+// is required with them: an empty name would make gRPC check the certificate
+// against the host in NAVA_TEMPORAL_ADDRESS instead of the pinned name.
 type TemporalTLS struct {
 	CertFile   string // NAVA_TEMPORAL_TLS_CERT_FILE
 	KeyFile    string // NAVA_TEMPORAL_TLS_KEY_FILE
@@ -143,12 +152,14 @@ func Load(lookup LookupFunc) (Config, error) {
 			Burst:   r.posInt("NAVA_RATE_LIMIT_BURST", 100),
 			IdleTTL: r.duration("NAVA_RATE_LIMIT_IDLE_TTL", 10*time.Minute),
 		},
+		Cursor: r.cursor(),
 	}
 	cfg.Deps = Dependencies{
 		DatabaseURL:           r.databaseURL("NAVA_DATABASE_URL"),
 		KeycloakManagementURL: strings.TrimRight(r.baseURL("NAVA_KEYCLOAK_MANAGEMENT_URL"), "/"),
 		TemporalAddress:       r.hostPort("NAVA_TEMPORAL_ADDRESS"),
 		OIDCIssuers:           r.urlList("NAVA_OIDC_ISSUERS"),
+		OIDCFetchBaseURL:      strings.TrimRight(r.baseURL("NAVA_OIDC_FETCH_BASE_URL"), "/"),
 	}
 	cfg.Deps.TemporalTLS = TemporalTLS{
 		CertFile:   r.str("NAVA_TEMPORAL_TLS_CERT_FILE"),
@@ -159,6 +170,9 @@ func Load(lookup LookupFunc) (Config, error) {
 	if t := cfg.Deps.TemporalTLS; (t.CertFile != "" || t.KeyFile != "" || t.CAFile != "") &&
 		(t.CertFile == "" || t.KeyFile == "" || t.CAFile == "") {
 		r.errs = append(r.errs, errors.New("NAVA_TEMPORAL_TLS_CERT_FILE, NAVA_TEMPORAL_TLS_KEY_FILE and NAVA_TEMPORAL_TLS_CA_FILE: set all three or none"))
+	}
+	if t := cfg.Deps.TemporalTLS; t.CertFile != "" && t.KeyFile != "" && t.CAFile != "" && t.ServerName == "" {
+		r.errs = append(r.errs, errors.New("NAVA_TEMPORAL_TLS_SERVER_NAME: required when the Temporal TLS files are set"))
 	}
 	if cfg.HTTP.Addr == cfg.HTTP.AdminAddr {
 		r.errs = append(r.errs, errors.New("NAVA_ADMIN_ADDR: must differ from NAVA_HTTP_ADDR"))
@@ -231,15 +245,15 @@ func (r *reader) databaseURL(key string) string {
 	return v
 }
 
-// baseURL checks key is an absolute http or https URL with no userinfo, query
-// or fragment. Empty is "not configured".
+// baseURL checks key is an absolute http or https URL with no userinfo, path,
+// query or fragment. Empty is "not configured".
 func (r *reader) baseURL(key string) string {
 	v, ok := r.lookup(key)
 	if !ok || v == "" {
 		return ""
 	}
-	if !isBaseURL(v) {
-		r.errs = append(r.errs, fmt.Errorf("%s: want an http or https URL without credentials or query", key))
+	if !isBaseURL(v) || !noPath(v) {
+		r.errs = append(r.errs, fmt.Errorf("%s: want an http or https URL without credentials, path or query", key))
 		return ""
 	}
 	return v
@@ -249,6 +263,14 @@ func isBaseURL(v string) bool {
 	u, err := url.Parse(v)
 	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" &&
 		u.User == nil && u.RawQuery == "" && u.Fragment == ""
+}
+
+// noPath reports whether v names only scheme://host[:port], with at most a
+// trailing slash. Issuer URLs keep a path (/realms/nava), so isBaseURL leaves
+// it alone and only baseURL requires this.
+func noPath(v string) bool {
+	u, err := url.Parse(v)
+	return err == nil && (u.Path == "" || u.Path == "/")
 }
 
 // urlList reads a comma-separated list of URLs, each checked as baseURL

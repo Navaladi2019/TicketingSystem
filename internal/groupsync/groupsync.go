@@ -203,6 +203,13 @@ func (s *Syncer) syncTenant(ctx context.Context, tenantID uuid.UUID) Result {
 			res.Skipped = true
 			return nil
 		}
+		// Invited users who have signed in are placed before the snapshot,
+		// so this cycle's snapshot already holds them.
+		if p, ok := s.dir.(InviteePlacer); ok {
+			if err := s.placeInvitees(ctx, tx, tenantID, p); err != nil {
+				return err
+			}
+		}
 		// The snapshot is read under the lock, so a process that waited out
 		// another's sync never applies an older snapshot over a newer one.
 		snapAt = s.opts.Now()
@@ -220,7 +227,7 @@ func (s *Syncer) syncTenant(ctx context.Context, tenantID uuid.UUID) Result {
 			return err
 		}
 		s.log.InfoContext(ctx, "group sync applied", slog.String("tenant_id", tenantID.String()),
-			slog.Int("principals_written", st.PrincipalsWritten), slog.Int("principals_deleted", st.PrincipalsDeleted),
+			slog.Int("principals_written", st.PrincipalsWritten), slog.Int("principals_tombstoned", st.PrincipalsTombstoned),
 			slog.Int("groups_written", st.GroupsWritten), slog.Int("groups_deleted", st.GroupsDeleted),
 			slog.Int("org_units_written", st.OrgUnitsWritten), slog.Int("org_units_deleted", st.OrgUnitsDeleted),
 			slog.Int("ignored_outside_subtree", st.Ignored))

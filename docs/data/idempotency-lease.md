@@ -1,6 +1,6 @@
 # Idempotency lease (T22a, TICK-212)
 
-Migration `00006_idempotency_lease.sql` adds a `lease_until` column that
+Migration `20261028175712_idempotency_lease.sql` adds a `lease_until` column that
 `nava_app` may UPDATE. The middleware (`internal/platform/idempotency`) now
 takes over an abandoned `in_flight` row with one conditional UPDATE that
 commits **before** the handler runs. A takeover holds no transaction, row lock

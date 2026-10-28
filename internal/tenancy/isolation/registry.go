@@ -37,12 +37,17 @@ const (
 
 	// RecordA1 is one of tenant A's records.
 	RecordA1 = "0a000000-0000-4000-8000-0000000000a1"
+
 	// RecordB1 is one of tenant B's records.
 	RecordB1 = "0b000000-0000-4000-8000-0000000000b1"
+	// PrincipalB1 is a tenant B principal who is a member of a group.
+	PrincipalB1 = "0b000000-0000-4000-8000-0000000003b1"
 	// SharedDedupeKey and SharedIdempotencyKey exist in both tenants, so a
 	// lookup by them alone would return both rows without isolation.
 	SharedDedupeKey      = "shared-dedupe-key"
 	SharedIdempotencyKey = "shared-idempotency-key"
+	// SharedInviteEmail is invited by both tenants (pending_invite).
+	SharedInviteEmail = "shared-invite@example.test"
 	// NewID is an id no seeded row uses, for inserts.
 	NewID = "0c000000-0000-4000-8000-0000000000c1"
 )
@@ -83,6 +88,9 @@ type HTTPCall struct {
 	// get 404 or 405; without it, the call must get 200 with tenant A's data,
 	// so a validator regression that starts refusing it cannot hide.
 	NoRoute string
+	// Token, when set, replaces the tenant A token with this shape (CI-5).
+	// The call then passes only on 401: the shape must not resolve at all.
+	Token *TokenShape
 }
 
 // Cluster is the suite's database, as a DB path sees it.
@@ -104,8 +112,44 @@ type Cluster interface {
 	Super() (*pgx.Conn, error)
 }
 
+// Server is the real nava-core API handler the HTTP paths run against, as an
+// API path sees it. Its resolver is the Keycloak adapter trusting the
+// suite's test realm, whose organization OrgA is bound to tenant A, reading
+// bindings and principals as nava_app through PgBouncer; OperatorSubject is
+// on its operator allow-list.
+type Server interface {
+	// Mint signs an access token from the test realm, valid for five minutes.
+	Mint(tok Token) string
+	// Do sends an /api/v1 request with token as its bearer and header as
+	// extra request headers (nil for none), and returns the status and body.
+	Do(ctx context.Context, method, path, token, body string, header http.Header) (int, string)
+	// ResolveOperator is the adapter's operator verdict on token, the check
+	// the operator routes authenticate with: nil for an allow-listed
+	// operator.
+	ResolveOperator(ctx context.Context, token string) error
+}
+
+// OperatorSubject is the operator the test realm's adapter allow-lists.
+const OperatorSubject = "op-isolation"
+
+// Token describes a test-realm access token.
+type Token struct {
+	// Subject is sub, principals.keycloak_user_id.
+	Subject string
+	// NoOrg leaves the organization claim out; otherwise the token names the
+	// organization bound to tenant A.
+	NoOrg bool
+	// Audiences is aud; empty means nava-api.
+	Audiences []string
+	// RealmRoles are realm_access.roles.
+	RealmRoles []string
+}
+
+// DefaultStackTarget runs a Stack path whose StackTarget is empty.
+const DefaultStackTarget = "make stack-test-identity"
+
 // Path is one registered route to tenant data. Exactly one of SQL, HTTP,
-// Check and DB is set.
+// Check, DB, API and Stack is set.
 type Path struct {
 	Name string
 	// Case is the ADR-001 Annex B test id the path proves ("CI-2", "CI-8",
@@ -122,6 +166,18 @@ type Path struct {
 	// the role reaches more than ADR-001 A.3 gives it, or when its positive
 	// control fails (so a broken check cannot pass as a denial).
 	DB func(context.Context, Cluster) error
+	// API is a check that drives the database and the real API handler
+	// together; it returns an error when isolation does not hold or its
+	// positive control fails.
+	API func(context.Context, Cluster, Server) error
+	// Stack names the test in internal/identitystack that proves the path
+	// against the real Keycloak (make stack-test-identity, the CI stack
+	// job). The suite lists it and TestStackPathsExist fails when the test
+	// is gone, so the registration cannot go stale.
+	Stack string
+	// StackTarget is the make target that runs Stack, when it is not
+	// make stack-test-identity (DefaultStackTarget); the report names it.
+	StackTarget string
 	// Pending names the task that makes the path runnable. A pending path is
 	// listed in the report and not run.
 	Pending string
@@ -135,6 +191,8 @@ func Coverage() map[string]string {
 		"CI-9":  "full: nava_relay, nava_purge, nava_onboard and nava_backup reach (T12); nava_backup through T08's pg_hba cases",
 		"CI-8":  "partial → TICK-87 (byte-identical 404, stale If-Match 412, masked-field filter 400); cursor cases from T23; idempotency cases from T22",
 		"CI-10": "partial → TICK-88; no path registered yet (T29 depth limit is a unit test)",
+		"T26":   "full: deprovisioning within D-P9's 10 minutes and the Epic 03 identity boundary (TICK-82); cases 1, 2, 6 and 8 run here, cases 3, 4, 5 and 7 need the real Keycloak and run in make stack-test-identity",
+		"CI-5":  "full in make identity-attacks (real Keycloak, the CI stack job, ci5-report artifact); here every case is registered: token shapes through the API handler (401 for the stated reason), the duplicate binding on this database, Keycloak-only cases as Stack paths on TestCI5",
 	}
 }
 
@@ -207,6 +265,12 @@ func Paths() []Path {
 			"UPDATE idempotency_keys SET lease_until = now() + interval '1 hour' WHERE tenant_id = $1", TenantB),
 		sql("idempotency_keys: reset tenant B's lease so a takeover can run", "nava_app", Denied,
 			"UPDATE idempotency_keys SET lease_until = now() - interval '1 hour' WHERE tenant_id = $1", TenantB),
+		// ADR-002 AC5: the /me statement with the wrong tenant predicate. Run
+		// as tenant A, row-level security hides tenant B's membership and
+		// group rows, so the join finds nothing.
+		sql("groups: list tenant B principal's group paths with tenant B's predicate", "nava_app", Denied,
+			"SELECT g.id, g.path FROM group_members gm JOIN groups g ON g.tenant_id = gm.tenant_id AND g.id = gm.group_id WHERE gm.tenant_id = $1 AND gm.principal_id = $2 ORDER BY g.id",
+			TenantB, PrincipalB1),
 		sql("tenants: read tenant B", "nava_app", OwnRowsOnly,
 			"SELECT id FROM tenants WHERE id = $1", TenantB),
 		sql("tenants: onboarding creates a tenant other than its own", "nava_onboard", Denied,
@@ -217,6 +281,24 @@ func Paths() []Path {
 			"INSERT INTO tenant_identity_binding (tenant_id, issuer, org_id) VALUES ($1, 'https://idp.example/realms/iso', 'org-iso')", TenantB),
 		sql("tenant_identity_binding: onboarding rebinds its own active tenant", "nava_onboard", Denied,
 			"INSERT INTO tenant_identity_binding (tenant_id, issuer, org_id) VALUES ($1, 'https://idp.example/realms/iso', 'org-iso')", TenantA),
+		// pending_invite (T252a, TICK-254): both tenants invited the same
+		// email, so a lookup by email alone would find both rows.
+		sql("pending_invite: onboarding looks an invited email up in every tenant", "nava_onboard", OwnRowsOnly,
+			"SELECT tenant_id FROM pending_invite WHERE email = $1", SharedInviteEmail),
+		sql("pending_invite: onboarding invites for tenant B", "nava_onboard", Denied,
+			"INSERT INTO pending_invite (tenant_id, email, expires_at) VALUES ($1, 'iso-new@example.test', now() + interval '1 day')", TenantB),
+		sql("pending_invite: onboarding re-invites tenant B's invitee", "nava_onboard", Denied,
+			`INSERT INTO pending_invite (tenant_id, email, expires_at) VALUES ($1, $2, now() + interval '30 days')
+			 ON CONFLICT (tenant_id, email) DO UPDATE SET expires_at = EXCLUDED.expires_at WHERE pending_invite.consumed_at IS NULL`,
+			TenantB, SharedInviteEmail),
+		sql("pending_invite: onboarding extends tenant B's invites", "nava_onboard", Denied,
+			"UPDATE pending_invite SET expires_at = now() + interval '30 days' WHERE tenant_id = $1", TenantB),
+		sql("pending_invite: group sync reads tenant B's invite by its full key", "nava_groupsync", OwnRowsOnly,
+			"SELECT tenant_id FROM pending_invite WHERE tenant_id = $1 AND email = $2", TenantB, SharedInviteEmail),
+		sql("pending_invite: group sync consumes tenant B's invite", "nava_groupsync", Denied,
+			`UPDATE pending_invite SET consumed_at = now()
+			 WHERE tenant_id = $1 AND email = $2 AND consumed_at IS NULL AND expires_at > now() RETURNING tenant_id`,
+			TenantB, SharedInviteEmail),
 
 		// Forged tenant: a valid token for tenant A names tenant B in the
 		// payload, a header, the query or baggage. The tenant comes only from
@@ -235,5 +317,7 @@ func Paths() []Path {
 	}
 	paths = append(paths, cursorPaths()...)
 	paths = append(paths, idempotencyPaths()...)
-	return append(paths, rolePaths()...)
+	paths = append(paths, ci5Paths()...)
+	paths = append(paths, rolePaths()...)
+	return append(paths, boundaryPaths()...)
 }

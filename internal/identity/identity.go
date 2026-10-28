@@ -137,7 +137,14 @@ type DirectoryGroup struct {
 type Binding struct {
 	TenantID   uuid.UUID
 	IdPAliases []string
+	// TenantState is the bound tenant's tenants.state. A resolver refuses
+	// every state but TenantStateActive, the zero value included (T17a).
+	TenantState string
 }
+
+// TenantStateActive is the only tenants.state a resolver accepts. Onboarding
+// moves a tenant from provisioning to active as its last step (T21).
+const TenantStateActive = "active"
 
 // PrincipalRecord is a principals row as group sync recorded it, with the
 // principal's group ids.
@@ -165,12 +172,38 @@ var (
 // resolver calls it after validating the token; internal/identity/pgstore is
 // the PostgreSQL implementation.
 type Store interface {
-	// Binding looks (issuer, orgID) up in tenant_identity_binding. It returns
-	// ErrNoBinding for no row, and an error for more than one.
+	// Binding looks (issuer, orgID) up in tenant_identity_binding, with the
+	// bound tenant's state. It returns ErrNoBinding for no row, and an error
+	// for more than one.
 	Binding(ctx context.Context, issuer, orgID string) (Binding, error)
 	// Principal reads the principal whose IdP user id is subject, in tenantID
 	// only. It returns ErrNoPrincipal for no row.
 	Principal(ctx context.Context, tenantID uuid.UUID, subject string) (PrincipalRecord, error)
+}
+
+// TenantGroupPrefix is the path prefix of every group of a tenant in the
+// directory: groups sit at /t/<tenant_id>/... (D26). Group sync and /me both
+// use it, so the layout is written down once.
+func TenantGroupPrefix(tenantID uuid.UUID) string { return "/t/" + tenantID.String() + "/" }
+
+// GroupPath is one group a principal belongs to, with the group's raw path as
+// stored (it still carries TenantGroupPrefix).
+type GroupPath struct {
+	ID   uuid.UUID
+	Path string
+}
+
+// GroupPathReader reads the paths of the groups a principal belongs to, in
+// tenantID only, sorted by group id. It reads by principal, never by group id,
+// so a caller cannot list groups it is not in. Paths are for display only
+// (ADR-002 section 1.4): no authorization decision, ACL, cache key or metric
+// may key on one. Only GetMe calls it; the forbidigo rules in .golangci.yml
+// hold that. It is separate from Store so the resolver never sees paths.
+//
+// TODO(TODO-017): the I5 ACL compiler takes group uuids only; a test asserts
+// it never reads groups.path or identity.GroupPath.
+type GroupPathReader interface {
+	GroupPaths(ctx context.Context, tenantID, principalID uuid.UUID) ([]GroupPath, error)
 }
 
 type ctxKey struct{}

@@ -12,6 +12,13 @@
 //
 // T17 adds the tenant-resolution cases, T18 the directory cases, and T19 its
 // adversarial cases, each by appending to the Suite's case lists.
+//
+// T19 (ADR-001 Annex B CI-5): a case may carry a catalogue id (Case, such as
+// "CI-5.03"). A Suite that lists "CI-5" in Require fails unless every entry of
+// CI5Cases is covered by at least one supplied case, so a future adapter
+// inherits the whole CI-5 list, not only the cases that are easy to mint. A
+// tagged case runs as a subtest named "[CI-5.03] ...", which is what
+// tools/ci/ci5report matches.
 package contracttest
 
 import (
@@ -31,7 +38,9 @@ import (
 // ResolverCase is one token for IdentityResolver.Resolve. Set Want for a token
 // the contract accepts, or WantErr (a sentinel) for one it refuses.
 type ResolverCase struct {
-	Name    string
+	Name string
+	// Case is a catalogue id ("CI-5.03"), or empty.
+	Case    string
 	Token   string
 	Want    *identity.Principal
 	WantErr error
@@ -41,6 +50,7 @@ type ResolverCase struct {
 // WantErr as for ResolverCase.
 type OperatorCase struct {
 	Name    string
+	Case    string
 	Token   string
 	Want    *identity.Operator
 	WantErr error
@@ -49,7 +59,18 @@ type OperatorCase struct {
 // DirectoryCase is one DirectoryAdmin scenario.
 type DirectoryCase struct {
 	Name string
+	Case string
 	Run  func(t *testing.T, d identity.DirectoryAdmin)
+}
+
+// ScenarioCase is an attack the port alone cannot express: one the IdP itself
+// must refuse (a brokered login, the organization picker) or the platform
+// database must (a duplicate binding). Run fails the test when the attacker
+// gets anything a tenant should not have.
+type ScenarioCase struct {
+	Name string
+	Case string
+	Run  func(t *testing.T)
 }
 
 // Suite is what an adapter brings. A nil implementation skips its part.
@@ -62,6 +83,12 @@ type Suite struct {
 
 	Directory      identity.DirectoryAdmin
 	DirectoryCases []DirectoryCase
+
+	Scenarios []ScenarioCase
+
+	// Require lists the catalogues ("CI-5") the supplied cases must cover
+	// entry by entry.
+	Require []string
 }
 
 // garbage are tokens no adapter may accept, whatever its token format.
@@ -77,13 +104,20 @@ func garbage() []string {
 // Run runs the suite.
 func (s Suite) Run(t *testing.T) {
 	t.Helper()
+	if len(s.Require) > 0 {
+		t.Run("coverage", func(t *testing.T) {
+			for _, missing := range s.Uncovered() {
+				t.Errorf("no case covers %s", missing)
+			}
+		})
+	}
 	t.Run("IdentityResolver", func(t *testing.T) {
 		if s.Resolver == nil {
 			t.Skip("adapter has no IdentityResolver")
 		}
 		cases := slices.Concat(builtinResolverCases(), s.ResolverCases)
 		for _, c := range cases {
-			t.Run(c.Name, func(t *testing.T) { checkResolve(t, s.Resolver, c) })
+			t.Run(caseName(c.Case, c.Name), func(t *testing.T) { checkResolve(t, s.Resolver, c) })
 		}
 		t.Run("concurrent", func(t *testing.T) {
 			var wg sync.WaitGroup
@@ -104,7 +138,7 @@ func (s Suite) Run(t *testing.T) {
 			cases = append(cases, OperatorCase{Name: "garbage " + clip(g), Token: g, WantErr: identity.ErrInvalidToken})
 		}
 		for _, c := range cases {
-			t.Run(c.Name, func(t *testing.T) { checkOperator(t, s.Operator, c) })
+			t.Run(caseName(c.Case, c.Name), func(t *testing.T) { checkOperator(t, s.Operator, c) })
 		}
 	})
 	t.Run("DirectoryAdmin", func(t *testing.T) {
@@ -112,9 +146,56 @@ func (s Suite) Run(t *testing.T) {
 			t.Skip("adapter has no DirectoryAdmin")
 		}
 		for _, c := range s.DirectoryCases {
-			t.Run(c.Name, func(t *testing.T) { c.Run(t, s.Directory) })
+			t.Run(caseName(c.Case, c.Name), func(t *testing.T) { c.Run(t, s.Directory) })
 		}
 	})
+	if len(s.Scenarios) > 0 {
+		t.Run("Scenarios", func(t *testing.T) {
+			for _, c := range s.Scenarios {
+				t.Run(caseName(c.Case, c.Name), c.Run)
+			}
+		})
+	}
+}
+
+// caseName prefixes a tagged case with its id: "[CI-5.03] name".
+func caseName(id, name string) string {
+	if id == "" {
+		return name
+	}
+	return "[" + id + "] " + name
+}
+
+// Uncovered lists the entries of the Require catalogues that no supplied case
+// carries, as "CI-5.03 an unknown issuer".
+func (s Suite) Uncovered() []string {
+	have := map[string]bool{}
+	for _, c := range s.ResolverCases {
+		have[c.Case] = true
+	}
+	for _, c := range s.OperatorCases {
+		have[c.Case] = true
+	}
+	for _, c := range s.DirectoryCases {
+		have[c.Case] = true
+	}
+	for _, c := range s.Scenarios {
+		have[c.Case] = true
+	}
+	var out []string
+	for _, req := range s.Require {
+		cat, ok := Catalogues()[req]
+		if !ok {
+			out = append(out, req+" (no such catalogue)")
+			continue
+		}
+		for _, c := range cat {
+			if !have[c.ID] {
+				out = append(out, c.ID+" "+c.Title)
+			}
+		}
+	}
+	return out
 }
 
 func builtinResolverCases() []ResolverCase {

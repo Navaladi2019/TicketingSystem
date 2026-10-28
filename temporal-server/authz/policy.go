@@ -224,7 +224,7 @@ var deniedByDefault = []string{
 // PR with Security review; TestAllowListGolden prints both sets.
 var (
 	platformTaskQueues    = set("nava-tq")
-	platformWorkflowTypes = set("nava.smoke.Echo")
+	platformWorkflowTypes = set("nava.smoke.Echo", "nava.smoke.relay")
 )
 
 // stickyQueueName is the SDK's own sticky queue name, `<host>:<uuid>`

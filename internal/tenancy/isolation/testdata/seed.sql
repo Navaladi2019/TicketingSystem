@@ -46,17 +46,27 @@ INSERT INTO principals (tenant_id, id, keycloak_user_id, email, enabled, federat
     ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000003a1', 'kc-user-shared', 'a1@tenant-a.test', true, '[]', now()),
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000003b1', 'kc-user-shared', 'b1@tenant-b.test', true,
         '[{"identityProvider": "idp-b", "userId": "b1", "userName": "b1"}]', now()),
+    -- CI-5.10: a tenant A principal federated to tenant B's IdP, stored as
+    -- the alias-only marker group sync writes (TICK-263): no foreign userId.
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000003a2', 'kc-user-a-foreign', NULL, true,
+        '[{"identityProvider": "idp-b"}]', now()),
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000003b2', 'kc-user-b2', NULL, true, NULL, now());
 
 INSERT INTO groups (tenant_id, id, keycloak_group_id, path) VALUES
     ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000004a1', 'kc-group-shared', '/t/0a000000-0000-4000-8000-00000000000a/agents'),
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000004b1', 'kc-group-shared', '/t/0b000000-0000-4000-8000-00000000000b/agents'),
-    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000004b2', 'kc-group-b2', '/t/0b000000-0000-4000-8000-00000000000b/admins');
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000004b2', 'kc-group-b2', '/t/0b000000-0000-4000-8000-00000000000b/admins'),
+    -- ADR-002 AC2: a B-only marker no tenant A response may ever contain, and
+    -- a second tenant A group that a1 is not in.
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000004b3', 'kc-group-b-marker', '/t/0b000000-0000-4000-8000-00000000000b/b-only-marker'),
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000004a2', 'kc-group-a2', '/t/0a000000-0000-4000-8000-00000000000a/a-others');
 
 INSERT INTO group_members (tenant_id, group_id, principal_id) VALUES
     ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000004a1', '0a000000-0000-4000-8000-0000000003a1'),
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000004b1', '0b000000-0000-4000-8000-0000000003b1'),
-    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000004b2', '0b000000-0000-4000-8000-0000000003b2');
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000004b2', '0b000000-0000-4000-8000-0000000003b2'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000004b3', '0b000000-0000-4000-8000-0000000003b1'),
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000004a2', '0a000000-0000-4000-8000-0000000003a2');
 
 INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name) VALUES
     ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000005a1', NULL, 'kc-ou-shared', 'Root A'),
@@ -68,3 +78,11 @@ INSERT INTO tenant_email_domain (tenant_id, domain) VALUES
     ('0a000000-0000-4000-8000-00000000000a', 'tenant-a.test'),
     ('0b000000-0000-4000-8000-00000000000b', 'tenant-b.test'),
     ('0b000000-0000-4000-8000-00000000000b', 'b2.tenant-b.test');
+
+-- Pending invites (T252a). The same email is invited by both tenants, so a
+-- lookup by email alone would find both rows without isolation; B also has a
+-- consumed invite.
+INSERT INTO pending_invite (tenant_id, email, expires_at, consumed_at) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', 'shared-invite@example.test', now() + interval '7 days', NULL),
+    ('0b000000-0000-4000-8000-00000000000b', 'shared-invite@example.test', now() + interval '7 days', NULL),
+    ('0b000000-0000-4000-8000-00000000000b', 'used-invite@example.test', now() + interval '7 days', now());

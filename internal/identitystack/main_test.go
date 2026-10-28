@@ -24,6 +24,11 @@ import (
 var testRealms = []string{"idp-tenant-a", "idp-tenant-b"}
 
 func TestMain(m *testing.M) {
+	// make identity-attacks-fixture runs only the CI-5.06 negative fixture,
+	// against its own Keycloak 26.1.2 and with no stack to import into.
+	if os.Getenv("NAVA_CI5_KC_FIXTURE_URL") != "" {
+		os.Exit(m.Run())
+	}
 	if err := importTestRealms(); err != nil {
 		fmt.Fprintln(os.Stderr, "identitystack:", err)
 		os.Exit(1)
@@ -85,6 +90,28 @@ func importTestRealms() error {
 		if r.StatusCode != http.StatusCreated {
 			return fmt.Errorf("import %s: %d %s", realm, r.StatusCode, strings.TrimSpace(string(b)))
 		}
+	}
+	return clearBrokerKeys(c, tok.AccessToken)
+}
+
+// clearBrokerKeys drops realm nava's cached JWKS of its identity providers
+// (TICK-267). A recreated IdP realm signs with a new key, but nava's IdP
+// config, and so its cache entry, is unchanged: the first broker login then
+// presents an unknown kid, and Keycloak refetches the JWKS at most once every
+// 10 seconds per IdP. An earlier `go test` that brokered through the same IdP
+// less than 10 seconds before leaves the stale keys in place, and the
+// callback fails with "token signature validation failed" (a 502).
+func clearBrokerKeys(c *http.Client, token string) error {
+	req, _ := http.NewRequest(http.MethodPost, baseURL()+"/admin/realms/nava/clear-keys-cache", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	r, err := c.Do(req)
+	if err != nil {
+		return fmt.Errorf("clear nava's keys cache: %w", err)
+	}
+	b, _ := io.ReadAll(r.Body)
+	r.Body.Close()
+	if r.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("clear nava's keys cache: %d %s", r.StatusCode, strings.TrimSpace(string(b)))
 	}
 	return nil
 }

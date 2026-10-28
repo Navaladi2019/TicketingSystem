@@ -27,7 +27,7 @@ func newServers(t *testing.T) (public, internal *httptest.Server, tel *telemetry
 	}
 	t.Cleanup(func() { _ = tel.Shutdown(t.Context()) })
 	log := slog.New(slog.DiscardHandler)
-	handler, err := server.NewHandler(log, tel, stubResolver{})
+	handler, err := server.NewHandler(log, tel, stubResolver{}, stubPaths{})
 	if err != nil {
 		t.Fatalf("NewHandler: %v", err)
 	}

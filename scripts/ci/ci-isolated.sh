@@ -50,7 +50,7 @@ export NAVA_CORE_PORT KEYCLOAK_PORT TEMPORAL_TEST_PORT UI_PORT TEMPORAL_UI_PORT
 
 # Every nava/* image compose.yaml builds; the teardown check fails on any
 # nava/*:<id> tag left, so an image added there and missed here shows up.
-images="nava/keycloak nava/nava-core nava/nava-db nava/nava-purge nava/nava-relay nava/nava-worker nava/otel-collector nava/temporal-server"
+images="nava/keycloak nava/nava-core nava/nava-db nava/nava-groupsync nava/nava-onboard nava/nava-purge nava/nava-relay nava/nava-worker nava/otel-collector nava/temporal-server"
 stack_files="-f compose.yaml -f deploy/compose/compose.internal.yaml"
 
 teardown() {
@@ -59,6 +59,17 @@ teardown() {
     for p in "$COMPOSE_PROJECT_NAME" "$COMPOSE_PROJECT_NAME-int"; do
         # shellcheck disable=SC2086
         COMPOSE_PROJECT_NAME=$p COMPOSE_PROFILES=operator docker compose $stack_files down -v --remove-orphans >/dev/null 2>&1 || true
+    done
+    # The integration and isolation clusters this run's stages started
+    # (nava-it-*, nava-iso-*, labelled nava.ci.owner=<project> by
+    # scripts/ci/test-integration.sh and isolation.sh, TICK-182). Their
+    # scripts remove them on exit; this catches a stage killed before its
+    # trap ran. The label selects this project's only, never another run's.
+    for c in $(docker ps -a -q --filter "label=nava.ci.owner=$COMPOSE_PROJECT_NAME"); do
+        docker rm -f "$c" >/dev/null 2>&1 || true
+    done
+    for n in $(docker network ls -q --filter "label=nava.ci.owner=$COMPOSE_PROJECT_NAME"); do
+        docker network rm "$n" >/dev/null 2>&1 || true
     done
     # Untags only: layers another tag uses and the build cache stay.
     for i in $images; do docker image rm "$i:$id" >/dev/null 2>&1 || true; done
@@ -81,6 +92,13 @@ teardown() {
             esac
             [ -z "$out" ] || left="$left $p:$kind:$(echo $out)"
         done
+    done
+    for kind in container network; do
+        case $kind in
+            container) out=$(docker ps -a --format '{{.Names}}' --filter "label=nava.ci.owner=$COMPOSE_PROJECT_NAME") ;;
+            network) out=$(docker network ls --format '{{.Name}}' --filter "label=nava.ci.owner=$COMPOSE_PROJECT_NAME") ;;
+        esac
+        [ -z "$out" ] || left="$left integration:$kind:$(echo $out)"
     done
     for i in $(docker images --format '{{.Repository}}:{{.Tag}}' --filter "reference=nava/*:$id"); do
         left="$left image:$i"

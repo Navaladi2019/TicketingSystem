@@ -51,9 +51,11 @@ security:
   # The compose network files.
   - compose.yaml
   - deploy/compose/compose.internal.yaml
-  # The CI workflow and what it runs.
+  # The CI workflow and what it runs. scripts/ci/ picks the tags, packages
+  # and -run filters the isolation suites run with (TICK-230).
   - .github/
   - Makefile
+  - scripts/ci/
   - tools/ci/
   - docs/delivery/review-paths.yaml
   # The `set_config` lint config (and every other lint rule).
@@ -78,6 +80,10 @@ cto_signoff:
   # leave it out of the run, needs CTO sign-off.
   isolation_tests:
     - "**/*isolation*_test.go"
+    # Every adversarial suite, at any depth: *_adversarial_test.go,
+    # adversarial_*_test.go and adversarial_test.go (TICK-229). The explicit
+    # entries below are kept as a record of what each suite guards.
+    - "**/*adversarial*_test.go"
     - internal/tenancy/isolation/*_test.go
     # The T27a CI-6 namespace-isolation suite.
     - temporal-server/authz/adversarial_test.go
@@ -85,3 +91,7 @@ cto_signoff:
     - internal/identitystack/adversarial_test.go
     - internal/identitystack/audience_attack_test.go
     - internal/identitystack/directory_adversarial_test.go
+    # The T19 CI-5 suite: its environment, and the catalogue Require checks
+    # (dropping an entry would drop its case from every adapter's run).
+    - internal/identitystack/ci5_env_test.go
+    - internal/identity/contracttest/ci5.go

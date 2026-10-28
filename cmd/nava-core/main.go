@@ -48,20 +48,20 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 	}
 	// With OTEL_EXPORTER_OTLP_ENDPOINT set, records also go to the Collector.
 	// Unset, log is unchanged.
-	log = logging.WithExport(log, tel.LogHandler(), cfg.Log.Level)
+	log = logging.WithExport(log, tel.LogHandler("nava-core"), cfg.Log.Level)
 	mon, closeDeps, err := newMonitor(ctx, log, tel, cfg)
 	if err != nil {
 		_ = tel.Shutdown(context.WithoutCancel(ctx))
 		return err
 	}
 	defer closeDeps()
-	resolver, closeResolver, err := newResolver(ctx, log, tel, cfg)
+	resolver, paths, closeResolver, err := newResolver(ctx, log, tel, cfg)
 	if err != nil {
 		_ = tel.Shutdown(context.WithoutCancel(ctx))
 		return err
 	}
 	defer closeResolver()
-	public, err := server.NewHandler(log, tel, resolver, server.WithRateLimit(cfg.RateLimit))
+	public, err := server.NewHandler(log, tel, resolver, paths, server.WithRateLimit(cfg.RateLimit))
 	if err != nil {
 		_ = tel.Shutdown(context.WithoutCancel(ctx))
 		return err

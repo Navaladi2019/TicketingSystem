@@ -35,7 +35,7 @@ func newLimitedHandler(t *testing.T, burst int) http.Handler {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = tel.Shutdown(t.Context()) })
-	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel, twoTenants{},
+	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel, twoTenants{}, stubPaths{},
 		server.WithRateLimit(config.RateLimit{Rate: 0.001, Burst: burst}))
 	if err != nil {
 		t.Fatal(err)

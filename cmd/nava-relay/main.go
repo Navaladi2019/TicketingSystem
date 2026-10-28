@@ -39,6 +39,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/health"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/logging"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/temporaltls"
 	"github.com/Navaladi2019/TicketingSystem/internal/relay"
 	"github.com/Navaladi2019/TicketingSystem/internal/workerguard"
 )
@@ -78,7 +79,7 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 	if err != nil {
 		return err
 	}
-	log = logging.WithExport(log, tel.LogHandler(), cfg.Log.Level)
+	log = logging.WithExport(log, tel.LogHandler("nava-relay"), cfg.Log.Level)
 	flush := func() error {
 		flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cfg.Telemetry.ShutdownTimeout)
 		defer cancel()
@@ -110,7 +111,7 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 // newDispatcher builds the nava_relay pool, the Temporal client and the
 // readiness checks. The returned func closes the client and the pools.
 func newDispatcher(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, cfg config.Config) (*relay.Dispatcher, *health.Monitor, func(), error) {
-	tlsConfig, err := temporalTLS(cfg.Deps.TemporalTLS)
+	tlsConfig, err := temporaltls.Load(cfg.Deps.TemporalTLS)
 	if err != nil {
 		return nil, nil, nil, err
 	}

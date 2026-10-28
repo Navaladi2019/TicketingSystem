@@ -236,6 +236,29 @@ func TestManifestRejectsMissingObjects(t *testing.T) {
 	}
 }
 
+// TICK-281: partial-migration tests skip the manifest (migrateOnlyFS), so this
+// pins that the full path stays strict: a column grant on a column the
+// migrations never create fails the run, as it does in production.
+func TestFullMigrateFailsOnGrantToMissingColumn(t *testing.T) {
+	m := freshCluster(t)
+	gs := m.Roles["nava_groupsync"]
+	if _, ok := gs.Tables["principals"]; !ok {
+		t.Fatal("db/grants.yaml: nava_groupsync has no grant on principals; pick another real table for this test")
+	}
+	gs.Tables["principals"]["UPDATE"] = append(gs.Tables["principals"]["UPDATE"], "t281_no_such_column")
+	m.Roles["nava_groupsync"] = gs
+
+	_, err := migrateFS(t, m, db.Migrations())
+	if err == nil {
+		t.Fatal("full migrate with a grant on a missing column succeeded; want it to fail")
+	}
+	for _, want := range []string{"column", "does not exist", "t281_no_such_column"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want it to contain %q", err, want)
+		}
+	}
+}
+
 func TestManifestRefusesWrongRole(t *testing.T) {
 	m := migratedCluster(t)
 	log, _ := newLog()
@@ -328,5 +351,24 @@ func TestNoTransactionMigrationsAreIdempotent(t *testing.T) {
 	}
 	if _, err := p.Up(context.Background()); err != nil {
 		t.Fatalf("re-running NO TRANSACTION migrations: %v", err)
+	}
+}
+
+// TICK-290: a timestamp migration from a long-lived branch can be older than
+// one already applied. The migrator applies it instead of refusing the run.
+func TestOutOfOrderMigrationApplies(t *testing.T) {
+	m := migratedCluster(t)
+	late := withExtraMigration(t, "29991231000001_t290_late.sql", "-- +goose Up\nSELECT 1;\n")
+	if _, err := migrateFS(t, m, late); err != nil {
+		t.Fatalf("migrate with the later migration: %v", err)
+	}
+	both := late.(fstest.MapFS)
+	both["29991231000000_t290_early.sql"] = &fstest.MapFile{Data: []byte("-- +goose Up\nSELECT 1;\n")}
+	res, err := migrateFS(t, m, both)
+	if err != nil {
+		t.Fatalf("migrate with an older, unapplied migration: %v", err)
+	}
+	if len(res.Applied) != 1 || res.Applied[0] != "29991231000000_t290_early.sql" {
+		t.Fatalf("applied %v, want only the older migration", res.Applied)
 	}
 }

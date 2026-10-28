@@ -17,7 +17,7 @@ out=bin/lease-bench-output.txt
 bin=bin/lease-bench-nava-db$(go env GOEXE)
 MSYS_NO_PATHCONV=1
 export MSYS_NO_PATHCONV
-trap 'docker rm -f "$name" >/dev/null 2>&1 || true; rm -f "$bin" bin/lease-bench-00006.sql' EXIT
+trap 'docker rm -f "$name" >/dev/null 2>&1 || true; rm -f "$bin" bin/lease-bench-lease.sql' EXIT
 
 mkdir -p bin
 go build -o "$bin" ./cmd/nava-db
@@ -40,17 +40,17 @@ psql_as() { # psql_as <role> <file>
     echo "### host: $(uname -s), $(nproc 2>/dev/null || echo ?) CPUs; docker $(docker version --format '{{.Server.Version}}')"
     docker info --format 'docker VM: {{.NCPU}} CPUs, {{.MemTotal}} bytes'
     echo "### undo 00006 (nava_migrator)"
-    echo 'ALTER TABLE idempotency_keys DROP COLUMN lease_until;' > bin/lease-bench-00006.sql
-    psql_as nava_migrator bin/lease-bench-00006.sql
+    echo 'ALTER TABLE idempotency_keys DROP COLUMN lease_until;' > bin/lease-bench-lease.sql
+    psql_as nava_migrator bin/lease-bench-lease.sql
     echo "### seed (pgadmin)"; psql_as pgadmin "$dir/01_seed.sql"
     echo "### 00006 over the seeded table (nava_migrator)"
-    { echo '\timing on'; echo 'BEGIN;'; cat db/migrations/00006_idempotency_lease.sql; echo 'COMMIT;'; } > bin/lease-bench-00006.sql
-    psql_as nava_migrator bin/lease-bench-00006.sql
+    { echo '\timing on'; echo 'BEGIN;'; cat db/migrations/20261028175712_idempotency_lease.sql; echo 'COMMIT;'; } > bin/lease-bench-lease.sql
+    psql_as nava_migrator bin/lease-bench-lease.sql
     # 00006 is recorded as applied, so this only re-applies grants.yaml to the new column.
     PGHOST=127.0.0.1 PGPORT=$port PGUSER=nava_migrator PGPASSWORD=bench-nava_migrator PGDATABASE=nava "$bin" migrate
     echo "### heap after 00006 (pgadmin)"
-    echo "SELECT pg_relation_size('idempotency_keys') AS heap_bytes, pg_relation_filenode('idempotency_keys') AS filenode;" > bin/lease-bench-00006.sql
-    psql_as pgadmin bin/lease-bench-00006.sql
+    echo "SELECT pg_relation_size('idempotency_keys') AS heap_bytes, pg_relation_filenode('idempotency_keys') AS filenode;" > bin/lease-bench-lease.sql
+    psql_as pgadmin bin/lease-bench-lease.sql
     echo "### leases as written by the middleware (pgadmin)"; psql_as pgadmin "$dir/02_lease.sql"
     echo "### sizes (pgadmin)"; psql_as pgadmin "$dir/05_sizes.sql"
     echo "### plans (nava_app)"; psql_as nava_app "$dir/03_plans.sql"

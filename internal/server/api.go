@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -22,11 +23,17 @@ import (
 // contract's paths already start with /api/v1, so both are empty.
 const baseURL = ""
 
-// newAPI registers the /api/v1 routes of the embedded contract on mux, each
-// behind the authentication middleware and then the validator, and returns
-// the error-contract helper whose Wrap goes around mux. The spec and docs
-// routes are public.
-func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.IdentityResolver, limiter ratelimit.Limiter, mux *http.ServeMux) (*apihttp.API, error) {
+// newAPI registers the /api/v1 routes of the embedded contract on mux and
+// returns the handler to serve. Authentication (routeAuth) wraps the whole
+// mux, outside the generated router: the generated wrapper binds path, query
+// and header parameters before it runs a MiddlewareFunc, so an auth
+// middleware inside it would answer 400 to an unauthenticated request with a
+// bad or missing parameter. Behind authentication each route runs the
+// validator. Only the spec and docs routes are public. Every other path under
+// /api/v1, matched or not, is authenticated first (fail closed): an unknown
+// path or wrong method with no token is 401, and 404/405 only behind a valid
+// token. Paths outside /api/v1 get the 404 problem.
+func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.IdentityResolver, paths identity.GroupPathReader, mux *http.ServeMux, opts options) (http.Handler, error) {
 	specData, err := api.Files.ReadFile("openapi.yaml")
 	if err != nil {
 		return nil, fmt.Errorf("read openapi.yaml: %w", err)
@@ -48,37 +55,65 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 		return nil, err
 	}
 
-	limit, err := ratelimit.New(limiter, reg, log)
+	limit, err := ratelimit.New(opts.limiter(), reg, log)
 	if err != nil {
 		return nil, err
 	}
 
 	a := apihttp.New(spec, reg, log, baseURL)
+	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths}
 	api.HandlerWithOptions(
-		api.NewStrictHandlerWithOptions(&handlers{reg: reg, log: log}, nil, api.StrictHTTPServerOptions{
+		api.NewStrictHandlerWithOptions(h, nil, api.StrictHTTPServerOptions{
 			RequestErrorHandlerFunc:  a.StrictRequestError,
-			ResponseErrorHandlerFunc: a.StrictResponseError,
+			ResponseErrorHandlerFunc: h.responseError(a),
 		}),
 		api.StdHTTPServerOptions{
-			BaseURL:    baseURL,
-			BaseRouter: mux,
-			// The last one is outermost: an unauthenticated request gets 401
-			// first, then a tenant over its limit gets 429, both before the
-			// validator looks at the input.
-			Middlewares:      []api.MiddlewareFunc{a.Middleware(), limit.Handler, authn.Middleware},
+			BaseURL:          baseURL,
+			BaseRouter:       mux,
+			Middlewares:      []api.MiddlewareFunc{a.Middleware()},
 			ErrorHandlerFunc: a.ErrorHandler,
 		},
 	)
-	mux.Handle("GET /api/v1/openapi.yaml", specHandler(specData))
-	mux.Handle("GET /api/v1/docs", docsHandler(spec))
-	return a, nil
+	mux.Handle(specPattern, specHandler(specData))
+	mux.Handle(docsPattern, docsHandler(spec))
+
+	served := a.Wrap(mux)
+	// A tenant request is authenticated (401) and then rate limited (429)
+	// before the generated router binds parameters or the validator reads the
+	// input. Operator routes carry no tenant, so they are not limited here.
+	tenant := func(next http.Handler) http.Handler { return authn.Middleware(limit.Handler(next)) }
+	authed := routeAuth(reg, opts.operatorOnly, tenant, operatorAuth(reg, log, opts.operators, resolver))(served)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, pattern := mux.Handler(r)
+		if pattern == specPattern || pattern == docsPattern || (pattern == "" && !underAPI(r.URL.Path)) {
+			served.ServeHTTP(w, r)
+			return
+		}
+		r.Pattern = pattern // the authentication logs name the route
+		authed.ServeHTTP(w, r)
+	}), nil
 }
+
+// underAPI reports whether path is the contract's /api/v1 prefix or below it.
+// The prefix is matched as written: a differently cased or encoded spelling
+// cannot match a route either, so it gets 404 and no data.
+func underAPI(path string) bool {
+	return path == "/api/v1" || strings.HasPrefix(path, "/api/v1/")
+}
+
+const (
+	specPattern = "GET /api/v1/openapi.yaml"
+	docsPattern = "GET /api/v1/docs"
+)
 
 // handlers implements the generated strict server. Operations the contract
 // declares but a later task implements answer 501 not_implemented.
 type handlers struct {
-	reg *problem.Registry
-	log *slog.Logger
+	reg       *problem.Registry
+	log       *slog.Logger
+	onboarder Onboarder
+	// paths is read by GetMe only (ADR-002).
+	paths identity.GroupPathReader
 }
 
 // errNoPrincipal means a handler ran outside the authentication middleware:
@@ -95,5 +130,39 @@ func (h *handlers) GetMe(ctx context.Context, _ api.GetMeRequestObject) (api.Get
 	if groups == nil {
 		groups = []uuid.UUID{}
 	}
-	return api.GetMe200JSONResponse{UserId: p.PrincipalID, TenantId: p.TenantID, Groups: groups, IdpAlias: p.IdPAlias}, nil
+	raw, err := h.paths.GroupPaths(ctx, p.TenantID, p.PrincipalID) //nolint:forbidigo // ADR-002: GetMe is the one allowed GroupPaths caller
+	if err != nil {
+		return nil, err
+	}
+	// Strip the tenant prefix; an entry without it is dropped and logged
+	// without its path, so one bad row cannot take /me down (ADR-002 section 3).
+	prefix := identity.TenantGroupPrefix(p.TenantID)
+	paths := make([]api.GroupPath, 0, len(raw))
+	for _, gp := range raw {
+		rest, ok := strings.CutPrefix(gp.Path, prefix)
+		if !ok {
+			h.log.ErrorContext(ctx, "group path outside tenant prefix",
+				slog.String("tenant_id", p.TenantID.String()), slog.String("group_id", gp.ID.String()))
+			continue
+		}
+		paths = append(paths, api.GroupPath{Id: gp.ID, Path: "/" + rest})
+	}
+	return api.GetMe200JSONResponse{UserId: p.PrincipalID, TenantId: p.TenantID, Groups: groups, IdpAlias: p.IdPAlias, GroupPaths: paths}, nil
+}
+
+// responseError answers a handler's problemError with its registered code and
+// hands every other error to the shared handler.
+func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http.Request, error) {
+	return func(w http.ResponseWriter, r *http.Request, err error) {
+		var pe *problemError
+		if errors.As(err, &pe) {
+			if pe.code == problem.ValidationFailed {
+				h.reg.Write(w, r, problem.ValidationFailed, pe.fields...)
+				return
+			}
+			h.reg.WriteError(w, r, h.log, pe.code, pe.err)
+			return
+		}
+		a.StrictResponseError(w, r, err)
+	}
 }

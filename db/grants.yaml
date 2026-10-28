@@ -38,10 +38,10 @@ roles:
     attributes: [LOGIN]
 
   # The D28 system actors (A.3), one role each. Table entries: T09
-  # (00002_platform_tables.sql), T16 (00003_identity_tables.sql) and T18a
-  # (00004_tenant_email_domain.sql). Every
-  # tenant table is under FORCE RLS, so a grant here reaches only the rows its
-  # policies allow.
+  # (00002_platform_tables.sql), T16 (00003_identity_tables.sql), T18a
+  # (00004_tenant_email_domain.sql, 00007_email_domain_release.sql) and T252a
+  # (00006_pending_invite.sql). Every tenant table is under FORCE RLS, so a
+  # grant here reaches only the rows its policies allow.
   nava_app:
     attributes: [LOGIN]
     pgbouncer_login: true
@@ -111,7 +111,13 @@ roles:
     tables:
       tenants: { SELECT: [id, state, onboarding_request_hash, created_at], INSERT: [id, state, onboarding_request_hash], UPDATE: [state] }
       tenant_identity_binding: { INSERT: [tenant_id, issuer, org_id, idp_aliases] }
-      tenant_email_domain: { INSERT: [tenant_id, domain] } # T18a, next to the binding
+      # T18a claims domains next to the binding; TICK-280 releases a
+      # provisioning tenant's (DELETE ... WHERE tenant_id = $1).
+      tenant_email_domain: { SELECT: [tenant_id], INSERT: [tenant_id, domain], DELETE: [] }
+      # InviteUser's insert and re-invite upsert (T252a): SELECT for the
+      # conflict target, the DO UPDATE WHERE and EXCLUDED.expires_at; UPDATE
+      # only expires_at, so a consumed invite cannot be reopened.
+      pending_invite: { SELECT: [tenant_id, email, expires_at, consumed_at], INSERT: [tenant_id, email, expires_at], UPDATE: [expires_at] }
 
   # Writes the identity tables (T16), one transaction per tenant. UPDATE
   # leaves the keys alone: a row is re-keyed by delete and insert, never in
@@ -123,10 +129,13 @@ roles:
     schemas: { public: [USAGE] }
     tables:
       tenant_identity_binding: { SELECT: [tenant_id, issuer, org_id, idp_aliases] } # binding_lookup
-      principals: { SELECT: [], INSERT: [], UPDATE: [email, enabled, federated_links, synced_at], DELETE: [] }
+      principals: { SELECT: [], INSERT: [], UPDATE: [email, enabled, federated_links, synced_at, deleted_at] }
       groups: { SELECT: [], INSERT: [], UPDATE: [path], DELETE: [] }
       group_members: { SELECT: [], INSERT: [], DELETE: [] }
       org_units: { SELECT: [], INSERT: [], UPDATE: [parent_id, name], DELETE: [] }
+      # Consumes an invite (T252a): UPDATE ... SET consumed_at = now() WHERE
+      # ... consumed_at IS NULL AND expires_at > now() RETURNING. No DELETE.
+      pending_invite: { SELECT: [tenant_id, email, expires_at, consumed_at], UPDATE: [consumed_at] }
 
   # Physical backups only. No CONNECT on the platform database; db/pg_hba.conf
   # lets it in only as a physical walsender from the backup host and rejects
