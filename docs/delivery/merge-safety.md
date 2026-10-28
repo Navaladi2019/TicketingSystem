@@ -98,7 +98,34 @@ TICK-289, TICK-290 and TICK-291 must not edit `Makefile`, because S5 and S7 are 
 - **Merge queue: deferred.** "Branch must be up to date" is enough at the current merge rate. Revisit when more than three PRs a day wait on rebases.
 - **Splitting `api.gen.go` per tag:** only if oapi-codegen does it without duplicating code (TICK-294 decides). Otherwise it stays one file, and the regeneration gate makes it safe.
 
-## 6. Acceptance
+## 6. Story suites on main
+
+TICK-292 (D9). Measured on `main` at `4392c26`, after S5 (TICK-47) and S7 (TICK-49) landed. Every suite below runs on every push to `main` (TICK-289 selects every stage on a push). On a pull request, `make ci-stages` selects the job when a file the suite covers changes. `TestStorySuitesSelected` and `TestEveryCommandIsAStackRoot` in `tools/ci/cichanged` check that selection.
+
+| Suite (ADR-001 Annex B) | Story | `make` target | `ci.yml` job, step |
+|---|---|---|---|
+| CI-1, CI-3, CI-4 catalogue gate (`internal/db/dbtest`) | S2 (TICK-44) | `test-integration` | `integration`, "Integration tests" |
+| CI-2 tenant isolation suite (`internal/tenancy/isolation`) | S2 (TICK-44) | `test-integration` (runs `isolation`) | `integration`, "Integration tests", plus the `isolation-report` artifact |
+| CI-5 contract suite, unit part (`internal/identity/contracttest`) | S3 (TICK-45), S5 (TICK-47) | `test` | `unit`, "go test -race" |
+| CI-5 adversarial identity suite (`TestCI5`) | S5 (TICK-47) | `identity-attacks` | `stack`, "CI-5 adversarial identity suite (T19)", plus the `ci5-report` artifact |
+| CI-5 realm and onboarding cases (`internal/identitystack`, `TestCI5` skipped) | S3, S4 (TICK-46) | `stack-test-identity` | `stack`, "Realm nava, operator custody and the Keycloak adapter" |
+| CI-6 Authorizer adversarial unit tests (`temporal-server/authz`) | S7 (TICK-49) | `temporal-server-test` | `temporal-server`, "temporal-server unit tests" |
+| CI-6 certificate, network, Authorizer, relay and worker cases (`internal/temporalstack`) | S7 (TICK-49) | `stack-test-sdk` | `stack`, "SDK clients dial…", plus the `ci6-report` artifact |
+| CI-6 network and certificate stack cases | S7 (TICK-49) | `stack-test-temporal_handshake`, `_isolation` (runs `_confinement`), `_custody`, `_operator_reach` | `stack`, one step each |
+| CI-7 payload schema, Temporal side (`ci7_isolation_test.go`) | S7 (TICK-49) | `stack-test-sdk` | `stack`, "SDK clients dial…", in the `ci6-report` artifact |
+| CI-7 payload check, database side (`internal/outbox`) | S7 (TICK-49) | `test-integration` | `integration`, "Integration tests" |
+| S7 demo, one key, one workflow, two signals | S7 (TICK-49) | `stack-test-demo_outbox` | `stack`, "S7 demo…" |
+| S7 worker service and guarded activity | S7 (TICK-49) | `stack-test-worker` | `stack`, "nava-worker ready…" |
+
+**What TICK-292 changed.** No suite was missing from `ci.yml`. The gap was on pull requests: `cmd/demo-outbox` (the binary `stack-test-demo_outbox` builds) and `cmd/nava-purge` (an image) were not stack roots in `cichanged`. A PR that changed only those files skipped the `stack` job, so it did not run the S7 demo. Both are now stack roots. The `workerstack` and `demooutbox` tags are now in the package graph, and a new command under `cmd/` fails `task test` until it is classified.
+
+**Deliberately not in CI:**
+- `identity-attacks-fixture` (the CI-5.06 negative fixture on Keycloak 26.1.2). It is opt-in and only proves the pinned Keycloak fixes the tamper. Run it when the Keycloak pin changes.
+- `TestS4Acceptance` (`acceptance` tag). It runs once per acceptance, on a fresh stack, and writes evidence.
+- `bench-relay`. It is report-only (TODO-011).
+- CI-8 to CI-11 are outside this task. CI-8 and CI-10 are partial (TICK-87, TICK-88).
+
+## 7. Acceptance
 
 - A deliberately duplicated migration version fails `task test` (TICK-290).
 - A PR that is behind `main` cannot merge (D1, checked after the owner applies it).
