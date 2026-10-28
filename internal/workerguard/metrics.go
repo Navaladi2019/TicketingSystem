@@ -20,6 +20,20 @@ const (
 	guardContinueAsNew   = "continue_as_new"
 	guardSearchAttribute = "search_attribute"
 	guardNexus           = "nexus"
+	// guardMemo checks workflow.UpsertMemo; a child's memo is guardChild's.
+	guardMemo = "memo"
+	// Results, side effects and failure text (TICK-245, results.go).
+	guardActivityResult  = "activity_result"
+	guardActivityFailure = "activity_failure"
+	guardWorkflowResult  = "workflow_result"
+	guardWorkflowFailure = "workflow_failure"
+	guardUpdateResult    = "update_result"
+	guardUpdateFailure   = "update_failure"
+	guardSideEffect      = "side_effect"
+	// guardActivityArgs and guardLocalActivityArgs check what a workflow
+	// schedules; guardActivity checks what an activity worker receives.
+	guardActivityArgs      = "activity_args"
+	guardLocalActivityArgs = "local_activity_args"
 )
 
 // Outcomes, the `outcome` attribute of DecisionsMetric. Every outcome but
@@ -43,6 +57,8 @@ const (
 	outcomeCron = "cron"
 	// outcomeNotAllowed: a command the platform never sends (Nexus).
 	outcomeNotAllowed = "not_allowed"
+	// outcomeRecordData: an argument that is not references only (CI-7).
+	outcomeRecordData = "record_data"
 	// outcomeInternal: the guard itself failed; it denies.
 	outcomeInternal = "internal"
 )

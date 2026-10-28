@@ -19,7 +19,7 @@ temporal-server-dev-certs:
 
 ## Run the image with the dev config and dev certificates (foreground).
 temporal-server-run: temporal-server-dev-certs
-	docker run --rm --name nava-temporal-dev -p 7233:7233 -p 9090:9090 \
+	MSYS_NO_PATHCONV=1 docker run --rm --name nava-temporal-dev -p 7233:7233 -p 9090:9090 \
 		-v "$(CURDIR)/temporal-server/.devcerts:/etc/temporal/certs:ro" $(TEMPORAL_SERVER_IMAGE)
 # CI entry point (T05). The GitHub workflows only call targets from this file,
 # so `make ci` runs the same gates on a laptop (Linux, macOS, or Windows with
@@ -42,8 +42,9 @@ GOLANGCI_LINT ?= golangci-lint
 GOLANGCI_LINT_VERSION := 2.14.0
 GOVULNCHECK_VERSION := v1.9.0
 
-.PHONY: build run test test-integration test-integration-cleanup reap-integration isolation lint generate check-openapi
-.PHONY: ci ci-isolated ci-changed ci-stages ci-isolated-down test-ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity stack-test-onboard identity-attacks identity-attacks-fixture stack-idp-realms stack-test-worker 	image image-ci stack-up stack-down stack-logs stack-internal stack-internal-beside stack-main ci-stack-run stack-tests smoke
+.PHONY: build run test test-integration test-integration-cleanup reap-integration bench-relay isolation lint generate check-openapi
+.PHONY: demo-outbox stack-test-demo_outbox
+.PHONY: ci ci-isolated ci-changed ci-stages ci-isolated-down test-ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity identity-attacks identity-attacks-fixture stack-test-onboard stack-idp-realms stack-test-worker 	image image-ci stack-up stack-down stack-logs stack-internal stack-internal-beside stack-main ci-stack-run stack-tests smoke
 
 build:
 	go build -o bin/nava-core ./cmd/nava-core
@@ -92,21 +93,30 @@ REAP_OLDER ?= 6h
 reap-integration:
 	go run ./tools/ci/itreap -older $(REAP_OLDER) $(if $(REAP_DRY),-n)
 
+# T33: the relay's claim latency (BenchmarkClaim, internal/relay) against
+# ADR-001's 5.4 ms baseline, on the same throwaway clusters as
+# test-integration. Report-only: a nightly workflow runs it and nothing
+# gates on it. Needs Docker.
+# TODO(TODO-011): no nightly workflow runs it yet; the agent token cannot add
+# .github/workflows/nightly.yml (no `workflow` scope).
+bench-relay:
+	sh scripts/ci/test-integration.sh -run '^$$' -bench '^BenchmarkClaim$$' -benchtime 200x
+
 # The tenant isolation suite (T11, ADR-001 CI-2): its own throwaway
 # PostgreSQL and a PgBouncer with the real auth_query, tenants A and B seeded,
 # every runtime role against every tenant table plus the registered paths
 # (internal/tenancy/isolation). Writes ISOLATION_REPORT (default
 # isolation-report.md). Needs Docker.
-# TODO(TODO-008): the integration job does not upload isolation-report.md as
-# an artifact yet; the workflow step needs a push with `workflow` scope.
+# The integration job uploads it as the isolation-report artifact.
 isolation:
 	sh scripts/ci/isolation.sh $(ARGS)
 
 # golangci-lint, then the navalint analyzers (tools/navalint, its own module)
-# as go vet's tool.
+# as go vet's tool, then the ADR-002-E1 nolint allow-list gate.
 lint:
 	$(GOLANGCI_LINT) run ./...
 	sh scripts/ci/navalint.sh
+	sh scripts/ci/nolint-allowlist.sh
 
 # Regenerates api/api.gen.go from api/openapi.yaml (oapi-codegen v2.8.0, pinned
 # by the go.mod tool directive).
@@ -171,7 +181,7 @@ ci-integration: test-integration test-ci-isolated-down test-integration-cleanup
 # restarts the stack, and dbroles changes roles. worker polls nava-tq, the
 # queue the sdk suite's workers poll, so it runs after that suite.
 STACK_TESTS_PARALLEL := smoke pgbouncer temporal temporal_handshake temporal_isolation temporal_custody temporal_operator_reach temporal_health hba sdk identity
-STACK_TESTS_SERIAL := worker dependencies trace logs redact idempotent dbroles
+STACK_TESTS_SERIAL := worker demo_outbox dependencies trace logs redact idempotent dbroles
 STACK_TESTS := healthy $(STACK_TESTS_PARALLEL) $(STACK_TESTS_SERIAL)
 stack-tests:
 	$(MAKE) --no-print-directory -j1 stack-test-healthy
@@ -305,8 +315,9 @@ stack-test-%:
 	sh deploy/compose/test/stack-test.sh $*
 
 # The Temporal stack suite over mTLS: SDK clients dial and a worker runs (T28),
-# CI-H, and the CI-6 certificate, network and Authorizer cases (T32a). Writes
-# the CI-6 report to CI6_REPORT and fails when a CI-6 case did not pass.
+# CI-H, the CI-6 certificate, network and Authorizer cases (T32a), and the
+# CI-6 relay and worker cases and CI-7 (T32b). Writes the CI-6 and CI-7 report
+# to CI6_REPORT and fails when a case did not pass.
 # suiteran prints the run and keeps the raw stream in CI6_JSON, which
 # ci6report then reads (its echo of the same output is dropped).
 # The suite takes about 70 s on a GitHub runner but 591-615 s on a host running
@@ -338,7 +349,7 @@ stack-idp-realms:
 # TestCI5 needs a platform database: make identity-attacks runs it. The
 # CI-5.06 negative fixture needs Keycloak 26.1.2: make identity-attacks-fixture.
 # It also runs the onboarding tests below (stack-test-onboard).
-# TODO(TODO-012): the GitHub workflow's stack job has no step for
+# TODO(TODO-014): the GitHub workflow's stack job has no step for
 # stack-test-onboard yet (the step needs a push with `workflow` scope), so this
 # target runs those tests too; once the step exists, add -skip '$(ONBOARD_TESTS)'.
 stack-test-identity:
@@ -399,4 +410,17 @@ dev-ca:
 # network reaches the UI through host.docker.internal and acts as nava-operator.
 UI_PORT ?= 18233
 operator-tunnel:
-	docker run --rm --name $(COMPOSE_PROJECT)-operator-tunnel -p 127.0.0.1:$(UI_PORT):8080 		--network $$(docker network ls -q --filter label=com.docker.compose.project=$(COMPOSE_PROJECT) --filter label=com.docker.compose.network=operator) 		--entrypoint /usr/local/bin/temporal-server $(TEMPORAL_SERVER_IMAGE) proxy -listen :8080 -to temporal-ui:8080
+	MSYS_NO_PATHCONV=1 docker run --rm --name $(COMPOSE_PROJECT)-operator-tunnel -p 127.0.0.1:$(UI_PORT):8080 		--network $$(docker network ls -q --filter label=com.docker.compose.project=$(COMPOSE_PROJECT) --filter label=com.docker.compose.network=operator) 		--entrypoint /usr/local/bin/temporal-server $(TEMPORAL_SERVER_IMAGE) proxy -listen :8080 -to temporal-ui:8080
+
+# The S7 demo (TICK-275): a start row and two signal rows for a record of tenant-a,
+# written through outbox.Enqueue in InTenantTx, then handed to Temporal by the
+# relay. Needs the stack up (make stack-up). DEDUPE_KEY names the rows.
+DEDUPE_KEY ?= demo-outbox
+demo-outbox:
+	DEDUPE_KEY=$(DEDUPE_KEY) sh scripts/dev/demo-outbox.sh
+
+# Runs make demo-outbox twice with one key and asserts one workflow whose
+# history holds the two signals in commit order (internal/temporalstack,
+# TestDemoOutbox). Behind the demooutbox tag, so stack-test-sdk's whole-package run (and its report gate) never compiles it.
+stack-test-demo_outbox:
+	go test -tags temporalstack,demooutbox -count=1 -timeout 5m -run '^TestDemoOutbox' ./internal/temporalstack

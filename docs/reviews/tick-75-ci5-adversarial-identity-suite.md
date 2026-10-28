@@ -28,5 +28,5 @@ Other checks:
 
 ## Not for this review (already tracked)
 
-- **TODO-011:** CI-5 does not run in GitHub Actions yet, and T19 cannot close until it does. The proposed step text in `docs/delivery/todo.md` is correct: it runs `make identity-attacks` after `stack-test-identity`, then uploads `ci5-report.md` with `if: always()` and `if-no-files-found: error`.
+- **TODO-016:** CI-5 does not run in GitHub Actions yet, and T19 cannot close until it does. The proposed step text in `docs/delivery/todo.md` is correct: it runs `make identity-attacks` after `stack-test-identity`, then uploads `ci5-report.md` with `if: always()` and `if-no-files-found: error`.
 - **CI on #159:** `changes`, `lint`, `unit` and `integration` pass. `stack`, `stack-db`, `stack-internal` and `temporal-server` were still pending when I checked.

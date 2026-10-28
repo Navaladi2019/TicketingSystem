@@ -13,6 +13,7 @@ import (
 	commonpb "go.temporal.io/api/common/v1"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/interceptor"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
@@ -42,7 +43,15 @@ const ErrTypeTenantGuard = "nava.TenantGuard"
 //   - Nexus: always fails (the Authorizer denies Nexus commands);
 //   - activity: a header that is missing or differs from its workflow id's
 //     tenant fails it non-retryably; otherwise the tenant is on its context
-//     for InTenantTx.
+//     for InTenantTx;
+//   - results and failures of an activity, workflow or update, and SideEffect
+//     values: a result that is not references only fails, and failure text is
+//     withheld unless its type is allowed (results.go, TICK-245);
+//   - arguments of an activity, local activity, child, continue-as-new,
+//     update, signal-external or signal-child that are not references only
+//     (argOK, CI-7) fail the call, or reject the update, before anything
+//     reaches the history;
+//   - memo: any on a child, or any upsert, fails the call (TICK-245).
 //
 // Every deny adds to DecisionsMetric and logs an alert. No guard panics: a
 // panic in a workflow task is a poison loop, so a guard that fails internally
@@ -109,18 +118,24 @@ func (r *recorder) record(ctx workflow.Context, guard, outcome string, attrs ...
 
 // InterceptWorkflow implements interceptor.WorkerInterceptor.
 func (g *Guard) InterceptWorkflow(_ workflow.Context, next interceptor.WorkflowInboundInterceptor) interceptor.WorkflowInboundInterceptor {
-	return &workflowInbound{WorkflowInboundInterceptorBase: interceptor.WorkflowInboundInterceptorBase{Next: next}, rec: g.rec}
+	return &workflowInbound{
+		WorkflowInboundInterceptorBase: interceptor.WorkflowInboundInterceptorBase{Next: next},
+		rec:                            g.rec,
+		cans:                           &checkedInputs{},
+	}
 }
 
 type workflowInbound struct {
 	interceptor.WorkflowInboundInterceptorBase
-	rec *recorder
+	rec  *recorder
+	cans *checkedInputs
 }
 
 func (w *workflowInbound) Init(outbound interceptor.WorkflowOutboundInterceptor) error {
 	return w.Next.Init(&workflowOutbound{
 		WorkflowOutboundInterceptorBase: interceptor.WorkflowOutboundInterceptorBase{Next: outbound},
 		rec:                             w.rec,
+		cans:                            w.cans,
 	})
 }
 
@@ -144,17 +159,31 @@ func (w *workflowInbound) ExecuteWorkflow(ctx workflow.Context, in *interceptor.
 	}
 	result, err := w.Next.ExecuteWorkflow(ctx, in)
 	// The ContinueAsNewError is plain data: workflow code can change its
-	// header after NewContinueAsNewError checked it. Check again what the
-	// command will carry (TICK-65 security review, finding 2).
+	// header or input after NewContinueAsNewError checked it. Check again
+	// what the command will carry (TICK-65 security review, finding 2): the
+	// input must be one NewContinueAsNewError checked (CI-7).
 	var can *workflow.ContinueAsNewError
 	if errors.As(err, &can) {
-		outcome := check(func() string { return continueAsNewOutcome(can.Header, workflow.GetInfo(ctx)) })
+		outcome := check(func() string {
+			if !w.cans.has(can.Input) {
+				return outcomeRecordData
+			}
+			return continueAsNewOutcome(can.Header, workflow.GetInfo(ctx))
+		})
 		if outcome != outcomeAllow {
 			w.rec.record(ctx, guardContinueAsNew, outcome)
 			return nil, guardError(guardContinueAsNew, outcome)
 		}
+		return result, err
 	}
-	return result, err
+	return w.rec.workflowOutcome(ctx, guardWorkflowResult, guardWorkflowFailure, result, err)
+}
+
+// ExecuteUpdate checks what an accepted update ends with, as ExecuteWorkflow
+// checks the run's result and failure (TICK-245).
+func (w *workflowInbound) ExecuteUpdate(ctx workflow.Context, in *interceptor.UpdateInput) (any, error) {
+	result, err := w.Next.ExecuteUpdate(ctx, in)
+	return w.rec.workflowOutcome(ctx, guardUpdateResult, guardUpdateFailure, result, err, slog.String("update", in.Name))
 }
 
 // HandleSignal drops a signal whose header is not this tenant's. Returning nil
@@ -168,10 +197,20 @@ func (w *workflowInbound) HandleSignal(ctx workflow.Context, in *interceptor.Han
 	return w.Next.HandleSignal(ctx, in)
 }
 
-// ValidateUpdate rejects an update whose header is not this tenant's. The SDK
-// runs validators only when not replaying, so an accepted update was checked.
+// ValidateUpdate rejects an update whose header is not this tenant's, or
+// whose arguments are not references only (CI-7): a rejected update is never
+// recorded. The SDK runs validators only when not replaying, so an accepted
+// update was checked.
+//
+// The arguments are checked as the handler's parameter types decoded them.
+// TODO(TODO-010): the raw payloads are not visible here, so whatever the
+// decoding drops (an unknown field, a payload past the last parameter) is
+// recorded unchecked.
 func (w *workflowInbound) ValidateUpdate(ctx workflow.Context, in *interceptor.UpdateInput) error {
 	outcome := inboundHeader(ctx)
+	if outcome == outcomeAllow {
+		outcome = check(func() string { return argsOutcome(in.Args) })
+	}
 	w.rec.record(ctx, guardUpdate, outcome, slog.String("update", in.Name))
 	if outcome != outcomeAllow {
 		return guardError(guardUpdate, outcome)
@@ -183,7 +222,31 @@ func (w *workflowInbound) ValidateUpdate(ctx workflow.Context, in *interceptor.U
 
 type workflowOutbound struct {
 	interceptor.WorkflowOutboundInterceptorBase
-	rec *recorder
+	rec  *recorder
+	cans *checkedInputs
+}
+
+// ExecuteActivity fails the activity, before it is scheduled, if its
+// arguments are not references only (CI-7).
+// TODO(TODO-013): user metadata (the Summary option here, child, timer and
+// side-effect summaries) is recorded too and is not checked.
+func (o *workflowOutbound) ExecuteActivity(ctx workflow.Context, activityType string, args ...any) workflow.Future {
+	outcome := check(func() string { return argsOutcome(args) })
+	o.rec.record(ctx, guardActivityArgs, outcome, slog.String("activity_type", activityType))
+	if outcome != outcomeAllow {
+		return failedFuture(ctx, guardError(guardActivityArgs, outcome))
+	}
+	return o.Next.ExecuteActivity(ctx, activityType, args...)
+}
+
+// ExecuteLocalActivity is ExecuteActivity for a local activity.
+func (o *workflowOutbound) ExecuteLocalActivity(ctx workflow.Context, activityType string, args ...any) workflow.Future {
+	outcome := check(func() string { return argsOutcome(args) })
+	o.rec.record(ctx, guardLocalActivityArgs, outcome, slog.String("activity_type", activityType))
+	if outcome != outcomeAllow {
+		return failedFuture(ctx, guardError(guardLocalActivityArgs, outcome))
+	}
+	return o.Next.ExecuteLocalActivity(ctx, activityType, args...)
 }
 
 // sameNamespace reports whether ns names the workflow's own namespace. Empty
@@ -221,7 +284,12 @@ func (o *workflowOutbound) ExecuteChildWorkflow(ctx workflow.Context, childWorkf
 		if !childSearchAttributesOK(opts, tenant) {
 			return outcomeSearchAttribute
 		}
-		return outcomeAllow
+		// StartChildWorkflowExecutionInitiated records the memo; the platform
+		// names no memo key, so none is allowed (TICK-245).
+		if len(opts.Memo) > 0 {
+			return outcomeRecordData
+		}
+		return argsOutcome(args)
 	})
 	o.rec.record(ctx, guardChild, outcome, slog.String("target_workflow_id", opts.WorkflowID))
 	if outcome != outcomeAllow {
@@ -230,9 +298,23 @@ func (o *workflowOutbound) ExecuteChildWorkflow(ctx workflow.Context, childWorkf
 	return o.Next.ExecuteChildWorkflow(ctx, childWorkflowType, args...)
 }
 
+// signalOutcome checks a signal-external or signal-child: the target, then
+// the argument, which the sender's SignalExternalWorkflowExecutionInitiated
+// event records before the receiver's guard runs (TICK-245). A nil argument
+// carries nothing and is allowed.
+func signalOutcome(ctx workflow.Context, namespace, workflowID string, arg any) string {
+	if out := targetOutcome(ctx, namespace, workflowID); out != outcomeAllow {
+		return out
+	}
+	if arg == nil {
+		return outcomeAllow
+	}
+	return argsOutcome([]any{arg})
+}
+
 func (o *workflowOutbound) SignalExternalWorkflow(ctx workflow.Context, workflowID, runID, signalName string, arg any) workflow.Future {
 	ns := workflow.GetChildWorkflowOptions(ctx).Namespace //nolint:staticcheck // SA1019: see ExecuteChildWorkflow
-	outcome := check(func() string { return targetOutcome(ctx, ns, workflowID) })
+	outcome := check(func() string { return signalOutcome(ctx, ns, workflowID, arg) })
 	o.rec.record(ctx, guardSignalExternal, outcome, slog.String("target_workflow_id", workflowID), slog.String("signal", signalName))
 	if outcome != outcomeAllow {
 		return failedFuture(ctx, guardError(guardSignalExternal, outcome))
@@ -241,9 +323,10 @@ func (o *workflowOutbound) SignalExternalWorkflow(ctx workflow.Context, workflow
 }
 
 // SignalChildWorkflow signals a child whose id ExecuteChildWorkflow already
-// checked; the check here costs nothing and keeps the rule in one place.
+// checked; the check here costs nothing and keeps the rule in one place. The
+// argument is checked as SignalExternalWorkflow checks it.
 func (o *workflowOutbound) SignalChildWorkflow(ctx workflow.Context, workflowID, signalName string, arg any) workflow.Future {
-	outcome := check(func() string { return targetOutcome(ctx, "", workflowID) })
+	outcome := check(func() string { return signalOutcome(ctx, "", workflowID, arg) })
 	o.rec.record(ctx, guardSignalExternal, outcome, slog.String("target_workflow_id", workflowID), slog.String("signal", signalName))
 	if outcome != outcomeAllow {
 		return failedFuture(ctx, guardError(guardSignalExternal, outcome))
@@ -261,10 +344,16 @@ func (o *workflowOutbound) RequestCancelExternalWorkflow(ctx workflow.Context, w
 	return o.Next.RequestCancelExternalWorkflow(ctx, workflowID, runID)
 }
 
-// NewContinueAsNewError checks what the command will carry: the header the
-// Propagator wrote, and the search attributes the SDK copies from the start.
-// On a deny the workflow fails with the guard error instead of continuing.
+// NewContinueAsNewError checks what the command will carry: arguments that
+// are references only (CI-7), the header the Propagator wrote, and the search
+// attributes the SDK copies from the start. On a deny the workflow fails with
+// the guard error instead of continuing. The checked input is kept for the
+// re-check in ExecuteWorkflow.
 func (o *workflowOutbound) NewContinueAsNewError(ctx workflow.Context, wfn any, args ...any) error {
+	if outcome := check(func() string { return argsOutcome(args) }); outcome != outcomeAllow {
+		o.rec.record(ctx, guardContinueAsNew, outcome)
+		return guardError(guardContinueAsNew, outcome)
+	}
 	err := o.Next.NewContinueAsNewError(ctx, wfn, args...)
 	var can *workflow.ContinueAsNewError
 	if !errors.As(err, &can) {
@@ -275,6 +364,7 @@ func (o *workflowOutbound) NewContinueAsNewError(ctx workflow.Context, wfn any, 
 	if outcome != outcomeAllow {
 		return guardError(guardContinueAsNew, outcome)
 	}
+	o.cans.add(can.Input)
 	return err
 }
 
@@ -322,6 +412,17 @@ func (o *workflowOutbound) UpsertSearchAttributes(ctx workflow.Context, attribut
 	return o.Next.UpsertSearchAttributes(ctx, attributes)
 }
 
+// UpsertMemo fails on any memo: WorkflowPropertiesModified records it, and
+// the platform names no memo key (TICK-245). An empty upsert changes nothing
+// and passes.
+func (o *workflowOutbound) UpsertMemo(ctx workflow.Context, memo map[string]any) error {
+	if len(memo) == 0 {
+		return o.Next.UpsertMemo(ctx, memo)
+	}
+	o.rec.record(ctx, guardMemo, outcomeRecordData)
+	return guardError(guardMemo, outcomeRecordData)
+}
+
 func (o *workflowOutbound) UpsertTypedSearchAttributes(ctx workflow.Context, attributes ...temporal.SearchAttributeUpdate) error {
 	outcome := check(func() string {
 		tenant, err := ownTenant(ctx)
@@ -338,6 +439,47 @@ func (o *workflowOutbound) UpsertTypedSearchAttributes(ctx workflow.Context, att
 		return guardError(guardSearchAttribute, outcome)
 	}
 	return o.Next.UpsertTypedSearchAttributes(ctx, attributes...)
+}
+
+// SideEffect records the value f returns only if sideEffectValueOK accepts
+// it; otherwise the marker holds sideEffectDenied and Get returns the guard
+// error. The decision is read back from the marker, so a replay, which does
+// not run f, sees the same result (TICK-245).
+func (o *workflowOutbound) SideEffect(ctx workflow.Context, f func(ctx workflow.Context) any) converter.EncodedValue {
+	return sideEffectValue{o.Next.SideEffect(ctx, o.checkedSideEffect(f))}
+}
+
+func (o *workflowOutbound) SideEffectWithOptions(ctx workflow.Context, options workflow.SideEffectOptions, f func(ctx workflow.Context) any) converter.EncodedValue {
+	return sideEffectValue{o.Next.SideEffectWithOptions(ctx, options, o.checkedSideEffect(f))}
+}
+
+func (o *workflowOutbound) checkedSideEffect(f func(workflow.Context) any) func(workflow.Context) any {
+	return func(ctx workflow.Context) any {
+		v := f(ctx)
+		outcome := check(func() string {
+			if sideEffectValueOK(v) {
+				return outcomeAllow
+			}
+			return outcomeRecordData
+		})
+		o.rec.record(ctx, guardSideEffect, outcome)
+		if outcome != outcomeAllow {
+			return sideEffectDenied
+		}
+		return v
+	}
+}
+
+// MutableSideEffect always fails, without running f: the platform does not
+// use it, and a sentinel marker would not work, because the SDK decodes the
+// recorded value into the type of the new one and panics on a mismatch.
+func (o *workflowOutbound) MutableSideEffect(ctx workflow.Context, _ string, _ func(ctx workflow.Context) any, _ func(a, b any) bool) converter.EncodedValue {
+	o.rec.record(ctx, guardSideEffect, outcomeNotAllowed)
+	return deniedValue{guardError(guardSideEffect, outcomeNotAllowed)}
+}
+
+func (o *workflowOutbound) MutableSideEffectWithOptions(ctx workflow.Context, id string, _ workflow.MutableSideEffectOptions, f func(ctx workflow.Context) any, equals func(a, b any) bool) converter.EncodedValue {
+	return o.MutableSideEffect(ctx, id, f, equals)
 }
 
 // ExecuteNexusOperation always fails: the platform has no Nexus endpoints and
@@ -486,13 +628,29 @@ func (a *activityInbound) ExecuteActivity(ctx context.Context, in *interceptor.E
 		tenant = t
 		return headerOutcome(interceptor.Header(ctx), t)
 	})
+	attrs := []slog.Attr{
+		slog.String("workflow_id", info.WorkflowExecution.ID),
+		slog.String("run_id", info.WorkflowExecution.RunID),
+		slog.String("activity_type", info.ActivityType.Name),
+	}
 	if outcome != outcomeAllow {
-		a.rec.deny(guardActivity, outcome,
-			slog.String("workflow_id", info.WorkflowExecution.ID),
-			slog.String("run_id", info.WorkflowExecution.RunID),
-			slog.String("activity_type", info.ActivityType.Name))
+		a.rec.deny(guardActivity, outcome, attrs...)
 		return nil, guardError(guardActivity, outcome)
 	}
 	a.rec.allow(guardActivity)
-	return a.Next.ExecuteActivity(ContextWithTenant(ctx, tenant), in)
+	return a.execute(ContextWithTenant(ctx, tenant), in, attrs)
+}
+
+// execute runs the activity and checks its result or failure (TICK-245). A
+// panic is recovered here, before the SDK would record its value and stack,
+// and is withheld like any other failure.
+// TODO(TODO-012): heartbeat details are recorded too and are not checked.
+func (a *activityInbound) execute(ctx context.Context, in *interceptor.ExecuteActivityInput, attrs []slog.Attr) (result any, err error) {
+	defer func() {
+		if recover() != nil {
+			result, err = a.rec.activityOutcome(nil, activityPanic{}, attrs...)
+		}
+	}()
+	result, err = a.Next.ExecuteActivity(ctx, in)
+	return a.rec.activityOutcome(result, err, attrs...)
 }

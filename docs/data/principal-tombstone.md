@@ -1,8 +1,8 @@
 # Removed principals are tombstoned (TICK-220)
 
 Decision: [decision log, 2026-10-27](../delivery/decision-log.md). Schema:
-`db/migrations/00008_principal_tombstone.sql`,
-`00009_principal_tombstone_validate.sql`. Bench:
+`db/migrations/00010_principal_tombstone.sql`,
+`00011_principal_tombstone_validate.sql`. Bench:
 `sh docs/data/principal-tombstone-bench/run.sh`.
 
 ## Problem
@@ -75,8 +75,8 @@ principals**, 4,158,176 memberships. Tenant `t1` has 50,000 principals.
 
 | Step | Lock | Time |
 | --- | --- | --- |
-| 00008: `ADD COLUMN` + `CHECK ... NOT VALID`, commit included | ACCESS EXCLUSIVE | 1.2 + 1.3 + 2.8 ms |
-| 00009: `VALIDATE CONSTRAINT` | SHARE UPDATE EXCLUSIVE (reads and writes go on) | 86 ms, 172 ms (two bench runs) |
+| 00010: `ADD COLUMN` + `CHECK ... NOT VALID`, commit included | ACCESS EXCLUSIVE | 1.2 + 1.3 + 2.8 ms |
+| 00011: `VALIDATE CONSTRAINT` | SHARE UPDATE EXCLUSIVE (reads and writes go on) | 86 ms, 172 ms (two bench runs) |
 | Rejected: validated `CHECK` in one step | ACCESS EXCLUSIVE for the whole scan | 124, 127, 95, 143, 129 ms |
 
 The one-step form would block every read of `principals`, and so every
@@ -118,7 +118,7 @@ none is added.
 
 | Step | Change | Owner |
 | --- | --- | --- |
-| 1 | 00008 and 00009, plus `deleted_at` in `nava_groupsync`'s `UPDATE` grant. Sync is unchanged and still correct. | This change |
+| 1 | 00010 and 00011, plus `deleted_at` in `nava_groupsync`'s `UPDATE` grant. Sync is unchanged and still correct. | This change |
 | 2 | `applyPrincipals` tombstones instead of deleting. A revived user clears `deleted_at`. | Senior Software Engineer task |
 | 3 | In step 2's PR: revoke `DELETE` on `principals` from `nava_groupsync` and drop `principals_delete`. | Same PR, with Postgres review |
 
