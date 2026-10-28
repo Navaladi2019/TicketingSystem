@@ -297,8 +297,11 @@ image:
 # which concurrent builds share safely (a type=local cache directory is not
 # safe for two writers at once), and pulls only the registry images that are
 # missing. With IMAGE_CACHE set, ci-stack builds with image-ci.
+# The gha cache-to is best effort (ignore-error=true): concurrent runs that
+# export the same scope can race on a blob (BlobNotFound, not_found), and a
+# failed cache write must only cost build time, never fail the build.
 BAKE_CACHED := db-roles keycloak nava-core nava-groupsync nava-onboard nava-purge nava-relay nava-worker otel-collector temporal-server
-BAKE_CACHE_GHA := $(foreach t,$(BAKE_CACHED),--set $(t).cache-from=type=gha,scope=$(t) --set $(t).cache-to=type=gha,scope=$(t),mode=max) --set migrate.cache-from=type=gha,scope=db-roles
+BAKE_CACHE_GHA := $(foreach t,$(BAKE_CACHED),--set $(t).cache-from=type=gha,scope=$(t) --set $(t).cache-to=type=gha,scope=$(t),mode=max,ignore-error=true) --set migrate.cache-from=type=gha,scope=db-roles
 BAKE_CACHE := $(if $(filter gha,$(IMAGE_CACHE)),$(BAKE_CACHE_GHA))
 PULL_POLICY := $(if $(filter local,$(IMAGE_CACHE)),--policy missing)
 image-ci:
