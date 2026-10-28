@@ -103,10 +103,11 @@ isolation:
 	sh scripts/ci/isolation.sh $(ARGS)
 
 # golangci-lint, then the navalint analyzers (tools/navalint, its own module)
-# as go vet's tool.
+# as go vet's tool, then the ADR-002-E1 nolint allow-list gate.
 lint:
 	$(GOLANGCI_LINT) run ./...
 	sh scripts/ci/navalint.sh
+	sh scripts/ci/nolint-allowlist.sh
 
 # Regenerates api/api.gen.go from api/openapi.yaml (oapi-codegen v2.8.0, pinned
 # by the go.mod tool directive).

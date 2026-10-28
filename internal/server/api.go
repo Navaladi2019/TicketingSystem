@@ -120,7 +120,7 @@ func (h *handlers) GetMe(ctx context.Context, _ api.GetMeRequestObject) (api.Get
 	if groups == nil {
 		groups = []uuid.UUID{}
 	}
-	raw, err := h.paths.GroupPaths(ctx, p.TenantID, p.PrincipalID)
+	raw, err := h.paths.GroupPaths(ctx, p.TenantID, p.PrincipalID) //nolint:forbidigo // ADR-002: GetMe is the one allowed GroupPaths caller
 	if err != nil {
 		return nil, err
 	}

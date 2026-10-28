@@ -42,10 +42,11 @@ tasks:
       - sh scripts/ci/test-integration.sh
 
   lint:
-    desc: Run golangci-lint, then the navalint analyzers (set_config outside internal/tenancy)
+    desc: Run golangci-lint, then the navalint analyzers (set_config outside internal/tenancy), then the ADR-002-E1 nolint allow-list gate
     cmds:
       - golangci-lint run ./...
       - sh scripts/ci/navalint.sh
+      - sh scripts/ci/nolint-allowlist.sh
 
   lint:fixture:
     desc: The forbidigo and navalint rules must report exactly their fixture findings
