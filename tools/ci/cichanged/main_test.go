@@ -46,6 +46,8 @@ func TestClassify(t *testing.T) {
 		{"navalint module", []string{"tools/navalint/setconfig/setconfig.go"}, "ci-lint ci-unit"},
 		{"root dependencies", []string{"go.sum"}, "ci-lint ci-unit ci-integration ci-stack"},
 		{"CI definition", []string{"Makefile"}, "ci-lint ci-unit ci-integration ci-stack"},
+		{"make fragment", []string{"make/lint.mk"}, "ci-lint ci-unit ci-integration ci-stack"},
+		{"new make fragment beside a doc", []string{"make/new-story.mk", "docs/quality/ci-pipeline.md"}, "ci-lint ci-unit ci-integration ci-stack"},
 		{"integration script", []string{"scripts/ci/test-integration.sh", "scripts/ci/pgbouncer/pooled.ini"}, "ci-lint ci-integration"},
 		{"isolation script", []string{"scripts/ci/isolation.sh", "scripts/ci/pgbouncer/isolation.ini"}, "ci-lint ci-integration"},
 		{"lint script", []string{"scripts/ci/vulncheck.sh"}, "ci-lint"},

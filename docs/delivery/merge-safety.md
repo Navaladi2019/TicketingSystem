@@ -61,6 +61,7 @@ These are the breaks that failed tests. None of them showed up as a text conflic
 - A PR that adds a migration uses a timestamp version (after TICK-290).
 - A PR does not hand-edit a generated file (`*.gen.go`, the bundled spec). It regenerates the file.
 - A PR that adds a `make` target, stack test, todo row, risk row or decision adds it in its own fragment, file or story-prefixed row (after TICK-293, TICK-295 and TICK-296). Until those land, open story branches keep the current layout.
+- **How to add a make target (TICK-293):** create `make/<story-or-suite>.mk` with the target, its `.PHONY` line and any variables, and do not edit `Makefile` or another fragment. Hook it into a gate with a recipe-less rule (`ci-lint: my-target`, `ci-unit: ...`) and into the stack tests with `STACK_TESTS_SERIAL += <name>` (runs `stack-test-<name>`). `Makefile` keeps only shared variables, `help` and `include make/*.mk`. A change under `make/` runs every CI stage (`tools/ci/cichanged`).
 - After a merge to `main`, the push run (D2) must be green. A red `main` blocks all other merges to `main` until it is fixed.
 
 ## 4. Task graph

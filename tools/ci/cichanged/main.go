@@ -102,6 +102,8 @@ func fileStages(f string, g graph) ([]string, string) {
 	switch {
 	case f == "go.mod" || f == "go.sum":
 		return allStages(), "root module dependencies"
+	case f == "Makefile" || strings.HasPrefix(f, "make/"):
+		return allStages(), "the Makefile and its make/*.mk fragments define every stage"
 	case f == "docs/pins.md":
 		return allStages(), "pins pick the test and stack images"
 	case strings.HasPrefix(f, "temporal-server/"):
