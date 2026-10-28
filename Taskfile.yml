@@ -47,12 +47,13 @@ tasks:
       - sh scripts/ci/test-integration.sh -run '^$' -bench '^BenchmarkClaim$' -benchtime 200x
 
   lint:
-    desc: Run golangci-lint, then the navalint analyzers (set_config outside internal/tenancy), then the ADR-002-E1 nolint allow-list gate, then the OpenAPI regenerate-and-diff gate
+    desc: Run golangci-lint, then the navalint analyzers (set_config outside internal/tenancy), then the ADR-002-E1 nolint allow-list gate, then the decision-log index check, then the OpenAPI regenerate-and-diff gate
     cmds:
       - golangci-lint run ./...
       - sh scripts/ci/navalint.sh
       - sh scripts/ci/nolint-allowlist.sh
       - sh scripts/ci/openapi-generated.sh
+      - go run ./tools/docindex -check
 
   lint:fixture:
     desc: The forbidigo and navalint rules must report exactly their fixture findings

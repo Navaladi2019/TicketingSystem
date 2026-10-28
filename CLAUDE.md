@@ -20,7 +20,9 @@ needs them.
 
 Deferred work is tracked as a table in
 [`docs/delivery/todo.md`](docs/delivery/todo.md). Each row has a matching
-`TODO(TODO-NNN)` comment in the code. When you add a TODO, add both.
+`TODO(TODO-<story>-NN)` comment in the code (`TODO-S5-01`; work outside a
+story uses the task id, `TODO-TICK-288-01`; old `TODO-NNN` ids stay). When you
+add a TODO, add both.
 
 Do not read `docs/delivery/todo.md` up front; it is not needed for most tasks.
 As the **final step** of any task that changed code, check lazily:
@@ -41,8 +43,9 @@ its source, in
 when a task touches tenancy, Temporal authorization, telemetry or the
 database roles, or when asked what to fix next.
 
-- When a decision, ADR, review or doc accepts a new risk, add an `AR-NNN` row
-  in the same change.
+- When a decision, ADR, review or doc accepts a new risk, add an
+  `AR-<story>-NN` row (`AR-S5-01`; work outside a story uses the task id,
+  `AR-TICK-288-01`; old `AR-NNN` ids stay) in the same change.
 - When a change fixes one, delete its row and note the fix at the source.
 - If the risk becomes deferred code work, move it to `docs/delivery/todo.md`
   instead.

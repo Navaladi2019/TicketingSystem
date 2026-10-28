@@ -112,13 +112,14 @@ isolation:
 	sh scripts/ci/isolation.sh $(ARGS)
 
 # golangci-lint, then the navalint analyzers (tools/navalint, its own module)
-# as go vet's tool, then the ADR-002-E1 nolint allow-list gate.
+# as go vet's tool, then the ADR-002-E1 nolint allow-list gate, then the decision-log index check.
 # A last step regenerates api/ and fails on any diff (scripts/ci/openapi-generated.sh).
 lint:
 	$(GOLANGCI_LINT) run ./...
 	sh scripts/ci/navalint.sh
 	sh scripts/ci/nolint-allowlist.sh
 	sh scripts/ci/openapi-generated.sh
+	go run ./tools/docindex -check
 
 # Bundles api/openapi.yaml + api/paths/*.yaml, then regenerates api/api.gen.go (oapi-codegen v2.8.0, pinned
 # by the go.mod tool directive).
