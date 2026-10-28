@@ -7,4 +7,5 @@ FROM quay.io/keycloak/keycloak:26.8.1
 ENV KC_DB=postgres \
     KC_HEALTH_ENABLED=true \
     KC_CACHE=local
+COPY deploy/compose/keycloak/quarkus.properties /opt/keycloak/conf/quarkus.properties
 RUN /opt/keycloak/bin/kc.sh build

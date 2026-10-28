@@ -40,7 +40,7 @@ func TestKeycloakProbe(t *testing.T) {
 		w.WriteHeader(int(status.Load()))
 	}))
 	t.Cleanup(kc.Close)
-	check := health.Keycloak(kc.URL, outboundClient(t))
+	check := health.Keycloak(kc.URL, "", outboundClient(t))
 	if check.Critical || check.Name != "keycloak" {
 		t.Fatalf("check = %+v, want non-critical keycloak", check)
 	}
@@ -64,7 +64,7 @@ func TestKeycloakProbe(t *testing.T) {
 
 func TestKeycloakProbeUnconfigured(t *testing.T) {
 	t.Parallel()
-	if err := health.Keycloak("", outboundClient(t)).Probe(t.Context()); !errors.Is(err, health.ErrUnconfigured) {
+	if err := health.Keycloak("", "", outboundClient(t)).Probe(t.Context()); !errors.Is(err, health.ErrUnconfigured) {
 		t.Errorf("err = %v, want ErrUnconfigured", err)
 	}
 }
@@ -180,3 +180,42 @@ type atomicInt struct{ v atomic.Int64 }
 
 func (a *atomicInt) Store(n int64) { a.v.Store(n) }
 func (a *atomicInt) Load() int64   { return a.v.Load() }
+
+// TICK-328: /health/ready can stay 200 while Keycloak cannot read its
+// database. With a token URL the check also needs 401 from the token endpoint.
+func TestKeycloakProbeTokenEndpoint(t *testing.T) {
+	t.Parallel()
+	var token atomicInt
+	token.Store(http.StatusUnauthorized)
+	var sawForm atomicInt
+	kc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health/ready":
+			w.WriteHeader(http.StatusOK)
+		case "/realms/nava/protocol/openid-connect/token":
+			if r.Method == http.MethodPost && r.Header.Get("Authorization") == "" {
+				_ = r.ParseForm()
+				if r.PostForm.Get("client_id") == "nava-health-probe" && r.PostForm.Get("client_secret") == "" {
+					sawForm.Store(1)
+				}
+			}
+			w.WriteHeader(int(token.Load()))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(kc.Close)
+	check := health.Keycloak(kc.URL, kc.URL+"/realms/nava/protocol/openid-connect/token", outboundClient(t))
+	if err := check.Probe(t.Context()); err != nil {
+		t.Errorf("healthy Keycloak: %v", err)
+	}
+	if sawForm.Load() != 1 {
+		t.Error("token request lacked the probe client_id or carried a credential")
+	}
+	for _, code := range []int{http.StatusBadRequest, http.StatusInternalServerError, http.StatusOK} {
+		token.Store(int64(code))
+		if err := check.Probe(t.Context()); err == nil {
+			t.Errorf("token endpoint answering %d passed", code)
+		}
+	}
+}

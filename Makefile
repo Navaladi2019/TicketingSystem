@@ -194,7 +194,7 @@ ci-integration: test-integration test-ci-isolated-down test-integration-cleanup
 # restarts the stack, and dbroles changes roles. worker polls nava-tq, the
 # queue the sdk suite's workers poll, so it runs after that suite.
 STACK_TESTS_PARALLEL := smoke pgbouncer temporal temporal_handshake temporal_isolation temporal_custody temporal_operator_reach temporal_health hba sdk identity
-STACK_TESTS_SERIAL := worker demo_outbox dependencies trace logs redact idempotent dbroles
+STACK_TESTS_SERIAL := worker demo_outbox dependencies keycloak_restart trace logs redact idempotent dbroles
 STACK_TESTS := healthy $(STACK_TESTS_PARALLEL) $(STACK_TESTS_SERIAL)
 stack-tests:
 	$(MAKE) --no-print-directory -j1 stack-test-healthy

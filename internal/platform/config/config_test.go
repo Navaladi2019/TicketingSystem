@@ -237,6 +237,7 @@ func TestRejectsBadBadDependencyValuesByName(t *testing.T) {
 	for key, bad := range map[string]string{
 		"NAVA_DATABASE_URL":            "mysql://u:hunter2@h/db",
 		"NAVA_KEYCLOAK_MANAGEMENT_URL": "http://u:hunter2@keycloak:9000",
+		"NAVA_KEYCLOAK_TOKEN_URL":      "http://u:hunter2@keycloak:8080/realms/nava/protocol/openid-connect/token",
 		"NAVA_TEMPORAL_ADDRESS":        "temporal",
 	} {
 		_, err := config.Load(func(k string) (string, bool) { return bad, k == key })

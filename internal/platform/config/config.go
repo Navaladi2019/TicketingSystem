@@ -54,6 +54,10 @@ type Dependencies struct {
 	// KeycloakManagementURL is NAVA_KEYCLOAK_MANAGEMENT_URL, the base URL of
 	// Keycloak's management port, such as http://keycloak:9000.
 	KeycloakManagementURL string
+	// KeycloakTokenURL is NAVA_KEYCLOAK_TOKEN_URL, the realm's token endpoint,
+	// such as http://keycloak:8080/realms/nava/protocol/openid-connect/token.
+	// Set, the Keycloak health check also asks it for a token (TICK-328).
+	KeycloakTokenURL string
 	// TemporalAddress is NAVA_TEMPORAL_ADDRESS, the frontend host:port.
 	TemporalAddress string
 	// TemporalTLS is the client certificate the binary dials the frontend with.
@@ -157,6 +161,7 @@ func Load(lookup LookupFunc) (Config, error) {
 	cfg.Deps = Dependencies{
 		DatabaseURL:           r.databaseURL("NAVA_DATABASE_URL"),
 		KeycloakManagementURL: strings.TrimRight(r.baseURL("NAVA_KEYCLOAK_MANAGEMENT_URL"), "/"),
+		KeycloakTokenURL:      r.httpURL("NAVA_KEYCLOAK_TOKEN_URL"),
 		TemporalAddress:       r.hostPort("NAVA_TEMPORAL_ADDRESS"),
 		OIDCIssuers:           r.urlList("NAVA_OIDC_ISSUERS"),
 		OIDCFetchBaseURL:      strings.TrimRight(r.baseURL("NAVA_OIDC_FETCH_BASE_URL"), "/"),
@@ -254,6 +259,20 @@ func (r *reader) baseURL(key string) string {
 	}
 	if !isBaseURL(v) || !noPath(v) {
 		r.errs = append(r.errs, fmt.Errorf("%s: want an http or https URL without credentials, path or query", key))
+		return ""
+	}
+	return v
+}
+
+// httpURL reads one http or https URL, a path allowed, without credentials,
+// query or fragment. Empty is "not configured".
+func (r *reader) httpURL(key string) string {
+	v, ok := r.lookup(key)
+	if !ok || v == "" {
+		return ""
+	}
+	if !isBaseURL(v) {
+		r.errs = append(r.errs, fmt.Errorf("%s: want an http or https URL without credentials or query", key))
 		return ""
 	}
 	return v

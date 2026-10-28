@@ -123,6 +123,7 @@ Nothing between `otelhttp` and the mux may replace the `*http.Request`: `otelhtt
 | `NAVA_TELEMETRY_SHUTDOWN_TIMEOUT` | `5s` |
 | `NAVA_DATABASE_URL` | unset. `postgres://` URL; a credential, never logged or echoed. Unset: `/readyz` fails closed |
 | `NAVA_KEYCLOAK_MANAGEMENT_URL` | unset. Keycloak management base URL (port 9000); checked at `/health/ready` |
+| `NAVA_KEYCLOAK_TOKEN_URL` | unset. The realm token endpoint URL. Set, the Keycloak check also POSTs a client_credentials request for a client that does not exist and needs 401 (Keycloak reads its database to answer), so `/healthz` is not `ok` while Keycloak cannot issue tokens |
 | `NAVA_TEMPORAL_ADDRESS` | unset. Temporal frontend `host:port`; checked with `GetSystemInfo` |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` / `OTEL_EXPORTER_OTLP_ENDPOINT` | both unset: no trace exporter, nothing dials out. Either set: OTLP/HTTP, resolved by the exporter as the spec says (the signal endpoint as is, else the base endpoint + `/v1/traces`). `config` checks both are http(s) URLs and never echoes them |
 
