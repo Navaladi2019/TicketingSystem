@@ -3,6 +3,7 @@ package db
 import (
 	"io/fs"
 	"regexp"
+	"strconv"
 	"testing"
 )
 
@@ -16,17 +17,23 @@ func TestMigrationVersionsUnique(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seen := map[string]string{}
+	seen := map[int64]string{}
 	for _, e := range entries {
 		m := migrationVersion.FindStringSubmatch(e.Name())
 		if m == nil {
 			t.Errorf("migration %q does not match <version>_<name>.sql", e.Name())
 			continue
 		}
-		if prev, dup := seen[m[1]]; dup {
-			t.Errorf("duplicate migration version %s: %s and %s", m[1], prev, e.Name())
+		// Parse, so 6_x.sql and 00006_x.sql count as the same version.
+		v, err := strconv.ParseInt(m[1], 10, 64)
+		if err != nil {
+			t.Errorf("migration %q: bad version: %v", e.Name(), err)
+			continue
 		}
-		seen[m[1]] = e.Name()
+		if prev, dup := seen[v]; dup {
+			t.Errorf("duplicate migration version %d: %s and %s", v, prev, e.Name())
+		}
+		seen[v] = e.Name()
 	}
 	if len(seen) == 0 {
 		t.Error("no migrations found")

@@ -1,9 +1,9 @@
--- TICK-220: the cost of 00006 and 00007 on the identity-bench data (519,000
+-- TICK-220: the cost of 00010 and 00011 on the identity-bench data (519,000
 -- principals), run as pgadmin after 01_seed.sql. Both already ran on the
 -- empty table, so they are undone and replayed here, then the rejected
 -- one-step variant is timed twice.
 \timing on
-\echo === 00006 + 00007 replayed: ADD COLUMN + CHECK NOT VALID, then VALIDATE ===
+\echo === 00010 + 00011 replayed: ADD COLUMN + CHECK NOT VALID, then VALIDATE ===
 ALTER TABLE principals DROP CONSTRAINT principals_tombstone_check, DROP COLUMN deleted_at;
 VACUUM (ANALYZE) principals;
 SELECT count(*) FROM principals;
