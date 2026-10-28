@@ -17,6 +17,8 @@ import (
 // tokenValidators are the services known to validate access tokens. Each one
 // must set NAVA_OIDC_ISSUERS in compose.yaml: without it a service either
 // refuses every token or, worse, falls back to something other than the pin.
+// nava-worker is not one: it calls config.Load, which parses the OIDC vars, but
+// never builds a verifier.
 func tokenValidators() []string { return []string{"nava-core", "nava-onboard"} }
 
 // issuerVars are the env vars that name an issuer, each with how to read the
