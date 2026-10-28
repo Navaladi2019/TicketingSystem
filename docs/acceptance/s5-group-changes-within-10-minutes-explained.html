@@ -81,7 +81,7 @@
 
 <div class="card tldr">
   <strong>In one paragraph.</strong> People log in through a separate login system (Keycloak). That system decides who belongs to which customer organisation and which teams they're in. This story copies that information into our own database every 5 minutes. The API checks the copy on <em>every</em> request, not the person's login ticket. So when an administrator removes someone from a team, or switches off their account, the change takes effect within 10 minutes, even for a login ticket that hasn't expired yet. It also adds a set of automated "attacks": tests that try to trick the platform into letting someone from one customer into another customer's data. Every attack is refused.
-  <div style="margin-top:8px"><span class="pill ok">All code tasks merged into the story branch</span> <span class="pill warn">1 criterion is partly proven until S4 meets S5 (section 9)</span> <span class="pill info">Next: acceptance kit, then your ACCEPTED / REJECTED</span></div>
+  <div style="margin-top:8px"><span class="pill ok">All code tasks merged into the story branch</span> <span class="pill ok">All 6 criteria proven: S4 and S5 are on <code>main</code> (section 9)</span> <span class="pill info">Next: acceptance kit, then your ACCEPTED / REJECTED</span></div>
 </div>
 
 <h2 id="problem">1. The problem, in everyday terms</h2>
@@ -238,9 +238,9 @@
   <tr><td>Synced identity tables never show another tenant's users</td><td class="ok">Pass</td><td><code>internal/groupsync</code> isolation integration tests, isolation report</td></tr>
   <tr><td><code>kc.org</code> tamper, ID token as access token, foreign-IdP user all rejected</td><td class="ok">Pass</td><td>CI-5.06, .05, .09–.11 in <code>ci5-report.md</code> (<code>make identity-attacks</code>)</td></tr>
   <tr><td>Tenant B's admin cannot obtain a token the API accepts for tenant A</td><td class="ok">Pass</td><td>CI-5.13</td></tr>
-  <tr><td>Tenant admin gets 403 on <code>/api/v1/operator/*</code>; operator token gets 401 on a tenant endpoint</td><td class="warn">401 half: pass. 403 half: partly proven</td><td><code>T26-8</code> passes. <code>T26-6</code> proves the admin's badge is refused by the operator check. The 403 itself needs the operator routes from story S4, which aren't on this branch yet (section 9).</td></tr>
+  <tr><td>Tenant admin gets 403 on <code>/api/v1/operator/*</code>; operator token gets 401 on a tenant endpoint</td><td class="ok">401 half: pass. 403 half: proven</td><td><code>T26-8</code> passes. <code>T26-6</code> sends a valid request to the real operator route with the admin's badge and requires <strong>403</strong>. Story S4's operator routes are on <code>main</code> now, and TODO-010 is <strong>Fixed</strong> (section 9).</td></tr>
 </table>
-<p class="small">QA re-ran every criterion on a fresh stack at <code>0135a08</code> (story branch with <code>main</code> merged) on 2026-10-27. All pass; the 403 half above is the known limit. Evidence: the acceptance kit (section 10).</p>
+<p class="small">QA re-ran every criterion on a fresh stack at <code>0135a08</code> (story branch with <code>main</code> merged) on 2026-10-27. All pass. That run predates the switch to a required 403; <code>T26-6</code> now requires it. Evidence: the acceptance kit (section 10).</p>
 
 <h2 id="work">8. What was built</h2>
 <table>
@@ -255,7 +255,7 @@
 
 <h2 id="limits">9. Known limits, honestly</h2>
 <ul>
-  <li><span class="pill warn">Partly proven</span> <strong>The 403 for company admins on operator routes.</strong> The operator routes were built in story S4, on a separate branch. On this branch the route doesn't exist yet, so the test proves the admin's badge is refused and the route isn't served (404). When S4 and S5 meet on <code>main</code>, the test must be switched to require 403 (tracked as TODO-010). The test is built to fail as soon as the route appears, so this can't be forgotten.</li>
+  <li><span class="pill ok">Fixed</span> <strong>The 403 for company admins on operator routes.</strong> The operator routes were built in story S4, and S4 and S5 are now both on <code>main</code>. The test (T26-6) builds the handler with the operator routes on, sends a valid request with a company admin's badge, and requires 403 (tracked as TODO-010, now <strong>Fixed</strong>).</li>
   <li><span class="pill info">Accepted risk AR-039 (low)</span> <strong>Self-service email change.</strong> If the account console were ever re-enabled, a user could change their own email without verification. That can't change their company, role or teams (tested), but it could block another company from inviting that address. Recommended fix at the login-system layer is recorded.</li>
   <li><span class="pill info">Deferred, with a trigger</span> <strong>TICK-220.</strong> When a person leaves Keycloak, the worker deletes their row. That's fine today. The first future table that points at a person without a delete rule would break sync for that company. The rule must be decided before any such table merges.</li>
   <li><span class="pill ok">Fixed</span> The attack suite now runs in GitHub Actions on every PR and keeps the <code>ci5-report</code> artifact (TODO-011).</li>
@@ -340,7 +340,7 @@
 
     operator: { label: "Admin vs operator doors", tag: "criterion 6", user: ["Company admin", "tenant-admin role"], steps: [
       { t: "A Company A administrator calls /api/v1/operator/tenants.", n: ["user","api"], e: ["e-user-api"] },
-      { t: "The operator check refuses the badge: it isn't an operator badge. Target answer: 403. On this branch the route doesn't exist yet (S4), so the test sees 404 (section 9).", n: ["api"], e: [], c: "bad" },
+      { t: "The operator check refuses the badge: it isn't an operator badge. Answer: 403. The operator routes from S4 are on <code>main</code>, and the test requires 403 (section 9).", n: ["api"], e: [], c: "bad" },
       { t: "Reverse: the platform operator calls a company endpoint with an operator badge.", n: ["user","api"], e: ["e-user-api"] },
       { t: "The badge's audience is operator-only, so the API answers 401. It names no company.", n: ["api"], e: [], c: "bad" }
     ], v: ["good", "Each kind of badge works only at its own door."] }
