@@ -17,9 +17,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity/keycloak"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity/keycloak/keycloaktest"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity/pgstore"
+	"github.com/Navaladi2019/TicketingSystem/internal/onboard"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
 	"github.com/Navaladi2019/TicketingSystem/internal/server"
@@ -81,7 +83,8 @@ func newAPIRunner(t *testing.T) *apiRunner {
 	}
 	t.Cleanup(func() { _ = tel.Shutdown(context.Background()) })
 	resolver := realm.Resolver(t, pgstore.New(pool), OperatorSubject)
-	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel, resolver, pgstore.New(pool))
+	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel, resolver, pgstore.New(pool),
+		server.WithOperator(resolver, refusingOnboarder{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,6 +98,15 @@ func newAPIRunner(t *testing.T) *apiRunner {
 		t.Fatalf("baseline GET /api/v1/me with tenant A's token = %d %s; want 200 for tenant A", rec.Code, rec.Body)
 	}
 	return r
+}
+
+// refusingOnboarder stands in for the onboarding service (T26 case 6): the
+// operator routes are on, so a tenant token is refused by the operator
+// authentication before any handler runs. Reaching it is a failure.
+type refusingOnboarder struct{}
+
+func (refusingOnboarder) Onboard(context.Context, identity.Operator, string, []byte, onboard.Request) (onboard.Result, error) {
+	return onboard.Result{}, errors.New("the onboarder was reached")
 }
 
 // Mint implements Server.

@@ -4,7 +4,7 @@ Story: TICK-47. Plan: PLAN-001 (`docs/delivery/plan-platform-foundation.md`), ta
 Plain-language explainer: [`s5-group-changes-within-10-minutes-explained.html`](s5-group-changes-within-10-minutes-explained.html) (open it in a browser).
 Verified on 2026-10-27 by the Quality, Testing & CI Advisor, on a fresh compose stack built from `TICK-47/group-changes-within-10-minutes` at `0135a08`. That commit already contains `main` (`8cb0d54`). Tenants A and B were seeded, and the walk used the real Keycloak and a real `nava-groupsync`. Evidence: [`s5-evidence/`](s5-evidence/).
 
-**Status: READY for the human.** All six criteria pass. Criterion 6's 403 half is a known limit (TODO-010), not a failure.
+**Status: READY for the human.** All six criteria pass. Criterion 6's 403 half is required by T26-6 since S4 is on `main` (TODO-010 Fixed).
 
 History: the first run on 2026-10-27 (`cd715c4` with `main` merged locally) found two problems. TICK-263: once `main` was in, a user linked to another tenant's login provider was accepted. TICK-264: story step 1 could not be done on the seed. Both are fixed (TICK-263, TICK-264, TICK-268), and this run re-checks them.
 
@@ -70,7 +70,7 @@ If another stack already uses ports 18080/18081, set `COMPOSE_PROJECT_NAME`, `NA
 | 3 | Synced identity tables never show another tenant's users | ✅ | [06](s5-evidence/06-boundaries.txt), isolation section |
 | 4 | `kc.org` tamper, ID token as access token, foreign-IdP user all rejected | ✅ CI-5 14/14 locally, and CI-5.10 by hand | [ci5-report](s5-evidence/ci5-report.md), [08](s5-evidence/08-foreign-link-ci5-10.txt), [06](s5-evidence/06-boundaries.txt) |
 | 5 | Tenant B's admin cannot obtain a token the API accepts for tenant A | ✅ | CI-5.13 PASS; Bob's `kc.org` tamper by hand in [06](s5-evidence/06-boundaries.txt) |
-| 6 | Tenant admin gets 403 on `/api/v1/operator/*`; operator token gets 401 on a tenant endpoint | 401 half ✅. 403 half: known limit, **404** until S4 is on `main` (TODO-010) | [06](s5-evidence/06-boundaries.txt) |
+| 6 | Tenant admin gets 403 on `/api/v1/operator/*`; operator token gets 401 on a tenant endpoint | 401 half ✅. 403 half: required by T26-6 now S4 is on `main` (TODO-010 Fixed) | [06](s5-evidence/06-boundaries.txt) |
 | Story steps 1–3 | `/me` shows `service-desk`; removing Alice in Keycloak removes it | ✅ | [01](s5-evidence/01-seed-and-step1.txt), [04](s5-evidence/04-group-removal-timed.txt) |
 
 GitHub `ci` on the same tree: run [40553475037](https://github.com/Navaladi2019/TicketingSystem/actions/runs/40553475037), all 8 jobs green, with the `ci5-report` artifact showing 14/14. It ran on the PR #211 head `b3e7518`, whose tree is identical to `0135a08`.
@@ -134,7 +134,7 @@ Tenant B's user and admin cannot get a tenant A answer from the API (criteria 4 
 
 ## Known limits
 
-- **The 403 on operator routes is unproven until S4 and S5 are both on `main`** (TODO-010). Today the route returns 404. The test is built to require 403 once the route exists.
+- **The 403 on operator routes** is required by T26-6 now that S4 is on `main` (TODO-010 Fixed); the suite builds its handler with `server.WithOperator`.
 - **The story's "Try it" order.** Step 4 disables Alice, and step 5's attack suite signs in as her. Re-enable her in between, as above.
 - **A 5-minute token can expire while you wait for a sync** (step 5). Within the bound that is the same outcome, a refusal, but it hides which mechanism acted. Use `nava-groupsync --once` to see the sync effect itself.
 - **Leftover Docker networks.** On a shared dev host, leftover `nava-it-net-*` networks from killed integration runs can exhaust Docker's address pools, and `up` fails with `all predefined address pools have been fully subnetted`. Removing the networks with no containers fixed it on 2026-10-27.
