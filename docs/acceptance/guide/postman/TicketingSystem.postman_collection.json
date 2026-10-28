@@ -6070,7 +6070,7 @@
     },
     {
       "name": "S6 — API ground rules",
-      "description": "TICK-48. Problem bodies, unknown routes, method rules, the published contract and request ids. Idempotent replay is in S4 (S4.9, S4.10). Per-tenant rate limits and cursors are not on `main` (see the guide's coverage page).",
+      "description": "TICK-48. Problem bodies, unknown routes, method rules, the published contract and request ids. Idempotent replay is in S4 (S4.9, S4.10). S6.11–S6.13: tenant A over its per-tenant rate limit gets 429 while tenant B's calls succeed. Tenant-bound cursors have no route on `main` yet (see the guide's coverage page).",
       "item": [
         {
           "name": "S6.1 GET /api/v1/openapi.yaml (public)",
@@ -6840,6 +6840,326 @@
                   "};",
                   "N.problem('not_found', 404);",
                   "N.noLeak('<script>', 'nope-');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "S6.11 Sign in as Bob (tenant B)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{keycloak_url}}/realms/{{realm}}/protocol/openid-connect/token",
+            "description": "Signs in as `{{bob_username}}` through Keycloak (client `nava-web`, password grant) and stores the access token in `bob_token`.",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "password"
+                },
+                {
+                  "key": "client_id",
+                  "value": "nava-web"
+                },
+                {
+                  "key": "scope",
+                  "value": "openid"
+                },
+                {
+                  "key": "username",
+                  "value": "{{bob_username}}"
+                },
+                {
+                  "key": "password",
+                  "value": "{{bob_password}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const N = {",
+                  "  // RFC 9457 problem body as api/errors.yaml registers it.",
+                  "  problem(code, status) {",
+                  "    pm.test(`HTTP ${status}`, () => pm.response.to.have.status(status));",
+                  "    pm.test(`problem+json, code ${code}`, () => {",
+                  "      pm.expect(pm.response.headers.get('Content-Type') || '').to.include('application/problem+json');",
+                  "      const b = pm.response.json();",
+                  "      pm.expect(b).to.include.all.keys('type', 'title', 'status', 'code', 'detail', 'instance');",
+                  "      pm.expect(b.code).to.eql(code);",
+                  "      pm.expect(b.status).to.eql(status);",
+                  "      pm.expect(b.type).to.eql('urn:nava:problem:' + code);",
+                  "      pm.expect(N.REGISTERED).to.include(b.code);",
+                  "    });",
+                  "    pm.test('problem instance is this response\\'s X-Request-Id', () => {",
+                  "      const id = pm.response.headers.get('X-Request-Id');",
+                  "      pm.expect(id, 'X-Request-Id header').to.be.a('string').and.not.empty;",
+                  "      pm.expect(pm.response.json().instance).to.eql('urn:nava:request:' + id);",
+                  "    });",
+                  "  },",
+                  "  REGISTERED: ['tenant_unresolved', 'invalid_token', 'idempotency_key_reuse', 'forbidden', 'invalid_idp_config',",
+                  "    'domain_claimed', 'onboarding_conflict', 'idempotency_in_flight', 'invalid_cursor', 'rate_limited', 'not_found',",
+                  "    'validation_failed', 'method_not_allowed', 'not_implemented', 'internal_error'],",
+                  "  // Decodes a JWT payload (no verification: the server does that).",
+                  "  jwt(t) {",
+                  "    const p = String(t).split('.')[1].replace(/-/g, '+').replace(/_/g, '/');",
+                  "    return JSON.parse(CryptoJS.enc.Base64.parse(p + '==='.slice((p.length + 3) % 4)).toString(CryptoJS.enc.Utf8));",
+                  "  },",
+                  "  // The response text never names the other tenant.",
+                  "  noLeak(...needles) {",
+                  "    pm.test('response names nothing of the other tenant', () => {",
+                  "      const text = pm.response.text();",
+                  "      needles.filter(Boolean).forEach(n => pm.expect(text).to.not.include(n));",
+                  "    });",
+                  "  },",
+                  "  me(tenant) {",
+                  "    pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "    pm.test(`tenant_id is ${tenant}`, () => pm.expect(pm.response.json().tenant_id).to.eql(tenant));",
+                  "    pm.test('Me has the contract fields', () => {",
+                  "      const b = pm.response.json();",
+                  "      pm.expect(b).to.include.all.keys('user_id', 'tenant_id', 'groups', 'idp_alias', 'group_paths');",
+                  "      pm.expect(b.groups).to.be.an('array');",
+                  "      pm.expect(b.group_paths).to.be.an('array');",
+                  "      b.group_paths.forEach(g => {",
+                  "        pm.expect(g.path, 'path relative to the tenant root').to.match(/^\\//).and.not.include('/t/');",
+                  "        pm.expect(b.groups).to.include(g.id);",
+                  "      });",
+                  "    });",
+                  "  },",
+                  "  paths() { return pm.response.json().group_paths.map(g => g.path); },",
+                  "  v(name) { return pm.collectionVariables.get(name) || pm.environment.get(name); },",
+                  "};",
+                  "",
+                  "pm.test('HTTP 200 from Keycloak', () => pm.response.to.have.status(200));",
+                  "const tok = pm.response.json();",
+                  "pm.test('access token issued', () => pm.expect(tok.access_token).to.be.a('string'));",
+                  "pm.collectionVariables.set('bob_token', tok.access_token);",
+                  "if (tok.id_token) pm.collectionVariables.set('bob_token_id', tok.id_token);",
+                  "const c = N.jwt(tok.access_token);",
+                  "pm.collectionVariables.set('bob_token_exp', String(c.exp));",
+                  "pm.test('issuer is the pinned realm URL', () => pm.expect(c.iss).to.eql(pm.variables.replaceIn('{{keycloak_url}}/realms/{{realm}}')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "S6.12 Tenant A over its limit gets 429 while tenant B succeeds",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bob_token}}"
+              }
+            ],
+            "url": "{{core_url}}/api/v1/me",
+            "description": "Before this request, Alice (tenant A) fires `rate_burst_requests` (default 300) `GET /api/v1/me` calls at once, more than tenant A's bucket holds (`NAVA_RATE_LIMIT_BURST`, 100 by default, refilled at `NAVA_RATE_LIMIT_RPS`, 50/s), and Bob (tenant B) fires 20 in the same burst. Tenant A must see 429 `rate_limited` with `Retry-After`; every call of Bob's, and this request, must be 200 for tenant B. The limit is keyed only on the tenant in the token."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const n = Number(pm.variables.get('rate_burst_requests') || 300);",
+                  "const me = pm.variables.replaceIn('{{core_url}}/api/v1/me');",
+                  "const call = (tok, who) => pm.sendRequest({ url: me, method: 'GET', header: { Authorization: 'Bearer ' + tok } }, (err, res) => {",
+                  "  const k = err ? 'error' : String(res.code);",
+                  "  st[who][k] = (st[who][k] || 0) + 1;",
+                  "  if (!err && res.code === 429 && !sample) {",
+                  "    sample = { code: res.code, ct: res.headers.get('Content-Type') || '', retry: res.headers.get('Retry-After'),",
+                  "      rid: res.headers.get('X-Request-Id'), body: res.text() };",
+                  "  }",
+                  "  if (!err && who === 'b' && res.code === 200) { try { st.bTenants.push(res.json().tenant_id); } catch (e) {} }",
+                  "  if (--left === 0) {",
+                  "    pm.collectionVariables.set('rl_stats', JSON.stringify(st));",
+                  "    pm.collectionVariables.set('rl_sample', JSON.stringify(sample || {}));",
+                  "    pm.collectionVariables.set('rl_burst_end', String(Date.now()));",
+                  "  }",
+                  "});",
+                  "const st = { a: {}, b: {}, bTenants: [] };",
+                  "let sample = null;",
+                  "let left = n + 20;",
+                  "const a = pm.collectionVariables.get('alice_token'), b = pm.collectionVariables.get('bob_token');",
+                  "// Bob's 20 calls are spread through Alice's burst, not sent after it.",
+                  "const step = Math.max(1, Math.floor(n / 20));",
+                  "let sentB = 0;",
+                  "for (let i = 0; i < n; i++) { call(a, 'a'); if (i % step === 0 && sentB < 20) { call(b, 'b'); sentB++; } }",
+                  "while (sentB < 20) { call(b, 'b'); sentB++; }"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const N = {",
+                  "  // RFC 9457 problem body as api/errors.yaml registers it.",
+                  "  problem(code, status) {",
+                  "    pm.test(`HTTP ${status}`, () => pm.response.to.have.status(status));",
+                  "    pm.test(`problem+json, code ${code}`, () => {",
+                  "      pm.expect(pm.response.headers.get('Content-Type') || '').to.include('application/problem+json');",
+                  "      const b = pm.response.json();",
+                  "      pm.expect(b).to.include.all.keys('type', 'title', 'status', 'code', 'detail', 'instance');",
+                  "      pm.expect(b.code).to.eql(code);",
+                  "      pm.expect(b.status).to.eql(status);",
+                  "      pm.expect(b.type).to.eql('urn:nava:problem:' + code);",
+                  "      pm.expect(N.REGISTERED).to.include(b.code);",
+                  "    });",
+                  "    pm.test('problem instance is this response\\'s X-Request-Id', () => {",
+                  "      const id = pm.response.headers.get('X-Request-Id');",
+                  "      pm.expect(id, 'X-Request-Id header').to.be.a('string').and.not.empty;",
+                  "      pm.expect(pm.response.json().instance).to.eql('urn:nava:request:' + id);",
+                  "    });",
+                  "  },",
+                  "  REGISTERED: ['tenant_unresolved', 'invalid_token', 'idempotency_key_reuse', 'forbidden', 'invalid_idp_config',",
+                  "    'domain_claimed', 'onboarding_conflict', 'idempotency_in_flight', 'invalid_cursor', 'rate_limited', 'not_found',",
+                  "    'validation_failed', 'method_not_allowed', 'not_implemented', 'internal_error'],",
+                  "  // Decodes a JWT payload (no verification: the server does that).",
+                  "  jwt(t) {",
+                  "    const p = String(t).split('.')[1].replace(/-/g, '+').replace(/_/g, '/');",
+                  "    return JSON.parse(CryptoJS.enc.Base64.parse(p + '==='.slice((p.length + 3) % 4)).toString(CryptoJS.enc.Utf8));",
+                  "  },",
+                  "  // The response text never names the other tenant.",
+                  "  noLeak(...needles) {",
+                  "    pm.test('response names nothing of the other tenant', () => {",
+                  "      const text = pm.response.text();",
+                  "      needles.filter(Boolean).forEach(n => pm.expect(text).to.not.include(n));",
+                  "    });",
+                  "  },",
+                  "  me(tenant) {",
+                  "    pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "    pm.test(`tenant_id is ${tenant}`, () => pm.expect(pm.response.json().tenant_id).to.eql(tenant));",
+                  "    pm.test('Me has the contract fields', () => {",
+                  "      const b = pm.response.json();",
+                  "      pm.expect(b).to.include.all.keys('user_id', 'tenant_id', 'groups', 'idp_alias', 'group_paths');",
+                  "      pm.expect(b.groups).to.be.an('array');",
+                  "      pm.expect(b.group_paths).to.be.an('array');",
+                  "      b.group_paths.forEach(g => {",
+                  "        pm.expect(g.path, 'path relative to the tenant root').to.match(/^\\//).and.not.include('/t/');",
+                  "        pm.expect(b.groups).to.include(g.id);",
+                  "      });",
+                  "    });",
+                  "  },",
+                  "  paths() { return pm.response.json().group_paths.map(g => g.path); },",
+                  "  v(name) { return pm.collectionVariables.get(name) || pm.environment.get(name); },",
+                  "};",
+                  "const st = JSON.parse(pm.collectionVariables.get('rl_stats') || '{}');",
+                  "const s = JSON.parse(pm.collectionVariables.get('rl_sample') || '{}');",
+                  "console.log('burst results (status: count): tenant A', JSON.stringify(st.a), 'tenant B', JSON.stringify(st.b));",
+                  "pm.test('tenant A: some calls got 429', () => pm.expect(st.a && st.a['429'] || 0).to.be.above(0));",
+                  "pm.test('tenant A: the calls within its burst got 200', () => pm.expect(st.a && st.a['200'] || 0).to.be.above(0));",
+                  "pm.test('tenant A: nothing but 200 and 429', () => pm.expect(Object.keys(st.a || {}).filter(k => k !== '200' && k !== '429')).to.eql([]));",
+                  "pm.test('the 429 is problem+json rate_limited', () => {",
+                  "  pm.expect(s.ct).to.include('application/problem+json');",
+                  "  const b = JSON.parse(s.body);",
+                  "  pm.expect(b.code).to.eql('rate_limited');",
+                  "  pm.expect(b.status).to.eql(429);",
+                  "  pm.expect(b.type).to.eql('urn:nava:problem:rate_limited');",
+                  "  pm.expect(N.REGISTERED).to.include(b.code);",
+                  "  pm.expect(b.instance).to.eql('urn:nava:request:' + s.rid);",
+                  "});",
+                  "pm.test('the 429 carries Retry-After in whole seconds, at least 1', () => pm.expect(Number(s.retry)).to.be.at.least(1));",
+                  "pm.test('the 429 names no tenant', () => pm.expect(s.body).to.not.include('00000000-0000-4000-8000-0000000000a1'));",
+                  "pm.collectionVariables.set('rl_retry_after', String(s.retry || 2));",
+                  "pm.test('tenant B: all 20 calls in the same burst got 200', () => pm.expect(st.b).to.eql({ '200': 20 }));",
+                  "pm.test('tenant B: each answered for tenant B', () => (st.bTenants || []).forEach(t => pm.expect(t).to.eql('00000000-0000-4000-8000-0000000000b1')));",
+                  "N.me('00000000-0000-4000-8000-0000000000b1');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "S6.13 Tenant A is served again after Retry-After",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{alice_token}}"
+              }
+            ],
+            "url": "{{core_url}}/api/v1/me",
+            "description": "Waits the `Retry-After` seconds from S6.12, then calls as Alice: the bucket has refilled, so 200 for tenant A. A by-hand run: wait a couple of seconds after S6.12."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const end = Number(pm.collectionVariables.get('rl_burst_end') || 0);",
+                  "const wait = Math.max(0, end + 1000 * Number(pm.collectionVariables.get('rl_retry_after') || 2) + 500 - Date.now());",
+                  "if (wait > 0) setTimeout(() => {}, wait);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const N = {",
+                  "  // RFC 9457 problem body as api/errors.yaml registers it.",
+                  "  problem(code, status) {",
+                  "    pm.test(`HTTP ${status}`, () => pm.response.to.have.status(status));",
+                  "    pm.test(`problem+json, code ${code}`, () => {",
+                  "      pm.expect(pm.response.headers.get('Content-Type') || '').to.include('application/problem+json');",
+                  "      const b = pm.response.json();",
+                  "      pm.expect(b).to.include.all.keys('type', 'title', 'status', 'code', 'detail', 'instance');",
+                  "      pm.expect(b.code).to.eql(code);",
+                  "      pm.expect(b.status).to.eql(status);",
+                  "      pm.expect(b.type).to.eql('urn:nava:problem:' + code);",
+                  "      pm.expect(N.REGISTERED).to.include(b.code);",
+                  "    });",
+                  "    pm.test('problem instance is this response\\'s X-Request-Id', () => {",
+                  "      const id = pm.response.headers.get('X-Request-Id');",
+                  "      pm.expect(id, 'X-Request-Id header').to.be.a('string').and.not.empty;",
+                  "      pm.expect(pm.response.json().instance).to.eql('urn:nava:request:' + id);",
+                  "    });",
+                  "  },",
+                  "  REGISTERED: ['tenant_unresolved', 'invalid_token', 'idempotency_key_reuse', 'forbidden', 'invalid_idp_config',",
+                  "    'domain_claimed', 'onboarding_conflict', 'idempotency_in_flight', 'invalid_cursor', 'rate_limited', 'not_found',",
+                  "    'validation_failed', 'method_not_allowed', 'not_implemented', 'internal_error'],",
+                  "  // Decodes a JWT payload (no verification: the server does that).",
+                  "  jwt(t) {",
+                  "    const p = String(t).split('.')[1].replace(/-/g, '+').replace(/_/g, '/');",
+                  "    return JSON.parse(CryptoJS.enc.Base64.parse(p + '==='.slice((p.length + 3) % 4)).toString(CryptoJS.enc.Utf8));",
+                  "  },",
+                  "  // The response text never names the other tenant.",
+                  "  noLeak(...needles) {",
+                  "    pm.test('response names nothing of the other tenant', () => {",
+                  "      const text = pm.response.text();",
+                  "      needles.filter(Boolean).forEach(n => pm.expect(text).to.not.include(n));",
+                  "    });",
+                  "  },",
+                  "  me(tenant) {",
+                  "    pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "    pm.test(`tenant_id is ${tenant}`, () => pm.expect(pm.response.json().tenant_id).to.eql(tenant));",
+                  "    pm.test('Me has the contract fields', () => {",
+                  "      const b = pm.response.json();",
+                  "      pm.expect(b).to.include.all.keys('user_id', 'tenant_id', 'groups', 'idp_alias', 'group_paths');",
+                  "      pm.expect(b.groups).to.be.an('array');",
+                  "      pm.expect(b.group_paths).to.be.an('array');",
+                  "      b.group_paths.forEach(g => {",
+                  "        pm.expect(g.path, 'path relative to the tenant root').to.match(/^\\//).and.not.include('/t/');",
+                  "        pm.expect(b.groups).to.include(g.id);",
+                  "      });",
+                  "    });",
+                  "  },",
+                  "  paths() { return pm.response.json().group_paths.map(g => g.path); },",
+                  "  v(name) { return pm.collectionVariables.get(name) || pm.environment.get(name); },",
+                  "};",
+                  "N.me('00000000-0000-4000-8000-0000000000a1');"
                 ]
               }
             }

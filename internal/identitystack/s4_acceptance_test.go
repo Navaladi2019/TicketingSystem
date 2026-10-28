@@ -71,11 +71,11 @@ func redactBody(body []byte) string {
 	return string(out)
 }
 
-// onboardPostRaw is onboardPost through busybox nc, which, unlike wget,
+// s4OnboardPostNC is onboardPost through busybox nc, which, unlike wget,
 // returns the body of an error status. stdin stays open while the server
 // answers (a half-close would cancel the request); the token is passed in the
 // environment, never argv.
-func onboardPostRaw(t *testing.T, token, key string, body []byte) (int, []byte) {
+func s4OnboardPostNC(t *testing.T, token, key string, body []byte) (int, []byte) {
 	t.Helper()
 	cmd := exec.CommandContext(t.Context(), "docker", "compose", "exec", "-T", "-e", "NAVA_OPERATOR_TOKEN", "nava-onboard", "sh", "-c",
 		`{ printf 'POST /api/v1/operator/tenants HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer %s\r\nIdempotency-Key: %s\r\n`+
@@ -248,7 +248,7 @@ func TestS4Acceptance(t *testing.T) {
 		refused := onboard.TenantID(operatorSub, key)
 		stolen := onboardBody("admin@"+a.domain, a.domain)
 		cleanupTenantOrg(t, refused, onboard.Alias(refused))
-		code, resp := onboardPostRaw(t, op, key, stolen)
+		code, resp := s4OnboardPostNC(t, op, key, stolen)
 		e.exchange("A new tenant claims tenant A's domain:", onboardReq(key, stolen), code, resp)
 		var problem struct{ Code string }
 		_ = json.Unmarshal(resp, &problem)
