@@ -221,6 +221,13 @@ jobs:
       # leaves no nava-it-* container or network.
       - name: Integration script leaves nothing behind
         run: make test-integration-cleanup
+      - name: Isolation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: isolation-report
+          path: isolation-report.md
+          if-no-files-found: error
 
   stack:
     # Platform and Temporal stack tests; the database tests run in stack-db.
@@ -271,6 +278,14 @@ jobs:
         run: make stack-test-temporal_health
       - name: SDK clients dial with their certificates and a worker runs
         run: make stack-test-sdk
+      # The CI-6 and CI-7 report stack-test-sdk writes (TICK-49 acceptance).
+      - name: CI-6 report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci6-report
+          path: ci6-report.md
+          if-no-files-found: error
       # Before the dependency probes, which stop Keycloak.
       - name: Realm nava, operator custody and the Keycloak adapter
         run: make stack-test-identity
@@ -286,6 +301,8 @@ jobs:
       # After the SDK suite: the worker polls nava-tq, the queue its workers poll.
       - name: nava-worker ready, admin listener, guarded activity
         run: make stack-test-worker
+      - name: S7 demo, make demo-outbox twice with one key, one workflow and two signals
+        run: make stack-test-demo_outbox
       - name: Dependency probes, /readyz 200 with Keycloak stopped
         run: make stack-test-dependencies
       - name: One request, one trace
