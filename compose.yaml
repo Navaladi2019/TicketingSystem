@@ -441,6 +441,86 @@ services:
       retries: 20
     restart: unless-stopped
 
+  # The operator onboarding API (T21, TICK-234): POST /api/v1/operator/tenants
+  # on :8081, in its own process and container. It is the only service that
+  # holds the onboarding account's secret and the nava_onboard database URL;
+  # nava-core holds neither and answers the operator routes 501. On `internal`
+  # only and never published, so the tenant ingress (nava-core's port) cannot
+  # reach it; reach it with `docker compose exec`. Its admin listener (:9090)
+  # serves /metrics, /healthz and /readyz.
+  nava-onboard:
+    build:
+      context: .
+      dockerfile: deploy/compose/nava-onboard/Dockerfile
+    image: nava/nava-onboard:${NAVA_IMAGE_TAG:-dev}
+    environment:
+      NAVA_ONBOARD_ADDR: ":8081"
+      # nava_app for the token checks and the invite's registry reads,
+      # nava_onboard for the onboarding writes; both through PgBouncer.
+      NAVA_DATABASE_URL: postgres://nava_app:${NAVA_APP_DB_PASSWORD:-dev-only-app}@pgbouncer:5432/nava?sslmode=disable
+      NAVA_ONBOARD_DATABASE_URL: postgres://nava_onboard:${NAVA_ONBOARD_DB_PASSWORD:-dev-only-onboard}@pgbouncer:5432/nava?sslmode=disable
+      # The pinned issuer (KC_HOSTNAME, TICK-160), the same one value nava-core
+      # trusts; the binding issuer must equal it or /me cannot resolve the
+      # tenant. Keys come from the back channel, never trusted as iss.
+      NAVA_OIDC_ISSUERS: ${KEYCLOAK_PUBLIC_URL:-http://localhost:18081}/realms/nava
+      NAVA_OIDC_FETCH_BASE_URL: http://keycloak:8080
+      NAVA_ONBOARD_ISSUER: ${KEYCLOAK_PUBLIC_URL:-http://localhost:18081}/realms/nava
+      # operator@nava.test, the realm export's only nava-operator (fixed id).
+      NAVA_OPERATORS: ${KEYCLOAK_PUBLIC_URL:-http://localhost:18081}/realms/nava|00000000-0000-4000-8000-00000000f001
+      NAVA_KEYCLOAK_URL: http://keycloak:8080
+      NAVA_KEYCLOAK_REALM: nava
+      NAVA_DIRECTORY_CLIENT_ID: nava-platform
+      NAVA_DIRECTORY_CLIENT_SECRET: ${NAVA_PLATFORM_CLIENT_SECRET:-dev-only-platform-secret}
+      NAVA_ONBOARD_CLIENT_ID: nava-onboarding
+      NAVA_ONBOARD_CLIENT_SECRET: ${NAVA_ONBOARD_CLIENT_SECRET:-dev-only-onboarding-secret}
+      NAVA_LOG_FORMAT: json
+      OTEL_SERVICE_NAME: nava-onboard
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    networks: [internal]
+    depends_on:
+      otel-collector: {condition: service_healthy}
+      pgbouncer: {condition: service_healthy}
+      keycloak: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/readyz"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  # The group sync (T25): mirrors each tenant's users, groups and memberships
+  # under /t/<tenant_id>/ from Keycloak into the identity tables as
+  # nava_groupsync, every NAVA_GROUPSYNC_INTERVAL (at most 5m). A principal
+  # resolves (GET /api/v1/me) only once a cycle has synced it; the stack tests
+  # run one cycle on demand with `docker compose run --rm --no-deps
+  # nava-groupsync --once`. On `internal` only; admin listener :9090.
+  nava-groupsync:
+    build:
+      context: .
+      dockerfile: deploy/compose/nava-groupsync/Dockerfile
+    image: nava/nava-groupsync:${NAVA_IMAGE_TAG:-dev}
+    environment:
+      NAVA_DATABASE_URL: postgres://nava_groupsync:${NAVA_GROUPSYNC_DB_PASSWORD:-dev-only-groupsync}@pgbouncer:5432/nava?sslmode=disable
+      NAVA_KEYCLOAK_URL: http://keycloak:8080
+      NAVA_KEYCLOAK_REALM: nava
+      NAVA_GROUPSYNC_CLIENT_ID: nava-groupsync
+      NAVA_GROUPSYNC_CLIENT_SECRET: ${NAVA_GROUPSYNC_CLIENT_SECRET:-dev-only-groupsync-secret}
+      NAVA_GROUPSYNC_INTERVAL: ${NAVA_GROUPSYNC_INTERVAL:-5m}
+      NAVA_LOG_FORMAT: json
+      OTEL_SERVICE_NAME: nava-groupsync
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    networks: [internal]
+    depends_on:
+      otel-collector: {condition: service_healthy}
+      pgbouncer: {condition: service_healthy}
+      keycloak: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/readyz"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
 networks:
   default: {}
   internal:

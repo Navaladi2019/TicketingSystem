@@ -115,6 +115,17 @@ func TestRealmFile(t *testing.T) {
 			t.Errorf("idp %s: trustEmail=%v flow=%q", p.Alias, p.TrustEmail, p.FirstBrokerLoginFlowAlias)
 		}
 	}
+	// TICK-252 (Security test 11): no flow of the realm has an authenticator
+	// that links or verifies by email. Nothing may ever link a brokered login
+	// to an existing user.
+	for _, f := range r.Flows {
+		for _, e := range f.Executions {
+			switch e.Authenticator {
+			case "idp-auto-link", "idp-confirm-link", "idp-email-verification", "idp-detect-existing-broker-user":
+				t.Errorf("flow %s has the linking authenticator %s", f.Alias, e.Authenticator)
+			}
+		}
+	}
 	if got := strings.Join(r.DefaultScopes, ","); got != "basic,roles,profile,email" {
 		t.Errorf("defaultDefaultClientScopes = %q, want basic,roles,profile,email", got)
 	}
@@ -324,4 +335,80 @@ func TestRealmFileOperatorCustody(t *testing.T) {
 		return
 	}
 	t.Error("client scope nava-api-audience missing")
+}
+
+// TestRealmFileEmailVerifiedMapper pins TICK-252's upstream email_verified
+// capture on the import file: every seeded tenant IdP has exactly one mapper,
+// oidc-user-attribute-idp-mapper copying email_verified (FORCE) to
+// nava_idp_email_verified, and the realm's user profile declares that
+// attribute admin-only (view and edit), with unmanaged attributes not enabled.
+func TestRealmFileEmailVerifiedMapper(t *testing.T) {
+	raw, err := os.ReadFile("../../deploy/compose/keycloak/import/realm-nava.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var r struct {
+		IdentityProviders []struct{ Alias string } `json:"identityProviders"`
+		Mappers           []struct {
+			Name, IdentityProviderAlias, IdentityProviderMapper string
+			Config                                              map[string]string
+		} `json:"identityProviderMappers"`
+		Components map[string][]struct {
+			ProviderID string `json:"providerId"`
+			Config     map[string][]string
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(raw, &r); err != nil {
+		t.Fatal(err)
+	}
+	perIdP := map[string]int{}
+	for _, m := range r.Mappers {
+		perIdP[m.IdentityProviderAlias]++
+		c := m.Config
+		if m.IdentityProviderMapper != "oidc-user-attribute-idp-mapper" || c["claim"] != "email_verified" ||
+			c["user.attribute"] != "nava_idp_email_verified" || c["syncMode"] != "FORCE" || len(c) != 3 {
+			t.Errorf("mapper %s on %s = %s %v", m.Name, m.IdentityProviderAlias, m.IdentityProviderMapper, c)
+		}
+	}
+	for _, p := range r.IdentityProviders {
+		if perIdP[p.Alias] != 1 {
+			t.Errorf("idp %s has %d mappers, want exactly the email_verified mapper", p.Alias, perIdP[p.Alias])
+		}
+	}
+	comps := r.Components["org.keycloak.userprofile.UserProfileProvider"]
+	if len(comps) != 1 || len(comps[0].Config["kc.user.profile.config"]) != 1 {
+		t.Fatalf("user profile component = %+v", comps)
+	}
+	var prof struct {
+		UnmanagedAttributePolicy string `json:"unmanagedAttributePolicy"`
+		Attributes               []struct {
+			Name        string
+			Permissions struct{ View, Edit []string }
+		}
+	}
+	if err := json.Unmarshal([]byte(comps[0].Config["kc.user.profile.config"][0]), &prof); err != nil {
+		t.Fatal(err)
+	}
+	if prof.UnmanagedAttributePolicy == "ENABLED" {
+		t.Error("unmanagedAttributePolicy is ENABLED")
+	}
+	found := false
+	for _, a := range prof.Attributes {
+		// A tenant user's email comes from their IdP and nowhere else: a user
+		// who could rename it could take a pending admin invite (TICK-252).
+		if a.Name == "email" {
+			if strings.Join(a.Permissions.View, ",") != "admin,user" || strings.Join(a.Permissions.Edit, ",") != "admin" {
+				t.Errorf("email permissions = view %v edit %v, want view admin,user and edit admin only", a.Permissions.View, a.Permissions.Edit)
+			}
+		}
+		if a.Name == "nava_idp_email_verified" {
+			found = true
+			if strings.Join(a.Permissions.View, ",") != "admin" || strings.Join(a.Permissions.Edit, ",") != "admin" {
+				t.Errorf("nava_idp_email_verified permissions = view %v edit %v, want admin only", a.Permissions.View, a.Permissions.Edit)
+			}
+		}
+	}
+	if !found {
+		t.Error("nava_idp_email_verified is not declared in the user profile")
+	}
 }

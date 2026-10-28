@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
@@ -37,9 +38,76 @@ type ClientCredentials struct {
 	ClientSecret string
 }
 
+// orgAccess says which /organizations routes an account may call. The zero
+// value allows none, so an account built without a choice fails closed.
+type orgAccess int
+
+const (
+	// The zero value allows no /organizations route.
+	_ orgAccess = iota
+	// orgMemberRead: only GET /organizations/members/{id}/organizations, the
+	// one organization read group sync's view-organizations role is accepted
+	// for (AR-038). It shows one user's organization ids.
+	orgMemberRead
+	// orgAll: every route, for the onboarding account.
+	orgAll
+)
+
+// ErrOrgRouteDenied is returned, with nothing sent, for a request to an
+// /organizations route the account may not call.
+// It also covers a non-canonical path outside /organizations (see allows).
+var ErrOrgRouteDenied = errors.New("keycloak admin: organizations route not allowed for this account")
+
+// allows reports whether the account may send method to path (the real path
+// below /admin/realms/{realm}, escaped). An account without orgAll may send
+// only a canonical path: no "?", "#", "\\" or control byte anywhere, no empty
+// segment, no ";" and no "%" (the one escaped
+// {id} segment of the member-organizations route aside), and no "." or ".."
+// segment. So a path that Keycloak or a proxy in front of it might normalise
+// into /organizations (";x", "%6F", "//", "..") is refused before it is sent.
+// "organizations" is compared case-insensitively, so /Organizations is an
+// organization route too.
+func (a *account) allows(method, path string) bool {
+	if a.orgs == orgAll {
+		return true
+	}
+	if !strings.HasPrefix(path, "/") {
+		return false
+	}
+	if strings.ContainsAny(path, "?#\\") || strings.IndexFunc(path, unicode.IsControl) >= 0 {
+		return false
+	}
+	segs := strings.Split(path[1:], "/")
+	memberRoute := len(segs) == 4 && segs[0] == "organizations" && segs[1] == "members" &&
+		segs[2] != "" && segs[3] == "organizations"
+	for i, seg := range segs {
+		if seg == "" || seg == "." || seg == ".." || strings.Contains(seg, ";") {
+			return false
+		}
+		if strings.Contains(seg, "%") && (!memberRoute || i != 2) {
+			return false
+		}
+	}
+	if memberRoute {
+		u, err := url.PathUnescape(segs[2])
+		// A decoded id must not hold anything a second decode (a proxy, a
+		// future Keycloak) could turn into a separator or traversal.
+		if err != nil || u == "." || u == ".." || strings.ContainsAny(u, "/%\\;?#") ||
+			strings.IndexFunc(u, unicode.IsControl) >= 0 {
+			return false
+		}
+		return a.orgs == orgMemberRead && method == http.MethodGet
+	}
+	if strings.EqualFold(segs[0], "organizations") {
+		return false
+	}
+	return true
+}
+
 // account is one service account and its cached token.
 type account struct {
 	creds ClientCredentials
+	orgs  orgAccess
 	mu    sync.Mutex
 	token string
 	exp   time.Time
@@ -64,6 +132,9 @@ type reply struct {
 type statusError struct {
 	method, route string
 	status        int
+	// message is Keycloak's errorMessage, bounded. Error never prints it; it
+	// exists so a caller can match one precise refusal.
+	message string
 }
 
 func (e *statusError) Error() string {
@@ -107,7 +178,7 @@ func (a *admin) bearer(ctx context.Context, acct *account) (string, error) {
 		return "", fmt.Errorf("keycloak admin: token: %w", err)
 	}
 	if r.status != http.StatusOK {
-		return "", &statusError{http.MethodPost, route, r.status}
+		return "", &statusError{method: http.MethodPost, route: route, status: r.status}
 	}
 	var tok struct {
 		AccessToken string `json:"access_token"`
@@ -151,6 +222,11 @@ func (a *admin) do(ctx context.Context, acct *account, method, route, path strin
 	if len(ok) == 0 {
 		ok = []int{http.StatusOK}
 	}
+	// Before the token fetch and before anything is sent: the check reads the
+	// path that is sent, so it holds however the path was built.
+	if !acct.allows(method, path) {
+		return reply{}, ErrOrgRouteDenied
+	}
 	full := "/admin/realms/{realm}" + route
 	for attempt := 0; ; attempt++ {
 		tok, err := a.bearer(ctx, acct)
@@ -186,8 +262,19 @@ func (a *admin) do(ctx context.Context, acct *account, method, route, path strin
 				return r, nil
 			}
 		}
-		return reply{}, &statusError{method, full, r.status}
+		return reply{}, &statusError{method: method, route: full, status: r.status, message: errorMessage(r.body)}
 	}
+}
+
+// errorMessage returns the errorMessage field of a Keycloak error body, or "".
+func errorMessage(body []byte) string {
+	var e struct {
+		ErrorMessage string `json:"errorMessage"`
+	}
+	if json.Unmarshal(body, &e) != nil || len(e.ErrorMessage) > 512 {
+		return ""
+	}
+	return e.ErrorMessage
 }
 
 // getJSON GETs path and decodes the 200 body into v.
