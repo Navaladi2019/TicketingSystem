@@ -42,7 +42,7 @@ GOLANGCI_LINT ?= golangci-lint
 GOLANGCI_LINT_VERSION := 2.14.0
 GOVULNCHECK_VERSION := v1.9.0
 
-.PHONY: build run test test-integration test-integration-cleanup reap-integration bench-relay isolation lint generate check-openapi
+.PHONY: build run test test-integration test-integration-cleanup reap-integration bench-relay isolation lint generate check-generate check-openapi check-ci-steps
 .PHONY: demo-outbox stack-test-demo_outbox
 .PHONY: ci ci-isolated ci-changed ci-stages ci-isolated-down test-ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity identity-attacks identity-attacks-fixture stack-test-onboard stack-idp-realms stack-test-worker 	image image-ci stack-up stack-down stack-logs stack-internal stack-internal-beside stack-main ci-stack-run stack-tests smoke
 
@@ -123,6 +123,18 @@ lint:
 generate:
 	go generate ./...
 
+# Fails when api/api.gen.go is not what api/openapi.yaml generates (TICK-297):
+# regenerates it, then any difference from the committed file is drift. Run
+# make generate and commit the result.
+check-generate:
+	go generate ./api/... && git diff --exit-code -- api/
+
+# Fails when .github/workflows/ci.yml stops running a step listed in
+# tools/ci/cisteps/required.yaml (TICK-297): a suite or report upload removed,
+# disabled or allowed to fail.
+check-ci-steps:
+	go run ./tools/ci/cisteps
+
 # Additive-only rule for /api/v1: fails when api/openapi.yaml removes or
 # narrows anything the base branch (BASE, default origin/main) offers. A
 # missing BASE ref fails: a shallow clone must not pass the check by default.
@@ -165,7 +177,7 @@ ci-isolated-down:
 test-ci-isolated-down:
 	sh scripts/ci/test-ci-isolated-down.sh
 
-ci-lint: check-tools fmt-check vet lint lint-fixture check-taskfile check-pins check-openapi vulncheck-ci
+ci-lint: check-tools fmt-check vet lint lint-fixture check-taskfile check-pins check-generate check-ci-steps check-openapi vulncheck-ci
 
 ci-unit: test temporal-server-test
 

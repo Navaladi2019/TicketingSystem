@@ -1,0 +1,10 @@
+steps:
+  - job: unit
+    run: make test
+    why: unit tests
+  - job: stack
+    run: make identity-attacks
+    why: CI-5
+  - job: stack
+    artifact: ci5-report
+    why: the CI-5 report
