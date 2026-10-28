@@ -267,8 +267,9 @@ migration (db/README.md).
 ## Tenant email domains (T18a)
 
 Scope: TICK-194, security finding 3 on PR #101 (T18). Migration
-`db/migrations/00004_tenant_email_domain.sql`. Keycloak `InviteUser` creates
-a new user only for an email whose domain the tenant owns
+`db/migrations/00004_tenant_email_domain.sql`. Keycloak `InviteUser` accepts
+a new email (it records a pending invite, see `docs/operator/onboarding.md`) only
+when the email's domain is one the tenant owns
 (`Registry.TenantOwnsEmailDomain`, implemented by `pgstore.Store`). Without
 this rule, tenant A could pre-create `anyone@tenant-b.test` and lock B's
 federated user out of their first brokered login.
@@ -297,7 +298,36 @@ erDiagram
   `domain`), tenant predicate **and** "tenant is provisioning". This is
   pinned in `catalog.PinnedTenantPolicies`, like `binding_onboard`, so
   domains are claimed only in T21's onboarding transaction, never added to
-  an active tenant. No role has `UPDATE` or `DELETE`.
+  an active tenant.
+  `email_domain_release` (TICK-280, `00007_email_domain_release.sql`):
+  `nava_onboard` `DELETE`, the same guard on `USING`, also pinned, so a
+  stuck provisioning tenant can free its domains (AR-036) and an active
+  tenant's never move. `email_domain_onboard_select`: `nava_onboard`
+  `SELECT` on `tenant_id` alone, canonical tenant predicate. The release
+  (`DELETE ... WHERE tenant_id = $1`) reads `tenant_id`, and CI-2 needs the
+  key readable to prove another tenant's rows are out of reach. A `DELETE`
+  that reads a column runs under both policies, so the guard holds. No
+  role has `UPDATE`.
+
+### Release evidence (TICK-280)
+
+Same host and image as below; 25,003 rows (the volume below, plus one
+provisioning tenant with 3 domains). `EXPLAIN (ANALYZE, BUFFERS)` as
+`nava_onboard`, FORCE RLS on, warm. Script: `scratch/tick280-release-bench/`.
+
+| Case (tenant context) | No extra index | With `(tenant_id)` index |
+| --- | --- | --- |
+| Stuck provisioning tenant, 3 rows freed | Seq Scan, 210 hit, 2.32 ms | Index Scan, 9 hit, 0.13 ms |
+| Active tenant, own transaction, 0 rows | Seq Scan, 210 hit, 1.60 ms | Index Scan, 6 hit, 0.06 ms |
+| Large active tenant (5,000 domains), 0 rows | Seq Scan, 210 hit, 1.46 ms | Index Scan, 52 hit, 0.55 ms |
+
+The provisioning test is a hashed subplan on `tenants_pkey` (3 buffers).
+**No index added.** The release runs once per abandoned tenant, an
+operator action; 2.3 ms at 25,003 rows grows linearly (about 23 ms at
+250,000). The index would cost 504 kB (21 % on top of the 2,440 kB
+primary key) and a second index write on every domain claim, to save 2 ms
+on a rare path. Revisit if the release joins a hot path or the table
+passes about 1 M rows.
 
 ### Evidence
 
@@ -420,3 +450,176 @@ DROP TABLE bench_one, bench_two;
 
 A principal who leaves the directory is tombstoned (`deleted_at`), not
 deleted. See [principal-tombstone.md](principal-tombstone.md).
+
+## Pending invites (T252a)
+
+Scope: TICK-254, the schema for the option-2 fix to TICK-252 (CTO,
+2026-10-27). Migration `db/migrations/00006_pending_invite.sql`. For an
+unknown email, `DirectoryAdmin.InviteUser` no longer creates a Keycloak user.
+It records the invite here. The invitee's first broker login creates the
+user, and group sync then places them in `/t/<tenant_id>/` and consumes the
+invite (TICK-252 conditions 2a, 2c and 2d).
+
+```mermaid
+erDiagram
+    tenants ||--o{ pending_invite : "tenant_id"
+    pending_invite {
+        uuid tenant_id PK,FK
+        text email PK "normalized, lower(btrim(email)), contains @"
+        timestamptz expires_at "CHECK > created_at"
+        timestamptz consumed_at "NULL = not used yet"
+        timestamptz created_at "DEFAULT now()"
+    }
+```
+
+**Lifecycle.** An invite starts **pending** (`consumed_at IS NULL`,
+`expires_at > now()`). It ends in one of two states:
+
+- **Consumed:** group sync sets `consumed_at` exactly once.
+- **Expired:** `expires_at` passes before anyone consumes it. Nothing writes
+  the row.
+
+Re-inviting a pending invite only moves `expires_at`. Re-inviting a consumed
+invite changes nothing, so a consumed invite stays consumed. An expired
+invite that was never consumed can be re-invited, which makes it pending
+again with the new `expires_at`. The table only stores the expiry; the
+default TTL lives in the code (TICK-252).
+
+```sql
+-- nava_onboard, InviteUser: 1 row for a new or pending invite, 0 for a consumed one
+INSERT INTO pending_invite (tenant_id, email, expires_at) VALUES ($1, $2, $3)
+ON CONFLICT (tenant_id, email) DO UPDATE SET expires_at = EXCLUDED.expires_at
+WHERE pending_invite.consumed_at IS NULL;
+-- nava_groupsync, condition 2d, inside tenancy.InTenantTx
+UPDATE pending_invite SET consumed_at = now()
+WHERE tenant_id = $1 AND email = $2 AND consumed_at IS NULL AND expires_at > now()
+RETURNING tenant_id, email;
+```
+
+- **Key.** `PRIMARY KEY (tenant_id, email)` is the `UNIQUE (tenant_id,
+  email)` Security requires, and the only index. It is the upsert's conflict
+  arbiter and the consume lookup. The same email can have an invite in each
+  of two tenants; condition 2c decides which one, if any, applies.
+- **`CHECK`s.** The email must equal `lower(btrim(email))` and contain `@`,
+  the same form `keycloak.normalizeEmail` returns, so a row that the
+  normalized lookup could never match cannot be written. A second CHECK
+  requires `expires_at > created_at`.
+- **Policies.** There is one policy per command and role. Each tests the
+  canonical tenant predicate (on both USING and WITH CHECK for UPDATE), and
+  the `nava_onboard` write policies also require the tenant to be
+  provisioning:
+  - `pending_invite_select`: `nava_onboard` and `nava_groupsync`.
+  - `pending_invite_insert`: `nava_onboard`, tenant predicate **and**
+    `tenant_id IN (SELECT id FROM tenants WHERE state = 'provisioning')`.
+  - `pending_invite_reinvite`: `nava_onboard` UPDATE, the same guard on
+    USING and WITH CHECK. `nava_onboard` needs an UPDATE policy because
+    `ON CONFLICT DO UPDATE` checks the existing row against it. Without one,
+    a re-invite fails with `new row violates row-level security policy
+    (USING expression)` (checked on PG 16.10).
+  - `pending_invite_consume`: `nava_groupsync` UPDATE, tenant predicate
+    only, because group sync consumes invites in active tenants.
+
+  The guard matches `email_domain_onboard` and `binding_onboard`: every
+  `nava_onboard` write is limited to its own tenant while that tenant is
+  provisioning, so onboarding cannot plant or extend an invite in an active
+  tenant (security finding 1 on PR #164). `inviteAdmin` runs before
+  `Activate`, so InviteUser's statements are unchanged. Both guarded
+  policies are pinned in `catalog.PinnedTenantPolicies`.
+- **Grants** (`db/grants.yaml`):
+  - `nava_onboard`: SELECT `(tenant_id, email, expires_at, consumed_at)`,
+    INSERT `(tenant_id, email, expires_at)`, UPDATE `(expires_at)`. The
+    upsert reads the conflict key, `consumed_at` in its WHERE, and
+    `EXCLUDED.expires_at`, and needs SELECT on each.
+  - `nava_groupsync`: SELECT on the same four columns and UPDATE
+    `(consumed_at)`.
+  - No other role has any grant.
+
+  `nava_onboard` has no UPDATE on `consumed_at`, so it can neither consume an
+  invite nor reopen one. That is also why the upsert leaves `consumed_at =
+  NULL` out of its SET: under the WHERE it would change nothing, and it
+  would need that grant.
+- **No DELETE.** No role may delete a row. A row is the record that an
+  invite was issued and whether it was used. A delete would turn "consumed"
+  back into "never invited", and then a second invite with a fresh expiry
+  could place the same email in the tenant again, which breaks the
+  single-use rule (`TestInviteIsSingleUse`). Expired and consumed rows are
+  few (one per invited admin) and stay. If they ever need a purge, it would
+  be a `nava_purge` policy on the A.3 allow-list, like the others.
+
+### Evidence
+
+PostgreSQL 16.10 (`postgres:16.10`, Docker 29.9.2), on an Intel i7-1260P
+(16 threads, 19 GB RAM) with a Windows 11 host. The table holds 70,000 rows:
+10,000 tenants with 1–3 invites each, plus one large tenant with 50,000. A
+third of all rows are consumed. Each `EXPLAIN (ANALYZE, BUFFERS)` ran as its
+runtime role, with FORCE RLS on and `app.tenant_id` set. The two re-invite
+rows were measured before the provisioning guard was added; the guard adds
+one `tenants` primary-key lookup to each.
+
+| Case (role, tenant context) | Plan | Buffers | Execution |
+| --- | --- | --- | --- |
+| Consume, large tenant (`nava_groupsync`) | Index Scan `pending_invite_pkey` on both key columns, 1 row | 8 hit | 0.265 ms |
+| Consume an already-consumed invite, small tenant | same; Rows Removed by Filter 1, 0 rows | 4 hit | 0.338 ms |
+| Consume the large tenant's invite from a small tenant | One-Time Filter false, index scan never executed | 0 | 0.145 ms |
+| Open invites of a small tenant (3 rows) | Index Scan `pending_invite_pkey`, `tenant_id` prefix | 4 hit | 0.455 ms |
+| Open invites of the large tenant (33,334 of 70,000 rows) | Seq Scan (it returns 48% of the table) | 743 hit | 30.2 ms |
+| Re-invite a pending invite (`nava_onboard`) | Conflict Arbiter `pending_invite_pkey`, updated | 7 hit | 0.271 ms |
+| Re-invite a consumed invite | same; Rows Removed by Conflict Filter 1 | 6 hit | 0.138 ms |
+
+```text
+Update on pending_invite  (actual time=0.200..0.205 rows=1 loops=1)
+  Buffers: shared hit=8
+  ->  Result  (actual time=0.058..0.062 rows=1 loops=1)
+        One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '...2711'::uuid)
+        ->  Index Scan using pending_invite_pkey on pending_invite  (actual time=0.049..0.053 rows=1 loops=1)
+              Index Cond: ((tenant_id = '...2711'::uuid) AND (email = 'u49999@big.example'::text))
+              Filter: ((consumed_at IS NULL) AND (expires_at > now()))
+```
+
+The tenant predicate is index-backed. The planner folds the RLS predicate
+into a one-time filter, and the key scan leads with `tenant_id`. A
+cross-tenant consume never reaches the index.
+
+### Index cost
+
+At 70,000 rows the heap is 5,944 kB and the one index is 5,968 kB. Loading
+all 70,000 rows as the superuser took 2.5 s (fsync off), so each insert costs
+one heap write and one index write. No partial index on open invites is
+added: the large-tenant listing is the only seq scan, and it returns about
+half the table, so an index on it would save little and add one write per
+invite and per consume. Writes are rare (one per invited admin), so the
+fewest-indexes rule decides. The foreign key to `tenants` has no index of
+its own, because tenants are never deleted at runtime (the same as T18a).
+
+### Tests
+
+- `internal/db/dbtest/pending_invite_test.go`:
+  - Security's negative test 10, the table part: from tenant B's
+    transaction, and with `app.tenant_id` unset or empty, neither role reads,
+    inserts, re-invites, extends or consumes tenant A's invite.
+  - The lifecycle, in a provisioning tenant: invite, extend, consume once,
+    then a second consume and a re-invite of the consumed invite both change
+    nothing; an expired invite cannot be consumed. Once the tenant is
+    active, `nava_onboard` can neither invite nor extend there (42501 and 0
+    rows), and `nava_groupsync` still consumes.
+  - The grants: no DELETE, `nava_onboard` cannot touch `consumed_at`,
+    `nava_groupsync` writes only `consumed_at`, and no other role can read
+    the table.
+  - The CHECKs.
+- Isolation suite: generic CI-2 checks over every role, plus six registered
+  `pending_invite:` paths in `internal/tenancy/isolation/registry.go`. Its
+  seed has the same email invited by both tenants. The CI-9 path
+  `onboardCannotWriteActive` also covers the insert, the re-invite upsert
+  and the `expires_at` update. From tenant A's own transaction, against A
+  against B from A's, and against A from P's, all of them are refused or reach 0
+  rows. Its positive control (`onboardInvitesOnlyProvisioning`) runs the
+  same statements for provisioning tenant P and each reaches a row; after
+  P is activated in the same transaction, none of them do.
+
+### Not done here (owners)
+
+- The `InviteUser` write, the group-sync placement and consume, the default
+  TTL, and the Keycloak flow: TICK-252.
+- The migration is forward-only, like every migration here (`db/README.md`).
+  To back it out, a later migration would drop the table, once no code
+  reads it.

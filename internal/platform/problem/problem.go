@@ -31,6 +31,10 @@ const (
 	InvalidToken        Code = "invalid_token"
 	IdempotencyKeyReuse Code = "idempotency_key_reuse"
 	IdempotencyInFlight Code = "idempotency_in_flight"
+	Forbidden           Code = "forbidden"
+	DomainClaimed       Code = "domain_claimed"
+	InvalidIdPConfig    Code = "invalid_idp_config"
+	OnboardingConflict  Code = "onboarding_conflict"
 	InvalidCursor       Code = "invalid_cursor"
 	RateLimited         Code = "rate_limited"
 	NotFound            Code = "not_found"
@@ -43,7 +47,7 @@ const (
 // Codes lists every Code constant.
 func Codes() []Code {
 	return []Code{
-		TenantUnresolved, InvalidToken, IdempotencyKeyReuse, IdempotencyInFlight, InvalidCursor,
+		TenantUnresolved, InvalidToken, IdempotencyKeyReuse, IdempotencyInFlight, Forbidden, DomainClaimed, InvalidIdPConfig, OnboardingConflict, InvalidCursor,
 		RateLimited, NotFound, ValidationFailed, MethodNotAllowed,
 		NotImplemented, InternalError,
 	}

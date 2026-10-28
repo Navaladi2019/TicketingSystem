@@ -46,6 +46,8 @@ const (
 	// lookup by them alone would return both rows without isolation.
 	SharedDedupeKey      = "shared-dedupe-key"
 	SharedIdempotencyKey = "shared-idempotency-key"
+	// SharedInviteEmail is invited by both tenants (pending_invite).
+	SharedInviteEmail = "shared-invite@example.test"
 	// NewID is an id no seeded row uses, for inserts.
 	NewID = "0c000000-0000-4000-8000-0000000000c1"
 )
@@ -270,6 +272,24 @@ func Paths() []Path {
 			"INSERT INTO tenant_identity_binding (tenant_id, issuer, org_id) VALUES ($1, 'https://idp.example/realms/iso', 'org-iso')", TenantB),
 		sql("tenant_identity_binding: onboarding rebinds its own active tenant", "nava_onboard", Denied,
 			"INSERT INTO tenant_identity_binding (tenant_id, issuer, org_id) VALUES ($1, 'https://idp.example/realms/iso', 'org-iso')", TenantA),
+		// pending_invite (T252a, TICK-254): both tenants invited the same
+		// email, so a lookup by email alone would find both rows.
+		sql("pending_invite: onboarding looks an invited email up in every tenant", "nava_onboard", OwnRowsOnly,
+			"SELECT tenant_id FROM pending_invite WHERE email = $1", SharedInviteEmail),
+		sql("pending_invite: onboarding invites for tenant B", "nava_onboard", Denied,
+			"INSERT INTO pending_invite (tenant_id, email, expires_at) VALUES ($1, 'iso-new@example.test', now() + interval '1 day')", TenantB),
+		sql("pending_invite: onboarding re-invites tenant B's invitee", "nava_onboard", Denied,
+			`INSERT INTO pending_invite (tenant_id, email, expires_at) VALUES ($1, $2, now() + interval '30 days')
+			 ON CONFLICT (tenant_id, email) DO UPDATE SET expires_at = EXCLUDED.expires_at WHERE pending_invite.consumed_at IS NULL`,
+			TenantB, SharedInviteEmail),
+		sql("pending_invite: onboarding extends tenant B's invites", "nava_onboard", Denied,
+			"UPDATE pending_invite SET expires_at = now() + interval '30 days' WHERE tenant_id = $1", TenantB),
+		sql("pending_invite: group sync reads tenant B's invite by its full key", "nava_groupsync", OwnRowsOnly,
+			"SELECT tenant_id FROM pending_invite WHERE tenant_id = $1 AND email = $2", TenantB, SharedInviteEmail),
+		sql("pending_invite: group sync consumes tenant B's invite", "nava_groupsync", Denied,
+			`UPDATE pending_invite SET consumed_at = now()
+			 WHERE tenant_id = $1 AND email = $2 AND consumed_at IS NULL AND expires_at > now() RETURNING tenant_id`,
+			TenantB, SharedInviteEmail),
 
 		// Forged tenant: a valid token for tenant A names tenant B in the
 		// payload, a header, the query or baggage. The tenant comes only from

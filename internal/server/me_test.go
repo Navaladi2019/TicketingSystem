@@ -214,7 +214,7 @@ type fixedStore struct{ issuer string }
 
 func (s *fixedStore) Binding(_ context.Context, issuer, orgID string) (identity.Binding, error) {
 	if issuer == s.issuer && orgID == "org-a" {
-		return identity.Binding{TenantID: tenantA, IdPAliases: []string{"idp-a"}}, nil
+		return identity.Binding{TenantID: tenantA, IdPAliases: []string{"idp-a"}, TenantState: identity.TenantStateActive}, nil
 	}
 	return identity.Binding{}, identity.ErrNoBinding
 }

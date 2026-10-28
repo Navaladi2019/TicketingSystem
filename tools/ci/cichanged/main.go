@@ -34,7 +34,7 @@ func allStages() []string { return []string{"ci-lint", "ci-unit", "ci-integratio
 // the commands the images build and the stack test suites with their tags.
 func stackRoots() [][]string {
 	return [][]string{
-		{"./cmd/nava-core", "./cmd/nava-db", "./cmd/nava-worker", "./cmd/nava-relay", "./tools/ci/ci6report", "./tools/ci/ci5report"},
+		{"./cmd/nava-core", "./cmd/nava-db", "./cmd/nava-worker", "./cmd/nava-relay", "./cmd/nava-onboard", "./cmd/nava-groupsync", "./tools/ci/ci6report", "./tools/ci/ci5report"},
 		{"-tags", "temporalstack", "-test", "./internal/temporalstack"},
 		{"-tags", "identitystack", "-test", "./internal/identitystack"},
 		{"-tags", "workerstack", "-test", "./internal/workerstack"},

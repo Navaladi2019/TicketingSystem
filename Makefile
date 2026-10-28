@@ -43,7 +43,7 @@ GOLANGCI_LINT_VERSION := 2.14.0
 GOVULNCHECK_VERSION := v1.9.0
 
 .PHONY: build run test test-integration test-integration-cleanup reap-integration isolation lint generate check-openapi
-.PHONY: ci ci-isolated ci-changed ci-stages ci-isolated-down test-ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity identity-attacks identity-attacks-fixture stack-idp-realms stack-test-worker 	image image-ci stack-up stack-down stack-logs stack-internal stack-internal-beside stack-main ci-stack-run stack-tests smoke
+.PHONY: ci ci-isolated ci-changed ci-stages ci-isolated-down test-ci-isolated-down ci-lint ci-unit ci-integration ci-stack tools check-tools fmt-check vet lint-fixture 	check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck review-paths dev-ca operator-tunnel stack-test-sdk stack-test-identity stack-test-onboard identity-attacks identity-attacks-fixture stack-idp-realms stack-test-worker 	image image-ci stack-up stack-down stack-logs stack-internal stack-internal-beside stack-main ci-stack-run stack-tests smoke
 
 build:
 	go build -o bin/nava-core ./cmd/nava-core
@@ -288,7 +288,7 @@ image:
 # which concurrent builds share safely (a type=local cache directory is not
 # safe for two writers at once), and pulls only the registry images that are
 # missing. With IMAGE_CACHE set, ci-stack builds with image-ci.
-BAKE_CACHED := db-roles keycloak nava-core nava-purge nava-relay nava-worker otel-collector temporal-server
+BAKE_CACHED := db-roles keycloak nava-core nava-groupsync nava-onboard nava-purge nava-relay nava-worker otel-collector temporal-server
 BAKE_CACHE_GHA := $(foreach t,$(BAKE_CACHED),--set $(t).cache-from=type=gha,scope=$(t) --set $(t).cache-to=type=gha,scope=$(t),mode=max) --set migrate.cache-from=type=gha,scope=db-roles
 BAKE_CACHE := $(if $(filter gha,$(IMAGE_CACHE)),$(BAKE_CACHE_GHA))
 PULL_POLICY := $(if $(filter local,$(IMAGE_CACHE)),--policy missing)
@@ -337,6 +337,10 @@ stack-idp-realms:
 # claims, token lifespan, operator role custody, realm export round trip.
 # TestCI5 needs a platform database: make identity-attacks runs it. The
 # CI-5.06 negative fixture needs Keycloak 26.1.2: make identity-attacks-fixture.
+# It also runs the onboarding tests below (stack-test-onboard).
+# TODO(TODO-012): the GitHub workflow's stack job has no step for
+# stack-test-onboard yet (the step needs a push with `workflow` scope), so this
+# target runs those tests too; once the step exists, add -skip '$(ONBOARD_TESTS)'.
 stack-test-identity:
 	rm -f $(IDENTITY_STREAM)
 	go test -tags identitystack -count=1 -skip '^TestCI5$$' -json ./internal/identitystack > $(IDENTITY_STREAM) || { cat $(IDENTITY_STREAM); exit 1; }
@@ -355,6 +359,15 @@ identity-attacks:
 # pinned Keycloak means something. Needs Docker, not the stack. Opt-in.
 identity-attacks-fixture:
 	sh scripts/ci/identity-attacks.sh fixture
+
+# Onboarding end to end (T21b, TICK-234): nava-onboard onboards a tenant, the
+# invited admin signs in through the tenant's IdP, one nava-groupsync cycle
+# runs, and nava-core's GET /api/v1/me shows the new tenant and no other; the
+# nava-onboard/nava-core separation; kill before the binding, then retry,
+# against the real nava_onboard PGStore. Needs the stack up (make stack-up).
+ONBOARD_TESTS := ^(TestOnboard(edAdminSignsInAndMeShowsTenant|DeploymentSeparation|KillBeforeBindThenRetryLiveStack|DomainClaimedIsConflict)|TestInvitedToTenantANotLinkedThroughTenantBIdP|TestSquattedInviteeIsNotPlacedInTheOtherTenant|TestUninvitedLocalUserNotLinked|TestInviteIsSingleUse|TestExpiredInviteNotLinked|TestInvitedUserInTwoTenantsNotLinked|TestInvitedUserHasNoLocalLogin|TestDisabledInviteeNotLinked|TestUnverifiedUpstreamEmailNotPlaced|TestIdPEmailVerifiedAttributeNotUserEditable|TestUserCannotRenameEmailToPendingInvite|TestAccountAPIClosedToPlainBrokeredUser|TestRealmFileEmailVerifiedMapper)$$
+stack-test-onboard:
+	go test -tags identitystack -count=1 -run '$(ONBOARD_TESTS)' ./internal/identitystack
 
 # The compose smoke: GET /healthz from inside the compose network.
 smoke: stack-test-smoke

@@ -222,15 +222,15 @@ func (r *reader) databaseURL(key string) string {
 	return v
 }
 
-// baseURL checks key is an absolute http or https URL with no userinfo, query
-// or fragment. Empty is "not configured".
+// baseURL checks key is an absolute http or https URL with no userinfo, path,
+// query or fragment. Empty is "not configured".
 func (r *reader) baseURL(key string) string {
 	v, ok := r.lookup(key)
 	if !ok || v == "" {
 		return ""
 	}
-	if !isBaseURL(v) {
-		r.errs = append(r.errs, fmt.Errorf("%s: want an http or https URL without credentials or query", key))
+	if !isBaseURL(v) || !noPath(v) {
+		r.errs = append(r.errs, fmt.Errorf("%s: want an http or https URL without credentials, path or query", key))
 		return ""
 	}
 	return v
@@ -240,6 +240,14 @@ func isBaseURL(v string) bool {
 	u, err := url.Parse(v)
 	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" &&
 		u.User == nil && u.RawQuery == "" && u.Fragment == ""
+}
+
+// noPath reports whether v names only scheme://host[:port], with at most a
+// trailing slash. Issuer URLs keep a path (/realms/nava), so isBaseURL leaves
+// it alone and only baseURL requires this.
+func noPath(v string) bool {
+	u, err := url.Parse(v)
+	return err == nil && (u.Path == "" || u.Path == "/")
 }
 
 // urlList reads a comma-separated list of URLs, each checked as baseURL

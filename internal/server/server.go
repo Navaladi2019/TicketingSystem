@@ -19,9 +19,13 @@ import (
 // listener (telemetry.NewAdminHandler). Every contract operation authenticates
 // through resolver (internal/platform/auth); GET /api/v1/me reads the caller's
 // group paths through paths.
-func NewHandler(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.IdentityResolver, paths identity.GroupPathReader) (http.Handler, error) {
+func NewHandler(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.IdentityResolver, paths identity.GroupPathReader, opts ...Option) (http.Handler, error) {
+	var o options
+	for _, f := range opts {
+		f(&o)
+	}
 	mux := http.NewServeMux()
-	a, err := newAPI(log, tel, resolver, paths, mux)
+	a, err := newAPI(log, tel, resolver, paths, mux, o)
 	if err != nil {
 		return nil, err
 	}

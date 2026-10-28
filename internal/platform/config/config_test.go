@@ -246,6 +246,24 @@ func TestRejectsBadBadDependencyValuesByName(t *testing.T) {
 	}
 }
 
+// NAVA_OIDC_FETCH_BASE_URL is a plain scheme://host[:port]: a path or query is
+// refused (TICK-279), a trailing slash is trimmed.
+func TestLoadFetchBaseURL(t *testing.T) {
+	t.Parallel()
+	load := func(v string) (config.Config, error) {
+		return config.Load(func(k string) (string, bool) { return v, k == "NAVA_OIDC_FETCH_BASE_URL" })
+	}
+	cfg, err := load("http://keycloak:8080/")
+	if err != nil || cfg.Deps.OIDCFetchBaseURL != "http://keycloak:8080" {
+		t.Errorf("trailing slash: %q, %v", cfg.Deps.OIDCFetchBaseURL, err)
+	}
+	for _, bad := range []string{"http://keycloak:8080/realms/nava", "http://keycloak:8080?x=1", "http://keycloak:8080/realms/nava?x=1"} {
+		if _, err := load(bad); err == nil || !strings.Contains(err.Error(), "NAVA_OIDC_FETCH_BASE_URL") {
+			t.Errorf("NAVA_OIDC_FETCH_BASE_URL=%q: error = %v, want one naming the key", bad, err)
+		}
+	}
+}
+
 func TestDependencyDefaultsAreUnconfigured(t *testing.T) {
 	t.Parallel()
 	cfg, err := config.Load(func(string) (string, bool) { return "", false })
