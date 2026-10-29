@@ -13,7 +13,7 @@
 STACK_TESTS_PARALLEL := smoke pgbouncer temporal temporal_handshake temporal_isolation temporal_custody temporal_operator_reach temporal_health hba sdk identity
 # Fragments add their own stack tests with STACK_TESTS_SERIAL += <name> (the stack-test-<name>
 # target). Those run in include (alphabetical) order, before the disruptive cases below.
-STACK_TESTS_SERIAL += dependencies trace logs redact idempotent dbroles
+STACK_TESTS_SERIAL += dependencies keycloak_restart trace logs redact idempotent dbroles
 STACK_TESTS = healthy $(STACK_TESTS_PARALLEL) $(STACK_TESTS_SERIAL)
 stack-tests:
 	$(MAKE) --no-print-directory -j1 stack-test-healthy
