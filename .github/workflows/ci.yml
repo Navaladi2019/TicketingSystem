@@ -1,8 +1,9 @@
 # T05 pipeline. Every step calls a Makefile target, so `make ci` runs the same
 # gates locally. The jobs run in parallel; inside each, steps run in the
 # Makefile's gate order and the first failure stops the job:
-#   lint             gofmt, go vet, golangci-lint, fixtures, pins, generated
-#                    code, required CI steps, OpenAPI, govulncheck (no containers)
+#   lint             gofmt, go vet (untagged, then per build-tag set),
+#                    golangci-lint, fixtures, pins, generated code, required
+#                    CI steps, OpenAPI, govulncheck (no containers)
 #   unit             go test -race (no containers)
 #   temporal-server  the custom server module's unit tests and govulncheck
 #                    (no containers)
@@ -20,6 +21,9 @@
 # A step listed in tools/ci/cisteps/required.yaml must stay: make
 # check-ci-steps fails the lint job when one is removed, disabled or allowed to
 # fail (TICK-297).
+#   story-branches   every story branch's work is on main (TICK-322); runs on
+#                    every event and every 6 hours (schedule, which runs no
+#                    other job), and on main keeps one issue open while red
 # Budget: see "Job time budgets" in docs/quality/ci-pipeline.md. The three
 # stack jobs build the images first (7.5 to 10 minutes of each run), so their
 # timeout-minutes is 25 (TICK-258); the others stay at 10. Each job keeps its
@@ -35,6 +39,10 @@ on:
     # runs on task branches are an accepted cost (TICK-289).
     branches: [main, 'TICK-**']
   workflow_dispatch:
+  # story-branches only: a story branch drifts from main without any push to
+  # main (a PR merged into it), so it is checked on a clock too (TICK-322).
+  schedule:
+    - cron: '23 */6 * * *'
 
 permissions:
   contents: read
@@ -44,13 +52,18 @@ permissions:
 # with cancel-in-progress off. The ref keeps the same sha pushed to main and to
 # a TICK-** branch from sharing a group. Pull requests still cancel their older
 # run.
+# A scheduled run (story-branches only) has a group of its own, so it never
+# displaces a manual run queued on main.
 concurrency:
-  group: ${{ github.event_name == 'push' && format('ci-push-{0}-{1}', github.ref, github.sha) || format('ci-{0}', github.ref) }}
+  group: ${{ github.event_name == 'push' && format('ci-push-{0}-{1}', github.ref, github.sha) || github.event_name == 'schedule' && 'ci-schedule' || format('ci-{0}', github.ref) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   changes:
-    # Which of unit, integration and the stack jobs this change needs.
+    # Which of unit, integration and the stack jobs this change needs. A
+    # scheduled run is story-branches alone: skipping this job skips the jobs
+    # that need it.
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -84,6 +97,7 @@ jobs:
         run: make ci-stages
 
   lint:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -125,6 +139,9 @@ jobs:
         run: make fmt-check
       - name: go vet
         run: make vet
+      # Every //go:build tag set, discovered by tools/ci/buildtags (TICK-320).
+      - name: go vet per build-tag set
+        run: make vet-tags
       - name: golangci-lint
         run: make lint
       - name: Lint fixture (exact forbidigo finding count)
@@ -409,6 +426,57 @@ jobs:
       - name: Tear down
         if: always()
         run: make stack-down
+
+  story-branches:
+    # TICK-322: a story branch's work must reach main. Fails on changes merged
+    # or pushed into a story branch after its story PR merged, a story branch
+    # with no PR out of it, or an open PR into a merged story branch. The state
+    # is the repository's, not this commit's, so it runs on every event: a pull
+    # request into a merged story branch goes red on itself. On main (push,
+    # schedule or manual run) it keeps one issue open while red and closes it
+    # when green. Not in main-red's needs: drift is not a red main.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Runs that may touch the issue (main, not a pull request) queue behind
+    # each other, so two never both find no issue and open one each; every
+    # other run has a group of its own.
+    concurrency:
+      group: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'story-drift-issue' || format('story-branches-{0}', github.run_id) }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-
+            go-${{ github.job }}-
+      - name: Story branches on main
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: make check-story-branches
+      - name: Open, update or close the story-branches issue
+        if: always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && (steps.check.outcome == 'success' || steps.check.outcome == 'failure')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RESULT: ${{ steps.check.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: make story-branches-issue
 
   main-red:
     # A push to main with any failed job opens (or comments on) the P0
