@@ -1,0 +1,16 @@
+# Local dev only (TICK-330). Scrapes /metrics on the admin listener of every
+# long-running nava service, over the `internal` network. The admin port is
+# never published. One-shot jobs (nava-db, db-roles, migrate) are not scraped.
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: nava
+    static_configs:
+      - targets:
+          - nava-core:9090
+          - nava-worker:9090
+          - nava-relay:9090
+          - nava-groupsync:9090
+          - nava-purge:9090
+          - nava-onboard:9090
