@@ -52,7 +52,7 @@ func (a *API) Middleware() func(http.Handler) http.Handler {
 	// The server list is host validation we do not want, and spec is shared.
 	spec := *a.spec
 	spec.Servers = nil
-	return nethttpmiddleware.OapiRequestValidatorWithOptions(&spec, &nethttpmiddleware.Options{
+	validate := nethttpmiddleware.OapiRequestValidatorWithOptions(&spec, &nethttpmiddleware.Options{
 		Options: openapi3filter.Options{
 			SchemaValidationOptions: []openapi3.SchemaValidationOption{
 				openapi3.WithStringFormatValidators(stringFormats()),
@@ -63,7 +63,27 @@ func (a *API) Middleware() func(http.Handler) http.Handler {
 		DoNotValidateServers: true,
 		ErrorHandlerWithOpts: a.validationError,
 	})
+	return func(next http.Handler) http.Handler {
+		validated := validate(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodHead {
+				validated.ServeHTTP(w, r)
+				return
+			}
+			// ServeMux routes HEAD to a GET pattern, but the contract declares
+			// no HEAD operation, so the validator would answer 405 (R3). Serve
+			// HEAD as the GET it stands for, with no body.
+			get := r.Clone(r.Context())
+			get.Method = http.MethodGet
+			validated.ServeHTTP(headWriter{w}, get)
+		})
+	}
 }
+
+// headWriter drops the body of a HEAD response and keeps status and headers.
+type headWriter struct{ http.ResponseWriter }
+
+func (headWriter) Write(b []byte) (int, error) { return len(b), nil }
 
 func (a *API) validationError(ctx context.Context, err error, w http.ResponseWriter, r *http.Request, opts nethttpmiddleware.ErrorHandlerOpts) {
 	switch {

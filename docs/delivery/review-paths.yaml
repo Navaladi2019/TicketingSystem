@@ -55,6 +55,7 @@ security:
   # and -run filters the isolation suites run with (TICK-230).
   - .github/
   - Makefile
+  - make/
   - scripts/ci/
   - tools/ci/
   - docs/delivery/review-paths.yaml

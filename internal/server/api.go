@@ -15,6 +15,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/apihttp"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/auth"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/ratelimit"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
 )
 
@@ -33,9 +34,9 @@ const baseURL = ""
 // path or wrong method with no token is 401, and 404/405 only behind a valid
 // token. Paths outside /api/v1 get the 404 problem.
 func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.IdentityResolver, paths identity.GroupPathReader, mux *http.ServeMux, opts options) (http.Handler, error) {
-	specData, err := api.Files.ReadFile("openapi.yaml")
+	specData, err := api.Files.ReadFile(api.SpecFile)
 	if err != nil {
-		return nil, fmt.Errorf("read openapi.yaml: %w", err)
+		return nil, fmt.Errorf("read %s: %w", api.SpecFile, err)
 	}
 	spec, err := apihttp.LoadSpec(specData)
 	if err != nil {
@@ -50,6 +51,11 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 		return nil, err
 	}
 	authn, err := auth.New(resolver, reg, log, tel.MeterProvider)
+	if err != nil {
+		return nil, err
+	}
+
+	limit, err := ratelimit.New(opts.limiter(), reg, log)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +78,11 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 	mux.Handle(docsPattern, docsHandler(spec))
 
 	served := a.Wrap(mux)
-	authed := routeAuth(reg, opts.operatorOnly, authn.Middleware, operatorAuth(reg, log, opts.operators, resolver))(served)
+	// A tenant request is authenticated (401) and then rate limited (429)
+	// before the generated router binds parameters or the validator reads the
+	// input. Operator routes carry no tenant, so they are not limited here.
+	tenant := func(next http.Handler) http.Handler { return authn.Middleware(limit.Handler(next)) }
+	authed := routeAuth(reg, opts.operatorOnly, tenant, operatorAuth(reg, log, opts.operators, resolver))(served)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, pattern := mux.Handler(r)
 		if pattern == specPattern || pattern == docsPattern || (pattern == "" && !underAPI(r.URL.Path)) {
