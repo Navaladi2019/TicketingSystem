@@ -19,7 +19,9 @@ docker compose -f compose.yaml -f deploy/compose/compose.internal.yaml up -d   #
 | temporal-server | `nava/temporal-server:dev` (T27a) | Frontend and internode mTLS, namespace `nava`, `NavaTenantId`; holds the `temporal-system` certificate; `temporal-backplane` network only |
 | temporal | `nava/temporal-server:dev` | Gateway: forwards TCP 7233 only, no certificate. The only route from the platform network to the server |
 | temporal-ui | `temporalio/ui:2.40.1` | Profile `operator` only, on the `operator` network with the `nava-operator` certificate; `http://127.0.0.1:18233` |
-| otel-collector | built from `contrib:0.139.0` | Internal network only; tail sampling; debug exporter |
+| jaeger | `jaegertracing/jaeger:2.11.0` | Profile `operator` only, `internal` + `operator` networks; in-memory traces; UI `http://127.0.0.1:16686`; OTLP port unpublished |
+| prometheus | `prom/prometheus:v3.7.3` | Profile `operator` only, `internal` + `operator` networks; exemplar storage on; UI `http://127.0.0.1:9091`; config `prometheus/prometheus.yml` |
+| otel-collector | built from `contrib:0.139.0` | Internal network only; tail sampling; debug exporter and, for traces, OTLP to Jaeger |
 | nava-core | built from the repo | Exports OTLP traces to the Collector |
 | nava-onboard | built from the repo (`cmd/nava-onboard`) | Operator onboarding API on `:8081`, `internal` network only, never published; the only holder of the onboarding secret and the `nava_onboard` URL. Reach it with `docker compose exec` (`docs/operator/onboarding.md`) |
 | nava-groupsync | built from the repo (`cmd/nava-groupsync`) | Syncs `/t/<tenant_id>/` users and groups into the identity tables every `NAVA_GROUPSYNC_INTERVAL` (default 5m); one cycle on demand: `docker compose run --rm --no-deps nava-groupsync --once` |
@@ -33,7 +35,35 @@ membership ports (7234, 7235, 7239, 6933-6939) are on `temporal-backplane`, whic
 no platform process joins; the gateway forwards 7233 only. `FORCE=1 make dev-ca`
 reissues. Cron on a started workflow cannot be seen by the Authorizer (T27b).
 
+**Keycloak and a PostgreSQL restart (TICK-328, R4).** Keycloak once kept its dead
+database connections after PostgreSQL restarted and refused every token
+(`400 unauthorized_client`) while `/health/ready` stayed 200. The pool is set in
+two places: `KC_DB_POOL_INITIAL_SIZE=2`, `KC_DB_POOL_MIN_SIZE=2` and
+`KC_DB_POOL_MAX_SIZE=20` in `compose.yaml`, and `keycloak/quarkus.properties`
+(copied into the image, so `kc.sh build` sees it): validation query `SELECT 1`
+on every borrow (`foreground-validation-interval=0S`) and in the background every
+10 s, idle removal every 30 s, `max-lifetime=5M`, and the datasource health
+check in `/health/ready`. nava-core's `/healthz` keycloak check (`NAVA_KEYCLOAK_TOKEN_URL`)
+also asks the token endpoint, so it is `fail` while Keycloak cannot read its
+database. `stack-test.sh keycloak_restart` restarts PostgreSQL and requires token
+issuance back within 90 s and `/healthz` never `ok` while issuance fails.
+
 Host ports (bound to 127.0.0.1): nava-core `18080`, Keycloak `18081` (`NAVA_CORE_PORT`, `KEYCLOAK_PORT`). A second stack on the same host: `make ci-isolated ID=...` (`docs/quality/ci-pipeline.md`, "Parallel runs").
+
+**Traces and metrics in a browser (local dev only).** `task stack:up` starts the
+`operator` profile, which includes Jaeger and Prometheus:
+
+```
+OTEL_TAIL_SAMPLE_PERCENT=100 task stack:up   # keep every trace, not 10%
+```
+
+- Jaeger: `http://127.0.0.1:16686`, pick service `nava-core` after a request to
+  `http://127.0.0.1:18080`. Errors and requests slower than 500 ms are always kept.
+- Prometheus: `http://127.0.0.1:9091`, Status > Targets; each nava service's
+  admin `/metrics` is scraped over `internal` (the admin ports stay unpublished).
+- Without the `operator` profile (the CI stack) there is no Jaeger. The Collector
+  then logs a failed export for each trace batch, drops it after 5 s of retries
+  and stays healthy.
 
 **Adding a role or database.** List it in `db/grants.yaml` (see `db/README.md`);
 db-roles creates it on the next `up`. A LOGIN role also needs a

@@ -21,7 +21,7 @@ func TestKeycloakProbeRedirectIsUnhealthy(t *testing.T) {
 		http.Redirect(w, r, ok.URL, http.StatusFound)
 	}))
 	t.Cleanup(kc.Close)
-	err := health.Keycloak(kc.URL, outboundClient(t)).Probe(t.Context())
+	err := health.Keycloak(kc.URL, "", outboundClient(t)).Probe(t.Context())
 	if !errors.Is(err, telemetry.ErrRedirectRefused) {
 		t.Fatalf("err = %v, want ErrRedirectRefused", err)
 	}
