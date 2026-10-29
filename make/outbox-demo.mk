@@ -1,7 +1,5 @@
 .PHONY: demo-outbox stack-test-demo_outbox
 
-STACK_TESTS_SERIAL += demo_outbox
-
 # The S7 demo (TICK-275): a start row and two signal rows for a record of tenant-a,
 # written through outbox.Enqueue in InTenantTx, then handed to Temporal by the
 # relay. Needs the stack up (make stack-up). DEDUPE_KEY names the rows.

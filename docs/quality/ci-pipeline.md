@@ -33,10 +33,10 @@ internal overlay as a project of its own (`<project>-int`, host ports 0 so
 Docker picks free ones). `STACK_INTERNAL=beside` runs the two at once; on this
 host that is slower (698 s against 669 s), since two Keycloaks then start
 together. On the main stack, `healthy` gates
-the rest; the read-only checks and the two Go suites (`STACK_TESTS_PARALLEL`:
+the rest; the read-only checks and the two Go suites (`mode=parallel` in the case header:
 smoke, PgBouncer, every `temporal_*` case, hba, SDK, identity) then run at
 once, and `worker`, `dependencies`, `trace`, `logs`, `redact`, `idempotent` and `dbroles`
-run one at a time after them (`STACK_TESTS_SERIAL`): `worker` polls `nava-tq`
+run one at a time after them (`mode=serial`): `worker` polls `nava-tq`
 like the SDK suite's workers, `dependencies` stops
 Keycloak, `trace` counts every trace the Collector saw, `idempotent` restarts
 the stack and `dbroles` changes roles. `ci-stack` alone adds the CI overlay

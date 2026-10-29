@@ -17,7 +17,7 @@ I replayed the last 300 merge commits and counted the files that conflicted:
 | `Makefile` | 11 | 384 lines and 58 targets in one file. Every story adds its targets and its CI wiring here. |
 | `docs/security/accepted-risks.md` | 7 | One table. Every story appends its row at the end. |
 | `docs/delivery/todo.md` | 7 | One table, appended at the end, with sequential `TODO-NNN` ids. |
-| `deploy/compose/test/stack-test.sh` | 5 | One script with a case per stack test. |
+| `deploy/compose/test/stack-test.sh` | 5 | One script with a case per stack test. Fixed by TICK-296: one script per case under `cases/`. |
 | `docs/pins.md`, `.gitignore` | 4 each | Shared lists, appended at the end. |
 | `.github/workflows/ci.yml`, `docs/delivery/decision-log.md` | 3 each | One step per suite in one job; one log. |
 | `api/openapi.yaml` + `api/api.gen.go` | S5 (TICK-281) | One spec and one generated file. Two stories that add endpoints conflict in both. |
@@ -61,7 +61,8 @@ These are the breaks that failed tests. None of them showed up as a text conflic
 - A PR that adds a migration uses a timestamp version (after TICK-290).
 - A PR does not hand-edit a generated file (`*.gen.go`, the bundled spec). It regenerates the file.
 - A PR that adds a `make` target, stack test, todo row, risk row or decision adds it in its own fragment, file or story-prefixed row (after TICK-293, TICK-295 and TICK-296). Until those land, open story branches keep the current layout.
-- **How to add a make target (TICK-293):** create `make/<story-or-suite>.mk` with the target, its `.PHONY` line and any variables, and do not edit `Makefile` or another fragment. Hook it into a gate with a recipe-less rule (`ci-lint: my-target`, `ci-unit: ...`) and into the stack tests with `STACK_TESTS_SERIAL += <name>` (runs `stack-test-<name>`). `Makefile` keeps only shared variables, `help` and `include make/*.mk`. A change under `make/` runs every CI stage (`tools/ci/cichanged`).
+- **How to add a make target (TICK-293):** create `make/<story-or-suite>.mk` with the target, its `.PHONY` line and any variables, and do not edit `Makefile` or another fragment. Hook it into a gate with a recipe-less rule (`ci-lint: my-target`, `ci-unit: ...`) and into the stack tests by adding `deploy/compose/test/cases/<name>.sh` (TICK-296; see "How to add a stack test" below). `Makefile` keeps only shared variables, `help` and `include make/*.mk`. A change under `make/` runs every CI stage (`tools/ci/cichanged`).
+- **How to add a stack test (TICK-296):** create `deploy/compose/test/cases/<name>.sh`: first line `#!/bin/sh`, second `# stack-case: job=<stack|stack-db|stack-internal> order=<n> mode=<serial|parallel>` (order: lower runs first; cases that stop or restart services take 50 or more; `parallel` only for read-only cases), then `set -eu`, `. "$(dirname "$0")/../case-env.sh"` and the test (a Go suite: `exec make --no-print-directory <target>`). Do not edit `stack-test.sh`, `make/stack.mk` or `ci.yml`: each CI stack job runs `make stack-tests JOB=<job>`, which runs every matching case in its own log group and names the failing one. `sh deploy/compose/test/run-cases.sh registry` prints the derived registry.
 - After a merge to `main`, the push run (D2) must be green. A red `main` blocks all other merges to `main` until it is fixed.
 
 ## 4. Task graph

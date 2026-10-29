@@ -125,10 +125,9 @@ tasks:
       - docker compose --profile operator down -v
 
   stack:test:
-    desc: Run the stack tests against a running stack (set OTEL_TAIL_SAMPLE_PERCENT=100 when starting it for the trace test)
+    desc: Run every stack case (deploy/compose/test/cases) against a running stack (set OTEL_TAIL_SAMPLE_PERCENT=100 when starting it for the trace test)
     cmds:
-      - for: [healthy, smoke, pgbouncer, temporal, temporal_handshake, temporal_isolation, temporal_custody, temporal_operator_reach, temporal_health, dependencies, trace, logs, redact, idempotent, dbroles, hba]
-        cmd: sh deploy/compose/test/stack-test.sh {{.ITEM}}
+      - sh deploy/compose/test/run-cases.sh run stack,stack-db
 
   demo:outbox:
     desc: "S7 demo, the same as make demo-outbox: a start row and two signal rows for tenant-a through outbox.Enqueue, one workflow; task demo:outbox DEDUPE_KEY=<key> (needs the stack up)"

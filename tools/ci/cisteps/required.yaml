@@ -38,19 +38,20 @@ steps:
     artifact: isolation-report
     why: the CI-2 isolation report
 
-  # Stack suites and their reports.
+  # Stack suites and their reports. The cases are the files in deploy/compose/test/cases/
+  # (TICK-296); each job runs the ones whose header names it, so a new case needs no entry here.
   - job: stack
-    run: make stack-test-sdk
-    why: the CI-6 and CI-7 SDK suite, under suiteran
+    run: make stack-tests JOB=stack
+    why: every stack case with job=stack, among them the CI-6 and CI-7 SDK suite, realm nava and the CI-5 adversarial identity suite (T19), each under suiteran
+  - job: stack-db
+    run: make stack-tests JOB=stack-db
+    why: the database stack cases (idempotent, dbroles, hba)
+  - job: stack-internal
+    run: make stack-tests JOB=stack-internal
+    why: the internal overlay comes up healthy with no egress
   - job: stack
     artifact: ci6-report
     why: the CI-6 report (TICK-49)
-  - job: stack
-    run: make stack-test-identity
-    why: realm nava, operator custody and the Keycloak adapter
-  - job: stack
-    run: make identity-attacks
-    why: the CI-5 adversarial identity suite (T19), checked with suiteran -in
   - job: stack
     artifact: ci5-report
     why: the CI-5 report

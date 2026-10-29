@@ -2,7 +2,8 @@
 # Shared helpers for the stack tests. Source it; run from anywhere.
 # COMPOSE_FILE_ARGS selects the files, e.g. the internal overlay.
 
-ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
+# The checkout root: the nearest parent holding compose.yaml, wherever the script sits.
+ROOT=$(cd "$(dirname "$0")" && while [ ! -f compose.yaml ]; do cd ..; done; pwd)
 cd "$ROOT"
 
 # The compose project under test: `name: nava` in compose.yaml unless
@@ -107,4 +108,67 @@ wait_healthy() {
 psql_super() {
     # shellcheck disable=SC2016 # expanded inside the container
     compose exec -T postgres sh -c 'PGPASSWORD=$(cat /run/pg_superuser_password) exec psql -X -q -t -A -U pgadmin -d "$0" -c "$1"' "$1" "$2"
+}
+
+# --- Helpers shared by several cases ---------------------------------------
+admin_get() { # <path>: the full HTTP response from the admin listener
+    printf 'GET %s HTTP/1.0\r\nHost: localhost\r\n\r\n' "$1" | compose exec -T nava-core nc 127.0.0.1 9090 | tr -d '\r'
+}
+admin_code() { admin_get "$1" | sed -n '1s/^HTTP\/[0-9.]* \([0-9]*\).*/\1/p'; }
+# await_check <name> <ok|fail> <seconds>: wait for /healthz to report the state.
+await_check() {
+    deadline=$(( $(date +%s) + $3 ))
+    until admin_get /healthz | grep -q "\"$1\":\"$2\""; do
+        [ "$(date +%s)" -lt "$deadline" ] || fail "/healthz did not report $1 $2 within $3s"
+        sleep 1
+    done
+}
+degraded_metric() { admin_get /metrics | grep "^nava_dependency_degraded{" | grep "dependency=\"$1\"" | sed 's/.* //'; }
+
+# --- T28: Temporal mTLS and network isolation -------------------------------
+# Needs the stack up with certificates from `make dev-ca`. These run from the
+# platform network (`internal`), the way nava-core and the other platform
+# processes see Temporal.
+CERTS="$ROOT/deploy/compose/certs"
+TEMPORAL_IMAGE=nava/temporal-server:${NAVA_IMAGE_TAG:-dev}
+
+# platform_net: the compose network that carries the platform processes.
+platform_net() {
+    docker network ls -q --filter label=com.docker.compose.project=$PROJECT \
+        --filter label=com.docker.compose.network=internal | head -n 1
+}
+
+# dial_as <client-cert-name|none> <cert-dir>: run `temporal-server health` from a
+# throwaway container on the platform network, through the gateway, with the named
+# certificate. Prints the command's output; exit status is the probe's.
+dial_as() {
+    if [ "$1" = none ]; then
+        certs="-ca /c/ca.pem -cert= -key="
+        mounts="-v $2/ca.pem:/c/ca.pem:ro"
+    else
+        certs="-ca /c/ca.pem -cert /c/$1.pem -key /c/$1.key"
+        mounts="-v $2/ca.pem:/c/ca.pem:ro -v $2/$1.pem:/c/$1.pem:ro -v $2/$1.key:/c/$1.key:ro"
+    fi
+    # shellcheck disable=SC2086
+    docker run --rm --network "$(platform_net)" $mounts --entrypoint /usr/local/bin/temporal-server \
+        "$TEMPORAL_IMAGE" health -addr temporal:7233 -server-name temporal $certs 2>&1
+}
+
+t_temporal_confinement() {
+    nets_of() {
+        cid=$(container_of "$1")
+        [ -n "$cid" ] || fail "no container for $1"
+        docker inspect -f '{{range $n, $c := .NetworkSettings.Networks}}{{$n}} {{end}}' "$cid"
+    }
+    srv=$(nets_of temporal-server)
+    [ "$srv" = "${PROJECT}_temporal-backplane " ] || fail "temporal-server is on networks other than temporal-backplane: $srv"
+    for svc in nava-core nava-worker nava-relay nava-purge; do
+        # An assignment, so set -e stops on a failed lookup; a bare $(...) in
+        # the for list would let a missing container pass with no networks.
+        nets=$(nets_of "$svc")
+        for n in $nets; do
+            case " $srv " in *" $n "*) fail "temporal-server shares $n with $svc" ;; esac
+        done
+    done
+    pass "temporal-server is only on temporal-backplane and shares no network with a platform process"
 }
