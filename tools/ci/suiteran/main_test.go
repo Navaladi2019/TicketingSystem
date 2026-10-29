@@ -216,7 +216,7 @@ func (s) TestMethod(t *testing.T) {}
 
 const repoRoot = "../../.."
 
-// suiteranTagsRe finds the -tags of each suiteran call in the Makefile and the
+// suiteranTagsRe finds the -tags of each suiteran call in the Makefile, make/*.mk and the
 // CI scripts.
 var suiteranTagsRe = regexp.MustCompile(`tools/ci/suiteran\b(.*)`)
 
@@ -225,6 +225,11 @@ var suiteranTagsRe = regexp.MustCompile(`tools/ci/suiteran\b(.*)`)
 // running: a suite nobody checks can drop out silently again.
 func TestEveryRegisteredSuiteHasACheckedStep(t *testing.T) {
 	sources := []string{filepath.Join(repoRoot, "Makefile")}
+	fragments, err := filepath.Glob(filepath.Join(repoRoot, "make", "*.mk"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sources = append(sources, fragments...)
 	scripts, err := filepath.Glob(filepath.Join(repoRoot, "scripts", "ci", "*.sh"))
 	if err != nil {
 		t.Fatal(err)
@@ -277,6 +282,100 @@ func TestEveryRegisteredSuiteHasACheckedStep(t *testing.T) {
 			t.Errorf("%s (%s): no suiteran call has -tags that build it; tag sets %q", f.Path, f.ImportPath, tagSets)
 		}
 	}
+}
+
+// TestStackTestIdentityIsChecked fails when make stack-test-identity stops
+// failing on its own for a registered identitystack suite that ran zero tests
+// (TICK-283): its go test must run under suiteran with the same -tags, and
+// must not -run or -skip, which would leave a registered suite out of the run
+// (TestFixture's "a -run filter leaves a suite out" shows suiteran then
+// fails). TestCI5 stays out by its ci5 build tag; make identity-attacks
+// checks it.
+func TestStackTestIdentityIsChecked(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join(repoRoot, "make", "identity.mk"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipe := makeRecipe(string(b), "stack-test-identity")
+	var calls []string
+	for _, l := range recipe {
+		if strings.Contains(l, "go test") {
+			calls = append(calls, l)
+		}
+	}
+	if len(calls) != 1 {
+		t.Fatalf("stack-test-identity runs go test %d times, want 1:\n%s", len(calls), strings.Join(recipe, "\n"))
+	}
+	flags, goTest, ok := strings.Cut(calls[0], " -- ")
+	if !ok || !strings.Contains(flags, "tools/ci/suiteran") {
+		t.Fatalf("stack-test-identity's go test does not run under suiteran: %q", calls[0])
+	}
+	tagsRe := regexp.MustCompile(`-tags[= ](\S+)`)
+	st, gt := tagsRe.FindStringSubmatch(flags), tagsRe.FindStringSubmatch(goTest)
+	if st == nil || gt == nil || st[1] != gt[1] {
+		t.Errorf("suiteran -tags and go test -tags differ: %q", calls[0])
+	}
+	if !strings.Contains(goTest, "-json") || !strings.Contains(goTest, "./internal/identitystack") {
+		t.Errorf("go test is not a -json run of ./internal/identitystack: %q", goTest)
+	}
+	if f := regexp.MustCompile(`\s-(test\.)?(run|skip)[= ]`).FindString(goTest); f != "" {
+		t.Errorf("go test filters tests (%s), which can leave a registered suite out: %q", strings.TrimSpace(f), goTest)
+	}
+}
+
+// A green stack-test-identity stream in which a registered identitystack suite
+// ran no test fails under the target's own -tags, against the repository's
+// path list; TestCI5 (ci5 tag) is not expected there, and is expected under
+// identity-attacks' identitystack,ci5 (TICK-283).
+func TestIdentitystackStreamMissingASuiteFails(t *testing.T) {
+	t.Setenv("GOFLAGS", "")
+	ip := "github.com/Navaladi2019/TicketingSystem/internal/identitystack"
+	stream := filepath.Join(t.TempDir(), "identity-stream.json")
+	if err := os.WriteFile(stream, []byte(`{"Action":"run","Package":"`+ip+`","Test":"TestRealmFile"}
+{"Action":"pass","Package":"`+ip+`","Test":"TestRealmFile"}
+{"Action":"pass","Package":"`+ip+`"}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		tags    []string
+		ci5Held bool
+	}{
+		{tags: []string{"identitystack"}},
+		{tags: []string{"identitystack", "ci5"}, ci5Held: true},
+	} {
+		var out bytes.Buffer
+		code, err := run(options{
+			tags: tc.tags, in: true, args: []string{stream},
+			root: repoRoot, pathsFile: filepath.Join("docs", "delivery", "review-paths.yaml"),
+		}, &out)
+		if err != nil {
+			t.Fatalf("-tags %v: run: %v\n%s", tc.tags, err, out.String())
+		}
+		if code != 1 || !strings.Contains(out.String(), "FAIL  internal/identitystack/adversarial_test.go, ran 0 of") {
+			t.Errorf("-tags %v: exit %d, want 1 naming adversarial_test.go\n%s", tc.tags, code, out.String())
+		}
+		if got := strings.Contains(out.String(), "FAIL  internal/identitystack/ci5_isolation_test.go"); got != tc.ci5Held {
+			t.Errorf("-tags %v: ci5_isolation_test.go held to running = %v, want %v\n%s", tc.tags, got, tc.ci5Held, out.String())
+		}
+	}
+}
+
+// makeRecipe returns the recipe lines of target in a Makefile.
+func makeRecipe(makefile, target string) []string {
+	var out []string
+	in := false
+	for _, l := range strings.Split(makefile, "\n") {
+		switch {
+		case strings.HasPrefix(l, target+":"):
+			in = true
+		case in && strings.HasPrefix(l, "\t"):
+			out = append(out, strings.TrimPrefix(l, "\t"))
+		case in:
+			return out
+		}
+	}
+	return out
 }
 
 // The repository's registered files resolve: each has an import path in its

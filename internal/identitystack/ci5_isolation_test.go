@@ -1,4 +1,4 @@
-//go:build identitystack
+//go:build identitystack && ci5
 
 package identitystack
 
@@ -12,6 +12,11 @@ package identitystack
 // The attacker holds a valid login for one tenant, administers one tenant, or
 // controls one tenant's external IdP. Every case but CI-5.14 must leave them
 // without a principal of another tenant; CI-5.14 is the positive control.
+//
+// The ci5 build tag keeps TestCI5, which needs the platform database
+// scripts/ci/identity-attacks.sh starts, out of make stack-test-identity, so
+// that target runs the rest of the package under suiteran with no -skip
+// (TICK-283). make identity-attacks builds with identitystack,ci5.
 
 import (
 	"encoding/json"
