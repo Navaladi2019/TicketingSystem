@@ -1,20 +1,22 @@
-.PHONY: lint check-generate check-ci-steps check-openapi tools check-tools fmt-check vet lint-fixture check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck
+.PHONY: lint check-generate check-ci-steps check-openapi tools check-tools fmt-check vet vet-tags lint-fixture check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck
 
-ci-lint: check-tools fmt-check vet lint lint-fixture check-taskfile check-pins check-generate check-ci-steps check-openapi vulncheck-ci
+ci-lint: check-tools fmt-check vet vet-tags lint lint-fixture check-taskfile check-pins check-generate check-ci-steps check-openapi vulncheck-ci
 
 # golangci-lint, then the navalint analyzers (tools/navalint, its own module)
-# as go vet's tool, then the ADR-002-E1 nolint allow-list gate, then the decision-log index check.
+# as go vet's tool, then the ADR-002-E1 nolint allow-list gate, then the decision-log index check,
+# then the duplicate-id check on the shared tables (tools/dupids).
 lint:
 	$(GOLANGCI_LINT) run ./...
 	sh scripts/ci/navalint.sh
 	sh scripts/ci/nolint-allowlist.sh
 	go run ./tools/docindex -check
+	go run ./tools/dupids
 
-# Fails when api/api.gen.go is not what api/openapi.yaml generates (TICK-297):
-# regenerates it, then any difference from the committed file is drift. Run
-# make generate and commit the result.
+# Fails when api/openapi.bundled.yaml or api/api.gen.go is not what api/openapi.yaml
+# + api/paths/*.yaml generate (TICK-297, TICK-294): any difference or untracked file
+# under api/ after regenerating is drift. Run make generate and commit the result.
 check-generate:
-	go generate ./api/... && git diff --exit-code -- api/
+	sh scripts/ci/openapi-generated.sh
 
 # Fails when .github/workflows/ci.yml stops running a step listed in
 # tools/ci/cisteps/required.yaml (TICK-297): a suite or report upload removed,
@@ -27,7 +29,7 @@ check-ci-steps:
 # missing BASE ref fails: a shallow clone must not pass the check by default.
 check-openapi:
 	@git rev-parse -q --verify $(BASE) >/dev/null || { echo "check-openapi: $(BASE) not found; fetch it first (git fetch origin main)"; exit 1; }
-	@if git cat-file -e $(BASE):api/openapi.yaml 2>/dev/null; then 		git show $(BASE):api/openapi.yaml > $${TMPDIR:-/tmp}/openapi.base.yaml && 		go run ./cmd/openapi-compat $${TMPDIR:-/tmp}/openapi.base.yaml api/openapi.yaml; 	else echo "no api/openapi.yaml on $(BASE): nothing to compare"; fi
+	@sh scripts/ci/check-openapi.sh $(BASE)
 
 # Installs the pinned CI tools into $$(go env GOPATH)/bin.
 tools:
@@ -48,6 +50,14 @@ fmt-check:
 
 vet:
 	go vet ./...
+
+# go vet once per build-tag set the Go files use (TICK-320): make vet builds
+# untagged files only, so a broken //go:build identitystack && acceptance file
+# went unnoticed on main (TICK-286 finding 4). The sets come from the
+# //go:build lines of every module (tools/ci/buildtags), so a new tag or
+# module needs no edit here.
+vet-tags:
+	go run ./tools/ci/buildtags
 
 lint-fixture:
 	sh scripts/ci/lint-fixture.sh

@@ -8,7 +8,7 @@ A hands-on test kit for everything stories S1 to S7 delivered on `main`.
 - **Helper scripts** (run from the repository root, Git Bash on Windows):
   - `sh docs/acceptance/guide/tools/seed.sh`: seeds tenants A and B and runs one group sync.
   - `sh docs/acceptance/guide/tools/tunnels.sh up|down|status`: local-only forwards to nava-onboard, nava-core's admin listener and the Temporal UI, which publish no port.
-- **Last verified run:** [`acceptance-run.md`](acceptance-run.md).
+- **Last verified run:** [`acceptance-run.md`](acceptance-run.md) (latest: TICK-329, full collection, 0 failures).
 
 ## Changing the guide
 

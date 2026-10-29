@@ -1,0 +1,10 @@
+# Story branches make check-story-branches accepts as they are (TICK-322), each
+# at one exact head: a later push to the branch flags it again. Add an entry
+# only when the branch's remaining changes are meant to stay off main (work
+# abandoned on purpose, or reworked differently on main), with the issue that
+# decided it. Deleting the branch is usually the better fix.
+#
+#   branch  the story branch, TICK-<n>/<slug>
+#   head    its full 40-character head sha when accepted
+#   why     what was decided and where
+resolved: []

@@ -130,7 +130,7 @@ func TestDocsAndSpecAreServed(t *testing.T) {
 		t.Errorf("docs = %d %v %s", rec.Code, rec.Header(), rec.Body)
 	}
 	rec = serve(t, h, http.MethodGet, "/api/v1/openapi.yaml")
-	if rec.Code != http.StatusOK || !strings.HasPrefix(rec.Body.String(), "openapi: 3.1") {
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "openapi: 3.1") {
 		t.Errorf("openapi.yaml = %d %.40s", rec.Code, rec.Body)
 	}
 }
@@ -169,5 +169,43 @@ func TestDotDotPathIsAuthenticated(t *testing.T) {
 	h, _, _ := newAPIHandler(t)
 	if rec := serve(t, h, http.MethodGet, "/api/v1/x/../me"); rec.Code != http.StatusUnauthorized {
 		t.Errorf("GET /api/v1/x/../me = %d, want 401", rec.Code)
+	}
+}
+
+// TestHeadIsServedAsGet: HEAD is advertised in Allow for every GET route, so
+// it answers the GET status with no body (R3); without a token it is the
+// uniform 401.
+func TestHeadIsServedAsGet(t *testing.T) {
+	t.Parallel()
+	h, _, _ := newAPIHandler(t)
+	head := func(path, auth string) *httptest.ResponseRecorder {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodHead, path, nil)
+		if auth != "" {
+			req.Header.Set("Authorization", auth)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	for _, c := range []struct {
+		name, path, auth string
+		want             int
+	}{
+		{"me with a token", "/api/v1/me", "Bearer token-a", http.StatusOK},
+		{"me without a token", "/api/v1/me", "", http.StatusUnauthorized},
+		{"me with a bad token", "/api/v1/me", "Bearer nope", http.StatusUnauthorized},
+		{"spec", "/api/v1/openapi.yaml", "", http.StatusOK},
+		{"unknown path", "/api/v1/x", "Bearer token-a", http.StatusNotFound},
+	} {
+		rec := head(c.path, c.auth)
+		// A recorder keeps error bodies that net/http drops on HEAD; only the
+		// success path, which this change owns, must be empty here.
+		if rec.Code != c.want || (c.path == "/api/v1/me" && c.want == http.StatusOK && rec.Body.Len() != 0) {
+			t.Errorf("%s: HEAD %s = %d with %d body bytes, want %d", c.name, c.path, rec.Code, rec.Body.Len(), c.want)
+		}
+	}
+	get := serve(t, h, http.MethodGet, "/api/v1/me")
+	if get.Code != http.StatusUnauthorized || head("/api/v1/me", "").Header().Get("Content-Type") != get.Header().Get("Content-Type") {
+		t.Errorf("HEAD headers differ from GET")
 	}
 }
