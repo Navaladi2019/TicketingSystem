@@ -3,12 +3,14 @@
 ci-lint: check-tools fmt-check vet lint lint-fixture check-taskfile check-pins check-generate check-ci-steps check-openapi vulncheck-ci
 
 # golangci-lint, then the navalint analyzers (tools/navalint, its own module)
-# as go vet's tool, then the ADR-002-E1 nolint allow-list gate, then the decision-log index check.
+# as go vet's tool, then the ADR-002-E1 nolint allow-list gate, then the decision-log index check,
+# then the duplicate-id check on the shared tables (tools/dupids).
 lint:
 	$(GOLANGCI_LINT) run ./...
 	sh scripts/ci/navalint.sh
 	sh scripts/ci/nolint-allowlist.sh
 	go run ./tools/docindex -check
+	go run ./tools/dupids
 
 # Fails when api/api.gen.go is not what api/openapi.yaml generates (TICK-297):
 # regenerates it, then any difference from the committed file is drift. Run
