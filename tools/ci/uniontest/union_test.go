@@ -13,12 +13,14 @@ import (
 )
 
 // gitFlags pins the settings that could change a merge result, so a user's
-// global merge.conflictstyle or custom merge driver cannot affect the tests.
+// merge.conflictstyle, merge.default or custom merge driver cannot affect the
+// tests. gitCmd also isolates the global and system config files.
 func gitFlags() []string {
 	return []string{
 		"-c", "user.name=t", "-c", "user.email=t@example.invalid",
 		"-c", "core.autocrlf=false", "-c", "commit.gpgsign=false",
 		"-c", "merge.conflictstyle=merge", "-c", "merge.renormalize=false",
+		"-c", "merge.default=text",
 		"-c", "core.attributesFile=" + os.DevNull,
 	}
 }
@@ -27,6 +29,8 @@ func gitCmd(t *testing.T, dir string, args ...string) *exec.Cmd {
 	t.Helper()
 	cmd := exec.CommandContext(t.Context(), "git", append(gitFlags(), args...)...)
 	cmd.Dir = dir
+	// Ignore the user's and the system's git config files entirely.
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1")
 	return cmd
 }
 
