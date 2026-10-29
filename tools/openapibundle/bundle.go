@@ -24,7 +24,8 @@ const (
 // and returns one OpenAPI document. Path items are inlined; the components of
 // a group file are merged into the root's; a `../openapi.yaml#/...` ref in a
 // group file becomes `#/...`. A path in the wrong group file, a component name
-// defined twice, a group file the root does not reference, or a spec
+// defined twice, a group file the root does not reference, a path in a group
+// file the root does not reference, or a spec
 // kin-openapi rejects is an error.
 func Bundle(rootFile string) ([]byte, error) {
 	root, err := readNode(rootFile)
@@ -43,6 +44,7 @@ func Bundle(rootFile string) ([]byte, error) {
 	}
 
 	files := map[string]*yaml.Node{}
+	used := map[*yaml.Node]bool{} // path items some root entry points at
 	for i := 0; i+1 < len(paths.Content); i += 2 {
 		route, item := paths.Content[i].Value, paths.Content[i+1]
 		ref := get(item, "$ref")
@@ -70,6 +72,7 @@ func Bundle(rootFile string) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("path %s: %s: %w", route, file, err)
 		}
+		used[target] = true
 		*item = *target
 	}
 
@@ -86,6 +89,11 @@ func Bundle(rootFile string) ([]byte, error) {
 	}
 	if err := checkUnreferenced(dir, names); err != nil {
 		return nil, err
+	}
+	for _, f := range names {
+		if err := checkUnusedPaths(files[f], used, f); err != nil {
+			return nil, err
+		}
 	}
 
 	var buf bytes.Buffer
@@ -201,6 +209,21 @@ func checkUnreferenced(dir string, used []string) error {
 	for _, f := range all {
 		if rel := "paths/" + filepath.Base(f); !slices.Contains(used, rel) {
 			return fmt.Errorf("%s is not referenced by the root openapi.yaml", rel)
+		}
+	}
+	return nil
+}
+
+// checkUnusedPaths fails on a key under a group file's paths that no root
+// paths entry $refs, which would otherwise be silently left out of the contract.
+func checkUnusedPaths(doc *yaml.Node, used map[*yaml.Node]bool, file string) error {
+	paths := get(doc, "paths")
+	if paths == nil {
+		return nil
+	}
+	for i := 0; i+1 < len(paths.Content); i += 2 {
+		if !used[paths.Content[i+1]] {
+			return fmt.Errorf("%s: path %s is not referenced by the root openapi.yaml", file, paths.Content[i].Value)
 		}
 	}
 	return nil

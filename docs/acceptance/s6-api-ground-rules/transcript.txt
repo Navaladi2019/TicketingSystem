@@ -1,0 +1,87 @@
+baseline: GET /api/v1/me with no token -> 401
+stack: compose project s6-accept, main at 05b103d
+seeded:
+tenant 00000000-0000-4000-8000-0000000000a1 active
+tenant 00000000-0000-4000-8000-0000000000b1 active
+principal 00000000-0000-4000-8000-0000000000a1 alice@tenant-a.test
+principal 00000000-0000-4000-8000-0000000000b1 bob@tenant-b.test
+  PASS alice -> GET /api/v1/me is tenant A1
+       -> 200 {"group_paths":[{"id":"7a20022f-dcc7-475c-ab46-2faef8f35d52","path":"/service-desk"}],"groups":["7a20022f-dcc7-475c-ab46-2faef8f35d52"],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"a0c75c9a-1d27-43a8-b8bd-b57b155d318e"}
+  PASS bob -> GET /api/v1/me is tenant B1
+       -> 200 {"group_paths":[{"id":"5978dbd2-1106-4b76-b2e7-1c2137b670bb","path":"/service-desk"}],"groups":["5978dbd2-1106-4b76-b2e7-1c2137b670bb"],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000b1","user_id":"964ddaa2-93da-40c8-bfd4-57bfc2450255"}
+
+## Criterion 1: every error is application/problem+json with a registered code
+  registry api/errors.yaml: 15 codes
+  PASS GET /api/v1/docs serves the contract page
+       -> 200 Content-Type: text/html; charset=utf-8, 677 bytes
+  PASS GET /api/v1/openapi.yaml is OpenAPI 3.1 and declares /me and onboarding
+       -> 200 Content-Type: application/yaml, openapi: 3.1.0, paths ['/api/v1/me', '/api/v1/operator/tenants']
+  PASS the served contract is byte-identical to api/openapi.bundled.yaml on main
+  PASS no token on GET /api/v1/me -> invalid_token
+       -> 401 Content-Type: application/problem+json
+       {"code": "invalid_token", "detail": "The access token is missing, expired or invalid.", "instance": "urn:nava:request:b31e284fddc0990bbadb992d545e3bde", "status": 401, "title": "Invalid token", "type": "urn:nava:problem:invalid_token"}
+  PASS garbage bearer token -> invalid_token
+       -> 401 Content-Type: application/problem+json
+       {"code": "invalid_token", "detail": "The access token is missing, expired or invalid.", "instance": "urn:nava:request:90f37f3b3bca8f7ccfcafb78aa85b124", "status": 401, "title": "Invalid token", "type": "urn:nava:problem:invalid_token"}
+  PASS unknown route GET /api/v1/nope -> not_found
+       -> 404 Content-Type: application/problem+json
+       {"code": "not_found", "detail": "The resource does not exist.", "instance": "urn:nava:request:77630487ffd7719cf95b93e527e39344", "status": 404, "title": "Not found", "type": "urn:nava:problem:not_found"}
+  PASS DELETE /api/v1/me -> method_not_allowed
+       -> 405 Content-Type: application/problem+json
+       {"code": "method_not_allowed", "detail": "The resource does not support this method. See the Allow header.", "instance": "urn:nava:request:574d64f266e8e4322c498a3249871ec1", "status": 405, "title": "Method not allowed", "type": "urn:nava:problem:method_not_allowed"}
+  PASS tenant ingress POST /api/v1/operator/tenants (nava-core) -> not_implemented
+       -> 501 Content-Type: application/problem+json
+       {"code": "not_implemented", "detail": "This operation is declared in the contract but not implemented yet.", "instance": "urn:nava:request:2f2b67d8144f54b03bc38010971a90c9", "status": 501, "title": "Not implemented", "type": "urn:nava:problem:not_implemented"}
+  PASS 401 carries WWW-Authenticate: Bearer
+       -> WWW-Authenticate: Bearer
+  PASS nava-onboard, tenant token -> forbidden
+       -> 403 Content-Type: application/problem+json
+       {"code": "forbidden", "detail": "The token does not allow this operation.", "instance": "urn:nava:request:03b187ddac6729329d7b1098acea8e09", "status": 403, "title": "Forbidden", "type": "urn:nava:problem:forbidden"}
+  PASS nava-onboard, body not matching the contract -> validation_failed
+       -> 400 Content-Type: application/problem+json
+       {"code": "validation_failed", "detail": "The request does not match the API contract. See errors for the failing fields.", "errors": [{"pointer": "/body/admin_email", "rule": "type"}], "instance": "urn:nava:request:1d0af62885bdb4d9855ec937135f54b5", "status": 400, "title": "Validation failed", "type": "urn:nava:problem:validation_failed"}
+  PASS nava-onboard, IdP URL on loopback -> invalid_idp_config
+       -> 422 Content-Type: application/problem+json
+       {"code": "invalid_idp_config", "detail": "The identity provider settings are not accepted. See errors for the failing fields.", "instance": "urn:nava:request:6261e711dcb6144f7fd21d4daa496012", "status": 422, "title": "Invalid identity provider settings", "type": "urn:nava:problem:invalid_idp_config"}
+
+## Criterion 2: same Idempotency-Key + same body returns the original response; same key + different body returns 409
+  Idempotency-Key: s6-acceptance-73204be2, domain s6-onb-04791ed1.test
+  before: 2 tenants, 2 bindings, 0 email domains, 0 invites; this tenant: none
+  PASS first call -> 201 with the tenant id, state active
+       -> 201 {"state":"active","tenant_id":"bd32fa33-db8a-5692-8cbe-3cb16eaa39dc"}
+  after first call: 3 tenants, 3 bindings, 1 email domains, 1 invites; this tenant: active
+  PASS replay, same key and same body -> the original body, byte for byte
+       -> 200 {"state":"active","tenant_id":"bd32fa33-db8a-5692-8cbe-3cb16eaa39dc"}
+  PASS replay creates nothing
+       after replay: 3 tenants, 3 bindings, 1 email domains, 1 invites; this tenant: active
+  PASS same key, different body -> 409 idempotency_key_reuse (problem+json)
+       -> 409 Content-Type: application/problem+json
+       {"code": "idempotency_key_reuse", "detail": "The Idempotency-Key was already used with a different request.", "instance": "urn:nava:request:101e5d95db05ebe2ca9f034675adbc72", "status": 409, "title": "Idempotency key reused", "type": "urn:nava:problem:idempotency_key_reuse"}
+  PASS the refused call creates nothing
+       after 409: 3 tenants, 3 bindings, 1 email domains, 1 invites; this tenant: active
+  PASS the original body still replays after the 409
+       -> 200 {"state":"active","tenant_id":"bd32fa33-db8a-5692-8cbe-3cb16eaa39dc"}
+
+## Criterion 4: tenant A gets 429 while tenant B's calls succeed
+  limit on this stack: NAVA_RATE_LIMIT_RPS=50, NAVA_RATE_LIMIT_BURST=100 (compose defaults)
+  tenant A: 1822 calls in 4.2 s (436/s) from 48 workers: 303 x 200, 1519 x 429
+  PASS tenant A is throttled
+  PASS 429 is problem+json rate_limited with Retry-After
+       -> 429 Content-Type: application/problem+json
+       {"code": "rate_limited", "detail": "Too many requests. Retry after the interval in Retry-After.", "instance": "urn:nava:request:b7f29303092b8c47bd493c171b9ad6e2", "status": 429, "title": "Rate limited", "type": "urn:nava:problem:rate_limited"}
+       Retry-After: 1
+  PASS the 429 body names no tenant
+  PASS tenant B's 23 calls during the flood all succeed with tenant B (20 of them after tenant A's first 429)
+       tenant B: 23 x 200
+  PASS tenant A recovers after Retry-After
+       -> 200 {"group_paths":[{"id":"7a20022f-dcc7-475c-ab46-2faef8f35d52","path":"/service-desk"}],"groups":["7a20022f-dcc7-475c-ab46-2faef8f35d52"],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"a0c75c9a-1d27-43a8-b8bd-b57b155d318e"}
+
+## Cross-tenant checks
+  PASS bob naming tenant A in X-Tenant-Id still gets tenant B
+       -> 200 {"group_paths":[{"id":"5978dbd2-1106-4b76-b2e7-1c2137b670bb","path":"/service-desk"}],"groups":["5978dbd2-1106-4b76-b2e7-1c2137b670bb"],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000b1","user_id":"964ddaa2-93da-40c8-bfd4-57bfc2450255"}
+  PASS after flooding tenant B (169 x 200, 231 x 429), tenant A's call succeeds
+       -> 200 {"group_paths":[{"id":"7a20022f-dcc7-475c-ab46-2faef8f35d52","path":"/service-desk"}],"groups":["7a20022f-dcc7-475c-ab46-2faef8f35d52"],"idp_alias":"","tenant_id":"00000000-0000-4000-8000-0000000000a1","user_id":"a0c75c9a-1d27-43a8-b8bd-b57b155d318e"}
+  PASS onboarding's tenant C is not tenant A or B
+       tenant C = bd32fa33-db8a-5692-8cbe-3cb16eaa39dc
+
+result: PASS
