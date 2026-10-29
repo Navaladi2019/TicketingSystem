@@ -47,12 +47,18 @@ tasks:
       - sh scripts/ci/test-integration.sh -run '^$' -bench '^BenchmarkClaim$' -benchtime 200x
 
   lint:
-    desc: Run golangci-lint, then the navalint analyzers (set_config outside internal/tenancy), then the ADR-002-E1 nolint allow-list gate, then the decision-log index check, then the OpenAPI regenerate-and-diff gate
+    desc: Run golangci-lint, then the navalint analyzers (set_config outside internal/tenancy), then the ADR-002-E1 nolint allow-list gate, then the decision-log index check, then the OpenAPI regenerate-and-diff gate, then the duplicate-id check
     cmds:
       - golangci-lint run ./...
       - sh scripts/ci/navalint.sh
       - sh scripts/ci/nolint-allowlist.sh
       - go run ./tools/docindex -check
+      - go run ./tools/dupids
+
+  vet:tags:
+    desc: Run go vet once per build-tag set the //go:build lines use, so a tagged test that stops compiling fails (TICK-320), the same as make vet-tags
+    cmds:
+      - go run ./tools/ci/buildtags
 
   lint:fixture:
     desc: The forbidigo and navalint rules must report exactly their fixture findings

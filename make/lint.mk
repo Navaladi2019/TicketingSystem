@@ -1,14 +1,16 @@
-.PHONY: lint check-generate check-ci-steps check-openapi tools check-tools fmt-check vet lint-fixture check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck
+.PHONY: lint check-generate check-ci-steps check-openapi tools check-tools fmt-check vet vet-tags lint-fixture check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck
 
-ci-lint: check-tools fmt-check vet lint lint-fixture check-taskfile check-pins check-generate check-ci-steps check-openapi vulncheck-ci
+ci-lint: check-tools fmt-check vet vet-tags lint lint-fixture check-taskfile check-pins check-generate check-ci-steps check-openapi vulncheck-ci
 
 # golangci-lint, then the navalint analyzers (tools/navalint, its own module)
-# as go vet's tool, then the ADR-002-E1 nolint allow-list gate, then the decision-log index check.
+# as go vet's tool, then the ADR-002-E1 nolint allow-list gate, then the decision-log index check,
+# then the duplicate-id check on the shared tables (tools/dupids).
 lint:
 	$(GOLANGCI_LINT) run ./...
 	sh scripts/ci/navalint.sh
 	sh scripts/ci/nolint-allowlist.sh
 	go run ./tools/docindex -check
+	go run ./tools/dupids
 
 # Fails when api/openapi.bundled.yaml or api/api.gen.go is not what api/openapi.yaml
 # + api/paths/*.yaml generate (TICK-297, TICK-294): any difference or untracked file
@@ -48,6 +50,14 @@ fmt-check:
 
 vet:
 	go vet ./...
+
+# go vet once per build-tag set the Go files use (TICK-320): make vet builds
+# untagged files only, so a broken //go:build identitystack && acceptance file
+# went unnoticed on main (TICK-286 finding 4). The sets come from the
+# //go:build lines of every module (tools/ci/buildtags), so a new tag or
+# module needs no edit here.
+vet-tags:
+	go run ./tools/ci/buildtags
 
 lint-fixture:
 	sh scripts/ci/lint-fixture.sh
