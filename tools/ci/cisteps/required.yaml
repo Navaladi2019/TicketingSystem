@@ -19,6 +19,9 @@ steps:
     run: make check-ci-steps
     why: this list stops being enforced (TICK-297)
   - job: lint
+    run: make vet-tags
+    why: a build-tagged file stops compiling on main and nothing goes red (TICK-320)
+  - job: lint
     run: make check-openapi
     why: /api/v1 loses an operation or field without review
 

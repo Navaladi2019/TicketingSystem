@@ -72,6 +72,37 @@ Every CI-5 id is registered (`ci5_paths.go`), so the report lists all fourteen. 
 
 The cases only Keycloak can show (its broker, the organization picker, its keys and ID tokens) are `Stack` paths on `TestCI5`, with `StackTarget` naming `make identity-attacks`, so `TestStackPathsExist` covers them. That suite runs the whole catalogue against the compose Keycloak and writes `ci5-report.md`; see [identity-ci5.md](identity-ci5.md).
 
+## Write-chain tripwire (TICK-326, R2)
+
+The idempotency key is scoped to `(tenant_id, principal_id, key)` only if the middleware runs behind authentication, and it must run behind the per-tenant limit so a throttled tenant cannot fill `idempotency_keys`. `internal/server/write_chain_test.go` fails when any tenant write route (POST, PUT, PATCH or DELETE outside `/api/v1/operator/`) is not wrapped in `authn → ratelimit → idempotency`, in that order. It runs in the `unit` job (`make test`), with no containers.
+
+- **Routes** come from the embedded `api/openapi.yaml`, the contract the generated router mounts. The operator prefix is the one `routeAuth` uses. Operator routes are out of scope: they carry no tenant and do their own idempotency (T21).
+- **Probes** drive the real handler (`server.NewHandler`) and look for each middleware's own signature, so naming a layer is not enough:
+  - P1, no token: 401 with `WWW-Authenticate`. The limiter is never asked, and the idempotency counter does not move.
+  - P2, tenant A's token over its limit, no `Idempotency-Key`: 429 `rate_limited`. The limiter is asked for tenant A only, and the idempotency counter does not move.
+  - P3, tenant A's token within its limit, no key, a malformed body: 400 `validation_failed` on `/header/Idempotency-Key` alone, and `nava.idempotency.requests{result="rejected"}` goes up by one.
+- **Fixtures** (`TestWriteChainTripwireFixtures`) put the real auth, ratelimit and idempotency middleware around one write route. The correct chain must pass. Each of these must fail: idempotency missing; idempotency before ratelimit; idempotency outside authn; ratelimit outside authn; authn only; no middleware. `TestWriteChainTripwireIsRedOnTheRealHandler` probes today's handler as if `POST /api/v1/me` were a write route, and P3 must fail.
+- **Contract for later work:** any task that adds a tenant write route keeps this test green. Mount idempotency in `newTripwireHandler` with the same option `cmd/nava-core` uses, built on the handler's `MeterProvider`.
+
+```mermaid
+sequenceDiagram
+    participant A as Client (tenant A's token)
+    participant N as authn
+    participant L as ratelimit
+    participant I as idempotency
+    participant H as handler
+    A->>N: POST /api/v1/... (no token)
+    N-->>A: 401, nothing inside runs (P1)
+    A->>N: POST with token A, over the limit
+    N->>L: principal = tenant A
+    L-->>A: 429, no idempotency row (P2)
+    A->>N: POST with token A, no Idempotency-Key
+    N->>L: tenant A
+    L->>I: allowed
+    I-->>A: 400 /header/Idempotency-Key, handler never runs (P3)
+    Note over I,H: with idempotency missing, the validator or the handler answers P3 and the tripwire fails
+```
+
 ## Not covered here (owner)
 
 - Byte-identical 404, `If-Match` 412 and the masked-field filter: CI-8 rest, TICK-87.
