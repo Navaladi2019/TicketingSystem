@@ -332,6 +332,9 @@ jobs:
         run: make stack-test-demo_outbox
       - name: Dependency probes, /readyz 200 with Keycloak stopped
         run: make stack-test-dependencies
+      # TICK-328 (R4): restarts PostgreSQL, so it runs after the dependency probes.
+      - name: Keycloak issues tokens again after a PostgreSQL restart; /healthz never ok while it cannot
+        run: make stack-test-keycloak_restart
       - name: One request, one trace
         run: make stack-test-trace
       - name: Exported logs reach the Collector

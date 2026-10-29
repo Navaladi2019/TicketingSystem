@@ -35,6 +35,19 @@ membership ports (7234, 7235, 7239, 6933-6939) are on `temporal-backplane`, whic
 no platform process joins; the gateway forwards 7233 only. `FORCE=1 make dev-ca`
 reissues. Cron on a started workflow cannot be seen by the Authorizer (T27b).
 
+**Keycloak and a PostgreSQL restart (TICK-328, R4).** Keycloak once kept its dead
+database connections after PostgreSQL restarted and refused every token
+(`400 unauthorized_client`) while `/health/ready` stayed 200. The pool is set in
+two places: `KC_DB_POOL_INITIAL_SIZE=2`, `KC_DB_POOL_MIN_SIZE=2` and
+`KC_DB_POOL_MAX_SIZE=20` in `compose.yaml`, and `keycloak/quarkus.properties`
+(copied into the image, so `kc.sh build` sees it): validation query `SELECT 1`
+on every borrow (`foreground-validation-interval=0S`) and in the background every
+10 s, idle removal every 30 s, `max-lifetime=5M`, and the datasource health
+check in `/health/ready`. nava-core's `/healthz` keycloak check (`NAVA_KEYCLOAK_TOKEN_URL`)
+also asks the token endpoint, so it is `fail` while Keycloak cannot read its
+database. `stack-test.sh keycloak_restart` restarts PostgreSQL and requires token
+issuance back within 90 s and `/healthz` never `ok` while issuance fails.
+
 Host ports (bound to 127.0.0.1): nava-core `18080`, Keycloak `18081` (`NAVA_CORE_PORT`, `KEYCLOAK_PORT`). A second stack on the same host: `make ci-isolated ID=...` (`docs/quality/ci-pipeline.md`, "Parallel runs").
 
 **Traces and metrics in a browser (local dev only).** `task stack:up` starts the
