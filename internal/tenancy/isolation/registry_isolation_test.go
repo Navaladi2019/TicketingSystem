@@ -70,17 +70,26 @@ func TestRegistryIsWellFormed(t *testing.T) {
 	}
 }
 
-// makeTargets are the rule names of the repository's Makefile.
+// makeTargets are the rule names of the repository's Makefile and its
+// make/*.mk fragments.
 func makeTargets(t *testing.T) map[string]bool {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "Makefile"))
+	root := filepath.Join("..", "..", "..")
+	files, err := filepath.Glob(filepath.Join(root, "make", "*.mk"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	files = append(files, filepath.Join(root, "Makefile"))
 	out := map[string]bool{}
-	for _, line := range strings.Split(string(raw), "\n") {
-		if name, _, ok := strings.Cut(line, ":"); ok && name != "" && !strings.ContainsAny(name, " \t=$#.%") {
-			out[name] = true
+	for _, f := range files {
+		raw, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, line := range strings.Split(string(raw), "\n") {
+			if name, _, ok := strings.Cut(line, ":"); ok && name != "" && !strings.ContainsAny(name, " \t=$#.%") {
+				out[name] = true
+			}
 		}
 	}
 	return out

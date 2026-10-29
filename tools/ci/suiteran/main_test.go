@@ -216,7 +216,7 @@ func (s) TestMethod(t *testing.T) {}
 
 const repoRoot = "../../.."
 
-// suiteranTagsRe finds the -tags of each suiteran call in the Makefile and the
+// suiteranTagsRe finds the -tags of each suiteran call in the Makefile, make/*.mk and the
 // CI scripts.
 var suiteranTagsRe = regexp.MustCompile(`tools/ci/suiteran\b(.*)`)
 
@@ -225,6 +225,11 @@ var suiteranTagsRe = regexp.MustCompile(`tools/ci/suiteran\b(.*)`)
 // running: a suite nobody checks can drop out silently again.
 func TestEveryRegisteredSuiteHasACheckedStep(t *testing.T) {
 	sources := []string{filepath.Join(repoRoot, "Makefile")}
+	fragments, err := filepath.Glob(filepath.Join(repoRoot, "make", "*.mk"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sources = append(sources, fragments...)
 	scripts, err := filepath.Glob(filepath.Join(repoRoot, "scripts", "ci", "*.sh"))
 	if err != nil {
 		t.Fatal(err)
@@ -287,7 +292,7 @@ func TestEveryRegisteredSuiteHasACheckedStep(t *testing.T) {
 // fails). TestCI5 stays out by its ci5 build tag; make identity-attacks
 // checks it.
 func TestStackTestIdentityIsChecked(t *testing.T) {
-	b, err := os.ReadFile(filepath.Join(repoRoot, "Makefile"))
+	b, err := os.ReadFile(filepath.Join(repoRoot, "make", "identity.mk"))
 	if err != nil {
 		t.Fatal(err)
 	}
