@@ -176,8 +176,8 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		}
 		if !d.Allowed {
 			secs := max(1, int(math.Ceil(d.RetryAfter.Seconds())))
-			m.log.InfoContext(ctx, "request rate limited",
-				slog.String("tenant_id", p.TenantID.String()), slog.Int("retry_after_s", secs))
+			// tenant_id is added from ctx by the logging ContextHandler.
+			m.log.InfoContext(ctx, "request rate limited", slog.Int("retry_after_s", secs))
 			w.Header().Set("Retry-After", strconv.Itoa(secs))
 			m.reg.Write(w, r, problem.RateLimited)
 			return

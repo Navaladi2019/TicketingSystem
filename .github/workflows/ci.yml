@@ -1,8 +1,9 @@
 # T05 pipeline. Every step calls a Makefile target, so `make ci` runs the same
 # gates locally. The jobs run in parallel; inside each, steps run in the
 # Makefile's gate order and the first failure stops the job:
-#   lint             gofmt, go vet, golangci-lint, fixtures, pins, generated
-#                    code, required CI steps, OpenAPI, govulncheck (no containers)
+#   lint             gofmt, go vet (untagged, then per build-tag set),
+#                    golangci-lint, fixtures, pins, generated code, required
+#                    CI steps, OpenAPI, govulncheck (no containers)
 #   unit             go test -race (no containers)
 #   temporal-server  the custom server module's unit tests and govulncheck
 #                    (no containers)
@@ -112,7 +113,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/go/bin
-          key: tools-${{ hashFiles('Makefile') }}
+          key: tools-${{ hashFiles('Makefile', 'make/lint.mk') }}
       - name: Install pinned tools
         if: steps.tools.outputs.cache-hit != 'true'
         run: make tools
@@ -125,6 +126,9 @@ jobs:
         run: make fmt-check
       - name: go vet
         run: make vet
+      # Every //go:build tag set, discovered by tools/ci/buildtags (TICK-320).
+      - name: go vet per build-tag set
+        run: make vet-tags
       - name: golangci-lint
         run: make lint
       - name: Lint fixture (exact forbidigo finding count)

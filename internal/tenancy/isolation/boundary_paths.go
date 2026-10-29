@@ -400,9 +400,9 @@ type operatorRoute struct{ method, path string }
 // operatorRoutes lists every operation the contract has under
 // /api/v1/operator/, path parameters filled with tenant B's id.
 func operatorRoutes() ([]operatorRoute, error) {
-	data, err := api.Files.ReadFile("openapi.yaml")
+	data, err := api.Files.ReadFile(api.SpecFile)
 	if err != nil {
-		return nil, fmt.Errorf("read openapi.yaml: %w", err)
+		return nil, fmt.Errorf("read %s: %w", api.SpecFile, err)
 	}
 	spec, err := apihttp.LoadSpec(data)
 	if err != nil {
