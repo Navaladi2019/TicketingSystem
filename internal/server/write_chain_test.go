@@ -3,7 +3,7 @@ package server_test
 // The write-chain tripwire (TICK-326, regression R2). Every tenant write route
 // of the contract (POST, PUT, PATCH or DELETE outside /api/v1/operator/) must
 // run authn -> ratelimit -> idempotency, in that order, before anything else
-// reads the request. The routes come from the embedded api/openapi.yaml, the
+// reads the request. The routes come from the embedded bundled spec (api.SpecFile), the
 // same contract the generated router mounts; there is no hand-written list.
 //
 // The check is behavioural: it drives the real handler and looks for each
@@ -72,7 +72,7 @@ func TestTenantWriteRoutesMountAuthnRatelimitIdempotency(t *testing.T) {
 	// The operator onboarding route is a write in the contract: a parser that
 	// found no write at all would make the tripwire pass on nothing.
 	if len(all) == 0 {
-		t.Fatal("no write operation found in api/openapi.yaml; the enumeration is broken")
+		t.Fatal("no write operation found in the bundled spec; the enumeration is broken")
 	}
 	t.Logf("contract writes: %v; tenant writes checked: %v", all, tenant)
 	for _, op := range tenant {
@@ -163,7 +163,7 @@ func (o writeOp) url() string {
 // the tenant ones (outside the operator prefix), sorted.
 func contractWriteOps(t *testing.T) (all, tenant []writeOp) {
 	t.Helper()
-	data, err := api.Files.ReadFile("openapi.yaml")
+	data, err := api.Files.ReadFile(api.SpecFile)
 	if err != nil {
 		t.Fatal(err)
 	}
