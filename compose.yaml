@@ -289,6 +289,47 @@ services:
       retries: 20
     restart: unless-stopped
 
+  # Jaeger (TICK-330), local dev only: shows the traces the Collector forwards.
+  # Profile `operator`, so the CI stack never starts it. In-memory storage, so
+  # traces are gone after a restart. `internal` lets the Collector reach its OTLP
+  # port (4317, never published); `operator` carries the published UI.
+  jaeger:
+    profiles: [operator]
+    image: jaegertracing/jaeger:2.11.0
+    networks: [internal, operator]
+    ports:
+      - "127.0.0.1:16686:16686"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:16686/"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  # Prometheus (TICK-330), local dev only. Scrapes /metrics on the admin
+  # listener of each long-running nava service over `internal`
+  # (deploy/compose/prometheus/prometheus.yml). It listens on 9091 inside the
+  # container, so the host mapping needs no second mention of the admin port.
+  prometheus:
+    profiles: [operator]
+    image: prom/prometheus:v3.7.3
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.listen-address=0.0.0.0:9091
+      - --enable-feature=exemplar-storage
+      - --storage.tsdb.retention.time=2d
+    volumes:
+      - ./deploy/compose/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks: [internal, operator]
+    ports:
+      - "127.0.0.1:9091:9091"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9091/-/healthy"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
   otel-collector:
     build:
       context: ./deploy/compose/otel-collector

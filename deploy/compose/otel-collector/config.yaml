@@ -1,5 +1,6 @@
-# nava-core exports OTLP/HTTP traces and logs here. The debug exporter is the only
-# destination until a trace backend is chosen.
+# nava-core exports OTLP/HTTP traces and logs here. Logs go to the debug
+# exporter only. Traces go to the debug exporter and to Jaeger (local dev, TICK-330);
+# no production backend is chosen.
 extensions:
   health_check:
     endpoint: 0.0.0.0:13133
@@ -97,6 +98,15 @@ processors:
 exporters:
   debug:
     verbosity: detailed
+  # Jaeger runs only under the `operator` profile. Without it the name does not
+  # resolve: the exporter logs a send error, retries for 5s, drops that batch and
+  # never blocks the pipeline or the health check, so the CI stack stays healthy.
+  # The small queue bounds memory while Jaeger is absent.
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls: {insecure: true}
+    retry_on_failure: {enabled: true, initial_interval: 1s, max_interval: 2s, max_elapsed_time: 5s}
+    sending_queue: {enabled: true, queue_size: 100}
 
 service:
   extensions: [health_check]
@@ -104,7 +114,7 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, attributes/deny, transform/deny, tail_sampling, batch]
-      exporters: [debug]
+      exporters: [debug, otlp/jaeger]
     logs:
       receivers: [otlp]
       processors: [memory_limiter, attributes/deny, batch]
