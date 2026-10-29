@@ -171,3 +171,45 @@ func checkKeycloakProxy(env map[string]string) error {
 	}
 	return nil
 }
+
+// TestComposePublishesOnlyAllowedUIs (TICK-330): a compose file publishes only
+// the ports a browser or curl on the developer's machine needs, each bound to
+// 127.0.0.1. The OTLP ports (4317, 4318), the Collector health check (13133)
+// and every other service port stay on the compose networks. Publishing a new
+// port means adding it here on purpose.
+func TestComposePublishesOnlyAllowedUIs(t *testing.T) {
+	t.Parallel()
+	allowed := map[string]string{ // service -> container port
+		"keycloak":   "8080",
+		"nava-core":  "8080",
+		"jaeger":     "16686",
+		"prometheus": "9091",
+	}
+	for _, f := range []string{"../../compose.yaml", "../../deploy/compose/compose.internal.yaml"} {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var doc struct {
+			Services map[string]struct {
+				Ports []string `yaml:"ports"`
+			} `yaml:"services"`
+		}
+		if err := yaml.Unmarshal(b, &doc); err != nil {
+			t.Fatal(err)
+		}
+		for name, svc := range doc.Services {
+			for _, p := range svc.Ports {
+				p = composeDefault.ReplaceAllString(p, "$1")
+				parts := strings.Split(p, ":")
+				if len(parts) != 3 || parts[0] != "127.0.0.1" {
+					t.Errorf("%s: %s publishes %q, want 127.0.0.1:<host>:<container>", f, name, p)
+					continue
+				}
+				if want, ok := allowed[name]; !ok || parts[2] != want {
+					t.Errorf("%s: %s publishes container port %s, not in the allowlist", f, name, parts[2])
+				}
+			}
+		}
+	}
+}

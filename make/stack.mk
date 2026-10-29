@@ -1,24 +1,19 @@
 .PHONY: ci-stack ci-stack-run stack-tests stack-main stack-internal-beside stack-internal stack-up stack-down stack-logs image image-ci smoke
 
 # Builds the images, brings the stack up, runs every stack test, then tears
-# it down (logs first on failure). The workflow runs the same targets one step
-# at a time.
-# healthy gates the rest. The read-only checks and the two Go suites then run
-# at once (TICK-153 O10): none changes what another reads, and each matches
-# only lines it caused. The rest run one at a time, in this order: dependencies
-# stops Keycloak, trace counts every trace the Collector saw, idempotent
-# restarts the stack, and dbroles changes roles. worker polls nava-tq, the
-# queue the sdk suite's workers poll, so it runs after that suite.
-
-STACK_TESTS_PARALLEL := smoke pgbouncer temporal temporal_handshake temporal_isolation temporal_custody temporal_operator_reach temporal_health hba sdk identity
-# Fragments add their own stack tests with STACK_TESTS_SERIAL += <name> (the stack-test-<name>
-# target). Those run in include (alphabetical) order, before the disruptive cases below.
-STACK_TESTS_SERIAL += dependencies keycloak_restart trace logs redact idempotent dbroles
-STACK_TESTS = healthy $(STACK_TESTS_PARALLEL) $(STACK_TESTS_SERIAL)
+# it down (logs first on failure). The workflow runs `make stack-tests JOB=<job>`
+# on each of its stack jobs.
+# The tests are the files in deploy/compose/test/cases/, ordered and assigned to a CI job by the
+# "# stack-case:" header of each (run-cases.sh); adding one needs no edit here or in ci.yml.
+# healthy gates the rest. The read-only (parallel) cases then run at once under PARALLEL=1
+# (TICK-153 O10), as ci-stack does; the CI jobs run one at a time. The serial cases follow in
+# order: dependencies stops Keycloak, trace counts every trace the Collector saw, idempotent
+# restarts the stack, and dbroles changes roles. worker polls nava-tq, the queue the sdk
+# suite's workers poll, so it sorts after that suite.
+# JOB: a comma list of CI jobs (stack, stack-db, stack-internal), or all.
+JOB ?= stack,stack-db
 stack-tests:
-	$(MAKE) --no-print-directory -j1 stack-test-healthy
-	$(MAKE) --no-print-directory -j $(words $(STACK_TESTS_PARALLEL)) --output-sync=target $(addprefix stack-test-,$(STACK_TESTS_PARALLEL))
-	$(MAKE) --no-print-directory -j1 $(addprefix stack-test-,$(STACK_TESTS_SERIAL))
+	@sh deploy/compose/test/run-cases.sh run $(JOB)
 ci-stack: $(if $(IMAGE_CACHE),image-ci,image)
 	@$(STACK_LOCK) $(MAKE) --no-print-directory ci-stack-run
 
@@ -35,7 +30,7 @@ ci-stack-run: dev-ca
 	@$(MAKE) --no-print-directory $(if $(filter after,$(STACK_INTERNAL)),-j1,-j 2) stack-main stack-internal-beside
 
 stack-main:
-	@status=0; $(MAKE) --no-print-directory -j1 stack-up stack-tests || status=$$?; if [ $$status -ne 0 ]; then $(MAKE) --no-print-directory stack-logs; fi; $(MAKE) --no-print-directory stack-down; exit $$status
+	@status=0; $(MAKE) --no-print-directory -j1 stack-up stack-tests PARALLEL=1 || status=$$?; if [ $$status -ne 0 ]; then $(MAKE) --no-print-directory stack-logs; fi; $(MAKE) --no-print-directory stack-down; exit $$status
 
 # The internal overlay needs a fresh stack. Host ports 0: Docker picks free
 # ones, so it cannot collide with the main stack's.
@@ -97,7 +92,7 @@ image-ci:
 stack-up: dev-ca
 	docker compose up -d
 
-# stack-test-<name>: one case of deploy/compose/test/stack-test.sh.
+# stack-test-<name>: one case, deploy/compose/test/cases/<name>.sh (make/ fragments with their own recipe override this).
 stack-test-%:
 	sh deploy/compose/test/stack-test.sh $*
 

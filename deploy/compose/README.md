@@ -19,7 +19,9 @@ docker compose -f compose.yaml -f deploy/compose/compose.internal.yaml up -d   #
 | temporal-server | `nava/temporal-server:dev` (T27a) | Frontend and internode mTLS, namespace `nava`, `NavaTenantId`; holds the `temporal-system` certificate; `temporal-backplane` network only |
 | temporal | `nava/temporal-server:dev` | Gateway: forwards TCP 7233 only, no certificate. The only route from the platform network to the server |
 | temporal-ui | `temporalio/ui:2.40.1` | Profile `operator` only, on the `operator` network with the `nava-operator` certificate; `http://127.0.0.1:18233` |
-| otel-collector | built from `contrib:0.139.0` | Internal network only; tail sampling; debug exporter |
+| jaeger | `jaegertracing/jaeger:2.11.0` | Profile `operator` only, `internal` + `operator` networks; in-memory traces; UI `http://127.0.0.1:16686`; OTLP port unpublished |
+| prometheus | `prom/prometheus:v3.7.3` | Profile `operator` only, `internal` + `operator` networks; exemplar storage on; UI `http://127.0.0.1:9091`; config `prometheus/prometheus.yml` |
+| otel-collector | built from `contrib:0.139.0` | Internal network only; tail sampling; debug exporter and, for traces, OTLP to Jaeger |
 | nava-core | built from the repo | Exports OTLP traces to the Collector |
 | nava-onboard | built from the repo (`cmd/nava-onboard`) | Operator onboarding API on `:8081`, `internal` network only, never published; the only holder of the onboarding secret and the `nava_onboard` URL. Reach it with `docker compose exec` (`docs/operator/onboarding.md`) |
 | nava-groupsync | built from the repo (`cmd/nava-groupsync`) | Syncs `/t/<tenant_id>/` users and groups into the identity tables every `NAVA_GROUPSYNC_INTERVAL` (default 5m); one cycle on demand: `docker compose run --rm --no-deps nava-groupsync --once` |
@@ -47,6 +49,21 @@ database. `stack-test.sh keycloak_restart` restarts PostgreSQL and requires toke
 issuance back within 90 s and `/healthz` never `ok` while issuance fails.
 
 Host ports (bound to 127.0.0.1): nava-core `18080`, Keycloak `18081` (`NAVA_CORE_PORT`, `KEYCLOAK_PORT`). A second stack on the same host: `make ci-isolated ID=...` (`docs/quality/ci-pipeline.md`, "Parallel runs").
+
+**Traces and metrics in a browser (local dev only).** `task stack:up` starts the
+`operator` profile, which includes Jaeger and Prometheus:
+
+```
+OTEL_TAIL_SAMPLE_PERCENT=100 task stack:up   # keep every trace, not 10%
+```
+
+- Jaeger: `http://127.0.0.1:16686`, pick service `nava-core` after a request to
+  `http://127.0.0.1:18080`. Errors and requests slower than 500 ms are always kept.
+- Prometheus: `http://127.0.0.1:9091`, Status > Targets; each nava service's
+  admin `/metrics` is scraped over `internal` (the admin ports stay unpublished).
+- Without the `operator` profile (the CI stack) there is no Jaeger. The Collector
+  then logs a failed export for each trace batch, drops it after 5 s of retries
+  and stays healthy.
 
 **Adding a role or database.** List it in `db/grants.yaml` (see `db/README.md`);
 db-roles creates it on the next `up`. A LOGIN role also needs a
@@ -76,7 +93,7 @@ runs exactly that and checks the history (CI: the `stack` job).
 `MSYS_NO_PATHCONV=1` themselves, so no `export` is needed. A `docker run`, `create`
 or `exec` you add with a container path must do the same.
 
-**Tests.** `sh deploy/compose/test/stack-test.sh <healthy|pgbouncer|temporal|trace|redact|idempotent|dbroles|internal|temporal_handshake|temporal_isolation|temporal_confinement|temporal_custody|temporal_health>`
+**Tests.** One script per case in `deploy/compose/test/cases/<name>.sh`; `sh deploy/compose/test/stack-test.sh <name>` runs one, with no name all of them. A new case is a new file with a `# stack-case: job=... order=... mode=...` header (`run-cases.sh registry` prints the registry); CI picks it up without a `ci.yml` edit
 (`task stack:test`). Start the stack with `OTEL_TAIL_SAMPLE_PERCENT=100` for the
 `trace` test: an ordinary 404 is otherwise sampled out. CI runs them in
 the `stack` job in `.github/workflows/ci.yml`.
