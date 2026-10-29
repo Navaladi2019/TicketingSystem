@@ -130,7 +130,7 @@ tasks:
   stack:test:
     desc: Run the stack tests against a running stack (set OTEL_TAIL_SAMPLE_PERCENT=100 when starting it for the trace test)
     cmds:
-      - for: [healthy, smoke, pgbouncer, temporal, temporal_handshake, temporal_isolation, temporal_custody, temporal_operator_reach, temporal_health, dependencies, trace, logs, redact, idempotent, dbroles, hba]
+      - for: [healthy, smoke, pgbouncer, temporal, temporal_handshake, temporal_isolation, temporal_custody, temporal_operator_reach, temporal_health, dependencies, keycloak_restart, trace, logs, redact, idempotent, dbroles, hba]
         cmd: sh deploy/compose/test/stack-test.sh {{.ITEM}}
 
   demo:outbox:

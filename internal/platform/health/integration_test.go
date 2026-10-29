@@ -107,7 +107,7 @@ func TestReadyzTracksPostgresStopAndStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	mon, err := health.NewMonitor(log, tel.MeterProvider,
-		[]health.Check{pg, health.Keycloak(kc.URL, kcOut)}, health.Options{}) // production defaults
+		[]health.Check{pg, health.Keycloak(kc.URL, "", kcOut)}, health.Options{}) // production defaults
 	if err != nil {
 		t.Fatal(err)
 	}
