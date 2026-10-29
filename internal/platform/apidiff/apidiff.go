@@ -1,7 +1,7 @@
 // Package apidiff is the additive-only check for the /api/v1 contract. Within
 // v1 a change may add paths, operations, responses and properties; it may not
 // remove or narrow what a client can already rely on. CI runs it against the
-// copy of api/openapi.yaml on main (cmd/openapi-compat).
+// copy of api/openapi.bundled.yaml on main (cmd/openapi-compat).
 package apidiff
 
 import (
