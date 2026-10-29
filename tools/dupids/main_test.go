@@ -92,6 +92,21 @@ func TestOtherTablesAreNotIDTables(t *testing.T) {
 	}
 }
 
+func TestNoIDTableFails(t *testing.T) {
+	// A header renamed to "Id" must not turn the check into a silent no-op.
+	root := t.TempDir()
+	write(t, root, "docs/delivery/todo.md", "| Id | Status |\n| --- | --- |\n| TODO-001 | Open |\n| TODO-001 | Open |\n")
+	write(t, root, "docs/security/accepted-risks.md", arHead+"| AR-001 | Low |\n")
+	got, err := check(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `todo.md: no table headed "ID"; dupids checks nothing`
+	if len(got) != 1 || !strings.Contains(got[0], want) {
+		t.Fatalf("check = %v; want one problem containing %q", got, want)
+	}
+}
+
 func TestSameIDInOtherFileIsFine(t *testing.T) {
 	// Prose and other tables may repeat an id; only first-column cells count.
 	root := repo(t, "| TODO-001 | See TODO-001 |\nSee TODO-001 again.\n", "| AR-001 | TODO-001 |\n")

@@ -69,13 +69,14 @@ func check(root string) ([]string, error) {
 		lines := map[string][]int{}
 		sc := bufio.NewScanner(f)
 		sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-		inIDTable, prevRow := false, false
+		inIDTable, prevRow, sawIDTable := false, false, false
 		for n := 1; sc.Scan(); n++ {
 			line := sc.Text()
 			isRow := strings.HasPrefix(line, "|")
 			if isRow && !prevRow {
 				// First line of a table: only tables headed "ID" hold row ids.
 				inIDTable = firstCell(line) == "ID"
+				sawIDTable = sawIDTable || inIDTable
 			}
 			prevRow = isRow
 			if !isRow || !inIDTable {
@@ -98,6 +99,9 @@ func check(root string) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", tb.path, err)
 		}
+		if !sawIDTable {
+			problems = append(problems, fmt.Sprintf("%s: no table headed \"ID\"; dupids checks nothing", tb.path))
+		}
 		ids := make([]string, 0, len(lines))
 		for id, ns := range lines {
 			if len(ns) > 1 {
@@ -113,9 +117,9 @@ func check(root string) ([]string, error) {
 	return problems, nil
 }
 
-// rowID returns the first cell of a table row ("| TODO-001 | ..." gives
-// "TODO-001"), or "" for any other line. A trailing parenthesis such as
-// "AR-001 (R8)" is dropped.
+// rowID returns the first word of the first cell of a table row
+// ("| TODO-001 | ..." gives "TODO-001"), or "" for any other line. Text after
+// the first space, such as the "(R8)" in "AR-001 (R8)", is dropped.
 func rowID(line string) string {
 	id, _, _ := strings.Cut(firstCell(line), " ")
 	return id
