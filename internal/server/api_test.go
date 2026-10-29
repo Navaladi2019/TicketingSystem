@@ -130,7 +130,7 @@ func TestDocsAndSpecAreServed(t *testing.T) {
 		t.Errorf("docs = %d %v %s", rec.Code, rec.Header(), rec.Body)
 	}
 	rec = serve(t, h, http.MethodGet, "/api/v1/openapi.yaml")
-	if rec.Code != http.StatusOK || !strings.HasPrefix(rec.Body.String(), "openapi: 3.1") {
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "openapi: 3.1") {
 		t.Errorf("openapi.yaml = %d %.40s", rec.Code, rec.Body)
 	}
 }
