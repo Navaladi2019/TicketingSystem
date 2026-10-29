@@ -87,6 +87,10 @@ func TestBundleFailures(t *testing.T) {
 			map[string]string{"openapi.yaml": rootSpec, "paths/things.yaml": thingsSpec, "paths/extra.yaml": "paths: {}\n"},
 			"paths/extra.yaml is not referenced",
 		},
+		"unreferenced path in group file": {
+			map[string]string{"openapi.yaml": rootSpec, "paths/things.yaml": strings.Replace(thingsSpec, "components:\n", "  /api/v1/things/extra:\n    get:\n      responses:\n        \"200\": {description: ok}\ncomponents:\n", 1)},
+			"paths/things.yaml: path /api/v1/things/extra is not referenced",
+		},
 		"dangling ref": {
 			map[string]string{"openapi.yaml": rootSpec, "paths/things.yaml": strings.Replace(thingsSpec, "schemas/Thing\"", "schemas/Nope\"", 1)},
 			"bundle does not load",
