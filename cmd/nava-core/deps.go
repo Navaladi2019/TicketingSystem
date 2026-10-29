@@ -35,7 +35,7 @@ func newMonitor(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry,
 		return nil, nil, err
 	}
 	mon, err := health.NewMonitor(log, tel.MeterProvider,
-		[]health.Check{pg, health.Keycloak(cfg.Deps.KeycloakManagementURL, out), tc}, health.Options{})
+		[]health.Check{pg, health.Keycloak(cfg.Deps.KeycloakManagementURL, cfg.Deps.KeycloakTokenURL, out), tc}, health.Options{})
 	if err != nil {
 		closePG()
 		closeTemporal()

@@ -3,7 +3,7 @@
 **Id rule:** a new row is `TODO-<story>-NN` (for example `TODO-S5-01`); work outside a story uses the task id (`TODO-TICK-288-01`). Existing `TODO-NNN` ids stay. Append the row at the end of the table.
 
 Known gaps that are deliberately deferred. Each row has a matching
-`TODO(TODO-NNN)` comment in the code, so `grep -rn "TODO(TODO-" .` finds every
+`TODO(TODO-<id>)` comment (the row's full id, such as `TODO-S5-01`) in the code, so `grep -rn "TODO(TODO-" .` finds every
 site. When an item is fixed, remove its code comment and set its status to
 `Fixed (YYYY-MM-DD, PR or commit)`. Statuses: `Open`, `Fixed`.
 

@@ -14,13 +14,22 @@ steps:
   # The lint gates that guard the rest.
   - job: lint
     run: make check-generate
-    why: api/api.gen.go drifts from api/openapi.yaml unnoticed (TICK-297)
+    why: regenerates the bundle and api/api.gen.go and fails on any diff or untracked file under api/; without it they drift from api/openapi.yaml unnoticed (TICK-297)
   - job: lint
     run: make check-ci-steps
     why: this list stops being enforced (TICK-297)
   - job: lint
+    run: make vet-tags
+    why: a build-tagged file stops compiling on main and nothing goes red (TICK-320)
+  - job: lint
     run: make check-openapi
     why: /api/v1 loses an operation or field without review
+
+  # Story work that never reaches main (TICK-322, after S6 and the S5
+  # post-merge PRs, TICK-286).
+  - job: story-branches
+    run: make check-story-branches
+    why: a story branch's changes stay off main once its story PR merged, or forever
 
   # suiteran: a registered isolation suite that runs zero tests fails the step (TICK-230).
   - job: unit

@@ -87,6 +87,10 @@ func TestServerEndToEnd(t *testing.T) {
 		return err
 	}
 	call := func(f func() error) error { return f() }
+	// The namespace can be visible before history and matching have joined the
+	// membership ring, so the first workflow start may still get Unavailable
+	// ("Not enough hosts to serve the request"). Retry that code only.
+	relayStarted := retryUnavailable(ctx, startReadyWait, 500*time.Millisecond, func() error { return start(relay) })
 
 	cases := []struct {
 		name string
@@ -97,7 +101,7 @@ func TestServerEndToEnd(t *testing.T) {
 			_, err := unknown.GetSystemInfo(ctx, &workflowservice.GetSystemInfoRequest{})
 			return err
 		}), codes.PermissionDenied},
-		{"relay StartWorkflowExecution", start(relay), codes.OK},
+		{"relay StartWorkflowExecution", relayStarted, codes.OK},
 		{"core StartWorkflowExecution", start(core), codes.PermissionDenied},
 		{"worker StartWorkflowExecution", start(worker), codes.PermissionDenied},
 		{"relay DescribeNamespace", call(func() error { _, err := relay.DescribeNamespace(ctx, nsReq); return err }), codes.PermissionDenied},
@@ -263,6 +267,87 @@ func eventually(t *testing.T, ctx context.Context, what string, f func(context.C
 		time.Sleep(500 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for %s: %v", what, errors.Join(last, ctx.Err()))
+}
+
+// startReadyWait bounds how long the first workflow start may keep getting
+// Unavailable while the server finishes joining its membership ring.
+const startReadyWait = time.Minute
+
+// errStillUnavailable marks a retryUnavailable call that ran out of time.
+var errStillUnavailable = errors.New("server still Unavailable")
+
+// retryUnavailable calls f until it returns anything other than
+// codes.Unavailable, and returns that result as is: success, or any other
+// error, which a broken server must still fail on. Once wait has passed it
+// returns the last Unavailable error wrapped with errStillUnavailable.
+func retryUnavailable(ctx context.Context, wait, every time.Duration, f func() error) error {
+	deadline := time.Now().Add(wait)
+	for {
+		err := f()
+		if status.Code(err) != codes.Unavailable {
+			return err
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("%w after %v: %w", errStillUnavailable, wait, err)
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("%w: %w", errStillUnavailable, errors.Join(err, ctx.Err()))
+		case <-time.After(every):
+		}
+	}
+}
+
+func TestRetryUnavailable(t *testing.T) {
+	unavailable := status.Error(codes.Unavailable, "Not enough hosts to serve the request")
+	seq := func(errs ...error) (func() error, *int) {
+		n := 0
+		return func() error {
+			err := errs[min(n, len(errs)-1)]
+			n++
+			return err
+		}, &n
+	}
+	ctx := context.Background()
+
+	t.Run("retries Unavailable until success", func(t *testing.T) {
+		f, n := seq(unavailable, unavailable, nil)
+		if err := retryUnavailable(ctx, time.Minute, time.Millisecond, f); err != nil {
+			t.Fatalf("got %v, want nil", err)
+		}
+		if *n != 3 {
+			t.Errorf("calls = %d, want 3", *n)
+		}
+	})
+	t.Run("returns any other code at once", func(t *testing.T) {
+		denied := status.Error(codes.PermissionDenied, "denied")
+		f, n := seq(denied, nil)
+		if err := retryUnavailable(ctx, time.Minute, time.Millisecond, f); status.Code(err) != codes.PermissionDenied {
+			t.Fatalf("got %v, want PermissionDenied", err)
+		}
+		if *n != 1 {
+			t.Errorf("calls = %d, want 1", *n)
+		}
+	})
+	t.Run("gives up after the deadline", func(t *testing.T) {
+		f, _ := seq(unavailable)
+		err := retryUnavailable(ctx, 20*time.Millisecond, time.Millisecond, f)
+		if !errors.Is(err, errStillUnavailable) || status.Code(err) != codes.Unavailable {
+			t.Fatalf("got %v, want errStillUnavailable wrapping Unavailable", err)
+		}
+	})
+	t.Run("stops when the context ends", func(t *testing.T) {
+		cctx, cancel := context.WithCancel(ctx)
+		cancel()
+		f, n := seq(unavailable)
+		err := retryUnavailable(cctx, time.Minute, time.Hour, f)
+		if !errors.Is(err, errStillUnavailable) || !errors.Is(err, context.Canceled) {
+			t.Fatalf("got %v, want errStillUnavailable and context.Canceled", err)
+		}
+		if *n != 1 {
+			t.Errorf("calls = %d, want 1", *n)
+		}
+	})
 }
 
 func freeAddr(t *testing.T) string {

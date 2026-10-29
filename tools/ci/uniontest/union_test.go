@@ -12,13 +12,31 @@ import (
 	"testing"
 )
 
-func git(t *testing.T, dir string, args ...string) string {
-	t.Helper()
-	cmd := exec.CommandContext(t.Context(), "git", append([]string{
+// gitFlags pins the settings that could change a merge result, so a user's
+// merge.conflictstyle, merge.default or custom merge driver cannot affect the
+// tests. gitCmd also isolates the global and system config files.
+func gitFlags() []string {
+	return []string{
 		"-c", "user.name=t", "-c", "user.email=t@example.invalid",
 		"-c", "core.autocrlf=false", "-c", "commit.gpgsign=false",
-	}, args...)...)
+		"-c", "merge.conflictstyle=merge", "-c", "merge.renormalize=false",
+		"-c", "merge.default=text",
+		"-c", "core.attributesFile=" + os.DevNull,
+	}
+}
+
+func gitCmd(t *testing.T, dir string, args ...string) *exec.Cmd {
+	t.Helper()
+	cmd := exec.CommandContext(t.Context(), "git", append(gitFlags(), args...)...)
 	cmd.Dir = dir
+	// Ignore the user's and the system's git config files entirely.
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1")
+	return cmd
+}
+
+func git(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := gitCmd(t, dir, args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
@@ -109,9 +127,7 @@ func TestAppendsConflictWithoutUnion(t *testing.T) {
 		git(t, dir, "commit", "-q", "-am", b)
 	}
 	git(t, dir, "checkout", "-q", "a")
-	cmd := exec.CommandContext(t.Context(), "git", "merge", "--no-edit", "b")
-	cmd.Dir = dir
-	if err := cmd.Run(); err == nil {
+	if err := gitCmd(t, dir, "merge", "--no-edit", "b").Run(); err == nil {
 		t.Fatal("expected a conflict without merge=union")
 	}
 }
@@ -126,5 +142,58 @@ func TestAttributesMarkSharedFilesTextUnion(t *testing.T) {
 		if !strings.Contains(out, "merge: union") || strings.Contains(out, "text: unset") {
 			t.Errorf("%s attributes:\n%s", p, out)
 		}
+	}
+}
+
+// merge=union only works for appends. When two branches edit the same existing
+// row it keeps both versions, with no conflict and two rows for one id; the
+// duplicate-id lint (tools/dupids) is what catches that (TICK-312).
+func TestEditSameRowCollidesAndLintCatchesIt(t *testing.T) {
+	requireGit(t)
+	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	attrs, err := os.ReadFile(filepath.Join(root, ".gitattributes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	type table struct{ head, id string }
+	tables := map[string]table{
+		"docs/delivery/todo.md":           {"| ID | Status |\n| --- | --- |\n", "TODO-001"},
+		"docs/security/accepted-risks.md": {"| ID | Sev |\n| --- | --- |\n", "AR-001"},
+	}
+	for path, tb := range tables {
+		t.Run(path, func(t *testing.T) {
+			dir := t.TempDir()
+			git(t, dir, "init", "-q", "-b", "main")
+			put(t, dir, ".gitattributes", string(attrs))
+			for p, other := range tables {
+				put(t, dir, p, other.head+"| "+other.id+" | base |\n")
+			}
+			git(t, dir, "add", "-A")
+			git(t, dir, "commit", "-q", "-m", "base")
+
+			for _, b := range []string{"a", "b"} {
+				git(t, dir, "checkout", "-q", "-b", b, "main")
+				// Both branches rewrite the same row, each in its own way.
+				put(t, dir, path, tb.head+"| "+tb.id+" | edited on "+b+" |\n")
+				git(t, dir, "commit", "-q", "-am", b)
+			}
+			git(t, dir, "checkout", "-q", "a")
+			git(t, dir, "merge", "--no-edit", "b") // union merge: no conflict
+
+			merged, _ := os.ReadFile(filepath.Join(dir, filepath.FromSlash(path)))
+			if n := strings.Count(string(merged), "| "+tb.id+" |"); n != 2 {
+				t.Fatalf("want the id twice after the union merge, got %d:\n%s", n, merged)
+			}
+
+			cmd := exec.CommandContext(t.Context(), "go", "run", "./tools/dupids", "-dir", dir)
+			cmd.Dir = root
+			out, err := cmd.CombinedOutput()
+			if err == nil || !strings.Contains(string(out), "id "+tb.id+" appears 2 times") {
+				t.Fatalf("dupids should fail on %s: err=%v\n%s", tb.id, err, out)
+			}
+		})
 	}
 }

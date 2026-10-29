@@ -116,3 +116,25 @@ Tokens and response bodies are left out; the raw Newman JSON holds bearer tokens
 | S6.13 Tenant A is served again after Retry-After | 200 | 3 | 0 |
 
 S6.12 burst counts per run (status: count): tenant A `{200: 118, 429: 182}`, `{200: 121, 429: 179}`, `{200: 117, 429: 183}`; tenant B `{200: 20}` every time.
+
+## TICK-329: full collection on a fresh stack, S7.1 selects the demo's own workflow (R5)
+
+- `main` at `1950d19` plus this change. Fresh stack: `docker compose down -v`, `make dev-ca`, `docker compose build`, `up --wait` (healthy in 130 s), `tools/seed.sh`, `tools/tunnels.sh up`, `make demo-outbox DEDUPE_KEY=accept` twice. `.env` from `.env.example` plus `NAVA_GROUPSYNC_INTERVAL=15s`, `COMPOSE_PROFILES=operator` (default rate limit).
+- Before the run, two more `nava.smoke.relay` workflows were put on the stack: one for **tenant B** (a throwaway copy of `cmd/demo-outbox` with tenant B's id, `DEDUPE_KEY=tick329-other-tenant`, not committed) and a second tenant A one (`make demo-outbox DEDUPE_KEY=tick329-second-key`, started after `accept`). The Temporal list then holds 3 executions.
+- **Baseline, old S7.1 (`1950d19`):** `--folder S7`, 8 assertions, **1 failed**: `ids are tenant-scoped: t:<tenant-a>:…`, the R5 failure, caused only by tenant B's workflow.
+- **Full collection, new S7.1**, `--env-var demo_workflow_id=<the accept workflow id>`, 2026-10-28T22:54:18Z, 5 min 43 s:
+
+| | executed | failed |
+|---|---|---|
+| requests (S6.12 sends a 320-request burst) | 419 | 0 |
+| test-scripts | 87 | 0 |
+| prerequest-scripts | 26 | 0 |
+| assertions | 262 | 0 |
+
+**Result: PASS** (0 failures)
+
+- S6.12 burst: tenant A `{200: 120, 429: 180}`, tenant B `{200: 20}`; all 11 assertions passed, S6.13 200 for tenant A.
+- S7.1 selected the `accept` workflow (`demo_workflow_id`): 5 assertions passed, including `the demo workflow has exactly one execution`; S7.2 found two `demo.note` signals.
+- **Fallback, `demo_workflow_id` empty**, `--folder S7`, same 3 workflows: 2 requests, 8 assertions, 0 failed. S7.1 picked the latest-started tenant A workflow (`tick329-second-key`), not tenant B's.
+
+Tokens and response bodies are left out; the raw Newman JSON holds bearer tokens and is not published.

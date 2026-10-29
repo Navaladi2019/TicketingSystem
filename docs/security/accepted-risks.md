@@ -81,11 +81,11 @@ recorded mitigation does not hold as written; re-decide).
 ## Maintaining this register
 
 - **New accepted risk:** add a row here in the same change that records it in
-  its source document. Use the next `AR-NNN`, put the source's own id (R8,
+  its source document. Use the story-prefixed id (`AR-<story>-NN`, see the id rule at the top), put the source's own id (R8,
   RS6) in brackets, and link the source.
 - **Fixed or retired:** delete the row and note the fix in the source document.
   Keep IDs stable; never renumber.
 - **Becomes deferred work with code:** move it to `docs/delivery/todo.md` with
-  a `TODO(TODO-NNN)` comment and delete the row here.
+  a `TODO(TODO-<story>-NN)` comment and delete the row here.
 - Owners marked † were inferred from the area of the code; confirm them when
   the risk is next reviewed.
