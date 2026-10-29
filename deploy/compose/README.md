@@ -93,7 +93,7 @@ runs exactly that and checks the history (CI: the `stack` job).
 `MSYS_NO_PATHCONV=1` themselves, so no `export` is needed. A `docker run`, `create`
 or `exec` you add with a container path must do the same.
 
-**Tests.** `sh deploy/compose/test/stack-test.sh <healthy|pgbouncer|temporal|trace|redact|idempotent|dbroles|internal|temporal_handshake|temporal_isolation|temporal_confinement|temporal_custody|temporal_health>`
+**Tests.** One script per case in `deploy/compose/test/cases/<name>.sh`; `sh deploy/compose/test/stack-test.sh <name>` runs one, with no name all of them. A new case is a new file with a `# stack-case: job=... order=... mode=...` header (`run-cases.sh registry` prints the registry); CI picks it up without a `ci.yml` edit
 (`task stack:test`). Start the stack with `OTEL_TAIL_SAMPLE_PERCENT=100` for the
 `trace` test: an ordinary 404 is otherwise sampled out. CI runs them in
 the `stack` job in `.github/workflows/ci.yml`.

@@ -285,27 +285,11 @@ jobs:
         run: make image-ci
       - name: Start the stack
         run: make stack-up
-      - name: Every container healthy
-        run: make stack-test-healthy
-      - name: Compose smoke, GET /healthz from the compose network
-        run: make smoke
-      - name: PgBouncer settings
-        run: make stack-test-pgbouncer
-      - name: Keycloak and Temporal databases
-        run: make stack-test-temporal
-      - name: Temporal handshake (rogue CA refused)
-        run: make stack-test-temporal_handshake
-      - name: Temporal internal ports unreachable from the platform network
-        run: make stack-test-temporal_isolation
-      - name: Temporal certificates mounted only where owned
-        run: make stack-test-temporal_custody
-      - name: No platform process reaches the Temporal UI
-        run: make stack-test-temporal_operator_reach
-      - name: Temporal bootstrapped, nava-core healthz ok over mTLS
-        run: make stack-test-temporal_health
-      - name: SDK clients dial with their certificates and a worker runs
-        run: make stack-test-sdk
-      # The CI-6 and CI-7 report stack-test-sdk writes (TICK-49 acceptance).
+      # Every case with job=stack in deploy/compose/test/cases/*.sh, in registry order, each in
+      # its own log group; a failure names the case. A new case file runs here without a change
+      # to this file (TICK-296). The reports below are written by the sdk and identity_attacks cases.
+      - name: Stack cases (stack)
+        run: make stack-tests JOB=stack
       - name: CI-6 report
         if: always()
         uses: actions/upload-artifact@v4
@@ -313,11 +297,6 @@ jobs:
           name: ci6-report
           path: ci6-report.md
           if-no-files-found: error
-      # Before the dependency probes, which stop Keycloak.
-      - name: Realm nava, operator custody and the Keycloak adapter
-        run: make stack-test-identity
-      - name: CI-5 adversarial identity suite (T19)
-        run: make identity-attacks
       - name: CI-5 report
         if: always()
         uses: actions/upload-artifact@v4
@@ -325,22 +304,6 @@ jobs:
           name: ci5-report
           path: ci5-report.md
           if-no-files-found: error
-      # After the SDK suite: the worker polls nava-tq, the queue its workers poll.
-      - name: nava-worker ready, admin listener, guarded activity
-        run: make stack-test-worker
-      - name: S7 demo, make demo-outbox twice with one key, one workflow and two signals
-        run: make stack-test-demo_outbox
-      - name: Dependency probes, /readyz 200 with Keycloak stopped
-        run: make stack-test-dependencies
-      # TICK-328 (R4): restarts PostgreSQL, so it runs after the dependency probes.
-      - name: Keycloak issues tokens again after a PostgreSQL restart; /healthz never ok while it cannot
-        run: make stack-test-keycloak_restart
-      - name: One request, one trace
-        run: make stack-test-trace
-      - name: Exported logs reach the Collector
-        run: make stack-test-logs
-      - name: Collector redacts denied span values
-        run: make stack-test-redact
       - name: Logs on failure
         if: failure()
         run: make stack-logs
@@ -377,14 +340,9 @@ jobs:
         run: make image-ci
       - name: Start the stack
         run: make stack-up
-      - name: Every container healthy
-        run: make stack-test-healthy
-      - name: db-roles and migrate are idempotent
-        run: make stack-test-idempotent
-      - name: db-roles revokes stray memberships
-        run: make stack-test-dbroles
-      - name: pg_hba keeps pgadmin and nava_backup out
-        run: make stack-test-hba
+      # The cases with job=stack-db, on this job's own stack (see the stack job).
+      - name: Stack cases (stack-db)
+        run: make stack-tests JOB=stack-db
       - name: Logs on failure
         if: failure()
         run: make stack-logs
@@ -421,8 +379,8 @@ jobs:
         run: make image-ci
       - name: Dev installation CA
         run: make dev-ca
-      - name: Internal overlay comes up
-        run: make stack-internal
+      - name: Stack cases (stack-internal)
+        run: make stack-tests JOB=stack-internal
       - name: Logs on failure
         if: failure()
         run: make stack-logs
