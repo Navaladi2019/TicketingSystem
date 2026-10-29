@@ -9,7 +9,7 @@
 //	make stack-test-worker
 //
 // Its test workflow polls nava-tq, the only allow-listed queue, so it runs
-// after stack-test-sdk, never beside it (STACK_TESTS_SERIAL in the Makefile).
+// after stack-test-sdk, never beside it (STACK_TESTS_SERIAL in make/nava-worker.mk).
 package workerstack
 
 import (

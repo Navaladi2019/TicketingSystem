@@ -22,6 +22,7 @@ import (
 
 	"github.com/google/uuid"
 	enumspb "go.temporal.io/api/enums/v1"
+	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/converter"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
@@ -52,6 +53,30 @@ func runDemo(t *testing.T, key string) map[string]string {
 		}
 	}
 	return got
+}
+
+// assertTenantSearchAttribute: a relay-started workflow carries NavaTenantId,
+// so a visibility query on it counts the same workflows as the tenant's id
+// prefix, and at least the one the relay just started. Visibility lags the
+// start, so it polls until the two agree.
+func assertTenantSearchAttribute(ctx context.Context, t *testing.T, s relayStack, tenant string) {
+	t.Helper()
+	count := func(query string) int64 {
+		resp, err := s.system.CountWorkflow(ctx, &workflowservice.CountWorkflowExecutionsRequest{Namespace: namespace, Query: query})
+		if err != nil {
+			t.Fatalf("count %q: %v", query, err)
+		}
+		return resp.GetCount()
+	}
+	byAttr, byPrefix := int64(0), int64(0)
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(time.Second) {
+		byAttr = count(fmt.Sprintf("NavaTenantId = '%s'", tenant))
+		byPrefix = count(fmt.Sprintf("WorkflowId STARTS_WITH 't:%s:'", tenant))
+		if byPrefix > 0 && byAttr == byPrefix {
+			return
+		}
+	}
+	t.Fatalf("NavaTenantId = '%s' counts %d workflows, WorkflowId STARTS_WITH 't:%s:' counts %d, want equal and non-zero", tenant, byAttr, tenant, byPrefix)
 }
 
 func TestDemoOutboxTwiceWithOneKeyIsOneWorkflowWithTwoSignalsInOrder(t *testing.T) {
@@ -92,6 +117,7 @@ func TestDemoOutboxTwiceWithOneKeyIsOneWorkflowWithTwoSignalsInOrder(t *testing.
 	}
 
 	s.awaitStarted(ctx, t, id)
+	assertTenantSearchAttribute(ctx, t, s, demoTenant)
 	var got []string
 	iter := s.core.GetWorkflowHistory(ctx, id, "", false, enumspb.HISTORY_EVENT_FILTER_TYPE_ALL_EVENT)
 	for iter.HasNext() {
