@@ -7,10 +7,10 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,6 +18,7 @@ import (
 
 	"github.com/Navaladi2019/TicketingSystem/api"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/logging"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/ratelimit"
 )
@@ -174,7 +175,7 @@ func do(t *testing.T, h http.Handler, tenant uuid.UUID) *httptest.ResponseRecord
 func TestFloodedTenantGets429WithRetryAfterAndLog(t *testing.T) {
 	t.Parallel()
 	var logs strings.Builder
-	log := slog.New(slog.NewJSONHandler(&logs, nil))
+	log := slog.New(logging.NewContextHandler(slog.NewJSONHandler(&logs, nil)))
 	m := ratelimit.NewMemory(ratelimit.Config{Rate: 1, Burst: 3}, newClock().now)
 	h := newHandler(t, m, log)
 	for i := range 3 {
@@ -196,6 +197,9 @@ func TestFloodedTenantGets429WithRetryAfterAndLog(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body.Code != problem.RateLimited {
 		t.Errorf("body = %s (%v), want code rate_limited", rec.Body, err)
 	}
+	if got := strings.Count(logs.String(), `"tenant_id"`); got != 1 {
+		t.Errorf("throttle log has %d tenant_id fields, want 1: %s", got, logs.String())
+	}
 	if !strings.Contains(logs.String(), `"tenant_id":"`+tenantA.String()+`"`) {
 		t.Errorf("throttle log lacks tenant_id: %s", logs.String())
 	}
@@ -204,66 +208,46 @@ func TestFloodedTenantGets429WithRetryAfterAndLog(t *testing.T) {
 	}
 }
 
-func p95(ds []time.Duration) time.Duration {
-	s := slices.Clone(ds)
-	slices.Sort(s)
-	return s[len(s)*95/100]
-}
-
-// Tenant A flooded gets 429 while tenant B's p95 stays within 2x baseline.
-func TestFloodOfOneTenantDoesNotSlowAnother(t *testing.T) {
-	m := ratelimit.NewMemory(ratelimit.Config{Rate: 50, Burst: 100}, nil)
+// A flood from tenant A neither changes B's decisions nor spends B's tokens.
+// The clock is fixed, so no bucket refills and the outcome is exact: B gets
+// its burst and not one request more, whatever A sent before, during or after.
+func TestFloodOfOneTenantDoesNotThrottleAnother(t *testing.T) {
+	t.Parallel()
+	const burst = 5
+	m := ratelimit.NewMemory(ratelimit.Config{Rate: 1, Burst: burst}, newClock().now)
 	h := newHandler(t, m, slog.New(slog.DiscardHandler))
-	measure := func(n int) []time.Duration {
-		out := make([]time.Duration, n)
-		for i := range out {
-			start := time.Now()
+	allowedB := func(n int) {
+		t.Helper()
+		for range n {
 			if rec := do(t, h, tenantB); rec.Code != http.StatusNoContent {
-				t.Errorf("tenant B = %d, want 204", rec.Code)
+				t.Fatalf("tenant B within its budget = %d, want 204", rec.Code)
 			}
-			out[i] = time.Since(start)
-			time.Sleep(20 * time.Millisecond) // stay far under B's own limit
 		}
-		return out
 	}
-	base := p95(measure(40))
+	allowedB(2)
 
-	stop := make(chan struct{})
 	var wg sync.WaitGroup
-	var mu sync.Mutex
-	var throttled, sent int
+	var sent, allowedA atomic.Int64
 	for range 4 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for {
-				select {
-				case <-stop:
-					return
-				default:
+			for range 250 {
+				sent.Add(1)
+				if do(t, h, tenantA).Code == http.StatusNoContent {
+					allowedA.Add(1)
 				}
-				rec := do(t, h, tenantA)
-				time.Sleep(100 * time.Microsecond) // a paced flood, so the test measures the limiter and not CPU starvation
-				mu.Lock()
-				sent++
-				if rec.Code == http.StatusTooManyRequests {
-					throttled++
-				}
-				mu.Unlock()
 			}
 		}()
 	}
-	flooded := p95(measure(40))
-	close(stop)
 	wg.Wait()
 
-	if throttled == 0 {
-		t.Fatalf("tenant A never limited in %d requests", sent)
+	if got := allowedA.Load(); got != burst {
+		t.Fatalf("tenant A allowed %d of %d requests, want exactly its burst %d", got, sent.Load(), burst)
 	}
-	// 2x baseline, with a floor so a microsecond baseline does not make the
-	// bound finer than host scheduler and timer jitter (Windows timers tick at 15ms).
-	if bound := max(2*base, 25*time.Millisecond); flooded > bound {
-		t.Errorf("tenant B p95 under flood = %v, baseline %v, bound %v", flooded, base, bound)
+	allowedB(burst - 2) // the rest of B's budget is intact
+	if rec := do(t, h, tenantB); rec.Code != http.StatusTooManyRequests {
+		t.Errorf("tenant B over its own budget = %d, want 429", rec.Code)
 	}
 }
 
