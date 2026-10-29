@@ -9,9 +9,10 @@
 # use; `make check-taskfile` fails when they drift.
 #
 # Gates, in order (each stage stops the run when it fails):
-#   ci-lint         gofmt, go vet, golangci-lint (+ fixture), check-taskfile,
-#                   check-pins, check-openapi, govulncheck (both modules, once a
-#                   day per dependency set). No containers.
+#   ci-lint         gofmt, go vet (also per build-tag set), golangci-lint
+#                   (+ fixture), check-taskfile, check-pins, check-openapi,
+#                   govulncheck (both modules, once a day per dependency set).
+#                   No containers.
 #   ci-unit         go test -race ./... (one at a time per host), temporal-server
 #                   unit tests. No containers.
 #   ci-integration  -tags integration against a throwaway PostgreSQL (Docker),
