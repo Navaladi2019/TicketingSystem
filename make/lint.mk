@@ -12,11 +12,11 @@ lint:
 	go run ./tools/docindex -check
 	go run ./tools/dupids
 
-# Fails when api/api.gen.go is not what api/openapi.yaml generates (TICK-297):
-# regenerates it, then any difference from the committed file is drift. Run
-# make generate and commit the result.
+# Fails when api/openapi.bundled.yaml or api/api.gen.go is not what api/openapi.yaml
+# + api/paths/*.yaml generate (TICK-297, TICK-294): any difference or untracked file
+# under api/ after regenerating is drift. Run make generate and commit the result.
 check-generate:
-	go generate ./api/... && git diff --exit-code -- api/
+	sh scripts/ci/openapi-generated.sh
 
 # Fails when .github/workflows/ci.yml stops running a step listed in
 # tools/ci/cisteps/required.yaml (TICK-297): a suite or report upload removed,
@@ -29,7 +29,7 @@ check-ci-steps:
 # missing BASE ref fails: a shallow clone must not pass the check by default.
 check-openapi:
 	@git rev-parse -q --verify $(BASE) >/dev/null || { echo "check-openapi: $(BASE) not found; fetch it first (git fetch origin main)"; exit 1; }
-	@if git cat-file -e $(BASE):api/openapi.yaml 2>/dev/null; then 		git show $(BASE):api/openapi.yaml > $${TMPDIR:-/tmp}/openapi.base.yaml && 		go run ./cmd/openapi-compat $${TMPDIR:-/tmp}/openapi.base.yaml api/openapi.yaml; 	else echo "no api/openapi.yaml on $(BASE): nothing to compare"; fi
+	@sh scripts/ci/check-openapi.sh $(BASE)
 
 # Installs the pinned CI tools into $$(go env GOPATH)/bin.
 tools:
