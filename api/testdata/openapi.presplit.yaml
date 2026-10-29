@@ -1,0 +1,219 @@
+openapi: 3.1.0
+info:
+  title: Nava core API
+  version: 1.0.0
+  description: |
+    The public /api/v1 contract. Within v1 changes are additive only: CI diffs
+    this file against main and fails on a removed or narrowed field.
+    Every error response is application/problem+json (RFC 9457) with a `code`
+    registered in api/errors.yaml.
+paths:
+  /api/v1/me:
+    get:
+      operationId: getMe
+      summary: The calling user and tenant
+      description: The caller as the access token resolved it (T17). The tenant comes only from the token's organization binding; a tenant named in a header, the query or the body is ignored.
+      responses:
+        "200":
+          description: The caller.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Me"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "429":
+          $ref: "#/components/responses/Problem"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "501":
+          $ref: "#/components/responses/Problem"
+  /api/v1/operator/tenants:
+    post:
+      operationId: onboardTenant
+      summary: Onboard a tenant (operator token only)
+      description: >
+        Creates the tenant, its Keycloak organization and IdP, the identity
+        binding and email domains, invites the first admin, and marks the
+        tenant active (T21). Requires an operator token (realm role
+        nava-operator, audience nava-operator-api); a tenant token is refused.
+        The tenant id is derived on the server from the operator and the
+        Idempotency-Key; any tenant id in the body, query or a header is
+        ignored. A retry with the same key and body resumes; the same key with
+        a different body is 409 idempotency_key_reuse.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OnboardTenantRequest"
+      responses:
+        "201":
+          description: The tenant was onboarded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnboardedTenant"
+        "200":
+          description: The same request was already completed; nothing new was created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnboardedTenant"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "409":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+        "429":
+          $ref: "#/components/responses/Problem"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "501":
+          $ref: "#/components/responses/Problem"
+components:
+  schemas:
+    Me:
+      type: object
+      required: [user_id, tenant_id, groups, idp_alias, group_paths]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          description: The platform principal id, not the IdP user id.
+        tenant_id:
+          type: string
+          format: uuid
+        groups:
+          type: array
+          description: Platform group ids of the tenant, never IdP group names.
+          items:
+            type: string
+            format: uuid
+        idp_alias:
+          type: string
+          description: Alias of the brokering IdP bound to the tenant; empty for a local login.
+        group_paths:
+          type: array
+          description: >
+            The caller's groups in this tenant, with each path relative to the
+            tenant root. For display only: authorization keys on `groups` ids,
+            never on a path. Paths are not unique across tenants and change when
+            a group is renamed. Sorted by id; match entries by `id`, never by position.
+          items:
+            $ref: "#/components/schemas/GroupPath"
+    GroupPath:
+      type: object
+      required: [id, path]
+      properties:
+        id:
+          type: string
+          format: uuid
+        path:
+          type: string
+          pattern: "^/"
+    OnboardTenantRequest:
+      type: object
+      required: [admin_email, email_domains, identity_provider]
+      properties:
+        admin_email:
+          type: string
+          maxLength: 254
+          description: The first tenant admin. Its domain must be one of email_domains.
+        email_domains:
+          type: array
+          minItems: 1
+          maxItems: 20
+          description: >
+            Email domains the operator attests the tenant owns. Public
+            email-provider domains are refused.
+          items:
+            type: string
+            maxLength: 253
+        identity_provider:
+          $ref: "#/components/schemas/OnboardIdP"
+    OnboardIdP:
+      type: object
+      required: [provider_id, config]
+      properties:
+        provider_id:
+          type: string
+          enum: [oidc, saml]
+        display_name:
+          type: string
+          maxLength: 128
+        config:
+          type: object
+          description: >
+            Provider settings (endpoints, client id and secret). URLs must be
+            https and resolve to public hosts. validateSignature and syncMode
+            are set by the platform whatever is sent.
+          additionalProperties:
+            type: string
+            maxLength: 8192
+    OnboardedTenant:
+      type: object
+      required: [tenant_id, state]
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+          description: Derived on the server from the operator and the Idempotency-Key.
+        state:
+          type: string
+          enum: [active]
+    Problem:
+      type: object
+      description: RFC 9457 problem details. `code` is registered in api/errors.yaml.
+      required: [type, title, status, code, detail, instance]
+      properties:
+        type:
+          type: string
+          description: A URN naming the problem type, `urn:nava:problem:<code>`.
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+        detail:
+          type: string
+          description: Fixed text per code; never carries request input.
+        instance:
+          type: string
+          description: "`urn:nava:request:<request id>`, the X-Request-Id of the response."
+        errors:
+          type: array
+          description: Present on validation_failed. Never carries request input.
+          items:
+            $ref: "#/components/schemas/FieldError"
+    FieldError:
+      type: object
+      required: [pointer]
+      properties:
+        pointer:
+          type: string
+          description: JSON Pointer to the failing field.
+        rule:
+          type: string
+          description: The schema keyword that failed, such as `format` or `pattern`.
+  responses:
+    Problem:
+      description: An RFC 9457 problem.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"

@@ -104,7 +104,7 @@ func (reg *Registry) Lookup(code Code) (Entry, bool) {
 	return e, ok
 }
 
-// Body is the wire shape, the Problem schema of api/openapi.yaml.
+// Body is the wire shape, the Problem schema of api/openapi.yaml (api/openapi.bundled.yaml in the bundle).
 type Body struct {
 	Type     string       `json:"type"`
 	Title    string       `json:"title"`
