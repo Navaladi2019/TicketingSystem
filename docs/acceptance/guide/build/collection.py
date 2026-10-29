@@ -661,23 +661,27 @@ def s7():
         "name": "S7 — A committed outbox row runs exactly one workflow",
         "description": "TICK-49. There is no platform HTTP route for workflows. Run `make demo-outbox DEDUPE_KEY=accept` twice first (see the guide), and `tools/tunnels.sh up` (with `COMPOSE_PROFILES=operator`) for the Temporal UI at `{{temporal_ui_url}}`. These requests read the Temporal UI's own HTTP API, as an operator would.",
         "item": [
-            req("S7.1 Temporal: the demo's workflows, one execution each", "GET",
+            req("S7.1 Temporal: the demo's workflow has exactly one execution", "GET",
                 "{{temporal_ui_url}}/api/v1/namespaces/nava/workflows?query=" + q,
-                desc="Every `nava.smoke.relay` workflow id appears once: running the demo twice with the same key did not start a second workflow.",
+                desc="Selects the demo's own workflow: `demo_workflow_id` from the environment (the `workflow id` `make demo-outbox` printed), else the latest-started tenant A `nava.smoke.relay` workflow. That id has exactly one execution: running the demo twice with the same key did not start a second workflow. Other `nava.smoke.relay` workflows on the stack (another tenant's, or another demo key) do not affect the result; each must still carry a tenant-scoped id.",
                 tests=f"""pm.test('HTTP 200', () => pm.response.to.have.status(200));
 const ex = pm.response.json().executions || [];
-pm.test('at least one demo workflow (run make demo-outbox first)', () => pm.expect(ex.length).to.be.above(0));
 const ids = ex.map(e => e.execution.workflowId);
-pm.test('each workflow id has exactly one run', () => pm.expect(new Set(ids).size).to.eql(ids.length));
-pm.test('ids are tenant-scoped: t:<tenant-a>:nava.smoke.relay:<start row>', () =>
-  ids.forEach(i => pm.expect(i).to.match(/^t:{A}:nava\\.smoke\\.relay:[0-9a-f-]{{36}}$/)));
-// S7.2 checks the demo's own workflow: demo_workflow_id from the environment
-// (the `workflow id` make demo-outbox prints), else the latest-started demo run.
+pm.test('every nava.smoke.relay id is tenant-scoped: t:<tenant>:nava.smoke.relay:<start row>', () =>
+  ids.forEach(i => pm.expect(i).to.match(/^t:[0-9a-f-]{{36}}:nava\\.smoke\\.relay:[0-9a-f-]{{36}}$/)));
+// The demo writes for tenant A only (cmd/demo-outbox), so its workflow is one of tenant A's.
+const mine = ex.filter(e => e.execution.workflowId.startsWith('t:{A}:nava.smoke.relay:'));
+pm.test('at least one tenant A demo workflow (run make demo-outbox first)', () => pm.expect(mine.length).to.be.above(0));
 const wanted = pm.variables.get('demo_workflow_id');
-const accept = wanted ? ex.find(e => e.execution.workflowId === wanted)
-  : ex.slice().sort((x, y) => String(y.startTime).localeCompare(String(x.startTime)))[0];
-if (wanted) pm.test('demo_workflow_id is listed', () => pm.expect(accept, wanted).to.exist);
-if (accept) {{ pm.collectionVariables.set('wf_id', accept.execution.workflowId); pm.collectionVariables.set('wf_run', accept.execution.runId); }}"""),
+const id = wanted || (mine.slice().sort((x, y) => String(y.startTime).localeCompare(String(x.startTime)))[0] || {{ execution: {{}} }}).execution.workflowId;
+console.log('S7.1 demo workflow', id, wanted ? '(demo_workflow_id)' : '(latest-started tenant A demo workflow)', '; nava.smoke.relay executions listed:', ex.length);
+const runs = ex.filter(e => e.execution.workflowId === id);
+pm.test('the demo workflow is listed and belongs to tenant A', () => {{
+  pm.expect(runs.length, id).to.be.above(0);
+  pm.expect(id).to.match(/^t:{A}:nava\\.smoke\\.relay:/);
+}});
+pm.test('the demo workflow has exactly one execution', () => pm.expect(runs).to.have.length(1));
+if (runs.length) {{ pm.collectionVariables.set('wf_id', runs[0].execution.workflowId); pm.collectionVariables.set('wf_run', runs[0].execution.runId); }}"""),
             req("S7.2 Temporal: its history holds the start and two signals in commit order", "GET",
                 "{{temporal_ui_url}}/api/v1/namespaces/nava/workflows/{{wf_id}}/history",
                 desc="The two `demo.note` signals arrive once each, in the order their outbox rows were committed.",
