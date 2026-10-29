@@ -1,0 +1,9 @@
+# Technical risk register
+
+Owner of this file: CTO. One row per live risk. Close a row only when the mitigation is in place and has caught (or provably would catch) the failure.
+
+| ID | Risk | Owner | Trigger | Mitigation | Status |
+|----|------|-------|---------|------------|--------|
+| R-001 | A story is closed `done` while its work is not on `main`. Task PRs merge into a `TICK-<story>/...` branch, so "all tasks done, no open PRs" says nothing about `main`. Happened with S6 (TICK-48): T24, T22a, T22b missing from `main`, found only by the milestone-1 regression (TICK-286). | Technical Lead | A story moves to `done` (or is proposed for closure) without a merged story PR whose head is an ancestor of `main`. | Story closure gate: before a story goes `done`, its story PR to `main` is merged and `git merge-base --is-ancestor <story-branch-head> origin/main` is posted on the story. "Close it if finished" from the human means this gate, not "tasks done". Quality, Testing & CI Advisor adds a CI/board check that flags `done` stories whose branch has commits not on `main`. | Open — S6 being landed via TICK-314 / PR #266 |
+| R-002 | Task PRs left targeting an already-merged story branch; merging them silently drops the change. Seen on #251, #252, #255 (S5). | Technical Lead | A story PR merges while task PRs still target its branch. | On story merge, retarget or close every open PR whose base is that story branch, in the same run. | Open |
+| R-003 | Build-tagged test code (e.g. `acceptance`) rots because CI never compiles it. `TestS4Acceptance` did not compile on `main`. | Quality, Testing & CI Advisor | A Go build tag exists that no CI job builds. | CI step that compiles every build-tag combination (`go vet -tags ...`). | Open |
