@@ -10,7 +10,7 @@ import (
 
 func spec(t *testing.T) string {
 	t.Helper()
-	data, err := api.Files.ReadFile("openapi.yaml")
+	data, err := api.Files.ReadFile(api.SpecFile)
 	if err != nil {
 		t.Fatal(err)
 	}

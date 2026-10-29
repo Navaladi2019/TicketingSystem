@@ -47,7 +47,7 @@ tasks:
       - sh scripts/ci/test-integration.sh -run '^$' -bench '^BenchmarkClaim$' -benchtime 200x
 
   lint:
-    desc: Run golangci-lint, then the navalint analyzers (set_config outside internal/tenancy), then the ADR-002-E1 nolint allow-list gate, then the decision-log index check
+    desc: Run golangci-lint, then the navalint analyzers (set_config outside internal/tenancy), then the ADR-002-E1 nolint allow-list gate, then the decision-log index check, then the OpenAPI regenerate-and-diff gate
     cmds:
       - golangci-lint run ./...
       - sh scripts/ci/navalint.sh
@@ -75,17 +75,14 @@ tasks:
       - govulncheck ./...
 
   generate:
-    desc: Regenerate api/api.gen.go from api/openapi.yaml (oapi-codegen, pinned by the go.mod tool directive)
+    desc: Bundle api/openapi.yaml + api/paths/*.yaml and regenerate api/api.gen.go (oapi-codegen, pinned by the go.mod tool directive)
     cmds:
       - go generate ./...
 
   check-openapi:
-    desc: Fail if api/openapi.yaml removes or narrows anything on origin/main (additive-only rule for /api/v1)
+    desc: Fail if the api bundle removes or narrows anything on origin/main (additive-only rule for /api/v1)
     cmds:
-      - git show origin/main:api/openapi.yaml > {{.TMP}}/openapi.base.yaml
-      - go run ./cmd/openapi-compat {{.TMP}}/openapi.base.yaml api/openapi.yaml
-    vars:
-      TMP: '{{.TEMP | default "/tmp"}}'
+      - sh scripts/ci/check-openapi.sh origin/main
 
   ci:isolated:
     desc: "Run make ci on a stack of its own (project nava-ID, image tag ID, own ports), the same as make ci-isolated; task ci:isolated ID=<pr-or-sha>"
