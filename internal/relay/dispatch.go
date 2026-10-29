@@ -17,6 +17,7 @@ import (
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/temporal"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
@@ -242,7 +243,7 @@ func (d *Dispatcher) dispatch(ctx context.Context, c Claimed, deadline time.Time
 	var err error
 	if op == opStart {
 		d.beforeStart(tctx, c)
-		_, err = d.temporal.ExecuteWorkflow(tctx, startOptions(workflowID), c.Kind, delivery)
+		_, err = d.temporal.ExecuteWorkflow(tctx, startOptions(workflowID, c.TenantID), c.Kind, delivery)
 	} else {
 		err = d.temporal.SignalWorkflow(tctx, workflowID, "", c.Kind, delivery)
 	}
@@ -312,9 +313,13 @@ func (d *Dispatcher) settle(ctx context.Context, log *slog.Logger, c Claimed, op
 }
 
 // startOptions are A.2's start options: REJECT_DUPLICATE, and AlreadyStarted
-// returned as an error instead of the existing run.
-func startOptions(workflowID string) client.StartWorkflowOptions {
+// returned as an error instead of the existing run. NavaTenantId is the
+// outbox row's tenant, never read from the payload; it is for visibility
+// queries only (the tenant is bound by the workflow id and the header).
+func startOptions(workflowID string, tenant uuid.UUID) client.StartWorkflowOptions {
 	return client.StartWorkflowOptions{
+		TypedSearchAttributes: temporal.NewSearchAttributes(
+			temporal.NewSearchAttributeKeyKeyword(workerguard.TenantSearchAttribute).ValueSet(tenant.String())),
 		ID:                                       workflowID,
 		TaskQueue:                                TaskQueue,
 		WorkflowIDReusePolicy:                    enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE,

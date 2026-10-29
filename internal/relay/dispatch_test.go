@@ -197,6 +197,14 @@ func TestStartRequest(t *testing.T) {
 	if got, _ := headerString(t, req.GetHeader(), workerguard.TenantHeader); got != tenantAID {
 		t.Errorf("nava-tenant header %q, want %s", got, tenantAID)
 	}
+	sa, ok := req.GetSearchAttributes().GetIndexedFields()[workerguard.TenantSearchAttribute]
+	if !ok {
+		t.Fatal("start carries no NavaTenantId")
+	}
+	var saTenant string
+	if err := json.Unmarshal(sa.GetData(), &saTenant); err != nil || saTenant != tenantAID {
+		t.Errorf("NavaTenantId %q (%v), want the row's tenant %s", saTenant, err, tenantAID)
+	}
 	var d outbox.Delivery
 	if err := json.Unmarshal(req.GetInput().GetPayloads()[0].GetData(), &d); err != nil || d.OutboxID != c.ID ||
 		string(d.Payload) != string(c.Payload) {
