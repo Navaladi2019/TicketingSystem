@@ -1,0 +1,24 @@
+meta {
+  name: S4.14 Negative: the onboarding service serves operator routes only
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{onboard_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('not_found', 404);
+}
+
+docs {
+  nava-onboard mounts nothing but `/api/v1/operator/*`: a valid tenant token (tenant A's admin, S4.2) on `/me` there is 404.
+}

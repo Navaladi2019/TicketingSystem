@@ -1,0 +1,36 @@
+meta {
+  name: S3.11 Sign in as the operator
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{keycloak_url}}/realms/{{realm}}/protocol/openid-connect/token
+  body: formUrlEncoded
+  auth: none
+}
+
+body:form-urlencoded {
+  grant_type: password
+  client_id: nava-operator-cli
+  scope: openid
+  username: {{operator_username}}
+  password: {{operator_password}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 200 from Keycloak', () => expect(res.getStatus()).to.eql(200));
+  const tok = N.json();
+  test('access token issued', () => expect(tok.access_token).to.be.a('string'));
+  bru.setVar('operator_token', tok.access_token);
+  if (tok.id_token) bru.setVar('operator_token_id', tok.id_token);
+  const c = N.jwt(tok.access_token);
+  bru.setVar('operator_token_exp', String(c.exp));
+  test('issuer is the pinned realm URL', () => expect(c.iss).to.eql(N.url('{{keycloak_issuer_url}}/realms/{{realm}}')));
+  test('aud nava-operator-api', () => expect([].concat(c.aud)).to.include('nava-operator-api'));
+}
+
+docs {
+  The platform operator signs in through `nava-operator-cli`. The token's audience is `nava-operator-api`, not `nava-api`.
+}

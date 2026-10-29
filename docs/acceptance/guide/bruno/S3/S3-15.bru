@@ -1,0 +1,24 @@
+meta {
+  name: S3.15 Negative: a token with no organization
+  type: http
+  seq: 15
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{dave_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('tenant_unresolved', 401);
+}
+
+docs {
+  Signed in, but not tied to any tenant: 401 `tenant_unresolved`.
+}

@@ -1,0 +1,21 @@
+meta {
+  name: S3.5 Negative: no token
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_token', 401);
+  test('WWW-Authenticate: Bearer', () => expect(N.header('WWW-Authenticate')).to.match(/^Bearer/));
+}
+
+docs {
+  No Authorization header: 401 with `WWW-Authenticate: Bearer`.
+}

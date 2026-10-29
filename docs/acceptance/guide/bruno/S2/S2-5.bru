@@ -1,0 +1,36 @@
+meta {
+  name: S2.5 Negative: Alice names tenant B in headers, query and body
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{core_url}}/api/v1/me?tenant_id=00000000-0000-4000-8000-0000000000b1&tenant=00000000-0000-4000-8000-0000000000b1
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  X-Tenant-Id: 00000000-0000-4000-8000-0000000000b1
+  X-Nava-Tenant: 00000000-0000-4000-8000-0000000000b1
+  X-Tenant: 00000000-0000-4000-8000-0000000000b1
+  baggage: nava.tenant_id=00000000-0000-4000-8000-0000000000b1,tenant_id=00000000-0000-4000-8000-0000000000b1
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "tenant_id": "00000000-0000-4000-8000-0000000000b1"
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.me('00000000-0000-4000-8000-0000000000a1');
+  N.noLeak('00000000-0000-4000-8000-0000000000b1');
+}
+
+docs {
+  Tenant B's id in `X-Tenant-Id`, `X-Nava-Tenant`, `X-Tenant`, `baggage`, the query and a JSON body. The tenant comes only from the token: still tenant A.
+}

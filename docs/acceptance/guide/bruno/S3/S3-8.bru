@@ -1,0 +1,24 @@
+meta {
+  name: S3.8 Negative: Alice's ID token used as an access token
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token_id}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_token', 401);
+}
+
+docs {
+  The ID token from S3.1 (`typ ID`, audience `nava-web`) is refused.
+}

@@ -1,0 +1,20 @@
+meta {
+  name: S1.5 Negative: /metrics is not on the public port
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{core_url}}/metrics
+  body: none
+  auth: none
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('not_found', 404);
+}
+
+docs {
+  Same as S1.4 for /metrics.
+}

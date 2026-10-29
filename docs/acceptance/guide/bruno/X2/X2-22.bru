@@ -1,0 +1,51 @@
+meta {
+  name: X2.22 onboardTenant 200: replay of X2.21
+  type: http
+  seq: 22
+}
+
+post {
+  url: {{onboard_url}}/api/v1/operator/tenants
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{operator_token}}
+  Idempotency-Key: {{x2_key}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "admin_email": "admin@{{x2_domain}}",
+    "email_domains": [
+      "{{x2_domain}}"
+    ],
+    "identity_provider": {
+      "provider_id": "oidc",
+      "config": {
+        "clientId": "acceptance-client",
+        "clientSecret": "dev-only-not-a-secret",
+        "authorizationUrl": "https://93.184.216.34/auth",
+        "tokenUrl": "https://93.184.216.34/token",
+        "jwksUrl": "https://93.184.216.34/jwks",
+        "useJwksUrl": "true",
+        "defaultScope": "openid email profile"
+      }
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('the same tenant, state active', () => {
+    expect(N.json().tenant_id).to.eql(bru.getVar('x2_tenant_id'));
+    expect(N.json().state).to.eql('active');
+  });
+}
+
+docs {
+  The same key and body: 200, the same tenant.
+}

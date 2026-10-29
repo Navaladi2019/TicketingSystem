@@ -1,0 +1,44 @@
+meta {
+  name: S3.1 Sign in as Alice
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{keycloak_url}}/realms/{{realm}}/protocol/openid-connect/token
+  body: formUrlEncoded
+  auth: none
+}
+
+body:form-urlencoded {
+  grant_type: password
+  client_id: nava-web
+  scope: openid
+  username: {{alice_username}}
+  password: {{alice_password}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 200 from Keycloak', () => expect(res.getStatus()).to.eql(200));
+  const tok = N.json();
+  test('access token issued', () => expect(tok.access_token).to.be.a('string'));
+  bru.setVar('alice_token', tok.access_token);
+  if (tok.id_token) bru.setVar('alice_token_id', tok.id_token);
+  const c = N.jwt(tok.access_token);
+  bru.setVar('alice_token_exp', String(c.exp));
+  test('issuer is the pinned realm URL', () => expect(c.iss).to.eql(N.url('{{keycloak_issuer_url}}/realms/{{realm}}')));
+  test('aud nava-api, typ Bearer, organization tenant-a (00000000-0000-4000-8000-0000000000a1)', () => {
+    expect([].concat(c.aud)).to.include('nava-api');
+    expect(c.typ).to.eql('Bearer');
+    expect(c.organization).to.have.property('tenant-a');
+    expect(c.organization['tenant-a'].id).to.eql('00000000-0000-4000-8000-0000000000a1');
+  });
+  // Kept for the late expired-token check (folder Z).
+  bru.setVar('expiring_token', tok.access_token);
+  bru.setVar('expiring_token_exp', String(c.exp));
+}
+
+docs {
+  Signs in as `{{alice_username}}` through Keycloak (client `nava-web`, password grant) and keeps the access token in the runtime variable `alice_token`.
+}

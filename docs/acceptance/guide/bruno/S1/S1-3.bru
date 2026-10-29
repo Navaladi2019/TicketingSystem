@@ -1,0 +1,26 @@
+meta {
+  name: S1.3 Metrics: GET /metrics
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{admin_url}}/metrics
+  body: none
+  auth: none
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const t = N.text();
+  test('Prometheus exposition format', () => expect(t).to.match(/^# (HELP|TYPE) /m));
+  test('nava_dependency_degraded is 0 for keycloak, postgres and temporal', () => {
+    ['keycloak', 'postgres', 'temporal'].forEach(d =>
+      expect(t).to.match(new RegExp('^nava_dependency_degraded\\{[^}]*dependency="' + d + '"[^}]*\\} 0$', 'm')));
+  });
+}
+
+docs {
+  Prometheus text. `nava_dependency_degraded` is 0 for every dependency on a healthy stack.
+}

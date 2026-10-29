@@ -1,9 +1,14 @@
 #!/bin/sh
 # Acceptance guide (TICK-287): local-only port forwards for the parts of the
-# stack that publish no port, so Postman can reach them from the host.
+# stack that publish no port, so Bruno can reach them from the host.
 #
-#   127.0.0.1:18082  -> nava-onboard:8081   operator onboarding API (S4)
-#   127.0.0.1:19090  -> nava-core:9090      admin listener: /healthz /readyz /metrics (S1)
+#   127.0.0.1:18082  -> nava-onboard:8081   operator onboarding API (S4, X2)
+#   127.0.0.1:19090  -> nava-core:9090      admin listener: /healthz /readyz /metrics (S1, X3)
+#   127.0.0.1:19091  -> nava-onboard:9090   admin listener (X3)
+#   127.0.0.1:19092  -> nava-groupsync:9090 admin listener (X3)
+#   127.0.0.1:19093  -> nava-relay:9090     admin listener (X3)
+#   127.0.0.1:19094  -> nava-worker:9090    admin listener (X3)
+#   127.0.0.1:19095  -> nava-purge:9090     admin listener (X3)
 #   127.0.0.1:18233  -> temporal-ui:8080    Temporal UI (S7; needs COMPOSE_PROFILES=operator)
 #
 # Each forward is a detached container of the nava/temporal-server image running
@@ -24,6 +29,8 @@ PROJECT=${COMPOSE_PROJECT_NAME:-nava}
 IMAGE="nava/temporal-server:${NAVA_IMAGE_TAG:-dev}"
 ONBOARD_PORT=${ACCEPT_ONBOARD_PORT:-18082}
 ADMIN_PORT=${ACCEPT_ADMIN_PORT:-19090}
+# The other admin listeners take the next ports: onboard, groupsync, relay, worker, purge.
+ADMINS="onboard groupsync relay worker purge"
 UI_PORT=${ACCEPT_UI_PORT:-18233}
 
 net() {
@@ -50,6 +57,11 @@ case "${1:-}" in
 up)
   forward onboard "$ONBOARD_PORT" internal nava-onboard:8081
   forward admin "$ADMIN_PORT" internal nava-core:9090
+  port=$ADMIN_PORT
+  for svc in $ADMINS; do
+    port=$((port + 1))
+    forward "admin-$svc" "$port" internal "nava-$svc:9090"
+  done
   if [ -n "$(docker compose ps -q temporal-ui 2>/dev/null)" ]; then
     forward ui "$UI_PORT" operator temporal-ui:8080
   else
@@ -57,7 +69,7 @@ up)
   fi
   ;;
 down)
-  for n in onboard admin ui; do docker rm -f "$PROJECT-accept-$n" >/dev/null 2>&1 || true; done
+  for n in onboard admin ui $(for svc in $ADMINS; do echo "admin-$svc"; done); do docker rm -f "$PROJECT-accept-$n" >/dev/null 2>&1 || true; done
   echo "tunnels: stopped"
   ;;
 status)

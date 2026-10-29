@@ -1,0 +1,21 @@
+meta {
+  name: X3.2 nava-core: GET /readyz
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{admin_url}}/readyz
+  body: none
+  auth: none
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('body ok', () => expect(N.text().trim()).to.eql('ok'));
+}
+
+docs {
+  200 `ok` while its dependencies answer.
+}

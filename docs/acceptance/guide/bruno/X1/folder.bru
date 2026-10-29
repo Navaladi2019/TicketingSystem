@@ -1,0 +1,8 @@
+meta {
+  name: X1 — API suite: GET /api/v1/me (getMe)
+  seq: 8
+}
+
+docs {
+  TICK-331. Every documented outcome of `getMe` in `api/openapi.bundled.yaml`: the happy path against the schema, each way a token can be wrong (missing, malformed, wrong scheme, bad signature, unsigned, wrong tenant, wrong issuer and audience), the method rules and ignored input. 429 is S6.12, the expired token is folder Z. 500 and 501 cannot be caused from outside (see the coverage page). Self-contained: it signs in itself. Needs `tools/seed.sh`.
+}

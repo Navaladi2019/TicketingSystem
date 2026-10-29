@@ -1,0 +1,30 @@
+meta {
+  name: S3.2 Alice: GET /me
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.me('00000000-0000-4000-8000-0000000000a1');
+  test('Alice has groups, local login (idp_alias empty)', () => {
+    expect(N.json().groups).to.not.be.empty;
+    expect(N.json().idp_alias).to.eql('');
+  });
+  test('user_id is the platform id, not the Keycloak id', () =>
+    expect(N.json().user_id).to.not.eql(N.jwt(bru.getVar('alice_token')).sub));
+}
+
+docs {
+  200: tenant A, her platform user id, her group ids and group paths.
+}

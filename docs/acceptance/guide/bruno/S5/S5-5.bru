@@ -1,0 +1,31 @@
+meta {
+  name: S5.5 Admin removes Alice from service-desk
+  type: http
+  seq: 5
+}
+
+delete {
+  url: {{keycloak_url}}/admin/realms/{{realm}}/users/{{alice_kc_id}}/groups/{{alice_sd_group}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{kc_admin_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await N.kcAdmin();
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 204', () => expect(res.getStatus()).to.eql(204));
+  bru.setVar('change_at', String(Date.now()));
+  bru.setVar('poll_n', 0);
+}
+
+docs {
+  Keycloak console: Groups › t › tenant A › service-desk › Members › Leave.
+}

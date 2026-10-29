@@ -1,0 +1,30 @@
+meta {
+  name: S5.14 Control: Bob is unaffected
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const r = await N.token(N.v('bob_username'), N.v('bob_password'));
+  bru.setVar('bob_token', r.data.access_token);
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.me('00000000-0000-4000-8000-0000000000b1');
+}
+
+docs {
+  Bob's token from S5.3 may have expired by now with a 5-minute sync, so the pre-request script refreshes it.
+}

@@ -1,0 +1,20 @@
+meta {
+  name: S6.6 Negative: unknown path outside /api/v1
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{core_url}}/nope
+  body: none
+  auth: none
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('not_found', 404);
+}
+
+docs {
+  404 problem, no token needed.
+}

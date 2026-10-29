@@ -1,0 +1,9 @@
+{
+  "version": "1",
+  "name": "TicketingSystem acceptance and API suite",
+  "type": "collection",
+  "ignore": [
+    "node_modules",
+    ".git"
+  ]
+}

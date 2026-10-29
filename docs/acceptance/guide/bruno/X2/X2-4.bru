@@ -1,0 +1,48 @@
+meta {
+  name: X2.4 onboardTenant 401: a malformed token
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{onboard_url}}/api/v1/operator/tenants
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer not-a-token
+  Idempotency-Key: {{x2_key}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "admin_email": "admin@{{x2_domain}}",
+    "email_domains": [
+      "{{x2_domain}}"
+    ],
+    "identity_provider": {
+      "provider_id": "oidc",
+      "display_name": "Acceptance IdP",
+      "config": {
+        "clientId": "acceptance-client",
+        "clientSecret": "dev-only-not-a-secret",
+        "authorizationUrl": "https://93.184.216.34/auth",
+        "tokenUrl": "https://93.184.216.34/token",
+        "jwksUrl": "https://93.184.216.34/jwks",
+        "useJwksUrl": "true",
+        "defaultScope": "openid email profile"
+      }
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_token', 401);
+}
+
+docs {
+  Not a JWT.
+}

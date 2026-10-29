@@ -1,0 +1,34 @@
+meta {
+  name: S5.1 Setup: look up Alice and tenant A's service-desk group
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{keycloak_url}}/admin/realms/{{realm}}/users?exact=true&username={{alice_username}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{kc_admin_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await N.kcAdmin();
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 200, one user', () => { expect(res.getStatus()).to.eql(200); expect(N.json()).to.have.length(1); });
+  bru.setVar('alice_kc_id', N.json()[0].id);
+  const g = await N.send({ url: N.url('{{keycloak_url}}/admin/realms/{{realm}}/group-by-path/t/00000000-0000-4000-8000-0000000000a1/service-desk'),
+    method: 'GET', headers: { Authorization: 'Bearer ' + bru.getVar('kc_admin_token') } });
+  test('service-desk group found', () => expect(g.status).to.eql(200));
+  bru.setVar('alice_sd_group', g.data.id);
+}
+
+docs {
+  Keeps Alice's Keycloak id. The group id is looked up in the test script.
+}

@@ -1,0 +1,23 @@
+meta {
+  name: X3.16 nava-purge: GET /healthz
+  type: http
+  seq: 16
+}
+
+get {
+  url: {{purge_admin_url}}/healthz
+  body: none
+  auth: none
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  test('status ok', () => expect(b.status).to.eql('ok'));
+  test('every check ok', () => Object.entries(b.checks || {}).forEach(([k, s]) => expect(s, k).to.eql('ok')));
+}
+
+docs {
+  nava-purge's admin listener (:9090) through `tools/tunnels.sh up`. `status` ok and every check ok.
+}

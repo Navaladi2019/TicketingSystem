@@ -1,0 +1,22 @@
+meta {
+  name: S1.6 Keycloak realm nava is up with the pinned issuer
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{keycloak_url}}/realms/{{realm}}/.well-known/openid-configuration
+  body: none
+  auth: none
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('issuer is {{keycloak_issuer_url}}/realms/{{realm}}', () =>
+    expect(N.json().issuer).to.eql(N.url('{{keycloak_issuer_url}}/realms/{{realm}}')));
+}
+
+docs {
+  The issuer is pinned (TICK-160): `{{keycloak_issuer_url}}/realms/nava` whatever Host the request used (this one goes to `{{keycloak_url}}`). nava-core trusts exactly this value.
+}

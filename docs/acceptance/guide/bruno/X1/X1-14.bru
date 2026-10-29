@@ -1,0 +1,30 @@
+meta {
+  name: X1.14 getMe 401: a master-realm token (wrong issuer)
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{foreign_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const r = await N.token(N.v('kc_admin_user'), N.v('kc_admin_password'), { client: 'admin-cli', realm: 'master' });
+  bru.setVar('foreign_token', r.data.access_token);
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_token', 401);
+}
+
+docs {
+  Signed by Keycloak, but not by the pinned realm.
+}

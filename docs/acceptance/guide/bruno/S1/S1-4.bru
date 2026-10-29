@@ -1,0 +1,20 @@
+meta {
+  name: S1.4 Negative: /healthz is not on the public port
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{core_url}}/healthz
+  body: none
+  auth: none
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('not_found', 404);
+}
+
+docs {
+  The admin routes live only on the unpublished admin listener. The public port answers 404 problem.
+}

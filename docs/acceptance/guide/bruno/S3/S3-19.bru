@@ -1,0 +1,34 @@
+meta {
+  name: S3.19 Setup: add Carol to tenant B's organization
+  type: http
+  seq: 19
+}
+
+post {
+  url: {{keycloak_url}}/admin/realms/{{realm}}/organizations/00000000-0000-4000-8000-0000000000b1/members
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{kc_admin_token}}
+  Content-Type: application/json
+}
+
+body:json {
+  "{{carol_id}}"
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await N.kcAdmin();
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('member (201) or already (409)', () => expect(res.getStatus()).to.be.oneOf([201, 409]));
+}
+
+docs {
+  Carol is now in both organizations.
+}

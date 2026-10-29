@@ -1,0 +1,24 @@
+meta {
+  name: X1.8 getMe 401: Bearer with an empty token
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_token', 401);
+}
+
+docs {
+  The scheme alone.
+}

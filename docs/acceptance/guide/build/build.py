@@ -3,9 +3,11 @@
     python -I docs/acceptance/guide/build/build.py
 
 Writes the HTML pages, guide-standalone.html (every page in one file), the
-Postman collection and environment, and ticketing-acceptance-guide.zip. Every
-page is self-contained: inline CSS, inline SVG flowcharts, no script, no
-network. Edit the content here and in collection.py, never the output files.
+Bruno collection (bruno/) and ticketing-acceptance-guide.zip, and fails when an
+operation or documented status in api/openapi.bundled.yaml has no Bruno
+request (or exemption in coverage-exempt.json). Every page is self-contained:
+inline CSS, inline SVG flowcharts, no script, no network. Edit the content here
+and in collection.py, never the output files.
 """
 
 import html
@@ -18,7 +20,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import collection  # noqa: E402
 from content import PAGES, PREREQ, TROUBLE, ROUTES, NOT_ON_MAIN  # noqa: E402
 
-OUT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+HERE = os.path.dirname(os.path.abspath(__file__))
+OUT = os.path.dirname(HERE)
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(OUT)))
+SPEC = os.path.join(ROOT, "api", "openapi.bundled.yaml")
+EXEMPT = os.path.join(HERE, "coverage-exempt.json")
 ZIP = "ticketing-acceptance-guide.zip"
 
 e = html.escape
@@ -47,7 +53,7 @@ ol.steps>li:before{content:counter(s);position:absolute;left:14px;top:10px;width
 """
 
 LANE_COLORS = {
-    "Tester": "#14213d", "Postman": "#ff6c37", "Shell": "#334155", "Browser": "#7c3aed",
+    "Tester": "#14213d", "Bruno": "#f4aa41", "Shell": "#334155", "Browser": "#7c3aed",
     "nava-core": "#2f5bd3", "nava-onboard": "#0e7490", "Keycloak": "#b45309", "Postgres": "#1d4ed8",
     "nava-groupsync": "#047857", "Temporal": "#6d28d9", "nava-relay": "#be185d", "Temporal UI": "#6d28d9",
     "Docker": "#0369a1",
@@ -149,31 +155,34 @@ def page_body(p, link):
     out.append("<h2>Click by click</h2>" + steps(p["steps"]))
     if p.get("extra"):
         out.append("".join(block(b) for b in p["extra"]))
-    out.append("<h2>Postman</h2>" + "".join(block(b) for b in p["postman"]))
+    out.append("<h2>Bruno</h2>" + "".join(block(b) for b in p["bruno"]))
     return "".join(out)
 
 
 def index_body(link):
     cards = "".join(f'<a class="card" href="{link(p["id"])}"><b>{e(p["short"])}: {e(p["title"])}</b>{md(p["blurb"])}</a>' for p in PAGES)
     return f"""<h1>TicketingSystem acceptance guide: stories S1–S7</h1>
-<p class="sub">Everything delivered on <code>main</code> in stories S1 to S7, tried by hand on your own machine. Each use case has a flowchart, the exact clicks, what you should see and what a failure looks like. The Postman collection walks the same steps with automatic checks.</p>
+<p class="sub">Everything delivered on <code>main</code> in stories S1 to S7, tried by hand on your own machine. Each use case has a flowchart, the exact clicks, what you should see and what a failure looks like. The Bruno collection walks the same steps with automatic checks, and adds a test suite for every API operation.</p>
 <p><a class="btn" href="{ZIP}" download>Download the kit (.zip)</a><a class="btn alt" href="guide-standalone.html" download>Download as one HTML file</a></p>
-<p class="legend">The zip holds this site, the Postman collection and environment, and the two helper scripts. Unzip it anywhere: the pages work offline from a double-click. The scripts run from the repository checkout, at <code>docs/acceptance/guide/tools/</code>.</p>
-<h2>Start here</h2><ol><li><a href="{link('prerequisites')}">Prerequisites</a>: clone, start the stack, seed the two tenants, open the tunnels, import Postman.</li>
-<li>Pick a use case below, or run the whole collection in Postman's Collection Runner (about 3 minutes with the 15-second group sync, plus up to 5 minutes for the last check).</li>
+<p class="legend">The zip holds this site, the Bruno collection (with its <code>local</code> environment) and the helper scripts. Unzip it anywhere: the pages work offline from a double-click. The scripts run from the repository checkout, at <code>docs/acceptance/guide/tools/</code>.</p>
+<h2>Start here</h2><ol><li><a href="{link('prerequisites')}">Prerequisites</a>: clone, start the stack, seed the two tenants, open the tunnels, open the collection in Bruno.</li>
+<li>Pick a use case below, or run the whole collection: in Bruno's Runner, or headless with <code>sh docs/acceptance/guide/tools/api-test.sh</code> (about 3 minutes with the 15-second group sync, plus up to 5 minutes for the last folder).</li>
 <li>Something red? <a href="{link('troubleshooting')}">Troubleshooting</a>.</li></ol>
 <h2>Use cases</h2><div class="card-grid">{cards}</div>
 <h2>What is not on <code>main</code></h2>{''.join(block(b) for b in NOT_ON_MAIN)}
-<p class="legend">The <a href="{link('coverage')}">coverage page</a> maps every route on <code>main</code> to its Postman request, or says why it cannot be called from outside.</p>"""
+<p class="legend">The <a href="{link('coverage')}">coverage page</a> maps every route on <code>main</code> and every documented API outcome to its Bruno request, or says why it cannot be called from outside.</p>"""
 
 
-def coverage_body(coll):
-    reqs = list(collection.requests(coll))
-    rows = []
-    for r in ROUTES:
-        rows.append(r)
+def coverage_body(folders, api_rows):
+    reqs = list(collection.requests(folders))
     out = ["<h1>Route coverage</h1><p class='sub'>Every route on <code>main</code> (each <code>Handle</code>/<code>HandleFunc</code> in <code>cmd/</code> and <code>internal/</code>, and every operation in <code>api/openapi.yaml</code>) and where it is tested.</p>",
-           block(("table", ["Service and listener", "Route", "Callable from the host?", "Covered by"], rows))]
+           block(("table", ["Service and listener", "Route", "Callable from the host?", "Covered by"], ROUTES))]
+    out.append("<h2>Every documented API outcome</h2>")
+    out.append(block("Each operation in `api/openapi.bundled.yaml` and each status it documents, with the Bruno requests that assert that status. "
+                     "`build.py` and the Go test `TestBrunoCoversEveryOperation` (`api/bruno_coverage_test.go`) fail when an operation has no request, "
+                     "or a status has neither a request nor a reason in `build/coverage-exempt.json`."))
+    out.append(block(("table", ["Operation", "Route", "Status", "Asserted by", "Not asserted because"],
+                      [(o, f"`{r}`", s, by, why) for o, r, s, by, why in api_rows])))
     out.append("<h2>Every request in the collection</h2>")
     out.append(block(("table", ["Folder", "Request", "Method", "URL"],
                       [(f, n, m, f"`{u}`") for f, n, m, u in reqs])))
@@ -194,19 +203,17 @@ def doc(title, current, body, link):
 
 
 def main():
-    coll, env = collection.build()
-    os.makedirs(os.path.join(OUT, "postman"), exist_ok=True)
-    cpath = os.path.join(OUT, "postman", "TicketingSystem.postman_collection.json")
-    epath = os.path.join(OUT, "postman", "local.postman_environment.json")
-    for path, data in ((cpath, coll), (epath, env)):
-        with open(path, "w", encoding="utf-8", newline="\n") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-            f.write("\n")
+    with open(SPEC, encoding="utf-8") as f:
+        spec = f.read()
+    with open(EXEMPT, encoding="utf-8") as f:
+        exempt = json.load(f)
+    folders = collection.write(os.path.join(OUT, "bruno"))
+    api_rows = collection.coverage(folders, spec, exempt)
 
     bodies = [("index", "Home", lambda link: index_body(link)),
               ("prerequisites", "Prerequisites", lambda link: simple_body(*PREREQ)),
               *[(p["id"], p["short"], (lambda p: lambda link: page_body(p, link))(p)) for p in PAGES],
-              ("coverage", "Coverage", lambda link: coverage_body(coll)),
+              ("coverage", "Coverage", lambda link: coverage_body(folders, api_rows)),
               ("troubleshooting", "Troubleshooting", lambda link: simple_body(*TROUBLE))]
 
     files = lambda i: f"{i}.html"
@@ -233,13 +240,17 @@ def main():
             page = page.replace(f'href="{ZIP}" download', 'href="index.html" title="This folder is the kit"').replace(
                 "Download the kit (.zip)", "You have the kit: this folder")
             z.writestr(f"ticketing-acceptance-guide/{name}", page)
-        for sub in ("postman", "tools"):
-            for name in sorted(os.listdir(os.path.join(OUT, sub))):
-                z.write(os.path.join(OUT, sub, name), f"ticketing-acceptance-guide/{sub}/{name}")
+        for sub in ("bruno", "tools"):
+            for d, dirs, names in sorted(os.walk(os.path.join(OUT, sub))):
+                dirs.sort()
+                for name in sorted(names):
+                    path = os.path.join(d, name)
+                    rel = os.path.relpath(path, OUT).replace(os.sep, "/")
+                    z.write(path, f"ticketing-acceptance-guide/{rel}")
         for name in ("README.md", "acceptance-run.md"):
             if os.path.exists(os.path.join(OUT, name)):
                 z.write(os.path.join(OUT, name), f"ticketing-acceptance-guide/{name}")
-    print("wrote", ", ".join(written), "postman/*.json", ZIP)
+    print("wrote", ", ".join(written), "bruno/", ZIP)
 
 
 if __name__ == "__main__":

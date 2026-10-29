@@ -1,0 +1,12 @@
+{
+  "_doc": "Documented statuses no Bruno request can assert on its own response, with the reason. Read by build.py and api/bruno_coverage_test.go. Add an entry only when the status cannot be caused from outside a healthy stack.",
+  "getMe": {
+    "429": "Asserted in S6.12 on the burst's own 429 sample (pre-request calls), not on S6.12's own response, which is tenant B's 200.",
+    "500": "Needs an internal failure (a dependency error mid-request); not caused from outside a healthy stack. Unit tests cover the mapping (internal/platform/apihttp).",
+    "501": "getMe is implemented; 501 is the generated default for an unimplemented operation."
+  },
+  "onboardTenant": {
+    "429": "Spec drift: operator routes are not rate limited (internal/server/api.go: the limiter wraps tenant routes only), so nava-onboard never answers 429.",
+    "500": "Needs a Keycloak or database failure mid-onboarding; not caused from outside a healthy stack."
+  }
+}

@@ -1,0 +1,8 @@
+meta {
+  name: Z — Expired tokens are refused (runs last)
+  seq: 11
+}
+
+docs {
+  TICK-45 and TICK-331. Waits until the tokens kept in S3.1 and S4.1 are past their 5-minute expiry plus the 30 s clock-skew allowance, then uses them. Run on its own, it signs in first and waits about 5 min 40 s.
+}

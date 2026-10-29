@@ -1,0 +1,32 @@
+meta {
+  name: S5.17 Poll: Alice resolves again
+  type: http
+  seq: 17
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await N.pollWait();
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.poll("S5.17 Poll: Alice resolves again", () =>res.getStatus() === 200, () => {
+    N.me('00000000-0000-4000-8000-0000000000a1');
+    test('/service-desk', () => expect(N.paths()).to.include('/service-desk'));
+  });
+}
+
+docs {
+  After the next sync Alice is back in tenant A with /service-desk.
+}

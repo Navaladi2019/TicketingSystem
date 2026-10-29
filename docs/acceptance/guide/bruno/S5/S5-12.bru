@@ -1,0 +1,29 @@
+meta {
+  name: S5.12 Negative: Alice cannot sign in again
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{keycloak_url}}/realms/{{realm}}/protocol/openid-connect/token
+  body: formUrlEncoded
+  auth: none
+}
+
+body:form-urlencoded {
+  grant_type: password
+  client_id: nava-web
+  scope: openid
+  username: {{alice_username}}
+  password: {{alice_password}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 400 invalid_grant', () => { expect(res.getStatus()).to.eql(400); expect(N.json().error).to.eql('invalid_grant'); });
+  test('Account disabled', () => expect(N.json().error_description).to.match(/disabled/i));
+}
+
+docs {
+  Keycloak refuses at once: 400 `invalid_grant`, Account disabled.
+}

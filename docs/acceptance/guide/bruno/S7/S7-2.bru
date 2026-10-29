@@ -1,0 +1,28 @@
+meta {
+  name: S7.2 Temporal: its history holds the start and two signals in commit order
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{temporal_ui_url}}/api/v1/namespaces/nava/workflows/{{wf_id}}/history
+  body: none
+  auth: none
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const ev = (N.json().history || {}).events || [];
+  const types = ev.map(e => e.eventType);
+  test('starts with WorkflowExecutionStarted', () => expect(types[0]).to.match(/WORKFLOW_EXECUTION_STARTED|WorkflowExecutionStarted/));
+  const sig = ev.filter(e => /SIGNALED|Signaled/.test(e.eventType));
+  test('exactly two demo.note signals', () => {
+    expect(sig).to.have.length(2);
+    sig.forEach(s => expect(s.workflowExecutionSignaledEventAttributes.signalName).to.eql('demo.note'));
+  });
+}
+
+docs {
+  The two `demo.note` signals arrive once each, in the order their outbox rows were committed.
+}

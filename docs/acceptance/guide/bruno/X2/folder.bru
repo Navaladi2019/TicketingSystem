@@ -1,0 +1,8 @@
+meta {
+  name: X2 — API suite: POST /api/v1/operator/tenants (onboardTenant)
+  seq: 9
+}
+
+docs {
+  TICK-331. Every documented outcome of `onboardTenant`: the happy path and replay against the schema, each wrong token (missing, malformed, wrong issuer, a tenant user's token), every validation rule the contract and the service enforce (400 `validation_failed` with `errors[].pointer`, 422 `invalid_idp_config`) and the method rule. 409 `idempotency_key_reuse` and `domain_claimed` are S4.10–S4.12, 501 is S4.5, the expired token is folder Z. Self-contained; every run uses a new random domain and key. Needs the seed and the tunnels.
+}

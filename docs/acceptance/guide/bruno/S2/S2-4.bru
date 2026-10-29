@@ -1,0 +1,30 @@
+meta {
+  name: S2.4 Bob: GET /me is tenant B, none of Alice's groups
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.me('00000000-0000-4000-8000-0000000000b1');
+  N.noLeak('00000000-0000-4000-8000-0000000000a1');
+  test('no group id of tenant A', () => {
+    const a = JSON.parse(bru.getVar('alice_groups') || '[]');
+    N.json().groups.forEach(g => expect(a).to.not.include(g));
+  });
+  test('both tenants have /service-desk, each its own id', () => expect(N.paths()).to.include('/service-desk'));
+}
+
+docs {
+  Bob's own tenant. No group id of Alice's appears, although both tenants have a group with the same name.
+}

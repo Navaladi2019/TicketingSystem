@@ -1,0 +1,27 @@
+meta {
+  name: S6.9 Every response carries X-Request-Id; an inbound traceparent is accepted
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.me('00000000-0000-4000-8000-0000000000a1');
+  test('X-Request-Id present', () => expect(N.header('X-Request-Id')).to.be.a('string').and.not.empty);
+  test("the caller's trace id is not echoed back", () => expect(N.header('traceparent') || '').to.not.include('4bf92f3577b34da6a3ce929d0e0e4736'));
+}
+
+docs {
+  The service starts its own trace and only links the caller's `traceparent` (it never continues an outside trace). Search the request id in the logs: `docker compose logs nava-core | grep <id>`.
+}

@@ -1,0 +1,32 @@
+meta {
+  name: S5.6 Poll: the same token's /me loses /service-desk
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await N.pollWait();
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.poll("S5.6 Poll: the same token's /me loses /service-desk", () =>!N.paths().includes('/service-desk'), () => {
+    N.me('00000000-0000-4000-8000-0000000000a1');
+    test('/service-desk is gone', () => expect(N.paths()).to.not.include('/service-desk'));
+  });
+}
+
+docs {
+  Story step 3. Same token as S5.4. Repeats until the next sync removes the group. By hand: Send every 15 s.
+}

@@ -1,0 +1,48 @@
+meta {
+  name: S3.13 Setup: create Dave, a user in no organization
+  type: http
+  seq: 13
+}
+
+post {
+  url: {{keycloak_url}}/admin/realms/{{realm}}/users
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{kc_admin_token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "username": "{{dave_username}}",
+    "email": "{{dave_username}}",
+    "enabled": true,
+    "emailVerified": true,
+    "firstName": "Dave",
+    "lastName": "NoOrg",
+    "credentials": [
+      {
+        "type": "password",
+        "value": "{{dave_password}}",
+        "temporary": false
+      }
+    ]
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await N.kcAdmin();
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('created (201) or already there (409)', () => expect(res.getStatus()).to.be.oneOf([201, 409]));
+}
+
+docs {
+  Keycloak admin API. 201 the first time, 409 when Dave already exists (a re-run).
+}

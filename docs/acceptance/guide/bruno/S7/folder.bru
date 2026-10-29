@@ -1,0 +1,8 @@
+meta {
+  name: S7 — A committed outbox row runs exactly one workflow
+  seq: 7
+}
+
+docs {
+  TICK-49. There is no platform HTTP route for workflows. Run `make demo-outbox DEDUPE_KEY=accept` twice first (see the guide), and `tools/tunnels.sh up` (with `COMPOSE_PROFILES=operator`) for the Temporal UI at `{{temporal_ui_url}}`. These requests read the Temporal UI's own HTTP API, as an operator would.
+}

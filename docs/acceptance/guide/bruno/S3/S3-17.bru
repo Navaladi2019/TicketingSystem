@@ -1,0 +1,30 @@
+meta {
+  name: S3.17 Setup: look up Carol's id
+  type: http
+  seq: 17
+}
+
+get {
+  url: {{keycloak_url}}/admin/realms/{{realm}}/users?exact=true&username={{carol_username}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{kc_admin_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await N.kcAdmin();
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 200, one user', () => { expect(res.getStatus()).to.eql(200); expect(N.json()).to.have.length(1); });
+  bru.setVar('carol_id', N.json()[0].id);
+}
+
+docs {
+  Keeps her Keycloak user id.
+}

@@ -1,0 +1,29 @@
+meta {
+  name: S3.9 Get a token from another issuer (Keycloak master realm)
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{keycloak_url}}/realms/master/protocol/openid-connect/token
+  body: formUrlEncoded
+  auth: none
+}
+
+body:form-urlencoded {
+  grant_type: password
+  client_id: admin-cli
+  username: {{kc_admin_user}}
+  password: {{kc_admin_password}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  bru.setVar('foreign_token', N.json().access_token);
+  test('issuer is realm master', () => expect(N.jwt(N.json().access_token).iss).to.match(/\/realms\/master$/));
+}
+
+docs {
+  A real, validly signed token, but from realm `master`, which is not on nava-core's issuer allow-list.
+}

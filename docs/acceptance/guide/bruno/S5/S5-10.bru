@@ -1,0 +1,32 @@
+meta {
+  name: S5.10 Poll: /me shows /service-desk again
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await N.pollWait();
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.poll("S5.10 Poll: /me shows /service-desk again", () =>N.paths().includes('/service-desk'), () => {
+    N.me('00000000-0000-4000-8000-0000000000a1');
+    test('/service-desk is back', () => expect(N.paths()).to.include('/service-desk'));
+  });
+}
+
+docs {
+  Waits for the restore to sync, so the disable test starts clean.
+}
