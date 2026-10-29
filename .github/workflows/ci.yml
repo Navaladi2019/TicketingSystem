@@ -113,7 +113,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/go/bin
-          key: tools-${{ hashFiles('Makefile') }}
+          key: tools-${{ hashFiles('Makefile', 'make/lint.mk') }}
       - name: Install pinned tools
         if: steps.tools.outputs.cache-hit != 'true'
         run: make tools
