@@ -1,0 +1,24 @@
+meta {
+  name: S6.5 Negative: unknown /api/v1 route with a token
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{core_url}}/api/v1/nope
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('not_found', 404);
+}
+
+docs {
+  404 problem behind a valid token.
+}

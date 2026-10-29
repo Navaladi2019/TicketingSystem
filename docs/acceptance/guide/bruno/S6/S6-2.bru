@@ -1,0 +1,21 @@
+meta {
+  name: S6.2 GET /api/v1/docs (public)
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{core_url}}/api/v1/docs
+  body: none
+  auth: none
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('HTML naming the operations', () => { expect(N.header('Content-Type')).to.include('text/html'); expect(N.text()).to.include('/api/v1/me'); });
+}
+
+docs {
+  Human-readable docs generated from the contract.
+}

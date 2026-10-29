@@ -1,0 +1,25 @@
+meta {
+  name: X2.20 onboardTenant 405: GET
+  type: http
+  seq: 20
+}
+
+get {
+  url: {{onboard_url}}/api/v1/operator/tenants
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{operator_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('method_not_allowed', 405);
+  test('Allow names POST', () => expect(N.header('Allow') || '').to.include('POST'));
+}
+
+docs {
+  Only POST is declared.
+}

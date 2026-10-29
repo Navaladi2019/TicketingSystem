@@ -1,0 +1,24 @@
+meta {
+  name: X1.7 getMe 401: Basic instead of Bearer
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Basic YWxpY2U6ZGV2LW9ubHktYWxpY2U=
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_token', 401);
+}
+
+docs {
+  Only the Bearer scheme is accepted.
+}

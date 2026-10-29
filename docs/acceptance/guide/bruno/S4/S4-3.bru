@@ -1,0 +1,57 @@
+meta {
+  name: S4.3 Negative: onboarding with no token
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{onboard_url}}/api/v1/operator/tenants
+  body: json
+  auth: none
+}
+
+headers {
+  Idempotency-Key: {{onb_key}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "admin_email": "admin@{{onb_domain}}",
+    "email_domains": [
+      "{{onb_domain}}"
+    ],
+    "identity_provider": {
+      "provider_id": "oidc",
+      "display_name": "Acceptance IdP",
+      "config": {
+        "clientId": "acceptance-client",
+        "clientSecret": "dev-only-not-a-secret",
+        "authorizationUrl": "https://93.184.216.34/auth",
+        "tokenUrl": "https://93.184.216.34/token",
+        "jwksUrl": "https://93.184.216.34/jwks",
+        "useJwksUrl": "true",
+        "defaultScope": "openid email profile"
+      }
+    }
+  }
+}
+
+script:pre-request {
+  // One run id per pass, so the folder can run again on the same stack.
+  const run = Math.random().toString(16).slice(2, 10);
+  bru.setVar('run_id', run);
+  bru.setVar('onb_domain', `onb-${run}.test`);
+  bru.setVar('onb_domain2', `onb2-${run}.test`);
+  bru.setVar('onb_domain3', `onb3-${run}.test`);
+  bru.setVar('onb_key', `tick331-onb-${run}-1`);
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_token', 401);
+}
+
+docs {
+  401 before anything else.
+}

@@ -1,0 +1,25 @@
+meta {
+  name: S5.4 Alice: GET /me shows /service-desk
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.me('00000000-0000-4000-8000-0000000000a1');
+  test('group_paths includes /service-desk', () => expect(N.paths()).to.include('/service-desk'));
+}
+
+docs {
+  Story step 1. `group_paths` is relative to the tenant root (ADR-002), sorted by id.
+}

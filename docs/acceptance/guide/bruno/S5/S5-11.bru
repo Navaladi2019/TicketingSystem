@@ -1,0 +1,38 @@
+meta {
+  name: S5.11 Admin disables Alice
+  type: http
+  seq: 11
+}
+
+put {
+  url: {{keycloak_url}}/admin/realms/{{realm}}/users/{{alice_kc_id}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{kc_admin_token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "enabled": false
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await N.kcAdmin();
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 204', () => expect(res.getStatus()).to.eql(204));
+  bru.setVar('change_at', String(Date.now()));
+  bru.setVar('poll_n', 0);
+}
+
+docs {
+  Story step 4. Keycloak console: Users › alice › Enabled off. Alice's token from S5.9 is still valid.
+}

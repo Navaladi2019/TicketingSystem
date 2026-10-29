@@ -1,0 +1,24 @@
+meta {
+  name: S3.12 Negative: operator token on a tenant endpoint
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{operator_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_token', 401);
+}
+
+docs {
+  An operator token is not a tenant token (S5 criterion 6, 401 half).
+}

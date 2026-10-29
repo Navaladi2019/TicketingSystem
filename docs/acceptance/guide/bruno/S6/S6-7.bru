@@ -1,0 +1,25 @@
+meta {
+  name: S6.7 Negative: wrong method on /api/v1/me
+  type: http
+  seq: 7
+}
+
+delete {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('method_not_allowed', 405);
+  test('Allow names GET', () => expect(N.header('Allow') || '').to.include('GET'));
+}
+
+docs {
+  405 problem with an `Allow` header.
+}

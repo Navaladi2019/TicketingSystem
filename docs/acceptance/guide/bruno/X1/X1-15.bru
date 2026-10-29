@@ -1,0 +1,30 @@
+meta {
+  name: X1.15 getMe 405: POST
+  type: http
+  seq: 15
+}
+
+post {
+  url: {{core_url}}/api/v1/me
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('method_not_allowed', 405);
+  test('Allow names GET', () => expect(N.header('Allow') || '').to.include('GET'));
+}
+
+docs {
+  Only GET (and HEAD) is declared.
+}

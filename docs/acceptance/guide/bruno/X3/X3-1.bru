@@ -1,0 +1,24 @@
+meta {
+  name: X3.1 nava-core: GET /healthz
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{admin_url}}/healthz
+  body: none
+  auth: none
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  test('status ok', () => expect(b.status).to.eql('ok'));
+  test('every check ok', () => Object.entries(b.checks || {}).forEach(([k, s]) => expect(s, k).to.eql('ok')));
+  test('checks keycloak, postgres, temporal', () => expect(b.checks).to.include.all.keys('keycloak', 'postgres', 'temporal'));
+}
+
+docs {
+  nava-core's admin listener (:9090) through `tools/tunnels.sh up`. `status` ok and every check ok.
+}

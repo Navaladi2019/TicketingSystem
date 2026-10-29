@@ -1,0 +1,75 @@
+meta {
+  name: S6.12 Tenant A over its limit gets 429 while tenant B succeeds
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const n = Number(N.v('rate_burst_requests') || 300);
+  const me = N.url('{{core_url}}/api/v1/me');
+  const st = { a: {}, b: {}, bTenants: [] };
+  let sample = null;
+  const call = async (tok, who) => {
+    let r;
+    try { r = await N.send({ url: me, method: 'GET', headers: { Authorization: 'Bearer ' + tok } }); } catch (e) { r = null; }
+    const k = r ? String(r.status) : 'error';
+    st[who][k] = (st[who][k] || 0) + 1;
+    if (r && r.status === 429 && !sample) {
+      const h = r.headers || {};
+      sample = { ct: h['content-type'] || '', retry: h['retry-after'], rid: h['x-request-id'],
+        body: typeof r.data === 'string' ? r.data : JSON.stringify(r.data) };
+    }
+    if (r && who === 'b' && r.status === 200) st.bTenants.push(r.data.tenant_id);
+  };
+  const a = bru.getVar('alice_token'), b = bru.getVar('bob_token');
+  // Bob's 20 calls are spread through Alice's burst, not sent after it.
+  const step = Math.max(1, Math.floor(n / 20));
+  const calls = [];
+  let sentB = 0;
+  for (let i = 0; i < n; i++) { calls.push(call(a, 'a')); if (i % step === 0 && sentB < 20) { calls.push(call(b, 'b')); sentB++; } }
+  while (sentB < 20) { calls.push(call(b, 'b')); sentB++; }
+  await Promise.all(calls);
+  bru.setVar('rl_stats', JSON.stringify(st));
+  bru.setVar('rl_sample', JSON.stringify(sample || {}));
+  bru.setVar('rl_burst_end', String(Date.now()));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  const st = JSON.parse(bru.getVar('rl_stats') || '{}');
+  const s = JSON.parse(bru.getVar('rl_sample') || '{}');
+  console.log('burst results (status: count): tenant A', JSON.stringify(st.a), 'tenant B', JSON.stringify(st.b));
+  test('tenant A: some calls got 429', () => expect(st.a && st.a['429'] || 0).to.be.above(0));
+  test('tenant A: the calls within its burst got 200', () => expect(st.a && st.a['200'] || 0).to.be.above(0));
+  test('tenant A: nothing but 200 and 429', () => expect(Object.keys(st.a || {}).filter(k => k !== '200' && k !== '429')).to.eql([]));
+  test('the 429 is problem+json rate_limited', () => {
+    expect(s.ct).to.include('application/problem+json');
+    const b = JSON.parse(s.body);
+    expect(b.code).to.eql('rate_limited');
+    expect(b.status).to.eql(429);
+    expect(b.type).to.eql('urn:nava:problem:rate_limited');
+    expect(N.REGISTERED).to.include(b.code);
+    expect(b.instance).to.eql('urn:nava:request:' + s.rid);
+  });
+  test('the 429 carries Retry-After in whole seconds, at least 1', () => expect(Number(s.retry)).to.be.at.least(1));
+  test('the 429 names no tenant', () => expect(s.body).to.not.include('00000000-0000-4000-8000-0000000000a1'));
+  bru.setVar('rl_retry_after', String(s.retry || 2));
+  test('tenant B: all 20 calls in the same burst got 200', () => expect(st.b).to.eql({ '200': 20 }));
+  test('tenant B: each answered for tenant B', () => (st.bTenants || []).forEach(t => expect(t).to.eql('00000000-0000-4000-8000-0000000000b1')));
+  N.me('00000000-0000-4000-8000-0000000000b1');
+}
+
+docs {
+  Before this request, Alice (tenant A) fires `rate_burst_requests` (default 300) `GET /api/v1/me` calls at once, more than tenant A's bucket holds (`NAVA_RATE_LIMIT_BURST`, 100 by default, refilled at `NAVA_RATE_LIMIT_RPS`, 50/s), and Bob (tenant B) fires 20 in the same burst. Tenant A must see 429 `rate_limited` with `Retry-After`; every call of Bob's, and this request, must be 200 for tenant B. The limit is keyed only on the tenant in the token.
+}

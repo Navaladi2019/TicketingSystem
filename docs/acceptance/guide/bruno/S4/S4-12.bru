@@ -1,0 +1,49 @@
+meta {
+  name: S4.12 Negative: claim seeded tenant A's domain
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{onboard_url}}/api/v1/operator/tenants
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{operator_token}}
+  Idempotency-Key: {{onb_key}}-tenant-a
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "admin_email": "admin@{{seed_domain_a}}",
+    "email_domains": [
+      "{{seed_domain_a}}"
+    ],
+    "identity_provider": {
+      "provider_id": "oidc",
+      "display_name": "Acceptance IdP",
+      "config": {
+        "clientId": "acceptance-client",
+        "clientSecret": "dev-only-not-a-secret",
+        "authorizationUrl": "https://93.184.216.34/auth",
+        "tokenUrl": "https://93.184.216.34/token",
+        "jwksUrl": "https://93.184.216.34/jwks",
+        "useJwksUrl": "true",
+        "defaultScope": "openid email profile"
+      }
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('domain_claimed', 409);
+  N.noLeak('00000000-0000-4000-8000-0000000000a1', 'tenant-a');
+}
+
+docs {
+  `tenant-a.test` belongs to tenant A (seeded): 409 with no trace of tenant A.
+}

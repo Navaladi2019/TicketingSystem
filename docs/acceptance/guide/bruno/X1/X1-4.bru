@@ -1,0 +1,25 @@
+meta {
+  name: X1.4 getMe 200: HEAD is served as GET with no body
+  type: http
+  seq: 4
+}
+
+head {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('no body', () => expect(N.text() || '').to.eql(''));
+}
+
+docs {
+  ServeMux routes HEAD to the GET pattern; the server answers it as the GET it stands for, with no body.
+}

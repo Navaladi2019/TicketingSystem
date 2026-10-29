@@ -1,0 +1,25 @@
+meta {
+  name: S6.10 Negative: request-specific input never appears in a problem
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{core_url}}/api/v1/nope-<script>alert(1)</script>
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('not_found', 404);
+  N.noLeak('<script>', 'nope-');
+}
+
+docs {
+  `detail` is fixed text per code; the path is not echoed.
+}

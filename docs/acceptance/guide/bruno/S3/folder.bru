@@ -1,0 +1,8 @@
+meta {
+  name: S3 — Tenant user signs in, scoped to tenant
+  seq: 3
+}
+
+docs {
+  TICK-45. Sign in through Keycloak, call `GET /api/v1/me`, then the refused tokens: none, garbage, tampered, an ID token, a foreign issuer, an operator token, no organization and two organizations. The expired-token check is in the last folder (Z), because it waits for a 5-minute token to expire. Needs `tools/seed.sh`.
+}

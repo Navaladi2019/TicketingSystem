@@ -1,0 +1,39 @@
+meta {
+  name: S3.22 Negative: expired token
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{expiring_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const exp = Number(bru.getVar('expiring_token_exp') || 0);
+  if (!exp) {
+    // Run on its own: sign in now and wait the full lifespan.
+    const r = await N.token(N.v('alice_username'), N.v('alice_password'), { client: 'nava-web' });
+    bru.setVar('expiring_token', r.data.access_token);
+    bru.setVar('expiring_token_exp', String(N.jwt(r.data.access_token).exp));
+  }
+  // nava-core and nava-onboard allow 30 s of clock skew on exp (internal/identity/keycloak), so wait past that.
+  const wait = Math.max(0, Number(bru.getVar('expiring_token_exp')) * 1000 + 40000 - Date.now());
+  if (wait > 0) { console.log(`waiting ${Math.round(wait / 1000)} s for the token to expire`); await bru.sleep(wait); }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_token', 401);
+  test('the token is past exp plus the 30 s skew', () => expect(Date.now() / 1000).to.be.above(Number(bru.getVar('expiring_token_exp')) + 30));
+}
+
+docs {
+  Alice's token from S3.1, now expired. nava-core allows 30 s of clock skew, so by hand send it more than 5 min 30 s after S3.1.
+}

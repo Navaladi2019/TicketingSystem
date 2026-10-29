@@ -1,0 +1,30 @@
+meta {
+  name: S5.8 Restore: add Alice back to service-desk
+  type: http
+  seq: 8
+}
+
+put {
+  url: {{keycloak_url}}/admin/realms/{{realm}}/users/{{alice_kc_id}}/groups/{{alice_sd_group}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{kc_admin_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await N.kcAdmin();
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 204', () => expect(res.getStatus()).to.eql(204));
+  bru.setVar('change_at', String(Date.now()));
+}
+
+docs {
+  Undo S5.5.
+}

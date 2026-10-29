@@ -1,0 +1,29 @@
+meta {
+  name: X1.9 getMe 401: a JWT with a broken signature
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{badsig_token}}
+}
+
+script:pre-request {
+  const [h, p, s] = bru.getVar('alice_token').split('.');
+  bru.setVar('badsig_token', [h, p, (s[0] === 'A' ? 'B' : 'A') + s.slice(1)].join('.'));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_token', 401);
+}
+
+docs {
+  Alice's real token with its signature changed.
+}

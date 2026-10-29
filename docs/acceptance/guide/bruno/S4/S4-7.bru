@@ -1,0 +1,48 @@
+meta {
+  name: S4.7 Negative: IdP URL on a private address
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{onboard_url}}/api/v1/operator/tenants
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{operator_token}}
+  Idempotency-Key: {{onb_key}}-private
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "admin_email": "admin@{{onb_domain3}}",
+    "email_domains": [
+      "{{onb_domain3}}"
+    ],
+    "identity_provider": {
+      "provider_id": "oidc",
+      "display_name": "Acceptance IdP",
+      "config": {
+        "clientId": "acceptance-client",
+        "clientSecret": "dev-only-not-a-secret",
+        "authorizationUrl": "https://10.0.0.1/auth",
+        "tokenUrl": "https://10.0.0.1/token",
+        "jwksUrl": "https://10.0.0.1/jwks",
+        "useJwksUrl": "true",
+        "defaultScope": "openid email profile"
+      }
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_idp_config', 422);
+}
+
+docs {
+  IdP URLs must be https on public hosts. `10.0.0.1` is refused before anything is created.
+}

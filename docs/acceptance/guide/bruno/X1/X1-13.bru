@@ -1,0 +1,24 @@
+meta {
+  name: X1.13 getMe 401: an operator token (wrong audience)
+  type: http
+  seq: 13
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{operator_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_token', 401);
+}
+
+docs {
+  Audience `nava-operator-api`, not `nava-api`.
+}

@@ -1,0 +1,8 @@
+meta {
+  name: S5 — Group changes and deprovisioning take effect within 10 minutes
+  seq: 5
+}
+
+docs {
+  TICK-47. An administrator changes Alice in Keycloak (admin API, as the console would); the same, still-valid token sees the change after the next `nava-groupsync` cycle. The polling requests repeat in the Runner until the change shows (at most 11 min). Set `NAVA_GROUPSYNC_INTERVAL=15s` in `.env` to make this take seconds; with the default 5 min it takes up to 5 min per step. Every step restores Alice. Needs `tools/seed.sh`.
+}

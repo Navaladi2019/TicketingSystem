@@ -1,0 +1,30 @@
+meta {
+  name: X2.7 onboardTenant 400: malformed JSON
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{onboard_url}}/api/v1/operator/tenants
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{operator_token}}
+  Idempotency-Key: {{x2_key}}
+  Content-Type: application/json
+}
+
+body:json {
+  {"admin_email": 
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('validation_failed', 400);
+}
+
+docs {
+  The body is not JSON.
+}

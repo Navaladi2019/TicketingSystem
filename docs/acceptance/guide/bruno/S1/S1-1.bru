@@ -1,0 +1,26 @@
+meta {
+  name: S1.1 Liveness: GET /healthz lists every dependency
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{admin_url}}/healthz
+  body: none
+  auth: none
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  const down = 'a dependency is down or still starting: start the stack (docker compose up --wait) and check docker compose ps';
+  test('HTTP 200', () => expect(res.getStatus(), down).to.eql(200));
+  const b = N.json();
+  test('status ok', () => expect(b.status, b.status === 'degraded' ? down : 'unexpected status').to.eql('ok'));
+  test('checks keycloak, postgres and temporal, all ok', () => {
+    expect(b.checks, down).to.include({ keycloak: 'ok', postgres: 'ok', temporal: 'ok' });
+  });
+}
+
+docs {
+  nava-core's admin listener, through the tunnel. Every dependency is `ok`.
+}

@@ -1,0 +1,52 @@
+meta {
+  name: S4.13 Negative: a tenant id in the body and a header is ignored
+  type: http
+  seq: 13
+}
+
+post {
+  url: {{onboard_url}}/api/v1/operator/tenants?tenant_id=11111111-1111-4111-8111-111111111111
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{operator_token}}
+  Idempotency-Key: {{onb_key}}-forged
+  X-Tenant-Id: 11111111-1111-4111-8111-111111111111
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "admin_email": "admin@{{onb_domain2}}",
+    "email_domains": [
+      "{{onb_domain2}}"
+    ],
+    "identity_provider": {
+      "provider_id": "oidc",
+      "display_name": "Acceptance IdP",
+      "config": {
+        "clientId": "acceptance-client",
+        "clientSecret": "dev-only-not-a-secret",
+        "authorizationUrl": "https://93.184.216.34/auth",
+        "tokenUrl": "https://93.184.216.34/token",
+        "jwksUrl": "https://93.184.216.34/jwks",
+        "useJwksUrl": "true",
+        "defaultScope": "openid email profile"
+      }
+    },
+    "tenant_id": "11111111-1111-4111-8111-111111111111"
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  test('tenant_id is not the one sent', () => expect(N.json().tenant_id).to.not.eql('11111111-1111-4111-8111-111111111111'));
+  test('a different key gives a different tenant', () => expect(N.json().tenant_id).to.not.eql(bru.getVar('onb_tenant_id')));
+}
+
+docs {
+  The tenant id is derived from the operator and the key. One sent in the body, query and `X-Tenant-Id` is ignored.
+}

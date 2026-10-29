@@ -1,0 +1,25 @@
+meta {
+  name: S5.7 Control: Bob still has his /service-desk
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.me('00000000-0000-4000-8000-0000000000b1');
+  test('Bob keeps /service-desk', () => expect(N.paths()).to.include('/service-desk'));
+}
+
+docs {
+  Tenant B is untouched.
+}

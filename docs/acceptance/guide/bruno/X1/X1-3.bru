@@ -1,0 +1,32 @@
+meta {
+  name: X1.3 getMe 200: the response matches the Me schema
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.me('00000000-0000-4000-8000-0000000000a1');
+  const b = N.json();
+  test('Content-Type application/json', () => expect(N.header('Content-Type')).to.include('application/json'));
+  test('user_id and tenant_id are uuids', () => { expect(b.user_id).to.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/); expect(b.tenant_id).to.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/); });
+  test('groups are uuids', () => b.groups.forEach(g => expect(g).to.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)));
+  test('group_paths sorted by id', () => { const ids = b.group_paths.map(g => g.id); expect(ids).to.eql(ids.slice().sort()); });
+  test('idp_alias is a string', () => expect(b.idp_alias).to.be.a('string'));
+  test('X-Request-Id present', () => expect(N.header('X-Request-Id')).to.be.a('string').and.not.empty);
+  N.noLeak('00000000-0000-4000-8000-0000000000b1');
+}
+
+docs {
+  `Me`: every required field, uuids where the contract says `format: uuid`, `group_paths` sorted by id and each id one of `groups`.
+}

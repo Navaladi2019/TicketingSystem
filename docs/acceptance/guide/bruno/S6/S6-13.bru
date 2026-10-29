@@ -1,0 +1,30 @@
+meta {
+  name: S6.13 Tenant A is served again after Retry-After
+  type: http
+  seq: 13
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+script:pre-request {
+  const end = Number(bru.getVar('rl_burst_end') || 0);
+  const wait = Math.max(0, end + 1000 * Number(bru.getVar('rl_retry_after') || 2) + 500 - Date.now());
+  if (wait > 0) await bru.sleep(wait);
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.me('00000000-0000-4000-8000-0000000000a1');
+}
+
+docs {
+  Waits the `Retry-After` seconds from S6.12, then calls as Alice: the bucket has refilled, so 200 for tenant A. A by-hand run: wait a couple of seconds after S6.12.
+}

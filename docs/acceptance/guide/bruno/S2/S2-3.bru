@@ -1,0 +1,26 @@
+meta {
+  name: S2.3 Alice: GET /me is tenant A
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.me('00000000-0000-4000-8000-0000000000a1');
+  bru.setVar('alice_groups', JSON.stringify(N.json().groups));
+  N.noLeak('00000000-0000-4000-8000-0000000000b1');
+}
+
+docs {
+  Baseline: Alice's own tenant and groups.
+}

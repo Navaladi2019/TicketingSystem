@@ -1,0 +1,29 @@
+meta {
+  name: X1.10 getMe 401: an unsigned token (alg none)
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{none_token}}
+}
+
+script:pre-request {
+  const p = bru.getVar('alice_token').split('.')[1];
+  bru.setVar('none_token', [Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url'), p, ''].join('.'));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_token', 401);
+}
+
+docs {
+  Alice's claims with header `alg: none` and no signature.
+}

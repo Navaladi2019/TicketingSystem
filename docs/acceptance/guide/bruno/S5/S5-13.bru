@@ -1,0 +1,32 @@
+meta {
+  name: S5.13 Poll: the same unexpired token gets 401 tenant_unresolved
+  type: http
+  seq: 13
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await N.pollWait();
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.poll("S5.13 Poll: the same unexpired token gets 401 tenant_unresolved", () =>res.getStatus() === 401, () => {
+    N.problem('tenant_unresolved', 401);
+    test('the token had not expired yet', () => expect(Date.now() / 1000).to.be.below(Number(bru.getVar('alice_token_exp'))));
+  });
+}
+
+docs {
+  After the next sync the held token stops working, well before it expires.
+}

@@ -1,0 +1,49 @@
+meta {
+  name: X2.10 onboardTenant 400: provider_id not oidc or saml
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{onboard_url}}/api/v1/operator/tenants
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{operator_token}}
+  Idempotency-Key: {{x2_key}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "admin_email": "admin@{{x2_domain}}",
+    "email_domains": [
+      "{{x2_domain}}"
+    ],
+    "identity_provider": {
+      "provider_id": "ldap",
+      "display_name": "Acceptance IdP",
+      "config": {
+        "clientId": "acceptance-client",
+        "clientSecret": "dev-only-not-a-secret",
+        "authorizationUrl": "https://93.184.216.34/auth",
+        "tokenUrl": "https://93.184.216.34/token",
+        "jwksUrl": "https://93.184.216.34/jwks",
+        "useJwksUrl": "true",
+        "defaultScope": "openid email profile"
+      }
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('validation_failed', 400);
+  N.noLeak('ldap');
+}
+
+docs {
+  `provider_id` is an enum.
+}

@@ -1,0 +1,24 @@
+meta {
+  name: S3.6 Negative: garbage token
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer not-a-token
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_token', 401);
+}
+
+docs {
+  A bearer value that is not a JWT.
+}

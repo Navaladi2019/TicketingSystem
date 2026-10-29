@@ -1,0 +1,8 @@
+meta {
+  name: S2 — A query without the right tenant returns nothing
+  seq: 2
+}
+
+docs {
+  TICK-44. The database wall is proven by `make isolation` (see the guide). Over HTTP the only tenant data route on `main` is `GET /api/v1/me`; these requests show that naming another tenant anywhere in the request changes nothing and never returns its data. Needs `tools/seed.sh`.
+}

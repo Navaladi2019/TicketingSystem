@@ -1,0 +1,21 @@
+meta {
+  name: S6.1 GET /api/v1/openapi.yaml (public)
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{core_url}}/api/v1/openapi.yaml
+  body: none
+  auth: none
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('OpenAPI 3.1 with /api/v1/me', () => { expect(N.text()).to.include('openapi: 3.1.0'); expect(N.text()).to.include('/api/v1/me:'); });
+}
+
+docs {
+  The contract, with no token.
+}

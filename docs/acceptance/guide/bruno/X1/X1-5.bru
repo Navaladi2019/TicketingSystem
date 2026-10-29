@@ -1,0 +1,25 @@
+meta {
+  name: X1.5 getMe 200: unknown query parameters are ignored
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{core_url}}/api/v1/me?limit=-1&cursor=x&fields=password
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.me('00000000-0000-4000-8000-0000000000b1');
+  N.noLeak('00000000-0000-4000-8000-0000000000a1');
+}
+
+docs {
+  The operation declares no parameters; extra ones change nothing.
+}

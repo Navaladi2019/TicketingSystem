@@ -1,0 +1,24 @@
+meta {
+  name: X3.18 nava-purge: GET /metrics
+  type: http
+  seq: 18
+}
+
+get {
+  url: {{purge_admin_url}}/metrics
+  body: none
+  auth: none
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const t = N.text();
+  test('Prometheus exposition format', () => expect(t).to.match(/^# (HELP|TYPE) /m));
+  test('Go runtime metrics', () => expect(t).to.match(/^go_[a-z_]+(\{[^}]*\})? /m));
+  test('no nava_dependency_degraded is 1', () => expect(t).to.not.match(/^nava_dependency_degraded\{[^}]*\} 1$/m));
+}
+
+docs {
+  Prometheus text, with the Go runtime and process collectors.
+}
