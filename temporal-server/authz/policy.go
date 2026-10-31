@@ -222,9 +222,13 @@ var deniedByDefault = []string{
 // workloads are out by omission. System is exempt, as it is for the API
 // allow-list, and nava-operator stays outside D9. Adding an entry is a policy
 // PR with Security review; TestAllowListGolden prints both sets.
+//
+// nava.interpreter is the one generic workflow type that runs every workflow
+// definition (PLAN-003 D-3-11, TICK-348), on the existing nava-tq: a new
+// definition is data, not a new type, so it never needs a policy PR.
 var (
 	platformTaskQueues    = set("nava-tq")
-	platformWorkflowTypes = set("nava.smoke.Echo", "nava.smoke.relay")
+	platformWorkflowTypes = set("nava.interpreter", "nava.smoke.Echo", "nava.smoke.relay")
 )
 
 // stickyQueueName is the SDK's own sticky queue name, `<host>:<uuid>`
