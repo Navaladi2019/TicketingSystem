@@ -1,0 +1,1171 @@
+### 2026-10-31T15:11:54Z steps: setup base expr gin writes; 60s reads, 60s writes, 8 clients
+### host: MINGW64_NT-10.0-26300; docker 29.9.2
+### docker VM: 16 CPUs, 20806184960 bytes, kernel 5.15.167.4-microsoft-standard-WSL2
+### postgres:16.10, edoburu/pgbouncer:v1.24.1-p1
+CREATE ROLE
+CREATE ROLE
+CREATE DATABASE
+CREATE EXTENSION
+CREATE EXTENSION
+SET
+CREATE TABLE
+CREATE TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+GRANT
+GRANT
+RESET
+### seed
+Timing is on.
+SET
+Time: 0.344 ms
+ setseed 
+---------
+ 
+(1 row)
+
+Time: 0.803 ms
+SELECT 400
+Time: 9.627 ms
+INSERT 0 800000
+Time: 37569.464 ms (00:37.569)
+INSERT 0 15815
+Time: 1392.823 ms (00:01.393)
+SELECT 599
+Time: 20.543 ms
+SELECT 8
+Time: 325.673 ms
+VACUUM
+Time: 612.184 ms
+VACUUM
+Time: 36.989 ms
+ records |  open  | priority_1 | avg_data_bytes 
+---------+--------+------------+----------------
+  800000 | 120278 |      40021 |           1047
+(1 row)
+
+Time: 408.997 ms
+ shares | heavy_requesters 
+--------+------------------
+  15815 |                8
+(1 row)
+
+Time: 2.577 ms
+### index set (proposed)
+Timing is on.
+SET
+Time: 0.410 ms
+SET
+Time: 0.246 ms
+CREATE INDEX
+Time: 5933.275 ms (00:05.933)
+CREATE INDEX
+Time: 6441.380 ms (00:06.441)
+CREATE INDEX
+Time: 1201.398 ms (00:01.201)
+CREATE INDEX
+Time: 1145.818 ms (00:01.146)
+RESET
+Time: 0.409 ms
+ANALYZE
+Time: 424.649 ms
+CREATE TABLE
+GRANT
+ q | page20_actors 
+---+---------------
+ a |           200
+(1 row)
+
+ q | page20_actors 
+---+---------------
+ b |             8
+(1 row)
+
+ q | page20_actors 
+---+---------------
+ c |           200
+(1 row)
+
+ q  | page20_actors 
+----+---------------
+ c2 |           200
+(1 row)
+
+ q | page20_actors 
+---+---------------
+ d |           200
+(1 row)
+
+### sizes, proposed set
+           relname            | relkind |  size   |   bytes    
+------------------------------+---------+---------+------------
+ record_shares                | r       | 1184 kB |    1212416
+ records                      | r       | 1042 MB | 1092272128
+ record_shares_pkey           | i       | 1256 kB |    1286144
+ records_pkey                 | i       | 50 MB   |   52584448
+ records_tenant_assignee_open | i       | 8976 kB |    9191424
+ records_tenant_group_open    | i       | 9096 kB |    9314304
+ records_tenant_requester     | i       | 59 MB   |   61825024
+ records_tenant_updated       | i       | 45 MB   |   47136768
+(8 rows)
+
+ records_total 
+---------------
+ 1214 MB
+(1 row)
+
+                                                       version                                                        
+----------------------------------------------------------------------------------------------------------------------
+ PostgreSQL 16.10 (Debian 16.10-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+(1 row)
+
+              name               | setting | unit 
+---------------------------------+---------+------
+ effective_cache_size            | 786432  | 8kB
+ fsync                           | on      | 
+ jit                             | on      | 
+ max_connections                 | 100     | 
+ max_parallel_workers_per_gather | 2       | 
+ plan_cache_mode                 | auto    | 
+ random_page_cost                | 4       | 
+ shared_buffers                  | 262144  | 8kB
+ synchronous_commit              | on      | 
+ work_mem                        | 4096    | kB
+(10 rows)
+
+### reads, proposed set: a b c(no expression index) d
+--- EXPLAIN q=d mode=list tenant=large pred=rls page=1 (actor 1)
+                                                                                                                                                                            QUERY PLAN                                                                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=1.120..27.822 rows=50 loops=1)
+   Buffers: shared hit=4598
+   ->  Index Scan using records_tenant_updated on records r (actual time=1.119..27.790 rows=50 loops=1)
+         Index Cond: (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)
+         Filter: ((state <> 'closed'::text) AND ((requester_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid) OR (assignee_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid) OR (assignment_group_id = ANY ('{969c31f2-d8fe-635a-5a2d-95d39e4e7489,2f067c2d-b39a-c447-6bd8-6f26d53e8105,e43d6642-9bbe-05be-b6a6-8d3a87bf4141}'::uuid[])) OR (hashed SubPlan 2)))
+         Rows Removed by Filter: 4509
+         Buffers: shared hit=4598
+         SubPlan 2
+           ->  Index Only Scan using record_shares_pkey on record_shares s (actual time=0.037..0.038 rows=4 loops=1)
+                 Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid))
+                 Heap Fetches: 0
+                 Buffers: shared hit=3
+ Planning:
+   Buffers: shared hit=226
+ Planning Time: 0.826 ms
+ Execution Time: 27.901 ms
+(16 rows)
+
+--- EXPLAIN q=d mode=list tenant=large pred=rls page=20 (actor 1)
+                                                                                                                                                                            QUERY PLAN                                                                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.598..21.605 rows=50 loops=1)
+   Buffers: shared hit=6046
+   ->  Index Scan using records_tenant_updated on records r (actual time=0.596..21.585 rows=50 loops=1)
+         Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (ROW(updated_at, id) < ROW('2026-09-24 18:35:20.913359+00'::timestamp with time zone, '72f442ee-7678-d223-395f-07e8a90166bd'::uuid)))
+         Filter: ((state <> 'closed'::text) AND ((requester_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid) OR (assignee_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid) OR (assignment_group_id = ANY ('{969c31f2-d8fe-635a-5a2d-95d39e4e7489,2f067c2d-b39a-c447-6bd8-6f26d53e8105,e43d6642-9bbe-05be-b6a6-8d3a87bf4141}'::uuid[])) OR (hashed SubPlan 2)))
+         Rows Removed by Filter: 5947
+         Buffers: shared hit=6046
+         SubPlan 2
+           ->  Index Only Scan using record_shares_pkey on record_shares s (actual time=0.013..0.015 rows=4 loops=1)
+                 Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid))
+                 Heap Fetches: 0
+                 Buffers: shared hit=3
+ Planning Time: 0.407 ms
+ Execution Time: 21.708 ms
+(14 rows)
+
+--- EXPLAIN q=d mode=list tenant=small pred=rls page=1 (actor 1)
+                                                                                                                                                               QUERY PLAN                                                                                                                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.460..0.467 rows=34 loops=1)
+   Buffers: shared hit=171
+   ->  Sort (actual time=0.459..0.463 rows=34 loops=1)
+         Sort Key: r.updated_at DESC, r.id DESC
+         Sort Method: quicksort  Memory: 93kB
+         Buffers: shared hit=171
+         ->  Index Scan using records_tenant_group_open on records r (actual time=0.045..0.373 rows=34 loops=1)
+               Index Cond: (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)
+               Filter: ((requester_id = '4e83828a-ef25-9e19-bf97-84874ff6db98'::uuid) OR (assignee_id = '4e83828a-ef25-9e19-bf97-84874ff6db98'::uuid) OR (assignment_group_id = ANY ('{3164b0ca-6799-9372-d157-4acf299e68e8,beb7d466-3b9e-a13a-6683-dc4098b85e07,e0fd45c7-93cf-4ed2-bc3b-9f34dd669069}'::uuid[])) OR (hashed SubPlan 2))
+               Rows Removed by Filter: 123
+               Buffers: shared hit=165
+               SubPlan 2
+                 ->  Index Only Scan using record_shares_pkey on record_shares s (actual time=0.025..0.026 rows=2 loops=1)
+                       Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '4e83828a-ef25-9e19-bf97-84874ff6db98'::uuid))
+                       Heap Fetches: 0
+                       Buffers: shared hit=3
+ Planning Time: 0.236 ms
+ Execution Time: 0.503 ms
+(18 rows)
+
+--- EXPLAIN q=d mode=count tenant=large pred=rls page=1 (actor 1)
+                                                                                                                                                               QUERY PLAN                                                                                                                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=40.457..40.459 rows=1 loops=1)
+   Buffers: shared hit=16779
+   ->  Limit (actual time=0.103..40.271 rows=1001 loops=1)
+         Buffers: shared hit=16779
+         ->  Index Scan using records_tenant_assignee_open on records r (actual time=0.103..40.087 rows=1001 loops=1)
+               Index Cond: (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)
+               Filter: ((requester_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid) OR (assignee_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid) OR (assignment_group_id = ANY ('{969c31f2-d8fe-635a-5a2d-95d39e4e7489,2f067c2d-b39a-c447-6bd8-6f26d53e8105,e43d6642-9bbe-05be-b6a6-8d3a87bf4141}'::uuid[])) OR (hashed SubPlan 2))
+               Rows Removed by Filter: 15617
+               Buffers: shared hit=16779
+               SubPlan 2
+                 ->  Index Only Scan using record_shares_pkey on record_shares s (actual time=0.017..0.019 rows=4 loops=1)
+                       Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid))
+                       Heap Fetches: 0
+                       Buffers: shared hit=3
+ Planning Time: 0.274 ms
+ Execution Time: 40.505 ms
+(16 rows)
+
+--- EXPLAIN q=d mode=list tenant=large pred=explicit page=1 (actor 1)
+                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.215..7.408 rows=50 loops=1)
+   Buffers: shared hit=4598
+   ->  Result (actual time=0.214..7.395 rows=50 loops=1)
+         One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+         Buffers: shared hit=4598
+         ->  Index Scan using records_tenant_updated on records r (actual time=0.212..7.366 rows=50 loops=1)
+               Index Cond: (tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+               Filter: ((state <> 'closed'::text) AND ((requester_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid) OR (assignee_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid) OR (assignment_group_id = ANY ('{969c31f2-d8fe-635a-5a2d-95d39e4e7489,2f067c2d-b39a-c447-6bd8-6f26d53e8105,e43d6642-9bbe-05be-b6a6-8d3a87bf4141}'::uuid[])) OR (hashed SubPlan 2)))
+               Rows Removed by Filter: 4509
+               Buffers: shared hit=4598
+               SubPlan 2
+                 ->  Index Only Scan using record_shares_pkey on record_shares s (actual time=0.011..0.012 rows=4 loops=1)
+                       Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid))
+                       Heap Fetches: 0
+                       Buffers: shared hit=3
+ Planning Time: 0.214 ms
+ Execution Time: 7.455 ms
+(17 rows)
+
+--- EXPLAIN q=d mode=list tenant=large pred=explicit page=20 (actor 1)
+                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.194..10.199 rows=50 loops=1)
+   Buffers: shared hit=6046
+   ->  Result (actual time=0.194..10.185 rows=50 loops=1)
+         One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+         Buffers: shared hit=6046
+         ->  Index Scan using records_tenant_updated on records r (actual time=0.191..10.153 rows=50 loops=1)
+               Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (ROW(updated_at, id) < ROW('2026-09-24 18:35:20.913359+00'::timestamp with time zone, '72f442ee-7678-d223-395f-07e8a90166bd'::uuid)))
+               Filter: ((state <> 'closed'::text) AND ((requester_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid) OR (assignee_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid) OR (assignment_group_id = ANY ('{969c31f2-d8fe-635a-5a2d-95d39e4e7489,2f067c2d-b39a-c447-6bd8-6f26d53e8105,e43d6642-9bbe-05be-b6a6-8d3a87bf4141}'::uuid[])) OR (hashed SubPlan 2)))
+               Rows Removed by Filter: 5947
+               Buffers: shared hit=6046
+               SubPlan 2
+                 ->  Index Only Scan using record_shares_pkey on record_shares s (actual time=0.014..0.015 rows=4 loops=1)
+                       Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid))
+                       Heap Fetches: 0
+                       Buffers: shared hit=3
+ Planning Time: 0.263 ms
+ Execution Time: 10.255 ms
+(17 rows)
+
+--- EXPLAIN q=d mode=list tenant=small pred=explicit page=1 (actor 1)
+                                                                                                                                                                  QUERY PLAN                                                                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.337..0.346 rows=34 loops=1)
+   Buffers: shared hit=165
+   ->  Sort (actual time=0.336..0.340 rows=34 loops=1)
+         Sort Key: r.updated_at DESC, r.id DESC
+         Sort Method: quicksort  Memory: 93kB
+         Buffers: shared hit=165
+         ->  Result (actual time=0.049..0.284 rows=34 loops=1)
+               One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = 'febe0277-53c1-e6ce-9acd-bbd9c80a8407'::uuid)
+               Buffers: shared hit=165
+               ->  Index Scan using records_tenant_group_open on records r (actual time=0.045..0.271 rows=34 loops=1)
+                     Index Cond: (tenant_id = 'febe0277-53c1-e6ce-9acd-bbd9c80a8407'::uuid)
+                     Filter: ((requester_id = '4e83828a-ef25-9e19-bf97-84874ff6db98'::uuid) OR (assignee_id = '4e83828a-ef25-9e19-bf97-84874ff6db98'::uuid) OR (assignment_group_id = ANY ('{3164b0ca-6799-9372-d157-4acf299e68e8,beb7d466-3b9e-a13a-6683-dc4098b85e07,e0fd45c7-93cf-4ed2-bc3b-9f34dd669069}'::uuid[])) OR (hashed SubPlan 2))
+                     Rows Removed by Filter: 123
+                     Buffers: shared hit=165
+                     SubPlan 2
+                       ->  Index Only Scan using record_shares_pkey on record_shares s (actual time=0.013..0.015 rows=2 loops=1)
+                             Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '4e83828a-ef25-9e19-bf97-84874ff6db98'::uuid))
+                             Heap Fetches: 0
+                             Buffers: shared hit=3
+ Planning Time: 0.320 ms
+ Execution Time: 0.395 ms
+(21 rows)
+
+--- EXPLAIN q=d mode=count tenant=large pred=explicit page=1 (actor 1)
+                                                                                                                                                                  QUERY PLAN                                                                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=53.253..53.256 rows=1 loops=1)
+   Buffers: shared hit=16779
+   ->  Limit (actual time=0.132..52.927 rows=1001 loops=1)
+         Buffers: shared hit=16779
+         ->  Result (actual time=0.130..52.630 rows=1001 loops=1)
+               One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+               Buffers: shared hit=16779
+               ->  Index Scan using records_tenant_assignee_open on records r (actual time=0.123..52.262 rows=1001 loops=1)
+                     Index Cond: (tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+                     Filter: ((requester_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid) OR (assignee_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid) OR (assignment_group_id = ANY ('{969c31f2-d8fe-635a-5a2d-95d39e4e7489,2f067c2d-b39a-c447-6bd8-6f26d53e8105,e43d6642-9bbe-05be-b6a6-8d3a87bf4141}'::uuid[])) OR (hashed SubPlan 2))
+                     Rows Removed by Filter: 15617
+                     Buffers: shared hit=16779
+                     SubPlan 2
+                       ->  Index Only Scan using record_shares_pkey on record_shares s (actual time=0.022..0.025 rows=4 loops=1)
+                             Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid))
+                             Heap Fetches: 0
+                             Buffers: shared hit=3
+ Planning Time: 0.473 ms
+ Execution Time: 53.421 ms
+(19 rows)
+
+--- EXPLAIN q=a mode=list tenant=large pred=rls page=1 (actor 1)
+                                                                                                                                                  QUERY PLAN                                                                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=26.241..26.271 rows=50 loops=1)
+   Buffers: shared hit=3551
+   ->  Sort (actual time=26.238..26.258 rows=50 loops=1)
+         Sort Key: updated_at DESC, id DESC
+         Sort Method: top-N heapsort  Memory: 185kB
+         Buffers: shared hit=3551
+         ->  Bitmap Heap Scan on records r (actual time=4.165..22.351 rows=3595 loops=1)
+               Recheck Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (assignment_group_id = ANY ('{969c31f2-d8fe-635a-5a2d-95d39e4e7489,2f067c2d-b39a-c447-6bd8-6f26d53e8105,e43d6642-9bbe-05be-b6a6-8d3a87bf4141}'::uuid[])) AND (state <> 'closed'::text))
+               Heap Blocks: exact=3509
+               Buffers: shared hit=3551
+               ->  Bitmap Index Scan on records_tenant_group_open (actual time=1.623..1.624 rows=3595 loops=1)
+                     Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (assignment_group_id = ANY ('{969c31f2-d8fe-635a-5a2d-95d39e4e7489,2f067c2d-b39a-c447-6bd8-6f26d53e8105,e43d6642-9bbe-05be-b6a6-8d3a87bf4141}'::uuid[])))
+                     Buffers: shared hit=42
+ Planning Time: 0.365 ms
+ Execution Time: 26.445 ms
+(15 rows)
+
+--- EXPLAIN q=a mode=list tenant=large pred=rls page=20 (actor 1)
+                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=12.402..12.483 rows=50 loops=1)
+   Buffers: shared hit=2625
+   ->  Sort (actual time=12.398..12.468 rows=50 loops=1)
+         Sort Key: updated_at DESC, id DESC
+         Sort Method: top-N heapsort  Memory: 207kB
+         Buffers: shared hit=2625
+         ->  Bitmap Heap Scan on records r (actual time=1.866..10.591 rows=2645 loops=1)
+               Recheck Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (assignment_group_id = ANY ('{969c31f2-d8fe-635a-5a2d-95d39e4e7489,2f067c2d-b39a-c447-6bd8-6f26d53e8105,e43d6642-9bbe-05be-b6a6-8d3a87bf4141}'::uuid[])) AND (ROW(updated_at, id) < ROW('2026-09-24 00:16:30.053695+00'::timestamp with time zone, '5615beeb-690d-d330-9c30-ddd3f7b86a95'::uuid)) AND (state <> 'closed'::text))
+               Heap Blocks: exact=2592
+               Buffers: shared hit=2625
+               ->  Bitmap Index Scan on records_tenant_group_open (actual time=1.067..1.068 rows=2645 loops=1)
+                     Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (assignment_group_id = ANY ('{969c31f2-d8fe-635a-5a2d-95d39e4e7489,2f067c2d-b39a-c447-6bd8-6f26d53e8105,e43d6642-9bbe-05be-b6a6-8d3a87bf4141}'::uuid[])) AND (ROW(updated_at, id) < ROW('2026-09-24 00:16:30.053695+00'::timestamp with time zone, '5615beeb-690d-d330-9c30-ddd3f7b86a95'::uuid)))
+                     Buffers: shared hit=33
+ Planning Time: 0.431 ms
+ Execution Time: 12.562 ms
+(15 rows)
+
+--- EXPLAIN q=a mode=list tenant=small pred=rls page=1 (actor 1)
+                                                                                                                                  QUERY PLAN                                                                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.212..0.217 rows=10 loops=1)
+   Buffers: shared hit=19
+   ->  Sort (actual time=0.210..0.212 rows=10 loops=1)
+         Sort Key: updated_at DESC, id DESC
+         Sort Method: quicksort  Memory: 45kB
+         Buffers: shared hit=19
+         ->  Index Scan using records_tenant_group_open on records r (actual time=0.142..0.188 rows=10 loops=1)
+               Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (assignment_group_id = ANY ('{3164b0ca-6799-9372-d157-4acf299e68e8,beb7d466-3b9e-a13a-6683-dc4098b85e07,e0fd45c7-93cf-4ed2-bc3b-9f34dd669069}'::uuid[])))
+               Buffers: shared hit=19
+ Planning Time: 0.369 ms
+ Execution Time: 0.259 ms
+(11 rows)
+
+--- EXPLAIN q=a mode=count tenant=large pred=rls page=1 (actor 1)
+                                                                                                                                  QUERY PLAN                                                                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=0.433..0.434 rows=1 loops=1)
+   Buffers: shared hit=520
+   ->  Limit (actual time=0.051..0.366 rows=1001 loops=1)
+         Buffers: shared hit=520
+         ->  Index Only Scan using records_tenant_group_open on records r (actual time=0.049..0.282 rows=1001 loops=1)
+               Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (assignment_group_id = ANY ('{969c31f2-d8fe-635a-5a2d-95d39e4e7489,2f067c2d-b39a-c447-6bd8-6f26d53e8105,e43d6642-9bbe-05be-b6a6-8d3a87bf4141}'::uuid[])))
+               Heap Fetches: 0
+               Buffers: shared hit=520
+ Planning Time: 0.161 ms
+ Execution Time: 0.457 ms
+(10 rows)
+
+--- EXPLAIN q=a mode=list tenant=large pred=explicit page=1 (actor 1)
+                                                                                                                                        QUERY PLAN                                                                                                                                         
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=9.637..9.658 rows=50 loops=1)
+   Buffers: shared hit=3551
+   ->  Sort (actual time=9.634..9.651 rows=50 loops=1)
+         Sort Key: updated_at DESC, id DESC
+         Sort Method: top-N heapsort  Memory: 185kB
+         Buffers: shared hit=3551
+         ->  Result (actual time=1.199..7.640 rows=3595 loops=1)
+               One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+               Buffers: shared hit=3551
+               ->  Bitmap Heap Scan on records r (actual time=1.192..6.678 rows=3595 loops=1)
+                     Recheck Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (assignment_group_id = ANY ('{969c31f2-d8fe-635a-5a2d-95d39e4e7489,2f067c2d-b39a-c447-6bd8-6f26d53e8105,e43d6642-9bbe-05be-b6a6-8d3a87bf4141}'::uuid[])) AND (state <> 'closed'::text))
+                     Heap Blocks: exact=3509
+                     Buffers: shared hit=3551
+                     ->  Bitmap Index Scan on records_tenant_group_open (actual time=0.593..0.594 rows=3595 loops=1)
+                           Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (assignment_group_id = ANY ('{969c31f2-d8fe-635a-5a2d-95d39e4e7489,2f067c2d-b39a-c447-6bd8-6f26d53e8105,e43d6642-9bbe-05be-b6a6-8d3a87bf4141}'::uuid[])))
+                           Buffers: shared hit=42
+ Planning Time: 0.184 ms
+ Execution Time: 9.703 ms
+(18 rows)
+
+--- EXPLAIN q=a mode=list tenant=large pred=explicit page=20 (actor 1)
+                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=7.869..7.888 rows=50 loops=1)
+   Buffers: shared hit=2625
+   ->  Sort (actual time=7.867..7.880 rows=50 loops=1)
+         Sort Key: updated_at DESC, id DESC
+         Sort Method: top-N heapsort  Memory: 207kB
+         Buffers: shared hit=2625
+         ->  Result (actual time=0.999..6.159 rows=2645 loops=1)
+               One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+               Buffers: shared hit=2625
+               ->  Bitmap Heap Scan on records r (actual time=0.990..5.321 rows=2645 loops=1)
+                     Recheck Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (assignment_group_id = ANY ('{969c31f2-d8fe-635a-5a2d-95d39e4e7489,2f067c2d-b39a-c447-6bd8-6f26d53e8105,e43d6642-9bbe-05be-b6a6-8d3a87bf4141}'::uuid[])) AND (ROW(updated_at, id) < ROW('2026-09-24 00:16:30.053695+00'::timestamp with time zone, '5615beeb-690d-d330-9c30-ddd3f7b86a95'::uuid)) AND (state <> 'closed'::text))
+                     Heap Blocks: exact=2592
+                     Buffers: shared hit=2625
+                     ->  Bitmap Index Scan on records_tenant_group_open (actual time=0.476..0.476 rows=2645 loops=1)
+                           Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (assignment_group_id = ANY ('{969c31f2-d8fe-635a-5a2d-95d39e4e7489,2f067c2d-b39a-c447-6bd8-6f26d53e8105,e43d6642-9bbe-05be-b6a6-8d3a87bf4141}'::uuid[])) AND (ROW(updated_at, id) < ROW('2026-09-24 00:16:30.053695+00'::timestamp with time zone, '5615beeb-690d-d330-9c30-ddd3f7b86a95'::uuid)))
+                           Buffers: shared hit=33
+ Planning Time: 0.248 ms
+ Execution Time: 7.940 ms
+(18 rows)
+
+--- EXPLAIN q=a mode=list tenant=small pred=explicit page=1 (actor 1)
+                                                                                                                        QUERY PLAN                                                                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.176..0.180 rows=10 loops=1)
+   Buffers: shared hit=19
+   ->  Sort (actual time=0.175..0.176 rows=10 loops=1)
+         Sort Key: updated_at DESC, id DESC
+         Sort Method: quicksort  Memory: 45kB
+         Buffers: shared hit=19
+         ->  Result (actual time=0.122..0.156 rows=10 loops=1)
+               One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = 'febe0277-53c1-e6ce-9acd-bbd9c80a8407'::uuid)
+               Buffers: shared hit=19
+               ->  Index Scan using records_tenant_group_open on records r (actual time=0.112..0.141 rows=10 loops=1)
+                     Index Cond: ((tenant_id = 'febe0277-53c1-e6ce-9acd-bbd9c80a8407'::uuid) AND (assignment_group_id = ANY ('{3164b0ca-6799-9372-d157-4acf299e68e8,beb7d466-3b9e-a13a-6683-dc4098b85e07,e0fd45c7-93cf-4ed2-bc3b-9f34dd669069}'::uuid[])))
+                     Buffers: shared hit=19
+ Planning Time: 0.229 ms
+ Execution Time: 0.215 ms
+(14 rows)
+
+--- EXPLAIN q=a mode=count tenant=large pred=explicit page=1 (actor 1)
+                                                                                                                        QUERY PLAN                                                                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=0.798..0.799 rows=1 loops=1)
+   Buffers: shared hit=520
+   ->  Limit (actual time=0.043..0.695 rows=1001 loops=1)
+         Buffers: shared hit=520
+         ->  Result (actual time=0.042..0.565 rows=1001 loops=1)
+               One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+               Buffers: shared hit=520
+               ->  Index Only Scan using records_tenant_group_open on records r (actual time=0.036..0.378 rows=1001 loops=1)
+                     Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (assignment_group_id = ANY ('{969c31f2-d8fe-635a-5a2d-95d39e4e7489,2f067c2d-b39a-c447-6bd8-6f26d53e8105,e43d6642-9bbe-05be-b6a6-8d3a87bf4141}'::uuid[])))
+                     Heap Fetches: 0
+                     Buffers: shared hit=520
+ Planning Time: 0.208 ms
+ Execution Time: 0.835 ms
+(13 rows)
+
+--- EXPLAIN q=b mode=list tenant=large pred=rls page=1 (actor 1)
+                                                                                  QUERY PLAN                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.195..0.414 rows=50 loops=1)
+   Buffers: shared hit=54
+   ->  Index Scan using records_tenant_requester on records r (actual time=0.193..0.402 rows=50 loops=1)
+         Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (requester_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid))
+         Buffers: shared hit=54
+ Planning Time: 0.226 ms
+ Execution Time: 0.454 ms
+(7 rows)
+
+--- EXPLAIN q=b mode=list tenant=large pred=rls page=20 (actor 1)
+                                                                                                                                                      QUERY PLAN                                                                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.085..0.368 rows=50 loops=1)
+   Buffers: shared hit=53
+   ->  Index Scan using records_tenant_requester on records r (actual time=0.082..0.353 rows=50 loops=1)
+         Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (requester_id = 'fccbb3fd-048d-a9ac-ec41-5c1548c480a0'::uuid) AND (ROW(updated_at, id) < ROW('2026-09-29 01:21:12.123343+00'::timestamp with time zone, '5a3cbab3-50ac-0965-4dde-71b5a1e1b2b6'::uuid)))
+         Buffers: shared hit=53
+ Planning Time: 0.284 ms
+ Execution Time: 0.507 ms
+(7 rows)
+
+--- EXPLAIN q=b mode=list tenant=small pred=rls page=1 (actor 1)
+                                                                                  QUERY PLAN                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.190..0.268 rows=50 loops=1)
+   Buffers: shared hit=52
+   ->  Index Scan using records_tenant_requester on records r (actual time=0.188..0.260 rows=50 loops=1)
+         Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (requester_id = '4e83828a-ef25-9e19-bf97-84874ff6db98'::uuid))
+         Buffers: shared hit=52
+ Planning Time: 0.163 ms
+ Execution Time: 0.295 ms
+(7 rows)
+
+--- EXPLAIN q=b mode=count tenant=large pred=rls page=1 (actor 1)
+                                                                                     QUERY PLAN                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=0.442..0.444 rows=1 loops=1)
+   Buffers: shared hit=284
+   ->  Limit (actual time=0.048..0.378 rows=513 loops=1)
+         Buffers: shared hit=284
+         ->  Index Only Scan using records_tenant_requester on records r (actual time=0.046..0.301 rows=513 loops=1)
+               Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (requester_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid))
+               Heap Fetches: 0
+               Buffers: shared hit=284
+ Planning Time: 0.218 ms
+ Execution Time: 0.487 ms
+(10 rows)
+
+--- EXPLAIN q=b mode=list tenant=large pred=explicit page=1 (actor 1)
+                                                                        QUERY PLAN                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.057..0.321 rows=50 loops=1)
+   Buffers: shared hit=54
+   ->  Result (actual time=0.054..0.310 rows=50 loops=1)
+         One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+         Buffers: shared hit=54
+         ->  Index Scan using records_tenant_requester on records r (actual time=0.042..0.273 rows=50 loops=1)
+               Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (requester_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid))
+               Buffers: shared hit=54
+ Planning Time: 0.233 ms
+ Execution Time: 0.368 ms
+(10 rows)
+
+--- EXPLAIN q=b mode=list tenant=large pred=explicit page=20 (actor 1)
+                                                                                                                                            QUERY PLAN                                                                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.065..0.244 rows=50 loops=1)
+   Buffers: shared hit=53
+   ->  Result (actual time=0.063..0.231 rows=50 loops=1)
+         One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+         Buffers: shared hit=53
+         ->  Index Scan using records_tenant_requester on records r (actual time=0.048..0.192 rows=50 loops=1)
+               Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (requester_id = 'fccbb3fd-048d-a9ac-ec41-5c1548c480a0'::uuid) AND (ROW(updated_at, id) < ROW('2026-09-29 01:21:12.123343+00'::timestamp with time zone, '5a3cbab3-50ac-0965-4dde-71b5a1e1b2b6'::uuid)))
+               Buffers: shared hit=53
+ Planning Time: 0.279 ms
+ Execution Time: 0.301 ms
+(10 rows)
+
+--- EXPLAIN q=b mode=list tenant=small pred=explicit page=1 (actor 1)
+                                                                        QUERY PLAN                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.039..0.131 rows=50 loops=1)
+   Buffers: shared hit=52
+   ->  Result (actual time=0.037..0.123 rows=50 loops=1)
+         One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = 'febe0277-53c1-e6ce-9acd-bbd9c80a8407'::uuid)
+         Buffers: shared hit=52
+         ->  Index Scan using records_tenant_requester on records r (actual time=0.029..0.099 rows=50 loops=1)
+               Index Cond: ((tenant_id = 'febe0277-53c1-e6ce-9acd-bbd9c80a8407'::uuid) AND (requester_id = '4e83828a-ef25-9e19-bf97-84874ff6db98'::uuid))
+               Buffers: shared hit=52
+ Planning Time: 0.158 ms
+ Execution Time: 0.160 ms
+(10 rows)
+
+--- EXPLAIN q=b mode=count tenant=large pred=explicit page=1 (actor 1)
+                                                                           QUERY PLAN                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=0.394..0.396 rows=1 loops=1)
+   Buffers: shared hit=284
+   ->  Limit (actual time=0.043..0.344 rows=513 loops=1)
+         Buffers: shared hit=284
+         ->  Result (actual time=0.042..0.282 rows=513 loops=1)
+               One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+               Buffers: shared hit=284
+               ->  Index Only Scan using records_tenant_requester on records r (actual time=0.035..0.190 rows=513 loops=1)
+                     Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (requester_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid))
+                     Heap Fetches: 0
+                     Buffers: shared hit=284
+ Planning Time: 0.158 ms
+ Execution Time: 0.428 ms
+(13 rows)
+
+--- EXPLAIN q=c mode=list tenant=large pred=rls page=1 (actor 1)
+                                                QUERY PLAN                                                
+----------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.068..3.518 rows=50 loops=1)
+   Buffers: shared hit=928
+   ->  Index Scan using records_tenant_updated on records r (actual time=0.067..3.503 rows=50 loops=1)
+         Index Cond: (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)
+         Filter: ((data ->> 'priority'::text) = '1'::text)
+         Rows Removed by Filter: 868
+         Buffers: shared hit=928
+ Planning Time: 0.135 ms
+ Execution Time: 3.550 ms
+(9 rows)
+
+--- EXPLAIN q=c mode=list tenant=large pred=rls page=20 (actor 1)
+                                                                                                                     QUERY PLAN                                                                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.134..6.069 rows=50 loops=1)
+   Buffers: shared hit=1061
+   ->  Index Scan using records_tenant_updated on records r (actual time=0.132..6.044 rows=50 loops=1)
+         Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (ROW(updated_at, id) < ROW('2026-09-30 23:02:04.682947+00'::timestamp with time zone, 'a62511d2-1233-76cb-98a1-1466f22d8f99'::uuid)))
+         Filter: ((data ->> 'priority'::text) = '1'::text)
+         Rows Removed by Filter: 1001
+         Buffers: shared hit=1061
+ Planning Time: 0.292 ms
+ Execution Time: 6.139 ms
+(9 rows)
+
+--- EXPLAIN q=c mode=list tenant=small pred=rls page=1 (actor 1)
+                                                      QUERY PLAN                                                      
+----------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=1.285..1.294 rows=44 loops=1)
+   Buffers: shared hit=178
+   ->  Sort (actual time=1.283..1.288 rows=44 loops=1)
+         Sort Key: updated_at DESC, id DESC
+         Sort Method: quicksort  Memory: 113kB
+         Buffers: shared hit=178
+         ->  Bitmap Heap Scan on records r (actual time=0.468..1.052 rows=44 loops=1)
+               Recheck Cond: (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)
+               Filter: ((data ->> 'priority'::text) = '1'::text)
+               Rows Removed by Filter: 959
+               Heap Blocks: exact=168
+               Buffers: shared hit=178
+               ->  Bitmap Index Scan on records_tenant_updated (actual time=0.380..0.380 rows=1003 loops=1)
+                     Index Cond: (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)
+                     Buffers: shared hit=10
+ Planning Time: 0.197 ms
+ Execution Time: 1.333 ms
+(17 rows)
+
+--- EXPLAIN q=c mode=count tenant=large pred=rls page=1 (actor 1)
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=24.563..28.421 rows=1 loops=1)
+   Buffers: shared hit=6516
+   ->  Limit (actual time=0.786..28.245 rows=1001 loops=1)
+         Buffers: shared hit=6516
+         ->  Gather (actual time=0.784..28.068 rows=1001 loops=1)
+               Workers Planned: 2
+               Workers Launched: 2
+               Buffers: shared hit=6516
+               ->  Parallel Seq Scan on records r (actual time=0.114..20.338 rows=669 loops=3)
+                     Filter: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND ((data ->> 'priority'::text) = '1'::text))
+                     Rows Removed by Filter: 12362
+                     Buffers: shared hit=6516
+ Planning Time: 0.132 ms
+ Execution Time: 28.458 ms
+(14 rows)
+
+--- EXPLAIN q=c mode=list tenant=large pred=explicit page=1 (actor 1)
+                                                                    QUERY PLAN                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.046..1.887 rows=50 loops=1)
+   Buffers: shared hit=928
+   ->  Result (actual time=0.045..1.878 rows=50 loops=1)
+         One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+         Buffers: shared hit=928
+         ->  Index Scan using records_tenant_updated on records r (actual time=0.038..1.856 rows=50 loops=1)
+               Index Cond: (tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+               Filter: ((data ->> 'priority'::text) = '1'::text)
+               Rows Removed by Filter: 868
+               Buffers: shared hit=928
+ Planning Time: 0.141 ms
+ Execution Time: 1.921 ms
+(12 rows)
+
+--- EXPLAIN q=c mode=list tenant=large pred=explicit page=20 (actor 1)
+                                                                                                           QUERY PLAN                                                                                                            
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.051..2.376 rows=50 loops=1)
+   Buffers: shared hit=1061
+   ->  Result (actual time=0.050..2.367 rows=50 loops=1)
+         One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+         Buffers: shared hit=1061
+         ->  Index Scan using records_tenant_updated on records r (actual time=0.044..2.346 rows=50 loops=1)
+               Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (ROW(updated_at, id) < ROW('2026-09-30 23:02:04.682947+00'::timestamp with time zone, 'a62511d2-1233-76cb-98a1-1466f22d8f99'::uuid)))
+               Filter: ((data ->> 'priority'::text) = '1'::text)
+               Rows Removed by Filter: 1001
+               Buffers: shared hit=1061
+ Planning Time: 0.157 ms
+ Execution Time: 2.410 ms
+(12 rows)
+
+--- EXPLAIN q=c mode=list tenant=small pred=explicit page=1 (actor 1)
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.789..0.799 rows=44 loops=1)
+   Buffers: shared hit=178
+   ->  Sort (actual time=0.787..0.793 rows=44 loops=1)
+         Sort Key: updated_at DESC, id DESC
+         Sort Method: quicksort  Memory: 113kB
+         Buffers: shared hit=178
+         ->  Result (actual time=0.148..0.665 rows=44 loops=1)
+               One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = 'febe0277-53c1-e6ce-9acd-bbd9c80a8407'::uuid)
+               Buffers: shared hit=178
+               ->  Bitmap Heap Scan on records r (actual time=0.142..0.648 rows=44 loops=1)
+                     Recheck Cond: (tenant_id = 'febe0277-53c1-e6ce-9acd-bbd9c80a8407'::uuid)
+                     Filter: ((data ->> 'priority'::text) = '1'::text)
+                     Rows Removed by Filter: 959
+                     Heap Blocks: exact=168
+                     Buffers: shared hit=178
+                     ->  Bitmap Index Scan on records_tenant_updated (actual time=0.089..0.089 rows=1003 loops=1)
+                           Index Cond: (tenant_id = 'febe0277-53c1-e6ce-9acd-bbd9c80a8407'::uuid)
+                           Buffers: shared hit=10
+ Planning Time: 0.129 ms
+ Execution Time: 0.832 ms
+(20 rows)
+
+--- EXPLAIN q=c mode=count tenant=large pred=explicit page=1 (actor 1)
+                                                                          QUERY PLAN                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=18.659..21.589 rows=1 loops=1)
+   Buffers: shared hit=7394
+   ->  Limit (actual time=0.316..21.393 rows=1001 loops=1)
+         Buffers: shared hit=7394
+         ->  Gather (actual time=0.314..21.232 rows=1001 loops=1)
+               Workers Planned: 2
+               Workers Launched: 2
+               Buffers: shared hit=7394
+               ->  Result (actual time=0.091..15.442 rows=738 loops=3)
+                     One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+                     Buffers: shared hit=7394
+                     ->  Parallel Seq Scan on records r (actual time=0.085..15.192 rows=738 loops=3)
+                           Filter: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND ((data ->> 'priority'::text) = '1'::text))
+                           Rows Removed by Filter: 14047
+                           Buffers: shared hit=7394
+ Planning Time: 0.142 ms
+ Execution Time: 21.627 ms
+(17 rows)
+
+RESULT q=d mode=list tenant=large pred=rls page=1 actors=200 tps=332.582542 failed=0 tx=19945 p50_ms=22.09 p95_ms=38.39 p99_ms=50.46 max_ms=127.24
+RESULT q=d mode=list tenant=large pred=rls page=20 actors=200 tps=282.541154 failed=0 tx=16925 p50_ms=25.20 p95_ms=48.04 p99_ms=69.02 max_ms=231.98
+RESULT q=d mode=list tenant=small pred=rls page=1 actors=399 tps=832.859852 failed=0 tx=49934 p50_ms=8.20 p95_ms=17.46 p99_ms=28.62 max_ms=85.04
+RESULT q=d mode=list tenant=small pred=rls page=20 n/a (a small tenant has about 1,000 records; no list reaches page 20)
+RESULT q=d mode=count tenant=large pred=rls page=1 actors=200 tps=108.329898 failed=0 tx=6501 p50_ms=66.31 p95_ms=127.35 p99_ms=182.69 max_ms=278.99
+RESULT q=d mode=count tenant=small pred=rls page=1 actors=399 tps=1111.622081 failed=0 tx=66578 p50_ms=5.47 p95_ms=16.15 p99_ms=37.26 max_ms=107.93
+RESULT q=d mode=list tenant=large pred=explicit page=1 actors=200 tps=29.680202 failed=0 tx=1784 p50_ms=255.31 p95_ms=398.40 p99_ms=489.31 max_ms=589.99
+RESULT q=d mode=list tenant=large pred=explicit page=20 actors=200 tps=43.582493 failed=0 tx=2619 p50_ms=172.82 p95_ms=263.46 p99_ms=344.45 max_ms=612.30
+RESULT q=d mode=list tenant=small pred=explicit page=1 actors=399 tps=991.160272 failed=0 tx=59422 p50_ms=7.18 p95_ms=13.68 p99_ms=19.68 max_ms=70.81
+RESULT q=d mode=list tenant=small pred=explicit page=20 n/a (a small tenant has about 1,000 records; no list reaches page 20)
+RESULT q=d mode=count tenant=large pred=explicit page=1 actors=200 tps=158.194713 failed=0 tx=9479 p50_ms=45.04 p95_ms=108.99 p99_ms=155.95 max_ms=337.90
+RESULT q=d mode=count tenant=small pred=explicit page=1 actors=399 tps=1534.327368 failed=0 tx=91860 p50_ms=4.42 p95_ms=9.62 p99_ms=15.34 max_ms=71.41
+RESULT q=a mode=list tenant=large pred=rls page=1 actors=200 tps=352.807075 failed=0 tx=21144 p50_ms=21.41 p95_ms=33.07 p99_ms=41.21 max_ms=79.30
+RESULT q=a mode=list tenant=large pred=rls page=20 actors=200 tps=410.468111 failed=0 tx=24608 p50_ms=17.51 p95_ms=30.77 p99_ms=50.38 max_ms=149.20
+RESULT q=a mode=list tenant=small pred=rls page=1 actors=399 tps=1375.697247 failed=0 tx=82449 p50_ms=5.29 p95_ms=9.40 p99_ms=13.22 max_ms=44.40
+RESULT q=a mode=list tenant=small pred=rls page=20 n/a (a small tenant has about 1,000 records; no list reaches page 20)
+RESULT q=a mode=count tenant=large pred=rls page=1 actors=200 tps=1632.916277 failed=0 tx=97887 p50_ms=4.53 p95_ms=7.38 p99_ms=10.08 max_ms=44.51
+RESULT q=a mode=count tenant=small pred=rls page=1 actors=399 tps=1724.409526 failed=0 tx=103295 p50_ms=4.18 p95_ms=7.96 p99_ms=12.48 max_ms=36.00
+RESULT q=a mode=list tenant=large pred=explicit page=1 actors=200 tps=291.799269 failed=0 tx=17486 p50_ms=24.81 p95_ms=45.22 p99_ms=64.06 max_ms=130.50
+RESULT q=a mode=list tenant=large pred=explicit page=20 actors=200 tps=325.853116 failed=0 tx=19530 p50_ms=21.86 p95_ms=40.81 p99_ms=59.36 max_ms=155.79
+RESULT q=a mode=list tenant=small pred=explicit page=1 actors=399 tps=1242.037551 failed=0 tx=74419 p50_ms=5.40 p95_ms=12.79 p99_ms=19.48 max_ms=70.91
+RESULT q=a mode=list tenant=small pred=explicit page=20 n/a (a small tenant has about 1,000 records; no list reaches page 20)
+RESULT q=a mode=count tenant=large pred=explicit page=1 actors=200 tps=422.025186 failed=0 tx=25293 p50_ms=17.55 p95_ms=35.59 p99_ms=47.81 max_ms=111.75
+RESULT q=a mode=count tenant=small pred=explicit page=1 actors=399 tps=1415.579306 failed=0 tx=84792 p50_ms=4.95 p95_ms=9.96 p99_ms=16.17 max_ms=65.13
+RESULT q=b mode=list tenant=large pred=rls page=1 actors=200 tps=838.589988 failed=0 tx=50263 p50_ms=8.77 p95_ms=14.72 p99_ms=20.56 max_ms=93.61
+RESULT q=b mode=list tenant=large pred=rls page=20 actors=8 tps=846.712405 failed=0 tx=50725 p50_ms=8.71 p95_ms=15.04 p99_ms=21.33 max_ms=91.87
+RESULT q=b mode=list tenant=small pred=rls page=1 actors=399 tps=906.118658 failed=0 tx=54176 p50_ms=7.67 p95_ms=15.02 p99_ms=27.36 max_ms=110.72
+RESULT q=b mode=list tenant=small pred=rls page=20 n/a (a small tenant has about 1,000 records; no list reaches page 20)
+RESULT q=b mode=count tenant=large pred=rls page=1 actors=200 tps=1108.214778 failed=0 tx=66427 p50_ms=5.58 p95_ms=15.73 p99_ms=24.61 max_ms=90.21
+RESULT q=b mode=count tenant=small pred=rls page=1 actors=399 tps=1558.966405 failed=0 tx=93347 p50_ms=4.46 p95_ms=9.74 p99_ms=15.46 max_ms=56.34
+RESULT q=b mode=list tenant=large pred=explicit page=1 actors=200 tps=744.701304 failed=0 tx=44587 p50_ms=9.29 p95_ms=18.38 p99_ms=36.49 max_ms=166.43
+RESULT q=b mode=list tenant=large pred=explicit page=20 actors=8 tps=874.284014 failed=0 tx=52386 p50_ms=8.36 p95_ms=14.53 p99_ms=21.59 max_ms=79.59
+RESULT q=b mode=list tenant=small pred=explicit page=1 actors=399 tps=837.508643 failed=0 tx=50147 p50_ms=7.98 p95_ms=17.34 p99_ms=32.35 max_ms=147.98
+RESULT q=b mode=list tenant=small pred=explicit page=20 n/a (a small tenant has about 1,000 records; no list reaches page 20)
+RESULT q=b mode=count tenant=large pred=explicit page=1 actors=200 tps=1319.801821 failed=0 tx=79076 p50_ms=4.88 p95_ms=13.11 p99_ms=21.26 max_ms=96.07
+RESULT q=b mode=count tenant=small pred=explicit page=1 actors=399 tps=1452.948056 failed=0 tx=87000 p50_ms=4.57 p95_ms=11.53 p99_ms=19.83 max_ms=79.57
+RESULT q=c mode=list tenant=large pred=rls page=1 actors=200 tps=685.988810 failed=0 tx=41099 p50_ms=10.20 p95_ms=20.15 p99_ms=32.65 max_ms=118.33
+RESULT q=c mode=list tenant=large pred=rls page=20 actors=200 tps=757.855290 failed=0 tx=45416 p50_ms=9.73 p95_ms=16.27 p99_ms=22.94 max_ms=88.96
+RESULT q=c mode=list tenant=small pred=rls page=1 actors=399 tps=910.850809 failed=0 tx=54601 p50_ms=7.96 p95_ms=13.85 p99_ms=21.02 max_ms=105.82
+RESULT q=c mode=list tenant=small pred=rls page=20 n/a (a small tenant has about 1,000 records; no list reaches page 20)
+RESULT q=c mode=count tenant=large pred=rls page=1 actors=200 tps=55.510177 failed=0 tx=3335 p50_ms=74.14 p95_ms=558.58 p99_ms=1265.47 max_ms=2098.67
+RESULT q=c mode=count tenant=small pred=rls page=1 actors=399 tps=6.779894 failed=0 tx=413 p50_ms=982.43 p95_ms=2137.74 p99_ms=2766.75 max_ms=3035.90
+RESULT q=c mode=list tenant=large pred=explicit page=1 actors=200 tps=14.511471 failed=0 tx=876 p50_ms=566.59 p95_ms=667.94 p99_ms=757.22 max_ms=829.99
+RESULT q=c mode=list tenant=large pred=explicit page=20 actors=200 tps=14.173406 failed=0 tx=855 p50_ms=582.53 p95_ms=698.60 p99_ms=764.36 max_ms=809.39
+RESULT q=c mode=list tenant=small pred=explicit page=1 actors=399 tps=1202.518903 failed=0 tx=72089 p50_ms=6.48 p95_ms=8.66 p99_ms=10.69 max_ms=27.26
+RESULT q=c mode=list tenant=small pred=explicit page=20 n/a (a small tenant has about 1,000 records; no list reaches page 20)
+RESULT q=c mode=count tenant=large pred=explicit page=1 actors=200 tps=53.539902 failed=0 tx=3213 p50_ms=149.03 p95_ms=183.98 p99_ms=200.33 max_ms=231.68
+RESULT q=c mode=count tenant=small pred=explicit page=1 actors=399 tps=1964.457805 failed=0 tx=117789 p50_ms=3.90 p95_ms=5.55 p99_ms=7.20 max_ms=24.90
+### (c) with an expression index
+SET
+SET
+CREATE INDEX
+RESET
+ANALYZE
+           relname            | relkind |  size   |   bytes    
+------------------------------+---------+---------+------------
+ record_shares                | r       | 1184 kB |    1212416
+ records                      | r       | 1042 MB | 1092272128
+ record_shares_pkey           | i       | 1256 kB |    1286144
+ records_pkey                 | i       | 50 MB   |   52584448
+ records_tenant_assignee_open | i       | 8976 kB |    9191424
+ records_tenant_group_open    | i       | 9096 kB |    9314304
+ records_tenant_priority      | i       | 52 MB   |   54157312
+ records_tenant_requester     | i       | 59 MB   |   61825024
+ records_tenant_updated       | i       | 45 MB   |   47136768
+(9 rows)
+
+ records_total 
+---------------
+ 1265 MB
+(1 row)
+
+--- EXPLAIN q=c mode=list tenant=large pred=rls page=1 (actor 1)
+                                                QUERY PLAN                                                
+----------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.024..1.322 rows=50 loops=1)
+   Buffers: shared hit=928
+   ->  Index Scan using records_tenant_updated on records r (actual time=0.023..1.315 rows=50 loops=1)
+         Index Cond: (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)
+         Filter: ((data ->> 'priority'::text) = '1'::text)
+         Rows Removed by Filter: 868
+         Buffers: shared hit=928
+ Planning:
+   Buffers: shared hit=121
+ Planning Time: 0.680 ms
+ Execution Time: 1.344 ms
+(11 rows)
+
+--- EXPLAIN q=c mode=list tenant=large pred=rls page=20 (actor 1)
+                                                                                                                     QUERY PLAN                                                                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.041..1.603 rows=50 loops=1)
+   Buffers: shared hit=1061
+   ->  Index Scan using records_tenant_updated on records r (actual time=0.040..1.596 rows=50 loops=1)
+         Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (ROW(updated_at, id) < ROW('2026-09-30 23:02:04.682947+00'::timestamp with time zone, 'a62511d2-1233-76cb-98a1-1466f22d8f99'::uuid)))
+         Filter: ((data ->> 'priority'::text) = '1'::text)
+         Rows Removed by Filter: 1001
+         Buffers: shared hit=1061
+ Planning Time: 0.139 ms
+ Execution Time: 1.630 ms
+(9 rows)
+
+--- EXPLAIN q=c mode=list tenant=small pred=rls page=1 (actor 1)
+                                                QUERY PLAN                                                
+----------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.057..0.658 rows=44 loops=1)
+   Buffers: shared hit=1007
+   ->  Index Scan using records_tenant_updated on records r (actual time=0.056..0.653 rows=44 loops=1)
+         Index Cond: (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)
+         Filter: ((data ->> 'priority'::text) = '1'::text)
+         Rows Removed by Filter: 959
+         Buffers: shared hit=1007
+ Planning Time: 0.120 ms
+ Execution Time: 0.677 ms
+(9 rows)
+
+--- EXPLAIN q=c mode=count tenant=large pred=rls page=1 (actor 1)
+                                                                         QUERY PLAN                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=14.095..14.096 rows=1 loops=1)
+   Buffers: shared hit=3350
+   ->  Limit (actual time=0.044..13.984 rows=1001 loops=1)
+         Buffers: shared hit=3350
+         ->  Seq Scan on records r (actual time=0.043..13.898 rows=1001 loops=1)
+               Filter: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND ((data ->> 'priority'::text) = '1'::text))
+               Rows Removed by Filter: 19097
+               Buffers: shared hit=3350
+ Planning Time: 0.108 ms
+ Execution Time: 14.121 ms
+(10 rows)
+
+--- EXPLAIN q=c mode=list tenant=large pred=explicit page=1 (actor 1)
+                                                                    QUERY PLAN                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.032..1.300 rows=50 loops=1)
+   Buffers: shared hit=928
+   ->  Result (actual time=0.032..1.294 rows=50 loops=1)
+         One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+         Buffers: shared hit=928
+         ->  Index Scan using records_tenant_updated on records r (actual time=0.028..1.279 rows=50 loops=1)
+               Index Cond: (tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+               Filter: ((data ->> 'priority'::text) = '1'::text)
+               Rows Removed by Filter: 868
+               Buffers: shared hit=928
+ Planning Time: 0.107 ms
+ Execution Time: 1.320 ms
+(12 rows)
+
+--- EXPLAIN q=c mode=list tenant=large pred=explicit page=20 (actor 1)
+                                                                                                           QUERY PLAN                                                                                                            
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.068..1.763 rows=50 loops=1)
+   Buffers: shared hit=1061
+   ->  Result (actual time=0.066..1.756 rows=50 loops=1)
+         One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+         Buffers: shared hit=1061
+         ->  Index Scan using records_tenant_updated on records r (actual time=0.039..1.717 rows=50 loops=1)
+               Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (ROW(updated_at, id) < ROW('2026-09-30 23:02:04.682947+00'::timestamp with time zone, 'a62511d2-1233-76cb-98a1-1466f22d8f99'::uuid)))
+               Filter: ((data ->> 'priority'::text) = '1'::text)
+               Rows Removed by Filter: 1001
+               Buffers: shared hit=1061
+ Planning Time: 0.138 ms
+ Execution Time: 1.790 ms
+(12 rows)
+
+--- EXPLAIN q=c mode=list tenant=small pred=explicit page=1 (actor 1)
+                                                                    QUERY PLAN                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.056..0.628 rows=44 loops=1)
+   Buffers: shared hit=1007
+   ->  Result (actual time=0.056..0.623 rows=44 loops=1)
+         One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = 'febe0277-53c1-e6ce-9acd-bbd9c80a8407'::uuid)
+         Buffers: shared hit=1007
+         ->  Index Scan using records_tenant_updated on records r (actual time=0.052..0.611 rows=44 loops=1)
+               Index Cond: (tenant_id = 'febe0277-53c1-e6ce-9acd-bbd9c80a8407'::uuid)
+               Filter: ((data ->> 'priority'::text) = '1'::text)
+               Rows Removed by Filter: 959
+               Buffers: shared hit=1007
+ Planning Time: 0.111 ms
+ Execution Time: 0.648 ms
+(12 rows)
+
+--- EXPLAIN q=c mode=count tenant=large pred=explicit page=1 (actor 1)
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=6.680..6.682 rows=1 loops=1)
+   Buffers: shared hit=3364
+   ->  Limit (actual time=0.031..6.610 rows=1001 loops=1)
+         Buffers: shared hit=3364
+         ->  Result (actual time=0.031..6.528 rows=1001 loops=1)
+               One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+               Buffers: shared hit=3364
+               ->  Seq Scan on records r (actual time=0.026..6.410 rows=1001 loops=1)
+                     Filter: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND ((data ->> 'priority'::text) = '1'::text))
+                     Rows Removed by Filter: 19183
+                     Buffers: shared hit=3364
+ Planning Time: 0.107 ms
+ Execution Time: 6.705 ms
+(13 rows)
+
+RESULT q=c mode=list tenant=large pred=rls page=1 actors=200 tps=1039.077527 failed=0 tx=62301 p50_ms=7.38 p95_ms=10.42 p99_ms=13.36 max_ms=28.44
+RESULT q=c mode=list tenant=large pred=rls page=20 actors=200 tps=592.358859 failed=0 tx=35507 p50_ms=11.93 p95_ms=24.71 p99_ms=38.45 max_ms=108.43
+RESULT q=c mode=list tenant=small pred=rls page=1 actors=399 tps=636.902330 failed=0 tx=38108 p50_ms=10.88 p95_ms=21.80 p99_ms=35.38 max_ms=128.17
+RESULT q=c mode=list tenant=small pred=rls page=20 n/a (a small tenant has about 1,000 records; no list reaches page 20)
+RESULT q=c mode=count tenant=large pred=rls page=1 actors=200 tps=66.387183 failed=0 tx=3991 p50_ms=61.00 p95_ms=818.51 p99_ms=1091.53 max_ms=1844.18
+RESULT q=c mode=count tenant=small pred=rls page=1 actors=399 tps=4.112318 failed=0 tx=252 p50_ms=1775.42 p95_ms=2790.17 p99_ms=3489.11 max_ms=3807.57
+RESULT q=c mode=list tenant=large pred=explicit page=1 actors=200 tps=534.822636 failed=0 tx=32059 p50_ms=12.16 p95_ms=30.53 p99_ms=60.01 max_ms=147.96
+RESULT q=c mode=list tenant=large pred=explicit page=20 actors=200 tps=10.205104 failed=0 tx=615 p50_ms=712.21 p95_ms=1336.06 p99_ms=1695.44 max_ms=2726.76
+RESULT q=c mode=list tenant=small pred=explicit page=1 actors=399 tps=651.233714 failed=0 tx=39043 p50_ms=10.62 p95_ms=22.23 p99_ms=35.35 max_ms=97.01
+RESULT q=c mode=list tenant=small pred=explicit page=20 n/a (a small tenant has about 1,000 records; no list reaches page 20)
+RESULT q=c mode=count tenant=large pred=explicit page=1 actors=200 tps=33.696428 failed=0 tx=2026 p50_ms=210.90 p95_ms=424.95 p99_ms=566.36 max_ms=812.39
+RESULT q=c mode=count tenant=small pred=explicit page=1 actors=399 tps=1521.863076 failed=0 tx=90914 p50_ms=4.63 p95_ms=8.90 p99_ms=15.43 max_ms=64.65
+DROP INDEX
+ANALYZE
+### (c2) one jsonb_path_ops GIN on data
+SET
+SET
+CREATE INDEX
+RESET
+ANALYZE
+           relname            | relkind |  size   |   bytes    
+------------------------------+---------+---------+------------
+ record_shares                | r       | 1184 kB |    1212416
+ records                      | r       | 1042 MB | 1092272128
+ record_shares_pkey           | i       | 1256 kB |    1286144
+ records_data_gin             | i       | 74 MB   |   77971456
+ records_pkey                 | i       | 50 MB   |   52584448
+ records_tenant_assignee_open | i       | 8976 kB |    9191424
+ records_tenant_group_open    | i       | 9096 kB |    9314304
+ records_tenant_requester     | i       | 59 MB   |   61825024
+ records_tenant_updated       | i       | 45 MB   |   47136768
+(9 rows)
+
+ records_total 
+---------------
+ 1288 MB
+(1 row)
+
+--- EXPLAIN q=c2 mode=list tenant=large pred=rls page=1 (actor 1)
+                                                QUERY PLAN                                                
+----------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.023..1.287 rows=50 loops=1)
+   Buffers: shared hit=928
+   ->  Index Scan using records_tenant_updated on records r (actual time=0.022..1.280 rows=50 loops=1)
+         Index Cond: (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)
+         Filter: (data @> '{"priority": "1"}'::jsonb)
+         Rows Removed by Filter: 868
+         Buffers: shared hit=928
+ Planning:
+   Buffers: shared hit=103
+ Planning Time: 0.440 ms
+ Execution Time: 1.321 ms
+(11 rows)
+
+--- EXPLAIN q=c2 mode=list tenant=large pred=rls page=20 (actor 1)
+                                                                                                                     QUERY PLAN                                                                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.038..1.441 rows=50 loops=1)
+   Buffers: shared hit=1061
+   ->  Index Scan using records_tenant_updated on records r (actual time=0.037..1.435 rows=50 loops=1)
+         Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (ROW(updated_at, id) < ROW('2026-09-30 23:02:04.682947+00'::timestamp with time zone, 'a62511d2-1233-76cb-98a1-1466f22d8f99'::uuid)))
+         Filter: (data @> '{"priority": "1"}'::jsonb)
+         Rows Removed by Filter: 1001
+         Buffers: shared hit=1061
+ Planning Time: 0.115 ms
+ Execution Time: 1.462 ms
+(9 rows)
+
+--- EXPLAIN q=c2 mode=list tenant=small pred=rls page=1 (actor 1)
+                                                      QUERY PLAN                                                      
+----------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.810..0.820 rows=44 loops=1)
+   Buffers: shared hit=178
+   ->  Sort (actual time=0.808..0.814 rows=44 loops=1)
+         Sort Key: updated_at DESC, id DESC
+         Sort Method: quicksort  Memory: 113kB
+         Buffers: shared hit=178
+         ->  Bitmap Heap Scan on records r (actual time=0.138..0.672 rows=44 loops=1)
+               Recheck Cond: (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)
+               Filter: (data @> '{"priority": "1"}'::jsonb)
+               Rows Removed by Filter: 959
+               Heap Blocks: exact=168
+               Buffers: shared hit=178
+               ->  Bitmap Index Scan on records_tenant_updated (actual time=0.085..0.086 rows=1003 loops=1)
+                     Index Cond: (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)
+                     Buffers: shared hit=10
+ Planning Time: 0.123 ms
+ Execution Time: 0.849 ms
+(17 rows)
+
+--- EXPLAIN q=c2 mode=count tenant=large pred=rls page=1 (actor 1)
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=130.696..140.147 rows=1 loops=1)
+   Buffers: shared hit=59682
+   ->  Limit (actual time=115.429..139.902 rows=1001 loops=1)
+         Buffers: shared hit=59682
+         ->  Gather (actual time=115.426..139.771 rows=1001 loops=1)
+               Workers Planned: 2
+               Workers Launched: 2
+               Buffers: shared hit=59682
+               ->  Parallel Seq Scan on records r (actual time=110.441..125.549 rows=640 loops=3)
+                     Filter: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (data @> '{"priority": "1"}'::jsonb))
+                     Rows Removed by Filter: 118719
+                     Buffers: shared hit=59682
+ Planning Time: 0.229 ms
+ Execution Time: 140.192 ms
+(14 rows)
+
+--- EXPLAIN q=c2 mode=list tenant=large pred=explicit page=1 (actor 1)
+                                                                    QUERY PLAN                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.042..1.725 rows=50 loops=1)
+   Buffers: shared hit=928
+   ->  Result (actual time=0.041..1.717 rows=50 loops=1)
+         One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+         Buffers: shared hit=928
+         ->  Index Scan using records_tenant_updated on records r (actual time=0.036..1.698 rows=50 loops=1)
+               Index Cond: (tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+               Filter: (data @> '{"priority": "1"}'::jsonb)
+               Rows Removed by Filter: 868
+               Buffers: shared hit=928
+ Planning Time: 0.133 ms
+ Execution Time: 1.753 ms
+(12 rows)
+
+--- EXPLAIN q=c2 mode=list tenant=large pred=explicit page=20 (actor 1)
+                                                                                                           QUERY PLAN                                                                                                            
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.045..1.637 rows=50 loops=1)
+   Buffers: shared hit=1061
+   ->  Result (actual time=0.044..1.630 rows=50 loops=1)
+         One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+         Buffers: shared hit=1061
+         ->  Index Scan using records_tenant_updated on records r (actual time=0.039..1.614 rows=50 loops=1)
+               Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (ROW(updated_at, id) < ROW('2026-09-30 23:02:04.682947+00'::timestamp with time zone, 'a62511d2-1233-76cb-98a1-1466f22d8f99'::uuid)))
+               Filter: (data @> '{"priority": "1"}'::jsonb)
+               Rows Removed by Filter: 1001
+               Buffers: shared hit=1061
+ Planning Time: 0.123 ms
+ Execution Time: 1.662 ms
+(12 rows)
+
+--- EXPLAIN q=c2 mode=list tenant=small pred=explicit page=1 (actor 1)
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.654..0.662 rows=44 loops=1)
+   Buffers: shared hit=178
+   ->  Sort (actual time=0.652..0.657 rows=44 loops=1)
+         Sort Key: updated_at DESC, id DESC
+         Sort Method: quicksort  Memory: 113kB
+         Buffers: shared hit=178
+         ->  Result (actual time=0.134..0.608 rows=44 loops=1)
+               One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = 'febe0277-53c1-e6ce-9acd-bbd9c80a8407'::uuid)
+               Buffers: shared hit=178
+               ->  Bitmap Heap Scan on records r (actual time=0.129..0.595 rows=44 loops=1)
+                     Recheck Cond: (tenant_id = 'febe0277-53c1-e6ce-9acd-bbd9c80a8407'::uuid)
+                     Filter: (data @> '{"priority": "1"}'::jsonb)
+                     Rows Removed by Filter: 959
+                     Heap Blocks: exact=168
+                     Buffers: shared hit=178
+                     ->  Bitmap Index Scan on records_tenant_updated (actual time=0.079..0.079 rows=1003 loops=1)
+                           Index Cond: (tenant_id = 'febe0277-53c1-e6ce-9acd-bbd9c80a8407'::uuid)
+                           Buffers: shared hit=10
+ Planning Time: 0.114 ms
+ Execution Time: 0.691 ms
+(20 rows)
+
+--- EXPLAIN q=c2 mode=count tenant=large pred=explicit page=1 (actor 1)
+                                                                          QUERY PLAN                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=13.703..17.066 rows=1 loops=1)
+   Buffers: shared hit=7199
+   ->  Limit (actual time=0.264..16.913 rows=1001 loops=1)
+         Buffers: shared hit=7199
+         ->  Gather (actual time=0.259..16.768 rows=1001 loops=1)
+               Workers Planned: 2
+               Workers Launched: 2
+               Buffers: shared hit=7199
+               ->  Result (actual time=0.056..9.469 rows=718 loops=3)
+                     One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+                     Buffers: shared hit=7199
+                     ->  Parallel Seq Scan on records r (actual time=0.046..9.340 rows=718 loops=3)
+                           Filter: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (data @> '{"priority": "1"}'::jsonb))
+                           Rows Removed by Filter: 13676
+                           Buffers: shared hit=7199
+ Planning Time: 0.147 ms
+ Execution Time: 17.111 ms
+(17 rows)
+
+RESULT q=c2 mode=list tenant=large pred=rls page=1 actors=200 tps=845.578959 failed=0 tx=50699 p50_ms=7.67 p95_ms=17.09 p99_ms=40.84 max_ms=175.81
+RESULT q=c2 mode=list tenant=large pred=rls page=20 actors=200 tps=810.053979 failed=0 tx=48553 p50_ms=8.30 p95_ms=15.52 p99_ms=34.12 max_ms=161.78
+RESULT q=c2 mode=list tenant=small pred=rls page=1 actors=399 tps=961.832120 failed=0 tx=57665 p50_ms=7.07 p95_ms=13.85 p99_ms=32.20 max_ms=171.58
+RESULT q=c2 mode=list tenant=small pred=rls page=20 n/a (a small tenant has about 1,000 records; no list reaches page 20)
+RESULT q=c2 mode=count tenant=large pred=rls page=1 actors=200 tps=53.087355 failed=0 tx=3217 p50_ms=78.71 p95_ms=555.29 p99_ms=1282.55 max_ms=2449.09
+RESULT q=c2 mode=count tenant=small pred=rls page=1 actors=399 tps=5.456053 failed=0 tx=334 p50_ms=1220.45 p95_ms=3173.55 p99_ms=4297.46 max_ms=5770.61
+RESULT q=c2 mode=list tenant=large pred=explicit page=1 actors=200 tps=516.791736 failed=0 tx=30980 p50_ms=11.86 p95_ms=35.54 p99_ms=68.66 max_ms=177.76
+RESULT q=c2 mode=list tenant=large pred=explicit page=20 actors=200 tps=8.716033 failed=0 tx=525 p50_ms=856.71 p95_ms=1662.86 p99_ms=2393.87 max_ms=3786.41
+RESULT q=c2 mode=list tenant=small pred=explicit page=1 actors=399 tps=687.859126 failed=0 tx=41224 p50_ms=9.47 p95_ms=21.65 p99_ms=38.56 max_ms=371.48
+RESULT q=c2 mode=list tenant=small pred=explicit page=20 n/a (a small tenant has about 1,000 records; no list reaches page 20)
+RESULT q=c2 mode=count tenant=large pred=explicit page=1 actors=200 tps=33.320230 failed=0 tx=2004 p50_ms=229.58 p95_ms=334.72 p99_ms=446.47 max_ms=691.66
+RESULT q=c2 mode=count tenant=small pred=explicit page=1 actors=399 tps=1155.375548 failed=0 tx=69180 p50_ms=5.74 p95_ms=13.22 p99_ms=22.68 max_ms=143.42
+### writes (8 clients, large tenant, nava_app through PgBouncer)
+CHECKPOINT
+WRITE kind=insert set=proposed+gin(fastupdate=on) tps=537.009292 failed=0 tx=32185 p50_ms=11.13 p95_ms=32.16 p99_ms=64.79 max_ms=896.02
+ version | pending_pages | pending_tuples 
+---------+---------------+----------------
+       2 |           208 |          10596
+(1 row)
+
+WRITE kind=update set=proposed+gin(fastupdate=on) tps=753.064473 failed=0 tx=45138 p50_ms=9.15 p95_ms=16.80 p99_ms=24.00 max_ms=815.04
+ version | pending_pages | pending_tuples 
+---------+---------------+----------------
+       2 |            27 |           1380
+(1 row)
+
+ALTER INDEX
+ gin_clean_pending_list 
+------------------------
+                     27
+(1 row)
+
+CHECKPOINT
+WRITE kind=insert set=proposed+gin(fastupdate=off) tps=473.585149 failed=0 tx=28368 p50_ms=13.47 p95_ms=34.30 p99_ms=57.78 max_ms=125.83
+WRITE kind=update set=proposed+gin(fastupdate=off) tps=661.168074 failed=0 tx=39581 p50_ms=10.35 p95_ms=21.44 p99_ms=34.60 max_ms=120.75
+DROP INDEX
+CHECKPOINT
+WRITE kind=insert set=proposed tps=560.461154 failed=0 tx=33566 p50_ms=11.54 p95_ms=29.37 p99_ms=48.25 max_ms=418.12
+WRITE kind=update set=proposed tps=566.301246 failed=0 tx=33920 p50_ms=11.47 p95_ms=28.12 p99_ms=40.40 max_ms=392.98
+DROP INDEX
+CHECKPOINT
+WRITE kind=insert set=pkey-only tps=680.413775 failed=0 tx=40763 p50_ms=9.27 p95_ms=22.63 p99_ms=40.58 max_ms=142.96
+WRITE kind=update set=pkey-only tps=727.613474 failed=0 tx=43572 p50_ms=9.24 p95_ms=20.21 p99_ms=28.75 max_ms=119.38

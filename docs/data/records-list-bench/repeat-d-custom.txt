@@ -1,0 +1,8 @@
+RESULT plan=force_custom_plan q=d mode=list tenant=large pred=rls page=1 tps=369.314502 tx=22147 p50_ms=20.54 p95_ms=32.12 p99_ms=40.02 max_ms=236.41
+RESULT plan=force_custom_plan q=d mode=list tenant=large pred=explicit page=1 tps=376.716352 tx=22593 p50_ms=19.92 p95_ms=31.31 p99_ms=45.77 max_ms=142.92
+RESULT plan=force_custom_plan q=d mode=list tenant=large pred=rls page=20 tps=332.988333 tx=19959 p50_ms=23.16 p95_ms=33.74 p99_ms=40.42 max_ms=108.05
+RESULT plan=force_custom_plan q=d mode=list tenant=large pred=explicit page=20 tps=321.779226 tx=19296 p50_ms=23.79 p95_ms=35.67 p99_ms=44.38 max_ms=85.71
+RESULT plan=force_custom_plan q=d mode=list tenant=large pred=rls page=1 tps=317.394168 tx=19034 p50_ms=24.15 p95_ms=36.26 p99_ms=43.88 max_ms=69.62
+RESULT plan=force_custom_plan q=d mode=list tenant=large pred=explicit page=1 tps=325.731606 tx=19534 p50_ms=23.42 p95_ms=36.03 p99_ms=44.02 max_ms=77.86
+RESULT plan=force_custom_plan q=d mode=list tenant=large pred=rls page=20 tps=288.512476 tx=17301 p50_ms=26.83 p95_ms=39.33 p99_ms=46.77 max_ms=102.76
+RESULT plan=force_custom_plan q=d mode=list tenant=large pred=explicit page=20 tps=318.268263 tx=19080 p50_ms=24.36 p95_ms=35.30 p99_ms=42.36 max_ms=83.52
