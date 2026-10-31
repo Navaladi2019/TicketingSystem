@@ -7,7 +7,10 @@
 #  2. Config: a forbidigo exclusion rule for any other path, a forbidigo rule
 #     with no path, or a global linters.exclusions.paths entry (which turns
 #     off every linter, forbidigo included) fails, so the api.go file
-#     exclusion cannot come back.
+#     exclusion cannot come back. The one other rule allowed is the
+#     interpreter's determinism scope (D-3-23, P3-22a), exactly as in
+#     $interp below: it excludes only the time.Now and math/rand bans' own
+#     findings (by their text), outside internal/workflow/interp.
 #  3. Generated files: golangci-lint skips every linter, nolintlint included,
 #     on a file with a "Code generated ... DO NOT EDIT." header, so the set of
 #     such files is pinned too.
@@ -24,8 +27,10 @@ if [ "$got" != "$want" ]; then
 	code=1
 fi
 
-bad=$(tr -d '\r' < .golangci.yml | awk '
+interp='      - path-except: ^internal/workflow/interp/\n        linters: [forbidigo]\n        text: interpreter determinism'
+bad=$(tr -d '\r' < .golangci.yml | awk -v interp="$interp" '
 	function flush() {
+		if (item == interp) { item = ""; return }
 		if (item ~ /forbidigo/) {
 			p = item; sub(/.*path:[ ]*/, "", p); sub(/[ \n].*/, "", p)
 			if (item !~ /path:/ || (p != "_test\\.go" && p != "^internal/platform/telemetry/")) print "forbidigo exclusion rule: " item
