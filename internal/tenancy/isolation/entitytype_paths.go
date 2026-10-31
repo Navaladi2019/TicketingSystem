@@ -275,9 +275,9 @@ func etForgedCreate(ctx context.Context, e *etIso) error {
 	code, body := e.do(ctx, http.MethodPost, "/api/v1/entity-types", etCallerA, etCreateBody("iso_et_forged", "ISF", forged),
 		http.Header{"X-Tenant-Id": {TenantB}})
 	want := 1
-	switch {
-	case code == http.StatusCreated:
-	case code == http.StatusBadRequest || code == http.StatusUnprocessableEntity:
+	switch code {
+	case http.StatusCreated:
+	case http.StatusBadRequest, http.StatusUnprocessableEntity:
 		want = 0 // the body was refused: nothing may be written anywhere
 	default: // 401, 403 or 404 would mean the case never reached the write
 		return fmt.Errorf("create with a forged tenant = %d %s, want 201, or 400 or 422 for the unknown member", code, body)
@@ -300,9 +300,9 @@ func etForgedPublish(ctx context.Context, e *etIso) error {
 	code, body := e.do(ctx, http.MethodPost, "/api/v1/entity-types/iso_et_forged_pub/versions", etCallerA, etPublishBody("v2", forged),
 		http.Header{"X-Tenant-Id": {TenantB}})
 	want := 2
-	switch {
-	case code == http.StatusCreated:
-	case code == http.StatusBadRequest || code == http.StatusUnprocessableEntity:
+	switch code {
+	case http.StatusCreated:
+	case http.StatusBadRequest, http.StatusUnprocessableEntity:
 		want = 1
 	default:
 		return fmt.Errorf("publish with a forged tenant = %d %s, want 201, or 400 or 422 for the unknown member", code, body)
