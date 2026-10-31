@@ -36,12 +36,12 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 @media print{table{display:table}}
 </style></head>
 <body><main>
-<div class="banner"><span class="pill">READING GUIDE &middot; ADR-001 A5 PROPOSED &middot; REV 1</span>
+<div class="banner"><span class="pill">READING GUIDE &middot; ADR-001 A5 ACCEPTED &middot; REV 1</span>
 <span class="src">This companion explains <code>ADR-001-A5-i9-cycle-suppress-start.md</code>. It is not a decision record and changes nothing. Every blue "decision text" box is copied word for word from the amendment.</span></div>
 <table class="front"><tbody>
 <tr><th>title</th><td>ADR-001 amendment A5 explained: why a workflow that changes its own record is not an endless loop, and how real loops are still stopped</td></tr>
 <tr><th>type</th><td>explainer for the decision-maker (not a decision record)</td></tr>
-<tr><th>explains</th><td>ADR-001-A5 rev 1 (status PROPOSED, 2026-10-31), from RFC-005 on TICK-361. CTO ruling: comment <code>01a1926e</code>. Technical Architect critique: comment <code>01a19279</code>. For this amendment only, nava has delegated sign-off to the Technical Lead: comment <code>01a192d3</code>.</td></tr>
+<tr><th>explains</th><td>ADR-001-A5 rev 1 (status ACCEPTED, 2026-10-31, by the Technical Lead under nava's delegation; Technical Architect's closing verdict: comment <code>01a192db</code>), from RFC-005 on TICK-361. CTO ruling: comment <code>01a1926e</code>. Technical Architect critique: comment <code>01a19279</code>. For this amendment only, nava has delegated sign-off to the Technical Lead: comment <code>01a192d3</code>.</td></tr>
 <tr><th>audience</th><td>The person signing off. It assumes no knowledge of the record pipeline, Temporal or PostgreSQL.</td></tr>
 </tbody></table>
 
@@ -95,7 +95,7 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 </ul>
 <h3>Workflows that message each other (added in rev 1)</h3>
 <p>A workflow that is already running can wait for a message (a <strong>signal</strong>) saying "record R changed". The review found a gap. Suppose workflows A and B both wait on R, and each changes R when told. Each change messages the other, and nothing new is ever <em>started</em>, so the start rule never fires. If every change were stamped with the depth of the workflow's original start, the depth would never rise and the pair would loop forever.</p>
-<div class="verbatim"><div class="vlabel">Decision text (rule A5-7, excerpt)</div>Each interpreter write carries the causation of the most recent delivery the run handled: after the start, <code>(start.origin, start.depth + 1)</code>; after a <code>record_changed</code> signal s, <code>(s.origin, s.depth + 1)</code>. Each signal is stamped with its writer's depth, so it can never carry a run's depth back down. &hellip; <code>update_record</code> returns <code>ErrCascadeTooDeep</code> as a non-retryable <code>temporal.ApplicationError</code> &hellip; and the run fails.</div>
+<div class="verbatim"><div class="vlabel">Decision text (rule A5-7, excerpt)</div>Each interpreter write carries the causation of the most recent delivery the run handled: after the start, <code>(start.origin, start.depth + 1)</code>; after a <code>record_changed</code> signal s, <code>(s.origin, s.depth + 1)</code>. Every write is exactly one deeper than the delivery that caused it, so no causal chain exceeds the limit. &hellip; <code>update_record</code> returns <code>ErrCascadeTooDeep</code> as a non-retryable <code>temporal.ApplicationError</code> &hellip; and the run fails.</div>
 <figure class="diagram"><svg viewBox="0 0 760 170" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Signal ping-pong stops at depth 9">
 <defs><marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#59636e"/></marker></defs>
 <rect x="10" y="40" width="120" height="60" rx="8" fill="#ddf4ff" stroke="#0969da"/><text x="70" y="66" text-anchor="middle" font-size="13" font-weight="700">A writes R</text><text x="70" y="86" text-anchor="middle" font-size="12">depth 2</text>
@@ -131,7 +131,7 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 <p>The acceptance test CI-10 is rewritten with seven named cases, (a) to (g). TICK-88 implements (a) to (f) against the real pipeline. P3-42 tests (g), two running workflows messaging each other, once the workflow interpreter exists. The cases that need the pipeline or the interpreter (a retried step, the depth limit, the messaging loop) are proved in those tasks, not by the spike.</p>
 
 <h2 id="next">6. What happens next</h2>
-<ol><li>The Technical Architect re-reads rev 1 and confirms the blocking finding is closed. There is no further round.</li><li>The Technical Lead, holding nava's delegated sign-off, accepts the amendment on TICK-361 once CI is green. The status in the <code>.md</code> and on this page then changes to ACCEPTED, and the PR is merged.</li><li>TICK-88 builds the table, the check and the six tests. The real workflow trigger (P3-42, story S11b) calls the same check.</li></ol>
+<ol><li>Done: the Technical Architect re-read rev 1 and closed the blocking finding (comment <code>01a192db</code>). There is no further round.</li><li>Done: the Technical Lead, holding nava's delegated sign-off for this amendment only, accepted it on TICK-361 on 2026-10-31. Status: ACCEPTED.</li><li>TICK-88 builds the table, the check and the six tests. The real workflow trigger (P3-42, story S11b) calls the same check.</li></ol>
 
 <h2 id="glossary">Glossary</h2>
 <dl class="gloss">
