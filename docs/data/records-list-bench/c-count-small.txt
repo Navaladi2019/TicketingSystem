@@ -1,0 +1,90 @@
+--- EXPLAIN q=c mode=count tenant=small pred=rls page=1 (actor 1)
+                                                      QUERY PLAN                                                      
+----------------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=1.161..1.163 rows=1 loops=1)
+   Buffers: shared hit=178
+   ->  Limit (actual time=0.333..1.147 rows=44 loops=1)
+         Buffers: shared hit=178
+         ->  Bitmap Heap Scan on records r (actual time=0.332..1.140 rows=44 loops=1)
+               Recheck Cond: (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)
+               Filter: ((data ->> 'priority'::text) = '1'::text)
+               Rows Removed by Filter: 959
+               Heap Blocks: exact=168
+               Buffers: shared hit=178
+               ->  Bitmap Index Scan on records_tenant_updated (actual time=0.200..0.201 rows=1003 loops=1)
+                     Index Cond: (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)
+                     Buffers: shared hit=10
+ Planning:
+   Buffers: shared hit=146
+ Planning Time: 0.527 ms
+ Execution Time: 1.219 ms
+(17 rows)
+
+--- generic plan, same query and actor
+                                                      QUERY PLAN                                                      
+----------------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=0.732..0.734 rows=1 loops=1)
+   Buffers: shared hit=178
+   ->  Limit (actual time=0.183..0.724 rows=44 loops=1)
+         Buffers: shared hit=178
+         ->  Bitmap Heap Scan on records r (actual time=0.182..0.716 rows=44 loops=1)
+               Recheck Cond: (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)
+               Filter: ((data ->> 'priority'::text) = '1'::text)
+               Rows Removed by Filter: 959
+               Heap Blocks: exact=168
+               Buffers: shared hit=178
+               ->  Bitmap Index Scan on records_tenant_updated (actual time=0.114..0.115 rows=1003 loops=1)
+                     Index Cond: (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)
+                     Buffers: shared hit=10
+ Planning Time: 0.205 ms
+ Execution Time: 0.774 ms
+(15 rows)
+
+--- EXPLAIN q=c mode=count tenant=small pred=explicit page=1 (actor 1)
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=0.962..0.965 rows=1 loops=1)
+   Buffers: shared hit=178
+   ->  Limit (actual time=0.246..0.952 rows=44 loops=1)
+         Buffers: shared hit=178
+         ->  Result (actual time=0.244..0.941 rows=44 loops=1)
+               One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = 'febe0277-53c1-e6ce-9acd-bbd9c80a8407'::uuid)
+               Buffers: shared hit=178
+               ->  Bitmap Heap Scan on records r (actual time=0.234..0.920 rows=44 loops=1)
+                     Recheck Cond: (tenant_id = 'febe0277-53c1-e6ce-9acd-bbd9c80a8407'::uuid)
+                     Filter: ((data ->> 'priority'::text) = '1'::text)
+                     Rows Removed by Filter: 959
+                     Heap Blocks: exact=168
+                     Buffers: shared hit=178
+                     ->  Bitmap Index Scan on records_tenant_updated (actual time=0.144..0.145 rows=1003 loops=1)
+                           Index Cond: (tenant_id = 'febe0277-53c1-e6ce-9acd-bbd9c80a8407'::uuid)
+                           Buffers: shared hit=10
+ Planning:
+   Buffers: shared hit=3
+ Planning Time: 0.267 ms
+ Execution Time: 1.026 ms
+(20 rows)
+
+--- generic plan, same query and actor
+                                                    QUERY PLAN                                                    
+------------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=0.806..0.808 rows=1 loops=1)
+   Buffers: shared hit=178
+   ->  Limit (actual time=0.198..0.799 rows=44 loops=1)
+         Buffers: shared hit=178
+         ->  Result (actual time=0.196..0.792 rows=44 loops=1)
+               One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = $3)
+               Buffers: shared hit=178
+               ->  Bitmap Heap Scan on records r (actual time=0.188..0.776 rows=44 loops=1)
+                     Recheck Cond: (tenant_id = $3)
+                     Filter: ((data ->> 'priority'::text) = '1'::text)
+                     Rows Removed by Filter: 959
+                     Heap Blocks: exact=168
+                     Buffers: shared hit=178
+                     ->  Bitmap Index Scan on records_tenant_updated (actual time=0.118..0.119 rows=1003 loops=1)
+                           Index Cond: (tenant_id = $3)
+                           Buffers: shared hit=10
+ Planning Time: 0.238 ms
+ Execution Time: 0.890 ms
+(18 rows)
+

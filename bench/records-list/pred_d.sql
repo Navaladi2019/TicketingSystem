@@ -1,0 +1,1 @@
+(r.requester_id = :me::uuid OR r.assignee_id = :me::uuid OR r.assignment_group_id = ANY (:g::uuid[]) OR EXISTS (SELECT 1 FROM record_shares s WHERE s.tenant_id = r.tenant_id AND s.record_id = r.id AND s.principal_id = :me::uuid)) AND r.state <> 'closed'
