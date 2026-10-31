@@ -28,7 +28,7 @@ const (
 	// compat $7, published_by $8.
 	insertVersion = `INSERT INTO entity_definition_versions
 		(tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat, published_by)
-		VALUES ($1, $2, $3, $4, $5::text::json, $6, '[]', '[]', $7, $8)`
+		VALUES ($1, $2, $3, $4, $5::text::json, $6, '{}', '{}', $7, $8)`
 	testSchema = `{"type": "object"}`
 )
 
