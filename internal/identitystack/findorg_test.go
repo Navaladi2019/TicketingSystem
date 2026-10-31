@@ -203,6 +203,8 @@ func (s *resumeStore) Bind(_ context.Context, _ uuid.UUID, _, orgID, _ string) e
 	return nil
 }
 
+func (s *resumeStore) RecordAdminGroup(context.Context, uuid.UUID, string) error { return nil }
+
 func (s *resumeStore) Activate(context.Context, uuid.UUID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
