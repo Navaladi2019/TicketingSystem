@@ -226,12 +226,14 @@ func (h *handlers) PublishEntityTypeVersion(ctx context.Context, req api.Publish
 		if err := authz.RequireTenantAdminTx(ctx, tx, p); err != nil {
 			return err
 		}
+		// The key shape is checked before the body, so an impossible key gets
+		// the same 404 whatever the body is.
+		if len(req.Key) > maxKeyBytes || !utf8.ValidString(req.Key) || strings.IndexByte(req.Key, 0) >= 0 {
+			return entitytypes.ErrNotFound // cannot exist, and must not reach the database
+		}
 		def, perr := parsePublish(raw)
 		if perr != nil {
 			return perr
-		}
-		if len(req.Key) > maxKeyBytes || !utf8.ValidString(req.Key) || strings.IndexByte(req.Key, 0) >= 0 {
-			return entitytypes.ErrNotFound // cannot exist, and must not reach the database
 		}
 		var err error
 		v, err = h.store.Publish(ctx, tx, p.TenantID, entitytypes.PublishInput{Key: req.Key, PublishedBy: p.PrincipalID, Definition: def})

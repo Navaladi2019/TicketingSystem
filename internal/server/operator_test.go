@@ -234,6 +234,21 @@ func TestOperatorOnlyHandlerServesNothingElse(t *testing.T) {
 	}
 }
 
+// With no pool (nava-onboard) a tenant POST is still 404, as before P3-05a:
+// the operator-only process has no key store and must not answer 501.
+func TestOperatorOnlyTenantWriteIsNotFoundNotNotImplemented(t *testing.T) {
+	h := operatorHandler(t, server.WithOperator(stubOperators{}, &stubOnboarder{}), server.OperatorOnly())
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/entity-types", strings.NewReader(`{}`))
+	req.Header.Set("Authorization", "Bearer token-a")
+	req.Header.Set("Idempotency-Key", "k1")
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound || code(t, rec) != "not_found" {
+		t.Errorf("tenant POST on the onboarding process: %d %s, want 404 not_found", rec.Code, rec.Body)
+	}
+}
+
 // TICK-271: a refused claim is 409 domain_claimed and the body names neither
 // the owning tenant nor its organization, even when the service error carries
 // them. The operator learns only that the domain is taken.
