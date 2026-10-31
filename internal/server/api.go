@@ -190,10 +190,21 @@ func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http
 	return func(w http.ResponseWriter, r *http.Request, err error) {
 		var pe *problemError
 		if errors.As(err, &pe) {
-			// A problem with field errors is a 4xx that names the fields.
+			// The 4xx codes that name fields. Each is a constant, so the
+			// registry guard sees a client error; any other code, fields or
+			// not, goes through WriteError.
 			if len(pe.fields) > 0 {
-				h.reg.Write(w, r, pe.code, pe.fields...)
-				return
+				switch pe.code {
+				case problem.ValidationFailed:
+					h.reg.Write(w, r, problem.ValidationFailed, pe.fields...)
+					return
+				case problem.InvalidDefinition:
+					h.reg.Write(w, r, problem.InvalidDefinition, pe.fields...)
+					return
+				case problem.InvalidIdPConfig:
+					h.reg.Write(w, r, problem.InvalidIdPConfig, pe.fields...)
+					return
+				}
 			}
 			h.reg.WriteError(w, r, h.log, pe.code, pe.err)
 			return

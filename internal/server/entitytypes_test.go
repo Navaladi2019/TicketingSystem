@@ -218,3 +218,36 @@ func TestResponseErrorWritesFieldsForEveryCode(t *testing.T) {
 		t.Errorf("forbidden = %d %s", rec.Code, rec.Body)
 	}
 }
+
+// An invalid name and an invalid schema are reported in one response.
+func TestParseCreateReportsFieldAndDefinitionErrorsTogether(t *testing.T) {
+	t.Parallel()
+	raw := `{"key": "x1", "name": "", "number_prefix": "AB", "definition": {"schema": {"type": "array"}, "fixed_columns": {}, "states": {}}}`
+	_, perr := parseCreate(json.RawMessage(raw))
+	if perr == nil {
+		t.Fatal("accepted")
+	}
+	var got []string
+	for _, f := range perr.fields {
+		got = append(got, f.Pointer)
+	}
+	if len(got) < 2 || got[0] != "/name" {
+		t.Fatalf("pointers = %v, want /name first, then /definition/...", got)
+	}
+	for _, g := range got[1:] {
+		if !strings.HasPrefix(g, "/definition/") {
+			t.Errorf("pointer %q is not under /definition/", g)
+		}
+	}
+	// A bad key is listed once even though Compile reports it too.
+	_, perr = parseCreate(utBody(func(m map[string]any) { m["key"] = "Bad" }))
+	n := 0
+	for _, f := range perr.fields {
+		if f.Pointer == "/key" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("/key listed %d times, want 1: %v", n, perr.fields)
+	}
+}

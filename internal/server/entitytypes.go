@@ -254,27 +254,35 @@ func parseCreate(raw json.RawMessage) (createRequest, *problemError) {
 		States       metadata.StateModel `json:"states"`
 	}
 	defRaw, present := fields["definition"]
+	defOK := false
 	switch {
 	case !present:
 		bad = append(bad, invalid("/definition", "required"))
 	case json.Unmarshal(defRaw, &def) != nil:
 		bad = append(bad, invalid("/definition", "type"))
-	}
-	if len(bad) > 0 {
-		return cr, unprocessable(bad...)
+	default:
+		defOK = true
 	}
 	cr.def = metadata.Definition{Key: cr.key, Schema: def.Schema, NumberPrefix: cr.prefix, FixedColumns: def.FixedColumns, States: def.States}
-	if _, err := metadata.Compile(cr.def); err != nil {
-		var ie *metadata.ErrInvalidDefinition
-		if !errors.As(err, &ie) {
-			return cr, &problemError{problem.InternalError, nil, err}
-		}
-		for _, path := range ie.Paths {
-			if path != "/key" && path != "/number_prefix" {
-				path = "/definition" + path
+	// Compile runs whenever the definition decoded, so one response lists the
+	// field errors and the definition errors together.
+	if defOK {
+		if _, err := metadata.Compile(cr.def); err != nil {
+			var ie *metadata.ErrInvalidDefinition
+			if !errors.As(err, &ie) {
+				return cr, &problemError{problem.InternalError, nil, err}
 			}
-			bad = append(bad, invalid(path, "invalid"))
+			for _, path := range ie.Paths {
+				if path != "/key" && path != "/number_prefix" {
+					path = "/definition" + path
+				}
+				if !slices.ContainsFunc(bad, func(f problem.FieldError) bool { return f.Pointer == path }) {
+					bad = append(bad, invalid(path, "invalid"))
+				}
+			}
 		}
+	}
+	if len(bad) > 0 {
 		return cr, unprocessable(bad...)
 	}
 	return cr, nil
