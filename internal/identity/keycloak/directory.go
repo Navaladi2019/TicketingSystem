@@ -323,7 +323,11 @@ func (d *Directory) EnsureAdminGroup(ctx context.Context, tenantID uuid.UUID) (s
 	return g.ID, err
 }
 
-// adminGroup finds /t/<tenant_id>/admins, or identity.ErrNotFound.
+// adminGroup finds /t/<tenant_id>/admins, or identity.ErrNotFound. Looking the
+// group up by path is acceptable here: the result only decides which Keycloak
+// group a member is placed in, never whether a request is authorized. The
+// authorization check compares platform group ids with tenant_admin_group
+// (ADR-002 section 1.4).
 func (d *Directory) adminGroup(ctx context.Context, tenantID uuid.UUID) (kcGroup, error) {
 	var g kcGroup
 	err := d.api.getJSON(ctx, d.runtime, "/group-by-path/t/{tenant}/admins",
@@ -452,6 +456,9 @@ func registryErr(err error) error {
 // and changes nothing; a local user joining a second tenant needs a consent
 // step that does not exist yet. The caller must answer a refusal like a
 // success, so the call is no oracle for "this email exists elsewhere".
+//
+// TODO(TODO-S8-02): the invitee is also placed in the admins group; split out
+// InviteAdmin before any feature invites non-admins.
 func (d *Directory) InviteUser(ctx context.Context, tenantID uuid.UUID, email string) error {
 	if err := requireTenant(tenantID); err != nil {
 		return err

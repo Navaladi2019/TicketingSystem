@@ -175,11 +175,11 @@ func (s *PGStore) Bind(ctx context.Context, tenantID uuid.UUID, issuer, orgID, i
 	}
 }
 
-// RecordAdminGroup implements Store. Both inserts are ON CONFLICT DO NOTHING
-// (nava_onboard has no SELECT on either table): a retry inserts nothing. The
-// foreign key (tenant_id, group_id) -> groups makes the second insert fail
-// when the first was skipped for a different group already holding this
-// Keycloak id, so a mismatch is an error, never a pointer to the wrong group.
+// RecordAdminGroup implements Store. The groups insert is ON CONFLICT DO
+// NOTHING: if group sync already created the group, under any id, nothing is
+// inserted. The tenant_admin_group row is then written from the groups row
+// found by Keycloak id, so it always names the group's real id. A retry
+// inserts nothing.
 func (s *PGStore) RecordAdminGroup(ctx context.Context, tenantID uuid.UUID, kcGroupID string) error {
 	id := AdminGroupID(tenantID)
 	path := identity.TenantGroupPrefix(tenantID) + identity.AdminGroupName
@@ -189,8 +189,12 @@ func (s *PGStore) RecordAdminGroup(ctx context.Context, tenantID uuid.UUID, kcGr
 			tenantID, id, kcGroupID, path); err != nil {
 			return err
 		}
+		// The row names the group's real id, whoever created it: group sync
+		// may have inserted the group first, under an id of its own.
 		_, err := tx.Exec(ctx,
-			"INSERT INTO tenant_admin_group (tenant_id, group_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", tenantID, id)
+			`INSERT INTO tenant_admin_group (tenant_id, group_id)
+			 SELECT tenant_id, id FROM groups WHERE tenant_id = $1 AND keycloak_group_id = $2
+			 ON CONFLICT DO NOTHING`, tenantID, kcGroupID)
 		return err
 	})
 	if err != nil {

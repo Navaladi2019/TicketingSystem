@@ -150,8 +150,9 @@ func TenantID(operatorPrincipal, key string) uuid.UUID {
 }
 
 // AdminGroupID is the platform id of a tenant's admins group, derived from the
-// tenant id so a retry writes the same row (D-P11). group sync keeps it: it
-// matches the group by its Keycloak id and only updates the path.
+// tenant id so a retry writes the same row (D-P11). It is the id of the groups
+// row onboarding inserts; if group sync created the group first, the recorded
+// id is that group's real one (Store.RecordAdminGroup reads it back).
 func AdminGroupID(tenantID uuid.UUID) uuid.UUID {
 	return uuid.NewSHA1(Namespace, []byte("admin-group:"+tenantID.String()))
 }

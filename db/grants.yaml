@@ -123,7 +123,7 @@ roles:
       pending_invite: { SELECT: [tenant_id, email, expires_at, consumed_at], INSERT: [tenant_id, email, expires_at], UPDATE: [expires_at] }
       # P3-04: the admins group row (platform id minted here, Keycloak id from
       # DirectoryAdmin) and the tenant's pointer to it. Insert only.
-      groups: { INSERT: [tenant_id, id, keycloak_group_id, path] }
+      groups: { SELECT: [tenant_id, id, keycloak_group_id], INSERT: [tenant_id, id, keycloak_group_id, path] }
       tenant_admin_group: { INSERT: [tenant_id, group_id] }
 
   # Writes the identity tables (T16), one transaction per tenant. UPDATE
@@ -140,6 +140,8 @@ roles:
       groups: { SELECT: [], INSERT: [], UPDATE: [path], DELETE: [] }
       group_members: { SELECT: [], INSERT: [], DELETE: [] }
       org_units: { SELECT: [], INSERT: [], UPDATE: [parent_id, name], DELETE: [] }
+      # Group sync warns when it deletes the recorded admins group (P3-04).
+      tenant_admin_group: { SELECT: [] }
       # Consumes an invite (T252a): UPDATE ... SET consumed_at = now() WHERE
       # ... consumed_at IS NULL AND expires_at > now() RETURNING. No DELETE.
       pending_invite: { SELECT: [tenant_id, email, expires_at, consumed_at], UPDATE: [consumed_at] }

@@ -8,6 +8,12 @@
 -- (tenant_id, group_id) references groups (tenant_id, id): the group is a
 -- group of the same tenant, so a row naming tenant B's group is refused.
 --
+-- ON DELETE CASCADE: when Keycloak loses the admins group, group sync deletes
+-- the groups row and must still commit (a blocked delete would roll back every
+-- sync cycle of the tenant). The row goes with the group, the tenant has no
+-- admin and the helpers deny everyone (fail closed); nothing re-creates it.
+-- Group sync logs a WARN when the deleted group is the recorded one.
+--
 -- Onboarding also inserts the groups row itself (same transaction), with the
 -- platform id it records here and the Keycloak group id it just created. Group
 -- sync then finds the row by (tenant_id, keycloak_group_id) and keeps its id,
@@ -26,17 +32,22 @@ CREATE TABLE tenant_admin_group (
     group_id  uuid NOT NULL,
     CONSTRAINT tenant_admin_group_pkey PRIMARY KEY (tenant_id),
     CONSTRAINT tenant_admin_group_group_fkey FOREIGN KEY (tenant_id, group_id)
-        REFERENCES groups (tenant_id, id)
+        REFERENCES groups (tenant_id, id) ON DELETE CASCADE
 );
 ALTER TABLE tenant_admin_group ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tenant_admin_group FORCE ROW LEVEL SECURITY;
 
-CREATE POLICY tenant_admin_group_select ON tenant_admin_group FOR SELECT TO nava_app, nava_worker
+CREATE POLICY tenant_admin_group_select ON tenant_admin_group FOR SELECT TO nava_app, nava_worker, nava_groupsync
     USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
 CREATE POLICY tenant_admin_group_insert ON tenant_admin_group FOR INSERT TO nava_onboard
     WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
                 AND tenant_id IN (SELECT id FROM tenants WHERE state = 'provisioning'));
 
+-- Onboarding reads back the id of the admins group by its Keycloak id, because
+-- group sync may have created the row first under another id.
+CREATE POLICY groups_select_onboard ON groups FOR SELECT TO nava_onboard
+    USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
+           AND tenant_id IN (SELECT id FROM tenants WHERE state = 'provisioning'));
 CREATE POLICY groups_insert_onboard ON groups FOR INSERT TO nava_onboard
     WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
                 AND tenant_id IN (SELECT id FROM tenants WHERE state = 'provisioning'));

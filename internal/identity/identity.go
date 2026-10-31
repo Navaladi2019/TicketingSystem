@@ -87,8 +87,13 @@ var (
 type DirectoryAdmin interface {
 	CreateTenantOrg(ctx context.Context, tenantID uuid.UUID, alias string, domains []string) (orgID string, err error)
 	// InviteUser puts the invitee in the tenant's group (creating the user if
-	// the email is new). It rejects a user federated to an IdP not bound to the
-	// tenant with ErrIdPNotBound.
+	// the email is new) and makes the invitee a tenant admin: they are also
+	// placed in the tenant's admins group (AdminGroupName). It rejects a user
+	// federated to an IdP not bound to the tenant with ErrIdPNotBound.
+	//
+	// TODO(TODO-S8-02): every invitee is an admin today. Before any feature
+	// invites non-admins, split out InviteAdmin and put a role marker on
+	// pending_invite.
 	InviteUser(ctx context.Context, tenantID uuid.UUID, email string) error
 	DisableUser(ctx context.Context, tenantID, principalID uuid.UUID) error
 	SetGroupMembers(ctx context.Context, tenantID, groupID uuid.UUID, members []uuid.UUID) error

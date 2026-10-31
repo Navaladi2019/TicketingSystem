@@ -48,6 +48,9 @@ type kcOrgRef struct {
 // the group write, so an invite is never consumed for a user who is not
 // placed, and one invite places one user. It reports whether the user was
 // placed. A refusal is (false, nil).
+//
+// TODO(TODO-S8-02): every invitee is placed in the admins group; PlaceInvitee
+// needs the invite's role once non-admin invites exist.
 func (d *Directory) PlaceInvitee(ctx context.Context, tenantID uuid.UUID, email string, bound, orgIDs []string,
 	consume func(context.Context) (bool, error)) (bool, error) {
 	if err := requireTenant(tenantID); err != nil {

@@ -185,3 +185,62 @@ func TestP304RenamedGroupGrantsNothing(t *testing.T) {
 		}
 	}
 }
+
+// Group sync can create the admins group before onboarding records it, under
+// an id of its own. RecordAdminGroup must then point the row at that real id,
+// and a re-run must finish onboarding.
+func TestP304RecordAdminGroupUsesTheRealGroupID(t *testing.T) {
+	migratedPlatform(t)
+	super := superNava(t)
+	seedTenants(t, super, nil, []string{tenantA})
+	synced := uuid.NewString()
+	exec(t, super, insertAdminsGroup, tenantA, synced)
+
+	store := onboardStore(t, 4)
+	tid := uuid.MustParse(tenantA)
+	for i := 0; i < 2; i++ {
+		if err := store.RecordAdminGroup(context.Background(), tid, "kc-admins"); err != nil {
+			t.Fatalf("RecordAdminGroup run %d: %v", i, err)
+		}
+	}
+	if got := queryString(t, super, "SELECT group_id::text FROM tenant_admin_group WHERE tenant_id = $1", tenantA); got != synced {
+		t.Errorf("recorded group %s, want the synced group %s", got, synced)
+	}
+	if got := queryString(t, super, "SELECT count(*)::text FROM groups WHERE tenant_id = $1", tenantA); got != "1" {
+		t.Errorf("groups = %s, want 1 (no second admins group)", got)
+	}
+	if err := store.Activate(context.Background(), tid); err != nil {
+		t.Errorf("onboarding does not finish after the record: %v", err)
+	}
+}
+
+// With no synced group, RecordAdminGroup writes the group and the row.
+func TestP304RecordAdminGroupCreatesTheGroup(t *testing.T) {
+	migratedPlatform(t)
+	super := superNava(t)
+	seedTenants(t, super, nil, []string{tenantA})
+	store := onboardStore(t, 4)
+	if err := store.RecordAdminGroup(context.Background(), uuid.MustParse(tenantA), "kc-admins"); err != nil {
+		t.Fatal(err)
+	}
+	if got := queryBool(t, super, `SELECT EXISTS (SELECT 1 FROM tenant_admin_group a JOIN groups g
+		ON (g.tenant_id, g.id) = (a.tenant_id, a.group_id) WHERE a.tenant_id = $1 AND g.keycloak_group_id = 'kc-admins')`, tenantA); !got {
+		t.Error("tenant_admin_group does not name the group onboarding created")
+	}
+}
+
+// The tenant's admins group going away removes the row (ON DELETE CASCADE).
+func TestP304DeletingTheGroupRemovesTheRow(t *testing.T) {
+	migratedPlatform(t)
+	super := superNava(t)
+	seedTenants(t, super, []string{tenantA}, nil)
+	seedIdentity(t, super, tenantA)
+	exec(t, super, insertAdminGroupRow, tenantA, tenantA)
+	sync := asRole(t, "nava_groupsync")
+	if n, err := execIn(sync, tenantA, "DELETE FROM groups WHERE tenant_id = $1", tenantA); err != nil || n != 1 {
+		t.Fatalf("nava_groupsync deletes the admins group: %d rows, %v", n, err)
+	}
+	if got := queryString(t, super, "SELECT count(*)::text FROM tenant_admin_group WHERE tenant_id = $1", tenantA); got != "0" {
+		t.Errorf("rows after the group is deleted: %s, want 0", got)
+	}
+}

@@ -3,9 +3,13 @@ package authz
 import (
 	"context"
 	"errors"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 )
@@ -56,5 +60,64 @@ func TestRequireTenantAdmin(t *testing.T) {
 				t.Fatal("a store failure must not read as forbidden")
 			}
 		})
+	}
+}
+
+// pathFreeTx fails any SQL that mentions groups or path, and answers the one
+// statement the helper may run.
+type pathFreeTx struct {
+	pgx.Tx // nil: any method not overridden panics, which fails the test
+	t      *testing.T
+	group  uuid.UUID
+	sql    []string
+}
+
+var forbidden = regexp.MustCompile(`(?i)\b(groups|path)\b`)
+
+func (x *pathFreeTx) check(sql string) {
+	x.sql = append(x.sql, sql)
+	if forbidden.MatchString(sql) {
+		x.t.Errorf("the admin check ran SQL that mentions groups or path: %s", sql)
+	}
+}
+
+func (x *pathFreeTx) QueryRow(_ context.Context, sql string, _ ...any) pgx.Row {
+	x.check(sql)
+	return rowOf{x.group}
+}
+
+func (x *pathFreeTx) Query(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+	x.check(sql)
+	return nil, errors.New("Query is not allowed")
+}
+
+func (x *pathFreeTx) Exec(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+	x.check(sql)
+	return pgconn.CommandTag{}, errors.New("Exec is not allowed")
+}
+
+type rowOf struct{ id uuid.UUID }
+
+func (r rowOf) Scan(dest ...any) error {
+	*(dest[0].(*uuid.UUID)) = r.id
+	return nil
+}
+
+func TestRequireTenantAdminTxNeverReadsGroupsOrPaths(t *testing.T) {
+	g := uuid.New()
+	tx := &pathFreeTx{t: t, group: g}
+	p := identity.Principal{TenantID: uuid.New(), Groups: []uuid.UUID{g}}
+	if err := RequireTenantAdminTx(t.Context(), tx, p); err != nil {
+		t.Fatal(err)
+	}
+	if err := RequireTenantAdminTx(t.Context(), tx, identity.Principal{TenantID: p.TenantID}); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("non-member: %v", err)
+	}
+	if len(tx.sql) != 2 || !strings.Contains(tx.sql[0], "tenant_admin_group") {
+		t.Errorf("statements = %q", tx.sql)
+	}
+	// The matcher itself catches a path or groups read.
+	if !forbidden.MatchString("SELECT path FROM groups") || !forbidden.MatchString("select 1 from groups") || forbidden.MatchString("SELECT group_id FROM tenant_admin_group") {
+		t.Error("the SQL matcher is wrong")
 	}
 }
