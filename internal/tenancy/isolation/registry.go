@@ -48,6 +48,11 @@ const (
 	SharedIdempotencyKey = "shared-idempotency-key"
 	// SharedInviteEmail is invited by both tenants (pending_invite).
 	SharedInviteEmail = "shared-invite@example.test"
+	// EntityDefinitionB1 is tenant B's ticket entity type, which has two
+	// versions; tenant A's ticket has one.
+	EntityDefinitionB1 = "0b000000-0000-4000-8000-0000000006b1"
+	// GroupB1 is a tenant B group that is not its admins group.
+	GroupB1 = "0b000000-0000-4000-8000-0000000004b1"
 	// NewID is an id no seeded row uses, for inserts.
 	NewID = "0c000000-0000-4000-8000-0000000000c1"
 )
@@ -300,6 +305,46 @@ func Paths() []Path {
 			 WHERE tenant_id = $1 AND email = $2 AND consumed_at IS NULL AND expires_at > now() RETURNING tenant_id`,
 			TenantB, SharedInviteEmail),
 
+		// Entity types (P3-07, TICK-345). The seed gives both tenants the key
+		// ticket and prefix TCK, and only tenant B the key incident, so a
+		// lookup by key or prefix alone would find tenant B's rows.
+		sql("entity_definitions: read tenant B's only key", "nava_app", OwnRowsOnly,
+			"SELECT tenant_id FROM entity_definitions WHERE key = 'incident'"),
+		sql("entity_definitions: look a shared key and prefix up in every tenant", "nava_worker", OwnRowsOnly,
+			"SELECT tenant_id FROM entity_definitions WHERE key = 'ticket' OR number_prefix = 'TCK'"),
+		sql("entity_definitions: read tenant B's row by its full key", "nava_app", OwnRowsOnly,
+			"SELECT tenant_id FROM entity_definitions WHERE tenant_id = $1 AND id = $2", TenantB, EntityDefinitionB1),
+		sql("entity_definitions: insert a type for tenant B", "nava_app", Denied,
+			"INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version) VALUES ($1, $2, 'iso_new', 'Iso', 'ISO', 1)",
+			TenantB, NewID),
+		sql("entity_definitions: onboarding seeds a type for tenant B", "nava_onboard", Denied,
+			"INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version) VALUES ($1, $2, 'iso_new', 'Iso', 'ISO', 1)",
+			TenantB, NewID),
+		sql("entity_definitions: move tenant B's current versions", "nava_app", Denied,
+			"UPDATE entity_definitions SET current_version = 1, updated_at = now() WHERE tenant_id = $1", TenantB),
+		sql("entity_definition_versions: read tenant B's versions by definition id", "nava_app", OwnRowsOnly,
+			"SELECT tenant_id FROM entity_definition_versions WHERE definition_id = $1", EntityDefinitionB1),
+		sql("entity_definition_versions: read tenant B's versions by their full key", "nava_worker", OwnRowsOnly,
+			"SELECT tenant_id FROM entity_definition_versions WHERE tenant_id = $1 AND definition_id = $2", TenantB, EntityDefinitionB1),
+		sql("entity_definition_versions: publish a version for tenant B", "nava_app", Denied,
+			`INSERT INTO entity_definition_versions (tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat)
+			 VALUES ($1, $2, $3, 3, '{}'::json, sha256(convert_to('{}', 'UTF8')), '{}', '{}', 'compatible')`,
+			TenantB, NewID, EntityDefinitionB1),
+		// The composite foreign key holds the tenant: tenant A cannot hang a
+		// version off tenant B's definition.
+		sql("entity_definition_versions: hang tenant A's version off tenant B's definition", "nava_app", Denied,
+			`INSERT INTO entity_definition_versions (tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat)
+			 VALUES ($1, $2, $3, 3, '{}'::json, sha256(convert_to('{}', 'UTF8')), '{}', '{}', 'compatible')`,
+			TenantA, NewID, EntityDefinitionB1),
+		sql("entity_definition_versions: rewrite tenant B's versions", "nava_app", Denied,
+			"UPDATE entity_definition_versions SET compat = 'breaking' WHERE tenant_id = $1", TenantB),
+		sql("tenant_admin_group: read tenant B's admins group", "nava_app", OwnRowsOnly,
+			"SELECT tenant_id FROM tenant_admin_group WHERE tenant_id = $1", TenantB),
+		sql("tenant_admin_group: name an admins group for tenant B", "nava_onboard", Denied,
+			"INSERT INTO tenant_admin_group (tenant_id, group_id) VALUES ($1, $2)", TenantB, GroupB1),
+		sql("tenant_admin_group: point tenant B's admins at another group", "nava_app", Denied,
+			"UPDATE tenant_admin_group SET group_id = $2 WHERE tenant_id = $1", TenantB, GroupB1),
+
 		// Forged tenant: a valid token for tenant A names tenant B in the
 		// payload, a header, the query or baggage. The tenant comes only from
 		// the token's binding (ADR-001 I2). The payload path has no route yet
@@ -319,5 +364,6 @@ func Paths() []Path {
 	paths = append(paths, idempotencyPaths()...)
 	paths = append(paths, ci5Paths()...)
 	paths = append(paths, rolePaths()...)
+	paths = append(paths, entityTypePaths()...)
 	return append(paths, boundaryPaths()...)
 }
