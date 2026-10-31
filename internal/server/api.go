@@ -88,8 +88,12 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 	// Tenant writes then need an Idempotency-Key (authn -> ratelimit ->
 	// idempotency, the R2 tripwire). Without a pool there is no key store, so a
 	// tenant write answers 501 rather than run unprotected.
+	// The operator-only process answers every tenant route 404, so it needs no
+	// key store: a tenant POST there must stay 404, not 501.
 	var idem func(http.Handler) http.Handler
-	if opts.pool != nil {
+	if opts.operatorOnly {
+		idem = func(next http.Handler) http.Handler { return next }
+	} else if opts.pool != nil {
 		m, err := idempotency.New(opts.pool, reg, log, tel.MeterProvider)
 		if err != nil {
 			return nil, err

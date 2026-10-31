@@ -13,8 +13,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/Navaladi2019/TicketingSystem/api"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
+	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/apihttp"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
@@ -216,6 +219,49 @@ func TestResponseErrorWritesFieldsForEveryCode(t *testing.T) {
 	respond(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", nil), &problemError{problem.Forbidden, nil, errors.New("x")})
 	if rec.Code != http.StatusForbidden || strings.Contains(rec.Body.String(), `"errors"`) {
 		t.Errorf("forbidden = %d %s", rec.Code, rec.Body)
+	}
+}
+
+// Every registered code that carries field errors must be written by
+// responseError with its errors[]. A code is either in the switch or listed
+// here as one that never carries fields; a new code that is neither fails, so
+// its fields cannot be dropped silently.
+func TestResponseErrorKnowsEveryCode(t *testing.T) {
+	t.Parallel()
+	noFields := map[problem.Code]bool{
+		problem.TenantUnresolved: true, problem.InvalidToken: true, problem.IdempotencyKeyReuse: true,
+		problem.IdempotencyInFlight: true, problem.Forbidden: true, problem.DomainClaimed: true,
+		problem.OnboardingConflict: true, problem.InvalidCursor: true, problem.RateLimited: true,
+		problem.NotFound: true, problem.MethodNotAllowed: true, problem.NotImplemented: true,
+		problem.InternalError: true, problem.EntityTypeExists: true, problem.NumberPrefixTaken: true,
+	}
+	reg := loadTestRegistry(t)
+	h := &handlers{reg: reg, log: slog.New(slog.DiscardHandler)}
+	respond := h.responseError(apihttp.New(nil, reg, h.log, ""))
+	for _, code := range problem.Codes() {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", nil)
+		respond(rec, req, &problemError{code, []problem.FieldError{{Pointer: "/x", Rule: "r"}}, errors.New("x")})
+		carries := strings.Contains(rec.Body.String(), `"errors"`)
+		switch {
+		case noFields[code] && carries:
+			t.Errorf("%s is listed as carrying no fields but responseError writes them", code)
+		case !noFields[code] && !carries:
+			t.Errorf("%s is missing from the responseError switch (or from this test's noFields list): %s", code, rec.Body)
+		}
+	}
+}
+
+// A request with a nil principal id is refused before any row is touched: 500
+// errNoPrincipal (a wiring bug), never a write attributed to the nil uuid.
+func TestPublishWithANilPrincipalIDIsErrNoPrincipal(t *testing.T) {
+	t.Parallel()
+	h := &handlers{reg: loadTestRegistry(t), log: slog.New(slog.DiscardHandler)} // no pool: nothing can be written
+	ctx := identity.NewContext(t.Context(), identity.Principal{TenantID: uuid.New()})
+	body := json.RawMessage(`{}`)
+	resp, err := h.PublishEntityTypeVersion(ctx, api.PublishEntityTypeVersionRequestObject{Key: "incident", Body: &body})
+	if !errors.Is(err, errNoPrincipal) || resp != nil {
+		t.Fatalf("got (%v, %v), want (nil, errNoPrincipal)", resp, err)
 	}
 }
 

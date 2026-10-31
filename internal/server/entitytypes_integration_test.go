@@ -22,6 +22,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -195,10 +196,11 @@ func (e etTokens) Resolve(_ context.Context, raw string) (identity.Principal, er
 
 // etEnv is the handler over a migrated database with tenants A and B.
 type etEnv struct {
-	h     http.Handler
-	pool  *pgxpool.Pool
-	a, b  etTenant
-	super *pgx.Conn
+	h      http.Handler
+	tokens etTokens
+	pool   *pgxpool.Pool
+	a, b   etTenant
+	super  *pgx.Conn
 }
 
 func newETEnv(t *testing.T) *etEnv {
@@ -225,7 +227,7 @@ func newETEnv(t *testing.T) *etEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &etEnv{h: h, pool: pool, a: a, b: b, super: super}
+	return &etEnv{h: h, tokens: tokens, pool: pool, a: a, b: b, super: super}
 }
 
 func (e *etEnv) do(t *testing.T, method, path, token, idemKey, body string) *httptest.ResponseRecorder {
@@ -602,5 +604,41 @@ func TestDefinitionReaderIsTenantScoped(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Two parallel creates of one key (each with its own Idempotency-Key, so the
+// idempotency layer does not serialise them) race to the unique index. One is
+// 201; the other must be the registered 409, never a 500 (mapUnique).
+func TestParallelCreateOfOneKeyGivesOne201AndOne409(t *testing.T) {
+	e := newETEnv(t)
+	const n = 2
+	recs := make([]*httptest.ResponseRecorder, n)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			recs[i] = e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", fmt.Sprintf("par-%d", i), etBody("race_key", "RAC"))
+		}()
+	}
+	close(start)
+	wg.Wait()
+	created, exists := 0, 0
+	for _, rec := range recs {
+		switch rec.Code {
+		case http.StatusCreated:
+			created++
+		case http.StatusConflict:
+			wantProblem(t, rec, http.StatusConflict, problem.EntityTypeExists)
+			exists++
+		default:
+			t.Errorf("parallel create = %d, want 201 or 409 entity_type_exists: %s", rec.Code, rec.Body)
+		}
+	}
+	if created != 1 || exists != 1 {
+		t.Errorf("got %d x 201 and %d x 409, want one of each", created, exists)
 	}
 }

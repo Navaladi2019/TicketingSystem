@@ -15,6 +15,10 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 )
 
 // etSchemaB is valid and differs from etSchema, so the two tenants' rows
@@ -120,5 +124,41 @@ func TestIdempotencyKeyIsNotSharedAcrossTenants(t *testing.T) {
 	rows.Close()
 	if strings.Join(keys, ",") != "b_type,secret_type" {
 		t.Errorf("tenant B has entity types %v, want [b_type secret_type]: a request was replayed from tenant A", keys)
+	}
+}
+
+// One principal id that is an admin of tenants A and B (two tokens, one per
+// tenant) sends the same Idempotency-Key to each. The scope includes the
+// tenant, so each tenant gets its own row: no replay and no 409.
+func TestSamePrincipalAndKeyInTwoTenantsAreIndependent(t *testing.T) {
+	e := newETEnv(t)
+	tokens := e.tokens
+	both := e.a.admin
+	inB := identity.Principal{TenantID: e.b.id, PrincipalID: both.PrincipalID, Groups: []uuid.UUID{e.b.adminGroup}}
+	if _, err := e.super.Exec(t.Context(), "INSERT INTO principals (tenant_id, id, keycloak_user_id, email, enabled, federated_links, synced_at) VALUES ($1, $2, 'dual', 'dual@b.test', true, '[]', now())", e.b.id, inB.PrincipalID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.super.Exec(t.Context(), "INSERT INTO group_members (tenant_id, group_id, principal_id) VALUES ($1, $2, $3)", e.b.id, e.b.adminGroup, inB.PrincipalID); err != nil {
+		t.Fatal(err)
+	}
+	tokens["dual-a"], tokens["dual-b"] = both, inB
+
+	const key = "same-key"
+	for _, tc := range []struct{ token, entity, prefix string }{{"dual-a", "alpha", "ALP"}, {"dual-b", "beta", "BET"}} {
+		if rec := e.do(t, http.MethodPost, "/api/v1/entity-types", tc.token, key, etBody(tc.entity, tc.prefix)); rec.Code != http.StatusCreated {
+			t.Fatalf("%s create = %d, want 201 (no replay, no 409): %s", tc.token, rec.Code, rec.Body)
+		}
+	}
+	for _, tc := range []struct {
+		tenant uuid.UUID
+		want   string
+	}{{e.a.id, "alpha"}, {e.b.id, "beta"}} {
+		var got string
+		if err := e.super.QueryRow(t.Context(), "SELECT string_agg(key, ',') FROM entity_definitions WHERE tenant_id = $1", tc.tenant).Scan(&got); err != nil {
+			t.Fatal(err)
+		}
+		if got != tc.want {
+			t.Errorf("tenant %s has %q, want %q", tc.tenant, got, tc.want)
+		}
 	}
 }
