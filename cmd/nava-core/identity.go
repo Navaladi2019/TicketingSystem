@@ -23,17 +23,18 @@ import (
 // Keycloak adapter for NAVA_OIDC_ISSUERS, reading bindings and principals as
 // nava_app through NAVA_DATABASE_URL. With either unset it returns a
 // resolver that refuses every token, so the API fails closed. The returned
-// func closes the adapter and the pool.
-func newResolver(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, cfg config.Config) (identity.IdentityResolver, identity.GroupPathReader, func(), error) {
+// func closes the adapter and the pool. The pool (nava_app) is also the tenant
+// routes' database; it is nil when tenant resolution is not configured.
+func newResolver(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, cfg config.Config) (identity.IdentityResolver, identity.GroupPathReader, *pgxpool.Pool, func(), error) {
 	if len(cfg.Deps.OIDCIssuers) == 0 || cfg.Deps.DatabaseURL == "" {
 		log.WarnContext(ctx, "tenant resolution not configured: every API request is refused",
 			slog.Bool("issuers_set", len(cfg.Deps.OIDCIssuers) > 0), slog.Bool("database_set", cfg.Deps.DatabaseURL != ""))
-		return refuseAll{}, refuseAll{}, func() {}, nil
+		return refuseAll{}, refuseAll{}, nil, func() {}, nil
 	}
 	poolCfg, err := pgxpool.ParseConfig(cfg.Deps.DatabaseURL)
 	if err != nil {
 		// The error quotes the connection string, which is a credential.
-		return nil, nil, nil, errors.New("config: NAVA_DATABASE_URL is not a valid PostgreSQL connection string")
+		return nil, nil, nil, nil, errors.New("config: NAVA_DATABASE_URL is not a valid PostgreSQL connection string")
 	}
 	// Unnamed statements, so the pool works behind PgBouncer's transaction
 	// mode.
@@ -41,12 +42,12 @@ func newResolver(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry
 	poolCfg.ConnConfig.ConnectTimeout = 5 * time.Second
 	pool, err := db.NewPool(ctx, poolCfg, tel)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	out, err := telemetry.NewOutboundClient(tel, telemetry.OutboundOptions{})
 	if err != nil {
 		pool.Close()
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	store := pgstore.New(pool)
 	a, err := keycloak.New(ctx, keycloak.Config{
@@ -58,9 +59,9 @@ func newResolver(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry
 	}, out)
 	if err != nil {
 		pool.Close()
-		return nil, nil, nil, fmt.Errorf("identity: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("identity: %w", err)
 	}
-	return a, store, func() { _ = a.Close(context.WithoutCancel(ctx)); pool.Close() }, nil
+	return a, store, pool, func() { _ = a.Close(context.WithoutCancel(ctx)); pool.Close() }, nil
 }
 
 // refuseAll is the resolver when tenant resolution is not configured.

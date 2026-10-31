@@ -1,0 +1,20 @@
+meta {
+  name: X4.14 listEntityTypes 401: no token
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types
+  body: none
+  auth: none
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_token', 401);
+}
+
+docs {
+  Missing token.
+}
