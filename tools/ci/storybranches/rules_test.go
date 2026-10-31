@@ -31,7 +31,8 @@ const (
 )
 
 // The milestone-1 state TICK-286 found (TICK-322): S7 landed, S5 got three
-// task PRs after its story PR merged, S6 never had a story PR.
+// task PRs after its story PR merged, S6 never had a story PR and its story
+// is recorded as cancelled.
 func milestone1() Input {
 	return Input{
 		Main: "main",
@@ -53,6 +54,7 @@ func milestone1() Input {
 			// Only TICK-<n>/ branches are story branches.
 			mergedPR(114, "sec/y", "agent/x/1", "y", "01:00", "02:00"),
 		},
+		Closed: []Closed{{Branch: s6, Status: "cancelled", Issue: "TICK-48"}},
 	}
 }
 
@@ -88,7 +90,7 @@ func TestMilestone1Replay(t *testing.T) {
 	}
 	want := []string{
 		s5 + ": story PR #221 merged on 2026-10-28 16:47Z, but changes since then are not on main: PRs #251, #252, #255 merged into it afterwards (head s5-late, story PR head s5-stor)",
-		s6 + ": orphaned: PR #175 merged into it, no PR out of it is merged or open, and its changes are not on main (head s6-head)",
+		s6 + ": orphaned: story TICK-48 is cancelled (closed.yaml), PR #175 merged into it, no PR out of it is merged or open, and its changes are not on main (head s6-head)",
 	}
 	if got := texts(fs); !slices.Equal(got, want) {
 		t.Fatalf("findings:\n got %q\nwant %q", got, want)
@@ -145,7 +147,7 @@ func TestOpenPRIntoMergedStory(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		s6 + ": orphaned: PR #175 merged into it, no PR out of it is merged or open, and its changes are not on main (head s6-head)",
+		s6 + ": orphaned: story TICK-48 is cancelled (closed.yaml), PR #175 merged into it, no PR out of it is merged or open, and its changes are not on main (head s6-head)",
 		s7 + ": open PR #270 targets it, but its story PR #223 merged on 2026-10-28 12:00Z; retarget it to main",
 	}
 	if got := texts(fs); !slices.Equal(got, want) {
@@ -199,5 +201,58 @@ func TestStateAt(t *testing.T) {
 	c := PR{State: "CLOSED", CreatedAt: at("10:00"), ClosedAt: at("11:00")}
 	if c.stateAt(at("10:30")) != "OPEN" || c.stateAt(at("11:30")) != "CLOSED" || c.stateAt(time.Time{}) != "CLOSED" {
 		t.Error("closed PR replays wrong")
+	}
+}
+
+// TICK-379: a story branch with merged task PRs and no story PR is in flight
+// until closed.yaml records its story as done or cancelled; it is not
+// compared with main, so it cannot go red on every PR in the repo.
+func TestNoStoryPRIsInFlightUntilClosed(t *testing.T) {
+	for _, status := range []string{"", "done", "cancelled"} {
+		in := milestone1()
+		in.Closed = nil
+		if status != "" {
+			in.Closed = []Closed{{Branch: s6, Status: status, Issue: "TICK-48"}}
+		}
+		landed, calls := landedAt("s7-head..s7-head", "s5-story..s5-late")
+		fs, _, err := Check(in, landed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		orphan := slices.ContainsFunc(fs, func(f Finding) bool { return f.Branch == s6 && strings.HasPrefix(f.Text, "orphaned") })
+		compared := slices.Contains(*calls, "..s6-head")
+		if status == "" && (orphan || compared || len(fs) != 0) {
+			t.Fatalf("no closed.yaml entry: want S6 in flight and green, got %q (compared with main: %v)", texts(fs), compared)
+		}
+		if status != "" && (!orphan || !strings.Contains(fs[0].Text, "is "+status)) {
+			t.Fatalf("story %s: want S6 orphaned, got %q", status, texts(fs))
+		}
+	}
+	// A closed story whose changes did land on main is not orphaned.
+	in := milestone1()
+	landed, _ := landedAt("s7-head..s7-head", "s5-story..s5-late", "..s6-head")
+	if fs, _, _ := Check(in, landed); len(fs) != 0 {
+		t.Fatalf("closed story already on main: want green, got %q", texts(fs))
+	}
+}
+
+func TestParseClosed(t *testing.T) {
+	ok := "closed:\n  - branch: TICK-48/api-ground-rules\n    status: cancelled\n    issue: TICK-48\n"
+	got, err := parseClosed("closed.yaml", []byte(ok))
+	if err != nil || len(got) != 1 || got[0].Status != "cancelled" {
+		t.Fatalf("valid entry: got %v, %v", got, err)
+	}
+	if got, err := parseClosed("closed.yaml", []byte("closed: []\n")); err != nil || len(got) != 0 {
+		t.Fatalf("empty list: got %v, %v", got, err)
+	}
+	for name, bad := range map[string]string{
+		"unknown status": "closed:\n  - branch: TICK-48/x\n    status: merged\n    issue: TICK-48\n",
+		"not a story":    "closed:\n  - branch: agent/x/1\n    status: done\n    issue: TICK-48\n",
+		"no issue":       "closed:\n  - branch: TICK-48/x\n    status: done\n",
+		"not yaml":       "closed: [\n",
+	} {
+		if _, err := parseClosed("closed.yaml", []byte(bad)); err == nil {
+			t.Errorf("%s: want an error", name)
+		}
 	}
 }
