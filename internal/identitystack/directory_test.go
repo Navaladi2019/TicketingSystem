@@ -170,7 +170,25 @@ func newDirectoryWith(t *testing.T, reg keycloak.Registry, onboarding bool, idps
 	if err != nil {
 		t.Fatal(err)
 	}
+	ensureSeedAdminGroups(t, d)
 	return d
+}
+
+var seedAdminGroups sync.Once //nolint:gochecknoglobals // shared test setup, once per process
+
+// ensureSeedAdminGroups gives each seeded tenant its /t/<tenant>/admins group,
+// as onboarding does (P3-04): InviteUser places the invitee in it and fails
+// when it is missing. Idempotent, so every test may call it through
+// newDirectoryWith.
+func ensureSeedAdminGroups(t *testing.T, d *keycloak.Directory) {
+	t.Helper()
+	seedAdminGroups.Do(func() {
+		for _, tenant := range []uuid.UUID{tenantA, tenantB} {
+			if _, err := d.EnsureAdminGroup(context.Background(), tenant); err != nil {
+				t.Errorf("EnsureAdminGroup(%s): %v", tenant, err)
+			}
+		}
+	})
 }
 
 func kcGroupID(t *testing.T, path string) string {
