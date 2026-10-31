@@ -228,7 +228,8 @@ docker compose exec -it postgres sh -c \
 ```
 
 The password is read inside the container and never appears in an argument list.
-`ON_ERROR_STOP=1` makes a failed statement stop the rest of what you paste.
+Set `ON_ERROR_STOP=1` first, so psql stops at a failed statement, and run the
+blocks below one at a time.
 `:'tenant_id'` and `:'kc_group_id'` below are those psql variables.
 
 ```sql
@@ -251,16 +252,19 @@ cause is not this one. Three empty results mean you are not connected as
 
 **Check Keycloak.** Before any repair, check that the logged `keycloak_group_id`
 is the tenant's admins group in Keycloak; the repair trusts it. From the repository
-directory, with the id from the log line (it must print `"path" : "/t/<tenant
-uuid>/admins"`; a 404 or another path means stop):
+directory, with the id from the log line. It must print `"path" : "/t/<tenant
+uuid>/admins"` and exit 0; a non-zero exit (an unknown id, a failed login) or any
+other path means stop. The admin password reaches `kcadm.sh` through
+`KC_CLI_PASSWORD`, not `--password`, so it is in no process argument list, and the
+temporary config file, which holds a master-realm refresh token, is removed on exit.
 
 ```sh
 docker compose exec keycloak sh -c \
-  'cd /opt/keycloak/bin && export KCADM_CONFIG=$(mktemp) && \
-   ./kcadm.sh config credentials --config "$KCADM_CONFIG" --server http://localhost:8080 \
-     --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" --password "$KC_BOOTSTRAP_ADMIN_PASSWORD" >/dev/null && \
-   ./kcadm.sh get groups/"$1" --config "$KCADM_CONFIG" -r nava --fields id,path; \
-   rm -f "$KCADM_CONFIG"' \
+  'cd /opt/keycloak/bin && KCADM_CONFIG=$(mktemp) || exit 1
+   trap "rm -f \"\$KCADM_CONFIG\"" EXIT; trap "exit 1" HUP INT TERM
+   KC_CLI_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASSWORD" ./kcadm.sh config credentials --config "$KCADM_CONFIG" \
+     --server http://localhost:8080 --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" >/dev/null &&
+   ./kcadm.sh get groups/"$1" --config "$KCADM_CONFIG" -r nava --fields id,path' \
   sh <keycloak group id>
 ```
 
