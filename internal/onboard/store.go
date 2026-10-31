@@ -225,20 +225,40 @@ func (s *PGStore) RecordAdminGroup(ctx context.Context, tenantID uuid.UUID, kcGr
 // ErrNotProvisioning is returned by Activate when it found no provisioning row of the tenant.
 var ErrNotProvisioning = errors.New("onboard: tenant is not provisioning")
 
-// Activate implements Store.
+// ErrNoTenantAdmin is returned by Activate when the tenant is provisioning but
+// has no tenant_admin_group row: an active tenant always has an admin.
+var ErrNoTenantAdmin = errors.New("onboard: tenant has no admins group row")
+
+// Activate implements Store. The UPDATE changes no row unless the tenant has a
+// tenant_admin_group row (TICK-373), so "active implies an admin" holds in the
+// data layer whatever order the caller runs its steps in. nava_onboard reads
+// that row under tenant_admin_group_select_onboard (own provisioning tenant).
+// When nothing changed, a second read of the state tells the two cases apart.
 func (s *PGStore) Activate(ctx context.Context, tenantID uuid.UUID) error {
 	err := tenancy.InTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, "UPDATE tenants SET state = 'active' WHERE id = $1 AND state = 'provisioning'", tenantID)
+		tag, err := tx.Exec(ctx, `UPDATE tenants SET state = 'active'
+			WHERE id = $1 AND state = 'provisioning'
+			  AND EXISTS (SELECT 1 FROM tenant_admin_group WHERE tenant_id = $1)`, tenantID)
 		if err != nil {
 			return err
 		}
-		if tag.RowsAffected() != 1 {
-			return ErrNotProvisioning
+		if tag.RowsAffected() == 1 {
+			return nil
 		}
-		return nil
+		var state string
+		err = tx.QueryRow(ctx, "SELECT state FROM tenants WHERE id = $1", tenantID).Scan(&state)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			return ErrNotProvisioning
+		case err != nil:
+			return err
+		case state == "provisioning":
+			return ErrNoTenantAdmin
+		}
+		return ErrNotProvisioning
 	})
 	if err != nil {
-		if errors.Is(err, ErrNotProvisioning) {
+		if errors.Is(err, ErrNotProvisioning) || errors.Is(err, ErrNoTenantAdmin) {
 			return err
 		}
 		return fmt.Errorf("onboard: activate: %w", err)

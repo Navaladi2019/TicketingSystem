@@ -45,6 +45,15 @@ func onboardStore(t *testing.T, maxConns int32) *onboard.PGStore {
 	return s
 }
 
+// recordAdmin writes the tenant's admins group and tenant_admin_group row, as
+// onboarding does before Activate (which refuses a tenant without one, TICK-373).
+func recordAdmin(t *testing.T, s *onboard.PGStore, id uuid.UUID) {
+	t.Helper()
+	if err := s.RecordAdminGroup(t.Context(), id, "kc-admins"); err != nil {
+		t.Fatalf("RecordAdminGroup: %v", err)
+	}
+}
+
 func countRows(t *testing.T, sql string, args ...any) int {
 	t.Helper()
 	var n int
@@ -99,6 +108,7 @@ func TestT21BindIsIdempotentAndActivationIsLast(t *testing.T) {
 	if st := queryString(t, superNava(t), "SELECT state FROM tenants WHERE id = $1", id); st != "provisioning" {
 		t.Fatalf("state after Bind = %s, want provisioning", st)
 	}
+	recordAdmin(t, s, id)
 	if err := s.Activate(t.Context(), id); err != nil {
 		t.Fatal(err)
 	}
@@ -317,6 +327,7 @@ func TestT21OperatorTwoSeesNothingOfOperatorOnesTenant(t *testing.T) {
 	if err := s.Bind(t.Context(), t1, "https://kc/realms/nava", "org-1", "idp-1"); err != nil {
 		t.Fatal(err)
 	}
+	recordAdmin(t, s, t1)
 	if err := s.Activate(t.Context(), t1); err != nil {
 		t.Fatal(err)
 	}
@@ -417,6 +428,7 @@ func TestT21ReleaseDomainsFreesOnlyTheStuckTenantsRows(t *testing.T) {
 	if err := s.Bind(t.Context(), active, "https://kc/realms/nava", "org-active", "idp-active"); err != nil {
 		t.Fatal(err)
 	}
+	recordAdmin(t, s, active)
 	if err := s.Activate(t.Context(), active); err != nil {
 		t.Fatal(err)
 	}

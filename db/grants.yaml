@@ -131,7 +131,8 @@ roles:
       # P3-04: the admins group row (platform id minted here, Keycloak id from
       # DirectoryAdmin) and the tenant's pointer to it. Insert only.
       groups: { SELECT: [tenant_id, id, keycloak_group_id], INSERT: [tenant_id, id, keycloak_group_id, path] }
-      tenant_admin_group: { INSERT: [tenant_id, group_id] }
+      # Activate tests the row exists (TICK-373): SELECT on the key only.
+      tenant_admin_group: { SELECT: [tenant_id], INSERT: [tenant_id, group_id] }
       # Seed templates (P3-06) while provisioning, with deterministic UUIDv5
       # ids, so a plain INSERT is enough: no SELECT, no upsert (P3-02).
       entity_definitions: { INSERT: [] }

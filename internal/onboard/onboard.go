@@ -92,7 +92,8 @@ type Store interface {
 	// neither a second group nor a second row.
 	RecordAdminGroup(ctx context.Context, tenantID uuid.UUID, kcGroupID string) error
 	// Activate moves the tenant from provisioning to active. An already-active
-	// tenant is an error.
+	// tenant is ErrNotProvisioning; a tenant with no tenant_admin_group row is
+	// ErrNoTenantAdmin and stays provisioning.
 	Activate(ctx context.Context, tenantID uuid.UUID) error
 }
 
