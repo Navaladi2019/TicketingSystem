@@ -4,6 +4,7 @@ package dbtest
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	"github.com/google/uuid"
@@ -11,7 +12,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/onboard"
 )
 
-// TICK-372 adversarial: the runbook repair runs as the owner or a superuser, so
+// TICK-372 adversarial: the runbook repair runs as the superuser, so
 // RLS does not scope it; only its WHERE clause does. Tenant B holds the same
 // stale admins row as tenant A, under the same Keycloak id ("kc-old-admins" is
 // legal in both: groups is unique on (tenant_id, keycloak_group_id) only), plus
@@ -22,7 +23,7 @@ func TestTick372RunbookRepairCannotTouchOtherTenant(t *testing.T) {
 		name  string
 		block int
 		tag   string
-	}{{"option A update", 1, "UPDATE 1"}, {"option B delete", 2, "DELETE 1"}} {
+	}{{"option A update", blkA, "UPDATE 1"}, {"option B delete", blkB, "DELETE 1"}} {
 		t.Run(tc.name, func(t *testing.T) {
 			migratedPlatform(t)
 			super := superNava(t)
@@ -49,14 +50,13 @@ func TestTick372RunbookRepairCannotTouchOtherTenant(t *testing.T) {
 			before := snapshotB()
 
 			blocks := runbookBlocks(t, tenantA, "kc-new-admins")
-			rows, _ := runBlock(t, super, "confirm", blocks[0])
-			if len(rows) != 3 || rows[0] != 1 || rows[1] != 0 || rows[2] != 0 {
+			if rows := runBlock(t, super, "confirm", blocks[blkConfirm]).counts(); !reflect.DeepEqual(rows, []int{1, 0, 0}) {
 				t.Fatalf("confirm rows = %v, want [1 0 0]: the confirm step saw another tenant's rows", rows)
 			}
-			_, tags := runBlock(t, super, "repair", blocks[tc.block])
-			if !slicesContain(tags, tc.tag) {
+			if tags := runBlock(t, super, "repair", blocks[tc.block]).tags; !reflect.DeepEqual(tags, []string{"BEGIN", tc.tag}) {
 				t.Fatalf("repair tags = %v, want exactly %s: the repair reached beyond tenant A", tags, tc.tag)
 			}
+			runBlock(t, super, "commit", blocks[blkCommit])
 			if after := snapshotB(); after != before {
 				t.Fatalf("tenant B identity rows changed by tenant A's repair:\nbefore %s\nafter  %s", before, after)
 			}
@@ -65,8 +65,7 @@ func TestTick372RunbookRepairCannotTouchOtherTenant(t *testing.T) {
 			if err := onboardStore(t, 4).RecordAdminGroup(context.Background(), ta, "kc-new-admins"); err != nil {
 				t.Fatalf("retry RecordAdminGroup: %v", err)
 			}
-			rows, _ = runBlock(t, super, "check", blocks[3])
-			if len(rows) != 1 || rows[0] != 1 {
+			if rows := runBlock(t, super, "check", blocks[blkCheck]).counts(); !reflect.DeepEqual(rows, []int{1}) {
 				t.Fatalf("check rows = %v, want [1]", rows)
 			}
 			if after := snapshotB(); after != before {
