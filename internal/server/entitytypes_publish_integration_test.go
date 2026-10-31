@@ -261,3 +261,32 @@ func TestPublishRefusesNoPrincipalAndAddsNoRow(t *testing.T) {
 		t.Errorf("%d versions, want 1", n)
 	}
 }
+
+// An impossible key gets the byte-identical 404 whatever the body is: the key
+// shape is checked before the body is parsed (the admin check stays first).
+func TestPublishOverlongKeyWithMalformedBodyIsNotFound(t *testing.T) {
+	e := newETEnv(t)
+	long := "/api/v1/entity-types/" + strings.Repeat("k", 65) + "/versions"
+	good := e.do(t, http.MethodPost, long, "admin-a", "k-good", etPublishBody(t))
+	bad := e.do(t, http.MethodPost, long, "admin-a", "k-bad", `{"number_prefix": 1}`)
+	if good.Code != http.StatusNotFound || bad.Code != http.StatusNotFound {
+		t.Fatalf("over-long key: good body %d, malformed body %d, want 404 both: %s / %s", good.Code, bad.Code, good.Body, bad.Body)
+	}
+	if good.Body.String() != bad.Body.String() {
+		t.Errorf("404 bodies differ: %s vs %s", good.Body, bad.Body)
+	}
+}
+
+// A stored current version that no longer compiles is a store defect: publish
+// answers 500, not a 422 with pointers into the stored schema.
+func TestPublishOverABrokenStoredVersionIsInternalError(t *testing.T) {
+	e := newETEnv(t)
+	etCreateIncident(t, e)
+	broken := `{"type":"array"}`
+	sum := sha256.Sum256([]byte(broken))
+	if _, err := e.super.Exec(t.Context(), "UPDATE entity_definition_versions SET schema = $1::json, schema_sha256 = $2 WHERE tenant_id = $3", broken, sum[:], e.a.id); err != nil {
+		t.Fatal(err)
+	}
+	rec := e.do(t, http.MethodPost, "/api/v1/entity-types/incident/versions", "admin-a", "k-broken", etPublishBody(t))
+	wantProblem(t, rec, http.StatusInternalServerError, problem.InternalError)
+}

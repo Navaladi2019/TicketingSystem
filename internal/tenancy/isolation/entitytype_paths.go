@@ -3,6 +3,8 @@ package isolation
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -51,6 +53,7 @@ func entityTypePaths() []Path {
 		}}
 	}
 	return []Path{
+		db("CI-8", "control: tenant B reads its own seeded ticket, current and version 2, with 200 and its own body", etReadOwnSeeded),
 		db("CI-8", "tenant A reading tenant B's key gets the unknown key's 404, byte for byte", etReadOtherTenantsKey),
 		db("CI-8", "tenant A publishing to tenant B's key gets the unknown key's 404, byte for byte, and B's type is unchanged", etPublishOtherTenantsKey),
 		db("CI-2", "forged tenant in the body of POST /api/v1/entity-types", etForgedCreate),
@@ -233,6 +236,66 @@ func etReadOtherTenantsKey(ctx context.Context, e *etIso) error {
 		if err := e.sameNotFound(ctx, http.MethodGet, "", c[0], c[1]); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// etSeededB is what tenant B's seeded ticket version 2 must read back as
+// (testdata/seed.sql). fixed_columns and states must be JSON objects: the
+// store scans them into map[string]string and metadata.StateModel.
+type etSeededB struct {
+	Key          string            `json:"key"`
+	Name         string            `json:"name"`
+	NumberPrefix string            `json:"number_prefix"`
+	Version      int               `json:"version"`
+	Current      bool              `json:"current"`
+	Schema       json.RawMessage   `json:"schema"`
+	SchemaSHA256 string            `json:"schema_sha256"`
+	FixedColumns map[string]string `json:"fixed_columns"`
+	States       struct {
+		Initial string   `json:"initial"`
+		States  []string `json:"states"`
+	} `json:"states"`
+	Compat string `json:"compat"`
+}
+
+// etReadOwnSeeded is the positive control for the seeded entity types
+// (TICK-378): tenant B reads its own ticket, by its current version and by
+// version 2, and gets 200 with its own body. Without it a seed the store
+// cannot scan turns every read into a 500 while the 404 cases above, which
+// never reach a seeded row of the caller, still pass.
+func etReadOwnSeeded(ctx context.Context, e *etIso) error {
+	const schemaB2 = `{"type": "object", "title": "B v2"}`
+	sum := sha256.Sum256([]byte(schemaB2))
+	var bodies []string
+	for _, path := range []string{"/api/v1/entity-types/ticket", "/api/v1/entity-types/ticket/versions/2"} {
+		code, body := e.do(ctx, http.MethodGet, path, etCallerB, "", nil)
+		if code != http.StatusOK {
+			return fmt.Errorf("tenant B reading its own %s = %d %s, want 200", path, code, body)
+		}
+		var got etSeededB
+		if err := json.Unmarshal([]byte(body), &got); err != nil {
+			return fmt.Errorf("tenant B reading its own %s: %w: %s", path, err, body)
+		}
+		switch {
+		case got.Key != "ticket" || got.Name != "Ticket B" || got.NumberPrefix != "TCK":
+			return fmt.Errorf("tenant B reading its own %s got key %q name %q prefix %q, want ticket, Ticket B, TCK: %s",
+				path, got.Key, got.Name, got.NumberPrefix, body)
+		case got.Version != 2 || !got.Current || got.Compat != "compatible":
+			return fmt.Errorf("tenant B reading its own %s got version %d current %t compat %q, want 2, true, compatible: %s",
+				path, got.Version, got.Current, got.Compat, body)
+		case string(got.Schema) != schemaB2:
+			return fmt.Errorf("tenant B reading its own %s got schema %s, want %s verbatim", path, got.Schema, schemaB2)
+		case got.SchemaSHA256 != hex.EncodeToString(sum[:]):
+			return fmt.Errorf("tenant B reading its own %s got schema_sha256 %s, want %x", path, got.SchemaSHA256, sum)
+		case got.FixedColumns == nil || got.States.Initial != "new" || !slices.Equal(got.States.States, []string{"new"}):
+			return fmt.Errorf("tenant B reading its own %s got fixed_columns %v states %+v, want {} and the seeded state model: %s",
+				path, got.FixedColumns, got.States, body)
+		}
+		bodies = append(bodies, body)
+	}
+	if bodies[0] != bodies[1] {
+		return fmt.Errorf("tenant B's current ticket and its version 2 differ:\n%s\n%s", bodies[0], bodies[1])
 	}
 	return nil
 }

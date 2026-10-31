@@ -348,7 +348,7 @@ func compile(v *Version) (*metadata.Compiled, error) {
 		Key: v.Key, Schema: v.Schema, NumberPrefix: v.NumberPrefix, FixedColumns: v.FixedColumns, States: v.States,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("entitytypes: stored %s v%d does not compile: %w", v.Key, v.Version, err)
+		return nil, fmt.Errorf("entitytypes: stored %s v%d does not compile: %v", v.Key, v.Version, err) //nolint:errorlint // %v on purpose: must not match *metadata.ErrInvalidDefinition (a caller 422)
 	}
 	return c, nil
 }
