@@ -211,6 +211,52 @@ VALUES ($1, $2, $3, 1, $4::json, $5, $6::jsonb, $7::jsonb, 'initial', $8)`,
 	return s.GetVersion(ctx, tx, d.Key, 1)
 }
 
+// SeedInput is one entity type onboarding seeds at version 1. Both ids are
+// supplied (UUIDv5 over the tenant and key), so a retry names the same rows.
+type SeedInput struct {
+	DefinitionID uuid.UUID
+	VersionID    uuid.UUID
+	Name         string
+	// Definition is compiled by the caller (metadata.Compile) before Seed.
+	Definition metadata.Definition
+}
+
+// Seed inserts the entity type and its version 1 with the ids in in, each as
+// INSERT ... ON CONFLICT DO NOTHING, and reports whether it inserted anything.
+// It needs INSERT only (nava_onboard has no SELECT on either table, so it reads
+// nothing back) and writes published_by NULL: the tenant is still provisioning
+// and has no principal. A retry after a crash finishes what is missing and
+// never duplicates; on a second run it inserts nothing. The caller's
+// transaction must run as the tenant (tenancy.InTenantTx).
+func (Store) Seed(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, in SeedInput) (bool, error) {
+	d := in.Definition
+	fixed, err := json.Marshal(d.FixedColumns)
+	if err != nil {
+		return false, fmt.Errorf("entitytypes: encode fixed columns: %w", err)
+	}
+	states, err := json.Marshal(d.States)
+	if err != nil {
+		return false, fmt.Errorf("entitytypes: encode states: %w", err)
+	}
+	sum := sha256.Sum256(d.Schema)
+	def, err := tx.Exec(ctx, `
+INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version)
+VALUES ($1, $2, $3, $4, $5, 1)
+ON CONFLICT DO NOTHING`, tenantID, in.DefinitionID, d.Key, in.Name, d.NumberPrefix)
+	if err != nil {
+		return false, fmt.Errorf("entitytypes: seed definition: %w", err)
+	}
+	ver, err := tx.Exec(ctx, `
+INSERT INTO entity_definition_versions
+  (tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat, published_by)
+VALUES ($1, $2, $3, 1, $4::json, $5, $6::jsonb, $7::jsonb, 'initial', NULL)
+ON CONFLICT DO NOTHING`, tenantID, in.VersionID, in.DefinitionID, string(d.Schema), sum[:], string(fixed), string(states))
+	if err != nil {
+		return false, fmt.Errorf("entitytypes: seed version: %w", err)
+	}
+	return def.RowsAffected()+ver.RowsAffected() > 0, nil
+}
+
 // PublishInput is the next version of an existing entity type. Definition
 // carries Schema, FixedColumns and States; its Key and NumberPrefix are
 // ignored, since the stored type owns both.
