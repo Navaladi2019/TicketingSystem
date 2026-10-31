@@ -241,6 +241,69 @@ func TestCompileRefuses(t *testing.T) {
 			want:   "/schema/properties/title/minLength",
 		},
 		{
+			name:   "open root: no additionalProperties",
+			mutate: func(_ *metadata.Definition, s map[string]any) { delete(s, "additionalProperties") },
+			want:   "/schema/additionalProperties",
+		},
+		{
+			name: "open root: additionalProperties is a schema",
+			mutate: func(_ *metadata.Definition, s map[string]any) {
+				s["additionalProperties"] = map[string]any{"type": "string"}
+			},
+			want: "/schema/additionalProperties",
+		},
+		{
+			name: "root patternProperties",
+			mutate: func(_ *metadata.Definition, s map[string]any) {
+				s["patternProperties"] = map[string]any{"^x_": map[string]any{"type": "string"}}
+			},
+			want: "/schema/patternProperties",
+		},
+		{
+			name: "local $ref into an unknown keyword",
+			mutate: func(_ *metadata.Definition, s map[string]any) {
+				s["definitions"] = map[string]any{"x": map[string]any{"type": "string", "default": "smuggled"}}
+				props(s)["extra"] = map[string]any{"$ref": "#/definitions/x"}
+			},
+			want: "/schema/properties/extra/$ref",
+		},
+		{
+			name: "local $ref to a non-schema location",
+			mutate: func(_ *metadata.Definition, s map[string]any) {
+				props(s)["extra"] = map[string]any{"$ref": "#/properties"}
+			},
+			want: "/schema/properties/extra/$ref",
+		},
+		{
+			name: "local $ref to an undeclared anchor",
+			mutate: func(_ *metadata.Definition, s map[string]any) {
+				props(s)["extra"] = map[string]any{"$ref": "#nowhere"}
+			},
+			want: "/schema/properties/extra/$ref",
+		},
+		{
+			name: "local $ref with a bad percent-escape",
+			mutate: func(_ *metadata.Definition, s map[string]any) {
+				props(s)["extra"] = map[string]any{"$ref": "#/%zz"}
+			},
+			want: "/schema/properties/extra/$ref",
+		},
+		{
+			name: "embedded $id",
+			mutate: func(_ *metadata.Definition, s map[string]any) {
+				props(s)["extra"] = map[string]any{"$id": "urn:y", "type": "string"}
+			},
+			want: "/schema/properties/extra/$id",
+		},
+		{
+			name: "two properties on one column",
+			mutate: func(d *metadata.Definition, s map[string]any) {
+				props(s)["requester2"] = map[string]any{"type": "string", "format": "uuid"}
+				d.FixedColumns["requester2"] = metadata.ColumnRequesterID
+			},
+			want: "/fixed_columns/requester2", // names are checked in sorted order
+		},
+		{
 			name:   "bad key",
 			mutate: func(d *metadata.Definition, _ map[string]any) { d.Key = "Ticket" },
 			want:   "/key",
@@ -334,5 +397,42 @@ func TestErrInvalidDefinitionPathsSorted(t *testing.T) {
 	want := []string{"/key", "/number_prefix", "/states/initial"}
 	if strings.Join(paths, ",") != strings.Join(want, ",") {
 		t.Fatalf("paths = %q, want %q", paths, want)
+	}
+}
+
+func TestCompileAllowsWalkedLocalRefs(t *testing.T) {
+	s := baseSchema()
+	s["$defs"] = map[string]any{
+		"a b":  map[string]any{"type": "string"},
+		"name": map[string]any{"$anchor": "short", "type": "string", "maxLength": 3},
+	}
+	props(s)["spaced"] = map[string]any{"$ref": "#/$defs/a%20b"}
+	props(s)["anchored"] = map[string]any{"$ref": "#short"}
+	props(s)["self"] = map[string]any{"$ref": "#/properties/title"}
+	c := mustCompile(t, baseDefinition(t, s))
+	errs := c.Validate(map[string]any{"title": "t", "state": "open", "anchored": "toolong", "spaced": 1})
+	want := []metadata.FieldError{{Path: "/anchored", Code: "maxLength"}, {Path: "/spaced", Code: "type"}}
+	if len(errs) != 2 || errs[0] != want[0] || errs[1] != want[1] {
+		t.Fatalf("Validate = %v, want %v", errs, want)
+	}
+}
+
+// TestCompileFixedColumnClashIsDeterministic: the flagged name does not
+// depend on map iteration order.
+func TestCompileFixedColumnClashIsDeterministic(t *testing.T) {
+	s := baseSchema()
+	for _, n := range []string{"a_req", "z_req", "m_req"} {
+		props(s)[n] = map[string]any{"type": "string", "format": "uuid"}
+	}
+	for range 50 {
+		d := baseDefinition(t, s)
+		for _, n := range []string{"a_req", "z_req", "m_req"} {
+			d.FixedColumns[n] = metadata.ColumnAssigneeID
+		}
+		_, err := metadata.Compile(d)
+		got := strings.Join(invalidPaths(t, err), ",")
+		if got != "/fixed_columns/m_req,/fixed_columns/z_req" {
+			t.Fatalf("paths = %s, want the clash after a_req: m_req and z_req", got)
+		}
 	}
 }

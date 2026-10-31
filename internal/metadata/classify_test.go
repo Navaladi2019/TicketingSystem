@@ -1,6 +1,7 @@
 package metadata_test
 
 import (
+	"encoding/json"
 	"errors"
 	"slices"
 	"testing"
@@ -110,8 +111,8 @@ func TestClassify(t *testing.T) {
 			prop(s, "title")["x-widget"] = "textarea"
 		}, metadata.Breaking, []string{"/schema/properties/title/x-widget"}},
 		{"root keyword change", func(_ *metadata.Definition, s map[string]any) {
-			s["additionalProperties"] = true
-		}, metadata.Breaking, []string{"/schema/additionalProperties"}},
+			s["minProperties"] = 1
+		}, metadata.Breaking, []string{"/schema/minProperties"}},
 		{"make existing property required", func(_ *metadata.Definition, s map[string]any) {
 			s["required"] = []any{"title", "state", "priority"}
 		}, metadata.Breaking, []string{"/schema/required"}},
@@ -208,4 +209,34 @@ func rebuild(t *testing.T, d metadata.Definition, s map[string]any) metadata.Def
 	n := baseDefinition(t, s)
 	d.Schema = n.Schema
 	return d
+}
+
+// TestClassifyAddOptionalPropertyToTemplate is the TICK-341 review case: a
+// closed root means no existing row can hold a key that a new optional
+// property then types, so Compatible is provable. v1 is the incident
+// template; a row with an extra key never validated against it.
+func TestClassifyAddOptionalPropertyToTemplate(t *testing.T) {
+	d, err := metadata.Template("incident")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prev := mustCompile(t, d)
+	row := map[string]any{
+		"short_description": "x", "state": "new", "impact": 3, "urgency": 3,
+		"requester": "4b0f5f4e-7c43-4c1b-9d3f-7d7e1b2a9c10", "location": 42,
+	}
+	if errs := prev.Validate(row); !slices.Contains(errs, metadata.FieldError{Path: "/location", Code: "additionalProperties"}) {
+		t.Fatalf("v1 Validate(row with extra key) = %v, want /location additionalProperties", errs)
+	}
+
+	var s map[string]any
+	if err := json.Unmarshal(d.Schema, &s); err != nil {
+		t.Fatal(err)
+	}
+	props(s)["location"] = map[string]any{"type": "string"}
+	next := mustCompile(t, rebuild(t, d, s))
+	got, paths, err := metadata.Classify(prev, next)
+	if err != nil || got != metadata.Compatible || paths != nil {
+		t.Fatalf("Classify = %v %q %v, want Compatible", got, paths, err)
+	}
 }

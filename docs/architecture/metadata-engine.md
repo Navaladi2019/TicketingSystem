@@ -17,6 +17,14 @@ flowchart LR
   C --> K[Classify prev, next → Compat, paths]
 ```
 
+## Closed root
+
+The root must set `"additionalProperties": false` and must not use
+`patternProperties` (TICK-341 review). Otherwise a row could already hold a key
+that a later version types, and "add an optional property" would not be
+provably Compatible. A local `$ref` must target a subschema the walker checks
+(or an anchor one declares), and `$id` is allowed only at the root.
+
 ## Rules that are review blockers
 
 - **No loader.** v6's `NewCompiler()` installs `FileLoader{}`. Every compiler

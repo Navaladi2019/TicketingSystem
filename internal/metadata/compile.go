@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"reflect"
 	"regexp"
 	"slices"
@@ -264,8 +265,11 @@ func scanSchema(raw []byte, bad *problems) bool {
 }
 
 // checkShape refuses what Compile does not accept in the schema's structure
-// and returns the top-level property schemas. The root is an object schema
-// with a "properties" object whose values are object schemas.
+// and returns the top-level property schemas. The root is a closed object
+// schema: "type":"object", a "properties" object whose values are object
+// schemas, "additionalProperties": false and no "patternProperties". A
+// closed root is what makes adding an optional property provably
+// Compatible: no existing row can already hold a key the new version types.
 func checkShape(doc map[string]any, bad *problems) map[string]map[string]any {
 	if s, ok := doc["$schema"]; ok && s != draft2020URL {
 		bad.add("schema", "$schema")
@@ -273,6 +277,16 @@ func checkShape(doc map[string]any, bad *problems) map[string]map[string]any {
 	if doc["type"] != "object" {
 		bad.add("schema", "type")
 	}
+	if doc["additionalProperties"] != false {
+		bad.add("schema", "additionalProperties")
+	}
+	if _, ok := doc["patternProperties"]; ok {
+		bad.add("schema", "patternProperties") // a pattern could match a name added later
+	}
+	w := walker{bad: bad, schemas: map[string]bool{}, anchors: map[string]bool{}}
+	w.walk(doc, []string{"schema"})
+	w.checkRefs()
+
 	rawProps, ok := doc["properties"].(map[string]any)
 	if !ok {
 		bad.add("schema", "properties")
@@ -287,7 +301,6 @@ func checkShape(doc map[string]any, bad *problems) map[string]map[string]any {
 		}
 		props[name] = p
 	}
-	walkSchema(doc, []string{"schema"}, bad)
 	return props
 }
 
@@ -296,48 +309,116 @@ func isTopLevelProperty(path []string) bool {
 	return len(path) == 3 && path[1] == "properties"
 }
 
-// walkSchema checks every subschema: $ref and $dynamicRef stay inside the
-// document, "default" and x-nava-unique appear only on top-level properties,
-// x-nava-unique is a boolean, and $schema appears only at the root. Each
-// failure is a path in bad; the loader is the backstop, not the check.
-func walkSchema(node any, path []string, bad *problems) {
+// refSite is one $ref or $dynamicRef found by the walker.
+type refSite struct {
+	path  []string // where the keyword is, from /schema
+	value string
+}
+
+// walker visits every subschema reachable through the known subschema
+// keywords. It records where each one is and which anchors they declare, so
+// checkRefs can refuse a local $ref whose target was never walked (one that
+// points into an unknown keyword, where a nested default or x-nava-unique
+// would go unchecked).
+type walker struct {
+	bad     *problems
+	schemas map[string]bool // JSON pointers, relative to the schema root
+	anchors map[string]bool // $anchor and $dynamicAnchor names
+	refs    []refSite
+}
+
+// walk checks one subschema: $ref and $dynamicRef are local, "default" and
+// x-nava-unique appear only on top-level properties, x-nava-unique is a
+// boolean, and $schema and $id appear only at the root (an embedded $id
+// would move the base the local refs resolve against).
+func (w *walker) walk(node any, path []string) {
+	w.schemas[pointer(path[1:]...)] = true
 	obj, ok := node.(map[string]any)
 	if !ok {
 		return // boolean schema
 	}
+	root := len(path) == 1
 	at := func(kw string) []string { return append(slices.Clone(path), kw) }
 	for kw, v := range obj {
 		switch {
 		case kw == "$ref" || kw == "$dynamicRef":
-			if s, ok := v.(string); !ok || len(s) == 0 || s[0] != '#' {
-				bad.add(at(kw)...)
+			s, ok := v.(string)
+			if !ok || len(s) == 0 || s[0] != '#' {
+				w.bad.add(at(kw)...)
+				continue
 			}
-		case kw == "$schema":
-			if len(path) != 1 {
-				bad.add(at(kw)...)
+			w.refs = append(w.refs, refSite{path: at(kw), value: s[1:]})
+		case kw == "$anchor" || kw == "$dynamicAnchor":
+			if s, ok := v.(string); ok {
+				w.anchors[s] = true
+			}
+		case kw == "$schema" || kw == "$id":
+			if !root {
+				w.bad.add(at(kw)...)
 			}
 		case kw == "default":
 			if !isTopLevelProperty(path) {
-				bad.add(at(kw)...)
+				w.bad.add(at(kw)...)
 			}
 		case kw == UniqueKeyword:
 			if _, isBool := v.(bool); !isBool || !isTopLevelProperty(path) {
-				bad.add(at(kw)...)
+				w.bad.add(at(kw)...)
 			}
 		case subschemaKind(kw) == oneSubschema:
-			walkSchema(v, at(kw), bad)
+			w.walk(v, at(kw))
 		case subschemaKind(kw) == subschemaArray:
 			arr, _ := v.([]any)
 			for i, s := range arr {
-				walkSchema(s, append(at(kw), strconv.Itoa(i)), bad)
+				w.walk(s, append(at(kw), strconv.Itoa(i)))
 			}
 		case subschemaKind(kw) == subschemaByName:
 			m, _ := v.(map[string]any)
 			for name, s := range m {
-				walkSchema(s, append(at(kw), name), bad)
+				w.walk(s, append(at(kw), name))
 			}
 		}
 	}
+}
+
+// checkRefs refuses a local reference whose target is not a walked
+// subschema: a JSON-pointer fragment must name one exactly, and a plain-name
+// fragment must name an anchor a walked subschema declares.
+func (w *walker) checkRefs() {
+	for _, r := range w.refs {
+		target, ok := percentDecode(r.value)
+		switch {
+		case !ok:
+			w.bad.add(r.path...)
+		case target == "" || target[0] == '/':
+			if !w.schemas[target] {
+				w.bad.add(r.path...)
+			}
+		case !w.anchors[target]:
+			w.bad.add(r.path...)
+		}
+	}
+}
+
+// percentDecode undoes URL percent-encoding in a fragment, the step the
+// library applies before reading it as a JSON pointer.
+func percentDecode(s string) (string, bool) {
+	var sb strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] != '%' {
+			sb.WriteByte(s[i])
+			continue
+		}
+		if i+2 >= len(s) {
+			return "", false
+		}
+		b, err := strconv.ParseUint(s[i+1:i+3], 16, 8)
+		if err != nil {
+			return "", false
+		}
+		sb.WriteByte(byte(b))
+		i += 2
+	}
+	return sb.String(), true
 }
 
 // schemaErrorPaths turns a compiler error into paths, never into text. A
@@ -422,7 +503,9 @@ func isUnreserved(b byte) bool {
 // (TICK-360 (b)). Exactly one property maps to ColumnState.
 func checkFixedColumns(d Definition, props map[string]map[string]any, bad *problems) {
 	used := map[string]bool{}
-	for name, col := range d.FixedColumns {
+	names := slices.Sorted(maps.Keys(d.FixedColumns)) // sorted, so a clash flags the same name every time
+	for _, name := range names {
+		col := d.FixedColumns[name]
 		at := []string{"fixed_columns", name}
 		p, ok := props[name]
 		if !ok || used[col] {
