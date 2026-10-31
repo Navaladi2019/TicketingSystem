@@ -80,6 +80,7 @@ item 16, condition 3).
 | `go.yaml.in/yaml/v3` | v3.0.5 | The one strict YAML loader (`internal/platform/strictyaml`, `KnownFields`) for `db/grants.yaml` and `api/errors.yaml`. Not the archived `gopkg.in/yaml.v3`. | TICK-94 item 9, T03 |
 | `github.com/jackc/pgx/v5` | v5.11.0 | PostgreSQL driver for the jobs and the core. The version goose v3.29.0 is built against. | T03, T04 |
 | `github.com/getkin/kin-openapi` | v0.151.0 | OpenAPI 3.1 validation. Register formats via options; never echo `Reason`. | TICK-94 item 13, T20 |
+| `github.com/santhosh-tekuri/jsonschema/v6` | v6.0.3 | JSON Schema 2020-12 validation (D-3-18). Promoted from indirect (kin-openapi) to direct, not a new dependency. Draft 2020-12 only; every caller installs a loader that refuses all URLs (`UseLoader`), since v6 installs a `FileLoader` by default, and compiles with a new `Compiler` per call. First direct importer: `internal/workflow/def` (P3-20). | PLAN-003 D-3-18, TICK-347 |
 | `github.com/oapi-codegen/oapi-codegen/v2` | v2.8.0 | 3.1 codegen with ServeMux patterns; a `tool` directive, so `// indirect` in `go.mod`. `ogen` rejected (no `r.Pattern`, global otel). | TICK-94 item 13, T20 |
 | `github.com/oapi-codegen/runtime` | v1.7.0 | Runtime helpers the generated `api/api.gen.go` imports. Comes with oapi-codegen v2.8.0. | T20 |
 | `github.com/oapi-codegen/nethttp-middleware` | v1.2.0 | Request validation. The default error handler echoes values: always set our own. | TICK-94 item 13, T20 |
