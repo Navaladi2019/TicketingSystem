@@ -2,7 +2,7 @@
 // types and their published, immutable versions (PLAN-003 D-3-2, D-3-4;
 // TICK-343). It owns DefinitionReader, which the record write pipeline
 // (P3-10) uses, and the writes the API handlers use. P3-05b (TICK-365)
-// reuses it to publish version N+1.
+// adds Publish, which writes version N+1.
 //
 // Every function takes the caller's transaction, opened by tenancy.InTenantTx,
 // so row-level security scopes each query to the tenant of that transaction.
@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,7 +32,19 @@ var (
 	ErrKeyExists = errors.New("entitytypes: key exists")
 	// ErrPrefixTaken means another entity type of the tenant has that prefix.
 	ErrPrefixTaken = errors.New("entitytypes: number prefix taken")
+	// ErrNoPublisher means a publish named no principal. published_by is
+	// nullable in the table for onboarding's seed (P3-06), so this is the guard.
+	ErrNoPublisher = errors.New("entitytypes: publish needs a principal")
 )
+
+// BreakingError is returned by Publish when the new definition is a breaking
+// change of the current version (D-3-5). Paths are JSON pointers into the
+// definition (see metadata.Classify).
+type BreakingError struct{ Paths []string }
+
+func (e *BreakingError) Error() string {
+	return "entitytypes: breaking change at " + strings.Join(e.Paths, ", ")
+}
 
 // Unique constraints of entity_definitions (db/migrations).
 const (
@@ -196,6 +209,90 @@ VALUES ($1, $2, $3, 1, $4::json, $5, $6::jsonb, $7::jsonb, 'initial', $8)`,
 		return nil, fmt.Errorf("entitytypes: insert version: %w", err)
 	}
 	return s.GetVersion(ctx, tx, d.Key, 1)
+}
+
+// PublishInput is the next version of an existing entity type. Definition
+// carries Schema, FixedColumns and States; its Key and NumberPrefix are
+// ignored, since the stored type owns both.
+type PublishInput struct {
+	Key         string
+	PublishedBy uuid.UUID
+	Definition  metadata.Definition
+}
+
+// Publish writes version N+1 of the entity type and makes it current, and
+// returns it. It runs in the caller's transaction and locks the definition
+// row, so concurrent publishes queue and number 2..N with no gap or
+// duplicate. It returns ErrNoPublisher, ErrNotFound, *metadata.ErrInvalidDefinition
+// when the definition does not compile, and *BreakingError when the change is
+// Breaking; nothing is written then. The caller's transaction is unusable
+// after an error.
+func (s Store) Publish(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, in PublishInput) (*Version, error) {
+	if in.PublishedBy == uuid.Nil {
+		return nil, ErrNoPublisher
+	}
+	var (
+		defID   uuid.UUID
+		prefix  string
+		current int
+	)
+	err := tx.QueryRow(ctx, `
+SELECT id, number_prefix, current_version FROM entity_definitions WHERE key = $1 FOR UPDATE`, in.Key).Scan(&defID, &prefix, &current)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("entitytypes: lock definition: %w", err)
+	}
+	prevVersion, err := s.GetVersion(ctx, tx, in.Key, current)
+	if err != nil {
+		return nil, err
+	}
+	prev, err := compile(prevVersion)
+	if err != nil {
+		return nil, err
+	}
+	d := in.Definition
+	d.Key, d.NumberPrefix = in.Key, prefix
+	next, err := metadata.Compile(d)
+	if err != nil {
+		return nil, err
+	}
+	class, paths, err := metadata.Classify(prev, next)
+	if err != nil {
+		return nil, fmt.Errorf("entitytypes: classify: %w", err)
+	}
+	if class == metadata.Breaking {
+		return nil, &BreakingError{Paths: paths}
+	}
+	fixed, err := json.Marshal(d.FixedColumns)
+	if err != nil {
+		return nil, fmt.Errorf("entitytypes: encode fixed columns: %w", err)
+	}
+	states, err := json.Marshal(d.States)
+	if err != nil {
+		return nil, fmt.Errorf("entitytypes: encode states: %w", err)
+	}
+	// The next number follows the highest version, which the row lock makes
+	// stable until this transaction ends.
+	var number int
+	if err := tx.QueryRow(ctx, `
+SELECT coalesce(max(version), 0) + 1 FROM entity_definition_versions WHERE definition_id = $1`, defID).Scan(&number); err != nil {
+		return nil, fmt.Errorf("entitytypes: next version: %w", err)
+	}
+	sum := sha256.Sum256(d.Schema)
+	if _, err := tx.Exec(ctx, `
+INSERT INTO entity_definition_versions
+  (tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat, published_by)
+VALUES ($1, $2, $3, $4, $5::json, $6, $7::jsonb, $8::jsonb, $9, $10)`,
+		tenantID, uuid.New(), defID, number, string(d.Schema), sum[:], string(fixed), string(states), class.String(), in.PublishedBy); err != nil {
+		return nil, fmt.Errorf("entitytypes: insert version: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE entity_definitions SET current_version = $1, updated_at = now() WHERE id = $2`, number, defID); err != nil {
+		return nil, fmt.Errorf("entitytypes: set current version: %w", err)
+	}
+	return s.GetVersion(ctx, tx, in.Key, number)
 }
 
 func mapUnique(err error) error {

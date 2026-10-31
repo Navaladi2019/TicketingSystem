@@ -73,6 +73,7 @@ script:pre-request {
   bru.setVar('x4_key', `tick343-x4-${run}-1`);
   bru.setVar('x4_key2', `tick343-x4-${run}-2`);
   bru.setVar('x4_key3', `tick343-x4-${run}-3`);
+  for (let i = 4; i <= 9; i++) bru.setVar(`x4_key${i}`, `tick365-x4-${run}-${i}`);
 }
 
 tests {

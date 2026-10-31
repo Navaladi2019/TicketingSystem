@@ -1,5 +1,4 @@
-# Path group /api/v1/entity-types (TICK-343, P3-05a). Publishing version N+1 is
-# P3-05b (TICK-365). Shared schemas (Problem) are in ../openapi.yaml.
+# Path group /api/v1/entity-types (TICK-343, P3-05a; publish is TICK-365, P3-05b). Shared schemas (Problem) are in ../openapi.yaml.
 paths:
   /api/v1/entity-types:
     get:
@@ -116,6 +115,62 @@ paths:
           $ref: "../openapi.yaml#/components/responses/Problem"
         "501":
           $ref: "../openapi.yaml#/components/responses/Problem"
+  /api/v1/entity-types/{key}/versions:
+    post:
+      operationId: publishEntityTypeVersion
+      summary: Publish the next version of an entity type (tenant admin)
+      description: >
+        Publishes immutable version N+1 and makes it the current version.
+        Tenant admins only; the check runs before the body is read any
+        further than as well-formed JSON. The body is `{definition: {schema,
+        fixed_columns, states}}`; a `number_prefix` field answers 422
+        `invalid_definition`, because the prefix never changes after create.
+        The new definition is classified against the current version (D-3-5):
+        a breaking change answers 422 `schema_breaking_change` with
+        `errors[].pointer` naming each offending path, and adds nothing.
+        Compatible and needs-backfill changes publish. An unknown key and
+        another tenant's key give the same 404, byte for byte, with no
+        `instance`. `Idempotency-Key` is required.
+      parameters:
+        - $ref: "#/components/parameters/Key"
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishEntityTypeVersionRequest"
+      responses:
+        "201":
+          description: The new version, now current.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EntityTypeVersion"
+        "400":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "401":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "403":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "404":
+          $ref: "../openapi.yaml#/components/responses/ProblemNoInstance"
+        "409":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "422":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "429":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "500":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "501":
+          $ref: "../openapi.yaml#/components/responses/Problem"
   /api/v1/entity-types/{key}/versions/{n}:
     get:
       operationId: getEntityTypeVersion
@@ -178,6 +233,16 @@ components:
           description: 1 to 120 characters.
         number_prefix:
           description: "`^[A-Z]{2,6}$`, unique per tenant, never changes."
+        definition:
+          description: "`{schema, fixed_columns, states}`, see the metadata engine."
+    PublishEntityTypeVersionRequest:
+      type: object
+      description: >
+        Deliberately unconstrained here, like CreateEntityTypeRequest: the
+        server checks every field after the admin check. Kept as the request
+        bytes so the schema is stored byte for byte.
+      x-go-type: json.RawMessage
+      properties:
         definition:
           description: "`{schema, fixed_columns, states}`, see the metadata engine."
     EntityTypeVersion:

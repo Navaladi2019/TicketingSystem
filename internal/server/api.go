@@ -201,6 +201,9 @@ func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http
 				case problem.InvalidDefinition:
 					h.reg.Write(w, r, problem.InvalidDefinition, pe.fields...)
 					return
+				case problem.SchemaBreakingChange:
+					h.reg.Write(w, r, problem.SchemaBreakingChange, pe.fields...)
+					return
 				case problem.InvalidIdPConfig:
 					h.reg.Write(w, r, problem.InvalidIdPConfig, pe.fields...)
 					return

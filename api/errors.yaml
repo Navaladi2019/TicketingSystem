@@ -76,3 +76,7 @@ codes:
     status: 409
     title: Number prefix taken
     detail: Another entity type of the tenant already uses this number prefix.
+  - code: schema_breaking_change
+    status: 422
+    title: Schema breaking change
+    detail: The new version cannot be applied to existing records. See errors for the offending paths.

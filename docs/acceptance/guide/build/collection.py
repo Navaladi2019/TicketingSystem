@@ -970,6 +970,15 @@ def x4():
         b.update(over)
         return b
 
+    def pub(breaking=False):
+        sch = json.loads(json.dumps(schema))
+        if breaking:
+            sch["properties"]["state"]["default"] = "closed"
+        else:
+            sch["description"] = "published by X4.30"
+        return {"definition": {"schema": sch, "fixed_columns": {"state": "state"},
+                               "states": {"initial": "new", "states": ["new", "closed"], "transitions": [{"from": "new", "to": "closed"}]}}}
+
     pre = """
 // One type key, prefix and Idempotency-Key per pass, so the folder can run again.
 const run = Math.random().toString(16).slice(2, 10);
@@ -978,6 +987,7 @@ bru.setVar('x4_prefix', Array.from({ length: 6 }, () => String.fromCharCode(65 +
 bru.setVar('x4_key', `tick343-x4-${run}-1`);
 bru.setVar('x4_key2', `tick343-x4-${run}-2`);
 bru.setVar('x4_key3', `tick343-x4-${run}-3`);
+for (let i = 4; i <= 9; i++) bru.setVar(`x4_key${i}`, `tick365-x4-${run}-${i}`);
 """
     no404 = """
 test('HTTP 404 problem+json with code not_found and no instance', () => {
@@ -989,8 +999,8 @@ test('HTTP 404 problem+json with code not_found and no instance', () => {
 });
 N.status(404);"""
     return {
-        "dir": "X4", "name": "X4 — API suite: entity types (listEntityTypes, createEntityType, getEntityType, getEntityTypeVersion)",
-        "desc": "TICK-343. Every documented outcome of the entity-type read and create endpoints: create as a tenant admin (201, version 1), the same key and prefix again (409), a non-admin (403), a bad definition (422 with `errors[].pointer`), a missing Idempotency-Key (400), reads of the current version and of version 1 with the stored schema and its `schema_sha256`, the 404 for an unknown key, and tenant B's view of tenant A's type (the same 404). 429, 500 and 501 are in the coverage page. Self-contained; every run uses a new type key. Needs `tools/seed.sh`.",
+        "dir": "X4", "name": "X4 — API suite: entity types (listEntityTypes, createEntityType, getEntityType, getEntityTypeVersion, publishEntityTypeVersion)",
+        "desc": "TICK-343. Every documented outcome of the entity-type read and create endpoints: create as a tenant admin (201, version 1), the same key and prefix again (409), a non-admin (403), a bad definition (422 with `errors[].pointer`), a missing Idempotency-Key (400), reads of the current version and of version 1 with the stored schema and its `schema_sha256`, the 404 for an unknown key, and tenant B's view of tenant A's type (the same 404). 429, 500 and 501 are in the coverage page. Self-contained; every run uses a new type key. Needs `tools/seed.sh`. TICK-365 adds publishing version N+1: 201 compatible, 422 `schema_breaking_change` with the offending path, 422 for a `number_prefix`, 403, 404, 400 and 409.",
         "items": [
             token("X4.1 Sign in as tenant A's admin", "admin_a_username", "admin_a_password", "admin_a_token"),
             token("X4.2 Sign in as Alice (tenant A, not an admin)", "alice_username", "alice_password", "alice_token"),
@@ -1077,6 +1087,37 @@ test('schema and hash', () => {
                         desc="Missing token."),
             problem_req("X4.24 getEntityType 401: no token", "GET", base + "/{{x4_type}}", "invalid_token", 401,
                         desc="Missing token."),
+            problem_req("X4.25 publishEntityTypeVersion 401: no token", "POST", base + "/{{x4_type}}/versions", "invalid_token", 401,
+                        desc="Missing token.", headers={"Idempotency-Key": "{{x4_key4}}"}, body=pub()),
+            problem_req("X4.26 publishEntityTypeVersion 400: no Idempotency-Key", "POST", base + "/{{x4_type}}/versions",
+                        "validation_failed", 400, auth="admin_a_token", body=pub(), desc="`Idempotency-Key` is required."),
+            problem_req("X4.27 publishEntityTypeVersion 403: a user who is not an admin", "POST", base + "/{{x4_type}}/versions",
+                        "forbidden", 403, auth="alice_token", headers={"Idempotency-Key": "{{x4_key4}}"}, body=pub(),
+                        desc="Only the tenant's admin group publishes."),
+            problem_req("X4.28 publishEntityTypeVersion 422: number_prefix in the body", "POST", base + "/{{x4_type}}/versions",
+                        "invalid_definition", 422, auth="admin_a_token", headers={"Idempotency-Key": "{{x4_key4}}"},
+                        body=dict(pub(), number_prefix="ZZZ"),
+                        desc="The prefix never changes after create.", extra="N.fieldError('/number_prefix');"),
+            problem_req("X4.29 publishEntityTypeVersion 422: a breaking change", "POST", base + "/{{x4_type}}/versions",
+                        "schema_breaking_change", 422, auth="admin_a_token", headers={"Idempotency-Key": "{{x4_key5}}"},
+                        body=pub(breaking=True),
+                        desc="Changing the default of `state` is Breaking; `errors[].pointer` names it and no version is added.",
+                        extra="N.fieldError('/definition/schema/properties/state/default');"),
+            req("X4.30 publishEntityTypeVersion 201: version 2", "POST", base + "/{{x4_type}}/versions", auth="admin_a_token",
+                headers={"Idempotency-Key": "{{x4_key6}}"}, body=pub(),
+                desc="A new `description` is Compatible. The response is version 2, current.",
+                tests="""N.status(201);
+const b = N.json();
+test('version 2, current, compatible', () => {
+  expect(b.version).to.eql(2);
+  expect(b.current).to.eql(true);
+  expect(b.compat).to.eql('compatible');
+});"""),
+            problem_req("X4.31 publishEntityTypeVersion 409: the Idempotency-Key with another body", "POST", base + "/{{x4_type}}/versions",
+                        "idempotency_key_reuse", 409, auth="admin_a_token", headers={"Idempotency-Key": "{{x4_key6}}"},
+                        body=pub(breaking=True), desc="The key of X4.30 with a different body."),
+            req("X4.32 publishEntityTypeVersion 404: an unknown key", "POST", base + "/no_such_type_x4/versions", auth="admin_a_token",
+                headers={"Idempotency-Key": "{{x4_key7}}"}, body=pub(), desc="404 `not_found` with no `instance`.", tests=no404),
         ],
     }
 

@@ -207,6 +207,9 @@ type ProblemNoInstance struct {
 	Type   string `json:"type"`
 }
 
+// PublishEntityTypeVersionRequest Deliberately unconstrained here, like CreateEntityTypeRequest: the server checks every field after the admin check. Kept as the request bytes so the schema is stored byte for byte.
+type PublishEntityTypeVersionRequest = json.RawMessage
+
 // Key defines model for Key.
 type Key = string
 
@@ -221,6 +224,11 @@ type CreateEntityTypeParams struct {
 	IdempotencyKey string `json:"Idempotency-Key"`
 }
 
+// PublishEntityTypeVersionParams defines parameters for PublishEntityTypeVersion.
+type PublishEntityTypeVersionParams struct {
+	IdempotencyKey string `json:"Idempotency-Key"`
+}
+
 // OnboardTenantParams defines parameters for OnboardTenant.
 type OnboardTenantParams struct {
 	IdempotencyKey string `json:"Idempotency-Key"`
@@ -228,6 +236,9 @@ type OnboardTenantParams struct {
 
 // CreateEntityTypeJSONRequestBody defines body for CreateEntityType for application/json ContentType.
 type CreateEntityTypeJSONRequestBody = CreateEntityTypeRequest
+
+// PublishEntityTypeVersionJSONRequestBody defines body for PublishEntityTypeVersion for application/json ContentType.
+type PublishEntityTypeVersionJSONRequestBody = PublishEntityTypeVersionRequest
 
 // OnboardTenantJSONRequestBody defines body for OnboardTenant for application/json ContentType.
 type OnboardTenantJSONRequestBody = OnboardTenantRequest
@@ -243,6 +254,9 @@ type ServerInterface interface {
 	// GetEntityType The current version of an entity type
 	// (GET /api/v1/entity-types/{key})
 	GetEntityType(w http.ResponseWriter, r *http.Request, key Key)
+	// PublishEntityTypeVersion Publish the next version of an entity type (tenant admin)
+	// (POST /api/v1/entity-types/{key}/versions)
+	PublishEntityTypeVersion(w http.ResponseWriter, r *http.Request, key Key, params PublishEntityTypeVersionParams)
 	// GetEntityTypeVersion One published version of an entity type
 	// (GET /api/v1/entity-types/{key}/versions/{n})
 	GetEntityTypeVersion(w http.ResponseWriter, r *http.Request, key Key, n int32)
@@ -371,6 +385,60 @@ func (siw *ServerInterfaceWrapper) GetEntityType(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetEntityType(w, r, key)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PublishEntityTypeVersion operation middleware
+func (siw *ServerInterfaceWrapper) PublishEntityTypeVersion(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "key" -------------
+	var key Key
+
+	err = runtime.BindStyledParameterWithOptions("simple", "key", r.PathValue("key"), &key, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "key", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params PublishEntityTypeVersionParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PublishEntityTypeVersion(w, r, key, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -599,6 +667,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/entity-types", wrapper.ListEntityTypes)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/entity-types", wrapper.CreateEntityType)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/entity-types/{key}", wrapper.GetEntityType)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/entity-types/{key}/versions", wrapper.PublishEntityTypeVersion)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/entity-types/{key}/versions/{n}", wrapper.GetEntityTypeVersion)
 
 	return m
@@ -924,6 +993,160 @@ func (response GetEntityType500ApplicationProblemPlusJSONResponse) VisitGetEntit
 type GetEntityType501ApplicationProblemPlusJSONResponse Problem
 
 func (response GetEntityType501ApplicationProblemPlusJSONResponse) VisitGetEntityTypeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishEntityTypeVersionRequestObject struct {
+	Key    Key `json:"key"`
+	Params PublishEntityTypeVersionParams
+	Body   *PublishEntityTypeVersionJSONRequestBody
+}
+
+type PublishEntityTypeVersionResponseObject interface {
+	VisitPublishEntityTypeVersionResponse(w http.ResponseWriter) error
+}
+
+type PublishEntityTypeVersion201JSONResponse EntityTypeVersion
+
+func (response PublishEntityTypeVersion201JSONResponse) VisitPublishEntityTypeVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishEntityTypeVersion400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response PublishEntityTypeVersion400ApplicationProblemPlusJSONResponse) VisitPublishEntityTypeVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishEntityTypeVersion401ApplicationProblemPlusJSONResponse Problem
+
+func (response PublishEntityTypeVersion401ApplicationProblemPlusJSONResponse) VisitPublishEntityTypeVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishEntityTypeVersion403ApplicationProblemPlusJSONResponse Problem
+
+func (response PublishEntityTypeVersion403ApplicationProblemPlusJSONResponse) VisitPublishEntityTypeVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishEntityTypeVersion404ApplicationProblemPlusJSONResponse struct {
+	ProblemNoInstanceApplicationProblemPlusJSONResponse
+}
+
+func (response PublishEntityTypeVersion404ApplicationProblemPlusJSONResponse) VisitPublishEntityTypeVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishEntityTypeVersion409ApplicationProblemPlusJSONResponse Problem
+
+func (response PublishEntityTypeVersion409ApplicationProblemPlusJSONResponse) VisitPublishEntityTypeVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishEntityTypeVersion422ApplicationProblemPlusJSONResponse Problem
+
+func (response PublishEntityTypeVersion422ApplicationProblemPlusJSONResponse) VisitPublishEntityTypeVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishEntityTypeVersion429ApplicationProblemPlusJSONResponse Problem
+
+func (response PublishEntityTypeVersion429ApplicationProblemPlusJSONResponse) VisitPublishEntityTypeVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishEntityTypeVersion500ApplicationProblemPlusJSONResponse Problem
+
+func (response PublishEntityTypeVersion500ApplicationProblemPlusJSONResponse) VisitPublishEntityTypeVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishEntityTypeVersion501ApplicationProblemPlusJSONResponse Problem
+
+func (response PublishEntityTypeVersion501ApplicationProblemPlusJSONResponse) VisitPublishEntityTypeVersionResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -1287,6 +1510,9 @@ type StrictServerInterface interface {
 	// GetEntityType The current version of an entity type
 	// (GET /api/v1/entity-types/{key})
 	GetEntityType(ctx context.Context, request GetEntityTypeRequestObject) (GetEntityTypeResponseObject, error)
+	// PublishEntityTypeVersion Publish the next version of an entity type (tenant admin)
+	// (POST /api/v1/entity-types/{key}/versions)
+	PublishEntityTypeVersion(ctx context.Context, request PublishEntityTypeVersionRequestObject) (PublishEntityTypeVersionResponseObject, error)
 	// GetEntityTypeVersion One published version of an entity type
 	// (GET /api/v1/entity-types/{key}/versions/{n})
 	GetEntityTypeVersion(ctx context.Context, request GetEntityTypeVersionRequestObject) (GetEntityTypeVersionResponseObject, error)
@@ -1415,6 +1641,40 @@ func (sh *strictHandler) GetEntityType(w http.ResponseWriter, r *http.Request, k
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetEntityTypeResponseObject); ok {
 		if err := validResponse.VisitGetEntityTypeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PublishEntityTypeVersion operation middleware
+func (sh *strictHandler) PublishEntityTypeVersion(w http.ResponseWriter, r *http.Request, key Key, params PublishEntityTypeVersionParams) {
+	var request PublishEntityTypeVersionRequestObject
+
+	request.Key = key
+	request.Params = params
+
+	var body PublishEntityTypeVersionJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PublishEntityTypeVersion(ctx, request.(PublishEntityTypeVersionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PublishEntityTypeVersion")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PublishEntityTypeVersionResponseObject); ok {
+		if err := validResponse.VisitPublishEntityTypeVersionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
