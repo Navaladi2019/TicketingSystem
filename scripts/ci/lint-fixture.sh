@@ -13,6 +13,9 @@
 #              only by the tagged pass `make lint` runs.
 #   navalint idpclaims: 1 Keycloak claim read and 1 admin API path outside
 #              internal/identity/keycloak (T15, CI-11), seen by both passes.
+#   navalint guarderrtype: 1 reference to workerguard.ErrTypeTenantGuard and
+#              1 "nava.WorkflowRefNotFound" literal outside
+#              internal/workerguard (AR-044, P3-26), seen by both passes.
 set -u
 cd "$(dirname "$0")/../.."
 want=7
@@ -46,6 +49,13 @@ test "$n" -eq "$want" || { echo "lint-fixture: expected $want idpclaims findings
 echo "$out" | grep -q 'Keycloak claim "organization"' || { echo "lint-fixture: the organization claim read was not reported"; exit 1; }
 echo "$out" | grep -q "Keycloak admin API" || { echo "lint-fixture: the admin API path was not reported"; exit 1; }
 echo "lint-fixture: ok, $n idpclaims findings"
+
+want=4
+n=$(echo "$out" | grep -c "guarderrtype.go:.*outside internal/workerguard: only the worker guard builds this failure type (AR-044)$" || true)
+test "$n" -eq "$want" || { echo "lint-fixture: expected $want guarderrtype findings, got $n"; exit 1; }
+echo "$out" | grep -q "workerguard.ErrTypeTenantGuard used outside" || { echo "lint-fixture: the ErrTypeTenantGuard reference was not reported"; exit 1; }
+echo "$out" | grep -q 'failure type "nava.WorkflowRefNotFound"' || { echo "lint-fixture: the nava.WorkflowRefNotFound literal was not reported"; exit 1; }
+echo "lint-fixture: ok, $n guarderrtype findings"
 
 # ADR-002-E1: api.go carries one line-scoped waiver, not a file exclusion, so
 # the raw http.Client ban must still fire in that very file. Append a raw
