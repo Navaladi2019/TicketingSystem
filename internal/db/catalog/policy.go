@@ -62,6 +62,9 @@ func PinnedTenantPolicies() map[string]Policy {
 		"public.tenant_email_domain.email_domain_release":                      {"DELETE", "nava_onboard", ownProvisioning, ""},
 		"public.pending_invite.pending_invite_insert":                          {"INSERT", "nava_onboard", "", ownProvisioning},
 		"public.pending_invite.pending_invite_reinvite":                        {"UPDATE", "nava_onboard", ownProvisioning, ownProvisioning},
+		"public.groups.groups_insert_onboard":                                  {"INSERT", "nava_onboard", "", ownProvisioning},
+		"public.groups.groups_select_onboard":                                  {"SELECT", "nava_onboard", ownProvisioning, ""},
+		"public.tenant_admin_group.tenant_admin_group_insert":                  {"INSERT", "nava_onboard", "", ownProvisioning},
 		"public.entity_definitions.entity_definitions_onboard":                 {"INSERT", "nava_onboard", "", ownProvisioning},
 		"public.entity_definition_versions.entity_definition_versions_onboard": {"INSERT", "nava_onboard", "", ownProvisioning},
 	}

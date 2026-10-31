@@ -86,6 +86,11 @@ type Store interface {
 	// ErrConflict and rolls back. Onboard then reads domain ownership under the
 	// tenant predicate as a second check.
 	Bind(ctx context.Context, tenantID uuid.UUID, issuer, orgID, idpAlias string) error
+	// RecordAdminGroup writes, in one transaction, the tenant's admins group
+	// (platform id AdminGroupID, Keycloak id kcGroupID, path /t/<tenant>/admins)
+	// and the tenant_admin_group row naming it. Idempotent: a retry writes
+	// neither a second group nor a second row.
+	RecordAdminGroup(ctx context.Context, tenantID uuid.UUID, kcGroupID string) error
 	// Activate moves the tenant from provisioning to active. An already-active
 	// tenant is an error.
 	Activate(ctx context.Context, tenantID uuid.UUID) error
@@ -95,6 +100,7 @@ type Store interface {
 type Directory interface {
 	CreateTenantOrg(ctx context.Context, tenantID uuid.UUID, alias string, domains []string) (string, error)
 	InviteUser(ctx context.Context, tenantID uuid.UUID, email string) error
+	EnsureAdminGroup(ctx context.Context, tenantID uuid.UUID) (keycloakGroupID string, err error)
 }
 
 // OrgFinder finds the organization an interrupted onboarding already created
@@ -141,6 +147,14 @@ func New(o Options) (*Service, error) {
 // TenantID derives the tenant id of (operator, key).
 func TenantID(operatorPrincipal, key string) uuid.UUID {
 	return uuid.NewSHA1(Namespace, []byte(operatorPrincipal+"\x00"+key))
+}
+
+// AdminGroupID is the platform id of a tenant's admins group, derived from the
+// tenant id so a retry writes the same row (D-P11). It is the id of the groups
+// row onboarding inserts; if group sync created the group first, the recorded
+// id is that group's real one (Store.RecordAdminGroup reads it back).
+func AdminGroupID(tenantID uuid.UUID) uuid.UUID {
+	return uuid.NewSHA1(Namespace, []byte("admin-group:"+tenantID.String()))
 }
 
 // Alias is the organization alias of a tenant, derived from the id alone.
@@ -190,6 +204,15 @@ func (s *Service) Onboard(ctx context.Context, operator identity.Operator, key s
 		if !owns {
 			return Result{}, ErrDomainClaimed
 		}
+	}
+	// The admins group exists, and tenant_admin_group names it, before the
+	// admin is invited into it. Each step is idempotent for a retry.
+	kcGroupID, err := s.o.Directory.EnsureAdminGroup(ctx, tenantID)
+	if err != nil {
+		return Result{}, fmt.Errorf("onboard: admin group: %w", err)
+	}
+	if err := s.o.Store.RecordAdminGroup(ctx, tenantID, kcGroupID); err != nil {
+		return Result{}, err
 	}
 	if err := s.inviteAdmin(ctx, tenantID, req.AdminEmail); err != nil {
 		return Result{}, err

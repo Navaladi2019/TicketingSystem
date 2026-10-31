@@ -547,6 +547,33 @@ func TestOnboardedAdminSignsInAndMeShowsTenant(t *testing.T) {
 		t.Errorf("/me = %s, want tenant %s via %s", raw, tenant, idpAlias)
 	}
 
+	// P3-04: onboarding recorded the admins group it created, and /me shows it.
+	// Bounded poll on group sync, never a sleep: each round runs one cycle.
+	kcAdmins := kcGroupID(t, "/t/"+tenant.String()+"/admins")
+	wantAdmin := psqlSuper(t, fmt.Sprintf(
+		"SELECT g.id FROM groups g WHERE g.tenant_id = '%s' AND g.keycloak_group_id = '%s'", tenant, kcAdmins))
+	if wantAdmin == "" {
+		t.Fatalf("no groups row for the admins group %s of tenant %s after sync", kcAdmins, tenant)
+	}
+	if rec := psqlSuper(t, fmt.Sprintf("SELECT group_id FROM tenant_admin_group WHERE tenant_id = '%s'", tenant)); rec != wantAdmin {
+		t.Fatalf("tenant_admin_group holds %q, want the group onboarding created, %q", rec, wantAdmin)
+	}
+	adminID := uuid.MustParse(wantAdmin)
+	var meGroups []uuid.UUID
+	for round := 0; round < 5 && !slices.Contains(meGroups, adminID); round++ {
+		if round > 0 {
+			groupsyncOnce(t)
+		}
+		code, m, raw := getMe(t, tok, "", nil)
+		if code != http.StatusOK {
+			t.Fatalf("GET /api/v1/me: %d %s", code, raw)
+		}
+		meGroups = m.Groups
+	}
+	if !slices.Contains(meGroups, adminID) {
+		t.Errorf("/me groups = %v, want the admins group %s", meGroups, adminID)
+	}
+
 	// Security condition: the token resolves to the new tenant only, whatever
 	// tenant the request names, including a real seeded tenant.
 	other := tenantA.String()

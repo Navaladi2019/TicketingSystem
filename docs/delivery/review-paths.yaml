@@ -36,8 +36,10 @@ security:
   - cmd/nava-purge/
   - cmd/nava-groupsync/
   # The operator onboarding handler.
-  - path: internal/onboarding/
-    planned: "PLAN-001 T21"
+  - internal/onboard/
+  # Group sync and the admin check (P3-04, D-3-20).
+  - internal/groupsync/
+  - internal/authz/
   - temporal-server/
   # Including pg_hba.conf, grants.yaml and every migration.
   - db/

@@ -119,7 +119,7 @@ func TestT09EveryTableForcesRLS(t *testing.T) {
 		SELECT coalesce(string_agg(relname, ',' ORDER BY relname), '') FROM pg_class
 		WHERE relnamespace = 'public'::regnamespace AND relkind IN ('r', 'p')
 		  AND relrowsecurity AND relforcerowsecurity`)
-	want := strings.Join(sorted(append(append(platformTables(), identityTables()...), "tenant_email_domain", "pending_invite", "entity_definitions", "entity_definition_versions")), ",")
+	want := strings.Join(sorted(append(append(platformTables(), identityTables()...), "tenant_email_domain", "pending_invite", "tenant_admin_group", "entity_definitions", "entity_definition_versions")), ",")
 	if got != want {
 		t.Fatalf("tables with ENABLE + FORCE RLS = %s, want %s", got, want)
 	}

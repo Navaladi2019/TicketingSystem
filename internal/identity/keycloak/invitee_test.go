@@ -115,6 +115,9 @@ func inviteeServer(t *testing.T, u invitee, placed *atomic.Bool) *httptest.Serve
 	mux.HandleFunc("GET /admin/realms/nava/group-by-path/t/"+dirTenantA.String(), func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintf(w, `{"id":"g-root","name":%q,"path":%q}`, dirTenantA.String(), rootPath(dirTenantA))
 	})
+	mux.HandleFunc("GET /admin/realms/nava/group-by-path/t/"+dirTenantA.String()+"/admins", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintf(w, `{"id":"g-admins","name":"admins","path":%q}`, rootPath(dirTenantA)+"/admins")
+	})
 	mux.HandleFunc("GET /admin/realms/nava/users", func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintf(w, `[{"id":"u1","email":%q,"enabled":%v}]`, u.email, u.enabled)
 	})
@@ -130,6 +133,9 @@ func inviteeServer(t *testing.T, u invitee, placed *atomic.Bool) *httptest.Serve
 		fmt.Fprint(w, u.groups)
 	})
 	mux.HandleFunc("GET /admin/realms/nava/organizations/members/u1/organizations", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, u.orgs) })
+	mux.HandleFunc("PUT /admin/realms/nava/users/u1/groups/g-admins", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("PUT /admin/realms/nava/users/u1/groups/g-root", func(w http.ResponseWriter, _ *http.Request) {
 		placed.Store(true)
 		w.WriteHeader(http.StatusNoContent)
