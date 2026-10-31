@@ -213,6 +213,14 @@ func (s *Service) Onboard(ctx context.Context, operator identity.Operator, key s
 		return Result{}, fmt.Errorf("onboard: admin group: %w", err)
 	}
 	if err := s.o.Store.RecordAdminGroup(ctx, tenantID, kcGroupID); err != nil {
+		if errors.Is(err, ErrAdminGroupMissing) {
+			// The operator runbook (docs/operator/onboarding.md, "Retry fails
+			// with admin group missing") finds the stale groups row with these
+			// two ids.
+			s.o.Log.ErrorContext(ctx, "onboard: admins group has no groups row",
+				slog.String("tenant_id", tenantID.String()),
+				slog.String("keycloak_group_id", kcGroupID))
+		}
 		return Result{}, err
 	}
 	if err := s.inviteAdmin(ctx, tenantID, req.AdminEmail); err != nil {

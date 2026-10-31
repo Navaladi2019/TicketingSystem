@@ -194,6 +194,89 @@ account, for the invite) and `NAVA_ONBOARD_CLIENT_ID/SECRET` (onboarding account
 `NAVA_INVITE_TTL` (default `168h`, at most `720h`) is how long a pending admin invite
 stays valid. Every one but the realm, the TTL and the fetch base URL is required; the process refuses to start without them.
 
+## Retry fails with admin group missing
+
+**Detect.** Onboarding stops at the admins-group step, the tenant stays
+`provisioning`, and every retry with the same key fails. `nava-onboard` logs one
+ERROR line each time:
+
+```json
+{"level":"ERROR","msg":"onboard: admins group has no groups row","tenant_id":"<tenant uuid>","keycloak_group_id":"<current Keycloak group id>"}
+```
+
+The error is `ErrAdminGroupMissing` (TICK-369). Cause: the `admins` group under
+`/t/<tenant_id>/` was deleted and re-created in Keycloak, so `groups` still holds a
+stale row for it under the old Keycloak id. Group sync does not repair this on its
+own (it would re-point which Keycloak group grants tenant admin; D-P10). The fix
+is this operator step.
+
+**Confirm.** Connect to the platform database as its owner or a superuser: no
+runtime role may rewrite `keycloak_group_id`, and the owner is the only one that
+passes the row-level policies without `app.tenant_id`. Use the two ids from the log
+line. `:'tenant_id'` and `:'kc_group_id'` are psql variables
+(`psql -v tenant_id=<uuid> -v kc_group_id=<id>`).
+
+```sql
+-- The stale row: the tenant's admins group, under an id Keycloak no longer has.
+SELECT id, keycloak_group_id, path
+  FROM groups
+ WHERE tenant_id = :'tenant_id'::uuid
+   AND path = '/t/' || :'tenant_id' || '/admins';
+
+-- The tenant must have no tenant_admin_group row yet (0 rows), and the current
+-- Keycloak id must have no groups row (0 rows), or this is a different problem.
+SELECT * FROM tenant_admin_group WHERE tenant_id = :'tenant_id'::uuid;
+SELECT * FROM groups WHERE tenant_id = :'tenant_id'::uuid AND keycloak_group_id = :'kc_group_id';
+```
+
+Expect one stale row whose `keycloak_group_id` differs from the logged one.
+
+**Repair.** One transaction, one of the two options.
+
+Option A (preferred): point the stale row at the current Keycloak id. Its platform
+id and memberships stay; the next group sync cycle (at most 5 minutes) refreshes
+the memberships.
+
+```sql
+BEGIN;
+UPDATE groups
+   SET keycloak_group_id = :'kc_group_id'
+ WHERE tenant_id = :'tenant_id'::uuid
+   AND path = '/t/' || :'tenant_id' || '/admins';   -- must say UPDATE 1
+COMMIT;
+```
+
+Option B: remove the stale row. Its `group_members` and any `tenant_admin_group`
+row go with it (ON DELETE CASCADE); retry inserts a fresh row, and group sync
+re-adds the members.
+
+```sql
+BEGIN;
+DELETE FROM groups
+ WHERE tenant_id = :'tenant_id'::uuid
+   AND path = '/t/' || :'tenant_id' || '/admins';   -- must say DELETE 1
+COMMIT;
+```
+
+If the statement says `UPDATE 0` or `DELETE 0`, or the confirm query returned more
+than one row, stop: the cause is not this one.
+
+**Retry.** Run the original onboarding request again with the same
+`Idempotency-Key` and body (see "Steps and recovery"). The admins-group step now
+finds a row for the current id, writes `tenant_admin_group`, and onboarding
+continues to the invite and activation. Check:
+
+```sql
+SELECT t.state, a.group_id, g.keycloak_group_id
+  FROM tenants t
+  JOIN tenant_admin_group a ON a.tenant_id = t.id
+  JOIN groups g ON (g.tenant_id, g.id) = (a.tenant_id, a.group_id)
+ WHERE t.id = :'tenant_id'::uuid;   -- state active, the current Keycloak id
+```
+
+A second occurrence, or any automation that re-creates Keycloak groups, goes to the
+Architecture squad as an RFC for automated repair (TICK-372).
+
 ## TODO: abandoning a provisioning tenant
 
 There is no way to abandon a `provisioning` tenant. A tenant whose onboarding never
