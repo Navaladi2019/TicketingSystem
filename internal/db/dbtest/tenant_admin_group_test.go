@@ -12,6 +12,7 @@ import (
 
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
+	"github.com/Navaladi2019/TicketingSystem/internal/onboard"
 )
 
 // P3-04 (TICK-342): tenant_admin_group under FORCE RLS, and the helper that
@@ -211,6 +212,32 @@ func TestP304RecordAdminGroupUsesTheRealGroupID(t *testing.T) {
 	}
 	if err := store.Activate(context.Background(), tid); err != nil {
 		t.Errorf("onboarding does not finish after the record: %v", err)
+	}
+}
+
+// The admins group was deleted and re-created in Keycloak between two
+// onboarding retries: the stale groups row holds AdminGroupID's primary key
+// under the old Keycloak id, and the current id has no row. RecordAdminGroup
+// must return ErrAdminGroupMissing and write no tenant_admin_group row; the
+// tenant stays provisioning because onboarding stops before Activate.
+func TestP304RecordAdminGroupErrorsOnStaleGroupRow(t *testing.T) {
+	migratedPlatform(t)
+	super := superNava(t)
+	seedTenants(t, super, nil, []string{tenantA})
+	tid := uuid.MustParse(tenantA)
+	exec(t, super, `INSERT INTO groups (tenant_id, id, keycloak_group_id, path)
+		VALUES ($1::uuid, $2, 'kc-old-admins', '/t/' || $1::text || '/admins')`, tenantA, onboard.AdminGroupID(tid))
+
+	store := onboardStore(t, 4)
+	err := store.RecordAdminGroup(context.Background(), tid, "kc-new-admins")
+	if !errors.Is(err, onboard.ErrAdminGroupMissing) {
+		t.Fatalf("RecordAdminGroup = %v, want ErrAdminGroupMissing", err)
+	}
+	if got := queryString(t, super, "SELECT count(*)::text FROM tenant_admin_group WHERE tenant_id = $1", tenantA); got != "0" {
+		t.Errorf("tenant_admin_group rows = %s, want 0", got)
+	}
+	if got := queryString(t, super, "SELECT state FROM tenants WHERE id = $1", tenantA); got != "provisioning" {
+		t.Errorf("tenant state = %s, want provisioning", got)
 	}
 }
 

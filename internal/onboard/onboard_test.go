@@ -505,6 +505,7 @@ func TestOnboardAdminGroupFailureStopsBeforeInvite(t *testing.T) {
 	for name, set := range map[string]func(*fakeStore, *fakeDir){
 		"directory": func(_ *fakeStore, d *fakeDir) { d.groupErr = errors.New("kc down") },
 		"store":     func(s *fakeStore, _ *fakeDir) { s.adminErr = errors.New("db down") },
+		"missing":   func(s *fakeStore, _ *fakeDir) { s.adminErr = fmt.Errorf("record: %w", ErrAdminGroupMissing) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			svc, st, dir := newSvc(t)
