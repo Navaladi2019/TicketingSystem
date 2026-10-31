@@ -1,7 +1,9 @@
 package onboard
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -517,5 +519,27 @@ func TestOnboardAdminGroupFailureStopsBeforeInvite(t *testing.T) {
 				t.Errorf("invites=%v completes=%d", dir.invites, st.completes)
 			}
 		})
+	}
+}
+
+// The log line for ErrAdminGroupMissing carries the tenant id and the Keycloak
+// group id: the operator runbook relies on both.
+func TestOnboardAdminGroupMissingLogsBothIDs(t *testing.T) {
+	svc, st, _ := newSvc(t)
+	var buf bytes.Buffer
+	svc.o.Log = slog.New(slog.NewJSONHandler(&buf, nil))
+	st.adminErr = fmt.Errorf("record: %w", ErrAdminGroupMissing)
+	_, err := svc.Onboard(t.Context(), op1, "k", []byte("h"), validReq())
+	if !errors.Is(err, ErrAdminGroupMissing) {
+		t.Fatalf("err = %v, want ErrAdminGroupMissing", err)
+	}
+	var rec map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &rec); err != nil {
+		t.Fatalf("log line %q: %v", buf.String(), err)
+	}
+	tenant := TenantID(op1.PrincipalID, "k").String()
+	kc := "kc-admins-" + tenant
+	if rec["level"] != "ERROR" || rec["tenant_id"] != tenant || rec["keycloak_group_id"] != kc {
+		t.Errorf("log = %v, want ERROR with tenant_id %s and keycloak_group_id %s", rec, tenant, kc)
 	}
 }
