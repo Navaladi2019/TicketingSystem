@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity/keycloak"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
@@ -172,6 +173,30 @@ func (s *PGStore) Bind(ctx context.Context, tenantID uuid.UUID, issuer, orgID, i
 	default:
 		return fmt.Errorf("onboard: bind: %w", err)
 	}
+}
+
+// RecordAdminGroup implements Store. Both inserts are ON CONFLICT DO NOTHING
+// (nava_onboard has no SELECT on either table): a retry inserts nothing. The
+// foreign key (tenant_id, group_id) -> groups makes the second insert fail
+// when the first was skipped for a different group already holding this
+// Keycloak id, so a mismatch is an error, never a pointer to the wrong group.
+func (s *PGStore) RecordAdminGroup(ctx context.Context, tenantID uuid.UUID, kcGroupID string) error {
+	id := AdminGroupID(tenantID)
+	path := identity.TenantGroupPrefix(tenantID) + identity.AdminGroupName
+	err := tenancy.InTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx,
+			"INSERT INTO groups (tenant_id, id, keycloak_group_id, path) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+			tenantID, id, kcGroupID, path); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx,
+			"INSERT INTO tenant_admin_group (tenant_id, group_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", tenantID, id)
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("onboard: record admin group: %w", err)
+	}
+	return nil
 }
 
 // ErrNotProvisioning is returned by Activate when it found no provisioning row of the tenant.

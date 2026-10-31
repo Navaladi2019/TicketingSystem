@@ -63,6 +63,8 @@ roles:
       org_units: { SELECT: [] }
       # Keycloak Registry.TenantOwnsEmailDomain (T18a).
       tenant_email_domain: { SELECT: [] }
+      # authz.RequireTenantAdmin (P3-04): the platform id of the tenant's admins group.
+      tenant_admin_group: { SELECT: [] }
     functions: {}
 
   # As nava_app, without idempotency_keys or tenants; the final activity
@@ -76,6 +78,7 @@ roles:
       records: { SELECT: [], INSERT: [], UPDATE: [version] }
       outbox: { SELECT: [tenant_id, id, dedupe_key], INSERT: [] }
       workflow_ref: { SELECT: [], INSERT: [], UPDATE: [closed_at] }
+      tenant_admin_group: { SELECT: [] }
 
   # Every column of outbox but dedupe_key and last_error; writes only the
   # dispatch columns. Nothing on workflow_ref or records.
@@ -118,6 +121,10 @@ roles:
       # conflict target, the DO UPDATE WHERE and EXCLUDED.expires_at; UPDATE
       # only expires_at, so a consumed invite cannot be reopened.
       pending_invite: { SELECT: [tenant_id, email, expires_at, consumed_at], INSERT: [tenant_id, email, expires_at], UPDATE: [expires_at] }
+      # P3-04: the admins group row (platform id minted here, Keycloak id from
+      # DirectoryAdmin) and the tenant's pointer to it. Insert only.
+      groups: { INSERT: [tenant_id, id, keycloak_group_id, path] }
+      tenant_admin_group: { INSERT: [tenant_id, group_id] }
 
   # Writes the identity tables (T16), one transaction per tenant. UPDATE
   # leaves the keys alone: a row is re-keyed by delete and insert, never in

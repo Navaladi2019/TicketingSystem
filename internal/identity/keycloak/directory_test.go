@@ -328,6 +328,9 @@ func existingUserServer(t *testing.T, groups, links string) (*httptest.Server, *
 	mux.HandleFunc("GET /admin/realms/nava/group-by-path/t/"+dirTenantA.String(), func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintf(w, `{"id":"g-root","name":%q,"path":%q}`, dirTenantA.String(), rootPath(dirTenantA))
 	})
+	mux.HandleFunc("GET /admin/realms/nava/group-by-path/t/"+dirTenantA.String()+"/admins", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintf(w, `{"id":"g-admins","name":"admins","path":%q}`, rootPath(dirTenantA)+"/admins")
+	})
 	mux.HandleFunc("GET /admin/realms/nava/users", func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintf(w, `[{"id":"u-1","email":%q}]`, secretEmail)
 	})
@@ -625,5 +628,51 @@ func TestCreateTenantOrgDomainLinked(t *testing.T) {
 				t.Error("an IdP was created after the organization was refused")
 			}
 		})
+	}
+}
+
+func TestEnsureAdminGroup(t *testing.T) {
+	t.Parallel()
+	for _, exists := range []bool{true, false} {
+		t.Run(fmt.Sprintf("exists=%v", exists), func(t *testing.T) {
+			t.Parallel()
+			var created atomic.Int32
+			mux := http.NewServeMux()
+			mux.HandleFunc("POST /realms/nava/protocol/openid-connect/token", func(w http.ResponseWriter, _ *http.Request) {
+				fmt.Fprint(w, `{"access_token":"tok","expires_in":300}`)
+			})
+			mux.HandleFunc("GET /admin/realms/nava/group-by-path/t/"+dirTenantA.String(), func(w http.ResponseWriter, _ *http.Request) {
+				fmt.Fprintf(w, `{"id":"g-root","name":%q,"path":%q}`, dirTenantA.String(), rootPath(dirTenantA))
+			})
+			mux.HandleFunc("GET /admin/realms/nava/group-by-path/t/"+dirTenantA.String()+"/admins", func(w http.ResponseWriter, _ *http.Request) {
+				if !exists && created.Load() == 0 {
+					http.NotFound(w, nil)
+					return
+				}
+				fmt.Fprintf(w, `{"id":"g-admins","name":"admins","path":%q}`, rootPath(dirTenantA)+"/admins")
+			})
+			mux.HandleFunc("POST /admin/realms/nava/groups/g-root/children", func(w http.ResponseWriter, _ *http.Request) {
+				created.Add(1)
+				w.WriteHeader(http.StatusCreated)
+			})
+			srv := httptest.NewServer(mux)
+			t.Cleanup(srv.Close)
+			d, _ := directoryFor(t, srv.URL)
+			id, err := d.EnsureAdminGroup(t.Context(), dirTenantA)
+			if err != nil || id != "g-admins" {
+				t.Fatalf("id = %q, %v", id, err)
+			}
+			if want := int32(map[bool]int{true: 0, false: 1}[exists]); created.Load() != want {
+				t.Errorf("created %d groups, want %d", created.Load(), want)
+			}
+		})
+	}
+}
+
+func TestEnsureAdminGroupRefusesNilTenant(t *testing.T) {
+	t.Parallel()
+	d, _ := directoryFor(t, "http://127.0.0.1:1")
+	if _, err := d.EnsureAdminGroup(t.Context(), uuid.Nil); !errors.Is(err, identity.ErrInvalidInput) {
+		t.Fatalf("err = %v", err)
 	}
 }

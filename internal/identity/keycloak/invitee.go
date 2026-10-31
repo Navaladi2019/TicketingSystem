@@ -115,11 +115,15 @@ func (d *Directory) PlaceInvitee(ctx context.Context, tenantID uuid.UUID, email 
 	if !ok {
 		return false, nil
 	}
-	if inTenantAlready {
-		return true, nil
+	if !inTenantAlready {
+		if _, err := d.api.do(ctx, d.runtime, http.MethodPut, "/users/{id}/groups/{groupId}",
+			"/users/"+url.PathEscape(user.ID)+"/groups/"+url.PathEscape(root.ID), nil, nil, http.StatusNoContent); err != nil {
+			return false, err
+		}
 	}
-	if _, err := d.api.do(ctx, d.runtime, http.MethodPut, "/users/{id}/groups/{groupId}",
-		"/users/"+url.PathEscape(user.ID)+"/groups/"+url.PathEscape(root.ID), nil, nil, http.StatusNoContent); err != nil {
+	// PUT is idempotent: an earlier cycle that placed the user in the tenant
+	// but not in the admin group is finished here.
+	if err := d.addToAdminGroup(ctx, tenantID, user.ID); err != nil {
 		return false, err
 	}
 	return true, nil
