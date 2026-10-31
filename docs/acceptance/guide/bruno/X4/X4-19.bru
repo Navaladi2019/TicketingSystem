@@ -1,0 +1,24 @@
+meta {
+  name: X4.19 getEntityTypeVersion 400: n is not an integer
+  type: http
+  seq: 19
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/{{x4_type}}/versions/abc
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('validation_failed', 400);
+}
+
+docs {
+  `n` is an integer.
+}

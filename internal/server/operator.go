@@ -9,10 +9,13 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/Navaladi2019/TicketingSystem/api"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/onboard"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/cursor"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/idempotency"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/ratelimit"
@@ -44,7 +47,19 @@ type options struct {
 	// rate and shared configure the per-tenant limiter (T24).
 	rate   config.RateLimit
 	shared ratelimit.Limiter
+	// pool (nava_app) and cursors serve the tenant routes that read or write
+	// the database.
+	pool    *pgxpool.Pool
+	cursors *cursor.Keyring
 }
+
+// WithPool gives the tenant routes their database (the nava_app pool). Tenant
+// writes also need it for the Idempotency-Key store.
+func WithPool(p *pgxpool.Pool) Option { return func(o *options) { o.pool = p } }
+
+// WithCursors sets the keyring that signs list cursors. Without it the list
+// endpoints answer 501 not_implemented.
+func WithCursors(k *cursor.Keyring) Option { return func(o *options) { o.cursors = k } }
 
 // OperatorOnly restricts the handler to the operator routes.
 func OperatorOnly() Option { return func(o *options) { o.operatorOnly = true } }

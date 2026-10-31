@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/cursor"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/logging"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
 	"github.com/Navaladi2019/TicketingSystem/internal/server"
@@ -55,13 +56,18 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 		return err
 	}
 	defer closeDeps()
-	resolver, paths, closeResolver, err := newResolver(ctx, log, tel, cfg)
+	resolver, paths, pool, closeResolver, err := newResolver(ctx, log, tel, cfg)
 	if err != nil {
 		_ = tel.Shutdown(context.WithoutCancel(ctx))
 		return err
 	}
 	defer closeResolver()
-	public, err := server.NewHandler(log, tel, resolver, paths, server.WithRateLimit(cfg.RateLimit))
+	cursors, err := cursor.NewKeyringFromConfig(cfg.Cursor)
+	if err != nil {
+		_ = tel.Shutdown(context.WithoutCancel(ctx))
+		return err
+	}
+	public, err := server.NewHandler(log, tel, resolver, paths, server.WithRateLimit(cfg.RateLimit), server.WithPool(pool), server.WithCursors(cursors))
 	if err != nil {
 		_ = tel.Shutdown(context.WithoutCancel(ctx))
 		return err

@@ -1,0 +1,31 @@
+meta {
+  name: X4.16 listEntityTypes 200: any tenant user sees the type
+  type: http
+  seq: 16
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types?limit=200
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  test('items are summaries, ordered by key', () => {
+    expect(b.items).to.be.an('array');
+    expect(b.items.map(i => i.key)).to.eql(b.items.map(i => i.key).sort());
+    b.items.forEach(i => expect(Object.keys(i).sort()).to.eql(['current_version', 'key', 'name', 'number_prefix', 'updated_at']));
+  });
+  test('the type of X4.9 is listed', () => expect(b.items.map(i => i.key)).to.include(bru.getVar('x4_type')));
+}
+
+docs {
+  Alice is not an admin; reads are open to the tenant.
+}

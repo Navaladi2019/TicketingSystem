@@ -1,0 +1,31 @@
+meta {
+  name: X4.20 getEntityType 404: an unknown key
+  type: http
+  seq: 20
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/no_such_type_x4
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 404 problem+json with code not_found and no instance', () => {
+    expect(res.getStatus()).to.eql(404);
+    expect(N.header('Content-Type') || '').to.include('application/problem+json');
+    const b = N.json();
+    expect(b.code).to.eql('not_found');
+    expect(b).to.not.have.property('instance');
+  });
+  N.status(404);
+}
+
+docs {
+  404 `not_found` with no `instance`.
+}

@@ -1,0 +1,76 @@
+meta {
+  name: X4.12 createEntityType 409: the prefix is taken
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{core_url}}/api/v1/entity-types
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: {{x4_key3}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "key": "{{x4_type}}b",
+    "name": "Acceptance type",
+    "number_prefix": "{{x4_prefix}}",
+    "definition": {
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "short_description",
+          "state"
+        ],
+        "properties": {
+          "short_description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "new",
+              "closed"
+            ],
+            "default": "new"
+          }
+        }
+      },
+      "fixed_columns": {
+        "state": "state"
+      },
+      "states": {
+        "initial": "new",
+        "states": [
+          "new",
+          "closed"
+        ],
+        "transitions": [
+          {
+            "from": "new",
+            "to": "closed"
+          }
+        ]
+      }
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('number_prefix_taken', 409);
+}
+
+docs {
+  A new key, the prefix of X4.9.
+}

@@ -1,0 +1,8 @@
+meta {
+  name: X4 — API suite: entity types (listEntityTypes, createEntityType, getEntityType, getEntityTypeVersion)
+  seq: 10
+}
+
+docs {
+  TICK-343. Every documented outcome of the entity-type read and create endpoints: create as a tenant admin (201, version 1), the same key and prefix again (409), a non-admin (403), a bad definition (422 with `errors[].pointer`), a missing Idempotency-Key (400), reads of the current version and of version 1 with the stored schema and its `schema_sha256`, the 404 for an unknown key, and tenant B's view of tenant A's type (the same 404). 429, 500 and 501 are in the coverage page. Self-contained; every run uses a new type key. Needs `tools/seed.sh`.
+}
