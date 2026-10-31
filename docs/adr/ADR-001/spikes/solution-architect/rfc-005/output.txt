@@ -1,0 +1,148 @@
+CREATE ROLE
+CREATE TABLE
+ALTER TABLE
+ALTER TABLE
+CREATE POLICY
+CREATE POLICY
+GRANT
+PREPARE
+SET
+BEGIN
+              set_config              
+--------------------------------------
+ aaaaaaaa-0000-0000-0000-000000000001
+(1 row)
+
+=== case a: user creates R (origin O, depth 0) -> sink claims (O,R,D): expect START
+ outcome 
+---------
+ START
+(1 row)
+
+INSERT 0 1
+COMMIT
+BEGIN
+              set_config              
+--------------------------------------
+ aaaaaaaa-0000-0000-0000-000000000001
+(1 row)
+
+=== case a/b/c: D writes back R under O (depth 1) -> sink claims (O,R,D) again: expect 0 rows (suppress, write commits)
+ outcome 
+---------
+(0 rows)
+
+INSERT 0 0
+=== same again (second update_record step, or retried activity): expect 0 rows
+ outcome 
+---------
+(0 rows)
+
+INSERT 0 0
+COMMIT
+BEGIN
+              set_config              
+--------------------------------------
+ aaaaaaaa-0000-0000-0000-000000000001
+(1 row)
+
+=== mutual D1/D2: D writes R -> D2 claim: expect START; D2 writes R -> D claim: expect 0 rows; D writes again -> D2 claim: 0 rows
+ outcome 
+---------
+ START
+(1 row)
+
+INSERT 0 1
+ outcome 
+---------
+(0 rows)
+
+INSERT 0 0
+ outcome 
+---------
+(0 rows)
+
+INSERT 0 0
+COMMIT
+BEGIN
+              set_config              
+--------------------------------------
+ aaaaaaaa-0000-0000-0000-000000000001
+(1 row)
+
+=== new user write starts a new origin O2: D starts again: expect START
+ outcome 
+---------
+ START
+(1 row)
+
+INSERT 0 1
+COMMIT
+BEGIN
+              set_config              
+--------------------------------------
+ bbbbbbbb-0000-0000-0000-000000000002
+(1 row)
+
+=== case f: tenant B, same origin/record/definition uuids: expect START (no cross-tenant collision)
+ outcome 
+---------
+ START
+(1 row)
+
+INSERT 0 1
+=== case f: tenant B sees only its own rows: expect 1
+ rows_visible_to_b 
+-------------------
+                 1
+(1 row)
+
+=== tenant B claims a key in tenant A: expect ERROR new row violates row-level security policy
+ROLLBACK
+psql:/spike/spike.sql:67: ERROR:  new row violates row-level security policy for table "cascade_start"
+BEGIN
+              set_config              
+--------------------------------------
+ aaaaaaaa-0000-0000-0000-000000000001
+(1 row)
+
+=== NULL origin: expect ERROR not-null violation (a NULL origin cannot bypass the key)
+psql:/spike/spike.sql:72: ERROR:  null value in column "causation_origin_id" of relation "cascade_start" violates not-null constraint
+ROLLBACK
+BEGIN
+              set_config              
+--------------------------------------
+ aaaaaaaa-0000-0000-0000-000000000001
+(1 row)
+
+=== rollback of the triggering write releases the key: claim (O3,R,D) then ROLLBACK, then claim again
+ outcome 
+---------
+ START
+(1 row)
+
+INSERT 0 1
+ROLLBACK
+BEGIN
+              set_config              
+--------------------------------------
+ aaaaaaaa-0000-0000-0000-000000000001
+(1 row)
+
+ outcome 
+---------
+ START
+(1 row)
+
+INSERT 0 1
+COMMIT
+RESET
+=== final rows (superuser view)
+              tenant_id               |         causation_origin_id          |              record_id               |            definition_id             
+--------------------------------------+--------------------------------------+--------------------------------------+--------------------------------------
+ aaaaaaaa-0000-0000-0000-000000000001 | 00000000-0000-0000-0000-0000000000a0 | 00000000-0000-0000-0000-0000000000b0 | 00000000-0000-0000-0000-0000000000d1
+ aaaaaaaa-0000-0000-0000-000000000001 | 00000000-0000-0000-0000-0000000000a0 | 00000000-0000-0000-0000-0000000000b0 | 00000000-0000-0000-0000-0000000000d2
+ aaaaaaaa-0000-0000-0000-000000000001 | 00000000-0000-0000-0000-0000000000a2 | 00000000-0000-0000-0000-0000000000b0 | 00000000-0000-0000-0000-0000000000d1
+ aaaaaaaa-0000-0000-0000-000000000001 | 00000000-0000-0000-0000-0000000000a3 | 00000000-0000-0000-0000-0000000000b0 | 00000000-0000-0000-0000-0000000000d1
+(4 rows)
+
