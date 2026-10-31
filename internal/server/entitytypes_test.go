@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -14,6 +16,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/api"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/apihttp"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 )
 
@@ -182,4 +185,36 @@ func loadTestRegistry(t *testing.T) *problem.Registry {
 		t.Fatal(err)
 	}
 	return reg
+}
+
+// The field errors of a 422 reach the client: responseError writes them for
+// any code, not only validation_failed.
+func TestResponseErrorWritesFieldsForEveryCode(t *testing.T) {
+	t.Parallel()
+	reg := loadTestRegistry(t)
+	h := &handlers{reg: reg, log: slog.New(slog.DiscardHandler)}
+	respond := h.responseError(apihttp.New(nil, reg, h.log, ""))
+
+	for _, code := range []problem.Code{problem.InvalidDefinition, problem.InvalidIdPConfig, problem.ValidationFailed} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/entity-types", nil)
+		respond(rec, req, &problemError{code, []problem.FieldError{{Pointer: "/key", Rule: "pattern"}}, errors.New("x")})
+		var got struct {
+			Code   problem.Code         `json:"code"`
+			Errors []problem.FieldError `json:"errors"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.Code != code || len(got.Errors) != 1 || got.Errors[0].Pointer != "/key" {
+			t.Errorf("%s: body = %s, want the code and errors[0].pointer /key", code, rec.Body)
+		}
+	}
+
+	// A problem with no fields still goes through WriteError (no errors[]).
+	rec := httptest.NewRecorder()
+	respond(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", nil), &problemError{problem.Forbidden, nil, errors.New("x")})
+	if rec.Code != http.StatusForbidden || strings.Contains(rec.Body.String(), `"errors"`) {
+		t.Errorf("forbidden = %d %s", rec.Code, rec.Body)
+	}
 }

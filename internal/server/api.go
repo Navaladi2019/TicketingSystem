@@ -190,8 +190,9 @@ func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http
 	return func(w http.ResponseWriter, r *http.Request, err error) {
 		var pe *problemError
 		if errors.As(err, &pe) {
-			if pe.code == problem.ValidationFailed {
-				h.reg.Write(w, r, problem.ValidationFailed, pe.fields...)
+			// A problem with field errors is a 4xx that names the fields.
+			if len(pe.fields) > 0 {
+				h.reg.Write(w, r, pe.code, pe.fields...)
 				return
 			}
 			h.reg.WriteError(w, r, h.log, pe.code, pe.err)
