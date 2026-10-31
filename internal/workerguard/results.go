@@ -41,10 +41,15 @@ const sideEffectDenied = "\x00nava.TenantGuard: side effect withheld"
 
 // resultOK reports whether an activity, workflow or update result may be
 // recorded: nil (or a nil value, which encodes as null), or a value argOK
-// accepts.
-func resultOK(v any) bool {
+// accepts. With directive set (the result of an activity, not a local one),
+// a Directive is accepted too if directiveOK passes its encoding; without it a
+// Directive falls to the generic rule and fails, since its kind is not a UUID.
+func resultOK(v any, directive bool) bool {
 	if v == nil {
 		return true
+	}
+	if directive && isDirective(v) {
+		return directiveResultOK(v)
 	}
 	// Already encoded, as the SDK test environment hands a local activity's
 	// result: each payload is checked as recorded, by the generic rule.
@@ -253,7 +258,7 @@ func (r *recorder) workflowOutcome(ctx workflow.Context, resultGuard, failureGua
 		return nil, out
 	}
 	outcome := check(func() string {
-		if resultOK(result) {
+		if resultOK(result, false) {
 			return outcomeAllow
 		}
 		return outcomeRecordData
@@ -269,8 +274,12 @@ func (r *recorder) workflowOutcome(ctx workflow.Context, resultGuard, failureGua
 
 // activityOutcome is workflowOutcome for an activity or local activity. A
 // panic is recovered by the caller and arrives here as activityPanic, so its
-// value and stack never reach the history.
-func (r *recorder) activityOutcome(result any, err error, attrs ...slog.Attr) (any, error) {
+// value and stack never reach the history. A Directive result is accepted only
+// when local is false (P3-26): the interpreter learns its next step from a
+// regular activity, and the SDK test environment hands a local activity's
+// result to the guard already encoded, without its Go type, so refusing it
+// everywhere keeps the test environment and a real worker alike.
+func (r *recorder) activityOutcome(result any, err error, local bool, attrs ...slog.Attr) (any, error) {
 	if err != nil {
 		changed, out := recordable(err)
 		if changed {
@@ -280,7 +289,7 @@ func (r *recorder) activityOutcome(result any, err error, attrs ...slog.Attr) (a
 		return nil, out
 	}
 	if check(func() string {
-		if resultOK(result) {
+		if resultOK(result, !local) {
 			return outcomeAllow
 		}
 		return outcomeRecordData

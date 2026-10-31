@@ -135,6 +135,30 @@ flowchart LR
   V -- otherwise --> F
 ```
 
+## Activity results: the Directive exception (P3-26)
+
+An activity result is checked like an argument, with one more typed value:
+`workerguard.Directive`, which the workflow interpreter reads to learn its
+next step (PLAN-003 D-3-15). It is matched by Go type, and its encoded bytes
+must be one JSON object with only its six keys, each once, that fits this
+table (`directiveOK`); anything else is refused, as is the same shape under
+another type or as a map:
+
+| `kind` | `step` | `next` | `wait_seconds` | `signal` | `on_timeout` |
+|---|---|---|---|---|---|
+| `timer` | non-nil | non-nil | 1..2592000 | omitted | omitted |
+| `wait_signal` | non-nil | non-nil | 1..2592000 | non-nil | non-nil |
+| `update_record` | non-nil | non-nil | 0 | omitted | omitted |
+| `end` | non-nil | omitted | 0 | omitted | omitted |
+
+Every reference is a canonical, non-nil UUID string; an optional one is
+omitted, never `null`; `wait_seconds` is an integer literal. `Kind` values
+come only from the Go constants. A `Directive` is accepted only as the result
+of a regular activity: not as an argument, a workflow or update result, a side
+effect, failure details, or a local activity's result (the SDK test
+environment hands a local result to the guard already encoded, so refusing it
+keeps tests and workers alike). What a history still shows is AR-S11a-01.
+
 Update arguments are checked as the handler's parameter types decoded them;
 what the decoding drops is recorded unchecked (TODO-010).
 

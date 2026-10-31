@@ -61,6 +61,7 @@ The Technical Architect stress-tests the choice before the Technical Lead accept
 | Public listener | Everything on it is treated as external: new trace root, inbound `traceparent` only as a link, no inbound baggage. |
 | Errors | Never echo values (tokens, emails, ids from the request). |
 | Tenant data | Through `tenancy.InTenantTx` only, cross-tenant negative test present. |
+| Workflow panics | In `internal/workflow/`, workflow code never panics with a value built from data (a record field, a definition value, an activity result, an error's text): the panic value and stack are recorded in `WorkflowTaskFailed` and the worker guard cannot withhold them (AR-042). Panic only with constant text; return an error instead, which the guard checks. |
 | Tests | Risky paths have a failing-case test; integration tests against real PostgreSQL, Keycloak or Temporal where the risk lives there (`testing-ci`). |
 | Size | One task per PR; a rewrite found in review is a new task unless the human says otherwise. |
 
@@ -70,3 +71,4 @@ The Technical Architect stress-tests the choice before the Technical Lead accept
 |---|---|---|
 | 2026-10-16 | Created with rules 1 and 2 after TICK-89. | Technical Lead |
 | 2026-10-17 | Technical Architect review (TICK-95) applied: rule 2 exemption limited to recorded decisions (R2-1); definitions narrowed to direct requires and new attribute keys; diff check and pre-T05 pin record; rule 2 wins over rule 1; `none (<reason>)` form. | Technical Lead |
+| 2026-11-01 | "Workflow panics" row added for AR-042 (P3-26, TICK-362). | Security & Multi-Tenancy Reviewer |
