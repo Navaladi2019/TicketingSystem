@@ -1,0 +1,38 @@
+{
+  "key": "request",
+  "number_prefix": "REQ",
+  "fixed_columns": {
+    "state": "state",
+    "requested_for": "requester_id",
+    "assignee": "assignee_id",
+    "assignment_group": "assignment_group_id"
+  },
+  "states": {
+    "initial": "submitted",
+    "states": ["submitted", "approved", "rejected", "fulfilling", "fulfilled", "closed"],
+    "transitions": [
+      {"from": "submitted", "to": "approved"},
+      {"from": "submitted", "to": "rejected"},
+      {"from": "approved", "to": "fulfilling"},
+      {"from": "fulfilling", "to": "fulfilled"},
+      {"from": "fulfilled", "to": "closed"},
+      {"from": "rejected", "to": "closed"}
+    ]
+  },
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["short_description", "state", "requested_for"],
+    "properties": {
+      "short_description": {"type": "string", "title": "Short description", "minLength": 1, "maxLength": 160},
+      "description": {"type": "string", "title": "Description", "maxLength": 32000},
+      "state": {"type": "string", "title": "State", "enum": ["submitted", "approved", "rejected", "fulfilling", "fulfilled", "closed"], "default": "submitted"},
+      "requested_for": {"type": "string", "format": "uuid", "title": "Requested for"},
+      "assignee": {"type": "string", "format": "uuid", "title": "Assignee"},
+      "assignment_group": {"type": "string", "format": "uuid", "title": "Assignment group"},
+      "due_date": {"type": "string", "format": "date", "title": "Due date"},
+      "quantity": {"type": "integer", "title": "Quantity", "minimum": 1, "default": 1}
+    }
+  }
+}

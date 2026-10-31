@@ -1,0 +1,44 @@
+{
+  "key": "change",
+  "number_prefix": "CHG",
+  "fixed_columns": {
+    "state": "state",
+    "requester": "requester_id",
+    "assignee": "assignee_id",
+    "assignment_group": "assignment_group_id"
+  },
+  "states": {
+    "initial": "draft",
+    "states": ["draft", "assess", "authorize", "scheduled", "implement", "review", "closed", "cancelled"],
+    "transitions": [
+      {"from": "draft", "to": "assess"},
+      {"from": "assess", "to": "authorize"},
+      {"from": "authorize", "to": "scheduled"},
+      {"from": "scheduled", "to": "implement"},
+      {"from": "implement", "to": "review"},
+      {"from": "review", "to": "closed"},
+      {"from": "draft", "to": "cancelled"},
+      {"from": "assess", "to": "cancelled"},
+      {"from": "authorize", "to": "cancelled"}
+    ]
+  },
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["short_description", "state", "requester", "change_type", "risk"],
+    "properties": {
+      "short_description": {"type": "string", "title": "Short description", "minLength": 1, "maxLength": 160},
+      "description": {"type": "string", "title": "Description", "maxLength": 32000},
+      "state": {"type": "string", "title": "State", "enum": ["draft", "assess", "authorize", "scheduled", "implement", "review", "closed", "cancelled"], "default": "draft"},
+      "requester": {"type": "string", "format": "uuid", "title": "Requester"},
+      "assignee": {"type": "string", "format": "uuid", "title": "Assignee"},
+      "assignment_group": {"type": "string", "format": "uuid", "title": "Assignment group"},
+      "change_type": {"type": "string", "title": "Type", "enum": ["standard", "normal", "emergency"], "default": "normal"},
+      "risk": {"type": "string", "title": "Risk", "enum": ["low", "moderate", "high"], "default": "moderate"},
+      "planned_start": {"type": "string", "format": "date-time", "title": "Planned start"},
+      "planned_end": {"type": "string", "format": "date-time", "title": "Planned end"},
+      "backout_plan": {"type": "string", "title": "Backout plan", "maxLength": 32000}
+    }
+  }
+}

@@ -1,0 +1,92 @@
+== sizes
+          relname           |  total  |  heap   
+----------------------------+---------+---------
+ entity_definitions         | 5400 kB | 1976 kB
+ entity_definition_versions | 57 MB   | 43 MB
+(2 rows)
+
+              indexrelid              | pg_size_pretty 
+--------------------------------------+----------------
+ entity_definitions_pkey              | 1192 kB
+ entity_definitions_key_key           | 1096 kB
+ entity_definitions_number_prefix_key | 1096 kB
+ entity_definition_versions_pkey      | 7216 kB
+ entity_definition_versions_id_key    | 6488 kB
+(5 rows)
+
+              set_config              
+--------------------------------------
+ b2634b9d-3e2e-8a4f-97f6-1ef9e83f5849
+(1 row)
+
+== Q1 type by key, with its current version (record create/read path)
+                                                                                 QUERY PLAN                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Result  (cost=0.72..16.77 rows=1 width=303) (actual time=0.048..0.052 rows=1 loops=1)
+   One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = 'b2634b9d-3e2e-8a4f-97f6-1ef9e83f5849'::uuid)
+   Buffers: shared hit=7
+   ->  Nested Loop  (cost=0.72..16.77 rows=1 width=303) (actual time=0.038..0.041 rows=1 loops=1)
+         Buffers: shared hit=7
+         ->  Index Scan using entity_definitions_key_key on entity_definitions d  (cost=0.29..8.31 rows=1 width=36) (actual time=0.019..0.021 rows=1 loops=1)
+               Index Cond: ((tenant_id = 'b2634b9d-3e2e-8a4f-97f6-1ef9e83f5849'::uuid) AND (key = 'type_7'::text))
+               Buffers: shared hit=3
+         ->  Index Scan using entity_definition_versions_pkey on entity_definition_versions v  (cost=0.42..8.44 rows=1 width=339) (actual time=0.014..0.014 rows=1 loops=1)
+               Index Cond: ((tenant_id = 'b2634b9d-3e2e-8a4f-97f6-1ef9e83f5849'::uuid) AND (definition_id = d.id) AND (version = d.current_version))
+               Buffers: shared hit=4
+ Planning:
+   Buffers: shared hit=130
+ Planning Time: 0.561 ms
+ Execution Time: 0.102 ms
+(15 rows)
+
+== Q2 version by id (interpreter, D-3-12)
+                                                                              QUERY PLAN                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Result  (cost=0.42..8.44 rows=1 width=254) (actual time=0.025..0.027 rows=1 loops=1)
+   One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = 'b2634b9d-3e2e-8a4f-97f6-1ef9e83f5849'::uuid)
+   Buffers: shared hit=4
+   ->  Index Scan using entity_definition_versions_id_key on entity_definition_versions  (cost=0.42..8.44 rows=1 width=254) (actual time=0.020..0.021 rows=1 loops=1)
+         Index Cond: ((tenant_id = 'b2634b9d-3e2e-8a4f-97f6-1ef9e83f5849'::uuid) AND (id = '3af5d6e0-694d-f3ff-13eb-6a4ac5af2d51'::uuid))
+         Buffers: shared hit=4
+ Planning Time: 0.181 ms
+ Execution Time: 0.045 ms
+(8 rows)
+
+== Q3 list a tenant types
+                                                                        QUERY PLAN                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=38.63..38.66 rows=10 width=38) (actual time=0.106..0.110 rows=10 loops=1)
+   Sort Key: key
+   Sort Method: quicksort  Memory: 25kB
+   Buffers: shared hit=12
+   ->  Result  (cost=4.38..38.47 rows=10 width=38) (actual time=0.035..0.065 rows=10 loops=1)
+         One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = 'b2634b9d-3e2e-8a4f-97f6-1ef9e83f5849'::uuid)
+         Buffers: shared hit=12
+         ->  Bitmap Heap Scan on entity_definitions  (cost=4.38..38.47 rows=10 width=38) (actual time=0.025..0.050 rows=10 loops=1)
+               Recheck Cond: (tenant_id = 'b2634b9d-3e2e-8a4f-97f6-1ef9e83f5849'::uuid)
+               Heap Blocks: exact=10
+               Buffers: shared hit=12
+               ->  Bitmap Index Scan on entity_definitions_number_prefix_key  (cost=0.00..4.36 rows=10 width=0) (actual time=0.015..0.016 rows=10 loops=1)
+                     Index Cond: (tenant_id = 'b2634b9d-3e2e-8a4f-97f6-1ef9e83f5849'::uuid)
+                     Buffers: shared hit=2
+ Planning:
+   Buffers: shared hit=6
+ Planning Time: 0.181 ms
+ Execution Time: 0.145 ms
+(18 rows)
+
+== Q4 version history of one type
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Result  (cost=0.42..8.44 rows=1 width=22) (actual time=0.022..0.028 rows=5 loops=1)
+   One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = 'b2634b9d-3e2e-8a4f-97f6-1ef9e83f5849'::uuid)
+   Buffers: shared hit=5
+   ->  Index Scan using entity_definition_versions_pkey on entity_definition_versions  (cost=0.42..8.44 rows=1 width=22) (actual time=0.014..0.018 rows=5 loops=1)
+         Index Cond: ((tenant_id = 'b2634b9d-3e2e-8a4f-97f6-1ef9e83f5849'::uuid) AND (definition_id = 'fc33d095-6dc5-1d5c-ae3a-1de858353b83'::uuid))
+         Buffers: shared hit=5
+ Planning:
+   Buffers: shared hit=6
+ Planning Time: 0.240 ms
+ Execution Time: 0.051 ms
+(10 rows)
+
