@@ -91,3 +91,26 @@ INSERT INTO pending_invite (tenant_id, email, expires_at, consumed_at) VALUES
     ('0a000000-0000-4000-8000-00000000000a', 'shared-invite@example.test', now() + interval '7 days', NULL),
     ('0b000000-0000-4000-8000-00000000000b', 'shared-invite@example.test', now() + interval '7 days', NULL),
     ('0b000000-0000-4000-8000-00000000000b', 'used-invite@example.test', now() + interval '7 days', now());
+
+-- Entity types and versions (P3-02, TICK-340). The key and number_prefix
+-- repeat across tenants on purpose: a lookup by either alone would find both
+-- tenants' rows without isolation. schema_sha256 is computed from the stored
+-- text, as the CHECK requires.
+INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000006a1', 'ticket', 'Ticket A', 'TCK', 1),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b1', 'ticket', 'Ticket B', 'TCK', 2),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b2', 'incident', 'Incident B', 'INC', 1);
+
+INSERT INTO entity_definition_versions (tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat, published_by)
+SELECT v.tenant_id::uuid, v.id::uuid, v.definition_id::uuid, v.version, v.schema::json,
+       sha256(convert_to(v.schema, 'UTF8')), '[]', '[]', v.compat, v.published_by::uuid
+FROM (VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000007a1', '0a000000-0000-4000-8000-0000000006a1', 1,
+        '{"type": "object"}', 'initial', '0a000000-0000-4000-8000-0000000003a1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000007b1', '0b000000-0000-4000-8000-0000000006b1', 1,
+        '{"type": "object"}', 'initial', '0b000000-0000-4000-8000-0000000003b1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000007b2', '0b000000-0000-4000-8000-0000000006b1', 2,
+        '{"type": "object", "title": "B v2"}', 'compatible', '0b000000-0000-4000-8000-0000000003b1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000007b3', '0b000000-0000-4000-8000-0000000006b2', 1,
+        '{"type": "object"}', 'initial', NULL)
+) AS v (tenant_id, id, definition_id, version, schema, compat, published_by);

@@ -39,9 +39,10 @@ roles:
 
   # The D28 system actors (A.3), one role each. Table entries: T09
   # (00002_platform_tables.sql), T16 (00003_identity_tables.sql), T18a
-  # (00004_tenant_email_domain.sql, 00007_email_domain_release.sql) and T252a
-  # (00006_pending_invite.sql). Every tenant table is under FORCE RLS, so a
-  # grant here reaches only the rows its policies allow.
+  # (00004_tenant_email_domain.sql, 00007_email_domain_release.sql), T252a
+  # (00006_pending_invite.sql) and P3-02 (20261031150000_entity_definitions.sql).
+  # Every tenant table is under FORCE RLS, so a grant here reaches only the
+  # rows its policies allow.
   nava_app:
     attributes: [LOGIN]
     pgbouncer_login: true
@@ -65,6 +66,10 @@ roles:
       tenant_email_domain: { SELECT: [] }
       # authz.RequireTenantAdmin (P3-04): the platform id of the tenant's admins group.
       tenant_admin_group: { SELECT: [] }
+      # Entity types (P3-02, TICK-340). A type's key and number_prefix are set
+      # once; publishing moves current_version. A version is insert-only (D-3-4).
+      entity_definitions: { SELECT: [], INSERT: [], UPDATE: [current_version, updated_at] }
+      entity_definition_versions: { SELECT: [], INSERT: [] }
     functions: {}
 
   # As nava_app, without idempotency_keys or tenants; the final activity
@@ -79,6 +84,8 @@ roles:
       outbox: { SELECT: [tenant_id, id, dedupe_key], INSERT: [] }
       workflow_ref: { SELECT: [], INSERT: [], UPDATE: [closed_at] }
       tenant_admin_group: { SELECT: [] }
+      entity_definitions: { SELECT: [] }
+      entity_definition_versions: { SELECT: [] }
 
   # Every column of outbox but dedupe_key and last_error; writes only the
   # dispatch columns. Nothing on workflow_ref or records.
@@ -125,6 +132,10 @@ roles:
       # DirectoryAdmin) and the tenant's pointer to it. Insert only.
       groups: { SELECT: [tenant_id, id, keycloak_group_id], INSERT: [tenant_id, id, keycloak_group_id, path] }
       tenant_admin_group: { INSERT: [tenant_id, group_id] }
+      # Seed templates (P3-06) while provisioning, with deterministic UUIDv5
+      # ids, so a plain INSERT is enough: no SELECT, no upsert (P3-02).
+      entity_definitions: { INSERT: [] }
+      entity_definition_versions: { INSERT: [] }
 
   # Writes the identity tables (T16), one transaction per tenant. UPDATE
   # leaves the keys alone: a row is re-keyed by delete and insert, never in

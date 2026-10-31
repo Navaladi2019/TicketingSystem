@@ -1,0 +1,40 @@
+{
+  "key": "incident",
+  "number_prefix": "INC",
+  "fixed_columns": {
+    "state": "state",
+    "requester": "requester_id",
+    "assignee": "assignee_id",
+    "assignment_group": "assignment_group_id"
+  },
+  "states": {
+    "initial": "new",
+    "states": ["new", "in_progress", "on_hold", "resolved", "closed"],
+    "transitions": [
+      {"from": "new", "to": "in_progress"},
+      {"from": "in_progress", "to": "on_hold"},
+      {"from": "on_hold", "to": "in_progress"},
+      {"from": "in_progress", "to": "resolved"},
+      {"from": "resolved", "to": "in_progress"},
+      {"from": "resolved", "to": "closed"}
+    ]
+  },
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["short_description", "state", "requester", "impact", "urgency"],
+    "properties": {
+      "short_description": {"type": "string", "title": "Short description", "minLength": 1, "maxLength": 160},
+      "description": {"type": "string", "title": "Description", "maxLength": 32000},
+      "state": {"type": "string", "title": "State", "enum": ["new", "in_progress", "on_hold", "resolved", "closed"], "default": "new"},
+      "requester": {"type": "string", "format": "uuid", "title": "Requester"},
+      "assignee": {"type": "string", "format": "uuid", "title": "Assignee"},
+      "assignment_group": {"type": "string", "format": "uuid", "title": "Assignment group"},
+      "impact": {"type": "integer", "title": "Impact", "enum": [1, 2, 3], "default": 3},
+      "urgency": {"type": "integer", "title": "Urgency", "enum": [1, 2, 3], "default": 3},
+      "category": {"type": "string", "title": "Category", "enum": ["hardware", "software", "network", "access", "other"]},
+      "resolution_notes": {"type": "string", "title": "Resolution notes", "maxLength": 32000}
+    }
+  }
+}

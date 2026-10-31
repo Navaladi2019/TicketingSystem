@@ -281,6 +281,110 @@ tenant = tenant 5 (0.3% of rows).
  Execution Time: 0.119 ms
 ```
 
+## Entity types and versions (P3-02)
+
+Scope: TICK-340, PLAN-003 D-3-2 and D-3-4 (groomed on TICK-360, TICK-363).
+Migration `db/migrations/20261031150000_entity_definitions.sql`, grants in
+`db/grants.yaml`, tests in `internal/db/dbtest/entity_definitions_test.go`.
+
+```mermaid
+erDiagram
+    tenants ||--o{ entity_definitions : "tenant_id"
+    entity_definitions ||--|{ entity_definition_versions : "(tenant_id, definition_id)"
+    principals |o--o{ entity_definition_versions : "(tenant_id, published_by)"
+
+    entity_definitions {
+        uuid tenant_id PK
+        uuid id PK
+        text key UK "per tenant, set once"
+        text name
+        text number_prefix UK "per tenant, set once"
+        int current_version "nava_app moves it"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+    entity_definition_versions {
+        uuid tenant_id PK
+        uuid definition_id PK "FK"
+        int version PK "1 or more"
+        uuid id UK "per tenant, names the version"
+        json schema "bytes as written, not jsonb"
+        bytea schema_sha256 "CHECK equals sha256 of schema"
+        jsonb fixed_columns
+        jsonb states
+        text compat "initial, compatible, needs_backfill"
+        uuid published_by "FK, NULL only for onboarding seeds"
+        timestamptz published_at
+    }
+```
+
+- **Immutable versions (D-3-4).** No role has `UPDATE` or `DELETE` on
+  `entity_definition_versions`, and there is no such policy: every attempt is
+  `42501` before RLS is consulted. `entity_definitions` has no `DELETE`
+  either; `nava_app` may `UPDATE` only `current_version` and `updated_at`, so
+  `key` and `number_prefix` are fixed at create. `key` matches
+  `^[a-z][a-z0-9_]{1,40}$` and `number_prefix` `^[A-Z]{2,6}$` (CHECK).
+- **`schema` is `json`.** `jsonb` reorders keys, drops duplicates and
+  rewrites whitespace. `schema_sha256` is checked against
+  `sha256(convert_to(schema::text, 'UTF8'))` on every insert, so the hash and
+  the bytes cannot disagree. Go reads `schema` as `[]byte`. Duplicate keys are
+  rejected before the insert by P3-03 (TICK-341), not here.
+- **Composite foreign keys (D-3-2).** Both references carry `tenant_id`,
+  since foreign-key checks run as the owner and ignore RLS. A version naming
+  another tenant's type or principal is `23503`.
+- **`published_by` is nullable.** Onboarding seeds templates (P3-06) while
+  the tenant is still provisioning, before group sync has written any
+  principal. A NULL skips the foreign key (MATCH SIMPLE) and names no other
+  tenant's row. Nothing in the database stops `nava_app` from writing NULL
+  too; the publish path in the service layer must always set it.
+- **`compat`.** Version 1, and only version 1, is `initial` (CHECK).
+- **Policies.** One per command, `TO` the granted roles only, each the
+  canonical tenant predicate. `nava_onboard`'s two `INSERT` policies add "and
+  that tenant is provisioning" and are pinned in
+  `catalog.PinnedTenantPolicies` (not the allow-list).
+
+| Role | `entity_definitions` | `entity_definition_versions` |
+| --- | --- | --- |
+| `nava_app` | SELECT, INSERT, UPDATE (`current_version`, `updated_at`) | SELECT, INSERT |
+| `nava_worker` | SELECT | SELECT |
+| `nava_onboard` | INSERT, own provisioning tenant only | INSERT, own provisioning tenant only |
+| every other role, `nava_purge` included | none | none |
+
+### Evidence (P3-02)
+
+`scratch/entity-definitions-bench/run.sh` (output in `result.txt`):
+`postgres:16.10` in Docker Desktop on Windows 11, Intel i7-1260P. 2,000
+tenants × 10 types × 5 versions = **20,000 types, 100,000 versions**, each
+schema about 1.6 kB of `json`. Queries run as `nava_app` under FORCE RLS
+with `app.tenant_id` set, warm cache.
+
+| Query | Plan | Buffers | Execution |
+| --- | --- | --- | --- |
+| Q1 type by `key`, joined to its current version (record create and read) | Index Scan `entity_definitions_key_key`, then Index Scan `entity_definition_versions_pkey` | 7 hit | 0.102 ms |
+| Q2 version by `id` (interpreter, D-3-12) | Index Scan `entity_definition_versions_id_key` | 4 hit | 0.045 ms |
+| Q3 a tenant's types, ordered by `key` | Bitmap Index Scan `entity_definitions_number_prefix_key`, sort of 10 rows | 12 hit | 0.145 ms |
+| Q4 one type's version history | Index Scan `entity_definition_versions_pkey` | 5 hit | 0.051 ms |
+
+The RLS predicate becomes a one-time filter on the constant tenant, and
+every index condition leads with `tenant_id`.
+
+**Index set and cost.** Five B-trees, every one a constraint the contract
+requires (two primary keys, three UNIQUE); no index beyond them. At the row
+counts above, versions take 43 MB of heap (the schemas compress) plus 7.2 MB
+(`pkey`) and 6.5 MB (`id_key`); types take 2.0 MB of heap plus about 1.1 MB
+per index. Write amplification is two index entries per version insert and
+three per type insert. Both tables are written rarely (a publish, an
+onboarding seed), so that cost is negligible next to the reads.
+
+**Left out on purpose.** No index on `(tenant_id, published_by)`: no
+runtime role deletes a principal (they are tombstoned, TICK-220), so the
+foreign key never scans for referencing rows. Add one, `CONCURRENTLY`, when a
+"versions a principal published" query or a principal hard delete appears.
+No foreign key from `current_version` to a version: it would be circular (a
+deferred constraint on both inserts) for a value only `nava_app`'s publish
+path moves; the service layer publishes the version and moves
+`current_version` in one transaction.
+
 ## Not done here (owners)
 
 - The CI-1 catalogue check across all future tables (RLS, FORCE, allow-list):
