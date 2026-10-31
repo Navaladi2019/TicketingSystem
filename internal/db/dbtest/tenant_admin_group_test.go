@@ -271,3 +271,133 @@ func TestP304DeletingTheGroupRemovesTheRow(t *testing.T) {
 		t.Errorf("rows after the group is deleted: %s, want 0", got)
 	}
 }
+
+// TICK-373: Activate changes no row of a provisioning tenant without a
+// tenant_admin_group row, returns ErrNoTenantAdmin, and the tenant stays
+// provisioning. Another tenant's row does not count. Once the row exists,
+// Activate succeeds, and a second Activate is ErrNotProvisioning.
+func TestP304hActivateRequiresATenantAdminRow(t *testing.T) {
+	migratedPlatform(t)
+	super := superNava(t)
+	seedTenants(t, super, nil, []string{tenantA, tenantB})
+	seedIdentity(t, super, tenantB)
+	exec(t, super, insertAdminGroupRow, tenantB, tenantB) // B has an admin, A has none
+
+	store := onboardStore(t, 4)
+	a := uuid.MustParse(tenantA)
+	for i := 0; i < 2; i++ { // a retry is refused the same way
+		if err := store.Activate(context.Background(), a); !errors.Is(err, onboard.ErrNoTenantAdmin) {
+			t.Fatalf("Activate #%d of a tenant without an admins row = %v, want ErrNoTenantAdmin", i+1, err)
+		}
+	}
+	if got := queryString(t, super, "SELECT state FROM tenants WHERE id = $1", tenantA); got != "provisioning" {
+		t.Fatalf("tenant state = %s, want provisioning", got)
+	}
+	if got := queryString(t, super, "SELECT state FROM tenants WHERE id = $1", tenantB); got != "provisioning" {
+		t.Errorf("tenant B state = %s, want provisioning (untouched)", got)
+	}
+
+	if err := store.RecordAdminGroup(context.Background(), a, "kc-admins"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Activate(context.Background(), a); err != nil {
+		t.Fatalf("Activate after RecordAdminGroup: %v", err)
+	}
+	if got := queryString(t, super, "SELECT state FROM tenants WHERE id = $1", tenantA); got != "active" {
+		t.Errorf("tenant state = %s, want active", got)
+	}
+	if err := store.Activate(context.Background(), a); !errors.Is(err, onboard.ErrNotProvisioning) {
+		t.Errorf("second Activate = %v, want ErrNotProvisioning", err)
+	}
+	// A tenant that does not exist is not provisioning.
+	if err := store.Activate(context.Background(), uuid.New()); !errors.Is(err, onboard.ErrNotProvisioning) {
+		t.Errorf("Activate of an unknown tenant = %v, want ErrNotProvisioning", err)
+	}
+}
+
+// TICK-373: tenant_admin_group_select_onboard shows nava_onboard only its own
+// provisioning tenant's row, and only the tenant_id column.
+func TestP304hOnboardReadsOnlyItsOwnProvisioningAdminRow(t *testing.T) {
+	migratedPlatform(t)
+	super := superNava(t)
+	seedTenants(t, super, []string{tenantA}, []string{tenantX, tenantY})
+	seedIdentity(t, super, tenantA, tenantX, tenantY)
+	for _, id := range []string{tenantA, tenantX, tenantY} {
+		exec(t, super, insertAdminGroupRow, id, id)
+	}
+	onb := asRole(t, "nava_onboard")
+	count := func(ctxTenant, sql string, args ...any) int {
+		var n int
+		err := inTenantTx(onb, ctxTenant, func(tx pgx.Tx) error {
+			return tx.QueryRow(context.Background(), sql, args...).Scan(&n)
+		})
+		if err != nil {
+			t.Fatalf("%s as tenant '%s': %v", sql, ctxTenant, err)
+		}
+		return n
+	}
+	const byID = "SELECT count(*)::int FROM tenant_admin_group WHERE tenant_id = $1"
+	const all = "SELECT count(*)::int FROM tenant_admin_group"
+
+	if n := count(tenantX, byID, tenantX); n != 1 {
+		t.Errorf("own provisioning tenant's row: %d, want 1", n)
+	}
+	// Cross-tenant: Y's transaction sees nothing of X, by id or by scan.
+	if n := count(tenantY, byID, tenantX); n != 0 {
+		t.Errorf("tenant X's row from tenant Y: %d, want 0", n)
+	}
+	if n := count(tenantY, all); n != 1 {
+		t.Errorf("rows visible to tenant Y: %d, want 1 (its own)", n)
+	}
+	if n := count("", all); n != 0 {
+		t.Errorf("rows visible with no app.tenant_id: %d, want 0", n)
+	}
+	// An active tenant's row is out of reach, even its own.
+	if n := count(tenantA, byID, tenantA); n != 0 {
+		t.Errorf("active tenant's own row: %d, want 0", n)
+	}
+	// Column grant: tenant_id only.
+	err := inTenantTx(onb, tenantX, func(tx pgx.Tx) error {
+		var g string
+		return tx.QueryRow(context.Background(), "SELECT group_id::text FROM tenant_admin_group WHERE tenant_id = $1", tenantX).Scan(&g)
+	})
+	wantSQLState(t, "nava_onboard SELECT group_id", err, "42501")
+}
+
+// TICK-373 adversarial (Security review): the Activate UPDATE run in tenant
+// Y's transaction cannot activate tenant X, even though X is provisioning and
+// has an admins row. And Y, which has no admins row, cannot borrow X's row to
+// pass the EXISTS guard: RLS hides X's row from Y's transaction.
+func TestP304hActivateCannotCrossTenants(t *testing.T) {
+	migratedPlatform(t)
+	super := superNava(t)
+	seedTenants(t, super, nil, []string{tenantX, tenantY})
+	seedIdentity(t, super, tenantX)
+	exec(t, super, insertAdminGroupRow, tenantX, tenantX) // only X has an admin
+	onb := asRole(t, "nava_onboard")
+	activated := func(ctxTenant, target, adminOf string) int64 {
+		var n int64
+		err := inTenantTx(onb, ctxTenant, func(tx pgx.Tx) error {
+			tag, err := tx.Exec(context.Background(), `UPDATE tenants SET state = 'active'
+				WHERE id = $1 AND state = 'provisioning'
+				  AND EXISTS (SELECT 1 FROM tenant_admin_group WHERE tenant_id = $2)`, target, adminOf)
+			n = tag.RowsAffected()
+			return err
+		})
+		if err != nil {
+			t.Fatalf("activate %s as tenant %s: %v", target, ctxTenant, err)
+		}
+		return n
+	}
+	if n := activated(tenantY, tenantX, tenantX); n != 0 {
+		t.Errorf("tenant Y's transaction activated tenant X: %d rows, want 0", n)
+	}
+	if n := activated(tenantY, tenantY, tenantX); n != 0 {
+		t.Errorf("tenant Y activated itself on tenant X's admins row: %d rows, want 0", n)
+	}
+	for _, id := range []string{tenantX, tenantY} {
+		if got := queryString(t, super, "SELECT state FROM tenants WHERE id = $1", id); got != "provisioning" {
+			t.Errorf("tenant %s state = %s, want provisioning", id, got)
+		}
+	}
+}
