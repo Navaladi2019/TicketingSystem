@@ -6,6 +6,7 @@ Delivery decisions that change a task's contract, newest first.
 
 <!-- docindex:start -->
 
+- [2026-10-31: PLAN-003 sequences the records path in two lanes; S10, S11b and S12 tasks are groomed later](decisions/2026-10-31-plan-003-records-path.md)
 - [2026-10-28: shared tables are append-safe: story-prefixed ids, `merge=union`, one file per decision](decisions/2026-10-28-append-safe-shared-tables.md)
 
 <!-- docindex:end -->
