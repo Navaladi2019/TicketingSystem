@@ -7,6 +7,7 @@ Delivery decisions that change a task's contract, newest first.
 <!-- docindex:start -->
 
 - [2026-10-31: PLAN-003 drafted: records path in two lanes; four task-text defects fixed before grooming](decisions/2026-10-31-plan-003-records-path.md)
+- [2026-10-31: PLAN-003 groomed twice (TICK-360, TICK-363); #293 kept, #294 closed; step ids are random v4; I9 ruling open with the CTO](decisions/2026-10-31-plan-003-grooming.md)
 - [2026-10-28: shared tables are append-safe: story-prefixed ids, `merge=union`, one file per decision](decisions/2026-10-28-append-safe-shared-tables.md)
 
 <!-- docindex:end -->
