@@ -220,16 +220,15 @@ container mounts. On the compose stack, from the repository directory, with the
 two ids from the log line:
 
 ```sh
-docker compose exec -it postgres sh -c   'export PGPASSWORD="$(cat /run/pg_superuser_password)";    exec psql -h /var/run/postgresql -U pgadmin -d nava "$@"'   sh -v tenant_id=<tenant uuid> -v kc_group_id=<keycloak group id>
+docker compose exec -it postgres sh -c \
+  'export PGPASSWORD="$(cat /run/pg_superuser_password)"; \
+   exec psql -h /var/run/postgresql -U pgadmin -d nava "$@"' \
+  sh -v ON_ERROR_STOP=1 \
+     -v tenant_id=<tenant uuid> -v kc_group_id=<keycloak group id>
 ```
 
 The password is read inside the container and never appears in an argument list.
-First thing in psql, so a failed statement stops the rest of what you paste:
-
-```psql
-\set ON_ERROR_STOP on
-```
-
+`ON_ERROR_STOP=1` makes a failed statement stop the rest of what you paste.
 `:'tenant_id'` and `:'kc_group_id'` below are those psql variables.
 
 ```sql
