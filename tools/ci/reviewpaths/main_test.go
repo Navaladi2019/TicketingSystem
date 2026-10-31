@@ -59,7 +59,7 @@ func TestSecurityPaths(t *testing.T) {
 		"internal/platform/auth/middleware.go",
 		"cmd/nava-relay/main.go",
 		// Planned (PLAN-001 T21): flagged from the PR that creates it.
-		"internal/onboarding/handler.go",
+		"internal/onboard/onboard.go",
 	} {
 		if !matchAny(cfg.Security.Patterns(), p) {
 			t.Errorf("%s is not on the security list", p)
