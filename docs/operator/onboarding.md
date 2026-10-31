@@ -224,6 +224,12 @@ docker compose exec -it postgres sh -c   'export PGPASSWORD="$(cat /run/pg_super
 ```
 
 The password is read inside the container and never appears in an argument list.
+First thing in psql, so a failed statement stops the rest of what you paste:
+
+```psql
+\set ON_ERROR_STOP on
+```
+
 `:'tenant_id'` and `:'kc_group_id'` below are those psql variables.
 
 ```sql
@@ -243,6 +249,21 @@ Expect one stale row whose `keycloak_group_id` differs from the logged one. If t
 first query returned more than one row, or the other two returned any, stop: the
 cause is not this one. Three empty results mean you are not connected as
 `pgadmin`.
+
+**Check Keycloak.** Before any repair, check that the logged `keycloak_group_id`
+is the tenant's admins group in Keycloak; the repair trusts it. From the repository
+directory, with the id from the log line (it must print `"path" : "/t/<tenant
+uuid>/admins"`; a 404 or another path means stop):
+
+```sh
+docker compose exec keycloak sh -c \
+  'cd /opt/keycloak/bin && export KCADM_CONFIG=$(mktemp) && \
+   ./kcadm.sh config credentials --config "$KCADM_CONFIG" --server http://localhost:8080 \
+     --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" --password "$KC_BOOTSTRAP_ADMIN_PASSWORD" >/dev/null && \
+   ./kcadm.sh get groups/"$1" --config "$KCADM_CONFIG" -r nava --fields id,path; \
+   rm -f "$KCADM_CONFIG"' \
+  sh <keycloak group id>
+```
 
 **Repair.** Run one option's block, which opens a transaction and runs one
 statement. Read its tag before you commit: it must be exactly `UPDATE 1` or
