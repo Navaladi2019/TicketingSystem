@@ -1,4 +1,4 @@
--- RFC-005 / ADR-001-A4 spike: start-time cascade key, INSERT ... ON CONFLICT DO NOTHING
+-- RFC-005 / ADR-001-A5 spike: start-time cascade key, INSERT ... ON CONFLICT DO NOTHING
 -- under FORCE ROW LEVEL SECURITY, run as a non-owner role. PostgreSQL 16.10.
 \set ON_ERROR_STOP off
 CREATE ROLE app NOLOGIN;
