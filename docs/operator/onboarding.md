@@ -210,11 +210,21 @@ stale row for it under the old Keycloak id. Group sync does not repair this on i
 own (it would re-point which Keycloak group grants tenant admin; D-P10). The fix
 is this operator step.
 
-**Confirm.** Connect to the platform database as its owner or a superuser: no
-runtime role may rewrite `keycloak_group_id`, and the owner is the only one that
-passes the row-level policies without `app.tenant_id`. Use the two ids from the log
-line. `:'tenant_id'` and `:'kc_group_id'` are psql variables
-(`psql -v tenant_id=<uuid> -v kc_group_id=<id>`).
+**Confirm.** Run the queries as the bootstrap superuser, `pgadmin`, over the
+Unix socket: it is the only role that can. `groups`, `tenant_admin_group` and
+`tenants` are under `FORCE ROW LEVEL SECURITY`; the migration owner
+(`nava_migrator`) and every runtime role are `NOBYPASSRLS`, so without
+`app.tenant_id` they see no rows and the repair would change nothing (`UPDATE 0`).
+`pg_hba.conf` lets `pgadmin` in over the socket only, which only the `postgres`
+container mounts. On the compose stack, from the repository directory, with the
+two ids from the log line:
+
+```sh
+docker compose exec -it postgres sh -c   'export PGPASSWORD="$(cat /run/pg_superuser_password)";    exec psql -h /var/run/postgresql -U pgadmin -d nava "$@"'   sh -v tenant_id=<tenant uuid> -v kc_group_id=<keycloak group id>
+```
+
+The password is read inside the container and never appears in an argument list.
+`:'tenant_id'` and `:'kc_group_id'` below are those psql variables.
 
 ```sql
 -- The stale row: the tenant's admins group, under an id Keycloak no longer has.
@@ -229,9 +239,15 @@ SELECT * FROM tenant_admin_group WHERE tenant_id = :'tenant_id'::uuid;
 SELECT * FROM groups WHERE tenant_id = :'tenant_id'::uuid AND keycloak_group_id = :'kc_group_id';
 ```
 
-Expect one stale row whose `keycloak_group_id` differs from the logged one.
+Expect one stale row whose `keycloak_group_id` differs from the logged one. If the
+first query returned more than one row, or the other two returned any, stop: the
+cause is not this one. Three empty results mean you are not connected as
+`pgadmin`.
 
-**Repair.** One transaction, one of the two options.
+**Repair.** Run one option's block, which opens a transaction and runs one
+statement. Read its tag before you commit: it must be exactly `UPDATE 1` or
+`DELETE 1`. Then run the `COMMIT` block; for any other tag, run the `ROLLBACK`
+block and stop.
 
 Option A (preferred): point the stale row at the current Keycloak id. Its platform
 id and memberships stay; the next group sync cycle (at most 5 minutes) refreshes
@@ -242,24 +258,31 @@ BEGIN;
 UPDATE groups
    SET keycloak_group_id = :'kc_group_id'
  WHERE tenant_id = :'tenant_id'::uuid
-   AND path = '/t/' || :'tenant_id' || '/admins';   -- must say UPDATE 1
-COMMIT;
+   AND path = '/t/' || :'tenant_id' || '/admins';
 ```
 
 Option B: remove the stale row. Its `group_members` and any `tenant_admin_group`
 row go with it (ON DELETE CASCADE); retry inserts a fresh row, and group sync
-re-adds the members.
+re-adds the members. `path` is not unique, so check that the tag is `DELETE 1`.
 
 ```sql
 BEGIN;
 DELETE FROM groups
  WHERE tenant_id = :'tenant_id'::uuid
-   AND path = '/t/' || :'tenant_id' || '/admins';   -- must say DELETE 1
+   AND path = '/t/' || :'tenant_id' || '/admins';
+```
+
+The tag was exactly 1:
+
+```sql
 COMMIT;
 ```
 
-If the statement says `UPDATE 0` or `DELETE 0`, or the confirm query returned more
-than one row, stop: the cause is not this one.
+Any other tag:
+
+```sql
+ROLLBACK;
+```
 
 **Retry.** Run the original onboarding request again with the same
 `Idempotency-Key` and body (see "Steps and recovery"). The admins-group step now
