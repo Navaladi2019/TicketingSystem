@@ -4,7 +4,7 @@ id: PLAN-003
 title: Records path — implementing the rest of ADR-001 (Epics 04, 05, 06, 07 records, 09)
 adr: "[[ADR-001-platform-blueprint]] (ACCEPTED by nava 2026-10-15, TICK-36), with A1, A2, E1, E3"
 issue: TICK-332
-status: PROPOSED, groomed on TICK-360 and TICK-363 (awaiting nava APPROVED / CHANGES)
+status: APPROVED by nava 2026-10-31 (TICK-332); groomed on TICK-360 and TICK-363
 date: 2026-10-31
 owner: Technical Lead
 ---
@@ -100,6 +100,7 @@ owner: Technical Lead
 | **D-3-21** | **Carried triggers.** AR-042 (no panic values from data) and AR-044 (`navalint` check that only `internal/workerguard` uses the guard failure types) fire with the first feature workflow: P3-26 covers both. TODO-010 does not fire (no update handlers; signals only). TODO-013 does not fire: P3-22a sets no summaries or static details, and its review checks that. |
 | **D-3-22** | **Uniqueness under concurrency:** before the uniqueness check, on create and on any update that changes a unique field, the pipeline takes `pg_advisory_xact_lock(hashtextextended(tenant_id ‖ entity_definition_id ‖ field ‖ canonical value, 0))`, then runs a plain `SELECT` (Principal Software Engineer, Postgres; TICK-360). It is released at commit, so it is safe under PgBouncer transaction pooling; a hash collision only adds waiting. No JSONB unique index (D25). |
 | **D-3-23** | **Determinism lint:** `workflowcheck` is added to `make lint` for `internal/workflow/...`, pinned as its own module `go.temporal.io/sdk/contrib/tools/workflowcheck` with a `docs/pins.md` row; `forbidigo` rules banning `time.Now` and `math/rand` in `internal/workflow/interp` stay as a second layer (Technical Architect, TICK-360). |
+| **D-3-24** | **`github.com/leandroluk/golang-zod` is not adopted in PLAN-003** (nava, on approval: "use it if needed"). Checked 2026-10-31: the repository has **no license** (all rights reserved, so it cannot ship on-premise); it was created 2026-10-27 and is at v0.13.0 with one maintainer, which is too young for the tenant-input validation path; its `go.mod` needs Go 1.27.1, and the platform is pinned to Go 1.26 (toolchain 1.26.10). It is also code-first: Epic 04 needs tenant-supplied JSON Schema 2020-12 documents validated as written, which D-3-18's library does and passes the official test suite for. Request bodies are already validated from the OpenAPI contract (kin-openapi). **Trigger to revisit:** the library gets an OSI license and a v1 tag, and the platform moves to Go 1.27. Then a one-run spike against the JSON-Schema-Test-Suite 2020-12 and P3-03's tests decides it. |
 
 ## Interface contracts (written before either side starts)
 
