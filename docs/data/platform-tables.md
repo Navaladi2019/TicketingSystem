@@ -80,7 +80,7 @@ With no tenant set, or an empty one, they match no row.
 | `records` | `records_select`, `records_insert`, `records_update` (app, worker) | none |
 | `outbox` | `outbox_select`, `outbox_insert` (app, worker) | `outbox_relay_select`, `outbox_relay_update` (pending rows only), `outbox_purge_select`, `outbox_purge` |
 | `workflow_ref` | `workflow_ref_select`, `workflow_ref_insert` (app, worker), `workflow_ref_update` (worker) | `workflow_ref_purge_select`, `workflow_ref_purge` |
-| `tenant_admin_group` | `tenant_admin_group_select` (app, worker) | `tenant_admin_group_insert` (onboard, provisioning tenant only); onboarding also inserts the admins `groups` row under `groups_insert_onboard` |
+| `tenant_admin_group` | `tenant_admin_group_select` (app, worker, nava_groupsync) | `tenant_admin_group_insert` (onboard, provisioning tenant only); onboarding also inserts the admins `groups` row under `groups_insert_onboard` and reads it back under `groups_select_onboard` |
 | `idempotency_keys` | `idempotency_select`, `idempotency_insert`, `idempotency_update` (app) | `idempotency_purge_select`, `idempotency_purge` |
 
 Every policy is `FOR` one command and `TO` named roles, never `ALL` or

@@ -175,11 +175,18 @@ func (s *PGStore) Bind(ctx context.Context, tenantID uuid.UUID, issuer, orgID, i
 	}
 }
 
+// ErrAdminGroupMissing is returned by RecordAdminGroup when, after the insert,
+// no groups row carries the Keycloak admins group id. That happens when the
+// group was deleted and re-created in Keycloak between retries: the insert
+// hits the primary key of the stale row and does nothing. Onboarding must
+// stop, not activate a tenant without an admin.
+var ErrAdminGroupMissing = errors.New("onboard: admins group has no groups row")
+
 // RecordAdminGroup implements Store. The groups insert is ON CONFLICT DO
 // NOTHING: if group sync already created the group, under any id, nothing is
-// inserted. The tenant_admin_group row is then written from the groups row
-// found by Keycloak id, so it always names the group's real id. A retry
-// inserts nothing.
+// inserted. If no groups row carries the Keycloak id afterwards, it returns
+// ErrAdminGroupMissing. Otherwise the tenant_admin_group row is written from
+// that row, so it always names the group's real id. A retry inserts nothing.
 func (s *PGStore) RecordAdminGroup(ctx context.Context, tenantID uuid.UUID, kcGroupID string) error {
 	id := AdminGroupID(tenantID)
 	path := identity.TenantGroupPrefix(tenantID) + identity.AdminGroupName
@@ -188,6 +195,15 @@ func (s *PGStore) RecordAdminGroup(ctx context.Context, tenantID uuid.UUID, kcGr
 			"INSERT INTO groups (tenant_id, id, keycloak_group_id, path) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
 			tenantID, id, kcGroupID, path); err != nil {
 			return err
+		}
+		var exists bool
+		if err := tx.QueryRow(ctx,
+			"SELECT EXISTS (SELECT 1 FROM groups WHERE tenant_id = $1 AND keycloak_group_id = $2)",
+			tenantID, kcGroupID).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return ErrAdminGroupMissing
 		}
 		// The row names the group's real id, whoever created it: group sync
 		// may have inserted the group first, under an id of its own.
@@ -198,6 +214,9 @@ func (s *PGStore) RecordAdminGroup(ctx context.Context, tenantID uuid.UUID, kcGr
 		return err
 	})
 	if err != nil {
+		if errors.Is(err, ErrAdminGroupMissing) {
+			return err
+		}
 		return fmt.Errorf("onboard: record admin group: %w", err)
 	}
 	return nil
