@@ -43,6 +43,16 @@ linters:
               desc: forbidden (TICK-94 item 12); the Keycloak client lives in internal/identity/keycloak
             - pkg: github.com/coreos/go-oidc
               desc: forbidden (TICK-94 item 11)
+        # The interpreter's file-backed fixtures and fakes (P3-22a) are test
+        # support: a worker binary never links them. P3-22b's stack test
+        # worker adds its build-tagged file here.
+        interp-fixtures:
+          files:
+            - "$all"
+            - "!$test"
+          deny:
+            - pkg: github.com/Navaladi2019/TicketingSystem/internal/workflow/interp/interptest
+              desc: test support only (P3-22a); production wires the real DefinitionStore, RecordReader and RecordWriter
     forbidigo:
       # Outbound calls go through telemetry.NewOutboundClient (timeouts, URL
       # redaction, no query or email in spans). A raw client skips all three.
@@ -68,6 +78,14 @@ linters:
         - pattern: ^workflow\.WithDataConverter$
           pkg: ^go\.temporal\.io/sdk/workflow$
           msg: workflow code uses the client's converter (workerguard.DataConverter), never its own
+        # Determinism, second layer behind workflowcheck (D-3-23): scoped to
+        # internal/workflow/interp by the exclusion rule below.
+        - pattern: ^time\.Now$
+          pkg: ^time$
+          msg: "interpreter determinism (D-3-23): use workflow.Now"
+        - pattern: ^rand\.
+          pkg: ^math/rand(/v2)?$
+          msg: "interpreter determinism (D-3-23): no math/rand in workflow code"
     sloglint:
       attr-only: true # slog.String(...) attributes, never loose key/value pairs
       context: all # *Context methods only, so every line carries the request ids
@@ -86,6 +104,10 @@ linters:
         linters: [gosec, forbidigo]
       - path: ^internal/platform/telemetry/
         linters: [forbidigo]
+      # The determinism bans apply only to the interpreter (D-3-23).
+      - path-except: ^internal/workflow/interp/
+        linters: [forbidigo]
+        text: interpreter determinism
 
 formatters:
   enable:

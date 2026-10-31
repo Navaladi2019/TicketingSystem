@@ -2,14 +2,15 @@
 // guard's allowed failure types outside internal/workerguard (AR-044, P3-26).
 //
 // The guard records the message of an ApplicationError unchanged only when
-// its type is ErrTypeTenantGuard ("nava.TenantGuard") or ErrTypeWorkflowRef
-// ("nava.WorkflowRefNotFound"), because only the guard builds those, with
-// fixed text or ids. Workflow or activity code that built one could put
-// record data in its message, and the history would keep it. So outside
-// internal/workerguard it reports:
-//   - any reference to workerguard.ErrTypeTenantGuard or
-//     workerguard.ErrTypeWorkflowRef;
-//   - a string constant equal to either value, as in
+// its type is ErrTypeTenantGuard ("nava.TenantGuard"), ErrTypeWorkflowRef
+// ("nava.WorkflowRefNotFound") or ErrTypeWorkflowRejected
+// ("nava.WorkflowRejected", built only by workerguard.Rejected, P3-22a),
+// because only the guard builds those, with fixed text or ids. Workflow or
+// activity code that built one could put record data in its message, and the
+// history would keep it. So outside internal/workerguard it reports:
+//   - any reference to workerguard.ErrTypeTenantGuard,
+//     workerguard.ErrTypeWorkflowRef or workerguard.ErrTypeWorkflowRejected;
+//   - a string constant equal to any of their values, as in
 //     temporal.NewApplicationError(msg, "nava."+"TenantGuard").
 //
 // _test.go files are exempt: they assert the type of the guard's errors and
@@ -31,18 +32,18 @@ const GuardPkg = "github.com/Navaladi2019/TicketingSystem/internal/workerguard"
 // Analyzer reports the guard's allowed failure types outside GuardPkg.
 var Analyzer = &analysis.Analyzer{
 	Name: "guarderrtype",
-	Doc:  "reports the worker guard's allowed failure types (nava.TenantGuard, nava.WorkflowRefNotFound) outside internal/workerguard (AR-044)",
+	Doc:  "reports the worker guard's allowed failure types (nava.TenantGuard, nava.WorkflowRefNotFound, nava.WorkflowRejected) outside internal/workerguard (AR-044)",
 	Run:  run,
 }
 
 const msg = "outside internal/workerguard: only the worker guard builds this failure type (AR-044)"
 
 func isGuardName(name string) bool {
-	return name == "ErrTypeTenantGuard" || name == "ErrTypeWorkflowRef"
+	return name == "ErrTypeTenantGuard" || name == "ErrTypeWorkflowRef" || name == "ErrTypeWorkflowRejected"
 }
 
 func isGuardValue(s string) bool {
-	return s == "nava.TenantGuard" || s == "nava.WorkflowRefNotFound"
+	return s == "nava.TenantGuard" || s == "nava.WorkflowRefNotFound" || s == "nava.WorkflowRejected"
 }
 
 func run(pass *analysis.Pass) (any, error) {

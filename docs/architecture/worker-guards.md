@@ -184,14 +184,17 @@ flowchart TD
   S -- yes --> P[recorded unchanged]
   S -- no --> C{cancel or timeout error?}
   C -- yes --> K[type kept; cause checked the same way;<br/>details argOK rejects dropped]
-  C -- no --> A{ApplicationError of an allowed type<br/>nava.TenantGuard, nava.WorkflowRefNotFound<br/>with no cause?}
+  C -- no --> A{ApplicationError of an allowed type<br/>nava.TenantGuard, nava.WorkflowRefNotFound,<br/>nava.WorkflowRejected with a Rejected text,<br/>no cause?}
   A -- yes --> D[message and type kept;<br/>details argOK rejects dropped]
   A -- no --> O[nava.Opaque, fixed text,<br/>same non-retryable flag]
   O --> L[deny alert + withheld line<br/>with the error's shape, never its text]
 ```
 
 Add a type to the allowed list only after a review that its messages are
-constants or ids. An activity panic is recovered in the guard and withheld,
+constants or ids. `nava.WorkflowRejected` (P3-22a) is the interpreter's: only
+`workerguard.Rejected(r)` builds it, from the closed `Rejection` constants,
+and the guard keeps its message only when it is one of their texts. AR-044's
+`guarderrtype` reports the type outside `internal/workerguard`. An activity panic is recovered in the guard and withheld,
 so neither its value nor its stack is recorded. A workflow panic is not: see
 AR-042. The full path table, with severities, is in
 `docs/security/temporal-ci6.md` ("Remaining history-write paths").

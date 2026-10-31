@@ -108,7 +108,14 @@ func sideEffectValueOK(v any) bool {
 // recorded as is. Their messages are constants or ids (review rule, TICK-245):
 // add a type here only with that review.
 func failureTypeAllowed(t string) bool {
-	return t == ErrTypeTenantGuard || t == ErrTypeWorkflowRef
+	return t == ErrTypeTenantGuard || t == ErrTypeWorkflowRef || t == ErrTypeWorkflowRejected
+}
+
+// failureMessageAllowed: an allowed type keeps its message, except that an
+// ErrTypeWorkflowRejected failure keeps only a message Rejected writes
+// (P3-22a), so one built outside Rejected with other text is withheld.
+func failureMessageAllowed(app *temporal.ApplicationError) bool {
+	return app.Type() != ErrTypeWorkflowRejected || rejectionMessageOK(app.Message())
 }
 
 // passesUnchanged: async completion, and the wrappers of an activity or child
@@ -166,7 +173,7 @@ func recordable(err error) (changed bool, out error) {
 		return true, temporal.NewTimeoutError(e.TimeoutType(), cause, kept...)
 	}
 	app, isApp := err.(*temporal.ApplicationError) //nolint:errorlint // the top level is what the SDK records
-	if isApp && failureTypeAllowed(app.Type()) && app.Unwrap() == nil {
+	if isApp && failureTypeAllowed(app.Type()) && failureMessageAllowed(app) && app.Unwrap() == nil {
 		kept, dropped := checkedDetails(app.HasDetails(), app.Details)
 		if !dropped {
 			return false, err

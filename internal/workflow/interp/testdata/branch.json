@@ -1,0 +1,60 @@
+{
+  "format": "nava.workflow/v1",
+  "trigger": {
+    "on": "record.created",
+    "entity": "ticket"
+  },
+  "start": "pick",
+  "steps": [
+    {
+      "key": "pick",
+      "type": "branch",
+      "cases": [
+        {
+          "field": "/priority",
+          "op": "in",
+          "value": [
+            "high",
+            "urgent"
+          ],
+          "next": "first_lane"
+        },
+        {
+          "field": "/priority",
+          "op": "eq",
+          "value": "high",
+          "next": "second_lane"
+        }
+      ],
+      "default": "fallback_lane"
+    },
+    {
+      "key": "first_lane",
+      "type": "update_record",
+      "set": {
+        "lane": "first"
+      },
+      "next": "done"
+    },
+    {
+      "key": "second_lane",
+      "type": "update_record",
+      "set": {
+        "lane": "second"
+      },
+      "next": "done"
+    },
+    {
+      "key": "fallback_lane",
+      "type": "update_record",
+      "set": {
+        "lane": "fallback"
+      },
+      "next": "done"
+    },
+    {
+      "key": "done",
+      "type": "end"
+    }
+  ]
+}

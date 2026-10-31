@@ -16,6 +16,7 @@
 #   navalint guarderrtype: 1 reference to workerguard.ErrTypeTenantGuard and
 #              1 "nava.WorkflowRefNotFound" literal outside
 #              internal/workerguard (AR-044, P3-26), seen by both passes.
+#   workflowcheck: 1 range over a map in a workflow function (D-3-23).
 set -u
 cd "$(dirname "$0")/../.."
 want=7
@@ -56,6 +57,14 @@ test "$n" -eq "$want" || { echo "lint-fixture: expected $want guarderrtype findi
 echo "$out" | grep -q "workerguard.ErrTypeTenantGuard used outside" || { echo "lint-fixture: the ErrTypeTenantGuard reference was not reported"; exit 1; }
 echo "$out" | grep -q 'failure type "nava.WorkflowRefNotFound"' || { echo "lint-fixture: the nava.WorkflowRefNotFound literal was not reported"; exit 1; }
 echo "lint-fixture: ok, $n guarderrtype findings"
+
+# workflowcheck (D-3-23): exactly the 1 planted map range in workflow code.
+code=0; out=$(GOFLAGS=-tags=lintfixture sh scripts/ci/workflowcheck.sh ./internal/platform/lintfixture/ 2>&1) || code=$?
+echo "$out"
+n=$(echo "$out" | grep -c "is non-deterministic, reason: iterates over map$" || true)
+test "$n" -eq 1 || { echo "lint-fixture: expected 1 workflowcheck finding, got $n"; exit 1; }
+echo "$out" | grep -q "workflowmaprange.go:.*MapOrderWorkflow is non-deterministic" || { echo "lint-fixture: the planted map range was not reported"; exit 1; }
+echo "lint-fixture: ok, $n workflowcheck finding"
 
 # ADR-002-E1: api.go carries one line-scoped waiver, not a file exclusion, so
 # the raw http.Client ban must still fire in that very file. Append a raw

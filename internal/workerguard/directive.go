@@ -44,12 +44,17 @@ const (
 	KindEnd          Kind = "end"
 )
 
-// MaxWaitSeconds is the longest wait a Directive may carry: 30 days.
-const MaxWaitSeconds = 30 * 24 * 60 * 60
+// MinWaitSeconds and MaxWaitSeconds bound the wait a timer or wait_signal
+// Directive carries: 1 second to 30 days (def.MinWaitSeconds and
+// def.MaxWaitSeconds must equal them; internal/workflow/interp tests it).
+const (
+	MinWaitSeconds = 1
+	MaxWaitSeconds = 30 * 24 * 60 * 60
+)
 
 // directiveRule is one row of the per-kind table: whether each optional
 // reference is required (true) or must be omitted (false), and whether the
-// wait is 1..MaxWaitSeconds (true) or 0 (false). Step is always required.
+// wait is MinWaitSeconds..MaxWaitSeconds (true) or 0 (false). Step is always required.
 type directiveRule struct {
 	next, signal, onTimeout, wait bool
 }
@@ -131,7 +136,7 @@ func directiveOK(data []byte) bool {
 		return false
 	}
 	if rule.wait {
-		return wait >= 1 && wait <= MaxWaitSeconds
+		return wait >= MinWaitSeconds && wait <= MaxWaitSeconds
 	}
 	return wait == 0
 }
