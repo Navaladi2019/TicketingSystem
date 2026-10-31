@@ -6,6 +6,7 @@ Delivery decisions that change a task's contract, newest first.
 
 <!-- docindex:start -->
 
+- [2026-10-31: PLAN-003 drafted: records path, serial stories, I9 cycle rule sent for an erratum](decisions/2026-10-31-plan-003-records-path.md)
 - [2026-10-28: shared tables are append-safe: story-prefixed ids, `merge=union`, one file per decision](decisions/2026-10-28-append-safe-shared-tables.md)
 
 <!-- docindex:end -->
