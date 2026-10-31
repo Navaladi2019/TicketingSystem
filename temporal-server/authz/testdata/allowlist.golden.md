@@ -195,7 +195,7 @@ A request to one of these APIs is allowed only if every workflow type, task queu
 
 | Set | Entries |
 |---|---|
-| `platformWorkflowTypes` | `nava.smoke.Echo`, `nava.smoke.relay` |
+| `platformWorkflowTypes` | `nava.interpreter`, `nava.smoke.Echo`, `nava.smoke.relay` |
 | `platformTaskQueues` | `nava-tq` |
 
 A STICKY queue name must match `^[^/]+:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`, must not be in `platformTaskQueues`, and its `NormalName` must be in `platformTaskQueues`.
