@@ -42,6 +42,9 @@ const (
 	MethodNotAllowed    Code = "method_not_allowed"
 	NotImplemented      Code = "not_implemented"
 	InternalError       Code = "internal_error"
+	InvalidDefinition   Code = "invalid_definition"
+	EntityTypeExists    Code = "entity_type_exists"
+	NumberPrefixTaken   Code = "number_prefix_taken"
 )
 
 // Codes lists every Code constant.
@@ -49,7 +52,7 @@ func Codes() []Code {
 	return []Code{
 		TenantUnresolved, InvalidToken, IdempotencyKeyReuse, IdempotencyInFlight, Forbidden, DomainClaimed, InvalidIdPConfig, OnboardingConflict, InvalidCursor,
 		RateLimited, NotFound, ValidationFailed, MethodNotAllowed,
-		NotImplemented, InternalError,
+		NotImplemented, InternalError, InvalidDefinition, EntityTypeExists, NumberPrefixTaken,
 	}
 }
 
@@ -111,7 +114,7 @@ type Body struct {
 	Status   int          `json:"status"`
 	Code     Code         `json:"code"`
 	Detail   string       `json:"detail"`
-	Instance string       `json:"instance"`
+	Instance string       `json:"instance,omitempty"`
 	Errors   []FieldError `json:"errors,omitempty"`
 }
 

@@ -1,0 +1,35 @@
+meta {
+  name: X4.2 Sign in as Alice (tenant A, not an admin)
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{keycloak_url}}/realms/{{realm}}/protocol/openid-connect/token
+  body: formUrlEncoded
+  auth: none
+}
+
+body:form-urlencoded {
+  grant_type: password
+  client_id: nava-web
+  scope: openid
+  username: {{alice_username}}
+  password: {{alice_password}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 200 from Keycloak', () => expect(res.getStatus()).to.eql(200));
+  const tok = N.json();
+  test('access token issued', () => expect(tok.access_token).to.be.a('string'));
+  bru.setVar('alice_token', tok.access_token);
+  if (tok.id_token) bru.setVar('alice_token_id', tok.id_token);
+  const c = N.jwt(tok.access_token);
+  bru.setVar('alice_token_exp', String(c.exp));
+  test('issuer is the pinned realm URL', () => expect(c.iss).to.eql(N.url('{{keycloak_issuer_url}}/realms/{{realm}}')));
+}
+
+docs {
+  Signs in as `{{alice_username}}` through Keycloak (client `nava-web`, password grant) and keeps the access token in the runtime variable `alice_token`.
+}

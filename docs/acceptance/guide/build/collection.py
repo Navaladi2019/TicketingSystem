@@ -950,6 +950,137 @@ test('the same tenant, state active', () => {
     }
 
 
+# --------------------------------------------------------------------------- X4
+def x4():
+    base = "{{core_url}}/api/v1/entity-types"
+    idem = {"Idempotency-Key": "{{x4_key}}"}
+    schema = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "additionalProperties": False,
+        "required": ["short_description", "state"],
+        "properties": {
+            "short_description": {"type": "string", "minLength": 1, "maxLength": 160},
+            "state": {"type": "string", "enum": ["new", "closed"], "default": "new"},
+        },
+    }
+
+    def body(key="{{x4_type}}", prefix="{{x4_prefix}}", **over):
+        b = {"key": key, "name": "Acceptance type", "number_prefix": prefix, "definition": {
+            "schema": schema, "fixed_columns": {"state": "state"},
+            "states": {"initial": "new", "states": ["new", "closed"], "transitions": [{"from": "new", "to": "closed"}]}}}
+        b.update(over)
+        return b
+
+    pre = """
+// One type key, prefix and Idempotency-Key per pass, so the folder can run again.
+const run = Math.random().toString(16).slice(2, 10);
+bru.setVar('x4_type', `x4_${run}`);
+bru.setVar('x4_prefix', Array.from({ length: 6 }, () => String.fromCharCode(65 + Math.floor(Math.random() * 26))).join(''));
+bru.setVar('x4_key', `tick343-x4-${run}-1`);
+bru.setVar('x4_key2', `tick343-x4-${run}-2`);
+bru.setVar('x4_key3', `tick343-x4-${run}-3`);
+"""
+    no404 = """
+test('HTTP 404 problem+json with code not_found and no instance', () => {
+  expect(res.getStatus()).to.eql(404);
+  expect(N.header('Content-Type') || '').to.include('application/problem+json');
+  const b = N.json();
+  expect(b.code).to.eql('not_found');
+  expect(b).to.not.have.property('instance');
+});
+N.status(404);"""
+    return {
+        "dir": "X4", "name": "X4 — API suite: entity types (listEntityTypes, createEntityType, getEntityType, getEntityTypeVersion)",
+        "desc": "TICK-343. Every documented outcome of the entity-type read and create endpoints: create as a tenant admin (201, version 1), the same key and prefix again (409), a non-admin (403), a bad definition (422 with `errors[].pointer`), a missing Idempotency-Key (400), reads of the current version and of version 1 with the stored schema and its `schema_sha256`, the 404 for an unknown key, and tenant B's view of tenant A's type (the same 404). 429, 500 and 501 are in the coverage page. Self-contained; every run uses a new type key. Needs `tools/seed.sh`.",
+        "items": [
+            token("X4.1 Sign in as tenant A's admin", "admin_a_username", "admin_a_password", "admin_a_token"),
+            token("X4.2 Sign in as Alice (tenant A, not an admin)", "alice_username", "alice_password", "alice_token"),
+            token("X4.3 Sign in as Bob (tenant B)", "bob_username", "bob_password", "bob_token"),
+            problem_req("X4.4 createEntityType 401: no token", "POST", base, "invalid_token", 401, desc="Missing token.",
+                        pre=pre, headers=idem, body=body()),
+            problem_req("X4.5 createEntityType 400: no Idempotency-Key", "POST", base, "validation_failed", 400,
+                        auth="admin_a_token", desc="Every tenant write needs the header.", body=body(),
+                        extra="N.fieldError('/header/Idempotency-Key');"),
+            problem_req("X4.6 createEntityType 403: a user who is not an admin", "POST", base, "forbidden", 403,
+                        auth="alice_token", headers=idem, body=body(),
+                        desc="The admin check runs before the body is read, so even a bad body gets 403."),
+            problem_req("X4.7 createEntityType 422: key and prefix rejected", "POST", base, "invalid_definition", 422,
+                        auth="admin_a_token", headers={"Idempotency-Key": "{{x4_key2}}"},
+                        body=body(key="Bad Key", prefix="x"),
+                        desc="Malformed `key` and `number_prefix`: `errors[].pointer` names each.",
+                        extra="N.fieldError('/key');\nN.fieldError('/number_prefix');"),
+            problem_req("X4.8 createEntityType 422: a definition that does not compile", "POST", base, "invalid_definition", 422,
+                        auth="admin_a_token", headers={"Idempotency-Key": "{{x4_key3}}"},
+                        body=body(definition={"schema": {"type": "array"}, "fixed_columns": {}, "states": {}}),
+                        desc="The schema root must be an object schema; the pointer is under `/definition`.",
+                        extra="test('a /definition/ pointer', () => expect((N.json().errors || []).some(e => e.pointer.startsWith('/definition'))).to.eql(true));"),
+            req("X4.9 createEntityType 201: version 1", "POST", base, auth="admin_a_token", headers=idem, body=body(),
+                desc="Creates the type. The response is version 1, current, with `schema_sha256`.",
+                tests="""N.status(201);
+const b = N.json();
+test('Content-Type application/json', () => expect(N.header('Content-Type')).to.include('application/json'));
+test('EntityTypeVersion: version 1, current, initial', () => {
+  expect(b.key).to.eql(bru.getVar('x4_type'));
+  expect(b.version).to.eql(1);
+  expect(b.current).to.eql(true);
+  expect(b.compat).to.eql('initial');
+  expect(b.schema_sha256).to.match(/^[0-9a-f]{64}$/);
+});
+bru.setVar('x4_sha', b.schema_sha256);"""),
+            req("X4.10 createEntityType 201: replay of X4.9", "POST", base, auth="admin_a_token", headers=idem, body=body(),
+                desc="The same key and body returns the stored response: same sha, same status.",
+                tests="""N.status(201);
+test('the same version 1', () => expect(N.json().schema_sha256).to.eql(bru.getVar('x4_sha')));"""),
+            problem_req("X4.11 createEntityType 409: the same key again", "POST", base, "entity_type_exists", 409,
+                        auth="admin_a_token", headers={"Idempotency-Key": "{{x4_key2}}"}, body=body(prefix="ZZZZZZ"),
+                        desc="A new Idempotency-Key, an existing type key."),
+            problem_req("X4.12 createEntityType 409: the prefix is taken", "POST", base, "number_prefix_taken", 409,
+                        auth="admin_a_token", headers={"Idempotency-Key": "{{x4_key3}}"}, body=body(key="{{x4_type}}b"),
+                        desc="A new key, the prefix of X4.9."),
+            problem_req("X4.13 createEntityType 409: the Idempotency-Key with another body", "POST", base,
+                        "idempotency_key_reuse", 409, auth="admin_a_token", headers=idem, body=body(key="{{x4_type}}c"),
+                        desc="The key of X4.9 with a different body."),
+            problem_req("X4.14 listEntityTypes 401: no token", "GET", base, "invalid_token", 401, desc="Missing token."),
+            problem_req("X4.15 listEntityTypes 400: limit over 200", "GET", base + "?limit=201", "validation_failed", 400,
+                        auth="alice_token", desc="`limit` has `maximum: 200`.", extra="N.fieldError('/query/limit');"),
+            req("X4.16 listEntityTypes 200: any tenant user sees the type", "GET", base + "?limit=200", auth="alice_token",
+                desc="Alice is not an admin; reads are open to the tenant.",
+                tests="""N.status(200);
+const b = N.json();
+test('items are summaries, ordered by key', () => {
+  expect(b.items).to.be.an('array');
+  expect(b.items.map(i => i.key)).to.eql(b.items.map(i => i.key).sort());
+  b.items.forEach(i => expect(Object.keys(i).sort()).to.eql(['current_version', 'key', 'name', 'number_prefix', 'updated_at']));
+});
+test('the type of X4.9 is listed', () => expect(b.items.map(i => i.key)).to.include(bru.getVar('x4_type')));"""),
+            req("X4.17 getEntityType 200: the current version", "GET", base + "/{{x4_type}}", auth="alice_token",
+                desc="Any tenant user.", tests="""N.status(200);
+test('version 1 of the type', () => {
+  expect(N.json().key).to.eql(bru.getVar('x4_type'));
+  expect(N.json().schema_sha256).to.eql(bru.getVar('x4_sha'));
+});"""),
+            req("X4.18 getEntityTypeVersion 200: version 1 with the stored schema", "GET", base + "/{{x4_type}}/versions/1",
+                auth="alice_token", desc="`schema` is the stored bytes; `schema_sha256` is their SHA-256.",
+                tests="""N.status(200);
+test('schema and hash', () => {
+  expect(N.json().schema.type).to.eql('object');
+  expect(N.json().schema_sha256).to.eql(bru.getVar('x4_sha'));
+});"""),
+            problem_req("X4.19 getEntityTypeVersion 400: n is not an integer", "GET", base + "/{{x4_type}}/versions/abc",
+                        "validation_failed", 400, auth="alice_token", desc="`n` is an integer."),
+            req("X4.20 getEntityType 404: an unknown key", "GET", base + "/no_such_type_x4", auth="alice_token",
+                desc="404 `not_found` with no `instance`.", tests=no404),
+            req("X4.21 getEntityType 404: tenant A's type read by tenant B", "GET", base + "/{{x4_type}}", auth="bob_token",
+                desc="The same 404 as an unknown key.", tests=no404 + "\nN.noLeak(bru.getVar('x4_type'));"),
+            req("X4.22 getEntityTypeVersion 404: a version that does not exist", "GET", base + "/{{x4_type}}/versions/2",
+                auth="alice_token", desc="Only version 1 exists.", tests=no404),
+            problem_req("X4.23 getEntityTypeVersion 401: no token", "GET", base + "/{{x4_type}}/versions/1", "invalid_token", 401,
+                        desc="Missing token."),
+            problem_req("X4.24 getEntityType 401: no token", "GET", base + "/{{x4_type}}", "invalid_token", 401,
+                        desc="Missing token."),
+        ],
+    }
+
+
 # --------------------------------------------------------------------------- X3
 ADMIN = [
     ("nava-core", "admin_url", ["keycloak", "postgres", "temporal"]),
@@ -1024,7 +1155,7 @@ if (wait > 0) {{ console.log(`waiting ${{Math.round(wait / 1000)}} s for the tok
     }
 
 
-FOLDERS = [s1, s2, s3, s4, s5, s6, s7, x1, x2, x3, late]
+FOLDERS = [s1, s2, s3, s4, s5, s6, s7, x1, x2, x4, x3, late]
 
 ENV = [
     ("core_url", "http://127.0.0.1:18080"),

@@ -9,12 +9,35 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/oapi-codegen/runtime"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
+
+// Defines values for EntityTypeVersionCompat.
+const (
+	Compatible    EntityTypeVersionCompat = "compatible"
+	Initial       EntityTypeVersionCompat = "initial"
+	NeedsBackfill EntityTypeVersionCompat = "needs_backfill"
+)
+
+// Valid indicates whether the value is a known member of the EntityTypeVersionCompat enum.
+func (e EntityTypeVersionCompat) Valid() bool {
+	switch e {
+	case Compatible:
+		return true
+	case Initial:
+		return true
+	case NeedsBackfill:
+		return true
+	default:
+		return false
+	}
+}
 
 // Defines values for OnboardIdPProviderId.
 const (
@@ -48,6 +71,50 @@ func (e OnboardedTenantState) Valid() bool {
 		return false
 	}
 }
+
+// CreateEntityTypeRequest Deliberately unconstrained here: the server checks every field after the admin check and answers 422 `invalid_definition` with `errors[].pointer`. Kept as the request bytes (`json.RawMessage`) so the schema is stored byte for byte.
+type CreateEntityTypeRequest = json.RawMessage
+
+// EntityTypeList defines model for EntityTypeList.
+type EntityTypeList struct {
+	Items []EntityTypeSummary `json:"items"`
+
+	// NextCursor Present when more entity types follow; pass it as `cursor`.
+	NextCursor *string `json:"next_cursor,omitempty"`
+}
+
+// EntityTypeSummary defines model for EntityTypeSummary.
+type EntityTypeSummary struct {
+	CurrentVersion int       `json:"current_version"`
+	Key            string    `json:"key"`
+	Name           string    `json:"name"`
+	NumberPrefix   string    `json:"number_prefix"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+// EntityTypeVersion defines model for EntityTypeVersion.
+type EntityTypeVersion struct {
+	Compat EntityTypeVersionCompat `json:"compat"`
+
+	// Current Whether this is the version new records are written under.
+	Current      bool              `json:"current"`
+	FixedColumns map[string]string `json:"fixed_columns"`
+	Key          string            `json:"key"`
+	Name         string            `json:"name"`
+	NumberPrefix string            `json:"number_prefix"`
+	PublishedAt  time.Time         `json:"published_at"`
+
+	// Schema The JSON Schema 2020-12 document, as the stored bytes.
+	Schema interface{} `json:"schema"`
+
+	// SchemaSha256 Lowercase hex SHA-256 of the stored schema bytes.
+	SchemaSha256 string                 `json:"schema_sha256"`
+	States       map[string]interface{} `json:"states"`
+	Version      int                    `json:"version"`
+}
+
+// EntityTypeVersionCompat defines model for EntityTypeVersion.Compat.
+type EntityTypeVersionCompat string
 
 // FieldError defines model for FieldError.
 type FieldError struct {
@@ -131,16 +198,54 @@ type Problem struct {
 	Type string `json:"type"`
 }
 
+// ProblemNoInstance A Problem without `instance`, for the 404 of a resource that may belong to another tenant: the body is identical for an unknown and a foreign resource (D-3-10). The request id is in the X-Request-Id header.
+type ProblemNoInstance struct {
+	Code   string `json:"code"`
+	Detail string `json:"detail"`
+	Status int    `json:"status"`
+	Title  string `json:"title"`
+	Type   string `json:"type"`
+}
+
+// Key defines model for Key.
+type Key = string
+
+// ListEntityTypesParams defines parameters for ListEntityTypes.
+type ListEntityTypesParams struct {
+	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// CreateEntityTypeParams defines parameters for CreateEntityType.
+type CreateEntityTypeParams struct {
+	IdempotencyKey string `json:"Idempotency-Key"`
+}
+
 // OnboardTenantParams defines parameters for OnboardTenant.
 type OnboardTenantParams struct {
 	IdempotencyKey string `json:"Idempotency-Key"`
 }
+
+// CreateEntityTypeJSONRequestBody defines body for CreateEntityType for application/json ContentType.
+type CreateEntityTypeJSONRequestBody = CreateEntityTypeRequest
 
 // OnboardTenantJSONRequestBody defines body for OnboardTenant for application/json ContentType.
 type OnboardTenantJSONRequestBody = OnboardTenantRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// ListEntityTypes List the tenant's entity types
+	// (GET /api/v1/entity-types)
+	ListEntityTypes(w http.ResponseWriter, r *http.Request, params ListEntityTypesParams)
+	// CreateEntityType Create an entity type (tenant admin)
+	// (POST /api/v1/entity-types)
+	CreateEntityType(w http.ResponseWriter, r *http.Request, params CreateEntityTypeParams)
+	// GetEntityType The current version of an entity type
+	// (GET /api/v1/entity-types/{key})
+	GetEntityType(w http.ResponseWriter, r *http.Request, key Key)
+	// GetEntityTypeVersion One published version of an entity type
+	// (GET /api/v1/entity-types/{key}/versions/{n})
+	GetEntityTypeVersion(w http.ResponseWriter, r *http.Request, key Key, n int32)
 	// GetMe The calling user and tenant
 	// (GET /api/v1/me)
 	GetMe(w http.ResponseWriter, r *http.Request)
@@ -157,6 +262,158 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// ListEntityTypes operation middleware
+func (siw *ServerInterfaceWrapper) ListEntityTypes(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListEntityTypesParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListEntityTypes(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateEntityType operation middleware
+func (siw *ServerInterfaceWrapper) CreateEntityType(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateEntityTypeParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateEntityType(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetEntityType operation middleware
+func (siw *ServerInterfaceWrapper) GetEntityType(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "key" -------------
+	var key Key
+
+	err = runtime.BindStyledParameterWithOptions("simple", "key", r.PathValue("key"), &key, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetEntityType(w, r, key)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetEntityTypeVersion operation middleware
+func (siw *ServerInterfaceWrapper) GetEntityTypeVersion(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "key" -------------
+	var key Key
+
+	err = runtime.BindStyledParameterWithOptions("simple", "key", r.PathValue("key"), &key, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "key", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "n" -------------
+	var n int32
+
+	err = runtime.BindStyledParameterWithOptions("simple", "n", r.PathValue("n"), &n, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int32", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "n", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetEntityTypeVersion(w, r, key, n)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // GetMe operation middleware
 func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request) {
@@ -339,11 +596,455 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/me", wrapper.GetMe)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/operator/tenants", wrapper.OnboardTenant)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/entity-types", wrapper.ListEntityTypes)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/entity-types", wrapper.CreateEntityType)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/entity-types/{key}", wrapper.GetEntityType)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/entity-types/{key}/versions/{n}", wrapper.GetEntityTypeVersion)
 
 	return m
 }
 
 type ProblemApplicationProblemPlusJSONResponse Problem
+
+type ProblemNoInstanceApplicationProblemPlusJSONResponse ProblemNoInstance
+
+type ListEntityTypesRequestObject struct {
+	Params ListEntityTypesParams
+}
+
+type ListEntityTypesResponseObject interface {
+	VisitListEntityTypesResponse(w http.ResponseWriter) error
+}
+
+type ListEntityTypes200JSONResponse EntityTypeList
+
+func (response ListEntityTypes200JSONResponse) VisitListEntityTypesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListEntityTypes400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response ListEntityTypes400ApplicationProblemPlusJSONResponse) VisitListEntityTypesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListEntityTypes401ApplicationProblemPlusJSONResponse Problem
+
+func (response ListEntityTypes401ApplicationProblemPlusJSONResponse) VisitListEntityTypesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListEntityTypes429ApplicationProblemPlusJSONResponse Problem
+
+func (response ListEntityTypes429ApplicationProblemPlusJSONResponse) VisitListEntityTypesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListEntityTypes500ApplicationProblemPlusJSONResponse Problem
+
+func (response ListEntityTypes500ApplicationProblemPlusJSONResponse) VisitListEntityTypesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListEntityTypes501ApplicationProblemPlusJSONResponse Problem
+
+func (response ListEntityTypes501ApplicationProblemPlusJSONResponse) VisitListEntityTypesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEntityTypeRequestObject struct {
+	Params CreateEntityTypeParams
+	Body   *CreateEntityTypeJSONRequestBody
+}
+
+type CreateEntityTypeResponseObject interface {
+	VisitCreateEntityTypeResponse(w http.ResponseWriter) error
+}
+
+type CreateEntityType201JSONResponse EntityTypeVersion
+
+func (response CreateEntityType201JSONResponse) VisitCreateEntityTypeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEntityType400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateEntityType400ApplicationProblemPlusJSONResponse) VisitCreateEntityTypeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEntityType401ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateEntityType401ApplicationProblemPlusJSONResponse) VisitCreateEntityTypeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEntityType403ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateEntityType403ApplicationProblemPlusJSONResponse) VisitCreateEntityTypeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEntityType409ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateEntityType409ApplicationProblemPlusJSONResponse) VisitCreateEntityTypeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEntityType422ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateEntityType422ApplicationProblemPlusJSONResponse) VisitCreateEntityTypeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEntityType429ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateEntityType429ApplicationProblemPlusJSONResponse) VisitCreateEntityTypeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEntityType500ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateEntityType500ApplicationProblemPlusJSONResponse) VisitCreateEntityTypeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEntityType501ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateEntityType501ApplicationProblemPlusJSONResponse) VisitCreateEntityTypeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEntityTypeRequestObject struct {
+	Key Key `json:"key"`
+}
+
+type GetEntityTypeResponseObject interface {
+	VisitGetEntityTypeResponse(w http.ResponseWriter) error
+}
+
+type GetEntityType200JSONResponse EntityTypeVersion
+
+func (response GetEntityType200JSONResponse) VisitGetEntityTypeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEntityType401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response GetEntityType401ApplicationProblemPlusJSONResponse) VisitGetEntityTypeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEntityType404ApplicationProblemPlusJSONResponse struct {
+	ProblemNoInstanceApplicationProblemPlusJSONResponse
+}
+
+func (response GetEntityType404ApplicationProblemPlusJSONResponse) VisitGetEntityTypeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEntityType429ApplicationProblemPlusJSONResponse Problem
+
+func (response GetEntityType429ApplicationProblemPlusJSONResponse) VisitGetEntityTypeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEntityType500ApplicationProblemPlusJSONResponse Problem
+
+func (response GetEntityType500ApplicationProblemPlusJSONResponse) VisitGetEntityTypeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEntityType501ApplicationProblemPlusJSONResponse Problem
+
+func (response GetEntityType501ApplicationProblemPlusJSONResponse) VisitGetEntityTypeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEntityTypeVersionRequestObject struct {
+	Key Key   `json:"key"`
+	N   int32 `json:"n"`
+}
+
+type GetEntityTypeVersionResponseObject interface {
+	VisitGetEntityTypeVersionResponse(w http.ResponseWriter) error
+}
+
+type GetEntityTypeVersion200JSONResponse EntityTypeVersion
+
+func (response GetEntityTypeVersion200JSONResponse) VisitGetEntityTypeVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEntityTypeVersion400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response GetEntityTypeVersion400ApplicationProblemPlusJSONResponse) VisitGetEntityTypeVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEntityTypeVersion401ApplicationProblemPlusJSONResponse Problem
+
+func (response GetEntityTypeVersion401ApplicationProblemPlusJSONResponse) VisitGetEntityTypeVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEntityTypeVersion404ApplicationProblemPlusJSONResponse struct {
+	ProblemNoInstanceApplicationProblemPlusJSONResponse
+}
+
+func (response GetEntityTypeVersion404ApplicationProblemPlusJSONResponse) VisitGetEntityTypeVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEntityTypeVersion429ApplicationProblemPlusJSONResponse Problem
+
+func (response GetEntityTypeVersion429ApplicationProblemPlusJSONResponse) VisitGetEntityTypeVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEntityTypeVersion500ApplicationProblemPlusJSONResponse Problem
+
+func (response GetEntityTypeVersion500ApplicationProblemPlusJSONResponse) VisitGetEntityTypeVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEntityTypeVersion501ApplicationProblemPlusJSONResponse Problem
+
+func (response GetEntityTypeVersion501ApplicationProblemPlusJSONResponse) VisitGetEntityTypeVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
 
 type GetMeRequestObject struct {
 }
@@ -577,6 +1278,18 @@ func (response OnboardTenant501ApplicationProblemPlusJSONResponse) VisitOnboardT
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// ListEntityTypes List the tenant's entity types
+	// (GET /api/v1/entity-types)
+	ListEntityTypes(ctx context.Context, request ListEntityTypesRequestObject) (ListEntityTypesResponseObject, error)
+	// CreateEntityType Create an entity type (tenant admin)
+	// (POST /api/v1/entity-types)
+	CreateEntityType(ctx context.Context, request CreateEntityTypeRequestObject) (CreateEntityTypeResponseObject, error)
+	// GetEntityType The current version of an entity type
+	// (GET /api/v1/entity-types/{key})
+	GetEntityType(ctx context.Context, request GetEntityTypeRequestObject) (GetEntityTypeResponseObject, error)
+	// GetEntityTypeVersion One published version of an entity type
+	// (GET /api/v1/entity-types/{key}/versions/{n})
+	GetEntityTypeVersion(ctx context.Context, request GetEntityTypeVersionRequestObject) (GetEntityTypeVersionResponseObject, error)
 	// GetMe The calling user and tenant
 	// (GET /api/v1/me)
 	GetMe(ctx context.Context, request GetMeRequestObject) (GetMeResponseObject, error)
@@ -622,6 +1335,118 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// ListEntityTypes operation middleware
+func (sh *strictHandler) ListEntityTypes(w http.ResponseWriter, r *http.Request, params ListEntityTypesParams) {
+	var request ListEntityTypesRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListEntityTypes(ctx, request.(ListEntityTypesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListEntityTypes")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListEntityTypesResponseObject); ok {
+		if err := validResponse.VisitListEntityTypesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateEntityType operation middleware
+func (sh *strictHandler) CreateEntityType(w http.ResponseWriter, r *http.Request, params CreateEntityTypeParams) {
+	var request CreateEntityTypeRequestObject
+
+	request.Params = params
+
+	var body CreateEntityTypeJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateEntityType(ctx, request.(CreateEntityTypeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateEntityType")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateEntityTypeResponseObject); ok {
+		if err := validResponse.VisitCreateEntityTypeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetEntityType operation middleware
+func (sh *strictHandler) GetEntityType(w http.ResponseWriter, r *http.Request, key Key) {
+	var request GetEntityTypeRequestObject
+
+	request.Key = key
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetEntityType(ctx, request.(GetEntityTypeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetEntityType")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetEntityTypeResponseObject); ok {
+		if err := validResponse.VisitGetEntityTypeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetEntityTypeVersion operation middleware
+func (sh *strictHandler) GetEntityTypeVersion(w http.ResponseWriter, r *http.Request, key Key, n int32) {
+	var request GetEntityTypeVersionRequestObject
+
+	request.Key = key
+	request.N = n
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetEntityTypeVersion(ctx, request.(GetEntityTypeVersionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetEntityTypeVersion")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetEntityTypeVersionResponseObject); ok {
+		if err := validResponse.VisitGetEntityTypeVersionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // GetMe operation middleware

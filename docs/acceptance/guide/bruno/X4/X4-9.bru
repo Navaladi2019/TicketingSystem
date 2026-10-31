@@ -1,0 +1,86 @@
+meta {
+  name: X4.9 createEntityType 201: version 1
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{core_url}}/api/v1/entity-types
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: {{x4_key}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "key": "{{x4_type}}",
+    "name": "Acceptance type",
+    "number_prefix": "{{x4_prefix}}",
+    "definition": {
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "short_description",
+          "state"
+        ],
+        "properties": {
+          "short_description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "new",
+              "closed"
+            ],
+            "default": "new"
+          }
+        }
+      },
+      "fixed_columns": {
+        "state": "state"
+      },
+      "states": {
+        "initial": "new",
+        "states": [
+          "new",
+          "closed"
+        ],
+        "transitions": [
+          {
+            "from": "new",
+            "to": "closed"
+          }
+        ]
+      }
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  test('Content-Type application/json', () => expect(N.header('Content-Type')).to.include('application/json'));
+  test('EntityTypeVersion: version 1, current, initial', () => {
+    expect(b.key).to.eql(bru.getVar('x4_type'));
+    expect(b.version).to.eql(1);
+    expect(b.current).to.eql(true);
+    expect(b.compat).to.eql('initial');
+    expect(b.schema_sha256).to.match(/^[0-9a-f]{64}$/);
+  });
+  bru.setVar('x4_sha', b.schema_sha256);
+}
+
+docs {
+  Creates the type. The response is version 1, current, with `schema_sha256`.
+}

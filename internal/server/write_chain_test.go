@@ -57,7 +57,14 @@ import (
 // tel.MeterProvider; until then such a route fails P3.
 func newTripwireHandler(t *testing.T, tel *telemetry.Telemetry, lim ratelimit.Limiter) http.Handler {
 	t.Helper()
-	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel, twoTenants{}, stubPaths{}, server.WithLimiter(lim))
+	// A pool that never connects: a request the idempotency middleware
+	// rejects (no key) does not reach the database.
+	pool, err := pgxpool.New(t.Context(), "postgres://nobody@127.0.0.1:1/none?connect_timeout=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel, twoTenants{}, stubPaths{}, server.WithLimiter(lim), server.WithPool(pool))
 	if err != nil {
 		t.Fatal(err)
 	}
