@@ -87,7 +87,9 @@ type Condition struct {
 	Value json.RawMessage `json:"value,omitempty"`
 }
 
-// Case is one arm of a branch step.
+// Case is one arm of a branch step. A branch evaluates its cases in array
+// order with Holds; the first case that holds wins and its Next is taken. When
+// no case holds, the branch takes Default.
 type Case struct {
 	Condition
 	Next string `json:"next"`

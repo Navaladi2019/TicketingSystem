@@ -3,6 +3,7 @@ package def
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 	"math/big"
 	"strconv"
 	"strings"
@@ -122,7 +123,9 @@ func equal(a, b any) bool {
 	return false
 }
 
-// number returns v as an exact rational when it is a JSON number.
+// number returns v as an exact rational when it is a JSON number. A float64
+// (what plain json.Unmarshal gives) is taken at its shortest round-trip text,
+// so 0.1 is 1/10 and equals the literal 0.1, as a json.Number record does.
 func number(v any) (*big.Rat, bool) {
 	switch n := v.(type) {
 	case json.Number:
@@ -131,19 +134,19 @@ func number(v any) (*big.Rat, bool) {
 			r, ok := new(big.Rat).SetString(s)
 			return r, ok
 		}
-		// An exponent goes through float64: big.Rat would expand "1e999999999"
-		// into a billion-digit integer.
+		// An exponent goes through float64 first: big.Rat would expand
+		// "1e999999999" into a billion-digit integer. The float64 text has an
+		// exponent of at most 308, so 1e-1 still becomes 1/10.
 		f, err := strconv.ParseFloat(s, 64)
 		if err != nil {
 			return nil, false
 		}
 		return number(f)
 	case float64:
-		r := new(big.Rat)
-		if r.SetFloat64(n) == nil {
+		if math.IsInf(n, 0) || math.IsNaN(n) {
 			return nil, false
 		}
-		return r, true
+		return new(big.Rat).SetString(strconv.FormatFloat(n, 'g', -1, 64))
 	}
 	return nil, false
 }

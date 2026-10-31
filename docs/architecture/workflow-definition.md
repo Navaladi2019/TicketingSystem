@@ -53,7 +53,9 @@ flowchart LR
 
 ## Conditions (`NextStep` contract)
 
-`Condition.Holds(record)`: `eq` compares decoded JSON values (`1` equals `1.0`, no coercion of `"1"`); `ne` is its negation; `in` is `eq` against any element. A missing field equals nothing: `eq` and `in` are false, `ne` is true. JSON `null` present equals `null`.
+`Condition.Holds(record)`: `eq` compares decoded JSON values (`1` equals `1.0`, no coercion of `"1"`); `ne` is its negation; `in` is `eq` against any element. A missing field equals nothing: `eq` and `in` are false, `ne` is true. JSON `null` present equals `null`. Numbers compare by decimal value whether the record was decoded to `float64` or `json.Number`: a `float64` is taken at its shortest round-trip text, so `0.1` equals `0.1` and `1e-1`.
+
+A `branch` evaluates its `cases` in array order; the first case that holds wins and its `next` is taken; `default` applies when none holds.
 
 ## Step and signal ids
 
