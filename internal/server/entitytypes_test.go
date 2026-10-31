@@ -251,3 +251,23 @@ func TestParseCreateReportsFieldAndDefinitionErrorsTogether(t *testing.T) {
 		t.Errorf("/key listed %d times, want 1: %v", n, perr.fields)
 	}
 }
+
+func TestParsePublish(t *testing.T) {
+	t.Parallel()
+	good := []byte(`{"definition":{"schema": ` + utSchema + `,"fixed_columns":{"state":"state"},"states":{"initial":"new"}}}`)
+	def, perr := parsePublish(good)
+	if perr != nil || string(def.Schema) != utSchema || def.FixedColumns["state"] != "state" {
+		t.Fatalf("parsePublish = %+v, %v", def, perr)
+	}
+	for name, body := range map[string]string{
+		"number_prefix": `{"number_prefix":"INC","definition":{}}`,
+		"missing":       `{}`,
+		"not object":    `[]`,
+		"bad type":      `{"definition":5}`,
+		"null":          `null`,
+	} {
+		if _, perr := parsePublish([]byte(body)); perr == nil || perr.code != problem.InvalidDefinition || len(perr.fields) == 0 {
+			t.Errorf("%s: err = %v, want invalid_definition with fields", name, perr)
+		}
+	}
+}

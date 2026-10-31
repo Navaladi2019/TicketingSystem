@@ -15,6 +15,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/Navaladi2019/TicketingSystem/api"
@@ -27,7 +28,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
-// Entity-type endpoints (TICK-343, P3-05a).
+// Entity-type endpoints (TICK-343, P3-05a; publish is TICK-365, P3-05b).
 
 const (
 	listEntityTypesRoute = "listEntityTypes"
@@ -204,6 +205,98 @@ func (h *handlers) CreateEntityType(ctx context.Context, req api.CreateEntityTyp
 	return &entityTypeResponse{status: http.StatusCreated, v: v}, nil
 }
 
+// PublishEntityTypeVersion serves POST /api/v1/entity-types/{key}/versions.
+// Like create, the admin check is first and inside the one transaction that
+// locks, classifies and writes. published_by is always the principal; a
+// request with none is refused before any row is touched.
+func (h *handlers) PublishEntityTypeVersion(ctx context.Context, req api.PublishEntityTypeVersionRequestObject) (api.PublishEntityTypeVersionResponseObject, error) {
+	p, ok := identity.FromContext(ctx)
+	if !ok || p.PrincipalID == uuid.Nil {
+		return nil, errNoPrincipal
+	}
+	if h.pool == nil {
+		return nil, notImplemented()
+	}
+	var raw json.RawMessage
+	if req.Body != nil {
+		raw = *req.Body
+	}
+	var v *entitytypes.Version
+	err := tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) error {
+		if err := authz.RequireTenantAdminTx(ctx, tx, p); err != nil {
+			return err
+		}
+		def, perr := parsePublish(raw)
+		if perr != nil {
+			return perr
+		}
+		if len(req.Key) > maxKeyBytes || !utf8.ValidString(req.Key) || strings.IndexByte(req.Key, 0) >= 0 {
+			return entitytypes.ErrNotFound // cannot exist, and must not reach the database
+		}
+		var err error
+		v, err = h.store.Publish(ctx, tx, p.TenantID, entitytypes.PublishInput{Key: req.Key, PublishedBy: p.PrincipalID, Definition: def})
+		return err
+	})
+	var (
+		breaking *entitytypes.BreakingError
+		invalidD *metadata.ErrInvalidDefinition
+	)
+	switch {
+	case errors.Is(err, authz.ErrForbidden):
+		return nil, &problemError{problem.Forbidden, nil, err}
+	case errors.Is(err, entitytypes.ErrNotFound):
+		return h.notFound(ctx), nil
+	case errors.As(err, &breaking):
+		fields := make([]problem.FieldError, len(breaking.Paths))
+		for i, path := range breaking.Paths {
+			fields[i] = invalid("/definition"+path, "breaking")
+		}
+		return nil, &problemError{problem.SchemaBreakingChange, fields, err}
+	case errors.As(err, &invalidD):
+		fields := make([]problem.FieldError, len(invalidD.Paths))
+		for i, path := range invalidD.Paths {
+			fields[i] = invalid("/definition"+path, "invalid")
+		}
+		return nil, unprocessable(fields...)
+	case err != nil:
+		return nil, err
+	}
+	h.log.InfoContext(ctx, "entity type version published",
+		slog.String("tenant_id", p.TenantID.String()), slog.String("entity_key", v.Key),
+		slog.Int("version", v.Version), slog.String("compat", v.Compat))
+	return &entityTypeResponse{status: http.StatusCreated, v: v}, nil
+}
+
+// parsePublish validates the publish body: only `definition`, and never a
+// number_prefix, which does not change after create. The definition itself is
+// compiled by the store against the stored key and prefix.
+func parsePublish(raw json.RawMessage) (metadata.Definition, *problemError) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
+		return metadata.Definition{}, unprocessable(invalid("", "type"))
+	}
+	var bad []problem.FieldError
+	if _, present := fields["number_prefix"]; present {
+		bad = append(bad, invalid("/number_prefix", "immutable"))
+	}
+	var def struct {
+		Schema       json.RawMessage     `json:"schema"`
+		FixedColumns map[string]string   `json:"fixed_columns"`
+		States       metadata.StateModel `json:"states"`
+	}
+	defRaw, present := fields["definition"]
+	switch {
+	case !present:
+		bad = append(bad, invalid("/definition", "required"))
+	case json.Unmarshal(defRaw, &def) != nil:
+		bad = append(bad, invalid("/definition", "type"))
+	}
+	if len(bad) > 0 {
+		return metadata.Definition{}, unprocessable(bad...)
+	}
+	return metadata.Definition{Schema: def.Schema, FixedColumns: def.FixedColumns, States: def.States}, nil
+}
+
 func invalid(pointer, rule string) problem.FieldError {
 	return problem.FieldError{Pointer: pointer, Rule: rule}
 }
@@ -356,14 +449,18 @@ func (r *entityTypeResponse) VisitGetEntityTypeResponse(w http.ResponseWriter) e
 func (r *entityTypeResponse) VisitGetEntityTypeVersionResponse(w http.ResponseWriter) error {
 	return r.write(w)
 }
+func (r *entityTypeResponse) VisitPublishEntityTypeVersionResponse(w http.ResponseWriter) error {
+	return r.write(w)
+}
 func (r *entityTypeResponse) VisitCreateEntityTypeResponse(w http.ResponseWriter) error {
 	return r.write(w)
 }
 
 var (
-	_ api.GetEntityTypeResponseObject        = (*entityTypeResponse)(nil)
-	_ api.GetEntityTypeVersionResponseObject = (*entityTypeResponse)(nil)
-	_ api.CreateEntityTypeResponseObject     = (*entityTypeResponse)(nil)
+	_ api.GetEntityTypeResponseObject            = (*entityTypeResponse)(nil)
+	_ api.GetEntityTypeVersionResponseObject     = (*entityTypeResponse)(nil)
+	_ api.CreateEntityTypeResponseObject         = (*entityTypeResponse)(nil)
+	_ api.PublishEntityTypeVersionResponseObject = (*entityTypeResponse)(nil)
 )
 
 // notFoundResponse is the 404 problem without `instance`: the same bytes for
@@ -384,12 +481,16 @@ func (r *notFoundResponse) write(w http.ResponseWriter) error {
 	return err
 }
 
+func (r *notFoundResponse) VisitPublishEntityTypeVersionResponse(w http.ResponseWriter) error {
+	return r.write(w)
+}
 func (r *notFoundResponse) VisitGetEntityTypeResponse(w http.ResponseWriter) error { return r.write(w) }
 func (r *notFoundResponse) VisitGetEntityTypeVersionResponse(w http.ResponseWriter) error {
 	return r.write(w)
 }
 
 var (
-	_ api.GetEntityTypeResponseObject        = (*notFoundResponse)(nil)
-	_ api.GetEntityTypeVersionResponseObject = (*notFoundResponse)(nil)
+	_ api.GetEntityTypeResponseObject            = (*notFoundResponse)(nil)
+	_ api.GetEntityTypeVersionResponseObject     = (*notFoundResponse)(nil)
+	_ api.PublishEntityTypeVersionResponseObject = (*notFoundResponse)(nil)
 )
