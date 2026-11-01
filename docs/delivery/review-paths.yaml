@@ -28,6 +28,8 @@ security:
   - internal/relay/
   - cmd/nava-relay/
   - internal/workerguard/
+  # The workflow interpreter and its definition format (PLAN-003 D-3-20).
+  - internal/workflow/
   # The auth middleware.
   - internal/platform/auth/
   # Cursor and idempotency.

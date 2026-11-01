@@ -13,6 +13,10 @@
 #              only by the tagged pass `make lint` runs.
 #   navalint idpclaims: 1 Keycloak claim read and 1 admin API path outside
 #              internal/identity/keycloak (T15, CI-11), seen by both passes.
+#   navalint guarderrtype: 1 reference to workerguard.ErrTypeTenantGuard and
+#              1 "nava.WorkflowRefNotFound" literal outside
+#              internal/workerguard (AR-044, P3-26), seen by both passes.
+#   workflowcheck: 1 range over a map in a workflow function (D-3-23).
 set -u
 cd "$(dirname "$0")/../.."
 want=7
@@ -46,6 +50,21 @@ test "$n" -eq "$want" || { echo "lint-fixture: expected $want idpclaims findings
 echo "$out" | grep -q 'Keycloak claim "organization"' || { echo "lint-fixture: the organization claim read was not reported"; exit 1; }
 echo "$out" | grep -q "Keycloak admin API" || { echo "lint-fixture: the admin API path was not reported"; exit 1; }
 echo "lint-fixture: ok, $n idpclaims findings"
+
+want=4
+n=$(echo "$out" | grep -c "guarderrtype.go:.*outside internal/workerguard: only the worker guard builds this failure type (AR-044)$" || true)
+test "$n" -eq "$want" || { echo "lint-fixture: expected $want guarderrtype findings, got $n"; exit 1; }
+echo "$out" | grep -q "workerguard.ErrTypeTenantGuard used outside" || { echo "lint-fixture: the ErrTypeTenantGuard reference was not reported"; exit 1; }
+echo "$out" | grep -q 'failure type "nava.WorkflowRefNotFound"' || { echo "lint-fixture: the nava.WorkflowRefNotFound literal was not reported"; exit 1; }
+echo "lint-fixture: ok, $n guarderrtype findings"
+
+# workflowcheck (D-3-23): exactly the 1 planted map range in workflow code.
+code=0; out=$(GOFLAGS=-tags=lintfixture sh scripts/ci/workflowcheck.sh ./internal/platform/lintfixture/ 2>&1) || code=$?
+echo "$out"
+n=$(echo "$out" | grep -c "is non-deterministic, reason: iterates over map$" || true)
+test "$n" -eq 1 || { echo "lint-fixture: expected 1 workflowcheck finding, got $n"; exit 1; }
+echo "$out" | grep -q "workflowmaprange.go:.*MapOrderWorkflow is non-deterministic" || { echo "lint-fixture: the planted map range was not reported"; exit 1; }
+echo "lint-fixture: ok, $n workflowcheck finding"
 
 # ADR-002-E1: api.go carries one line-scoped waiver, not a file exclusion, so
 # the raw http.Client ban must still fire in that very file. Append a raw

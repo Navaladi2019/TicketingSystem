@@ -89,7 +89,7 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 	}
 
 	fatal := make(chan error, 1)
-	w, mon, closeDeps, err := newWorker(ctx, log, tel, cfg, fatal)
+	w, mon, closeDeps, err := newWorker(ctx, log, tel, cfg, lookup, fatal)
 	if err != nil {
 		return errors.Join(err, flush())
 	}
@@ -122,10 +122,16 @@ func exportLogs(log *slog.Logger, tel *telemetry.Telemetry, level slog.Leveler) 
 }
 
 // newWorker builds the guarded client and worker, the workflow_ref activities'
-// pool and the readiness checks. The returned func closes the client and the
-// pools; call it after the worker has stopped.
-func newWorker(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, cfg config.Config, fatal chan<- error) (worker.Worker, *health.Monitor, func(), error) {
+// pool and the readiness checks, and registers the interpreter when
+// interpreterActivities returns its ports (an interptest build only). The
+// returned func closes the client and the pools; call it after the worker has
+// stopped.
+func newWorker(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, cfg config.Config, lookup config.LookupFunc, fatal chan<- error) (worker.Worker, *health.Monitor, func(), error) {
 	tlsConfig, err := temporaltls.Load(cfg.Deps.TemporalTLS)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	acts, err := interpreterActivities(lookup)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -174,8 +180,9 @@ func newWorker(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, 
 		return nil, nil, nil, err
 	}
 
-	w := worker.New(c, taskQueue, workerOptions(g, fatal))
+	w := worker.New(c, taskQueue, workerOptions(g, acts != nil, fatal))
 	(&workerguard.Activities{Pool: pool}).Register(w)
+	registerInterpreter(w, acts)
 	return w, mon, closeAll, nil
 }
 
@@ -193,17 +200,18 @@ func clientOptions(log *slog.Logger, address string, tlsConfig *tls.Config, tt *
 	return o
 }
 
-// workerOptions puts the guard last, through workerguard.WorkerOptions. No
-// workflow is registered yet (T32b adds the first), so the worker polls
-// activity tasks only: a workflow poller with nothing registered would take
-// workflow tasks on nava-tq and fail them.
+// workerOptions puts the guard last, through workerguard.WorkerOptions. The
+// worker polls workflow tasks only when workflows is set (the interpreter is
+// registered, an interptest build); otherwise it polls activity tasks only: a
+// workflow poller with nothing registered would take workflow tasks on
+// nava-tq and fail them.
 //
 // The SDK stops the worker on a fatal poll error (NamespaceNotFound,
 // InvalidArgument, ...) and reports it only through OnFatalError, which sends
 // it to fatal (the first error; fatal has room for one) for serve.
-func workerOptions(g *workerguard.Guard, fatal chan<- error) worker.Options {
+func workerOptions(g *workerguard.Guard, workflows bool, fatal chan<- error) worker.Options {
 	return workerguard.WorkerOptions(worker.Options{
-		DisableWorkflowWorker: true,
+		DisableWorkflowWorker: !workflows,
 		OnFatalError: func(err error) {
 			select {
 			case fatal <- err:

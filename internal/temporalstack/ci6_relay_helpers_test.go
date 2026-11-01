@@ -34,11 +34,12 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/workerguard"
 )
 
-// relayType is the lowercase workflow type on the D9 allow-list
-// (temporal-server/authz/policy.go) that an outbox kind can name. The signal
-// names below are outbox kinds too.
+// relayType is the workflow type the relay starts for the suite's start rows:
+// the allow-listed platform type (temporal-server/authz/policy.go), which an
+// outbox kind can name (lowercase). relayProbe is registered under it. The
+// signal names below are outbox kinds too.
 const (
-	relayType   = "nava.smoke.relay"
+	relayType   = platformType
 	sigNote     = "ci6.note"
 	sigRollover = "ci6.rollover"
 	sigDone     = "ci6.done"
@@ -259,10 +260,7 @@ func newRelayStack(t *testing.T) relayStack {
 	w := worker.New(dial(t, "nava-worker", setup), taskQueue,
 		workerguard.WorkerOptions(worker.Options{LocalActivityWorkerOnly: true}, g))
 	w.RegisterWorkflowWithOptions(relayProbe, workflow.RegisterOptions{Name: relayType})
-	if err := w.Start(); err != nil {
-		t.Fatalf("worker start: %v", err)
-	}
-	t.Cleanup(w.Stop)
+	startPlatformWorker(t, w)
 	return relayStack{relay: dial(t, "nava-relay", setup), core: dial(t, "nava-core", setup),
 		system: dial(t, "temporal-system"), logs: logs}
 }
