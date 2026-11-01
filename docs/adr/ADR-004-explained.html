@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-004 explained: one exportable, tamper-evident audit log</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--accbg:#ddf4ff;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--accbg:#0c2d6b;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.banner{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.pill{font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left;overflow-wrap:break-word}
+th{background:var(--soft)}
+table.front th{width:120px}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px;margin-top:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:44px}
+h3{font-size:18px;margin-top:28px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;background:var(--soft);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+figure.diagram{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure.diagram svg{width:100%;min-width:600px;height:auto;display:block;margin:0 auto;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+.tag{display:inline-block;font-size:12px;font-weight:700;padding:1px 9px;border-radius:999px;white-space:nowrap}
+.tag.red{color:var(--bad);background:var(--badbg);border:1px solid var(--bad)}
+.tag.green{color:var(--good);background:var(--goodbg);border:1px solid var(--good)}
+.tag.amber{color:var(--warn);background:var(--warnbg);border:1px solid var(--warn)}
+.verbatim{border:1px solid var(--acc);border-left:5px solid var(--acc);background:var(--accbg);border-radius:6px;padding:8px 14px;margin:12px 0}
+.vlabel{font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--acc)}
+.callout{border:1px solid var(--warn);background:var(--warnbg);border-radius:8px;padding:10px 14px;margin:14px 0}
+dl.gloss{display:grid;grid-template-columns:minmax(140px,220px) minmax(0,1fr);gap:6px 18px}
+dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
+@media (max-width:640px){dl.gloss{grid-template-columns:minmax(0,1fr)} dl.gloss dd{margin-bottom:8px}}
+@media print{table{display:table}}
+</style>
+</head>
+<body><main>
+<div class="banner"><span class="pill">READING GUIDE &middot; ADR-004 PROPOSED</span>
+<span class="src">This companion explains <code>ADR-004-audit-log.md</code>. It is not the decision record and changes nothing. If this page and the ADR disagree, the ADR wins.</span></div>
+<table class="front"><tbody>
+<tr><th>title</th><td>ADR-004 explained: one audit trail for every change a customer makes, which an auditor can export and check without trusting us</td></tr>
+<tr><th>type</th><td>An explainer for the decision-maker. It is not a decision record.</td></tr>
+<tr><th>explains</th><td>ADR-004 (status PROPOSED, 2026-11-02), from RFC-008 rev 1 on TICK-409, together with its companion amendment ADR-001-A6.</td></tr>
+<tr><th>audience</th><td>Anyone who needs to understand or approve the decision. It assumes no knowledge of PostgreSQL, Temporal or our write pipeline.</td></tr>
+</tbody></table>
+
+<h1>ADR-004, explained</h1>
+
+<blockquote><strong>The whole decision in four sentences.</strong>
+(1) Every change, to a ticket or to the configuration that governs tickets (forms, SLAs, approval rules, access rules and so on), writes one entry into a single audit log, in the same database transaction as the change itself.
+(2) A background "sealer" links the entries into a chain of fingerprints, so a later edit or deletion is detectable.
+(3) A tenant admin or auditor can export any slice of the log, and a small offline tool proves that the slice is complete and unaltered.
+(4) Personal data can still be erased later without breaking that proof.</blockquote>
+
+<h2>1. The problem in plain words</h2>
+<p>The founder's buyer research (2026-11-02) named the audit trail as <strong>the</strong> gate for regulated buyers. Their objection was specific: audit history must cover <em>configuration</em> changes (somebody edited the SLA rule, or loosened an approval policy), not only changes to tickets. Buyers will test it by making a real change and then exporting the audit.</p>
+<p>Before this decision there was no audit table at all. Record types (S8) kept their published versions, but nothing tied that history into a log that could be exported. Twelve epics now carry an acceptance criterion pointing at this decision. Epic 05 was held back from building its audit table until this was settled, so that nobody would have to retrofit it later.</p>
+
+<h2>2. What we decided</h2>
+<table><thead><tr><th>Question</th><th>Answer</th></tr></thead><tbody>
+<tr><td>One log or two?</td><td><span class="tag green">One</span> One table, <code>audit_log</code>, holds ticket changes, configuration changes, and the audit log's own events (exports, erasures). An auditor sees "the SLA rule changed at 10:02, then this case breached at 10:40" in one timeline.</td></tr>
+<tr><td>Can a change ever slip through without an entry?</td><td><span class="tag green">No</span> The database itself refuses to commit a change to an audited table unless the same transaction wrote its audit entry. If the change is rolled back, the entry goes with it.</td></tr>
+<tr><td>Can someone quietly edit or delete history?</td><td><span class="tag green">Not without detection</span> Nobody's runtime credentials can update or delete audit content. On top of that, the entries are chained by fingerprints (see §3), so any edit made directly in the database breaks the chain.</td></tr>
+<tr><td>How do buyers get the data?</td><td>A streamed export as JSON Lines (one JSON object per line) or CSV, filtered by time, subject or change set. The export is itself logged before it starts. An offline command, <code>nava audit verify</code>, checks the file.</td></tr>
+<tr><td>Can secrets leak into the log?</td><td><span class="tag green">No</span> A change that would put a password or API key into the log is rejected outright, including when the secret is buried inside a larger value.</td></tr>
+<tr><td>Can users see data they are not allowed to see?</td><td><span class="tag green">No</span> Field masks (hidden fields) apply to the audit too, at the moment it is read, for whoever is reading it.</td></tr>
+<tr><td>What about the record types already published (S8)?</td><td>They are copied into the log once (a "backfill"), so the log is complete from day one.</td></tr>
+<tr><td>New ADR or a change to the blueprint (ADR-001)?</td><td>A <strong>new ADR</strong>, plus a small amendment, <strong>ADR-001-A6</strong>, for three narrow additions: a new database role for erasure, a permission that lets onboarding start the sealer, and a rule for background jobs that are not tied to a ticket. No core rule of the blueprint changes.</td></tr>
+</tbody></table>
+
+<h2>3. How the fingerprint chain works</h2>
+<p>A <strong>hash</strong> is a short fingerprint of some data: change one byte of the data and the fingerprint changes completely. Each sealed audit entry stores the fingerprint of its own contents <em>combined with the previous entry's fingerprint</em>. So entry 101 depends on entry 100, which depends on entry 99, and so on. Change, delete or reorder any entry and every later link stops matching.</p>
+<figure class="diagram"><svg viewBox="0 0 760 170" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="hash chain">
+<defs><marker id="a" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#59636e"/></marker></defs>
+<g font-size="13" fill="#1f2328">
+<rect x="10" y="40" width="160" height="80" rx="8" fill="#ddf4ff" stroke="#0969da"/><text x="90" y="68" text-anchor="middle" font-weight="700">entry 99</text><text x="90" y="90" text-anchor="middle">contents fingerprint</text><text x="90" y="108" text-anchor="middle">+ link to 98</text>
+<rect x="210" y="40" width="160" height="80" rx="8" fill="#ddf4ff" stroke="#0969da"/><text x="290" y="68" text-anchor="middle" font-weight="700">entry 100</text><text x="290" y="90" text-anchor="middle">contents fingerprint</text><text x="290" y="108" text-anchor="middle">+ link to 99</text>
+<rect x="410" y="40" width="160" height="80" rx="8" fill="#ffebe9" stroke="#cf222e"/><text x="490" y="68" text-anchor="middle" font-weight="700">entry 101 (edited)</text><text x="490" y="90" text-anchor="middle">fingerprint changed</text><text x="490" y="108" text-anchor="middle">+ link to 100</text>
+<rect x="610" y="40" width="140" height="80" rx="8" fill="#ffebe9" stroke="#cf222e"/><text x="680" y="68" text-anchor="middle" font-weight="700">entry 102</text><text x="680" y="90" text-anchor="middle">link to 101</text><text x="680" y="108" text-anchor="middle">no longer matches</text>
+<line x1="170" y1="80" x2="208" y2="80" stroke="#59636e" stroke-width="2" marker-end="url(#a)"/><line x1="370" y1="80" x2="408" y2="80" stroke="#59636e" stroke-width="2" marker-end="url(#a)"/><line x1="570" y1="80" x2="608" y2="80" stroke="#cf222e" stroke-width="2" marker-end="url(#a)"/>
+<text x="380" y="155" text-anchor="middle" fill="#59636e">Editing 101 after sealing breaks the link from 102, and the verifier names the exact entry.</text>
+</g></svg><figcaption>Figure 1: each entry's fingerprint includes the previous one.</figcaption></figure>
+
+<p><strong>Why the chain is built "after" the change, not during it.</strong> If every change had to add itself to the chain at the moment it was saved, all the changes in one customer's account would have to queue behind each other, and one slow import would stall everyone. Instead, changes are saved immediately, and a background job (the <strong>sealer</strong>) links them into the chain a few seconds later. For a busy tenant the delay is about 10 seconds, and at most 5 minutes after a quiet period.</p>
+
+<figure class="diagram"><svg viewBox="0 0 760 230" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="write and seal flow">
+<defs><marker id="b" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#59636e"/></marker></defs>
+<g font-size="13" fill="#1f2328">
+<rect x="10" y="20" width="190" height="60" rx="8" fill="#f6f8fa" stroke="#d1d9e0"/><text x="105" y="45" text-anchor="middle" font-weight="700">A user saves a change</text><text x="105" y="65" text-anchor="middle">(ticket or configuration)</text>
+<rect x="270" y="20" width="220" height="60" rx="8" fill="#dafbe1" stroke="#1a7f37"/><text x="380" y="45" text-anchor="middle" font-weight="700">One transaction</text><text x="380" y="65" text-anchor="middle">the change + its audit entry</text>
+<rect x="560" y="20" width="190" height="60" rx="8" fill="#fff8c5" stroke="#9a6700"/><text x="655" y="45" text-anchor="middle" font-weight="700">Database check at commit</text><text x="655" y="65" text-anchor="middle">no entry means no commit</text>
+<rect x="270" y="130" width="220" height="60" rx="8" fill="#ddf4ff" stroke="#0969da"/><text x="380" y="155" text-anchor="middle" font-weight="700">Sealer, seconds later</text><text x="380" y="175" text-anchor="middle">links new entries into the chain</text>
+<rect x="560" y="130" width="190" height="60" rx="8" fill="#f6f8fa" stroke="#d1d9e0"/><text x="655" y="155" text-anchor="middle" font-weight="700">Export + offline verify</text><text x="655" y="175" text-anchor="middle">by the auditor</text>
+<line x1="200" y1="50" x2="268" y2="50" stroke="#59636e" stroke-width="2" marker-end="url(#b)"/>
+<line x1="490" y1="50" x2="558" y2="50" stroke="#59636e" stroke-width="2" marker-end="url(#b)"/>
+<line x1="380" y1="80" x2="380" y2="128" stroke="#59636e" stroke-width="2" marker-end="url(#b)"/>
+<line x1="490" y1="160" x2="558" y2="160" stroke="#59636e" stroke-width="2" marker-end="url(#b)"/>
+<path d="M300,190 C300,222 460,222 460,190" fill="none" stroke="#0969da" stroke-width="1.5" marker-end="url(#b)"/><text x="380" y="224" text-anchor="middle" fill="#0969da" font-size="12">each run books the next run before it starts sealing</text>
+</g></svg><figcaption>Figure 2: saving never waits for the sealer. The sealer keeps itself alive by booking its next run first.</figcaption></figure>
+
+<h2>4. Exports that prove they are complete</h2>
+<p>An auditor rarely wants everything. They ask for "all SLA changes in March". Those entries are scattered through the chain, with ticket changes in between. If we exported only the matching entries, a deleted SLA entry would look just like a normal gap. So the export also includes a <strong>stub</strong> for every entry in between: just its number and fingerprints, no content. The verifier can then walk the whole chain without gaps and still learns nothing about the entries the auditor did not ask for. The range always starts one entry <em>before</em> the window, so deleting the very first entry is caught too.</p>
+
+<h2>5. Erasing personal data without breaking the proof</h2>
+<p>Privacy law can require us to erase a person's data (Epic 30). Erasing would normally break the fingerprints. To avoid that, the chain fingerprints a <em>salted fingerprint</em> of the change details rather than the details themselves. A <strong>salt</strong> is random bytes mixed in, so the fingerprint cannot be reversed by guessing. Erasure removes the details and the salt, while the chain still checks out. Only one dedicated role, <code>nava_erasure</code>, can do this, and only in that one way. Every erasure writes its own entry naming what it erased. An entry that was blanked without such a record shows up as <strong>tampered</strong>. One whose record is not sealed yet shows up as <strong>pending</strong>.</p>
+
+<h2>6. Options we turned down</h2>
+<table><thead><tr><th>Option</th><th>Why not</th></tr></thead><tbody>
+<tr><td>Separate logs for tickets and configuration</td><td>Two timelines and two exports: exactly the gap buyers complained about.</td></tr>
+<tr><td>Build the chain at the moment of saving</td><td>All saves in an account would queue on one lock.</td></tr>
+<tr><td>A shared "wake the sealer" marker written by every save (our first draft)</td><td>Measured: saves waited about <strong>4 seconds</strong> behind each other, and two saves could deadlock (the database aborts one of them).</td></tr>
+<tr><td>Show existing record-type history through a view instead of copying it</td><td>A second reading path that the chain and the export would not cover.</td></tr>
+<tr><td>Only unfiltered exports are verifiable</td><td>Buyers test filtered exports.</td></tr>
+<tr><td>Anchor the chain outside our database in M1 (write-once storage, timestamping service)</td><td>A new vendor dependency and a recurring cost. The CTO deferred it (see §7).</td></tr>
+</tbody></table>
+
+<h2>7. What we are accepting</h2>
+<table><thead><tr><th>Risk</th><th>In plain words</th><th>When we revisit</th></tr></thead><tbody>
+<tr><td><span class="tag amber">R-A1</span></td><td>Someone with full control of our database could rewrite a customer's <em>entire</em> chain consistently. Only an export the customer already holds would reveal it. The CTO deferred outside anchoring.</td><td>A regulated buyer asks for external attestation.</td></tr>
+<tr><td><span class="tag amber">R-A2</span></td><td>New entries are unlinked for about 10 s (up to 5 min after a quiet period). An alert fires if this grows past 10 minutes.</td><td>The alert fires in production.</td></tr>
+<tr><td><span class="tag amber">R-A4</span></td><td>The performance cost of the commit check and of sealing is not measured yet. A one-day test (spike S1, owned by the Postgres Specialist) must pass before Epic 05 is planned: no more than 10% slower writes.</td><td>The S1 result.</td></tr>
+<tr><td><span class="tag amber">R-A5</span></td><td>Quiet tenants still cost a small background job about every 5 minutes. That is roughly 3 jobs per second per 1,000 tenants, an estimate.</td><td>The Epic 08 load test.</td></tr>
+<tr><td><span class="tag amber">R-A6</span></td><td>The one-time S8 copy briefly locks a few core tables, so it runs in a deploy window.</td><td>S8 data volume at Epic 05 planning.</td></tr>
+</tbody></table>
+
+<h2>8. Evidence</h2>
+<ul>
+<li><strong>The commit check works:</strong> a save without its audit entry fails at commit. Spike runs by the Technical Architect and the Postgres Specialist (PostgreSQL 16.10), archived under <code>docs/adr/ADR-004/spikes/</code>.</li>
+<li><strong>Red to green on the first draft's flaws:</strong>
+<ul>
+<li><span class="tag red">red</span> The shared wake-up marker made saves wait 3.9 to 4.0 s, and the onboarding role could not run the check ("permission denied"). <span class="tag green">green</span> In the revised design, saves never touch the marker, and every writer's permissions are generated from one list, which CI checks.</li>
+<li><span class="tag red">red</span> Rewriting the timestamp inside the database was shown to fail on a partitioned table, and a per-tenant unique sequence key is impossible on one. <span class="tag green">green</span> The design checks the timestamp instead of rewriting it, and the head-row lock replaces the unique key.</li>
+</ul></li>
+<li><strong>Review:</strong> the Technical Architect, the Security &amp; Multi-Tenancy Reviewer and the Postgres Specialist each raised blocking items in round 1 and approved in round 2. Their conditions are written into the ADR as rules. No isolation gap was found between customers.</li>
+</ul>
+
+<h2>9. Words used on this page</h2>
+<dl class="gloss">
+<dt>Transaction</dt><dd>A group of database writes that either all happen or none do.</dd>
+<dt>Tenant</dt><dd>One customer organisation. Its data is walled off from every other tenant.</dd>
+<dt>RLS (row-level security)</dt><dd>The database rule that makes every query see only the current tenant's rows.</dd>
+<dt>Hash / fingerprint</dt><dd>A short value computed from data. Any change to the data changes it.</dd>
+<dt>Sealer</dt><dd>The background job that links new audit entries into the chain.</dd>
+<dt>Stub line</dt><dd>An export line carrying only an entry's number and fingerprints, so the chain can be checked without revealing that entry.</dd>
+<dt>Outbox / relay</dt><dd>Our only safe way to start background work: write a row with the change, and a relay process starts the job from it.</dd>
+<dt>Partitioning</dt><dd>Storing a big table in time slices, so old slices can be archived cheaply later (Epic 30).</dd>
+</dl>
+</main>
+</body></html>
