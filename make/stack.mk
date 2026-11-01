@@ -85,7 +85,8 @@ image:
 # branch or a pull request can be read by no other ref, and those caches
 # filled the repository's 10 GB and evicted main's.
 BAKE_CACHED := db-roles keycloak nava-core nava-groupsync nava-onboard nava-purge nava-relay nava-worker otel-collector temporal-server
-BAKE_CACHE_TO = $(if $(filter true,$(CACHE_WRITE)),--set $(1).cache-to=type=gha,scope=$(1),mode=max,ignore-error=true)
+comma := ,
+BAKE_CACHE_TO = $(if $(filter true,$(CACHE_WRITE)),--set $(1).cache-to=type=gha$(comma)scope=$(1)$(comma)mode=max$(comma)ignore-error=true)
 BAKE_CACHE_GHA := $(foreach t,$(BAKE_CACHED),--set $(t).cache-from=type=gha,scope=$(t) $(call BAKE_CACHE_TO,$(t))) --set migrate.cache-from=type=gha,scope=db-roles
 BAKE_CACHE := $(if $(filter gha,$(IMAGE_CACHE)),$(BAKE_CACHE_GHA))
 PULL_POLICY := $(if $(filter local,$(IMAGE_CACHE)),--policy missing)
