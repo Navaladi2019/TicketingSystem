@@ -6,6 +6,7 @@ Delivery decisions that change a task's contract, newest first.
 
 <!-- docindex:start -->
 
+- [2026-11-01: agents accept and merge stories and ADRs; `MergePr` retired](decisions/2026-11-01-agent-only-story-and-adr-acceptance.md)
 - [2026-10-31: PLAN-003 drafted: records path in two lanes; four task-text defects fixed before grooming](decisions/2026-10-31-plan-003-records-path.md)
 - [2026-10-31: PLAN-003 groomed twice (TICK-360, TICK-363); #293 kept, #294 closed; step ids are random v4; I9 ruling open with the CTO](decisions/2026-10-31-plan-003-grooming.md)
 - [2026-10-31: PLAN-003 approved; golang-zod not adopted](decisions/2026-10-31-plan-003-approved-zod.md)
@@ -76,8 +77,8 @@ Delivery decisions that change a task's contract, newest first.
 - **Decided by:** vknavaladi (workspace merge and close policy), recorded by the Technical Lead on TICK-243.
 - **Decision:**
   - **Tasks and subtasks** (anything that is not a story task or an ADR): once the reviewer's `VERDICT: APPROVE` is in, CI is green and the acceptance criteria are met, the reviewer or implementer merges the task PR into the story branch and sets the task `done`.
-  - **Story tasks and story → `main` PRs:** agents never merge or close them. Add the `MergePr` label to the issue and the PR; the human merges after replying `ACCEPTED`.
-  - **ADRs, amendments and errata:** agents never merge or close them. Add `MergePr` after the human's sign-off; the human merges. The ADR still needs its `.md` and self-contained `.html` under `docs/adr/`.
+  - **Story tasks and story → `main` PRs** (superseded on 2026-11-01 by TICK-402: the Technical Lead accepts and merges; `MergePr` retired): agents never merge or close them. Add the `MergePr` label to the issue and the PR; the human merges after replying `ACCEPTED`.
+  - **ADRs, amendments and errata** (superseded on 2026-11-01 by TICK-402: the Solution Architect accepts and merges; `MergePr` retired): agents never merge or close them. Add `MergePr` after the human's sign-off; the human merges. The ADR still needs its `.md` and self-contained `.html` under `docs/adr/`.
 - **Supersedes:** any earlier "never merge the PR yourself" or "only the human sets a task `done`" instruction for task PRs.
 - **Dissent:** none.
 
@@ -86,7 +87,7 @@ Delivery decisions that change a task's contract, newest first.
 - **Decision:** the flow is task branch → story branch → `main`. Story branches start from `main` and the owner merges them after acceptance. Task PRs never target `main`.
 - **Technical Lead calls:**
   - Open PRs #116, #126, #129 and #130 were retargeted to their story branches. Their `agent/...` head names stay, because renaming a PR's head branch closes the PR on GitHub.
-  - Who merges is settled by the TICK-243 entry above: agents merge task PRs into story branches, and the owner merges story → `main` PRs and ADRs.
+  - Who merges is settled by the TICK-243 entry above: agents merge task PRs into story branches, and the owner merges story → `main` PRs and ADRs (superseded on 2026-11-01 by TICK-402: the Technical Lead merges story PRs, the Solution Architect merges ADRs).
   - TICK-231 itself has no story, so it targets `main`.
 - **Addendum (owner, same day):** stories must not share files. A dependent story waits in `backlog` until the story it depends on has merged into `main`. A story → `main` PR needs: `main` merged into the story branch, a full CI re-run, a whole-diff review by the Principal Software Engineer (plus Security when tenant data, auth or ACLs are touched), QA's green CI and acceptance kit, and the list of files it changes.
 - **Deferred:**
