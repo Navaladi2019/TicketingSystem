@@ -37,13 +37,13 @@ What you should see: every S8 check green. On a fresh stack, S8.11 publishes `ve
 
 | # | Criterion | Result | Evidence |
 |---|---|---|---|
-| AC1 | `admin@tenant-a` publishes a new `incident` schema and gets `201` with `version: 2`. Version 1 and version 2 each read back byte for byte as published. | see the run below | S8.11 (201, `version: 2 (fresh stack)`, response schema equals the published bytes, `schema_sha256` = SHA-256 of them). S8.12: version 2 read back. S8.6 and S8.13: version 1 equals the template bytes, before and after the publish. |
-| AC2 | A field type change is refused with `422 schema_breaking_change`, naming the field. Nothing new is stored. | see the run below | S8.8: 422 `schema_breaking_change`, `errors[].pointer` `/definition/schema/properties/priority/type`. S8.9: the next version is 404. S8.10: current version and bytes unchanged. |
-| AC3 | `agent@tenant-a` can read entity types but gets `403` on publish. | see the run below | S8.4, S8.5, S8.12 (reads, 200). S8.7: 403 `forbidden` on publish. S8.10: nothing stored. |
-| AC4 | `agent@tenant-b` sees only tenant B's `incident`, `request` and `change`, never tenant A's version 2. | see the run below | S8.14: exactly `change`, `incident`, `request`, each at version 1. S8.15: B's `incident` is version 1 with the template hash, not A's new hash. S8.17: A's version 2 read as B is a 404 byte-identical to S8.16's 404 for a version that exists nowhere. S8.14, S8.15 and S8.17 never name A's new field or hash. |
-| AC5 | A newly onboarded tenant starts with `incident`, `request` and `change` at version 1. | see the run below | S8.19 onboards a tenant through nava-onboard (201, `active`). The stack case `s8_entity_types` then checks in the database that the tenant has exactly those three types. Each is at `current_version` 1 with one version: `initial`, no publisher, and the same `schema_sha256` as the template. |
+| AC1 | `admin@tenant-a` publishes a new `incident` schema and gets `201` with `version: 2`. Version 1 and version 2 each read back byte for byte as published. | ✅ | S8.11 (201, `version: 2 (fresh stack)`, response schema equals the published bytes, `schema_sha256` = SHA-256 of them). S8.12: version 2 read back. S8.6 and S8.13: version 1 equals the template bytes, before and after the publish. |
+| AC2 | A field type change is refused with `422 schema_breaking_change`, naming the field. Nothing new is stored. | ✅ | S8.8: 422 `schema_breaking_change`, `errors[].pointer` `/definition/schema/properties/priority/type`. S8.9: the next version is 404. S8.10: current version and bytes unchanged. |
+| AC3 | `agent@tenant-a` can read entity types but gets `403` on publish. | ❌ partly: the 403 and single-type reads pass; the list (S8.4) is 501 | S8.4, S8.5, S8.12 (reads, 200). S8.7: 403 `forbidden` on publish. S8.10: nothing stored. |
+| AC4 | `agent@tenant-b` sees only tenant B's `incident`, `request` and `change`, never tenant A's version 2. | ❌ the list (S8.14) is 501; S8.15 and S8.17 (A's version 2 is a byte-identical 404) pass | S8.14: exactly `change`, `incident`, `request`, each at version 1. S8.15: B's `incident` is version 1 with the template hash, not A's new hash. S8.17: A's version 2 read as B is a 404 byte-identical to S8.16's 404 for a version that exists nowhere. S8.14, S8.15 and S8.17 never name A's new field or hash. |
+| AC5 | A newly onboarded tenant starts with `incident`, `request` and `change` at version 1. | ✅ | S8.19 onboards a tenant through nava-onboard (201, `active`). The stack case `s8_entity_types` then checks in the database that the tenant has exactly those three types. Each is at `current_version` 1 with one version: `initial`, no publisher, and the same `schema_sha256` as the template. |
 
-**Verified on a fresh stack in GitHub Actions:** see the "Last verified run" section below.
+**Status: not ready.** `GET /api/v1/entity-types` answers 501 on the stack, because compose gives nava-core no cursor keyring. The fix task is TICK-390. The kit goes to the human only after a run on a fresh stack passes every criterion.
 
 ## Isolation check
 
@@ -70,4 +70,11 @@ None of these responses contains A's new field name or A's new hash. Deeper isol
 
 ## Last verified run
 
-Filled in from the GitHub Actions run below.
+Fresh stack in GitHub Actions, `ci` workflow (`workflow_dispatch` on `TICK-346/s8-acceptance-kit`, story branch `TICK-333/entity-types-versioned` at `1d880e6`), job `stack`, case `s8_entity_types`:
+
+| Run | Commit | Bruno S8 | AC5 database check | Result |
+|---|---|---|---|---|
+| [41268252389](https://github.com/Navaladi2019/TicketingSystem/actions/runs/41268252389) | `4891710` | 19 requests (17 passed, 2 failed), 58 of 62 tests | ok: onboarded tenant `5a613be9-…` has `change`, `incident`, `request` at version 1, `initial`, template hashes | **FAIL**: S8.4, S8.14 501 `not_implemented` |
+| [41267017861](https://github.com/Navaladi2019/TicketingSystem/actions/runs/41267017861) | `1ced7ec` | the same 2 failures, 58 of 62 tests | not reached (that version of the case stopped at Bruno) | **FAIL** |
+
+Every other S8 check passed on both runs. The failures are the two list requests (TICK-390). The run reports (`docs/acceptance/guide/reports/S8.*`) hold short-lived tokens, so they stay on the runner. The job log has the full bru output.
