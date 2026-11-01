@@ -110,7 +110,7 @@ func wantSQLState(t *testing.T, what string, err error, code string) {
 	}
 }
 
-// Every T09, T16, T18a, T252a and P3-02 table is under ENABLE and FORCE ROW LEVEL SECURITY, and
+// Every T09, T16, T18a, T252a, P3-02 and P3-09 table is under ENABLE and FORCE ROW LEVEL SECURITY, and
 // so is every other table in schema public but goose's version table.
 func TestT09EveryTableForcesRLS(t *testing.T) {
 	migratedPlatform(t)
@@ -119,7 +119,7 @@ func TestT09EveryTableForcesRLS(t *testing.T) {
 		SELECT coalesce(string_agg(relname, ',' ORDER BY relname), '') FROM pg_class
 		WHERE relnamespace = 'public'::regnamespace AND relkind IN ('r', 'p')
 		  AND relrowsecurity AND relforcerowsecurity`)
-	want := strings.Join(sorted(append(append(platformTables(), identityTables()...), "tenant_email_domain", "pending_invite", "tenant_admin_group", "entity_definitions", "entity_definition_versions")), ",")
+	want := strings.Join(sorted(append(append(platformTables(), identityTables()...), "tenant_email_domain", "pending_invite", "tenant_admin_group", "entity_definitions", "entity_definition_versions", "audit_log", "record_counters")), ",")
 	if got != want {
 		t.Fatalf("tables with ENABLE + FORCE RLS = %s, want %s", got, want)
 	}

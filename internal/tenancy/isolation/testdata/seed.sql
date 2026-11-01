@@ -117,3 +117,30 @@ FROM (VALUES
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000007b3', '0b000000-0000-4000-8000-0000000006b2', 1,
         '{"type": "object"}', 'initial', NULL)
 ) AS v (tenant_id, id, definition_id, version, schema, compat, published_by);
+
+-- Records pipeline (P3-09, TICK-353). Tenant B's ticket record carries
+-- pipeline columns naming its own principal and group, with the same number
+-- as tenant A's, so a lookup by number alone would find both tenants' rows;
+-- the idempotency key repeats across tenants for the same reason. Tenant A's
+-- records stay bare PLAN-001 rows, which the all-or-none CHECK allows.
+UPDATE records SET entity_definition_id = '0a000000-0000-4000-8000-0000000006a1', schema_version = 1,
+       number = 'TCK0000001', state = 'new', requester_id = '0a000000-0000-4000-8000-0000000003a1',
+       created_by = '0a000000-0000-4000-8000-0000000003a1', assignment_group_id = '0a000000-0000-4000-8000-0000000004a1'
+WHERE tenant_id = '0a000000-0000-4000-8000-00000000000a' AND id = '0a000000-0000-4000-8000-0000000000a2';
+UPDATE records SET entity_definition_id = '0b000000-0000-4000-8000-0000000006b1', schema_version = 2,
+       number = 'TCK0000001', state = 'new', requester_id = '0b000000-0000-4000-8000-0000000003b1',
+       created_by = '0b000000-0000-4000-8000-0000000003b1', assignment_group_id = '0b000000-0000-4000-8000-0000000004b1'
+WHERE tenant_id = '0b000000-0000-4000-8000-00000000000b' AND id = '0b000000-0000-4000-8000-0000000000b2';
+
+INSERT INTO audit_log (tenant_id, id, record_id, action, actor_id, source, after, idempotency_key) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000008a1', '0a000000-0000-4000-8000-0000000000a2',
+        'create', '0a000000-0000-4000-8000-0000000003a1', 'user', '{}', 'shared-audit-key'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000008b1', '0b000000-0000-4000-8000-0000000000b2',
+        'create', '0b000000-0000-4000-8000-0000000003b1', 'user', '{}', 'shared-audit-key'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000008b2', NULL,
+        'cascade_rejected', NULL, 'workflow', NULL, NULL);
+
+INSERT INTO record_counters (tenant_id, entity_definition_id, next) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000006a1', 2),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b1', 2),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b2', 5);
