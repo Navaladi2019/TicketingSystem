@@ -61,36 +61,76 @@ there; production files never set them.
 A change to `go.sum` or a Dockerfile base stage is a cold run (about 8 to 10
 minutes); the next run is warm again.
 
-**Job time budgets (TICK-258).** The 5-minute figure above was the target; the
-stack jobs do not meet it, because `make image-ci` alone takes 450 to 600 s of
-every run. `timeout-minutes` is a hang guard, not a speed target: it must sit
-above the slowest run in which every step passes, or a green run is cancelled
-and blocks the merge (PR #165, runs 40443438351 and 40448981983: both cancelled
-at 931 s while `stack-test-identity` was still running after its tests passed).
+**Job time budgets (TICK-258, re-measured in TICK-400).** The 5-minute figure
+above was the target. The stack jobs do not meet it, because `make image-ci`
+takes 4 to 13 minutes of every run. `timeout-minutes` is a hang guard, not a
+speed target. It must sit above the slowest run in which every step passes, or
+a green run is cancelled and blocks the merge. This happened twice:
 
-Measured on the 11 green `stack` runs of 2026-10-26/27 (runs 40425133930 to
-40454453376; `stack-db` and `stack-internal` from six of them), job wall clock
-including set-up and post steps:
+- PR #165, runs 40443438351 and 40448981983: both cancelled at 931 s under the
+  old 15-minute bound (TICK-258).
+- PR #344, push run 41278740124: `stack` was cancelled at the 25-minute bound
+  on both attempts. On attempt 2 every case had passed; the cancel came 1 s
+  over the bound, during report upload and teardown (TICK-400).
 
-| Job | Green runs, min / max | Slowest step seen | `timeout-minutes` |
-|---|---|---|---|
-| `stack` | 511 s / 763 s; first attempts cancelled at 931 s | image build 600 s, SDK 109 s, identity 154 s | 25 (was 15) |
-| `stack-db` | 515 s / 795 s | image build | 25 (was 15) |
-| `stack-internal` | 374 s / 687 s | image build | 25 (was 15) |
-| `lint`, `unit`, `temporal-server`, `integration` | under 5 min | | 10 |
-| `changes` | under 1 min | | 5 |
+Measured on 2026-11-01 (TICK-400) over the last 10 green push runs of `main`
+and the 7 green push runs of story branch `TICK-334/workflow-interpreter`
+(all it had). Durations are job wall clock, set-up and post steps included.
 
-How 25 was chosen: the worst case of each `stack` step taken from different
-runs adds up to about 1,010 s (17 min: build 600, stack up 41, SDK 109,
-identity 154, the rest about 100). 25 minutes leaves about 45 % above that
-for a slow runner or a cold image cache. All three stack jobs get it since
-they share the image build. A real hang (a test stuck until Go's own
-`-timeout`) still ends within 25 minutes.
+| Job | `main`, min / max | Story branch, min / max | Image build, min / max | Cases, min / max | `timeout-minutes` |
+|---|---|---|---|---|---|
+| `stack` | 835 s / 1,399 s | 947 s / 1,474 s | 299 s / 678 s (758 s in cancelled run 41278740124) | 480 s / 719 s | 35 (was 25) |
+| `stack-db` | 381 s / 793 s | 409 s / 789 s | 254 s / 652 s | 43 s / 55 s | 25 |
+| `stack-internal` | 432 s / 795 s | 356 s / 742 s | 256 s / 684 s | 34 s / 47 s | 25 |
+| `lint`, `unit`, `temporal-server`, `integration` | under 5 min | | | | 10 |
+| `changes` | under 1 min | | | | 5 |
 
-Revisit when: a green `stack` run exceeds 20 minutes (raise the bound or split
-`make image-ci` into its own job that pushes the images for the three stack
-jobs), or the image build drops under 3 minutes (lower the bound back towards
-15).
+Run ids: on `main`, 41261072764, 41257268224, 41254956177, 41248729699,
+41225258899, 40832394612, 40826427934, 40824849251, 40823401408 and
+40821579602. On the story branch, 41277164363, 41274001507, 41269677744,
+41267094153, 41262361451, 41254059522 and 41212397695. Slowest: `stack`
+1,474 s in 41277164363, `stack-db` 793 s in 41254956177, `stack-internal`
+795 s in 41225258899. The cases column counts only runs with a single
+`Stack cases` step (TICK-296), so it excludes the older `main` runs that
+listed each case as its own step.
+
+Why the image build doubled: the Actions cache was full. GitHub keeps 10 GB
+per repository and evicts least recently used first. On 2026-11-01 the
+repository held 17.9 GB. Of the image-layer blobs, 6.25 GB belonged to task
+branches and 2.99 GB to pull requests; only 0.19 GB belonged to `main`. A
+cache entry can be read only by its own ref, by pull requests into that ref,
+and by every ref when it is on the default branch. So each task-branch or
+pull-request write evicted layers that other refs needed and that nothing
+would read again. The per-sha Go build caches, about 0.3 GB per job per run
+written from every ref, added to the churn. In the slowest run (41277164363),
+even the `useradd` and `go mod download` layers rebuilt, and seven `go build`
+steps ran 360 to 440 s each in parallel.
+
+What TICK-400 changed:
+
+- Only `main` writes the Actions cache. `CACHE_WRITE` is `true` on a push,
+  manual run or schedule on `main`, and false everywhere else. `make image-ci`
+  sets `cache-to` only when `CACHE_WRITE=true`, and the Go caches are split
+  into `actions/cache/restore` and `actions/cache/save`, with the save step
+  gated on `CACHE_WRITE`. Every other ref reads `main`'s entries, which stay
+  warm. A story branch whose `go.sum` differs from `main` misses only the
+  dependency layers, as it would have anyway.
+- `stack` goes to 35 minutes. Its cold-cache worst case adds the worst steps
+  seen: build 760 s, stack up 47 s, cases 720 s, set-up, reports, teardown
+  and post steps about 70 s, total about 1,600 s (27 min). 35 minutes leaves
+  about 30 % above that. A real hang still ends within 35 minutes.
+- `stack-db` and `stack-internal` stay at 25. Their cold-cache worst case is
+  about 900 s (15 min), so 25 leaves more than 60 % above it.
+
+Revisit when:
+
+- a green `stack` run exceeds 28 minutes: split the `stack` cases across two
+  jobs, or move `make image-ci` into its own job that hands the images to the
+  three stack jobs;
+- the image build on a `main` run stays under 4 minutes: lower `stack` back
+  towards 25;
+- the `stack` cases alone pass 15 minutes. They grew from about 600 s to about
+  720 s between the 2026-10-29 and 2026-11-01 runs.
 
 Containers: `scripts/ci/test-integration.sh` owns, on a private network, one
 shared PostgreSQL with the two PgBouncers of the load test (T06,
