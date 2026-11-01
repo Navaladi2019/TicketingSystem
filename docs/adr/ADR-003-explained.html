@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-003 explained: retiring recorded workflow histories safely</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--accbg:#ddf4ff;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--accbg:#0c2d6b;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.banner{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.pill{font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left;overflow-wrap:break-word}
+th{background:var(--soft)}
+table.front th{width:120px}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px;margin-top:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:44px}
+h3{font-size:18px;margin-top:28px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;background:var(--soft);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+pre{background:var(--soft);border:1px solid var(--bd);border-radius:6px;padding:10px 12px;overflow-x:auto}
+pre code{background:none;padding:0}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+figure.diagram{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure.diagram svg{width:100%;min-width:600px;height:auto;display:block;margin:0 auto;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+.tag{display:inline-block;font-size:12px;font-weight:700;padding:1px 9px;border-radius:999px;white-space:nowrap}
+.tag.red{color:var(--bad);background:var(--badbg);border:1px solid var(--bad)}
+.tag.green{color:var(--good);background:var(--goodbg);border:1px solid var(--good)}
+.tag.amber{color:var(--warn);background:var(--warnbg);border:1px solid var(--warn)}
+.verbatim{border:1px solid var(--acc);border-left:5px solid var(--acc);background:var(--accbg);border-radius:6px;padding:8px 14px;margin:12px 0}
+.vlabel{font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--acc)}
+.callout{border:1px solid var(--warn);background:var(--warnbg);border-radius:8px;padding:10px 14px;margin:14px 0}
+dl.gloss{display:grid;grid-template-columns:minmax(140px,220px) minmax(0,1fr);gap:6px 18px}
+dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
+@media (max-width:640px){dl.gloss{grid-template-columns:minmax(0,1fr)} dl.gloss dd{margin-bottom:8px}}
+@media print{table{display:table}}
+</style></head>
+</head>
+<body><main>
+<div class="banner"><span class="pill">READING GUIDE &middot; ADR-003 PROPOSED</span>
+<span class="src">This companion explains <code>ADR-003-retiring-recorded-histories.md</code>. It is not a decision record and changes nothing. Every blue "decision text" box is copied word for word from the ADR.</span></div>
+<table class="front"><tbody>
+<tr><th>title</th><td>ADR-003 explained: how an old recorded workflow history is retired safely</td></tr>
+<tr><th>type</th><td>explainer for the decision-maker (not a decision record)</td></tr>
+<tr><th>explains</th><td>ADR-003 (status PROPOSED, 2026-11-01), from RFC-007 rev 1 on TICK-388. The Technical Architect approved it.</td></tr>
+<tr><th>date</th><td>2026-11-01</td></tr>
+<tr><th>audience</th><td>the person signing off. It assumes no knowledge of Temporal internals or of the review rounds.</td></tr>
+</tbody></table>
+
+<h1>ADR-003, explained</h1>
+
+<blockquote><strong>The whole decision in three sentences.</strong>
+(1) Our CI keeps recordings of past workflow runs and replays them against new code, to prove that runs still in flight won't break. Those recordings may never be edited or deleted, so there was no legal way to retire one when old code is finally removed. (2) We now allow a recording to be deleted only together with a precise, machine-checked "tombstone" note, and only when the old code is removed in the one safe way: the version check stays in the code, and only its oldest allowed version is raised. (3) CI checks every step mechanically. The one thing CI can't see, "no old run is still open in production", is checked by the Operator, and only you merge such a change.</blockquote>
+
+<div class="callout"><strong>How big is this?</strong> It is small, and design only. It touches test code, test data and docs, with no production code change. Nothing needs it today. It matters the first time someone removes old workflow code. It is a standalone ADR, not an ADR-001 amendment, because it changes no platform invariant. It does set a deploy rule that only a human may approve, which is why it needs a durable record.</div>
+
+<h2 id="terms">Terms used here</h2>
+<dl class="gloss">
+<dt>Workflow run</dt><dd>One execution of our ticket automation (<code>nava.interpreter</code>) on Temporal, the engine that runs long-lived workflows. A run can last days.</dd>
+<dt>History</dt><dd>Temporal's log of everything a run did. If a worker restarts, Temporal <em>replays</em> the history through the current code to rebuild the run's state. The code must make the same decisions again, or the run breaks.</dd>
+<dt>Recorded history</dt><dd>A history saved as a file in <code>internal/workflow/testdata/histories/</code>. CI replays every one against each change. This is the "replay gate".</dd>
+<dt>Append-only test</dt><dd><code>TestHistoriesAppendOnly</code>. It fails if a recorded history that is on <code>main</code> was edited or deleted, so nobody can make the gate green by rewriting the evidence.</dd>
+<dt><code>GetVersion</code></dt><dd>Temporal's way to change workflow code safely. Old runs take the old path ("<code>DefaultVersion</code>", version −1), and new runs take the new one. It is called with an oldest and a newest allowed version (<code>minSupported</code>, <code>maxSupported</code>).</dd>
+<dt>Retiring the old arm</dt><dd>Removing the old path once no run needs it.</dd>
+<dt>TMPRL1100</dt><dd>The error Temporal raises when a run needs a version the code no longer supports. The run then <em>blocks</em>: it waits, unharmed, until the code is fixed.</dd>
+<dt>Tombstone</dt><dd>One line in <code>retired-histories.json</code> saying which recording was deleted, its exact content id, which code change retired it, and which ticket holds the evidence.</dd>
+<dt>Blob id</dt><dd>Git's fingerprint of a file's exact content.</dd>
+</dl>
+
+<h2 id="problem">1. The problem in plain words</h2>
+<p>Two of our own rules collided:</p>
+<ul>
+<li><strong>Deploy rule (c)</strong> lets us remove old workflow code once no run in production still needs it.</li>
+<li>Once that code is gone, the recordings made before it no longer replay, so the gate goes red. But the <strong>append-only test</strong> forbids deleting them.</li>
+</ul>
+<p>So old code could never be removed. And a careless escape hatch ("just delete the red recording") would let anyone hide a real breakage, which makes the gate worthless.</p>
+<p>Review then found a second, worse problem. The obvious way to remove old code is to delete the <code>GetVersion</code> check. That turned out to be <strong>unsafe</strong>: Temporal then silently replays old runs down the <em>new</em> path. The gate goes green, and in production a missed old run quietly does the wrong thing.</p>
+
+<figure class="diagram"><svg viewBox="0 0 760 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Deleting the call versus raising minSupported">
+<rect x="10" y="10" width="360" height="230" rx="10" fill="#ffebe9" stroke="#cf222e"/>
+<text x="190" y="38" text-anchor="middle" font-size="16" font-weight="700" fill="#cf222e">Rejected: delete the GetVersion call</text>
+<text x="30" y="72" font-size="14" fill="#1f2328">Old run replays (no version marker)</text>
+<text x="30" y="98" font-size="14" fill="#1f2328">→ the check is gone, nothing objects</text>
+<text x="30" y="124" font-size="14" fill="#1f2328">→ it runs the NEW code path</text>
+<text x="30" y="158" font-size="14" font-weight="700" fill="#cf222e">CI replay: GREEN (proves nothing)</text>
+<text x="30" y="184" font-size="14" font-weight="700" fill="#cf222e">Production: silently wrong</text>
+<text x="30" y="216" font-size="12" fill="#59636e">spike: 4 of 4 recorded histories green</text>
+<rect x="390" y="10" width="360" height="230" rx="10" fill="#dafbe1" stroke="#1a7f37"/>
+<text x="570" y="38" text-anchor="middle" font-size="16" font-weight="700" fill="#1a7f37">Chosen: keep the call, raise minSupported</text>
+<text x="410" y="72" font-size="14" fill="#1f2328">Old run replays (no version marker)</text>
+<text x="410" y="98" font-size="14" fill="#1f2328">→ it asks for version −1, now unsupported</text>
+<text x="410" y="124" font-size="14" fill="#1f2328">→ TMPRL1100 "removed support"</text>
+<text x="410" y="158" font-size="14" font-weight="700" fill="#1a7f37">CI replay: RED (proves the break)</text>
+<text x="410" y="184" font-size="14" font-weight="700" fill="#1a7f37">Production: blocks, recoverable</text>
+<text x="410" y="216" font-size="12" fill="#59636e">spike: 4 of 4 fail with exactly this error</text>
+</svg><figcaption>What happens to an old run that should have finished but didn't, under each way of removing old code.</figcaption></figure>
+
+<h2 id="options">2. Options considered</h2>
+<table><thead><tr><th>Option</th><th>Verdict</th><th>Why</th></tr></thead><tbody>
+<tr><td>Keep the call and raise <code>minSupported</code>; delete the recording with a tombstone that CI checks</td><td><span class="tag green">chosen</span></td><td>Every step is checkable by CI, and a mistake in production fails loudly and can be recovered</td></tr>
+<tr><td>Delete the <code>GetVersion</code> call (RFC-007 rev 0)</td><td><span class="tag red">rejected</span></td><td>Silently wrong in production, and green in CI (spike)</td></tr>
+<tr><td>Move old recordings to a <code>retired/</code> folder</td><td><span class="tag red">rejected</span></td><td>Dead files stay in the tree forever, and it needs the same tombstone data anyway</td></tr>
+<tr><td>A hard-coded list inside the test</td><td><span class="tag red">rejected</span></td><td>The same data, but mixed into code and harder to protect</td></tr>
+<tr><td>Re-record old histories on new code</td><td><span class="tag red">rejected</span></td><td>It proves nothing about runs already in flight</td></tr>
+<tr><td>GitHub enforces your approval (CODEOWNERS)</td><td><span class="tag amber">deferred</span></td><td>Agents' PRs come from your own account, and GitHub won't count your review of "your own" PR, so every such PR would be stuck</td></tr>
+<tr><td>CI checks production itself</td><td><span class="tag red">rejected</span></td><td>It would give CI access to production, and the test would no longer be repeatable</td></tr>
+<tr><td>Evidence expires after 24 hours</td><td><span class="tag red">rejected</span></td><td>Time can't make the evidence stale, only specific events can (see §3)</td></tr>
+</tbody></table>
+
+<h2 id="decision">3. The decision</h2>
+<div class="verbatim"><div class="vlabel">Decision text (ADR-003 §1)</div>
+<ol>
+<li><strong>A <code>GetVersion</code> change's old arm is retired only by raising <code>minSupported</code>.</strong> This means <code>workflow.GetVersion(ctx, "&lt;change_id&gt;", workflow.DefaultVersion, N)</code> becomes <code>GetVersion(ctx, "&lt;change_id&gt;", 1, N)</code> (or the first non-default version), and the <code>DefaultVersion</code> code is deleted. <strong>The call is never deleted.</strong></li>
+<li><strong>In the same PR</strong>, each recorded history that now fails replay with <code>TMPRL1100 … removed support of version -1 … "&lt;change_id&gt;"</code> is deleted from <code>internal/workflow/testdata/histories/</code> and from <code>wantHistories</code>. One tombstone per deleted file is appended to the append-only manifest <code>internal/workflow/testdata/retired-histories.json</code>.</li>
+<li><strong><code>TestHistoriesAppendOnly</code> enforces this mechanically</strong> (§3), using git objects, Go AST literals and a local replay. There is no clock, no network and no judgment.</li>
+<li><strong>Approval is human, outside CI.</strong> The Operator posts the rule (c) production query evidence after the Technical Architect approves the PR. <strong>Only the human owner merges</strong> a PR that touches the manifest ("MergePr" label). Agents never do.</li>
+<li><strong>Scope:</strong> only the <code>DefaultVersion</code> arm. Retiring a later recorded version (≥ 0) is out of scope and needs its own decision (§7, RS-3).</li>
+</ol></div>
+
+<h3>What CI checks, in plain words</h3>
+<table><thead><tr><th>Rule</th><th>CI fails the change when…</th></tr></thead><tbody>
+<tr><td>R-1</td><td>a recording on <code>main</code> was edited (retiring is deletion only)</td></tr>
+<tr><td>R-2</td><td>a recording was deleted without a tombstone that matches its exact content</td></tr>
+<tr><td>R-3</td><td>an existing tombstone was changed or removed (the tombstone list is append-only too)</td></tr>
+<tr><td>R-4</td><td>a retired file name is reused</td></tr>
+<tr><td>R-5′</td><td>the <code>GetVersion</code> check was deleted, or it still accepts the old version</td></tr>
+<tr><td>R-6′</td><td>the tombstone names a change that never had an old arm on <code>main</code> (an invented excuse)</td></tr>
+<tr><td>R-7′</td><td>the version check's arguments aren't plain literals, so CI couldn't compare them</td></tr>
+<tr><td>R-8</td><td>the deleted recording does <em>not</em> fail replay with exactly "removed support of version −1" for that change (it was deleted for some other reason)</td></tr>
+</tbody></table>
+
+<h3>Who approves</h3>
+<figure class="diagram"><svg viewBox="0 0 760 120" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Approval flow">
+<g font-size="13" text-anchor="middle">
+<rect x="10" y="30" width="160" height="60" rx="8" fill="#ddf4ff" stroke="#0969da"/><text x="90" y="56" fill="#1f2328">Engineer opens PR</text><text x="90" y="74" fill="#59636e">CI rules R-1…R-8 green</text>
+<rect x="200" y="30" width="160" height="60" rx="8" fill="#ddf4ff" stroke="#0969da"/><text x="280" y="56" fill="#1f2328">Technical Architect</text><text x="280" y="74" fill="#59636e">reviews and approves</text>
+<rect x="390" y="30" width="170" height="60" rx="8" fill="#fff8c5" stroke="#9a6700"/><text x="475" y="56" fill="#1f2328">Operator</text><text x="475" y="74" fill="#59636e">production query: 0 runs</text>
+<rect x="590" y="30" width="160" height="60" rx="8" fill="#dafbe1" stroke="#1a7f37"/><text x="670" y="56" fill="#1f2328">You (owner)</text><text x="670" y="74" fill="#59636e">merge (MergePr)</text>
+</g>
+<g stroke="#59636e" stroke-width="2"><line x1="170" y1="60" x2="198" y2="60"/><line x1="360" y1="60" x2="388" y2="60"/><line x1="560" y1="60" x2="588" y2="60"/></g>
+</svg><figcaption>The query asks: are any runs that started before the change's deploy still running? It must be re-run if a run is reset, or the interpreter is deployed or rolled back, before the merge.</figcaption></figure>
+
+<h2 id="fix">4. The fix and what lands</h2>
+<ul>
+<li><strong>In this PR (docs only):</strong>
+<ul>
+<li>the ADR and this explainer;</li>
+<li>the archived RFC (rev 0 and rev 1) and the Technical Architect's spike;</li>
+<li>the plan decision <strong>D-3-25</strong>, and the reworded rule (c) in D-3-17;</li>
+<li>four accepted-risk rows (<code>AR-TICK-388-01</code> to <code>-04</code>).</li>
+</ul></li>
+<li><strong>After your sign-off (an implementation task):</strong>
+<ul>
+<li>the tombstone file;</li>
+<li>the new test rules, each shown red, then green;</li>
+<li>the new wording for "Deploy rules (c)" in <code>docs/quality/ci-pipeline.md</code>. That section exists only on the replay-gate branch (PR #331), so it lands there.</li>
+</ul></li>
+<li>No production code changes, and there is no migration. No recording has needed retiring yet.</li>
+</ul>
+
+<h2 id="risks">5. What you are accepting (residual risks)</h2>
+<table><thead><tr><th>#</th><th>Risk</th><th>Owner</th><th>Revisit when</th></tr></thead><tbody>
+<tr><td>RS-1</td><td>"Agents never merge a tombstone PR" is a <strong>process rule</strong> (a label), not enforced by GitHub, because agent PRs come from your account</td><td>CTO</td><td>agents get their own GitHub identity</td></tr>
+<tr><td>RS-2</td><td>The production check is done by a human. If it misses a run, that run <strong>blocks</strong> (it doesn't go wrong) until the old code is restored and redeployed</td><td>Operator, with the Technical Architect</td><td>the first retirement</td></tr>
+<tr><td>RS-3</td><td><strong>Only the oldest arm (<code>DefaultVersion</code>) can be retired this way.</strong> Retiring a later version needs a new decision (Technical Architect's point)</td><td>Solution Architect</td><td>the first such need</td></tr>
+<tr><td>RS-4</td><td>It is not verified how a reset run's start time shows up, so any reset forces the production check to be re-run</td><td>Operator</td><td>resets become routine</td></tr>
+</tbody></table>
+
+<h2 id="evidence">6. Evidence</h2>
+<ul>
+<li><strong>Temporal SDK source</strong> at our pinned version (v1.49.0), read by both reviewers:
+<ul>
+<li>the SDK's own docs recommend keeping the <code>GetVersion</code> call "so that if there is older version execution still running, it will fail here and not proceed";</li>
+<li>replay with no version marker resolves to version −1, which raises TMPRL1100 once it is unsupported.</li>
+</ul></li>
+<li><strong>Spike</strong> (Technical Architect, on our four recorded histories that use timers):
+<ul>
+<li>with the call deleted, all four replay green, so the danger is invisible;</li>
+<li>with the call kept, all four fail with <code>[TMPRL1100] Workflow code removed support of version -1. for "spike-rfc007-timer" changeID</code>.</li>
+</ul>
+It is archived under <code>docs/adr/ADR-003/spikes/</code>.</li>
+<li><strong>Red → green tests:</strong> a required part of the implementation, one per rule. They don't exist yet, because this ADR is design only.</li>
+<li><strong>Review:</strong> RFC-007 rev 0, then one blocking objection (O-1, adopted), then rev 1. The Technical Architect APPROVED it on TICK-388.</li>
+</ul>
+</main></body></html>
