@@ -506,6 +506,7 @@ func TestIdempotencyKeyMismatchConflicts(t *testing.T) {
 	ctx := context.Background()
 	system := func(cmd pipeline.Command, key string) pipeline.Command {
 		cmd.Actor, cmd.Source, cmd.IdempotencyKey = f.system(), pipeline.SourceWorkflow, key
+		cmd.Causation = workflowCausation()
 		return cmd
 	}
 	createC := system(createCmd(f, map[string]any{"title": "keyed"}), "wf:c")

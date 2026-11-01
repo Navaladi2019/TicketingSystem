@@ -36,6 +36,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
@@ -208,6 +209,14 @@ var (
 	ErrNotFound = errors.New("pipeline: not found")
 	// ErrVersionConflict means the record is not at the expected version.
 	ErrVersionConflict = errors.New("pipeline: version conflict")
+	// ErrRetryable means PostgreSQL aborted the transaction to break a
+	// deadlock (40P01) or a serialization failure (40001). Nothing in it
+	// commits: roll tx back and run the whole transaction again. It wraps the
+	// database error. A transaction that holds two or more pipeline writes
+	// can deadlock with another one (P3-11's locks are ordered within one
+	// write, not across writes: TICK-88, from the PR #360 review); cascades
+	// themselves never share one, because each runs in its own activity.
+	ErrRetryable = errors.New("pipeline: transaction aborted by a deadlock or serialization failure, retry")
 )
 
 // ErrIdempotencyConflict means the idempotency key is held by another write.
@@ -304,7 +313,19 @@ func (p *Pipeline) Runner() TxRunner { return p.runner }
 // tenant: a write beyond the limit changes nothing in tx and writes one
 // cascade_rejected audit row on the TxRunner, committed before Write
 // returns. If that row cannot be written, the error also wraps the cause.
+//
+// A deadlock or serialization failure is ErrRetryable, and tx is unusable.
 func (p *Pipeline) Write(ctx context.Context, tx pgx.Tx, cmd Command) (Result, error) {
+	res, err := p.perform(ctx, tx, cmd)
+	var pe *pgconn.PgError
+	if errors.As(err, &pe) && (pe.Code == "40P01" || pe.Code == "40001") {
+		return Result{}, fmt.Errorf("%w: %w", ErrRetryable, err)
+	}
+	return res, err
+}
+
+// perform is Write before its error mapping.
+func (p *Pipeline) perform(ctx context.Context, tx pgx.Tx, cmd Command) (Result, error) {
 	if err := cmd.check(); err != nil {
 		return Result{}, err
 	}

@@ -72,3 +72,14 @@ adds the `(tenant_id, record_id)` index with its `DELETE` policy.
   NOT NULL origin, the composite foreign key.
 - `internal/tenancy/isolation/cascade_paths.go`: CI-10 (f) in the isolation
   report. (g), signal ping-pong, needs the interpreter and is P3-42's.
+
+## Lock order across writes (from the P3-11 review, PR #360)
+
+P3-11 orders its locks within one `Write` (uniqueness advisory locks, then
+the `record_counters` row lock), not across writes. A5 cascades never put two
+pipeline writes in one transaction: the sink only enqueues starts, and each
+workflow write runs in its own activity transaction. A caller that does put
+two or more writes in one transaction can deadlock with another such caller.
+`Write` then returns `pipeline.ErrRetryable` (40P01, and 40001), wrapping the
+database error. Roll back and run the whole transaction again
+(`TestTwoWritesPerTransactionDeadlockIsRetryable`).
