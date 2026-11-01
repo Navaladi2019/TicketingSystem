@@ -34,6 +34,9 @@ var (
 	ErrRecordNotFound = errors.New("outbox: record not found")
 	// ErrInvalidEntry means the entry breaks the contract below. Nothing is written.
 	ErrInvalidEntry = errors.New("outbox: invalid entry")
+	// ErrVersionMismatch means EnqueueAtVersion was given a version the
+	// record does not have in this transaction. Nothing is written.
+	ErrVersionMismatch = errors.New("outbox: record version mismatch")
 )
 
 // Target is where the relay delivers a row. It is sealed: only TargetStart
@@ -104,7 +107,10 @@ const (
 	// The row lock that orders a target's rows (A.2): concurrent producers on
 	// one record queue here and take consecutive versions in commit order.
 	lockRecordSQL = `UPDATE records SET version = version + 1 WHERE id = $1 RETURNING tenant_id, version`
-	openRefSQL    = `SELECT outbox_id FROM workflow_ref
+	// EnqueueAtVersion's lock: the write pipeline has already bumped the
+	// version in this transaction (D-3-6), so it only locks and reads.
+	lockRecordNoBumpSQL = `SELECT tenant_id, version FROM records WHERE id = $1 FOR UPDATE`
+	openRefSQL          = `SELECT outbox_id FROM workflow_ref
 WHERE tenant_id = $1 AND record_id = $2 AND kind = $3 AND closed_at IS NULL
 ORDER BY created_at DESC, outbox_id DESC LIMIT 1`
 	insertSQL = `INSERT INTO outbox (id, tenant_id, kind, kind_version, dedupe_key, target_key, target_seq,
@@ -135,6 +141,58 @@ RETURNING id`
 //
 // tx must come from tenancy.InTenantTx. On any error the caller rolls tx back.
 func Enqueue(ctx context.Context, tx pgx.Tx, e Entry) (uuid.UUID, error) {
+	return enqueue(ctx, tx, e, func() (uuid.UUID, int64, error) {
+		return lockRecord(ctx, tx, lockRecordSQL, e.RecordID)
+	})
+}
+
+// EnqueueAtVersion is Enqueue for a writer that has already bumped the
+// record's version in tx: the record write pipeline, whose UPDATE is the one
+// place a write bumps it (PLAN-003 D-3-6). It locks the records row without
+// bumping it again and uses version as the row's target_seq. version must be
+// the record's version in tx, or it returns ErrVersionMismatch and writes
+// nothing.
+//
+// Everything else is as Enqueue: the same validation, dedupe, target and
+// workflow_ref rules, and the same errors. Rows one write enqueues for the
+// same record share a target_seq. A start's target_key is its own, so that
+// matters only for two signals to one workflow from one write: the relay's
+// head test (target_seq <= the lowest pending) admits both, so their order is
+// not fixed. Rows of later writes still follow them.
+//
+// tx must come from tenancy.InTenantTx. On any error the caller rolls tx back.
+func EnqueueAtVersion(ctx context.Context, tx pgx.Tx, e Entry, version int64) (uuid.UUID, error) {
+	return enqueue(ctx, tx, e, func() (uuid.UUID, int64, error) {
+		tenant, got, err := lockRecord(ctx, tx, lockRecordNoBumpSQL, e.RecordID)
+		if err != nil {
+			return uuid.Nil, 0, err
+		}
+		if got != version {
+			return uuid.Nil, 0, fmt.Errorf("%w: have %d, given %d", ErrVersionMismatch, got, version)
+		}
+		return tenant, got, nil
+	})
+}
+
+// lockRecord runs one of the two record locks and returns the record's tenant
+// and the version that becomes target_seq.
+func lockRecord(ctx context.Context, tx pgx.Tx, sql string, record uuid.UUID) (uuid.UUID, int64, error) {
+	var (
+		tenant uuid.UUID
+		seq    int64
+	)
+	switch err := tx.QueryRow(ctx, sql, record).Scan(&tenant, &seq); {
+	case errors.Is(err, pgx.ErrNoRows):
+		return uuid.Nil, 0, ErrRecordNotFound
+	case err != nil:
+		return uuid.Nil, 0, fmt.Errorf("outbox: lock record: %w", err)
+	}
+	return tenant, seq, nil
+}
+
+// enqueue is Enqueue and EnqueueAtVersion; lock locks the record and returns
+// its tenant and the row's target_seq.
+func enqueue(ctx context.Context, tx pgx.Tx, e Entry, lock func() (uuid.UUID, int64, error)) (uuid.UUID, error) {
 	if e.Causation.Depth > config.CascadeDepthLimit {
 		return uuid.Nil, fmt.Errorf("%w: depth %d, limit %d", ErrCascadeTooDeep, e.Causation.Depth, config.CascadeDepthLimit)
 	}
@@ -151,15 +209,9 @@ func Enqueue(ctx context.Context, tx pgx.Tx, e Entry) (uuid.UUID, error) {
 		return uuid.Nil, fmt.Errorf("outbox: dedupe lookup: %w", err)
 	}
 
-	var (
-		tenant uuid.UUID
-		seq    int64
-	)
-	switch err := tx.QueryRow(ctx, lockRecordSQL, e.RecordID).Scan(&tenant, &seq); {
-	case errors.Is(err, pgx.ErrNoRows):
-		return uuid.Nil, ErrRecordNotFound
-	case err != nil:
-		return uuid.Nil, fmt.Errorf("outbox: lock record: %w", err)
+	tenant, seq, err := lock()
+	if err != nil {
+		return uuid.Nil, err
 	}
 
 	id, err := uuid.NewV7()
