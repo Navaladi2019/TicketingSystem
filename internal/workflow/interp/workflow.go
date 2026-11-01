@@ -14,8 +14,10 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/workerguard"
 )
 
-// activityStartToClose bounds one NextStep or ApplyStep attempt.
-const activityStartToClose = time.Minute
+// activityStartToClose bounds one NextStep or ApplyStep attempt. The P3-24
+// contract caps it at 10 s (TICK-387): an attempt on a worker that died is
+// retried only when it expires, so it sets how fast a crash recovers.
+const activityStartToClose = 10 * time.Second
 
 // The retry bounds of NextStep and ApplyStep (TICK-384 review): the SDK
 // default retries forever, so a persistent retryable adapter fault would hold
