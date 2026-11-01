@@ -8,6 +8,10 @@ codes:
     status: 401
     title: Tenant unresolved
     detail: The request could not be tied to a tenant.
+  - code: drift_demo_only
+    status: 400
+    title: Drift demo
+    detail: Drift demo for the CI check.
   - code: invalid_token
     status: 401
     title: Invalid token
