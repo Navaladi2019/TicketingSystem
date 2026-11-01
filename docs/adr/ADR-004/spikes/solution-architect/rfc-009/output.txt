@@ -1,0 +1,54 @@
+                                                       version                                                        
+----------------------------------------------------------------------------------------------------------------------
+ PostgreSQL 16.10 (Debian 16.10-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+(1 row)
+
+== Case A (rejected): cycle entry subject = record R, version_after = the update entry's version
+ERROR:  duplicate key value violates unique constraint "audit_log_default_tenant_id_occurred_at_txid_subject_type_s_key"
+DETAIL:  Key (tenant_id, occurred_at, txid, subject_type, subject_id, version_after)=(11111111-1111-1111-1111-111111111111, 2026-11-01 20:10:20.247342+00, 740, record, 22222222-2222-2222-2222-222222222222, 2) already exists.
+== Case B (rejected): subject = record R, version_after NULL, D1 and D2 both suppressed on one write
+ERROR:  duplicate key value violates unique constraint "audit_log_default_tenant_id_occurred_at_txid_subject_type_s_key"
+DETAIL:  Key (tenant_id, occurred_at, txid, subject_type, subject_id, version_after)=(11111111-1111-1111-1111-111111111111, 2026-11-01 20:10:20.248913+00, 741, record, 22222222-2222-2222-2222-222222222222, null) already exists.
+== Case C (rejected): subject = record R lets a cycle entry alone pass the commit check (update entry forgotten)
+                    case_c                     
+-----------------------------------------------
+ C committed with no update entry, R version=2
+(1 row)
+
+== Case D (chosen): cascade_key subjects. One tx: R and R2 both written to v2; D1 and D2 suppressed on R, D1 on R2
+== Case E (chosen): R written twice in one tx (v3, v4), D1 suppressed after each: same key, distinct version_after
+== Case F (chosen): a cascade_key entry alone does NOT pass the commit check for R (expect audit_missing)
+ERROR:  audit_missing for record 22222222-2222-2222-2222-222222222222
+CONTEXT:  PL/pgSQL function commit_check() line 6 at RAISE
+== Case G (chosen): cascade_too_deep on the runner after the caller rolled back; subject record R, version_after NULL
+== Case G2: a re-run of the rejected activity audits again in its own runner tx
+== Case H: the cascade key is tenant-scoped: same O, R, D in another tenant gives a different subject_id
+ keys_differ_across_tenants 
+----------------------------
+ t
+(1 row)
+
+== Result
+      action      | subject_type |   subj   | vb | va | depth 
+------------------+--------------+----------+----+----+-------
+ create           | record       | 22222222 |    |  1 |      
+ create           | record       | 33333333 |    |  1 |      
+ cascade_cycle    | cascade_key  | 4104f2c8 |    |  2 |      
+ cascade_cycle    | cascade_key  | 8fc751a9 |    |  2 |      
+ cascade_cycle    | cascade_key  | d72a5f0e |    |  2 |      
+ update           | record       | 22222222 |    |  2 |      
+ update           | record       | 33333333 |    |  2 |      
+ cascade_cycle    | cascade_key  | 4104f2c8 |    |  3 |      
+ cascade_cycle    | cascade_key  | 4104f2c8 |    |  4 |      
+ update           | record       | 22222222 |    |  4 |      
+ update           | record       | 22222222 |    |  3 |      
+ cascade_too_deep | record       | 22222222 |  4 |    |     9
+ cascade_too_deep | record       | 22222222 |  4 |    |     9
+(13 rows)
+
+  record  | version 
+----------+---------
+ 22222222 |       4
+ 33333333 |       2
+(2 rows)
+
