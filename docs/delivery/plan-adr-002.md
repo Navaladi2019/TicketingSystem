@@ -35,7 +35,7 @@ owner: Technical Lead
 
 ```mermaid
 flowchart LR
-    ADR[ADR-002 PR #197<br/>APPROVED, MergePr]
+    ADR[ADR-002 PR #197<br/>APPROVED, MergePr<br/>historical label, retired by TICK-402]
     T264[TICK-264 seed service-desk<br/>done]
     T268[TICK-268 /me group_paths<br/>backend-dev]:::risk
     T265[TICK-265 PR #198<br/>tombstones, in review]
