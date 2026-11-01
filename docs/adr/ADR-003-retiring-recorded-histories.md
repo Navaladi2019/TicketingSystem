@@ -2,19 +2,20 @@
 type: adr
 id: ADR-003
 title: A recorded interpreter history is retired only by raising GetVersion's minSupported (call kept), with an append-only tombstone CI can check
-status: PROPOSED
+status: ACCEPTED
 date: 2026-11-01
+accepted: 2026-11-01 (nava, TICK-388 comment 01a1958a-3b69-70c9-b9f7-e7ecc1f8f4fb: "ACCEPTED and APPROVED")
 issue: TICK-388
 rfc: docs/adr/ADR-003/rfc/RFC-007-retiring-recorded-histories.md (rev 1, archived; thread under TICK-388 comment 01a19500-9c0f-7c89-acaa-43a17fae2ce5)
 supersedes: "docs/quality/ci-pipeline.md 'Deploy rules (c)' (the 'delete a GetVersion branch' wording and its Open note); PLAN-003 D-3-17 rule (c) wording"
 source: TICK-350 / PR #331 (P3-23 replay gate), Quality, Testing & CI Advisor
 deciders: Solution Architect (author), Technical Architect (APPROVED rev 1, TICK-388 comment 01a19510-22ed-7314-86ed-884dea3bbcf9), CTO
-signs: nava (pending)
+signs: nava (signed 2026-11-01: "ACCEPTED and APPROVED")
 ---
 
 # ADR-003: Retiring recorded interpreter histories
 
-> **Status: PROPOSED, 2026-11-01.** It is waiting for nava's sign-off on TICK-388. It comes from RFC-007 rev 1. The Technical Architect, the only reviewer, approved rev 1 (comment `01a19510`) after one blocking objection in round 1 (O-1) was adopted. The CTO ruled that this is a standalone ADR, not an ADR-001 amendment (comment `01a19511`): it sets a deploy rule that only a human can approve, but it changes no ADR-001 invariant. The plain-language explainer is `ADR-003-explained.html`.
+> **Status: ACCEPTED, 2026-11-01.** nava approved it on TICK-388 (comment `01a1958a`: "ACCEPTED and APPROVED"), accepting residuals RS-1 to RS-4 (§7). Delivery plans the implementation in TICK-395, which carries the binding `ci-pipeline.md` "Deploy rules (c)" text from RFC-007 rev 1 §6. RS-1 is also R-004 in `docs/cto/risks.md` (PR #341). It comes from RFC-007 rev 1. The Technical Architect, the only reviewer, approved rev 1 (comment `01a19510`) after one blocking objection in round 1 (O-1) was adopted. The CTO ruled that this is a standalone ADR, not an ADR-001 amendment (comment `01a19511`): it sets a deploy rule that only a human can approve, but it changes no ADR-001 invariant. The plain-language explainer is `ADR-003-explained.html`.
 >
 > **Invariants:** the project description is empty, so the eight invariants could not be loaded from it. §9 checks against ADR-001 §2 and R1/CI-7 as written in the repo, and is marked **incomplete**.
 
@@ -83,7 +84,7 @@ Without `BASE` the test skips, as today. R-4, R-5′ and R-7′ also run without
   - the test change;
   - the `make/workflow.mk` and `wantHistories` comments ("except by a tombstone, ADR-003");
   - the sentence in "Shipping a change that the gate rejects" option 1.
-- **Implementation:** test code, testdata and docs only, with no production code change. The acceptance criteria are in RFC-007 rev 1 §6. The Technical Lead plans it after sign-off.
+- **Implementation:** test code, testdata and docs only, with no production code change. The acceptance criteria are in RFC-007 rev 1 §6. The Technical Lead plans it in TICK-395.
 
 ## 5. Options considered and rejected
 
