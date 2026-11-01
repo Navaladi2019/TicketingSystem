@@ -193,6 +193,7 @@ lock. `NAVA_RACE_LOCK=off` skips it.
 | A registered isolation suite runs zero tests and CI stays green (a `TestMain` exiting before `m.Run`, a step dropping `-tags`) | `tools/ci/suiteran` (TICK-230) wraps `go test -json` in `test`, `temporal-server-test`, `test-integration`, `isolation`, `stack-test-identity` and `stack-test-sdk`: every `cto_signoff.isolation_tests` file whose package ran and whose build constraints hold for the step's `-tags` must have at least one of its tests pass or fail. Fixtures in `tools/ci/suiteran/testdata/fixture`; `TestEveryRegisteredSuiteHasACheckedStep` fails when a registered suite has no step whose `-tags` builds it |
 | An integration test hangs and the cancelled job's log is empty, so nobody can tell which test | `go test -timeout 6m` in `test-integration.sh` (below the job's 10 minutes) and the groups' output streamed through `tools/ci/testlog` (TICK-225). Unit tests in `tools/ci/testlog`; the hang itself was proven once on a throwaway PR (not merged) |
 | A shallow clone passes `check-openapi` with nothing to compare against | `check-openapi` fails when `BASE` is missing |
+| A change to `nava.interpreter` breaks determinism, so runs already in flight fail on their next workflow task after a deploy (Epic 09 AC2) | The replay gate in the `unit` job (`make test`), below: `TestReplayRecordedHistories` replays every history under `internal/workflow/testdata/histories/`; `TestHistoriesAppendOnly` keeps the ones on `main` unchanged; `TestHistoriesHoldReferencesOnly` keeps them references only (ADR-001 R1) |
 | A branch's migration merges with a version older than one already on `main`, so fresh CI databases and deployed ones migrate in different orders | `TestNewMigrationsLaterThanBase` in `db/` (TICK-299), in the `unit` job with `BASE=origin/main` for every event, also pull requests into a story branch (TICK-309), and full history: fails naming each added migration, its version and `main`'s newest version. Skips locally unless `BASE` is set. Rule: `db/migrations/README.md` |
 | pgx's prepared-statement cache breaks through PgBouncer in transaction mode | `internal/db/pooltest` (T06): 50 clients, 10k statements, zero errors; a second PgBouncer with `max_prepared_statements = 0` must fail |
 | nava-core goes ready without PostgreSQL | compose healthcheck on `/readyz`, plus the `dependencies` case (200 with Keycloak stopped) |
@@ -202,6 +203,72 @@ lock. `NAVA_RACE_LOCK=off` skips it.
 - **A suite dropped by editing the step itself.** suiteran trusts the step's own `-tags` and package list. Removing both `-tags`, narrowing the packages, adding a `-run` filter or removing the suiteran call passes the check, so each of those is an edit to `.github/`, the `Makefile` or `scripts/ci/`, all on the `security` list in `review-paths.yaml` (`TestCIScriptsAreSecurityPaths` in `tools/ci/reviewpaths` pins the two scripts). Extra `ARGS` to `make test-integration` or `make isolation` skip the check, since a `-run` filter leaves suites out on purpose; CI never sets `ARGS`.
 - **A hang in the isolation suite.** `scripts/ci/isolation.sh` runs after `test-integration.sh` in the same step and keeps Go's default `-timeout` of 10m, so a hang there is still cancelled by the job before Go's dump. Its output does stream (suiteran prints as it reads), so the log shows how far it got. Follow-up, not in TICK-225's scope.
 - **testcontainers-go.** Approved, not adopted (decision log, 2026-10-19). The integration tests start a pinned container through the docker CLI, the way T03 and T04 built them.
+
+## Changing nava.interpreter (replay gate, P3-23)
+
+`nava.interpreter` (`internal/workflow/interp`) is replayed against recorded
+histories on every `make test` (PLAN-003 D-3-17, TICK-350). The replayer needs
+no server, so the gate is an ordinary unit test in the `unit` job; `ci.yml`
+has no step for it. A history-only change runs every stage (`cichanged` has no
+rule for `internal/workflow/testdata/`), so the gate always runs.
+
+| Test (`internal/workflow/interp`) | Fails when |
+| --- | --- |
+| `TestReplayRecordedHistories` | a recorded history no longer replays: the change alters the commands a run already produced (non-determinism) |
+| `TestHistorySetRequired` + the set check in every gate test | a history in `wantHistories` is missing, the directory holds fewer, or a file is not listed. An empty glob is never green |
+| `TestReplayCatchesNonDeterminism` | a deliberate non-deterministic change (an extra activity before the timer) replays green, so the gate would miss one |
+| `TestReplayGetVersionKeepsHistoriesGreen` | the same change behind `workflow.GetVersion` fails replay |
+| `TestHistoriesAppendOnly` | a history on `main` (`BASE=origin/main`, as for migrations) was changed or deleted. Skips without `BASE`. `TestAppendOnlyCheck` proves the check on a scratch repository |
+| `TestHistoriesHoldReferencesOnly` | a payload in a history is not the start payload (`outbox.Delivery` with `{definition_version_id, record_id}`, or the continue-as-new `RunInput` carrying it with UUID-only refs), a signal delivery (`{signal}`), a `workerguard.Directive`, a UUID-only object or an empty result; or a header other than a UUID `nava-tenant`. `TestR1WalkCatchesRecordData` plants a record field in each kind of payload |
+
+The histories cover every step type (timer, condition both ways, branch on
+both cases and the default, wait_signal, update_record, end), the signal path
+(with a foreign signal and a redelivery dropped), the timeout path and a
+continue-as-new chain that carries a pending signal into the next run.
+
+**Recording.** `make workflow-record-histories` (`make/workflow.mk`) is a
+developer target, never a CI step. It starts a Temporal dev server
+(`testsuite.StartDevServer`; `NAVA_TEMPORAL_CLI=<path>` uses a local `temporal`
+CLI), runs the scenarios in `record_histories_test.go` (build tag
+`recordhistories`) behind the worker guard and the Propagator, and writes the
+missing files only. Add a scenario there, record, and add its file names to
+`wantHistories` in `replay_test.go`.
+
+**Shipping a change that the gate rejects.** Never re-record or edit a history
+that is on `main`. Either:
+
+1. **`workflow.GetVersion`**: put the new command order behind
+   `v := workflow.GetVersion(ctx, "<change-id>", workflow.DefaultVersion, 1)`,
+   keep the old order for `DefaultVersion`, record a new history that takes the
+   new branch, and add it to `wantHistories`. Old histories replay down the old
+   branch; the new one pins the new branch. Or
+2. **a new workflow type** (`nava.interpreter.v2`): register it beside the old
+   one through a D9 policy PR (the Temporal authorizer allow-list,
+   `temporal-server/authz`), start new runs on it, and keep the old type and
+   its histories until its runs have drained.
+
+Worker Versioning is not an option (D-3-17): a versioned poll is denied
+(`checkUnversioned`, `temporal-server/authz/authorizer.go`), and the
+versioning-rule calls are denied to every platform identity (`policy.go`);
+allowing them is an ADR-001 amendment.
+
+**Deploy rules** (Technical Architect, TICK-363):
+
+- **(a)** For any change that needs `GetVersion`, stop the old interpreter
+  workers before the new ones start. An old worker that picks up a task of a
+  run the new code already advanced would replay it against the old code and
+  fail it.
+- **(b)** Never roll back across a recorded `GetVersion`. Runs that recorded
+  the new version's marker cannot replay on code without the branch; fix
+  forward instead.
+- **(c)** Delete a `GetVersion` branch only when an Operator
+  `ListWorkflowExecutions` query shows no open run that started before the
+  change shipped (`WorkflowType = 'nava.interpreter' AND ExecutionStatus =
+  'Running' AND StartTime < '<deploy time>'` returns nothing).
+  **Open:** the histories recorded before the branch then stop replaying, and
+  `TestHistoriesAppendOnly` refuses their deletion. How a history is retired
+  (a reviewed allow-list in the test) is not designed yet; it is not needed
+  until the first `GetVersion` branch is deleted (flagged on TICK-350).
 
 ## Run it
 

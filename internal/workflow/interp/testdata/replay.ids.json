@@ -1,0 +1,13 @@
+{
+  "cool_off": "fdc2dfe9-e468-4a45-ab4a-64129182e781",
+  "is_high": "fe7518ac-d626-4edb-8421-95e210eebf70",
+  "await_approval": "b4ea63cc-1dd6-4684-8753-058d2088c23f",
+  "mark_approved": "e70a38c7-930b-4561-b928-864f7d4ab359",
+  "mark_timed_out": "521495be-7f3e-4f8b-9fe0-fde49d687abb",
+  "route": "14bcdf80-f007-4e88-845b-833eaab986b9",
+  "lane_a": "86355354-bfc8-4857-a767-4fb0780fca56",
+  "lane_b": "26556adc-6746-4efb-b9da-1c750b90ecbf",
+  "lane_default": "ba66344e-b218-4ef1-b922-34ac0a292532",
+  "done": "83e5eff9-3441-4bf8-836d-e0c4fced479b",
+  "signal:approve": "d72b50b6-440f-4f46-8ac9-bc29e03253f2"
+}
