@@ -234,8 +234,11 @@ func (p *Pipeline) Write(ctx context.Context, tx pgx.Tx, cmd Command) (Result, e
 		return Result{}, err
 	}
 	tenant, err := tenancy.TenantOf(ctx, tx)
-	if err != nil {
+	if errors.Is(err, tenancy.ErrNoTenant) {
 		return Result{}, fmt.Errorf("%w: %w", ErrInvalidCommand, err)
+	}
+	if err != nil {
+		return Result{}, fmt.Errorf("pipeline: %w", err)
 	}
 	if cmd.Actor.TenantID != tenant {
 		return Result{}, authz.ErrForbidden
