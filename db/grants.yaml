@@ -20,6 +20,9 @@
 #                    table-level grant; a list grants only those columns.
 #                    A bare name is in schema public.
 #   functions:       "schema.name(argtypes)" -> [EXECUTE].
+#   settings:        role-wide parameters (ALTER ROLE ... SET), converged by
+#                    db-roles: a parameter set on the role but not listed is
+#                    reset. Only the parameters grants.AllowedSettings knows.
 # Each table's entries ship with the migration that creates that table.
 # Policies stay in SQL migrations.
 
@@ -40,18 +43,33 @@ roles:
   # The D28 system actors (A.3), one role each. Table entries: T09
   # (00002_platform_tables.sql), T16 (00003_identity_tables.sql), T18a
   # (00004_tenant_email_domain.sql, 00007_email_domain_release.sql), T252a
-  # (00006_pending_invite.sql) and P3-02 (20261031150000_entity_definitions.sql).
+  # (00006_pending_invite.sql), P3-02 (20261031150000_entity_definitions.sql)
+  # and P3-09 (20261101190000_records_pipeline.sql).
   # Every tenant table is under FORCE RLS, so a grant here reaches only the
   # rows its policies allow.
   nava_app:
     attributes: [LOGIN]
     pgbouncer_login: true
+    # P3-01 (TICK-339): list queries plan with the tenant's own values; the
+    # generic plan of query (d) missed 150 ms at p95 398 ms. db-roles applies it.
+    settings: { plan_cache_mode: force_custom_plan }
     database: [CONNECT]
     schemas: { public: [USAGE] }
     tables:
       tenants: { SELECT: [id, state] }
       tenant_identity_binding: { SELECT: [tenant_id, issuer, org_id, idp_aliases] } # binding_lookup
-      records: { SELECT: [], INSERT: [], UPDATE: [version] }
+      # P3-09 (TICK-353): UPDATE leaves out tenant_id, id and the columns set
+      # once at insert (entity_definition_id, number, created_by, created_at),
+      # so a record's number cannot be rewritten.
+      records:
+        SELECT: []
+        INSERT: []
+        UPDATE: [version, schema_version, state, requester_id, assignee_id, assignment_group_id,
+                 updated_at, data, causation_origin_id, causation_depth]
+      # Append-only: no UPDATE or DELETE (P3-09).
+      audit_log: { SELECT: [], INSERT: [] }
+      # The one numbering upsert (D-3-9): INSERT ... ON CONFLICT DO UPDATE SET next.
+      record_counters: { SELECT: [], INSERT: [], UPDATE: [next] }
       # INSERT ... RETURNING id and the dedupe-conflict lookup (T29).
       outbox: { SELECT: [tenant_id, id, dedupe_key], INSERT: [] }
       workflow_ref: { SELECT: [], INSERT: [] }
@@ -80,7 +98,13 @@ roles:
     database: [CONNECT]
     schemas: { public: [USAGE] }
     tables:
-      records: { SELECT: [], INSERT: [], UPDATE: [version] }
+      records:
+        SELECT: []
+        INSERT: []
+        UPDATE: [version, schema_version, state, requester_id, assignee_id, assignment_group_id,
+                 updated_at, data, causation_origin_id, causation_depth]
+      audit_log: { SELECT: [], INSERT: [] }
+      record_counters: { SELECT: [], INSERT: [], UPDATE: [next] }
       outbox: { SELECT: [tenant_id, id, dedupe_key], INSERT: [] }
       workflow_ref: { SELECT: [], INSERT: [], UPDATE: [closed_at] }
       tenant_admin_group: { SELECT: [] }

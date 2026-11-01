@@ -98,6 +98,10 @@ func TestValidate(t *testing.T) {
 		{"repeated privilege", "database: [CONNECT]", "database: [CONNECT, CONNECT]", "privileges repeat"},
 		{"repeated column", "SELECT: [id, tenant_id]", "SELECT: [id, id]", "columns repeat"},
 		{"duplicate role", "  auth:\n", "  app:\n", `"app" already defined`},
+		{"allowed setting", "database: [CONNECT]", "database: [CONNECT]\n    settings: { plan_cache_mode: force_custom_plan }", ""},
+		{"unknown setting", "database: [CONNECT]", "database: [CONNECT]\n    settings: { row_security: \"off\" }", `setting "row_security" is not one of`},
+		{"bad setting value", "database: [CONNECT]", "database: [CONNECT]\n    settings: { plan_cache_mode: custom }", `plan_cache_mode = "custom" is not one of`},
+		{"owner with settings", "owner: { attributes: [LOGIN] }", "owner: { attributes: [LOGIN], settings: { plan_cache_mode: auto } }", "the owner takes no settings"},
 		{"second document", "reason: test\n", "reason: test\n---\nroles: {}\n", "more than one document"},
 	}
 	for _, tt := range tests {

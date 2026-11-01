@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"strings"
 
@@ -82,6 +83,9 @@ func Run(ctx context.Context, cfg *pgx.ConnConfig, m *grants.Manifest, passwords
 	for _, name := range m.RoleNames() {
 		if err := ensureRole(ctx, conn, name, m.Roles[name], passwords, log, &res); err != nil {
 			return res, fmt.Errorf("role %s: %w", name, err)
+		}
+		if err := ensureSettings(ctx, conn, name, m.Roles[name].Settings, log, &res); err != nil {
+			return res, fmt.Errorf("role %s settings: %w", name, err)
 		}
 	}
 	if err := convergeMemberships(ctx, conn, m, log, &res); err != nil {
@@ -545,6 +549,66 @@ func superuserOwned(ctx context.Context, conn *pgx.Conn, schema, function string
 		fnExists = fnExists || o.Kind == "function"
 	}
 	return schemaExists, fnExists, nil
+}
+
+// ensureSettings converges a role's parameter settings to want (the
+// manifest's settings, P3-09): role-wide exactly want, and nothing set for
+// the role in any one database, which would override the role-wide value
+// there. A converged role is left alone. ALTER ROLE ... SET needs CREATEROLE
+// or superuser, so the migrator cannot do this.
+func ensureSettings(ctx context.Context, conn *pgx.Conn, name string, want map[string]string, log *slog.Logger, res *Result) error {
+	wantCfg := make([]string, 0, len(want))
+	for k, v := range want {
+		wantCfg = append(wantCfg, k+"="+v)
+	}
+	slices.Sort(wantCfg)
+
+	rows, err := conn.Query(ctx, `
+		SELECT coalesce(d.datname::text, ''), s.setconfig
+		FROM pg_catalog.pg_db_role_setting s
+		JOIN pg_catalog.pg_roles r ON r.oid = s.setrole
+		LEFT JOIN pg_catalog.pg_database d ON d.oid = s.setdatabase
+		WHERE r.rolname = $1
+		ORDER BY 1`, name)
+	if err != nil {
+		return err
+	}
+	type setting struct {
+		Database string
+		Config   []string
+	}
+	have, err := pgx.CollectRows(rows, pgx.RowToStructByPos[setting])
+	if err != nil {
+		return err
+	}
+	var roleWide []string
+	for _, s := range have {
+		if s.Database == "" {
+			roleWide = slices.Sorted(slices.Values(s.Config))
+			continue
+		}
+		if _, err := conn.Exec(ctx, fmt.Sprintf("ALTER ROLE %s IN DATABASE %s RESET ALL", ident(name), ident(s.Database))); err != nil {
+			return err
+		}
+		log.WarnContext(ctx, "reset role settings in database", slog.String("role", name),
+			slog.String("database", s.Database), slog.String("settings", strings.Join(s.Config, ",")))
+		res.Changed++
+	}
+	if slices.Equal(roleWide, wantCfg) {
+		return nil
+	}
+	if _, err := conn.Exec(ctx, "ALTER ROLE "+ident(name)+" RESET ALL"); err != nil {
+		return err
+	}
+	for _, k := range slices.Sorted(maps.Keys(want)) {
+		if _, err := conn.Exec(ctx, fmt.Sprintf("ALTER ROLE %s SET %s = %s", ident(name), ident(k), literal(want[k]))); err != nil {
+			return err
+		}
+	}
+	log.InfoContext(ctx, "converged role settings", slog.String("role", name),
+		slog.String("from", strings.Join(roleWide, ",")), slog.String("to", strings.Join(wantCfg, ",")))
+	res.Changed++
+	return nil
 }
 
 func onOff(on bool, attr string) string {
