@@ -310,8 +310,8 @@ erDiagram
         uuid id UK "per tenant, names the version"
         json schema "bytes as written, not jsonb"
         bytea schema_sha256 "CHECK equals sha256 of schema"
-        jsonb fixed_columns
-        jsonb states
+        jsonb fixed_columns "CHECK object (TICK-378)"
+        jsonb states "CHECK object (TICK-378)"
         text compat "initial, compatible, needs_backfill"
         uuid published_by "FK, NULL only for onboarding seeds"
         timestamptz published_at
@@ -338,6 +338,11 @@ erDiagram
   tenant's row. Nothing in the database stops `nava_app` from writing NULL
   too; the publish path in the service layer must always set it.
 - **`compat`.** Version 1, and only version 1, is `initial` (CHECK).
+- **`fixed_columns` and `states` are objects (TICK-378).** A CHECK on each
+  refuses any other top-level JSON type, `'[]'` and `null` included, because
+  the store scans them into a Go map and struct and a bad row could never be
+  repaired. Decision and figures:
+  [`entity-def-versions-jsonb-check.md`](entity-def-versions-jsonb-check.md).
 - **Policies.** One per command, `TO` the granted roles only, each the
   canonical tenant predicate. `nava_onboard`'s two `INSERT` policies add "and
   that tenant is provisioning" and are pinned in

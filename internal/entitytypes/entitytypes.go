@@ -183,7 +183,7 @@ func (s Store) Create(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, in New
 	case !errors.Is(err, pgx.ErrNoRows):
 		return nil, fmt.Errorf("entitytypes: check prefix: %w", err)
 	}
-	fixed, err := json.Marshal(d.FixedColumns)
+	fixed, err := encodeFixedColumns(d.FixedColumns)
 	if err != nil {
 		return nil, fmt.Errorf("entitytypes: encode fixed columns: %w", err)
 	}
@@ -311,7 +311,7 @@ SELECT id, number_prefix, current_version FROM entity_definitions WHERE key = $1
 	if class == metadata.Breaking {
 		return nil, &BreakingError{Paths: paths}
 	}
-	fixed, err := json.Marshal(d.FixedColumns)
+	fixed, err := encodeFixedColumns(d.FixedColumns)
 	if err != nil {
 		return nil, fmt.Errorf("entitytypes: encode fixed columns: %w", err)
 	}
@@ -339,6 +339,17 @@ UPDATE entity_definitions SET current_version = $1, updated_at = now() WHERE id 
 		return nil, fmt.Errorf("entitytypes: set current version: %w", err)
 	}
 	return s.GetVersion(ctx, tx, in.Key, number)
+}
+
+// encodeFixedColumns encodes a definition's fixed columns as a JSON object.
+// A nil map (the request omitted fixed_columns, or sent null) is {}, never
+// null: entity_definition_versions_fixed_columns_check accepts only an
+// object (TICK-378).
+func encodeFixedColumns(m map[string]string) ([]byte, error) {
+	if m == nil {
+		return []byte("{}"), nil
+	}
+	return json.Marshal(m)
 }
 
 func mapUnique(err error) error {
