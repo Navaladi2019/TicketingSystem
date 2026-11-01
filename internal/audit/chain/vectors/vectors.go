@@ -13,6 +13,7 @@ package vectors
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -35,6 +36,7 @@ type File struct {
 	Chain    []ChainCase `json:"chain"`
 	Tampered []Tampered  `json:"tampered"`
 	Invalid  []Invalid   `json:"invalid"`
+	Exports  []Export    `json:"exports"`
 }
 
 // DiffCase is one diff_sha256 vector: SHA-256(diff_salt ‖ diff bytes).
@@ -86,9 +88,24 @@ const (
 )
 
 // Invalid is an envelope object that must be rejected before hashing.
+// Exactly one of Envelope (the JSON text) and EnvelopeHex (its bytes in
+// lowercase hex, for inputs that are not valid UTF-8 and so cannot sit in a
+// JSON string) is set.
 type Invalid struct {
-	Name     string `json:"name"`
-	Envelope string `json:"envelope"` // raw JSON text
+	Name        string  `json:"name"`
+	Envelope    *string `json:"envelope"`
+	EnvelopeHex *string `json:"envelope_hex"`
+}
+
+// Bytes returns the raw envelope input.
+func (v Invalid) Bytes() ([]byte, error) {
+	if v.EnvelopeHex != nil {
+		return hex.DecodeString(*v.EnvelopeHex)
+	}
+	if v.Envelope == nil {
+		return nil, fmt.Errorf("invalid vector %s has no input", v.Name)
+	}
+	return []byte(*v.Envelope), nil
 }
 
 // Generate returns the vectors file bytes.
@@ -155,6 +172,11 @@ func build() (File, error) {
 
 	f.Tampered = tamperedCases(f.Chain)
 	f.Invalid = invalidCases(f.Chain[0])
+	exports, err := exportCases(f.Chain)
+	if err != nil {
+		return File{}, err
+	}
+	f.Exports = exports
 	return f, nil
 }
 
@@ -381,18 +403,32 @@ func invalidCases(c ChainCase) []Invalid {
 	replace := func(old, repl string) string {
 		return string(bytes.Replace([]byte(canon), []byte(old), []byte(repl), 1))
 	}
+	text := func(name, old, repl string) Invalid {
+		s := replace(old, repl)
+		return Invalid{Name: name, Envelope: &s}
+	}
+	raw := func(name, old, repl string) Invalid {
+		h := hex.EncodeToString([]byte(replace(old, repl)))
+		return Invalid{Name: name, EnvelopeHex: &h}
+	}
 	return []Invalid{
-		{"member-omitted", replace(`"actor_system":null,`, ``)},
-		{"unknown-member", replace(`{`, `{"txid":"123",`)},
-		{"duplicate-member", replace(`{`, `{"source":"user",`)},
-		{"uuid-uppercase", replace(`0190f3a0-0000-7000-8000-000000000001`, `0190F3A0-0000-7000-8000-000000000001`)},
-		{"timestamp-no-micros", replace(`2026-11-02T10:00:00.000000Z`, `2026-11-02T10:00:00Z`)},
-		{"timestamp-offset", replace(`2026-11-02T10:00:00.000000Z`, `2026-11-02T10:00:00.000000+00:00`)},
-		{"integer-as-float", replace(`"version_after":1`, `"version_after":1.0`)},
-		{"integer-exponent", replace(`"version_after":1`, `"version_after":1e0`)},
-		{"integer-unsafe", replace(`"version_after":1`, `"version_after":9007199254740992`)},
-		{"hex-uppercase", replace(`"content_sha256":"c047e47e`, `"content_sha256":"C047E47E`)},
-		{"empty-text", replace(`"actor_system":null`, `"actor_system":""`)},
-		{"bool-as-string", replace(`"backfilled":false`, `"backfilled":"false"`)},
+		text("member-omitted", `"actor_system":null,`, ``),
+		text("unknown-member", `{`, `{"txid":"123",`),
+		text("duplicate-member", `{`, `{"source":"user",`),
+		text("uuid-uppercase", `0190f3a0-0000-7000-8000-000000000001`, `0190F3A0-0000-7000-8000-000000000001`),
+		text("timestamp-no-micros", `2026-11-02T10:00:00.000000Z`, `2026-11-02T10:00:00Z`),
+		text("timestamp-offset", `2026-11-02T10:00:00.000000Z`, `2026-11-02T10:00:00.000000+00:00`),
+		text("integer-as-float", `"version_after":1`, `"version_after":1.0`),
+		text("integer-exponent", `"version_after":1`, `"version_after":1e0`),
+		text("integer-unsafe", `"version_after":1`, `"version_after":9007199254740992`),
+		text("hex-uppercase", `"content_sha256":"c047e47e`, `"content_sha256":"C047E47E`),
+		text("empty-text", `"actor_system":null`, `"actor_system":""`),
+		text("bool-as-string", `"backfilled":false`, `"backfilled":"false"`),
+		// Strings must be in canonical form (TA PR #365 finding 5, Security
+		// S1): encoding/json would read each of these as U+FFFD.
+		text("lone-high-surrogate", `"source":"user"`, `"source":"us\ud800er"`),
+		text("lone-low-surrogate", `"source":"user"`, `"source":"us\udc00er"`),
+		raw("invalid-utf8-byte", `"source":"user"`, `"source":"us`+string([]byte{0xff})+`er"`),
+		text("non-canonical-escape", `"source":"user"`, `"source":"\u0075ser"`),
 	}
 }

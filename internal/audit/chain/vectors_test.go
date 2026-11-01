@@ -200,8 +200,12 @@ func TestGoldenVectorsInvalid(t *testing.T) {
 		t.Fatal("no invalid vectors")
 	}
 	for _, c := range f.Invalid {
+		in, err := c.Bytes()
+		if err != nil {
+			t.Fatal(err)
+		}
 		var e chain.Envelope
-		if err := json.Unmarshal([]byte(c.Envelope), &e); !errors.Is(err, chain.ErrInvalidEnvelope) {
+		if err := e.UnmarshalJSON(in); !errors.Is(err, chain.ErrInvalidEnvelope) {
 			t.Errorf("%s: err = %v, want ErrInvalidEnvelope", c.Name, err)
 		}
 	}

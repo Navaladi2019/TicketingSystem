@@ -100,6 +100,11 @@ func (e Envelope) MarshalJSON() ([]byte, error) { return CanonicalEnvelope(e) }
 // integer). Member order and whitespace are free; hash the result with
 // EnvelopeSHA256, never the input bytes.
 func (e *Envelope) UnmarshalJSON(b []byte) error {
+	// encoding/json silently turns invalid UTF-8 into U+FFFD; reject it
+	// before decoding so the value hashed is the value in the file (§2).
+	if !utf8.Valid(b) {
+		return fmt.Errorf("%w: invalid UTF-8", ErrInvalidEnvelope)
+	}
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.UseNumber()
 	tok, err := dec.Token()
@@ -337,9 +342,9 @@ func nullHashField(name string, p func(*Envelope) **[32]byte) envelopeField {
 				*p(e) = nil
 				return nil
 			}
-			var s string
-			if err := json.Unmarshal(v, &s); err != nil {
-				return errors.New("want a hex string or null")
+			s, err := decString(v)
+			if err != nil {
+				return err
 			}
 			h, err := ParseHash32(s)
 			*p(e) = &h
@@ -351,9 +356,9 @@ func nullHashField(name string, p func(*Envelope) **[32]byte) envelopeField {
 func encUUID(u uuid.UUID) []byte { return []byte(`"` + u.String() + `"`) }
 
 func decUUID(v json.RawMessage) (uuid.UUID, error) {
-	var s string
-	if err := json.Unmarshal(v, &s); err != nil {
-		return uuid.Nil, errors.New("want a UUID string")
+	s, err := decString(v)
+	if err != nil {
+		return uuid.Nil, err
 	}
 	u, err := uuid.Parse(s)
 	if err != nil || u.String() != s {
@@ -374,9 +379,9 @@ func encTime(t time.Time) ([]byte, error) {
 }
 
 func decTime(v json.RawMessage) (time.Time, error) {
-	var s string
-	if err := json.Unmarshal(v, &s); err != nil {
-		return time.Time{}, errors.New("want a timestamp string")
+	s, err := decString(v)
+	if err != nil {
+		return time.Time{}, err
 	}
 	t, err := time.Parse(TimeLayout, s)
 	if err != nil || t.Format(TimeLayout) != s {
@@ -400,10 +405,28 @@ func encText(s string) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-func decText(v json.RawMessage) (string, error) {
+// decString decodes a JSON string and requires it to be in canonical (JCS)
+// form. encoding/json maps a lone surrogate escape or an invalid byte to
+// U+FFFD without an error, so the decoded value would differ from the bytes
+// in the file; re-encoding and comparing rejects that, and any other
+// non-canonical escape such as A (Technical Architect, PR #365).
+func decString(v json.RawMessage) (string, error) {
 	var s string
 	if err := json.Unmarshal(v, &s); err != nil {
 		return "", errors.New("want a string")
+	}
+	var c bytes.Buffer
+	writeJCSString(&c, s)
+	if !bytes.Equal(c.Bytes(), v) {
+		return "", errors.New("string not in canonical form")
+	}
+	return s, nil
+}
+
+func decText(v json.RawMessage) (string, error) {
+	s, err := decString(v)
+	if err != nil {
+		return "", err
 	}
 	if s == "" {
 		return "", errors.New("empty text (use null)")

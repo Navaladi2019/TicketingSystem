@@ -118,8 +118,13 @@ A reader (the verifier) parses an envelope object strictly and then
 a missing member, an unknown member, a duplicate member, a non-canonical value
 (uppercase UUID or hex, a timestamp without six digits or not in `Z`, `1.0`,
 `1e0`, `-0`, an integer outside ±(2^53 − 1), a boolean as a string, an empty
-string). Member order and whitespace are free. The vectors' `invalid` list
-covers each rejection.
+string). Input that is not valid UTF-8 is rejected before decoding.
+**String values must use the canonical escapes** of the section above: a
+string is accepted only if re-encoding its decoded value gives back exactly
+the bytes in the file. That rejects lone surrogate escapes (`\ud800`,
+`\udc00`), which many JSON readers silently turn into U+FFFD, and harmless
+but non-canonical escapes such as `u`. **Member order and whitespace
+stay free.** The vectors' `invalid` list covers each rejection.
 
 Notes:
 
@@ -232,34 +237,79 @@ With `stubs=true`: `count + stub_count = last_seq − anchor_seq`.
 
 ## 4. Verification
 
-What `nava audit verify` (P5-03) checks, offline:
+What `nava audit verify` (P5-03) checks, offline. It reports one outcome per
+sealed line (`verified`, `diff_unverified`, `pending`, `tampered`) and one for
+the file (`pass`, `tampered`, `empty`, `unverifiable`). The first `tampered`
+check names its reason; the reason codes are the ones used in the vectors.
 
 1. The header's `format` is `nava.audit.export/v1`; the last line is the
-   trailer; counts match.
+   trailer; `count`, `stub_count` and `unsealed_count` match the lines.
 2. The first range line is the anchor, and its `seq` is `anchor_seq`
    (R20: a file without the anchor is rejected).
 3. For each range line in order, `seq` is the previous `seq + 1` and
-   `prev_hash` equals the previous `entry_hash` (the anchor's for the first).
-4. For each full line: parse the envelope strictly, recompute
-   `envelope_sha256`, compare, and recompute `entry_hash`. For a stub,
-   recompute `entry_hash` from its `prev_hash` and `envelope_sha256`.
-5. Where `diff` and `diff_salt` are both present, `SHA-256(salt ‖ diff)`
-   equals the envelope's `diff_sha256`.
-6. The last range line's `entry_hash` is `head_hash`.
-7. Erased entries: R24 (`tampered` unless a chain-valid `audit/erase` entry
-   with `subject_id = erasure_ref` lists the id; `pending` if that entry is
-   unsealed). **The `audit/erase` diff is RFC 6902 like every other diff**
-   (R1, R5): exactly one op,
-   `[{"op":"add","path":"/erased_ids","value":["<id>", …]}]`, with 1 to 10,000
-   lowercase entry ids (R23). The verifier reads the ids from that op only and
-   treats any other shape as not listing the id.
-8. An export with an empty range (`anchor_seq: null`) is reported as
-   **`empty`**, not as a failure.
+   `prev_hash` equals the previous `entry_hash` (the anchor's for the first),
+   else `entry_hash_mismatch`. A gap is allowed only in a file that step 8
+   finds not verifiable.
+4. For each full line: parse the envelope strictly (section 2), recompute
+   `envelope_sha256` and compare (`envelope_sha256_mismatch`), and recompute
+   `entry_hash`. For a stub, recompute `entry_hash` from its `prev_hash` and
+   `envelope_sha256`.
 
-The vectors' `tampered` list gives one case per failure kind
-(`envelope_sha256_mismatch`, `diff_sha256_mismatch`, `entry_hash_mismatch`),
-including **`diff-truncated-flag-cleared`**: a truncated entry whose flag was
-cleared after sealing must fail.
+   4a. Every `entry` line's `envelope.tenant_id` equals the header's
+   `tenant_id`, for every full entry (sealed or unsealed, `audit/erase`
+   entries included); otherwise `tampered` (`header_tenant_mismatch`).
+5. Diff state, per sealed full line, with `E` = `envelope.diff_sha256`.
+   `diff_redacted`, `erased_at` and `erasure_ref` are not hashed, so they are
+   cross-checked here:
+   - `E` is null: `diff`, `diff_salt` and `erased_at` are null and
+     `diff_redacted` is false; otherwise `tampered` (`diff_state_mismatch`).
+   - `E` is set and `erased_at` is set: `diff` and `diff_salt` are null
+     (otherwise `tampered`, `diff_state_mismatch`); then step 7.
+   - `E` is set, `erased_at` is null and `diff_redacted` is false: `diff` and
+     `diff_salt` are both present and `SHA-256(salt || diff) = E`. A missing
+     diff is `tampered` (`diff_missing`); a mismatch is `tampered`
+     (`diff_sha256_mismatch`).
+   - `E` is set and `diff_redacted` is true: `diff_salt` is null; the line is
+     `diff_unverified`, never `verified`. The diff text is not attested by
+     this file.
+6. In a file without gaps, the last range line's `seq` is `last_seq` and its
+   `entry_hash` is `head_hash`.
+7. Erased entries: R24 (`tampered`, `erasure_unlisted`, unless a chain-valid
+   `audit/erase` entry with `subject_id = erasure_ref` lists the id;
+   `pending` if that entry is unsealed). **The `audit/erase` diff is RFC 6902
+   like every other diff** (R1, R5): exactly one op,
+   `[{"op":"add","path":"/erased_ids","value":["<id>", ...]}]`, with 1 to
+   10,000 lowercase entry ids (R23). The verifier reads the ids from that op
+   only and treats any other shape as not listing the id.
+8. **Verifiability is computed, not read.** The header's `stubs` and the
+   trailer's `verifiable` are not hashed. The file is verifiable only when the
+   anchor is present and every `seq` in `anchor_seq+1..last_seq` appears; a
+   flag that disagrees with the computed value is `tampered`
+   (`verifiable_flag_mismatch`). A file honestly flagged `stubs: false`,
+   `verifiable: false` is `unverifiable`, not `pass`. An empty range
+   (`anchor_seq: null`) is **`empty`**: also unverifiable, and reported as
+   neither a pass nor a failure, so an auditor exporting a quiet window sees
+   no alarm.
+9. **What a pass proves**: every line present is what was sealed, and the
+   range is contiguous from the anchor to `head_hash`. It does **not** prove:
+   - that a `stub` was a non-matching entry. A full entry swapped for its own
+     stub still verifies (the stub reuses the same `envelope_sha256`), so
+     filter completeness is not attested;
+   - anything about a whole file rewritten consistently, or entries cut off
+     the end with the trailer's `head_hash` rewritten. Nothing authenticates
+     the file itself (ADR-004 R-A1, AR-TICK-409-01: no external anchor).
+
+   To catch those, compare an overlapping `seq`'s `entry_hash` (for example
+   the anchor's, or a previous export's `head_hash`) with an export the
+   tenant already holds. P5-03's documentation states these limits for
+   auditors.
+10. **Every line is parsed strictly**: a duplicate or unknown member, or an
+    unknown `kind`, is an error, with the same rules as the envelope.
+
+The vectors bind these steps: `tampered` gives one per-line case per hash
+failure (including **`diff-truncated-flag-cleared`**: a truncated entry whose
+flag was cleared after sealing must fail), and `exports` gives whole files
+with the outcome each must produce (section 6).
 
 ## 5. CSV
 
@@ -286,6 +336,10 @@ rows put their whole JSONL object in `meta` and leave the rest empty.
 reversible: a reader drops exactly one leading `'` from any cell that has one,
 then verifies exactly as for JSONL. JSONL is never prefixed.
 
+**The `diff` cell holds the stored bytes verbatim; readers must not normalise
+line endings.** The bytes are hashed, so a stored diff containing LF (`\n`)
+must come back as LF, never CRLF (`\r\n`).
+
 ## 6. Golden vectors
 
 `internal/audit/chain/testdata/vectors.json`, regenerated by
@@ -302,7 +356,8 @@ generator's output. The file holds:
 | `diffs` | salt, stored diff bytes, `diff_sha256`; includes the same ops compact and spaced (different hashes) |
 | `chain` | seq 1..7 of one tenant: envelope, canonical bytes, `envelope_sha256`, `prev_hash`, `entry_hash`, diff and salt. Covers a minimal config entry, every nullable field set, string escapes (control characters, DEL, U+2028, astral, HTML), a backfilled UUIDv5 entry with integer bounds, **truncated-honest** (`diff_truncated: true`, hash over the stored cut bytes), an erased entry and its `audit/erase` entry |
 | `tampered` | lines changed after sealing, each with the failure it must produce, including the **tampered `diff_truncated` flag** both ways and a diff re-serialised as jsonb would |
-| `invalid` | envelope objects the parser must reject |
+| `invalid` | envelope inputs the parser must reject, including lone high and low surrogate escapes, a raw invalid UTF-8 byte (given as `envelope_hex`) and a non-canonical escape |
+| `exports` | whole JSONL files with the file outcome, the failing reason and the per-line outcomes a section 4 verifier must produce: an unfiltered and a filtered pass, a diff dropped from an entry that was not erased (`diff_missing`), a diff replaced and marked redacted (`diff_unverified`), a diff injected where `diff_sha256` is null, a header relabelled to another tenant (`header_tenant_mismatch`), `verifiable: false` on a complete file (`verifiable_flag_mismatch`), an erased entry whose erase entry is only a stub (`erasure_unlisted`), an honest `stubs: false` file (`unverifiable`) and an empty range (`empty`) |
 
 The writer (P5-12b), the sealer (P5-34a) and the verifier (P5-03) each test
 against this file; the verifier's fixtures (TICK-425) are built from the
