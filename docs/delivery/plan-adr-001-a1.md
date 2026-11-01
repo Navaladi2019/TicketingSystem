@@ -52,7 +52,7 @@ flowchart LR
     classDef done fill:#d1fae5,stroke:#047857
 ```
 
-**Critical path:** T27e → T27f. PR #26 is approved and labelled `MergePr` already, so it isn't expected to gate T27f.
+**Critical path:** T27e → T27f. PR #26 is approved and labelled `MergePr` already (historical; the label was retired on 2026-11-01, TICK-402), so it isn't expected to gate T27f.
 
 ```mermaid
 gantt
