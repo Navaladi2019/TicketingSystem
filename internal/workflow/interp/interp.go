@@ -31,8 +31,9 @@ import (
 )
 
 // WorkflowType is the registered name of the interpreter workflow, on the
-// nava-tq queue (D-3-11).
-const WorkflowType = "nava.interpreter"
+// nava-tq queue (D-3-11). It is the one workflow type the guard lets receive a
+// workerguard.Directive (workerguard.DirectiveWorkflow, TICK-386).
+const WorkflowType = workerguard.DirectiveWorkflow
 
 // Activity names. NextStep is the one activity the guard lets record a
 // workerguard.Directive (workerguard.DirectiveActivity).

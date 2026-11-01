@@ -10,12 +10,12 @@ Workflow code holds the definition version id, the record id, the current step i
 |---|---|---|
 | Start input | `outbox.Delivery`, payload `{definition_version_id, record_id}` | `deliveryOK` |
 | `NextStep` / `ApplyStep` argument | one `StepRef{definition_version_id, record_id, step, signal?}` (`signal` omitted, never null; `step` nil = start) | generic: UUID-only object |
-| `NextStep` result | `workerguard.Directive` | `directiveOK`, only for the regular activity `workerguard.DirectiveActivity` (= `NextStep`) |
+| `NextStep` result | `workerguard.Directive` | `directiveOK`, only for the regular activity `workerguard.DirectiveActivity` (= `NextStep`) called from workflow type `workerguard.DirectiveWorkflow` (= `nava.interpreter`) |
 | Signal | `outbox.Delivery` on `nava.interpreter.signal`, payload `{signal}` | `deliveryOK` |
 | Continue-as-new input | `RunInput`: `Seen`, `Refs{step, pending_outbox[], pending_signal[]}` | `runInputOK` |
 | Failure | `nava.WorkflowRejected` with a fixed `Rejection` text, else `nava.Opaque` | `recordable` |
 
-Only `NextStep` builds a `Directive`, and the guard enforces it: `directiveAllowed` accepts a `Directive` result only from a regular (never local) activity of type `workerguard.DirectiveActivity`, which `interp.NextStepActivity` is defined as. Any other activity that returns one, even a valid one, has it withheld (D-P10 regression guard, TICK-367). Every value comes from the published definition and its step-id map. `WaitSeconds` is `def.Step.WaitSeconds()`, never a record field.
+Only `NextStep` builds a `Directive`, and the guard enforces it: `directiveAllowed` accepts a `Directive` result only from a regular (never local) activity of type `workerguard.DirectiveActivity`, which `interp.NextStepActivity` is defined as. The calling workflow must also be of type `workerguard.DirectiveWorkflow`, which `interp.WorkflowType` is defined as, so a worker binary that registers its own activity under the `NextStep` name cannot record one (TICK-386). Any other activity that returns one, even a valid one, and a `NextStep` called from any other workflow type, has it withheld with a deny alert (D-P10 regression guard, TICK-367). Every value comes from the published definition and its step-id map. `WaitSeconds` is `def.Step.WaitSeconds()`, never a record field.
 
 ## Loop
 
