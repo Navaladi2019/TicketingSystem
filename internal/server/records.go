@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"slices"
 	"strconv"
@@ -102,7 +103,7 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 		if errors.Is(err, entitytypes.ErrNotFound) || errors.Is(err, pipeline.ErrNotFound) {
 			return h.notFound(ctx), nil
 		}
-		return nil, recordError(err, fixed)
+		return nil, h.recordError(ctx, err, fixed)
 	}
 	return api.CreateRecord201JSONResponse{
 		Body:    recordBody(rec, rec.Payload(fixed)),
@@ -113,7 +114,7 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 // GetRecord serves GET /api/v1/records/{entity}/{id}.
 func (h *handlers) GetRecord(ctx context.Context, req api.GetRecordRequestObject) (api.GetRecordResponseObject, error) {
 	p, ok := identity.FromContext(ctx)
-	if !ok {
+	if !ok || p.PrincipalID == uuid.Nil {
 		return nil, errNoPrincipal
 	}
 	if h.pool == nil {
@@ -189,9 +190,9 @@ func recordInvalid(fields ...problem.FieldError) *problemError {
 
 // recordError maps a failed create transaction. A foreign key violation never
 // shows its constraint, table or detail text: it is a field error naming the
-// payload property whose fixed column the constraint guards (the pgx error is
-// kept as the logged cause only).
-func recordError(err error, fixed map[string]string) error {
+// payload property whose fixed column the constraint guards. The constraint
+// name is logged here, server side only.
+func (h *handlers) recordError(ctx context.Context, err error, fixed map[string]string) error {
 	var (
 		ve *pipeline.ErrValidation
 		pe *problemError
@@ -209,6 +210,7 @@ func recordError(err error, fixed map[string]string) error {
 		}
 		return recordInvalid(fields...)
 	case errors.As(err, &pg) && pg.Code == pgForeignKeyViolation:
+		h.log.WarnContext(ctx, "record write refused by a foreign key", slog.String("constraint", pg.ConstraintName))
 		col, ok := fkColumn(pg.ConstraintName)
 		if !ok {
 			return err

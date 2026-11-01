@@ -1,14 +1,19 @@
 package server
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/Navaladi2019/TicketingSystem/api"
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
+	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
@@ -31,17 +36,22 @@ func wrappedFK(constraint string) error {
 
 func TestRecordErrorMapsAWrappedForeignKeyViolationToAFieldError(t *testing.T) {
 	t.Parallel()
+	h, logs := recHandler()
+	ctx := t.Context()
 	for constraint, pointer := range map[string]string{
 		"records_assignee_fkey":         "/data/owner",
 		"records_assignment_group_fkey": "/data/group",
 	} {
-		err := recordError(wrappedFK(constraint), recFixedColumns())
+		err := h.recordError(ctx, wrappedFK(constraint), recFixedColumns())
 		var pe *problemError
 		if !errors.As(err, &pe) || pe.code != problem.RecordInvalid {
 			t.Fatalf("%s: err = %v, want a record_invalid problem", constraint, err)
 		}
 		if len(pe.fields) != 1 || pe.fields[0].Pointer != pointer || pe.fields[0].Rule != refRule {
 			t.Errorf("%s: fields = %+v, want one %s error with rule %s", constraint, pe.fields, pointer, refRule)
+		}
+		if !strings.Contains(logs.String(), constraint) {
+			t.Errorf("%s: the server log %q does not name the constraint", constraint, logs.String())
 		}
 		// Neither the error text nor the unwrap chain carries the database text.
 		for _, s := range []string{err.Error(), fmt.Sprint(errors.Unwrap(err))} {
@@ -54,6 +64,8 @@ func TestRecordErrorMapsAWrappedForeignKeyViolationToAFieldError(t *testing.T) {
 
 func TestRecordErrorLeavesOtherForeignKeyViolationsAnInternalError(t *testing.T) {
 	t.Parallel()
+	h, _ := recHandler()
+	ctx := t.Context()
 	for name, tc := range map[string]struct {
 		err   error
 		fixed map[string]string
@@ -62,7 +74,7 @@ func TestRecordErrorLeavesOtherForeignKeyViolationsAnInternalError(t *testing.T)
 		"an unknown constraint":                     {wrappedFK("something_else_fkey"), recFixedColumns()},
 		"no property maps to the column":            {wrappedFK("records_requester_fkey"), recFixedColumns()},
 	} {
-		got := recordError(tc.err, tc.fixed)
+		got := h.recordError(ctx, tc.err, tc.fixed)
 		var pe *problemError
 		if errors.As(got, &pe) {
 			t.Errorf("%s: mapped to the %s problem, want the raw error (a 500)", name, pe.code)
@@ -72,17 +84,19 @@ func TestRecordErrorLeavesOtherForeignKeyViolationsAnInternalError(t *testing.T)
 
 func TestRecordErrorMapsValidationForbiddenAndOthers(t *testing.T) {
 	t.Parallel()
+	h, _ := recHandler()
+	ctx := t.Context()
 	ve := fmt.Errorf("x: %w", &pipeline.ErrValidation{Fields: []metadata.FieldError{{Path: "/a~1b", Code: "required"}, {Path: "", Code: "type"}}})
 	var pe *problemError
-	if err := recordError(ve, recFixedColumns()); !errors.As(err, &pe) || pe.code != problem.RecordInvalid ||
+	if err := h.recordError(ctx, ve, recFixedColumns()); !errors.As(err, &pe) || pe.code != problem.RecordInvalid ||
 		len(pe.fields) != 2 || pe.fields[0].Pointer != "/data/a~1b" || pe.fields[1].Pointer != "/data" {
 		t.Errorf("validation = %v %+v", err, pe)
 	}
-	if err := recordError(authz.ErrForbidden, recFixedColumns()); !errors.As(err, &pe) || pe.code != problem.Forbidden {
+	if err := h.recordError(ctx, authz.ErrForbidden, recFixedColumns()); !errors.As(err, &pe) || pe.code != problem.Forbidden {
 		t.Errorf("forbidden = %v", err)
 	}
 	boom := errors.New("boom")
-	if err := recordError(boom, recFixedColumns()); !errors.Is(err, boom) {
+	if err := h.recordError(ctx, boom, recFixedColumns()); !errors.Is(err, boom) {
 		t.Errorf("other = %v, want the error itself", err)
 	}
 }
@@ -105,5 +119,27 @@ func TestParseRecordBody(t *testing.T) {
 	data, pe := parseRecordBody([]byte(`{"data": {"n": 12345678901234567890}}`))
 	if pe != nil || fmt.Sprint(data["n"]) != "12345678901234567890" {
 		t.Errorf("big number = %v %v, want it kept exact", data, pe)
+	}
+}
+
+func recHandler() (*handlers, *bytes.Buffer) {
+	var logs bytes.Buffer
+	return &handlers{log: slog.New(slog.NewTextHandler(&logs, nil))}, &logs
+}
+
+// A request that reaches a records handler with no principal id is a wiring
+// bug (errNoPrincipal), for reads as for writes.
+func TestRecordHandlersRefuseAPrincipalWithoutAnID(t *testing.T) {
+	t.Parallel()
+	h, _ := recHandler()
+	ctx := identity.NewContext(t.Context(), identity.Principal{TenantID: uuid.New()})
+	if _, err := h.GetRecord(ctx, api.GetRecordRequestObject{Entity: "ticket", Id: uuid.NewString()}); !errors.Is(err, errNoPrincipal) {
+		t.Errorf("GetRecord err = %v, want errNoPrincipal", err)
+	}
+	if _, err := h.CreateRecord(ctx, api.CreateRecordRequestObject{Entity: "ticket"}); !errors.Is(err, errNoPrincipal) {
+		t.Errorf("CreateRecord err = %v, want errNoPrincipal", err)
+	}
+	if _, err := h.GetRecord(t.Context(), api.GetRecordRequestObject{}); !errors.Is(err, errNoPrincipal) {
+		t.Errorf("GetRecord without a principal err = %v, want errNoPrincipal", err)
 	}
 }
