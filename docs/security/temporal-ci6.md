@@ -99,8 +99,9 @@ is the stack's own `nava-relay` service. The test writes outbox rows the way
 `outbox.Enqueue` does, as the superuser inside the postgres container, because
 the database port is never published. The service claims the rows as
 `nava_relay` and dispatches them with its own certificate. A worker set up with
-`workerguard` runs the workflow `nava.smoke.relay`. This is the D9 allow-list's
-first lowercase type, the only form an outbox kind can name. The
+`workerguard` runs the test body `relayProbe`, registered as the allow-listed
+platform type `nava.interpreter` (TICK-374: the suite's bodies use the type
+we ship, not a smoke type). An outbox kind can name only a lowercase type. The
 `workflow_ref` activity runs in the `nava-worker` service.
 
 - Tests: `internal/temporalstack/ci6_relay_isolation_test.go` (`TestCI6_*`) and
@@ -116,7 +117,7 @@ sequenceDiagram
     participant R as nava-relay (1..3 processes)
     participant T as Temporal + Authorizer
     participant W as guarded worker
-    X->>T: Start t:A:nava.smoke.relay:… with no header / with tenant B's header
+    X->>T: Start t:A:nava.interpreter:… with no header / with tenant B's header
     T->>W: workflow task
     W--xT: workflow FAILED nava.TenantGuard (alert)
     X->>T: Signal t:A:… with tenant B's header ("done")

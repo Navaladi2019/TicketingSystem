@@ -29,6 +29,8 @@ import (
 	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/workflow/interp"
 )
 
 const namespace = "nava"
@@ -84,11 +86,14 @@ func dial(t *testing.T, cn string, opts ...func(*client.Options)) client.Client 
 	return c
 }
 
-// The smoke workload is the D9 allow-list's only entry (ADR-001-A1): workflow
-// type nava.smoke.Echo on task queue nava-tq.
+// The platform workload of the D9 allow-list (ADR-001-A1): workflow type
+// nava.interpreter on task queue nava-tq. The suite's workers register their
+// own test bodies under that type (TICK-374), so the stack runs the allow-list
+// we ship. requireQueueFree keeps them off nava-tq while nava-worker-interptest
+// runs the real interpreter there.
 const (
-	echoType  = "nava.smoke.Echo"
-	taskQueue = "nava-tq"
+	platformType = interp.WorkflowType
+	taskQueue    = "nava-tq"
 )
 
 func Echo(ctx workflow.Context, in string) (string, error) { return "echo:" + in, nil }
@@ -121,16 +126,13 @@ func TestCI6_Allowed_EverySDKClientDialsAndItsWorkerStarts(t *testing.T) {
 	// A worker with the nava-worker certificate starts and runs a workflow that
 	// nava-relay started; nava-core reads the result back.
 	w := worker.New(dial(t, "nava-worker"), taskQueue, worker.Options{})
-	w.RegisterWorkflowWithOptions(Echo, workflow.RegisterOptions{Name: echoType})
-	if err := w.Start(); err != nil {
-		t.Fatalf("worker start: %v", err)
-	}
-	t.Cleanup(w.Stop)
+	w.RegisterWorkflowWithOptions(Echo, workflow.RegisterOptions{Name: platformType})
+	startPlatformWorker(t, w)
 
 	// Workflow IDs carry the t:<tenant>:<rest> prefix the Authorizer requires;
 	// without the tenant segment every workflow task completion is denied.
 	id := fmt.Sprintf("t:t28:smoke-%d", time.Now().UnixNano())
-	run, err := relay.ExecuteWorkflow(ctx, client.StartWorkflowOptions{ID: id, TaskQueue: taskQueue}, echoType, "mtls")
+	run, err := relay.ExecuteWorkflow(ctx, client.StartWorkflowOptions{ID: id, TaskQueue: taskQueue}, platformType, "mtls")
 	if err != nil {
 		t.Fatalf("nava-relay ExecuteWorkflow: %v", err)
 	}
@@ -157,7 +159,7 @@ func TestCIHReservedSystemWorkloadDenied(t *testing.T) {
 	victimID := fmt.Sprintf("t:B:victim-%d", nanos)
 	victim, err := relay.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
 		ID: victimID, TaskQueue: taskQueue, StartDelay: time.Hour,
-	}, echoType, "victim")
+	}, platformType, "victim")
 	if err != nil {
 		t.Fatalf("start victim: %v", err)
 	}
