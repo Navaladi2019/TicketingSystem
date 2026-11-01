@@ -1481,9 +1481,17 @@ ERRORS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".
 
 
 def registered():
-    """The problem codes api/errors.yaml registers, in its order."""
+    """The problem codes api/errors.yaml registers, in its order. Fails when
+    it parses none, or fewer than the file's `- code:` lines (a layout change
+    that the pattern no longer matches would otherwise drop codes silently)."""
     with open(ERRORS, encoding="utf-8") as f:
-        return re.findall(r"^  - code: ([a-z_]+)\s*$", f.read(), re.M)
+        text = f.read()
+    codes = re.findall(r"^  - code: ([a-z_]+)\s*$", text, re.M)
+    lines = len(re.findall(r"^\s*- code:", text, re.M))
+    if not codes or len(codes) < lines:
+        raise SystemExit(f"collection.py: parsed {len(codes)} problem codes from api/errors.yaml, "
+                         f"which has {lines} '- code:' lines; fix registered()")
+    return codes
 
 
 def write(out):
