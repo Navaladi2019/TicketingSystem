@@ -10,7 +10,7 @@ package workerstack
 // nava-worker-interptest polls workflow and activity tasks on nava-tq. It is
 // up only inside startInterpWorker's test, in the serial `worker` case: the
 // parallel group (the temporalstack suite, whose workers register their own
-// nava.smoke.Echo bodies) has ended by then, and demo_outbox (the relay's
+// test bodies as nava.interpreter, TICK-374) has ended by then, and demo_outbox (the relay's
 // nava.smoke.relay starts) sorts after it (run-cases.sh, PARALLEL=1). Its
 // cleanup removes the container and waits until it is gone, failed test or
 // not, so no interpreter poller outlives the case.

@@ -225,12 +225,12 @@ func uniqueID(tenant, what string) string {
 	return fmt.Sprintf("t:%s:ci6-%s-%d", tenant, what, time.Now().UnixNano())
 }
 
-// startOnPlatformQueue starts an Echo workflow on nava-tq as c and terminates it
+// startOnPlatformQueue starts a platform-type workflow on nava-tq as c and terminates it
 // (with the temporal-system certificate) when the test ends: a denied workflow
 // task is retried until someone acts.
 func startOnPlatformQueue(ctx context.Context, t *testing.T, c client.Client, id string, delay time.Duration, input string) client.WorkflowRun {
 	t.Helper()
-	run, err := c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{ID: id, TaskQueue: taskQueue, StartDelay: delay}, echoType, input)
+	run, err := c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{ID: id, TaskQueue: taskQueue, StartDelay: delay}, platformType, input)
 	if err != nil {
 		t.Fatalf("start %s: %v", id, err)
 	}

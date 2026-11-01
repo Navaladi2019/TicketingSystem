@@ -97,7 +97,7 @@ func TestCI6_UnlistedCertificateDeniedByAuthorizer(t *testing.T) {
 	startID := uniqueID("A", "unlisted")
 	_, err = wf.StartWorkflowExecution(ctx, &workflowservice.StartWorkflowExecutionRequest{
 		Namespace: namespace, WorkflowId: startID, RequestId: fmt.Sprint(time.Now().UnixNano()),
-		WorkflowType: &commonpb.WorkflowType{Name: echoType},
+		WorkflowType: &commonpb.WorkflowType{Name: platformType},
 		TaskQueue:    &taskqueuepb.TaskQueue{Name: taskQueue, Kind: enumspb.TASK_QUEUE_KIND_NORMAL},
 	})
 	wantDenied(t, unlistedCN+" StartWorkflowExecution", err)
@@ -373,7 +373,7 @@ func TestCI6_RelayCoreWorkerOutsideAllowListDenied(t *testing.T) {
 	wantDenied(t, "nava-relay DescribeWorkflowExecution of tenant B", err)
 	_, err = coreWF.StartWorkflowExecution(ctx, &workflowservice.StartWorkflowExecutionRequest{
 		Namespace: namespace, WorkflowId: uniqueID("B", "core-start"), RequestId: fmt.Sprint(time.Now().UnixNano()),
-		WorkflowType: &commonpb.WorkflowType{Name: echoType}, TaskQueue: &taskqueuepb.TaskQueue{Name: taskQueue},
+		WorkflowType: &commonpb.WorkflowType{Name: platformType}, TaskQueue: &taskqueuepb.TaskQueue{Name: taskQueue},
 	})
 	wantDenied(t, "nava-core StartWorkflowExecution", err)
 	_, err = coreWF.SignalWorkflowExecution(ctx, &workflowservice.SignalWorkflowExecutionRequest{Namespace: namespace, WorkflowExecution: victimExec, SignalName: "ci6"})
@@ -489,7 +489,7 @@ func TestCI6_OperatorLimitedToPinnedList(t *testing.T) {
 
 // --- worker commands (erratum E1) --------------------------------------------
 
-func echoTypeOf() *commonpb.WorkflowType { return &commonpb.WorkflowType{Name: echoType} }
+func platformTypeOf() *commonpb.WorkflowType { return &commonpb.WorkflowType{Name: platformType} }
 func platformQueue() *taskqueuepb.TaskQueue {
 	return &taskqueuepb.TaskQueue{Name: taskQueue, Kind: enumspb.TASK_QUEUE_KIND_NORMAL}
 }
@@ -503,7 +503,7 @@ func TestCI6_WorkerCrossTenantChildDeniedWithAlert(t *testing.T) {
 		return []*commandpb.Command{{
 			CommandType: enumspb.COMMAND_TYPE_START_CHILD_WORKFLOW_EXECUTION,
 			Attributes: &commandpb.Command_StartChildWorkflowExecutionCommandAttributes{StartChildWorkflowExecutionCommandAttributes: &commandpb.StartChildWorkflowExecutionCommandAttributes{
-				WorkflowId: childID, WorkflowType: echoTypeOf(), TaskQueue: platformQueue(),
+				WorkflowId: childID, WorkflowType: platformTypeOf(), TaskQueue: platformQueue(),
 				Header: tenantHeader(t, "A"),
 			}},
 		}}
@@ -578,7 +578,7 @@ func continueAsNew(header *commonpb.Header, cron string) []*commandpb.Command {
 	return []*commandpb.Command{{
 		CommandType: enumspb.COMMAND_TYPE_CONTINUE_AS_NEW_WORKFLOW_EXECUTION,
 		Attributes: &commandpb.Command_ContinueAsNewWorkflowExecutionCommandAttributes{ContinueAsNewWorkflowExecutionCommandAttributes: &commandpb.ContinueAsNewWorkflowExecutionCommandAttributes{
-			WorkflowType: echoTypeOf(), TaskQueue: platformQueue(), Input: input, Header: header, CronSchedule: cron,
+			WorkflowType: platformTypeOf(), TaskQueue: platformQueue(), Input: input, Header: header, CronSchedule: cron,
 		}},
 	}}
 }
@@ -709,8 +709,9 @@ func (tenantPropagator) InjectFromWorkflow(ctx workflow.Context, w workflow.Head
 	return nil
 }
 
-// parentOrEcho is the smoke workload with one branch: input "parent" starts a
-// same-tenant child (its own id plus "-child") and returns its result.
+// parentOrEcho is the test body registered as the platform type, with one
+// branch: input "parent" starts a same-tenant child (its own id plus "-child")
+// and returns its result.
 func parentOrEcho(ctx workflow.Context, in string) (string, error) {
 	if in != "parent" {
 		return "echo:" + in, nil
@@ -719,7 +720,7 @@ func parentOrEcho(ctx workflow.Context, in string) (string, error) {
 		WorkflowID: workflow.GetInfo(ctx).WorkflowExecution.ID + "-child", TaskQueue: taskQueue,
 	})
 	var out string
-	if err := workflow.ExecuteChildWorkflow(cctx, echoType, "child").Get(cctx, &out); err != nil {
+	if err := workflow.ExecuteChildWorkflow(cctx, platformType, "child").Get(cctx, &out); err != nil {
 		return "", err
 	}
 	return "parent:" + out, nil
@@ -734,11 +735,8 @@ func TestCI6_Allowed_SameTenantChildCompletes(t *testing.T) {
 		o.ContextPropagators = []workflow.ContextPropagator{tenantPropagator{}}
 	})
 	w := worker.New(wc, taskQueue, worker.Options{})
-	w.RegisterWorkflowWithOptions(parentOrEcho, workflow.RegisterOptions{Name: echoType})
-	if err := w.Start(); err != nil {
-		t.Fatalf("worker start: %v", err)
-	}
-	t.Cleanup(w.Stop)
+	w.RegisterWorkflowWithOptions(parentOrEcho, workflow.RegisterOptions{Name: platformType})
+	startPlatformWorker(t, w)
 
 	relay, core := dial(t, "nava-relay"), dial(t, "nava-core")
 	parentID := uniqueID("A", "parent")
