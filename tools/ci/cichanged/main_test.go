@@ -144,7 +144,10 @@ func TestStorySuitesSelected(t *testing.T) {
 // Every command under cmd/ is an image, a stack test's binary, or listed
 // here as neither, so a new command cannot skip the stack stage unseen.
 func TestEveryCommandIsAStackRoot(t *testing.T) {
-	notStack := map[string]bool{"cmd/openapi-compat": true} // lint's check-openapi
+	notStack := map[string]bool{
+		"cmd/openapi-compat":   true, // lint's check-openapi
+		"cmd/demo-interpreter": true, // the S11a demo (TICK-352): make demo-interpreter-*, no image or stack test builds it
+	}
 	g, err := loadGraph()
 	if err != nil {
 		t.Fatal(err)
