@@ -43,7 +43,7 @@ What you should see: every S8 check green. On a fresh stack, S8.11 publishes `ve
 | AC4 | `agent@tenant-b` sees only tenant B's `incident`, `request` and `change`, never tenant A's version 2. | ✅ | S8.14: exactly `change`, `incident`, `request`, each at version 1. S8.15: B's `incident` is version 1 with the template hash, not A's new hash. S8.17: A's version 2 read as B is a 404 byte-identical to S8.16's 404 for a version that exists nowhere. S8.14, S8.15 and S8.17 never name A's new field or hash. |
 | AC5 | A newly onboarded tenant starts with `incident`, `request` and `change` at version 1. | ✅ | S8.19 onboards a tenant through nava-onboard (201, `active`). The stack case `s8_entity_types` then checks in the database that the tenant has exactly those three types. Each is at `current_version` 1 with one version: `initial`, no publisher, and the same `schema_sha256` as the template. |
 
-**Status: ready.** All five criteria pass on a fresh stack in GitHub Actions: run [41271352124](https://github.com/Navaladi2019/TicketingSystem/actions/runs/41271352124). The earlier failure was the list route answering 501 because compose gave nava-core no cursor keyring; TICK-390 fixed that.
+**Status: ready.** All five criteria pass on a fresh stack in GitHub Actions, on the story branch with current `main` merged in (`d231682`): run [41284670212](https://github.com/Navaladi2019/TicketingSystem/actions/runs/41284670212). The earlier failure was the list route answering 501 because compose gave nava-core no cursor keyring; TICK-390 fixed that.
 
 ## Isolation check
 
@@ -70,10 +70,11 @@ None of these responses contains A's new field name or A's new hash. Deeper isol
 
 ## Last verified run
 
-Fresh stack in GitHub Actions, `ci` workflow (`workflow_dispatch` on `TICK-346/s8-acceptance-kit`), job `stack`, case `s8_entity_types`. The latest run has the story branch at `799a421` (TICK-390 merged) and the review nits in:
+Fresh stack in GitHub Actions, `ci` workflow (`workflow_dispatch` on `TICK-333/entity-types-versioned`), job `stack`, case `s8_entity_types`. The latest run is on the story branch head `d231682`, after `main` was merged in (`1399ed7`, TICK-399). It has the `trace` case passing with main's probe-only check. Earlier runs were dispatched on `TICK-346/s8-acceptance-kit`.
 
 | Run | Commit | Bruno S8 | AC5 database check | Result |
 |---|---|---|---|---|
+| [41284670212](https://github.com/Navaladi2019/TicketingSystem/actions/runs/41284670212) | `d231682` (story branch, `main` merged) | **19 of 19 requests, 63 of 63 tests**; S8.5 `incident is at version 1 (fresh stack)`; S8.11 `version: 2 (fresh stack)` | ok: onboarded tenant `4cd8dd7c-…` has `change`, `incident`, `request` at version 1, `initial`, template schema bytes | **PASS**, every job green |
 | [41271352124](https://github.com/Navaladi2019/TicketingSystem/actions/runs/41271352124) | `c27b7e7` | **19 of 19 requests, 63 of 63 tests**; S8.5 `incident is at version 1 (fresh stack)`; S8.11 `version: 2 (fresh stack)` | ok: onboarded tenant `361e0c30-…` has `change`, `incident`, `request` at version 1, `initial`, template hashes | **PASS**, every job green |
 | [41268252389](https://github.com/Navaladi2019/TicketingSystem/actions/runs/41268252389) | `4891710` | 19 requests (17 passed, 2 failed), 58 of 62 tests | ok: onboarded tenant `5a613be9-…` has `change`, `incident`, `request` at version 1, `initial`, template hashes | **FAIL**: S8.4, S8.14 501 `not_implemented` |
 | [41267017861](https://github.com/Navaladi2019/TicketingSystem/actions/runs/41267017861) | `1ced7ec` | the same 2 failures, 58 of 62 tests | not reached (that version of the case stopped at Bruno) | **FAIL** |
