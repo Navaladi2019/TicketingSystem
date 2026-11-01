@@ -38,8 +38,13 @@ func TestAdversarialIdempotencyKeyDoesNotCrossTenants(t *testing.T) {
 	if err != nil {
 		t.Fatalf("tenant B with tenant A's key: %v, want a fresh write", err)
 	}
-	if resB.RecordID == resA.RecordID || resB.Number == resA.Number {
+	// Numbers are per tenant since P3-11, so both are INC0000001; the record
+	// id tells a replay of A's write from B's own.
+	if resB.RecordID == resA.RecordID {
 		t.Fatalf("tenant B replayed tenant A's result: %+v", resB)
+	}
+	if n := count(t, e.super, "SELECT count(*) FROM records WHERE tenant_id = $1 AND id = $2", b.id, resB.RecordID); n != 1 {
+		t.Fatalf("tenant B's result names no record of tenant B: %+v", resB)
 	}
 	for _, f := range []tenantFixture{a, b} {
 		if n := count(t, e.super, "SELECT count(*) FROM records WHERE tenant_id = $1", f.id); n != 1 {
@@ -66,7 +71,7 @@ func TestAdversarialIdempotencyKeyDoesNotCrossTenants(t *testing.T) {
 	// The store lookup itself, inside B's transaction, never returns A's row,
 	// even with A's tenant id passed explicitly: RLS hides it.
 	inTx(t, e, b.id, func(tx pgx.Tx) error {
-		if _, _, err := store.AuditByKey(ctx, tx, a.id, key); !errors.Is(err, store.ErrNotFound) {
+		if _, err := store.AuditByKey(ctx, tx, a.id, key); !errors.Is(err, store.ErrNotFound) {
 			t.Errorf("AuditByKey(tenant A) in tenant B's transaction: %v, want ErrNotFound", err)
 		}
 		return nil

@@ -208,30 +208,46 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
 	return nil
 }
 
-// AuditByKey returns the record id and after snapshot of the audit row that
-// holds the idempotency key, or ErrNotFound.
-func AuditByKey(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, key string) (uuid.UUID, *Snapshot, error) {
+// KeyedWrite is the write that holds an idempotency key: its primary audit
+// row and the entity type of its record.
+type KeyedWrite struct {
+	RecordID  uuid.UUID
+	EntityKey string
+	// Action is the audit row's action: "create" or "update".
+	Action string
+	After  *Snapshot
+}
+
+// AuditByKey returns the write that holds the idempotency key, or
+// ErrNotFound.
+func AuditByKey(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, key string) (*KeyedWrite, error) {
 	var (
-		record *uuid.UUID
-		after  []byte
+		record    *uuid.UUID
+		entityKey *string
+		action    string
+		after     []byte
 	)
 	err := tx.QueryRow(ctx, `
-SELECT record_id, after FROM audit_log
-WHERE tenant_id = $1 AND idempotency_key = $2 AND idempotency_key IS NOT NULL`, tenantID, key).Scan(&record, &after)
+SELECT a.record_id, d.key, a.action, a.after
+FROM audit_log a
+LEFT JOIN records r ON r.tenant_id = a.tenant_id AND r.id = a.record_id
+LEFT JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+WHERE a.tenant_id = $1 AND a.idempotency_key = $2 AND a.idempotency_key IS NOT NULL`, tenantID, key).
+		Scan(&record, &entityKey, &action, &after)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return uuid.Nil, nil, ErrNotFound
+		return nil, ErrNotFound
 	}
 	if err != nil {
-		return uuid.Nil, nil, fmt.Errorf("records/store: read audit by key: %w", err)
+		return nil, fmt.Errorf("records/store: read audit by key: %w", err)
 	}
-	if record == nil || after == nil {
-		return uuid.Nil, nil, errors.New("records/store: keyed audit row names no record")
+	if record == nil || entityKey == nil || after == nil {
+		return nil, errors.New("records/store: keyed audit row names no pipeline record")
 	}
 	var s Snapshot
 	if err := json.Unmarshal(after, &s); err != nil {
-		return uuid.Nil, nil, fmt.Errorf("records/store: decode audit snapshot: %w", err)
+		return nil, fmt.Errorf("records/store: decode audit snapshot: %w", err)
 	}
-	return *record, &s, nil
+	return &KeyedWrite{RecordID: *record, EntityKey: *entityKey, Action: action, After: &s}, nil
 }
 
 func encodeSnapshot(s *Snapshot) ([]byte, error) {
