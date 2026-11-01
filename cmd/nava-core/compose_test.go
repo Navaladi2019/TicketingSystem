@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 )
 
 // TestComposePublishesNoAdminPort: the admin listener has no auth, so no
@@ -211,5 +213,28 @@ func TestComposePublishesOnlyAllowedUIs(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// TestComposeNavaCoreHasCursorKeyring (TICK-390): without a cursor keyring
+// nava-core answers GET /api/v1/entity-types 501, so the compose service must
+// pass keys that the configuration loader accepts.
+func TestComposeNavaCoreHasCursorKeyring(t *testing.T) {
+	t.Parallel()
+	env := composeEnv(t, "../../compose.yaml", "nava-core")
+	for _, k := range []string{"NAVA_CURSOR_KEYS", "NAVA_CURSOR_ACTIVE_KEY_ID"} {
+		if env[k] == "" {
+			t.Fatalf("compose nava-core does not set %s", k)
+		}
+	}
+	cfg, err := config.Load(func(k string) (string, bool) {
+		v, ok := env[k]
+		return v, ok
+	})
+	if err != nil {
+		t.Fatalf("config.Load with the compose nava-core environment: %v", err)
+	}
+	if len(cfg.Cursor.Keys) == 0 || cfg.Cursor.ActiveKeyID == "" {
+		t.Errorf("compose nava-core yields no cursor keyring: %+v", cfg.Cursor.ActiveKeyID)
 	}
 }
