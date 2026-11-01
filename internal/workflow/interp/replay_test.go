@@ -41,7 +41,8 @@ var historiesDir = filepath.Join("..", "testdata", "histories") //nolint:gocheck
 // and the default, wait_signal, update_record, end), the signal path (with a
 // foreign signal and a redelivery dropped), the timeout path and a
 // continue-as-new that carries a pending signal into the next run. A new
-// history is added here and recorded; none is ever removed.
+// history is added here and recorded; none is ever removed, except by a
+// tombstone (ADR-003): docs/quality/ci-pipeline.md, "Deploy rules (c)".
 //
 //nolint:gochecknoglobals // the fixed set
 var wantHistories = []string{
