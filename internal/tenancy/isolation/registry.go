@@ -405,5 +405,6 @@ func Paths() []Path {
 	paths = append(paths, ci5Paths()...)
 	paths = append(paths, rolePaths()...)
 	paths = append(paths, entityTypePaths()...)
+	paths = append(paths, recordPaths()...)
 	return append(paths, boundaryPaths()...)
 }

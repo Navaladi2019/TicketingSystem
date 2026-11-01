@@ -46,6 +46,7 @@ const (
 	EntityTypeExists     Code = "entity_type_exists"
 	NumberPrefixTaken    Code = "number_prefix_taken"
 	SchemaBreakingChange Code = "schema_breaking_change"
+	RecordInvalid        Code = "record_invalid"
 )
 
 // Codes lists every Code constant.
@@ -53,7 +54,7 @@ func Codes() []Code {
 	return []Code{
 		TenantUnresolved, InvalidToken, IdempotencyKeyReuse, IdempotencyInFlight, Forbidden, DomainClaimed, InvalidIdPConfig, OnboardingConflict, InvalidCursor,
 		RateLimited, NotFound, ValidationFailed, MethodNotAllowed,
-		NotImplemented, InternalError, InvalidDefinition, EntityTypeExists, NumberPrefixTaken, SchemaBreakingChange,
+		NotImplemented, InternalError, InvalidDefinition, EntityTypeExists, NumberPrefixTaken, SchemaBreakingChange, RecordInvalid,
 	}
 }
 

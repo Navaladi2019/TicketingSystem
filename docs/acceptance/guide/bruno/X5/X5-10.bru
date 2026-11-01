@@ -1,0 +1,47 @@
+meta {
+  name: X5.10 createRecord 201: a record
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{core_url}}/api/v1/records/{{x5_type}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: {{x5_key4}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "Printer on fire"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  test('Record: version 1, state new, default applied', () => {
+    expect(b.version).to.eql(1);
+    expect(b.state).to.eql('new');
+    expect(b.data.short_description).to.eql('Printer on fire');
+    expect(b.data.state).to.eql('new');
+    expect(b.id).to.match(/^[0-9a-f-]{36}$/);
+  });
+  test('ETag and Location', () => {
+    expect(N.header('ETag')).to.eql('W/"1"');
+    expect(N.header('Location')).to.eql('/api/v1/records/' + bru.getVar('x5_type') + '/' + b.id);
+  });
+  bru.setVar('x5_id', b.id);
+}
+
+docs {
+  The response is version 1 with the default state, an `ETag` and a `Location`.
+}

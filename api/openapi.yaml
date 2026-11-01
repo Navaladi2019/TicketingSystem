@@ -24,6 +24,10 @@ paths:
     $ref: "paths/entity-types.yaml#/paths/~1api~1v1~1entity-types~1{key}~1versions"
   /api/v1/entity-types/{key}/versions/{n}:
     $ref: "paths/entity-types.yaml#/paths/~1api~1v1~1entity-types~1{key}~1versions~1{n}"
+  /api/v1/records/{entity}:
+    $ref: "paths/records.yaml#/paths/~1api~1v1~1records~1{entity}"
+  /api/v1/records/{entity}/{id}:
+    $ref: "paths/records.yaml#/paths/~1api~1v1~1records~1{entity}~1{id}"
 components:
   schemas:
     Problem:

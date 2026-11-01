@@ -1,0 +1,37 @@
+meta {
+  name: X5.9 createRecord 422: a group that does not exist
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{core_url}}/api/v1/records/{{x5_type}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: {{x5_key3}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "x",
+      "group": "00000000-0000-4000-8000-00000000dead"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('record_invalid', 422);
+  N.fieldError('/data/group');
+  N.noLeak('fkey', 'constraint', 'violates', 'foreign key');
+}
+
+docs {
+  A reference that resolves nowhere in the tenant: 422 on `/data/group`, with no database text. Another tenant's group gives the same body.
+}

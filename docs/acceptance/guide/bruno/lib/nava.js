@@ -3,7 +3,7 @@
 // Load it in a request with:
 //   const N = require('./lib/nava')({ test, expect, res, bru });
 // Every code in api/errors.yaml, filled in by build/collection.py.
-const REGISTERED = ['tenant_unresolved', 'invalid_token', 'idempotency_key_reuse', 'forbidden', 'invalid_idp_config', 'domain_claimed', 'onboarding_conflict', 'idempotency_in_flight', 'invalid_cursor', 'rate_limited', 'not_found', 'validation_failed', 'method_not_allowed', 'not_implemented', 'internal_error', 'invalid_definition', 'entity_type_exists', 'number_prefix_taken', 'schema_breaking_change'];
+const REGISTERED = ['tenant_unresolved', 'invalid_token', 'idempotency_key_reuse', 'forbidden', 'invalid_idp_config', 'domain_claimed', 'onboarding_conflict', 'idempotency_in_flight', 'invalid_cursor', 'rate_limited', 'not_found', 'validation_failed', 'method_not_allowed', 'not_implemented', 'internal_error', 'invalid_definition', 'entity_type_exists', 'number_prefix_taken', 'schema_breaking_change', 'record_invalid'];
 
 const b64url = (s) => Buffer.from(s, 'base64url');
 
