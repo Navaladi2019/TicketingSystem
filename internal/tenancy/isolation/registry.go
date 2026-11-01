@@ -351,11 +351,13 @@ func Paths() []Path {
 			 VALUES ($1, $2, $3, 3, '{}'::json, sha256(convert_to('{}', 'UTF8')), '{}', '{}', 'compatible', $4)`,
 			TenantB, NewID, EntityDefinitionB1, PrincipalB1),
 		// The composite foreign key holds the tenant: tenant A cannot hang a
-		// version off tenant B's definition.
+		// version off tenant B's definition. published_by names tenant A's
+		// principal, so the CHECK passes and the foreign key (23503), not
+		// entity_definition_versions_published_by_check (23514), refuses it.
 		sql("entity_definition_versions: hang tenant A's version off tenant B's definition", "nava_app", Denied,
-			`INSERT INTO entity_definition_versions (tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat)
-			 VALUES ($1, $2, $3, 3, '{}'::json, sha256(convert_to('{}', 'UTF8')), '{}', '{}', 'compatible')`,
-			TenantA, NewID, EntityDefinitionB1),
+			`INSERT INTO entity_definition_versions (tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat, published_by)
+			 VALUES ($1, $2, $3, 3, '{}'::json, sha256(convert_to('{}', 'UTF8')), '{}', '{}', 'compatible', $4)`,
+			TenantA, NewID, EntityDefinitionB1, principalA1),
 		sql("entity_definition_versions: rewrite tenant B's versions", "nava_app", Denied,
 			"UPDATE entity_definition_versions SET compat = 'breaking' WHERE tenant_id = $1", TenantB),
 		sql("tenant_admin_group: read tenant B's admins group", "nava_app", OwnRowsOnly,
