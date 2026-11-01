@@ -23,6 +23,24 @@ Nothing at task level merges straight into `main`. Work flows from a task branch
 - Keep it fresh by merging `main` into it. Story branches are shared, so never force-push them and never rebase them.
 - Create a story branch only when its story is free to start (see [Story independence](#story-independence)).
 
+## Closing a story without a story PR
+
+CI cannot read Multica. The `story-branches` job (`make check-story-branches`, TICK-379) treats a story branch with merged task PRs and no story PR as in flight, and never reports it, until the repo says the story is closed. When a story is `cancelled`, or `done` without its work reaching `main`:
+
+1. Prefer deleting the story branch. A deleted branch needs no entry.
+2. If the branch must stay, the Technical Lead adds an entry to `tools/ci/storybranches/closed.yaml` in the same change that closes the story:
+
+   ```yaml
+   closed:
+     - branch: TICK-<story-no>/<story-slug>
+       status: cancelled   # or done, as on the story issue
+       issue: TICK-<story-no>
+   ```
+
+3. The entry goes in a standalone PR into `main` (see [Exceptions](#exceptions)). From then on the job reports the branch as orphaned until it is deleted.
+
+A story that merged through its story PR needs no entry. A bad entry (unknown status, or a branch that is not `TICK-<n>/...`) makes the tool exit 2 and turns the job red.
+
 ## Story independence
 
 - **Stories must be independent: no two stories may touch the same file.** When a plan or grooming splits work into stories, list the files and packages each story is expected to change. Check the lists for overlap before any story starts.
