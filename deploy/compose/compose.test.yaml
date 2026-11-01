@@ -8,3 +8,50 @@ services:
   temporal:
     ports:
       - "127.0.0.1:${TEMPORAL_TEST_PORT:-17233}:7233"
+
+  # The interptest stack worker (TICK-367, P3-22b): nava-worker built with the
+  # interptest tag, so it registers nava.interpreter with the S11a fakes. It is
+  # in its own profile, so `up` never starts it; only the interpreter stack
+  # case in internal/workerstack (the serial `worker` case) starts it, and
+  # stops and removes it when the case ends. The always-on nava-worker stays
+  # the production image, activity-only. Fixtures are a read-only bind mount
+  # of the directory the test names in NAVA_INTERPTEST_FIXTURES; the fake
+  # writer writes to a tmpfs. No host port: the healthcheck reads /readyz inside the container.
+  nava-worker-interptest:
+    profiles: [interptest]
+    build:
+      context: .
+      dockerfile: deploy/compose/nava-worker/Dockerfile
+      args:
+        NAVA_BUILD_TAGS: interptest
+    image: nava/nava-worker-interptest:${NAVA_IMAGE_TAG:-dev}
+    environment:
+      NAVA_TEMPORAL_ADDRESS: temporal:7233
+      NAVA_TEMPORAL_TLS_CERT_FILE: /run/temporal-tls/nava-worker.pem
+      NAVA_TEMPORAL_TLS_KEY_FILE: /run/temporal-tls/nava-worker.key
+      NAVA_TEMPORAL_TLS_CA_FILE: /run/temporal-tls/ca.pem
+      NAVA_TEMPORAL_TLS_SERVER_NAME: temporal
+      NAVA_DATABASE_URL: postgres://nava_worker:${NAVA_WORKER_DB_PASSWORD:-dev-only-worker}@pgbouncer:5432/nava?sslmode=disable
+      NAVA_LOG_FORMAT: json
+      OTEL_SERVICE_NAME: nava-worker-interptest
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      NAVA_INTERPTEST_FIXTURE_DIR: /run/interptest/fixtures
+      NAVA_INTERPTEST_WRITES_DIR: /run/interptest/writes
+    volumes:
+      - ./deploy/compose/certs/nava-worker.pem:/run/temporal-tls/nava-worker.pem:ro
+      - ./deploy/compose/certs/nava-worker.key:/run/temporal-tls/nava-worker.key:ro
+      - ./deploy/compose/certs/ca.pem:/run/temporal-tls/ca.pem:ro
+      - ${NAVA_INTERPTEST_FIXTURES:-./deploy/compose/test/interptest-empty}:/run/interptest/fixtures:ro
+    tmpfs:
+      - /run/interptest/writes:uid=10001,gid=10001,mode=0700
+    networks: [internal]
+    depends_on:
+      otel-collector: {condition: service_healthy}
+      temporal: {condition: service_healthy}
+      pgbouncer: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/readyz"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+    restart: "no"

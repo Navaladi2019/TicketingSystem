@@ -6,7 +6,12 @@ RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
 COPY api ./api
-RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-worker ./cmd/nava-worker
+# Empty for the production image. Only the interptest stack worker
+# (nava-worker-interptest in deploy/compose/compose.test.yaml) sets it, to link
+# the S11a fakes (TICK-367). TestProductionBuildLinksNoFakes fails on a
+# non-empty default.
+ARG NAVA_BUILD_TAGS=""
+RUN CGO_ENABLED=0 go build -trimpath -tags "${NAVA_BUILD_TAGS}" -o /out/nava-worker ./cmd/nava-worker
 
 FROM alpine:3.22.1
 RUN adduser -D -u 10001 nava

@@ -64,16 +64,58 @@ func TestProductionBuildLinksNoFakes(t *testing.T) {
 		t.Errorf("the interptest build does not link %s: the gate above proves nothing", interptestPkg)
 	}
 
-	// The image builds the untagged binary.
+	// The image builds the untagged binary: the tag ARG defaults to empty,
+	// and the always-on nava-worker service passes no build args.
 	b, err := os.ReadFile("../../deploy/compose/nava-worker/Dockerfile")
 	if err != nil {
 		t.Fatal(err)
 	}
+	argDefault, builds := "", 0
 	for line := range strings.Lines(string(b)) {
-		if strings.Contains(line, "go build") && (strings.Contains(line, "-tags") || !strings.Contains(line, "./cmd/nava-worker")) {
-			t.Errorf("the nava-worker image does not build the untagged ./cmd/nava-worker: %s", line)
+		line = strings.TrimSpace(line)
+		if v, ok := strings.CutPrefix(line, "ARG NAVA_BUILD_TAGS"); ok {
+			argDefault = v
+		}
+		if strings.Contains(line, "go build") {
+			builds++
+			if !strings.Contains(line, `-tags "${NAVA_BUILD_TAGS}"`) || !strings.HasSuffix(line, "./cmd/nava-worker") {
+				t.Errorf("the nava-worker image build is not `-tags \"${NAVA_BUILD_TAGS}\" ... ./cmd/nava-worker`: %s", line)
+			}
 		}
 	}
+	if argDefault != `=""` {
+		t.Errorf("the Dockerfile's NAVA_BUILD_TAGS default is %q, want empty (ARG NAVA_BUILD_TAGS=\"\")", argDefault)
+	}
+	if builds != 1 {
+		t.Errorf("the Dockerfile has %d go build lines, want 1", builds)
+	}
+	if svc := composeService(t, "../../compose.yaml", "nava-worker"); svc == "" || strings.Contains(svc, "args:") ||
+		strings.Contains(svc, "NAVA_BUILD_TAGS") || strings.Contains(svc, "NAVA_INTERPTEST") {
+		t.Errorf("compose.yaml's nava-worker service sets build args or interptest variables:\n%s", svc)
+	}
+}
+
+// composeService returns the lines of service name in the compose file at
+// path: from "  <name>:" to the next two-space key.
+func composeService(t *testing.T, path, name string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	in := false
+	for line := range strings.Lines(string(b)) {
+		trimmed := strings.TrimRight(line, "\r\n")
+		if len(trimmed) > 2 && trimmed[:2] == "  " && trimmed[2] != ' ' && trimmed[2] != '#' {
+			in = trimmed == "  "+name+":"
+			continue
+		}
+		if in {
+			out.WriteString(line)
+		}
+	}
+	return out.String()
 }
 
 // TestRegisterInterpreter: with ports, the worker registers nava.interpreter
