@@ -320,16 +320,36 @@ func Paths() []Path {
 		sql("entity_definitions: onboarding seeds a type for tenant B", "nava_onboard", Denied,
 			"INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version) VALUES ($1, $2, 'iso_new', 'Iso', 'ISO', 1)",
 			TenantB, NewID),
+		// TICK-401: the rest of onboarding's ownProvisioning policies, each
+		// aimed at tenant B. Every statement is valid for tenant B (the path
+		// matches groups_path_check; the Keycloak id and the version are new;
+		// the version names tenant B's principal, see the nava_app publish
+		// row), so only the policy can deny it: a policy that stops testing
+		// the tenant lets the row through and the path fails.
+		sql("groups: onboarding inserts a group for tenant B", "nava_onboard", Denied,
+			"INSERT INTO groups (tenant_id, id, keycloak_group_id, path) VALUES ($1, $2, 'kc-iso-new', $3)",
+			TenantB, NewID, "/t/"+TenantB+"/iso"),
+		sql("groups: onboarding reads tenant B's admins group by its Keycloak id", "nava_onboard", Denied,
+			"SELECT tenant_id FROM groups WHERE tenant_id = $1 AND keycloak_group_id = 'kc-group-b2'", TenantB),
+		sql("tenant_admin_group: onboarding reads tenant B's admins row", "nava_onboard", Denied,
+			"SELECT tenant_id FROM tenant_admin_group WHERE tenant_id = $1", TenantB),
+		sql("entity_definition_versions: onboarding seeds a version for tenant B", "nava_onboard", Denied,
+			`INSERT INTO entity_definition_versions (tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat, published_by)
+			 VALUES ($1, $2, $3, 3, '{}'::json, sha256(convert_to('{}', 'UTF8')), '{}', '{}', 'compatible', $4)`,
+			TenantB, NewID, EntityDefinitionB1, PrincipalB1),
 		sql("entity_definitions: move tenant B's current versions", "nava_app", Denied,
 			"UPDATE entity_definitions SET current_version = 1, updated_at = now() WHERE tenant_id = $1", TenantB),
 		sql("entity_definition_versions: read tenant B's versions by definition id", "nava_app", OwnRowsOnly,
 			"SELECT tenant_id FROM entity_definition_versions WHERE definition_id = $1", EntityDefinitionB1),
 		sql("entity_definition_versions: read tenant B's versions by their full key", "nava_worker", OwnRowsOnly,
 			"SELECT tenant_id FROM entity_definition_versions WHERE tenant_id = $1 AND definition_id = $2", TenantB, EntityDefinitionB1),
+		// published_by names tenant B's principal: a version above 1 must
+		// name one (entity_definition_versions_published_by_check), and
+		// without it that CHECK, not the policy, would refuse the row.
 		sql("entity_definition_versions: publish a version for tenant B", "nava_app", Denied,
-			`INSERT INTO entity_definition_versions (tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat)
-			 VALUES ($1, $2, $3, 3, '{}'::json, sha256(convert_to('{}', 'UTF8')), '{}', '{}', 'compatible')`,
-			TenantB, NewID, EntityDefinitionB1),
+			`INSERT INTO entity_definition_versions (tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat, published_by)
+			 VALUES ($1, $2, $3, 3, '{}'::json, sha256(convert_to('{}', 'UTF8')), '{}', '{}', 'compatible', $4)`,
+			TenantB, NewID, EntityDefinitionB1, PrincipalB1),
 		// The composite foreign key holds the tenant: tenant A cannot hang a
 		// version off tenant B's definition.
 		sql("entity_definition_versions: hang tenant A's version off tenant B's definition", "nava_app", Denied,
