@@ -80,8 +80,14 @@ image:
 # The gha cache-to is best effort (ignore-error=true): concurrent runs that
 # export the same scope can race on a blob (BlobNotFound, not_found), and a
 # failed cache write must only cost build time, never fail the build.
+# cache-to is set only with CACHE_WRITE=true, which ci.yml sets on main
+# (TICK-400). Every other ref reads main's layers. A cache written by a task
+# branch or a pull request can be read by no other ref, and those caches
+# filled the repository's 10 GB and evicted main's.
 BAKE_CACHED := db-roles keycloak nava-core nava-groupsync nava-onboard nava-purge nava-relay nava-worker otel-collector temporal-server
-BAKE_CACHE_GHA := $(foreach t,$(BAKE_CACHED),--set $(t).cache-from=type=gha,scope=$(t) --set $(t).cache-to=type=gha,scope=$(t),mode=max,ignore-error=true) --set migrate.cache-from=type=gha,scope=db-roles
+comma := ,
+BAKE_CACHE_TO = $(if $(filter true,$(CACHE_WRITE)),--set $(1).cache-to=type=gha$(comma)scope=$(1)$(comma)mode=max$(comma)ignore-error=true)
+BAKE_CACHE_GHA := $(foreach t,$(BAKE_CACHED),--set $(t).cache-from=type=gha,scope=$(t) $(call BAKE_CACHE_TO,$(t))) --set migrate.cache-from=type=gha,scope=db-roles
 BAKE_CACHE := $(if $(filter gha,$(IMAGE_CACHE)),$(BAKE_CACHE_GHA))
 PULL_POLICY := $(if $(filter local,$(IMAGE_CACHE)),--policy missing)
 image-ci:
