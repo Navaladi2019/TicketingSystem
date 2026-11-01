@@ -307,6 +307,66 @@ func idempotencyPaths() []Path {
 			}
 			return e.executed(2)
 		}),
+		// TICK-412: a client that retries a create after a timeout needs the
+		// ETag for its next If-Match, and the Location of what it created.
+		db("a replay restores ETag and Location and no other handler header", func(ctx context.Context, e *idemEnv) error {
+			h := e.handler(nil)
+			a := e.do(h, e.tenantA, e.principalA, "k-replay-headers", `{"a":1}`)
+			b := e.do(h, e.tenantA, e.principalA, "k-replay-headers", `{"a":1}`)
+			if b.Header().Get(idempotency.ReplayedHeader) != "true" {
+				return fmt.Errorf("second request = %d %s, want a replay", b.Code, bodyOf(b))
+			}
+			for _, k := range idempotency.ReplayHeaders() {
+				if got, want := b.Header().Get(k), a.Header().Get(k); got != want || want == "" {
+					return fmt.Errorf("replayed %s = %q, first response %q", k, got, want)
+				}
+			}
+			if a.Header().Get("X-First-Run-Only") == "" || b.Header().Get("X-First-Run-Only") != "" {
+				return fmt.Errorf("X-First-Run-Only first = %q, replay = %q; want set, then absent",
+					a.Header().Get("X-First-Run-Only"), b.Header().Get("X-First-Run-Only"))
+			}
+			// A stored problem sets neither, so the row holds NULL.
+			e.do(h, e.tenantA, e.principalA, "k-replay-headers-4xx", `{"fail":true}`)
+			p := e.do(h, e.tenantA, e.principalA, "k-replay-headers-4xx", `{"fail":true}`)
+			if p.Header().Get("ETag") != "" || p.Header().Get("Location") != "" {
+				return fmt.Errorf("replayed problem has ETag %q Location %q, want none", p.Header().Get("ETag"), p.Header().Get("Location"))
+			}
+			conn, err := e.c.Super()
+			if err != nil {
+				return err
+			}
+			var stored, none *string
+			if err := conn.QueryRow(ctx, `
+SELECT (SELECT response_headers::text FROM idempotency_keys WHERE tenant_id = $1 AND principal_id = $2 AND key = 'k-replay-headers'),
+       (SELECT response_headers::text FROM idempotency_keys WHERE tenant_id = $1 AND principal_id = $2 AND key = 'k-replay-headers-4xx')`,
+				e.tenantA, e.principalA).Scan(&stored, &none); err != nil {
+				return err
+			}
+			if stored == nil || none != nil {
+				return fmt.Errorf("response_headers = %v and %v, want an object and NULL", stored, none)
+			}
+			return e.executed(2)
+		}),
+		// A row completed before response_headers existed (NULL) still
+		// replays, without the headers.
+		db("a completed row with no stored headers replays without them", func(ctx context.Context, e *idemEnv) error {
+			const key = "k-replay-legacy"
+			conn, err := e.c.Super()
+			if err != nil {
+				return err
+			}
+			if _, err := conn.Exec(ctx, `
+INSERT INTO idempotency_keys (tenant_id, principal_id, key, request_hash, state, response_status, response_body, expires_at)
+VALUES ($1, $2, $3, $4, 'completed', 201, '{"run":0}', now() + interval '1 day')`,
+				e.tenantA, e.principalA, key, idempotency.RequestHash(http.MethodPost, "/api/v1/things", []byte(`{"a":1}`))); err != nil {
+				return err
+			}
+			rec := e.do(e.handler(nil), e.tenantA, e.principalA, key, `{"a":1}`)
+			if rec.Code != http.StatusCreated || bodyOf(rec) != `{"run":0}` || rec.Header().Get("ETag") != "" || rec.Header().Get("Location") != "" {
+				return fmt.Errorf("legacy replay = %d %s ETag=%q Location=%q", rec.Code, bodyOf(rec), rec.Header().Get("ETag"), rec.Header().Get("Location"))
+			}
+			return e.executed(0)
+		}),
 		db("an in_flight row past the 60 s lease is retaken, a younger one is not", func(ctx context.Context, e *idemEnv) error {
 			h := e.handler(nil)
 			if err := e.seedInFlight(ctx, e.tenantA, e.principalA, "k-lease-old", `{"a":1}`, "2 minutes"); err != nil {
@@ -399,6 +459,9 @@ func (e *idemEnv) handler(before func()) http.Handler {
 		// Not the canonical type: the middleware must normalise it on the
 		// first run, so a replay is byte-identical.
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("ETag", fmt.Sprintf(`W/"%d"`, n))
+		w.Header().Set("Location", fmt.Sprintf("/api/v1/things/%d", n))
+		w.Header().Set("X-First-Run-Only", "1") // not in ReplayHeaders
 		w.WriteHeader(http.StatusCreated)
 		_, _ = fmt.Fprintf(w, `{"run":%d}`, n)
 	}))
