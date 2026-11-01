@@ -197,7 +197,7 @@ func Coverage() map[string]string {
 		"CI-2":  "full: generic checks on every tenant table; forged-tenant HTTP paths (T17)",
 		"CI-9":  "full: nava_relay, nava_purge, nava_onboard and nava_backup reach (T12); nava_backup through T08's pg_hba cases",
 		"CI-8":  "partial → TICK-87 (byte-identical 404, stale If-Match 412, masked-field filter 400); cursor cases from T23; idempotency cases from T22",
-		"CI-10": "full (ADR-001 A5): (f) the start key is per tenant, here; (a)–(e) are TestCI10_* in internal/records/pipeline and the outbox depth limit TestCI10_* in internal/outbox, both against real PostgreSQL in make test-integration; (g) signal ping-pong needs the interpreter and lands with P3-42",
+		"CI-10": "partial → P3-42 (S11b): (g) signal ping-pong needs the interpreter; (f) the start key is per tenant, here; (a)–(e) are TestCI10_* in internal/records/pipeline and the outbox depth limit TestCI10_* in internal/outbox, both against real PostgreSQL in make test-integration",
 		"T26":   "full: deprovisioning within D-P9's 10 minutes and the Epic 03 identity boundary (TICK-82); cases 1, 2, 6 and 8 run here, cases 3, 4, 5 and 7 need the real Keycloak and run in make stack-test-identity",
 		"CI-5":  "full in make identity-attacks (real Keycloak, the CI stack job, ci5-report artifact); here every case is registered: token shapes through the API handler (401 for the stated reason), the duplicate binding on this database, Keycloak-only cases as Stack paths on TestCI5",
 	}

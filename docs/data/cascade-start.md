@@ -71,7 +71,8 @@ adds the `(tenant_id, record_id)` index with its `DELETE` policy.
 - `internal/db/dbtest/cascade_start_test.go`: grants, RLS, append-only,
   NOT NULL origin, the composite foreign key.
 - `internal/tenancy/isolation/cascade_paths.go`: CI-10 (f) in the isolation
-  report. (g), signal ping-pong, needs the interpreter and is P3-42's.
+  report. (g), signal ping-pong, needs the interpreter and is P3-42's, so CI-10
+  reads partial until P3-42 registers it (CTO ruling, TICK-415).
 
 ## Lock order across writes (from the P3-11 review, PR #360)
 

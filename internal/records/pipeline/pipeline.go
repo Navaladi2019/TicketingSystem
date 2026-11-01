@@ -155,9 +155,9 @@ type Event struct {
 // An error rolls the whole write back. A sink that starts nava.interpreter
 // claims each start with cascade.ClaimStart and enqueues it with
 // outbox.EnqueueStart; on a repeat it enqueues nothing, writes
-// cascade.AuditSuppressed and returns nil (A5-4). A sink that enqueues outbox rows uses
-// outbox.EnqueueAtVersion with ev.Version, never outbox.Enqueue, so the write
-// bumps the version exactly once.
+// cascade.AuditSuppressed and returns nil (A5-4). Any other outbox row is
+// enqueued with outbox.EnqueueAtVersion and ev.Version, never
+// outbox.Enqueue, so the write bumps the version exactly once.
 type EventSink interface {
 	RecordChanged(ctx context.Context, tx pgx.Tx, ev Event) error
 }
@@ -305,16 +305,17 @@ func (p *Pipeline) Runner() TxRunner { return p.runner }
 // COMMITTED (the default). It returns ErrInvalidCommand, ErrNotFound,
 // authz.ErrForbidden, *ErrValidation, *ErrIllegalTransition,
 // *ErrUniqueViolation, ErrVersionConflict, *ErrIdempotencyConflict or
-// outbox.ErrCascadeTooDeep for a refused write, and a wrapped error for a
-// database failure. On any error the caller rolls tx back; after a
-// concurrent *ErrIdempotencyConflict or a database error tx is unusable.
+// outbox.ErrCascadeTooDeep for a refused write; ErrRetryable, wrapping the
+// database error, when PostgreSQL aborted tx for a deadlock (40P01) or a
+// serialization failure (40001): roll back and retry the whole transaction;
+// and a wrapped error for any other database failure. On any error the
+// caller rolls tx back; after a concurrent *ErrIdempotencyConflict,
+// ErrRetryable or a database error tx is unusable.
 //
 // The depth check runs before any statement in tx but the read of its
 // tenant: a write beyond the limit changes nothing in tx and writes one
 // cascade_rejected audit row on the TxRunner, committed before Write
 // returns. If that row cannot be written, the error also wraps the cause.
-//
-// A deadlock or serialization failure is ErrRetryable, and tx is unusable.
 func (p *Pipeline) Write(ctx context.Context, tx pgx.Tx, cmd Command) (Result, error) {
 	res, err := p.perform(ctx, tx, cmd)
 	var pe *pgconn.PgError
