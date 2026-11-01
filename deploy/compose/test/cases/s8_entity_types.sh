@@ -25,8 +25,9 @@ trap 'sh "$GUIDE/tools/tunnels.sh" down >/dev/null 2>&1 || true' EXIT
 sh "$GUIDE/tools/tunnels.sh" up || fail "tools/tunnels.sh up failed"
 pass "seeded; tunnels up"
 
-sh "$GUIDE/tools/api-test.sh" S8 || fail "Bruno folder S8 entity types failed (AC1-AC4); see the bru output above"
-pass "Bruno folder S8 entity types: every check passed (AC1-AC4)"
+# AC5 is checked even when a Bruno check fails, so one run reports every criterion.
+bruno=0
+sh "$GUIDE/tools/api-test.sh" S8 || bruno=$?
 
 tenants=$(psql_super nava "SELECT DISTINCT tenant_id FROM tenant_email_domain WHERE domain LIKE 's8-%.test' ORDER BY 1")
 [ -n "$tenants" ] || fail "AC5: no tenant with an s8-*.test domain; S8.19 did not onboard one"
@@ -52,3 +53,5 @@ got
 $got"
     pass "AC5: newly onboarded tenant $t has change, incident and request at version 1 (initial, template schema bytes)"
 done
+[ "$bruno" -eq 0 ] || fail "Bruno folder S8 entity types failed (AC1-AC4; bru exit $bruno); see the bru output above"
+pass "Bruno folder S8 entity types: every check passed (AC1-AC4)"
