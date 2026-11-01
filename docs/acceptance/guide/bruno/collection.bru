@@ -3,5 +3,5 @@ vars:pre-request {
 }
 
 docs {
-  One folder per delivered story (S1–S7), then the API suite (X1–X3) and the expired-token checks (Z). Run top to bottom. Before a full run: stack up, `tools/seed.sh`, `tools/tunnels.sh up`, and `make demo-outbox DEDUPE_KEY=accept` twice. Select the `local` environment. Only the documented dev-only seed credentials appear in the environment; tokens are fetched at run time and kept in runtime variables. Headless: `sh docs/acceptance/guide/tools/api-test.sh` from the repository root.
+  One folder per delivered story (S1–S8), then the API suite (X1–X3) and the expired-token checks (Z). Run top to bottom. Before a full run: stack up, `tools/seed.sh`, `tools/tunnels.sh up`, and `make demo-outbox DEDUPE_KEY=accept` twice. Select the `local` environment. Only the documented dev-only seed credentials appear in the environment; tokens are fetched at run time and kept in runtime variables. Headless: `sh docs/acceptance/guide/tools/api-test.sh` from the repository root.
 }

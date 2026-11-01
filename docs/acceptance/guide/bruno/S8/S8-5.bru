@@ -1,0 +1,37 @@
+meta {
+  name: S8.5 AC3: agent@tenant-a reads the current incident version
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/incident
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  test('the incident type of tenant A, current', () => {
+    expect(b.key).to.eql('incident');
+    expect(b.current).to.eql(true);
+    expect(b.version).to.be.a('number').and.at.least(1);
+  });
+  const raw = N.rawMember(N.text(), 'schema');
+  test('schema_sha256 is the SHA-256 of the schema bytes returned', () => expect(b.schema_sha256).to.eql(N.sha256(raw)));
+  bru.setVar('s8_prev', String(b.version));
+  bru.setVar('s8_cur_schema', raw);
+  bru.setVar('s8_fixed', JSON.stringify(b.fixed_columns));
+  bru.setVar('s8_states', JSON.stringify(b.states));
+  console.log('S8.5 incident is at version', b.version, b.version === 1 ? '(fresh stack)' : '(the folder ran before on this stack)');
+}
+
+docs {
+  Kept for the publish bodies: the current version, its schema bytes, fixed columns and states.
+}

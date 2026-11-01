@@ -1,0 +1,28 @@
+meta {
+  name: S8.13 AC1: version 1 is still the template, byte for byte
+  type: http
+  seq: 13
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/incident/versions/1
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  test('version 1, not current', () => { expect(b.version).to.eql(1); expect(b.current).to.eql(false); });
+  test('schema bytes equal the template bytes', () => expect(N.rawMember(N.text(), 'schema')).to.eql(N.rawMember(N.repoFile('internal/metadata/templates/incident.json'), 'schema')));
+  test('same schema_sha256 as S8.6', () => expect(b.schema_sha256).to.eql(bru.getVar('s8_v1_sha')));
+}
+
+docs {
+  Publishing never changes an earlier version.
+}
