@@ -12,12 +12,13 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
-// The cascade start key's seed (testdata/seed.sql, P3-12): SharedRecord is a
-// record id both tenants hold, each row carrying the causation origin
-// SharedOrigin, and tenant B alone has claimed SharedDefinition on it. A key
-// read without its tenant would therefore find tenant B's claim.
+// The cascade start key's seed (testdata/seed.sql, P3-12): tenant B also
+// holds a record with tenant A's id RecordA1 (SharedRecord), both rows under
+// the causation origin SharedOrigin, and tenant B alone has claimed
+// SharedDefinition on it. A key read or claimed without its tenant would
+// therefore meet tenant B's claim.
 const (
-	SharedRecord     = "0d000000-0000-4000-8000-0000000000d1"
+	SharedRecord     = RecordA1
 	SharedOrigin     = "0d000000-0000-4000-8000-0000000009d1"
 	SharedDefinition = "0d000000-0000-4000-8000-0000000009d2"
 )
