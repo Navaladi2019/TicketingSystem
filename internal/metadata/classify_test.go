@@ -222,7 +222,7 @@ func TestClassifyAddOptionalPropertyToTemplate(t *testing.T) {
 	}
 	prev := mustCompile(t, d)
 	row := map[string]any{
-		"short_description": "x", "state": "new", "impact": 3, "urgency": 3,
+		"short_description": "x", "state": "new", "priority": 3,
 		"requester": "4b0f5f4e-7c43-4c1b-9d3f-7d7e1b2a9c10", "location": 42,
 	}
 	if errs := prev.Validate(row); !slices.Contains(errs, metadata.FieldError{Path: "/location", Code: "additionalProperties"}) {

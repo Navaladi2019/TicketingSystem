@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity/keycloak"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
@@ -220,6 +221,22 @@ func (s *PGStore) RecordAdminGroup(ctx context.Context, tenantID uuid.UUID, kcGr
 		return fmt.Errorf("onboard: record admin group: %w", err)
 	}
 	return nil
+}
+
+// SeedEntityType implements Store through entitytypes.Store.Seed, as
+// nava_onboard in the tenant's transaction. The definition and its version go
+// in one transaction, so a crash leaves both or neither.
+func (s *PGStore) SeedEntityType(ctx context.Context, tenantID uuid.UUID, in entitytypes.SeedInput) (bool, error) {
+	var inserted bool
+	err := tenancy.InTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
+		var err error
+		inserted, err = entitytypes.Store{}.Seed(ctx, tx, tenantID, in)
+		return err
+	})
+	if err != nil {
+		return false, fmt.Errorf("onboard: seed entity type: %w", err)
+	}
+	return inserted, nil
 }
 
 // ErrNotProvisioning is returned by Activate when it found no provisioning row of the tenant.

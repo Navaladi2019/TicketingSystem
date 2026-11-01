@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity/keycloak"
 )
@@ -31,6 +32,11 @@ type fakeStore struct {
 	adminGroups map[uuid.UUID]string
 	adminWrites int
 	adminErr    error
+
+	seeded   map[uuid.UUID]entitytypes.SeedInput // by version id
+	seedErr  error
+	seedFail int // fail the Nth call (1-based), once
+	seedCall int
 }
 
 func newStore() *fakeStore {
@@ -92,6 +98,26 @@ func (s *fakeStore) RecordAdminGroup(_ context.Context, id uuid.UUID, kc string)
 	s.adminGroups[id] = kc // one row per tenant: a retry overwrites, never adds
 	s.adminWrites++
 	return nil
+}
+
+func (s *fakeStore) SeedEntityType(_ context.Context, id uuid.UUID, in entitytypes.SeedInput) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.seedCall++
+	if s.seedErr != nil {
+		return false, s.seedErr
+	}
+	if s.seedFail == s.seedCall {
+		return false, errors.New("crash")
+	}
+	if s.seeded == nil {
+		s.seeded = map[uuid.UUID]entitytypes.SeedInput{}
+	}
+	if _, ok := s.seeded[in.VersionID]; ok {
+		return false, nil
+	}
+	s.seeded[in.VersionID] = in
+	return true, nil
 }
 
 func (s *fakeStore) Activate(_ context.Context, id uuid.UUID) error {
@@ -541,5 +567,67 @@ func TestOnboardAdminGroupMissingLogsBothIDs(t *testing.T) {
 	kc := "kc-admins-" + tenant
 	if rec["level"] != "ERROR" || rec["tenant_id"] != tenant || rec["keycloak_group_id"] != kc {
 		t.Errorf("log = %v, want ERROR with tenant_id %s and keycloak_group_id %s", rec, tenant, kc)
+	}
+}
+
+func TestOnboardSeedsThreeTypesWithDeterministicIDs(t *testing.T) {
+	svc, st, _ := newSvc(t)
+	res, err := svc.Onboard(t.Context(), op1, "key-seed", []byte("h"), validReq())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.seeded) != 3 {
+		t.Fatalf("seeded %d types, want 3", len(st.seeded))
+	}
+	prefixes := map[string]string{"incident": "INC", "request": "REQ", "change": "CHG"}
+	for key, prefix := range prefixes {
+		in, ok := st.seeded[EntityVersionID(res.TenantID, key, 1)]
+		if !ok {
+			t.Fatalf("%s: version 1 not seeded under its UUIDv5 id", key)
+		}
+		if in.DefinitionID != EntityDefinitionID(res.TenantID, key) || in.Definition.NumberPrefix != prefix || in.Definition.Key != key {
+			t.Errorf("%s: seeded %+v", key, in)
+		}
+	}
+	if EntityDefinitionID(res.TenantID, "incident") == EntityDefinitionID(res.TenantID, "request") ||
+		EntityDefinitionID(res.TenantID, "incident") == EntityDefinitionID(uuid.New(), "incident") ||
+		EntityVersionID(res.TenantID, "incident", 1) == EntityVersionID(res.TenantID, "incident", 2) {
+		t.Error("entity ids are not a stable function of (tenant, key, version)")
+	}
+}
+
+// A crash between templates leaves the tenant provisioning with some types
+// seeded; the retry finishes the rest and never duplicates.
+func TestOnboardSeedCrashThenRetryGivesThreeTypesOnce(t *testing.T) {
+	svc, st, _ := newSvc(t)
+	st.seedFail = 2
+	if _, err := svc.Onboard(t.Context(), op1, "key-crash", []byte("h"), validReq()); err == nil {
+		t.Fatal("want the seed failure")
+	}
+	id := TenantID("op-1", "key-crash")
+	if st.active[id] || len(st.seeded) != 1 {
+		t.Fatalf("after crash: active=%v seeded=%d, want provisioning with 1", st.active[id], len(st.seeded))
+	}
+	if _, err := svc.Onboard(t.Context(), op1, "key-crash", []byte("h"), validReq()); err != nil {
+		t.Fatal(err)
+	}
+	if !st.active[id] || len(st.seeded) != 3 {
+		t.Errorf("after retry: active=%v seeded=%d, want active with 3", st.active[id], len(st.seeded))
+	}
+	// The replay of the active tenant seeds nothing more.
+	calls := st.seedCall
+	if res, err := svc.Onboard(t.Context(), op1, "key-crash", []byte("h"), validReq()); err != nil || !res.Replayed || st.seedCall != calls {
+		t.Errorf("replay: %+v, %v, seed calls %d -> %d", res, err, calls, st.seedCall)
+	}
+}
+
+func TestOnboardSeedErrorStopsBeforeActivation(t *testing.T) {
+	svc, st, dir := newSvc(t)
+	st.seedErr = errors.New("db down")
+	if _, err := svc.Onboard(t.Context(), op1, "key-err", []byte("h"), validReq()); err == nil {
+		t.Fatal("want error")
+	}
+	if st.active[TenantID("op-1", "key-err")] || len(dir.invites) != 0 {
+		t.Errorf("active=%v invites=%v, want a provisioning tenant with no invite", st.active[TenantID("op-1", "key-err")], dir.invites)
 	}
 }

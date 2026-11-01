@@ -3,36 +3,32 @@
   "number_prefix": "REQ",
   "fixed_columns": {
     "state": "state",
-    "requested_for": "requester_id",
+    "requester": "requester_id",
     "assignee": "assignee_id",
     "assignment_group": "assignment_group_id"
   },
   "states": {
-    "initial": "submitted",
-    "states": ["submitted", "approved", "rejected", "fulfilling", "fulfilled", "closed"],
+    "initial": "new",
+    "states": ["new", "in_progress", "fulfilled", "closed"],
     "transitions": [
-      {"from": "submitted", "to": "approved"},
-      {"from": "submitted", "to": "rejected"},
-      {"from": "approved", "to": "fulfilling"},
-      {"from": "fulfilling", "to": "fulfilled"},
-      {"from": "fulfilled", "to": "closed"},
-      {"from": "rejected", "to": "closed"}
+      {"from": "new", "to": "in_progress"},
+      {"from": "in_progress", "to": "fulfilled"},
+      {"from": "fulfilled", "to": "closed"}
     ]
   },
   "schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
     "additionalProperties": false,
-    "required": ["short_description", "state", "requested_for"],
+    "required": ["short_description", "state"],
     "properties": {
       "short_description": {"type": "string", "title": "Short description", "minLength": 1, "maxLength": 160},
       "description": {"type": "string", "title": "Description", "maxLength": 32000},
-      "state": {"type": "string", "title": "State", "enum": ["submitted", "approved", "rejected", "fulfilling", "fulfilled", "closed"], "default": "submitted"},
-      "requested_for": {"type": "string", "format": "uuid", "title": "Requested for"},
+      "state": {"type": "string", "title": "State", "enum": ["new", "in_progress", "fulfilled", "closed"], "default": "new"},
+      "priority": {"type": "integer", "title": "Priority", "enum": [1, 2, 3, 4], "default": 3},
+      "requester": {"type": "string", "format": "uuid", "title": "Requester"},
       "assignee": {"type": "string", "format": "uuid", "title": "Assignee"},
-      "assignment_group": {"type": "string", "format": "uuid", "title": "Assignment group"},
-      "due_date": {"type": "string", "format": "date", "title": "Due date"},
-      "quantity": {"type": "integer", "title": "Quantity", "minimum": 1, "default": 1}
+      "assignment_group": {"type": "string", "format": "uuid", "title": "Assignment group"}
     }
   }
 }

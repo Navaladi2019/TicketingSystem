@@ -35,13 +35,7 @@ func TestTemplatesCompile(t *testing.T) {
 			rec := c.ApplyDefaults(map[string]any{
 				"short_description": "printer on fire",
 				"requester":         "4b0f5f4e-7c43-4c1b-9d3f-7d7e1b2a9c10",
-				"requested_for":     "4b0f5f4e-7c43-4c1b-9d3f-7d7e1b2a9c10",
 			})
-			if key == "request" {
-				delete(rec, "requester")
-			} else {
-				delete(rec, "requested_for")
-			}
 			if errs := c.Validate(rec); errs != nil {
 				t.Fatalf("Validate(seeded record) = %v", errs)
 			}
