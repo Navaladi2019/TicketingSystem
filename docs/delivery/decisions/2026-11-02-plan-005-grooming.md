@@ -1,0 +1,11 @@
+## 2026-11-02: PLAN-005 groomed: 30 tasks, D-3-13 revised, `diff_truncated` inside the hash, v0 dropped in P5-17
+
+- **Decided by:** the Technical Lead, closing the grooming meeting on TICK-449. Participants: CTO, Principal Software Engineer, Senior Software Engineer, Postgres & Data Modeling Specialist, Security & Multi-Tenancy Reviewer, Quality, Testing & CI Advisor. The Solution Architect ruled on `diff_truncated`. Two rounds.
+- **Plan calls kept:** D-5-1, D-5-2 (the CTO ruled it is sequencing inside M1, not a timeline-versus-correctness trade; nava may still reverse it), D-5-3, D-5-8, D-5-9.
+- **D-3-13 revised (PLAN-003):** the idempotency key and its replay data move from `audit_log.idempotency_key` to `record_write_keys` (`record_write_keys_pkey PRIMARY KEY (tenant_id, idempotency_key)`), written in the record's transaction. Replay semantics and `ErrIdempotencyConflict` are unchanged. P5-13a's acceptance names D-3-13 replay after the v0 rows are gone, plus the same-key race.
+- **Task graph:** new P5-12c (`internal/audit/jsondiff`, TICK-451). P5-10 split into 10a (rename, TICK-427) and 10b (new tables, TICK-450). P5-13 split into 13a (replay, TICK-431) and 13b (`audit.Append`, TICK-452). P5-34 split into 34a (activities, TICK-440) and 34b (workflow, TICK-453). P5-10 no longer depends on S13. P5-42 depends on P5-35.
+- **Contracts:** C2 and C5 lose their tenant field/argument; the tenant comes from `app.tenant_id` (I2). The commit-check trigger attaches to `records` in P5-13b. `audit_log_v0` becomes read-only in P5-13b and is dropped in P5-17, with the history rebuild.
+- **`diff_truncated`:** a stored `boolean NOT NULL DEFAULT false` column, **inside the hashed envelope** (Solution Architect, recorded in ADR-004-E1), so a flag edited in an exported file fails verification. Past 64 KB the diff keeps whole ops; `diff_sha256` covers the stored bytes.
+- **Security edits:** S9's isolation guards are re-targeted, never deleted. P5-18 back-fills the auditors group for existing tenants. The S10 masker task is `TODO-S10-01`. P5-10b owns the `nava_erasure` CI credential.
+- **Lane A:** S9 → S14 → S15 → S10 → S11b → S12 → S16, with estimates in the plan's tracker.
+- **Dissent:** none.
