@@ -25,10 +25,17 @@
 #                    every event and every 6 hours (schedule, which runs no
 #                    other job), and on main keeps one issue open while red
 # Budget: see "Job time budgets" in docs/quality/ci-pipeline.md. The three
-# stack jobs build the images first (7.5 to 10 minutes of each run), so their
-# timeout-minutes is 25 (TICK-258); the others stay at 10. Each job keeps its
-# own Go build cache (key per job, refreshed every run), the CI tools are cached
-# by version, and image layers live in the Actions cache (gha).
+# stack jobs build the images first (4 to 13 minutes of each run, by how much
+# of the image cache survives). stack also runs about 10 to 12 minutes of
+# cases, so its timeout-minutes is 35 (TICK-400, was 25); stack-db and
+# stack-internal stay at 25 (TICK-258), the others at 10. Each job keeps its
+# own Go build cache (key per job, refreshed every run on main), the CI tools
+# are cached by version, and image layers live in the Actions cache (gha).
+# Only runs on main write the Go and image caches (CACHE_WRITE, TICK-400):
+# every other ref reads main's entries. GitHub keeps 10 GB of cache per repo
+# and evicts least recently used first. Caches written by task branches and
+# pull requests can be read by no other ref, and they pushed main's image
+# layers out, so stack runs went to the 25-minute limit.
 name: ci
 
 on:
@@ -46,6 +53,11 @@ on:
 
 permissions:
   contents: read
+
+env:
+  # 'true' on a push, manual run or schedule on main; the Go cache save steps
+  # and make image-ci (cache-to) write the Actions cache only then (TICK-400).
+  CACHE_WRITE: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
 
 # A push gets a group of its own (per ref and sha), so a newer merge neither
 # cancels nor replaces a queued run: GitHub keeps one pending run per group even
@@ -78,7 +90,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
-      - uses: actions/cache@v4
+      - name: Restore the Go build cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cache/go-build
@@ -95,6 +108,15 @@ jobs:
           # meaningful diff base.
           CI_ALL: ${{ github.event_name != 'pull_request' && '1' || '' }}
         run: make ci-stages
+      # Only main writes the cache (TICK-400); see CACHE_WRITE above.
+      - name: Save the Go build cache
+        if: success() && env.CACHE_WRITE == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
 
   lint:
     if: github.event_name != 'schedule'
@@ -111,7 +133,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
-      - uses: actions/cache@v4
+      - name: Restore the Go build cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cache/go-build
@@ -159,6 +182,16 @@ jobs:
         run: make check-openapi
       - name: govulncheck
         run: make vulncheck
+      # Only main writes the cache (TICK-400); see CACHE_WRITE above.
+      - name: Save the Go build cache
+        if: success() && env.CACHE_WRITE == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+            ~/.cache/golangci-lint
+          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
 
   unit:
     needs: changes
@@ -179,7 +212,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
-      - uses: actions/cache@v4
+      - name: Restore the Go build cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cache/go-build
@@ -190,6 +224,15 @@ jobs:
             go-${{ github.job }}-
       - name: go test -race
         run: make test
+      # Only main writes the cache (TICK-400); see CACHE_WRITE above.
+      - name: Save the Go build cache
+        if: success() && env.CACHE_WRITE == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
 
   temporal-server:
     needs: changes
@@ -202,7 +245,8 @@ jobs:
         with:
           go-version-file: temporal-server/go.mod
           cache: false
-      - uses: actions/cache@v4
+      - name: Restore the Go build cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cache/go-build
@@ -218,6 +262,15 @@ jobs:
       # ADR-001 A1 Decision 3: zero findings, no exception and no allowlist.
       - name: govulncheck (temporal-server)
         run: make vulncheck-temporal-server
+      # Only main writes the cache (TICK-400); see CACHE_WRITE above.
+      - name: Save the Go build cache
+        if: success() && env.CACHE_WRITE == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
 
   integration:
     needs: changes
@@ -230,7 +283,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
-      - uses: actions/cache@v4
+      - name: Restore the Go build cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cache/go-build
@@ -255,13 +309,22 @@ jobs:
           name: isolation-report
           path: isolation-report.md
           if-no-files-found: error
+      # Only main writes the cache (TICK-400); see CACHE_WRITE above.
+      - name: Save the Go build cache
+        if: success() && env.CACHE_WRITE == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
 
   stack:
     # Platform and Temporal stack tests; the database tests run in stack-db.
     needs: changes
     if: needs.changes.outputs.stack == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     env:
       IMAGE_CACHE: gha
     steps:
@@ -270,7 +333,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
-      - uses: actions/cache@v4
+      - name: Restore the Go build cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cache/go-build
@@ -310,6 +374,15 @@ jobs:
       - name: Tear down
         if: always()
         run: make stack-down
+      # Only main writes the cache (TICK-400); see CACHE_WRITE above.
+      - name: Save the Go build cache
+        if: success() && env.CACHE_WRITE == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
 
   stack-db:
     # Database stack tests on their own stack, beside stack.
@@ -325,7 +398,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
-      - uses: actions/cache@v4
+      - name: Restore the Go build cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cache/go-build
@@ -349,6 +423,15 @@ jobs:
       - name: Tear down
         if: always()
         run: make stack-down
+      # Only main writes the cache (TICK-400); see CACHE_WRITE above.
+      - name: Save the Go build cache
+        if: success() && env.CACHE_WRITE == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
 
   stack-internal:
     # The internal overlay brings up its own stack, so it runs beside stack.
@@ -364,7 +447,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
-      - uses: actions/cache@v4
+      - name: Restore the Go build cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cache/go-build
@@ -387,6 +471,15 @@ jobs:
       - name: Tear down
         if: always()
         run: make stack-down
+      # Only main writes the cache (TICK-400); see CACHE_WRITE above.
+      - name: Save the Go build cache
+        if: success() && env.CACHE_WRITE == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
 
   story-branches:
     # TICK-322: a story branch's work must reach main. Fails on changes merged
@@ -416,7 +509,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
-      - uses: actions/cache@v4
+      - name: Restore the Go build cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cache/go-build
@@ -438,6 +532,15 @@ jobs:
           RESULT: ${{ steps.check.outcome }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: make story-branches-issue
+      # Only main writes the cache (TICK-400); see CACHE_WRITE above.
+      - name: Save the Go build cache
+        if: success() && env.CACHE_WRITE == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
 
   main-red:
     # A push to main with any failed job opens (or comments on) the P0
