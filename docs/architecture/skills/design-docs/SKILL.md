@@ -1,6 +1,6 @@
 ---
 name: design-docs
-description: "How to write RFCs, ADRs and PLANs that the human can review in fifteen minutes — structure, decision tables, diagrams that render, and what never goes in a decision record. Use whenever you write or revise an RFC, ADR, PLAN, design review turn or architecture summary, or draw a Mermaid diagram for one."
+description: "How to write RFCs, ADRs and PLANs that a reviewer can read in fifteen minutes — structure, decision tables, diagrams that render, and what never goes in a decision record. Use whenever you write or revise an RFC, ADR, PLAN, design review turn or architecture summary, or draw a Mermaid diagram for one."
 ---
 
 # Design document standards
@@ -15,7 +15,7 @@ description: "How to write RFCs, ADRs and PLANs that the human can review in fif
 5. Test/acceptance spec — the tests that prove the decisions (CI-1, CI-2…), each with what it catches.
 6. Open questions — only ones the human or a named role must answer.
 
-**ADR (the decision, after the RFC is approved)** — at most two pages: decision, context it rests on, consequences, rejected options, recorded dissent, revisit triggers. Status stays `PROPOSED` until the human signs off; never set `ACCEPTED` yourself — the sign-off is the decision. No debate history (it stays in the archived RFC).
+**ADR (the decision, after the RFC is approved)** — at most two pages: decision, context it rests on, consequences, rejected options, recorded dissent, revisit triggers. Status stays `PROPOSED` until the Solution Architect's verdict (after the Technical Architect critique and any CTO tie-break); the Solution Architect never sets `ACCEPTED` on a contested design without that verdict. No debate history (it stays in the archived RFC).
 
 **PLAN** — summary, critical path, sequencing with reasons, what the milestone cannot absorb and the proposed cut, then the task graph. Each task: one outcome, acceptance criteria, the interface contract it must honour, dependencies, a role tag. When the plan splits work into stories, each story lists the files and packages it touches, and no two stories touch the same file; a real dependency is written `Depends on: <story>`, and that story starts only after the one it depends on is merged into `main`.
 
