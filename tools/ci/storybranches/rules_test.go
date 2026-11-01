@@ -31,7 +31,8 @@ const (
 )
 
 // The milestone-1 state TICK-286 found (TICK-322): S7 landed, S5 got three
-// task PRs after its story PR merged, S6 never had a story PR.
+// task PRs after its story PR merged, S6 never had a story PR and its story
+// is recorded as cancelled.
 func milestone1() Input {
 	return Input{
 		Main: "main",
@@ -53,6 +54,7 @@ func milestone1() Input {
 			// Only TICK-<n>/ branches are story branches.
 			mergedPR(114, "sec/y", "agent/x/1", "y", "01:00", "02:00"),
 		},
+		Closed: []Closed{{Branch: s6, Status: "cancelled", Issue: "TICK-48"}},
 	}
 }
 
@@ -88,7 +90,7 @@ func TestMilestone1Replay(t *testing.T) {
 	}
 	want := []string{
 		s5 + ": story PR #221 merged on 2026-10-28 16:47Z, but changes since then are not on main: PRs #251, #252, #255 merged into it afterwards (head s5-late, story PR head s5-stor)",
-		s6 + ": orphaned: PR #175 merged into it, no PR out of it is merged or open, and its changes are not on main (head s6-head)",
+		s6 + ": orphaned: story TICK-48 is cancelled (closed.yaml), PR #175 merged into it, no PR out of it is merged or open, and its changes are not on main (head s6-head)",
 	}
 	if got := texts(fs); !slices.Equal(got, want) {
 		t.Fatalf("findings:\n got %q\nwant %q", got, want)
@@ -145,7 +147,7 @@ func TestOpenPRIntoMergedStory(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		s6 + ": orphaned: PR #175 merged into it, no PR out of it is merged or open, and its changes are not on main (head s6-head)",
+		s6 + ": orphaned: story TICK-48 is cancelled (closed.yaml), PR #175 merged into it, no PR out of it is merged or open, and its changes are not on main (head s6-head)",
 		s7 + ": open PR #270 targets it, but its story PR #223 merged on 2026-10-28 12:00Z; retarget it to main",
 	}
 	if got := texts(fs); !slices.Equal(got, want) {
@@ -199,5 +201,102 @@ func TestStateAt(t *testing.T) {
 	c := PR{State: "CLOSED", CreatedAt: at("10:00"), ClosedAt: at("11:00")}
 	if c.stateAt(at("10:30")) != "OPEN" || c.stateAt(at("11:30")) != "CLOSED" || c.stateAt(time.Time{}) != "CLOSED" {
 		t.Error("closed PR replays wrong")
+	}
+}
+
+// TICK-379: a story branch with merged task PRs and no story PR is in flight
+// until closed.yaml records its story as done or cancelled; it is not
+// compared with main, so it cannot go red on every PR in the repo.
+func TestNoStoryPRIsInFlightUntilClosed(t *testing.T) {
+	for _, status := range []string{"", "done", "cancelled"} {
+		in := milestone1()
+		in.Closed = nil
+		if status != "" {
+			in.Closed = []Closed{{Branch: s6, Status: status, Issue: "TICK-48"}}
+		}
+		landed, calls := landedAt("s7-head..s7-head", "s5-story..s5-late")
+		fs, _, err := Check(in, landed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		orphan := slices.ContainsFunc(fs, func(f Finding) bool { return f.Branch == s6 && strings.HasPrefix(f.Text, "orphaned") })
+		compared := slices.Contains(*calls, "..s6-head")
+		if status == "" && (orphan || compared || len(fs) != 0) {
+			t.Fatalf("no closed.yaml entry: want S6 in flight and green, got %q (compared with main: %v)", texts(fs), compared)
+		}
+		if status != "" && (!orphan || !strings.Contains(fs[0].Text, "is "+status)) {
+			t.Fatalf("story %s: want S6 orphaned, got %q", status, texts(fs))
+		}
+	}
+	// A closed story whose changes did land on main is not orphaned.
+	in := milestone1()
+	landed, _ := landedAt("s7-head..s7-head", "s5-story..s5-late", "..s6-head")
+	if fs, _, _ := Check(in, landed); len(fs) != 0 {
+		t.Fatalf("closed story already on main: want green, got %q", texts(fs))
+	}
+}
+
+// TICK-380: an issue that is not the branch's own TICK-<n>, or a branch
+// listed twice, is a file error; a valid file parses.
+func TestParseClosed(t *testing.T) {
+	entry := func(branch, status, issue string) string {
+		return "  - branch: " + branch + "\n    status: " + status + "\n    issue: " + issue + "\n"
+	}
+	for _, c := range []struct {
+		name, file string
+		want       int    // entries parsed, when wantErr is ""
+		wantErr    string // substring of the error, "" for a valid file
+	}{
+		{"valid", "closed:\n" + entry("TICK-48/api-ground-rules", "cancelled", "TICK-48") + entry("TICK-47/x", "done", "TICK-47"), 2, ""},
+		{"empty list", "closed: []\n", 0, ""},
+		{"mismatched issue", "closed:\n" + entry("TICK-48/api-ground-rules", "cancelled", "TICK-47"), 0, "want TICK-48"},
+		{"issue a prefix of the branch's number", "closed:\n" + entry("TICK-480/x", "done", "TICK-48"), 0, "want TICK-480"},
+		{"duplicate branch", "closed:\n" + entry("TICK-48/x", "cancelled", "TICK-48") + entry("TICK-48/x", "done", "TICK-48"), 0, "listed twice"},
+		{"unknown status", "closed:\n" + entry("TICK-48/x", "merged", "TICK-48"), 0, "needs"},
+		{"not a story", "closed:\n" + entry("agent/x/1", "done", "TICK-48"), 0, "needs"},
+		{"no issue", "closed:\n  - branch: TICK-48/x\n    status: done\n", 0, "needs"},
+		{"not yaml", "closed: [\n", 0, "closed.yaml"},
+	} {
+		got, err := parseClosed("closed.yaml", []byte(c.file))
+		switch {
+		case c.wantErr == "" && (err != nil || len(got) != c.want):
+			t.Errorf("%s: want %d entries, got %v, %v", c.name, c.want, got, err)
+		case c.wantErr != "" && (err == nil || !strings.Contains(err.Error(), c.wantErr)):
+			t.Errorf("%s: want an error containing %q, got %v", c.name, c.wantErr, err)
+		}
+	}
+}
+
+// TICK-380: a story branch with merged task PRs and no story PR is listed in
+// the report with its age, and the job still passes.
+func TestInFlightListedInReport(t *testing.T) {
+	in := milestone1()
+	in.Closed = nil
+	landed, _ := landedAt("s7-head..s7-head", "s5-story..s5-late")
+	res, err := Evaluate(in, landed)
+	if err != nil || len(res.Findings) != 0 {
+		t.Fatalf("want green, got %q, %v", texts(res.Findings), err)
+	}
+	if len(res.InFlight) != 1 || res.InFlight[0].Branch != s6 {
+		t.Fatalf("want S6 alone in flight, got %+v", res.InFlight)
+	}
+	md := markdown(res, "origin/main", "now")
+	want := "- `" + s6 + "`: last task PR #175 merged on 2026-10-28 06:03Z, 1 task PR merged into it, no story PR yet\n"
+	if !strings.HasPrefix(md, "`make check-story-branches` against `origin/main`, now: 0 findings.") ||
+		!strings.Contains(md, "In flight (information only") || !strings.Contains(md, want) {
+		t.Fatalf("report does not list S6 as in flight:\n%s", md)
+	}
+
+	// An open story PR is in flight too, and the report says so.
+	in.PRs = append(in.PRs, openPR(266, s6, "main", "18:04"))
+	res, _ = Evaluate(in, landed)
+	if len(res.InFlight) != 1 || res.InFlight[0].StoryPR != 266 {
+		t.Fatalf("want S6 in flight with story PR #266, got %+v", res.InFlight)
+	}
+
+	// A story closed in closed.yaml, or with a merged story PR, is not.
+	res, _ = Evaluate(milestone1(), landed)
+	if len(res.InFlight) != 0 {
+		t.Fatalf("closed or merged story listed in flight: %+v", res.InFlight)
 	}
 }

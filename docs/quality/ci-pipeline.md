@@ -273,17 +273,26 @@ so its result is about the repository: it can go red on a pull request that
 did not cause it. It is not a branch-protection check and not in `main-red`'s
 `needs`.
 
-CI cannot read Multica, so **a merged story PR is the "story closed" signal**.
+CI cannot read Multica, so **a merged story PR, or an entry in
+`tools/ci/storybranches/closed.yaml`, is the "story closed" signal**
+(TICK-379).
 A **story branch** is a `TICK-<n>/<slug>` branch that at least one merged pull
 request targets (task PRs merge into it). Its **story PR** is the newest merged
 pull request out of it, into `main` or, for a nested branch, into another
 story branch. An open pull request out of it means the story is still in
-flight, and nothing below fires for it.
+flight, and nothing below fires for it. So does a branch with no PR out of
+it whose story `closed.yaml` does not list: under
+`docs/delivery/branching-strategy.md` the story PR opens only after every task
+has merged, so until then the branch is in flight, not orphaned. A done story
+normally has a merged story PR. When a story closes without one (usually a
+cancellation), the Technical Lead deletes its branch or adds a `closed.yaml`
+entry (`branch`, `status: done|cancelled`, `issue`) in the same change. A bad
+entry makes the tool exit 2.
 
 | Finding | Fires when | Clear it by |
 | --- | --- | --- |
 | `story PR #N merged …, but changes since then are not on main` | the branch gained changes after its story PR merged (a PR merged into it, or a push) and they are not on `main` | a PR into `main` that carries them (TICK-316, #267), or a `resolved.yaml` entry |
-| `orphaned: …` | the branch has merged task PRs, no merged or open PR out of it, and its changes are not on `main` | open its story PR (TICK-314, #266), delete the branch if the work is abandoned, or a `resolved.yaml` entry |
+| `orphaned: story TICK-<n> is <status> (closed.yaml), …` | `closed.yaml` lists its story as done or cancelled, the branch has merged task PRs, no merged or open PR out of it, and its changes are not on `main` | open its story PR (TICK-314, #266), delete the branch if the work is abandoned, or a `resolved.yaml` entry |
 | `open PR #N targets it, but its story PR #M merged …` | an open pull request targets a story branch whose story PR has merged | retarget the pull request to `main` |
 
 **"On main" compares trees, not commits.** Squash merges keep the tree and drop

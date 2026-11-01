@@ -1,0 +1,7 @@
+=== concurrent: session 1 ends with COMMIT
+s1: START
+s2: returned after 3 s (blocked on session 1's uncommitted key)
+=== concurrent: session 1 ends with ROLLBACK
+s1: START
+s2: START
+s2: returned after 2 s (blocked on session 1's uncommitted key)

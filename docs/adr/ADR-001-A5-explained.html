@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-001 amendment A5 explained: one workflow start per record per chain</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--accbg:#ddf4ff;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--accbg:#0c2d6b;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.banner{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.pill{font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left;overflow-wrap:break-word}
+th{background:var(--soft)}
+table.front th{width:120px}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px;margin-top:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:44px}
+h3{font-size:18px;margin-top:28px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;background:var(--soft);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+figure.diagram{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure.diagram svg{width:100%;min-width:600px;height:auto;display:block;margin:0 auto;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+.tag{display:inline-block;font-size:12px;font-weight:700;padding:1px 9px;border-radius:999px;white-space:nowrap}
+.tag.red{color:var(--bad);background:var(--badbg);border:1px solid var(--bad)}
+.tag.green{color:var(--good);background:var(--goodbg);border:1px solid var(--good)}
+.tag.amber{color:var(--warn);background:var(--warnbg);border:1px solid var(--warn)}
+.verbatim{border:1px solid var(--acc);border-left:5px solid var(--acc);background:var(--accbg);border-radius:6px;padding:8px 14px;margin:12px 0}
+.vlabel{font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--acc)}
+.callout{border:1px solid var(--warn);background:var(--warnbg);border-radius:8px;padding:10px 14px;margin:14px 0}
+dl.gloss{display:grid;grid-template-columns:minmax(140px,220px) minmax(0,1fr);gap:6px 18px}
+dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
+@media (max-width:640px){dl.gloss{grid-template-columns:minmax(0,1fr)} dl.gloss dd{margin-bottom:8px}}
+@media print{table{display:table}}
+</style></head>
+<body><main>
+<div class="banner"><span class="pill">READING GUIDE &middot; ADR-001 A5 ACCEPTED &middot; REV 1</span>
+<span class="src">This companion explains <code>ADR-001-A5-i9-cycle-suppress-start.md</code>. It is not a decision record and changes nothing. Every blue "decision text" box is copied word for word from the amendment.</span></div>
+<table class="front"><tbody>
+<tr><th>title</th><td>ADR-001 amendment A5 explained: why a workflow that changes its own record is not an endless loop, and how real loops are still stopped</td></tr>
+<tr><th>type</th><td>explainer for the decision-maker (not a decision record)</td></tr>
+<tr><th>explains</th><td>ADR-001-A5 rev 1 (status ACCEPTED, 2026-10-31, by the Technical Lead under nava's delegation; Technical Architect's closing verdict: comment <code>01a192db</code>), from RFC-005 on TICK-361. CTO ruling: comment <code>01a1926e</code>. Technical Architect critique: comment <code>01a19279</code>. For this amendment only, nava has delegated sign-off to the Technical Lead: comment <code>01a192d3</code>.</td></tr>
+<tr><th>audience</th><td>The person signing off. It assumes no knowledge of the record pipeline, Temporal or PostgreSQL.</td></tr>
+</tbody></table>
+
+<h1>ADR-001 amendment A5, explained</h1>
+
+<blockquote><strong>The whole decision in three sentences.</strong>
+(1) Our signed blueprint rejects a change when a chain of automatic changes comes back to the same record, and that also rejects the most ordinary workflow there is: "when a ticket is created, set a field on it". (2) We change the rule so each workflow starts <em>at most once</em> per record per chain: a second start is skipped and logged, and the change itself goes through. (3) You accept one limitation: a workflow cannot run twice on the same record within one chain. A new user action starts a new chain. The review also found that running workflows <em>messaging</em> each other could loop forever. Rev 1 closes that gap: every automatic change is one step deeper than the message that caused it, so the depth limit stops the loop.</blockquote>
+
+<div class="callout"><strong>Why this needs your signature.</strong> The rule's purpose, no endless chains of automatic changes, is unchanged. Its wording changes from "reject the change" to "skip the repeated workflow start". That changes what the rule means, so this is an <em>amendment</em>, not an erratum (a fix to wording that was simply wrong). The CTO has ruled, and the Technical Architect has reviewed it once. This is the one revision. For this amendment, nava has delegated the sign-off to the Technical Lead.</div>
+
+<h2 id="problem">1. The problem in plain words</h2>
+<p>A <strong>record</strong> is one ticket, such as an incident or a request. A <strong>workflow definition</strong> is a small automated process a tenant admin publishes, for example "when an incident is created, set its priority from its category". When a record changes, the workflows whose trigger matches start. When a workflow changes a record, more workflows may start. That chain is a <strong>cascade</strong>.</p>
+<p>A cascade can run forever: workflow D changes record R, which starts D again, which changes R again. The blueprint's invariant <strong>I9</strong> (an invariant is a rule every design must keep) guards against this in two ways. A hard <strong>depth limit</strong> allows at most 8 automatic changes in a row. A <strong>cycle rule</strong> catches loops: every change carries its <strong>origin</strong>, the id of the user action that started the chain, and the rule says:</p>
+<div class="verbatim"><div class="vlabel">I9 today (being replaced)</div>The pipeline … rejects a cycle (the origin seen again on the same record), with a typed error and an audit entry.</div>
+<p>Now take the demo planned for Epic 09:</p>
+<figure class="diagram"><svg viewBox="0 0 760 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="The demo under today's rule">
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#59636e"/></marker></defs>
+<rect x="10" y="70" width="170" height="70" rx="8" fill="#ddf4ff" stroke="#0969da"/><text x="95" y="98" text-anchor="middle" font-size="14" font-weight="700">1. User creates R</text><text x="95" y="120" text-anchor="middle" font-size="12">new origin O</text>
+<rect x="295" y="70" width="170" height="70" rx="8" fill="#ddf4ff" stroke="#0969da"/><text x="380" y="98" text-anchor="middle" font-size="14" font-weight="700">2. Workflow D starts</text><text x="380" y="120" text-anchor="middle" font-size="12">under origin O</text>
+<rect x="580" y="70" width="170" height="70" rx="8" fill="#ffebe9" stroke="#cf222e"/><text x="665" y="98" text-anchor="middle" font-size="14" font-weight="700">3. D sets priority on R</text><text x="665" y="120" text-anchor="middle" font-size="12" fill="#cf222e">O seen again on R: REJECTED</text>
+<line x1="180" y1="105" x2="291" y2="105" stroke="#59636e" stroke-width="2" marker-end="url(#ar)"/><line x1="465" y1="105" x2="576" y2="105" stroke="#59636e" stroke-width="2" marker-end="url(#ar)"/>
+<text x="380" y="190" text-anchor="middle" font-size="13" fill="#59636e">Step 3 is not a loop. The workflow is doing its one job, and today's wording forbids it.</text>
+</svg><figcaption>Figure 1. Today's cycle rule rejects every "change this record" workflow.</figcaption></figure>
+
+<h2 id="options">2. Options considered</h2>
+<table><thead><tr><th>Option</th><th>Verdict</th><th>Why</th></tr></thead><tbody>
+<tr><td>Keep the wording</td><td><span class="tag red">rejected</span></td><td>The demo fails, and so does every "set a field on this record" workflow.</td></tr>
+<tr><td>Check each <em>change</em>, recording which workflow made it (a new "trigger" column on every write)</td><td><span class="tag red">rejected</span></td><td>A workflow with two steps that both edit R, or a step retried after a network blip, makes the same change twice, and the check would flag it as a loop. It also adds a column to every write. The Principal Software Engineer proposed it. The CTO declined it, and it is recorded as dissent.</td></tr>
+<tr><td>Check each workflow <em>start</em>, and reject the change on a repeat</td><td><span class="tag red">rejected</span></td><td>An "on update, set X" workflow starts itself again with its own change, so that change would always fail.</td></tr>
+<tr><td>Check each workflow <em>start</em>, and <strong>skip</strong> the repeated start</td><td><span class="tag green">chosen</span></td><td>The change goes through, the loop stops at once, and the skip is logged.</td></tr>
+</tbody></table>
+
+<h2 id="decision">3. The decision</h2>
+<div class="verbatim"><div class="vlabel">Decision text (new I9)</div><strong>Cascades are bounded.</strong> Every write and every outbox row carries a causation record: an origin event id plus a depth. A write at depth 0 mints a new, non-NULL origin id. A workflow's write is one deeper than the start or signal that caused it. The pipeline rejects any write beyond a hard platform depth limit with <code>ErrCascadeTooDeep</code> and an audit entry, and the workflow run fails without retrying. <strong>A workflow definition starts at most once per (tenant, origin, record).</strong> When a write would start definition D on record R a second time under origin O, the start is suppressed, the write commits, and a <code>cascade_cycle</code> audit entry records O, R and D. The writer gets no error. The cycle key and the depth come only from causation stored by the platform under the writing tenant's RLS, never from an outbox payload or tenant-authored definition data. The limit is platform configuration, not tenant configuration (8, PLAN-001 D-P7).</div>
+<figure class="diagram"><svg viewBox="0 0 760 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="The same demo under the new rule">
+<defs><marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#59636e"/></marker></defs>
+<rect x="10" y="30" width="170" height="70" rx="8" fill="#ddf4ff" stroke="#0969da"/><text x="95" y="58" text-anchor="middle" font-size="14" font-weight="700">1. User creates R</text><text x="95" y="80" text-anchor="middle" font-size="12">new origin O</text>
+<rect x="285" y="30" width="190" height="70" rx="8" fill="#dafbe1" stroke="#1a7f37"/><text x="380" y="58" text-anchor="middle" font-size="14" font-weight="700">2. Start D on R?</text><text x="380" y="80" text-anchor="middle" font-size="12">first time for (O, R, D): START</text>
+<rect x="580" y="30" width="170" height="70" rx="8" fill="#dafbe1" stroke="#1a7f37"/><text x="665" y="58" text-anchor="middle" font-size="14" font-weight="700">3. D sets priority on R</text><text x="665" y="80" text-anchor="middle" font-size="12">the change COMMITS</text>
+<rect x="275" y="190" width="210" height="80" rx="8" fill="#fff8c5" stroke="#9a6700"/><text x="380" y="216" text-anchor="middle" font-size="14" font-weight="700">4. Start D on R again?</text><text x="380" y="238" text-anchor="middle" font-size="12">(O, R, D) already started</text><text x="380" y="256" text-anchor="middle" font-size="12">SKIP + one audit row. Loop ends.</text>
+<line x1="180" y1="65" x2="281" y2="65" stroke="#59636e" stroke-width="2" marker-end="url(#ar2)"/><line x1="475" y1="65" x2="576" y2="65" stroke="#59636e" stroke-width="2" marker-end="url(#ar2)"/>
+<path d="M665,100 L665,230 L489,230" fill="none" stroke="#59636e" stroke-width="2" marker-end="url(#ar2)"/>
+</svg><figcaption>Figure 2. The same demo under the new rule: the change goes through, and the would-be loop stops at the second start.</figcaption></figure>
+<h3>How it is built</h3>
+<ul>
+<li>A new table, <code>cascade_start</code>, holds one row per workflow start (about 200 bytes each, an estimate; kept for good in Milestone 1, because records are never deleted yet), keyed by (tenant, origin, record, workflow). The database refuses a second row with the same key. If the insert succeeds, the workflow starts. If the row already exists, the start is skipped. This runs in the same database transaction as the change, so either all of it happens or none of it does.</li>
+<li>The tenant is the first part of the key, and the table sits behind the same tenant wall as every other table: <strong>row-level security</strong>, the PostgreSQL feature that hides other tenants' rows. Two tenants can never collide, and neither can see the other's rows.</li>
+<li>The origin is taken from the change the platform stored itself, never from data a workflow passed along, so a workflow cannot forge its way past the rule.</li>
+<li>The depth limit of 8 is unchanged and still stops every other kind of chain.</li>
+<li>The check is built so the code cannot skip it. The only way to queue a workflow start takes a "ticket" that only the check hands out, so code that tries to start a workflow without one does not compile.</li>
+</ul>
+<h3>Workflows that message each other (added in rev 1)</h3>
+<p>A workflow that is already running can wait for a message (a <strong>signal</strong>) saying "record R changed". The review found a gap. Suppose workflows A and B both wait on R, and each changes R when told. Each change messages the other, and nothing new is ever <em>started</em>, so the start rule never fires. If every change were stamped with the depth of the workflow's original start, the depth would never rise and the pair would loop forever.</p>
+<div class="verbatim"><div class="vlabel">Decision text (rule A5-7, excerpt)</div>Each interpreter write carries the causation of the most recent delivery the run handled: after the start, <code>(start.origin, start.depth + 1)</code>; after a <code>record_changed</code> signal s, <code>(s.origin, s.depth + 1)</code>. Every write is exactly one deeper than the delivery that caused it, so no causal chain exceeds the limit. &hellip; <code>update_record</code> returns <code>ErrCascadeTooDeep</code> as a non-retryable <code>temporal.ApplicationError</code> &hellip; and the run fails.</div>
+<figure class="diagram"><svg viewBox="0 0 760 170" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Signal ping-pong stops at depth 9">
+<defs><marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#59636e"/></marker></defs>
+<rect x="10" y="40" width="120" height="60" rx="8" fill="#ddf4ff" stroke="#0969da"/><text x="70" y="66" text-anchor="middle" font-size="13" font-weight="700">A writes R</text><text x="70" y="86" text-anchor="middle" font-size="12">depth 2</text>
+<rect x="165" y="40" width="120" height="60" rx="8" fill="#ddf4ff" stroke="#0969da"/><text x="225" y="66" text-anchor="middle" font-size="13" font-weight="700">B writes R</text><text x="225" y="86" text-anchor="middle" font-size="12">depth 3</text>
+<rect x="320" y="40" width="120" height="60" rx="8" fill="#ddf4ff" stroke="#0969da"/><text x="380" y="66" text-anchor="middle" font-size="13" font-weight="700">A writes R</text><text x="380" y="86" text-anchor="middle" font-size="12">depth 4</text>
+<text x="490" y="76" text-anchor="middle" font-size="18" fill="#59636e">&#8230;</text>
+<rect x="540" y="40" width="210" height="60" rx="8" fill="#ffebe9" stroke="#cf222e"/><text x="645" y="66" text-anchor="middle" font-size="13" font-weight="700">write at depth 9</text><text x="645" y="86" text-anchor="middle" font-size="12" fill="#cf222e">REJECTED, run fails, no retry</text>
+<line x1="130" y1="70" x2="161" y2="70" stroke="#59636e" stroke-width="2" marker-end="url(#ar3)"/><line x1="285" y1="70" x2="316" y2="70" stroke="#59636e" stroke-width="2" marker-end="url(#ar3)"/><line x1="440" y1="70" x2="470" y2="70" stroke="#59636e" stroke-width="2" marker-end="url(#ar3)"/><line x1="510" y1="70" x2="536" y2="70" stroke="#59636e" stroke-width="2" marker-end="url(#ar3)"/>
+<text x="380" y="140" text-anchor="middle" font-size="13" fill="#59636e">Each message carries its writer's depth, and each reply is one deeper, so the depth limit always ends the exchange.</text>
+</svg><figcaption>Figure 3. Two running workflows messaging each other through R stop at the depth limit.</figcaption></figure>
+<p>The rejected change is also marked "do not retry". Without that mark, the workflow engine would by default retry the failed step forever, and the stuck workflow would never finish.</p>
+
+<h2 id="accept">4. What you are accepting</h2>
+<table><thead><tr><th>#</th><th>Residual risk</th><th>Severity</th><th>Revisit when</th></tr></thead><tbody>
+<tr><td>RS-A5-1</td><td>A workflow cannot run twice on the same record within one chain. Example: workflows D1 and D2 each trigger the other through R, so each runs once, and the second run of each is skipped and logged. Workaround: a new user change starts a new chain. The CTO accepts this for Milestone 1.</td><td><span class="tag green">Info</span></td><td>A tenant needs a workflow to run again within one chain. Candidate fix: a per-workflow "re-entrant" switch, still capped by depth.</td></tr>
+<tr><td>RS-A5-2</td><td>Messages to workflows that are already running (signals) are not starts. So two running workflows that keep messaging each other through one record are stopped only by the depth limit, after up to 8 changes. The Technical Architect accepts this now that rule A5-7 makes the depth rise.</td><td><span class="tag amber">Low</span></td><td>The performance run or production shows message storms.</td></tr>
+<tr><td>RS-A5-3</td><td>The depth of a workflow's change travels through the workflow engine, so someone who had stolen the worker's credentials could fake a lower depth. Such an attacker can already read and write any tenant (accepted risk AR-001), so this adds nothing new.</td><td><span class="tag green">Info</span></td><td>AR-001 is revisited, or tenant-written code runs in the worker.</td></tr>
+</tbody></table>
+<p>Both are recorded in <code>docs/security/accepted-risks.md</code> as AR-TICK-361-01, AR-TICK-361-02 and AR-TICK-361-03.</p>
+
+<h2 id="evidence">5. Evidence</h2>
+<p>A spike (a short, timeboxed experiment) on PostgreSQL 16.10, run as an ordinary application login behind the tenant wall. It is in <code>docs/adr/ADR-001/spikes/solution-architect/rfc-005/</code>.</p>
+<table><thead><tr><th>Case</th><th>Expected</th><th>Result</th></tr></thead><tbody>
+<tr><td>Demo: the first start of D on R, then D's own change fires it again</td><td>start, then skip</td><td><span class="tag green">PASS</span></td></tr>
+<tr><td>A second edit step, or a retried step</td><td>skip (no second start)</td><td><span class="tag green">PASS</span></td></tr>
+<tr><td>D1 and D2 trigger each other</td><td>each starts once, then both skip</td><td><span class="tag green">PASS</span></td></tr>
+<tr><td>A new user change (new origin)</td><td>D starts again</td><td><span class="tag green">PASS</span></td></tr>
+<tr><td>The same ids in another tenant</td><td>no collision, and each tenant sees only its own rows</td><td><span class="tag green">PASS</span></td></tr>
+<tr><td>Tenant B tries to write a key for tenant A</td><td>refused by the tenant wall</td><td><span class="tag green">PASS</span></td></tr>
+<tr><td>A change with no origin</td><td>refused, so it cannot slip past the key</td><td><span class="tag green">PASS</span></td></tr>
+<tr><td>Two starts at the same moment, where the first commits or rolls back</td><td>the second waits, then skips (after a commit) or starts (after a rollback)</td><td><span class="tag green">PASS</span></td></tr>
+</tbody></table>
+<p>The acceptance test CI-10 is rewritten with seven named cases, (a) to (g). TICK-88 implements (a) to (f) against the real pipeline. P3-42 tests (g), two running workflows messaging each other, once the workflow interpreter exists. The cases that need the pipeline or the interpreter (a retried step, the depth limit, the messaging loop) are proved in those tasks, not by the spike.</p>
+
+<h2 id="next">6. What happens next</h2>
+<ol><li>Done: the Technical Architect re-read rev 1 and closed the blocking finding (comment <code>01a192db</code>). There is no further round.</li><li>Done: the Technical Lead, holding nava's delegated sign-off for this amendment only, accepted it on TICK-361 on 2026-10-31. Status: ACCEPTED.</li><li>TICK-88 builds the table, the check and the six tests. The real workflow trigger (P3-42, story S11b) calls the same check.</li></ol>
+
+<h2 id="glossary">Glossary</h2>
+<dl class="gloss">
+<dt>Amendment</dt><dd>A change to the meaning of a signed decision. An erratum only fixes wording that was wrong.</dd>
+<dt>Audit row</dt><dd>A permanent entry in the record's history that says what happened and why.</dd>
+<dt>Cascade</dt><dd>A chain of automatic changes, each one started by the one before it.</dd>
+<dt>Depth</dt><dd>How many automatic steps a change is from the user's own action. Capped at 8.</dd>
+<dt>I9</dt><dd>The ninth invariant of ADR-001: cascades are bounded.</dd>
+<dt>Origin</dt><dd>The id of the user action that started a chain. Every change in the chain carries it.</dd>
+<dt>Row-level security (RLS)</dt><dd>The PostgreSQL feature the tenant wall is built on: each query sees only its own tenant's rows.</dd>
+<dt>Signal</dt><dd>A message to a workflow that is already running, as opposed to starting a new one.</dd>
+<dt>Non-retryable</dt><dd>An error the workflow engine must not retry, so the workflow stops instead of trying the same step again.</dd>
+<dt>Spike</dt><dd>A short, timeboxed experiment that settles a factual question.</dd>
+<dt>Tenant</dt><dd>One customer organisation. Every row belongs to exactly one tenant.</dd>
+<dt>Workflow definition</dt><dd>An automated process a tenant admin publishes. The platform runs it when its trigger matches.</dd>
+</dl>
+
+<p class="src">The full decision is in <code>docs/adr/ADR-001-A5-i9-cycle-suppress-start.md</code>. The RFC is <code>docs/adr/ADR-001/rfc/RFC-005-a5-i9-cycle-suppress-start.md</code>, and the spike is in <code>docs/adr/ADR-001/spikes/solution-architect/rfc-005/</code>.</p>
+</main></body></html>
