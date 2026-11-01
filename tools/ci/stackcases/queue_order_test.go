@@ -102,11 +102,10 @@ func recipes(t *testing.T) map[string]string {
 }
 
 // queueUsers sorts the real cases into the two nava-tq users: bodies (the
-// case runs the full temporalstack suite, which starts its test-body workers)
-// and interp (the case runs internal/workerstack, whose interpreter cases
-// start nava-worker-interptest). demo_outbox runs one temporalstack test
-// (-tags demooutbox -run '^TestDemoOutbox') that starts no worker, so it is
-// neither.
+// case runs internal/temporalstack: the sdk suite, and demo_outbox, whose
+// test starts a relayProbe worker) and interp (the case runs
+// internal/workerstack, whose interpreter cases start nava-worker-interptest;
+// its closeRef body runs in the same serial go test process).
 func queueUsers(t *testing.T, cases map[string]stackCase) (bodies, interp []stackCase) {
 	t.Helper()
 	recs := recipes(t)
@@ -126,7 +125,7 @@ func queueUsers(t *testing.T, cases map[string]stackCase) (bodies, interp []stac
 		switch {
 		case strings.Contains(rec, "./internal/workerstack"):
 			interp = append(interp, c)
-		case strings.Contains(rec, "./internal/temporalstack") && !strings.Contains(rec, "demooutbox"):
+		case strings.Contains(rec, "./internal/temporalstack"):
 			bodies = append(bodies, c)
 		}
 	}
@@ -145,8 +144,8 @@ func TestInterpreterQueueOrdering(t *testing.T) {
 		}
 		return false
 	}
-	if !has(bodies, "sdk") {
-		t.Fatalf("the sdk case (the temporalstack suite) was not classified as a test-body case: %v", bodies)
+	if !has(bodies, "sdk") || !has(bodies, "demo_outbox") {
+		t.Fatalf("the sdk and demo_outbox cases (internal/temporalstack) were not classified as test-body cases: %v", bodies)
 	}
 	if !has(interp, "worker") || !has(interp, "interpreter") {
 		t.Fatalf("the worker and interpreter cases were not classified as nava-worker-interptest cases: %v", interp)
@@ -158,11 +157,15 @@ func TestInterpreterQueueOrdering(t *testing.T) {
 
 // queueRuleViolations returns one message per broken rule:
 //   - a case that starts nava-worker-interptest is serial, so with or without
-//     PARALLEL=1 it runs alone and never shares nava-tq with a parallel case;
-//   - every test-body case sorts before it, so the suite has finished and
-//     stopped its workers before nava-worker-interptest starts, in both run
-//     modes (the parallel group runs before every serial case of a later
-//     order).
+//     PARALLEL=1 it runs alone and never shares nava-tq with another case;
+//   - a parallel test-body case (sdk) sorts before it, so the parallel group
+//     has finished and stopped its workers before nava-worker-interptest
+//     starts, in both run modes (the parallel group runs before every serial
+//     case of a later order).
+//
+// A serial test-body case (demo_outbox) may sort on either side: serial cases
+// never overlap, the interpreter case removes its container before it ends,
+// and the body's worker refuses to start while one runs (requireQueueFree).
 func queueRuleViolations(bodies, interp []stackCase) []string {
 	var out []string
 	for _, i := range interp {
@@ -170,7 +173,7 @@ func queueRuleViolations(bodies, interp []stackCase) []string {
 			out = append(out, fmt.Sprintf("case %s starts nava-worker-interptest but is mode=%s; it must be serial", i.name, i.mode))
 		}
 		for _, b := range bodies {
-			if b.order >= i.order {
+			if b.mode == "parallel" && b.order >= i.order {
 				out = append(out, fmt.Sprintf("case %s (order %d, temporalstack test bodies on nava-tq) must sort before %s (order %d, nava-worker-interptest)",
 					b.name, b.order, i.name, i.order))
 			}
@@ -190,6 +193,7 @@ func TestQueueRuleViolationsCatchesBrokenOrders(t *testing.T) {
 		"interpreter case parallel": {[]stackCase{sdk}, []stackCase{{name: "worker", mode: "parallel", order: 20}}, 1},
 		"interpreter case first":    {[]stackCase{sdk}, []stackCase{{name: "worker", mode: "serial", order: 5}}, 1},
 		"same order":                {[]stackCase{sdk}, []stackCase{{name: "worker", mode: "serial", order: 12}}, 1},
+		"serial body after":         {[]stackCase{sdk, {name: "demo_outbox", mode: "serial", order: 22}}, []stackCase{{name: "worker", mode: "serial", order: 20}}, 0},
 	} {
 		if got := queueRuleViolations(tc.bodies, tc.interp); len(got) != tc.want {
 			t.Errorf("%s: got %d violations %v, want %d", what, len(got), got, tc.want)

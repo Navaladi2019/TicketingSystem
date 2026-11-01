@@ -721,29 +721,29 @@ if (wait > 0) await bru.sleep(wait);""",
 
 # --------------------------------------------------------------------------- S7
 def s7():
-    q = 'WorkflowType="nava.smoke.relay"'
+    q = 'WorkflowType="nava.interpreter"'
     return {
         "dir": "S7", "name": "S7 — A committed outbox row runs exactly one workflow",
         "desc": "TICK-49. There is no platform HTTP route for workflows. Run `make demo-outbox DEDUPE_KEY=accept` twice first (see the guide), and `tools/tunnels.sh up` (with `COMPOSE_PROFILES=operator`) for the Temporal UI at `{{temporal_ui_url}}`. These requests read the Temporal UI's own HTTP API, as an operator would.",
         "items": [
             req("S7.1 Temporal: the demo's workflow has exactly one execution", "GET",
                 "{{temporal_ui_url}}/api/v1/namespaces/nava/workflows?query=" + q,
-                desc="Selects the demo's own workflow: `demo_workflow_id` from the environment (the `workflow id` `make demo-outbox` printed), else the latest-started tenant A `nava.smoke.relay` workflow. That id has exactly one execution: running the demo twice with the same key did not start a second workflow. Other `nava.smoke.relay` workflows on the stack (another tenant's, or another demo key) do not affect the result; each must still carry a tenant-scoped id.",
+                desc="Selects the demo's own workflow: `demo_workflow_id` from the environment (the `workflow id` `make demo-outbox` printed), else the latest-started tenant A `nava.interpreter` workflow. That id has exactly one execution: running the demo twice with the same key did not start a second workflow. Other `nava.interpreter` workflows on the stack (another tenant's, another demo key, or an S11a run) do not affect the result; each must still carry a tenant-scoped id.",
                 tests=f"""N.status(200);
 const ex = N.json().executions || [];
 const ids = ex.map(e => e.execution.workflowId);
-test('every nava.smoke.relay id is tenant-scoped: t:<tenant>:nava.smoke.relay:<start row>', () =>
-  ids.forEach(i => expect(i).to.match(/^t:[0-9a-f-]{{36}}:nava\\.smoke\\.relay:[0-9a-f-]{{36}}$/)));
+test('every nava.interpreter id is tenant-scoped: t:<tenant>:nava.interpreter:<start row>', () =>
+  ids.forEach(i => expect(i).to.match(/^t:[0-9a-f-]{{36}}:nava\\.interpreter:[0-9a-f-]{{36}}$/)));
 // The demo writes for tenant A only (cmd/demo-outbox), so its workflow is one of tenant A's.
-const mine = ex.filter(e => e.execution.workflowId.startsWith('t:{A}:nava.smoke.relay:'));
+const mine = ex.filter(e => e.execution.workflowId.startsWith('t:{A}:nava.interpreter:'));
 test('at least one tenant A demo workflow (run make demo-outbox first)', () => expect(mine.length).to.be.above(0));
 const wanted = N.v('demo_workflow_id');
 const id = wanted || (mine.slice().sort((x, y) => String(y.startTime).localeCompare(String(x.startTime)))[0] || {{ execution: {{}} }}).execution.workflowId;
-console.log('S7.1 demo workflow', id, wanted ? '(demo_workflow_id)' : '(latest-started tenant A demo workflow)', '; nava.smoke.relay executions listed:', ex.length);
+console.log('S7.1 demo workflow', id, wanted ? '(demo_workflow_id)' : '(latest-started tenant A demo workflow)', '; nava.interpreter executions listed:', ex.length);
 const runs = ex.filter(e => e.execution.workflowId === id);
 test('the demo workflow is listed and belongs to tenant A', () => {{
   expect(runs.length, id).to.be.above(0);
-  expect(id).to.match(/^t:{A}:nava\\.smoke\\.relay:/);
+  expect(id).to.match(/^t:{A}:nava\\.interpreter:/);
 }});
 test('the demo workflow has exactly one execution', () => expect(runs).to.have.length(1));
 if (runs.length) {{ bru.setVar('wf_id', runs[0].execution.workflowId); bru.setVar('wf_run', runs[0].execution.runId); }}"""),
