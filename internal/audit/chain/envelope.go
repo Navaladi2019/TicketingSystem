@@ -409,7 +409,7 @@ func encText(s string) ([]byte, error) {
 // form. encoding/json maps a lone surrogate escape or an invalid byte to
 // U+FFFD without an error, so the decoded value would differ from the bytes
 // in the file; re-encoding and comparing rejects that, and any other
-// non-canonical escape such as A (Technical Architect, PR #365).
+// non-canonical escape such as `A` for "A" (Technical Architect, PR #365).
 func decString(v json.RawMessage) (string, error) {
 	var s string
 	if err := json.Unmarshal(v, &s); err != nil {

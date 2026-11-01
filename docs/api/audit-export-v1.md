@@ -123,7 +123,7 @@ string). Input that is not valid UTF-8 is rejected before decoding.
 string is accepted only if re-encoding its decoded value gives back exactly
 the bytes in the file. That rejects lone surrogate escapes (`\ud800`,
 `\udc00`), which many JSON readers silently turn into U+FFFD, and harmless
-but non-canonical escapes such as `u`. **Member order and whitespace
+but non-canonical escapes such as `u` (for `u`). **Member order and whitespace
 stay free.** The vectors' `invalid` list covers each rejection.
 
 Notes:
