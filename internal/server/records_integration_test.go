@@ -280,3 +280,42 @@ func TestCreateRecordForeignPrincipalIs422OnThatProperty(t *testing.T) {
 		t.Errorf("data = %v, want the assignee and group read back from their columns", b.Data)
 	}
 }
+
+// A record written under version 1 reads with the defaults of the current
+// version: version 2 adds `priority` with a default, and the old record shows
+// it on GET while keeping its own schema_version and ETag.
+func TestGetRecordAppliesDefaultsOfTheCurrentSchemaVersion(t *testing.T) {
+	e := newRecEnv(t)
+	b := e.mustCreateRec(t, "user-a", "ticket", "d1", `{"short_description": "old"}`)
+	if _, has := b.Data["priority"]; has || b.SchemaVersion != 1 {
+		t.Fatalf("created record = %+v, want schema version 1 and no priority", b)
+	}
+	v2 := strings.Replace(recSchema, `"requester": {"type": "string", "format": "uuid"}`,
+		`"requester": {"type": "string", "format": "uuid"},
+    "priority": {"type": "string", "enum": ["low", "high"], "default": "low"}`, 1)
+	body := fmt.Sprintf(`{"definition": {"schema": %s,
+  "fixed_columns": {"state": "state", "group": "assignment_group_id", "assignee": "assignee_id", "requester": "requester_id"},
+  "states": {"initial": "new", "states": ["new", "closed"], "transitions": [{"from": "new", "to": "closed"}]}}}`, v2)
+	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types/ticket/versions", "admin-a", "pub-2", body); rec.Code != http.StatusCreated {
+		t.Fatalf("publish v2 = %d: %s", rec.Code, rec.Body)
+	}
+	got := e.do(t, http.MethodGet, "/api/v1/records/ticket/"+b.ID, "user-a", "", "")
+	if got.Code != http.StatusOK {
+		t.Fatalf("GET = %d: %s", got.Code, got.Body)
+	}
+	var r recBody
+	if err := json.Unmarshal(got.Body.Bytes(), &r); err != nil {
+		t.Fatal(err)
+	}
+	if r.Data["priority"] != "low" || r.SchemaVersion != 1 || r.Version != 1 || got.Header().Get("ETag") != `W/"1"` {
+		t.Errorf("GET = %+v ETag %q, want priority low (default), schema_version 1, version 1", r, got.Header().Get("ETag"))
+	}
+	// The default is a read-time view: the stored row is unchanged.
+	var stored string
+	if err := e.super.QueryRow(t.Context(), "SELECT data::text FROM records WHERE tenant_id = $1 AND id = $2", e.a.id, b.ID).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stored, "priority") {
+		t.Errorf("stored data %s holds the read-time default", stored)
+	}
+}
