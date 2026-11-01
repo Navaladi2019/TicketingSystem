@@ -173,50 +173,77 @@ func TestDirectiveEncodingNegatives(t *testing.T) {
 }
 
 // TestDirectiveInWorkflow: through the SDK test environment and the whole
-// guard, the DirectiveActivity's Directive is recorded; any other activity's
-// Directive is refused (D-P10 regression guard, TICK-367); data that is not
+// guard, the DirectiveActivity's Directive is recorded when the calling
+// workflow is DirectiveWorkflow; any other activity's Directive is refused
+// (D-P10 regression guard, TICK-367), and so is a DirectiveActivity's
+// Directive called from any other workflow type (TICK-386); data that is not
 // references only is still withheld; a local activity's Directive is refused
 // (documented on activityOutcome).
 func TestDirectiveInWorkflow(t *testing.T) {
 	id := idOf(tenantA)
 	want := validDirectives()[KindWaitSignal]
 	directive := func(context.Context) (Directive, error) { return want, nil }
-
-	t.Run("activity Directive completes", func(t *testing.T) {
-		h := newHarness(t, id)
-		h.env.RegisterActivityWithOptions(directive, activity.RegisterOptions{Name: DirectiveActivity})
-		h.env.ExecuteWorkflow(func(ctx workflow.Context) error {
+	// callActivity is a workflow that runs one activity of type name, without
+	// retries, and checks the Directive it reads.
+	callActivity := func(name string) func(workflow.Context) error {
+		return func(ctx workflow.Context) error {
+			ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+				StartToCloseTimeout: 60e9, RetryPolicy: &temporal.RetryPolicy{MaximumAttempts: 1},
+			})
 			var got Directive
-			ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{StartToCloseTimeout: 60e9})
-			err := workflow.ExecuteActivity(ctx, DirectiveActivity).Get(ctx, &got)
+			err := workflow.ExecuteActivity(ctx, name).Get(ctx, &got)
 			if err == nil && (got.Step != want.Step || *got.Signal != *want.Signal) {
 				t.Errorf("the workflow read %+v, want %+v", got, want)
 			}
 			return err
-		})
+		}
+	}
+	// run executes callActivity(activityName) registered as workflowType.
+	run := func(h *harness, workflowType, activityName string) {
+		h.env.RegisterActivityWithOptions(directive, activity.RegisterOptions{Name: activityName})
+		h.env.RegisterWorkflowWithOptions(callActivity(activityName), workflow.RegisterOptions{Name: workflowType})
+		h.env.ExecuteWorkflow(workflowType)
+	}
+
+	t.Run("activity Directive completes", func(t *testing.T) {
+		h := newHarness(t, id)
+		run(h, DirectiveWorkflow, DirectiveActivity)
 		if err := h.env.GetWorkflowError(); err != nil {
 			t.Fatal(err)
 		}
 		h.wantNoAlerts()
 	})
 
-	// Every other registered activity: a Directive it returns, even a valid
-	// one, is withheld and alerts, so only NextStep can steer the interpreter.
+	// Every other registered activity, even inside the interpreter workflow:
+	// a Directive it returns, even a valid one, is withheld and alerts, so
+	// only NextStep can steer the interpreter.
 	for _, name := range []string{"next_step", "nava.interpreter.ApplyStep", "nava.workflowref.Close"} {
 		t.Run("Directive from "+name+" is refused", func(t *testing.T) {
 			h := newHarness(t, id)
-			h.env.RegisterActivityWithOptions(directive, activity.RegisterOptions{Name: name})
-			h.env.ExecuteWorkflow(func(ctx workflow.Context) error {
-				ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-					StartToCloseTimeout: 60e9, RetryPolicy: &temporal.RetryPolicy{MaximumAttempts: 1},
-				})
-				var got Directive
-				return workflow.ExecuteActivity(ctx, name).Get(ctx, &got)
-			})
+			run(h, DirectiveWorkflow, name)
 			wantGuardError(t, h.env.GetWorkflowError(), guardActivityResult, outcomeRecordData)
 			h.wantDenyAlert(guardActivityResult, outcomeRecordData, id)
 		})
 	}
+
+	// A NextStep-named regular activity called from any workflow type other
+	// than the interpreter: its Directive is withheld and alerts, so a worker
+	// binary that registers its own NextStep cannot record one (TICK-386).
+	for _, wf := range []string{"nava.smoke.relay", "nava.Interpreter", DirectiveWorkflow + "2", "x" + DirectiveWorkflow} {
+		t.Run("NextStep Directive from workflow "+wf+" is refused", func(t *testing.T) {
+			h := newHarness(t, id)
+			run(h, wf, DirectiveActivity)
+			wantGuardError(t, h.env.GetWorkflowError(), guardActivityResult, outcomeRecordData)
+			h.wantDenyAlert(guardActivityResult, outcomeRecordData, id)
+		})
+	}
+	t.Run("NextStep Directive from an unnamed workflow is refused", func(t *testing.T) {
+		h := newHarness(t, id)
+		h.env.RegisterActivityWithOptions(directive, activity.RegisterOptions{Name: DirectiveActivity})
+		h.env.ExecuteWorkflow(callActivity(DirectiveActivity))
+		wantGuardError(t, h.env.GetWorkflowError(), guardActivityResult, outcomeRecordData)
+		h.wantDenyAlert(guardActivityResult, outcomeRecordData, id)
+	})
 
 	t.Run("activity state map is withheld", func(t *testing.T) {
 		h := newHarness(t, id)

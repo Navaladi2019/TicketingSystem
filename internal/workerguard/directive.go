@@ -40,10 +40,21 @@ type Directive struct {
 // activity can record one (D-P10 regression guard, TICK-367).
 const DirectiveActivity = "nava.interpreter.NextStep"
 
+// DirectiveWorkflow is the one workflow type that may receive a Directive: the
+// interpreter (internal/workflow/interp names its workflow type with this
+// constant, so the two cannot drift apart). A DirectiveActivity called from
+// any other workflow type has its Directive withheld, so a worker binary that
+// registers its own activity under the NextStep name cannot record one
+// (TICK-386).
+const DirectiveWorkflow = "nava.interpreter"
+
 // directiveAllowed reports whether the activity info describes may record a
-// Directive result: a regular activity of type DirectiveActivity.
+// Directive result: a regular activity of type DirectiveActivity, called from
+// a workflow of type DirectiveWorkflow.
 func directiveAllowed(info activity.Info) bool {
-	return !info.IsLocalActivity && info.ActivityType.Name == DirectiveActivity
+	return !info.IsLocalActivity &&
+		info.ActivityType.Name == DirectiveActivity &&
+		info.WorkflowType != nil && info.WorkflowType.Name == DirectiveWorkflow
 }
 
 // Kind is the kind of a Directive's step. The constants below are the only
