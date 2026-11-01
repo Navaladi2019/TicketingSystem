@@ -48,7 +48,10 @@ func jsonString(s string) *commonpb.Payload {
 // startChild is a child with the tenantA header, the shape tenantA's worker sends.
 // platformType and platformQueue are the D9 allow-list's entries, so that the
 // E1 tests exercise the tenant checks with an allow-listed workload.
-func platformType() string  { return sortedKeys(platformWorkflowTypes)[0] }
+// platformType is pinned to a named type (TICK-374), not the first sorted
+// entry, so a policy change never shifts which type these tests exercise;
+// TestChildAndContinueAsNewAllowEveryPlatformType covers every entry.
+func platformType() string  { return interpreterType }
 func platformQueue() string { return sortedKeys(platformTaskQueues)[0] }
 
 func startChild(namespace, workflowID string) *commandpb.Command {

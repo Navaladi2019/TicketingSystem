@@ -80,7 +80,7 @@ func TestServerEndToEnd(t *testing.T) {
 			Namespace:  authz.Namespace,
 			WorkflowId: fmt.Sprintf("t:e2e:%d", time.Now().UnixNano()),
 			// The D9 workload allow-list's entries (authz/policy.go).
-			WorkflowType: &commonpb.WorkflowType{Name: "nava.smoke.Echo"},
+			WorkflowType: &commonpb.WorkflowType{Name: "nava.interpreter"},
 			TaskQueue:    &taskqueuepb.TaskQueue{Name: "nava-tq"},
 			RequestId:    fmt.Sprint(time.Now().UnixNano()),
 		})
