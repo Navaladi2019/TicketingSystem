@@ -501,7 +501,8 @@ func TestClaimedFromProducer(t *testing.T) {
 			return err
 		}
 		signalID, err = outbox.Enqueue(ctx, tx, outbox.Entry{Kind: "approve", KindVersion: 1, DedupeKey: "g",
-			RecordID: record, Target: outbox.TargetSignal{Kind: "ticket.approval", SignalName: "approve"}})
+			RecordID: record, Target: outbox.TargetSignal{Kind: "ticket.approval", SignalName: "approve"},
+			Causation: outbox.Causation{OriginID: uuid.New()}})
 		return err
 	})
 	if err != nil {

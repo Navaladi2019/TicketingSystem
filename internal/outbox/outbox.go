@@ -20,6 +20,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/cascade"
 )
 
 var (
@@ -54,8 +55,9 @@ func (TargetStart) isTarget()  {}
 func (TargetSignal) isTarget() {}
 
 // Causation is the cascade record every row carries (I9): the event that
-// started the cascade, and how many writes deep this one is. A write a person
-// or an API client made directly is depth 0 and may have no origin.
+// started the cascade, and how many writes deep this one is. Every row has an
+// origin, depth 0 included: a depth-0 write mints a new one (ADR-001 A5-3),
+// so a row with no origin cannot slip past the start key.
 type Causation struct {
 	OriginID uuid.UUID
 	Depth    int16
@@ -85,6 +87,10 @@ var kindPattern = regexp.MustCompile(`^[a-z][a-z0-9._-]{0,99}$`)
 // ValidKind reports whether s may be a kind, a target kind or a signal name.
 // The relay checks every row it dispatches with it.
 func ValidKind(s string) bool { return kindPattern.MatchString(s) }
+
+// InterpreterKind is the workflow type of the workflow interpreter. Its
+// starts go through EnqueueStart only, under a cascade.Claim (A5-6).
+const InterpreterKind = "nava.interpreter"
 
 // Delivery is the single argument the relay passes to Temporal for one row:
 // the input of a started workflow, or the body of a signal. Like the row it
@@ -140,8 +146,13 @@ RETURNING id`
 // and baggage never cross.
 //
 // tx must come from tenancy.InTenantTx. On any error the caller rolls tx back.
+//
+// A start of InterpreterKind is ErrInvalidEntry: use EnqueueStart.
 func Enqueue(ctx context.Context, tx pgx.Tx, e Entry) (uuid.UUID, error) {
-	return enqueue(ctx, tx, e, func() (uuid.UUID, int64, error) {
+	if err := notInterpreterStart(e); err != nil {
+		return uuid.Nil, err
+	}
+	return enqueue(ctx, tx, e, uuid.Nil, func() (uuid.UUID, int64, error) {
 		return lockRecord(ctx, tx, lockRecordSQL, e.RecordID)
 	})
 }
@@ -162,7 +173,10 @@ func Enqueue(ctx context.Context, tx pgx.Tx, e Entry) (uuid.UUID, error) {
 //
 // tx must come from tenancy.InTenantTx. On any error the caller rolls tx back.
 func EnqueueAtVersion(ctx context.Context, tx pgx.Tx, e Entry, version int64) (uuid.UUID, error) {
-	return enqueue(ctx, tx, e, func() (uuid.UUID, int64, error) {
+	if err := notInterpreterStart(e); err != nil {
+		return uuid.Nil, err
+	}
+	return enqueue(ctx, tx, e, uuid.Nil, func() (uuid.UUID, int64, error) {
 		tenant, got, err := lockRecord(ctx, tx, lockRecordNoBumpSQL, e.RecordID)
 		if err != nil {
 			return uuid.Nil, 0, err
@@ -172,6 +186,60 @@ func EnqueueAtVersion(ctx context.Context, tx pgx.Tx, e Entry, version int64) (u
 		}
 		return tenant, got, nil
 	})
+}
+
+// EnqueueStart is the only way to enqueue a start of InterpreterKind (ADR-001
+// A5-6). c must be claimed (cascade.ClaimStart returned claimed = true) in
+// tx; the row takes c.OutboxID() as its id, so the cascade_start row names
+// it. e must be a start of InterpreterKind on c's record.
+//
+// The row's causation is the one stored on the record by the triggering
+// write, read by ClaimStart under the tenant's RLS: e.Causation must be
+// empty or equal to it. The depth limit applies as for Enqueue.
+//
+// It locks the records row without bumping its version: the triggering
+// write has already bumped it (D-3-6), and a start's target_key is its own,
+// so its target_seq orders nothing. A dedupe key already in use is
+// ErrInvalidEntry, because the claim's id would then name no row.
+//
+// tx must come from tenancy.InTenantTx. On any error the caller rolls tx back.
+func EnqueueStart(ctx context.Context, tx pgx.Tx, c cascade.Claim, e Entry) (uuid.UUID, error) {
+	invalid := func(format string, args ...any) error {
+		return fmt.Errorf("%w: "+format, append([]any{ErrInvalidEntry}, args...)...)
+	}
+	if !c.Claimed() {
+		return uuid.Nil, invalid("the start key is not claimed")
+	}
+	if t, ok := e.Target.(TargetStart); !ok || t.Kind != InterpreterKind || e.Kind != InterpreterKind {
+		return uuid.Nil, invalid("EnqueueStart enqueues only a start of %s", InterpreterKind)
+	}
+	if e.RecordID != c.RecordID() {
+		return uuid.Nil, invalid("the entry's record is not the claim's")
+	}
+	origin, depth := c.Causation()
+	claimed := Causation{OriginID: origin, Depth: depth}
+	if e.Causation != (Causation{}) && e.Causation != claimed {
+		return uuid.Nil, invalid("the entry's causation is not the one stored on the record")
+	}
+	e.Causation = claimed
+	id, err := enqueue(ctx, tx, e, c.OutboxID(), func() (uuid.UUID, int64, error) {
+		tenant, seq, err := lockRecord(ctx, tx, lockRecordNoBumpSQL, e.RecordID)
+		if err == nil && tenant != c.TenantID() {
+			return uuid.Nil, 0, ErrRecordNotFound
+		}
+		return tenant, seq, err
+	})
+	if err == nil && id != c.OutboxID() {
+		return uuid.Nil, invalid("dedupe key already used by another row")
+	}
+	return id, err
+}
+
+func notInterpreterStart(e Entry) error {
+	if t, ok := e.Target.(TargetStart); ok && (t.Kind == InterpreterKind || e.Kind == InterpreterKind) {
+		return fmt.Errorf("%w: a start of %s goes through EnqueueStart", ErrInvalidEntry, InterpreterKind)
+	}
+	return nil
 }
 
 // lockRecord runs one of the two record locks and returns the record's tenant
@@ -190,9 +258,10 @@ func lockRecord(ctx context.Context, tx pgx.Tx, sql string, record uuid.UUID) (u
 	return tenant, seq, nil
 }
 
-// enqueue is Enqueue and EnqueueAtVersion; lock locks the record and returns
-// its tenant and the row's target_seq.
-func enqueue(ctx context.Context, tx pgx.Tx, e Entry, lock func() (uuid.UUID, int64, error)) (uuid.UUID, error) {
+// enqueue is Enqueue, EnqueueAtVersion and EnqueueStart; lock locks the
+// record and returns its tenant and the row's target_seq. id is the row's id,
+// or uuid.Nil to mint a UUIDv7.
+func enqueue(ctx context.Context, tx pgx.Tx, e Entry, id uuid.UUID, lock func() (uuid.UUID, int64, error)) (uuid.UUID, error) {
 	if e.Causation.Depth > config.CascadeDepthLimit {
 		return uuid.Nil, fmt.Errorf("%w: depth %d, limit %d", ErrCascadeTooDeep, e.Causation.Depth, config.CascadeDepthLimit)
 	}
@@ -214,9 +283,10 @@ func enqueue(ctx context.Context, tx pgx.Tx, e Entry, lock func() (uuid.UUID, in
 		return uuid.Nil, err
 	}
 
-	id, err := uuid.NewV7()
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("outbox: new id: %w", err)
+	if id == uuid.Nil {
+		if id, err = uuid.NewV7(); err != nil {
+			return uuid.Nil, fmt.Errorf("outbox: new id: %w", err)
+		}
 	}
 	var targetKey string
 	switch t := e.Target.(type) {
@@ -233,13 +303,9 @@ func enqueue(ctx context.Context, tx pgx.Tx, e Entry, lock func() (uuid.UUID, in
 		targetKey = t.Kind + ":" + start.String()
 	}
 
-	var causationID *uuid.UUID
-	if e.Causation.OriginID != uuid.Nil {
-		causationID = &e.Causation.OriginID
-	}
 	var inserted uuid.UUID
 	err = tx.QueryRow(ctx, insertSQL, id, tenant, e.Kind, e.KindVersion, e.DedupeKey, targetKey, seq,
-		causationID, e.Causation.Depth, payload, traceparent(ctx)).Scan(&inserted)
+		e.Causation.OriginID, e.Causation.Depth, payload, traceparent(ctx)).Scan(&inserted)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if err := tx.QueryRow(ctx, dedupeLookupSQL, e.DedupeKey).Scan(&existing); err != nil {
 			return uuid.Nil, fmt.Errorf("outbox: dedupe lookup after conflict: %w", err)
@@ -267,8 +333,8 @@ func validate(e Entry) (json.RawMessage, error) {
 	if e.Causation.Depth < 0 {
 		return nil, invalid("negative causation depth")
 	}
-	if e.Causation.Depth > 0 && e.Causation.OriginID == uuid.Nil {
-		return nil, invalid("causation depth %d with no origin", e.Causation.Depth)
+	if e.Causation.OriginID == uuid.Nil {
+		return nil, invalid("no causation origin (A5-3)")
 	}
 	if !kindPattern.MatchString(e.Kind) {
 		return nil, invalid("kind must match %s", kindPattern)

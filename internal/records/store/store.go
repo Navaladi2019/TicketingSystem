@@ -167,13 +167,20 @@ type Snapshot struct {
 
 // Audit is one audit_log row.
 type Audit struct {
-	TenantID          uuid.UUID
-	ID                uuid.UUID
-	RecordID          uuid.UUID
-	Action            string
-	ActorID           *uuid.UUID
-	Source            string
-	Before, After     *Snapshot
+	TenantID uuid.UUID
+	ID       uuid.UUID
+	// RecordID is uuid.Nil (NULL) only when there is no record to name: a
+	// rejected create.
+	RecordID      uuid.UUID
+	Action        string
+	ActorID       *uuid.UUID
+	Source        string
+	Before, After *Snapshot
+	// Detail is written to after on a row that changed no record (the
+	// cascade rows: its reason, and the suppressed definition). It holds
+	// references and codes only, never record data. Set it or After, not
+	// both.
+	Detail            map[string]string
 	CausationOriginID *uuid.UUID
 	CausationDepth    int16
 	// IdempotencyKey is set on the primary row of a write only (D-3-13).
@@ -192,11 +199,23 @@ func InsertAudit(ctx context.Context, tx pgx.Tx, a *Audit) error {
 	if err != nil {
 		return err
 	}
+	if a.Detail != nil {
+		if a.After != nil {
+			return errors.New("records/store: an audit row has a snapshot or a detail, not both")
+		}
+		if after, err = json.Marshal(a.Detail); err != nil {
+			return fmt.Errorf("records/store: encode audit detail: %w", err)
+		}
+	}
+	var record *uuid.UUID
+	if a.RecordID != uuid.Nil {
+		record = &a.RecordID
+	}
 	_, err = tx.Exec(ctx, `
 INSERT INTO audit_log (tenant_id, id, record_id, action, actor_id, source, before, after,
     causation_origin_id, causation_depth, idempotency_key, at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-		a.TenantID, a.ID, a.RecordID, a.Action, a.ActorID, a.Source, before, after,
+		a.TenantID, a.ID, record, a.Action, a.ActorID, a.Source, before, after,
 		a.CausationOriginID, a.CausationDepth, a.IdempotencyKey, a.At)
 	var pe *pgconn.PgError
 	if errors.As(err, &pe) && pe.Code == "23505" && pe.ConstraintName == idempotencyIndex {

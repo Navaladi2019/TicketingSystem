@@ -27,6 +27,7 @@ func TestAdversarialIdempotencyKeyDoesNotCrossTenants(t *testing.T) {
 
 	cmdA := createCmd(a, map[string]any{"title": "tenant a"})
 	cmdA.Actor, cmdA.Source, cmdA.IdempotencyKey = a.system(), pipeline.SourceWorkflow, key
+	cmdA.Causation = workflowCausation()
 	resA, err := write(ctx, e, p, a.id, cmdA)
 	if err != nil {
 		t.Fatal(err)
@@ -34,6 +35,7 @@ func TestAdversarialIdempotencyKeyDoesNotCrossTenants(t *testing.T) {
 
 	cmdB := createCmd(b, map[string]any{"title": "tenant b"})
 	cmdB.Actor, cmdB.Source, cmdB.IdempotencyKey = b.system(), pipeline.SourceWorkflow, key
+	cmdB.Causation = workflowCausation()
 	resB, err := write(ctx, e, p, b.id, cmdB)
 	if err != nil {
 		t.Fatalf("tenant B with tenant A's key: %v, want a fresh write", err)
@@ -60,6 +62,7 @@ func TestAdversarialIdempotencyKeyDoesNotCrossTenants(t *testing.T) {
 	// no leak of A's result), and the record itself is not visible to B.
 	upB := updateCmd(b, resA.RecordID, 1, map[string]any{"summary": "x"})
 	upB.Actor, upB.Source, upB.IdempotencyKey = b.system(), pipeline.SourceWorkflow, key
+	upB.Causation = workflowCausation()
 	if res, err := write(ctx, e, p, b.id, upB); err == nil || res.RecordID == resA.RecordID {
 		t.Fatalf("tenant B update of A's record under A's key = %+v, %v; want refused", res, err)
 	}

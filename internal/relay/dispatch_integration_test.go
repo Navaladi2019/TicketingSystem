@@ -75,7 +75,8 @@ func (p *producer) enqueue(target outbox.Target, kind string) uuid.UUID {
 		var err error
 		id, err = outbox.Enqueue(context.Background(), tx, outbox.Entry{Kind: kind, KindVersion: 1,
 			DedupeKey: fmt.Sprintf("%s-%d", p.record, p.n), RecordID: p.record, Target: target,
-			Payload: []byte(`{"record_id":"` + p.record.String() + `"}`)})
+			Causation: outbox.Causation{OriginID: uuid.New()},
+			Payload:   []byte(`{"record_id":"` + p.record.String() + `"}`)})
 		return err
 	})
 	if err != nil {

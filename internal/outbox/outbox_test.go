@@ -10,12 +10,14 @@ import (
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/baggage"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/records/cascade"
 )
 
 func validEntry() Entry {
 	return Entry{
 		Kind: "ticket.approval", KindVersion: 1, DedupeKey: "d1", RecordID: uuid.New(),
-		Target: TargetStart{Kind: "ticket.approval"},
+		Target: TargetStart{Kind: "ticket.approval"}, Causation: Causation{OriginID: uuid.New()},
 	}
 }
 
@@ -29,7 +31,13 @@ func TestEnqueueRejectsBeforeAnyWrite(t *testing.T) {
 	}{
 		{"CI-10 depth beyond limit", func(e *Entry) { e.Causation = Causation{OriginID: uuid.New(), Depth: 9} }, ErrCascadeTooDeep},
 		{"negative depth", func(e *Entry) { e.Causation.Depth = -1 }, ErrInvalidEntry},
-		{"depth with no origin", func(e *Entry) { e.Causation.Depth = 1 }, ErrInvalidEntry},
+		{"depth with no origin", func(e *Entry) { e.Causation = Causation{Depth: 1} }, ErrInvalidEntry},
+		// A5-3: depth 0 too, or a row could slip past the start key.
+		{"depth 0 with no origin", func(e *Entry) { e.Causation = Causation{} }, ErrInvalidEntry},
+		// A5-6: an interpreter start goes through EnqueueStart only.
+		{"interpreter start", func(e *Entry) {
+			e.Kind, e.Target = InterpreterKind, TargetStart{Kind: InterpreterKind}
+		}, ErrInvalidEntry},
 		{"empty kind", func(e *Entry) { e.Kind = ""; e.Target = TargetStart{} }, ErrInvalidEntry},
 		{"free-text kind", func(e *Entry) { e.Kind = "Jane Doe"; e.Target = TargetStart{Kind: "Jane Doe"} }, ErrInvalidEntry},
 		{"kind with a colon", func(e *Entry) { e.Kind = "a:b"; e.Target = TargetStart{Kind: "a:b"} }, ErrInvalidEntry},
@@ -52,6 +60,19 @@ func TestEnqueueRejectsBeforeAnyWrite(t *testing.T) {
 				t.Fatalf("Enqueue = %v, %v; want %v", id, err, c.want)
 			}
 		})
+	}
+}
+
+// EnqueueAtVersion and EnqueueStart refuse before any write too.
+func TestEnqueueStartPathsRefuseBeforeAnyWrite(t *testing.T) {
+	interp := validEntry()
+	interp.Kind, interp.Target = InterpreterKind, TargetStart{Kind: InterpreterKind}
+	if _, err := EnqueueAtVersion(context.Background(), nil, interp, 1); !errors.Is(err, ErrInvalidEntry) {
+		t.Fatalf("EnqueueAtVersion of an interpreter start = %v, want ErrInvalidEntry", err)
+	}
+	// Only cascade.ClaimStart builds a claimed Claim; the zero one is not.
+	if _, err := EnqueueStart(context.Background(), nil, cascade.Claim{}, interp); !errors.Is(err, ErrInvalidEntry) {
+		t.Fatalf("EnqueueStart with no claim = %v, want ErrInvalidEntry", err)
 	}
 }
 

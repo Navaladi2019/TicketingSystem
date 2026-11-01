@@ -263,7 +263,8 @@ func TestAuditAndSinkInTheWriteTransaction(t *testing.T) {
 	}
 	defID := sink.events[0].EntityDefinitionID
 	if want := (pipeline.Event{Op: pipeline.OpUpdate, EntityDefinitionID: defID, RecordID: res.RecordID, Version: 2,
-		Causation: outbox.Causation{OriginID: origin, Depth: 1}}); sink.events[1] != want {
+		Causation: outbox.Causation{OriginID: origin, Depth: 1}, ActorID: f.principal.PrincipalID,
+		Source: pipeline.SourceRule}); sink.events[1] != want {
 		t.Fatalf("event = %+v, want %+v", sink.events[1], want)
 	}
 	var action, source string
@@ -309,6 +310,7 @@ func TestIdempotencyKeyReplays(t *testing.T) {
 	p := newPipeline(e, nil)
 	cmd := createCmd(f, map[string]any{"title": "from a workflow"})
 	cmd.Actor, cmd.Source, cmd.IdempotencyKey = f.system(), pipeline.SourceWorkflow, "wf:w1:s1"
+	cmd.Causation = workflowCausation()
 
 	first, err := write(ctx, e, p, f.id, cmd)
 	if err != nil {
@@ -331,6 +333,7 @@ func TestIdempotencyKeyReplays(t *testing.T) {
 	// An update replay returns its first result even after later writes.
 	up := updateCmd(f, first.RecordID, 1, map[string]any{"summary": "s2"})
 	up.Actor, up.Source, up.IdempotencyKey = f.system(), pipeline.SourceWorkflow, "wf:w1:s2"
+	up.Causation = workflowCausation()
 	upFirst, err := write(ctx, e, p, f.id, up)
 	if err != nil {
 		t.Fatal(err)
