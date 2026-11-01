@@ -369,6 +369,11 @@ services:
       NAVA_OIDC_ISSUERS: ${KEYCLOAK_PUBLIC_URL:-http://localhost:18081}/realms/nava
       # Where discovery and JWKS are fetched (back-channel); never trusted as iss.
       NAVA_OIDC_FETCH_BASE_URL: http://keycloak:8080
+      # TICK-390: list-endpoint cursor keyring. Without it GET /api/v1/entity-types
+      # answers 501. The default is a dev-only value (not a secret); override both
+      # in .env. See docs/operator/cursor-keyring.md.
+      NAVA_CURSOR_KEYS: ${NAVA_CURSOR_KEYS:-dev1=ZGV2LW9ubHktY3Vyc29yLWtleS1OT1QtQS1TRUNSRVQh}
+      NAVA_CURSOR_ACTIVE_KEY_ID: ${NAVA_CURSOR_ACTIVE_KEY_ID:-dev1}
       NAVA_LOG_FORMAT: json
       OTEL_SERVICE_NAME: nava-core
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
