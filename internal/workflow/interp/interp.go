@@ -26,6 +26,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/workerguard"
 	"github.com/Navaladi2019/TicketingSystem/internal/workflow/def"
 )
 
@@ -33,9 +34,10 @@ import (
 // nava-tq queue (D-3-11).
 const WorkflowType = "nava.interpreter"
 
-// Activity names.
+// Activity names. NextStep is the one activity the guard lets record a
+// workerguard.Directive (workerguard.DirectiveActivity).
 const (
-	NextStepActivity  = "nava.interpreter.NextStep"
+	NextStepActivity  = workerguard.DirectiveActivity
 	ApplyStepActivity = "nava.interpreter.ApplyStep"
 )
 

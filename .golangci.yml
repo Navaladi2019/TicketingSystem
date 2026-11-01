@@ -44,12 +44,15 @@ linters:
             - pkg: github.com/coreos/go-oidc
               desc: forbidden (TICK-94 item 11)
         # The interpreter's file-backed fixtures and fakes (P3-22a) are test
-        # support: a worker binary never links them. P3-22b's stack test
-        # worker adds its build-tagged file here.
+        # support: a production worker binary never links them. The one
+        # exception is the interptest-tagged stack worker file (P3-22b,
+        # TICK-367); TestProductionBuildLinksNoFakes proves the untagged build
+        # does not link it.
         interp-fixtures:
           files:
             - "$all"
             - "!$test"
+            - "!**/cmd/nava-worker/interp_interptest.go"
           deny:
             - pkg: github.com/Navaladi2019/TicketingSystem/internal/workflow/interp/interptest
               desc: test support only (P3-22a); production wires the real DefinitionStore, RecordReader and RecordWriter
