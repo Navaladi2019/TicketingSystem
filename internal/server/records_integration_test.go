@@ -319,3 +319,58 @@ func TestGetRecordAppliesDefaultsOfTheCurrentSchemaVersion(t *testing.T) {
 		t.Errorf("stored data %s holds the read-time default", stored)
 	}
 }
+
+// Causation (origin, depth) never comes from the request (TICK-88 security
+// review): a client that could set it could suppress its own tenant's
+// automation or flood audit_log with cascade_rejected rows. The handler builds
+// the pipeline command with an empty Causation, so a create that tries to
+// carry one in the body, the query or the headers is a depth-0 write whose
+// origin is not the one the client named.
+func TestCreateRecordIgnoresCausationFromTheRequest(t *testing.T) {
+	e := newRecEnv(t)
+	forged := "0194f2c0-0000-7000-8000-00000000f0f0"
+	body := fmt.Sprintf(`{"data": {"short_description": "x"}, "causation": {"origin_id": %q, "depth": 9},
+  "causation_origin_id": %q, "causation_depth": 9, "origin_id": %q, "depth": 9}`, forged, forged, forged)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost,
+		"/api/v1/records/ticket?causation_origin_id="+forged+"&causation_depth=9&depth=9", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer user-a")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", "caus-1")
+	for _, h := range []string{"X-Causation-Origin-Id", "X-Causation-Origin", "Causation-Origin-Id", "X-Origin-Id"} {
+		req.Header.Set(h, forged)
+	}
+	for _, h := range []string{"X-Causation-Depth", "Causation-Depth", "X-Depth"} {
+		req.Header.Set(h, "9")
+	}
+	rec := httptest.NewRecorder()
+	e.h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d: %s", rec.Code, rec.Body)
+	}
+	var b recBody
+	if err := json.Unmarshal(rec.Body.Bytes(), &b); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		"SELECT causation_depth, causation_origin_id::text FROM records WHERE tenant_id = $1 AND id = $2",
+		"SELECT causation_depth, causation_origin_id::text FROM audit_log WHERE tenant_id = $1 AND record_id = $2",
+	} {
+		var (
+			depth  *int16
+			origin *string
+		)
+		if err := e.super.QueryRow(t.Context(), q, e.a.id, b.ID).Scan(&depth, &origin); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+		if depth == nil || *depth != 0 {
+			t.Errorf("%s: causation_depth = %v, want 0", q, depth)
+		}
+		if origin != nil && *origin == forged {
+			t.Errorf("%s: causation_origin_id is the origin the request named", q)
+		}
+	}
+	// The request's causation is not echoed either.
+	if strings.Contains(rec.Body.String(), forged) {
+		t.Errorf("the response carries the request's causation origin: %s", rec.Body)
+	}
+}
