@@ -3,6 +3,7 @@ package interp_test
 import (
 	"context"
 	"errors"
+	"reflect"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -40,6 +41,30 @@ func TestActivityRetryPolicyIsBounded(t *testing.T) {
 	}
 }
 
+// wantRetryPolicy: every NextStep and ApplyStep the run scheduled carried
+// exactly ActivityRetryPolicy, and the run scheduled want of them. It reads
+// the options the workflow set, not the SDK test environment's effective
+// policy, whose default without one is also 10 attempts.
+func wantRetryPolicy(t *testing.T, h *harness, want ...string) {
+	t.Helper()
+	policy := interp.ActivityRetryPolicy()
+	seen := map[string]bool{}
+	for _, s := range h.scheduledOptions() {
+		if s.activity != interp.NextStepActivity && s.activity != interp.ApplyStepActivity {
+			continue
+		}
+		seen[s.activity] = true
+		if !reflect.DeepEqual(s.options.RetryPolicy, policy) {
+			t.Errorf("%s scheduled with RetryPolicy %+v, want %+v", s.activity, s.options.RetryPolicy, policy)
+		}
+	}
+	for _, a := range want {
+		if !seen[a] {
+			t.Errorf("%s was never scheduled", a)
+		}
+	}
+}
+
 // wantOpaque: the run failed with the guard's withheld (retryable) failure,
 // after the retries ran out, not a Rejection.
 func wantOpaque(t *testing.T, err error) {
@@ -62,6 +87,7 @@ func TestPersistentNextStepFaultFailsTheRun(t *testing.T) {
 		t.Fatal("the run did not end")
 	}
 	wantOpaque(t, h.env.GetWorkflowError())
+	wantRetryPolicy(t, h, interp.NextStepActivity)
 	if got := n.Load(); got != interp.ActivityMaxAttempts {
 		t.Errorf("NextStep read the record %d times, want %d", got, interp.ActivityMaxAttempts)
 	}
@@ -79,6 +105,7 @@ func TestPersistentApplyStepFaultFailsTheRun(t *testing.T) {
 		t.Fatal("the run did not end")
 	}
 	wantOpaque(t, h.env.GetWorkflowError())
+	wantRetryPolicy(t, h, interp.NextStepActivity, interp.ApplyStepActivity)
 	calls := h.calls()
 	if len(calls) != interp.ActivityMaxAttempts {
 		t.Fatalf("writes %d, want %d", len(calls), interp.ActivityMaxAttempts)

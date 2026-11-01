@@ -164,6 +164,54 @@ func (s *syncBuffer) String() string {
 	return s.b.String()
 }
 
+// scheduled is one activity the workflow scheduled, with the options it
+// scheduled it with.
+type scheduled struct {
+	activity string
+	options  workflow.ActivityOptions
+}
+
+// optionsRecorder records the ActivityOptions of every activity the workflow
+// schedules, as the workflow code set them. The SDK test environment fills in
+// its own retry default (10 attempts) when none is set, so only the options
+// the workflow passed show whether it set ActivityRetryPolicy.
+type optionsRecorder struct {
+	interceptor.WorkerInterceptorBase
+	h *harness
+}
+
+func (o *optionsRecorder) InterceptWorkflow(_ workflow.Context, next interceptor.WorkflowInboundInterceptor) interceptor.WorkflowInboundInterceptor {
+	return &optionsRecorderInbound{WorkflowInboundInterceptorBase: interceptor.WorkflowInboundInterceptorBase{Next: next}, h: o.h}
+}
+
+type optionsRecorderInbound struct {
+	interceptor.WorkflowInboundInterceptorBase
+	h *harness
+}
+
+func (i *optionsRecorderInbound) Init(outbound interceptor.WorkflowOutboundInterceptor) error {
+	return i.Next.Init(&optionsRecorderOutbound{WorkflowOutboundInterceptorBase: interceptor.WorkflowOutboundInterceptorBase{Next: outbound}, h: i.h})
+}
+
+type optionsRecorderOutbound struct {
+	interceptor.WorkflowOutboundInterceptorBase
+	h *harness
+}
+
+func (o *optionsRecorderOutbound) ExecuteActivity(ctx workflow.Context, activityType string, args ...any) workflow.Future {
+	o.h.mu.Lock()
+	o.h.opts = append(o.h.opts, scheduled{activity: activityType, options: workflow.GetActivityOptions(ctx)})
+	o.h.mu.Unlock()
+	return o.Next.ExecuteActivity(ctx, activityType, args...)
+}
+
+// scheduledOptions returns every scheduled activity with its options.
+func (h *harness) scheduledOptions() []scheduled {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]scheduled(nil), h.opts...)
+}
+
 // harness is one test environment for the interpreter: the whole worker
 // guard, the Propagator, the file-backed fixtures under root, a recording
 // converter, and listeners for NextStep refs and timers.
@@ -178,6 +226,7 @@ type harness struct {
 	logs       *syncBuffer
 
 	mu     sync.Mutex
+	opts   []scheduled
 	refs   []interp.StepRef
 	timers []time.Duration
 	closes int
@@ -220,12 +269,13 @@ func newHarness(t *testing.T, tenant uuid.UUID, opts ...harnessOption) *harness 
 		logs:   &syncBuffer{},
 	}
 	opts2 := worker.Options{DeadlockDetectionTimeout: testDeadlockDetectionTimeout}
+	opts2.Interceptors = []interceptor.WorkerInterceptor{&optionsRecorder{h: h}}
 	if !cfg.noGuard {
 		g, err := workerguard.New(slog.New(slog.NewJSONHandler(h.logs, nil)), sdkmetric.NewMeterProvider())
 		if err != nil {
 			t.Fatal(err)
 		}
-		opts2.Interceptors = []interceptor.WorkerInterceptor{&signalHeader{tenant: tenant}}
+		opts2.Interceptors = append(opts2.Interceptors, &signalHeader{tenant: tenant})
 		opts2 = workerguard.WorkerOptions(opts2, g)
 	}
 	env.SetWorkerOptions(opts2)

@@ -16,9 +16,12 @@ package workerstack
 // not, so no interpreter poller outlives the case.
 //
 // The always-on nava-worker also polls activity tasks on nava-tq and does not
-// register NextStep or ApplyStep; an attempt it takes fails as an unknown
-// activity type and is retried (interp.ActivityRetryPolicy), so the
-// interptest worker runs the attempt that counts.
+// register NextStep or ApplyStep: an attempt it took would fail as
+// ActivityNotRegisteredError (retryable), spend one of the bounded attempts
+// and add its backoff. So startInterpWorker stops it for the test and its
+// cleanup starts it again and waits until it is healthy, failed test or not
+// (Technical Lead, 2026-11-01): nava-worker-interptest is the only nava-tq
+// poller while the case runs.
 
 import (
 	"context"
@@ -48,7 +51,10 @@ import (
 
 const (
 	interpService = "nava-worker-interptest"
-	interpProfile = "interptest"
+	// alwaysOnWorker is the production-image worker; the interpreter cases
+	// stop it while they run.
+	alwaysOnWorker = service
+	interpProfile  = "interptest"
 	// fixtureV1 is P3-20's fixture-v1. With priority "low" it runs a 5 s
 	// timer, takes the condition's else edge and ends.
 	fixtureV1 = root + "/internal/workflow/def/testdata/fixture-v1"
@@ -70,9 +76,11 @@ type interpWorker struct {
 	dir string
 }
 
-// startInterpWorker builds and starts nava-worker-interptest with a fresh
-// fixture directory mounted read-only, waits for its /readyz healthcheck, and registers
-// the cleanup that removes it and waits until it has exited.
+// startInterpWorker stops the always-on nava-worker, builds and starts
+// nava-worker-interptest with a fresh fixture directory mounted read-only,
+// and waits for its /readyz healthcheck. Its cleanups remove
+// nava-worker-interptest, wait until it has exited, and start nava-worker
+// again until it is healthy.
 func startInterpWorker(t *testing.T) *interpWorker {
 	t.Helper()
 	dir := t.TempDir()
@@ -81,16 +89,33 @@ func startInterpWorker(t *testing.T) *interpWorker {
 		t.Fatal(err)
 	}
 	env := []string{"NAVA_INTERPTEST_FIXTURES=" + abs}
-	// Registered before up, so a failed or half-done up is cleaned too.
-	t.Cleanup(func() { stopInterpWorker(t, env) })
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
+	// Cleanups run last-registered first: nava-worker-interptest is removed,
+	// then the always-on nava-worker is started again. Both are registered
+	// before what they undo, so a failed or half-done step is undone too.
+	t.Cleanup(func() { restartAlwaysOnWorker(t, env) })
+	if out, err := composeIn(ctx, env, "stop", alwaysOnWorker); err != nil {
+		t.Fatalf("compose stop %s: %v\n%s", alwaysOnWorker, err, out)
+	}
+	t.Cleanup(func() { stopInterpWorker(t, env) })
 	// --no-deps: the stack is up; --wait: the service's /readyz healthcheck.
 	if out, err := composeIn(ctx, env, "up", "-d", "--build", "--no-deps", "--wait", "--wait-timeout", "180", interpService); err != nil {
 		logs, _ := composeIn(ctx, env, "logs", "--no-color", "--tail", "100", interpService)
 		t.Fatalf("compose up %s: %v\n%s\nlogs:\n%s", interpService, err, out, logs)
 	}
 	return &interpWorker{t: t, dir: abs}
+}
+
+// restartAlwaysOnWorker starts the always-on nava-worker again and waits for
+// its healthcheck (/readyz), so the next test and the demo_outbox case find
+// it ready. It runs on a fresh context: the test's may be done.
+func restartAlwaysOnWorker(t *testing.T, env []string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+	if out, err := composeIn(ctx, env, "up", "-d", "--no-deps", "--wait", "--wait-timeout", "180", alwaysOnWorker); err != nil {
+		t.Errorf("compose up %s after the interpreter case: %v\n%s", alwaysOnWorker, err, out)
+	}
 }
 
 // stopInterpWorker removes the service's container and waits until compose
