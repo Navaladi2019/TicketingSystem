@@ -15,6 +15,8 @@ import (
 
 	"github.com/Navaladi2019/TicketingSystem/db"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/hba"
+	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
+	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 	"github.com/Navaladi2019/TicketingSystem/internal/purge"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
@@ -34,6 +36,7 @@ func rolePaths() []Path {
 		{Name: "nava_backup is rejected for SQL sessions and logical walsenders (T08's pg_hba cases)", Case: "CI-9", Role: "nava_backup", DB: backupRejected},
 		{Name: "nava_onboard cannot bind an active tenant", Case: "CI-9", Role: "nava_onboard", DB: onboardCannotBindActive},
 		{Name: "nava_onboard cannot move an active tenant back to provisioning", Case: "CI-9", Role: "nava_onboard", DB: onboardCannotDeactivate},
+		{Name: seedActivePath, Case: "CI-9", Role: "nava_onboard", DB: onboardCannotSeedActive},
 	}
 }
 
@@ -517,4 +520,106 @@ func backupRejected(ctx context.Context, c Cluster) error {
 	}
 	errs = append(errs, refused("nava_backup SQL session on the platform database (no pg_hba here)", pool.Ping(ctx)))
 	return errors.Join(errs...)
+}
+
+// seedActivePath is the CI-9 path of P3-06a (TICK-381): the guarantee
+// internal/db/dbtest's TestOnboardCannotSeedActiveTenant tests (TICK-344),
+// in the CI-9 report.
+const seedActivePath = "nava_onboard cannot seed an active tenant"
+
+// The rows onboardCannotSeedActive names. Every write it makes is rolled
+// back, so nothing needs deleting.
+const (
+	seedDefP   = "0d000000-0000-4000-8000-0000000006d1" // tenant P's incident, the control
+	seedVerP   = "0d000000-0000-4000-8000-0000000007d1"
+	seedDefNew = "0d000000-0000-4000-8000-0000000006d2" // a type no tenant has
+	seedVerNew = "0d000000-0000-4000-8000-0000000007d2"
+	seedDefA   = "0a000000-0000-4000-8000-0000000006a1" // tenant A's seeded ticket and its version 1
+	seedVerA   = "0a000000-0000-4000-8000-0000000007a1"
+	seedVer2   = "0d000000-0000-4000-8000-0000000007d3" // a version 2, for the version-only insert
+)
+
+// seedDefinitionOnly is Seed's first insert on its own, for a new type.
+// $1 tenant, $2 definition id.
+const seedDefinitionOnly = `INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version)
+VALUES ($1, $2, 'ci9_seed', 'CI-9 seed', 'CIS', 1) ON CONFLICT DO NOTHING`
+
+// seedVersionOnly is a version row of an existing type on its own. Seed is
+// refused at entity_definitions first, so a guard missing from
+// entity_definition_versions shows only here. $1 tenant, $2 version id,
+// $3 definition id.
+const seedVersionOnly = `INSERT INTO entity_definition_versions
+  (tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat, published_by)
+VALUES ($1, $2, $3, 2, '{"type": "object"}', sha256(convert_to('{"type": "object"}', 'UTF8')), '{}',
+        '{"initial": "new", "states": ["new"], "transitions": []}', 'compatible', NULL)
+ON CONFLICT DO NOTHING`
+
+// seedOne runs entitytypes.Store.Seed, the production seed statements, with
+// the incident template, in its own savepoint so a refusal does not end tx.
+func seedOne(ctx context.Context, tx pgx.Tx, tenant, defID, verID string) (bool, error) {
+	d, err := metadata.Template("incident")
+	if err != nil {
+		return false, err
+	}
+	sp, err := tx.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = sp.Rollback(context.WithoutCancel(ctx)) }()
+	inserted, err := entitytypes.Store{}.Seed(ctx, sp, uuid.MustParse(tenant), entitytypes.SeedInput{
+		DefinitionID: uuid.MustParse(defID), VersionID: uuid.MustParse(verID), Name: "Incident", Definition: d,
+	})
+	if err != nil {
+		return false, err
+	}
+	return inserted, sp.Commit(ctx)
+}
+
+// onboardCannotSeedActive: nava_onboard seeds its provisioning tenant P
+// through entitytypes.Store.Seed (control), and once P is active in the same
+// transaction it seeds nothing more: not a retry of the same ids, not a new
+// type, not a definition or a version on its own. Nor tenant A, active, from
+// its own transaction (a retry of A's seeded type included), nor tenant B
+// from A's, nor tenant A from provisioning P's. Every refusal must be
+// SQLSTATE 42501: ON CONFLICT DO NOTHING does not get past WITH CHECK.
+func onboardCannotSeedActive(ctx context.Context, c Cluster) error {
+	return withProvisioning(ctx, c, func(pool *pgxpool.Pool) error {
+		p := inTenant(ctx, pool, TenantP, func(tx pgx.Tx) error {
+			if inserted, err := seedOne(ctx, tx, TenantP, seedDefP, seedVerP); err != nil || !inserted {
+				return errors.Join(fmt.Errorf("control: seed provisioning tenant P: inserted %v", inserted), err)
+			}
+			if n, err := execOne(ctx, tx, "UPDATE tenants SET state = 'active' WHERE id = $1", TenantP); err != nil || n != 1 {
+				return errors.Join(fmt.Errorf("control: activate tenant P: %d rows", n), err)
+			}
+			_, retry := seedOne(ctx, tx, TenantP, seedDefP, seedVerP)
+			_, fresh := seedOne(ctx, tx, TenantP, seedDefNew, seedVerNew)
+			_, def := execOne(ctx, tx, seedDefinitionOnly, TenantP, seedDefNew)
+			_, ver := execOne(ctx, tx, seedVersionOnly, TenantP, seedVer2, seedDefP)
+			return errors.Join(
+				refused("tenant P after activation, seed retry", retry),
+				refused("tenant P after activation, seed a new type", fresh),
+				refused("tenant P after activation, definition only", def),
+				refused("tenant P after activation, version 2 only", ver),
+			)
+		})
+		a := inTenant(ctx, pool, TenantA, func(tx pgx.Tx) error {
+			_, retry := seedOne(ctx, tx, TenantA, seedDefA, seedVerA)
+			_, fresh := seedOne(ctx, tx, TenantA, seedDefNew, seedVerNew)
+			_, def := execOne(ctx, tx, seedDefinitionOnly, TenantA, seedDefNew)
+			_, ver := execOne(ctx, tx, seedVersionOnly, TenantA, seedVer2, seedDefA)
+			_, other := seedOne(ctx, tx, TenantB, seedDefNew, seedVerNew)
+			return errors.Join(
+				refused("in tenant A, seed retry of A's type", retry),
+				refused("in tenant A, seed a new type", fresh),
+				refused("in tenant A, definition only", def),
+				refused("in tenant A, version 2 only", ver),
+				refused("in tenant A, seed tenant B", other),
+			)
+		})
+		cross := inTenant(ctx, pool, TenantP, func(tx pgx.Tx) error {
+			_, err := seedOne(ctx, tx, TenantA, seedDefNew, seedVerNew)
+			return refused("in provisioning tenant P, seed tenant A", err)
+		})
+		return errors.Join(p, a, cross)
+	})
 }
