@@ -206,17 +206,26 @@ func (f tenantFixture) system() identity.Principal { return identity.Principal{T
 
 func seedTenant(t *testing.T, e env) tenantFixture {
 	t.Helper()
+	return seedTenantWith(t, e, definition(schemaV1))
+}
+
+// seedTenantWith is one tenant with a principal and the given entity types,
+// each at version 1.
+func seedTenantWith(t *testing.T, e env, defs ...metadata.Definition) tenantFixture {
+	t.Helper()
 	f := tenantFixture{id: uuid.New()}
 	f.principal = identity.Principal{TenantID: f.id, PrincipalID: uuid.New()}
 	mustExec(t, e.super, "INSERT INTO tenants (id, state) VALUES ($1, 'active')", f.id)
 	mustExec(t, e.super, `INSERT INTO principals (tenant_id, id, keycloak_user_id, enabled, synced_at)
 		VALUES ($1, $2, $3, true, now())`, f.id, f.principal.PrincipalID, "kc-"+f.principal.PrincipalID.String())
-	inTx(t, e, f.id, func(tx pgx.Tx) error {
-		_, err := entitytypes.Store{}.Create(context.Background(), tx, f.id, entitytypes.NewInput{
-			Name: "Incident", PublishedBy: f.principal.PrincipalID, Definition: definition(schemaV1),
+	for _, d := range defs {
+		inTx(t, e, f.id, func(tx pgx.Tx) error {
+			_, err := entitytypes.Store{}.Create(context.Background(), tx, f.id, entitytypes.NewInput{
+				Name: d.Key, PublishedBy: f.principal.PrincipalID, Definition: d,
+			})
+			return err
 		})
-		return err
-	})
+	}
 	return f
 }
 

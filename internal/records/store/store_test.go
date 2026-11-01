@@ -78,3 +78,12 @@ func TestDecodeObjectKeepsNumbersExact(t *testing.T) {
 		t.Fatalf("empty input = %v, %v", m, err)
 	}
 }
+
+// D-3-9: seven digits, zero padded, growing past seven.
+func TestFormatNumber(t *testing.T) {
+	for n, want := range map[int64]string{1: "INC0000001", 9999999: "INC9999999", 10000000: "INC10000000"} {
+		if got := store.FormatNumber("INC", n); got != want {
+			t.Errorf("FormatNumber(%d) = %q, want %q", n, got, want)
+		}
+	}
+}
