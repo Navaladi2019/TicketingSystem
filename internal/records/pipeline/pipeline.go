@@ -11,8 +11,15 @@
 //
 // A create takes the next per-tenant, per-type number from record_counters
 // (D-3-9). Every write checks the type's state model and its unique
-// properties (D-3-22) (P3-11). The cascade depth and cycle checks are P3-12
-// (TICK-88), which writes its rejection audit row on the TxRunner (D-3-7a).
+// properties (D-3-22) (P3-11).
+//
+// Cascades (ADR-001 I9 as amended by A5; P3-12, TICK-88): a depth-0 write
+// mints a new origin, a workflow write must be deeper than 0, and a write
+// beyond config.CascadeDepthLimit is refused with outbox.ErrCascadeTooDeep
+// before any record change, its cascade_rejected audit row written on the
+// TxRunner so it survives the caller's rollback (D-3-7a). There is no cycle
+// check on writes: the EventSink keys starts with cascade.ClaimStart and
+// suppresses a repeat (A5-1, A5-4), so a writer never sees a cycle.
 package pipeline
 
 import (
@@ -36,6 +43,8 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/cascade"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/store"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
@@ -102,8 +111,12 @@ type Command struct {
 	Data map[string]any
 	// Actor is the resolved principal. Its TenantID must be the transaction's
 	// tenant. A user write names a principal; a system writer may not.
-	Actor     identity.Principal
-	Source    Source
+	Actor  identity.Principal
+	Source Source
+	// Causation is the cascade the write belongs to. Leave it empty for a
+	// depth-0 write (a person or an API client): Write mints a new origin.
+	// A deeper write names its origin and depth, taken from the delivery
+	// that caused it (A5-7); a workflow write is never depth 0.
 	Causation outbox.Causation
 	// IdempotencyKey is for system writers only (D-3-13): a replay with the
 	// same key, entity type, op and (on an update) record returns the earlier
@@ -127,12 +140,21 @@ type Event struct {
 	EntityDefinitionID uuid.UUID
 	RecordID           uuid.UUID
 	// Version is the record's version after this write.
-	Version   int64
+	Version int64
+	// Causation is the write's stored causation: the origin, minted for a
+	// depth-0 write, and the depth.
 	Causation outbox.Causation
+	// ActorID and Source are the writer, for the audit row of a suppressed
+	// start (A5-4). ActorID is uuid.Nil for a system writer.
+	ActorID uuid.UUID
+	Source  Source
 }
 
 // EventSink is told about every write, in the write's transaction (D-3-14).
-// An error rolls the whole write back. A sink that enqueues outbox rows uses
+// An error rolls the whole write back. A sink that starts nava.interpreter
+// claims each start with cascade.ClaimStart and enqueues it with
+// outbox.EnqueueStart; on a repeat it enqueues nothing, writes
+// cascade.AuditSuppressed and returns nil (A5-4). A sink that enqueues outbox rows uses
 // outbox.EnqueueAtVersion with ev.Version, never outbox.Enqueue, so the write
 // bumps the version exactly once.
 type EventSink interface {
@@ -152,9 +174,10 @@ type DefinitionReader interface {
 	Current(ctx context.Context, tx pgx.Tx, entityKey string) (*metadata.Compiled, int, error)
 }
 
-// TxRunner runs fn in a tenant transaction of its own. P3-12 (TICK-88) writes
-// a rejected cascade's audit row on it, so the row survives the caller's
-// rollback (D-3-7a).
+// TxRunner runs fn in a tenant transaction of its own. Write records a
+// cascade_rejected audit row on it, so the row survives the caller's
+// rollback (D-3-7a). It needs a connection of its own while the caller's
+// transaction is open: a PoolRunner on the caller's pool needs at least two.
 type TxRunner interface {
 	InTenantTx(ctx context.Context, tenantID uuid.UUID, fn func(pgx.Tx) error) error
 }
@@ -272,10 +295,15 @@ func (p *Pipeline) Runner() TxRunner { return p.runner }
 // Write performs cmd in tx, which must come from tenancy.InTenantTx at READ
 // COMMITTED (the default). It returns ErrInvalidCommand, ErrNotFound,
 // authz.ErrForbidden, *ErrValidation, *ErrIllegalTransition,
-// *ErrUniqueViolation, ErrVersionConflict or *ErrIdempotencyConflict for a
-// refused write, and a wrapped error for a database failure. On any error the
-// caller rolls tx back; after a concurrent *ErrIdempotencyConflict or a
-// database error tx is unusable.
+// *ErrUniqueViolation, ErrVersionConflict, *ErrIdempotencyConflict or
+// outbox.ErrCascadeTooDeep for a refused write, and a wrapped error for a
+// database failure. On any error the caller rolls tx back; after a
+// concurrent *ErrIdempotencyConflict or a database error tx is unusable.
+//
+// The depth check runs before any statement in tx but the read of its
+// tenant: a write beyond the limit changes nothing in tx and writes one
+// cascade_rejected audit row on the TxRunner, committed before Write
+// returns. If that row cannot be written, the error also wraps the cause.
 func (p *Pipeline) Write(ctx context.Context, tx pgx.Tx, cmd Command) (Result, error) {
 	if err := cmd.check(); err != nil {
 		return Result{}, err
@@ -289,6 +317,16 @@ func (p *Pipeline) Write(ctx context.Context, tx pgx.Tx, cmd Command) (Result, e
 	}
 	if cmd.Actor.TenantID != tenant {
 		return Result{}, authz.ErrForbidden
+	}
+	if cmd.Causation.Depth > config.CascadeDepthLimit {
+		return Result{}, p.rejectTooDeep(ctx, tenant, cmd)
+	}
+	if cmd.Causation.Depth == 0 {
+		origin, err := uuid.NewV7()
+		if err != nil {
+			return Result{}, fmt.Errorf("pipeline: new origin: %w", err)
+		}
+		cmd.Causation.OriginID = origin
 	}
 
 	if cmd.IdempotencyKey != "" {
@@ -360,7 +398,51 @@ func (c *Command) check() error {
 	if c.Causation.Depth < 0 || (c.Causation.Depth > 0 && c.Causation.OriginID == uuid.Nil) {
 		return bad("causation depth without an origin, or negative")
 	}
+	// A depth-0 write starts a cascade, so its origin is minted, never
+	// given: a given one could reuse another cascade's start keys (A5-3).
+	if c.Causation.Depth == 0 && c.Causation.OriginID != uuid.Nil {
+		return bad("a depth-0 write names no origin; Write mints it")
+	}
+	// A workflow write is one deeper than the delivery that caused it, so it
+	// cannot restart the chain (A5-7).
+	if c.Source == SourceWorkflow && c.Causation.Depth == 0 {
+		return fmt.Errorf("%w: %w: a workflow write at depth 0", ErrInvalidCommand, outbox.ErrInvalidEntry)
+	}
 	return nil
+}
+
+// rejectTooDeep writes the cascade_rejected audit row of a write beyond the
+// depth limit in a transaction of its own, and returns the rejection.
+// record_id is NULL on a create, and on an update of a record the tenant
+// does not have.
+func (p *Pipeline) rejectTooDeep(ctx context.Context, tenant uuid.UUID, cmd Command) error {
+	rejected := fmt.Errorf("pipeline: %w: depth %d, limit %d", outbox.ErrCascadeTooDeep, cmd.Causation.Depth, config.CascadeDepthLimit)
+	err := p.runner.InTenantTx(ctx, tenant, func(tx pgx.Tx) error {
+		id, err := uuid.NewV7()
+		if err != nil {
+			return fmt.Errorf("new audit id: %w", err)
+		}
+		var record uuid.UUID
+		if cmd.Op == OpUpdate {
+			switch _, err := store.Get(ctx, tx, tenant, cmd.RecordID); {
+			case err == nil:
+				record = cmd.RecordID
+			case !errors.Is(err, store.ErrNotFound):
+				return err
+			}
+		}
+		origin := cmd.Causation.OriginID
+		return store.InsertAudit(ctx, tx, &store.Audit{
+			TenantID: tenant, ID: id, RecordID: record, Action: cascade.ActionRejected,
+			ActorID: optional(cmd.Actor.PrincipalID), Source: string(cmd.Source),
+			Detail:            map[string]string{"reason": cascade.ReasonTooDeep},
+			CausationOriginID: &origin, CausationDepth: cmd.Causation.Depth, At: p.clock.Now(),
+		})
+	})
+	if err != nil {
+		return errors.Join(rejected, fmt.Errorf("pipeline: audit the rejected cascade: %w", err))
+	}
+	return rejected
 }
 
 // replay returns the earlier Result of a write with cmd's idempotency key.
@@ -522,7 +604,8 @@ func (w *write) finish(ctx context.Context, rec *store.Record, before *store.Sna
 		}
 		return Result{}, fmt.Errorf("pipeline: %w", err)
 	}
-	ev := Event{Op: w.cmd.Op, EntityDefinitionID: rec.EntityDefinitionID, RecordID: rec.ID, Version: rec.Version, Causation: w.cmd.Causation}
+	ev := Event{Op: w.cmd.Op, EntityDefinitionID: rec.EntityDefinitionID, RecordID: rec.ID, Version: rec.Version,
+		Causation: w.cmd.Causation, ActorID: w.cmd.Actor.PrincipalID, Source: w.cmd.Source}
 	if err := w.p.sink.RecordChanged(ctx, w.tx, ev); err != nil {
 		return Result{}, fmt.Errorf("pipeline: event sink: %w", err)
 	}

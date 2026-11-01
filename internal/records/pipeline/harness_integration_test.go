@@ -32,6 +32,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
+	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
@@ -290,6 +291,10 @@ func write(ctx context.Context, e env, p *pipeline.Pipeline, tenant uuid.UUID, c
 	})
 	return res, err
 }
+
+// workflowCausation is a workflow write's causation: one deeper than the
+// start that caused it (ADR-001 A5-7), never depth 0.
+func workflowCausation() outbox.Causation { return outbox.Causation{OriginID: uuid.New(), Depth: 1} }
 
 func createCmd(f tenantFixture, data map[string]any) pipeline.Command {
 	return pipeline.Command{Op: pipeline.OpCreate, EntityKey: entityKey, Data: data, Actor: f.principal, Source: pipeline.SourceUser}

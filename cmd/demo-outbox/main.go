@@ -82,6 +82,12 @@ func run(ctx context.Context, lookup func(string) (string, bool), out io.Writer)
 		{Kind: signalName, DedupeKey: key + ":signal-1", Target: outbox.TargetSignal{Kind: workflowType, SignalName: signalName}},
 		{Kind: signalName, DedupeKey: key + ":signal-2", Target: outbox.TargetSignal{Kind: workflowType, SignalName: signalName}},
 	}
+	// Every row carries an origin, depth 0 included (ADR-001 A5-3): one
+	// cascade, as if one person's write had caused all three.
+	origin, err := uuid.NewV7()
+	if err != nil {
+		return err
+	}
 	ids := make([]uuid.UUID, len(entries))
 	err = tenancy.InTenantTx(ctx, pool, tenant, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, insertRecordSQL, tenant, record); err != nil {
@@ -89,6 +95,7 @@ func run(ctx context.Context, lookup func(string) (string, bool), out io.Writer)
 		}
 		for i, e := range entries {
 			e.KindVersion, e.RecordID, e.Payload = 1, record, payload
+			e.Causation = outbox.Causation{OriginID: origin}
 			if ids[i], err = outbox.Enqueue(ctx, tx, e); err != nil {
 				return fmt.Errorf("enqueue %s: %w", e.DedupeKey, err)
 			}

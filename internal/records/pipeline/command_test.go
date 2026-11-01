@@ -50,6 +50,10 @@ func TestWriteRefusesBadCommands(t *testing.T) {
 		},
 		"negative causation depth":   func(c *pipeline.Command) { c.Causation = outbox.Causation{Depth: -1} },
 		"causation depth, no origin": func(c *pipeline.Command) { c.Causation = outbox.Causation{Depth: 1} },
+		// A5-3: a depth-0 write's origin is minted, never given.
+		"depth 0 naming an origin": func(c *pipeline.Command) { c.Causation = outbox.Causation{OriginID: uuid.New()} },
+		// A5-7: a workflow write is one deeper than its delivery.
+		"workflow write at depth 0": func(c *pipeline.Command) { c.Actor, c.Source = system, pipeline.SourceWorkflow },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -69,6 +73,17 @@ func TestNewNeedsEveryDependency(t *testing.T) {
 		}
 	}()
 	pipeline.New(authz.TenantMemberAuthorizer{}, nopDefs{}, nil, pipeline.PoolRunner{}, pipeline.SystemClock{})
+}
+
+// A5-7 names the error a workflow write at depth 0 gets: ErrInvalidEntry,
+// as well as the pipeline's own ErrInvalidCommand.
+func TestWorkflowWriteAtDepthZeroIsInvalidEntry(t *testing.T) {
+	p := pipeline.New(authz.TenantMemberAuthorizer{}, nopDefs{}, pipeline.NoopSink{}, pipeline.PoolRunner{}, pipeline.SystemClock{})
+	c := pipeline.Command{Op: pipeline.OpCreate, EntityKey: "incident", Actor: identity.Principal{TenantID: uuid.New()},
+		Source: pipeline.SourceWorkflow}
+	if _, err := p.Write(context.Background(), nil, c); !errors.Is(err, outbox.ErrInvalidEntry) || !errors.Is(err, pipeline.ErrInvalidCommand) {
+		t.Fatalf("err = %v, want ErrInvalidEntry and ErrInvalidCommand", err)
+	}
 }
 
 // The message names paths and keywords, never values.

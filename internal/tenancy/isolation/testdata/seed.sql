@@ -25,6 +25,20 @@ INSERT INTO records (tenant_id, id) VALUES
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000000b2'),
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000000b3');
 
+-- The cascade start key (P3-12, ADR-001 A5): both tenants hold record id
+-- 0d…d1 under the same causation origin, and only tenant B has claimed
+-- definition 0d…9d2 on it, so a key read or claimed without its tenant would
+-- meet tenant B's row. Tenant A's other record has a claim of its own.
+INSERT INTO records (tenant_id, id, causation_origin_id, causation_depth) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0d000000-0000-4000-8000-0000000000d1', '0d000000-0000-4000-8000-0000000009d1', 0),
+    ('0b000000-0000-4000-8000-00000000000b', '0d000000-0000-4000-8000-0000000000d1', '0d000000-0000-4000-8000-0000000009d1', 0);
+
+INSERT INTO cascade_start (tenant_id, causation_origin_id, record_id, definition_id, outbox_id) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0d000000-0000-4000-8000-0000000009d1', '0a000000-0000-4000-8000-0000000000a1',
+        '0d000000-0000-4000-8000-0000000009d2', '0a000000-0000-4000-8000-0000000009a1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0d000000-0000-4000-8000-0000000009d1', '0d000000-0000-4000-8000-0000000000d1',
+        '0d000000-0000-4000-8000-0000000009d2', '0b000000-0000-4000-8000-0000000009b1');
+
 INSERT INTO outbox (id, tenant_id, kind, dedupe_key, target_key, target_seq) VALUES
     ('0a000000-0000-4000-8000-0000000001a1', '0a000000-0000-4000-8000-00000000000a', 'record.changed', 'shared-dedupe-key', 'r-a1', 1),
     ('0b000000-0000-4000-8000-0000000001b1', '0b000000-0000-4000-8000-00000000000b', 'record.changed', 'shared-dedupe-key', 'r-b1', 1),
