@@ -265,7 +265,7 @@
         "causation_id": null,
         "change_set_id": null,
         "content_sha256": null,
-        "diff_sha256": "33ecd3613f67f28c44e2b07f58537d61e54dcba4aac12c451873b2bcdeb84b52",
+        "diff_sha256": "b024d6b49413026b6f201857668a10809df6bc31060a8d703130e80aab3fb332",
         "diff_truncated": false,
         "domain": "audit",
         "entity_definition_id": null,
@@ -280,10 +280,10 @@
         "version_after": null,
         "version_before": null
       },
-      "canonical": "{\"action\":\"erase\",\"actor_principal_id\":null,\"actor_system\":\"erasure\",\"backfilled\":false,\"causation_depth\":0,\"causation_id\":null,\"change_set_id\":null,\"content_sha256\":null,\"diff_sha256\":\"33ecd3613f67f28c44e2b07f58537d61e54dcba4aac12c451873b2bcdeb84b52\",\"diff_truncated\":false,\"domain\":\"audit\",\"entity_definition_id\":null,\"id\":\"0190f3a0-0000-7000-8000-000000000107\",\"occurred_at\":\"2026-11-02T11:00:00.000000Z\",\"request_id\":null,\"source\":\"system\",\"source_ref\":null,\"subject_id\":\"0190f3a0-0000-7000-8000-0000000000f1\",\"subject_type\":\"erasure_request\",\"tenant_id\":\"0190f3a0-0000-7000-8000-000000000001\",\"version_after\":null,\"version_before\":null}",
-      "envelope_sha256": "229aaa1d6bca7f4041a6c151e9858da8986c7fa39d46b0e22ae289aad36cc445",
-      "entry_hash": "100b14ce2b8d8698cd7a11a2710de0aa9d3e979740f1572bc2d995dffa96cf6f",
-      "diff": "[\"0190f3a0-0000-7000-8000-000000000106\"]",
+      "canonical": "{\"action\":\"erase\",\"actor_principal_id\":null,\"actor_system\":\"erasure\",\"backfilled\":false,\"causation_depth\":0,\"causation_id\":null,\"change_set_id\":null,\"content_sha256\":null,\"diff_sha256\":\"b024d6b49413026b6f201857668a10809df6bc31060a8d703130e80aab3fb332\",\"diff_truncated\":false,\"domain\":\"audit\",\"entity_definition_id\":null,\"id\":\"0190f3a0-0000-7000-8000-000000000107\",\"occurred_at\":\"2026-11-02T11:00:00.000000Z\",\"request_id\":null,\"source\":\"system\",\"source_ref\":null,\"subject_id\":\"0190f3a0-0000-7000-8000-0000000000f1\",\"subject_type\":\"erasure_request\",\"tenant_id\":\"0190f3a0-0000-7000-8000-000000000001\",\"version_after\":null,\"version_before\":null}",
+      "envelope_sha256": "63361b5ba86dd53ef9ba72778ed4bf7ea567a3ec7a22872438bde9fbda16354f",
+      "entry_hash": "aa38d9343733e5216513605b244b0a796fab0da11abc743eca96b7ee9040a551",
+      "diff": "[{\"op\":\"add\",\"path\":\"/erased_ids\",\"value\":[\"0190f3a0-0000-7000-8000-000000000106\"]}]",
       "diff_salt": "5a1700ff0102030405060708090a0b0c",
       "erased_at": null,
       "erasure_ref": null

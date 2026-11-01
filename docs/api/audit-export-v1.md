@@ -91,7 +91,7 @@ envelope holds **only strings, integers, booleans and null — never a float**
   **lowercase** hex. Everything else is written raw: `/`, `<`, `>`, `&`, DEL,
   U+2028, U+2029, non-ASCII and astral characters. (Go's `encoding/json`
   escapes `<>&` and U+2028/9 — do not use it to produce canonical bytes.)
-  Invalid UTF-8 is an error.
+  Invalid UTF-8 and U+0000 are errors.
 - **Integers:** base-10, no `+`, no leading zeros, no fraction, no exponent,
   `0` not `-0`. Range ±(2^53 − 1) (I-JSON), which every DB integer here fits.
 - **Booleans:** `true`, `false`.
@@ -127,11 +127,21 @@ Notes:
    database, not by the canonical form; the hash covers whatever was stored.
 2. `version_before` / `version_after` are `integer` columns; the canonical form
    accepts any safe integer.
-3. **`source_ref`** is `text` in the hash (C2 types it `*string`; RFC-008 Annex
-   A lists it as `uuid`). If P5-10b makes it `uuid`, its text form is the
-   lowercase UUID and the hash is the same either way.
-4. **`causation_depth`** is NOT NULL (C2 `int16`, default 0). If P5-10b makes
-   it nullable, this spec and the vectors change.
+3. **`source_ref` is `text NULL`** (Technical Lead ruling, TICK-454; C2
+   `SourceRef *string` is binding and supersedes the `uuid` type in RFC-008
+   Annex A, because plugin, rule and workflow refs are not always UUIDs).
+   When `source = ai`, `audit.Append` checks that it is a UUID (R4, I8) and it
+   is stored in lowercase form, so it canonicalises to the same bytes as a
+   uuid column would.
+4. **`causation_depth` is `smallint NOT NULL DEFAULT 0 CHECK (causation_depth
+   >= 0)`** (Technical Lead ruling, TICK-454; C2 `CausationDepth int16`).
+5. **Present text is never empty, in the database too** (Technical Lead
+   ruling, TICK-454). P5-10b adds `CHECK (col <> '')` on `domain`, `action`,
+   `subject_type`, `actor_system`, `source`, `source_ref` and `request_id`, and
+   `audit.Append` returns `ErrInvalidEntry` for an empty string. Without it a
+   stored `''` could never be canonicalised and would stall the tenant's
+   sealer. The same holds for U+0000, which PostgreSQL `text` cannot store and
+   the canonical form rejects.
 
 ## 3. The export file (JSONL)
 
@@ -238,7 +248,13 @@ What `nava audit verify` (P5-03) checks, offline:
 6. The last range line's `entry_hash` is `head_hash`.
 7. Erased entries: R24 (`tampered` unless a chain-valid `audit/erase` entry
    with `subject_id = erasure_ref` lists the id; `pending` if that entry is
-   unsealed).
+   unsealed). **The `audit/erase` diff is RFC 6902 like every other diff**
+   (R1, R5): exactly one op,
+   `[{"op":"add","path":"/erased_ids","value":["<id>", …]}]`, with 1 to 10,000
+   lowercase entry ids (R23). The verifier reads the ids from that op only and
+   treats any other shape as not listing the id.
+8. An export with an empty range (`anchor_seq: null`) is reported as
+   **`empty`**, not as a failure.
 
 The vectors' `tampered` list gives one case per failure kind
 (`envelope_sha256_mismatch`, `diff_sha256_mismatch`, `entry_hash_mismatch`),

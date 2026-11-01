@@ -214,19 +214,38 @@ func TestGoldenVectorsInvalid(t *testing.T) {
 // strings, integers, booleans and null).
 func TestGoldenVectorPinned(t *testing.T) {
 	f := loadVectors(t)
-	c := f.Chain[0]
-	const (
-		wantEnvelopeSHA = "75b2549dd7927ea6cce470bc916705586507745318b1acb72a9113f369f92991"
-		wantEntryHash   = "b0663332aec5e8640abcdbb12a5e9b18d4777128f8ad716f00bc8d313a1dad72"
-	)
-	esha, err := chain.EnvelopeSHA256(c.Envelope)
-	if err != nil {
-		t.Fatal(err)
+	pinned := []struct{ name, envelopeSHA, entryHash string }{
+		{"config-create-minimal",
+			"75b2549dd7927ea6cce470bc916705586507745318b1acb72a9113f369f92991",
+			"b0663332aec5e8640abcdbb12a5e9b18d4777128f8ad716f00bc8d313a1dad72"},
+		// The escape rules are the riskiest part of the canonical form.
+		{"system-actor-string-escapes",
+			"a7de43f16880270cd35ae9c15fa609f704a2cff7f3148d5e36fd3dcc21e225bf",
+			"9dd1bed60c016c1aa704a6bc9c583cccd2a3be05f59da0558ea9f5475cc3625c"},
 	}
-	if chain.Hex(esha[:]) != wantEnvelopeSHA {
-		t.Errorf("envelope_sha256 = %x, pinned %s", esha, wantEnvelopeSHA)
-	}
-	if eh := chain.EntryHash(chain.Genesis, esha); chain.Hex(eh[:]) != wantEntryHash {
-		t.Errorf("entry_hash = %x, pinned %s", eh, wantEntryHash)
+	for _, p := range pinned {
+		var c *vectors.ChainCase
+		for i := range f.Chain {
+			if f.Chain[i].Name == p.name {
+				c = &f.Chain[i]
+			}
+		}
+		if c == nil {
+			t.Fatalf("no vector %s", p.name)
+		}
+		esha, err := chain.EnvelopeSHA256(c.Envelope)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if chain.Hex(esha[:]) != p.envelopeSHA {
+			t.Errorf("%s: envelope_sha256 = %x, pinned %s", p.name, esha, p.envelopeSHA)
+		}
+		prev, err := chain.ParseHash32(c.PrevHash)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if eh := chain.EntryHash(prev, esha); chain.Hex(eh[:]) != p.entryHash {
+			t.Errorf("%s: entry_hash = %x, pinned %s", p.name, eh, p.entryHash)
+		}
 	}
 }

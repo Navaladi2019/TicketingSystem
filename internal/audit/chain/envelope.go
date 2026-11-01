@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -390,6 +391,9 @@ func encText(s string) ([]byte, error) {
 	}
 	if !utf8.ValidString(s) {
 		return nil, errors.New("invalid UTF-8")
+	}
+	if strings.IndexByte(s, 0) >= 0 {
+		return nil, errors.New("U+0000 (PostgreSQL text cannot store it)")
 	}
 	var b bytes.Buffer
 	writeJCSString(&b, s)

@@ -239,6 +239,7 @@ func TestTextRules(t *testing.T) {
 		"empty required": func(e *Envelope) { e.Domain = "" },
 		"empty nullable": func(e *Envelope) { e.RequestID = ptr("") },
 		"invalid utf8":   func(e *Envelope) { e.RequestID = ptr("a\xffb") },
+		"NUL":            func(e *Envelope) { e.RequestID = ptr("a\x00b") },
 		"lone surrogate": func(e *Envelope) { e.RequestID = ptr("\xed\xa0\x80") },
 	} {
 		e := baseEnvelope()
@@ -357,7 +358,7 @@ func TestParseHex(t *testing.T) {
 func TestImportBoundary(t *testing.T) {
 	allowed := map[string]bool{
 		"bytes": true, "crypto/sha256": true, "encoding/hex": true, "encoding/json": true,
-		"errors": true, "fmt": true, "io": true, "slices": true, "strconv": true,
+		"errors": true, "fmt": true, "strings": true, "io": true, "slices": true, "strconv": true,
 		"time": true, "unicode/utf16": true, "unicode/utf8": true,
 		"github.com/google/uuid": true,
 	}

@@ -228,7 +228,10 @@ func chainInputs() []chainInput {
 	diffTruncated := `[{"op":"add","path":"/attachments/0","value":"first whole op"},{"op":"add","path":"/attachments/1","value":"second whole op"}]`
 	diffErased := `[{"op":"replace","path":"/reporter_email","value":"person@example.test"}]`
 	erasedEntryID := "0190f3a0-0000-7000-8000-000000000106"
-	diffErase := `["` + erasedEntryID + `"]`
+	// The audit/erase diff is RFC 6902 like every other diff (R1, R5): one add
+	// of /erased_ids, at most 10,000 ids per entry (R23). The verifier parses
+	// this shape for R24 (audit-export-v1.md §4 step 7).
+	diffErase := `[{"op":"add","path":"/erased_ids","value":["` + erasedEntryID + `"]}]`
 
 	return []chainInput{
 		{
