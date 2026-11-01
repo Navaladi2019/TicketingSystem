@@ -7,8 +7,10 @@ set -eu
 # exporter. The probe's trace is found by its request id: nava-core sets
 # X-Request-Id on every response and stamps the same id on the server span as
 # nava.request_id, so traces from earlier cases that land late are not counted.
-# The test stack must run with OTEL_TAIL_SAMPLE_PERCENT=100, since an ordinary
-# 404 is not an error or slow and is otherwise sampled.
+# The probe is a traced 200 route: busybox wget stops before printing headers on
+# a non-2xx status, so a 404 would hide the request id. The test stack must run
+# with OTEL_TAIL_SAMPLE_PERCENT=100, since an ordinary request is not an error
+# or slow and is otherwise sampled.
 traces_for() { # request id -> distinct trace ids of the Collector's spans carrying it
     compose logs --no-log-prefix otel-collector |
         awk -v want="nava.request_id: Str($1)" '
@@ -22,9 +24,8 @@ traces_for() { # request id -> distinct trace ids of the Collector's spans carry
 t_trace() {
     pct=$(compose exec -T otel-collector printenv OTEL_TAIL_SAMPLE_PERCENT | tr -d '\r')
     [ "$pct" = 100 ] || fail "OTEL_TAIL_SAMPLE_PERCENT is $pct; start the stack with OTEL_TAIL_SAMPLE_PERCENT=100 for this test"
-    # The probe 404s, so wget exits non-zero; -S still prints the headers.
-    rid=$(compose exec -T nava-core wget -S -O /dev/null "http://127.0.0.1:8080/trace-probe" 2>&1 |
-        tr -d '\r' | sed -n 's/^ *[Xx]-[Rr]equest-[Ii]d: *//p' | head -1) || true
+    rid=$(compose exec -T nava-core wget -S -O /dev/null "http://127.0.0.1:8080/api/v1/openapi.yaml" 2>&1 |
+        tr -d '\r' | sed -n 's/^ *[Xx]-[Rr]equest-[Ii]d: *//p' | head -1)
     [ -n "$rid" ] || fail "no X-Request-Id in the probe's response"
     deadline=$(( $(date +%s) + 60 ))
     until [ -n "$(traces_for "$rid")" ]; do
