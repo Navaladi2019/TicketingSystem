@@ -94,6 +94,8 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 			return perr
 		}
 		res, err := h.pipe.Write(ctx, tx, pipeline.Command{
+			// Causation stays empty on purpose: origin and depth never come from
+			// the request (TICK-88 security review).
 			Op: pipeline.OpCreate, EntityKey: req.Entity, Data: data, Actor: p, Source: pipeline.SourceUser,
 		})
 		if err != nil {
