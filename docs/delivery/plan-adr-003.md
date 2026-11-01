@@ -4,7 +4,7 @@ id: PLAN-004
 title: Implementing ADR-003 (retiring recorded interpreter histories by tombstone, call kept)
 adr: "[[ADR-003-retiring-recorded-histories]] (ACCEPTED by nava 2026-11-01 on TICK-388; PR #334)"
 issue: TICK-395
-status: PROPOSED
+status: APPROVED by nava 2026-11-01 (TICK-395)
 date: 2026-11-01
 owner: Technical Lead
 ---
