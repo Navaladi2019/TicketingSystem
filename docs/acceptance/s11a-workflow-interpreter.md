@@ -3,7 +3,7 @@
 Story: TICK-334. Kit task: TICK-352 (P3-25). Plan: PLAN-003 (`docs/delivery/plan-records-path.md`). Design: ADR-001.
 Verified on 2026-11-01 by the Quality, Testing & CI Advisor, on a fresh stack built from `TICK-334/workflow-interpreter` at `c486767`. That is the story tip with all of its tasks merged, including P3-27 (TICK-374): every run here is `nava.interpreter`, not the old smoke types. The demo targets in this change were added on top of it.
 
-**Status: READY for the human.** All 4 criteria and the cross-tenant check pass. Run log: [`run.log`](s11a-workflow-interpreter/run.log).
+**Status: READY for the human.** All 4 criteria pass, and so does the cross-tenant check (the signal case). Run log: [`run.log`](s11a-workflow-interpreter/run.log).
 
 ## What you can now do
 
@@ -62,10 +62,10 @@ Local `task test` and `task lint` pass on this change.
 
 ## Isolation check
 
-Both were tried as tenant B against tenant A's data, on the same stack:
+Two things were tried as tenant B with tenant A's ids, on the same stack. Only the first one crosses the tenant boundary.
 
-- **Signal tenant A's waiting run:** `make demo-interpreter-approve TENANT=b RECORD_ID=<tenant A's c2-v1 record>`. Refused in the producer before any row is written: `outbox: record not found` (row-level security hides tenant A's record from tenant B's transaction). Tenant A's run stayed waiting.
-- **Start a run on tenant A's record:** `make demo-interpreter TENANT=b KEY=iso-start RECORD_ID=<tenant A's c3-crash record>`. The relay starts `t:…b1:nava.interpreter:…` for tenant B. Its first `NextStep` fails with `workflow rejected: definition version, record or step not found` (`nava.WorkflowRejected`, non-retryable), and its workflow_ref stays open ([08](s11a-workflow-interpreter/08-isolation-b-start-on-a-record-rejected.png)). No step ran. CI: `TestInterpreterCrossTenantIsNotFound`.
+- **The cross-tenant proof: signal tenant A's waiting run.** `make demo-interpreter-approve TENANT=b RECORD_ID=<tenant A's c2-v1 record>`. Refused in the producer before any row is written: `outbox: record not found`. Row-level security hides tenant A's record and its open run from tenant B's transaction. Tenant A's run stayed waiting. CI covers the worker side of the same boundary: `TestInterpreterCrossTenantIsNotFound` (stack `worker` case). There, a tenant A start row naming tenant B's definition version or record fails as not found.
+- **Not a cross-tenant check: a tenant B start that reuses tenant A's record UUID.** `make demo-interpreter TENANT=b KEY=iso-start RECORD_ID=<tenant A's c3-crash record>`. `records` is keyed by `(tenant_id, id)`, so this creates tenant B's own record row with the same UUID. It never touches tenant A's row. The relay starts `t:…b1:nava.interpreter:…`, and its first `NextStep` fails with `workflow rejected: definition version, record or step not found` (`nava.WorkflowRejected`, non-retryable), because tenant B's fixture store has no such record ([08](s11a-workflow-interpreter/08-isolation-b-start-on-a-record-rejected.png)). Nothing crossed tenants. It shows only that a reused UUID stays inside its own tenant.
 
 The workflow list shows the runs of both tenants, each id carrying its own tenant ([09](s11a-workflow-interpreter/09-workflow-list-both-tenants.png)). The one `Running` row is `c2-v1`. It was the first criterion 2 attempt, discarded because its publish came after the timer (see below), and it was left waiting for `approve`.
 
