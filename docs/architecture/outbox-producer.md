@@ -64,6 +64,12 @@ flowchart TD
   use `version` as a count of real changes.
 - **No tenant:** a transaction without one sees no record, so Enqueue returns
   `ErrRecordNotFound` and writes nothing.
+- **`EnqueueAtVersion` (P3-10, D-3-6):** for the record write pipeline,
+  which has already bumped `records.version` in the transaction. It locks
+  the row (`SELECT … FOR UPDATE`) without bumping it, uses the given version
+  as `target_seq`, and returns `ErrVersionMismatch` if the record is at
+  another version. Everything else is as Enqueue. See
+  [record-write-pipeline.md](record-write-pipeline.md).
 - **Deferred:** the cycle check (`ErrCascadeCycle`) and the audit row for a
   rejected cascade are TICK-88 (PLAN-002), against the record's own causation
   fields.

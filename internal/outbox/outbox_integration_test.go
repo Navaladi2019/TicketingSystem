@@ -616,3 +616,57 @@ func tenantIsolation(t *testing.T, e env, pool *pgxpool.Pool) {
 		t.Errorf("no tenant: %v, want ErrRecordNotFound", err)
 	}
 }
+
+// EnqueueAtVersion (P3-10, D-3-6): the write pipeline has already bumped the
+// record's version in the transaction, so the row takes that version as its
+// target_seq and the version is not bumped again. A version the record does
+// not have writes nothing.
+func TestEnqueueAtVersion(t *testing.T) {
+	e := migrated(t)
+	ctx := context.Background()
+	tenant, record := uuid.New(), uuid.New()
+	seedRecord(t, e.super, tenant, record)
+
+	var id uuid.UUID
+	err := tenancy.InTenantTx(ctx, e.app, tenant, func(tx pgx.Tx) error {
+		// The pipeline's own bump, in the same transaction.
+		if _, err := tx.Exec(ctx, "UPDATE records SET version = version + 1 WHERE id = $1", record); err != nil {
+			return err
+		}
+		var err error
+		id, err = outbox.EnqueueAtVersion(ctx, tx, start(record, "at-1"), 1)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := version(t, e.super, tenant, record); v != 1 {
+		t.Fatalf("version %d after one write, want 1: EnqueueAtVersion bumped it", v)
+	}
+	if r := outboxRow(t, e.super, tenant, id); r.targetSeq != 1 || r.targetKey != approval+":"+id.String() {
+		t.Fatalf("row %+v, want target_seq 1 and its own target_key", r)
+	}
+	if n := count(t, e.super, "SELECT count(*) FROM workflow_ref WHERE tenant_id = $1 AND outbox_id = $2", tenant, id); n != 1 {
+		t.Fatalf("%d workflow_ref rows, want 1", n)
+	}
+
+	err = tenancy.InTenantTx(ctx, e.app, tenant, func(tx pgx.Tx) error {
+		_, err := outbox.EnqueueAtVersion(ctx, tx, start(record, "at-stale"), 7)
+		return err
+	})
+	if !errors.Is(err, outbox.ErrVersionMismatch) {
+		t.Fatalf("wrong version: %v, want ErrVersionMismatch", err)
+	}
+	if n := count(t, e.super, "SELECT count(*) FROM outbox WHERE tenant_id = $1 AND dedupe_key = 'at-stale'", tenant); n != 0 {
+		t.Fatal("a mismatched version wrote a row")
+	}
+
+	// Another tenant's record is not there.
+	err = tenancy.InTenantTx(ctx, e.app, uuid.New(), func(tx pgx.Tx) error {
+		_, err := outbox.EnqueueAtVersion(ctx, tx, start(record, "at-other"), 1)
+		return err
+	})
+	if !errors.Is(err, outbox.ErrRecordNotFound) {
+		t.Fatalf("other tenant: %v, want ErrRecordNotFound", err)
+	}
+}

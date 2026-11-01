@@ -40,6 +40,8 @@ security:
   # Group sync and the admin check (P3-04, D-3-20).
   - internal/groupsync/
   - internal/authz/
+  # The record write pipeline and its store (P3-10, D-3-20).
+  - internal/records/
   - temporal-server/
   # Including pg_hba.conf, grants.yaml and every migration.
   - db/
