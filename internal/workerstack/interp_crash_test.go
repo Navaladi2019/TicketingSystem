@@ -248,8 +248,10 @@ func TestInterpreterCrashAppliesOnce(t *testing.T) {
 		t.Errorf("workflow_ref closed: %q, want t", got)
 	}
 	// TICK-351 contract: the whole case within 90 s. ApplyStep's
-	// StartToCloseTimeout (interp.activityStartToClose, 1 min) sets most of
-	// it: the server retries the dead worker's attempt only when it expires.
+	// StartToCloseTimeout (interp.activityStartToClose, 10 s, TICK-387) sets
+	// part of it: the server retries the dead worker's attempt only when it
+	// expires. The kill must also land within those 10 s of the attempt's
+	// start, or the live worker retries it first.
 	if elapsed > crashCaseBudget {
 		t.Errorf("start row to closed run took %v, want <= %v", elapsed.Round(time.Second), crashCaseBudget)
 	}
