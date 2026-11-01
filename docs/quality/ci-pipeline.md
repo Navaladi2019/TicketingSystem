@@ -218,7 +218,7 @@ rule for `internal/workflow/testdata/`), so the gate always runs.
 | `TestHistorySetRequired` + the set check in every gate test | a history in `wantHistories` is missing, the directory holds fewer, or a file is not listed. An empty glob is never green |
 | `TestReplayCatchesNonDeterminism` | a deliberate non-deterministic change (an extra activity before the timer) replays green, so the gate would miss one |
 | `TestReplayGetVersionKeepsHistoriesGreen` | the same change behind `workflow.GetVersion` fails replay |
-| `TestHistoriesAppendOnly` | a history on `main` (`BASE=origin/main`, as for migrations) was changed or deleted. Skips without `BASE`. `TestAppendOnlyCheck` proves the check on a scratch repository |
+| `TestHistoriesAppendOnly` | a history on `main` (`BASE=origin/main`, as for migrations) was changed, or deleted without a tombstone in `retired-histories.json` that names its blob on `main`, a `DefaultVersion` arm `main` had, the call kept with `minSupported` raised, and a replay failing with that change id's TMPRL1100 (RFC-007 R-1 to R-8, rule (c) below). Skips without `BASE`. `TestAppendOnlyCheck` proves each rule on a scratch repository |
 | `TestHistoriesHoldReferencesOnly` | a payload in a history is not the start payload (`outbox.Delivery` with `{definition_version_id, record_id}`, or the continue-as-new `RunInput` carrying it with UUID-only refs), a signal delivery (`{signal}`), a `workerguard.Directive`, a UUID-only object or an empty result; or a header other than a UUID `nava-tenant`. `TestR1WalkCatchesRecordData` plants a record field in each kind of payload |
 
 The histories cover every step type (timer, condition both ways, branch on
@@ -241,7 +241,8 @@ that is on `main`. Either:
    `v := workflow.GetVersion(ctx, "<change-id>", workflow.DefaultVersion, 1)`,
    keep the old order for `DefaultVersion`, record a new history that takes the
    new branch, and add it to `wantHistories`. Old histories replay down the old
-   branch; the new one pins the new branch. Or
+   branch; the new one pins the new branch. The call is never deleted; retiring
+   its old arm is rule (c). Or
 2. **a new workflow type** (`nava.interpreter.v2`): register it beside the old
    one through a D9 policy PR (the Temporal authorizer allow-list,
    `temporal-server/authz`), start new runs on it, and keep the old type and
@@ -261,14 +262,9 @@ allowing them is an ADR-001 amendment.
 - **(b)** Never roll back across a recorded `GetVersion`. Runs that recorded
   the new version's marker cannot replay on code without the branch; fix
   forward instead.
-- **(c)** Delete a `GetVersion` branch only when an Operator
-  `ListWorkflowExecutions` query shows no open run that started before the
-  change shipped (`WorkflowType = 'nava.interpreter' AND ExecutionStatus =
-  'Running' AND StartTime < '<deploy time>'` returns nothing).
-  **Open:** the histories recorded before the branch then stop replaying, and
-  `TestHistoriesAppendOnly` refuses their deletion. How a history is retired
-  (a reviewed allow-list in the test) is not designed yet; it is not needed
-  until the first `GetVersion` branch is deleted (flagged on TICK-350).
+- **(c)** Retire a `GetVersion` change's old arm **only by raising its `minSupported`** above `workflow.DefaultVersion` and deleting the `DefaultVersion` code. **Never delete the `GetVersion` call**: kept, it makes any old run that is still open fail on TMPRL1100 and block, where a deleted call lets it run the new arm silently. Do this only when an Operator `ListWorkflowExecutions` query (`WorkflowType = 'nava.interpreter' AND ExecutionStatus = 'Running' AND StartTime < '<T>'`, where `T` is the completion of the latest interpreter-worker deploy that introduced the change) returns nothing. Run the query after the Technical Architect approves the PR. Run it again if a `nava.interpreter` reset or an interpreter-worker deploy or rollback happens before the merge.
+  **Retiring the histories this breaks.** In the same PR, delete each history that now fails replay with `TMPRL1100 … removed support of version -1 … "<change_id>"` from `histories/` and from `wantHistories`, and append one entry per file (`history`, `blob` on main, `change_id`, `issue`) to `internal/workflow/testdata/retired-histories.json`. `TestHistoriesAppendOnly` checks the tombstone, the kept call and the replay failure (RFC-007, D-3-25). The evidence goes on the `issue`. Only the human owner merges a PR that touches the manifest ("MergePr" label); agents never do.
+  If an old run was missed and blocks after the deploy, fix forward: lower `minSupported` back to `DefaultVersion`, restore the arm, and redeploy.
 
 ## Run it
 
