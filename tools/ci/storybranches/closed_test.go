@@ -16,6 +16,8 @@ func TestBadClosedExitsTwo(t *testing.T) {
 	for name, bad := range map[string]string{
 		"unknown status":     "closed:\n  - branch: TICK-48/x\n    status: merged\n    issue: TICK-48\n",
 		"not a story branch": "closed:\n  - branch: agent/x/1\n    status: done\n    issue: TICK-48\n",
+		"mismatched issue":   "closed:\n  - branch: TICK-48/x\n    status: done\n    issue: TICK-47\n",
+		"duplicate branch":   "closed:\n  - branch: TICK-48/x\n    status: done\n    issue: TICK-48\n  - branch: TICK-48/x\n    status: cancelled\n    issue: TICK-48\n",
 	} {
 		if err := os.WriteFile(closed, []byte(bad), 0o600); err != nil {
 			t.Fatal(err)

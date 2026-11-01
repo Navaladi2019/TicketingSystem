@@ -236,23 +236,67 @@ func TestNoStoryPRIsInFlightUntilClosed(t *testing.T) {
 	}
 }
 
+// TICK-380: an issue that is not the branch's own TICK-<n>, or a branch
+// listed twice, is a file error; a valid file parses.
 func TestParseClosed(t *testing.T) {
-	ok := "closed:\n  - branch: TICK-48/api-ground-rules\n    status: cancelled\n    issue: TICK-48\n"
-	got, err := parseClosed("closed.yaml", []byte(ok))
-	if err != nil || len(got) != 1 || got[0].Status != "cancelled" {
-		t.Fatalf("valid entry: got %v, %v", got, err)
+	entry := func(branch, status, issue string) string {
+		return "  - branch: " + branch + "\n    status: " + status + "\n    issue: " + issue + "\n"
 	}
-	if got, err := parseClosed("closed.yaml", []byte("closed: []\n")); err != nil || len(got) != 0 {
-		t.Fatalf("empty list: got %v, %v", got, err)
-	}
-	for name, bad := range map[string]string{
-		"unknown status": "closed:\n  - branch: TICK-48/x\n    status: merged\n    issue: TICK-48\n",
-		"not a story":    "closed:\n  - branch: agent/x/1\n    status: done\n    issue: TICK-48\n",
-		"no issue":       "closed:\n  - branch: TICK-48/x\n    status: done\n",
-		"not yaml":       "closed: [\n",
+	for _, c := range []struct {
+		name, file string
+		want       int    // entries parsed, when wantErr is ""
+		wantErr    string // substring of the error, "" for a valid file
+	}{
+		{"valid", "closed:\n" + entry("TICK-48/api-ground-rules", "cancelled", "TICK-48") + entry("TICK-47/x", "done", "TICK-47"), 2, ""},
+		{"empty list", "closed: []\n", 0, ""},
+		{"mismatched issue", "closed:\n" + entry("TICK-48/api-ground-rules", "cancelled", "TICK-47"), 0, "want TICK-48"},
+		{"issue a prefix of the branch's number", "closed:\n" + entry("TICK-480/x", "done", "TICK-48"), 0, "want TICK-480"},
+		{"duplicate branch", "closed:\n" + entry("TICK-48/x", "cancelled", "TICK-48") + entry("TICK-48/x", "done", "TICK-48"), 0, "listed twice"},
+		{"unknown status", "closed:\n" + entry("TICK-48/x", "merged", "TICK-48"), 0, "needs"},
+		{"not a story", "closed:\n" + entry("agent/x/1", "done", "TICK-48"), 0, "needs"},
+		{"no issue", "closed:\n  - branch: TICK-48/x\n    status: done\n", 0, "needs"},
+		{"not yaml", "closed: [\n", 0, "closed.yaml"},
 	} {
-		if _, err := parseClosed("closed.yaml", []byte(bad)); err == nil {
-			t.Errorf("%s: want an error", name)
+		got, err := parseClosed("closed.yaml", []byte(c.file))
+		switch {
+		case c.wantErr == "" && (err != nil || len(got) != c.want):
+			t.Errorf("%s: want %d entries, got %v, %v", c.name, c.want, got, err)
+		case c.wantErr != "" && (err == nil || !strings.Contains(err.Error(), c.wantErr)):
+			t.Errorf("%s: want an error containing %q, got %v", c.name, c.wantErr, err)
 		}
+	}
+}
+
+// TICK-380: a story branch with merged task PRs and no story PR is listed in
+// the report with its age, and the job still passes.
+func TestInFlightListedInReport(t *testing.T) {
+	in := milestone1()
+	in.Closed = nil
+	landed, _ := landedAt("s7-head..s7-head", "s5-story..s5-late")
+	res, err := Evaluate(in, landed)
+	if err != nil || len(res.Findings) != 0 {
+		t.Fatalf("want green, got %q, %v", texts(res.Findings), err)
+	}
+	if len(res.InFlight) != 1 || res.InFlight[0].Branch != s6 {
+		t.Fatalf("want S6 alone in flight, got %+v", res.InFlight)
+	}
+	md := markdown(res, "origin/main", "now")
+	want := "- `" + s6 + "`: last task PR #175 merged on 2026-10-28 06:03Z, 1 task PR merged into it, no story PR yet\n"
+	if !strings.HasPrefix(md, "`make check-story-branches` against `origin/main`, now: 0 findings.") ||
+		!strings.Contains(md, "In flight (information only") || !strings.Contains(md, want) {
+		t.Fatalf("report does not list S6 as in flight:\n%s", md)
+	}
+
+	// An open story PR is in flight too, and the report says so.
+	in.PRs = append(in.PRs, openPR(266, s6, "main", "18:04"))
+	res, _ = Evaluate(in, landed)
+	if len(res.InFlight) != 1 || res.InFlight[0].StoryPR != 266 {
+		t.Fatalf("want S6 in flight with story PR #266, got %+v", res.InFlight)
+	}
+
+	// A story closed in closed.yaml, or with a merged story PR, is not.
+	res, _ = Evaluate(milestone1(), landed)
+	if len(res.InFlight) != 0 {
+		t.Fatalf("closed or merged story listed in flight: %+v", res.InFlight)
 	}
 }

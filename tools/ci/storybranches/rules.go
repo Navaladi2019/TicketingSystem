@@ -104,6 +104,51 @@ func (f Finding) String() string { return f.Branch + ": " + f.Text }
 // story PR opens only after every task has merged (branching-strategy.md),
 // so until then the branch is in flight, not orphaned (TICK-379).
 func Check(in Input, landed Landed) (findings []Finding, accepted []string, err error) {
+	res, err := Evaluate(in, landed)
+	return res.Findings, res.Accepted, err
+}
+
+// InFlight is a story branch Check waits on: its story PR is open, or it has
+// none yet and closed.yaml does not list its story. LastTask is the newest
+// task PR merged into it, its age in the report (TICK-380).
+type InFlight struct {
+	Branch    string
+	StoryPR   int // the open story PR, 0 when there is none
+	LastTask  PR
+	TaskCount int
+}
+
+// describe is an absolute date, not "N days ago": the report is diffed
+// against the last one posted to the story-drift issue, and a moving count
+// would re-post an unchanged report on every scheduled run.
+func (f InFlight) describe() string {
+	s := fmt.Sprintf("last task PR #%d merged on %s, %s merged into it", f.LastTask.Number, day(f.LastTask.MergedAt), countPRs(f.TaskCount))
+	if f.StoryPR != 0 {
+		return s + fmt.Sprintf(", story PR #%d open", f.StoryPR)
+	}
+	return s + ", no story PR yet"
+}
+
+func countPRs(n int) string {
+	if n == 1 {
+		return "1 task PR"
+	}
+	return fmt.Sprintf("%d task PRs", n)
+}
+
+// Result is what Evaluate finds: findings fail the job, Accepted and InFlight
+// are information only.
+type Result struct {
+	Findings []Finding
+	Accepted []string
+	InFlight []InFlight
+}
+
+// Evaluate is Check that also reports the in-flight story branches.
+func Evaluate(in Input, landed Landed) (Result, error) {
+	var res Result
+	var findings []Finding
+	var accepted []string
 	into := map[string][]PR{} // base -> PRs targeting it
 	out := map[string][]PR{}  // head -> PRs out of it
 	for _, p := range in.PRs {
@@ -144,19 +189,23 @@ func Check(in Input, landed Landed) (findings []Finding, accepted []string, err 
 				}
 			}
 		}
+		tasks := merged(into[b], in.AsOf, time.Time{})
+		flight := InFlight{Branch: b, LastTask: tasks[len(tasks)-1], TaskCount: len(tasks)}
 		if open != nil {
+			flight.StoryPR = open.Number
+			res.InFlight = append(res.InFlight, flight)
 			continue // in flight: its story PR is open
 		}
 
-		tasks := merged(into[b], in.AsOf, time.Time{})
 		if story == nil {
 			ci := slices.IndexFunc(in.Closed, func(c Closed) bool { return c.Branch == b })
 			if ci < 0 {
+				res.InFlight = append(res.InFlight, flight)
 				continue // in flight: tasks still merging, story PR not open yet
 			}
 			ok, err := landed("", head, time.Time{})
 			if err != nil {
-				return nil, nil, fmt.Errorf("%s: %w", b, err)
+				return Result{}, fmt.Errorf("%s: %w", b, err)
 			}
 			if !ok {
 				findings = append(findings, Finding{b, fmt.Sprintf(
@@ -177,7 +226,7 @@ func Check(in Input, landed Landed) (findings []Finding, accepted []string, err 
 
 		ok, err := landed(story.HeadOid, head, story.MergedAt)
 		if err != nil {
-			return nil, nil, fmt.Errorf("%s: %w", b, err)
+			return Result{}, fmt.Errorf("%s: %w", b, err)
 		}
 		if !ok {
 			late := merged(into[b], in.AsOf, story.MergedAt)
@@ -190,7 +239,8 @@ func Check(in Input, landed Landed) (findings []Finding, accepted []string, err 
 				story.Number, day(story.MergedAt), in.Main, why, short(head), short(story.HeadOid))})
 		}
 	}
-	return findings, accepted, nil
+	res.Findings, res.Accepted = findings, accepted
+	return res, nil
 }
 
 // merged lists the PRs merged by asOf and after since, oldest first.
