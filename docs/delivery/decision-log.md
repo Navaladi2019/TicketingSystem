@@ -6,6 +6,7 @@ Delivery decisions that change a task's contract, newest first.
 
 <!-- docindex:start -->
 
+- [2026-11-01: PLAN-004 approved: ADR-003 lands as two qa tasks inside S11a; the manifest-creating PR is human-merged](decisions/2026-11-01-plan-004-adr-003.md)
 - [2026-11-01: agents accept and merge stories and ADRs; `MergePr` retired](decisions/2026-11-01-agent-only-story-and-adr-acceptance.md)
 - [2026-10-31: PLAN-003 drafted: records path in two lanes; four task-text defects fixed before grooming](decisions/2026-10-31-plan-003-records-path.md)
 - [2026-10-31: PLAN-003 groomed twice (TICK-360, TICK-363); #293 kept, #294 closed; step ids are random v4; I9 ruling open with the CTO](decisions/2026-10-31-plan-003-grooming.md)
