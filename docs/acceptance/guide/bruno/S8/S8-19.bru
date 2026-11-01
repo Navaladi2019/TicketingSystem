@@ -1,0 +1,58 @@
+meta {
+  name: S8.19 AC5: onboard a new tenant
+  type: http
+  seq: 19
+}
+
+post {
+  url: {{onboard_url}}/api/v1/operator/tenants
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{operator_token}}
+  Idempotency-Key: tick346-s8-{{s8_run}}-onboard
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "admin_email": "admin@{{s8_domain}}",
+    "email_domains": [
+      "{{s8_domain}}"
+    ],
+    "identity_provider": {
+      "provider_id": "oidc",
+      "display_name": "Acceptance IdP",
+      "config": {
+        "clientId": "acceptance-client",
+        "clientSecret": "dev-only-not-a-secret",
+        "authorizationUrl": "https://93.184.216.34/auth",
+        "tokenUrl": "https://93.184.216.34/token",
+        "jwksUrl": "https://93.184.216.34/jwks",
+        "useJwksUrl": "true",
+        "defaultScope": "openid email profile"
+      }
+    }
+  }
+}
+
+script:pre-request {
+  bru.setVar('s8_domain', `s8-${bru.getVar('s8_run')}.test`);
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  test('tenant_id is a uuid, state active', () => {
+    expect(b.tenant_id).to.match(/^[0-9a-f-]{36}$/);
+    expect(b.state).to.eql('active');
+  });
+  console.log('S8.19 onboarded tenant', b.tenant_id, 'domain', bru.getVar('s8_domain'));
+}
+
+docs {
+  A new tenant, through nava-onboard (`tools/tunnels.sh up`). Its admin signs in only through its own IdP, so no request here can read its types: the stack case `s8_entity_types` checks in the database that it starts with `incident`, `request` and `change` at version 1 (`sh deploy/compose/test/stack-test.sh s8_entity_types`).
+}

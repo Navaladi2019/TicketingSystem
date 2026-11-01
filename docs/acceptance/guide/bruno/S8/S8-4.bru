@@ -1,0 +1,26 @@
+meta {
+  name: S8.4 AC3: agent@tenant-a lists the entity types
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types?limit=200
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const keys = N.json().items.map(i => i.key);
+  test('incident, request and change are listed', () => expect(keys).to.include.members(['incident', 'request', 'change']));
+}
+
+docs {
+  Any tenant user reads entity types. Tenant A has `incident`, `request` and `change`.
+}

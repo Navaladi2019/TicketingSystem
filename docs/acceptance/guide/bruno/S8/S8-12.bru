@@ -1,0 +1,28 @@
+meta {
+  name: S8.12 AC1: read the new version back: the published bytes
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/incident/versions/{{s8_new}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  test('the new version, current', () => { expect(b.version).to.eql(Number(bru.getVar('s8_new'))); expect(b.current).to.eql(true); });
+  test('schema bytes equal the published bytes', () => expect(N.rawMember(N.text(), 'schema')).to.eql(bru.getVar('s8_pub_schema')));
+  test('schema_sha256 is the SHA-256 of the published bytes', () => expect(b.schema_sha256).to.eql(bru.getVar('s8_pub_sha')));
+}
+
+docs {
+  Any tenant user. `schema` is byte for byte what S8.11 sent; `schema_sha256` is the SHA-256 of those bytes.
+}

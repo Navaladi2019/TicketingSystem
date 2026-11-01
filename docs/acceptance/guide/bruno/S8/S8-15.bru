@@ -1,0 +1,31 @@
+meta {
+  name: S8.15 AC4: agent@tenant-b's incident is tenant B's version 1
+  type: http
+  seq: 15
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/incident
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  test('version 1', () => expect(b.version).to.eql(1));
+  test("the template's schema_sha256, not tenant A's new one", () => {
+    expect(b.schema_sha256).to.eql(bru.getVar('s8_v1_sha'));
+    expect(b.schema_sha256).to.not.eql(bru.getVar('s8_pub_sha'));
+  });
+  N.noLeak('impact_' + bru.getVar('s8_run'), bru.getVar('s8_pub_sha'));
+}
+
+docs {
+  Tenant B's own `incident`: version 1, the template schema, not tenant A's new version.
+}

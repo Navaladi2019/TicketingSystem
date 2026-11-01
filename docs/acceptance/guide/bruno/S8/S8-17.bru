@@ -1,0 +1,32 @@
+meta {
+  name: S8.17 AC4: agent@tenant-b reads tenant A's new version: the same 404
+  type: http
+  seq: 17
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/incident/versions/{{s8_new}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 404 problem+json, code not_found, no instance', () => {
+    expect(res.getStatus()).to.eql(404);
+    expect(N.header('Content-Type') || '').to.include('application/problem+json');
+    expect(N.json().code).to.eql('not_found');
+    expect(N.json()).to.not.have.property('instance');
+  });
+  N.status(404);
+  test("body byte-identical to S8.16's 404", () => expect(N.text()).to.eql(bru.getVar('s8_ref404')));
+  N.noLeak('impact_' + bru.getVar('s8_run'), bru.getVar('s8_pub_sha'));
+}
+
+docs {
+  Tenant A's version (2 on a fresh stack) read as tenant B: a 404 byte-identical to S8.16's, so B cannot tell that A's version exists.
+}
