@@ -191,7 +191,13 @@ crash)
 	echo "[$(now)] killed: container ${id%"${id#????????????}"} running=$(docker inspect -f '{{.State.Running}} exit={{.State.ExitCode}}' "$id")"
 	echo "calls in the volume after the kill (the killed attempt's write committed):"; oneshot "cat $STATE/writes/calls.jsonl"
 	oneshot "touch ${marker%.paused}.release && chown 10001:10001 ${marker%.paused}.release"
-	dc start "$SVC"
+	# docker start, not `docker compose start`: compose would also start the
+	# service's depends_on chain, including the stopped one-shot jobs
+	# (db-roles, migrate, temporal-schema), and fails with "missing
+	# dependency" if a container prune removed them (TICK-407). The worker's
+	# real dependencies are still running; only the killed container restarts.
+	docker inspect "$id" >/dev/null 2>&1 || { echo "demo-interpreter: killed container $id is gone (pruned?); run 'up' with PAUSE=1 and start over" >&2; exit 1; }
+	docker start "$id" >/dev/null
 	until [ "$(docker inspect -f '{{.State.Health.Status}}' "$id")" = healthy ]; do sleep 1; done
 	echo "[$(now)] same container started again (started $before, now $(docker inspect -f '{{.State.StartedAt}}' "$id")), healthy"
 	;;
