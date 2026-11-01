@@ -52,7 +52,7 @@ func TestDirectiveAllowedOnlyForNextStep(t *testing.T) {
 		t.Fatalf("regular %s from %s may not record a Directive", DirectiveActivity, DirectiveWorkflow)
 	}
 	for name, i := range map[string]activity.Info{
-		"NextStep from another workflow":        from(wf("nava.smoke.relay")),
+		"NextStep from another workflow":        from(wf("nava.other")),
 		"NextStep from a workflow case variant": from(wf("nava.Interpreter")),
 		"NextStep from a workflow suffix":       from(wf(DirectiveWorkflow + "2")),
 		"NextStep from a workflow prefix":       from(wf("x" + DirectiveWorkflow)),

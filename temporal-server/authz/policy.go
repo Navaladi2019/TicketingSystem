@@ -225,10 +225,12 @@ var deniedByDefault = []string{
 //
 // nava.interpreter is the one generic workflow type that runs every workflow
 // definition (PLAN-003 D-3-11, TICK-348), on the existing nava-tq: a new
-// definition is data, not a new type, so it never needs a policy PR.
+// definition is data, not a new type, so it never needs a policy PR. It is the
+// only entry: the M1 smoke types are gone (TICK-374), and the stack tests
+// register their own bodies under this type, so they run the shipped policy.
 var (
 	platformTaskQueues    = set("nava-tq")
-	platformWorkflowTypes = set("nava.interpreter", "nava.smoke.Echo", "nava.smoke.relay")
+	platformWorkflowTypes = set("nava.interpreter")
 )
 
 // stickyQueueName is the SDK's own sticky queue name, `<host>:<uuid>`

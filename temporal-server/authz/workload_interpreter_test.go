@@ -41,8 +41,9 @@ func requireAPIDeny(t *testing.T, id Identity, api string, req any) {
 }
 
 func TestInterpreterTypeIsAllowListed(t *testing.T) {
-	if !inSet(platformWorkflowTypes, interpreterType) {
-		t.Fatalf("%s missing from platformWorkflowTypes", interpreterType)
+	// TICK-374: nava.interpreter is the only platform workflow type.
+	if got := sortedKeys(platformWorkflowTypes); len(got) != 1 || got[0] != interpreterType {
+		t.Fatalf("platformWorkflowTypes = %v, want exactly [%s]", got, interpreterType)
 	}
 	// D-3-11: no separate interpreter queue.
 	if got := sortedKeys(platformTaskQueues); len(got) != 1 || got[0] != "nava-tq" {
@@ -56,6 +57,8 @@ func TestRelayStartsAndSignalsInterpreter(t *testing.T) {
 	requireWorkloadAllow(t, Relay, wf+"SignalWithStartWorkflowExecution", &workflowservice.SignalWithStartWorkflowExecutionRequest{
 		Namespace: Namespace, WorkflowId: "t:tenantA:wf:1", SignalName: "event",
 		WorkflowType: &commonpb.WorkflowType{Name: interpreterType}, TaskQueue: interpreterQueue()})
+	// A signal names no workflow type, so this case is not evidence for any
+	// allow-list entry: it passes D9 on the workflow id alone (TICK-374).
 	requireWorkloadAllow(t, Relay, wf+"SignalWorkflowExecution", &workflowservice.SignalWorkflowExecutionRequest{
 		Namespace: Namespace, SignalName: "event", WorkflowExecution: &commonpb.WorkflowExecution{WorkflowId: "t:tenantA:wf:1"}})
 }
@@ -77,23 +80,29 @@ func TestWorkerPollsAndCompletesInterpreter(t *testing.T) {
 // child or continue-as-new. The allow-list is exact match, not prefix.
 func TestInterpreterLookAlikeTypesDenied(t *testing.T) {
 	for _, wt := range []string{"nava.interpreter2", "nava.interpreter.x", "nava.Interpreter", " nava.interpreter", "nava.interpreter "} {
-		t.Run(wt, func(t *testing.T) {
-			requireWorkloadDeny(t, Relay, wf+"StartWorkflowExecution", interpreterStart("t:tenantA:wf:1", wt), ReasonWorkflowType)
-			requireWorkloadDeny(t, Relay, wf+"SignalWithStartWorkflowExecution", &workflowservice.SignalWithStartWorkflowExecutionRequest{
-				Namespace: Namespace, WorkflowId: "t:tenantA:wf:1", SignalName: "event",
-				WorkflowType: &commonpb.WorkflowType{Name: wt}, TaskQueue: interpreterQueue()}, ReasonWorkflowType)
-
-			tok := taskToken(t, wfA)
-			child := interpreterChild("t:tenantA:wf:1:child", jsonString("tenantA"))
-			child.GetStartChildWorkflowExecutionCommandAttributes().WorkflowType.Name = wt
-			requireCommandDeny(t, denyCase{name: wt, req: respond(tok, child), reason: ReasonWorkflowType,
-				command: "StartChildWorkflowExecution", workflowID: wfA, target: "t:tenantA:wf:1:child", commandIdx: "0"})
-			can := interpreterContinueAsNew(jsonString("tenantA"))
-			can.GetContinueAsNewWorkflowExecutionCommandAttributes().WorkflowType.Name = wt
-			requireCommandDeny(t, denyCase{name: wt, req: respond(tok, can), reason: ReasonWorkflowType,
-				command: "ContinueAsNewWorkflowExecution", workflowID: wfA, commandIdx: "0"})
-		})
+		t.Run(wt, func(t *testing.T) { requireTypeDenied(t, wt) })
 	}
+}
+
+// requireTypeDenied asserts that workflow type wt, otherwise a valid tenantA
+// workload on nava-tq, is denied as workflow_type_not_allowed for the relay's
+// start and signal-with-start and for a worker's child and continue-as-new.
+func requireTypeDenied(t *testing.T, wt string) {
+	t.Helper()
+	requireWorkloadDeny(t, Relay, wf+"StartWorkflowExecution", interpreterStart("t:tenantA:wf:1", wt), ReasonWorkflowType)
+	requireWorkloadDeny(t, Relay, wf+"SignalWithStartWorkflowExecution", &workflowservice.SignalWithStartWorkflowExecutionRequest{
+		Namespace: Namespace, WorkflowId: "t:tenantA:wf:1", SignalName: "event",
+		WorkflowType: &commonpb.WorkflowType{Name: wt}, TaskQueue: interpreterQueue()}, ReasonWorkflowType)
+
+	tok := taskToken(t, wfA)
+	child := interpreterChild("t:tenantA:wf:1:child", jsonString("tenantA"))
+	child.GetStartChildWorkflowExecutionCommandAttributes().WorkflowType.Name = wt
+	requireCommandDeny(t, denyCase{name: wt, req: respond(tok, child), reason: ReasonWorkflowType,
+		command: "StartChildWorkflowExecution", workflowID: wfA, target: "t:tenantA:wf:1:child", commandIdx: "0"})
+	can := interpreterContinueAsNew(jsonString("tenantA"))
+	can.GetContinueAsNewWorkflowExecutionCommandAttributes().WorkflowType.Name = wt
+	requireCommandDeny(t, denyCase{name: wt, req: respond(tok, can), reason: ReasonWorkflowType,
+		command: "ContinueAsNewWorkflowExecution", workflowID: wfA, commandIdx: "0"})
 }
 
 // Negative: the new type grants no identity a new verb. The worker cannot start

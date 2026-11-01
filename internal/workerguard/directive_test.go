@@ -229,7 +229,7 @@ func TestDirectiveInWorkflow(t *testing.T) {
 	// A NextStep-named regular activity called from any workflow type other
 	// than the interpreter: its Directive is withheld and alerts, so a worker
 	// binary that registers its own NextStep cannot record one (TICK-386).
-	for _, wf := range []string{"nava.smoke.relay", "nava.Interpreter", DirectiveWorkflow + "2", "x" + DirectiveWorkflow} {
+	for _, wf := range []string{"nava.other", "nava.Interpreter", DirectiveWorkflow + "2", "x" + DirectiveWorkflow} {
 		t.Run("NextStep Directive from workflow "+wf+" is refused", func(t *testing.T) {
 			h := newHarness(t, id)
 			run(h, wf, DirectiveActivity)

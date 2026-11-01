@@ -367,7 +367,15 @@ func TestCI6_RelayCoreWorkerOutsideAllowListDenied(t *testing.T) {
 	relayWF := workflowservice.NewWorkflowServiceClient(rawConnAs(t, "nava-relay"))
 	coreWF := workflowservice.NewWorkflowServiceClient(rawConnAs(t, "nava-core"))
 	workerWF := workflowservice.NewWorkflowServiceClient(rawConnAs(t, "nava-worker"))
-	_, err := relayWF.TerminateWorkflowExecution(ctx, &workflowservice.TerminateWorkflowExecutionRequest{Namespace: namespace, WorkflowExecution: victimExec})
+	// PermissionDenied carries no reason (the Authorizer logs it and counts it
+	// only), so the reason is read from the server log after this anchor: the
+	// sweep above logged the same identity and API pairs, and must not count.
+	mark := logMark()
+	anchorNS := fmt.Sprintf("ci6-run-%d", time.Now().UnixNano())
+	_, err := workflowservice.NewWorkflowServiceClient(rawConnAs(t, "nava-operator")).DescribeNamespace(ctx,
+		&workflowservice.DescribeNamespaceRequest{Namespace: anchorNS})
+	wantDenied(t, "nava-operator DescribeNamespace (anchor)", err)
+	_, err = relayWF.TerminateWorkflowExecution(ctx, &workflowservice.TerminateWorkflowExecutionRequest{Namespace: namespace, WorkflowExecution: victimExec})
 	wantDenied(t, "nava-relay TerminateWorkflowExecution of tenant B", err)
 	_, err = relayWF.DescribeWorkflowExecution(ctx, &workflowservice.DescribeWorkflowExecutionRequest{Namespace: namespace, Execution: victimExec})
 	wantDenied(t, "nava-relay DescribeWorkflowExecution of tenant B", err)
@@ -386,6 +394,20 @@ func TestCI6_RelayCoreWorkerOutsideAllowListDenied(t *testing.T) {
 	wantDenied(t, "nava-worker SignalWorkflowExecution of tenant B", err)
 	_, err = workerWF.ResetStickyTaskQueue(ctx, &workflowservice.ResetStickyTaskQueueRequest{Namespace: namespace, Execution: victimExec})
 	wantDenied(t, "nava-worker ResetStickyTaskQueue of tenant B", err)
+	// Each call is denied because the identity may not call that API at all
+	// (api_not_allowed), never because of its workflow type: nava-core's start
+	// names the allow-listed platform type (Security review of PR #337, TICK-374).
+	var wants []map[string]string
+	for _, c := range [][2]string{
+		{"nava-relay", "TerminateWorkflowExecution"}, {"nava-relay", "DescribeWorkflowExecution"},
+		{"nava-core", "StartWorkflowExecution"}, {"nava-core", "SignalWorkflowExecution"}, {"nava-core", "ListWorkflowExecutions"},
+		{"nava-worker", "TerminateWorkflowExecution"}, {"nava-worker", "SignalWorkflowExecution"}, {"nava-worker", "ResetStickyTaskQueue"},
+	} {
+		wants = append(wants, map[string]string{"identity": c[0], "api": wfAPI + c[1], "reason": "api_not_allowed",
+			"cert_subject": "~CN=" + c[0]})
+	}
+	awaitDenyLogsAfter(t, mark, map[string]string{"identity": "nava-operator", "reason": "namespace_not_allowed",
+		"api": wfAPI + "DescribeNamespace", "namespace": anchorNS}, wants)
 
 	desc, err := core.DescribeWorkflowExecution(ctx, victimID, victim.GetRunID())
 	if err != nil {
