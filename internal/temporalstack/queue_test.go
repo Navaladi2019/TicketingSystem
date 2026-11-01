@@ -20,10 +20,11 @@ const interpService = "nava-worker-interptest"
 // The suite's bodies and nava-worker-interptest register the same workflow
 // type on the same queue (TICK-374), so a task of one could reach the other.
 // They must never poll nava-tq at the same time (Technical Lead, 2026-11-01).
-// The stack-case order keeps them apart: the sdk case, which runs this suite,
-// sorts before the serial worker and interpreter cases, which start
-// nava-worker-interptest (tools/ci/stackcases TestInterpreterQueueOrdering
-// asserts it). requireQueueFree checks it at runtime too, so a hand-run
+// The stack-case order keeps them apart: the parallel sdk case, which runs
+// this suite, sorts before the serial worker and interpreter cases, which
+// start nava-worker-interptest, and the serial demo_outbox case never
+// overlaps them (tools/ci/stackcases TestInterpreterQueueOrdering asserts
+// both). requireQueueFree checks it at runtime too, so a hand-run
 // `make stack-test-sdk` beside an interpreter case fails instead of racing.
 func startPlatformWorker(t *testing.T, w worker.Worker) {
 	t.Helper()

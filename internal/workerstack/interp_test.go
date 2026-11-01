@@ -8,10 +8,13 @@ package workerstack
 // runs it with the S11a fakes over a read-only fixture mount.
 //
 // nava-worker-interptest polls workflow and activity tasks on nava-tq. It is
-// up only inside startInterpWorker's test, in the serial `worker` case: the
-// parallel group (the temporalstack suite, whose workers register their own
-// test bodies as nava.interpreter, TICK-374) has ended by then, and demo_outbox (the relay's
-// nava.smoke.relay starts) sorts after it (run-cases.sh, PARALLEL=1). Its
+// up only inside startInterpWorker's test, in the serial `worker` case. The
+// test bodies of the temporalstack suite (parallel `sdk` case), of
+// demo_outbox (serial, after this case) and closeRef in this package are all
+// registered as nava.interpreter on nava-tq too (TICK-374), so none may poll
+// while it runs: the case order keeps them apart (tools/ci/stackcases
+// TestInterpreterQueueOrdering), and each body's worker checks first that no
+// nava-worker-interptest container is running (requireQueueFree). Its
 // cleanup removes the container and waits until it is gone, failed test or
 // not, so no interpreter poller outlives the case.
 //
@@ -396,5 +399,21 @@ func TestInterpreterCrossTenantIsNotFound(t *testing.T) {
 				t.Errorf("workflow_ref open: %q, want t (the run never reached its end step)", got)
 			}
 		})
+	}
+}
+
+// requireQueueFree fails the test if nava-worker-interptest has a container
+// running: a test body registered as nava.interpreter on nava-tq must not
+// share the queue with it (TICK-374).
+func requireQueueFree(t *testing.T) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	out, err := composeIn(ctx, nil, "ps", "--quiet", interpService)
+	if err != nil {
+		t.Fatalf("compose ps %s: %v\n%s", interpService, err, out)
+	}
+	if id := strings.TrimSpace(out); id != "" {
+		t.Fatalf("%s is running (%s): it polls nava-tq as %s, so this test's body must not", interpService, id, platformType)
 	}
 }
