@@ -202,6 +202,25 @@ def doc(title, current, body, link):
 """
 
 
+# Every zip entry gets the same timestamp and mode, so a rebuild from the same
+# sources writes the same members and CI's drift check (TICK-391) sees no
+# change from the clock or the checkout's file modes.
+ZIP_TIME = (1980, 1, 1, 0, 0, 0)
+
+
+def _read(path):
+    with open(path, "rb") as f:
+        return f.read()
+
+
+def _add(z, arcname, data):
+    info = zipfile.ZipInfo(arcname, date_time=ZIP_TIME)
+    info.compress_type = zipfile.ZIP_DEFLATED
+    info.external_attr = 0o644 << 16
+    info.create_system = 3  # Unix, whatever host builds it
+    z.writestr(info, data)
+
+
 def main():
     with open(SPEC, encoding="utf-8") as f:
         spec = f.read()
@@ -239,17 +258,17 @@ def main():
             # The zip cannot hold itself: inside it, the download button says so.
             page = page.replace(f'href="{ZIP}" download', 'href="index.html" title="This folder is the kit"').replace(
                 "Download the kit (.zip)", "You have the kit: this folder")
-            z.writestr(f"ticketing-acceptance-guide/{name}", page)
+            _add(z, f"ticketing-acceptance-guide/{name}", page.encode("utf-8"))
         for sub in ("bruno", "tools"):
             for d, dirs, names in sorted(os.walk(os.path.join(OUT, sub))):
                 dirs.sort()
                 for name in sorted(names):
                     path = os.path.join(d, name)
                     rel = os.path.relpath(path, OUT).replace(os.sep, "/")
-                    z.write(path, f"ticketing-acceptance-guide/{rel}")
+                    _add(z, f"ticketing-acceptance-guide/{rel}", _read(path))
         for name in ("README.md", "acceptance-run.md"):
             if os.path.exists(os.path.join(OUT, name)):
-                z.write(os.path.join(OUT, name), f"ticketing-acceptance-guide/{name}")
+                _add(z, f"ticketing-acceptance-guide/{name}", _read(os.path.join(OUT, name)))
     print("wrote", ", ".join(written), "bruno/", ZIP)
 
 
