@@ -1,0 +1,9 @@
+{
+  "format": "nava.workflow/v1",
+  "trigger": { "on": "record.created", "entity": "ticket" },
+  "start": "apply",
+  "steps": [
+    { "key": "apply", "type": "update_record", "set": { "applied": true }, "next": "done" },
+    { "key": "done", "type": "end" }
+  ]
+}

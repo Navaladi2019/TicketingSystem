@@ -34,7 +34,8 @@ func allStages() []string { return []string{"ci-lint", "ci-unit", "ci-integratio
 // the commands the images build, the S7 demo binary stack-test-demo_outbox
 // builds (cmd/demo-outbox), the interptest stack worker (cmd/nava-worker
 // with the S11a fakes, TICK-367), and the stack test suites with their tags
-// (demooutbox: the S7 suite, TICK-292).
+// (demooutbox: the S7 suite, TICK-292; interpcrash: the interpreter crash
+// case, TICK-351).
 func stackRoots() [][]string {
 	return [][]string{
 		{"./cmd/nava-core", "./cmd/nava-db", "./cmd/nava-worker", "./cmd/nava-relay", "./cmd/nava-onboard", "./cmd/nava-groupsync", "./cmd/nava-purge", "./cmd/demo-outbox", "./tools/ci/ci6report", "./tools/ci/ci5report"},
@@ -42,6 +43,7 @@ func stackRoots() [][]string {
 		{"-tags", "temporalstack,demooutbox", "-test", "./internal/temporalstack"},
 		{"-tags", "identitystack", "-test", "./internal/identitystack"},
 		{"-tags", "workerstack", "-test", "./internal/workerstack"},
+		{"-tags", "workerstack,interpcrash", "-test", "./internal/workerstack"},
 	}
 }
 
@@ -190,7 +192,7 @@ func loadGraph() (graph, error) {
 	}
 	root = strings.TrimSpace(root)
 	g := graph{}
-	if g.packages, err = dirs(root, "-tags", "integration,temporalstack,identitystack,workerstack,demooutbox,interptest", "./..."); err != nil {
+	if g.packages, err = dirs(root, "-tags", "integration,temporalstack,identitystack,workerstack,demooutbox,interptest,interpcrash", "./..."); err != nil {
 		return g, err
 	}
 	var integ []string
