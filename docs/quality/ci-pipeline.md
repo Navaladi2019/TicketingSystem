@@ -38,7 +38,7 @@ smoke, PgBouncer, every `temporal_*` case, hba, SDK, identity) then run at
 once, and `worker`, `dependencies`, `trace`, `logs`, `redact`, `idempotent` and `dbroles`
 run one at a time after them (`mode=serial`): `worker` polls `nava-tq`
 like the SDK suite's workers, `dependencies` stops
-Keycloak, `trace` counts every trace the Collector saw, `idempotent` restarts
+Keycloak, `trace` fires its own requests and waits on the Collector's sampler, `idempotent` restarts
 the stack and `dbroles` changes roles. `ci-stack` alone adds the CI overlay
 (`deploy/compose/compose.ci.yaml`), which runs the stack's PostgreSQL with
 `fsync`, `synchronous_commit` and `full_page_writes` off; that run ends in
