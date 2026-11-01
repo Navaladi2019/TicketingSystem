@@ -1,0 +1,26 @@
+meta {
+  name: S8.10 AC2, AC3: the current version is unchanged
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/incident
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('current version unchanged: nothing new was stored', () => expect(N.json().version).to.eql(Number(bru.getVar('s8_prev'))));
+  test('schema unchanged', () => expect(N.rawMember(N.text(), 'schema')).to.eql(bru.getVar('s8_cur_schema')));
+}
+
+docs {
+  Still the version S8.5 read, with the same schema bytes.
+}

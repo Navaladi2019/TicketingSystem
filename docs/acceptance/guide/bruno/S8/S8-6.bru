@@ -1,0 +1,31 @@
+meta {
+  name: S8.6 AC1: version 1 is the seeded template, byte for byte
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/incident/versions/1
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  const want = N.rawMember(N.repoFile('internal/metadata/templates/incident.json'), 'schema');
+  const got = N.rawMember(N.text(), 'schema');
+  test('version 1, initial', () => { expect(b.version).to.eql(1); expect(b.compat).to.eql('initial'); });
+  test('schema bytes equal the template bytes', () => expect(got).to.eql(want));
+  test('schema_sha256 is the SHA-256 of the template bytes', () => expect(b.schema_sha256).to.eql(N.sha256(want)));
+  bru.setVar('s8_v1_sha', b.schema_sha256);
+}
+
+docs {
+  Version 1 is what the tenant started with: the `schema` member of `internal/metadata/templates/incident.json`, exactly as written in the file. The test reads that file from the checkout.
+}

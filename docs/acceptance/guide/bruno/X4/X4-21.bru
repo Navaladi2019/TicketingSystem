@@ -1,0 +1,32 @@
+meta {
+  name: X4.21 getEntityType 404: tenant A's type read by tenant B
+  type: http
+  seq: 21
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/{{x4_type}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 404 problem+json with code not_found and no instance', () => {
+    expect(res.getStatus()).to.eql(404);
+    expect(N.header('Content-Type') || '').to.include('application/problem+json');
+    const b = N.json();
+    expect(b.code).to.eql('not_found');
+    expect(b).to.not.have.property('instance');
+  });
+  N.status(404);
+  N.noLeak(bru.getVar('x4_type'));
+}
+
+docs {
+  The same 404 as an unknown key.
+}

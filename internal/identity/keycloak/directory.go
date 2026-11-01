@@ -300,6 +300,59 @@ func (d *Directory) ensureRootGroup(ctx context.Context, tenantID uuid.UUID) (kc
 	return d.rootGroup(ctx, tenantID)
 }
 
+// EnsureAdminGroup implements identity.DirectoryAdmin: it finds
+// /t/<tenant_id>/admins, creating it under the tenant's root group when missing.
+func (d *Directory) EnsureAdminGroup(ctx context.Context, tenantID uuid.UUID) (string, error) {
+	if err := requireTenant(tenantID); err != nil {
+		return "", err
+	}
+	root, err := d.ensureRootGroup(ctx, tenantID)
+	if err != nil {
+		return "", err
+	}
+	g, err := d.adminGroup(ctx, tenantID)
+	if !errors.Is(err, identity.ErrNotFound) {
+		return g.ID, err
+	}
+	_, err = d.api.do(ctx, d.runtime, http.MethodPost, "/groups/{id}/children", "/groups/"+url.PathEscape(root.ID)+"/children",
+		nil, map[string]string{"name": identity.AdminGroupName}, http.StatusCreated)
+	if err != nil && !errors.Is(err, identity.ErrAlreadyExists) {
+		return "", err
+	}
+	g, err = d.adminGroup(ctx, tenantID)
+	return g.ID, err
+}
+
+// adminGroup finds /t/<tenant_id>/admins, or identity.ErrNotFound. Looking the
+// group up by path is acceptable here: the result only decides which Keycloak
+// group a member is placed in, never whether a request is authorized. The
+// authorization check compares platform group ids with tenant_admin_group
+// (ADR-002 section 1.4).
+func (d *Directory) adminGroup(ctx context.Context, tenantID uuid.UUID) (kcGroup, error) {
+	var g kcGroup
+	err := d.api.getJSON(ctx, d.runtime, "/group-by-path/t/{tenant}/admins",
+		"/group-by-path/t/"+tenantID.String()+"/"+identity.AdminGroupName, nil, &g)
+	if err != nil {
+		return kcGroup{}, err
+	}
+	if g.Path != rootPath(tenantID)+"/"+identity.AdminGroupName {
+		return kcGroup{}, identity.ErrNotFound
+	}
+	return g, nil
+}
+
+// addToAdminGroup puts the Keycloak user in the tenant's admin group. Every
+// invite is the onboarding admin's today (pending_invite holds admin invites).
+func (d *Directory) addToAdminGroup(ctx context.Context, tenantID uuid.UUID, kcUserID string) error {
+	g, err := d.adminGroup(ctx, tenantID)
+	if err != nil {
+		return err
+	}
+	_, err = d.api.do(ctx, d.runtime, http.MethodPut, "/users/{id}/groups/{groupId}",
+		"/users/"+url.PathEscape(kcUserID)+"/groups/"+url.PathEscape(g.ID), nil, nil, http.StatusNoContent)
+	return err
+}
+
 // descendants lists every group below root, depth first, with each one's
 // parent id. Any group whose path is outside the tenant subtree stops the walk.
 func (d *Directory) descendants(ctx context.Context, tenantID uuid.UUID, root kcGroup) ([]kcGroup, map[string]string, error) {
@@ -403,6 +456,9 @@ func registryErr(err error) error {
 // and changes nothing; a local user joining a second tenant needs a consent
 // step that does not exist yet. The caller must answer a refusal like a
 // success, so the call is no oracle for "this email exists elsewhere".
+//
+// TODO(TODO-S8-02): the invitee is also placed in the admins group; split out
+// InviteAdmin before any feature invites non-admins.
 func (d *Directory) InviteUser(ctx context.Context, tenantID uuid.UUID, email string) error {
 	if err := requireTenant(tenantID); err != nil {
 		return err
@@ -434,9 +490,11 @@ func (d *Directory) InviteUser(ctx context.Context, tenantID uuid.UUID, email st
 	} else if err := d.checkInvitable(ctx, tenantID, userID); err != nil {
 		return err
 	}
-	_, err = d.api.do(ctx, d.runtime, http.MethodPut, "/users/{id}/groups/{groupId}",
-		"/users/"+url.PathEscape(userID)+"/groups/"+url.PathEscape(root.ID), nil, nil, http.StatusNoContent)
-	return err
+	if _, err = d.api.do(ctx, d.runtime, http.MethodPut, "/users/{id}/groups/{groupId}",
+		"/users/"+url.PathEscape(userID)+"/groups/"+url.PathEscape(root.ID), nil, nil, http.StatusNoContent); err != nil {
+		return err
+	}
+	return d.addToAdminGroup(ctx, tenantID, userID)
 }
 
 // checkInvitable applies the rules for inviting an existing user.

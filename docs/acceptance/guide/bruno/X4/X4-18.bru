@@ -1,0 +1,28 @@
+meta {
+  name: X4.18 getEntityTypeVersion 200: version 1 with the stored schema
+  type: http
+  seq: 18
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/{{x4_type}}/versions/1
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('schema and hash', () => {
+    expect(N.json().schema.type).to.eql('object');
+    expect(N.json().schema_sha256).to.eql(bru.getVar('x4_sha'));
+  });
+}
+
+docs {
+  `schema` is the stored bytes; `schema_sha256` is their SHA-256.
+}

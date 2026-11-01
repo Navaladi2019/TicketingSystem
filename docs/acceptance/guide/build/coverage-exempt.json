@@ -8,5 +8,30 @@
   "onboardTenant": {
     "429": "Spec drift: operator routes are not rate limited (internal/server/api.go: the limiter wraps tenant routes only), so nava-onboard never answers 429.",
     "500": "Needs a Keycloak or database failure mid-onboarding; not caused from outside a healthy stack."
+  },
+  "listEntityTypes": {
+    "429": "Not asserted here: the limiter is route-agnostic and asserted on getMe in S6.12; internal/server/write_chain_test.go (P2) drives it on every tenant write route.",
+    "500": "Needs an internal failure (a dependency error mid-request); not caused from outside a healthy stack.",
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys."
+  },
+  "createEntityType": {
+    "429": "Not asserted here: the limiter is route-agnostic and asserted on getMe in S6.12; internal/server/write_chain_test.go (P2) drives it on every tenant write route.",
+    "500": "Needs an internal failure (a dependency error mid-request); not caused from outside a healthy stack.",
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys."
+  },
+  "getEntityType": {
+    "429": "Not asserted here: the limiter is route-agnostic and asserted on getMe in S6.12; internal/server/write_chain_test.go (P2) drives it on every tenant write route.",
+    "500": "Needs an internal failure (a dependency error mid-request); not caused from outside a healthy stack.",
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys."
+  },
+  "getEntityTypeVersion": {
+    "429": "Not asserted here: the limiter is route-agnostic and asserted on getMe in S6.12; internal/server/write_chain_test.go (P2) drives it on every tenant write route.",
+    "500": "Needs an internal failure (a dependency error mid-request); not caused from outside a healthy stack.",
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys."
+  },
+  "publishEntityTypeVersion": {
+    "429": "Not asserted here: the limiter is route-agnostic and asserted on getMe in S6.12; internal/server/write_chain_test.go (P2) drives it on every tenant write route.",
+    "500": "Needs an internal failure (a dependency error mid-request); not caused from outside a healthy stack.",
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys."
   }
 }

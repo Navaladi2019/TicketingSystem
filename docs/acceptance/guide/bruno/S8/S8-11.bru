@@ -1,0 +1,60 @@
+meta {
+  name: S8.11 AC1: admin@tenant-a publishes a new incident schema: 201
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{core_url}}/api/v1/entity-types/incident/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick346-s8-{{s8_run}}-publish
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "definition": "set by the pre-request script (S8 publishes exact bytes)"
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const cur = JSON.parse(bru.getVar('s8_cur_schema'));
+  const run = bru.getVar('s8_run');
+  const fixed = bru.getVar('s8_fixed');
+  const states = bru.getVar('s8_states');
+  const body = (schemaText) => '{"definition": {"schema": ' + schemaText + ', "fixed_columns": ' + fixed + ', "states": ' + states + '}}';
+  const compat = JSON.parse(JSON.stringify(cur));
+  compat.properties['impact_' + run] = { type: 'string', title: 'Impact (S8 run ' + run + ')', maxLength: 200 };
+  const compatText = JSON.stringify(compat, null, 3);
+  const breaking = JSON.parse(JSON.stringify(cur));
+  breaking.properties.priority.type = 'number';
+  bru.setVar('s8_pub_schema', compatText);
+  bru.setVar('s8_pub_sha', N.sha256(compatText));
+  req.setBody(body(compatText));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  const want = Number(bru.getVar('s8_prev')) + 1;
+  test(`version ${want} (current + 1), current, compatible`, () => {
+    expect(b.version).to.eql(want);
+    expect(b.current).to.eql(true);
+    expect(b.compat).to.eql('compatible');
+  });
+  if (Number(bru.getVar('s8_prev')) === 1) test('version: 2 (fresh stack)', () => expect(b.version).to.eql(2));
+  test('response schema is the published bytes', () => expect(N.rawMember(N.text(), 'schema')).to.eql(bru.getVar('s8_pub_schema')));
+  test('schema_sha256 is the SHA-256 of the published bytes', () => expect(b.schema_sha256).to.eql(bru.getVar('s8_pub_sha')));
+  bru.setVar('s8_new', String(b.version));
+}
+
+docs {
+  The current schema plus a new optional property `impact_<run>`: Compatible. 201 with the next version (2 on a fresh stack), and the response's schema is the published bytes.
+}

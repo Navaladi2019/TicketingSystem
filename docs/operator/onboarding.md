@@ -194,6 +194,136 @@ account, for the invite) and `NAVA_ONBOARD_CLIENT_ID/SECRET` (onboarding account
 `NAVA_INVITE_TTL` (default `168h`, at most `720h`) is how long a pending admin invite
 stays valid. Every one but the realm, the TTL and the fetch base URL is required; the process refuses to start without them.
 
+## Retry fails with admin group missing
+
+**Detect.** Onboarding stops at the admins-group step, the tenant stays
+`provisioning`, and every retry with the same key fails. `nava-onboard` logs one
+ERROR line each time:
+
+```json
+{"level":"ERROR","msg":"onboard: admins group has no groups row","tenant_id":"<tenant uuid>","keycloak_group_id":"<current Keycloak group id>"}
+```
+
+The error is `ErrAdminGroupMissing` (TICK-369). Cause: the `admins` group under
+`/t/<tenant_id>/` was deleted and re-created in Keycloak, so `groups` still holds a
+stale row for it under the old Keycloak id. Group sync does not repair this on its
+own (it would re-point which Keycloak group grants tenant admin; D-P10). The fix
+is this operator step.
+
+**Confirm.** Run the queries as the bootstrap superuser, `pgadmin`, over the
+Unix socket: it is the only role that can. `groups`, `tenant_admin_group` and
+`tenants` are under `FORCE ROW LEVEL SECURITY`; the migration owner
+(`nava_migrator`) and every runtime role are `NOBYPASSRLS`, so without
+`app.tenant_id` they see no rows and the repair would change nothing (`UPDATE 0`).
+`pg_hba.conf` lets `pgadmin` in over the socket only, which only the `postgres`
+container mounts. On the compose stack, from the repository directory, with the
+two ids from the log line:
+
+```sh
+docker compose exec -it postgres sh -c \
+  'export PGPASSWORD="$(cat /run/pg_superuser_password)"; \
+   exec psql -h /var/run/postgresql -U pgadmin -d nava "$@"' \
+  sh -v ON_ERROR_STOP=1 \
+     -v tenant_id=<tenant uuid> -v kc_group_id=<keycloak group id>
+```
+
+The password is read inside the container and never appears in an argument list.
+Set `ON_ERROR_STOP=1` first, so psql stops at a failed statement, and run the
+blocks below one at a time.
+`:'tenant_id'` and `:'kc_group_id'` below are those psql variables.
+
+```sql
+-- The stale row: the tenant's admins group, under an id Keycloak no longer has.
+SELECT id, keycloak_group_id, path
+  FROM groups
+ WHERE tenant_id = :'tenant_id'::uuid
+   AND path = '/t/' || :'tenant_id' || '/admins';
+
+-- The tenant must have no tenant_admin_group row yet (0 rows), and the current
+-- Keycloak id must have no groups row (0 rows), or this is a different problem.
+SELECT * FROM tenant_admin_group WHERE tenant_id = :'tenant_id'::uuid;
+SELECT * FROM groups WHERE tenant_id = :'tenant_id'::uuid AND keycloak_group_id = :'kc_group_id';
+```
+
+Expect one stale row whose `keycloak_group_id` differs from the logged one. If the
+first query returned more than one row, or the other two returned any, stop: the
+cause is not this one. Three empty results mean you are not connected as
+`pgadmin`.
+
+**Check Keycloak.** Before any repair, check that the logged `keycloak_group_id`
+is the tenant's admins group in Keycloak; the repair trusts it. From the repository
+directory, with the id from the log line. It must print `"path" : "/t/<tenant
+uuid>/admins"` and exit 0; a non-zero exit (an unknown id, a failed login) or any
+other path means stop. The admin password reaches `kcadm.sh` through
+`KC_CLI_PASSWORD`, not `--password`, so it is in no process argument list, and the
+temporary config file, which holds a master-realm refresh token, is removed on exit.
+
+```sh
+docker compose exec keycloak sh -c \
+  'cd /opt/keycloak/bin && KCADM_CONFIG=$(mktemp) || exit 1
+   trap "rm -f \"\$KCADM_CONFIG\"" EXIT; trap "exit 1" HUP INT TERM
+   KC_CLI_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASSWORD" ./kcadm.sh config credentials --config "$KCADM_CONFIG" \
+     --server http://localhost:8080 --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" >/dev/null &&
+   ./kcadm.sh get groups/"$1" --config "$KCADM_CONFIG" -r nava --fields id,path' \
+  sh <keycloak group id>
+```
+
+**Repair.** Run one option's block, which opens a transaction and runs one
+statement. Read its tag before you commit: it must be exactly `UPDATE 1` or
+`DELETE 1`. Then run the `COMMIT` block; for any other tag, run the `ROLLBACK`
+block and stop.
+
+Option A (preferred): point the stale row at the current Keycloak id. Its platform
+id and memberships stay; the next group sync cycle (at most 5 minutes) refreshes
+the memberships.
+
+```sql
+BEGIN;
+UPDATE groups
+   SET keycloak_group_id = :'kc_group_id'
+ WHERE tenant_id = :'tenant_id'::uuid
+   AND path = '/t/' || :'tenant_id' || '/admins';
+```
+
+Option B: remove the stale row. Its `group_members` and any `tenant_admin_group`
+row go with it (ON DELETE CASCADE); retry inserts a fresh row, and group sync
+re-adds the members. `path` is not unique, so check that the tag is `DELETE 1`.
+
+```sql
+BEGIN;
+DELETE FROM groups
+ WHERE tenant_id = :'tenant_id'::uuid
+   AND path = '/t/' || :'tenant_id' || '/admins';
+```
+
+The tag was exactly 1:
+
+```sql
+COMMIT;
+```
+
+Any other tag:
+
+```sql
+ROLLBACK;
+```
+
+**Retry.** Run the original onboarding request again with the same
+`Idempotency-Key` and body (see "Steps and recovery"). The admins-group step now
+finds a row for the current id, writes `tenant_admin_group`, and onboarding
+continues to the invite and activation. Check:
+
+```sql
+SELECT t.state, a.group_id, g.keycloak_group_id
+  FROM tenants t
+  JOIN tenant_admin_group a ON a.tenant_id = t.id
+  JOIN groups g ON (g.tenant_id, g.id) = (a.tenant_id, a.group_id)
+ WHERE t.id = :'tenant_id'::uuid;   -- state active, the current Keycloak id
+```
+
+A second occurrence, or any automation that re-creates Keycloak groups, goes to the
+Architecture squad as an RFC for automated repair (TICK-372).
+
 ## TODO: abandoning a provisioning tenant
 
 There is no way to abandon a `provisioning` tenant. A tenant whose onboarding never

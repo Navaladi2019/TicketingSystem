@@ -1,7 +1,9 @@
 package onboard
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity/keycloak"
 )
@@ -25,10 +28,19 @@ type fakeStore struct {
 	domains   map[string]uuid.UUID
 	failOnce  error
 	lockHeld  map[uuid.UUID]*sync.Mutex
+
+	adminGroups map[uuid.UUID]string
+	adminWrites int
+	adminErr    error
+
+	seeded   map[uuid.UUID]entitytypes.SeedInput // by version id
+	seedErr  error
+	seedFail int // fail the Nth call (1-based), once
+	seedCall int
 }
 
 func newStore() *fakeStore {
-	return &fakeStore{rows: map[uuid.UUID][]byte{}, active: map[uuid.UUID]bool{}, bindings: map[uuid.UUID]string{}, lockHeld: map[uuid.UUID]*sync.Mutex{}, domains: map[string]uuid.UUID{}}
+	return &fakeStore{rows: map[uuid.UUID][]byte{}, active: map[uuid.UUID]bool{}, bindings: map[uuid.UUID]string{}, lockHeld: map[uuid.UUID]*sync.Mutex{}, domains: map[string]uuid.UUID{}, adminGroups: map[uuid.UUID]string{}}
 }
 
 func (s *fakeStore) Lock(_ context.Context, id uuid.UUID) (func(), error) {
@@ -77,6 +89,37 @@ func (s *fakeStore) Bind(_ context.Context, id uuid.UUID, _, orgID, _ string) er
 	return nil
 }
 
+func (s *fakeStore) RecordAdminGroup(_ context.Context, id uuid.UUID, kc string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.adminErr != nil {
+		return s.adminErr
+	}
+	s.adminGroups[id] = kc // one row per tenant: a retry overwrites, never adds
+	s.adminWrites++
+	return nil
+}
+
+func (s *fakeStore) SeedEntityType(_ context.Context, id uuid.UUID, in entitytypes.SeedInput) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.seedCall++
+	if s.seedErr != nil {
+		return false, s.seedErr
+	}
+	if s.seedFail == s.seedCall {
+		return false, errors.New("crash")
+	}
+	if s.seeded == nil {
+		s.seeded = map[uuid.UUID]entitytypes.SeedInput{}
+	}
+	if _, ok := s.seeded[in.VersionID]; ok {
+		return false, nil
+	}
+	s.seeded[in.VersionID] = in
+	return true, nil
+}
+
 func (s *fakeStore) Activate(_ context.Context, id uuid.UUID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -102,8 +145,11 @@ type fakeDir struct {
 	invites   []string
 	inviteErr error
 	createErr error
-	specSeen  keycloak.IdPSpec
-	specs     *Specs
+
+	groupEnsures int
+	groupErr     error
+	specSeen     keycloak.IdPSpec
+	specs        *Specs
 }
 
 func (d *fakeDir) CreateTenantOrg(ctx context.Context, id uuid.UUID, _ string, _ []string) (string, error) {
@@ -130,6 +176,13 @@ func (d *fakeDir) InviteUser(_ context.Context, _ uuid.UUID, email string) error
 	defer d.mu.Unlock()
 	d.invites = append(d.invites, email)
 	return d.inviteErr
+}
+
+func (d *fakeDir) EnsureAdminGroup(_ context.Context, id uuid.UUID) (string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.groupEnsures++
+	return "kc-admins-" + id.String(), d.groupErr
 }
 
 func (d *fakeDir) FindTenantOrg(_ context.Context, id uuid.UUID, _ string) (string, bool, error) {
@@ -447,5 +500,134 @@ func TestOnboardRefusesADomainAnotherTenantOwnsBeforeKeycloak(t *testing.T) {
 	}
 	if _, left := st.rows[TenantID("op-1", "b")]; left || dir.creates != creates {
 		t.Errorf("row left = %v, creates %d -> %d", left, creates, dir.creates)
+	}
+}
+
+func TestOnboardRecordsAdminGroupOnceAndRetryAddsNone(t *testing.T) {
+	svc, st, dir := newSvc(t)
+	st.failOnce = errors.New("killed")
+	_, _ = svc.Onboard(t.Context(), op1, "k", []byte("h"), validReq())
+	if _, err := svc.Onboard(t.Context(), op1, "k", []byte("h"), validReq()); err != nil {
+		t.Fatal(err)
+	}
+	// A replay of the active tenant touches nothing.
+	if _, err := svc.Onboard(t.Context(), op1, "k", []byte("h"), validReq()); err != nil {
+		t.Fatal(err)
+	}
+	id := TenantID("op-1", "k")
+	if len(st.adminGroups) != 1 || st.adminGroups[id] != "kc-admins-"+id.String() || st.adminWrites != 1 || dir.groupEnsures != 1 {
+		t.Errorf("groups=%v writes=%d ensures=%d", st.adminGroups, st.adminWrites, dir.groupEnsures)
+	}
+}
+
+func TestAdminGroupIDIsStableAndPerTenant(t *testing.T) {
+	a, b := TenantID("op", "a"), TenantID("op", "b")
+	if AdminGroupID(a) != uuid.NewSHA1(Namespace, []byte("admin-group:"+a.String())) || AdminGroupID(a) == AdminGroupID(b) || AdminGroupID(a) == a {
+		t.Error("admin group id must be stable, per tenant, and not the tenant id")
+	}
+}
+
+// The admin must not be invited, and the tenant not activated, when the admin
+// group could not be created or recorded.
+func TestOnboardAdminGroupFailureStopsBeforeInvite(t *testing.T) {
+	for name, set := range map[string]func(*fakeStore, *fakeDir){
+		"directory": func(_ *fakeStore, d *fakeDir) { d.groupErr = errors.New("kc down") },
+		"store":     func(s *fakeStore, _ *fakeDir) { s.adminErr = errors.New("db down") },
+		"missing":   func(s *fakeStore, _ *fakeDir) { s.adminErr = fmt.Errorf("record: %w", ErrAdminGroupMissing) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			svc, st, dir := newSvc(t)
+			set(st, dir)
+			if _, err := svc.Onboard(t.Context(), op1, "k", []byte("h"), validReq()); err == nil {
+				t.Fatal("want error")
+			}
+			if len(dir.invites) != 0 || st.completes != 0 {
+				t.Errorf("invites=%v completes=%d", dir.invites, st.completes)
+			}
+		})
+	}
+}
+
+// The log line for ErrAdminGroupMissing carries the tenant id and the Keycloak
+// group id: the operator runbook relies on both.
+func TestOnboardAdminGroupMissingLogsBothIDs(t *testing.T) {
+	svc, st, _ := newSvc(t)
+	var buf bytes.Buffer
+	svc.o.Log = slog.New(slog.NewJSONHandler(&buf, nil))
+	st.adminErr = fmt.Errorf("record: %w", ErrAdminGroupMissing)
+	_, err := svc.Onboard(t.Context(), op1, "k", []byte("h"), validReq())
+	if !errors.Is(err, ErrAdminGroupMissing) {
+		t.Fatalf("err = %v, want ErrAdminGroupMissing", err)
+	}
+	var rec map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &rec); err != nil {
+		t.Fatalf("log line %q: %v", buf.String(), err)
+	}
+	tenant := TenantID(op1.PrincipalID, "k").String()
+	kc := "kc-admins-" + tenant
+	if rec["level"] != "ERROR" || rec["tenant_id"] != tenant || rec["keycloak_group_id"] != kc {
+		t.Errorf("log = %v, want ERROR with tenant_id %s and keycloak_group_id %s", rec, tenant, kc)
+	}
+}
+
+func TestOnboardSeedsThreeTypesWithDeterministicIDs(t *testing.T) {
+	svc, st, _ := newSvc(t)
+	res, err := svc.Onboard(t.Context(), op1, "key-seed", []byte("h"), validReq())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.seeded) != 3 {
+		t.Fatalf("seeded %d types, want 3", len(st.seeded))
+	}
+	prefixes := map[string]string{"incident": "INC", "request": "REQ", "change": "CHG"}
+	for key, prefix := range prefixes {
+		in, ok := st.seeded[EntityVersionID(res.TenantID, key, 1)]
+		if !ok {
+			t.Fatalf("%s: version 1 not seeded under its UUIDv5 id", key)
+		}
+		if in.DefinitionID != EntityDefinitionID(res.TenantID, key) || in.Definition.NumberPrefix != prefix || in.Definition.Key != key {
+			t.Errorf("%s: seeded %+v", key, in)
+		}
+	}
+	if EntityDefinitionID(res.TenantID, "incident") == EntityDefinitionID(res.TenantID, "request") ||
+		EntityDefinitionID(res.TenantID, "incident") == EntityDefinitionID(uuid.New(), "incident") ||
+		EntityVersionID(res.TenantID, "incident", 1) == EntityVersionID(res.TenantID, "incident", 2) {
+		t.Error("entity ids are not a stable function of (tenant, key, version)")
+	}
+}
+
+// A crash between templates leaves the tenant provisioning with some types
+// seeded; the retry finishes the rest and never duplicates.
+func TestOnboardSeedCrashThenRetryGivesThreeTypesOnce(t *testing.T) {
+	svc, st, _ := newSvc(t)
+	st.seedFail = 2
+	if _, err := svc.Onboard(t.Context(), op1, "key-crash", []byte("h"), validReq()); err == nil {
+		t.Fatal("want the seed failure")
+	}
+	id := TenantID("op-1", "key-crash")
+	if st.active[id] || len(st.seeded) != 1 {
+		t.Fatalf("after crash: active=%v seeded=%d, want provisioning with 1", st.active[id], len(st.seeded))
+	}
+	if _, err := svc.Onboard(t.Context(), op1, "key-crash", []byte("h"), validReq()); err != nil {
+		t.Fatal(err)
+	}
+	if !st.active[id] || len(st.seeded) != 3 {
+		t.Errorf("after retry: active=%v seeded=%d, want active with 3", st.active[id], len(st.seeded))
+	}
+	// The replay of the active tenant seeds nothing more.
+	calls := st.seedCall
+	if res, err := svc.Onboard(t.Context(), op1, "key-crash", []byte("h"), validReq()); err != nil || !res.Replayed || st.seedCall != calls {
+		t.Errorf("replay: %+v, %v, seed calls %d -> %d", res, err, calls, st.seedCall)
+	}
+}
+
+func TestOnboardSeedErrorStopsBeforeActivation(t *testing.T) {
+	svc, st, dir := newSvc(t)
+	st.seedErr = errors.New("db down")
+	if _, err := svc.Onboard(t.Context(), op1, "key-err", []byte("h"), validReq()); err == nil {
+		t.Fatal("want error")
+	}
+	if st.active[TenantID("op-1", "key-err")] || len(dir.invites) != 0 {
+		t.Errorf("active=%v invites=%v, want a provisioning tenant with no invite", st.active[TenantID("op-1", "key-err")], dir.invites)
 	}
 }

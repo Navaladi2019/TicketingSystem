@@ -1,0 +1,28 @@
+meta {
+  name: S8.14 AC4: agent@tenant-b lists tenant B's entity types only
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types?limit=200
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const items = N.json().items;
+  test('exactly change, incident and request', () => expect(items.map(i => i.key)).to.eql(['change', 'incident', 'request']));
+  test('each at version 1', () => items.forEach(i => expect(i.current_version, i.key).to.eql(1)));
+  N.noLeak('impact_' + bru.getVar('s8_run'), bru.getVar('s8_pub_sha'));
+}
+
+docs {
+  Exactly `change`, `incident` and `request`, each at tenant B's own version 1. Nothing of tenant A's publish.
+}

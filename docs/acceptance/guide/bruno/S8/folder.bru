@@ -1,0 +1,8 @@
+meta {
+  name: S8 entity types
+  seq: 8
+}
+
+docs {
+  Story S8, TICK-333 (kit TICK-346). A tenant admin publishes a new version of the `incident` type and reads every version back byte for byte. Needs `tools/seed.sh` (it gives tenant A its `admins` group with `admin@tenant-a.test` in it, and both tenants `incident`, `request` and `change` at version 1) and `tools/tunnels.sh up` (S8.19 onboards a tenant on nava-onboard). Story users: `agent@tenant-a` is Alice, `agent@tenant-b` is Bob. Byte-identical is checked twice: the `schema` bytes of the response equal the bytes published, and `schema_sha256` equals the SHA-256 of those bytes. Runs again on the same stack: each pass publishes the next version (2 on a fresh stack). AC5's database check is the stack case `deploy/compose/test/cases/s8_entity_types.sh`.
+}

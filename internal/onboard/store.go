@@ -12,6 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
+	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity/keycloak"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
@@ -174,23 +176,106 @@ func (s *PGStore) Bind(ctx context.Context, tenantID uuid.UUID, issuer, orgID, i
 	}
 }
 
+// ErrAdminGroupMissing is returned by RecordAdminGroup when, after the insert,
+// no groups row carries the Keycloak admins group id. That happens when the
+// group was deleted and re-created in Keycloak between retries: the insert
+// hits the primary key of the stale row and does nothing. Onboarding must
+// stop, not activate a tenant without an admin.
+var ErrAdminGroupMissing = errors.New("onboard: admins group has no groups row")
+
+// RecordAdminGroup implements Store. The groups insert is ON CONFLICT DO
+// NOTHING: if group sync already created the group, under any id, nothing is
+// inserted. If no groups row carries the Keycloak id afterwards, it returns
+// ErrAdminGroupMissing. Otherwise the tenant_admin_group row is written from
+// that row, so it always names the group's real id. A retry inserts nothing.
+func (s *PGStore) RecordAdminGroup(ctx context.Context, tenantID uuid.UUID, kcGroupID string) error {
+	id := AdminGroupID(tenantID)
+	path := identity.TenantGroupPrefix(tenantID) + identity.AdminGroupName
+	err := tenancy.InTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx,
+			"INSERT INTO groups (tenant_id, id, keycloak_group_id, path) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+			tenantID, id, kcGroupID, path); err != nil {
+			return err
+		}
+		var exists bool
+		if err := tx.QueryRow(ctx,
+			"SELECT EXISTS (SELECT 1 FROM groups WHERE tenant_id = $1 AND keycloak_group_id = $2)",
+			tenantID, kcGroupID).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return ErrAdminGroupMissing
+		}
+		// The row names the group's real id, whoever created it: group sync
+		// may have inserted the group first, under an id of its own.
+		_, err := tx.Exec(ctx,
+			`INSERT INTO tenant_admin_group (tenant_id, group_id)
+			 SELECT tenant_id, id FROM groups WHERE tenant_id = $1 AND keycloak_group_id = $2
+			 ON CONFLICT DO NOTHING`, tenantID, kcGroupID)
+		return err
+	})
+	if err != nil {
+		if errors.Is(err, ErrAdminGroupMissing) {
+			return err
+		}
+		return fmt.Errorf("onboard: record admin group: %w", err)
+	}
+	return nil
+}
+
+// SeedEntityType implements Store through entitytypes.Store.Seed, as
+// nava_onboard in the tenant's transaction. The definition and its version go
+// in one transaction, so a crash leaves both or neither.
+func (s *PGStore) SeedEntityType(ctx context.Context, tenantID uuid.UUID, in entitytypes.SeedInput) (bool, error) {
+	var inserted bool
+	err := tenancy.InTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
+		var err error
+		inserted, err = entitytypes.Store{}.Seed(ctx, tx, tenantID, in)
+		return err
+	})
+	if err != nil {
+		return false, fmt.Errorf("onboard: seed entity type: %w", err)
+	}
+	return inserted, nil
+}
+
 // ErrNotProvisioning is returned by Activate when it found no provisioning row of the tenant.
 var ErrNotProvisioning = errors.New("onboard: tenant is not provisioning")
 
-// Activate implements Store.
+// ErrNoTenantAdmin is returned by Activate when the tenant is provisioning but
+// has no tenant_admin_group row: an active tenant always has an admin.
+var ErrNoTenantAdmin = errors.New("onboard: tenant has no admins group row")
+
+// Activate implements Store. The UPDATE changes no row unless the tenant has a
+// tenant_admin_group row (TICK-373), so "active implies an admin" holds in the
+// data layer whatever order the caller runs its steps in. nava_onboard reads
+// that row under tenant_admin_group_select_onboard (own provisioning tenant).
+// When nothing changed, a second read of the state tells the two cases apart.
 func (s *PGStore) Activate(ctx context.Context, tenantID uuid.UUID) error {
 	err := tenancy.InTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, "UPDATE tenants SET state = 'active' WHERE id = $1 AND state = 'provisioning'", tenantID)
+		tag, err := tx.Exec(ctx, `UPDATE tenants SET state = 'active'
+			WHERE id = $1 AND state = 'provisioning'
+			  AND EXISTS (SELECT 1 FROM tenant_admin_group WHERE tenant_id = $1)`, tenantID)
 		if err != nil {
 			return err
 		}
-		if tag.RowsAffected() != 1 {
-			return ErrNotProvisioning
+		if tag.RowsAffected() == 1 {
+			return nil
 		}
-		return nil
+		var state string
+		err = tx.QueryRow(ctx, "SELECT state FROM tenants WHERE id = $1", tenantID).Scan(&state)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			return ErrNotProvisioning
+		case err != nil:
+			return err
+		case state == "provisioning":
+			return ErrNoTenantAdmin
+		}
+		return ErrNotProvisioning
 	})
 	if err != nil {
-		if errors.Is(err, ErrNotProvisioning) {
+		if errors.Is(err, ErrNotProvisioning) || errors.Is(err, ErrNoTenantAdmin) {
 			return err
 		}
 		return fmt.Errorf("onboard: activate: %w", err)

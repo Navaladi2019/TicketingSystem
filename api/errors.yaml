@@ -64,3 +64,19 @@ codes:
     status: 500
     title: Internal error
     detail: The server failed to handle the request. Quote the instance when reporting it.
+  - code: invalid_definition
+    status: 422
+    title: Invalid entity definition
+    detail: The entity type is not accepted. See errors for the failing fields.
+  - code: entity_type_exists
+    status: 409
+    title: Entity type exists
+    detail: An entity type with this key already exists in the tenant.
+  - code: number_prefix_taken
+    status: 409
+    title: Number prefix taken
+    detail: Another entity type of the tenant already uses this number prefix.
+  - code: schema_breaking_change
+    status: 422
+    title: Schema breaking change
+    detail: The new version cannot be applied to existing records. See errors for the offending paths.

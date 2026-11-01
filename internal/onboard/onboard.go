@@ -23,8 +23,10 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity/keycloak"
+	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 )
 
 // Namespace is the UUIDv5 namespace of onboarding tenant ids (D-P11).
@@ -86,8 +88,19 @@ type Store interface {
 	// ErrConflict and rolls back. Onboard then reads domain ownership under the
 	// tenant predicate as a second check.
 	Bind(ctx context.Context, tenantID uuid.UUID, issuer, orgID, idpAlias string) error
+	// RecordAdminGroup writes, in one transaction, the tenant's admins group
+	// (platform id AdminGroupID, Keycloak id kcGroupID, path /t/<tenant>/admins)
+	// and the tenant_admin_group row naming it. Idempotent: a retry writes
+	// neither a second group nor a second row.
+	RecordAdminGroup(ctx context.Context, tenantID uuid.UUID, kcGroupID string) error
+	// SeedEntityType inserts one entity type at version 1 with the ids in in,
+	// idempotently (INSERT ... ON CONFLICT DO NOTHING), and reports whether it
+	// inserted anything. Only a provisioning tenant can be seeded: the table
+	// policies refuse an active one.
+	SeedEntityType(ctx context.Context, tenantID uuid.UUID, in entitytypes.SeedInput) (inserted bool, err error)
 	// Activate moves the tenant from provisioning to active. An already-active
-	// tenant is an error.
+	// tenant is ErrNotProvisioning; a tenant with no tenant_admin_group row is
+	// ErrNoTenantAdmin and stays provisioning.
 	Activate(ctx context.Context, tenantID uuid.UUID) error
 }
 
@@ -95,6 +108,7 @@ type Store interface {
 type Directory interface {
 	CreateTenantOrg(ctx context.Context, tenantID uuid.UUID, alias string, domains []string) (string, error)
 	InviteUser(ctx context.Context, tenantID uuid.UUID, email string) error
+	EnsureAdminGroup(ctx context.Context, tenantID uuid.UUID) (keycloakGroupID string, err error)
 }
 
 // OrgFinder finds the organization an interrupted onboarding already created
@@ -141,6 +155,14 @@ func New(o Options) (*Service, error) {
 // TenantID derives the tenant id of (operator, key).
 func TenantID(operatorPrincipal, key string) uuid.UUID {
 	return uuid.NewSHA1(Namespace, []byte(operatorPrincipal+"\x00"+key))
+}
+
+// AdminGroupID is the platform id of a tenant's admins group, derived from the
+// tenant id so a retry writes the same row (D-P11). It is the id of the groups
+// row onboarding inserts; if group sync created the group first, the recorded
+// id is that group's real one (Store.RecordAdminGroup reads it back).
+func AdminGroupID(tenantID uuid.UUID) uuid.UUID {
+	return uuid.NewSHA1(Namespace, []byte("admin-group:"+tenantID.String()))
 }
 
 // Alias is the organization alias of a tenant, derived from the id alone.
@@ -191,6 +213,26 @@ func (s *Service) Onboard(ctx context.Context, operator identity.Operator, key s
 			return Result{}, ErrDomainClaimed
 		}
 	}
+	if err := SeedEntityTypes(ctx, s.o.Store, tenantID); err != nil {
+		return Result{}, err
+	}
+	// The admins group exists, and tenant_admin_group names it, before the
+	// admin is invited into it. Each step is idempotent for a retry.
+	kcGroupID, err := s.o.Directory.EnsureAdminGroup(ctx, tenantID)
+	if err != nil {
+		return Result{}, fmt.Errorf("onboard: admin group: %w", err)
+	}
+	if err := s.o.Store.RecordAdminGroup(ctx, tenantID, kcGroupID); err != nil {
+		if errors.Is(err, ErrAdminGroupMissing) {
+			// The operator runbook (docs/operator/onboarding.md, "Retry fails
+			// with admin group missing") finds the stale groups row with these
+			// two ids.
+			s.o.Log.ErrorContext(ctx, "onboard: admins group has no groups row",
+				slog.String("tenant_id", tenantID.String()),
+				slog.String("keycloak_group_id", kcGroupID))
+		}
+		return Result{}, err
+	}
 	if err := s.inviteAdmin(ctx, tenantID, req.AdminEmail); err != nil {
 		return Result{}, err
 	}
@@ -199,6 +241,53 @@ func (s *Service) Onboard(ctx context.Context, operator identity.Operator, key s
 	}
 	s.o.Log.InfoContext(ctx, "tenant onboarded", slog.String("tenant_id", tenantID.String()))
 	return Result{TenantID: tenantID}, nil
+}
+
+// EntityDefinitionID is the id of a tenant's entity type, UUIDv5 over
+// (tenant_id, key), so a retried seed names the same row (D-3-2).
+func EntityDefinitionID(tenantID uuid.UUID, key string) uuid.UUID {
+	return uuid.NewSHA1(Namespace, []byte("entity-definition:"+tenantID.String()+"\x00"+key))
+}
+
+// EntityVersionID is the id of version n of a tenant's entity type, UUIDv5
+// over (tenant_id, key, n).
+func EntityVersionID(tenantID uuid.UUID, key string, n int) uuid.UUID {
+	return uuid.NewSHA1(Namespace, []byte(fmt.Sprintf("entity-version:%s\x00%s\x00%d", tenantID, key, n)))
+}
+
+// entityTypeNames are the display names of the seed templates.
+//
+//nolint:gochecknoglobals // constant
+var entityTypeNames = map[string]string{"incident": "Incident", "request": "Request", "change": "Change"}
+
+// SeedEntityTypes seeds every template at version 1 through the entity type
+// store. Each insert is idempotent on its deterministic ids, so a retry after
+// a crash between templates finishes the missing ones. Onboarding calls it
+// while the tenant is provisioning; it is exported so the database tests drive
+// the same code against the real nava_onboard policies.
+func SeedEntityTypes(ctx context.Context, store Store, tenantID uuid.UUID) error {
+	for _, key := range metadata.TemplateKeys() {
+		d, err := metadata.Template(key)
+		if err != nil {
+			return fmt.Errorf("onboard: template %s: %w", key, err)
+		}
+		if _, err := metadata.Compile(d); err != nil {
+			return fmt.Errorf("onboard: template %s: %w", key, err)
+		}
+		name := entityTypeNames[key]
+		if name == "" {
+			name = key
+		}
+		if _, err := store.SeedEntityType(ctx, tenantID, entitytypes.SeedInput{
+			DefinitionID: EntityDefinitionID(tenantID, key),
+			VersionID:    EntityVersionID(tenantID, key, 1),
+			Name:         name,
+			Definition:   d,
+		}); err != nil {
+			return fmt.Errorf("onboard: seed %s: %w", key, err)
+		}
+	}
+	return nil
 }
 
 func (s *Service) org(ctx context.Context, tenantID uuid.UUID, alias string, domains []string, spec keycloak.IdPSpec) (string, error) {

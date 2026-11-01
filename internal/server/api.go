@@ -9,11 +9,15 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Navaladi2019/TicketingSystem/api"
+	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/apihttp"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/auth"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/cursor"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/idempotency"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/ratelimit"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
@@ -61,7 +65,7 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 	}
 
 	a := apihttp.New(spec, reg, log, baseURL)
-	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths}
+	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors}
 	api.HandlerWithOptions(
 		api.NewStrictHandlerWithOptions(h, nil, api.StrictHTTPServerOptions{
 			RequestErrorHandlerFunc:  a.StrictRequestError,
@@ -81,7 +85,36 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 	// A tenant request is authenticated (401) and then rate limited (429)
 	// before the generated router binds parameters or the validator reads the
 	// input. Operator routes carry no tenant, so they are not limited here.
-	tenant := func(next http.Handler) http.Handler { return authn.Middleware(limit.Handler(next)) }
+	// Tenant writes then need an Idempotency-Key (authn -> ratelimit ->
+	// idempotency, the R2 tripwire). Without a pool there is no key store, so a
+	// tenant write answers 501 rather than run unprotected.
+	// The operator-only process answers every tenant route 404, so it needs no
+	// key store: a tenant POST there must stay 404, not 501.
+	var idem func(http.Handler) http.Handler
+	if opts.operatorOnly {
+		idem = func(next http.Handler) http.Handler { return next }
+	} else if opts.pool != nil {
+		m, err := idempotency.New(opts.pool, reg, log, tel.MeterProvider)
+		if err != nil {
+			return nil, err
+		}
+		idem = m.Handler
+	} else {
+		idem = refuseWrites(reg, log)
+	}
+	tenant := func(next http.Handler) http.Handler {
+		keyed := idem(next)
+		// Only a route of the contract needs a key: an unknown path or a wrong
+		// method (Pattern is empty) must still get its 404 or 405.
+		gated := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Pattern == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			keyed.ServeHTTP(w, r)
+		})
+		return authn.Middleware(limit.Handler(gated))
+	}
 	authed := routeAuth(reg, opts.operatorOnly, tenant, operatorAuth(reg, log, opts.operators, resolver))(served)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, pattern := mux.Handler(r)
@@ -114,6 +147,11 @@ type handlers struct {
 	onboarder Onboarder
 	// paths is read by GetMe only (ADR-002).
 	paths identity.GroupPathReader
+	// pool (nava_app) and cursors serve the entity-type endpoints; nil answers
+	// 501 not_implemented.
+	pool    *pgxpool.Pool
+	cursors *cursor.Keyring
+	store   entitytypes.Store
 }
 
 // errNoPrincipal means a handler ran outside the authentication middleware:
@@ -156,13 +194,42 @@ func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http
 	return func(w http.ResponseWriter, r *http.Request, err error) {
 		var pe *problemError
 		if errors.As(err, &pe) {
-			if pe.code == problem.ValidationFailed {
-				h.reg.Write(w, r, problem.ValidationFailed, pe.fields...)
-				return
+			// The 4xx codes that name fields. Each is a constant, so the
+			// registry guard sees a client error; any other code, fields or
+			// not, goes through WriteError.
+			if len(pe.fields) > 0 {
+				switch pe.code {
+				case problem.ValidationFailed:
+					h.reg.Write(w, r, problem.ValidationFailed, pe.fields...)
+					return
+				case problem.InvalidDefinition:
+					h.reg.Write(w, r, problem.InvalidDefinition, pe.fields...)
+					return
+				case problem.SchemaBreakingChange:
+					h.reg.Write(w, r, problem.SchemaBreakingChange, pe.fields...)
+					return
+				case problem.InvalidIdPConfig:
+					h.reg.Write(w, r, problem.InvalidIdPConfig, pe.fields...)
+					return
+				}
 			}
 			h.reg.WriteError(w, r, h.log, pe.code, pe.err)
 			return
 		}
 		a.StrictResponseError(w, r, err)
+	}
+}
+
+// refuseWrites answers 501 to a tenant write when no key store is configured.
+func refuseWrites(reg *problem.Registry, log *slog.Logger) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodTrace:
+				next.ServeHTTP(w, r)
+			default:
+				reg.WriteError(w, r, log, problem.NotImplemented, errors.New("idempotency store not configured"))
+			}
+		})
 	}
 }

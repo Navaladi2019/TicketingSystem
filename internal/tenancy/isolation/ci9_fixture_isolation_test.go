@@ -18,6 +18,10 @@ func TestCI9FixturesMakePathsFail(t *testing.T) {
 	const tenantSetting = "NULLIF(current_setting('app.tenant_id', true), '')::uuid"
 	activate := "ALTER POLICY tenants_activate ON tenants USING (id = " + tenantSetting + " AND state = 'provisioning') " +
 		"WITH CHECK (id = " + tenantSetting + " AND state = 'active')"
+	onboardSeed := func(table string) string {
+		return "ALTER POLICY " + table + "_onboard ON " + table + " WITH CHECK (tenant_id = " + tenantSetting +
+			" AND tenant_id IN (SELECT id FROM tenants WHERE state = 'provisioning'))"
+	}
 	paths := map[string]Path{}
 	for _, p := range rolePaths() {
 		paths[p.Name] = p
@@ -60,6 +64,18 @@ func TestCI9FixturesMakePathsFail(t *testing.T) {
 			name: "tenants_activate allows any state", path: "nava_onboard cannot move an active tenant back to provisioning", table: "public.tenants",
 			apply: "ALTER POLICY tenants_activate ON tenants USING (id = " + tenantSetting + ") WITH CHECK (id = " + tenantSetting + ")",
 			undo:  activate,
+		},
+		{
+			// P3-06a (TICK-381): each seed table's guard on its own, since
+			// Seed stops at its first refusal.
+			name: "entity_definitions_onboard stops testing provisioning", path: seedActivePath, table: "public.entity_definitions",
+			apply: "ALTER POLICY entity_definitions_onboard ON entity_definitions WITH CHECK (tenant_id = " + tenantSetting + ")",
+			undo:  onboardSeed("entity_definitions"),
+		},
+		{
+			name: "entity_definition_versions_onboard stops testing provisioning", path: seedActivePath, table: "public.entity_definition_versions",
+			apply: "ALTER POLICY entity_definition_versions_onboard ON entity_definition_versions WITH CHECK (tenant_id = " + tenantSetting + ")",
+			undo:  onboardSeed("entity_definition_versions"),
 		},
 		{
 			// pg_hba is embedded, so its fixtures are internal/db/hba's

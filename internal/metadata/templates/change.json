@@ -1,0 +1,36 @@
+{
+  "key": "change",
+  "number_prefix": "CHG",
+  "fixed_columns": {
+    "state": "state",
+    "requester": "requester_id",
+    "assignee": "assignee_id",
+    "assignment_group": "assignment_group_id"
+  },
+  "states": {
+    "initial": "draft",
+    "states": ["draft", "assess", "approved", "implement", "closed"],
+    "transitions": [
+      {"from": "draft", "to": "assess"},
+      {"from": "assess", "to": "approved"},
+      {"from": "assess", "to": "draft"},
+      {"from": "approved", "to": "implement"},
+      {"from": "implement", "to": "closed"}
+    ]
+  },
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["short_description", "state"],
+    "properties": {
+      "short_description": {"type": "string", "title": "Short description", "minLength": 1, "maxLength": 160},
+      "description": {"type": "string", "title": "Description", "maxLength": 32000},
+      "state": {"type": "string", "title": "State", "enum": ["draft", "assess", "approved", "implement", "closed"], "default": "draft"},
+      "risk": {"type": "string", "title": "Risk", "enum": ["low", "medium", "high"], "default": "medium"},
+      "requester": {"type": "string", "format": "uuid", "title": "Requester"},
+      "assignee": {"type": "string", "format": "uuid", "title": "Assignee"},
+      "assignment_group": {"type": "string", "format": "uuid", "title": "Assignment group"}
+    }
+  }
+}

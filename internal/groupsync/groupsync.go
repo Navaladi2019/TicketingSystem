@@ -226,6 +226,10 @@ func (s *Syncer) syncTenant(ctx context.Context, tenantID uuid.UUID) Result {
 		if err != nil {
 			return err
 		}
+		if st.AdminGroupDeleted {
+			s.log.WarnContext(ctx, "group sync: the tenant's admins group was deleted in the directory; the tenant has no admin until one is recorded",
+				slog.String("tenant_id", tenantID.String()))
+		}
 		s.log.InfoContext(ctx, "group sync applied", slog.String("tenant_id", tenantID.String()),
 			slog.Int("principals_written", st.PrincipalsWritten), slog.Int("principals_tombstoned", st.PrincipalsTombstoned),
 			slog.Int("groups_written", st.GroupsWritten), slog.Int("groups_deleted", st.GroupsDeleted),

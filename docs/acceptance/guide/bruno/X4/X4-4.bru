@@ -1,0 +1,86 @@
+meta {
+  name: X4.4 createEntityType 401: no token
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{core_url}}/api/v1/entity-types
+  body: json
+  auth: none
+}
+
+headers {
+  Idempotency-Key: {{x4_key}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "key": "{{x4_type}}",
+    "name": "Acceptance type",
+    "number_prefix": "{{x4_prefix}}",
+    "definition": {
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "short_description",
+          "state"
+        ],
+        "properties": {
+          "short_description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "new",
+              "closed"
+            ],
+            "default": "new"
+          }
+        }
+      },
+      "fixed_columns": {
+        "state": "state"
+      },
+      "states": {
+        "initial": "new",
+        "states": [
+          "new",
+          "closed"
+        ],
+        "transitions": [
+          {
+            "from": "new",
+            "to": "closed"
+          }
+        ]
+      }
+    }
+  }
+}
+
+script:pre-request {
+  // One type key, prefix and Idempotency-Key per pass, so the folder can run again.
+  const run = Math.random().toString(16).slice(2, 10);
+  bru.setVar('x4_type', `x4_${run}`);
+  bru.setVar('x4_prefix', Array.from({ length: 6 }, () => String.fromCharCode(65 + Math.floor(Math.random() * 26))).join(''));
+  bru.setVar('x4_key', `tick343-x4-${run}-1`);
+  bru.setVar('x4_key2', `tick343-x4-${run}-2`);
+  bru.setVar('x4_key3', `tick343-x4-${run}-3`);
+  for (let i = 4; i <= 9; i++) bru.setVar(`x4_key${i}`, `tick365-x4-${run}-${i}`);
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_token', 401);
+}
+
+docs {
+  Missing token.
+}

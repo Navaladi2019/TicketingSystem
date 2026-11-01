@@ -1,0 +1,76 @@
+meta {
+  name: X4.28 publishEntityTypeVersion 422: number_prefix in the body
+  type: http
+  seq: 28
+}
+
+post {
+  url: {{core_url}}/api/v1/entity-types/{{x4_type}}/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: {{x4_key4}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "definition": {
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "short_description",
+          "state"
+        ],
+        "properties": {
+          "short_description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "new",
+              "closed"
+            ],
+            "default": "new"
+          }
+        },
+        "description": "published by X4.30"
+      },
+      "fixed_columns": {
+        "state": "state"
+      },
+      "states": {
+        "initial": "new",
+        "states": [
+          "new",
+          "closed"
+        ],
+        "transitions": [
+          {
+            "from": "new",
+            "to": "closed"
+          }
+        ]
+      }
+    },
+    "number_prefix": "ZZZ"
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_definition', 422);
+  N.fieldError('/number_prefix');
+}
+
+docs {
+  The prefix never changes after create.
+}
