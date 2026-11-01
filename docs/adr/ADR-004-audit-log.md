@@ -2,7 +2,8 @@
 type: adr
 id: ADR-004
 title: One audit log for records and configuration, sealed by a per-tenant hash chain and exportable (CR-AUDIT-1)
-status: PROPOSED
+status: ACCEPTED
+accepted: 2026-11-02
 date: 2026-11-02
 issue: TICK-409
 rfc: docs/adr/ADR-004/rfc/RFC-008-audit-log.md (rev 1, archived with rev-0/ and rev-1/; thread under TICK-409 comment 01a19871-56f8-7769-b940-bda191f3d55c)
@@ -14,7 +15,7 @@ deciders: Solution Architect (author); Technical Architect (round 1 CHANGES; rou
 
 # ADR-004: One audit log for records and configuration
 
-> **Status: PROPOSED.** All three reviewers approved RFC-008 rev 1 in round 2. Their conditions are written into this ADR as rules (marked **[TA C1]**, **[Sec]**, **[PG]** and so on). The Solution Architect gives the ACCEPTED verdict after the CTO routes it.
+> **Status: ACCEPTED** on 2026-11-02 by the Solution Architect (TICK-409), after the Technical Architect's fidelity check of PR #359 (comment 01a1988b-0779, F1–F3 applied) and the CTO's rulings (six locks: comment 01a19889-7338; F1: comment 01a1988b-3e8c). No human sign-off under the current policy. All three reviewers approved RFC-008 rev 1 in round 2; their conditions are written into this ADR as rules (marked **[TA C1]**, **[Sec]**, **[PG]** and so on). Changing a rule here needs a superseding ADR or an amendment.
 >
 > **Invariants source.** The project description defines no invariants, so this ADR is checked against [[ADR-001-platform-blueprint]] §1, I1–I9.
 
@@ -105,9 +106,9 @@ deciders: Solution Architect (author); Technical Architect (round 1 CHANGES; rou
   - **Writers never touch the outbox or the head.**
 - **R17 · `chain:reseed` [Sec].** `POST /api/v1/audit/chain:reseed`, as `nava_app`, under the head lock.
   - It returns **409 `chain_alive`** unless `next_seal_at < now() − 10 min`.
-  - Otherwise it inserts a new start row and repoints `next_seal_outbox_id`, which retires any older lineage.
+  - Otherwise it inserts a new start row and repoints `next_seal_outbox_id`, which retires any older lineage. The row's `target_seq` is the current `audit_chain_head.version`, reused **without bumping it** (ADR-001-A6.3), so `version` stays writable by `nava_worker` only (R14).
   - Every call that is not rejected writes an `audit/reseed` entry.
-- **R18 · prerequisite [TA C2].** The Temporal workload allow-list (`platformWorkflowTypes`, `temporal-server/authz/policy.go`) must contain `audit.seal` before D10a ships. The change goes through a policy PR with Security review and an image rebuild, per [[ADR-001-A1-temporal-server-1-29-7-workload-allow-list]]. It is **not** an A6 item.
+- **R18 · prerequisite [TA C2].** The Temporal workload allow-list (`platformWorkflowTypes`, `temporal-server/authz/policy.go`) must contain `audit.seal` before the R16 sealer ships. The change goes through a policy PR with Security review and an image rebuild, per [[ADR-001-A1-temporal-server-1-29-7-workload-allow-list]]. It is **not** an A6 item.
 
 ### Export
 - **R19 · one export per tenant.** It is held by the `export_lease_until` lease; a second export gets 409 `export_in_progress`. The `audit/export` entry commits before the first byte is sent.
@@ -130,7 +131,7 @@ deciders: Solution Architect (author); Technical Architect (round 1 CHANGES; rou
   - applies the R11 erase transition;
   - appends `audit/erase` entries with `subject_type = erasure_request`, `subject_id = erasure_ref`, and a diff of the erased entry ids only, at most 10,000 per entry.
 
-  It reads only the columns it needs, by column grant **[Sec]**: `(tenant_id, occurred_at, id, subject_type, subject_id, erased_at, erasure_ref)`, never `diff` or `diff_salt`. Its credential lives with the job runner, never on an app or worker host.
+  It reads by column grant only **[Sec]**, and its SELECT **never includes `diff` or `diff_salt`**. The M1 grant is `(tenant_id, occurred_at, id, subject_type, subject_id, erased_at, erasure_ref)`. This is not a closed list: if Epic 30 makes `nava_erasure` a writer of an audited table, R12 adds the commit-check columns (`txid`, `version_after`). Its credential lives with the job runner, never on an app or worker host.
 - **R24 · verifier outcomes for erased entries.**
   - An erased entry passes only if a chain-valid `audit/erase` entry with `subject_id = erasure_ref` lists its id. Otherwise it is **`tampered`**.
   - If that erase entry exists but is not yet sealed, the result is **`pending`** **[Sec]**.
@@ -148,7 +149,7 @@ deciders: Solution Architect (author); Technical Architect (round 1 CHANGES; rou
   1. All temporary policies are created and dropped in **one transaction**. The migration file must not carry a `NO TRANSACTION` directive.
   2. The only cross-tenant policy is `FOR SELECT TO nava_migrator USING (true)` on `tenants`, used to list ids. Every tenant table is read and written through temporary **canonical** migrator policies, after `set_config('app.tenant_id', …, true)` (`is_local = true`) for each tenant.
   3. The post-run catalogue gate fails on any leftover `nava_migrator` policy, asserted in CI-A3.
-- **R27 · locks [PG].** Migration B sets `lock_timeout`. It then takes all five ACCESS EXCLUSIVE locks up front, in this fixed order: `tenants`, `entity_definitions`, `entity_definition_versions`, `audit_log`, `audit_chain_head`, `outbox`. It retries on timeout. *(Six names: `entity_definitions` joins the five because the trigger is attached to it too.)*
+- **R27 · locks [PG].** Migration B sets `lock_timeout`. It then takes all **six** ACCESS EXCLUSIVE locks up front, in this fixed order: `tenants`, `entity_definitions`, `entity_definition_versions`, `audit_log`, `audit_chain_head`, `outbox`. It retries on timeout.
 
 ### Storage
 - **R28 · partitioned key shape.** `PARTITION BY RANGE (occurred_at)` with one DEFAULT partition; Epic 30 owns partition management.

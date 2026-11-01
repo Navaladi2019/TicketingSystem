@@ -37,12 +37,12 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 </style>
 </head>
 <body><main>
-<div class="banner"><span class="pill">READING GUIDE &middot; ADR-001 A6 PROPOSED</span>
+<div class="banner"><span class="pill">READING GUIDE &middot; ADR-001 A6 ACCEPTED</span>
 <span class="src">This companion explains <code>ADR-001-A6-audit-roles-and-non-record-starts.md</code>. It is not the decision record and changes nothing. If this page and the amendment disagree, the amendment wins.</span></div>
 <table class="front"><tbody>
 <tr><th>title</th><td>ADR-001 amendment A6 explained: three small additions to the blueprint that the audit log (ADR-004) needs</td></tr>
 <tr><th>type</th><td>An explainer for the decision-maker. It is not a decision record.</td></tr>
-<tr><th>explains</th><td>ADR-001-A6 (status PROPOSED, 2026-11-02), from RFC-008 rev 1 §A6 on TICK-409. Companion to ADR-004.</td></tr>
+<tr><th>explains</th><td>ADR-001-A6 (status ACCEPTED, 2026-11-02, by the Solution Architect after the Technical Architect's fidelity check and the CTO's rulings), from RFC-008 rev 1 §A6 on TICK-409. Companion to ADR-004.</td></tr>
 <tr><th>audience</th><td>Anyone approving ADR-004. It assumes no database knowledge.</td></tr>
 </tbody></table>
 
@@ -57,7 +57,7 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 <table><thead><tr><th>#</th><th>What</th><th>Why</th><th>How it is kept narrow</th></tr></thead><tbody>
 <tr><td><span class="tag green">A6.1</span></td><td>A new role, <code>nava_erasure</code></td><td>Privacy erasure (Epic 30) must blank personal data in audit entries. No existing role may change audit entries, and that rule must stay true for them.</td><td>It runs inside one customer at a time. It can blank only the four erasure columns, once per entry, and every erasure writes its own audit entry. It cannot even <em>read</em> the data it erases. Its password lives only with the job runner, never on application servers.</td></tr>
 <tr><td><span class="tag green">A6.2</span></td><td>Onboarding may book the first run of the audit sealer</td><td>The sealer keeps itself alive by booking its next run. Something has to book the first one when a new customer is created.</td><td>Onboarding may insert <em>only</em> a sealer booking (<code>kind = 'audit.seal'</code>), and only for the customer it is still setting up. It cannot read the outbox table.</td></tr>
-<tr><td><span class="tag green">A6.3</span></td><td>A rule for background jobs not tied to a ticket</td><td>The blueprint's booking rules assume every job belongs to a ticket. The sealer belongs to a customer's audit chain instead.</td><td>The job id format, the relay and the start options are unchanged. Only the bookkeeping differs: the sequence number comes from the chain's own head row, and no ticket link is written.</td></tr>
+<tr><td><span class="tag green">A6.3</span></td><td>A rule for background jobs not tied to a ticket</td><td>The blueprint's booking rules assume every job belongs to a ticket. The sealer belongs to a customer's audit chain instead.</td><td>The job id format, the relay and the start options are unchanged. Only the bookkeeping differs: the sequence number comes from the chain's own head row, and no ticket link is written. The sealer advances that number; the manual restart (<code>chain:reseed</code>) reuses it as is, so only the sealer can ever change it.</td></tr>
 </tbody></table>
 
 <figure class="diagram"><svg viewBox="0 0 760 150" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="sealer start path">
