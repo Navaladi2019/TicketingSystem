@@ -2,7 +2,8 @@
 # gates locally. The jobs run in parallel; inside each, steps run in the
 # Makefile's gate order and the first failure stops the job:
 #   lint             gofmt, go vet (untagged, then per build-tag set),
-#                    golangci-lint, fixtures, pins, generated code, required
+#                    golangci-lint, fixtures, pins, generated code (API and
+#                    acceptance guide), required
 #                    CI steps, OpenAPI, govulncheck (no containers)
 #   unit             go test -race (no containers)
 #   temporal-server  the custom server module's unit tests and govulncheck
@@ -152,6 +153,9 @@ jobs:
         run: make check-pins
       - name: api.gen.go matches openapi.yaml
         run: make check-generate
+      # TICK-391: lib/nava.js REGISTERED, the pages and the kit zip.
+      - name: Acceptance guide matches build.py
+        run: make check-guide
       # The list is tools/ci/cisteps/required.yaml (TICK-297).
       - name: ci.yml keeps every required step
         run: make check-ci-steps
