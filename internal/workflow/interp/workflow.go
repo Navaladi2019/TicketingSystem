@@ -135,6 +135,11 @@ func Workflow(ctx workflow.Context, in workerguard.RunInput) error {
 		)
 		switch d.Kind {
 		case workerguard.KindTimer:
+			// DEMO: a deliberate non-deterministic edit, an extra activity before the timer.
+			var extra workerguard.Directive
+			if err = workflow.ExecuteActivity(ctx, NextStepActivity, ref).Get(ctx, &extra); err != nil {
+				return err
+			}
 			if err = workflow.NewTimer(ctx, seconds(d.WaitSeconds)).Get(ctx, nil); err == nil {
 				next, err = follow(d.Next)
 			}
