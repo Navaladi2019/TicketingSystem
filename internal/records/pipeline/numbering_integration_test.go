@@ -357,7 +357,9 @@ func TestUniqueProperties(t *testing.T) {
 	b := seedTenantWith(t, e, assetDefinition())
 	p := newPipeline(e, nil)
 	ctx := context.Background()
-	w := func(f tenantFixture, cmd pipeline.Command) (pipeline.Result, error) { return write(ctx, e, p, f.id, cmd) }
+	w := func(f tenantFixture, cmd pipeline.Command) (pipeline.Result, error) {
+		return write(ctx, e, p, f.id, cmd)
+	}
 	owner := a.principal.PrincipalID
 
 	first, err := w(a, assetCmd(a, map[string]any{"name": "one", "serial": "SN-1", "tag": 7, "owner": owner.String()}))
