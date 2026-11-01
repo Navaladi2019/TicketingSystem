@@ -76,14 +76,17 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 	if req.Body != nil {
 		raw = *req.Body
 	}
-	var rec *store.Record
-	var fixed map[string]string
+	var (
+		rec   *store.Record
+		fixed map[string]string // the mapping the row was written under
+		tried map[string]string // the current version's, for a refused write
+	)
 	err := tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) error {
-		def, _, err := h.store.Current(ctx, tx, req.Entity)
+		def, curVersion, err := h.store.Current(ctx, tx, req.Entity)
 		if err != nil {
 			return err
 		}
-		fixed = def.FixedColumns()
+		tried = def.FixedColumns()
 		// The authorizer runs inside the pipeline, after this envelope check
 		// and before the schema check. S9's authorizer reads neither.
 		data, perr := parseRecordBody(raw)
@@ -96,14 +99,19 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 		if err != nil {
 			return err
 		}
-		rec, err = store.Get(ctx, tx, p.TenantID, res.RecordID)
+		if rec, err = store.Get(ctx, tx, p.TenantID, res.RecordID); err != nil {
+			return err
+		}
+		// The response is built from the version the row was written under,
+		// which the pipeline read itself.
+		fixed, err = h.fixedColumnsOf(ctx, tx, req.Entity, rec.SchemaVersion, curVersion, def)
 		return err
 	})
 	if err != nil {
 		if errors.Is(err, entitytypes.ErrNotFound) || errors.Is(err, pipeline.ErrNotFound) {
 			return h.notFound(ctx), nil
 		}
-		return nil, h.recordError(ctx, err, fixed)
+		return nil, h.recordError(ctx, err, tried)
 	}
 	return api.CreateRecord201JSONResponse{
 		Body:    recordBody(rec, rec.Payload(fixed)),
@@ -129,7 +137,7 @@ func (h *handlers) GetRecord(ctx context.Context, req api.GetRecordRequestObject
 		data map[string]any
 	)
 	err := tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) error {
-		cur, _, err := h.store.Current(ctx, tx, req.Entity)
+		cur, curVersion, err := h.store.Current(ctx, tx, req.Entity)
 		if err != nil {
 			return err
 		}
@@ -141,11 +149,11 @@ func (h *handlers) GetRecord(ctx context.Context, req api.GetRecordRequestObject
 		}
 		// The row was split under its own version's mapping; defaults come
 		// from the current version for what an older version never wrote.
-		stored, verr := h.store.Version(ctx, tx, req.Entity, rec.SchemaVersion)
-		if verr != nil {
-			return fmt.Errorf("read stored definition: %w", verr)
+		fixed, err := h.fixedColumnsOf(ctx, tx, req.Entity, rec.SchemaVersion, curVersion, cur)
+		if err != nil {
+			return err
 		}
-		data = cur.ApplyDefaults(rec.Payload(stored.FixedColumns()))
+		data = cur.ApplyDefaults(rec.Payload(fixed))
 		return nil
 	})
 	if errors.Is(err, store.ErrNotFound) || errors.Is(err, entitytypes.ErrNotFound) {
@@ -155,6 +163,19 @@ func (h *handlers) GetRecord(ctx context.Context, req api.GetRecordRequestObject
 		return nil, err
 	}
 	return api.GetRecord200JSONResponse{Body: recordBody(rec, data), Headers: api.GetRecord200ResponseHeaders{ETag: etag(rec.Version)}}, nil
+}
+
+// fixedColumnsOf is the fixed-column mapping of the version a row was written
+// under. It reads that version only when it is not the current one.
+func (h *handlers) fixedColumnsOf(ctx context.Context, tx pgx.Tx, entity string, version, curVersion int, cur *metadata.Compiled) (map[string]string, error) {
+	if version == curVersion {
+		return cur.FixedColumns(), nil
+	}
+	stored, err := h.store.Version(ctx, tx, entity, version)
+	if err != nil {
+		return nil, fmt.Errorf("read stored definition: %w", err)
+	}
+	return stored.FixedColumns(), nil
 }
 
 func recordBody(r *store.Record, data map[string]any) api.Record {
