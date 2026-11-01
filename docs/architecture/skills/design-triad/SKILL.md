@@ -1,6 +1,6 @@
 ---
 name: design-triad
-description: "The design decision protocol — RFC, critique, one revision, ADR, the human's sign-off, then the plan — run inside the Architecture squad, with objection labels, the two-round cap, the tie-break ladder and how to escalate. Use whenever you write, critique, revise or close an RFC or ADR, lead the Architecture squad, or are in a technical disagreement with another agent."
+description: "The design decision protocol — RFC, critique, one revision, ADR, the Solution Architect's verdict, then the plan — run inside the Architecture squad, with objection labels, the two-round cap, the tie-break ladder and how to escalate. Use whenever you write, critique, revise or close an RFC or ADR, lead the Architecture squad, or are in a technical disagreement with another agent."
 ---
 
 # The Design Triad
@@ -37,8 +37,8 @@ sequenceDiagram
   TA-->>C: VERDICT
   C->>SA: 4. write the ADR
   SA-->>C: ADR PROPOSED
-  C->>H: 5. in_review, sign-off requested
-  H-->>C: APPROVED or REJECTED
+  C->>SA: 5. verdict requested
+  SA-->>C: ACCEPTED or revise
   C->>TL: 6. new Plan issue, direct
 ```
 
@@ -53,10 +53,10 @@ sequenceDiagram
    Every objection names the mechanism, a concrete failing scenario with inputs, and what would change your mind. Any `blocking` → `VERDICT: CHANGES`; otherwise `VERDICT: APPROVE` listing the non-blocking items.
 3. **Converge (Solution Architect).** One revision. Add `## Response — round N` and resolve every `blocking` item: accepted (and how the design changed), rejected (with the reason), or deferred (with a named trigger). Do not reopen items a spike settled. On re-check the Technical Architect judges only whether each blocking item was resolved; no new objections. Still split → the tie-break ladder.
 4. **Record (Solution Architect).** `docs/adr/ADR-NNN-<slug>.md` from the approved RFC: decisions only, two pages at most, rejected options and recorded dissent. Status stays `PROPOSED`. Ship it on a design PR (see [Branch and PR](#branch-and-pr)) before the sign-off request.
-5. **Sign-off (the human).** The CTO sets the issue to `in_review` and mentions the human with the design PR link, the `.html` explainer and the ADR summary. The human replies `APPROVED` or `REJECTED: <why>`.
-   - `APPROVED` → the CTO mentions the Solution Architect to set the ADR to `ACCEPTED` in both the `.md` and the `.html` (same PR if still open, otherwise a follow-up design PR) and add `MergePr`, then goes to step 6.
-   - `REJECTED` → back to step 3 with the human's notes; this does not count as a debate round.
-6. **Close (CTO creates, Technical Lead plans).** The CTO creates `Plan ADR-NNN` assigned directly to the Technical Lead, linking only the ADR, and leaves the RFC issue in `in_review` for the human to mark `done`. The Technical Lead plans per the `delivery-planning` skill. A plan that splits work into stories keeps them independent: each story lists the files and packages it touches, no two stories touch the same file, and a real dependency is sequenced explicitly (`Depends on: <story>`, which starts only after that story is merged into `main`).
+5. **Verdict (Solution Architect).** The CTO mentions the Solution Architect with the design PR link, the `.html` explainer, the Technical Architect critique and any CTO tie-break. The Solution Architect decides `ACCEPTED` or revise. No human sign-off (policy set by vknavaladi).
+   - `ACCEPTED` → the Solution Architect sets the ADR to `ACCEPTED` in both the `.md` and the `.html` (same PR if still open, otherwise a follow-up design PR), merges the design PR (no `MergePr`), then goes to step 6.
+   - revise → back to step 3; this does not count as a debate round. A deadlock goes to the CTO, who decides.
+6. **Close (CTO creates, Technical Lead plans).** The CTO creates `Plan ADR-NNN` assigned directly to the Technical Lead, linking only the ADR, and sets the RFC issue `done`. The Technical Lead plans per the `delivery-planning` skill. A plan that splits work into stories keeps them independent: each story lists the files and packages it touches, no two stories touch the same file, and a real dependency is sequenced explicitly (`Depends on: <story>`, which starts only after that story is merged into `main`).
 
 ## Where design artefacts live
 
@@ -76,7 +76,7 @@ Amendments and errata archive their RFC and spikes under the parent ADR's direct
 - **Branch:** `TICK-<issue-no>/<short-kebab-description>`, where the number is the design issue (RFC, ADR, erratum or plan issue), e.g. `TICK-129/adr-001-a2-system-workflow-reach`. `multica repo checkout` creates an `agent/...` branch; rename it before the first push (`git branch -m`). No other prefixes.
 - **Target:** the story branch when the artefact belongs to one story (`TICK-<story-no>/<story-slug>`); otherwise `main`. Docs-only design work (RFC, ADR, amendment, erratum, plan) to `main` is the only task-level exception to "nothing goes straight to `main`" (`docs/delivery/branching-strategy.md`).
 - **Contents:** docs only, under `docs/adr/` (plans under `docs/delivery/`). An ADR PR carries the `.md`, the `.html` explainer, and the archived RFC and spikes. A fix that needs code is a task under a story, not part of the design PR.
-- **Title and labels:** `TICK-<no>: <ADR id> <title>`. Add the `PR #N` label to the issue; add `MergePr` only after the human's `APPROVED` and the status update. Never merge it yourself.
+- **Title and labels:** `TICK-<no>: <ADR id> <title>`. Add the `PR #N` label to the issue. The Solution Architect merges after the ACCEPTED verdict and the status update; no `MergePr`.
 
 ## Review checklists for the critique
 - **Solution level:** every stated goal maps to a capability; module boundaries do not leak; integration contracts are versionable; multi-tenancy and embedding are addressed; non-goals are explicit.
