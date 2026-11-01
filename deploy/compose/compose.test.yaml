@@ -36,12 +36,18 @@ services:
       OTEL_SERVICE_NAME: nava-worker-interptest
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       NAVA_INTERPTEST_FIXTURE_DIR: /run/interptest/fixtures
-      NAVA_INTERPTEST_WRITES_DIR: /run/interptest/writes
+      # The crash case (TICK-351, interpreter.sh) points the writer and the
+      # pause-after-commit hook into the interptest-state volume, which, unlike
+      # the tmpfs, outlives a container kill. Unset, the writer uses the tmpfs
+      # and the hook is off (an empty NAVA_INTERPTEST_PAUSE_DIR).
+      NAVA_INTERPTEST_WRITES_DIR: ${NAVA_INTERPTEST_WRITES_DIR:-/run/interptest/writes}
+      NAVA_INTERPTEST_PAUSE_DIR: ${NAVA_INTERPTEST_PAUSE_DIR:-}
     volumes:
       - ./deploy/compose/certs/nava-worker.pem:/run/temporal-tls/nava-worker.pem:ro
       - ./deploy/compose/certs/nava-worker.key:/run/temporal-tls/nava-worker.key:ro
       - ./deploy/compose/certs/ca.pem:/run/temporal-tls/ca.pem:ro
       - ${NAVA_INTERPTEST_FIXTURES:-./deploy/compose/test/interptest-empty}:/run/interptest/fixtures:ro
+      - interptest-state:/run/interptest/state
     tmpfs:
       - /run/interptest/writes:uid=10001,gid=10001,mode=0700
     networks: [internal]
@@ -55,3 +61,9 @@ services:
       timeout: 5s
       retries: 60
     restart: "no"
+
+volumes:
+  # Storage outside the interptest worker's process and container lifetime:
+  # the crash case's out-of-process record (TICK-351). Each case run uses its
+  # own subdirectory and removes it.
+  interptest-state: {}

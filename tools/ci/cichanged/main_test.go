@@ -129,6 +129,8 @@ func TestStorySuitesSelected(t *testing.T) {
 		{"S7 demo", "cmd/demo-outbox/main.go", "ci-stack"},
 		{"S7 demo", "scripts/dev/demo-outbox.sh", "ci-stack"},
 		{"S7 worker", "internal/workerstack/stack_test.go", "ci-stack"},
+		{"P3-24 crash case", "internal/workerstack/interp_crash_test.go", "ci-stack"},
+		{"P3-24 crash fixture", "internal/workflow/interp/testdata/applyonce.json", "ci-stack"},
 	} {
 		t.Run(c.suite+" "+c.file+" "+c.stage, func(t *testing.T) {
 			got, reasons := classify([]string{c.file}, g)

@@ -71,24 +71,28 @@ func composeIn(ctx context.Context, env []string, args ...string) (string, error
 }
 
 // interpWorker is a running nava-worker-interptest over a fixture directory.
+// env is the compose environment it was started with; a later compose call
+// on it passes the same, so compose never recreates it.
 type interpWorker struct {
 	t   *testing.T
 	dir string
+	env []string
 }
 
 // startInterpWorker stops the always-on nava-worker, builds and starts
 // nava-worker-interptest with a fresh fixture directory mounted read-only,
 // and waits for its /readyz healthcheck. Its cleanups remove
 // nava-worker-interptest, wait until it has exited, and start nava-worker
-// again until it is healthy.
-func startInterpWorker(t *testing.T) *interpWorker {
+// again until it is healthy. extraEnv is added to the compose environment
+// (the crash case's writes and pause directories).
+func startInterpWorker(t *testing.T, extraEnv ...string) *interpWorker {
 	t.Helper()
 	dir := t.TempDir()
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	env := []string{"NAVA_INTERPTEST_FIXTURES=" + abs}
+	env := append([]string{"NAVA_INTERPTEST_FIXTURES=" + abs}, extraEnv...)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	// Cleanups run last-registered first: nava-worker-interptest is removed,
@@ -104,7 +108,7 @@ func startInterpWorker(t *testing.T) *interpWorker {
 		logs, _ := composeIn(ctx, env, "logs", "--no-color", "--tail", "100", interpService)
 		t.Fatalf("compose up %s: %v\n%s\nlogs:\n%s", interpService, err, out, logs)
 	}
-	return &interpWorker{t: t, dir: abs}
+	return &interpWorker{t: t, dir: abs, env: env}
 }
 
 // restartAlwaysOnWorker starts the always-on nava-worker again and waits for
@@ -140,14 +144,21 @@ func stopInterpWorker(t *testing.T, env []string) {
 	}
 }
 
-// install writes fixture-v1 as version of tenant, and the record's file.
+// install writes fixture-v1 as version of tenant.
 func (w *interpWorker) install(tenant, version uuid.UUID) {
 	w.t.Helper()
-	d, err := os.ReadFile(fixtureV1 + ".json")
+	w.installFrom(fixtureV1, tenant, version)
+}
+
+// installFrom writes the fixture at path (path.json and path.ids.json) as
+// version of tenant.
+func (w *interpWorker) installFrom(path string, tenant, version uuid.UUID) {
+	w.t.Helper()
+	d, err := os.ReadFile(path + ".json")
 	if err != nil {
 		w.t.Fatal(err)
 	}
-	ids, err := os.ReadFile(fixtureV1 + ".ids.json")
+	ids, err := os.ReadFile(path + ".ids.json")
 	if err != nil {
 		w.t.Fatal(err)
 	}
