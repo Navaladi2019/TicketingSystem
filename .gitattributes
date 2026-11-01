@@ -34,3 +34,5 @@ api/openapi.bundled.yaml linguist-generated=true
 # Recorded workflow histories (P3-23): byte-for-byte, so the append-only test's
 # git hash-object matches the blob on main on every checkout.
 internal/workflow/testdata/histories/** -text
+# Golden vectors are compared byte for byte (TestVectorsFileIsCurrent).
+internal/audit/chain/testdata/*.json text eol=lf
