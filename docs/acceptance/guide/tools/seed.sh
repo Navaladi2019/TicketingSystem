@@ -75,7 +75,25 @@ echo "seed: one group sync cycle (nava-groupsync --once)"
 docker compose run --rm --no-deps nava-groupsync --once
 
 # The admins group's platform id, the entity types at version 1. Template
-# bytes go in as dollar-quoted literals; the files hold no "$tpl$".
+# bytes go in as dollar-quoted literals, so a template holding "$tpl$" would
+# end the literal early: refuse before it is used.
+#
+# The definition and version ids are deliberately random (gen_random_uuid()),
+# where onboarding uses UUIDv5 over tenant, key and version
+# (onboard.EntityDefinitionID / EntityVersionID). Onboarding needs fixed ids
+# so that a retry after a crash names the same rows. This script gets its
+# idempotency from ON CONFLICT on the unique keys instead: (tenant_id, key) for
+# a type, (tenant_id, definition_id, version) for a version. Nothing can
+# observe the difference: no API response carries either id (EntityTypeVersion
+# and EntityTypeSummary are addressed by key and version number), and every
+# reader, publish included, finds a type by key and joins on whatever id it
+# has.
+for t in incident request change; do
+  if grep -q '\$tpl\$' "internal/metadata/templates/$t.json"; then
+    echo "seed: internal/metadata/templates/$t.json contains \$tpl\$, the dollar-quote delimiter; change the delimiter" >&2
+    exit 1
+  fi
+done
 tpl() { cat "internal/metadata/templates/$1.json"; }
 echo "seed: tenant A's admin group, incident/request/change at version 1 in A and B"
 docker compose exec -T postgres sh -c \
