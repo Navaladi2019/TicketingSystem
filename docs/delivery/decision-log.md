@@ -6,6 +6,7 @@ Delivery decisions that change a task's contract, newest first.
 
 <!-- docindex:start -->
 
+- [2026-11-01: D-3-13 amended: an interpreter start uses the existing outbox start key `nava.interpreter:<outbox_id>`](decisions/2026-11-01-interpreter-start-target-key.md)
 - [2026-10-28: shared tables are append-safe: story-prefixed ids, `merge=union`, one file per decision](decisions/2026-10-28-append-safe-shared-tables.md)
 
 <!-- docindex:end -->

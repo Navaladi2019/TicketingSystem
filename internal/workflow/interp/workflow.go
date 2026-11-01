@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 
@@ -13,9 +14,30 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/workerguard"
 )
 
-// activityStartToClose bounds one NextStep or ApplyStep attempt. Retries use
-// the SDK's default policy; a Rejection is non-retryable and ends them.
+// activityStartToClose bounds one NextStep or ApplyStep attempt.
 const activityStartToClose = time.Minute
+
+// The retry bounds of NextStep and ApplyStep (TICK-384 review): the SDK
+// default retries forever, so a persistent retryable adapter fault would hold
+// a run open with no end. With these, it fails the run after
+// ActivityMaxAttempts attempts, about six minutes of backoff. A Rejection is
+// non-retryable and ends the retries at once.
+const (
+	ActivityMaxAttempts        = 10
+	activityInitialInterval    = time.Second
+	activityMaximumInterval    = time.Minute
+	activityBackoffCoefficient = 2.0
+)
+
+// ActivityRetryPolicy is the explicit RetryPolicy of NextStep and ApplyStep.
+func ActivityRetryPolicy() *temporal.RetryPolicy {
+	return &temporal.RetryPolicy{
+		InitialInterval:    activityInitialInterval,
+		BackoffCoefficient: activityBackoffCoefficient,
+		MaximumInterval:    activityMaximumInterval,
+		MaximumAttempts:    ActivityMaxAttempts,
+	}
+}
 
 // RegisterWorkflow adds Workflow to r as WorkflowType.
 func RegisterWorkflow(r worker.WorkflowRegistry) {
@@ -83,7 +105,10 @@ func Workflow(ctx workflow.Context, in workerguard.RunInput) error {
 	if len(in.Refs) > 0 && (!decodeStrict(in.Refs, &refs) || len(refs.PendingOutbox) != len(refs.PendingSignal)) {
 		return workerguard.Rejected(workerguard.RejectInput)
 	}
-	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{StartToCloseTimeout: activityStartToClose})
+	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: activityStartToClose,
+		RetryPolicy:         ActivityRetryPolicy(),
+	})
 	r := &run{
 		in:      in,
 		ch:      workflow.GetSignalChannel(ctx, SignalName),

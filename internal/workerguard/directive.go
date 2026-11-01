@@ -8,6 +8,7 @@ import (
 	"reflect"
 
 	"github.com/google/uuid"
+	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/converter"
 )
 
@@ -30,6 +31,19 @@ type Directive struct {
 	Signal      *uuid.UUID `json:"signal,omitempty"`
 	Next        *uuid.UUID `json:"next,omitempty"`
 	OnTimeout   *uuid.UUID `json:"on_timeout,omitempty"`
+}
+
+// DirectiveActivity is the one activity type whose result may be a Directive:
+// the interpreter's NextStep (internal/workflow/interp names its activity with
+// this constant). The guard withholds a Directive returned by any other
+// activity, and by a local activity of this name, so no other registered
+// activity can record one (D-P10 regression guard, TICK-367).
+const DirectiveActivity = "nava.interpreter.NextStep"
+
+// directiveAllowed reports whether the activity info describes may record a
+// Directive result: a regular activity of type DirectiveActivity.
+func directiveAllowed(info activity.Info) bool {
+	return !info.IsLocalActivity && info.ActivityType.Name == DirectiveActivity
 }
 
 // Kind is the kind of a Directive's step. The constants below are the only

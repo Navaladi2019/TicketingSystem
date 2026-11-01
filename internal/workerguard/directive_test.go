@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 )
 
@@ -172,9 +173,10 @@ func TestDirectiveEncodingNegatives(t *testing.T) {
 }
 
 // TestDirectiveInWorkflow: through the SDK test environment and the whole
-// guard, an activity's Directive is recorded; references-free data is still
-// withheld; a local activity's Directive is refused (documented on
-// activityOutcome).
+// guard, the DirectiveActivity's Directive is recorded; any other activity's
+// Directive is refused (D-P10 regression guard, TICK-367); data that is not
+// references only is still withheld; a local activity's Directive is refused
+// (documented on activityOutcome).
 func TestDirectiveInWorkflow(t *testing.T) {
 	id := idOf(tenantA)
 	want := validDirectives()[KindWaitSignal]
@@ -182,11 +184,11 @@ func TestDirectiveInWorkflow(t *testing.T) {
 
 	t.Run("activity Directive completes", func(t *testing.T) {
 		h := newHarness(t, id)
-		h.env.RegisterActivityWithOptions(directive, activity.RegisterOptions{Name: "next_step"})
+		h.env.RegisterActivityWithOptions(directive, activity.RegisterOptions{Name: DirectiveActivity})
 		h.env.ExecuteWorkflow(func(ctx workflow.Context) error {
 			var got Directive
 			ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{StartToCloseTimeout: 60e9})
-			err := workflow.ExecuteActivity(ctx, "next_step").Get(ctx, &got)
+			err := workflow.ExecuteActivity(ctx, DirectiveActivity).Get(ctx, &got)
 			if err == nil && (got.Step != want.Step || *got.Signal != *want.Signal) {
 				t.Errorf("the workflow read %+v, want %+v", got, want)
 			}
@@ -197,6 +199,24 @@ func TestDirectiveInWorkflow(t *testing.T) {
 		}
 		h.wantNoAlerts()
 	})
+
+	// Every other registered activity: a Directive it returns, even a valid
+	// one, is withheld and alerts, so only NextStep can steer the interpreter.
+	for _, name := range []string{"next_step", "nava.interpreter.ApplyStep", "nava.workflowref.Close"} {
+		t.Run("Directive from "+name+" is refused", func(t *testing.T) {
+			h := newHarness(t, id)
+			h.env.RegisterActivityWithOptions(directive, activity.RegisterOptions{Name: name})
+			h.env.ExecuteWorkflow(func(ctx workflow.Context) error {
+				ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+					StartToCloseTimeout: 60e9, RetryPolicy: &temporal.RetryPolicy{MaximumAttempts: 1},
+				})
+				var got Directive
+				return workflow.ExecuteActivity(ctx, name).Get(ctx, &got)
+			})
+			wantGuardError(t, h.env.GetWorkflowError(), guardActivityResult, outcomeRecordData)
+			h.wantDenyAlert(guardActivityResult, outcomeRecordData, id)
+		})
+	}
 
 	t.Run("activity state map is withheld", func(t *testing.T) {
 		h := newHarness(t, id)
