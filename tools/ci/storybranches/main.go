@@ -1,11 +1,12 @@
 // Command storybranches fails when a story branch's work is not on main
 // (TICK-322): a story branch TICK-<n>/<slug> whose changes are missing from
-// main although its story PR is merged, or that has no PR out of it at all,
-// and an open PR that targets a story branch already merged into main. The
+// main although its story PR is merged, or that has no PR out of it although
+// closed.yaml records its story as done or cancelled, and an open PR that targets a story branch already merged into main. The
 // rules are in rules.go; docs/quality/ci-pipeline.md ("Story branches")
 // explains them.
 //
-// "Merged" is the only story-closed signal CI has (it cannot read Multica).
+// CI cannot read Multica, so a merged story PR and closed.yaml are its only
+// story-closed signals.
 // Squash merges break ancestry, so "on main" compares trees: a branch is on
 // main when `git merge-tree --write-tree --merge-base=<story PR head> main
 // <branch>` yields main's own tree, that is, merging what the branch gained
@@ -17,7 +18,8 @@
 // -report writes the findings as Markdown for the CI issue.
 //
 // Usage: storybranches [-remote origin] [-main main] [-as-of RFC3339]
-// [-resolved tools/ci/storybranches/resolved.yaml] [-report file]
+// [-resolved tools/ci/storybranches/resolved.yaml]
+// [-closed tools/ci/storybranches/closed.yaml] [-report file]
 package main
 
 import (
@@ -40,10 +42,11 @@ func main() {
 	mainBranch := flag.String("main", "main", "the default branch")
 	asOf := flag.String("as-of", "", "judge pull requests as they stood at this RFC 3339 time (default now)")
 	resolvedFile := flag.String("resolved", "tools/ci/storybranches/resolved.yaml", "story branch heads accepted as they are")
+	closedFile := flag.String("closed", "tools/ci/storybranches/closed.yaml", "story branches whose story issue is done or cancelled")
 	report := flag.String("report", "", "write the findings as Markdown to this file")
 	flag.Parse()
 
-	if err := run(*remote, *mainBranch, *asOf, *resolvedFile, *report); err != nil {
+	if err := run(*remote, *mainBranch, *asOf, *resolvedFile, *closedFile, *report); err != nil {
 		var f failed
 		if errors.As(err, &f) {
 			os.Exit(1)
@@ -57,7 +60,7 @@ type failed int
 
 func (f failed) Error() string { return fmt.Sprintf("%d findings", int(f)) }
 
-func run(remote, mainBranch, asOf, resolvedFile, report string) error {
+func run(remote, mainBranch, asOf, resolvedFile, closedFile, report string) error {
 	in := Input{Main: mainBranch}
 	if asOf != "" {
 		t, err := time.Parse(time.RFC3339, asOf)
@@ -68,6 +71,9 @@ func run(remote, mainBranch, asOf, resolvedFile, report string) error {
 	}
 	var err error
 	if in.Resolved, err = readResolved(resolvedFile); err != nil {
+		return err
+	}
+	if in.Closed, err = readClosed(closedFile); err != nil {
 		return err
 	}
 	if _, err = git("fetch", "--quiet", "--prune", remote); err != nil {
@@ -246,6 +252,33 @@ func readResolved(path string) ([]Resolved, error) {
 		}
 	}
 	return f.Resolved, nil
+}
+
+// readClosed reads closed.yaml; a missing file lists no closed story.
+func readClosed(path string) ([]Closed, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // a path the caller chose
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return parseClosed(path, data)
+}
+
+func parseClosed(path string, data []byte) ([]Closed, error) {
+	var f struct {
+		Closed []Closed `yaml:"closed"`
+	}
+	if err := yaml.Unmarshal(data, &f); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	for _, c := range f.Closed {
+		if !storyRe.MatchString(c.Branch) || (c.Status != "done" && c.Status != "cancelled") || !issueRe.MatchString(c.Issue) {
+			return nil, fmt.Errorf("%s: %q needs a TICK-<n>/<slug> branch, status done or cancelled, and issue TICK-<n>", path, c.Branch)
+		}
+	}
+	return f.Closed, nil
 }
 
 func git(args ...string) (string, error) {

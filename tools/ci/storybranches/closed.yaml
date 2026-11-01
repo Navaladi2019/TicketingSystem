@@ -1,0 +1,11 @@
+# Story issues that are done or cancelled, for make check-story-branches
+# (TICK-379). CI cannot read Multica, so a story branch with merged task PRs
+# and no story PR counts as in flight, never orphaned, until it is listed here.
+# A done story normally has a merged story PR and needs no entry. Add one when
+# a story closes without its work reaching main (usually a cancellation), in
+# the same change that closes it; deleting the branch is usually better.
+#
+#   branch  the story branch, TICK-<n>/<slug>
+#   status  done or cancelled, as on the story issue
+#   issue   the story issue, TICK-<n>
+closed: []
