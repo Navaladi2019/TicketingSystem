@@ -87,15 +87,30 @@ var (
 type DirectoryAdmin interface {
 	CreateTenantOrg(ctx context.Context, tenantID uuid.UUID, alias string, domains []string) (orgID string, err error)
 	// InviteUser puts the invitee in the tenant's group (creating the user if
-	// the email is new). It rejects a user federated to an IdP not bound to the
-	// tenant with ErrIdPNotBound.
+	// the email is new) and makes the invitee a tenant admin: they are also
+	// placed in the tenant's admins group (AdminGroupName). It rejects a user
+	// federated to an IdP not bound to the tenant with ErrIdPNotBound.
+	//
+	// TODO(TODO-S8-02): every invitee is an admin today. Before any feature
+	// invites non-admins, split out InviteAdmin and put a role marker on
+	// pending_invite.
 	InviteUser(ctx context.Context, tenantID uuid.UUID, email string) error
 	DisableUser(ctx context.Context, tenantID, principalID uuid.UUID) error
 	SetGroupMembers(ctx context.Context, tenantID, groupID uuid.UUID, members []uuid.UUID) error
+	// EnsureAdminGroup returns the IdP id of the tenant's AdminGroupName group
+	// (/t/<tenant_id>/admins), creating it when missing. It is idempotent.
+	// Onboarding records the platform id of that group in tenant_admin_group;
+	// InviteUser and invitee placement put the invited admin in it.
+	EnsureAdminGroup(ctx context.Context, tenantID uuid.UUID) (keycloakGroupID string, err error)
 	// ChangesSince is poll and diff (D-P13): a full snapshot plus a digest
 	// cursor; Unchanged when the digest matches cursor.
 	ChangesSince(ctx context.Context, tenantID uuid.UUID, cursor string) (DirectoryChanges, string, error)
 }
+
+// AdminGroupName is the name of every tenant's admin group, a child of the
+// tenant's root group. Only the directory adapter and onboarding use the name;
+// authorization uses the platform id in tenant_admin_group, never the path.
+const AdminGroupName = "admins"
 
 // DirectoryChanges is one ChangesSince snapshot. Directory membership is
 // membership of a group under /t/<tenant_id>/ (TICK-73 ruling 2026-10-25), so

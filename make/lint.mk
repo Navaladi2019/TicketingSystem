@@ -1,6 +1,6 @@
-.PHONY: lint check-generate check-ci-steps check-openapi tools check-tools fmt-check vet vet-tags lint-fixture check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck
+.PHONY: lint check-generate check-guide check-ci-steps check-openapi tools check-tools fmt-check vet vet-tags lint-fixture check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck
 
-ci-lint: check-tools fmt-check vet vet-tags lint lint-fixture check-taskfile check-pins check-generate check-ci-steps check-openapi vulncheck-ci
+ci-lint: check-tools fmt-check vet vet-tags lint lint-fixture check-taskfile check-pins check-generate check-guide check-ci-steps check-openapi vulncheck-ci
 
 # golangci-lint, then the navalint analyzers (tools/navalint, its own module)
 # as go vet's tool, then workflowcheck on internal/workflow (tools/workflowcheck,
@@ -19,6 +19,12 @@ lint:
 # under api/ after regenerating is drift. Run make generate and commit the result.
 check-generate:
 	sh scripts/ci/openapi-generated.sh
+
+# Fails when docs/acceptance/guide/ (pages, Bruno collection with
+# lib/nava.js REGISTERED, kit zip) is not what build/build.py writes from
+# api/errors.yaml, the bundled spec and the build sources (TICK-391).
+check-guide:
+	sh scripts/ci/guide-generated.sh
 
 # Fails when .github/workflows/ci.yml stops running a step listed in
 # tools/ci/cisteps/required.yaml (TICK-297): a suite or report upload removed,

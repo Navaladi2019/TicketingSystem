@@ -48,6 +48,9 @@ type kcOrgRef struct {
 // the group write, so an invite is never consumed for a user who is not
 // placed, and one invite places one user. It reports whether the user was
 // placed. A refusal is (false, nil).
+//
+// TODO(TODO-S8-02): every invitee is placed in the admins group; PlaceInvitee
+// needs the invite's role once non-admin invites exist.
 func (d *Directory) PlaceInvitee(ctx context.Context, tenantID uuid.UUID, email string, bound, orgIDs []string,
 	consume func(context.Context) (bool, error)) (bool, error) {
 	if err := requireTenant(tenantID); err != nil {
@@ -115,11 +118,15 @@ func (d *Directory) PlaceInvitee(ctx context.Context, tenantID uuid.UUID, email 
 	if !ok {
 		return false, nil
 	}
-	if inTenantAlready {
-		return true, nil
+	if !inTenantAlready {
+		if _, err := d.api.do(ctx, d.runtime, http.MethodPut, "/users/{id}/groups/{groupId}",
+			"/users/"+url.PathEscape(user.ID)+"/groups/"+url.PathEscape(root.ID), nil, nil, http.StatusNoContent); err != nil {
+			return false, err
+		}
 	}
-	if _, err := d.api.do(ctx, d.runtime, http.MethodPut, "/users/{id}/groups/{groupId}",
-		"/users/"+url.PathEscape(user.ID)+"/groups/"+url.PathEscape(root.ID), nil, nil, http.StatusNoContent); err != nil {
+	// PUT is idempotent: an earlier cycle that placed the user in the tenant
+	// but not in the admin group is finished here.
+	if err := d.addToAdminGroup(ctx, tenantID, user.ID); err != nil {
 		return false, err
 	}
 	return true, nil

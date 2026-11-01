@@ -1,10 +1,10 @@
-# Acceptance guide: stories S1–S7, S11a and the API test suite (TICK-287, TICK-331, TICK-352)
+# Acceptance guide: stories S1–S8, S11a and the API test suite (TICK-287, TICK-331, TICK-346, TICK-352)
 
-A hands-on test kit for everything stories S1 to S7 delivered on `main` and for S11a (story branch `TICK-334/workflow-interpreter`), plus a
+A hands-on test kit for everything stories S1 to S8 delivered on `main` and for S11a (story branch `TICK-334/workflow-interpreter`), plus a
 Bruno test suite for every operation in `api/openapi.bundled.yaml`.
 
 - **Open `index.html`** in a browser (offline is fine), or the single-file `guide-standalone.html`.
-- **Bruno:** Bruno › **Open Collection** › the `bruno/` folder; choose **Developer Mode** when asked for the sandbox; select the `local` environment. Folders: S1–S7 (the stories), X1–X3 (the API suite: `getMe`, `onboardTenant`, every admin listener) and Z (expired tokens, runs last).
+- **Bruno:** Bruno › **Open Collection** › the `bruno/` folder; choose **Developer Mode** when asked for the sandbox; select the `local` environment. Folders: S1–S8 (the stories), X1–X4 (the API suite: `getMe`, `onboardTenant`, every admin listener, entity types) and Z (expired tokens, runs last).
 - **Headless run** (from the repository root, Git Bash on Windows; needs Node.js, verified with 22):
   - `sh docs/acceptance/guide/tools/api-test.sh`: the whole collection with the pinned Bruno CLI (`@usebruno/cli@4.3.0` through `npx`).
   - `sh docs/acceptance/guide/tools/api-test.sh S4`: one folder. Extra arguments go to `bru run` (for example `--env-var core_url=http://127.0.0.1:28080`).

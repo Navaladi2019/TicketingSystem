@@ -20,6 +20,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity/keycloak"
 	"github.com/Navaladi2019/TicketingSystem/internal/onboard"
@@ -174,6 +175,24 @@ type resumeStore struct {
 	orgID   string
 	failing bool
 	domains map[string]uuid.UUID
+	// seeded holds the entity-type versions seeded, by version id; seedCalls
+	// counts every SeedEntityType call, including repeats that insert nothing.
+	seeded    map[uuid.UUID]entitytypes.SeedInput
+	seedCalls int
+}
+
+func (s *resumeStore) SeedEntityType(_ context.Context, _ uuid.UUID, in entitytypes.SeedInput) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.seedCalls++
+	if s.seeded == nil {
+		s.seeded = map[uuid.UUID]entitytypes.SeedInput{}
+	}
+	if _, ok := s.seeded[in.VersionID]; ok {
+		return false, nil
+	}
+	s.seeded[in.VersionID] = in
+	return true, nil
 }
 
 func (s *resumeStore) Lock(context.Context, uuid.UUID) (func(), error) { return func() {}, nil }
@@ -202,6 +221,8 @@ func (s *resumeStore) Bind(_ context.Context, _ uuid.UUID, _, orgID, _ string) e
 	s.orgID = orgID
 	return nil
 }
+
+func (s *resumeStore) RecordAdminGroup(context.Context, uuid.UUID, string) error { return nil }
 
 func (s *resumeStore) Activate(context.Context, uuid.UUID) error {
 	s.mu.Lock()
@@ -265,6 +286,16 @@ func TestOnboardKillBeforeBindingThenRetryLive(t *testing.T) {
 	ids := orgsByAlias(t, alias)
 	if len(ids) != 1 || st.binds != 1 || !st.active || st.orgID != ids[0] {
 		t.Fatalf("orgs=%v binds=%d active=%v bound org=%q", ids, st.binds, st.active, st.orgID)
+	}
+	// P3-06: the kill came before the binding, so the seed ran once, on the
+	// retry; the three types exist exactly once under their UUIDv5 ids.
+	if len(st.seeded) != 3 || st.seedCalls != 3 {
+		t.Errorf("seeded %d types in %d calls, want 3 in 3", len(st.seeded), st.seedCalls)
+	}
+	for _, key := range []string{"incident", "request", "change"} {
+		if _, ok := st.seeded[onboard.EntityVersionID(tenant, key, 1)]; !ok {
+			t.Errorf("%s version 1 not seeded under its UUIDv5 id", key)
+		}
 	}
 	if n := orgIdPCount(t, ids[0]); n != 1 {
 		t.Errorf("the organization has %d IdPs, want 1", n)

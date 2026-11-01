@@ -1,0 +1,31 @@
+meta {
+  name: S8.16 AC4: agent@tenant-b reads a version that exists nowhere: 404
+  type: http
+  seq: 16
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/incident/versions/999999
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 404 problem+json, code not_found, no instance', () => {
+    expect(res.getStatus()).to.eql(404);
+    expect(N.header('Content-Type') || '').to.include('application/problem+json');
+    expect(N.json().code).to.eql('not_found');
+    expect(N.json()).to.not.have.property('instance');
+  });
+  N.status(404);
+  bru.setVar('s8_ref404', N.text());
+}
+
+docs {
+  The reference 404 for S8.17.
+}

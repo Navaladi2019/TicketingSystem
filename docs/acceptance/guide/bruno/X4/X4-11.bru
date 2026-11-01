@@ -1,0 +1,76 @@
+meta {
+  name: X4.11 createEntityType 409: the same key again
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{core_url}}/api/v1/entity-types
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: {{x4_key2}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "key": "{{x4_type}}",
+    "name": "Acceptance type",
+    "number_prefix": "ZZZZZZ",
+    "definition": {
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "short_description",
+          "state"
+        ],
+        "properties": {
+          "short_description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "new",
+              "closed"
+            ],
+            "default": "new"
+          }
+        }
+      },
+      "fixed_columns": {
+        "state": "state"
+      },
+      "states": {
+        "initial": "new",
+        "states": [
+          "new",
+          "closed"
+        ],
+        "transitions": [
+          {
+            "from": "new",
+            "to": "closed"
+          }
+        ]
+      }
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('entity_type_exists', 409);
+}
+
+docs {
+  A new Idempotency-Key, an existing type key.
+}

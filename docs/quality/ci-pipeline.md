@@ -9,7 +9,7 @@ calls only `make` targets. Install the pinned tools once with `make tools`.
 
 | Stage | Make target | What fails it | Containers |
 | --- | --- | --- | --- |
-| Lint | `ci-lint` | tool versions differ from `docs/pins.md`, `gofmt`, `go vet`, `vet-tags` (`go vet` once per build-tag set the `//go:build` lines use), golangci-lint, `lint-fixture` (exactly 5 forbidigo findings), `check-taskfile`, `check-pins`, `check-generate` (`api/api.gen.go` differs from what `go generate ./api/...` writes), `check-ci-steps` (`ci.yml` lost a step listed in `tools/ci/cisteps/required.yaml`), `check-openapi`, `govulncheck ./...` in both modules at once (`vulncheck-ci`, below) | none |
+| Lint | `ci-lint` | tool versions differ from `docs/pins.md`, `gofmt`, `go vet`, `vet-tags` (`go vet` once per build-tag set the `//go:build` lines use), golangci-lint, `lint-fixture` (exactly 5 forbidigo findings), `check-taskfile`, `check-pins`, `check-generate` (`api/api.gen.go` differs from what `go generate ./api/...` writes), `check-guide` (`docs/acceptance/guide/`, among it `bruno/lib/nava.js` `REGISTERED`, differs from what `build/build.py` writes; TICK-391), `check-ci-steps` (`ci.yml` lost a step listed in `tools/ci/cisteps/required.yaml`), `check-openapi`, `govulncheck ./...` in both modules at once (`vulncheck-ci`, below) | none |
 | Unit | `ci-unit` | `go test -race ./...` under the host-wide race lock (below), temporal-server unit tests | none |
 | Integration | `ci-integration` | any `//go:build integration` test (`internal/db/dbtest`, `internal/db/pooltest`, `internal/tenancy`, `internal/platform/health`) against throwaway PostgreSQL clusters and two PgBouncers (tags from `docs/pins.md`), or the dbtest shards running fewer tests than the package lists | Docker |
 | Isolation (in `ci-integration`, after `test-integration`) | `isolation` | the tenant isolation suite (`internal/tenancy/isolation`, T11, ADR-001 CI-2): any role × tenant table, registered path or fixture failing; writes the report `isolation-report.md` at the repository root (uploaded as the `isolation-report` artifact, even when the job fails) | Docker |
@@ -38,7 +38,7 @@ smoke, PgBouncer, every `temporal_*` case, hba, SDK, identity) then run at
 once, and `worker`, `dependencies`, `trace`, `logs`, `redact`, `idempotent` and `dbroles`
 run one at a time after them (`mode=serial`): `worker` polls `nava-tq`
 like the SDK suite's workers, `dependencies` stops
-Keycloak, `trace` counts every trace the Collector saw, `idempotent` restarts
+Keycloak, `trace` fires its own requests and waits on the Collector's sampler, `idempotent` restarts
 the stack and `dbroles` changes roles. `ci-stack` alone adds the CI overlay
 (`deploy/compose/compose.ci.yaml`), which runs the stack's PostgreSQL with
 `fsync`, `synchronous_commit` and `full_page_writes` off; that run ends in
@@ -61,36 +61,76 @@ there; production files never set them.
 A change to `go.sum` or a Dockerfile base stage is a cold run (about 8 to 10
 minutes); the next run is warm again.
 
-**Job time budgets (TICK-258).** The 5-minute figure above was the target; the
-stack jobs do not meet it, because `make image-ci` alone takes 450 to 600 s of
-every run. `timeout-minutes` is a hang guard, not a speed target: it must sit
-above the slowest run in which every step passes, or a green run is cancelled
-and blocks the merge (PR #165, runs 40443438351 and 40448981983: both cancelled
-at 931 s while `stack-test-identity` was still running after its tests passed).
+**Job time budgets (TICK-258, re-measured in TICK-400).** The 5-minute figure
+above was the target. The stack jobs do not meet it, because `make image-ci`
+takes 4 to 13 minutes of every run. `timeout-minutes` is a hang guard, not a
+speed target. It must sit above the slowest run in which every step passes, or
+a green run is cancelled and blocks the merge. This happened twice:
 
-Measured on the 11 green `stack` runs of 2026-10-26/27 (runs 40425133930 to
-40454453376; `stack-db` and `stack-internal` from six of them), job wall clock
-including set-up and post steps:
+- PR #165, runs 40443438351 and 40448981983: both cancelled at 931 s under the
+  old 15-minute bound (TICK-258).
+- PR #344, push run 41278740124: `stack` was cancelled at the 25-minute bound
+  on both attempts. On attempt 2 every case had passed; the cancel came 1 s
+  over the bound, during report upload and teardown (TICK-400).
 
-| Job | Green runs, min / max | Slowest step seen | `timeout-minutes` |
-|---|---|---|---|
-| `stack` | 511 s / 763 s; first attempts cancelled at 931 s | image build 600 s, SDK 109 s, identity 154 s | 25 (was 15) |
-| `stack-db` | 515 s / 795 s | image build | 25 (was 15) |
-| `stack-internal` | 374 s / 687 s | image build | 25 (was 15) |
-| `lint`, `unit`, `temporal-server`, `integration` | under 5 min | | 10 |
-| `changes` | under 1 min | | 5 |
+Measured on 2026-11-01 (TICK-400) over the last 10 green push runs of `main`
+and the 7 green push runs of story branch `TICK-334/workflow-interpreter`
+(all it had). Durations are job wall clock, set-up and post steps included.
 
-How 25 was chosen: the worst case of each `stack` step taken from different
-runs adds up to about 1,010 s (17 min: build 600, stack up 41, SDK 109,
-identity 154, the rest about 100). 25 minutes leaves about 45 % above that
-for a slow runner or a cold image cache. All three stack jobs get it since
-they share the image build. A real hang (a test stuck until Go's own
-`-timeout`) still ends within 25 minutes.
+| Job | `main`, min / max | Story branch, min / max | Image build, min / max | Cases, min / max | `timeout-minutes` |
+|---|---|---|---|---|---|
+| `stack` | 835 s / 1,399 s | 947 s / 1,474 s | 299 s / 678 s (758 s in cancelled run 41278740124) | 480 s / 719 s | 35 (was 25) |
+| `stack-db` | 381 s / 793 s | 409 s / 789 s | 254 s / 652 s | 43 s / 55 s | 25 |
+| `stack-internal` | 432 s / 795 s | 356 s / 742 s | 256 s / 684 s | 34 s / 47 s | 25 |
+| `lint`, `unit`, `temporal-server`, `integration` | under 5 min | | | | 10 |
+| `changes` | under 1 min | | | | 5 |
 
-Revisit when: a green `stack` run exceeds 20 minutes (raise the bound or split
-`make image-ci` into its own job that pushes the images for the three stack
-jobs), or the image build drops under 3 minutes (lower the bound back towards
-15).
+Run ids: on `main`, 41261072764, 41257268224, 41254956177, 41248729699,
+41225258899, 40832394612, 40826427934, 40824849251, 40823401408 and
+40821579602. On the story branch, 41277164363, 41274001507, 41269677744,
+41267094153, 41262361451, 41254059522 and 41212397695. Slowest: `stack`
+1,474 s in 41277164363, `stack-db` 793 s in 41254956177, `stack-internal`
+795 s in 41225258899. The cases column counts only runs with a single
+`Stack cases` step (TICK-296), so it excludes the older `main` runs that
+listed each case as its own step.
+
+Why the image build doubled: the Actions cache was full. GitHub keeps 10 GB
+per repository and evicts least recently used first. On 2026-11-01 the
+repository held 17.9 GB. Of the image-layer blobs, 6.25 GB belonged to task
+branches and 2.99 GB to pull requests; only 0.19 GB belonged to `main`. A
+cache entry can be read only by its own ref, by pull requests into that ref,
+and by every ref when it is on the default branch. So each task-branch or
+pull-request write evicted layers that other refs needed and that nothing
+would read again. The per-sha Go build caches, about 0.3 GB per job per run
+written from every ref, added to the churn. In the slowest run (41277164363),
+even the `useradd` and `go mod download` layers rebuilt, and seven `go build`
+steps ran 360 to 440 s each in parallel.
+
+What TICK-400 changed:
+
+- Only `main` writes the Actions cache. `CACHE_WRITE` is `true` on a push,
+  manual run or schedule on `main`, and false everywhere else. `make image-ci`
+  sets `cache-to` only when `CACHE_WRITE=true`, and the Go caches are split
+  into `actions/cache/restore` and `actions/cache/save`, with the save step
+  gated on `CACHE_WRITE`. Every other ref reads `main`'s entries, which stay
+  warm. A story branch whose `go.sum` differs from `main` misses only the
+  dependency layers, as it would have anyway.
+- `stack` goes to 35 minutes. Its cold-cache worst case adds the worst steps
+  seen: build 760 s, stack up 47 s, cases 720 s, set-up, reports, teardown
+  and post steps about 70 s, total about 1,600 s (27 min). 35 minutes leaves
+  about 30 % above that. A real hang still ends within 35 minutes.
+- `stack-db` and `stack-internal` stay at 25. Their cold-cache worst case is
+  about 900 s (15 min), so 25 leaves more than 60 % above it.
+
+Revisit when:
+
+- a green `stack` run exceeds 28 minutes: split the `stack` cases across two
+  jobs, or move `make image-ci` into its own job that hands the images to the
+  three stack jobs;
+- the image build on a `main` run stays under 4 minutes: lower `stack` back
+  towards 25;
+- the `stack` cases alone pass 15 minutes. They grew from about 600 s to about
+  720 s between the 2026-10-29 and 2026-11-01 runs.
 
 Containers: `scripts/ci/test-integration.sh` owns, on a private network, one
 shared PostgreSQL with the two PgBouncers of the load test (T06,
@@ -186,6 +226,7 @@ lock. `NAVA_RACE_LOCK=off` skips it.
 | A forbidden or unpinned module or image gets in | `check-pins` (fixture tests in `tools/ci/checkpins`) |
 | Taskfile and Makefile drift apart, so local runs differ from CI | `check-taskfile` (drift fixture in `tools/ci/checktaskfile`) |
 | `api/api.gen.go` is stale against `api/openapi.yaml` (TICK-281: a 422 response in the spec since #130 was never generated) | `check-generate` in the lint job: `go generate ./api/... && git diff --exit-code -- api/`. Fix: `make generate` and commit |
+| The acceptance guide is stale against its sources: `api/errors.yaml` gains a code and `bruno/lib/nava.js` `REGISTERED` is not rebuilt, so Bruno passes a body with an unregistered code (TICK-346 review, TICK-391) | `check-guide` in the lint job: `sh scripts/ci/guide-generated.sh` reruns `build.py`, then `git diff --exit-code` on `docs/acceptance/guide/` plus untracked files, and compares the kit zip by member names and bytes (`scripts/ci/zipsame.py`; `build.py` fixes entry times and modes, and deflate output can differ between zlib builds). Fix: `python -I docs/acceptance/guide/build/build.py` and commit |
 | A suite or report upload drops out of `ci.yml` and CI stays green because it never ran (TICK-281: an API upload of `ci.yml` lost `make identity-attacks` and the `ci5-report` upload) | `check-ci-steps` in the lint job (`tools/ci/cisteps`): every step in `tools/ci/cisteps/required.yaml`, the one list, must be in its job, not `if: false`, not `continue-on-error`, and a report upload must keep `if-no-files-found: error`. Edit fixtures in `TestEditsFail`; `TestDroppingAnyRequiredStepFails` deletes each listed step from the real `ci.yml` and expects exactly that failure |
 | A story's work never reaches `main`: its story branch gets task PRs after the story PR squash-merged (S5: #251, #252, #255), or the story is closed with no PR to `main` at all (S6, TICK-48), and CI on `main` stays green because the work is not there to test (TICK-286) | `story-branches` job, `make check-story-branches` (`tools/ci/storybranches`, TICK-322), below. Rules in `TestMilestone1Replay` and its neighbours; the tree comparison against a real squash merge in `TestLandedSquashMerge` |
 | A build-tagged test file stops compiling and CI stays green, because `go vet` and `go test` build untagged files only and the tagged suites run only in the stack jobs (TICK-286 finding 4: a duplicate `onboardPostRaw` behind `identitystack && acceptance` on `main`) | `vet-tags` in the lint job (`tools/ci/buildtags`, TICK-320): finds every module (each `go.mod` outside `testdata`), reads every `//go:build` line, takes for each file every minimal set of custom tags that builds it (one for `a && b`, one per side of `a || b`; GOOS, GOARCH and `go1.N` take their linux/amd64 values), and runs `go vet -tags <set> ./...` in the module once per distinct set, so a new tag or module is covered with no edit. A file with more than 16 custom tags fails the step instead of being skipped. `TestBrokenTaggedFileFails` vets a fixture whose `stacktag && accept` test redeclares a `stacktag` helper and expects exactly that set to fail; `TestRepositoryCoversTheAcceptanceTag` keeps the `acceptance,identitystack` set discovered. Tags are never combined beyond what one file needs, so two tags no file uses together are not built together |
@@ -335,17 +376,26 @@ so its result is about the repository: it can go red on a pull request that
 did not cause it. It is not a branch-protection check and not in `main-red`'s
 `needs`.
 
-CI cannot read Multica, so **a merged story PR is the "story closed" signal**.
+CI cannot read Multica, so **a merged story PR, or an entry in
+`tools/ci/storybranches/closed.yaml`, is the "story closed" signal**
+(TICK-379).
 A **story branch** is a `TICK-<n>/<slug>` branch that at least one merged pull
 request targets (task PRs merge into it). Its **story PR** is the newest merged
 pull request out of it, into `main` or, for a nested branch, into another
 story branch. An open pull request out of it means the story is still in
-flight, and nothing below fires for it.
+flight, and nothing below fires for it. So does a branch with no PR out of
+it whose story `closed.yaml` does not list: under
+`docs/delivery/branching-strategy.md` the story PR opens only after every task
+has merged, so until then the branch is in flight, not orphaned. A done story
+normally has a merged story PR. When a story closes without one (usually a
+cancellation), the Technical Lead deletes its branch or adds a `closed.yaml`
+entry (`branch`, `status: done|cancelled`, `issue`) in the same change. A bad
+entry makes the tool exit 2.
 
 | Finding | Fires when | Clear it by |
 | --- | --- | --- |
 | `story PR #N merged …, but changes since then are not on main` | the branch gained changes after its story PR merged (a PR merged into it, or a push) and they are not on `main` | a PR into `main` that carries them (TICK-316, #267), or a `resolved.yaml` entry |
-| `orphaned: …` | the branch has merged task PRs, no merged or open PR out of it, and its changes are not on `main` | open its story PR (TICK-314, #266), delete the branch if the work is abandoned, or a `resolved.yaml` entry |
+| `orphaned: story TICK-<n> is <status> (closed.yaml), …` | `closed.yaml` lists its story as done or cancelled, the branch has merged task PRs, no merged or open PR out of it, and its changes are not on `main` | open its story PR (TICK-314, #266), delete the branch if the work is abandoned, or a `resolved.yaml` entry |
 | `open PR #N targets it, but its story PR #M merged …` | an open pull request targets a story branch whose story PR has merged | retarget the pull request to `main` |
 
 **"On main" compares trees, not commits.** Squash merges keep the tree and drop

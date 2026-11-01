@@ -83,6 +83,195 @@ paths:
           $ref: "#/components/responses/Problem"
         "501":
           $ref: "#/components/responses/Problem"
+  /api/v1/entity-types:
+    get:
+      operationId: listEntityTypes
+      summary: List the tenant's entity types
+      description: >
+        Any user of the tenant. Ordered by key, cursor-paged. `limit` defaults to 50 and is at most 200.
+
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 4096
+      responses:
+        "200":
+          description: One page of entity types.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EntityTypeList"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "429":
+          $ref: "#/components/responses/Problem"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "501":
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: createEntityType
+      summary: Create an entity type (tenant admin)
+      description: >
+        Creates the entity type and its version 1. Tenant admins only; the check runs before the body is read any further than as well-formed JSON, so every field rule below answers 422 `invalid_definition` to an admin and nothing to anyone else. The body is `{key, name, number_prefix, definition: {schema, fixed_columns, states}}`: `key` matches `^[a-z][a-z0-9_]{1,40}$`, `name` is 1 to 120 characters, `number_prefix` matches `^[A-Z]{2,6}$` and never changes after create, and `definition` is the entity definition without key and number prefix. `schema` is stored as the exact request bytes.
+
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEntityTypeRequest"
+      responses:
+        "201":
+          description: The entity type exists, at version 1.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EntityTypeVersion"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "409":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+        "429":
+          $ref: "#/components/responses/Problem"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "501":
+          $ref: "#/components/responses/Problem"
+  /api/v1/entity-types/{key}:
+    get:
+      operationId: getEntityType
+      summary: The current version of an entity type
+      description: >
+        Any user of the tenant. An unknown key and another tenant's key give the same 404, byte for byte, with no `instance`.
+
+      parameters:
+        - $ref: "#/components/parameters/Key"
+      responses:
+        "200":
+          description: The current version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EntityTypeVersion"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/ProblemNoInstance"
+        "429":
+          $ref: "#/components/responses/Problem"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "501":
+          $ref: "#/components/responses/Problem"
+  /api/v1/entity-types/{key}/versions:
+    post:
+      operationId: publishEntityTypeVersion
+      summary: Publish the next version of an entity type (tenant admin)
+      description: >
+        Publishes immutable version N+1 and makes it the current version. Tenant admins only; the check runs before the body is read any further than as well-formed JSON. The body is `{definition: {schema, fixed_columns, states}}`; a `number_prefix` field answers 422 `invalid_definition`, because the prefix never changes after create. The new definition is classified against the current version (D-3-5): a breaking change answers 422 `schema_breaking_change` with `errors[].pointer` naming each offending path, and adds nothing. Compatible and needs-backfill changes publish. An unknown key and another tenant's key give the same 404, byte for byte, with no `instance`. `Idempotency-Key` is required.
+
+      parameters:
+        - $ref: "#/components/parameters/Key"
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishEntityTypeVersionRequest"
+      responses:
+        "201":
+          description: The new version, now current.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EntityTypeVersion"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/ProblemNoInstance"
+        "409":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+        "429":
+          $ref: "#/components/responses/Problem"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "501":
+          $ref: "#/components/responses/Problem"
+  /api/v1/entity-types/{key}/versions/{n}:
+    get:
+      operationId: getEntityTypeVersion
+      summary: One published version of an entity type
+      description: >
+        Any user of the tenant. `schema` is the stored bytes, exactly as published, and `schema_sha256` is the SHA-256 of those bytes in lowercase hex. A version that does not exist, including 0 and a negative number, gives the same 404 as an unknown key.
+
+      parameters:
+        - $ref: "#/components/parameters/Key"
+        - name: n
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int32
+      responses:
+        "200":
+          description: The version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EntityTypeVersion"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/ProblemNoInstance"
+        "429":
+          $ref: "#/components/responses/Problem"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "501":
+          $ref: "#/components/responses/Problem"
 components:
   schemas:
     Problem:
@@ -110,6 +299,23 @@ components:
           description: Present on validation_failed. Never carries request input.
           items:
             $ref: "#/components/schemas/FieldError"
+    ProblemNoInstance:
+      type: object
+      description: >
+        A Problem without `instance`, for the 404 of a resource that may belong to another tenant: the body is identical for an unknown and a foreign resource (D-3-10). The request id is in the X-Request-Id header.
+
+      required: [type, title, status, code, detail]
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+        detail:
+          type: string
     FieldError:
       type: object
       required: [pointer]
@@ -120,6 +326,88 @@ components:
         rule:
           type: string
           description: The schema keyword that failed, such as `format` or `pattern`.
+    CreateEntityTypeRequest:
+      type: object
+      description: >
+        Deliberately unconstrained here: the server checks every field after the admin check and answers 422 `invalid_definition` with `errors[].pointer`. Kept as the request bytes (`json.RawMessage`) so the schema is stored byte for byte.
+
+      x-go-type: json.RawMessage
+      properties:
+        key:
+          description: "`^[a-z][a-z0-9_]{1,40}$`"
+        name:
+          description: 1 to 120 characters.
+        number_prefix:
+          description: "`^[A-Z]{2,6}$`, unique per tenant, never changes."
+        definition:
+          description: "`{schema, fixed_columns, states}`, see the metadata engine."
+    PublishEntityTypeVersionRequest:
+      type: object
+      description: >
+        Deliberately unconstrained here, like CreateEntityTypeRequest: the server checks every field after the admin check. Kept as the request bytes so the schema is stored byte for byte.
+
+      x-go-type: json.RawMessage
+      properties:
+        definition:
+          description: "`{schema, fixed_columns, states}`, see the metadata engine."
+    EntityTypeVersion:
+      type: object
+      required: [key, name, number_prefix, version, current, schema, schema_sha256, fixed_columns, states, compat, published_at]
+      properties:
+        key:
+          type: string
+        name:
+          type: string
+        number_prefix:
+          type: string
+        version:
+          type: integer
+        current:
+          type: boolean
+          description: Whether this is the version new records are written under.
+        schema:
+          description: The JSON Schema 2020-12 document, as the stored bytes.
+        schema_sha256:
+          type: string
+          description: Lowercase hex SHA-256 of the stored schema bytes.
+        fixed_columns:
+          type: object
+          additionalProperties:
+            type: string
+        states:
+          type: object
+        compat:
+          type: string
+          enum: [initial, compatible, needs_backfill]
+        published_at:
+          type: string
+          format: date-time
+    EntityTypeSummary:
+      type: object
+      required: [key, name, number_prefix, current_version, updated_at]
+      properties:
+        key:
+          type: string
+        name:
+          type: string
+        number_prefix:
+          type: string
+        current_version:
+          type: integer
+        updated_at:
+          type: string
+          format: date-time
+    EntityTypeList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/EntityTypeSummary"
+        next_cursor:
+          type: string
+          description: Present when more entity types follow; pass it as `cursor`.
     Me:
       type: object
       required: [user_id, tenant_id, groups, idp_alias, group_paths]
@@ -213,3 +501,19 @@ components:
         application/problem+json:
           schema:
             $ref: "#/components/schemas/Problem"
+    ProblemNoInstance:
+      description: An RFC 9457 problem without `instance`.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemNoInstance"
+  parameters:
+    Key:
+      name: key
+      in: path
+      required: true
+      description: >
+        The entity type key. Its shape is not checked here, a key that cannot exist is a 404.
+
+      schema:
+        type: string

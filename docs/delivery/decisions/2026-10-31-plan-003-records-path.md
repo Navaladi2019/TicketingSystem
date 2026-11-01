@@ -1,0 +1,11 @@
+## 2026-10-31: PLAN-003 drafted: records path in two lanes; four task-text defects fixed before grooming
+- **Decided by:** the Technical Lead on TICK-332 (`docs/delivery/plan-records-path.md`), pending grooming and nava's approval.
+- **Decision:**
+  - Lane A (S8 → S9 → S10 → S11b → S12) is serial; lane B (S11a, the interpreter) runs in parallel from day 1 on disjoint files (D-3-1). S10, S11b and S12 tasks are created when the previous lane-A story merges (D-3-8).
+  - Spike P3-01 measures the Epic 06 150 ms list target on day 1; a miss is escalated to the CTO as D25 work before S10 is groomed.
+  - Until S10, any principal of the tenant may read and write the tenant's records (D-3-7, AR-S9-01).
+  - The pipeline emits no generic record events: the relay would start a workflow type that does not exist. An `EventSink` port enqueues `nava.interpreter` starts and `record.changed` signals in S11b (D-3-14).
+  - The interpreter holds only UUIDs; conditions and writes run in activities; one typed step result is added to the worker guard (D-3-15, P3-26).
+  - ADR-001 I9's cycle rule, as worded, rejects a workflow writing back to the record that started it; P3-00 asks the Solution Architect for an erratum and TICK-88 waits on it. Depth limit 8 confirmed (D-3-16).
+- **Cut:** ACL conditions on `data` fields, sort and range filters on `data` fields, Temporal Worker Versioning (its write APIs are denied by the Authorizer), forcing a breaking schema change, record deletion, workflow expressions. Each has a trigger in PLAN-003.
+- **Dissent:** none yet (grooming pending).

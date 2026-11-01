@@ -1,0 +1,51 @@
+meta {
+  name: S8.8 AC2: a field changes type: 422 schema_breaking_change
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{core_url}}/api/v1/entity-types/incident/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick346-s8-{{s8_run}}-breaking
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "definition": "set by the pre-request script (S8 publishes exact bytes)"
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const cur = JSON.parse(bru.getVar('s8_cur_schema'));
+  const run = bru.getVar('s8_run');
+  const fixed = bru.getVar('s8_fixed');
+  const states = bru.getVar('s8_states');
+  const body = (schemaText) => '{"definition": {"schema": ' + schemaText + ', "fixed_columns": ' + fixed + ', "states": ' + states + '}}';
+  const compat = JSON.parse(JSON.stringify(cur));
+  compat.properties['impact_' + run] = { type: 'string', title: 'Impact (S8 run ' + run + ')', maxLength: 200 };
+  const compatText = JSON.stringify(compat, null, 3);
+  const breaking = JSON.parse(JSON.stringify(cur));
+  breaking.properties.priority.type = 'number';
+  bru.setVar('s8_pub_schema', compatText);
+  bru.setVar('s8_pub_sha', N.sha256(compatText));
+  req.setBody(body(JSON.stringify(breaking, null, 3)));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('schema_breaking_change', 422);
+  N.fieldError('/definition/schema/properties/priority/type');
+  test('the problem names the field priority', () => expect((N.json().errors || []).map(e => e.pointer).join(' ')).to.include('priority'));
+}
+
+docs {
+  The current schema with `priority` changed from `integer` to `number`. Refused: `errors[].pointer` names the field.
+}

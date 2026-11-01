@@ -1,0 +1,142 @@
+SET
+CREATE INDEX
+ANALYZE
+### superuser (no RLS): selective filter, 0.25% of rows
+                                               QUERY PLAN                                               
+--------------------------------------------------------------------------------------------------------
+ Limit (actual time=1.146..46.746 rows=50 loops=1)
+   Buffers: shared hit=23732
+   ->  Index Scan using records_tenant_updated on records r (actual time=1.144..46.722 rows=50 loops=1)
+         Index Cond: (tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+         Filter: (data @> '{"category": "category-3", "priority": "1"}'::jsonb)
+         Rows Removed by Filter: 23511
+         Buffers: shared hit=23732
+ Planning:
+   Buffers: shared hit=104
+ Planning Time: 0.930 ms
+ Execution Time: 46.786 ms
+(11 rows)
+
+### nava_app (forced RLS), explicit tenant_id, same filter
+SET
+BEGIN
+                                                                    QUERY PLAN                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=1.117..71.263 rows=50 loops=1)
+   Buffers: shared hit=23732
+   ->  Result (actual time=1.116..71.215 rows=50 loops=1)
+         One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+         Buffers: shared hit=23732
+         ->  Index Scan using records_tenant_updated on records r (actual time=1.109..71.166 rows=50 loops=1)
+               Index Cond: (tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+               Filter: (data @> '{"category": "category-3", "priority": "1"}'::jsonb)
+               Rows Removed by Filter: 23511
+               Buffers: shared hit=23732
+ Planning:
+   Buffers: shared hit=6
+ Planning Time: 0.170 ms
+ Execution Time: 71.309 ms
+(14 rows)
+
+COMMIT
+RESET
+DROP INDEX
+SET
+CREATE INDEX
+ANALYZE
+### superuser (no RLS): capped count, selective filter, small tenant
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=4.618..4.621 rows=1 loops=1)
+   Buffers: shared hit=56
+   ->  Limit (actual time=4.604..4.616 rows=4 loops=1)
+         Buffers: shared hit=56
+         ->  Bitmap Heap Scan on records r (actual time=4.602..4.612 rows=4 loops=1)
+               Recheck Cond: ((tenant_id = '318ee5d4-6016-e0f8-2c2e-efccbc7609af'::uuid) AND (data @> '{"category": "category-3", "priority": "1"}'::jsonb))
+               Heap Blocks: exact=4
+               Buffers: shared hit=56
+               ->  BitmapAnd (actual time=4.589..4.591 rows=0 loops=1)
+                     Buffers: shared hit=52
+                     ->  Bitmap Index Scan on records_tenant_updated (actual time=0.111..0.111 rows=1003 loops=1)
+                           Index Cond: (tenant_id = '318ee5d4-6016-e0f8-2c2e-efccbc7609af'::uuid)
+                           Buffers: shared hit=11
+                     ->  Bitmap Index Scan on records_data_gin (actual time=4.467..4.467 rows=2009 loops=1)
+                           Index Cond: (data @> '{"category": "category-3", "priority": "1"}'::jsonb)
+                           Buffers: shared hit=41
+ Planning:
+   Buffers: shared hit=81
+ Planning Time: 0.619 ms
+ Execution Time: 4.651 ms
+(20 rows)
+
+### nava_app (forced RLS), explicit tenant_id, same count
+SET
+BEGIN
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=0.597..0.599 rows=1 loops=1)
+   Buffers: shared hit=179
+   ->  Limit (actual time=0.095..0.594 rows=4 loops=1)
+         Buffers: shared hit=179
+         ->  Result (actual time=0.094..0.593 rows=4 loops=1)
+               One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '318ee5d4-6016-e0f8-2c2e-efccbc7609af'::uuid)
+               Buffers: shared hit=179
+               ->  Bitmap Heap Scan on records r (actual time=0.090..0.587 rows=4 loops=1)
+                     Recheck Cond: (tenant_id = '318ee5d4-6016-e0f8-2c2e-efccbc7609af'::uuid)
+                     Filter: (data @> '{"category": "category-3", "priority": "1"}'::jsonb)
+                     Rows Removed by Filter: 999
+                     Heap Blocks: exact=168
+                     Buffers: shared hit=179
+                     ->  Bitmap Index Scan on records_tenant_updated (actual time=0.065..0.065 rows=1003 loops=1)
+                           Index Cond: (tenant_id = '318ee5d4-6016-e0f8-2c2e-efccbc7609af'::uuid)
+                           Buffers: shared hit=11
+ Planning:
+   Buffers: shared hit=6
+ Planning Time: 0.138 ms
+ Execution Time: 0.620 ms
+(20 rows)
+
+COMMIT
+RESET
+### superuser, the GIN alone (tenant predicate dropped), to show the index is usable
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
+ Aggregate (actual time=9.388..9.390 rows=1 loops=1)
+   Buffers: shared hit=2035
+   ->  Bitmap Heap Scan on records r (actual time=4.512..9.190 rows=2009 loops=1)
+         Recheck Cond: (data @> '{"category": "category-3", "priority": "1"}'::jsonb)
+         Heap Blocks: exact=1994
+         Buffers: shared hit=2035
+         ->  Bitmap Index Scan on records_data_gin (actual time=4.219..4.220 rows=2009 loops=1)
+               Index Cond: (data @> '{"category": "category-3", "priority": "1"}'::jsonb)
+               Buffers: shared hit=41
+ Planning:
+   Buffers: shared hit=4
+ Planning Time: 0.075 ms
+ Execution Time: 9.410 ms
+(13 rows)
+
+SET
+BEGIN
+### nava_app, the same, RLS tenant 0
+                                                                                      QUERY PLAN                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize Aggregate (actual time=256.527..274.221 rows=1 loops=1)
+   Buffers: shared hit=133334
+   ->  Gather (actual time=255.804..274.189 rows=3 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=133334
+         ->  Partial Aggregate (actual time=232.125..232.127 rows=1 loops=3)
+               Buffers: shared hit=133334
+               ->  Parallel Seq Scan on records r (actual time=4.504..231.986 rows=335 loops=3)
+                     Filter: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (data @> '{"category": "category-3", "priority": "1"}'::jsonb))
+                     Rows Removed by Filter: 266331
+                     Buffers: shared hit=133334
+ Planning Time: 0.092 ms
+ Execution Time: 292.810 ms
+(14 rows)
+
+COMMIT
+RESET
+DROP INDEX

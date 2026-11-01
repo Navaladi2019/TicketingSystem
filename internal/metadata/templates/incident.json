@@ -1,0 +1,35 @@
+{
+  "key": "incident",
+  "number_prefix": "INC",
+  "fixed_columns": {
+    "state": "state",
+    "requester": "requester_id",
+    "assignee": "assignee_id",
+    "assignment_group": "assignment_group_id"
+  },
+  "states": {
+    "initial": "new",
+    "states": ["new", "in_progress", "resolved", "closed"],
+    "transitions": [
+      {"from": "new", "to": "in_progress"},
+      {"from": "in_progress", "to": "resolved"},
+      {"from": "resolved", "to": "closed"},
+      {"from": "resolved", "to": "in_progress"}
+    ]
+  },
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["short_description", "state"],
+    "properties": {
+      "short_description": {"type": "string", "title": "Short description", "minLength": 1, "maxLength": 160},
+      "description": {"type": "string", "title": "Description", "maxLength": 32000},
+      "state": {"type": "string", "title": "State", "enum": ["new", "in_progress", "resolved", "closed"], "default": "new"},
+      "priority": {"type": "integer", "title": "Priority", "enum": [1, 2, 3, 4], "default": 3},
+      "requester": {"type": "string", "format": "uuid", "title": "Requester"},
+      "assignee": {"type": "string", "format": "uuid", "title": "Assignee"},
+      "assignment_group": {"type": "string", "format": "uuid", "title": "Assignment group"}
+    }
+  }
+}

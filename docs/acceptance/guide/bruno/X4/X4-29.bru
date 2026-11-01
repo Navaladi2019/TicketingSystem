@@ -1,0 +1,74 @@
+meta {
+  name: X4.29 publishEntityTypeVersion 422: a breaking change
+  type: http
+  seq: 29
+}
+
+post {
+  url: {{core_url}}/api/v1/entity-types/{{x4_type}}/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: {{x4_key5}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "definition": {
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "short_description",
+          "state"
+        ],
+        "properties": {
+          "short_description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "new",
+              "closed"
+            ],
+            "default": "closed"
+          }
+        }
+      },
+      "fixed_columns": {
+        "state": "state"
+      },
+      "states": {
+        "initial": "new",
+        "states": [
+          "new",
+          "closed"
+        ],
+        "transitions": [
+          {
+            "from": "new",
+            "to": "closed"
+          }
+        ]
+      }
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('schema_breaking_change', 422);
+  N.fieldError('/definition/schema/properties/state/default');
+}
+
+docs {
+  Changing the default of `state` is Breaking; `errors[].pointer` names it and no version is added.
+}

@@ -16,6 +16,14 @@ paths:
     $ref: "paths/me.yaml#/paths/~1api~1v1~1me"
   /api/v1/operator/tenants:
     $ref: "paths/operator.yaml#/paths/~1api~1v1~1operator~1tenants"
+  /api/v1/entity-types:
+    $ref: "paths/entity-types.yaml#/paths/~1api~1v1~1entity-types"
+  /api/v1/entity-types/{key}:
+    $ref: "paths/entity-types.yaml#/paths/~1api~1v1~1entity-types~1{key}"
+  /api/v1/entity-types/{key}/versions:
+    $ref: "paths/entity-types.yaml#/paths/~1api~1v1~1entity-types~1{key}~1versions"
+  /api/v1/entity-types/{key}/versions/{n}:
+    $ref: "paths/entity-types.yaml#/paths/~1api~1v1~1entity-types~1{key}~1versions~1{n}"
 components:
   schemas:
     Problem:
@@ -43,6 +51,24 @@ components:
           description: Present on validation_failed. Never carries request input.
           items:
             $ref: "#/components/schemas/FieldError"
+    ProblemNoInstance:
+      type: object
+      description: >
+        A Problem without `instance`, for the 404 of a resource that may belong
+        to another tenant: the body is identical for an unknown and a foreign
+        resource (D-3-10). The request id is in the X-Request-Id header.
+      required: [type, title, status, code, detail]
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+        detail:
+          type: string
     FieldError:
       type: object
       required: [pointer]
@@ -60,3 +86,9 @@ components:
         application/problem+json:
           schema:
             $ref: "#/components/schemas/Problem"
+    ProblemNoInstance:
+      description: An RFC 9457 problem without `instance`.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemNoInstance"

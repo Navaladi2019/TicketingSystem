@@ -34,7 +34,10 @@ var (
 type stats struct {
 	PrincipalsWritten, PrincipalsTombstoned int
 	GroupsWritten, GroupsDeleted            int
-	OrgUnitsWritten, OrgUnitsDeleted        int
+	// AdminGroupDeleted is true when a deleted group was the tenant's recorded
+	// admins group (tenant_admin_group); the tenant then has no admin.
+	AdminGroupDeleted                bool
+	OrgUnitsWritten, OrgUnitsDeleted int
 	// Ignored is the number of snapshot groups and org units whose path is
 	// outside the subtree they may be written to.
 	Ignored int
@@ -375,6 +378,14 @@ func applyGroups(ctx context.Context, tx pgx.Tx, tid string, groups []identity.D
 		}
 	}
 	if len(gone) > 0 {
+		// One query: the delete below cascades to tenant_admin_group, so ask
+		// first whether the recorded admins group is going.
+		var recorded bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM tenant_admin_group WHERE tenant_id = $1::uuid AND group_id = ANY($2::uuid[]))`,
+			tid, gone).Scan(&recorded); err != nil {
+			return fmt.Errorf("read admin group: %w", err)
+		}
+		st.AdminGroupDeleted = recorded
 		b.Queue(`DELETE FROM groups WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[])`, tid, gone)
 		st.GroupsDeleted = len(gone)
 	}

@@ -1,0 +1,79 @@
+postgres:16.10 in Docker Desktop (16 vCPUs, 19 GiB to the VM) on Windows 11, Intel Core i7-1260P, 40 GB RAM
+ versions 
+----------
+   100000
+(1 row)
+
+== insert 20,000 versions (v6), no CHECK: 3 runs, rolled back
+Time: 0.193 ms
+Time: 1527.002 ms (00:01.527)
+Time: 0.472 ms
+Time: 0.188 ms
+Time: 1966.389 ms (00:01.966)
+Time: 0.255 ms
+Time: 0.253 ms
+Time: 1858.869 ms (00:01.859)
+Time: 0.317 ms
+== migration 1: ADD CONSTRAINT ... NOT VALID (ACCESS EXCLUSIVE held for this long)
+Time: 0.237 ms
+Time: 0.279 ms
+Time: 1.538 ms
+        mode         
+---------------------
+ AccessExclusiveLock
+(1 row)
+
+Time: 1.638 ms
+Time: 6.630 ms
+== migration 2: VALIDATE (SHARE UPDATE EXCLUSIVE)
+Time: 0.154 ms
+Time: 0.200 ms
+Time: 31.272 ms
+Time: 36.356 ms
+           mode           
+--------------------------
+ ShareUpdateExclusiveLock
+(1 row)
+
+Time: 0.532 ms
+Time: 3.235 ms
+== insert 20,000 versions (v6), with both CHECKs: 3 runs, rolled back
+Time: 0.160 ms
+Time: 2016.426 ms (00:02.016)
+Time: 0.402 ms
+Time: 0.250 ms
+Time: 1736.034 ms (00:01.736)
+Time: 0.402 ms
+Time: 0.211 ms
+Time: 1841.560 ms (00:01.842)
+Time: 0.367 ms
+== the CHECK expression alone over 100,000 rows
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize Aggregate  (cost=18548.60..18548.61 rows=1 width=8) (actual time=43.835..61.497 rows=1 loops=1)
+   Buffers: shared hit=13674 read=2041 written=3
+   ->  Gather  (cost=18548.39..18548.60 rows=2 width=8) (actual time=43.573..61.484 rows=3 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=13674 read=2041 written=3
+         ->  Partial Aggregate  (cost=17548.39..17548.40 rows=1 width=8) (actual time=31.775..31.777 rows=1 loops=3)
+               Buffers: shared hit=13674 read=2041 written=3
+               ->  Parallel Seq Scan on entity_definition_versions  (cost=0.00..17548.38 rows=2 width=0) (actual time=0.047..28.642 rows=33333 loops=3)
+                     Filter: ((jsonb_typeof(fixed_columns) = 'object'::text) AND (jsonb_typeof(states) = 'object'::text))
+                     Buffers: shared hit=13674 read=2041 written=3
+ Planning:
+   Buffers: shared hit=3 read=7
+ Planning Time: 0.176 ms
+ Execution Time: 61.544 ms
+(15 rows)
+
+Time: 62.486 ms
+== a [] insert is refused
+psql:/bench/bench.sql:64: ERROR:  new row for relation "entity_definition_versions" violates check constraint "entity_definition_versions_fixed_columns_check"
+DETAIL:  Failing row contains (83f1535f-99ab-0bf4-e9d0-2dfd85d3e3f7, 024481b8-d94c-4593-89c0-29b22eb0c66b, d495bf2e-cd54-9a8c-d8d1-e7eae6cccd45, 99, {}, \x44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff..., [], {}, compatible, 83f1535f-99ab-0bf4-e9d0-2dfd85d3e3f7, 2026-10-31 23:05:39.196688+00).
+== sizes (no index added)
+ total  
+--------
+ 138 MB
+(1 row)
+

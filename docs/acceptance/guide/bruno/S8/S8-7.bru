@@ -1,0 +1,49 @@
+meta {
+  name: S8.7 AC3: agent@tenant-a publishes: 403
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{core_url}}/api/v1/entity-types/incident/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: tick346-s8-{{s8_run}}-alice
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "definition": "set by the pre-request script (S8 publishes exact bytes)"
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const cur = JSON.parse(bru.getVar('s8_cur_schema'));
+  const run = bru.getVar('s8_run');
+  const fixed = bru.getVar('s8_fixed');
+  const states = bru.getVar('s8_states');
+  const body = (schemaText) => '{"definition": {"schema": ' + schemaText + ', "fixed_columns": ' + fixed + ', "states": ' + states + '}}';
+  const compat = JSON.parse(JSON.stringify(cur));
+  compat.properties['impact_' + run] = { type: 'string', title: 'Impact (S8 run ' + run + ')', maxLength: 200 };
+  const compatText = JSON.stringify(compat, null, 3);
+  const breaking = JSON.parse(JSON.stringify(cur));
+  breaking.properties.priority.type = 'number';
+  bru.setVar('s8_pub_schema', compatText);
+  bru.setVar('s8_pub_sha', N.sha256(compatText));
+  req.setBody(body(compatText));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('forbidden', 403);
+}
+
+docs {
+  The same compatible body S8.11 publishes. Alice is not in tenant A's admins group: 403 `forbidden`. S8.10 shows nothing was stored.
+}

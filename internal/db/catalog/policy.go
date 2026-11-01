@@ -48,18 +48,26 @@ func AllowList() map[string]Policy {
 // email_domain_release (TICK-280) frees them under the same guard.
 // pending_invite_insert and pending_invite_reinvite (T252a) do the same for
 // the invites InviteUser writes (security finding 1 on PR #164).
+// entity_definitions_onboard and entity_definition_versions_onboard (P3-02,
+// TICK-340) let onboarding seed its own provisioning tenant's entity types.
 func PinnedTenantPolicies() map[string]Policy {
 	own := TenantPred("id")
 	and := func(state string) string { return "(" + own + " AND (state = '" + state + "'::text))" }
 	provisioning := "(tenant_id IN ( SELECT tenants.id\n   FROM tenants\n  WHERE (tenants.state = 'provisioning'::text)))"
 	ownProvisioning := "(" + TenantPred("tenant_id") + " AND " + provisioning + ")"
 	return map[string]Policy{
-		"public.tenants.tenants_onboard_insert":           {"INSERT", "nava_onboard", "", and("provisioning")},
-		"public.tenants.tenants_activate":                 {"UPDATE", "nava_onboard", and("provisioning"), and("active")},
-		"public.tenant_email_domain.email_domain_onboard": {"INSERT", "nava_onboard", "", ownProvisioning},
-		"public.tenant_email_domain.email_domain_release": {"DELETE", "nava_onboard", ownProvisioning, ""},
-		"public.pending_invite.pending_invite_insert":     {"INSERT", "nava_onboard", "", ownProvisioning},
-		"public.pending_invite.pending_invite_reinvite":   {"UPDATE", "nava_onboard", ownProvisioning, ownProvisioning},
+		"public.tenants.tenants_onboard_insert":                                {"INSERT", "nava_onboard", "", and("provisioning")},
+		"public.tenants.tenants_activate":                                      {"UPDATE", "nava_onboard", and("provisioning"), and("active")},
+		"public.tenant_email_domain.email_domain_onboard":                      {"INSERT", "nava_onboard", "", ownProvisioning},
+		"public.tenant_email_domain.email_domain_release":                      {"DELETE", "nava_onboard", ownProvisioning, ""},
+		"public.pending_invite.pending_invite_insert":                          {"INSERT", "nava_onboard", "", ownProvisioning},
+		"public.pending_invite.pending_invite_reinvite":                        {"UPDATE", "nava_onboard", ownProvisioning, ownProvisioning},
+		"public.groups.groups_insert_onboard":                                  {"INSERT", "nava_onboard", "", ownProvisioning},
+		"public.groups.groups_select_onboard":                                  {"SELECT", "nava_onboard", ownProvisioning, ""},
+		"public.tenant_admin_group.tenant_admin_group_insert":                  {"INSERT", "nava_onboard", "", ownProvisioning},
+		"public.tenant_admin_group.tenant_admin_group_select_onboard":          {"SELECT", "nava_onboard", ownProvisioning, ""},
+		"public.entity_definitions.entity_definitions_onboard":                 {"INSERT", "nava_onboard", "", ownProvisioning},
+		"public.entity_definition_versions.entity_definition_versions_onboard": {"INSERT", "nava_onboard", "", ownProvisioning},
 	}
 }
 

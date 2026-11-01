@@ -27,21 +27,25 @@ type Code string
 
 // The registered codes.
 const (
-	TenantUnresolved    Code = "tenant_unresolved"
-	InvalidToken        Code = "invalid_token"
-	IdempotencyKeyReuse Code = "idempotency_key_reuse"
-	IdempotencyInFlight Code = "idempotency_in_flight"
-	Forbidden           Code = "forbidden"
-	DomainClaimed       Code = "domain_claimed"
-	InvalidIdPConfig    Code = "invalid_idp_config"
-	OnboardingConflict  Code = "onboarding_conflict"
-	InvalidCursor       Code = "invalid_cursor"
-	RateLimited         Code = "rate_limited"
-	NotFound            Code = "not_found"
-	ValidationFailed    Code = "validation_failed"
-	MethodNotAllowed    Code = "method_not_allowed"
-	NotImplemented      Code = "not_implemented"
-	InternalError       Code = "internal_error"
+	TenantUnresolved     Code = "tenant_unresolved"
+	InvalidToken         Code = "invalid_token"
+	IdempotencyKeyReuse  Code = "idempotency_key_reuse"
+	IdempotencyInFlight  Code = "idempotency_in_flight"
+	Forbidden            Code = "forbidden"
+	DomainClaimed        Code = "domain_claimed"
+	InvalidIdPConfig     Code = "invalid_idp_config"
+	OnboardingConflict   Code = "onboarding_conflict"
+	InvalidCursor        Code = "invalid_cursor"
+	RateLimited          Code = "rate_limited"
+	NotFound             Code = "not_found"
+	ValidationFailed     Code = "validation_failed"
+	MethodNotAllowed     Code = "method_not_allowed"
+	NotImplemented       Code = "not_implemented"
+	InternalError        Code = "internal_error"
+	InvalidDefinition    Code = "invalid_definition"
+	EntityTypeExists     Code = "entity_type_exists"
+	NumberPrefixTaken    Code = "number_prefix_taken"
+	SchemaBreakingChange Code = "schema_breaking_change"
 )
 
 // Codes lists every Code constant.
@@ -49,7 +53,7 @@ func Codes() []Code {
 	return []Code{
 		TenantUnresolved, InvalidToken, IdempotencyKeyReuse, IdempotencyInFlight, Forbidden, DomainClaimed, InvalidIdPConfig, OnboardingConflict, InvalidCursor,
 		RateLimited, NotFound, ValidationFailed, MethodNotAllowed,
-		NotImplemented, InternalError,
+		NotImplemented, InternalError, InvalidDefinition, EntityTypeExists, NumberPrefixTaken, SchemaBreakingChange,
 	}
 }
 
@@ -111,7 +115,7 @@ type Body struct {
 	Status   int          `json:"status"`
 	Code     Code         `json:"code"`
 	Detail   string       `json:"detail"`
-	Instance string       `json:"instance"`
+	Instance string       `json:"instance,omitempty"`
 	Errors   []FieldError `json:"errors,omitempty"`
 }
 
