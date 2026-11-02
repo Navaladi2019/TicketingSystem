@@ -12,7 +12,7 @@ ITEM 1: PASS — the commit check costs 34–76 µs per call, ≤ 4.7% of the sm
 
 Two findings need action in Epic 05. Neither changes ADR-004.
 
-- **F1 (P5-10b, P5-11).** As pinned, the commit check is O(n²) in a large transaction. Moving the probe's values into plpgsql locals does not fix it on clean statistics. The fix is one statistics override per partition, plus a CI plan test.
+- **F1 (P5-10b, P5-11).** As pinned, the commit check is O(n²) in a large transaction. Moving the probe's values into plpgsql locals does not fix it on clean statistics. The fix is one statistics override per partition, plus the TICK-428 CI cost-ratio plan test.
 - **F2 (export task, S16).** The R20 anchor query, written the obvious way, scales with tenant history instead of window size. Its plan must scan the `occurred_at` range.
 
 ## Environment
@@ -142,7 +142,7 @@ So pooled p95 neither confirms nor refutes ≤ 10%. The PASS rests on points 1�
    - The pinned text gets either the R2 key or the R28 subject index `(tenant_id, subject_type, subject_id, occurred_at)`.
    - 2,000 subjects commit in 37–107 ms.
 
-**Why: a cost tie.** Without the override, the R2-key path and any `(tenant_id, occurred_at)`-prefixed index (pkey, `tenant_time`, `unsealed`) have the same estimated cost: **8.46 vs 8.46**. The plan therefore comes down to a cost tie, and ANALYZE-sample noise decides it. No table state is assumed safe: the bad plan appeared on a freshly vacuumed table and after ordinary writes alike (`out/f1-vm.txt`). With the override, the prefix path costs **214.98 against 8.46** (50 tenants). The margin figures come from a generic `PREPARE`/`EXPLAIN` in the Technical Architect's review of PR #371 (TICK-423 comment `01a199d9`, findings 4 and 5).
+**Why: a cost tie.** Without the override, the R2-key path and any `(tenant_id, occurred_at)`-prefixed index (pkey, `tenant_time`, `unsealed`) have the same estimated cost: **8.46 vs 8.46**. The plan therefore comes down to a cost tie, and ANALYZE-sample noise decides it. The tie can go either way in any table state; no state (fresh, vacuumed, all-visible or not) is safe. The bad plan appeared on a freshly vacuumed table and after ordinary writes alike (`out/f1-vm.txt`). With the override, the prefix path costs **214.98 against 8.46** (50 tenants). The margin figures come from a generic `PREPARE`/`EXPLAIN` in the Technical Architect's review of PR #371 (TICK-423 comment `01a199d9`, findings 4 and 5).
 
 Every entry of one transaction shares `(tenant_id, occurred_at = now())`. Once the prefix path wins, each of the n deferred probes therefore scans up to n entries. With the override, `occurred_at` equality is estimated at about 200 rows per tenant, so the R2 key is strictly cheaper.
 
@@ -152,7 +152,7 @@ Every entry of one transaction shares `(tenant_id, occurred_at = now())`. Once t
 
 **Side effects of the override.** It changes estimates only for *equality* on `occurred_at`. Range predicates (reader, export, R20) use the histogram. PK lookups `(tenant_id, occurred_at, id)` stay unique through `id`.
 
-**Asks.** The Technical Lead has added the catalogue and plan tests to TICK-450 and TICK-428.
+**Asks.** The Technical Lead has added the catalogue test to TICK-450 and the plan test to TICK-428. The TICK-428 plan test is a cost-ratio test: with the override, the `(tenant_id, occurred_at)`-prefix path must cost at least 10× the R2-key path; as a negative control, with the override `RESET`, the ratio must be below 2×. The plan-shape assertion below is a second check. It does not depend on any table state.
 
 1. **P5-10b:** set the override on `audit_log` and every partition. Write it into the Epic 30 partition-creation contract: set it, then ANALYZE, on every new partition.
 2. **P5-11:** write the probe with plpgsql locals (`v_type := TG_ARGV[0]; v_txid := pg_current_xact_id(); v_at := now();`). With F1 this gets the R2-key Index Only Scan (cost 4.46, against 8.59 for the subject index). The plan test must require both `subject_id` and `occurred_at` in `Index Cond`.
