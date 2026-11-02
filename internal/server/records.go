@@ -76,18 +76,14 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 		raw = *req.Body
 	}
 	var (
-		rec       *pipeline.Record
-		fixed     map[string]string // the mapping the row was written under
-		tried     map[string]string // the current version's, for a refused write
-		stateProp string
+		rec   *pipeline.Record
+		fixed map[string]string // the mapping the row was written under
 	)
 	err := tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) error {
 		def, curVersion, err := h.store.Current(ctx, tx, req.Entity)
 		if err != nil {
 			return err
 		}
-		tried = def.FixedColumns()
-		stateProp = def.StateProperty()
 		// The authorizer runs inside the pipeline, after this envelope check
 		// and before the schema check. S9's authorizer reads neither.
 		data, perr := parseRecordBody(raw)
@@ -114,7 +110,9 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 		if errors.Is(err, entitytypes.ErrNotFound) || errors.Is(err, pipeline.ErrNotFound) {
 			return h.notFound(ctx), nil
 		}
-		return nil, h.recordError(ctx, err, tried, stateProp)
+		// A refused write carries the version the pipeline validated against
+		// (*pipeline.ErrAtVersion); recordError maps under that one.
+		return nil, h.recordError(ctx, err, nil, "")
 	}
 	return api.CreateRecord201JSONResponse{
 		Body:    recordBody(rec, rec.Payload(fixed)),
@@ -212,11 +210,19 @@ func recordInvalid(fields ...problem.FieldError) *problemError {
 	return &problemError{problem.RecordInvalid, fields, errors.New("invalid record")}
 }
 
-// recordError maps a failed create transaction. A foreign key violation never
-// shows its constraint, table or detail text: it is a field error naming the
-// payload property whose fixed column the constraint guards. The constraint
-// name is logged here, server side only.
+// recordError maps a failed create or update transaction. A foreign key
+// violation never shows its constraint, table or detail text: it is a field
+// error naming the payload property whose fixed column the constraint guards.
+// The constraint name is logged here, server side only.
+//
+// Pointers are built from the definition version the pipeline wrote under
+// (*pipeline.ErrAtVersion), so a version published between the handler's own
+// read and the pipeline's cannot move them (TICK-413). fixed and stateProp,
+// from the handler's read, are used only for an error without that version.
 func (h *handlers) recordError(ctx context.Context, err error, fixed map[string]string, stateProp string) error {
+	if av := (*pipeline.ErrAtVersion)(nil); errors.As(err, &av) {
+		fixed, stateProp = av.FixedColumns, av.StateProperty
+	}
 	var (
 		ve *pipeline.ErrValidation
 		it *pipeline.ErrIllegalTransition
