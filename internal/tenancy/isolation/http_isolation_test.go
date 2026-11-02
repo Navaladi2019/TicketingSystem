@@ -263,13 +263,15 @@ func countRows(ctx context.Context, super *pgx.Conn, tenant string) (rowCounts, 
 //   - "refused 404": the 404 that the same request to c.Unknown (a key no
 //     tenant has) gets, byte for byte after withoutInstance, with nothing
 //     written in either tenant (Postgres review P1); or
-//   - "stored under A, row <id>": a 201 (or 200) whose id names a record filed
-//     under tenant A.
+//   - "stored under A, row <id>": a 201 whose id names a record filed under
+//     tenant A, and tenant A gained exactly that one record. A 200 can only be
+//     a replay, which fails anyway (C4).
 //
 // Every read is on the superuser connection, past row-level security: a read
-// as tenant A cannot see a row misfiled under tenant B. The call's record rows
-// and its own Idempotency-Key row are deleted before it returns, so later
-// paths see the seed unchanged.
+// as tenant A cannot see a row misfiled under tenant B. The call's own
+// Idempotency-Key row is deleted before it returns. Its record rows are
+// deleted by id only once that id has been shown to be the one new tenant A
+// record, so a 201 naming a seed row can never delete it (C2).
 func (r *apiRunner) runStoredUnderA(t *testing.T, c *HTTPCall) (status, detail string) {
 	t.Helper()
 	ctx := t.Context()
@@ -297,32 +299,8 @@ func (r *apiRunner) runStoredUnderA(t *testing.T, c *HTTPCall) (status, detail s
 	}
 	rec := r.do(t, c)
 	body := rec.Body.String()
-	success := rec.Code == http.StatusCreated || rec.Code == http.StatusOK
+	created := rec.Code == http.StatusCreated // C2: 201 only
 
-	// C2: the stored row is the one the response names, by id, never the
-	// latest row or a count delta.
-	var created struct {
-		ID string `json:"id"`
-	}
-	stored := "" // the tenant that row is filed under
-	if success {
-		if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil || uuid.Validate(created.ID) != nil {
-			return statusFail, fmt.Sprintf("%d with no record id the runner can resolve: %s", rec.Code, body)
-		}
-		defer func() {
-			// TODO(TODO-S9-01): this leaves the record's outbox and
-			// cascade_start rows behind. Once P3-42 wires the EventSink,
-			// delete cascade_start first, then outbox, then these.
-			for _, q := range []string{`DELETE FROM audit_log WHERE record_id = $1`, `DELETE FROM records WHERE id = $1`} {
-				if _, err := super.Exec(context.Background(), q, created.ID); err != nil {
-					t.Errorf("cleanup: %v", err)
-				}
-			}
-		}()
-		if err := super.QueryRow(ctx, `SELECT tenant_id::text FROM records WHERE id = $1`, created.ID).Scan(&stored); err != nil {
-			return statusFail, fmt.Sprintf("%d, but record %s is not in records: %v", rec.Code, created.ID, err)
-		}
-	}
 	afterA, err := countRows(ctx, super, TenantA)
 	if err != nil {
 		return statusFail, err.Error()
@@ -330,6 +308,40 @@ func (r *apiRunner) runStoredUnderA(t *testing.T, c *HTTPCall) (status, detail s
 	afterB, err := countRows(ctx, super, TenantB)
 	if err != nil {
 		return statusFail, err.Error()
+	}
+	// C2: the stored row is the one the response names, by id, never the
+	// latest row. The +1 on tenant A is a guard on top of that lookup: only
+	// when both hold is the id this call's own row, safe to delete.
+	var row struct {
+		ID string `json:"id"`
+	}
+	// The lookup has no tenant predicate, so it finds the row wherever it
+	// landed; an id can repeat across tenants (the seed's IDOR fixtures do),
+	// so it must name exactly one row.
+	var stored []string // the tenants rows with that id are filed under
+	if created {
+		if err := json.Unmarshal(rec.Body.Bytes(), &row); err != nil || uuid.Validate(row.ID) != nil {
+			return statusFail, fmt.Sprintf("201 with no record id the runner can resolve: %s", body)
+		}
+		rows, err := super.Query(ctx, `SELECT tenant_id::text FROM records WHERE id = $1 ORDER BY tenant_id`, row.ID)
+		if err != nil {
+			return statusFail, err.Error()
+		}
+		if stored, err = pgx.CollectRows(rows, pgx.RowTo[string]); err != nil {
+			return statusFail, err.Error()
+		}
+		if slices.Equal(stored, []string{TenantA}) && afterA.records == beforeA.records+1 {
+			defer func() {
+				// TODO(TODO-S9-01): P3-42: this leaves the record's outbox and
+				// cascade_start rows behind. Once the EventSink is wired,
+				// delete cascade_start first, then outbox, then these.
+				for _, q := range []string{`DELETE FROM audit_log WHERE tenant_id = $1 AND record_id = $2`, `DELETE FROM records WHERE tenant_id = $1 AND id = $2`} {
+					if _, err := super.Exec(context.Background(), q, TenantA, row.ID); err != nil {
+						t.Errorf("cleanup: %v", err)
+					}
+				}
+			}()
+		}
 	}
 
 	switch {
@@ -342,11 +354,15 @@ func (r *apiRunner) runStoredUnderA(t *testing.T, c *HTTPCall) (status, detail s
 		return statusFail, fmt.Sprintf("%d replayed from the key store: the handler never read this call's forged field: %s", rec.Code, body)
 	case rec.Code == http.StatusUnauthorized: // C3
 		return statusFail, "401: the token for tenant A was not honoured, so this proves nothing: " + body
-	case success: // C2, C5
-		if stored != TenantA {
-			return statusFail, fmt.Sprintf("%d, record %s stored under tenant %s, want tenant A", rec.Code, created.ID, stored)
+	case created: // C2, C5
+		if !slices.Equal(stored, []string{TenantA}) {
+			return statusFail, fmt.Sprintf("201, record %s is filed under tenants %v, want exactly one row, in tenant A", row.ID, stored)
 		}
-		return statusPass, fmt.Sprintf("stored under A, row %s (%d); tenant B unchanged at %+v", created.ID, rec.Code, afterB)
+		if afterA.records != beforeA.records+1 {
+			return statusFail, fmt.Sprintf("201 naming record %s, but tenant A's records went from %d to %d, want one more: not this call's row, so it is left in place",
+				row.ID, beforeA.records, afterA.records)
+		}
+		return statusPass, fmt.Sprintf("stored under A, row %s (201); tenant B unchanged at %+v", row.ID, afterB)
 	case rec.Code == http.StatusNotFound: // C3, C5, P1
 		if afterA != beforeA {
 			return statusFail, fmt.Sprintf("404, but tenant A's records and audit rows went from %+v to %+v: a refusal must write nothing", beforeA, afterA)
