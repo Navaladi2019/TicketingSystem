@@ -116,6 +116,10 @@ func fileStages(f string, g graph) ([]string, string) {
 		return []string{"ci-lint", "ci-unit", "ci-stack"}, "temporal-server module and image"
 	case strings.HasPrefix(f, "tools/navalint/"):
 		return []string{"ci-lint", "ci-unit"}, "navalint module"
+	case strings.HasPrefix(f, "docs/acceptance/S13/"):
+		// The S13 kit's samples, expected outputs and README are checked by
+		// tools/acceptance/s13kit (TICK-426).
+		return []string{"ci-lint", "ci-unit"}, "S13 acceptance kit, checked by tools/acceptance/s13kit"
 	case (path.Ext(f) == ".md" || path.Ext(f) == ".html") && !strings.Contains("/"+f, "/testdata/"):
 		// Only outside a Go package: a package may embed or read its own
 		// .md files, which the package rule below covers.

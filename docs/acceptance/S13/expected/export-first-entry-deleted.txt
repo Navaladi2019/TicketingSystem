@@ -1,0 +1,2 @@
+exit 1
+tampered: line 3 (seq 2): seq_missing: seq 1..1 missing from a stubs=true file

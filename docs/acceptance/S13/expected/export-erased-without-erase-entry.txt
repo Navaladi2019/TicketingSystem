@@ -1,0 +1,2 @@
+exit 1
+tampered: line 8 (seq 6): erasure_unlisted: erased, but no chain-valid audit/erase entry for its erasure_ref lists its id (R24)

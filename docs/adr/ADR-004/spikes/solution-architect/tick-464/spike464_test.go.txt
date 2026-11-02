@@ -1,0 +1,92 @@
+package verify_test
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/audit/chain/vectors"
+)
+
+// TICK-464 spike: how does the PR #370 verifier judge stubs=false files?
+func TestSpike464(t *testing.T) {
+	raw, err := vectors.Generate()
+	var v vectors.File
+	if err == nil {
+		err = json.Unmarshal(raw, &v)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	var base []string
+	for _, e := range v.Exports {
+		if e.Name == "unfiltered" {
+			base = e.JSONL
+		}
+	}
+	type obj = map[string]any
+	parse := func(ls []string) []obj {
+		out := []obj{}
+		for _, l := range ls {
+			var o obj
+			if err := json.Unmarshal([]byte(l), &o); err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, o)
+		}
+		return out
+	}
+	emit := func(os []obj) []byte {
+		var b strings.Builder
+		for _, o := range os {
+			j, _ := json.Marshal(o)
+			b.Write(j)
+			b.WriteByte('\n')
+		}
+		return []byte(b.String())
+	}
+	// build: keep range seqs in keep; last = last_seq of the range (1..last).
+	build := func(stubs, verifiable bool, last int, keep func(int) bool) []byte {
+		ls := parse(base)
+		hdr, anchor := ls[0], ls[1]
+		hdr["stubs"] = stubs
+		_ = anchor
+		raw := []string{}
+		var head any
+		count := 0
+		for i, o := range ls[2 : len(ls)-1] {
+			s := int(o["seq"].(float64))
+			if s > last {
+				continue
+			}
+			if s == last {
+				head = o["entry_hash"]
+			}
+			if keep(s) {
+				raw = append(raw, base[2+i])
+				count++
+			}
+		}
+		tr := ls[len(ls)-1]
+		tr["last_seq"], tr["head_hash"], tr["count"], tr["stub_count"], tr["verifiable"] = last, head, count, 0, verifiable
+		h, tl := emit([]obj{hdr}), emit([]obj{tr})
+		return []byte(string(h) + base[1] + "\n" + strings.Join(raw, "\n") + "\n" + string(tl))
+	}
+	all := func(int) bool { return true }
+	cases := []struct {
+		name string
+		file []byte
+	}{
+		{"A stubs=false verifiable=false complete 1..7 (TA-6F)", build(false, false, 7, all)},
+		{"B stubs=false verifiable=true complete 1..7 (honest, filter matched all)", build(false, true, 7, all)},
+		{"C stubs=false verifiable=false range 1..5, seq 5 excluded (trailing gap)", build(false, false, 5, func(s int) bool { return s != 5 })},
+		{"D stubs=false verifiable=true range 1..5, seq 2 excluded (internal gap)", build(false, true, 5, func(s int) bool { return s != 2 })},
+		{"E stubs=true range 1..5, seq 2 missing", build(true, true, 5, func(s int) bool { return s != 2 })},
+		{"F stubs=true range 1..5, seq 5 missing (trailing)", build(true, true, 5, func(s int) bool { return s != 5 })},
+		{"G stubs=false verifiable=false range 1..5, seq 2 excluded (honest internal gap)", build(false, false, 5, func(s int) bool { return s != 2 })},
+	}
+	for _, c := range cases {
+		r := run(t, c.file)
+		t.Logf("%-80s -> %s %s", c.name, r.Outcome, describe(r))
+	}
+}
