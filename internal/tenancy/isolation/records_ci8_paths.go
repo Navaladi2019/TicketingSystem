@@ -69,6 +69,11 @@ func recordCI8Paths() []Path {
 
 const ci8Missing = "0194f2c0-0000-7000-8000-0000000c1800"
 
+// errCI8Oracle marks a failed oracle check: tenant A's record answered
+// tenant B differently from a random UUID. It is the only failure the
+// mutation control accepts (errors.Is); a control: failure never wraps it.
+var errCI8Oracle = errors.New("CI-8 existence oracle")
+
 // ci8Fixture: tenant A's record id of iso_et_rec, at version 2 (so W/"1" is
 // stale and W/"2" current), with its audit row count; and tenant B's own
 // record of its own iso_et_rec, for the positive controls.
@@ -163,9 +168,9 @@ func ci8Same(what string, other, missing ci8Resp) error {
 	case missing.code != http.StatusNotFound:
 		return fmt.Errorf("control: %s for a random UUID = %d %s, want 404", what, missing.code, missing.body)
 	case other.code != http.StatusNotFound:
-		return fmt.Errorf("%s for tenant A's record = %d %s, want the random UUID's 404", what, other.code, other.body)
+		return fmt.Errorf("%s for tenant A's record = %d %s, want the random UUID's 404: %w", what, other.code, other.body, errCI8Oracle)
 	case other.body != missing.body:
-		return fmt.Errorf("%s: tenant A's record's 404 body differs from the random UUID's:\n%s\n%s", what, other.body, missing.body)
+		return fmt.Errorf("%s: tenant A's record's 404 body differs from the random UUID's:\n%s\n%s\n%w", what, other.body, missing.body, errCI8Oracle)
 	case strings.Contains(missing.body, `"instance"`):
 		return fmt.Errorf("%s: the 404 carries an instance (D-3-10): %s", what, missing.body)
 	case missing.hdr.Get("Content-Type") == "":
@@ -183,11 +188,11 @@ func ci8Same(what string, other, missing ci8Resp) error {
 	}
 	ok, mk := keys(other.hdr), keys(missing.hdr)
 	if !slices.Equal(ok, mk) {
-		return fmt.Errorf("%s: tenant A's record's 404 has headers %v, the random UUID's %v", what, ok, mk)
+		return fmt.Errorf("%s: tenant A's record's 404 has headers %v, the random UUID's %v: %w", what, ok, mk, errCI8Oracle)
 	}
 	for _, k := range ok {
 		if !slices.Equal(other.hdr.Values(k), missing.hdr.Values(k)) {
-			return fmt.Errorf("%s: header %s is %q for tenant A's record, %q for the random UUID", what, k, other.hdr.Values(k), missing.hdr.Values(k))
+			return fmt.Errorf("%s: header %s is %q for tenant A's record, %q for the random UUID: %w", what, k, other.hdr.Values(k), missing.hdr.Values(k), errCI8Oracle)
 		}
 	}
 	if missing.hdr.Get("ETag") != "" {
@@ -280,7 +285,7 @@ func ci8ETagCases(ctx context.Context, e *etIso, h http.Handler, fx *ci8Fixture)
 			return fmt.Errorf("control: PATCH If-Match %s for a random UUID = %d %s, want 404", tag, missing.code, missing.body)
 		}
 		if other.code == http.StatusPreconditionFailed {
-			return fmt.Errorf("PATCH If-Match %s: tenant A's record answers 412 to tenant B: an existence oracle: %s", tag, other.body)
+			return fmt.Errorf("PATCH If-Match %s: tenant A's record answers 412 to tenant B: %s: %w", tag, other.body, errCI8Oracle)
 		}
 		if err := ci8Same("PATCH If-Match "+tag, other, missing); err != nil {
 			return err
@@ -331,10 +336,16 @@ func ci8Mutation(ctx context.Context, e *etIso, fx *ci8Fixture, run ci8Case) err
 	return ci8MutationThrough(ctx, e, fx, ci8Leaky(e), run)
 }
 
-// ci8MutationThrough runs a case against a leaky handler h, which must fail it.
+// ci8MutationThrough runs a case against a leaky handler h, which must fail
+// it on the oracle check (errCI8Oracle). Any other failure, a control: one
+// above all, means the oracle check never ran, and fails the mutation control.
 func ci8MutationThrough(ctx context.Context, e *etIso, fx *ci8Fixture, h http.Handler, run ci8Case) error {
-	if err := run(ctx, e, h, fx); err == nil {
+	err := run(ctx, e, h, fx)
+	switch {
+	case err == nil:
 		return errors.New("mutation control: the case passes against a handler with a cross-tenant existence oracle")
+	case !errors.Is(err, errCI8Oracle):
+		return fmt.Errorf("mutation control: the case fails against the leaky handler before its oracle check: %w", err)
 	}
 	return nil
 }
