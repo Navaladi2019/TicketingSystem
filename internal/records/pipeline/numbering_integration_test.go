@@ -558,3 +558,36 @@ func TestIdempotencyKeyMismatchConflicts(t *testing.T) {
 		t.Fatalf("%d audit rows after the table, want %d: a conflict or replay wrote", n, audits)
 	}
 }
+
+// The server's pool sends statements over pgx.QueryExecModeExec (PgBouncer,
+// TICK-358): a []byte argument goes out as bytea, which a ::jsonb cast
+// refuses (SQLSTATE 22P02). The unique check must work on that pool.
+func TestUniquePropertiesOnTheServersPoolMode(t *testing.T) {
+	e := migrated(t)
+	cfg, err := pgxpool.ParseConfig(appDSN(t, e.platform))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
+	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	e.app = pool
+
+	a := seedTenantWith(t, e, assetDefinition())
+	p := newPipeline(e, nil)
+	ctx := context.Background()
+	if _, err := write(ctx, e, p, a.id, assetCmd(a, map[string]any{"name": "one", "serial": "SN-1", "tag": 7, "owner": a.principal.PrincipalID.String()})); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	for field, data := range map[string]map[string]any{
+		"serial": {"name": "dup", "serial": "SN-1"},
+		"tag":    {"name": "dup", "tag": 7},
+		"owner":  {"name": "dup", "owner": a.principal.PrincipalID.String()},
+	} {
+		_, err := write(ctx, e, p, a.id, assetCmd(a, data))
+		wantUnique(t, err, field)
+	}
+}

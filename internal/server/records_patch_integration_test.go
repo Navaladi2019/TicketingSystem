@@ -194,7 +194,7 @@ func TestPatchMergePatchSemantics(t *testing.T) {
 	send(`{}`, http.StatusUnprocessableEntity)
 	send(`{"data": "x"}`, http.StatusUnprocessableEntity)
 	send(`{"data": null}`, http.StatusUnprocessableEntity)
-	send(`[]`, http.StatusUnprocessableEntity)
+	send(`[]`, http.StatusBadRequest) // the request validator refuses a non-object body
 	send(`{"state": 3}`, http.StatusUnprocessableEntity)
 	if rec := send(`{"data": {"nope": 1}}`, http.StatusUnprocessableEntity); patchProblemCode(t, rec) != "record_invalid" {
 		t.Errorf("code = %s, want record_invalid", patchProblemCode(t, rec))

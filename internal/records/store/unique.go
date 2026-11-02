@@ -43,7 +43,7 @@ func UniqueTaken(ctx context.Context, tx pgx.Tx, tenantID, entityDefinitionID, e
 	if err != nil {
 		return false, fmt.Errorf("records/store: encode unique value: %w", err)
 	}
-	args := []any{tenantID, entityDefinitionID, except, v}
+	args := []any{tenantID, entityDefinitionID, except, jsonParam(v)}
 	var match string
 	switch fixed[field] {
 	case "":
