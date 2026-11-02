@@ -328,10 +328,12 @@ ON CONFLICT (tenant_id, principal_id, key) DO NOTHING`,
 	return out, nil
 }
 
-// complete stores the response of the request that won the key. The handler's
-// side effects already happened, so a failure here is logged and the client
-// still gets its response; the key stays in_flight, and a retry after the
-// lease runs the handler again.
+// complete is the fallback for handlers that do not call CompleteInTx: it
+// stores the response of the request that won the key after the handler's
+// transaction has committed. Handlers that call CompleteInTx store it in their
+// own transaction and never reach this. The side effects already happened, so a
+// failure here is logged and the client still gets its response; the key stays
+// in_flight, and a retry after the lease runs the handler again.
 func (m *Middleware) complete(ctx context.Context, req request, resp *captured) {
 	if !resp.storable() {
 		return

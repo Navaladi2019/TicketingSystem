@@ -452,3 +452,49 @@ func TestCreateRecordStoreFailureRollsBackTheWriteAndTheRetryCreatesOne(t *testi
 		t.Errorf("replay differs from the retry's response:\n%s\n%s", replay.Body, retry.Body)
 	}
 }
+
+// A stale owner: a takeover completed the key while the first owner was still
+// inside its transaction. The trigger stands in for that takeover by marking
+// the key completed when the record is inserted. The guarded store
+// (state = 'in_flight') then matches no row, so the stale owner's write rolls
+// back instead of writing a second time. Without the guard the store would
+// overwrite the key and commit a second record.
+//
+// A trigger runs in the handler's own transaction, so its update rolls back
+// with the write; a real takeover commits in its own transaction. The test
+// therefore proves the rollback and the 500, and that the stale owner did not
+// store its own 201 response.
+func TestCreateRecordStaleOwnerRollsBackWhenTheKeyIsAlreadyCompleted(t *testing.T) {
+	e := newRecEnv(t)
+	ctx := t.Context()
+	for _, q := range []string{
+		`CREATE FUNCTION takeover_idem() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  UPDATE idempotency_keys
+     SET state = 'completed', response_status = 201, response_body = '{"by":"takeover"}'::bytea
+   WHERE key = 'k-482c';
+  RETURN NEW;
+END $$`,
+		`CREATE TRIGGER takeover_idem AFTER INSERT ON records FOR EACH ROW EXECUTE FUNCTION takeover_idem()`,
+	} {
+		if _, err := e.super.Exec(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := e.createRec(t, "user-a", "ticket", "k-482c", `{"short_description": "once"}`)
+	if got.Code != http.StatusInternalServerError {
+		t.Fatalf("stale owner create = %d, want 500: %s", got.Code, got.Body)
+	}
+	if n := e.recordCount(t, "a"); n != 0 {
+		t.Errorf("tenant A has %d records, want 0: the stale owner's write must roll back", n)
+	}
+	var state string
+	var body []byte
+	if err := e.super.QueryRow(ctx,
+		"SELECT state, response_body FROM idempotency_keys WHERE key = 'k-482c'").Scan(&state, &body); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), `"number"`) {
+		t.Errorf("the key holds the stale owner's response: %s", body)
+	}
+}
