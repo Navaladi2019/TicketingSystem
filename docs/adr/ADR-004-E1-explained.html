@@ -113,7 +113,7 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 
 <h3>Item 2: the "diff was cut" flag is sealed</h3>
 <div class="verbatim"><div class="vlabel">Decision text (R1)</div>
-The envelope gains <code>diff_truncated</code> (boolean, always emitted): 22 members. Past 64 KB, <code>diff</code> keeps whole RFC 6902 ops only. <code>diff_sha256 = SHA-256(diff_salt ‖ stored diff bytes)</code>. Erasure leaves the flag unchanged.</div>
+The envelope gains <code>diff_truncated</code> (boolean, always emitted): 22 members. Past 64 KB, <code>diff</code> keeps whole RFC 6902 ops only: the longest prefix of ops whose single Go serialization fits in 65,536 bytes, stored verbatim and never re-serialized. <code>diff_sha256 = SHA-256(diff_salt ‖ stored diff bytes)</code>. Erasure leaves the flag unchanged.</div>
 <p>A change description over 64 KB is shortened and flagged. If the flag sat outside the seal, someone could switch it off, and a cut description would pass as complete. Switching it on would falsely suggest that something was removed. Only the description and its salt stay outside the seal, because erasure for privacy must be able to remove them without breaking the chain. The flag is never erased, so it goes inside.</p>
 
 <h2 id="migration">4. What changes, and for whom</h2>

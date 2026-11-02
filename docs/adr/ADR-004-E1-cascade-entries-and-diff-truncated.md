@@ -60,7 +60,13 @@ deciders: Solution Architect (author); Technical Architect (round 1, no blocking
 **R1, envelope, new text:** the existing list, plus **`diff_truncated`**. The envelope has 22 members.
 - `diff_truncated` is a boolean, `NOT NULL DEFAULT false`, and it is always emitted.
 - It is in the R10 INSERT grant and outside both R11 transitions. Erasure leaves it unchanged.
-- **Past 64 KB, `diff` keeps whole RFC 6902 ops only,** and the flag is set.
+- **Past 64 KB, `diff` keeps whole RFC 6902 ops only,** and the flag is set. Byte rules:
+  - The writer (`audit.Append`, in Go) serializes the op array once.
+  - The limit is 65,536 bytes of that UTF-8 serialization.
+  - `diff` keeps the longest prefix of ops whose serialized array fits. If the first op alone is over the limit, `diff` is `[]` with the flag set.
+  - The column is `json`, so Postgres stores those bytes verbatim.
+  - Nobody re-serializes a stored diff. Not the sealer, not the export, not the verifier.
+  - The verifier hashes the diff bytes exactly as the export carries them. How the export carries them byte-exact is pinned in `docs/api/audit-export-v1.md` (P5-02).
 - `diff_sha256 = SHA-256(diff_salt ‖ stored diff bytes)`. This is R13 restated over the stored bytes.
 - The JCS mapping in `docs/api/audit-export-v1.md` gains the field.
 - No migration and no backfill: `audit_log` is empty until P5-13b. Rows with `backfilled = true` are written with `false`.
