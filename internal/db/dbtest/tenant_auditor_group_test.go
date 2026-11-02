@@ -34,7 +34,7 @@ func TestP518RequireAuditPermission(t *testing.T) {
 		{tenantA, sub, "/t/" + tenantA + "/auditors/night"},
 		{tenantB, bAuditors, "/t/" + tenantB + "/auditors"},
 	} {
-		exec(t, super, "INSERT INTO groups (tenant_id, id, keycloak_group_id, path) VALUES ($1, $2, 'kc-'||$2::text, $3)", g.tenant, g.id, g.path)
+		exec(t, super, "INSERT INTO groups (tenant_id, id, keycloak_group_id, path) VALUES ($1, $2::uuid, 'kc-'||$2::uuid::text, $3)", g.tenant, g.id, g.path)
 	}
 	// Tenant A has admin and auditor rows. Tenant B has only an auditors row.
 	exec(t, super, insertAdminGroupRow, tenantA, tenantA)
@@ -52,7 +52,9 @@ func TestP518RequireAuditPermission(t *testing.T) {
 		}
 		return got
 	}
-	p := func(t uuid.UUID, g ...uuid.UUID) identity.Principal { return identity.Principal{TenantID: t, Groups: g} }
+	p := func(t uuid.UUID, g ...uuid.UUID) identity.Principal {
+		return identity.Principal{TenantID: t, Groups: g}
+	}
 
 	for _, perm := range []string{authz.PermAuditRead, authz.PermAuditExport} {
 		if err := check(tenantA, p(a, a), perm); err != nil {
