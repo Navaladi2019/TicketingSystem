@@ -1,22 +1,32 @@
 diff --git a/internal/audit/verify/verify.go b/internal/audit/verify/verify.go
-index 329d862..3f75812 100644
+index 329d862..0aa0e2a 100644
 --- a/internal/audit/verify/verify.go
 +++ b/internal/audit/verify/verify.go
-@@ -506,6 +506,14 @@ func (v *verifier) onTrailer(t trailerLine) {
+@@ -500,13 +500,21 @@ func (v *verifier) onTrailer(t trailerLine) {
+ 	case t.LastSeq == nil || t.HeadHash == nil:
+ 		v.fail(nil, ReasonHeadMismatch, "a non-empty range has last_seq and head_hash")
+ 		return
+-	case v.prevSeq == v.anchorSeq:
+-		v.fail(nil, ReasonHeadMismatch, "an anchor with no range lines after it")
++	case *t.LastSeq <= v.anchorSeq:
++		v.fail(nil, ReasonHeadMismatch, "last_seq is not after the anchor")
+ 		return
  	case v.prevSeq > *t.LastSeq:
  		v.fail(nil, ReasonHeadMismatch, "a range line beyond last_seq")
  		return
+-	case v.contiguous && (v.prevSeq != *t.LastSeq || v.prevHash != *t.HeadHash):
 +	case v.prevSeq < *t.LastSeq && v.header.Stubs:
 +		v.fail(nil, ReasonSeqMissing,
 +			fmt.Sprintf("seq %d..%d missing from a stubs=true file", v.prevSeq+1, *t.LastSeq))
 +		return
 +	case v.prevSeq < *t.LastSeq:
-+		// stubs=false and the filter excluded the tail of the range: a gap.
++		// stubs=false and the filter excluded the tail (or every line) of the range: a gap.
 +		v.contiguous = false
 +		v.rep.Gaps++
- 	case v.contiguous && (v.prevSeq != *t.LastSeq || v.prevHash != *t.HeadHash):
++	case v.prevHash != *t.HeadHash: // prevSeq == last_seq here, gaps or not
  		v.fail(nil, ReasonHeadMismatch, "the last range line is not last_seq with entry_hash head_hash")
  		return
+ 	}
 @@ -527,9 +535,11 @@ func (v *verifier) onTrailer(t trailerLine) {
  		}
  	}

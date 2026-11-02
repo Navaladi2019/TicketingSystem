@@ -1,0 +1,18 @@
+TICK-464 rev 2 spike: verifier 47bdec9 + verify-step8.patch (rev 2 = rev 1 + Technical Architect's step-6 switch), go1.26.10 windows/amd64
+Cases H-L are the Technical Architect's (critique on TICK-464, 2026-11-02 01:40), reproduced by the Solution Architect.
+Before rev 2 (rev 1 patch): H -> tampered head_mismatch ('an anchor with no range lines after it'); I -> unverifiable.
+
+A stubs=false verifiable=false complete 1..7 (TA-6F)                             -> tampered line 10: verifiable_flag_mismatch: trailer verifiable must be true for this range
+B stubs=false verifiable=true complete 1..7 (honest, filter matched all)         -> pass no failure
+C stubs=false verifiable=false range 1..5, seq 5 excluded (trailing gap)         -> unverifiable no failure
+D stubs=false verifiable=true range 1..5, seq 2 excluded (internal gap)          -> tampered line 7: verifiable_flag_mismatch: trailer verifiable must be false for this range
+E stubs=true range 1..5, seq 2 missing                                           -> tampered line 4: seq_missing: seq 2..2 missing from a stubs=true file
+F stubs=true range 1..5, seq 5 missing (trailing)                                -> tampered line 7: seq_missing: seq 5..5 missing from a stubs=true file
+G stubs=false verifiable=false range 1..5, seq 2 excluded (honest internal gap)  -> unverifiable no failure
+H stubs=false 1..5, no line matched (honest)       -> unverifiable no failure
+I stubs=false 1..5, seq 2 excluded, head forged    -> tampered line 7: head_mismatch: the last range line is not last_seq with entry_hash head_hash
+J stubs=false 1..5, seq 5 excluded, head forged    -> unverifiable no failure
+K stubs=false complete 1..5, head forged           -> tampered line 8: head_mismatch: the last range line is not last_seq with entry_hash head_hash
+L stubs=true 1..5, every range line deleted        -> tampered line 3: seq_missing: seq 1..5 missing from a stubs=true file
+
+go test ./internal/audit/... -count=1: ok chain, ok verify (every committed vector unchanged)

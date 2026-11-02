@@ -24,7 +24,7 @@ figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
 dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 </style></head><body><main>
 
-<span class="pill">PROPOSED · 2026-11-02</span> <span class="src">ADR-004-E2 · issue TICK-464 · source: Technical Lead review TICK-461 of PR #370</span>
+<span class="pill">PROPOSED · REV 2 · 2026-11-02</span> <span class="src">ADR-004-E2 · issue TICK-464 · source: Technical Lead review TICK-461 of PR #370</span>
 
 <h1>An honest audit export was being called "tampered"</h1>
 
@@ -42,7 +42,8 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 
 <h2>The problem</h2>
 <p>The specification said two flags must both match the truth: the header's <code>stubs</code> and the trailer's <code>verifiable</code>. But the exporter writes the header <em>first</em>, straight from the request, before it knows whether the filter will exclude anything. If the filter happens to match every entry, a <code>stubs=false</code> file has no holes. It is fully verifiable, yet its header says <code>stubs:false</code>. The checker (PR #370) followed the spec and reported <span class="bad">tampered</span>, exit code 1. An auditor would see an alarm on a file nobody touched.</p>
-<p>While proving that, we found a second case of the same kind: if the filter left out only the <em>last</em> entries of the range, the checker saw no hole between lines and failed the file at the "does it end at the newest entry?" check, again as <span class="bad">tampered</span>. That file is honest; it is simply not verifiable.</p>
+<p><strong>Revision 2.</strong> The Technical Architect's review found a third honest file that was still flagged: the time window has entries, but the filter matched none of them. The file then has only its starting point and its closing line. Rev 2 treats that as "unverifiable" too, and tightens one check so a forged closing fingerprint is caught even when the file has holes.</p>
+<p>While proving the first case, we found a second case of the same kind: if the filter left out only the <em>last</em> entries of the range, the checker saw no hole between lines and failed the file at the "does it end at the newest entry?" check, again as <span class="bad">tampered</span>. That file is honest; it is simply not verifiable.</p>
 
 <figure>
 <svg viewBox="0 0 760 210" xmlns="http://www.w3.org/2000/svg" font-size="13">
@@ -78,28 +79,32 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 <tr><td>no</td><td>no holes (the filter matched everything)</td><td>true</td><td class="good">pass</td> </tr>
 <tr><td>no</td><td>holes (end included)</td><td>false</td><td>unverifiable (honest, no alarm)</td></tr>
 <tr><td>no</td><td>holes</td><td>true</td><td class="bad">tampered: <code>verifiable_flag_mismatch</code></td></tr>
+<tr><td>no</td><td>the window has entries, but none matched the filter</td><td>false</td><td>unverifiable (rev 2; was tampered)</td></tr>
+<tr><td>any</td><td>the last line is the newest entry, but its fingerprint does not match the one in the closing line</td><td>any</td><td class="bad">tampered: <code>head_mismatch</code></td></tr>
 </table>
 <p>The specification also gets a complete list of the reasons the checker can give, including <code>seq_missing</code> and <code>anchor_mismatch</code> (the starting point of the chain is not where the request puts it). Until now the spec claimed the reasons were only those in the test files.</p>
 
 <h2>The fix</h2>
 <ul>
 <li><strong>Checker</strong> (<code>internal/audit/verify/verify.go</code>, about 15 lines): treat entries left out at the end as a hole; compare only the trailer's flag.</li>
-<li><strong>Test vectors</strong> (the shared example files every component is tested against): seven new examples, one per row above plus two for the chain's starting point. No existing example changes its expected result.</li>
+<li><strong>Test vectors</strong> (the shared example files every component is tested against): ten new examples: one per row above, two for the chain's starting point, plus a file with every line deleted and a forged closing fingerprint. No existing example changes its expected result.</li>
 <li><strong>Exporter</strong> (TICK-444, not shipped yet): header copies the request; trailer says verifiable when every numbered entry in the range has a line.</li>
 </ul>
 <p>Not a format change: files that passed before still pass, and no exporter has shipped, so no customer file changes its verdict.</p>
 
 <h2>What we are accepting</h2>
-<p>Nothing new. The header flag was never protected by a fingerprint, so relaxing the rule on it removes no protection. Someone who deletes lines and edits both flags gets "unverifiable", before and after this change. The known limit stays as it was: nothing proves the file as a whole came from us (accepted risk AR-TICK-409-01, no external anchor).</p>
+<p>Nothing new. The header flag was never protected by a fingerprint, so relaxing the rule on it removes no protection. Someone who deletes lines in the middle and edits both flags gets "unverifiable", before and after this change. One verdict does move: cutting lines off the <em>end</em> of a file and editing both flags now also gives "unverifiable" instead of "tampered". That is no weaker than the middle-deletion case. The known limit stays as it was: nothing proves the file as a whole came from us (accepted risk AR-TICK-409-01, no external anchor).</p>
 
 <h2>Evidence</h2>
-<p>A small experiment ran the PR #370 checker on seven hand-built files, before and after the proposed change (<code>docs/adr/ADR-004/spikes/solution-architect/tick-464/</code>).</p>
+<p>A small experiment ran the PR #370 checker on twelve hand-built files (five added in rev 2 by the Technical Architect and re-run by the author), before and after the proposed change (<code>docs/adr/ADR-004/spikes/solution-architect/tick-464/</code>).</p>
 <table>
 <tr><th>File</th><th>Before</th><th>After</th></tr>
 <tr><td>No stubs asked, filter matched everything, trailer true</td><td class="bad">tampered</td><td class="good">pass</td></tr>
 <tr><td>No stubs asked, last entry left out, trailer false</td><td class="bad">tampered (<code>head_mismatch</code>)</td><td>unverifiable</td></tr>
 <tr><td>Stubs asked, last line deleted</td><td class="bad">tampered (<code>head_mismatch</code>)</td><td class="bad">tampered (<code>seq_missing</code>, clearer)</td></tr>
-<tr><td>Four other cases (true tampering and honest gaps)</td><td colspan="2">same verdict before and after</td></tr>
+<tr><td>No stubs asked, window has entries but none matched (rev 2)</td><td class="bad">tampered (<code>head_mismatch</code>)</td><td>unverifiable</td></tr>
+<tr><td>No stubs asked, a hole in the middle, closing fingerprint forged (rev 2)</td><td>unverifiable (rev 1)</td><td class="bad">tampered (<code>head_mismatch</code>)</td></tr>
+<tr><td>Other cases (true tampering and honest gaps)</td><td colspan="2">same verdict before and after</td></tr>
 </table>
 <p>With the change, all existing audit tests and every shared example still pass.</p>
 
