@@ -58,7 +58,7 @@ typing raw `go` / `golangci-lint` commands.
 | Command           | What it does                                                  |
 | ----------------- | ------------------------------------------------------------- |
 | `task`            | List the available tasks                                      |
-| `task build`      | Build the nava-core binary into `bin/`                        |
+| `task build`      | Build the nava-core and nava (offline CLI) binaries into `bin/` |
 | `task run`        | Run nava-core locally, loading `.env` (copy `.env.example`)   |
 | `task test`       | Run all tests with the race detector (needs cgo)              |
 | `task test:short` | Run all tests without the race detector, for hosts with no cgo |

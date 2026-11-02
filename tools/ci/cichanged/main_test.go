@@ -147,6 +147,7 @@ func TestEveryCommandIsAStackRoot(t *testing.T) {
 	notStack := map[string]bool{
 		"cmd/openapi-compat":   true, // lint's check-openapi
 		"cmd/demo-interpreter": true, // the S11a demo (TICK-352): make demo-interpreter-*, no image or stack test builds it
+		"cmd/nava":             true, // the offline CLI (P5-03, TICK-425): unit-tested, no image or stack test builds it
 	}
 	g, err := loadGraph()
 	if err != nil {
