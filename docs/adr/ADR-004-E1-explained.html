@@ -36,12 +36,12 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 @media print{table{display:table}}
 </style></head>
 <body><main>
-<div class="banner"><span class="pill">READING GUIDE &middot; ADR-004 E1 PROPOSED</span>
+<div class="banner"><span class="pill">READING GUIDE &middot; ADR-004 E1 PROPOSED (rev 2)</span>
 <span class="src">This companion explains <code>ADR-004-E1-cascade-entries-and-diff-truncated.md</code>. It is not a decision record and changes nothing. Blue "decision text" boxes are copied from the erratum.</span></div>
 <table class="front"><tbody>
 <tr><th>title</th><td>ADR-004 erratum E1 explained: where the two cascade audit rows go, and why the "diff was cut" flag is sealed</td></tr>
 <tr><th>type</th><td>explainer for the decision-maker (not a decision record)</td></tr>
-<tr><th>explains</th><td>ADR-004-E1 (status PROPOSED, 2026-11-02), from RFC-009 rev 1 on TICK-422</td></tr>
+<tr><th>explains</th><td>ADR-004-E1 (status PROPOSED, 2026-11-02), from RFC-009 rev 2 on TICK-422</td></tr>
 <tr><th>date</th><td>2026-11-02</td></tr>
 <tr><th>audience</th><td>whoever decides. It assumes no knowledge of the audit-log design or the reviews that shaped it.</td></tr>
 </tbody></table>
@@ -113,8 +113,9 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 
 <h3>Item 2: the "diff was cut" flag is sealed</h3>
 <div class="verbatim"><div class="vlabel">Decision text (R1)</div>
-The envelope gains <code>diff_truncated</code> (boolean, always emitted): 22 members. Past 64 KB, <code>diff</code> keeps whole RFC 6902 ops only: the longest prefix of ops whose single Go serialization fits in 65,536 bytes, stored verbatim and never re-serialized. <code>diff_sha256 = SHA-256(diff_salt ‖ stored diff bytes)</code>. Erasure leaves the flag unchanged.</div>
+The envelope gains <code>diff_truncated</code> (boolean, always emitted): 22 members. Past 65,536 bytes, <code>diff</code> keeps whole RFC 6902 ops only: the original bytes of the leading ops that fit, joined, never re-marshalled and never re-serialized afterwards. <code>audit/erase</code> entries are never truncated: at most 1,500 ids each, and <code>Append</code> refuses a larger one. <code>diff_sha256 = SHA-256(diff_salt ‖ stored diff bytes)</code>. Erasure leaves the flag unchanged.</div>
 <p>A change description over 64 KB is shortened and flagged. If the flag sat outside the seal, someone could switch it off, and a cut description would pass as complete. Switching it on would falsely suggest that something was removed. Only the description and its salt stay outside the seal, because erasure for privacy must be able to remove them without breaking the chain. The flag is never erased, so it goes inside.</p>
+<p><strong>The blocking review finding on item 2.</strong> An erasure is recorded as a single change listing the erased row ids. Above about 1,680 ids that change is over 64 KB, and cutting it at whole changes would leave it empty. The verifier would then report every legitimately erased row as <em>tampered</em>, permanently, because the erased content is gone. The fix: each erasure record lists at most 1,500 ids (58,545 bytes), and the writer refuses, rather than cuts, a larger one, so a big erasure simply writes more records.</p>
 
 <h2 id="migration">4. What changes, and for whom</h2>
 <ul>

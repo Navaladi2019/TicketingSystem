@@ -5,20 +5,22 @@ title: Erratum E1 to ADR-004, the R2 vocabulary and key shape for the two cascad
 status: PROPOSED
 date: 2026-11-02
 issue: TICK-422
-rfc: docs/adr/ADR-004/rfc/RFC-009-adr-004-e1-cascade-audit-vocabulary.md (rev 1, archived with rev-0/ and rev-1/; thread under TICK-422 comment 01a198bc-f986-78f8-a49c-dd0fef86ae3f)
+rfc: docs/adr/ADR-004/rfc/RFC-009-adr-004-e1-cascade-audit-vocabulary.md (rev 2, archived with rev-0/, rev-1/ and rev-2/; thread under TICK-422 comment 01a198bc-f986-78f8-a49c-dd0fef86ae3f)
 supersedes: "the R2 `action` list, and the R1 envelope list, in [[ADR-004-audit-log]]"
-amends: "[[ADR-004-audit-log]] R1, R2 and the acceptance tests (adds CI-A17); PLAN-003 D-3-7a by reference (`cascade_rejected` becomes `cascade_too_deep`)"
+amends: "[[ADR-004-audit-log]] R1, R2, R23 and the acceptance tests (adds CI-A17); PLAN-003 D-3-7a by reference (`cascade_rejected` becomes `cascade_too_deep`)"
 source: "PLAN-005 (TICK-417) found the gap. ADR-001-A5 A5-4 and PLAN-003 D-3-7a require two audit rows that R2 cannot hold. Item 2 is the Solution Architect's ruling at grooming (TICK-449, comment 01a198c1-53f0)."
-deciders: Solution Architect (author); Technical Architect (round 1, no blocking, comment 01a198c2-c512); Postgres & Data Modeling Specialist (round 1, one blocking P5, comment 01a198c6-7470); CTO (routing, comment 01a198bd-ce63)
+deciders: Solution Architect (author); Technical Architect (round 1, no blocking, comment 01a198c2-c512; item 2, one blocking §3, comment 01a199ad-18fa); Postgres & Data Modeling Specialist (re-check APPROVE on P5, comment 01a199ab-1655); Postgres & Data Modeling Specialist (round 1, one blocking P5, comment 01a198c6-7470); CTO (routing, comment 01a198bd-ce63)
 ---
 
 # ADR-004 erratum E1: the cascade audit entries, and `diff_truncated` in the envelope
 
-> **Status: PROPOSED (rev 1), 2026-11-02.** Round 1:
-> - The Technical Architect raised no blocking findings and four non-blocking fixes (comment `01a198c2`).
-> - The Postgres & Data Modeling Specialist raised one blocking finding, P5 (comment `01a198c6`).
+> **Status: PROPOSED (rev 2), 2026-11-02.**
+> - **Item 1.** Round 1:
+>   - The Technical Architect raised no blocking findings (comment `01a198c2`).
+>   - The Postgres & Data Modeling Specialist raised one blocking finding, P5 (comment `01a198c6`). Rev 1 closed it, and the Postgres Specialist approved on re-check (comment `01a199ab`).
+> - **Item 2** joined E1 at grooming (TICK-449). The Technical Architect's first critique of it (comment `01a199ad`) raised one blocking finding, §3: whole-op truncation empties large `audit/erase` entries. Rev 2 takes that fix as written, with the R23 cap and the refusal to truncate. Rev 2 also takes the §1b byte definition.
 >
-> Rev 1 takes every item as written. The SA gives the verdict after the re-check and any CTO tie-break. Item 2 joined E1 at grooming (TICK-449), after round 1 was framed, so the re-check covers it.
+> The SA gives the verdict after the Technical Architect's re-check of §3.
 
 > **Invariants source.** The project description defines no invariants. As in ADR-004, this erratum is checked against [[ADR-001-platform-blueprint]] §1 I1–I9. If the project is meant to have its own list of eight, these checks are incomplete against it.
 
@@ -60,13 +62,18 @@ deciders: Solution Architect (author); Technical Architect (round 1, no blocking
 **R1, envelope, new text:** the existing list, plus **`diff_truncated`**. The envelope has 22 members.
 - `diff_truncated` is a boolean, `NOT NULL DEFAULT false`, and it is always emitted.
 - It is in the R10 INSERT grant and outside both R11 transitions. Erasure leaves it unchanged.
-- **Past 64 KB, `diff` keeps whole RFC 6902 ops only,** and the flag is set. Byte rules:
-  - The writer (`audit.Append`, in Go) serializes the op array once.
-  - The limit is 65,536 bytes of that UTF-8 serialization.
-  - `diff` keeps the longest prefix of ops whose serialized array fits. If the first op alone is over the limit, `diff` is `[]` with the flag set.
-  - The column is `json`, so Postgres stores those bytes verbatim.
-  - Nobody re-serializes a stored diff. Not the sealer, not the export, not the verifier.
-  - The verifier hashes the diff bytes exactly as the export carries them. How the export carries them byte-exact is pinned in `docs/api/audit-export-v1.md` (P5-02).
+- **Past 64 KB, `diff` keeps whole RFC 6902 ops only.** The byte rules [TA §1b]:
+  - The limit is **65,536 bytes of the diff bytes passed to `Append`**.
+  - At or under the limit, the bytes are stored unchanged and the flag is false.
+  - Over the limit, `Append` stores `"[" + raw₁ + "," + … + rawₖ + "]"`. Each rawᵢ is op i's original bytes (`[]json.RawMessage`, never re-marshalled), and k is the largest count that fits. If k = 0, it stores `[]`.
+  - The flag is true exactly when k < n.
+  - R5 and R6 walk the **full** diff before the cut, so a secret in a dropped op still fails the write with `audit_secret_in_diff`.
+  - The column is `json`, so Postgres stores those bytes verbatim. Nobody re-serializes a stored diff: not the sealer, not the export, not the verifier. The export carries it as a JSON string (`docs/api/audit-export-v1.md`).
+  - The verifier also reports `tampered` for a sealed line with `diff_truncated = false` and a diff longer than 65,536 bytes.
+- **`audit/erase` entries are never truncated [TA §3].**
+  - R23's cap becomes **at most 1,500 entry ids per `audit/erase` entry**. Its diff is then at most 58,545 bytes. At 1,680 ids, the single op passes 65,536 bytes.
+  - For `action = erase`, `Append` returns `ErrInvalidEntry` instead of truncating. The transaction rolls back, and no row is erased.
+  - Without this, an erase run over about 1,679 entries would store `[]`. R24 would then report every entry it erased as `tampered`, permanently.
 - `diff_sha256 = SHA-256(diff_salt ‖ stored diff bytes)`. This is R13 restated over the stored bytes.
 - The JCS mapping in `docs/api/audit-export-v1.md` gains the field.
 - No migration and no backfill: `audit_log` is empty until P5-13b. Rows with `backfilled = true` are written with `false`.
@@ -83,7 +90,11 @@ deciders: Solution Architect (author); Technical Architect (round 1, no blocking
 - a vector with `diff_truncated = true`;
 - cascade-key vectors, including one permuted tuple.
 
-**P5-03:** the verifier reports a flipped `diff_truncated` as `tampered`.
+**P5-03:** the verifier reports a flipped `diff_truncated` as `tampered`. It also reports an over-limit diff with the flag false as `tampered`.
+
+**`docs/api/audit-export-v1.md`:** the erase-entry bound changes from "1 to 10,000" ids to "1 to 1,500". This is prose only, so #365's vectors are unaffected. It lands in P5-02's follow-up or in P5-12b.
+
+**P5-12b** implements the byte rules and the erase refusal.
 
 **P5-12b** sets the flag before it hashes the envelope.
 
@@ -111,6 +122,7 @@ deciders: Solution Architect (author); Technical Architect (round 1, no blocking
 | Fold the cycle fact into R's `update` entry | It breaks A5-4's "one row per suppressed attempt". |
 | New `origin_id` and `definition_id` envelope columns | They change R1 and the R13 hash input. `causation_id` already holds O. |
 | Too-deep subject = the caller's unverified `RecordID`, for creates and not-found cases | It puts an id nobody checked into the log as a subject (Technical Architect, 3b). |
+| Keep the 10,000-id erase cap and exempt erase entries from the 64 KB limit | Erase entries are then the one place where the R1 size limit does not hold. Smaller entries cost only more rows: at most 7 per 10,000 erased entries. |
 | `diff_truncated` outside the envelope | The flag would be editable without breaking the chain, so a cut diff could pass as complete. |
 
 ## Accepted residuals
@@ -125,7 +137,7 @@ deciders: Solution Architect (author); Technical Architect (round 1, no blocking
 | Invariant | Effect |
 |---|---|
 | I1 tenant wall | Holds. Both entries go through `audit.Append` under the canonical policy, with the tenant from `tenancy.TenantOf(tx)`. T is in the cascade key, and `tenant_id` leads the unique key. |
-| I4 audit in the same transaction | Holds and stays strict. A cycle entry cannot stand in for R's entry (case F). The too-deep entry belongs to a write that changed nothing, in a transaction with no audited table, so the same-transaction rule has nothing to cover. Item 2 strengthens tamper evidence. |
+| I4 audit in the same transaction | Holds and stays strict. Refusing to write an over-cap erase entry rolls back the whole transaction, which is I4 working. A cycle entry cannot stand in for R's entry (case F). The too-deep entry belongs to a write that changed nothing, in a transaction with no audited table, so the same-transaction rule has nothing to cover. Item 2 strengthens tamper evidence. |
 | I7 idempotency | Holds. Each rejected attempt is one entry. A crash-retried attempt is a new attempt and is audited again (RS-E1-2). |
 | I8 platform-owned vocabulary | Holds. Two actions, one subject type and one envelope field, all by platform migration. |
 | I9 cascades bounded | Holds. Both entries that A5's I9 text requires now have a defined shape. |
@@ -135,7 +147,7 @@ deciders: Solution Architect (author); Technical Architect (round 1, no blocking
 
 | # | Proves |
 |---|---|
-| CI-A17 | (a) One write that suppresses D1 and D2 on R writes two `cascade_cycle` entries and one `update` entry, and commits. (b) One transaction that writes R1 and R2 to the same version, with D suppressed on each, commits. (c) A transaction that writes R with only a `cascade_cycle` entry fails at COMMIT. (d) A depth-9 update leaves R unchanged and writes exactly one `cascade_too_deep` entry with subject R. A depth-9 create writes one with subject K(T, O, nil, nil) and no `record_id`. (e) Cascade-key golden vectors, including a permuted tuple, written through `audit.Append` with `pgx` and read back byte-equal. (f) D matching one write through two triggers writes exactly one cycle entry, and the write commits. (g) The verifier reports a flipped `diff_truncated` as `tampered`, and a diff over 64 KB is stored as whole ops with the flag set. |
+| CI-A17 | (a) One write that suppresses D1 and D2 on R writes two `cascade_cycle` entries and one `update` entry, and commits. (b) One transaction that writes R1 and R2 to the same version, with D suppressed on each, commits. (c) A transaction that writes R with only a `cascade_cycle` entry fails at COMMIT. (d) A depth-9 update leaves R unchanged and writes exactly one `cascade_too_deep` entry with subject R. A depth-9 create writes one with subject K(T, O, nil, nil) and no `record_id`. (e) Cascade-key golden vectors, including a permuted tuple, written through `audit.Append` with `pgx` and read back byte-equal. (f) D matching one write through two triggers writes exactly one cycle entry, and the write commits. A retried claim for D on the same write adds no entry. (g) The verifier reports a flipped `diff_truncated` as `tampered`. A diff over 65,536 bytes is stored as the byte-exact join of its leading raw ops, with the flag set. A first op over the limit stores `[]`. A secret in a dropped op fails the write. A sealed line with the flag false and a diff over the limit is `tampered`. An `audit/erase` entry with 1,501 ids returns `ErrInvalidEntry`, and the transaction rolls back with no row erased. |
 
 ## Evidence
 
@@ -146,4 +158,4 @@ deciders: Solution Architect (author); Technical Architect (round 1, no blocking
   - X2: two too-deep entries in one runner transaction collide, hence "one entry per runner transaction".
   - X3 and X4: the fallback index and erasure.
   - Go `uuid.NewSHA1` matched SQL on 1000 of 1000 tuples.
-- RFC-009 rev 1, with the round-1 responses, is archived at `docs/adr/ADR-004/rfc/RFC-009-adr-004-e1-cascade-audit-vocabulary.md`, with `rev-0/` and `rev-1/` beside it.
+- RFC-009 rev 2, with the round-1 and item-2 responses, is archived at `docs/adr/ADR-004/rfc/RFC-009-adr-004-e1-cascade-audit-vocabulary.md`, with `rev-0/`, `rev-1/` and `rev-2/` beside it.

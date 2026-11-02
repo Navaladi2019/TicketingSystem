@@ -2,7 +2,7 @@
 type: rfc
 id: RFC-009
 title: ADR-004 erratum E1, R2 vocabulary and key shape for the two cascade audit entries
-status: Revised (rev 1), round-1 critiques answered
+status: Revised (rev 2), item-2 critique answered
 date: 2026-11-02
 issue: TICK-422
 target: ADR-004-E1 (erratum to [[ADR-004-audit-log]] R2; touches [[ADR-001-A5-i9-cycle-suppress-start]] A5-4 and PLAN-003 D-3-7a by reference only)
@@ -128,3 +128,13 @@ Critiques: Technical Architect (TICK-422 comment `01a198c2`, no blocking), Postg
 | TA §4: I4 wording, and I7 is touched | non-blocking | Accepted. Both rows rewritten. |
 
 **Added in rev 1 (grooming scope, TICK-449, not critiqued in round 1):** Item 2, `diff_truncated` in the R1 envelope (the SA's ruling, TICK-449 comment `01a198c1`). The re-check covers it.
+
+## Response — item 2, first critique (Technical Architect, TICK-422 comment `01a199ad`)
+
+Postgres re-check: APPROVE on P5 (comment `01a199ab`). Its optional retry assertion is taken into CI-A17 (f).
+
+| Item | Label | Resolution |
+|---|---|---|
+| §3: whole-op truncation empties `audit/erase` entries over ~1,679 ids, and R24 then reports a legitimate erasure as `tampered`, permanently | blocking | **Accepted as written.** The R23 cap becomes 1,500 ids per entry (58,545 bytes; re-measured with 1,500, 1,679 and 1,680 random UUIDs giving 58,545, 65,526 and 65,565 bytes). `Append` returns `ErrInvalidEntry` for an over-limit `erase` entry instead of truncating it. CI-A17 (g) adds the 1,501-id case. Mirrored in the `.html`. |
+| §1b: the 64 KB rule is not defined on one serialization | non-blocking | **Accepted.** The TA's text replaces the rev-1 wording in `bcf789e`: 65,536 bytes of the input; raw ops joined and never re-marshalled; the flag is set exactly when k < n; R5 and R6 walk the full diff before the cut. The optional verifier check (flag false with an over-limit diff → `tampered`) is also taken. |
+| §1, §2, §3b, §4 | confirmed | No change. |
