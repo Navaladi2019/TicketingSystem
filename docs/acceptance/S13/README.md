@@ -234,4 +234,6 @@ step 9, ADR-004 R-A1, AR-TICK-409-01). The kit does not claim to catch them:
   `head_hash` rewritten, or a time-window export whose first entries were cut
   and re-anchored still verifies. Nothing authenticates the file itself.
   Compare an overlapping seq's `entry_hash` with an export you already hold.
-- JSONL only. The CSV export (R22) is not read yet.
+- The kit's samples are JSONL. The verifier also reads the CSV export (R22,
+  TICK-463) with the same checks and exit codes; its CSV fixtures are in
+  `internal/audit/verify/testdata/csv`.

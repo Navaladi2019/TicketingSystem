@@ -91,6 +91,48 @@ func TestExitCodes(t *testing.T) {
 	}
 }
 
+// A CSV export gets the same outcome, exit code and report as its JSONL
+// twin (R22), and a failure names the CSV row.
+func TestCSVExitCodes(t *testing.T) {
+	for _, c := range []struct {
+		name, output string
+		code         int
+	}{
+		{"unfiltered", "ok: seq 1..7 from genesis", ExitOK},
+		{"diff-redacted-replaced", "seq 2: diff not verifiable: redacted", ExitOK},
+		{"diff-dropped-not-erased", "tampered: row 5 (seq 2): diff_missing", ExitTampered},
+		{"erasure-not-listed", "erasure_unlisted", ExitTampered},
+		{"stubs-false-honest", "not verifiable: stubs omitted", ExitUnverifiable},
+		{"empty-range", "empty: ", ExitEmpty},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var x vectors.Export
+			for _, e := range vt.Vectors().Exports {
+				if e.Name == c.name {
+					x = e
+				}
+			}
+			var jsonl, csv, errOut bytes.Buffer
+			jcode := run([]string{"audit", "verify", writeFile(t, vt.JSONL(x.JSONL))}, nil, &jsonl, &errOut)
+			code := run([]string{"audit", "verify", writeFile(t, vt.CSV(x.JSONL))}, nil, &csv, &errOut)
+			if code != c.code || jcode != c.code {
+				t.Fatalf("exit csv %d jsonl %d, want %d; stdout %q stderr %q", code, jcode, c.code, csv.String(), errOut.String())
+			}
+			if !strings.Contains(csv.String(), c.output) {
+				t.Errorf("stdout %q, want %q", csv.String(), c.output)
+			}
+			if code != ExitTampered && csv.String() != jsonl.String() {
+				t.Errorf("csv report %q differs from jsonl %q", csv.String(), jsonl.String())
+			}
+		})
+	}
+	var out bytes.Buffer
+	pending := vt.Build(vt.Options{HeadSeq: chainCase(t, "erased-entry").Seq, Unsealed: []vectors.ChainCase{chainCase(t, "audit-erase")}})
+	if code := run([]string{"audit", "verify", "-"}, bytes.NewReader(pending.CSV()), &out, &out); code != ExitPending {
+		t.Errorf("pending csv on stdin: exit %d, want %d: %s", code, ExitPending, out.String())
+	}
+}
+
 func TestStdin(t *testing.T) {
 	var out bytes.Buffer
 	if code := run([]string{"audit", "verify", "-"}, bytes.NewReader(exportVector(t, "unfiltered")), &out, &out); code != ExitOK {

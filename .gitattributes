@@ -36,3 +36,6 @@ api/openapi.bundled.yaml linguist-generated=true
 internal/workflow/testdata/histories/** -text
 # Golden vectors are compared byte for byte (TestVectorsFileIsCurrent).
 internal/audit/chain/testdata/*.json text eol=lf
+# CSV export fixtures have CRLF row ends and verbatim diff bytes, compared
+# byte for byte (TestCSVFixturesAreCurrent).
+internal/audit/verify/testdata/** -text

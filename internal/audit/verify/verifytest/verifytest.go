@@ -1,4 +1,4 @@
-// Package verifytest builds nava.audit.export/v1 files for the verifier's
+// Package verifytest builds nava.audit.export/v1 files, JSONL and CSV, for the verifier's
 // tests from the P5-02 golden-vector generator (internal/audit/chain/vectors).
 // Every hash in a fixture is either the generator's or recomputed with
 // internal/audit/chain; none is written by hand (TICK-425 acceptance).
@@ -11,10 +11,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/chain"
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/chain/vectors"
+	"github.com/Navaladi2019/TicketingSystem/internal/audit/verify"
 )
 
 // Line is one export line. Member order in the output is sorted, which the
@@ -275,4 +277,85 @@ func JSONL(lines []string) []byte {
 		b.WriteByte('\n')
 	}
 	return b.Bytes()
+}
+
+// CSV serialises the file as a CSV export (audit-export-v1.md §5).
+func (f *File) CSV() []byte {
+	b := f.Bytes()
+	return CSV(strings.Split(strings.TrimSuffix(string(b), "\n"), "\n"))
+}
+
+// CSV turns JSONL lines (an export vector's, or File.Bytes split on "\n")
+// into the CSV export of the same lines: the column row, then one row per
+// line with the envelope flattened, empty cells for null and for columns the
+// kind does not use, the header and trailer whole in meta, the OWASP ' prefix,
+// RFC 4180 quoting and CRLF row ends. Values are copied, never rehashed.
+func CSV(lines []string) []byte {
+	var b bytes.Buffer
+	writeRow(&b, verify.CSVColumns)
+	for _, l := range lines {
+		writeRow(&b, csvRow(l))
+	}
+	return b.Bytes()
+}
+
+func csvRow(line string) []string {
+	cells := make([]string, len(verify.CSVColumns))
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(line), &m); err != nil {
+		panic(fmt.Sprintf("verifytest: CSV of a non-object line: %v", err))
+	}
+	var kind string
+	_ = json.Unmarshal(m["kind"], &kind)
+	if kind == "header" || kind == "trailer" {
+		cells[0], cells[len(cells)-1] = kind, line
+		return cells
+	}
+	var env map[string]json.RawMessage
+	if raw, ok := m["envelope"]; ok {
+		if err := json.Unmarshal(raw, &env); err != nil {
+			panic(fmt.Sprintf("verifytest: envelope: %v", err))
+		}
+	}
+	for i, name := range verify.CSVColumns {
+		raw, ok := m[name]
+		if !ok {
+			raw = env[name]
+		}
+		cells[i] = cellText(raw)
+	}
+	return cells
+}
+
+// cellText is a JSON value as CSV cell text: null is empty, a string is its
+// decoded value, a number or boolean its literal.
+func cellText(raw json.RawMessage) string {
+	if raw == nil || string(raw) == "null" {
+		return ""
+	}
+	var s string
+	if raw[0] == '"' {
+		if err := json.Unmarshal(raw, &s); err != nil {
+			panic(err)
+		}
+		return s
+	}
+	return string(raw)
+}
+
+// writeRow writes one RFC 4180 row with the §5 formula prefix.
+func writeRow(b *bytes.Buffer, cells []string) {
+	for i, c := range cells {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		if c != "" && strings.ContainsRune("=+-@\t\r'", rune(c[0])) {
+			c = "'" + c
+		}
+		if strings.ContainsAny(c, ",\"\r\n") {
+			c = `"` + strings.ReplaceAll(c, `"`, `""`) + `"`
+		}
+		b.WriteString(c)
+	}
+	b.WriteString("\r\n")
 }

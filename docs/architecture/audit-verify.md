@@ -8,6 +8,7 @@ Hashes come from `internal/audit/chain` (P5-02).
 ```sh
 task build                                   # bin/nava and bin/nava-core
 bin/nava audit verify export.jsonl; echo $?  # or - for stdin
+bin/nava audit verify export.csv; echo $?    # CSV (R22), TICK-463
 ```
 
 ## Packages
@@ -73,4 +74,34 @@ Order when several apply: tampered, then unverifiable, then pending.
   their diff hash verifies. A redacted erase diff lists nothing.
 - **An unsealed line's** `envelope_sha256` is informational (§3) and is not
   compared.
-- **Formats.** JSONL only. CSV (R22) is not read yet.
+- **Formats.** JSONL and CSV (§5, R22; TICK-463). See below.
+
+## CSV
+
+`Verify` reads a file as CSV when it starts with the column row (`kind,`);
+a JSONL line starts with `{`. `Report.Encoding` says which, and the CLI
+names a CSV failure by row (the column row is row 1) instead of by line.
+
+```mermaid
+flowchart LR
+  R["csvReader: strict RFC 4180,<br/>CRLF rows, quoted bytes verbatim"] --> P["drop one leading ' per cell<br/>(formula prefix)"]
+  P --> L["rowLine: rebuild the JSONL line;<br/>empty cell = null, envelope re-nested"]
+  L --> V["verifier.line: the JSONL checks"]
+```
+
+- **Same checks.** Each row becomes the JSONL line it stands for and goes
+  through the same code, so outcomes, reason codes and exit codes match. The
+  JSONL tests run on both encodings.
+- **Own reader.** `encoding/csv` turns CRLF inside a quoted cell into LF; the
+  diff cell's bytes are hashed, and §5 forbids that. The reader also rejects
+  LF row ends, a bare CR, a `"` in an unquoted cell and rows over 4 MiB.
+- **Strict rows.** The column row must be exact; a row has 37 cells; a cell
+  in a column its kind does not use must be empty; integer and boolean cells
+  must be literals (no way to inject JSON); `header` and `trailer` carry their
+  JSONL line in `meta`, whose `kind` must match the row's.
+- **Formula prefix.** The reader drops exactly one leading `'` (§5). It does
+  not reject a dangerous cell the writer left unprefixed: the prefix is not
+  hashed, and CI-A15 tests the writer.
+- **Fixtures** in `internal/audit/verify/testdata/csv` are built from the
+  golden export vectors by `verifytest.CSV`; rebuild them with
+  `go test ./internal/audit/verify -run TestCSVFixturesAreCurrent -update`.

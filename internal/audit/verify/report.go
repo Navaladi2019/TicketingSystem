@@ -76,7 +76,8 @@ const (
 
 // Finding locates the first check that failed.
 type Finding struct {
-	// Line is the 1-based line number in the file.
+	// Line is the 1-based line number in the file (the row number in CSV,
+	// where the column row is row 1).
 	Line int
 	// Seq is the line's seq, when it has one.
 	Seq *int64
@@ -86,9 +87,21 @@ type Finding struct {
 	Detail string
 }
 
+// Encoding is the file encoding Verify detected.
+type Encoding string
+
+// Encodings of nava.audit.export/v1 (audit-export-v1.md §3, §5).
+const (
+	EncodingJSONL Encoding = "jsonl"
+	EncodingCSV   Encoding = "csv"
+)
+
 // Report is the result of verifying one file.
 type Report struct {
-	Outcome Outcome
+	// Encoding is the file's encoding. In a CSV file, Finding.Line is the
+	// row number, counting the column row as row 1.
+	Encoding Encoding
+	Outcome  Outcome
 	// Failure is set exactly when Outcome is OutcomeTampered.
 	Failure *Finding
 	// Lines holds, by seq, every sealed line whose outcome is not
