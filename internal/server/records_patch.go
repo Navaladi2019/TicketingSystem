@@ -20,6 +20,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/api"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
+	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/cursor"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
@@ -62,6 +63,18 @@ func ifMatchVersions(v *string) (versions []int64, ok bool) {
 	return versions, true
 }
 
+// patchBody is the 200 body's data. The row was written under the version the
+// pipeline read, which a publish since the handler's own read may have moved
+// (TICK-413, TICK-481): map it under that one, as create and GET do. Defaults
+// stay the current ones.
+func patchBody(ctx context.Context, tx pgx.Tx, defs entitytypes.DefinitionReader, entity string, rec *pipeline.Record, curVersion int, cur *metadata.Compiled) (map[string]any, error) {
+	fixed, err := fixedColumnsUnder(ctx, tx, defs, entity, rec.SchemaVersion, curVersion, cur)
+	if err != nil {
+		return nil, err
+	}
+	return cur.ApplyDefaults(rec.Payload(fixed)), nil
+}
+
 // PatchRecord serves PATCH /api/v1/records/{entity}/{id}.
 func (h *handlers) PatchRecord(ctx context.Context, req api.PatchRecordRequestObject) (api.PatchRecordResponseObject, error) {
 	p, ok := identity.FromContext(ctx)
@@ -86,7 +99,7 @@ func (h *handlers) PatchRecord(ctx context.Context, req api.PatchRecordRequestOb
 		stateProp string
 	)
 	err := tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) error {
-		cur, _, err := h.store.Current(ctx, tx, req.Entity)
+		cur, curVersion, err := h.store.Current(ctx, tx, req.Entity)
 		if err != nil {
 			return err
 		}
@@ -122,10 +135,8 @@ func (h *handlers) PatchRecord(ctx context.Context, req api.PatchRecordRequestOb
 		if rec, err = pipeline.Get(ctx, tx, p.TenantID, id); err != nil {
 			return err
 		}
-		// An update writes under the current version, so its mapping and
-		// defaults are the current ones.
-		data = cur.ApplyDefaults(rec.Payload(cur.FixedColumns()))
-		return nil
+		data, err = patchBody(ctx, tx, h.store, req.Entity, rec, curVersion, cur)
+		return err
 	})
 	if err != nil {
 		var st *staleError
