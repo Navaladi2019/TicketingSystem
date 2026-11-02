@@ -481,7 +481,23 @@ func TestMaxRedeliveryAgeMarksDead(t *testing.T) {
 	}
 }
 
-// Rows written by outbox.Enqueue come back whole, and IsStart tells the start
+// bumpAndEnqueue is a pipeline-shaped write in tx: it bumps e's record's
+// version, as the write pipeline's UPDATE does (D-3-6; outbox leaves the bump
+// to its caller), and enqueues e at the new version. Test files are outside
+// the single-writer check (internal/records/arch_test.go).
+func bumpAndEnqueue(ctx context.Context, tx pgx.Tx, e outbox.Entry) (uuid.UUID, error) {
+	var v int64
+	switch err := tx.QueryRow(ctx, `UPDATE records SET version = version + 1 WHERE id = $1 RETURNING version`,
+		e.RecordID).Scan(&v); {
+	case errors.Is(err, pgx.ErrNoRows):
+		return uuid.Nil, outbox.ErrRecordNotFound
+	case err != nil:
+		return uuid.Nil, err
+	}
+	return outbox.EnqueueAtVersion(ctx, tx, e, v)
+}
+
+// Rows written by outbox.EnqueueAtVersion come back whole, and IsStart tells the start
 // from the signal by the TL contract (target_key == kind:id).
 func TestClaimedFromProducer(t *testing.T) {
 	e := migrated(t)
@@ -493,14 +509,14 @@ func TestClaimedFromProducer(t *testing.T) {
 	var startID, signalID uuid.UUID
 	err := tenancy.InTenantTx(ctx, e.app, tenant, func(tx pgx.Tx) error {
 		var err error
-		startID, err = outbox.Enqueue(ctx, tx, outbox.Entry{Kind: "ticket.approval", KindVersion: 2, DedupeKey: "s",
+		startID, err = bumpAndEnqueue(ctx, tx, outbox.Entry{Kind: "ticket.approval", KindVersion: 2, DedupeKey: "s",
 			RecordID: record, Target: outbox.TargetStart{Kind: "ticket.approval"},
 			Causation: outbox.Causation{OriginID: origin, Depth: 1},
 			Payload:   []byte(`{"ticket_id":"` + record.String() + `"}`)})
 		if err != nil {
 			return err
 		}
-		signalID, err = outbox.Enqueue(ctx, tx, outbox.Entry{Kind: "approve", KindVersion: 1, DedupeKey: "g",
+		signalID, err = bumpAndEnqueue(ctx, tx, outbox.Entry{Kind: "approve", KindVersion: 1, DedupeKey: "g",
 			RecordID: record, Target: outbox.TargetSignal{Kind: "ticket.approval", SignalName: "approve"},
 			Causation: outbox.Causation{OriginID: uuid.New()}})
 		return err

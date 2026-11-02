@@ -1,11 +1,16 @@
 // Package outbox is the producer side of the transactional outbox (ADR-001
-// I6, I9, Annex A.2 "Writing outbox rows"; PLAN-001 T29). Enqueue writes one
-// outbox row in the caller's tenant transaction; the relay (T30a, T30b) is the
-// only reader that dispatches it to Temporal.
+// I6, I9, Annex A.2 "Writing outbox rows"; PLAN-001 T29). EnqueueAtVersion and
+// EnqueueStart write one outbox row in the caller's tenant transaction; the
+// relay (T30a, T30b) is the only reader that dispatches it to Temporal.
 //
-// The tenant is never an argument: Enqueue runs in a transaction opened by
-// tenancy.InTenantTx and takes tenant_id from the records row it locks, which
-// row-level security lets it see only for that transaction's tenant.
+// The package never writes the records table (PLAN-003 D-3-6, TICK-411): the
+// record write pipeline's UPDATE is the one place records.version moves, and
+// a producer enqueues at the version that write gave the record.
+//
+// The tenant is never an argument: every Enqueue function runs in a
+// transaction opened by tenancy.InTenantTx and takes tenant_id from the
+// records row it locks, which row-level security lets it see only for that
+// transaction's tenant.
 package outbox
 
 import (
@@ -107,16 +112,14 @@ type Delivery struct {
 const maxDedupeKeyLen = 200
 
 const (
-	// Without it a duplicate retried after commit would still bump the
-	// record's version; the INSERT below catches the concurrent duplicate.
+	// A duplicate retried after commit returns here, before the record lock;
+	// the INSERT below catches the concurrent duplicate.
 	dedupeLookupSQL = `SELECT id FROM outbox WHERE dedupe_key = $1`
-	// The row lock that orders a target's rows (A.2): concurrent producers on
-	// one record queue here and take consecutive versions in commit order.
-	lockRecordSQL = `UPDATE records SET version = version + 1 WHERE id = $1 RETURNING tenant_id, version`
-	// EnqueueAtVersion's lock: the write pipeline has already bumped the
-	// version in this transaction (D-3-6), so it only locks and reads.
-	lockRecordNoBumpSQL = `SELECT tenant_id, version FROM records WHERE id = $1 FOR UPDATE`
-	openRefSQL          = `SELECT outbox_id FROM workflow_ref
+	// The record lock. The write pipeline has already bumped the version in
+	// this transaction (D-3-6), and its UPDATE holds the row lock that orders
+	// a target's rows (A.2), so this only locks and reads.
+	lockRecordSQL = `SELECT tenant_id, version FROM records WHERE id = $1 FOR UPDATE`
+	openRefSQL    = `SELECT outbox_id FROM workflow_ref
 WHERE tenant_id = $1 AND record_id = $2 AND kind = $3 AND closed_at IS NULL
 ORDER BY created_at DESC, outbox_id DESC LIMIT 1`
 	insertSQL = `INSERT INTO outbox (id, tenant_id, kind, kind_version, dedupe_key, target_key, target_seq,
@@ -127,19 +130,24 @@ RETURNING id`
 	insertRefSQL = `INSERT INTO workflow_ref (tenant_id, outbox_id, record_id, kind) VALUES ($1, $2, $3, $4)`
 )
 
-// Enqueue writes e as an outbox row in tx and returns the row's id.
+// EnqueueAtVersion writes e as an outbox row in tx and returns the row's id.
+// The writer has already bumped the record's version in tx: the record write
+// pipeline, whose UPDATE is the one place a write bumps it (PLAN-003 D-3-6).
+// It locks the records row without bumping it again and uses version as the
+// row's target_seq. version must be the record's version in tx, or it
+// returns ErrVersionMismatch and writes nothing.
 //
-// It locks e.RecordID's records row and bumps its version; the new version is
-// the row's target_seq. A start row's target_key is <kind>:<its own id>, and
-// its workflow_ref row is inserted in tx. A signal row takes the target_key
-// of the newest open workflow_ref of its kind on the record, or fails with
-// ErrNoOpenWorkflow.
+// A start row's target_key is <kind>:<its own id>, and its workflow_ref row
+// is inserted in tx. A signal row takes the target_key of the newest open
+// workflow_ref of its kind on the record, or fails with ErrNoOpenWorkflow.
 //
-// If the tenant already has a row with e.DedupeKey, Enqueue returns that
-// row's id and a nil error and writes nothing more. Only when the duplicate
-// commits concurrently has the record's version already been bumped; a gap in
-// target_seq is harmless, because the relay orders on it and never counts it.
-// So a nil error does not mean the record changed or a row was written.
+// If the tenant already has a row with e.DedupeKey, it returns that row's id
+// and a nil error and writes nothing, before it checks version: a nil error
+// does not mean a row was written. Rows one write enqueues for the
+// same record share a target_seq. A start's target_key is its own, so that
+// matters only for two signals to one workflow from one write: the relay's
+// head test (target_seq <= the lowest pending) admits both, so their order is
+// not fixed. Rows of later writes still follow them.
 //
 // The W3C traceparent of ctx's span, if any, is stored in trace_context so the
 // relay can link the workflow to the request that wrote the row. tracestate
@@ -148,36 +156,12 @@ RETURNING id`
 // tx must come from tenancy.InTenantTx. On any error the caller rolls tx back.
 //
 // A start of InterpreterKind is ErrInvalidEntry: use EnqueueStart.
-func Enqueue(ctx context.Context, tx pgx.Tx, e Entry) (uuid.UUID, error) {
-	if err := notInterpreterStart(e); err != nil {
-		return uuid.Nil, err
-	}
-	return enqueue(ctx, tx, e, uuid.Nil, func() (uuid.UUID, int64, error) {
-		return lockRecord(ctx, tx, lockRecordSQL, e.RecordID)
-	})
-}
-
-// EnqueueAtVersion is Enqueue for a writer that has already bumped the
-// record's version in tx: the record write pipeline, whose UPDATE is the one
-// place a write bumps it (PLAN-003 D-3-6). It locks the records row without
-// bumping it again and uses version as the row's target_seq. version must be
-// the record's version in tx, or it returns ErrVersionMismatch and writes
-// nothing.
-//
-// Everything else is as Enqueue: the same validation, dedupe, target and
-// workflow_ref rules, and the same errors. Rows one write enqueues for the
-// same record share a target_seq. A start's target_key is its own, so that
-// matters only for two signals to one workflow from one write: the relay's
-// head test (target_seq <= the lowest pending) admits both, so their order is
-// not fixed. Rows of later writes still follow them.
-//
-// tx must come from tenancy.InTenantTx. On any error the caller rolls tx back.
 func EnqueueAtVersion(ctx context.Context, tx pgx.Tx, e Entry, version int64) (uuid.UUID, error) {
 	if err := notInterpreterStart(e); err != nil {
 		return uuid.Nil, err
 	}
 	return enqueue(ctx, tx, e, uuid.Nil, func() (uuid.UUID, int64, error) {
-		tenant, got, err := lockRecord(ctx, tx, lockRecordNoBumpSQL, e.RecordID)
+		tenant, got, err := lockRecord(ctx, tx, lockRecordSQL, e.RecordID)
 		if err != nil {
 			return uuid.Nil, 0, err
 		}
@@ -195,7 +179,7 @@ func EnqueueAtVersion(ctx context.Context, tx pgx.Tx, e Entry, version int64) (u
 //
 // The row's causation is the one stored on the record by the triggering
 // write, read by ClaimStart under the tenant's RLS: e.Causation must be
-// empty or equal to it. The depth limit applies as for Enqueue.
+// empty or equal to it. The depth limit applies as for EnqueueAtVersion.
 //
 // It locks the records row without bumping its version: the triggering
 // write has already bumped it (D-3-6), and a start's target_key is its own,
@@ -223,7 +207,7 @@ func EnqueueStart(ctx context.Context, tx pgx.Tx, c cascade.Claim, e Entry) (uui
 	}
 	e.Causation = claimed
 	id, err := enqueue(ctx, tx, e, c.OutboxID(), func() (uuid.UUID, int64, error) {
-		tenant, seq, err := lockRecord(ctx, tx, lockRecordNoBumpSQL, e.RecordID)
+		tenant, seq, err := lockRecord(ctx, tx, lockRecordSQL, e.RecordID)
 		if err == nil && tenant != c.TenantID() {
 			return uuid.Nil, 0, ErrRecordNotFound
 		}
@@ -242,8 +226,8 @@ func notInterpreterStart(e Entry) error {
 	return nil
 }
 
-// lockRecord runs one of the two record locks and returns the record's tenant
-// and the version that becomes target_seq.
+// lockRecord runs the record lock and returns the record's tenant and the
+// version that becomes target_seq.
 func lockRecord(ctx context.Context, tx pgx.Tx, sql string, record uuid.UUID) (uuid.UUID, int64, error) {
 	var (
 		tenant uuid.UUID
@@ -258,7 +242,7 @@ func lockRecord(ctx context.Context, tx pgx.Tx, sql string, record uuid.UUID) (u
 	return tenant, seq, nil
 }
 
-// enqueue is Enqueue, EnqueueAtVersion and EnqueueStart; lock locks the
+// enqueue is EnqueueAtVersion and EnqueueStart; lock locks the
 // record and returns its tenant and the row's target_seq. id is the row's id,
 // or uuid.Nil to mint a UUIDv7.
 func enqueue(ctx context.Context, tx pgx.Tx, e Entry, id uuid.UUID, lock func() (uuid.UUID, int64, error)) (uuid.UUID, error) {

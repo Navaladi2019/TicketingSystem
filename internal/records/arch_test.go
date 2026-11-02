@@ -74,17 +74,17 @@ type knownViolation struct {
 	file, op, table, why string
 }
 
-// TODO(TODO-TICK-356-01): empty this list once TICK-411 moves outbox.Enqueue
-// and cmd/demo-outbox off direct records writes.
+// TODO(TODO-TICK-356-01): empty this list once cmd/demo-outbox creates and
+// bumps its record through the write pipeline (TICK-411).
 func knownViolations() []knownViolation {
 	return []knownViolation{
 		{
-			file: "internal/outbox/outbox.go", op: "update", table: "records",
-			why: "outbox.Enqueue still bumps records.version (lockRecordSQL); D-3-6 leaves the bump to the pipeline. Fix: TICK-411.",
+			file: "cmd/demo-outbox/main.go", op: "insert", table: "records",
+			why: "the S7 demo seeds its record by INSERT; it needs a decision on how the demo reaches the pipeline (TICK-411).",
 		},
 		{
-			file: "cmd/demo-outbox/main.go", op: "insert", table: "records",
-			why: "the S7 demo seeds its record by INSERT; goes with the outbox.Enqueue fix, TICK-411.",
+			file: "cmd/demo-outbox/main.go", op: "update", table: "records",
+			why: "the S7 demo bumps the version itself before outbox.EnqueueAtVersion, since outbox no longer does (TICK-411).",
 		},
 	}
 }

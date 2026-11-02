@@ -55,15 +55,15 @@ func TestEnqueueRejectsBeforeAnyWrite(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			e := validEntry()
 			c.mutate(&e)
-			id, err := Enqueue(context.Background(), nil, e)
+			id, err := EnqueueAtVersion(context.Background(), nil, e, 1)
 			if !errors.Is(err, c.want) || id != uuid.Nil {
-				t.Fatalf("Enqueue = %v, %v; want %v", id, err, c.want)
+				t.Fatalf("EnqueueAtVersion = %v, %v; want %v", id, err, c.want)
 			}
 		})
 	}
 }
 
-// EnqueueAtVersion and EnqueueStart refuse before any write too.
+// EnqueueAtVersion's interpreter check and EnqueueStart refuse before any write too.
 func TestEnqueueStartPathsRefuseBeforeAnyWrite(t *testing.T) {
 	interp := validEntry()
 	interp.Kind, interp.Target = InterpreterKind, TargetStart{Kind: InterpreterKind}

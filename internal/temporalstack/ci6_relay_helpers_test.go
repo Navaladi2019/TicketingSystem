@@ -5,7 +5,8 @@ package temporalstack
 // Helpers for the CI-6 relay and worker cases and CI-7 (PLAN-001 T32b). The
 // relay under test is the stack's own nava-relay service: the test writes
 // outbox rows the way the producer does (a start as cascade.ClaimStart and
-// outbox.EnqueueStart, a signal as outbox.Enqueue), as the superuser inside the
+// outbox.EnqueueStart, a signal as a pipeline write plus
+// outbox.EnqueueAtVersion), as the superuser inside the
 // postgres container (the database port is never published), and the service
 // claims them as nava_relay and dispatches them to the compose Temporal with
 // its nava-relay certificate. A guarded worker in the test runs the workflow.
@@ -358,9 +359,9 @@ func relayWorkflowID(tenant, start uuid.UUID) string {
 // refs is a references-only payload (outbox.ValidatePayload).
 func (tg *target) refs() string { return `{"record_id":"` + tg.record.String() + `"}` }
 
-// signalRowSQL is outbox.Enqueue's write of a signal: bump the record's
-// version and insert the row with it as target_seq, under the record's
-// causation.
+// signalRowSQL is a pipeline write plus outbox.EnqueueAtVersion for a
+// signal: bump the record's version and insert the row with it as
+// target_seq, under the record's causation.
 func (tg *target) signalRowSQL(id uuid.UUID, kind, payload string) string {
 	return fmt.Sprintf(`WITH v AS (UPDATE records SET version = version + 1 WHERE tenant_id = '%[1]s' AND id = '%[2]s'
     RETURNING version, causation_origin_id, causation_depth)
