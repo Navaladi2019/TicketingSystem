@@ -36,12 +36,12 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 @media print{table{display:table}}
 </style></head>
 <body><main>
-<div class="banner"><span class="pill">READING GUIDE &middot; ADR-004 E1 PROPOSED (rev 2)</span>
+<div class="banner"><span class="pill">READING GUIDE &middot; ADR-004 E1 ACCEPTED</span>
 <span class="src">This companion explains <code>ADR-004-E1-cascade-entries-and-diff-truncated.md</code>. It is not a decision record and changes nothing. Blue "decision text" boxes are copied from the erratum.</span></div>
 <table class="front"><tbody>
 <tr><th>title</th><td>ADR-004 erratum E1 explained: where the two cascade audit rows go, and why the "diff was cut" flag is sealed</td></tr>
 <tr><th>type</th><td>explainer for the decision-maker (not a decision record)</td></tr>
-<tr><th>explains</th><td>ADR-004-E1 (status PROPOSED, 2026-11-02), from RFC-009 rev 2 on TICK-422</td></tr>
+<tr><th>explains</th><td>ADR-004-E1 (status ACCEPTED, 2026-11-02), from RFC-009 rev 2 on TICK-422</td></tr>
 <tr><th>date</th><td>2026-11-02</td></tr>
 <tr><th>audience</th><td>whoever decides. It assumes no knowledge of the audit-log design or the reviews that shaped it.</td></tr>
 </tbody></table>
@@ -140,5 +140,5 @@ The envelope gains <code>diff_truncated</code> (boolean, always emitted): 22 mem
 <p>Files: <code>docs/adr/ADR-004/spikes/solution-architect/rfc-009/</code>, <code>docs/adr/ADR-004/spikes/postgres/rfc-009/</code>, and the RFC under <code>docs/adr/ADR-004/rfc/</code>.</p>
 
 <h2 id="status">7. Status</h2>
-<p>PROPOSED. The Solution Architect gives the verdict after the reviewers' re-check and any CTO tie-break, then sets the status here and in the <code>.md</code>, and merges.</p>
+<p><strong>ACCEPTED</strong> on 2026-11-02 by the Solution Architect, after the Technical Architect approved rev 2 and the Postgres &amp; Data Modeling Specialist approved its finding. Nothing was contested, so no CTO tie-break was needed. The Technical Lead's P5-12b and P5-13b tasks implement it.</p>
 </main></body></html>

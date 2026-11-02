@@ -2,25 +2,31 @@
 type: adr-erratum
 id: ADR-004-E1
 title: Erratum E1 to ADR-004, the R2 vocabulary and key shape for the two cascade audit entries, and diff_truncated in the R1 envelope
-status: PROPOSED
+status: ACCEPTED
+accepted: 2026-11-02
 date: 2026-11-02
 issue: TICK-422
 rfc: docs/adr/ADR-004/rfc/RFC-009-adr-004-e1-cascade-audit-vocabulary.md (rev 2, archived with rev-0/, rev-1/ and rev-2/; thread under TICK-422 comment 01a198bc-f986-78f8-a49c-dd0fef86ae3f)
 supersedes: "the R2 `action` list, and the R1 envelope list, in [[ADR-004-audit-log]]"
 amends: "[[ADR-004-audit-log]] R1, R2, R23 and the acceptance tests (adds CI-A17); PLAN-003 D-3-7a by reference (`cascade_rejected` becomes `cascade_too_deep`)"
 source: "PLAN-005 (TICK-417) found the gap. ADR-001-A5 A5-4 and PLAN-003 D-3-7a require two audit rows that R2 cannot hold. Item 2 is the Solution Architect's ruling at grooming (TICK-449, comment 01a198c1-53f0)."
-deciders: Solution Architect (author); Technical Architect (round 1, no blocking, comment 01a198c2-c512; item 2, one blocking §3, comment 01a199ad-18fa); Postgres & Data Modeling Specialist (re-check APPROVE on P5, comment 01a199ab-1655); Postgres & Data Modeling Specialist (round 1, one blocking P5, comment 01a198c6-7470); CTO (routing, comment 01a198bd-ce63)
+deciders: Solution Architect (author); Technical Architect (round 1, no blocking, comment 01a198c2-c512; item 2, one blocking §3, comment 01a199ad-18fa); Postgres & Data Modeling Specialist (re-check APPROVE on P5, comment 01a199ab-1655); Technical Architect (rev 2 APPROVE, comment 01a199e4-1682); Postgres & Data Modeling Specialist (round 1, one blocking P5, comment 01a198c6-7470); CTO (routing, comment 01a198bd-ce63)
 ---
 
 # ADR-004 erratum E1: the cascade audit entries, and `diff_truncated` in the envelope
 
-> **Status: PROPOSED (rev 2), 2026-11-02.**
+> **Status: ACCEPTED (rev 2), 2026-11-02.** The Solution Architect accepted it on TICK-422 after two approvals:
+> - the Technical Architect approved rev 2 (comment `01a199e4`, §3 and §1b closed);
+> - the Postgres & Data Modeling Specialist approved P5 (comment `01a199ab`).
+>
+> Nothing was contested, so no CTO tie-break was needed. No human sign-off is required under the current policy.
+>
+> **History.**
 > - **Item 1.** Round 1:
 >   - The Technical Architect raised no blocking findings (comment `01a198c2`).
 >   - The Postgres & Data Modeling Specialist raised one blocking finding, P5 (comment `01a198c6`). Rev 1 closed it, and the Postgres Specialist approved on re-check (comment `01a199ab`).
 > - **Item 2** joined E1 at grooming (TICK-449). The Technical Architect's first critique of it (comment `01a199ad`) raised one blocking finding, §3: whole-op truncation empties large `audit/erase` entries. Rev 2 takes that fix as written, with the R23 cap and the refusal to truncate. Rev 2 also takes the §1b byte definition.
 >
-> The SA gives the verdict after the Technical Architect's re-check of §3.
 
 > **Invariants source.** The project description defines no invariants. As in ADR-004, this erratum is checked against [[ADR-001-platform-blueprint]] §1 I1–I9. If the project is meant to have its own list of eight, these checks are incomplete against it.
 
@@ -94,9 +100,7 @@ deciders: Solution Architect (author); Technical Architect (round 1, no blocking
 
 **`docs/api/audit-export-v1.md`:** the erase-entry bound changes from "1 to 10,000" ids to "1 to 1,500". This is prose only, so #365's vectors are unaffected. It lands in P5-02's follow-up or in P5-12b.
 
-**P5-12b** implements the byte rules and the erase refusal.
-
-**P5-12b** sets the flag before it hashes the envelope.
+**P5-12b** implements the byte rules and the erase refusal, and sets the flag before it hashes the envelope.
 
 **P5-13** is mechanical:
 - `ClaimStart`'s `SELECT … FOR UPDATE` also reads R's `version` and `entity_definition_id`, and carries them on `Claim`. This adds no statement. A5-1 already puts the claim after the write's `UPDATE`, so `version_after` comes out right.
