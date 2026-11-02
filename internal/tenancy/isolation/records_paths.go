@@ -64,11 +64,19 @@ func recReadOtherTenants(ctx context.Context, e *etIso) error {
 		return err
 	}
 	const missing = "0194f2c0-0000-7000-8000-000000000000"
-	// Tenant B names tenant A's type and record, and a type it does have
-	// (incident) with tenant A's record id.
+	// Tenant B's seeded types do not compile (testdata/seed.sql), so tenant B's
+	// admin makes a type of its own: the type tenant B "does have".
+	if code, body := e.do(ctx, http.MethodPost, "/api/v1/entity-types", etCallerBAdmin, etCreateBody("iso_et_recb", "ISB", ""), nil); code != http.StatusCreated {
+		return fmt.Errorf("control: tenant B creating its own type = %d %s, want 201", code, body)
+	}
+	if code, body := e.do(ctx, http.MethodPost, "/api/v1/records/iso_et_recb", etCallerB, `{"data": {"note": "b"}}`, nil); code != http.StatusCreated {
+		return fmt.Errorf("control: tenant B creating its own record = %d %s, want 201", code, body)
+	}
+	// Tenant B names tenant A's type and record, and its own type with
+	// tenant A's record id.
 	for _, c := range [][2]string{
 		{"/api/v1/records/iso_et_rec/" + id, "/api/v1/records/iso_et_rec/" + missing},
-		{"/api/v1/records/incident/" + id, "/api/v1/records/incident/" + missing},
+		{"/api/v1/records/iso_et_recb/" + id, "/api/v1/records/iso_et_recb/" + missing},
 	} {
 		oc, ob := e.do(ctx, http.MethodGet, c[0], etCallerB, "", nil)
 		uc, ub := e.do(ctx, http.MethodGet, c[1], etCallerB, "", nil)

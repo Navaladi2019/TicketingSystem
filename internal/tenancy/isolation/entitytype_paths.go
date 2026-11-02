@@ -71,6 +71,11 @@ const (
 	incidentDefB = "0b000000-0000-4000-8000-0000000006b2"
 	etCallerA    = "caller-a1-admin"
 	etCallerB    = "caller-b1"
+	// etCallerBAdmin is tenant B's admin (testdata/seed.sql: principal b2 in the
+	// tenant admin group b2), who can create entity types in tenant B.
+	etCallerBAdmin = "caller-b2-admin"
+	principalB2    = "0b000000-0000-4000-8000-0000000003b2"
+	adminGroupB    = "0b000000-0000-4000-8000-0000000004b2"
 )
 
 // etSchema and etDefTail form a definition that compiles: create and publish
@@ -129,8 +134,9 @@ func newETIso(ctx context.Context, c Cluster) (*etIso, error) {
 		return nil, err
 	}
 	tokens := etCallers{
-		etCallerA: {TenantID: uuid.MustParse(TenantA), PrincipalID: uuid.MustParse(principalA1), Groups: []uuid.UUID{uuid.MustParse(adminGroupA)}},
-		etCallerB: {TenantID: uuid.MustParse(TenantB), PrincipalID: uuid.MustParse(principalB1)},
+		etCallerA:      {TenantID: uuid.MustParse(TenantA), PrincipalID: uuid.MustParse(principalA1), Groups: []uuid.UUID{uuid.MustParse(adminGroupA)}},
+		etCallerB:      {TenantID: uuid.MustParse(TenantB), PrincipalID: uuid.MustParse(principalB1)},
+		etCallerBAdmin: {TenantID: uuid.MustParse(TenantB), PrincipalID: uuid.MustParse(principalB2), Groups: []uuid.UUID{uuid.MustParse(adminGroupB)}},
 	}
 	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel, tokens, pgstore.New(pool),
 		server.WithPool(pool), server.WithCursors(kr))
