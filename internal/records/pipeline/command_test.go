@@ -110,3 +110,21 @@ func TestAuditSuppressedRefusesZeroClaim(t *testing.T) {
 		t.Fatalf("AuditSuppressed(zero claim) = %v, want cascade.ErrInvalidKey", err)
 	}
 }
+
+// ErrAtVersion is transparent: its text is the cause's, and errors.Is and
+// errors.As reach the cause and what the cause wraps.
+func TestErrAtVersionIsTransparent(t *testing.T) {
+	t.Parallel()
+	cause := &pipeline.ErrUniqueViolation{Field: "code"}
+	var err error = &pipeline.ErrAtVersion{SchemaVersion: 3, Err: cause}
+	if err.Error() != cause.Error() {
+		t.Errorf("text = %q, want the cause's %q", err.Error(), cause.Error())
+	}
+	var uv *pipeline.ErrUniqueViolation
+	if !errors.As(err, &uv) || uv != cause {
+		t.Errorf("errors.As does not reach the cause")
+	}
+	if err := (&pipeline.ErrAtVersion{Err: pipeline.ErrVersionConflict}); !errors.Is(err, pipeline.ErrVersionConflict) {
+		t.Errorf("errors.Is does not reach the cause")
+	}
+}

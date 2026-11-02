@@ -276,6 +276,24 @@ func (e *ErrValidation) Error() string {
 	return "pipeline: validation failed at " + strings.Join(paths, ", ")
 }
 
+// ErrAtVersion is a refused or failed write that got as far as reading the
+// entity type's current definition. It names the version the write used and
+// that version's fixed-column mapping and state property, so a caller maps the
+// error to payload properties under the same version the pipeline did, not
+// under a definition it read itself, which a concurrent publish can have
+// replaced (TICK-413). Err is the cause, unchanged: errors.Is and errors.As
+// see through ErrAtVersion, and its text is the cause's.
+type ErrAtVersion struct {
+	SchemaVersion int
+	FixedColumns  map[string]string
+	StateProperty string
+	Err           error
+}
+
+func (e *ErrAtVersion) Error() string { return e.Err.Error() }
+
+func (e *ErrAtVersion) Unwrap() error { return e.Err }
+
 // Pipeline writes records. It holds no per-write state and is safe for
 // concurrent use.
 type Pipeline struct {
@@ -308,7 +326,9 @@ func (p *Pipeline) Runner() TxRunner { return p.runner }
 // outbox.ErrCascadeTooDeep for a refused write; ErrRetryable, wrapping the
 // database error, when PostgreSQL aborted tx for a deadlock (40P01) or a
 // serialization failure (40001): roll back and retry the whole transaction;
-// and a wrapped error for any other database failure. On any error the
+// and a wrapped error for any other database failure. An error raised after
+// the definition was read is wrapped in *ErrAtVersion, naming the version
+// the write used. On any error the
 // caller rolls tx back; after a concurrent *ErrIdempotencyConflict,
 // ErrRetryable or a database error tx is unusable.
 //
@@ -366,21 +386,10 @@ func (p *Pipeline) perform(ctx context.Context, tx pgx.Tx, cmd Command) (Result,
 	if err != nil {
 		return Result{}, mapNotFound(err)
 	}
-	data, err := normalise(cmd.Data)
-	if err != nil {
-		return Result{}, err
-	}
-
 	w := write{p: p, tx: tx, tenant: tenant, cmd: cmd, defID: defID, def: def, defVersion: defVersion}
-	var res Result
-	switch cmd.Op {
-	case OpCreate:
-		res, err = w.create(ctx, data)
-	case OpUpdate:
-		res, err = w.update(ctx, data)
-	}
+	res, err := w.do(ctx)
 	if err != nil {
-		return Result{}, err
+		return Result{}, &ErrAtVersion{SchemaVersion: defVersion, FixedColumns: def.FixedColumns(), StateProperty: def.StateProperty(), Err: err}
 	}
 	if p.beforeReturn != nil {
 		p.beforeReturn(ctx)
@@ -525,6 +534,18 @@ type write struct {
 	defID      uuid.UUID
 	def        *metadata.Compiled
 	defVersion int
+}
+
+// do performs the write under w.def.
+func (w *write) do(ctx context.Context) (Result, error) {
+	data, err := normalise(w.cmd.Data)
+	if err != nil {
+		return Result{}, err
+	}
+	if w.cmd.Op == OpUpdate {
+		return w.update(ctx, data)
+	}
+	return w.create(ctx, data)
 }
 
 func (w *write) create(ctx context.Context, after map[string]any) (Result, error) {

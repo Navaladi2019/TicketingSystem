@@ -82,7 +82,7 @@ func (h *handlers) PatchRecord(ctx context.Context, req api.PatchRecordRequestOb
 	var (
 		rec       *pipeline.Record
 		data      map[string]any
-		tried     map[string]string // the current version's, for a refused write
+		tried     map[string]string // the handler's read; recordError prefers the pipeline's version
 		stateProp string
 	)
 	err := tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) error {

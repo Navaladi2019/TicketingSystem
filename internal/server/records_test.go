@@ -143,3 +143,38 @@ func TestRecordHandlersRefuseAPrincipalWithoutAnID(t *testing.T) {
 		t.Errorf("GetRecord without a principal err = %v, want errNoPrincipal", err)
 	}
 }
+
+// A version published between the handler's read and the pipeline's must not
+// move a pointer (TICK-413): the mapping on *pipeline.ErrAtVersion wins over
+// the one the handler passes, for a foreign key and a transition.
+func TestRecordErrorMapsUnderThePipelinesVersion(t *testing.T) {
+	t.Parallel()
+	h, _ := recHandler()
+	ctx := t.Context()
+	at := func(err error) error {
+		return fmt.Errorf("tx: %w", &pipeline.ErrAtVersion{
+			SchemaVersion: 2, StateProperty: "status", Err: err,
+			FixedColumns: map[string]string{"status": metadata.ColumnState, "assigned_to": metadata.ColumnAssigneeID},
+		})
+	}
+	for name, tc := range map[string]struct {
+		err   error
+		fixed map[string]string
+		want  string
+	}{
+		"fk, handler read an older version": {at(wrappedFK("records_assignee_fkey")), recFixedColumns(), "/data/assigned_to"},
+		"fk, handler passed no mapping":     {at(wrappedFK("records_assignee_fkey")), nil, "/data/assigned_to"},
+		"transition":                        {at(&pipeline.ErrIllegalTransition{To: "closed"}), recFixedColumns(), "/data/status"},
+	} {
+		var pe *problemError
+		if err := h.recordError(ctx, tc.err, tc.fixed, "state"); !errors.As(err, &pe) || len(pe.fields) != 1 || pe.fields[0].Pointer != tc.want {
+			t.Errorf("%s: err = %v %+v, want one field error at %s", name, err, pe, tc.want)
+		}
+	}
+	// A foreign key the pipeline's version maps to no property stays a 500,
+	// even when the handler's read would have mapped it.
+	var pe *problemError
+	if err := h.recordError(ctx, at(wrappedFK("records_assignment_group_fkey")), recFixedColumns(), "state"); errors.As(err, &pe) {
+		t.Errorf("unmapped under the pipeline's version: got the %s problem, want the raw error", pe.code)
+	}
+}
