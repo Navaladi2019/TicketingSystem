@@ -173,7 +173,7 @@ func (e *etIso) do(ctx context.Context, method, path, token, body string, header
 	if body != "" && header.Get("Content-Type") == "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if method == http.MethodPost {
+	if method == http.MethodPost || method == http.MethodPatch {
 		e.keys++
 		req.Header.Set("Idempotency-Key", fmt.Sprintf("iso-et-%d", e.keys))
 	}
