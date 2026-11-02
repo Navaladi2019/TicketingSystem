@@ -275,6 +275,34 @@ func recordIDs(ctx context.Context, super *pgx.Conn, tenant string) (map[string]
 	return set, nil
 }
 
+// canonicalID returns raw as a canonical uuid (lowercase, hyphenated), the
+// form id::text gives, and false when raw is no uuid.
+func canonicalID(raw string) (string, bool) {
+	u, err := uuid.Parse(raw)
+	if err != nil {
+		return "", false
+	}
+	return u.String(), true
+}
+
+// TestCanonicalID (TICK-473 review): every form of a seed id that Postgres
+// casts to the same uuid canonicalizes to the snapshot's key, so a 201 naming
+// "…A2" or the unhyphenated id is caught as already held.
+func TestCanonicalID(t *testing.T) {
+	const seed = "0a000000-0000-4000-8000-0000000000a2"
+	for _, raw := range []string{seed, "0A000000-0000-4000-8000-0000000000A2", "0a0000000000400080000000000000a2",
+		"{0a000000-0000-4000-8000-0000000000a2}", "urn:uuid:0a000000-0000-4000-8000-0000000000a2"} {
+		if got, ok := canonicalID(raw); !ok || got != seed {
+			t.Errorf("canonicalID(%q) = %q, %v; want %q, true", raw, got, ok, seed)
+		}
+	}
+	for _, raw := range []string{"", "a2", "0a000000-0000-4000-8000-0000000000a2x"} {
+		if got, ok := canonicalID(raw); ok {
+			t.Errorf("canonicalID(%q) = %q, true; want false", raw, got)
+		}
+	}
+}
+
 // runStoredUnderA runs a StoredUnderA write (P3-18, TICK-366), under the CTO's
 // D-P10 conditions on TICK-366 (C1 to C5 below). It passes only:
 //
@@ -348,9 +376,18 @@ func (r *apiRunner) runStoredUnderA(t *testing.T, c *HTTPCall) (status, detail s
 	var stored []string // the tenants rows with that id are filed under
 	var existed bool    // the id was tenant A's before the call
 	if created {
-		if err := json.Unmarshal(rec.Body.Bytes(), &row); err != nil || uuid.Validate(row.ID) != nil {
+		if err := json.Unmarshal(rec.Body.Bytes(), &row); err != nil {
 			return statusFail, fmt.Sprintf("201 with no record id the runner can resolve: %s", body)
 		}
+		// The seed snapshot holds Postgres's canonical id::text, but Postgres
+		// also reads an uppercase or unhyphenated id as the same uuid, so the
+		// lookup, the query and the cleanup all use the canonical form; else
+		// "…A2" would miss seedA and the cleanup would delete seed "…a2".
+		id, ok := canonicalID(row.ID)
+		if !ok {
+			return statusFail, fmt.Sprintf("201 with no record id the runner can resolve: %s", body)
+		}
+		row.ID = id
 		rows, err := super.Query(ctx, `SELECT tenant_id::text FROM records WHERE id = $1 ORDER BY tenant_id`, row.ID)
 		if err != nil {
 			return statusFail, err.Error()
