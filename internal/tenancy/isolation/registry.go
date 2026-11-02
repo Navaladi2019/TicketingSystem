@@ -73,8 +73,9 @@ const (
 	// UPDATE or DELETE where an integrity error cannot hide a reached row.
 	Denied
 	// StoredUnderA is for an HTTPCall that writes (P3-18, TICK-366; CTO
-	// D-P10 conditions on TICK-366): the create refuses it (403, 404 or 422)
-	// and writes nothing, or it answers 201 or 200 with the id of a record
+	// D-P10 conditions on TICK-366): the create refuses it with the 404 that
+	// the same request to Unknown gets, byte for byte but for instance, and
+	// writes nothing; or it answers 201 or 200 with the id of a record
 	// whose tenant_id is tenant A. Either way tenant B's record and audit row
 	// counts are unchanged, and the body never holds tenant B's id. Everything
 	// is read on the superuser connection, past row-level security: a read as
@@ -105,6 +106,11 @@ type HTTPCall struct {
 	// validator regression that starts refusing it cannot hide; or
 	// StoredUnderA for a write.
 	Expect Expect
+	// Unknown is, for StoredUnderA, the same route naming a key no tenant
+	// has. The only refusal that passes is its 404: any other refusal (a 403,
+	// or a 422 from a handler that found tenant B's type) tells the caller
+	// the key exists somewhere.
+	Unknown string
 	// NoRoute names the task that adds this route. Until then the call must
 	// get 404 or 405, with no tenant B id in the body.
 	NoRoute string
@@ -250,7 +256,8 @@ func forgedWrite(key, body string, header http.Header) HTTPCall {
 	for k, vs := range header {
 		h[k] = vs
 	}
-	return HTTPCall{Method: http.MethodPost, Path: "/api/v1/records/incident", Header: h, Body: body, Expect: StoredUnderA}
+	return HTTPCall{Method: http.MethodPost, Path: "/api/v1/records/incident", Header: h, Body: body, Expect: StoredUnderA,
+		Unknown: "/api/v1/records/iso_et_none"}
 }
 
 // Paths is the registry of named paths.

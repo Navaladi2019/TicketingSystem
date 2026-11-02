@@ -260,8 +260,9 @@ func countRows(ctx context.Context, super *pgx.Conn, tenant string) (rowCounts, 
 // runStoredUnderA runs a StoredUnderA write (P3-18, TICK-366), under the CTO's
 // D-P10 conditions on TICK-366 (C1 to C5 below). It passes only:
 //
-//   - "refused 4xx": the create's own refusal (403, 404 or 422) that wrote
-//     nothing in either tenant; or
+//   - "refused 404": the 404 that the same request to c.Unknown (a key no
+//     tenant has) gets, byte for byte after withoutInstance, with nothing
+//     written in either tenant (Postgres review P1); or
 //   - "stored under A, row <id>": a 201 (or 200) whose id names a record filed
 //     under tenant A.
 //
@@ -309,6 +310,9 @@ func (r *apiRunner) runStoredUnderA(t *testing.T, c *HTTPCall) (status, detail s
 			return statusFail, fmt.Sprintf("%d with no record id the runner can resolve: %s", rec.Code, body)
 		}
 		defer func() {
+			// TODO(TODO-S9-01): this leaves the record's outbox and
+			// cascade_start rows behind. Once P3-42 wires the EventSink,
+			// delete cascade_start first, then outbox, then these.
 			for _, q := range []string{`DELETE FROM audit_log WHERE record_id = $1`, `DELETE FROM records WHERE id = $1`} {
 				if _, err := super.Exec(context.Background(), q, created.ID); err != nil {
 					t.Errorf("cleanup: %v", err)
@@ -343,14 +347,55 @@ func (r *apiRunner) runStoredUnderA(t *testing.T, c *HTTPCall) (status, detail s
 			return statusFail, fmt.Sprintf("%d, record %s stored under tenant %s, want tenant A", rec.Code, created.ID, stored)
 		}
 		return statusPass, fmt.Sprintf("stored under A, row %s (%d); tenant B unchanged at %+v", created.ID, rec.Code, afterB)
-	case rec.Code == http.StatusForbidden || rec.Code == http.StatusNotFound || rec.Code == http.StatusUnprocessableEntity: // C3, C5
+	case rec.Code == http.StatusNotFound: // C3, C5, P1
 		if afterA != beforeA {
-			return statusFail, fmt.Sprintf("%d, but tenant A's records and audit rows went from %+v to %+v: a refusal must write nothing", rec.Code, beforeA, afterA)
+			return statusFail, fmt.Sprintf("404, but tenant A's records and audit rows went from %+v to %+v: a refusal must write nothing", beforeA, afterA)
 		}
-		return statusPass, fmt.Sprintf("refused 4xx (%d); nothing written, tenant B unchanged at %+v", rec.Code, afterB)
+		if err := r.sameAsUnknown(t, c, body); err != nil {
+			return statusFail, err.Error()
+		}
+		return statusPass, fmt.Sprintf("refused 404, the unknown key's byte for byte; nothing written, tenant B unchanged at %+v", afterB)
 	}
-	// C3: 5xx fails. So do 400, 409 and 429, narrower than C3's set: they
-	// come from the envelope, the Idempotency-Key store or the limiter, before
-	// the create reads the tenant, so they prove nothing.
-	return statusFail, fmt.Sprintf("%d, want the create's own refusal (403, 404 or 422) or 201 under tenant A: %s", rec.Code, body)
+	// C3, P1: 5xx fails. So do 400, 409 and 429, narrower than C3's set:
+	// they come from the envelope, the Idempotency-Key store or the limiter,
+	// before the create reads the tenant, so they prove nothing. And so do
+	// 403 and 422: tenant A has no such key, so any refusal but the unknown
+	// key's 404 means the handler found the type somewhere, and tells the
+	// caller so.
+	return statusFail, fmt.Sprintf("%d, want the unknown key's 404 or 201 under tenant A: %s", rec.Code, body)
+}
+
+// sameAsUnknown sends c again to c.Unknown, with its own Idempotency-Key,
+// and requires its 404 to match body byte for byte after withoutInstance.
+func (r *apiRunner) sameAsUnknown(t *testing.T, c *HTTPCall, body string) error {
+	t.Helper()
+	if c.Unknown == "" {
+		return errors.New("a StoredUnderA call needs Unknown for its 404 control")
+	}
+	u := *c
+	u.Path = c.Unknown
+	u.Header = c.Header.Clone()
+	key := c.Header.Get("Idempotency-Key") + "-unknown"
+	u.Header.Set("Idempotency-Key", key)
+	defer func() {
+		if _, err := suite.superConn(t).Exec(context.Background(), `DELETE FROM idempotency_keys WHERE key = $1`, key); err != nil {
+			t.Errorf("cleanup: %v", err)
+		}
+	}()
+	rec := r.do(t, &u)
+	if rec.Code != http.StatusNotFound {
+		return fmt.Errorf("control: %s %s = %d %s, want 404", u.Method, u.Path, rec.Code, rec.Body)
+	}
+	got, err := withoutInstance(body)
+	if err != nil {
+		return err
+	}
+	want, err := withoutInstance(rec.Body.String())
+	if err != nil {
+		return fmt.Errorf("control: %w", err)
+	}
+	if got != want {
+		return fmt.Errorf("404 differs from the unknown key's, so it tells the caller the key exists:\n%s\n%s", got, want)
+	}
+	return nil
 }

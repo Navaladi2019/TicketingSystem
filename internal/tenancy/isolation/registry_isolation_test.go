@@ -69,6 +69,9 @@ func TestRegistryIsWellFormed(t *testing.T) {
 				t.Errorf("path %q: Idempotency-Key %q is shared with path %q", p.Name, key, keys[key])
 			}
 			keys[key] = p.Name
+			if !strings.HasPrefix(p.HTTP.Unknown, "/api/v1/") || p.HTTP.Unknown == p.HTTP.Path {
+				t.Errorf("path %q: a StoredUnderA call needs Unknown, another /api/v1 path, for its 404 control", p.Name)
+			}
 		}
 		if p.HTTP != nil && p.HTTP.Expect != 0 && p.HTTP.Expect != StoredUnderA {
 			t.Errorf("path %q: an HTTP call's Expect is zero or StoredUnderA", p.Name)
