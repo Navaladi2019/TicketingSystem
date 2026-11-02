@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -127,15 +128,19 @@ func TestHelpDocumentsExitCodes(t *testing.T) {
 			t.Errorf("help lacks %q", want)
 		}
 	}
-	for _, r := range []string{
-		"envelope_sha256_mismatch", "entry_hash_mismatch", "diff_sha256_mismatch", "diff_missing",
-		"diff_state_mismatch", "header_tenant_mismatch", "erasure_unlisted", "verifiable_flag_mismatch",
-		"anchor_missing", "anchor_invalid", "anchor_mismatch", "seq_duplicate", "seq_out_of_order",
-		"seq_missing", "count_mismatch", "head_mismatch", "line_state_mismatch", "line_order",
-		"header_invalid", "trailer_missing", "unknown_kind", "malformed_line",
-	} {
-		if !strings.Contains(help, r) {
-			t.Errorf("help lacks reason %s", r)
+	// The help's reason list is exactly the audit-export-v1.md §4.1 table, so
+	// a code added to §4.1 (and to internal/audit/verify, which
+	// TestReasonCodesListedInSpec enforces) must be added to the help too.
+	spec := specReasonCodes(t)
+	listed := helpReasonCodes(t, help)
+	for code := range spec {
+		if !listed[code] {
+			t.Errorf("help lacks reason %s (audit-export-v1.md §4.1)", code)
+		}
+	}
+	for code := range listed {
+		if !spec[code] {
+			t.Errorf("help lists reason %s, which audit-export-v1.md §4.1 does not", code)
 		}
 	}
 	if !strings.Contains(help, "does not prove") {
@@ -145,4 +150,52 @@ func TestHelpDocumentsExitCodes(t *testing.T) {
 	if code := run([]string{"help"}, nil, &out, &out); code != ExitOK || !strings.Contains(out.String(), "nava audit verify") {
 		t.Errorf("nava help: exit %d, %q", code, out.String())
 	}
+}
+
+var (
+	specRow  = regexp.MustCompile("^\\| `([a-z0-9_]+)` \\|")
+	helpCode = regexp.MustCompile(`[a-z0-9]+(?:_[a-z0-9]+)+`)
+)
+
+// specReasonCodes reads the first column of the audit-export-v1.md §4.1 table.
+func specReasonCodes(t *testing.T) map[string]bool {
+	t.Helper()
+	b, err := os.ReadFile("../../docs/api/audit-export-v1.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	codes := map[string]bool{}
+	in := false
+	for _, l := range strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n") {
+		switch {
+		case strings.HasPrefix(l, "### 4.1 Reason codes"):
+			in = true
+		case in && strings.HasPrefix(l, "#"):
+			in = false
+		case in:
+			if m := specRow.FindStringSubmatch(l); m != nil {
+				codes[m[1]] = true
+			}
+		}
+	}
+	if len(codes) == 0 {
+		t.Fatal("no reason codes read from audit-export-v1.md §4.1")
+	}
+	return codes
+}
+
+// helpReasonCodes reads the codes in the help's "Reason codes" paragraph.
+func helpReasonCodes(t *testing.T, help string) map[string]bool {
+	t.Helper()
+	i := strings.Index(help, "Reason codes (exit 1)")
+	if i < 0 {
+		t.Fatal("help has no Reason codes paragraph")
+	}
+	para, _, _ := strings.Cut(help[i:], "\n\n")
+	_, list, _ := strings.Cut(para, ":\n")
+	codes := map[string]bool{}
+	for _, c := range helpCode.FindAllString(list, -1) {
+		codes[c] = true
+	}
+	return codes
 }
