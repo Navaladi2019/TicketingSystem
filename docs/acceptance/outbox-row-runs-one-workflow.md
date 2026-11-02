@@ -28,7 +28,7 @@ Needs Docker and Go 1.26, from a fresh clone of the story branch. Windows Git Ba
    make demo-outbox DEDUPE_KEY=try-it
    make demo-outbox DEDUPE_KEY=try-it
    ```
-   Both runs print the same `start row`, `signal row 1`, `signal row 2` and `workflow id` (`t:00000000-0000-4000-8000-0000000000a1:nava.smoke.relay:<start row>`). The second run adds nothing.
+   Both runs print the same `start row`, `signal row 1`, `signal row 2` and `workflow id` (`t:00000000-0000-4000-8000-0000000000a1:nava.interpreter:<start row>`). The second run adds nothing.
 3. In a second terminal, run `make operator-tunnel` and leave it running. Open http://127.0.0.1:18233 and choose namespace `nava`.
    - The workflow list has **one** row for that workflow id ([screenshot](outbox-row-runs-one-workflow/01-workflow-list.png)).
    - Open it. History shows the start, then two `demo.note` signals. The first carries `signal row 1`'s id, the second `signal row 2`'s id ([screenshot](outbox-row-runs-one-workflow/02-crit1-history.png)). It stays `Running`: no worker runs this demo workflow type.
@@ -66,13 +66,13 @@ Run live as `nava_app` through PgBouncer, with `app.tenant_id` set as `InTenantT
 | Read tenant A's record and its `workflow_ref` | 0 rows each (tenant A sees 1 of each) |
 | Read the outbox | `permission denied for table outbox`: the app can write the outbox but never read it |
 | Write an outbox row stamped with tenant A's id | `new row violates row-level security policy for table "outbox"` |
-| Signal tenant A's workflow: a tenant-B row with A's `target_key` and A's record id | The relay sent it to `t:<tenant-B>:nava.smoke.relay:<A's start row>`, which does not exist. Row marked dead, error log `outbox signal target workflow not found or completed`. Tenant A's workflow history is unchanged (still 4 events) |
+| Signal tenant A's workflow: a tenant-B row with A's `target_key` and A's record id | The relay sent it to `t:<tenant-B>:nava.interpreter:<A's start row>`, which does not exist. Row marked dead, error log `outbox signal target workflow not found or completed`. Tenant A's workflow history is unchanged (still 4 events) |
 
 At the Temporal layer, CI-6 cases 7 to 11, 15 and 19 cover a worker that holds tenant B's work and reaches for tenant A's workflow. Each one is denied with an alert.
 
 ## Not included
 
-- No business workflow runs yet. The demo's `nava.smoke.relay` type has no worker in the stack, so its workflow stays `Running`. Feature workflows arrive with Epic 05.
+- No business workflow runs here. The demo starts the platform type `nava.interpreter` (TICK-374), which the stack's always-on `nava-worker` does not run, so its workflow stays `Running`. Its payload names no definition version: if you later bring up the S11a interpreter test worker, it rejects this workflow at once (`RejectInput`) instead of running a step. Set `demo_workflow_id` for Bruno S7.1 in that case.
 - No tenant-facing view of workflows. Only operators see Temporal, through the tunnel.
 
 ## Known limits

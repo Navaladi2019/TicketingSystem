@@ -147,7 +147,7 @@ func TestWorkerOptionsInstallTheGuard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o := workerOptions(g, make(chan error, 1))
+	o := workerOptions(g, false, make(chan error, 1))
 	if n := len(o.Interceptors); n == 0 || o.Interceptors[n-1] != g {
 		t.Errorf("interceptors %v, want the guard last", o.Interceptors)
 	}
@@ -176,7 +176,7 @@ func TestFatalWorkerErrorEndsServe(t *testing.T) {
 		t.Fatal(err)
 	}
 	fatal := make(chan error, 1)
-	o := workerOptions(g, fatal)
+	o := workerOptions(g, false, fatal)
 	if o.OnFatalError == nil {
 		t.Fatal("OnFatalError is not set: a fatal worker error would go unnoticed")
 	}

@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-001 amendment A6 explained: audit roles and non-record starts</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--accbg:#ddf4ff;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--accbg:#0c2d6b;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.banner{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.pill{font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left;overflow-wrap:break-word}
+th{background:var(--soft)}
+table.front th{width:120px}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px;margin-top:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:44px}
+h3{font-size:18px;margin-top:28px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;background:var(--soft);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+figure.diagram{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure.diagram svg{width:100%;min-width:600px;height:auto;display:block;margin:0 auto;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+.tag{display:inline-block;font-size:12px;font-weight:700;padding:1px 9px;border-radius:999px;white-space:nowrap}
+.tag.red{color:var(--bad);background:var(--badbg);border:1px solid var(--bad)}
+.tag.green{color:var(--good);background:var(--goodbg);border:1px solid var(--good)}
+.tag.amber{color:var(--warn);background:var(--warnbg);border:1px solid var(--warn)}
+.verbatim{border:1px solid var(--acc);border-left:5px solid var(--acc);background:var(--accbg);border-radius:6px;padding:8px 14px;margin:12px 0}
+.vlabel{font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--acc)}
+.callout{border:1px solid var(--warn);background:var(--warnbg);border-radius:8px;padding:10px 14px;margin:14px 0}
+dl.gloss{display:grid;grid-template-columns:minmax(140px,220px) minmax(0,1fr);gap:6px 18px}
+dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
+@media (max-width:640px){dl.gloss{grid-template-columns:minmax(0,1fr)} dl.gloss dd{margin-bottom:8px}}
+@media print{table{display:table}}
+</style>
+</head>
+<body><main>
+<div class="banner"><span class="pill">READING GUIDE &middot; ADR-001 A6 ACCEPTED</span>
+<span class="src">This companion explains <code>ADR-001-A6-audit-roles-and-non-record-starts.md</code>. It is not the decision record and changes nothing. If this page and the amendment disagree, the amendment wins.</span></div>
+<table class="front"><tbody>
+<tr><th>title</th><td>ADR-001 amendment A6 explained: three small additions to the blueprint that the audit log (ADR-004) needs</td></tr>
+<tr><th>type</th><td>An explainer for the decision-maker. It is not a decision record.</td></tr>
+<tr><th>explains</th><td>ADR-001-A6 (status ACCEPTED, 2026-11-02, by the Solution Architect after the Technical Architect's fidelity check and the CTO's rulings), from RFC-008 rev 1 §A6 on TICK-409. Companion to ADR-004.</td></tr>
+<tr><th>audience</th><td>Anyone approving ADR-004. It assumes no database knowledge.</td></tr>
+</tbody></table>
+
+<h1>ADR-001 amendment A6, explained</h1>
+
+<blockquote><strong>In one sentence.</strong> The signed blueprint (ADR-001) lists every database role and what it may touch. The new audit log needs three narrow additions to that list. None of them weakens the wall between customers or changes how background jobs are started.</blockquote>
+
+<h2>1. Why an amendment at all</h2>
+<p>ADR-001 is signed, and its role table and outbox rules can only change through an amendment. ADR-004 (the audit log) was designed to need as little of this as possible. Three things could not be avoided.</p>
+
+<h2>2. The three additions</h2>
+<table><thead><tr><th>#</th><th>What</th><th>Why</th><th>How it is kept narrow</th></tr></thead><tbody>
+<tr><td><span class="tag green">A6.1</span></td><td>A new role, <code>nava_erasure</code></td><td>Privacy erasure (Epic 30) must blank personal data in audit entries. No existing role may change audit entries, and that rule must stay true for them.</td><td>It runs inside one customer at a time. It can blank only the four erasure columns, once per entry, and every erasure writes its own audit entry. It cannot even <em>read</em> the data it erases. Its password lives only with the job runner, never on application servers.</td></tr>
+<tr><td><span class="tag green">A6.2</span></td><td>Onboarding may book the first run of the audit sealer</td><td>The sealer keeps itself alive by booking its next run. Something has to book the first one when a new customer is created.</td><td>Onboarding may insert <em>only</em> a sealer booking (<code>kind = 'audit.seal'</code>), and only for the customer it is still setting up. It cannot read the outbox table.</td></tr>
+<tr><td><span class="tag green">A6.3</span></td><td>A rule for background jobs not tied to a ticket</td><td>The blueprint's booking rules assume every job belongs to a ticket. The sealer belongs to a customer's audit chain instead.</td><td>The job id format, the relay and the start options are unchanged. Only the bookkeeping differs: the sequence number comes from the chain's own head row, and no ticket link is written. The sealer advances that number; the manual restart (<code>chain:reseed</code>) reuses it as is, so only the sealer can ever change it.</td></tr>
+</tbody></table>
+
+<figure class="diagram"><svg viewBox="0 0 760 150" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="sealer start path">
+<defs><marker id="c" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#59636e"/></marker></defs>
+<g font-size="13" fill="#1f2328">
+<rect x="10" y="40" width="200" height="60" rx="8" fill="#fff8c5" stroke="#9a6700"/><text x="110" y="65" text-anchor="middle" font-weight="700">Onboarding (A6.2)</text><text x="110" y="85" text-anchor="middle">books the first sealer run</text>
+<rect x="280" y="40" width="200" height="60" rx="8" fill="#f6f8fa" stroke="#d1d9e0"/><text x="380" y="65" text-anchor="middle" font-weight="700">Outbox + relay</text><text x="380" y="85" text-anchor="middle">unchanged start path</text>
+<rect x="550" y="40" width="200" height="60" rx="8" fill="#ddf4ff" stroke="#0969da"/><text x="650" y="65" text-anchor="middle" font-weight="700">Sealer run (A6.3)</text><text x="650" y="85" text-anchor="middle">books its own next run</text>
+<line x1="210" y1="70" x2="278" y2="70" stroke="#59636e" stroke-width="2" marker-end="url(#c)"/><line x1="480" y1="70" x2="548" y2="70" stroke="#59636e" stroke-width="2" marker-end="url(#c)"/>
+<path d="M650,100 C650,140 380,140 380,102" fill="none" stroke="#0969da" stroke-width="1.5" marker-end="url(#c)"/>
+</g></svg><figcaption>Figure 1: the sealer uses the same start path as every other background job.</figcaption></figure>
+
+<h2>3. What does not change</h2>
+<ul>
+<li>The list of database policies that may look across customers stays at <strong>10</strong>. None is added.</li>
+<li>Background jobs are still started only by the relay, from a row committed with the change that caused them.</li>
+<li>The job id scheme is unchanged.</li>
+<li>Adding the sealer to the Temporal server's list of allowed job types is a separate policy change with Security review, under amendment A1. It is <strong>not</strong> part of A6.</li>
+</ul>
+
+<h2>4. What we are accepting</h2>
+<p><span class="tag amber">AR-TICK-409-06</span> Whoever holds the <code>nava_erasure</code> password could blank audit details and record an erasure entry for it. That would be visible as an erasure, but the detail would still be gone. Mitigation: the password lives only with the job runner. Revisit if anyone else ever needs it.</p>
+
+<h2>5. Evidence and review</h2>
+<ul>
+<li>The Technical Architect checked A6.3 against the relay code (<code>internal/relay/relay.go</code>, <code>internal/relay/dispatch.go</code>, <code>internal/outbox/outbox.go</code>) and confirmed it conforms to the blueprint's start rules (D22).</li>
+<li>Security confirmed A6.1 and A6.2 are as narrow as needed, after four tightenings that are now written into the amendment and ADR-004.</li>
+<li><span class="tag red">red</span> In round 1, the onboarding role failed at commit with "permission denied for table outbox" (TA spike T6). <span class="tag green">green</span> A6.2 fixes it.</li>
+</ul>
+
+<h2>6. Words used on this page</h2>
+<dl class="gloss">
+<dt>Role</dt><dd>A database login with a fixed list of permissions.</dd>
+<dt>Outbox / relay</dt><dd>The outbox is a table where background work is booked, in the same transaction as the change that needs it. The relay is the process that starts the work.</dd>
+<dt>Sealer</dt><dd>The background job that links audit entries into a tamper-evident chain (ADR-004).</dd>
+<dt>Provisioning</dt><dd>The state of a customer account while it is still being set up.</dd>
+</dl>
+</main>
+</body></html>

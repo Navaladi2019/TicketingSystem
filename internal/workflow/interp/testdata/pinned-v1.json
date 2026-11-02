@@ -1,0 +1,10 @@
+{
+  "format": "nava.workflow/v1",
+  "trigger": { "on": "record.created", "entity": "ticket" },
+  "start": "cool_off",
+  "steps": [
+    { "key": "cool_off", "type": "timer", "duration": "PT5S", "next": "stamp" },
+    { "key": "stamp", "type": "update_record", "set": { "stage": "v1" }, "next": "done" },
+    { "key": "done", "type": "end" }
+  ]
+}

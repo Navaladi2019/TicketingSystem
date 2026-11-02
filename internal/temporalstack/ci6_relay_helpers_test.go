@@ -4,7 +4,8 @@ package temporalstack
 
 // Helpers for the CI-6 relay and worker cases and CI-7 (PLAN-001 T32b). The
 // relay under test is the stack's own nava-relay service: the test writes
-// outbox rows the way outbox.Enqueue does, as the superuser inside the
+// outbox rows the way the producer does (a start as cascade.ClaimStart and
+// outbox.EnqueueStart, a signal as outbox.Enqueue), as the superuser inside the
 // postgres container (the database port is never published), and the service
 // claims them as nava_relay and dispatches them to the compose Temporal with
 // its nava-relay certificate. A guarded worker in the test runs the workflow.
@@ -34,11 +35,12 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/workerguard"
 )
 
-// relayType is the lowercase workflow type on the D9 allow-list
-// (temporal-server/authz/policy.go) that an outbox kind can name. The signal
-// names below are outbox kinds too.
+// relayType is the workflow type the relay starts for the suite's start rows:
+// the allow-listed platform type (temporal-server/authz/policy.go), which an
+// outbox kind can name (lowercase). relayProbe is registered under it. The
+// signal names below are outbox kinds too.
 const (
-	relayType   = "nava.smoke.relay"
+	relayType   = platformType
 	sigNote     = "ci6.note"
 	sigRollover = "ci6.rollover"
 	sigDone     = "ci6.done"
@@ -259,10 +261,7 @@ func newRelayStack(t *testing.T) relayStack {
 	w := worker.New(dial(t, "nava-worker", setup), taskQueue,
 		workerguard.WorkerOptions(worker.Options{LocalActivityWorkerOnly: true}, g))
 	w.RegisterWorkflowWithOptions(relayProbe, workflow.RegisterOptions{Name: relayType})
-	if err := w.Start(); err != nil {
-		t.Fatalf("worker start: %v", err)
-	}
-	t.Cleanup(w.Stop)
+	startPlatformWorker(t, w)
 	return relayStack{relay: dial(t, "nava-relay", setup), core: dial(t, "nava-core", setup),
 		system: dial(t, "temporal-system"), logs: logs}
 }
@@ -308,7 +307,14 @@ func psqlSuperErr(t *testing.T, sql string) (string, error) {
 // Every id and kind in the SQL below is a UUID or a constant, never free text.
 type target struct {
 	tenant, record, start uuid.UUID
+	// origin is the depth-0 causation the record carries, as the write
+	// pipeline stores it on a person's create (ADR-001 A5-3).
+	origin uuid.UUID
 }
+
+// startDefinition is the definition the cascade start key names (A5): any
+// UUID, since each target's record is new.
+const startDefinition = "51a11000-0000-4000-8000-0000000000d0"
 
 func newID(t *testing.T) uuid.UUID {
 	t.Helper()
@@ -323,9 +329,10 @@ func newID(t *testing.T) uuid.UUID {
 // row of the tenant dead when the test ends, so no row outlives it.
 func newTarget(t *testing.T) *target {
 	t.Helper()
-	tg := &target{tenant: uuid.New(), record: uuid.New(), start: newID(t)}
+	tg := &target{tenant: uuid.New(), record: uuid.New(), start: newID(t), origin: uuid.New()}
 	psqlSuper(t, fmt.Sprintf(`INSERT INTO tenants (id, state) VALUES ('%s', 'active');
-INSERT INTO records (tenant_id, id) VALUES ('%[1]s', '%s');`, tg.tenant, tg.record))
+INSERT INTO records (tenant_id, id, causation_origin_id, causation_depth) VALUES ('%[1]s', '%s', '%s', 0);`,
+		tg.tenant, tg.record, tg.origin))
 	t.Cleanup(func() {
 		psqlSuper(t, fmt.Sprintf(`UPDATE outbox SET dead_at = now(), last_error = 'CI-6 cleanup'
 WHERE tenant_id = '%s' AND dispatched_at IS NULL AND dead_at IS NULL;`, tg.tenant))
@@ -351,27 +358,38 @@ func relayWorkflowID(tenant, start uuid.UUID) string {
 // refs is a references-only payload (outbox.ValidatePayload).
 func (tg *target) refs() string { return `{"record_id":"` + tg.record.String() + `"}` }
 
-// rowSQL is outbox.Enqueue's write: bump the record's version and insert the
-// row with it as target_seq.
-func (tg *target) rowSQL(id uuid.UUID, kind, payload string) string {
-	return fmt.Sprintf(`WITH v AS (UPDATE records SET version = version + 1 WHERE tenant_id = '%[1]s' AND id = '%[2]s' RETURNING version)
-INSERT INTO outbox (id, tenant_id, kind, kind_version, dedupe_key, target_key, target_seq, payload)
-SELECT '%[3]s', '%[1]s', '%[4]s', 1, '%[3]s', '%[5]s', version, '%[6]s'::jsonb FROM v;
+// signalRowSQL is outbox.Enqueue's write of a signal: bump the record's
+// version and insert the row with it as target_seq, under the record's
+// causation.
+func (tg *target) signalRowSQL(id uuid.UUID, kind, payload string) string {
+	return fmt.Sprintf(`WITH v AS (UPDATE records SET version = version + 1 WHERE tenant_id = '%[1]s' AND id = '%[2]s'
+    RETURNING version, causation_origin_id, causation_depth)
+INSERT INTO outbox (id, tenant_id, kind, kind_version, dedupe_key, target_key, target_seq, causation_id, causation_depth, payload)
+SELECT '%[3]s', '%[1]s', '%[4]s', 1, '%[3]s', '%[5]s', version, causation_origin_id, causation_depth, '%[6]s'::jsonb FROM v;
 `, tg.tenant, tg.record, id, kind, relayType+":"+tg.start.String(), payload)
 }
 
-// startSQL is the start row with the given payload, and its workflow_ref.
+// startSQL is what cascade.ClaimStart and outbox.EnqueueStart write for a
+// start of nava.interpreter with the given payload (A5-6): the row at the
+// record's version with no version bump (D-3-6), carrying the record's
+// causation; the claimed start key, whose outbox_id is the row's id; and the
+// row's workflow_ref. The row comes first, so a row the database refuses
+// stops the script before the key or the ref is written.
 func (tg *target) startSQL(payload string) string {
-	return tg.rowSQL(tg.start, relayType, payload) + fmt.Sprintf(
-		"INSERT INTO workflow_ref (tenant_id, outbox_id, record_id, kind) VALUES ('%s', '%s', '%s', '%s');\n",
-		tg.tenant, tg.start, tg.record, relayType)
+	return fmt.Sprintf(`INSERT INTO outbox (id, tenant_id, kind, kind_version, dedupe_key, target_key, target_seq, causation_id, causation_depth, payload)
+SELECT '%[3]s', '%[1]s', '%[4]s', 1, '%[3]s', '%[5]s', version, causation_origin_id, causation_depth, '%[6]s'::jsonb
+FROM records WHERE tenant_id = '%[1]s' AND id = '%[2]s';
+INSERT INTO cascade_start (tenant_id, causation_origin_id, record_id, definition_id, outbox_id)
+VALUES ('%[1]s', '%[7]s', '%[2]s', '%[8]s', '%[3]s');
+INSERT INTO workflow_ref (tenant_id, outbox_id, record_id, kind) VALUES ('%[1]s', '%[3]s', '%[2]s', '%[4]s');
+`, tg.tenant, tg.record, tg.start, relayType, relayType+":"+tg.start.String(), payload, tg.origin, startDefinition)
 }
 
 // signalSQL is a signal row named kind for the start; it returns its id too.
 func (tg *target) signalSQL(t *testing.T, kind string) (uuid.UUID, string) {
 	t.Helper()
 	id := newID(t)
-	return id, tg.rowSQL(id, kind, tg.refs())
+	return id, tg.signalRowSQL(id, kind, tg.refs())
 }
 
 // row is the dispatch state of one outbox row.

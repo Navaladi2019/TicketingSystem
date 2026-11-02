@@ -1,0 +1,63 @@
+#### n_distinct fix: on
+== update-10000-fix-on-trigger-off
+Time: 4910.521 ms (00:04.911)
+              case               | after_trigger_events_bytes | backend_total_bytes 
+---------------------------------+----------------------------+---------------------
+ update-10000-fix-on-trigger-off |                          0 |             2119024
+
+COMMIT time for update-10000-fix-on-trigger-off:
+Time: 41.870 ms
+  update-10000-fix-on-trigger-off VmHWM: 255008 kB
+  update-10000-fix-on-trigger-off RssAnon: 3968 kB
+== update-10000-fix-on-trigger-on
+Time: 734.532 ms
+              case              | after_trigger_events_bytes | backend_total_bytes 
+--------------------------------+----------------------------+---------------------
+ update-10000-fix-on-trigger-on |                     286912 |             2400816
+
+COMMIT time for update-10000-fix-on-trigger-on:
+Time: 172.207 ms
+  update-10000-fix-on-trigger-on VmHWM: 280256 kB
+  update-10000-fix-on-trigger-on RssAnon: 4184 kB
+#### n_distinct fix: on
+== insert-10000-fix-on-trigger-off
+Time: 1152.054 ms (00:01.152)
+              case               | after_trigger_events_bytes | backend_total_bytes 
+---------------------------------+----------------------------+---------------------
+ insert-10000-fix-on-trigger-off |                          0 |             2115952
+
+COMMIT time for insert-10000-fix-on-trigger-off:
+Time: 52.283 ms
+  insert-10000-fix-on-trigger-off VmHWM: 211828 kB
+  insert-10000-fix-on-trigger-off RssAnon: 4012 kB
+== insert-10000-fix-on-trigger-on
+Time: 700.964 ms
+              case              | after_trigger_events_bytes | backend_total_bytes 
+--------------------------------+----------------------------+---------------------
+ insert-10000-fix-on-trigger-on |                     155792 |             2271744
+
+COMMIT time for insert-10000-fix-on-trigger-on:
+Time: 197.941 ms
+  insert-10000-fix-on-trigger-on VmHWM: 203772 kB
+  insert-10000-fix-on-trigger-on RssAnon: 4236 kB
+#### n_distinct fix: on
+== insert-100000-fix-on-trigger-off
+Time: 13388.633 ms (00:13.389)
+               case               | after_trigger_events_bytes | backend_total_bytes 
+----------------------------------+----------------------------+---------------------
+ insert-100000-fix-on-trigger-off |                          0 |             2106736
+
+COMMIT time for insert-100000-fix-on-trigger-off:
+Time: 36.552 ms
+  insert-100000-fix-on-trigger-off VmHWM: 995852 kB
+  insert-100000-fix-on-trigger-off RssAnon: 3940 kB
+== insert-100000-fix-on-trigger-on
+Time: 4057.594 ms (00:04.058)
+              case               | after_trigger_events_bytes | backend_total_bytes 
+---------------------------------+----------------------------+---------------------
+ insert-100000-fix-on-trigger-on |                    2122064 |             4228800
+
+COMMIT time for insert-100000-fix-on-trigger-on:
+Time: 1984.326 ms (00:01.984)
+  insert-100000-fix-on-trigger-on VmHWM: 464104 kB
+  insert-100000-fix-on-trigger-on RssAnon: 4396 kB

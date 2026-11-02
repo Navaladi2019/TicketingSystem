@@ -1,0 +1,1431 @@
+{
+  "events":  [
+    {
+      "eventId":  "1",
+      "eventTime":  "2026-11-01T01:53:20.189549600Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_EXECUTION_STARTED",
+      "taskId":  "1048587",
+      "workflowExecutionStartedEventAttributes":  {
+        "workflowType":  {
+          "name":  "nava.interpreter"
+        },
+        "taskQueue":  {
+          "name":  "nava-tq",
+          "kind":  "TASK_QUEUE_KIND_NORMAL"
+        },
+        "input":  {
+          "payloads":  [
+            {
+              "metadata":  {
+                "encoding":  "anNvbi9wbGFpbg=="
+              },
+              "data":  "eyJvdXRib3hfaWQiOiI1OTc3MGI3YS0xMzQ0LTViOGMtOGE2Yy02NzdmMTY4ZjBhMmUiLCJraW5kX3ZlcnNpb24iOjEsImNhdXNhdGlvbl9kZXB0aCI6MCwicGF5bG9hZCI6eyJkZWZpbml0aW9uX3ZlcnNpb25faWQiOiI2YTRmMWMzZS0yYjdkLTRlMGEtOWM1NS0wZDNiOGUxZjdhMjEiLCJyZWNvcmRfaWQiOiIzYzllN2IxMi01ZjRhLTRkODYtYTFlMC03YjJjNGQ2ZjhlOTMifX0="
+            }
+          ]
+        },
+        "workflowExecutionTimeout":  "0s",
+        "workflowRunTimeout":  "0s",
+        "workflowTaskTimeout":  "10s",
+        "originalExecutionRunId":  "01a194cf-ab3d-7862-8804-842acb07c873",
+        "identity":  "nava-record-histories",
+        "firstExecutionRunId":  "01a194cf-ab3d-7862-8804-842acb07c873",
+        "attempt":  1,
+        "firstWorkflowTaskBackoff":  "0s",
+        "header":  {
+          "fields":  {
+            "nava-tenant":  {
+              "metadata":  {
+                "encoding":  "anNvbi9wbGFpbg=="
+              },
+              "data":  "IjAxOTJmM2EwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwMDAwYSI="
+            }
+          }
+        },
+        "workflowId":  "t:0192f3a0-0000-7000-8000-00000000000a:interp:0b1c2d3e-4f50-4617-8829-3a4b5c6d7e81"
+      }
+    },
+    {
+      "eventId":  "2",
+      "eventTime":  "2026-11-01T01:53:20.189549600Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
+      "taskId":  "1048588",
+      "workflowTaskScheduledEventAttributes":  {
+        "taskQueue":  {
+          "name":  "nava-tq",
+          "kind":  "TASK_QUEUE_KIND_NORMAL"
+        },
+        "startToCloseTimeout":  "10s",
+        "attempt":  1
+      }
+    },
+    {
+      "eventId":  "3",
+      "eventTime":  "2026-11-01T01:53:20.220406700Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_STARTED",
+      "taskId":  "1048593",
+      "workflowTaskStartedEventAttributes":  {
+        "scheduledEventId":  "2",
+        "identity":  "nava-record-histories",
+        "requestId":  "6c8fa270-99ec-46f1-b546-5cc16d065746",
+        "historySizeBytes":  "635",
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        }
+      }
+    },
+    {
+      "eventId":  "4",
+      "eventTime":  "2026-11-01T01:53:20.245798900Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
+      "taskId":  "1048599",
+      "workflowTaskCompletedEventAttributes":  {
+        "scheduledEventId":  "2",
+        "startedEventId":  "3",
+        "identity":  "nava-record-histories",
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        },
+        "sdkMetadata":  {
+          "langUsedFlags":  [
+            3
+          ],
+          "sdkName":  "temporal-go",
+          "sdkVersion":  "1.49.0"
+        },
+        "meteringMetadata":  {}
+      }
+    },
+    {
+      "eventId":  "5",
+      "eventTime":  "2026-11-01T01:53:20.247025900Z",
+      "eventType":  "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED",
+      "taskId":  "1048600",
+      "activityTaskScheduledEventAttributes":  {
+        "activityId":  "5",
+        "activityType":  {
+          "name":  "nava.interpreter.NextStep"
+        },
+        "taskQueue":  {
+          "name":  "nava-tq",
+          "kind":  "TASK_QUEUE_KIND_NORMAL"
+        },
+        "header":  {
+          "fields":  {
+            "nava-tenant":  {
+              "metadata":  {
+                "encoding":  "anNvbi9wbGFpbg=="
+              },
+              "data":  "IjAxOTJmM2EwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwMDAwYSI="
+            }
+          }
+        },
+        "input":  {
+          "payloads":  [
+            {
+              "metadata":  {
+                "encoding":  "anNvbi9wbGFpbg=="
+              },
+              "data":  "eyJkZWZpbml0aW9uX3ZlcnNpb25faWQiOiI2YTRmMWMzZS0yYjdkLTRlMGEtOWM1NS0wZDNiOGUxZjdhMjEiLCJyZWNvcmRfaWQiOiIzYzllN2IxMi01ZjRhLTRkODYtYTFlMC03YjJjNGQ2ZjhlOTMiLCJzdGVwIjoiMDAwMDAwMDAtMDAwMC0wMDAwLTAwMDAtMDAwMDAwMDAwMDAwIn0="
+            }
+          ]
+        },
+        "scheduleToCloseTimeout":  "0s",
+        "scheduleToStartTimeout":  "0s",
+        "startToCloseTimeout":  "60s",
+        "heartbeatTimeout":  "0s",
+        "workflowTaskCompletedEventId":  "4",
+        "retryPolicy":  {
+          "initialInterval":  "1s",
+          "backoffCoefficient":  2,
+          "maximumInterval":  "60s",
+          "maximumAttempts":  10
+        },
+        "useWorkflowBuildId":  true
+      }
+    },
+    {
+      "eventId":  "6",
+      "eventTime":  "2026-11-01T01:53:20.238148700Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED",
+      "taskId":  "1048601",
+      "workflowExecutionSignaledEventAttributes":  {
+        "signalName":  "nava.interpreter.signal",
+        "input":  {
+          "payloads":  [
+            {
+              "metadata":  {
+                "encoding":  "anNvbi9wbGFpbg=="
+              },
+              "data":  "eyJvdXRib3hfaWQiOiIxYTJiM2M0ZC01ZTZmLTQ3MDgtOTE5Mi1hM2I0YzVkNmU3ZjEiLCJraW5kX3ZlcnNpb24iOjEsImNhdXNhdGlvbl9kZXB0aCI6MCwicGF5bG9hZCI6eyJzaWduYWwiOiI5ZjBlMWQyYy0zYjRhLTQ1OTYtODc3OC02OTVhNGIzYzJkMWUifX0="
+            }
+          ]
+        },
+        "identity":  "nava-record-histories",
+        "header":  {
+          "fields":  {
+            "nava-tenant":  {
+              "metadata":  {
+                "encoding":  "anNvbi9wbGFpbg=="
+              },
+              "data":  "IjAxOTJmM2EwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwMDAwYSI="
+            }
+          }
+        },
+        "requestId":  "beceee59-267f-4431-8b5f-d14cc6e5b3c2"
+      }
+    },
+    {
+      "eventId":  "7",
+      "eventTime":  "2026-11-01T01:53:20.248123500Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
+      "taskId":  "1048602",
+      "workflowTaskScheduledEventAttributes":  {
+        "taskQueue":  {
+          "name":  "nava-tq",
+          "kind":  "TASK_QUEUE_KIND_NORMAL"
+        },
+        "startToCloseTimeout":  "10s",
+        "attempt":  1
+      }
+    },
+    {
+      "eventId":  "8",
+      "eventTime":  "2026-11-01T01:53:20.248123500Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_STARTED",
+      "taskId":  "1048603",
+      "workflowTaskStartedEventAttributes":  {
+        "scheduledEventId":  "7",
+        "identity":  "nava-record-histories",
+        "requestId":  "request-from-RespondWorkflowTaskCompleted",
+        "historySizeBytes":  "762",
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        }
+      }
+    },
+    {
+      "eventId":  "9",
+      "eventTime":  "2026-11-01T01:53:20.260169600Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
+      "taskId":  "1048609",
+      "workflowTaskCompletedEventAttributes":  {
+        "scheduledEventId":  "7",
+        "startedEventId":  "8",
+        "identity":  "nava-record-histories",
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        },
+        "sdkMetadata":  {},
+        "meteringMetadata":  {}
+      }
+    },
+    {
+      "eventId":  "10",
+      "eventTime":  "2026-11-01T01:53:20.253179100Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED",
+      "taskId":  "1048610",
+      "workflowExecutionSignaledEventAttributes":  {
+        "signalName":  "nava.interpreter.signal",
+        "input":  {
+          "payloads":  [
+            {
+              "metadata":  {
+                "encoding":  "anNvbi9wbGFpbg=="
+              },
+              "data":  "eyJvdXRib3hfaWQiOiIxYTJiM2M0ZC01ZTZmLTQ3MDgtOTE5Mi1hM2I0YzVkNmU3ZjIiLCJraW5kX3ZlcnNpb24iOjEsImNhdXNhdGlvbl9kZXB0aCI6MCwicGF5bG9hZCI6eyJzaWduYWwiOiJkNzJiNTBiNi00NDBmLTRmNDYtOGFjOS1iYzI5ZTAzMjUzZjIifX0="
+            }
+          ]
+        },
+        "identity":  "nava-record-histories",
+        "header":  {
+          "fields":  {
+            "nava-tenant":  {
+              "metadata":  {
+                "encoding":  "anNvbi9wbGFpbg=="
+              },
+              "data":  "IjAxOTJmM2EwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwMDAwYSI="
+            }
+          }
+        },
+        "requestId":  "731d821b-7730-4182-b8c4-920c6876cfd5"
+      }
+    },
+    {
+      "eventId":  "11",
+      "eventTime":  "2026-11-01T01:53:20.260169600Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
+      "taskId":  "1048611",
+      "workflowTaskScheduledEventAttributes":  {
+        "taskQueue":  {
+          "name":  "nava-tq",
+          "kind":  "TASK_QUEUE_KIND_NORMAL"
+        },
+        "startToCloseTimeout":  "10s",
+        "attempt":  1
+      }
+    },
+    {
+      "eventId":  "12",
+      "eventTime":  "2026-11-01T01:53:20.260169600Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_STARTED",
+      "taskId":  "1048612",
+      "workflowTaskStartedEventAttributes":  {
+        "scheduledEventId":  "11",
+        "identity":  "nava-record-histories",
+        "requestId":  "request-from-RespondWorkflowTaskCompleted",
+        "historySizeBytes":  "1818",
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        }
+      }
+    },
+    {
+      "eventId":  "13",
+      "eventTime":  "2026-11-01T01:53:20.271127400Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
+      "taskId":  "1048616",
+      "workflowTaskCompletedEventAttributes":  {
+        "scheduledEventId":  "11",
+        "startedEventId":  "12",
+        "identity":  "nava-record-histories",
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        },
+        "sdkMetadata":  {},
+        "meteringMetadata":  {}
+      }
+    },
+    {
+      "eventId":  "14",
+      "eventTime":  "2026-11-01T01:53:20.263577900Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED",
+      "taskId":  "1048617",
+      "workflowExecutionSignaledEventAttributes":  {
+        "signalName":  "nava.interpreter.signal",
+        "input":  {
+          "payloads":  [
+            {
+              "metadata":  {
+                "encoding":  "anNvbi9wbGFpbg=="
+              },
+              "data":  "eyJvdXRib3hfaWQiOiIxYTJiM2M0ZC01ZTZmLTQ3MDgtOTE5Mi1hM2I0YzVkNmU3ZjIiLCJraW5kX3ZlcnNpb24iOjEsImNhdXNhdGlvbl9kZXB0aCI6MCwicGF5bG9hZCI6eyJzaWduYWwiOiJkNzJiNTBiNi00NDBmLTRmNDYtOGFjOS1iYzI5ZTAzMjUzZjIifX0="
+            }
+          ]
+        },
+        "identity":  "nava-record-histories",
+        "header":  {
+          "fields":  {
+            "nava-tenant":  {
+              "metadata":  {
+                "encoding":  "anNvbi9wbGFpbg=="
+              },
+              "data":  "IjAxOTJmM2EwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwMDAwYSI="
+            }
+          }
+        },
+        "requestId":  "6a312dcc-95bc-4791-b64d-474315ca7965"
+      }
+    },
+    {
+      "eventId":  "15",
+      "eventTime":  "2026-11-01T01:53:20.271127400Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
+      "taskId":  "1048618",
+      "workflowTaskScheduledEventAttributes":  {
+        "taskQueue":  {
+          "name":  "nava-tq",
+          "kind":  "TASK_QUEUE_KIND_NORMAL"
+        },
+        "startToCloseTimeout":  "10s",
+        "attempt":  1
+      }
+    },
+    {
+      "eventId":  "16",
+      "eventTime":  "2026-11-01T01:53:20.271127400Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_STARTED",
+      "taskId":  "1048619",
+      "workflowTaskStartedEventAttributes":  {
+        "scheduledEventId":  "15",
+        "identity":  "nava-record-histories",
+        "requestId":  "request-from-RespondWorkflowTaskCompleted",
+        "historySizeBytes":  "2466",
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        }
+      }
+    },
+    {
+      "eventId":  "17",
+      "eventTime":  "2026-11-01T01:53:20.279691500Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
+      "taskId":  "1048622",
+      "workflowTaskCompletedEventAttributes":  {
+        "scheduledEventId":  "15",
+        "startedEventId":  "16",
+        "identity":  "nava-record-histories",
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        },
+        "sdkMetadata":  {},
+        "meteringMetadata":  {}
+      }
+    },
+    {
+      "eventId":  "18",
+      "eventTime":  "2026-11-01T01:53:20.247565200Z",
+      "eventType":  "EVENT_TYPE_ACTIVITY_TASK_STARTED",
+      "taskId":  "1048624",
+      "activityTaskStartedEventAttributes":  {
+        "scheduledEventId":  "5",
+        "identity":  "nava-record-histories",
+        "requestId":  "cde7a2c9-16cc-4995-9b81-082dec371b83",
+        "attempt":  1,
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        }
+      }
+    },
+    {
+      "eventId":  "19",
+      "eventTime":  "2026-11-01T01:53:20.291079600Z",
+      "eventType":  "EVENT_TYPE_ACTIVITY_TASK_COMPLETED",
+      "taskId":  "1048625",
+      "activityTaskCompletedEventAttributes":  {
+        "result":  {
+          "payloads":  [
+            {
+              "metadata":  {
+                "encoding":  "anNvbi9wbGFpbg=="
+              },
+              "data":  "eyJzdGVwIjoiZmRjMmRmZTktZTQ2OC00YTQ1LWFiNGEtNjQxMjkxODJlNzgxIiwia2luZCI6InRpbWVyIiwid2FpdF9zZWNvbmRzIjoxLCJuZXh0IjoiZmU3NTE4YWMtZDYyNi00ZWRiLTg0MjEtOTVlMjEwZWViZjcwIn0="
+            }
+          ]
+        },
+        "scheduledEventId":  "5",
+        "startedEventId":  "18",
+        "identity":  "nava-record-histories"
+      }
+    },
+    {
+      "eventId":  "20",
+      "eventTime":  "2026-11-01T01:53:20.291079600Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
+      "taskId":  "1048626",
+      "workflowTaskScheduledEventAttributes":  {
+        "taskQueue":  {
+          "name":  "nava-tq",
+          "kind":  "TASK_QUEUE_KIND_NORMAL"
+        },
+        "startToCloseTimeout":  "10s",
+        "attempt":  1
+      }
+    },
+    {
+      "eventId":  "21",
+      "eventTime":  "2026-11-01T01:53:20.296866300Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_STARTED",
+      "taskId":  "1048629",
+      "workflowTaskStartedEventAttributes":  {
+        "scheduledEventId":  "20",
+        "identity":  "nava-record-histories",
+        "requestId":  "c58b7b41-999e-4660-8d47-dac5db1ec5e1",
+        "historySizeBytes":  "3595",
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        }
+      }
+    },
+    {
+      "eventId":  "22",
+      "eventTime":  "2026-11-01T01:53:20.310623300Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
+      "taskId":  "1048633",
+      "workflowTaskCompletedEventAttributes":  {
+        "scheduledEventId":  "20",
+        "startedEventId":  "21",
+        "identity":  "nava-record-histories",
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        },
+        "sdkMetadata":  {
+          "sdkName":  "temporal-go",
+          "sdkVersion":  "1.49.0"
+        },
+        "meteringMetadata":  {}
+      }
+    },
+    {
+      "eventId":  "23",
+      "eventTime":  "2026-11-01T01:53:20.310623300Z",
+      "eventType":  "EVENT_TYPE_TIMER_STARTED",
+      "taskId":  "1048634",
+      "timerStartedEventAttributes":  {
+        "timerId":  "23",
+        "startToFireTimeout":  "1s",
+        "workflowTaskCompletedEventId":  "22"
+      }
+    },
+    {
+      "eventId":  "24",
+      "eventTime":  "2026-11-01T01:53:21.312474800Z",
+      "eventType":  "EVENT_TYPE_TIMER_FIRED",
+      "taskId":  "1048637",
+      "timerFiredEventAttributes":  {
+        "timerId":  "23",
+        "startedEventId":  "23"
+      }
+    },
+    {
+      "eventId":  "25",
+      "eventTime":  "2026-11-01T01:53:21.312474800Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
+      "taskId":  "1048638",
+      "workflowTaskScheduledEventAttributes":  {
+        "taskQueue":  {
+          "name":  "nava-tq",
+          "kind":  "TASK_QUEUE_KIND_NORMAL"
+        },
+        "startToCloseTimeout":  "10s",
+        "attempt":  1
+      }
+    },
+    {
+      "eventId":  "26",
+      "eventTime":  "2026-11-01T01:53:21.316898400Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_STARTED",
+      "taskId":  "1048641",
+      "workflowTaskStartedEventAttributes":  {
+        "scheduledEventId":  "25",
+        "identity":  "nava-record-histories",
+        "requestId":  "88ff03a4-5f8e-4503-a4a3-f5607f14b0ce",
+        "historySizeBytes":  "3952",
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        }
+      }
+    },
+    {
+      "eventId":  "27",
+      "eventTime":  "2026-11-01T01:53:21.328767300Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
+      "taskId":  "1048646",
+      "workflowTaskCompletedEventAttributes":  {
+        "scheduledEventId":  "25",
+        "startedEventId":  "26",
+        "identity":  "nava-record-histories",
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        },
+        "sdkMetadata":  {},
+        "meteringMetadata":  {}
+      }
+    },
+    {
+      "eventId":  "28",
+      "eventTime":  "2026-11-01T01:53:21.328767300Z",
+      "eventType":  "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED",
+      "taskId":  "1048647",
+      "activityTaskScheduledEventAttributes":  {
+        "activityId":  "28",
+        "activityType":  {
+          "name":  "nava.interpreter.NextStep"
+        },
+        "taskQueue":  {
+          "name":  "nava-tq",
+          "kind":  "TASK_QUEUE_KIND_NORMAL"
+        },
+        "header":  {
+          "fields":  {
+            "nava-tenant":  {
+              "metadata":  {
+                "encoding":  "anNvbi9wbGFpbg=="
+              },
+              "data":  "IjAxOTJmM2EwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwMDAwYSI="
+            }
+          }
+        },
+        "input":  {
+          "payloads":  [
+            {
+              "metadata":  {
+                "encoding":  "anNvbi9wbGFpbg=="
+              },
+              "data":  "eyJkZWZpbml0aW9uX3ZlcnNpb25faWQiOiI2YTRmMWMzZS0yYjdkLTRlMGEtOWM1NS0wZDNiOGUxZjdhMjEiLCJyZWNvcmRfaWQiOiIzYzllN2IxMi01ZjRhLTRkODYtYTFlMC03YjJjNGQ2ZjhlOTMiLCJzdGVwIjoiZmU3NTE4YWMtZDYyNi00ZWRiLTg0MjEtOTVlMjEwZWViZjcwIn0="
+            }
+          ]
+        },
+        "scheduleToCloseTimeout":  "0s",
+        "scheduleToStartTimeout":  "0s",
+        "startToCloseTimeout":  "60s",
+        "heartbeatTimeout":  "0s",
+        "workflowTaskCompletedEventId":  "27",
+        "retryPolicy":  {
+          "initialInterval":  "1s",
+          "backoffCoefficient":  2,
+          "maximumInterval":  "60s",
+          "maximumAttempts":  10
+        },
+        "useWorkflowBuildId":  true
+      }
+    },
+    {
+      "eventId":  "29",
+      "eventTime":  "2026-11-01T01:53:21.329361300Z",
+      "eventType":  "EVENT_TYPE_ACTIVITY_TASK_STARTED",
+      "taskId":  "1048650",
+      "activityTaskStartedEventAttributes":  {
+        "scheduledEventId":  "28",
+        "identity":  "nava-record-histories",
+        "requestId":  "e0ff5421-504d-42bb-a451-72ccdd264c4f",
+        "attempt":  1,
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        }
+      }
+    },
+    {
+      "eventId":  "30",
+      "eventTime":  "2026-11-01T01:53:21.346579800Z",
+      "eventType":  "EVENT_TYPE_ACTIVITY_TASK_COMPLETED",
+      "taskId":  "1048651",
+      "activityTaskCompletedEventAttributes":  {
+        "result":  {
+          "payloads":  [
+            {
+              "metadata":  {
+                "encoding":  "anNvbi9wbGFpbg=="
+              },
+              "data":  "eyJzdGVwIjoiYjRlYTYzY2MtMWRkNi00Njg0LTg3NTMtMDU4ZDIwODhjMjNmIiwia2luZCI6IndhaXRfc2lnbmFsIiwid2FpdF9zZWNvbmRzIjoyLCJzaWduYWwiOiJkNzJiNTBiNi00NDBmLTRmNDYtOGFjOS1iYzI5ZTAzMjUzZjIiLCJuZXh0IjoiZTcwYTM4YzctOTMwYi00NTYxLWI5MjgtODY0ZjdkNGFiMzU5Iiwib25fdGltZW91dCI6IjUyMTQ5NWJlLTdmM2UtNGY4Yi05ZmUwLWZkZTQ5ZDY4N2FiYiJ9"
+            }
+          ]
+        },
+        "scheduledEventId":  "28",
+        "startedEventId":  "29",
+        "identity":  "nava-record-histories"
+      }
+    },
+    {
+      "eventId":  "31",
+      "eventTime":  "2026-11-01T01:53:21.346579800Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
+      "taskId":  "1048652",
+      "workflowTaskScheduledEventAttributes":  {
+        "taskQueue":  {
+          "name":  "nava-tq",
+          "kind":  "TASK_QUEUE_KIND_NORMAL"
+        },
+        "startToCloseTimeout":  "10s",
+        "attempt":  1
+      }
+    },
+    {
+      "eventId":  "32",
+      "eventTime":  "2026-11-01T01:53:21.352864800Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_STARTED",
+      "taskId":  "1048655",
+      "workflowTaskStartedEventAttributes":  {
+        "scheduledEventId":  "31",
+        "identity":  "nava-record-histories",
+        "requestId":  "d39b2e16-33e7-4491-93fe-fadb9f4c41db",
+        "historySizeBytes":  "5052",
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        }
+      }
+    },
+    {
+      "eventId":  "33",
+      "eventTime":  "2026-11-01T01:53:21.369248600Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
+      "taskId":  "1048660",
+      "workflowTaskCompletedEventAttributes":  {
+        "scheduledEventId":  "31",
+        "startedEventId":  "32",
+        "identity":  "nava-record-histories",
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        },
+        "sdkMetadata":  {
+          "sdkName":  "temporal-go",
+          "sdkVersion":  "1.49.0"
+        },
+        "meteringMetadata":  {}
+      }
+    },
+    {
+      "eventId":  "34",
+      "eventTime":  "2026-11-01T01:53:21.369248600Z",
+      "eventType":  "EVENT_TYPE_TIMER_STARTED",
+      "taskId":  "1048661",
+      "timerStartedEventAttributes":  {
+        "timerId":  "34",
+        "startToFireTimeout":  "2s",
+        "workflowTaskCompletedEventId":  "33"
+      }
+    },
+    {
+      "eventId":  "35",
+      "eventTime":  "2026-11-01T01:53:21.369248600Z",
+      "eventType":  "EVENT_TYPE_TIMER_CANCELED",
+      "taskId":  "1048662",
+      "timerCanceledEventAttributes":  {
+        "timerId":  "34",
+        "startedEventId":  "34",
+        "workflowTaskCompletedEventId":  "33",
+        "identity":  "nava-record-histories"
+      }
+    },
+    {
+      "eventId":  "36",
+      "eventTime":  "2026-11-01T01:53:21.369248600Z",
+      "eventType":  "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED",
+      "taskId":  "1048663",
+      "activityTaskScheduledEventAttributes":  {
+        "activityId":  "36",
+        "activityType":  {
+          "name":  "nava.interpreter.NextStep"
+        },
+        "taskQueue":  {
+          "name":  "nava-tq",
+          "kind":  "TASK_QUEUE_KIND_NORMAL"
+        },
+        "header":  {
+          "fields":  {
+            "nava-tenant":  {
+              "metadata":  {
+                "encoding":  "anNvbi9wbGFpbg=="
+              },
+              "data":  "IjAxOTJmM2EwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwMDAwYSI="
+            }
+          }
+        },
+        "input":  {
+          "payloads":  [
+            {
+              "metadata":  {
+                "encoding":  "anNvbi9wbGFpbg=="
+              },
+              "data":  "eyJkZWZpbml0aW9uX3ZlcnNpb25faWQiOiI2YTRmMWMzZS0yYjdkLTRlMGEtOWM1NS0wZDNiOGUxZjdhMjEiLCJyZWNvcmRfaWQiOiIzYzllN2IxMi01ZjRhLTRkODYtYTFlMC03YjJjNGQ2ZjhlOTMiLCJzdGVwIjoiZTcwYTM4YzctOTMwYi00NTYxLWI5MjgtODY0ZjdkNGFiMzU5Iiwic2lnbmFsIjoiZDcyYjUwYjYtNDQwZi00ZjQ2LThhYzktYmMyOWUwMzI1M2YyIn0="
+            }
+          ]
+        },
+        "scheduleToCloseTimeout":  "0s",
+        "scheduleToStartTimeout":  "0s",
+        "startToCloseTimeout":  "60s",
+        "heartbeatTimeout":  "0s",
+        "workflowTaskCompletedEventId":  "33",
+        "retryPolicy":  {
+          "initialInterval":  "1s",
+          "backoffCoefficient":  2,
+          "maximumInterval":  "60s",
+          "maximumAttempts":  10
+        },
+        "useWorkflowBuildId":  true
+      }
+    },
+    {
+      "eventId":  "37",
+      "eventTime":  "2026-11-01T01:53:21.369248600Z",
+      "eventType":  "EVENT_TYPE_ACTIVITY_TASK_STARTED",
+      "taskId":  "1048666",
+      "activityTaskStartedEventAttributes":  {
+        "scheduledEventId":  "36",
+        "identity":  "nava-record-histories",
+        "requestId":  "9cfd4f48-1112-4c60-bbc8-138f91c6df7a",
+        "attempt":  1,
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        }
+      }
+    },
+    {
+      "eventId":  "38",
+      "eventTime":  "2026-11-01T01:53:21.389682700Z",
+      "eventType":  "EVENT_TYPE_ACTIVITY_TASK_COMPLETED",
+      "taskId":  "1048667",
+      "activityTaskCompletedEventAttributes":  {
+        "result":  {
+          "payloads":  [
+            {
+              "metadata":  {
+                "encoding":  "anNvbi9wbGFpbg=="
+              },
+              "data":  "eyJzdGVwIjoiZTcwYTM4YzctOTMwYi00NTYxLWI5MjgtODY0ZjdkNGFiMzU5Iiwia2luZCI6InVwZGF0ZV9yZWNvcmQiLCJ3YWl0X3NlY29uZHMiOjAsIm5leHQiOiIxNGJjZGY4MC1mMDA3LTRlODgtODQ1Yi04MzNlYWFiOTg2YjkifQ=="
+            }
+          ]
+        },
+        "scheduledEventId":  "36",
+        "startedEventId":  "37",
+        "identity":  "nava-record-histories"
+      }
+    },
+    {
+      "eventId":  "39",
+      "eventTime":  "2026-11-01T01:53:21.390233200Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
+      "taskId":  "1048668",
+      "workflowTaskScheduledEventAttributes":  {
+        "taskQueue":  {
+          "name":  "nava-tq",
+          "kind":  "TASK_QUEUE_KIND_NORMAL"
+        },
+        "startToCloseTimeout":  "10s",
+        "attempt":  1
+      }
+    },
+    {
+      "eventId":  "40",
+      "eventTime":  "2026-11-01T01:53:21.394289700Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_STARTED",
+      "taskId":  "1048671",
+      "workflowTaskStartedEventAttributes":  {
+        "scheduledEventId":  "39",
+        "identity":  "nava-record-histories",
+        "requestId":  "b32c9b64-1317-45e6-b2ad-5ce9465f9517",
+        "historySizeBytes":  "6218",
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        }
+      }
+    },
+    {
+      "eventId":  "41",
+      "eventTime":  "2026-11-01T01:53:21.409069800Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
+      "taskId":  "1048676",
+      "workflowTaskCompletedEventAttributes":  {
+        "scheduledEventId":  "39",
+        "startedEventId":  "40",
+        "identity":  "nava-record-histories",
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        },
+        "sdkMetadata":  {},
+        "meteringMetadata":  {}
+      }
+    },
+    {
+      "eventId":  "42",
+      "eventTime":  "2026-11-01T01:53:21.409069800Z",
+      "eventType":  "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED",
+      "taskId":  "1048677",
+      "activityTaskScheduledEventAttributes":  {
+        "activityId":  "42",
+        "activityType":  {
+          "name":  "nava.interpreter.ApplyStep"
+        },
+        "taskQueue":  {
+          "name":  "nava-tq",
+          "kind":  "TASK_QUEUE_KIND_NORMAL"
+        },
+        "header":  {
+          "fields":  {
+            "nava-tenant":  {
+              "metadata":  {
+                "encoding":  "anNvbi9wbGFpbg=="
+              },
+              "data":  "IjAxOTJmM2EwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwMDAwYSI="
+            }
+          }
+        },
+        "input":  {
+          "payloads":  [
+            {
+              "metadata":  {
+                "encoding":  "anNvbi9wbGFpbg=="
+              },
+              "data":  "eyJkZWZpbml0aW9uX3ZlcnNpb25faWQiOiI2YTRmMWMzZS0yYjdkLTRlMGEtOWM1NS0wZDNiOGUxZjdhMjEiLCJyZWNvcmRfaWQiOiIzYzllN2IxMi01ZjRhLTRkODYtYTFlMC03YjJjNGQ2ZjhlOTMiLCJzdGVwIjoiZTcwYTM4YzctOTMwYi00NTYxLWI5MjgtODY0ZjdkNGFiMzU5In0="
+            }
+          ]
+        },
+        "scheduleToCloseTimeout":  "0s",
+        "scheduleToStartTimeout":  "0s",
+        "startToCloseTimeout":  "60s",
+        "heartbeatTimeout":  "0s",
+        "workflowTaskCompletedEventId":  "41",
+        "retryPolicy":  {
+          "initialInterval":  "1s",
+          "backoffCoefficient":  2,
+          "maximumInterval":  "60s",
+          "maximumAttempts":  10
+        },
+        "useWorkflowBuildId":  true
+      }
+    },
+    {
+      "eventId":  "43",
+      "eventTime":  "2026-11-01T01:53:21.409636900Z",
+      "eventType":  "EVENT_TYPE_ACTIVITY_TASK_STARTED",
+      "taskId":  "1048680",
+      "activityTaskStartedEventAttributes":  {
+        "scheduledEventId":  "42",
+        "identity":  "nava-record-histories",
+        "requestId":  "d99535bc-405e-446e-a6ea-1b47caa02919",
+        "attempt":  1,
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        }
+      }
+    },
+    {
+      "eventId":  "44",
+      "eventTime":  "2026-11-01T01:53:21.427979500Z",
+      "eventType":  "EVENT_TYPE_ACTIVITY_TASK_COMPLETED",
+      "taskId":  "1048681",
+      "activityTaskCompletedEventAttributes":  {
+        "scheduledEventId":  "42",
+        "startedEventId":  "43",
+        "identity":  "nava-record-histories"
+      }
+    },
+    {
+      "eventId":  "45",
+      "eventTime":  "2026-11-01T01:53:21.427979500Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
+      "taskId":  "1048682",
+      "workflowTaskScheduledEventAttributes":  {
+        "taskQueue":  {
+          "name":  "nava-tq",
+          "kind":  "TASK_QUEUE_KIND_NORMAL"
+        },
+        "startToCloseTimeout":  "10s",
+        "attempt":  1
+      }
+    },
+    {
+      "eventId":  "46",
+      "eventTime":  "2026-11-01T01:53:21.431939200Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_STARTED",
+      "taskId":  "1048685",
+      "workflowTaskStartedEventAttributes":  {
+        "scheduledEventId":  "45",
+        "identity":  "nava-record-histories",
+        "requestId":  "8946fcf1-5401-4b10-9f39-f1f924298562",
+        "historySizeBytes":  "7053",
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        }
+      }
+    },
+    {
+      "eventId":  "47",
+      "eventTime":  "2026-11-01T01:53:21.446212700Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
+      "taskId":  "1048690",
+      "workflowTaskCompletedEventAttributes":  {
+        "scheduledEventId":  "45",
+        "startedEventId":  "46",
+        "identity":  "nava-record-histories",
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        },
+        "sdkMetadata":  {
+          "sdkName":  "temporal-go",
+          "sdkVersion":  "1.49.0"
+        },
+        "meteringMetadata":  {}
+      }
+    },
+    {
+      "eventId":  "48",
+      "eventTime":  "2026-11-01T01:53:21.446212700Z",
+      "eventType":  "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED",
+      "taskId":  "1048691",
+      "activityTaskScheduledEventAttributes":  {
+        "activityId":  "48",
+        "activityType":  {
+          "name":  "nava.interpreter.NextStep"
+        },
+        "taskQueue":  {
+          "name":  "nava-tq",
+          "kind":  "TASK_QUEUE_KIND_NORMAL"
+        },
+        "header":  {
+          "fields":  {
+            "nava-tenant":  {
+              "metadata":  {
+                "encoding":  "anNvbi9wbGFpbg=="
+              },
+              "data":  "IjAxOTJmM2EwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwMDAwYSI="
+            }
+          }
+        },
+        "input":  {
+          "payloads":  [
+            {
+              "metadata":  {
+                "encoding":  "anNvbi9wbGFpbg=="
+              },
+              "data":  "eyJkZWZpbml0aW9uX3ZlcnNpb25faWQiOiI2YTRmMWMzZS0yYjdkLTRlMGEtOWM1NS0wZDNiOGUxZjdhMjEiLCJyZWNvcmRfaWQiOiIzYzllN2IxMi01ZjRhLTRkODYtYTFlMC03YjJjNGQ2ZjhlOTMiLCJzdGVwIjoiMTRiY2RmODAtZjAwNy00ZTg4LTg0NWItODMzZWFhYjk4NmI5In0="
+            }
+          ]
+        },
+        "scheduleToCloseTimeout":  "0s",
+        "scheduleToStartTimeout":  "0s",
+        "startToCloseTimeout":  "60s",
+        "heartbeatTimeout":  "0s",
+        "workflowTaskCompletedEventId":  "47",
+        "retryPolicy":  {
+          "initialInterval":  "1s",
+          "backoffCoefficient":  2,
+          "maximumInterval":  "60s",
+          "maximumAttempts":  10
+        },
+        "useWorkflowBuildId":  true
+      }
+    },
+    {
+      "eventId":  "49",
+      "eventTime":  "2026-11-01T01:53:21.446212700Z",
+      "eventType":  "EVENT_TYPE_ACTIVITY_TASK_STARTED",
+      "taskId":  "1048694",
+      "activityTaskStartedEventAttributes":  {
+        "scheduledEventId":  "48",
+        "identity":  "nava-record-histories",
+        "requestId":  "6af97f64-ad4d-4dd2-83de-0d6f36e43b74",
+        "attempt":  1,
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        }
+      }
+    },
+    {
+      "eventId":  "50",
+      "eventTime":  "2026-11-01T01:53:21.459856Z",
+      "eventType":  "EVENT_TYPE_ACTIVITY_TASK_COMPLETED",
+      "taskId":  "1048695",
+      "activityTaskCompletedEventAttributes":  {
+        "result":  {
+          "payloads":  [
+            {
+              "metadata":  {
+                "encoding":  "anNvbi9wbGFpbg=="
+              },
+              "data":  "eyJzdGVwIjoiODYzNTUzNTQtYmZjOC00ODU3LWE3NjctNGZiMDc4MGZjYTU2Iiwia2luZCI6InVwZGF0ZV9yZWNvcmQiLCJ3YWl0X3NlY29uZHMiOjAsIm5leHQiOiI4M2U1ZWZmOS0zNDQxLTRiZjgtODM2ZC1lMGM0ZmNlZDQ3OWIifQ=="
+            }
+          ]
+        },
+        "scheduledEventId":  "48",
+        "startedEventId":  "49",
+        "identity":  "nava-record-histories"
+      }
+    },
+    {
+      "eventId":  "51",
+      "eventTime":  "2026-11-01T01:53:21.459856Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
+      "taskId":  "1048696",
+      "workflowTaskScheduledEventAttributes":  {
+        "taskQueue":  {
+          "name":  "nava-tq",
+          "kind":  "TASK_QUEUE_KIND_NORMAL"
+        },
+        "startToCloseTimeout":  "10s",
+        "attempt":  1
+      }
+    },
+    {
+      "eventId":  "52",
+      "eventTime":  "2026-11-01T01:53:21.464512500Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_STARTED",
+      "taskId":  "1048699",
+      "workflowTaskStartedEventAttributes":  {
+        "scheduledEventId":  "51",
+        "identity":  "nava-record-histories",
+        "requestId":  "cd285eb5-538d-4e24-814d-35f9e874e2cb",
+        "historySizeBytes":  "8076",
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        }
+      }
+    },
+    {
+      "eventId":  "53",
+      "eventTime":  "2026-11-01T01:53:21.481953700Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
+      "taskId":  "1048704",
+      "workflowTaskCompletedEventAttributes":  {
+        "scheduledEventId":  "51",
+        "startedEventId":  "52",
+        "identity":  "nava-record-histories",
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        },
+        "sdkMetadata":  {},
+        "meteringMetadata":  {}
+      }
+    },
+    {
+      "eventId":  "54",
+      "eventTime":  "2026-11-01T01:53:21.482660900Z",
+      "eventType":  "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED",
+      "taskId":  "1048705",
+      "activityTaskScheduledEventAttributes":  {
+        "activityId":  "54",
+        "activityType":  {
+          "name":  "nava.interpreter.ApplyStep"
+        },
+        "taskQueue":  {
+          "name":  "nava-tq",
+          "kind":  "TASK_QUEUE_KIND_NORMAL"
+        },
+        "header":  {
+          "fields":  {
+            "nava-tenant":  {
+              "metadata":  {
+                "encoding":  "anNvbi9wbGFpbg=="
+              },
+              "data":  "IjAxOTJmM2EwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwMDAwYSI="
+            }
+          }
+        },
+        "input":  {
+          "payloads":  [
+            {
+              "metadata":  {
+                "encoding":  "anNvbi9wbGFpbg=="
+              },
+              "data":  "eyJkZWZpbml0aW9uX3ZlcnNpb25faWQiOiI2YTRmMWMzZS0yYjdkLTRlMGEtOWM1NS0wZDNiOGUxZjdhMjEiLCJyZWNvcmRfaWQiOiIzYzllN2IxMi01ZjRhLTRkODYtYTFlMC03YjJjNGQ2ZjhlOTMiLCJzdGVwIjoiODYzNTUzNTQtYmZjOC00ODU3LWE3NjctNGZiMDc4MGZjYTU2In0="
+            }
+          ]
+        },
+        "scheduleToCloseTimeout":  "0s",
+        "scheduleToStartTimeout":  "0s",
+        "startToCloseTimeout":  "60s",
+        "heartbeatTimeout":  "0s",
+        "workflowTaskCompletedEventId":  "53",
+        "retryPolicy":  {
+          "initialInterval":  "1s",
+          "backoffCoefficient":  2,
+          "maximumInterval":  "60s",
+          "maximumAttempts":  10
+        },
+        "useWorkflowBuildId":  true
+      }
+    },
+    {
+      "eventId":  "55",
+      "eventTime":  "2026-11-01T01:53:21.482660900Z",
+      "eventType":  "EVENT_TYPE_ACTIVITY_TASK_STARTED",
+      "taskId":  "1048708",
+      "activityTaskStartedEventAttributes":  {
+        "scheduledEventId":  "54",
+        "identity":  "nava-record-histories",
+        "requestId":  "7b80ce17-bf31-4a85-aecf-eea4aeaef78d",
+        "attempt":  1,
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        }
+      }
+    },
+    {
+      "eventId":  "56",
+      "eventTime":  "2026-11-01T01:53:21.502457400Z",
+      "eventType":  "EVENT_TYPE_ACTIVITY_TASK_COMPLETED",
+      "taskId":  "1048709",
+      "activityTaskCompletedEventAttributes":  {
+        "scheduledEventId":  "54",
+        "startedEventId":  "55",
+        "identity":  "nava-record-histories"
+      }
+    },
+    {
+      "eventId":  "57",
+      "eventTime":  "2026-11-01T01:53:21.502457400Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
+      "taskId":  "1048710",
+      "workflowTaskScheduledEventAttributes":  {
+        "taskQueue":  {
+          "name":  "nava-tq",
+          "kind":  "TASK_QUEUE_KIND_NORMAL"
+        },
+        "startToCloseTimeout":  "10s",
+        "attempt":  1
+      }
+    },
+    {
+      "eventId":  "58",
+      "eventTime":  "2026-11-01T01:53:21.508283100Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_STARTED",
+      "taskId":  "1048713",
+      "workflowTaskStartedEventAttributes":  {
+        "scheduledEventId":  "57",
+        "identity":  "nava-record-histories",
+        "requestId":  "f0eedc4b-9983-4f37-8f59-a8fb5c0a1fd7",
+        "historySizeBytes":  "8911",
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        }
+      }
+    },
+    {
+      "eventId":  "59",
+      "eventTime":  "2026-11-01T01:53:21.521893100Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
+      "taskId":  "1048718",
+      "workflowTaskCompletedEventAttributes":  {
+        "scheduledEventId":  "57",
+        "startedEventId":  "58",
+        "identity":  "nava-record-histories",
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        },
+        "sdkMetadata":  {
+          "sdkName":  "temporal-go",
+          "sdkVersion":  "1.49.0"
+        },
+        "meteringMetadata":  {}
+      }
+    },
+    {
+      "eventId":  "60",
+      "eventTime":  "2026-11-01T01:53:21.521893100Z",
+      "eventType":  "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED",
+      "taskId":  "1048719",
+      "activityTaskScheduledEventAttributes":  {
+        "activityId":  "60",
+        "activityType":  {
+          "name":  "nava.interpreter.NextStep"
+        },
+        "taskQueue":  {
+          "name":  "nava-tq",
+          "kind":  "TASK_QUEUE_KIND_NORMAL"
+        },
+        "header":  {
+          "fields":  {
+            "nava-tenant":  {
+              "metadata":  {
+                "encoding":  "anNvbi9wbGFpbg=="
+              },
+              "data":  "IjAxOTJmM2EwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwMDAwYSI="
+            }
+          }
+        },
+        "input":  {
+          "payloads":  [
+            {
+              "metadata":  {
+                "encoding":  "anNvbi9wbGFpbg=="
+              },
+              "data":  "eyJkZWZpbml0aW9uX3ZlcnNpb25faWQiOiI2YTRmMWMzZS0yYjdkLTRlMGEtOWM1NS0wZDNiOGUxZjdhMjEiLCJyZWNvcmRfaWQiOiIzYzllN2IxMi01ZjRhLTRkODYtYTFlMC03YjJjNGQ2ZjhlOTMiLCJzdGVwIjoiODNlNWVmZjktMzQ0MS00YmY4LTgzNmQtZTBjNGZjZWQ0NzliIn0="
+            }
+          ]
+        },
+        "scheduleToCloseTimeout":  "0s",
+        "scheduleToStartTimeout":  "0s",
+        "startToCloseTimeout":  "60s",
+        "heartbeatTimeout":  "0s",
+        "workflowTaskCompletedEventId":  "59",
+        "retryPolicy":  {
+          "initialInterval":  "1s",
+          "backoffCoefficient":  2,
+          "maximumInterval":  "60s",
+          "maximumAttempts":  10
+        },
+        "useWorkflowBuildId":  true
+      }
+    },
+    {
+      "eventId":  "61",
+      "eventTime":  "2026-11-01T01:53:21.521893100Z",
+      "eventType":  "EVENT_TYPE_ACTIVITY_TASK_STARTED",
+      "taskId":  "1048722",
+      "activityTaskStartedEventAttributes":  {
+        "scheduledEventId":  "60",
+        "identity":  "nava-record-histories",
+        "requestId":  "6ad65047-eb31-4b89-bccc-381189defde6",
+        "attempt":  1,
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        }
+      }
+    },
+    {
+      "eventId":  "62",
+      "eventTime":  "2026-11-01T01:53:21.538423400Z",
+      "eventType":  "EVENT_TYPE_ACTIVITY_TASK_COMPLETED",
+      "taskId":  "1048723",
+      "activityTaskCompletedEventAttributes":  {
+        "result":  {
+          "payloads":  [
+            {
+              "metadata":  {
+                "encoding":  "anNvbi9wbGFpbg=="
+              },
+              "data":  "eyJzdGVwIjoiODNlNWVmZjktMzQ0MS00YmY4LTgzNmQtZTBjNGZjZWQ0NzliIiwia2luZCI6ImVuZCIsIndhaXRfc2Vjb25kcyI6MH0="
+            }
+          ]
+        },
+        "scheduledEventId":  "60",
+        "startedEventId":  "61",
+        "identity":  "nava-record-histories"
+      }
+    },
+    {
+      "eventId":  "63",
+      "eventTime":  "2026-11-01T01:53:21.538423400Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
+      "taskId":  "1048724",
+      "workflowTaskScheduledEventAttributes":  {
+        "taskQueue":  {
+          "name":  "nava-tq",
+          "kind":  "TASK_QUEUE_KIND_NORMAL"
+        },
+        "startToCloseTimeout":  "10s",
+        "attempt":  1
+      }
+    },
+    {
+      "eventId":  "64",
+      "eventTime":  "2026-11-01T01:53:21.543677500Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_STARTED",
+      "taskId":  "1048727",
+      "workflowTaskStartedEventAttributes":  {
+        "scheduledEventId":  "63",
+        "identity":  "nava-record-histories",
+        "requestId":  "ce2c1f60-1522-4c20-8432-30aa0838dd78",
+        "historySizeBytes":  "9875",
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        }
+      }
+    },
+    {
+      "eventId":  "65",
+      "eventTime":  "2026-11-01T01:53:21.555375700Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
+      "taskId":  "1048732",
+      "workflowTaskCompletedEventAttributes":  {
+        "scheduledEventId":  "63",
+        "startedEventId":  "64",
+        "identity":  "nava-record-histories",
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        },
+        "sdkMetadata":  {},
+        "meteringMetadata":  {}
+      }
+    },
+    {
+      "eventId":  "66",
+      "eventTime":  "2026-11-01T01:53:21.555917200Z",
+      "eventType":  "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED",
+      "taskId":  "1048733",
+      "activityTaskScheduledEventAttributes":  {
+        "activityId":  "66",
+        "activityType":  {
+          "name":  "nava.workflow_ref.Close"
+        },
+        "taskQueue":  {
+          "name":  "nava-tq",
+          "kind":  "TASK_QUEUE_KIND_NORMAL"
+        },
+        "header":  {
+          "fields":  {
+            "nava-tenant":  {
+              "metadata":  {
+                "encoding":  "anNvbi9wbGFpbg=="
+              },
+              "data":  "IjAxOTJmM2EwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwMDAwYSI="
+            }
+          }
+        },
+        "scheduleToCloseTimeout":  "0s",
+        "scheduleToStartTimeout":  "0s",
+        "startToCloseTimeout":  "30s",
+        "heartbeatTimeout":  "0s",
+        "workflowTaskCompletedEventId":  "65",
+        "retryPolicy":  {
+          "initialInterval":  "1s",
+          "backoffCoefficient":  2,
+          "maximumInterval":  "100s"
+        },
+        "useWorkflowBuildId":  true
+      }
+    },
+    {
+      "eventId":  "67",
+      "eventTime":  "2026-11-01T01:53:21.555917200Z",
+      "eventType":  "EVENT_TYPE_ACTIVITY_TASK_STARTED",
+      "taskId":  "1048736",
+      "activityTaskStartedEventAttributes":  {
+        "scheduledEventId":  "66",
+        "identity":  "nava-record-histories",
+        "requestId":  "85e26b36-67f5-4a4a-8395-cc8f2714bb25",
+        "attempt":  1,
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        }
+      }
+    },
+    {
+      "eventId":  "68",
+      "eventTime":  "2026-11-01T01:53:21.560529300Z",
+      "eventType":  "EVENT_TYPE_ACTIVITY_TASK_COMPLETED",
+      "taskId":  "1048737",
+      "activityTaskCompletedEventAttributes":  {
+        "scheduledEventId":  "66",
+        "startedEventId":  "67",
+        "identity":  "nava-record-histories"
+      }
+    },
+    {
+      "eventId":  "69",
+      "eventTime":  "2026-11-01T01:53:21.560529300Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
+      "taskId":  "1048738",
+      "workflowTaskScheduledEventAttributes":  {
+        "taskQueue":  {
+          "name":  "nava-tq",
+          "kind":  "TASK_QUEUE_KIND_NORMAL"
+        },
+        "startToCloseTimeout":  "10s",
+        "attempt":  1
+      }
+    },
+    {
+      "eventId":  "70",
+      "eventTime":  "2026-11-01T01:53:21.564508200Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_STARTED",
+      "taskId":  "1048741",
+      "workflowTaskStartedEventAttributes":  {
+        "scheduledEventId":  "69",
+        "identity":  "nava-record-histories",
+        "requestId":  "bdd288ba-3c96-4004-9bb5-446583a3231d",
+        "historySizeBytes":  "10511",
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        }
+      }
+    },
+    {
+      "eventId":  "71",
+      "eventTime":  "2026-11-01T01:53:21.580006600Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
+      "taskId":  "1048745",
+      "workflowTaskCompletedEventAttributes":  {
+        "scheduledEventId":  "69",
+        "startedEventId":  "70",
+        "identity":  "nava-record-histories",
+        "workerVersion":  {
+          "buildId":  "ceb5610840d151a9ce21563d81c3e98a"
+        },
+        "sdkMetadata":  {
+          "sdkName":  "temporal-go",
+          "sdkVersion":  "1.49.0"
+        },
+        "meteringMetadata":  {}
+      }
+    },
+    {
+      "eventId":  "72",
+      "eventTime":  "2026-11-01T01:53:21.580579600Z",
+      "eventType":  "EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED",
+      "taskId":  "1048746",
+      "workflowExecutionCompletedEventAttributes":  {
+        "workflowTaskCompletedEventId":  "71"
+      }
+    }
+  ]
+}

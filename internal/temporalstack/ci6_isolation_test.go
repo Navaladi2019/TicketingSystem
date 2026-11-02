@@ -97,7 +97,7 @@ func TestCI6_UnlistedCertificateDeniedByAuthorizer(t *testing.T) {
 	startID := uniqueID("A", "unlisted")
 	_, err = wf.StartWorkflowExecution(ctx, &workflowservice.StartWorkflowExecutionRequest{
 		Namespace: namespace, WorkflowId: startID, RequestId: fmt.Sprint(time.Now().UnixNano()),
-		WorkflowType: &commonpb.WorkflowType{Name: echoType},
+		WorkflowType: &commonpb.WorkflowType{Name: platformType},
 		TaskQueue:    &taskqueuepb.TaskQueue{Name: taskQueue, Kind: enumspb.TASK_QUEUE_KIND_NORMAL},
 	})
 	wantDenied(t, unlistedCN+" StartWorkflowExecution", err)
@@ -367,13 +367,21 @@ func TestCI6_RelayCoreWorkerOutsideAllowListDenied(t *testing.T) {
 	relayWF := workflowservice.NewWorkflowServiceClient(rawConnAs(t, "nava-relay"))
 	coreWF := workflowservice.NewWorkflowServiceClient(rawConnAs(t, "nava-core"))
 	workerWF := workflowservice.NewWorkflowServiceClient(rawConnAs(t, "nava-worker"))
-	_, err := relayWF.TerminateWorkflowExecution(ctx, &workflowservice.TerminateWorkflowExecutionRequest{Namespace: namespace, WorkflowExecution: victimExec})
+	// PermissionDenied carries no reason (the Authorizer logs it and counts it
+	// only), so the reason is read from the server log after this anchor: the
+	// sweep above logged the same identity and API pairs, and must not count.
+	mark := logMark()
+	anchorNS := fmt.Sprintf("ci6-run-%d", time.Now().UnixNano())
+	_, err := workflowservice.NewWorkflowServiceClient(rawConnAs(t, "nava-operator")).DescribeNamespace(ctx,
+		&workflowservice.DescribeNamespaceRequest{Namespace: anchorNS})
+	wantDenied(t, "nava-operator DescribeNamespace (anchor)", err)
+	_, err = relayWF.TerminateWorkflowExecution(ctx, &workflowservice.TerminateWorkflowExecutionRequest{Namespace: namespace, WorkflowExecution: victimExec})
 	wantDenied(t, "nava-relay TerminateWorkflowExecution of tenant B", err)
 	_, err = relayWF.DescribeWorkflowExecution(ctx, &workflowservice.DescribeWorkflowExecutionRequest{Namespace: namespace, Execution: victimExec})
 	wantDenied(t, "nava-relay DescribeWorkflowExecution of tenant B", err)
 	_, err = coreWF.StartWorkflowExecution(ctx, &workflowservice.StartWorkflowExecutionRequest{
 		Namespace: namespace, WorkflowId: uniqueID("B", "core-start"), RequestId: fmt.Sprint(time.Now().UnixNano()),
-		WorkflowType: &commonpb.WorkflowType{Name: echoType}, TaskQueue: &taskqueuepb.TaskQueue{Name: taskQueue},
+		WorkflowType: &commonpb.WorkflowType{Name: platformType}, TaskQueue: &taskqueuepb.TaskQueue{Name: taskQueue},
 	})
 	wantDenied(t, "nava-core StartWorkflowExecution", err)
 	_, err = coreWF.SignalWorkflowExecution(ctx, &workflowservice.SignalWorkflowExecutionRequest{Namespace: namespace, WorkflowExecution: victimExec, SignalName: "ci6"})
@@ -386,6 +394,20 @@ func TestCI6_RelayCoreWorkerOutsideAllowListDenied(t *testing.T) {
 	wantDenied(t, "nava-worker SignalWorkflowExecution of tenant B", err)
 	_, err = workerWF.ResetStickyTaskQueue(ctx, &workflowservice.ResetStickyTaskQueueRequest{Namespace: namespace, Execution: victimExec})
 	wantDenied(t, "nava-worker ResetStickyTaskQueue of tenant B", err)
+	// Each call is denied because the identity may not call that API at all
+	// (api_not_allowed), never because of its workflow type: nava-core's start
+	// names the allow-listed platform type (Security review of PR #337, TICK-374).
+	var wants []map[string]string
+	for _, c := range [][2]string{
+		{"nava-relay", "TerminateWorkflowExecution"}, {"nava-relay", "DescribeWorkflowExecution"},
+		{"nava-core", "StartWorkflowExecution"}, {"nava-core", "SignalWorkflowExecution"}, {"nava-core", "ListWorkflowExecutions"},
+		{"nava-worker", "TerminateWorkflowExecution"}, {"nava-worker", "SignalWorkflowExecution"}, {"nava-worker", "ResetStickyTaskQueue"},
+	} {
+		wants = append(wants, map[string]string{"identity": c[0], "api": wfAPI + c[1], "reason": "api_not_allowed",
+			"cert_subject": "~CN=" + c[0]})
+	}
+	awaitDenyLogsAfter(t, mark, map[string]string{"identity": "nava-operator", "reason": "namespace_not_allowed",
+		"api": wfAPI + "DescribeNamespace", "namespace": anchorNS}, wants)
 
 	desc, err := core.DescribeWorkflowExecution(ctx, victimID, victim.GetRunID())
 	if err != nil {
@@ -489,7 +511,7 @@ func TestCI6_OperatorLimitedToPinnedList(t *testing.T) {
 
 // --- worker commands (erratum E1) --------------------------------------------
 
-func echoTypeOf() *commonpb.WorkflowType { return &commonpb.WorkflowType{Name: echoType} }
+func platformTypeOf() *commonpb.WorkflowType { return &commonpb.WorkflowType{Name: platformType} }
 func platformQueue() *taskqueuepb.TaskQueue {
 	return &taskqueuepb.TaskQueue{Name: taskQueue, Kind: enumspb.TASK_QUEUE_KIND_NORMAL}
 }
@@ -503,7 +525,7 @@ func TestCI6_WorkerCrossTenantChildDeniedWithAlert(t *testing.T) {
 		return []*commandpb.Command{{
 			CommandType: enumspb.COMMAND_TYPE_START_CHILD_WORKFLOW_EXECUTION,
 			Attributes: &commandpb.Command_StartChildWorkflowExecutionCommandAttributes{StartChildWorkflowExecutionCommandAttributes: &commandpb.StartChildWorkflowExecutionCommandAttributes{
-				WorkflowId: childID, WorkflowType: echoTypeOf(), TaskQueue: platformQueue(),
+				WorkflowId: childID, WorkflowType: platformTypeOf(), TaskQueue: platformQueue(),
 				Header: tenantHeader(t, "A"),
 			}},
 		}}
@@ -578,7 +600,7 @@ func continueAsNew(header *commonpb.Header, cron string) []*commandpb.Command {
 	return []*commandpb.Command{{
 		CommandType: enumspb.COMMAND_TYPE_CONTINUE_AS_NEW_WORKFLOW_EXECUTION,
 		Attributes: &commandpb.Command_ContinueAsNewWorkflowExecutionCommandAttributes{ContinueAsNewWorkflowExecutionCommandAttributes: &commandpb.ContinueAsNewWorkflowExecutionCommandAttributes{
-			WorkflowType: echoTypeOf(), TaskQueue: platformQueue(), Input: input, Header: header, CronSchedule: cron,
+			WorkflowType: platformTypeOf(), TaskQueue: platformQueue(), Input: input, Header: header, CronSchedule: cron,
 		}},
 	}}
 }
@@ -709,8 +731,9 @@ func (tenantPropagator) InjectFromWorkflow(ctx workflow.Context, w workflow.Head
 	return nil
 }
 
-// parentOrEcho is the smoke workload with one branch: input "parent" starts a
-// same-tenant child (its own id plus "-child") and returns its result.
+// parentOrEcho is the test body registered as the platform type, with one
+// branch: input "parent" starts a same-tenant child (its own id plus "-child")
+// and returns its result.
 func parentOrEcho(ctx workflow.Context, in string) (string, error) {
 	if in != "parent" {
 		return "echo:" + in, nil
@@ -719,7 +742,7 @@ func parentOrEcho(ctx workflow.Context, in string) (string, error) {
 		WorkflowID: workflow.GetInfo(ctx).WorkflowExecution.ID + "-child", TaskQueue: taskQueue,
 	})
 	var out string
-	if err := workflow.ExecuteChildWorkflow(cctx, echoType, "child").Get(cctx, &out); err != nil {
+	if err := workflow.ExecuteChildWorkflow(cctx, platformType, "child").Get(cctx, &out); err != nil {
 		return "", err
 	}
 	return "parent:" + out, nil
@@ -734,11 +757,8 @@ func TestCI6_Allowed_SameTenantChildCompletes(t *testing.T) {
 		o.ContextPropagators = []workflow.ContextPropagator{tenantPropagator{}}
 	})
 	w := worker.New(wc, taskQueue, worker.Options{})
-	w.RegisterWorkflowWithOptions(parentOrEcho, workflow.RegisterOptions{Name: echoType})
-	if err := w.Start(); err != nil {
-		t.Fatalf("worker start: %v", err)
-	}
-	t.Cleanup(w.Stop)
+	w.RegisterWorkflowWithOptions(parentOrEcho, workflow.RegisterOptions{Name: platformType})
+	startPlatformWorker(t, w)
 
 	relay, core := dial(t, "nava-relay"), dial(t, "nava-core")
 	parentID := uniqueID("A", "parent")

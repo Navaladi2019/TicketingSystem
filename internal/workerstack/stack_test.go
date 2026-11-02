@@ -35,14 +35,17 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
 	"github.com/Navaladi2019/TicketingSystem/internal/workerguard"
+	"github.com/Navaladi2019/TicketingSystem/internal/workflow/interp"
 )
 
-// The D9 allow-list's only workload: workflow type nava.smoke.Echo on nava-tq.
+// The D9 allow-list's platform workload: workflow type nava.interpreter on
+// nava-tq. closeRef is registered under it (TICK-374), so the stack runs the
+// allow-list we ship.
 const (
-	namespace = "nava"
-	echoType  = "nava.smoke.Echo"
-	taskQueue = "nava-tq"
-	service   = "nava-worker"
+	namespace    = "nava"
+	platformType = interp.WorkflowType
+	taskQueue    = "nava-tq"
+	service      = "nava-worker"
 	// The guard's allow decisions on activities, as Prometheus names them.
 	decisions = "nava_worker_guard_decisions_total"
 )
@@ -151,7 +154,7 @@ func activityAllows(t *testing.T) float64 {
 	return sum
 }
 
-// closeRef is registered as the allow-listed nava.smoke.Echo. It schedules
+// closeRef is registered as the allow-listed platform type. It schedules
 // only the workflow_ref activity, which the nava-worker service alone polls.
 func closeRef(ctx workflow.Context) error {
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -185,7 +188,10 @@ func TestWorkerServiceRunsTheGuardedActivity(t *testing.T) {
 
 	// The test's worker runs the workflow only: no activity poller.
 	w := worker.New(dial(t, "nava-worker", setup), taskQueue, worker.Options{LocalActivityWorkerOnly: true})
-	w.RegisterWorkflowWithOptions(closeRef, workflow.RegisterOptions{Name: echoType})
+	w.RegisterWorkflowWithOptions(closeRef, workflow.RegisterOptions{Name: platformType})
+	// closeRef shares nava.interpreter on nava-tq with nava-worker-interptest,
+	// which only the interpreter cases of this package start and remove.
+	requireQueueFree(t)
 	if err := w.Start(); err != nil {
 		t.Fatalf("test worker start: %v", err)
 	}
@@ -195,7 +201,7 @@ func TestWorkerServiceRunsTheGuardedActivity(t *testing.T) {
 	id := "t:" + tenant.String() + ":t31b:" + uuid.NewString()
 	relay := dial(t, "nava-relay", setup)
 	run, err := relay.ExecuteWorkflow(workerguard.ContextWithTenant(ctx, tenant),
-		client.StartWorkflowOptions{ID: id, TaskQueue: taskQueue, WorkflowExecutionTimeout: 2 * time.Minute}, echoType)
+		client.StartWorkflowOptions{ID: id, TaskQueue: taskQueue, WorkflowExecutionTimeout: 2 * time.Minute}, platformType)
 	if err != nil {
 		t.Fatalf("start %s: %v", id, err)
 	}

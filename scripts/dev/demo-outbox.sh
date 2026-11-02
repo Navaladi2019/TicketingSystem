@@ -1,11 +1,13 @@
 #!/bin/sh
 # The S7 demo (make demo-outbox, TICK-275): a committed outbox row runs exactly
 # one tenant-scoped workflow. Writes a start row and two signal rows for a
-# record of the seeded tenant tenant-a (no tenants row is needed: records, outbox
-# and workflow_ref have no foreign key to it) through outbox.Enqueue in
+# record of the seeded tenant tenant-a: the start through cascade.ClaimStart
+# and outbox.EnqueueStart, the signals through outbox.Enqueue, in
 # InTenantTx(tenant-a) (cmd/demo-outbox), as nava_app, from a throwaway
 # container on the stack's internal network: the database port is never
-# published. The relay hands the rows to Temporal.
+# published. The relay hands the rows to Temporal. cascade_start has a foreign
+# key to tenants (ADR-001 A5), so the script first seeds tenant-a's tenants
+# row as the superuser; cmd/demo-outbox writes no tenants row (TICK-416).
 # Usage: DEDUPE_KEY=<key> sh scripts/dev/demo-outbox.sh   (the stack is up)
 set -eu
 cd "$(dirname "$0")/../.."
@@ -18,10 +20,17 @@ export MSYS_NO_PATHCONV
 if [ -f .env ]; then set -a; . ./.env; set +a; fi
 
 PROJECT=${COMPOSE_PROJECT_NAME:-nava}
+export COMPOSE_PROJECT_NAME="$PROJECT"
 export DEDUPE_KEY=${DEDUPE_KEY:-demo-outbox}
 
 net=$(docker network ls -q --filter "label=com.docker.compose.project=$PROJECT" --filter label=com.docker.compose.network=internal | head -n 1)
 [ -n "$net" ] || { echo "demo-outbox: no internal network for compose project $PROJECT; is the stack up?" >&2; exit 1; }
+
+# tenant-a's tenants row, as nava_onboard would have left it; a rerun keeps it.
+TENANT_A=00000000-0000-4000-8000-0000000000a1
+printf "INSERT INTO tenants (id, state) VALUES ('%s', 'active') ON CONFLICT DO NOTHING;\n" "$TENANT_A" |
+	docker compose exec -T postgres sh -c 'PGPASSWORD=$(cat /run/pg_superuser_password) exec psql -X -q -v ON_ERROR_STOP=1 -U pgadmin -d nava -f -'
+
 arch=$(docker version -f '{{.Server.Arch}}')
 mkdir -p bin
 CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -o bin/demo-outbox-linux ./cmd/demo-outbox

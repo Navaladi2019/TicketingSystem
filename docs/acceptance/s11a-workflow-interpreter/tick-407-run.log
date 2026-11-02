@@ -1,0 +1,179 @@
+# TICK-407 crash drill, 2026-11-01T18:32:35Z, branch agent/quality-testing-ci-advisor/f616e17dbde6 at 10c178e + the crash-restart fix (uncommitted), project nava-t407, images nava/*:s11a404
+$ make dev-ca
+wrote development certificates to ../deploy/compose/certs
+$ docker compose up -d --wait --wait-timeout 420
+ Container nava-t407-nava-purge-1 Starting 
+ Container nava-t407-pgbouncer-1 Healthy 
+ Container nava-t407-temporal-1 Started 
+ Container nava-t407-nava-purge-1 Started 
+ Container nava-t407-otel-collector-1 Healthy 
+ Container nava-t407-pgbouncer-1 Healthy 
+ Container nava-t407-pgbouncer-1 Healthy 
+ Container nava-t407-otel-collector-1 Healthy 
+ Container nava-t407-otel-collector-1 Healthy 
+ Container nava-t407-pgbouncer-1 Healthy 
+ Container nava-t407-temporal-1 Healthy 
+ Container nava-t407-nava-worker-1 Starting 
+ Container nava-t407-temporal-1 Healthy 
+ Container nava-t407-nava-core-1 Starting 
+ Container nava-t407-temporal-1 Healthy 
+ Container nava-t407-nava-relay-1 Starting 
+ Container nava-t407-nava-worker-1 Started 
+ Container nava-t407-nava-core-1 Started 
+ Container nava-t407-nava-relay-1 Started 
+ Container nava-t407-keycloak-1 Healthy 
+ Container nava-t407-keycloak-1 Healthy 
+ Container nava-t407-nava-onboard-1 Starting 
+ Container nava-t407-nava-groupsync-1 Starting 
+ Container nava-t407-nava-onboard-1 Started 
+ Container nava-t407-nava-groupsync-1 Started 
+ Container nava-t407-postgres-1 Healthy 
+ Container nava-t407-keycloak-1 Healthy 
+ Container nava-t407-temporal-server-1 Healthy 
+ Container nava-t407-otel-collector-1 Healthy 
+ Container nava-t407-pgbouncer-1 Healthy 
+ Container nava-t407-nava-relay-1 Healthy 
+ Container nava-t407-db-roles-1 Exited 
+ Container nava-t407-temporal-1 Healthy 
+ Container nava-t407-nava-purge-1 Healthy 
+ Container nava-t407-temporal-schema-1 Exited 
+ Container nava-t407-nava-worker-1 Healthy 
+ Container nava-t407-migrate-1 Exited 
+ Container nava-t407-nava-core-1 Healthy 
+ Container nava-t407-nava-onboard-1 Healthy 
+ Container nava-t407-nava-groupsync-1 Healthy 
+
+real	0m55.428s
+user	0m0.092s
+sys	0m0.045s
+
+## Criterion 3 with the one-shot containers pruned mid-run
+$ make demo-interpreter-up PAUSE=1
+TENANT=a KEY= PRIORITY=high RECORD_ID= PAUSE=1 sh scripts/dev/demo-interpreter.sh up
+[18:33:40.586] fixture v1 (51a11000-0000-4000-8000-000000000001) installed for tenant-a and tenant-b; pause after commit: 1
+ Volume nava-t407_interptest-state Creating 
+ Volume nava-t407_interptest-state Creating 
+ Volume nava-t407_interptest-state Created 
+ Volume nava-t407_interptest-state Created 
+ Container nava-t407-nava-worker-interptest-run-f2ca66b08a63 Creating 
+ Container nava-t407-nava-worker-interptest-run-f2ca66b08a63 Created 
+ Container nava-t407-nava-worker-1 Stopping 
+ Container nava-t407-nava-worker-1 Stopped 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ Image nava/nava-worker-interptest:s11a404 Built 
+ Container nava-t407-nava-worker-interptest-1 Creating 
+ Container nava-t407-nava-worker-interptest-1 Created 
+ Container nava-t407-nava-worker-interptest-1 Starting 
+ Container nava-t407-nava-worker-interptest-1 Started 
+ Container nava-t407-nava-worker-interptest-1 Healthy 
+[18:34:45.495] nava-worker stopped; nava-worker-interptest healthy and the only nava-tq poller
+$ make demo-interpreter TENANT=a KEY=t407-crash PRIORITY=high
+TENANT=a KEY=t407-crash PRIORITY=high RECORD_ID= PAUSE= sh scripts/dev/demo-interpreter.sh start
+[18:36:02.319] record 93fda76f-efc7-5216-b5d2-1636710dbd54 of tenant a: priority high
+[18:36:02.358] start: tenant a, definition version 51a11000-0000-4000-8000-000000000001
+tenant: 00000000-0000-4000-8000-0000000000a1
+record: 93fda76f-efc7-5216-b5d2-1636710dbd54
+dedupe key: t407-crash:start
+start row: 01a19866-d510-71fc-ad35-619c232dbc50
+workflow id: t:00000000-0000-4000-8000-0000000000a1:nava.interpreter:01a19866-d510-71fc-ad35-619c232dbc50
+$ sleep 12
+$ docker ps -a --filter label=com.docker.compose.project=nava-t407 --filter status=exited   # before prune
+nava-t407-nava-worker-1 Exited (0) 3 minutes ago
+nava-t407-temporal-schema-1 Exited (0) 4 minutes ago
+nava-t407-migrate-1 Exited (0) 4 minutes ago
+nava-t407-db-roles-1 Exited (0) 4 minutes ago
+$ docker container prune -f --filter label=com.docker.compose.project=nava-t407
+Deleted Containers:
+3c4760f4a7667329501e1605069852d717fc6d1d9df86a3991eea4ee2c1beda8
+76501a3fa0a20a81132877ad4e224978f72516c53f41525c324aedbc5b4f0290
+db764764d722bcca4efd09693951baa633f18d852674c2b650c3b222e4735eaa
+23440b28be462f9c3a2d7b850dc0d1a769f219b820c3f96e889289c309a9faaa
+
+Total reclaimed space: 35B
+$ docker ps -a --filter label=com.docker.compose.project=nava-t407 --filter status=exited   # after prune
+$ make demo-interpreter-crash TENANT=a KEY=t407-crash
+TENANT=a KEY=t407-crash PRIORITY=high RECORD_ID= PAUSE= sh scripts/dev/demo-interpreter.sh crash
+[18:37:33.448] approve: tenant a, record 93fda76f-efc7-5216-b5d2-1636710dbd54
+tenant: 00000000-0000-4000-8000-0000000000a1
+record: 93fda76f-efc7-5216-b5d2-1636710dbd54
+dedupe key: t407-crash:approve
+signal row: 01a19867-1eb5-7be1-a2eb-f3cba4405863
+[18:37:38.340] ApplyStep committed its write and paused: /run/interptest/state/s11a/pause/28d56d85be0f5d4e05fad40dbc94ac85.paused
+ Container nava-t407-nava-worker-interptest-1 Killing 
+ Container nava-t407-nava-worker-interptest-1 Killed 
+[18:37:40.519] killed: container 1e9693025c18 running=false exit=137
+calls in the volume after the kill (the killed attempt's write committed):
+ Container nava-t407-nava-worker-interptest-run-b60112bfe8a3 Creating 
+ Container nava-t407-nava-worker-interptest-run-b60112bfe8a3 Created 
+{"key":"wf:t:00000000-0000-4000-8000-0000000000a1:nava.interpreter:01a19866-d510-71fc-ad35-619c232dbc50:839fe1ad-0163-4e48-9f6d-6d02656670a7","attempt":1,"tenant":"00000000-0000-4000-8000-0000000000a1","record":"93fda76f-efc7-5216-b5d2-1636710dbd54","step":"839fe1ad-0163-4e48-9f6d-6d02656670a7","set":{"approved":true},"applied":true}
+ Container nava-t407-nava-worker-interptest-run-fe505c2c4637 Creating 
+ Container nava-t407-nava-worker-interptest-run-fe505c2c4637 Created 
+[18:37:47.406] same container started again (started 2026-11-01T18:34:42.704161473Z, now 2026-11-01T18:37:44.291458278Z), healthy
+exit=0
+$ sleep 20
+$ make demo-interpreter-status TENANT=a KEY=t407-crash
+TENANT=a KEY=t407-crash PRIORITY=high RECORD_ID= PAUSE= sh scripts/dev/demo-interpreter.sh status
+kind | dedupe_key | dispatched | dead | last_error
+nava.interpreter | t407-crash:start | t | f | 
+nava.interpreter.signal | t407-crash:approve | t | f | 
+(2 rows)
+kind | outbox_id | closed
+nava.interpreter | 01a19866-d510-71fc-ad35-619c232dbc50 | t
+(1 row)
+$ make demo-interpreter-writes
+TENANT=a KEY= PRIORITY=high RECORD_ID= PAUSE= sh scripts/dev/demo-interpreter.sh writes
+ Container nava-t407-nava-worker-interptest-run-a60853c33674 Creating 
+ Container nava-t407-nava-worker-interptest-run-a60853c33674 Created 
+--- calls.jsonl
+{"key":"wf:t:00000000-0000-4000-8000-0000000000a1:nava.interpreter:01a19866-d510-71fc-ad35-619c232dbc50:839fe1ad-0163-4e48-9f6d-6d02656670a7","attempt":1,"tenant":"00000000-0000-4000-8000-0000000000a1","record":"93fda76f-efc7-5216-b5d2-1636710dbd54","step":"839fe1ad-0163-4e48-9f6d-6d02656670a7","set":{"approved":true},"applied":true}
+{"key":"wf:t:00000000-0000-4000-8000-0000000000a1:nava.interpreter:01a19866-d510-71fc-ad35-619c232dbc50:839fe1ad-0163-4e48-9f6d-6d02656670a7","attempt":2,"tenant":"00000000-0000-4000-8000-0000000000a1","record":"93fda76f-efc7-5216-b5d2-1636710dbd54","step":"839fe1ad-0163-4e48-9f6d-6d02656670a7","set":{"approved":true},"applied":false}
+--- applied effects (one file per key)
+wf:t:00000000-0000-4000-8000-0000000000a1:nava.interpreter:01a19866-d510-71fc-ad35-619c232dbc50:839fe1ad-0163-4e48-9f6d-6d02656670a7
+
+## Control: the old restart command on the pruned stack
+$ docker compose start nava-worker-interptest   # what the crash script ran before this change
+ Container nava-t407-postgres-1 Healthy 
+temporal-schema is missing dependency db-roles
+exit=1
+
+## Clean-up still works after the prune
+$ make demo-interpreter-down
+TENANT=a KEY= PRIORITY=high RECORD_ID= PAUSE= sh scripts/dev/demo-interpreter.sh down
+ Container nava-t407-nava-worker-interptest-1 Stopping 
+ Container nava-t407-nava-worker-interptest-1 Stopped 
+Going to remove nava-t407-nava-worker-interptest-1
+ Container nava-t407-nava-worker-interptest-1 Removing 
+ Container nava-t407-nava-worker-interptest-1 Removed 
+ Container nava-t407-nava-worker-1 Creating 
+ Container nava-t407-nava-worker-1 Created 
+ Container nava-t407-nava-worker-1 Starting 
+ Container nava-t407-nava-worker-1 Started 
+ Container nava-t407-nava-worker-1 Healthy 
+[18:38:28.905] nava-worker-interptest removed; nava-worker healthy again
+exit=0
+$ docker compose down -v
+ Network nava-t407_default Removed 
+ Network nava-t407_operator Removed 
+ Network nava-t407_internal Removed 
