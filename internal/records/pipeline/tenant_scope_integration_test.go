@@ -60,6 +60,10 @@ func TestRecordLocksNameTheTenantWithoutRLS(t *testing.T) {
 		_, _ = e.super.Exec(context.Background(), "ALTER TABLE records FORCE ROW LEVEL SECURITY")
 	})
 
+	// locked guards a lock that reports not-found yet holds B's row. An
+	// unfiltered lock fails the error check first: its later insert breaks
+	// RLS on cascade_start or outbox, and the statement error is what the
+	// test sees.
 	locked := func() bool {
 		t.Helper()
 		// A second session: NOWAIT fails at once if the row is locked.
@@ -67,39 +71,44 @@ func TestRecordLocksNameTheTenantWithoutRLS(t *testing.T) {
 		return err != nil
 	}
 
-	err := tenancy.InTenantTx(ctx, owner, a.id, func(tx pgx.Tx) error {
-		// Control: RLS is really off here, so the owner sees B's row.
-		var n int
-		if err := tx.QueryRow(ctx, "SELECT count(*) FROM records WHERE id = $1", recB.RecordID).Scan(&n); err != nil {
-			return err
+	// Each lock runs in its own owner transaction in tenant A, so one
+	// failing cannot abort the other's.
+	errRollback := errors.New("roll back")
+	inA := func(name string, wantErr error, lock func(pgx.Tx) error) {
+		t.Helper()
+		err := tenancy.InTenantTx(ctx, owner, a.id, func(tx pgx.Tx) error {
+			// Control: RLS is really off here, so the owner sees B's row.
+			var n int
+			if err := tx.QueryRow(ctx, "SELECT count(*) FROM records WHERE id = $1", recB.RecordID).Scan(&n); err != nil {
+				return err
+			}
+			if n != 1 {
+				t.Fatalf("owner in tenant A's transaction sees %d of B's records; RLS is not bypassed, the test proves nothing", n)
+			}
+			if err := lock(tx); !errors.Is(err, wantErr) {
+				t.Errorf("%s(B's record) in A's transaction: %v, want %v", name, err, wantErr)
+			}
+			if locked() {
+				t.Errorf("%s locked tenant B's record from tenant A's transaction", name)
+			}
+			return errRollback
+		})
+		if !errors.Is(err, errRollback) {
+			t.Fatal(err)
 		}
-		if n != 1 {
-			t.Fatalf("owner in tenant A's transaction sees %d of B's records; RLS is not bypassed, the test proves nothing", n)
-		}
+	}
 
+	inA("cascade.ClaimStart", cascade.ErrRecordNotFound, func(tx pgx.Tx) error {
 		_, _, err := cascade.ClaimStart(ctx, tx, cascade.Key{RecordID: recB.RecordID, DefinitionID: uuid.New()})
-		if !errors.Is(err, cascade.ErrRecordNotFound) {
-			t.Errorf("cascade.ClaimStart(B's record) in A's transaction: %v, want ErrRecordNotFound", err)
-		}
-		if locked() {
-			t.Error("cascade.ClaimStart locked tenant B's record from tenant A's transaction")
-		}
-
+		return err
+	})
+	inA("outbox.EnqueueAtVersion", outbox.ErrRecordNotFound, func(tx pgx.Tx) error {
 		payload, _ := json.Marshal(map[string]string{"record_id": recB.RecordID.String()})
-		_, err = outbox.EnqueueAtVersion(ctx, tx, outbox.Entry{Kind: "ticket.approval", KindVersion: 1,
+		_, err := outbox.EnqueueAtVersion(ctx, tx, outbox.Entry{Kind: "ticket.approval", KindVersion: 1,
 			DedupeKey: "tick-480:" + uuid.NewString(), RecordID: recB.RecordID,
 			Target: outbox.TargetStart{Kind: "ticket.approval"}, Causation: workflowCausation(), Payload: payload}, recB.Version)
-		if !errors.Is(err, outbox.ErrRecordNotFound) {
-			t.Errorf("outbox.EnqueueAtVersion(B's record) in A's transaction: %v, want ErrRecordNotFound", err)
-		}
-		if locked() {
-			t.Error("outbox.EnqueueAtVersion locked tenant B's record from tenant A's transaction")
-		}
-		return nil
+		return err
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	if n := count(t, e.super, "SELECT count(*) FROM outbox WHERE tenant_id = $1", a.id); n != 0 {
 		t.Errorf("tenant A has %d outbox rows; want none", n)
 	}
