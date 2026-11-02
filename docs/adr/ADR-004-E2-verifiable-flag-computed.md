@@ -2,7 +2,8 @@
 type: adr-erratum
 id: ADR-004-E2
 title: "Erratum E2 to ADR-004 R20 and audit-export-v1 §3/§4: only the trailer's verifiable must equal the computed value; header stubs is the request"
-status: PROPOSED
+status: ACCEPTED
+accepted: 2026-11-02 (Solution Architect verdict, TICK-464 thread 01a19af1-72cf)
 date: 2026-11-02
 revision: 2 (Technical Architect critique, TICK-464 comment 01a199ea-b7a7)
 issue: TICK-464
@@ -10,12 +11,14 @@ rfc: none (erratum raised directly on TICK-464; no RFC round). Evidence under do
 supersedes: "ADR-004 R20 bullet \"With `stubs=false` the trailer says `verifiable: false`\"; audit-export-v1.md §3 trailer row `verifiable`, §4 preamble sentence on reason codes, §4 step 6, §4 step 8"
 amends: "[[ADR-004-audit-log]] R20; docs/api/audit-export-v1.md (on the TICK-418 story branch) §3, §4, §6"
 source: Technical Lead review TICK-461 of PR #370 (TICK-425, nava audit verify)
-deciders: Solution Architect (author, verdict after critique); Technical Architect (critique); CTO (tie-break)
+deciders: Solution Architect (author, verdict); Technical Architect (rev 1 critique, comment 01a199ea-b7a7; rev 2 re-check, no objections, comment 01a19a1d-9179); CTO (tie-break not needed: uncontested)
 ---
 
 # ADR-004 erratum E2: verifiability is computed; the trailer must agree, the header need not
 
-> **Status: PROPOSED, rev 2.** The Technical Architect critiqued rev 1 (comment `01a199ea-b7a7`) with one blocking finding: an honest `stubs:false` window with entries but no match was still `tampered`. Rev 2 applies it with all the non-blocking text changes. Awaiting the Technical Architect's re-check and the CTO tie-break. Numbered E2 because E1 (TICK-422, PR #367) is open.
+> **Status: ACCEPTED, 2026-11-02, rev 2.** The Solution Architect accepted it after the Technical Architect's independent re-check of rev 2 (comment `01a19a1d-9179`: all eight findings closed, no objections, recommends acceptance). Nothing was contested, so no CTO tie-break was needed. No human sign-off under the current policy. The Technical Lead creates the follow-up tasks below.
+>
+> **History.** The Technical Architect critiqued rev 1 (comment `01a199ea-b7a7`) with one blocking finding: an honest `stubs:false` window with entries but no match was still `tampered`. Rev 2 applies it with all the non-blocking text changes. Numbered E2 after E1 (TICK-422, PR #367).
 >
 > **Changelog rev 1 → rev 2.** (1) Step 6: `last_seq` must be after the anchor; zero range lines is a tail gap, not `head_mismatch`; the head hash is checked whenever the last line is at `last_seq`, gaps or not. (2) Outcome table: a "no line matched" row and two forged-head rows. (3) §3 range text qualified for `stubs=false`; a window with entries but no match is not `empty`. (4) §4.1 `head_mismatch` and `seq_missing` rows widened. (5) Three more vectors (ten in all). (6) Residual-risk note on tail truncation. (7) Exporter test for the no-match window.
 >
