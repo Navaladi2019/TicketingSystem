@@ -325,7 +325,7 @@ func TestGetRecordAppliesDefaultsOfTheCurrentSchemaVersion(t *testing.T) {
 // automation or flood audit_log with cascade_rejected rows. The handler builds
 // the pipeline command with an empty Causation, so a create that tries to
 // carry one in the body, the query or the headers is a depth-0 write whose
-// origin is not the one the client named.
+// origin is freshly minted, not the one the client named.
 func TestCreateRecordIgnoresCausationFromTheRequest(t *testing.T) {
 	e := newRecEnv(t)
 	forged := "0194f2c0-0000-7000-8000-00000000f0f0"
@@ -365,7 +365,10 @@ func TestCreateRecordIgnoresCausationFromTheRequest(t *testing.T) {
 		if depth == nil || *depth != 0 {
 			t.Errorf("%s: causation_depth = %v, want 0", q, depth)
 		}
-		if origin != nil && *origin == forged {
+		// A depth-0 write mints its origin (TICK-88).
+		if origin == nil || *origin == "" {
+			t.Errorf("%s: causation_origin_id is NULL, want a freshly minted origin", q)
+		} else if *origin == forged {
 			t.Errorf("%s: causation_origin_id is the origin the request named", q)
 		}
 	}
