@@ -12,7 +12,7 @@ ITEM 1: PASS — the commit check costs 34–76 µs per call, ≤ 4.7% of the sm
 
 Two findings need action in Epic 05. Neither changes ADR-004.
 
-- **F1 (P5-10b, P5-11).** As pinned, the commit check is O(n²) in a large transaction. Moving the probe's values into plpgsql locals changes the tie-break, not the costs. The fix is one statistics override per partition, plus a CI plan test.
+- **F1 (P5-10b, P5-11).** As pinned, the commit check is O(n²) in a large transaction. Moving the probe's values into plpgsql locals does not fix it on clean statistics. The fix is one statistics override per partition, plus a CI plan test.
 - **F2 (export task, S16).** The R20 anchor query, written the obvious way, scales with tenant history instead of window size. Its plan must scan the `occurred_at` range.
 
 ## Environment
@@ -142,13 +142,11 @@ So pooled p95 neither confirms nor refutes ≤ 10%. The PASS rests on points 1�
    - The pinned text gets either the R2 key or the R28 subject index `(tenant_id, subject_type, subject_id, occurred_at)`.
    - 2,000 subjects commit in 37–107 ms.
 
-**Why: a cost tie.** Without the override, the R2-key path and any `(tenant_id, occurred_at)`-prefixed index (pkey, `tenant_time`, `unsealed`) have the same estimated cost: **8.46 vs 8.46**. The plan is then decided by tie-break. The Technical Architect found that it goes wrong once the partition is mostly not all-visible, which is the steady state under sealing (item 3: 0 HOT updates). With the override, the prefix path costs **214.98 against 8.46** (50 tenants). The margin figures come from a generic `PREPARE`/`EXPLAIN` in the Technical Architect's review of PR #371 (TICK-423 comment `01a199d9`, findings 4 and 5).
+**Why: a cost tie.** Without the override, the R2-key path and any `(tenant_id, occurred_at)`-prefixed index (pkey, `tenant_time`, `unsealed`) have the same estimated cost: **8.46 vs 8.46**. The plan therefore comes down to a cost tie, and ANALYZE-sample noise decides it. No table state is assumed safe: the bad plan appeared on a freshly vacuumed table and after ordinary writes alike (`out/f1-vm.txt`). With the override, the prefix path costs **214.98 against 8.46** (50 tenants). The margin figures come from a generic `PREPARE`/`EXPLAIN` in the Technical Architect's review of PR #371 (TICK-423 comment `01a199d9`, findings 4 and 5).
 
 Every entry of one transaction shares `(tenant_id, occurred_at = now())`. Once the prefix path wins, each of the n deferred probes therefore scans up to n entries. With the override, `occurred_at` equality is estimated at about 200 rows per tenant, so the R2 key is strictly cheaper.
 
-The rule "it goes wrong only when the partition is mostly not all-visible" does not cover every run here. In `out/f1-vm.txt`, the locals form also lost the tie 5/5 straight after `VACUUM (ANALYZE)`, at 100.0% all-visible. The tie-break also depends on other state, so a CI test should not assume that a freshly vacuumed table is safe.
-
-**The locals form changes the tie-break, not the costs; only the override makes the R2 key strictly cheaper.** It won the tie in the Technical Architect's rerun. Here it lost in 20 of 20 fresh-ANALYZE trials (points 2 and 3) and won in 2 census sessions (point 4). **F1 is needed.**
+**Answer to "if locals alone give the good plan on clean statistics, F1 is not needed": they do not.** The locals form lost the tie as often as the pinned form: the pkey in 20 of 20 fresh-ANALYZE trials (points 2 and 3). It got the good plan only by chance, in 2 census sessions (point 4). **Only the override fixes it, so F1 is needed.**
 
 **Fix (`sql/schema.sql`, on by default).** Run `ALTER TABLE … ALTER COLUMN occurred_at SET (n_distinct = -0.0001)` on `audit_log` **and on every partition**, then ANALYZE. Partitions do not inherit the attribute option (checked with `CREATE TABLE … PARTITION OF`).
 
