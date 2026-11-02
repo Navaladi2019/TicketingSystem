@@ -303,6 +303,16 @@ func (d *Directory) ensureRootGroup(ctx context.Context, tenantID uuid.UUID) (kc
 // EnsureAdminGroup implements identity.DirectoryAdmin: it finds
 // /t/<tenant_id>/admins, creating it under the tenant's root group when missing.
 func (d *Directory) EnsureAdminGroup(ctx context.Context, tenantID uuid.UUID) (string, error) {
+	return d.ensureTenantGroup(ctx, tenantID, identity.AdminGroupName)
+}
+
+// EnsureAuditorGroup implements identity.DirectoryAdmin for
+// /t/<tenant_id>/auditors.
+func (d *Directory) EnsureAuditorGroup(ctx context.Context, tenantID uuid.UUID) (string, error) {
+	return d.ensureTenantGroup(ctx, tenantID, identity.AuditorGroupName)
+}
+
+func (d *Directory) ensureTenantGroup(ctx context.Context, tenantID uuid.UUID, name string) (string, error) {
 	if err := requireTenant(tenantID); err != nil {
 		return "", err
 	}
@@ -310,32 +320,37 @@ func (d *Directory) EnsureAdminGroup(ctx context.Context, tenantID uuid.UUID) (s
 	if err != nil {
 		return "", err
 	}
-	g, err := d.adminGroup(ctx, tenantID)
+	g, err := d.childGroup(ctx, tenantID, name)
 	if !errors.Is(err, identity.ErrNotFound) {
 		return g.ID, err
 	}
 	_, err = d.api.do(ctx, d.runtime, http.MethodPost, "/groups/{id}/children", "/groups/"+url.PathEscape(root.ID)+"/children",
-		nil, map[string]string{"name": identity.AdminGroupName}, http.StatusCreated)
+		nil, map[string]string{"name": name}, http.StatusCreated)
 	if err != nil && !errors.Is(err, identity.ErrAlreadyExists) {
 		return "", err
 	}
-	g, err = d.adminGroup(ctx, tenantID)
+	g, err = d.childGroup(ctx, tenantID, name)
 	return g.ID, err
 }
 
-// adminGroup finds /t/<tenant_id>/admins, or identity.ErrNotFound. Looking the
+// adminGroup finds /t/<tenant_id>/admins, or identity.ErrNotFound.
+func (d *Directory) adminGroup(ctx context.Context, tenantID uuid.UUID) (kcGroup, error) {
+	return d.childGroup(ctx, tenantID, identity.AdminGroupName)
+}
+
+// childGroup finds /t/<tenant_id>/<name>, or identity.ErrNotFound. Looking the
 // group up by path is acceptable here: the result only decides which Keycloak
 // group a member is placed in, never whether a request is authorized. The
-// authorization check compares platform group ids with tenant_admin_group
-// (ADR-002 section 1.4).
-func (d *Directory) adminGroup(ctx context.Context, tenantID uuid.UUID) (kcGroup, error) {
+// authorization checks compare platform group ids with tenant_admin_group and
+// tenant_auditor_group (ADR-002 section 1.4).
+func (d *Directory) childGroup(ctx context.Context, tenantID uuid.UUID, name string) (kcGroup, error) {
 	var g kcGroup
-	err := d.api.getJSON(ctx, d.runtime, "/group-by-path/t/{tenant}/admins",
-		"/group-by-path/t/"+tenantID.String()+"/"+identity.AdminGroupName, nil, &g)
+	err := d.api.getJSON(ctx, d.runtime, "/group-by-path/t/{tenant}/"+name,
+		"/group-by-path/t/"+tenantID.String()+"/"+name, nil, &g)
 	if err != nil {
 		return kcGroup{}, err
 	}
-	if g.Path != rootPath(tenantID)+"/"+identity.AdminGroupName {
+	if g.Path != rootPath(tenantID)+"/"+name {
 		return kcGroup{}, identity.ErrNotFound
 	}
 	return g, nil
