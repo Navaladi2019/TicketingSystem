@@ -50,7 +50,7 @@ func (s *startSink) RecordChanged(ctx context.Context, tx pgx.Tx, ev pipeline.Ev
 			return err
 		}
 		if !claimed {
-			if err := cascade.AuditSuppressed(ctx, tx, c, cascade.Writer{ActorID: ev.ActorID, Source: string(ev.Source)}, time.Now()); err != nil {
+			if err := pipeline.AuditSuppressed(ctx, tx, c, ev, time.Now()); err != nil {
 				return err
 			}
 			continue

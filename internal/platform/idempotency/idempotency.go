@@ -347,7 +347,7 @@ func store(ctx context.Context, tx pgx.Tx, req request, resp *captured) error {
 UPDATE idempotency_keys
    SET state = 'completed', response_status = $4, response_body = $5, response_headers = $6
  WHERE tenant_id = $1 AND principal_id = $2 AND key = $3`,
-		req.p.TenantID, req.p.PrincipalID, req.key, int16(resp.status), resp.body, hdrs) //nolint:gosec // an HTTP status is 100-599
+		req.p.TenantID, req.p.PrincipalID, req.key, int16(resp.status), resp.body, headersParam(hdrs)) //nolint:gosec // an HTTP status is 100-599
 	if err != nil {
 		return fmt.Errorf("idempotency: store: %w", err)
 	}
@@ -374,6 +374,19 @@ func encodeHeaders(h http.Header) ([]byte, error) {
 		return nil, fmt.Errorf("idempotency: encode headers: %w", err)
 	}
 	return b, nil
+}
+
+// headersParam is the $6 argument for an encoded response_headers value: the
+// JSON as a string, or an untyped nil (SQL NULL). Never the []byte itself:
+// under QueryExecModeExec, the mode every binary behind PgBouncer uses, pgx
+// sends a []byte as bytea text ("\x7b...") and jsonb rejects it with 22P02,
+// so the response is never stored (TICK-456). A string is sent as the JSON
+// text in every mode.
+func headersParam(b []byte) any {
+	if b == nil {
+		return nil
+	}
+	return string(b)
 }
 
 // decodeHeaders reads response_headers back. NULL (no headers, or a row

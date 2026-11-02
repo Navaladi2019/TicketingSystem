@@ -155,7 +155,7 @@ type Event struct {
 // An error rolls the whole write back. A sink that starts nava.interpreter
 // claims each start with cascade.ClaimStart and enqueues it with
 // outbox.EnqueueStart; on a repeat it enqueues nothing, writes
-// cascade.AuditSuppressed and returns nil (A5-4). Any other outbox row is
+// AuditSuppressed and returns nil (A5-4). Any other outbox row is
 // enqueued with outbox.EnqueueAtVersion and ev.Version, never
 // outbox.Enqueue, so the write bumps the version exactly once.
 type EventSink interface {
@@ -457,7 +457,7 @@ func (p *Pipeline) rejectTooDeep(ctx context.Context, tenant uuid.UUID, cmd Comm
 		return store.InsertAudit(ctx, tx, &store.Audit{
 			TenantID: tenant, ID: id, RecordID: record, Action: cascade.ActionRejected,
 			ActorID: optional(cmd.Actor.PrincipalID), Source: string(cmd.Source),
-			Detail:            map[string]string{"reason": cascade.ReasonTooDeep},
+			Detail:            map[string]string{cascade.DetailReason: cascade.ReasonTooDeep},
 			CausationOriginID: &origin, CausationDepth: cmd.Causation.Depth, At: p.clock.Now(),
 		})
 	})
@@ -465,6 +465,37 @@ func (p *Pipeline) rejectTooDeep(ctx context.Context, tenant uuid.UUID, cmd Comm
 		return errors.Join(rejected, fmt.Errorf("pipeline: audit the rejected cascade: %w", err))
 	}
 	return rejected
+}
+
+// AuditSuppressed writes the cascade_cycle audit row of a start the cascade
+// key suppressed (A5-4), in tx: the triggering write's transaction, so it
+// commits with the write and rolls back with it. One row per suppressed
+// attempt. c must be the unclaimed result of cascade.ClaimStart; ev is the
+// write the EventSink was told about, and names the writer. The row lives
+// here, not in internal/records/cascade, because only the pipeline writes
+// audit_log (D-3-6).
+func AuditSuppressed(ctx context.Context, tx pgx.Tx, c cascade.Claim, ev Event, at time.Time) error {
+	if c.Claimed() || c.RecordID() == uuid.Nil {
+		return fmt.Errorf("%w: only an unclaimed start is audited as suppressed", cascade.ErrInvalidKey)
+	}
+	id, err := uuid.NewV7()
+	if err != nil {
+		return fmt.Errorf("pipeline: new audit id: %w", err)
+	}
+	origin, depth := c.Causation()
+	err = store.InsertAudit(ctx, tx, &store.Audit{
+		TenantID: c.TenantID(), ID: id, RecordID: c.RecordID(), Action: cascade.ActionCycle,
+		ActorID: optional(ev.ActorID), Source: string(ev.Source),
+		Detail: map[string]string{
+			cascade.DetailReason:     cascade.ReasonCycle,
+			cascade.DetailDefinition: c.DefinitionID().String(),
+		},
+		CausationOriginID: &origin, CausationDepth: depth, At: at,
+	})
+	if err != nil {
+		return fmt.Errorf("pipeline: audit the suppressed start: %w", err)
+	}
+	return nil
 }
 
 // replay returns the earlier Result of a write with cmd's idempotency key.

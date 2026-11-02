@@ -13,7 +13,7 @@ Migration: `db/migrations/20261102100000_cascade_start.sql`.
 | Every outbox row has an origin, depth 0 included | `outbox.validate` (A5-3) |
 | A `nava.interpreter` start goes through `outbox.EnqueueStart` with a claimed `cascade.Claim` only | `outbox.Enqueue`, `EnqueueAtVersion`, `EnqueueStart` (A5-6) |
 | A definition starts at most once per (tenant, origin, record) | `cascade.ClaimStart` on `cascade_start` (A5-2) |
-| A repeat start is suppressed: the write commits, one `cascade_cycle` row in the write's tx | the EventSink, with `cascade.AuditSuppressed` (A5-4) |
+| A repeat start is suppressed: the write commits, one `cascade_cycle` row in the write's tx | the EventSink, with `pipeline.AuditSuppressed` (A5-4) |
 
 The claim's tenant, origin and depth are never arguments. `ClaimStart` reads
 them from R's `records` row under the tenant's RLS, as the pipeline stored them
@@ -35,7 +35,7 @@ sequenceDiagram
         alt claimed
             S->>DB: outbox.EnqueueStart(claim, start of D) with id = claim.OutboxID
         else repeat (cycle)
-            S->>DB: cascade.AuditSuppressed: audit_log cascade_cycle
+            S->>DB: pipeline.AuditSuppressed: audit_log cascade_cycle
         end
     end
     S-->>P: nil
