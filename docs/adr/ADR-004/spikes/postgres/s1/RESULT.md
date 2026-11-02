@@ -1,10 +1,10 @@
-ITEM 1: PASS — on evidence immune to host noise: the commit check's own cost is ≤ 76 µs per call, an additive upper bound of ≤ 1.2% of any sync p95 and ≤ 4.6% of the smallest async p95; p50 moves ≤ +60 µs; median block-pair p95 ≤ +6.1%. Pooled p95 is inconclusive on this host: its noise floor is larger than the signal. Target ≤ 10%.
+ITEM 1: PASS — the commit check costs 34–76 µs per call, ≤ 4.7% of the smallest baseline p95 (1,634 µs, async) and ≤ 1.2% of any sync p95. That is a measured additive bound, immune to host noise. Supporting evidence: p50 moves ≤ +60 µs, and the median block-pair p95 is ≤ +6.1%. Pooled p95 is inconclusive on this host, because its noise floor is larger than the signal. Target ≤ 10%.
 
 # Spike S1 (TICK-423, P5-01): ADR-004 R-A4 results
 
 | # | Item | Verdict | Headline number |
 |---|---|---|---|
-| 1 | p95 overhead of the commit-check trigger, through PgBouncer | **PASS** | Trigger self time 34–76 µs per call (≤ 1.2% of sync p95, ≤ 4.6% of async p95). p50 moves ≤ +60 µs. Median block-pair p95 ≤ +6.1%. Pooled p95 is inconclusive on this host. |
+| 1 | p95 overhead of the commit-check trigger, through PgBouncer | **PASS** | Trigger self time 34–76 µs per call: ≤ 4.7% of the smallest baseline p95, and ≤ 1.2% of sync p95. p50 moves ≤ +60 µs. Median block-pair p95 ≤ +6.1%. Pooled p95 is inconclusive on this host. |
 | 2 | 10k-subject transaction: commit time and queue memory | **PASS with fix F1** (as pinned: **FAIL**, O(n²)) | 10k subjects with F1: 172–198 ms commit and a 156–287 KB queue. As pinned: **24.1 s**. Without F1 the plan is unstable over fresh ANALYZE samples: pkey 9/10 (pinned form) and 10/10 (locals form). |
 | 3 | WAL bytes per entry, with and without the seal UPDATE | **PASS** (≈ 2× confirmed) | 1,344 B per insert + 1,323 B per seal = **1.98×** (warm). Cold seal: 3,764 B. |
 | 4 | BEFORE INSERT assert on `PARTITION BY RANGE` + DEFAULT | **PASS**: behaves as R10 states | 30 of 30 cases match. |
@@ -12,7 +12,7 @@ ITEM 1: PASS — on evidence immune to host noise: the commit check's own cost i
 
 Two findings need action in Epic 05. Neither changes ADR-004.
 
-- **F1 (P5-10b, P5-11).** As pinned, the commit check is O(n²) in a large transaction. Moving the probe's values into plpgsql locals does not fix it on clean statistics. The fix is one statistics override per partition, plus a CI plan test.
+- **F1 (P5-10b, P5-11).** As pinned, the commit check is O(n²) in a large transaction. Moving the probe's values into plpgsql locals changes the tie-break, not the costs. The fix is one statistics override per partition, plus a CI plan test.
 - **F2 (export task, S16).** The R20 anchor query, written the obvious way, scales with tenant history instead of window size. Its plan must scan the `occurred_at` range.
 
 ## Environment
@@ -49,6 +49,7 @@ Only `compose.yaml` in this folder is used; no `make stack-*` or `make ci*`. Out
 
 **Which stack each output comes from.**
 - Items 1, 3 and 5, and `out/item2-run1.txt` (the 24.1 s as-pinned result), come from the first stack. That stack ran item4, seed, item1, item2, item3 and item5, in that order. Item 1's two async c=1 cells were rerun with F1 applied, and update-sync-c1 was rerun once.
+- **Most `out/item1` cells were recorded with F1 off.** Only the two async c=1 reruns had it on. `sql/schema.sql` now applies F1 by default, so a fresh `./run.sh item1` measures the F1 configuration.
 - For the TICK-460 review, a fresh stack ran `down`, `up`, item4 (30/30 again), seed, `f1`, `f1_census.sh` and `f1_vm.sh`. That run produced `out/item4.txt`, `out/seed.txt`, `out/f1-*.txt` and the current `out/item2.txt`.
 
 **The host drifted between the first item 1 run and the F1 reruns.** On update-async-c1, baseline p50 rose from 992 to 1,755 µs (+77%), and the function's self time from 36.7 to 67.8 µs per call. Both arms moved, the trigger-off baseline included, so read this as host load and not as a cost of F1. F1 changes only the probe's plan, and for a one-subject transaction that plan is a single small index probe either way.
@@ -64,11 +65,18 @@ Each cell runs 10,000 transactions per arm, trigger off vs on. The arms alternat
 
 The probe is exactly P5-11's pinned form: `tenant_id = $1 AND occurred_at = now() AND txid = pg_current_xact_id() AND subject_type = $2 AND subject_id = $3`. 
 
-**The trigger's cached generic plan** for this one-subject shape was captured with auto_explain on the 8th call of a session, on clean statistics:
-- **Without F1** (how item 1's main cells ran): an Index Scan on the R28 time index `(tenant_id, occurred_at DESC, id DESC)`, with `Index Cond: (tenant_id, occurred_at = now())` and `subject_type`, `subject_id` and `txid` in `Filter` (`out/f1-fix-off.txt`). In a one-subject transaction that prefix matches 1–2 entries, so the scan is cheap. This is the plan F1 removes for large transactions.
-- **With F1**: an Index Only Scan on the R2 key, with all 5 columns in `Index Cond` (`out/f1-fix-on.txt`).
+**The single-subject probe plan is an Index Scan on the R28 subject index, with `txid` as a Filter** (`out/item1/probe-plan.txt`):
+- `Index Cond: (tenant_id, subject_type, subject_id, occurred_at = now())`;
+- `Filter: (txid = pg_current_xact_id())`;
+- 5 buffers, 0.074 ms.
 
-`out/item1/probe-plan.txt` is an ad-hoc EXPLAIN with literal values, not the trigger's plan. It is kept only as a record.
+It is not an Index Only Scan on the R2 key. That file is an EXPLAIN with literal values, taken at the end of the item 1 run.
+
+The trigger's cached generic plan for the same one-subject shape was captured later on the fresh stack, with auto_explain on the 8th call of a session:
+- **Without F1:** a `(tenant_id, occurred_at)`-prefix Index Scan on the R28 time index (`out/f1-fix-off.txt`).
+- **With F1:** an Index Only Scan on the R2 key (`out/f1-fix-on.txt`).
+
+Every one of these plans touches 1–2 entries for a single subject. The per-call bound below covers whichever plan item 1 actually ran.
 
 The function's own time, from `pg_stat_user_functions`, is **34–76 µs per call** across all cells (`out/item1/runs.txt`).
 
@@ -88,7 +96,7 @@ The function's own time, from `pg_stat_user_functions`, is **34–76 µs per cal
 
 **Why PASS.** The verdict rests on three statistics that host noise cannot inflate. The pre-declared runs collected all three before any result was read.
 
-1. **The function's self time is an additive upper bound** on what the trigger adds to each transaction: at most 75.7 µs per call (`out/item1/runs.txt`). That is ≤ 1.2% of the smallest sync off-arm p95 (6,476 µs) and ≤ 4.6% of the smallest async off-arm p95 (1,634 µs). Item 2 measures the deferred-queue bookkeeping around the call separately: 16–29 B per event.
+1. **The function's self time is an additive upper bound** on what the trigger adds to each transaction: at most 75.7 µs per call (`out/item1/runs.txt`). That is ≤ 1.2% of the smallest sync off-arm p95 (6,476 µs) and ≤ 4.7% of the smallest async off-arm p95 (1,634 µs). Item 2 measures the deferred-queue bookkeeping around the call separately: 16–29 B per event.
 2. **p50 moves by at most +60 µs** (update-sync-c1 run 1 and update-async-c1), and by at most +6.0% in any cell.
 3. **The median block-pair p95 ratio is at most +6.1%** in every cell (range −12.6% to +6.1%).
 
@@ -116,7 +124,7 @@ So pooled p95 neither confirms nor refutes ≤ 10%. The PASS rests on points 1�
 - **Memory.** `VmHWM` is dominated by shared buffers the backend touched, and does not differ by trigger state. Peak private memory (`RssAnon`) grows by less than 0.5 MB, even at 100k subjects.
 - **First-stack F1 rows** (142 / 147 / 1,230 ms) are in `out/item2-run1.txt`.
 
-### F1: the pinned probe is O(n²) in a large transaction, and locals do not fix it
+### F1: the pinned probe is O(n²) in a large transaction; only the override fixes it
 
 **Evidence on clean statistics.** Fresh stack, right after seed. Every post-seed row was deleted, then `VACUUM (ANALYZE)`; at most 50 rows share an `occurred_at` value.
 
@@ -134,9 +142,13 @@ So pooled p95 neither confirms nor refutes ≤ 10%. The PASS rests on points 1�
    - The pinned text gets either the R2 key or the R28 subject index `(tenant_id, subject_type, subject_id, occurred_at)`.
    - 2,000 subjects commit in 37–107 ms.
 
-**Why.** Without the override, the planner estimates `occurred_at = <value>` at about 1 row: ANALYZE gives n_distinct between 89k and 96k. So a 2-column prefix costs the same as a 5-column one. Every entry of one transaction shares `(tenant_id, occurred_at = now())`, so with the pkey prefix each of the n deferred probes scans up to n entries. With the override, `occurred_at` equality is estimated at about 200 rows per tenant, and the 5-column R2 key becomes strictly cheaper.
+**Why: a cost tie.** Without the override, the R2-key path and any `(tenant_id, occurred_at)`-prefixed index (pkey, `tenant_time`, `unsealed`) have the same estimated cost: **8.46 vs 8.46**. The plan is then decided by tie-break. The Technical Architect found that it goes wrong once the partition is mostly not all-visible, which is the steady state under sealing (item 3: 0 HOT updates). With the override, the prefix path costs **214.98 against 8.46** (50 tenants). The margin figures come from a generic `PREPARE`/`EXPLAIN` in the Technical Architect's review of PR #371 (TICK-423 comment `01a199d9`, findings 4 and 5).
 
-**Answer to "if locals alone give the good plan on clean statistics, F1 is not needed": they do not.** v1 got the pkey in 20 of 20 fresh-ANALYZE trials (points 2 and 3), and the good plan in only 2 sessions, both straight after VACUUM. **F1 is needed.**
+Every entry of one transaction shares `(tenant_id, occurred_at = now())`. Once the prefix path wins, each of the n deferred probes therefore scans up to n entries. With the override, `occurred_at` equality is estimated at about 200 rows per tenant, so the R2 key is strictly cheaper.
+
+The rule "it goes wrong only when the partition is mostly not all-visible" does not cover every run here. In `out/f1-vm.txt`, the locals form also lost the tie 5/5 straight after `VACUUM (ANALYZE)`, at 100.0% all-visible. The tie-break also depends on other state, so a CI test should not assume that a freshly vacuumed table is safe.
+
+**The locals form changes the tie-break, not the costs; only the override makes the R2 key strictly cheaper.** It won the tie in the Technical Architect's rerun. Here it lost in 20 of 20 fresh-ANALYZE trials (points 2 and 3) and won in 2 census sessions (point 4). **F1 is needed.**
 
 **Fix (`sql/schema.sql`, on by default).** Run `ALTER TABLE … ALTER COLUMN occurred_at SET (n_distinct = -0.0001)` on `audit_log` **and on every partition**, then ANALYZE. Partitions do not inherit the attribute option (checked with `CREATE TABLE … PARTITION OF`).
 
