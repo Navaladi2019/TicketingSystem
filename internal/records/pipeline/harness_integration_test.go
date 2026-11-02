@@ -118,13 +118,30 @@ func appDSN(t *testing.T, database string) string {
 	return u.String()
 }
 
-func appPool(t *testing.T, dsn string) *pgxpool.Pool {
+// serverPoolConfig parses dsn into the pool config nava-core builds for
+// NAVA_DATABASE_URL (cmd/nava-core/identity.go): QueryExecModeExec, so
+// statements stay unnamed behind PgBouncer's transaction mode, and a 5s
+// connect timeout. In that mode no parameter has a declared type and pgx
+// picks the wire format from the Go type alone, so a []byte bound to a
+// json or jsonb parameter goes as bytea and PostgreSQL refuses it (22P02,
+// TICK-411, TICK-471). Every nava_app pool in this package is built from it;
+// a test on pgx's default mode would hide that class of bug. Keep it in step
+// with nava-core's pool.
+func serverPoolConfig(t *testing.T, dsn string) *pgxpool.Config {
 	t.Helper()
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
+	cfg.ConnConfig.ConnectTimeout = 5 * time.Second
+	return cfg
+}
+
+// appPool is a nava_app pool in the server's protocol mode (serverPoolConfig).
+func appPool(t *testing.T, dsn string) *pgxpool.Pool {
+	t.Helper()
+	p, err := pgxpool.NewWithConfig(context.Background(), serverPoolConfig(t, dsn))
 	if err != nil {
 		t.Fatal(err)
 	}
