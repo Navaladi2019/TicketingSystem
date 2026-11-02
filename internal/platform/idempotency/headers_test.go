@@ -65,3 +65,14 @@ func TestWriteStoredRestoresTheStoredHeaders(t *testing.T) {
 		t.Errorf("replay headers = %v", rec.Header())
 	}
 }
+
+// TICK-456: the stored value is a string or SQL NULL, never a []byte, which
+// pgx would send as bytea text under QueryExecModeExec.
+func TestHeadersParam(t *testing.T) {
+	if got := headersParam(nil); got != nil {
+		t.Errorf("headersParam(nil) = %#v, want nil (SQL NULL)", got)
+	}
+	if got, ok := headersParam([]byte(`{"ETag":"W/\"1\""}`)).(string); !ok || got != `{"ETag":"W/\"1\""}` {
+		t.Errorf("headersParam = %#v, want the JSON as a string", got)
+	}
+}
