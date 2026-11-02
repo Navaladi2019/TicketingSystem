@@ -25,6 +25,23 @@ INSERT INTO records (tenant_id, id) VALUES
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000000b2'),
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000000b3');
 
+-- The cascade start key (P3-12, ADR-001 A5): tenant B also holds record id
+-- a1, tenant A's record, both rows under the same causation origin 0d…9d1,
+-- and only tenant B has claimed definition 0d…9d2 on it, so a key read or
+-- claimed without its tenant would meet tenant B's row. Tenant A keeps its
+-- two records (the CI-2 harness counts them); its own claim on a1 is for
+-- another definition, 0d…9d3.
+UPDATE records SET causation_origin_id = '0d000000-0000-4000-8000-0000000009d1', causation_depth = 0
+WHERE tenant_id = '0a000000-0000-4000-8000-00000000000a' AND id = '0a000000-0000-4000-8000-0000000000a1';
+INSERT INTO records (tenant_id, id, causation_origin_id, causation_depth) VALUES
+    ('0b000000-0000-4000-8000-00000000000b', '0a000000-0000-4000-8000-0000000000a1', '0d000000-0000-4000-8000-0000000009d1', 0);
+
+INSERT INTO cascade_start (tenant_id, causation_origin_id, record_id, definition_id, outbox_id) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0d000000-0000-4000-8000-0000000009d1', '0a000000-0000-4000-8000-0000000000a1',
+        '0d000000-0000-4000-8000-0000000009d3', '0a000000-0000-4000-8000-0000000009a1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0d000000-0000-4000-8000-0000000009d1', '0a000000-0000-4000-8000-0000000000a1',
+        '0d000000-0000-4000-8000-0000000009d2', '0b000000-0000-4000-8000-0000000009b1');
+
 INSERT INTO outbox (id, tenant_id, kind, dedupe_key, target_key, target_seq) VALUES
     ('0a000000-0000-4000-8000-0000000001a1', '0a000000-0000-4000-8000-00000000000a', 'record.changed', 'shared-dedupe-key', 'r-a1', 1),
     ('0b000000-0000-4000-8000-0000000001b1', '0b000000-0000-4000-8000-00000000000b', 'record.changed', 'shared-dedupe-key', 'r-b1', 1),
@@ -117,3 +134,30 @@ FROM (VALUES
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000007b3', '0b000000-0000-4000-8000-0000000006b2', 1,
         '{"type": "object"}', 'initial', NULL)
 ) AS v (tenant_id, id, definition_id, version, schema, compat, published_by);
+
+-- Records pipeline (P3-09, TICK-353). Tenant B's ticket record carries
+-- pipeline columns naming its own principal and group, with the same number
+-- as tenant A's, so a lookup by number alone would find both tenants' rows;
+-- the idempotency key repeats across tenants for the same reason. Tenant A's
+-- records stay bare PLAN-001 rows, which the all-or-none CHECK allows.
+UPDATE records SET entity_definition_id = '0a000000-0000-4000-8000-0000000006a1', schema_version = 1,
+       number = 'TCK0000001', state = 'new', requester_id = '0a000000-0000-4000-8000-0000000003a1',
+       created_by = '0a000000-0000-4000-8000-0000000003a1', assignment_group_id = '0a000000-0000-4000-8000-0000000004a1'
+WHERE tenant_id = '0a000000-0000-4000-8000-00000000000a' AND id = '0a000000-0000-4000-8000-0000000000a2';
+UPDATE records SET entity_definition_id = '0b000000-0000-4000-8000-0000000006b1', schema_version = 2,
+       number = 'TCK0000001', state = 'new', requester_id = '0b000000-0000-4000-8000-0000000003b1',
+       created_by = '0b000000-0000-4000-8000-0000000003b1', assignment_group_id = '0b000000-0000-4000-8000-0000000004b1'
+WHERE tenant_id = '0b000000-0000-4000-8000-00000000000b' AND id = '0b000000-0000-4000-8000-0000000000b2';
+
+INSERT INTO audit_log (tenant_id, id, record_id, action, actor_id, source, after, idempotency_key) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000008a1', '0a000000-0000-4000-8000-0000000000a2',
+        'create', '0a000000-0000-4000-8000-0000000003a1', 'user', '{}', 'shared-audit-key'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000008b1', '0b000000-0000-4000-8000-0000000000b2',
+        'create', '0b000000-0000-4000-8000-0000000003b1', 'user', '{}', 'shared-audit-key'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000008b2', NULL,
+        'cascade_rejected', NULL, 'workflow', NULL, NULL);
+
+INSERT INTO record_counters (tenant_id, entity_definition_id, next) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000006a1', 2),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b1', 2),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b2', 5);

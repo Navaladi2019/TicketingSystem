@@ -129,7 +129,7 @@ func (s startTarget) workflowID(tenant uuid.UUID) string {
 // tenant: each a start row (target_seq 1) and signals signal rows on the
 // same target. A target's rows are consecutive in available_at, one
 // microsecond apart from first, so a scan window holds whole targets in
-// order. The rows are the shape outbox.Enqueue writes, with the default
+// order. The rows are the shape outbox.EnqueueAtVersion writes, with the default
 // payload.
 func seedTargets(tb testing.TB, conn *pgx.Conn, tenant uuid.UUID, targets, signals int, first time.Time) []startTarget {
 	tb.Helper()

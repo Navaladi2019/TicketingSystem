@@ -36,7 +36,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/workerguard"
 )
 
-// The producer's schema (outbox.ValidatePayload, used by outbox.Enqueue)
+// The producer's schema (outbox.ValidatePayload, used by outbox.EnqueueAtVersion)
 // rejects every record-data shape: free text, numbers, nested objects, a
 // reference field next to a text field, and anything that is not an object.
 // Only UUIDs and arrays of UUIDs pass.
@@ -140,7 +140,7 @@ func TestCI7_RelayDeliveryInHistoryIsReferencesOnly(t *testing.T) {
 }
 
 // A start row with record data in its payload, written directly rather than
-// through outbox.Enqueue (finding T32b-1), is refused by the database
+// through outbox.EnqueueAtVersion (finding T32b-1), is refused by the database
 // (outbox_payload_check, TICK-214 and TICK-240), so the relay never sees it and
 // nothing reaches a history. The superuser skips RLS but not the CHECK.
 func TestCI7_RelayRefusesRecordDataPayloadWrittenOutsideEnqueue(t *testing.T) {

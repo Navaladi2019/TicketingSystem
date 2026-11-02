@@ -40,6 +40,8 @@ const (
 
 	// RecordB1 is one of tenant B's records.
 	RecordB1 = "0b000000-0000-4000-8000-0000000000b1"
+	// RecordB2 is tenant B's pipeline record (P3-09), with audit rows.
+	RecordB2 = "0b000000-0000-4000-8000-0000000000b2"
 	// PrincipalB1 is a tenant B principal who is a member of a group.
 	PrincipalB1 = "0b000000-0000-4000-8000-0000000003b1"
 	// SharedDedupeKey and SharedIdempotencyKey exist in both tenants, so a
@@ -70,6 +72,17 @@ const (
 	// other error fails the path, so a typo cannot pass as a denial; aim an
 	// UPDATE or DELETE where an integrity error cannot hide a reached row.
 	Denied
+	// StoredUnderA is for an HTTPCall that writes (P3-18, TICK-366; CTO
+	// D-P10 conditions on TICK-366): the create refuses it with the 404 that
+	// the same request to Unknown gets, byte for byte but for instance, and
+	// writes nothing; or it answers 201 with the id of a new record
+	// whose tenant_id is tenant A. Either way tenant B's record and audit row
+	// counts are unchanged, and the body never holds tenant B's id. Everything
+	// is read on the superuser connection, past row-level security: a read as
+	// tenant A cannot see a row misfiled under tenant B, so it would pass
+	// vacuously (TICK-363). The call carries its own Idempotency-Key, and a
+	// replayed response fails: it never reached the handler.
+	StoredUnderA
 )
 
 // SQLCall is a statement run as the path's role inside
@@ -82,16 +95,24 @@ type SQLCall struct {
 }
 
 // HTTPCall is a request made with a valid token for tenant A that tries to
-// name tenant B some other way. The response must be a 4xx or carry only
-// tenant A's data.
+// name tenant B some other way. The response must carry only tenant A's data,
+// or, for a write (StoredUnderA), refuse or store under tenant A only.
 type HTTPCall struct {
 	Method string
 	Path   string // with the query string
 	Header http.Header
 	Body   string
+	// Expect is zero for a read, which must get 200 with tenant A's data, so a
+	// validator regression that starts refusing it cannot hide; or
+	// StoredUnderA for a write.
+	Expect Expect
+	// Unknown is, for StoredUnderA, the same route naming a key no tenant
+	// has. The only refusal that passes is its 404: any other refusal (a 403,
+	// or a 422 from a handler that found tenant B's type) tells the caller
+	// the key exists somewhere.
+	Unknown string
 	// NoRoute names the task that adds this route. Until then the call must
-	// get 404 or 405; without it, the call must get 200 with tenant A's data,
-	// so a validator regression that starts refusing it cannot hide.
+	// get 404 or 405, with no tenant B id in the body.
 	NoRoute string
 	// Token, when set, replaces the tenant A token with this shape (CI-5).
 	// The call then passes only on 401: the shape must not resolve at all.
@@ -192,10 +213,10 @@ type Path struct {
 // "Annex B coverage"). The report prints it above each group.
 func Coverage() map[string]string {
 	return map[string]string{
-		"CI-2":  "full: generic checks on every tenant table; forged-tenant HTTP paths (T17)",
+		"CI-2":  "full: generic checks on every tenant table; forged-tenant HTTP paths (T17); the forged write on POST /api/v1/records/incident, StoredUnderA (P3-18)",
 		"CI-9":  "full: nava_relay, nava_purge, nava_onboard and nava_backup reach (T12); nava_backup through T08's pg_hba cases",
-		"CI-8":  "partial → TICK-87 (byte-identical 404, stale If-Match 412, masked-field filter 400); cursor cases from T23; idempotency cases from T22",
-		"CI-10": "partial → TICK-88; no path registered yet (T29 depth limit is a unit test)",
+		"CI-8":  "partial → P3-37 (S10): the masked-field filter 400 needs S10's masks; here the record routes' byte-identical 404 on GET, PATCH and history, stale If-Match 412, and (e)/(f) (TICK-87); cursor cases from T23; idempotency cases from T22",
+		"CI-10": "partial → P3-42 (S11b): (g) signal ping-pong needs the interpreter; (f) the start key is per tenant, here; (a)–(e) are TestCI10_* in internal/records/pipeline and the outbox depth limit TestCI10_* in internal/outbox, both against real PostgreSQL in make test-integration",
 		"T26":   "full: deprovisioning within D-P9's 10 minutes and the Epic 03 identity boundary (TICK-82); cases 1, 2, 6 and 8 run here, cases 3, 4, 5 and 7 need the real Keycloak and run in make stack-test-identity",
 		"CI-5":  "full in make identity-attacks (real Keycloak, the CI stack job, ci5-report artifact); here every case is registered: token shapes through the API handler (401 for the stated reason), the duplicate binding on this database, Keycloak-only cases as Stack paths on TestCI5",
 	}
@@ -226,6 +247,17 @@ func Exemptions() []Exemption {
 		{"nava_app", "public.tenant_identity_binding", "SELECT", "binding_lookup"},
 		{"nava_groupsync", "public.tenant_identity_binding", "SELECT", "binding_lookup"},
 	}
+}
+
+// forgedWrite is a StoredUnderA create of tenant B's only entity key, with
+// its own Idempotency-Key (keys under iso-ci2- are removed after the call).
+func forgedWrite(key, body string, header http.Header) HTTPCall {
+	h := http.Header{"Idempotency-Key": {key}}
+	for k, vs := range header {
+		h[k] = vs
+	}
+	return HTTPCall{Method: http.MethodPost, Path: "/api/v1/records/incident", Header: h, Body: body, Expect: StoredUnderA,
+		Unknown: "/api/v1/records/iso_et_none"}
 }
 
 // Paths is the registry of named paths.
@@ -367,15 +399,60 @@ func Paths() []Path {
 		sql("tenant_admin_group: point tenant B's admins at another group", "nava_app", Denied,
 			"UPDATE tenant_admin_group SET group_id = $2 WHERE tenant_id = $1", TenantB, GroupB1),
 
+		// Records pipeline (P3-09, TICK-353). Both tenants hold the record
+		// number TCK0000001 and the audit key shared-audit-key, so a lookup by
+		// either alone would find tenant B's rows.
+		sql("records: look a record number up in every tenant", "nava_app", OwnRowsOnly,
+			"SELECT tenant_id FROM records WHERE number = 'TCK0000001'"),
+		// The composite foreign key holds the tenant: tenant A cannot assign
+		// its record to tenant B's group, or name B's principal.
+		sql("records: name tenant B's group from tenant A", "nava_app", Denied,
+			"INSERT INTO records (tenant_id, id, assignment_group_id) VALUES ($1, $2, $3)", TenantA, NewID, GroupB1),
+		sql("records: move tenant A's records to tenant B's group", "nava_worker", Denied,
+			"UPDATE records SET assignment_group_id = $2 WHERE tenant_id = $1", TenantA, GroupB1),
+		sql("records: name tenant B's principal as requester from tenant A", "nava_app", Denied,
+			"INSERT INTO records (tenant_id, id, requester_id) VALUES ($1, $2, $3)", TenantA, NewID, PrincipalB1),
+		sql("audit_log: read tenant B's audit rows by record id", "nava_app", OwnRowsOnly,
+			"SELECT tenant_id FROM audit_log WHERE record_id = $1", RecordB2),
+		sql("audit_log: look an idempotency key up in every tenant", "nava_worker", OwnRowsOnly,
+			"SELECT tenant_id FROM audit_log WHERE idempotency_key = 'shared-audit-key'"),
+		sql("audit_log: insert an audit row for tenant B", "nava_app", Denied,
+			"INSERT INTO audit_log (tenant_id, id, record_id, action, source) VALUES ($1, $2, $3, 'update', 'user')",
+			TenantB, NewID, RecordB2),
+		// The composite foreign key holds the tenant: tenant A cannot audit
+		// tenant B's record.
+		sql("audit_log: audit tenant B's record from tenant A", "nava_worker", Denied,
+			"INSERT INTO audit_log (tenant_id, id, record_id, action, source) VALUES ($1, $2, $3, 'update', 'workflow')",
+			TenantA, NewID, RecordB2),
+		sql("audit_log: rewrite tenant B's audit rows", "nava_app", Denied,
+			"UPDATE audit_log SET action = 'forged' WHERE tenant_id = $1", TenantB),
+		sql("record_counters: read tenant B's counters by type", "nava_app", OwnRowsOnly,
+			"SELECT tenant_id FROM record_counters WHERE entity_definition_id = $1", EntityDefinitionB1),
+		sql("record_counters: take a number from tenant B's counter", "nava_app", Denied,
+			`INSERT INTO record_counters (tenant_id, entity_definition_id, next) VALUES ($1, $2, 2)
+			 ON CONFLICT (tenant_id, entity_definition_id) DO UPDATE SET next = record_counters.next + 1 RETURNING next - 1`,
+			TenantB, EntityDefinitionB1),
+		sql("record_counters: start a counter in tenant A for tenant B's type", "nava_worker", Denied,
+			"INSERT INTO record_counters (tenant_id, entity_definition_id, next) VALUES ($1, $2, 2)", TenantA, EntityDefinitionB1),
+		sql("record_counters: move tenant B's counters", "nava_worker", Denied,
+			"UPDATE record_counters SET next = next + 1 WHERE tenant_id = $1", TenantB),
+
 		// Forged tenant: a valid token for tenant A names tenant B in the
 		// payload, a header, the query or baggage. The tenant comes only from
-		// the token's binding (ADR-001 I2). The payload path has no route yet
-		// (PLAN-002 records), so it proves only that a 4xx keeps B out.
+		// the token's binding (ADR-001 I2).
 		forged("forged tenant in the query string", HTTPCall{Method: http.MethodGet, Path: "/api/v1/me?tenant_id=" + TenantB}),
 		forged("forged tenant in a header", HTTPCall{Method: http.MethodGet, Path: "/api/v1/me",
 			Header: http.Header{"X-Tenant-Id": {TenantB}, "X-Nava-Tenant": {TenantB}}}),
-		forged("forged tenant in the payload", HTTPCall{Method: http.MethodPost, Path: "/api/v1/records",
-			Body: `{"tenant_id":"` + TenantB + `"}`, NoRoute: "PLAN-002 records"}),
+		// The forged write (P3-18, TICK-366; CTO D-P10 condition 2 on TICK-72).
+		// incident is tenant B's only key (testdata/seed.sql), so a handler
+		// that honoured the forged tenant would find B's type and file the
+		// record under B; under tenant A's own binding it is a 404.
+		forged("forged tenant_id in the body of POST /api/v1/records/incident", forgedWrite("iso-ci2-body",
+			`{"tenant_id":"`+TenantB+`","data":{}}`, nil)),
+		forged("forged data.tenant_id in POST /api/v1/records/incident", forgedWrite("iso-ci2-data",
+			`{"data":{"tenant_id":"`+TenantB+`"}}`, nil)),
+		forged("forged X-Tenant-Id header on POST /api/v1/records/incident", forgedWrite("iso-ci2-header",
+			`{"data":{}}`, http.Header{"X-Tenant-Id": {TenantB}})),
 		forged("forged tenant in the body of GET /api/v1/me", HTTPCall{Method: http.MethodGet, Path: "/api/v1/me",
 			Body: `{"tenant_id":"` + TenantB + `"}`}),
 		// TICK-93: baggage is never read; the edge propagator drops it.
@@ -387,5 +464,8 @@ func Paths() []Path {
 	paths = append(paths, ci5Paths()...)
 	paths = append(paths, rolePaths()...)
 	paths = append(paths, entityTypePaths()...)
+	paths = append(paths, recordPaths()...)
+	paths = append(paths, recordCI8Paths()...)
+	paths = append(paths, cascadePaths()...)
 	return append(paths, boundaryPaths()...)
 }

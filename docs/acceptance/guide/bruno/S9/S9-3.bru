@@ -1,0 +1,25 @@
+meta {
+  name: S9.3 Alice's principal id
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.me('00000000-0000-4000-8000-0000000000a1');
+  bru.setVar('s9_alice', N.json().user_id);
+}
+
+docs {
+  Kept to check that the history names Alice as the actor (`actor_id` is the `user_id` of `GET /me`).
+}

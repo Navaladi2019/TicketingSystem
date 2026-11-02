@@ -1,11 +1,16 @@
 // Package outbox is the producer side of the transactional outbox (ADR-001
-// I6, I9, Annex A.2 "Writing outbox rows"; PLAN-001 T29). Enqueue writes one
-// outbox row in the caller's tenant transaction; the relay (T30a, T30b) is the
-// only reader that dispatches it to Temporal.
+// I6, I9, Annex A.2 "Writing outbox rows"; PLAN-001 T29). EnqueueAtVersion and
+// EnqueueStart write one outbox row in the caller's tenant transaction; the
+// relay (T30a, T30b) is the only reader that dispatches it to Temporal.
 //
-// The tenant is never an argument: Enqueue runs in a transaction opened by
-// tenancy.InTenantTx and takes tenant_id from the records row it locks, which
-// row-level security lets it see only for that transaction's tenant.
+// The package never writes the records table (PLAN-003 D-3-6, TICK-411): the
+// record write pipeline's UPDATE is the one place records.version moves, and
+// a producer enqueues at the version that write gave the record.
+//
+// The tenant is never an argument: every Enqueue function runs in a
+// transaction opened by tenancy.InTenantTx and takes tenant_id from the
+// records row it locks, which row-level security lets it see only for that
+// transaction's tenant.
 package outbox
 
 import (
@@ -20,6 +25,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/cascade"
 )
 
 var (
@@ -34,6 +40,9 @@ var (
 	ErrRecordNotFound = errors.New("outbox: record not found")
 	// ErrInvalidEntry means the entry breaks the contract below. Nothing is written.
 	ErrInvalidEntry = errors.New("outbox: invalid entry")
+	// ErrVersionMismatch means EnqueueAtVersion was given a version the
+	// record does not have in this transaction. Nothing is written.
+	ErrVersionMismatch = errors.New("outbox: record version mismatch")
 )
 
 // Target is where the relay delivers a row. It is sealed: only TargetStart
@@ -51,8 +60,9 @@ func (TargetStart) isTarget()  {}
 func (TargetSignal) isTarget() {}
 
 // Causation is the cascade record every row carries (I9): the event that
-// started the cascade, and how many writes deep this one is. A write a person
-// or an API client made directly is depth 0 and may have no origin.
+// started the cascade, and how many writes deep this one is. Every row has an
+// origin, depth 0 included: a depth-0 write mints a new one (ADR-001 A5-3),
+// so a row with no origin cannot slip past the start key.
 type Causation struct {
 	OriginID uuid.UUID
 	Depth    int16
@@ -83,6 +93,10 @@ var kindPattern = regexp.MustCompile(`^[a-z][a-z0-9._-]{0,99}$`)
 // The relay checks every row it dispatches with it.
 func ValidKind(s string) bool { return kindPattern.MatchString(s) }
 
+// InterpreterKind is the workflow type of the workflow interpreter. Its
+// starts go through EnqueueStart only, under a cascade.Claim (A5-6).
+const InterpreterKind = "nava.interpreter"
+
 // Delivery is the single argument the relay passes to Temporal for one row:
 // the input of a started workflow, or the body of a signal. Like the row it
 // comes from, it holds references only (CI-7). OutboxID is the id the
@@ -98,12 +112,13 @@ type Delivery struct {
 const maxDedupeKeyLen = 200
 
 const (
-	// Without it a duplicate retried after commit would still bump the
-	// record's version; the INSERT below catches the concurrent duplicate.
+	// A duplicate retried after commit returns here, before the record lock;
+	// the INSERT below catches the concurrent duplicate.
 	dedupeLookupSQL = `SELECT id FROM outbox WHERE dedupe_key = $1`
-	// The row lock that orders a target's rows (A.2): concurrent producers on
-	// one record queue here and take consecutive versions in commit order.
-	lockRecordSQL = `UPDATE records SET version = version + 1 WHERE id = $1 RETURNING tenant_id, version`
+	// The record lock. The write pipeline has already bumped the version in
+	// this transaction (D-3-6), and its UPDATE holds the row lock that orders
+	// a target's rows (A.2), so this only locks and reads.
+	lockRecordSQL = `SELECT tenant_id, version FROM records WHERE id = $1 FOR UPDATE`
 	openRefSQL    = `SELECT outbox_id FROM workflow_ref
 WHERE tenant_id = $1 AND record_id = $2 AND kind = $3 AND closed_at IS NULL
 ORDER BY created_at DESC, outbox_id DESC LIMIT 1`
@@ -115,26 +130,122 @@ RETURNING id`
 	insertRefSQL = `INSERT INTO workflow_ref (tenant_id, outbox_id, record_id, kind) VALUES ($1, $2, $3, $4)`
 )
 
-// Enqueue writes e as an outbox row in tx and returns the row's id.
+// EnqueueAtVersion writes e as an outbox row in tx and returns the row's id.
+// The writer has already bumped the record's version in tx: the record write
+// pipeline, whose UPDATE is the one place a write bumps it (PLAN-003 D-3-6).
+// It locks the records row without bumping it again and uses version as the
+// row's target_seq. version must be the record's version in tx, or it
+// returns ErrVersionMismatch and writes nothing.
 //
-// It locks e.RecordID's records row and bumps its version; the new version is
-// the row's target_seq. A start row's target_key is <kind>:<its own id>, and
-// its workflow_ref row is inserted in tx. A signal row takes the target_key
-// of the newest open workflow_ref of its kind on the record, or fails with
-// ErrNoOpenWorkflow.
+// A start row's target_key is <kind>:<its own id>, and its workflow_ref row
+// is inserted in tx. A signal row takes the target_key of the newest open
+// workflow_ref of its kind on the record, or fails with ErrNoOpenWorkflow.
 //
-// If the tenant already has a row with e.DedupeKey, Enqueue returns that
-// row's id and a nil error and writes nothing more. Only when the duplicate
-// commits concurrently has the record's version already been bumped; a gap in
-// target_seq is harmless, because the relay orders on it and never counts it.
-// So a nil error does not mean the record changed or a row was written.
+// If the tenant already has a row with e.DedupeKey, it returns that row's id
+// and a nil error and writes nothing, before it checks version: a nil error
+// does not mean a row was written. Rows one write enqueues for the
+// same record share a target_seq. A start's target_key is its own, so that
+// matters only for two signals to one workflow from one write: the relay's
+// head test (target_seq <= the lowest pending) admits both, so their order is
+// not fixed. Rows of later writes still follow them.
 //
 // The W3C traceparent of ctx's span, if any, is stored in trace_context so the
 // relay can link the workflow to the request that wrote the row. tracestate
 // and baggage never cross.
 //
 // tx must come from tenancy.InTenantTx. On any error the caller rolls tx back.
-func Enqueue(ctx context.Context, tx pgx.Tx, e Entry) (uuid.UUID, error) {
+//
+// A start of InterpreterKind is ErrInvalidEntry: use EnqueueStart.
+func EnqueueAtVersion(ctx context.Context, tx pgx.Tx, e Entry, version int64) (uuid.UUID, error) {
+	if err := notInterpreterStart(e); err != nil {
+		return uuid.Nil, err
+	}
+	return enqueue(ctx, tx, e, uuid.Nil, func() (uuid.UUID, int64, error) {
+		tenant, got, err := lockRecord(ctx, tx, lockRecordSQL, e.RecordID)
+		if err != nil {
+			return uuid.Nil, 0, err
+		}
+		if got != version {
+			return uuid.Nil, 0, fmt.Errorf("%w: have %d, given %d", ErrVersionMismatch, got, version)
+		}
+		return tenant, got, nil
+	})
+}
+
+// EnqueueStart is the only way to enqueue a start of InterpreterKind (ADR-001
+// A5-6). c must be claimed (cascade.ClaimStart returned claimed = true) in
+// tx; the row takes c.OutboxID() as its id, so the cascade_start row names
+// it. e must be a start of InterpreterKind on c's record.
+//
+// The row's causation is the one stored on the record by the triggering
+// write, read by ClaimStart under the tenant's RLS: e.Causation must be
+// empty or equal to it. The depth limit applies as for EnqueueAtVersion.
+//
+// It locks the records row without bumping its version: the triggering
+// write has already bumped it (D-3-6), and a start's target_key is its own,
+// so its target_seq orders nothing. A dedupe key already in use is
+// ErrInvalidEntry, because the claim's id would then name no row.
+//
+// tx must come from tenancy.InTenantTx. On any error the caller rolls tx back.
+func EnqueueStart(ctx context.Context, tx pgx.Tx, c cascade.Claim, e Entry) (uuid.UUID, error) {
+	invalid := func(format string, args ...any) error {
+		return fmt.Errorf("%w: "+format, append([]any{ErrInvalidEntry}, args...)...)
+	}
+	if !c.Claimed() {
+		return uuid.Nil, invalid("the start key is not claimed")
+	}
+	if t, ok := e.Target.(TargetStart); !ok || t.Kind != InterpreterKind || e.Kind != InterpreterKind {
+		return uuid.Nil, invalid("EnqueueStart enqueues only a start of %s", InterpreterKind)
+	}
+	if e.RecordID != c.RecordID() {
+		return uuid.Nil, invalid("the entry's record is not the claim's")
+	}
+	origin, depth := c.Causation()
+	claimed := Causation{OriginID: origin, Depth: depth}
+	if e.Causation != (Causation{}) && e.Causation != claimed {
+		return uuid.Nil, invalid("the entry's causation is not the one stored on the record")
+	}
+	e.Causation = claimed
+	id, err := enqueue(ctx, tx, e, c.OutboxID(), func() (uuid.UUID, int64, error) {
+		tenant, seq, err := lockRecord(ctx, tx, lockRecordSQL, e.RecordID)
+		if err == nil && tenant != c.TenantID() {
+			return uuid.Nil, 0, ErrRecordNotFound
+		}
+		return tenant, seq, err
+	})
+	if err == nil && id != c.OutboxID() {
+		return uuid.Nil, invalid("dedupe key already used by another row")
+	}
+	return id, err
+}
+
+func notInterpreterStart(e Entry) error {
+	if t, ok := e.Target.(TargetStart); ok && (t.Kind == InterpreterKind || e.Kind == InterpreterKind) {
+		return fmt.Errorf("%w: a start of %s goes through EnqueueStart", ErrInvalidEntry, InterpreterKind)
+	}
+	return nil
+}
+
+// lockRecord runs the record lock and returns the record's tenant and the
+// version that becomes target_seq.
+func lockRecord(ctx context.Context, tx pgx.Tx, sql string, record uuid.UUID) (uuid.UUID, int64, error) {
+	var (
+		tenant uuid.UUID
+		seq    int64
+	)
+	switch err := tx.QueryRow(ctx, sql, record).Scan(&tenant, &seq); {
+	case errors.Is(err, pgx.ErrNoRows):
+		return uuid.Nil, 0, ErrRecordNotFound
+	case err != nil:
+		return uuid.Nil, 0, fmt.Errorf("outbox: lock record: %w", err)
+	}
+	return tenant, seq, nil
+}
+
+// enqueue is EnqueueAtVersion and EnqueueStart; lock locks the
+// record and returns its tenant and the row's target_seq. id is the row's id,
+// or uuid.Nil to mint a UUIDv7.
+func enqueue(ctx context.Context, tx pgx.Tx, e Entry, id uuid.UUID, lock func() (uuid.UUID, int64, error)) (uuid.UUID, error) {
 	if e.Causation.Depth > config.CascadeDepthLimit {
 		return uuid.Nil, fmt.Errorf("%w: depth %d, limit %d", ErrCascadeTooDeep, e.Causation.Depth, config.CascadeDepthLimit)
 	}
@@ -151,20 +262,15 @@ func Enqueue(ctx context.Context, tx pgx.Tx, e Entry) (uuid.UUID, error) {
 		return uuid.Nil, fmt.Errorf("outbox: dedupe lookup: %w", err)
 	}
 
-	var (
-		tenant uuid.UUID
-		seq    int64
-	)
-	switch err := tx.QueryRow(ctx, lockRecordSQL, e.RecordID).Scan(&tenant, &seq); {
-	case errors.Is(err, pgx.ErrNoRows):
-		return uuid.Nil, ErrRecordNotFound
-	case err != nil:
-		return uuid.Nil, fmt.Errorf("outbox: lock record: %w", err)
+	tenant, seq, err := lock()
+	if err != nil {
+		return uuid.Nil, err
 	}
 
-	id, err := uuid.NewV7()
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("outbox: new id: %w", err)
+	if id == uuid.Nil {
+		if id, err = uuid.NewV7(); err != nil {
+			return uuid.Nil, fmt.Errorf("outbox: new id: %w", err)
+		}
 	}
 	var targetKey string
 	switch t := e.Target.(type) {
@@ -181,13 +287,9 @@ func Enqueue(ctx context.Context, tx pgx.Tx, e Entry) (uuid.UUID, error) {
 		targetKey = t.Kind + ":" + start.String()
 	}
 
-	var causationID *uuid.UUID
-	if e.Causation.OriginID != uuid.Nil {
-		causationID = &e.Causation.OriginID
-	}
 	var inserted uuid.UUID
 	err = tx.QueryRow(ctx, insertSQL, id, tenant, e.Kind, e.KindVersion, e.DedupeKey, targetKey, seq,
-		causationID, e.Causation.Depth, payload, traceparent(ctx)).Scan(&inserted)
+		e.Causation.OriginID, e.Causation.Depth, payload, traceparent(ctx)).Scan(&inserted)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if err := tx.QueryRow(ctx, dedupeLookupSQL, e.DedupeKey).Scan(&existing); err != nil {
 			return uuid.Nil, fmt.Errorf("outbox: dedupe lookup after conflict: %w", err)
@@ -215,8 +317,8 @@ func validate(e Entry) (json.RawMessage, error) {
 	if e.Causation.Depth < 0 {
 		return nil, invalid("negative causation depth")
 	}
-	if e.Causation.Depth > 0 && e.Causation.OriginID == uuid.Nil {
-		return nil, invalid("causation depth %d with no origin", e.Causation.Depth)
+	if e.Causation.OriginID == uuid.Nil {
+		return nil, invalid("no causation origin (A5-3)")
 	}
 	if !kindPattern.MatchString(e.Kind) {
 		return nil, invalid("kind must match %s", kindPattern)

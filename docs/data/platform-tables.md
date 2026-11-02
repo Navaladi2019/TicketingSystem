@@ -390,10 +390,189 @@ deferred constraint on both inserts) for a value only `nava_app`'s publish
 path moves; the service layer publishes the version and moves
 `current_version` in one transaction.
 
+## Records pipeline: records, audit_log, record_counters (P3-09)
+
+Scope: TICK-353, PLAN-003 D-3-2, D-3-9, D-3-13; ADR-001 I1, I8, I9 (groomed
+on TICK-360, TICK-363). Migration
+`db/migrations/20261101190000_records_pipeline.sql`, grants and the
+`nava_app` role setting in `db/grants.yaml`, tests in
+`internal/db/dbtest/records_pipeline_test.go`, isolation seed rows and paths
+in `internal/tenancy/isolation`. Index set from P3-01
+([`records-list-bench.md`](records-list-bench.md)).
+
+```mermaid
+erDiagram
+    tenants ||--o{ records : "tenant_id"
+    entity_definitions |o--o{ records : "(tenant_id, entity_definition_id)"
+    principals |o--o{ records : "(tenant_id, requester_id / assignee_id / created_by)"
+    groups |o--o{ records : "(tenant_id, assignment_group_id), ON DELETE SET NULL"
+    records |o--o{ audit_log : "(tenant_id, record_id)"
+    entity_definitions ||--o| record_counters : "(tenant_id, entity_definition_id)"
+
+    records {
+        uuid tenant_id PK
+        uuid id PK
+        bigint version "row lock Enqueue bumps (T29)"
+        uuid entity_definition_id "FK, set once"
+        int schema_version ">= 1"
+        text number UK "per (tenant, type), set once"
+        text state
+        uuid requester_id FK
+        uuid assignee_id FK
+        uuid assignment_group_id FK
+        uuid created_by "FK, set once"
+        timestamptz created_at "NOT NULL DEFAULT now(), set once"
+        timestamptz updated_at "NOT NULL DEFAULT now()"
+        jsonb data "NOT NULL DEFAULT '{}'"
+        uuid causation_origin_id
+        smallint causation_depth ">= 0"
+    }
+    audit_log {
+        uuid tenant_id PK
+        uuid id PK "UUIDv7"
+        uuid record_id "FK, NULL when no record"
+        text action
+        uuid actor_id "no FK: system actors"
+        text source "user, rule, workflow, function, ai, system"
+        jsonb before
+        jsonb after
+        uuid causation_origin_id
+        smallint causation_depth
+        text idempotency_key "UK per tenant when NOT NULL"
+        timestamptz at
+    }
+    record_counters {
+        uuid tenant_id PK
+        uuid entity_definition_id PK "FK"
+        bigint next ">= 2"
+    }
+```
+
+- **Additive, no rewrite.** Every new `records` column is nullable or has a
+  constant or stable default (`'{}'`, `now()`), which PG16 stores as the
+  column's missing value. `TestP309RecordsNotRewritten` migrates a table of
+  1,000 bare rows and checks `pg_class.relfilenode` is unchanged; the bench
+  below does the same at 800,000.
+- **All-or-none CHECK (TICK-363).** `entity_definition_id`, `schema_version`,
+  `number` and `state` are all NULL (a PLAN-001 bare row) or all set. `SET
+  NOT NULL` is a later contract step, once no bare row remains; later
+  constraints are added `NOT VALID`, then validated.
+- **Set once.** `nava_app` and `nava_worker` hold `UPDATE` on every `records`
+  column but `tenant_id`, `id`, `entity_definition_id`, `number`, `created_by`
+  and `created_at`, so a record's number cannot be rewritten (`42501`, CI-4
+  pins the column grants). Nobody holds `DELETE` on any of the three tables.
+- **Append-only audit.** `audit_log` is `INSERT, SELECT` only, with no
+  `UPDATE` or `DELETE` policy. `record_id` is NULL only for a row with no
+  record to name (`cascade_rejected` on a create). `actor_id` has no foreign
+  key: a system actor names no principal, and an id without a foreign key
+  reaches no other tenant's row.
+- **Idempotency key (D-3-13).** `UNIQUE (tenant_id, idempotency_key) WHERE
+  idempotency_key IS NOT NULL`. The pipeline puts the key on the primary row
+  only. An `ON CONFLICT` target must repeat the predicate: `ON CONFLICT
+  (tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL`.
+- **Numbering (D-3-9).** One upsert, `INSERT … VALUES (…, 2) ON CONFLICT
+  (tenant_id, entity_definition_id) DO UPDATE SET next = record_counters.next
+  + 1 RETURNING next - 1`; `next` is the number the following create gets.
+  It needs INSERT, UPDATE (`next`) and SELECT, each under its own policy.
+- **Composite foreign keys (TICK-360).** All five carry `tenant_id`. A record
+  naming another tenant's type, principal or group, an audit row naming
+  another tenant's record, and a counter for another tenant's type are each
+  `23503` though the policy passes them.
+- **Group delete clears the group.** Group sync deletes a group Keycloak no
+  longer has (`internal/groupsync`). With `NO ACTION`, one record naming the
+  group would fail that tenant's whole sync, deprovisioning included, so the
+  foreign key is `ON DELETE SET NULL (assignment_group_id)` (the column list
+  keeps `tenant_id`). The cleared group is not audited and `updated_at` does
+  not move: the database cannot write an audit row for it. If the record
+  must show the change, group sync (or a pipeline write) has to reassign
+  first; that is a service-layer decision, raised on TICK-353.
+- **`plan_cache_mode`.** `nava_app` runs with `force_custom_plan`, the P3-01
+  verdict condition. It is a role setting in `db/grants.yaml`
+  (`settings`), applied and converged by db-roles (the bootstrap superuser):
+  the migrator is `NOCREATEROLE` and may not `ALTER ROLE`. db-roles also
+  resets any setting not listed and any per-database role setting, which
+  would override the role-wide one. `TestP309PlanCacheModeFromDBRoles` checks
+  it on a fresh cluster. PgBouncer's server connections log in as `nava_app`,
+  so pooled sessions get it too. No JSONB operator is ever marked `LEAKPROOF`.
+
+| Role | `records` | `audit_log` | `record_counters` |
+| --- | --- | --- | --- |
+| `nava_app`, `nava_worker` | SELECT, INSERT, UPDATE (all but the set-once columns) | SELECT, INSERT | SELECT, INSERT, UPDATE (`next`) |
+| `nava_relay` | none (CI-9) | none | none |
+| every other role | none | none | none |
+
+### Evidence (P3-09)
+
+`scratch/records-pipeline-bench/run.sh` (output in `result.txt`):
+`postgres:16.10` in Docker Desktop on Windows 11 (16 vCPU, 19.4 GiB given to
+Docker), the real migration body, prerequisite tables reduced to their keys,
+run as the superuser with explicit `tenant_id` (the RLS predicate is the same
+equality on a leakproof `uuid` operator, so it gives the same index
+conditions). 200 tenants × 4,000 records = **800,000 records**, warm cache.
+
+**The migration on 800,000 bare rows.** `relfilenode` 16408 before and after,
+heap 52 MB before and after: no rewrite. The whole migration ran in one
+transaction in about **4.3 s**: the `ALTER TABLE` 1,565 ms (the
+`records_number_key` build and the five foreign-key validation scans), then
+`records_tenant_updated` 1,006 ms, `records_tenant_requester` 1,567 ms and
+`records_tenant_group_open` 84 ms (bare rows have a NULL state, so the
+partial index is nearly empty). That is an ACCESS EXCLUSIVE window on
+`records`. In M1 `records` holds only PLAN-001 test rows, so the window is
+milliseconds; were this run on a deployed table with real rows, the three
+indexes would move to their own `CREATE INDEX CONCURRENTLY` migration
+(`-- +goose NO TRANSACTION`) and the foreign keys would be added `NOT VALID`
+and validated separately.
+
+With 800,000 pipeline rows (20 % open) and 4,000,000 audit rows (five per
+record, the first keyed):
+
+| Query | Plan | Buffers | Execution |
+| --- | --- | --- | --- |
+| A record's history, `ORDER BY at, id` | Index Scan `audit_log_record` | 5 read | 0.056 ms |
+| Replay lookup by idempotency key (D-3-13) | Index Scan `audit_log_idempotency_key` | 1 hit, 3 read | 0.039 ms |
+| Counter upsert (D-3-9), conflicting row | Arbiter `record_counters_pkey`, UPDATE | 9 hit | 0.069 ms |
+| The `SET NULL` action for one deleted group, 4,000-record tenant | Bitmap Index Scan `records_pkey` on `tenant_id`, filter on the group, 200 rows updated | 4,529 hit, 3,924 read | 27.6 ms |
+| `DELETE FROM groups` for one group, as group sync issues it (warm) | the delete plus the action above | | 9.3 ms |
+
+**Index cost.** Sizes at the row counts above:
+
+| Relation | Size |
+| --- | --- |
+| `records` heap | 156 MB |
+| `records_pkey` | 49 MB |
+| `records_number_key` | 93 MB |
+| `records_tenant_updated` | 80 MB |
+| `records_tenant_requester` | 79 MB |
+| `records_tenant_group_open` | 19 MB (open rows only) |
+| `audit_log` heap | 481 MB |
+| `audit_log_pkey` | 247 MB |
+| `audit_log_record` | 390 MB |
+| `audit_log_idempotency_key` | 84 MB (keyed rows only) |
+| `record_counters` | 16 kB |
+
+A record insert writes five index entries (four for a closed record). Every
+pipeline update moves `updated_at`, which `records_tenant_updated` indexes,
+so no update is HOT and each writes four or five index entries again; P3-01
+measured the write throughput of this set. An audit insert writes two index
+entries, three when keyed. The audit table is the biggest consumer: about
+300 bytes of heap and indexes per row here, before `before`/`after`
+payloads grow. Partitioning stays out (D23).
+
+**Left out on purpose.** No index for the group foreign key's `SET NULL`
+action: `records_tenant_group_open` is partial, so the action scans the
+tenant's rows through `records_pkey` (27.6 ms at 4,000 records, cold-ish),
+and a group delete is rare. Add a full `(tenant_id, assignment_group_id)`
+index `CONCURRENTLY` if large tenants make group sync slow. No index for the
+principal foreign keys: no runtime role deletes a principal (tombstoned,
+TICK-220). No assignee index, no JSONB expression index and no GIN on `data`
+(P3-01: unusable under RLS, since `->>` and `@>` are not leakproof). No
+`causation_trigger_id` (ADR-001-A5, A5-5).
+
 ## Not done here (owners)
 
 - The CI-1 catalogue check across all future tables (RLS, FORCE, allow-list):
   T10.
 - The identity tables (`principals`, `groups`, …) and their `nava_groupsync`
   grants: T16, in [identity.md](identity.md).
-- `records` columns beyond `version`: PLAN-002.
+- The write pipeline over the P3-09 tables: P3-10 (TICK-354); numbering and
+  states: P3-11; record listing with the explicit `tenant_id = $1`: P3-31.

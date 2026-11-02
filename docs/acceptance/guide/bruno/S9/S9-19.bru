@@ -1,0 +1,28 @@
+meta {
+  name: S9.19 AC5: tenant A's incident is untouched
+  type: http
+  seq: 19
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s9_id}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('version 2, priority 1', () => {
+    expect(N.json().version).to.eql(2);
+    expect(N.json().data.priority).to.eql(1);
+  });
+}
+
+docs {
+  Still version 2, priority 1, after Bob's attempts.
+}

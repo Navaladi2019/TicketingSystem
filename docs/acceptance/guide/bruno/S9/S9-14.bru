@@ -1,0 +1,31 @@
+meta {
+  name: S9.14 AC3: the second incident's history is its create
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s9_id2}}/history
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const items = N.json().items;
+  test('one create row by Alice, source user', () => {
+    expect(items).to.have.length(1);
+    expect(items[0].action).to.eql('create');
+    expect(items[0].actor_id).to.eql(bru.getVar('s9_alice'));
+    expect(items[0].source).to.eql('user');
+  });
+}
+
+docs {
+  One row: the create of S9.8, by Alice, `source: user`.
+}

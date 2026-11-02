@@ -16,15 +16,17 @@ func env(m map[string]string) func(string) (string, bool) {
 }
 
 const (
-	tenant  = "00000000-0000-4000-8000-0000000000a1"
-	record  = "1a2b3c4d-5e6f-4708-9192-a3b4c5d6e7f1"
-	version = "51a11000-0000-4000-8000-000000000001"
+	tenant     = "00000000-0000-4000-8000-0000000000a1"
+	record     = "1a2b3c4d-5e6f-4708-9192-a3b4c5d6e7f1"
+	version    = "51a11000-0000-4000-8000-000000000001"
+	definition = "51a11000-0000-4000-8000-0000000000d0"
 )
 
 // TestEntries: start and signal write the rows the interpreter reads, and
 // both payloads pass the outbox's references-only check.
 func TestEntries(t *testing.T) {
-	base := map[string]string{"NAVA_DATABASE_URL": "postgres://x@y/z", "DEDUPE_KEY": "k", "TENANT_ID": tenant, "RECORD_ID": record}
+	base := map[string]string{"NAVA_DATABASE_URL": "postgres://x@y/z", "DEDUPE_KEY": "k", "TENANT_ID": tenant, "RECORD_ID": record,
+		"DEFINITION_ID": definition}
 	for _, tc := range []struct {
 		action, idVar, kind string
 		target              outbox.Target
@@ -51,6 +53,14 @@ func TestEntries(t *testing.T) {
 			if e.Kind != tc.kind || e.Target != tc.target || e.RecordID.String() != record || e.DedupeKey != "k" {
 				t.Errorf("entry %+v", e)
 			}
+			// A start takes the causation the record carries (EnqueueStart);
+			// the demo never names one.
+			if e.Causation != (outbox.Causation{}) {
+				t.Errorf("entry names a causation: %+v", e.Causation)
+			}
+			if tc.action == "start" && in.definition.String() != definition {
+				t.Errorf("definition %s, want %s", in.definition, definition)
+			}
 			var got map[string]string
 			if err := json.Unmarshal(e.Payload, &got); err != nil {
 				t.Fatal(err)
@@ -72,12 +82,13 @@ func TestEntries(t *testing.T) {
 
 func TestParseRefuses(t *testing.T) {
 	for name, m := range map[string]map[string]string{
-		"no action":  {"NAVA_DATABASE_URL": "x", "DEDUPE_KEY": "k"},
-		"no key":     {"NAVA_DATABASE_URL": "x", "DEMO_ACTION": "start"},
-		"long key":   {"NAVA_DATABASE_URL": "x", "DEMO_ACTION": "start", "DEDUPE_KEY": strings.Repeat("k", maxKeyLen+1)},
-		"no dsn":     {"DEMO_ACTION": "start", "DEDUPE_KEY": "k", "TENANT_ID": tenant, "RECORD_ID": record, "VERSION_ID": version},
-		"no version": {"NAVA_DATABASE_URL": "x", "DEMO_ACTION": "start", "DEDUPE_KEY": "k", "TENANT_ID": tenant, "RECORD_ID": record},
-		"nil tenant": {"NAVA_DATABASE_URL": "x", "DEMO_ACTION": "signal", "DEDUPE_KEY": "k", "TENANT_ID": uuid.Nil.String(), "RECORD_ID": record, "SIGNAL_ID": version},
+		"no action":     {"NAVA_DATABASE_URL": "x", "DEDUPE_KEY": "k"},
+		"no key":        {"NAVA_DATABASE_URL": "x", "DEMO_ACTION": "start"},
+		"long key":      {"NAVA_DATABASE_URL": "x", "DEMO_ACTION": "start", "DEDUPE_KEY": strings.Repeat("k", maxKeyLen+1)},
+		"no dsn":        {"DEMO_ACTION": "start", "DEDUPE_KEY": "k", "TENANT_ID": tenant, "RECORD_ID": record, "VERSION_ID": version, "DEFINITION_ID": definition},
+		"no version":    {"NAVA_DATABASE_URL": "x", "DEMO_ACTION": "start", "DEDUPE_KEY": "k", "TENANT_ID": tenant, "RECORD_ID": record, "DEFINITION_ID": definition},
+		"no definition": {"NAVA_DATABASE_URL": "x", "DEMO_ACTION": "start", "DEDUPE_KEY": "k", "TENANT_ID": tenant, "RECORD_ID": record, "VERSION_ID": version},
+		"nil tenant":    {"NAVA_DATABASE_URL": "x", "DEMO_ACTION": "signal", "DEDUPE_KEY": "k", "TENANT_ID": uuid.Nil.String(), "RECORD_ID": record, "SIGNAL_ID": version},
 	} {
 		if _, err := parse(env(m)); err == nil {
 			t.Errorf("%s: parse accepted %v", name, m)

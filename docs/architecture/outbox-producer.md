@@ -4,20 +4,28 @@ PLAN-001 T29 (TICK-70), ADR-001 I6, I9 and A.2 "Writing outbox rows".
 Package `internal/outbox`. Decisions: `docs/delivery/decision-log.md`,
 2026-10-25 "T29 carries the trace context through the outbox".
 
+The producer never writes `records` (PLAN-003 D-3-6, TICK-411): the record
+write pipeline's `UPDATE` is the one place `records.version` moves, and a
+producer enqueues at the version that write gave the record. A pipeline
+`EventSink` calls it, in the write's transaction:
+
 ```go
-err := tenancy.InTenantTx(ctx, pool, principal.TenantID, func(tx pgx.Tx) error {
-    // ... the record write ...
-    _, err := outbox.Enqueue(ctx, tx, outbox.Entry{
-        Kind: "ticket.approval", KindVersion: 1, DedupeKey: eventID.String(), RecordID: ticketID,
+func (s sink) RecordChanged(ctx context.Context, tx pgx.Tx, ev pipeline.Event) error {
+    _, err := outbox.EnqueueAtVersion(ctx, tx, outbox.Entry{
+        Kind: "ticket.approval", KindVersion: 1, DedupeKey: eventID.String(), RecordID: ev.RecordID,
         Target:    outbox.TargetStart{Kind: "ticket.approval"},
-        Causation: outbox.Causation{OriginID: originID, Depth: depth},
+        Causation: ev.Causation,
         Payload:   json.RawMessage(`{"ticket_id":"…"}`),
-    })
+    }, ev.Version)
     return err
-})
+}
 ```
 
-## What Enqueue does, in the caller's transaction
+A start of `nava.interpreter` goes through `cascade.ClaimStart` and
+`outbox.EnqueueStart` instead (ADR-001 A5-6), which takes `target_seq` the
+same way.
+
+## What EnqueueAtVersion does, in the caller's transaction
 
 ```mermaid
 flowchart TD
@@ -25,8 +33,9 @@ flowchart TD
   A -->|bad field or payload| X2[ErrInvalidEntry, nothing sent]
   A --> B{dedupe_key already in tenant?}
   B -->|yes| R1[return existing id]
-  B -->|no| C["UPDATE records SET version = version + 1 RETURNING tenant_id, version (row lock)"]
+  B -->|no| C["SELECT tenant_id, version FROM records … FOR UPDATE (row lock, no bump)"]
   C -->|0 rows| X3[ErrRecordNotFound]
+  C -->|other version| X5[ErrVersionMismatch]
   C --> D{target}
   D -->|start| E["target_key = kind:own id"]
   D -->|signal| F["newest open workflow_ref (record, kind)"]
@@ -46,24 +55,21 @@ flowchart TD
 | `id` | UUIDv7 |
 | `kind` | the Temporal name the relay dispatches to: workflow type (start) or signal name (signal) |
 | `target_key` | `<workflow kind>:<start row id>`; a start row's ends in its own id |
-| `target_seq` | the record's `version` after the bump, so producers on one record get consecutive values in commit order |
+| `target_seq` | the record's `version` as the caller's write left it; the pipeline's `UPDATE` holds the row lock, so writes on one record get consecutive values in commit order, and rows of one write share one |
 | `causation_id`, `causation_depth` | `Entry.Causation`; NULL origin only at depth 0 |
 | `payload` | references only: an object whose keys match `^[a-z][a-z0-9_]{0,31}$` and whose values are canonical UUID strings or arrays of them (`outbox_payload_check`) |
 | `trace_context` | the caller span's W3C `traceparent`, or NULL; never `tracestate` or baggage |
 
 ## Notes
 
-- **Dedupe:** a retry after commit returns the first id without bumping the
-  record. A duplicate that commits concurrently has already bumped it; the
-  gap in `target_seq` is harmless because the relay orders on it and never
-  counts it.
-- **A nil error does not mean the record changed.** A concurrent duplicate
-  writes no outbox row, but it still bumps `records.version`, and Enqueue
-  returns the first row's id with a nil error. A caller must not read "Enqueue
-  returned nil" as "the record changed" or "a row was written", and must not
-  use `version` as a count of real changes.
-- **No tenant:** a transaction without one sees no record, so Enqueue returns
+- **Dedupe:** a retry returns the first row's id and writes nothing, before
+  it checks the version. A nil error does not mean a row was written.
+- **No tenant:** a transaction without one sees no record, so it returns
   `ErrRecordNotFound` and writes nothing.
+- **One writer of `records`:** `outbox.Enqueue`, which bumped the version
+  itself, is gone (TICK-411). Tests that need a bump outside the pipeline do
+  it in the test file and then call `EnqueueAtVersion`. See
+  [record-write-pipeline.md](record-write-pipeline.md).
 - **Deferred:** the cycle check (`ErrCascadeCycle`) and the audit row for a
   rejected cascade are TICK-88 (PLAN-002), against the record's own causation
   fields.

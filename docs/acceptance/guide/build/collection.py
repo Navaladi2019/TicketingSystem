@@ -4,7 +4,7 @@ The collection is generated, so every request loads the same helpers
 (`bruno/lib/nava.js`) and the folder order is fixed. Edit this file, then run
 `python -I docs/acceptance/guide/build/build.py` (it calls write()).
 
-Folders run in order. S1-S8 are the story scenarios (TICK-287, TICK-329, TICK-346); X1-X3 are the API suite (every operation in
+Folders run in order. S1-S9 are the story scenarios (TICK-287, TICK-329, TICK-346, TICK-359); X1-X3 are the API suite (every operation in
 api/openapi.bundled.yaml and every admin listener); Z runs last because it
 waits for tokens to expire. Tokens are fetched by requests and kept with
 bru.setVar at run time; none is written in a file.
@@ -969,6 +969,179 @@ console.log('S8.19 onboarded tenant', b.tenant_id, 'domain', bru.getVar('s8_doma
     }
 
 
+# --------------------------------------------------------------------------- S9
+def s9():
+    base = "{{core_url}}/api/v1/records"
+    inc = base + "/incident"
+    one = inc + "/{{s9_id}}"
+    mp = {"Content-Type": "application/merge-patch+json"}
+    key = lambda k: {"Idempotency-Key": "tick359-s9-{{s9_run}}-" + k}
+    create = {"data": {"short_description": "S9 {{s9_run}} printer on fire", "priority": 2}}
+    num = r"/^INC\d{7}$/"
+    no404 = """
+test('HTTP 404 problem+json, code not_found, no instance', () => {
+  expect(res.getStatus()).to.eql(404);
+  expect(N.header('Content-Type') || '').to.include('application/problem+json');
+  expect(N.json().code).to.eql('not_found');
+  expect(N.json()).to.not.have.property('instance');
+});
+N.status(404);"""
+    same = "\ntest(\"body byte-identical to S9.15's 404\", () => expect(N.text()).to.eql(bru.getVar('s9_ref404')));"
+    leak = "\nN.noLeak(bru.getVar('s9_id'), bru.getVar('s9_number'), 'S9 ' + bru.getVar('s9_run'));"
+    return {
+        "dir": "S9", "name": "S9 records",
+        "desc": "Story S9, TICK-335 (kit TICK-359). An agent creates an incident, updates it with its `ETag`, is refused with an old one or none, and reads its history; tenant B gets the same 404 for tenant A's incident as for one that does not exist. Story users: `agent@tenant-a` is Alice, `agent@tenant-b` is Bob. Needs `tools/seed.sh`. Runs again on the same stack (every pass uses new Idempotency-Keys and creates three more incidents). The number is checked by shape (`INC` and 7 digits) and by having no gap; the exact `INC0000001` is asserted only when `s9_fresh_a` (and `s9_fresh_b`) is 1, which the stack case `s9_records` sets when the tenant has no incident yet. Known limitation AR-S9-01: until S10, any member of a tenant may read and write every record of that tenant.",
+        "items": [
+            token("S9.1 Sign in as agent@tenant-a (Alice)", "alice_username", "alice_password", "alice_token",
+                  extra="bru.setVar('s9_run', N.v('s9_run_id') || Math.random().toString(16).slice(2, 10));\nconsole.log('S9 run', bru.getVar('s9_run'));"),
+            token("S9.2 Sign in as agent@tenant-b (Bob)", "bob_username", "bob_password", "bob_token"),
+            req("S9.3 Alice's principal id", "GET", "{{core_url}}/api/v1/me", auth="alice_token",
+                desc="Kept to check that the history names Alice as the actor (`actor_id` is the `user_id` of `GET /me`).",
+                tests=f"N.me('{A}');\nbru.setVar('s9_alice', N.json().user_id);"),
+            req("S9.4 AC1: Alice creates an incident: 201, INC number, ETag", "POST", inc, auth="alice_token",
+                headers=key("create"), body=create,
+                desc="201 with `number` `INC` and seven digits (`INC0000001` on a fresh stack), version 1, state `new` (the default), `ETag: W/\"1\"` and a `Location`.",
+                tests=f"""N.status(201);
+const b = N.json();
+test('number is INC and 7 digits', () => expect(b.number).to.match({num}));
+if (String(N.v('s9_fresh_a')) === '1') test('number: INC0000001 (fresh stack)', () => expect(b.number).to.eql('INC0000001'));
+test('version 1, state new, the data sent', () => {{
+  expect(b.version).to.eql(1);
+  expect(b.state).to.eql('new');
+  expect(b.data.short_description).to.eql('S9 ' + bru.getVar('s9_run') + ' printer on fire');
+  expect(b.data.priority).to.eql(2);
+}});
+test('ETag W/"1" and Location', () => {{
+  expect(N.header('ETag')).to.eql('W/"1"');
+  expect(N.header('Location')).to.eql('/api/v1/records/incident/' + b.id);
+}});
+bru.setVar('s9_id', b.id);
+bru.setVar('s9_number', b.number);
+console.log('S9.4 created', b.number, b.id);"""),
+            req("S9.5 AC1: the same Idempotency-Key again: the same record", "POST", inc, auth="alice_token",
+                headers=key("create"), body=create,
+                desc="The retry returns the stored response: the same id, number and `ETag`. S9.8 shows no number was used up, and the stack case counts exactly one record.",
+                tests="""N.status(201);
+const b = N.json();
+test('the same id and number as S9.4', () => {
+  expect(b.id).to.eql(bru.getVar('s9_id'));
+  expect(b.number).to.eql(bru.getVar('s9_number'));
+});
+test('the same ETag', () => expect(N.header('ETag')).to.eql('W/"1"'));"""),
+            req("S9.6 AC4: a required field is missing: field errors", "POST", inc, auth="alice_token",
+                headers=key("invalid"), body={"data": {"description": "S9 {{s9_run}} invalid", "priority": 9}},
+                desc="No `short_description` (required) and a `priority` outside 1-4: 422 `record_invalid` with an error per field. S9.8 and the stack case show it created no record and no history.",
+                tests="""N.problem('record_invalid', 422);
+N.fieldError('/data/short_description');
+N.fieldError('/data/priority');"""),
+            req("S9.7 AC1: the record reads back", "GET", one, auth="alice_token",
+                desc="The record of S9.4 at version 1.",
+                tests="""N.status(200);
+test('the record of S9.4, version 1', () => {
+  expect(N.json().id).to.eql(bru.getVar('s9_id'));
+  expect(N.json().version).to.eql(1);
+  expect(N.header('ETag')).to.eql('W/"1"');
+});"""),
+            req("S9.8 AC1, AC4: the next incident gets the next number, no gap", "POST", inc, auth="alice_token",
+                headers=key("second"), body={"data": {"short_description": "S9 {{s9_run}} second"}},
+                desc="The number after S9.4's. Neither the retry (S9.5) nor the refused create (S9.6) used a number up: \"creates nothing\" is checked as no gap.",
+                tests="""N.status(201);
+const b = N.json();
+const n = Number(bru.getVar('s9_number').slice(3)) + 1;
+const want = 'INC' + String(n).padStart(7, '0');
+test(`number ${want}: no gap after S9.4`, () => expect(b.number).to.eql(want));
+bru.setVar('s9_id2', b.id);"""),
+            req("S9.9 AC2: update with the current ETag: 200", "PATCH", one, auth="alice_token",
+                headers={**key("update"), **mp, "If-Match": 'W/"1"'},
+                body={"data": {"priority": 1}, "state": "in_progress"},
+                desc="Priority 1 and state `in_progress`, based on version 1. 200 with version 2 and `ETag: W/\"2\"`.",
+                tests="""N.status(200);
+const b = N.json();
+test('version 2, priority 1, in_progress, rest kept', () => {
+  expect(b.version).to.eql(2);
+  expect(b.state).to.eql('in_progress');
+  expect(b.data.priority).to.eql(1);
+  expect(b.data.short_description).to.eql('S9 ' + bru.getVar('s9_run') + ' printer on fire');
+});
+test('ETag W/"2"', () => expect(N.header('ETag')).to.eql('W/"2"'));"""),
+            req("S9.10 AC2: update with the old ETag: 412 version_conflict", "PATCH", one, auth="alice_token",
+                headers={**key("stale"), **mp, "If-Match": 'W/"1"'}, body={"data": {"priority": 4}},
+                desc="Based on version 1, which is no longer current. Refused: 412 `version_conflict` with the current `ETag`; nothing is overwritten.",
+                tests="""N.problem('version_conflict', 412);
+test('the current ETag W/"2" in the header and the detail', () => {
+  expect(N.header('ETag')).to.eql('W/"2"');
+  expect(N.json().detail).to.include('W/"2"');
+});"""),
+            problem_req("S9.11 AC2: update without If-Match: 428", "PATCH", one, "if_match_required", 428,
+                        auth="alice_token", headers={**key("nomatch"), **mp}, body={"data": {"priority": 4}},
+                        desc="No `If-Match`: 428 `if_match_required`."),
+            req("S9.12 AC2: the refused updates changed nothing", "GET", one, auth="alice_token",
+                desc="Still version 2 with priority 1, as S9.9 left it.",
+                tests="""N.status(200);
+test('version 2, priority 1, in_progress', () => {
+  const b = N.json();
+  expect(b.version).to.eql(2);
+  expect(b.data.priority).to.eql(1);
+  expect(b.state).to.eql('in_progress');
+  expect(N.header('ETag')).to.eql('W/"2"');
+});"""),
+            req("S9.13 AC3: the history: one row per change, Alice, source user", "GET", one + "/history", auth="alice_token",
+                desc="Exactly two rows, newest first: the update of S9.9 and the create of S9.4. Each names Alice (`actor_id`) and `source: user`. The retry, the 412 and the 428 added none.",
+                tests="""N.status(200);
+const items = N.json().items;
+test('exactly two rows: update, create', () => expect(items.map(i => i.action)).to.eql(['update', 'create']));
+test('each names Alice and source user', () => items.forEach(i => {
+  expect(i.actor_id, i.action).to.eql(bru.getVar('s9_alice'));
+  expect(i.source, i.action).to.eql('user');
+}));
+test('the update changed priority and state', () => expect(items[0].changed).to.have.members(['/data/priority', '/data/state']));
+test('the update has before and after', () => {
+  expect(items[0].before.priority).to.eql(2);
+  expect(items[0].after.priority).to.eql(1);
+});
+test('the create has no before', () => expect(items[1]).to.not.have.property('before'));
+test('no next page', () => expect(N.json().next_cursor || '').to.eql(''));"""),
+            req("S9.14 AC3: the second incident's history is its create", "GET", inc + "/{{s9_id2}}/history", auth="alice_token",
+                desc="One row: the create of S9.8, by Alice, `source: user`.",
+                tests="""N.status(200);
+const items = N.json().items;
+test('one create row by Alice, source user', () => {
+  expect(items).to.have.length(1);
+  expect(items[0].action).to.eql('create');
+  expect(items[0].actor_id).to.eql(bru.getVar('s9_alice'));
+  expect(items[0].source).to.eql('user');
+});"""),
+            req("S9.15 AC5: agent@tenant-b reads an id that does not exist: 404", "GET", inc + "/00000000-0000-4000-8000-00000000dead",
+                auth="bob_token", desc="The reference 404 for S9.16 to S9.18.",
+                tests=no404 + "\nbru.setVar('s9_ref404', N.text());"),
+            req("S9.16 AC5: agent@tenant-b reads tenant A's incident: the same 404", "GET", one, auth="bob_token",
+                desc="Byte-identical to S9.15, so Bob cannot tell that A's incident exists. Nothing of it is named.",
+                tests=no404 + same + leak),
+            req("S9.17 AC5: agent@tenant-b updates tenant A's incident: the same 404", "PATCH", one, auth="bob_token",
+                headers={**key("bob-patch"), **mp, "If-Match": 'W/"2"'}, body={"data": {"priority": 4}},
+                desc="Tenant B writing tenant A's data, with A's current `ETag`: the same 404, never 412 or 428. S9.19 shows nothing changed.",
+                tests=no404 + same + leak),
+            req("S9.18 AC5: agent@tenant-b reads tenant A's history: the same 404", "GET", one + "/history", auth="bob_token",
+                desc="Byte-identical to S9.15.", tests=no404 + same + leak),
+            req("S9.19 AC5: tenant A's incident is untouched", "GET", one, auth="alice_token",
+                desc="Still version 2, priority 1, after Bob's attempts.",
+                tests="""N.status(200);
+test('version 2, priority 1', () => {
+  expect(N.json().version).to.eql(2);
+  expect(N.json().data.priority).to.eql(1);
+});"""),
+            req("S9.20 Tenant B numbers its own incidents", "POST", inc, auth="bob_token",
+                headers=key("bob-create"), body={"data": {"short_description": "S9 {{s9_run}} tenant B"}},
+                desc="Bob creates an incident in tenant B: B's own number series (`INC0000001` on a fresh stack), not one after tenant A's.",
+                tests=f"""N.status(201);
+const b = N.json();
+test('number is INC and 7 digits', () => expect(b.number).to.match({num}));
+if (String(N.v('s9_fresh_b')) === '1') test('number: INC0000001 (fresh stack, tenant B)', () => expect(b.number).to.eql('INC0000001'));
+N.noLeak(bru.getVar('s9_id'), 'S9 ' + bru.getVar('s9_run') + ' printer');"""),
+        ],
+    }
+
+
 # --------------------------------------------------------------------------- X1
 UUID_RE = "/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/"
 
@@ -1328,6 +1501,169 @@ test('version 2, current, compatible', () => {
     }
 
 
+# --------------------------------------------------------------------------- X5
+def x5():
+    types = "{{core_url}}/api/v1/entity-types"
+    base = "{{core_url}}/api/v1/records"
+    rec = base + "/{{x5_type}}"
+    schema = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "additionalProperties": False,
+        "required": ["short_description", "state"],
+        "properties": {
+            "short_description": {"type": "string", "minLength": 1, "maxLength": 160},
+            "state": {"type": "string", "enum": ["new", "closed"], "default": "new"},
+            "group": {"type": "string", "format": "uuid"},
+        },
+    }
+    type_body = {"key": "{{x5_type}}", "name": "Acceptance records type", "number_prefix": "{{x5_prefix}}", "definition": {
+        "schema": schema, "fixed_columns": {"state": "state", "group": "assignment_group_id"},
+        "states": {"initial": "new", "states": ["new", "closed"], "transitions": [{"from": "new", "to": "closed"}]}}}
+    pre = """
+// One type key, prefix and Idempotency-Key per pass, so the folder can run again.
+const run = Math.random().toString(16).slice(2, 10);
+bru.setVar('x5_type', `x5_${run}`);
+bru.setVar('x5_prefix', Array.from({ length: 6 }, () => String.fromCharCode(65 + Math.floor(Math.random() * 26))).join(''));
+for (let i = 0; i <= 12; i++) bru.setVar(`x5_key${i}`, `tick357-x5-${run}-${i}`);
+"""
+    key = lambda i: {"Idempotency-Key": "{{x5_key%d}}" % i}
+    good = {"data": {"short_description": "Printer on fire"}}
+    patch_good = {"data": {"short_description": "Printer fixed"}}
+    mp = {"Content-Type": "application/merge-patch+json"}
+    same = "\ntest('same body as X5.15', () => expect(N.text()).to.eql(bru.getVar('x5_ref404')));"
+    no404 = """
+test('HTTP 404 problem+json with code not_found and no instance', () => {
+  expect(res.getStatus()).to.eql(404);
+  expect(N.header('Content-Type') || '').to.include('application/problem+json');
+  const b = N.json();
+  expect(b.code).to.eql('not_found');
+  expect(b).to.not.have.property('instance');
+});
+N.status(404);"""
+    return {
+        "dir": "X5", "name": "X5 — API suite: records (createRecord, getRecord, patchRecord, getRecordHistory)",
+        "desc": "TICK-357. Create a record of a new entity type and read it back: 201 with `ETag` and `Location`, a retry with the same Idempotency-Key returning the same record, 422 `record_invalid` for a missing field and for a reference that does not exist (no constraint text), and the one 404 for a missing record, another tenant's record and an unknown entity type. TICK-358 adds the update: `PATCH` with `If-Match` (200 with the new `ETag`, 412 with the current one, 428 without it or with `*`, and the 404 before the 428) and the cursor-paged history. 429, 500 and 501 are in the coverage page. Self-contained; every run uses a new type key. Needs `tools/seed.sh`.",
+        "items": [
+            token("X5.1 Sign in as tenant A's admin", "admin_a_username", "admin_a_password", "admin_a_token"),
+            token("X5.2 Sign in as Alice (tenant A)", "alice_username", "alice_password", "alice_token"),
+            token("X5.3 Sign in as Bob (tenant B)", "bob_username", "bob_password", "bob_token"),
+            req("X5.4 Setup: the admin creates the entity type", "POST", types, auth="admin_a_token", headers=key(0), body=type_body,
+                desc="A type whose `group` property is the assignment group column.", pre=pre, tests="N.status(201);"),
+            problem_req("X5.5 createRecord 401: no token", "POST", rec, "invalid_token", 401, desc="Missing token.",
+                        headers=key(1), body=good),
+            problem_req("X5.6 createRecord 400: no Idempotency-Key", "POST", rec, "validation_failed", 400,
+                        auth="alice_token", desc="Every tenant write needs the header.", body=good,
+                        extra="N.fieldError('/header/Idempotency-Key');"),
+            req("X5.7 createRecord 404: an unknown entity type", "POST", base + "/no_such_type_x5", auth="alice_token",
+                headers=key(1), body=good, desc="404 `not_found` with no `instance`, before the body is read.", tests=no404),
+            problem_req("X5.8 createRecord 422: a required field is missing", "POST", rec, "record_invalid", 422,
+                        auth="alice_token", headers=key(2), body={"data": {}},
+                        desc="`errors[].pointer` is under `/data`.", extra="N.fieldError('/data/short_description');"),
+            req("X5.9 createRecord 422: a group that does not exist", "POST", rec, auth="alice_token", headers=key(3),
+                body={"data": {"short_description": "x", "group": "00000000-0000-4000-8000-00000000dead"}},
+                desc="A reference that resolves nowhere in the tenant: 422 on `/data/group`, with no database text. Another tenant's group gives the same body.",
+                tests="""N.problem('record_invalid', 422);
+N.fieldError('/data/group');
+N.noLeak('fkey', 'constraint', 'violates', 'foreign key');"""),
+            req("X5.10 createRecord 201: a record", "POST", rec, auth="alice_token", headers=key(4), body=good,
+                desc="The response is version 1 with the default state, an `ETag` and a `Location`.",
+                tests="""N.status(201);
+const b = N.json();
+test('Record: version 1, state new, default applied', () => {
+  expect(b.version).to.eql(1);
+  expect(b.state).to.eql('new');
+  expect(b.data.short_description).to.eql('Printer on fire');
+  expect(b.data.state).to.eql('new');
+  expect(b.id).to.match(/^[0-9a-f-]{36}$/);
+});
+test('ETag and Location', () => {
+  expect(N.header('ETag')).to.eql('W/"1"');
+  expect(N.header('Location')).to.eql('/api/v1/records/' + bru.getVar('x5_type') + '/' + b.id);
+});
+bru.setVar('x5_id', b.id);"""),
+            req("X5.11 createRecord 201: replay of X5.10", "POST", rec, auth="alice_token", headers=key(4), body=good,
+                desc="The same key and body returns the stored response: the same record, nothing new.",
+                tests="""N.status(201);
+test('the same record id', () => expect(N.json().id).to.eql(bru.getVar('x5_id')));"""),
+            problem_req("X5.12 createRecord 409: the key with another body", "POST", rec, "idempotency_key_reuse", 409,
+                        auth="alice_token", headers=key(4), body={"data": {"short_description": "another"}},
+                        desc="The key of X5.10 with a different body."),
+            req("X5.13 getRecord 200: the record", "GET", rec + "/{{x5_id}}", auth="alice_token",
+                desc="Any tenant user. `ETag` is the weak version.", tests="""N.status(200);
+test('the created record', () => {
+  expect(N.json().id).to.eql(bru.getVar('x5_id'));
+  expect(N.json().data.state).to.eql('new');
+  expect(N.header('ETag')).to.eql('W/"1"');
+});"""),
+            problem_req("X5.14 getRecord 401: no token", "GET", rec + "/{{x5_id}}", "invalid_token", 401, desc="Missing token."),
+            req("X5.15 getRecord 404: an id that does not exist", "GET", rec + "/00000000-0000-4000-8000-00000000dead",
+                auth="alice_token", desc="The reference 404 for X5.16 to X5.18.", tests=no404 + "\nbru.setVar('x5_ref404', N.text());"),
+            req("X5.16 getRecord 404: tenant A's record read by tenant B", "GET", rec + "/{{x5_id}}", auth="bob_token",
+                desc="Byte-identical to X5.15.", tests=no404 + same),
+            req("X5.17 getRecord 404: the right id under an unknown entity type", "GET", base + "/no_such_type_x5/{{x5_id}}",
+                auth="alice_token", desc="Byte-identical to X5.15.", tests=no404 + same),
+            req("X5.18 getRecord 404: an id that is not a UUID", "GET", rec + "/not-a-uuid", auth="alice_token",
+                desc="Byte-identical to X5.15.", tests=no404 + same),
+            problem_req("X5.19 patchRecord 401: no token", "PATCH", rec + "/{{x5_id}}", "invalid_token", 401, desc="Missing token.",
+                        headers={**key(5), **mp, "If-Match": 'W/"1"'}, body=patch_good),
+            problem_req("X5.20 patchRecord 400: no Idempotency-Key", "PATCH", rec + "/{{x5_id}}", "validation_failed", 400,
+                        auth="alice_token", desc="Every tenant write needs the header.", headers={**mp, "If-Match": 'W/"1"'},
+                        body=patch_good, extra="N.fieldError('/header/Idempotency-Key');"),
+            req("X5.21 patchRecord 404: an unknown entity type, no If-Match", "PATCH", base + "/no_such_type_x5/{{x5_id}}",
+                auth="alice_token", headers={**key(5), **mp}, body=patch_good,
+                desc="404 `not_found` with no `instance`. A missing record or type never answers 428.", tests=no404),
+            problem_req("X5.22 patchRecord 428: no If-Match", "PATCH", rec + "/{{x5_id}}", "if_match_required", 428,
+                        auth="alice_token", headers={**key(6), **mp}, body=patch_good,
+                        desc="The record exists, so the missing precondition is reported."),
+            problem_req("X5.23 patchRecord 428: If-Match *", "PATCH", rec + "/{{x5_id}}", "if_match_required", 428,
+                        auth="alice_token", headers={**key(7), **mp, "If-Match": "*"}, body=patch_good,
+                        desc="A star counts as missing."),
+            req("X5.24 patchRecord 200: the current ETag", "PATCH", rec + "/{{x5_id}}", auth="alice_token",
+                headers={**key(8), **mp, "If-Match": 'W/"1"'}, body=patch_good,
+                desc="A merge patch on `data`. The response is version 2 with a new `ETag`.",
+                tests="""N.status(200);
+test('version 2, patched, other fields kept', () => {
+  const b = N.json();
+  expect(b.version).to.eql(2);
+  expect(b.data.short_description).to.eql('Printer fixed');
+  expect(b.data.state).to.eql('new');
+  expect(N.header('ETag')).to.eql('W/"2"');
+});"""),
+            req("X5.25 patchRecord 412: the old ETag", "PATCH", rec + "/{{x5_id}}", auth="alice_token",
+                headers={**key(9), **mp, "If-Match": 'W/"1"'}, body=patch_good,
+                desc="Stale: 412 `version_conflict`, the current `ETag` in the header and in `detail`, no record data.",
+                tests="""N.problem('version_conflict', 412);
+test('current ETag in the header and the detail, no data', () => {
+  expect(N.header('ETag')).to.eql('W/"2"');
+  expect(N.json().detail).to.include('W/"2"');
+  expect(N.text()).to.not.include('Printer');
+});"""),
+            problem_req("X5.26 patchRecord 409: the key of X5.24 with another body", "PATCH", rec + "/{{x5_id}}", "idempotency_key_reuse", 409,
+                        auth="alice_token", headers={**key(8), **mp, "If-Match": 'W/"1"'}, body={"data": {"short_description": "another"}},
+                        desc="The key of X5.24 with a different body."),
+            problem_req("X5.27 patchRecord 422: null on a required field without a default", "PATCH", rec + "/{{x5_id}}", "record_invalid", 422,
+                        auth="alice_token", headers={**key(10), **mp, "If-Match": 'W/"2"'}, body={"data": {"short_description": None}},
+                        desc="Merge patch `null` removes the key; the schema then fails at its path.",
+                        extra="N.fieldError('/data/short_description');"),
+            req("X5.28 getRecordHistory 200: newest first", "GET", rec + "/{{x5_id}}/history", auth="alice_token",
+                desc="Two changes: the update, then the create. `changed` names the JSON pointers under `/data`.",
+                tests="""N.status(200);
+test('update then create', () => {
+  const b = N.json();
+  expect(b.items.map(i => i.action)).to.eql(['update', 'create']);
+  expect(b.items[0].changed).to.eql(['/data/short_description']);
+  expect(b.items[0].before.short_description).to.eql('Printer on fire');
+  expect(b.items[0].after.short_description).to.eql('Printer fixed');
+  expect(b.items[1]).to.not.have.property('before');
+});"""),
+            problem_req("X5.29 getRecordHistory 401: no token", "GET", rec + "/{{x5_id}}/history", "invalid_token", 401, desc="Missing token."),
+            problem_req("X5.30 getRecordHistory 400: a cursor that is not ours", "GET", rec + "/{{x5_id}}/history?cursor=not-a-cursor",
+                        "invalid_cursor", 400, auth="alice_token", desc="One code for every bad cursor."),
+            req("X5.31 getRecordHistory 404: an unknown entity type", "GET", base + "/no_such_type_x5/{{x5_id}}/history",
+                auth="alice_token", desc="Byte-identical to X5.15.", tests=no404 + same),
+        ],
+    }
+
+
 # --------------------------------------------------------------------------- X3
 ADMIN = [
     ("nava-core", "admin_url", ["keycloak", "postgres", "temporal"]),
@@ -1402,7 +1738,7 @@ if (wait > 0) {{ console.log(`waiting ${{Math.round(wait / 1000)}} s for the tok
     }
 
 
-FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, x1, x2, x4, x3, late]
+FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, x1, x2, x4, x5, x3, late]
 
 ENV = [
     ("core_url", "http://127.0.0.1:18080"),
@@ -1439,7 +1775,7 @@ ENV = [
     ("rate_burst_requests", "300"),
 ]
 
-COLLECTION_DOC = """One folder per delivered story (S1–S8), then the API suite (X1–X3) and the expired-token checks (Z). Run top to bottom. Before a full run: stack up, `tools/seed.sh`, `tools/tunnels.sh up`, and `make demo-outbox DEDUPE_KEY=accept` twice. Select the `local` environment. Only the documented dev-only seed credentials appear in the environment; tokens are fetched at run time and kept in runtime variables. Headless: `sh docs/acceptance/guide/tools/api-test.sh` from the repository root."""
+COLLECTION_DOC = """One folder per delivered story (S1–S9), then the API suite (X1–X3) and the expired-token checks (Z). Run top to bottom. Before a full run: stack up, `tools/seed.sh`, `tools/tunnels.sh up`, and `make demo-outbox DEDUPE_KEY=accept` twice. Select the `local` environment. Only the documented dev-only seed credentials appear in the environment; tokens are fetched at run time and kept in runtime variables. Headless: `sh docs/acceptance/guide/tools/api-test.sh` from the repository root."""
 
 
 def build():

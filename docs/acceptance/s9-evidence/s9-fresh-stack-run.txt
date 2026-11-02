@@ -1,0 +1,165 @@
+##[group]stack case s9_records
+seed: tenants A and B, issuer http://localhost:18081/realms/nava
+                tenant                | state  |               issuer               
+--------------------------------------+--------+------------------------------------
+ 00000000-0000-4000-8000-0000000000a1 | active | http://localhost:18081/realms/nava
+ 00000000-0000-4000-8000-0000000000b1 | active | http://localhost:18081/realms/nava
+(2 rows)
+
+seed: admin@tenant-a.test is in /t/00000000-0000-4000-8000-0000000000a1/admins
+seed: one group sync cycle (nava-groupsync --once)
+{"time":"2026-11-02T10:59:12.207432696Z","level":"INFO","msg":"nava-groupsync --once done","tenants":40,"failed":0}
+seed: tenant A's admin group, incident/request/change at version 1 in A and B
+                tenant                |    key    | current_version |                         v1_schema_sha256                         
+--------------------------------------+-----------+-----------------+------------------------------------------------------------------
+ 00000000-0000-4000-8000-0000000000a1 | change    |               1 | 50c0d83ad54b4e084ee5d4f1050c4cb7ee41d36bae6876974153441f35ce0143
+ 00000000-0000-4000-8000-0000000000a1 | demo_note |               1 | 4d1e03f55234a0229068891d5b90684f1684519d681ee8824ce274da5d34067f
+ 00000000-0000-4000-8000-0000000000a1 | incident  |               2 | 0fcf5e1bc40ddda5bdacc437c164eaa54191d95a83a80b1e5cf79aeea2bfa7da
+ 00000000-0000-4000-8000-0000000000a1 | request   |               1 | 1bec25859bd82700aaddd9b52e7a7bb8cf7f0086da1d4cedb5ef15bf7d922087
+ 00000000-0000-4000-8000-0000000000b1 | change    |               1 | 50c0d83ad54b4e084ee5d4f1050c4cb7ee41d36bae6876974153441f35ce0143
+ 00000000-0000-4000-8000-0000000000b1 | incident  |               1 | 0fcf5e1bc40ddda5bdacc437c164eaa54191d95a83a80b1e5cf79aeea2bfa7da
+ 00000000-0000-4000-8000-0000000000b1 | request   |               1 | 1bec25859bd82700aaddd9b52e7a7bb8cf7f0086da1d4cedb5ef15bf7d922087
+(7 rows)
+
+seed: done. alice@tenant-a.test, admin@tenant-a.test and bob@tenant-b.test now resolve in GET /api/v1/me;
+seed: admin@tenant-a.test is tenant A's admin; both tenants have incident, request and change.
+ok: seeded
+S9 run 759cf3a2; fresh: tenant A 1, tenant B 1
+S9/S9-1 (200 OK) - 40 ms
+S9 run 759cf3a2
+Tests
+   ✓ HTTP 200 from Keycloak
+   ✓ access token issued
+   ✓ issuer is the pinned realm URL
+S9/S9-2 (200 OK) - 46 ms
+Tests
+   ✓ HTTP 200 from Keycloak
+   ✓ access token issued
+   ✓ issuer is the pinned realm URL
+S9/S9-3 (200 OK) - 8 ms
+Tests
+   ✓ HTTP 200
+   ✓ tenant_id is 00000000-0000-4000-8000-0000000000a1
+   ✓ Me has the contract fields
+S9/S9-4 (201 Created) - 20 ms
+S9.4 created INC0000001 01a19be9-d974-74f5-816c-aae8221f6792
+Tests
+   ✓ HTTP 201
+   ✓ number is INC and 7 digits
+   ✓ number: INC0000001 (fresh stack)
+   ✓ version 1, state new, the data sent
+   ✓ ETag W/"1" and Location
+S9/S9-5 (201 Created) - 6 ms
+Tests
+   ✓ HTTP 201
+   ✓ the same id and number as S9.4
+   ✓ the same ETag
+S9/S9-6 (422 Unprocessable Entity) - 12 ms
+Tests
+   ✓ HTTP 422
+   ✓ problem+json, code record_invalid
+   ✓ problem instance is this response's X-Request-Id
+   ✓ errors[] points at /data/short_description
+   ✓ errors[] points at /data/priority
+S9/S9-7 (200 OK) - 7 ms
+Tests
+   ✓ HTTP 200
+   ✓ the record of S9.4, version 1
+S9/S9-8 (201 Created) - 11 ms
+Tests
+   ✓ HTTP 201
+   ✓ number INC0000002: no gap after S9.4
+S9/S9-9 (200 OK) - 16 ms
+Tests
+   ✓ HTTP 200
+   ✓ version 2, priority 1, in_progress, rest kept
+   ✓ ETag W/"2"
+S9/S9-10 (412 Precondition Failed) - 13 ms
+Tests
+   ✓ HTTP 412
+   ✓ problem+json, code version_conflict
+   ✓ problem instance is this response's X-Request-Id
+   ✓ the current ETag W/"2" in the header and the detail
+S9/S9-11 (428 Precondition Required) - 12 ms
+Tests
+   ✓ HTTP 428
+   ✓ problem+json, code if_match_required
+   ✓ problem instance is this response's X-Request-Id
+S9/S9-12 (200 OK) - 7 ms
+Tests
+   ✓ HTTP 200
+   ✓ version 2, priority 1, in_progress
+S9/S9-13 (200 OK) - 7 ms
+Tests
+   ✓ HTTP 200
+   ✓ exactly two rows: update, create
+   ✓ each names Alice and source user
+   ✓ the update changed priority and state
+   ✓ the update has before and after
+   ✓ the create has no before
+   ✓ no next page
+S9/S9-14 (200 OK) - 8 ms
+Tests
+   ✓ HTTP 200
+   ✓ one create row by Alice, source user
+S9/S9-15 (404 Not Found) - 6 ms
+Tests
+   ✓ HTTP 404 problem+json, code not_found, no instance
+   ✓ HTTP 404
+S9/S9-16 (404 Not Found) - 7 ms
+Tests
+   ✓ HTTP 404 problem+json, code not_found, no instance
+   ✓ HTTP 404
+   ✓ body byte-identical to S9.15's 404
+   ✓ response names nothing of the other tenant
+S9/S9-17 (404 Not Found) - 8 ms
+Tests
+   ✓ HTTP 404 problem+json, code not_found, no instance
+   ✓ HTTP 404
+   ✓ body byte-identical to S9.15's 404
+   ✓ response names nothing of the other tenant
+S9/S9-18 (404 Not Found) - 6 ms
+Tests
+   ✓ HTTP 404 problem+json, code not_found, no instance
+   ✓ HTTP 404
+   ✓ body byte-identical to S9.15's 404
+   ✓ response names nothing of the other tenant
+S9/S9-19 (200 OK) - 6 ms
+Tests
+   ✓ HTTP 200
+   ✓ version 2, priority 1
+S9/S9-20 (201 Created) - 12 ms
+Tests
+   ✓ HTTP 201
+   ✓ number is INC and 7 digits
+   ✓ number: INC0000001 (fresh stack, tenant B)
+   ✓ response names nothing of the other tenant
+
+📊 Execution Summary
+┌───────────────┬────────────────┐
+│ Metric        │     Result     │
+├───────────────┼────────────────┤
+│ Status        │     ✓ PASS     │
+├───────────────┼────────────────┤
+│ Requests      │ 20 (20 Passed) │
+├───────────────┼────────────────┤
+│ Tests         │     67/67      │
+├───────────────┼────────────────┤
+│ Assertions    │      0/0       │
+├───────────────┼────────────────┤
+│ Duration (ms) │      491       │
+└───────────────┴────────────────┘
+Wrote html results to /home/runner/work/TicketingSystem/TicketingSystem/docs/acceptance/guide/reports/S9.html
+Wrote json results to /home/runner/work/TicketingSystem/TicketingSystem/docs/acceptance/guide/reports/S9.json
+Wrote junit results to /home/runner/work/TicketingSystem/TicketingSystem/docs/acceptance/guide/reports/S9.junit.xml
+api-test: reports in /home/runner/work/TicketingSystem/TicketingSystem/docs/acceptance/guide/reports/S9.{junit.xml,html,json}
+api-test: PASS
+INC0000001|S9 759cf3a2 printer on fire
+INC0000002|S9 759cf3a2 second
+ok: AC1: the retried create stored exactly one record
+ok: AC1, AC4: numbers INC0000001 and INC0000002, INC and 7 digits, no gap
+ok: AC1: fresh stack: INC0000001
+ok: AC4: the refused create stored no record and no history
+ok: AC3: INC0000001 has two audit rows (create, update), source user, both by Alice
+ok: Bruno folder S9 records: every check passed (AC1-AC5)
+##[endgroup]

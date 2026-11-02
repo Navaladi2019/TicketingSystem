@@ -1,0 +1,33 @@
+meta {
+  name: X5.5 createRecord 401: no token
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{core_url}}/api/v1/records/{{x5_type}}
+  body: json
+  auth: none
+}
+
+headers {
+  Idempotency-Key: {{x5_key1}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "Printer on fire"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_token', 401);
+}
+
+docs {
+  Missing token.
+}

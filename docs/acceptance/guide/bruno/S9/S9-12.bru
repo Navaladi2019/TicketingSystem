@@ -1,0 +1,31 @@
+meta {
+  name: S9.12 AC2: the refused updates changed nothing
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s9_id}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('version 2, priority 1, in_progress', () => {
+    const b = N.json();
+    expect(b.version).to.eql(2);
+    expect(b.data.priority).to.eql(1);
+    expect(b.state).to.eql('in_progress');
+    expect(N.header('ETag')).to.eql('W/"2"');
+  });
+}
+
+docs {
+  Still version 2 with priority 1, as S9.9 left it.
+}

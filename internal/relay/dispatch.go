@@ -225,8 +225,8 @@ func (d *Dispatcher) dispatch(ctx context.Context, c Claimed, deadline time.Time
 		return
 	}
 	log = log.With(slog.String("workflow_id", workflowID))
-	// The same rule Enqueue applies, so a row written around it (T32b finding
-	// 1) is never sent. The error is not logged: it names a payload field.
+	// The same rule outbox's Enqueue functions apply, so a row written around
+	// them (T32b finding 1) is never sent. The error is not logged: it names a payload field.
 	if outbox.ValidatePayload(c.Payload) != nil {
 		d.settle(ctx, log, c, op, outcomeInvalidPayload, CauseInvalidPayload)
 		return

@@ -26,6 +26,7 @@ func TestRegistryIsWellFormed(t *testing.T) {
 	}
 	cov := Coverage()
 	seen := map[string]bool{}
+	keys := map[string]string{} // StoredUnderA Idempotency-Key -> path name
 	for _, p := range Paths() {
 		if p.Name == "" || seen[p.Name] {
 			t.Errorf("path %q: empty or duplicate name", p.Name)
@@ -54,6 +55,26 @@ func TestRegistryIsWellFormed(t *testing.T) {
 		}
 		if p.HTTP != nil && (p.HTTP.Method == "" || !strings.HasPrefix(p.HTTP.Path, "/api/v1/")) {
 			t.Errorf("path %q: an HTTP path needs a method and an /api/v1 path", p.Name)
+		}
+		// C4 (CTO D-P10 on TICK-366): every StoredUnderA call has its own
+		// Idempotency-Key. The request hash covers method, path and body, not
+		// headers, so a shared key lets a later case replay an earlier case's
+		// stored response without the handler reading its forged field.
+		if p.HTTP != nil && p.HTTP.Expect == StoredUnderA {
+			key := p.HTTP.Header.Get("Idempotency-Key")
+			switch {
+			case key == "":
+				t.Errorf("path %q: a StoredUnderA call needs an Idempotency-Key", p.Name)
+			case keys[key] != "":
+				t.Errorf("path %q: Idempotency-Key %q is shared with path %q", p.Name, key, keys[key])
+			}
+			keys[key] = p.Name
+			if !strings.HasPrefix(p.HTTP.Unknown, "/api/v1/") || p.HTTP.Unknown == p.HTTP.Path {
+				t.Errorf("path %q: a StoredUnderA call needs Unknown, another /api/v1 path, for its 404 control", p.Name)
+			}
+		}
+		if p.HTTP != nil && p.HTTP.Expect != 0 && p.HTTP.Expect != StoredUnderA {
+			t.Errorf("path %q: an HTTP call's Expect is zero or StoredUnderA", p.Name)
 		}
 		if p.HTTP != nil && p.HTTP.Token != nil && (p.HTTP.Token.WantErr == nil || p.HTTP.Token.WantReason == "") {
 			t.Errorf("path %q: a Token path needs WantErr and WantReason, or any 401 would pass", p.Name)

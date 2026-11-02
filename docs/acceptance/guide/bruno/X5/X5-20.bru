@@ -1,0 +1,35 @@
+meta {
+  name: X5.20 patchRecord 400: no Idempotency-Key
+  type: http
+  seq: 20
+}
+
+patch {
+  url: {{core_url}}/api/v1/records/{{x5_type}}/{{x5_id}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Content-Type: application/merge-patch+json
+  If-Match: W/"1"
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "Printer fixed"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('validation_failed', 400);
+  N.fieldError('/header/Idempotency-Key');
+}
+
+docs {
+  Every tenant write needs the header.
+}

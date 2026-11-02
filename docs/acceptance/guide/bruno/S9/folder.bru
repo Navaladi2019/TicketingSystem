@@ -1,0 +1,8 @@
+meta {
+  name: S9 records
+  seq: 9
+}
+
+docs {
+  Story S9, TICK-335 (kit TICK-359). An agent creates an incident, updates it with its `ETag`, is refused with an old one or none, and reads its history; tenant B gets the same 404 for tenant A's incident as for one that does not exist. Story users: `agent@tenant-a` is Alice, `agent@tenant-b` is Bob. Needs `tools/seed.sh`. Runs again on the same stack (every pass uses new Idempotency-Keys and creates three more incidents). The number is checked by shape (`INC` and 7 digits) and by having no gap; the exact `INC0000001` is asserted only when `s9_fresh_a` (and `s9_fresh_b`) is 1, which the stack case `s9_records` sets when the tenant has no incident yet. Known limitation AR-S9-01: until S10, any member of a tenant may read and write every record of that tenant.
+}

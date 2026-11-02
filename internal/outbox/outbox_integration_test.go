@@ -6,8 +6,8 @@
 // NAVA_TEST_PG_URL to the shared cluster's superuser; this package drops and
 // recreates the manifest's databases and roles there, so it runs with the
 // other shared-cluster packages one at a time (-p 1). Tests named TestCI10_
-// are the ADR-001 CI-10 cases T29 owns (depth limit; the cycle check and audit
-// row are TICK-88).
+// are the ADR-001 CI-10 cases T29 owns (the outbox's depth limit). The start
+// key and the audit rows are TICK-88's, in internal/records/pipeline.
 
 package outbox_test
 
@@ -190,28 +190,50 @@ func outboxRow(t *testing.T, conn *pgx.Conn, tenant, id uuid.UUID) row {
 	return r
 }
 
+// depth0 is the causation of a depth-0 write: every row has an origin (A5-3).
+func depth0() outbox.Causation { return outbox.Causation{OriginID: uuid.New()} }
+
 func start(record uuid.UUID, dedupe string) outbox.Entry {
 	return outbox.Entry{Kind: approval, KindVersion: 1, DedupeKey: dedupe, RecordID: record,
-		Target: outbox.TargetStart{Kind: approval}}
+		Target: outbox.TargetStart{Kind: approval}, Causation: depth0()}
 }
 
 func signal(record uuid.UUID, dedupe string) outbox.Entry {
 	return outbox.Entry{Kind: "approve", KindVersion: 1, DedupeKey: dedupe, RecordID: record,
-		Target: outbox.TargetSignal{Kind: approval, SignalName: "approve"}}
+		Target: outbox.TargetSignal{Kind: approval, SignalName: "approve"}, Causation: depth0()}
 }
 
-// enqueue runs Enqueue in its own committed tenant transaction.
+// bumpSQL is the write pipeline's version bump (D-3-6), which outbox leaves
+// to its caller. Test files are outside the single-writer check
+// (internal/records/arch_test.go).
+const bumpSQL = `UPDATE records SET version = version + 1 WHERE id = $1 RETURNING version`
+
+// write is a pipeline-shaped write in tx: it bumps e's record's version, as
+// the pipeline's UPDATE does, and enqueues e at the new version. The bump
+// takes the row lock that orders the record's producers.
+func write(ctx context.Context, tx pgx.Tx, e outbox.Entry) (uuid.UUID, error) {
+	var v int64
+	switch err := tx.QueryRow(ctx, bumpSQL, e.RecordID).Scan(&v); {
+	case errors.Is(err, pgx.ErrNoRows):
+		return uuid.Nil, outbox.ErrRecordNotFound
+	case err != nil:
+		return uuid.Nil, err
+	}
+	return outbox.EnqueueAtVersion(ctx, tx, e, v)
+}
+
+// enqueue runs write in its own committed tenant transaction.
 func enqueue(ctx context.Context, pool *pgxpool.Pool, tenant uuid.UUID, e outbox.Entry) (uuid.UUID, error) {
 	var id uuid.UUID
 	err := tenancy.InTenantTx(ctx, pool, tenant, func(tx pgx.Tx) error {
 		var err error
-		id, err = outbox.Enqueue(ctx, tx, e)
+		id, err = write(ctx, tx, e)
 		return err
 	})
 	return id, err
 }
 
-// holdOpen runs Enqueue in a tenant transaction that stays open, holding the
+// holdOpen runs write in a tenant transaction that stays open, holding the
 // record's row lock, until commit is called; commit returns the transaction's
 // error.
 func holdOpen(t *testing.T, pool *pgxpool.Pool, tenant uuid.UUID, e outbox.Entry) (id uuid.UUID, commit func() error) {
@@ -221,7 +243,7 @@ func holdOpen(t *testing.T, pool *pgxpool.Pool, tenant uuid.UUID, e outbox.Entry
 	result := make(chan error, 1)
 	go func() {
 		result <- tenancy.InTenantTx(context.Background(), pool, tenant, func(tx pgx.Tx) error {
-			id, err := outbox.Enqueue(context.Background(), tx, e)
+			id, err := write(context.Background(), tx, e)
 			if err != nil {
 				return err
 			}
@@ -357,7 +379,7 @@ func TestCI10_DepthBeyondLimitWritesNothing(t *testing.T) {
 	over.Causation = outbox.Causation{OriginID: uuid.New(), Depth: config.CascadeDepthLimit + 1}
 	// The caller's transaction stays usable: nothing was sent to it.
 	err := tenancy.InTenantTx(ctx, e.app, tenant, func(tx pgx.Tx) error {
-		if _, err := outbox.Enqueue(ctx, tx, over); !errors.Is(err, outbox.ErrCascadeTooDeep) {
+		if _, err := outbox.EnqueueAtVersion(ctx, tx, over, 1); !errors.Is(err, outbox.ErrCascadeTooDeep) {
 			t.Errorf("depth 9: %v, want ErrCascadeTooDeep", err)
 		}
 		return nil
@@ -471,7 +493,14 @@ func TestCI10_DuplicateDedupeKeyWritesOneRow(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		again, err := enqueue(ctx, e.app, tenant, start(record, "dup"))
+		// The retry is outbox's own dedupe, before the record lock: it
+		// enqueues at the version the first write left, and nothing bumps it.
+		var again uuid.UUID
+		err = tenancy.InTenantTx(ctx, e.app, tenant, func(tx pgx.Tx) error {
+			var err error
+			again, err = outbox.EnqueueAtVersion(ctx, tx, start(record, "dup"), 1)
+			return err
+		})
 		if err != nil || again != first {
 			t.Fatalf("duplicate = %s, %v; want %s, nil", again, err, first)
 		}
@@ -482,7 +511,7 @@ func TestCI10_DuplicateDedupeKeyWritesOneRow(t *testing.T) {
 			t.Errorf("%d workflow_ref rows, want 1", n)
 		}
 		if v := version(t, e.super, tenant, record); v != 1 {
-			t.Errorf("version %d, want 1 (the retry did not bump it)", v)
+			t.Errorf("version %d, want 1 (the retry did not move it)", v)
 		}
 	})
 
@@ -538,7 +567,7 @@ func TestCI10_SignalWithNoOpenWorkflow(t *testing.T) {
 	check("none at all")
 
 	other := outbox.Entry{Kind: "ticket.escalation", KindVersion: 1, DedupeKey: "other", RecordID: record,
-		Target: outbox.TargetStart{Kind: "ticket.escalation"}}
+		Target: outbox.TargetStart{Kind: "ticket.escalation"}, Causation: depth0()}
 	if _, err := enqueue(ctx, e.app, tenant, other); err != nil {
 		t.Fatal(err)
 	}
@@ -612,7 +641,61 @@ func tenantIsolation(t *testing.T, e env, pool *pgxpool.Pool) {
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := outbox.Enqueue(ctx, tx, start(shared, "no-tenant")); !errors.Is(err, outbox.ErrRecordNotFound) {
+	if _, err := outbox.EnqueueAtVersion(ctx, tx, start(shared, "no-tenant"), 0); !errors.Is(err, outbox.ErrRecordNotFound) {
 		t.Errorf("no tenant: %v, want ErrRecordNotFound", err)
+	}
+}
+
+// EnqueueAtVersion (P3-10, D-3-6): the write pipeline has already bumped the
+// record's version in the transaction, so the row takes that version as its
+// target_seq and the version is not bumped again. A version the record does
+// not have writes nothing.
+func TestEnqueueAtVersion(t *testing.T) {
+	e := migrated(t)
+	ctx := context.Background()
+	tenant, record := uuid.New(), uuid.New()
+	seedRecord(t, e.super, tenant, record)
+
+	var id uuid.UUID
+	err := tenancy.InTenantTx(ctx, e.app, tenant, func(tx pgx.Tx) error {
+		// The pipeline's own bump, in the same transaction.
+		if _, err := tx.Exec(ctx, "UPDATE records SET version = version + 1 WHERE id = $1", record); err != nil {
+			return err
+		}
+		var err error
+		id, err = outbox.EnqueueAtVersion(ctx, tx, start(record, "at-1"), 1)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := version(t, e.super, tenant, record); v != 1 {
+		t.Fatalf("version %d after one write, want 1: EnqueueAtVersion bumped it", v)
+	}
+	if r := outboxRow(t, e.super, tenant, id); r.targetSeq != 1 || r.targetKey != approval+":"+id.String() {
+		t.Fatalf("row %+v, want target_seq 1 and its own target_key", r)
+	}
+	if n := count(t, e.super, "SELECT count(*) FROM workflow_ref WHERE tenant_id = $1 AND outbox_id = $2", tenant, id); n != 1 {
+		t.Fatalf("%d workflow_ref rows, want 1", n)
+	}
+
+	err = tenancy.InTenantTx(ctx, e.app, tenant, func(tx pgx.Tx) error {
+		_, err := outbox.EnqueueAtVersion(ctx, tx, start(record, "at-stale"), 7)
+		return err
+	})
+	if !errors.Is(err, outbox.ErrVersionMismatch) {
+		t.Fatalf("wrong version: %v, want ErrVersionMismatch", err)
+	}
+	if n := count(t, e.super, "SELECT count(*) FROM outbox WHERE tenant_id = $1 AND dedupe_key = 'at-stale'", tenant); n != 0 {
+		t.Fatal("a mismatched version wrote a row")
+	}
+
+	// Another tenant's record is not there.
+	err = tenancy.InTenantTx(ctx, e.app, uuid.New(), func(tx pgx.Tx) error {
+		_, err := outbox.EnqueueAtVersion(ctx, tx, start(record, "at-other"), 1)
+		return err
+	})
+	if !errors.Is(err, outbox.ErrRecordNotFound) {
+		t.Fatalf("other tenant: %v, want ErrRecordNotFound", err)
 	}
 }
