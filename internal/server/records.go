@@ -24,7 +24,6 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
-	"github.com/Navaladi2019/TicketingSystem/internal/records/store"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
@@ -77,7 +76,7 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 		raw = *req.Body
 	}
 	var (
-		rec   *store.Record
+		rec   *pipeline.Record
 		fixed map[string]string // the mapping the row was written under
 		tried map[string]string // the current version's, for a refused write
 	)
@@ -101,7 +100,7 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 		if err != nil {
 			return err
 		}
-		if rec, err = store.Get(ctx, tx, p.TenantID, res.RecordID); err != nil {
+		if rec, err = pipeline.Get(ctx, tx, p.TenantID, res.RecordID); err != nil {
 			return err
 		}
 		// The response is built from the version the row was written under,
@@ -135,7 +134,7 @@ func (h *handlers) GetRecord(ctx context.Context, req api.GetRecordRequestObject
 		return h.notFound(ctx), nil
 	}
 	var (
-		rec  *store.Record
+		rec  *pipeline.Record
 		data map[string]any
 	)
 	err := tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) error {
@@ -143,11 +142,11 @@ func (h *handlers) GetRecord(ctx context.Context, req api.GetRecordRequestObject
 		if err != nil {
 			return err
 		}
-		if rec, err = store.Get(ctx, tx, p.TenantID, id); err != nil {
+		if rec, err = pipeline.Get(ctx, tx, p.TenantID, id); err != nil {
 			return err
 		}
 		if rec.EntityKey != req.Entity {
-			return store.ErrNotFound
+			return pipeline.ErrNotFound
 		}
 		// The row was split under its own version's mapping; defaults come
 		// from the current version for what an older version never wrote.
@@ -158,7 +157,7 @@ func (h *handlers) GetRecord(ctx context.Context, req api.GetRecordRequestObject
 		data = cur.ApplyDefaults(rec.Payload(fixed))
 		return nil
 	})
-	if errors.Is(err, store.ErrNotFound) || errors.Is(err, entitytypes.ErrNotFound) {
+	if errors.Is(err, pipeline.ErrNotFound) || errors.Is(err, entitytypes.ErrNotFound) {
 		return h.notFound(ctx), nil
 	}
 	if err != nil {
@@ -180,7 +179,7 @@ func (h *handlers) fixedColumnsOf(ctx context.Context, tx pgx.Tx, entity string,
 	return stored.FixedColumns(), nil
 }
 
-func recordBody(r *store.Record, data map[string]any) api.Record {
+func recordBody(r *pipeline.Record, data map[string]any) api.Record {
 	return api.Record{
 		Id: r.ID, Number: r.Number, Version: r.Version, SchemaVersion: r.SchemaVersion, State: r.State,
 		Data: data, CreatedAt: r.CreatedAt.UTC(), UpdatedAt: r.UpdatedAt.UTC(),
@@ -197,7 +196,7 @@ func parseRecordBody(raw json.RawMessage) (map[string]any, *problemError) {
 	if !present {
 		return nil, recordInvalid(invalid("/data", "required"))
 	}
-	data, err := store.DecodeObject(d)
+	data, err := pipeline.DecodeObject(d)
 	if string(bytes.TrimSpace(d)) == "null" {
 		err = errors.New("data is null")
 	}
