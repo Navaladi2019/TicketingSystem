@@ -20,6 +20,9 @@ func run(t *testing.T, b []byte) *verify.Report {
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
+	if want := encodingOf(b); r.Encoding != want {
+		t.Fatalf("read as %s, want %s", r.Encoding, want)
+	}
 	if (r.Outcome == verify.OutcomeTampered) != (r.Failure != nil) {
 		t.Fatalf("outcome %s with failure %+v", r.Outcome, r.Failure)
 	}
@@ -83,14 +86,16 @@ func TestReasonCodesMatchVectors(t *testing.T) {
 
 // Every whole-file golden vector produces the outcome, reason and per-line
 // outcomes it states (audit-export-v1.md §6).
-func TestGoldenExports(t *testing.T) {
+func TestGoldenExports(t *testing.T) { eachEncoding(t, testGoldenExports) }
+
+func testGoldenExports(t *testing.T, e encoding) {
 	ex := vt.Vectors().Exports
 	if len(ex) == 0 {
 		t.Fatal("no export vectors")
 	}
 	for _, x := range ex {
 		t.Run(x.Name, func(t *testing.T) {
-			r := run(t, vt.JSONL(x.JSONL))
+			r := run(t, e.lines(x.JSONL))
 			if string(r.Outcome) != x.Expect {
 				t.Fatalf("outcome %s (%s), want %s", r.Outcome, describe(r), x.Expect)
 			}
@@ -115,13 +120,15 @@ func TestGoldenExports(t *testing.T) {
 // Each tampered golden vector, put in place of its line in an otherwise
 // clean file, fails with the vector's reason. This covers the P5-02 /
 // ADR-004-E1 case of a cleared diff_truncated flag.
-func TestGoldenTamperedLines(t *testing.T) {
+func TestGoldenTamperedLines(t *testing.T) { eachEncoding(t, testGoldenTamperedLines) }
+
+func testGoldenTamperedLines(t *testing.T, e encoding) {
 	sawTruncated := false
 	for _, tv := range vt.Vectors().Tampered {
 		t.Run(tv.Name, func(t *testing.T) {
 			f := vt.Build(vt.Options{})
 			f.Body[f.Index(tv.Seq)] = vt.Tampered(tv)
-			r := run(t, f.Bytes())
+			r := run(t, e.file(f))
 			wantTampered(t, r, tv.Name)
 			if reason(r) != tv.Expect {
 				t.Errorf("reason %q (%s), want %q", reason(r), describe(r), tv.Expect)
@@ -140,7 +147,9 @@ func TestGoldenTamperedLines(t *testing.T) {
 }
 
 // The truncated-but-honest entry verifies.
-func TestTruncatedHonestVerifies(t *testing.T) {
+func TestTruncatedHonestVerifies(t *testing.T) { eachEncoding(t, testTruncatedHonestVerifies) }
+
+func testTruncatedHonestVerifies(t *testing.T, e encoding) {
 	var seq int64
 	for _, c := range vt.Chain() {
 		if c.Name == "truncated-honest" {
@@ -150,7 +159,7 @@ func TestTruncatedHonestVerifies(t *testing.T) {
 			}
 		}
 	}
-	r := run(t, vt.Build(vt.Options{Match: func(c vectors.ChainCase) bool { return c.Seq == seq }}).Bytes())
+	r := run(t, e.file(vt.Build(vt.Options{Match: func(c vectors.ChainCase) bool { return c.Seq == seq }})))
 	wantOutcome(t, r, verify.OutcomePass)
 	if o, ok := r.Lines[seq]; ok {
 		t.Fatalf("truncated-honest line outcome %s, want verified", o)
@@ -179,10 +188,12 @@ func filters() []filterCase {
 // CI-A6 (file half): clean files verify, and a byte edit, a deleted line, a
 // consistent single-row rewrite and a deleted first entry each fail, under
 // every filter. A file without the anchor is rejected.
-func TestCIA6(t *testing.T) {
+func TestCIA6(t *testing.T) { eachEncoding(t, testCIA6) }
+
+func testCIA6(t *testing.T, e encoding) {
 	for _, fc := range filters() {
 		t.Run(fc.name, func(t *testing.T) {
-			wantOutcome(t, run(t, vt.Build(fc.opts).Bytes()), verify.OutcomePass)
+			wantOutcome(t, run(t, e.file(vt.Build(fc.opts))), verify.OutcomePass)
 
 			n := len(vt.Build(fc.opts).Body)
 			for i := 1; i < n; i++ {
@@ -193,14 +204,14 @@ func TestCIA6(t *testing.T) {
 					l := f.Body[i]
 					s := l["envelope_sha256"].(string)
 					l["envelope_sha256"] = s[:63] + flipHex(s[63])
-					wantTampered(t, run(t, f.Bytes()), "envelope_sha256 edited")
+					wantTampered(t, run(t, e.file(f)), "envelope_sha256 edited")
 				})
 				if env, ok := l["envelope"].(chain.Envelope); ok {
 					t.Run(fmt.Sprintf("byte-edit-envelope-%v", l["seq"]), func(t *testing.T) {
 						f := vt.Build(fc.opts)
 						env.OccurredAt = env.OccurredAt.Add(time.Microsecond)
 						f.Body[i]["envelope"] = env
-						r := run(t, f.Bytes())
+						r := run(t, e.file(f))
 						wantTampered(t, r, "envelope edited")
 						if reason(r) != verify.ReasonEnvelopeMismatch {
 							t.Errorf("reason %q, want %q", reason(r), verify.ReasonEnvelopeMismatch)
@@ -211,7 +222,7 @@ func TestCIA6(t *testing.T) {
 						env.OccurredAt = env.OccurredAt.Add(time.Second)
 						f.Body[i]["envelope"] = env
 						f.Rehash(i) // the row's own hashes are consistent
-						r := run(t, f.Bytes())
+						r := run(t, e.file(f))
 						wantTampered(t, r, "rewritten row")
 						if r := reason(r); r != verify.ReasonEntryHashMismatch && r != verify.ReasonHeadMismatch {
 							t.Errorf("reason %q, want the next link or the head to break", r)
@@ -223,19 +234,19 @@ func TestCIA6(t *testing.T) {
 						s := f.Body[i]["envelope_sha256"].(string)
 						f.Body[i]["envelope_sha256"] = flipHex(s[0]) + s[1:]
 						f.Rehash(i)
-						wantTampered(t, run(t, f.Bytes()), "rewritten stub")
+						wantTampered(t, run(t, e.file(f)), "rewritten stub")
 					})
 				}
 				t.Run(fmt.Sprintf("deleted-line-%v", l["seq"]), func(t *testing.T) {
 					f := vt.Build(fc.opts)
 					f.Body = append(f.Body[:i], f.Body[i+1:]...)
-					wantTampered(t, run(t, f.Bytes()), "line deleted")
+					wantTampered(t, run(t, e.file(f)), "line deleted")
 				})
 				t.Run(fmt.Sprintf("deleted-line-recounted-%v", l["seq"]), func(t *testing.T) {
 					f := vt.Build(fc.opts)
 					f.Body = append(f.Body[:i], f.Body[i+1:]...)
 					f.Recount()
-					wantTampered(t, run(t, f.Bytes()), "line deleted, trailer recounted")
+					wantTampered(t, run(t, e.file(f)), "line deleted, trailer recounted")
 				})
 			}
 
@@ -243,7 +254,7 @@ func TestCIA6(t *testing.T) {
 				f := vt.Build(fc.opts)
 				f.Body = append(f.Body[:1], f.Body[2:]...)
 				f.Recount()
-				r := run(t, f.Bytes())
+				r := run(t, e.file(f))
 				wantTampered(t, r, "first range entry deleted")
 				if reason(r) != verify.ReasonSeqMissing {
 					t.Errorf("reason %q, want %q", reason(r), verify.ReasonSeqMissing)
@@ -262,7 +273,7 @@ func TestCIA6(t *testing.T) {
 				f.Body = f.Body[1:]
 				f.Trailer["anchor_seq"] = first["seq"]
 				f.Recount()
-				r := run(t, f.Bytes())
+				r := run(t, e.file(f))
 				wantTampered(t, r, "first entry deleted and re-anchored")
 				if reason(r) != verify.ReasonAnchorMismatch {
 					t.Errorf("reason %q, want %q", reason(r), verify.ReasonAnchorMismatch)
@@ -271,7 +282,7 @@ func TestCIA6(t *testing.T) {
 			t.Run("no-anchor", func(t *testing.T) {
 				f := vt.Build(fc.opts)
 				f.Body = f.Body[1:]
-				r := run(t, f.Bytes())
+				r := run(t, e.file(f))
 				wantTampered(t, r, "anchor removed")
 				if reason(r) != verify.ReasonAnchorMissing {
 					t.Errorf("reason %q, want %q", reason(r), verify.ReasonAnchorMissing)
@@ -281,7 +292,7 @@ func TestCIA6(t *testing.T) {
 				f := vt.Build(fc.opts)
 				f.Body = f.Body[1:]
 				f.Trailer["anchor_seq"] = nil
-				wantTampered(t, run(t, f.Bytes()), "anchor removed, trailer cleared")
+				wantTampered(t, run(t, e.file(f)), "anchor removed, trailer cleared")
 			})
 		})
 	}
@@ -317,7 +328,9 @@ func chainCase(t *testing.T, name string) vectors.ChainCase {
 }
 
 // CI-A7 (verifier half), R24.
-func TestCIA7Erasure(t *testing.T) {
+func TestCIA7Erasure(t *testing.T) { eachEncoding(t, testCIA7Erasure) }
+
+func testCIA7Erasure(t *testing.T, e encoding) {
 	erasedSeq, eraseSeq := seqOf(t, "erased-entry"), seqOf(t, "audit-erase")
 	if eraseSeq != erasedSeq+1 {
 		t.Fatalf("vectors moved: erase entry at %d, erased at %d", eraseSeq, erasedSeq)
@@ -327,14 +340,14 @@ func TestCIA7Erasure(t *testing.T) {
 		if f.Body[f.Index(eraseSeq)]["kind"] != "entry" {
 			t.Fatal("builder did not export the erase entry in full")
 		}
-		r := run(t, f.Bytes())
+		r := run(t, e.file(f))
 		wantOutcome(t, r, verify.OutcomePass)
 		if len(r.Lines) != 0 {
 			t.Errorf("line outcomes %v, want all verified", r.Lines)
 		}
 	})
 	t.Run("no-erase-entry-tampered", func(t *testing.T) {
-		r := run(t, vt.Build(vt.Options{HeadSeq: erasedSeq}).Bytes())
+		r := run(t, e.file(vt.Build(vt.Options{HeadSeq: erasedSeq})))
 		wantTampered(t, r, "erasure without an erase entry")
 		if reason(r) != verify.ReasonErasureUnlisted || r.Lines[erasedSeq] != verify.LineTampered {
 			t.Errorf("reason %q, lines %v; want %q at seq %d", reason(r), r.Lines, verify.ReasonErasureUnlisted, erasedSeq)
@@ -342,7 +355,7 @@ func TestCIA7Erasure(t *testing.T) {
 	})
 	t.Run("unsealed-erase-entry-pending", func(t *testing.T) {
 		f := vt.Build(vt.Options{HeadSeq: erasedSeq, Unsealed: []vectors.ChainCase{chainCase(t, "audit-erase")}})
-		r := run(t, f.Bytes())
+		r := run(t, e.file(f))
 		wantOutcome(t, r, verify.OutcomePending)
 		if r.Lines[erasedSeq] != verify.LinePending {
 			t.Errorf("lines %v, want pending at seq %d", r.Lines, erasedSeq)
@@ -356,14 +369,14 @@ func TestCIA7Erasure(t *testing.T) {
 		u := f.Body[len(f.Body)-1]
 		d := strings.Replace(*u["diff"].(*string), `"]`, `","0190f3a0-0000-7000-8000-000000000999"]`, 1)
 		u["diff"] = &d
-		wantTampered(t, run(t, f.Bytes()), "unsealed erase entry whose diff does not match its hash")
+		wantTampered(t, run(t, e.file(f)), "unsealed erase entry whose diff does not match its hash")
 	})
 	t.Run("erase-entry-for-another-ref-tampered", func(t *testing.T) {
 		f := vt.Build(vt.Options{})
-		e := f.Body[f.Index(erasedSeq)]
+		l := f.Body[f.Index(erasedSeq)]
 		other := "0190f3a0-0000-7000-8000-0000000000f9"
-		e["erasure_ref"] = &other
-		r := run(t, f.Bytes())
+		l["erasure_ref"] = &other
+		r := run(t, e.file(f))
 		wantTampered(t, r, "erasure_ref points at no erase entry")
 		if reason(r) != verify.ReasonErasureUnlisted {
 			t.Errorf("reason %q, want %q", reason(r), verify.ReasonErasureUnlisted)
@@ -373,7 +386,7 @@ func TestCIA7Erasure(t *testing.T) {
 		f := vt.Build(vt.Options{})
 		d := "[]"
 		f.Body[f.Index(erasedSeq)]["diff"] = &d
-		r := run(t, f.Bytes())
+		r := run(t, e.file(f))
 		wantTampered(t, r, "erased entry still carries a diff")
 		if reason(r) != verify.ReasonDiffStateMismatch {
 			t.Errorf("reason %q, want %q", reason(r), verify.ReasonDiffStateMismatch)
@@ -382,14 +395,16 @@ func TestCIA7Erasure(t *testing.T) {
 }
 
 // CI-A14 (verifier half), R7.
-func TestCIA14Redaction(t *testing.T) {
+func TestCIA14Redaction(t *testing.T) { eachEncoding(t, testCIA14Redaction) }
+
+func testCIA14Redaction(t *testing.T, e encoding) {
 	seq := seqOf(t, "record-update-all-fields")
 	t.Run("redacted-diff-not-verifiable", func(t *testing.T) {
 		f := vt.Build(vt.Options{})
 		l := f.Body[f.Index(seq)]
 		d := `[{"op":"replace","path":"/status","value":{"redacted":"mask"}}]`
 		l["diff"], l["diff_salt"], l["diff_redacted"] = &d, nil, true
-		r := run(t, f.Bytes())
+		r := run(t, e.file(f))
 		wantOutcome(t, r, verify.OutcomePass)
 		if r.Lines[seq] != verify.LineDiffUnverified {
 			t.Errorf("line %d outcome %q, want %q", seq, r.Lines[seq], verify.LineDiffUnverified)
@@ -398,13 +413,13 @@ func TestCIA14Redaction(t *testing.T) {
 	t.Run("redacted-with-salt-tampered", func(t *testing.T) {
 		f := vt.Build(vt.Options{})
 		f.Body[f.Index(seq)]["diff_redacted"] = true
-		r := run(t, f.Bytes())
+		r := run(t, e.file(f))
 		if reason(r) != verify.ReasonDiffStateMismatch {
 			t.Errorf("reason %q, want %q", reason(r), verify.ReasonDiffStateMismatch)
 		}
 	})
 	t.Run("unredacted-diff-verifies", func(t *testing.T) {
-		r := run(t, vt.Build(vt.Options{}).Bytes())
+		r := run(t, e.file(vt.Build(vt.Options{})))
 		wantOutcome(t, r, verify.OutcomePass)
 		if _, ok := r.Lines[seq]; ok {
 			t.Errorf("line %d outcome %q, want verified", seq, r.Lines[seq])
@@ -414,34 +429,36 @@ func TestCIA14Redaction(t *testing.T) {
 		f := vt.Build(vt.Options{})
 		d := *f.Body[f.Index(seq)]["diff"].(*string) + " "
 		f.Body[f.Index(seq)]["diff"] = &d
-		if r := run(t, f.Bytes()); reason(r) != verify.ReasonDiffMismatch {
+		if r := run(t, e.file(f)); reason(r) != verify.ReasonDiffMismatch {
 			t.Errorf("reason %q, want %q", reason(r), verify.ReasonDiffMismatch)
 		}
 	})
 }
 
 // R15: a duplicate or missing seq is reported, naming the line.
-func TestSeqDuplicateAndMissing(t *testing.T) {
+func TestSeqDuplicateAndMissing(t *testing.T) { eachEncoding(t, testSeqDuplicateAndMissing) }
+
+func testSeqDuplicateAndMissing(t *testing.T, e encoding) {
 	t.Run("duplicate", func(t *testing.T) {
 		f := vt.Build(vt.Options{})
 		i := f.Index(3)
 		f.Body = append(f.Body[:i+1], f.Body[i:]...)
-		r := run(t, f.Bytes())
-		if reason(r) != verify.ReasonSeqDuplicate || *r.Failure.Seq != 3 || r.Failure.Line != i+3 {
-			t.Errorf("got %s, want %s at seq 3, line %d", describe(r), verify.ReasonSeqDuplicate, i+3)
+		r := run(t, e.file(f))
+		if reason(r) != verify.ReasonSeqDuplicate || *r.Failure.Seq != 3 || r.Failure.Line != i+2+e.before {
+			t.Errorf("got %s, want %s at seq 3, line %d", describe(r), verify.ReasonSeqDuplicate, i+2+e.before)
 		}
 	})
 	t.Run("out-of-order", func(t *testing.T) {
 		f := vt.Build(vt.Options{})
 		i := f.Index(3)
 		f.Body[i], f.Body[i+1] = f.Body[i+1], f.Body[i]
-		wantTampered(t, run(t, f.Bytes()), "swapped lines")
+		wantTampered(t, run(t, e.file(f)), "swapped lines")
 	})
 	t.Run("missing", func(t *testing.T) {
 		f := vt.Build(vt.Options{})
 		i := f.Index(4)
 		f.Body = append(f.Body[:i], f.Body[i+1:]...)
-		r := run(t, f.Bytes())
+		r := run(t, e.file(f))
 		if reason(r) != verify.ReasonSeqMissing || *r.Failure.Seq != 5 {
 			t.Errorf("got %s, want %s at seq 5", describe(r), verify.ReasonSeqMissing)
 		}
@@ -450,7 +467,9 @@ func TestSeqDuplicateAndMissing(t *testing.T) {
 
 // A stubs=false file honestly flagged is unverifiable; one that lies about
 // its flags is tampered.
-func TestStubsOmitted(t *testing.T) {
+func TestStubsOmitted(t *testing.T) { eachEncoding(t, testStubsOmitted) }
+
+func testStubsOmitted(t *testing.T, e encoding) {
 	strip := func(f *vt.File) {
 		kept := f.Body[:0]
 		for _, l := range f.Body {
@@ -468,7 +487,7 @@ func TestStubsOmitted(t *testing.T) {
 		f := vt.Build(opts)
 		strip(f)
 		f.Trailer["verifiable"] = false
-		r := run(t, f.Bytes())
+		r := run(t, e.file(f))
 		wantOutcome(t, r, verify.OutcomeUnverifiable)
 		if r.Gaps == 0 {
 			t.Error("no gaps counted")
@@ -477,7 +496,7 @@ func TestStubsOmitted(t *testing.T) {
 	t.Run("trailer-claims-verifiable", func(t *testing.T) {
 		f := vt.Build(opts)
 		strip(f)
-		if r := run(t, f.Bytes()); reason(r) != verify.ReasonVerifiableFlagMismatch {
+		if r := run(t, e.file(f)); reason(r) != verify.ReasonVerifiableFlagMismatch {
 			t.Errorf("got %s, want %s", describe(r), verify.ReasonVerifiableFlagMismatch)
 		}
 	})
@@ -486,7 +505,7 @@ func TestStubsOmitted(t *testing.T) {
 		strip(f)
 		f.Header["stubs"] = true
 		f.Trailer["verifiable"] = false
-		if r := run(t, f.Bytes()); reason(r) != verify.ReasonSeqMissing {
+		if r := run(t, e.file(f)); reason(r) != verify.ReasonSeqMissing {
 			t.Errorf("got %s, want %s", describe(r), verify.ReasonSeqMissing)
 		}
 	})
@@ -532,11 +551,13 @@ func TestStrictStructure(t *testing.T) {
 func slicesClone(s []string) []string { return append([]string(nil), s...) }
 
 // A tenant label swapped on an unsealed line is caught too (§4 step 4a).
-func TestUnsealedTenantMismatch(t *testing.T) {
+func TestUnsealedTenantMismatch(t *testing.T) { eachEncoding(t, testUnsealedTenantMismatch) }
+
+func testUnsealedTenantMismatch(t *testing.T, e encoding) {
 	c := chainCase(t, "config-create-minimal")
 	c.Envelope.TenantID = chainCase(t, "audit-erase").Envelope.SubjectID // any other UUID
 	f := vt.Build(vt.Options{Unsealed: []vectors.ChainCase{c}})
-	if r := run(t, f.Bytes()); reason(r) != verify.ReasonHeaderTenantMismatch {
+	if r := run(t, e.file(f)); reason(r) != verify.ReasonHeaderTenantMismatch {
 		t.Errorf("got %s, want %s", describe(r), verify.ReasonHeaderTenantMismatch)
 	}
 }

@@ -1,6 +1,12 @@
-// Package verify checks a nava.audit.export/v1 JSONL file offline
+// Package verify checks a nava.audit.export/v1 file offline, JSONL or CSV
 // (ADR-004 R20, R22, R24; R7 for redacted diffs; docs/api/audit-export-v1.md
-// §4). It is the engine of `nava audit verify <file>` (PLAN-005 C4, P5-03).
+// §4, §5). It is the engine of `nava audit verify <file>` (PLAN-005 C4,
+// P5-03).
+//
+// A CSV file (it starts with the column row) is read by a strict RFC 4180
+// reader that keeps quoted bytes verbatim; each row has its one formula
+// prefix ' dropped and is rebuilt into the JSONL line it stands for, so both
+// encodings go through the same checks and give the same reports.
 //
 // Verify streams the file line by line and returns one Report: the file
 // outcome (pass, tampered, pending, unverifiable or empty), the first failing
