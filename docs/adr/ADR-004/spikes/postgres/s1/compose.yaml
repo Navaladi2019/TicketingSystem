@@ -1,0 +1,43 @@
+# Spike S1 (TICK-423): its own Postgres and PgBouncer, nothing from deploy/compose.
+# Images and tags follow docs/pins.md (postgres 16.10, edoburu/pgbouncer v1.24.1-p1).
+# No ports are published; run.sh drives everything through `docker compose exec`.
+name: tick423-s1
+services:
+  pg:
+    image: postgres:16.10
+    environment:
+      POSTGRES_PASSWORD: spike
+      POSTGRES_DB: spike
+    command:
+      - postgres
+      - -c
+      - shared_buffers=1GB
+      - -c
+      - max_wal_size=8GB
+      - -c
+      - checkpoint_timeout=30min
+      - -c
+      - track_functions=pl
+      - -c
+      - track_io_timing=on
+      - -c
+      - max_connections=100
+    shm_size: 1g
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./:/spike:ro
+      - ./out:/out
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "spike"]
+      interval: 2s
+      retries: 30
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.24.1-p1
+    depends_on:
+      pg:
+        condition: service_healthy
+    volumes:
+      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+volumes:
+  pgdata:

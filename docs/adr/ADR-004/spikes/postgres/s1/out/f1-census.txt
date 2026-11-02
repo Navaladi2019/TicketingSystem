@@ -1,0 +1,55 @@
+######## n_distinct override: off (clean stats; 2000 subjects per commit)
+  pg_stats occurred_at: n_distinct=90790
+  == v0-as-pinned
+    commit 1: Time: 751.575 ms
+    commit 2: Time: 1011.453 ms (00:01.011)
+    commit 3: Time: 818.144 ms
+    plan census, auto_explain without ANALYZE:
+          5 probes: Index Scan using audit_log_default_pkey (custom)
+       1995 probes: Index Scan using audit_log_default_pkey (generic)
+    plan census, auto_explain with ANALYZE:
+          5 probes: Index Scan using audit_log_default_pkey (custom)
+       1995 probes: Index Scan using audit_log_default_pkey (generic)
+  == v1-locals
+    commit 1: Time: 37.521 ms
+    commit 2: Time: 38.913 ms
+    commit 3: Time: 33.918 ms
+    plan census, auto_explain without ANALYZE:
+          5 probes: Index Only Scan using audit_log_default_tenant_id_occurred_at_txid_subject_type_s_idx (custom)
+       1995 probes: Index Only Scan using audit_log_default_tenant_id_occurred_at_txid_subject_type_s_idx (generic)
+    plan census, auto_explain with ANALYZE:
+          5 probes: Index Only Scan using audit_log_default_tenant_id_occurred_at_txid_subject_type_s_idx (custom)
+       1995 probes: Index Only Scan using audit_log_default_tenant_id_occurred_at_txid_subject_type_s_idx (generic)
+######## n_distinct override: on (clean stats; 2000 subjects per commit)
+  pg_stats occurred_at: n_distinct=-0.0001
+  == v0-as-pinned
+    commit 1: Time: 50.180 ms
+    commit 2: Time: 43.693 ms
+    commit 3: Time: 36.905 ms
+    plan census, auto_explain without ANALYZE:
+          5 probes: Index Only Scan using audit_log_default_tenant_id_occurred_at_txid_subject_type_s_idx (custom)
+       1995 probes: Index Only Scan using audit_log_default_tenant_id_occurred_at_txid_subject_type_s_idx (generic)
+    plan census, auto_explain with ANALYZE:
+          5 probes: Index Only Scan using audit_log_default_tenant_id_occurred_at_txid_subject_type_s_idx (custom)
+       1995 probes: Index Only Scan using audit_log_default_tenant_id_occurred_at_txid_subject_type_s_idx (generic)
+  == v1-locals
+    commit 1: Time: 42.819 ms
+    commit 2: Time: 39.378 ms
+    commit 3: Time: 38.954 ms
+    plan census, auto_explain without ANALYZE:
+          5 probes: Index Only Scan using audit_log_default_tenant_id_occurred_at_txid_subject_type_s_idx (custom)
+       1995 probes: Index Only Scan using audit_log_default_tenant_id_occurred_at_txid_subject_type_s_idx (generic)
+    plan census, auto_explain with ANALYZE:
+          5 probes: Index Only Scan using audit_log_default_tenant_id_occurred_at_txid_subject_type_s_idx (custom)
+       1995 probes: Index Only Scan using audit_log_default_tenant_id_occurred_at_txid_subject_type_s_idx (generic)
+######## stability, n_distinct override: off (10 fresh ANALYZE samples per form)
+  v0-as-pinned    1/10 probes: Index Only Scan using audit_log_default_tenant_id_occurred_at_txid_subject_type_s_idx
+  v0-as-pinned    9/10 probes: Index Scan using audit_log_default_pkey
+  v0-as-pinned   n_distinct samples: 92206 92104 92101 90919 92119 93223 91930 91064 91314 91981
+  v1-locals      10/10 probes: Index Scan using audit_log_default_pkey
+  v1-locals      n_distinct samples: 92326 91079 89755 95067 92049 91692 92936 93387 95424 92814
+######## stability, n_distinct override: on (10 fresh ANALYZE samples per form)
+  v0-as-pinned   10/10 probes: Index Scan using audit_log_default_tenant_id_subject_type_subject_id_occurre_idx
+  v0-as-pinned   n_distinct samples: -0.0001 -0.0001 -0.0001 -0.0001 -0.0001 -0.0001 -0.0001 -0.0001 -0.0001 -0.0001
+  v1-locals      10/10 probes: Index Only Scan using audit_log_default_tenant_id_occurred_at_txid_subject_type_s_idx
+  v1-locals      n_distinct samples: -0.0001 -0.0001 -0.0001 -0.0001 -0.0001 -0.0001 -0.0001 -0.0001 -0.0001 -0.0001

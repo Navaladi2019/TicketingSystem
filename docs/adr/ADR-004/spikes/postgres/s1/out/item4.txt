@@ -1,0 +1,175 @@
+CREATE TABLE
+GRANT
+GRANT
+CREATE FUNCTION
+BEGIN
+              set_config              
+--------------------------------------
+ 11111111-1111-1111-1111-111111111111
+
+ t 
+---
+ 
+
+ t 
+---
+ 
+
+ t 
+---
+ 
+
+ t 
+---
+ 
+
+ t 
+---
+ 
+
+ t 
+---
+ 
+
+ t 
+---
+ 
+
+ t 
+---
+ 
+
+ t 
+---
+ 
+
+ t 
+---
+ 
+
+ t 
+---
+ 
+
+ t 
+---
+ 
+
+ t 
+---
+ 
+
+ t 
+---
+ 
+
+ t 
+---
+ 
+
+ t 
+---
+ 
+
+ t 
+---
+ 
+
+ t 
+---
+ 
+
+ t 
+---
+ 
+
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+DELETE 4
+COMMIT
+BEGIN
+              set_config              
+--------------------------------------
+ 11111111-1111-1111-1111-111111111111
+
+CREATE TABLE
+CREATE TABLE
+ALTER TABLE
+GRANT
+INSERT 0 1
+ t 
+---
+ 
+
+ t 
+---
+ 
+
+ t 
+---
+ 
+
+INSERT 0 1
+CREATE FUNCTION
+CREATE TRIGGER
+ t 
+---
+ 
+
+DROP TRIGGER
+DELETE 1
+DROP TABLE
+COMMIT
+SET
+psql:/spike/sql/item4.sql:122: ERROR:  COPY FROM not supported with row-level security
+HINT:  Use INSERT statements instead.
+RESET
+INSERT 0 1
+psql:/spike/sql/item4.sql:127: ERROR:  audit_log: protected insert column set by postgres
+CONTEXT:  PL/pgSQL function audit_log_assert_insert() line 9 at RAISE
+COPY audit_log, line 1: "11111111-1111-1111-1111-111111111111	22222222-2222-2222-2222-222222222222	record	update	record	33333..."
+INSERT 0 1
+
+== item 4 cases
+ n  |                                      name                                      |                               expect                               |                                               actual                                               | verdict 
+----+--------------------------------------------------------------------------------+--------------------------------------------------------------------+----------------------------------------------------------------------------------------------------+---------
+  1 | 01 nava_app insert, defaults fill occurred_at/txid                             | ok                                                                 | ok                                                                                                 | match
+  2 | 02 nava_app second statement, same txn (now() is txn-stable)                   | ok                                                                 | ok                                                                                                 | match
+  3 | 03 nava_app names occurred_at: column grant denies                             | error 42501: permission denied                                     | error 42501: permission denied for table audit_log                                                 | match
+  4 | 04 full-grant role, occurred_at = now() explicitly                             | ok                                                                 | ok                                                                                                 | match
+  5 | 05 full-grant role, occurred_at backdated 1 day                                | error 42501: audit_log: protected                                  | error 42501: audit_log: protected insert column set by spike_fullgrant                             | match
+  6 | 06 full-grant role, occurred_at = clock_timestamp()                            | error 42501: audit_log: protected                                  | error 42501: audit_log: protected insert column set by spike_fullgrant                             | match
+  7 | 07 full-grant role, foreign txid                                               | error 42501: audit_log: protected                                  | error 42501: audit_log: protected insert column set by spike_fullgrant                             | match
+  8 | 08 full-grant role, backfilled = true                                          | error 42501: audit_log: protected                                  | error 42501: audit_log: protected insert column set by spike_fullgrant                             | match
+  9 | 09 full-grant role, seq set                                                    | error 42501: audit_log: protected                                  | error 42501: audit_log: protected insert column set by spike_fullgrant                             | match
+ 10 | 10 full-grant role, prev_hash set                                              | error 42501: audit_log: protected                                  | error 42501: audit_log: protected insert column set by spike_fullgrant                             | match
+ 11 | 11 full-grant role, entry_hash set                                             | error 42501: audit_log: protected                                  | error 42501: audit_log: protected insert column set by spike_fullgrant                             | match
+ 12 | 12 full-grant role, sealed_at set                                              | error 42501: audit_log: protected                                  | error 42501: audit_log: protected insert column set by spike_fullgrant                             | match
+ 13 | 13 full-grant role, erased_at set                                              | error 42501: audit_log: protected                                  | error 42501: audit_log: protected insert column set by spike_fullgrant                             | match
+ 14 | 14 full-grant role, erasure_ref set                                            | error 42501: audit_log: protected                                  | error 42501: audit_log: protected insert column set by spike_fullgrant                             | match
+ 15 | 15 full-grant role, multi-row insert with one bad row: whole statement fails   | error 42501: audit_log: protected                                  | error 42501: audit_log: protected insert column set by spike_fullgrant                             | match
+ 16 | 16 full-grant role, direct insert into the DEFAULT partition, backdated        | error 42501: audit_log: protected                                  | error 42501: audit_log: protected insert column set by spike_fullgrant                             | match
+ 17 | 17 superuser (not nava_migrator), backdated: not exempt                        | error 42501: audit_log: protected                                  | error 42501: audit_log: protected insert column set by postgres                                    | match
+ 18 | 18 nava_migrator backfill, backdated + backfilled                              | ok                                                                 | ok                                                                                                 | match
+ 19 | 19 INSERT .. SELECT by full-grant role, backdated                              | error 42501: audit_log: protected                                  | error 42501: audit_log: protected insert column set by spike_fullgrant                             | match
+ 20 | 20 migrator row stored as given (no rewrite), routed to DEFAULT                | audit_log_default 2026-01-15 10:00:00+00 7 true                    | audit_log_default 2026-01-15 10:00:00+00 7 true                                                    | match
+ 21 | 21 live rows: occurred_at = now(), txid = this txn, in DEFAULT                 | 3 rows, all match                                                  | 3 rows, all match                                                                                  | match
+ 22 | 22 trigger is cloned onto the DEFAULT partition                                | audit_log, audit_log_default                                       | audit_log, audit_log_default                                                                       | match
+ 23 | 23 trigger cloned onto CREATE .. PARTITION OF and ATTACH PARTITION             | audit_log, audit_log_2026_01, audit_log_2026_02, audit_log_default | audit_log, audit_log_2026_01, audit_log_2026_02, audit_log_default                                 | match
+ 24 | 24 migrator backfill routes to the range partition                             | ok                                                                 | ok                                                                                                 | match
+ 25 | 25 full-grant role, direct insert into the created partition                   | error 42501: audit_log: protected                                  | error 42501: audit_log: protected insert column set by spike_fullgrant                             | match
+ 26 | 26 full-grant role, direct insert into the attached partition                  | error 42501: audit_log: protected                                  | error 42501: audit_log: protected insert column set by spike_fullgrant                             | match
+ 27 | 27 backfilled row landed in audit_log_2026_01                                  | audit_log_2026_01                                                  | audit_log_2026_01                                                                                  | match
+ 28 | 28 contrast: a rewrite trigger moving a row out of its partition fails (PG 16) | error 0A000                                                        | error 0A000: moving row to another partition during a BEFORE FOR EACH ROW trigger is not supported | match
+ 29 | 29 COPY FROM by an RLS role is refused outright                                | error 0A000: COPY FROM not supported with row-level security       | error 0A000: COPY FROM not supported with row-level security                                       | match
+ 30 | 30 COPY by superuser, backdated: trigger raises (error printed above), 0 rows  | 0 rows                                                             | 0 rows                                                                                             | match
+
+    result    | cases 
+--------------+-------
+ ITEM 4: PASS |    30
+
+ rows_left_in_audit_log 
+------------------------
+                      0
+

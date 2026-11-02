@@ -1,0 +1,226 @@
+== R20 anchor: first sealed seq in a time window, regardless of filter
+-- window: first day
+   (a) as written: min(seq) over the window
+                                                                        QUERY PLAN                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Result (actual time=1.006..1.008 rows=1 loops=1)
+   Buffers: shared hit=177
+   InitPlan 1 (returns $0)
+     ->  Limit (actual time=1.002..1.004 rows=1 loops=1)
+           Buffers: shared hit=177
+           ->  Result (actual time=1.001..1.002 rows=1 loops=1)
+                 One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = 'e000342e-22c2-b525-5299-b35c4d538065'::uuid)
+                 Buffers: shared hit=177
+                 ->  Index Scan using audit_log_default_tenant_id_seq_idx on audit_log_default audit_log (actual time=0.993..0.994 rows=1 loops=1)
+                       Index Cond: (tenant_id = 'e000342e-22c2-b525-5299-b35c4d538065'::uuid)
+                       Filter: ((occurred_at >= (now() - '90 days'::interval)) AND (occurred_at < (now() - '89 days'::interval)))
+                       Rows Removed by Filter: 2103
+                       Buffers: shared hit=177
+ Planning:
+   Buffers: shared hit=2
+ Planning Time: 0.588 ms
+ Execution Time: 1.037 ms
+(17 rows)
+
+   (b) window-bounded: same result, scan forced onto the time index (OFFSET 0 fence)
+                                                                                         QUERY PLAN                                                                                          
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=8.060..8.062 rows=1 loops=1)
+   Buffers: shared hit=949
+   ->  Result (actual time=0.038..7.005 rows=11236 loops=1)
+         One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = 'e000342e-22c2-b525-5299-b35c4d538065'::uuid)
+         Buffers: shared hit=949
+         ->  Index Scan using audit_log_default_pkey on audit_log_default audit_log (actual time=0.031..5.497 rows=11236 loops=1)
+               Index Cond: ((tenant_id = 'e000342e-22c2-b525-5299-b35c4d538065'::uuid) AND (occurred_at >= (now() - '90 days'::interval)) AND (occurred_at < (now() - '89 days'::interval)))
+               Filter: (seq IS NOT NULL)
+               Buffers: shared hit=949
+ Planning:
+   Buffers: shared hit=1
+ Planning Time: 0.367 ms
+ Execution Time: 8.105 ms
+(13 rows)
+
+ same_first_seq 
+----------------
+ t
+(1 row)
+
+-- window: middle day
+   (a) as written: min(seq) over the window
+                                                                        QUERY PLAN                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Result (actual time=641.092..641.095 rows=1 loops=1)
+   Buffers: shared hit=41561
+   InitPlan 1 (returns $0)
+     ->  Limit (actual time=641.082..641.084 rows=1 loops=1)
+           Buffers: shared hit=41561
+           ->  Result (actual time=641.080..641.081 rows=1 loops=1)
+                 One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = 'e000342e-22c2-b525-5299-b35c4d538065'::uuid)
+                 Buffers: shared hit=41561
+                 ->  Index Scan using audit_log_default_tenant_id_seq_idx on audit_log_default audit_log (actual time=641.065..641.066 rows=1 loops=1)
+                       Index Cond: (tenant_id = 'e000342e-22c2-b525-5299-b35c4d538065'::uuid)
+                       Filter: ((occurred_at >= (now() - '45 days'::interval)) AND (occurred_at < (now() - '44 days'::interval)))
+                       Rows Removed by Filter: 507721
+                       Buffers: shared hit=41561
+ Planning:
+   Buffers: shared hit=2
+ Planning Time: 1.104 ms
+ Execution Time: 641.154 ms
+(17 rows)
+
+   (b) window-bounded: same result, scan forced onto the time index (OFFSET 0 fence)
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=14.378..14.382 rows=1 loops=1)
+   Buffers: shared hit=950 read=1
+   I/O Timings: shared read=0.017
+   ->  Result (actual time=1.311..12.976 rows=11236 loops=1)
+         One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = 'e000342e-22c2-b525-5299-b35c4d538065'::uuid)
+         Buffers: shared hit=950 read=1
+         I/O Timings: shared read=0.017
+         ->  Bitmap Heap Scan on audit_log_default audit_log (actual time=1.301..8.205 rows=11236 loops=1)
+               Recheck Cond: ((tenant_id = 'e000342e-22c2-b525-5299-b35c4d538065'::uuid) AND (occurred_at >= (now() - '45 days'::interval)) AND (occurred_at < (now() - '44 days'::interval)))
+               Filter: (seq IS NOT NULL)
+               Heap Blocks: exact=866
+               Buffers: shared hit=950 read=1
+               I/O Timings: shared read=0.017
+               ->  Bitmap Index Scan on audit_log_default_pkey (actual time=1.129..1.131 rows=11236 loops=1)
+                     Index Cond: ((tenant_id = 'e000342e-22c2-b525-5299-b35c4d538065'::uuid) AND (occurred_at >= (now() - '45 days'::interval)) AND (occurred_at < (now() - '44 days'::interval)))
+                     Buffers: shared hit=84 read=1
+                     I/O Timings: shared read=0.017
+ Planning:
+   Buffers: shared hit=1
+ Planning Time: 0.454 ms
+ Execution Time: 14.444 ms
+(21 rows)
+
+ same_first_seq 
+----------------
+ t
+(1 row)
+
+-- window: last day
+   (a) as written: min(seq) over the window
+                                                                        QUERY PLAN                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Result (actual time=508.634..508.637 rows=1 loops=1)
+   Buffers: shared hit=81107
+   InitPlan 1 (returns $0)
+     ->  Limit (actual time=508.626..508.629 rows=1 loops=1)
+           Buffers: shared hit=81107
+           ->  Result (actual time=508.624..508.625 rows=1 loops=1)
+                 One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = 'e000342e-22c2-b525-5299-b35c4d538065'::uuid)
+                 Buffers: shared hit=81107
+                 ->  Index Scan using audit_log_default_tenant_id_seq_idx on audit_log_default audit_log (actual time=508.616..508.617 rows=1 loops=1)
+                       Index Cond: (tenant_id = 'e000342e-22c2-b525-5299-b35c4d538065'::uuid)
+                       Filter: ((occurred_at >= (now() - '2 days'::interval)) AND (occurred_at < (now() - '1 day'::interval)))
+                       Rows Removed by Filter: 990867
+                       Buffers: shared hit=81107
+ Planning:
+   Buffers: shared hit=2
+ Planning Time: 0.638 ms
+ Execution Time: 508.675 ms
+(17 rows)
+
+   (b) window-bounded: same result, scan forced onto the time index (OFFSET 0 fence)
+                                                                                           QUERY PLAN                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=8.959..8.962 rows=1 loops=1)
+   Buffers: shared hit=773
+   ->  Result (actual time=0.937..7.907 rows=9133 loops=1)
+         One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = 'e000342e-22c2-b525-5299-b35c4d538065'::uuid)
+         Buffers: shared hit=773
+         ->  Bitmap Heap Scan on audit_log_default audit_log (actual time=0.926..6.410 rows=9133 loops=1)
+               Recheck Cond: ((tenant_id = 'e000342e-22c2-b525-5299-b35c4d538065'::uuid) AND (occurred_at >= (now() - '2 days'::interval)) AND (occurred_at < (now() - '1 day'::interval)))
+               Filter: (seq IS NOT NULL)
+               Heap Blocks: exact=703
+               Buffers: shared hit=773
+               ->  Bitmap Index Scan on audit_log_default_pkey (actual time=0.802..0.803 rows=9133 loops=1)
+                     Index Cond: ((tenant_id = 'e000342e-22c2-b525-5299-b35c4d538065'::uuid) AND (occurred_at >= (now() - '2 days'::interval)) AND (occurred_at < (now() - '1 day'::interval)))
+                     Buffers: shared hit=70
+ Planning:
+   Buffers: shared hit=1
+ Planning Time: 0.606 ms
+ Execution Time: 9.027 ms
+(17 rows)
+
+ same_first_seq 
+----------------
+ t
+(1 row)
+
+-- window: whole 90 days
+   (a) as written: min(seq) over the window
+                                                                        QUERY PLAN                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Result (actual time=0.059..0.061 rows=1 loops=1)
+   Buffers: shared hit=4
+   InitPlan 1 (returns $0)
+     ->  Limit (actual time=0.055..0.056 rows=1 loops=1)
+           Buffers: shared hit=4
+           ->  Result (actual time=0.053..0.054 rows=1 loops=1)
+                 One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = 'e000342e-22c2-b525-5299-b35c4d538065'::uuid)
+                 Buffers: shared hit=4
+                 ->  Index Scan using audit_log_default_tenant_id_seq_idx on audit_log_default audit_log (actual time=0.043..0.043 rows=1 loops=1)
+                       Index Cond: (tenant_id = 'e000342e-22c2-b525-5299-b35c4d538065'::uuid)
+                       Filter: ((occurred_at < now()) AND (occurred_at >= (now() - '91 days'::interval)))
+                       Buffers: shared hit=4
+ Planning:
+   Buffers: shared hit=2
+ Planning Time: 0.850 ms
+ Execution Time: 0.107 ms
+(16 rows)
+
+   (b) window-bounded: same result, scan forced onto the time index (OFFSET 0 fence)
+                                                                                      QUERY PLAN                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=2415.625..2415.628 rows=1 loops=1)
+   Buffers: shared hit=107132 read=111217
+   I/O Timings: shared read=402.426
+   ->  Result (actual time=24.394..2304.257 rows=1000000 loops=1)
+         One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = 'e000342e-22c2-b525-5299-b35c4d538065'::uuid)
+         Buffers: shared hit=107132 read=111217
+         I/O Timings: shared read=402.426
+         ->  Seq Scan on audit_log_default audit_log (actual time=0.075..2109.855 rows=1000000 loops=1)
+               Filter: ((seq IS NOT NULL) AND (tenant_id = 'e000342e-22c2-b525-5299-b35c4d538065'::uuid) AND (occurred_at < now()) AND (occurred_at >= (now() - '91 days'::interval)))
+               Rows Removed by Filter: 2149336
+               Buffers: shared hit=107132 read=111217
+               I/O Timings: shared read=402.426
+ Planning:
+   Buffers: shared hit=1
+ Planning Time: 0.607 ms
+ Execution Time: 2417.516 ms
+(16 rows)
+
+ same_first_seq 
+----------------
+ t
+(1 row)
+
+== one deep page (seq > 900000), plan
+                                                                    QUERY PLAN                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.051..10.038 rows=5000 loops=1)
+   Buffers: shared hit=413
+   ->  Result (actual time=0.050..9.445 rows=5000 loops=1)
+         One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = 'e000342e-22c2-b525-5299-b35c4d538065'::uuid)
+         Buffers: shared hit=413
+         ->  Index Scan using audit_log_default_tenant_id_seq_idx on audit_log_default audit_log (actual time=0.033..4.632 rows=5000 loops=1)
+               Index Cond: ((tenant_id = 'e000342e-22c2-b525-5299-b35c4d538065'::uuid) AND (seq > 900000) AND (seq <= 1000000))
+               Buffers: shared hit=413
+ Planning:
+   Buffers: shared hit=1
+ Planning Time: 0.393 ms
+ Execution Time: 10.392 ms
+(12 rows)
+
+== export pass: unfiltered (200 pages x 5000 rows)
+last_seq=1000000 head_seq=1000000
+  page SELECT ms: n=200 mean=46.1 p50=40.7 p95=81.6 max=118.0 sum=9228.6
+  bytes received: 742.3 MB
+  wall clock, 1,000,000 rows: 16.9 s (cap 900 s)
+== export pass: filtered (200 pages x 5000 rows)
+last_seq=1000000 head_seq=1000000
+  page SELECT ms: n=200 mean=33.4 p50=32.0 p95=43.5 max=71.0 sum=6676.6
+  bytes received: 506.8 MB
+  wall clock, 1,000,000 rows: 12.2 s (cap 900 s)

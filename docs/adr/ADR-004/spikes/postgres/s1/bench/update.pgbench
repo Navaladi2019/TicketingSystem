@@ -1,0 +1,19 @@
+-- Records-shaped UPDATE transaction (TICK-449 baseline): one record UPDATE plus
+-- one audit INSERT, as nava_app, tenant set with set_config(..., true).
+\set t random(1, 50)
+\set r random(1, 20000)
+BEGIN;
+SELECT set_config('app.tenant_id', md5('tenant-' || :t)::uuid::text, true);
+UPDATE records SET version = version + 1, data = jsonb_set(data, '{status}', to_jsonb(:r % 5)), updated_at = now()
+ WHERE tenant_id = md5('tenant-' || :t)::uuid AND id = md5('rec-' || :t || '-' || :r)::uuid
+RETURNING version AS v
+\gset
+INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, entity_definition_id, version_before, version_after,
+                       actor_principal_id, source, request_id, content_sha256, diff, diff_salt, diff_sha256)
+VALUES (md5('tenant-' || :t)::uuid, gen_random_uuid(), 'record', 'update', 'record', md5('rec-' || :t || '-' || :r)::uuid,
+        md5('def-' || :t)::uuid, :v - 1, :v, md5('user-' || :r)::uuid, 'user', 'req-bench',
+        '\x8a4f1c3e5b7d9f0a2c4e6a8b0d2f4a6c8e0a2c4e6a8b0d2f4a6c8e0a2c4e6a8b',
+        '[{"op":"replace","path":"/status","value":3},{"op":"replace","path":"/description","value":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}]',
+        '\x00112233445566778899aabbccddeeff',
+        '\x1b3d5f7091b3d5f7091b3d5f7091b3d5f7091b3d5f7091b3d5f7091b3d5f7091');
+COMMIT;
