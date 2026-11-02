@@ -1,0 +1,44 @@
+meta {
+  name: S9.9 AC2: update with the current ETag: 200
+  type: http
+  seq: 9
+}
+
+patch {
+  url: {{core_url}}/api/v1/records/incident/{{s9_id}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: tick359-s9-{{s9_run}}-update
+  Content-Type: application/merge-patch+json
+  If-Match: W/"1"
+}
+
+body:json {
+  {
+    "data": {
+      "priority": 1
+    },
+    "state": "in_progress"
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  test('version 2, priority 1, in_progress, rest kept', () => {
+    expect(b.version).to.eql(2);
+    expect(b.state).to.eql('in_progress');
+    expect(b.data.priority).to.eql(1);
+    expect(b.data.short_description).to.eql('S9 ' + bru.getVar('s9_run') + ' printer on fire');
+  });
+  test('ETag W/"2"', () => expect(N.header('ETag')).to.eql('W/"2"'));
+}
+
+docs {
+  Priority 1 and state `in_progress`, based on version 1. 200 with version 2 and `ETag: W/"2"`.
+}

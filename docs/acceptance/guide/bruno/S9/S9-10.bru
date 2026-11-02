@@ -1,0 +1,39 @@
+meta {
+  name: S9.10 AC2: update with the old ETag: 412 version_conflict
+  type: http
+  seq: 10
+}
+
+patch {
+  url: {{core_url}}/api/v1/records/incident/{{s9_id}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: tick359-s9-{{s9_run}}-stale
+  Content-Type: application/merge-patch+json
+  If-Match: W/"1"
+}
+
+body:json {
+  {
+    "data": {
+      "priority": 4
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('version_conflict', 412);
+  test('the current ETag W/"2" in the header and the detail', () => {
+    expect(N.header('ETag')).to.eql('W/"2"');
+    expect(N.json().detail).to.include('W/"2"');
+  });
+}
+
+docs {
+  Based on version 1, which is no longer current. Refused: 412 `version_conflict` with the current `ETag`; nothing is overwritten.
+}
