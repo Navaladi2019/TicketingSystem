@@ -51,6 +51,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -134,9 +135,12 @@ func New(pool *pgxpool.Pool, reg *problem.Registry, log *slog.Logger, mp metric.
 // from 400 (ContentTypeFor), and a response without a body has no Content-Type.
 //
 // The handler never runs inside the middleware's transaction, for a fresh key
-// or a retaken one. If storing the response fails after the handler has
-// committed its own work, the key stays in_flight and a retry after the lease
-// runs the handler again.
+// or a retaken one. A write handler that commits its own work completes the
+// key in that same transaction with CompleteInTx, so the write and the stored
+// response commit or roll back together and no window is left in which the
+// work is committed and the key is still in_flight (TICK-482). Only a handler
+// that does not call CompleteInTx falls back to storing the response after it
+// returns, and a failure there leaves the key in_flight.
 func (m *Middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -170,7 +174,9 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		r.Body = io.NopCloser(bytes.NewReader(body))
 
 		req := request{p: p, key: key, hash: RequestHash(r.Method, r.URL.RequestURI(), body)}
-		out, err := m.acquire(ctx, req, func() *captured { return capture(next, r) })
+		out, err := m.acquire(ctx, req, func(sc *scope) *captured {
+			return capture(next, r.WithContext(context.WithValue(ctx, scopeKey{}, sc)))
+		})
 		if err != nil {
 			m.count(ctx, resultError)
 			m.reg.WriteError(w, r, m.log, problem.InternalError, err)
@@ -257,7 +263,7 @@ UPDATE idempotency_keys
 // acquire decides what the request is and, for a request that must run, runs
 // it through run after the transaction that won the key has committed: the
 // insert of a fresh key, or the takeover of an abandoned one.
-func (m *Middleware) acquire(ctx context.Context, req request, run func() *captured) (*outcome, error) {
+func (m *Middleware) acquire(ctx context.Context, req request, run func(*scope) *captured) (*outcome, error) {
 	var out *outcome
 	err := tenancy.InTenantTx(ctx, m.pool, req.p.TenantID, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
@@ -313,8 +319,11 @@ ON CONFLICT (tenant_id, principal_id, key) DO NOTHING`,
 		return nil, err
 	}
 	if out.kind == outcomeRan {
-		out.resp = run()
-		m.complete(ctx, req, out.resp)
+		sc := &scope{req: req}
+		out.resp = run(sc)
+		if !sc.completed.Load() {
+			m.complete(ctx, req, out.resp)
+		}
 	}
 	return out, nil
 }
@@ -346,13 +355,13 @@ func store(ctx context.Context, tx pgx.Tx, req request, resp *captured) error {
 	tag, err := tx.Exec(ctx, `
 UPDATE idempotency_keys
    SET state = 'completed', response_status = $4, response_body = $5, response_headers = $6
- WHERE tenant_id = $1 AND principal_id = $2 AND key = $3`,
+ WHERE tenant_id = $1 AND principal_id = $2 AND key = $3 AND state = 'in_flight'`,
 		req.p.TenantID, req.p.PrincipalID, req.key, int16(resp.status), resp.body, headersParam(hdrs)) //nolint:gosec // an HTTP status is 100-599
 	if err != nil {
 		return fmt.Errorf("idempotency: store: %w", err)
 	}
 	if tag.RowsAffected() != 1 {
-		return errors.New("idempotency: store: the row is gone")
+		return errors.New("idempotency: store: the row is gone or already completed")
 	}
 	return nil
 }
@@ -475,4 +484,40 @@ func writeStored(w http.ResponseWriter, status int, body []byte, headers map[str
 	}
 	w.WriteHeader(status)
 	_, _ = w.Write(body)
+}
+
+type scopeKey struct{}
+
+// scope is what the middleware hands a handler through the request context so
+// the handler can complete the key in its own transaction.
+type scope struct {
+	req       request
+	completed atomic.Bool
+}
+
+// CompleteInTx stores the response a handler is about to return, inside tx,
+// the handler's own InTenantTx transaction. Call it last in that transaction,
+// after the write succeeded: the stored response then commits with the write
+// and rolls back with it. visit is the response's Visit method for the
+// operation (for example resp.VisitCreateRecordResponse); it runs against a
+// recorder, so the stored bytes are the ones the client gets.
+//
+// Without a middleware scope in ctx (a test calling the handler directly) it
+// does nothing. If the key is no longer in_flight, because another request
+// took it over and completed it, it returns an error, so the transaction
+// rolls back and the write does not happen twice.
+func CompleteInTx(ctx context.Context, tx pgx.Tx, visit func(http.ResponseWriter) error) error {
+	sc, ok := ctx.Value(scopeKey{}).(*scope)
+	if !ok {
+		return nil
+	}
+	c := &captured{status: http.StatusOK, header: http.Header{}}
+	if err := visit(&recorder{c: c}); err != nil {
+		return fmt.Errorf("idempotency: render response: %w", err)
+	}
+	if err := store(ctx, tx, sc.req, c); err != nil {
+		return err
+	}
+	sc.completed.Store(true)
+	return nil
 }

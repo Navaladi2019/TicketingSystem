@@ -21,6 +21,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/cursor"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/idempotency"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
@@ -84,6 +85,7 @@ func (h *handlers) PatchRecord(ctx context.Context, req api.PatchRecordRequestOb
 		data      map[string]any
 		tried     map[string]string // the handler's read; recordError prefers the pipeline's version
 		stateProp string
+		resp      api.PatchRecord200JSONResponse
 	)
 	err := tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) error {
 		cur, _, err := h.store.Current(ctx, tx, req.Entity)
@@ -125,7 +127,12 @@ func (h *handlers) PatchRecord(ctx context.Context, req api.PatchRecordRequestOb
 		// An update writes under the current version, so its mapping and
 		// defaults are the current ones.
 		data = cur.ApplyDefaults(rec.Payload(cur.FixedColumns()))
-		return nil
+		resp = api.PatchRecord200JSONResponse{
+			Body:    recordBody(rec, data),
+			Headers: api.PatchRecord200ResponseHeaders{ETag: etag(rec.Version)},
+		}
+		// The key completes in this transaction, with the write (TICK-482).
+		return idempotency.CompleteInTx(ctx, tx, resp.VisitPatchRecordResponse)
 	})
 	if err != nil {
 		var st *staleError
@@ -149,10 +156,7 @@ func (h *handlers) PatchRecord(ctx context.Context, req api.PatchRecordRequestOb
 		}
 		return nil, h.recordError(ctx, err, tried, stateProp)
 	}
-	return api.PatchRecord200JSONResponse{
-		Body:    recordBody(rec, data),
-		Headers: api.PatchRecord200ResponseHeaders{ETag: etag(rec.Version)},
-	}, nil
+	return resp, nil
 }
 
 // currentVersion reads a record's version in a transaction of its own.

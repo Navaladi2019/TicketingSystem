@@ -377,3 +377,78 @@ func TestCreateRecordIgnoresCausationFromTheRequest(t *testing.T) {
 		t.Errorf("the response carries the request's causation origin: %s", rec.Body)
 	}
 }
+
+// TICK-482: the key completes in the handler's transaction, so no failure
+// after the commit can leave it in_flight with the record written.
+func TestCreateRecordKeyIsCompletedWithTheWrite(t *testing.T) {
+	e := newRecEnv(t)
+	first := e.createRec(t, "user-a", "ticket", "k-482", `{"short_description": "once"}`)
+	if first.Code != http.StatusCreated {
+		t.Fatalf("create = %d: %s", first.Code, first.Body)
+	}
+	// Right after the response, and with nothing the middleware did afterwards
+	// needed, the key holds the original response.
+	var state string
+	var status int
+	if err := e.super.QueryRow(t.Context(),
+		"SELECT state, response_status FROM idempotency_keys WHERE key = 'k-482'").Scan(&state, &status); err != nil {
+		t.Fatal(err)
+	}
+	if state != "completed" || status != http.StatusCreated {
+		t.Fatalf("key = %s/%d after the write, want completed/201", state, status)
+	}
+	// The client lost the response; the lease of the (completed) row passes;
+	// the retry finds the committed record and runs nothing.
+	if _, err := e.super.Exec(t.Context(),
+		"UPDATE idempotency_keys SET lease_until = now() - interval '1 hour' WHERE key = 'k-482'"); err != nil {
+		t.Fatal(err)
+	}
+	again := e.createRec(t, "user-a", "ticket", "k-482", `{"short_description": "once"}`)
+	if again.Code != http.StatusCreated || again.Body.String() != first.Body.String() || again.Header().Get("Idempotent-Replayed") != "true" {
+		t.Errorf("retry = %d replayed=%q, want the original 201:\n%s\nwant:\n%s", again.Code, again.Header().Get("Idempotent-Replayed"), again.Body, first.Body)
+	}
+	if n := e.recordCount(t, "a"); n != 1 {
+		t.Errorf("tenant A has %d records, want exactly 1", n)
+	}
+}
+
+// A failure while storing the response now fails the whole write: the record
+// is not committed, the key is retaken after the lease, and the retry creates
+// exactly one record with one number.
+func TestCreateRecordStoreFailureRollsBackTheWriteAndTheRetryCreatesOne(t *testing.T) {
+	e := newRecEnv(t)
+	ctx := t.Context()
+	for _, q := range []string{
+		`CREATE FUNCTION fail_idem_store() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected store failure'; END $$`,
+		`CREATE TRIGGER fail_idem_store BEFORE UPDATE ON idempotency_keys FOR EACH ROW EXECUTE FUNCTION fail_idem_store()`,
+	} {
+		if _, err := e.super.Exec(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	failed := e.createRec(t, "user-a", "ticket", "k-482b", `{"short_description": "once"}`)
+	if failed.Code != http.StatusInternalServerError {
+		t.Fatalf("create with the store failing = %d, want 500: %s", failed.Code, failed.Body)
+	}
+	if n := e.recordCount(t, "a"); n != 0 {
+		t.Fatalf("tenant A has %d records after the failed store, want 0 (the write rolls back with the key)", n)
+	}
+	if _, err := e.super.Exec(ctx, `DROP TRIGGER fail_idem_store ON idempotency_keys`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.super.Exec(ctx,
+		"UPDATE idempotency_keys SET lease_until = now() - interval '1 second' WHERE key = 'k-482b'"); err != nil {
+		t.Fatal(err)
+	}
+	retry := e.createRec(t, "user-a", "ticket", "k-482b", `{"short_description": "once"}`)
+	if retry.Code != http.StatusCreated {
+		t.Fatalf("retry = %d: %s", retry.Code, retry.Body)
+	}
+	if n := e.recordCount(t, "a"); n != 1 {
+		t.Errorf("tenant A has %d records after the retry, want exactly 1", n)
+	}
+	replay := e.createRec(t, "user-a", "ticket", "k-482b", `{"short_description": "once"}`)
+	if replay.Body.String() != retry.Body.String() || replay.Header().Get("Idempotent-Replayed") != "true" {
+		t.Errorf("replay differs from the retry's response:\n%s\n%s", replay.Body, retry.Body)
+	}
+}

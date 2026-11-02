@@ -22,6 +22,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/idempotency"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
@@ -78,6 +79,7 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 	var (
 		rec   *pipeline.Record
 		fixed map[string]string // the mapping the row was written under
+		resp  api.CreateRecord201JSONResponse
 	)
 	err := tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) error {
 		def, curVersion, err := h.store.Current(ctx, tx, req.Entity)
@@ -104,7 +106,15 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 		// The response is built from the version the row was written under,
 		// which the pipeline read itself.
 		fixed, err = h.fixedColumnsOf(ctx, tx, req.Entity, rec.SchemaVersion, curVersion, def)
-		return err
+		if err != nil {
+			return err
+		}
+		resp = api.CreateRecord201JSONResponse{
+			Body:    recordBody(rec, rec.Payload(fixed)),
+			Headers: api.CreateRecord201ResponseHeaders{ETag: etag(rec.Version), Location: "/api/v1/records/" + rec.EntityKey + "/" + rec.ID.String()},
+		}
+		// The key completes in this transaction, with the write (TICK-482).
+		return idempotency.CompleteInTx(ctx, tx, resp.VisitCreateRecordResponse)
 	})
 	if err != nil {
 		if errors.Is(err, entitytypes.ErrNotFound) || errors.Is(err, pipeline.ErrNotFound) {
@@ -114,10 +124,7 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 		// (*pipeline.ErrAtVersion); recordError maps under that one.
 		return nil, h.recordError(ctx, err, nil, "")
 	}
-	return api.CreateRecord201JSONResponse{
-		Body:    recordBody(rec, rec.Payload(fixed)),
-		Headers: api.CreateRecord201ResponseHeaders{ETag: etag(rec.Version), Location: "/api/v1/records/" + rec.EntityKey + "/" + rec.ID.String()},
-	}, nil
+	return resp, nil
 }
 
 // GetRecord serves GET /api/v1/records/{entity}/{id}.

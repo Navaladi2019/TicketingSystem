@@ -24,6 +24,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/cursor"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/idempotency"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
@@ -187,8 +188,11 @@ func (h *handlers) CreateEntityType(ctx context.Context, req api.CreateEntityTyp
 			return perr
 		}
 		var err error
-		v, err = h.store.Create(ctx, tx, p.TenantID, entitytypes.NewInput{Name: cr.name, PublishedBy: p.PrincipalID, Definition: cr.def})
-		return err
+		if v, err = h.store.Create(ctx, tx, p.TenantID, entitytypes.NewInput{Name: cr.name, PublishedBy: p.PrincipalID, Definition: cr.def}); err != nil {
+			return err
+		}
+		// The key completes in this transaction, with the write (TICK-482).
+		return idempotency.CompleteInTx(ctx, tx, (&entityTypeResponse{status: http.StatusCreated, v: v}).VisitCreateEntityTypeResponse)
 	})
 	switch {
 	case errors.Is(err, authz.ErrForbidden):
@@ -236,8 +240,11 @@ func (h *handlers) PublishEntityTypeVersion(ctx context.Context, req api.Publish
 			return perr
 		}
 		var err error
-		v, err = h.store.Publish(ctx, tx, p.TenantID, entitytypes.PublishInput{Key: req.Key, PublishedBy: p.PrincipalID, Definition: def})
-		return err
+		if v, err = h.store.Publish(ctx, tx, p.TenantID, entitytypes.PublishInput{Key: req.Key, PublishedBy: p.PrincipalID, Definition: def}); err != nil {
+			return err
+		}
+		// The key completes in this transaction, with the write (TICK-482).
+		return idempotency.CompleteInTx(ctx, tx, (&entityTypeResponse{status: http.StatusCreated, v: v}).VisitPublishEntityTypeVersionResponse)
 	})
 	var (
 		breaking *entitytypes.BreakingError
