@@ -29,10 +29,13 @@
 //  4. A 5xx response is not stored: the row stays in_flight and the client may
 //     retry after the lease.
 //
-// There is no headers column, so a replay restores only Content-Type, from
-// the stored status: application/json below 400, application/problem+json
-// from 400 (ContentTypeFor). Handlers of /api/v1 write only those two kinds
-// (the error contract).
+// A replay restores Content-Type from the stored status: application/json
+// below 400, application/problem+json from 400 (ContentTypeFor). Handlers of
+// /api/v1 write only those two kinds (the error contract). Of the handler's
+// other headers only ReplayHeaders (ETag, Location) are stored, in
+// response_headers, and restored (TICK-412): a client that retries a create
+// after a timeout needs the ETag for its next If-Match. A row stored before
+// that column existed replays without them.
 //
 // A row is purged after expires_at (24 h) by nava-purge; until then the key
 // stays bound to its first request.
@@ -41,6 +44,7 @@ package idempotency
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -88,6 +92,12 @@ const (
 	resultRejected = "rejected"
 	resultError    = "error"
 )
+
+// ReplayHeaders are the response headers a replay restores besides
+// Content-Type. Anything else a handler sets (Retry-After, caching, tracing)
+// belongs to the first run only. Adding one is a code change: the column is a
+// JSON object, not one column per header.
+func ReplayHeaders() []string { return []string{"ETag", "Location"} }
 
 var errNoPrincipal = errors.New("idempotency: no resolved principal in the request context")
 
@@ -176,7 +186,7 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 			m.reg.Write(w, r, problem.IdempotencyInFlight)
 		case outcomeReplay:
 			m.count(ctx, resultReplayed)
-			writeStored(w, out.status, out.body)
+			writeStored(w, out.status, out.body, out.headers)
 		case outcomeRan:
 			m.count(ctx, out.result)
 			out.resp.flush(w)
@@ -223,14 +233,15 @@ type outcome struct {
 	resp   *captured
 	result string
 	// outcomeReplay: the stored response.
-	status int
-	body   []byte
+	status  int
+	body    []byte
+	headers map[string]string
 }
 
 // selectRow reads the key's row. The lease is judged on the database clock, so
 // it does not depend on this host's.
 const selectRow = `
-SELECT request_hash, state, response_status, response_body, lease_until < now()
+SELECT request_hash, state, response_status, response_body, response_headers, lease_until < now()
   FROM idempotency_keys
  WHERE tenant_id = $1 AND principal_id = $2 AND key = $3`
 
@@ -267,17 +278,22 @@ ON CONFLICT (tenant_id, principal_id, key) DO NOTHING`,
 			state  string
 			status *int16
 			body   []byte
+			hdrs   []byte
 			stale  bool
 		)
 		if err := tx.QueryRow(ctx, selectRow, req.p.TenantID, req.p.PrincipalID, req.key).
-			Scan(&hash, &state, &status, &body, &stale); err != nil {
+			Scan(&hash, &state, &status, &body, &hdrs, &stale); err != nil {
 			return fmt.Errorf("idempotency: select: %w", err)
 		}
 		switch {
 		case !bytes.Equal(hash, req.hash):
 			out = &outcome{kind: outcomeReuse}
 		case state == "completed" && status != nil:
-			out = &outcome{kind: outcomeReplay, status: int(*status), body: body}
+			headers, err := decodeHeaders(hdrs)
+			if err != nil {
+				return err
+			}
+			out = &outcome{kind: outcomeReplay, status: int(*status), body: body, headers: headers}
 		case !stale:
 			out = &outcome{kind: outcomeInFlight}
 		default:
@@ -323,11 +339,15 @@ func (m *Middleware) complete(ctx context.Context, req request, resp *captured) 
 }
 
 func store(ctx context.Context, tx pgx.Tx, req request, resp *captured) error {
+	hdrs, err := encodeHeaders(resp.header)
+	if err != nil {
+		return err
+	}
 	tag, err := tx.Exec(ctx, `
 UPDATE idempotency_keys
-   SET state = 'completed', response_status = $4, response_body = $5
+   SET state = 'completed', response_status = $4, response_body = $5, response_headers = $6
  WHERE tenant_id = $1 AND principal_id = $2 AND key = $3`,
-		req.p.TenantID, req.p.PrincipalID, req.key, int16(resp.status), resp.body) //nolint:gosec // an HTTP status is 100-599
+		req.p.TenantID, req.p.PrincipalID, req.key, int16(resp.status), resp.body, hdrs) //nolint:gosec // an HTTP status is 100-599
 	if err != nil {
 		return fmt.Errorf("idempotency: store: %w", err)
 	}
@@ -335,6 +355,38 @@ UPDATE idempotency_keys
 		return errors.New("idempotency: store: the row is gone")
 	}
 	return nil
+}
+
+// encodeHeaders is the response_headers value for h: a JSON object of the
+// ReplayHeaders h sets, first value each, or nil (SQL NULL) when it sets none.
+func encodeHeaders(h http.Header) ([]byte, error) {
+	m := map[string]string{}
+	for _, k := range ReplayHeaders() {
+		if v := h.Get(k); v != "" {
+			m[k] = v
+		}
+	}
+	if len(m) == 0 {
+		return nil, nil
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return nil, fmt.Errorf("idempotency: encode headers: %w", err)
+	}
+	return b, nil
+}
+
+// decodeHeaders reads response_headers back. NULL (no headers, or a row
+// stored before the column existed) is an empty map.
+func decodeHeaders(b []byte) (map[string]string, error) {
+	if b == nil {
+		return nil, nil
+	}
+	var m map[string]string
+	if err := json.Unmarshal(b, &m); err != nil {
+		return nil, fmt.Errorf("idempotency: decode headers: %w", err)
+	}
+	return m, nil
 }
 
 // captured is a handler's response, held back until the key is settled.
@@ -396,8 +448,13 @@ func ContentTypeFor(status int) string {
 	return "application/json"
 }
 
-func writeStored(w http.ResponseWriter, status int, body []byte) {
+func writeStored(w http.ResponseWriter, status int, body []byte, headers map[string]string) {
 	h := w.Header()
+	for _, k := range ReplayHeaders() {
+		if v, ok := headers[k]; ok {
+			h.Set(k, v)
+		}
+	}
 	h.Set(ReplayedHeader, "true")
 	if len(body) > 0 {
 		h.Set("Content-Type", ContentTypeFor(status))
