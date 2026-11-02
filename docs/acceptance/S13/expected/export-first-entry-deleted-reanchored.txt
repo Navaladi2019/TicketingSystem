@@ -1,0 +1,2 @@
+exit 1
+tampered: line 2 (seq 1): anchor_mismatch: the header filter puts the anchor at seq 0 (R20: first_seq - 1)

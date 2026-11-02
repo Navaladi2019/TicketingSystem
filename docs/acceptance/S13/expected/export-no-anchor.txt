@@ -1,0 +1,2 @@
+exit 1
+tampered: line 2 (seq 1): anchor_missing: the first chain line must be the anchor at first_seq - 1 (R20)

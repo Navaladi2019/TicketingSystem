@@ -489,7 +489,7 @@ PAGES = [
         "story": "Story S9, TICK-335. Kit: `docs/acceptance/s9-records.md` (TICK-359).",
         "what": [
             "An agent creates incidents over the API. Each gets the tenant's next number (`INC0000001`, `INC0000002`, …) and an `ETag`. Sending the same request again with the same `Idempotency-Key` gives back the same incident instead of a second one. An update must carry the `ETag` of the copy it was based on: an update from an out-of-date copy is refused with `412`, one with no `ETag` at all with `428`. Every change is kept in the incident's history, naming who made it. Another tenant gets the same `404` for your incident as for one that does not exist.",
-            ("note", "**Known limitation, on purpose (AR-S9-01): until story S10 lands, any member of a tenant may read and write every incident of that tenant.** Alice can update an incident Bob's colleague created, and there are no field-level permissions yet. This is not a bug; do not report it. Other tenants stay out. S9 is never released without S10."),
+            ("note", "**Known limitation, on purpose (AR-S9-01): until story S10 lands, any member of a tenant may read and write every incident of that tenant.** Alice can update any tenant A incident, and there are no field-level permissions yet. This is not a bug; do not report it. Other tenants stay out. S9 is never released without S10."),
             ("note", "The story's users are the seeded ones: `agent@tenant-a` is Alice (`alice@tenant-a.test`) and `agent@tenant-b` is Bob (`bob@tenant-b.test`)."),
         ],
         "flows": [{

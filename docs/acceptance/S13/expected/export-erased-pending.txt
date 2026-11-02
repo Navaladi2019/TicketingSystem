@@ -1,0 +1,3 @@
+exit 3
+pending: seq 1..6 from genesis to head_hash 1e046654c186772c3adf39fcbdcb8c6429929d768560c808c2ecc70f1f973811; 6 entries, 0 stubs, 1 unsealed
+  seq 6: pending: erased; its audit/erase entry is not sealed yet
