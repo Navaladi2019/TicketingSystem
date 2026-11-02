@@ -240,6 +240,19 @@ and `seq`, `prev_hash`, `entry_hash`, `sealed_at` all `null`.
 
 With `stubs=true`: `count + stub_count = last_seq − anchor_seq`.
 
+**Exporter (ADR-004-E2).** The header's `stubs` records the request; the
+exporter writes it first, from the request. The trailer's `verifiable` is
+computed at the end of the stream by `chain.TrailerVerifiable(anchorPresent,
+count, stubCount, lastSeq, anchorSeq)` in `internal/audit/chain`, which
+returns `anchorPresent && last_seq > anchor_seq && count + stub_count =
+last_seq − anchor_seq`. The exporter keeps the counts while it writes; there
+is no buffering and no pre-count query (R21 paging and the 15-minute cap).
+`count` is the sealed range lines only; unsealed lines are counted in
+`unsealed_count` and are not part of the sum. `lastSeq` is the head `seq`
+read at the start, never the last line written: passing the last written
+`seq` would hide a tail gap. The exporter calls this function rather than
+working the rule out again.
+
 ## 4. Verification
 
 What `nava audit verify` (P5-03) checks, offline. It reports one outcome per
