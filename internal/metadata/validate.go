@@ -107,3 +107,34 @@ func decodeValue(raw json.RawMessage) any {
 func (c *Compiled) UniqueFields() []string {
 	return slices.Clone(c.unique)
 }
+
+// NumberPrefix returns the definition's record number prefix.
+func (c *Compiled) NumberPrefix() string { return c.numberPrefix }
+
+// FixedColumns returns a copy of the mapping from top-level property to the
+// fixed column that stores it (one of the Column constants).
+func (c *Compiled) FixedColumns() map[string]string { return maps.Clone(c.fixedColumns) }
+
+// StateProperty returns the top-level property mapped to ColumnState. Compile
+// guarantees there is exactly one.
+func (c *Compiled) StateProperty() string {
+	for name, col := range c.fixedColumns {
+		if col == ColumnState {
+			return name
+		}
+	}
+	return ""
+}
+
+// InitialState returns the state model's initial state.
+func (c *Compiled) InitialState() string { return c.states.Initial }
+
+// AllowsTransition reports whether the state model lists a transition from
+// one state to another. Staying in the same state is not a transition, and
+// this reports it only if the model lists it.
+func (c *Compiled) AllowsTransition(from, to string) bool {
+	return slices.Contains(c.states.Transitions, Transition{From: from, To: to})
+}
+
+// States returns a copy of the state model's states.
+func (c *Compiled) States() []string { return slices.Clone(c.states.States) }

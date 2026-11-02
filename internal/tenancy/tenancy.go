@@ -68,3 +68,25 @@ func InTenantTx(ctx context.Context, pool *pgxpool.Pool, tenantID uuid.UUID, fn 
 	}
 	return nil
 }
+
+// currentTenantSQL reads the transaction's tenant; empty when none is set.
+const currentTenantSQL = "SELECT coalesce(current_setting('app.tenant_id', true), '')"
+
+// TenantOf returns the tenant InTenantTx scoped tx to, or ErrNoTenant when tx
+// has none. Code that must name the tenant in a statement, such as the record
+// write pipeline, takes it from here rather than from its caller, so a
+// command can never write as another tenant than its transaction's.
+func TenantOf(ctx context.Context, tx pgx.Tx) (uuid.UUID, error) {
+	var s string
+	if err := tx.QueryRow(ctx, currentTenantSQL).Scan(&s); err != nil {
+		return uuid.Nil, fmt.Errorf("tenancy: read tenant: %w", err)
+	}
+	if s == "" {
+		return uuid.Nil, ErrNoTenant
+	}
+	id, err := uuid.Parse(s)
+	if err != nil || id == uuid.Nil {
+		return uuid.Nil, ErrNoTenant
+	}
+	return id, nil
+}

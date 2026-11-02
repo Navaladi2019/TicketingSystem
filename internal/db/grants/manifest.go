@@ -34,6 +34,9 @@ type Role struct {
 	Schemas        map[string][]string            `yaml:"schemas"`
 	Tables         map[string]map[string][]string `yaml:"tables"`
 	Functions      map[string][]string            `yaml:"functions"`
+	// Settings are role-wide parameters db-roles sets with ALTER ROLE ... SET
+	// (P3-09); a parameter set on the role but not listed is reset.
+	Settings map[string]string `yaml:"settings"`
 }
 
 // Exception is an object that breaks an I3 rule on purpose. db-roles creates
@@ -64,6 +67,17 @@ func schemaPrivs() []string   { return []string{"USAGE", "CREATE"} }
 func tablePrivs() []string {
 	return []string{"SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "USAGE"}
 }
+
+// AllowedSettings are the role parameters a manifest may set, with their
+// allowed values. Each is a planner or session parameter a role may hold;
+// none weakens a security check (row_security, search_path and the like
+// stay out).
+func AllowedSettings() map[string][]string {
+	return map[string][]string{
+		"plan_cache_mode": {"auto", "force_custom_plan", "force_generic_plan"},
+	}
+}
+
 func columnPrivs() []string   { return []string{"SELECT", "INSERT", "UPDATE", "REFERENCES"} }
 func functionPrivs() []string { return []string{"EXECUTE"} }
 
@@ -217,6 +231,16 @@ func (m *Manifest) Validate() error {
 					bad("role %s: columns repeat", where)
 				}
 			}
+		}
+		for k, v := range r.Settings {
+			if allowed, ok := AllowedSettings()[k]; !ok {
+				bad("role %s: setting %q is not one of %v", name, k, sortedKeys(AllowedSettings()))
+			} else if !slices.Contains(allowed, v) {
+				bad("role %s: setting %s = %q is not one of %v", name, k, v, allowed)
+			}
+		}
+		if name == owner && len(r.Settings) > 0 {
+			bad("role %s: the owner takes no settings", name)
 		}
 		for f, privs := range r.Functions {
 			fn, err := normalizeFunction(f)

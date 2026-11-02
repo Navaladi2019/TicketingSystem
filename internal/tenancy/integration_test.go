@@ -367,3 +367,28 @@ func leaks(s tracetest.SpanStub, markers ...string) []string {
 	check("status", s.Status.Description)
 	return out
 }
+
+// TenantOf returns the tenant InTenantTx set, and ErrNoTenant in a plain
+// transaction, so the record pipeline never writes without one.
+func TestTenantOf(t *testing.T) {
+	pool, _, _ := newPool(t, env(t, "NAVA_TEST_PG_URL"), 1)
+	ctx := context.Background()
+	tenantA := uuid.New()
+	if err := tenancy.InTenantTx(ctx, pool, tenantA, func(tx pgx.Tx) error {
+		got, err := tenancy.TenantOf(ctx, tx)
+		if err != nil || got != tenantA {
+			t.Errorf("TenantOf = %s, %v; want %s", got, err, tenantA)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tenancy.TenantOf(ctx, tx); !errors.Is(err, tenancy.ErrNoTenant) {
+		t.Fatalf("no tenant: %v, want ErrNoTenant", err)
+	}
+}

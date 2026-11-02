@@ -1,0 +1,34 @@
+meta {
+  name: S9.11 AC2: update without If-Match: 428
+  type: http
+  seq: 11
+}
+
+patch {
+  url: {{core_url}}/api/v1/records/incident/{{s9_id}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: tick359-s9-{{s9_run}}-nomatch
+  Content-Type: application/merge-patch+json
+}
+
+body:json {
+  {
+    "data": {
+      "priority": 4
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('if_match_required', 428);
+}
+
+docs {
+  No `If-Match`: 428 `if_match_required`.
+}

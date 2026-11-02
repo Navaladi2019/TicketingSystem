@@ -1,1 +1,2 @@
 "nava_it_pool" "test-only-pool"
+"nava_app" "test-pw-nava_app"

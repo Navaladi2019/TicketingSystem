@@ -1,0 +1,29 @@
+meta {
+  name: S9.7 AC1: the record reads back
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s9_id}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('the record of S9.4, version 1', () => {
+    expect(N.json().id).to.eql(bru.getVar('s9_id'));
+    expect(N.json().version).to.eql(1);
+    expect(N.header('ETag')).to.eql('W/"1"');
+  });
+}
+
+docs {
+  The record of S9.4 at version 1.
+}

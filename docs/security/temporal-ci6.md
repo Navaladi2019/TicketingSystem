@@ -96,7 +96,7 @@ type.
 The second CI-6 block and every CI-7 case. Source: ADR-001 Annex B CI-6 "Other
 cases", CI-7 and R1, A.2, and the TICK-93 audit (headers). The relay under test
 is the stack's own `nava-relay` service. The test writes outbox rows the way
-`outbox.Enqueue` does, as the superuser inside the postgres container, because
+a pipeline write and `outbox.EnqueueAtVersion` do, as the superuser inside the postgres container, because
 the database port is never published. The service claims the rows as
 `nava_relay` and dispatches them with its own certificate. A worker set up with
 `workerguard` runs the test body `relayProbe`, registered as the allow-listed

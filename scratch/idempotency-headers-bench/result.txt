@@ -1,0 +1,52 @@
+PostgreSQL 16.10 (Debian 16.10-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+Timing is on.
+CREATE TABLE
+Time: 30.303 ms
+INSERT 0 200000
+Time: 3132.089 ms (00:03.132)
+VACUUM
+Time: 161.273 ms
+   at   | heap  |  bytes   
+--------+-------+----------
+ before | 55 MB | 57556992
+(1 row)
+
+Time: 0.537 ms
+BEGIN
+Time: 0.105 ms
+SET
+Time: 0.277 ms
+ALTER TABLE
+Time: 0.387 ms
+COMMIT
+Time: 3.160 ms
+BEGIN
+Time: 0.105 ms
+ALTER TABLE
+Time: 17.875 ms
+COMMIT
+Time: 3.412 ms
+             at             | heap  |  bytes   
+----------------------------+-------+----------
+ after migration (all NULL) | 55 MB | 57556992
+(1 row)
+
+Time: 0.287 ms
+CREATE TABLE AS
+Time: 11.319 ms
+INSERT 0 200000
+Time: 1420.104 ms (00:01.420)
+VACUUM
+Time: 545.053 ms
+               at               | heap  |  bytes   
+--------------------------------+-------+----------
+ every row with ETag + Location | 74 MB | 78077952
+(1 row)
+
+Time: 0.515 ms
+ avg_value_bytes 
+-----------------
+              99
+(1 row)
+
+Time: 28.453 ms

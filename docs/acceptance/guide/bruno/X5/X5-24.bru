@@ -1,0 +1,42 @@
+meta {
+  name: X5.24 patchRecord 200: the current ETag
+  type: http
+  seq: 24
+}
+
+patch {
+  url: {{core_url}}/api/v1/records/{{x5_type}}/{{x5_id}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: {{x5_key8}}
+  Content-Type: application/merge-patch+json
+  If-Match: W/"1"
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "Printer fixed"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('version 2, patched, other fields kept', () => {
+    const b = N.json();
+    expect(b.version).to.eql(2);
+    expect(b.data.short_description).to.eql('Printer fixed');
+    expect(b.data.state).to.eql('new');
+    expect(N.header('ETag')).to.eql('W/"2"');
+  });
+}
+
+docs {
+  A merge patch on `data`. The response is version 2 with a new `ETag`.
+}

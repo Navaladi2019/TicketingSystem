@@ -80,3 +80,23 @@ codes:
     status: 422
     title: Schema breaking change
     detail: The new version cannot be applied to existing records. See errors for the offending paths.
+  - code: record_invalid
+    status: 422
+    title: Record invalid
+    detail: The record is not accepted. See errors for the failing fields.
+  - code: if_match_required
+    status: 428
+    title: If-Match required
+    detail: Updating a record needs an If-Match header with its current ETag. The value * does not count.
+  - code: version_conflict
+    status: 412
+    title: Version conflict
+    detail: The record has changed since the ETag in If-Match. The current ETag is in the ETag header.
+  - code: illegal_transition
+    status: 422
+    title: Illegal state transition
+    detail: The entity type's state model does not allow this change of state.
+  - code: unique_violation
+    status: 409
+    title: Unique value taken
+    detail: Another record of this entity type already holds the value of a unique property. See errors for the property.

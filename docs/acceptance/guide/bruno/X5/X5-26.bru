@@ -1,0 +1,35 @@
+meta {
+  name: X5.26 patchRecord 409: the key of X5.24 with another body
+  type: http
+  seq: 26
+}
+
+patch {
+  url: {{core_url}}/api/v1/records/{{x5_type}}/{{x5_id}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: {{x5_key8}}
+  Content-Type: application/merge-patch+json
+  If-Match: W/"1"
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "another"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('idempotency_key_reuse', 409);
+}
+
+docs {
+  The key of X5.24 with a different body.
+}

@@ -1,0 +1,109 @@
+== 1. migration on 800,000 bare rows
+ before_relfilenode | heap  
+--------------------+-------
+              16408 | 52 MB
+(1 row)
+
+Time: 0.067 ms
+Time: 1237.713 ms (00:01.238)
+Time: 736.911 ms
+Time: 1280.519 ms (00:01.281)
+Time: 59.056 ms
+Time: 10.955 ms
+Time: 5.417 ms
+Time: 4.978 ms
+Time: 0.208 ms
+Time: 0.196 ms
+Time: 0.539 ms
+Time: 0.328 ms
+Time: 5.522 ms
+Time: 0.215 ms
+Time: 0.251 ms
+Time: 0.306 ms
+Time: 1.153 ms
+Time: 0.289 ms
+Time: 43.720 ms
+ after_relfilenode | heap  
+-------------------+-------
+             16408 | 52 MB
+(1 row)
+
+== 2. pipeline rows
+psql:/bench/bench.sql:36: NOTICE:  truncate cascades to table "audit_log"
+          relname          |  size  
+---------------------------+--------
+ audit_log                 | 481 MB
+ audit_log_idempotency_key | 84 MB
+ audit_log_pkey            | 247 MB
+ audit_log_record          | 390 MB
+ record_counters           | 16 kB
+ records                   | 156 MB
+ records_number_key        | 93 MB
+ records_pkey              | 49 MB
+ records_tenant_group_open | 19 MB
+ records_tenant_requester  | 79 MB
+ records_tenant_updated    | 80 MB
+(11 rows)
+
+-- a record's history
+                                                                QUERY PLAN                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------
+ Index Scan using audit_log_record on audit_log (actual rows=5 loops=1)
+   Index Cond: ((tenant_id = '004e42a0-40f6-238e-60d0-826a9a3d9574'::uuid) AND (record_id = '00153883-9929-4fac-a017-587378ec688f'::uuid))
+   Buffers: shared read=5 written=5
+ Planning:
+   Buffers: shared hit=46
+ Planning Time: 0.131 ms
+ Execution Time: 0.056 ms
+(7 rows)
+
+-- the replay lookup (D-3-13)
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+ Index Scan using audit_log_idempotency_key on audit_log (actual rows=1 loops=1)
+   Index Cond: ((tenant_id = '004e42a0-40f6-238e-60d0-826a9a3d9574'::uuid) AND (idempotency_key = 'wf:00153883-9929-4fac-a017-587378ec688f:s1'::text))
+   Buffers: shared hit=1 read=3 written=3
+ Planning Time: 0.047 ms
+ Execution Time: 0.039 ms
+(5 rows)
+
+-- the counter upsert (D-3-9)
+                    QUERY PLAN                     
+---------------------------------------------------
+ Insert on record_counters (actual rows=1 loops=1)
+   Conflict Resolution: UPDATE
+   Conflict Arbiter Indexes: record_counters_pkey
+   Tuples Inserted: 0
+   Conflicting Tuples: 1
+   Buffers: shared hit=9
+   ->  Result (actual rows=1 loops=1)
+ Planning:
+   Buffers: shared hit=6
+ Planning Time: 0.064 ms
+ Execution Time: 0.069 ms
+(11 rows)
+
+-- what the ON DELETE SET NULL action runs per deleted group (4,000-record tenant)
+                                      QUERY PLAN                                      
+--------------------------------------------------------------------------------------
+ Update on records (actual rows=0 loops=1)
+   Buffers: shared hit=4529 read=3924 dirtied=344 written=3886
+   ->  Bitmap Heap Scan on records (actual rows=200 loops=1)
+         Recheck Cond: (tenant_id = '004e42a0-40f6-238e-60d0-826a9a3d9574'::uuid)
+         Filter: (assignment_group_id = 'b14e2708-a0dc-4172-0e78-b985cb74c89b'::uuid)
+         Rows Removed by Filter: 3800
+         Heap Blocks: exact=4000
+         Buffers: shared hit=230 read=3800 written=3748
+         ->  Bitmap Index Scan on records_pkey (actual rows=4000 loops=1)
+               Index Cond: (tenant_id = '004e42a0-40f6-238e-60d0-826a9a3d9574'::uuid)
+               Buffers: shared hit=30
+ Planning:
+   Buffers: shared hit=5
+ Planning Time: 0.116 ms
+ Execution Time: 27.621 ms
+(15 rows)
+
+-- the group delete itself, as group sync issues it
+Time: 0.271 ms
+Time: 9.348 ms
+Time: 0.225 ms

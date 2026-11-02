@@ -1,0 +1,32 @@
+meta {
+  name: S9.18 AC5: agent@tenant-b reads tenant A's history: the same 404
+  type: http
+  seq: 18
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s9_id}}/history
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 404 problem+json, code not_found, no instance', () => {
+    expect(res.getStatus()).to.eql(404);
+    expect(N.header('Content-Type') || '').to.include('application/problem+json');
+    expect(N.json().code).to.eql('not_found');
+    expect(N.json()).to.not.have.property('instance');
+  });
+  N.status(404);
+  test("body byte-identical to S9.15's 404", () => expect(N.text()).to.eql(bru.getVar('s9_ref404')));
+  N.noLeak(bru.getVar('s9_id'), bru.getVar('s9_number'), 'S9 ' + bru.getVar('s9_run'));
+}
+
+docs {
+  Byte-identical to S9.15.
+}

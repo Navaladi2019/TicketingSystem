@@ -199,4 +199,4 @@ T30a:
 concurrent claimers, lease takeover, fairness with the capped tenant's log
 line and `le="200"` = `_count`, successor push with 0 rows scanned while the
 head waits, the 24 h dead letter at Backoff and at a lease takeover, rows
-written by `outbox.Enqueue`, and the grants.
+written by `outbox.EnqueueAtVersion`, and the grants.

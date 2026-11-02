@@ -1,0 +1,51 @@
+meta {
+  name: S9.4 AC1: Alice creates an incident: 201, INC number, ETag
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{core_url}}/api/v1/records/incident
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: tick359-s9-{{s9_run}}-create
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "S9 {{s9_run}} printer on fire",
+      "priority": 2
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  test('number is INC and 7 digits', () => expect(b.number).to.match(/^INC\d{7}$/));
+  if (String(N.v('s9_fresh_a')) === '1') test('number: INC0000001 (fresh stack)', () => expect(b.number).to.eql('INC0000001'));
+  test('version 1, state new, the data sent', () => {
+    expect(b.version).to.eql(1);
+    expect(b.state).to.eql('new');
+    expect(b.data.short_description).to.eql('S9 ' + bru.getVar('s9_run') + ' printer on fire');
+    expect(b.data.priority).to.eql(2);
+  });
+  test('ETag W/"1" and Location', () => {
+    expect(N.header('ETag')).to.eql('W/"1"');
+    expect(N.header('Location')).to.eql('/api/v1/records/incident/' + b.id);
+  });
+  bru.setVar('s9_id', b.id);
+  bru.setVar('s9_number', b.number);
+  console.log('S9.4 created', b.number, b.id);
+}
+
+docs {
+  201 with `number` `INC` and seven digits (`INC0000001` on a fresh stack), version 1, state `new` (the default), `ETag: W/"1"` and a `Location`.
+}

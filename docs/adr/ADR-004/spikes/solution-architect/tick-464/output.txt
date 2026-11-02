@@ -1,0 +1,21 @@
+TICK-464 spike, verifier at origin/TICK-425/nava-audit-verify 47bdec9, go1.26.10
+
+## Before (PR #370 as is)
+A stubs=false verifiable=false complete 1..7 (TA-6F)                             -> tampered line 10: verifiable_flag_mismatch: header stubs and trailer verifiable must both be true for this range
+B stubs=false verifiable=true complete 1..7 (honest, filter matched all)         -> tampered line 10: verifiable_flag_mismatch: header stubs and trailer verifiable must both be true for this range
+C stubs=false verifiable=false range 1..5, seq 5 excluded (trailing gap)         -> tampered line 7: head_mismatch: the last range line is not last_seq with entry_hash head_hash
+D stubs=false verifiable=true range 1..5, seq 2 excluded (internal gap)          -> tampered line 7: verifiable_flag_mismatch: header stubs and trailer verifiable must both be false for this range
+E stubs=true range 1..5, seq 2 missing                                           -> tampered line 4: seq_missing: seq 2..2 missing from a stubs=true file
+F stubs=true range 1..5, seq 5 missing (trailing)                                -> tampered line 7: head_mismatch: the last range line is not last_seq with entry_hash head_hash
+G stubs=false verifiable=false range 1..5, seq 2 excluded (honest internal gap)  -> unverifiable no failure
+
+## After (verify-step8.patch applied)
+A stubs=false verifiable=false complete 1..7 (TA-6F)                             -> tampered line 10: verifiable_flag_mismatch: trailer verifiable must be true for this range
+B stubs=false verifiable=true complete 1..7 (honest, filter matched all)         -> pass no failure
+C stubs=false verifiable=false range 1..5, seq 5 excluded (trailing gap)         -> unverifiable no failure
+D stubs=false verifiable=true range 1..5, seq 2 excluded (internal gap)          -> tampered line 7: verifiable_flag_mismatch: trailer verifiable must be false for this range
+E stubs=true range 1..5, seq 2 missing                                           -> tampered line 4: seq_missing: seq 2..2 missing from a stubs=true file
+F stubs=true range 1..5, seq 5 missing (trailing)                                -> tampered line 7: seq_missing: seq 5..5 missing from a stubs=true file
+G stubs=false verifiable=false range 1..5, seq 2 excluded (honest internal gap)  -> unverifiable no failure
+
+go test ./internal/audit/... with the patch: ok (chain, verify); every existing vector keeps its expected outcome.

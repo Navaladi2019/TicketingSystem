@@ -1,0 +1,11 @@
+--- PASS: TestCI10_ConcurrentClaimsOfOneKey
+--- PASS: TestCI10_ConcurrentProducersConsecutiveTargetSeq
+--- PASS: TestCI10_DepthBeyondLimitRejectedAndAuditedOnTheRunner
+--- PASS: TestCI10_DepthBeyondLimitWritesNothing
+--- PASS: TestCI10_DuplicateDedupeKeyWritesOneRow
+--- PASS: TestCI10_RetriedActivityCreatesNoSecondStart
+--- PASS: TestCI10_SiblingAndSelfRetriggeringWritesAreNotCycles
+--- PASS: TestCI10_SignalWithNoOpenWorkflow
+--- PASS: TestCI10_StartKeyIsPerTenant
+--- PASS: TestCI10_TooDeepUpdateOfAnotherTenantsRecordLeaksNothing
+--- PASS: TestCI10_WriteBackToTriggeringRecordCommits
