@@ -45,7 +45,7 @@ flowchart TD
   expected version is `ErrVersionConflict`, and so is a stale
   `ExpectedVersion` seen at load. A sink that enqueues outbox rows must use
   `outbox.EnqueueAtVersion(ctx, tx, entry, ev.Version)`, which locks the row
-  without bumping it again; `outbox.Enqueue` would bump it a second time.
+  without bumping it again. outbox has no bumping call (TICK-411).
 - **Current version wins.** An update validates against the current
   definition after its defaults, and moves `schema_version` to it. The stored
   payload is rebuilt with the mapping of the version it was written under.

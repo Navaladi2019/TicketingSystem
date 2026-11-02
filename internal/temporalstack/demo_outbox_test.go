@@ -5,8 +5,8 @@ package temporalstack
 // The S7 demo (make demo-outbox, TICK-275) must keep working: run twice with
 // one dedupe key, it leaves exactly one workflow of the tenant, and that
 // workflow's history holds the two signal rows' deliveries in commit order.
-// The rows are written by cmd/demo-outbox through outbox.EnqueueAtVersion and the
-// stack's nava-relay service hands them to Temporal. The test's worker runs
+// cmd/demo-outbox writes its record through the pipeline and one row per
+// write, and the stack's nava-relay service hands them to Temporal. The test's worker runs
 // relayProbe as that type, which has no demo.note channel, so the signals stay
 // unapplied and the history is the evidence. Run by
 // make stack-test-demo_outbox only (build tag demooutbox), not by the
