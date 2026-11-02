@@ -42,6 +42,7 @@ func TestClassify(t *testing.T) {
 		{"parent package", []string{"internal/db/pool.go"}, "ci-lint ci-unit"},
 		{"compose, which unit tests read too", []string{"deploy/compose/keycloak/realm.json", "compose.yaml"}, "ci-lint ci-unit ci-stack"},
 		{"non-documentation file under docs", []string{"docs/delivery/review-paths.yaml"}, "ci-lint ci-unit ci-integration ci-stack"},
+		{"S13 acceptance kit", []string{"docs/acceptance/S13/README.md", "docs/acceptance/S13/export-ok.jsonl"}, "ci-lint ci-unit"},
 		{"testdata markdown", []string{"tools/ci/checkpins/testdata/pins.md"}, "ci-lint ci-unit"},
 		{"markdown in a package", []string{"internal/server/NOTES.md"}, "ci-lint ci-unit ci-stack"},
 		{"temporal-server module", []string{"temporal-server/authz/authz.go"}, "ci-lint ci-unit ci-stack"},

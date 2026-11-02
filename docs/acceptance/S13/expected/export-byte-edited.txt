@@ -1,0 +1,2 @@
+exit 1
+tampered: line 4 (seq 2): envelope_sha256_mismatch: envelope_sha256 is not SHA-256(JCS(envelope))
