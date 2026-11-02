@@ -1,0 +1,13 @@
+-- Item 3: one audit INSERT per transaction for tenant 3 (WAL per entry).
+\set r random(1, 20000)
+BEGIN;
+SELECT set_config('app.tenant_id', md5('tenant-3')::uuid::text, true);
+INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, entity_definition_id, version_before, version_after,
+                       actor_principal_id, source, request_id, content_sha256, diff, diff_salt, diff_sha256)
+VALUES (md5('tenant-3')::uuid, gen_random_uuid(), 'record', 'update', 'record', md5('rec-3-' || :r)::uuid,
+        md5('def-3')::uuid, 1, 2, md5('user-' || :r)::uuid, 'user', 'req-wal',
+        '\x8a4f1c3e5b7d9f0a2c4e6a8b0d2f4a6c8e0a2c4e6a8b0d2f4a6c8e0a2c4e6a8b',
+        '[{"op":"replace","path":"/status","value":3},{"op":"replace","path":"/description","value":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}]',
+        '\x00112233445566778899aabbccddeeff',
+        '\x1b3d5f7091b3d5f7091b3d5f7091b3d5f7091b3d5f7091b3d5f7091b3d5f7091');
+COMMIT;
