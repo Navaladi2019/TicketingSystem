@@ -377,3 +377,124 @@ func TestCreateRecordIgnoresCausationFromTheRequest(t *testing.T) {
 		t.Errorf("the response carries the request's causation origin: %s", rec.Body)
 	}
 }
+
+// TICK-482: the key completes in the handler's transaction, so no failure
+// after the commit can leave it in_flight with the record written.
+func TestCreateRecordKeyIsCompletedWithTheWrite(t *testing.T) {
+	e := newRecEnv(t)
+	first := e.createRec(t, "user-a", "ticket", "k-482", `{"short_description": "once"}`)
+	if first.Code != http.StatusCreated {
+		t.Fatalf("create = %d: %s", first.Code, first.Body)
+	}
+	// Right after the response, and with nothing the middleware did afterwards
+	// needed, the key holds the original response.
+	var state string
+	var status int
+	if err := e.super.QueryRow(t.Context(),
+		"SELECT state, response_status FROM idempotency_keys WHERE key = 'k-482'").Scan(&state, &status); err != nil {
+		t.Fatal(err)
+	}
+	if state != "completed" || status != http.StatusCreated {
+		t.Fatalf("key = %s/%d after the write, want completed/201", state, status)
+	}
+	// The client lost the response; the lease of the (completed) row passes;
+	// the retry finds the committed record and runs nothing.
+	if _, err := e.super.Exec(t.Context(),
+		"UPDATE idempotency_keys SET lease_until = now() - interval '1 hour' WHERE key = 'k-482'"); err != nil {
+		t.Fatal(err)
+	}
+	again := e.createRec(t, "user-a", "ticket", "k-482", `{"short_description": "once"}`)
+	if again.Code != http.StatusCreated || again.Body.String() != first.Body.String() || again.Header().Get("Idempotent-Replayed") != "true" {
+		t.Errorf("retry = %d replayed=%q, want the original 201:\n%s\nwant:\n%s", again.Code, again.Header().Get("Idempotent-Replayed"), again.Body, first.Body)
+	}
+	if n := e.recordCount(t, "a"); n != 1 {
+		t.Errorf("tenant A has %d records, want exactly 1", n)
+	}
+}
+
+// A failure while storing the response now fails the whole write: the record
+// is not committed, the key is retaken after the lease, and the retry creates
+// exactly one record with one number.
+func TestCreateRecordStoreFailureRollsBackTheWriteAndTheRetryCreatesOne(t *testing.T) {
+	e := newRecEnv(t)
+	ctx := t.Context()
+	for _, q := range []string{
+		`CREATE FUNCTION fail_idem_store() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected store failure'; END $$`,
+		`CREATE TRIGGER fail_idem_store BEFORE UPDATE ON idempotency_keys FOR EACH ROW EXECUTE FUNCTION fail_idem_store()`,
+	} {
+		if _, err := e.super.Exec(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	failed := e.createRec(t, "user-a", "ticket", "k-482b", `{"short_description": "once"}`)
+	if failed.Code != http.StatusInternalServerError {
+		t.Fatalf("create with the store failing = %d, want 500: %s", failed.Code, failed.Body)
+	}
+	if n := e.recordCount(t, "a"); n != 0 {
+		t.Fatalf("tenant A has %d records after the failed store, want 0 (the write rolls back with the key)", n)
+	}
+	if _, err := e.super.Exec(ctx, `DROP TRIGGER fail_idem_store ON idempotency_keys`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.super.Exec(ctx,
+		"UPDATE idempotency_keys SET lease_until = now() - interval '1 second' WHERE key = 'k-482b'"); err != nil {
+		t.Fatal(err)
+	}
+	retry := e.createRec(t, "user-a", "ticket", "k-482b", `{"short_description": "once"}`)
+	if retry.Code != http.StatusCreated {
+		t.Fatalf("retry = %d: %s", retry.Code, retry.Body)
+	}
+	if n := e.recordCount(t, "a"); n != 1 {
+		t.Errorf("tenant A has %d records after the retry, want exactly 1", n)
+	}
+	replay := e.createRec(t, "user-a", "ticket", "k-482b", `{"short_description": "once"}`)
+	if replay.Body.String() != retry.Body.String() || replay.Header().Get("Idempotent-Replayed") != "true" {
+		t.Errorf("replay differs from the retry's response:\n%s\n%s", replay.Body, retry.Body)
+	}
+}
+
+// A stale owner: a takeover completed the key while the first owner was still
+// inside its transaction. The trigger stands in for that takeover by marking
+// the key completed when the record is inserted. The guarded store
+// (state = 'in_flight') then matches no row, so the stale owner's write rolls
+// back instead of writing a second time. Without the guard the store would
+// overwrite the key and commit a second record.
+//
+// A trigger runs in the handler's own transaction, so its update rolls back
+// with the write; a real takeover commits in its own transaction. The test
+// therefore proves the rollback and the 500, and that the stale owner did not
+// store its own 201 response.
+func TestCreateRecordStaleOwnerRollsBackWhenTheKeyIsAlreadyCompleted(t *testing.T) {
+	e := newRecEnv(t)
+	ctx := t.Context()
+	for _, q := range []string{
+		`CREATE FUNCTION takeover_idem() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  UPDATE idempotency_keys
+     SET state = 'completed', response_status = 201, response_body = '{"by":"takeover"}'::bytea
+   WHERE key = 'k-482c';
+  RETURN NEW;
+END $$`,
+		`CREATE TRIGGER takeover_idem AFTER INSERT ON records FOR EACH ROW EXECUTE FUNCTION takeover_idem()`,
+	} {
+		if _, err := e.super.Exec(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := e.createRec(t, "user-a", "ticket", "k-482c", `{"short_description": "once"}`)
+	if got.Code != http.StatusInternalServerError {
+		t.Fatalf("stale owner create = %d, want 500: %s", got.Code, got.Body)
+	}
+	if n := e.recordCount(t, "a"); n != 0 {
+		t.Errorf("tenant A has %d records, want 0: the stale owner's write must roll back", n)
+	}
+	var state string
+	var body []byte
+	if err := e.super.QueryRow(ctx,
+		"SELECT state, response_body FROM idempotency_keys WHERE key = 'k-482c'").Scan(&state, &body); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), `"number"`) {
+		t.Errorf("the key holds the stale owner's response: %s", body)
+	}
+}
