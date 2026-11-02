@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 )
 
 // recordPaths are the record routes (P3-14, TICK-357): the entity-type
@@ -33,6 +35,7 @@ func recordPaths() []Path {
 	return []Path{
 		db("tenant B reading tenant A's record gets the missing record's 404, byte for byte", recReadOtherTenants),
 		db("tenant B patching tenant A's record or reading its history gets the missing record's 404, byte for byte, and changes nothing", recPatchOtherTenants),
+		db("a history cursor issued to tenant A's caller is refused for tenant B on the same URL with 400 invalid_cursor", recHistoryCursorReplay),
 		db("tenant B creating under tenant A's type gets the unknown type's 404, byte for byte, and writes nothing", recCreateOtherTenantsType),
 	}
 }
@@ -158,6 +161,39 @@ func recPatchOtherTenants(ctx context.Context, e *etIso) error {
 	}
 	if v != 1 {
 		return fmt.Errorf("tenant A's record is at version %d after tenant B's patch, want 1", v)
+	}
+	return nil
+}
+
+// recHistoryCursorReplay (TICK-358): a history cursor decodes for the caller
+// it was issued to and for nobody else, on the same URL.
+func recHistoryCursorReplay(ctx context.Context, e *etIso) error {
+	id, err := recCreate(ctx, e)
+	if err != nil {
+		return err
+	}
+	patch := http.Header{"Content-Type": {"application/merge-patch+json"}, "If-Match": {`W/"1"`}}
+	if code, body := e.do(ctx, http.MethodPatch, "/api/v1/records/iso_et_rec/"+id, etCallerA, `{"data": {"note": "again"}}`, patch); code != http.StatusOK {
+		return fmt.Errorf("control: tenant A patching its record = %d %s, want 200", code, body)
+	}
+	first := "/api/v1/records/iso_et_rec/" + id + "/history?limit=1"
+	code, body := e.do(ctx, http.MethodGet, first, etCallerA, "", nil)
+	if code != http.StatusOK {
+		return fmt.Errorf("control: tenant A's first history page = %d %s, want 200", code, body)
+	}
+	var page struct {
+		Next string `json:"next_cursor"`
+	}
+	if err := json.Unmarshal([]byte(body), &page); err != nil || page.Next == "" {
+		return fmt.Errorf("control: tenant A's first history page has no next_cursor: %w: %s", err, body)
+	}
+	next := first + "&cursor=" + url.QueryEscape(page.Next)
+	if code, body := e.do(ctx, http.MethodGet, next, etCallerA, "", nil); code != http.StatusOK {
+		return fmt.Errorf("control: tenant A replaying its own cursor = %d %s, want 200", code, body)
+	}
+	code, body = e.do(ctx, http.MethodGet, next, etCallerB, "", nil)
+	if code != http.StatusBadRequest || !strings.Contains(body, `"invalid_cursor"`) {
+		return fmt.Errorf("tenant B replaying tenant A's cursor = %d %s, want 400 invalid_cursor", code, body)
 	}
 	return nil
 }

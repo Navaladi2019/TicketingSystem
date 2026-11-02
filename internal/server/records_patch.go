@@ -28,7 +28,7 @@ import (
 
 // PATCH and history of a record (TICK-358, P3-15). Check order of PATCH:
 // authn, entity type and record (the one 404), If-Match missing (428), stale
-// (412), authorizer, body (422).
+// (412), body (422), then the authorizer inside the pipeline.
 
 const getRecordHistoryRoute = "getRecordHistory"
 
@@ -139,6 +139,9 @@ func (h *handlers) PatchRecord(ctx context.Context, req api.PatchRecordRequestOb
 		case errors.Is(err, pipeline.ErrVersionConflict):
 			// A writer committed between our read and our write.
 			current, rerr := h.currentVersion(ctx, p.TenantID, id)
+			if errors.Is(rerr, pipeline.ErrNotFound) {
+				return h.notFound(ctx), nil
+			}
 			if rerr != nil {
 				return nil, rerr
 			}

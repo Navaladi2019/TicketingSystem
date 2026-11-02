@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -283,14 +284,24 @@ func TestPatchHistoryPagesNewestFirst(t *testing.T) {
 	if want := "updateb,updatea,create<nil>"; strings.Join(walked, ",") != want {
 		t.Errorf("walk = %v, want %s", walked, want)
 	}
-	// A cursor replayed by tenant B (who has its own record) or by another
-	// principal of tenant A is a 400.
-	rb := e.mustCreateRec(t, "user-b", "job", "cb", `{"short_description": "b"}`)
-	if rec := e.do(t, http.MethodGet, "/api/v1/records/job/"+rb.ID+"/history?limit=1&cursor="+firstCursor, "user-b", "", ""); rec.Code != http.StatusBadRequest {
-		t.Errorf("tenant B replay = %d, want 400: %s", rec.Code, rec.Body)
+	// A cursor of this record's history is refused for tenant B on the same
+	// URL (the tenant claim), for another principal of tenant A, and for
+	// another record of tenant A (the query hash).
+	replay := func(token, id string) *httptest.ResponseRecorder {
+		return e.do(t, http.MethodGet, "/api/v1/records/job/"+id+"/history?limit=1&cursor="+url.QueryEscape(firstCursor), token, "", "")
 	}
-	if rec := e.do(t, http.MethodGet, "/api/v1/records/job/"+r.ID+"/history?limit=1&cursor="+firstCursor, "admin-a", "", ""); rec.Code != http.StatusBadRequest {
-		t.Errorf("other principal replay = %d, want 400: %s", rec.Code, rec.Body)
+	if rec := replay("user-a", r.ID); rec.Code != http.StatusOK {
+		t.Fatalf("control: the issuing caller's replay = %d: %s", rec.Code, rec.Body)
+	}
+	other := e.mustCreateRec(t, "user-a", "job", "c-other", `{"short_description": "other"}`)
+	for name, c := range map[string][2]string{
+		"tenant B on the same record":       {"user-b", r.ID},
+		"another principal of tenant A":     {"admin-a", r.ID},
+		"another record of the same tenant": {"user-a", other.ID},
+	} {
+		if rec := replay(c[0], c[1]); rec.Code != http.StatusBadRequest || patchProblemCode(t, rec) != "invalid_cursor" {
+			t.Errorf("%s: replay = %d, want 400 invalid_cursor: %s", name, rec.Code, rec.Body)
+		}
 	}
 	// Tenant B reading tenant A's history gets the 404 of a missing record.
 	rec, _ = get("user-b", "")
