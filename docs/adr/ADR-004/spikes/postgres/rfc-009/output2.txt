@@ -1,0 +1,214 @@
+Pager usage is off.
+Timing is off.
+                                                       version                                                        
+----------------------------------------------------------------------------------------------------------------------
+ PostgreSQL 16.10 (Debian 16.10-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+(1 row)
+
+CREATE EXTENSION
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE INDEX
+CREATE INDEX
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+INSERT 0 1
+== X0: uuid_send byte order is the textual (RFC 4122 network) order, same as Go uuid.UUID[:]
+          uuid_send_hex           
+----------------------------------
+ 00112233445566778899aabbccddeeff
+(1 row)
+
+== X1 (not in RFC spike): the same (O,R,D) suppressed twice on ONE write: same key, same version_after
+BEGIN
+UPDATE 1
+INSERT 0 1
+INSERT 0 1
+psql:/spike2.sql:41: ERROR:  duplicate key value violates unique constraint "audit_log_default_tenant_id_occurred_at_txid_subject_type_s_key"
+DETAIL:  Key (tenant_id, occurred_at, txid, subject_type, subject_id, version_after)=(11111111-1111-1111-1111-111111111111, 2026-11-01 20:18:22.958847+00, 741, cascade_key, 4104f2c8-b5e1-5f44-9f2a-c1bb00945312, 2) already exists.
+ROLLBACK
+                       x1                        
+-------------------------------------------------
+ X1: the user write is lost with it, R version=1
+(1 row)
+
+== X2 (not in RFC spike): two cascade_too_deep entries for R in ONE runner tx (version_after NULL)
+BEGIN
+INSERT 0 1
+psql:/spike2.sql:48: ERROR:  duplicate key value violates unique constraint "audit_log_default_tenant_id_occurred_at_txid_subject_type_s_key"
+DETAIL:  Key (tenant_id, occurred_at, txid, subject_type, subject_id, version_after)=(11111111-1111-1111-1111-111111111111, 2026-11-01 20:18:22.963188+00, 742, record, 22222222-2222-2222-2222-222222222222, null) already exists.
+ROLLBACK
+== X3: json -> and ->> operators are IMMUTABLE (so an expression index on the json diff is allowed)
+         proname         | provolatile 
+-------------------------+-------------
+ json_array_element      | i
+ json_array_element_text | i
+ json_object_field       | i
+ json_object_field_text  | i
+(4 rows)
+
+== Load: 10 tenants, 1,600,000 update rows + 400,000 cascade_cycle rows (json diff), 400,000 records
+INSERT 0 1600000
+INSERT 0 400000
+INSERT 0 40
+VACUUM
+ updates | cycles 
+---------+--------
+ 1600000 | 400040
+(1 row)
+
+== B1 before: cycle rows for record RR (by diff), R28 indexes only
+                                                                               QUERY PLAN                                                                               
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=177.744..298.311 rows=41 loops=1)
+   Buffers: shared hit=51714 read=58282 written=15077
+   ->  Index Scan using audit_log_default_tenant_id_occurred_at_id_idx on audit_log_default audit_log (actual time=177.742..298.302 rows=41 loops=1)
+         Index Cond: (tenant_id = '00000000-0000-4000-8000-000000000002'::uuid)
+         Filter: ((action = 'cascade_cycle'::text) AND (((((diff -> 0) -> 'value'::text) ->> 'record_id'::text))::uuid = '00000000-0000-4000-9000-000000000002'::uuid))
+         Rows Removed by Filter: 199999
+         Buffers: shared hit=51714 read=58282 written=15077
+ Planning:
+   Buffers: shared hit=32
+ Planning Time: 0.181 ms
+ Execution Time: 298.329 ms
+(11 rows)
+
+== B2: filter by origin through causation_id (RFC-009 point 5). R28 has no causation_id index
+                                                            QUERY PLAN                                                            
+----------------------------------------------------------------------------------------------------------------------------------
+ Gather (actual time=91.948..129.704 rows=48 loops=1)
+   Workers Planned: 2
+   Workers Launched: 2
+   Buffers: shared hit=9089 read=51203 written=1
+   ->  Parallel Bitmap Heap Scan on audit_log_default audit_log (actual time=84.565..112.064 rows=16 loops=3)
+         Recheck Cond: (tenant_id = '00000000-0000-4000-8000-000000000002'::uuid)
+         Filter: (causation_id = '00000000-0000-4000-a000-000000000002'::uuid)
+         Rows Removed by Filter: 66664
+         Heap Blocks: exact=22791
+         Buffers: shared hit=9089 read=51203 written=1
+         ->  Bitmap Index Scan on audit_log_default_tenant_id_occurred_at_id_idx (actual time=22.084..22.086 rows=200040 loops=1)
+               Index Cond: (tenant_id = '00000000-0000-4000-8000-000000000002'::uuid)
+               Buffers: shared hit=349 read=1678
+ Planning:
+   Buffers: shared read=3 dirtied=1
+ Planning Time: 0.147 ms
+ Execution Time: 129.736 ms
+(17 rows)
+
+== Fallback index (partial, cycle rows only). CONCURRENTLY on the partitioned parent:
+Timing is on.
+psql:/spike2.sql:89: ERROR:  cannot create index on partitioned table "audit_log" concurrently
+CREATE INDEX
+Time: 1143.268 ms (00:01.143)
+Timing is off.
+ANALYZE
+                             relname                             |  size  
+-----------------------------------------------------------------+--------
+ audit_log_default_pkey                                          | 163 MB
+ audit_log_default_tenant_id_occurred_at_id_idx                  | 160 MB
+ audit_log_default_tenant_id_occurred_at_txid_subject_type_s_key | 240 MB
+ audit_log_default_tenant_id_subject_type_subject_id_occurre_idx | 221 MB
+ audit_log_default_tenant_id_uuid_occurred_at_idx                | 23 MB
+(5 rows)
+
+  heap  
+--------
+ 455 MB
+(1 row)
+
+== B1 after
+                                                                                              QUERY PLAN                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.014..0.029 rows=41 loops=1)
+   Buffers: shared hit=3 read=4
+   ->  Index Scan using audit_log_default_tenant_id_uuid_occurred_at_idx on audit_log_default audit_log (actual time=0.014..0.026 rows=41 loops=1)
+         Index Cond: ((tenant_id = '00000000-0000-4000-8000-000000000002'::uuid) AND (((((diff -> 0) -> 'value'::text) ->> 'record_id'::text))::uuid = '00000000-0000-4000-9000-000000000002'::uuid))
+         Buffers: shared hit=3 read=4
+ Planning:
+   Buffers: shared hit=48 read=5
+ Planning Time: 0.233 ms
+ Execution Time: 0.039 ms
+(9 rows)
+
+== X4: erasure nulls diff (R23): the row drops out of the fallback index; the recomputed key still finds it
+UPDATE 1
+ findable_by_diff 
+------------------
+               40
+(1 row)
+
+ findable_by_recomputed_key 
+----------------------------
+                         41
+(1 row)
+
+== W: write cost of the fallback index, 100,000 cycle-row inserts (3 runs each, rolled back)
+CREATE FUNCTION
+Timing is on.
+with index
+BEGIN
+Time: 0.086 ms
+ load_cycles 
+-------------
+ 
+(1 row)
+
+Time: 5525.544 ms (00:05.526)
+ROLLBACK
+Time: 0.318 ms
+BEGIN
+Time: 0.105 ms
+ load_cycles 
+-------------
+ 
+(1 row)
+
+Time: 3916.670 ms (00:03.917)
+ROLLBACK
+Time: 0.278 ms
+BEGIN
+Time: 0.386 ms
+ load_cycles 
+-------------
+ 
+(1 row)
+
+Time: 3881.196 ms (00:03.881)
+ROLLBACK
+Time: 0.210 ms
+DROP INDEX
+Time: 22.339 ms
+without index
+BEGIN
+Time: 0.269 ms
+ load_cycles 
+-------------
+ 
+(1 row)
+
+Time: 3138.207 ms (00:03.138)
+ROLLBACK
+Time: 0.178 ms
+BEGIN
+Time: 0.103 ms
+ load_cycles 
+-------------
+ 
+(1 row)
+
+Time: 3194.741 ms (00:03.195)
+ROLLBACK
+Time: 0.294 ms
+BEGIN
+Time: 0.268 ms
+ load_cycles 
+-------------
+ 
+(1 row)
+
+Time: 9526.796 ms (00:09.527)
+ROLLBACK
+Time: 0.165 ms
+Timing is off.
