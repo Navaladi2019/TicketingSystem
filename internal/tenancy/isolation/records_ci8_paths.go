@@ -58,7 +58,7 @@ func recordCI8Paths() []Path {
 		db("(e) tenant B's PATCH of tenant A's record with A's current or a stale ETag is a random UUID's 404, never 412", ci8CurrentAndStaleETag),
 		db("(f) tenant B's PATCH of tenant A's record with no If-Match is a random UUID's 404, not 428", ci8NoIfMatch),
 		{Name: "records CI-8: (d) a filter on a masked field is 400", Case: "CI-8", Pending: "P3-37 (S10, PLAN-003 D-3-19)",
-			Check: func(context.Context) error { return errors.New("pending P3-37: field masks land in S10") }},
+			DB: func(context.Context, Cluster) error { return errors.New("pending P3-37: field masks land in S10") }},
 	}
 }
 
