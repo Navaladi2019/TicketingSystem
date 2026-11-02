@@ -1,0 +1,37 @@
+meta {
+  name: S9.13 AC3: the history: one row per change, Alice, source user
+  type: http
+  seq: 13
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s9_id}}/history
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const items = N.json().items;
+  test('exactly two rows: update, create', () => expect(items.map(i => i.action)).to.eql(['update', 'create']));
+  test('each names Alice and source user', () => items.forEach(i => {
+    expect(i.actor_id, i.action).to.eql(bru.getVar('s9_alice'));
+    expect(i.source, i.action).to.eql('user');
+  }));
+  test('the update changed priority and state', () => expect(items[0].changed).to.have.members(['/data/priority', '/data/state']));
+  test('the update has before and after', () => {
+    expect(items[0].before.priority).to.eql(2);
+    expect(items[0].after.priority).to.eql(1);
+  });
+  test('the create has no before', () => expect(items[1]).to.not.have.property('before'));
+  test('no next page', () => expect(N.json().next_cursor || '').to.eql(''));
+}
+
+docs {
+  Exactly two rows, newest first: the update of S9.9 and the create of S9.4. Each names Alice (`actor_id`) and `source: user`. The retry, the 412 and the 428 added none.
+}

@@ -1,0 +1,37 @@
+meta {
+  name: S9.6 AC4: a required field is missing: field errors
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{core_url}}/api/v1/records/incident
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: tick359-s9-{{s9_run}}-invalid
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "description": "S9 {{s9_run}} invalid",
+      "priority": 9
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('record_invalid', 422);
+  N.fieldError('/data/short_description');
+  N.fieldError('/data/priority');
+}
+
+docs {
+  No `short_description` (required) and a `priority` outside 1-4: 422 `record_invalid` with an error per field. S9.8 and the stack case show it created no record and no history.
+}

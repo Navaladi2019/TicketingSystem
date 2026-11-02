@@ -1,0 +1,38 @@
+meta {
+  name: S9.20 Tenant B numbers its own incidents
+  type: http
+  seq: 20
+}
+
+post {
+  url: {{core_url}}/api/v1/records/incident
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+  Idempotency-Key: tick359-s9-{{s9_run}}-bob-create
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "S9 {{s9_run}} tenant B"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  test('number is INC and 7 digits', () => expect(b.number).to.match(/^INC\d{7}$/));
+  if (String(N.v('s9_fresh_b')) === '1') test('number: INC0000001 (fresh stack, tenant B)', () => expect(b.number).to.eql('INC0000001'));
+  N.noLeak(bru.getVar('s9_id'), 'S9 ' + bru.getVar('s9_run') + ' printer');
+}
+
+docs {
+  Bob creates an incident in tenant B: B's own number series (`INC0000001` on a fresh stack), not one after tenant A's.
+}
