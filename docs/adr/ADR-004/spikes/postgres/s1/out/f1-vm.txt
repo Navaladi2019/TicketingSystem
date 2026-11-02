@@ -1,0 +1,26 @@
+######## n_distinct override: off, probe form v1-locals
+  after VACUUM (ANALYZE): relpages=152501 relallvisible=152493 (100.0% all-visible)
+    ANALYZE 1: Index Scan using audit_log_default_pkey
+    ANALYZE 2: Index Scan using audit_log_default_pkey
+    ANALYZE 3: Index Scan using audit_log_default_pkey
+    ANALYZE 4: Index Scan using audit_log_default_pkey
+    ANALYZE 5: Index Scan using audit_log_default_pkey
+  after scattered writes + ANALYZE: relpages=152502 relallvisible=149169 (97.8% all-visible)
+    ANALYZE 1: Index Scan using audit_log_default_pkey
+    ANALYZE 2: Index Scan using audit_log_default_pkey
+    ANALYZE 3: Index Scan using audit_log_default_pkey
+    ANALYZE 4: Index Scan using audit_log_default_pkey
+    ANALYZE 5: Index Scan using audit_log_default_pkey
+######## n_distinct override: on, probe form v1-locals
+  after VACUUM (ANALYZE): relpages=152502 relallvisible=151634 (99.4% all-visible)
+    ANALYZE 1: Index Only Scan using audit_log_default_tenant_id_occurred_at_txid_subject_type_s_idx
+    ANALYZE 2: Index Only Scan using audit_log_default_tenant_id_occurred_at_txid_subject_type_s_idx
+    ANALYZE 3: Index Only Scan using audit_log_default_tenant_id_occurred_at_txid_subject_type_s_idx
+    ANALYZE 4: Index Only Scan using audit_log_default_tenant_id_occurred_at_txid_subject_type_s_idx
+    ANALYZE 5: Index Only Scan using audit_log_default_tenant_id_occurred_at_txid_subject_type_s_idx
+  after scattered writes + ANALYZE: relpages=152694 relallvisible=148507 (97.3% all-visible)
+    ANALYZE 1: Index Only Scan using audit_log_default_tenant_id_occurred_at_txid_subject_type_s_idx
+    ANALYZE 2: Index Only Scan using audit_log_default_tenant_id_occurred_at_txid_subject_type_s_idx
+    ANALYZE 3: Index Only Scan using audit_log_default_tenant_id_occurred_at_txid_subject_type_s_idx
+    ANALYZE 4: Index Only Scan using audit_log_default_tenant_id_occurred_at_txid_subject_type_s_idx
+    ANALYZE 5: Index Only Scan using audit_log_default_tenant_id_occurred_at_txid_subject_type_s_idx
