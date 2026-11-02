@@ -87,6 +87,8 @@ roles:
       tenant_email_domain: { SELECT: [] }
       # authz.RequireTenantAdmin (P3-04): the platform id of the tenant's admins group.
       tenant_admin_group: { SELECT: [] }
+      # authz.RequireAuditPermission (P5-18): the platform id of the auditors group.
+      tenant_auditor_group: { SELECT: [] }
       # Entity types (P3-02, TICK-340). A type's key and number_prefix are set
       # once; publishing moves current_version. A version is insert-only (D-3-4).
       entity_definitions: { SELECT: [], INSERT: [], UPDATE: [current_version, updated_at] }
@@ -112,6 +114,7 @@ roles:
       outbox: { SELECT: [tenant_id, id, dedupe_key], INSERT: [] }
       workflow_ref: { SELECT: [], INSERT: [], UPDATE: [closed_at] }
       tenant_admin_group: { SELECT: [] }
+      tenant_auditor_group: { SELECT: [] }
       entity_definitions: { SELECT: [] }
       entity_definition_versions: { SELECT: [] }
 
@@ -161,6 +164,7 @@ roles:
       groups: { SELECT: [tenant_id, id, keycloak_group_id], INSERT: [tenant_id, id, keycloak_group_id, path] }
       # Activate tests the row exists (TICK-373): SELECT on the key only.
       tenant_admin_group: { SELECT: [tenant_id], INSERT: [tenant_id, group_id] }
+      tenant_auditor_group: { INSERT: [tenant_id, group_id] }
       # Seed templates (P3-06) while provisioning, with deterministic UUIDv5
       # ids, so a plain INSERT is enough: no SELECT, no upsert (P3-02).
       entity_definitions: { INSERT: [] }

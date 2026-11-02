@@ -398,6 +398,14 @@ func Paths() []Path {
 			"INSERT INTO tenant_admin_group (tenant_id, group_id) VALUES ($1, $2)", TenantB, GroupB1),
 		sql("tenant_admin_group: point tenant B's admins at another group", "nava_app", Denied,
 			"UPDATE tenant_admin_group SET group_id = $2 WHERE tenant_id = $1", TenantB, GroupB1),
+		sql("tenant_auditor_group: read tenant B's auditors group", "nava_app", OwnRowsOnly,
+			"SELECT tenant_id FROM tenant_auditor_group WHERE tenant_id = $1", TenantB),
+		sql("tenant_auditor_group: onboarding reads tenant B's auditors row", "nava_onboard", Denied,
+			"SELECT tenant_id FROM tenant_auditor_group WHERE tenant_id = $1", TenantB),
+		sql("tenant_auditor_group: name an auditors group for tenant B", "nava_onboard", Denied,
+			"INSERT INTO tenant_auditor_group (tenant_id, group_id) VALUES ($1, $2)", TenantB, GroupB1),
+		sql("tenant_auditor_group: point tenant B's auditors at another group", "nava_app", Denied,
+			"UPDATE tenant_auditor_group SET group_id = $2 WHERE tenant_id = $1", TenantB, GroupB1),
 
 		// Records pipeline (P3-09, TICK-353). Both tenants hold the record
 		// number TCK0000001 and the audit key shared-audit-key, so a lookup by

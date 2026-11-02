@@ -189,8 +189,20 @@ var ErrAdminGroupMissing = errors.New("onboard: admins group has no groups row")
 // ErrAdminGroupMissing. Otherwise the tenant_admin_group row is written from
 // that row, so it always names the group's real id. A retry inserts nothing.
 func (s *PGStore) RecordAdminGroup(ctx context.Context, tenantID uuid.UUID, kcGroupID string) error {
-	id := AdminGroupID(tenantID)
-	path := identity.TenantGroupPrefix(tenantID) + identity.AdminGroupName
+	return s.recordGroup(ctx, tenantID, kcGroupID, AdminGroupID(tenantID), identity.AdminGroupName, "tenant_admin_group")
+}
+
+// RecordAuditorGroup implements Store like RecordAdminGroup, for the auditors
+// group and tenant_auditor_group. A stale groups row is also
+// ErrAdminGroupMissing: the same runbook step clears it.
+func (s *PGStore) RecordAuditorGroup(ctx context.Context, tenantID uuid.UUID, kcGroupID string) error {
+	return s.recordGroup(ctx, tenantID, kcGroupID, AuditorGroupID(tenantID), identity.AuditorGroupName, "tenant_auditor_group")
+}
+
+// recordGroup writes the groups row and the pointer row of table. table is one
+// of two constants, never caller input.
+func (s *PGStore) recordGroup(ctx context.Context, tenantID uuid.UUID, kcGroupID string, id uuid.UUID, name, table string) error {
+	path := identity.TenantGroupPrefix(tenantID) + name
 	err := tenancy.InTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx,
 			"INSERT INTO groups (tenant_id, id, keycloak_group_id, path) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
@@ -209,7 +221,7 @@ func (s *PGStore) RecordAdminGroup(ctx context.Context, tenantID uuid.UUID, kcGr
 		// The row names the group's real id, whoever created it: group sync
 		// may have inserted the group first, under an id of its own.
 		_, err := tx.Exec(ctx,
-			`INSERT INTO tenant_admin_group (tenant_id, group_id)
+			`INSERT INTO `+table+` (tenant_id, group_id)
 			 SELECT tenant_id, id FROM groups WHERE tenant_id = $1 AND keycloak_group_id = $2
 			 ON CONFLICT DO NOTHING`, tenantID, kcGroupID)
 		return err
@@ -218,7 +230,7 @@ func (s *PGStore) RecordAdminGroup(ctx context.Context, tenantID uuid.UUID, kcGr
 		if errors.Is(err, ErrAdminGroupMissing) {
 			return err
 		}
-		return fmt.Errorf("onboard: record admin group: %w", err)
+		return fmt.Errorf("onboard: record %s group: %w", name, err)
 	}
 	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -674,5 +675,44 @@ func TestEnsureAdminGroupRefusesNilTenant(t *testing.T) {
 	d, _ := directoryFor(t, "http://127.0.0.1:1")
 	if _, err := d.EnsureAdminGroup(t.Context(), uuid.Nil); !errors.Is(err, identity.ErrInvalidInput) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestEnsureAuditorGroupCreatesAuditorsNotAdmins(t *testing.T) {
+	t.Parallel()
+	var created atomic.Int32
+	var body atomic.Value
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /realms/nava/protocol/openid-connect/token", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"access_token":"tok","expires_in":300}`)
+	})
+	mux.HandleFunc("GET /admin/realms/nava/group-by-path/t/"+dirTenantA.String(), func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintf(w, `{"id":"g-root","name":%q,"path":%q}`, dirTenantA.String(), rootPath(dirTenantA))
+	})
+	mux.HandleFunc("GET /admin/realms/nava/group-by-path/t/"+dirTenantA.String()+"/auditors", func(w http.ResponseWriter, _ *http.Request) {
+		if created.Load() == 0 {
+			http.NotFound(w, nil)
+			return
+		}
+		fmt.Fprintf(w, `{"id":"g-auditors","name":"auditors","path":%q}`, rootPath(dirTenantA)+"/auditors")
+	})
+	mux.HandleFunc("POST /admin/realms/nava/groups/g-root/children", func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		body.Store(string(b))
+		created.Add(1)
+		w.WriteHeader(http.StatusCreated)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	d, _ := directoryFor(t, srv.URL)
+	id, err := d.EnsureAuditorGroup(t.Context(), dirTenantA)
+	if err != nil || id != "g-auditors" {
+		t.Fatalf("id = %q, %v", id, err)
+	}
+	if got, _ := body.Load().(string); !strings.Contains(got, `"auditors"`) {
+		t.Errorf("created %q, want the auditors group", got)
+	}
+	if _, err := d.EnsureAuditorGroup(t.Context(), uuid.Nil); !errors.Is(err, identity.ErrInvalidInput) {
+		t.Errorf("nil tenant: %v", err)
 	}
 }
