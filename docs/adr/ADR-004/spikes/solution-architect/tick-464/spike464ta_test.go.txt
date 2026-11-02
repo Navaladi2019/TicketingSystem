@@ -1,0 +1,79 @@
+package verify_test
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/audit/chain/vectors"
+)
+
+// Technical Architect's cases H-L (TICK-464 critique), rev 2.
+func TestSpike464TA(t *testing.T) {
+	raw, err := vectors.Generate()
+	var v vectors.File
+	if err == nil {
+		err = json.Unmarshal(raw, &v)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	var base []string
+	for _, e := range v.Exports {
+		if e.Name == "unfiltered" {
+			base = e.JSONL
+		}
+	}
+	type obj = map[string]any
+	parse := func(l string) obj {
+		var o obj
+		if err := json.Unmarshal([]byte(l), &o); err != nil {
+			t.Fatal(err)
+		}
+		return o
+	}
+	enc := func(o obj) string { j, _ := json.Marshal(o); return string(j) }
+	build := func(stubs, verifiable bool, last int, keep func(int) bool, forgeHead bool) []byte {
+		hdr := parse(base[0])
+		hdr["stubs"] = stubs
+		out := []string{enc(hdr), base[1]}
+		var head any
+		count := 0
+		for _, l := range base[2 : len(base)-1] {
+			o := parse(l)
+			s := int(o["seq"].(float64))
+			if s > last {
+				continue
+			}
+			if s == last {
+				head = o["entry_hash"]
+			}
+			if keep(s) {
+				out = append(out, l)
+				count++
+			}
+		}
+		if forgeHead {
+			head = strings.Repeat("ab", 32)
+		}
+		tr := parse(base[len(base)-1])
+		tr["last_seq"], tr["head_hash"], tr["count"], tr["stub_count"], tr["verifiable"] = last, head, count, 0, verifiable
+		out = append(out, enc(tr))
+		return []byte(strings.Join(out, "\n") + "\n")
+	}
+	none := func(int) bool { return false }
+	cases := []struct {
+		name string
+		file []byte
+	}{
+		{"H stubs=false 1..5, no line matched (honest)", build(false, false, 5, none, false)},
+		{"I stubs=false 1..5, seq 2 excluded, head forged", build(false, false, 5, func(s int) bool { return s != 2 }, true)},
+		{"J stubs=false 1..5, seq 5 excluded, head forged", build(false, false, 5, func(s int) bool { return s != 5 }, true)},
+		{"K stubs=false complete 1..5, head forged", build(false, true, 5, func(int) bool { return true }, true)},
+		{"L stubs=true 1..5, every range line deleted", build(true, true, 5, none, false)},
+	}
+	for _, c := range cases {
+		r := run(t, c.file)
+		t.Logf("%-50s -> %s %s", c.name, r.Outcome, describe(r))
+	}
+}

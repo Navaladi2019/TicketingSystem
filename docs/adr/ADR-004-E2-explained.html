@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-004 erratum E2 explained: an honest audit export was being called tampered</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.pill{display:inline-block;font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left}
+th{background:var(--soft)}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:40px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--soft);padding:1px 5px;border-radius:4px}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+.bad{color:var(--bad);font-weight:600}.good{color:var(--good);font-weight:600}
+figure{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure svg{width:100%;min-width:640px;height:auto;display:block}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
+</style></head><body><main>
+
+<span class="pill">PROPOSED · REV 2 · 2026-11-02</span> <span class="src">ADR-004-E2 · issue TICK-464 · source: Technical Lead review TICK-461 of PR #370</span>
+
+<h1>An honest audit export was being called "tampered"</h1>
+
+<blockquote><strong>In one sentence.</strong> When a customer exports their audit log with a filter that happens to match everything, our offline checker said the file had been tampered with. The rule was wrong, not the file. We fix the rule: the checker judges the file by what is actually in it, and only the closing line of the file has to agree.</blockquote>
+
+<h2>Words used here</h2>
+<dl>
+<dt>Audit export</dt><dd>A file a tenant downloads that contains their audit entries, each linked to the one before it by a hash (a fingerprint), so that a removed or edited entry is detectable.</dd>
+<dt>Range</dt><dd>The run of entries from the start of the requested time window up to the newest sealed entry. Every entry in it is numbered (<code>seq</code>).</dd>
+<dt>Stub</dt><dd>A placeholder line for an entry the filter did not ask for. It keeps the fingerprint chain unbroken without showing the content.</dd>
+<dt><code>stubs=false</code></dt><dd>The caller asked to leave the excluded entries out entirely, instead of writing stubs. The file is smaller, but if anything was left out the chain has holes ("gaps") and cannot be checked end to end.</dd>
+<dt>Header / trailer</dt><dd>The first and the last line of the file. The header is written before any entry is read; the trailer is written after the last one.</dd>
+<dt>Verifiable</dt><dd>The chain has no holes from start to end, so a checker can prove nothing in the range was removed.</dd>
+</dl>
+
+<h2>The problem</h2>
+<p>The specification said two flags must both match the truth: the header's <code>stubs</code> and the trailer's <code>verifiable</code>. But the exporter writes the header <em>first</em>, straight from the request, before it knows whether the filter will exclude anything. If the filter happens to match every entry, a <code>stubs=false</code> file has no holes. It is fully verifiable, yet its header says <code>stubs:false</code>. The checker (PR #370) followed the spec and reported <span class="bad">tampered</span>, exit code 1. An auditor would see an alarm on a file nobody touched.</p>
+<p><strong>Revision 2.</strong> The Technical Architect's review found a third honest file that was still flagged: the time window has entries, but the filter matched none of them. The file then has only its starting point and its closing line. Rev 2 treats that as "unverifiable" too, and tightens one check so a forged closing fingerprint is caught even when the file has holes.</p>
+<p>While proving the first case, we found a second case of the same kind: if the filter left out only the <em>last</em> entries of the range, the checker saw no hole between lines and failed the file at the "does it end at the newest entry?" check, again as <span class="bad">tampered</span>. That file is honest; it is simply not verifiable.</p>
+
+<figure>
+<svg viewBox="0 0 760 210" xmlns="http://www.w3.org/2000/svg" font-size="13">
+<rect x="10" y="20" width="140" height="44" rx="6" fill="#ddf4ff" stroke="#0969da"/><text x="80" y="40" text-anchor="middle">header</text><text x="80" y="56" text-anchor="middle" font-size="11">written first: the request</text>
+<rect x="170" y="20" width="420" height="44" rx="6" fill="#f6f8fa" stroke="#59636e"/><text x="380" y="40" text-anchor="middle">range lines, streamed in seq order</text><text x="380" y="56" text-anchor="middle" font-size="11">only now do we learn whether anything was left out</text>
+<rect x="610" y="20" width="140" height="44" rx="6" fill="#dafbe1" stroke="#1a7f37"/><text x="680" y="40" text-anchor="middle">trailer</text><text x="680" y="56" text-anchor="middle" font-size="11">written last: knows the truth</text>
+<line x1="150" y1="42" x2="170" y2="42" stroke="#59636e"/><line x1="590" y1="42" x2="610" y2="42" stroke="#59636e"/>
+<text x="80" y="100" text-anchor="middle" fill="#cf222e" font-weight="600">Before: must equal truth</text>
+<text x="80" y="120" text-anchor="middle" fill="#1a7f37" font-weight="600">After: just the request</text>
+<text x="680" y="100" text-anchor="middle" fill="#59636e">Before: must equal truth</text>
+<text x="680" y="120" text-anchor="middle" fill="#1a7f37" font-weight="600">After: must equal truth</text>
+<text x="380" y="165" text-anchor="middle" font-size="12">The checker always computes "verifiable" itself from the lines.</text>
+<text x="380" y="185" text-anchor="middle" font-size="12">Only the trailer, the one line that can know the answer, has to agree with it.</text>
+</svg>
+<figcaption>Why the header could never honestly carry the answer: it is written before the answer exists.</figcaption>
+</figure>
+
+<h2>Options considered</h2>
+<table>
+<tr><th>Option</th><th>Verdict</th><th>Why</th></tr>
+<tr><td><strong>A. Only the trailer must agree</strong>; the header records the request</td><td class="good">Chosen</td><td>The trailer is written after the range, so the exporter knows the answer without extra work. No memory cost, no extra query.</td></tr>
+<tr><td>B. Exporter holds the whole range in memory, then writes the header</td><td>Rejected</td><td>An export can run to 15 minutes in pages of 5,000 rows. Holding it all before sending the first byte costs memory or disk and delays the download, and buys nothing: neither flag is fingerprinted, so the checker has to compute the answer anyway.</td></tr>
+<tr><td>C. Exporter counts first, then writes the header</td><td>Rejected</td><td>An extra database query per export, a second place that must agree with the stream, and the header would no longer record what the caller asked for.</td></tr>
+<tr><td>D. Ignore the header completely</td><td>Rejected</td><td>When someone asked for stubs, a missing line can only mean deletion. Keeping that as "tampered" (<code>seq_missing</code>) is free and more useful to an auditor.</td></tr>
+</table>
+
+<h2>The decision</h2>
+<table>
+<tr><th>Asked for stubs?</th><th>File content</th><th>Trailer says verifiable</th><th>Result</th></tr>
+<tr><td>yes</td><td>no holes</td><td>true</td><td class="good">pass</td></tr>
+<tr><td>yes</td><td>a line missing (anywhere, end included)</td><td>any</td><td class="bad">tampered: <code>seq_missing</code></td></tr>
+<tr><td>yes or no</td><td>no holes</td><td>false</td><td class="bad">tampered: <code>verifiable_flag_mismatch</code></td></tr>
+<tr><td>no</td><td>no holes (the filter matched everything)</td><td>true</td><td class="good">pass</td> </tr>
+<tr><td>no</td><td>holes (end included)</td><td>false</td><td>unverifiable (honest, no alarm)</td></tr>
+<tr><td>no</td><td>holes</td><td>true</td><td class="bad">tampered: <code>verifiable_flag_mismatch</code></td></tr>
+<tr><td>no</td><td>the window has entries, but none matched the filter</td><td>false</td><td>unverifiable (rev 2; was tampered)</td></tr>
+<tr><td>any</td><td>the last line is the newest entry, but its fingerprint does not match the one in the closing line</td><td>any</td><td class="bad">tampered: <code>head_mismatch</code></td></tr>
+</table>
+<p>The specification also gets a complete list of the reasons the checker can give, including <code>seq_missing</code> and <code>anchor_mismatch</code> (the starting point of the chain is not where the request puts it). Until now the spec claimed the reasons were only those in the test files.</p>
+
+<h2>The fix</h2>
+<ul>
+<li><strong>Checker</strong> (<code>internal/audit/verify/verify.go</code>, about 15 lines): treat entries left out at the end as a hole; compare only the trailer's flag.</li>
+<li><strong>Test vectors</strong> (the shared example files every component is tested against): ten new examples: one per row above, two for the chain's starting point, plus a file with every line deleted and a forged closing fingerprint. No existing example changes its expected result.</li>
+<li><strong>Exporter</strong> (TICK-444, not shipped yet): header copies the request; trailer says verifiable when every numbered entry in the range has a line.</li>
+</ul>
+<p>Not a format change: files that passed before still pass, and no exporter has shipped, so no customer file changes its verdict.</p>
+
+<h2>What we are accepting</h2>
+<p>Nothing new. The header flag was never protected by a fingerprint, so relaxing the rule on it removes no protection. Someone who deletes lines in the middle and edits both flags gets "unverifiable", before and after this change. One verdict does move: cutting lines off the <em>end</em> of a file and editing both flags now also gives "unverifiable" instead of "tampered". That is no weaker than the middle-deletion case. The known limit stays as it was: nothing proves the file as a whole came from us (accepted risk AR-TICK-409-01, no external anchor).</p>
+
+<h2>Evidence</h2>
+<p>A small experiment ran the PR #370 checker on twelve hand-built files (five added in rev 2 by the Technical Architect and re-run by the author), before and after the proposed change (<code>docs/adr/ADR-004/spikes/solution-architect/tick-464/</code>).</p>
+<table>
+<tr><th>File</th><th>Before</th><th>After</th></tr>
+<tr><td>No stubs asked, filter matched everything, trailer true</td><td class="bad">tampered</td><td class="good">pass</td></tr>
+<tr><td>No stubs asked, last entry left out, trailer false</td><td class="bad">tampered (<code>head_mismatch</code>)</td><td>unverifiable</td></tr>
+<tr><td>Stubs asked, last line deleted</td><td class="bad">tampered (<code>head_mismatch</code>)</td><td class="bad">tampered (<code>seq_missing</code>, clearer)</td></tr>
+<tr><td>No stubs asked, window has entries but none matched (rev 2)</td><td class="bad">tampered (<code>head_mismatch</code>)</td><td>unverifiable</td></tr>
+<tr><td>No stubs asked, a hole in the middle, closing fingerprint forged (rev 2)</td><td>unverifiable (rev 1)</td><td class="bad">tampered (<code>head_mismatch</code>)</td></tr>
+<tr><td>Other cases (true tampering and honest gaps)</td><td colspan="2">same verdict before and after</td></tr>
+</table>
+<p>With the change, all existing audit tests and every shared example still pass.</p>
+
+<h2>What happens next</h2>
+<p>After the Technical Architect's critique and the CTO tie-break, the Solution Architect accepts or revises. On acceptance the Technical Lead creates three tasks (spec and examples, checker, exporter note). This must land before the exporter (TICK-444) and TICK-447 merge; it does not block the checker's own merge (TICK-425).</p>
+
+</main></body></html>
