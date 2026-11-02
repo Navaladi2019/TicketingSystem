@@ -15,9 +15,10 @@ tasks:
     silent: true
 
   build:
-    desc: Build the nava-core binary into bin/
+    desc: Build the nava-core and nava (offline CLI) binaries into bin/
     cmds:
       - go build -o bin/nava-core{{exeExt}} ./cmd/nava-core
+      - go build -o bin/nava{{exeExt}} ./cmd/nava
 
   run:
     desc: Run nava-core locally with .env loaded (Ctrl+C shuts it down gracefully)

@@ -2,6 +2,7 @@
 
 build:
 	go build -o bin/nava-core ./cmd/nava-core
+	go build -o bin/nava ./cmd/nava
 
 # Loads .env when present (copy .env.example). Unlike task run, values in .env
 # override variables already set in the shell.
