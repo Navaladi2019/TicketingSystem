@@ -5,7 +5,9 @@
 #   ./run.sh seed      50 tenants, 1M records, 1.98M sealed audit entries
 #   ./run.sh item1     p95 of the commit-check trigger, 10k iterations per arm, through PgBouncer
 #                      (CELL=update-sync-c1 ./run.sh item1 reruns one cell and appends to the summary)
-#   ./run.sh item2     10k- and 100k-subject transactions: commit time, deferred-queue memory
+#   ./run.sh item2     10k/100k-subject transactions: commit time, deferred-queue memory (fix off and on)
+#   ./run.sh variants  item 2 follow-up: plan and commit time of five forms of the probe (N=2000)
+#   ./run.sh trimmed   item 1 post-hoc: p95 per cell with host-stall block pairs dropped from both arms
 #   ./run.sh item3     WAL bytes per entry, insert vs seal UPDATE
 #   ./run.sh item5     export paging on the 1M-entry tenant, through PgBouncer
 #   ./run.sh all       up, item4, seed, item1, item2, item3, item5
@@ -120,6 +122,8 @@ item3() { bash ./item3.sh 2>&1 | tee out/item3.txt; }
 item4() { mkdir -p out; psql_su -f /spike/sql/item4.sql > out/item4.txt 2>&1; sed -n '/== item 4 cases/,$p' out/item4.txt; }
 seed()  { mkdir -p out; psql_su -f /spike/sql/seed.sql 2>&1 | tee out/seed.txt; }
 item5() { bash ./item5.sh 2>&1 | tee out/item5.txt; }
+variants() { N=2000 bash ./item2_variants.sh 2>&1 | tee out/item2-variants-latest.txt; }
+trimmed() { bash ./analyze_item1.sh | tee out/item1/stall-trimmed.txt; }
 down()  { $DC down -v; }
 all()   { up; item4; seed; item1; item2; item3; item5; }
 

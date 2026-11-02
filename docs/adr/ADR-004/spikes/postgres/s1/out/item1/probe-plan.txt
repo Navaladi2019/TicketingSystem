@@ -8,19 +8,19 @@ UPDATE 1
 INSERT 0 1
                                                                                                       QUERY PLAN                                                                                                      
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit (actual time=0.026..0.026 rows=1 loops=1)
+ Limit (actual time=0.048..0.049 rows=1 loops=1)
    Buffers: shared hit=5
-   ->  Result (actual time=0.025..0.025 rows=1 loops=1)
+   ->  Result (actual time=0.047..0.048 rows=1 loops=1)
          One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = 'e000342e-22c2-b525-5299-b35c4d538065'::uuid)
          Buffers: shared hit=5
-         ->  Index Scan using audit_log_default_tenant_id_subject_type_subject_id_occurre_idx on audit_log_default audit_log (actual time=0.022..0.022 rows=1 loops=1)
+         ->  Index Scan using audit_log_default_tenant_id_subject_type_subject_id_occurre_idx on audit_log_default audit_log (actual time=0.042..0.043 rows=1 loops=1)
                Index Cond: ((tenant_id = 'e000342e-22c2-b525-5299-b35c4d538065'::uuid) AND (subject_type = 'record'::text) AND (subject_id = 'e53ff9e0-f332-8aef-efd6-92fb361fa623'::uuid) AND (occurred_at = now()))
                Filter: (txid = pg_current_xact_id())
                Buffers: shared hit=5
  Planning:
    Buffers: shared hit=1
- Planning Time: 0.263 ms
- Execution Time: 0.048 ms
+ Planning Time: 0.287 ms
+ Execution Time: 0.074 ms
 (13 rows)
 
 ROLLBACK

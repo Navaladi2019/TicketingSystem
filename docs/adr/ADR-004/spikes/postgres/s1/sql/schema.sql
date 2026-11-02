@@ -86,6 +86,15 @@ CREATE INDEX audit_log_unsealed       ON audit_log (tenant_id, occurred_at, id) 
 CREATE UNIQUE INDEX audit_log_commit_key ON audit_log
     (tenant_id, occurred_at, txid, subject_type, subject_id, version_after) NULLS NOT DISTINCT;
 
+-- Item 2 fix (S1 finding F1). Without it the commit check's cached plan probes
+-- audit_log_pkey on (tenant_id, occurred_at) only: every entry of a transaction
+-- shares that prefix, so a transaction of n subjects costs O(n^2) at COMMIT.
+-- Telling the planner occurred_at values repeat makes the 5-column R2 key (or the
+-- R28 subject index) strictly cheaper. Not inherited: set on every partition.
+-- item2.sh toggles it (FIX=off / FIX=on).
+ALTER TABLE audit_log ALTER COLUMN occurred_at SET (n_distinct = -0.0001);
+ALTER TABLE audit_log_default ALTER COLUMN occurred_at SET (n_distinct = -0.0001);
+
 ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_log FORCE ROW LEVEL SECURITY;
 CREATE POLICY audit_log_select ON audit_log FOR SELECT TO nava_app, nava_worker, spike_export, spike_fullgrant, nava_migrator

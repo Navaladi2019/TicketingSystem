@@ -1,8 +1,10 @@
-insert-async-c1        kept 19/20 pairs  p95 1690->1563 us (-7.5%)  dropped: b18 
+insert-async-c1-nofix  kept 19/20 pairs  p95 1690->1563 us (-7.5%)  dropped: b18 
+insert-async-c1        kept 20/20 pairs  p95 3827->3403 us (-11.1%)  dropped: none
 insert-async-c8        kept 20/20 pairs  p95 3280->3267 us (-0.4%)  dropped: none
 insert-sync-c1         kept 18/20 pairs  p95 7909->7497 us (-5.2%)  dropped: b12 b13 
 insert-sync-c8         kept 20/20 pairs  p95 11914->10922 us (-8.3%)  dropped: none
-update-async-c1        kept 20/20 pairs  p95 1634->1688 us (+3.3%)  dropped: none
+update-async-c1-nofix  kept 20/20 pairs  p95 1634->1688 us (+3.3%)  dropped: none
+update-async-c1        kept 16/20 pairs  p95 3801->4007 us (+5.4%)  dropped: b12 b16 b17 b19 
 update-async-c8        kept 17/20 pairs  p95 3213->3418 us (+6.4%)  dropped: b1 b8 b9 
 update-sync-c1-run1    kept 18/20 pairs  p95 6489->6520 us (+0.5%)  dropped: b7 b8 
 update-sync-c1         kept 19/20 pairs  p95 7146->7296 us (+2.1%)  dropped: b17 

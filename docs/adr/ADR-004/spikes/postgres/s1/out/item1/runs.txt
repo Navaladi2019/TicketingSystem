@@ -7,3 +7,5 @@ insert-async-c1 commit check: calls=10000 self_ms=344.4 us/call=34.4
 update-async-c8 commit check: calls=9920 self_ms=654.1 us/call=65.9
 insert-async-c8 commit check: calls=9920 self_ms=568.2 us/call=57.3
 update-sync-c1 commit check: calls=10311 self_ms=584.5 us/call=56.7
+update-async-c1 commit check: calls=10225 self_ms=693.3 us/call=67.8
+insert-async-c1 commit check: calls=10059 self_ms=607.5 us/call=60.4

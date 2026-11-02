@@ -42,15 +42,23 @@ SELECT '$tag' AS "case", coalesce(sum(total_bytes) FILTER (WHERE name = 'AfterTr
 \timing on
 COMMIT;
 \timing off
-\! grep -E 'VmHWM|RssAnon' /proc/$BPID/status | tr -s ' \t' ' ' | sed 's/^/  $tag /'
+\! grep -E 'VmHWM|RssAnon' /proc/\$BPID/status | tr -s ' \t' ' ' | sed 's/^/  $tag /'
 SQL
 }
 # Spike only: lets nava_app read its own pg_backend_memory_contexts. Revoked at the end.
 $DC exec -T pg psql -U postgres -d spike -qc "GRANT pg_read_all_stats TO nava_app"
-for spec in "update 10000" "insert 10000" "insert 100000"; do
+fix() { # off: reset the n_distinct override (as pinned); on: apply it (schema.sql default)
+  if [ "$1" = on ]; then v="SET (n_distinct = -0.0001)"; else v="RESET (n_distinct)"; fi
+  $DC exec -T pg psql -U postgres -d spike -qc "ALTER TABLE audit_log ALTER COLUMN occurred_at $v; ALTER TABLE audit_log_default ALTER COLUMN occurred_at $v; ANALYZE audit_log_default"
+}
+# The O(n^2) case is only run at 10k; at 100k it would take about 100x as long.
+for spec in "off update 10000" "on update 10000" "on insert 10000" "on insert 100000"; do
   set -- $spec
+  f=$1; shift
+  echo "#### n_distinct fix: $f"
+  fix "$f"
   for arm in off on; do
-    tag="$1-$2-trigger-$arm"
+    tag="$1-$2-fix-$f-trigger-$arm"
     if [ "$arm" = on ]; then act=ENABLE; else act=DISABLE; fi
     $DC exec -T pg psql -U postgres -d spike -qc "ALTER TABLE records $act TRIGGER records_audit_commit_check"
     $DC exec -T pg psql -U postgres -d spike -qc "CHECKPOINT"

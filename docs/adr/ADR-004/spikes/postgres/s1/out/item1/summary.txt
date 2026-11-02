@@ -7,3 +7,5 @@ insert-async-c1    n/arm=10000  p50 954->962 us  p95 1945->1554 us (-20.1%)  p99
 update-async-c8    n/arm=9920  p50 2261->2280 us  p95 5411->4133 us (-23.6%)  p99 8844->5833 us  mean -7.4%  median block-pair p95 ratio -1.0%  PASS
 insert-async-c8    n/arm=9920  p50 2109->2134 us  p95 3280->3267 us (-0.4%)  p99 4573->4667 us  mean -0.8%  median block-pair p95 ratio +0.5%  PASS
 update-sync-c1     n/arm=10000  p50 4666->4692 us  p95 7540->8936 us (+18.5%)  p99 12525->19149 us  mean +8.1%  median block-pair p95 ratio +3.0%  FAIL
+update-async-c1    n/arm=10000  p50 1755->1797 us  p95 5301->5057 us (-4.6%)  p99 7831->9476 us  mean +1.6%  median block-pair p95 ratio +3.8%  PASS
+insert-async-c1    n/arm=10000  p50 1412->1411 us  p95 3827->3403 us (-11.1%)  p99 5751->5121 us  mean -3.2%  median block-pair p95 ratio -1.8%  PASS

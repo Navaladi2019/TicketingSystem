@@ -1,0 +1,85 @@
+== A1 insert, first touch after CHECKPOINT (10000 entries)
+  Btree | 50907 | 7690957 | 10513100 | 18204057
+  Heap | 10000 | 4843044 | 6255512 | 11098556
+  Transaction | 10000 | 340000 | 0 | 340000
+  Standby | 4 | 216 | 0 | 216
+  TOTAL bytes=29800840  bytes/entry=2980
+   -- A1 insert by record type
+     Btree/INSERT_LEAF | 49342 | 4968341 | 9930168 | 14898509
+     Heap/INSERT | 9423 | 4543004 | 6255512 | 10798516
+     Btree/SPLIT_R | 493 | 1958772 | 66308 | 2025080
+     Btree/SPLIT_L | 170 | 679849 | 24196 | 704045
+     Btree/DEDUP | 244 | 25638 | 350388 | 376026
+     Heap/INSERT+INIT | 577 | 300040 | 0 | 300040
+     Btree/INSERT_UPPER | 658 | 58357 | 142040 | 200397
+== A2 seal, warm (same pages already logged since the checkpoint) (10000 entries)
+  Heap | 29985 | 7403720 | 6504 | 7410224
+  Btree | 50674 | 5563546 | 24648 | 5588194
+  Heap2 | 1286 | 88754 | 0 | 88754
+  Transaction | 10 | 340 | 0 | 340
+  Standby | 1 | 54 | 0 | 54
+  TOTAL bytes=13233888  bytes/entry=1323
+   -- A2 seal, warm by record type
+     Heap/UPDATE | 9233 | 5837517 | 0 | 5837517
+     Btree/INSERT_LEAF | 49864 | 4947957 | 7376 | 4955333
+     Heap/LOCK | 19975 | 1078655 | 6504 | 1085159
+     Heap/UPDATE+INIT | 767 | 486278 | 0 | 486278
+     Btree/SPLIT_R | 114 | 433442 | 8264 | 441706
+     Btree/SPLIT_L | 23 | 92864 | 0 | 92864
+     Heap2/PRUNE | 1286 | 88754 | 0 | 88754
+     Btree/DEDUP | 462 | 71548 | 0 | 71548
+     Btree/INSERT_UPPER | 136 | 12634 | 9008 | 21642
+     Btree/DELETE | 75 | 5101 | 0 | 5101
+     Heap/HOT_UPDATE | 10 | 1270 | 0 | 1270
+== B1 insert, warm (10000 entries)
+  Btree | 50885 | 7746479 | 58068 | 7804547
+  Heap | 10000 | 5200000 | 0 | 5200000
+  Transaction | 10000 | 340000 | 0 | 340000
+  Standby | 6 | 320 | 0 | 320
+  TOTAL bytes=13444824  bytes/entry=1344
+== B2 seal, cold (CHECKPOINT between insert and seal) (10000 entries)
+  Btree | 50601 | 5394586 | 13607672 | 19002258
+  Heap | 29986 | 7410391 | 10894656 | 18305047
+  Heap2 | 1349 | 92486 | 9660 | 102146
+  Transaction | 10 | 340 | 0 | 340
+  Standby | 1 | 54 | 0 | 54
+  TOTAL bytes=37643936  bytes/entry=3764
+   -- B2 seal, cold by record type
+     Btree/INSERT_LEAF | 49875 | 4831201 | 13189948 | 18021149
+     Heap/LOCK | 19976 | 1085424 | 10893044 | 11978468
+     Heap/UPDATE | 9234 | 5838053 | 1612 | 5839665
+     Heap/UPDATE+INIT | 766 | 485644 | 0 | 485644
+     Btree/SPLIT_R | 105 | 397983 | 55288 | 453271
+     Btree/DEDUP | 412 | 68608 | 87828 | 156436
+     Btree/SPLIT_L | 20 | 81729 | 67420 | 149149
+     Btree/INSERT_UPPER | 125 | 10885 | 109876 | 120761
+     Heap2/PRUNE | 1349 | 92486 | 9660 | 102146
+     Btree/DELETE | 64 | 4180 | 97312 | 101492
+     Heap/HOT_UPDATE | 10 | 1270 | 0 | 1270
+== C1 insert, warm (10000 entries)
+  Btree | 50867 | 7656620 | 146964 | 7803584
+  Heap | 10000 | 5200000 | 0 | 5200000
+  Transaction | 10000 | 340000 | 0 | 340000
+  Standby | 5 | 254 | 0 | 254
+  CLOG | 1 | 30 | 0 | 30
+  TOTAL bytes=13443960  bytes/entry=1344
+== C2 seal, warm, R11 trigger DISABLED (attribution only) (10000 entries)
+  Heap | 29987 | 7404749 | 0 | 7404749
+  Btree | 50634 | 5509113 | 13128 | 5522241
+  Heap2 | 1348 | 94112 | 0 | 94112
+  Transaction | 10 | 340 | 0 | 340
+  TOTAL bytes=13167552  bytes/entry=1317
+   -- C2 seal, warm, no R11 trigger by record type
+     Heap/UPDATE | 9234 | 5839077 | 0 | 5839077
+     Btree/INSERT_LEAF | 49878 | 4949440 | 0 | 4949440
+     Heap/LOCK | 19977 | 1078758 | 0 | 1078758
+     Heap/UPDATE+INIT | 766 | 485644 | 0 | 485644
+     Btree/SPLIT_R | 102 | 385493 | 4120 | 389613
+     Heap2/PRUNE | 1348 | 94112 | 0 | 94112
+     Btree/SPLIT_L | 21 | 85440 | 0 | 85440
+     Btree/DEDUP | 437 | 72608 | 0 | 72608
+     Btree/INSERT_UPPER | 122 | 11162 | 9008 | 20170
+     Btree/DELETE | 74 | 4970 | 0 | 4970
+     Heap/HOT_UPDATE | 10 | 1270 | 0 | 1270
+== check: unsealed left=0, head seq=154728
+== HOT updates on audit_log_default (cumulative): 0 of 134728

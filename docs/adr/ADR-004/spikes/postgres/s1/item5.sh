@@ -37,8 +37,14 @@ for w in "first day|now() - interval '90 days'|now() - interval '89 days'" \
 BEGIN;
 SET LOCAL statement_timeout = '30s';
 SELECT set_config('app.tenant_id', $T::text, true) \g /dev/null
+\echo '   (a) as written: min(seq) over the window'
 EXPLAIN (ANALYZE, BUFFERS, COSTS OFF)
 SELECT min(seq) FROM audit_log WHERE tenant_id = $T AND occurred_at >= $from AND occurred_at < $to AND seq IS NOT NULL;
+\echo '   (b) window-bounded: same result, scan forced onto the time index (OFFSET 0 fence)'
+EXPLAIN (ANALYZE, BUFFERS, COSTS OFF)
+SELECT min(seq) FROM (SELECT seq FROM audit_log WHERE tenant_id = $T AND occurred_at >= $from AND occurred_at < $to AND seq IS NOT NULL OFFSET 0) w;
+SELECT (SELECT min(seq) FROM audit_log WHERE tenant_id = $T AND occurred_at >= $from AND occurred_at < $to AND seq IS NOT NULL)
+     = (SELECT min(seq) FROM (SELECT seq FROM audit_log WHERE tenant_id = $T AND occurred_at >= $from AND occurred_at < $to AND seq IS NOT NULL OFFSET 0) w) AS same_first_seq;
 COMMIT;
 SQL
 done
@@ -69,17 +75,17 @@ for pass in unfiltered filtered; do
       echo "BEGIN;"
       echo "SET LOCAL statement_timeout = '30s';"
       echo "SELECT set_config('app.tenant_id', $T::text, true) \g /dev/null"
-      echo "\o /out/page.txt"
+      echo "\o /tmp/page.txt"
       echo "SELECT $COLS FROM audit_log WHERE tenant_id = $T AND seq IS NOT NULL AND seq > :last AND seq <= :head ORDER BY seq LIMIT $PAGE;"
       echo "\o"
       echo "COMMIT;"
-      echo "\set last \`tail -n1 /out/page.txt | cut -d'|' -f1\`"
-      echo "\! wc -c < /out/page.txt >> /out/gen/bytes-$pass.txt"
+      echo "\set last \`tail -n1 /tmp/page.txt | cut -d'|' -f1\`"
+      echo "\! wc -c < /tmp/page.txt >> /tmp/bytes-$pass.txt"
     done
     echo "\timing off"
     echo "\echo last_seq=:last head_seq=:head"
   } > "$gen"
-  rm -f "out/gen/bytes-$pass.txt"
+  $DC exec -T pg rm -f "/tmp/bytes-$pass.txt"
   echo "== export pass: $pass (200 pages x $PAGE rows)"
   start=$(date +%s.%N)
   bouncer -q -f "/out/gen/export-$pass.sql" > "out/gen/export-$pass.out"
@@ -88,6 +94,6 @@ for pass in unfiltered filtered; do
   # \timing lines in order: BEGIN, SET, set_config, SELECT page, COMMIT per page -> take the page SELECTs (4th of 5)
   grep '^Time:' "out/gen/export-$pass.out" | awk '{print $2}' | awk 'NR % 5 == 4' | sort -n | awk '
      {a[NR]=$1; s+=$1} END {printf "  page SELECT ms: n=%d mean=%.1f p50=%.1f p95=%.1f max=%.1f sum=%.1f\n", NR, s/NR, a[int(NR*0.5)], a[int(NR*0.95)], a[NR], s}'
-  awk '{s+=$1} END {printf "  bytes received: %.1f MB\n", s/1048576}' "out/gen/bytes-$pass.txt"
+  $DC exec -T pg cat "/tmp/bytes-$pass.txt" | awk '{s+=$1} END {printf "  bytes received: %.1f MB\n", s/1048576}'
   awk -v a="$start" -v b="$end" 'BEGIN {printf "  wall clock, 1,000,000 rows: %.1f s (cap 900 s)\n", b - a}'
 done

@@ -111,4 +111,4 @@ for v in ${VARIANTS:-v0-as-pinned v1-locals v2-locals-version v3-row-compare}; d
   run_txn "$v" $t
   t=$((t + 1))
 done
-install v1-locals
+install v0-as-pinned  # restore the schema.sql form
