@@ -112,6 +112,47 @@ func TestCheckRejectsURLUserinfoInEveryDomain(t *testing.T) {
 	}
 }
 
+// TICK-490: userinfo split across pointer tokens or nested keys. Each token
+// is clean on its own; only the joined pointer spells the URL.
+func TestCheckRejectsURLUserinfoSplitAcrossTokens(t *testing.T) {
+	userinfo := "u:pass-" + canary + "@h"
+	cases := map[string]struct {
+		diff string
+		path patchwalk.Pointer
+	}{
+		"op path":    {`[{"op":"add","path":"/https://` + userinfo + `","value":1}]`, "/https:/"},
+		"from":       {`[{"op":"copy","from":"/https://` + userinfo + `","path":"/z"}]`, "/https:/"},
+		"nested key": {`[{"op":"add","path":"/m","value":{"https:":{"":{"` + userinfo + `":1}}}}]`, "/m/https:/"},
+		"path and key": {
+			`[{"op":"add","path":"/https:","value":{"":{"` + userinfo + `":1}}}]`, "/https:/"},
+		"deep after scheme": {
+			`[{"op":"add","path":"/a","value":{"see https:":{"":{"` + userinfo + `":{"b":1}}}}}]`, "/a/see https:/"},
+		// A key holding "/": the escaped pointer reads "https:~1/u:...", the
+		// unescaped one "https://u:...".
+		"escaped slash in path": {`[{"op":"add","path":"/https:~1/` + userinfo + `","value":1}]`, "/https:~1"},
+		"escaped slash in key": {
+			`[{"op":"add","path":"/a","value":{"https:/":{"` + userinfo + `":1}}}]`, "/a/https:~1"},
+	}
+	for name, c := range cases {
+		for _, d := range []Domain{DomainRecord, DomainConfig, DomainAudit} {
+			t.Run(name+"/"+string(d), func(t *testing.T) {
+				assertRejected(t, c.diff, d, ReasonURLUserinfo, c.path)
+				assertNoLeak(t, Check([]byte(c.diff), secretPaths(), d), "pass")
+			})
+		}
+	}
+}
+
+// assertNoLeak checks neither err's string nor its JSON slog line holds s.
+func assertNoLeak(t *testing.T, err error, s string) {
+	t.Helper()
+	var buf bytes.Buffer
+	slog.New(slog.NewJSONHandler(&buf, nil)).WarnContext(context.Background(), "audit write rejected", slog.Any("err", err))
+	if strings.Contains(err.Error(), s) || strings.Contains(buf.String(), s) {
+		t.Errorf("%q leaked: error %q, log %s", s, err.Error(), buf.String())
+	}
+}
+
 func TestCheckSecretShapesOnConfigOnly(t *testing.T) {
 	shapes := map[string]string{
 		"aws":        "AKIA" + "ABCDEFGHIJKLMNOP",
@@ -145,6 +186,8 @@ func TestCheckAllowsCleanDiffs(t *testing.T) {
 		`[{"op":"add","path":"/link","value":"https://example.org/@alice?q=a@b#x@y"}]`,
 		`[{"op":"add","path":"/email","value":"alice@example.org"}]`,
 		`[{"op":"test","path":"/n","value":{"auth":{"pw":"x"}}}]`,
+		`[{"op":"add","path":"/https:/example.org/@alice","value":1}]`,
+		`[{"op":"add","path":"/m","value":{"https:":{"":{"example.org":{"@alice":1}}}}}]`,
 	}
 	for _, d := range clean {
 		for _, dom := range []Domain{DomainRecord, DomainConfig, DomainAudit} {
@@ -198,6 +241,69 @@ func FuzzCheck(f *testing.F) {
 		}
 		if strings.Contains(err.Error(), canary) {
 			t.Fatalf("canary in error: %v", err)
+		}
+	})
+}
+
+// FuzzCheckJoinedUserinfo (TICK-490): a URL with userinfo spelled across
+// pointer tokens or nested keys, after any prefix, is rejected in every domain
+// and its password is never echoed. The seeds are the TestCheckRejectsURL
+// UserinfoSplitAcrossTokens cases.
+func FuzzCheckJoinedUserinfo(f *testing.F) {
+	f.Add("", 0)       // op path
+	f.Add("", 1)       // from
+	f.Add("m/", 2)     // nested key
+	f.Add("", 3)       // path and key
+	f.Add("a/see ", 2) // deep after scheme
+	f.Add("", 4)       // escaped slash in path
+	f.Add("a/", 6)     // escaped slash in key
+	f.Fuzz(func(t *testing.T, prefix string, form int) {
+		if !utf8.ValidString(prefix) || strings.Contains(prefix, canary) {
+			t.Skip("not a diff, or the canary is in the prefix itself")
+		}
+		segs := strings.Split(prefix+"https://u:"+canary+"@h", "/")
+		if form&4 != 0 {
+			// Fold each empty token into the one before it as a "/", so a
+			// key holds the slash: "https:", "" becomes "https:/".
+			folded := segs[:1]
+			for _, s := range segs[1:] {
+				if s == "" {
+					folded[len(folded)-1] += "/"
+					continue
+				}
+				folded = append(folded, s)
+			}
+			segs = folded
+		}
+		var diff string
+		switch form & 3 {
+		case 0:
+			diff = `[{"op":"add","path":` + jsonQuote(string(patchwalk.FromSegments(segs))) + `,"value":1}]`
+		case 1:
+			diff = `[{"op":"copy","from":` + jsonQuote(string(patchwalk.FromSegments(segs))) + `,"path":"/z"}]`
+		default:
+			// The first k tokens form the op path, the rest nested keys.
+			k := 0
+			if form&3 == 3 {
+				k = len(segs) - 2
+			}
+			value := "1"
+			for i := len(segs) - 1; i >= k; i-- {
+				value = `{` + jsonQuote(segs[i]) + `:` + value + `}`
+			}
+			diff = `[{"op":"add","path":` + jsonQuote(string(patchwalk.FromSegments(segs[:k]))) + `,"value":` + value + `}]`
+		}
+		for _, d := range []Domain{DomainRecord, DomainConfig, DomainAudit} {
+			err := Check([]byte(diff), nil, d)
+			// Past patchwalk.MaxDepth the walk fails closed with ErrMalformed;
+			// that rejects the diff too.
+			var se *ErrSecretInDiff
+			if !errors.As(err, &se) && !errors.Is(err, patchwalk.ErrMalformed) {
+				t.Fatalf("%s: userinfo let through: %s: %v", d, diff, err)
+			}
+			if strings.Contains(err.Error(), canary) {
+				t.Fatalf("%s: canary in error: %v", d, err)
+			}
 		}
 	})
 }

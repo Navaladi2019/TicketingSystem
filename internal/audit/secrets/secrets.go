@@ -11,7 +11,8 @@
 //     or a parent of it), because it relocates the secret to a path that is not
 //     marked secret;
 //   - a URL with userinfo (scheme://user[:pass]@host) in any string value or
-//     object key, in every domain;
+//     object key, or spelled across the tokens of a pointer (an op path, a
+//     from, or the nested keys of a value), in every domain;
 //   - on DomainConfig only, a secret-shaped string (AWS access key id, GitHub
 //     token, Slack token, PEM block, JWT) in any string value or object key.
 //
@@ -30,6 +31,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"strings"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/patchwalk"
 )
@@ -134,6 +136,9 @@ func Check(diff []byte, secretPaths []patchwalk.Pointer, domain Domain) error {
 					return reject(patchwalk.FromSegments(segs[:i]), r)
 				}
 			}
+			if at, r, bad := scanJoined(ptr, shapes); bad {
+				return reject(at, r)
+			}
 			if op.Field == patchwalk.FieldFrom {
 				for _, s := range secretPaths {
 					if ptr.HasPrefix(s) || s.HasPrefix(ptr) {
@@ -154,6 +159,10 @@ func Check(diff []byte, secretPaths []patchwalk.Pointer, domain Domain) error {
 					return reject(patchwalk.FromSegments(segs[:len(segs)-1]), r)
 				}
 			}
+			// Nested keys can spell a URL between them: {"https:":{"":{"u:p@h":1}}}.
+			if at, r, bad := scanJoined(ptr, shapes); bad {
+				return reject(at, r)
+			}
 			if len(v) > 0 && v[0] == '"' {
 				var s string
 				if err := json.Unmarshal(v, &s); err != nil {
@@ -166,6 +175,40 @@ func Check(diff []byte, secretPaths []patchwalk.Pointer, domain Domain) error {
 		}
 		return nil
 	})
+}
+
+// scanJoined scans the pointer text itself, so a URL split across tokens
+// ("/https://u:p@h" is "https:", "", "u:p@h") is caught. It scans both the
+// escaped pointer and the unescaped join of its tokens, so a key holding a
+// "/" ("https:/" then "u:p@h", escaped "/https:~1/u:p@h") is caught too.
+//
+// On a match it names the parent of the token where the match ends. That
+// parent never holds the userinfo: the pattern allows no "/" between "://" and
+// "@", and in either text the "/" nearest before the "@" is at or after the
+// start of that token. The shapes hold no "/" either, so the same is true of
+// them.
+func scanJoined(ptr patchwalk.Pointer, shapes bool) (patchwalk.Pointer, Reason, bool) {
+	segs := ptr.Segments()
+	both := func(segs []string) (Reason, bool) {
+		if r, bad := scan(string(patchwalk.FromSegments(segs)), shapes); bad {
+			return r, true
+		}
+		if len(segs) == 0 {
+			return "", false
+		}
+		return scan("/"+strings.Join(segs, "/"), shapes)
+	}
+	if _, bad := both(segs); !bad {
+		return "", "", false
+	}
+	for i := range segs {
+		if r, bad := both(segs[:i+1]); bad {
+			return patchwalk.FromSegments(segs[:i]), r, true
+		}
+	}
+	// Unreachable: the full prefix is ptr itself. Fail closed at the root.
+	r, _ := both(segs)
+	return "", r, true
 }
 
 func scan(s string, shapes bool) (Reason, bool) {
