@@ -72,12 +72,15 @@ const (
 	// other error fails the path, so a typo cannot pass as a denial; aim an
 	// UPDATE or DELETE where an integrity error cannot hide a reached row.
 	Denied
-	// StoredUnderA is for an HTTPCall that writes (P3-18, TICK-366): the
-	// create refuses it (403, 404 or 422) and writes nothing, or it stores a record
+	// StoredUnderA is for an HTTPCall that writes (P3-18, TICK-366; CTO
+	// D-P10 conditions on TICK-366): the create refuses it (403, 404 or 422)
+	// and writes nothing, or it answers 201 or 200 with the id of a record
 	// whose tenant_id is tenant A. Either way tenant B's record and audit row
-	// counts are unchanged. Both are read on the superuser connection, past
-	// row-level security: a read as tenant A cannot see a row misfiled under
-	// tenant B, so it would pass vacuously (TICK-363).
+	// counts are unchanged, and the body never holds tenant B's id. Everything
+	// is read on the superuser connection, past row-level security: a read as
+	// tenant A cannot see a row misfiled under tenant B, so it would pass
+	// vacuously (TICK-363). The call carries its own Idempotency-Key, and a
+	// replayed response fails: it never reached the handler.
 	StoredUnderA
 )
 

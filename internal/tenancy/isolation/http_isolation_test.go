@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/identity/pgstore"
 	"github.com/Navaladi2019/TicketingSystem/internal/onboard"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/idempotency"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
 	"github.com/Navaladi2019/TicketingSystem/internal/server"
 )
@@ -255,22 +257,35 @@ func countRows(ctx context.Context, super *pgx.Conn, tenant string) (rowCounts, 
 	return n, err
 }
 
-// runStoredUnderA runs a StoredUnderA write (P3-18, TICK-366). It passes the
-// create's own refusal (403, 404 or 422) that wrote nothing in either tenant, or a 201
-// whose record is filed under tenant A, with tenant B's counts unchanged both
-// ways. Every check reads as the superuser: a read as tenant A cannot see a
-// row misfiled under tenant B. A 5xx fails, so a crash cannot pass as a
-// refusal. The call's rows and its iso-ci2- idempotency keys are deleted
-// before it returns, so later paths see the seed unchanged.
+// runStoredUnderA runs a StoredUnderA write (P3-18, TICK-366), under the CTO's
+// D-P10 conditions on TICK-366 (C1 to C5 below). It passes only:
+//
+//   - "refused 4xx": the create's own refusal (403, 404 or 422) that wrote
+//     nothing in either tenant; or
+//   - "stored under A, row <id>": a 201 (or 200) whose id names a record filed
+//     under tenant A.
+//
+// Every read is on the superuser connection, past row-level security: a read
+// as tenant A cannot see a row misfiled under tenant B. The call's record rows
+// and its own Idempotency-Key row are deleted before it returns, so later
+// paths see the seed unchanged.
 func (r *apiRunner) runStoredUnderA(t *testing.T, c *HTTPCall) (status, detail string) {
 	t.Helper()
 	ctx := t.Context()
+	// C4: each case has its own key (TestRegistryIsWellFormed checks they are
+	// unique); without one the call is a 400 that proves nothing.
+	key := c.Header.Get("Idempotency-Key")
+	if key == "" {
+		return statusFail, "a StoredUnderA call needs its own Idempotency-Key"
+	}
 	super := suite.superConn(t)
 	defer func() {
-		if _, err := super.Exec(context.Background(), `DELETE FROM idempotency_keys WHERE key LIKE 'iso-ci2-%'`); err != nil {
+		if _, err := super.Exec(context.Background(), `DELETE FROM idempotency_keys WHERE key = $1`, key); err != nil {
 			t.Errorf("cleanup: %v", err)
 		}
 	}()
+	// C1: tenant B's snapshot is taken before the call and compared after it
+	// on every outcome, refusals included.
 	beforeA, err := countRows(ctx, super, TenantA)
 	if err != nil {
 		return statusFail, err.Error()
@@ -281,14 +296,17 @@ func (r *apiRunner) runStoredUnderA(t *testing.T, c *HTTPCall) (status, detail s
 	}
 	rec := r.do(t, c)
 	body := rec.Body.String()
+	success := rec.Code == http.StatusCreated || rec.Code == http.StatusOK
 
+	// C2: the stored row is the one the response names, by id, never the
+	// latest row or a count delta.
 	var created struct {
 		ID string `json:"id"`
 	}
-	stored := "" // the tenant the created record is filed under
-	if rec.Code == http.StatusCreated {
-		if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil || created.ID == "" {
-			return statusFail, fmt.Sprintf("201 with no record id: %s", body)
+	stored := "" // the tenant that row is filed under
+	if success {
+		if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil || uuid.Validate(created.ID) != nil {
+			return statusFail, fmt.Sprintf("%d with no record id the runner can resolve: %s", rec.Code, body)
 		}
 		defer func() {
 			for _, q := range []string{`DELETE FROM audit_log WHERE record_id = $1`, `DELETE FROM records WHERE id = $1`} {
@@ -298,7 +316,7 @@ func (r *apiRunner) runStoredUnderA(t *testing.T, c *HTTPCall) (status, detail s
 			}
 		}()
 		if err := super.QueryRow(ctx, `SELECT tenant_id::text FROM records WHERE id = $1`, created.ID).Scan(&stored); err != nil {
-			return statusFail, fmt.Sprintf("201, but record %s is not in records: %v", created.ID, err)
+			return statusFail, fmt.Sprintf("%d, but record %s is not in records: %v", rec.Code, created.ID, err)
 		}
 	}
 	afterA, err := countRows(ctx, super, TenantA)
@@ -311,28 +329,28 @@ func (r *apiRunner) runStoredUnderA(t *testing.T, c *HTTPCall) (status, detail s
 	}
 
 	switch {
-	case afterB != beforeB:
+	case afterB != beforeB: // C1
 		return statusFail, fmt.Sprintf("%d, and tenant B's records and audit rows went from %+v to %+v: the write reached tenant B: %s",
 			rec.Code, beforeB, afterB, body)
-	case strings.Contains(body, TenantB):
+	case strings.Contains(body, TenantB): // C3, refusals included
 		return statusFail, fmt.Sprintf("%d with tenant B in the body: %s", rec.Code, body)
-	case rec.Code == http.StatusUnauthorized:
+	case rec.Header().Get(idempotency.ReplayedHeader) == "true": // C4
+		return statusFail, fmt.Sprintf("%d replayed from the key store: the handler never read this call's forged field: %s", rec.Code, body)
+	case rec.Code == http.StatusUnauthorized: // C3
 		return statusFail, "401: the token for tenant A was not honoured, so this proves nothing: " + body
-	case rec.Code == http.StatusCreated:
+	case success: // C2, C5
 		if stored != TenantA {
-			return statusFail, fmt.Sprintf("201, record %s stored under tenant %s, want tenant A", created.ID, stored)
+			return statusFail, fmt.Sprintf("%d, record %s stored under tenant %s, want tenant A", rec.Code, created.ID, stored)
 		}
-		if afterA.records != beforeA.records+1 {
-			return statusFail, fmt.Sprintf("201, but tenant A's records went from %d to %d, want one more", beforeA.records, afterA.records)
-		}
-		return statusPass, fmt.Sprintf("201, stored under tenant A only; tenant B unchanged at %+v", afterB)
-	case rec.Code == http.StatusForbidden || rec.Code == http.StatusNotFound || rec.Code == http.StatusUnprocessableEntity:
+		return statusPass, fmt.Sprintf("stored under A, row %s (%d); tenant B unchanged at %+v", created.ID, rec.Code, afterB)
+	case rec.Code == http.StatusForbidden || rec.Code == http.StatusNotFound || rec.Code == http.StatusUnprocessableEntity: // C3, C5
 		if afterA != beforeA {
 			return statusFail, fmt.Sprintf("%d, but tenant A's records and audit rows went from %+v to %+v: a refusal must write nothing", rec.Code, beforeA, afterA)
 		}
-		return statusPass, fmt.Sprintf("%d, refused; nothing written, tenant B unchanged at %+v", rec.Code, afterB)
+		return statusPass, fmt.Sprintf("refused 4xx (%d); nothing written, tenant B unchanged at %+v", rec.Code, afterB)
 	}
-	// 400, 409 and 429 come from the envelope, the Idempotency-Key store or
-	// the limiter, before the create reads the tenant: they prove nothing.
+	// C3: 5xx fails. So do 400, 409 and 429, narrower than C3's set: they
+	// come from the envelope, the Idempotency-Key store or the limiter, before
+	// the create reads the tenant, so they prove nothing.
 	return statusFail, fmt.Sprintf("%d, want the create's own refusal (403, 404 or 422) or 201 under tenant A: %s", rec.Code, body)
 }
