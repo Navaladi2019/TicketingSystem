@@ -75,7 +75,7 @@ const (
 	// StoredUnderA is for an HTTPCall that writes (P3-18, TICK-366; CTO
 	// D-P10 conditions on TICK-366): the create refuses it with the 404 that
 	// the same request to Unknown gets, byte for byte but for instance, and
-	// writes nothing; or it answers 201 or 200 with the id of a record
+	// writes nothing; or it answers 201 with the id of a new record
 	// whose tenant_id is tenant A. Either way tenant B's record and audit row
 	// counts are unchanged, and the body never holds tenant B's id. Everything
 	// is read on the superuser connection, past row-level security: a read as

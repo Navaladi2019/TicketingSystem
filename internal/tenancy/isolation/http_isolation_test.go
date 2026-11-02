@@ -257,6 +257,24 @@ func countRows(ctx context.Context, super *pgx.Conn, tenant string) (rowCounts, 
 	return n, err
 }
 
+// recordIDs reads tenant's record ids on the superuser connection, past
+// row-level security.
+func recordIDs(ctx context.Context, super *pgx.Conn, tenant string) (map[string]struct{}, error) {
+	rows, err := super.Query(ctx, `SELECT id::text FROM records WHERE tenant_id = $1`, tenant)
+	if err != nil {
+		return nil, err
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, err
+	}
+	set := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		set[id] = struct{}{}
+	}
+	return set, nil
+}
+
 // runStoredUnderA runs a StoredUnderA write (P3-18, TICK-366), under the CTO's
 // D-P10 conditions on TICK-366 (C1 to C5 below). It passes only:
 //
@@ -264,14 +282,16 @@ func countRows(ctx context.Context, super *pgx.Conn, tenant string) (rowCounts, 
 //     tenant has) gets, byte for byte after withoutInstance, with nothing
 //     written in either tenant (Postgres review P1); or
 //   - "stored under A, row <id>": a 201 whose id names a record filed under
-//     tenant A, and tenant A gained exactly that one record. A 200 can only be
+//     tenant A that tenant A did not hold before the call (TICK-473), and
+//     tenant A gained exactly that one record. A 200 can only be
 //     a replay, which fails anyway (C4).
 //
 // Every read is on the superuser connection, past row-level security: a read
 // as tenant A cannot see a row misfiled under tenant B. The call's own
 // Idempotency-Key row is deleted before it returns. Its record rows are
 // deleted by id only once that id has been shown to be the one new tenant A
-// record, so a 201 naming a seed row can never delete it (C2).
+// record, absent from the snapshot taken before the call, so a 201 naming a
+// seed row can never delete it (C2, TICK-473).
 func (r *apiRunner) runStoredUnderA(t *testing.T, c *HTTPCall) (status, detail string) {
 	t.Helper()
 	ctx := t.Context()
@@ -297,6 +317,13 @@ func (r *apiRunner) runStoredUnderA(t *testing.T, c *HTTPCall) (status, detail s
 	if err != nil {
 		return statusFail, err.Error()
 	}
+	// TICK-473: tenant A's record ids before the call. A 201 that names one
+	// of them is not this call's row, even when tenant A also gained one, so
+	// the cleanup can never delete a seed row.
+	seedA, err := recordIDs(ctx, super, TenantA)
+	if err != nil {
+		return statusFail, err.Error()
+	}
 	rec := r.do(t, c)
 	body := rec.Body.String()
 	created := rec.Code == http.StatusCreated // C2: 201 only
@@ -319,6 +346,7 @@ func (r *apiRunner) runStoredUnderA(t *testing.T, c *HTTPCall) (status, detail s
 	// landed; an id can repeat across tenants (the seed's IDOR fixtures do),
 	// so it must name exactly one row.
 	var stored []string // the tenants rows with that id are filed under
+	var existed bool    // the id was tenant A's before the call
 	if created {
 		if err := json.Unmarshal(rec.Body.Bytes(), &row); err != nil || uuid.Validate(row.ID) != nil {
 			return statusFail, fmt.Sprintf("201 with no record id the runner can resolve: %s", body)
@@ -330,7 +358,8 @@ func (r *apiRunner) runStoredUnderA(t *testing.T, c *HTTPCall) (status, detail s
 		if stored, err = pgx.CollectRows(rows, pgx.RowTo[string]); err != nil {
 			return statusFail, err.Error()
 		}
-		if slices.Equal(stored, []string{TenantA}) && afterA.records == beforeA.records+1 {
+		_, existed = seedA[row.ID]
+		if !existed && slices.Equal(stored, []string{TenantA}) && afterA.records == beforeA.records+1 {
 			defer func() {
 				// TODO(TODO-S9-01): P3-42: this leaves the record's outbox and
 				// cascade_start rows behind. Once the EventSink is wired,
@@ -355,6 +384,10 @@ func (r *apiRunner) runStoredUnderA(t *testing.T, c *HTTPCall) (status, detail s
 	case rec.Code == http.StatusUnauthorized: // C3
 		return statusFail, "401: the token for tenant A was not honoured, so this proves nothing: " + body
 	case created: // C2, C5
+		if existed {
+			return statusFail, fmt.Sprintf("201 naming record %s, which tenant A already held before the call: not this call's row, so it is left in place: %s",
+				row.ID, body)
+		}
 		if !slices.Equal(stored, []string{TenantA}) {
 			return statusFail, fmt.Sprintf("201, record %s is filed under tenants %v, want exactly one row, in tenant A", row.ID, stored)
 		}
