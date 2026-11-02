@@ -1,0 +1,29 @@
+meta {
+  name: X5.13 getRecord 200: the record
+  type: http
+  seq: 13
+}
+
+get {
+  url: {{core_url}}/api/v1/records/{{x5_type}}/{{x5_id}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('the created record', () => {
+    expect(N.json().id).to.eql(bru.getVar('x5_id'));
+    expect(N.json().data.state).to.eql('new');
+    expect(N.header('ETag')).to.eql('W/"1"');
+  });
+}
+
+docs {
+  Any tenant user. `ETag` is the weak version.
+}

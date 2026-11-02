@@ -1,0 +1,32 @@
+meta {
+  name: X5.15 getRecord 404: an id that does not exist
+  type: http
+  seq: 15
+}
+
+get {
+  url: {{core_url}}/api/v1/records/{{x5_type}}/00000000-0000-4000-8000-00000000dead
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 404 problem+json with code not_found and no instance', () => {
+    expect(res.getStatus()).to.eql(404);
+    expect(N.header('Content-Type') || '').to.include('application/problem+json');
+    const b = N.json();
+    expect(b.code).to.eql('not_found');
+    expect(b).to.not.have.property('instance');
+  });
+  N.status(404);
+  bru.setVar('x5_ref404', N.text());
+}
+
+docs {
+  The reference 404 for X5.16 to X5.18.
+}

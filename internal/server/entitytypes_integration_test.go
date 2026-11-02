@@ -222,7 +222,7 @@ func newETEnv(t *testing.T) *etEnv {
 	}
 	lim := &spyLimiter{}
 	lim.reset(true)
-	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel, tokens, stubPaths{},
+	h, err := server.NewHandler(slog.New(slog.NewTextHandler(testLogWriter{t}, &slog.HandlerOptions{Level: slog.LevelWarn})), tel, tokens, stubPaths{},
 		server.WithLimiter(lim), server.WithPool(pool), server.WithCursors(kr))
 	if err != nil {
 		t.Fatal(err)
@@ -641,4 +641,14 @@ func TestParallelCreateOfOneKeyGivesOne201AndOne409(t *testing.T) {
 	if created != 1 || exists != 1 {
 		t.Errorf("got %d x 201 and %d x 409, want one of each", created, exists)
 	}
+}
+
+// testLogWriter sends the server's warnings and errors to the test log, so a
+// 500 in CI shows its wrapped cause.
+type testLogWriter struct{ t *testing.T }
+
+func (w testLogWriter) Write(p []byte) (int, error) {
+	w.t.Helper()
+	w.t.Log(strings.TrimRight(string(p), "\n"))
+	return len(p), nil
 }

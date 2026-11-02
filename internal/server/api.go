@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Navaladi2019/TicketingSystem/api"
+	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/apihttp"
@@ -21,6 +22,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/ratelimit"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 )
 
 // baseURL is oapi-codegen's BaseURL and the validator's Options.Prefix. The
@@ -66,6 +68,11 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 
 	a := apihttp.New(spec, reg, log, baseURL)
 	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors}
+	if opts.pool != nil {
+		// The S9 composition (PLAN-003): any tenant member writes, no events.
+		// S10 swaps the authorizer, S11b the sink.
+		h.pipe = pipeline.New(authz.TenantMemberAuthorizer{}, h.store, pipeline.NoopSink{}, pipeline.PoolRunner{Pool: opts.pool}, pipeline.SystemClock{})
+	}
 	api.HandlerWithOptions(
 		api.NewStrictHandlerWithOptions(h, nil, api.StrictHTTPServerOptions{
 			RequestErrorHandlerFunc:  a.StrictRequestError,
@@ -152,6 +159,8 @@ type handlers struct {
 	pool    *pgxpool.Pool
 	cursors *cursor.Keyring
 	store   entitytypes.Store
+	// pipe serves the record endpoints; nil answers 501 not_implemented.
+	pipe *pipeline.Pipeline
 }
 
 // errNoPrincipal means a handler ran outside the authentication middleware:
@@ -207,6 +216,9 @@ func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http
 					return
 				case problem.SchemaBreakingChange:
 					h.reg.Write(w, r, problem.SchemaBreakingChange, pe.fields...)
+					return
+				case problem.RecordInvalid:
+					h.reg.Write(w, r, problem.RecordInvalid, pe.fields...)
 					return
 				case problem.InvalidIdPConfig:
 					h.reg.Write(w, r, problem.InvalidIdPConfig, pe.fields...)
