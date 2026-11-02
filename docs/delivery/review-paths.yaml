@@ -68,6 +68,9 @@ security:
   - tools/navalint/
   # Span export filter and outbound redaction (TICK-93 audit).
   - internal/platform/telemetry/
+  # The audit log: hash chain, writer, sealer, export and verifier
+  # (PLAN-005 D-5-11, added by P5-02).
+  - internal/audit/
 
 cto_signoff:
   # Editing any of these needs CTO sign-off.
