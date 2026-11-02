@@ -6,7 +6,7 @@
 #   ./run.sh item1     p95 of the commit-check trigger, 10k iterations per arm, through PgBouncer
 #                      (CELL=update-sync-c1 ./run.sh item1 reruns one cell and appends to the summary)
 #   ./run.sh item2     10k/100k-subject transactions: commit time, deferred-queue memory (fix off and on)
-#   ./run.sh variants  item 2 follow-up: plan and commit time of five forms of the probe (N=2000)
+#   ./run.sh f1        F1 evidence on clean stats (fresh stack, right after seed): out/f1-fix-off.txt, out/f1-fix-on.txt, out/item2.txt
 #   ./run.sh trimmed   item 1 post-hoc: p95 per cell with host-stall block pairs dropped from both arms
 #   ./run.sh item3     WAL bytes per entry, insert vs seal UPDATE
 #   ./run.sh item5     export paging on the 1M-entry tenant, through PgBouncer
@@ -102,6 +102,8 @@ summarize_cell() {
         cell, \$1, \$3, \$8, \$4, \$9, d, \$5, \$10, (\$7-\$2)*100/\$2, (\$11-1)*100, (d <= 10 ? \"PASS\" : \"FAIL\") }'"
 }
 
+# Ad-hoc EXPLAIN of the probe with literal values (a record only). The trigger's
+# cached generic plan is captured by f1.sh (out/f1-fix-off.txt, out/f1-fix-on.txt).
 probe_plan() {
   psql_bouncer nava_app <<'SQL'
 BEGIN;
@@ -122,7 +124,7 @@ item3() { bash ./item3.sh 2>&1 | tee out/item3.txt; }
 item4() { mkdir -p out; psql_su -f /spike/sql/item4.sql > out/item4.txt 2>&1; sed -n '/== item 4 cases/,$p' out/item4.txt; }
 seed()  { mkdir -p out; psql_su -f /spike/sql/seed.sql 2>&1 | tee out/seed.txt; }
 item5() { bash ./item5.sh 2>&1 | tee out/item5.txt; }
-variants() { N=2000 bash ./item2_variants.sh 2>&1 | tee out/item2-variants-latest.txt; }
+f1()    { bash ./f1.sh; }
 trimmed() { bash ./analyze_item1.sh | tee out/item1/stall-trimmed.txt; }
 down()  { $DC down -v; }
 all()   { up; item4; seed; item1; item2; item3; item5; }

@@ -1,19 +1,19 @@
-ITEM 1: PASS — the deferred commit-check trigger adds at most +6.4% p95 (stall-trimmed; +3.3% on the cleanest cell) to a records-shaped write through PgBouncer. Target is ≤ 10%.
+ITEM 1: PASS — on evidence immune to host noise: the commit check's own cost is ≤ 76 µs per call, an additive upper bound of ≤ 1.2% of any sync p95 and ≤ 4.6% of the smallest async p95; p50 moves ≤ +60 µs; median block-pair p95 ≤ +6.1%. Pooled p95 is inconclusive on this host: its noise floor is larger than the signal. Target ≤ 10%.
 
 # Spike S1 (TICK-423, P5-01): ADR-004 R-A4 results
 
 | # | Item | Verdict | Headline number |
 |---|---|---|---|
-| 1 | p95 overhead of the commit-check trigger, through PgBouncer | **PASS** | Trigger costs 34–76 µs per call. p95 overhead is −11.1% to +6.4% in every cell once host-stall blocks are trimmed. |
-| 2 | 10k-subject transaction: commit time and queue memory | **PASS with fix F1** (as pinned: **FAIL**, O(n²)) | 10k subjects: 142–147 ms commit and 287 KB queue with F1; **24.1 s** as pinned. |
+| 1 | p95 overhead of the commit-check trigger, through PgBouncer | **PASS** | Trigger self time 34–76 µs per call (≤ 1.2% of sync p95, ≤ 4.6% of async p95). p50 moves ≤ +60 µs. Median block-pair p95 ≤ +6.1%. Pooled p95 is inconclusive on this host. |
+| 2 | 10k-subject transaction: commit time and queue memory | **PASS with fix F1** (as pinned: **FAIL**, O(n²)) | 10k subjects with F1: 172–198 ms commit and a 156–287 KB queue. As pinned: **24.1 s**. Without F1 the plan is unstable over fresh ANALYZE samples: pkey 9/10 (pinned form) and 10/10 (locals form). |
 | 3 | WAL bytes per entry, with and without the seal UPDATE | **PASS** (≈ 2× confirmed) | 1,344 B per insert + 1,323 B per seal = **1.98×** (warm). Cold seal: 3,764 B. |
 | 4 | BEFORE INSERT assert on `PARTITION BY RANGE` + DEFAULT | **PASS**: behaves as R10 states | 30 of 30 cases match. |
 | 5 | Export caps: 5,000-row pages, 30 s and 15 min | **PASS** (anchor query: see F2) | Page p95 43–99 ms. 1M entries in 12–26 s. |
 
 Two findings need action in Epic 05. Neither changes ADR-004.
 
-- **F1 (P5-10b, P5-11).** As pinned, the commit check is O(n²) in a large transaction. The fix is one statistics override per partition, plus a CI plan test.
-- **F2 (export task, S16).** The R20 anchor query, written the obvious way, scales with tenant history instead of window size. Use the window-bounded form.
+- **F1 (P5-10b, P5-11).** As pinned, the commit check is O(n²) in a large transaction. Moving the probe's values into plpgsql locals does not fix it on clean statistics. The fix is one statistics override per partition, plus a CI plan test.
+- **F2 (export task, S16).** The R20 anchor query, written the obvious way, scales with tenant history instead of window size. Its plan must scan the `occurred_at` range.
 
 ## Environment
 
@@ -35,16 +35,23 @@ cd docs/adr/ADR-004/spikes/postgres/s1
 ./run.sh up        # stack + schema
 ./run.sh item4     # on the EMPTY table, before seed
 ./run.sh seed      # ~3 min
+./run.sh f1        # F1 on clean stats, right after seed: out/f1-fix-off.txt, out/f1-fix-on.txt, out/item2.txt
+bash ./f1_census.sh > out/f1-census.txt   # plan census + 10 fresh ANALYZE samples per form, fix off and on
+bash ./f1_vm.sh > out/f1-vm.txt           # locals form after VACUUM and after scattered writes, fix off and on
 ./run.sh item1     # ~25 min; CELL=update-sync-c1 ./run.sh item1 reruns one cell
-./run.sh trimmed   # post-hoc stall-trimmed p95 (item 1)
-./run.sh item2     # FIX=off then on, see F1
-./run.sh variants  # five forms of the probe, plans + commit times
+./run.sh trimmed   # post-hoc stall-trimmed p95 (item 1), supporting only
 ./run.sh item3
 ./run.sh item5
 ./run.sh down      # deletes the volume
 ```
 
-Only `compose.yaml` in this folder is used; no `make stack-*` or `make ci*`. Outputs go to `out/`. Raw pgbench logs (`out/item1/raw/`) are git-ignored; per-block pgbench summaries are committed. Every command reads and writes the same database, so a full rerun needs `down` and `up` first. The numbers below come from the runs recorded in `out/`, in the order above. Item 1's two async c=1 cells were rerun with F1 applied, and update-sync-c1 was rerun once.
+Only `compose.yaml` in this folder is used; no `make stack-*` or `make ci*`. Outputs go to `out/`. Raw pgbench logs (`out/item1/raw/`) are git-ignored; per-block pgbench summaries are committed. Every command reads and writes the same database, so a full rerun needs `down` and `up` first.
+
+**Which stack each output comes from.**
+- Items 1, 3 and 5, and `out/item2-run1.txt` (the 24.1 s as-pinned result), come from the first stack. That stack ran item4, seed, item1, item2, item3 and item5, in that order. Item 1's two async c=1 cells were rerun with F1 applied, and update-sync-c1 was rerun once.
+- For the TICK-460 review, a fresh stack ran `down`, `up`, item4 (30/30 again), seed, `f1`, `f1_census.sh` and `f1_vm.sh`. That run produced `out/item4.txt`, `out/seed.txt`, `out/f1-*.txt` and the current `out/item2.txt`.
+
+**The host drifted between the first item 1 run and the F1 reruns.** On update-async-c1, baseline p50 rose from 992 to 1,755 µs (+77%), and the function's self time from 36.7 to 67.8 µs per call. Both arms moved, the trigger-off baseline included, so read this as host load and not as a cost of F1. F1 changes only the probe's plan, and for a one-subject transaction that plan is a single small index probe either way.
 
 ## Item 1: trigger overhead (PASS)
 
@@ -55,7 +62,15 @@ Only `compose.yaml` in this folder is used; no `make stack-*` or `make ci*`. Out
 
 Each cell runs 10,000 transactions per arm, trigger off vs on. The arms alternate in **20 blocks of 500 in ABBA order**, so host noise hits both arms. Cells cover `synchronous_commit` on (production) and off (fsync removed, which exposes the trigger's CPU cost), at 1 and 8 clients. p50, p95 and p99 come from pgbench's per-transaction log (`-l`). The trigger is toggled with `ALTER TABLE records DISABLE|ENABLE TRIGGER`.
 
-The probe is exactly P5-11's pinned form: `tenant_id = $1 AND occurred_at = now() AND txid = pg_current_xact_id() AND subject_type = $2 AND subject_id = $3`. For a single-subject transaction its plan is an Index Only Scan on the R2 unique key: 5 shared buffers hit, 0.074 ms (`out/item1/probe-plan.txt`). The function's own time, from `pg_stat_user_functions`, is **34–76 µs per call** across all cells (`out/item1/runs.txt`).
+The probe is exactly P5-11's pinned form: `tenant_id = $1 AND occurred_at = now() AND txid = pg_current_xact_id() AND subject_type = $2 AND subject_id = $3`. 
+
+**The trigger's cached generic plan** for this one-subject shape was captured with auto_explain on the 8th call of a session, on clean statistics:
+- **Without F1** (how item 1's main cells ran): an Index Scan on the R28 time index `(tenant_id, occurred_at DESC, id DESC)`, with `Index Cond: (tenant_id, occurred_at = now())` and `subject_type`, `subject_id` and `txid` in `Filter` (`out/f1-fix-off.txt`). In a one-subject transaction that prefix matches 1–2 entries, so the scan is cheap. This is the plan F1 removes for large transactions.
+- **With F1**: an Index Only Scan on the R2 key, with all 5 columns in `Index Cond` (`out/f1-fix-on.txt`).
+
+`out/item1/probe-plan.txt` is an ad-hoc EXPLAIN with literal values, not the trigger's plan. It is kept only as a record.
+
+The function's own time, from `pg_stat_user_functions`, is **34–76 µs per call** across all cells (`out/item1/runs.txt`).
 
 | Cell (10k per arm) | p50 off → on | p95 off → on | Pooled p95 | Median block-pair p95 | Stall-trimmed p95 |
 |---|---|---|---|---|---|
@@ -71,62 +86,66 @@ The probe is exactly P5-11's pinned form: `tenant_id = $1 AND occurred_at = now(
 | update, async, c=1, **with F1** | 1,755 → 1,797 µs | 5,301 → 5,057 µs | −4.6% | +3.8% | +5.4% |
 | insert, async, c=1, **with F1** | 1,412 → 1,411 µs | 3,827 → 3,403 µs | −11.1% | −1.8% | −11.1% (none dropped) |
 
-**Why PASS, given the two ⚠ cells.** In both runs of update-sync-c1, the pooled p95 excess comes from one host stall that landed on the "on" arm:
+**Why PASS.** The verdict rests on three statistics that host noise cannot inflate. The pre-declared runs collected all three before any result was read.
 
-- Run 1: blocks b7-on and b8-on (26.2 ms and 17.5 ms p95, run back to back under ABBA), against 5.4–7.4 ms in the other 36 blocks.
-- Run 2: b17, where both arms stalled (15.0 ms off, 27.7 ms on).
+1. **The function's self time is an additive upper bound** on what the trigger adds to each transaction: at most 75.7 µs per call (`out/item1/runs.txt`). That is ≤ 1.2% of the smallest sync off-arm p95 (6,476 µs) and ≤ 4.6% of the smallest async off-arm p95 (1,634 µs). Item 2 measures the deferred-queue bookkeeping around the call separately: 16–29 B per event.
+2. **p50 moves by at most +60 µs** (update-sync-c1 run 1 and update-async-c1), and by at most +6.0% in any cell.
+3. **The median block-pair p95 ratio is at most +6.1%** in every cell (range −12.6% to +6.1%).
 
-The same stalls produce large *negative* "overheads" elsewhere: insert-sync-c1 −47.9%, update-async-c8 −23.6%. The trigger runs before the commit record is flushed and costs 34–76 µs. It cannot add milliseconds of fsync stall. Every robust statistic stays inside the target:
+**Pooled p95 is inconclusive on this host.** The pre-declared statistic was pooled p95, on vs off (`run.sh`, item 1 header). `out/item1/summary.txt` prints FAIL for update-sync-c1 in both runs: +70.0% and +18.5%. On this host, the noise floor is larger than the signal:
+- across cells running the same code, pooled p95 swings from −47.9% to +70.0%;
+- the excess in update-sync-c1 comes from single stalls: b7-on and b8-on at 26.2 and 17.5 ms in run 1, and b17 in run 2 (15.0 ms off, 27.7 ms on). Every other block ran at 5.4–7.4 ms.
 
-- p50 moves by +1.3% at most in the sync cells;
-- the median block-pair p95 is between −12.6% and +6.1% in every cell;
-- the cleanest cell (update, async, c=1: no fsync, one client, no pairs dropped) shows **+3.3%**.
+So pooled p95 neither confirms nor refutes ≤ 10%. The PASS rests on points 1–3.
 
-**The stall-trimmed column was added after the fact.** The rule: drop a block pair from *both* arms when either arm's block p95 exceeds 2× the cell's median block p95 (`analyze_item1.sh`). It was applied to every cell. If the Technical Lead wants a pooled p95 without trimming, rerun `./run.sh item1` on Linux CI hardware, where these WSL2 fsync stalls do not occur. No measured mechanism supports a fail.
+**Stall-trimmed column: post-hoc, supporting only.** The rule drops a block pair from both arms when either arm's block p95 exceeds 2× the cell's median block p95 (`analyze_item1.sh`). It was chosen after the results came in. It appears here because it agrees with points 1–3; the verdict does not rest on it.
 
 ## Item 2: 10k-subject transaction (PASS with F1; FAIL as pinned)
 
 **Method.** `item2.sh`. One transaction as `nava_app` (unix socket, fresh backend, RLS applies) writes N records in one statement (UPDATE or INSERT) and N audit entries in a second statement. The script then reads the `AfterTriggerEvents` memory context before COMMIT, times COMMIT, and reads the backend's `VmHWM` and `RssAnon` afterwards. Each case runs with the trigger off and on.
 
-| Case | n_distinct fix | COMMIT, trigger off | COMMIT, trigger on | `AfterTriggerEvents` | `RssAnon` off → on |
+| Case | Source | COMMIT, trigger off | COMMIT, trigger on | `AfterTriggerEvents` | `RssAnon` off → on |
 |---|---|---|---|---|---|
-| UPDATE 10k | off (as pinned) | 44 ms | **24,101 ms** | 286,912 B | 4,356 → 4,728 kB |
-| UPDATE 10k | **on (F1)** | 270 ms | **142 ms** | 286,912 B (28.7 B/event) | 4,364 → 4,724 kB |
-| INSERT 10k | on | 12 ms | **147 ms** | 155,792 B (15.6 B/event) | 4,020 → 4,244 kB |
-| INSERT 100k | on | 22 ms | **1,230 ms** | 2,122,064 B (21.2 B/event) | 3,952 → 4,400 kB |
+| UPDATE 10k, **as pinned** | `out/item2-run1.txt` (first stack) | 44 ms | **24,101 ms** | 286,912 B | 4,356 → 4,728 kB |
+| UPDATE 10k, **F1** | `out/item2.txt` (fresh stack, clean ANALYZE) | 42 ms | **172 ms** | 286,912 B (28.7 B/event) | 3,968 → 4,184 kB |
+| INSERT 10k, F1 | `out/item2.txt` | 52 ms | **198 ms** | 155,792 B (15.6 B/event) | 4,012 → 4,236 kB |
+| INSERT 100k, F1 | `out/item2.txt` | 37 ms | **1,984 ms** | 2,122,064 B (21.2 B/event) | 3,940 → 4,396 kB |
 
-The off-arm commit times include the fsync of a 10k-row transaction; the 270 ms off figure is a single noisy sample. With F1, the check costs about **12–15 µs per subject at commit**, and the queue costs about **16–29 B per subject**. `VmHWM` (300–650 MB) is dominated by shared buffers the backend touched and does not differ by trigger state. Peak private memory (`RssAnon`) grows by less than 0.5 MB, even at 100k subjects.
+- **When the F1 rows ran.** On the fresh stack, after every post-seed row was deleted and the table analysed (`f1.sh`, last step), in this order: 10k UPDATE, 10k INSERT, 100k INSERT.
+- **Cost with F1.** About **13–20 µs per subject at commit**, and **16–29 B per subject** in the deferred queue.
+- **Memory.** `VmHWM` is dominated by shared buffers the backend touched, and does not differ by trigger state. Peak private memory (`RssAnon`) grows by less than 0.5 MB, even at 100k subjects.
+- **First-stack F1 rows** (142 / 147 / 1,230 ms) are in `out/item2-run1.txt`.
 
-### F1: the pinned probe is O(n²) in a large transaction
+### F1: the pinned probe is O(n²) in a large transaction, and locals do not fix it
 
-**Plan as pinned.** auto_explain of the trigger's cached generic plan (`out/item2-variants.txt`, "fix: off"; first observed in `out/item2.txt`):
+**Evidence on clean statistics.** Fresh stack, right after seed. Every post-seed row was deleted, then `VACUUM (ANALYZE)`; at most 50 rows share an `occurred_at` value.
 
-```
-Index Scan using audit_log_default_pkey on audit_log_default audit_log
-  Index Cond: ((tenant_id = $14) AND (occurred_at = now()))
-  Filter: ((subject_type = ($12)[0]) AND (subject_id = $15) AND (txid = pg_current_xact_id()))
-```
+1. **The trigger's generic plan as pinned, with the fix off** (`out/f1-fix-off.txt`). It has `Index Cond: ((tenant_id = $14) AND (occurred_at = now()))`, with `subject_type`, `subject_id` and `txid` in `Filter`. The index is the pkey or the R28 time index: the two tie on cost, and either way each probe scans every entry the transaction has written. 2,000 subjects commit in 752–1,011 ms (`out/f1-census.txt`). On the first stack, 10k subjects took 24.1 s.
+2. **Fresh ANALYZE samples, fix off** (`out/f1-census.txt`, stability section). After each of 10 fresh ANALYZEs, a new session reports the index of the cached generic plan:
+   - pinned form (v0): **pkey 9/10**, R2 key 1/10;
+   - plpgsql-locals form (v1): **pkey 10/10**.
+3. **The locals form after VACUUM and after ordinary writes, fix off** (`out/f1-vm.txt`): **pkey 10/10**, both at 100.0% and at 97.8% all-visible.
+4. **The good plan can still turn up by chance.**
+   - In the census, 2 v1 sessions run straight after a `VACUUM (ANALYZE)` got the R2-key plan on all 2,000 probes and committed in 34–39 ms (`out/f1-census.txt`, census section).
+   - v0 got the R2-key plan once in the stability test.
+   - In `out/f1-fix-off.txt`, the v1–v4 plan-capture sessions show the R2 plan, yet their separately timed 2,000-subject commits took 433–920 ms, as slow as v0 (880 ms). The plan differs from session to session. That is the instability: the pkey prefix and the R2 key both cost 8.46, and small differences between ANALYZE samples decide the tie.
+5. **Fix on** (`out/f1-fix-on.txt`, `out/f1-census.txt`, `out/f1-vm.txt`). Every trial gets an index whose `Index Cond` contains both `subject_id` and `occurred_at`: 10/10 + 10/10 fresh samples, 10/10 after VACUUM and after writes, and 4 census sessions.
+   - The locals forms (v1–v4) get the R2-key Index Only Scan on all 5 columns, cost 4.46.
+   - The pinned text gets either the R2 key or the R28 subject index `(tenant_id, subject_type, subject_id, occurred_at)`.
+   - 2,000 subjects commit in 37–107 ms.
 
-**Why.** For a table with no repeated timestamps, the planner estimates `occurred_at = <value>` at about 1 row (n_distinct ≈ 92k on the seed). The pkey's 2-column prefix and the R2 key's 5-column prefix therefore both cost 8.46, and the pkey wins the tie. But every entry of one transaction shares `(tenant_id, occurred_at = now())`. Each of the n deferred probes scans up to n entries, so 10k subjects take 24 s.
+**Why.** Without the override, the planner estimates `occurred_at = <value>` at about 1 row: ANALYZE gives n_distinct between 89k and 96k. So a 2-column prefix costs the same as a 5-column one. Every entry of one transaction shares `(tenant_id, occurred_at = now())`, so with the pkey prefix each of the n deferred probes scans up to n entries. With the override, `occurred_at` equality is estimated at about 200 rows per tenant, and the 5-column R2 key becomes strictly cheaper.
 
-**Forms that do not fix it.** Moving the values into plpgsql locals, adding `version_after`, a row comparison, or an `ORDER BY` on the R2 key all get the same pkey plan (`item2_variants.sh`; 2k subjects: 630–880 ms).
+**Answer to "if locals alone give the good plan on clean statistics, F1 is not needed": they do not.** v1 got the pkey in 20 of 20 fresh-ANALYZE trials (points 2 and 3), and the good plan in only 2 sessions, both straight after VACUUM. **F1 is needed.**
 
-**Fix (`sql/schema.sql`, on by default).** Set `ALTER TABLE audit_log ALTER COLUMN occurred_at SET (n_distinct = -0.0001)`, the same on **every partition**, then ANALYZE. Partitions do not inherit the attribute option: checked with `CREATE TABLE … PARTITION OF`. With the override:
+**Fix (`sql/schema.sql`, on by default).** Run `ALTER TABLE … ALTER COLUMN occurred_at SET (n_distinct = -0.0001)` on `audit_log` **and on every partition**, then ANALYZE. Partitions do not inherit the attribute option (checked with `CREATE TABLE … PARTITION OF`).
 
-- the pinned text plans onto the R28 subject index: `Index Cond: (tenant_id, subject_type, subject_id, occurred_at)`, `Filter: txid`;
-- the locals form (`v1-locals`) plans onto the R2 key: Index Only Scan, all 5 columns in `Index Cond`;
-- 10k subjects commit in 142–190 ms.
+**Side effects of the override.** It changes estimates only for *equality* on `occurred_at`. Range predicates (reader, export, R20) use the histogram. PK lookups `(tenant_id, occurred_at, id)` stay unique through `id`.
 
-Item 1 rechecked with F1 shows no regression; see the table above.
+**Asks.** The Technical Lead has added the catalogue and plan tests to TICK-450 and TICK-428.
 
-**The plan depends on statistics.** After the bulk test transactions put 100k rows on one `occurred_at` value, ANALYZE made that value an MCV (frequency 0.031). The planner then chose the good plan even without the override (`out/item2-variants.txt`). A fresh or ordinary table does not have this, so do not rely on it.
-
-**Side effects of the override.** It only changes estimates for *equality* on `occurred_at`. Range predicates (reader, export, R20) use the histogram, and PK lookups `(tenant_id, occurred_at, id)` stay unique through `id`.
-
-**Asks:**
-
-1. **P5-10b**: set the override on `audit_log` and its DEFAULT partition, and write it into the Epic 30 partition-creation contract (set it, then ANALYZE, on every new partition).
-2. **P5-11**: write the probe with plpgsql locals (`v_type := TG_ARGV[0]; v_txid := pg_current_xact_id(); v_at := now();`) so it gets the Index Only Scan on the R2 key. Add a CI plan test: in a 1,000-subject transaction under `plan_cache_mode = force_generic_plan`, the probe's plan must have `subject_id` in `Index Cond`.
+1. **P5-10b:** set the override on `audit_log` and every partition. Write it into the Epic 30 partition-creation contract: set it, then ANALYZE, on every new partition.
+2. **P5-11:** write the probe with plpgsql locals (`v_type := TG_ARGV[0]; v_txid := pg_current_xact_id(); v_at := now();`). With F1 this gets the R2-key Index Only Scan (cost 4.46, against 8.59 for the subject index). The plan test must require both `subject_id` and `occurred_at` in `Index Cond`.
 
 The ADR-004 text (decision 2, R2, R28) is unchanged.
 
@@ -200,11 +219,13 @@ The cap is 30 s per page and 900 s per export. Earlier runs of the same passes g
 | Whole 90 days | 0.05–0.1 ms | **2.4–8.4 s** (reads 1M rows) |
 
 - **(a)** walks the seq index from the start of the tenant's history and filters by time, so its cost grows with the history *before* the window.
-- **(b)** costs O(rows in the window). The export streams at least those rows anyway, so (b) never costs more than the export it anchors.
+- **(b)** costs O(rows in the window). The export streams at least those rows, so in practice (b) costs no more than the export it anchors. The testable form of this claim is the plan assertion below.
 
 Both stay under 30 s at 1M entries, so the R21 caps hold. But at a few tens of millions of entries per tenant, (a) on a recent window would hit the timeout.
 
-**Ask (export task, S16):** use form (b), or choose per window. A whole-history export needs no anchor query: `first_seq = 1`, genesis.
+**Ask (export task, S16, TICK-444):**
+- Use form (b), or choose the form per window. A whole-history export needs no anchor query: `first_seq = 1`, genesis.
+- Test it as a plan assertion: the anchor query's plan scans the `occurred_at` range (`occurred_at` in `Index Cond`, or in a bitmap index condition). It never walks the `(tenant_id, seq)` index from the start of the tenant's history.
 
 ## Files
 
@@ -212,5 +233,6 @@ Both stay under 30 s at 1M entries, so the R21 caps hold. But at a few tens of m
 - `sql/schema.sql`, `sql/seed.sql`: schema and data.
 - `run.sh`: entry point.
 - `bench/*.pgbench`: item 1 and item 3 transactions.
-- `item2.sh`, `item2_variants.sh`, `item3.sh`, `item5.sh`, `sql/item4.sql`, `analyze_item1.sh`: per-item scripts.
+- `item2.sh`, `item3.sh`, `item5.sh`, `sql/item4.sql`, `analyze_item1.sh`: per-item scripts.
+- `f1.sh`, `f1_census.sh`, `f1_vm.sh`, `item2_variants.sh` (the six probe forms): F1 evidence.
 - `out/`: recorded outputs.

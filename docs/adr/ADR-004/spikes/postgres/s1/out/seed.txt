@@ -1,49 +1,49 @@
 Timing is on.
 SET
-Time: 0.334 ms
+Time: 0.262 ms
 INSERT 0 1000000
-Time: 15349.778 ms (00:15.350)
+Time: 16039.658 ms (00:16.040)
 SELECT 50
-Time: 5.109 ms
+Time: 4.341 ms
 INSERT 0 1980000
-Time: 111050.266 ms (01:51.050)
+Time: 97907.928 ms (01:37.908)
 INSERT 0 50
-Time: 4.497 ms
+Time: 4.606 ms
 RESET
-Time: 0.101 ms
+Time: 0.172 ms
 VACUUM
-Time: 374.680 ms
+Time: 573.139 ms
 VACUUM
-Time: 1250.811 ms (00:01.251)
+Time: 2470.198 ms (00:02.470)
 VACUUM
-Time: 4.873 ms
+Time: 20.581 ms
 CHECKPOINT
-Time: 29683.158 ms (00:29.683)
+Time: 21183.303 ms (00:21.183)
      t     |  count  
 -----------+---------
  records   | 1000000
  audit_log | 1980000
 (2 rows)
 
-Time: 556.263 ms
+Time: 344.215 ms
       relname      |  total  |  heap   
 -------------------+---------+---------
- audit_log_default | 2038 MB | 1190 MB
+ audit_log_default | 2040 MB | 1190 MB
  records           | 557 MB  | 488 MB
 (2 rows)
 
-Time: 6.301 ms
+Time: 1.232 ms
                               index                              |    size    
 -----------------------------------------------------------------+------------
  records_pkey                                                    | 62 MB
  records_def_updated                                             | 6888 kB
  audit_log_default_pkey                                          | 152 MB
  audit_log_default_tenant_id_occurred_at_id_idx                  | 197 MB
- audit_log_default_tenant_id_subject_type_subject_id_occurre_idx | 170 MB
+ audit_log_default_tenant_id_subject_type_subject_id_occurre_idx | 171 MB
  audit_log_default_tenant_id_change_set_id_idx                   | 8192 bytes
  audit_log_default_tenant_id_seq_idx                             | 105 MB
  audit_log_default_tenant_id_occurred_at_id_idx1                 | 16 kB
  audit_log_default_tenant_id_occurred_at_txid_subject_type_s_idx | 223 MB
 (9 rows)
 
-Time: 1.869 ms
+Time: 0.713 ms

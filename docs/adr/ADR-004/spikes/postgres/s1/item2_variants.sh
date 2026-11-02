@@ -103,8 +103,9 @@ SELECT md5('tenant-$2')::uuid, gen_random_uuid(), 'record', 'update', 'record', 
 COMMIT;
 SQL
 }
+if [ -n "${INSTALL_ONLY:-}" ]; then install "$INSTALL_ONLY"; exit 0; fi
 t=5
-for v in ${VARIANTS:-v0-as-pinned v1-locals v2-locals-version v3-row-compare}; do
+for v in ${VARIANTS:-v0-as-pinned v1-locals v2-locals-version v3-row-compare v4-order-by-r2-key v5-pinned-order-by}; do
   install "$v"
   echo "== $v: probe plan (8th call, cached generic plan)"
   plan "$v" $t | sed 's/^/   /'

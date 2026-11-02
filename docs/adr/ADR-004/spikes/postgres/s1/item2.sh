@@ -52,7 +52,9 @@ fix() { # off: reset the n_distinct override (as pinned); on: apply it (schema.s
   $DC exec -T pg psql -U postgres -d spike -qc "ALTER TABLE audit_log ALTER COLUMN occurred_at $v; ALTER TABLE audit_log_default ALTER COLUMN occurred_at $v; ANALYZE audit_log_default"
 }
 # The O(n^2) case is only run at 10k; at 100k it would take about 100x as long.
-for spec in "off update 10000" "on update 10000" "on insert 10000" "on insert 100000"; do
+SPECS=${ITEM2_SPECS:-"off update 10000|on update 10000|on insert 10000|on insert 100000"}
+IFS="|" read -r -a SPECARR <<<"$SPECS"
+for spec in "${SPECARR[@]}"; do
   set -- $spec
   f=$1; shift
   echo "#### n_distinct fix: $f"
