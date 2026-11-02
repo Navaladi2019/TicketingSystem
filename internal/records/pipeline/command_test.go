@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -14,6 +15,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/cascade"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 )
 
@@ -97,5 +99,14 @@ func TestValidationErrorMessage(t *testing.T) {
 func TestOpString(t *testing.T) {
 	if pipeline.OpCreate.String() != "create" || pipeline.OpUpdate.String() != "update" || pipeline.Op(9).String() != "unknown" {
 		t.Fatal("audit actions changed")
+	}
+}
+
+// AuditSuppressed audits only an unclaimed start that ClaimStart built; the
+// zero Claim names no record and is refused before any statement runs.
+func TestAuditSuppressedRefusesZeroClaim(t *testing.T) {
+	err := pipeline.AuditSuppressed(context.Background(), nil, cascade.Claim{}, pipeline.Event{}, time.Now())
+	if !errors.Is(err, cascade.ErrInvalidKey) {
+		t.Fatalf("AuditSuppressed(zero claim) = %v, want cascade.ErrInvalidKey", err)
 	}
 }

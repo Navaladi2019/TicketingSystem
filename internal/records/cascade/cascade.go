@@ -5,7 +5,9 @@
 // transaction before it enqueues a nava.interpreter start of definition D on
 // record R. A claimed Claim is the only value outbox.EnqueueStart takes, so a
 // start cannot be enqueued without its key (A5-6). On a repeat the sink
-// enqueues nothing, calls AuditSuppressed, and the write commits (A5-4).
+// enqueues nothing, calls pipeline.AuditSuppressed, and the write commits
+// (A5-4). This package writes no record table: the audit row goes through the
+// pipeline, the only writer of audit_log (PLAN-003 D-3-6).
 //
 // The tenant, origin and depth of a claim are never arguments: ClaimStart
 // reads them from R's records row, which row-level security lets it see only
@@ -17,16 +19,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-
-	"github.com/Navaladi2019/TicketingSystem/internal/records/store"
 )
 
-// Audit actions and reasons for the rows this package and the pipeline write
-// (audit_log.action; the reason is in the row's after).
+// Audit actions and reasons of the cascade audit rows the pipeline writes
+// (audit_log.action; the reason is in the row's after, under DetailReason).
 const (
 	// ActionCycle is a suppressed start (A5-4): the write committed and D
 	// did not start again on R under this origin.
@@ -35,10 +34,14 @@ const (
 	// write rolled back.
 	ActionRejected = "cascade_rejected"
 
-	ReasonCycle    = "cascade_cycle"
-	ReasonTooDeep  = "cascade_too_deep"
-	reasonKey      = "reason"
-	definitionKey  = "definition_id"
+	ReasonCycle   = "cascade_cycle"
+	ReasonTooDeep = "cascade_too_deep"
+
+	// DetailReason and DetailDefinition are the keys of a cascade audit
+	// row's detail: its reason, and the suppressed definition.
+	DetailReason     = "reason"
+	DetailDefinition = "definition_id"
+
 	pkeyConstraint = "cascade_start_pkey"
 )
 
@@ -103,7 +106,8 @@ RETURNING outbox_id`
 // ClaimStart claims the start of k.DefinitionID on k.RecordID under the
 // origin stored on the record, in tx. claimed is true when this is the
 // first start of the key: enqueue it with outbox.EnqueueStart(ctx, tx, c, ...).
-// claimed is false on a cycle: enqueue nothing and call AuditSuppressed.
+// claimed is false on a cycle: enqueue nothing and call
+// pipeline.AuditSuppressed.
 //
 // A concurrent claim of the same key waits on R's row lock and then on the
 // uncommitted key: it gets claimed = false if the first commits and claims
@@ -143,45 +147,4 @@ func ClaimStart(ctx context.Context, tx pgx.Tx, k Key) (c Claim, claimed bool, e
 	}
 	c.outboxID = got
 	return c, true, nil
-}
-
-// Writer is who made the triggering write, as its audit row names them.
-type Writer struct {
-	// ActorID is the writer's principal, or uuid.Nil for a system writer.
-	ActorID uuid.UUID
-	// Source is audit_log.source: user, rule, workflow, function, ai or
-	// system.
-	Source string
-}
-
-// AuditSuppressed writes the cascade_cycle audit row of a start the key
-// suppressed (A5-4), in tx: the triggering write's transaction, so it commits
-// with the write and rolls back with it. One row per suppressed attempt.
-// c must be the unclaimed result of ClaimStart.
-func AuditSuppressed(ctx context.Context, tx pgx.Tx, c Claim, w Writer, at time.Time) error {
-	if c.Claimed() || c.recordID == uuid.Nil {
-		return fmt.Errorf("%w: only an unclaimed start is audited as suppressed", ErrInvalidKey)
-	}
-	id, err := uuid.NewV7()
-	if err != nil {
-		return fmt.Errorf("cascade: new audit id: %w", err)
-	}
-	origin := c.originID
-	a := &store.Audit{
-		TenantID: c.tenantID, ID: id, RecordID: c.recordID, Action: ActionCycle,
-		ActorID: optional(w.ActorID), Source: w.Source,
-		Detail:            map[string]string{reasonKey: ReasonCycle, definitionKey: c.definitionID.String()},
-		CausationOriginID: &origin, CausationDepth: c.depth, At: at,
-	}
-	if err := store.InsertAudit(ctx, tx, a); err != nil {
-		return fmt.Errorf("cascade: %w", err)
-	}
-	return nil
-}
-
-func optional(id uuid.UUID) *uuid.UUID {
-	if id == uuid.Nil {
-		return nil
-	}
-	return &id
 }
