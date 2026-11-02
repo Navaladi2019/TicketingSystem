@@ -1,0 +1,2 @@
+exit 0
+ok: seq 1..7 from genesis to head_hash aa38d9343733e5216513605b244b0a796fab0da11abc743eca96b7ee9040a551; 1 entries, 6 stubs, 0 unsealed

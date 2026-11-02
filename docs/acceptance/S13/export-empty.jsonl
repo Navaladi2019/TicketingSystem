@@ -1,0 +1,2 @@
+{"kind":"header","format":"nava.audit.export/v1","tenant_id":"0190f3a0-0000-7000-8000-000000000001","export_id":"0190f3a0-0000-7000-8000-0000000000ee","exported_at":"2026-11-02T12:30:00.000000Z","stubs":true,"filter":{"from":"2026-12-01T00:00:00.000000Z","to":"2026-12-02T00:00:00.000000Z","domain":null,"subject_type":null,"subject_id":null,"change_set_id":null,"after_seq":null}}
+{"kind":"trailer","anchor_seq":null,"last_seq":null,"head_hash":null,"count":0,"stub_count":0,"unsealed_count":0,"verifiable":false}
