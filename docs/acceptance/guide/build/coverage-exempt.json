@@ -33,5 +33,16 @@
     "429": "Not asserted here: the limiter is route-agnostic and asserted on getMe in S6.12; internal/server/write_chain_test.go (P2) drives it on every tenant write route.",
     "500": "Needs an internal failure (a dependency error mid-request); not caused from outside a healthy stack.",
     "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys."
+  },
+  "createRecord": {
+    "403": "Not reachable in S9: the interim authorizer allows every tenant member. Unit tests cover the mapping (internal/server).",
+    "429": "Not asserted here: the limiter is route-agnostic and asserted on getMe in S6.12; internal/server/write_chain_test.go (P2) drives it on every tenant write route.",
+    "500": "Needs an internal failure (a dependency error mid-request); not caused from outside a healthy stack.",
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database."
+  },
+  "getRecord": {
+    "429": "Not asserted here: the limiter is route-agnostic and asserted on getMe in S6.12; internal/server/write_chain_test.go (P2) drives it on every tenant write route.",
+    "500": "Needs an internal failure (a dependency error mid-request); not caused from outside a healthy stack.",
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database."
   }
 }

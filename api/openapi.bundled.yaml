@@ -272,6 +272,102 @@ paths:
           $ref: "#/components/responses/Problem"
         "501":
           $ref: "#/components/responses/Problem"
+  /api/v1/records/{entity}:
+    post:
+      operationId: createRecord
+      summary: Create a record of an entity type
+      description: >
+        Check order: authentication, then the entity type (an unknown key is a 404), then the authorizer, then the body. The body is `{data}`; `data` is validated against the current schema version, defaults applied, and the write goes through the record write pipeline with source `user` and the caller as actor. `Idempotency-Key` is required: a retry with the same key returns the stored response and creates nothing. A field that fails the schema, or a reference to a group or principal that does not exist in the tenant, answers 422 `record_invalid` with `errors[].pointer` under `/data`; the same body for a random UUID and for another tenant's group. An unknown entity type gives the 404 of getRecord, byte for byte, with no `instance`.
+
+      parameters:
+        - $ref: "#/components/parameters/Entity"
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRecordRequest"
+      responses:
+        "201":
+          description: The record exists at version 1.
+          headers:
+            ETag:
+              required: true
+              description: Weak ETag of the version, `W/"<version>"`.
+              schema:
+                type: string
+            Location:
+              required: true
+              description: Path of the new record.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Record"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/ProblemNoInstance"
+        "409":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+        "429":
+          $ref: "#/components/responses/Problem"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "501":
+          $ref: "#/components/responses/Problem"
+  /api/v1/records/{entity}/{id}:
+    get:
+      operationId: getRecord
+      summary: Read a record
+      description: >
+        Any user of the tenant (S9). `data` has the defaults of the current schema version applied for properties an older version never wrote. A missing record, another tenant's record, a record of another entity type, an id that is not a UUID and an unknown entity type key give the same 404, byte for byte, with no `instance`.
+
+      parameters:
+        - $ref: "#/components/parameters/Entity"
+        - name: id
+          in: path
+          required: true
+          description: The record id. Its shape is not checked here, an id that cannot exist is a 404.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The record.
+          headers:
+            ETag:
+              required: true
+              description: Weak ETag of the version, `W/"<version>"`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Record"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/ProblemNoInstance"
+        "429":
+          $ref: "#/components/responses/Problem"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "501":
+          $ref: "#/components/responses/Problem"
 components:
   schemas:
     Problem:
@@ -494,6 +590,40 @@ components:
         state:
           type: string
           enum: [active]
+    CreateRecordRequest:
+      type: object
+      description: >
+        Deliberately unconstrained here: the server resolves the entity type first (404), then reads `{data}` and answers 422 `record_invalid`.
+
+      x-go-type: json.RawMessage
+      properties:
+        data:
+          description: The record payload, an object.
+    Record:
+      type: object
+      required: [id, number, version, schema_version, state, data, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        number:
+          type: string
+        version:
+          type: integer
+          format: int64
+        schema_version:
+          type: integer
+        state:
+          type: string
+        data:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
   responses:
     Problem:
       description: An RFC 9457 problem.
@@ -515,5 +645,12 @@ components:
       description: >
         The entity type key. Its shape is not checked here, a key that cannot exist is a 404.
 
+      schema:
+        type: string
+    Entity:
+      name: entity
+      in: path
+      required: true
+      description: The entity type key. Its shape is not checked here, a key that cannot exist is a 404.
       schema:
         type: string

@@ -80,3 +80,7 @@ codes:
     status: 422
     title: Schema breaking change
     detail: The new version cannot be applied to existing records. See errors for the offending paths.
+  - code: record_invalid
+    status: 422
+    title: Record invalid
+    detail: The record is not accepted. See errors for the failing fields.

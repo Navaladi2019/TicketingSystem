@@ -1328,6 +1328,110 @@ test('version 2, current, compatible', () => {
     }
 
 
+# --------------------------------------------------------------------------- X5
+def x5():
+    types = "{{core_url}}/api/v1/entity-types"
+    base = "{{core_url}}/api/v1/records"
+    rec = base + "/{{x5_type}}"
+    schema = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "additionalProperties": False,
+        "required": ["short_description", "state"],
+        "properties": {
+            "short_description": {"type": "string", "minLength": 1, "maxLength": 160},
+            "state": {"type": "string", "enum": ["new", "closed"], "default": "new"},
+            "group": {"type": "string", "format": "uuid"},
+        },
+    }
+    type_body = {"key": "{{x5_type}}", "name": "Acceptance records type", "number_prefix": "{{x5_prefix}}", "definition": {
+        "schema": schema, "fixed_columns": {"state": "state", "group": "assignment_group_id"},
+        "states": {"initial": "new", "states": ["new", "closed"], "transitions": [{"from": "new", "to": "closed"}]}}}
+    pre = """
+// One type key, prefix and Idempotency-Key per pass, so the folder can run again.
+const run = Math.random().toString(16).slice(2, 10);
+bru.setVar('x5_type', `x5_${run}`);
+bru.setVar('x5_prefix', Array.from({ length: 6 }, () => String.fromCharCode(65 + Math.floor(Math.random() * 26))).join(''));
+for (let i = 0; i <= 5; i++) bru.setVar(`x5_key${i}`, `tick357-x5-${run}-${i}`);
+"""
+    key = lambda i: {"Idempotency-Key": "{{x5_key%d}}" % i}
+    good = {"data": {"short_description": "Printer on fire"}}
+    same = "\ntest('same body as X5.15', () => expect(N.text()).to.eql(bru.getVar('x5_ref404')));"
+    no404 = """
+test('HTTP 404 problem+json with code not_found and no instance', () => {
+  expect(res.getStatus()).to.eql(404);
+  expect(N.header('Content-Type') || '').to.include('application/problem+json');
+  const b = N.json();
+  expect(b.code).to.eql('not_found');
+  expect(b).to.not.have.property('instance');
+});
+N.status(404);"""
+    return {
+        "dir": "X5", "name": "X5 — API suite: records (createRecord, getRecord)",
+        "desc": "TICK-357. Create a record of a new entity type and read it back: 201 with `ETag` and `Location`, a retry with the same Idempotency-Key returning the same record, 422 `record_invalid` for a missing field and for a reference that does not exist (no constraint text), and the one 404 for a missing record, another tenant's record and an unknown entity type. 429, 500 and 501 are in the coverage page. Self-contained; every run uses a new type key. Needs `tools/seed.sh`.",
+        "items": [
+            token("X5.1 Sign in as tenant A's admin", "admin_a_username", "admin_a_password", "admin_a_token"),
+            token("X5.2 Sign in as Alice (tenant A)", "alice_username", "alice_password", "alice_token"),
+            token("X5.3 Sign in as Bob (tenant B)", "bob_username", "bob_password", "bob_token"),
+            req("X5.4 Setup: the admin creates the entity type", "POST", types, auth="admin_a_token", headers=key(0), body=type_body,
+                desc="A type whose `group` property is the assignment group column.", pre=pre, tests="N.status(201);"),
+            problem_req("X5.5 createRecord 401: no token", "POST", rec, "invalid_token", 401, desc="Missing token.",
+                        headers=key(1), body=good),
+            problem_req("X5.6 createRecord 400: no Idempotency-Key", "POST", rec, "validation_failed", 400,
+                        auth="alice_token", desc="Every tenant write needs the header.", body=good,
+                        extra="N.fieldError('/header/Idempotency-Key');"),
+            req("X5.7 createRecord 404: an unknown entity type", "POST", base + "/no_such_type_x5", auth="alice_token",
+                headers=key(1), body=good, desc="404 `not_found` with no `instance`, before the body is read.", tests=no404),
+            problem_req("X5.8 createRecord 422: a required field is missing", "POST", rec, "record_invalid", 422,
+                        auth="alice_token", headers=key(2), body={"data": {}},
+                        desc="`errors[].pointer` is under `/data`.", extra="N.fieldError('/data/short_description');"),
+            req("X5.9 createRecord 422: a group that does not exist", "POST", rec, auth="alice_token", headers=key(3),
+                body={"data": {"short_description": "x", "group": "00000000-0000-4000-8000-00000000dead"}},
+                desc="A reference that resolves nowhere in the tenant: 422 on `/data/group`, with no database text. Another tenant's group gives the same body.",
+                tests="""N.problem('record_invalid', 422);
+N.fieldError('/data/group');
+N.noLeak('fkey', 'constraint', 'violates', 'foreign key');"""),
+            req("X5.10 createRecord 201: a record", "POST", rec, auth="alice_token", headers=key(4), body=good,
+                desc="The response is version 1 with the default state, an `ETag` and a `Location`.",
+                tests="""N.status(201);
+const b = N.json();
+test('Record: version 1, state new, default applied', () => {
+  expect(b.version).to.eql(1);
+  expect(b.state).to.eql('new');
+  expect(b.data.short_description).to.eql('Printer on fire');
+  expect(b.data.state).to.eql('new');
+  expect(b.id).to.match(/^[0-9a-f-]{36}$/);
+});
+test('ETag and Location', () => {
+  expect(N.header('ETag')).to.eql('W/"1"');
+  expect(N.header('Location')).to.eql('/api/v1/records/' + bru.getVar('x5_type') + '/' + b.id);
+});
+bru.setVar('x5_id', b.id);"""),
+            req("X5.11 createRecord 201: replay of X5.10", "POST", rec, auth="alice_token", headers=key(4), body=good,
+                desc="The same key and body returns the stored response: the same record, nothing new.",
+                tests="""N.status(201);
+test('the same record id', () => expect(N.json().id).to.eql(bru.getVar('x5_id')));"""),
+            problem_req("X5.12 createRecord 409: the key with another body", "POST", rec, "idempotency_key_reuse", 409,
+                        auth="alice_token", headers=key(4), body={"data": {"short_description": "another"}},
+                        desc="The key of X5.10 with a different body."),
+            req("X5.13 getRecord 200: the record", "GET", rec + "/{{x5_id}}", auth="alice_token",
+                desc="Any tenant user. `ETag` is the weak version.", tests="""N.status(200);
+test('the created record', () => {
+  expect(N.json().id).to.eql(bru.getVar('x5_id'));
+  expect(N.json().data.state).to.eql('new');
+  expect(N.header('ETag')).to.eql('W/"1"');
+});"""),
+            problem_req("X5.14 getRecord 401: no token", "GET", rec + "/{{x5_id}}", "invalid_token", 401, desc="Missing token."),
+            req("X5.15 getRecord 404: an id that does not exist", "GET", rec + "/00000000-0000-4000-8000-00000000dead",
+                auth="alice_token", desc="The reference 404 for X5.16 to X5.18.", tests=no404 + "\nbru.setVar('x5_ref404', N.text());"),
+            req("X5.16 getRecord 404: tenant A's record read by tenant B", "GET", rec + "/{{x5_id}}", auth="bob_token",
+                desc="Byte-identical to X5.15.", tests=no404 + same),
+            req("X5.17 getRecord 404: the right id under an unknown entity type", "GET", base + "/no_such_type_x5/{{x5_id}}",
+                auth="alice_token", desc="Byte-identical to X5.15.", tests=no404 + same),
+            req("X5.18 getRecord 404: an id that is not a UUID", "GET", rec + "/not-a-uuid", auth="alice_token",
+                desc="Byte-identical to X5.15.", tests=no404 + same),
+        ],
+    }
+
+
 # --------------------------------------------------------------------------- X3
 ADMIN = [
     ("nava-core", "admin_url", ["keycloak", "postgres", "temporal"]),
@@ -1402,7 +1506,7 @@ if (wait > 0) {{ console.log(`waiting ${{Math.round(wait / 1000)}} s for the tok
     }
 
 
-FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, x1, x2, x4, x3, late]
+FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, x1, x2, x4, x5, x3, late]
 
 ENV = [
     ("core_url", "http://127.0.0.1:18080"),

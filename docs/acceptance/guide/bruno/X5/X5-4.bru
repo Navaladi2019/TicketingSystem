@@ -1,0 +1,89 @@
+meta {
+  name: X5.4 Setup: the admin creates the entity type
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{core_url}}/api/v1/entity-types
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: {{x5_key0}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "key": "{{x5_type}}",
+    "name": "Acceptance records type",
+    "number_prefix": "{{x5_prefix}}",
+    "definition": {
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "short_description",
+          "state"
+        ],
+        "properties": {
+          "short_description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "new",
+              "closed"
+            ],
+            "default": "new"
+          },
+          "group": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "fixed_columns": {
+        "state": "state",
+        "group": "assignment_group_id"
+      },
+      "states": {
+        "initial": "new",
+        "states": [
+          "new",
+          "closed"
+        ],
+        "transitions": [
+          {
+            "from": "new",
+            "to": "closed"
+          }
+        ]
+      }
+    }
+  }
+}
+
+script:pre-request {
+  // One type key, prefix and Idempotency-Key per pass, so the folder can run again.
+  const run = Math.random().toString(16).slice(2, 10);
+  bru.setVar('x5_type', `x5_${run}`);
+  bru.setVar('x5_prefix', Array.from({ length: 6 }, () => String.fromCharCode(65 + Math.floor(Math.random() * 26))).join(''));
+  for (let i = 0; i <= 5; i++) bru.setVar(`x5_key${i}`, `tick357-x5-${run}-${i}`);
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+}
+
+docs {
+  A type whose `group` property is the assignment group column.
+}

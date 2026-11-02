@@ -1,0 +1,34 @@
+meta {
+  name: X5.6 createRecord 400: no Idempotency-Key
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{core_url}}/api/v1/records/{{x5_type}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "Printer on fire"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('validation_failed', 400);
+  N.fieldError('/header/Idempotency-Key');
+}
+
+docs {
+  Every tenant write needs the header.
+}
