@@ -95,7 +95,7 @@ func TestAdversarialWorkerCommandToReservedWorkloadDenied(t *testing.T) {
 		"child on default-worker-tq": {
 			CommandType: enumspb.COMMAND_TYPE_START_CHILD_WORKFLOW_EXECUTION,
 			Attributes: &commandpb.Command_StartChildWorkflowExecutionCommandAttributes{StartChildWorkflowExecutionCommandAttributes: &commandpb.StartChildWorkflowExecutionCommandAttributes{
-				Namespace: Namespace, WorkflowId: "t:tenantA:child", WorkflowType: wt("nava.smoke.Echo"),
+				Namespace: Namespace, WorkflowId: "t:tenantA:child", WorkflowType: wt(platformType()),
 				TaskQueue: tq("default-worker-tq"), Header: hdr}},
 		},
 		"continue-as-new as batch workflow": {

@@ -1,0 +1,61 @@
+######## n_distinct override: off
+  pg_stats occurred_at: n_distinct=96810, top MCV freq=0.0002
+  attoptions: none
+  max rows sharing one occurred_at: 50
+== trigger's cached generic plan, one-subject transaction (item 1 shape)
+    Query Text: SELECT 1 FROM audit_log
+         WHERE tenant_id = v_tenant AND occurred_at = now() AND txid = pg_current_xact_id()
+           AND subject_type = TG_ARGV[0] AND subject_id = v_id
+         LIMIT 1
+    Limit  (cost=0.43..8.46 rows=1 width=4) (actual time=0.022..0.023 rows=1 loops=1)
+      Buffers: shared hit=4
+      ->  Result  (cost=0.43..8.46 rows=1 width=4) (actual time=0.021..0.022 rows=1 loops=1)
+            One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = $14)
+            Buffers: shared hit=4
+            ->  Index Scan using audit_log_default_tenant_id_occurred_at_id_idx on audit_log_default audit_log  (cost=0.43..8.46 rows=1 width=0) (actual time=0.016..0.016 rows=1 loops=1)
+                  Index Cond: ((tenant_id = $14) AND (occurred_at = now()))
+                  Filter: ((subject_type = ($12)[0]) AND (subject_id = $15) AND (txid = pg_current_xact_id()))
+                  Buffers: shared hit=4
+== probe forms, N=2000 subjects per commit
+== v0-as-pinned: probe plan (8th call, cached generic plan)
+           ->  Index Scan using audit_log_default_tenant_id_occurred_at_id_idx on audit_log_default audit_log  (cost=0.43..8.46 rows=1 width=0) (actual time=0.004..0.004 rows=1 loops=1)
+                 Index Cond: ((tenant_id = $14) AND (occurred_at = now()))
+                 Filter: ((subject_type = ($12)[0]) AND (subject_id = $15) AND (txid = pg_current_xact_id()))
+                 Rows Removed by Filter: 1
+commit, variant v0-as-pinned, 2000 subjects:
+Time: 880.508 ms
+== v1-locals: probe plan (8th call, cached generic plan)
+                 Index Cond: ((tenant_id = $14) AND (occurred_at = $18) AND (txid = $17) AND (subject_type = $16) AND (subject_id = $15))
+           One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = $14)
+           ->  Index Only Scan using audit_log_default_tenant_id_occurred_at_txid_subject_type_s_idx on audit_log_default audit_log  (cost=0.43..8.46 rows=1 width=0) (actual time=0.003..0.003 rows=1 loops=1)
+                 Index Cond: ((tenant_id = $14) AND (occurred_at = $18) AND (txid = $17) AND (subject_type = $16) AND (subject_id = $15))
+commit, variant v1-locals, 2000 subjects:
+Time: 433.066 ms
+== v2-locals-version: probe plan (8th call, cached generic plan)
+           One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = $14)
+           ->  Index Only Scan using audit_log_default_tenant_id_occurred_at_txid_subject_type_s_idx on audit_log_default audit_log  (cost=0.43..8.46 rows=1 width=0) (actual time=0.005..0.005 rows=1 loops=1)
+                 Index Cond: ((tenant_id = $14) AND (occurred_at = $18) AND (txid = $17) AND (subject_type = $16) AND (subject_id = $15))
+                 Filter: (NOT (version_after IS DISTINCT FROM $19))
+commit, variant v2-locals-version, 2000 subjects:
+Time: 444.774 ms
+== v3-row-compare: probe plan (8th call, cached generic plan)
+                 Index Cond: ((tenant_id = $14) AND (occurred_at = $18) AND (txid = $17) AND (subject_type = $16) AND (subject_id = $15))
+           One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = $14)
+           ->  Index Only Scan using audit_log_default_tenant_id_occurred_at_txid_subject_type_s_idx on audit_log_default audit_log  (cost=0.43..8.46 rows=1 width=0) (actual time=0.003..0.003 rows=1 loops=1)
+                 Index Cond: ((tenant_id = $14) AND (occurred_at = $18) AND (txid = $17) AND (subject_type = $16) AND (subject_id = $15))
+commit, variant v3-row-compare, 2000 subjects:
+Time: 919.962 ms
+== v4-order-by-r2-key: probe plan (8th call, cached generic plan)
+                 Index Cond: ((tenant_id = $14) AND (occurred_at = $18) AND (txid = $17) AND (subject_type = $16) AND (subject_id = $15))
+           One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = $14)
+           ->  Index Only Scan using audit_log_default_tenant_id_occurred_at_txid_subject_type_s_idx on audit_log_default audit_log  (cost=0.43..8.46 rows=1 width=55) (actual time=0.007..0.007 rows=1 loops=1)
+                 Index Cond: ((tenant_id = $14) AND (occurred_at = $18) AND (txid = $17) AND (subject_type = $16) AND (subject_id = $15))
+commit, variant v4-order-by-r2-key, 2000 subjects:
+Time: 858.358 ms
+== v5-pinned-order-by: probe plan (8th call, cached generic plan)
+           ->  Index Scan using audit_log_default_tenant_id_occurred_at_id_idx on audit_log_default audit_log  (cost=0.43..8.46 rows=1 width=55) (actual time=0.005..0.005 rows=1 loops=1)
+                 Index Cond: ((tenant_id = $14) AND (occurred_at = now()))
+                 Filter: ((subject_type = ($12)[0]) AND (subject_id = $15) AND (txid = pg_current_xact_id()))
+                 Rows Removed by Filter: 4
+commit, variant v5-pinned-order-by, 2000 subjects:
+Time: 1107.008 ms (00:01.107)

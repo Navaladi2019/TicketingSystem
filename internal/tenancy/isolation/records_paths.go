@@ -37,7 +37,127 @@ func recordPaths() []Path {
 		db("tenant B patching tenant A's record or reading its history gets the missing record's 404, byte for byte, and changes nothing", recPatchOtherTenants),
 		db("a history cursor issued to tenant A's caller is refused for tenant B on the same URL with 400 invalid_cursor", recHistoryCursorReplay),
 		db("tenant B creating under tenant A's type gets the unknown type's 404, byte for byte, and writes nothing", recCreateOtherTenantsType),
+		// P3-18 (TICK-366).
+		db("tenant A naming tenant B's only key gets the unknown key's 404, byte for byte, on POST and GET", recOtherTenantsOnlyKey),
+		db("tenant A naming tenant B's group or principal gets a random UUID's 422, with no foreign key detail", recForeignReference),
 	}
+}
+
+// recOtherTenantsOnlyKey: incident is tenant B's only key (testdata/seed.sql).
+// Tenant A naming it must get the 404 of a key no tenant has, so the
+// response is no oracle for another tenant's types.
+func recOtherTenantsOnlyKey(ctx context.Context, e *etIso) error {
+	var a, b int
+	if err := e.super.QueryRow(ctx, `SELECT count(*) FILTER (WHERE tenant_id = $1), count(*) FILTER (WHERE tenant_id = $2)
+		FROM entity_definitions WHERE key = 'incident'`, TenantA, TenantB).Scan(&a, &b); err != nil {
+		return err
+	}
+	if a != 0 || b != 1 {
+		return fmt.Errorf("control: incident is defined %d times in tenant A and %d in tenant B, want 0 and 1", a, b)
+	}
+	before, err := e.recordCount(ctx, TenantB)
+	if err != nil {
+		return err
+	}
+	const id = "0194f2c0-0000-7000-8000-0000000000ff"
+	for _, c := range []struct{ method, other, unknown, body string }{
+		{http.MethodPost, "/api/v1/records/incident", "/api/v1/records/iso_et_none", `{"data": {}}`},
+		{http.MethodGet, "/api/v1/records/incident/" + id, "/api/v1/records/iso_et_none/" + id, ""},
+	} {
+		if err := e.sameNotFound(ctx, c.method, c.body, c.other, c.unknown); err != nil {
+			return err
+		}
+	}
+	after, err := e.recordCount(ctx, TenantB)
+	if err != nil {
+		return err
+	}
+	if after != before {
+		return fmt.Errorf("tenant B's records went from %d to %d", before, after)
+	}
+	return nil
+}
+
+// recRefSchema maps a payload property onto each reference column a record
+// create can name (internal/server.fkColumn).
+const recRefSchema = `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,` +
+	`"required":["state"],"properties":{"state":{"type":"string","enum":["new","closed"],"default":"new"},` +
+	`"group":{"type":"string","format":"uuid"},"assignee":{"type":"string","format":"uuid"},"requester":{"type":"string","format":"uuid"}}}`
+
+func recRefTypeBody(key, prefix string) string {
+	return fmt.Sprintf(`{"key": %q, "name": "Iso %s", "number_prefix": %q, "definition": {"schema": %s,
+		"fixed_columns": {"state": "state", "group": "assignment_group_id", "assignee": "assignee_id", "requester": "requester_id"},
+		"states": {"initial": "new", "states": ["new", "closed"], "transitions": [{"from": "new", "to": "closed"}]}}}`,
+		key, key, prefix, recRefSchema)
+}
+
+// recForeignReference: tenant A names tenant B's group or principal in a
+// reference field. The composite foreign key refuses it (D-3-2); the 422 must
+// be the one a random UUID gets, so it is no oracle for tenant B's ids, and
+// must not show the constraint, the table or the id.
+func recForeignReference(ctx context.Context, e *etIso) error {
+	if code, body := e.do(ctx, http.MethodPost, "/api/v1/entity-types", etCallerA, recRefTypeBody("iso_et_ref", "ISR"), nil); code != http.StatusCreated {
+		return fmt.Errorf("control: tenant A creating iso_et_ref = %d %s, want 201", code, body)
+	}
+	// Positive control: tenant A's own group and principal resolve, so a 422
+	// below is the reference, not the type or the route.
+	own := fmt.Sprintf(`{"data": {"group": %q, "assignee": %q, "requester": %q}}`, adminGroupA, principalA1, principalA1)
+	if code, body := e.do(ctx, http.MethodPost, "/api/v1/records/iso_et_ref", etCallerA, own, nil); code != http.StatusCreated {
+		return fmt.Errorf("control: tenant A naming its own group and principal = %d %s, want 201", code, body)
+	}
+	const random = "00000000-0000-4000-8000-00000000dead"
+	for _, c := range []struct{ prop, foreign string }{
+		{"group", GroupB1}, {"assignee", PrincipalB1}, {"requester", PrincipalB1},
+	} {
+		var bodies [2]string
+		for i, id := range []string{random, c.foreign} {
+			code, body := e.do(ctx, http.MethodPost, "/api/v1/records/iso_et_ref", etCallerA, fmt.Sprintf(`{"data": {%q: %q}}`, c.prop, id), nil)
+			if code != http.StatusUnprocessableEntity {
+				return fmt.Errorf("%s = %s: %d %s, want 422", c.prop, id, code, body)
+			}
+			for _, leak := range []string{"fkey", "constraint", "violates", "foreign key", "records", "principals", "groups", id} {
+				if strings.Contains(body, leak) {
+					return fmt.Errorf("%s = %s: the 422 body shows %q: %s", c.prop, id, leak, body)
+				}
+			}
+			stripped, err := withoutInstance(body)
+			if err != nil {
+				return fmt.Errorf("%s = %s: %w", c.prop, id, err)
+			}
+			bodies[i] = stripped
+		}
+		if bodies[0] != bodies[1] {
+			return fmt.Errorf("%s: tenant B's id gets a different 422 from a random UUID's:\n%s\n%s", c.prop, bodies[1], bodies[0])
+		}
+	}
+	var n int
+	if err := e.super.QueryRow(ctx, `SELECT count(*) FROM records r JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+		WHERE d.key = 'iso_et_ref'`).Scan(&n); err != nil {
+		return err
+	}
+	if n != 1 {
+		return fmt.Errorf("%d records of iso_et_ref exist, want only the control", n)
+	}
+	return nil
+}
+
+// withoutInstance drops a problem body's instance, the per-request id; the
+// rest must match byte for byte.
+func withoutInstance(body string) (string, error) {
+	var m map[string]any
+	if err := json.Unmarshal([]byte(body), &m); err != nil {
+		return "", fmt.Errorf("body is not JSON: %w: %s", err, body)
+	}
+	delete(m, "instance")
+	out, err := json.Marshal(m)
+	return string(out), err
+}
+
+// recordCount is tenant's record count, read as the superuser past RLS.
+func (e *etIso) recordCount(ctx context.Context, tenant string) (int, error) {
+	var n int
+	err := e.super.QueryRow(ctx, `SELECT count(*) FROM records WHERE tenant_id = $1`, tenant).Scan(&n)
+	return n, err
 }
 
 // recCreate makes a record of iso_et_rec in tenant A and returns its id: the

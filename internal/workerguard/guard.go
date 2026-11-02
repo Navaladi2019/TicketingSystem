@@ -638,19 +638,20 @@ func (a *activityInbound) ExecuteActivity(ctx context.Context, in *interceptor.E
 		return nil, guardError(guardActivity, outcome)
 	}
 	a.rec.allow(guardActivity)
-	return a.execute(ContextWithTenant(ctx, tenant), in, attrs)
+	return a.execute(ContextWithTenant(ctx, tenant), in, directiveAllowed(info), attrs)
 }
 
 // execute runs the activity and checks its result or failure (TICK-245). A
 // panic is recovered here, before the SDK would record its value and stack,
-// and is withheld like any other failure.
+// and is withheld like any other failure. directive is directiveAllowed's
+// answer for this activity.
 // TODO(TODO-012): heartbeat details are recorded too and are not checked.
-func (a *activityInbound) execute(ctx context.Context, in *interceptor.ExecuteActivityInput, attrs []slog.Attr) (result any, err error) {
+func (a *activityInbound) execute(ctx context.Context, in *interceptor.ExecuteActivityInput, directive bool, attrs []slog.Attr) (result any, err error) {
 	defer func() {
 		if recover() != nil {
-			result, err = a.rec.activityOutcome(nil, activityPanic{}, attrs...)
+			result, err = a.rec.activityOutcome(nil, activityPanic{}, directive, attrs...)
 		}
 	}()
 	result, err = a.Next.ExecuteActivity(ctx, in)
-	return a.rec.activityOutcome(result, err, attrs...)
+	return a.rec.activityOutcome(result, err, directive, attrs...)
 }

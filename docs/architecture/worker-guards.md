@@ -135,6 +135,30 @@ flowchart LR
   V -- otherwise --> F
 ```
 
+## Activity results: the Directive exception (P3-26)
+
+An activity result is checked like an argument, with one more typed value:
+`workerguard.Directive`, which the workflow interpreter reads to learn its
+next step (PLAN-003 D-3-15). It is matched by Go type, and its encoded bytes
+must be one JSON object with only its six keys, each once, that fits this
+table (`directiveOK`); anything else is refused, as is the same shape under
+another type or as a map:
+
+| `kind` | `step` | `next` | `wait_seconds` | `signal` | `on_timeout` |
+|---|---|---|---|---|---|
+| `timer` | non-nil | non-nil | 1..2592000 | omitted | omitted |
+| `wait_signal` | non-nil | non-nil | 1..2592000 | non-nil | non-nil |
+| `update_record` | non-nil | non-nil | 0 | omitted | omitted |
+| `end` | non-nil | omitted | 0 | omitted | omitted |
+
+Every reference is a canonical, non-nil UUID string; an optional one is
+omitted, never `null`; `wait_seconds` is an integer literal. `Kind` values
+come only from the Go constants. A `Directive` is accepted only as the result
+of a regular activity: not as an argument, a workflow or update result, a side
+effect, failure details, or a local activity's result (the SDK test
+environment hands a local result to the guard already encoded, so refusing it
+keeps tests and workers alike). What a history still shows is AR-S11a-01.
+
 Update arguments are checked as the handler's parameter types decoded them;
 what the decoding drops is recorded unchecked (TODO-010).
 
@@ -160,14 +184,17 @@ flowchart TD
   S -- yes --> P[recorded unchanged]
   S -- no --> C{cancel or timeout error?}
   C -- yes --> K[type kept; cause checked the same way;<br/>details argOK rejects dropped]
-  C -- no --> A{ApplicationError of an allowed type<br/>nava.TenantGuard, nava.WorkflowRefNotFound<br/>with no cause?}
+  C -- no --> A{ApplicationError of an allowed type<br/>nava.TenantGuard, nava.WorkflowRefNotFound,<br/>nava.WorkflowRejected with a Rejected text,<br/>no cause?}
   A -- yes --> D[message and type kept;<br/>details argOK rejects dropped]
   A -- no --> O[nava.Opaque, fixed text,<br/>same non-retryable flag]
   O --> L[deny alert + withheld line<br/>with the error's shape, never its text]
 ```
 
 Add a type to the allowed list only after a review that its messages are
-constants or ids. An activity panic is recovered in the guard and withheld,
+constants or ids. `nava.WorkflowRejected` (P3-22a) is the interpreter's: only
+`workerguard.Rejected(r)` builds it, from the closed `Rejection` constants,
+and the guard keeps its message only when it is one of their texts. AR-044's
+`guarderrtype` reports the type outside `internal/workerguard`. An activity panic is recovered in the guard and withheld,
 so neither its value nor its stack is recorded. A workflow panic is not: see
 AR-042. The full path table, with severities, is in
 `docs/security/temporal-ci6.md` ("Remaining history-write paths").

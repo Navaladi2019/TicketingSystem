@@ -47,10 +47,11 @@ tasks:
       - sh scripts/ci/test-integration.sh -run '^$' -bench '^BenchmarkClaim$' -benchtime 200x
 
   lint:
-    desc: Run golangci-lint, then the navalint analyzers (set_config outside internal/tenancy), then the ADR-002-E1 nolint allow-list gate, then the decision-log index check, then the duplicate-id check (the OpenAPI regenerate-and-diff gate is check-generate, not lint)
+    desc: Run golangci-lint, then the navalint analyzers (set_config outside internal/tenancy), then workflowcheck on internal/workflow (D-3-23), then the ADR-002-E1 nolint allow-list gate, then the decision-log index check, then the duplicate-id check (the OpenAPI regenerate-and-diff gate is check-generate, not lint)
     cmds:
       - golangci-lint run ./...
       - sh scripts/ci/navalint.sh
+      - sh scripts/ci/workflowcheck.sh
       - sh scripts/ci/nolint-allowlist.sh
       - go run ./tools/docindex -check
       - go run ./tools/dupids

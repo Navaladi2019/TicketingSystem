@@ -72,6 +72,17 @@ const (
 	// other error fails the path, so a typo cannot pass as a denial; aim an
 	// UPDATE or DELETE where an integrity error cannot hide a reached row.
 	Denied
+	// StoredUnderA is for an HTTPCall that writes (P3-18, TICK-366; CTO
+	// D-P10 conditions on TICK-366): the create refuses it with the 404 that
+	// the same request to Unknown gets, byte for byte but for instance, and
+	// writes nothing; or it answers 201 or 200 with the id of a record
+	// whose tenant_id is tenant A. Either way tenant B's record and audit row
+	// counts are unchanged, and the body never holds tenant B's id. Everything
+	// is read on the superuser connection, past row-level security: a read as
+	// tenant A cannot see a row misfiled under tenant B, so it would pass
+	// vacuously (TICK-363). The call carries its own Idempotency-Key, and a
+	// replayed response fails: it never reached the handler.
+	StoredUnderA
 )
 
 // SQLCall is a statement run as the path's role inside
@@ -84,16 +95,24 @@ type SQLCall struct {
 }
 
 // HTTPCall is a request made with a valid token for tenant A that tries to
-// name tenant B some other way. The response must be a 4xx or carry only
-// tenant A's data.
+// name tenant B some other way. The response must carry only tenant A's data,
+// or, for a write (StoredUnderA), refuse or store under tenant A only.
 type HTTPCall struct {
 	Method string
 	Path   string // with the query string
 	Header http.Header
 	Body   string
+	// Expect is zero for a read, which must get 200 with tenant A's data, so a
+	// validator regression that starts refusing it cannot hide; or
+	// StoredUnderA for a write.
+	Expect Expect
+	// Unknown is, for StoredUnderA, the same route naming a key no tenant
+	// has. The only refusal that passes is its 404: any other refusal (a 403,
+	// or a 422 from a handler that found tenant B's type) tells the caller
+	// the key exists somewhere.
+	Unknown string
 	// NoRoute names the task that adds this route. Until then the call must
-	// get 404 or 405; without it, the call must get 200 with tenant A's data,
-	// so a validator regression that starts refusing it cannot hide.
+	// get 404 or 405, with no tenant B id in the body.
 	NoRoute string
 	// Token, when set, replaces the tenant A token with this shape (CI-5).
 	// The call then passes only on 401: the shape must not resolve at all.
@@ -194,7 +213,7 @@ type Path struct {
 // "Annex B coverage"). The report prints it above each group.
 func Coverage() map[string]string {
 	return map[string]string{
-		"CI-2":  "full: generic checks on every tenant table; forged-tenant HTTP paths (T17)",
+		"CI-2":  "full: generic checks on every tenant table; forged-tenant HTTP paths (T17); the forged write on POST /api/v1/records/incident, StoredUnderA (P3-18)",
 		"CI-9":  "full: nava_relay, nava_purge, nava_onboard and nava_backup reach (T12); nava_backup through T08's pg_hba cases",
 		"CI-8":  "partial → TICK-87 (byte-identical 404, stale If-Match 412, masked-field filter 400); cursor cases from T23; idempotency cases from T22",
 		"CI-10": "partial → P3-42 (S11b): (g) signal ping-pong needs the interpreter; (f) the start key is per tenant, here; (a)–(e) are TestCI10_* in internal/records/pipeline and the outbox depth limit TestCI10_* in internal/outbox, both against real PostgreSQL in make test-integration",
@@ -228,6 +247,17 @@ func Exemptions() []Exemption {
 		{"nava_app", "public.tenant_identity_binding", "SELECT", "binding_lookup"},
 		{"nava_groupsync", "public.tenant_identity_binding", "SELECT", "binding_lookup"},
 	}
+}
+
+// forgedWrite is a StoredUnderA create of tenant B's only entity key, with
+// its own Idempotency-Key (keys under iso-ci2- are removed after the call).
+func forgedWrite(key, body string, header http.Header) HTTPCall {
+	h := http.Header{"Idempotency-Key": {key}}
+	for k, vs := range header {
+		h[k] = vs
+	}
+	return HTTPCall{Method: http.MethodPost, Path: "/api/v1/records/incident", Header: h, Body: body, Expect: StoredUnderA,
+		Unknown: "/api/v1/records/iso_et_none"}
 }
 
 // Paths is the registry of named paths.
@@ -322,22 +352,44 @@ func Paths() []Path {
 		sql("entity_definitions: onboarding seeds a type for tenant B", "nava_onboard", Denied,
 			"INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version) VALUES ($1, $2, 'iso_new', 'Iso', 'ISO', 1)",
 			TenantB, NewID),
+		// TICK-401: the rest of onboarding's ownProvisioning policies, each
+		// aimed at tenant B. Every statement is valid for tenant B (the path
+		// matches groups_path_check; the Keycloak id and the version are new;
+		// the version names tenant B's principal, see the nava_app publish
+		// row), so only the policy can deny it: a policy that stops testing
+		// the tenant lets the row through and the path fails.
+		sql("groups: onboarding inserts a group for tenant B", "nava_onboard", Denied,
+			"INSERT INTO groups (tenant_id, id, keycloak_group_id, path) VALUES ($1, $2, 'kc-iso-new', $3)",
+			TenantB, NewID, "/t/"+TenantB+"/iso"),
+		sql("groups: onboarding reads tenant B's admins group by its Keycloak id", "nava_onboard", Denied,
+			"SELECT tenant_id FROM groups WHERE tenant_id = $1 AND keycloak_group_id = 'kc-group-b2'", TenantB),
+		sql("tenant_admin_group: onboarding reads tenant B's admins row", "nava_onboard", Denied,
+			"SELECT tenant_id FROM tenant_admin_group WHERE tenant_id = $1", TenantB),
+		sql("entity_definition_versions: onboarding seeds a version for tenant B", "nava_onboard", Denied,
+			`INSERT INTO entity_definition_versions (tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat, published_by)
+			 VALUES ($1, $2, $3, 3, '{}'::json, sha256(convert_to('{}', 'UTF8')), '{}', '{}', 'compatible', $4)`,
+			TenantB, NewID, EntityDefinitionB1, PrincipalB1),
 		sql("entity_definitions: move tenant B's current versions", "nava_app", Denied,
 			"UPDATE entity_definitions SET current_version = 1, updated_at = now() WHERE tenant_id = $1", TenantB),
 		sql("entity_definition_versions: read tenant B's versions by definition id", "nava_app", OwnRowsOnly,
 			"SELECT tenant_id FROM entity_definition_versions WHERE definition_id = $1", EntityDefinitionB1),
 		sql("entity_definition_versions: read tenant B's versions by their full key", "nava_worker", OwnRowsOnly,
 			"SELECT tenant_id FROM entity_definition_versions WHERE tenant_id = $1 AND definition_id = $2", TenantB, EntityDefinitionB1),
+		// published_by names tenant B's principal: a version above 1 must
+		// name one (entity_definition_versions_published_by_check), and
+		// without it that CHECK, not the policy, would refuse the row.
 		sql("entity_definition_versions: publish a version for tenant B", "nava_app", Denied,
-			`INSERT INTO entity_definition_versions (tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat)
-			 VALUES ($1, $2, $3, 3, '{}'::json, sha256(convert_to('{}', 'UTF8')), '{}', '{}', 'compatible')`,
-			TenantB, NewID, EntityDefinitionB1),
+			`INSERT INTO entity_definition_versions (tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat, published_by)
+			 VALUES ($1, $2, $3, 3, '{}'::json, sha256(convert_to('{}', 'UTF8')), '{}', '{}', 'compatible', $4)`,
+			TenantB, NewID, EntityDefinitionB1, PrincipalB1),
 		// The composite foreign key holds the tenant: tenant A cannot hang a
-		// version off tenant B's definition.
+		// version off tenant B's definition. published_by names tenant A's
+		// principal, so the CHECK passes and the foreign key (23503), not
+		// entity_definition_versions_published_by_check (23514), refuses it.
 		sql("entity_definition_versions: hang tenant A's version off tenant B's definition", "nava_app", Denied,
-			`INSERT INTO entity_definition_versions (tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat)
-			 VALUES ($1, $2, $3, 3, '{}'::json, sha256(convert_to('{}', 'UTF8')), '{}', '{}', 'compatible')`,
-			TenantA, NewID, EntityDefinitionB1),
+			`INSERT INTO entity_definition_versions (tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat, published_by)
+			 VALUES ($1, $2, $3, 3, '{}'::json, sha256(convert_to('{}', 'UTF8')), '{}', '{}', 'compatible', $4)`,
+			TenantA, NewID, EntityDefinitionB1, principalA1),
 		sql("entity_definition_versions: rewrite tenant B's versions", "nava_app", Denied,
 			"UPDATE entity_definition_versions SET compat = 'breaking' WHERE tenant_id = $1", TenantB),
 		sql("tenant_admin_group: read tenant B's admins group", "nava_app", OwnRowsOnly,
@@ -387,13 +439,20 @@ func Paths() []Path {
 
 		// Forged tenant: a valid token for tenant A names tenant B in the
 		// payload, a header, the query or baggage. The tenant comes only from
-		// the token's binding (ADR-001 I2). The payload path has no route yet
-		// (PLAN-002 records), so it proves only that a 4xx keeps B out.
+		// the token's binding (ADR-001 I2).
 		forged("forged tenant in the query string", HTTPCall{Method: http.MethodGet, Path: "/api/v1/me?tenant_id=" + TenantB}),
 		forged("forged tenant in a header", HTTPCall{Method: http.MethodGet, Path: "/api/v1/me",
 			Header: http.Header{"X-Tenant-Id": {TenantB}, "X-Nava-Tenant": {TenantB}}}),
-		forged("forged tenant in the payload", HTTPCall{Method: http.MethodPost, Path: "/api/v1/records",
-			Body: `{"tenant_id":"` + TenantB + `"}`, NoRoute: "PLAN-002 records"}),
+		// The forged write (P3-18, TICK-366; CTO D-P10 condition 2 on TICK-72).
+		// incident is tenant B's only key (testdata/seed.sql), so a handler
+		// that honoured the forged tenant would find B's type and file the
+		// record under B; under tenant A's own binding it is a 404.
+		forged("forged tenant_id in the body of POST /api/v1/records/incident", forgedWrite("iso-ci2-body",
+			`{"tenant_id":"`+TenantB+`","data":{}}`, nil)),
+		forged("forged data.tenant_id in POST /api/v1/records/incident", forgedWrite("iso-ci2-data",
+			`{"data":{"tenant_id":"`+TenantB+`"}}`, nil)),
+		forged("forged X-Tenant-Id header on POST /api/v1/records/incident", forgedWrite("iso-ci2-header",
+			`{"data":{}}`, http.Header{"X-Tenant-Id": {TenantB}})),
 		forged("forged tenant in the body of GET /api/v1/me", HTTPCall{Method: http.MethodGet, Path: "/api/v1/me",
 			Body: `{"tenant_id":"` + TenantB + `"}`}),
 		// TICK-93: baggage is never read; the edge propagator drops it.
