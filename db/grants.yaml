@@ -68,13 +68,16 @@ roles:
                  updated_at, data, causation_origin_id, causation_depth]
       # Append-only: no UPDATE or DELETE (P3-09).
       audit_log: { SELECT: [], INSERT: [] }
+      # The A5 start key (P3-12): claimed once, never changed or removed.
+      cascade_start: { SELECT: [], INSERT: [] }
       # The one numbering upsert (D-3-9): INSERT ... ON CONFLICT DO UPDATE SET next.
       record_counters: { SELECT: [], INSERT: [], UPDATE: [next] }
       # INSERT ... RETURNING id and the dedupe-conflict lookup (T29).
       outbox: { SELECT: [tenant_id, id, dedupe_key], INSERT: [] }
       workflow_ref: { SELECT: [], INSERT: [] }
       # lease_until: a takeover extends the lease of its own tenant's abandoned row (T22a, 00006).
-      idempotency_keys: { SELECT: [], INSERT: [], UPDATE: [state, response_status, response_body, lease_until] }
+      # response_headers: the allow-listed headers a replay restores (TICK-412).
+      idempotency_keys: { SELECT: [], INSERT: [], UPDATE: [state, response_status, response_body, lease_until, response_headers] }
       # Tenant resolution (A.1 step 3, T17) and the principal's groups.
       principals: { SELECT: [] }
       groups: { SELECT: [] }
@@ -104,6 +107,7 @@ roles:
         UPDATE: [version, schema_version, state, requester_id, assignee_id, assignment_group_id,
                  updated_at, data, causation_origin_id, causation_depth]
       audit_log: { SELECT: [], INSERT: [] }
+      cascade_start: { SELECT: [], INSERT: [] }
       record_counters: { SELECT: [], INSERT: [], UPDATE: [next] }
       outbox: { SELECT: [tenant_id, id, dedupe_key], INSERT: [] }
       workflow_ref: { SELECT: [], INSERT: [], UPDATE: [closed_at] }

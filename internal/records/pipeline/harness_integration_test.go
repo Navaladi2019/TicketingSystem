@@ -32,6 +32,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
+	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
@@ -206,17 +207,26 @@ func (f tenantFixture) system() identity.Principal { return identity.Principal{T
 
 func seedTenant(t *testing.T, e env) tenantFixture {
 	t.Helper()
+	return seedTenantWith(t, e, definition(schemaV1))
+}
+
+// seedTenantWith is one tenant with a principal and the given entity types,
+// each at version 1.
+func seedTenantWith(t *testing.T, e env, defs ...metadata.Definition) tenantFixture {
+	t.Helper()
 	f := tenantFixture{id: uuid.New()}
 	f.principal = identity.Principal{TenantID: f.id, PrincipalID: uuid.New()}
 	mustExec(t, e.super, "INSERT INTO tenants (id, state) VALUES ($1, 'active')", f.id)
 	mustExec(t, e.super, `INSERT INTO principals (tenant_id, id, keycloak_user_id, enabled, synced_at)
 		VALUES ($1, $2, $3, true, now())`, f.id, f.principal.PrincipalID, "kc-"+f.principal.PrincipalID.String())
-	inTx(t, e, f.id, func(tx pgx.Tx) error {
-		_, err := entitytypes.Store{}.Create(context.Background(), tx, f.id, entitytypes.NewInput{
-			Name: "Incident", PublishedBy: f.principal.PrincipalID, Definition: definition(schemaV1),
+	for _, d := range defs {
+		inTx(t, e, f.id, func(tx pgx.Tx) error {
+			_, err := entitytypes.Store{}.Create(context.Background(), tx, f.id, entitytypes.NewInput{
+				Name: d.Key, PublishedBy: f.principal.PrincipalID, Definition: d,
+			})
+			return err
 		})
-		return err
-	})
+	}
 	return f
 }
 
@@ -281,6 +291,10 @@ func write(ctx context.Context, e env, p *pipeline.Pipeline, tenant uuid.UUID, c
 	})
 	return res, err
 }
+
+// workflowCausation is a workflow write's causation: one deeper than the
+// start that caused it (ADR-001 A5-7), never depth 0.
+func workflowCausation() outbox.Causation { return outbox.Causation{OriginID: uuid.New(), Depth: 1} }
 
 func createCmd(f tenantFixture, data map[string]any) pipeline.Command {
 	return pipeline.Command{Op: pipeline.OpCreate, EntityKey: entityKey, Data: data, Actor: f.principal, Source: pipeline.SourceUser}

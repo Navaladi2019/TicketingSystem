@@ -263,7 +263,8 @@ func TestAuditAndSinkInTheWriteTransaction(t *testing.T) {
 	}
 	defID := sink.events[0].EntityDefinitionID
 	if want := (pipeline.Event{Op: pipeline.OpUpdate, EntityDefinitionID: defID, RecordID: res.RecordID, Version: 2,
-		Causation: outbox.Causation{OriginID: origin, Depth: 1}}); sink.events[1] != want {
+		Causation: outbox.Causation{OriginID: origin, Depth: 1}, ActorID: f.principal.PrincipalID,
+		Source: pipeline.SourceRule}); sink.events[1] != want {
 		t.Fatalf("event = %+v, want %+v", sink.events[1], want)
 	}
 	var action, source string
@@ -301,7 +302,7 @@ func TestAuditAndSinkInTheWriteTransaction(t *testing.T) {
 
 // AC: a second Write with the same IdempotencyKey returns the first Result
 // and adds no audit row. A concurrent duplicate gets the retryable
-// ErrIdempotencyConflict, and its retry replays.
+// *ErrIdempotencyConflict (Concurrent), and its retry replays.
 func TestIdempotencyKeyReplays(t *testing.T) {
 	e := migrated(t)
 	f := seedTenant(t, e)
@@ -309,6 +310,7 @@ func TestIdempotencyKeyReplays(t *testing.T) {
 	p := newPipeline(e, nil)
 	cmd := createCmd(f, map[string]any{"title": "from a workflow"})
 	cmd.Actor, cmd.Source, cmd.IdempotencyKey = f.system(), pipeline.SourceWorkflow, "wf:w1:s1"
+	cmd.Causation = workflowCausation()
 
 	first, err := write(ctx, e, p, f.id, cmd)
 	if err != nil {
@@ -331,6 +333,7 @@ func TestIdempotencyKeyReplays(t *testing.T) {
 	// An update replay returns its first result even after later writes.
 	up := updateCmd(f, first.RecordID, 1, map[string]any{"summary": "s2"})
 	up.Actor, up.Source, up.IdempotencyKey = f.system(), pipeline.SourceWorkflow, "wf:w1:s2"
+	up.Causation = workflowCausation()
 	upFirst, err := write(ctx, e, p, f.id, up)
 	if err != nil {
 		t.Fatal(err)
@@ -341,12 +344,14 @@ func TestIdempotencyKeyReplays(t *testing.T) {
 	if upAgain, err := write(ctx, e, p, f.id, up); err != nil || upAgain != upFirst {
 		t.Fatalf("update replay = %+v, %v; want %+v", upAgain, err, upFirst)
 	}
-	// The key names one write: reusing it for another record is a bug.
+	// The key names one write: reusing it for another record is a conflict
+	// (the full table is TestIdempotencyKeyMismatchConflicts).
 	other := mustCreate(t, e, p, f, map[string]any{"title": "other"})
 	reuse := up
 	reuse.RecordID = other.RecordID
-	if _, err := write(ctx, e, p, f.id, reuse); !errors.Is(err, pipeline.ErrInvalidCommand) {
-		t.Fatalf("key reused for another record: %v, want ErrInvalidCommand", err)
+	var conflict *pipeline.ErrIdempotencyConflict
+	if _, err := write(ctx, e, p, f.id, reuse); !errors.As(err, &conflict) || conflict.Concurrent {
+		t.Fatalf("key reused for another record: %v, want a mismatch *ErrIdempotencyConflict", err)
 	}
 
 	// Concurrent duplicate: the second's audit insert waits on the first's
@@ -370,8 +375,8 @@ func TestIdempotencyKeyReplays(t *testing.T) {
 	if holderErr != nil {
 		t.Fatal(holderErr)
 	}
-	if !errors.Is(racerErr, pipeline.ErrIdempotencyConflict) {
-		t.Fatalf("racer: %v, want ErrIdempotencyConflict", racerErr)
+	if !errors.As(racerErr, &conflict) || !conflict.Concurrent {
+		t.Fatalf("racer: %v, want a concurrent *ErrIdempotencyConflict", racerErr)
 	}
 	if retry, err := write(ctx, e, p, f.id, dup); err != nil || retry != holderRes {
 		t.Fatalf("retry = %+v, %v; want %+v", retry, err, holderRes)

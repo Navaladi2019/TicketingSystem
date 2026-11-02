@@ -167,13 +167,20 @@ type Snapshot struct {
 
 // Audit is one audit_log row.
 type Audit struct {
-	TenantID          uuid.UUID
-	ID                uuid.UUID
-	RecordID          uuid.UUID
-	Action            string
-	ActorID           *uuid.UUID
-	Source            string
-	Before, After     *Snapshot
+	TenantID uuid.UUID
+	ID       uuid.UUID
+	// RecordID is uuid.Nil (NULL) only when there is no record to name: a
+	// rejected create.
+	RecordID      uuid.UUID
+	Action        string
+	ActorID       *uuid.UUID
+	Source        string
+	Before, After *Snapshot
+	// Detail is written to after on a row that changed no record (the
+	// cascade rows: its reason, and the suppressed definition). It holds
+	// references and codes only, never record data. Set it or After, not
+	// both.
+	Detail            map[string]string
 	CausationOriginID *uuid.UUID
 	CausationDepth    int16
 	// IdempotencyKey is set on the primary row of a write only (D-3-13).
@@ -192,11 +199,23 @@ func InsertAudit(ctx context.Context, tx pgx.Tx, a *Audit) error {
 	if err != nil {
 		return err
 	}
+	if a.Detail != nil {
+		if a.After != nil {
+			return errors.New("records/store: an audit row has a snapshot or a detail, not both")
+		}
+		if after, err = json.Marshal(a.Detail); err != nil {
+			return fmt.Errorf("records/store: encode audit detail: %w", err)
+		}
+	}
+	var record *uuid.UUID
+	if a.RecordID != uuid.Nil {
+		record = &a.RecordID
+	}
 	_, err = tx.Exec(ctx, `
 INSERT INTO audit_log (tenant_id, id, record_id, action, actor_id, source, before, after,
     causation_origin_id, causation_depth, idempotency_key, at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-		a.TenantID, a.ID, a.RecordID, a.Action, a.ActorID, a.Source, jsonParam(before), jsonParam(after),
+		a.TenantID, a.ID, record, a.Action, a.ActorID, a.Source, jsonParam(before), jsonParam(after),
 		a.CausationOriginID, a.CausationDepth, a.IdempotencyKey, a.At)
 	var pe *pgconn.PgError
 	if errors.As(err, &pe) && pe.Code == "23505" && pe.ConstraintName == idempotencyIndex {
@@ -208,30 +227,46 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
 	return nil
 }
 
-// AuditByKey returns the record id and after snapshot of the audit row that
-// holds the idempotency key, or ErrNotFound.
-func AuditByKey(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, key string) (uuid.UUID, *Snapshot, error) {
+// KeyedWrite is the write that holds an idempotency key: its primary audit
+// row and the entity type of its record.
+type KeyedWrite struct {
+	RecordID  uuid.UUID
+	EntityKey string
+	// Action is the audit row's action: "create" or "update".
+	Action string
+	After  *Snapshot
+}
+
+// AuditByKey returns the write that holds the idempotency key, or
+// ErrNotFound.
+func AuditByKey(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, key string) (*KeyedWrite, error) {
 	var (
-		record *uuid.UUID
-		after  []byte
+		record    *uuid.UUID
+		entityKey *string
+		action    string
+		after     []byte
 	)
 	err := tx.QueryRow(ctx, `
-SELECT record_id, after FROM audit_log
-WHERE tenant_id = $1 AND idempotency_key = $2 AND idempotency_key IS NOT NULL`, tenantID, key).Scan(&record, &after)
+SELECT a.record_id, d.key, a.action, a.after
+FROM audit_log a
+LEFT JOIN records r ON r.tenant_id = a.tenant_id AND r.id = a.record_id
+LEFT JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+WHERE a.tenant_id = $1 AND a.idempotency_key = $2 AND a.idempotency_key IS NOT NULL`, tenantID, key).
+		Scan(&record, &entityKey, &action, &after)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return uuid.Nil, nil, ErrNotFound
+		return nil, ErrNotFound
 	}
 	if err != nil {
-		return uuid.Nil, nil, fmt.Errorf("records/store: read audit by key: %w", err)
+		return nil, fmt.Errorf("records/store: read audit by key: %w", err)
 	}
-	if record == nil || after == nil {
-		return uuid.Nil, nil, errors.New("records/store: keyed audit row names no record")
+	if record == nil || entityKey == nil || after == nil {
+		return nil, errors.New("records/store: keyed audit row names no pipeline record")
 	}
 	var s Snapshot
 	if err := json.Unmarshal(after, &s); err != nil {
-		return uuid.Nil, nil, fmt.Errorf("records/store: decode audit snapshot: %w", err)
+		return nil, fmt.Errorf("records/store: decode audit snapshot: %w", err)
 	}
-	return *record, &s, nil
+	return &KeyedWrite{RecordID: *record, EntityKey: *entityKey, Action: action, After: &s}, nil
 }
 
 // jsonParam is a jsonb statement argument. Over QueryExecModeExec (nava-core's

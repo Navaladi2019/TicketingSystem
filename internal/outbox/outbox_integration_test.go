@@ -6,8 +6,8 @@
 // NAVA_TEST_PG_URL to the shared cluster's superuser; this package drops and
 // recreates the manifest's databases and roles there, so it runs with the
 // other shared-cluster packages one at a time (-p 1). Tests named TestCI10_
-// are the ADR-001 CI-10 cases T29 owns (depth limit; the cycle check and audit
-// row are TICK-88).
+// are the ADR-001 CI-10 cases T29 owns (the outbox's depth limit). The start
+// key and the audit rows are TICK-88's, in internal/records/pipeline.
 
 package outbox_test
 
@@ -190,14 +190,17 @@ func outboxRow(t *testing.T, conn *pgx.Conn, tenant, id uuid.UUID) row {
 	return r
 }
 
+// depth0 is the causation of a depth-0 write: every row has an origin (A5-3).
+func depth0() outbox.Causation { return outbox.Causation{OriginID: uuid.New()} }
+
 func start(record uuid.UUID, dedupe string) outbox.Entry {
 	return outbox.Entry{Kind: approval, KindVersion: 1, DedupeKey: dedupe, RecordID: record,
-		Target: outbox.TargetStart{Kind: approval}}
+		Target: outbox.TargetStart{Kind: approval}, Causation: depth0()}
 }
 
 func signal(record uuid.UUID, dedupe string) outbox.Entry {
 	return outbox.Entry{Kind: "approve", KindVersion: 1, DedupeKey: dedupe, RecordID: record,
-		Target: outbox.TargetSignal{Kind: approval, SignalName: "approve"}}
+		Target: outbox.TargetSignal{Kind: approval, SignalName: "approve"}, Causation: depth0()}
 }
 
 // enqueue runs Enqueue in its own committed tenant transaction.
@@ -538,7 +541,7 @@ func TestCI10_SignalWithNoOpenWorkflow(t *testing.T) {
 	check("none at all")
 
 	other := outbox.Entry{Kind: "ticket.escalation", KindVersion: 1, DedupeKey: "other", RecordID: record,
-		Target: outbox.TargetStart{Kind: "ticket.escalation"}}
+		Target: outbox.TargetStart{Kind: "ticket.escalation"}, Causation: depth0()}
 	if _, err := enqueue(ctx, e.app, tenant, other); err != nil {
 		t.Fatal(err)
 	}

@@ -9,9 +9,17 @@
 // The tenant is never taken from the command. Write reads it from the
 // transaction (tenancy.TenantOf) and refuses an actor of another tenant.
 //
-// Numbering, the state model and uniqueness are stubs here; P3-11 (TICK-355)
-// fills them. The cascade depth and cycle checks are P3-12 (TICK-88), which
-// writes its rejection audit row on the TxRunner (D-3-7a).
+// A create takes the next per-tenant, per-type number from record_counters
+// (D-3-9). Every write checks the type's state model and its unique
+// properties (D-3-22) (P3-11).
+//
+// Cascades (ADR-001 I9 as amended by A5; P3-12, TICK-88): a depth-0 write
+// mints a new origin, a workflow write must be deeper than 0, and a write
+// beyond config.CascadeDepthLimit is refused with outbox.ErrCascadeTooDeep
+// before any record change, its cascade_rejected audit row written on the
+// TxRunner so it survives the caller's rollback (D-3-7a). There is no cycle
+// check on writes: the EventSink keys starts with cascade.ClaimStart and
+// suppresses a repeat (A5-1, A5-4), so a writer never sees a cycle.
 package pipeline
 
 import (
@@ -19,11 +27,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"math/big"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
@@ -31,6 +44,8 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/cascade"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/store"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
@@ -97,11 +112,17 @@ type Command struct {
 	Data map[string]any
 	// Actor is the resolved principal. Its TenantID must be the transaction's
 	// tenant. A user write names a principal; a system writer may not.
-	Actor     identity.Principal
-	Source    Source
+	Actor  identity.Principal
+	Source Source
+	// Causation is the cascade the write belongs to. Leave it empty for a
+	// depth-0 write (a person or an API client): Write mints a new origin.
+	// A deeper write names its origin and depth, taken from the delivery
+	// that caused it (A5-7); a workflow write is never depth 0.
 	Causation outbox.Causation
 	// IdempotencyKey is for system writers only (D-3-13): a replay with the
-	// same key returns the earlier Result and writes nothing.
+	// same key, entity type, op and (on an update) record returns the earlier
+	// Result and writes nothing. The same key on a different write is
+	// *ErrIdempotencyConflict.
 	IdempotencyKey string
 }
 
@@ -120,14 +141,23 @@ type Event struct {
 	EntityDefinitionID uuid.UUID
 	RecordID           uuid.UUID
 	// Version is the record's version after this write.
-	Version   int64
+	Version int64
+	// Causation is the write's stored causation: the origin, minted for a
+	// depth-0 write, and the depth.
 	Causation outbox.Causation
+	// ActorID and Source are the writer, for the audit row of a suppressed
+	// start (A5-4). ActorID is uuid.Nil for a system writer.
+	ActorID uuid.UUID
+	Source  Source
 }
 
 // EventSink is told about every write, in the write's transaction (D-3-14).
-// An error rolls the whole write back. A sink that enqueues outbox rows uses
-// outbox.EnqueueAtVersion with ev.Version, never outbox.Enqueue, so the write
-// bumps the version exactly once.
+// An error rolls the whole write back. A sink that starts nava.interpreter
+// claims each start with cascade.ClaimStart and enqueues it with
+// outbox.EnqueueStart; on a repeat it enqueues nothing, writes
+// cascade.AuditSuppressed and returns nil (A5-4). Any other outbox row is
+// enqueued with outbox.EnqueueAtVersion and ev.Version, never
+// outbox.Enqueue, so the write bumps the version exactly once.
 type EventSink interface {
 	RecordChanged(ctx context.Context, tx pgx.Tx, ev Event) error
 }
@@ -145,9 +175,10 @@ type DefinitionReader interface {
 	Current(ctx context.Context, tx pgx.Tx, entityKey string) (*metadata.Compiled, int, error)
 }
 
-// TxRunner runs fn in a tenant transaction of its own. P3-12 (TICK-88) writes
-// a rejected cascade's audit row on it, so the row survives the caller's
-// rollback (D-3-7a).
+// TxRunner runs fn in a tenant transaction of its own. Write records a
+// cascade_rejected audit row on it, so the row survives the caller's
+// rollback (D-3-7a). It needs a connection of its own while the caller's
+// transaction is open: a PoolRunner on the caller's pool needs at least two.
 type TxRunner interface {
 	InTenantTx(ctx context.Context, tenantID uuid.UUID, fn func(pgx.Tx) error) error
 }
@@ -178,11 +209,58 @@ var (
 	ErrNotFound = errors.New("pipeline: not found")
 	// ErrVersionConflict means the record is not at the expected version.
 	ErrVersionConflict = errors.New("pipeline: version conflict")
-	// ErrIdempotencyConflict means a concurrent write with the same
-	// idempotency key committed first. The caller's transaction is aborted;
-	// roll it back and retry, and the replay returns the first write's Result.
-	ErrIdempotencyConflict = errors.New("pipeline: concurrent write with the same idempotency key, retry")
+	// ErrRetryable means PostgreSQL aborted the transaction to break a
+	// deadlock (40P01) or a serialization failure (40001). Nothing in it
+	// commits: roll tx back and run the whole transaction again. It wraps the
+	// database error. A transaction that holds two or more pipeline writes
+	// can deadlock with another one (P3-11's locks are ordered within one
+	// write, not across writes: TICK-88, from the PR #360 review); cascades
+	// themselves never share one, because each runs in its own activity.
+	ErrRetryable = errors.New("pipeline: transaction aborted by a deadlock or serialization failure, retry")
 )
+
+// ErrIdempotencyConflict means the idempotency key is held by another write.
+// The HTTP layer maps it to 409 (P3-14), as PLAN-001 T22 does for a key
+// reused with a different body.
+type ErrIdempotencyConflict struct {
+	// Concurrent: a concurrent write with the same key committed first, and
+	// the caller's transaction is aborted. Roll it back and retry: the retry
+	// replays the first write's Result, or gets the mismatch below.
+	//
+	// Otherwise the key is stored for a write of another entity type, op or
+	// record. A retry gets the same error.
+	Concurrent bool
+}
+
+func (e *ErrIdempotencyConflict) Error() string {
+	if e.Concurrent {
+		return "pipeline: concurrent write with the same idempotency key, retry"
+	}
+	return "pipeline: idempotency key already used for another entity type, op or record"
+}
+
+// ErrIllegalTransition is a state change the type's state model does not
+// list. On a create From is empty: a create must start in the initial state.
+type ErrIllegalTransition struct {
+	From, To string
+}
+
+func (e *ErrIllegalTransition) Error() string {
+	if e.From == "" {
+		return fmt.Sprintf("pipeline: a record is created in its initial state, not %q", e.To)
+	}
+	return fmt.Sprintf("pipeline: illegal state transition %q -> %q", e.From, e.To)
+}
+
+// ErrUniqueViolation is a value of a unique property ("x-nava-unique": true)
+// that another record of the entity type in the tenant already holds.
+type ErrUniqueViolation struct {
+	Field string
+}
+
+func (e *ErrUniqueViolation) Error() string {
+	return fmt.Sprintf("pipeline: value of unique property %q is taken", e.Field)
+}
 
 // ErrValidation is a payload that fails the entity type's schema. Fields are
 // sorted by path, then code.
@@ -223,13 +301,32 @@ func New(a authz.Authorizer, defs DefinitionReader, sink EventSink, tx TxRunner,
 // Runner returns the pipeline's own-transaction runner (D-3-7a).
 func (p *Pipeline) Runner() TxRunner { return p.runner }
 
-// Write performs cmd in tx, which must come from tenancy.InTenantTx. It
-// returns ErrInvalidCommand, ErrNotFound, authz.ErrForbidden,
-// *ErrValidation, ErrVersionConflict or ErrIdempotencyConflict for a refused
-// write, and a wrapped error for a database failure. On any error the caller
-// rolls tx back; after ErrIdempotencyConflict or a database error tx is
-// unusable.
+// Write performs cmd in tx, which must come from tenancy.InTenantTx at READ
+// COMMITTED (the default). It returns ErrInvalidCommand, ErrNotFound,
+// authz.ErrForbidden, *ErrValidation, *ErrIllegalTransition,
+// *ErrUniqueViolation, ErrVersionConflict, *ErrIdempotencyConflict or
+// outbox.ErrCascadeTooDeep for a refused write; ErrRetryable, wrapping the
+// database error, when PostgreSQL aborted tx for a deadlock (40P01) or a
+// serialization failure (40001): roll back and retry the whole transaction;
+// and a wrapped error for any other database failure. On any error the
+// caller rolls tx back; after a concurrent *ErrIdempotencyConflict,
+// ErrRetryable or a database error tx is unusable.
+//
+// The depth check runs before any statement in tx but the read of its
+// tenant: a write beyond the limit changes nothing in tx and writes one
+// cascade_rejected audit row on the TxRunner, committed before Write
+// returns. If that row cannot be written, the error also wraps the cause.
 func (p *Pipeline) Write(ctx context.Context, tx pgx.Tx, cmd Command) (Result, error) {
+	res, err := p.perform(ctx, tx, cmd)
+	var pe *pgconn.PgError
+	if errors.As(err, &pe) && (pe.Code == "40P01" || pe.Code == "40001") {
+		return Result{}, fmt.Errorf("%w: %w", ErrRetryable, err)
+	}
+	return res, err
+}
+
+// perform is Write before its error mapping.
+func (p *Pipeline) perform(ctx context.Context, tx pgx.Tx, cmd Command) (Result, error) {
 	if err := cmd.check(); err != nil {
 		return Result{}, err
 	}
@@ -242,6 +339,16 @@ func (p *Pipeline) Write(ctx context.Context, tx pgx.Tx, cmd Command) (Result, e
 	}
 	if cmd.Actor.TenantID != tenant {
 		return Result{}, authz.ErrForbidden
+	}
+	if cmd.Causation.Depth > config.CascadeDepthLimit {
+		return Result{}, p.rejectTooDeep(ctx, tenant, cmd)
+	}
+	if cmd.Causation.Depth == 0 {
+		origin, err := uuid.NewV7()
+		if err != nil {
+			return Result{}, fmt.Errorf("pipeline: new origin: %w", err)
+		}
+		cmd.Causation.OriginID = origin
 	}
 
 	if cmd.IdempotencyKey != "" {
@@ -313,22 +420,69 @@ func (c *Command) check() error {
 	if c.Causation.Depth < 0 || (c.Causation.Depth > 0 && c.Causation.OriginID == uuid.Nil) {
 		return bad("causation depth without an origin, or negative")
 	}
+	// A depth-0 write starts a cascade, so its origin is minted, never
+	// given: a given one could reuse another cascade's start keys (A5-3).
+	if c.Causation.Depth == 0 && c.Causation.OriginID != uuid.Nil {
+		return bad("a depth-0 write names no origin; Write mints it")
+	}
+	// A workflow write is one deeper than the delivery that caused it, so it
+	// cannot restart the chain (A5-7).
+	if c.Source == SourceWorkflow && c.Causation.Depth == 0 {
+		return fmt.Errorf("%w: %w: a workflow write at depth 0", ErrInvalidCommand, outbox.ErrInvalidEntry)
+	}
 	return nil
 }
 
+// rejectTooDeep writes the cascade_rejected audit row of a write beyond the
+// depth limit in a transaction of its own, and returns the rejection.
+// record_id is NULL on a create, and on an update of a record the tenant
+// does not have.
+func (p *Pipeline) rejectTooDeep(ctx context.Context, tenant uuid.UUID, cmd Command) error {
+	rejected := fmt.Errorf("pipeline: %w: depth %d, limit %d", outbox.ErrCascadeTooDeep, cmd.Causation.Depth, config.CascadeDepthLimit)
+	err := p.runner.InTenantTx(ctx, tenant, func(tx pgx.Tx) error {
+		id, err := uuid.NewV7()
+		if err != nil {
+			return fmt.Errorf("new audit id: %w", err)
+		}
+		var record uuid.UUID
+		if cmd.Op == OpUpdate {
+			switch _, err := store.Get(ctx, tx, tenant, cmd.RecordID); {
+			case err == nil:
+				record = cmd.RecordID
+			case !errors.Is(err, store.ErrNotFound):
+				return err
+			}
+		}
+		origin := cmd.Causation.OriginID
+		return store.InsertAudit(ctx, tx, &store.Audit{
+			TenantID: tenant, ID: id, RecordID: record, Action: cascade.ActionRejected,
+			ActorID: optional(cmd.Actor.PrincipalID), Source: string(cmd.Source),
+			Detail:            map[string]string{"reason": cascade.ReasonTooDeep},
+			CausationOriginID: &origin, CausationDepth: cmd.Causation.Depth, At: p.clock.Now(),
+		})
+	})
+	if err != nil {
+		return errors.Join(rejected, fmt.Errorf("pipeline: audit the rejected cascade: %w", err))
+	}
+	return rejected
+}
+
 // replay returns the earlier Result of a write with cmd's idempotency key.
+// The stored write must be the same entity type and op, and on an update the
+// same record; otherwise the key names another write, *ErrIdempotencyConflict.
 func replay(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, cmd Command) (Result, bool, error) {
-	record, snap, err := store.AuditByKey(ctx, tx, tenant, cmd.IdempotencyKey)
+	kw, err := store.AuditByKey(ctx, tx, tenant, cmd.IdempotencyKey)
 	if errors.Is(err, store.ErrNotFound) {
 		return Result{}, false, nil
 	}
 	if err != nil {
 		return Result{}, false, fmt.Errorf("pipeline: %w", err)
 	}
-	if cmd.Op == OpUpdate && record != cmd.RecordID {
-		return Result{}, false, fmt.Errorf("%w: idempotency key already used for another record", ErrInvalidCommand)
+	if kw.EntityKey != cmd.EntityKey || kw.Action != cmd.Op.String() || (cmd.Op == OpUpdate && kw.RecordID != cmd.RecordID) {
+		return Result{}, false, &ErrIdempotencyConflict{}
 	}
-	return Result{RecordID: record, Number: snap.Number, Version: snap.Version, SchemaVersion: snap.SchemaVersion}, true, nil
+	a := kw.After
+	return Result{RecordID: kw.RecordID, Number: a.Number, Version: a.Version, SchemaVersion: a.SchemaVersion}, true, nil
 }
 
 // write is the state of one Write.
@@ -347,12 +501,20 @@ func (w *write) create(ctx context.Context, after map[string]any) (Result, error
 		return Result{}, err
 	}
 	after = w.def.ApplyDefaults(after)
-	// The state column is never NULL; P3-11 checks the state model.
+	// The state column is never NULL, and a record starts in the initial
+	// state.
 	if _, ok := after[w.def.StateProperty()]; !ok {
 		after[w.def.StateProperty()] = w.def.InitialState()
 	}
 	if fe := w.def.Validate(after); fe != nil {
 		return Result{}, &ErrValidation{Fields: fe}
+	}
+	if state, _ := after[w.def.StateProperty()].(string); state != w.def.InitialState() {
+		return Result{}, &ErrIllegalTransition{To: state}
+	}
+	fixed := w.def.FixedColumns()
+	if err := w.checkUnique(ctx, uuid.Nil, nil, after, fixed); err != nil {
+		return Result{}, err
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
@@ -361,14 +523,21 @@ func (w *write) create(ctx context.Context, after map[string]any) (Result, error
 	now := w.p.clock.Now()
 	rec := &store.Record{
 		TenantID: w.tenant, ID: id, EntityDefinitionID: w.defID, EntityKey: w.cmd.EntityKey,
-		Version: 1, SchemaVersion: w.defVersion, Number: stubNumber(w.def, id),
+		Version: 1, SchemaVersion: w.defVersion,
 		CreatedBy: optional(w.cmd.Actor.PrincipalID), CreatedAt: now, UpdatedAt: now,
 	}
 	w.causation(rec)
-	fixed := w.def.FixedColumns()
 	if err := rec.Split(after, fixed); err != nil {
 		return Result{}, fmt.Errorf("pipeline: %w", err)
 	}
+	// The number is taken after every check, as the last statement before
+	// the record, audit and outbox inserts, so the counter row's lock is held
+	// only for the rest of the write (D-3-9).
+	n, err := store.NextNumber(ctx, w.tx, w.tenant, w.defID)
+	if err != nil {
+		return Result{}, fmt.Errorf("pipeline: %w", err)
+	}
+	rec.Number = store.FormatNumber(w.def.NumberPrefix(), n)
 	if err := store.Insert(ctx, w.tx, rec); err != nil {
 		return Result{}, fmt.Errorf("pipeline: %w", err)
 	}
@@ -408,8 +577,15 @@ func (w *write) update(ctx context.Context, patch map[string]any) (Result, error
 	if fe != nil {
 		return Result{}, &ErrValidation{Fields: fe}
 	}
+	// Staying in the same state is no transition.
+	if to, _ := after[w.def.StateProperty()].(string); to != rec.State && !w.def.AllowsTransition(rec.State, to) {
+		return Result{}, &ErrIllegalTransition{From: rec.State, To: to}
+	}
 
 	fixed := w.def.FixedColumns()
+	if err := w.checkUnique(ctx, rec.ID, before, after, fixed); err != nil {
+		return Result{}, err
+	}
 	if err := rec.Split(after, fixed); err != nil {
 		return Result{}, fmt.Errorf("pipeline: %w", err)
 	}
@@ -446,11 +622,12 @@ func (w *write) finish(ctx context.Context, rec *store.Record, before *store.Sna
 	}
 	if err := store.InsertAudit(ctx, w.tx, a); err != nil {
 		if errors.Is(err, store.ErrDuplicateKey) {
-			return Result{}, ErrIdempotencyConflict
+			return Result{}, &ErrIdempotencyConflict{Concurrent: true}
 		}
 		return Result{}, fmt.Errorf("pipeline: %w", err)
 	}
-	ev := Event{Op: w.cmd.Op, EntityDefinitionID: rec.EntityDefinitionID, RecordID: rec.ID, Version: rec.Version, Causation: w.cmd.Causation}
+	ev := Event{Op: w.cmd.Op, EntityDefinitionID: rec.EntityDefinitionID, RecordID: rec.ID, Version: rec.Version,
+		Causation: w.cmd.Causation, ActorID: w.cmd.Actor.PrincipalID, Source: w.cmd.Source}
 	if err := w.p.sink.RecordChanged(ctx, w.tx, ev); err != nil {
 		return Result{}, fmt.Errorf("pipeline: event sink: %w", err)
 	}
@@ -462,10 +639,98 @@ func (w *write) causation(rec *store.Record) {
 	rec.CausationDepth = w.cmd.Causation.Depth
 }
 
-// stubNumber is unique per record and never reused. P3-11 (TICK-355)
-// replaces it with the per-tenant counter (D-3-9).
-func stubNumber(def *metadata.Compiled, id uuid.UUID) string {
-	return def.NumberPrefix() + "-" + id.String()
+// checkUnique enforces the type's unique properties on after (D-3-22). On a
+// create (before nil) it checks every unique property after holds; on an
+// update only those whose value changed. For each, in property order so two
+// writers never take the same locks in opposite orders, it takes the value's
+// advisory lock and then looks for another record (any but self) that holds
+// the value. A missing or null value is not checked: many records may leave
+// a unique property empty.
+func (w *write) checkUnique(ctx context.Context, self uuid.UUID, before, after map[string]any, fixed map[string]string) error {
+	for _, field := range w.def.UniqueFields() {
+		v, ok := after[field]
+		if !ok || v == nil {
+			continue
+		}
+		_, isColumn := fixed[field]
+		key, value := canonicalValue(v, isColumn)
+		if old, ok := before[field]; ok && old != nil {
+			if oldKey, _ := canonicalValue(old, isColumn); oldKey == key {
+				continue
+			}
+		}
+		if err := store.LockUnique(ctx, w.tx, w.tenant, w.defID, field, key); err != nil {
+			return fmt.Errorf("pipeline: %w", err)
+		}
+		taken, err := store.UniqueTaken(ctx, w.tx, w.tenant, w.defID, self, field, value, fixed)
+		if err != nil {
+			return fmt.Errorf("pipeline: %w", err)
+		}
+		if taken {
+			return &ErrUniqueViolation{Field: field}
+		}
+	}
+	return nil
+}
+
+// canonicalValue returns a unique value's canonical form, the advisory lock's
+// key, and the value to compare. Values jsonb equality calls equal get the
+// same key: numbers are exact rationals (1, 1.0 and 1e0 are one key) and
+// object keys are sorted. A property stored in a fixed uuid column is
+// compared in uuid.String's lowercase form, as the column returns it.
+func canonicalValue(v any, column bool) (key string, value any) {
+	if s, ok := v.(string); ok && column {
+		if id, err := uuid.Parse(s); err == nil {
+			s = id.String()
+		}
+		return canonical(s), s
+	}
+	return canonical(v), v
+}
+
+// canonical writes a decoded JSON value in canonical form.
+func canonical(v any) string {
+	var b strings.Builder
+	writeCanonical(&b, v)
+	return b.String()
+}
+
+func writeCanonical(b *strings.Builder, v any) {
+	switch x := v.(type) {
+	case nil:
+		b.WriteString("null")
+	case bool:
+		b.WriteString(strconv.FormatBool(x))
+	case json.Number:
+		if r, ok := new(big.Rat).SetString(x.String()); ok {
+			b.WriteString(r.RatString())
+		} else {
+			b.WriteString(x.String())
+		}
+	case []any:
+		b.WriteByte('[')
+		for i, e := range x {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			writeCanonical(b, e)
+		}
+		b.WriteByte(']')
+	case map[string]any:
+		b.WriteByte('{')
+		for i, k := range slices.Sorted(maps.Keys(x)) {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			writeCanonical(b, k)
+			b.WriteByte(':')
+			writeCanonical(b, x[k])
+		}
+		b.WriteByte('}')
+	default: // a string; normalise decodes every number as json.Number
+		j, _ := json.Marshal(x)
+		b.Write(j)
+	}
 }
 
 func optional(id uuid.UUID) *uuid.UUID {

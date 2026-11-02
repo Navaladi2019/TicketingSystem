@@ -128,3 +128,13 @@ func (c *Compiled) StateProperty() string {
 
 // InitialState returns the state model's initial state.
 func (c *Compiled) InitialState() string { return c.states.Initial }
+
+// AllowsTransition reports whether the state model lists a transition from
+// one state to another. Staying in the same state is not a transition, and
+// this reports it only if the model lists it.
+func (c *Compiled) AllowsTransition(from, to string) bool {
+	return slices.Contains(c.states.Transitions, Transition{From: from, To: to})
+}
+
+// States returns a copy of the state model's states.
+func (c *Compiled) States() []string { return slices.Clone(c.states.States) }
