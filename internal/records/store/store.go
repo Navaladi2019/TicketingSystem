@@ -120,7 +120,7 @@ INSERT INTO records (tenant_id, id, version, entity_definition_id, schema_versio
     causation_origin_id, causation_depth)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12, $13, $14, $15)`,
 		r.TenantID, r.ID, r.Version, r.EntityDefinitionID, r.SchemaVersion, r.Number, r.State,
-		r.RequesterID, r.AssigneeID, r.AssignmentGroupID, r.CreatedBy, r.CreatedAt, data,
+		r.RequesterID, r.AssigneeID, r.AssignmentGroupID, r.CreatedBy, r.CreatedAt, jsonParam(data),
 		r.CausationOriginID, r.CausationDepth); err != nil {
 		return fmt.Errorf("records/store: insert record: %w", err)
 	}
@@ -146,7 +146,7 @@ UPDATE records SET schema_version = $3, state = $4, requester_id = $5, assignee_
 WHERE tenant_id = $1 AND id = $2 AND version = $12
 RETURNING version`,
 		r.TenantID, r.ID, r.SchemaVersion, r.State, r.RequesterID, r.AssigneeID,
-		r.AssignmentGroupID, r.UpdatedAt, data, r.CausationOriginID, r.CausationDepth, expected).Scan(&v)
+		r.AssignmentGroupID, r.UpdatedAt, jsonParam(data), r.CausationOriginID, r.CausationDepth, expected).Scan(&v)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, ErrStale
 	}
@@ -215,7 +215,7 @@ func InsertAudit(ctx context.Context, tx pgx.Tx, a *Audit) error {
 INSERT INTO audit_log (tenant_id, id, record_id, action, actor_id, source, before, after,
     causation_origin_id, causation_depth, idempotency_key, at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-		a.TenantID, a.ID, record, a.Action, a.ActorID, a.Source, before, after,
+		a.TenantID, a.ID, record, a.Action, a.ActorID, a.Source, jsonParam(before), jsonParam(after),
 		a.CausationOriginID, a.CausationDepth, a.IdempotencyKey, a.At)
 	var pe *pgconn.PgError
 	if errors.As(err, &pe) && pe.Code == "23505" && pe.ConstraintName == idempotencyIndex {
@@ -267,6 +267,16 @@ WHERE a.tenant_id = $1 AND a.idempotency_key = $2 AND a.idempotency_key IS NOT N
 		return nil, fmt.Errorf("records/store: decode audit snapshot: %w", err)
 	}
 	return &KeyedWrite{RecordID: *record, EntityKey: *entityKey, Action: action, After: &s}, nil
+}
+
+// jsonParam is a jsonb statement argument. Over QueryExecModeExec (nava-core's
+// PgBouncer pool) the parameter has no declared type, and pgx sends []byte as
+// bytea text, which jsonb refuses; a string is sent as text. nil stays NULL.
+func jsonParam(b []byte) any {
+	if b == nil {
+		return nil
+	}
+	return string(b)
 }
 
 func encodeSnapshot(s *Snapshot) ([]byte, error) {

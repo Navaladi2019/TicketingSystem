@@ -1,0 +1,34 @@
+meta {
+  name: X5.12 createRecord 409: the key with another body
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{core_url}}/api/v1/records/{{x5_type}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: {{x5_key4}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "another"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('idempotency_key_reuse', 409);
+}
+
+docs {
+  The key of X5.10 with a different body.
+}

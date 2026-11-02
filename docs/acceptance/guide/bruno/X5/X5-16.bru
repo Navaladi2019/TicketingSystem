@@ -1,0 +1,32 @@
+meta {
+  name: X5.16 getRecord 404: tenant A's record read by tenant B
+  type: http
+  seq: 16
+}
+
+get {
+  url: {{core_url}}/api/v1/records/{{x5_type}}/{{x5_id}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 404 problem+json with code not_found and no instance', () => {
+    expect(res.getStatus()).to.eql(404);
+    expect(N.header('Content-Type') || '').to.include('application/problem+json');
+    const b = N.json();
+    expect(b.code).to.eql('not_found');
+    expect(b).to.not.have.property('instance');
+  });
+  N.status(404);
+  test('same body as X5.15', () => expect(N.text()).to.eql(bru.getVar('x5_ref404')));
+}
+
+docs {
+  Byte-identical to X5.15.
+}

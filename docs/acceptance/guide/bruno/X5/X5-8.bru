@@ -1,0 +1,33 @@
+meta {
+  name: X5.8 createRecord 422: a required field is missing
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{core_url}}/api/v1/records/{{x5_type}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: {{x5_key2}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {}
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('record_invalid', 422);
+  N.fieldError('/data/short_description');
+}
+
+docs {
+  `errors[].pointer` is under `/data`.
+}

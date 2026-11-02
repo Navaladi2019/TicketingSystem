@@ -75,6 +75,9 @@ func (e OnboardedTenantState) Valid() bool {
 // CreateEntityTypeRequest Deliberately unconstrained here: the server checks every field after the admin check and answers 422 `invalid_definition` with `errors[].pointer`. Kept as the request bytes (`json.RawMessage`) so the schema is stored byte for byte.
 type CreateEntityTypeRequest = json.RawMessage
 
+// CreateRecordRequest Deliberately unconstrained here: the server resolves the entity type first (404), then reads `{data}` and answers 422 `record_invalid`.
+type CreateRecordRequest = json.RawMessage
+
 // EntityTypeList defines model for EntityTypeList.
 type EntityTypeList struct {
 	Items []EntityTypeSummary `json:"items"`
@@ -210,6 +213,21 @@ type ProblemNoInstance struct {
 // PublishEntityTypeVersionRequest Deliberately unconstrained here, like CreateEntityTypeRequest: the server checks every field after the admin check. Kept as the request bytes so the schema is stored byte for byte.
 type PublishEntityTypeVersionRequest = json.RawMessage
 
+// Record defines model for Record.
+type Record struct {
+	CreatedAt     time.Time              `json:"created_at"`
+	Data          map[string]interface{} `json:"data"`
+	Id            openapi_types.UUID     `json:"id"`
+	Number        string                 `json:"number"`
+	SchemaVersion int                    `json:"schema_version"`
+	State         string                 `json:"state"`
+	UpdatedAt     time.Time              `json:"updated_at"`
+	Version       int64                  `json:"version"`
+}
+
+// Entity defines model for Entity.
+type Entity = string
+
 // Key defines model for Key.
 type Key = string
 
@@ -234,6 +252,11 @@ type OnboardTenantParams struct {
 	IdempotencyKey string `json:"Idempotency-Key"`
 }
 
+// CreateRecordParams defines parameters for CreateRecord.
+type CreateRecordParams struct {
+	IdempotencyKey string `json:"Idempotency-Key"`
+}
+
 // CreateEntityTypeJSONRequestBody defines body for CreateEntityType for application/json ContentType.
 type CreateEntityTypeJSONRequestBody = CreateEntityTypeRequest
 
@@ -242,6 +265,9 @@ type PublishEntityTypeVersionJSONRequestBody = PublishEntityTypeVersionRequest
 
 // OnboardTenantJSONRequestBody defines body for OnboardTenant for application/json ContentType.
 type OnboardTenantJSONRequestBody = OnboardTenantRequest
+
+// CreateRecordJSONRequestBody defines body for CreateRecord for application/json ContentType.
+type CreateRecordJSONRequestBody = CreateRecordRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -266,6 +292,12 @@ type ServerInterface interface {
 	// OnboardTenant Onboard a tenant (operator token only)
 	// (POST /api/v1/operator/tenants)
 	OnboardTenant(w http.ResponseWriter, r *http.Request, params OnboardTenantParams)
+	// CreateRecord Create a record of an entity type
+	// (POST /api/v1/records/{entity})
+	CreateRecord(w http.ResponseWriter, r *http.Request, entity Entity, params CreateRecordParams)
+	// GetRecord Read a record
+	// (GET /api/v1/records/{entity}/{id})
+	GetRecord(w http.ResponseWriter, r *http.Request, entity Entity, id string)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -542,6 +574,95 @@ func (siw *ServerInterfaceWrapper) OnboardTenant(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// CreateRecord operation middleware
+func (siw *ServerInterfaceWrapper) CreateRecord(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "entity" -------------
+	var entity Entity
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entity", r.PathValue("entity"), &entity, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entity", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateRecordParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateRecord(w, r, entity, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetRecord operation middleware
+func (siw *ServerInterfaceWrapper) GetRecord(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "entity" -------------
+	var entity Entity
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entity", r.PathValue("entity"), &entity, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entity", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetRecord(w, r, entity, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -669,6 +790,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/entity-types/{key}", wrapper.GetEntityType)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/entity-types/{key}/versions", wrapper.PublishEntityTypeVersion)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/entity-types/{key}/versions/{n}", wrapper.GetEntityTypeVersion)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/records/{entity}", wrapper.CreateRecord)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/records/{entity}/{id}", wrapper.GetRecord)
 
 	return m
 }
@@ -1499,6 +1622,275 @@ func (response OnboardTenant501ApplicationProblemPlusJSONResponse) VisitOnboardT
 	return err
 }
 
+type CreateRecordRequestObject struct {
+	Entity Entity `json:"entity"`
+	Params CreateRecordParams
+	Body   *CreateRecordJSONRequestBody
+}
+
+type CreateRecordResponseObject interface {
+	VisitCreateRecordResponse(w http.ResponseWriter) error
+}
+
+type CreateRecord201ResponseHeaders struct {
+	ETag     string
+	Location string
+}
+
+type CreateRecord201JSONResponse struct {
+	Body    Record
+	Headers CreateRecord201ResponseHeaders
+}
+
+func (response CreateRecord201JSONResponse) VisitCreateRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateRecord400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateRecord400ApplicationProblemPlusJSONResponse) VisitCreateRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateRecord401ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateRecord401ApplicationProblemPlusJSONResponse) VisitCreateRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateRecord403ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateRecord403ApplicationProblemPlusJSONResponse) VisitCreateRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateRecord404ApplicationProblemPlusJSONResponse struct {
+	ProblemNoInstanceApplicationProblemPlusJSONResponse
+}
+
+func (response CreateRecord404ApplicationProblemPlusJSONResponse) VisitCreateRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateRecord409ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateRecord409ApplicationProblemPlusJSONResponse) VisitCreateRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateRecord422ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateRecord422ApplicationProblemPlusJSONResponse) VisitCreateRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateRecord429ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateRecord429ApplicationProblemPlusJSONResponse) VisitCreateRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateRecord500ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateRecord500ApplicationProblemPlusJSONResponse) VisitCreateRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateRecord501ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateRecord501ApplicationProblemPlusJSONResponse) VisitCreateRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRecordRequestObject struct {
+	Entity Entity `json:"entity"`
+	Id     string `json:"id"`
+}
+
+type GetRecordResponseObject interface {
+	VisitGetRecordResponse(w http.ResponseWriter) error
+}
+
+type GetRecord200ResponseHeaders struct {
+	ETag string
+}
+
+type GetRecord200JSONResponse struct {
+	Body    Record
+	Headers GetRecord200ResponseHeaders
+}
+
+func (response GetRecord200JSONResponse) VisitGetRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRecord401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response GetRecord401ApplicationProblemPlusJSONResponse) VisitGetRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRecord404ApplicationProblemPlusJSONResponse struct {
+	ProblemNoInstanceApplicationProblemPlusJSONResponse
+}
+
+func (response GetRecord404ApplicationProblemPlusJSONResponse) VisitGetRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRecord429ApplicationProblemPlusJSONResponse Problem
+
+func (response GetRecord429ApplicationProblemPlusJSONResponse) VisitGetRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRecord500ApplicationProblemPlusJSONResponse Problem
+
+func (response GetRecord500ApplicationProblemPlusJSONResponse) VisitGetRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRecord501ApplicationProblemPlusJSONResponse Problem
+
+func (response GetRecord501ApplicationProblemPlusJSONResponse) VisitGetRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// ListEntityTypes List the tenant's entity types
@@ -1522,6 +1914,12 @@ type StrictServerInterface interface {
 	// OnboardTenant Onboard a tenant (operator token only)
 	// (POST /api/v1/operator/tenants)
 	OnboardTenant(ctx context.Context, request OnboardTenantRequestObject) (OnboardTenantResponseObject, error)
+	// CreateRecord Create a record of an entity type
+	// (POST /api/v1/records/{entity})
+	CreateRecord(ctx context.Context, request CreateRecordRequestObject) (CreateRecordResponseObject, error)
+	// GetRecord Read a record
+	// (GET /api/v1/records/{entity}/{id})
+	GetRecord(ctx context.Context, request GetRecordRequestObject) (GetRecordResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -1759,6 +2157,67 @@ func (sh *strictHandler) OnboardTenant(w http.ResponseWriter, r *http.Request, p
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(OnboardTenantResponseObject); ok {
 		if err := validResponse.VisitOnboardTenantResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateRecord operation middleware
+func (sh *strictHandler) CreateRecord(w http.ResponseWriter, r *http.Request, entity Entity, params CreateRecordParams) {
+	var request CreateRecordRequestObject
+
+	request.Entity = entity
+	request.Params = params
+
+	var body CreateRecordJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateRecord(ctx, request.(CreateRecordRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateRecord")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateRecordResponseObject); ok {
+		if err := validResponse.VisitCreateRecordResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetRecord operation middleware
+func (sh *strictHandler) GetRecord(w http.ResponseWriter, r *http.Request, entity Entity, id string) {
+	var request GetRecordRequestObject
+
+	request.Entity = entity
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetRecord(ctx, request.(GetRecordRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetRecord")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetRecordResponseObject); ok {
+		if err := validResponse.VisitGetRecordResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

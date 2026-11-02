@@ -1,0 +1,35 @@
+meta {
+  name: X5.11 createRecord 201: replay of X5.10
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{core_url}}/api/v1/records/{{x5_type}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: {{x5_key4}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "Printer on fire"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  test('the same record id', () => expect(N.json().id).to.eql(bru.getVar('x5_id')));
+}
+
+docs {
+  The same key and body returns the stored response: the same record, nothing new.
+}
