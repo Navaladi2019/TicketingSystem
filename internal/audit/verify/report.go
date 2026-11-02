@@ -25,9 +25,8 @@ const (
 	LineTampered       LineOutcome = "tampered"
 )
 
-// Reason codes for a tampered file. The first eight are the codes the golden
-// vectors use (internal/audit/chain/vectors); the rest name the structural
-// checks of §4 steps 1-3, 6, 8 and 10 that the vectors leave unnamed.
+// Reason codes for a tampered file. audit-export-v1.md §4.1 lists all of
+// them; TestReasonCodesListedInSpec holds this block and §4.1 to each other.
 const (
 	ReasonEnvelopeMismatch       = "envelope_sha256_mismatch"
 	ReasonDiffMismatch           = "diff_sha256_mismatch"

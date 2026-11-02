@@ -192,7 +192,7 @@ cannot be proven complete. This is exit 4, not exit 1: nothing is tampered.
 
 ```console
 $ ../../../bin/nava audit verify export-stubs-omitted.jsonl; echo "exit $?"
-not verifiable: stubs omitted (1 gaps in seq; lines present checked: 2 entries, 0 unsealed)
+not verifiable: stubs omitted (2 gaps in seq; lines present checked: 2 entries, 0 unsealed)
 exit 4
 ```
 

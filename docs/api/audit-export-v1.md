@@ -3,7 +3,7 @@ type: api-spec
 id: audit-export-v1
 title: Audit export format v1 and the hash-chain canonical form
 status: DRAFT (P5-02, TICK-424; reviewers Technical Lead, Technical Architect, Security)
-implements: ADR-004 R13, R20, R21, R22, R24; ADR-004-E1 (diff_truncated); PLAN-005 C1, C4, D-5-7
+implements: ADR-004 R13, R20, R21, R22, R24; ADR-004-E1 (diff_truncated); ADR-004-E2 (verifiable is computed, §4.1 reason codes); PLAN-005 C1, C4, D-5-7
 code: internal/audit/chain
 vectors: internal/audit/chain/testdata/vectors.json
 ---
@@ -171,6 +171,8 @@ flowchart TD
 byte (R19). Every filter member is present (`null` when unset). Timestamps use
 the canonical form.
 
+*`stubs` is the request as received; it is not a statement about the range.*
+
 ### Range and anchor (R20)
 
 - `first_seq` is the first sealed `seq` whose `occurred_at` is in the time
@@ -180,7 +182,10 @@ the canonical form.
 - The **anchor** is the line for `first_seq − 1`:
   - `first_seq = 1`: `{"kind":"anchor","genesis":true,"seq":0,"prev_hash":null,"entry_hash":"000…000","envelope_sha256":null}`
   - otherwise: `{"kind":"anchor","genesis":false,"seq":41,"prev_hash":"…","entry_hash":"…","envelope_sha256":"…"}`
-- Every `seq` in `first_seq..last_seq` then appears exactly once, ascending.
+- With `stubs=true`, every `seq` in `first_seq..last_seq` then appears
+  exactly once, ascending. With `stubs=false` only matching entries appear,
+  ascending. A window with sealed entries but no matching entry is **not**
+  empty: it has the anchor, no range lines, and `verifiable: false`.
 - If no sealed entry falls in the window, there is no anchor and no range
   lines; the trailer's `anchor_seq` and `last_seq` are `null`.
 
@@ -226,12 +231,12 @@ and `seq`, `prev_hash`, `entry_hash`, `sealed_at` all `null`.
 | Member | Meaning |
 |---|---|
 | `anchor_seq` | `seq` of the anchor line (`0` for genesis), `null` for an empty range |
-| `last_seq` | the head `seq` read at the start (= `seq` of the last range line) |
+| `last_seq` | the head `seq` read at the start, never the last line written. With `stubs=true` it is the `seq` of the last range line; with `stubs=false` the last range line may be below it, or there may be none (§4 step 6). |
 | `head_hash` | `entry_hash` at `last_seq` |
 | `count` | full `entry` lines in the range (sealed) |
 | `stub_count` | `stub` lines (the anchor is not counted) |
 | `unsealed_count` | unsealed `entry` lines |
-| `verifiable` | `false` when exported with `stubs=false` (excluded entries are left out, so the range has gaps), or when the range is empty |
+| `verifiable` | `true` when the range is non-empty and every `seq` in `anchor_seq+1..last_seq` has a line (`count + stub_count = last_seq − anchor_seq`); otherwise `false`. The exporter computes it while streaming. A `stubs=false` export whose filter excluded nothing in the range is `verifiable: true`. |
 
 With `stubs=true`: `count + stub_count = last_seq − anchor_seq`.
 
@@ -240,7 +245,7 @@ With `stubs=true`: `count + stub_count = last_seq − anchor_seq`.
 What `nava audit verify` (P5-03) checks, offline. It reports one outcome per
 sealed line (`verified`, `diff_unverified`, `pending`, `tampered`) and one for
 the file (`pass`, `tampered`, `empty`, `unverifiable`). The first `tampered`
-check names its reason; the reason codes are the ones used in the vectors.
+check names its reason, one of the codes in §4.1. The vectors use a subset.
 
 1. The header's `format` is `nava.audit.export/v1`; the last line is the
    trailer; `count`, `stub_count` and `unsealed_count` match the lines.
@@ -248,8 +253,8 @@ check names its reason; the reason codes are the ones used in the vectors.
    (R20: a file without the anchor is rejected).
 3. For each range line in order, `seq` is the previous `seq + 1` and
    `prev_hash` equals the previous `entry_hash` (the anchor's for the first),
-   else `entry_hash_mismatch`. A gap is allowed only in a file that step 8
-   finds not verifiable.
+   else `entry_hash_mismatch`. A gap is allowed only in a `stubs: false`
+   file; in a `stubs: true` file it is `tampered` (`seq_missing`).
 4. For each full line: parse the envelope strictly (section 2), recompute
    `envelope_sha256` and compare (`envelope_sha256_mismatch`), and recompute
    `entry_hash`. For a stub, recompute `entry_hash` from its `prev_hash` and
@@ -272,8 +277,13 @@ check names its reason; the reason codes are the ones used in the vectors.
    - `E` is set and `diff_redacted` is true: `diff_salt` is null; the line is
      `diff_unverified`, never `verified`. The diff text is not attested by
      this file.
-6. In a file without gaps, the last range line's `seq` is `last_seq` and its
-   `entry_hash` is `head_hash`.
+6. `last_seq` must be greater than `anchor_seq` (`head_mismatch`). A range
+   line beyond `last_seq` is `tampered` (`head_mismatch`). If the last range
+   line's `seq` is below `last_seq`, or there is no range line, that is a gap
+   at the tail (`seq_missing` under `stubs: true`, otherwise the range is not
+   contiguous). When the last range line's `seq` is `last_seq`, its
+   `entry_hash` is `head_hash` (`head_mismatch`), whether or not the range
+   has gaps.
 7. Erased entries: R24 (`tampered`, `erasure_unlisted`, unless a chain-valid
    `audit/erase` entry with `subject_id = erasure_ref` lists the id;
    `pending` if that entry is unsealed). **The `audit/erase` diff is RFC 6902
@@ -281,15 +291,15 @@ check names its reason; the reason codes are the ones used in the vectors.
    `[{"op":"add","path":"/erased_ids","value":["<id>", ...]}]`, with 1 to
    10,000 lowercase entry ids (R23). The verifier reads the ids from that op
    only and treats any other shape as not listing the id.
-8. **Verifiability is computed, not read.** The header's `stubs` and the
-   trailer's `verifiable` are not hashed. The file is verifiable only when the
-   anchor is present and every `seq` in `anchor_seq+1..last_seq` appears; a
-   flag that disagrees with the computed value is `tampered`
-   (`verifiable_flag_mismatch`). A file honestly flagged `stubs: false`,
-   `verifiable: false` is `unverifiable`, not `pass`. An empty range
-   (`anchor_seq: null`) is **`empty`**: also unverifiable, and reported as
-   neither a pass nor a failure, so an auditor exporting a quiet window sees
-   no alarm.
+8. **Verifiability is computed, not read.** The file is contiguous when the
+   anchor is present and every `seq` in `anchor_seq+1..last_seq` appears
+   (steps 3 and 6). The trailer's `verifiable` must equal that value, else
+   `tampered` (`verifiable_flag_mismatch`). The header's `stubs` is the
+   request: it decides only whether a gap is `seq_missing` (step 3), and
+   `stubs: false` over a contiguous range is legal. Outcome: contiguous gives
+   `pass` (or `pending`, step 7); not contiguous gives `unverifiable`; an
+   empty range (`anchor_seq: null`) gives `empty`, its `verifiable` must be
+   `false`, and it is reported as neither a pass nor a failure.
 9. **What a pass proves**: every line present is what was sealed, and the
    range is contiguous from the anchor to `head_hash`. It does **not** prove:
    - that a `stub` was a non-matching entry. A full entry swapped for its own
@@ -310,6 +320,60 @@ The vectors bind these steps: `tampered` gives one per-line case per hash
 failure (including **`diff-truncated-flag-cleared`**: a truncated entry whose
 flag was cleared after sealing must fail), and `exports` gives whole files
 with the outcome each must produce (section 6).
+
+### Outcome of steps 3, 6 and 8 (ADR-004-E2, binding)
+
+`C` = computed contiguity (step 8). Empty ranges are unchanged: `empty`, and
+`verifiable` must be `false`.
+
+| header `stubs` | range | trailer `verifiable` | outcome | reason |
+|---|---|---|---|---|
+| `true` | contiguous | `true` | `pass` (or `pending`, R24) | |
+| `true` | any `seq` missing, tail included, or no range line at all | any | `tampered` | `seq_missing` |
+| `true` or `false` | contiguous | `false` | `tampered` | `verifiable_flag_mismatch` |
+| `false` | contiguous (filter excluded nothing) | `true` | **`pass`** (was `tampered`) | |
+| `false` | gap, tail included | `false` | `unverifiable` (tail gap was `tampered`, `head_mismatch`) | |
+| `false` | gap | `true` | `tampered` | `verifiable_flag_mismatch` |
+| `false` | window has entries, **no line matched** (anchor, no range lines) | `false` | `unverifiable` (was `tampered`, `head_mismatch`) | |
+| any | last line at `last_seq`, its `entry_hash` ≠ `head_hash` (gaps or not) | any | `tampered` | `head_mismatch` |
+| any | trailer `last_seq` ≤ `anchor_seq` | any | `tampered` | `head_mismatch` |
+
+### 4.1 Reason codes
+
+Stable strings; renaming one is a breaking change to v1. This is the closed
+list: a verifier names one of these codes for every `tampered` file.
+`TestReasonCodesListedInSpec` (`internal/audit/verify`) parses this table and
+fails when a reason constant is missing from it.
+
+| Code | Step | Meaning |
+|---|---|---|
+| `malformed_line` | 1, 10 | not one strict JSON object of its kind; blank line, CR line end, invalid UTF-8, over-long line |
+| `unknown_kind` | 10 | a `kind` other than header, anchor, entry, stub, trailer |
+| `header_invalid` | 1 | first line is not a v1 header |
+| `line_order` | 1 | a line out of §3 order (second header, range line after an unsealed line, anything after the trailer) |
+| `trailer_missing` | 1 | the file ends without a trailer |
+| `count_mismatch` | 1 | trailer counts disagree with the lines; an empty range with non-null `last_seq`/`head_hash` |
+| `anchor_missing` | 2 | the first chain line is not the anchor (R20) |
+| `anchor_invalid` | 2 | the anchor's own members disagree (genesis with `seq ≠ 0`, non-genesis without hashes) |
+| `anchor_mismatch` | 2 | the anchor is not at `after_seq` when set, or not genesis when `from` is unset; or the trailer's `anchor_seq` names another `seq` (R20) |
+| `seq_duplicate` | 3 | a `seq` appears twice (R15) |
+| `seq_out_of_order` | 3 | a `seq` lower than the one before |
+| `seq_missing` | 3, 6 | a gap, tail included, in a `stubs: true` file, including a range with no lines (R15, R20) |
+| `line_state_mismatch` | 3 | a line's `sealed` / `in_verified_range` / `seq` contradict each other |
+| `entry_hash_mismatch` | 3, 4 | `prev_hash` is not the previous `entry_hash`, or `entry_hash` does not recompute |
+| `envelope_sha256_mismatch` | 4 | envelope does not hash to `envelope_sha256` |
+| `header_tenant_mismatch` | 4a | an entry's tenant is not the header's |
+| `diff_state_mismatch` | 5 | diff, salt, erasure and redaction members contradict `diff_sha256` |
+| `diff_missing` | 5 | `diff_sha256` set, entry neither erased nor redacted, diff or salt missing |
+| `diff_sha256_mismatch` | 5 | `SHA-256(salt ‖ diff)` is not `diff_sha256` |
+| `head_mismatch` | 6 | `last_seq` not after the anchor; a range line beyond `last_seq`; the line at `last_seq` whose `entry_hash` is not `head_hash` |
+| `erasure_unlisted` | 7 | erased, no chain-valid `audit/erase` lists it (R24) |
+| `verifiable_flag_mismatch` | 8 | trailer `verifiable` is not the computed value |
+
+`anchor_mismatch` is checked offline only when the header fixes `first_seq`
+without time: `after_seq` set, or no `from`. With a `from` bound, `first_seq`
+depends on `occurred_at`, which a stub does not carry, so the anchor's
+position is not checkable from the file (§4 step 9 limits).
 
 ## 5. CSV
 
@@ -357,7 +421,7 @@ generator's output. The file holds:
 | `chain` | seq 1..7 of one tenant: envelope, canonical bytes, `envelope_sha256`, `prev_hash`, `entry_hash`, diff and salt. Covers a minimal config entry, every nullable field set, string escapes (control characters, DEL, U+2028, astral, HTML), a backfilled UUIDv5 entry with integer bounds, **truncated-honest** (`diff_truncated: true`, hash over the stored cut bytes), an erased entry and its `audit/erase` entry |
 | `tampered` | lines changed after sealing, each with the failure it must produce, including the **tampered `diff_truncated` flag** both ways and a diff re-serialised as jsonb would |
 | `invalid` | envelope inputs the parser must reject, including lone high and low surrogate escapes, a raw invalid UTF-8 byte (given as `envelope_hex`) and a non-canonical escape |
-| `exports` | whole JSONL files with the file outcome, the failing reason and the per-line outcomes a section 4 verifier must produce: an unfiltered and a filtered pass, a diff dropped from an entry that was not erased (`diff_missing`), a diff replaced and marked redacted (`diff_unverified`), a diff injected where `diff_sha256` is null, a header relabelled to another tenant (`header_tenant_mismatch`), `verifiable: false` on a complete file (`verifiable_flag_mismatch`), an erased entry whose erase entry is only a stub (`erasure_unlisted`), an honest `stubs: false` file (`unverifiable`) and an empty range (`empty`) |
+| `exports` | whole JSONL files with the file outcome, the failing reason and the per-line outcomes a section 4 verifier must produce: an unfiltered and a filtered pass, a diff dropped from an entry that was not erased (`diff_missing`), a diff replaced and marked redacted (`diff_unverified`), a diff injected where `diff_sha256` is null, a header relabelled to another tenant (`header_tenant_mismatch`), `verifiable: false` on a complete file (`verifiable_flag_mismatch`), an erased entry whose erase entry is only a stub (`erasure_unlisted`), an honest `stubs: false` file (`unverifiable`) and an empty range (`empty`). ADR-004-E2 adds ten: `stubs-false-contiguous` (`pass`), `stubs-false-tail-excluded` (`unverifiable`), `stubs-false-gap-flagged-verifiable` (`verifiable_flag_mismatch`), `stubs-true-seq-missing` and `stubs-true-tail-missing` (`seq_missing`), `anchor-not-after-seq` and `anchor-not-genesis` (`anchor_mismatch`), `stubs-false-none-matched` (`unverifiable`), `stubs-true-all-missing` (`seq_missing`) and `stubs-false-gap-head-forged` (`head_mismatch`) |
 
 The writer (P5-12b), the sealer (P5-34a) and the verifier (P5-03) each test
 against this file; the verifier's fixtures (TICK-425) are built from the
