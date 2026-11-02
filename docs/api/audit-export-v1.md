@@ -231,7 +231,7 @@ and `seq`, `prev_hash`, `entry_hash`, `sealed_at` all `null`.
 | Member | Meaning |
 |---|---|
 | `anchor_seq` | `seq` of the anchor line (`0` for genesis), `null` for an empty range |
-| `last_seq` | the head `seq` read at the start (= `seq` of the last range line) |
+| `last_seq` | the head `seq` read at the start, never the last line written. With `stubs=true` it is the `seq` of the last range line; with `stubs=false` the last range line may be below it, or there may be none (§4 step 6). |
 | `head_hash` | `entry_hash` at `last_seq` |
 | `count` | full `entry` lines in the range (sealed) |
 | `stub_count` | `stub` lines (the anchor is not counted) |
