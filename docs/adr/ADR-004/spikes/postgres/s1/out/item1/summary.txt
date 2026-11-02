@@ -1,0 +1,9 @@
+update-sync-c1     n/arm=10000  p50 4498->4558 us  p95 6476->11012 us (+70.0%)  p99 8022->19458 us  mean +14.9%  median block-pair p95 ratio -0.2%  FAIL
+insert-sync-c1     n/arm=10000  p50 4759->4630 us  p95 14380->7490 us (-47.9%)  p99 19790->8939 us  mean -14.3%  median block-pair p95 ratio -4.5%  PASS
+update-sync-c8     n/arm=9920  p50 6390->6472 us  p95 8712->8533 us (-2.1%)  p99 12135->11355 us  mean +0.9%  median block-pair p95 ratio -4.3%  PASS
+insert-sync-c8     n/arm=9920  p50 6899->6670 us  p95 11914->10922 us (-8.3%)  p99 16870->14323 us  mean -6.2%  median block-pair p95 ratio -8.4%  PASS
+update-async-c1    n/arm=10000  p50 992->1052 us  p95 1634->1688 us (+3.3%)  p99 2382->2506 us  mean +6.0%  median block-pair p95 ratio +6.1%  PASS
+insert-async-c1    n/arm=10000  p50 954->962 us  p95 1945->1554 us (-20.1%)  p99 3033->2354 us  mean -5.0%  median block-pair p95 ratio -12.6%  PASS
+update-async-c8    n/arm=9920  p50 2261->2280 us  p95 5411->4133 us (-23.6%)  p99 8844->5833 us  mean -7.4%  median block-pair p95 ratio -1.0%  PASS
+insert-async-c8    n/arm=9920  p50 2109->2134 us  p95 3280->3267 us (-0.4%)  p99 4573->4667 us  mean -0.8%  median block-pair p95 ratio +0.5%  PASS
+update-sync-c1     n/arm=10000  p50 4666->4692 us  p95 7540->8936 us (+18.5%)  p99 12525->19149 us  mean +8.1%  median block-pair p95 ratio +3.0%  FAIL

@@ -1,0 +1,520 @@
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.045 ms
+initial connection time = 23.334 ms
+tps = 956.602759 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.101 ms
+initial connection time = 19.501 ms
+tps = 908.106851 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.083 ms
+initial connection time = 21.307 ms
+tps = 923.028642 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.128 ms
+initial connection time = 17.155 ms
+tps = 886.881777 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 0.971 ms
+initial connection time = 13.661 ms
+tps = 1029.414490 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.124 ms
+initial connection time = 16.120 ms
+tps = 889.576828 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.109 ms
+initial connection time = 11.787 ms
+tps = 901.461269 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 0.992 ms
+initial connection time = 14.703 ms
+tps = 1007.672418 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.065 ms
+initial connection time = 16.722 ms
+tps = 938.545892 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.159 ms
+initial connection time = 12.799 ms
+tps = 862.708560 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.155 ms
+initial connection time = 28.157 ms
+tps = 865.748396 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.227 ms
+initial connection time = 17.962 ms
+tps = 815.280310 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.300 ms
+initial connection time = 21.446 ms
+tps = 769.360969 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.169 ms
+initial connection time = 20.268 ms
+tps = 855.197893 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.090 ms
+initial connection time = 13.549 ms
+tps = 917.392477 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.104 ms
+initial connection time = 14.640 ms
+tps = 905.614994 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 0.970 ms
+initial connection time = 19.321 ms
+tps = 1030.949092 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.335 ms
+initial connection time = 14.205 ms
+tps = 748.914449 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.205 ms
+initial connection time = 17.010 ms
+tps = 830.119388 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.207 ms
+initial connection time = 19.004 ms
+tps = 828.570434 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.189 ms
+initial connection time = 23.583 ms
+tps = 841.158915 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.082 ms
+initial connection time = 13.935 ms
+tps = 923.821665 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.116 ms
+initial connection time = 11.828 ms
+tps = 896.357740 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.046 ms
+initial connection time = 21.992 ms
+tps = 956.004665 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 0.962 ms
+initial connection time = 14.713 ms
+tps = 1039.963726 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.167 ms
+initial connection time = 14.968 ms
+tps = 857.208005 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.082 ms
+initial connection time = 17.467 ms
+tps = 924.628022 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.053 ms
+initial connection time = 14.891 ms
+tps = 950.055578 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.207 ms
+initial connection time = 22.388 ms
+tps = 828.677547 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.171 ms
+initial connection time = 22.124 ms
+tps = 853.676443 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.057 ms
+initial connection time = 18.979 ms
+tps = 946.009354 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 0.982 ms
+initial connection time = 20.330 ms
+tps = 1018.651509 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.188 ms
+initial connection time = 17.675 ms
+tps = 841.912421 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.310 ms
+initial connection time = 14.664 ms
+tps = 763.369268 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.183 ms
+initial connection time = 29.613 ms
+tps = 845.427169 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.026 ms
+initial connection time = 20.419 ms
+tps = 974.286627 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.115 ms
+initial connection time = 20.122 ms
+tps = 896.481489 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.463 ms
+initial connection time = 24.094 ms
+tps = 683.644756 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.071 ms
+initial connection time = 14.304 ms
+tps = 933.417465 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /out/gen/update-async.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+number of transactions per client: 500
+number of transactions actually processed: 500/500
+number of failed transactions: 0 (0.000%)
+latency average = 1.173 ms
+initial connection time = 19.879 ms
+tps = 852.541084 (without initial connection time)

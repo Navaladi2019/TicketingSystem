@@ -1,0 +1,9 @@
+update-sync-c1 commit check: calls=10096 self_ms=537.1 us/call=53.2
+insert-sync-c1 commit check: calls=10000 self_ms=606.0 us/call=60.6
+update-sync-c8 commit check: calls=9920 self_ms=617.1 us/call=62.2
+insert-sync-c8 commit check: calls=9920 self_ms=751.3 us/call=75.7
+update-async-c1 commit check: calls=10000 self_ms=367.4 us/call=36.7
+insert-async-c1 commit check: calls=10000 self_ms=344.4 us/call=34.4
+update-async-c8 commit check: calls=9920 self_ms=654.1 us/call=65.9
+insert-async-c8 commit check: calls=9920 self_ms=568.2 us/call=57.3
+update-sync-c1 commit check: calls=10311 self_ms=584.5 us/call=56.7

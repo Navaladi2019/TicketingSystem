@@ -1,0 +1,4 @@
+*.log
+page.txt
+item1/raw/
+gen/

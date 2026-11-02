@@ -1,0 +1,520 @@
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 10.564 ms
+initial connection time = 95.028 ms
+tps = 757.303937 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 9.746 ms
+initial connection time = 178.470 ms
+tps = 820.850938 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 11.017 ms
+initial connection time = 138.447 ms
+tps = 726.160063 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 8.794 ms
+initial connection time = 207.895 ms
+tps = 909.744538 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 9.531 ms
+initial connection time = 170.855 ms
+tps = 839.401791 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 8.332 ms
+initial connection time = 198.138 ms
+tps = 960.174070 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 7.502 ms
+initial connection time = 202.887 ms
+tps = 1066.391469 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 8.803 ms
+initial connection time = 256.239 ms
+tps = 908.824392 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 10.593 ms
+initial connection time = 151.360 ms
+tps = 755.183513 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 8.828 ms
+initial connection time = 85.098 ms
+tps = 906.199243 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 7.909 ms
+initial connection time = 65.938 ms
+tps = 1011.530633 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 9.124 ms
+initial connection time = 83.243 ms
+tps = 876.800667 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 9.936 ms
+initial connection time = 113.085 ms
+tps = 805.167356 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 7.732 ms
+initial connection time = 93.454 ms
+tps = 1034.717268 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 7.322 ms
+initial connection time = 67.897 ms
+tps = 1092.624126 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 7.164 ms
+initial connection time = 70.913 ms
+tps = 1116.704641 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 9.173 ms
+initial connection time = 89.308 ms
+tps = 872.110913 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 6.957 ms
+initial connection time = 99.555 ms
+tps = 1149.974265 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 7.404 ms
+initial connection time = 98.525 ms
+tps = 1080.555876 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 8.805 ms
+initial connection time = 92.933 ms
+tps = 908.556366 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 8.471 ms
+initial connection time = 89.994 ms
+tps = 944.396738 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 6.824 ms
+initial connection time = 74.523 ms
+tps = 1172.349568 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 7.154 ms
+initial connection time = 134.100 ms
+tps = 1118.308468 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 7.569 ms
+initial connection time = 99.879 ms
+tps = 1056.947298 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 6.671 ms
+initial connection time = 75.465 ms
+tps = 1199.203110 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 6.775 ms
+initial connection time = 77.311 ms
+tps = 1180.834298 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 6.804 ms
+initial connection time = 79.170 ms
+tps = 1175.712064 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 7.130 ms
+initial connection time = 86.158 ms
+tps = 1122.006945 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 6.750 ms
+initial connection time = 84.783 ms
+tps = 1185.190849 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 7.464 ms
+initial connection time = 62.654 ms
+tps = 1071.848420 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 7.143 ms
+initial connection time = 74.315 ms
+tps = 1119.954841 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 7.178 ms
+initial connection time = 81.206 ms
+tps = 1114.441454 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 6.451 ms
+initial connection time = 96.783 ms
+tps = 1240.151919 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 6.931 ms
+initial connection time = 95.669 ms
+tps = 1154.299066 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 6.963 ms
+initial connection time = 95.165 ms
+tps = 1148.977966 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 6.979 ms
+initial connection time = 94.563 ms
+tps = 1146.314576 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 7.672 ms
+initial connection time = 78.355 ms
+tps = 1042.726562 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 7.716 ms
+initial connection time = 88.894 ms
+tps = 1036.834811 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 7.486 ms
+initial connection time = 88.564 ms
+tps = 1068.652292 (without initial connection time)
+pgbench (16.10 (Debian 16.10-1.pgdg13+1))
+transaction type: /spike/bench/insert.pgbench
+scaling factor: 1
+query mode: prepared
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+number of transactions per client: 62
+number of transactions actually processed: 496/496
+number of failed transactions: 0 (0.000%)
+latency average = 7.842 ms
+initial connection time = 110.702 ms
+tps = 1020.156314 (without initial connection time)

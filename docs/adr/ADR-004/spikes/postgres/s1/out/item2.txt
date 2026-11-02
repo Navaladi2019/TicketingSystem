@@ -1,0 +1,21 @@
+== update-10000-trigger-off
+Time: 349.469 ms
+           case           | after_trigger_events_bytes | backend_total_bytes 
+--------------------------+----------------------------+---------------------
+ update-10000-trigger-off |                          0 |             2119024
+
+COMMIT time for update-10000-trigger-off:
+Time: 34.867 ms
+grep: /proc/:pid/status: No such file or directory
+== update-10000-trigger-on
+Time: 360.290 ms
+          case           | after_trigger_events_bytes | backend_total_bytes 
+-------------------------+----------------------------+---------------------
+ update-10000-trigger-on |                     286912 |             2405936
+
+COMMIT time for update-10000-trigger-on:
+Time: 17696.960 ms (00:17.697)
+grep: /proc/:pid/status: No such file or directory
+== insert-10000-trigger-off
+ERROR:  new row for relation "audit_log_default" violates check constraint "audit_log_action_check"
+Time: 3.700 ms
