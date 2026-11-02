@@ -26,7 +26,11 @@ import (
 //
 // (e) and (f) also run against ci8Leaky, a handler with the existence oracle
 // these cases exist to catch, and must fail there: a check that passes a
-// leaky handler proves nothing (the mutation control).
+// leaky handler proves nothing (the mutation control). They must fail on the
+// oracle check itself (errCI8Oracle), not on a control: a control failure
+// means the comparison never ran, so it proves nothing either (TICK-475).
+// (g) proves that: ci8LeakyAll also intercepts the random UUID, and the
+// mutation control must reject the control failure that produces.
 //
 // The masked-field filter case (400) needs S10's masks and lands with P3-37
 // (D-3-19); it is registered pending.
@@ -57,6 +61,7 @@ func recordCI8Paths() []Path {
 		db("(c) tenant A's PATCH with its record's previous ETag is 412 version_conflict, and changes nothing and audits nothing", ci8StaleIfMatch),
 		db("(e) tenant B's PATCH of tenant A's record with A's current or a stale ETag is a random UUID's 404, never 412", ci8CurrentAndStaleETag),
 		db("(f) tenant B's PATCH of tenant A's record with no If-Match is a random UUID's 404, not 428", ci8NoIfMatch),
+		db("(g) the mutation control of (e) and (f) rejects a control failure: a leaky handler that also intercepts the random UUID does not pass it", ci8MutationRejectsControl),
 		{Name: "records CI-8: (d) a filter on a masked field is 400", Case: "CI-8", Pending: "P3-37 (S10, PLAN-003 D-3-19)",
 			DB: func(context.Context, Cluster) error { return errors.New("pending P3-37: field masks land in S10") }},
 	}
@@ -269,6 +274,11 @@ func ci8ETagCases(ctx context.Context, e *etIso, h http.Handler, fx *ci8Fixture)
 		body := `{"data": {"note": "forged"}}`
 		other := e.ci8Do(ctx, h, http.MethodPatch, "/api/v1/records/iso_et_rec/"+fx.a, etCallerB, body, ci8IfMatch(tag))
 		missing := e.ci8Do(ctx, h, http.MethodPatch, "/api/v1/records/iso_et_rec/"+ci8Missing, etCallerB, body, ci8IfMatch(tag))
+		// The random UUID's 404 is the control: a 412 for tenant A's record is
+		// only an oracle if a record that does not exist answers otherwise.
+		if missing.code != http.StatusNotFound {
+			return fmt.Errorf("control: PATCH If-Match %s for a random UUID = %d %s, want 404", tag, missing.code, missing.body)
+		}
 		if other.code == http.StatusPreconditionFailed {
 			return fmt.Errorf("PATCH If-Match %s: tenant A's record answers 412 to tenant B: an existence oracle: %s", tag, other.body)
 		}
@@ -313,12 +323,41 @@ func ci8NoIfMatch(ctx context.Context, e *etIso, fx *ci8Fixture) error {
 	return ci8Mutation(ctx, e, fx, ci8NoIfMatchCases)
 }
 
+// ci8Case is (e) or (f) through a handler.
+type ci8Case func(context.Context, *etIso, http.Handler, *ci8Fixture) error
+
 // ci8Mutation runs a case against ci8Leaky, which must fail it.
-func ci8Mutation(ctx context.Context, e *etIso, fx *ci8Fixture, run func(context.Context, *etIso, http.Handler, *ci8Fixture) error) error {
-	if err := run(ctx, e, ci8Leaky(e), fx); err == nil {
+func ci8Mutation(ctx context.Context, e *etIso, fx *ci8Fixture, run ci8Case) error {
+	return ci8MutationThrough(ctx, e, fx, ci8Leaky(e), run)
+}
+
+// ci8MutationThrough runs a case against a leaky handler h, which must fail it.
+func ci8MutationThrough(ctx context.Context, e *etIso, fx *ci8Fixture, h http.Handler, run ci8Case) error {
+	if err := run(ctx, e, h, fx); err == nil {
 		return errors.New("mutation control: the case passes against a handler with a cross-tenant existence oracle")
 	}
 	return nil
+}
+
+// ci8MutationRejectsControl is (g): through ci8LeakyAll, which also answers
+// the random UUID's PATCH with 412 or 428, (e) and (f) fail on their control,
+// and the mutation control must count that as its own failure, not a catch.
+// A mutation control that took any error as a catch would pass here.
+func ci8MutationRejectsControl(ctx context.Context, e *etIso, fx *ci8Fixture) error {
+	for _, c := range []struct {
+		name string
+		run  ci8Case
+	}{{"(e)", ci8ETagCases}, {"(f)", ci8NoIfMatchCases}} {
+		// Positive control: through ci8Leaky the mutation control of c passes,
+		// so a failure below is ci8LeakyAll's, not a broken case.
+		if err := ci8Mutation(ctx, e, fx, c.run); err != nil {
+			return fmt.Errorf("control: %s: %w", c.name, err)
+		}
+		if ci8MutationThrough(ctx, e, fx, ci8LeakyAll(e), c.run) == nil {
+			return fmt.Errorf("%s: the mutation control passes a handler that also intercepts the random UUID: it took a control: failure for the oracle check", c.name)
+		}
+	}
+	return ci8Unchanged(ctx, e, fx)
 }
 
 // ci8Leaky is the real handler with the bug (e) and (f) catch: its PATCH
@@ -326,13 +365,28 @@ func ci8Mutation(ctx context.Context, e *etIso, fx *ci8Fixture, run func(context
 // role or a SECURITY DEFINER lookup would), checks If-Match before the tenant
 // (428), and maps an UPDATE … WHERE tenant_id AND id AND version that touched
 // 0 rows to 412. It answers before the real handler, so it writes nothing.
-func ci8Leaky(e *etIso) http.Handler {
+func ci8Leaky(e *etIso) http.Handler { return ci8LeakyHandler(e, false) }
+
+// ci8LeakyAll is ci8Leaky that also intercepts a PATCH of an id with no
+// record, as if it were at version 2: the random UUID no longer answers 404,
+// so (e) and (f) fail on their control and never reach the oracle check.
+// Only (g) uses it.
+func ci8LeakyAll(e *etIso) http.Handler { return ci8LeakyHandler(e, true) }
+
+func ci8LeakyHandler(e *etIso, all bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
 		var version int64
-		if r.Method != http.MethodPatch || e.super.QueryRow(r.Context(), `SELECT version FROM records WHERE id::text = $1`, id).Scan(&version) != nil {
+		if r.Method != http.MethodPatch {
 			e.h.ServeHTTP(w, r)
 			return
+		}
+		if err := e.super.QueryRow(r.Context(), `SELECT version FROM records WHERE id::text = $1`, id).Scan(&version); err != nil {
+			if !all {
+				e.h.ServeHTTP(w, r)
+				return
+			}
+			version = 2
 		}
 		w.Header().Set("Content-Type", "application/problem+json")
 		if r.Header.Get("If-Match") == "" {
