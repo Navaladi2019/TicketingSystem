@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-004 erratum E1 explained: where the two cascade audit rows go, and why the "diff was cut" flag is sealed</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--accbg:#ddf4ff;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--accbg:#0c2d6b;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.banner{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.pill{font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left;overflow-wrap:break-word}
+th{background:var(--soft)}
+table.front th{width:120px}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px;margin-top:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:44px}
+h3{font-size:18px;margin-top:28px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;background:var(--soft);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+figure.diagram{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure.diagram svg{width:100%;min-width:640px;height:auto;display:block;margin:0 auto;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+.tag{display:inline-block;font-size:12px;font-weight:700;padding:1px 9px;border-radius:999px;white-space:nowrap}
+.tag.red{color:var(--bad);background:var(--badbg);border:1px solid var(--bad)}
+.tag.green{color:var(--good);background:var(--goodbg);border:1px solid var(--good)}
+.tag.amber{color:var(--warn);background:var(--warnbg);border:1px solid var(--warn)}
+.verbatim{border:1px solid var(--acc);border-left:5px solid var(--acc);background:var(--accbg);border-radius:6px;padding:8px 14px;margin:12px 0}
+.vlabel{font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--acc)}
+.callout{border:1px solid var(--warn);background:var(--warnbg);border-radius:8px;padding:10px 14px;margin:14px 0}
+dl.gloss{display:grid;grid-template-columns:minmax(140px,220px) minmax(0,1fr);gap:6px 18px}
+dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
+@media (max-width:640px){dl.gloss{grid-template-columns:minmax(0,1fr)} dl.gloss dd{margin-bottom:8px}}
+@media print{table{display:table}}
+</style></head>
+<body><main>
+<div class="banner"><span class="pill">READING GUIDE &middot; ADR-004 E1 ACCEPTED</span>
+<span class="src">This companion explains <code>ADR-004-E1-cascade-entries-and-diff-truncated.md</code>. It is not a decision record and changes nothing. Blue "decision text" boxes are copied from the erratum.</span></div>
+<table class="front"><tbody>
+<tr><th>title</th><td>ADR-004 erratum E1 explained: where the two cascade audit rows go, and why the "diff was cut" flag is sealed</td></tr>
+<tr><th>type</th><td>explainer for the decision-maker (not a decision record)</td></tr>
+<tr><th>explains</th><td>ADR-004-E1 (status ACCEPTED, 2026-11-02), from RFC-009 rev 2 on TICK-422</td></tr>
+<tr><th>date</th><td>2026-11-02</td></tr>
+<tr><th>audience</th><td>whoever decides. It assumes no knowledge of the audit-log design or the reviews that shaped it.</td></tr>
+</tbody></table>
+
+<h1>ADR-004 erratum E1, explained</h1>
+
+<blockquote><strong>The whole decision in three sentences.</strong>
+(1) Two earlier decisions require the platform to write an audit row when a workflow loop is stopped, but the audit log's fixed list of allowed actions had no name for either row. Written the obvious way, one of them would also have clashed with the record's own audit row. (2) We add two action names and one new kind of subject, a fingerprint of the loop, so that every row fits the log's rules and the record still needs its own row. (3) Separately, the flag that says "this change description was cut because it was too large" becomes part of each row's tamper seal, so nobody can flip it unnoticed.</blockquote>
+
+<div class="callout"><strong>How serious is this?</strong> A gap in the specification, found while planning. No code is wrong and nothing has shipped. The audit log is still empty. Without this erratum, the engineers building the write pipeline (P5-12b, P5-13b) and the export format (PR #365) would each have had to guess.</div>
+
+<h2 id="terms">Terms used here</h2>
+<dl class="gloss">
+<dt>Audit log</dt><dd>The one append-only table (ADR-004) that records every change to records and configuration. Each row says who did what to which <em>subject</em>.</dd>
+<dt>Subject</dt><dd>The thing a row is about, as a pair: a type (for example <code>record</code>) and an id.</dd>
+<dt>Cascade</dt><dd>A record change starts a workflow, the workflow changes a record, and that may start another workflow. ADR-001 limits how far this can go.</dd>
+<dt>Cycle (suppressed start)</dt><dd>Workflow D would start a second time on the same record from the same original user action. The platform skips that start, lets the change through, and writes a <code>cascade_cycle</code> row (ADR-001-A5).</dd>
+<dt>Too deep</dt><dd>A chain of changes goes past the depth limit of 8. The change is refused, and a <code>cascade_too_deep</code> row records the refusal.</dd>
+<dt>Origin O</dt><dd>The id of the original user action that a cascade started from.</dd>
+<dt>Unique key</dt><dd>A database rule that allows at most one row per (transaction, subject, version). Two rows with the same values make the whole transaction fail.</dd>
+<dt>Commit check</dt><dd>At the end of every transaction, the database confirms that each changed record has its own audit row. A change without one is refused.</dd>
+<dt>Envelope / hash chain</dt><dd>The fields of a row that are fingerprinted and linked to the previous row's fingerprint. Editing any envelope field breaks the chain, and the offline verifier reports the row as <em>tampered</em>.</dd>
+<dt>UUIDv5</dt><dd>An id computed from its inputs: the same inputs always give the same id, and different inputs give different ids.</dd>
+</dl>
+
+<h2 id="problem">1. The problem</h2>
+<p>ADR-004 closed the list of allowed audit actions so that every row can be filtered by a fixed spelling. Two later rules each require a row whose action is not on that list:</p>
+<ul>
+<li><strong>ADR-001-A5:</strong> when a workflow loop is stopped, write one row naming the origin, the record and the workflow definition. The row goes <em>in the same transaction</em> as the record change.</li>
+<li><strong>PLAN-003 D-3-7a:</strong> when a change is refused for being too deep, write one row that survives even though the change itself is rolled back.</li>
+</ul>
+<p>The obvious way to write the loop row, with "the record" as its subject, breaks in three ways. The Postgres 16.10 spike showed all three:</p>
+
+<figure class="diagram"><svg viewBox="0 0 1000 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="One transaction updates record R and stops workflows D1 and D2. With the record as subject, the rows clash. With the loop fingerprint as subject, they all fit.">
+<rect x="10" y="10" width="980" height="280" fill="#ffffff"/>
+<text x="20" y="34" font-size="16" font-weight="700" fill="#1f2328">One transaction: the user's update to record R fires workflows D1 and D2 again; both starts are stopped</text>
+<text x="20" y="70" font-size="14" font-weight="700" fill="#cf222e">Rejected: subject = record R</text>
+<rect x="20" y="82" width="300" height="40" rx="6" fill="#ddf4ff" stroke="#0969da"/><text x="32" y="107" font-size="13" fill="#1f2328">update · record R · v2</text>
+<rect x="340" y="82" width="300" height="40" rx="6" fill="#ffebe9" stroke="#cf222e"/><text x="352" y="107" font-size="13" fill="#1f2328">cascade_cycle · record R · v2 → clash</text>
+<rect x="660" y="82" width="320" height="40" rx="6" fill="#ffebe9" stroke="#cf222e"/><text x="672" y="107" font-size="13" fill="#1f2328">or version empty: D1 and D2 clash</text>
+<text x="20" y="146" font-size="12.5" fill="#59636e">And a loop row about R alone would satisfy R's commit check, hiding a missing update row.</text>
+<text x="20" y="190" font-size="14" font-weight="700" fill="#1a7f37">Chosen: subject = loop fingerprint K(tenant, O, R, D)</text>
+<rect x="20" y="202" width="300" height="40" rx="6" fill="#ddf4ff" stroke="#0969da"/><text x="32" y="227" font-size="13" fill="#1f2328">update · record R · v2</text>
+<rect x="340" y="202" width="300" height="40" rx="6" fill="#dafbe1" stroke="#1a7f37"/><text x="352" y="227" font-size="13" fill="#1f2328">cascade_cycle · K(…, D1) · v2</text>
+<rect x="660" y="202" width="320" height="40" rx="6" fill="#dafbe1" stroke="#1a7f37"/><text x="672" y="227" font-size="13" fill="#1f2328">cascade_cycle · K(…, D2) · v2</text>
+<text x="20" y="270" font-size="12.5" fill="#59636e">Every row has its own subject, so all three fit. R still needs its own update row to pass the commit check.</text>
+</svg><figcaption>Figure 1. Why the loop row cannot be "about the record".</figcaption></figure>
+
+<h2 id="options">2. Options considered</h2>
+<table><thead><tr><th>Option</th><th>Result</th></tr></thead><tbody>
+<tr><td><strong>Loop fingerprint as subject (chosen)</strong></td><td><span class="tag green">fits</span> No clash in any tested case. It keeps the commit check strict, needs no extra query and no new column.</td></tr>
+<tr><td>The record as subject</td><td><span class="tag red">clashes</span> It collides with the record's own row, and it weakens the commit check.</td></tr>
+<tr><td>The workflow definition as subject</td><td><span class="tag red">clashes</span> It collides when one transaction changes two records to the same version.</td></tr>
+<tr><td>The id of the first, winning start</td><td><span class="tag amber">works</span> But it costs an extra database read on every stopped loop, and it ties the log to an internal table.</td></tr>
+<tr><td>New envelope columns for origin and definition</td><td><span class="tag amber">works</span> But it changes the sealed format for no gain: the origin already has a column.</td></tr>
+</tbody></table>
+
+<h2 id="decision">3. The decision</h2>
+<div class="verbatim"><div class="vlabel">Decision text (R2)</div>
+<code>action</code> ∈ {create, update, publish, enable, disable, delete, promote, rollback, state_change, export, erase, reseed, <strong>cascade_cycle, cascade_too_deep</strong>}. <code>subject_type</code> adds <code>cascade_key</code>.</div>
+<table><thead><tr><th></th><th><code>cascade_cycle</code> (loop stopped)</th><th><code>cascade_too_deep</code> (change refused)</th></tr></thead><tbody>
+<tr><th>Written</th><td>with the change, in the same transaction</td><td>in its own short transaction, which survives the refusal</td></tr>
+<tr><th>Subject</th><td>the loop fingerprint K(tenant, O, R, D)</td><td>record R, or a fingerprint when R is new or not visible</td></tr>
+<tr><th>Content</th><td>ids only: origin, record, workflow definition, reason</td><td>ids only: origin, record, depth, limit, reason</td></tr>
+<tr><th>Who sees it</th><td>auditors (<code>audit.read</code>), not the record's history page</td><td>auditors, and the record's history page</td></tr>
+</tbody></table>
+<p>The fingerprint uses a namespace id fixed for this purpose only. It is computed in Go in one place, and the verifier recomputes it the same way. Postgres did not have to change.</p>
+<p><strong>The one blocking review finding.</strong> If the same workflow matched one change twice, two identical loop rows would clash and roll back the user's change. The rule now says the pipeline records each (origin, record, workflow) at most once per change. Test CI-A17 (f) proves it.</p>
+
+<h3>Item 2: the "diff was cut" flag is sealed</h3>
+<div class="verbatim"><div class="vlabel">Decision text (R1)</div>
+The envelope gains <code>diff_truncated</code> (boolean, always emitted): 22 members. Past 65,536 bytes, <code>diff</code> keeps whole RFC 6902 ops only: the original bytes of the leading ops that fit, joined, never re-marshalled and never re-serialized afterwards. <code>audit/erase</code> entries are never truncated: at most 1,500 ids each, and <code>Append</code> refuses a larger one. <code>diff_sha256 = SHA-256(diff_salt ‖ stored diff bytes)</code>. Erasure leaves the flag unchanged.</div>
+<p>A change description over 64 KB is shortened and flagged. If the flag sat outside the seal, someone could switch it off, and a cut description would pass as complete. Switching it on would falsely suggest that something was removed. Only the description and its salt stay outside the seal, because erasure for privacy must be able to remove them without breaking the chain. The flag is never erased, so it goes inside.</p>
+<p><strong>The blocking review finding on item 2.</strong> An erasure is recorded as a single change listing the erased row ids. Above about 1,680 ids that change is over 64 KB, and cutting it at whole changes would leave it empty. The verifier would then report every legitimately erased row as <em>tampered</em>, permanently, because the erased content is gone. The fix: each erasure record lists at most 1,500 ids (58,545 bytes), and the writer refuses, rather than cuts, a larger one, so a big erasure simply writes more records.</p>
+
+<h2 id="migration">4. What changes, and for whom</h2>
+<ul>
+<li><strong>No data migration.</strong> The audit log is empty until P5-13b.</li>
+<li><strong>PR #365 (export format and golden vectors):</strong> it freezes the 22-field envelope, plus test vectors for a cut diff and for the fingerprint.</li>
+<li><strong>P5-03 (verifier):</strong> a flipped flag reports as <em>tampered</em>.</li>
+<li><strong>P5-13 (pipeline switch):</strong> one rename (<code>cascade_rejected</code> becomes <code>cascade_too_deep</code>) and two extra columns in a read that already happens.</li>
+</ul>
+
+<h2 id="risks">5. What we accept</h2>
+<table><thead><tr><th>Residual</th><th>Why it is acceptable</th><th>When we revisit</th></tr></thead><tbody>
+<tr><td>Loop rows are not on the record's history page, and there is no fast lookup "all loop rows for record R".</td><td>They are routine, one per "on update, set X" workflow run, and no planned feature needs that lookup. A ready-made index is on file: measured at 0.04 ms against 298 ms, 23 MB on 2M rows.</td><td>When a feature needs the lookup.</td></tr>
+<tr><td>A refused change that a crash retries is audited twice.</td><td>Each row is a real refused attempt. Nothing was done twice.</td><td>If retry noise shows up in production.</td></tr>
+</tbody></table>
+
+<h2 id="evidence">6. Evidence</h2>
+<table><thead><tr><th>Check</th><th>Result</th></tr></thead><tbody>
+<tr><td>SA spike, Postgres 16.10, cases A–H</td><td>Record-as-subject clashes (A, B) and weakens the commit check (C). The fingerprint fits every case (D, E), and the commit check still demands R's own row (F). Too-deep rows survive the rollback (G).</td></tr>
+<tr><td>Technical Architect re-run, same image</td><td>Identical output. No blocking findings; four wording and path fixes, all taken.</td></tr>
+<tr><td>Postgres Specialist spike2, 2M rows</td><td>Found the one blocking case (X1: the same loop recorded twice on one change), now closed by rule. Go and SQL fingerprints matched on 1000 of 1000 tuples.</td></tr>
+</tbody></table>
+<p>Files: <code>docs/adr/ADR-004/spikes/solution-architect/rfc-009/</code>, <code>docs/adr/ADR-004/spikes/postgres/rfc-009/</code>, and the RFC under <code>docs/adr/ADR-004/rfc/</code>.</p>
+
+<h2 id="status">7. Status</h2>
+<p><strong>ACCEPTED</strong> on 2026-11-02 by the Solution Architect, after the Technical Architect approved rev 2 and the Postgres &amp; Data Modeling Specialist approved its finding. Nothing was contested, so no CTO tie-break was needed. The Technical Lead's P5-12b and P5-13b tasks implement it.</p>
+</main></body></html>
