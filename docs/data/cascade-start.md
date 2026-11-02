@@ -28,14 +28,14 @@ sequenceDiagram
     participant S as EventSink
     participant DB as PostgreSQL (one tenant tx)
     W->>P: Command (origin, depth)
-    P->>DB: UPDATE/INSERT records (row lock on R), audit_log
+    P->>DB: UPDATE/INSERT records (row lock on R), audit_log_v0
     P->>S: RecordChanged(ev)
     loop each definition D whose trigger matches
         S->>DB: cascade.ClaimStart(R, D): lock R, INSERT cascade_start ON CONFLICT DO NOTHING
         alt claimed
             S->>DB: outbox.EnqueueStart(claim, start of D) with id = claim.OutboxID
         else repeat (cycle)
-            S->>DB: pipeline.AuditSuppressed: audit_log cascade_cycle
+            S->>DB: pipeline.AuditSuppressed: audit_log_v0 cascade_cycle
         end
     end
     S-->>P: nil
