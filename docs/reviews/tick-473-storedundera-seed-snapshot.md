@@ -3,7 +3,7 @@
 Reviewer: Quality, Testing & CI Advisor. Second reviewer under D-P10: Postgres & Data Modeling Specialist.
 Scope: ADR-001 I2, CI-2. Follow-ups from TICK-366 / PR #378.
 
-**Verdict: REQUEST CHANGES.** There is one finding, and the fix is two lines.
+**Verdict: APPROVE** (re-review at `61ffe54`). The first pass at `555db90` was REQUEST CHANGES; finding 1 is fixed.
 
 ## Findings
 
@@ -42,3 +42,11 @@ The alternative is to fail any id where `row.ID != id.String()`. A real handler 
 - **Concurrency:** the runner already assumes no concurrent writers to tenant A between the before and after counts (`afterA == beforeA+1`). The snapshot adds no new race; it shares the window the count check already has.
 - **`registry.go`:** the diff is the single comment line "201 or 200" → "201 ... new record". It is comment-only, so the CTO's D-P10 sign-off on #378 still covers it.
 - **Evidence:** the red mutant run (three forged cases fail on the new check, seed counts unchanged) and the green full `isolation.sh` run are both in the PR description. Not committing the mutant is right, and matches #378.
+
+## Re-review at `61ffe54`: finding 1 fixed
+
+- `canonicalID` runs `uuid.Parse(raw).String()`. `row.ID` is replaced with the canonical form right after the unmarshal, so the `seedA` lookup, the `stored` query, the cleanup `DELETE` and every message all use the same form as `id::text`.
+- Non-uuids still fail with "201 with no record id the runner can resolve". The braced and `urn:uuid:` forms are now canonicalized as well, which is stricter than the previous behaviour.
+- `TestCanonicalID` pins the five spellings of `…a2` to the seed key and rejects three non-uuids. This is the regression test for the finding.
+- Red: the mutant returned the uppercase id and then the unhyphenated id, and both runs failed with "already held before the call". The seed counts stayed at A 2, B 3. Green: the full `isolation.sh` exits 0. Both runs are in the PR description.
+- `registry.go` has not changed since the comment-only commit, so D-P10 coverage holds.
