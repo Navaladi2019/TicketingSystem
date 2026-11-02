@@ -1,13 +1,18 @@
 #!/bin/sh
 # The S7 demo (make demo-outbox, TICK-275): a committed outbox row runs exactly
-# one tenant-scoped workflow. Writes a start row and two signal rows for a
-# record of the seeded tenant tenant-a: the start through cascade.ClaimStart
-# and outbox.EnqueueStart, the signals through outbox.Enqueue, in
-# InTenantTx(tenant-a) (cmd/demo-outbox), as nava_app, from a throwaway
-# container on the stack's internal network: the database port is never
-# published. The relay hands the rows to Temporal. cascade_start has a foreign
-# key to tenants (ADR-001 A5), so the script first seeds tenant-a's tenants
-# row as the superuser; cmd/demo-outbox writes no tenants row (TICK-416).
+# one tenant-scoped workflow. cmd/demo-outbox creates a record of the seeded
+# tenant tenant-a and updates it twice through the record write pipeline
+# (PLAN-003 D-3-6), and each write enqueues one row: a start through
+# cascade.ClaimStart and outbox.EnqueueStart, then two signals through
+# outbox.EnqueueAtVersion. It runs in InTenantTx(tenant-a), as nava_app, from
+# a throwaway container on the stack's internal network: the database port is
+# never published. The relay hands the rows to Temporal.
+#
+# The stack has no onboarding of tenant-a, so the script first seeds, as the
+# superuser, what the pipeline needs and nava_app cannot write: tenant-a's
+# tenants row (cascade_start, audit_log and entity_definitions have a foreign
+# key to it; TICK-416) and the demo entity type demo_note at version 1
+# (`demo-outbox seed-sql`, TICK-411). Both are idempotent. No Keycloak.
 # Usage: DEDUPE_KEY=<key> sh scripts/dev/demo-outbox.sh   (the stack is up)
 set -eu
 cd "$(dirname "$0")/../.."
@@ -26,10 +31,15 @@ export DEDUPE_KEY=${DEDUPE_KEY:-demo-outbox}
 net=$(docker network ls -q --filter "label=com.docker.compose.project=$PROJECT" --filter label=com.docker.compose.network=internal | head -n 1)
 [ -n "$net" ] || { echo "demo-outbox: no internal network for compose project $PROJECT; is the stack up?" >&2; exit 1; }
 
+psql_super() {
+	docker compose exec -T postgres sh -c 'PGPASSWORD=$(cat /run/pg_superuser_password) exec psql -X -q -v ON_ERROR_STOP=1 -U pgadmin -d nava -f -'
+}
 # tenant-a's tenants row, as nava_onboard would have left it; a rerun keeps it.
 TENANT_A=00000000-0000-4000-8000-0000000000a1
-printf "INSERT INTO tenants (id, state) VALUES ('%s', 'active') ON CONFLICT DO NOTHING;\n" "$TENANT_A" |
-	docker compose exec -T postgres sh -c 'PGPASSWORD=$(cat /run/pg_superuser_password) exec psql -X -q -v ON_ERROR_STOP=1 -U pgadmin -d nava -f -'
+printf "INSERT INTO tenants (id, state) VALUES ('%s', 'active') ON CONFLICT DO NOTHING;\n" "$TENANT_A" | psql_super
+# The demo entity type the pipeline writes the record under; a rerun keeps it.
+seed=$(go run ./cmd/demo-outbox seed-sql)
+printf '%s\n' "$seed" | psql_super
 
 arch=$(docker version -f '{{.Server.Arch}}')
 mkdir -p bin

@@ -49,7 +49,7 @@ func dispatcherOn(t *testing.T, pool Querier, addr string, opts Options) (*Dispa
 	return d, reader, &logs
 }
 
-// producer writes rows through outbox.Enqueue as nava_app, one transaction
+// producer writes rows through bumpAndEnqueue as nava_app, one transaction
 // each, on one record of tenant.
 type producer struct {
 	t      *testing.T
@@ -73,7 +73,7 @@ func (p *producer) enqueue(target outbox.Target, kind string) uuid.UUID {
 	var id uuid.UUID
 	err := tenancy.InTenantTx(context.Background(), p.e.app, p.tenant, func(tx pgx.Tx) error {
 		var err error
-		id, err = outbox.Enqueue(context.Background(), tx, outbox.Entry{Kind: kind, KindVersion: 1,
+		id, err = bumpAndEnqueue(context.Background(), tx, outbox.Entry{Kind: kind, KindVersion: 1,
 			DedupeKey: fmt.Sprintf("%s-%d", p.record, p.n), RecordID: p.record, Target: target,
 			Causation: outbox.Causation{OriginID: uuid.New()},
 			Payload:   []byte(`{"record_id":"` + p.record.String() + `"}`)})

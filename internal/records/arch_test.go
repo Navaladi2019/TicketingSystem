@@ -13,8 +13,8 @@
 //     with or without double quotes and a schema prefix;
 //   - a pgx.Identifier literal naming a record table (the CopyFrom form);
 //   - an import of internal/records/pipeline outside internal/server,
-//     internal/workflow and internal/onboard, or of internal/records/store
-//     outside the pipeline.
+//     internal/workflow, internal/onboard and cmd/demo-outbox (the S7 demo,
+//     TICK-411), or of internal/records/store outside the pipeline.
 //
 // testdata/writers plants every form; TestRecordWriterFixture proves each one
 // is reported, so the check cannot rot into a test that passes on nothing.
@@ -74,19 +74,11 @@ type knownViolation struct {
 	file, op, table, why string
 }
 
-// TODO(TODO-TICK-356-01): empty this list once TICK-411 moves outbox.Enqueue
-// and cmd/demo-outbox off direct records writes.
+// knownViolations is empty: TICK-411 moved outbox.Enqueue and cmd/demo-outbox
+// off direct record writes. Keep the mechanism for a future write that needs
+// a fix task; the list can only shrink once it has entries.
 func knownViolations() []knownViolation {
-	return []knownViolation{
-		{
-			file: "internal/outbox/outbox.go", op: "update", table: "records",
-			why: "outbox.Enqueue still bumps records.version (lockRecordSQL); D-3-6 leaves the bump to the pipeline. Fix: TICK-411.",
-		},
-		{
-			file: "cmd/demo-outbox/main.go", op: "insert", table: "records",
-			why: "the S7 demo seeds its record by INSERT; goes with the outbox.Enqueue fix, TICK-411.",
-		},
-	}
+	return nil
 }
 
 // importAllowed reports whether a package at dir (slash-separated, relative
@@ -94,7 +86,10 @@ func knownViolations() []knownViolation {
 func importAllowed(dir, imp string) bool {
 	switch imp {
 	case "internal/records/pipeline":
-		return underAny(dir, "internal/records/pipeline", "internal/server", "internal/workflow", "internal/onboard")
+		// cmd/demo-outbox is the S7 demo: it creates and updates its record
+		// through Write like any other writer (TICK-411).
+		return underAny(dir, "internal/records/pipeline", "internal/server", "internal/workflow", "internal/onboard",
+			"cmd/demo-outbox")
 	case "internal/records/store":
 		return underAny(dir, "internal/records/store", "internal/records/pipeline")
 	}
@@ -426,7 +421,7 @@ func TestRecordWritersOnlyInPipeline(t *testing.T) {
 			continue
 		}
 		if f.op == "import" {
-			t.Errorf("%s: only internal/server, internal/workflow and internal/onboard import internal/records/pipeline, and only the pipeline imports internal/records/store (D-3-6)", f)
+			t.Errorf("%s: only internal/server, internal/workflow, internal/onboard and cmd/demo-outbox import internal/records/pipeline, and only the pipeline imports internal/records/store (D-3-6)", f)
 			continue
 		}
 		t.Errorf("%s: only internal/records/pipeline and internal/records/store write the record tables; go through pipeline.Write (D-3-6)", f)

@@ -17,7 +17,8 @@
 //     and prints the row that holds it.
 //   - signal: a signal row on nava.interpreter.signal, payload {signal:
 //     SIGNAL_ID}, for the newest open interpreter run of RECORD_ID, through
-//     outbox.Enqueue under a new depth-0 origin (a person's action).
+//     outbox.EnqueueAtVersion at the record's version, under a new depth-0
+//     origin (a person's action).
 //   - record-id: no database; prints the record id the demo derives from
 //     TENANT_ID and DEDUPE_KEY, so the script can write the record's fixture
 //     file before the start row exists.
@@ -50,6 +51,10 @@ import (
 const (
 	// maxKeyLen is outbox's dedupe key limit.
 	maxKeyLen = 200
+
+	// versionSQL reads the record's version; RLS keeps it to the
+	// transaction's tenant.
+	versionSQL = `SELECT version FROM records WHERE id = $1`
 
 	// claimedSQL finds the start row that holds a key already claimed for
 	// the record's origin; RLS keeps it to the transaction's tenant.
@@ -173,7 +178,18 @@ func run(ctx context.Context, lookup func(string) (string, bool), out io.Writer)
 			return err
 		}
 		e.Causation = outbox.Causation{OriginID: origin}
-		id, err = outbox.Enqueue(ctx, tx, e)
+		// The record's version, unbumped: outbox never moves it and this
+		// command writes no record table (D-3-6). The signal shares the
+		// start's target_seq; the script sends it once the run waits, so the
+		// start is already dispatched.
+		var v int64
+		switch err := tx.QueryRow(ctx, versionSQL, e.RecordID).Scan(&v); {
+		case errors.Is(err, pgx.ErrNoRows):
+			return outbox.ErrRecordNotFound
+		case err != nil:
+			return fmt.Errorf("read record version: %w", err)
+		}
+		id, err = outbox.EnqueueAtVersion(ctx, tx, e, v)
 		return err
 	})
 	if err != nil {

@@ -533,10 +533,10 @@ func TestCascadeStartGuards(t *testing.T) {
 		t.Errorf("claim on a record with no causation: %v, want ErrNoOrigin", err)
 	}
 	if err := inRollback(func(tx pgx.Tx) error {
-		_, err := outbox.Enqueue(ctx, tx, start(keyed, outbox.Causation{OriginID: origin, Depth: 2}))
+		_, err := outbox.EnqueueAtVersion(ctx, tx, start(keyed, outbox.Causation{OriginID: origin, Depth: 2}), 1)
 		return err
 	}); !errors.Is(err, outbox.ErrInvalidEntry) {
-		t.Errorf("Enqueue of an interpreter start: %v, want ErrInvalidEntry", err)
+		t.Errorf("EnqueueAtVersion of an interpreter start: %v, want ErrInvalidEntry", err)
 	}
 	if err := inRollback(func(tx pgx.Tx) error {
 		c, claimed, err := cascade.ClaimStart(ctx, tx, cascade.Key{RecordID: keyed, DefinitionID: d})

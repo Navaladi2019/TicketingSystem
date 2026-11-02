@@ -70,13 +70,16 @@ db-roles creates it on the next `up`. A LOGIN role also needs a
 `DBROLES_PASSWORD_<ROLE>` variable on the db-roles service.
 
 **S7 demo: `make demo-outbox`** (`task demo:outbox`). With the stack up
-(`make stack-up`), it writes a start row and two signal rows for a record of the
-seeded tenant `tenant-a` (`00000000-0000-4000-8000-0000000000a1`) through
-`outbox.Enqueue` in `InTenantTx`, as `nava_app`, so `outbox_payload_check` and
+(`make stack-up`), it creates a record of the seeded tenant `tenant-a`
+(`00000000-0000-4000-8000-0000000000a1`) and updates it twice through the
+record write pipeline, each write enqueuing one row (a start, then two
+signals), in `InTenantTx`, as `nava_app`, so `outbox_payload_check` and
 row-level security apply as in the product (`cmd/demo-outbox`, run from a
 throwaway container on the `internal` network by `scripts/dev/demo-outbox.sh`;
-the database port is never published). It needs only what `.env.example` and
-`make dev-ca` provide. The relay starts one workflow `t:<tenant-a id>:nava.interpreter:<start row id>`
+the database port is never published). The script first seeds, as the
+superuser and idempotently, tenant-a's `tenants` row and the `demo_note`
+entity type the record is written under (`go run ./cmd/demo-outbox seed-sql`);
+no Keycloak. It needs only what `.env.example` and `make dev-ca` provide. The relay starts one workflow `t:<tenant-a id>:nava.interpreter:<start row id>`
 and signals it twice with `demo.note`, in commit order. The command prints the
 workflow id. To see it: `make operator-tunnel`, open `http://127.0.0.1:18233`,
 namespace `nava`, and open that workflow; its history holds the two signals. No

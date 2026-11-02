@@ -203,18 +203,37 @@ func signal(record uuid.UUID, dedupe string) outbox.Entry {
 		Target: outbox.TargetSignal{Kind: approval, SignalName: "approve"}, Causation: depth0()}
 }
 
-// enqueue runs Enqueue in its own committed tenant transaction.
+// bumpSQL is the write pipeline's version bump (D-3-6), which outbox leaves
+// to its caller. Test files are outside the single-writer check
+// (internal/records/arch_test.go).
+const bumpSQL = `UPDATE records SET version = version + 1 WHERE id = $1 RETURNING version`
+
+// write is a pipeline-shaped write in tx: it bumps e's record's version, as
+// the pipeline's UPDATE does, and enqueues e at the new version. The bump
+// takes the row lock that orders the record's producers.
+func write(ctx context.Context, tx pgx.Tx, e outbox.Entry) (uuid.UUID, error) {
+	var v int64
+	switch err := tx.QueryRow(ctx, bumpSQL, e.RecordID).Scan(&v); {
+	case errors.Is(err, pgx.ErrNoRows):
+		return uuid.Nil, outbox.ErrRecordNotFound
+	case err != nil:
+		return uuid.Nil, err
+	}
+	return outbox.EnqueueAtVersion(ctx, tx, e, v)
+}
+
+// enqueue runs write in its own committed tenant transaction.
 func enqueue(ctx context.Context, pool *pgxpool.Pool, tenant uuid.UUID, e outbox.Entry) (uuid.UUID, error) {
 	var id uuid.UUID
 	err := tenancy.InTenantTx(ctx, pool, tenant, func(tx pgx.Tx) error {
 		var err error
-		id, err = outbox.Enqueue(ctx, tx, e)
+		id, err = write(ctx, tx, e)
 		return err
 	})
 	return id, err
 }
 
-// holdOpen runs Enqueue in a tenant transaction that stays open, holding the
+// holdOpen runs write in a tenant transaction that stays open, holding the
 // record's row lock, until commit is called; commit returns the transaction's
 // error.
 func holdOpen(t *testing.T, pool *pgxpool.Pool, tenant uuid.UUID, e outbox.Entry) (id uuid.UUID, commit func() error) {
@@ -224,7 +243,7 @@ func holdOpen(t *testing.T, pool *pgxpool.Pool, tenant uuid.UUID, e outbox.Entry
 	result := make(chan error, 1)
 	go func() {
 		result <- tenancy.InTenantTx(context.Background(), pool, tenant, func(tx pgx.Tx) error {
-			id, err := outbox.Enqueue(context.Background(), tx, e)
+			id, err := write(context.Background(), tx, e)
 			if err != nil {
 				return err
 			}
@@ -360,7 +379,7 @@ func TestCI10_DepthBeyondLimitWritesNothing(t *testing.T) {
 	over.Causation = outbox.Causation{OriginID: uuid.New(), Depth: config.CascadeDepthLimit + 1}
 	// The caller's transaction stays usable: nothing was sent to it.
 	err := tenancy.InTenantTx(ctx, e.app, tenant, func(tx pgx.Tx) error {
-		if _, err := outbox.Enqueue(ctx, tx, over); !errors.Is(err, outbox.ErrCascadeTooDeep) {
+		if _, err := outbox.EnqueueAtVersion(ctx, tx, over, 1); !errors.Is(err, outbox.ErrCascadeTooDeep) {
 			t.Errorf("depth 9: %v, want ErrCascadeTooDeep", err)
 		}
 		return nil
@@ -474,7 +493,14 @@ func TestCI10_DuplicateDedupeKeyWritesOneRow(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		again, err := enqueue(ctx, e.app, tenant, start(record, "dup"))
+		// The retry is outbox's own dedupe, before the record lock: it
+		// enqueues at the version the first write left, and nothing bumps it.
+		var again uuid.UUID
+		err = tenancy.InTenantTx(ctx, e.app, tenant, func(tx pgx.Tx) error {
+			var err error
+			again, err = outbox.EnqueueAtVersion(ctx, tx, start(record, "dup"), 1)
+			return err
+		})
 		if err != nil || again != first {
 			t.Fatalf("duplicate = %s, %v; want %s, nil", again, err, first)
 		}
@@ -485,7 +511,7 @@ func TestCI10_DuplicateDedupeKeyWritesOneRow(t *testing.T) {
 			t.Errorf("%d workflow_ref rows, want 1", n)
 		}
 		if v := version(t, e.super, tenant, record); v != 1 {
-			t.Errorf("version %d, want 1 (the retry did not bump it)", v)
+			t.Errorf("version %d, want 1 (the retry did not move it)", v)
 		}
 	})
 
@@ -615,7 +641,7 @@ func tenantIsolation(t *testing.T, e env, pool *pgxpool.Pool) {
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := outbox.Enqueue(ctx, tx, start(shared, "no-tenant")); !errors.Is(err, outbox.ErrRecordNotFound) {
+	if _, err := outbox.EnqueueAtVersion(ctx, tx, start(shared, "no-tenant"), 0); !errors.Is(err, outbox.ErrRecordNotFound) {
 		t.Errorf("no tenant: %v, want ErrRecordNotFound", err)
 	}
 }

@@ -156,8 +156,8 @@ type Event struct {
 // claims each start with cascade.ClaimStart and enqueues it with
 // outbox.EnqueueStart; on a repeat it enqueues nothing, writes
 // AuditSuppressed and returns nil (A5-4). Any other outbox row is
-// enqueued with outbox.EnqueueAtVersion and ev.Version, never
-// outbox.Enqueue, so the write bumps the version exactly once.
+// enqueued with outbox.EnqueueAtVersion and ev.Version: outbox never bumps
+// the version, so the write bumps it exactly once.
 type EventSink interface {
 	RecordChanged(ctx context.Context, tx pgx.Tx, ev Event) error
 }

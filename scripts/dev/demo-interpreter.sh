@@ -3,7 +3,7 @@
 # of P3-20's fixture definition on the stack, started and signalled through
 # outbox rows (cmd/demo-interpreter in InTenantTx as nava_app: the start
 # through cascade.ClaimStart and outbox.EnqueueStart, the signal through
-# outbox.Enqueue), run by nava-worker-interptest (compose.test.yaml, the S11a
+# outbox.EnqueueAtVersion), run by nava-worker-interptest (compose.test.yaml, the S11a
 # fakes) while the always-on nava-worker is stopped.
 #
 # Usage: sh scripts/dev/demo-interpreter.sh <action>   (the stack is up)

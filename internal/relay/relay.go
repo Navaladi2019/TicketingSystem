@@ -78,7 +78,7 @@ type Claimed struct {
 
 // IsStart reports whether the row starts a workflow. A row is a start exactly
 // when its target_key is its kind, a colon and its own id in canonical
-// lowercase form (outbox.Enqueue writes it so); every other row is a signal
+// lowercase form (outbox.EnqueueAtVersion writes it so); every other row is a signal
 // to the workflow its target_key names. Nothing else is parsed from it.
 func (c Claimed) IsStart() bool {
 	return c.TargetKey == c.Kind+":"+c.ID.String()
