@@ -2,7 +2,7 @@
 //
 //	nava audit verify <file>
 //
-// which checks a nava.audit.export/v1 JSONL audit export without a database
+// which checks a nava.audit.export/v1 audit export, JSONL or CSV, without a database
 // or network (ADR-004 R22, PLAN-005 C4, P5-03). It imports only
 // internal/audit/verify and, through it, internal/audit/chain (PLAN-005
 // D-5-6); arch_test.go in internal/audit/verify enforces that.
@@ -41,8 +41,13 @@ Usage:
 
 const verifyUsage = `Usage: nava audit verify <file>
 
-Verifies a nava.audit.export/v1 JSONL audit export offline: no database, no
-network. <file> is a path, or - for standard input.
+Verifies a nava.audit.export/v1 audit export offline: no database, no
+network. <file> is a path, or - for standard input. JSONL and CSV exports
+are both accepted: a file starting with the CSV column row ("kind,seq,...")
+is read as CSV, anything else as JSONL. Both get the same checks, outcomes
+and exit codes. In CSV, one leading ' is dropped from any cell that has one
+(the formula-injection prefix), and failures name the row, counting the
+column row as row 1.
 
 It recomputes every hash with the published canonical form
 (docs/api/audit-export-v1.md): envelope_sha256 = SHA-256(JCS(envelope)),
@@ -192,7 +197,11 @@ func report(w io.Writer, r *verify.Report) int {
 		return ExitEmpty
 	case verify.OutcomeTampered:
 		f := r.Failure
-		at := fmt.Sprintf("line %d", f.Line)
+		unit := "line"
+		if r.Encoding == verify.EncodingCSV {
+			unit = "row"
+		}
+		at := fmt.Sprintf("%s %d", unit, f.Line)
 		if f.Seq != nil {
 			at += fmt.Sprintf(" (seq %d)", *f.Seq)
 		}

@@ -25,12 +25,30 @@ const MaxLineBytes = 4 << 20
 // maxErasedIDs is the R23 cap on ids per audit/erase entry.
 const maxErasedIDs = 10000
 
-// Verify reads one JSONL export from r and checks it. The error is non-nil
-// only when r fails; a file that is malformed or does not verify is reported
-// in the Report.
+// Verify reads one export from r, JSONL or CSV (audit-export-v1.md §3 and
+// §5), and checks it. A file whose first bytes are the CSV column row
+// ("kind,…") is read as CSV; anything else is read as JSONL. The error is
+// non-nil only when r fails; a file that is malformed or does not verify is
+// reported in the Report.
 func Verify(r io.Reader) (*Report, error) {
-	v := &verifier{rep: &Report{Lines: map[int64]LineOutcome{}}, contiguous: true,
+	br := bufio.NewReaderSize(r, 64<<10)
+	p, err := br.Peek(len(csvSniff))
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, bufio.ErrBufferFull) {
+		return nil, err
+	}
+	if string(p) == csvSniff {
+		return verifyCSV(br)
+	}
+	return verifyJSONL(br)
+}
+
+func newVerifier(enc Encoding) *verifier {
+	return &verifier{rep: &Report{Encoding: enc, Lines: map[int64]LineOutcome{}}, contiguous: true,
 		erases: map[string]map[string]bool{}, pendingErases: map[string]map[string]bool{}}
+}
+
+func verifyJSONL(r io.Reader) (*Report, error) {
+	v := newVerifier(EncodingJSONL)
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64<<10), MaxLineBytes)
 	sc.Split(splitLF)
@@ -559,7 +577,11 @@ func (v *verifier) emptyRange(t trailerLine) {
 func (v *verifier) finish() {
 	v.lineNo++
 	if v.phase == wantHeader {
-		v.fail(nil, ReasonHeaderInvalid, "empty file")
+		detail := "empty file"
+		if v.rep.Encoding == EncodingCSV {
+			detail = "no header row after the column row"
+		}
+		v.fail(nil, ReasonHeaderInvalid, detail)
 		return
 	}
 	v.fail(nil, ReasonTrailerMissing, "the file ends without a trailer")
