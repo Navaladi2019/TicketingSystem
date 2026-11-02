@@ -67,7 +67,7 @@ roles:
         UPDATE: [version, schema_version, state, requester_id, assignee_id, assignment_group_id,
                  updated_at, data, causation_origin_id, causation_depth]
       # Append-only: no UPDATE or DELETE (P3-09).
-      audit_log: { SELECT: [], INSERT: [] }
+      audit_log_v0: { SELECT: [], INSERT: [] }
       # The A5 start key (P3-12): claimed once, never changed or removed.
       cascade_start: { SELECT: [], INSERT: [] }
       # The one numbering upsert (D-3-9): INSERT ... ON CONFLICT DO UPDATE SET next.
@@ -106,7 +106,7 @@ roles:
         INSERT: []
         UPDATE: [version, schema_version, state, requester_id, assignee_id, assignment_group_id,
                  updated_at, data, causation_origin_id, causation_depth]
-      audit_log: { SELECT: [], INSERT: [] }
+      audit_log_v0: { SELECT: [], INSERT: [] }
       cascade_start: { SELECT: [], INSERT: [] }
       record_counters: { SELECT: [], INSERT: [], UPDATE: [next] }
       outbox: { SELECT: [tenant_id, id, dedupe_key], INSERT: [] }

@@ -149,7 +149,7 @@ UPDATE records SET entity_definition_id = '0b000000-0000-4000-8000-0000000006b1'
        created_by = '0b000000-0000-4000-8000-0000000003b1', assignment_group_id = '0b000000-0000-4000-8000-0000000004b1'
 WHERE tenant_id = '0b000000-0000-4000-8000-00000000000b' AND id = '0b000000-0000-4000-8000-0000000000b2';
 
-INSERT INTO audit_log (tenant_id, id, record_id, action, actor_id, source, after, idempotency_key) VALUES
+INSERT INTO audit_log_v0 (tenant_id, id, record_id, action, actor_id, source, after, idempotency_key) VALUES
     ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000008a1', '0a000000-0000-4000-8000-0000000000a2',
         'create', '0a000000-0000-4000-8000-0000000003a1', 'user', '{}', 'shared-audit-key'),
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000008b1', '0b000000-0000-4000-8000-0000000000b2',

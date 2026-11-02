@@ -71,7 +71,7 @@ func (e *etEnv) patch(t *testing.T, token, entity, id, ifMatch, body string) *ht
 func (e *etEnv) auditCount(t *testing.T, id string) int {
 	t.Helper()
 	var n int
-	if err := e.super.QueryRow(t.Context(), "SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND record_id = $2", e.a.id, id).Scan(&n); err != nil {
+	if err := e.super.QueryRow(t.Context(), "SELECT count(*) FROM audit_log_v0 WHERE tenant_id = $1 AND record_id = $2", e.a.id, id).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	return n
@@ -337,7 +337,7 @@ func TestPatchRecordIgnoresCausationFromTheRequest(t *testing.T) {
 	}
 	for _, q := range []string{
 		"SELECT causation_depth, causation_origin_id::text FROM records WHERE tenant_id = $1 AND id = $2",
-		"SELECT causation_depth, causation_origin_id::text FROM audit_log WHERE tenant_id = $1 AND record_id = $2 AND action = 'update'",
+		"SELECT causation_depth, causation_origin_id::text FROM audit_log_v0 WHERE tenant_id = $1 AND record_id = $2 AND action = 'update'",
 	} {
 		var (
 			depth  *int16

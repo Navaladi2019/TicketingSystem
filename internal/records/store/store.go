@@ -1,5 +1,5 @@
 // Package store is the data access of the record write pipeline (PLAN-003
-// D-3-6): the records and audit_log statements, and the split of a record's
+// D-3-6): the records and audit_log_v0 statements, and the split of a record's
 // payload between its fixed columns and data. Only internal/records/pipeline
 // writes through it; P3-13's static test keeps it that way.
 //
@@ -36,8 +36,8 @@ var (
 	ErrDuplicateKey = errors.New("records/store: duplicate idempotency key")
 )
 
-// idempotencyIndex is the partial unique index on audit_log (P3-09).
-const idempotencyIndex = "audit_log_idempotency_key"
+// idempotencyIndex is the partial unique index on audit_log_v0 (P3-09).
+const idempotencyIndex = "audit_log_v0_idempotency_key"
 
 // Record is one records row of a pipeline record. Data never holds a property
 // mapped to a fixed column (TICK-360); Payload merges them back.
@@ -165,7 +165,7 @@ type Snapshot struct {
 	Data          map[string]any `json:"data"`
 }
 
-// Audit is one audit_log row.
+// Audit is one audit_log_v0 row.
 type Audit struct {
 	TenantID uuid.UUID
 	ID       uuid.UUID
@@ -212,7 +212,7 @@ func InsertAudit(ctx context.Context, tx pgx.Tx, a *Audit) error {
 		record = &a.RecordID
 	}
 	_, err = tx.Exec(ctx, `
-INSERT INTO audit_log (tenant_id, id, record_id, action, actor_id, source, before, after,
+INSERT INTO audit_log_v0 (tenant_id, id, record_id, action, actor_id, source, before, after,
     causation_origin_id, causation_depth, idempotency_key, at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
 		a.TenantID, a.ID, record, a.Action, a.ActorID, a.Source, jsonParam(before), jsonParam(after),
@@ -248,7 +248,7 @@ func AuditByKey(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, key string) 
 	)
 	err := tx.QueryRow(ctx, `
 SELECT a.record_id, d.key, a.action, a.after
-FROM audit_log a
+FROM audit_log_v0 a
 LEFT JOIN records r ON r.tenant_id = a.tenant_id AND r.id = a.record_id
 LEFT JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
 WHERE a.tenant_id = $1 AND a.idempotency_key = $2 AND a.idempotency_key IS NOT NULL`, tenantID, key).
@@ -403,7 +403,7 @@ type HistoryRow struct {
 func History(ctx context.Context, tx pgx.Tx, tenantID, recordID uuid.UUID, afterAt time.Time, afterID uuid.UUID, limit int) ([]HistoryRow, error) {
 	rows, err := tx.Query(ctx, `
 SELECT id, at, actor_id, source, action, before, after
-FROM audit_log
+FROM audit_log_v0
 WHERE tenant_id = $1 AND record_id = $2 AND action IN ('create', 'update')
   AND ($3::uuid IS NULL OR (at, id) < ($4::timestamptz, $3::uuid))
 ORDER BY at DESC, id DESC

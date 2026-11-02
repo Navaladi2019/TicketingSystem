@@ -258,7 +258,7 @@ type countingSink struct {
 
 func (s *countingSink) RecordChanged(ctx context.Context, tx pgx.Tx, ev pipeline.Event) error {
 	var n int
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE record_id = $1`, ev.RecordID).Scan(&n); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM audit_log_v0 WHERE record_id = $1`, ev.RecordID).Scan(&n); err != nil {
 		return err
 	}
 	s.mu.Lock()

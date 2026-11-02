@@ -54,7 +54,7 @@ func TestInvalidCreateWritesNothing(t *testing.T) {
 	if n := count(t, e.super, "SELECT count(*) FROM records WHERE tenant_id = $1", f.id); n != 0 {
 		t.Errorf("%d records, want 0", n)
 	}
-	if n := count(t, e.super, "SELECT count(*) FROM audit_log WHERE tenant_id = $1", f.id); n != 0 {
+	if n := count(t, e.super, "SELECT count(*) FROM audit_log_v0 WHERE tenant_id = $1", f.id); n != 0 {
 		t.Errorf("%d audit rows, want 0", n)
 	}
 	if sink.calls() != 0 {
@@ -100,7 +100,7 @@ func TestConcurrentUpdatesOneWins(t *testing.T) {
 	if !errors.Is(secondErr, pipeline.ErrVersionConflict) {
 		t.Fatalf("second update: %v, want ErrVersionConflict", secondErr)
 	}
-	if n := count(t, e.super, "SELECT count(*) FROM audit_log WHERE record_id = $1 AND action = 'update'", created.RecordID); n != 1 {
+	if n := count(t, e.super, "SELECT count(*) FROM audit_log_v0 WHERE record_id = $1 AND action = 'update'", created.RecordID); n != 1 {
 		t.Fatalf("%d update audit rows, want 1", n)
 	}
 	data, _, _, version, _ := storedData(t, e, created.RecordID)
@@ -272,7 +272,7 @@ func TestAuditAndSinkInTheWriteTransaction(t *testing.T) {
 	var depth int16
 	var before, after []byte
 	if err := e.super.QueryRow(context.Background(), `SELECT action, source, actor_id, causation_depth, before, after
-		FROM audit_log WHERE record_id = $1 ORDER BY id DESC LIMIT 1`, res.RecordID).Scan(&action, &source, &actor, &depth, &before, &after); err != nil {
+		FROM audit_log_v0 WHERE record_id = $1 ORDER BY id DESC LIMIT 1`, res.RecordID).Scan(&action, &source, &actor, &depth, &before, &after); err != nil {
 		t.Fatal(err)
 	}
 	if action != "update" || source != "rule" || actor == nil || *actor != f.principal.PrincipalID || depth != 1 {
@@ -295,7 +295,7 @@ func TestAuditAndSinkInTheWriteTransaction(t *testing.T) {
 	if n := count(t, e.super, "SELECT count(*) FROM records WHERE id = $1", lost); n != 0 {
 		t.Errorf("the failed write left its record")
 	}
-	if n := count(t, e.super, "SELECT count(*) FROM audit_log WHERE record_id = $1", lost); n != 0 {
+	if n := count(t, e.super, "SELECT count(*) FROM audit_log_v0 WHERE record_id = $1", lost); n != 0 {
 		t.Errorf("the failed write left its audit row")
 	}
 }
@@ -323,7 +323,7 @@ func TestIdempotencyKeyReplays(t *testing.T) {
 	if again != first {
 		t.Fatalf("replay = %+v, want %+v", again, first)
 	}
-	if n := count(t, e.super, "SELECT count(*) FROM audit_log WHERE tenant_id = $1", f.id); n != 1 {
+	if n := count(t, e.super, "SELECT count(*) FROM audit_log_v0 WHERE tenant_id = $1", f.id); n != 1 {
 		t.Fatalf("%d audit rows, want 1", n)
 	}
 	if n := count(t, e.super, "SELECT count(*) FROM records WHERE tenant_id = $1", f.id); n != 1 {
@@ -381,7 +381,7 @@ func TestIdempotencyKeyReplays(t *testing.T) {
 	if retry, err := write(ctx, e, p, f.id, dup); err != nil || retry != holderRes {
 		t.Fatalf("retry = %+v, %v; want %+v", retry, err, holderRes)
 	}
-	if n := count(t, e.super, "SELECT count(*) FROM audit_log WHERE idempotency_key = 'wf:w2:s1'"); n != 1 {
+	if n := count(t, e.super, "SELECT count(*) FROM audit_log_v0 WHERE idempotency_key = 'wf:w2:s1'"); n != 1 {
 		t.Fatalf("%d rows hold the key, want 1", n)
 	}
 }
@@ -512,7 +512,7 @@ func TestPipelineKill(t *testing.T) {
 	if n := count(t, e.super, "SELECT count(*) FROM records WHERE tenant_id = $1", f.id); n != 0 {
 		t.Errorf("the killed write left %d records", n)
 	}
-	if n := count(t, e.super, "SELECT count(*) FROM audit_log WHERE tenant_id = $1", f.id); n != 0 {
+	if n := count(t, e.super, "SELECT count(*) FROM audit_log_v0 WHERE tenant_id = $1", f.id); n != 0 {
 		t.Errorf("the killed write left %d audit rows", n)
 	}
 	// The tenant still writes normally.

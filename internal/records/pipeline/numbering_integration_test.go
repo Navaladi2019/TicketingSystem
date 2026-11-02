@@ -538,7 +538,7 @@ func TestIdempotencyKeyMismatchConflicts(t *testing.T) {
 		{"update key, other record", system(updateCmd(f, other.RecordID, 1, map[string]any{"summary": "x"}), "wf:u"), nil},
 		{"update key, other entity type", system(assetUpdate(f, asset.RecordID, 1, map[string]any{"name": "x"}), "wf:u"), nil},
 	}
-	audits := count(t, e.super, "SELECT count(*) FROM audit_log WHERE tenant_id = $1", f.id)
+	audits := count(t, e.super, "SELECT count(*) FROM audit_log_v0 WHERE tenant_id = $1", f.id)
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			got, err := write(ctx, e, p, f.id, c.cmd)
@@ -554,7 +554,7 @@ func TestIdempotencyKeyMismatchConflicts(t *testing.T) {
 			}
 		})
 	}
-	if n := count(t, e.super, "SELECT count(*) FROM audit_log WHERE tenant_id = $1", f.id); n != audits {
+	if n := count(t, e.super, "SELECT count(*) FROM audit_log_v0 WHERE tenant_id = $1", f.id); n != audits {
 		t.Fatalf("%d audit rows after the table, want %d: a conflict or replay wrote", n, audits)
 	}
 }

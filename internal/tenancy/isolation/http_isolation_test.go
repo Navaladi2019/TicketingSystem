@@ -245,7 +245,7 @@ func (r *apiRunner) runShape(t *testing.T, c *HTTPCall) (status, detail string) 
 	return statusPass, fmt.Sprintf("401, refused: %s", s.WantReason)
 }
 
-// rowCounts is one tenant's records and audit_log row counts.
+// rowCounts is one tenant's records and audit_log_v0 row counts.
 type rowCounts struct{ records, audit int }
 
 // countRows reads tenant's counts on the superuser connection, past
@@ -253,7 +253,7 @@ type rowCounts struct{ records, audit int }
 func countRows(ctx context.Context, super *pgx.Conn, tenant string) (rowCounts, error) {
 	var n rowCounts
 	err := super.QueryRow(ctx, `SELECT (SELECT count(*) FROM records WHERE tenant_id = $1),
-		(SELECT count(*) FROM audit_log WHERE tenant_id = $1)`, tenant).Scan(&n.records, &n.audit)
+		(SELECT count(*) FROM audit_log_v0 WHERE tenant_id = $1)`, tenant).Scan(&n.records, &n.audit)
 	return n, err
 }
 
@@ -401,7 +401,7 @@ func (r *apiRunner) runStoredUnderA(t *testing.T, c *HTTPCall) (status, detail s
 				// TODO(TODO-S9-01): P3-42: this leaves the record's outbox and
 				// cascade_start rows behind. Once the EventSink is wired,
 				// delete cascade_start first, then outbox, then these.
-				for _, q := range []string{`DELETE FROM audit_log WHERE tenant_id = $1 AND record_id = $2`, `DELETE FROM records WHERE tenant_id = $1 AND id = $2`} {
+				for _, q := range []string{`DELETE FROM audit_log_v0 WHERE tenant_id = $1 AND record_id = $2`, `DELETE FROM records WHERE tenant_id = $1 AND id = $2`} {
 					if _, err := super.Exec(context.Background(), q, TenantA, row.ID); err != nil {
 						t.Errorf("cleanup: %v", err)
 					}

@@ -91,7 +91,7 @@ func startRows(t *testing.T, e env, tenant uuid.UUID) int {
 
 func auditRows(t *testing.T, e env, tenant uuid.UUID, action string) int {
 	t.Helper()
-	return count(t, e.super, `SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND action = $2`, tenant, action)
+	return count(t, e.super, `SELECT count(*) FROM audit_log_v0 WHERE tenant_id = $1 AND action = $2`, tenant, action)
 }
 
 // createWithStart is S11b's step 1: a user creates R, which mints origin O at
@@ -157,7 +157,7 @@ func TestCI10_WriteBackToTriggeringRecordCommits(t *testing.T) {
 	var depth int16
 	var after []byte
 	if err := e.super.QueryRow(context.Background(), `SELECT source, actor_id, causation_origin_id, causation_depth, after
-		FROM audit_log WHERE tenant_id = $1 AND action = 'cascade_cycle'`, f.id).Scan(&source, &actor, &auditOrigin, &depth, &after); err != nil {
+		FROM audit_log_v0 WHERE tenant_id = $1 AND action = 'cascade_cycle'`, f.id).Scan(&source, &actor, &auditOrigin, &depth, &after); err != nil {
 		t.Fatal(err)
 	}
 	if source != "workflow" || actor != nil || auditOrigin == nil || *auditOrigin != origin || depth != 1 ||
@@ -354,7 +354,7 @@ func TestCI10_DepthBeyondLimitRejectedAndAuditedOnTheRunner(t *testing.T) {
 	var depth int16
 	var after []byte
 	if err := e.super.QueryRow(ctx, `SELECT record_id, actor_id, source, causation_origin_id, causation_depth, after
-		FROM audit_log WHERE tenant_id = $1 AND action = 'cascade_rejected'`, f.id).
+		FROM audit_log_v0 WHERE tenant_id = $1 AND action = 'cascade_rejected'`, f.id).
 		Scan(&record, &actor, &source, &auditOrigin, &depth, &after); err != nil {
 		t.Fatalf("exactly one cascade_rejected row: %v", err)
 	}
@@ -371,7 +371,7 @@ func TestCI10_DepthBeyondLimitRejectedAndAuditedOnTheRunner(t *testing.T) {
 	if _, _, _, v, _ := storedData(t, e, r.RecordID); v != 1 {
 		t.Errorf("version %d after the refused update, want 1", v)
 	}
-	if n := count(t, e.super, `SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND action = 'cascade_rejected' AND record_id = $2`,
+	if n := count(t, e.super, `SELECT count(*) FROM audit_log_v0 WHERE tenant_id = $1 AND action = 'cascade_rejected' AND record_id = $2`,
 		f.id, r.RecordID); n != 1 {
 		t.Errorf("%d cascade_rejected rows naming the record, want 1", n)
 	}

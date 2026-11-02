@@ -43,7 +43,9 @@ const modulePath = "github.com/Navaladi2019/TicketingSystem"
 // removed) is one of the tables only the pipeline writes.
 func recordTable(name string) bool {
 	switch name {
-	case "records", "audit_log", "record_counters", "comments", "record_links":
+	// audit_log_v0 is S9's interim audit table (P5-10a renamed it); audit_log
+	// stays listed until P5-10b decides who writes ADR-004's table.
+	case "records", "audit_log", "audit_log_v0", "record_counters", "comments", "record_links":
 		return true
 	}
 	return false

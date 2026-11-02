@@ -20,7 +20,7 @@ import (
 
 // Security review of P3-12 (TICK-88): tenant B sends a too-deep update that
 // names tenant A's record id. The rejection path reads the record on the
-// TxRunner to fill audit_log.record_id, so it must stay inside tenant B:
+// TxRunner to fill audit_log_v0.record_id, so it must stay inside tenant B:
 //   - the error is the same ErrCascadeTooDeep that a random, nonexistent id
 //     gets (no existence oracle for tenant A's ids);
 //   - tenant B's audit row names no record, and tenant A gets no row;
@@ -32,7 +32,7 @@ func TestCI10_TooDeepUpdateOfAnotherTenantsRecordLeaksNothing(t *testing.T) {
 		pipeline.PoolRunner{Pool: e.app}, pipeline.SystemClock{})
 	ctx := context.Background()
 	victim := mustCreate(t, e, p, a, map[string]any{"title": "tenant A only"})
-	auditA := count(t, e.super, `SELECT count(*) FROM audit_log WHERE tenant_id = $1`, a.id)
+	auditA := count(t, e.super, `SELECT count(*) FROM audit_log_v0 WHERE tenant_id = $1`, a.id)
 
 	tooDeep := outbox.Causation{OriginID: uuid.New(), Depth: config.CascadeDepthLimit + 1}
 	attempt := func(record uuid.UUID, step string) error {
@@ -51,14 +51,14 @@ func TestCI10_TooDeepUpdateOfAnotherTenantsRecordLeaksNothing(t *testing.T) {
 		t.Errorf("tenant A's id and a random id are told apart: %q vs %q", errVictim, errRandom)
 	}
 
-	if n := count(t, e.super, `SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND action = 'cascade_rejected' AND record_id IS NULL`, b.id); n != 2 {
+	if n := count(t, e.super, `SELECT count(*) FROM audit_log_v0 WHERE tenant_id = $1 AND action = 'cascade_rejected' AND record_id IS NULL`, b.id); n != 2 {
 		t.Errorf("tenant B has %d cascade_rejected rows with no record, want 2", n)
 	}
-	if n := count(t, e.super, `SELECT count(*) FROM audit_log WHERE record_id = $1 AND tenant_id <> $2`, victim.RecordID, a.id); n != 0 {
+	if n := count(t, e.super, `SELECT count(*) FROM audit_log_v0 WHERE record_id = $1 AND tenant_id <> $2`, victim.RecordID, a.id); n != 0 {
 		t.Errorf("%d audit rows outside tenant A name tenant A's record, want 0", n)
 	}
-	if n := count(t, e.super, `SELECT count(*) FROM audit_log WHERE tenant_id = $1`, a.id); n != auditA {
-		t.Errorf("tenant A's audit_log went from %d to %d rows", auditA, n)
+	if n := count(t, e.super, `SELECT count(*) FROM audit_log_v0 WHERE tenant_id = $1`, a.id); n != auditA {
+		t.Errorf("tenant A's audit_log_v0 went from %d to %d rows", auditA, n)
 	}
 	if _, _, _, v, _ := storedData(t, e, victim.RecordID); v != victim.Version {
 		t.Errorf("tenant A's record is at version %d, want %d", v, victim.Version)

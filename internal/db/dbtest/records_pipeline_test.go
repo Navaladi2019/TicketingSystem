@@ -14,7 +14,7 @@ import (
 )
 
 // P3-09 (TICK-353): records extended additively for the write pipeline,
-// append-only audit_log and record_counters, all under FORCE RLS with
+// append-only audit_log_v0 and record_counters, all under FORCE RLS with
 // composite tenant keys, grants from db/grants.yaml, and nava_app's
 // plan_cache_mode from db-roles.
 
@@ -27,7 +27,7 @@ const (
 		requester_id, assignee_id, assignment_group_id, created_by)
 		VALUES ($1, $2, $3, 1, $4, 'new', $5, $6, $7, $8)`
 	// insertAudit: tenant $1, record $2, idempotency key $3.
-	insertAudit = `INSERT INTO audit_log (tenant_id, id, record_id, action, actor_id, source, after, idempotency_key)
+	insertAudit = `INSERT INTO audit_log_v0 (tenant_id, id, record_id, action, actor_id, source, after, idempotency_key)
 		VALUES ($1, gen_random_uuid(), $2, 'create', NULL, 'workflow', '{}', $3)`
 	// nextNumber is the D-3-9 upsert: tenant $1, type $2.
 	nextNumber = `INSERT INTO record_counters (tenant_id, entity_definition_id, next) VALUES ($1, $2, 2)
@@ -99,13 +99,13 @@ func TestP309RecordsIndexSet(t *testing.T) {
 	// No index on any P3-09 table leads with anything but tenant_id.
 	if bad := queryString(t, super, `SELECT coalesce(string_agg(i.indexrelid::regclass::text, ','), '')
 		FROM pg_index i JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[0]
-		WHERE i.indrelid IN ('records'::regclass, 'audit_log'::regclass, 'record_counters'::regclass)
+		WHERE i.indrelid IN ('records'::regclass, 'audit_log_v0'::regclass, 'record_counters'::regclass)
 		  AND a.attname <> 'tenant_id'`); bad != "" {
 		t.Fatalf("indexes not led by tenant_id: %s", bad)
 	}
 }
 
-// Acceptance: audit_log is append-only for every runtime role, and the
+// Acceptance: audit_log_v0 is append-only for every runtime role, and the
 // columns a record sets once (entity_definition_id, number, created_by,
 // created_at) cannot be updated; the other pipeline columns can (control).
 func TestP309AuditAppendOnlyAndRecordNumberFixed(t *testing.T) {
@@ -118,9 +118,9 @@ func TestP309AuditAppendOnlyAndRecordNumberFixed(t *testing.T) {
 	for _, role := range []string{"nava_app", "nava_worker", "nava_onboard", "nava_groupsync", "nava_relay", "nava_purge"} {
 		conn := asRole(t, role)
 		for _, q := range []string{
-			"UPDATE audit_log SET action = 'forged' WHERE tenant_id = $1",
-			"UPDATE audit_log SET idempotency_key = NULL WHERE tenant_id = $1",
-			"DELETE FROM audit_log WHERE tenant_id = $1",
+			"UPDATE audit_log_v0 SET action = 'forged' WHERE tenant_id = $1",
+			"UPDATE audit_log_v0 SET idempotency_key = NULL WHERE tenant_id = $1",
+			"DELETE FROM audit_log_v0 WHERE tenant_id = $1",
 			"DELETE FROM records WHERE tenant_id = $1",
 			"DELETE FROM record_counters WHERE tenant_id = $1",
 		} {
@@ -147,7 +147,7 @@ func TestP309AuditAppendOnlyAndRecordNumberFixed(t *testing.T) {
 			t.Errorf("control: %s updates the mutable columns: %d rows, %v; want 1, nil", role, n, err)
 		}
 	}
-	if got := queryString(t, super, "SELECT number || ':' || count(*) OVER () FROM audit_log a JOIN records r USING (tenant_id) WHERE r.id = $1", rec); got != "TCK0000001:1" {
+	if got := queryString(t, super, "SELECT number || ':' || count(*) OVER () FROM audit_log_v0 a JOIN records r USING (tenant_id) WHERE r.id = $1", rec); got != "TCK0000001:1" {
 		t.Errorf("tenant A's record number and audit rows = %s, want TCK0000001:1", got)
 	}
 }
@@ -163,7 +163,7 @@ func TestP309TenantRowsInvisible(t *testing.T) {
 
 	for _, role := range []string{"nava_app", "nava_worker"} {
 		conn := asRole(t, role)
-		for _, table := range []string{"audit_log", "record_counters", "records"} {
+		for _, table := range []string{"audit_log_v0", "record_counters", "records"} {
 			for _, mode := range []string{"B", "empty", "unset"} {
 				var own, other int
 				err := inTenantTx(conn, "", func(tx pgx.Tx) error {
@@ -312,7 +312,7 @@ func TestP309IdempotencyKeyPerTenant(t *testing.T) {
 		if _, err := tx.Exec(ctx, insertAudit, tenantA, recA, key); err != nil {
 			return err
 		}
-		_, err := tx.Exec(ctx, `INSERT INTO audit_log (tenant_id, id, record_id, action, source, idempotency_key)
+		_, err := tx.Exec(ctx, `INSERT INTO audit_log_v0 (tenant_id, id, record_id, action, source, idempotency_key)
 			VALUES ($1, gen_random_uuid(), $2, 'cascade_rejected', 'workflow', NULL)`, tenantA, recA)
 		return err
 	})
@@ -323,7 +323,7 @@ func TestP309IdempotencyKeyPerTenant(t *testing.T) {
 	// The replay lookup (D-3-13) through the partial unique index's predicate.
 	var n int
 	err = inTenantTx(worker, tenantA, func(tx pgx.Tx) error {
-		tag, err := tx.Exec(context.Background(), `INSERT INTO audit_log (tenant_id, id, record_id, action, source, idempotency_key)
+		tag, err := tx.Exec(context.Background(), `INSERT INTO audit_log_v0 (tenant_id, id, record_id, action, source, idempotency_key)
 			VALUES ($1, gen_random_uuid(), $2, 'update', 'workflow', $3)
 			ON CONFLICT (tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING`, tenantA, recA, key)
 		n = int(tag.RowsAffected())
@@ -332,10 +332,10 @@ func TestP309IdempotencyKeyPerTenant(t *testing.T) {
 	if err != nil || n != 0 {
 		t.Fatalf("replay with ON CONFLICT DO NOTHING: %d rows, %v; want 0, nil", n, err)
 	}
-	if got := queryString(t, super, "SELECT count(*)::text FROM audit_log WHERE idempotency_key = $1", key); got != "2" {
+	if got := queryString(t, super, "SELECT count(*)::text FROM audit_log_v0 WHERE idempotency_key = $1", key); got != "2" {
 		t.Errorf("rows keyed %s = %s, want 2 (one per tenant)", key, got)
 	}
-	_, err = execIn(worker, tenantA, "INSERT INTO audit_log (tenant_id, id, action, source) VALUES ($1, gen_random_uuid(), 'x', 'operator')", tenantA)
+	_, err = execIn(worker, tenantA, "INSERT INTO audit_log_v0 (tenant_id, id, action, source) VALUES ($1, gen_random_uuid(), 'x', 'operator')", tenantA)
 	wantSQLState(t, "an audit row with an unknown source", err, "23514")
 }
 

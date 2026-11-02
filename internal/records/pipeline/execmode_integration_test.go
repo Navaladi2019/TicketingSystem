@@ -102,7 +102,7 @@ func TestWritesInExecMode(t *testing.T) {
 		t.Fatalf("too deep: %v, want ErrCascadeTooDeep", err)
 	}
 
-	if n := count(t, e.super, `SELECT count(*) FROM audit_log WHERE tenant_id = $1`, f.id); n != 4 {
+	if n := count(t, e.super, `SELECT count(*) FROM audit_log_v0 WHERE tenant_id = $1`, f.id); n != 4 {
 		t.Errorf("%d audit rows, want 4 (create, update, system create, cascade_rejected)", n)
 	}
 	if n := count(t, e.super, `SELECT count(*) FROM outbox WHERE tenant_id = $1`, f.id); n != sink.n || n != 3 {

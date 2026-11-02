@@ -52,7 +52,7 @@ func TestAdversarialIdempotencyKeyDoesNotCrossTenants(t *testing.T) {
 		if n := count(t, e.super, "SELECT count(*) FROM records WHERE tenant_id = $1", f.id); n != 1 {
 			t.Fatalf("tenant %s has %d records, want 1", f.id, n)
 		}
-		if n := count(t, e.super, "SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND idempotency_key = $2", f.id, key); n != 1 {
+		if n := count(t, e.super, "SELECT count(*) FROM audit_log_v0 WHERE tenant_id = $1 AND idempotency_key = $2", f.id, key); n != 1 {
 			t.Fatalf("tenant %s has %d keyed audit rows, want 1", f.id, n)
 		}
 	}
@@ -100,7 +100,7 @@ func TestAdversarialFixedColumnCannotReferenceAnotherTenant(t *testing.T) {
 	if n := count(t, e.super, "SELECT count(*) FROM records WHERE tenant_id = $1", a.id); n != 0 {
 		t.Fatalf("tenant A has %d records after a refused create", n)
 	}
-	if n := count(t, e.super, "SELECT count(*) FROM audit_log WHERE tenant_id = $1", a.id); n != 0 {
+	if n := count(t, e.super, "SELECT count(*) FROM audit_log_v0 WHERE tenant_id = $1", a.id); n != 0 {
 		t.Fatalf("tenant A has %d audit rows after a refused create", n)
 	}
 
