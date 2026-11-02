@@ -21,6 +21,12 @@ func TestGoldenVectorsExports(t *testing.T) {
 	want := map[string]bool{
 		"diff-dropped-not-erased": false, "diff-redacted-replaced": false,
 		"header-tenant-mismatch": false, "verifiable-flag-false-on-complete-file": false,
+		// ADR-004-E2, "What the vectors should say".
+		"stubs-false-contiguous": false, "stubs-false-tail-excluded": false,
+		"stubs-false-gap-flagged-verifiable": false, "stubs-true-seq-missing": false,
+		"stubs-true-tail-missing": false, "anchor-not-after-seq": false, "anchor-not-genesis": false,
+		"stubs-false-none-matched": false, "stubs-true-all-missing": false,
+		"stubs-false-gap-head-forged": false,
 	}
 	for _, x := range f.Exports {
 		t.Run(x.Name, func(t *testing.T) {
@@ -45,7 +51,7 @@ func TestGoldenVectorsExports(t *testing.T) {
 	}
 	for name, seen := range want {
 		if !seen {
-			t.Errorf("no export vector %s (TA PR #365 finding 6)", name)
+			t.Errorf("no export vector %s (TA PR #365 finding 6, ADR-004-E2)", name)
 		}
 	}
 }
@@ -56,13 +62,23 @@ type verdict struct {
 }
 
 type xHeader struct {
-	Kind       string          `json:"kind"`
-	Format     string          `json:"format"`
-	TenantID   string          `json:"tenant_id"`
-	ExportID   string          `json:"export_id"`
-	ExportedAt string          `json:"exported_at"`
-	Stubs      bool            `json:"stubs"`
-	Filter     json.RawMessage `json:"filter"`
+	Kind       string  `json:"kind"`
+	Format     string  `json:"format"`
+	TenantID   string  `json:"tenant_id"`
+	ExportID   string  `json:"export_id"`
+	ExportedAt string  `json:"exported_at"`
+	Stubs      bool    `json:"stubs"`
+	Filter     xFilter `json:"filter"`
+}
+
+type xFilter struct {
+	From        *string `json:"from"`
+	To          *string `json:"to"`
+	Domain      *string `json:"domain"`
+	SubjectType *string `json:"subject_type"`
+	SubjectID   *string `json:"subject_id"`
+	ChangeSetID *string `json:"change_set_id"`
+	AfterSeq    *int64  `json:"after_seq"`
 }
 
 type xLine struct {
@@ -187,6 +203,18 @@ func referenceVerify(lines []string) verdict {
 	if *a.Genesis && (*a.Seq != 0 || *a.EntryHash != chain.Hex(chain.Genesis[:])) {
 		return fail("anchor", nil)
 	}
+	// Step 2 (§4.1 anchor_mismatch): after_seq fixes the anchor, and a window
+	// with no from bound starts at genesis. With from, it is not checkable.
+	want := int64(-1)
+	switch {
+	case h.Filter.AfterSeq != nil:
+		want = *h.Filter.AfterSeq
+	case h.Filter.From == nil:
+		want = 0
+	}
+	if want >= 0 && *a.Seq != want {
+		return fail(vectors.ReasonAnchorMismatch, a.Seq)
+	}
 	contiguous := true
 	prevSeq, prevHash := *a.Seq, *a.EntryHash
 	count, stubs := 0, 0
@@ -195,10 +223,13 @@ func referenceVerify(lines []string) verdict {
 		if x.Kind == "anchor" {
 			return fail("anchor", &seq)
 		}
-		// Step 3: contiguity and links. A gap is allowed only in a file that
-		// says it is not verifiable; step 8 then decides.
+		// Step 3: contiguity and links. A gap is allowed only in a stubs:false
+		// file; in a stubs:true file it is seq_missing.
 		linked := seq == prevSeq+1
 		if !linked {
+			if h.Stubs {
+				return fail(vectors.ReasonSeqMissing, &seq)
+			}
 			contiguous = false
 		}
 		if linked && *x.PrevHash != prevHash {
@@ -240,12 +271,19 @@ func referenceVerify(lines []string) verdict {
 	if count != tr.Count || stubs != tr.StubCount {
 		return fail("count", nil)
 	}
-	// Step 6: the range ends at the head (checkable only without gaps).
-	if tr.LastSeq == nil || tr.HeadHash == nil || prevSeq > *tr.LastSeq {
-		return fail("head", nil)
+	// Step 6: last_seq is after the anchor and no line is beyond it. A last
+	// line below last_seq (or none) is a tail gap; a line at last_seq must
+	// hash to head_hash, gaps or not.
+	if tr.LastSeq == nil || tr.HeadHash == nil || *tr.LastSeq <= *a.Seq || prevSeq > *tr.LastSeq {
+		return fail(vectors.ReasonHeadMismatch, nil)
 	}
-	if contiguous && (prevSeq != *tr.LastSeq || prevHash != *tr.HeadHash) {
-		return fail("head", nil)
+	switch {
+	case prevSeq < *tr.LastSeq && h.Stubs:
+		return fail(vectors.ReasonSeqMissing, nil)
+	case prevSeq < *tr.LastSeq:
+		contiguous = false
+	case prevHash != *tr.HeadHash:
+		return fail(vectors.ReasonHeadMismatch, nil)
 	}
 	// Step 7: erased entries need a chain-valid erase entry listing them.
 	for _, x := range rng {
@@ -256,8 +294,9 @@ func referenceVerify(lines []string) verdict {
 			return fail(vectors.ReasonErasureUnlisted, x.Seq)
 		}
 	}
-	// Step 8: verifiability is computed, then the flags must agree.
-	if h.Stubs != contiguous || tr.Verifiable != contiguous {
+	// Step 8: verifiability is computed; only the trailer must agree. The
+	// header's stubs is the request (ADR-004-E2).
+	if tr.Verifiable != contiguous {
 		return fail(vectors.ReasonVerifiableFlagMismatch, nil)
 	}
 	if !contiguous {

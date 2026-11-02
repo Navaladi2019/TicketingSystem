@@ -53,6 +53,9 @@ const (
 	ReasonDiffStateMismatch      = "diff_state_mismatch"
 	ReasonVerifiableFlagMismatch = "verifiable_flag_mismatch"
 	ReasonErasureUnlisted        = "erasure_unlisted"
+	ReasonSeqMissing             = "seq_missing"
+	ReasonAnchorMismatch         = "anchor_mismatch"
+	ReasonHeadMismatch           = "head_mismatch"
 )
 
 // The line shapes of audit-export-v1.md §3. Field order is the order the
@@ -152,20 +155,32 @@ func stubOf(c ChainCase) stubLine {
 // rangeExport exports seq 1..n from genesis, in full where match is true and
 // as a stub otherwise.
 func rangeExport(cs []ChainCase, filter filterBlock, match func(ChainCase) bool) exportFile {
-	zero := chain.Hex(chain.Genesis[:])
+	return windowExport(cs, 1, filter, match)
+}
+
+// windowExport exports seq first..len(cs) with stubs=true: the anchor is
+// genesis when first is 1 and the line for first-1 otherwise, then each seq
+// in full where match is true and as a stub otherwise.
+func windowExport(cs []ChainCase, first int64, filter filterBlock, match func(ChainCase) bool) exportFile {
 	f := exportFile{
 		header: headerLine{
 			Kind: "header", Format: "nava.audit.export/v1", TenantID: cs[0].Envelope.TenantID,
 			ExportID: uuid.MustParse("0190f3a0-0000-7000-8000-0000000000ee"), ExportedAt: exportedAt,
 			Stubs: true, Filter: filter,
 		},
-		body: []any{anchorLine{Kind: "anchor", Genesis: true, Seq: 0, EntryHash: zero}},
 	}
-	var anchor int64
+	if first == 1 {
+		f.body = []any{anchorLine{Kind: "anchor", Genesis: true, Seq: 0, EntryHash: chain.Hex(chain.Genesis[:])}}
+	} else {
+		a := cs[first-2]
+		prev, esha := a.PrevHash, a.EnvelopeSHA256
+		f.body = []any{anchorLine{Kind: "anchor", Seq: a.Seq, PrevHash: &prev, EntryHash: a.EntryHash, EnvelopeSHA256: &esha}}
+	}
+	anchor := first - 1
 	last := cs[len(cs)-1]
 	lastSeq, head := last.Seq, last.EntryHash
 	f.trailer = trailerLine{Kind: "trailer", AnchorSeq: &anchor, LastSeq: &lastSeq, HeadHash: &head, Verifiable: true}
-	for _, c := range cs {
+	for _, c := range cs[first-1:] {
 		if match(c) {
 			f.body = append(f.body, entryOf(c))
 			f.trailer.Count++
@@ -187,6 +202,32 @@ func (f *exportFile) entryAt(seq int64) *entryLine {
 	panic(fmt.Sprintf("vectors: no full line for seq %d", seq))
 }
 
+// drop removes the range lines for seqs and lowers the trailer's counts to
+// match. It leaves the header's stubs and the trailer's verifiable alone.
+func (f *exportFile) drop(seqs ...int64) {
+	gone := map[int64]bool{}
+	for _, s := range seqs {
+		gone[s] = true
+	}
+	kept := f.body[:0]
+	for _, l := range f.body {
+		switch x := l.(type) {
+		case *entryLine:
+			if x.Seq != nil && gone[*x.Seq] {
+				f.trailer.Count--
+				continue
+			}
+		case stubLine:
+			if gone[x.Seq] {
+				f.trailer.StubCount--
+				continue
+			}
+		}
+		kept = append(kept, l)
+	}
+	f.body = kept
+}
+
 func (f exportFile) lines() ([]string, error) {
 	all := append(append([]any{f.header}, f.body...), f.trailer)
 	out := make([]string, 0, len(all))
@@ -202,22 +243,24 @@ func (f exportFile) lines() ([]string, error) {
 	return out, nil
 }
 
+// exportCase is one Export before its file is serialised.
+type exportCase struct {
+	name, review, expect string
+	reason               *string
+	lines                map[string]string
+	file                 exportFile
+}
+
 func exportCases(cs []ChainCase) ([]Export, error) {
 	all := func(ChainCase) bool { return true }
 	unfiltered := func() exportFile { return rangeExport(cs, filterBlock{}, all) }
 	reason := func(s string) *string { return &s }
 
-	type tc struct {
-		name, review, expect string
-		reason               *string
-		lines                map[string]string
-		file                 exportFile
-	}
-	var cases []tc
+	var cases []exportCase
 
-	cases = append(cases, tc{name: "unfiltered", expect: FilePass, file: unfiltered()})
+	cases = append(cases, exportCase{name: "unfiltered", expect: FilePass, file: unfiltered()})
 
-	cases = append(cases, tc{
+	cases = append(cases, exportCase{
 		name: "filtered-subject-type", expect: FilePass,
 		file: rangeExport(cs, filterBlock{SubjectType: ptr("entity_definition")},
 			func(c ChainCase) bool { return c.Envelope.SubjectType == "entity_definition" }),
@@ -227,7 +270,7 @@ func exportCases(cs []ChainCase) ([]Export, error) {
 		f := unfiltered()
 		e := f.entryAt(2)
 		e.Diff, e.DiffSalt = nil, nil
-		cases = append(cases, tc{name: "diff-dropped-not-erased", review: "TA-6B", expect: FileTampered,
+		cases = append(cases, exportCase{name: "diff-dropped-not-erased", review: "TA-6B", expect: FileTampered,
 			reason: reason(ReasonDiffMissing), lines: map[string]string{"2": LineTampered}, file: f})
 	}
 	{ // TA case C: diff replaced and marked redacted. Not tampered, but not attested.
@@ -235,7 +278,7 @@ func exportCases(cs []ChainCase) ([]Export, error) {
 		e := f.entryAt(2)
 		d := `[{"op":"replace","path":"/status","value":{"redacted":"mask"}}]`
 		e.Diff, e.DiffSalt, e.DiffRedacted = &d, nil, true
-		cases = append(cases, tc{name: "diff-redacted-replaced", review: "TA-6C", expect: FilePass,
+		cases = append(cases, exportCase{name: "diff-redacted-replaced", review: "TA-6C", expect: FilePass,
 			lines: map[string]string{"2": LineDiffUnverified}, file: f})
 	}
 	{ // TA case D: a diff injected where the envelope has no diff_sha256.
@@ -243,50 +286,39 @@ func exportCases(cs []ChainCase) ([]Export, error) {
 		e := f.entryAt(3)
 		d, s := `[{"op":"add","path":"/injected","value":1}]`, "000102030405060708090a0b0c0d0e0f"
 		e.Diff, e.DiffSalt = &d, &s
-		cases = append(cases, tc{name: "diff-injected-without-hash", review: "TA-6D", expect: FileTampered,
+		cases = append(cases, exportCase{name: "diff-injected-without-hash", review: "TA-6D", expect: FileTampered,
 			reason: reason(ReasonDiffStateMismatch), lines: map[string]string{"3": LineTampered}, file: f})
 	}
 	{ // TA case E / Security S2: header relabelled to another tenant.
 		f := unfiltered()
 		f.header.TenantID = uuid.MustParse("0190f3a0-0000-7000-8000-000000000002")
-		cases = append(cases, tc{name: "header-tenant-mismatch", review: "TA-6E, Sec-S2", expect: FileTampered,
+		cases = append(cases, exportCase{name: "header-tenant-mismatch", review: "TA-6E, Sec-S2", expect: FileTampered,
 			reason: reason(ReasonHeaderTenantMismatch), lines: map[string]string{"1": LineTampered}, file: f})
 	}
-	{ // TA case F: a complete file whose flags claim it is not verifiable.
+	{ // TA case F: the trailer claims a complete file is not verifiable.
 		f := unfiltered()
 		f.header.Stubs = false
 		f.trailer.Verifiable = false
-		cases = append(cases, tc{name: "verifiable-flag-false-on-complete-file", review: "TA-6F", expect: FileTampered,
+		cases = append(cases, exportCase{name: "verifiable-flag-false-on-complete-file", review: "TA-6F", expect: FileTampered,
 			reason: reason(ReasonVerifiableFlagMismatch), file: f})
 	}
 	{ // R24: an erased entry whose erase entry is only a stub in the file.
 		f := rangeExport(cs, filterBlock{SubjectType: ptr("record")},
 			func(c ChainCase) bool { return c.Envelope.SubjectType == "record" })
-		cases = append(cases, tc{name: "erasure-not-listed", expect: FileTampered,
+		cases = append(cases, exportCase{name: "erasure-not-listed", expect: FileTampered,
 			reason: reason(ReasonErasureUnlisted), lines: map[string]string{"6": LineTampered}, file: f})
 	}
-	{ // stubs=false: excluded entries are left out, honestly flagged.
-		f := rangeExport(cs, filterBlock{SubjectType: ptr("entity_definition")},
-			func(c ChainCase) bool { return c.Envelope.SubjectType == "entity_definition" })
-		kept := f.body[:0]
-		for _, l := range f.body {
-			if _, stub := l.(stubLine); !stub {
-				kept = append(kept, l)
-			}
-		}
-		f.body = kept
-		f.header.Stubs = false
-		f.trailer.StubCount = 0
-		f.trailer.Verifiable = false
-		cases = append(cases, tc{name: "stubs-false-honest", expect: FileUnverifiable, file: f})
-	}
+	// stubs=false: excluded entries are left out, honestly flagged.
+	cases = append(cases, exportCase{name: "stubs-false-honest", expect: FileUnverifiable, file: stubsFalseHonest(cs)})
 	{ // No sealed entry in the window (§3 range rules, step 8).
 		f := unfiltered()
 		f.header.Filter = filterBlock{From: ptr("2026-12-01T00:00:00.000000Z"), To: ptr("2026-12-02T00:00:00.000000Z")}
 		f.body = nil
 		f.trailer = trailerLine{Kind: "trailer"}
-		cases = append(cases, tc{name: "empty-range", expect: FileEmpty, file: f})
+		cases = append(cases, exportCase{name: "empty-range", expect: FileEmpty, file: f})
 	}
+
+	cases = append(cases, e2Cases(cs)...)
 
 	out := make([]Export, 0, len(cases))
 	for _, c := range cases {
@@ -301,4 +333,111 @@ func exportCases(cs []ChainCase) ([]Export, error) {
 		out = append(out, Export{Name: c.name, Review: c.review, Expect: c.expect, Reason: c.reason, LineOutcomes: lo, JSONL: lines})
 	}
 	return out, nil
+}
+
+// stubsFalseHonest is a stubs=false export of seq 1..7 filtered to
+// entity_definition (seq 1 and 4): the excluded entries, the tail included,
+// are left out and the trailer honestly says verifiable: false.
+func stubsFalseHonest(cs []ChainCase) exportFile {
+	f := rangeExport(cs, filterBlock{SubjectType: ptr("entity_definition")},
+		func(c ChainCase) bool { return c.Envelope.SubjectType == "entity_definition" })
+	withoutStubs(&f)
+	f.header.Stubs = false
+	f.trailer.Verifiable = false
+	return f
+}
+
+// withoutStubs turns a stubs=true export into what stubs=false sends: the
+// stub lines are left out and stub_count is 0.
+func withoutStubs(f *exportFile) {
+	kept := f.body[:0]
+	for _, l := range f.body {
+		if _, stub := l.(stubLine); !stub {
+			kept = append(kept, l)
+		}
+	}
+	f.body = kept
+	f.trailer.StubCount = 0
+}
+
+// e2Cases are the ten export vectors of ADR-004-E2 ("What the vectors should
+// say"): the header's stubs is the request, only the trailer's verifiable
+// must equal the computed contiguity, a tail gap is a gap, and seq_missing
+// and anchor_mismatch are named. Ranges that end at seq 5 leave out seq 6 and
+// 7 (the erased entry and its audit/erase), so R24 does not fire first.
+func e2Cases(cs []ChainCase) []exportCase {
+	all := func(ChainCase) bool { return true }
+	none := func(ChainCase) bool { return false }
+	reason := func(s string) *string { return &s }
+	upTo5 := cs[:5]
+	var out []exportCase
+
+	{ // stubs=false, but the filter excluded nothing: contiguous, so verifiable.
+		f := rangeExport(cs, filterBlock{}, all)
+		f.header.Stubs = false
+		out = append(out, exportCase{name: "stubs-false-contiguous", review: "ADR-004-E2", expect: FilePass, file: f})
+	}
+	{ // stubs=false over 1..5; the window's upper bound excludes seq 5, the tail.
+		to := "2026-11-02T10:00:04.000000Z" // seq 5 occurred at 10:00:04.5
+		f := rangeExport(upTo5, filterBlock{To: &to}, func(c ChainCase) bool { return c.Seq != 5 })
+		withoutStubs(&f)
+		f.header.Stubs = false
+		f.trailer.Verifiable = false
+		out = append(out, exportCase{name: "stubs-false-tail-excluded", review: "ADR-004-E2", expect: FileUnverifiable, file: f})
+	}
+	{ // stubs-false-honest whose trailer claims the gapped range is verifiable.
+		f := stubsFalseHonest(cs)
+		f.trailer.Verifiable = true
+		out = append(out, exportCase{name: "stubs-false-gap-flagged-verifiable", review: "ADR-004-E2", expect: FileTampered,
+			reason: reason(ReasonVerifiableFlagMismatch), file: f})
+	}
+	{ // stubs=true over 1..5 with the seq 2 line deleted and the counts adjusted.
+		f := rangeExport(upTo5, filterBlock{}, all)
+		f.drop(2)
+		out = append(out, exportCase{name: "stubs-true-seq-missing", review: "ADR-004-E2", expect: FileTampered,
+			reason: reason(ReasonSeqMissing), lines: map[string]string{"3": LineTampered}, file: f})
+	}
+	{ // stubs=true over 1..5 with the seq 5 line (the tail) deleted.
+		f := rangeExport(upTo5, filterBlock{}, all)
+		f.drop(5)
+		out = append(out, exportCase{name: "stubs-true-tail-missing", review: "ADR-004-E2", expect: FileTampered,
+			reason: reason(ReasonSeqMissing), file: f})
+	}
+	{ // The header fixes the anchor at after_seq 2, but the file starts at genesis.
+		f := rangeExport(cs, filterBlock{AfterSeq: ptr(int64(2))}, all)
+		out = append(out, exportCase{name: "anchor-not-after-seq", review: "ADR-004-E2", expect: FileTampered,
+			reason: reason(ReasonAnchorMismatch), lines: map[string]string{"0": LineTampered}, file: f})
+	}
+	{ // No from bound fixes the anchor at genesis, but the file starts after seq 2.
+		f := windowExport(cs, 3, filterBlock{}, all)
+		out = append(out, exportCase{name: "anchor-not-genesis", review: "ADR-004-E2", expect: FileTampered,
+			reason: reason(ReasonAnchorMismatch), lines: map[string]string{"2": LineTampered}, file: f})
+	}
+	{ // stubs=false over 1..5 where no entry matched: the anchor and no range lines.
+		f := rangeExport(upTo5, filterBlock{SubjectType: ptr("erasure_request")}, none)
+		withoutStubs(&f)
+		f.header.Stubs = false
+		f.trailer.Verifiable = false
+		out = append(out, exportCase{name: "stubs-false-none-matched", review: "ADR-004-E2", expect: FileUnverifiable, file: f})
+	}
+	{ // stubs=true over 1..5 with every range line deleted.
+		f := rangeExport(upTo5, filterBlock{}, all)
+		f.drop(1, 2, 3, 4, 5)
+		out = append(out, exportCase{name: "stubs-true-all-missing", review: "ADR-004-E2", expect: FileTampered,
+			reason: reason(ReasonSeqMissing), file: f})
+	}
+	{ // stubs=false over 1..5, seq 2 excluded, and the trailer's head_hash forged.
+		// The last line is at last_seq, so its entry_hash is checked, gap or not.
+		// No filter member excludes seq 2 alone; the header filter is not
+		// checked offline, so the line is simply left out.
+		f := rangeExport(upTo5, filterBlock{}, func(c ChainCase) bool { return c.Seq != 2 })
+		withoutStubs(&f)
+		f.header.Stubs = false
+		f.trailer.Verifiable = false
+		forged := cs[3].EntryHash // seq 4's entry_hash, not seq 5's
+		f.trailer.HeadHash = &forged
+		out = append(out, exportCase{name: "stubs-false-gap-head-forged", review: "ADR-004-E2", expect: FileTampered,
+			reason: reason(ReasonHeadMismatch), file: f})
+	}
+	return out
 }
