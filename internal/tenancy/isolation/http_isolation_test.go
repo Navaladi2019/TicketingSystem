@@ -83,8 +83,10 @@ func newAPIRunner(t *testing.T) *apiRunner {
 	}
 	t.Cleanup(func() { _ = tel.Shutdown(context.Background()) })
 	resolver := realm.Resolver(t, pgstore.New(pool), OperatorSubject)
+	// WithPool turns the records routes and the Idempotency-Key store on, so
+	// a StoredUnderA call reaches the real create (P3-18).
 	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel, resolver, pgstore.New(pool),
-		server.WithOperator(resolver, refusingOnboarder{}))
+		server.WithOperator(resolver, refusingOnboarder{}), server.WithPool(pool))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,14 +161,18 @@ func (r *apiRunner) do(t *testing.T, c *HTTPCall) *httptest.ResponseRecorder {
 }
 
 // run passes a 200 whose body names tenant A and never tenant B. A call to a
-// route that does not exist yet (NoRoute) passes only on 404 or 405, which
-// proves just that tenant B was not reached. Anything else fails: a 401 means
-// the token was not honoured, and any other 4xx would hide a regression that
-// starts refusing the request.
+// route that does not exist yet (NoRoute) passes only on 404 or 405 with no
+// tenant B id in the body, which proves just that tenant B was not reached.
+// Anything else fails: a 401 means the token was not honoured, and any other
+// 4xx would hide a regression that starts refusing the request. A write is
+// checked by runStoredUnderA.
 func (r *apiRunner) run(t *testing.T, c *HTTPCall) (status, detail string) {
 	t.Helper()
 	if c.Token != nil {
 		return r.runShape(t, c)
+	}
+	if c.Expect == StoredUnderA {
+		return r.runStoredUnderA(t, c)
 	}
 	rec := r.do(t, c)
 	body := rec.Body.String()
@@ -174,10 +180,13 @@ func (r *apiRunner) run(t *testing.T, c *HTTPCall) (status, detail string) {
 	case rec.Code == http.StatusUnauthorized:
 		return statusFail, "401: the token for tenant A was not honoured, so this proves nothing: " + body
 	case c.NoRoute != "":
-		if rec.Code == http.StatusNotFound || rec.Code == http.StatusMethodNotAllowed {
-			return statusPass, fmt.Sprintf("%d (no route until %s), tenant B not reached", rec.Code, c.NoRoute)
+		if rec.Code != http.StatusNotFound && rec.Code != http.StatusMethodNotAllowed {
+			return statusFail, fmt.Sprintf("%d, want 404 or 405 until %s: %s", rec.Code, c.NoRoute, body)
 		}
-		return statusFail, fmt.Sprintf("%d, want 404 or 405 until %s: %s", rec.Code, c.NoRoute, body)
+		if strings.Contains(body, TenantB) {
+			return statusFail, fmt.Sprintf("%d with tenant B in the body: %s", rec.Code, body)
+		}
+		return statusPass, fmt.Sprintf("%d (no route until %s), tenant B not reached", rec.Code, c.NoRoute)
 	case rec.Code != http.StatusOK:
 		return statusFail, fmt.Sprintf("%d, want 200 for tenant A: %s", rec.Code, body)
 	case strings.Contains(body, TenantB):
@@ -232,4 +241,98 @@ func (r *apiRunner) runShape(t *testing.T, c *HTTPCall) (status, detail string) 
 		return statusFail, fmt.Sprintf("401, but the resolver gave %+v, %v; want %v (%s)", p, err, s.WantErr, s.WantReason)
 	}
 	return statusPass, fmt.Sprintf("401, refused: %s", s.WantReason)
+}
+
+// rowCounts is one tenant's records and audit_log row counts.
+type rowCounts struct{ records, audit int }
+
+// countRows reads tenant's counts on the superuser connection, past
+// row-level security, so a row misfiled under tenant cannot hide.
+func countRows(ctx context.Context, super *pgx.Conn, tenant string) (rowCounts, error) {
+	var n rowCounts
+	err := super.QueryRow(ctx, `SELECT (SELECT count(*) FROM records WHERE tenant_id = $1),
+		(SELECT count(*) FROM audit_log WHERE tenant_id = $1)`, tenant).Scan(&n.records, &n.audit)
+	return n, err
+}
+
+// runStoredUnderA runs a StoredUnderA write (P3-18, TICK-366). It passes the
+// create's own refusal (403, 404 or 422) that wrote nothing in either tenant, or a 201
+// whose record is filed under tenant A, with tenant B's counts unchanged both
+// ways. Every check reads as the superuser: a read as tenant A cannot see a
+// row misfiled under tenant B. A 5xx fails, so a crash cannot pass as a
+// refusal. The call's rows and its iso-ci2- idempotency keys are deleted
+// before it returns, so later paths see the seed unchanged.
+func (r *apiRunner) runStoredUnderA(t *testing.T, c *HTTPCall) (status, detail string) {
+	t.Helper()
+	ctx := t.Context()
+	super := suite.superConn(t)
+	defer func() {
+		if _, err := super.Exec(context.Background(), `DELETE FROM idempotency_keys WHERE key LIKE 'iso-ci2-%'`); err != nil {
+			t.Errorf("cleanup: %v", err)
+		}
+	}()
+	beforeA, err := countRows(ctx, super, TenantA)
+	if err != nil {
+		return statusFail, err.Error()
+	}
+	beforeB, err := countRows(ctx, super, TenantB)
+	if err != nil {
+		return statusFail, err.Error()
+	}
+	rec := r.do(t, c)
+	body := rec.Body.String()
+
+	var created struct {
+		ID string `json:"id"`
+	}
+	stored := "" // the tenant the created record is filed under
+	if rec.Code == http.StatusCreated {
+		if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil || created.ID == "" {
+			return statusFail, fmt.Sprintf("201 with no record id: %s", body)
+		}
+		defer func() {
+			for _, q := range []string{`DELETE FROM audit_log WHERE record_id = $1`, `DELETE FROM records WHERE id = $1`} {
+				if _, err := super.Exec(context.Background(), q, created.ID); err != nil {
+					t.Errorf("cleanup: %v", err)
+				}
+			}
+		}()
+		if err := super.QueryRow(ctx, `SELECT tenant_id::text FROM records WHERE id = $1`, created.ID).Scan(&stored); err != nil {
+			return statusFail, fmt.Sprintf("201, but record %s is not in records: %v", created.ID, err)
+		}
+	}
+	afterA, err := countRows(ctx, super, TenantA)
+	if err != nil {
+		return statusFail, err.Error()
+	}
+	afterB, err := countRows(ctx, super, TenantB)
+	if err != nil {
+		return statusFail, err.Error()
+	}
+
+	switch {
+	case afterB != beforeB:
+		return statusFail, fmt.Sprintf("%d, and tenant B's records and audit rows went from %+v to %+v: the write reached tenant B: %s",
+			rec.Code, beforeB, afterB, body)
+	case strings.Contains(body, TenantB):
+		return statusFail, fmt.Sprintf("%d with tenant B in the body: %s", rec.Code, body)
+	case rec.Code == http.StatusUnauthorized:
+		return statusFail, "401: the token for tenant A was not honoured, so this proves nothing: " + body
+	case rec.Code == http.StatusCreated:
+		if stored != TenantA {
+			return statusFail, fmt.Sprintf("201, record %s stored under tenant %s, want tenant A", created.ID, stored)
+		}
+		if afterA.records != beforeA.records+1 {
+			return statusFail, fmt.Sprintf("201, but tenant A's records went from %d to %d, want one more", beforeA.records, afterA.records)
+		}
+		return statusPass, fmt.Sprintf("201, stored under tenant A only; tenant B unchanged at %+v", afterB)
+	case rec.Code == http.StatusForbidden || rec.Code == http.StatusNotFound || rec.Code == http.StatusUnprocessableEntity:
+		if afterA != beforeA {
+			return statusFail, fmt.Sprintf("%d, but tenant A's records and audit rows went from %+v to %+v: a refusal must write nothing", rec.Code, beforeA, afterA)
+		}
+		return statusPass, fmt.Sprintf("%d, refused; nothing written, tenant B unchanged at %+v", rec.Code, afterB)
+	}
+	// 400, 409 and 429 come from the envelope, the Idempotency-Key store or
+	// the limiter, before the create reads the tenant: they prove nothing.
+	return statusFail, fmt.Sprintf("%d, want the create's own refusal (403, 404 or 422) or 201 under tenant A: %s", rec.Code, body)
 }
