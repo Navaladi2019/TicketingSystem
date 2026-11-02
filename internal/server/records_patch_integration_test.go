@@ -6,6 +6,7 @@
 package server_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 // patchSchema: short_description is required with no default, state is
@@ -357,5 +359,83 @@ func TestPatchRecordIgnoresCausationFromTheRequest(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), forged) {
 		t.Errorf("the response carries the request's causation origin: %s", rec.Body)
+	}
+}
+
+// A version published between the handler's read of the definition and the
+// pipeline's must not change how the response maps fixed columns (TICK-481, the
+// PATCH side of TICK-413). A lock on records parks the handler after its own
+// read; version 2 maps `assignee` to a column; the pipeline then writes under
+// version 2, and the 200 body has to show the column it wrote.
+func TestPatchResponseMapsUnderTheVersionThePipelineWrote(t *testing.T) {
+	e := newPatchEnv(t)
+	r := e.mustCreateRec(t, "user-a", "job", "race-c", `{"short_description": "one"}`)
+	if r.SchemaVersion != 1 {
+		t.Fatalf("created under schema version %d, want 1", r.SchemaVersion)
+	}
+	ctx := t.Context()
+	tx, err := e.super.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	released := false
+	release := func() {
+		if !released {
+			released = true
+			_ = tx.Rollback(context.Background())
+		}
+	}
+	defer release()
+	if _, err := tx.Exec(ctx, "LOCK TABLE records IN ACCESS EXCLUSIVE MODE"); err != nil {
+		t.Fatal(err)
+	}
+	assignee := e.a.user.PrincipalID.String()
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		done <- e.patch(t, "user-a", "job", r.ID, `W/"1"`, fmt.Sprintf(`{"data": {"assignee": %q}}`, assignee))
+	}()
+	// Wait until the handler is parked on the lock, i.e. after its read of
+	// version 1 and before the pipeline's.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		var waiting int
+		if err := e.pool.QueryRow(ctx, "SELECT count(*) FROM pg_locks WHERE NOT granted").Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the PATCH never waited on the records lock")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	v2 := strings.Replace(patchSchema, `"note": {"type": "string"}`,
+		`"note": {"type": "string"},
+    "assignee": {"type": "string", "format": "uuid"}`, 1)
+	body := fmt.Sprintf(`{"definition": {"schema": %s,
+  "fixed_columns": {"state": "state", "assignee": "assignee_id"},
+  "states": {"initial": "new", "states": ["new", "closed"], "transitions": [{"from": "new", "to": "closed"}]}}}`, v2)
+	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types/job/versions", "admin-a", "race-pub", body); rec.Code != http.StatusCreated {
+		release()
+		<-done
+		t.Fatalf("publish v2 = %d: %s", rec.Code, rec.Body)
+	}
+	release()
+	rec := <-done
+	if rec.Code != http.StatusOK {
+		t.Fatalf("patch = %d: %s", rec.Code, rec.Body)
+	}
+	var b recBody
+	if err := json.Unmarshal(rec.Body.Bytes(), &b); err != nil {
+		t.Fatal(err)
+	}
+	if b.SchemaVersion != 2 || b.Data["assignee"] != assignee {
+		t.Errorf("patch body = %+v, want schema_version 2 and the assignee read back from its column", b)
+	}
+	got := e.do(t, http.MethodGet, "/api/v1/records/job/"+r.ID, "user-a", "", "")
+	var g recBody
+	if err := json.Unmarshal(got.Body.Bytes(), &g); err != nil || g.Data["assignee"] != assignee {
+		t.Errorf("GET after the patch = %s (%v), want the same assignee", got.Body, err)
 	}
 }

@@ -86,7 +86,7 @@ func (h *handlers) PatchRecord(ctx context.Context, req api.PatchRecordRequestOb
 		stateProp string
 	)
 	err := tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) error {
-		cur, _, err := h.store.Current(ctx, tx, req.Entity)
+		cur, curVersion, err := h.store.Current(ctx, tx, req.Entity)
 		if err != nil {
 			return err
 		}
@@ -122,9 +122,14 @@ func (h *handlers) PatchRecord(ctx context.Context, req api.PatchRecordRequestOb
 		if rec, err = pipeline.Get(ctx, tx, p.TenantID, id); err != nil {
 			return err
 		}
-		// An update writes under the current version, so its mapping and
-		// defaults are the current ones.
-		data = cur.ApplyDefaults(rec.Payload(cur.FixedColumns()))
+		// The row was written under the version the pipeline read, which a
+		// publish since our own read may have moved (TICK-413): map it under
+		// that one, as create and GET do. Defaults stay the current ones.
+		fixed, err := h.fixedColumnsOf(ctx, tx, req.Entity, rec.SchemaVersion, curVersion, cur)
+		if err != nil {
+			return err
+		}
+		data = cur.ApplyDefaults(rec.Payload(fixed))
 		return nil
 	})
 	if err != nil {
