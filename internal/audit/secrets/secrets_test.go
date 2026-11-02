@@ -127,6 +127,11 @@ func TestCheckRejectsURLUserinfoSplitAcrossTokens(t *testing.T) {
 			`[{"op":"add","path":"/https:","value":{"":{"` + userinfo + `":1}}}]`, "/https:/"},
 		"deep after scheme": {
 			`[{"op":"add","path":"/a","value":{"see https:":{"":{"` + userinfo + `":{"b":1}}}}}]`, "/a/see https:/"},
+		// A key holding "/": the escaped pointer reads "https:~1/u:...", the
+		// unescaped one "https://u:...".
+		"escaped slash in path": {`[{"op":"add","path":"/https:~1/` + userinfo + `","value":1}]`, "/https:~1"},
+		"escaped slash in key": {
+			`[{"op":"add","path":"/a","value":{"https:/":{"` + userinfo + `":1}}}]`, "/a/https:~1"},
 	}
 	for name, c := range cases {
 		for _, d := range []Domain{DomainRecord, DomainConfig, DomainAudit} {
@@ -250,11 +255,26 @@ func FuzzCheckJoinedUserinfo(f *testing.F) {
 	f.Add("m/", 2)     // nested key
 	f.Add("", 3)       // path and key
 	f.Add("a/see ", 2) // deep after scheme
+	f.Add("", 4)       // escaped slash in path
+	f.Add("a/", 6)     // escaped slash in key
 	f.Fuzz(func(t *testing.T, prefix string, form int) {
 		if !utf8.ValidString(prefix) || strings.Contains(prefix, canary) {
 			t.Skip("not a diff, or the canary is in the prefix itself")
 		}
 		segs := strings.Split(prefix+"https://u:"+canary+"@h", "/")
+		if form&4 != 0 {
+			// Fold each empty token into the one before it as a "/", so a
+			// key holds the slash: "https:", "" becomes "https:/".
+			folded := segs[:1]
+			for _, s := range segs[1:] {
+				if s == "" {
+					folded[len(folded)-1] += "/"
+					continue
+				}
+				folded = append(folded, s)
+			}
+			segs = folded
+		}
 		var diff string
 		switch form & 3 {
 		case 0:
@@ -275,8 +295,10 @@ func FuzzCheckJoinedUserinfo(f *testing.F) {
 		}
 		for _, d := range []Domain{DomainRecord, DomainConfig, DomainAudit} {
 			err := Check([]byte(diff), nil, d)
+			// Past patchwalk.MaxDepth the walk fails closed with ErrMalformed;
+			// that rejects the diff too.
 			var se *ErrSecretInDiff
-			if !errors.As(err, &se) {
+			if !errors.As(err, &se) && !errors.Is(err, patchwalk.ErrMalformed) {
 				t.Fatalf("%s: userinfo let through: %s: %v", d, diff, err)
 			}
 			if strings.Contains(err.Error(), canary) {

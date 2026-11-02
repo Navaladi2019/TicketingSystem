@@ -31,6 +31,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"strings"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/patchwalk"
 )
@@ -177,23 +178,36 @@ func Check(diff []byte, secretPaths []patchwalk.Pointer, domain Domain) error {
 }
 
 // scanJoined scans the pointer text itself, so a URL split across tokens
-// ("/https://u:p@h" is "https:", "", "u:p@h") is caught. On a match it names
-// the parent of the token where the match ends. That parent never holds the
-// userinfo: the pattern allows no "/" between "://" and "@", and the pointer's
-// only raw "/" are token separators, so the userinfo sits in that one token.
-// The shapes hold no "/" either, so the same is true of them.
+// ("/https://u:p@h" is "https:", "", "u:p@h") is caught. It scans both the
+// escaped pointer and the unescaped join of its tokens, so a key holding a
+// "/" ("https:/" then "u:p@h", escaped "/https:~1/u:p@h") is caught too.
+//
+// On a match it names the parent of the token where the match ends. That
+// parent never holds the userinfo: the pattern allows no "/" between "://" and
+// "@", and in either text the "/" nearest before the "@" is at or after the
+// start of that token. The shapes hold no "/" either, so the same is true of
+// them.
 func scanJoined(ptr patchwalk.Pointer, shapes bool) (patchwalk.Pointer, Reason, bool) {
-	if _, bad := scan(string(ptr), shapes); !bad {
+	segs := ptr.Segments()
+	both := func(segs []string) (Reason, bool) {
+		if r, bad := scan(string(patchwalk.FromSegments(segs)), shapes); bad {
+			return r, true
+		}
+		if len(segs) == 0 {
+			return "", false
+		}
+		return scan("/"+strings.Join(segs, "/"), shapes)
+	}
+	if _, bad := both(segs); !bad {
 		return "", "", false
 	}
-	segs := ptr.Segments()
 	for i := range segs {
-		if r, bad := scan(string(patchwalk.FromSegments(segs[:i+1])), shapes); bad {
+		if r, bad := both(segs[:i+1]); bad {
 			return patchwalk.FromSegments(segs[:i]), r, true
 		}
 	}
 	// Unreachable: the full prefix is ptr itself. Fail closed at the root.
-	r, _ := scan(string(ptr), shapes)
+	r, _ := both(segs)
 	return "", r, true
 }
 
