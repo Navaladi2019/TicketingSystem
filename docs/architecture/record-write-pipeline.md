@@ -4,7 +4,7 @@ Scope: TICK-354, TICK-355. PLAN-003 D-3-2, D-3-6, D-3-7a, D-3-9, D-3-10,
 D-3-13, D-3-14, D-3-22; ADR-001 I4, I8, I9. Code: `internal/records/pipeline` (the one entry point),
 `internal/records/store` (its SQL), `outbox.EnqueueAtVersion`,
 `authz.TenantMemberAuthorizer`, `tenancy.TenantOf`. Tables:
-[`platform-tables.md`](../data/platform-tables.md#records-pipeline-records-audit_log-record_counters-p3-09).
+[`platform-tables.md`](../data/platform-tables.md#records-pipeline-records-audit_log_v0-record_counters-p3-09).
 
 `pipeline.Write(ctx, tx, cmd)` is the only way to create or update a record.
 It runs in the caller's `tenancy.InTenantTx` transaction and never commits:
@@ -28,7 +28,7 @@ flowchart TD
     U --> I[split fixed columns out of data]
     I --> N[create: record_counters upsert<br/>RETURNING next - 1]
     N --> J[INSERT, or UPDATE ... version = version + 1<br/>WHERE tenant_id, id, version = expected]
-    J --> K[one audit_log row<br/>idempotency key on it]
+    J --> K[one audit_log_v0 row<br/>idempotency key on it]
     K --> L[EventSink.RecordChanged in tx]
     L --> M[Result]
 ```
@@ -64,7 +64,7 @@ flowchart TD
   row's `after` and writes nothing. A hit for any other write is
   `*ErrIdempotencyConflict` (P3-14 maps it to 409, as PLAN-001 T22 does for a
   different body). A concurrent duplicate hits `23505` on
-  `audit_log_idempotency_key`, which aborts the transaction: `Write` returns
+  `audit_log_v0_idempotency_key`, which aborts the transaction: `Write` returns
   `*ErrIdempotencyConflict{Concurrent: true}`, and the retry replays.
 - **Numbering (D-3-9).** A create takes its number with one upsert,
   `INSERT INTO record_counters ... VALUES (..., 2) ON CONFLICT ... DO UPDATE

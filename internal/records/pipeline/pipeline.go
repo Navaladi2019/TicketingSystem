@@ -59,7 +59,7 @@ const (
 	OpUpdate
 )
 
-// String is the audit_log action of the write.
+// String is the audit_log_v0 action of the write.
 func (o Op) String() string {
 	switch o {
 	case OpCreate:
@@ -71,10 +71,10 @@ func (o Op) String() string {
 	}
 }
 
-// Source is who made the write (audit_log.source).
+// Source is who made the write (audit_log_v0.source).
 type Source string
 
-// The sources audit_log_source_check allows.
+// The sources audit_log_v0_source_check allows.
 const (
 	SourceUser     Source = "user"
 	SourceRule     Source = "rule"
@@ -191,7 +191,7 @@ func (r PoolRunner) InTenantTx(ctx context.Context, tenantID uuid.UUID, fn func(
 	return tenancy.InTenantTx(ctx, r.Pool, tenantID, fn)
 }
 
-// Clock gives the time written to updated_at and audit_log.at.
+// Clock gives the time written to updated_at and audit_log_v0.at.
 type Clock interface{ Now() time.Time }
 
 // SystemClock is the wall clock.
@@ -482,7 +482,7 @@ func (p *Pipeline) rejectTooDeep(ctx context.Context, tenant uuid.UUID, cmd Comm
 // attempt. c must be the unclaimed result of cascade.ClaimStart; ev is the
 // write the EventSink was told about, and names the writer. The row lives
 // here, not in internal/records/cascade, because only the pipeline writes
-// audit_log (D-3-6).
+// audit_log_v0 (D-3-6).
 func AuditSuppressed(ctx context.Context, tx pgx.Tx, c cascade.Claim, ev Event, at time.Time) error {
 	if c.Claimed() || c.RecordID() == uuid.Nil {
 		return fmt.Errorf("%w: only an unclaimed start is audited as suppressed", cascade.ErrInvalidKey)

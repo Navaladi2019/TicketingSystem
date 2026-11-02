@@ -390,7 +390,13 @@ deferred constraint on both inserts) for a value only `nava_app`'s publish
 path moves; the service layer publishes the version and moves
 `current_version` in one transaction.
 
-## Records pipeline: records, audit_log, record_counters (P3-09)
+## Records pipeline: records, audit_log_v0, record_counters (P3-09)
+
+P5-10a (TICK-427, PLAN-005 D-5-1) renamed S9's `audit_log` and its
+constraints, indexes and policies to `audit_log_v0*`
+(`db/migrations/20261102130000_audit_log_v0.sql`), freeing the name for
+ADR-004's `audit_log`. The bench figures below were measured before the
+rename, under the old names; a rename changes no storage or plan.
 
 Scope: TICK-353, PLAN-003 D-3-2, D-3-9, D-3-13; ADR-001 I1, I8, I9 (groomed
 on TICK-360, TICK-363). Migration
@@ -406,7 +412,7 @@ erDiagram
     entity_definitions |o--o{ records : "(tenant_id, entity_definition_id)"
     principals |o--o{ records : "(tenant_id, requester_id / assignee_id / created_by)"
     groups |o--o{ records : "(tenant_id, assignment_group_id), ON DELETE SET NULL"
-    records |o--o{ audit_log : "(tenant_id, record_id)"
+    records |o--o{ audit_log_v0 : "(tenant_id, record_id)"
     entity_definitions ||--o| record_counters : "(tenant_id, entity_definition_id)"
 
     records {
@@ -427,7 +433,7 @@ erDiagram
         uuid causation_origin_id
         smallint causation_depth ">= 0"
     }
-    audit_log {
+    audit_log_v0 {
         uuid tenant_id PK
         uuid id PK "UUIDv7"
         uuid record_id "FK, NULL when no record"
@@ -461,7 +467,7 @@ erDiagram
   column but `tenant_id`, `id`, `entity_definition_id`, `number`, `created_by`
   and `created_at`, so a record's number cannot be rewritten (`42501`, CI-4
   pins the column grants). Nobody holds `DELETE` on any of the three tables.
-- **Append-only audit.** `audit_log` is `INSERT, SELECT` only, with no
+- **Append-only audit.** `audit_log_v0` is `INSERT, SELECT` only, with no
   `UPDATE` or `DELETE` policy. `record_id` is NULL only for a row with no
   record to name (`cascade_rejected` on a create). `actor_id` has no foreign
   key: a system actor names no principal, and an id without a foreign key
@@ -495,7 +501,7 @@ erDiagram
   it on a fresh cluster. PgBouncer's server connections log in as `nava_app`,
   so pooled sessions get it too. No JSONB operator is ever marked `LEAKPROOF`.
 
-| Role | `records` | `audit_log` | `record_counters` |
+| Role | `records` | `audit_log_v0` | `record_counters` |
 | --- | --- | --- | --- |
 | `nava_app`, `nava_worker` | SELECT, INSERT, UPDATE (all but the set-once columns) | SELECT, INSERT | SELECT, INSERT, UPDATE (`next`) |
 | `nava_relay` | none (CI-9) | none | none |
@@ -528,8 +534,8 @@ record, the first keyed):
 
 | Query | Plan | Buffers | Execution |
 | --- | --- | --- | --- |
-| A record's history, `ORDER BY at, id` | Index Scan `audit_log_record` | 5 read | 0.056 ms |
-| Replay lookup by idempotency key (D-3-13) | Index Scan `audit_log_idempotency_key` | 1 hit, 3 read | 0.039 ms |
+| A record's history, `ORDER BY at, id` | Index Scan `audit_log_v0_record` | 5 read | 0.056 ms |
+| Replay lookup by idempotency key (D-3-13) | Index Scan `audit_log_v0_idempotency_key` | 1 hit, 3 read | 0.039 ms |
 | Counter upsert (D-3-9), conflicting row | Arbiter `record_counters_pkey`, UPDATE | 9 hit | 0.069 ms |
 | The `SET NULL` action for one deleted group, 4,000-record tenant | Bitmap Index Scan `records_pkey` on `tenant_id`, filter on the group, 200 rows updated | 4,529 hit, 3,924 read | 27.6 ms |
 | `DELETE FROM groups` for one group, as group sync issues it (warm) | the delete plus the action above | | 9.3 ms |
@@ -544,10 +550,10 @@ record, the first keyed):
 | `records_tenant_updated` | 80 MB |
 | `records_tenant_requester` | 79 MB |
 | `records_tenant_group_open` | 19 MB (open rows only) |
-| `audit_log` heap | 481 MB |
-| `audit_log_pkey` | 247 MB |
-| `audit_log_record` | 390 MB |
-| `audit_log_idempotency_key` | 84 MB (keyed rows only) |
+| `audit_log_v0` heap | 481 MB |
+| `audit_log_v0_pkey` | 247 MB |
+| `audit_log_v0_record` | 390 MB |
+| `audit_log_v0_idempotency_key` | 84 MB (keyed rows only) |
 | `record_counters` | 16 kB |
 
 A record insert writes five index entries (four for a closed record). Every

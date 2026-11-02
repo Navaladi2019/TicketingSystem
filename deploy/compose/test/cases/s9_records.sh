@@ -64,13 +64,13 @@ if [ "$fresh_a" = 1 ]; then
 fi
 
 bad=$(psql_super nava "SELECT (SELECT count(*) FROM records WHERE tenant_id = '$A' AND data::text LIKE '%S9 $run invalid%')
-    || '|' || (SELECT count(*) FROM audit_log WHERE tenant_id = '$A'
+    || '|' || (SELECT count(*) FROM audit_log_v0 WHERE tenant_id = '$A'
                AND (coalesce(after::text, '') LIKE '%S9 $run invalid%' OR coalesce(before::text, '') LIKE '%S9 $run invalid%'))" | tr -d '\r ')
 [ "$bad" = "0|0" ] || fail "AC4: the refused create left records|audit rows: $bad"
 pass "AC4: the refused create stored no record and no history"
 
 hist=$(psql_super nava "SELECT string_agg(a.action || ',' || a.source || ',' || (a.actor_id = r.created_by)::text, ' ' ORDER BY a.at, a.id)
-    FROM audit_log a JOIN records r ON r.tenant_id = a.tenant_id AND r.id = a.record_id
+    FROM audit_log_v0 a JOIN records r ON r.tenant_id = a.tenant_id AND r.id = a.record_id
     WHERE r.tenant_id = '$A' AND r.number = '$first'
       AND r.entity_definition_id = (SELECT id FROM entity_definitions WHERE tenant_id = '$A' AND key = 'incident')" | tr -d '\r')
 [ "$hist" = "create,user,true update,user,true" ] || fail "AC3: audit rows of $first: want 'create,user,true update,user,true', got '$hist'"

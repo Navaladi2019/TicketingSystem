@@ -10,7 +10,7 @@
 #
 # The stack has no onboarding of tenant-a, so the script first seeds, as the
 # superuser, what the pipeline needs and nava_app cannot write: tenant-a's
-# tenants row (cascade_start, audit_log and entity_definitions have a foreign
+# tenants row (cascade_start, audit_log_v0 and entity_definitions have a foreign
 # key to it; TICK-416) and the demo entity type demo_note at version 1
 # (`demo-outbox seed-sql`, TICK-411). Both are idempotent. No Keycloak.
 # Usage: DEDUPE_KEY=<key> sh scripts/dev/demo-outbox.sh   (the stack is up)

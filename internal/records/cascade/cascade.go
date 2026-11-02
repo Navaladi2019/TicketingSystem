@@ -7,7 +7,7 @@
 // start cannot be enqueued without its key (A5-6). On a repeat the sink
 // enqueues nothing, calls pipeline.AuditSuppressed, and the write commits
 // (A5-4). This package writes no record table: the audit row goes through the
-// pipeline, the only writer of audit_log (PLAN-003 D-3-6).
+// pipeline, the only writer of audit_log_v0 (PLAN-003 D-3-6).
 //
 // The tenant, origin and depth of a claim are never arguments: ClaimStart
 // reads them from R's records row, which row-level security lets it see only
@@ -25,7 +25,7 @@ import (
 )
 
 // Audit actions and reasons of the cascade audit rows the pipeline writes
-// (audit_log.action; the reason is in the row's after, under DetailReason).
+// (audit_log_v0.action; the reason is in the row's after, under DetailReason).
 const (
 	// ActionCycle is a suppressed start (A5-4): the write committed and D
 	// did not start again on R under this origin.
