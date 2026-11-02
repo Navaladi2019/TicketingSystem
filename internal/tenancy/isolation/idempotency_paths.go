@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel/metric/noop"
 
@@ -347,6 +348,55 @@ SELECT (SELECT response_headers::text FROM idempotency_keys WHERE tenant_id = $1
 			}
 			return e.executed(2)
 		}),
+		// TICK-456: through PgBouncer every binary runs pgx in
+		// QueryExecModeExec, which sends a []byte parameter as bytea text;
+		// response_headers is jsonb and rejected it (22P02), so a response
+		// with ETag or Location was never stored, the key stayed in_flight and
+		// a retry after the lease ran the handler again. Store and replay a
+		// header-carrying response, and a header-less one (NULL), in that mode.
+		dbP(poolKind{exec: true}, "under QueryExecModeExec a response with ETag and Location is stored and replayed",
+			func(ctx context.Context, e *idemEnv) error {
+				h := e.handler(nil)
+				a := e.do(h, e.tenantA, e.principalA, "k-exec-headers", `{"a":1}`)
+				b := e.do(h, e.tenantA, e.principalA, "k-exec-headers", `{"a":1}`)
+				if a.Code != http.StatusCreated || b.Code != http.StatusCreated || b.Header().Get(idempotency.ReplayedHeader) != "true" {
+					return fmt.Errorf("first = %d, second = %d %s replayed=%q; want 201 then a replay (stored)",
+						a.Code, b.Code, bodyOf(b), b.Header().Get(idempotency.ReplayedHeader))
+				}
+				if !bytes.Equal(bodyBytes(b), bodyBytes(a)) {
+					return fmt.Errorf("replay body = %s, first = %s", bodyOf(b), bodyOf(a))
+				}
+				for _, k := range idempotency.ReplayHeaders() {
+					if got, want := b.Header().Get(k), a.Header().Get(k); got != want || want == "" {
+						return fmt.Errorf("replayed %s = %q, first response %q", k, got, want)
+					}
+				}
+				e1 := e.do(h, e.tenantA, e.principalA, "k-exec-headers-4xx", `{"fail":true}`)
+				e2 := e.do(h, e.tenantA, e.principalA, "k-exec-headers-4xx", `{"fail":true}`)
+				if e2.Code != e1.Code || e2.Header().Get(idempotency.ReplayedHeader) != "true" {
+					return fmt.Errorf("header-less problem = %d then %d replayed=%q, want a replay", e1.Code, e2.Code, e2.Header().Get(idempotency.ReplayedHeader))
+				}
+				conn, err := e.c.Super()
+				if err != nil {
+					return err
+				}
+				var etag, loc *string
+				var none *string
+				if err := conn.QueryRow(ctx, `
+SELECT (SELECT response_headers->>'ETag' FROM idempotency_keys WHERE tenant_id = $1 AND principal_id = $2 AND key = 'k-exec-headers'),
+       (SELECT response_headers->>'Location' FROM idempotency_keys WHERE tenant_id = $1 AND principal_id = $2 AND key = 'k-exec-headers'),
+       (SELECT response_headers::text FROM idempotency_keys WHERE tenant_id = $1 AND principal_id = $2 AND key = 'k-exec-headers-4xx')`,
+					e.tenantA, e.principalA).Scan(&etag, &loc, &none); err != nil {
+					return err
+				}
+				if etag == nil || *etag != a.Header().Get("ETag") || loc == nil || *loc != a.Header().Get("Location") || none != nil {
+					return fmt.Errorf("stored ETag %v Location %v, header-less row %v; want the first response's values and NULL", etag, loc, none)
+				}
+				if err := e.completed(ctx, "k-exec-headers", "k-exec-headers-4xx"); err != nil {
+					return err
+				}
+				return e.executed(2)
+			}),
 		// A row completed before response_headers existed (NULL) still
 		// replays, without the headers.
 		db("a completed row with no stored headers replays without them", func(ctx context.Context, e *idemEnv) error {
@@ -399,6 +449,7 @@ VALUES ($1, $2, $3, $4, 'completed', 201, '{"run":0}', now() + interval '1 day')
 type idemEnv struct {
 	c                Cluster
 	pool             *pgxpool.Pool
+	owned            *pgxpool.Pool // the exec-mode pool newIdemEnv opened, closed by cleanup
 	mw               *idempotency.Middleware
 	reg              *problem.Registry
 	tenantA, tenantB uuid.UUID
@@ -408,10 +459,14 @@ type idemEnv struct {
 
 // poolKind is the middleware's nava_app pool: the zero value is one
 // connection through PgBouncer; conns > 0 is that many connections, direct,
-// or through PgBouncer's one server connection when pooled.
+// or through PgBouncer's one server connection when pooled. exec switches the
+// pool to QueryExecModeExec, the mode every PgBouncer-fronted binary uses
+// (cmd/nava-core): pgx then sends each parameter in its Go type's text
+// format, with no server-described parameter types (TICK-456).
 type poolKind struct {
 	conns  int32
 	pooled bool
+	exec   bool
 }
 
 func newIdemEnv(c Cluster, pk poolKind) (*idemEnv, error) {
@@ -428,6 +483,15 @@ func newIdemEnv(c Cluster, pk poolKind) (*idemEnv, error) {
 	if err != nil {
 		return nil, err
 	}
+	var owned *pgxpool.Pool
+	if pk.exec {
+		cfg := pool.Config()
+		cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
+		if owned, err = pgxpool.NewWithConfig(context.Background(), cfg); err != nil {
+			return nil, err
+		}
+		pool = owned
+	}
 	data, err := api.Files.ReadFile("errors.yaml")
 	if err != nil {
 		return nil, err
@@ -438,9 +502,12 @@ func newIdemEnv(c Cluster, pk poolKind) (*idemEnv, error) {
 	}
 	mw, err := idempotency.New(pool, reg, slog.New(slog.DiscardHandler), noop.NewMeterProvider())
 	if err != nil {
+		if owned != nil {
+			owned.Close()
+		}
 		return nil, err
 	}
-	return &idemEnv{c: c, pool: pool, mw: mw, reg: reg, tenantA: uuid.New(), tenantB: uuid.New(), principalA: uuid.New()}, nil
+	return &idemEnv{c: c, pool: pool, owned: owned, mw: mw, reg: reg, tenantA: uuid.New(), tenantB: uuid.New(), principalA: uuid.New()}, nil
 }
 
 // handler is a write: 201 with a body that is unique per execution, or a 400
@@ -563,6 +630,9 @@ SELECT count(*) FROM pg_stat_activity WHERE usename = 'nava_app' AND wait_event_
 func (e *idemEnv) cleanup(ctx context.Context) {
 	if conn, err := e.c.Super(); err == nil {
 		_, _ = conn.Exec(ctx, `DELETE FROM idempotency_keys WHERE tenant_id = ANY($1)`, []uuid.UUID{e.tenantA, e.tenantB})
+	}
+	if e.owned != nil {
+		e.owned.Close()
 	}
 }
 
