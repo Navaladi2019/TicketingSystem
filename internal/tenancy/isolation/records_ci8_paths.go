@@ -92,6 +92,12 @@ func ci8Setup(ctx context.Context, e *etIso) (*ci8Fixture, error) {
 	if err := e.super.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE record_id = $1`, a).Scan(&fx.audits); err != nil {
 		return nil, err
 	}
+	// The create and the patch to version 2 each audit once. Without this, a
+	// pipeline that stopped auditing would leave 0 and "no new audit row"
+	// below would pass without testing anything.
+	if fx.audits != 2 {
+		return nil, fmt.Errorf("control: tenant A's record has %d audit rows after its create and one patch, want 2", fx.audits)
+	}
 	return fx, nil
 }
 
@@ -193,7 +199,16 @@ func ci8Unchanged(ctx context.Context, e *etIso, fx *ci8Fixture) error {
 		note string
 		n    int
 	)
-	if err := e.super.QueryRow(ctx, `SELECT version, coalesce(data->>'note', '') FROM records WHERE id = $1`, fx.a).Scan(&v, &note); err != nil {
+	// One row with this id in any tenant, and it is tenant A's: a forged
+	// write cannot have filed a second copy elsewhere.
+	if err := e.super.QueryRow(ctx, `SELECT count(*) FROM records WHERE id = $1`, fx.a).Scan(&n); err != nil {
+		return err
+	}
+	if n != 1 {
+		return fmt.Errorf("%d records have tenant A's record's id across all tenants, want 1", n)
+	}
+	if err := e.super.QueryRow(ctx, `SELECT version, coalesce(data->>'note', '') FROM records WHERE tenant_id = $1 AND id = $2`,
+		TenantA, fx.a).Scan(&v, &note); err != nil {
 		return err
 	}
 	if err := e.super.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE record_id = $1`, fx.a).Scan(&n); err != nil {
