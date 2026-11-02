@@ -123,11 +123,13 @@ approve_id() {
 	sed -n 's/.*"signal:approve": *"\([0-9a-f-]*\)".*/\1/p' "$FIXTURE/fixture-v1.ids.json"
 }
 
-# seed_record <record>: the record's row, with the depth-0 causation the
-# write pipeline stores on a person's create (ADR-001 A5-3), so ClaimStart can
-# key its start. A seed, as the superuser: cmd/demo-interpreter writes no
-# record table (PLAN-003 D-3-6). A rerun keeps the row and its origin.
+# seed_record <record>: the tenant's tenants row (cascade_start has a foreign
+# key to it), and the record's row with the depth-0 causation the write
+# pipeline stores on a person's create (ADR-001 A5-3), so ClaimStart can key
+# its start. A seed, as the superuser: cmd/demo-interpreter writes no tenants
+# or record table (PLAN-003 D-3-6). A rerun keeps both rows and the origin.
 seed_record() {
+	printf "INSERT INTO tenants (id, state) VALUES ('%s', 'active') ON CONFLICT DO NOTHING;\n" "$TENANT_ID" | psql_q
 	printf "INSERT INTO records (tenant_id, id, causation_origin_id, causation_depth) VALUES ('%s', '%s', gen_random_uuid(), 0) ON CONFLICT DO NOTHING;\n" \
 		"$TENANT_ID" "$1" | psql_q
 }
