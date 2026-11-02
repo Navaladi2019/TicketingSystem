@@ -22,6 +22,8 @@ deciders: Solution Architect (author, verdict); Technical Architect (rev 1 criti
 >
 > **Changelog rev 1 → rev 2.** (1) Step 6: `last_seq` must be after the anchor; zero range lines is a tail gap, not `head_mismatch`; the head hash is checked whenever the last line is at `last_seq`, gaps or not. (2) Outcome table: a "no line matched" row and two forged-head rows. (3) §3 range text qualified for `stubs=false`; a window with entries but no match is not `empty`. (4) §4.1 `head_mismatch` and `seq_missing` rows widened. (5) Three more vectors (ten in all). (6) Residual-risk note on tail truncation. (7) Exporter test for the no-match window.
 >
+> **Editorial note, 2026-11-02 (after acceptance).** The §3 trailer row for `last_seq` is added to the replacement text: it is the head read at the start, never the last line written. It aligns a stale parenthesis with steps 3, 6 and 8 and changes no rule (Technical Architect, TICK-464 comment 01a19b40).
+>
 > **Invariants source.** The project description defines no invariants. As in ADR-004, this is checked against [[ADR-001-platform-blueprint]] §1 I1–I9; the invariant check is incomplete against any separate list of eight.
 
 ## Decision
@@ -108,6 +110,10 @@ These are the normative words. The follow-up tasks apply them to `docs/api/audit
 > `true` when the range is non-empty and every `seq` in `anchor_seq+1..last_seq` has a line (`count + stub_count = last_seq − anchor_seq`); otherwise `false`. The exporter computes it while streaming. A `stubs=false` export whose filter excluded nothing in the range is `verifiable: true`.
 
 Add under the `header` heading: *`stubs` is the request as received; it is not a statement about the range.*
+
+**§3, trailer table, `last_seq`** (editorial note, 2026-11-02, Technical Architect review of TICK-466 / PR #379; it aligns a stale parenthesis with steps 3, 6 and 8 above and changes no rule):
+
+> | `last_seq` | the head `seq` read at the start, never the last line written. With `stubs=true` it is the `seq` of the last range line; with `stubs=false` the last range line may be below it, or there may be none (§4 step 6). |
 
 **§3 range and anchor**, the bullet "Every `seq` in `first_seq..last_seq` then appears exactly once, ascending" reads:
 

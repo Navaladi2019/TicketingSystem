@@ -108,6 +108,9 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 </table>
 <p>With the change, all existing audit tests and every shared example still pass.</p>
 
+<h2>Editorial note (after acceptance)</h2>
+<p>One line of the format description still said the closing line's <code>last_seq</code> is the number of the last entry written. That is only true when stubs were asked for. The note makes it say what the rest of the decision already says: <code>last_seq</code> is the newest entry in the log when the export started, whatever was written. An exporter that copied the last written number would make a file with a cut-off end look complete. No rule changes.</p>
+
 <h2>What happens next</h2>
 <p><strong>Accepted on 2026-11-02.</strong> The Technical Architect re-checked revision 2 independently, found no remaining objections and recommended acceptance. Nothing was contested, so the CTO did not need to break a tie, and the Solution Architect accepted it. The Technical Lead now creates three tasks (spec and examples, checker, exporter note). This must land before the exporter (TICK-444) and TICK-447 merge; it does not block the checker's own merge (TICK-425).</p>
 
