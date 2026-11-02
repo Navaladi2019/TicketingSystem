@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -363,11 +364,15 @@ func TestPatchRecordIgnoresCausationFromTheRequest(t *testing.T) {
 }
 
 // A version published between the handler's read of the definition and the
-// pipeline's must not change how the response maps fixed columns (TICK-481, the
-// PATCH side of TICK-413). A lock on records parks the handler after its own
-// read; version 2 maps `assignee` to a column; the pipeline then writes under
-// version 2, and the 200 body has to show the column it wrote.
-func TestPatchResponseMapsUnderTheVersionThePipelineWrote(t *testing.T) {
+// pipeline's: a lock on records parks the PATCH after the handler's read, a
+// compatible version 2 is published, and the pipeline writes under it. The 200
+// body must say schema_version 2 and equal what GET returns.
+//
+// This does not tell the old `cur.FixedColumns()` response from the new
+// fixedColumnsOf one: publish refuses every change to fixed_columns as
+// Breaking, so two versions of an entity never differ in their mapping
+// (TICK-481). It checks the flow and the body's consistency only.
+func TestPatchResponseAfterAVersionPublishedMidRequest(t *testing.T) {
 	e := newPatchEnv(t)
 	r := e.mustCreateRec(t, "user-a", "job", "race-c", `{"short_description": "one"}`)
 	if r.SchemaVersion != 1 {
@@ -389,53 +394,61 @@ func TestPatchResponseMapsUnderTheVersionThePipelineWrote(t *testing.T) {
 	if _, err := tx.Exec(ctx, "LOCK TABLE records IN ACCESS EXCLUSIVE MODE"); err != nil {
 		t.Fatal(err)
 	}
-	assignee := e.a.user.PrincipalID.String()
-	done := make(chan *httptest.ResponseRecorder, 1)
+	// The request is built here; the goroutine only serves it.
+	req := httptest.NewRequestWithContext(ctx, http.MethodPatch, "/api/v1/records/job/"+r.ID, strings.NewReader(`{"data": {"note": "n"}}`))
+	req.Header.Set("Authorization", "Bearer user-a")
+	req.Header.Set("Content-Type", "application/merge-patch+json")
+	req.Header.Set("Idempotency-Key", "race-patch")
+	req.Header.Set("If-Match", `W/"1"`)
+	rec := httptest.NewRecorder()
+	done := make(chan struct{})
 	go func() {
-		done <- e.patch(t, "user-a", "job", r.ID, `W/"1"`, fmt.Sprintf(`{"data": {"assignee": %q}}`, assignee))
+		defer close(done)
+		e.h.ServeHTTP(rec, req)
 	}()
-	// Wait until the handler is parked on the lock, i.e. after its read of
-	// version 1 and before the pipeline's.
+	// Wait until a backend waits on the records lock: the handler has read
+	// version 1 and the pipeline has not read anything yet.
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		var waiting int
-		if err := e.pool.QueryRow(ctx, "SELECT count(*) FROM pg_locks WHERE NOT granted").Scan(&waiting); err != nil {
+		if err := e.pool.QueryRow(ctx, "SELECT count(*) FROM pg_locks WHERE NOT granted AND relation = 'public.records'::regclass").Scan(&waiting); err != nil {
 			t.Fatal(err)
 		}
 		if waiting > 0 {
 			break
 		}
 		if time.Now().After(deadline) {
+			release()
+			<-done
 			t.Fatal("the PATCH never waited on the records lock")
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
 	v2 := strings.Replace(patchSchema, `"note": {"type": "string"}`,
 		`"note": {"type": "string"},
-    "assignee": {"type": "string", "format": "uuid"}`, 1)
+    "extra": {"type": "string"}`, 1)
 	body := fmt.Sprintf(`{"definition": {"schema": %s,
-  "fixed_columns": {"state": "state", "assignee": "assignee_id"},
+  "fixed_columns": {"state": "state"},
   "states": {"initial": "new", "states": ["new", "closed"], "transitions": [{"from": "new", "to": "closed"}]}}}`, v2)
-	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types/job/versions", "admin-a", "race-pub", body); rec.Code != http.StatusCreated {
+	if pub := e.do(t, http.MethodPost, "/api/v1/entity-types/job/versions", "admin-a", "race-pub", body); pub.Code != http.StatusCreated {
 		release()
 		<-done
-		t.Fatalf("publish v2 = %d: %s", rec.Code, rec.Body)
+		t.Fatalf("publish v2 = %d: %s", pub.Code, pub.Body)
 	}
 	release()
-	rec := <-done
+	<-done
 	if rec.Code != http.StatusOK {
 		t.Fatalf("patch = %d: %s", rec.Code, rec.Body)
 	}
-	var b recBody
+	var b, g recBody
 	if err := json.Unmarshal(rec.Body.Bytes(), &b); err != nil {
 		t.Fatal(err)
 	}
-	if b.SchemaVersion != 2 || b.Data["assignee"] != assignee {
-		t.Errorf("patch body = %+v, want schema_version 2 and the assignee read back from its column", b)
-	}
 	got := e.do(t, http.MethodGet, "/api/v1/records/job/"+r.ID, "user-a", "", "")
-	var g recBody
-	if err := json.Unmarshal(got.Body.Bytes(), &g); err != nil || g.Data["assignee"] != assignee {
-		t.Errorf("GET after the patch = %s (%v), want the same assignee", got.Body, err)
+	if err := json.Unmarshal(got.Body.Bytes(), &g); err != nil {
+		t.Fatal(err)
+	}
+	if b.SchemaVersion != 2 || !reflect.DeepEqual(b.Data, g.Data) || b.Data["note"] != "n" {
+		t.Errorf("patch body = %+v, GET body = %+v, want schema_version 2 and equal data", b, g)
 	}
 }

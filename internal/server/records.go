@@ -169,10 +169,14 @@ func (h *handlers) GetRecord(ctx context.Context, req api.GetRecordRequestObject
 // fixedColumnsOf is the fixed-column mapping of the version a row was written
 // under. It reads that version only when it is not the current one.
 func (h *handlers) fixedColumnsOf(ctx context.Context, tx pgx.Tx, entity string, version, curVersion int, cur *metadata.Compiled) (map[string]string, error) {
+	return fixedColumnsUnder(ctx, tx, h.store, entity, version, curVersion, cur)
+}
+
+func fixedColumnsUnder(ctx context.Context, tx pgx.Tx, defs entitytypes.DefinitionReader, entity string, version, curVersion int, cur *metadata.Compiled) (map[string]string, error) {
 	if version == curVersion {
 		return cur.FixedColumns(), nil
 	}
-	stored, err := h.store.Version(ctx, tx, entity, version)
+	stored, err := defs.Version(ctx, tx, entity, version)
 	if err != nil {
 		return nil, fmt.Errorf("read stored definition: %w", err)
 	}
