@@ -76,7 +76,7 @@ func TestP518RequireAuditPermission(t *testing.T) {
 			}
 		}
 	}
-	// A tenant with no rows at all denies even its admin-looking group.
+	// With no auditor row, the auditors group is denied.
 	exec(t, super, "DELETE FROM tenant_auditor_group WHERE tenant_id = $1", tenantA)
 	if err := check(tenantA, p(a, auditors), authz.PermAuditRead); !errors.Is(err, authz.ErrForbidden) {
 		t.Errorf("missing row: %v", err)
