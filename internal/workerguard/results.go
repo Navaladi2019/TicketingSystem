@@ -41,10 +41,15 @@ const sideEffectDenied = "\x00nava.TenantGuard: side effect withheld"
 
 // resultOK reports whether an activity, workflow or update result may be
 // recorded: nil (or a nil value, which encodes as null), or a value argOK
-// accepts.
-func resultOK(v any) bool {
+// accepts. With directive set (the result of an activity, not a local one),
+// a Directive is accepted too if directiveOK passes its encoding; without it a
+// Directive falls to the generic rule and fails, since its kind is not a UUID.
+func resultOK(v any, directive bool) bool {
 	if v == nil {
 		return true
+	}
+	if directive && isDirective(v) {
+		return directiveResultOK(v)
 	}
 	// Already encoded, as the SDK test environment hands a local activity's
 	// result: each payload is checked as recorded, by the generic rule.
@@ -103,7 +108,14 @@ func sideEffectValueOK(v any) bool {
 // recorded as is. Their messages are constants or ids (review rule, TICK-245):
 // add a type here only with that review.
 func failureTypeAllowed(t string) bool {
-	return t == ErrTypeTenantGuard || t == ErrTypeWorkflowRef
+	return t == ErrTypeTenantGuard || t == ErrTypeWorkflowRef || t == ErrTypeWorkflowRejected
+}
+
+// failureMessageAllowed: an allowed type keeps its message, except that an
+// ErrTypeWorkflowRejected failure keeps only a message Rejected writes
+// (P3-22a), so one built outside Rejected with other text is withheld.
+func failureMessageAllowed(app *temporal.ApplicationError) bool {
+	return app.Type() != ErrTypeWorkflowRejected || rejectionMessageOK(app.Message())
 }
 
 // passesUnchanged: async completion, and the wrappers of an activity or child
@@ -161,7 +173,7 @@ func recordable(err error) (changed bool, out error) {
 		return true, temporal.NewTimeoutError(e.TimeoutType(), cause, kept...)
 	}
 	app, isApp := err.(*temporal.ApplicationError) //nolint:errorlint // the top level is what the SDK records
-	if isApp && failureTypeAllowed(app.Type()) && app.Unwrap() == nil {
+	if isApp && failureTypeAllowed(app.Type()) && failureMessageAllowed(app) && app.Unwrap() == nil {
 		kept, dropped := checkedDetails(app.HasDetails(), app.Details)
 		if !dropped {
 			return false, err
@@ -253,7 +265,7 @@ func (r *recorder) workflowOutcome(ctx workflow.Context, resultGuard, failureGua
 		return nil, out
 	}
 	outcome := check(func() string {
-		if resultOK(result) {
+		if resultOK(result, false) {
 			return outcomeAllow
 		}
 		return outcomeRecordData
@@ -269,8 +281,11 @@ func (r *recorder) workflowOutcome(ctx workflow.Context, resultGuard, failureGua
 
 // activityOutcome is workflowOutcome for an activity or local activity. A
 // panic is recovered by the caller and arrives here as activityPanic, so its
-// value and stack never reach the history.
-func (r *recorder) activityOutcome(result any, err error, attrs ...slog.Attr) (any, error) {
+// value and stack never reach the history. A Directive result is accepted only
+// when directive is set, which directiveAllowed sets for the regular (never
+// local) DirectiveActivity alone (P3-26, D-P10 regression guard, TICK-367):
+// any other activity that returns a Directive has it withheld.
+func (r *recorder) activityOutcome(result any, err error, directive bool, attrs ...slog.Attr) (any, error) {
 	if err != nil {
 		changed, out := recordable(err)
 		if changed {
@@ -280,7 +295,7 @@ func (r *recorder) activityOutcome(result any, err error, attrs ...slog.Attr) (a
 		return nil, out
 	}
 	if check(func() string {
-		if resultOK(result) {
+		if resultOK(result, directive) {
 			return outcomeAllow
 		}
 		return outcomeRecordData

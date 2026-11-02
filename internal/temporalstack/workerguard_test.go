@@ -46,7 +46,8 @@ type guardedRefs struct {
 	Applied []string `json:"applied,omitempty"`
 }
 
-// guardedWorkflow is registered as the allow-listed nava.smoke.Echo.
+// guardedWorkflow is registered as the allow-listed platform type. It calls
+// no NextStep activity, so the Directive rule (TICK-386) never applies to it.
 //   - "leaf", or no mode in a first run (a child), completes;
 //   - "child-helper" starts a "leaf" child named with ChildWorkflowID;
 //   - "child-default" starts one with the SDK's default id;
@@ -73,7 +74,7 @@ func guardedWorkflow(ctx workflow.Context, in guardedInput) (guardedRefs, error)
 			}
 			opts.WorkflowID = id
 		}
-		return guardedRefs{}, workflow.ExecuteChildWorkflow(workflow.WithChildOptions(ctx, opts), echoType).Get(ctx, nil)
+		return guardedRefs{}, workflow.ExecuteChildWorkflow(workflow.WithChildOptions(ctx, opts), platformType).Get(ctx, nil)
 	case "signals":
 		return guardedSignals(ctx, in.RunInput)
 	}
@@ -116,7 +117,7 @@ func guardedSignals(ctx workflow.Context, in workerguard.RunInput) (guardedRefs,
 				return guardedRefs{}, err
 			}
 			in.Refs = b
-			return guardedRefs{}, workflow.NewContinueAsNewError(ctx, echoType, in)
+			return guardedRefs{}, workflow.NewContinueAsNewError(ctx, platformType, in)
 		case "done":
 			return refs, nil
 		}
@@ -160,11 +161,8 @@ func guardedStack(t *testing.T) (relay, core client.Client, logs *lockedBuffer) 
 		t.Fatal(err)
 	}
 	w := worker.New(dial(t, "nava-worker", setup), taskQueue, workerguard.WorkerOptions(worker.Options{}, g))
-	w.RegisterWorkflowWithOptions(guardedWorkflow, workflow.RegisterOptions{Name: echoType})
-	if err := w.Start(); err != nil {
-		t.Fatalf("worker start: %v", err)
-	}
-	t.Cleanup(w.Stop)
+	w.RegisterWorkflowWithOptions(guardedWorkflow, workflow.RegisterOptions{Name: platformType})
+	startPlatformWorker(t, w)
 	return dial(t, "nava-relay", setup), dial(t, "nava-core", setup), logs
 }
 
@@ -180,7 +178,7 @@ func guardedStart(ctx context.Context, t *testing.T, relay client.Client, tenant
 		Delivery: outbox.Delivery{OutboxID: start, KindVersion: 1, Payload: json.RawMessage(`{}`)},
 	}}
 	run, err := relay.ExecuteWorkflow(workerguard.ContextWithTenant(ctx, tenant),
-		client.StartWorkflowOptions{ID: id, TaskQueue: taskQueue}, echoType, in)
+		client.StartWorkflowOptions{ID: id, TaskQueue: taskQueue}, platformType, in)
 	if err != nil {
 		t.Fatalf("start %s: %v", id, err)
 	}

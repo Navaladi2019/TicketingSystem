@@ -1,0 +1,38 @@
+{
+  "format": "nava.workflow/v1",
+  "trigger": {
+    "on": "record.created",
+    "entity": "ticket"
+  },
+  "start": "first_wait",
+  "steps": [
+    {
+      "key": "first_wait",
+      "type": "wait_signal",
+      "name": "approve",
+      "timeout": "P1D",
+      "on_timeout": "done",
+      "next": "second_wait"
+    },
+    {
+      "key": "second_wait",
+      "type": "wait_signal",
+      "name": "approve",
+      "timeout": "P1D",
+      "on_timeout": "done",
+      "next": "apply"
+    },
+    {
+      "key": "apply",
+      "type": "update_record",
+      "set": {
+        "approved": true
+      },
+      "next": "done"
+    },
+    {
+      "key": "done",
+      "type": "end"
+    }
+  ]
+}

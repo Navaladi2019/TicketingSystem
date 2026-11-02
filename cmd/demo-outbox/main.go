@@ -26,14 +26,20 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
 	"github.com/Navaladi2019/TicketingSystem/internal/relay"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
+	"github.com/Navaladi2019/TicketingSystem/internal/workflow/interp"
 )
 
 const (
 	// tenantA is the id of the seeded Keycloak organization tenant-a
 	// (deploy/compose/README.md, "Organization ids are fixed").
 	tenantA = "00000000-0000-4000-8000-0000000000a1"
-	// workflowType is on the Authorizer's allow-list (D9).
-	workflowType = "nava.smoke.relay"
+	// workflowType is the platform type on the Authorizer's allow-list (D9).
+	// The stack's always-on nava-worker does not register it, so the demo's
+	// workflow stays Running with its two signals in the history. Its
+	// payload carries no definition_version_id, so an interpreter worker
+	// (nava-worker-interptest) that picked it up would reject it at once
+	// (RejectInput) instead of running a step (TICK-374).
+	workflowType = interp.WorkflowType
 	signalName   = "demo.note"
 	// The longest key whose suffixed forms fit outbox's 200-byte dedupe key.
 	maxKeyLen = 150

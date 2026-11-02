@@ -96,7 +96,7 @@ func TestDemoOutboxTwiceWithOneKeyIsOneWorkflowWithTwoSignalsInOrder(t *testing.
 		t.Fatalf("tenant %q, want tenant-a %s", first["tenant"], demoTenant)
 	}
 	id := first["workflow id"]
-	if want := "t:" + demoTenant + ":nava.smoke.relay:" + first["start row"]; id != want {
+	if want := "t:" + demoTenant + ":" + relayType + ":" + first["start row"]; id != want {
 		t.Fatalf("workflow id %q, want %q", id, want)
 	}
 	s.terminateAtEnd(t, id)

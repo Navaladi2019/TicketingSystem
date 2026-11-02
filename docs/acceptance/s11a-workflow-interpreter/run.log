@@ -1,0 +1,435 @@
+# S11a fresh-stack run, 2026-11-01T06:40:49Z, branch TICK-334/workflow-interpreter at c486767 + the kit's demo targets
+# project nava-s11a (isolated: the developer's own nava stack is left running), images nava/*:s11a, COMPOSE_PROFILES=operator
+$ docker compose down -v
+$ make dev-ca
+wrote development certificates to ../deploy/compose/certs
+ Image nava/nava-purge:s11a Built 
+ Image nava/nava-worker:s11a Built 
+ Image nava/nava-db:s11a Built 
+ Image nava/keycloak:s11a Built 
+ Image nava/nava-db:s11a Built 
+
+real	8m22.631s
+user	0m0.031s
+sys	0m0.091s
+$ docker compose up -d --wait --wait-timeout 420
+ Container nava-s11a-nava-worker-1 Started 
+ Container nava-s11a-keycloak-1 Healthy 
+ Container nava-s11a-keycloak-1 Healthy 
+ Container nava-s11a-nava-groupsync-1 Starting 
+ Container nava-s11a-nava-onboard-1 Starting 
+ Container nava-s11a-nava-groupsync-1 Started 
+ Container nava-s11a-nava-onboard-1 Started 
+ Container nava-s11a-nava-relay-1 Healthy 
+ Container nava-s11a-nava-worker-1 Healthy 
+ Container nava-s11a-nava-purge-1 Healthy 
+ Container nava-s11a-temporal-schema-1 Exited 
+ Container nava-s11a-otel-collector-1 Healthy 
+ Container nava-s11a-db-roles-1 Exited 
+ Container nava-s11a-pgbouncer-1 Healthy 
+ Container nava-s11a-prometheus-1 Healthy 
+ Container nava-s11a-postgres-1 Healthy 
+ Container nava-s11a-migrate-1 Exited 
+ Container nava-s11a-temporal-1 Healthy 
+ Container nava-s11a-jaeger-1 Healthy 
+ Container nava-s11a-temporal-server-1 Healthy 
+ Container nava-s11a-temporal-ui-1 Healthy 
+ Container nava-s11a-nava-core-1 Healthy 
+ Container nava-s11a-keycloak-1 Healthy 
+ Container nava-s11a-nava-groupsync-1 Healthy 
+ Container nava-s11a-nava-onboard-1 Healthy 
+$ docker compose ps --format "{{.Service}} {{.Status}}"
+jaeger Up About a minute (healthy)
+keycloak Up About a minute (healthy)
+nava-core Up About a minute (healthy)
+nava-groupsync Up 7 seconds (healthy)
+nava-onboard Up 6 seconds (healthy)
+nava-purge Up About a minute (healthy)
+nava-relay Up About a minute (healthy)
+nava-worker Up About a minute (healthy)
+otel-collector Up About a minute (healthy)
+pgbouncer Up About a minute (healthy)
+postgres Up About a minute (healthy)
+prometheus Up About a minute (healthy)
+temporal Up About a minute (healthy)
+temporal-server Up About a minute (healthy)
+temporal-ui Up About a minute (healthy)
+$ docker compose exec -T nava-core wget -qO- http://127.0.0.1:9090/readyz
+ok
+
+$ make demo-interpreter-up
+deploy/compose/compose.test.yaml: line 52: -: command not found
+deploy/compose/compose.test.yaml: line 53: networks:: command not found
+deploy/compose/compose.test.yaml: line 54: depends_on:: command not found
+deploy/compose/compose.test.yaml: line 55: otel-collector:: command not found
+deploy/compose/compose.test.yaml: line 56: temporal:: command not found
+deploy/compose/compose.test.yaml: line 57: pgbouncer:: command not found
+deploy/compose/compose.test.yaml: line 58: healthcheck:: command not found
+deploy/compose/compose.test.yaml: line 59: test:: command not found
+deploy/compose/compose.test.yaml: line 60: interval:: command not found
+deploy/compose/compose.test.yaml: line 61: timeout:: command not found
+deploy/compose/compose.test.yaml: line 62: retries:: command not found
+deploy/compose/compose.test.yaml: line 63: restart:: command not found
+deploy/compose/compose.test.yaml: line 65: volumes:: command not found
+deploy/compose/compose.test.yaml: line 69: interptest-state:: command not found
+make: *** [make/workflow.mk:38: demo-interpreter-up] Error 127
+$ make demo-interpreter-up
+ Image nava/nava-worker-interptest:s11a Pulling 
+ Image nava/nava-worker-interptest:s11a pull access denied for nava/nava-worker-interptest, repository does not exist or may require 'docker login': denied: requested access to the resource is denied 
+ Image nava/nava-worker-interptest:s11a Built 
+ Container nava-s11a-nava-worker-interptest-run-ee7bb812f351 Creating 
+ Container nava-s11a-nava-worker-interptest-run-ee7bb812f351 Created 
+ Container nava-s11a-nava-worker-1 Stopping 
+ Container nava-s11a-nava-worker-1 Stopped 
+ Image nava/nava-worker-interptest:s11a Built 
+ Container nava-s11a-nava-worker-interptest-1 Creating 
+ Container nava-s11a-nava-worker-interptest-1 Created 
+ Container nava-s11a-nava-worker-interptest-1 Starting 
+ Container nava-s11a-nava-worker-interptest-1 Started 
+ Container nava-s11a-nava-worker-interptest-1 Waiting 
+ Container nava-s11a-nava-worker-interptest-1 Healthy 
+[06:53:38] nava-worker stopped; nava-worker-interptest healthy and the only nava-tq poller
+
+## Criterion 1: timer, branch, approve signal, completes
+$ make demo-interpreter TENANT=a KEY=c1-high PRIORITY=high
+TENANT=a KEY=c1-high PRIORITY=high RECORD_ID= PAUSE= sh scripts/dev/demo-interpreter.sh start
+[06:57:05] record 360c69c0-7ba9-5da9-bf21-830f9df3a08d of tenant a: priority high
+[06:57:05] start: tenant a, definition version 51a11000-0000-4000-8000-000000000001
+tenant: 00000000-0000-4000-8000-0000000000a1
+record: 360c69c0-7ba9-5da9-bf21-830f9df3a08d
+dedupe key: c1-high:start
+start row: 01a195e6-c918-7c32-8a6f-96fd3b87db7d
+workflow id: t:00000000-0000-4000-8000-0000000000a1:nava.interpreter:01a195e6-c918-7c32-8a6f-96fd3b87db7d
+$ make demo-interpreter TENANT=a KEY=c1-low PRIORITY=low
+TENANT=a KEY=c1-low PRIORITY=low RECORD_ID= PAUSE= sh scripts/dev/demo-interpreter.sh start
+[06:58:17] record 28b2e419-a2ce-5331-963b-24d721ff1c5c of tenant a: priority low
+[06:58:17] start: tenant a, definition version 51a11000-0000-4000-8000-000000000001
+tenant: 00000000-0000-4000-8000-0000000000a1
+record: 28b2e419-a2ce-5331-963b-24d721ff1c5c
+dedupe key: c1-low:start
+start row: 01a195e7-0d46-708c-aa21-39f287e7e323
+workflow id: t:00000000-0000-4000-8000-0000000000a1:nava.interpreter:01a195e7-0d46-708c-aa21-39f287e7e323
+$ sleep 15   # the 5 s cool_off timer, then is_high
+$ make demo-interpreter-status TENANT=a KEY=c1-high
+TENANT=a KEY=c1-high PRIORITY=high RECORD_ID= PAUSE= sh scripts/dev/demo-interpreter.sh status
+kind | dedupe_key | dispatched | dead | last_error
+nava.interpreter | c1-high:start | t | f | 
+(1 row)
+kind | outbox_id | closed
+nava.interpreter | 01a195e6-c918-7c32-8a6f-96fd3b87db7d | f
+(1 row)
+$ make demo-interpreter-status TENANT=a KEY=c1-low
+TENANT=a KEY=c1-low PRIORITY=high RECORD_ID= PAUSE= sh scripts/dev/demo-interpreter.sh status
+kind | dedupe_key | dispatched | dead | last_error
+nava.interpreter | c1-low:start | t | f | 
+(1 row)
+kind | outbox_id | closed
+nava.interpreter | 01a195e7-0d46-708c-aa21-39f287e7e323 | t
+(1 row)
+$ make demo-interpreter-approve TENANT=a KEY=c1-high
+TENANT=a KEY=c1-high PRIORITY=high RECORD_ID= PAUSE= sh scripts/dev/demo-interpreter.sh approve
+[07:00:52] approve: tenant a, record 360c69c0-7ba9-5da9-bf21-830f9df3a08d
+tenant: 00000000-0000-4000-8000-0000000000a1
+record: 360c69c0-7ba9-5da9-bf21-830f9df3a08d
+dedupe key: c1-high:approve
+signal row: 01a195e9-635e-78c7-915f-c7367f2de8a7
+$ sleep 5
+$ make demo-interpreter-status TENANT=a KEY=c1-high
+TENANT=a KEY=c1-high PRIORITY=high RECORD_ID= PAUSE= sh scripts/dev/demo-interpreter.sh status
+kind | dedupe_key | dispatched | dead | last_error
+nava.interpreter | c1-high:start | t | f | 
+nava.interpreter.signal | c1-high:approve | t | f | 
+(2 rows)
+kind | outbox_id | closed
+nava.interpreter | 01a195e6-c918-7c32-8a6f-96fd3b87db7d | t
+(1 row)
+$ make demo-interpreter-writes
+TENANT=a KEY= PRIORITY=high RECORD_ID= PAUSE= sh scripts/dev/demo-interpreter.sh writes
+ Container nava-s11a-nava-worker-interptest-run-548c1bb301c4 Creating 
+ Container nava-s11a-nava-worker-interptest-run-548c1bb301c4 Created 
+--- calls.jsonl
+--- applied effects (one file per key)
+# (the first worker ran with writer root s11a/writes, so its files sit one level deeper; the script now uses s11a as the root)
+$ docker compose --profile interptest run --rm --no-deps -T --user 0 --entrypoint sh nava-worker-interptest -c "cat /run/interptest/state/s11a/writes/writes/calls.jsonl; ls /run/interptest/state/s11a/writes/writes/applied"
+{"key":"wf:t:00000000-0000-4000-8000-0000000000a1:nava.interpreter:01a195e6-c918-7c32-8a6f-96fd3b87db7d:839fe1ad-0163-4e48-9f6d-6d02656670a7","attempt":1,"tenant":"00000000-0000-4000-8000-0000000000a1","record":"360c69c0-7ba9-5da9-bf21-830f9df3a08d","step":"839fe1ad-0163-4e48-9f6d-6d02656670a7","set":{"approved":true},"applied":true}
+3418cf843569bdaf366a814919da6d843aebf97644fd395d9431dc9b342f4ed5.json
+
+## Criterion 2: fixture v2 published while a v1 run waits on its timer
+# v1: is_high takes 'then' (await_approval) when priority == high; v2: only when priority == critical
+$ make demo-interpreter TENANT=a KEY=c2-v1 PRIORITY=high
+TENANT=a KEY=c2-v1 PRIORITY=high RECORD_ID= PAUSE= sh scripts/dev/demo-interpreter.sh start
+[07:04:17] record c78898d1-87dd-5045-9cf0-edfcb8ad943b of tenant a: priority high
+[07:04:17] start: tenant a, definition version 51a11000-0000-4000-8000-000000000001
+tenant: 00000000-0000-4000-8000-0000000000a1
+record: c78898d1-87dd-5045-9cf0-edfcb8ad943b
+dedupe key: c2-v1:start
+start row: 01a195ed-2dcd-7d0b-89df-924508c2df64
+workflow id: t:00000000-0000-4000-8000-0000000000a1:nava.interpreter:01a195ed-2dcd-7d0b-89df-924508c2df64
+$ make demo-interpreter-publish-v2 TENANT=a
+TENANT=a KEY= PRIORITY=high RECORD_ID= PAUSE= sh scripts/dev/demo-interpreter.sh publish-v2
+[07:05:20] fixture v2 (51a11000-0000-4000-8000-000000000002) published for tenant a: its later starts use v2; runs already started keep their version
+$ make demo-interpreter TENANT=a KEY=c2-v2 PRIORITY=high
+TENANT=a KEY=c2-v2 PRIORITY=high RECORD_ID= PAUSE= sh scripts/dev/demo-interpreter.sh start
+[07:05:37] record 3c355a30-9644-509a-b1e0-b23f7ca04e65 of tenant a: priority high
+[07:05:37] start: tenant a, definition version 51a11000-0000-4000-8000-000000000002
+tenant: 00000000-0000-4000-8000-0000000000a1
+record: 3c355a30-9644-509a-b1e0-b23f7ca04e65
+dedupe key: c2-v2:start
+start row: 01a195ed-cea3-7803-b9a3-02df170ff910
+workflow id: t:00000000-0000-4000-8000-0000000000a1:nava.interpreter:01a195ed-cea3-7803-b9a3-02df170ff910
+$ sleep 12
+$ make demo-interpreter-status TENANT=a KEY=c2-v1
+TENANT=a KEY=c2-v1 PRIORITY=high RECORD_ID= PAUSE= sh scripts/dev/demo-interpreter.sh status
+kind | dedupe_key | dispatched | dead | last_error
+nava.interpreter | c2-v1:start | t | f | 
+(1 row)
+kind | outbox_id | closed
+nava.interpreter | 01a195ed-2dcd-7d0b-89df-924508c2df64 | f
+(1 row)
+$ make demo-interpreter-status TENANT=a KEY=c2-v2
+TENANT=a KEY=c2-v2 PRIORITY=high RECORD_ID= PAUSE= sh scripts/dev/demo-interpreter.sh status
+kind | dedupe_key | dispatched | dead | last_error
+nava.interpreter | c2-v2:start | t | f | 
+(1 row)
+kind | outbox_id | closed
+nava.interpreter | 01a195ed-cea3-7803-b9a3-02df170ff910 | t
+(1 row)
+# NOTE: the publish above came 9 s after the v1 start row was dispatched (07:05:11.86), after the 5 s timer had fired: this attempt does NOT prove criterion 2. Redone below with publish-on-dispatch.
+
+## Isolation: tenant-b sends approve to tenant-a's waiting run (record c78898d1-…, run c2-v1)
+$ make demo-interpreter-approve TENANT=b KEY=iso-approve RECORD_ID=c78898d1-87dd-5045-9cf0-edfcb8ad943b
+TENANT=b KEY=iso-approve PRIORITY=high RECORD_ID=c78898d1-87dd-5045-9cf0-edfcb8ad943b PAUSE= sh scripts/dev/demo-interpreter.sh approve
+[07:06:47] approve: tenant b, record c78898d1-87dd-5045-9cf0-edfcb8ad943b
+demo-interpreter: enqueue iso-approve:approve: outbox: record not found
+make: *** [make/workflow.mk:41: demo-interpreter-approve] Error 1
+
+real	0m13.354s
+user	0m0.015s
+sys	0m0.015s
+
+## Criterion 2, redone: v2 published on the v1 start row's dispatch
+$ make demo-interpreter-up PAUSE=0
+TENANT=a KEY= PRIORITY=high RECORD_ID= PAUSE=0 sh scripts/dev/demo-interpreter.sh up
+[07:07:33.194] fixture v1 (51a11000-0000-4000-8000-000000000001) installed for tenant-a and tenant-b; pause after commit: 0
+
+ Container nava-s11a-nava-worker-interptest-1 Recreate 
+ Container nava-s11a-nava-worker-interptest-1 Recreated 
+ Container nava-s11a-nava-worker-interptest-1 Starting 
+ Container nava-s11a-nava-worker-interptest-1 Started 
+ Container nava-s11a-nava-worker-interptest-1 Healthy 
+[07:07:43.488] nava-worker stopped; nava-worker-interptest healthy and the only nava-tq poller
+$ make demo-interpreter-pinning TENANT=a KEY=c2-pin PRIORITY=high
+TENANT=a KEY=c2-pin PRIORITY=high RECORD_ID= PAUSE= sh scripts/dev/demo-interpreter.sh pinning
+[07:07:45.968] record de793398-3933-5618-9f3d-7f518b842f19 of tenant a: priority high
+[07:07:46.027] start: tenant a, definition version 51a11000-0000-4000-8000-000000000001
+tenant: 00000000-0000-4000-8000-0000000000a1
+record: de793398-3933-5618-9f3d-7f518b842f19
+dedupe key: c2-pin:start
+start row: 01a195ef-abb8-74ef-a57f-3c86d63e472f
+workflow id: t:00000000-0000-4000-8000-0000000000a1:nava.interpreter:01a195ef-abb8-74ef-a57f-3c86d63e472f
+[07:07:56.087] the v1 start row is dispatched: the run is starting its 5 s timer
+[07:07:56.373] fixture v2 (51a11000-0000-4000-8000-000000000002) published for tenant a, while the v1 run waits on its timer
+$ sleep 12
+$ make demo-interpreter-status TENANT=a KEY=c2-pin
+TENANT=a KEY=c2-pin PRIORITY=high RECORD_ID= PAUSE= sh scripts/dev/demo-interpreter.sh status
+kind | dedupe_key | dispatched | dead | last_error
+nava.interpreter | c2-pin:start | t | f | 
+(1 row)
+kind | outbox_id | closed
+nava.interpreter | 01a195ef-abb8-74ef-a57f-3c86d63e472f | f
+(1 row)
+$ make demo-interpreter TENANT=a KEY=c2-pin-new PRIORITY=high
+TENANT=a KEY=c2-pin-new PRIORITY=high RECORD_ID= PAUSE= sh scripts/dev/demo-interpreter.sh start
+[07:08:13.443] record 396cbd31-44fe-5c8c-ae21-d43d60637d38 of tenant a: priority high
+[07:08:13.488] start: tenant a, definition version 51a11000-0000-4000-8000-000000000002
+tenant: 00000000-0000-4000-8000-0000000000a1
+record: 396cbd31-44fe-5c8c-ae21-d43d60637d38
+dedupe key: c2-pin-new:start
+start row: 01a195f0-0fda-774c-9bc6-ecebe0b8806c
+workflow id: t:00000000-0000-4000-8000-0000000000a1:nava.interpreter:01a195f0-0fda-774c-9bc6-ecebe0b8806c
+$ sleep 12
+$ make demo-interpreter-status TENANT=a KEY=c2-pin-new
+TENANT=a KEY=c2-pin-new PRIORITY=high RECORD_ID= PAUSE= sh scripts/dev/demo-interpreter.sh status
+kind | dedupe_key | dispatched | dead | last_error
+nava.interpreter | c2-pin-new:start | t | f | 
+(1 row)
+kind | outbox_id | closed
+nava.interpreter | 01a195f0-0fda-774c-9bc6-ecebe0b8806c | t
+(1 row)
+# Temporal history of c2-pin (UI API): TIMER_STARTED 07:07:54.952, TIMER_FIRED 07:07:59.955; v2 published 07:07:56.373, inside the timer. The NextStep after the timer (event 16, 07:07:59.979) read the definition after the publish and still took v1's 'then' edge: event 22 is await_approval's P1D timeout timer.
+$ make demo-interpreter-approve TENANT=a KEY=c2-pin
+TENANT=a KEY=c2-pin PRIORITY=high RECORD_ID= PAUSE= sh scripts/dev/demo-interpreter.sh approve
+[07:08:57.996] approve: tenant a, record de793398-3933-5618-9f3d-7f518b842f19
+tenant: 00000000-0000-4000-8000-0000000000a1
+record: de793398-3933-5618-9f3d-7f518b842f19
+dedupe key: c2-pin:approve
+signal row: 01a195f0-c6dd-780d-b772-6e1dd89c38bb
+$ sleep 5
+$ make demo-interpreter-status TENANT=a KEY=c2-pin
+TENANT=a KEY=c2-pin PRIORITY=high RECORD_ID= PAUSE= sh scripts/dev/demo-interpreter.sh status
+kind | dedupe_key | dispatched | dead | last_error
+nava.interpreter | c2-pin:start | t | f | 
+nava.interpreter | c2-pin-new:start | t | f | 
+nava.interpreter.signal | c2-pin:approve | t | f | 
+(3 rows)
+kind | outbox_id | closed
+nava.interpreter | 01a195ef-abb8-74ef-a57f-3c86d63e472f | t
+(1 row)
+$ make demo-interpreter-writes
+TENANT=a KEY= PRIORITY=high RECORD_ID= PAUSE= sh scripts/dev/demo-interpreter.sh writes
+ Container nava-s11a-nava-worker-interptest-run-523a7fba73aa Creating 
+ Container nava-s11a-nava-worker-interptest-run-523a7fba73aa Created 
+--- calls.jsonl
+{"key":"wf:t:00000000-0000-4000-8000-0000000000a1:nava.interpreter:01a195ef-abb8-74ef-a57f-3c86d63e472f:839fe1ad-0163-4e48-9f6d-6d02656670a7","attempt":1,"tenant":"00000000-0000-4000-8000-0000000000a1","record":"de793398-3933-5618-9f3d-7f518b842f19","step":"839fe1ad-0163-4e48-9f6d-6d02656670a7","set":{"approved":true},"applied":true}
+--- applied effects (one file per key)
+wf:t:00000000-0000-4000-8000-0000000000a1:nava.interpreter:01a195ef-abb8-74ef-a57f-3c86d63e472f:839fe1ad-0163-4e48-9f6d-6d02656670a7
+
+## Criterion 3: worker killed during update_record (mark_approved), restarted, effect applied once
+$ make demo-interpreter-up PAUSE=1
+TENANT=a KEY= PRIORITY=high RECORD_ID= PAUSE=1 sh scripts/dev/demo-interpreter.sh up
+[07:10:46.684] fixture v1 (51a11000-0000-4000-8000-000000000001) installed for tenant-a and tenant-b; pause after commit: 1
+ Container nava-s11a-nava-worker-interptest-1 Recreate 
+ Container nava-s11a-nava-worker-interptest-1 Recreated 
+ Container nava-s11a-nava-worker-interptest-1 Starting 
+ Container nava-s11a-nava-worker-interptest-1 Started 
+ Container nava-s11a-nava-worker-interptest-1 Healthy 
+[07:10:57.522] nava-worker stopped; nava-worker-interptest healthy and the only nava-tq poller
+$ make demo-interpreter TENANT=a KEY=c3-crash PRIORITY=high
+TENANT=a KEY=c3-crash PRIORITY=high RECORD_ID= PAUSE= sh scripts/dev/demo-interpreter.sh start
+[07:11:01.492] record 6503e71b-ba57-5938-bb45-90aeb6ddd406 of tenant a: priority high
+[07:11:01.548] start: tenant a, definition version 51a11000-0000-4000-8000-000000000001
+tenant: 00000000-0000-4000-8000-0000000000a1
+record: 6503e71b-ba57-5938-bb45-90aeb6ddd406
+dedupe key: c3-crash:start
+start row: 01a195f2-a9f5-7ecb-bdff-d4a0e925827c
+workflow id: t:00000000-0000-4000-8000-0000000000a1:nava.interpreter:01a195f2-a9f5-7ecb-bdff-d4a0e925827c
+$ sleep 12   # timer, then is_high -> await_approval
+$ make demo-interpreter-crash TENANT=a KEY=c3-crash
+TENANT=a KEY=c3-crash PRIORITY=high RECORD_ID= PAUSE= sh scripts/dev/demo-interpreter.sh crash
+[07:12:19.361] approve: tenant a, record 6503e71b-ba57-5938-bb45-90aeb6ddd406
+tenant: 00000000-0000-4000-8000-0000000000a1
+record: 6503e71b-ba57-5938-bb45-90aeb6ddd406
+dedupe key: c3-crash:approve
+signal row: 01a195f3-db73-7812-9db0-6c2243ab6159
+[07:12:30.861] ApplyStep committed its write and paused: /run/interptest/state/s11a/pause/de880a1e222406ac9d03da5c323513f3.paused
+ Container nava-s11a-nava-worker-interptest-1 Killing 
+ Container nava-s11a-nava-worker-interptest-1 Killed 
+[07:12:36.082] killed: container 937d0ac22ae5 running=false exit=137
+calls in the volume after the kill (the killed attempt's write committed):
+{"key":"wf:t:00000000-0000-4000-8000-0000000000a1:nava.interpreter:01a195ef-abb8-74ef-a57f-3c86d63e472f:839fe1ad-0163-4e48-9f6d-6d02656670a7","attempt":1,"tenant":"00000000-0000-4000-8000-0000000000a1","record":"de793398-3933-5618-9f3d-7f518b842f19","step":"839fe1ad-0163-4e48-9f6d-6d02656670a7","set":{"approved":true},"applied":true}
+{"key":"wf:t:00000000-0000-4000-8000-0000000000a1:nava.interpreter:01a195f2-a9f5-7ecb-bdff-d4a0e925827c:839fe1ad-0163-4e48-9f6d-6d02656670a7","attempt":1,"tenant":"00000000-0000-4000-8000-0000000000a1","record":"6503e71b-ba57-5938-bb45-90aeb6ddd406","step":"839fe1ad-0163-4e48-9f6d-6d02656670a7","set":{"approved":true},"applied":true}
+ Container nava-s11a-postgres-1 Waiting 
+ Container nava-s11a-postgres-1 Healthy 
+ Container nava-s11a-db-roles-1 Starting 
+ Container nava-s11a-db-roles-1 Started 
+ Container nava-s11a-db-roles-1 Waiting 
+ Container nava-s11a-db-roles-1 Waiting 
+ Container nava-s11a-db-roles-1 Exited 
+ Container nava-s11a-db-roles-1 Exited 
+ Container nava-s11a-temporal-schema-1 Starting 
+ Container nava-s11a-migrate-1 Starting 
+ Container nava-s11a-temporal-schema-1 Started 
+ Container nava-s11a-temporal-schema-1 Waiting 
+ Container nava-s11a-temporal-schema-1 Exited 
+ Container nava-s11a-temporal-server-1 Waiting 
+ Container nava-s11a-migrate-1 Started 
+ Container nava-s11a-migrate-1 Waiting 
+ Container nava-s11a-temporal-server-1 Healthy 
+ Container nava-s11a-migrate-1 Exited 
+ Container nava-s11a-temporal-1 Waiting 
+ Container nava-s11a-pgbouncer-1 Waiting 
+ Container nava-s11a-otel-collector-1 Waiting 
+ Container nava-s11a-temporal-1 Healthy 
+ Container nava-s11a-pgbouncer-1 Healthy 
+ Container nava-s11a-otel-collector-1 Healthy 
+ Container nava-s11a-nava-worker-interptest-1 Starting 
+ Container nava-s11a-nava-worker-interptest-1 Started 
+[07:13:23.412] same container started again (started 2026-11-01T07:10:54.584592838Z, now 2026-11-01T07:13:19.40831728Z), healthy
+$ sleep 20   # the dead attempt times out (StartToClose 10 s) and is retried on the restarted worker
+$ make demo-interpreter-status TENANT=a KEY=c3-crash
+TENANT=a KEY=c3-crash PRIORITY=high RECORD_ID= PAUSE= sh scripts/dev/demo-interpreter.sh status
+kind | dedupe_key | dispatched | dead | last_error
+nava.interpreter | c3-crash:start | t | f | 
+nava.interpreter.signal | c3-crash:approve | t | f | 
+(2 rows)
+kind | outbox_id | closed
+nava.interpreter | 01a195f2-a9f5-7ecb-bdff-d4a0e925827c | t
+(1 row)
+$ make demo-interpreter-writes
+TENANT=a KEY= PRIORITY=high RECORD_ID= PAUSE= sh scripts/dev/demo-interpreter.sh writes
+--- calls.jsonl
+{"key":"wf:t:00000000-0000-4000-8000-0000000000a1:nava.interpreter:01a195ef-abb8-74ef-a57f-3c86d63e472f:839fe1ad-0163-4e48-9f6d-6d02656670a7","attempt":1,"tenant":"00000000-0000-4000-8000-0000000000a1","record":"de793398-3933-5618-9f3d-7f518b842f19","step":"839fe1ad-0163-4e48-9f6d-6d02656670a7","set":{"approved":true},"applied":true}
+{"key":"wf:t:00000000-0000-4000-8000-0000000000a1:nava.interpreter:01a195f2-a9f5-7ecb-bdff-d4a0e925827c:839fe1ad-0163-4e48-9f6d-6d02656670a7","attempt":1,"tenant":"00000000-0000-4000-8000-0000000000a1","record":"6503e71b-ba57-5938-bb45-90aeb6ddd406","step":"839fe1ad-0163-4e48-9f6d-6d02656670a7","set":{"approved":true},"applied":true}
+{"key":"wf:t:00000000-0000-4000-8000-0000000000a1:nava.interpreter:01a195f2-a9f5-7ecb-bdff-d4a0e925827c:839fe1ad-0163-4e48-9f6d-6d02656670a7","attempt":2,"tenant":"00000000-0000-4000-8000-0000000000a1","record":"6503e71b-ba57-5938-bb45-90aeb6ddd406","step":"839fe1ad-0163-4e48-9f6d-6d02656670a7","set":{"approved":true},"applied":false}
+--- applied effects (one file per key)
+wf:t:00000000-0000-4000-8000-0000000000a1:nava.interpreter:01a195ef-abb8-74ef-a57f-3c86d63e472f:839fe1ad-0163-4e48-9f6d-6d02656670a7
+wf:t:00000000-0000-4000-8000-0000000000a1:nava.interpreter:01a195f2-a9f5-7ecb-bdff-d4a0e925827c:839fe1ad-0163-4e48-9f6d-6d02656670a7
+# history c3-crash: ApplyStep scheduled 07:12:29.485 (attempt 1 on container 937d0ac22ae5, paused after commit), SIGKILL 07:12:36, restart 07:13:19; ACTIVITY_TASK_STARTED attempt 2 07:13:20.528 on the same container, lastFailure 'activity StartToClose timeout'; WORKFLOW_EXECUTION_COMPLETED 07:13:20.845. calls.jsonl: attempt 1 applied=true, attempt 2 applied=false, one key; one applied-effect file for that key.
+
+## Second tenant: tenant-b runs the same definition end to end
+$ make demo-interpreter-up PAUSE=0
+TENANT=a KEY= PRIORITY=high RECORD_ID= PAUSE=0 sh scripts/dev/demo-interpreter.sh up
+[07:14:20.329] fixture v1 (51a11000-0000-4000-8000-000000000001) installed for tenant-a and tenant-b; pause after commit: 0
+ Container nava-s11a-nava-worker-interptest-1 Recreate 
+ Container nava-s11a-nava-worker-interptest-1 Recreated 
+ Container nava-s11a-nava-worker-interptest-1 Starting 
+ Container nava-s11a-nava-worker-interptest-1 Started 
+ Container nava-s11a-nava-worker-interptest-1 Healthy 
+[07:14:42.040] nava-worker stopped; nava-worker-interptest healthy and the only nava-tq poller
+$ make demo-interpreter TENANT=b KEY=b-high PRIORITY=high
+TENANT=b KEY=b-high PRIORITY=high RECORD_ID= PAUSE= sh scripts/dev/demo-interpreter.sh start
+[07:14:48.961] record c21c1968-c4ce-5041-a120-025de1146fed of tenant b: priority high
+[07:14:49.041] start: tenant b, definition version 51a11000-0000-4000-8000-000000000001
+tenant: 00000000-0000-4000-8000-0000000000b1
+record: c21c1968-c4ce-5041-a120-025de1146fed
+dedupe key: b-high:start
+start row: 01a195f6-1bea-788e-83d8-d55066a3695b
+workflow id: t:00000000-0000-4000-8000-0000000000b1:nava.interpreter:01a195f6-1bea-788e-83d8-d55066a3695b
+$ sleep 12
+$ make demo-interpreter-approve TENANT=b KEY=b-high
+TENANT=b KEY=b-high PRIORITY=high RECORD_ID= PAUSE= sh scripts/dev/demo-interpreter.sh approve
+[07:15:12.120] approve: tenant b, record c21c1968-c4ce-5041-a120-025de1146fed
+tenant: 00000000-0000-4000-8000-0000000000b1
+record: c21c1968-c4ce-5041-a120-025de1146fed
+dedupe key: b-high:approve
+signal row: 01a195f6-7417-7f19-b0d7-78db4141ca49
+$ sleep 5
+$ make demo-interpreter-status TENANT=b KEY=b-high
+TENANT=b KEY=b-high PRIORITY=high RECORD_ID= PAUSE= sh scripts/dev/demo-interpreter.sh status
+kind | dedupe_key | dispatched | dead | last_error
+nava.interpreter | b-high:start | t | f | 
+nava.interpreter.signal | b-high:approve | t | f | 
+(2 rows)
+kind | outbox_id | closed
+nava.interpreter | 01a195f6-1bea-788e-83d8-d55066a3695b | t
+(1 row)
+
+## Isolation: a tenant-b start row naming tenant-a's record (c3-crash, 6503e71b-…)
+$ make demo-interpreter TENANT=b KEY=iso-start RECORD_ID=6503e71b-ba57-5938-bb45-90aeb6ddd406
+TENANT=b KEY=iso-start PRIORITY=high RECORD_ID=6503e71b-ba57-5938-bb45-90aeb6ddd406 PAUSE= sh scripts/dev/demo-interpreter.sh start
+[07:15:29.417] start: tenant b, definition version 51a11000-0000-4000-8000-000000000001
+tenant: 00000000-0000-4000-8000-0000000000b1
+record: 6503e71b-ba57-5938-bb45-90aeb6ddd406
+dedupe key: iso-start:start
+start row: 01a195f6-b6ae-7dcd-9e03-de306677745a
+workflow id: t:00000000-0000-4000-8000-0000000000b1:nava.interpreter:01a195f6-b6ae-7dcd-9e03-de306677745a
+$ sleep 10
+$ make demo-interpreter-status TENANT=b KEY=iso-start RECORD_ID=6503e71b-ba57-5938-bb45-90aeb6ddd406
+TENANT=b KEY=iso-start PRIORITY=high RECORD_ID=6503e71b-ba57-5938-bb45-90aeb6ddd406 PAUSE= sh scripts/dev/demo-interpreter.sh status
+kind | dedupe_key | dispatched | dead | last_error
+nava.interpreter | iso-start:start | t | f | 
+(1 row)
+kind | outbox_id | closed
+nava.interpreter | 01a195f6-b6ae-7dcd-9e03-de306677745a | f
+(1 row)
+1 07:15:36.291 WORKFLOW_EXECUTION_STARTED 
+7 07:15:36.389 ACTIVITY_TASK_FAILED {"activityTaskFailedEventAttributes": {"failure": {"message": "workflow rejected: definition version, record or step not found", "source": "GoSDK", "applicationFailureInfo": {"type": "nava.WorkflowRejected", "nonRetryable": true}}, "scheduledEventId": "5", "startedEventId": "6", "identity": "1@c4c64
+11 07:15:36.414 WORKFLOW_EXECUTION_FAILED {"workflowExecutionFailedEventAttributes": {"failure": {"message": "activity error", "source": "GoSDK", "cause": {"message": "workflow rejected: definition version, record or step not found", "source": "GoSDK", "applicationFailureInfo": {"type": "nava.WorkflowRejected", "nonRetryable": true}}, "acti
+
+## Teardown
+$ make demo-interpreter-down
+ Container nava-s11a-nava-worker-interptest-1 Removed 
+ Container nava-s11a-nava-worker-1 Healthy 
+[07:17:40.184] nava-worker-interptest removed; nava-worker healthy again
+$ docker compose down -v
+containers, volumes and networks removed: 24

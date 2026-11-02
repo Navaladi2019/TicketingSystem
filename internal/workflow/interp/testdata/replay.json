@@ -1,0 +1,25 @@
+{
+  "format": "nava.workflow/v1",
+  "trigger": { "on": "record.created", "entity": "ticket" },
+  "start": "cool_off",
+  "steps": [
+    { "key": "cool_off", "type": "timer", "duration": "PT1S", "next": "is_high" },
+    { "key": "is_high", "type": "condition", "field": "/priority", "op": "eq", "value": "high", "then": "await_approval", "else": "route" },
+    { "key": "await_approval", "type": "wait_signal", "name": "approve", "timeout": "PT2S", "on_timeout": "mark_timed_out", "next": "mark_approved" },
+    { "key": "mark_approved", "type": "update_record", "set": { "approved": true }, "next": "route" },
+    { "key": "mark_timed_out", "type": "update_record", "set": { "approved": false }, "next": "route" },
+    {
+      "key": "route",
+      "type": "branch",
+      "cases": [
+        { "field": "/team", "op": "eq", "value": "a", "next": "lane_a" },
+        { "field": "/team", "op": "eq", "value": "b", "next": "lane_b" }
+      ],
+      "default": "lane_default"
+    },
+    { "key": "lane_a", "type": "update_record", "set": { "lane": "a" }, "next": "done" },
+    { "key": "lane_b", "type": "update_record", "set": { "lane": "b" }, "next": "done" },
+    { "key": "lane_default", "type": "update_record", "set": { "lane": "default" }, "next": "done" },
+    { "key": "done", "type": "end" }
+  ]
+}

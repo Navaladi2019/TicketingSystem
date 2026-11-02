@@ -16,3 +16,6 @@ __pycache__/
 
 # Bruno api-test.sh reports (TICK-331)
 /docs/acceptance/guide/reports/
+
+# The S11a demo fixtures and state (scripts/dev/demo-interpreter.sh, TICK-352)
+/.local/

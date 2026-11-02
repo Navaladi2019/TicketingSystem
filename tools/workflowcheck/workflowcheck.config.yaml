@@ -1,0 +1,12 @@
+# workflowcheck overrides for `make lint` (D-3-23). Each entry is a call that
+# workflowcheck reports only because of what it reaches inside, reviewed as
+# deterministic for its inputs. Add one only with that review.
+decls:
+  # Pure encoding of plain values; the encoder's sync.Pool and the reflect
+  # cache do not change its output. Map keys are sorted on encode.
+  encoding/json.Marshal: false
+  (*encoding/json.Decoder).Decode: false
+  # Its prune ranges over the applied map, but only deletes entries older
+  # than a cutoff: the result does not depend on the order
+  # (internal/workerguard/dedupe.go).
+  (*github.com/Navaladi2019/TicketingSystem/internal/workerguard.AppliedSignals).TryApply: false

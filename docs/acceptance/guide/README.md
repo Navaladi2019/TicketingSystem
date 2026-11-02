@@ -1,6 +1,6 @@
-# Acceptance guide: stories S1–S8 and the API test suite (TICK-287, TICK-331, TICK-346)
+# Acceptance guide: stories S1–S8, S11a and the API test suite (TICK-287, TICK-331, TICK-346, TICK-352)
 
-A hands-on test kit for everything stories S1 to S7 delivered on `main`, plus a
+A hands-on test kit for everything stories S1 to S8 delivered on `main` and for S11a (story branch `TICK-334/workflow-interpreter`), plus a
 Bruno test suite for every operation in `api/openapi.bundled.yaml`.
 
 - **Open `index.html`** in a browser (offline is fine), or the single-file `guide-standalone.html`.

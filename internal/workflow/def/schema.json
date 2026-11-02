@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nava.local/schemas/workflow/v1/schema.json",
+  "title": "nava.workflow/v1 workflow definition",
+  "description": "Shape of a workflow definition (P3-20, PLAN-003). Key uniqueness, edge targets, cycles, reachability and duration bounds are checked by Parse in Go. Durations and edges are literals of the definition: no field reference is allowed in duration, timeout or any edge.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "trigger", "start", "steps"],
+  "properties": {
+    "format": { "const": "nava.workflow/v1" },
+    "trigger": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["on", "entity"],
+      "properties": {
+        "on": { "enum": ["record.created", "record.updated"] },
+        "entity": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,40}$" }
+      }
+    },
+    "start": { "$ref": "#/$defs/edge" },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 200,
+      "items": { "$ref": "#/$defs/step" }
+    }
+  },
+  "$defs": {
+    "key": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,39}$" },
+    "edge": { "$ref": "#/$defs/key" },
+    "duration": {
+      "description": "PnDTnHnMnS only (no Y, M or W designators). Bounded to 1s..30d by Parse.",
+      "type": "string",
+      "pattern": "^P(?:[0-9]{1,7}D)?(?:T(?:[0-9]{1,7}H)?(?:[0-9]{1,7}M)?(?:[0-9]{1,7}S)?)?$"
+    },
+    "pointer": {
+      "description": "RFC 6901 JSON Pointer into the record; the whole-document pointer is not allowed.",
+      "type": "string",
+      "maxLength": 512,
+      "pattern": "^(?:/(?:[^~/]|~[01])*)+$"
+    },
+    "condition": {
+      "type": "object",
+      "required": ["field", "op", "value"],
+      "properties": {
+        "field": { "$ref": "#/$defs/pointer" },
+        "op": { "enum": ["eq", "ne", "in"] },
+        "value": true
+      },
+      "if": { "properties": { "op": { "const": "in" } }, "required": ["op"] },
+      "then": { "properties": { "value": { "type": "array", "maxItems": 100 } } }
+    },
+    "step": {
+      "type": "object",
+      "required": ["key", "type"],
+      "properties": {
+        "key": { "$ref": "#/$defs/key" },
+        "type": { "enum": ["condition", "branch", "timer", "wait_signal", "update_record", "end"] }
+      },
+      "allOf": [
+        { "if": { "properties": { "type": { "const": "condition" } }, "required": ["type"] }, "then": { "$ref": "#/$defs/condition_step" } },
+        { "if": { "properties": { "type": { "const": "branch" } }, "required": ["type"] }, "then": { "$ref": "#/$defs/branch_step" } },
+        { "if": { "properties": { "type": { "const": "timer" } }, "required": ["type"] }, "then": { "$ref": "#/$defs/timer_step" } },
+        { "if": { "properties": { "type": { "const": "wait_signal" } }, "required": ["type"] }, "then": { "$ref": "#/$defs/wait_signal_step" } },
+        { "if": { "properties": { "type": { "const": "update_record" } }, "required": ["type"] }, "then": { "$ref": "#/$defs/update_record_step" } },
+        { "if": { "properties": { "type": { "const": "end" } }, "required": ["type"] }, "then": { "$ref": "#/$defs/end_step" } }
+      ]
+    },
+    "condition_step": {
+      "allOf": [{ "$ref": "#/$defs/condition" }],
+      "required": ["then", "else"],
+      "properties": {
+        "key": true, "type": true, "field": true, "op": true, "value": true,
+        "then": { "$ref": "#/$defs/edge" },
+        "else": { "$ref": "#/$defs/edge" }
+      },
+      "additionalProperties": false
+    },
+    "branch_step": {
+      "required": ["cases", "default"],
+      "properties": {
+        "key": true, "type": true,
+        "cases": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "items": {
+            "allOf": [{ "$ref": "#/$defs/condition" }],
+            "required": ["next"],
+            "properties": {
+              "field": true, "op": true, "value": true,
+              "next": { "$ref": "#/$defs/edge" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "default": { "$ref": "#/$defs/edge" }
+      },
+      "additionalProperties": false
+    },
+    "timer_step": {
+      "required": ["duration", "next"],
+      "properties": {
+        "key": true, "type": true,
+        "duration": { "$ref": "#/$defs/duration" },
+        "next": { "$ref": "#/$defs/edge" }
+      },
+      "additionalProperties": false
+    },
+    "wait_signal_step": {
+      "required": ["name", "timeout", "on_timeout", "next"],
+      "properties": {
+        "key": true, "type": true,
+        "name": { "$ref": "#/$defs/key" },
+        "timeout": { "$ref": "#/$defs/duration" },
+        "on_timeout": { "$ref": "#/$defs/edge" },
+        "next": { "$ref": "#/$defs/edge" }
+      },
+      "additionalProperties": false
+    },
+    "update_record_step": {
+      "required": ["set", "next"],
+      "properties": {
+        "key": true, "type": true,
+        "set": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 100,
+          "propertyNames": { "pattern": "^[a-z][a-z0-9_]{0,63}$" }
+        },
+        "next": { "$ref": "#/$defs/edge" }
+      },
+      "additionalProperties": false
+    },
+    "end_step": {
+      "properties": { "key": true, "type": true },
+      "additionalProperties": false
+    }
+  }
+}

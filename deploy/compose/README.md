@@ -76,7 +76,7 @@ seeded tenant `tenant-a` (`00000000-0000-4000-8000-0000000000a1`) through
 row-level security apply as in the product (`cmd/demo-outbox`, run from a
 throwaway container on the `internal` network by `scripts/dev/demo-outbox.sh`;
 the database port is never published). It needs only what `.env.example` and
-`make dev-ca` provide. The relay starts one workflow `t:<tenant-a id>:nava.smoke.relay:<start row id>`
+`make dev-ca` provide. The relay starts one workflow `t:<tenant-a id>:nava.interpreter:<start row id>`
 and signals it twice with `demo.note`, in commit order. The command prints the
 workflow id. To see it: `make operator-tunnel`, open `http://127.0.0.1:18233`,
 namespace `nava`, and open that workflow; its history holds the two signals. No
