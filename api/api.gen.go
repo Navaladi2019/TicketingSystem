@@ -72,6 +72,24 @@ func (e OnboardedTenantState) Valid() bool {
 	}
 }
 
+// Defines values for RecordChangeAction.
+const (
+	Create RecordChangeAction = "create"
+	Update RecordChangeAction = "update"
+)
+
+// Valid indicates whether the value is a known member of the RecordChangeAction enum.
+func (e RecordChangeAction) Valid() bool {
+	switch e {
+	case Create:
+		return true
+	case Update:
+		return true
+	default:
+		return false
+	}
+}
+
 // CreateEntityTypeRequest Deliberately unconstrained here: the server checks every field after the admin check and answers 422 `invalid_definition` with `errors[].pointer`. Kept as the request bytes (`json.RawMessage`) so the schema is stored byte for byte.
 type CreateEntityTypeRequest = json.RawMessage
 
@@ -182,6 +200,9 @@ type OnboardedTenant struct {
 // OnboardedTenantState defines model for OnboardedTenant.State.
 type OnboardedTenantState string
 
+// PatchRecordRequest Deliberately unconstrained here: the server resolves the record and `If-Match` first (404, 428, 412), then reads `{data, state}` and answers 422 `record_invalid`.
+type PatchRecordRequest = json.RawMessage
+
 // Problem RFC 9457 problem details. `code` is registered in api/errors.yaml.
 type Problem struct {
 	Code string `json:"code"`
@@ -225,6 +246,30 @@ type Record struct {
 	Version       int64                  `json:"version"`
 }
 
+// RecordChange defines model for RecordChange.
+type RecordChange struct {
+	Action RecordChangeAction `json:"action"`
+
+	// ActorId Absent when a system writer made the change.
+	ActorId *openapi_types.UUID    `json:"actor_id,omitempty"`
+	After   map[string]interface{} `json:"after"`
+	At      time.Time              `json:"at"`
+
+	// Before Absent on a create.
+	Before  *map[string]interface{} `json:"before,omitempty"`
+	Changed []string                `json:"changed"`
+	Source  string                  `json:"source"`
+}
+
+// RecordChangeAction defines model for RecordChange.Action.
+type RecordChangeAction string
+
+// RecordHistory defines model for RecordHistory.
+type RecordHistory struct {
+	Items      []RecordChange `json:"items"`
+	NextCursor *string        `json:"next_cursor,omitempty"`
+}
+
 // Entity defines model for Entity.
 type Entity = string
 
@@ -257,6 +302,19 @@ type CreateRecordParams struct {
 	IdempotencyKey string `json:"Idempotency-Key"`
 }
 
+// PatchRecordParams defines parameters for PatchRecord.
+type PatchRecordParams struct {
+	// IfMatch The `ETag` the update is based on. Optional in the contract only so that its absence is the registered 428 and not a generic 400.
+	IfMatch        *string `json:"If-Match,omitempty"`
+	IdempotencyKey string  `json:"Idempotency-Key"`
+}
+
+// GetRecordHistoryParams defines parameters for GetRecordHistory.
+type GetRecordHistoryParams struct {
+	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
 // CreateEntityTypeJSONRequestBody defines body for CreateEntityType for application/json ContentType.
 type CreateEntityTypeJSONRequestBody = CreateEntityTypeRequest
 
@@ -268,6 +326,9 @@ type OnboardTenantJSONRequestBody = OnboardTenantRequest
 
 // CreateRecordJSONRequestBody defines body for CreateRecord for application/json ContentType.
 type CreateRecordJSONRequestBody = CreateRecordRequest
+
+// PatchRecordApplicationMergePatchPlusJSONRequestBody defines body for PatchRecord for application/merge-patch+json ContentType.
+type PatchRecordApplicationMergePatchPlusJSONRequestBody = PatchRecordRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -298,6 +359,12 @@ type ServerInterface interface {
 	// GetRecord Read a record
 	// (GET /api/v1/records/{entity}/{id})
 	GetRecord(w http.ResponseWriter, r *http.Request, entity Entity, id string)
+	// PatchRecord Update a record with a JSON Merge Patch
+	// (PATCH /api/v1/records/{entity}/{id})
+	PatchRecord(w http.ResponseWriter, r *http.Request, entity Entity, id string, params PatchRecordParams)
+	// GetRecordHistory A record's change history
+	// (GET /api/v1/records/{entity}/{id}/history)
+	GetRecordHistory(w http.ResponseWriter, r *http.Request, entity Entity, id string, params GetRecordHistoryParams)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -663,6 +730,152 @@ func (siw *ServerInterfaceWrapper) GetRecord(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// PatchRecord operation middleware
+func (siw *ServerInterfaceWrapper) PatchRecord(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "entity" -------------
+	var entity Entity
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entity", r.PathValue("entity"), &entity, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entity", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params PatchRecordParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PatchRecord(w, r, entity, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetRecordHistory operation middleware
+func (siw *ServerInterfaceWrapper) GetRecordHistory(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "entity" -------------
+	var entity Entity
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entity", r.PathValue("entity"), &entity, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entity", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetRecordHistoryParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetRecordHistory(w, r, entity, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -792,6 +1005,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/entity-types/{key}/versions/{n}", wrapper.GetEntityTypeVersion)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/records/{entity}", wrapper.CreateRecord)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/records/{entity}/{id}", wrapper.GetRecord)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/v1/records/{entity}/{id}", wrapper.PatchRecord)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/records/{entity}/{id}/history", wrapper.GetRecordHistory)
 
 	return m
 }
@@ -1891,6 +2106,317 @@ func (response GetRecord501ApplicationProblemPlusJSONResponse) VisitGetRecordRes
 	return err
 }
 
+type PatchRecordRequestObject struct {
+	Entity Entity `json:"entity"`
+	Id     string `json:"id"`
+	Params PatchRecordParams
+	Body   *PatchRecordApplicationMergePatchPlusJSONRequestBody
+}
+
+type PatchRecordResponseObject interface {
+	VisitPatchRecordResponse(w http.ResponseWriter) error
+}
+
+type PatchRecord200ResponseHeaders struct {
+	ETag string
+}
+
+type PatchRecord200JSONResponse struct {
+	Body    Record
+	Headers PatchRecord200ResponseHeaders
+}
+
+func (response PatchRecord200JSONResponse) VisitPatchRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PatchRecord400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response PatchRecord400ApplicationProblemPlusJSONResponse) VisitPatchRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PatchRecord401ApplicationProblemPlusJSONResponse Problem
+
+func (response PatchRecord401ApplicationProblemPlusJSONResponse) VisitPatchRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PatchRecord403ApplicationProblemPlusJSONResponse Problem
+
+func (response PatchRecord403ApplicationProblemPlusJSONResponse) VisitPatchRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PatchRecord404ApplicationProblemPlusJSONResponse struct {
+	ProblemNoInstanceApplicationProblemPlusJSONResponse
+}
+
+func (response PatchRecord404ApplicationProblemPlusJSONResponse) VisitPatchRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PatchRecord409ApplicationProblemPlusJSONResponse Problem
+
+func (response PatchRecord409ApplicationProblemPlusJSONResponse) VisitPatchRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PatchRecord412ResponseHeaders struct {
+	ETag string
+}
+
+type PatchRecord412ApplicationProblemPlusJSONResponse struct {
+	Body    Problem
+	Headers PatchRecord412ResponseHeaders
+}
+
+func (response PatchRecord412ApplicationProblemPlusJSONResponse) VisitPatchRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(412)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PatchRecord422ApplicationProblemPlusJSONResponse Problem
+
+func (response PatchRecord422ApplicationProblemPlusJSONResponse) VisitPatchRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PatchRecord428ApplicationProblemPlusJSONResponse Problem
+
+func (response PatchRecord428ApplicationProblemPlusJSONResponse) VisitPatchRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(428)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PatchRecord429ApplicationProblemPlusJSONResponse Problem
+
+func (response PatchRecord429ApplicationProblemPlusJSONResponse) VisitPatchRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PatchRecord500ApplicationProblemPlusJSONResponse Problem
+
+func (response PatchRecord500ApplicationProblemPlusJSONResponse) VisitPatchRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PatchRecord501ApplicationProblemPlusJSONResponse Problem
+
+func (response PatchRecord501ApplicationProblemPlusJSONResponse) VisitPatchRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRecordHistoryRequestObject struct {
+	Entity Entity `json:"entity"`
+	Id     string `json:"id"`
+	Params GetRecordHistoryParams
+}
+
+type GetRecordHistoryResponseObject interface {
+	VisitGetRecordHistoryResponse(w http.ResponseWriter) error
+}
+
+type GetRecordHistory200JSONResponse RecordHistory
+
+func (response GetRecordHistory200JSONResponse) VisitGetRecordHistoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRecordHistory400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response GetRecordHistory400ApplicationProblemPlusJSONResponse) VisitGetRecordHistoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRecordHistory401ApplicationProblemPlusJSONResponse Problem
+
+func (response GetRecordHistory401ApplicationProblemPlusJSONResponse) VisitGetRecordHistoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRecordHistory404ApplicationProblemPlusJSONResponse struct {
+	ProblemNoInstanceApplicationProblemPlusJSONResponse
+}
+
+func (response GetRecordHistory404ApplicationProblemPlusJSONResponse) VisitGetRecordHistoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRecordHistory429ApplicationProblemPlusJSONResponse Problem
+
+func (response GetRecordHistory429ApplicationProblemPlusJSONResponse) VisitGetRecordHistoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRecordHistory500ApplicationProblemPlusJSONResponse Problem
+
+func (response GetRecordHistory500ApplicationProblemPlusJSONResponse) VisitGetRecordHistoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRecordHistory501ApplicationProblemPlusJSONResponse Problem
+
+func (response GetRecordHistory501ApplicationProblemPlusJSONResponse) VisitGetRecordHistoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// ListEntityTypes List the tenant's entity types
@@ -1920,6 +2446,12 @@ type StrictServerInterface interface {
 	// GetRecord Read a record
 	// (GET /api/v1/records/{entity}/{id})
 	GetRecord(ctx context.Context, request GetRecordRequestObject) (GetRecordResponseObject, error)
+	// PatchRecord Update a record with a JSON Merge Patch
+	// (PATCH /api/v1/records/{entity}/{id})
+	PatchRecord(ctx context.Context, request PatchRecordRequestObject) (PatchRecordResponseObject, error)
+	// GetRecordHistory A record's change history
+	// (GET /api/v1/records/{entity}/{id}/history)
+	GetRecordHistory(ctx context.Context, request GetRecordHistoryRequestObject) (GetRecordHistoryResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -2218,6 +2750,69 @@ func (sh *strictHandler) GetRecord(w http.ResponseWriter, r *http.Request, entit
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetRecordResponseObject); ok {
 		if err := validResponse.VisitGetRecordResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PatchRecord operation middleware
+func (sh *strictHandler) PatchRecord(w http.ResponseWriter, r *http.Request, entity Entity, id string, params PatchRecordParams) {
+	var request PatchRecordRequestObject
+
+	request.Entity = entity
+	request.Id = id
+	request.Params = params
+
+	var body PatchRecordApplicationMergePatchPlusJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PatchRecord(ctx, request.(PatchRecordRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PatchRecord")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PatchRecordResponseObject); ok {
+		if err := validResponse.VisitPatchRecordResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetRecordHistory operation middleware
+func (sh *strictHandler) GetRecordHistory(w http.ResponseWriter, r *http.Request, entity Entity, id string, params GetRecordHistoryParams) {
+	var request GetRecordHistoryRequestObject
+
+	request.Entity = entity
+	request.Id = id
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetRecordHistory(ctx, request.(GetRecordHistoryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetRecordHistory")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetRecordHistoryResponseObject); ok {
+		if err := validResponse.VisitGetRecordHistoryResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -28,6 +28,8 @@ paths:
     $ref: "paths/records.yaml#/paths/~1api~1v1~1records~1{entity}"
   /api/v1/records/{entity}/{id}:
     $ref: "paths/records.yaml#/paths/~1api~1v1~1records~1{entity}~1{id}"
+  /api/v1/records/{entity}/{id}/history:
+    $ref: "paths/records.yaml#/paths/~1api~1v1~1records~1{entity}~1{id}~1history"
 components:
   schemas:
     Problem:

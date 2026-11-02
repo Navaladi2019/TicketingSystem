@@ -233,7 +233,7 @@ func TestResponseErrorKnowsEveryCode(t *testing.T) {
 		problem.IdempotencyInFlight: true, problem.Forbidden: true, problem.DomainClaimed: true,
 		problem.OnboardingConflict: true, problem.InvalidCursor: true, problem.RateLimited: true,
 		problem.NotFound: true, problem.MethodNotAllowed: true, problem.NotImplemented: true,
-		problem.InternalError: true, problem.EntityTypeExists: true, problem.NumberPrefixTaken: true,
+		problem.InternalError: true, problem.EntityTypeExists: true, problem.NumberPrefixTaken: true, problem.IfMatchRequired: true, problem.VersionConflict: true,
 	}
 	reg := loadTestRegistry(t)
 	h := &handlers{reg: reg, log: slog.New(slog.DiscardHandler)}

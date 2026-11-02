@@ -32,6 +32,7 @@ func recordPaths() []Path {
 	}
 	return []Path{
 		db("tenant B reading tenant A's record gets the missing record's 404, byte for byte", recReadOtherTenants),
+		db("tenant B patching tenant A's record or reading its history gets the missing record's 404, byte for byte, and changes nothing", recPatchOtherTenants),
 		db("tenant B creating under tenant A's type gets the unknown type's 404, byte for byte, and writes nothing", recCreateOtherTenantsType),
 	}
 }
@@ -114,6 +115,49 @@ func recCreateOtherTenantsType(ctx context.Context, e *etIso) error {
 	}
 	if n != 1 {
 		return fmt.Errorf("%d records of iso_et_rec exist, want only tenant A's one", n)
+	}
+	return nil
+}
+
+// recPatchOtherTenants (TICK-358): PATCH and history across tenants. Tenant B
+// names tenant A's record with the right ETag and gets the 404 of a record
+// that does not exist, not a 412 or 428; tenant A's record stays at version 1.
+func recPatchOtherTenants(ctx context.Context, e *etIso) error {
+	id, err := recCreate(ctx, e)
+	if err != nil {
+		return err
+	}
+	const missing = "0194f2c0-0000-7000-8000-000000000000"
+	if code, body := e.do(ctx, http.MethodPost, "/api/v1/entity-types", etCallerBAdmin, etCreateBody("iso_et_rec", "ISB", ""), nil); code != http.StatusCreated {
+		return fmt.Errorf("control: tenant B creating its own type = %d %s, want 201", code, body)
+	}
+	patch := http.Header{"Content-Type": {"application/merge-patch+json"}, "If-Match": {`W/"1"`}}
+	for _, m := range []string{http.MethodPatch, http.MethodGet} {
+		suffix := ""
+		if m == http.MethodGet {
+			suffix = "/history"
+		}
+		hdr, body := http.Header(nil), ""
+		if m == http.MethodPatch {
+			hdr, body = patch, `{"data": {"note": "forged"}}`
+		}
+		oc, ob := e.do(ctx, m, "/api/v1/records/iso_et_rec/"+id+suffix, etCallerB, body, hdr)
+		uc, ub := e.do(ctx, m, "/api/v1/records/iso_et_rec/"+missing+suffix, etCallerB, body, hdr)
+		switch {
+		case uc != http.StatusNotFound:
+			return fmt.Errorf("control: tenant B %s of a missing record%s = %d %s, want 404", m, suffix, uc, ub)
+		case oc != http.StatusNotFound:
+			return fmt.Errorf("tenant B %s of tenant A's record%s = %d %s, want 404", m, suffix, oc, ob)
+		case ob != ub:
+			return fmt.Errorf("tenant B %s 404 for tenant A's record%s differs from the missing one's:\n%s\n%s", m, suffix, ob, ub)
+		}
+	}
+	var v int64
+	if err := e.super.QueryRow(ctx, `SELECT r.version FROM records r WHERE r.id = $1`, id).Scan(&v); err != nil {
+		return err
+	}
+	if v != 1 {
+		return fmt.Errorf("tenant A's record is at version %d after tenant B's patch, want 1", v)
 	}
 	return nil
 }

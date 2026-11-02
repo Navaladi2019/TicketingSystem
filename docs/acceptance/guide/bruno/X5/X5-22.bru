@@ -1,0 +1,34 @@
+meta {
+  name: X5.22 patchRecord 428: no If-Match
+  type: http
+  seq: 22
+}
+
+patch {
+  url: {{core_url}}/api/v1/records/{{x5_type}}/{{x5_id}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: {{x5_key6}}
+  Content-Type: application/merge-patch+json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "Printer fixed"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('if_match_required', 428);
+}
+
+docs {
+  The record exists, so the missing precondition is reported.
+}

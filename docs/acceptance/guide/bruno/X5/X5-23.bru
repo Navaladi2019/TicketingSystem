@@ -1,0 +1,35 @@
+meta {
+  name: X5.23 patchRecord 428: If-Match *
+  type: http
+  seq: 23
+}
+
+patch {
+  url: {{core_url}}/api/v1/records/{{x5_type}}/{{x5_id}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: {{x5_key7}}
+  Content-Type: application/merge-patch+json
+  If-Match: *
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "Printer fixed"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('if_match_required', 428);
+}
+
+docs {
+  A star counts as missing.
+}

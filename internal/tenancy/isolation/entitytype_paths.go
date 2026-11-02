@@ -170,7 +170,7 @@ func (e *etIso) cleanup() error {
 func (e *etIso) do(ctx context.Context, method, path, token, body string, header http.Header) (int, string) {
 	req := httptest.NewRequestWithContext(ctx, method, path, strings.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+token)
-	if body != "" {
+	if body != "" && header.Get("Content-Type") == "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	if method == http.MethodPost {

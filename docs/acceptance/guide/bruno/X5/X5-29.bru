@@ -1,0 +1,20 @@
+meta {
+  name: X5.29 getRecordHistory 401: no token
+  type: http
+  seq: 29
+}
+
+get {
+  url: {{core_url}}/api/v1/records/{{x5_type}}/{{x5_id}}/history
+  body: none
+  auth: none
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_token', 401);
+}
+
+docs {
+  Missing token.
+}

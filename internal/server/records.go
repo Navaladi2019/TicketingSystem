@@ -76,9 +76,10 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 		raw = *req.Body
 	}
 	var (
-		rec   *pipeline.Record
-		fixed map[string]string // the mapping the row was written under
-		tried map[string]string // the current version's, for a refused write
+		rec       *pipeline.Record
+		fixed     map[string]string // the mapping the row was written under
+		tried     map[string]string // the current version's, for a refused write
+		stateProp string
 	)
 	err := tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) error {
 		def, curVersion, err := h.store.Current(ctx, tx, req.Entity)
@@ -86,6 +87,7 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 			return err
 		}
 		tried = def.FixedColumns()
+		stateProp = def.StateProperty()
 		// The authorizer runs inside the pipeline, after this envelope check
 		// and before the schema check. S9's authorizer reads neither.
 		data, perr := parseRecordBody(raw)
@@ -112,7 +114,7 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 		if errors.Is(err, entitytypes.ErrNotFound) || errors.Is(err, pipeline.ErrNotFound) {
 			return h.notFound(ctx), nil
 		}
-		return nil, h.recordError(ctx, err, tried)
+		return nil, h.recordError(ctx, err, tried, stateProp)
 	}
 	return api.CreateRecord201JSONResponse{
 		Body:    recordBody(rec, rec.Payload(fixed)),
@@ -214,9 +216,11 @@ func recordInvalid(fields ...problem.FieldError) *problemError {
 // shows its constraint, table or detail text: it is a field error naming the
 // payload property whose fixed column the constraint guards. The constraint
 // name is logged here, server side only.
-func (h *handlers) recordError(ctx context.Context, err error, fixed map[string]string) error {
+func (h *handlers) recordError(ctx context.Context, err error, fixed map[string]string, stateProp string) error {
 	var (
 		ve *pipeline.ErrValidation
+		it *pipeline.ErrIllegalTransition
+		uv *pipeline.ErrUniqueViolation
 		pe *problemError
 		pg *pgconn.PgError
 	)
@@ -225,6 +229,10 @@ func (h *handlers) recordError(ctx context.Context, err error, fixed map[string]
 		return pe
 	case errors.Is(err, authz.ErrForbidden):
 		return &problemError{problem.Forbidden, nil, err}
+	case errors.As(err, &it):
+		return &problemError{problem.IllegalTransition, []problem.FieldError{invalid("/data/"+escapePointer(stateProp), "transition")}, err}
+	case errors.As(err, &uv):
+		return &problemError{problem.UniqueViolation, []problem.FieldError{invalid("/data/"+escapePointer(uv.Field), "unique")}, err}
 	case errors.As(err, &ve):
 		fields := make([]problem.FieldError, len(ve.Fields))
 		for i, f := range ve.Fields {
@@ -263,10 +271,16 @@ func escapePointer(s string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(s, "~", "~0"), "/", "~1")
 }
 
+func (r *notFoundResponse) VisitPatchRecordResponse(w http.ResponseWriter) error { return r.write(w) }
+func (r *notFoundResponse) VisitGetRecordHistoryResponse(w http.ResponseWriter) error {
+	return r.write(w)
+}
 func (r *notFoundResponse) VisitCreateRecordResponse(w http.ResponseWriter) error { return r.write(w) }
 func (r *notFoundResponse) VisitGetRecordResponse(w http.ResponseWriter) error    { return r.write(w) }
 
 var (
-	_ api.CreateRecordResponseObject = (*notFoundResponse)(nil)
-	_ api.GetRecordResponseObject    = (*notFoundResponse)(nil)
+	_ api.CreateRecordResponseObject     = (*notFoundResponse)(nil)
+	_ api.GetRecordResponseObject        = (*notFoundResponse)(nil)
+	_ api.PatchRecordResponseObject      = (*notFoundResponse)(nil)
+	_ api.GetRecordHistoryResponseObject = (*notFoundResponse)(nil)
 )

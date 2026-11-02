@@ -1,8 +1,8 @@
 meta {
-  name: X5 — API suite: records (createRecord, getRecord)
+  name: X5 — API suite: records (createRecord, getRecord, patchRecord, getRecordHistory)
   seq: 12
 }
 
 docs {
-  TICK-357. Create a record of a new entity type and read it back: 201 with `ETag` and `Location`, a retry with the same Idempotency-Key returning the same record, 422 `record_invalid` for a missing field and for a reference that does not exist (no constraint text), and the one 404 for a missing record, another tenant's record and an unknown entity type. 429, 500 and 501 are in the coverage page. Self-contained; every run uses a new type key. Needs `tools/seed.sh`.
+  TICK-357. Create a record of a new entity type and read it back: 201 with `ETag` and `Location`, a retry with the same Idempotency-Key returning the same record, 422 `record_invalid` for a missing field and for a reference that does not exist (no constraint text), and the one 404 for a missing record, another tenant's record and an unknown entity type. TICK-358 adds the update: `PATCH` with `If-Match` (200 with the new `ETag`, 412 with the current one, 428 without it or with `*`, and the 404 before the 428) and the cursor-paged history. 429, 500 and 501 are in the coverage page. Self-contained; every run uses a new type key. Needs `tools/seed.sh`.
 }
