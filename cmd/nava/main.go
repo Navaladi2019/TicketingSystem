@@ -28,7 +28,7 @@ const (
 	ExitTampered     = 1 // a check failed: the first failing line is reported
 	ExitUsage        = 2 // bad arguments, or the file cannot be read
 	ExitPending      = 3 // nothing tampered, but an erasure's audit/erase entry is not sealed yet
-	ExitUnverifiable = 4 // not verifiable: stubs omitted (an honest stubs=false export)
+	ExitUnverifiable = 4 // honest stubs=false export with a gap, a tail gap, or no matching line
 	ExitEmpty        = 5 // no sealed entry in the export window: nothing to verify
 )
 
@@ -64,15 +64,19 @@ Exit codes:
                   only by an audit/erase entry that is not sealed yet.
                   Export and verify again after the sealer has run.
   4  not verifiable: stubs omitted
-                  the export was made with stubs=false, so the entries the
-                  filter excluded are missing and the chain has gaps. The
-                  lines present are checked, but the range is not proven
-                  complete. Export again with stubs=true to verify.
+                  the export was made with stubs=false and the filter
+                  excluded some entries of the range: a gap inside it, the
+                  entries at its end (a tail gap), or every entry (no line
+                  matched). The lines present are checked, but the range is
+                  not proven complete. Export again with stubs=true to
+                  verify. A stubs=false export whose filter matched every
+                  entry has no gap and verifies as ok.
   5  empty        no sealed entry falls in the export window. Nothing is
                   verified, and nothing is wrong.
 
-Reason codes (exit 1): envelope_sha256_mismatch, entry_hash_mismatch,
-diff_sha256_mismatch, diff_missing, diff_state_mismatch,
+Reason codes (exit 1), all of docs/api/audit-export-v1.md §4.1:
+envelope_sha256_mismatch, entry_hash_mismatch, diff_sha256_mismatch,
+diff_missing, diff_state_mismatch,
 header_tenant_mismatch, erasure_unlisted, verifiable_flag_mismatch,
 anchor_missing, anchor_invalid, anchor_mismatch, seq_duplicate,
 seq_out_of_order, seq_missing, count_mismatch, head_mismatch,

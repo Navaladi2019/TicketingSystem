@@ -551,3 +551,94 @@ func TestLineTooLong(t *testing.T) {
 		t.Errorf("got %s, want %s", describe(r), verify.ReasonMalformedLine)
 	}
 }
+
+// ADR-004-E2 (TICK-464 spike cases A-L, output-rev2.txt): header stubs only
+// governs the gap rule; a tail gap or a range with no line matched is a gap
+// under stubs=false and seq_missing under stubs=true; the head hash is checked
+// whenever the last range line is at last_seq; step 8 compares only the
+// trailer's verifiable against the computed contiguity.
+func TestStubsFalseVerifiableComputed(t *testing.T) {
+	// build exports seq 1..last as full entries, keeps the range lines keep
+	// selects, and recomputes the trailer counts. All hashes come from the
+	// vector generator; forgeHead replaces only the trailer's head_hash.
+	build := func(stubs, verifiable bool, last int64, keep func(int64) bool, forgeHead bool) []byte {
+		f := vt.Build(vt.Options{HeadSeq: last})
+		body := []vt.Line{f.Body[0]} // the anchor
+		for _, l := range f.Body[1:] {
+			if keep(l["seq"].(int64)) { //nolint:forcetypeassert // fixture built by verifytest
+				body = append(body, l)
+			}
+		}
+		f.Body = body
+		f.Header["stubs"] = stubs
+		f.Trailer["verifiable"] = verifiable
+		if forgeHead {
+			f.Trailer["head_hash"] = strings.Repeat("ab", 32)
+		}
+		f.Recount()
+		return f.Bytes()
+	}
+	all := func(int64) bool { return true }
+	none := func(int64) bool { return false }
+	not := func(seq int64) func(int64) bool { return func(s int64) bool { return s != seq } }
+	cases := []struct {
+		name string
+		file []byte
+		want string // outcome and describe(r), as in output-rev2.txt
+	}{
+		{"A stubs=false verifiable=false complete 1..7", build(false, false, 7, all, false),
+			"tampered line 10: verifiable_flag_mismatch: trailer verifiable must be true for this range"},
+		{"B stubs=false verifiable=true complete 1..7", build(false, true, 7, all, false),
+			"pass no failure"},
+		{"C stubs=false verifiable=false 1..5, seq 5 excluded", build(false, false, 5, not(5), false),
+			"unverifiable no failure"},
+		{"D stubs=false verifiable=true 1..5, seq 2 excluded", build(false, true, 5, not(2), false),
+			"tampered line 7: verifiable_flag_mismatch: trailer verifiable must be false for this range"},
+		{"E stubs=true 1..5, seq 2 missing", build(true, true, 5, not(2), false),
+			"tampered line 4: seq_missing: seq 2..2 missing from a stubs=true file"},
+		{"F stubs=true 1..5, seq 5 missing", build(true, true, 5, not(5), false),
+			"tampered line 7: seq_missing: seq 5..5 missing from a stubs=true file"},
+		{"G stubs=false verifiable=false 1..5, seq 2 excluded", build(false, false, 5, not(2), false),
+			"unverifiable no failure"},
+		{"H stubs=false 1..5, no line matched", build(false, false, 5, none, false),
+			"unverifiable no failure"},
+		{"I stubs=false 1..5, seq 2 excluded, head forged", build(false, false, 5, not(2), true),
+			"tampered line 7: head_mismatch: the last range line is not last_seq with entry_hash head_hash"},
+		{"J stubs=false 1..5, seq 5 excluded, head forged", build(false, false, 5, not(5), true),
+			"unverifiable no failure"},
+		{"K stubs=false complete 1..5, head forged", build(false, true, 5, all, true),
+			"tampered line 8: head_mismatch: the last range line is not last_seq with entry_hash head_hash"},
+		{"L stubs=true 1..5, every range line deleted", build(true, true, 5, none, false),
+			"tampered line 3: seq_missing: seq 1..5 missing from a stubs=true file"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r := run(t, c.file)
+			if got := string(r.Outcome) + " " + describe(r); got != c.want {
+				t.Errorf("got  %s\nwant %s", got, c.want)
+			}
+			if r.Outcome == verify.OutcomeUnverifiable && r.Gaps == 0 {
+				t.Error("unverifiable with no gap counted")
+			}
+		})
+	}
+
+	// Step 6: last_seq must be after anchor_seq. A trailer naming the anchor
+	// itself as the head (no range lines, head_hash the anchor's entry_hash)
+	// is head_mismatch, under either stubs value.
+	for _, stubs := range []bool{true, false} {
+		t.Run(fmt.Sprintf("last_seq at anchor_seq stubs=%t", stubs), func(t *testing.T) {
+			f := vt.Build(vt.Options{AfterSeq: 2, HeadSeq: 3})
+			f.Body = f.Body[:1]
+			f.Header["stubs"] = stubs
+			f.Trailer["last_seq"] = int64(2)
+			f.Trailer["head_hash"] = f.Body[0]["entry_hash"]
+			f.Trailer["verifiable"] = true
+			f.Recount()
+			r := run(t, f.Bytes())
+			if reason(r) != verify.ReasonHeadMismatch {
+				t.Errorf("got %s %s, want %s", r.Outcome, describe(r), verify.ReasonHeadMismatch)
+			}
+		})
+	}
+}
