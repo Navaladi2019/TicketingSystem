@@ -1,8 +1,9 @@
 #!/bin/sh
 # The S11a demo (make demo-interpreter-*, TICK-352): one nava.interpreter run
 # of P3-20's fixture definition on the stack, started and signalled through
-# outbox rows (cmd/demo-interpreter, outbox.Enqueue in InTenantTx as
-# nava_app), run by nava-worker-interptest (compose.test.yaml, the S11a
+# outbox rows (cmd/demo-interpreter in InTenantTx as nava_app: the start
+# through cascade.ClaimStart and outbox.EnqueueStart, the signal through
+# outbox.Enqueue), run by nava-worker-interptest (compose.test.yaml, the S11a
 # fakes) while the always-on nava-worker is stopped.
 #
 # Usage: sh scripts/dev/demo-interpreter.sh <action>   (the stack is up)
@@ -46,6 +47,9 @@ esac
 # The definition versions the demo installs (any UUIDs; fixed so a rerun is stable).
 V1=51a11000-0000-4000-8000-000000000001
 V2=51a11000-0000-4000-8000-000000000002
+# The fixture's definition: both versions belong to it, and it names the
+# cascade start key (ADR-001 A5), so it starts at most once per record.
+DEFINITION=51a11000-0000-4000-8000-0000000000d0
 FIXTURE=internal/workflow/def/testdata
 # Host side of the fixture mount (read-only in the worker), and the worker's
 # writer and pause directories in the interptest-state volume, which outlives
@@ -105,7 +109,7 @@ enqueue() {
 	mkdir -p bin
 	CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -o bin/demo-interpreter-linux ./cmd/demo-interpreter
 	ctr=$(docker create --network "$net" --entrypoint /demo-interpreter \
-		-e "DEMO_ACTION=$1" -e "DEDUPE_KEY=$2" -e "TENANT_ID=$TENANT_ID" -e "RECORD_ID=$3" -e "VERSION_ID=$4" -e "SIGNAL_ID=$4" \
+		-e "DEMO_ACTION=$1" -e "DEDUPE_KEY=$2" -e "TENANT_ID=$TENANT_ID" -e "RECORD_ID=$3" -e "VERSION_ID=$4" -e "SIGNAL_ID=$4" -e "DEFINITION_ID=$DEFINITION" \
 		-e "NAVA_DATABASE_URL=postgres://nava_app:${NAVA_APP_DB_PASSWORD:-dev-only-app}@pgbouncer:5432/nava?sslmode=disable" \
 		"nava/nava-core:${NAVA_IMAGE_TAG:-dev}")
 	status=0
@@ -119,6 +123,15 @@ approve_id() {
 	sed -n 's/.*"signal:approve": *"\([0-9a-f-]*\)".*/\1/p' "$FIXTURE/fixture-v1.ids.json"
 }
 
+# seed_record <record>: the record's row, with the depth-0 causation the
+# write pipeline stores on a person's create (ADR-001 A5-3), so ClaimStart can
+# key its start. A seed, as the superuser: cmd/demo-interpreter writes no
+# record table (PLAN-003 D-3-6). A rerun keeps the row and its origin.
+seed_record() {
+	printf "INSERT INTO records (tenant_id, id, causation_origin_id, causation_depth) VALUES ('%s', '%s', gen_random_uuid(), 0) ON CONFLICT DO NOTHING;\n" \
+		"$TENANT_ID" "$1" | psql_q
+}
+
 do_start() {
 	rec=$(record_id)
 	version=$(cat "$LOCAL/fixtures/$TENANT_ID/current-version")
@@ -127,6 +140,9 @@ do_start() {
 		printf '{"priority":"%s"}' "${PRIORITY:-high}" > "$LOCAL/fixtures/$TENANT_ID/records/$rec.json"
 		echo "[$(now)] record $rec of tenant $TENANT: priority ${PRIORITY:-high}"
 	fi
+	# Always, as the demo's INSERT did before ClaimStart (TICK-416): a
+	# RECORD_ID of another tenant becomes this tenant's own row of that UUID.
+	seed_record "$rec"
 	echo "[$(now)] start: tenant $TENANT, definition version $version"
 	enqueue start "${KEY:-$rec}:start" "$rec" "$version"
 }

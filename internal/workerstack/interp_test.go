@@ -221,19 +221,28 @@ func psql(t *testing.T, sql string) string {
 // writes for it. Every value in the SQL is a UUID or a constant.
 type interpRow struct {
 	tenant, record, start uuid.UUID
+	// origin is the depth-0 causation the record carries, as the write
+	// pipeline stores it on a person's create (ADR-001 A5-3).
+	origin uuid.UUID
 }
 
-// newInterpRow creates an active tenant and a record (records table), and
-// leaves the tenant's pending rows dead when the test ends.
+// interpDefinition is the definition the cascade start key names (A5): any
+// UUID, since each row's record is new.
+var interpDefinition = uuid.MustParse("51a11000-0000-4000-8000-0000000000d0")
+
+// newInterpRow creates an active tenant and a record (records table) that
+// carries a causation origin, and leaves the tenant's pending rows dead when
+// the test ends.
 func newInterpRow(t *testing.T) *interpRow {
 	t.Helper()
 	start, err := uuid.NewV7()
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := &interpRow{tenant: uuid.New(), record: uuid.New(), start: start}
+	r := &interpRow{tenant: uuid.New(), record: uuid.New(), start: start, origin: uuid.New()}
 	psql(t, fmt.Sprintf(`INSERT INTO tenants (id, state) VALUES ('%s', 'active');
-INSERT INTO records (tenant_id, id) VALUES ('%[1]s', '%s');`, r.tenant, r.record))
+INSERT INTO records (tenant_id, id, causation_origin_id, causation_depth) VALUES ('%[1]s', '%s', '%s', 0);`,
+		r.tenant, r.record, r.origin))
 	t.Cleanup(func() {
 		psql(t, fmt.Sprintf(`UPDATE outbox SET dead_at = now(), last_error = 'TICK-367 cleanup'
 WHERE tenant_id = '%s' AND dispatched_at IS NULL AND dead_at IS NULL;`, r.tenant))
@@ -259,20 +268,27 @@ func (r *interpRow) workflowID(t *testing.T) string {
 	return id
 }
 
-// enqueue writes what outbox.Enqueue writes for a TargetStart of
-// nava.interpreter: the record's version bump, the row with payload
-// {definition_version_id, record_id} (D-3-12), and its workflow_ref.
+// enqueue writes what cascade.ClaimStart and outbox.EnqueueStart write for a
+// start of nava.interpreter (A5-6): the row at the record's version with no
+// version bump (D-3-6), carrying the record's causation, with payload
+// {definition_version_id, record_id} (D-3-12); the claimed start key, whose
+// outbox_id is the row's id; and the row's workflow_ref. The
+// stack test reaches the database only through psql as the superuser, so it
+// cannot call them; internal/records/pipeline's integration tests cover the
+// functions themselves.
 func (r *interpRow) enqueue(t *testing.T, version, record uuid.UUID) {
 	t.Helper()
 	payload, err := json.Marshal(map[string]uuid.UUID{"definition_version_id": version, "record_id": record})
 	if err != nil {
 		t.Fatal(err)
 	}
-	psql(t, fmt.Sprintf(`WITH v AS (UPDATE records SET version = version + 1 WHERE tenant_id = '%[1]s' AND id = '%[2]s' RETURNING version)
-INSERT INTO outbox (id, tenant_id, kind, kind_version, dedupe_key, target_key, target_seq, payload)
-SELECT '%[3]s', '%[1]s', '%[4]s', 1, '%[3]s', '%[5]s', version, '%[6]s'::jsonb FROM v;
+	psql(t, fmt.Sprintf(`INSERT INTO outbox (id, tenant_id, kind, kind_version, dedupe_key, target_key, target_seq, causation_id, causation_depth, payload)
+SELECT '%[3]s', '%[1]s', '%[4]s', 1, '%[3]s', '%[5]s', version, causation_origin_id, causation_depth, '%[6]s'::jsonb
+FROM records WHERE tenant_id = '%[1]s' AND id = '%[2]s';
+INSERT INTO cascade_start (tenant_id, causation_origin_id, record_id, definition_id, outbox_id)
+VALUES ('%[1]s', '%[7]s', '%[2]s', '%[8]s', '%[3]s');
 INSERT INTO workflow_ref (tenant_id, outbox_id, record_id, kind) VALUES ('%[1]s', '%[3]s', '%[2]s', '%[4]s');`,
-		r.tenant, r.record, r.start, interp.WorkflowType, r.targetKey(), payload))
+		r.tenant, r.record, r.start, interp.WorkflowType, r.targetKey(), payload, r.origin, interpDefinition))
 }
 
 // dispatched waits up to 60 s for the relay to mark the start row

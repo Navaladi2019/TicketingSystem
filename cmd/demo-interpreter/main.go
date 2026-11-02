@@ -1,23 +1,30 @@
 // Command demo-interpreter is the S11a demo (TICK-352): it writes the outbox
 // rows that drive one nava.interpreter run through the real producer path
-// (outbox.Enqueue in tenancy.InTenantTx, as nava_app), and the relay hands
-// them to Temporal. Run it through scripts/dev/demo-interpreter.sh (the
-// make demo-interpreter-* targets), which puts it on the compose network and
-// installs the fixture definitions and records the interptest worker reads.
+// (tenancy.InTenantTx, as nava_app), and the relay hands them to Temporal.
+// Run it through scripts/dev/demo-interpreter.sh (the make demo-interpreter-*
+// targets), which puts it on the compose network, installs the fixture
+// definitions and seeds the records it starts on, with a causation origin
+// (ADR-001 A5-3), as the write pipeline would store them.
 //
 // DEMO_ACTION picks what it writes:
 //
-//   - start: a start row of nava.interpreter for record RECORD_ID of
-//     TENANT_ID, payload {definition_version_id: VERSION_ID, record_id}, and
-//     its workflow_ref. It prints the workflow id the relay gives the run.
+//   - start: claims the start key of DEFINITION_ID on record RECORD_ID of
+//     TENANT_ID with cascade.ClaimStart and enqueues the start row of
+//     nava.interpreter with outbox.EnqueueStart (A5-6), payload
+//     {definition_version_id: VERSION_ID, record_id}, and its workflow_ref.
+//     The row carries the record's causation. It prints the workflow id the
+//     relay gives the run. A key already claimed (a rerun) enqueues nothing
+//     and prints the row that holds it.
 //   - signal: a signal row on nava.interpreter.signal, payload {signal:
-//     SIGNAL_ID}, for the newest open interpreter run of RECORD_ID.
+//     SIGNAL_ID}, for the newest open interpreter run of RECORD_ID, through
+//     outbox.Enqueue under a new depth-0 origin (a person's action).
 //   - record-id: no database; prints the record id the demo derives from
 //     TENANT_ID and DEDUPE_KEY, so the script can write the record's fixture
 //     file before the start row exists.
 //
 // DEDUPE_KEY names the row, so running it again with the same key writes
-// nothing and prints the same ids.
+// nothing and prints the same ids. The record must exist: this command
+// writes no record table (PLAN-003 D-3-6).
 package main
 
 import (
@@ -34,6 +41,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/cascade"
 	"github.com/Navaladi2019/TicketingSystem/internal/relay"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 	"github.com/Navaladi2019/TicketingSystem/internal/workflow/interp"
@@ -43,7 +51,10 @@ const (
 	// maxKeyLen is outbox's dedupe key limit.
 	maxKeyLen = 200
 
-	insertRecordSQL = `INSERT INTO records (tenant_id, id) VALUES ($1, $2) ON CONFLICT DO NOTHING`
+	// claimedSQL finds the start row that holds a key already claimed for
+	// the record's origin; RLS keeps it to the transaction's tenant.
+	claimedSQL = `SELECT s.outbox_id FROM cascade_start s JOIN records r ON r.tenant_id = s.tenant_id AND r.id = s.record_id
+WHERE s.record_id = $1 AND s.definition_id = $2 AND s.causation_origin_id = r.causation_origin_id`
 )
 
 func main() {
@@ -61,6 +72,7 @@ func RecordID(tenant uuid.UUID, key string) uuid.UUID { return uuid.NewSHA1(tena
 type input struct {
 	dsn, action, key       string
 	tenant, record, target uuid.UUID
+	definition             uuid.UUID // start only: the cascade key's definition
 }
 
 func parse(lookup func(string) (string, bool)) (input, error) {
@@ -84,10 +96,17 @@ func parse(lookup func(string) (string, bool)) (input, error) {
 	if targetVar == "" {
 		return in, fmt.Errorf("DEMO_ACTION must be start, signal or record-id, not %q", in.action)
 	}
-	for _, f := range []struct {
+	vars := []struct {
 		name string
 		dst  *uuid.UUID
-	}{{"TENANT_ID", &in.tenant}, {"RECORD_ID", &in.record}, {targetVar, &in.target}} {
+	}{{"TENANT_ID", &in.tenant}, {"RECORD_ID", &in.record}, {targetVar, &in.target}}
+	if in.action == "start" {
+		vars = append(vars, struct {
+			name string
+			dst  *uuid.UUID
+		}{"DEFINITION_ID", &in.definition})
+	}
+	for _, f := range vars {
 		id, err := uuid.Parse(get(f.name))
 		if err != nil || id == uuid.Nil {
 			return in, fmt.Errorf("%s must be a UUID", f.name)
@@ -143,12 +162,17 @@ func run(ctx context.Context, lookup func(string) (string, bool), out io.Writer)
 
 	var id uuid.UUID
 	err = tenancy.InTenantTx(ctx, pool, in.tenant, func(tx pgx.Tx) error {
-		if in.action == "start" {
-			if _, err := tx.Exec(ctx, insertRecordSQL, in.tenant, in.record); err != nil {
-				return fmt.Errorf("insert record: %w", err)
-			}
-		}
 		var err error
+		if in.action == "start" {
+			id, err = enqueueStart(ctx, tx, in.definition, e)
+			return err
+		}
+		// A signal is a person's action: a new cascade at depth 0 (A5-3).
+		origin, err := uuid.NewV7()
+		if err != nil {
+			return err
+		}
+		e.Causation = outbox.Causation{OriginID: origin}
 		id, err = outbox.Enqueue(ctx, tx, e)
 		return err
 	})
@@ -166,4 +190,23 @@ func run(ctx context.Context, lookup func(string) (string, bool), out io.Writer)
 		_, _ = fmt.Fprintf(out, "workflow id: %s\n", wid)
 	}
 	return nil
+}
+
+// enqueueStart claims the start key of definition on e's record and enqueues
+// e with outbox.EnqueueStart (A5-6); the row takes the causation the record
+// carries. A key already claimed enqueues nothing and returns the id of the
+// row that holds it, so a rerun prints the same ids.
+func enqueueStart(ctx context.Context, tx pgx.Tx, definition uuid.UUID, e outbox.Entry) (uuid.UUID, error) {
+	c, claimed, err := cascade.ClaimStart(ctx, tx, cascade.Key{RecordID: e.RecordID, DefinitionID: definition})
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("claim start: %w", err)
+	}
+	if claimed {
+		return outbox.EnqueueStart(ctx, tx, c, e)
+	}
+	var id uuid.UUID
+	if err := tx.QueryRow(ctx, claimedSQL, e.RecordID, definition).Scan(&id); err != nil {
+		return uuid.Nil, fmt.Errorf("find the claimed start: %w", err)
+	}
+	return id, nil
 }
