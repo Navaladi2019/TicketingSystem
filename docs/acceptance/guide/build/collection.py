@@ -1350,10 +1350,12 @@ def x5():
 const run = Math.random().toString(16).slice(2, 10);
 bru.setVar('x5_type', `x5_${run}`);
 bru.setVar('x5_prefix', Array.from({ length: 6 }, () => String.fromCharCode(65 + Math.floor(Math.random() * 26))).join(''));
-for (let i = 0; i <= 5; i++) bru.setVar(`x5_key${i}`, `tick357-x5-${run}-${i}`);
+for (let i = 0; i <= 12; i++) bru.setVar(`x5_key${i}`, `tick357-x5-${run}-${i}`);
 """
     key = lambda i: {"Idempotency-Key": "{{x5_key%d}}" % i}
     good = {"data": {"short_description": "Printer on fire"}}
+    patch_good = {"data": {"short_description": "Printer fixed"}}
+    mp = {"Content-Type": "application/merge-patch+json"}
     same = "\ntest('same body as X5.15', () => expect(N.text()).to.eql(bru.getVar('x5_ref404')));"
     no404 = """
 test('HTTP 404 problem+json with code not_found and no instance', () => {
@@ -1365,8 +1367,8 @@ test('HTTP 404 problem+json with code not_found and no instance', () => {
 });
 N.status(404);"""
     return {
-        "dir": "X5", "name": "X5 — API suite: records (createRecord, getRecord)",
-        "desc": "TICK-357. Create a record of a new entity type and read it back: 201 with `ETag` and `Location`, a retry with the same Idempotency-Key returning the same record, 422 `record_invalid` for a missing field and for a reference that does not exist (no constraint text), and the one 404 for a missing record, another tenant's record and an unknown entity type. 429, 500 and 501 are in the coverage page. Self-contained; every run uses a new type key. Needs `tools/seed.sh`.",
+        "dir": "X5", "name": "X5 — API suite: records (createRecord, getRecord, patchRecord, getRecordHistory)",
+        "desc": "TICK-357. Create a record of a new entity type and read it back: 201 with `ETag` and `Location`, a retry with the same Idempotency-Key returning the same record, 422 `record_invalid` for a missing field and for a reference that does not exist (no constraint text), and the one 404 for a missing record, another tenant's record and an unknown entity type. TICK-358 adds the update: `PATCH` with `If-Match` (200 with the new `ETag`, 412 with the current one, 428 without it or with `*`, and the 404 before the 428) and the cursor-paged history. 429, 500 and 501 are in the coverage page. Self-contained; every run uses a new type key. Needs `tools/seed.sh`.",
         "items": [
             token("X5.1 Sign in as tenant A's admin", "admin_a_username", "admin_a_password", "admin_a_token"),
             token("X5.2 Sign in as Alice (tenant A)", "alice_username", "alice_password", "alice_token"),
@@ -1428,6 +1430,63 @@ test('the created record', () => {
                 auth="alice_token", desc="Byte-identical to X5.15.", tests=no404 + same),
             req("X5.18 getRecord 404: an id that is not a UUID", "GET", rec + "/not-a-uuid", auth="alice_token",
                 desc="Byte-identical to X5.15.", tests=no404 + same),
+            problem_req("X5.19 patchRecord 401: no token", "PATCH", rec + "/{{x5_id}}", "invalid_token", 401, desc="Missing token.",
+                        headers={**key(5), **mp, "If-Match": 'W/"1"'}, body=patch_good),
+            problem_req("X5.20 patchRecord 400: no Idempotency-Key", "PATCH", rec + "/{{x5_id}}", "validation_failed", 400,
+                        auth="alice_token", desc="Every tenant write needs the header.", headers={**mp, "If-Match": 'W/"1"'},
+                        body=patch_good, extra="N.fieldError('/header/Idempotency-Key');"),
+            req("X5.21 patchRecord 404: an unknown entity type, no If-Match", "PATCH", base + "/no_such_type_x5/{{x5_id}}",
+                auth="alice_token", headers={**key(5), **mp}, body=patch_good,
+                desc="404 `not_found` with no `instance`. A missing record or type never answers 428.", tests=no404),
+            problem_req("X5.22 patchRecord 428: no If-Match", "PATCH", rec + "/{{x5_id}}", "if_match_required", 428,
+                        auth="alice_token", headers={**key(6), **mp}, body=patch_good,
+                        desc="The record exists, so the missing precondition is reported."),
+            problem_req("X5.23 patchRecord 428: If-Match *", "PATCH", rec + "/{{x5_id}}", "if_match_required", 428,
+                        auth="alice_token", headers={**key(7), **mp, "If-Match": "*"}, body=patch_good,
+                        desc="A star counts as missing."),
+            req("X5.24 patchRecord 200: the current ETag", "PATCH", rec + "/{{x5_id}}", auth="alice_token",
+                headers={**key(8), **mp, "If-Match": 'W/"1"'}, body=patch_good,
+                desc="A merge patch on `data`. The response is version 2 with a new `ETag`.",
+                tests="""N.status(200);
+test('version 2, patched, other fields kept', () => {
+  const b = N.json();
+  expect(b.version).to.eql(2);
+  expect(b.data.short_description).to.eql('Printer fixed');
+  expect(b.data.state).to.eql('new');
+  expect(N.header('ETag')).to.eql('W/"2"');
+});"""),
+            req("X5.25 patchRecord 412: the old ETag", "PATCH", rec + "/{{x5_id}}", auth="alice_token",
+                headers={**key(9), **mp, "If-Match": 'W/"1"'}, body=patch_good,
+                desc="Stale: 412 `version_conflict`, the current `ETag` in the header and in `detail`, no record data.",
+                tests="""N.problem('version_conflict', 412);
+test('current ETag in the header and the detail, no data', () => {
+  expect(N.header('ETag')).to.eql('W/"2"');
+  expect(N.json().detail).to.include('W/"2"');
+  expect(N.text()).to.not.include('Printer');
+});"""),
+            problem_req("X5.26 patchRecord 409: the key of X5.24 with another body", "PATCH", rec + "/{{x5_id}}", "idempotency_key_reuse", 409,
+                        auth="alice_token", headers={**key(8), **mp, "If-Match": 'W/"1"'}, body={"data": {"short_description": "another"}},
+                        desc="The key of X5.24 with a different body."),
+            problem_req("X5.27 patchRecord 422: null on a required field without a default", "PATCH", rec + "/{{x5_id}}", "record_invalid", 422,
+                        auth="alice_token", headers={**key(10), **mp, "If-Match": 'W/"2"'}, body={"data": {"short_description": None}},
+                        desc="Merge patch `null` removes the key; the schema then fails at its path.",
+                        extra="N.fieldError('/data/short_description');"),
+            req("X5.28 getRecordHistory 200: newest first", "GET", rec + "/{{x5_id}}/history", auth="alice_token",
+                desc="Two changes: the update, then the create. `changed` names the JSON pointers under `/data`.",
+                tests="""N.status(200);
+test('update then create', () => {
+  const b = N.json();
+  expect(b.items.map(i => i.action)).to.eql(['update', 'create']);
+  expect(b.items[0].changed).to.eql(['/data/short_description']);
+  expect(b.items[0].before.short_description).to.eql('Printer on fire');
+  expect(b.items[0].after.short_description).to.eql('Printer fixed');
+  expect(b.items[1]).to.not.have.property('before');
+});"""),
+            problem_req("X5.29 getRecordHistory 401: no token", "GET", rec + "/{{x5_id}}/history", "invalid_token", 401, desc="Missing token."),
+            problem_req("X5.30 getRecordHistory 400: a cursor that is not ours", "GET", rec + "/{{x5_id}}/history?cursor=not-a-cursor",
+                        "invalid_cursor", 400, auth="alice_token", desc="One code for every bad cursor."),
+            req("X5.31 getRecordHistory 404: an unknown entity type", "GET", base + "/no_such_type_x5/{{x5_id}}/history",
+                auth="alice_token", desc="Byte-identical to X5.15.", tests=no404 + same),
         ],
     }
 

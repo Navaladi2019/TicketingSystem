@@ -76,7 +76,7 @@ script:pre-request {
   const run = Math.random().toString(16).slice(2, 10);
   bru.setVar('x5_type', `x5_${run}`);
   bru.setVar('x5_prefix', Array.from({ length: 6 }, () => String.fromCharCode(65 + Math.floor(Math.random() * 26))).join(''));
-  for (let i = 0; i <= 5; i++) bru.setVar(`x5_key${i}`, `tick357-x5-${run}-${i}`);
+  for (let i = 0; i <= 12; i++) bru.setVar(`x5_key${i}`, `tick357-x5-${run}-${i}`);
 }
 
 tests {

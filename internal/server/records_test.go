@@ -42,7 +42,7 @@ func TestRecordErrorMapsAWrappedForeignKeyViolationToAFieldError(t *testing.T) {
 		"records_assignee_fkey":         "/data/owner",
 		"records_assignment_group_fkey": "/data/group",
 	} {
-		err := h.recordError(ctx, wrappedFK(constraint), recFixedColumns())
+		err := h.recordError(ctx, wrappedFK(constraint), recFixedColumns(), "state")
 		var pe *problemError
 		if !errors.As(err, &pe) || pe.code != problem.RecordInvalid {
 			t.Fatalf("%s: err = %v, want a record_invalid problem", constraint, err)
@@ -74,7 +74,7 @@ func TestRecordErrorLeavesOtherForeignKeyViolationsAnInternalError(t *testing.T)
 		"an unknown constraint":                     {wrappedFK("something_else_fkey"), recFixedColumns()},
 		"no property maps to the column":            {wrappedFK("records_requester_fkey"), recFixedColumns()},
 	} {
-		got := h.recordError(ctx, tc.err, tc.fixed)
+		got := h.recordError(ctx, tc.err, tc.fixed, "state")
 		var pe *problemError
 		if errors.As(got, &pe) {
 			t.Errorf("%s: mapped to the %s problem, want the raw error (a 500)", name, pe.code)
@@ -88,15 +88,15 @@ func TestRecordErrorMapsValidationForbiddenAndOthers(t *testing.T) {
 	ctx := t.Context()
 	ve := fmt.Errorf("x: %w", &pipeline.ErrValidation{Fields: []metadata.FieldError{{Path: "/a~1b", Code: "required"}, {Path: "", Code: "type"}}})
 	var pe *problemError
-	if err := h.recordError(ctx, ve, recFixedColumns()); !errors.As(err, &pe) || pe.code != problem.RecordInvalid ||
+	if err := h.recordError(ctx, ve, recFixedColumns(), "state"); !errors.As(err, &pe) || pe.code != problem.RecordInvalid ||
 		len(pe.fields) != 2 || pe.fields[0].Pointer != "/data/a~1b" || pe.fields[1].Pointer != "/data" {
 		t.Errorf("validation = %v %+v", err, pe)
 	}
-	if err := h.recordError(ctx, authz.ErrForbidden, recFixedColumns()); !errors.As(err, &pe) || pe.code != problem.Forbidden {
+	if err := h.recordError(ctx, authz.ErrForbidden, recFixedColumns(), "state"); !errors.As(err, &pe) || pe.code != problem.Forbidden {
 		t.Errorf("forbidden = %v", err)
 	}
 	boom := errors.New("boom")
-	if err := h.recordError(ctx, boom, recFixedColumns()); !errors.Is(err, boom) {
+	if err := h.recordError(ctx, boom, recFixedColumns(), "state"); !errors.Is(err, boom) {
 		t.Errorf("other = %v, want the error itself", err)
 	}
 }

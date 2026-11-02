@@ -385,3 +385,81 @@ func (r *Record) Split(payload map[string]any, fixed map[string]string) error {
 	r.Data = data
 	return nil
 }
+
+// HistoryRow is one create or update row of a record's audit history.
+type HistoryRow struct {
+	ID            uuid.UUID
+	At            time.Time
+	ActorID       *uuid.UUID
+	Source        string
+	Action        string
+	Before, After *Snapshot
+}
+
+// History returns the record's create and update audit rows, newest first
+// (at, then id, both descending). When afterID is not uuid.Nil it returns only
+// the rows older than the position (afterAt, afterID). It reads limit rows.
+// The cascade rows (they change no record) are left out.
+func History(ctx context.Context, tx pgx.Tx, tenantID, recordID uuid.UUID, afterAt time.Time, afterID uuid.UUID, limit int) ([]HistoryRow, error) {
+	rows, err := tx.Query(ctx, `
+SELECT id, at, actor_id, source, action, before, after
+FROM audit_log
+WHERE tenant_id = $1 AND record_id = $2 AND action IN ('create', 'update')
+  AND ($3::uuid IS NULL OR (at, id) < ($4::timestamptz, $3::uuid))
+ORDER BY at DESC, id DESC
+LIMIT $5`, tenantID, recordID, optionalID(afterID), afterAt, limit)
+	if err != nil {
+		return nil, fmt.Errorf("records/store: read history: %w", err)
+	}
+	defer rows.Close()
+	var out []HistoryRow
+	for rows.Next() {
+		var (
+			h             HistoryRow
+			before, after []byte
+		)
+		if err := rows.Scan(&h.ID, &h.At, &h.ActorID, &h.Source, &h.Action, &before, &after); err != nil {
+			return nil, fmt.Errorf("records/store: scan history: %w", err)
+		}
+		if h.Before, err = decodeSnapshot(before); err != nil {
+			return nil, err
+		}
+		if h.After, err = decodeSnapshot(after); err != nil {
+			return nil, err
+		}
+		out = append(out, h)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("records/store: read history: %w", err)
+	}
+	return out, nil
+}
+
+func optionalID(id uuid.UUID) *uuid.UUID {
+	if id == uuid.Nil {
+		return nil
+	}
+	return &id
+}
+
+// decodeSnapshot reads an audit row's before or after; NULL is nil. Numbers
+// stay exact.
+func decodeSnapshot(b []byte) (*Snapshot, error) {
+	if b == nil {
+		return nil, nil
+	}
+	var raw struct {
+		Number        string          `json:"number"`
+		Version       int64           `json:"version"`
+		SchemaVersion int             `json:"schema_version"`
+		Data          json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return nil, fmt.Errorf("records/store: decode audit snapshot: %w", err)
+	}
+	data, err := DecodeObject(raw.Data)
+	if err != nil {
+		return nil, fmt.Errorf("records/store: decode audit snapshot: %w", err)
+	}
+	return &Snapshot{Number: raw.Number, Version: raw.Version, SchemaVersion: raw.SchemaVersion, Data: data}, nil
+}

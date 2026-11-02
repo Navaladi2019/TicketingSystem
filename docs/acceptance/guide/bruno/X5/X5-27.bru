@@ -1,0 +1,36 @@
+meta {
+  name: X5.27 patchRecord 422: null on a required field without a default
+  type: http
+  seq: 27
+}
+
+patch {
+  url: {{core_url}}/api/v1/records/{{x5_type}}/{{x5_id}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: {{x5_key10}}
+  Content-Type: application/merge-patch+json
+  If-Match: W/"2"
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": null
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('record_invalid', 422);
+  N.fieldError('/data/short_description');
+}
+
+docs {
+  Merge patch `null` removes the key; the schema then fails at its path.
+}

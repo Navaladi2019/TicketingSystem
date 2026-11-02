@@ -217,6 +217,12 @@ func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http
 				case problem.SchemaBreakingChange:
 					h.reg.Write(w, r, problem.SchemaBreakingChange, pe.fields...)
 					return
+				case problem.IllegalTransition:
+					h.reg.Write(w, r, problem.IllegalTransition, pe.fields...)
+					return
+				case problem.UniqueViolation:
+					h.reg.Write(w, r, problem.UniqueViolation, pe.fields...)
+					return
 				case problem.RecordInvalid:
 					h.reg.Write(w, r, problem.RecordInvalid, pe.fields...)
 					return

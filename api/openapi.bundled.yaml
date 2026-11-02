@@ -368,6 +368,134 @@ paths:
           $ref: "#/components/responses/Problem"
         "501":
           $ref: "#/components/responses/Problem"
+    patch:
+      operationId: patchRecord
+      summary: Update a record with a JSON Merge Patch
+      description: >
+        Body `application/merge-patch+json`: `{data, state}`, both optional but at least one. `data` is a JSON Merge Patch (RFC 7396) applied inside the record write pipeline: `null` removes a key (a required property with a default is refilled, one without is a 422 at its path), objects merge, arrays and scalars replace. `state` is the state property's new value and wins over the same property inside `data`. The caller's `ETag` is required in `If-Match`; `*` counts as missing. Check order: authentication, entity type and record (the one 404), `If-Match` missing (428), stale (412), then the authorizer and the body (422). A missing record never answers 428. A 412 carries the current `ETag` in the header and in `detail`, and no record data. `Idempotency-Key` is required: a retry with the same key returns the stored response, `ETag` included.
+
+      parameters:
+        - $ref: "#/components/parameters/Entity"
+        - name: id
+          in: path
+          required: true
+          description: The record id. Its shape is not checked here, an id that cannot exist is a 404.
+          schema:
+            type: string
+        - name: If-Match
+          in: header
+          required: false
+          description: >
+            The `ETag` the update is based on. Optional in the contract only so that its absence is the registered 428 and not a generic 400.
+
+          schema:
+            type: string
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/PatchRecordRequest"
+      responses:
+        "200":
+          description: The record after the update.
+          headers:
+            ETag:
+              required: true
+              description: Weak ETag of the new version, `W/"<version>"`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Record"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/ProblemNoInstance"
+        "409":
+          $ref: "#/components/responses/Problem"
+        "412":
+          description: The record is not at the version of `If-Match`.
+          headers:
+            ETag:
+              required: true
+              description: Weak ETag of the current version.
+              schema:
+                type: string
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+        "428":
+          $ref: "#/components/responses/Problem"
+        "429":
+          $ref: "#/components/responses/Problem"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "501":
+          $ref: "#/components/responses/Problem"
+  /api/v1/records/{entity}/{id}/history:
+    get:
+      operationId: getRecordHistory
+      summary: A record's change history
+      description: >
+        Any user of the tenant (S9). The record's `create` and `update` audit rows, newest first, cursor-paged. The cursor is bound to the tenant, the principal and the route. `before` and `after` are the record's `data` before and after the write (merge-patch semantics: an absent key is a removed key; `before` is absent on a create). `changed` lists the JSON pointers, under `/data`, of the properties that differ; arrays count as one value. Values are unmasked until S10. The 404 is that of getRecord, byte for byte, with no `instance`.
+
+      parameters:
+        - $ref: "#/components/parameters/Entity"
+        - name: id
+          in: path
+          required: true
+          description: The record id. Its shape is not checked here, an id that cannot exist is a 404.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 4096
+      responses:
+        "200":
+          description: One page of history.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordHistory"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/ProblemNoInstance"
+        "429":
+          $ref: "#/components/responses/Problem"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "501":
+          $ref: "#/components/responses/Problem"
 components:
   schemas:
     Problem:
@@ -624,6 +752,54 @@ components:
         updated_at:
           type: string
           format: date-time
+    PatchRecordRequest:
+      type: object
+      description: >
+        Deliberately unconstrained here: the server resolves the record and `If-Match` first (404, 428, 412), then reads `{data, state}` and answers 422 `record_invalid`.
+
+      x-go-type: json.RawMessage
+      properties:
+        data:
+          description: A JSON Merge Patch (RFC 7396) on the record payload, an object.
+        state:
+          description: The new value of the state property, a string.
+    RecordHistory:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecordChange"
+        next_cursor:
+          type: string
+    RecordChange:
+      type: object
+      required: [at, source, action, changed, after]
+      properties:
+        at:
+          type: string
+          format: date-time
+        actor_id:
+          type: string
+          format: uuid
+          description: Absent when a system writer made the change.
+        source:
+          type: string
+        action:
+          type: string
+          enum: [create, update]
+        changed:
+          type: array
+          items:
+            type: string
+        before:
+          type: object
+          additionalProperties: true
+          description: Absent on a create.
+        after:
+          type: object
+          additionalProperties: true
   responses:
     Problem:
       description: An RFC 9457 problem.

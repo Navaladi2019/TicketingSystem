@@ -47,6 +47,10 @@ const (
 	NumberPrefixTaken    Code = "number_prefix_taken"
 	SchemaBreakingChange Code = "schema_breaking_change"
 	RecordInvalid        Code = "record_invalid"
+	IfMatchRequired      Code = "if_match_required"
+	VersionConflict      Code = "version_conflict"
+	IllegalTransition    Code = "illegal_transition"
+	UniqueViolation      Code = "unique_violation"
 )
 
 // Codes lists every Code constant.
@@ -55,6 +59,7 @@ func Codes() []Code {
 		TenantUnresolved, InvalidToken, IdempotencyKeyReuse, IdempotencyInFlight, Forbidden, DomainClaimed, InvalidIdPConfig, OnboardingConflict, InvalidCursor,
 		RateLimited, NotFound, ValidationFailed, MethodNotAllowed,
 		NotImplemented, InternalError, InvalidDefinition, EntityTypeExists, NumberPrefixTaken, SchemaBreakingChange, RecordInvalid,
+		IfMatchRequired, VersionConflict, IllegalTransition, UniqueViolation,
 	}
 }
 
