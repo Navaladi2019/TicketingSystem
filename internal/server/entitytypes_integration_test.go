@@ -201,6 +201,7 @@ type etEnv struct {
 	pool   *pgxpool.Pool
 	a, b   etTenant
 	super  *pgx.Conn
+	tel    *telemetry.Telemetry
 }
 
 func newETEnv(t *testing.T) *etEnv {
@@ -227,7 +228,7 @@ func newETEnv(t *testing.T) *etEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &etEnv{h: h, tokens: tokens, pool: pool, a: a, b: b, super: super}
+	return &etEnv{h: h, tokens: tokens, pool: pool, a: a, b: b, super: super, tel: tel}
 }
 
 func (e *etEnv) do(t *testing.T, method, path, token, idemKey, body string) *httptest.ResponseRecorder {
