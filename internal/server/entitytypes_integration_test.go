@@ -201,6 +201,7 @@ type etEnv struct {
 	pool   *pgxpool.Pool
 	a, b   etTenant
 	super  *pgx.Conn
+	logs   *etLogBuf
 }
 
 func newETEnv(t *testing.T) *etEnv {
@@ -222,12 +223,13 @@ func newETEnv(t *testing.T) *etEnv {
 	}
 	lim := &spyLimiter{}
 	lim.reset(true)
-	h, err := server.NewHandler(slog.New(slog.NewTextHandler(testLogWriter{t}, &slog.HandlerOptions{Level: slog.LevelWarn})), tel, tokens, stubPaths{},
+	logs := &etLogBuf{}
+	h, err := server.NewHandler(slog.New(slog.NewTextHandler(testLogWriter{t, logs}, &slog.HandlerOptions{Level: slog.LevelWarn})), tel, tokens, stubPaths{},
 		server.WithLimiter(lim), server.WithPool(pool), server.WithCursors(kr))
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &etEnv{h: h, tokens: tokens, pool: pool, a: a, b: b, super: super}
+	return &etEnv{h: h, tokens: tokens, pool: pool, a: a, b: b, super: super, logs: logs}
 }
 
 func (e *etEnv) do(t *testing.T, method, path, token, idemKey, body string) *httptest.ResponseRecorder {
@@ -645,10 +647,34 @@ func TestParallelCreateOfOneKeyGivesOne201AndOne409(t *testing.T) {
 
 // testLogWriter sends the server's warnings and errors to the test log, so a
 // 500 in CI shows its wrapped cause.
-type testLogWriter struct{ t *testing.T }
+type testLogWriter struct {
+	t   *testing.T
+	buf *etLogBuf
+}
 
 func (w testLogWriter) Write(p []byte) (int, error) {
 	w.t.Helper()
 	w.t.Log(strings.TrimRight(string(p), "\n"))
+	if w.buf != nil {
+		w.buf.add(p)
+	}
 	return len(p), nil
+}
+
+// etLogBuf collects the handler's log lines so a test can assert on them.
+type etLogBuf struct {
+	mu sync.Mutex
+	sb strings.Builder
+}
+
+func (b *etLogBuf) add(p []byte) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.sb.Write(p)
+}
+
+func (b *etLogBuf) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.sb.String()
 }

@@ -84,6 +84,16 @@ func TestCompileSecretMarkerPlacement(t *testing.T) {
 			props(s)["pw"] = marked("x-nava-secret")
 			props(s)["kind"] = map[string]any{"type": "string", "enum": []any{"a", "b"}}
 		}, ""},
+		{"root allOf $ref outside an unmarked property", func(s map[string]any) {
+			props(s)["pw"] = marked("x-nava-secret")
+			s["$defs"] = map[string]any{"x": map[string]any{"type": "object"}}
+			s["allOf"] = []any{map[string]any{"$ref": "#/$defs/x"}}
+		}, "/schema/allOf/0/$ref"},
+		{"$ref inside an unmarked property is fine", func(s map[string]any) {
+			props(s)["pw"] = marked("x-nava-secret")
+			s["$defs"] = map[string]any{"x": map[string]any{"type": "string"}}
+			props(s)["kind"] = map[string]any{"$ref": "#/$defs/x"}
+		}, ""},
 		{"$ref to a marked property", func(s map[string]any) {
 			props(s)["pw"] = marked("x-nava-secret")
 			props(s)["copy"] = map[string]any{"$ref": "#/properties/pw"}

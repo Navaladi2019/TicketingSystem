@@ -183,6 +183,10 @@ func (h *handlers) CreateEntityType(ctx context.Context, req api.CreateEntityTyp
 			return err
 		}
 		cr, perr := parseCreate(raw)
+		var secret *entitytypes.SecretInContentError
+		if errors.As(perr, &secret) {
+			return secret // answered below by secretProblem: path pointer and warning log
+		}
 		if perr != nil {
 			return perr
 		}

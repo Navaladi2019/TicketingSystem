@@ -452,6 +452,11 @@ func TestSecretDefaultIsRefusedAndNothingIsWritten(t *testing.T) {
 	if strings.Contains(rec.Body.String(), canary) {
 		t.Error("response echoes the secret value")
 	}
+	// The create path goes through secretProblem: the warning names the path.
+	if got := e.logs.String(); !strings.Contains(got, "entity type refused: secret in content") ||
+		!strings.Contains(got, "/definition/schema/properties/note/default") || strings.Contains(got, canary) {
+		t.Errorf("log lacks the secret warning with the path, or carries the value: %s", got)
+	}
 	if n := etVersionCount(t, e); n != 0 {
 		t.Errorf("%d versions after a refused create, want 0", n)
 	}

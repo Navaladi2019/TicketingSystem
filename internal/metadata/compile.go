@@ -347,7 +347,7 @@ func markedKeywords() []string {
 
 // checkMarked enforces the marker rules once the walk has found every marked
 // property: a marked property carries only markedKeywords, and with any member
-// marked, const, enum and examples appear only inside a non-marked top-level
+// marked, const, enum, examples, $ref and $dynamicRef appear only inside a non-marked top-level
 // property, so no applicator at the root or in $defs can set the secret.
 func (w *walker) checkMarked(doc map[string]any) {
 	if len(w.marked) == 0 {
@@ -362,7 +362,13 @@ func (w *walker) checkMarked(doc map[string]any) {
 			}
 		}
 	}
-	for _, site := range w.valueSites {
+	// A reference outside an unmarked property could apply another
+	// subschema's value keywords to the root instance.
+	sites := slices.Clone(w.valueSites)
+	for _, r := range w.refs {
+		sites = append(sites, r.path)
+	}
+	for _, site := range sites {
 		if len(site) > 3 && site[1] == "properties" && !w.marked[site[2]] {
 			continue
 		}
