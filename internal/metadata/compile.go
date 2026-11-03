@@ -330,7 +330,8 @@ type walker struct {
 	// marked holds the names of top-level properties marked x-nava-secret or
 	// writeOnly (ADR-004 R6). The marker is allowed nowhere else.
 	marked map[string]bool
-	// valueSites are the paths of every const, enum and examples keyword.
+	// valueSites are the paths of every const, enum, examples and pattern keyword
+	// (an anchored pattern spells out a literal).
 	valueSites [][]string
 	refs       []refSite
 }
@@ -342,7 +343,7 @@ func isSecretKeyword(kw string) bool { return kw == "x-nava-secret" || kw == "wr
 // markedKeywords is the closed set a marked property may carry: it describes
 // the value's shape and holds no value, applicator or reference (ADR-004 R6).
 func markedKeywords() []string {
-	return []string{"type", "format", "minLength", "maxLength", "pattern", "title", "description", "x-nava-secret", "writeOnly"}
+	return []string{"type", "format", "minLength", "maxLength", "title", "description", "x-nava-secret", "writeOnly"}
 }
 
 // checkMarked enforces the marker rules once the walk has found every marked
@@ -412,7 +413,7 @@ func (w *walker) walk(node any, path []string) {
 			} else if b {
 				w.marked[path[2]] = true
 			}
-		case kw == "const" || kw == "enum" || kw == "examples":
+		case kw == "const" || kw == "enum" || kw == "examples" || kw == "pattern":
 			w.valueSites = append(w.valueSites, at(kw))
 		case kw == "default":
 			if !isTopLevelProperty(path) {
