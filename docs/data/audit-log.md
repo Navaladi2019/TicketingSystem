@@ -71,7 +71,7 @@ Later tasks add the rest:
 - P5-11 generates the `nava_onboard` and `nava_groupsync` writer grants and policies.
 - P5-17 adds the reader's SELECT.
 - P5-33 adds onboarding's pinned INSERT on the head (A6.2).
-- P5-15 and P5-32 add the migrator's temporary policies.
+- P5-15 and P5-32 add the migrator's temporary policies, created and dropped inside the backfill (see [S8 backfill](#s8-backfill-migration-a-p5-15)).
 
 The column grants decide which columns a role may name. Two triggers decide what a role may do with them:
 - `audit_log_assert_insert` (R10) **asserts** `occurred_at = now()`, `txid = pg_current_xact_id()` and `backfilled = false` for every role except `nava_migrator`. For every role, the migrator included, it requires the seal and erasure columns to be NULL. It never rewrites a row: a rewrite could move the row to another partition, which PG 16 refuses.
@@ -108,6 +108,52 @@ Both trigger functions are SECURITY INVOKER and owned by `nava_migrator`. The te
 The margin under `n_distinct = 1` grows with rows per tenant, and passes 10× at about 20 rows per tenant per partition. No `occurred_at` override reaches 10× in a sparser partition. The probe form or the plan test (P5-11, TICK-428) has to cover that case.
 
 Time-window estimates are unchanged by the override: the 3-day, one-tenant read estimates 20 rows and returns 20 under both overrides.
+
+## S8 backfill: migration A (P5-15)
+
+Migration: `db/migrations/20261103120000_audit_backfill_s8.sql`. It creates `audit_backfill_s8()`, runs it once, then fails if any `nava_migrator` policy is left (R26.3). P5-32 (migration B) calls the same function again.
+
+```mermaid
+erDiagram
+    tenants ||--o{ entity_definition_versions : "tenant_id"
+    entity_definition_versions ||--|| audit_log : "one backfilled entry"
+    entity_definition_versions {
+        uuid tenant_id
+        uuid id
+        uuid definition_id
+        int version
+        bytea schema_sha256
+        uuid published_by
+        timestamptz published_at
+    }
+    audit_log {
+        uuid tenant_id "= version tenant_id"
+        uuid id "UUIDv5(ns, tenant_id || version id)"
+        timestamptz occurred_at "= published_at"
+        text action "create for v1, else publish"
+        uuid subject_id "= definition_id"
+        bigint version_after "= version"
+        bytea content_sha256 "= schema_sha256"
+        boolean backfilled "true"
+    }
+```
+
+- **Entry.** Domain `config`, subject `entity_definition`. `version_before` is NULL for v1 and `version - 1` otherwise. The actor is `published_by` with source `user`. Only a v1 seeded by onboarding has no publisher; its actor is `actor_system = onboarding` with source `onboarding`. No diff: R3 makes the content hash the evidence.
+- **Id.** UUIDv5 under the fixed namespace `3767d3ad-0a89-4b41-847c-9e4bf30c2055`, over the 32 raw bytes `tenant_id ‖ version_id`. ADR-004-E1 rules out `pgcrypto` and PG 16 has no built-in SHA-1, so `audit_backfill_sha1` implements FIPS 180-4 in plpgsql. `TestP515UUIDv5MatchesGo` checks it against `crypto/sha1` at every padding boundary and against Go's `uuid.NewSHA1`.
+- **Dedupe.** `NOT EXISTS (tenant_id, 'entity_definition', definition_id, version_after = version)`, so a re-run adds only versions published since the last run (CI-A9).
+- **Access path (R26).** Four temporary policies, created and dropped inside the function, in the migration's single transaction:
+  - `FOR SELECT TO nava_migrator USING (true)` on `tenants`, the only cross-tenant policy, used to list ids;
+  - canonical SELECT on `entity_definition_versions`;
+  - canonical SELECT and INSERT on `audit_log`.
+
+  For each tenant it calls `set_config('app.tenant_id', id, true)` and runs one `INSERT … SELECT`. All three functions are SECURITY INVOKER, owned by `nava_migrator` and have no EXECUTE grant.
+- **Plan pin.** The function runs with `enable_seqscan = off`. While the run fills `audit_log`, its statistics still say it is empty, so the cached plan seq-scanned `audit_log_default` for each tenant's dedupe: O(n²), 291.7 s for 300,000 versions. With the pin, the probe is an index scan on `audit_log_default_subject` (0.5–0.8 ms per tenant).
+- **Lock cost.** CREATE POLICY holds ACCESS EXCLUSIVE on `tenants`, `entity_definition_versions` and `audit_log` until COMMIT, so tenant resolution waits for the whole run. Measured on postgres:16.10 in Docker (16 CPUs, Windows 11 host), from `scratch/audit-backfill-s8/RESULT.md`:
+
+| Tenants | Versions | Migration A | Re-run, all present |
+|---:|---:|---:|---:|
+| 1,000 | 30,000 | 5.62 s | 0.14 s |
+| 10,000 | 300,000 | 54.69 s | 2.32 s |
 
 ## Cost
 
