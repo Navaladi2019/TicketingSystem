@@ -29,7 +29,8 @@
 # Adding, removing or exempting a table is a security-review change (D-P10).
 
 audited:
-  # P5-13b (TICK-452) attaches the trigger, if S1 item 1 holds (PLAN-005).
+  # P5-13b (TICK-452) attached the trigger (S1 item 1 passed; migration
+  # 20261104100000_records_audit_commit_check.sql).
   # The columns are every column a writer may UPDATE (db/grants.yaml).
   records:
     writer_roles: [nava_app, nava_worker]
@@ -37,7 +38,7 @@ audited:
                       updated_at, data, causation_origin_id, causation_depth]
     subject_type: record
     subject_id_column: id
-    attached: false
+    attached: true
   # P5-32 (migration B, D-5-8) attaches the trigger to both; P5-14 makes the
   # S8 publish path write their entries.
   entity_definitions:
@@ -57,7 +58,7 @@ exempt:
   audit_log:
     reason: "The audit log itself (ADR-004 decision 1); R10 and R11 guard its writes."
   audit_log_v0:
-    reason: "S9's audit table, read-only from P5-13b and dropped by P5-17 (PLAN-005 D-5-1)."
+    reason: "S9's audit table, read-only since P5-13b (no INSERT grant) and dropped by P5-17 (PLAN-005 D-5-1)."
   audit_chain_head:
     reason: "Chain state (R14). A seal is visible in the sealed entries; reseed and export write their own audit entries (R17, R19)."
   record_write_keys:

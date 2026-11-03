@@ -139,3 +139,34 @@ func TestCompileSecretMarkerPlacement(t *testing.T) {
 		})
 	}
 }
+
+// SecretProperties lists the top-level properties marked x-nava-secret or
+// writeOnly, sorted, and nothing else: the record pipeline turns each into
+// the secret pointer "/<name>" of a record's audit diff (TICK-452).
+func TestSecretProperties(t *testing.T) {
+	s := baseSchema()
+	props(s)["pw"] = map[string]any{"type": "string", "x-nava-secret": true}
+	props(s)["api_key"] = map[string]any{"type": "string", "writeOnly": true}
+	props(s)["plain"] = map[string]any{"type": "string", "writeOnly": false}
+	raw, err := json.Marshal(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := baseDefinition(t, s)
+	d.Schema = raw
+	c, err := metadata.Compile(d)
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	if got := c.SecretProperties(); len(got) != 2 || got[0] != "api_key" || got[1] != "pw" {
+		t.Errorf("SecretProperties = %q, want [api_key pw]", got)
+	}
+
+	d = baseDefinition(t, baseSchema())
+	if c, err = metadata.Compile(d); err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	if got := c.SecretProperties(); len(got) != 0 {
+		t.Errorf("SecretProperties of an unmarked schema = %q, want none", got)
+	}
+}

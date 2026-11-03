@@ -128,7 +128,7 @@ func TestAdversarialFixedColumnCannotReferenceAnotherTenant(t *testing.T) {
 	if n := count(t, e.super, "SELECT count(*) FROM records WHERE tenant_id = $1", a.id); n != 0 {
 		t.Fatalf("tenant A has %d records after a refused create", n)
 	}
-	if n := count(t, e.super, "SELECT count(*) FROM audit_log_v0 WHERE tenant_id = $1", a.id); n != 0 {
+	if n := count(t, e.super, "SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND domain = 'record'", a.id); n != 0 {
 		t.Fatalf("tenant A has %d audit rows after a refused create", n)
 	}
 

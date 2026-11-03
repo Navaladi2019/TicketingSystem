@@ -93,7 +93,7 @@ func TestWritesInExecMode(t *testing.T) {
 		t.Fatalf("replay: %+v, %v; want %+v", again, err, first)
 	}
 
-	// Beyond the depth limit: refused, and the audit row is written on the
+	// Beyond the depth limit: refused, and the audit entry is written on the
 	// runner, in exec mode too.
 	deep := pipeline.Command{Op: pipeline.OpCreate, EntityKey: "asset", Data: map[string]any{"name": "deep"},
 		Actor: f.system(), Source: pipeline.SourceSystem,
@@ -102,8 +102,8 @@ func TestWritesInExecMode(t *testing.T) {
 		t.Fatalf("too deep: %v, want ErrCascadeTooDeep", err)
 	}
 
-	if n := count(t, e.super, `SELECT count(*) FROM audit_log_v0 WHERE tenant_id = $1`, f.id); n != 4 {
-		t.Errorf("%d audit rows, want 4 (create, update, system create, cascade_rejected)", n)
+	if n := count(t, e.super, `SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND domain = 'record'`, f.id); n != 4 {
+		t.Errorf("%d audit entries, want 4 (create, update, system create, cascade_too_deep)", n)
 	}
 	if n := count(t, e.super, `SELECT count(*) FROM outbox WHERE tenant_id = $1`, f.id); n != sink.n || n != 3 {
 		t.Errorf("%d outbox rows for %d sink calls, want 3 each (the replay calls no sink)", n, sink.n)

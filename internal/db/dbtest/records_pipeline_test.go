@@ -45,7 +45,7 @@ func seedPipeline(t *testing.T, super *pgx.Conn, tenants ...string) {
 	seedEntityTypes(t, super, tenants...)
 	for _, id := range tenants {
 		rec := pipelineRecord(id)
-		exec(t, super, insertRecord, id, rec, id, "TCK0000001", id, id, id, id)
+		exec(t, super, withRecordEntry(insertRecord), id, rec, id, "TCK0000001", id, id, id, id)
 		exec(t, super, insertAudit, id, rec, "seed-key")
 		exec(t, super, "INSERT INTO record_counters (tenant_id, entity_definition_id, next) VALUES ($1, $1, 2)", id)
 	}
@@ -105,7 +105,8 @@ func TestP309RecordsIndexSet(t *testing.T) {
 	}
 }
 
-// Acceptance: audit_log_v0 is append-only for every runtime role, and the
+// Acceptance: audit_log_v0 is read-only for every runtime role (append-only
+// in S9; P5-13b, TICK-452, revoked the INSERT too), and the
 // columns a record sets once (entity_definition_id, number, created_by,
 // created_at) cannot be updated; the other pipeline columns can (control).
 func TestP309AuditAppendOnlyAndRecordNumberFixed(t *testing.T) {
@@ -118,6 +119,7 @@ func TestP309AuditAppendOnlyAndRecordNumberFixed(t *testing.T) {
 	for _, role := range []string{"nava_app", "nava_worker", "nava_onboard", "nava_groupsync", "nava_relay", "nava_purge"} {
 		conn := asRole(t, role)
 		for _, q := range []string{
+			"INSERT INTO audit_log_v0 (tenant_id, id, action, source) VALUES ($1, gen_random_uuid(), 'create', 'system')",
 			"UPDATE audit_log_v0 SET action = 'forged' WHERE tenant_id = $1",
 			"UPDATE audit_log_v0 SET idempotency_key = NULL WHERE tenant_id = $1",
 			"DELETE FROM audit_log_v0 WHERE tenant_id = $1",
@@ -140,9 +142,9 @@ func TestP309AuditAppendOnlyAndRecordNumberFixed(t *testing.T) {
 			_, err := execIn(conn, tenantA, q, tenantA, rec)
 			wantSQLState(t, role+": "+q, err, "42501")
 		}
-		n, err := execIn(conn, tenantA, `UPDATE records SET state = 'open', data = '{"title": "x"}', updated_at = now(),
+		n, err := execIn(conn, tenantA, withRecordEntry(`UPDATE records SET state = 'open', data = '{"title": "x"}', updated_at = now(),
 			version = version + 1, schema_version = 1, requester_id = $1, assignee_id = NULL, assignment_group_id = $1,
-			causation_origin_id = $1, causation_depth = 1 WHERE tenant_id = $1 AND id = $2`, tenantA, rec)
+			causation_origin_id = $1, causation_depth = 1 WHERE tenant_id = $1 AND id = $2`), tenantA, rec)
 		if err != nil || n != 1 {
 			t.Errorf("control: %s updates the mutable columns: %d rows, %v; want 1, nil", role, n, err)
 		}
@@ -238,19 +240,19 @@ func TestP309ForeignKeysRejectCrossTenant(t *testing.T) {
 	wantSQLState(t, "A moves its records to B's group", err, "23503")
 	_, err = execIn(app, a, "UPDATE records SET requester_id = $2 WHERE tenant_id = $1", a, b)
 	wantSQLState(t, "A names B's principal as requester", err, "23503")
-	_, err = execIn(app, a, insertAudit, a, b, nil) // B's bare record (seedTenants)
+	_, err = execIn(super, a, insertAudit, a, b, nil) // B's bare record (seedTenants)
 	wantSQLState(t, "A's audit row naming B's record", err, "23503")
 	_, err = execIn(app, a, nextNumber, a, b)
 	wantSQLState(t, "A's counter for B's type", err, "23503")
 
 	// Controls: the same rows with A's own ids are accepted.
-	if _, err := execIn(app, a, insertRecord, a, tenantX, a, "TCK0000002", a, a, a, a); err != nil {
+	if _, err := execIn(app, a, withRecordEntry(insertRecord), a, tenantX, a, "TCK0000002", a, a, a, a); err != nil {
 		t.Fatalf("control: A's record naming A's own rows: %v", err)
 	}
-	if _, err := execIn(app, a, insertAudit, a, tenantX, nil); err != nil {
+	if _, err := execIn(super, a, insertAudit, a, tenantX, nil); err != nil {
 		t.Fatalf("control: A's audit row for A's record: %v", err)
 	}
-	if _, err := execIn(app, a, insertAudit, a, nil, nil); err != nil {
+	if _, err := execIn(super, a, insertAudit, a, nil, nil); err != nil {
 		t.Fatalf("control: an audit row with no record (cascade_rejected on a create): %v", err)
 	}
 }
@@ -277,11 +279,11 @@ func TestP309AllOrNoneCheck(t *testing.T) {
 	}
 	_, err := execIn(app, tenantA, "UPDATE records SET state = 'new' WHERE tenant_id = $1 AND id = $1", tenantA)
 	wantSQLState(t, "a bare record given a state alone", err, "23514")
-	_, err = execIn(app, tenantA, insertRecord, tenantA, tenantX, tenantA, "TCK0000001", nil, nil, nil, nil)
+	_, err = execIn(app, tenantA, withRecordEntry(insertRecord), tenantA, tenantX, tenantA, "TCK0000001", nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("control: a full pipeline record: %v", err)
 	}
-	if _, err := execIn(app, tenantA, "INSERT INTO records (tenant_id, id) VALUES ($1, gen_random_uuid())", tenantA); err != nil {
+	if _, err := execIn(app, tenantA, withRecordEntry("INSERT INTO records (tenant_id, id) VALUES ($1, gen_random_uuid())"), tenantA); err != nil {
 		t.Fatalf("control: a bare PLAN-001 record: %v", err)
 	}
 	_, err = execIn(app, tenantA, "UPDATE records SET schema_version = 0 WHERE tenant_id = $1 AND id = $2", tenantA, tenantX)
@@ -296,18 +298,20 @@ func TestP309IdempotencyKeyPerTenant(t *testing.T) {
 	super := superNava(t)
 	seedTenants(t, super, []string{tenantA, tenantB}, nil)
 	seedPipeline(t, super, tenantA, tenantB) // each tenant holds "seed-key"
-	worker := asRole(t, "nava_worker")
+	// audit_log_v0 is read-only for the runtime roles since P5-13b (TICK-452;
+	// TestP309AuditAppendOnlyAndRecordNumberFixed), so its constraints are
+	// exercised as the superuser until P5-17 drops the table.
 	recA := pipelineRecord(tenantA)
 
-	_, err := execIn(worker, tenantA, insertAudit, tenantA, recA, "seed-key")
+	_, err := execIn(super, tenantA, insertAudit, tenantA, recA, "seed-key")
 	wantSQLState(t, "a second audit row keyed seed-key in tenant A", err, "23505")
 
 	key := "wf:0190a000-0000-7000-8000-0000000000aa:step-1"
-	if _, err := execIn(worker, tenantB, insertAudit, tenantB, pipelineRecord(tenantB), key); err != nil {
+	if _, err := execIn(super, tenantB, insertAudit, tenantB, pipelineRecord(tenantB), key); err != nil {
 		t.Fatalf("tenant B's key: %v", err)
 	}
 	// One write, two rows: the primary row keyed, the cascade_rejected row not.
-	err = inTenantTx(worker, tenantA, func(tx pgx.Tx) error {
+	err = inTenantTx(super, tenantA, func(tx pgx.Tx) error {
 		ctx := context.Background()
 		if _, err := tx.Exec(ctx, insertAudit, tenantA, recA, key); err != nil {
 			return err
@@ -322,7 +326,7 @@ func TestP309IdempotencyKeyPerTenant(t *testing.T) {
 
 	// The replay lookup (D-3-13) through the partial unique index's predicate.
 	var n int
-	err = inTenantTx(worker, tenantA, func(tx pgx.Tx) error {
+	err = inTenantTx(super, tenantA, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(context.Background(), `INSERT INTO audit_log_v0 (tenant_id, id, record_id, action, source, idempotency_key)
 			VALUES ($1, gen_random_uuid(), $2, 'update', 'workflow', $3)
 			ON CONFLICT (tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING`, tenantA, recA, key)
@@ -335,7 +339,7 @@ func TestP309IdempotencyKeyPerTenant(t *testing.T) {
 	if got := queryString(t, super, "SELECT count(*)::text FROM audit_log_v0 WHERE idempotency_key = $1", key); got != "2" {
 		t.Errorf("rows keyed %s = %s, want 2 (one per tenant)", key, got)
 	}
-	_, err = execIn(worker, tenantA, "INSERT INTO audit_log_v0 (tenant_id, id, action, source) VALUES ($1, gen_random_uuid(), 'x', 'operator')", tenantA)
+	_, err = execIn(super, tenantA, "INSERT INTO audit_log_v0 (tenant_id, id, action, source) VALUES ($1, gen_random_uuid(), 'x', 'operator')", tenantA)
 	wantSQLState(t, "an audit row with an unknown source", err, "23514")
 }
 
@@ -358,12 +362,12 @@ func TestP309NumberingUpsertAndUniqueness(t *testing.T) {
 			t.Fatalf("number %d from the upsert: got %d, %v", want, got, err)
 		}
 	}
-	if _, err := execIn(app, tenantA, insertRecord, tenantA, tenantX, tenantA, "TCK0000001", nil, nil, nil, nil); err != nil {
+	if _, err := execIn(app, tenantA, withRecordEntry(insertRecord), tenantA, tenantX, tenantA, "TCK0000001", nil, nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	_, err := execIn(app, tenantA, insertRecord, tenantA, tenantY, tenantA, "TCK0000001", nil, nil, nil, nil)
 	wantSQLState(t, "the same number twice in one type", err, "23505")
-	if _, err := execIn(app, tenantA, insertRecord, tenantA, tenantY, tenantY, "TCK0000001", nil, nil, nil, nil); err != nil {
+	if _, err := execIn(app, tenantA, withRecordEntry(insertRecord), tenantA, tenantY, tenantY, "TCK0000001", nil, nil, nil, nil); err != nil {
 		t.Errorf("the same number in another type: %v; want accepted", err)
 	}
 }
