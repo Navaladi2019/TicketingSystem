@@ -6,7 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"slices"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -174,6 +176,7 @@ func TestP511CatalogueCIA3(t *testing.T) {
 		t.Errorf("%s audit_commit_check triggers after the real migrations, want 0", n)
 	}
 
+	def := commitCheckDef(t, super)
 	writers := auditedManifest(t).Writers()
 	withTestTable := func(mutate func(*audited.Table)) *audited.Manifest {
 		a := auditedManifest(t)
@@ -227,6 +230,15 @@ func TestP511CatalogueCIA3(t *testing.T) {
 			func() *audited.Manifest { return withTestTable(nil) }, "writer role nava_app cannot run the commit check or append: no SELECT (txid)"},
 		{"writer has no SELECT policy", []string{"DROP POLICY audit_log_onboard_select ON audit_log"},
 			func() *audited.Manifest { return withTestTable(nil) }, "writer role nava_onboard cannot run the commit check or append: no SELECT policy"},
+		// ADR-004-E3 decision 3: the clause is in pg_proc.proconfig; a copy
+		// without it, an ALTER ... RESET, or a CREATE OR REPLACE without the
+		// SET (which resets proconfig) is reported.
+		{"CREATE OR REPLACE without the plan_cache_mode clause", []string{withoutClause(t, def, "public.audit_commit_check")},
+			func() *audited.Manifest { return withTestTable(nil) }, "function audit_commit_check() has no SET plan_cache_mode=force_custom_plan"},
+		{"plan_cache_mode clause RESET", []string{"ALTER FUNCTION audit_commit_check() RESET plan_cache_mode"},
+			func() *audited.Manifest { return withTestTable(nil) }, "function audit_commit_check() has no SET plan_cache_mode=force_custom_plan"},
+		{"copy without the clause in another schema", []string{"CREATE SCHEMA p511_copy", withoutClause(t, def, "p511_copy.audit_commit_check")},
+			func() *audited.Manifest { return withTestTable(nil) }, "function p511_copy.audit_commit_check() has no SET plan_cache_mode=force_custom_plan"},
 		{"leftover migrator policy (R26.3)", []string{
 			"CREATE POLICY p511_migrator ON tenants FOR SELECT TO nava_migrator USING (true)",
 		}, func() *audited.Manifest { return withTestTable(nil) }, "policy public.tenants.p511_migrator is left over for nava_migrator"},
@@ -291,6 +303,7 @@ type plan struct {
 type scan struct {
 	NodeType, Relation, Index, IndexCond string
 	Cost                                 float64
+	Conds                                []string // Index Cond, Recheck Cond and Filter, as present
 }
 
 func (s scan) probesKey() bool {
@@ -325,8 +338,13 @@ func explainProbe(t *testing.T, conn execer, tenant string) plan {
 	if err := json.Unmarshal([]byte(raw), &doc); err != nil || len(doc) != 1 {
 		t.Fatalf("explain json %q: %v", raw, err)
 	}
+	return parsePlan(doc[0].Plan)
+}
+
+// parsePlan reads a FORMAT JSON plan tree: EXPLAIN's or auto_explain's.
+func parsePlan(top map[string]any) plan {
 	var p plan
-	p.Cost, _ = doc[0].Plan["Total Cost"].(float64)
+	p.Cost, _ = top["Total Cost"].(float64)
 	var walk func(n map[string]any)
 	walk = func(n map[string]any) {
 		nt, _ := n["Node Type"].(string)
@@ -336,6 +354,11 @@ func explainProbe(t *testing.T, conn execer, tenant string) plan {
 			s.Index, _ = n["Index Name"].(string)
 			s.IndexCond, _ = n["Index Cond"].(string)
 			s.Cost, _ = n["Total Cost"].(float64)
+			for _, k := range []string{"Index Cond", "Recheck Cond", "Filter"} {
+				if c, ok := n[k].(string); ok {
+					s.Conds = append(s.Conds, c)
+				}
+			}
 			p.Scans = append(p.Scans, s)
 		}
 		kids, _ := n["Plans"].([]any)
@@ -345,8 +368,24 @@ func explainProbe(t *testing.T, conn execer, tenant string) plan {
 			}
 		}
 	}
-	walk(doc[0].Plan)
+	walk(top)
 	return p
+}
+
+// paramRef matches a plan parameter ($1): a generic plan's bound value.
+var paramRef = regexp.MustCompile(`\$[0-9]+`)
+
+// boundAsConstants reports whether no scan condition of p names a
+// parameter: the plan was built for the call's values (a custom plan).
+func boundAsConstants(p plan) bool {
+	for _, s := range p.Scans {
+		for _, c := range s.Conds {
+			if paramRef.MatchString(c) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // loadEntries inserts fixture rows into audit_log as the superuser, with
@@ -567,16 +606,122 @@ func TestP511CommitCheckPlanSparse(t *testing.T) {
 		loadEntries(t, super, "SELECT "+fixtureTenant("t")+", "+lastMonth+"t FROM generate_series(1, 10000) t")
 		samples(t, super, "audit_log_default")
 	})
-	t.Run("young partition 60 rows", func(t *testing.T) {
-		// Fails 0 of 10 on PostgreSQL 16.10: a 2-page partition plans a Seq
-		// Scan (scratch/audit-commit-check). Gate moved to P5-13b (TICK-452).
-		t.Skip("TICK-502: young-partition cached Seq Scan")
-		migratedPlatform(t)
-		super := superNava(t)
-		young := youngPartition(t, super)
-		loadEntries(t, super, "SELECT "+fixtureTenant("1 + g % 20")+", "+thisMonth("g", "60")+" FROM generate_series(1, 60) g")
-		samples(t, super, young)
+	// Item 2 (b'), ADR-004-E3: on the young partition the generic plan is a
+	// Seq Scan (0 of 10 on PostgreSQL 16.10), which is why the function is
+	// planned per call. So this case reads the plans that really run at
+	// COMMIT, through auto_explain, not a PREPAREd generic plan.
+	t.Run("young_partition_60_rows", func(t *testing.T) {
+		good := 0
+		for i := range 10 {
+			if commitPlansProbeKey(t, i+1) {
+				good++
+			}
+		}
+		t.Logf("%d of 10 fresh ANALYZE samples: every COMMIT-time probe plan of a 1,000-subject import probes subject_id and occurred_at, with constants", good)
+		if good != 10 {
+			t.Errorf("%d of 10 fresh ANALYZE samples, want 10 of 10", good)
+		}
 	})
+}
+
+// youngFixture is the young-partition fixture on a fresh platform
+// database: the current month's partition with 60 rows over 20 fixture
+// tenants, the test table with the commit-check trigger, and audit_log
+// analysed, so the partition is 2 pages.
+func youngFixture(t *testing.T) (*pgx.Conn, string) {
+	t.Helper()
+	migratedPlatform(t)
+	super := superNava(t)
+	young := youngPartition(t, super)
+	loadEntries(t, super, "SELECT "+fixtureTenant("1 + g % 20")+", "+thisMonth("g", "60")+" FROM generate_series(1, 60) g")
+	createTestTable(t, super, auditedManifest(t).Writers())
+	exec(t, super, "ANALYZE audit_log")
+	if got := queryString(t, super, "SELECT relpages::text FROM pg_class WHERE relname = $1", young); got != "2" {
+		t.Fatalf("young partition has %s pages after ANALYZE, want 2", got)
+	}
+	return super, young
+}
+
+// newTenant inserts an active tenant, absent from audit_log's statistics.
+func newTenant(t *testing.T, super *pgx.Conn, prefix string, n int) string {
+	t.Helper()
+	id := fmt.Sprintf("%s-0000-7000-8000-%012x", prefix, n)
+	exec(t, super, "INSERT INTO tenants (id, state) VALUES ($1, 'active')", id)
+	return id
+}
+
+// probeText marks the commit check's probe in auto_explain's Query Text:
+// only that statement reads the v_txid local.
+const probeText = "txid = v_txid"
+
+// commitPlansProbeKey is one sample of item 2 (b'): on a fresh young
+// fixture (a fresh ANALYZE), a nava_worker session with auto_explain
+// (log_nested_statements on, log_min_duration 0, notices to the client)
+// and plan_cache_mode = force_generic_plan writes 1 subject, then imports
+// 1,000 subjects in one transaction. Any plan passes for the 1-subject
+// write; every probe plan of the import's COMMIT must have subject_id and
+// occurred_at in Index Cond and its bound values as constants. It reports
+// whether the sample passed, logging why not.
+func commitPlansProbeKey(t *testing.T, sample int) bool {
+	t.Helper()
+	ctx := context.Background()
+	super, young := youngFixture(t)
+	var notices []string
+	cfg := superConfig(t).Copy()
+	cfg.Database = "nava"
+	cfg.OnNotice = func(_ *pgconn.PgConn, n *pgconn.Notice) { notices = append(notices, n.Message) }
+	conn := connect(t, cfg)
+	for _, q := range []string{
+		"LOAD 'auto_explain'",
+		"SET auto_explain.log_min_duration = 0",
+		"SET auto_explain.log_nested_statements = on",
+		"SET auto_explain.log_level = notice",
+		"SET auto_explain.log_format = json",
+		"SET plan_cache_mode = force_generic_plan",
+		"SET ROLE nava_worker", // the writer's own grants and policies
+	} {
+		if _, err := conn.Exec(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	importCommitOn(t, conn, newTenant(t, super, "0190e000", 1), 1, "")
+	notices = nil
+	importCommitOn(t, conn, newTenant(t, super, "0190e000", 2), 1000, "")
+	plans := probePlans(t, notices)
+	if len(plans) != 1000 {
+		t.Errorf("sample %d: auto_explain logged %d probe plans at the COMMIT of 1,000 subjects, want 1000", sample, len(plans))
+		return false
+	}
+	for j, p := range plans {
+		if !keyProbes(p) || !scansRel(p, young) || !boundAsConstants(p) {
+			t.Logf("sample %d: probe %d of 1000: %+v, want every scan to probe subject_id and occurred_at, one on %s, and no $n", sample, j+1, p.Scans, young)
+			return false
+		}
+	}
+	return true
+}
+
+// probePlans parses auto_explain's JSON notices and keeps the probe's.
+func probePlans(t *testing.T, notices []string) []plan {
+	t.Helper()
+	var out []plan
+	for _, n := range notices {
+		i := strings.Index(n, "{")
+		if i < 0 || !strings.Contains(n, probeText) {
+			continue
+		}
+		var doc struct {
+			QueryText string         `json:"Query Text"`
+			Plan      map[string]any `json:"Plan"`
+		}
+		if err := json.Unmarshal([]byte(n[i:]), &doc); err != nil {
+			t.Fatalf("auto_explain notice %q: %v", n, err)
+		}
+		if strings.Contains(doc.QueryText, probeText) {
+			out = append(out, parsePlan(doc.Plan))
+		}
+	}
+	return out
 }
 
 // importCommit times the COMMIT of one transaction that, as nava_worker in
@@ -592,12 +737,13 @@ func importCommit(t *testing.T, tenant string, n int) time.Duration {
 		t.Fatal(err)
 	}
 	defer func() { _ = conn.Close(ctx) }()
-	return importCommitOn(t, conn, tenant, n)
+	return importCommitOn(t, conn, tenant, n, "force_generic_plan")
 }
 
 // importCommitOn is importCommit in the nava_worker session conn, which
-// keeps whatever plan the commit check cached in it before.
-func importCommitOn(t *testing.T, conn *pgx.Conn, tenant string, n int) time.Duration {
+// keeps whatever plan the commit check cached in it before, with
+// plan_cache_mode set to mode for the transaction ("" leaves the session's).
+func importCommitOn(t *testing.T, conn *pgx.Conn, tenant string, n int, mode string) time.Duration {
 	t.Helper()
 	ctx := context.Background()
 	tx, err := conn.Begin(ctx)
@@ -610,7 +756,7 @@ func importCommitOn(t *testing.T, conn *pgx.Conn, tenant string, n int) time.Dur
 		sql  string
 		args []any
 	}{
-		{"SET LOCAL plan_cache_mode = force_generic_plan", nil},
+		{"SELECT set_config('plan_cache_mode', coalesce(nullif($1, ''), current_setting('plan_cache_mode')), true)", []any{mode}},
 		{"SELECT set_config('app.tenant_id', $1, true)", []any{tenant}},
 		{`INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, version_after, actor_system, source)
 		  SELECT $1::uuid, gen_random_uuid(), 'record', 'create', 'record', i.id, 1, 'workflow', 'workflow' FROM (` +
@@ -674,47 +820,166 @@ func TestP511CommitCheckLinearity(t *testing.T) {
 		loadEntries(t, super, "SELECT "+fixtureTenant("1 + g % 20")+", "+thisMonth("g", "60")+" FROM generate_series(1, 60) g")
 		run(t, super)
 	})
-	// The pooled-session case (TICK-428 report, TICK-502): one nava_worker
-	// session caches the commit check's generic plan while the young
-	// partition is 2 pages, then imports N and 4N subjects in that same
-	// session, with no ANALYZE in between to invalidate the plan. Same
-	// assertion as above: t(4N)/t(N) < 8.
-	t.Run("young partition 60 rows, plan cached at 2 pages in one session", func(t *testing.T) {
-		// Measured O(n^2) on PostgreSQL 16.10: 172.8 ms -> 2,923 ms, ratio
-		// 16.9 (scratch/audit-commit-check). Gate moved to P5-13b (TICK-452).
-		t.Skip("TICK-502: young-partition cached Seq Scan")
-		migratedPlatform(t)
-		super := superNava(t)
-		young := youngPartition(t, super)
-		loadEntries(t, super, "SELECT "+fixtureTenant("1 + g % 20")+", "+thisMonth("g", "60")+" FROM generate_series(1, 60) g")
-		createTestTable(t, super, auditedManifest(t).Writers())
-		exec(t, super, "ANALYZE audit_log")
-		if got := queryString(t, super, "SELECT relpages::text FROM pg_class WHERE relname = $1", young); got != "2" {
-			t.Fatalf("young partition has %s pages before the warm-up, want 2", got)
-		}
-		conn := connect(t, roleConfig(t, "nava_worker", "nava"))
-		next := 0
-		tenant := func() string {
-			next++
-			id := fmt.Sprintf("0190d000-0000-7000-8000-%012x", next)
-			exec(t, super, "INSERT INTO tenants (id, state) VALUES ($1, 'active')", id)
-			return id
-		}
-		importCommitOn(t, conn, tenant(), 1) // caches the plan at 2 pages
-		best := func(size int) time.Duration {
-			var b time.Duration
-			for range 3 {
-				if d := importCommitOn(t, conn, tenant(), size); b == 0 || d < b {
-					b = d
-				}
+}
+
+// Finding 5 item 3 (c), ADR-004-E3: the pooled-session case. In each
+// session mode (auto, force_generic_plan) one nava_worker session runs 10
+// warm-up 1-subject writes while the young partition is 2 pages, so a
+// generic plan cached then would be a Seq Scan, then imports N = 1,000 and
+// N = 4,000 subjects, each into a tenant absent from the statistics, with no
+// ANALYZE in between. With the clause the median t(4N)/t(N) of 3 runs on
+// fresh fixtures is < 8 in both modes (measured 3.1 to 5.4). The negative
+// control runs the same script against a copy of the function without the
+// clause; its median must be >= 8 (measured 12.3 to 20.0), or this test can
+// no longer catch the O(n^2) path.
+func TestP511CommitCheckPooledSession(t *testing.T) {
+	const n, runs = 1000, 3
+	for _, mode := range []string{"auto", "force_generic_plan"} {
+		t.Run(mode, func(t *testing.T) {
+			for _, arm := range []struct {
+				name     string
+				noClause bool
+			}{{"with_clause", false}, {"without_clause_negative_control", true}} {
+				t.Run(arm.name, func(t *testing.T) {
+					ratios := make([]float64, 0, runs)
+					for r := range runs {
+						ratios = append(ratios, pooledRatio(t, mode, n, arm.noClause, r+1))
+					}
+					sort.Float64s(ratios)
+					median := ratios[runs/2]
+					t.Logf("%s, %s: t(%d)/t(%d) over %d fresh fixtures %.2f, median %.2f", mode, arm.name, 4*n, n, runs, ratios, median)
+					if !arm.noClause && median >= 8 {
+						t.Errorf("median t(%d)/t(%d) = %.2f, want < 8: the commit check is not linear in a pooled session", 4*n, n, median)
+					}
+					if arm.noClause && median < 8 {
+						t.Errorf("negative control: without the clause the median t(%d)/t(%d) = %.2f, want >= 8, or this test cannot catch the O(n^2) path", 4*n, n, median)
+					}
+				})
 			}
-			return b
+		})
+	}
+}
+
+// pooledRatio is one run of item 3 (c) on a fresh young fixture: it returns
+// t(4n)/t(n) in one nava_worker session under plan_cache_mode = mode. With
+// noClause the test table's trigger calls a copy of audit_commit_check
+// without SET plan_cache_mode.
+func pooledRatio(t *testing.T, mode string, n int, noClause bool, run int) float64 {
+	t.Helper()
+	super, _ := youngFixture(t)
+	if noClause {
+		exec(t, super, withoutClause(t, commitCheckDef(t, super), noClauseCopy))
+		exec(t, super, "DROP TRIGGER "+testTable+"_audit_commit_check ON "+testTable)
+		exec(t, super, "CREATE CONSTRAINT TRIGGER "+testTable+"_audit_commit_check AFTER INSERT OR DELETE OR UPDATE OF val ON "+
+			testTable+" DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION "+noClauseCopy+"('record', 'id')")
+	}
+	conn := connect(t, roleConfig(t, "nava_worker", "nava"))
+	exec(t, conn, "SELECT set_config('plan_cache_mode', $1, false)", mode)
+	next := 0
+	tenant := func() string { next++; return newTenant(t, super, "0190d000", next) }
+	for range 10 { // warm-up while the partition is 2 pages
+		importCommitOn(t, conn, tenant(), 1, "")
+	}
+	t1 := importCommitOn(t, conn, tenant(), n, "")
+	t4 := importCommitOn(t, conn, tenant(), 4*n, "")
+	ratio := float64(t4) / float64(t1)
+	t.Logf("run %d: commit of %d subjects %v, of %d subjects %v: ratio %.2f", run, n, t1, 4*n, t4, ratio)
+	return ratio
+}
+
+// noClauseCopy names the negative controls' copy of the function.
+const noClauseCopy = "p511_commit_check_no_clause"
+
+// commitCheckDef is pg_get_functiondef of public.audit_commit_check().
+func commitCheckDef(t *testing.T, q execer) string {
+	t.Helper()
+	var def string
+	if err := q.QueryRow(context.Background(), "SELECT pg_get_functiondef('public.audit_commit_check()'::regprocedure)").Scan(&def); err != nil {
+		t.Fatal(err)
+	}
+	return def
+}
+
+// planCacheLine is the clause's line in pg_get_functiondef.
+var planCacheLine = regexp.MustCompile(`(?m)^ SET plan_cache_mode TO '?force_custom_plan'?\n`)
+
+// withoutClause turns def into a CREATE OR REPLACE of function name with
+// the same body and no SET plan_cache_mode; it fails if def has no clause.
+func withoutClause(t *testing.T, def, name string) string {
+	t.Helper()
+	if !planCacheLine.MatchString(def) {
+		t.Fatalf("audit_commit_check has no plan_cache_mode clause:\n%s", def)
+	}
+	const head = "FUNCTION public.audit_commit_check()"
+	if !strings.Contains(def, head) {
+		t.Fatalf("pg_get_functiondef does not name %s:\n%s", head, def)
+	}
+	return strings.Replace(planCacheLine.ReplaceAllString(def, ""), head, "FUNCTION "+name+"()", 1)
+}
+
+// probeQuery is the commit check's probe as def holds it: from PERFORM to
+// the next semicolon.
+func probeQuery(def string) string {
+	i := strings.Index(def, "PERFORM")
+	if i < 0 {
+		return ""
+	}
+	if j := strings.Index(def[i:], ";"); j >= 0 {
+		return def[i : i+j]
+	}
+	return def[i:]
+}
+
+// probeProblems is ADR-004-E3 decision 2 on a function definition: the
+// probe exists and binds plpgsql locals only, never a NEW or OLD column.
+func probeProblems(def string) []string {
+	q := probeQuery(def)
+	if q == "" {
+		return []string{"no PERFORM probe"}
+	}
+	var out []string
+	for _, rec := range []string{"NEW.", "OLD."} {
+		if strings.Contains(strings.ToUpper(q), rec) {
+			out = append(out, "probe references "+rec+"<col>: "+q)
 		}
-		t1, t4 := best(n), best(4*n)
-		ratio := float64(t4) / float64(t1)
-		t.Logf("one session: commit of %d subjects %v, of %d subjects %v: ratio %.2f", n, t1, 4*n, t4, ratio)
-		if ratio >= 8 {
-			t.Errorf("t(%d)/t(%d) = %.2f (%v / %v), want < 8: the commit check is not linear", 4*n, n, ratio, t4, t1)
+	}
+	return out
+}
+
+// ADR-004-E3 decision 2: the deployed probe binds plpgsql locals only. The
+// negative control is a copy whose probe reads NEW.id, which must be
+// reported.
+func TestP511CommitCheckProbeLocalsOnly(t *testing.T) {
+	migratedPlatform(t)
+	super := superNava(t)
+	ctx := context.Background()
+	def := commitCheckDef(t, super)
+	if p := probeProblems(def); len(p) != 0 {
+		t.Errorf("audit_commit_check: %v\n%s", p, def)
+	}
+	for _, local := range []string{"v_tenant", "v_at", "v_txid", "v_type", "v_id"} {
+		if !strings.Contains(probeQuery(def), local) {
+			t.Errorf("probe does not bind the local %s: %s", local, probeQuery(def))
 		}
-	})
+	}
+
+	tx, err := super.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	bad := strings.Replace(withoutClause(t, def, noClauseCopy), "subject_id = v_id", "subject_id = NEW.id", 1)
+	if bad == withoutClause(t, def, noClauseCopy) {
+		t.Fatalf("negative control: no \"subject_id = v_id\" in the probe to replace:\n%s", def)
+	}
+	if _, err := tx.Exec(ctx, bad); err != nil {
+		t.Fatalf("create the NEW. copy: %v", err)
+	}
+	var badDef string
+	if err := tx.QueryRow(ctx, "SELECT pg_get_functiondef($1::regprocedure)", noClauseCopy+"()").Scan(&badDef); err != nil {
+		t.Fatal(err)
+	}
+	if p := probeProblems(badDef); len(p) == 0 {
+		t.Errorf("negative control: a probe that reads NEW.id is not reported:\n%s", badDef)
+	}
 }
