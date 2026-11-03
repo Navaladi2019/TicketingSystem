@@ -45,3 +45,15 @@ Every other job is green, on both runs.
 
 - A CTO or Technical Lead decision on finding 1. Until then, a re-run is the rule's answer for the red run, but a green re-run does not make a gate trustworthy when it flaps on a third of its runs.
 - Findings 2 and 3 fixed by the engineer: small script changes, no change to the method.
+
+## Round 1 re-review at `b5b225d`
+
+Verdict on findings 2–4: **resolved.** Finding 1 is decided on TICK-517 (Option B: absolute ceilings report-only, fail only on S3 ratios, flatness or zero rows), pending the ADR-004-E3 erratum, and is not judged here.
+
+| Finding | Status | Evidence |
+|---|---|---|
+| 2: vacuous pass on rename | ✅ resolved | `scripts/ci/commit-check-budget.sh` tees `go test` through a FIFO so `$gopid` keeps go test's own status, then fails unless both `COMMIT-CHECK-BUDGET row=single_subject ` and `row=import ` appear. Mutation-tested locally with stub `docker` and `go`: no tests run → exit 1 with both "no … line" messages; one row only → exit 1 naming `import`; both rows + PASS → exit 0; both rows + FAIL → exit 1 (status preserved). The new EXIT trap keeps the `docker rm` and also removes the temp file and FIFO |
+| 3: CPU model not logged | ✅ resolved | The healthy line now reads `nproc 4; cpu AMD EPYC 7763 64-Core Processor` in run 41679998550 (job 126071064410) |
+| 4: tenant-prefix comment | ✅ resolved | The comment now names S2's `0190b000-…-04` and the older P5-11 script's `0190d000-…-04` |
+
+Run 41679998550's red import row (194.9 µs, ratio 8.58, verdict `rerun`) is finding 1 again, on an AMD EPYC 7763 host. The earlier fast runs predate the CPU log, so the fast host's model is not yet known; the next green run's healthy line will give TICK-517 the pair.
