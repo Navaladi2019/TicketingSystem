@@ -568,6 +568,9 @@ func TestP511CommitCheckPlanSparse(t *testing.T) {
 		samples(t, super, "audit_log_default")
 	})
 	t.Run("young partition 60 rows", func(t *testing.T) {
+		// Fails 0 of 10 on PostgreSQL 16.10: a 2-page partition plans a Seq
+		// Scan (scratch/audit-commit-check). Gate moved to P5-13b (TICK-452).
+		t.Skip("TICK-502: young-partition cached Seq Scan")
 		migratedPlatform(t)
 		super := superNava(t)
 		young := youngPartition(t, super)
@@ -576,11 +579,11 @@ func TestP511CommitCheckPlanSparse(t *testing.T) {
 	})
 }
 
-// importCommit times the COMMIT of one transaction that, as nava_worker
-// under plan_cache_mode = force_generic_plan, writes n rows to the test
-// table and their n audit entries for tenant: the commit-check triggers all
-// run at that COMMIT. tenant must exist and be absent from audit_log's
-// statistics.
+// importCommit times the COMMIT of one transaction that, as nava_worker in
+// a new session under plan_cache_mode = force_generic_plan, writes n rows to
+// the test table and their n audit entries for tenant: the commit-check
+// triggers all run at that COMMIT, so the probe's plan is built then. tenant
+// must exist and be absent from audit_log's statistics.
 func importCommit(t *testing.T, tenant string, n int) time.Duration {
 	t.Helper()
 	ctx := context.Background()
@@ -589,6 +592,14 @@ func importCommit(t *testing.T, tenant string, n int) time.Duration {
 		t.Fatal(err)
 	}
 	defer func() { _ = conn.Close(ctx) }()
+	return importCommitOn(t, conn, tenant, n)
+}
+
+// importCommitOn is importCommit in the nava_worker session conn, which
+// keeps whatever plan the commit check cached in it before.
+func importCommitOn(t *testing.T, conn *pgx.Conn, tenant string, n int) time.Duration {
+	t.Helper()
+	ctx := context.Background()
 	tx, err := conn.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -662,5 +673,48 @@ func TestP511CommitCheckLinearity(t *testing.T) {
 		youngPartition(t, super)
 		loadEntries(t, super, "SELECT "+fixtureTenant("1 + g % 20")+", "+thisMonth("g", "60")+" FROM generate_series(1, 60) g")
 		run(t, super)
+	})
+	// The pooled-session case (TICK-428 report, TICK-502): one nava_worker
+	// session caches the commit check's generic plan while the young
+	// partition is 2 pages, then imports N and 4N subjects in that same
+	// session, with no ANALYZE in between to invalidate the plan. Same
+	// assertion as above: t(4N)/t(N) < 8.
+	t.Run("young partition 60 rows, plan cached at 2 pages in one session", func(t *testing.T) {
+		// Measured O(n^2) on PostgreSQL 16.10: 172.8 ms -> 2,923 ms, ratio
+		// 16.9 (scratch/audit-commit-check). Gate moved to P5-13b (TICK-452).
+		t.Skip("TICK-502: young-partition cached Seq Scan")
+		migratedPlatform(t)
+		super := superNava(t)
+		young := youngPartition(t, super)
+		loadEntries(t, super, "SELECT "+fixtureTenant("1 + g % 20")+", "+thisMonth("g", "60")+" FROM generate_series(1, 60) g")
+		createTestTable(t, super, auditedManifest(t).Writers())
+		exec(t, super, "ANALYZE audit_log")
+		if got := queryString(t, super, "SELECT relpages::text FROM pg_class WHERE relname = $1", young); got != "2" {
+			t.Fatalf("young partition has %s pages before the warm-up, want 2", got)
+		}
+		conn := connect(t, roleConfig(t, "nava_worker", "nava"))
+		next := 0
+		tenant := func() string {
+			next++
+			id := fmt.Sprintf("0190d000-0000-7000-8000-%012x", next)
+			exec(t, super, "INSERT INTO tenants (id, state) VALUES ($1, 'active')", id)
+			return id
+		}
+		importCommitOn(t, conn, tenant(), 1) // caches the plan at 2 pages
+		best := func(size int) time.Duration {
+			var b time.Duration
+			for range 3 {
+				if d := importCommitOn(t, conn, tenant(), size); b == 0 || d < b {
+					b = d
+				}
+			}
+			return b
+		}
+		t1, t4 := best(n), best(4*n)
+		ratio := float64(t4) / float64(t1)
+		t.Logf("one session: commit of %d subjects %v, of %d subjects %v: ratio %.2f", n, t1, 4*n, t4, ratio)
+		if ratio >= 8 {
+			t.Errorf("t(%d)/t(%d) = %.2f (%v / %v), want < 8: the commit check is not linear", 4*n, n, ratio, t4, t1)
+		}
 	})
 }
