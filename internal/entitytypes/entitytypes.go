@@ -208,6 +208,9 @@ VALUES ($1, $2, $3, 1, $4::json, $5, $6::jsonb, $7::jsonb, 'initial', $8)`,
 		tenantID, verID, defID, string(d.Schema), sum[:], string(fixed), string(states), in.PublishedBy); err != nil {
 		return nil, fmt.Errorf("entitytypes: insert version: %w", err)
 	}
+	if err := auditVersion(ctx, tx, defID, 1, sum, in.PublishedBy, ""); err != nil {
+		return nil, err
+	}
 	return s.GetVersion(ctx, tx, d.Key, 1)
 }
 
@@ -337,6 +340,9 @@ VALUES ($1, $2, $3, $4, $5::json, $6, $7::jsonb, $8::jsonb, $9, $10)`,
 	if _, err := tx.Exec(ctx, `
 UPDATE entity_definitions SET current_version = $1, updated_at = now() WHERE id = $2`, number, defID); err != nil {
 		return nil, fmt.Errorf("entitytypes: set current version: %w", err)
+	}
+	if err := auditVersion(ctx, tx, defID, number, sum, in.PublishedBy, ""); err != nil {
+		return nil, err
 	}
 	return s.GetVersion(ctx, tx, in.Key, number)
 }

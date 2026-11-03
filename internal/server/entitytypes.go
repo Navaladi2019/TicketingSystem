@@ -190,6 +190,7 @@ func (h *handlers) CreateEntityType(ctx context.Context, req api.CreateEntityTyp
 		v, err = h.store.Create(ctx, tx, p.TenantID, entitytypes.NewInput{Name: cr.name, PublishedBy: p.PrincipalID, Definition: cr.def})
 		return err
 	})
+	var secret *entitytypes.SecretInContentError
 	switch {
 	case errors.Is(err, authz.ErrForbidden):
 		return nil, &problemError{problem.Forbidden, nil, err}
@@ -197,6 +198,8 @@ func (h *handlers) CreateEntityType(ctx context.Context, req api.CreateEntityTyp
 		return nil, &problemError{problem.EntityTypeExists, nil, err}
 	case errors.Is(err, entitytypes.ErrPrefixTaken):
 		return nil, &problemError{problem.NumberPrefixTaken, nil, err}
+	case errors.As(err, &secret):
+		return nil, h.secretProblem(ctx, secret, err)
 	case err != nil:
 		return nil, err
 	}
@@ -242,8 +245,11 @@ func (h *handlers) PublishEntityTypeVersion(ctx context.Context, req api.Publish
 	var (
 		breaking *entitytypes.BreakingError
 		invalidD *metadata.ErrInvalidDefinition
+		secret   *entitytypes.SecretInContentError
 	)
 	switch {
+	case errors.As(err, &secret):
+		return nil, h.secretProblem(ctx, secret, err)
 	case errors.Is(err, authz.ErrForbidden):
 		return nil, &problemError{problem.Forbidden, nil, err}
 	case errors.Is(err, entitytypes.ErrNotFound):
@@ -297,6 +303,15 @@ func parsePublish(raw json.RawMessage) (metadata.Definition, *problemError) {
 		return metadata.Definition{}, unprocessable(bad...)
 	}
 	return metadata.Definition{Schema: def.Schema, FixedColumns: def.FixedColumns, States: def.States}, nil
+}
+
+// secretProblem is the 422 config_secret_in_content. The response and the log
+// name the schema path and the rule, never the value.
+func (h *handlers) secretProblem(ctx context.Context, e *entitytypes.SecretInContentError, err error) *problemError {
+	ptr := "/definition/schema" + e.Path
+	h.log.WarnContext(ctx, "entity type refused: secret in content",
+		slog.String("code", string(problem.ConfigSecretInContent)), slog.String("path", ptr), slog.String("reason", e.Reason))
+	return &problemError{problem.ConfigSecretInContent, []problem.FieldError{invalid(ptr, "secret")}, err}
 }
 
 func invalid(pointer, rule string) problem.FieldError {

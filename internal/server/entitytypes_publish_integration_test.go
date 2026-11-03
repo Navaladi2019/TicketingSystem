@@ -290,3 +290,113 @@ func TestPublishOverABrokenStoredVersionIsInternalError(t *testing.T) {
 	rec := e.do(t, http.MethodPost, "/api/v1/entity-types/incident/versions", "admin-a", "k-broken", etPublishBody(t))
 	wantProblem(t, rec, http.StatusInternalServerError, problem.InternalError)
 }
+
+// P5-14 (TICK-432): publishing writes one config-domain audit entry.
+
+type etAuditRow struct {
+	Action        string
+	VersionBefore *int64
+	VersionAfter  int64
+	ContentSHA    []byte
+	Source        string
+	Actor         uuid.UUID
+}
+
+func etAuditRows(t *testing.T, e *etEnv) []etAuditRow {
+	t.Helper()
+	rows, err := e.super.Query(t.Context(), `
+SELECT action, version_before, version_after, content_sha256, source, actor_principal_id
+FROM audit_log WHERE tenant_id = $1 AND domain = 'config' AND subject_type = 'entity_definition' ORDER BY version_after`, e.a.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []etAuditRow
+	for rows.Next() {
+		var r etAuditRow
+		if err := rows.Scan(&r.Action, &r.VersionBefore, &r.VersionAfter, &r.ContentSHA, &r.Source, &r.Actor); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func TestPublishWritesCreateThenPublishEntries(t *testing.T) {
+	e := newETEnv(t)
+	etCreateIncident(t, e)
+	body := etPublishBody(t, `"description": "a <b>&amp; tag"`, `"description": "changed"`)
+	if rec := e.do(t, http.MethodPost, etVersionsPath, "admin-a", "k-aud-1", body); rec.Code != http.StatusCreated {
+		t.Fatalf("publish = %d: %s", rec.Code, rec.Body)
+	}
+	rows := etAuditRows(t, e)
+	if len(rows) != 2 {
+		t.Fatalf("%d entries, want 2: %+v", len(rows), rows)
+	}
+	for i, want := range []string{"create", "publish"} {
+		var sum []byte
+		if err := e.super.QueryRow(t.Context(),
+			"SELECT schema_sha256 FROM entity_definition_versions WHERE tenant_id = $1 AND version = $2", e.a.id, i+1).Scan(&sum); err != nil {
+			t.Fatal(err)
+		}
+		r := rows[i]
+		if r.Action != want || r.VersionAfter != int64(i+1) || r.Source != "user" || r.Actor != e.a.admin.PrincipalID || hex.EncodeToString(r.ContentSHA) != hex.EncodeToString(sum) {
+			t.Errorf("entry %d = %+v, want %s v%d with the version's schema_sha256", i, r, want, i+1)
+		}
+	}
+	if rows[0].VersionBefore != nil || rows[1].VersionBefore == nil || *rows[1].VersionBefore != 1 {
+		t.Errorf("version_before = %v, %v; want nil, 1", rows[0].VersionBefore, rows[1].VersionBefore)
+	}
+}
+
+func TestRolledBackPublishWritesNoEntry(t *testing.T) {
+	e := newETEnv(t)
+	etCreateIncident(t, e)
+	// A breaking change is refused after the lock and before any write.
+	body := etPublishBody(t, `"maxLength": 160`, `"maxLength": 10`)
+	if rec := e.do(t, http.MethodPost, etVersionsPath, "admin-a", "k-aud-2", body); rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("breaking publish = %d: %s", rec.Code, rec.Body)
+	}
+	if rows := etAuditRows(t, e); len(rows) != 1 || rows[0].Action != "create" {
+		t.Errorf("entries = %+v, want only the create", rows)
+	}
+}
+
+func TestSecretDefaultIsRefusedAndNothingIsWritten(t *testing.T) {
+	const canary = "hunter2-canary-value"
+	secretSchema := strings.Replace(etSchema, `"note": {"type": "string", "description": "a <b>&amp; tag"}`,
+		`"note": {"type": "string", "x-nava-secret": true, "default": "`+canary+`"}`, 1)
+	e := newETEnv(t)
+
+	// Create: no definition, version or entry.
+	body := fmt.Sprintf(`{"key": "incident", "name": "T", "number_prefix": "INC", "definition": {"schema": %s, %s}}`, secretSchema, etDefTail)
+	rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "k-sec-0", body)
+	p := wantProblem(t, rec, http.StatusUnprocessableEntity, problem.ConfigSecretInContent)
+	if got := pointers(p); !slices.Equal(got, []string{"/definition/schema/properties/note/default"}) {
+		t.Errorf("pointers = %v", got)
+	}
+	if strings.Contains(rec.Body.String(), canary) {
+		t.Error("response echoes the secret value")
+	}
+	if n := etVersionCount(t, e); n != 0 {
+		t.Errorf("%d versions after a refused create, want 0", n)
+	}
+
+	// Publish: v1 stays current, no v2 row, no second entry.
+	etCreateIncident(t, e)
+	body = fmt.Sprintf(`{"definition": {"schema": %s, %s}}`, secretSchema, etDefTail)
+	rec = e.do(t, http.MethodPost, etVersionsPath, "admin-a", "k-sec-1", body)
+	wantProblem(t, rec, http.StatusUnprocessableEntity, problem.ConfigSecretInContent)
+	if strings.Contains(rec.Body.String(), canary) {
+		t.Error("response echoes the secret value")
+	}
+	if n := etVersionCount(t, e); n != 1 {
+		t.Errorf("%d versions, want 1", n)
+	}
+	if rows := etAuditRows(t, e); len(rows) != 1 {
+		t.Errorf("%d entries, want 1", len(rows))
+	}
+}
