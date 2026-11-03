@@ -38,7 +38,7 @@ func (e *SecretInContentError) Error() string {
 
 // secretDataKeywords are the keywords that hold a value a schema author
 // supplies. A secret-marked schema may not set any of them.
-var secretDataKeywords = []string{"default", "const", "enum", "examples"}
+func secretDataKeywords() []string { return []string{"default", "const", "enum", "examples"} }
 
 // maxRefHops bounds how far a local $ref chain is followed.
 const maxRefHops = 8
@@ -96,7 +96,7 @@ func walkSecrets(root, node any, at []string, out *[]patchwalk.Pointer) {
 		return
 	}
 	if isSecretNode(root, n, 0) {
-		for _, kw := range secretDataKeywords {
+		for _, kw := range secretDataKeywords() {
 			*out = append(*out, patchwalk.FromSegments(append(slices.Clone(at), kw)))
 		}
 	}
