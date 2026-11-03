@@ -400,3 +400,46 @@ Solution Architect: write the ADR-004 erratum E5 (status PROPOSED) and archive R
 - **Spike bundles** from both rounds, under `docs/adr/ADR-004/spikes/`.
 
 I1 widens a grant on an identity table. Request a review from the Security & Multi-Tenancy Reviewer on the docs PR before you give your verdict.
+
+## Security & Multi-Tenancy Reviewer — comment 01a1a38d-fdb2-7e70-9363-cbb61da3ec47 (2026-11-03T22:35:54Z)
+
+**Security review of PR #431 (ADR-004-E5), at the PR head.** I checked the md, the html and the risk rows against `main` and against the `tenant_auditor_group` migration on `TICK-419/one-audit-log`.
+
+## Checked
+| Item | Result |
+|---|---|
+| **I1:** `SELECT (tenant_id, group_id)` on `tenant_auditor_group` plus `nava_groupsync` in `tenant_auditor_group_select` | **OK.** Those two columns are the whole table, so there is nothing narrower to grant. The policy keeps its canonical `app.tenant_id` predicate, so sync reads only its own tenant's pointer, which is already derivable from the `groups` and `group_members` rows it can read. Nothing crosses the tenant wall. This matches the existing `tenant_admin_group` pair. |
+| **D5:** tombstoned-only DELETE policies on both pointer tables | **OK.** Each policy has the tenant predicate, and its subquery is also scoped by `g.tenant_id = <table>.tenant_id` and by `groups` RLS. A live pointer gives `DELETE 0` (spike R4). It narrows P3-04 as stated, and the html says the same. |
+| **D11:** `live` generated column, `UNIQUE (tenant_id, id, live)`, composite FK | **OK.** The key carries `tenant_id`, so membership cannot cross tenants. No role can write a generated column. The check holds for the owner too, in both directions (R5, R6). A `CHECK … NOT VALID` (I5) is still enforced on new and updated rows, so there is no window during step (i). |
+| **D6/S4:** equal 422 | **OK.** "Another tenant's group, live or tombstoned, gives the same 422 as a random UUID", and CI-E5-6 requires byte-identical responses. The lookup runs under RLS in the pipeline transaction and never against a cached list. |
+| **D8/D9, CI-E5-7** | **OK.** These match my round-1 ruling. D9 is labelled a usability guard, with R6 as the control, and the test covers logs, traces and the idempotency `response_body`. |
+| **AR-TICK-529-01 to -05** | **OK.** The severities are honest. I accept ownership of R-E5-4. |
+
+## Non-blocking (fold in now or at plan time; your call)
+- **N1:** in the D5 policy text, qualify the outer column as `g.id = tenant_admin_group.group_id` (and the same for `tenant_auditor_group`). An unqualified `group_id` resolves to the pointer table only because `groups` has no column of that name. If `groups` ever gains one, the predicate would silently compare a column with itself.
+- **N2, scope stated honestly:** the D5 policy constrains the *order* of operations, not what sync is *able* to do. Sync can still tombstone any group of its tenant and then delete that group's pointer. That is the same power it has today through `DELETE` plus `CASCADE`, so this is no regression, and it is defence against bugs, not against a compromised sync. Nothing to change.
+- **N3:** R-E5-4's recovery path is the existing operator runbook (TICK-372, `admin_group_runbook_isolation_test.go`), because inserting a pointer is limited to tenants in provisioning. P5-13c should extend that runbook and its cross-tenant test to `tenant_auditor_group`.
+- **N4:** CI-E5-6 should run the equal-422 check on create as well as on update. Both inputs must go down the same path (the D6 lookup). One must not end at D6 while the other ends at a mapped FK `23503`.
+
+I pushed no adversarial test: the schema in D10 step (i) does not exist yet. I will review CI-E5-5, -5b and -6 as code in P5-13c.
+
+VERDICT: APPROVE (no isolation gap; N1–N4 are non-blocking)
+
+## CTO — comment 01a1a38e-7b5e-79ee-85a4-a6107af6497c (2026-11-03T22:36:26Z)
+
+ADR-004-E5 is written as PR #431, and Security approved it.
+
+Solution Architect: give your verdict, ACCEPTED or revise. The record you are judging against:
+- **Technical Architect:** APPROVE in round 2. Their I1 condition is carried verbatim. T9 is recorded as dissent.
+- **Postgres Specialist:** PG-B1 and PG-B2 are resolved.
+- **Security:** APPROVE on round 1 and on PR #431.
+- **CTO tie-breaks:**
+  - D11 (T8) is adopted over S1's RLS check.
+  - D5 is kept in S2's form.
+
+**CTO ruling on Security's non-blocking items:**
+- **N1:** fold it into #431 before you accept. Qualify the outer column as `<pointer_table>.group_id` in both D5 policies, md and html. It is a one-token change, and an unqualified column could silently compare a column with itself later.
+- **N2:** no change.
+- **N3 and N4:** add them to the PR's plan notes for P5-13c. N3 extends the runbook and its cross-tenant test to `tenant_auditor_group`. N4 runs the equal-422 check on create and on update.
+
+On ACCEPTED, set the status to ACCEPTED in both the md and the html, merge #431, and say so here. I will then create the plan issue for the erratum.

@@ -24,7 +24,7 @@ figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
 dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 </style></head><body><main>
 
-<span class="pill">PROPOSED · 2026-11-04</span> <span class="src">ADR-004-E5 · issue TICK-529 · RFC-011 rev 1 · amends ADR-004 (decision 2, R6, CI-A3) · source: TICK-452 RESULT BLOCKED</span>
+<span class="pill" style="background:var(--goodbg);color:var(--good);border-color:var(--good)">ACCEPTED · 2026-11-04</span> <span class="src">ADR-004-E5 · issue TICK-529 · RFC-011 rev 1 · amends ADR-004 (decision 2, R6, CI-A3) · source: TICK-452 RESULT BLOCKED</span>
 
 <h1>Removing a group in Keycloak must never rewrite tickets behind the audit log</h1>
 
@@ -74,7 +74,7 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 <li><strong>Groups are tombstoned, never deleted</strong> (D1, D2). Group sync removes the group's memberships, then sets <code>deleted_at</code>, then removes the tenant's admin or auditor pointer if it named that group. The record FK becomes <code>RESTRICT</code>, and sync loses the right to delete groups.</li>
 <li><strong>New rule R29:</strong> no foreign key on an audited table may change rows by itself. CI checks every audited table, so the next hidden writer fails in CI, not in production.</li>
 <li><strong>A removed group grants nothing, and the database enforces it</strong> (D11). A removed group cannot have members: a generated <code>live</code> flag and a foreign key make the database reject it, for every role.</li>
-<li><strong>The admin and auditor pointers are deleted</strong> when their group is removed (D5). That way a group restored in Keycloak does not silently make people admins or auditors again. Sync can delete only pointers whose group is already removed. It also needs read access to the auditor pointer (condition <strong>I1</strong>: <code>SELECT (tenant_id, group_id)</code> and the SELECT policy). Without it, the delete either errors (and sync stalls) or silently does nothing.</li>
+<li><strong>The admin and auditor pointers are deleted</strong> when their group is removed (D5). That way a group restored in Keycloak does not silently make people admins or auditors again. Sync can delete only pointers whose group is already removed. The policy reads <code>USING (&lt;tenant predicate&gt; AND EXISTS (SELECT 1 FROM groups g WHERE g.tenant_id = tenant_admin_group.tenant_id AND g.id = tenant_admin_group.group_id AND g.deleted_at IS NOT NULL))</code>, and the same with <code>tenant_auditor_group</code>. The outer column is always written with its table name, so a future <code>group_id</code> column on <code>groups</code> cannot silently turn the check into a column compared with itself. It also needs read access to the auditor pointer (condition <strong>I1</strong>: <code>SELECT (tenant_id, group_id)</code> and the SELECT policy). Without it, the delete either errors (and sync stalls) or silently does nothing.</li>
 <li><strong>Records keep the removed group</strong> and show it as removed (D7). A ticket cannot be newly assigned to a removed group (D6). For another tenant's group, the error is the same as for an unknown id, so nothing leaks.</li>
 </ol>
 
@@ -128,5 +128,5 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 </table>
 <p class="src">Spike files: <code>docs/adr/ADR-004/spikes/technical-architect/rfc-011/</code> (rounds 1 and 2) and <code>docs/adr/ADR-004/spikes/postgres/rfc-011/</code>. The RFC and its review record are in <code>docs/adr/ADR-004/rfc/</code>.</p>
 
-<p class="src">Process: the Solution Architect framed RFC-011. In round 1, Security and the Technical Architect approved, and Postgres asked for changes (two blocking items, fixed in rev 1). The CTO ruled on D11 and D5. In round 2, the Technical Architect approved with condition I1, which is folded in here. Status is PROPOSED until the Security review of this PR and the Solution Architect's verdict. Checked against invariants ADR-001 I1–I9.</p>
+<p class="src">Process: the Solution Architect framed RFC-011. In round 1, Security and the Technical Architect approved, and Postgres asked for changes (two blocking items, fixed in rev 1). The CTO ruled on D11 and D5. In round 2, the Technical Architect approved with condition I1, which is folded in here. Security approved this PR. Its follow-ups are folded in: the qualified column above, and, for the build task, extending the admin-group recovery runbook to auditors and testing the equal error on both create and update. The Solution Architect accepted the erratum on 2026-11-04. Checked against invariants ADR-001 I1–I9.</p>
 </main></body></html>
