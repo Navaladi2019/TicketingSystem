@@ -11,9 +11,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/store"
+	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
 // Adversarial (Security & Multi-Tenancy Reviewer, PR #356): tenant B's system
