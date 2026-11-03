@@ -21,10 +21,14 @@ var globalTables []byte
 var hbaConf []byte
 
 // Migrations returns the goose migration files, rooted at the migrations directory.
-func Migrations() fs.FS {
-	sub, err := fs.Sub(migrations, "migrations")
+func Migrations() fs.FS { return mustSub(migrations, "migrations") }
+
+// mustSub is fs.Sub for a directory embedded at build time, which cannot
+// fail for a valid name: an error is a programming error, so it panics.
+func mustSub(fsys fs.FS, dir string) fs.FS {
+	sub, err := fs.Sub(fsys, dir)
 	if err != nil {
-		panic(err) // the directory is embedded at build time
+		panic(err)
 	}
 	return sub
 }
