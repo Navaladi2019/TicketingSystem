@@ -459,3 +459,141 @@ func FuzzCheckLaxUserinfo(f *testing.F) {
 func isSchemeByte(c byte) bool {
 	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '+' || c == '.' || c == '-'
 }
+
+// TICK-495: WHATWG URL parsing strips tab, LF and CR anywhere in a URL and
+// keeps space and form feed in userinfo, so each of these carries userinfo.
+// secrets_ws_probe_test.go (Security's probe) checks the same cases for the
+// error type; this checks the path named and that nothing leaks.
+func TestCheckRejectsWhitespaceUserinfoNoLeak(t *testing.T) {
+	pw := "pass-" + canary
+	cases := map[string]struct {
+		diff string
+		path patchwalk.Pointer
+	}{
+		"tab after scheme":    {`[{"op":"add","path":"/a","value":"https:\t//u:` + pw + `@h"}]`, "/a"},
+		"tab in scheme":       {`[{"op":"add","path":"/a","value":"ht\ttps://u:` + pw + `@h"}]`, "/a"},
+		"tab between slashes": {`[{"op":"add","path":"/a","value":"https:/\t/u:` + pw + `@h"}]`, "/a"},
+		"tab in password":     {`[{"op":"add","path":"/a","value":"https://u:` + pw + `\tx@h"}]`, "/a"},
+		"LF in password":      {`[{"op":"add","path":"/a","value":"https://u:` + pw + `\nx@h"}]`, "/a"},
+		"CR in password":      {`[{"op":"add","path":"/a","value":"https://u:` + pw + `\rx@h"}]`, "/a"},
+		"space in password":   {`[{"op":"add","path":"/a","value":"https://u:` + pw + ` x@h"}]`, "/a"},
+		"FF in password":      {`[{"op":"add","path":"/a","value":"https://u:` + pw + `\fx@h"}]`, "/a"},
+		"space in user":       {`[{"op":"add","path":"/a","value":"https://u x:` + pw + `@h"}]`, "/a"},
+		"tab lax no slash":    {`[{"op":"add","path":"/a","value":"https:u:` + pw + `\tx@h"}]`, "/a"},
+		"space lax no slash":  {`[{"op":"add","path":"/a","value":"https:u:` + pw + ` x@h"}]`, "/a"},
+		// A tab, LF or CR before a special scheme still ends the word before
+		// it, as it did before TICK-495; dropping it would read "notehttps:".
+		"LF before lax":      {`[{"op":"add","path":"/a","value":"note\nhttps:u:` + pw + `@h"}]`, "/a"},
+		"tab before lax":     {`[{"op":"add","path":"/a","value":"x\thttps:/u:` + pw + `\tx@h"}]`, "/a"},
+		"LF before, in name": {`[{"op":"add","path":"/a","value":"x\nht\ttps:u:` + pw + `@h"}]`, "/a"},
+		"other scheme tab":   {`[{"op":"add","path":"/a","value":"postgres:\t//u:` + pw + `@h"}]`, "/a"},
+		"tab in key":         {`[{"op":"add","path":"/a","value":{"https:\t//u:` + pw + `@h":1}}]`, "/a"},
+		"tab in op path":     {`[{"op":"add","path":"/https:\t~1~1u:` + pw + `@h","value":1}]`, ""},
+		"tab in from":        {`[{"op":"copy","from":"/x/https:\t~1~1u:` + pw + `@h","path":"/z"}]`, "/x"},
+		"tab across tokens":  {`[{"op":"add","path":"/https://u:` + pw + `\t@h","value":1}]`, "/https:/"},
+		"LF across keys":     {`[{"op":"add","path":"/a","value":{"https:":{"":{"u:` + pw + `\n@h":1}}}}]`, "/a/https:/"},
+	}
+	for name, c := range cases {
+		for _, d := range []Domain{DomainRecord, DomainConfig, DomainAudit} {
+			t.Run(name+"/"+string(d), func(t *testing.T) {
+				assertRejected(t, c.diff, d, ReasonURLUserinfo, c.path)
+				assertNoLeak(t, Check([]byte(c.diff), secretPaths(), d), "pass")
+			})
+		}
+	}
+}
+
+// TICK-495: whitespace does not turn text without a URL into one, and a "/",
+// "?" or "#" still ends the userinfo.
+func TestCheckAllowsWhitespaceLookalikes(t *testing.T) {
+	clean := []string{
+		`[{"op":"add","path":"/a","value":"contact: bob @ example"}]`,
+		`[{"op":"add","path":"/a","value":"contact:\tbob\t@\texample"}]`,
+		`[{"op":"add","path":"/a","value":{"contact: bob @ example":1}}]`,
+		`[{"op":"add","path":"/contact: bob @ example","value":1}]`,
+		`[{"op":"add","path":"/a","value":"line one\nmail bob@example.org"}]`,
+		`[{"op":"add","path":"/a","value":"see https://example.org/ then mail bob@example.org"}]`,
+		`[{"op":"add","path":"/a","value":"see https://example.org/x?q=a b@c"}]`,
+		`[{"op":"add","path":"/a","value":"https:\t/example.org/@alice"}]`,
+		`[{"op":"add","path":"/a","value":"mailto:\ta@b"}]`,
+		`[{"op":"add","path":"/a","value":"webcal: u@h"}]`,
+	}
+	for _, d := range clean {
+		for _, dom := range []Domain{DomainRecord, DomainConfig, DomainAudit} {
+			if err := Check([]byte(d), secretPaths(), dom); err != nil {
+				t.Errorf("%s %s: %v", dom, d, err)
+			}
+		}
+	}
+}
+
+// FuzzCheckWhitespaceUserinfo (TICK-495): a URL with userinfo is rejected in
+// every domain however many tabs, LFs and CRs sit anywhere in it, and with a
+// space or form feed in its password, as a string value (form&8) or spelled
+// across pointer tokens and nested keys (the forms of FuzzCheckJoinedUserinfo).
+// Each byte of ws inserts one of tab, LF or CR at index at; keep (mod 3) adds
+// nothing, a space or a form feed to the password; lax drops the "//". The
+// seeds cover each whitespace form of the TICK-495 tests.
+func FuzzCheckWhitespaceUserinfo(f *testing.F) {
+	f.Add("", "\x00", 6, byte(0), false, 8)     // tab after scheme, value
+	f.Add("", "\x00", 2, byte(0), false, 8)     // tab in scheme, value
+	f.Add("", "\x00", 7, byte(0), false, 8)     // tab between slashes, value
+	f.Add("", "\x00", -2, byte(0), false, 8)    // tab in password, value
+	f.Add("", "\x01", -2, byte(0), false, 8)    // LF in password, value
+	f.Add("", "\x02", -2, byte(0), false, 8)    // CR in password, value
+	f.Add("", "", 0, byte(1), false, 8)         // space in password, value
+	f.Add("", "", 0, byte(2), false, 8)         // FF in password, value
+	f.Add("", "\x00", -2, byte(0), true, 8)     // tab lax no slash, value
+	f.Add("", "", 0, byte(1), true, 8)          // space lax no slash, value
+	f.Add("a/", "\x00", 6, byte(0), false, 6)   // tab in key, slashes folded
+	f.Add("", "\x00\x01", 6, byte(0), false, 0) // tab and LF, op path
+	f.Add("", "\x02", 7, byte(1), false, 1)     // CR and space, from
+	f.Add("m/", "\x01", 7, byte(2), false, 2)   // LF and FF, nested keys
+	f.Add("see ", "\x00", 6, byte(0), true, 3)  // tab lax, path and key
+	f.Add("x\n", "\x00", -2, byte(0), true, 8)  // LF ends the word before a lax scheme
+	f.Fuzz(func(t *testing.T, prefix, ws string, at int, keep byte, lax bool, form int) {
+		if !utf8.ValidString(prefix) || strings.Contains(prefix, canary) {
+			t.Skip("not a diff, or the canary is in the prefix itself")
+		}
+		if n := len(prefix); lax && n > 0 && isSchemeByte(prefix[n-1]) {
+			t.Skip(`the prefix extends the scheme name ("xhttps:" is not special)`)
+		}
+		pw := "pass-" + canary + [...]string{"", " x", "\fx"}[keep%3]
+		url := "https://u:" + pw + "@h"
+		if lax {
+			url = "https:u:" + pw + "@h"
+		}
+		var w strings.Builder
+		for i := 0; i < len(ws); i++ {
+			w.WriteString([...]string{"\t", "\n", "\r"}[ws[i]%3])
+		}
+		// at counts from the end when negative; -2 is just before "@h".
+		i := at % (len(url) + 1)
+		if i < 0 {
+			i += len(url) + 1
+		}
+		url = prefix + url[:i] + w.String() + url[i:]
+		var diff string
+		if form&8 != 0 {
+			diff = `[{"op":"add","path":"/a","value":` + jsonQuote(url) + `}]`
+		} else {
+			segs := strings.Split(url, "/")
+			if form&4 != 0 {
+				segs = foldEmpty(segs)
+			}
+			diff = splitDiff(segs, form)
+		}
+		for _, d := range []Domain{DomainRecord, DomainConfig, DomainAudit} {
+			err := Check([]byte(diff), nil, d)
+			// Past patchwalk.MaxDepth the walk fails closed with ErrMalformed;
+			// that rejects the diff too.
+			var se *ErrSecretInDiff
+			if !errors.As(err, &se) && !errors.Is(err, patchwalk.ErrMalformed) {
+				t.Fatalf("%s: userinfo let through: %q: %v", d, diff, err)
+			}
+			if strings.Contains(err.Error(), canary) || strings.Contains(err.Error(), "pass") {
+				t.Fatalf("%s: password in error: %v", d, err)
+			}
+		}
+	})
+}

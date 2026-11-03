@@ -14,7 +14,8 @@
 //     spellings of the special schemes such as https:user@host or
 //     https:\user@host) in any string value or object key, or spelled across
 //     the tokens of a pointer (an op path, a from, or the nested keys of a
-//     value), in every domain;
+//     value), in every domain, ignoring tab, LF and CR and allowing space and
+//     form feed in the userinfo, as WHATWG URL parsing does;
 //   - on DomainConfig only, a secret-shaped string (AWS access key id, GitHub
 //     token, Slack token, PEM block, JWT) in any string value or object key.
 //
@@ -96,7 +97,7 @@ func (e *ErrSecretInDiff) LogValue() slog.Value {
 var ErrInvalidInput = errors.New("secrets: invalid input")
 
 // userinfoURL matches a URL with userinfo: a scheme, then the text before the
-// host, then userinfo with no "/", "?", "#" or whitespace before the "@", so
+// host, then userinfo with no "/", "?" or "#" before the "@", so
 // "https://host/@user" does not match.
 //
 // For any scheme the text before the host is "://". The special schemes of the
@@ -107,8 +108,29 @@ var ErrInvalidInput = errors.New("secrets: invalid input")
 // count too. For them the scheme must not continue a longer scheme name
 // ("xhttps:" is not special), and the lax form applies to them only, so
 // "mailto:a@b" and "urn:x:a@b" still pass.
-var userinfoURL = regexp.MustCompile(`(?i)[a-z][a-z0-9+.\-]*://[^/?#@\s]*@` +
-	`|(?:^|[^a-z0-9+.\-])(?:https?|wss?|ftp|file):(?:[/\\]|%2f|%5c)*[^/?#@\s]*@`)
+//
+// Tab, LF and CR may sit anywhere in either form, because the WHATWG URL
+// parser strips them anywhere in a URL: "ht\ttps:/\t/u:p@h" is
+// "https://u:p@h" (TICK-495). Space and form feed may sit in the userinfo,
+// which WHATWG keeps percent-encoded: "https://u:p x@h" carries userinfo too.
+// The pattern runs on the text as given rather than on the text with tab, LF
+// and CR removed, so a tab, LF or CR before a special scheme still ends the
+// word before it: "note\nhttps:u:p@h" is caught, though removing the LF would
+// make the scheme "notehttps:".
+var userinfoURL = regexp.MustCompile(`(?i)[a-z][a-z0-9+.\-]*` + urlWS + `:` + urlWS + `/` + urlWS + `/[^/?#@]*@` +
+	`|(?:^|[^a-z0-9+.\-])(?:` + spaced("https") + `|` + spaced("http") + `|` + spaced("wss") + `|` + spaced("ws") +
+	`|` + spaced("ftp") + `|` + spaced("file") + `)` + urlWS +
+	`:(?:[/\\\t\r\n]|` + spaced("%2f") + `|` + spaced("%5c") + `)*[^/?#@]*@`)
+
+// urlWS matches what the WHATWG URL parser strips anywhere in a URL: ASCII
+// tab, LF and CR.
+const urlWS = `[\t\r\n]*`
+
+// spaced returns a pattern for lit with urlWS allowed between its characters.
+// lit must hold no regexp metacharacters.
+func spaced(lit string) string {
+	return strings.Join(strings.Split(lit, ""), urlWS)
+}
 
 // secretShape matches the secret shapes ADR-004 R6 names (RFC-008 D7).
 var secretShape = regexp.MustCompile(
@@ -224,6 +246,8 @@ func scanJoined(ptr patchwalk.Pointer, shapes bool) (patchwalk.Pointer, Reason, 
 	return "", r, true
 }
 
+// scan is every match Check makes: on a value, a key, a pointer token and both
+// joined pointer texts.
 func scan(s string, shapes bool) (Reason, bool) {
 	if userinfoURL.MatchString(s) {
 		return ReasonURLUserinfo, true
