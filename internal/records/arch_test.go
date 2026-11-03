@@ -60,11 +60,15 @@ func writerAllowed(rel string) bool {
 	return underAny(rel, "internal/records/pipeline", "internal/records/store", "db/migrations")
 }
 
-// auditWriter reports whether the file at rel may write table because it is
-// ADR-004's one audit writer (decision 1): internal/audit/append.go, for
-// audit_log only (P5-12b, TICK-430).
-func auditWriter(rel, table string) bool {
-	return table == "audit_log" && rel == "internal/audit/append.go"
+// auditWriter reports whether the file at rel may run a write of kind on
+// table because it is ADR-004's one inserting writer (decision 1):
+// internal/audit/append.go may INSERT INTO audit_log and nothing else. An
+// UPDATE, DELETE, MERGE, TRUNCATE, COPY or pgx.Identifier (CopyFrom) there
+// is still reported: those would skip validate, the secret check and the
+// ::json binding, and this gate must not lean on the database grants
+// (P5-12b, TICK-430).
+func auditWriter(rel, kind, table string) bool {
+	return kind == "insert" && table == "audit_log" && rel == "internal/audit/append.go"
 }
 
 // probeExempt is the tenant isolation suite's path registry: its INSERT and
@@ -203,7 +207,7 @@ func scanFile(fset *token.FileSet, rel string, f *ast.File, consts map[string]st
 
 	report := func(n ast.Node, s string) {
 		for _, w := range sqlWrites(s) {
-			if !auditWriter(rel, w[1]) {
+			if !auditWriter(rel, w[0], w[1]) {
 				out = append(out, finding{rel, fset.Position(n.Pos()).Line, w[0], w[1]})
 			}
 		}
@@ -224,8 +228,7 @@ func scanFile(fset *token.FileSet, rel string, f *ast.File, consts map[string]st
 			}
 		case *ast.CompositeLit:
 			if isPgxIdentifier(n.Type, pgxNames) && len(n.Elts) > 0 {
-				if s, ok := stringValue(n.Elts[len(n.Elts)-1], consts); ok && recordTable(strings.ToLower(s)) &&
-					!auditWriter(rel, strings.ToLower(s)) {
+				if s, ok := stringValue(n.Elts[len(n.Elts)-1], consts); ok && recordTable(strings.ToLower(s)) {
 					out = append(out, finding{rel, fset.Position(n.Pos()).Line, "identifier", strings.ToLower(s)})
 				}
 			}
@@ -523,24 +526,40 @@ const sneakySQL = "UPDATE records SET state = $2 WHERE id = $1"
 	}
 }
 
-// TestAuditAppendIsTheAuditLogWriter: internal/audit/append.go may write
-// audit_log (ADR-004 decision 1) and nothing else; any other file under
-// internal/audit may not.
+// TestAuditAppendIsTheAuditLogWriter: internal/audit/append.go may INSERT
+// INTO audit_log (ADR-004 decision 1) and nothing else: no other write on
+// audit_log, no pgx.Identifier (CopyFrom) form, no other table. Any other
+// file under internal/audit may not write audit_log at all.
 func TestAuditAppendIsTheAuditLogWriter(t *testing.T) {
 	const src = `package audit
+
+import "github.com/jackc/pgx/v5"
 
 const insertSQL = "INSERT INTO audit_log (tenant_id) VALUES ($1)"
 
 const sneakySQL = "UPDATE records SET state = $2 WHERE id = $1"
+
+const updateSQL = "UPDATE audit_log SET diff = NULL WHERE id = $1"
+
+const deleteSQL = "DELETE FROM audit_log WHERE id = $1"
+
+var copyTable = pgx.Identifier{"audit_log"}
 `
-	if got, want := scanSource(t, "internal/audit/append.go", src),
-		[]finding{{"internal/audit/append.go", 5, "update", "records"}}; !slices.Equal(got, want) {
+	if got, want := scanSource(t, "internal/audit/append.go", src), dedupe([]finding{
+		{"internal/audit/append.go", 7, "update", "records"},
+		{"internal/audit/append.go", 9, "update", "audit_log"},
+		{"internal/audit/append.go", 11, "delete", "audit_log"},
+		{"internal/audit/append.go", 13, "identifier", "audit_log"},
+	}); !slices.Equal(got, want) {
 		t.Errorf("append.go: got %v, want %v", got, want)
 	}
-	if got, want := scanSource(t, "internal/audit/other.go", src), []finding{
-		{"internal/audit/other.go", 3, "insert", "audit_log"},
-		{"internal/audit/other.go", 5, "update", "records"},
-	}; !slices.Equal(got, want) {
+	if got, want := scanSource(t, "internal/audit/other.go", src), dedupe([]finding{
+		{"internal/audit/other.go", 5, "insert", "audit_log"},
+		{"internal/audit/other.go", 7, "update", "records"},
+		{"internal/audit/other.go", 9, "update", "audit_log"},
+		{"internal/audit/other.go", 11, "delete", "audit_log"},
+		{"internal/audit/other.go", 13, "identifier", "audit_log"},
+	}); !slices.Equal(got, want) {
 		t.Errorf("other.go: got %v, want %v", got, want)
 	}
 }
