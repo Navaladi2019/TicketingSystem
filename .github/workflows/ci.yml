@@ -13,6 +13,9 @@
 #   stack            image build, compose up, smoke, platform and Temporal tests
 #   stack-db         a second stack: db-roles/migrate idempotency, role and hba tests
 #   stack-internal   the internal overlay on a fresh stack
+#   coverage         merges the unit and integration coverage profiles and
+#                    gates the total at 95% (make check-coverage, TICK-518);
+#                    report-only until the total reaches it
 # A pull request runs only the jobs its change needs: the changes job asks
 # `make ci-stages` (tools/ci/cichanged, the rules of `make ci-changed`), lint
 # always runs, and a change under .github/workflows runs everything. A push to
@@ -228,6 +231,13 @@ jobs:
             go-${{ github.job }}-
       - name: go test -race
         run: make test
+      # The unit half of the coverage gate (TICK-518).
+      - name: Unit coverage profile
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-unit
+          path: coverage.out
+          if-no-files-found: error
       # Only main writes the cache (TICK-400); see CACHE_WRITE above.
       - name: Save the Go build cache
         if: success() && env.CACHE_WRITE == 'true'
@@ -299,6 +309,13 @@ jobs:
             go-${{ github.job }}-
       - name: Integration tests (-tags integration)
         run: make test-integration
+      # The integration half of the coverage gate (TICK-518).
+      - name: Integration coverage profile
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-integration
+          path: coverage-integration.out
+          if-no-files-found: error
       # Its own step, not part of make test-integration (TICK-224).
       - name: ci-isolated --down untags only its own tags
         run: make test-ci-isolated-down
@@ -485,6 +502,54 @@ jobs:
             ~/go/pkg/mod
           key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
 
+  coverage:
+    # TICK-518: the total Go coverage of the unit run (make test) and the
+    # integration run against PostgreSQL (make test-integration), with
+    # tools/ci/coverage-exclude.txt dropped, must be at least COVERAGE_MIN
+    # (95). Report-only (COVERAGE_REPORT_ONLY=1) until the total reaches it;
+    # the follow-up PR that drops it closes TICK-518. Runs when both unit and
+    # integration ran and passed.
+    needs: [unit, integration]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Restore the Go build cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-unit-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-unit-${{ hashFiles('**/go.sum') }}-
+            go-unit-
+      - name: Download the unit profile
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-unit
+      - name: Download the integration profile
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-integration
+      - name: Coverage gate (report-only until 95%, TICK-518)
+        run: make check-coverage COVERAGE_REPORT_ONLY=1
+      - name: Coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: |
+            coverage.out
+            coverage-integration.out
+            coverage-total.out
+            coverage.html
+          if-no-files-found: error
+
   story-branches:
     # TICK-322: a story branch's work must reach main. Fails on changes merged
     # or pushed into a story branch after its story PR merged, a story branch
@@ -550,7 +615,7 @@ jobs:
     # A push to main with any failed job opens (or comments on) the P0
     # "main is red" issue. A skipped job is not a failure; a cancelled run
     # does not fire this.
-    needs: [changes, lint, unit, temporal-server, integration, stack, stack-db, stack-internal]
+    needs: [changes, lint, unit, temporal-server, integration, stack, stack-db, stack-internal, coverage]
     if: failure() && github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
