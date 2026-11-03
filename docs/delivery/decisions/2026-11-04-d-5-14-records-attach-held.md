@@ -4,5 +4,6 @@
 - **Decision:**
   - **Attaching the trigger to `records` moves to TICK-530 (P5-13c),** which waits for the RFC TICK-529 (FK `ON DELETE SET NULL` from group sync). In TICK-452 `records` stays `attached: false`, commented `held: TICK-529`. The attach migration is removed from the PR, and the P3-13 arch test is the guard. CI-A2 (records) is skipped, naming TICK-529 and the arch test. The TRUNCATE and EXPLAIN carry-over items stay in TICK-452.
   - **History endpoint:** the gap until P5-17 is accepted on the story branch. `TestPatchHistoryPagesNewestFirst` pages over seeded v0 rows. P5-17 (TICK-435) restores it against live writes, and the story does not go to `main` before that.
+  - **Bruno S9.13 and S9.14** (history) are gated on TICK-435 with a visible skip message (`bru.runner.skipRequest()`), not deleted and not seeded from v0; TICK-435 turns both back on (Technical Lead, option 2 on TICK-452).
   - **Actions and secrets:** keep `state_change`/`update` and R6 rejection as implemented. The `writeOnly` reading is Q2 of TICK-529. Any change there arrives as a follow-up task.
 - **Cost:** the commit-check guard on `records` lands one task later than planned. Until then the arch test guards it, as the S1 fallback already allows.
