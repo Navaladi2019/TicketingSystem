@@ -317,3 +317,20 @@ func TestParsePublish(t *testing.T) {
 		}
 	}
 }
+
+// M2 (TICK-432): a secret found while parsing a create reaches CreateEntityType
+// as a *SecretInContentError, so the handler answers through secretProblem
+// (path pointer and warning log), not a bare 422.
+func TestParseCreateSecretUnwrapsToSecretInContent(t *testing.T) {
+	body := `{"key":"incident","name":"T","number_prefix":"INC","definition":{"schema":` +
+		`{"type":"object","additionalProperties":false,"properties":{"pw":{"type":"string","x-nava-secret":true,"default":"v"}}}}}`
+	_, perr := parseCreate(json.RawMessage(body))
+	if perr == nil {
+		t.Fatal("want a refusal")
+	}
+	var err error = perr
+	var secret *entitytypes.SecretInContentError
+	if !errors.As(err, &secret) || secret.Path != "/properties/pw/default" {
+		t.Fatalf("err = %v, want a SecretInContentError at /properties/pw/default", err)
+	}
+}

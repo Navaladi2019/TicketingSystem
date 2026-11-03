@@ -100,3 +100,7 @@ codes:
     status: 409
     title: Unique value taken
     detail: Another record of this entity type already holds the value of a unique property. See errors for the property.
+  - code: config_secret_in_content
+    status: 422
+    title: Secret in configuration
+    detail: The definition sets a value at a secret path. See errors for the path; the value is never echoed.
