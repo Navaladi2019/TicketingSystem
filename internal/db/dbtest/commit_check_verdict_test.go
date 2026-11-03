@@ -297,3 +297,22 @@ func TestCommitCheckBudgetVerdict(t *testing.T) {
 		})
 	}
 }
+
+// The script's CPU model reaches every COMMIT-CHECK-BUDGET line
+// (ADR-004-E4 decision 3).
+func TestCommitCheckBudgetCPUModel(t *testing.T) {
+	t.Setenv("NAVA_BUDGET_CPU", "AMD EPYC 7763 64-Core Processor")
+	if got := cpuModel(); got != "AMD EPYC 7763 64-Core Processor" {
+		t.Fatalf("cpuModel() = %q, want NAVA_BUDGET_CPU", got)
+	}
+	b := commitCheckBudget{PerCallClause: [3]float64{170, 165, 165}, PerCallRef: [3]float64{130, 80, 210}, ImportClause: 128, ImportRef: 13}
+	for _, line := range []string{b.singleLine(38, cpuModel()), b.importLine(38, cpuModel(), nil, nil)} {
+		if !strings.Contains(line, ` cpu="AMD EPYC 7763 64-Core Processor" `) {
+			t.Errorf("no cpu=\"…\" in %s", line)
+		}
+	}
+	t.Setenv("NAVA_BUDGET_CPU", "")
+	if got := cpuModel(); got == "" {
+		t.Error("cpuModel() is empty without NAVA_BUDGET_CPU, want /proc/cpuinfo's model or \"unknown\"")
+	}
+}
