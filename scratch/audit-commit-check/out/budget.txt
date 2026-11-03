@@ -1,0 +1,9 @@
+number of transactions actually processed: 5000/5000
+latency average = 0.781 ms
+tps = 1280.904708 (without initial connection time)
+        funcname         | calls | total_ms | self_us_per_call 
+-------------------------+-------+----------+------------------
+ audit_log_assert_insert |  5000 |     57.6 |             11.5
+ audit_commit_check      |  5000 |    211.2 |             42.2
+(2 rows)
+

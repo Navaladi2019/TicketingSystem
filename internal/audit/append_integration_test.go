@@ -31,8 +31,8 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/chain"
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/chain/vectors"
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/patchwalk"
+	"github.com/Navaladi2019/TicketingSystem/internal/db/audited"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/catalog"
-	"github.com/Navaladi2019/TicketingSystem/internal/db/grants"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/migrate"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/roles"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
@@ -89,7 +89,7 @@ func migrated(t *testing.T) itEnv {
 
 func setup(super *pgx.ConnConfig) (itEnv, error) {
 	ctx := context.Background()
-	m, err := grants.Parse(db.Grants())
+	m, am, err := audited.Load(db.Grants(), db.AuditedTables())
 	if err != nil {
 		return itEnv{}, err
 	}
@@ -120,7 +120,7 @@ func setup(super *pgx.ConnConfig) (itEnv, error) {
 	owner.User = m.Owner()
 	owner.Password, _ = testPassword(m.Owner())
 	owner.Database = m.PlatformDatabase
-	if _, err := migrate.Run(ctx, owner, db.Migrations(), m, g, log, migrate.Options{LockRetrySeconds: 1}); err != nil {
+	if _, err := migrate.Run(ctx, owner, db.Migrations(), m, am, g, log, migrate.Options{LockRetrySeconds: 1}); err != nil {
 		return itEnv{}, err
 	}
 	platformSuper := super.Copy()

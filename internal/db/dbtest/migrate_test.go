@@ -91,9 +91,14 @@ func TestManifestAppliedTwiceIsNoOp(t *testing.T) {
 	if len(first.Grants.Granted) == 0 {
 		t.Fatal("first run granted nothing")
 	}
+	// P5-11: the generated audit_log policies are created by the first run
+	// (and the generated writer grants are among its grants).
+	if got := sorted(first.Policies.Created); strings.Join(got, ",") != "audit_log_onboard_insert,audit_log_onboard_select,audit_log_writer_insert,audit_log_writer_select" {
+		t.Fatalf("first run created policies %v", got)
+	}
 	second := migrateAll(t, m)
-	if len(second.Applied) != 0 || second.Grants.Changed() {
-		t.Fatalf("second run: applied %v, grants %+v; want nothing", second.Applied, second.Grants)
+	if len(second.Applied) != 0 || second.Grants.Changed() || second.Policies.Changed() {
+		t.Fatalf("second run: applied %v, grants %+v, policies %+v; want nothing", second.Applied, second.Grants, second.Policies)
 	}
 }
 

@@ -24,8 +24,8 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/Navaladi2019/TicketingSystem/db"
+	"github.com/Navaladi2019/TicketingSystem/internal/db/audited"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/catalog"
-	"github.com/Navaladi2019/TicketingSystem/internal/db/grants"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/migrate"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/roles"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
@@ -54,7 +54,7 @@ func superConfig(t *testing.T) *pgx.ConnConfig {
 func migrated(t *testing.T) (*pgx.Conn, *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.Background()
-	m, err := grants.Parse(db.Grants())
+	m, am, err := audited.Load(db.Grants(), db.AuditedTables())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func migrated(t *testing.T) (*pgx.Conn, *pgxpool.Pool) {
 		t.Fatal(err)
 	}
 	owner := roleConfig(t, m.Owner(), m.PlatformDatabase)
-	if _, err := migrate.Run(ctx, owner, db.Migrations(), m, g, log, migrate.Options{LockRetrySeconds: 1}); err != nil {
+	if _, err := migrate.Run(ctx, owner, db.Migrations(), m, am, g, log, migrate.Options{LockRetrySeconds: 1}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 

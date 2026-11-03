@@ -29,6 +29,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Navaladi2019/TicketingSystem/db"
+	"github.com/Navaladi2019/TicketingSystem/internal/db/audited"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/catalog"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/grants"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/migrate"
@@ -83,7 +84,7 @@ func setup(ctx context.Context) (*env, error) {
 	if err != nil {
 		return nil, err
 	}
-	m, err := grants.Parse(db.Grants())
+	m, am, err := audited.Load(db.Grants(), db.AuditedTables())
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +116,7 @@ func setup(ctx context.Context) (*env, error) {
 	}
 	mig := super.Copy()
 	mig.User, mig.Password, mig.Database = m.Owner(), password(m.Owner()), m.PlatformDatabase
-	if _, err := migrate.Run(ctx, mig, db.Migrations(), m, g, log, migrate.Options{LockRetrySeconds: 1}); err != nil {
+	if _, err := migrate.Run(ctx, mig, db.Migrations(), m, am, g, log, migrate.Options{LockRetrySeconds: 1}); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 
