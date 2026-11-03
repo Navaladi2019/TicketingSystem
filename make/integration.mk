@@ -53,7 +53,7 @@ test-ci-isolated-down:
 # The commit-check budget rows (ADR-004-E3, D-E3-4, TICK-509):
 # TestCommitCheckBudget alone on one throwaway cluster, which
 # test-integration's shards leave out. The ci.yml job commit-check-budget
-# runs it on a runner of its own; not part of ci-integration, since the
-# ceilings are absolute and a laptop is not the baseline. Needs Docker.
+# runs it on a runner of its own; not part of ci-integration, since a laptop
+# is not the baseline. The verdict rule is ADR-004-E4's. Needs Docker.
 test-commit-check-budget:
 	sh scripts/ci/commit-check-budget.sh $(ARGS)

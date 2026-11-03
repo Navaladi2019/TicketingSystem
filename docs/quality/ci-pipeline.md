@@ -32,7 +32,11 @@ own (`make test-commit-check-budget`, `scripts/ci/commit-check-budget.sh`),
 whenever `integration` runs. The test measures ADR-004-E3's absolute µs
 budget rows, which drifted 10-36 % over the ceilings when the test shared the
 `integration` runner with the dbtest shards. The integration shards leave it
-out, so it runs once (D-E3-4, TICK-509).
+out, so it runs once (D-E3-4, TICK-509). Under ADR-004-E4 the absolute
+thresholds are report-only: the job fails only when no rows were measured, a
+same-run ratio is out of range or the per-call row is not flat; a row over
+its threshold gets a `::warning::` annotation, and both rows, with the host's
+`cpu=` model, go to the step summary.
 
 `make ci-stack` runs all of them locally (TICK-153): the main stack, then the
 internal overlay as a project of its own (`<project>-int`, host ports 0 so
