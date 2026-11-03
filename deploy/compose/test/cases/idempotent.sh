@@ -7,7 +7,7 @@ set -eu
 # ids, data kept, nothing created, changed or revoked, and the stack is
 # healthy again after `down` (volumes kept) and a second `up`.
 t_idempotent() {
-    snapshot() { psql_super postgres "SELECT (SELECT string_agg(oid::text || rolpassword, ',' ORDER BY rolname) FROM pg_authid WHERE rolname IN ('nava_migrator','nava_app','nava_worker','nava_relay','nava_purge','nava_onboard','nava_groupsync','nava_backup','keycloak','temporal','pgbouncer_auth')) || '/' || (SELECT string_agg(oid::text, ',' ORDER BY datname) FROM pg_database WHERE datname IN ('keycloak','temporal','temporal_visibility','nava'))"; }
+    snapshot() { psql_super postgres "SELECT (SELECT string_agg(oid::text || rolpassword, ',' ORDER BY rolname) FROM pg_authid WHERE rolname IN ('nava_migrator','nava_app','nava_worker','nava_relay','nava_purge','nava_onboard','nava_groupsync','nava_erasure','nava_backup','keycloak','temporal','pgbouncer_auth')) || '/' || (SELECT string_agg(oid::text, ',' ORDER BY datname) FROM pg_database WHERE datname IN ('keycloak','temporal','temporal_visibility','nava'))"; }
     # The marker is a comment on the nava database, not a table: the
     # catalogue gate (CI-1) rejects any platform table without a tenant key
     # and FORCE RLS, and a comment is not a relation it inspects. It lives in
