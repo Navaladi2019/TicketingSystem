@@ -7,10 +7,12 @@ ci-integration: test-integration test-ci-isolated-down test-integration-cleanup
 # isolation suite (make isolation). Pass ARGS=... to forward flags to go test;
 # with ARGS the isolation suite does not run. The ci-isolated --down tag check
 # is its own target (test-ci-isolated-down, in ci-integration and its own
-# workflow step), so this loop stays fast (TICK-224).
+# workflow step), so this loop stays fast (TICK-224). The isolation report
+# lists the TestCI10_* cases of this run as named CI-10 rows, read from the
+# run's go test -json stream in it-events.json (TICK-483).
 test-integration:
-	sh scripts/ci/test-integration.sh $(ARGS)
-	$(if $(ARGS),@echo "isolation suite skipped (ARGS set); run make isolation",sh scripts/ci/isolation.sh)
+	IT_EVENTS=it-events.json sh scripts/ci/test-integration.sh $(ARGS)
+	$(if $(ARGS),@echo "isolation suite skipped (ARGS set); run make isolation",IT_EVENTS=it-events.json sh scripts/ci/isolation.sh)
 
 # test-integration.sh leaves no container or network behind after a run with
 # go test arguments or a TERM part way (TICK-185). Its own ci.yml step and in

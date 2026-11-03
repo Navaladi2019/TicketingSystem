@@ -5,7 +5,8 @@
 # (scripts/ci/pgbouncer/isolation.ini). The suite rebuilds the roles and the
 # platform database itself, seeds tenants A and B, and writes its report to
 # ISOLATION_REPORT (default isolation-report.md at the repository root), the
-# CI artifact. Needs Docker. Extra arguments go to `go test`.
+# CI artifact. With IT_EVENTS (make test-integration) it also reports the
+# CI-10 cases that run reported. Needs Docker. Extra arguments go to `go test`.
 set -eu
 cd "$(dirname "$0")/../.."
 
@@ -73,6 +74,14 @@ NAVA_ISOLATION_PGBOUNCER_ADDR="127.0.0.1:$(hostport "$bouncer")"
 # pwd -W: a path Go on Windows (Git Bash) can open.
 NAVA_ISOLATION_REPORT="${ISOLATION_REPORT:-$(pwd -W 2>/dev/null || pwd)/isolation-report.md}"
 export NAVA_TEST_PG_URL NAVA_ISOLATION_PGBOUNCER_ADDR NAVA_ISOLATION_REPORT
+# IT_EVENTS: make test-integration's go test -json stream (TICK-483); the
+# suite reports its TestCI10_* cases as named CI-10 rows. Unset, as when
+# make isolation runs on its own, those rows are NOT RUN.
+if [ -n "${IT_EVENTS:-}" ]; then
+    [ -f "$IT_EVENTS" ] || { echo "isolation: IT_EVENTS=$IT_EVENTS does not exist" >&2; exit 1; }
+    NAVA_IT_EVENTS="$(cd "$(dirname "$IT_EVENTS")" && (pwd -W 2>/dev/null || pwd))/$(basename "$IT_EVENTS")"
+    export NAVA_IT_EVENTS
+fi
 
 # With no extra arguments, tools/ci/suiteran (TICK-230) also fails the run
 # when a registered isolation suite ran zero tests. Extra arguments (a -run

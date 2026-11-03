@@ -13,6 +13,7 @@ type report struct {
 	ci2      []ci2Line
 	paths    []pathResult
 	fixtures []fixtureResult
+	ci10     []ci10Row
 }
 
 // markdown groups everything by ADR test id: CI-2's generic lines (one per
@@ -26,7 +27,8 @@ func (r report) markdown(ok bool) string {
 	}
 	fmt.Fprintf(&b, "# Tenant isolation suite (T11)\n\nResult: **%s**. Tenant A `%s`, tenant B `%s`.\n\n", result, TenantA, TenantB)
 	b.WriteString("Statuses: PASS (0 rows or an error), FAIL (a row was reached), " +
-		"ALLOWLISTED (reached by an ADR-001 A.3 policy that does not test the tenant, by design), PENDING (registered, not runnable yet).\n")
+		"ALLOWLISTED (reached by an ADR-001 A.3 policy that does not test the tenant, by design), PENDING (registered, not runnable yet), " +
+		"NOT RUN (a make test-integration case, with make isolation run on its own).\n")
 
 	cov := Coverage()
 	ids := make([]string, 0, len(cov))
@@ -38,6 +40,9 @@ func (r report) markdown(ok bool) string {
 		fmt.Fprintf(&b, "\n## %s\n\nCoverage: %s.\n", id, cov[id])
 		if id == "CI-2" {
 			r.writeCI2(&b)
+		}
+		if id == "CI-10" {
+			r.writeCI10(&b)
 		}
 		var rows []pathResult
 		for _, p := range r.paths {
@@ -76,6 +81,18 @@ func (r report) writeCI2(b *strings.Builder) {
 		fmt.Fprintf(b, "| %s | %s | %s | %s |\n", l.Role, l.Table, l.Status, cellText(l.Detail))
 	}
 	r.writeFixtures(b, "CI-2")
+}
+
+// writeCI10 lists the CI-10 cases make test-integration ran (TICK-483).
+func (r report) writeCI10(b *strings.Builder) {
+	b.WriteString("\n### Cycle and depth-audit cases (TestCI10_*, make test-integration)\n\n" +
+		"| Case | Test | Status | Detail |\n|---|---|---|---|\n")
+	if len(r.ci10) == 0 {
+		b.WriteString("| - | - | FAIL | TestCI10NamedCases did not run |\n")
+	}
+	for _, l := range r.ci10 {
+		fmt.Fprintf(b, "| %s | %s | %s | %s |\n", cellText(l.Name), l.Test, l.Status, cellText(l.Detail))
+	}
 }
 
 // writeFixtures lists the fixtures of ADR test id id.
