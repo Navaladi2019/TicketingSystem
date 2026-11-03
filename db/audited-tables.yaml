@@ -29,8 +29,9 @@
 # Adding, removing or exempting a table is a security-review change (D-P10).
 
 audited:
-  # P5-13b (TICK-452) attached the trigger (S1 item 1 passed; migration
-  # 20261104100000_records_audit_commit_check.sql).
+  # held: TICK-529. P5-13c (TICK-530) attaches the trigger once the RFC on
+  # the groups FK ON DELETE SET NULL is decided (D-5-14); until then the
+  # P3-13 architecture test (internal/records/arch_test.go) is the guard.
   # The columns are every column a writer may UPDATE (db/grants.yaml).
   records:
     writer_roles: [nava_app, nava_worker]
@@ -38,7 +39,7 @@ audited:
                       updated_at, data, causation_origin_id, causation_depth]
     subject_type: record
     subject_id_column: id
-    attached: true
+    attached: false
   # P5-32 (migration B, D-5-8) attaches the trigger to both; P5-14 makes the
   # S8 publish path write their entries.
   entity_definitions:

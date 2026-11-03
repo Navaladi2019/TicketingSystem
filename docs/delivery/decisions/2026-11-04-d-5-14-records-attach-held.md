@@ -1,0 +1,8 @@
+## 2026-11-04: D-5-14, the records commit-check attach is held for TICK-529; the history gap until P5-17 is accepted
+- **Decided by:** the Technical Lead on TICK-452 (P5-13b), from its `RESULT: BLOCKED`. No dissent recorded.
+- **Why:** `records.assignment_group_id` is `ON DELETE SET NULL` from `groups`. When group sync deletes a group a record names, PostgreSQL updates the record as `nava_groupsync`. With the trigger attached, that update needs an audit entry that group sync cannot write, so the delete fails (`TestP309GroupDeleteClearsRecordGroup`). Every fix changes ADR-004 or the role model, so it goes to the Architecture squad as RFC TICK-529.
+- **Decision:**
+  - **Attaching the trigger to `records` moves to TICK-530 (P5-13c),** which waits for the RFC TICK-529 (FK `ON DELETE SET NULL` from group sync). In TICK-452 `records` stays `attached: false`, commented `held: TICK-529`. The attach migration is removed from the PR, and the P3-13 arch test is the guard. CI-A2 (records) is skipped, naming TICK-529 and the arch test. The TRUNCATE and EXPLAIN carry-over items stay in TICK-452.
+  - **History endpoint:** the gap until P5-17 is accepted on the story branch. `TestPatchHistoryPagesNewestFirst` pages over seeded v0 rows. P5-17 (TICK-435) restores it against live writes, and the story does not go to `main` before that.
+  - **Actions and secrets:** keep `state_change`/`update` and R6 rejection as implemented. The `writeOnly` reading is Q2 of TICK-529. Any change there arrives as a follow-up task.
+- **Cost:** the commit-check guard on `records` lands one task later than planned. Until then the arch test guards it, as the S1 fallback already allows.

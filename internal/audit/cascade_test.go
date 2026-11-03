@@ -1,7 +1,7 @@
 package audit
 
 import (
-	"crypto/sha1" //nolint:gosec // RFC 4122 UUIDv5 is defined over SHA-1; this is an independent check of it
+	"crypto/sha1"
 	"testing"
 
 	"github.com/google/uuid"
@@ -11,8 +11,9 @@ import (
 // uuid.NewSHA1: SHA-1 over the namespace's 16 bytes and the 64-byte name,
 // the first 16 bytes, version 5 and the RFC 4122 variant.
 func cascadeKeyByHand(t, o, r, d uuid.UUID) uuid.UUID {
-	h := sha1.New() //nolint:gosec // see the import
-	h.Write(CascadeKeyNamespace[:])
+	h := sha1.New()
+	ns := CascadeKeyNamespace()
+	h.Write(ns[:])
 	for _, id := range []uuid.UUID{t, o, r, d} {
 		h.Write(id[:])
 	}
@@ -27,7 +28,7 @@ func cascadeKeyByHand(t, o, r, d uuid.UUID) uuid.UUID {
 // pinned namespace. The golden values hold the namespace and the order; a
 // permuted tuple gives another key.
 func TestCascadeKey(t *testing.T) {
-	if got := CascadeKeyNamespace.String(); got != "e3045a06-15ad-46d2-b1a9-0dd05b182547" {
+	if got := CascadeKeyNamespace().String(); got != "e3045a06-15ad-46d2-b1a9-0dd05b182547" {
 		t.Fatalf("namespace %s", got)
 	}
 	tn := uuid.MustParse("0190a000-0000-7000-8000-000000000001")

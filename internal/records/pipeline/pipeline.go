@@ -4,9 +4,10 @@
 // applies the merge patch and defaults, validates against the JSON Schema,
 // writes the row with an optimistic version check, writes one ADR-004 audit
 // entry through audit.Append and calls the EventSink. Nothing commits unless
-// every stage succeeds: the caller's tenancy.InTenantTx commits or rolls back,
-// and the records commit-check trigger refuses a COMMIT whose record write
-// has no entry (ADR-004 decision 2, P5-13b).
+// every stage succeeds: the caller's tenancy.InTenantTx commits or rolls back.
+// The records commit-check trigger (ADR-004 decision 2) is held by D-5-14
+// until P5-13c (TICK-530); until then the P3-13 architecture test keeps every
+// records write in this package.
 //
 // The entry (domain record, subject the record) carries the entity type, the
 // versions before and after, the writer, the cascade origin and depth, and

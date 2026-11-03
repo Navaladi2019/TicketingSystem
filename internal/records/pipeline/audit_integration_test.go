@@ -42,6 +42,14 @@ func rolePool(t *testing.T, e env, role string) *pgxpool.Pool {
 	return appPool(t, u.String())
 }
 
+// heldAttach is why the records commit-check tests are skipped (D-5-14): the
+// trigger is not attached to records until TICK-529 decides the groups FK
+// ON DELETE SET NULL, and P5-13c (TICK-530) attaches it and removes these
+// skips. Until then the P3-13 architecture test
+// (internal/records/arch_test.go, TestRecordWritersOnlyInPipeline) guards the records
+// writers, as the S1 fallback allows.
+const heldAttach = "CI-A2 (records) held: TICK-529 (FK ON DELETE SET NULL from group sync); the P3-13 arch test guards records until P5-13c (TICK-530)"
+
 // isAuditMissing reports whether err is the records commit check refusing a
 // COMMIT (ADR-004 decision 2).
 func isAuditMissing(err error) bool {
@@ -116,6 +124,7 @@ func TestCIA1EntriesFollowTheTransaction(t *testing.T) {
 // entry fails at COMMIT, naming the trigger; the pipeline's write of the same
 // record commits.
 func TestCIA2RawRecordWriteFailsAtCommit(t *testing.T) {
+	t.Skip(heldAttach)
 	e := migrated(t)
 	f := seedTenant(t, e)
 	ctx := context.Background()
@@ -130,7 +139,7 @@ func TestCIA2RawRecordWriteFailsAtCommit(t *testing.T) {
 		for name, stmt := range map[string]func(tx pgx.Tx) error{
 			"insert": func(tx pgx.Tx) error {
 				_, err := tx.Exec(ctx, `INSERT INTO records (tenant_id, id, entity_definition_id, number, state, data)
-					VALUES ($1, $2, $3, 'RAW-'||$2::text, 'open', '{}')`, f.id, uuid.New(), defID)
+					VALUES ($1, $2::uuid, $3, 'RAW-' || $2::text, 'open', '{}')`, f.id, uuid.New(), defID)
 				return err
 			},
 			"update": func(tx pgx.Tx) error {
@@ -350,7 +359,9 @@ func TestCIA17CycleEntries(t *testing.T) {
 		t.Errorf("(a) %d update entries, want 1", n)
 	}
 
-	// (c) A raw update of R and only a cycle entry: refused at COMMIT.
+	// (c) A raw update of R and only a cycle entry: refused at COMMIT. It
+	// needs the records trigger, held by D-5-14.
+	t.Skip(heldAttach)
 	err := tenancy.InTenantTx(ctx, e.app, f.id, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `UPDATE records SET version = version + 1 WHERE id = $1`, r.RecordID); err != nil {
 			return err

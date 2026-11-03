@@ -87,7 +87,7 @@ func TestP312CascadeStartKey(t *testing.T) {
 	// Tenant A cannot claim on tenant B's record: the composite foreign key
 	// holds the tenant, though the policy passes the row.
 	other := "0b000000-0000-4000-8000-0000000000b7"
-	exec(t, super, withRecordEntry("INSERT INTO records (tenant_id, id) VALUES ($1, $2)"), tenantB, other)
+	exec(t, super, "INSERT INTO records (tenant_id, id) VALUES ($1, $2)", tenantB, other)
 	_, err := claimRows(asRole(t, "nava_app"), tenantA, tenantA, originX, other, defX, outboxX)
 	wantSQLState(t, "tenant A claims on tenant B's record", err, "23503")
 

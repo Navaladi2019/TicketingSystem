@@ -106,13 +106,17 @@ func AuditSuppressed(ctx context.Context, tx pgx.Tx, c cascade.Claim, ev Event) 
 	if err != nil {
 		return err
 	}
-	defID, va := c.EntityDefinitionID(), c.Version()
+	va := c.Version()
+	var defID *uuid.UUID
+	if id := c.EntityDefinitionID(); id != uuid.Nil {
+		defID = &id
+	}
 	_, err = audit.Append(ctx, tx, audit.Entry{
 		Domain:             audit.DomainRecord,
 		Action:             audit.ActionCascadeCycle,
 		SubjectType:        audit.SubjectCascadeKey,
 		SubjectID:          audit.CascadeKey(c.TenantID(), origin, c.RecordID(), c.DefinitionID()),
-		EntityDefinitionID: &defID,
+		EntityDefinitionID: defID,
 		VersionAfter:       &va,
 		Actor:              actor(ev.ActorID, ev.Source),
 		Source:             audit.Source(ev.Source),

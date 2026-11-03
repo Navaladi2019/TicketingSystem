@@ -32,8 +32,8 @@ var (
 	// ErrRecordNotFound means the transaction's tenant has no such record,
 	// or the transaction has no tenant.
 	ErrRecordNotFound = errors.New("cascade: record not found")
-	// ErrNoOrigin means the record carries no causation or no entity type:
-	// a row the write pipeline never wrote. Its writes cannot be keyed (A5-3).
+	// ErrNoOrigin means the record carries no causation: a row the write
+	// pipeline never wrote. Its writes cannot be keyed (A5-3).
 	ErrNoOrigin = errors.New("cascade: record has no causation origin")
 	// ErrInvalidKey means the key names no record or no definition.
 	ErrInvalidKey = errors.New("cascade: invalid key")
@@ -85,7 +85,7 @@ func (c Claim) Causation() (origin uuid.UUID, depth int16) { return c.originID, 
 // cascade_cycle entry's version_after).
 func (c Claim) Version() int64 { return c.version }
 
-// EntityDefinitionID is R's entity type.
+// EntityDefinitionID is R's entity type; uuid.Nil for a bare row with none.
 func (c Claim) EntityDefinitionID() uuid.UUID { return c.entityDefinitionID }
 
 const (
@@ -126,10 +126,13 @@ func ClaimStart(ctx context.Context, tx pgx.Tx, k Key) (c Claim, claimed bool, e
 	case err != nil:
 		return Claim{}, false, fmt.Errorf("cascade: lock record: %w", err)
 	}
-	if origin == nil || *origin == uuid.Nil || depth == nil || defID == nil {
+	if origin == nil || *origin == uuid.Nil || depth == nil {
 		return Claim{}, false, ErrNoOrigin
 	}
-	c.originID, c.depth, c.entityDefinitionID = *origin, *depth, *defID
+	c.originID, c.depth = *origin, *depth
+	if defID != nil {
+		c.entityDefinitionID = *defID
+	}
 
 	id, err := uuid.NewV7()
 	if err != nil {
