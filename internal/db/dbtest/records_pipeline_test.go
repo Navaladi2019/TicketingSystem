@@ -325,7 +325,7 @@ func TestP309IdempotencyKeyPerTenant(t *testing.T) {
 	err = inTenantTx(worker, tenantA, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(context.Background(), `INSERT INTO audit_log (tenant_id, id, record_id, action, source, idempotency_key)
 			VALUES ($1, gen_random_uuid(), $2, 'update', 'workflow', $3)
-			ON CONFLICT (tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING`, tenantA, recA, key)
+			ON CONFLICT (tenant_id, idempotency_key, actor_id) WHERE idempotency_key IS NOT NULL DO NOTHING`, tenantA, recA, key)
 		n = int(tag.RowsAffected())
 		return err
 	})

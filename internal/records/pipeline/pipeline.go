@@ -122,9 +122,10 @@ type Command struct {
 	// IdempotencyKey is for system writers only (D-3-13): a replay by the
 	// same Actor.PrincipalID (none for a system writer) with the same key,
 	// entity type, op and (on an update) record returns the earlier Result
-	// and writes nothing. Another principal's write with the key is never
-	// replayed (TICK-480). The same key on a different write is
-	// *ErrIdempotencyConflict.
+	// and writes nothing. Each principal has its own key space: another
+	// principal's write with the key is never replayed (TICK-480) and never
+	// conflicts (TICK-498). The same key on a different write by the same
+	// principal is *ErrIdempotencyConflict.
 	IdempotencyKey string
 }
 
@@ -511,8 +512,8 @@ func AuditSuppressed(ctx context.Context, tx pgx.Tx, c cascade.Claim, ev Event, 
 
 // replay returns the earlier Result of a write by cmd's actor with cmd's
 // idempotency key. The key is scoped by principal: another actor's write with
-// the same key is not found here, and writing fails on the tenant-wide
-// unique index as a concurrent *ErrIdempotencyConflict (TICK-480). The stored
+// the same key is not found here (TICK-480), and the unique index is per
+// actor (TICK-498), so this write goes ahead as the caller's own. The stored
 // write must be the same entity type and op, and on an update the same
 // record; otherwise the key names another write, *ErrIdempotencyConflict.
 func replay(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, cmd Command) (Result, bool, error) {
