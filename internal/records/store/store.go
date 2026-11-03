@@ -237,9 +237,12 @@ type KeyedWrite struct {
 	After  *Snapshot
 }
 
-// AuditByKey returns the write that holds the idempotency key, or
-// ErrNotFound.
-func AuditByKey(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, key string) (*KeyedWrite, error) {
+// AuditByKey returns the write by actor that holds the idempotency key, or
+// ErrNotFound. actor is the write's audit actor_id: nil for a system writer
+// with no principal. A key held by another actor of the tenant is
+// ErrNotFound, so one caller can never replay another's write (TICK-480);
+// writing it then fails on the tenant-wide unique index, ErrDuplicateKey.
+func AuditByKey(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, actor *uuid.UUID, key string) (*KeyedWrite, error) {
 	var (
 		record    *uuid.UUID
 		entityKey *string
@@ -251,7 +254,8 @@ SELECT a.record_id, d.key, a.action, a.after
 FROM audit_log a
 LEFT JOIN records r ON r.tenant_id = a.tenant_id AND r.id = a.record_id
 LEFT JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
-WHERE a.tenant_id = $1 AND a.idempotency_key = $2 AND a.idempotency_key IS NOT NULL`, tenantID, key).
+WHERE a.tenant_id = $1 AND a.idempotency_key = $2 AND a.idempotency_key IS NOT NULL
+  AND a.actor_id IS NOT DISTINCT FROM $3`, tenantID, key, actor).
 		Scan(&record, &entityKey, &action, &after)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound

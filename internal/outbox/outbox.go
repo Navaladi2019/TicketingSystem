@@ -26,6 +26,7 @@ import (
 
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/cascade"
+	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
 var (
@@ -117,8 +118,10 @@ const (
 	dedupeLookupSQL = `SELECT id FROM outbox WHERE dedupe_key = $1`
 	// The record lock. The write pipeline has already bumped the version in
 	// this transaction (D-3-6), and its UPDATE holds the row lock that orders
-	// a target's rows (A.2), so this only locks and reads.
-	lockRecordSQL = `SELECT tenant_id, version FROM records WHERE id = $1 FOR UPDATE`
+	// a target's rows (A.2), so this only locks and reads. It names the
+	// transaction's tenant, so the scoping does not rest on RLS alone
+	// (TICK-480).
+	lockRecordSQL = `SELECT tenant_id, version FROM records WHERE id = $1 AND tenant_id = $2 FOR UPDATE`
 	openRefSQL    = `SELECT outbox_id FROM workflow_ref
 WHERE tenant_id = $1 AND record_id = $2 AND kind = $3 AND closed_at IS NULL
 ORDER BY created_at DESC, outbox_id DESC LIMIT 1`
@@ -226,14 +229,23 @@ func notInterpreterStart(e Entry) error {
 	return nil
 }
 
-// lockRecord runs the record lock and returns the record's tenant and the
-// version that becomes target_seq.
+// lockRecord runs the record lock in the transaction's tenant and returns the
+// record's tenant and the version that becomes target_seq. A record of
+// another tenant is ErrRecordNotFound, with RLS or without it, and so is any
+// record in a transaction with no tenant.
 func lockRecord(ctx context.Context, tx pgx.Tx, sql string, record uuid.UUID) (uuid.UUID, int64, error) {
+	txTenant, err := tenancy.TenantOf(ctx, tx)
+	if errors.Is(err, tenancy.ErrNoTenant) {
+		return uuid.Nil, 0, ErrRecordNotFound
+	}
+	if err != nil {
+		return uuid.Nil, 0, fmt.Errorf("outbox: lock record: %w", err)
+	}
 	var (
 		tenant uuid.UUID
 		seq    int64
 	)
-	switch err := tx.QueryRow(ctx, sql, record).Scan(&tenant, &seq); {
+	switch err := tx.QueryRow(ctx, sql, record, txTenant).Scan(&tenant, &seq); {
 	case errors.Is(err, pgx.ErrNoRows):
 		return uuid.Nil, 0, ErrRecordNotFound
 	case err != nil:

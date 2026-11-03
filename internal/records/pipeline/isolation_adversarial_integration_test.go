@@ -74,7 +74,7 @@ func TestAdversarialIdempotencyKeyDoesNotCrossTenants(t *testing.T) {
 	// The store lookup itself, inside B's transaction, never returns A's row,
 	// even with A's tenant id passed explicitly: RLS hides it.
 	inTx(t, e, b.id, func(tx pgx.Tx) error {
-		if _, err := store.AuditByKey(ctx, tx, a.id, key); !errors.Is(err, store.ErrNotFound) {
+		if _, err := store.AuditByKey(ctx, tx, a.id, nil, key); !errors.Is(err, store.ErrNotFound) {
 			t.Errorf("AuditByKey(tenant A) in tenant B's transaction: %v, want ErrNotFound", err)
 		}
 		return nil
