@@ -111,13 +111,16 @@ var ErrInvalidInput = errors.New("secrets: invalid input")
 //
 // Tab, LF and CR may sit anywhere in either form, because the WHATWG URL
 // parser strips them anywhere in a URL: "ht\ttps:/\t/u:p@h" is
-// "https://u:p@h" (TICK-495). Space and form feed may sit in the userinfo,
-// which WHATWG keeps percent-encoded: "https://u:p x@h" carries userinfo too.
+// "https://u:p@h" and "s\t3://u:p@h" is "s3://u:p@h" (TICK-495). Inside a
+// generic scheme name they matter when the run after one starts with a digit,
+// "+", "." or "-", which cannot start a scheme on its own. Space and form feed
+// may sit in the userinfo, which WHATWG keeps percent-encoded:
+// "https://u:p x@h" carries userinfo too.
 // The pattern runs on the text as given rather than on the text with tab, LF
 // and CR removed, so a tab, LF or CR before a special scheme still ends the
 // word before it: "note\nhttps:u:p@h" is caught, though removing the LF would
 // make the scheme "notehttps:".
-var userinfoURL = regexp.MustCompile(`(?i)[a-z][a-z0-9+.\-]*` + urlWS + `:` + urlWS + `/` + urlWS + `/[^/?#@]*@` +
+var userinfoURL = regexp.MustCompile(`(?i)[a-z](?:` + urlWS + `[a-z0-9+.\-])*` + urlWS + `:` + urlWS + `/` + urlWS + `/[^/?#@]*@` +
 	`|(?:^|[^a-z0-9+.\-])(?:` + spaced("https") + `|` + spaced("http") + `|` + spaced("wss") + `|` + spaced("ws") +
 	`|` + spaced("ftp") + `|` + spaced("file") + `)` + urlWS +
 	`:(?:[/\\\t\r\n]|` + spaced("%2f") + `|` + spaced("%5c") + `)*[^/?#@]*@`)

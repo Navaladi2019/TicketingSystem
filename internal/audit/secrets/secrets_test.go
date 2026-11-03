@@ -486,12 +486,18 @@ func TestCheckRejectsWhitespaceUserinfoNoLeak(t *testing.T) {
 		"LF before lax":      {`[{"op":"add","path":"/a","value":"note\nhttps:u:` + pw + `@h"}]`, "/a"},
 		"tab before lax":     {`[{"op":"add","path":"/a","value":"x\thttps:/u:` + pw + `\tx@h"}]`, "/a"},
 		"LF before, in name": {`[{"op":"add","path":"/a","value":"x\nht\ttps:u:` + pw + `@h"}]`, "/a"},
-		"other scheme tab":   {`[{"op":"add","path":"/a","value":"postgres:\t//u:` + pw + `@h"}]`, "/a"},
-		"tab in key":         {`[{"op":"add","path":"/a","value":{"https:\t//u:` + pw + `@h":1}}]`, "/a"},
-		"tab in op path":     {`[{"op":"add","path":"/https:\t~1~1u:` + pw + `@h","value":1}]`, ""},
-		"tab in from":        {`[{"op":"copy","from":"/x/https:\t~1~1u:` + pw + `@h","path":"/z"}]`, "/x"},
-		"tab across tokens":  {`[{"op":"add","path":"/https://u:` + pw + `\t@h","value":1}]`, "/https:/"},
-		"LF across keys":     {`[{"op":"add","path":"/a","value":{"https:":{"":{"u:` + pw + `\n@h":1}}}}]`, "/a/https:/"},
+		// Whitespace inside a generic scheme before a digit, "+", "." or "-".
+		"tab in generic scheme":     {`[{"op":"add","path":"/a","value":"a\t1://u:` + pw + `@h"}]`, "/a"},
+		"tab in s3 scheme":          {`[{"op":"add","path":"/a","value":"s\t3://key:` + pw + `@bucket"}]`, "/a"},
+		"mixed in generic scheme":   {`[{"op":"add","path":"/a","value":"a\t+\nb\r.\t-://u:` + pw + `@h"}]`, "/a"},
+		"generic scheme in key":     {`[{"op":"add","path":"/a","value":{"a\t1://u:` + pw + `@h":1}}]`, "/a"},
+		"generic scheme in op path": {`[{"op":"add","path":"/a\t1:~1~1u:` + pw + `@h","value":1}]`, ""},
+		"other scheme tab":          {`[{"op":"add","path":"/a","value":"postgres:\t//u:` + pw + `@h"}]`, "/a"},
+		"tab in key":                {`[{"op":"add","path":"/a","value":{"https:\t//u:` + pw + `@h":1}}]`, "/a"},
+		"tab in op path":            {`[{"op":"add","path":"/https:\t~1~1u:` + pw + `@h","value":1}]`, ""},
+		"tab in from":               {`[{"op":"copy","from":"/x/https:\t~1~1u:` + pw + `@h","path":"/z"}]`, "/x"},
+		"tab across tokens":         {`[{"op":"add","path":"/https://u:` + pw + `\t@h","value":1}]`, "/https:/"},
+		"LF across keys":            {`[{"op":"add","path":"/a","value":{"https:":{"":{"u:` + pw + `\n@h":1}}}}]`, "/a/https:/"},
 	}
 	for name, c := range cases {
 		for _, d := range []Domain{DomainRecord, DomainConfig, DomainAudit} {
@@ -587,6 +593,65 @@ func FuzzCheckWhitespaceUserinfo(f *testing.F) {
 			err := Check([]byte(diff), nil, d)
 			// Past patchwalk.MaxDepth the walk fails closed with ErrMalformed;
 			// that rejects the diff too.
+			var se *ErrSecretInDiff
+			if !errors.As(err, &se) && !errors.Is(err, patchwalk.ErrMalformed) {
+				t.Fatalf("%s: userinfo let through: %q: %v", d, diff, err)
+			}
+			if strings.Contains(err.Error(), canary) || strings.Contains(err.Error(), "pass") {
+				t.Fatalf("%s: password in error: %v", d, err)
+			}
+		}
+	})
+}
+
+// FuzzCheckWhitespaceGenericScheme (TICK-495): a URL with userinfo under any
+// generic scheme is rejected in every domain however many tabs, LFs and CRs
+// sit inside its scheme name, as a string value (form&8) or spelled across
+// pointer tokens and nested keys (the forms of FuzzCheckJoinedUserinfo), and
+// its password is never echoed. Each byte of ws inserts one of tab, LF or CR
+// at index at of the scheme name. The seeds put whitespace before a digit, "+",
+// "." or "-", where the rest of the name cannot start a scheme on its own.
+func FuzzCheckWhitespaceGenericScheme(f *testing.F) {
+	f.Add("a1", "\x00", 1, 8)         // a\t1://, value
+	f.Add("s3", "\x00", 1, 8)         // s\t3://, value
+	f.Add("s3", "\x01\x02", 1, 0)     // s\n\r3://, op path
+	f.Add("a+b.-", "\x00", 1, 1)      // a\t+b.-://, from
+	f.Add("x.y", "\x02", 1, 2)        // x\r.y://, nested keys
+	f.Add("git-1", "\x01", 3, 3)      // git\n-1://, path and key
+	f.Add("postgres", "\x00", 4, 8)   // post\tgres://, value
+	f.Add("a1", "\x00\x00\x00", 1, 6) // a\t\t\t1://, slashes folded into a key
+	f.Fuzz(func(t *testing.T, scheme, ws string, at, form int) {
+		// Of the scheme bytes, the digits, "+", "." and "-" all sort at or
+		// below '9' and the letters above it.
+		if scheme == "" || !isSchemeByte(scheme[0]) || scheme[0] <= '9' {
+			t.Skip("a scheme starts with a letter")
+		}
+		for i := 1; i < len(scheme); i++ {
+			if !isSchemeByte(scheme[i]) {
+				t.Skip("not a scheme name")
+			}
+		}
+		var w strings.Builder
+		for i := 0; i < len(ws); i++ {
+			w.WriteString([...]string{"\t", "\n", "\r"}[ws[i]%3])
+		}
+		i := at % (len(scheme) + 1)
+		if i < 0 {
+			i += len(scheme) + 1
+		}
+		url := scheme[:i] + w.String() + scheme[i:] + "://u:pass-" + canary + "@h"
+		var diff string
+		if form&8 != 0 {
+			diff = `[{"op":"add","path":"/a","value":` + jsonQuote(url) + `}]`
+		} else {
+			segs := strings.Split(url, "/")
+			if form&4 != 0 {
+				segs = foldEmpty(segs)
+			}
+			diff = splitDiff(segs, form)
+		}
+		for _, d := range []Domain{DomainRecord, DomainConfig, DomainAudit} {
+			err := Check([]byte(diff), nil, d)
 			var se *ErrSecretInDiff
 			if !errors.As(err, &se) && !errors.Is(err, patchwalk.ErrMalformed) {
 				t.Fatalf("%s: userinfo let through: %q: %v", d, diff, err)
