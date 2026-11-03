@@ -40,7 +40,9 @@ const (
 
 // auditWriters are the CI-A10 roles; nava_erasure is added where R23 makes
 // it a writer.
-func auditWriters() []string { return []string{"nava_app", "nava_worker", "nava_onboard", "nava_groupsync"} }
+func auditWriters() []string {
+	return []string{"nava_app", "nava_worker", "nava_onboard", "nava_groupsync"}
+}
 
 // platformLogins are the manifest roles that may connect to the platform
 // database and use schema public, the owner excluded. (pgbouncer_auth
