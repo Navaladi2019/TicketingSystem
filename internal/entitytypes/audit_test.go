@@ -2,6 +2,7 @@ package entitytypes_test
 
 import (
 	"encoding/json"
+	"errors"
 	"slices"
 	"testing"
 
@@ -20,6 +21,8 @@ func TestSecretPaths(t *testing.T) {
 		{"writeOnly", `{"properties":{"tok":{"writeOnly":true}}}`, []string{"/properties/tok"}},
 		{"false marker", `{"properties":{"tok":{"x-nava-secret":false}}}`, nil},
 		{"escaped name", `{"properties":{"a/b":{"x-nava-secret":true}}}`, []string{"/properties/a~1b"}},
+		{"non-object property is skipped", `{"properties":{"x":true,"tok":{"x-nava-secret":true}}}`, []string{"/properties/tok"}},
+		{"properties of another shape", `{"properties":"no"}`, nil},
 		{"nested marker is not derived (Compile refuses it)", `{"properties":{"l":{"items":{"x-nava-secret":true}}}}`, nil},
 	}
 	for _, c := range cases {
@@ -42,5 +45,23 @@ func TestSecretPaths(t *testing.T) {
 	}
 	if _, err := entitytypes.SecretPaths(json.RawMessage(`{`)); err == nil {
 		t.Error("malformed schema: want an error")
+	}
+}
+
+func TestCheckSchemaSecretsLeavesBadDocumentsToCompile(t *testing.T) {
+	for name, schema := range map[string]string{
+		"not JSON":      `{`,
+		"not an object": `[1]`,
+		"invalid UTF-8": "{\"properties\":{\"tok\":{\"x-nava-secret\":true,\"title\":\"ÿ\"}}}",
+		"bool property": `{"properties":{"x":true}}`,
+	} {
+		if err := entitytypes.CheckSchemaSecrets(json.RawMessage(schema)); err != nil {
+			t.Errorf("%s: err = %v, want nil (Compile reports it)", name, err)
+		}
+	}
+	var sec *entitytypes.SecretInContentError
+	err := entitytypes.CheckSchemaSecrets(json.RawMessage(`{"properties":{"x":true,"tok":{"x-nava-secret":true,"default":"v"}}}`))
+	if !errors.As(err, &sec) || sec.Path != "/properties/tok/default" {
+		t.Errorf("err = %v, want a secret at /properties/tok/default", err)
 	}
 }

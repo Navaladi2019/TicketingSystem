@@ -330,19 +330,25 @@ type walker struct {
 	// marked holds the names of top-level properties marked x-nava-secret or
 	// writeOnly (ADR-004 R6). The marker is allowed nowhere else.
 	marked map[string]bool
-	refs   []refSite
+	// valueSites are the paths of every const, enum and examples keyword.
+	valueSites [][]string
+	refs       []refSite
 }
 
 // secretKeywords mark a value that must never be stored in a definition or
 // its audit entry. They are valid only directly on a top-level property.
 func isSecretKeyword(kw string) bool { return kw == "x-nava-secret" || kw == "writeOnly" }
 
-// secretDataKeywords are the keywords through which a schema can hold a value.
-func secretDataKeywords() []string { return []string{"default", "const", "enum", "examples"} }
+// markedKeywords is the closed set a marked property may carry: it describes
+// the value's shape and holds no value, applicator or reference (ADR-004 R6).
+func markedKeywords() []string {
+	return []string{"type", "format", "minLength", "maxLength", "pattern", "title", "description", "x-nava-secret", "writeOnly"}
+}
 
-// checkMarked refuses a value-holding keyword on a marked property, and
-// const, enum and examples on the root when any property is marked: they
-// could set the secret member through the root instance.
+// checkMarked enforces the marker rules once the walk has found every marked
+// property: a marked property carries only markedKeywords, and with any member
+// marked, const, enum and examples appear only inside a non-marked top-level
+// property, so no applicator at the root or in $defs can set the secret.
 func (w *walker) checkMarked(doc map[string]any) {
 	if len(w.marked) == 0 {
 		return
@@ -350,16 +356,17 @@ func (w *walker) checkMarked(doc map[string]any) {
 	props, _ := doc["properties"].(map[string]any)
 	for name := range w.marked {
 		p, _ := props[name].(map[string]any)
-		for _, kw := range secretDataKeywords() {
-			if _, ok := p[kw]; ok {
+		for kw := range p {
+			if !slices.Contains(markedKeywords(), kw) {
 				w.bad.add("schema", "properties", name, kw)
 			}
 		}
 	}
-	for _, kw := range secretDataKeywords() {
-		if _, ok := doc[kw]; ok {
-			w.bad.add("schema", kw)
+	for _, site := range w.valueSites {
+		if len(site) > 3 && site[1] == "properties" && !w.marked[site[2]] {
+			continue
 		}
+		w.bad.add(site...)
 	}
 }
 
@@ -399,6 +406,8 @@ func (w *walker) walk(node any, path []string) {
 			} else if b {
 				w.marked[path[2]] = true
 			}
+		case kw == "const" || kw == "enum" || kw == "examples":
+			w.valueSites = append(w.valueSites, at(kw))
 		case kw == "default":
 			if !isTopLevelProperty(path) {
 				w.bad.add(at(kw)...)

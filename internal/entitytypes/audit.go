@@ -42,13 +42,23 @@ func (e *SecretInContentError) Error() string {
 // wildcard is needed. A nested or array secret needs an ADR amendment first.
 func SecretPaths(schema json.RawMessage) ([]patchwalk.Pointer, error) {
 	var doc struct {
-		Properties map[string]map[string]any `json:"properties"`
+		Properties json.RawMessage `json:"properties"`
 	}
 	if err := json.Unmarshal(schema, &doc); err != nil {
 		return nil, fmt.Errorf("entitytypes: secret paths: %w", err)
 	}
+	// A properties value, or a property, of another shape is not ours to
+	// judge: metadata.Compile refuses it.
+	var props map[string]json.RawMessage
+	if json.Unmarshal(doc.Properties, &props) != nil {
+		return nil, nil
+	}
 	var out []patchwalk.Pointer
-	for name, p := range doc.Properties {
+	for name, raw := range props {
+		var p map[string]any
+		if json.Unmarshal(raw, &p) != nil {
+			continue
+		}
 		secret, _ := p["x-nava-secret"].(bool)
 		wo, _ := p["writeOnly"].(bool)
 		if !secret && !wo {
@@ -77,6 +87,9 @@ func CheckSchemaSecrets(schema json.RawMessage) error {
 		return nil
 	}
 	whole, err := jsondiff.Diff(nil, schema)
+	if errors.Is(err, jsondiff.ErrInvalidDocument) {
+		return nil // metadata.Compile reports it
+	}
 	if err != nil {
 		return fmt.Errorf("entitytypes: diff schema: %w", err)
 	}

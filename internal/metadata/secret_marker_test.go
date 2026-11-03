@@ -52,6 +52,38 @@ func TestCompileSecretMarkerPlacement(t *testing.T) {
 			props(s)["pw"] = marked("x-nava-secret")
 			s["const"] = map[string]any{"pw": "v"}
 		}, "/schema/const"},
+		{"const in allOf of a marked property", func(s map[string]any) {
+			m := marked("x-nava-secret")
+			m["allOf"] = []any{map[string]any{"const": "hunter2"}}
+			props(s)["pw"] = m
+		}, "/schema/properties/pw/allOf/0/const"},
+		{"applicator on a marked property", func(s map[string]any) {
+			m := marked("x-nava-secret")
+			m["not"] = map[string]any{"const": "hunter2"}
+			props(s)["pw"] = m
+		}, "/schema/properties/pw/not"},
+		{"enum in anyOf of a marked property", func(s map[string]any) {
+			m := marked("x-nava-secret")
+			m["anyOf"] = []any{map[string]any{"enum": []any{"hunter2"}}}
+			props(s)["pw"] = m
+		}, "/schema/properties/pw/anyOf/0/enum"},
+		{"root allOf sets the marked member", func(s map[string]any) {
+			props(s)["pw"] = marked("x-nava-secret")
+			s["allOf"] = []any{map[string]any{"properties": map[string]any{"pw": map[string]any{"const": "hunter2"}}}}
+		}, "/schema/allOf/0/properties/pw/const"},
+		{"root if matches the marked member", func(s map[string]any) {
+			props(s)["pw"] = marked("x-nava-secret")
+			s["if"] = map[string]any{"properties": map[string]any{"pw": map[string]any{"const": "hunter2"}}}
+			s["then"] = map[string]any{}
+		}, "/schema/if/properties/pw/const"},
+		{"root allOf const sets the member", func(s map[string]any) {
+			props(s)["pw"] = marked("x-nava-secret")
+			s["allOf"] = []any{map[string]any{"const": map[string]any{"pw": "hunter2"}}}
+		}, "/schema/allOf/0/const"},
+		{"enum inside a non-marked property is fine", func(s map[string]any) {
+			props(s)["pw"] = marked("x-nava-secret")
+			props(s)["kind"] = map[string]any{"type": "string", "enum": []any{"a", "b"}}
+		}, ""},
 		{"$ref to a marked property", func(s map[string]any) {
 			props(s)["pw"] = marked("x-nava-secret")
 			props(s)["copy"] = map[string]any{"$ref": "#/properties/pw"}
