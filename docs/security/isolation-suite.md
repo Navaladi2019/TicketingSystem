@@ -31,7 +31,7 @@ A throwaway PostgreSQL gets db-roles and every migration, the same as a first `d
 
    CI-9 has its own fixtures (`TestCI9FixturesMakePathsFail`). Each widens one role's grant or policy and must turn its path from PASS to FAIL: a `records` column granted to the relay; a data column granted to purge; a purge SELECT policy that stops testing expiry; a purge DELETE policy that matches nothing; `tenants_activate` without its state test, or with any target state; `binding_onboard` open to any tenant; CONNECT granted to `nava_backup`. `internal/db/hba`'s unit test edits `pg_hba.conf` five ways, and each edit must fail the `nava_backup` cases.
 
-The report goes to `isolation-report.md`, which CI keeps as the `isolation-report` artifact. It has one line per role × table, grouped by ADR test id, with each id's coverage note, so CI-8 and CI-10 show as partial. CI-9 lists its fixtures under its paths.
+The report goes to `isolation-report.md`, which CI keeps as the `isolation-report` artifact. It has one line per role × table, grouped by ADR test id, with each id's coverage note, so CI-8 and CI-10 show as partial. CI-9 lists its fixtures under its paths. CI-10 also has one named PASS/FAIL row per cycle and depth-audit case (`TestCI10_*` in `internal/records/pipeline` and `internal/outbox`): `make test-integration` keeps its `go test -json` stream in `it-events.json`, and `TestCI10NamedCases` turns it into rows; a case that failed, was skipped or did not run, or a `TestCI10_*` test with no row in `ci10Cases`, fails the suite. Run alone, `make isolation` lists those rows as NOT RUN (TICK-483).
 
 ```mermaid
 sequenceDiagram

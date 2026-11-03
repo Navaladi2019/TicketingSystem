@@ -54,6 +54,12 @@ while [ "$i" -le "$shards" ]; do shard_pgs="$shard_pgs nava-it-pg-$id-s$i"; i=$(
 # tests take under a minute and start about two minutes into the job. A later
 # -timeout in the script's arguments wins.
 timeout=6m
+# IT_EVENTS (make test-integration sets it): where the full run keeps its
+# go test -json stream, which make isolation reads to report the CI-10 cases
+# as named rows (TICK-483). Removed first, so a run that stops early leaves
+# no stale stream behind.
+events=${IT_EVENTS:-}
+[ -z "$events" ] || rm -f "$events"
 logs=$(mktemp -d)
 pipes=$(mktemp -d)
 # This script owns the clusters, the network and the logs: remove them on any
@@ -218,6 +224,7 @@ echo "integration: tests done after $(( $(date +%s) - t0 ))s"
 # TICK-230): the groups are checked together, since a dbtest shard runs only
 # some of the package's tests.
 fgrun go run ./tools/ci/suiteran -tags integration -in "$logs"/* || status=1
+[ -z "$events" ] || cat "$logs"/* >"$events"
 # Every dbtest test ran, exactly once over the shards.
 ran=$(grep -h '"Action":"run"' "$logs"/dbtest-* | grep -vc '"Test":"[^"]*/' || true)
 echo "dbtest: $ran of $total top-level tests ran"
