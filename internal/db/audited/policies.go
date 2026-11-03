@@ -24,17 +24,13 @@ const (
 	OnboardPrefix   = "audit_log_onboard_"
 )
 
-const (
-	canonicalPred = "tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid"
-	onboardPred   = canonicalPred + " AND tenant_id IN (SELECT id FROM tenants WHERE state = 'provisioning')"
-)
-
 // Policy is one generated policy: its name and the form pg_policies shows
 // for it (command, sorted roles, deparsed USING and WITH CHECK).
 type Policy struct {
 	Name string
 	catalog.Policy
-	pred string // the predicate as written in CREATE POLICY
+	pred string // the predicate as written in CREATE POLICY: the deparsed form,
+	// so the setting is read only through internal/db/catalog (navalint setconfig)
 }
 
 // Policies returns the generated audit_log policies, sorted by name. A pair
@@ -54,14 +50,15 @@ func (a *Manifest) Policies() []Policy {
 		roles := strings.Join(canonical, ",")
 		want := catalog.TenantPred("tenant_id")
 		out = append(out,
-			Policy{GeneratedPrefix + "insert", catalog.Policy{Cmd: "INSERT", Roles: roles, Check: want}, canonicalPred},
-			Policy{GeneratedPrefix + "select", catalog.Policy{Cmd: "SELECT", Roles: roles, Qual: want}, canonicalPred})
+			Policy{GeneratedPrefix + "insert", catalog.Policy{Cmd: "INSERT", Roles: roles, Check: want}, want},
+			Policy{GeneratedPrefix + "select", catalog.Policy{Cmd: "SELECT", Roles: roles, Qual: want}, want})
 	}
 	if onboard {
 		pinned := catalog.PinnedTenantPolicies()
 		for _, cmd := range []string{"insert", "select"} {
 			name := OnboardPrefix + cmd
-			out = append(out, Policy{name, pinned["public."+LogTable+"."+name], onboardPred})
+			p := pinned["public."+LogTable+"."+name]
+			out = append(out, Policy{name, p, p.Qual + p.Check})
 		}
 	}
 	slices.SortFunc(out, func(x, y Policy) int { return strings.Compare(x.Name, y.Name) })
