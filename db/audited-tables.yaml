@@ -1,0 +1,94 @@
+# The audited-tables manifest (ADR-004 decision 2, R12; PLAN-005 P5-11).
+# Read through internal/platform/strictyaml by internal/db/audited: unknown
+# keys, duplicate keys and a second document are errors.
+#
+# Every tenant table is listed exactly once, under `audited` or under
+# `exempt` with a reason. CI-A3 (the catalogue test, and the gate at the end
+# of every `nava-db migrate`) fails on a tenant table that is in neither.
+# Partitions are covered by their partitioned parent.
+#
+# audited: <table>:
+#   writer_roles:      every role that may INSERT, UPDATE or DELETE the table.
+#                      `nava-db migrate` generates, for each, INSERT on the
+#                      R10 audit_log columns, SELECT on the commit-check
+#                      columns and the audit_log SELECT and INSERT policies
+#                      (canonical; pinned provisioning predicate for
+#                      nava_onboard). Must equal the roles the catalogue
+#                      shows writing the table.
+#   audited_columns:   the UPDATE OF list of the commit-check trigger. Must
+#                      cover every column any role may UPDATE. Empty for an
+#                      insert-only table (the trigger then has no UPDATE event).
+#   subject_type:      the entry's subject_type (internal/audit/subjects.go).
+#   subject_id_column: the uuid column whose value is the entry's subject_id.
+#   attached:          true once a migration has attached audit_commit_check
+#                      to the table. CI-A3 fails on a trigger on a table not
+#                      marked true, and on a table marked true without one.
+#
+# exempt: <table>: { reason: "..." }  A non-empty reason is required.
+#
+# Adding, removing or exempting a table is a security-review change (D-P10).
+
+audited:
+  # P5-13b (TICK-452) attaches the trigger, if S1 item 1 holds (PLAN-005).
+  # The columns are every column a writer may UPDATE (db/grants.yaml).
+  records:
+    writer_roles: [nava_app, nava_worker]
+    audited_columns: [version, schema_version, state, requester_id, assignee_id, assignment_group_id,
+                      updated_at, data, causation_origin_id, causation_depth]
+    subject_type: record
+    subject_id_column: id
+    attached: false
+  # P5-32 (migration B, D-5-8) attaches the trigger to both; P5-14 makes the
+  # S8 publish path write their entries.
+  entity_definitions:
+    writer_roles: [nava_app, nava_onboard]
+    audited_columns: [current_version, updated_at]
+    subject_type: entity_definition
+    subject_id_column: id
+    attached: false
+  entity_definition_versions:
+    writer_roles: [nava_app, nava_onboard]
+    audited_columns: []
+    subject_type: entity_definition
+    subject_id_column: definition_id
+    attached: false
+
+exempt:
+  audit_log:
+    reason: "The audit log itself (ADR-004 decision 1); R10 and R11 guard its writes."
+  audit_log_v0:
+    reason: "S9's audit table, read-only from P5-13b and dropped by P5-17 (PLAN-005 D-5-1)."
+  audit_chain_head:
+    reason: "Chain state (R14). A seal is visible in the sealed entries; reseed and export write their own audit entries (R17, R19)."
+  record_write_keys:
+    reason: "Dedupe index of a write that is already audited (PLAN-005 D-5-3)."
+  record_counters:
+    reason: "Record-number counter (D-3-9); the record insert that takes the number is audited."
+  outbox:
+    reason: "Start transport (ADR-001 D22); the write that queues a start is audited, the relay's dispatch columns are bookkeeping."
+  workflow_ref:
+    reason: "Workflow bookkeeping for a start the audited write queued; holds no record or configuration content."
+  cascade_start:
+    reason: "Cascade start key (A5). A suppressed or rejected cascade is audited as a cascade_key entry by the pipeline (ADR-004-E1)."
+  idempotency_keys:
+    reason: "HTTP replay cache; the write it replays is audited."
+  tenants:
+    reason: "Tenant lifecycle, written by onboarding. R2 has no tenant subject type; the epic that audits onboarding registers one (I8)."
+  tenant_identity_binding:
+    reason: "Onboarding's binding to the identity provider. R2 has no subject type for it (I8)."
+  tenant_email_domain:
+    reason: "Onboarding's email-domain claims. R2 has no subject type for them (I8)."
+  pending_invite:
+    reason: "Onboarding invites. R2 has no subject type for them (I8)."
+  tenant_admin_group:
+    reason: "Pointer to the tenant's admins group, set once by onboarding. R2 has no subject type for it (I8)."
+  tenant_auditor_group:
+    reason: "Pointer to the tenant's auditors group, set once by onboarding. R2 has no subject type for it (I8)."
+  principals:
+    reason: "Mirror of the identity provider written by group sync (T16); Keycloak holds the source and its event log. R2 has no subject type for it (I8)."
+  groups:
+    reason: "Mirror of the identity provider written by group sync (T16). R2 has no subject type for it (I8)."
+  group_members:
+    reason: "Mirror of the identity provider written by group sync (T16). R2 has no subject type for it (I8)."
+  org_units:
+    reason: "Mirror of the identity provider written by group sync (T16). R2 has no subject type for it (I8)."

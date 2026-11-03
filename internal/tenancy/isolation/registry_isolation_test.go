@@ -12,15 +12,15 @@ import (
 	"testing"
 
 	"github.com/Navaladi2019/TicketingSystem/db"
+	"github.com/Navaladi2019/TicketingSystem/internal/db/audited"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/catalog"
-	"github.com/Navaladi2019/TicketingSystem/internal/db/grants"
 )
 
 // TestRegistryIsWellFormed: every path has a unique name, a covered ADR test
 // id and exactly one call; SQL paths run as a manifest role that may connect
 // to the platform database; HTTP paths name an /api/v1 route.
 func TestRegistryIsWellFormed(t *testing.T) {
-	m, err := grants.Parse(db.Grants())
+	m, _, err := audited.Load(db.Grants(), db.AuditedTables())
 	if err != nil {
 		t.Fatal(err)
 	}

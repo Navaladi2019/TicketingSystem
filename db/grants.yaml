@@ -24,7 +24,10 @@
 #                    db-roles: a parameter set on the role but not listed is
 #                    reset. Only the parameters grants.AllowedSettings knows.
 # Each table's entries ship with the migration that creates that table.
-# Policies stay in SQL migrations.
+# Policies stay in SQL migrations. One exception (ADR-004 R12, P5-11): every
+# writer role of an audited table gets its audit_log grants and policies
+# generated from db/audited-tables.yaml; `nava-db migrate` merges those
+# grants into this file's before applying it.
 
 platform_database: nava
 
@@ -68,15 +71,10 @@ roles:
                  updated_at, data, causation_origin_id, causation_depth]
       # Append-only: no UPDATE or DELETE (P3-09).
       audit_log_v0: { SELECT: [], INSERT: [] }
-      # ADR-004 (P5-10b): INSERT on the R10 columns only (never occurred_at,
-      # txid, backfilled, the seal or the erasure columns) and SELECT on the
-      # commit-check columns (R12). P5-17 adds the reader's SELECT.
-      audit_log:
-        SELECT: [tenant_id, occurred_at, txid, subject_type, subject_id, version_after]
-        INSERT: [tenant_id, id, domain, action, subject_type, subject_id, entity_definition_id,
-                 version_before, version_after, actor_principal_id, actor_system, source, source_ref,
-                 change_set_id, causation_id, causation_depth, request_id, content_sha256, diff_sha256,
-                 diff_truncated, diff, diff_salt]
+      # audit_log: nothing here. As a writer of an audited table, its INSERT
+      # on the R10 columns and SELECT on the commit-check columns are
+      # generated from db/audited-tables.yaml (R12, P5-11). P5-17 adds the
+      # reader's SELECT.
       # R14: the export lease and chain:reseed's repoint. Never seq,
       # entry_hash or version.
       audit_chain_head:
@@ -125,18 +123,16 @@ roles:
         UPDATE: [version, schema_version, state, requester_id, assignee_id, assignment_group_id,
                  updated_at, data, causation_origin_id, causation_depth]
       audit_log_v0: { SELECT: [], INSERT: [] }
-      # ADR-004: a record writer (R10 INSERT) and the sealer. It reads every
-      # column but diff and diff_salt (the envelope holds diff_sha256) and
-      # updates only the seal columns, through the R11 seal transition.
+      # ADR-004: the sealer. It reads every column but diff and diff_salt
+      # (the envelope holds diff_sha256) and updates only the seal columns,
+      # through the R11 seal transition. As a record writer its R10 INSERT
+      # (and the commit-check SELECT, a subset of this one) is generated from
+      # db/audited-tables.yaml (R12, P5-11).
       audit_log:
         SELECT: [tenant_id, id, occurred_at, txid, domain, action, subject_type, subject_id, entity_definition_id,
                  version_before, version_after, actor_principal_id, actor_system, source, source_ref,
                  change_set_id, causation_id, causation_depth, request_id, backfilled, content_sha256,
                  diff_sha256, diff_truncated, seq, prev_hash, entry_hash, sealed_at, erased_at, erasure_ref]
-        INSERT: [tenant_id, id, domain, action, subject_type, subject_id, entity_definition_id,
-                 version_before, version_after, actor_principal_id, actor_system, source, source_ref,
-                 change_set_id, causation_id, causation_depth, request_id, content_sha256, diff_sha256,
-                 diff_truncated, diff, diff_salt]
         UPDATE: [seq, prev_hash, entry_hash, sealed_at]
       # R14: the sealer's columns. Never export_lease_until.
       audit_chain_head:
