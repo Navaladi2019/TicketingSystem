@@ -29,8 +29,11 @@ const (
 	budgetRefFn = "p509_commit_check_ref"
 	// budgetImportSubjects is the import row's transaction size.
 	budgetImportSubjects = 10000
-	// budgetTenant writes the single-subject transactions (in the young
-	// fixture's statistics, as in the TA's budget.pgbench).
+	// budgetTenant writes the single-subject transactions: fixture tenant
+	// 0190b000-…-04, which is in the young partition's statistics, as in the
+	// TA's S2 budget.pgbench (rfc-010/s2-round-1.md). The older P5-11
+	// scratch/audit-commit-check/budget.pgbench used 0190d000-…-04, a tenant
+	// outside the statistics; the budget rows follow S2.
 	budgetTenant = 4
 )
 

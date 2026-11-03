@@ -52,12 +52,32 @@ while :; do
 done
 NAVA_TEST_PG_URL="postgres://pgadmin:test-only@127.0.0.1:$(docker port "$name" 5432/tcp | head -n 1 | sed 's/.*://')/postgres"
 export NAVA_TEST_PG_URL
-echo "commit-check-budget ($image): cluster healthy after $(( $(date +%s) - t0 ))s; nproc $(nproc 2>/dev/null || echo ?)"
+# The CPU model, so a slow runner host can be told from a regression
+# (TICK-509 review finding 3).
+cpu=$(sed -n 's/^model name[[:space:]]*: //p' /proc/cpuinfo 2>/dev/null | head -n 1)
+echo "commit-check-budget ($image): cluster healthy after $(( $(date +%s) - t0 ))s; nproc $(nproc 2>/dev/null || echo ?); cpu ${cpu:-unknown}"
 
 # -timeout well below the job's timeout-minutes, so a hang dumps goroutines.
-go test -tags integration -count=1 -timeout 6m -v -run '^TestCommitCheckBudget$' "$@" ./internal/db/dbtest &
+# The output streams through tee into $out (a FIFO keeps go test's own exit
+# status in $gopid), so the row check below can read it.
+out=$(mktemp)
+fifo=$(mktemp -u)
+mkfifo "$fifo"
+trap 'docker rm -f "$name" >/dev/null 2>&1 || true; rm -f "$out" "$fifo"' EXIT
+tee "$out" <"$fifo" &
+teepid=$!
+go test -tags integration -count=1 -timeout 6m -v -run '^TestCommitCheckBudget$' "$@" ./internal/db/dbtest >"$fifo" 2>&1 &
 gopid=$!
 status=0
 wait "$gopid" || status=$?
+wait "$teepid" || true
 echo "commit-check-budget: done after $(( $(date +%s) - t0 ))s"
+# A green run must have measured both rows: a renamed test makes -run match
+# nothing and go test pass (TICK-509 review finding 2).
+for row in single_subject import; do
+    grep -q "COMMIT-CHECK-BUDGET row=$row " "$out" || {
+        echo "commit-check-budget: no 'COMMIT-CHECK-BUDGET row=$row' line in the output; was TestCommitCheckBudget renamed or skipped?" >&2
+        status=1
+    }
+done
 exit "$status"
