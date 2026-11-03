@@ -89,7 +89,7 @@ and the 7 green push runs of story branch `TICK-334/workflow-interpreter`
 | `stack-db` | 381 s / 793 s | 409 s / 789 s | 254 s / 652 s | 43 s / 55 s | 25 |
 | `stack-internal` | 432 s / 795 s | 356 s / 742 s | 256 s / 684 s | 34 s / 47 s | 25 |
 | `lint`, `unit`, `temporal-server`, `integration` | under 5 min | | | | 10 |
-| `commit-check-budget` | | under 2 min (TICK-509) | | | 10 |
+| `commit-check-budget` | | 120 s, cold Go cache (run 41673342312; the test itself 13 s) | | | 10 |
 | `changes` | under 1 min | | | | 5 |
 
 Run ids: on `main`, 41261072764, 41257268224, 41254956177, 41248729699,
