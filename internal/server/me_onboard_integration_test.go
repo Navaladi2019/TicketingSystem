@@ -7,8 +7,8 @@
 // Directory) is faked, because it is a third-party service behind a port.
 //
 // Each test names the documented outcome it covers with an
-// "api-coverage: <operationId> <status>" marker. The companion coverage gate
-// (not merged when this was written) will read these markers.
+// "covers: <operationId> <status>..." marker, which the coverage gate
+// (api/integration_coverage_test.go) reads.
 
 package server_test
 
@@ -256,7 +256,7 @@ func wantStatus(t *testing.T, rec *httptest.ResponseRecorder, status int, code p
 
 // ---- getMe ----
 
-// api-coverage: getMe 200
+// covers: getMe 200
 func TestGetMeMatchesDatabaseRows(t *testing.T) {
 	v := newIDEnv(t, nil)
 	rec := v.call(t, http.MethodGet, "/api/v1/me", v.tenantToken(t, "a-admin", "tenant-a", "org-a"), "", "")
@@ -326,7 +326,7 @@ func TestGetMeIgnoresSuppliedTenant(t *testing.T) {
 	}
 }
 
-// api-coverage: getMe 401
+// covers: getMe 401
 func TestGetMeCrossTenantAndUnknownPrincipals(t *testing.T) {
 	v := newIDEnv(t, nil)
 	before := v.footprint(t)
@@ -382,7 +382,7 @@ func TestGetMeSameSubjectInTwoTenants(t *testing.T) {
 	}
 }
 
-// api-coverage: getMe 401
+// covers: getMe 401
 func TestGetMeTombstonedAndDisabledPrincipals(t *testing.T) {
 	v := newIDEnv(t, nil)
 	tok := v.tenantToken(t, "a-user", "tenant-a", "org-a")
@@ -410,7 +410,7 @@ func TestGetMeTombstonedAndDisabledPrincipals(t *testing.T) {
 	wantStatus(t, v.call(t, http.MethodGet, "/api/v1/me", v.tenantToken(t, "b-admin", "tenant-b", "org-b"), "", ""), http.StatusUnauthorized, problem.TenantUnresolved)
 }
 
-// api-coverage: getMe 429
+// covers: getMe 429
 func TestGetMeRateLimited(t *testing.T) {
 	v := newIDEnv(t, nil)
 	before := v.footprint(t)
@@ -429,7 +429,7 @@ func TestGetMeRateLimited(t *testing.T) {
 	sameFootprint(t, before, v.footprint(t))
 }
 
-// api-coverage: getMe 500
+// covers: getMe 500
 func TestGetMeDatabaseDownIs500(t *testing.T) {
 	dead := roleLoginPool(t, "nava_app", 2)
 	v := newIDEnv(t, dead)
@@ -460,8 +460,8 @@ func (v *idEnv) tenantRows(t *testing.T, id uuid.UUID) map[string]int {
 	return out
 }
 
-// api-coverage: onboardTenant 201
-// api-coverage: onboardTenant 200
+// covers: onboardTenant 201
+// covers: onboardTenant 200
 func TestOnboardCreatesRowsAndReplayWritesOnce(t *testing.T) {
 	v := newIDEnv(t, nil)
 	op := v.operatorToken(t)
@@ -549,8 +549,8 @@ func TestOnboardIgnoresSuppliedTenantID(t *testing.T) {
 	}
 }
 
-// api-coverage: onboardTenant 400
-// api-coverage: onboardTenant 422
+// covers: onboardTenant 400
+// covers: onboardTenant 422
 func TestOnboardInvalidInputWritesNothing(t *testing.T) {
 	v := newIDEnv(t, nil)
 	op := v.operatorToken(t)
@@ -585,8 +585,8 @@ func TestOnboardInvalidInputWritesNothing(t *testing.T) {
 	sameFootprint(t, before, v.footprint(t))
 }
 
-// api-coverage: onboardTenant 401
-// api-coverage: onboardTenant 403
+// covers: onboardTenant 401
+// covers: onboardTenant 403
 func TestOnboardRefusesNonOperatorsAndWritesNothing(t *testing.T) {
 	v := newIDEnv(t, nil)
 	before := v.footprint(t)
@@ -614,7 +614,7 @@ func TestOnboardRefusesNonOperatorsAndWritesNothing(t *testing.T) {
 	sameFootprint(t, before, v.footprint(t))
 }
 
-// api-coverage: onboardTenant 409
+// covers: onboardTenant 409
 func TestOnboardConflicts(t *testing.T) {
 	v := newIDEnv(t, nil)
 	op := v.operatorToken(t)
@@ -661,7 +661,7 @@ func TestOnboardConflicts(t *testing.T) {
 	}
 }
 
-// api-coverage: onboardTenant 500
+// covers: onboardTenant 500
 // A directory failure mid-onboarding is 500 with no cause in the body. The
 // tenant stays provisioning and a retry with the same key and body finishes it.
 func TestOnboardDirectoryFailureIs500ThenRetryResumes(t *testing.T) {
@@ -691,7 +691,7 @@ func TestOnboardDirectoryFailureIs500ThenRetryResumes(t *testing.T) {
 	}
 }
 
-// api-coverage: onboardTenant 501
+// covers: onboardTenant 501
 // Without the operator wiring the route answers 501 and writes nothing.
 func TestOnboardNotConfiguredIs501(t *testing.T) {
 	v := newIDEnv(t, nil)

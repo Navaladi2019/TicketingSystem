@@ -1,23 +1,10 @@
 {
   "_doc": "Documented statuses no //go:build integration test asserts through the real handler against PostgreSQL, each with its reason. Read by api/integration_coverage_test.go, which fails on an empty reason, an unknown operation or status, and an exemption a covers: marker already satisfies. Add an entry only when the status cannot be caused through the handler against a real database; otherwise write the test.",
   "getMe": {
-    "200": "No HTTP->PostgreSQL integration test yet; TICK-511 writes them and removes this exemption.",
-    "401": "No HTTP->PostgreSQL integration test yet; TICK-511 writes them and removes this exemption.",
-    "429": "No HTTP->PostgreSQL integration test yet; TICK-511 writes them and removes this exemption.",
-    "500": "No HTTP->PostgreSQL integration test yet; TICK-511 writes them and removes this exemption.",
-    "501": "No HTTP->PostgreSQL integration test yet; TICK-511 writes them and removes this exemption."
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."
   },
   "onboardTenant": {
-    "200": "No HTTP->PostgreSQL integration test yet; TICK-511 writes them and removes this exemption.",
-    "201": "No HTTP->PostgreSQL integration test yet; TICK-511 writes them and removes this exemption.",
-    "400": "No HTTP->PostgreSQL integration test yet; TICK-511 writes them and removes this exemption.",
-    "401": "No HTTP->PostgreSQL integration test yet; TICK-511 writes them and removes this exemption.",
-    "403": "No HTTP->PostgreSQL integration test yet; TICK-511 writes them and removes this exemption.",
-    "409": "No HTTP->PostgreSQL integration test yet; TICK-511 writes them and removes this exemption.",
-    "422": "No HTTP->PostgreSQL integration test yet; TICK-511 writes them and removes this exemption.",
-    "429": "No HTTP->PostgreSQL integration test yet; TICK-511 writes them and removes this exemption.",
-    "500": "No HTTP->PostgreSQL integration test yet; TICK-511 writes them and removes this exemption.",
-    "501": "No HTTP->PostgreSQL integration test yet; TICK-511 writes them and removes this exemption."
+    "429": "Reserved, not emitted: operator routes are not rate limited (internal/server/api.go wraps tenant routes only). Spec drift tracked in TICK-516."
   },
   "listEntityTypes": {
     "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."
