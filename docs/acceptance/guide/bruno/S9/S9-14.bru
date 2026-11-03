@@ -15,9 +15,7 @@ headers {
 }
 
 script:pre-request {
-  // D-5-14 (TICK-452): since P5-13b the pipeline writes audit_log, and the
-  // history endpoint reads audit_log_v0 until P5-17 rebuilds it. P5-17
-  // (TICK-435) removes this gate and turns the request back on.
+  // D-5-14: gated on TICK-435 (P5-17). P5-17 removes this gate.
   console.log("SKIPPED S9.14: gated on TICK-435 (P5-17), the history endpoint on the new audit log (D-5-14)");
   bru.runner.skipRequest();
 }

@@ -239,6 +239,18 @@ def req(name, method, url, *, desc="", headers=None, body=None, form=None, tests
             "body": body, "form": form, "tests": tests.strip("\n"), "pre": pre.strip("\n")}
 
 
+def history_gate(step):
+    """D-5-14 (TICK-452): the pipeline writes audit_log since P5-13b, and the
+    record history endpoint reads audit_log_v0 until P5-17 rebuilds it. The
+    history requests are skipped, with a message naming TICK-435, and P5-17
+    (TICK-435) removes this gate and turns them back on."""
+    return (
+        "// D-5-14: gated on TICK-435 (P5-17). P5-17 removes this gate.\n"
+        f'console.log("SKIPPED {step}: gated on TICK-435 (P5-17), the history endpoint on the new audit log (D-5-14)");\n'
+        "bru.runner.skipRequest();"
+    )
+
+
 def token(name, user, pwd, store, *, client="nava-web", scope="openid", desc="", extra=""):
     """A Keycloak password-grant token request that keeps the access token."""
     return req(
@@ -1086,6 +1098,7 @@ test('version 2, priority 1, in_progress', () => {
   expect(N.header('ETag')).to.eql('W/"2"');
 });"""),
             req("S9.13 AC3: the history: one row per change, Alice, source user", "GET", one + "/history", auth="alice_token",
+                pre=history_gate("S9.13"),
                 desc="Exactly two rows, newest first: the update of S9.9 and the create of S9.4. Each names Alice (`actor_id`) and `source: user`. The retry, the 412 and the 428 added none.",
                 tests="""N.status(200);
 const items = N.json().items;
@@ -1102,6 +1115,7 @@ test('the update has before and after', () => {
 test('the create has no before', () => expect(items[1]).to.not.have.property('before'));
 test('no next page', () => expect(N.json().next_cursor || '').to.eql(''));"""),
             req("S9.14 AC3: the second incident's history is its create", "GET", inc + "/{{s9_id2}}/history", auth="alice_token",
+                pre=history_gate("S9.14"),
                 desc="One row: the create of S9.8, by Alice, `source: user`.",
                 tests="""N.status(200);
 const items = N.json().items;
