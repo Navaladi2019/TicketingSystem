@@ -91,7 +91,11 @@ const (
 	resultReuse    = "reuse"
 	resultInFlight = "in_flight"
 	resultRejected = "rejected"
-	resultError    = "error"
+	// resultStoredAfterCommit: a 2xx response was stored by the fallback, after
+	// the handler's transaction committed, because the handler did not call
+	// CompleteInTx. A tenant write route should never produce it.
+	resultStoredAfterCommit = "stored_after_commit"
+	resultError             = "error"
 )
 
 // ReplayHeaders are the response headers a replay restores besides
@@ -346,6 +350,14 @@ func (m *Middleware) complete(ctx context.Context, req request, resp *captured) 
 	if err != nil {
 		m.log.ErrorContext(ctx, "idempotency: storing the response failed; the key stays in_flight",
 			slog.String("error", err.Error()))
+		return
+	}
+	if resp.status >= 200 && resp.status < 300 {
+		// A 2xx means the handler most likely committed a write. Storing after
+		// the commit reopens the TICK-482 window, so make it visible.
+		m.count(ctx, resultStoredAfterCommit)
+		m.log.WarnContext(ctx, "idempotency: a successful response was stored after commit; the handler should call idempotency.CompleteInTx",
+			slog.Int("status", resp.status))
 	}
 }
 
@@ -512,6 +524,13 @@ func CompleteInTx(ctx context.Context, tx pgx.Tx, visit func(http.ResponseWriter
 	sc, ok := ctx.Value(scopeKey{}).(*scope)
 	if !ok {
 		return nil
+	}
+	tenant, err := tenancy.TenantOf(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("idempotency: transaction tenant: %w", err)
+	}
+	if tenant != sc.req.p.TenantID {
+		return errors.New("idempotency: the transaction is scoped to another tenant than the request's")
 	}
 	c := &captured{status: http.StatusOK, header: http.Header{}}
 	if err := visit(&recorder{c: c}); err != nil {
