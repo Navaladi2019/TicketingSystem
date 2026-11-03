@@ -28,8 +28,8 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"github.com/Navaladi2019/TicketingSystem/db"
+	"github.com/Navaladi2019/TicketingSystem/internal/db/audited"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/catalog"
-	"github.com/Navaladi2019/TicketingSystem/internal/db/grants"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/migrate"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/roles"
 	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
@@ -63,7 +63,7 @@ type env struct {
 func migrated(t testing.TB) env {
 	t.Helper()
 	ctx := context.Background()
-	m, err := grants.Parse(db.Grants())
+	m, am, err := audited.Load(db.Grants(), db.AuditedTables())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func migrated(t testing.TB) env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := migrate.Run(ctx, roleConfig(t, m.Owner(), m.PlatformDatabase), db.Migrations(), m, g, log,
+	if _, err := migrate.Run(ctx, roleConfig(t, m.Owner(), m.PlatformDatabase), db.Migrations(), m, am, g, log,
 		migrate.Options{LockRetrySeconds: 1}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}

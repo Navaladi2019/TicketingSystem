@@ -395,8 +395,10 @@ func TestP510bProtectedInsertColumnsDenied(t *testing.T) {
 			wantSQLState(t, role+" sets "+col, err, "42501")
 		}
 	}
-	// The R10 grant itself: app, worker and erasure append; onboard and
-	// groupsync are writers only once P5-11 generates their grants.
+	// The R10 grant itself: app, worker and erasure append. P5-11 generates
+	// nava_onboard's grants, but its pinned policy admits only its own
+	// provisioning tenant, so it cannot append for active tenant A (42501);
+	// nava_groupsync writes no audited table and has no grant at all.
 	for _, role := range []string{"nava_app", "nava_worker", "nava_erasure"} {
 		appendEntry(t, asRole(t, role), tenantA, 1)
 		exec(t, super, "DELETE FROM audit_log WHERE tenant_id = $1", tenantA)
