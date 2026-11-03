@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-004 erratum E4 explained: the audit speed check stops failing on slow CI machines</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.pill{display:inline-block;font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left}
+th{background:var(--soft)}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:40px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--soft);padding:1px 5px;border-radius:4px}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+.bad{color:var(--bad);font-weight:600}.good{color:var(--good);font-weight:600}
+figure{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure svg{width:100%;min-width:640px;height:auto;display:block}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
+</style></head><body><main>
+
+<span class="pill">PROPOSED · 2026-11-03</span> <span class="src">ADR-004-E4 · issue TICK-517 · amends ADR-004-E3 (Budget) · source: TICK-509 / PR #420 review, finding 1</span>
+
+<h1>The audit speed check should fail on a slower audit check, not on a slower machine</h1>
+
+<blockquote><strong>In one sentence.</strong> Our CI speed test for the audit check failed because GitHub gave us a slower machine, not because our code got slower. From now on the test fails only on comparisons made inside one run on one machine, which cancel out the machine's speed. The raw timings are still recorded and still produce a visible warning.</blockquote>
+
+<h2>Words used here</h2>
+<dl>
+<dt>Commit check</dt><dd>A database trigger that confirms, when a transaction saves, that every changed record has a matching audit entry (ADR-004). ADR-004-E3 made it plan its lookup afresh on every call, which costs a little time per write.</dd>
+<dt>Budget row</dt><dd>A line in <code>docs/budgets.md</code> that limits how slow something may be. There are two here: <em>per call</em> (one small write, at most 300 µs) and <em>import</em> (a 10,000-record import, at most 175 µs per record). µs means microseconds, millionths of a second.</dd>
+<dt>Clause arm / reference arm</dt><dd>In each test run we time our real function (the <em>clause</em> arm) and an unchanged copy without the E3 change (the <em>reference</em> arm). They run on the same data, on the same machine, a few seconds apart.</dd>
+<dt>Ratio</dt><dd>Clause time divided by reference time in the same run. A slow machine slows both arms, so the ratio barely moves. If our code gets slower, only the clause arm moves, and the ratio rises. The limits are 5 (per call) and 15 (import).</dd>
+<dt>Flatness</dt><dd>The per-call time measured after 200, 1,000 and 5,000 writes. The highest divided by the lowest must stay below 1.5. A rising value means the check gets slower the longer a connection is used, which is the failure E3 fixed.</dd>
+<dt>Runner</dt><dd>The rented GitHub machine a CI job runs on. We ask for a 4-CPU <code>ubuntu-latest</code> machine, but the hardware behind that label varies.</dd>
+<dt><code>main-red</code></dt><dd>The CI step that opens a top-priority (P0) "main is broken" issue whenever a required job fails on <code>main</code>.</dd>
+</dl>
+
+<h2>The problem</h2>
+<p>On the same code, the speed job ran twice on two different GitHub machines, with nothing else running on either. On the second machine everything ran about 1.4× slower, both arms alike. The import number went from 129.5 µs to <span class="bad">190.9 µs, over the 175 µs limit</span>, and the job went red. The ratios hardly changed: 9.76 to 9.98 for the import and 1.45 to 1.54 per call. So the code had not changed, only the machine had. The import limit leaves 1.35× of headroom, and machines vary by about 1.45×. A required job set up like that fails roughly one run in three, and each failure on <code>main</code> opens a false P0.</p>
+
+<figure>
+<svg viewBox="0 0 760 270" xmlns="http://www.w3.org/2000/svg" font-size="13">
+<text x="20" y="22" font-weight="700">Import row, µs per record (same code, two machines)</text>
+<line x1="120" y1="40" x2="120" y2="200" stroke="#59636e"/>
+<line x1="120" y1="200" x2="720" y2="200" stroke="#59636e"/>
+<line x1="645" y1="40" x2="645" y2="200" stroke="#cf222e" stroke-dasharray="5,4"/><text x="645" y="36" text-anchor="middle" fill="#cf222e">175 µs limit</text>
+<text x="20" y="77">fast machine</text>
+<rect x="120" y="58" width="388" height="16" fill="#0969da"/><text x="514" y="71">clause 129.5</text>
+<rect x="120" y="78" width="40" height="16" fill="#8c959f"/><text x="166" y="91">reference 13.3 · ratio 9.76</text>
+<text x="20" y="147">slow machine</text>
+<rect x="120" y="128" width="573" height="16" fill="#cf222e"/><text x="560" y="122" font-size="12">clause 190.9 (over)</text>
+<rect x="120" y="148" width="57" height="16" fill="#8c959f"/><text x="183" y="161">reference 19.1 · ratio 9.98</text>
+<text x="120" y="218" font-size="12" fill="#59636e" text-anchor="middle">0</text><text x="420" y="218" font-size="12" fill="#59636e" text-anchor="middle">100</text><text x="720" y="218" font-size="12" fill="#59636e" text-anchor="middle">200</text>
+<text x="20" y="252" font-size="12">Both bars grow about 1.4× on the slow machine; the ratio between them stays within 2 %.</text>
+</svg>
+<figcaption>The absolute number tells you which machine you got. The ratio tells you whether the code changed.</figcaption>
+</figure>
+
+<h2>Options considered</h2>
+<table>
+<tr><th>Option</th><th>What it means</th><th>Outcome</th></tr>
+<tr><td><strong>B. Limits become warnings; fail on ratio, flatness or nothing measured</strong></td><td>Change only the rule that turns numbers into pass or fail</td><td class="good">Chosen by the CTO. No cost, no new vendor</td></tr>
+<tr><td>A. Pay for a fixed, larger GitHub machine class</td><td>Change the machine, keep the rule</td><td>Rejected. It adds recurring cost and a vendor dependency to protect a number that does not carry the signal, and even paid classes do not guarantee one CPU model</td></tr>
+<tr><td>Raise the limits</td><td>Widen 175 µs until the slow machine fits</td><td>Rejected. E3 forbids moving a limit to make CI pass, and a limit that wide misses a real slowdown of the same size</td></tr>
+<tr><td>Keep the rule, re-run when red</td><td>Nothing changes</td><td>Rejected. A gate that has to be re-run is a gate people learn to ignore, and each red run opens a false P0</td></tr>
+<tr><td>Calibrate against a CPU benchmark</td><td>Run a synthetic speed test and scale the numbers by it</td><td>Rejected for M1. The reference arm already does this calibration, for the exact workload, and a benchmark adds noise of its own</td></tr>
+</table>
+
+<h2>The decision</h2>
+<table>
+<tr><th>What the run found</th><th>Verdict</th><th>CI job</th></tr>
+<tr><td>A result line is missing, or a timing is zero or invalid (the test measured nothing)</td><td><code>fail_no_rows</code></td><td class="bad">fails</td></tr>
+<tr><td>A ratio is over its limit (per call over 5, import over 15)</td><td><code>fail_ratio</code></td><td class="bad">fails</td></tr>
+<tr><td>Per call is not flat (highest / lowest ≥ 1.5)</td><td><code>fail_flat</code></td><td class="bad">fails</td></tr>
+<tr><td>An absolute number is over 300 / 175 µs, everything else fine</td><td><code>warn</code></td><td class="good">passes, with a yellow warning on the job</td></tr>
+<tr><td>Everything within limits</td><td><code>pass</code></td><td class="good">passes</td></tr>
+</table>
+<p>Every run also records the machine's CPU model next to its timings, so a later reader can tell "slower machine" from "slower code". The limits keep their values (300 µs and 175 µs), and they are now called <em>review thresholds</em>. The measurement method, the 38 partitions and the ratio and flatness limits do not change.</p>
+<p>The emergency plan from E3 (called <em>S3</em>: a faster but more invasive way to run the check) still starts the same way. A run must have a ratio over its limit <em>and</em> an absolute number over its threshold.</p>
+
+<h2>The fix</h2>
+<ol>
+<li>The verdict code in PR #420 (<code>commit_check_verdict_test.go</code>) gets the five verdicts above, with a unit test for each. Today, "over the threshold with in-range ratios" means <code>rerun</code>. After the change it means <code>warn</code>.</li>
+<li>The CI script fails if either result line is missing, logs the CPU model, and prints the warning annotation and a summary table.</li>
+<li><code>docs/budgets.md</code> relabels the two limits as review thresholds and records the CPU model with each baseline.</li>
+</ol>
+<p>Nothing in the database, the audit function or production changes.</p>
+
+<h2>What we are accepting</h2>
+<ul>
+<li><strong>A slowdown that hits both arms equally passes.</strong> If shared code (for example the audit insert path, or a Postgres upgrade) slows the real function and the reference copy by the same factor, the ratio stays the same and CI stays green. It still shows as a warning and in the logged numbers. Nobody is alerted automatically. The Postgres specialist re-takes the baselines on every Postgres upgrade. Two warnings in a row on <code>main</code>, on a CPU model we already have a baseline for, are the cue to investigate. (AR-TICK-517-01, low.)</li>
+<li><strong>The ratio gate is now a little stricter.</strong> Before, an out-of-range ratio failed only together with an over-limit time. Now it fails on its own. If the reference copy gets faster, for example after a Postgres upgrade, the ratio can rise without our code getting worse, and CI goes red. That is still a real change worth looking at. The import ratio has 1.5× of headroom, and between machines it moved by 2 %. (AR-TICK-517-02, info.)</li>
+</ul>
+
+<h2>Evidence</h2>
+<ul>
+<li>Raw CI lines from runs 41676703902, 41676713796 and 41673342312, with the derived spread: <code>docs/adr/ADR-004/spikes/ci/tick-509-host-variance.md</code>.</li>
+<li>The PR #420 review (Quality, Testing &amp; CI Advisor), findings 1 to 3: <code>docs/reviews/tick-509-commit-check-budget-ci.md</code> on branch <code>TICK-509/commit-check-budget-ci</code>.</li>
+<li>The escalation and the CTO's decision, archived: <code>docs/adr/ADR-004/rfc/TICK-517-escalation-commit-check-host-variance.md</code>.</li>
+<li>Red to green: the new verdict unit cases in PR #420, written once this is accepted. The "over threshold, ratios in range" case is red under today's code (<code>rerun</code>) and green after the change (<code>warn</code>).</li>
+</ul>
+
+<p class="src">Process: the Technical Lead escalated, the CTO decided Option B with four conditions, and the Solution Architect wrote the wording. Next come the Technical Architect's critique and the Solution Architect's verdict. No human sign-off is required, and none of the database invariants (ADR-001 I1–I9) is affected.</p>
+</main></body></html>
