@@ -24,7 +24,7 @@ figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
 dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 </style></head><body><main>
 
-<span class="pill">PROPOSED · 2026-11-03</span> <span class="src">ADR-004-E4 · issue TICK-517 · amends ADR-004-E3 (Budget) · source: TICK-509 / PR #420 review, finding 1</span>
+<span class="pill" style="background:var(--goodbg);color:var(--good);border-color:var(--good)">ACCEPTED · 2026-11-03</span> <span class="src">ADR-004-E4 · issue TICK-517 · amends ADR-004-E3 (Budget) · source: TICK-509 / PR #420 review, finding 1</span>
 
 <h1>The audit speed check should fail on a slower audit check, not on a slower machine</h1>
 
@@ -78,24 +78,26 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 <tr><td>A result line is missing, or a timing is zero or invalid (the test measured nothing)</td><td><code>fail_no_rows</code></td><td class="bad">fails</td></tr>
 <tr><td>A ratio is over its limit (per call over 5, import over 15)</td><td><code>fail_ratio</code></td><td class="bad">fails</td></tr>
 <tr><td>Per call is not flat (highest / lowest ≥ 1.5)</td><td><code>fail_flat</code></td><td class="bad">fails</td></tr>
-<tr><td>An absolute number is over 300 / 175 µs, everything else fine</td><td><code>warn</code></td><td class="good">passes, with a yellow warning on the job</td></tr>
+<tr><td>An absolute number is over its threshold, everything else fine. Per call: <em>any</em> of the three measurements (after 200, 1,000 or 5,000 writes) over 300 µs. Import: over 175 µs</td><td><code>warn</code></td><td class="good">passes, with a yellow warning on the job</td></tr>
 <tr><td>Everything within limits</td><td><code>pass</code></td><td class="good">passes</td></tr>
 </table>
 <p>Every run also records the machine's CPU model next to its timings, so a later reader can tell "slower machine" from "slower code". The limits keep their values (300 µs and 175 µs), and they are now called <em>review thresholds</em>. The measurement method, the 38 partitions and the ratio and flatness limits do not change.</p>
-<p>The emergency plan from E3 (called <em>S3</em>: a faster but more invasive way to run the check) still starts the same way. A run must have a ratio over its limit <em>and</em> an absolute number over its threshold.</p>
+<p><strong>Why a slow machine no longer fails the job.</strong> The ratio compares two arms in the same run, and flatness compares one arm at three points in the same run. A machine that is slow all the way through trips neither. A machine whose speed changes in the middle of a run can trip flatness. That has not happened in CI (1.03–1.04 against a 1.5 limit), but a laptop once reached 1.30.</p>
+<p>The emergency plan from E3 (called <em>S3</em>: a faster but more invasive way to run the check) still starts the same way. A run must have a ratio over its limit <em>and</em> either row over its threshold. The threshold half depends on the machine, so the same real slowdown can start S3 on a slow machine and not on a fast one. Every failed ratio run is red and gets looked at anyway, and the numbers are compared with the recorded baseline for the same CPU model. "S3 did not start" is not evidence that nothing is wrong.</p>
 
 <h2>The fix</h2>
 <ol>
-<li>The verdict code in PR #420 (<code>commit_check_verdict_test.go</code>) gets the five verdicts above, with a unit test for each. Today, "over the threshold with in-range ratios" means <code>rerun</code>. After the change it means <code>warn</code>.</li>
+<li>The verdict code in PR #420 (<code>commit_check_verdict_test.go</code>) gets the five verdicts above, with a unit test for each. One of them covers "only the 5,000-write measurement over 300 µs", which gives <code>warn</code>. Today, "over the threshold with in-range ratios" means <code>rerun</code>. After the change it means <code>warn</code>, and an uneven per-call row with in-range ratios means <code>fail_flat</code>.</li>
 <li>The CI script fails if either result line is missing, logs the CPU model, and prints the warning annotation and a summary table.</li>
 <li><code>docs/budgets.md</code> relabels the two limits as review thresholds and records the CPU model with each baseline.</li>
+<li>Once TICK-509 merges, <code>commit-check-budget</code> becomes a required check on <code>main</code>. On 2026-11-03 it is not one yet.</li>
 </ol>
 <p>Nothing in the database, the audit function or production changes.</p>
 
 <h2>What we are accepting</h2>
 <ul>
-<li><strong>A slowdown that hits both arms equally passes.</strong> If shared code (for example the audit insert path, or a Postgres upgrade) slows the real function and the reference copy by the same factor, the ratio stays the same and CI stays green. It still shows as a warning and in the logged numbers. Nobody is alerted automatically. The Postgres specialist re-takes the baselines on every Postgres upgrade. Two warnings in a row on <code>main</code>, on a CPU model we already have a baseline for, are the cue to investigate. (AR-TICK-517-01, low.)</li>
-<li><strong>The ratio gate is now a little stricter.</strong> Before, an out-of-range ratio failed only together with an over-limit time. Now it fails on its own. If the reference copy gets faster, for example after a Postgres upgrade, the ratio can rise without our code getting worse, and CI goes red. That is still a real change worth looking at. The import ratio has 1.5× of headroom, and between machines it moved by 2 %. (AR-TICK-517-02, info.)</li>
+<li><strong>A slowdown that hits both arms equally passes.</strong> If shared code (for example the audit insert path, or a Postgres upgrade) slows the real function and the reference copy by the same factor, the ratio stays the same and CI stays green. It still shows as a warning and in the logged numbers. Nobody is alerted automatically. The Postgres specialist re-takes the baselines on every Postgres upgrade. Two warnings in a row on <code>main</code>, on a CPU model we already have a baseline for, are the cue to investigate. That cue only works if one CPU model gives steady timings. A follow-up measurement checks this once runs log the CPU (target: under 1.2× spread per model). If they don't, the cue is replaced. (AR-TICK-517-01, low.)</li>
+<li><strong>The ratio and flatness gates are now a little stricter.</strong> Before, an out-of-range ratio or an uneven per-call row failed only together with an over-limit time. Now each fails on its own. If the reference copy gets faster, for example after a Postgres upgrade, the ratio can rise without our code getting worse, and CI goes red. That is still a real change worth looking at. The import ratio has 1.5× of headroom, and between machines it moved by 2 %. A Postgres upgrade changes the pinned-versions file, and that runs this job on the upgrade PR. So a faster reference copy turns the PR red before it merges, not <code>main</code>, once the job is a required check. (AR-TICK-517-02, info.)</li>
 </ul>
 
 <h2>Evidence</h2>
@@ -103,8 +105,9 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 <li>Raw CI lines from runs 41676703902, 41676713796 and 41673342312, with the derived spread: <code>docs/adr/ADR-004/spikes/ci/tick-509-host-variance.md</code>.</li>
 <li>The PR #420 review (Quality, Testing &amp; CI Advisor), findings 1 to 3: <code>docs/reviews/tick-509-commit-check-budget-ci.md</code> on branch <code>TICK-509/commit-check-budget-ci</code>.</li>
 <li>The escalation and the CTO's decision, archived: <code>docs/adr/ADR-004/rfc/TICK-517-escalation-commit-check-host-variance.md</code>.</li>
-<li>Red to green: the new verdict unit cases in PR #420, written once this is accepted. The "over threshold, ratios in range" case is red under today's code (<code>rerun</code>) and green after the change (<code>warn</code>).</li>
+<li>Review: the Technical Architect's round-1 critique (TICK-517) approved once four text changes went in, and they are all in this version.</li>
+<li>Red to green: the new verdict unit cases in PR #420, written now that this is accepted. The "over threshold, ratios in range" case is red under today's code (<code>rerun</code>) and green after the change (<code>warn</code>).</li>
 </ul>
 
-<p class="src">Process: the Technical Lead escalated, the CTO decided Option B with four conditions, and the Solution Architect wrote the wording. Next come the Technical Architect's critique and the Solution Architect's verdict. No human sign-off is required, and none of the database invariants (ADR-001 I1–I9) is affected.</p>
+<p class="src">Process: the Technical Lead escalated, the CTO decided Option B with four conditions, and the Solution Architect wrote the wording. The Technical Architect critiqued it (approve once fixed), the fixes were applied, and the Solution Architect accepted it on 2026-11-03. No human sign-off is required, and none of the database invariants (ADR-001 I1–I9) is affected.</p>
 </main></body></html>
