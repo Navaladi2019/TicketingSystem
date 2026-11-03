@@ -43,8 +43,9 @@ const modulePath = "github.com/Navaladi2019/TicketingSystem"
 // removed) is one of the tables only the pipeline writes.
 func recordTable(name string) bool {
 	switch name {
-	// audit_log_v0 is S9's interim audit table (P5-10a renamed it); audit_log
-	// stays listed until P5-10b decides who writes ADR-004's table.
+	// audit_log_v0 is S9's interim audit table (P5-10a renamed it). audit_log
+	// is ADR-004's table; outside the pipeline only its one writer,
+	// audit.Append, may write it (auditWriter).
 	case "records", "audit_log", "audit_log_v0", "record_counters", "comments", "record_links":
 		return true
 	}
@@ -57,6 +58,13 @@ func recordTable(name string) bool {
 // by accident; and migrations.
 func writerAllowed(rel string) bool {
 	return underAny(rel, "internal/records/pipeline", "internal/records/store", "db/migrations")
+}
+
+// auditWriter reports whether the file at rel may write table because it is
+// ADR-004's one audit writer (decision 1): internal/audit/append.go, for
+// audit_log only (P5-12b, TICK-430).
+func auditWriter(rel, table string) bool {
+	return table == "audit_log" && rel == "internal/audit/append.go"
 }
 
 // probeExempt is the tenant isolation suite's path registry: its INSERT and
@@ -195,7 +203,9 @@ func scanFile(fset *token.FileSet, rel string, f *ast.File, consts map[string]st
 
 	report := func(n ast.Node, s string) {
 		for _, w := range sqlWrites(s) {
-			out = append(out, finding{rel, fset.Position(n.Pos()).Line, w[0], w[1]})
+			if !auditWriter(rel, w[1]) {
+				out = append(out, finding{rel, fset.Position(n.Pos()).Line, w[0], w[1]})
+			}
 		}
 	}
 	ast.Inspect(f, func(n ast.Node) bool {
@@ -214,7 +224,8 @@ func scanFile(fset *token.FileSet, rel string, f *ast.File, consts map[string]st
 			}
 		case *ast.CompositeLit:
 			if isPgxIdentifier(n.Type, pgxNames) && len(n.Elts) > 0 {
-				if s, ok := stringValue(n.Elts[len(n.Elts)-1], consts); ok && recordTable(strings.ToLower(s)) {
+				if s, ok := stringValue(n.Elts[len(n.Elts)-1], consts); ok && recordTable(strings.ToLower(s)) &&
+					!auditWriter(rel, strings.ToLower(s)) {
 					out = append(out, finding{rel, fset.Position(n.Pos()).Line, "identifier", strings.ToLower(s)})
 				}
 			}
@@ -509,6 +520,28 @@ const sneakySQL = "UPDATE records SET state = $2 WHERE id = $1"
 		if k.file == "internal/outbox/planted.go" {
 			t.Fatal("the planted file must not match a known violation")
 		}
+	}
+}
+
+// TestAuditAppendIsTheAuditLogWriter: internal/audit/append.go may write
+// audit_log (ADR-004 decision 1) and nothing else; any other file under
+// internal/audit may not.
+func TestAuditAppendIsTheAuditLogWriter(t *testing.T) {
+	const src = `package audit
+
+const insertSQL = "INSERT INTO audit_log (tenant_id) VALUES ($1)"
+
+const sneakySQL = "UPDATE records SET state = $2 WHERE id = $1"
+`
+	if got, want := scanSource(t, "internal/audit/append.go", src),
+		[]finding{{"internal/audit/append.go", 5, "update", "records"}}; !slices.Equal(got, want) {
+		t.Errorf("append.go: got %v, want %v", got, want)
+	}
+	if got, want := scanSource(t, "internal/audit/other.go", src), []finding{
+		{"internal/audit/other.go", 3, "insert", "audit_log"},
+		{"internal/audit/other.go", 5, "update", "records"},
+	}; !slices.Equal(got, want) {
+		t.Errorf("other.go: got %v, want %v", got, want)
 	}
 }
 
