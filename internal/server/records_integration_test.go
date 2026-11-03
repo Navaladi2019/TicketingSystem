@@ -107,6 +107,8 @@ func withoutInstance(t *testing.T, rec *httptest.ResponseRecorder) string {
 	return string(out)
 }
 
+// covers: createRecord 201
+// covers: getRecord 200
 func TestCreateRecordThenReadIt(t *testing.T) {
 	e := newRecEnv(t)
 	rec := e.createRec(t, "user-a", "ticket", "r1", `{"short_description": "Printer on fire"}`)
@@ -139,6 +141,7 @@ func TestCreateRecordThenReadIt(t *testing.T) {
 	}
 }
 
+// covers: createRecord 201 409
 func TestCreateRecordRetryWithTheSameKeyCreatesOne(t *testing.T) {
 	e := newRecEnv(t)
 	first := e.createRec(t, "user-a", "ticket", "same-key", `{"short_description": "once"}`)
@@ -163,6 +166,8 @@ func TestCreateRecordRetryWithTheSameKeyCreatesOne(t *testing.T) {
 	}
 }
 
+// covers: createRecord 404
+// covers: getRecord 404
 func TestRecordFourNotFoundCasesAreByteIdentical(t *testing.T) {
 	e := newRecEnv(t)
 	mine := e.mustCreateRec(t, "user-a", "ticket", "mine", `{"short_description": "a"}`)
@@ -202,6 +207,8 @@ func TestRecordFourNotFoundCasesAreByteIdentical(t *testing.T) {
 	}
 }
 
+// covers: createRecord 400 401 422
+// covers: getRecord 401
 func TestCreateRecordValidationAndAuth(t *testing.T) {
 	e := newRecEnv(t)
 	p := wantProblem(t, e.createRec(t, "user-a", "ticket", "v1", `{}`), http.StatusUnprocessableEntity, problem.RecordInvalid)
@@ -221,6 +228,7 @@ func TestCreateRecordValidationAndAuth(t *testing.T) {
 	}
 }
 
+// covers: createRecord 422
 func TestCreateRecordForeignGroupIsTheSame422AsARandomUUID(t *testing.T) {
 	e := newRecEnv(t)
 	random := "00000000-0000-4000-8000-00000000dead"
@@ -250,6 +258,7 @@ func TestCreateRecordForeignGroupIsTheSame422AsARandomUUID(t *testing.T) {
 // A fixed uuid column naming another tenant's principal or an unknown
 // principal comes back from pipeline.Write as a wrapped 23503 (P3-10 review).
 // It is a 422 field error on that property and never shows the constraint.
+// covers: createRecord 422
 func TestCreateRecordForeignPrincipalIs422OnThatProperty(t *testing.T) {
 	e := newRecEnv(t)
 	random := "00000000-0000-4000-8000-00000000beef"
@@ -284,6 +293,7 @@ func TestCreateRecordForeignPrincipalIs422OnThatProperty(t *testing.T) {
 // A record written under version 1 reads with the defaults of the current
 // version: version 2 adds `priority` with a default, and the old record shows
 // it on GET while keeping its own schema_version and ETag.
+// covers: getRecord 200
 func TestGetRecordAppliesDefaultsOfTheCurrentSchemaVersion(t *testing.T) {
 	e := newRecEnv(t)
 	b := e.mustCreateRec(t, "user-a", "ticket", "d1", `{"short_description": "old"}`)
@@ -326,6 +336,7 @@ func TestGetRecordAppliesDefaultsOfTheCurrentSchemaVersion(t *testing.T) {
 // the pipeline command with an empty Causation, so a create that tries to
 // carry one in the body, the query or the headers is a depth-0 write whose
 // origin is freshly minted, not the one the client named.
+// covers: createRecord 201
 func TestCreateRecordIgnoresCausationFromTheRequest(t *testing.T) {
 	e := newRecEnv(t)
 	forged := "0194f2c0-0000-7000-8000-00000000f0f0"
