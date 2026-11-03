@@ -70,7 +70,7 @@ tasks:
   check-coverage:
     desc: "Merge coverage.out (task test) and coverage-integration.out (task test:integration), drop tools/ci/coverage-exclude.txt, fail below COVERAGE_MIN (95) and write coverage-total.out and coverage.html, the same as make check-coverage"
     cmds:
-      - go run ./tools/ci/coverage check -min {{.COVERAGE_MIN | default "95"}} -exclude tools/ci/coverage-exclude.txt -o coverage-total.out {{if .COVERAGE_REPORT_ONLY}}-report-only -all{{end}} {{.COVERAGE_PROFILES | default "coverage.out coverage-integration.out"}}
+      - go run ./tools/ci/coverage check -min {{.COVERAGE_MIN | default "95"}} -exclude tools/ci/coverage-exclude.txt -mains ./cmd/... -o coverage-total.out {{if .COVERAGE_REPORT_ONLY}}-report-only -all{{end}} {{.COVERAGE_PROFILES | default "coverage.out coverage-integration.out"}}
       - go tool cover -html=coverage-total.out -o coverage.html
 
   check-taskfile:

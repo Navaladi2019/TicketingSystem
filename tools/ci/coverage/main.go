@@ -19,23 +19,32 @@
 // matches every file under dir, `**/` at the start matches any directory
 // depth, and the rest is path.Match syntax.
 //
+// A `dir/...` line excludes a whole package tree, which is allowed only for
+// test-only helpers. With -mains (a go list pattern, ./cmd/... in make
+// check-coverage) check fails when such a package is in the import graph of
+// one of those binaries, so an exclusion cannot hide production code that
+// a binary starts to import later (TICK-518).
+//
 // Usage:
 //
 //	coverage merge -o out.out in.out...
-//	coverage check [-min 95] [-exclude file] [-o merged.out] [-worst 20] [-all] [-report-only] in.out...
+//	coverage check [-min 95] [-exclude file] [-o merged.out] [-worst 20] [-all] [-report-only] [-mains ./cmd/...] in.out...
 //
 // check exits 1 when the total is below -min, unless -report-only, which
 // prints the gap and exits 0. It exits 2 on bad input (a missing profile, a
-// mode mismatch, a bad exclusion).
+// mode mismatch, a bad exclusion, an excluded package a binary imports),
+// -report-only or not.
 package main
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path"
 	"sort"
 	"strconv"
@@ -47,6 +56,14 @@ func main() {
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
+	return runWith(args, stdout, stderr, goListDeps)
+}
+
+// depsFunc lists the import paths of a go list pattern's packages and their
+// dependencies; the tests pass a stub.
+type depsFunc func(pattern string) ([]string, error)
+
+func runWith(args []string, stdout, stderr io.Writer, listDeps depsFunc) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "usage: coverage merge|check [flags] profile...")
 		return 2
@@ -55,7 +72,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "merge":
 		return runMerge(args[1:], stdout, stderr)
 	case "check":
-		return runCheck(args[1:], stdout, stderr)
+		return runCheck(args[1:], stdout, stderr, listDeps)
 	}
 	fmt.Fprintf(stderr, "coverage: unknown command %q (want merge or check)\n", args[0])
 	return 2
@@ -85,7 +102,7 @@ func runMerge(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func runCheck(args []string, stdout, stderr io.Writer) int {
+func runCheck(args []string, stdout, stderr io.Writer, listDeps depsFunc) int {
 	fs := flag.NewFlagSet("check", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	minPct := fs.Float64("min", 95, "minimum total coverage, in percent")
@@ -95,6 +112,7 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 	worst := fs.Int("worst", 20, "how many of the worst-covered packages to list")
 	all := fs.Bool("all", false, "list every package, not only the worst")
 	reportOnly := fs.Bool("report-only", false, "print the gap but exit 0 below -min")
+	mains := fs.String("mains", "", "go list pattern of the production binaries no excluded package tree may be imported by")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -124,6 +142,20 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 		if err := p.exclude(ex, mod); err != nil {
 			fmt.Fprintln(stderr, "coverage check:", err)
 			return 2
+		}
+		if *mains != "" {
+			deps, err := listDeps(*mains)
+			if err != nil {
+				fmt.Fprintln(stderr, "coverage check:", err)
+				return 2
+			}
+			if bad := importedExclusions(ex, mod, deps); len(bad) > 0 {
+				for _, b := range bad {
+					fmt.Fprintln(stderr, "coverage check:", b)
+				}
+				fmt.Fprintf(stderr, "coverage check: a package excluded as a test-only helper is imported by %s: it is production code now, so remove its exclusion\n", *mains)
+				return 2
+			}
 		}
 	}
 	if *out != "" {
@@ -444,4 +476,36 @@ func modulePath(gomod string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("%s: no module line", gomod)
+}
+
+// goListDeps returns the import paths of the packages matched by pattern and
+// everything they import, test files left out.
+func goListDeps(pattern string) ([]string, error) {
+	cmd := exec.CommandContext(context.Background(), "go", "list", "-deps", "-f", "{{.ImportPath}}", pattern) //nolint:gosec // the pattern is the -mains flag
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("go list -deps %s: %w: %s", pattern, err, stderr.String())
+	}
+	return strings.Fields(string(out)), nil
+}
+
+// importedExclusions returns one line per package-tree exclusion (`dir/...`)
+// that a package in deps falls under.
+func importedExclusions(list []*exclusion, mod string, deps []string) []string {
+	var bad []string
+	for _, e := range list {
+		dir, ok := strings.CutSuffix(e.pattern, "/...")
+		if !ok {
+			continue
+		}
+		root := mod + "/" + dir
+		for _, d := range deps {
+			if d == root || strings.HasPrefix(d, root+"/") {
+				bad = append(bad, fmt.Sprintf("exclusion line %d (%s): %s is linked into a production binary", e.line, e.pattern, d))
+			}
+		}
+	}
+	return bad
 }
