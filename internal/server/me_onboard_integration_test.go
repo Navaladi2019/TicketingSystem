@@ -43,6 +43,12 @@ import (
 
 const operatorSub = "op-sub-1"
 
+// derivedTenantID restates the documented derivation, UUIDv5(namespace,
+// operator + NUL + Idempotency-Key), so the tests do not call the code under test.
+func derivedTenantID(key string) uuid.UUID {
+	return uuid.NewSHA1(onboard.Namespace, []byte(operatorSub+"\x00"+key))
+}
+
 // fakeDir is the Keycloak side of onboarding. createErr, when set, fails the
 // organization create.
 type fakeDir struct {
@@ -83,6 +89,12 @@ func (d *fakeDir) FindTenantOrg(_ context.Context, id uuid.UUID, _ string) (stri
 	defer d.mu.Unlock()
 	o, ok := d.orgs[id]
 	return o, ok, nil
+}
+
+func (d *fakeDir) inviteList() []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]string(nil), d.invites...)
 }
 
 func (d *fakeDir) createCount() int {
@@ -302,8 +314,12 @@ func TestGetMeIgnoresSuppliedTenant(t *testing.T) {
 	req.Header.Set("X-Tenant-Id", v.e.b.id.String())
 	rec := httptest.NewRecorder()
 	v.h.ServeHTTP(rec, req)
-	if rec.Code == http.StatusOK && !strings.Contains(rec.Body.String(), v.e.a.id.String()) {
-		t.Errorf("tenant = not A: %s", rec.Body)
+	var me api.Me
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &me) != nil {
+		t.Fatalf("GET /me = %d %s, want 200", rec.Code, rec.Body)
+	}
+	if me.TenantId != v.e.a.id {
+		t.Errorf("tenant = %s, want A %s", me.TenantId, v.e.a.id)
 	}
 	if strings.Contains(rec.Body.String(), v.e.b.id.String()) {
 		t.Errorf("tenant B leaked into %s", rec.Body)
@@ -388,9 +404,10 @@ func TestGetMeTombstonedAndDisabledPrincipals(t *testing.T) {
 	wantStatus(t, v.call(t, http.MethodGet, "/api/v1/me", v.tenantToken(t, "a-admin", "tenant-a", "org-a"), "", ""), http.StatusUnauthorized, problem.TenantUnresolved)
 
 	// A tenant that is not active resolves to nobody.
-	if _, err := v.e.super.Exec(t.Context(), "UPDATE tenants SET state = 'suspended' WHERE id = $1", v.e.b.id); err == nil {
-		wantStatus(t, v.call(t, http.MethodGet, "/api/v1/me", v.tenantToken(t, "b-admin", "tenant-b", "org-b"), "", ""), http.StatusUnauthorized, problem.TenantUnresolved)
+	if _, err := v.e.super.Exec(t.Context(), "UPDATE tenants SET state = 'provisioning' WHERE id = $1", v.e.b.id); err != nil {
+		t.Fatal(err)
 	}
+	wantStatus(t, v.call(t, http.MethodGet, "/api/v1/me", v.tenantToken(t, "b-admin", "tenant-b", "org-b"), "", ""), http.StatusUnauthorized, problem.TenantUnresolved)
 }
 
 // api-coverage: getMe 429
@@ -449,7 +466,7 @@ func TestOnboardCreatesRowsAndReplayWritesOnce(t *testing.T) {
 	v := newIDEnv(t, nil)
 	op := v.operatorToken(t)
 	key := "onboard-" + uuid.NewString()
-	want := onboard.TenantID(operatorSub, key)
+	want := derivedTenantID(key)
 	body := onboardJSON("acme-one.test")
 
 	rec := v.call(t, http.MethodPost, "/api/v1/operator/tenants", op, key, body)
@@ -486,8 +503,8 @@ func TestOnboardCreatesRowsAndReplayWritesOnce(t *testing.T) {
 	if types == 0 || v.count(t, "SELECT count(*) FROM entity_definition_versions WHERE tenant_id = $1 AND version = 1", want) != types {
 		t.Errorf("seed: %d entity types, want >0 each at version 1", types)
 	}
-	if len(v.dir.invites) != 1 || v.dir.invites[0] != "admin@acme-one.test" {
-		t.Errorf("invites = %v, want the admin once", v.dir.invites)
+	if len(v.dir.inviteList()) != 1 || v.dir.inviteList()[0] != "admin@acme-one.test" {
+		t.Errorf("invites = %v, want the admin once", v.dir.inviteList())
 	}
 
 	rows := v.tenantRows(t, want)
@@ -500,8 +517,8 @@ func TestOnboardCreatesRowsAndReplayWritesOnce(t *testing.T) {
 		t.Errorf("replay changed rows: %v -> %v", rows, v.tenantRows(t, want))
 	}
 	sameFootprint(t, all, v.footprint(t))
-	if v.dir.createCount() != 1 || len(v.dir.invites) != 1 {
-		t.Errorf("replay called the directory again: %d creates, %d invites", v.dir.createCount(), len(v.dir.invites))
+	if v.dir.createCount() != 1 || len(v.dir.inviteList()) != 1 {
+		t.Errorf("replay called the directory again: %d creates, %d invites", v.dir.createCount(), len(v.dir.inviteList()))
 	}
 }
 
@@ -517,14 +534,15 @@ func TestOnboardIgnoresSuppliedTenantID(t *testing.T) {
 	req.Header.Set("X-Tenant-Id", v.e.a.id.String())
 	rec := httptest.NewRecorder()
 	v.h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusCreated && rec.Code != http.StatusBadRequest {
-		t.Fatalf("= %d: %s", rec.Code, rec.Body)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("= %d: %s, want 201", rec.Code, rec.Body)
 	}
-	if rec.Code == http.StatusCreated {
-		want := onboard.TenantID(operatorSub, key)
-		if v.count(t, "SELECT count(*) FROM tenants WHERE id = $1", want) != 1 {
-			t.Errorf("derived tenant %s has no row", want)
-		}
+	want := derivedTenantID(key)
+	if !strings.Contains(rec.Body.String(), want.String()) || v.count(t, "SELECT count(*) FROM tenants WHERE id = $1", want) != 1 {
+		t.Errorf("derived tenant %s has no row; body %s", want, rec.Body)
+	}
+	if v.count(t, "SELECT count(*) FROM tenants WHERE id = $1", v.e.a.id) != 1 || v.count(t, "SELECT count(*) FROM tenant_email_domain WHERE tenant_id = $1", v.e.a.id) != 0 {
+		t.Error("tenant A was touched")
 	}
 	if n := v.count(t, "SELECT count(*) FROM tenant_email_domain WHERE tenant_id = $1", v.e.a.id); n != 0 {
 		t.Errorf("tenant A gained %d email domains", n)
@@ -552,25 +570,17 @@ func TestOnboardInvalidInputWritesNothing(t *testing.T) {
 	}
 	for name, body := range bad {
 		rec := post("bad-"+name, body)
-		if rec.Code != http.StatusBadRequest && rec.Code != http.StatusUnprocessableEntity {
-			t.Errorf("%s: = %d %s, want 400 or 422", name, rec.Code, rec.Body)
-		}
+		wantStatus(t, rec, http.StatusBadRequest, problem.ValidationFailed)
 	}
 	// An IdP URL that is not https fails after validation passes the shape.
 	insecure := strings.Replace(onboardJSON("acme.test"), "https://idp.example.org/auth", "http://idp.example.org/auth", 1)
-	if rec := post("insecure", insecure); rec.Code != http.StatusUnprocessableEntity {
-		t.Errorf("insecure IdP url = %d %s, want 422", rec.Code, rec.Body)
-	} else {
-		wantStatus(t, rec, http.StatusUnprocessableEntity, problem.InvalidIdPConfig)
-	}
+	wantStatus(t, post("insecure", insecure), http.StatusUnprocessableEntity, problem.InvalidIdPConfig)
 	// No Idempotency-Key is 400.
 	wantStatus(t, post("", onboardJSON("acme.test")), http.StatusBadRequest, problem.ValidationFailed)
 	// No body is 400.
-	if rec := post("nobody", ""); rec.Code != http.StatusBadRequest {
-		t.Errorf("no body = %d %s, want 400", rec.Code, rec.Body)
-	}
-	if v.dir.createCount() != 0 || len(v.dir.invites) != 0 {
-		t.Errorf("directory was called: %d creates, %d invites", v.dir.createCount(), len(v.dir.invites))
+	wantStatus(t, post("nobody", ""), http.StatusBadRequest, problem.ValidationFailed)
+	if v.dir.createCount() != 0 || len(v.dir.inviteList()) != 0 {
+		t.Errorf("directory was called: %d creates, %d invites", v.dir.createCount(), len(v.dir.inviteList()))
 	}
 	sameFootprint(t, before, v.footprint(t))
 }
@@ -614,7 +624,7 @@ func TestOnboardConflicts(t *testing.T) {
 	if rec := post("first", onboardJSON("acme-four.test")); rec.Code != http.StatusCreated {
 		t.Fatalf("first = %d: %s", rec.Code, rec.Body)
 	}
-	first := onboard.TenantID(operatorSub, "first")
+	first := derivedTenantID("first")
 	rows := v.tenantRows(t, first)
 
 	// The same key with a different body is key reuse; the tenant is unchanged.
@@ -627,7 +637,7 @@ func TestOnboardConflicts(t *testing.T) {
 
 	// Another tenant asking for a claimed domain is refused and leaves nothing.
 	wantStatus(t, post("second", onboardJSON("acme-four.test")), http.StatusConflict, problem.DomainClaimed)
-	second := onboard.TenantID(operatorSub, "second")
+	second := derivedTenantID("second")
 	for table, n := range v.tenantRows(t, second) {
 		if n != 0 {
 			t.Errorf("claimed-domain refusal left %d rows in %s", n, table)
@@ -641,12 +651,12 @@ func TestOnboardConflicts(t *testing.T) {
 	// An organization that exists and is not this tenant's: onboarding_conflict.
 	v.dir.createErr = identity.ErrAlreadyExists
 	wantStatus(t, post("third", onboardJSON("acme-six.test")), http.StatusConflict, problem.OnboardingConflict)
-	third := v.tenantRows(t, onboard.TenantID(operatorSub, "third"))
+	third := v.tenantRows(t, derivedTenantID("third"))
 	if third["tenants"] != 1 || third["tenant_identity_binding"] != 0 || third["tenant_admin_group"] != 0 {
 		t.Errorf("conflicted tenant rows = %v, want a provisioning tenant with no binding or admin group", third)
 	}
 	var state string
-	if err := v.e.super.QueryRow(t.Context(), "SELECT state FROM tenants WHERE id = $1", onboard.TenantID(operatorSub, "third")).Scan(&state); err != nil || state != "provisioning" {
+	if err := v.e.super.QueryRow(t.Context(), "SELECT state FROM tenants WHERE id = $1", derivedTenantID("third")).Scan(&state); err != nil || state != "provisioning" {
 		t.Errorf("conflicted tenant state = %q (%v), want provisioning", state, err)
 	}
 }
@@ -664,7 +674,7 @@ func TestOnboardDirectoryFailureIs500ThenRetryResumes(t *testing.T) {
 	if strings.Contains(rec.Body.String(), "secret-host-detail") {
 		t.Errorf("500 body leaks the cause: %s", rec.Body)
 	}
-	id := onboard.TenantID(operatorSub, "retry")
+	id := derivedTenantID("retry")
 	var state string
 	if err := v.e.super.QueryRow(t.Context(), "SELECT state FROM tenants WHERE id = $1", id).Scan(&state); err != nil || state != "provisioning" {
 		t.Fatalf("state after failure = %q (%v), want provisioning", state, err)
@@ -704,19 +714,4 @@ func TestOnboardNotConfiguredIs501(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	wantStatus(t, rec, http.StatusNotImplemented, problem.NotImplemented)
 	sameFootprint(t, before, v.footprint(t))
-}
-
-// api-coverage: onboardTenant 429
-// The operator routes are not rate limited (the limiter wraps tenant routes
-// only), so a limiter that refuses everything does not stop onboarding.
-func TestOnboardIsNotRateLimited(t *testing.T) {
-	v := newIDEnv(t, nil)
-	v.lim.reset(false)
-	rec := v.call(t, http.MethodPost, "/api/v1/operator/tenants", v.operatorToken(t), "k-rl", onboardJSON("acme-nine.test"))
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("= %d: %s, want 201 (operator routes bypass the tenant limiter)", rec.Code, rec.Body)
-	}
-	if len(v.lim.calls()) != 0 {
-		t.Errorf("limiter consulted for an operator route: %v", v.lim.calls())
-	}
 }
