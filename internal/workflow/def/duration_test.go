@@ -46,6 +46,7 @@ func TestParseDurationRefused(t *testing.T) {
 		"PT2592001S",
 		"P31D",
 		"P99999999D",
+		"PT00000001S", // 8 digits: refused on length, though the value is small
 		"PT1.5S",
 		"PT1,5S",
 		"-PT1S",
