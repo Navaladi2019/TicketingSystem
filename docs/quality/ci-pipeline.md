@@ -19,14 +19,24 @@ calls only `make` targets. Install the pinned tools once with `make tools`.
 In GitHub, the `temporal-server` job runs the module's tests and then
 `make vulncheck-temporal-server`, which must report zero findings: there is no
 exception and no allowlist (ADR-001 A1 Decision 3, TICK-121).
-`lint`, `unit`, `temporal-server`, `integration`, `stack`,
-`stack-db` and `stack-internal` run as seven parallel jobs (the ones a pull
+`lint`, `unit`, `temporal-server`, `integration`, `commit-check-budget`,
+`stack`, `stack-db` and `stack-internal` run as eight parallel jobs (the ones a pull
 request needs, see "In GitHub" below), each a separate
 check (decision log, 2026-10-20). Inside each job, steps follow the order above
 and the first failure stops the job. The stack tests are split over three jobs,
 each with its own compose stack: `stack` (healthy, smoke, PgBouncer, every
 Temporal case, SDK, dependencies, trace, redact), `stack-db` (idempotent,
 dbroles, hba) and `stack-internal` (the internal overlay).
+`commit-check-budget` runs `TestCommitCheckBudget` alone on a runner of its
+own (`make test-commit-check-budget`, `scripts/ci/commit-check-budget.sh`),
+whenever `integration` runs. The test measures ADR-004-E3's absolute µs
+budget rows, which drifted 10-36 % over the ceilings when the test shared the
+`integration` runner with the dbtest shards. The integration shards leave it
+out, so it runs once (D-E3-4, TICK-509). Under ADR-004-E4 the absolute
+thresholds are report-only: the job fails only when no rows were measured, a
+same-run ratio is out of range or the per-call row is not flat; a row over
+its threshold gets a `::warning::` annotation, and both rows, with the host's
+`cpu=` model, go to the step summary.
 
 `make ci-stack` runs all of them locally (TICK-153): the main stack, then the
 internal overlay as a project of its own (`<project>-int`, host ports 0 so
@@ -83,6 +93,7 @@ and the 7 green push runs of story branch `TICK-334/workflow-interpreter`
 | `stack-db` | 381 s / 793 s | 409 s / 789 s | 254 s / 652 s | 43 s / 55 s | 25 |
 | `stack-internal` | 432 s / 795 s | 356 s / 742 s | 256 s / 684 s | 34 s / 47 s | 25 |
 | `lint`, `unit`, `temporal-server`, `integration` | under 5 min | | | | 10 |
+| `commit-check-budget` | | 120 s, cold Go cache (run 41673342312; the test itself 13 s) | | | 10 |
 | `changes` | under 1 min | | | | 5 |
 
 Run ids: on `main`, 41261072764, 41257268224, 41254956177, 41248729699,

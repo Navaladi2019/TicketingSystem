@@ -50,6 +50,11 @@ steps:
     artifact: isolation-report
     why: the CI-2 isolation report
 
+  # The commit-check budget rows (ADR-004-E3, D-E3-4, TICK-509), alone on a runner.
+  - job: commit-check-budget
+    run: make test-commit-check-budget
+    why: the docs/budgets.md commit-check rows (single subject and import, 38 partitions, same-run reference) stop being measured, and the integration shards no longer run TestCommitCheckBudget
+
   # Stack suites and their reports. The cases are the files in deploy/compose/test/cases/
   # (TICK-296); each job runs the ones whose header names it, so a new case needs no entry here.
   - job: stack
