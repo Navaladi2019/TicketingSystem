@@ -2,7 +2,10 @@ package interp
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -62,4 +65,22 @@ func TestPauseAfterCommit(t *testing.T) {
 			return false
 		}
 	})
+}
+
+// TestPauseWithoutMarkerDoesNotBlock: when the marker cannot be written (its
+// directory is gone), the hook returns at once instead of waiting for a
+// release nobody can see it needs.
+func TestPauseWithoutMarkerDoesNotBlock(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "missing")
+	const key = "wf:t:0192f3a0-0000-7000-8000-00000000000a:interp:x:step"
+	done := make(chan struct{})
+	go func() { pauseInDir(context.Background(), dir, key); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the hook blocked without a marker")
+	}
+	if _, err := os.Stat(PauseMarker(dir, key)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("marker stat: %v, want not exist", err)
+	}
 }
