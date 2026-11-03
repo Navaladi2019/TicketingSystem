@@ -51,10 +51,13 @@ var budgetArms = [2]budgetArm{
 	{"ref", "p509_ref", budgetRefFn},
 }
 
-// TestCommitCheckBudget measures both rows and applies the verdict rule:
-// over a ceiling with an out-of-range same-run ratio is the E3-R2 S3
-// trigger; over a ceiling with in-range ratios is a runner problem, and the
-// job is re-run. Neither ever moves a ceiling.
+// TestCommitCheckBudget measures both rows by ADR-004-E3's method and
+// applies ADR-004-E4's verdict rule (commit_check_verdict_test.go): it fails
+// on fail_no_rows, fail_ratio or fail_flat; a row over its review threshold
+// with in-range ratios is warn, and the test passes. Nothing here moves a
+// threshold. On fail_ratio or fail_flat, tell the Technical Lead (E4 "What
+// a failure means"); fail_ratio with a row over its threshold is the
+// E3-R2 S3 trigger.
 func TestCommitCheckBudget(t *testing.T) {
 	start := time.Now()
 	super := budgetFixture(t)
@@ -92,20 +95,19 @@ func TestCommitCheckBudget(t *testing.T) {
 	}
 	b.ImportClause, b.ImportRef = median(clauseRuns), median(refRuns)
 
-	single, imp := b.singleLine(budgetPartitionCount), b.importLine(budgetPartitionCount, clauseRuns, refRuns)
+	cpu := cpuModel()
+	single, imp := b.singleLine(budgetPartitionCount, cpu), b.importLine(budgetPartitionCount, cpu, clauseRuns, refRuns)
 	t.Log(single)
 	t.Log(imp)
 	t.Logf("COMMIT-CHECK-BUDGET wall_time=%v", time.Since(start).Round(time.Millisecond))
-	for _, r := range []struct {
-		line string
-		v    budgetVerdict
-	}{{single, b.singleVerdict()}, {imp, b.importVerdict()}} {
-		switch r.v {
-		case budgetS3:
-			t.Errorf("E3-R2 S3 trigger: over the ceiling with a same-run ratio out of range; tell the Technical Lead on TICK-509, do not change the ceilings: %s", r.line)
-		case budgetRerun:
-			t.Errorf("over the ceiling with in-range same-run ratios: a runner problem, re-run the job (not S3): %s", r.line)
-		}
+	v := b.verdict()
+	switch {
+	case v.failed():
+		t.Errorf("commit-check budget %s (failing conditions %v; ADR-004-E4): tell the Technical Lead on TICK-509, do not change the thresholds; "+
+			"fail_ratio with a row over its review threshold is the E3-R2 S3 trigger: %s | %s", v, b.failures(), single, imp)
+	case v == budgetWarn:
+		t.Logf("commit-check budget warn: a row is over its review threshold with in-range ratios (report-only in CI, ADR-004-E4); "+
+			"compare with the docs/budgets.md baseline for cpu=%q", cpu)
 	}
 }
 

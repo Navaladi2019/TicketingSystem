@@ -2,9 +2,10 @@
 # The commit-check budget rows (ADR-004-E3 "Budget", D-E3-4, TICK-509):
 # TestCommitCheckBudget alone, against one throwaway PostgreSQL cluster from
 # the docs/pins.md postgres image, with nothing else running beside it. The
-# rows are absolute µs ceilings, so the test needs an uncontended runner: in
-# the integration job it shared the runner with the dbtest shards and the
-# other groups, and both arms read 1.5-7x slow. test-integration.sh leaves it
+# rows carry absolute µs review thresholds (report-only in CI, ADR-004-E4),
+# so the test wants an uncontended runner: in the integration job it shared
+# the runner with the dbtest shards and the other groups, and both arms read
+# 1.5-7x slow. test-integration.sh leaves it
 # out of its shards for that reason; the ci.yml job commit-check-budget runs
 # this script on a runner of its own. Needs Docker. Extra arguments go to go
 # test. Not part of make ci: a laptop is not the baseline (docs/budgets.md).
@@ -55,7 +56,10 @@ export NAVA_TEST_PG_URL
 # The CPU model, so a slow runner host can be told from a regression
 # (TICK-509 review finding 3).
 cpu=$(sed -n 's/^model name[[:space:]]*: //p' /proc/cpuinfo 2>/dev/null | head -n 1)
-echo "commit-check-budget ($image): cluster healthy after $(( $(date +%s) - t0 ))s; nproc $(nproc 2>/dev/null || echo ?); cpu ${cpu:-unknown}"
+# The test puts it on each COMMIT-CHECK-BUDGET line (ADR-004-E4 decision 3).
+NAVA_BUDGET_CPU=${cpu:-unknown}
+export NAVA_BUDGET_CPU
+echo "commit-check-budget ($image): cluster healthy after $(( $(date +%s) - t0 ))s; nproc $(nproc 2>/dev/null || echo ?); cpu=\"${cpu:-unknown}\""
 
 # -timeout well below the job's timeout-minutes, so a hang dumps goroutines.
 # The output streams through tee into $out (a FIFO keeps go test's own exit
@@ -74,10 +78,31 @@ wait "$teepid" || true
 echo "commit-check-budget: done after $(( $(date +%s) - t0 ))s"
 # A green run must have measured both rows: a renamed test makes -run match
 # nothing and go test pass (TICK-509 review finding 2).
+#
+# ADR-004-E4: the review thresholds are report-only. A row over its threshold
+# in a warn run gets one ::warning:: annotation and the job stays green; the
+# test itself fails on fail_no_rows, fail_ratio and fail_flat. Both rows go to
+# the step summary when GitHub provides one.
+summary=${GITHUB_STEP_SUMMARY:-/dev/null}
+{
+    echo "### Commit-check budget (ADR-004-E3 method, ADR-004-E4 verdict)"
+    echo
+    echo '```'
+} >>"$summary"
 for row in single_subject import; do
-    grep -q "COMMIT-CHECK-BUDGET row=$row " "$out" || {
-        echo "commit-check-budget: no 'COMMIT-CHECK-BUDGET row=$row' line in the output; was TestCommitCheckBudget renamed or skipped?" >&2
+    # go test -v indents t.Log lines; keep the line from COMMIT-CHECK-BUDGET on.
+    line=$(sed -n "s/.*\(COMMIT-CHECK-BUDGET row=$row .*\)/\1/p" "$out" | head -n 1)
+    if [ -z "$line" ]; then
+        echo "commit-check-budget: no 'COMMIT-CHECK-BUDGET row=$row' line in the output; was TestCommitCheckBudget renamed or skipped? (fail_no_rows)" >&2
+        echo "row=$row: MISSING (fail_no_rows)" >>"$summary"
         status=1
-    }
+        continue
+    fi
+    echo "$line" >>"$summary"
+    case $line in
+        *" over_threshold=true "*"verdict=warn"*)
+            echo "::warning title=commit-check budget $row over its review threshold::$line (report-only in CI, ADR-004-E4; compare with the docs/budgets.md baseline for this cpu)" ;;
+    esac
 done
+echo '```' >>"$summary"
 exit "$status"
