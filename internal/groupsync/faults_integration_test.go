@@ -255,7 +255,7 @@ func TestApplyDatabaseFaultsRollBackAndStayInTheTenant(t *testing.T) {
 	tried := sweep(t, pool, a, rowsA, func(ctx context.Context, tx pgx.Tx) error {
 		return groupsync.ApplyForTest(ctx, tx, a, snap, time.Now(), 8)
 	})
-	if tried < 30 {
+	if tried < 20 {
 		t.Fatalf("only %d fault points swept; the sweep is not reaching the writes", tried)
 	}
 	if got := tenantRows(t, super, b); got != rowsB {

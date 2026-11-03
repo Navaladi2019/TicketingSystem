@@ -329,7 +329,7 @@ func TestPGStoreDatabaseErrorsAreWrappedNotAbsence(t *testing.T) {
 		errors.Is(err, ErrKeyReuse) || errors.Is(err, ErrDomainClaimed) {
 		t.Errorf("Begin = %+v, %v", st, err)
 	}
-	err = s.Bind(ctx, tenant, "iss", "org", "idp")
+	err = s.Bind(ctx, tenant, "iss", "org", "idp-x")
 	check("Bind", err)
 	if errors.Is(err, ErrConflict) || errors.Is(err, ErrNotProvisioning) {
 		t.Errorf("Bind on a dead database must not read as a refusal: %v", err)
