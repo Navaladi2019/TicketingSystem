@@ -20,8 +20,10 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"regexp"
@@ -92,8 +94,24 @@ func parse(kind string, out []byte) ([]Resource, error) {
 // docker network ls .Name.
 const fields = `{{"\t"}}{{.CreatedAt}}{{"\t"}}{{.Label "com.docker.compose.project"}}`
 
-func list(kind string, args ...string) ([]Resource, error) {
-	out, err := exec.CommandContext(context.Background(), "docker", args...).Output() //nolint:gosec // docker with arguments from this file
+// dockerFunc runs docker with args: combined selects stdout and stderr
+// together (for rm, whose error text gone reads), else stdout alone (for the
+// listings). It is a parameter of run so tests need no Docker daemon.
+type dockerFunc func(combined bool, args ...string) ([]byte, error)
+
+// execDocker runs the docker binary bin.
+func execDocker(bin string) dockerFunc {
+	return func(combined bool, args ...string) ([]byte, error) {
+		cmd := exec.CommandContext(context.Background(), bin, args...) //nolint:gosec // docker with arguments from this file
+		if combined {
+			return cmd.CombinedOutput()
+		}
+		return cmd.Output()
+	}
+}
+
+func list(docker dockerFunc, kind string, args ...string) ([]Resource, error) {
+	out, err := docker(false, args...)
 	if err != nil {
 		return nil, fmt.Errorf("docker %s: %w", strings.Join(args, " "), err)
 	}
@@ -107,54 +125,65 @@ func gone(out []byte) bool {
 	return strings.Contains(s, "no such container") || strings.Contains(s, "not found")
 }
 
-func main() {
-	older := flag.Duration("older", 6*time.Hour, "remove only resources created longer ago than this")
-	dry := flag.Bool("n", false, "print what would be removed, remove nothing")
-	flag.Parse()
+func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, time.Now(), execDocker("docker"))) }
+
+// run reaps with docker as of now and returns the exit code: 0, 1 when a
+// listing or a removal failed, 2 for bad flags.
+func run(args []string, stdout, stderr io.Writer, now time.Time, docker dockerFunc) int {
+	fs := flag.NewFlagSet("itreap", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	older := fs.Duration("older", 6*time.Hour, "remove only resources created longer ago than this")
+	dry := fs.Bool("n", false, "print what would be removed, remove nothing")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0 // as flag.ExitOnError does
+		}
+		return 2
+	}
 	if *older <= 0 {
-		fmt.Fprintln(os.Stderr, "usage: itreap [-older 6h] [-n]")
-		os.Exit(2)
+		fmt.Fprintln(stderr, "usage: itreap [-older 6h] [-n]")
+		return 2
 	}
 	// The name filters are substring matches; stale applies the exact forms.
-	cs, err := list("container", "ps", "-a", "--filter", "name=nava-it-", "--filter", "name=nava-iso-",
+	cs, err := list(docker, "container", "ps", "-a", "--filter", "name=nava-it-", "--filter", "name=nava-iso-",
 		"--format", "{{.Names}}"+fields)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "itreap:", err)
-		os.Exit(1)
+		fmt.Fprintln(stderr, "itreap:", err)
+		return 1
 	}
-	ns, err := list("network", "network", "ls", "--filter", "name=nava-it-net-", "--filter", "name=nava-iso-net-",
+	ns, err := list(docker, "network", "network", "ls", "--filter", "name=nava-it-net-", "--filter", "name=nava-iso-net-",
 		"--format", "{{.Name}}"+fields)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "itreap:", err)
-		os.Exit(1)
+		fmt.Fprintln(stderr, "itreap:", err)
+		return 1
 	}
-	now := time.Now()
 	failed := 0
 	old := stale(append(cs, ns...), now, *older)
 	for _, r := range old {
 		age := now.Sub(r.Created).Round(time.Minute)
 		if *dry {
-			fmt.Printf("itreap: would remove %s %s (%s old)\n", r.Kind, r.Name, age)
+			fmt.Fprintf(stdout, "itreap: would remove %s %s (%s old)\n", r.Kind, r.Name, age)
 			continue
 		}
-		args := []string{"rm", "-f", r.Name}
+		rm := []string{"rm", "-f", r.Name}
 		if r.Kind == "network" {
-			args = []string{"network", "rm", r.Name}
+			rm = []string{"network", "rm", r.Name}
 		}
-		out, err := exec.CommandContext(context.Background(), "docker", args...).CombinedOutput() //nolint:gosec // docker with a name stale matched
+		out, err := docker(true, rm...)
 		switch {
 		case err != nil && gone(out):
 			// Removed since the listing: by its own run, or by another reaper.
-			fmt.Printf("itreap: %s %s already removed\n", r.Kind, r.Name)
+			fmt.Fprintf(stdout, "itreap: %s %s already removed\n", r.Kind, r.Name)
 		case err != nil:
-			fmt.Fprintf(os.Stderr, "itreap: docker %s: %v: %s\n", strings.Join(args, " "), err, bytes.TrimSpace(out))
+			fmt.Fprintf(stderr, "itreap: docker %s: %v: %s\n", strings.Join(rm, " "), err, bytes.TrimSpace(out))
 			failed++
 		default:
-			fmt.Printf("itreap: removed %s %s (%s old)\n", r.Kind, r.Name, age)
+			fmt.Fprintf(stdout, "itreap: removed %s %s (%s old)\n", r.Kind, r.Name, age)
 		}
 	}
-	fmt.Printf("itreap: %d of %d integration resources older than %s, %d failed\n", len(old), len(cs)+len(ns), *older, failed)
+	fmt.Fprintf(stdout, "itreap: %d of %d integration resources older than %s, %d failed\n", len(old), len(cs)+len(ns), *older, failed)
 	if failed > 0 {
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }

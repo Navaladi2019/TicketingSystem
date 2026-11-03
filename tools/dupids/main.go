@@ -15,8 +15,10 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"sort"
@@ -38,20 +40,34 @@ func tables() []table {
 }
 
 func main() {
-	dir := flag.String("dir", ".", "repository root")
-	flag.Parse()
+	os.Exit(run(os.Args[1:], os.Stderr))
+}
+
+// run returns the exit code: 0 clean, 1 a duplicate or malformed id, 2 bad
+// usage or an unreadable table.
+func run(args []string, stderr io.Writer) int {
+	fs := flag.NewFlagSet("dupids", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	dir := fs.String("dir", ".", "repository root")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
 
 	problems, err := check(*dir)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "dupids:", err)
-		os.Exit(2)
+		fmt.Fprintln(stderr, "dupids:", err)
+		return 2
 	}
 	for _, p := range problems {
-		fmt.Fprintln(os.Stderr, "dupids:", p)
+		fmt.Fprintln(stderr, "dupids:", p)
 	}
 	if len(problems) > 0 {
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
 func check(root string) ([]string, error) {

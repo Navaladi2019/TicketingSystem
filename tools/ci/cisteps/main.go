@@ -8,8 +8,10 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -17,23 +19,37 @@ import (
 )
 
 func main() {
-	workflow := flag.String("workflow", ".github/workflows/ci.yml", "the GitHub workflow to check")
-	required := flag.String("required", "tools/ci/cisteps/required.yaml", "the list of required steps")
-	flag.Parse()
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+// run returns the exit code: 0 every required step runs, 1 one does not,
+// 2 bad usage or an unreadable input.
+func run(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("cisteps", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	workflow := fs.String("workflow", ".github/workflows/ci.yml", "the GitHub workflow to check")
+	required := fs.String("required", "tools/ci/cisteps/required.yaml", "the list of required steps")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
 
 	problems, n, err := check(*workflow, *required)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "check-ci-steps:", err)
-		os.Exit(2)
+		fmt.Fprintln(stderr, "check-ci-steps:", err)
+		return 2
 	}
 	for _, p := range problems {
-		fmt.Fprintln(os.Stderr, "check-ci-steps:", p)
+		fmt.Fprintln(stderr, "check-ci-steps:", p)
 	}
 	if len(problems) > 0 {
-		fmt.Fprintf(os.Stderr, "check-ci-steps: %s must keep every step in %s\n", *workflow, *required)
-		os.Exit(1)
+		fmt.Fprintf(stderr, "check-ci-steps: %s must keep every step in %s\n", *workflow, *required)
+		return 1
 	}
-	fmt.Printf("check-ci-steps: ok: %d required steps in %s\n", n, *workflow)
+	fmt.Fprintf(stdout, "check-ci-steps: ok: %d required steps in %s\n", n, *workflow)
+	return 0
 }
 
 // required is one entry of required.yaml: Run or Artifact, not both.

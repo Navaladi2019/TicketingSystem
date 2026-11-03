@@ -24,14 +24,21 @@ import (
 )
 
 func main() {
-	if len(os.Args) != 2 {
-		fmt.Fprintln(os.Stderr, "usage: go test -json ... | testlog <group>")
-		os.Exit(2)
+	os.Exit(cli(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+}
+
+// cli runs testlog with the arguments after the program name and returns the
+// exit code: 2 for a usage error, 1 when reading or writing failed.
+func cli(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if len(args) != 1 {
+		_, _ = fmt.Fprintln(stderr, "usage: go test -json ... | testlog <group>")
+		return 2
 	}
-	if err := run(os.Stdin, os.Stdout, os.Args[1]); err != nil {
-		fmt.Fprintln(os.Stderr, "testlog:", err)
-		os.Exit(1)
+	if err := run(stdin, stdout, args[0]); err != nil {
+		_, _ = fmt.Fprintln(stderr, "testlog:", err)
+		return 1
 	}
+	return 0
 }
 
 // event is the part of a `go test -json` line testlog prints.
