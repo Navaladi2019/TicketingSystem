@@ -57,3 +57,24 @@ Verdict on findings 2–4: **resolved.** Finding 1 is decided on TICK-517 (Optio
 | 4: tenant-prefix comment | ✅ resolved | The comment now names S2's `0190b000-…-04` and the older P5-11 script's `0190d000-…-04` |
 
 Run 41679998550's red import row (194.9 µs, ratio 8.58, verdict `rerun`) is finding 1 again, on an AMD EPYC 7763 host. The earlier fast runs predate the CPU log, so the fast host's model is not yet known; the next green run's healthy line will give TICK-517 the pair.
+
+## Final review at `5bb0ff7` (ADR-004-E4 applied)
+
+Verdict: **APPROVE.** Finding 1 is closed by ADR-004-E4: the absolute ceilings are report-only review thresholds, and the job fails only on `fail_no_rows`, `fail_ratio` or `fail_flat`.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Verdict rule matches the E4 table | ✅ | `failures()` evaluates in table order (`fail_no_rows`, then `fail_ratio`, then `fail_flat`) and returns every failing condition; `verdict()` takes the first, else `warn` if any N > 300 or import > 175, else `pass`. `rerun` is gone. `measured()` rejects ≤ 0, NaN and ±Inf; NaN ratios are out of range through `!(x <= limit)` |
+| Follow-up 1 cases | ✅ | 18 table cases in `TestCommitCheckBudgetVerdict` plus `TestCommitCheckBudgetCPUModel` (19 tests). Covered: over a threshold with in-range ratios → `warn` (both rows over, import only, only N = 5,000 at 301); in-range absolutes with a ratio over its limit → `fail_ratio` (per call and import); zero reference → `fail_no_rows` (import and per call, plus NaN, negative, all zero); ratio and flatness exactly at the limit → `fail_flat`; non-flat with in-range ratios → `fail_flat`; just inside every limit → `pass` |
+| "Exactly at the limit → `fail_flat`" | ✅ | Matches E4: a ratio is out of range only when it is *over* its limit (> 5, > 15), while the flat row requires max/min < 1.5, so 5 / 15 / 1.5 together gives `fail_flat` |
+| `::warning::` only for `warn` rows | ✅ | Ran the real script with stub `docker` and `go`: `pass` → 0 warnings; `warn` with import over → 1; `warn` with both over → 2; `fail_flat` with a row over → 0, exit 1; `fail_ratio` with a row over → 0, exit 1 |
+| `$GITHUB_STEP_SUMMARY` and `MISSING` | ✅ | Same harness: both rows written in every measured case; no rows → two `row=…: MISSING (fail_no_rows)` lines and exit 1 |
+| `cpu="…"` on each row line and the healthy line | ✅ | Run 41709576374: `cpu="Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz"` on all three lines; run 41709585149: `cpu="AMD EPYC 9V45 96-Core Processor"` |
+| Citations | ✅ | `docs/budgets.md` rows: "ADR-004-E3 (method, threshold), ADR-004-E4 (verdict rule)", column renamed "Review threshold (report-only in CI, ADR-004-E4)", fail conditions and S3 stated, CPU model per baseline. The test, script, make and pipeline-doc comments cite E3 for method/thresholds and E4 for the verdict. The E4 path resolves once `main` is merged into the story branch (accepted by the TL) |
+| Out of scope untouched | ✅ | No change under `.github/` or `tools/` since `ddb1d2b`; `go run ./tools/ci/cisteps` reports `ok: 16 required steps`; threshold and ratio constants keep E3's values |
+| Local | ✅ | `go test -run CommitCheckBudget ./internal/db/dbtest` passes; `go vet -tags integration ./internal/db/dbtest` is clean |
+| CI (`gh pr checks 420`) | ✅ | Both runs on `5bb0ff7` (41709576374 push, 41709585149 pull_request) green on every job; `main-red` skipped. Both dedicated runs verdict `pass` |
+
+Remaining, not a review finding: the full local `task test` on `5bb0ff7` is the engineer's open acceptance item.
+
+**Preference (optional):** `docs/budgets.md` lists three baselines; the Intel Xeon Platinum 8370C run (41709576374: 221.8 µs/call, 161.6 µs/probe) is the first on that CPU model and would help TICK-525's variance spike. It can go in with the story PR or TICK-525 rather than another round here.
