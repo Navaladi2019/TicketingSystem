@@ -2,7 +2,8 @@
 type: adr-erratum
 id: ADR-004-E3
 title: "Erratum E3 to ADR-004 decision 2: the commit-check probe is planned on every call (force_custom_plan), Finding 5 tests the plan that runs, and the budget is rebased"
-status: PROPOSED
+status: ACCEPTED
+accepted: 2026-11-03 (Solution Architect verdict, TICK-502 comment thread 01a1a016-cd84)
 date: 2026-11-03
 issue: TICK-502
 rfc: docs/adr/ADR-004/rfc/RFC-010-adr-004-e3-commit-check-plan-per-probe.md (rev 1, archived with rev-0/ and rev-1/; thread under TICK-502 comment 01a19fc5-0441)
@@ -14,7 +15,7 @@ deciders: Solution Architect (author); Postgres & Data Modeling Specialist (roun
 
 # ADR-004 erratum E3: plan the commit-check probe on every call
 
-> **Status: PROPOSED, 2026-11-03.** All reviewers approved RFC-010 rev 1. The CTO decided the one tradeoff (cost against determinism) under RFC §7: accept 1c and rebase the budget. There is no recorded dissent. The Solution Architect gives the verdict on this PR.
+> **Status: ACCEPTED, 2026-11-03,** by the Solution Architect (TICK-502), after all reviewers approved RFC-010 rev 1. The Technical Architect accepted F1/F2 in the final re-check (comment 01a1a00e-cb7b), and its one non-blocking text change is folded in word for word. The Postgres specialist confirmed Q2. The CTO ruled on the §7 tradeoff (accept 1c, rebase the budget, defer S3) and accepted the text change. Nothing was contested and no dissent was recorded. Under the current policy no human sign-off is needed. The CTO creates `Plan ADR-004-E3`.
 >
 > **Invariants source.** The project description defines no invariants. As in ADR-004, E1 and E2, this erratum is checked against [[ADR-001-platform-blueprint]] §1 I1–I9. The check is incomplete against any separate list of eight.
 
