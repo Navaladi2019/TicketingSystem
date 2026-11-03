@@ -10,9 +10,11 @@
 //   - a copy or move whose from overlaps a secret path (equal to it, under it,
 //     or a parent of it), because it relocates the secret to a path that is not
 //     marked secret;
-//   - a URL with userinfo (scheme://user[:pass]@host) in any string value or
-//     object key, or spelled across the tokens of a pointer (an op path, a
-//     from, or the nested keys of a value), in every domain;
+//   - a URL with userinfo (scheme://user[:pass]@host, or the WHATWG-lax
+//     spellings of the special schemes such as https:user@host or
+//     https:\user@host) in any string value or object key, or spelled across
+//     the tokens of a pointer (an op path, a from, or the nested keys of a
+//     value), in every domain;
 //   - on DomainConfig only, a secret-shaped string (AWS access key id, GitHub
 //     token, Slack token, PEM block, JWT) in any string value or object key.
 //
@@ -93,9 +95,20 @@ func (e *ErrSecretInDiff) LogValue() slog.Value {
 // invalid secret path: a caller bug, not a client error.
 var ErrInvalidInput = errors.New("secrets: invalid input")
 
-// userinfoURL matches scheme://userinfo@ with no "/", "?", "#" or whitespace
-// before the "@", so "https://host/@user" does not match.
-var userinfoURL = regexp.MustCompile(`(?i)[a-z][a-z0-9+.\-]*://[^/?#@\s]*@`)
+// userinfoURL matches a URL with userinfo: a scheme, then the text before the
+// host, then userinfo with no "/", "?", "#" or whitespace before the "@", so
+// "https://host/@user" does not match.
+//
+// For any scheme the text before the host is "://". The special schemes of the
+// WHATWG URL standard (http, https, ws, wss, ftp, file) are parsed laxly by
+// browsers and Node: after the ":" any run of "/" or "\", none included, comes
+// before the authority, so "https:u:p@h", "https:/u:p@h", "https:\u:p@h" and
+// "https:///u:p@h" all carry userinfo. Percent-encoded slashes ("%2F", "%5C")
+// count too. For them the scheme must not continue a longer scheme name
+// ("xhttps:" is not special), and the lax form applies to them only, so
+// "mailto:a@b" and "urn:x:a@b" still pass.
+var userinfoURL = regexp.MustCompile(`(?i)[a-z][a-z0-9+.\-]*://[^/?#@\s]*@` +
+	`|(?:^|[^a-z0-9+.\-])(?:https?|wss?|ftp|file):(?:[/\\]|%2f|%5c)*[^/?#@\s]*@`)
 
 // secretShape matches the secret shapes ADR-004 R6 names (RFC-008 D7).
 var secretShape = regexp.MustCompile(
@@ -183,8 +196,8 @@ func Check(diff []byte, secretPaths []patchwalk.Pointer, domain Domain) error {
 // "/" ("https:/" then "u:p@h", escaped "/https:~1/u:p@h") is caught too.
 //
 // On a match it names the parent of the token where the match ends. That
-// parent never holds the userinfo: the pattern allows no "/" between "://" and
-// "@", and in either text the "/" nearest before the "@" is at or after the
+// parent never holds the userinfo: the pattern allows no "/" in the userinfo
+// (between the slashes after the scheme and the "@"), and in either text the "/" nearest before the "@" is at or after the
 // start of that token. The shapes hold no "/" either, so the same is true of
 // them.
 func scanJoined(ptr patchwalk.Pointer, shapes bool) (patchwalk.Pointer, Reason, bool) {

@@ -263,36 +263,9 @@ func FuzzCheckJoinedUserinfo(f *testing.F) {
 		}
 		segs := strings.Split(prefix+"https://u:"+canary+"@h", "/")
 		if form&4 != 0 {
-			// Fold each empty token into the one before it as a "/", so a
-			// key holds the slash: "https:", "" becomes "https:/".
-			folded := segs[:1]
-			for _, s := range segs[1:] {
-				if s == "" {
-					folded[len(folded)-1] += "/"
-					continue
-				}
-				folded = append(folded, s)
-			}
-			segs = folded
+			segs = foldEmpty(segs)
 		}
-		var diff string
-		switch form & 3 {
-		case 0:
-			diff = `[{"op":"add","path":` + jsonQuote(string(patchwalk.FromSegments(segs))) + `,"value":1}]`
-		case 1:
-			diff = `[{"op":"copy","from":` + jsonQuote(string(patchwalk.FromSegments(segs))) + `,"path":"/z"}]`
-		default:
-			// The first k tokens form the op path, the rest nested keys.
-			k := 0
-			if form&3 == 3 {
-				k = len(segs) - 2
-			}
-			value := "1"
-			for i := len(segs) - 1; i >= k; i-- {
-				value = `{` + jsonQuote(segs[i]) + `:` + value + `}`
-			}
-			diff = `[{"op":"add","path":` + jsonQuote(string(patchwalk.FromSegments(segs[:k]))) + `,"value":` + value + `}]`
-		}
+		diff := splitDiff(segs, form)
 		for _, d := range []Domain{DomainRecord, DomainConfig, DomainAudit} {
 			err := Check([]byte(diff), nil, d)
 			// Past patchwalk.MaxDepth the walk fails closed with ErrMalformed;
@@ -306,6 +279,42 @@ func FuzzCheckJoinedUserinfo(f *testing.F) {
 			}
 		}
 	})
+}
+
+// splitDiff builds a diff that spells the tokens segs: form&3 is 0 for an op
+// path, 1 for a from, 2 for nested keys under the root and 3 for an op path of
+// all but the last two tokens followed by two nested keys.
+func splitDiff(segs []string, form int) string {
+	switch form & 3 {
+	case 0:
+		return `[{"op":"add","path":` + jsonQuote(string(patchwalk.FromSegments(segs))) + `,"value":1}]`
+	case 1:
+		return `[{"op":"copy","from":` + jsonQuote(string(patchwalk.FromSegments(segs))) + `,"path":"/z"}]`
+	}
+	// The first k tokens form the op path, the rest nested keys.
+	k := 0
+	if form&3 == 3 {
+		k = max(len(segs)-2, 0)
+	}
+	value := "1"
+	for i := len(segs) - 1; i >= k; i-- {
+		value = `{` + jsonQuote(segs[i]) + `:` + value + `}`
+	}
+	return `[{"op":"add","path":` + jsonQuote(string(patchwalk.FromSegments(segs[:k]))) + `,"value":` + value + `}]`
+}
+
+// foldEmpty folds each empty token into the one before it as a "/", so a key
+// holds the slash: "https:", "" becomes "https:/".
+func foldEmpty(segs []string) []string {
+	folded := segs[:1]
+	for _, s := range segs[1:] {
+		if s == "" {
+			folded[len(folded)-1] += "/"
+			continue
+		}
+		folded = append(folded, s)
+	}
+	return folded
 }
 
 func jsonQuote(s string) string {
@@ -326,4 +335,127 @@ func jsonQuote(s string) string {
 	}
 	b.WriteByte('"')
 	return b.String()
+}
+
+// TICK-492: the WHATWG-lax spellings of URL userinfo for the special schemes
+// (http, https, ws, wss, ftp, file), which browsers and Node URL parse as
+// userinfo though they have no literal "://".
+func TestCheckRejectsLaxURLUserinfo(t *testing.T) {
+	userinfo := "u:pass-" + canary + "@h"
+	cases := map[string]struct {
+		diff string
+		path patchwalk.Pointer
+	}{
+		"no slashes":       {`[{"op":"add","path":"/a","value":"https:` + userinfo + `"}]`, "/a"},
+		"single slash":     {`[{"op":"add","path":"/a","value":"https:/` + userinfo + `"}]`, "/a"},
+		"three slashes":    {`[{"op":"add","path":"/a","value":"https:///` + userinfo + `"}]`, "/a"},
+		"backslashes":      {`[{"op":"add","path":"/a","value":"https:\\\\` + userinfo + `"}]`, "/a"},
+		"mixed slashes":    {`[{"op":"add","path":"/a","value":"https:/\\` + userinfo + `"}]`, "/a"},
+		"pct slashes":      {`[{"op":"add","path":"/a","value":"https:%2F%2F` + userinfo + `"}]`, "/a"},
+		"pct lower":        {`[{"op":"add","path":"/a","value":"https:%2f%2f` + userinfo + `"}]`, "/a"},
+		"pct backslash":    {`[{"op":"add","path":"/a","value":"https:%5C%5c` + userinfo + `"}]`, "/a"},
+		"upper scheme":     {`[{"op":"add","path":"/a","value":"HTTP:` + userinfo + `"}]`, "/a"},
+		"ws":               {`[{"op":"add","path":"/a","value":"ws:` + userinfo + `"}]`, "/a"},
+		"wss":              {`[{"op":"add","path":"/a","value":"wss:/` + userinfo + `"}]`, "/a"},
+		"ftp":              {`[{"op":"add","path":"/a","value":"ftp:` + userinfo + `"}]`, "/a"},
+		"file":             {`[{"op":"add","path":"/a","value":"file:` + userinfo + `"}]`, "/a"},
+		"in prose":         {`[{"op":"add","path":"/a","value":"see https:` + userinfo + `"}]`, "/a"},
+		"in a key":         {`[{"op":"add","path":"/a","value":{"https:` + userinfo + `":1}}]`, "/a"},
+		"path no slash":    {`[{"op":"add","path":"/https:` + userinfo + `","value":1}]`, ""},
+		"from no slash":    {`[{"op":"copy","from":"/x/https:` + userinfo + `","path":"/z"}]`, "/x"},
+		"split one slash":  {`[{"op":"add","path":"/a","value":{"https:":{"` + userinfo + `":1}}}]`, "/a/https:"},
+		"path one slash":   {`[{"op":"add","path":"/https:/` + userinfo + `","value":1}]`, "/https:"},
+		"key three slash":  {`[{"op":"add","path":"/a","value":{"https://":{"` + userinfo + `":1}}}]`, "/a/https:~1~1"},
+		"path three slash": {`[{"op":"add","path":"/https:~1~1/` + userinfo + `","value":1}]`, "/https:~1~1"},
+	}
+	for name, c := range cases {
+		for _, d := range []Domain{DomainRecord, DomainConfig, DomainAudit} {
+			t.Run(name+"/"+string(d), func(t *testing.T) {
+				assertRejected(t, c.diff, d, ReasonURLUserinfo, c.path)
+				assertNoLeak(t, Check([]byte(c.diff), secretPaths(), d), "pass")
+			})
+		}
+	}
+}
+
+// TICK-492: the lax form applies to the special schemes only, and a "/" still
+// ends the userinfo, so these are not URLs with userinfo.
+func TestCheckAllowsLaxLookalikes(t *testing.T) {
+	clean := []string{
+		`[{"op":"add","path":"/a","value":"mailto:a@b"}]`,
+		`[{"op":"add","path":"/a","value":"urn:x:a@b"}]`,
+		`[{"op":"add","path":"/a","value":{"mailto:a@b":1}}]`,
+		`[{"op":"add","path":"/mailto:a@b","value":1}]`,
+		`[{"op":"add","path":"/urn:x:a@b","value":1}]`,
+		`[{"op":"add","path":"/a","value":"https:/example.org/@alice"}]`,
+		`[{"op":"add","path":"/a","value":"https:example.org/@alice"}]`,
+		`[{"op":"add","path":"/a","value":"https:\\example.org\\/@alice"}]`,
+		`[{"op":"add","path":"/https:/example.org/@alice","value":1}]`,
+		`[{"op":"add","path":"/a","value":"xhttps:u@h"}]`,
+		`[{"op":"add","path":"/a","value":"webcal:u@h"}]`,
+	}
+	for _, d := range clean {
+		for _, dom := range []Domain{DomainRecord, DomainConfig, DomainAudit} {
+			if err := Check([]byte(d), secretPaths(), dom); err != nil {
+				t.Errorf("%s %s: %v", dom, d, err)
+			}
+		}
+	}
+}
+
+// FuzzCheckLaxUserinfo (TICK-492): a special-scheme URL whose userinfo follows
+// any run of "/", "\", "%2F" or "%5C" is rejected in every domain, as a string
+// value (form&8) or spelled across pointer tokens and nested keys (the forms of
+// FuzzCheckJoinedUserinfo), and its password is never echoed. Each byte of sep
+// picks one separator. The seeds cover each lax form of the TICK-492 tests.
+func FuzzCheckLaxUserinfo(f *testing.F) {
+	f.Add("", "", 8)               // no slashes, value
+	f.Add("", "\x00", 8)           // single slash, value
+	f.Add("", "\x01\x01", 8)       // backslashes, value
+	f.Add("", "\x02\x02", 8)       // percent-encoded slashes, value
+	f.Add("", "\x03", 8)           // percent-encoded backslash, value
+	f.Add("", "", 0)               // no slashes, op path
+	f.Add("", "\x00", 1)           // single slash, from
+	f.Add("a/", "\x00", 2)         // single slash, nested keys
+	f.Add("a/", "\x00\x00\x00", 6) // three slashes folded into a key
+	f.Add("see ", "\x01", 3)       // backslash, path and key
+	f.Fuzz(func(t *testing.T, prefix, sep string, form int) {
+		if !utf8.ValidString(prefix) || strings.Contains(prefix, canary) {
+			t.Skip("not a diff, or the canary is in the prefix itself")
+		}
+		if n := len(prefix); n > 0 && isSchemeByte(prefix[n-1]) {
+			t.Skip(`the prefix extends the scheme name ("xhttps:" is not special)`)
+		}
+		var b strings.Builder
+		for i := 0; i < len(sep); i++ {
+			b.WriteString([...]string{"/", `\`, "%2F", "%5c"}[sep[i]%4])
+		}
+		url := prefix + "https:" + b.String() + "u:pass-" + canary + "@h"
+		var diff string
+		if form&8 != 0 {
+			diff = `[{"op":"add","path":"/a","value":` + jsonQuote(url) + `}]`
+		} else {
+			segs := strings.Split(url, "/")
+			if form&4 != 0 {
+				segs = foldEmpty(segs)
+			}
+			diff = splitDiff(segs, form)
+		}
+		for _, d := range []Domain{DomainRecord, DomainConfig, DomainAudit} {
+			err := Check([]byte(diff), nil, d)
+			// Past patchwalk.MaxDepth the walk fails closed with ErrMalformed;
+			// that rejects the diff too.
+			var se *ErrSecretInDiff
+			if !errors.As(err, &se) && !errors.Is(err, patchwalk.ErrMalformed) {
+				t.Fatalf("%s: userinfo let through: %s: %v", d, diff, err)
+			}
+			if strings.Contains(err.Error(), canary) || strings.Contains(err.Error(), "pass") {
+				t.Fatalf("%s: password in error: %v", d, err)
+			}
+		}
+	})
+}
+
+func isSchemeByte(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '+' || c == '.' || c == '-'
 }
