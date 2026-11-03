@@ -22,8 +22,10 @@ const Format = "nava.audit.export/v1"
 // with JSON escaping and the envelope a line stays far below this.
 const MaxLineBytes = 4 << 20
 
-// maxErasedIDs is the R23 cap on ids per audit/erase entry.
-const maxErasedIDs = 10000
+// maxErasedIDs is the R23 cap on ids per audit/erase entry, as amended by
+// ADR-004-E1: 1,500, the same cap the writer enforces (audit.MaxErasedIDs)
+// so an erase entry's diff stays under 64 KB and is never truncated.
+const maxErasedIDs = 1500
 
 // Verify reads one export from r, JSONL or CSV (audit-export-v1.md §3 and
 // §5), and checks it. A file whose first bytes are the CSV column row
@@ -463,7 +465,7 @@ func diffState(e entryLine) (LineOutcome, string, string) {
 
 // recordErase adds the ids an audit/erase entry lists to into. The diff must
 // be exactly [{"op":"add","path":"/erased_ids","value":[ids]}] with 1 to
-// 10,000 lowercase ids (R23, §4 step 7); any other shape lists nothing.
+// 1,500 lowercase ids (R23, §4 step 7); any other shape lists nothing.
 func recordErase(into map[string]map[string]bool, e entryLine) {
 	env := e.Envelope
 	if env.Domain != "audit" || env.Action != "erase" || env.SubjectType != "erasure_request" || e.Diff == nil {

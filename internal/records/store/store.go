@@ -1,5 +1,6 @@
 // Package store is the data access of the record write pipeline (PLAN-003
-// D-3-6): the records and audit_log_v0 statements, and the split of a record's
+// D-3-6): the records, record_write_keys and audit_log_v0 statements, and the
+// split of a record's
 // payload between its fixed columns and data. Only internal/records/pipeline
 // writes through it; P3-13's static test keeps it that way.
 //
@@ -31,13 +32,22 @@ var (
 	ErrNotFound = errors.New("records/store: not found")
 	// ErrStale means an update found no row at the expected version.
 	ErrStale = errors.New("records/store: stale version")
-	// ErrDuplicateKey means another write holds the audit row's idempotency
-	// key. The statement aborted the caller's transaction.
+	// ErrDuplicateKey means another write holds the idempotency key. The
+	// statement aborted the caller's transaction.
 	ErrDuplicateKey = errors.New("records/store: duplicate idempotency key")
 )
 
-// idempotencyIndex is the partial unique index on audit_log_v0 (P3-09).
-const idempotencyIndex = "audit_log_v0_idempotency_key"
+// idempotencyIndex is the primary key of record_write_keys (D-5-3): one
+// write per tenant and key.
+const idempotencyIndex = "record_write_keys_pkey"
+
+// auditV0IdempotencyIndex is the partial unique index on audit_log_v0
+// (P3-09). The pipeline still writes the key to its audit_log_v0 row until
+// P5-13b moves the audit write to audit.Append; record_write_keys is
+// inserted first in the same transaction, so a concurrent duplicate reaches
+// idempotencyIndex first. This one is mapped too so a key that exists only
+// in audit_log_v0 is never a 500.
+const auditV0IdempotencyIndex = "audit_log_v0_idempotency_key"
 
 // Record is one records row of a pipeline record. Data never holds a property
 // mapped to a fixed column (TICK-360); Payload merges them back.
@@ -218,7 +228,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
 		a.TenantID, a.ID, record, a.Action, a.ActorID, a.Source, jsonParam(before), jsonParam(after),
 		a.CausationOriginID, a.CausationDepth, a.IdempotencyKey, a.At)
 	var pe *pgconn.PgError
-	if errors.As(err, &pe) && pe.Code == "23505" && pe.ConstraintName == idempotencyIndex {
+	if errors.As(err, &pe) && pe.Code == "23505" && pe.ConstraintName == auditV0IdempotencyIndex {
 		return ErrDuplicateKey
 	}
 	if err != nil {
@@ -227,46 +237,58 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
 	return nil
 }
 
-// KeyedWrite is the write that holds an idempotency key: its primary audit
-// row and the entity type of its record.
-type KeyedWrite struct {
-	RecordID  uuid.UUID
-	EntityKey string
-	// Action is the audit row's action: "create" or "update".
-	Action string
-	After  *Snapshot
+// WriteKey is one record_write_keys row (D-5-3): the write that holds an
+// idempotency key and the Result a replay returns.
+type WriteKey struct {
+	TenantID       uuid.UUID
+	IdempotencyKey string
+	DefinitionID   uuid.UUID
+	// Action is "create" or "update".
+	Action        string
+	RecordID      uuid.UUID
+	Number        string
+	Version       int64
+	SchemaVersion int
+	// AuditEntryID is a soft pointer to the write's primary audit entry.
+	AuditEntryID uuid.UUID
 }
 
-// AuditByKey returns the write that holds the idempotency key, or
-// ErrNotFound.
-func AuditByKey(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, key string) (*KeyedWrite, error) {
-	var (
-		record    *uuid.UUID
-		entityKey *string
-		action    string
-		after     []byte
-	)
+// InsertWriteKey claims k.IdempotencyKey for the write, in the write's
+// transaction. A key another write holds is ErrDuplicateKey, also when that
+// write has not committed yet (the insert waits for it); tx is aborted then.
+func InsertWriteKey(ctx context.Context, tx pgx.Tx, k *WriteKey) error {
+	_, err := tx.Exec(ctx, `
+INSERT INTO record_write_keys (tenant_id, idempotency_key, definition_id, action, record_id, number,
+    version, schema_version, audit_entry_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		k.TenantID, k.IdempotencyKey, k.DefinitionID, k.Action, k.RecordID, k.Number,
+		k.Version, k.SchemaVersion, k.AuditEntryID)
+	var pe *pgconn.PgError
+	if errors.As(err, &pe) && pe.Code == "23505" && pe.ConstraintName == idempotencyIndex {
+		return ErrDuplicateKey
+	}
+	if err != nil {
+		return fmt.Errorf("records/store: insert write key: %w", err)
+	}
+	return nil
+}
+
+// WriteKeyByKey returns the write that holds the idempotency key, or
+// ErrNotFound. It reads record_write_keys only, never the audit log.
+func WriteKeyByKey(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, key string) (*WriteKey, error) {
+	k := WriteKey{TenantID: tenantID, IdempotencyKey: key}
 	err := tx.QueryRow(ctx, `
-SELECT a.record_id, d.key, a.action, a.after
-FROM audit_log_v0 a
-LEFT JOIN records r ON r.tenant_id = a.tenant_id AND r.id = a.record_id
-LEFT JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
-WHERE a.tenant_id = $1 AND a.idempotency_key = $2 AND a.idempotency_key IS NOT NULL`, tenantID, key).
-		Scan(&record, &entityKey, &action, &after)
+SELECT definition_id, action, record_id, number, version, schema_version, audit_entry_id
+FROM record_write_keys
+WHERE tenant_id = $1 AND idempotency_key = $2`, tenantID, key).
+		Scan(&k.DefinitionID, &k.Action, &k.RecordID, &k.Number, &k.Version, &k.SchemaVersion, &k.AuditEntryID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
-		return nil, fmt.Errorf("records/store: read audit by key: %w", err)
+		return nil, fmt.Errorf("records/store: read write key: %w", err)
 	}
-	if record == nil || entityKey == nil || after == nil {
-		return nil, errors.New("records/store: keyed audit row names no pipeline record")
-	}
-	var s Snapshot
-	if err := json.Unmarshal(after, &s); err != nil {
-		return nil, fmt.Errorf("records/store: decode audit snapshot: %w", err)
-	}
-	return &KeyedWrite{RecordID: *record, EntityKey: *entityKey, Action: action, After: &s}, nil
+	return &k, nil
 }
 
 // jsonParam is a jsonb statement argument. Over QueryExecModeExec (nava-core's

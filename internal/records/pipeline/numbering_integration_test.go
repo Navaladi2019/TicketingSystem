@@ -537,7 +537,13 @@ func TestIdempotencyKeyMismatchConflicts(t *testing.T) {
 		{"update key, used by a create", system(createCmd(f, map[string]any{"title": "x"}), "wf:u"), nil},
 		{"update key, other record", system(updateCmd(f, other.RecordID, 1, map[string]any{"summary": "x"}), "wf:u"), nil},
 		{"update key, other entity type", system(assetUpdate(f, asset.RecordID, 1, map[string]any{"name": "x"}), "wf:u"), nil},
+		{"create key, entity type the tenant lacks", func() pipeline.Command {
+			c := system(createCmd(f, map[string]any{"title": "x"}), "wf:c")
+			c.EntityKey = "no_such_type"
+			return c
+		}(), nil},
 	}
+	keys := count(t, e.super, "SELECT count(*) FROM record_write_keys WHERE tenant_id = $1", f.id)
 	audits := count(t, e.super, "SELECT count(*) FROM audit_log_v0 WHERE tenant_id = $1", f.id)
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -556,6 +562,9 @@ func TestIdempotencyKeyMismatchConflicts(t *testing.T) {
 	}
 	if n := count(t, e.super, "SELECT count(*) FROM audit_log_v0 WHERE tenant_id = $1", f.id); n != audits {
 		t.Fatalf("%d audit rows after the table, want %d: a conflict or replay wrote", n, audits)
+	}
+	if n := count(t, e.super, "SELECT count(*) FROM record_write_keys WHERE tenant_id = $1", f.id); n != keys || keys != 2 {
+		t.Fatalf("%d record_write_keys rows after the table, want %d (= 2)", n, keys)
 	}
 }
 

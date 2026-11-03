@@ -28,7 +28,8 @@ flowchart TD
     U --> I[split fixed columns out of data]
     I --> N[create: record_counters upsert<br/>RETURNING next - 1]
     N --> J[INSERT, or UPDATE ... version = version + 1<br/>WHERE tenant_id, id, version = expected]
-    J --> K[one audit_log_v0 row<br/>idempotency key on it]
+    J --> W[keyed write: one record_write_keys row<br/>D-5-3, P5-13a]
+    W --> K[one audit_log_v0 row<br/>idempotency key also on it until P5-13b]
     K --> L[EventSink.RecordChanged in tx]
     L --> M[Result]
 ```
@@ -57,14 +58,20 @@ flowchart TD
 - **Audit.** One row per write: `action` is `create` or `update`, `before`
   (NULL on a create) and `after` are snapshots
   `{"number", "version", "schema_version", "data"}` with `data` the merged
-  payload. The idempotency key is on this row only.
+  payload. Until P5-13b the pipeline still copies the idempotency key onto
+  this row, but nothing reads it there.
 - **Idempotency (system writers only).** A user write with a key is
-  `ErrInvalidCommand`. The key is looked up first; a hit for the same entity
-  type, op and (on an update) record returns the earlier `Result` from that
-  row's `after` and writes nothing. A hit for any other write is
-  `*ErrIdempotencyConflict` (P3-14 maps it to 409, as PLAN-001 T22 does for a
-  different body). A concurrent duplicate hits `23505` on
-  `audit_log_v0_idempotency_key`, which aborts the transaction: `Write` returns
+  `ErrInvalidCommand`. The key lives in `record_write_keys` (PLAN-005 D-5-3,
+  P5-13a), one row per keyed write inserted in the write's transaction, after
+  the record and before the audit row. The key is looked up there first; a
+  hit for the same entity type (by `definition_id`), op and (on an update)
+  record returns the earlier `Result` (record id, number, version, schema
+  version) from that row and writes nothing. Replay never reads the audit
+  log. A hit for any other write, or an entity type the tenant does not
+  have, is `*ErrIdempotencyConflict` (P3-14 maps it to 409, as PLAN-001 T22
+  does for a different body). A concurrent duplicate waits on the first
+  write's uncommitted key and then hits `23505` on `record_write_keys_pkey`,
+  which aborts the transaction: `Write` returns
   `*ErrIdempotencyConflict{Concurrent: true}`, and the retry replays.
 - **Numbering (D-3-9).** A create takes its number with one upsert,
   `INSERT INTO record_counters ... VALUES (..., 2) ON CONFLICT ... DO UPDATE

@@ -507,22 +507,28 @@ func AuditSuppressed(ctx context.Context, tx pgx.Tx, c cascade.Claim, ev Event, 
 	return nil
 }
 
-// replay returns the earlier Result of a write with cmd's idempotency key.
-// The stored write must be the same entity type and op, and on an update the
-// same record; otherwise the key names another write, *ErrIdempotencyConflict.
+// replay returns the earlier Result of a write with cmd's idempotency key,
+// read from record_write_keys (D-5-3), never from the audit log. The stored
+// write must be the same entity type (by definition id) and op, and on an
+// update the same record; otherwise the key names another write,
+// *ErrIdempotencyConflict.
 func replay(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, cmd Command) (Result, bool, error) {
-	kw, err := store.AuditByKey(ctx, tx, tenant, cmd.IdempotencyKey)
+	k, err := store.WriteKeyByKey(ctx, tx, tenant, cmd.IdempotencyKey)
 	if errors.Is(err, store.ErrNotFound) {
 		return Result{}, false, nil
 	}
 	if err != nil {
 		return Result{}, false, fmt.Errorf("pipeline: %w", err)
 	}
-	if kw.EntityKey != cmd.EntityKey || kw.Action != cmd.Op.String() || (cmd.Op == OpUpdate && kw.RecordID != cmd.RecordID) {
+	// An entity key the tenant does not have cannot name the stored write.
+	defID, err := store.DefinitionID(ctx, tx, tenant, cmd.EntityKey)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return Result{}, false, fmt.Errorf("pipeline: %w", err)
+	}
+	if err != nil || k.DefinitionID != defID || k.Action != cmd.Op.String() || (cmd.Op == OpUpdate && k.RecordID != cmd.RecordID) {
 		return Result{}, false, &ErrIdempotencyConflict{}
 	}
-	a := kw.After
-	return Result{RecordID: kw.RecordID, Number: a.Number, Version: a.Version, SchemaVersion: a.SchemaVersion}, true, nil
+	return Result{RecordID: k.RecordID, Number: k.Number, Version: k.Version, SchemaVersion: k.SchemaVersion}, true, nil
 }
 
 // write is the state of one Write.
@@ -655,7 +661,8 @@ func (w *write) update(ctx context.Context, patch map[string]any) (Result, error
 	return w.finish(ctx, rec, beforeSnap, rec.Payload(fixed))
 }
 
-// finish writes the primary audit row and calls the sink.
+// finish claims the idempotency key, writes the primary audit row and calls
+// the sink.
 func (w *write) finish(ctx context.Context, rec *store.Record, before *store.Snapshot, after map[string]any) (Result, error) {
 	auditID, err := uuid.NewV7()
 	if err != nil {
@@ -670,6 +677,18 @@ func (w *write) finish(ctx context.Context, rec *store.Record, before *store.Sna
 		At: rec.UpdatedAt,
 	}
 	if w.cmd.IdempotencyKey != "" {
+		// The key is claimed before the audit row, so a concurrent duplicate
+		// waits on and fails at record_write_keys_pkey (D-5-3).
+		if err := store.InsertWriteKey(ctx, w.tx, &store.WriteKey{
+			TenantID: w.tenant, IdempotencyKey: w.cmd.IdempotencyKey, DefinitionID: rec.EntityDefinitionID,
+			Action: w.cmd.Op.String(), RecordID: rec.ID, Number: rec.Number, Version: rec.Version,
+			SchemaVersion: rec.SchemaVersion, AuditEntryID: auditID,
+		}); err != nil {
+			if errors.Is(err, store.ErrDuplicateKey) {
+				return Result{}, &ErrIdempotencyConflict{Concurrent: true}
+			}
+			return Result{}, fmt.Errorf("pipeline: %w", err)
+		}
 		a.IdempotencyKey = &w.cmd.IdempotencyKey
 	}
 	if err := store.InsertAudit(ctx, w.tx, a); err != nil {

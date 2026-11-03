@@ -7,17 +7,21 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/store"
+	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
 // Adversarial (Security & Multi-Tenancy Reviewer, PR #356): tenant B's system
 // writer reuses an idempotency key that tenant A has already used. The replay
-// lookup must not return A's Result (record id, number, version), and the
-// partial unique index on (tenant_id, idempotency_key) must not turn A's key
-// into a 23505 that tells B the key exists.
+// lookup must not return A's Result (record id, number, version), and
+// record_write_keys_pkey on (tenant_id, idempotency_key) must not turn A's
+// key into a 23505 that tells B the key exists. Ported to record_write_keys
+// by P5-13a (D-5-3).
 func TestAdversarialIdempotencyKeyDoesNotCrossTenants(t *testing.T) {
 	e := migrated(t)
 	a, b := seedTenant(t, e), seedTenant(t, e)
@@ -52,9 +56,15 @@ func TestAdversarialIdempotencyKeyDoesNotCrossTenants(t *testing.T) {
 		if n := count(t, e.super, "SELECT count(*) FROM records WHERE tenant_id = $1", f.id); n != 1 {
 			t.Fatalf("tenant %s has %d records, want 1", f.id, n)
 		}
-		if n := count(t, e.super, "SELECT count(*) FROM audit_log_v0 WHERE tenant_id = $1 AND idempotency_key = $2", f.id, key); n != 1 {
-			t.Fatalf("tenant %s has %d keyed audit rows, want 1", f.id, n)
+		if n := count(t, e.super, "SELECT count(*) FROM record_write_keys WHERE tenant_id = $1 AND idempotency_key = $2", f.id, key); n != 1 {
+			t.Fatalf("tenant %s has %d record_write_keys rows for the key, want 1", f.id, n)
 		}
+	}
+
+	// B's key row names B's own record, never A's.
+	if n := count(t, e.super, "SELECT count(*) FROM record_write_keys WHERE tenant_id = $1 AND idempotency_key = $2 AND record_id = $3",
+		b.id, key, resB.RecordID); n != 1 {
+		t.Fatalf("tenant B's key row does not name B's record %s", resB.RecordID)
 	}
 
 	// An update from B that names A's record under A's key: the replay finds
@@ -74,11 +84,29 @@ func TestAdversarialIdempotencyKeyDoesNotCrossTenants(t *testing.T) {
 	// The store lookup itself, inside B's transaction, never returns A's row,
 	// even with A's tenant id passed explicitly: RLS hides it.
 	inTx(t, e, b.id, func(tx pgx.Tx) error {
-		if _, err := store.AuditByKey(ctx, tx, a.id, key); !errors.Is(err, store.ErrNotFound) {
-			t.Errorf("AuditByKey(tenant A) in tenant B's transaction: %v, want ErrNotFound", err)
+		if _, err := store.WriteKeyByKey(ctx, tx, a.id, key); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("WriteKeyByKey(tenant A) in tenant B's transaction: %v, want ErrNotFound", err)
 		}
 		return nil
 	})
+	// Nor can B's transaction claim a key in A's name: the insert policy
+	// checks the transaction's tenant, not the tenant_id the statement gives.
+	var defA uuid.UUID
+	if err := e.super.QueryRow(ctx, "SELECT entity_definition_id FROM records WHERE id = $1", resA.RecordID).Scan(&defA); err != nil {
+		t.Fatal(err)
+	}
+	err = tenancy.InTenantTx(ctx, e.app, b.id, func(tx pgx.Tx) error {
+		return store.InsertWriteKey(ctx, tx, &store.WriteKey{TenantID: a.id, IdempotencyKey: "wf:forged:s1",
+			DefinitionID: defA, Action: "create", RecordID: resA.RecordID, Number: resA.Number,
+			Version: resA.Version, SchemaVersion: resA.SchemaVersion, AuditEntryID: resA.RecordID})
+	})
+	var pe *pgconn.PgError
+	if !errors.As(err, &pe) || pe.Code != "42501" {
+		t.Errorf("InsertWriteKey(tenant A) in tenant B's transaction: %v, want the RLS refusal 42501", err)
+	}
+	if n := count(t, e.super, "SELECT count(*) FROM record_write_keys WHERE tenant_id = $1", a.id); n != 1 {
+		t.Errorf("tenant A has %d record_write_keys rows, want 1", n)
+	}
 }
 
 // Adversarial: tenant A's user puts tenant B's principal id in a property
