@@ -17,6 +17,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/jsondiff"
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/patchwalk"
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/secrets"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/requestid"
 )
 
 // SecretInContentError is returned by Create and Publish when the schema
@@ -123,6 +124,33 @@ func asSlice(v any) []any {
 	return s
 }
 
+// checkSchemaSecrets refuses a schema that holds a value at a secret path (R6).
+// It checks the whole schema, not the diff against the previous version: a
+// publish that only adds the marker to a property with an existing default
+// has a diff that never shows the default. It runs before any version row is
+// written.
+func checkSchemaSecrets(schema json.RawMessage) error {
+	paths, err := SecretPaths(schema)
+	if err != nil {
+		return err
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+	whole, err := jsondiff.Diff(nil, schema)
+	if err != nil {
+		return fmt.Errorf("entitytypes: diff schema: %w", err)
+	}
+	if err := secrets.Check(whole, paths, secrets.DomainConfig); err != nil {
+		var sec *secrets.ErrSecretInDiff
+		if errors.As(err, &sec) {
+			return &SecretInContentError{Path: string(sec.Path), Reason: string(sec.Reason)}
+		}
+		return fmt.Errorf("entitytypes: check schema secrets: %w", err)
+	}
+	return nil
+}
+
 // schemaJSONB reads a stored schema back as jsonb text. The audit diff is
 // built from these values, never from the request body, so diff_sha256 does
 // not depend on the request's formatting (TICK-451).
@@ -140,7 +168,7 @@ SELECT schema::jsonb::text FROM entity_definition_versions WHERE definition_id =
 // auditVersion writes the config-domain entry of a version just inserted in
 // tx: create for version 1, publish after. before is the previous version
 // number, or 0 for the first.
-func auditVersion(ctx context.Context, tx pgx.Tx, definitionID uuid.UUID, version int, schemaSum [sha256.Size]byte, by uuid.UUID, requestID string) error {
+func auditVersion(ctx context.Context, tx pgx.Tx, definitionID uuid.UUID, version int, schemaSum [sha256.Size]byte, by uuid.UUID) error {
 	after, err := schemaJSONB(ctx, tx, definitionID, version)
 	if err != nil {
 		return err
@@ -178,8 +206,8 @@ func auditVersion(ctx context.Context, tx pgx.Tx, definitionID uuid.UUID, versio
 		Diff:          diff,
 		SecretPaths:   paths,
 	}
-	if requestID != "" {
-		e.RequestID = &requestID
+	if id := requestid.FromContext(ctx); id != "" {
+		e.RequestID = &id
 	}
 	if _, err := audit.Append(ctx, tx, e); err != nil {
 		var sec *secrets.ErrSecretInDiff

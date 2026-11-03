@@ -7,6 +7,7 @@
 package server_test
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -21,6 +22,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/audit/jsondiff"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
@@ -300,12 +302,13 @@ type etAuditRow struct {
 	ContentSHA    []byte
 	Source        string
 	Actor         uuid.UUID
+	RequestID     *string
 }
 
 func etAuditRows(t *testing.T, e *etEnv) []etAuditRow {
 	t.Helper()
 	rows, err := e.super.Query(t.Context(), `
-SELECT action, version_before, version_after, content_sha256, source, actor_principal_id
+SELECT action, version_before, version_after, content_sha256, source, actor_principal_id, request_id
 FROM audit_log WHERE tenant_id = $1 AND domain = 'config' AND subject_type = 'entity_definition' ORDER BY version_after`, e.a.id)
 	if err != nil {
 		t.Fatal(err)
@@ -314,7 +317,7 @@ FROM audit_log WHERE tenant_id = $1 AND domain = 'config' AND subject_type = 'en
 	var out []etAuditRow
 	for rows.Next() {
 		var r etAuditRow
-		if err := rows.Scan(&r.Action, &r.VersionBefore, &r.VersionAfter, &r.ContentSHA, &r.Source, &r.Actor); err != nil {
+		if err := rows.Scan(&r.Action, &r.VersionBefore, &r.VersionAfter, &r.ContentSHA, &r.Source, &r.Actor, &r.RequestID); err != nil {
 			t.Fatal(err)
 		}
 		out = append(out, r)
@@ -347,21 +350,89 @@ func TestPublishWritesCreateThenPublishEntries(t *testing.T) {
 			t.Errorf("entry %d = %+v, want %s v%d with the version's schema_sha256", i, r, want, i+1)
 		}
 	}
+	for i, r := range rows {
+		if r.RequestID == nil || *r.RequestID == "" {
+			t.Errorf("entry %d has no request_id", i)
+		}
+	}
+	// S3: the stored diff is built from the jsonb read back, not the request.
+	var v1, v2, stored string
+	for n, dst := range map[int]*string{1: &v1, 2: &v2} {
+		if err := e.super.QueryRow(t.Context(),
+			"SELECT schema::jsonb::text FROM entity_definition_versions WHERE tenant_id = $1 AND version = $2", e.a.id, n).Scan(dst); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want, err := jsondiff.Diff([]byte(v1), []byte(v2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.super.QueryRow(t.Context(),
+		"SELECT diff::text FROM audit_log WHERE tenant_id = $1 AND domain = 'config' AND version_after = 2", e.a.id).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored != string(want) {
+		t.Errorf("stored diff = %s, want %s", stored, want)
+	}
 	if rows[0].VersionBefore != nil || rows[1].VersionBefore == nil || *rows[1].VersionBefore != 1 {
 		t.Errorf("version_before = %v, %v; want nil, 1", rows[0].VersionBefore, rows[1].VersionBefore)
 	}
 }
 
-func TestRolledBackPublishWritesNoEntry(t *testing.T) {
+func TestRolledBackPublishWritesNoVersionAndNoEntry(t *testing.T) {
 	e := newETEnv(t)
 	etCreateIncident(t, e)
-	// A breaking change is refused after the lock and before any write.
-	body := etPublishBody(t, `"maxLength": 160`, `"maxLength": 10`)
-	if rec := e.do(t, http.MethodPost, etVersionsPath, "admin-a", "k-aud-2", body); rec.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("breaking publish = %d: %s", rec.Code, rec.Body)
+	errAbort := errors.New("abort after publish")
+	ctx := context.Background()
+	def := etDefinition(t, "incident", "INC")
+	def.Schema = json.RawMessage(strings.Replace(etSchema, `"description": "a <b>&amp; tag"`, `"description": "changed"`, 1))
+	err := tenancy.InTenantTx(ctx, e.pool, e.a.id, func(tx pgx.Tx) error {
+		v, err := entitytypes.Store{}.Publish(ctx, tx, e.a.id, entitytypes.PublishInput{Key: "incident", PublishedBy: e.a.admin.PrincipalID, Definition: def})
+		if err != nil {
+			t.Fatalf("Publish: %v", err)
+		}
+		if v.Version != 2 {
+			t.Fatalf("version = %d, want 2", v.Version)
+		}
+		return errAbort // the version row and the entry were written; now roll back
+	})
+	if !errors.Is(err, errAbort) {
+		t.Fatalf("tx = %v, want the abort", err)
+	}
+	if n := etVersionCount(t, e); n != 1 {
+		t.Errorf("%d versions after rollback, want 1", n)
 	}
 	if rows := etAuditRows(t, e); len(rows) != 1 || rows[0].Action != "create" {
 		t.Errorf("entries = %+v, want only the create", rows)
+	}
+}
+
+// M1: adding the marker to a property that already has a default must be
+// refused, though the diff never carries the default.
+func TestMarkerAddedToExistingDefaultIsRefused(t *testing.T) {
+	const canary = "hunter2-canary-value"
+	plain := strings.Replace(etSchema, `"note": {"type": "string", "description": "a <b>&amp; tag"}`,
+		`"note": {"type": "string", "default": "`+canary+`"}`, 1)
+	marked := strings.Replace(plain, `"default": "`+canary+`"`, `"default": "`+canary+`", "x-nava-secret": true`, 1)
+	e := newETEnv(t)
+	create := fmt.Sprintf(`{"key": "incident", "name": "T", "number_prefix": "INC", "definition": {"schema": %s, %s}}`, plain, etDefTail)
+	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "k-m1-0", create); rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d: %s", rec.Code, rec.Body)
+	}
+	body := fmt.Sprintf(`{"definition": {"schema": %s, %s}}`, marked, etDefTail)
+	rec := e.do(t, http.MethodPost, etVersionsPath, "admin-a", "k-m1-1", body)
+	p := wantProblem(t, rec, http.StatusUnprocessableEntity, problem.ConfigSecretInContent)
+	if got := pointers(p); !slices.Equal(got, []string{"/definition/schema/properties/note/default"}) {
+		t.Errorf("pointers = %v", got)
+	}
+	if strings.Contains(rec.Body.String(), canary) {
+		t.Error("response echoes the secret value")
+	}
+	if n := etVersionCount(t, e); n != 1 {
+		t.Errorf("%d versions, want 1", n)
+	}
+	if rows := etAuditRows(t, e); len(rows) != 1 {
+		t.Errorf("%d entries, want 1", len(rows))
 	}
 }
 
