@@ -37,6 +37,17 @@ list cannot go stale. Allowed: generated code, `cmd/*/main.go` wiring and
 test-only helper packages. Anything else needs the Technical Lead's approval
 on the issue. Excluding real logic to reach the minimum is not acceptable.
 
+A `dir/...` line excludes a whole package tree. `make check-coverage` passes
+`-mains ./cmd/...`, and the check fails (even report-only) when any such
+package is in the import graph of a `cmd/*` binary: an excluded helper that
+production code starts to import is production code and must count
+(Technical Lead's condition on TICK-518). Build-tagged test binaries (the
+`interptest` worker) are not production binaries and are not checked.
+
+The total is covered statements over all statements; the Technical Lead
+accepted this over the `go tool cover -func` line as the definition (TICK-518,
+2026-11-03).
+
 ## Rollout
 
 The baseline was below 95%, so the `coverage` CI job runs
@@ -46,9 +57,11 @@ exclusion). The follow-up PR changes the step to `make check-coverage`, and
 the line in `tools/ci/cisteps/required.yaml` with it, once the total reaches
 95%. That PR closes TICK-518.
 
-The `coverage` job runs when `unit` and `integration` both ran and passed.
-A pull request whose change needs only one of them (see `make ci-stages`)
-skips it, and so does a pull request that changes no Go code.
+The `coverage` job runs on every change that runs `unit`: `make ci-stages`
+adds `integration` to any change that needs `unit`, and the job runs even
+when `unit` or `integration` failed or was skipped, so a missing profile
+fails it rather than skipping it. Only a change that runs no Go tests at all
+(documentation, lint configuration) skips it.
 
 ## Risks and the test that covers each
 
@@ -57,6 +70,7 @@ skips it, and so does a pull request that changes no Go code.
 | The gate passes below the minimum (rounding, a wrong merge) | `tools/ci/coverage` unit tests: 95.00% passes, 94.99% fails, `-min` moves the edge, repeated blocks are not double-counted |
 | The integration run's coverage is lost | `TestCheckMergesProfiles`: a block only the integration profile covers counts; the `coverage-integration` artifact is a required step |
 | An exclusion hides real code silently | `TestCheckBadInput`: lines without a reason and stale patterns fail; `TestRepoExclusionsFile` parses the real file |
+| An excluded helper becomes production code | `TestCheckExcludedPackageImportedByBinary` (stubbed graph) and `TestRepoExcludedPackagesNotInBinaries` (the real `./cmd/...` graph) |
 | The CI step is removed or allowed to fail | `make check-ci-steps` (`required.yaml`: the job's run line and its three artifacts) |
 | `task test` and `make test` drift | `make check-taskfile` |
 

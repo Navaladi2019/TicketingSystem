@@ -699,3 +699,58 @@ func TestEnqueueAtVersion(t *testing.T) {
 		t.Fatalf("other tenant: %v, want ErrRecordNotFound", err)
 	}
 }
+
+// Duplicate delivery that reaches the INSERT: two writes of one dedupe key on
+// different records of one tenant do not share a record lock, so the second
+// passes its dedupe lookup while the first is uncommitted and waits on the
+// unique index instead. Once the first commits, ON CONFLICT DO NOTHING
+// returns no row and the second returns the first's id: one row, one
+// workflow_ref. Another tenant with the same key gets a row of its own.
+func TestDuplicateDedupeKeyAcrossRecordsWritesOneRow(t *testing.T) {
+	e := migrated(t)
+	ctx := context.Background()
+	tenant, r1, r2 := uuid.New(), uuid.New(), uuid.New()
+	seedRecord(t, e.super, tenant, r1)
+	seedRecord(t, e.super, tenant, r2)
+	first, commit := holdOpen(t, e.app, tenant, start(r1, "cross-record"))
+	type result struct {
+		id  uuid.UUID
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		id, err := enqueue(ctx, e.app, tenant, start(r2, "cross-record"))
+		done <- result{id, err}
+	}()
+	deadline := time.Now().Add(10 * time.Second)
+	for count(t, e.super, `SELECT count(*) FROM pg_stat_activity
+		WHERE usename = 'nava_app' AND wait_event_type = 'Lock'`) != 1 {
+		if time.Now().After(deadline) {
+			t.Fatal("the duplicate never waited on the unique index")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err := commit(); err != nil {
+		t.Fatal(err)
+	}
+	r := <-done
+	if r.err != nil || r.id != first {
+		t.Fatalf("duplicate = %s, %v; want %s, nil", r.id, r.err, first)
+	}
+	if n := count(t, e.super, "SELECT count(*) FROM outbox WHERE tenant_id = $1", tenant); n != 1 {
+		t.Errorf("%d outbox rows, want 1", n)
+	}
+	if n := count(t, e.super, "SELECT count(*) FROM workflow_ref WHERE tenant_id = $1", tenant); n != 1 {
+		t.Errorf("%d workflow_ref rows, want 1", n)
+	}
+
+	other, otherRecord := uuid.New(), uuid.New()
+	seedRecord(t, e.super, other, otherRecord)
+	id, err := enqueue(ctx, e.app, other, start(otherRecord, "cross-record"))
+	if err != nil || id == first || id == uuid.Nil {
+		t.Fatalf("other tenant, same key = %s, %v; want a row of its own", id, err)
+	}
+	if got := outboxRow(t, e.super, other, id); got.tenant != other {
+		t.Errorf("other tenant's row is tenant %s", got.tenant)
+	}
+}
