@@ -26,6 +26,10 @@ import (
 //     AFTER INSERT OR DELETE [OR UPDATE OF exactly audited_columns]
 //     DEFERRABLE INITIALLY DEFERRED row constraint trigger called with
 //     (subject_type, subject_id_column);
+//   - an audit_commit_check function whose pg_proc.proconfig lacks
+//     plan_cache_mode=force_custom_plan (ADR-004-E3 decision 3; a CREATE OR
+//     REPLACE FUNCTION without the SET resets proconfig), or no such
+//     function at all;
 //   - a writer role that cannot run the check or append: SELECT on a probe
 //     column, INSERT on an R10 column, or an audit_log SELECT or INSERT
 //     policy for it, missing;
@@ -87,6 +91,13 @@ func (a *Manifest) Check(ctx context.Context, q catalog.Querier, m *grants.Manif
 		}
 	}
 	p, err := a.checkTriggers(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	for _, s := range p {
+		bad("%s", s)
+	}
+	p, err = checkFunctionConfig(ctx, q)
 	if err != nil {
 		return nil, err
 	}
@@ -306,6 +317,48 @@ func events(tgtype int16) string {
 		e = append(e, "FOR EACH STATEMENT")
 	}
 	return strings.Join(e, " ")
+}
+
+// PlanCacheSetting is the proconfig entry every audit_commit_check function
+// must carry (ADR-004-E3 decision 1): plpgsql then plans the probe on every
+// call, with its locals as constants, instead of reusing a generic plan
+// cached while the partition was young.
+const PlanCacheSetting = "plan_cache_mode=force_custom_plan"
+
+// checkFunctionConfig reports every function named TriggerFunction, in any
+// schema, whose proconfig lacks PlanCacheSetting, and reports it missing
+// when there is none: checkTriggers matches triggers by function name, so a
+// copy in another schema could carry the trigger and must carry the clause
+// too.
+func checkFunctionConfig(ctx context.Context, q catalog.Querier) ([]string, error) {
+	rows, err := q.Query(ctx, `SELECT p.oid::regprocedure::text, NOT (coalesce(p.proconfig, '{}') @> ARRAY[$2::text])
+		FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+		WHERE p.proname = $1 AND n.nspname !~ '^pg_' AND n.nspname <> 'information_schema'
+		ORDER BY 1`, TriggerFunction, PlanCacheSetting)
+	if err != nil {
+		return nil, err
+	}
+	type fn struct {
+		name    string
+		missing bool
+	}
+	fns, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (fn, error) {
+		var f fn
+		return f, r.Scan(&f.name, &f.missing)
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(fns) == 0 {
+		return []string{fmt.Sprintf("function %s() does not exist", TriggerFunction)}, nil
+	}
+	var out []string
+	for _, f := range fns {
+		if f.missing {
+			out = append(out, fmt.Sprintf("function %s has no SET %s in pg_proc.proconfig (ADR-004-E3)", f.name, PlanCacheSetting))
+		}
+	}
+	return out, nil
 }
 
 func (a *Manifest) checkWriters(ctx context.Context, q catalog.Querier) ([]string, error) {
