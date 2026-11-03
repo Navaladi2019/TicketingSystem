@@ -1,0 +1,51 @@
+{
+  "_doc": "Documented statuses no //go:build integration test asserts through the real handler against PostgreSQL, each with its reason. Read by api/integration_coverage_test.go, which fails on an empty reason, an unknown operation or status, and an exemption a covers: marker already satisfies. Add an entry only when the status cannot be caused through the handler against a real database; otherwise write the test.",
+  "getMe": {
+    "200": "No HTTP->PostgreSQL integration test yet; TICK-511 writes them and removes this exemption.",
+    "401": "No HTTP->PostgreSQL integration test yet; TICK-511 writes them and removes this exemption.",
+    "429": "No HTTP->PostgreSQL integration test yet; TICK-511 writes them and removes this exemption.",
+    "500": "No HTTP->PostgreSQL integration test yet; TICK-511 writes them and removes this exemption.",
+    "501": "No HTTP->PostgreSQL integration test yet; TICK-511 writes them and removes this exemption."
+  },
+  "onboardTenant": {
+    "200": "No HTTP->PostgreSQL integration test yet; TICK-511 writes them and removes this exemption.",
+    "201": "No HTTP->PostgreSQL integration test yet; TICK-511 writes them and removes this exemption.",
+    "400": "No HTTP->PostgreSQL integration test yet; TICK-511 writes them and removes this exemption.",
+    "401": "No HTTP->PostgreSQL integration test yet; TICK-511 writes them and removes this exemption.",
+    "403": "No HTTP->PostgreSQL integration test yet; TICK-511 writes them and removes this exemption.",
+    "409": "No HTTP->PostgreSQL integration test yet; TICK-511 writes them and removes this exemption.",
+    "422": "No HTTP->PostgreSQL integration test yet; TICK-511 writes them and removes this exemption.",
+    "429": "No HTTP->PostgreSQL integration test yet; TICK-511 writes them and removes this exemption.",
+    "500": "No HTTP->PostgreSQL integration test yet; TICK-511 writes them and removes this exemption.",
+    "501": "No HTTP->PostgreSQL integration test yet; TICK-511 writes them and removes this exemption."
+  },
+  "listEntityTypes": {
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."
+  },
+  "createEntityType": {
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."
+  },
+  "getEntityType": {
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."
+  },
+  "publishEntityTypeVersion": {
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."
+  },
+  "getEntityTypeVersion": {
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."
+  },
+  "createRecord": {
+    "403": "Not reachable: the interim authorizer allows every tenant member, so no request is refused with 403. Unit tests cover the mapping (internal/server).",
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."
+  },
+  "getRecord": {
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."
+  },
+  "patchRecord": {
+    "403": "Not reachable: the interim authorizer allows every tenant member, so no request is refused with 403. Unit tests cover the mapping (internal/server).",
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."
+  },
+  "getRecordHistory": {
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."
+  }
+}
