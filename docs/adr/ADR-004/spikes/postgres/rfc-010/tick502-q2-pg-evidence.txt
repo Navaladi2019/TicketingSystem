@@ -1,0 +1,259 @@
+===== schema.sql
+\set ON_ERROR_STOP 1
+DROP TABLE IF EXISTS audit_log, aud_shipped, aud_custom CASCADE;
+CREATE TABLE audit_log (
+  tenant_id uuid NOT NULL, id uuid NOT NULL DEFAULT gen_random_uuid(),
+  occurred_at timestamptz NOT NULL DEFAULT now(), txid xid8 NOT NULL DEFAULT pg_current_xact_id(),
+  subject_type text NOT NULL, subject_id uuid NOT NULL, version_after bigint, sealed_at timestamptz,
+  filler text,
+  CONSTRAINT audit_log_pkey PRIMARY KEY (tenant_id, occurred_at, id),
+  CONSTRAINT audit_log_commit_key UNIQUE NULLS NOT DISTINCT (tenant_id, occurred_at, txid, subject_type, subject_id, version_after)
+) PARTITION BY RANGE (occurred_at);
+CREATE INDEX audit_log_tenant_time ON audit_log (tenant_id, occurred_at DESC, id DESC);
+CREATE INDEX audit_log_subject ON audit_log (tenant_id, subject_type, subject_id, occurred_at DESC);
+CREATE INDEX audit_log_unsealed ON audit_log (tenant_id, occurred_at, id) WHERE sealed_at IS NULL;
+-- three young partitions, autovacuum off so only we change their stats
+CREATE TABLE p_never     PARTITION OF audit_log FOR VALUES FROM ('2026-01-01') TO ('2026-02-01') WITH (autovacuum_enabled=false);
+CREATE TABLE p_an_empty  PARTITION OF audit_log FOR VALUES FROM ('2026-02-01') TO ('2026-03-01') WITH (autovacuum_enabled=false);
+CREATE TABLE p_vac_empty PARTITION OF audit_log FOR VALUES FROM ('2026-03-01') TO ('2026-04-01') WITH (autovacuum_enabled=false);
+ALTER TABLE p_never ALTER COLUMN occurred_at SET (n_distinct=1);
+ALTER TABLE p_an_empty ALTER COLUMN occurred_at SET (n_distinct=1);
+ALTER TABLE p_vac_empty ALTER COLUMN occurred_at SET (n_distinct=1);
+===== tenpage.sql
+\set ON_ERROR_STOP 1
+\pset footer off
+\echo '== step 0: all three partitions empty; ANALYZE p_an_empty, VACUUM p_vac_empty while empty'
+ANALYZE p_an_empty;
+VACUUM p_vac_empty;
+SELECT relname, relpages, reltuples, pg_relation_size(oid)/8192 AS curpages FROM pg_class WHERE relname IN ('p_never','p_an_empty','p_vac_empty') ORDER BY relname;
+\echo '== planner size estimate while empty (rows= on the Seq Scan)'
+EXPLAIN SELECT * FROM p_never;
+EXPLAIN SELECT * FROM p_an_empty;
+EXPLAIN SELECT * FROM p_vac_empty;
+\echo '== step 1: 60 rows into each (20 tenants), no further ANALYZE'
+INSERT INTO audit_log (tenant_id, occurred_at, txid, subject_type, subject_id, filler)
+SELECT ('00000000-0000-7000-8000-' || lpad(to_hex(1 + g % 20), 12, '0'))::uuid, m + (g * interval '1 hour'), (3000000+g)::text::xid8, 'record', gen_random_uuid(), repeat('x', 200)
+FROM generate_series(1,60) g, (VALUES (timestamptz '2026-01-01'), ('2026-02-01'), ('2026-03-01')) v(m);
+SELECT relname, relpages, reltuples, pg_relation_size(oid)/8192 AS curpages FROM pg_class WHERE relname IN ('p_never','p_an_empty','p_vac_empty') ORDER BY relname;
+EXPLAIN SELECT * FROM p_never;
+EXPLAIN SELECT * FROM p_an_empty;
+EXPLAIN SELECT * FROM p_vac_empty;
+\echo '== step 2: the commit-check probe, generic plan, per partition'
+SET plan_cache_mode = force_generic_plan;
+PREPARE probe(uuid, timestamptz, xid8, text, uuid) AS
+  SELECT 1 FROM audit_log WHERE tenant_id=$1 AND occurred_at=$2 AND txid=$3 AND subject_type=$4 AND subject_id=$5 LIMIT 1;
+\echo '-- p_never (reltuples = -1, 10-page floor applies)'
+EXPLAIN EXECUTE probe('00000000-0000-7000-8000-000000000001','2026-01-10','1','record','00000000-0000-4000-8000-000000000001');
+\echo '-- p_an_empty (analysed while empty)'
+EXPLAIN EXECUTE probe('00000000-0000-7000-8000-000000000001','2026-02-10','1','record','00000000-0000-4000-8000-000000000001');
+\echo '-- p_vac_empty (vacuumed while empty)'
+EXPLAIN EXECUTE probe('00000000-0000-7000-8000-000000000001','2026-03-10','1','record','00000000-0000-4000-8000-000000000001');
+===== override.sql
+\set ON_ERROR_STOP 1
+\pset footer off
+-- young partition holding now(): 60 rows / 20 tenants, analysed (the TICK-428 item 2 (b) state)
+CREATE TABLE p_young PARTITION OF audit_log FOR VALUES FROM (date_trunc('month', now())) TO (date_trunc('month', now()) + interval '1 month') WITH (autovacuum_enabled=false);
+ALTER TABLE p_young ALTER COLUMN occurred_at SET (n_distinct=1);
+INSERT INTO audit_log (tenant_id, occurred_at, txid, subject_type, subject_id, filler)
+SELECT ('00000000-0000-7000-8000-' || lpad(to_hex(1 + g % 20), 12, '0'))::uuid, date_trunc('month', now()) + (now()-date_trunc('month', now())) * (g::float8/61), (3000000+g)::text::xid8, 'record', gen_random_uuid(), repeat('x',200) FROM generate_series(1,60) g;
+ANALYZE p_young;
+SELECT relname, relpages, reltuples FROM pg_class WHERE relname='p_young';
+
+-- the TICK-428 function body verbatim (7b5e388), as two copies: as shipped, and with RFC-010 route 1c
+CREATE OR REPLACE FUNCTION cc_shipped() RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public AS $f$
+DECLARE v_tenant uuid; v_id uuid; v_type text := TG_ARGV[0]; v_txid xid8 := pg_current_xact_id(); v_at timestamptz := now();
+BEGIN
+  IF TG_OP = 'DELETE' THEN v_tenant := OLD.tenant_id; v_id := OLD.id; ELSE v_tenant := NEW.tenant_id; v_id := NEW.id; END IF;
+  PERFORM 1 FROM audit_log WHERE tenant_id = v_tenant AND occurred_at = v_at AND txid = v_txid AND subject_type = v_type AND subject_id = v_id LIMIT 1;
+  IF NOT FOUND THEN RAISE EXCEPTION 'audit_missing % %', v_type, v_id USING ERRCODE='23514'; END IF;
+  RETURN NULL;
+END $f$;
+CREATE OR REPLACE FUNCTION cc_custom() RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER
+  SET search_path = pg_catalog, public SET plan_cache_mode = force_custom_plan AS $f$
+DECLARE v_tenant uuid; v_id uuid; v_type text := TG_ARGV[0]; v_txid xid8 := pg_current_xact_id(); v_at timestamptz := now();
+BEGIN
+  IF TG_OP = 'DELETE' THEN v_tenant := OLD.tenant_id; v_id := OLD.id; ELSE v_tenant := NEW.tenant_id; v_id := NEW.id; END IF;
+  PERFORM 1 FROM audit_log WHERE tenant_id = v_tenant AND occurred_at = v_at AND txid = v_txid AND subject_type = v_type AND subject_id = v_id LIMIT 1;
+  IF NOT FOUND THEN RAISE EXCEPTION 'audit_missing % %', v_type, v_id USING ERRCODE='23514'; END IF;
+  RETURN NULL;
+END $f$;
+CREATE TABLE aud_shipped (tenant_id uuid NOT NULL, id uuid NOT NULL, PRIMARY KEY (tenant_id, id));
+CREATE TABLE aud_custom  (tenant_id uuid NOT NULL, id uuid NOT NULL, PRIMARY KEY (tenant_id, id));
+CREATE CONSTRAINT TRIGGER cc AFTER INSERT ON aud_shipped DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION cc_shipped('record');
+CREATE CONSTRAINT TRIGGER cc AFTER INSERT ON aud_custom  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION cc_custom('record');
+SELECT proname, proconfig FROM pg_proc WHERE proname LIKE 'cc_%' ORDER BY 1;
+===== run_import.sql
+-- vars: tbl, mode, tag
+\set ON_ERROR_STOP 1
+SET plan_cache_mode = :mode;
+\echo '== table' :tbl ', session plan_cache_mode =' :mode
+-- warm: 10 one-subject transactions while the partition is 3 pages (caches the trigger plan)
+SELECT format('BEGIN; INSERT INTO audit_log (tenant_id, subject_type, subject_id) VALUES (%L,''record'',%L); INSERT INTO %I VALUES (%L,%L); COMMIT;',
+  '00000000-0000-7000-8000-0000000000aa', md5(:'tag'||'w'||g)::uuid, :'tbl', '00000000-0000-7000-8000-0000000000aa', md5(:'tag'||'w'||g)::uuid)
+FROM generate_series(1,10) g \gexec
+\timing on
+BEGIN;
+INSERT INTO audit_log (tenant_id, subject_type, subject_id) SELECT '00000000-0000-7000-8000-0000000000bb','record', md5(:'tag'||'b'||g)::uuid FROM generate_series(1,1000) g;
+INSERT INTO :tbl SELECT '00000000-0000-7000-8000-0000000000bb', md5(:'tag'||'b'||g)::uuid FROM generate_series(1,1000) g;
+\echo '-- COMMIT, 1,000 subjects'
+COMMIT;
+BEGIN;
+INSERT INTO audit_log (tenant_id, subject_type, subject_id) SELECT '00000000-0000-7000-8000-0000000000cc','record', md5(:'tag'||'c'||g)::uuid FROM generate_series(1,4000) g;
+INSERT INTO :tbl SELECT '00000000-0000-7000-8000-0000000000cc', md5(:'tag'||'c'||g)::uuid FROM generate_series(1,4000) g;
+\echo '-- COMMIT, 4,000 subjects'
+COMMIT;
+\timing off
+-- plan the trigger runs at COMMIT, same session, after the partition grew (stats not refreshed)
+BEGIN;
+INSERT INTO audit_log (tenant_id, subject_type, subject_id) VALUES ('00000000-0000-7000-8000-0000000000dd','record', md5(:'tag'||'d')::uuid);
+SELECT format('INSERT INTO %I VALUES (%L,%L)', :'tbl', '00000000-0000-7000-8000-0000000000dd', md5(:'tag'||'d')::uuid) \gexec
+SET LOCAL auto_explain.log_min_duration = 0; SET LOCAL auto_explain.log_nested_statements = on; SET LOCAL auto_explain.log_level = notice;
+SET LOCAL client_min_messages = notice;
+COMMIT;
+SELECT relpages AS stat_pages, reltuples AS stat_tuples, pg_relation_size('p_young')/8192 AS cur_pages FROM pg_class WHERE relname='p_young';
+===== rollout.sql
+\set ON_ERROR_STOP 1
+\pset footer off
+-- one pooled-style session: cache the shipped trigger's Seq Scan, then apply route 1c with ALTER FUNCTION, same session
+SET plan_cache_mode = force_generic_plan;
+SELECT format('BEGIN; INSERT INTO audit_log (tenant_id, subject_type, subject_id) VALUES (%L,''record'',%L); INSERT INTO aud_shipped VALUES (%L,%L); COMMIT;',
+  '00000000-0000-7000-8000-0000000000aa', md5('rw'||g)::uuid, '00000000-0000-7000-8000-0000000000aa', md5('rw'||g)::uuid) FROM generate_series(1,10) g \gexec
+BEGIN;
+INSERT INTO audit_log (tenant_id, subject_type, subject_id) SELECT '00000000-0000-7000-8000-0000000000cc','record', md5('rc'||g)::uuid FROM generate_series(1,4000) g;
+INSERT INTO aud_shipped SELECT '00000000-0000-7000-8000-0000000000cc', md5('rc'||g)::uuid FROM generate_series(1,4000) g;
+COMMIT;
+\echo '-- before ALTER FUNCTION: plan at COMMIT'
+BEGIN;
+INSERT INTO audit_log (tenant_id, subject_type, subject_id) VALUES ('00000000-0000-7000-8000-0000000000dd','record', md5('r1')::uuid);
+INSERT INTO aud_shipped VALUES ('00000000-0000-7000-8000-0000000000dd', md5('r1')::uuid);
+SET LOCAL auto_explain.log_min_duration = 0; SET LOCAL auto_explain.log_nested_statements = on; SET LOCAL auto_explain.log_level = notice;
+COMMIT;
+ALTER FUNCTION cc_shipped() SET plan_cache_mode = force_custom_plan;
+\echo '-- after ALTER FUNCTION (same session, no ANALYZE, no reconnect): plan at COMMIT'
+BEGIN;
+INSERT INTO audit_log (tenant_id, subject_type, subject_id) VALUES ('00000000-0000-7000-8000-0000000000dd','record', md5('r2')::uuid);
+INSERT INTO aud_shipped VALUES ('00000000-0000-7000-8000-0000000000dd', md5('r2')::uuid);
+SET LOCAL auto_explain.log_min_duration = 0; SET LOCAL auto_explain.log_nested_statements = on; SET LOCAL auto_explain.log_level = notice;
+COMMIT;
+\echo '-- a SET LOCAL force_generic_plan inside the writing transaction does not override the function-level setting'
+BEGIN;
+SET LOCAL plan_cache_mode = force_generic_plan;
+INSERT INTO audit_log (tenant_id, subject_type, subject_id) VALUES ('00000000-0000-7000-8000-0000000000dd','record', md5('r3')::uuid);
+INSERT INTO aud_shipped VALUES ('00000000-0000-7000-8000-0000000000dd', md5('r3')::uuid);
+SET LOCAL auto_explain.log_min_duration = 0; SET LOCAL auto_explain.log_nested_statements = on; SET LOCAL auto_explain.log_level = notice;
+COMMIT;
+SHOW plan_cache_mode;
+===== tenpage.out
+== step 0: all three partitions empty; ANALYZE p_an_empty, VACUUM p_vac_empty while empty
+ANALYZE
+VACUUM
+   relname   | relpages | reltuples | curpages 
+-------------+----------+-----------+----------
+ p_an_empty  |        0 |         0 |        0
+ p_never     |        0 |        -1 |        0
+ p_vac_empty |        0 |         0 |        0
+
+== planner size estimate while empty (rows= on the Seq Scan)
+                         QUERY PLAN                         
+------------------------------------------------------------
+ Seq Scan on p_never  (cost=0.00..14.70 rows=470 width=144)
+
+                         QUERY PLAN                         
+------------------------------------------------------------
+ Seq Scan on p_an_empty  (cost=0.00..0.00 rows=1 width=144)
+
+                         QUERY PLAN                          
+-------------------------------------------------------------
+ Seq Scan on p_vac_empty  (cost=0.00..0.00 rows=1 width=144)
+
+== step 1: 60 rows into each (20 tenants), no further ANALYZE
+INSERT 0 180
+   relname   | relpages | reltuples | curpages 
+-------------+----------+-----------+----------
+ p_an_empty  |        0 |         0 |        3
+ p_never     |        0 |        -1 |        3
+ p_vac_empty |        0 |         0 |        3
+
+                         QUERY PLAN                         
+------------------------------------------------------------
+ Seq Scan on p_never  (cost=0.00..14.70 rows=470 width=144)
+
+                          QUERY PLAN                          
+--------------------------------------------------------------
+ Seq Scan on p_an_empty  (cost=0.00..4.41 rows=141 width=144)
+
+                          QUERY PLAN                           
+---------------------------------------------------------------
+ Seq Scan on p_vac_empty  (cost=0.00..4.41 rows=141 width=144)
+
+== step 2: the commit-check probe, generic plan, per partition
+SET
+PREPARE
+-- p_never (reltuples = -1, 10-page floor applies)
+                                                                   QUERY PLAN                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.15..6.94 rows=1 width=4)
+   ->  Append  (cost=0.15..20.54 rows=3 width=4)
+         Subplans Removed: 2
+         ->  Index Scan using p_never_tenant_id_subject_type_subject_id_occurred_at_idx on p_never audit_log_1  (cost=0.15..8.18 rows=1 width=4)
+               Index Cond: ((tenant_id = $1) AND (subject_type = $4) AND (subject_id = $5) AND (occurred_at = $2))
+               Filter: (txid = $3)
+
+-- p_an_empty (analysed while empty)
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.15..6.94 rows=1 width=4)
+   ->  Append  (cost=0.15..20.54 rows=3 width=4)
+         Subplans Removed: 2
+         ->  Seq Scan on p_an_empty audit_log_1  (cost=0.00..6.17 rows=1 width=4)
+               Filter: ((tenant_id = $1) AND (occurred_at = $2) AND (txid = $3) AND (subject_type = $4) AND (subject_id = $5))
+
+-- p_vac_empty (vacuumed while empty)
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.15..6.94 rows=1 width=4)
+   ->  Append  (cost=0.15..20.54 rows=3 width=4)
+         Subplans Removed: 2
+         ->  Seq Scan on p_vac_empty audit_log_1  (cost=0.00..6.17 rows=1 width=4)
+               Filter: ((tenant_id = $1) AND (occurred_at = $2) AND (txid = $3) AND (subject_type = $4) AND (subject_id = $5))
+
+===== linearity.tsv (rep, table, session plan_cache_mode, COMMIT ms 1k, COMMIT ms 4k, probe plan at COMMIT)
+1	aud_shipped	force_generic_plan	103.116	1680.390	Seq Scan
+1	aud_custom	force_generic_plan	46.176	219.105	Index Scan
+1	aud_shipped	auto	92.870	1719.291	Seq Scan
+1	aud_custom	auto	64.261	202.082	Index Scan
+2	aud_shipped	force_generic_plan	101.202	1795.978	Seq Scan
+2	aud_custom	force_generic_plan	62.599	211.636	Index Scan
+2	aud_shipped	auto	193.537	2516.433	Seq Scan
+2	aud_custom	auto	65.929	213.616	Index Scan
+3	aud_shipped	force_generic_plan	227.874	2797.561	Seq Scan
+3	aud_custom	force_generic_plan	72.016	259.726	Index Scan
+3	aud_shipped	auto	114.373	2290.964	Seq Scan
+3	aud_custom	auto	72.889	393.513	Index Scan
+===== rollout.out
+-- before ALTER FUNCTION: plan at COMMIT
+psql:/s2pg/rollout.sql:16: NOTICE:  duration: 0.484 ms  plan:
+Query Text: SELECT 1 FROM audit_log WHERE tenant_id = v_tenant AND occurred_at = v_at AND txid = v_txid AND subject_type = v_type AND subject_id = v_id LIMIT 1
+Limit  (cost=0.15..7.33 rows=1 width=4)
+  ->  Append  (cost=0.15..28.89 rows=4 width=4)
+        Subplans Removed: 3
+        ->  Seq Scan on p_young audit_log_1  (cost=0.00..4.35 rows=1 width=4)
+              Filter: ((tenant_id = $14) AND (occurred_at = $18) AND (txid = $17) AND (subject_type = $16) AND (subject_id = $15))
+-- after ALTER FUNCTION (same session, no ANALYZE, no reconnect): plan at COMMIT
+-- a SET LOCAL force_generic_plan inside the writing transaction does not override the function-level setting
+psql:/s2pg/rollout.sql:23: NOTICE:  duration: 0.012 ms  plan:
+Query Text: SELECT 1 FROM audit_log WHERE tenant_id = v_tenant AND occurred_at = v_at AND txid = v_txid AND subject_type = v_type AND subject_id = v_id LIMIT 1
+Limit  (cost=0.28..8.13 rows=1 width=4)
+  ->  Index Scan using p_young_tenant_id_subject_type_subject_id_occurred_at_idx on p_young audit_log  (cost=0.28..8.13 rows=1 width=4)
+        Index Cond: ((tenant_id = '00000000-0000-7000-8000-0000000000dd'::uuid) AND (subject_type = 'record'::text) AND (subject_id = 'd2791864-28a7-5016-b17e-4df5ea43d080'::uuid) AND (occurred_at = '2026-11-03 05:08:05.311764+00'::timestamp with time zone))
+        Filter: (txid = '1345'::xid8)
+psql:/s2pg/rollout.sql:30: NOTICE:  duration: 0.015 ms  plan:
+Query Text: SELECT 1 FROM audit_log WHERE tenant_id = v_tenant AND occurred_at = v_at AND txid = v_txid AND subject_type = v_type AND subject_id = v_id LIMIT 1
+Limit  (cost=0.28..8.13 rows=1 width=4)
+  ->  Index Scan using p_young_tenant_id_subject_type_subject_id_occurred_at_idx on p_young audit_log  (cost=0.28..8.13 rows=1 width=4)
+        Index Cond: ((tenant_id = '00000000-0000-7000-8000-0000000000dd'::uuid) AND (subject_type = 'record'::text) AND (subject_id = '9d3e622d-f914-d8de-7f74-7b7b8b143c52'::uuid) AND (occurred_at = '2026-11-03 05:08:05.313796+00'::timestamp with time zone))
+        Filter: (txid = '1346'::xid8)
+  plan_cache_mode   
+--------------------
+ force_generic_plan
+
