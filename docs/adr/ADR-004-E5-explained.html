@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-004 erratum E5 explained: removing a group must never rewrite tickets behind the audit log</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.pill{display:inline-block;font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left}
+th{background:var(--soft)}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:40px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--soft);padding:1px 5px;border-radius:4px}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+.bad{color:var(--bad);font-weight:600}.good{color:var(--good);font-weight:600}
+figure{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure svg{width:100%;min-width:640px;height:auto;display:block}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
+</style></head><body><main>
+
+<span class="pill">PROPOSED · 2026-11-04</span> <span class="src">ADR-004-E5 · issue TICK-529 · RFC-011 rev 1 · amends ADR-004 (decision 2, R6, CI-A3) · source: TICK-452 RESULT BLOCKED</span>
+
+<h1>Removing a group in Keycloak must never rewrite tickets behind the audit log</h1>
+
+<blockquote><strong>In one sentence.</strong> When a group disappeared from Keycloak, the database blanked that group on every ticket by itself, with no audit entry, no version change and no event, and the new audit check correctly refused it, which stopped group sync. From now on, removed groups are only <em>marked</em> as removed, so tickets are never touched, and a CI check forbids this kind of hidden write on any audited table. Separately: secrets may never be stored inside a ticket.</blockquote>
+
+<h2>Words used here</h2>
+<dl>
+<dt>Record</dt><dd>A ticket (or any other tenant-defined item) stored in the <code>records</code> table. Every change to it must go through one <em>write pipeline</em>, which checks permissions, validates the change, bumps the version and writes an audit entry, all in one transaction (invariant I4).</dd>
+<dt>Audit entry and commit check</dt><dd>ADR-004 keeps one tamper-evident audit log. The <em>commit check</em> is a database trigger: when a transaction saves, it refuses the save unless every changed record has a matching audit entry.</dd>
+<dt>Group sync</dt><dd>A background job (database role <code>nava_groupsync</code>) that copies users and groups from Keycloak, the identity provider, into our tables. It also handles deprovisioning, so it must never get stuck.</dd>
+<dt>Foreign key (FK) and referential action</dt><dd>A foreign key says "this column must point at an existing row elsewhere". A <em>referential action</em> such as <code>ON DELETE SET NULL</code> tells the database to change the pointing rows itself when the target is deleted. That change runs as the table's owner and skips our permissions and the write pipeline.</dd>
+<dt>Tombstone (soft delete)</dt><dd>Instead of deleting a row, set <code>deleted_at</code> to mark it as removed. The row stays, so nothing that points at it breaks.</dd>
+<dt>Audited table</dt><dd>A table listed in <code>db/audited-tables.yaml</code>. Every write to it needs an audit entry (ADR-004).</dd>
+</dl>
+
+<h2>The problem</h2>
+<p>A record's <code>assignment_group_id</code> pointed at <code>groups</code> with <code>ON DELETE SET NULL</code>. When Keycloak dropped a group, group sync deleted it, and PostgreSQL silently blanked the group on every record that named it. That is a second, hidden writer of records: <span class="bad">no version bump, no audit entry, no event</span>. When the commit check was attached to <code>records</code> (TICK-452), it refused that save, so group sync failed for the whole tenant, deprovisioning included. Our CI check did not notice, because it looks at permissions, and a referential action needs none.</p>
+
+<figure>
+<svg viewBox="0 0 760 230" xmlns="http://www.w3.org/2000/svg" font-size="13">
+<text x="20" y="22" font-weight="700">Before: one group delete, a hidden record write</text>
+<rect x="20" y="45" width="170" height="50" rx="6" fill="#ddf4ff" stroke="#0969da"/><text x="105" y="67" text-anchor="middle">Keycloak drops</text><text x="105" y="84" text-anchor="middle">group G</text>
+<rect x="240" y="45" width="190" height="50" rx="6" fill="#ddf4ff" stroke="#0969da"/><text x="335" y="67" text-anchor="middle">group sync:</text><text x="335" y="84" text-anchor="middle">DELETE FROM groups</text>
+<rect x="480" y="45" width="260" height="50" rx="6" fill="#ffebe9" stroke="#cf222e"/><text x="610" y="67" text-anchor="middle">database: SET NULL on every record</text><text x="610" y="84" text-anchor="middle">(as owner, outside the pipeline)</text>
+<line x1="190" y1="70" x2="238" y2="70" stroke="#59636e" marker-end="url(#a)"/><line x1="430" y1="70" x2="478" y2="70" stroke="#59636e" marker-end="url(#a)"/>
+<rect x="480" y="135" width="260" height="60" rx="6" fill="#ffebe9" stroke="#cf222e"/><text x="610" y="158" text-anchor="middle">commit check: no audit entry</text><text x="610" y="176" text-anchor="middle">→ whole sync rolls back</text>
+<line x1="610" y1="95" x2="610" y2="133" stroke="#59636e" marker-end="url(#a)"/>
+<text x="20" y="160" fill="#59636e">Without the check (today) the write simply</text><text x="20" y="178" fill="#59636e">goes unaudited. With it, sync stalls.</text>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#59636e"/></marker></defs>
+</svg>
+<figcaption>The commit check did not create the problem. It exposed a writer that was already bypassing the pipeline.</figcaption>
+</figure>
+
+<h2>Options we considered</h2>
+<table>
+<tr><th>Option</th><th>What it does</th><th>Why it lost or won</th></tr>
+<tr><td>(a) Sync clears the group through the pipeline first</td><td>Every affected record gets a proper, audited write</td><td class="bad">Lost. One record that fails validation stalls sync again. A busy tenant turns one sync into thousands of record writes, and sync would need rights on records and the audit log.</td></tr>
+<tr><td>(b) Sync writes the audit entries itself</td><td>Keeps the hidden write, adds entries</td><td class="bad">Lost. It is still a second write path, with no version bump and no event.</td></tr>
+<tr><td>(c) Let the check ignore writes made by the database itself</td><td>Exempts writes made from inside triggers</td><td class="bad">Lost. The history silently stops matching the record, and the hash chain still says "verified". A spike showed that <em>any</em> write issued from <em>any</em> trigger would also escape.</td></tr>
+<tr><td>(d) Never attach the check to records</td><td>Relies on a code-level architecture test</td><td class="bad">Lost. That test cannot see this write either, so it has the same gap as (c) and no database guard at all.</td></tr>
+<tr><td>(e) Block deletion; sync reassigns or waits</td><td>Group cannot be deleted while used</td><td class="bad">Lost. Reassigning is (a) again, and waiting leaves an unmarked ghost group.</td></tr>
+<tr><td><strong>(e) Soft delete: chosen</strong></td><td>Mark the group removed and never delete it</td><td class="good">Won. Records are never touched, sync never stalls, and the check stays strict.</td></tr>
+</table>
+
+<h2>The decision</h2>
+<ol>
+<li><strong>Groups are tombstoned, never deleted</strong> (D1, D2). Group sync removes the group's memberships, then sets <code>deleted_at</code>, then removes the tenant's admin or auditor pointer if it named that group. The record FK becomes <code>RESTRICT</code>, and sync loses the right to delete groups.</li>
+<li><strong>New rule R29:</strong> no foreign key on an audited table may change rows by itself. CI checks every audited table, so the next hidden writer fails in CI, not in production.</li>
+<li><strong>A removed group grants nothing, and the database enforces it</strong> (D11). A removed group cannot have members: a generated <code>live</code> flag and a foreign key make the database reject it, for every role.</li>
+<li><strong>The admin and auditor pointers are deleted</strong> when their group is removed (D5). That way a group restored in Keycloak does not silently make people admins or auditors again. Sync can delete only pointers whose group is already removed. It also needs read access to the auditor pointer (condition <strong>I1</strong>: <code>SELECT (tenant_id, group_id)</code> and the SELECT policy). Without it, the delete either errors (and sync stalls) or silently does nothing.</li>
+<li><strong>Records keep the removed group</strong> and show it as removed (D7). A ticket cannot be newly assigned to a removed group (D6). For another tenant's group, the error is the same as for an unknown id, so nothing leaks.</li>
+</ol>
+
+<h2>How it is rolled out: expand, then contract</h2>
+<figure>
+<svg viewBox="0 0 760 200" xmlns="http://www.w3.org/2000/svg" font-size="13">
+<rect x="20" y="30" width="330" height="140" rx="8" fill="#dafbe1" stroke="#1a7f37"/>
+<text x="185" y="52" text-anchor="middle" font-weight="700">Step (i): expand</text>
+<text x="35" y="78">• add deleted_at, the live flag and its FK</text>
+<text x="35" y="98">• pointer delete policies, plus the I1 grant</text>
+<text x="35" y="118">• deploy the new sync (stop old, start new)</text>
+<text x="35" y="138">• readers filter removed groups</text>
+<text x="35" y="158" fill="#59636e">the old sync binary still works here</text>
+<rect x="410" y="30" width="330" height="140" rx="8" fill="#fff8c5" stroke="#9a6700"/>
+<text x="575" y="52" text-anchor="middle" font-weight="700">Step (ii): contract (after (i) is live)</text>
+<text x="425" y="78">• swap the FK to RESTRICT (lock_timeout)</text>
+<text x="425" y="98">• revoke DELETE on groups from sync</text>
+<text x="425" y="118">• VALIDATE, as a separate migration</text>
+<text x="425" y="138">• attach the audit check to records</text>
+<text x="425" y="158">• R29 joins the CI catalogue check</text>
+<line x1="350" y1="100" x2="408" y2="100" stroke="#59636e" stroke-width="2" marker-end="url(#b)"/>
+<defs><marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#59636e"/></marker></defs>
+</svg>
+<figcaption>If step (ii) ran before the new sync was live, the old sync's DELETE would hit RESTRICT and stall, which is the original failure. The order is a binding constraint.</figcaption>
+</figure>
+
+<h2>Q2: can a ticket hold a secret?</h2>
+<p><strong>No.</strong> A value at a field marked <code>writeOnly</code> or <code>x-nava-secret</code> is refused with <code>422 audit_secret_in_diff</code>. The error names the field, never the value. Storing the value and hiding it only in the audit diff was rejected, because ticket data also flows to scripts, workflow payloads, search and backups, and the audit mask covers none of them. Note that JSON Schema's <code>writeOnly</code> normally means "accepted, not returned". Here, for a record, it means <em>never accepted</em>. Publishing a ticket type that <em>requires</em> such a field anywhere in its schema is refused, because nobody could ever create that ticket.</p>
+
+<h2>What we accept (residual risks)</h2>
+<table>
+<tr><th>Risk</th><th>Why it is acceptable</th><th>Revisit when</th></tr>
+<tr><td>Tickets of a removed group drop out of group queues until reassigned (AR-TICK-529-01)</td><td>The same happened under SET NULL, and now the ticket shows which group it was</td><td>Product asks for automatic reassignment</td></tr>
+<tr><td>A ticket assigned at the very moment its group is removed keeps the removed group (AR-TICK-529-02)</td><td>The result is identical to a ticket assigned a second earlier</td><td>That behaviour changes</td></tr>
+<tr><td>Removed group rows are kept (AR-TICK-529-03)</td><td>Measured cost is under 0.05 ms per read</td><td>More than 10% of a tenant's groups are removed</td></tr>
+<tr><td>A restored admins group leaves the tenant with no admin until the pointer is re-recorded (AR-TICK-529-04)</td><td>It fails closed, with no unintended access</td><td>A tenant reports a lockout</td></tr>
+<tr><td>During rollout, an old sync instance fails on a restored group (AR-TICK-529-05)</td><td>It fails closed and is avoided by stop-old, start-new</td><td>The rollout overlaps old and new instances</td></tr>
+</table>
+<p>One dissent is recorded: the Technical Architect preferred keeping the admin pointer (T9). Security, which owns this decision, ruled that it must go.</p>
+
+<h2>Evidence</h2>
+<table>
+<tr><th>Spike (PostgreSQL 16.10)</th><th>Result</th></tr>
+<tr><td>Today, sync deletes a group with the check attached (S1)</td><td class="bad">permission denied for table audit_log: the sync rolls back</td></tr>
+<tr><td>Option (c): delete under the exemption (S2), and a write from another trigger (S4)</td><td class="bad">The record changed, with 0 audit rows, both times</td></tr>
+<tr><td>Chosen design: tombstone a group named by 400k records</td><td class="good">7.2 ms, with no record touched (unchanged <code>xmin</code>). Under SET NULL the same drop cost 502 ms.</td></tr>
+<tr><td>Removing a group with members still in it, or adding a member to a removed group (D11)</td><td class="good">Refused with 23503</td></tr>
+<tr><td>Removing the auditor pointer without condition I1</td><td class="bad">Error (sync stalls), or 0 rows deleted silently</td></tr>
+<tr><td>The same, with I1</td><td class="good">Pointer removed and the transaction commits</td></tr>
+<tr><td>R29 query, before and after the FK swap</td><td>Flags <code>records_assignment_group_fkey</code>, then <span class="good">0 rows</span></td></tr>
+</table>
+<p class="src">Spike files: <code>docs/adr/ADR-004/spikes/technical-architect/rfc-011/</code> (rounds 1 and 2) and <code>docs/adr/ADR-004/spikes/postgres/rfc-011/</code>. The RFC and its review record are in <code>docs/adr/ADR-004/rfc/</code>.</p>
+
+<p class="src">Process: the Solution Architect framed RFC-011. In round 1, Security and the Technical Architect approved, and Postgres asked for changes (two blocking items, fixed in rev 1). The CTO ruled on D11 and D5. In round 2, the Technical Architect approved with condition I1, which is folded in here. Status is PROPOSED until the Security review of this PR and the Solution Architect's verdict. Checked against invariants ADR-001 I1–I9.</p>
+</main></body></html>

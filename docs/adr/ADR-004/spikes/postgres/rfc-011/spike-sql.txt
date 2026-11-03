@@ -1,0 +1,145 @@
+-- TICK-529 / RFC-011 Q-C spike. Shapes copied from 00003_identity_tables.sql
+-- and 20261101190000_records_pipeline.sql (only the columns that matter).
+-- Counts follow docs/data/identity.md (51,900 groups: 10 x 5,000 + 190 x 10)
+-- and docs/data/records-list-bench.md (800k records, one 400k-row tenant).
+DROP TABLE IF EXISTS group_members, records, groups, principals, tenants CASCADE;
+CREATE TABLE tenants (id uuid PRIMARY KEY);
+CREATE TABLE groups (
+    tenant_id uuid NOT NULL REFERENCES tenants(id),
+    id uuid NOT NULL,
+    keycloak_group_id text NOT NULL,
+    path text NOT NULL,
+    PRIMARY KEY (tenant_id, id),
+    UNIQUE (tenant_id, keycloak_group_id));
+CREATE TABLE principals (tenant_id uuid NOT NULL, id uuid NOT NULL, PRIMARY KEY (tenant_id, id));
+CREATE TABLE group_members (
+    tenant_id uuid NOT NULL, group_id uuid NOT NULL, principal_id uuid NOT NULL,
+    PRIMARY KEY (tenant_id, group_id, principal_id),
+    FOREIGN KEY (tenant_id, group_id) REFERENCES groups (tenant_id, id) ON DELETE CASCADE);
+CREATE INDEX group_members_principal ON group_members (tenant_id, principal_id);
+CREATE TABLE records (
+    tenant_id uuid NOT NULL, id uuid NOT NULL,
+    state text NOT NULL, assignment_group_id uuid,
+    updated_at timestamptz NOT NULL, data jsonb NOT NULL DEFAULT '{}',
+    PRIMARY KEY (tenant_id, id),
+    CONSTRAINT records_assignment_group_fkey FOREIGN KEY (tenant_id, assignment_group_id)
+        REFERENCES groups (tenant_id, id) ON DELETE SET NULL (assignment_group_id));
+CREATE INDEX records_tenant_group_open ON records (tenant_id, assignment_group_id, updated_at DESC, id DESC)
+    WHERE state <> 'closed';
+
+INSERT INTO tenants SELECT ('00000000-0000-0000-0000-' || lpad(to_hex(t), 12, '0'))::uuid FROM generate_series(1, 200) t;
+-- tenant 1..10 large (5,000 groups), 11..200 small (10 groups)
+INSERT INTO groups
+SELECT tid, gen_random_uuid(), 'kc-' || t || '-' || g, '/t/' || tid || '/g' || g
+FROM (SELECT t, ('00000000-0000-0000-0000-' || lpad(to_hex(t), 12, '0'))::uuid tid FROM generate_series(1, 200) t) x,
+     LATERAL generate_series(1, CASE WHEN t <= 10 THEN 5000 ELSE 10 END) g;
+-- worst-case resolver principal per large tenant: in 200 groups
+INSERT INTO principals SELECT id, gen_random_uuid() FROM tenants;
+INSERT INTO group_members
+SELECT g.tenant_id, g.id, p.id FROM principals p
+JOIN LATERAL (SELECT id, tenant_id FROM groups WHERE tenant_id = p.tenant_id LIMIT 200) g ON true;
+-- 800k records: tenant 1 = 400k, tenants 2..10 = 40k each, 85% closed
+INSERT INTO records
+SELECT r.tid, gen_random_uuid(), CASE WHEN random() < 0.15 THEN 'open' ELSE 'closed' END,
+       r.gid, now() - random() * interval '365 days', '{"x":1}'
+FROM (
+  SELECT g.tenant_id tid, g.id gid FROM groups g
+  JOIN LATERAL generate_series(1, CASE WHEN g.tenant_id = '00000000-0000-0000-0000-000000000001' THEN 80 ELSE 8 END) n ON true
+  WHERE g.tenant_id <= '00000000-0000-0000-0000-00000000000a'
+) r;
+VACUUM ANALYZE;
+SELECT 'groups', count(*) FROM groups UNION ALL SELECT 'records', count(*) FROM records
+UNION ALL SELECT 'group_members', count(*) FROM group_members;
+SELECT pg_size_pretty(pg_total_relation_size('records')) records_size;
+\timing on
+SELECT count(*) records FROM records;
+-- A. Today: one group delete under SET NULL (what sync does now, as owner).
+BEGIN;
+EXPLAIN (ANALYZE, BUFFERS, COSTS OFF)
+DELETE FROM groups WHERE (tenant_id, id) = (SELECT tenant_id, id FROM groups
+  WHERE tenant_id = '00000000-0000-0000-0000-000000000001' LIMIT 1);
+ROLLBACK;
+
+-- B. PG16 cannot change a referential action in place.
+ALTER TABLE records ALTER CONSTRAINT records_assignment_group_fkey ON DELETE RESTRICT;
+
+-- C. R29 catalogue query, before the change (expect one row).
+\set audited '{records}'
+SELECT c.conrelid::regclass AS tbl, c.conname, c.confdeltype, c.confupdtype
+FROM pg_constraint c
+WHERE c.contype = 'f'
+  AND c.conrelid = ANY (:'audited'::regclass[])
+  AND (c.confdeltype NOT IN ('a', 'r') OR c.confupdtype NOT IN ('a', 'r'));
+
+-- D. Expand step: drop + re-add NOT VALID in ONE transaction. Locks held?
+BEGIN;
+SET LOCAL lock_timeout = '5s';
+ALTER TABLE records DROP CONSTRAINT records_assignment_group_fkey,
+  ADD CONSTRAINT records_assignment_group_fkey FOREIGN KEY (tenant_id, assignment_group_id)
+    REFERENCES groups (tenant_id, id) ON DELETE RESTRICT NOT VALID;
+SELECT l.relation::regclass, l.mode FROM pg_locks l
+WHERE l.locktype = 'relation' AND l.pid = pg_backend_pid()
+  AND l.relation::regclass::text IN ('records', 'groups') ORDER BY 1, 2;
+COMMIT;
+
+-- E. Validate step, own transaction. Locks held?
+BEGIN;
+SET LOCAL lock_timeout = '5s';
+ALTER TABLE records VALIDATE CONSTRAINT records_assignment_group_fkey;
+SELECT l.relation::regclass, l.mode FROM pg_locks l
+WHERE l.locktype = 'relation' AND l.pid = pg_backend_pid()
+  AND l.relation::regclass::text IN ('records', 'groups') ORDER BY 1, 2;
+COMMIT;
+
+-- C again, after (expect zero rows).
+SELECT c.conrelid::regclass AS tbl, c.conname, c.confdeltype, c.confupdtype, c.convalidated
+FROM pg_constraint c
+WHERE c.contype = 'f'
+  AND c.conrelid = ANY (:'audited'::regclass[])
+  AND (c.confdeltype NOT IN ('a', 'r') OR c.confupdtype NOT IN ('a', 'r'));
+SELECT conname, confdeltype, convalidated FROM pg_constraint WHERE conname = 'records_assignment_group_fkey';
+\timing on
+ALTER TABLE groups ADD COLUMN deleted_at timestamptz;
+-- Tombstone 10% of tenant 1's groups (R-E5-3 revisit threshold).
+CREATE TEMP TABLE before AS SELECT ctid, xmin::text x FROM records WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
+EXPLAIN (ANALYZE, BUFFERS, COSTS OFF)
+UPDATE groups SET deleted_at = now() WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+  AND id IN (SELECT id FROM groups WHERE tenant_id = '00000000-0000-0000-0000-000000000001' ORDER BY id LIMIT 500);
+-- No records row touched (same ctid + xmin)?
+SELECT count(*) AS records_rows_changed FROM records r JOIN before b ON b.ctid = r.ctid
+WHERE r.tenant_id = '00000000-0000-0000-0000-000000000001' AND r.xmin::text <> b.x;
+-- Owner hard delete of a referenced group now fails (RESTRICT).
+DELETE FROM groups WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+  AND id = (SELECT assignment_group_id FROM records WHERE tenant_id = '00000000-0000-0000-0000-000000000001' LIMIT 1);
+-- Tombstone the worst-case principal's groups 10% too
+VACUUM ANALYZE groups;
+
+-- Reader 1: resolver (pgstore.go groupPathsSQL), worst-case principal, 200 groups.
+PREPARE r_old(uuid, uuid) AS SELECT g.id, g.path FROM group_members gm
+ JOIN groups g ON g.tenant_id = gm.tenant_id AND g.id = gm.group_id
+ WHERE gm.tenant_id = $1 AND gm.principal_id = $2 ORDER BY g.id;
+PREPARE r_new(uuid, uuid) AS SELECT g.id, g.path FROM group_members gm
+ JOIN groups g ON g.tenant_id = gm.tenant_id AND g.id = gm.group_id
+ WHERE gm.tenant_id = $1 AND gm.principal_id = $2 AND g.deleted_at IS NULL ORDER BY g.id;
+SELECT tenant_id, id AS pid FROM principals WHERE tenant_id = '00000000-0000-0000-0000-000000000001' \gset
+EXPLAIN (ANALYZE, BUFFERS, COSTS OFF) EXECUTE r_old(:'tenant_id', :'pid');
+EXPLAIN (ANALYZE, BUFFERS, COSTS OFF) EXECUTE r_new(:'tenant_id', :'pid');
+
+-- Reader 2: group picker / tenant list, 5,000-group tenant.
+EXPLAIN (ANALYZE, BUFFERS, COSTS OFF)
+SELECT id, path FROM groups WHERE tenant_id = :'tenant_id' ORDER BY path LIMIT 50;
+EXPLAIN (ANALYZE, BUFFERS, COSTS OFF)
+SELECT id, path FROM groups WHERE tenant_id = :'tenant_id' AND deleted_at IS NULL ORDER BY path LIMIT 50;
+
+-- Reader 3: D6 point probe by PK (pipeline check) and onboard probe by keycloak id.
+SELECT id AS gid, keycloak_group_id AS kc FROM groups WHERE tenant_id = :'tenant_id' AND deleted_at IS NOT NULL LIMIT 1 \gset
+EXPLAIN (ANALYZE, BUFFERS, COSTS OFF)
+SELECT deleted_at IS NULL FROM groups WHERE tenant_id = :'tenant_id' AND id = :'gid';
+EXPLAIN (ANALYZE, BUFFERS, COSTS OFF)
+SELECT EXISTS (SELECT 1 FROM groups WHERE tenant_id = :'tenant_id' AND keycloak_group_id = :'kc' AND deleted_at IS NULL);
+CREATE TEMP TABLE snap AS SELECT id, xmin::text x FROM records WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
+EXPLAIN (ANALYZE, COSTS OFF)
+UPDATE groups SET deleted_at = now() WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+  AND deleted_at IS NULL AND id IN (SELECT id FROM groups WHERE tenant_id = '00000000-0000-0000-0000-000000000001' AND deleted_at IS NULL ORDER BY id LIMIT 500);
+SELECT count(*) AS records_rows_changed FROM records r JOIN snap s USING (id)
+WHERE r.tenant_id = '00000000-0000-0000-0000-000000000001' AND r.xmin::text <> s.x;

@@ -1,0 +1,120 @@
+================ STEP (i) MIGRATION, as D10 lists it (timed) ================
+Timing is on.
+Time: 0.163 ms
+BEGIN
+Time: 0.158 ms
+Time: 0.204 ms
+ALTER TABLE
+Time: 0.984 ms
+ALTER TABLE
+Time: 201.056 ms
+ groups_relfilenode_after_live 
+-------------------------------
+                         16459
+(1 row)
+Time: 0.454 ms
+ALTER TABLE
+Time: 39.154 ms
+ALTER TABLE
+Time: 159.774 ms
+ALTER TABLE
+Time: 1.171 ms
+         mode          |   relation    
+-----------------------+---------------
+ AccessExclusiveLock   | groups
+ AccessShareLock       | groups
+ ShareLock             | groups
+ ShareRowExclusiveLock | groups
+ AccessExclusiveLock   | group_members
+ AccessShareLock       | group_members
+ ShareRowExclusiveLock | group_members
+(7 rows)
+Time: 0.981 ms
+COMMIT
+Time: 7.302 ms
+ALTER TABLE
+Time: 168.800 ms
+Timing is off.
+================ R1: OLD binary after step (i): hard DELETE of kc-old (members still present; old sync deletes memberships first, here we also try without) ================
+BEGIN
+DELETE 1
+COMMIT
+ old_group_rows | old_member_rows | record_group 
+----------------+-----------------+--------------
+              0 |               0 | 
+(1 row)
+================ R2: NEW binary, D1 order for kc-admins: (1) delete members (2) tombstone (3) delete pointer ================
+BEGIN
+DELETE 1
+UPDATE 1
+DELETE 1
+COMMIT
+ admin_ptr_rows_after_r2 
+-------------------------
+                       0
+(1 row)
+================ R2b: same order for kc-auditors, D5 grant+policy only (rev 1 text): no SELECT for nava_groupsync on tenant_auditor_group ================
+BEGIN
+DELETE 1
+UPDATE 1
+psql:/r2.sql:110: ERROR:  permission denied for table tenant_auditor_group
+ROLLBACK
+================ R2c: add SELECT grant only (no SELECT policy for nava_groupsync) ================
+BEGIN
+DELETE 1
+UPDATE 1
+DELETE 0
+ROLLBACK
+================ R3: SELECT grant + SELECT policy TO nava_groupsync on tenant_auditor_group ================
+BEGIN
+DELETE 1
+UPDATE 1
+DELETE 1
+COMMIT
+ auditor_ptr_rows_after_r3 
+---------------------------
+                         0
+(1 row)
+================ R4: D5 policy refuses a LIVE pointer (kc-live recorded as admin) ================
+INSERT 0 1
+BEGIN
+DELETE 0
+COMMIT
+================ R5: wrong order (tombstone kc-live before deleting its member) is refused by D11 ================
+BEGIN
+psql:/r2.sql:144: ERROR:  update or delete on table "groups" violates foreign key constraint "group_members_group_live_fkey" on table "group_members"
+DETAIL:  Key is still referenced from table "group_members".
+ROLLBACK
+================ R6: wrong order on revive (member insert before deleted_at = NULL) is refused; right order succeeds ================
+BEGIN
+psql:/r2.sql:149: ERROR:  insert or update on table "group_members" violates foreign key constraint "group_members_group_live_fkey"
+DETAIL:  Key is not present in table "groups".
+ROLLBACK
+BEGIN
+UPDATE 1
+INSERT 0 1
+COMMIT
+================ R7: OLD binary during rollout: tombstoned kc-auditors back in Keycloak; old code does not revive, inserts member ================
+BEGIN
+psql:/r2.sql:158: ERROR:  insert or update on table "group_members" violates foreign key constraint "group_members_group_live_fkey"
+DETAIL:  Key is not present in table "groups".
+ROLLBACK
+================ R8: resolver reader with D11 + D4 filter ================
+                                                                     QUERY PLAN                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------
+ Nested Loop (actual rows=15 loops=1)
+   Buffers: shared hit=55 read=23
+   ->  Index Scan using group_members_principal on group_members gm (actual rows=15 loops=1)
+         Index Cond: ((tenant_id = '83f1535f-99ab-0bf4-e9d0-2dfd85d3e3f7'::uuid) AND (principal_id = '64e023d9-1094-24dd-1e93-d35e2d37b3bd'::uuid))
+         Buffers: shared hit=9 read=9
+   ->  Index Scan using groups_tenant_id_live_key on groups g (actual rows=1 loops=15)
+         Index Cond: ((tenant_id = '83f1535f-99ab-0bf4-e9d0-2dfd85d3e3f7'::uuid) AND (id = gm.group_id))
+         Filter: (deleted_at IS NULL)
+         Buffers: shared hit=46 read=14
+ Planning:
+   Buffers: shared hit=296
+(11 rows)
+                                                       version                                                        
+----------------------------------------------------------------------------------------------------------------------
+ PostgreSQL 16.10 (Debian 16.10-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+(1 row)
