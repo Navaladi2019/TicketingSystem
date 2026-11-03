@@ -234,9 +234,13 @@ func TestP515CanonicalPoliciesRefuseCrossTenant(t *testing.T) {
 		return err
 	})
 	wantSQLState(t, "planted tenant B entry with tenant A set", err, "42501")
-	// A's own version goes through.
+	// A's own version goes through: exactly one row, so a policy that hid
+	// A's versions too (0 rows, no error) fails this control.
 	if err := inMigratorTx(func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, planted, tenantA)
+		tag, err := tx.Exec(ctx, planted, tenantA)
+		if err == nil && tag.RowsAffected() != 1 {
+			t.Errorf("own-tenant backfill insert wrote %d rows, want 1", tag.RowsAffected())
+		}
 		return err
 	}); err != nil {
 		t.Errorf("own-tenant backfill insert: %v", err)

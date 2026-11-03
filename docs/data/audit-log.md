@@ -155,6 +155,8 @@ erDiagram
 | 1,000 | 30,000 | 5.62 s | 0.14 s |
 | 10,000 | 300,000 | 54.69 s | 2.32 s |
 
+Runbook: the migration sets `lock_timeout = '5s'`. That limits only how long it **waits** to take the locks; once it has them it holds them for the whole run, about 0.18 ms per version to backfill (budget: ≤ 18 s at 100k versions, `docs/budgets.md`). Size the window from the S8 version count, not from `lock_timeout`. The function takes the locks in the order tenants, entity_definition_versions, audit_log (the order of its CREATE POLICY statements); an explicit `LOCK TABLE` up front was measured and not adopted (`scratch/audit-backfill-s8/tick515-lock/RESULT.md`).
+
 ## Cost
 
 All three tables are new and empty, so the migration takes no lock that blocks anything existing.
