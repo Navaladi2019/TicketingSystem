@@ -8,8 +8,10 @@ ci-integration: test-integration test-ci-isolated-down test-integration-cleanup
 # with ARGS the isolation suite does not run. The ci-isolated --down tag check
 # is its own target (test-ci-isolated-down, in ci-integration and its own
 # workflow step), so this loop stays fast (TICK-224).
+# NAVA_IT_COVERAGE: the script writes the integration half of make
+# check-coverage there (TICK-518).
 test-integration:
-	sh scripts/ci/test-integration.sh $(ARGS)
+	NAVA_IT_COVERAGE=coverage-integration.out sh scripts/ci/test-integration.sh $(ARGS)
 	$(if $(ARGS),@echo "isolation suite skipped (ARGS set); run make isolation",sh scripts/ci/isolation.sh)
 
 # test-integration.sh leaves no container or network behind after a run with
