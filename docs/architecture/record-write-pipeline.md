@@ -59,7 +59,13 @@ flowchart TD
   `{"number", "version", "schema_version", "data"}` with `data` the merged
   payload. The idempotency key is on this row only.
 - **Idempotency (system writers only).** A user write with a key is
-  `ErrInvalidCommand`. The key is looked up first; a hit for the same entity
+  `ErrInvalidCommand`. Each principal has its own key space (TICK-480,
+  TICK-498): `audit_log_idempotency_key` is unique on
+  `(tenant_id, idempotency_key, actor_id) NULLS NOT DISTINCT`, so another
+  principal's write under the same key is neither replayed nor refused, and
+  a 409 never reveals that the key exists (AR-TICK-480-01, closed by TICK-498;
+  [audit-idempotency-per-actor.md](../data/audit-idempotency-per-actor.md)).
+  The key is looked up first, by the caller's actor; a hit for the same entity
   type, op and (on an update) record returns the earlier `Result` from that
   row's `after` and writes nothing. A hit for any other write is
   `*ErrIdempotencyConflict` (P3-14 maps it to 409, as PLAN-001 T22 does for a

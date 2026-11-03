@@ -117,11 +117,13 @@ func TestRecordLocksNameTheTenantWithoutRLS(t *testing.T) {
 	}
 }
 
-// TestIdempotencyKeyIsScopedByPrincipal (TICK-480): a key replays only the
-// principal's own write. Member B's write under member A's key, in the same
-// tenant, never returns A's record: it is refused as a conflict and writes
-// nothing. A's own replay and a principal-less system writer's (as
-// cmd/demo-outbox's) still return their earlier write.
+// TestIdempotencyKeyIsScopedByPrincipal (TICK-480, TICK-498): a key belongs
+// to one principal. Member B's write under member A's key, in the same
+// tenant, creates B's own record: no 409, so B learns nothing about A's key
+// (AR-TICK-480-01). Each member's retry replays its own write, a different
+// write under a member's own key is still *ErrIdempotencyConflict, and a
+// concurrent duplicate by the same principal, or by two principal-less
+// system writers, still hits the unique index (ErrDuplicateKey).
 func TestIdempotencyKeyIsScopedByPrincipal(t *testing.T) {
 	e := migrated(t)
 	ctx := context.Background()
@@ -144,35 +146,58 @@ func TestIdempotencyKeyIsScopedByPrincipal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	again, err := write(ctx, e, p, f.id, keyed(memberA, key, "a's"))
-	if err != nil || again != resA {
-		t.Fatalf("member A's replay = %+v, %v; want %+v", again, err, resA)
-	}
-
 	resB, err := write(ctx, e, p, f.id, keyed(memberB, key, "b's"))
-	var conflict *pipeline.ErrIdempotencyConflict
-	if !errors.As(err, &conflict) {
-		t.Fatalf("member B's write under A's key = %+v, %v; want *ErrIdempotencyConflict", resB, err)
+	if err != nil {
+		t.Fatalf("member B's write under A's key = %+v, %v; want B's own record, no conflict", resB, err)
 	}
 	if resB.RecordID == resA.RecordID {
 		t.Fatalf("member B's write under A's key returned A's record %s", resA.RecordID)
 	}
-	if n := count(t, e.super, "SELECT count(*) FROM records WHERE tenant_id = $1", f.id); n != 1 {
-		t.Errorf("tenant has %d records; want A's only", n)
+	if n := count(t, e.super, "SELECT count(*) FROM records WHERE tenant_id = $1", f.id); n != 2 {
+		t.Errorf("tenant has %d records; want A's and B's", n)
+	}
+	if n := count(t, e.super, "SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND idempotency_key = $2", f.id, key); n != 2 {
+		t.Errorf("%d audit rows keyed %s; want one per member", n, key)
 	}
 
-	// The store lookup itself: B's principal never finds A's row; no
-	// principal (a system writer) does not either.
+	// Each member's retry replays its own write and writes nothing.
+	for _, c := range []struct {
+		name  string
+		actor identity.Principal
+		title string
+		want  pipeline.Result
+	}{{"A", memberA, "a's", resA}, {"B", memberB, "b's", resB}} {
+		if again, err := write(ctx, e, p, f.id, keyed(c.actor, key, c.title)); err != nil || again != c.want {
+			t.Errorf("member %s's replay = %+v, %v; want %+v", c.name, again, err, c.want)
+		}
+	}
+	// A different write (an update, not a create) under A's own key is
+	// still a conflict.
+	upd := keyed(memberA, key, "a's")
+	upd.Op, upd.RecordID, upd.ExpectedVersion = pipeline.OpUpdate, resA.RecordID, resA.Version
+	var conflict *pipeline.ErrIdempotencyConflict
+	if res, err := write(ctx, e, p, f.id, upd); !errors.As(err, &conflict) {
+		t.Errorf("member A's update under A's create key = %+v, %v; want *ErrIdempotencyConflict", res, err)
+	}
+	if n := count(t, e.super, "SELECT count(*) FROM records WHERE tenant_id = $1", f.id); n != 2 {
+		t.Errorf("tenant has %d records after the replays; want 2", n)
+	}
+
+	// The store lookup: each principal finds only its own row; no principal
+	// (a system writer) finds neither.
 	inTx(t, e, f.id, func(tx pgx.Tx) error {
-		if kw, err := store.AuditByKey(ctx, tx, f.id, &memberB.PrincipalID, key); !errors.Is(err, store.ErrNotFound) {
-			t.Errorf("AuditByKey(member B, A's key) = %+v, %v; want ErrNotFound", kw, err)
+		for _, c := range []struct {
+			name  string
+			actor *uuid.UUID
+			want  uuid.UUID
+		}{{"member A", &memberA.PrincipalID, resA.RecordID}, {"member B", &memberB.PrincipalID, resB.RecordID}} {
+			kw, err := store.AuditByKey(ctx, tx, f.id, c.actor, key)
+			if err != nil || kw.RecordID != c.want {
+				t.Errorf("AuditByKey(%s) = %+v, %v; want record %s", c.name, kw, err, c.want)
+			}
 		}
 		if kw, err := store.AuditByKey(ctx, tx, f.id, nil, key); !errors.Is(err, store.ErrNotFound) {
-			t.Errorf("AuditByKey(no principal, A's key) = %+v, %v; want ErrNotFound", kw, err)
-		}
-		kw, err := store.AuditByKey(ctx, tx, f.id, &memberA.PrincipalID, key)
-		if err != nil || kw.RecordID != resA.RecordID {
-			t.Errorf("AuditByKey(member A, A's key) = %+v, %v; want record %s", kw, err, resA.RecordID)
+			t.Errorf("AuditByKey(no principal, the members' key) = %+v, %v; want ErrNotFound", kw, err)
 		}
 		return nil
 	})
@@ -186,4 +211,24 @@ func TestIdempotencyKeyIsScopedByPrincipal(t *testing.T) {
 	if again, err := write(ctx, e, p, f.id, keyed(f.system(), "wf:system:s1", "system's")); err != nil || again != sys {
 		t.Fatalf("system writer's replay = %+v, %v; want %+v", again, err, sys)
 	}
+
+	// The concurrent path, where the replay lookup has not seen the other
+	// write: the unique index refuses a second keyed audit row by the same
+	// principal, and by a second NULL actor (NULLS NOT DISTINCT), and the
+	// store reports it as ErrDuplicateKey under the index's name.
+	dup := func(name string, actor *uuid.UUID, k string, rec uuid.UUID) {
+		t.Helper()
+		err := tenancy.InTenantTx(ctx, e.app, f.id, func(tx pgx.Tx) error {
+			return store.InsertAudit(ctx, tx, &store.Audit{TenantID: f.id, ID: uuid.New(), RecordID: rec,
+				Action: "create", ActorID: actor, Source: string(pipeline.SourceWorkflow),
+				After:          &store.Snapshot{Number: "x", Version: 1, SchemaVersion: 1, Data: map[string]any{}},
+				IdempotencyKey: &k})
+		})
+		if !errors.Is(err, store.ErrDuplicateKey) {
+			t.Errorf("%s: a second audit row keyed %s = %v; want ErrDuplicateKey", name, k, err)
+		}
+	}
+	dup("member A", &memberA.PrincipalID, key, resA.RecordID)
+	dup("member B", &memberB.PrincipalID, key, resB.RecordID)
+	dup("no principal", nil, "wf:system:s1", sys.RecordID)
 }

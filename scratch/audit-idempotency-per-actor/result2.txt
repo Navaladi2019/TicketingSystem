@@ -1,0 +1,158 @@
+PREPARE
+SET
+DROP INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+ANALYZE
+== lookup, warm, each index alone (5 runs)
+BEGIN
+DROP INDEX
+old_tenant_key
+                                        QUERY PLAN                                        
+------------------------------------------------------------------------------------------
+ Index Scan using old_tenant_key on audit_log a (actual time=0.036..0.038 rows=1 loops=1)
+   Index Cond: ((tenant_id = $1) AND (idempotency_key = $2))
+   Filter: (NOT (actor_id IS DISTINCT FROM $3))
+ Planning Time: 0.020 ms
+ Execution Time: 0.060 ms
+(5 rows)
+
+                                        QUERY PLAN                                        
+------------------------------------------------------------------------------------------
+ Index Scan using old_tenant_key on audit_log a (actual time=0.030..0.031 rows=1 loops=1)
+   Index Cond: ((tenant_id = $1) AND (idempotency_key = $2))
+   Filter: (NOT (actor_id IS DISTINCT FROM $3))
+ Planning Time: 0.017 ms
+ Execution Time: 0.050 ms
+(5 rows)
+
+                                        QUERY PLAN                                        
+------------------------------------------------------------------------------------------
+ Index Scan using old_tenant_key on audit_log a (actual time=0.028..0.030 rows=1 loops=1)
+   Index Cond: ((tenant_id = $1) AND (idempotency_key = $2))
+   Filter: (NOT (actor_id IS DISTINCT FROM $3))
+ Planning Time: 0.015 ms
+ Execution Time: 0.049 ms
+(5 rows)
+
+ROLLBACK
+BEGIN
+DROP INDEX
+new_tenant_actor_key
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
+ Index Scan using new_tenant_actor_key on audit_log a (actual time=2.440..3.267 rows=1 loops=1)
+   Index Cond: ((tenant_id = $1) AND (idempotency_key = $2))
+   Filter: (NOT (actor_id IS DISTINCT FROM $3))
+ Planning Time: 0.032 ms
+ Execution Time: 3.311 ms
+(5 rows)
+
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
+ Index Scan using new_tenant_actor_key on audit_log a (actual time=2.749..3.618 rows=1 loops=1)
+   Index Cond: ((tenant_id = $1) AND (idempotency_key = $2))
+   Filter: (NOT (actor_id IS DISTINCT FROM $3))
+ Planning Time: 0.046 ms
+ Execution Time: 3.664 ms
+(5 rows)
+
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
+ Index Scan using new_tenant_actor_key on audit_log a (actual time=7.619..8.834 rows=1 loops=1)
+   Index Cond: ((tenant_id = $1) AND (idempotency_key = $2))
+   Filter: (NOT (actor_id IS DISTINCT FROM $3))
+ Planning Time: 0.046 ms
+ Execution Time: 8.887 ms
+(5 rows)
+
+ROLLBACK
+BEGIN
+DROP INDEX
+new_tenant_key_actor
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
+ Index Scan using new_tenant_key_actor on audit_log a (actual time=0.029..0.030 rows=1 loops=1)
+   Index Cond: ((tenant_id = $1) AND (idempotency_key = $2))
+   Filter: (NOT (actor_id IS DISTINCT FROM $3))
+ Planning Time: 0.018 ms
+ Execution Time: 0.050 ms
+(5 rows)
+
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
+ Index Scan using new_tenant_key_actor on audit_log a (actual time=0.021..0.022 rows=1 loops=1)
+   Index Cond: ((tenant_id = $1) AND (idempotency_key = $2))
+   Filter: (NOT (actor_id IS DISTINCT FROM $3))
+ Planning Time: 0.013 ms
+ Execution Time: 0.037 ms
+(5 rows)
+
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
+ Index Scan using new_tenant_key_actor on audit_log a (actual time=0.021..0.022 rows=1 loops=1)
+   Index Cond: ((tenant_id = $1) AND (idempotency_key = $2))
+   Filter: (NOT (actor_id IS DISTINCT FROM $3))
+ Planning Time: 0.013 ms
+ Execution Time: 0.037 ms
+(5 rows)
+
+ROLLBACK
+== write: 20,000 keyed inserts in one statement, one unique index present
+DROP INDEX
+Timing is on.
+BEGIN
+Time: 0.261 ms
+DROP INDEX
+Time: 1.726 ms
+old
+INSERT 0 20000
+Time: 1090.249 ms (00:01.090)
+ROLLBACK
+Time: 0.401 ms
+BEGIN
+Time: 0.270 ms
+DROP INDEX
+Time: 0.585 ms
+new
+INSERT 0 20000
+Time: 802.471 ms
+ROLLBACK
+Time: 0.451 ms
+BEGIN
+Time: 0.180 ms
+DROP INDEX
+Time: 0.714 ms
+old
+INSERT 0 20000
+Time: 826.180 ms
+ROLLBACK
+Time: 0.313 ms
+BEGIN
+Time: 0.212 ms
+DROP INDEX
+Time: 0.497 ms
+new
+INSERT 0 20000
+Time: 740.790 ms
+ROLLBACK
+Time: 0.301 ms
+BEGIN
+Time: 0.255 ms
+DROP INDEX
+Time: 0.554 ms
+old
+INSERT 0 20000
+Time: 694.949 ms
+ROLLBACK
+Time: 0.379 ms
+BEGIN
+Time: 0.196 ms
+DROP INDEX
+Time: 0.677 ms
+new
+INSERT 0 20000
+Time: 664.415 ms
+ROLLBACK
+Time: 0.890 ms

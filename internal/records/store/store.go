@@ -36,7 +36,8 @@ var (
 	ErrDuplicateKey = errors.New("records/store: duplicate idempotency key")
 )
 
-// idempotencyIndex is the partial unique index on audit_log (P3-09).
+// idempotencyIndex is the partial unique index on audit_log (P3-09), on
+// (tenant_id, idempotency_key, actor_id) NULLS NOT DISTINCT since TICK-498.
 const idempotencyIndex = "audit_log_idempotency_key"
 
 // Record is one records row of a pipeline record. Data never holds a property
@@ -240,8 +241,9 @@ type KeyedWrite struct {
 // AuditByKey returns the write by actor that holds the idempotency key, or
 // ErrNotFound. actor is the write's audit actor_id: nil for a system writer
 // with no principal. A key held by another actor of the tenant is
-// ErrNotFound, so one caller can never replay another's write (TICK-480);
-// writing it then fails on the tenant-wide unique index, ErrDuplicateKey.
+// ErrNotFound, so one caller can never replay another's write (TICK-480).
+// The unique index is per actor too (TICK-498), so that caller's own write
+// under the key succeeds and learns nothing about the other's.
 func AuditByKey(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, actor *uuid.UUID, key string) (*KeyedWrite, error) {
 	var (
 		record    *uuid.UUID
