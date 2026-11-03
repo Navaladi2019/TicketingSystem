@@ -1,11 +1,14 @@
 package tenancy_test
 
 import (
+	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
@@ -24,5 +27,81 @@ func TestNoTenant(t *testing.T) {
 	}
 	if called {
 		t.Error("fn ran without a tenant")
+	}
+}
+
+// A pool that cannot connect fails at begin, wrapped, and fn never runs.
+func TestBeginFailure(t *testing.T) {
+	t.Parallel()
+	// Port 1 on loopback refuses at once; pgxpool connects lazily, on Begin.
+	pool, err := pgxpool.New(t.Context(), "postgres://nobody@127.0.0.1:1/none?connect_timeout=2&sslmode=disable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	called := false
+	err = tenancy.InTenantTx(t.Context(), pool, uuid.New(), func(pgx.Tx) error {
+		called = true
+		return nil
+	})
+	if err == nil || !strings.HasPrefix(err.Error(), "tenancy: begin: ") {
+		t.Fatalf("err = %v, want a wrapped begin error", err)
+	}
+	if errors.Is(err, tenancy.ErrNoTenant) {
+		t.Errorf("err = %v, a connection failure is not ErrNoTenant", err)
+	}
+	if called {
+		t.Error("fn ran without a transaction")
+	}
+}
+
+type rowFunc func(dest ...any) error
+
+func (f rowFunc) Scan(dest ...any) error { return f(dest...) }
+
+// settingTx answers TenantOf's read with setting, or fails it with err.
+type settingTx struct {
+	pgx.Tx  // nil: any other method panics
+	setting string
+	err     error
+}
+
+func (x settingTx) QueryRow(context.Context, string, ...any) pgx.Row {
+	return rowFunc(func(dest ...any) error {
+		if x.err != nil {
+			return x.err
+		}
+		*dest[0].(*string) = x.setting
+		return nil
+	})
+}
+
+// TenantOf accepts only a non-nil tenant UUID: an empty, malformed or nil
+// setting is no tenant, and a failed read is a wrapped error, not a tenant.
+func TestTenantOfSetting(t *testing.T) {
+	t.Parallel()
+	tenantA := uuid.New()
+	got, err := tenancy.TenantOf(t.Context(), settingTx{setting: tenantA.String()})
+	if err != nil || got != tenantA {
+		t.Fatalf("TenantOf(%s) = %s, %v", tenantA, got, err)
+	}
+	for name, s := range map[string]string{
+		"empty":     "",
+		"not uuid":  "tenant-b",
+		"nil uuid":  uuid.Nil.String(),
+		"truncated": tenantA.String()[:30],
+	} {
+		got, err := tenancy.TenantOf(t.Context(), settingTx{setting: s})
+		if !errors.Is(err, tenancy.ErrNoTenant) || got != uuid.Nil {
+			t.Errorf("%s: TenantOf = %s, %v; want ErrNoTenant", name, got, err)
+		}
+	}
+	boom := errors.New("boom")
+	got, err = tenancy.TenantOf(t.Context(), settingTx{err: boom})
+	if !errors.Is(err, boom) || errors.Is(err, tenancy.ErrNoTenant) || got != uuid.Nil {
+		t.Fatalf("read failure: %s, %v; want the wrapped cause", got, err)
+	}
+	if want := "tenancy: read tenant: boom"; err.Error() != want {
+		t.Errorf("message %q, want %q", err, want)
 	}
 }

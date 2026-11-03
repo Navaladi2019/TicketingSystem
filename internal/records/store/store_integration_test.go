@@ -343,3 +343,134 @@ UNION ALL SELECT jsonb_typeof(before) FROM audit_log WHERE tenant_id = $1 AND be
 		}
 	}
 }
+
+// TestStatementsStayInTheTransactionsTenant: every store statement runs in
+// a tenancy.InTenantTx transaction, and row-level security keeps it to that
+// transaction's tenant even when the tenant_id argument names another one.
+// Tenant B's transaction cannot read, update, number into, audit or history
+// tenant A's record, nor insert a row for tenant A, and tenant A's record is
+// unchanged afterwards.
+func TestStatementsStayInTheTransactionsTenant(t *testing.T) {
+	e := migrated(t)
+	fixed := assetFixed()
+	tenantA, tenantB := uuid.New(), uuid.New()
+	principals := map[uuid.UUID]uuid.UUID{tenantA: uuid.New(), tenantB: uuid.New()}
+	for tenant, principal := range principals {
+		mustExec(t, e.super, "INSERT INTO tenants (id, state) VALUES ($1, 'active')", tenant)
+		mustExec(t, e.super, `INSERT INTO principals (tenant_id, id, keycloak_user_id, enabled, synced_at)
+			VALUES ($1, $2, $3, true, now())`, tenant, principal, "kc-"+principal.String())
+		tx(t, e, tenant, func(ctx context.Context, tx pgx.Tx) error {
+			_, err := entitytypes.Store{}.Create(ctx, tx, tenant, entitytypes.NewInput{
+				Name: "asset", PublishedBy: principal, Definition: assetDefinition(),
+			})
+			return err
+		})
+	}
+
+	// Tenant A's record and its keyed create row.
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	key := "store-cross-tenant-1"
+	pa := principals[tenantA]
+	var rec store.Record
+	tx(t, e, tenantA, func(ctx context.Context, tx pgx.Tx) error {
+		def, err := store.DefinitionID(ctx, tx, tenantA, "asset")
+		if err != nil {
+			return err
+		}
+		n, err := store.NextNumber(ctx, tx, tenantA, def)
+		if err != nil {
+			return err
+		}
+		rec = store.Record{TenantID: tenantA, ID: uuid.New(), EntityDefinitionID: def, Version: 1, SchemaVersion: 1,
+			Number: store.FormatNumber("AST", n), CreatedBy: &pa, CreatedAt: now, UpdatedAt: now}
+		if err := rec.Split(map[string]any{"name": "a-secret", "status": "active", "serial": "SN-A"}, fixed); err != nil {
+			return err
+		}
+		if err := store.Insert(ctx, tx, &rec); err != nil {
+			return err
+		}
+		return store.InsertAudit(ctx, tx, &store.Audit{TenantID: tenantA, ID: uuid.New(), RecordID: rec.ID,
+			Action: "create", ActorID: &pa, Source: "user", IdempotencyKey: &key, At: now,
+			After: &store.Snapshot{Number: rec.Number, Version: 1, SchemaVersion: 1, Data: rec.Payload(fixed)}})
+	})
+
+	// Tenant B's transaction, naming tenant A's id and record explicitly.
+	tx(t, e, tenantB, func(ctx context.Context, tx pgx.Tx) error {
+		if _, err := store.DefinitionID(ctx, tx, tenantA, "asset"); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("B reads A's entity type: %v, want ErrNotFound", err)
+		}
+		if _, err := store.Get(ctx, tx, tenantA, rec.ID); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("B reads A's record: %v, want ErrNotFound", err)
+		}
+		forged := rec
+		forged.Data = map[string]any{"name": "overwritten"}
+		if _, err := store.Update(ctx, tx, &forged, 1); !errors.Is(err, store.ErrStale) {
+			t.Errorf("B updates A's record: %v, want ErrStale (no row)", err)
+		}
+		if _, err := store.AuditByKey(ctx, tx, tenantA, key); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("B reads A's idempotency key: %v, want ErrNotFound", err)
+		}
+		h, err := store.History(ctx, tx, tenantA, rec.ID, time.Time{}, uuid.Nil, 10)
+		if err != nil || len(h) != 0 {
+			t.Errorf("B reads A's history: %v, %v; want none", h, err)
+		}
+		taken, err := store.UniqueTaken(ctx, tx, tenantA, rec.EntityDefinitionID, uuid.Nil, "serial", "SN-A", fixed)
+		if err != nil || taken {
+			t.Errorf("B sees A's unique value: %v, %v; want not taken", taken, err)
+		}
+		return nil
+	})
+
+	// Writes for tenant A from tenant B's transaction are refused by RLS.
+	for name, write := range map[string]func(context.Context, pgx.Tx) error{
+		"insert record": func(ctx context.Context, tx pgx.Tx) error {
+			r := rec
+			r.ID = uuid.New()
+			r.Number = "AST9999999"
+			return store.Insert(ctx, tx, &r)
+		},
+		"insert audit": func(ctx context.Context, tx pgx.Tx) error {
+			return store.InsertAudit(ctx, tx, &store.Audit{TenantID: tenantA, ID: uuid.New(), RecordID: rec.ID,
+				Action: "update", Source: "system", At: now, After: &store.Snapshot{Data: map[string]any{}}})
+		},
+		"take a number": func(ctx context.Context, tx pgx.Tx) error {
+			_, err := store.NextNumber(ctx, tx, tenantA, rec.EntityDefinitionID)
+			return err
+		},
+	} {
+		err := tenancy.InTenantTx(context.Background(), e.app, tenantB, func(tx pgx.Tx) error {
+			return write(context.Background(), tx)
+		})
+		if err == nil {
+			t.Errorf("%s for tenant A from tenant B's transaction succeeded", name)
+		}
+	}
+
+	// Tenant A's rows are as A wrote them.
+	tx(t, e, tenantA, func(ctx context.Context, tx pgx.Tx) error {
+		got, err := store.Get(ctx, tx, tenantA, rec.ID)
+		if err != nil {
+			return err
+		}
+		if got.Version != 1 || got.Data["name"] != "a-secret" {
+			t.Errorf("A's record after B's attempts: version %d, data %v", got.Version, got.Data)
+		}
+		h, err := store.History(ctx, tx, tenantA, rec.ID, time.Time{}, uuid.Nil, 10)
+		if err != nil {
+			return err
+		}
+		if len(h) != 1 || h[0].Action != "create" {
+			t.Errorf("A's history after B's attempts: %+v, want the create only", h)
+		}
+		return nil
+	})
+	var counters, records int
+	if err := e.super.QueryRow(context.Background(), `SELECT
+		(SELECT count(*) FROM record_counters WHERE tenant_id = $1),
+		(SELECT count(*) FROM records WHERE tenant_id = $1)`, tenantA).Scan(&counters, &records); err != nil {
+		t.Fatal(err)
+	}
+	if counters != 1 || records != 1 {
+		t.Errorf("tenant A has %d counter rows and %d records, want 1 and 1", counters, records)
+	}
+}
