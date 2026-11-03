@@ -283,9 +283,10 @@ func checkShape(doc map[string]any, bad *problems) map[string]map[string]any {
 	if _, ok := doc["patternProperties"]; ok {
 		bad.add("schema", "patternProperties") // a pattern could match a name added later
 	}
-	w := walker{bad: bad, schemas: map[string]bool{}, anchors: map[string]bool{}}
+	w := walker{bad: bad, schemas: map[string]bool{}, anchors: map[string]bool{}, anchorAt: map[string]string{}, marked: map[string]bool{}}
 	w.walk(doc, []string{"schema"})
 	w.checkRefs()
+	w.checkMarked(doc)
 
 	rawProps, ok := doc["properties"].(map[string]any)
 	if !ok {
@@ -324,7 +325,42 @@ type walker struct {
 	bad     *problems
 	schemas map[string]bool // JSON pointers, relative to the schema root
 	anchors map[string]bool // $anchor and $dynamicAnchor names
-	refs    []refSite
+	// anchorAt maps an anchor name to the pointer of the subschema declaring it.
+	anchorAt map[string]string
+	// marked holds the names of top-level properties marked x-nava-secret or
+	// writeOnly (ADR-004 R6). The marker is allowed nowhere else.
+	marked map[string]bool
+	refs   []refSite
+}
+
+// secretKeywords mark a value that must never be stored in a definition or
+// its audit entry. They are valid only directly on a top-level property.
+func isSecretKeyword(kw string) bool { return kw == "x-nava-secret" || kw == "writeOnly" }
+
+// secretDataKeywords are the keywords through which a schema can hold a value.
+func secretDataKeywords() []string { return []string{"default", "const", "enum", "examples"} }
+
+// checkMarked refuses a value-holding keyword on a marked property, and
+// const, enum and examples on the root when any property is marked: they
+// could set the secret member through the root instance.
+func (w *walker) checkMarked(doc map[string]any) {
+	if len(w.marked) == 0 {
+		return
+	}
+	props, _ := doc["properties"].(map[string]any)
+	for name := range w.marked {
+		p, _ := props[name].(map[string]any)
+		for _, kw := range secretDataKeywords() {
+			if _, ok := p[kw]; ok {
+				w.bad.add("schema", "properties", name, kw)
+			}
+		}
+	}
+	for _, kw := range secretDataKeywords() {
+		if _, ok := doc[kw]; ok {
+			w.bad.add("schema", kw)
+		}
+	}
 }
 
 // walk checks one subschema: $ref and $dynamicRef are local, "default" and
@@ -351,10 +387,17 @@ func (w *walker) walk(node any, path []string) {
 		case kw == "$anchor" || kw == "$dynamicAnchor":
 			if s, ok := v.(string); ok {
 				w.anchors[s] = true
+				w.anchorAt[s] = pointer(path[1:]...)
 			}
 		case kw == "$schema" || kw == "$id":
 			if !root {
 				w.bad.add(at(kw)...)
+			}
+		case isSecretKeyword(kw):
+			if b, isBool := v.(bool); !isBool || !isTopLevelProperty(path) {
+				w.bad.add(at(kw)...)
+			} else if b {
+				w.marked[path[2]] = true
 			}
 		case kw == "default":
 			if !isTopLevelProperty(path) {
@@ -386,15 +429,27 @@ func (w *walker) walk(node any, path []string) {
 func (w *walker) checkRefs() {
 	for _, r := range w.refs {
 		target, ok := percentDecode(r.value)
+		at := target // the pointer the reference lands on
 		switch {
 		case !ok:
 			w.bad.add(r.path...)
+			continue
 		case target == "" || target[0] == '/':
 			if !w.schemas[target] {
 				w.bad.add(r.path...)
 			}
 		case !w.anchors[target]:
 			w.bad.add(r.path...)
+		default:
+			at = w.anchorAt[target]
+		}
+		// A reference to a marked property, or below one, would reach the
+		// marker through $ref (ADR-004 R6).
+		for name := range w.marked {
+			m := pointer("schema", "properties", name)[len("/schema"):]
+			if at == m || strings.HasPrefix(at, m+"/") {
+				w.bad.add(r.path...)
+			}
 		}
 	}
 }

@@ -19,12 +19,8 @@ func TestSecretPaths(t *testing.T) {
 		{"x-nava-secret", `{"properties":{"tok":{"x-nava-secret":true}}}`, []string{"/properties/tok"}},
 		{"writeOnly", `{"properties":{"tok":{"writeOnly":true}}}`, []string{"/properties/tok"}},
 		{"false marker", `{"properties":{"tok":{"x-nava-secret":false}}}`, nil},
-		{"under items", `{"properties":{"l":{"type":"array","items":{"properties":{"pw":{"x-nava-secret":true}}}}}}`,
-			[]string{"/properties/l/items/properties/pw"}},
-		{"under allOf index", `{"allOf":[{},{"properties":{"pw":{"writeOnly":true}}}]}`, []string{"/allOf/1/properties/pw"}},
-		{"via local ref", `{"$defs":{"pw":{"x-nava-secret":true}},"properties":{"p":{"$ref":"#/$defs/pw"}}}`,
-			[]string{"/$defs/pw", "/properties/p"}},
 		{"escaped name", `{"properties":{"a/b":{"x-nava-secret":true}}}`, []string{"/properties/a~1b"}},
+		{"nested marker is not derived (Compile refuses it)", `{"properties":{"l":{"items":{"x-nava-secret":true}}}}`, nil},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -44,7 +44,10 @@ func advSchema(extraProps, defs string) string {
 	return s + "}"
 }
 
-func advCompile(t *testing.T, schema string) {
+// advCompile compiles schema. With wantRefused it asserts Compile's refusal
+// and reports true: the case never reaches the audit check. Otherwise it
+// asserts Compile accepts the schema.
+func advCompile(t *testing.T, schema string, wantRefused bool) bool {
 	t.Helper()
 	_, err := metadata.Compile(metadata.Definition{
 		Key:          "ticket",
@@ -57,9 +60,17 @@ func advCompile(t *testing.T, schema string) {
 			Transitions: []metadata.Transition{{From: "open", To: "closed"}},
 		},
 	})
-	if err != nil {
-		t.Fatalf("precondition: Compile refuses the schema, so the case is not reachable: %v", err)
+	if wantRefused {
+		var inv *metadata.ErrInvalidDefinition
+		if !errors.As(err, &inv) {
+			t.Fatalf("Compile accepted a schema that holds a secret at a marked location (err = %v)", err)
+		}
+		return true
 	}
+	if err != nil {
+		t.Fatalf("precondition: Compile refuses the schema: %v", err)
+	}
+	return false
 }
 
 // advCheck runs the audit secret check on before -> after and wants a refusal
@@ -93,37 +104,41 @@ func TestAdversarialSecretDefaultIsRefused(t *testing.T) {
 	q := fmt.Sprintf("%q", advCanary)
 	cases := []struct {
 		name, props, defs string
+		auditAlso         bool // also run the audit check: the secret path covers this placement (defence in depth behind Compile)
 	}{
 		// Control: the case PR #413 covers. Must stay green.
-		{"control: default on the secret property", `"pw":{"type":"string","x-nava-secret":true,"default":` + q + `}`, ""},
+		{"control: default on the secret property", `"pw":{"type":"string","x-nava-secret":true,"default":` + q + `}`, "", true},
 
 		// F1: the secret lives under a parent object whose own default sets it.
 		{"F1a parent object default sets the secret member",
-			`"creds":{"type":"object","properties":{"pw":{"type":"string","x-nava-secret":true}},"default":{"pw":` + q + `}}`, ""},
+			`"creds":{"type":"object","properties":{"pw":{"type":"string","x-nava-secret":true}},"default":{"pw":` + q + `}}`, "", false},
 		{"F1b parent enum carries the secret member",
-			`"creds":{"type":"object","properties":{"pw":{"type":"string","writeOnly":true}},"enum":[{"pw":` + q + `}]}`, ""},
+			`"creds":{"type":"object","properties":{"pw":{"type":"string","writeOnly":true}},"enum":[{"pw":` + q + `}]}`, "", false},
 		{"F1c array default with secret items",
-			`"pins":{"type":"array","items":{"type":"string","x-nava-secret":true},"default":[` + q + `]}`, ""},
+			`"pins":{"type":"array","items":{"type":"string","x-nava-secret":true},"default":[` + q + `]}`, "", false},
 		{"F1d examples on the parent object",
-			`"creds":{"type":"object","properties":{"pw":{"type":"string","x-nava-secret":true}},"examples":[{"pw":` + q + `}]}`, ""},
+			`"creds":{"type":"object","properties":{"pw":{"type":"string","x-nava-secret":true}},"examples":[{"pw":` + q + `}]}`, "", false},
 
 		// F2: the marker applies to the same instance through an in-place applicator.
 		{"F2a marker inside allOf on the same property",
-			`"pw":{"type":"string","allOf":[{"x-nava-secret":true}],"default":` + q + `}`, ""},
+			`"pw":{"type":"string","allOf":[{"x-nava-secret":true}],"default":` + q + `}`, "", false},
 		{"F2b marker reached through $ref inside allOf",
-			`"pw":{"allOf":[{"$ref":"#/$defs/secret"}],"default":` + q + `}`, `"secret":{"type":"string","x-nava-secret":true}`},
+			`"pw":{"allOf":[{"$ref":"#/$defs/secret"}],"default":` + q + `}`, `"secret":{"type":"string","x-nava-secret":true}`, false},
 
 		// F3: references SecretPaths does not follow.
 		{"F3a $ref by $anchor",
-			`"pw":{"$ref":"#secret","default":` + q + `}`, `"secret":{"$anchor":"secret","type":"string","x-nava-secret":true}`},
+			`"pw":{"$ref":"#secret","default":` + q + `}`, `"secret":{"$anchor":"secret","type":"string","x-nava-secret":true}`, false},
 		{"F3b $ref chain longer than maxRefHops",
-			`"pw":{"$ref":"#/$defs/a0","default":` + q + `}`, advChain(9)},
+			`"pw":{"$ref":"#/$defs/a0","default":` + q + `}`, advChain(9), false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			s := advSchema(c.props, c.defs)
-			advCompile(t, s)
-			advCheck(t, "", s) // create (v1)
+			// Compile refuses every one of these placements (ADR-004 R6).
+			advCompile(t, s, true)
+			if c.auditAlso {
+				advCheck(t, "", s) // the whole-schema check refuses it too
+			}
 		})
 	}
 }
@@ -149,7 +164,9 @@ func TestAdversarialPublishMarkingAnExistingDefaultSecretIsRefused(t *testing.T)
 	q := fmt.Sprintf("%q", advCanary)
 	v1 := advSchema(`"pw":{"type":"string","default":`+q+`}`, "")
 	v2 := advSchema(`"pw":{"type":"string","x-nava-secret":true,"default":`+q+`}`, "")
-	advCompile(t, v1)
-	advCompile(t, v2)
-	advCheck(t, v1, v2)
+	advCompile(t, v1, false)
+	// Compile refuses a default on a marked property (ADR-004 R6); the full
+	// schema check refuses it as well when Compile is bypassed.
+	advCompile(t, v2, true)
+	advCheck(t, "", v2) // CheckSchemaSecrets checks the whole schema, not the v1 -> v2 delta
 }

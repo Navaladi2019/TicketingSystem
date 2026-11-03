@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -36,103 +35,43 @@ func (e *SecretInContentError) Error() string {
 	return "entitytypes: config_secret_in_content: " + e.Reason + " at " + strconv.Quote(e.Path)
 }
 
-// secretDataKeywords are the keywords that hold a value a schema author
-// supplies. A secret-marked schema may not set any of them.
-func secretDataKeywords() []string { return []string{"default", "const", "enum", "examples"} }
-
-// maxRefHops bounds how far a local $ref chain is followed.
-const maxRefHops = 8
-
 // SecretPaths returns the pointers, into schema, at which a value would be a
-// secret: the data keywords of every subschema marked x-nava-secret or
-// writeOnly, directly or through a local $ref. Pointers match token by token
-// in secrets.Check. Keywords whose subschemas sit in arrays (allOf, anyOf,
-// oneOf, prefixItems) get their concrete index, so a marker under one of them
-// is covered at the index it has in this document.
+// secret: default, const, enum and examples of every top-level property marked
+// x-nava-secret or writeOnly. metadata.Compile allows the marker nowhere else
+// (no applicator, $defs, items or $ref), so no walk of the schema and no array
+// wildcard is needed. A nested or array secret needs an ADR amendment first.
 func SecretPaths(schema json.RawMessage) ([]patchwalk.Pointer, error) {
-	var doc any
+	var doc struct {
+		Properties map[string]map[string]any `json:"properties"`
+	}
 	if err := json.Unmarshal(schema, &doc); err != nil {
 		return nil, fmt.Errorf("entitytypes: secret paths: %w", err)
 	}
 	var out []patchwalk.Pointer
-	walkSecrets(doc, doc, nil, &out)
+	for name, p := range doc.Properties {
+		secret, _ := p["x-nava-secret"].(bool)
+		wo, _ := p["writeOnly"].(bool)
+		if !secret && !wo {
+			continue
+		}
+		for _, kw := range []string{"default", "const", "enum", "examples"} {
+			out = append(out, patchwalk.FromSegments([]string{"properties", name, kw}))
+		}
+	}
 	slices.Sort(out)
-	return slices.Compact(out), nil
+	return out, nil
 }
 
-func isSecretNode(root any, n map[string]any, hops int) bool {
-	for _, k := range []string{"x-nava-secret", "writeOnly"} {
-		if v, _ := n[k].(bool); v {
-			return true
-		}
-	}
-	ref, _ := n["$ref"].(string)
-	if hops >= maxRefHops || !strings.HasPrefix(ref, "#/") {
-		return false
-	}
-	cur := root
-	for _, tok := range strings.Split(ref[2:], "/") {
-		tok = strings.ReplaceAll(strings.ReplaceAll(tok, "~1", "/"), "~0", "~")
-		switch c := cur.(type) {
-		case map[string]any:
-			cur = c[tok]
-		case []any:
-			i, err := strconv.Atoi(tok)
-			if err != nil || i < 0 || i >= len(c) {
-				return false
-			}
-			cur = c[i]
-		default:
-			return false
-		}
-	}
-	m, ok := cur.(map[string]any)
-	return ok && isSecretNode(root, m, hops+1)
-}
-
-func walkSecrets(root, node any, at []string, out *[]patchwalk.Pointer) {
-	n, ok := node.(map[string]any)
-	if !ok {
-		return
-	}
-	if isSecretNode(root, n, 0) {
-		for _, kw := range secretDataKeywords() {
-			*out = append(*out, patchwalk.FromSegments(append(slices.Clone(at), kw)))
-		}
-	}
-	for kw, v := range n {
-		switch kw {
-		case "additionalProperties", "contains", "else", "if", "items", "not", "propertyNames",
-			"then", "unevaluatedItems", "unevaluatedProperties", "contentSchema":
-			walkSecrets(root, v, append(slices.Clone(at), kw), out)
-		case "allOf", "anyOf", "oneOf", "prefixItems":
-			for i, e := range asSlice(v) {
-				walkSecrets(root, e, append(slices.Clone(at), kw, strconv.Itoa(i)), out)
-			}
-		case "$defs", "dependentSchemas", "patternProperties", "properties":
-			if m, ok := v.(map[string]any); ok {
-				for name, e := range m {
-					walkSecrets(root, e, append(slices.Clone(at), kw, name), out)
-				}
-			}
-		}
-	}
-}
-
-func asSlice(v any) []any {
-	s, _ := v.([]any)
-	return s
-}
-
-// checkSchemaSecrets refuses a schema that holds a value at a secret path (R6).
+// CheckSchemaSecrets refuses a schema that holds a value at a secret path (R6).
 // It checks the whole schema, not the diff against the previous version: a
 // publish that only adds the marker to a property with an existing default
 // has a diff that never shows the default. It runs before any version row is
-// written.
-func checkSchemaSecrets(schema json.RawMessage) error {
+// written, and before metadata.Compile, so a value at a marked property is
+// config_secret_in_content and not a generic invalid_definition.
+func CheckSchemaSecrets(schema json.RawMessage) error {
 	paths, err := SecretPaths(schema)
 	if err != nil {
-		return err
+		return nil // not JSON of the expected shape: metadata.Compile reports it
 	}
 	if len(paths) == 0 {
 		return nil

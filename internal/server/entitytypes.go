@@ -374,6 +374,14 @@ func parseCreate(raw json.RawMessage) (createRequest, *problemError) {
 		defOK = true
 	}
 	cr.def = metadata.Definition{Key: cr.key, Schema: def.Schema, NumberPrefix: cr.prefix, FixedColumns: def.FixedColumns, States: def.States}
+	// A value at a marked property is config_secret_in_content, ahead of the
+	// generic compile errors (ADR-004 R6).
+	if defOK {
+		var secret *entitytypes.SecretInContentError
+		if err := entitytypes.CheckSchemaSecrets(def.Schema); errors.As(err, &secret) {
+			return cr, &problemError{problem.ConfigSecretInContent, nil, err}
+		}
+	}
 	// Compile runs whenever the definition decoded, so one response lists the
 	// field errors and the definition errors together.
 	if defOK {

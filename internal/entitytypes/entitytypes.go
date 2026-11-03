@@ -191,7 +191,7 @@ func (s Store) Create(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, in New
 	if err != nil {
 		return nil, fmt.Errorf("entitytypes: encode states: %w", err)
 	}
-	if err := checkSchemaSecrets(d.Schema); err != nil {
+	if err := CheckSchemaSecrets(d.Schema); err != nil {
 		return nil, err
 	}
 	sum := sha256.Sum256(d.Schema)
@@ -306,6 +306,9 @@ SELECT id, number_prefix, current_version FROM entity_definitions WHERE key = $1
 	}
 	d := in.Definition
 	d.Key, d.NumberPrefix = in.Key, prefix
+	if err := CheckSchemaSecrets(d.Schema); err != nil {
+		return nil, err
+	}
 	next, err := metadata.Compile(d)
 	if err != nil {
 		return nil, err
@@ -324,9 +327,6 @@ SELECT id, number_prefix, current_version FROM entity_definitions WHERE key = $1
 	states, err := json.Marshal(d.States)
 	if err != nil {
 		return nil, fmt.Errorf("entitytypes: encode states: %w", err)
-	}
-	if err := checkSchemaSecrets(d.Schema); err != nil {
-		return nil, err
 	}
 	// The next number follows the highest version, which the row lock makes
 	// stable until this transaction ends.
