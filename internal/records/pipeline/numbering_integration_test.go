@@ -46,10 +46,7 @@ func throughBouncer(t *testing.T, e env, maxConns int32) env {
 	pw, _ := testPassword("nava_app")
 	u.User = url.UserPassword("nava_app", pw)
 	u.Path = "/" + e.platform
-	cfg, err := pgxpool.ParseConfig(u.String())
-	if err != nil {
-		t.Fatal(err)
-	}
+	cfg := serverPoolConfig(t, u.String())
 	cfg.MaxConns = maxConns
 	p, err := pgxpool.NewWithConfig(context.Background(), cfg)
 	if err != nil {
@@ -561,21 +558,10 @@ func TestIdempotencyKeyMismatchConflicts(t *testing.T) {
 
 // The server's pool sends statements over pgx.QueryExecModeExec (PgBouncer,
 // TICK-358): a []byte argument goes out as bytea, which a ::jsonb cast
-// refuses (SQLSTATE 22P02). The unique check must work on that pool.
+// refuses (SQLSTATE 22P02). The unique check must work on that pool; every
+// pool migrated opens is in that mode (serverPoolConfig).
 func TestUniquePropertiesOnTheServersPoolMode(t *testing.T) {
 	e := migrated(t)
-	cfg, err := pgxpool.ParseConfig(appDSN(t, e.platform))
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
-	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
-	e.app = pool
-
 	a := seedTenantWith(t, e, assetDefinition())
 	p := newPipeline(e, nil)
 	ctx := context.Background()
