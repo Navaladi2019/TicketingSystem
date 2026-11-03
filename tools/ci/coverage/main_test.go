@@ -42,8 +42,13 @@ func writeFile(t *testing.T, dir, name, body string) string {
 
 func check(t *testing.T, args ...string) (int, string) {
 	t.Helper()
+	return checkWith(t, goListDeps, args...)
+}
+
+func checkWith(t *testing.T, deps depsFunc, args ...string) (int, string) {
+	t.Helper()
 	var out bytes.Buffer
-	code := run(append([]string{"check", "-module", mod}, args...), &out, &out)
+	code := runWith(append([]string{"check", "-module", mod}, args...), &out, &out, deps)
 	return code, out.String()
 }
 
@@ -225,5 +230,73 @@ func TestRepoExclusionsFile(t *testing.T) {
 	}
 	if len(list) == 0 {
 		t.Fatal("no exclusions")
+	}
+}
+
+// TICK-518 condition: a package tree excluded as a test-only helper fails the
+// check once a production binary imports it, even in report-only mode; a file
+// exclusion (cmd/*/main.go) is not a package and is never flagged.
+func TestCheckExcludedPackageImportedByBinary(t *testing.T) {
+	dir := t.TempDir()
+	prof := writeFile(t, dir, "p.txt", "mode: atomic\n"+
+		mod+"/internal/helpertest/h.go:1.1,1.10 5 0\n"+
+		mod+"/cmd/tool/main.go:1.1,1.10 5 0\n"+
+		mod+"/internal/real/r.go:1.1,1.10 1 1\n")
+	ex := writeFile(t, dir, "ex.txt", "cmd/*/main.go # wiring\ninternal/helpertest/... # test-only helper\n")
+
+	var asked []string
+	stub := func(deps ...string) depsFunc {
+		return func(pattern string) ([]string, error) {
+			asked = append(asked, pattern)
+			return deps, nil
+		}
+	}
+	listDeps := stub(mod+"/cmd/tool", mod+"/internal/real", "fmt")
+	if code, out := checkWith(t, listDeps, "-min", "100", "-exclude", ex, "-mains", "./cmd/...", prof); code != 0 {
+		t.Errorf("helper not imported: exit %d, want 0\n%s", code, out)
+	}
+	if len(asked) != 1 || asked[0] != "./cmd/..." {
+		t.Errorf("go list asked for %q, want [./cmd/...]", asked)
+	}
+
+	for _, imported := range []string{mod + "/internal/helpertest", mod + "/internal/helpertest/sub"} {
+		listDeps = stub(mod+"/cmd/tool", imported)
+		code, out := checkWith(t, listDeps, "-report-only", "-exclude", ex, "-mains", "./cmd/...", prof)
+		if code != 2 || !strings.Contains(out, imported+" is linked into a production binary") {
+			t.Errorf("%s imported: exit %d, want 2 naming it\n%s", imported, code, out)
+		}
+	}
+	// A sibling with a shared prefix is not under the excluded tree.
+	listDeps = stub(mod + "/internal/helpertestx")
+	if code, out := checkWith(t, listDeps, "-min", "100", "-exclude", ex, "-mains", "./cmd/...", prof); code != 0 {
+		t.Errorf("prefix sibling: exit %d, want 0\n%s", code, out)
+	}
+
+	listDeps = func(string) ([]string, error) { return nil, fmt.Errorf("go list failed") }
+	if code, out := checkWith(t, listDeps, "-min", "100", "-exclude", ex, "-mains", "./cmd/...", prof); code != 2 {
+		t.Errorf("go list error: exit %d, want 2\n%s", code, out)
+	}
+}
+
+// The repository's helper exclusions are not imported by any cmd/* binary
+// today (the TL's check on main@d255607, kept true by make check-coverage).
+func TestRepoExcludedPackagesNotInBinaries(t *testing.T) {
+	if testing.Short() {
+		t.Skip("runs go list over ./cmd/...")
+	}
+	list, err := readExclusions(filepath.Join("..", "coverage-exclude.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := modulePath(filepath.Join("..", "..", "..", "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	deps, err := goListDeps(m + "/cmd/...")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bad := importedExclusions(list, m, deps); len(bad) > 0 {
+		t.Errorf("excluded helpers linked into a binary:\n%s", strings.Join(bad, "\n"))
 	}
 }
