@@ -13,7 +13,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/Navaladi2019/TicketingSystem/internal/audit"
+	"github.com/Navaladi2019/TicketingSystem/internal/audit/subjects"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/grants"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/strictyaml"
 )
@@ -126,7 +126,7 @@ func (a *Manifest) Validate(m *grants.Manifest) error {
 		if hasDup(t.AuditedColumns) {
 			bad("audited.%s: audited_columns repeat", name)
 		}
-		if !audit.SubjectType(t.SubjectType).Valid() {
+		if !subjects.Type(t.SubjectType).Valid() {
 			bad("audited.%s: subject_type %q is not registered in internal/audit/subjects.go", name, t.SubjectType)
 		}
 		if !identRe.MatchString(t.SubjectIDColumn) {
