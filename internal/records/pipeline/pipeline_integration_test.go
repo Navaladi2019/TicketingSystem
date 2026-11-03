@@ -25,6 +25,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/store"
+	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
 func wantFields(t *testing.T, err error, want ...metadata.FieldError) {
@@ -329,6 +330,10 @@ func TestIdempotencyKeyReplays(t *testing.T) {
 	if n := count(t, e.super, "SELECT count(*) FROM records WHERE tenant_id = $1", f.id); n != 1 {
 		t.Fatalf("%d records, want 1", n)
 	}
+	if n := count(t, e.super, "SELECT count(*) FROM record_write_keys WHERE tenant_id = $1 AND idempotency_key = 'wf:w1:s1' AND record_id = $2",
+		f.id, first.RecordID); n != 1 {
+		t.Fatalf("%d record_write_keys rows name the create, want 1", n)
+	}
 
 	// An update replay returns its first result even after later writes.
 	up := updateCmd(f, first.RecordID, 1, map[string]any{"summary": "s2"})
@@ -344,6 +349,22 @@ func TestIdempotencyKeyReplays(t *testing.T) {
 	if upAgain, err := write(ctx, e, p, f.id, up); err != nil || upAgain != upFirst {
 		t.Fatalf("update replay = %+v, %v; want %+v", upAgain, err, upFirst)
 	}
+	// D-3-13 replay reads record_write_keys, never the audit log: with every
+	// audit_log_v0 row gone (standing in for the v0 drop, P5-13b) both keys
+	// still replay their first result and write nothing.
+	if _, err := e.super.Exec(ctx, "DELETE FROM audit_log_v0"); err != nil {
+		t.Fatal(err)
+	}
+	if again, err := write(ctx, e, p, f.id, cmd); err != nil || again != first {
+		t.Fatalf("create replay without audit rows = %+v, %v; want %+v", again, err, first)
+	}
+	if upAgain, err := write(ctx, e, p, f.id, up); err != nil || upAgain != upFirst {
+		t.Fatalf("update replay without audit rows = %+v, %v; want %+v", upAgain, err, upFirst)
+	}
+	if n := count(t, e.super, "SELECT count(*) FROM audit_log_v0 WHERE tenant_id = $1", f.id); n != 0 {
+		t.Fatalf("a replay wrote %d audit rows", n)
+	}
+
 	// The key names one write: reusing it for another record is a conflict
 	// (the full table is TestIdempotencyKeyMismatchConflicts).
 	other := mustCreate(t, e, p, f, map[string]any{"title": "other"})
@@ -354,8 +375,9 @@ func TestIdempotencyKeyReplays(t *testing.T) {
 		t.Fatalf("key reused for another record: %v, want a mismatch *ErrIdempotencyConflict", err)
 	}
 
-	// Concurrent duplicate: the second's audit insert waits on the first's
-	// uncommitted key, then hits 23505.
+	// Concurrent duplicate: the second's record_write_keys insert waits on
+	// the first's uncommitted key, then hits 23505 on record_write_keys_pkey,
+	// which maps to the retryable conflict, never a 500.
 	dup := cmd
 	dup.IdempotencyKey = "wf:w2:s1"
 	holder := newPipeline(e, nil)
@@ -381,8 +403,60 @@ func TestIdempotencyKeyReplays(t *testing.T) {
 	if retry, err := write(ctx, e, p, f.id, dup); err != nil || retry != holderRes {
 		t.Fatalf("retry = %+v, %v; want %+v", retry, err, holderRes)
 	}
+	if n := count(t, e.super, "SELECT count(*) FROM record_write_keys WHERE idempotency_key = 'wf:w2:s1' AND record_id = $1", holderRes.RecordID); n != 1 {
+		t.Fatalf("%d record_write_keys rows hold the key for the winner, want 1", n)
+	}
+	if n := count(t, e.super, "SELECT count(*) FROM record_write_keys WHERE idempotency_key = 'wf:w2:s1'"); n != 1 {
+		t.Fatalf("%d record_write_keys rows hold the key, want 1", n)
+	}
+	if n := count(t, e.super, "SELECT count(*) FROM records r JOIN record_write_keys k ON k.tenant_id = r.tenant_id AND k.record_id = r.id WHERE r.tenant_id = $1 AND k.idempotency_key = 'wf:w2:s1'", f.id); n != 1 {
+		t.Fatalf("the race left %d records for the key, want 1", n)
+	}
 	if n := count(t, e.super, "SELECT count(*) FROM audit_log_v0 WHERE idempotency_key = 'wf:w2:s1'"); n != 1 {
-		t.Fatalf("%d rows hold the key, want 1", n)
+		t.Fatalf("%d audit rows hold the key, want 1", n)
+	}
+}
+
+// CI-A1 extension (D-5-3): a keyed write that rolls back leaves no
+// record_write_keys row, so the key is free and its retry writes afresh.
+func TestIdempotencyKeyRollbackLeavesNoWriteKey(t *testing.T) {
+	e := migrated(t)
+	f := seedTenant(t, e)
+	ctx := context.Background()
+	cmd := createCmd(f, map[string]any{"title": "rolled back"})
+	cmd.Actor, cmd.Source, cmd.IdempotencyKey = f.system(), pipeline.SourceWorkflow, "wf:rb:s1"
+	cmd.Causation = workflowCausation()
+
+	// The sink fails after the key row is written, so the whole write rolls
+	// back with it.
+	failing := &countingSink{err: errors.New("sink down")}
+	if _, err := write(ctx, e, newPipeline(e, failing), f.id, cmd); err == nil {
+		t.Fatal("write with a failing sink succeeded")
+	}
+	// A caller that rolls back a successful write: nothing of it survives.
+	rollback := errors.New("roll back")
+	err := tenancy.InTenantTx(ctx, e.app, f.id, func(tx pgx.Tx) error {
+		c := cmd
+		c.IdempotencyKey = "wf:rb:s2"
+		if _, err := newPipeline(e, nil).Write(ctx, tx, c); err != nil {
+			return err
+		}
+		return rollback
+	})
+	if !errors.Is(err, rollback) {
+		t.Fatalf("err = %v, want the rollback", err)
+	}
+	for _, q := range []string{"record_write_keys", "records", "audit_log_v0"} {
+		if n := count(t, e.super, "SELECT count(*) FROM "+q+" WHERE tenant_id = $1", f.id); n != 0 {
+			t.Fatalf("rolled-back writes left %d %s rows", n, q)
+		}
+	}
+	res, err := write(ctx, e, newPipeline(e, nil), f.id, cmd)
+	if err != nil {
+		t.Fatalf("retry after the rollback: %v", err)
+	}
+	if n := count(t, e.super, "SELECT count(*) FROM record_write_keys WHERE tenant_id = $1 AND record_id = $2", f.id, res.RecordID); n != 1 {
+		t.Fatalf("retry left %d record_write_keys rows, want 1", n)
 	}
 }
 
