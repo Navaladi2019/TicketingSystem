@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -390,5 +391,150 @@ func TestTenantOf(t *testing.T) {
 	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tenancy.TenantOf(ctx, tx); !errors.Is(err, tenancy.ErrNoTenant) {
 		t.Fatalf("no tenant: %v, want ErrNoTenant", err)
+	}
+}
+
+// TestCommitFailureIsReturned: when fn swallows a failed statement and
+// returns nil, PostgreSQL turns the COMMIT into a rollback; InTenantTx
+// reports it, wrapped, and nothing fn wrote is kept.
+func TestCommitFailureIsReturned(t *testing.T) {
+	pool, _, _ := newPool(t, env(t, "NAVA_TEST_PG_URL"), 1)
+	table := createTable(t, pool)
+
+	err := tenancy.InTenantTx(t.Context(), pool, uuid.New(), func(tx pgx.Tx) error {
+		if _, err := tx.Exec(t.Context(), "INSERT INTO "+table+" VALUES (1)"); err != nil {
+			return err
+		}
+		_, _ = tx.Exec(t.Context(), "SELECT 1/0") // aborts the transaction; the error is dropped
+		return nil
+	})
+	if !errors.Is(err, pgx.ErrTxCommitRollback) {
+		t.Fatalf("err = %v, want pgx.ErrTxCommitRollback", err)
+	}
+	if !strings.HasPrefix(err.Error(), "tenancy: commit: ") {
+		t.Errorf("message %q, want it wrapped as the commit", err)
+	}
+	if n := count(t, pool, table); n != 0 {
+		t.Errorf("%d rows after the failed commit, want 0", n)
+	}
+	if _, got := readTenant(t, pool); got != "" {
+		t.Errorf("after the failed commit app.tenant_id = %q, want none", got)
+	}
+}
+
+// TestTenantCannotReachAnotherTenantsRows: under a row-level security policy
+// on app.tenant_id, as the platform tables use, a non-superuser in tenant
+// A's InTenantTx reads, updates and deletes only A's rows and cannot insert
+// one for tenant B, even when the statement names B explicitly; with no
+// tenant it sees nothing.
+func TestTenantCannotReachAnotherTenantsRows(t *testing.T) {
+	const (
+		role     = "nava_it_tenancy"
+		password = "test-only-tenancy"
+	)
+	super, _, _ := newPool(t, env(t, "NAVA_TEST_PG_URL"), 2)
+	ctx := t.Context()
+	table := "tenancy_rls_" + strings.ReplaceAll(uuid.NewString()[:8], "-", "")
+	t.Cleanup(func() {
+		_, _ = super.Exec(context.Background(), "DROP TABLE IF EXISTS "+table)
+		_, _ = super.Exec(context.Background(), "DROP ROLE IF EXISTS "+role)
+	})
+	tenantA, tenantB := uuid.New(), uuid.New()
+	policy := "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid"
+	for _, sql := range []string{
+		"DROP ROLE IF EXISTS " + role,
+		"CREATE ROLE " + role + " LOGIN PASSWORD '" + password + "'",
+		"CREATE TABLE " + table + " (tenant_id uuid NOT NULL, n int NOT NULL)",
+		"ALTER TABLE " + table + " ENABLE ROW LEVEL SECURITY",
+		"ALTER TABLE " + table + " FORCE ROW LEVEL SECURITY",
+		"CREATE POLICY tenant_isolation ON " + table + " USING (" + policy + ") WITH CHECK (" + policy + ")",
+		"GRANT SELECT, INSERT, UPDATE, DELETE ON " + table + " TO " + role,
+		fmt.Sprintf("INSERT INTO %s VALUES ('%s', 1), ('%s', 2)", table, tenantA, tenantB),
+	} {
+		if _, err := super.Exec(ctx, sql); err != nil {
+			t.Fatalf("%s: %v", sql, err)
+		}
+	}
+	u, err := url.Parse(env(t, "NAVA_TEST_PG_URL"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.User = url.UserPassword(role, password)
+	app, _, _ := newPool(t, u.String(), 1)
+
+	visible := func(tx pgx.Tx) []int {
+		rows, err := tx.Query(ctx, "SELECT n FROM "+table+" ORDER BY n")
+		if err != nil {
+			t.Fatal(err)
+		}
+		ns, err := pgx.CollectRows(rows, pgx.RowTo[int])
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ns
+	}
+
+	err = tenancy.InTenantTx(ctx, app, tenantA, func(tx pgx.Tx) error {
+		if got := visible(tx); len(got) != 1 || got[0] != 1 {
+			t.Errorf("tenant A sees %v, want only its own row [1]", got)
+		}
+		// Naming B's tenant id does not reach B's row.
+		tag, err := tx.Exec(ctx, "UPDATE "+table+" SET n = 20 WHERE tenant_id = $1", tenantB)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 0 {
+			t.Errorf("tenant A updated %d of tenant B's rows", tag.RowsAffected())
+		}
+		tag, err = tx.Exec(ctx, "DELETE FROM "+table+" WHERE tenant_id = $1", tenantB)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 0 {
+			t.Errorf("tenant A deleted %d of tenant B's rows", tag.RowsAffected())
+		}
+		tag, err = tx.Exec(ctx, "UPDATE "+table+" SET n = 10")
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			t.Errorf("tenant A's unfiltered update touched %d rows, want 1 (its own)", tag.RowsAffected())
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Writing a row for tenant B from tenant A's transaction is refused.
+	err = tenancy.InTenantTx(ctx, app, tenantA, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, "INSERT INTO "+table+" VALUES ($1, 3)", tenantB)
+		return err
+	})
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "42501" {
+		t.Fatalf("insert for tenant B from tenant A: %v, want 42501 (row-level security)", err)
+	}
+
+	// Tenant B still has exactly its row, unchanged, and sees only that.
+	err = tenancy.InTenantTx(ctx, app, tenantB, func(tx pgx.Tx) error {
+		if got := visible(tx); len(got) != 1 || got[0] != 2 {
+			t.Errorf("tenant B sees %v, want its untouched row [2]", got)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Outside InTenantTx there is no tenant and no row.
+	err = pgx.BeginFunc(ctx, app, func(tx pgx.Tx) error {
+		if got := visible(tx); len(got) != 0 {
+			t.Errorf("a transaction with no tenant sees %v, want nothing", got)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
