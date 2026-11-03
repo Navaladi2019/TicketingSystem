@@ -162,6 +162,37 @@ INSERT INTO audit_log_v0 (tenant_id, id, record_id, action, actor_id, source, af
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000008b2', NULL,
         'cascade_rejected', NULL, 'workflow', NULL, NULL);
 
+-- ADR-004's audit_log, chain head and write keys (P5-10b). The rows land in
+-- audit_log_default, which CI-2 probes as a tenant table of its own. The
+-- subject and the idempotency key repeat across tenants, so a lookup by
+-- either alone would find both tenants' rows. occurred_at, txid and
+-- backfilled take their defaults, which R10's assert accepts from the
+-- superuser.
+INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, entity_definition_id,
+                       version_after, actor_principal_id, actor_system, source) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000010a1', 'record', 'create', 'record',
+        '0a000000-0000-4000-8000-0000000000a2', '0a000000-0000-4000-8000-0000000006a1', 1,
+        '0a000000-0000-4000-8000-0000000003a1', NULL, 'user'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000010b1', 'record', 'create', 'record',
+        '0a000000-0000-4000-8000-0000000000a2', '0b000000-0000-4000-8000-0000000006b1', 1,
+        '0b000000-0000-4000-8000-0000000003b1', NULL, 'user'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000010b2', 'record', 'state_change', 'record',
+        '0b000000-0000-4000-8000-0000000000b2', '0b000000-0000-4000-8000-0000000006b1', 2,
+        NULL, 'workflow', 'workflow');
+
+INSERT INTO audit_chain_head (tenant_id, id) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000011a1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000011b1');
+
+INSERT INTO record_write_keys (tenant_id, idempotency_key, definition_id, action, record_id, number, version,
+                               schema_version, audit_entry_id) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', 'shared-write-key', '0a000000-0000-4000-8000-0000000006a1', 'create',
+        '0a000000-0000-4000-8000-0000000000a2', 'TCK0000001', 1, 1, '0a000000-0000-4000-8000-0000000010a1'),
+    ('0b000000-0000-4000-8000-00000000000b', 'shared-write-key', '0b000000-0000-4000-8000-0000000006b1', 'create',
+        '0b000000-0000-4000-8000-0000000000b2', 'TCK0000001', 1, 2, '0b000000-0000-4000-8000-0000000010b1'),
+    ('0b000000-0000-4000-8000-00000000000b', 'other-write-key', '0b000000-0000-4000-8000-0000000006b1', 'update',
+        '0b000000-0000-4000-8000-0000000000b2', 'TCK0000001', 2, 2, '0b000000-0000-4000-8000-0000000010b2');
+
 INSERT INTO record_counters (tenant_id, entity_definition_id, next) VALUES
     ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000006a1', 2),
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b1', 2),

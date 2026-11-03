@@ -12,6 +12,8 @@ import (
 // P5-10a (TICK-427), PLAN-005 D-5-1: S9's audit_log becomes audit_log_v0 with
 // its rows, grants and RLS intact, and nothing on it keeps an audit_log_*
 // name, so ADR-004's audit_log (P5-10b) can take the name and its _pkey.
+// The test stops at the rename: P5-10b's migration then creates the new
+// audit_log, and TestP510bAuditLog covers it.
 
 const auditLogV0Migration = "20261102130000_audit_log_v0.sql"
 
@@ -29,8 +31,8 @@ func TestP510aAuditLogRenamed(t *testing.T) {
 	exec(t, super, strings.Replace(insertAudit, "audit_log_v0", "audit_log", 1), tenantA, rec, "pre-rename-key")
 	before := queryString(t, super, "SELECT relfilenode::text FROM pg_class WHERE oid = 'audit_log'::regclass")
 
-	if _, err := migrateFS(t, m, db.Migrations()); err != nil {
-		t.Fatalf("migrate: %v", err)
+	if err := migrateOnlyFS(t, m, migrationsThrough(t, auditLogV0Migration)); err != nil {
+		t.Fatalf("migrate through %s: %v", auditLogV0Migration, err)
 	}
 
 	// Same table, same storage, same row; the old name is free.
@@ -74,7 +76,11 @@ func TestP510aAuditLogRenamed(t *testing.T) {
 		t.Errorf("relations still named audit_log*: %s", bad)
 	}
 
-	// RLS and the append-only grants survived.
+	// The rest of the migrations, P5-10b's new audit_log included, then the
+	// grants manifest: RLS and the append-only grants survived.
+	if _, err := migrateFS(t, m, db.Migrations()); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
 	if got := queryString(t, super, "SELECT relrowsecurity::text || relforcerowsecurity::text FROM pg_class WHERE oid = 'audit_log_v0'::regclass"); got != "truetrue" {
 		t.Errorf("audit_log_v0 RLS enabled/forced = %s, want truetrue", got)
 	}

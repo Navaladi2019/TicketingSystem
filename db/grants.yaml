@@ -68,6 +68,22 @@ roles:
                  updated_at, data, causation_origin_id, causation_depth]
       # Append-only: no UPDATE or DELETE (P3-09).
       audit_log_v0: { SELECT: [], INSERT: [] }
+      # ADR-004 (P5-10b): INSERT on the R10 columns only (never occurred_at,
+      # txid, backfilled, the seal or the erasure columns) and SELECT on the
+      # commit-check columns (R12). P5-17 adds the reader's SELECT.
+      audit_log:
+        SELECT: [tenant_id, occurred_at, txid, subject_type, subject_id, version_after]
+        INSERT: [tenant_id, id, domain, action, subject_type, subject_id, entity_definition_id,
+                 version_before, version_after, actor_principal_id, actor_system, source, source_ref,
+                 change_set_id, causation_id, causation_depth, request_id, content_sha256, diff_sha256,
+                 diff_truncated, diff, diff_salt]
+      # R14: the export lease and chain:reseed's repoint. Never seq,
+      # entry_hash or version.
+      audit_chain_head:
+        SELECT: []
+        UPDATE: [export_lease_until, next_seal_outbox_id, next_seal_at]
+      # D-5-3: the pipeline's idempotency keys, insert-only.
+      record_write_keys: { SELECT: [], INSERT: [] }
       # The A5 start key (P3-12): claimed once, never changed or removed.
       cascade_start: { SELECT: [], INSERT: [] }
       # The one numbering upsert (D-3-9): INSERT ... ON CONFLICT DO UPDATE SET next.
@@ -109,6 +125,24 @@ roles:
         UPDATE: [version, schema_version, state, requester_id, assignee_id, assignment_group_id,
                  updated_at, data, causation_origin_id, causation_depth]
       audit_log_v0: { SELECT: [], INSERT: [] }
+      # ADR-004: a record writer (R10 INSERT) and the sealer. It reads every
+      # column but diff and diff_salt (the envelope holds diff_sha256) and
+      # updates only the seal columns, through the R11 seal transition.
+      audit_log:
+        SELECT: [tenant_id, id, occurred_at, txid, domain, action, subject_type, subject_id, entity_definition_id,
+                 version_before, version_after, actor_principal_id, actor_system, source, source_ref,
+                 change_set_id, causation_id, causation_depth, request_id, backfilled, content_sha256,
+                 diff_sha256, diff_truncated, seq, prev_hash, entry_hash, sealed_at, erased_at, erasure_ref]
+        INSERT: [tenant_id, id, domain, action, subject_type, subject_id, entity_definition_id,
+                 version_before, version_after, actor_principal_id, actor_system, source, source_ref,
+                 change_set_id, causation_id, causation_depth, request_id, content_sha256, diff_sha256,
+                 diff_truncated, diff, diff_salt]
+        UPDATE: [seq, prev_hash, entry_hash, sealed_at]
+      # R14: the sealer's columns. Never export_lease_until.
+      audit_chain_head:
+        SELECT: []
+        UPDATE: [version, seq, entry_hash, next_seal_outbox_id, next_seal_at, seal_interval_s]
+      record_write_keys: { SELECT: [], INSERT: [] }
       cascade_start: { SELECT: [], INSERT: [] }
       record_counters: { SELECT: [], INSERT: [], UPDATE: [next] }
       outbox: { SELECT: [tenant_id, id, dedupe_key], INSERT: [] }
@@ -169,6 +203,27 @@ roles:
       # ids, so a plain INSERT is enough: no SELECT, no upsert (P3-02).
       entity_definitions: { INSERT: [] }
       entity_definition_versions: { INSERT: [] }
+
+  # ADR-001-A6.1 (P5-10b): the one-shot erasure job (Epic 30), one run per
+  # erasure request with app.tenant_id set, under canonical policies only.
+  # LOGIN, a member of nothing, owns nothing, not on PgBouncer: its
+  # credential lives with the job runner, like the migrator's, never on an
+  # app or worker host. On audit_log (R23): SELECT by column and never diff
+  # or diff_salt; INSERT on the R10 columns for its audit/erase entries;
+  # UPDATE of the four erase columns, which the R11 erase transition is the
+  # only way to use. Epic 30 adds its record-table grants.
+  nava_erasure:
+    attributes: [LOGIN]
+    database: [CONNECT]
+    schemas: { public: [USAGE] }
+    tables:
+      audit_log:
+        SELECT: [tenant_id, occurred_at, id, subject_type, subject_id, erased_at, erasure_ref]
+        INSERT: [tenant_id, id, domain, action, subject_type, subject_id, entity_definition_id,
+                 version_before, version_after, actor_principal_id, actor_system, source, source_ref,
+                 change_set_id, causation_id, causation_depth, request_id, content_sha256, diff_sha256,
+                 diff_truncated, diff, diff_salt]
+        UPDATE: [diff, diff_salt, erased_at, erasure_ref]
 
   # Writes the identity tables (T16), one transaction per tenant. UPDATE
   # leaves the keys alone: a row is re-keyed by delete and insert, never in

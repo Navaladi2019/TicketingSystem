@@ -76,6 +76,9 @@ services:
       DBROLES_PASSWORD_NAVA_PURGE: ${NAVA_PURGE_DB_PASSWORD:-dev-only-purge}
       DBROLES_PASSWORD_NAVA_ONBOARD: ${NAVA_ONBOARD_DB_PASSWORD:-dev-only-onboard}
       DBROLES_PASSWORD_NAVA_GROUPSYNC: ${NAVA_GROUPSYNC_DB_PASSWORD:-dev-only-groupsync}
+      # ADR-001-A6.1: throwaway test credential for the erasure role (P5-10b).
+      # No service runs as nava_erasure in the stack; tests connect directly.
+      DBROLES_PASSWORD_NAVA_ERASURE: ${NAVA_ERASURE_DB_PASSWORD:-dev-only-erasure}
       DBROLES_PASSWORD_NAVA_BACKUP: ${NAVA_BACKUP_DB_PASSWORD:-dev-only-backup}
       DBROLES_PASSWORD_KEYCLOAK: ${KEYCLOAK_DB_PASSWORD:-dev-only-keycloak}
       DBROLES_PASSWORD_TEMPORAL: ${TEMPORAL_DB_PASSWORD:-dev-only-temporal}
