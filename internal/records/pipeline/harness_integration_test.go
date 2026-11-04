@@ -248,7 +248,8 @@ func inTx(t *testing.T, e env, tenant uuid.UUID, fn func(pgx.Tx) error) {
 }
 
 // countingSink records every call and, inside the write's transaction, how
-// many audit rows the record has at that point.
+// many audit entries the record has at that point (read as nava_app, through
+// the commit-check columns and the writer SELECT policy).
 type countingSink struct {
 	mu     sync.Mutex
 	events []pipeline.Event
@@ -258,7 +259,7 @@ type countingSink struct {
 
 func (s *countingSink) RecordChanged(ctx context.Context, tx pgx.Tx, ev pipeline.Event) error {
 	var n int
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM audit_log_v0 WHERE record_id = $1`, ev.RecordID).Scan(&n); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE subject_type = 'record' AND subject_id = $1`, ev.RecordID).Scan(&n); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -341,4 +342,40 @@ func waitForLockWait(t *testing.T, e env) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+}
+
+// seedEntrySQL is the audit entry of a records row a fixture writes outside
+// the pipeline: tenant $1, entry id $2, record $3, version_after $4. The
+// records commit-check trigger (P5-13b) refuses the fixture's COMMIT without it.
+const seedEntrySQL = `INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, version_after, actor_system, source)
+	VALUES ($1, $2, 'record', 'create', 'record', $3, $4, 'system', 'system')`
+
+// seedRecord runs sql (an INSERT of record id in tenant) as the superuser,
+// in one transaction with the record's audit entry, as every records write
+// must now be (CI-A2).
+func seedRecord(t *testing.T, e env, tenant, id uuid.UUID, sql string, args ...any) {
+	t.Helper()
+	ctx := context.Background()
+	err := pgx.BeginFunc(ctx, e.super, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, sql, args...); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, seedEntrySQL, tenant, uuid.Must(uuid.NewV7()), id, 1)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("seed record %s: %v", id, err)
+	}
+}
+
+// entries counts the tenant's audit_log entries with the given action.
+func entries(t *testing.T, e env, tenant uuid.UUID, action string) int {
+	t.Helper()
+	return count(t, e.super, `SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND action = $2`, tenant, action)
+}
+
+// recordEntries counts the record's entries (subject the record).
+func recordEntries(t *testing.T, e env, record uuid.UUID) int {
+	t.Helper()
+	return count(t, e.super, `SELECT count(*) FROM audit_log WHERE subject_type = 'record' AND subject_id = $1`, record)
 }

@@ -21,6 +21,8 @@ import (
 //     catalogue lets INSERT, UPDATE or DELETE it, a column some role may
 //     UPDATE that audited_columns leaves out, or a missing audited, subject
 //     or tenant column;
+//   - a runtime role holding TRUNCATE on an audited table: the row trigger
+//     does not fire on TRUNCATE, so it would bypass the commit check;
 //   - an audit_commit_check trigger on a table not marked attached: true, an
 //     attached table without exactly one, and one that is not an enabled
 //     AFTER INSERT OR DELETE [OR UPDATE OF exactly audited_columns]
@@ -182,6 +184,17 @@ func (a *Manifest) checkTable(ctx context.Context, q catalog.Querier, name strin
 		if !slices.Contains(t.AuditedColumns, c) {
 			out = append(out, fmt.Sprintf("audited table %s: column %s may be updated but is not in audited_columns", name, c))
 		}
+	}
+	// The commit check is a row trigger, and TRUNCATE fires no row trigger:
+	// a runtime role holding it could empty the table with no entry
+	// (TICK-428 review, carried to TICK-452).
+	truncaters, err := strs(ctx, q, `SELECT r FROM unnest($2::text[]) r
+		WHERE pg_catalog.has_table_privilege(r, $1, 'TRUNCATE') ORDER BY 1`, full, runtime)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range truncaters {
+		out = append(out, fmt.Sprintf("audited table %s: runtime role %s holds TRUNCATE, which the commit-check trigger does not see", name, r))
 	}
 	return out, nil
 }

@@ -322,7 +322,7 @@ func TestGetRecordAppliesDefaultsOfTheCurrentSchemaVersion(t *testing.T) {
 
 // Causation (origin, depth) never comes from the request (TICK-88 security
 // review): a client that could set it could suppress its own tenant's
-// automation or flood audit_log_v0 with cascade_rejected rows. The handler builds
+// automation or flood audit_log with cascade_too_deep entries. The handler builds
 // the pipeline command with an empty Causation, so a create that tries to
 // carry one in the body, the query or the headers is a depth-0 write whose
 // origin is freshly minted, not the one the client named.
@@ -353,7 +353,7 @@ func TestCreateRecordIgnoresCausationFromTheRequest(t *testing.T) {
 	}
 	for _, q := range []string{
 		"SELECT causation_depth, causation_origin_id::text FROM records WHERE tenant_id = $1 AND id = $2",
-		"SELECT causation_depth, causation_origin_id::text FROM audit_log_v0 WHERE tenant_id = $1 AND record_id = $2",
+		"SELECT causation_depth, causation_id::text FROM audit_log WHERE tenant_id = $1 AND subject_type = 'record' AND subject_id = $2",
 	} {
 		var (
 			depth  *int16

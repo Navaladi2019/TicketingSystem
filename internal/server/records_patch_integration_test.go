@@ -13,6 +13,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 // patchSchema: short_description is required with no default, state is
@@ -71,7 +73,7 @@ func (e *etEnv) patch(t *testing.T, token, entity, id, ifMatch, body string) *ht
 func (e *etEnv) auditCount(t *testing.T, id string) int {
 	t.Helper()
 	var n int
-	if err := e.super.QueryRow(t.Context(), "SELECT count(*) FROM audit_log_v0 WHERE tenant_id = $1 AND record_id = $2", e.a.id, id).Scan(&n); err != nil {
+	if err := e.super.QueryRow(t.Context(), "SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND subject_type = 'record' AND subject_id = $2", e.a.id, id).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	return n
@@ -154,7 +156,7 @@ func TestPatchMissingRecordIsA404NotA428(t *testing.T) {
 		}
 	}
 	if got := e.auditCount(t, r.ID); got != 1 {
-		t.Errorf("audit rows = %d, want only the create", got)
+		t.Errorf("audit entries = %d, want only the create", got)
 	}
 }
 
@@ -222,14 +224,15 @@ func TestPatchUniqueViolationAndIllegalTransition(t *testing.T) {
 	}
 }
 
+// D-5-14 (TICK-452): since P5-13b the pipeline writes audit_log, and the
+// history endpoint still reads S9's audit_log_v0 until P5-17 (TICK-435)
+// rebuilds it on the new log. So this test pages over v0 rows seeded as the
+// superuser (a create and two updates, as S9 wrote them); P5-17 restores it
+// against live writes, and the story does not reach main before that.
 func TestPatchHistoryPagesNewestFirst(t *testing.T) {
 	e := newPatchEnv(t)
 	r := e.mustCreateRec(t, "user-a", "job", "c1", `{"short_description": "one"}`)
-	for i, v := range []string{"a", "b"} {
-		if rec := e.patch(t, "user-a", "job", r.ID, fmt.Sprintf(`W/"%d"`, i+1), fmt.Sprintf(`{"data": {"note": %q}}`, v)); rec.Code != http.StatusOK {
-			t.Fatalf("patch %d = %d: %s", i, rec.Code, rec.Body)
-		}
-	}
+	e.seedV0History(t, r.ID, "a", "b")
 	type page struct {
 		Items []struct {
 			Action  string         `json:"action"`
@@ -337,7 +340,7 @@ func TestPatchRecordIgnoresCausationFromTheRequest(t *testing.T) {
 	}
 	for _, q := range []string{
 		"SELECT causation_depth, causation_origin_id::text FROM records WHERE tenant_id = $1 AND id = $2",
-		"SELECT causation_depth, causation_origin_id::text FROM audit_log_v0 WHERE tenant_id = $1 AND record_id = $2 AND action = 'update'",
+		"SELECT causation_depth, causation_id::text FROM audit_log WHERE tenant_id = $1 AND subject_type = 'record' AND subject_id = $2 AND action = 'update'",
 	} {
 		var (
 			depth  *int16
@@ -357,5 +360,35 @@ func TestPatchRecordIgnoresCausationFromTheRequest(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), forged) {
 		t.Errorf("the response carries the request's causation origin: %s", rec.Body)
+	}
+}
+
+// seedV0History writes, as the superuser, the audit_log_v0 rows S9's
+// pipeline wrote for record id: its create, then one update per note, each
+// a second apart, by the record's creator (D-5-14).
+func (e *etEnv) seedV0History(t *testing.T, id string, notes ...string) {
+	t.Helper()
+	snap := func(version int, note string) string {
+		data := `{"short_description": "one"}`
+		if note != "" {
+			data = fmt.Sprintf(`{"short_description": "one", "note": %q}`, note)
+		}
+		return fmt.Sprintf(`{"number": "JOB0000001", "version": %d, "schema_version": 1, "data": %s}`, version, data)
+	}
+	insert := func(i int, action string, before *string, after string) {
+		t.Helper()
+		if _, err := e.super.Exec(t.Context(), `INSERT INTO audit_log_v0 (tenant_id, id, record_id, action, actor_id, source, before, after, at)
+			SELECT tenant_id, $3, id, $4, created_by, 'user', $5::jsonb, $6::jsonb, now() - make_interval(secs => 100 - $7::int)
+			FROM records WHERE tenant_id = $1 AND id = $2`,
+			e.a.id, id, uuid.Must(uuid.NewV7()), action, before, after, i); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insert(0, "create", nil, snap(1, ""))
+	prev := ""
+	for i, n := range notes {
+		b := snap(i+1, prev)
+		insert(i+1, "update", &b, snap(i+2, n))
+		prev = n
 	}
 }

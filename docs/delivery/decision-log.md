@@ -6,6 +6,7 @@ Delivery decisions that change a task's contract, newest first.
 
 <!-- docindex:start -->
 
+- [2026-11-04: D-5-14, the records commit-check attach is held for TICK-529; the history gap until P5-17 is accepted](decisions/2026-11-04-d-5-14-records-attach-held.md)
 - [2026-11-03: S8 schemas mark secrets only on top-level properties; the R6 check reads the whole schema](decisions/2026-11-03-secret-markers-top-level-only.md)
 - [2026-11-01: PLAN-004 approved: ADR-003 lands as two qa tasks inside S11a; the manifest-creating PR is human-merged](decisions/2026-11-01-plan-004-adr-003.md)
 - [2026-11-01: D-3-13 amended: an interpreter start uses the existing outbox start key `nava.interpreter:<outbox_id>`](decisions/2026-11-01-interpreter-start-target-key.md)

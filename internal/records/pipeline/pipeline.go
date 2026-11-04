@@ -2,9 +2,20 @@
 // single way to create or update a record. In the caller's tenant transaction
 // it loads the record and the entity type's current definition, authorises,
 // applies the merge patch and defaults, validates against the JSON Schema,
-// writes the row with an optimistic version check, writes one audit row and
-// calls the EventSink. Nothing commits unless every stage succeeds: the
-// caller's tenancy.InTenantTx commits or rolls back.
+// writes the row with an optimistic version check, writes one ADR-004 audit
+// entry through audit.Append and calls the EventSink. Nothing commits unless
+// every stage succeeds: the caller's tenancy.InTenantTx commits or rolls back.
+// The records commit-check trigger (ADR-004 decision 2) is held by D-5-14
+// until P5-13c (TICK-530); until then the P3-13 architecture test keeps every
+// records write in this package.
+//
+// The entry (domain record, subject the record) carries the entity type, the
+// versions before and after, the writer, the cascade origin and depth, and
+// the RFC 6902 diff jsondiff.Diff builds from the payloads as PostgreSQL
+// returns them (store.PayloadJSON), never from the request. Its action is
+// create, update, or state_change when an update moves the record to another
+// state. The secret pointers are the definition's x-nava-secret and writeOnly
+// properties; a value at one is refused (R6).
 //
 // The tenant is never taken from the command. Write reads it from the
 // transaction (tenancy.TenantOf) and refuses an actor of another tenant.
@@ -16,8 +27,8 @@
 // Cascades (ADR-001 I9 as amended by A5; P3-12, TICK-88): a depth-0 write
 // mints a new origin, a workflow write must be deeper than 0, and a write
 // beyond config.CascadeDepthLimit is refused with outbox.ErrCascadeTooDeep
-// before any record change, its cascade_rejected audit row written on the
-// TxRunner so it survives the caller's rollback (D-3-7a). There is no cycle
+// before any record change, its cascade_too_deep entry written on the
+// TxRunner so it survives the caller's rollback (D-3-7a, ADR-004-E1). There is no cycle
 // check on writes: the EventSink keys starts with cascade.ClaimStart and
 // suppresses a repeat (A5-1, A5-4), so a writer never sees a cycle.
 package pipeline
@@ -39,13 +50,13 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/audit"
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
-	"github.com/Navaladi2019/TicketingSystem/internal/records/cascade"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/store"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
@@ -59,7 +70,8 @@ const (
 	OpUpdate
 )
 
-// String is the audit_log_v0 action of the write.
+// String is the write's op as record_write_keys.action stores it. The audit
+// entry's action is create, update or state_change (audit.go).
 func (o Op) String() string {
 	switch o {
 	case OpCreate:
@@ -71,10 +83,10 @@ func (o Op) String() string {
 	}
 }
 
-// Source is who made the write (audit_log_v0.source).
+// Source is who made the write (audit_log.source, ADR-004 R2).
 type Source string
 
-// The sources audit_log_v0_source_check allows.
+// The R2 sources a record write may name.
 const (
 	SourceUser     Source = "user"
 	SourceRule     Source = "rule"
@@ -124,6 +136,9 @@ type Command struct {
 	// Result and writes nothing. The same key on a different write is
 	// *ErrIdempotencyConflict.
 	IdempotencyKey string
+	// SourceRef is the AI decision record's id, a lowercase UUID: required
+	// when Source is SourceAI and refused otherwise (ADR-004 R4).
+	SourceRef *string
 }
 
 // Result is what a write produced.
@@ -145,10 +160,12 @@ type Event struct {
 	// Causation is the write's stored causation: the origin, minted for a
 	// depth-0 write, and the depth.
 	Causation outbox.Causation
-	// ActorID and Source are the writer, for the audit row of a suppressed
-	// start (A5-4). ActorID is uuid.Nil for a system writer.
-	ActorID uuid.UUID
-	Source  Source
+	// ActorID, Source and SourceRef are the writer, for the cascade_cycle
+	// entry of a suppressed start (A5-4). ActorID is uuid.Nil for a system
+	// writer.
+	ActorID   uuid.UUID
+	Source    Source
+	SourceRef *string
 }
 
 // EventSink is told about every write, in the write's transaction (D-3-14).
@@ -328,14 +345,17 @@ func (p *Pipeline) Runner() TxRunner { return p.runner }
 // serialization failure (40001): roll back and retry the whole transaction;
 // and a wrapped error for any other database failure. An error raised after
 // the definition was read is wrapped in *ErrAtVersion, naming the version
-// the write used. On any error the
-// caller rolls tx back; after a concurrent *ErrIdempotencyConflict,
-// ErrRetryable or a database error tx is unusable.
+// the write used. A value at a secret pointer, or a URL with userinfo, in
+// the audit diff is *ErrValidation with the code audit_secret_in_diff
+// (ADR-004 R6). On any error the caller rolls tx back; after a concurrent
+// *ErrIdempotencyConflict, ErrRetryable, an audit.Append failure (including
+// audit.ErrDuplicateEntry, which it wraps) or a database error tx is
+// unusable, and Write never retries in it.
 //
 // The depth check runs before any statement in tx but the read of its
 // tenant: a write beyond the limit changes nothing in tx and writes one
-// cascade_rejected audit row on the TxRunner, committed before Write
-// returns. If that row cannot be written, the error also wraps the cause.
+// cascade_too_deep entry on the TxRunner, committed before Write returns.
+// If that entry cannot be written, the error also wraps the cause.
 func (p *Pipeline) Write(ctx context.Context, tx pgx.Tx, cmd Command) (Result, error) {
 	res, err := p.perform(ctx, tx, cmd)
 	var pe *pgconn.PgError
@@ -439,72 +459,30 @@ func (c *Command) check() error {
 	if c.Source == SourceWorkflow && c.Causation.Depth == 0 {
 		return fmt.Errorf("%w: %w: a workflow write at depth 0", ErrInvalidCommand, outbox.ErrInvalidEntry)
 	}
+	// ADR-004 R4: an AI write names its decision record, as a lowercase UUID.
+	if c.Source == SourceAI {
+		if c.SourceRef == nil {
+			return bad("an AI write names its decision record (source_ref)")
+		}
+		if u, err := uuid.Parse(*c.SourceRef); err != nil || u.String() != *c.SourceRef {
+			return bad("source_ref is not a lowercase UUID")
+		}
+	} else if c.SourceRef != nil {
+		return bad("only an AI write names a source_ref")
+	}
 	return nil
 }
 
-// rejectTooDeep writes the cascade_rejected audit row of a write beyond the
-// depth limit in a transaction of its own, and returns the rejection.
-// record_id is NULL on a create, and on an update of a record the tenant
-// does not have.
+// rejectTooDeep writes the cascade_too_deep entry of a write beyond the depth
+// limit in a transaction of its own (appendTooDeep), and returns the
+// rejection.
 func (p *Pipeline) rejectTooDeep(ctx context.Context, tenant uuid.UUID, cmd Command) error {
 	rejected := fmt.Errorf("pipeline: %w: depth %d, limit %d", outbox.ErrCascadeTooDeep, cmd.Causation.Depth, config.CascadeDepthLimit)
-	err := p.runner.InTenantTx(ctx, tenant, func(tx pgx.Tx) error {
-		id, err := uuid.NewV7()
-		if err != nil {
-			return fmt.Errorf("new audit id: %w", err)
-		}
-		var record uuid.UUID
-		if cmd.Op == OpUpdate {
-			switch _, err := store.Get(ctx, tx, tenant, cmd.RecordID); {
-			case err == nil:
-				record = cmd.RecordID
-			case !errors.Is(err, store.ErrNotFound):
-				return err
-			}
-		}
-		origin := cmd.Causation.OriginID
-		return store.InsertAudit(ctx, tx, &store.Audit{
-			TenantID: tenant, ID: id, RecordID: record, Action: cascade.ActionRejected,
-			ActorID: optional(cmd.Actor.PrincipalID), Source: string(cmd.Source),
-			Detail:            map[string]string{cascade.DetailReason: cascade.ReasonTooDeep},
-			CausationOriginID: &origin, CausationDepth: cmd.Causation.Depth, At: p.clock.Now(),
-		})
-	})
+	err := p.runner.InTenantTx(ctx, tenant, func(tx pgx.Tx) error { return appendTooDeep(ctx, tx, tenant, cmd) })
 	if err != nil {
 		return errors.Join(rejected, fmt.Errorf("pipeline: audit the rejected cascade: %w", err))
 	}
 	return rejected
-}
-
-// AuditSuppressed writes the cascade_cycle audit row of a start the cascade
-// key suppressed (A5-4), in tx: the triggering write's transaction, so it
-// commits with the write and rolls back with it. One row per suppressed
-// attempt. c must be the unclaimed result of cascade.ClaimStart; ev is the
-// write the EventSink was told about, and names the writer. The row lives
-// here, not in internal/records/cascade, because only the pipeline writes
-// audit_log_v0 (D-3-6).
-func AuditSuppressed(ctx context.Context, tx pgx.Tx, c cascade.Claim, ev Event, at time.Time) error {
-	if c.Claimed() || c.RecordID() == uuid.Nil {
-		return fmt.Errorf("%w: only an unclaimed start is audited as suppressed", cascade.ErrInvalidKey)
-	}
-	id, err := uuid.NewV7()
-	if err != nil {
-		return fmt.Errorf("pipeline: new audit id: %w", err)
-	}
-	origin, depth := c.Causation()
-	err = store.InsertAudit(ctx, tx, &store.Audit{
-		TenantID: c.TenantID(), ID: id, RecordID: c.RecordID(), Action: cascade.ActionCycle,
-		ActorID: optional(ev.ActorID), Source: string(ev.Source),
-		Detail: map[string]string{
-			cascade.DetailReason:     cascade.ReasonCycle,
-			cascade.DetailDefinition: c.DefinitionID().String(),
-		},
-		CausationOriginID: &origin, CausationDepth: depth, At: at,
-	})
-	if err != nil {
-		return fmt.Errorf("pipeline: audit the suppressed start: %w", err)
-	}
-	return nil
 }
 
 // replay returns the earlier Result of a write with cmd's idempotency key,
@@ -599,7 +577,7 @@ func (w *write) create(ctx context.Context, after map[string]any) (Result, error
 	if err := store.Insert(ctx, w.tx, rec); err != nil {
 		return Result{}, fmt.Errorf("pipeline: %w", err)
 	}
-	return w.finish(ctx, rec, nil, rec.Payload(fixed))
+	return w.finish(ctx, rec, nil)
 }
 
 func (w *write) update(ctx context.Context, patch map[string]any) (Result, error) {
@@ -621,7 +599,6 @@ func (w *write) update(ctx context.Context, patch map[string]any) (Result, error
 		}
 	}
 	before := rec.Payload(stored.FixedColumns())
-	beforeSnap := &store.Snapshot{Number: rec.Number, Version: rec.Version, SchemaVersion: rec.SchemaVersion, Data: before}
 
 	after := mergePatch(deepCopy(before), patch)
 	if err := w.p.authz.CanWrite(ctx, w.cmd.Actor, w.cmd.EntityKey, before, after); err != nil {
@@ -644,6 +621,17 @@ func (w *write) update(ctx context.Context, patch map[string]any) (Result, error
 	if err := w.checkUnique(ctx, rec.ID, before, after, fixed); err != nil {
 		return Result{}, err
 	}
+	// The audit diff's before is the stored row as PostgreSQL returns it,
+	// under the mapping it was split with; it must still be at the expected
+	// version.
+	beforeJSON, err := store.PayloadJSON(ctx, w.tx, w.tenant, rec.ID, rec.Version, stored.FixedColumns())
+	if errors.Is(err, store.ErrStale) {
+		return Result{}, ErrVersionConflict
+	}
+	if err != nil {
+		return Result{}, fmt.Errorf("pipeline: %w", err)
+	}
+	prev := &prior{payload: beforeJSON, version: rec.Version, state: rec.State, secretProps: stored.SecretProperties()}
 	if err := rec.Split(after, fixed); err != nil {
 		return Result{}, fmt.Errorf("pipeline: %w", err)
 	}
@@ -658,26 +646,28 @@ func (w *write) update(ctx context.Context, patch map[string]any) (Result, error
 		return Result{}, fmt.Errorf("pipeline: %w", err)
 	}
 	rec.Version = v
-	return w.finish(ctx, rec, beforeSnap, rec.Payload(fixed))
+	return w.finish(ctx, rec, prev)
 }
 
-// finish claims the idempotency key, writes the primary audit row and calls
-// the sink.
-func (w *write) finish(ctx context.Context, rec *store.Record, before *store.Snapshot, after map[string]any) (Result, error) {
+// prior is what an update read of the record before it changed it: its
+// payload as PostgreSQL returned it, version and state, and the secret
+// properties of the definition version it was written under.
+type prior struct {
+	payload     []byte
+	version     int64
+	state       string
+	secretProps []string
+}
+
+// finish claims the idempotency key, writes the write's audit entry through
+// audit.Append and calls the sink. prev is nil on a create.
+func (w *write) finish(ctx context.Context, rec *store.Record, prev *prior) (Result, error) {
 	auditID, err := uuid.NewV7()
 	if err != nil {
 		return Result{}, fmt.Errorf("pipeline: new audit id: %w", err)
 	}
-	a := &store.Audit{
-		TenantID: w.tenant, ID: auditID, RecordID: rec.ID, Action: w.cmd.Op.String(),
-		ActorID: optional(w.cmd.Actor.PrincipalID), Source: string(w.cmd.Source),
-		Before:            before,
-		After:             &store.Snapshot{Number: rec.Number, Version: rec.Version, SchemaVersion: rec.SchemaVersion, Data: after},
-		CausationOriginID: rec.CausationOriginID, CausationDepth: rec.CausationDepth,
-		At: rec.UpdatedAt,
-	}
 	if w.cmd.IdempotencyKey != "" {
-		// The key is claimed before the audit row, so a concurrent duplicate
+		// The key is claimed before the audit entry, so a concurrent duplicate
 		// waits on and fails at record_write_keys_pkey (D-5-3).
 		if err := store.InsertWriteKey(ctx, w.tx, &store.WriteKey{
 			TenantID: w.tenant, IdempotencyKey: w.cmd.IdempotencyKey, DefinitionID: rec.EntityDefinitionID,
@@ -689,16 +679,25 @@ func (w *write) finish(ctx context.Context, rec *store.Record, before *store.Sna
 			}
 			return Result{}, fmt.Errorf("pipeline: %w", err)
 		}
-		a.IdempotencyKey = &w.cmd.IdempotencyKey
 	}
-	if err := store.InsertAudit(ctx, w.tx, a); err != nil {
-		if errors.Is(err, store.ErrDuplicateKey) {
-			return Result{}, &ErrIdempotencyConflict{Concurrent: true}
-		}
+	after, err := store.PayloadJSON(ctx, w.tx, w.tenant, rec.ID, rec.Version, w.def.FixedColumns())
+	if err != nil {
 		return Result{}, fmt.Errorf("pipeline: %w", err)
 	}
+	e := recordEntry{id: auditID, action: audit.ActionCreate, rec: rec, after: after, secretProps: w.def.SecretProperties()}
+	if prev != nil {
+		e.action = audit.ActionUpdate
+		if rec.State != prev.state {
+			e.action = audit.ActionStateChange
+		}
+		e.before, e.versionBefore = prev.payload, &prev.version
+		e.secretProps = unionSorted(e.secretProps, prev.secretProps)
+	}
+	if err := appendRecordEntry(ctx, w.tx, w.cmd, e); err != nil {
+		return Result{}, err
+	}
 	ev := Event{Op: w.cmd.Op, EntityDefinitionID: rec.EntityDefinitionID, RecordID: rec.ID, Version: rec.Version,
-		Causation: w.cmd.Causation, ActorID: w.cmd.Actor.PrincipalID, Source: w.cmd.Source}
+		Causation: w.cmd.Causation, ActorID: w.cmd.Actor.PrincipalID, Source: w.cmd.Source, SourceRef: w.cmd.SourceRef}
 	if err := w.p.sink.RecordChanged(ctx, w.tx, ev); err != nil {
 		return Result{}, fmt.Errorf("pipeline: event sink: %w", err)
 	}

@@ -224,6 +224,12 @@ func TestP511CatalogueCIA3(t *testing.T) {
 		}, "lists no_such_table, which is not a tenant table"},
 		{"writer_roles drift", []string{"GRANT INSERT ON " + testTable + " TO nava_groupsync"},
 			func() *audited.Manifest { return withTestTable(nil) }, "but the catalogue lets"},
+		// TICK-452 (PR #410 carry-over): the row trigger never sees a
+		// TRUNCATE, so a runtime role must not hold it on an audited table.
+		{"runtime role holds TRUNCATE", []string{"GRANT TRUNCATE ON " + testTable + " TO nava_worker"},
+			func() *audited.Manifest { return withTestTable(nil) }, "runtime role nava_worker holds TRUNCATE"},
+		{"runtime role holds TRUNCATE on records", []string{"GRANT TRUNCATE ON records TO nava_app"},
+			func() *audited.Manifest { return withTestTable(nil) }, "audited table records: runtime role nava_app holds TRUNCATE"},
 		{"updatable column not audited", []string{"GRANT UPDATE (note) ON " + testTable + " TO nava_app"},
 			func() *audited.Manifest { return withTestTable(nil) }, "column note may be updated but is not in audited_columns"},
 		{"writer cannot read a probe column", []string{"REVOKE SELECT (txid) ON audit_log FROM nava_app"},
@@ -310,14 +316,25 @@ func (s scan) probesKey() bool {
 	return strings.Contains(s.IndexCond, "subject_id") && strings.Contains(s.IndexCond, "occurred_at")
 }
 
-// explainProbe runs the probe's EXPLAIN on conn. The probe text is the
-// function's PERFORM, with its locals as $1..$5.
+// explainRole is the role the plan-shape EXPLAIN runs as: a writer of
+// records, so its grants and the audit_log SELECT policy (RLS) shape the
+// plan exactly as they do in production. The superuser bypasses RLS, and
+// its plan would not be the one a writer runs (TICK-428 review, carried to
+// TICK-452).
+const explainRole = "nava_worker"
+
+// explainProbe runs the probe's EXPLAIN on conn as explainRole, with
+// app.tenant_id set to tenant. The probe text is the function's PERFORM,
+// with its locals as $1..$5. The role and the setting are reset before it
+// returns, so the caller is the superuser again.
 func explainProbe(t *testing.T, conn execer, tenant string) plan {
 	t.Helper()
 	ctx := context.Background()
 	for _, q := range []string{
 		"SET plan_cache_mode = force_generic_plan",
 		"DEALLOCATE ALL",
+		"SET ROLE " + explainRole,
+		"SELECT set_config('app.tenant_id', '" + tenant + "', false)",
 		`PREPARE p511_probe(uuid, timestamptz, xid8, text, uuid) AS
 		 SELECT 1 FROM audit_log
 		  WHERE tenant_id = $1 AND occurred_at = $2 AND txid = $3 AND subject_type = $4 AND subject_id = $5
@@ -329,8 +346,22 @@ func explainProbe(t *testing.T, conn execer, tenant string) plan {
 	}
 	var raw string
 	q := fmt.Sprintf("EXPLAIN (FORMAT JSON) EXECUTE p511_probe('%s', now(), pg_current_xact_id(), 'record', '%s')", tenant, uuid.NewString())
-	if err := conn.QueryRow(ctx, q).Scan(&raw); err != nil {
+	err := conn.QueryRow(ctx, q).Scan(&raw)
+	var who string
+	if err == nil {
+		// Simple protocol: DEALLOCATE ALL above would drop a cached statement.
+		err = conn.QueryRow(ctx, "SELECT current_user::text", pgx.QueryExecModeSimpleProtocol).Scan(&who)
+	}
+	if err != nil {
 		t.Fatalf("explain: %v", err)
+	}
+	if who != explainRole {
+		t.Fatalf("explain ran as %s, want %s", who, explainRole)
+	}
+	for _, q := range []string{"DEALLOCATE p511_probe", "RESET app.tenant_id", "RESET ROLE"} {
+		if _, err := conn.Exec(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
 	}
 	var doc []struct {
 		Plan map[string]any `json:"Plan"`

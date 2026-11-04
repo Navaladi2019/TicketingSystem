@@ -69,8 +69,9 @@ roles:
         INSERT: []
         UPDATE: [version, schema_version, state, requester_id, assignee_id, assignment_group_id,
                  updated_at, data, causation_origin_id, causation_depth]
-      # Append-only: no UPDATE or DELETE (P3-09).
-      audit_log_v0: { SELECT: [], INSERT: [] }
+      # Read-only since P5-13b (TICK-452): the pipeline writes audit_log
+      # through audit.Append; P5-17 drops this table (PLAN-005 D-5-1).
+      audit_log_v0: { SELECT: [] }
       # audit_log: nothing here. As a writer of an audited table, its INSERT
       # on the R10 columns and SELECT on the commit-check columns are
       # generated from db/audited-tables.yaml (R12, P5-11). P5-17 adds the
@@ -122,7 +123,8 @@ roles:
         INSERT: []
         UPDATE: [version, schema_version, state, requester_id, assignee_id, assignment_group_id,
                  updated_at, data, causation_origin_id, causation_depth]
-      audit_log_v0: { SELECT: [], INSERT: [] }
+      # Read-only since P5-13b (TICK-452), as for nava_app.
+      audit_log_v0: { SELECT: [] }
       # ADR-004: the sealer. It reads every column but diff and diff_salt
       # (the envelope holds diff_sha256) and updates only the seal columns,
       # through the R11 seal transition. As a record writer its R10 INSERT

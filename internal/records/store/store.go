@@ -1,7 +1,9 @@
 // Package store is the data access of the record write pipeline (PLAN-003
-// D-3-6): the records, record_write_keys and audit_log_v0 statements, and the
-// split of a record's
-// payload between its fixed columns and data. Only internal/records/pipeline
+// D-3-6): the records and record_write_keys statements, the read of S9's
+// audit_log_v0 history, and the split of a record's payload between its fixed
+// columns and data. The audit entry of a write is not written here: the
+// pipeline writes it through audit.Append (ADR-004 decision 1, P5-13b), and
+// audit_log_v0 is read-only. Only internal/records/pipeline
 // writes through it; P3-13's static test keeps it that way.
 //
 // Every function takes the caller's transaction, opened by tenancy.InTenantTx,
@@ -17,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -40,14 +43,6 @@ var (
 // idempotencyIndex is the primary key of record_write_keys (D-5-3): one
 // write per tenant and key.
 const idempotencyIndex = "record_write_keys_pkey"
-
-// auditV0IdempotencyIndex is the partial unique index on audit_log_v0
-// (P3-09). The pipeline still writes the key to its audit_log_v0 row until
-// P5-13b moves the audit write to audit.Append; record_write_keys is
-// inserted first in the same transaction, so a concurrent duplicate reaches
-// idempotencyIndex first. This one is mapped too so a key that exists only
-// in audit_log_v0 is never a 500.
-const auditV0IdempotencyIndex = "audit_log_v0_idempotency_key"
 
 // Record is one records row of a pipeline record. Data never holds a property
 // mapped to a fixed column (TICK-360); Payload merges them back.
@@ -175,66 +170,46 @@ type Snapshot struct {
 	Data          map[string]any `json:"data"`
 }
 
-// Audit is one audit_log_v0 row.
-type Audit struct {
-	TenantID uuid.UUID
-	ID       uuid.UUID
-	// RecordID is uuid.Nil (NULL) only when there is no record to name: a
-	// rejected create.
-	RecordID      uuid.UUID
-	Action        string
-	ActorID       *uuid.UUID
-	Source        string
-	Before, After *Snapshot
-	// Detail is written to after on a row that changed no record (the
-	// cascade rows: its reason, and the suppressed definition). It holds
-	// references and codes only, never record data. Set it or After, not
-	// both.
-	Detail            map[string]string
-	CausationOriginID *uuid.UUID
-	CausationDepth    int16
-	// IdempotencyKey is set on the primary row of a write only (D-3-13).
-	IdempotencyKey *string
-	At             time.Time
-}
-
-// InsertAudit writes a. A second row with the same idempotency key is
-// ErrDuplicateKey; tx is aborted then.
-func InsertAudit(ctx context.Context, tx pgx.Tx, a *Audit) error {
-	before, err := encodeSnapshot(a.Before)
-	if err != nil {
-		return err
-	}
-	after, err := encodeSnapshot(a.After)
-	if err != nil {
-		return err
-	}
-	if a.Detail != nil {
-		if a.After != nil {
-			return errors.New("records/store: an audit row has a snapshot or a detail, not both")
+// PayloadJSON returns the payload of record id at version, built by
+// PostgreSQL from the stored row and returned as jsonb text: data, with every
+// property of fixed (property to column, metadata.Compiled.FixedColumns) set
+// from its column and an unset uuid column leaving its property out, as
+// Payload does. It returns ErrStale when the record is not at version.
+//
+// These bytes are the input to jsondiff.Diff for the record's audit entry
+// (TICK-451 review, binding on P5-13b): the jsonb value as PostgreSQL holds
+// it, never the request body or a re-marshalled Go value, so a number keeps
+// the literal jsonb prints and diff_sha256 does not depend on how the client
+// spelled it.
+func PayloadJSON(ctx context.Context, tx pgx.Tx, tenantID, id uuid.UUID, version int64, fixed map[string]string) (json.RawMessage, error) {
+	props := slices.Sorted(maps.Keys(fixed))
+	args := []any{tenantID, id, version, props}
+	expr := "(data - $4::text[])"
+	for _, prop := range props {
+		col := fixed[prop]
+		switch col {
+		case metadata.ColumnState, metadata.ColumnRequesterID, metadata.ColumnAssigneeID, metadata.ColumnAssignmentGroupID:
+		default:
+			return nil, fmt.Errorf("records/store: unknown fixed column %q", col)
 		}
-		if after, err = json.Marshal(a.Detail); err != nil {
-			return fmt.Errorf("records/store: encode audit detail: %w", err)
+		args = append(args, prop)
+		n := len(args)
+		// col is one of the four constants above, never input.
+		if col == metadata.ColumnState {
+			expr += fmt.Sprintf(" || jsonb_build_object($%d::text, %s)", n, col)
+			continue
 		}
+		expr += fmt.Sprintf(" || CASE WHEN %s IS NULL THEN '{}'::jsonb ELSE jsonb_build_object($%d::text, %s) END", col, n, col)
 	}
-	var record *uuid.UUID
-	if a.RecordID != uuid.Nil {
-		record = &a.RecordID
-	}
-	_, err = tx.Exec(ctx, `
-INSERT INTO audit_log_v0 (tenant_id, id, record_id, action, actor_id, source, before, after,
-    causation_origin_id, causation_depth, idempotency_key, at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-		a.TenantID, a.ID, record, a.Action, a.ActorID, a.Source, jsonParam(before), jsonParam(after),
-		a.CausationOriginID, a.CausationDepth, a.IdempotencyKey, a.At)
-	var pe *pgconn.PgError
-	if errors.As(err, &pe) && pe.Code == "23505" && pe.ConstraintName == auditV0IdempotencyIndex {
-		return ErrDuplicateKey
+	var s string
+	err := tx.QueryRow(ctx, "SELECT ("+expr+")::text FROM records WHERE tenant_id = $1 AND id = $2 AND version = $3", args...).Scan(&s)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrStale
 	}
 	if err != nil {
-		return fmt.Errorf("records/store: insert audit: %w", err)
+		return nil, fmt.Errorf("records/store: read payload as jsonb: %w", err)
 	}
-	return nil
+	return json.RawMessage(s), nil
 }
 
 // WriteKey is one record_write_keys row (D-5-3): the write that holds an
@@ -299,17 +274,6 @@ func jsonParam(b []byte) any {
 		return nil
 	}
 	return string(b)
-}
-
-func encodeSnapshot(s *Snapshot) ([]byte, error) {
-	if s == nil {
-		return nil, nil
-	}
-	b, err := json.Marshal(s)
-	if err != nil {
-		return nil, fmt.Errorf("records/store: encode audit snapshot: %w", err)
-	}
-	return b, nil
 }
 
 // DecodeObject decodes a JSON object with numbers as json.Number, the form
