@@ -463,32 +463,51 @@ func diffState(e entryLine) (LineOutcome, string, string) {
 
 // recordErase adds the ids an audit/erase entry lists to into. The diff must
 // be exactly [{"op":"add","path":"/erased_ids","value":[ids]}] with 1 to
-// 10,000 lowercase ids (R23, §4 step 7); any other shape lists nothing.
+// 10,000 lowercase ids (R23, §4 step 7): no trailing data, and no duplicate,
+// unknown or missing member in the op. Any other shape lists nothing.
 func recordErase(into map[string]map[string]bool, e entryLine) {
 	env := e.Envelope
 	if env.Domain != "audit" || env.Action != "erase" || env.SubjectType != "erasure_request" || e.Diff == nil {
 		return
 	}
-	var ops []struct {
-		Op    string   `json:"op"`
-		Path  string   `json:"path"`
-		Value []string `json:"value"`
-	}
-	d := json.NewDecoder(bytes.NewReader([]byte(*e.Diff)))
-	d.DisallowUnknownFields()
-	if err := d.Decode(&ops); err != nil || len(ops) != 1 || ops[0].Op != "add" || ops[0].Path != "/erased_ids" ||
-		len(ops[0].Value) == 0 || len(ops[0].Value) > maxErasedIDs {
+	value, ok := erasedIDs([]byte(*e.Diff))
+	if !ok {
 		return
 	}
 	ref := env.SubjectID.String()
 	if into[ref] == nil {
 		into[ref] = map[string]bool{}
 	}
-	for _, id := range ops[0].Value {
+	for _, id := range value {
 		if u, err := uuid.Parse(id); err == nil && u.String() == id {
 			into[ref][id] = true
 		}
 	}
+}
+
+// erasedIDs returns the value list of an audit/erase diff when the diff has
+// exactly the R23 shape, and false otherwise.
+func erasedIDs(diff []byte) ([]string, bool) {
+	var ops []json.RawMessage
+	d := json.NewDecoder(bytes.NewReader(diff))
+	if err := d.Decode(&ops); err != nil || len(ops) != 1 {
+		return nil, false
+	}
+	if _, err := d.Token(); !errors.Is(err, io.EOF) {
+		return nil, false // trailing data after the array
+	}
+	m, err := members(ops[0]) // refuses duplicate members
+	if err != nil || checkShape(m, shape{members: []string{"op", "path", "value"}}) != nil {
+		return nil, false
+	}
+	var op, path string
+	var value []string
+	if json.Unmarshal(m["op"], &op) != nil || op != "add" ||
+		json.Unmarshal(m["path"], &path) != nil || path != "/erased_ids" ||
+		json.Unmarshal(m["value"], &value) != nil || len(value) == 0 || len(value) > maxErasedIDs {
+		return nil, false
+	}
+	return value, true
 }
 
 func (v *verifier) onTrailer(t trailerLine) {

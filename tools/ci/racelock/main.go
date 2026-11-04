@@ -21,6 +21,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -30,37 +31,50 @@ import (
 )
 
 func main() {
-	port := flag.Int("port", 47613, "first slot's loopback port")
-	slots := flag.Int("slots", 1, "slots on the host")
-	take := flag.Int("take", 1, "slots this command needs")
-	env := flag.String("env", "NAVA_RACE_LOCK", "environment prefix: <env>=off skips the lock, <env>_PORT sets -port")
-	what := flag.String("what", "go test -race", "what the slots are for, in the waiting message")
-	flag.Parse()
-	args := flag.Args()
-	if len(args) == 0 || *take < 1 || *take > *slots {
-		fmt.Fprintln(os.Stderr, "usage: racelock [-port n] [-slots n] [-take n] [-env NAME] [-what text] -- <command> [args...]")
-		os.Exit(2)
+	os.Exit(cli(os.Args[1:], os.Getenv, os.Stderr))
+}
+
+// cli parses args, takes the slots unless <env>=off, runs the command and
+// returns its exit status (2 on a usage error).
+func cli(args []string, getenv func(string) string, stderr io.Writer) int {
+	fs := flag.NewFlagSet("racelock", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	port := fs.Int("port", 47613, "first slot's loopback port")
+	slots := fs.Int("slots", 1, "slots on the host")
+	take := fs.Int("take", 1, "slots this command needs")
+	env := fs.String("env", "NAVA_RACE_LOCK", "environment prefix: <env>=off skips the lock, <env>_PORT sets -port")
+	what := fs.String("what", "go test -race", "what the slots are for, in the waiting message")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	cmdArgs := fs.Args()
+	if len(cmdArgs) == 0 || *take < 1 || *take > *slots {
+		fmt.Fprintln(stderr, "usage: racelock [-port n] [-slots n] [-take n] [-env NAME] [-what text] -- <command> [args...]")
+		return 2
 	}
 	var held []net.Listener
-	if os.Getenv(*env) != "off" {
-		if p := os.Getenv(*env + "_PORT"); p != "" {
+	if getenv(*env) != "off" {
+		if p := getenv(*env + "_PORT"); p != "" {
 			n, err := strconv.Atoi(p)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "racelock: %s_PORT=%q is not a port\n", *env, p)
-				os.Exit(2)
+				fmt.Fprintf(stderr, "racelock: %s_PORT=%q is not a port\n", *env, p)
+				return 2
 			}
 			*port = n
 		}
 		held = acquire(*port, *slots, *take, 30*time.Second, func(waited time.Duration) {
-			fmt.Fprintf(os.Stderr, "racelock: waiting %s for %d of %d %s slots on this host (ports %d-%d)\n",
+			fmt.Fprintf(stderr, "racelock: waiting %s for %d of %d %s slots on this host (ports %d-%d)\n",
 				waited.Round(time.Second), *take, *slots, *what, *port, *port+*slots-1)
 		})
 	}
-	code := run(args)
+	code := run(cmdArgs)
 	for _, l := range held {
 		_ = l.Close()
 	}
-	os.Exit(code)
+	return code
 }
 
 // acquire listens on take of the slots ports from port, retrying while

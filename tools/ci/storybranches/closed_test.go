@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,7 +23,7 @@ func TestBadClosedExitsTwo(t *testing.T) {
 		if err := os.WriteFile(closed, []byte(bad), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		err := run("no-such-remote", "main", "", filepath.Join(dir, "none.yaml"), closed, "")
+		err := run("no-such-remote", "main", "", filepath.Join(dir, "none.yaml"), closed, "", io.Discard, io.Discard)
 		var f failed
 		if err == nil || errors.As(err, &f) || !strings.Contains(err.Error(), closed) {
 			t.Errorf("%s: want an error that exits 2, got %v", name, err)

@@ -9,8 +9,10 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"regexp"
@@ -19,18 +21,30 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/tools/ci/internal/reviewcfg"
 )
 
-func main() {
-	base := flag.String("base", "origin/main", "base ref of the change")
-	pathsFile := flag.String("paths", "docs/delivery/review-paths.yaml", "review path list")
-	flag.Parse()
+func main() { os.Exit(cli(os.Args[1:], os.Stdout, os.Stderr)) }
 
-	if err := run(*base, *pathsFile); err != nil {
-		fmt.Fprintln(os.Stderr, "review-paths:", err)
-		os.Exit(2)
+// cli parses the flags and runs the check, returning the exit code: 0, or 2
+// when the check could not run (bad flags, path list or git).
+func cli(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("reviewpaths", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	base := fs.String("base", "origin/main", "base ref of the change")
+	pathsFile := fs.String("paths", "docs/delivery/review-paths.yaml", "review path list")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0 // as flag.ExitOnError does
+		}
+		return 2
 	}
+
+	if err := run(stdout, *base, *pathsFile); err != nil {
+		fmt.Fprintln(stderr, "review-paths:", err)
+		return 2
+	}
+	return 0
 }
 
-func run(base, pathsFile string) error {
+func run(stdout io.Writer, base, pathsFile string) error {
 	cfg, err := reviewcfg.Load(pathsFile)
 	if err != nil {
 		return err
@@ -52,7 +66,7 @@ func run(base, pathsFile string) error {
 	}
 	r := Evaluate(cfg, changes, added)
 	out := r.String()
-	fmt.Print(out)
+	fmt.Fprint(stdout, out)
 	if summary := os.Getenv("GITHUB_STEP_SUMMARY"); summary != "" {
 		f, err := os.OpenFile(summary, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o600) //nolint:gosec // set by GitHub Actions
 		if err != nil {
