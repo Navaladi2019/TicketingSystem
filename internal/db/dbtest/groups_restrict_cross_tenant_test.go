@@ -31,9 +31,14 @@ func TestE5RestrictIsCompositeAcrossTenants(t *testing.T) {
 			VALUES ($1::uuid, $2, 'kc-shared', '/t/' || $1::text || '/shared')`, tid, shared)
 	}
 	// Only tenant B's record names the shared id; tenant A's record keeps
-	// tenant A's seeded group.
-	exec(t, super, "UPDATE records SET assignment_group_id = $2 WHERE tenant_id = $1 AND id = $3",
+	// tenant A's seeded group. records carries the commit-check trigger
+	// (TICK-530), so the update writes its audit entry in the same statement.
+	exec(t, super, withRecordEntry("UPDATE records SET assignment_group_id = $2 WHERE tenant_id = $1 AND id = $3"),
 		tenantB, shared, pipelineRecord(tenantB))
+	if got := queryString(t, super, "SELECT coalesce(assignment_group_id::text, 'null') FROM records WHERE tenant_id = $1 AND id = $2",
+		tenantB, pipelineRecord(tenantB)); got != shared {
+		t.Fatalf("setup: tenant B's record group = %s, want %s", got, shared)
+	}
 	if got := queryString(t, super, "SELECT count(*)::text FROM records WHERE tenant_id = $1 AND assignment_group_id = $2",
 		tenantA, shared); got != "0" {
 		t.Fatalf("tenant A records naming the shared group = %s, want 0", got)
