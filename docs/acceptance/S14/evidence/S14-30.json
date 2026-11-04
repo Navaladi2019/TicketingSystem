@@ -1,0 +1,28 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:18080/api/v1/entity-types/incident/versions",
+    "body": "{\"definition\":{\"schema\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"short_description\",\"state\"],\"properties\":{\"short_description\":{\"type\":\"string\",\"title\":\"Short description\",\"minLength\":1,\"maxLength\":160},\"description\":{\"type\":\"string\",\"title\":\"Description\",\"maxLength\":32000},\"state\":{\"type\":\"string\",\"title\":\"State\",\"enum\":[\"new\",\"in_progress\",\"resolved\",\"closed\"],\"default\":\"new\"},\"priority\":{\"type\":\"integer\",\"title\":\"Priority\",\"enum\":[1,2,3,4],\"default\":3},\"requester\":{\"type\":\"string\",\"format\":\"uuid\",\"title\":\"Requester\"},\"assignee\":{\"type\":\"string\",\"format\":\"uuid\",\"title\":\"Assignee\"},\"assignment_group\":{\"type\":\"string\",\"format\":\"uuid\",\"title\":\"Assignment group\"},\"impact_pre_s14\":{\"type\":\"string\",\"title\":\"Impact (published before S14)\",\"maxLength\":200},\"api_token_s14_23e70a4a\":{\"type\":\"string\",\"title\":\"API token\",\"x-nava-secret\":true,\"default\":\"s14-not-a-real-secret-23e70a4a\"}}},\"fixed_columns\":{\"assignee\":\"assignee_id\",\"assignment_group\":\"assignment_group_id\",\"requester\":\"requester_id\",\"state\":\"state\"},\"states\":{\"initial\":\"new\",\"states\":[\"new\",\"in_progress\",\"resolved\",\"closed\"],\"transitions\":[{\"from\":\"new\",\"to\":\"in_progress\"},{\"from\":\"in_progress\",\"to\":\"resolved\"},{\"from\":\"resolved\",\"to\":\"closed\"},{\"from\":\"resolved\",\"to\":\"in_progress\"}]}}}"
+  },
+  "response": {
+    "status": 422,
+    "headers": {
+      "content-type": "application/problem+json",
+      "x-request-id": "667a164120a5ee81ee2c98d535af5448"
+    },
+    "body": {
+      "type": "urn:nava:problem:config_secret_in_content",
+      "title": "Secret in configuration",
+      "status": 422,
+      "code": "config_secret_in_content",
+      "detail": "The definition sets a value at a secret path. See errors for the path; the value is never echoed.",
+      "instance": "urn:nava:request:667a164120a5ee81ee2c98d535af5448",
+      "errors": [
+        {
+          "pointer": "/definition/schema/properties/api_token_s14_23e70a4a/default",
+          "rule": "secret"
+        }
+      ]
+    }
+  }
+}

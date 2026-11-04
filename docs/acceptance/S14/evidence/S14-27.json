@@ -1,21 +1,22 @@
 {
   "request": {
     "method": "GET",
-    "url": "http://127.0.0.1:18080/api/v1/records/incident/01a1a7aa-c1d2-722d-a51d-27638249a965/history",
+    "url": "http://127.0.0.1:18080/api/v1/audit/entries",
     "body": null
   },
   "response": {
-    "status": 404,
+    "status": 403,
     "headers": {
       "content-type": "application/problem+json",
-      "x-request-id": "e32c1aab66f00e82d3b267642621fc83"
+      "x-request-id": "a874c14e2b35365289c7d802cd8ebe27"
     },
     "body": {
-      "type": "urn:nava:problem:not_found",
-      "title": "Not found",
-      "status": 404,
-      "code": "not_found",
-      "detail": "The resource does not exist."
+      "type": "urn:nava:problem:forbidden",
+      "title": "Forbidden",
+      "status": 403,
+      "code": "forbidden",
+      "detail": "The token does not allow this operation.",
+      "instance": "urn:nava:request:a874c14e2b35365289c7d802cd8ebe27"
     }
   }
 }

@@ -1,29 +1,126 @@
 {
   "request": {
-    "method": "PATCH",
-    "url": "http://127.0.0.1:18080/api/v1/records/incident/01a1a7aa-c1d2-722d-a51d-27638249a965",
-    "body": "{\n  \"data\": {\n    \"priority\": 1\n  }\n}"
+    "method": "POST",
+    "url": "http://127.0.0.1:18080/api/v1/entity-types/incident/versions",
+    "body": "{\"definition\":{\"schema\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"short_description\",\"state\"],\"properties\":{\"short_description\":{\"type\":\"string\",\"title\":\"Short description\",\"minLength\":1,\"maxLength\":160},\"description\":{\"type\":\"string\",\"title\":\"Description\",\"maxLength\":32000},\"state\":{\"type\":\"string\",\"title\":\"State\",\"enum\":[\"new\",\"in_progress\",\"resolved\",\"closed\"],\"default\":\"new\"},\"priority\":{\"type\":\"integer\",\"title\":\"Priority\",\"enum\":[1,2,3,4],\"default\":3},\"requester\":{\"type\":\"string\",\"format\":\"uuid\",\"title\":\"Requester\"},\"assignee\":{\"type\":\"string\",\"format\":\"uuid\",\"title\":\"Assignee\"},\"assignment_group\":{\"type\":\"string\",\"format\":\"uuid\",\"title\":\"Assignment group\"},\"impact_pre_s14\":{\"type\":\"string\",\"title\":\"Impact (published before S14)\",\"maxLength\":200},\"impact_s14_23e70a4a\":{\"type\":\"string\",\"title\":\"Impact (S14 run 23e70a4a)\",\"maxLength\":200}}},\"fixed_columns\":{\"assignee\":\"assignee_id\",\"assignment_group\":\"assignment_group_id\",\"requester\":\"requester_id\",\"state\":\"state\"},\"states\":{\"initial\":\"new\",\"states\":[\"new\",\"in_progress\",\"resolved\",\"closed\"],\"transitions\":[{\"from\":\"new\",\"to\":\"in_progress\"},{\"from\":\"in_progress\",\"to\":\"resolved\"},{\"from\":\"resolved\",\"to\":\"closed\"},{\"from\":\"resolved\",\"to\":\"in_progress\"}]}}}"
   },
   "response": {
-    "status": 200,
+    "status": 201,
     "headers": {
       "content-type": "application/json",
-      "etag": "W/\"2\"",
-      "x-request-id": "df9161025034bc32a26d64fdca380678"
+      "x-request-id": "5db7496d528a74c1decdc8a9fc4fa633"
     },
     "body": {
-      "created_at": "2026-11-04T17:45:48.242142Z",
-      "data": {
-        "priority": 1,
-        "short_description": "S14 112a9c7c audit timeline",
-        "state": "new"
+      "key": "incident",
+      "name": "Incident",
+      "number_prefix": "INC",
+      "version": 3,
+      "current": true,
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "short_description",
+          "state"
+        ],
+        "properties": {
+          "short_description": {
+            "type": "string",
+            "title": "Short description",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "maxLength": 32000
+          },
+          "state": {
+            "type": "string",
+            "title": "State",
+            "enum": [
+              "new",
+              "in_progress",
+              "resolved",
+              "closed"
+            ],
+            "default": "new"
+          },
+          "priority": {
+            "type": "integer",
+            "title": "Priority",
+            "enum": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "default": 3
+          },
+          "requester": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Requester"
+          },
+          "assignee": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Assignee"
+          },
+          "assignment_group": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Assignment group"
+          },
+          "impact_pre_s14": {
+            "type": "string",
+            "title": "Impact (published before S14)",
+            "maxLength": 200
+          },
+          "impact_s14_23e70a4a": {
+            "type": "string",
+            "title": "Impact (S14 run 23e70a4a)",
+            "maxLength": 200
+          }
+        }
       },
-      "id": "01a1a7aa-c1d2-722d-a51d-27638249a965",
-      "number": "INC0000001",
-      "schema_version": 3,
-      "state": "new",
-      "updated_at": "2026-11-04T17:45:48.275042Z",
-      "version": 2
+      "schema_sha256": "f271a93b09100caa9d10de3fab5ad2a259ea18c169c503910571692cb364e2bf",
+      "fixed_columns": {
+        "assignee": "assignee_id",
+        "assignment_group": "assignment_group_id",
+        "requester": "requester_id",
+        "state": "state"
+      },
+      "states": {
+        "initial": "new",
+        "states": [
+          "new",
+          "in_progress",
+          "resolved",
+          "closed"
+        ],
+        "transitions": [
+          {
+            "from": "new",
+            "to": "in_progress"
+          },
+          {
+            "from": "in_progress",
+            "to": "resolved"
+          },
+          {
+            "from": "resolved",
+            "to": "closed"
+          },
+          {
+            "from": "resolved",
+            "to": "in_progress"
+          }
+        ]
+      },
+      "compat": "compatible",
+      "published_at": "2026-11-04T18:23:44.372975Z"
     }
   }
 }

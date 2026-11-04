@@ -1,126 +1,28 @@
 {
   "request": {
-    "method": "POST",
-    "url": "http://127.0.0.1:18080/api/v1/entity-types/incident/versions",
-    "body": "{\"definition\":{\"schema\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"short_description\",\"state\"],\"properties\":{\"short_description\":{\"type\":\"string\",\"title\":\"Short description\",\"minLength\":1,\"maxLength\":160},\"description\":{\"type\":\"string\",\"title\":\"Description\",\"maxLength\":32000},\"state\":{\"type\":\"string\",\"title\":\"State\",\"enum\":[\"new\",\"in_progress\",\"resolved\",\"closed\"],\"default\":\"new\"},\"priority\":{\"type\":\"integer\",\"title\":\"Priority\",\"enum\":[1,2,3,4],\"default\":3},\"requester\":{\"type\":\"string\",\"format\":\"uuid\",\"title\":\"Requester\"},\"assignee\":{\"type\":\"string\",\"format\":\"uuid\",\"title\":\"Assignee\"},\"assignment_group\":{\"type\":\"string\",\"format\":\"uuid\",\"title\":\"Assignment group\"},\"impact_pre_s14\":{\"type\":\"string\",\"title\":\"Impact (published before S14)\",\"maxLength\":200},\"impact_s14_112a9c7c\":{\"type\":\"string\",\"title\":\"Impact (S14 run 112a9c7c)\",\"maxLength\":200}}},\"fixed_columns\":{\"assignee\":\"assignee_id\",\"assignment_group\":\"assignment_group_id\",\"requester\":\"requester_id\",\"state\":\"state\"},\"states\":{\"initial\":\"new\",\"states\":[\"new\",\"in_progress\",\"resolved\",\"closed\"],\"transitions\":[{\"from\":\"new\",\"to\":\"in_progress\"},{\"from\":\"in_progress\",\"to\":\"resolved\"},{\"from\":\"resolved\",\"to\":\"closed\"},{\"from\":\"resolved\",\"to\":\"in_progress\"}]}}}"
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/me",
+    "body": null
   },
   "response": {
-    "status": 201,
+    "status": 200,
     "headers": {
       "content-type": "application/json",
-      "x-request-id": "721a6b9aec76604b0738fff8a4ab7963"
+      "x-request-id": "e87d9240697a75eb478e2647ee4bf639"
     },
     "body": {
-      "key": "incident",
-      "name": "Incident",
-      "number_prefix": "INC",
-      "version": 3,
-      "current": true,
-      "schema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "short_description",
-          "state"
-        ],
-        "properties": {
-          "short_description": {
-            "type": "string",
-            "title": "Short description",
-            "minLength": 1,
-            "maxLength": 160
-          },
-          "description": {
-            "type": "string",
-            "title": "Description",
-            "maxLength": 32000
-          },
-          "state": {
-            "type": "string",
-            "title": "State",
-            "enum": [
-              "new",
-              "in_progress",
-              "resolved",
-              "closed"
-            ],
-            "default": "new"
-          },
-          "priority": {
-            "type": "integer",
-            "title": "Priority",
-            "enum": [
-              1,
-              2,
-              3,
-              4
-            ],
-            "default": 3
-          },
-          "requester": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Requester"
-          },
-          "assignee": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Assignee"
-          },
-          "assignment_group": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Assignment group"
-          },
-          "impact_pre_s14": {
-            "type": "string",
-            "title": "Impact (published before S14)",
-            "maxLength": 200
-          },
-          "impact_s14_112a9c7c": {
-            "type": "string",
-            "title": "Impact (S14 run 112a9c7c)",
-            "maxLength": 200
-          }
+      "group_paths": [
+        {
+          "id": "44494cab-d3ec-48c8-8ec0-dbf990407ea2",
+          "path": "/service-desk"
         }
-      },
-      "schema_sha256": "840460925721131b3b5c7057d1e6825d590c7d90404977034d94101dc274715c",
-      "fixed_columns": {
-        "assignee": "assignee_id",
-        "assignment_group": "assignment_group_id",
-        "requester": "requester_id",
-        "state": "state"
-      },
-      "states": {
-        "initial": "new",
-        "states": [
-          "new",
-          "in_progress",
-          "resolved",
-          "closed"
-        ],
-        "transitions": [
-          {
-            "from": "new",
-            "to": "in_progress"
-          },
-          {
-            "from": "in_progress",
-            "to": "resolved"
-          },
-          {
-            "from": "resolved",
-            "to": "closed"
-          },
-          {
-            "from": "resolved",
-            "to": "in_progress"
-          }
-        ]
-      },
-      "compat": "compatible",
-      "published_at": "2026-11-04T17:45:48.204425Z"
+      ],
+      "groups": [
+        "44494cab-d3ec-48c8-8ec0-dbf990407ea2"
+      ],
+      "idp_alias": "",
+      "tenant_id": "00000000-0000-4000-8000-0000000000a1",
+      "user_id": "e894715c-92f3-4c9e-ad6d-197ba7db871e"
     }
   }
 }

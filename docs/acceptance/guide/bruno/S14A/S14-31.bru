@@ -1,7 +1,7 @@
 meta {
-  name: S14.29 AC4: the refused publish stored nothing and wrote no entry
+  name: S14.31 AC4: the refused publish stored nothing and wrote no entry
   type: http
-  seq: 29
+  seq: 21
 }
 
 get {
@@ -23,14 +23,14 @@ script:pre-request {
 tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
   N.status(200);
-  test("the incident type is still at S14.16's version", () => expect(bru.getVar('s14_after_secret')).to.eql(bru.getVar('s14_new')));
+  test("the incident type is still at S14.18's version", () => expect(bru.getVar('s14_after_secret')).to.eql(bru.getVar('s14_new')));
   const cfg = N.json().items.filter(e => e.subject_id === bru.getVar('s14_inc_def'));
-  test('one config entry for the incident type since S14.15: the publish of S14.16', () => {
+  test('one config entry for the incident type since S14.17: the publish of S14.18', () => {
     expect(cfg.map(e => e.action + ' v' + e.version_after)).to.eql(['publish v' + bru.getVar('s14_new')]);
   });
   N.noLeak('s14-not-a-real-secret-' + bru.getVar('s14_run'));
 }
 
 docs {
-  The incident type is still at S14.16's version, and the only config entry since S14.15 is that publish.
+  The incident type is still at S14.18's version, and the only config entry since S14.17 is that publish.
 }

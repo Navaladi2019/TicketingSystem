@@ -1668,8 +1668,8 @@ test('update then create', () => {
 def s14():
     audit = "{{core_url}}/api/v1/audit/entries"
     return {
-        "dir": "S14", "name": "S14 audit",
-        "desc": "Story S14, TICK-419 (kit TICK-437). S14.1-S14.10 (TICK-435, P5-17, ADR-004 R7 and R8) are the reader's contract: `GET /api/v1/audit/entries` read by tenant A's admin (who holds `audit.read`), newest first, filtered, stable pages with no overlap, every `diff` masked for the reader, `diff_salt` only with an unredacted diff; Alice, a member without `audit.read`, gets 403. S14.11-S14.29 walk the story's four acceptance steps (AC1-AC4) with the story users: `admin@tenant-a.test`, `auditor@tenant-a.test` (tenant A's auditors group), `agent@tenant-a` is Alice (`alice@tenant-a.test`), `agent@tenant-b` is Bob (`bob@tenant-b.test`). Needs `tools/seed.sh`. AC2 (backfilled entries) needs a stack whose entity-type versions existed before the S14 migrations ran: start the stack at a commit before S14, run that commit's `tools/seed.sh`, then upgrade the same stack to this branch and run `tools/seed.sh` again (docs/acceptance/S14/README.md). On a stack created at this branch, the seeded versions were never backfilled and S14.22 fails. Runs again on the same stack: each pass publishes the next incident version and creates two incidents. 429, 500 and 501 are in the coverage page. CI-A2 is not asserted for configuration tables (D-5-8: their commit check arrives in S15).",
+        "dir": "S14", "name": "S14 audit timeline",
+        "desc": "TICK-435 (P5-17, ADR-004 R7 and R8). The tenant's one audit timeline, `GET /api/v1/audit/entries`, read by tenant A's admin (who holds `audit.read`): newest first, filtered, stable pages with no overlap, every `diff` masked for the reader, and `diff_salt` only with an unredacted diff. Alice is a member without `audit.read`: 403. 429, 500 and 501 are in the coverage page. Needs `tools/seed.sh`. Reads only: the stack case `s14_audit` checks that the folder wrote no audit entry. The story's acceptance steps are folder S14A.",
         "items": [
             token("S14.1 Sign in as tenant A's admin", "admin_a_username", "admin_a_password", "admin_a_token"),
             token("S14.2 Sign in as Alice (tenant A, no audit.read)", "alice_username", "alice_password", "alice_token"),
@@ -1710,12 +1710,25 @@ test('no items, no next page', () => { expect(N.json().items).to.eql([]); expect
                         desc="The page size is at most 500."),
             problem_req("S14.10 listAuditEntries 400: a page_token that is not ours", "GET", audit + "?page_token=not-a-token", "invalid_cursor", 400,
                         auth="admin_a_token", desc="One code for every bad token."),
-        ] + s14_story(audit),
+        ],
     }
 
 
-def s14_story(audit):
-    """The story's acceptance steps, AC1-AC4 of TICK-419."""
+S14A_DOC = ("Story S14, TICK-419 (kit TICK-437, docs/acceptance/S14/README.md). The story's four acceptance steps with the story users: "
+            "`admin@tenant-a.test`, `auditor@tenant-a.test` (tenant A's auditors group), `agent@tenant-a` is Alice (`alice@tenant-a.test`), "
+            "`agent@tenant-b` is Bob (`bob@tenant-b.test`). AC1 (CI-A11, S14.17-S14.23): the admin publishes an incident version, Alice creates "
+            "and updates an incident, the auditor sees all three on one timeline in order, with actor, source and diff. AC2 (S14.24): entity-type "
+            "versions written before the backfill ran are in the log as backfilled entries. AC3 (S14.25-S14.29): Alice gets 403 on the timeline "
+            "and reads the incident's history; Bob gets 403 and the same 404 as for an id that exists nowhere. AC4 (S14.30-S14.31): a secret "
+            "value in a published schema is refused with `config_secret_in_content`, naming the path only. Needs `tools/seed.sh`, and for AC2 "
+            "versions the backfill has seen: either a stack upgraded from a pre-S14 commit (docs/acceptance/S14/tools/upgrade-setup.sh) or "
+            "`audit_backfill_s8()` re-run as nava_migrator after the seed (the stack case `s14_acceptance`). Runs again on the same stack. "
+            "CI-A2 is not asserted for configuration tables (D-5-8: their commit check arrives in S15).")
+
+
+def s14_story():
+    """Folder S14A: the story's acceptance steps, AC1-AC4 of TICK-419 (kit TICK-437)."""
+    audit = "{{core_url}}/api/v1/audit/entries"
     types = "{{core_url}}/api/v1/entity-types/incident"
     recs = "{{core_url}}/api/v1/records/incident"
     one = recs + "/{{s14_rec}}"
@@ -1742,19 +1755,24 @@ test('HTTP 404 problem+json, code not_found, no instance', () => {
   expect(N.json()).to.not.have.property('instance');
 });
 N.status(404);"""
-    return [
-        token("S14.11 Sign in as auditor@tenant-a (tenant A's auditors group)", "auditor_a_username", "auditor_a_password", "auditor_token",
+    return {
+        "dir": "S14A", "name": "S14 audit",
+        "desc": S14A_DOC,
+        "items": [
+        token("S14.11 Sign in as admin@tenant-a (tenant A's admins group)", "admin_a_username", "admin_a_password", "admin_a_token"),
+        token("S14.12 Sign in as agent@tenant-a (Alice, no audit.read)", "alice_username", "alice_password", "alice_token"),
+        token("S14.13 Sign in as auditor@tenant-a (tenant A's auditors group)", "auditor_a_username", "auditor_a_password", "auditor_token",
               extra="bru.setVar('s14_run', Math.random().toString(16).slice(2, 10));\nconsole.log('S14 run', bru.getVar('s14_run'));"),
-        token("S14.12 Sign in as agent@tenant-b (Bob, tenant B)", "bob_username", "bob_password", "bob_token"),
-        req("S14.13 The admin's principal id", "GET", "{{core_url}}/api/v1/me", auth="admin_a_token",
+        token("S14.14 Sign in as agent@tenant-b (Bob, tenant B)", "bob_username", "bob_password", "bob_token"),
+        req("S14.15 The admin's principal id", "GET", "{{core_url}}/api/v1/me", auth="admin_a_token",
             desc="Kept to check the actor of the publish entry.",
             tests=f"N.me('{A}');\nbru.setVar('s14_admin', N.json().user_id);"),
-        req("S14.14 Alice's principal id", "GET", "{{core_url}}/api/v1/me", auth="alice_token",
+        req("S14.16 Alice's principal id", "GET", "{{core_url}}/api/v1/me", auth="alice_token",
             desc="Kept to check the actor of the record entries.",
             tests=f"N.me('{A}');\nbru.setVar('s14_alice', N.json().user_id);"),
-        req("S14.15 AC1: the admin reads the current incident version", "GET", types, auth="admin_a_token",
+        req("S14.17 AC1: the admin reads the current incident version", "GET", types, auth="admin_a_token",
             pre="bru.setVar('s14_t0', new Date(Date.now() - 5000).toISOString());",
-            desc="Kept for the publish body (S14.16) and the secret publish (S14.28). The timeline read of S14.20 starts 5 s before this request.",
+            desc="Kept for the publish body (S14.18) and the secret publish (S14.30). The timeline read of S14.22 starts 5 s before this request.",
             tests="""N.status(200);
 const b = N.json();
 test('the incident type, current', () => { expect(b.key).to.eql('incident'); expect(b.current).to.eql(true); });
@@ -1762,7 +1780,7 @@ bru.setVar('s14_prev', String(b.version));
 bru.setVar('s14_cur_schema', N.rawMember(N.text(), 'schema'));
 bru.setVar('s14_fixed', JSON.stringify(b.fixed_columns));
 bru.setVar('s14_states', JSON.stringify(b.states));"""),
-        req("S14.16 AC1: the admin publishes a new incident-type version: 201", "POST", types + "/versions", auth="admin_a_token",
+        req("S14.18 AC1: the admin publishes a new incident-type version: 201", "POST", types + "/versions", auth="admin_a_token",
             headers=key("publish"), body=placeholder, pre=pre_publish,
             desc="The current schema plus an optional property `impact_s14_<run>`: compatible, so 201 with the next version.",
             tests="""N.status(201);
@@ -1773,7 +1791,7 @@ test('the next version, current', () => {
 });
 bru.setVar('s14_new', String(b.version));
 bru.setVar('s14_new_sha', b.schema_sha256);"""),
-        req("S14.17 AC1: Alice creates an incident on the new version: 201", "POST", recs, auth="alice_token",
+        req("S14.19 AC1: Alice creates an incident on the new version: 201", "POST", recs, auth="alice_token",
             headers=key("create"), body={"data": {"short_description": "S14 {{s14_run}} audit timeline", "priority": 2}},
             desc="An incident written after the publish, so it is validated against the new version.",
             tests="""N.status(201);
@@ -1783,19 +1801,19 @@ test('version 1 on the new schema version', () => {
   expect(b.schema_version).to.eql(Number(bru.getVar('s14_new')));
 });
 bru.setVar('s14_rec', b.id);"""),
-        req("S14.18 AC1: Alice updates it with its ETag: 200", "PATCH", one, auth="alice_token",
+        req("S14.20 AC1: Alice updates it with its ETag: 200", "PATCH", one, auth="alice_token",
             headers={**key("update"), **mp, "If-Match": 'W/"1"'}, body={"data": {"priority": 1}},
             desc="Priority 2 to 1, based on version 1.",
             tests="""N.status(200);
 test('version 2, priority 1', () => { expect(N.json().version).to.eql(2); expect(N.json().data.priority).to.eql(1); });"""),
-        req("S14.19 Isolation: Bob creates an incident in tenant B", "POST", recs, auth="bob_token",
+        req("S14.21 Isolation: Bob creates an incident in tenant B", "POST", recs, auth="bob_token",
             headers=key("create-b"), body={"data": {"short_description": "S14 {{s14_run}} tenant B only"}},
-            desc="Tenant B's own write in the same window. S14.20 shows it is not on tenant A's timeline.",
+            desc="Tenant B's own write in the same window. S14.22 shows it is not on tenant A's timeline.",
             tests="""N.status(201);
 bru.setVar('s14_rec_b', N.json().id);"""),
-        req("S14.20 AC1 (CI-A11): the auditor sees the publish and both record changes on one timeline", "GET",
+        req("S14.22 AC1 (CI-A11): the auditor sees the publish and both record changes on one timeline", "GET",
             audit + "?from={{s14_t0}}&limit=500", auth="auditor_token",
-            desc="Every entry since S14.15, newest first. The publish (domain `config`, by the admin), Alice's create and update of the incident (domain `record`), in that order on one page, each with its actor, `source: user` and a diff. The record entries name the incident type whose publish comes first (`entity_definition_id` equals the publish's `subject_id`). Tenant B's incident of S14.19 is not there.",
+            desc="Every entry since S14.17, newest first. The publish (domain `config`, by the admin), Alice's create and update of the incident (domain `record`), in that order on one page, each with its actor, `source: user` and a diff. The record entries name the incident type whose publish comes first (`entity_definition_id` equals the publish's `subject_id`). Tenant B's incident of S14.21 is not there.",
             tests="""N.status(200);
 const items = N.json().items;
 test('newest first', () => {
@@ -1806,7 +1824,7 @@ const recE = items.filter(e => e.subject_type === 'record' && e.subject_id === b
 const crAt = items.findIndex(e => e.subject_id === bru.getVar('s14_rec') && e.action === 'create');
 const upAt = items.findIndex(e => e.subject_id === bru.getVar('s14_rec') && e.action === 'update');
 const pub = items[pubAt], cr = items[crAt], up = items[upAt];
-test('the publish of S14.16 is on the timeline', () => expect(pubAt).to.be.at.least(0));
+test('the publish of S14.18 is on the timeline', () => expect(pubAt).to.be.at.least(0));
 test("the incident's create and update are on the timeline, and nothing else of it", () => {
   expect(crAt).to.be.at.least(0);
   expect(upAt).to.be.at.least(0);
@@ -1849,26 +1867,26 @@ test('no diff is masked for these entries (the incident type has no secret prope
   expect(e.diff_redacted, e.action).to.eql(false);
   expect(e.diff_salt, e.action).to.match(/^[0-9a-f]+$/);
 }));
-test("tenant B's incident (S14.19) is not on tenant A's timeline", () => {
+test("tenant B's incident (S14.21) is not on tenant A's timeline", () => {
   items.forEach(e => expect(e.subject_id).to.not.eql(bru.getVar('s14_rec_b')));
 });
 N.noLeak(bru.getVar('s14_rec_b'), 'tenant B only');
 bru.setVar('s14_inc_def', pub.subject_id);
-console.log('S14.20 timeline (newest first):', items.map(e => `${e.domain}/${e.action}/${e.subject_type}`).join(', '));"""),
-        req("S14.21 AC1: the admin sees the same timeline", "GET", audit + "?from={{s14_t0}}&limit=500", auth="admin_a_token",
+console.log('S14.22 timeline (newest first):', items.map(e => `${e.domain}/${e.action}/${e.subject_type}`).join(', '));"""),
+        req("S14.23 AC1: the admin sees the same timeline", "GET", audit + "?from={{s14_t0}}&limit=500", auth="admin_a_token",
             desc="A tenant admin also holds `audit.read`: the same three entries, in the same order.",
             tests="""N.status(200);
 const ids = N.json().items.filter(e => e.subject_id === bru.getVar('s14_rec') || (e.action === 'publish' && e.version_after === Number(bru.getVar('s14_new')))).map(e => e.action);
 test('update, create, publish', () => expect(ids).to.eql(['update', 'create', 'publish']));"""),
-        req("S14.22 AC2: the backfilled entity-type versions", "GET",
+        req("S14.24 AC2: the backfilled entity-type versions", "GET",
             audit + "?domain=config&subject_type=entity_definition&limit=500", auth="auditor_token",
-            desc="Every version written before the S14 migrations is in the log once, marked `backfilled`: tenant A's `incident`, `request` and `change` version 1 (`create`, system actor `onboarding`, no diff, the content hash), and any version published before the upgrade (`publish`, by its publisher, `source: user`). The publish of S14.16 is a live entry, not backfilled. Needs the upgrade setup (see the folder docs).",
+            desc="Every version written before the backfill ran is in the log once, marked `backfilled`: tenant A's `incident`, `request` and `change` version 1 (`create`, system actor `onboarding`, no diff, the content hash), and any version published before the upgrade (`publish`, by its publisher, `source: user`). The publish of S14.18 is a live entry, not backfilled. Needs versions the backfill has seen (see the folder docs).",
             tests="""N.status(200);
 const items = N.json().items;
 const back = items.filter(e => e.backfilled);
 const v1 = back.filter(e => e.action === 'create');
 test('three backfilled version-1 creates, one per seeded type (incident, request, change)', () => {
-  expect(v1, 'no backfilled entry: was the stack upgraded from a pre-S14 commit? (folder docs)').to.have.length(3);
+  expect(v1, 'no backfilled entry: upgrade from a pre-S14 commit, or re-run audit_backfill_s8() after the seed (folder docs)').to.have.length(3);
   expect(new Set(v1.map(e => e.subject_id)).size).to.eql(3);
 });
 test('each v1: the system actor onboarding, source onboarding, version 1, no diff, the content hash', () => v1.forEach(e => {
@@ -1880,7 +1898,7 @@ test('each v1: the system actor onboarding, source onboarding, version 1, no dif
   expect(e, e.subject_id).to.not.have.property('diff');
   expect(e.content_sha256, e.subject_id).to.match(/^[0-9a-f]{64}$/);
 }));
-test("the incident type's v1 is among them: the same definition as S14.16's publish", () => {
+test("the incident type's v1 is among them: the same definition as S14.18's publish", () => {
   expect(v1.map(e => e.subject_id)).to.include(bru.getVar('s14_inc_def'));
 });
 test('a backfilled publish (a version published before the upgrade) names its publisher, source user', () => back.filter(e => e.action === 'publish').forEach(e => {
@@ -1888,50 +1906,51 @@ test('a backfilled publish (a version published before the upgrade) names its pu
   expect(e.source, e.subject_id).to.eql('user');
   expect(e.version_before, e.subject_id).to.eql(e.version_after - 1);
 }));
-test("S14.16's publish is live, not backfilled", () => {
+test("S14.18's publish is live, not backfilled", () => {
   const live = items.find(e => e.action === 'publish' && e.subject_id === bru.getVar('s14_inc_def') && e.version_after === Number(bru.getVar('s14_new')));
   expect(live).to.be.an('object');
   expect(live.backfilled).to.eql(false);
 });
-console.log('S14.22 backfilled:', back.map(e => `${e.action} v${e.version_after} ${e.actor_system || 'user'}`).join(', '));"""),
-        problem_req("S14.23 AC3: agent@tenant-a (Alice) reads the timeline: 403", "GET", audit, "forbidden", 403, auth="alice_token",
+console.log('S14.24 backfilled:', back.map(e => `${e.action} v${e.version_after} ${e.actor_system || 'user'}`).join(', '));"""),
+        problem_req("S14.25 AC3: agent@tenant-a (Alice) reads the timeline: 403", "GET", audit, "forbidden", 403, auth="alice_token",
                     desc="An agent holds no `audit.read`."),
-        req("S14.24 AC3: Alice reads the incident's own history", "GET", one + "/history", auth="alice_token",
+        req("S14.26 AC3: Alice reads the incident's own history", "GET", one + "/history", auth="alice_token",
             desc="Any user of the tenant reads a record's history: update then create, by Alice.",
             tests="""N.status(200);
 const items = N.json().items;
 test('update, create', () => expect(items.map(i => i.action)).to.eql(['update', 'create']));
 test('each by Alice, source user', () => items.forEach(i => { expect(i.actor_id).to.eql(bru.getVar('s14_alice')); expect(i.source).to.eql('user'); }));
 test('the update changed the priority 2 to 1', () => { expect(items[0].before.priority).to.eql(2); expect(items[0].after.priority).to.eql(1); });"""),
-        problem_req("S14.25 AC3: agent@tenant-b (Bob) reads the timeline: 403", "GET", audit, "forbidden", 403, auth="bob_token",
+        problem_req("S14.27 AC3: agent@tenant-b (Bob) reads the timeline: 403", "GET", audit, "forbidden", 403, auth="bob_token",
                     desc="Bob holds no `audit.read` in tenant B, and the timeline is only ever his own tenant's.",
                     extra="N.noLeak(bru.getVar('s14_rec'), bru.getVar('s14_inc_def'));"),
-        req("S14.26 AC3: Bob reads a history that exists nowhere: 404", "GET", recs + "/00000000-0000-4000-8000-00000000dead/history", auth="bob_token",
-            desc="The reference 404 for S14.27.", tests=no404 + "\nbru.setVar('s14_ref404', N.text());"),
-        req("S14.27 AC3: Bob reads tenant A's incident history: the same 404", "GET", one + "/history", auth="bob_token",
-            desc="Byte-identical to S14.26, so Bob cannot tell that tenant A's incident exists; nothing of it in the body.",
+        req("S14.28 AC3: Bob reads a history that exists nowhere: 404", "GET", recs + "/00000000-0000-4000-8000-00000000dead/history", auth="bob_token",
+            desc="The reference 404 for S14.29.", tests=no404 + "\nbru.setVar('s14_ref404', N.text());"),
+        req("S14.29 AC3: Bob reads tenant A's incident history: the same 404", "GET", one + "/history", auth="bob_token",
+            desc="Byte-identical to S14.28, so Bob cannot tell that tenant A's incident exists; nothing of it in the body.",
             tests=no404 + """
-test("body byte-identical to S14.26's 404", () => expect(N.text()).to.eql(bru.getVar('s14_ref404')));
+test("body byte-identical to S14.28's 404", () => expect(N.text()).to.eql(bru.getVar('s14_ref404')));
 N.noLeak(bru.getVar('s14_rec'), 'S14 ' + bru.getVar('s14_run'));"""),
-        problem_req("S14.28 AC4: a publish with a secret value in the content: 422 config_secret_in_content", "POST", types + "/versions",
+        problem_req("S14.30 AC4: a publish with a secret value in the content: 422 config_secret_in_content", "POST", types + "/versions",
                     "config_secret_in_content", 422, auth="admin_a_token", headers=key("secret"), body=placeholder, pre=pre_secret,
                     desc="The current schema plus a property marked `x-nava-secret` with a `default` value. Refused: `errors[].pointer` names the path; the value appears nowhere in the response.",
                     extra="""N.fieldError('/definition/schema/properties/api_token_s14_' + bru.getVar('s14_run') + '/default');
 N.noLeak('s14-not-a-real-secret-' + bru.getVar('s14_run'));"""),
-        req("S14.29 AC4: the refused publish stored nothing and wrote no entry", "GET",
+        req("S14.31 AC4: the refused publish stored nothing and wrote no entry", "GET",
             audit + "?from={{s14_t0}}&domain=config&limit=500", auth="auditor_token",
-            desc="The incident type is still at S14.16's version, and the only config entry since S14.15 is that publish.",
+            desc="The incident type is still at S14.18's version, and the only config entry since S14.17 is that publish.",
             pre=LOAD_PRE + """
 const r = await N.send({ url: N.url('{{core_url}}/api/v1/entity-types/incident'), method: 'GET', headers: { Authorization: 'Bearer ' + bru.getVar('admin_a_token') } });
 bru.setVar('s14_after_secret', String(r.data && r.data.version));""",
             tests="""N.status(200);
-test("the incident type is still at S14.16's version", () => expect(bru.getVar('s14_after_secret')).to.eql(bru.getVar('s14_new')));
+test("the incident type is still at S14.18's version", () => expect(bru.getVar('s14_after_secret')).to.eql(bru.getVar('s14_new')));
 const cfg = N.json().items.filter(e => e.subject_id === bru.getVar('s14_inc_def'));
-test('one config entry for the incident type since S14.15: the publish of S14.16', () => {
+test('one config entry for the incident type since S14.17: the publish of S14.18', () => {
   expect(cfg.map(e => e.action + ' v' + e.version_after)).to.eql(['publish v' + bru.getVar('s14_new')]);
 });
 N.noLeak('s14-not-a-real-secret-' + bru.getVar('s14_run'));"""),
-    ]
+        ],
+    }
 
 
 # --------------------------------------------------------------------------- X3
@@ -2008,7 +2027,7 @@ if (wait > 0) {{ console.log(`waiting ${{Math.round(wait / 1000)}} s for the tok
     }
 
 
-FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s14, x1, x2, x4, x5, x3, late]
+FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s14, s14_story, x1, x2, x4, x5, x3, late]
 
 ENV = [
     ("core_url", "http://127.0.0.1:18080"),

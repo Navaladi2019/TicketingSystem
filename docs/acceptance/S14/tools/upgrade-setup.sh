@@ -38,4 +38,4 @@ docker compose logs migrate | grep '"migrate done"'
 node docs/acceptance/S14/tools/realm-delta.mjs
 sh docs/acceptance/guide/tools/seed.sh
 sh docs/acceptance/guide/tools/tunnels.sh up
-curl -fsS http://127.0.0.1:19090/readyz && echo " s14: ready; run: sh docs/acceptance/guide/tools/api-test.sh S14"
+curl -fsS http://127.0.0.1:19090/readyz && echo " s14: ready; run: sh docs/acceptance/guide/tools/api-test.sh S14A"

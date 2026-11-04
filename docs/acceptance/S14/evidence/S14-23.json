@@ -1,22 +1,108 @@
 {
   "request": {
     "method": "GET",
-    "url": "http://127.0.0.1:18080/api/v1/audit/entries",
+    "url": "http://127.0.0.1:18080/api/v1/audit/entries?from=2026-11-04T18:23:39.317Z&limit=500",
     "body": null
   },
   "response": {
-    "status": 403,
+    "status": 200,
     "headers": {
-      "content-type": "application/problem+json",
-      "x-request-id": "c1a65030990fa4ab6c50dafa730d5ac4"
+      "content-type": "application/json",
+      "x-request-id": "e1a3915ef7081cc1152feea481850a7e"
     },
     "body": {
-      "type": "urn:nava:problem:forbidden",
-      "title": "Forbidden",
-      "status": 403,
-      "code": "forbidden",
-      "detail": "The token does not allow this operation.",
-      "instance": "urn:nava:request:c1a65030990fa4ab6c50dafa730d5ac4"
+      "items": [
+        {
+          "action": "update",
+          "actor_principal_id": "e894715c-92f3-4c9e-ad6d-197ba7db871e",
+          "backfilled": false,
+          "causation_depth": 0,
+          "causation_id": "01a1a7cd-7d3d-7533-9803-1b5fb5fa945f",
+          "diff": [
+            {
+              "op": "replace",
+              "path": "/priority",
+              "value": 1
+            }
+          ],
+          "diff_redacted": false,
+          "diff_salt": "a7612a6e00c600ccfbb7addda467a536",
+          "diff_sha256": "21346d2f2f2c4a0066cdf0d4e8e3e82de04e91be143feb60a84bf565b0277f28",
+          "diff_truncated": false,
+          "domain": "record",
+          "entity_definition_id": "c8ab6d48-1a35-4e16-a839-2b88b4908299",
+          "id": "01a1a7cd-7d40-7d3f-80ea-b51d123dcfd9",
+          "occurred_at": "2026-11-04T18:23:44.442588Z",
+          "request_id": "eb675169cd177832eb60a7b2aca864bb",
+          "source": "user",
+          "subject_id": "01a1a7cd-7d1e-704b-b855-e08ae43e4b6b",
+          "subject_type": "record",
+          "version_after": 2,
+          "version_before": 1
+        },
+        {
+          "action": "create",
+          "actor_principal_id": "e894715c-92f3-4c9e-ad6d-197ba7db871e",
+          "backfilled": false,
+          "causation_depth": 0,
+          "causation_id": "01a1a7cd-7d1c-73cc-aa6e-60cc8901108d",
+          "diff": [
+            {
+              "op": "add",
+              "path": "",
+              "value": {
+                "priority": 2,
+                "short_description": "S14 23e70a4a audit timeline",
+                "state": "new"
+              }
+            }
+          ],
+          "diff_redacted": false,
+          "diff_salt": "69c85da60402002e12dbe4522e4c14e5",
+          "diff_sha256": "5c1eaf397c1b8098c343f5f62452c39ad552a38e8e20291a01d657f89025f0a5",
+          "diff_truncated": false,
+          "domain": "record",
+          "entity_definition_id": "c8ab6d48-1a35-4e16-a839-2b88b4908299",
+          "id": "01a1a7cd-7d20-7746-8817-bee2c4217720",
+          "occurred_at": "2026-11-04T18:23:44.41009Z",
+          "request_id": "ce2cd33631d7062a900ecf0d4f5de103",
+          "source": "user",
+          "subject_id": "01a1a7cd-7d1e-704b-b855-e08ae43e4b6b",
+          "subject_type": "record",
+          "version_after": 1
+        },
+        {
+          "action": "publish",
+          "actor_principal_id": "821e7f75-3a0e-4bc3-91f7-dd0028ecb35b",
+          "backfilled": false,
+          "causation_depth": 0,
+          "content_sha256": "f271a93b09100caa9d10de3fab5ad2a259ea18c169c503910571692cb364e2bf",
+          "diff": [
+            {
+              "op": "add",
+              "path": "/properties/impact_s14_23e70a4a",
+              "value": {
+                "maxLength": 200,
+                "title": "Impact (S14 run 23e70a4a)",
+                "type": "string"
+              }
+            }
+          ],
+          "diff_redacted": false,
+          "diff_salt": "5c3254124e26f8bf4a205076de339947",
+          "diff_sha256": "763ab83231ab2c3e2d795182b1da6ed0fae8aac90bd8da80dba905b2c92129f5",
+          "diff_truncated": false,
+          "domain": "config",
+          "id": "01a1a7cd-7cfd-7023-bb4c-d4fb9b7d0ecb",
+          "occurred_at": "2026-11-04T18:23:44.372975Z",
+          "request_id": "5db7496d528a74c1decdc8a9fc4fa633",
+          "source": "user",
+          "subject_id": "c8ab6d48-1a35-4e16-a839-2b88b4908299",
+          "subject_type": "entity_definition",
+          "version_after": 3,
+          "version_before": 2
+        }
+      ]
     }
   }
 }

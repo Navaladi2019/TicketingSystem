@@ -1,21 +1,53 @@
 {
   "request": {
     "method": "GET",
-    "url": "http://127.0.0.1:18080/api/v1/records/incident/00000000-0000-4000-8000-00000000dead/history",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident/01a1a7cd-7d1e-704b-b855-e08ae43e4b6b/history",
     "body": null
   },
   "response": {
-    "status": 404,
+    "status": 200,
     "headers": {
-      "content-type": "application/problem+json",
-      "x-request-id": "784eb1b986e8319a1725fac549681171"
+      "content-type": "application/json",
+      "x-request-id": "6a4976fb58f876acc62be6dc7886d0cf"
     },
     "body": {
-      "type": "urn:nava:problem:not_found",
-      "title": "Not found",
-      "status": 404,
-      "code": "not_found",
-      "detail": "The resource does not exist."
+      "items": [
+        {
+          "action": "update",
+          "actor_id": "e894715c-92f3-4c9e-ad6d-197ba7db871e",
+          "after": {
+            "priority": 1,
+            "short_description": "S14 23e70a4a audit timeline",
+            "state": "new"
+          },
+          "at": "2026-11-04T18:23:44.442588Z",
+          "before": {
+            "priority": 2,
+            "short_description": "S14 23e70a4a audit timeline",
+            "state": "new"
+          },
+          "changed": [
+            "/data/priority"
+          ],
+          "source": "user"
+        },
+        {
+          "action": "create",
+          "actor_id": "e894715c-92f3-4c9e-ad6d-197ba7db871e",
+          "after": {
+            "priority": 2,
+            "short_description": "S14 23e70a4a audit timeline",
+            "state": "new"
+          },
+          "at": "2026-11-04T18:23:44.41009Z",
+          "changed": [
+            "/data/priority",
+            "/data/short_description",
+            "/data/state"
+          ],
+          "source": "user"
+        }
+      ]
     }
   }
 }
