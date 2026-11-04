@@ -307,6 +307,30 @@ func recHistoryCursorReplay(ctx context.Context, e *etIso) error {
 			return fmt.Errorf("seed tenant A's v0 history: %w", err)
 		}
 	}
+	// Tenant B's first page of tenant A's history, now that the record has
+	// rows to leak (TICK-531): the same 404 as for a missing record, so a
+	// handler that read History before the tenant-scoped record lookup
+	// fails here. P5-17 (TICK-435) repeats this against live writes.
+	const missing = "0194f2c0-0000-7000-8000-000000000000"
+	oc, ob := e.do(ctx, http.MethodGet, "/api/v1/records/iso_et_rec/"+id+"/history", etCallerB, "", nil)
+	uc, ub := e.do(ctx, http.MethodGet, "/api/v1/records/iso_et_rec/"+missing+"/history", etCallerB, "", nil)
+	if uc != http.StatusNotFound {
+		return fmt.Errorf("control: tenant B's history of a missing record = %d %s, want 404", uc, ub)
+	}
+	if oc != http.StatusNotFound {
+		return fmt.Errorf("tenant B's first history page of tenant A's record = %d %s, want 404", oc, ob)
+	}
+	ow, err := withoutInstance(ob)
+	if err != nil {
+		return err
+	}
+	uw, err := withoutInstance(ub)
+	if err != nil {
+		return err
+	}
+	if ow != uw {
+		return fmt.Errorf("tenant B's history 404 for tenant A's record differs from the missing one's:\n%s\n%s", ob, ub)
+	}
 	first := "/api/v1/records/iso_et_rec/" + id + "/history?limit=1"
 	code, body := e.do(ctx, http.MethodGet, first, etCallerA, "", nil)
 	if code != http.StatusOK {
