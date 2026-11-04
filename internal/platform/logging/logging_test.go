@@ -9,8 +9,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/logging"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/requestid"
@@ -148,3 +151,62 @@ func (h *captureHandler) Handle(_ context.Context, r slog.Record) error {
 }
 func (h *captureHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
 func (h *captureHandler) WithGroup(string) slog.Handler      { return h }
+
+func TestNewTextFormat(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	log := logging.New(&buf, config.Log{Level: slog.LevelInfo, Format: config.FormatText})
+	log.InfoContext(requestid.NewContext(t.Context(), "req-9"), "hello")
+	out := buf.String()
+	if strings.HasPrefix(out, "{") || !strings.Contains(out, "msg=hello") || !strings.Contains(out, "request_id=req-9") {
+		t.Fatalf("not a text line with the request id: %q", out)
+	}
+}
+
+func TestPrincipalIDsAreAddedWhenAuthenticated(t *testing.T) {
+	t.Parallel()
+	p := identity.Principal{TenantID: uuid.New(), PrincipalID: uuid.New()}
+	ctx := identity.NewContext(t.Context(), p)
+
+	m := record(ctx, t)
+	if m["tenant_id"] != p.TenantID.String() || m["principal_id"] != p.PrincipalID.String() {
+		t.Fatalf("stdout record = %v", m)
+	}
+
+	// The export path adds them too.
+	cap := &captureHandler{}
+	slog.New(logging.WithExport(slog.New(slog.DiscardHandler), cap, slog.LevelInfo).Handler()).InfoContext(ctx, "x")
+	got := map[string]any{}
+	for _, r := range cap.records {
+		r.Attrs(func(a slog.Attr) bool { got[a.Key] = a.Value.Any(); return true })
+	}
+	if got["tenant_id"] != p.TenantID.String() || got["principal_id"] != p.PrincipalID.String() {
+		t.Fatalf("exported attrs = %v", got)
+	}
+	if m := record(t.Context(), t); m["tenant_id"] != nil {
+		t.Fatalf("an unauthenticated record carries a tenant: %v", m)
+	}
+}
+
+func TestWithGroupKeepsTheWrapper(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	h := logging.NewContextHandler(slog.NewJSONHandler(&buf, nil)).WithGroup("g")
+	if _, ok := h.(*logging.ContextHandler); !ok {
+		t.Fatalf("WithGroup returned %T, want *ContextHandler", h)
+	}
+	slog.New(h).InfoContext(t.Context(), "m", slog.Int("k", 1))
+	if !strings.Contains(buf.String(), `"g":{"k":1}`) {
+		t.Fatalf("group not applied: %s", buf.String())
+	}
+
+	// The export wrapper handlers keep their level gate and correlation
+	// through WithGroup and WithAttrs.
+	cap := &captureHandler{}
+	log := slog.New(logging.WithExport(slog.New(slog.DiscardHandler), cap, slog.LevelWarn).Handler()).WithGroup("g").With(slog.Int("a", 1))
+	log.InfoContext(t.Context(), "below the export level")
+	log.WarnContext(requestid.NewContext(t.Context(), "r"), "kept")
+	if len(cap.records) != 1 {
+		t.Fatalf("exported %v, want only the warning", cap.records)
+	}
+}

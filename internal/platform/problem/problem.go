@@ -177,8 +177,11 @@ func Internal(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// marshal is json.Marshal; tests replace it to reach the failure branch.
+var marshal = json.Marshal //nolint:gochecknoglobals // test seam, replaced only by tests
+
 func write(w http.ResponseWriter, _ *http.Request, b Body) {
-	out, err := json.Marshal(b)
+	out, err := marshal(b)
 	if err != nil { // a Body of strings and ints cannot fail to marshal
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
