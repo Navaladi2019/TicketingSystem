@@ -49,11 +49,10 @@ steps:
   - job: integration
     artifact: coverage-integration
     why: the integration coverage profile; without it DB-backed code drops out of the total
-  # Report-only until the total reaches 95%; the follow-up PR that enforces
-  # it changes this line to `make check-coverage` (TICK-518).
+  # Enforcing: no COVERAGE_REPORT_ONLY (TICK-518).
   - job: coverage
-    run: make check-coverage COVERAGE_REPORT_ONLY=1
-    why: Go coverage below COVERAGE_MIN (95%) goes unreported (TICK-518)
+    run: make check-coverage
+    why: Go coverage below COVERAGE_MIN (95%) merges unnoticed (TICK-518)
   - job: coverage
     artifact: coverage
     why: the merged profile and coverage.html

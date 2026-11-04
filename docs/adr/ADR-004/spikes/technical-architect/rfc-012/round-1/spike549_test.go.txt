@@ -1,0 +1,239 @@
+//go:build integration
+
+// SPIKE TICK-549 / RFC-012. Throwaway: never committed.
+// Needs NAVA_TEST_PG_URL and SPIKE_BOUNCER (host:port of a PgBouncer
+// v1.24.1-p1 with scripts/ci/pgbouncer/isolation.ini in front of the same cluster).
+package dbtest
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"strings"
+	"testing"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+)
+
+func bouncerConfig(t *testing.T, role string) *pgx.ConnConfig {
+	t.Helper()
+	hp := os.Getenv("SPIKE_BOUNCER")
+	cfg, err := pgx.ParseConfig("postgres://" + role + ":" + password(role) + "@" + hp + "/nava")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cfg
+}
+
+func TestSpike549(t *testing.T) {
+	ctx := context.Background()
+	m := migratedCluster(t)
+	t.Logf("A3: pgbouncer logins in manifest = %v", m.PgBouncerLogins())
+
+	nava := superConfig(t).Copy()
+	nava.Database = "nava"
+	super := connect(t, nava)
+	t.Logf("A3: get_auth body = %s", queryString(t, super, "SELECT prosrc FROM pg_proc WHERE oid='pgbouncer.get_auth(text)'::regprocedure"))
+
+	auth := connect(t, roleConfig(t, "pgbouncer_auth", "nava"))
+	t.Logf("A3: get_auth('nava_audit_reader') rows = %s", queryString(t, auth, "SELECT count(*)::text FROM pgbouncer.get_auth('nava_audit_reader')"))
+
+	tA, tB := uuid.New(), uuid.New()
+	exec(t, super, "INSERT INTO tenants (id, state) VALUES ($1,'active'),($2,'active')", tA, tB)
+
+	// A4: nava_app INSERTs diff and diff_salt through PgBouncer with no SELECT on them.
+	app := connect(t, bouncerConfig(t, "nava_app"))
+	ins := func(tenant uuid.UUID, secret string) {
+		tx, err := app.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		if _, err := tx.Exec(ctx, "SELECT set_config('app.tenant_id', $1, true)", tenant.String()); err != nil {
+			t.Fatal(err)
+		}
+		_, err = tx.Exec(ctx, `INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id,
+			actor_system, source, source_ref, causation_depth, request_id, diff_sha256, diff_truncated, diff, diff_salt)
+			VALUES ($1, $2, 'audit', 'export', 'audit_export', $2, 'spike', 'system', 'spike', 0, 'req',
+			sha256('x'), false, $3::json, decode(substr(md5(random()::text),1,32),'hex'))`, tenant, uuid.New(), `[{"op":"add","path":"/pw","value":"`+secret+`"}]`)
+		if err != nil {
+			t.Logf("A4: nava_app INSERT diff: err=%v state=%s", err, sqlState(err))
+			return
+		}
+		if err := tx.Commit(ctx); err != nil {
+			t.Logf("A4: commit err=%v", err)
+			return
+		}
+		t.Logf("A4: nava_app INSERT with diff, no RETURNING: OK (tenant %s)", tenant)
+	}
+	ins(tA, "SECRET-A")
+	ins(tB, "SECRET-B")
+
+	// Denial matrix, tenant A set, through PgBouncer.
+	deny := []string{
+		"SELECT diff::text FROM audit_log",
+		"SELECT diff_salt FROM audit_log",
+		"SELECT * FROM audit_log",
+		"SELECT to_jsonb(a)::text FROM audit_log a",
+		"SELECT a::text FROM audit_log a",
+		"SELECT count(*) FROM audit_log WHERE diff::text LIKE '%SECRET%'",
+		"SELECT id FROM audit_log ORDER BY diff_salt",
+		"SELECT diff::text FROM audit_log_default",
+		"SELECT diff::text FROM ONLY audit_log",
+		"COPY (SELECT diff FROM audit_log) TO STDOUT",
+		"COPY audit_log (diff) TO STDOUT",
+		"WITH x AS (SELECT * FROM audit_log) SELECT count(*) FROM x",
+		"SELECT count(*) FROM audit_log a, LATERAL json_array_elements(a.diff) e",
+		"UPDATE audit_log SET erased_at = erased_at WHERE false RETURNING diff::text",
+	}
+	allow := []string{
+		"SELECT id, diff_sha256, diff_truncated FROM audit_log",
+		"SELECT count(*) FROM audit_log",
+	}
+	try := func(conn *pgx.Conn, role, tenant, q string) (string, string) {
+		tx, err := conn.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		if tenant != "" {
+			if _, err := tx.Exec(ctx, "SELECT set_config('app.tenant_id', $1, true)", tenant); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if strings.HasPrefix(q, "COPY") {
+			_, err := tx.Conn().PgConn().CopyTo(ctx, &strings.Builder{}, q)
+			return "", sqlState(err)
+		}
+		rows, err := tx.Query(ctx, q)
+		if err != nil {
+			return "", sqlState(err)
+		}
+		var out []string
+		for rows.Next() {
+			v, _ := rows.Values()
+			for _, x := range v {
+				if b, ok := x.([]byte); ok {
+					x = len(b)
+				}
+				out = append(out, strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(toS(x), "\n", " "), "\t", " ")))
+			}
+		}
+		rows.Close()
+		return strings.Join(out, " | "), sqlState(rows.Err())
+	}
+	for _, role := range []string{"nava_app", "nava_worker"} {
+		c := connect(t, bouncerConfig(t, role))
+		for _, q := range deny {
+			out, st := try(c, role, tA.String(), q)
+			t.Logf("DENY %-12s state=%-6s out=%q  %s", role, st, out, q)
+		}
+		for _, q := range allow {
+			out, st := try(c, role, tA.String(), q)
+			t.Logf("ALLOW %-12s state=%-6s out=%q  %s", role, st, out, q)
+		}
+	}
+	er := connect(t, roleConfig(t, "nava_erasure", "nava"))
+	for _, q := range deny[:4] {
+		out, st := try(er, "nava_erasure", tA.String(), q)
+		t.Logf("DENY nava_erasure(direct) state=%-6s out=%q  %s", st, out, q)
+	}
+
+	// The reader, through PgBouncer.
+	rd := connect(t, bouncerConfig(t, "nava_audit_reader"))
+	for _, c := range []struct{ tenant, q string }{
+		{tA.String(), "SELECT diff::text, octet_length(diff_salt) FROM audit_log"},
+		{tB.String(), "SELECT count(*) FROM audit_log WHERE tenant_id = '" + tA.String() + "'"},
+		{"", "SELECT count(*) FROM audit_log"},
+		{tA.String(), "SELECT txid FROM audit_log"},
+		{tA.String(), "SELECT schema::text FROM entity_definition_versions WHERE definition_id = gen_random_uuid()"},
+		{tA.String(), "SELECT count(*) FROM records"},
+		{tA.String(), "INSERT INTO audit_log (tenant_id) VALUES ('" + tA.String() + "')"},
+		{tA.String(), "SELECT * FROM pgbouncer.get_auth('nava_app')"},
+	} {
+		out, st := try(rd, "nava_audit_reader", c.tenant, c.q)
+		t.Logf("READER tenant=%-8.8s state=%-6s out=%q  %s", c.tenant, st, out, c.q)
+	}
+	// Is the reader on its own server pool? (backend pid differs from nava_app's)
+	app2 := connect(t, bouncerConfig(t, "nava_app")); t.Logf("pids: app=%s reader=%s", queryString(t, app2, "SELECT pg_backend_pid()::text"), queryString(t, rd, "SELECT pg_backend_pid()::text"))
+}
+
+func toS(x any) string {
+	switch v := x.(type) {
+	case string:
+		return v
+	case nil:
+		return "NULL"
+	default:
+		return strings.TrimSpace(strings.ReplaceAll(fmtAny(v), "\n", " "))
+	}
+}
+
+func fmtAny(v any) string { return fmt.Sprint(v) }
+
+// Side check: a Parse-time error, then the same SQL again on the same pgx
+// connection through PgBouncer 1.24.1 (max_prepared_statements = 100).
+func TestSpike549ParseErrorRetry(t *testing.T) {
+	ctx := context.Background()
+	migratedCluster(t)
+	for _, via := range []string{"bouncer", "direct"} {
+		var c *pgx.Conn
+		if via == "bouncer" {
+			c = connect(t, bouncerConfig(t, "nava_app"))
+		} else {
+			c = connect(t, roleConfig(t, "nava_app", "nava"))
+		}
+		for i := 1; i <= 3; i++ {
+			_, err := c.Exec(ctx, "SELECT no_such_fn_549(1)")
+			t.Logf("%s attempt %d: state=%s err=%v closed=%v", via, i, sqlState(err), err, c.IsClosed())
+		}
+	}
+}
+
+func TestSpike549ParseErrorInTx(t *testing.T) {
+	ctx := context.Background()
+	migratedCluster(t)
+	for _, via := range []string{"bouncer", "direct"} {
+		var c *pgx.Conn
+		if via == "bouncer" {
+			c = connect(t, bouncerConfig(t, "nava_app"))
+		} else {
+			c = connect(t, roleConfig(t, "nava_app", "nava"))
+		}
+		for i := 1; i <= 3; i++ {
+			tx, err := c.Begin(ctx)
+			if err != nil {
+				t.Logf("%s attempt %d: begin err=%v", via, i, err)
+				break
+			}
+			_, _ = tx.Exec(ctx, "SELECT set_config('app.tenant_id', $1, true)", uuid.NewString())
+			_, err = tx.Exec(ctx, "SELECT no_such_fn_549($1::int)", i)
+			t.Logf("%s attempt %d: state=%s err=%v", via, i, sqlState(err), err)
+			_ = tx.Rollback(ctx)
+		}
+	}
+}
+
+func TestSpike549DenyRepeatInTx(t *testing.T) {
+	ctx := context.Background()
+	migratedCluster(t)
+	c := connect(t, bouncerConfig(t, "nava_app"))
+	for i := 1; i <= 4; i++ {
+		tx, err := c.Begin(ctx)
+		if err != nil {
+			t.Logf("attempt %d: begin err=%v", i, err)
+			break
+		}
+		_, _ = tx.Exec(ctx, "SELECT set_config('app.tenant_id', $1, true)", uuid.NewString())
+		rows, err := tx.Query(ctx, "SELECT diff::text FROM audit_log WHERE id = $1", uuid.New())
+		if err == nil {
+			for rows.Next() {
+			}
+			rows.Close()
+			err = rows.Err()
+		}
+		t.Logf("attempt %d: state=%s err=%v", i, sqlState(err), err)
+		_ = tx.Rollback(ctx)
+	}
+}
