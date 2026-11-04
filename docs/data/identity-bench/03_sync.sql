@@ -14,12 +14,16 @@ SELECT principal_id FROM group_members WHERE tenant_id = md5('t1')::uuid AND gro
 \echo === S4 children of an org unit ===
 EXPLAIN (ANALYZE, BUFFERS, COSTS OFF)
 SELECT id, name FROM org_units WHERE tenant_id = md5('t1')::uuid AND parent_id = md5('ou1:3')::uuid;
-\echo === S5 delete a principal (cascades to its 8 memberships) ===
+\echo === S5 tombstone a principal: delete its 8 memberships, then disable it (sync holds no DELETE on principals) ===
 EXPLAIN (ANALYZE, BUFFERS, COSTS OFF)
-DELETE FROM principals WHERE tenant_id = md5('t1')::uuid AND id = md5('p1:4242')::uuid;
-\echo === S6 delete a group (cascades to its members) ===
+DELETE FROM group_members WHERE tenant_id = md5('t1')::uuid AND principal_id = md5('p1:4242')::uuid;
 EXPLAIN (ANALYZE, BUFFERS, COSTS OFF)
-DELETE FROM groups WHERE tenant_id = md5('t1')::uuid AND id = md5('g1:4242')::uuid;
+UPDATE principals SET enabled = false, deleted_at = now(), synced_at = now() WHERE tenant_id = md5('t1')::uuid AND id = md5('p1:4242')::uuid;
+\echo === S6 tombstone a group: delete its members, then set deleted_at (ADR-004-E5; sync holds no DELETE on groups) ===
+EXPLAIN (ANALYZE, BUFFERS, COSTS OFF)
+DELETE FROM group_members WHERE tenant_id = md5('t1')::uuid AND group_id = md5('g1:4242')::uuid;
+EXPLAIN (ANALYZE, BUFFERS, COSTS OFF)
+UPDATE groups SET deleted_at = now() WHERE tenant_id = md5('t1')::uuid AND id = md5('g1:4242')::uuid;
 \echo === S7 delete a leaf org unit (FK check for children) ===
 EXPLAIN (ANALYZE, BUFFERS, COSTS OFF)
 DELETE FROM org_units WHERE tenant_id = md5('t1')::uuid AND id = md5('ou1:499')::uuid;

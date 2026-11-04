@@ -227,8 +227,8 @@ roles:
         UPDATE: [diff, diff_salt, erased_at, erasure_ref]
 
   # Writes the identity tables (T16), one transaction per tenant. UPDATE
-  # leaves the keys alone: a row is re-keyed by delete and insert, never in
-  # place. group_members is insert and delete only.
+  # leaves the keys alone. A group is never deleted, only tombstoned
+  # (ADR-004-E5). group_members is insert and delete only.
   nava_groupsync:
     attributes: [LOGIN]
     pgbouncer_login: true
@@ -238,9 +238,9 @@ roles:
       tenant_identity_binding: { SELECT: [tenant_id, issuer, org_id, idp_aliases] } # binding_lookup
       principals: { SELECT: [], INSERT: [], UPDATE: [email, enabled, federated_links, synced_at, deleted_at] }
       # ADR-004-E5 (TICK-534): sync tombstones a group (deleted_at) and
-      # revives it on the same id; never UPDATE id or keycloak_group_id.
-      # DELETE goes in step (ii), TICK-538 (D2, D10).
-      groups: { SELECT: [], INSERT: [], UPDATE: [path, deleted_at], DELETE: [] }
+      # revives it on the same id; never UPDATE id or keycloak_group_id, and
+      # no DELETE (step (ii), TICK-538; D2, D10).
+      groups: { SELECT: [], INSERT: [], UPDATE: [path, deleted_at] }
       group_members: { SELECT: [], INSERT: [], DELETE: [] }
       org_units: { SELECT: [], INSERT: [], UPDATE: [parent_id, name], DELETE: [] }
       # Group sync reads the recorded admins and auditors groups (P3-04, I1)

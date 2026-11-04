@@ -413,7 +413,7 @@ erDiagram
     tenants ||--o{ records : "tenant_id"
     entity_definitions |o--o{ records : "(tenant_id, entity_definition_id)"
     principals |o--o{ records : "(tenant_id, requester_id / assignee_id / created_by)"
-    groups |o--o{ records : "(tenant_id, assignment_group_id), ON DELETE SET NULL"
+    groups |o--o{ records : "(tenant_id, assignment_group_id), ON DELETE RESTRICT"
     records |o--o{ audit_log_v0 : "(tenant_id, record_id)"
     entity_definitions ||--o| record_counters : "(tenant_id, entity_definition_id)"
 
@@ -486,14 +486,14 @@ erDiagram
   naming another tenant's type, principal or group, an audit row naming
   another tenant's record, and a counter for another tenant's type are each
   `23503` though the policy passes them.
-- **Group delete clears the group.** Group sync deletes a group Keycloak no
-  longer has (`internal/groupsync`). With `NO ACTION`, one record naming the
-  group would fail that tenant's whole sync, deprovisioning included, so the
-  foreign key is `ON DELETE SET NULL (assignment_group_id)` (the column list
-  keeps `tenant_id`). The cleared group is not audited and `updated_at` does
-  not move: the database cannot write an audit row for it. If the record
-  must show the change, group sync (or a pipeline write) has to reassign
-  first; that is a service-layer decision, raised on TICK-353.
+- **A group is tombstoned, never deleted (ADR-004-E5).** Group sync sets
+  `groups.deleted_at` on a group Keycloak no longer has and holds no DELETE
+  on `groups`; a record keeps its `assignment_group_id` (D7). The foreign key
+  is `ON DELETE RESTRICT` (TICK-538, migrations `20261104043000` and
+  `20261104043100`): it was `ON DELETE SET NULL (assignment_group_id)`, an
+  FK action that rewrote `records` with no audit entry. R29 in CI-A3
+  (`internal/db/audited/check.go`) now fails any audited table whose foreign
+  key has an action other than `NO ACTION` or `RESTRICT`.
 - **`plan_cache_mode`.** `nava_app` runs with `force_custom_plan`, the P3-01
   verdict condition. It is a role setting in `db/grants.yaml`
   (`settings`), applied and converged by db-roles (the bootstrap superuser):

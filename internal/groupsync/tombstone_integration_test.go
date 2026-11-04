@@ -63,9 +63,11 @@ func seedPointers(t *testing.T, super *pgx.Conn, tid uuid.UUID) {
 	exec(t, super, "INSERT INTO tenant_auditor_group (tenant_id, group_id) VALUES ($1, $2)", tid, gid(t, super, tid, "gaud"))
 }
 
-// CI-E5-1, CI-E5-4, CI-E5-5b and acceptance 2. DELETE on groups is revoked
-// from nava_groupsync inside the test (TICK-538 has not done it yet), so any
-// DELETE FROM groups would fail the sync. The records row must not change.
+// CI-E5-1, CI-E5-4, CI-E5-5b, acceptance 2, and TICK-538's risk check
+// (acceptance 1): the migrations revoke DELETE on groups from nava_groupsync
+// (step ii-a), so any DELETE FROM groups would fail the sync, and a full sync
+// that drops a group must still commit. A record names the dropped admins
+// group; RESTRICT must not fire and the record must not change.
 func TestTombstoneWithoutDeleteOnGroups(t *testing.T) {
 	super, pool := cluster(t)
 	tid := uuid.New()
@@ -82,12 +84,14 @@ func TestTombstoneWithoutDeleteOnGroups(t *testing.T) {
 		t.Fatal(r.Err)
 	}
 	seedPointers(t, super, tid)
-	exec(t, super, "INSERT INTO records (tenant_id, id) VALUES ($1, $2)", tid, uuid.New())
-	exec(t, super, "REVOKE DELETE ON groups FROM nava_groupsync")
+	exec(t, super, "INSERT INTO records (tenant_id, id, assignment_group_id) VALUES ($1, $2, $3)", tid, uuid.New(), gid(t, super, tid, "gadm"))
+	if n := count(t, super, "SELECT count(*) FROM (SELECT 1 WHERE has_table_privilege('nava_groupsync', 'public.groups', 'DELETE')) x"); n != 0 {
+		t.Fatal("nava_groupsync still holds DELETE on groups after the migrations (TICK-538 step ii-a)")
+	}
 
 	recState := func() string {
 		var s string
-		if err := super.QueryRow(context.Background(), "SELECT string_agg(id || ':' || version || ':' || xmin::text, ',') FROM records WHERE tenant_id = $1", tid).Scan(&s); err != nil {
+		if err := super.QueryRow(context.Background(), "SELECT string_agg(id || ':' || version || ':' || coalesce(assignment_group_id::text, 'null') || ':' || xmin::text, ',') FROM records WHERE tenant_id = $1", tid).Scan(&s); err != nil {
 			t.Fatal(err)
 		}
 		return s
