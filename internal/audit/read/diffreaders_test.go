@@ -9,15 +9,25 @@
 // fmt.Sprintf result whose SQL reads audit_log (FROM or JOIN, a write with
 // RETURNING, or COPY ... TO) and names diff or diff_salt, selects a star,
 // uses the whole row (to_jsonb(a), json_agg(a), array_agg(a), a::text,
-// SELECT audit_log FROM audit_log, ...), or COPYs the table out without a
-// column list. Matching is case-insensitive, with any whitespace, quotes or
+// SELECT audit_log FROM audit_log, SELECT a FROM audit_log a, ...), COPYs
+// the table out without a column list, or runs TABLE audit_log. Matching is case-insensitive, with any whitespace, quotes or
 // schema prefix; SQL comments are ignored. diff_sha256, diff_truncated and
 // diff_redacted are other columns and do not match.
 //
-// Known limit: only constants fold. A part held in a package or local var,
-// a function result or a parameter becomes "?", so
-// `"SELECT " + colsVar + " FROM audit_log"` with diff in colsVar is not
-// seen. Keep column lists in consts; review still owns that case.
+// Constants fold across packages: `"SELECT diff FROM " + audited.LogTable`
+// and `fmt.Sprintf("... FROM %s", audited.LogTable)` are seen.
+//
+// Known limits (static, one string at a time; review owns these, and the
+// database-layer fix is RFC TICK-549):
+//   - Only constants fold. A part held in a package or local var, a function
+//     result or a parameter becomes "?", so `"SELECT " + colsVar + " FROM
+//     audit_log"` with diff in colsVar is not seen. Keep column lists in
+//     consts.
+//   - A query assembled across calls (strings.Builder.WriteString("SELECT
+//     diff_salt") then WriteString(" FROM audit_log"), a slice joined at run
+//     time) is never one string, so it is not seen.
+//   - A constant built from another package's constant is two hops and is
+//     not resolved.
 //
 // testdata/diffreaders plants every form; TestAuditDiffReaderFixture proves
 // each one is reported, so the check cannot rot into a test that passes on
@@ -54,7 +64,7 @@ func diffReaderAllowed(rel string) bool {
 type diffRead struct {
 	file string
 	line int
-	what string // diff, diff_salt, star or row
+	what string // diff, diff_salt, star, row, copy or table
 }
 
 func (d diffRead) String() string {
@@ -79,6 +89,9 @@ var (
 	// COPY audit_log [(cols)] TO: a bare one exports every column. COPY
 	// audit_log FROM is a write; COPY (SELECT ...) TO is seen by its SELECT.
 	copyTo = regexp.MustCompile(`\bcopy\s+` + auditTable + `\s*(\([^)]*\))?\s*to\b`)
+	// TABLE audit_log is SELECT * FROM audit_log. It must start a statement
+	// or a set operand, so CREATE, ALTER, LOCK or GRANT ... TABLE do not match.
+	tableCmd = regexp.MustCompile(`(?:^|[;(]|\bunion(?:\s+all)?|\bexcept|\bintersect)\s*table\s+(?:only\s+)?` + auditTable)
 	// The protected columns. \b stops at diff_sha256 and friends, because _
 	// is a word character.
 	diffCol = regexp.MustCompile(`\b(diff_salt|diff)\b`)
@@ -145,10 +158,14 @@ func diffReads(s string) []string {
 	s = strings.ReplaceAll(s, `"`, "")
 	s = strings.ReplaceAll(s, "`", "")
 	copied := copyTo.FindStringSubmatch(s)
-	if reads := fromAudit.MatchString(s) || writeAudit.MatchString(s) && returning.MatchString(s) || copied != nil; !reads {
+	table := tableCmd.MatchString(s)
+	if reads := fromAudit.MatchString(s) || writeAudit.MatchString(s) && returning.MatchString(s) || copied != nil || table; !reads {
 		return nil
 	}
 	var out []string
+	if table {
+		out = append(out, "table")
+	}
 	for _, m := range diffCol.FindAllStringSubmatch(s, -1) {
 		out = append(out, m[1])
 	}
@@ -199,7 +216,8 @@ func scanFile(fset *token.FileSet, rel string, f *ast.File, consts map[string]st
 }
 
 // stringValue folds e to a constant string: a literal, a parenthesised or
-// `+`-joined string, or a package string constant. An unknown operand of a
+// `+`-joined string, a package string constant, or another package's
+// (audited.LogTable). An unknown operand of a
 // `+` becomes "?", so `"SELECT " + cols + " FROM audit_log"` is still seen.
 func stringValue(e ast.Expr, consts map[string]string) (string, bool) {
 	switch e := e.(type) {
@@ -214,6 +232,12 @@ func stringValue(e ast.Expr, consts map[string]string) (string, bool) {
 	case *ast.Ident:
 		s, ok := consts[e.Name]
 		return s, ok
+	case *ast.SelectorExpr:
+		// pkg.Const, resolved through the file's imports (importScope).
+		if x, ok := e.X.(*ast.Ident); ok {
+			s, ok := consts[x.Name+"."+e.Sel.Name]
+			return s, ok
+		}
 	case *ast.BinaryExpr:
 		if e.Op != token.ADD {
 			return "", false
@@ -270,9 +294,13 @@ func dedupe(ds []diffRead) []diffRead {
 }
 
 // packageConsts returns the string constants declared at package level in
-// files (one directory's non-test files).
-func packageConsts(files []*ast.File) map[string]string {
-	consts := map[string]string{}
+// files (one directory's non-test files), on top of seed: the qualified
+// "pkg.Const" names the files' imports bring in (importScope).
+func packageConsts(files []*ast.File, seed map[string]string) map[string]string {
+	consts := make(map[string]string, len(seed))
+	for k, v := range seed {
+		consts[k] = v
+	}
 	for range 2 { // a second pass resolves constants built from constants
 		for _, f := range files {
 			for _, d := range f.Decls {
@@ -296,11 +324,10 @@ func packageConsts(files []*ast.File) map[string]string {
 	return consts
 }
 
-// scanDir parses every non-test .go file under start (skipping testdata,
-// vendor and hidden directories; nested modules such as tools/navalint are
-// scanned too) and returns the findings with paths relative to root, or as
-// if the files lived at prefix when prefix is not empty.
-func scanDir(t *testing.T, root, start, prefix string) []diffRead {
+// goDirs returns the non-test .go files under start, by directory, skipping
+// testdata, vendor and hidden directories. Nested modules such as
+// tools/navalint are included.
+func goDirs(t *testing.T, start string) map[string][]string {
 	t.Helper()
 	byDir := map[string][]string{}
 	err := filepath.WalkDir(start, func(p string, d fs.DirEntry, err error) error {
@@ -323,18 +350,110 @@ func scanDir(t *testing.T, root, start, prefix string) []diffRead {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return byDir
+}
+
+func parseDir(t *testing.T, fset *token.FileSet, paths []string) []*ast.File {
+	t.Helper()
+	files := make([]*ast.File, 0, len(paths))
+	for _, p := range paths {
+		f, err := parser.ParseFile(fset, p, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("parse %s: %v", p, err)
+		}
+		files = append(files, f)
+	}
+	return files
+}
+
+// pkgConsts is one package's name and string constants.
+type pkgConsts struct {
+	name   string
+	consts map[string]string
+}
+
+// moduleAt returns the module path and directory of the go.mod that owns
+// dir, looking upward no further than root; ok is false when there is none.
+func moduleAt(root, dir string, cache map[string][2]string) (mod, modDir string, ok bool) {
+	if m, hit := cache[dir]; hit {
+		return m[0], m[1], m[0] != ""
+	}
+	var m [2]string
+	if b, err := os.ReadFile(filepath.Join(dir, "go.mod")); err == nil {
+		for _, line := range strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n") {
+			if mp, found := strings.CutPrefix(strings.TrimSpace(line), "module "); found {
+				m = [2]string{strings.Trim(strings.TrimSpace(mp), `"`), dir}
+				break
+			}
+		}
+	} else if parent := filepath.Dir(dir); parent != dir && dir != root {
+		pm, pd, _ := moduleAt(root, parent, cache)
+		m = [2]string{pm, pd}
+	}
+	cache[dir] = m
+	return m[0], m[1], m[0] != ""
+}
+
+// constIndex maps the import path of every package in the repository (every
+// module) to its string constants, so `audited.LogTable` in another package
+// folds to "audit_log" (Security finding 1 on PR #443).
+func constIndex(t *testing.T, root string) map[string]pkgConsts {
+	t.Helper()
+	cache := map[string][2]string{}
+	idx := map[string]pkgConsts{}
+	fset := token.NewFileSet()
+	for dir, paths := range goDirs(t, root) {
+		mod, modDir, ok := moduleAt(root, dir, cache)
+		if !ok {
+			continue
+		}
+		rel, err := filepath.Rel(modDir, dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files := parseDir(t, fset, paths)
+		idx[path.Join(mod, filepath.ToSlash(rel))] = pkgConsts{files[0].Name.Name, packageConsts(files, nil)}
+	}
+	if idx[modulePath+"/internal/db/audited"].consts["LogTable"] != "audit_log" {
+		t.Fatal("the const index does not resolve audited.LogTable; the guard would miss it")
+	}
+	return idx
+}
+
+// importScope returns the qualified constants ("audited.LogTable") that the
+// files' imports of repository packages bring in, under each import's local
+// name.
+func importScope(files []*ast.File, idx map[string]pkgConsts) map[string]string {
+	scope := map[string]string{}
+	for _, f := range files {
+		for _, is := range f.Imports {
+			p, _ := strconv.Unquote(is.Path.Value)
+			pc, ok := idx[p]
+			if !ok {
+				continue
+			}
+			local := pc.name
+			if is.Name != nil {
+				local = is.Name.Name
+			}
+			for k, v := range pc.consts {
+				scope[local+"."+k] = v
+			}
+		}
+	}
+	return scope
+}
+
+// scanDir parses every non-test .go file under start and returns the
+// findings with paths relative to root, or as if the files lived at prefix
+// when prefix is not empty. idx resolves other packages' constants.
+func scanDir(t *testing.T, root, start, prefix string, idx map[string]pkgConsts) []diffRead {
+	t.Helper()
 	var out []diffRead
 	fset := token.NewFileSet()
-	for _, paths := range byDir {
-		files := make([]*ast.File, 0, len(paths))
-		for _, p := range paths {
-			f, err := parser.ParseFile(fset, p, nil, parser.SkipObjectResolution)
-			if err != nil {
-				t.Fatalf("parse %s: %v", p, err)
-			}
-			files = append(files, f)
-		}
-		consts := packageConsts(files)
+	for _, paths := range goDirs(t, start) {
+		files := parseDir(t, fset, paths)
+		consts := packageConsts(files, importScope(files, idx))
 		for i, f := range files {
 			rel, err := filepath.Rel(root, paths[i])
 			if err != nil {
@@ -369,7 +488,7 @@ func repoRoot(t *testing.T) string {
 // outside internal/audit/read reads audit_log.diff or diff_salt.
 func TestAuditDiffReadOnlyInReader(t *testing.T) {
 	root := repoRoot(t)
-	for _, f := range scanDir(t, root, root, "") {
+	for _, f := range scanDir(t, root, root, "", constIndex(t, root)) {
 		t.Errorf("%s: only internal/audit/read may read audit_log.diff or diff_salt, because only it applies the R7 masker; go through read.Reader (ADR-004 R7, TICK-541)", f)
 	}
 }
@@ -385,7 +504,8 @@ func TestAuditDiffReaderFixture(t *testing.T) {
 	root := repoRoot(t)
 	dir := filepath.Join(root, "internal", "audit", "read", "testdata", "diffreaders")
 	const at = "internal/server/planted"
-	got := scanDir(t, root, dir, at)
+	idx := constIndex(t, root)
+	got := scanDir(t, root, dir, at, idx)
 
 	var want []diffRead
 	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
@@ -411,7 +531,7 @@ func TestAuditDiffReaderFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	want = dedupe(want)
-	if len(want) < 24 {
+	if len(want) < 32 {
 		t.Fatalf("the fixture plants %d reads; it lost some", len(want))
 	}
 	for _, w := range want {
@@ -426,12 +546,12 @@ func TestAuditDiffReaderFixture(t *testing.T) {
 	}
 
 	// The same files inside the reader are allowed: the check is by path.
-	if got := scanDir(t, root, dir, "internal/audit/read/fixture"); len(got) != 0 {
+	if got := scanDir(t, root, dir, "internal/audit/read/fixture", idx); len(got) != 0 {
 		t.Errorf("internal/audit/read may read the diff, got %v", got)
 	}
 	// But not a sibling with a shared prefix, nor the rest of internal/audit.
 	for _, at := range []string{"internal/audit/reader", "internal/audit"} {
-		if got := scanDir(t, root, dir, at); len(got) != len(want) {
+		if got := scanDir(t, root, dir, at, idx); len(got) != len(want) {
 			t.Errorf("%s is not the reader: want %d findings, got %d", at, len(want), len(got))
 		}
 	}
@@ -450,7 +570,7 @@ const rawHistorySQL = "SELECT id, diff, diff_salt FROM audit_log WHERE subject_i
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := scanFile(fset, "internal/server/planted.go", f, packageConsts([]*ast.File{f}))
+	got := scanFile(fset, "internal/server/planted.go", f, packageConsts([]*ast.File{f}, nil))
 	want := []diffRead{
 		{"internal/server/planted.go", 3, "diff"},
 		{"internal/server/planted.go", 3, "diff_salt"},
@@ -479,6 +599,9 @@ func TestDiffReads(t *testing.T) {
 		"SELECT a.id, a FROM audit_log a WHERE true":                           {"row"},
 		"COPY audit_log TO STDOUT":                                             {"copy"},
 		"COPY public.audit_log (id, diff_salt) TO STDOUT":                      {"diff_salt"},
+		"TABLE audit_log":                                                      {"table"},
+		"SELECT 1 UNION ALL TABLE only public.audit_log":                       {"table"},
+		"SELECT a FROM audit_log a":                                            {"row"},
 		// Not a read of the protected columns.
 		"SELECT diff_sha256, diff_truncated, diff_redacted FROM audit_log": nil,
 		"SELECT count(*) FROM audit_log":                                   nil,
@@ -492,6 +615,9 @@ func TestDiffReads(t *testing.T) {
 		"SELECT a.id::text, a.seq FROM audit_log a":                        nil,
 		"SELECT json_agg(a.id) FROM audit_log a WHERE true":                nil,
 		"COPY audit_log (id) FROM STDIN":                                   nil,
+		"CREATE TABLE audit_log_copy (LIKE audit_log)":                     nil,
+		"ALTER TABLE audit_log ADD COLUMN x int":                           nil,
+		"GRANT SELECT ON TABLE audit_log TO nava_app":                      nil,
 		"COPY audit_log (id, diff_sha256) TO STDOUT":                       nil,
 	}
 	for in, want := range cases {

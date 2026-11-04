@@ -10,11 +10,14 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/db/audited"
 )
 
 const (
-	logTable = "audit_log"
-	cols     = "id, diff, diff_salt"
+	logTable      = "audit_log"
+	logTableAlias = audited.LogTable
+	cols          = "id, diff, diff_salt"
 )
 
 const (
@@ -39,11 +42,23 @@ const (
 	copyAllSQL  = `COPY audit_log TO STDOUT`                                   // want: copy
 	copyColsSQL = `COPY public.audit_log (id, diff) TO STDOUT (FORMAT csv)`    // want: diff
 
-	// Look-alikes: other columns, other tables, a pure insert, comments,
+	// Security findings on PR #443: another package's constant, directly
+	// and through a local constant (1), COPY of the protected columns (3),
+	// TABLE (4), a bare alias as the row (5). a::text (6) is castSQL above.
+	pkgConstSQL  = "SELECT id, diff FROM " + audited.LogTable         // want: diff
+	viaChainSQL  = "SELECT diff_salt FROM " + logTableAlias           // want: diff_salt
+	copyBothSQL  = `COPY audit_log (diff, diff_salt) TO STDOUT`       // want: diff diff_salt
+	tableSQL     = `TABLE audit_log`                                  // want: table
+	copyTableSQL = `COPY (TABLE public.audit_log) TO STDOUT`          // want: table
+	bareAliasSQL = `SELECT a FROM audit_log a WHERE a.tenant_id = $1` // want: row
+
+	// Look-alikes: DDL that names the table, other columns, other tables, a pure insert, comments,
 	// aggregates and casts of a column, COPY in, COPY out of safe columns.
 	arrayIDSQL  = `SELECT array_agg(id) FROM audit_log`
 	colCastSQL  = `SELECT a.id::text, tenant_id::text FROM audit_log a`
 	copyInSQL   = `COPY audit_log (id) FROM STDIN`
+	alterSQL    = `ALTER TABLE audit_log ADD COLUMN note text`
+	lockSQL     = `LOCK TABLE audit_log IN SHARE MODE`
 	copySafeSQL = `COPY audit_log (id, diff_sha256) TO STDOUT`
 	hashSQL     = `SELECT diff_sha256, diff_truncated, diff_redacted FROM audit_log`
 	countSQL    = `SELECT count(*) FROM audit_log WHERE tenant_id = $1`
@@ -61,6 +76,8 @@ func plant(ctx context.Context, tx pgx.Tx, where string) error {
 	r := fmt.Sprintf("SELECT %s FROM %s", cols, logTable) // want: diff diff_salt
 	// A concatenation with an unknown middle.
 	s := "SELECT diff_salt, " + where + " FROM audit_log" // want: diff_salt
-	_, err := tx.Exec(ctx, q+r+s)
+	// Another package's constant as a Sprintf argument.
+	u := fmt.Sprintf("SELECT id, diff FROM %s WHERE %s", audited.LogTable, where) // want: diff
+	_, err := tx.Exec(ctx, q+r+s+u)
 	return err
 }
