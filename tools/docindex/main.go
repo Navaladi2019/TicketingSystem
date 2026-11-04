@@ -10,6 +10,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"sort"
@@ -26,19 +27,33 @@ const (
 var fileName = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2})-[a-z0-9]+(-[a-z0-9]+)*\.md$`)
 
 func main() {
-	dir := flag.String("dir", ".", "repository root")
-	check := flag.Bool("check", false, "fail if the index is stale instead of rewriting it")
-	flag.Parse()
+	os.Exit(cli(os.Args[1:], os.Stderr))
+}
+
+// cli returns the exit code: 0 the index is fresh or was rewritten, 1 it is
+// stale (with -check), 2 bad usage or bad input.
+func cli(args []string, stderr io.Writer) int {
+	fs := flag.NewFlagSet("docindex", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	dir := fs.String("dir", ".", "repository root")
+	check := fs.Bool("check", false, "fail if the index is stale instead of rewriting it")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
 
 	stale, err := run(*dir, *check)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "docindex:", err)
-		os.Exit(2)
+		fmt.Fprintln(stderr, "docindex:", err)
+		return 2
 	}
 	if stale {
-		fmt.Fprintln(os.Stderr, "docindex: the index in "+logPath+" is stale; run `go run ./tools/docindex`")
-		os.Exit(1)
+		fmt.Fprintln(stderr, "docindex: the index in "+logPath+" is stale; run `go run ./tools/docindex`")
+		return 1
 	}
+	return 0
 }
 
 // run rewrites the index, or with check only compares it. It reports whether
