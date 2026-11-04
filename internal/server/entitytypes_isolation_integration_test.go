@@ -38,6 +38,10 @@ func etSHA(s string) string {
 // Tenant B's admin creates the key and prefix tenant A already uses. A 409
 // would tell B that A has an entity type named "incident" (a uniqueness
 // oracle across tenants); it must be 201, and each tenant reads its own row.
+// covers: createEntityType 201
+// covers: getEntityType 200
+// covers: getEntityTypeVersion 200
+// covers: listEntityTypes 200
 func TestEntityTypeKeyAndPrefixAreNotACrossTenantOracle(t *testing.T) {
 	e := newETEnv(t)
 	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "ka", etBodyWithSchema("incident", "INC", etSchema)); rec.Code != http.StatusCreated {
@@ -88,6 +92,7 @@ func TestEntityTypeKeyAndPrefixAreNotACrossTenantOracle(t *testing.T) {
 // stored response would hand B A's schema; a 409 idempotency_key_reuse would
 // tell B that A used the key. The key is scoped to (tenant, principal), so
 // each request must create B's own row.
+// covers: createEntityType 201
 func TestIdempotencyKeyIsNotSharedAcrossTenants(t *testing.T) {
 	e := newETEnv(t)
 	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "shared-1", etBodyWithSchema("secret_type", "SEC", etSchema)); rec.Code != http.StatusCreated {
@@ -130,6 +135,7 @@ func TestIdempotencyKeyIsNotSharedAcrossTenants(t *testing.T) {
 // One principal id that is an admin of tenants A and B (two tokens, one per
 // tenant) sends the same Idempotency-Key to each. The scope includes the
 // tenant, so each tenant gets its own row: no replay and no 409.
+// covers: createEntityType 201
 func TestSamePrincipalAndKeyInTwoTenantsAreIndependent(t *testing.T) {
 	e := newETEnv(t)
 	tokens := e.tokens

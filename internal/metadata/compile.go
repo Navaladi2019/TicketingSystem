@@ -230,6 +230,10 @@ func scanSchema(raw []byte, bad *problems) bool {
 			if top.object && !top.hasKey {
 				if d, isDelim := t.(json.Delim); isDelim && d == '}' {
 					stack = stack[:len(stack)-1]
+					if len(stack) == 0 && dec.More() {
+						bad.add("schema") // trailing data after the document
+						return false
+					}
 					continue
 				}
 				k, _ := t.(string)

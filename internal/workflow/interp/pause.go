@@ -35,7 +35,7 @@ func ReleaseFile(dir, key string) string { return filepath.Join(dir, pauseName(k
 // pauseInDir writes PauseMarker(dir, key), then blocks until
 // ReleaseFile(dir, key) exists or ctx is done.
 func pauseInDir(ctx context.Context, dir, key string) {
-	if err := os.WriteFile(PauseMarker(dir, key), []byte(key), 0o600); err != nil {
+	if err := writeMarker(dir, key); err != nil {
 		return
 	}
 	t := time.NewTicker(pausePoll)
@@ -50,4 +50,27 @@ func pauseInDir(ctx context.Context, dir, key string) {
 		case <-t.C:
 		}
 	}
+}
+
+// writeMarker publishes PauseMarker(dir, key) atomically: it writes the key to
+// a temporary file in dir and renames it into place, so a poller that sees the
+// marker always reads the whole key. os.WriteFile would create the marker
+// empty and fill it afterwards, and a poller could read it in between
+// (TICK-532).
+func writeMarker(dir, key string) error {
+	tmp, err := os.CreateTemp(dir, pauseName(key)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	_, werr := tmp.WriteString(key)
+	cerr := tmp.Close()
+	if err := errors.Join(werr, cerr); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	if err := os.Rename(tmp.Name(), PauseMarker(dir, key)); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	return nil
 }

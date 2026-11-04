@@ -42,6 +42,21 @@ steps:
     run: make temporal-server-test
     why: the temporal-server module's tests under suiteran
 
+  # The coverage gate (TICK-518): both profiles, the gate and its report.
+  - job: unit
+    artifact: coverage-unit
+    why: the unit coverage profile; without it the coverage job has nothing to merge
+  - job: integration
+    artifact: coverage-integration
+    why: the integration coverage profile; without it DB-backed code drops out of the total
+  # Enforcing: no COVERAGE_REPORT_ONLY (TICK-518).
+  - job: coverage
+    run: make check-coverage
+    why: Go coverage below COVERAGE_MIN (95%) merges unnoticed (TICK-518)
+  - job: coverage
+    artifact: coverage
+    why: the merged profile and coverage.html
+
   # The tenant isolation suite (T11, ADR-001 CI-2).
   - job: integration
     run: make test-integration

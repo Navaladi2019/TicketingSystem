@@ -7,10 +7,15 @@ Delivery decisions that change a task's contract, newest first.
 <!-- docindex:start -->
 
 - [2026-11-04: TICK-559 / D-A1-6: rule 1 exempts four test files by exact path and finding kind](decisions/2026-11-04-tick-559-rule1-test-exemptions.md)
+- [2026-11-04: PLAN-005-E5 approved: ADR-004-E5 lands as seven tasks in S14; step (ii) waits for the tombstoning sync; P5-13c attaches last](decisions/2026-11-04-plan-005-e5-adr-004-e5.md)
 - [2026-11-04: P5-17 drops audit_log_v0 in the same PR as the reader; reads fail between deploy and migrate](decisions/2026-11-04-p5-17-drop-v0-with-the-reader.md)
 - [2026-11-04: E5 step (ii) lands with an ACCESS EXCLUSIVE lock and no RESTRICT index; task PRs on a story branch must be green against its head](decisions/2026-11-04-e5-step-ii-lock-index-branch-collisions.md)
 - [2026-11-04: D-5-14, the records commit-check attach is held for TICK-529; the history gap until P5-17 is accepted](decisions/2026-11-04-d-5-14-records-attach-held.md)
 - [2026-11-03: S8 schemas mark secrets only on top-level properties; the R6 check reads the whole schema](decisions/2026-11-03-secret-markers-top-level-only.md)
+- [2026-11-03: PLAN-005-E3 drafted: ADR-004-E3 lands as two postgres-dev tasks in S14; the clause ships as a new migration; TICK-452 waits on both](decisions/2026-11-03-plan-005-e3-adr-004-e3.md)
+- [2026-11-02: PLAN-005 groomed: 30 tasks, D-3-13 revised, `diff_truncated` inside the hash, v0 dropped in P5-17](decisions/2026-11-02-plan-005-grooming.md)
+- [2026-11-02: PLAN-005 approved; S14 and S15 move S10 to S12 back about 4 to 5 weeks](decisions/2026-11-02-plan-005-approved.md)
+- [2026-11-02: PLAN-005 drafted: ADR-004 lands as four stories; S14 goes before S10; the idempotency key leaves the audit log](decisions/2026-11-02-plan-005-adr-004.md)
 - [2026-11-01: PLAN-004 approved: ADR-003 lands as two qa tasks inside S11a; the manifest-creating PR is human-merged](decisions/2026-11-01-plan-004-adr-003.md)
 - [2026-11-01: D-3-13 amended: an interpreter start uses the existing outbox start key `nava.interpreter:<outbox_id>`](decisions/2026-11-01-interpreter-start-target-key.md)
 - [2026-11-01: agents accept and merge stories and ADRs; `MergePr` retired](decisions/2026-11-01-agent-only-story-and-adr-acceptance.md)

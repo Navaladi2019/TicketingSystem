@@ -223,6 +223,7 @@ type etEnv struct {
 	a, b   etTenant
 	super  *pgx.Conn
 	logs   *etLogBuf
+	lim    *spyLimiter // allows by default; reset(false) refuses every call
 }
 
 func newETEnv(t *testing.T) *etEnv { return newETEnvWith(t) }
@@ -254,7 +255,7 @@ func newETEnvWith(t *testing.T, extra ...server.Option) *etEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &etEnv{h: h, tokens: tokens, pool: pool, a: a, b: b, super: super, logs: logs}
+	return &etEnv{h: h, tokens: tokens, pool: pool, a: a, b: b, super: super, logs: logs, lim: lim}
 }
 
 func (e *etEnv) do(t *testing.T, method, path, token, idemKey, body string) *httptest.ResponseRecorder {
@@ -327,6 +328,9 @@ func pointers(p etProblem) []string {
 	return out
 }
 
+// covers: createEntityType 201
+// covers: getEntityType 200
+// covers: getEntityTypeVersion 200
 func TestCreateThenReadVersionIsByteIdentical(t *testing.T) {
 	e := newETEnv(t)
 	rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "k-create-1", etBody("incident", "INC"))
@@ -372,6 +376,7 @@ func TestCreateThenReadVersionIsByteIdentical(t *testing.T) {
 	}
 }
 
+// covers: createEntityType 403
 func TestCreateRequiresTheTenantAdminGroup(t *testing.T) {
 	e := newETEnv(t)
 	for _, token := range []string{"user-a", "lookalike-a"} {
@@ -391,6 +396,7 @@ func TestCreateRequiresTheTenantAdminGroup(t *testing.T) {
 	}
 }
 
+// covers: createEntityType 400 401 409 422
 func TestCreateConflictsAndInvalidDefinitions(t *testing.T) {
 	e := newETEnv(t)
 	post := func(key, body string) *httptest.ResponseRecorder {
@@ -435,6 +441,7 @@ func TestCreateConflictsAndInvalidDefinitions(t *testing.T) {
 	}
 }
 
+// covers: createEntityType 201 409
 func TestCreateIdempotentReplay(t *testing.T) {
 	e := newETEnv(t)
 	body := etBody("incident", "INC")
@@ -463,6 +470,7 @@ func etPrefix(i int) string {
 	return s
 }
 
+// covers: listEntityTypes 200 400
 func TestListPagesWithoutDuplicates(t *testing.T) {
 	e := newETEnv(t)
 	const total = 120
@@ -544,6 +552,8 @@ func TestListPagesWithoutDuplicates(t *testing.T) {
 	wantProblem(t, rec, http.StatusBadRequest, problem.InvalidCursor)
 }
 
+// covers: getEntityType 401 404
+// covers: getEntityTypeVersion 400 404
 func TestUnknownAndForeignKeysGiveTheSameNotFound(t *testing.T) {
 	e := newETEnv(t)
 	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "ka", etBody("secret_type", "SEC")); rec.Code != http.StatusCreated {
@@ -637,6 +647,7 @@ func TestDefinitionReaderIsTenantScoped(t *testing.T) {
 // Two parallel creates of one key (each with its own Idempotency-Key, so the
 // idempotency layer does not serialise them) race to the unique index. One is
 // 201; the other must be the registered 409, never a 500 (mapUnique).
+// covers: createEntityType 201 409
 func TestParallelCreateOfOneKeyGivesOne201AndOne409(t *testing.T) {
 	e := newETEnv(t)
 	const n = 2

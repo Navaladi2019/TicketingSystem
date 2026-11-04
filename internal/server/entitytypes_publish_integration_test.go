@@ -60,6 +60,9 @@ func etVersionCount(t *testing.T, e *etEnv) int {
 	return n
 }
 
+// covers: publishEntityTypeVersion 201
+// covers: getEntityType 200
+// covers: getEntityTypeVersion 200
 func TestPublishGivesNextVersionAndLeavesV1Untouched(t *testing.T) {
 	e := newETEnv(t)
 	etCreateIncident(t, e)
@@ -100,6 +103,7 @@ func TestPublishGivesNextVersionAndLeavesV1Untouched(t *testing.T) {
 	}
 }
 
+// covers: publishEntityTypeVersion 201
 func TestPublishFiftyConcurrentGivesVersions2To51(t *testing.T) {
 	e := newETEnv(t)
 	etCreateIncident(t, e)
@@ -152,6 +156,7 @@ func TestPublishFiftyConcurrentGivesVersions2To51(t *testing.T) {
 	}
 }
 
+// covers: publishEntityTypeVersion 201 422
 func TestPublishClassifiesAgainstTheCurrentVersion(t *testing.T) {
 	e := newETEnv(t)
 	etCreateIncident(t, e)
@@ -182,6 +187,7 @@ func TestPublishClassifiesAgainstTheCurrentVersion(t *testing.T) {
 	}
 }
 
+// covers: publishEntityTypeVersion 403 404
 func TestPublishRequiresTheTenantAdminGroup(t *testing.T) {
 	e := newETEnv(t)
 	etCreateIncident(t, e)
@@ -197,6 +203,7 @@ func TestPublishRequiresTheTenantAdminGroup(t *testing.T) {
 	}
 }
 
+// covers: publishEntityTypeVersion 400 401 422
 func TestPublishRejectsNumberPrefixAndBadBodies(t *testing.T) {
 	e := newETEnv(t)
 	etCreateIncident(t, e)
@@ -214,6 +221,7 @@ func TestPublishRejectsNumberPrefixAndBadBodies(t *testing.T) {
 	}
 }
 
+// covers: publishEntityTypeVersion 404
 func TestPublishUnknownAndForeignKeysGiveTheSameNotFound(t *testing.T) {
 	e := newETEnv(t)
 	etCreateIncident(t, e)
@@ -230,6 +238,7 @@ func TestPublishUnknownAndForeignKeysGiveTheSameNotFound(t *testing.T) {
 	}
 }
 
+// covers: publishEntityTypeVersion 201 409
 func TestPublishIdempotentReplay(t *testing.T) {
 	e := newETEnv(t)
 	etCreateIncident(t, e)
@@ -266,6 +275,7 @@ func TestPublishRefusesNoPrincipalAndAddsNoRow(t *testing.T) {
 
 // An impossible key gets the byte-identical 404 whatever the body is: the key
 // shape is checked before the body is parsed (the admin check stays first).
+// covers: publishEntityTypeVersion 404
 func TestPublishOverlongKeyWithMalformedBodyIsNotFound(t *testing.T) {
 	e := newETEnv(t)
 	long := "/api/v1/entity-types/" + strings.Repeat("k", 65) + "/versions"
@@ -281,6 +291,7 @@ func TestPublishOverlongKeyWithMalformedBodyIsNotFound(t *testing.T) {
 
 // A stored current version that no longer compiles is a store defect: publish
 // answers 500, not a 422 with pointers into the stored schema.
+// covers: publishEntityTypeVersion 500
 func TestPublishOverABrokenStoredVersionIsInternalError(t *testing.T) {
 	e := newETEnv(t)
 	etCreateIncident(t, e)

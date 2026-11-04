@@ -37,7 +37,9 @@ func CheckPassword(pw string) error {
 }
 
 // Encode returns a new verifier for pw with a random salt.
-func Encode(pw string) (string, error) {
+func Encode(pw string) (string, error) { return encode(pw, saltedPassword) }
+
+func encode(pw string, hi hiFunc) (string, error) {
 	if err := CheckPassword(pw); err != nil {
 		return "", err
 	}
@@ -45,7 +47,7 @@ func Encode(pw string) (string, error) {
 	if _, err := rand.Read(salt); err != nil {
 		return "", err
 	}
-	stored, server, err := keys(pw, salt, Iterations)
+	stored, server, err := keys(hi, pw, salt, Iterations)
 	if err != nil {
 		return "", err
 	}
@@ -55,7 +57,9 @@ func Encode(pw string) (string, error) {
 
 // Matches reports whether verifier (a rolpassword value) accepts pw. Any
 // value it cannot parse, NULL or MD5 included, does not match.
-func Matches(verifier, pw string) bool {
+func Matches(verifier, pw string) bool { return matches(verifier, pw, saltedPassword) }
+
+func matches(verifier, pw string, hi hiFunc) bool {
 	if CheckPassword(pw) != nil {
 		return false
 	}
@@ -83,16 +87,27 @@ func Matches(verifier, pw string) bool {
 	if err1 != nil || err2 != nil || err3 != nil {
 		return false
 	}
-	stored, server, err := keys(pw, salt, iter)
+	stored, server, err := keys(hi, pw, salt, iter)
 	if err != nil {
 		return false
 	}
 	return subtle.ConstantTimeCompare(stored, wantStored) == 1 && subtle.ConstantTimeCompare(server, wantServer) == 1
 }
 
+// hiFunc is RFC 5802's Hi(). encode and matches take it as a parameter so
+// the tests can make it fail as crypto/pbkdf2 does in FIPS 140-only mode
+// (GODEBUG=fips140=only) for a salt shorter than 128 bits, which a test
+// binary cannot switch on after start-up.
+type hiFunc func(pw string, salt []byte, iter int) ([]byte, error)
+
+// saltedPassword is Hi() for SCRAM-SHA-256: PBKDF2-HMAC-SHA-256.
+func saltedPassword(pw string, salt []byte, iter int) ([]byte, error) {
+	return pbkdf2.Key(sha256.New, pw, salt, iter, sha256.Size)
+}
+
 // keys derives StoredKey and ServerKey (RFC 5802, RFC 7677).
-func keys(pw string, salt []byte, iter int) (stored, server []byte, err error) {
-	salted, err := pbkdf2.Key(sha256.New, pw, salt, iter, sha256.Size)
+func keys(hi hiFunc, pw string, salt []byte, iter int) (stored, server []byte, err error) {
+	salted, err := hi(pw, salt, iter)
 	if err != nil {
 		return nil, nil, err
 	}

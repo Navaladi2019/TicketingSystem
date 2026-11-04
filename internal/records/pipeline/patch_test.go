@@ -48,3 +48,20 @@ func TestMergePatch(t *testing.T) {
 		t.Fatal("the result shares values with the patch")
 	}
 }
+
+// A nil target is an empty object, and objects nested in a replaced array
+// are copied, not shared with the patch.
+func TestMergePatchNilTargetAndArrayOfObjects(t *testing.T) {
+	patch := decode(t, `{"rows":[{"k":"v","in":["x"]}]}`)
+	got := pipeline.MergePatch(nil, patch)
+	if want := decode(t, `{"rows":[{"k":"v","in":["x"]}]}`); !reflect.DeepEqual(got, want) {
+		t.Fatalf("merge into nil = %v, want %v", got, want)
+	}
+	row := got["rows"].([]any)[0].(map[string]any)
+	row["k"] = "changed"
+	row["in"].([]any)[0] = "changed"
+	orig := patch["rows"].([]any)[0].(map[string]any)
+	if orig["k"] != "v" || orig["in"].([]any)[0] != "x" {
+		t.Fatal("the result shares an object inside an array with the patch")
+	}
+}

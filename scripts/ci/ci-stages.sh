@@ -21,6 +21,20 @@ else
         stages=$(go run ./tools/ci/cichanged -v -base "$base")
     fi
 fi
+# The coverage job merges the unit and the integration profile (TICK-518), so
+# a change that runs unit tests runs the integration tests too: coverage then
+# runs on every change to Go code and is never skipped as "not needed".
+case " $stages " in
+    *" ci-unit "*)
+        case " $stages " in
+            *" ci-integration "*) ;;
+            *)
+                stages=$(echo "$stages" | sed 's/ci-unit/ci-unit ci-integration/')
+                echo "ci-stages: ci-unit needs ci-integration for the coverage job (TICK-518)" >&2
+                ;;
+        esac
+        ;;
+esac
 echo "$stages"
 
 if [ -n "${GITHUB_OUTPUT:-}" ]; then

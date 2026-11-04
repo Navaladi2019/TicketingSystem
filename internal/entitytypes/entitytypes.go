@@ -187,7 +187,7 @@ func (s Store) Create(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, in New
 	if err != nil {
 		return nil, fmt.Errorf("entitytypes: encode fixed columns: %w", err)
 	}
-	states, err := json.Marshal(d.States)
+	states, err := marshalJSON(d.States)
 	if err != nil {
 		return nil, fmt.Errorf("entitytypes: encode states: %w", err)
 	}
@@ -239,11 +239,11 @@ type SeedInput struct {
 // transaction must run as the tenant (tenancy.InTenantTx).
 func (Store) Seed(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, in SeedInput) (bool, error) {
 	d := in.Definition
-	fixed, err := json.Marshal(d.FixedColumns)
+	fixed, err := encodeFixedColumns(d.FixedColumns)
 	if err != nil {
 		return false, fmt.Errorf("entitytypes: encode fixed columns: %w", err)
 	}
-	states, err := json.Marshal(d.States)
+	states, err := marshalJSON(d.States)
 	if err != nil {
 		return false, fmt.Errorf("entitytypes: encode states: %w", err)
 	}
@@ -330,7 +330,7 @@ SELECT id, number_prefix, current_version FROM entity_definitions WHERE key = $1
 	if err != nil {
 		return nil, fmt.Errorf("entitytypes: encode fixed columns: %w", err)
 	}
-	states, err := json.Marshal(d.States)
+	states, err := marshalJSON(d.States)
 	if err != nil {
 		return nil, fmt.Errorf("entitytypes: encode states: %w", err)
 	}
@@ -359,6 +359,10 @@ UPDATE entity_definitions SET current_version = $1, updated_at = now() WHERE id 
 	return s.GetVersion(ctx, tx, in.Key, number)
 }
 
+// marshalJSON is json.Marshal; tests replace it to reach the encode-failure
+// branches, which a map of strings and a states slice cannot trigger.
+var marshalJSON = json.Marshal //nolint:gochecknoglobals // test seam, replaced only by tests
+
 // encodeFixedColumns encodes a definition's fixed columns as a JSON object.
 // A nil map (the request omitted fixed_columns, or sent null) is {}, never
 // null: entity_definition_versions_fixed_columns_check accepts only an
@@ -367,7 +371,7 @@ func encodeFixedColumns(m map[string]string) ([]byte, error) {
 	if m == nil {
 		return []byte("{}"), nil
 	}
-	return json.Marshal(m)
+	return marshalJSON(m)
 }
 
 func mapUnique(err error) error {

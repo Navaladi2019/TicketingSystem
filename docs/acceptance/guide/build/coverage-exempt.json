@@ -6,7 +6,7 @@
     "501": "getMe is implemented; 501 is the generated default for an unimplemented operation."
   },
   "onboardTenant": {
-    "429": "Spec drift: operator routes are not rate limited (internal/server/api.go: the limiter wraps tenant routes only), so nava-onboard never answers 429.",
+    "429": "Reserved, not emitted: operator routes carry no tenant, so the per-tenant limiter (ADR-001 D6) does not wrap them (internal/server/api.go). Kept in the contract because removing a response breaks the additive-only rule (check-openapi). TICK-516.",
     "500": "Needs a Keycloak or database failure mid-onboarding; not caused from outside a healthy stack."
   },
   "listEntityTypes": {

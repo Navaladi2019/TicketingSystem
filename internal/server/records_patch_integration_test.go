@@ -92,6 +92,7 @@ func patchProblemCode(t *testing.T, rec *httptest.ResponseRecorder) string {
 	return p.Code
 }
 
+// covers: patchRecord 200 412 428
 func TestPatchRecordNeedsTheCurrentETag(t *testing.T) {
 	e := newPatchEnv(t)
 	r := e.mustCreateRec(t, "user-a", "job", "c1", `{"short_description": "one"}`)
@@ -135,6 +136,7 @@ func TestPatchRecordNeedsTheCurrentETag(t *testing.T) {
 	}
 }
 
+// covers: patchRecord 404
 func TestPatchMissingRecordIsA404NotA428(t *testing.T) {
 	e := newPatchEnv(t)
 	r := e.mustCreateRec(t, "user-a", "job", "c1", `{"short_description": "one"}`)
@@ -162,6 +164,7 @@ func TestPatchMissingRecordIsA404NotA428(t *testing.T) {
 	}
 }
 
+// covers: patchRecord 200 400 422
 func TestPatchMergePatchSemantics(t *testing.T) {
 	e := newPatchEnv(t)
 	r := e.mustCreateRec(t, "user-a", "job", "c1", `{"short_description": "one", "note": "n", "tags": ["a", "b"]}`)
@@ -206,6 +209,7 @@ func TestPatchMergePatchSemantics(t *testing.T) {
 	}
 }
 
+// covers: patchRecord 200 409 422
 func TestPatchUniqueViolationAndIllegalTransition(t *testing.T) {
 	e := newPatchEnv(t)
 	e.mustCreateRec(t, "user-a", "job", "c1", `{"short_description": "one", "code": "X-1"}`)
@@ -229,6 +233,7 @@ func TestPatchUniqueViolationAndIllegalTransition(t *testing.T) {
 // The history pages over live writes on the audit log (P5-17, TICK-435;
 // D-5-14 had TICK-452 page over seeded v0 rows meanwhile): a create and two
 // patches, read newest first, one row per page.
+// covers: getRecordHistory 200 400 404
 func TestPatchHistoryPagesNewestFirst(t *testing.T) {
 	e := newPatchEnv(t)
 	r := e.mustCreateRec(t, "user-a", "job", "c1", `{"short_description": "one"}`)
@@ -392,6 +397,7 @@ func TestPatchHistoryIsCapped(t *testing.T) {
 }
 
 // Causation never comes from the request (TICK-88 security review).
+// covers: patchRecord 200
 func TestPatchRecordIgnoresCausationFromTheRequest(t *testing.T) {
 	e := newPatchEnv(t)
 	r := e.mustCreateRec(t, "user-a", "job", "c1", `{"short_description": "one"}`)

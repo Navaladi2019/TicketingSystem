@@ -63,6 +63,8 @@ The Technical Architect stress-tests the choice before the Technical Lead accept
 | Tenant data | Through `tenancy.InTenantTx` only, cross-tenant negative test present. |
 | Workflow panics | In `internal/workflow/`, workflow code never panics with a value built from data (a record field, a definition value, an activity result, an error's text): the panic value and stack are recorded in `WorkflowTaskFailed` and the worker guard cannot withhold them (AR-042). Panic only with constant text; return an error instead, which the guard checks. |
 | Tests | Risky paths have a failing-case test; integration tests against real PostgreSQL, Keycloak or Temporal where the risk lives there (`testing-ci`). |
+| Tests: API operations | Every API operation × documented status has an HTTP→PostgreSQL integration test asserting the rows written/read, plus: invalid input writes nothing, idempotent replay writes once, cross-tenant is refused. Stub-only tests do not count. The link is a `// covers: <operationId> <status>` marker on the test, gated by `api/integration_coverage_test.go`; exemptions with a reason in `api/integration-coverage-exempt.json`. |
+| TDD | The PR has a test-only commit before the implementation commit, and its description shows that commit's failing test output. The reviewer checks out the test commit and confirms it fails for the stated reason. A bug fix starts with a test that reproduces the bug. A tests-only change shows red by deliberately breaking the behaviour. No red evidence → `VERDICT: CHANGES`. |
 | Size | One task per PR; a rewrite found in review is a new task unless the human says otherwise. |
 
 ## Change log
@@ -72,3 +74,4 @@ The Technical Architect stress-tests the choice before the Technical Lead accept
 | 2026-10-16 | Created with rules 1 and 2 after TICK-89. | Technical Lead |
 | 2026-10-17 | Technical Architect review (TICK-95) applied: rule 2 exemption limited to recorded decisions (R2-1); definitions narrowed to direct requires and new attribute keys; diff check and pre-T05 pin record; rule 2 wins over rule 1; `none (<reason>)` form. | Technical Lead |
 | 2026-11-01 | "Workflow panics" row added for AR-042 (P3-26, TICK-362). | Security & Multi-Tenancy Reviewer |
+| 2026-11-03 | "Tests: API operations" and "TDD" rows added (standing rules from vknavaladi; gate in TICK-510). | Quality, Testing & CI Advisor |
