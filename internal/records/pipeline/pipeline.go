@@ -22,7 +22,9 @@
 //
 // A create takes the next per-tenant, per-type number from record_counters
 // (D-3-9). Every write checks the type's state model and its unique
-// properties (D-3-22) (P3-11).
+// properties (D-3-22) (P3-11). A write that changes assignment_group_id must
+// name a live group of the tenant (ADR-004-E5 D6); an unchanged value passes
+// even after its group is tombstoned (D7).
 //
 // Cascades (ADR-001 I9 as amended by A5; P3-12, TICK-88): a depth-0 write
 // mints a new origin, a workflow write must be deeper than 0, and a write
@@ -234,6 +236,12 @@ var (
 	// write, not across writes: TICK-88, from the PR #360 review); cascades
 	// themselves never share one, because each runs in its own activity.
 	ErrRetryable = errors.New("pipeline: transaction aborted by a deadlock or serialization failure, retry")
+	// ErrAssignmentGroupRemoved means the write changes assignment_group_id to
+	// a group the tenant does not have live: tombstoned, another tenant's
+	// (live or tombstoned) or unknown. The cases are not told apart
+	// (ADR-004-E5 D6, N4). Nothing is written. A value the record already
+	// holds is never refused (D7).
+	ErrAssignmentGroupRemoved = errors.New("pipeline: assignment group removed or unknown")
 )
 
 // ErrIdempotencyConflict means the idempotency key is held by another write.
@@ -339,7 +347,8 @@ func (p *Pipeline) Runner() TxRunner { return p.runner }
 // Write performs cmd in tx, which must come from tenancy.InTenantTx at READ
 // COMMITTED (the default). It returns ErrInvalidCommand, ErrNotFound,
 // authz.ErrForbidden, *ErrValidation, *ErrIllegalTransition,
-// *ErrUniqueViolation, ErrVersionConflict, *ErrIdempotencyConflict or
+// *ErrUniqueViolation, ErrAssignmentGroupRemoved, ErrVersionConflict,
+// *ErrIdempotencyConflict or
 // outbox.ErrCascadeTooDeep for a refused write; ErrRetryable, wrapping the
 // database error, when PostgreSQL aborted tx for a deadlock (40P01) or a
 // serialization failure (40001): roll back and retry the whole transaction;
@@ -566,6 +575,9 @@ func (w *write) create(ctx context.Context, after map[string]any) (Result, error
 	if err := rec.Split(after, fixed); err != nil {
 		return Result{}, fmt.Errorf("pipeline: %w", err)
 	}
+	if err := w.checkGroup(ctx, nil, rec.AssignmentGroupID); err != nil {
+		return Result{}, err
+	}
 	// The number is taken after every check, as the last statement before
 	// the record, audit and outbox inserts, so the counter row's lock is held
 	// only for the rest of the write (D-3-9).
@@ -632,8 +644,12 @@ func (w *write) update(ctx context.Context, patch map[string]any) (Result, error
 		return Result{}, fmt.Errorf("pipeline: %w", err)
 	}
 	prev := &prior{payload: beforeJSON, version: rec.Version, state: rec.State, secretProps: stored.SecretProperties()}
+	storedGroup := rec.AssignmentGroupID
 	if err := rec.Split(after, fixed); err != nil {
 		return Result{}, fmt.Errorf("pipeline: %w", err)
+	}
+	if err := w.checkGroup(ctx, storedGroup, rec.AssignmentGroupID); err != nil {
+		return Result{}, err
 	}
 	rec.SchemaVersion = w.defVersion
 	rec.UpdatedAt = w.p.clock.Now()
@@ -702,6 +718,30 @@ func (w *write) finish(ctx context.Context, rec *store.Record, prev *prior) (Res
 		return Result{}, fmt.Errorf("pipeline: event sink: %w", err)
 	}
 	return Result{RecordID: rec.ID, Number: rec.Number, Version: rec.Version, SchemaVersion: rec.SchemaVersion}, nil
+}
+
+// checkGroup refuses a write that changes assignment_group_id to a group the
+// tenant does not have live (ADR-004-E5 D6): stored is the record's value
+// before the write (nil on a create), next its value after. An unchanged
+// value passes even when its group is tombstoned (D7), and clearing the
+// field passes. The lookup runs in w.tx, under its RLS, never against a
+// cached list, and before any write statement, so a refused write leaves no
+// records, audit_log, outbox or record_write_keys row. It also runs before
+// the INSERT or UPDATE would reach records_assignment_group_fkey, so another
+// tenant's group and an unknown id end here on create and on update alike,
+// never at a 23503 (N4).
+func (w *write) checkGroup(ctx context.Context, stored, next *uuid.UUID) error {
+	if next == nil || (stored != nil && *stored == *next) {
+		return nil
+	}
+	live, err := store.GroupLive(ctx, w.tx, w.tenant, *next)
+	if err != nil {
+		return fmt.Errorf("pipeline: %w", err)
+	}
+	if !live {
+		return ErrAssignmentGroupRemoved
+	}
+	return nil
 }
 
 func (w *write) causation(rec *store.Record) {

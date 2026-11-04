@@ -58,12 +58,15 @@ type Record struct {
 	RequesterID        *uuid.UUID
 	AssigneeID         *uuid.UUID
 	AssignmentGroupID  *uuid.UUID
-	CreatedBy          *uuid.UUID
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-	Data               map[string]any
-	CausationOriginID  *uuid.UUID
-	CausationDepth     int16
+	// AssignmentGroupRemoved is read, never written: the record's group is
+	// tombstoned (ADR-004-E5 D7). The record keeps pointing at it.
+	AssignmentGroupRemoved bool
+	CreatedBy              *uuid.UUID
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+	Data                   map[string]any
+	CausationOriginID      *uuid.UUID
+	CausationDepth         int16
 }
 
 // DefinitionID returns the id of the tenant's entity type key, or ErrNotFound.
@@ -82,9 +85,10 @@ func DefinitionID(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, key string
 const recordSelect = `
 SELECT r.tenant_id, r.id, r.entity_definition_id, d.key, r.version, r.schema_version, r.number, r.state,
        r.requester_id, r.assignee_id, r.assignment_group_id, r.created_by, r.created_at, r.updated_at,
-       r.data, r.causation_origin_id, coalesce(r.causation_depth, 0)
+       r.data, r.causation_origin_id, coalesce(r.causation_depth, 0), coalesce(g.deleted_at IS NOT NULL, false)
 FROM records r
 JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
 WHERE r.tenant_id = $1 AND r.id = $2`
 
 // Get returns the record, or ErrNotFound. A PLAN-001 bare row (no entity
@@ -100,7 +104,7 @@ func scan(row pgx.Row) (*Record, error) {
 	)
 	err := row.Scan(&r.TenantID, &r.ID, &r.EntityDefinitionID, &r.EntityKey, &r.Version, &r.SchemaVersion, &r.Number, &r.State,
 		&r.RequesterID, &r.AssigneeID, &r.AssignmentGroupID, &r.CreatedBy, &r.CreatedAt, &r.UpdatedAt,
-		&data, &r.CausationOriginID, &r.CausationDepth)
+		&data, &r.CausationOriginID, &r.CausationDepth, &r.AssignmentGroupRemoved)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -111,6 +115,20 @@ func scan(row pgx.Row) (*Record, error) {
 		return nil, fmt.Errorf("records/store: decode data: %w", err)
 	}
 	return &r, nil
+}
+
+// GroupLive reports whether the transaction's tenant has group id and it is
+// not tombstoned (ADR-004-E5 D6). It reads groups in the caller's transaction,
+// so under its RLS, never from a cache: another tenant's group, live or
+// tombstoned, and an id no tenant has all read false and are not told apart.
+func GroupLive(ctx context.Context, tx pgx.Tx, tenantID, id uuid.UUID) (bool, error) {
+	var live bool
+	err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM groups WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL)`,
+		tenantID, id).Scan(&live)
+	if err != nil {
+		return false, fmt.Errorf("records/store: read group: %w", err)
+	}
+	return live, nil
 }
 
 // Insert writes a new record at r.Version.
