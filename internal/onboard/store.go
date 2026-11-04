@@ -211,7 +211,7 @@ func (s *PGStore) recordGroup(ctx context.Context, tenantID uuid.UUID, kcGroupID
 		}
 		var exists bool
 		if err := tx.QueryRow(ctx,
-			"SELECT EXISTS (SELECT 1 FROM groups WHERE tenant_id = $1 AND keycloak_group_id = $2)",
+			"SELECT EXISTS (SELECT 1 FROM groups WHERE tenant_id = $1 AND keycloak_group_id = $2 AND deleted_at IS NULL)",
 			tenantID, kcGroupID).Scan(&exists); err != nil {
 			return err
 		}
@@ -222,7 +222,7 @@ func (s *PGStore) recordGroup(ctx context.Context, tenantID uuid.UUID, kcGroupID
 		// may have inserted the group first, under an id of its own.
 		_, err := tx.Exec(ctx,
 			`INSERT INTO `+table+` (tenant_id, group_id)
-			 SELECT tenant_id, id FROM groups WHERE tenant_id = $1 AND keycloak_group_id = $2
+			 SELECT tenant_id, id FROM groups WHERE tenant_id = $1 AND keycloak_group_id = $2 AND deleted_at IS NULL
 			 ON CONFLICT DO NOTHING`, tenantID, kcGroupID)
 		return err
 	})
