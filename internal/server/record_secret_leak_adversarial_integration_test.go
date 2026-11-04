@@ -34,6 +34,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/cursor"
@@ -231,6 +233,27 @@ func (e *leakEnv) spanLeaks(canary string) []string {
 	return out
 }
 
+// wantServerSpan asserts that a server span with http.route route was
+// exported after the first before spans.
+func (e *leakEnv) wantServerSpan(t *testing.T, before int, route string) {
+	t.Helper()
+	spans := e.spans.GetSpans()
+	if len(spans) <= before {
+		t.Fatalf("no span was exported for the request (%d spans before and after)", before)
+	}
+	for _, s := range spans[before:] {
+		if s.SpanKind != trace.SpanKindServer {
+			continue
+		}
+		for _, kv := range s.Attributes {
+			if kv.Key == semconv.HTTPRouteKey && kv.Value.AsString() == route {
+				return
+			}
+		}
+	}
+	t.Fatalf("no server span with http.route %q among the %d spans the request exported", route, len(spans)-before)
+}
+
 // assertNoLeak checks every surface but the response body, which the caller
 // checks per response.
 func (e *leakEnv) assertNoLeak(t *testing.T, canary string) {
@@ -290,12 +313,25 @@ func TestRecordSecretLeaksToNoSurface(t *testing.T) {
 			t.Run(method+" "+prop, func(t *testing.T) {
 				canary := "CANARY-" + strings.ToUpper(prop) + "-" + uuid.NewString()
 				key := "leak-" + method + "-" + prop
+				route := "/api/v1/records/{entity}"
+				if method == http.MethodPatch {
+					route = "/api/v1/records/{entity}/{id}"
+				}
+				// send sends the attack and proves it was traced: a server span
+				// for its route is exported after the send, so the span check
+				// below looks at the attack's own spans.
 				send := func() *httptest.ResponseRecorder {
+					t.Helper()
+					before := len(e.spans.GetSpans())
+					var rec *httptest.ResponseRecorder
 					if method == http.MethodPost {
 						body := fmt.Sprintf(`{"data": {"short_description": "attack", %q: %q}}`, prop, canary)
-						return e.do(t, http.MethodPost, "/api/v1/records/account", "user-a", key, body)
+						rec = e.do(t, http.MethodPost, "/api/v1/records/account", "user-a", key, body)
+					} else {
+						rec = e.patchWithKey(t, "user-a", tb.ID, `W/"1"`, key, fmt.Sprintf(`{"data": {%q: %q}}`, prop, canary))
 					}
-					return e.patchWithKey(t, "user-a", tb.ID, `W/"1"`, key, fmt.Sprintf(`{"data": {%q: %q}}`, prop, canary))
+					e.wantServerSpan(t, before, route)
+					return rec
 				}
 
 				// AC1, AC2: refused, naming the pointer only, and no surface holds it.
@@ -327,6 +363,11 @@ func TestRecordSecretLeaksToNoSurface(t *testing.T) {
 	control := "CONTROL-" + uuid.NewString()
 	if rec := e.do(t, http.MethodPost, "/api/v1/records/account", "user-a", "leak-control", fmt.Sprintf(`{"data": {"short_description": %q}}`, control)); rec.Code != http.StatusCreated {
 		t.Fatalf("control create = %d: %s", rec.Code, rec.Body)
+	}
+	// The log capture sees the handler's records, so the log checks above
+	// are not vacuous either.
+	if !strings.Contains(e.logs.String(), `"entity type created"`) {
+		t.Errorf("control: the captured logs lack \"entity type created\"; the log capture is blind:\n%s", e.logs.String())
 	}
 	hits := strings.Join(e.tablesHolding(t, control), " ")
 	for _, tbl := range []string{"public.records ", "public.audit_log ", "public.idempotency_keys "} {
