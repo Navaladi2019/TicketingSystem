@@ -19,7 +19,9 @@
 //
 // The table is seen after FROM, JOIN or a comma in a FROM list (FROM
 // records r, audit_log a), also inside a parenthesised join and with spaces
-// around a schema dot (public . audit_log); (a).* and a . * are stars. TABLE audit_log fails closed:
+// around a schema dot (public . audit_log), after ONLY with or without
+// parentheses (FROM ONLY (audit_log) a) and before a descendant star (FROM
+// audit_log * a, TICK-559); (a).* and a . * are stars. TABLE audit_log fails closed:
 // it counts after any word but the DDL and ACL ones in tableDDL, so INSERT
 // ... OVERRIDING SYSTEM VALUE TABLE and DECLARE c CURSOR FOR TABLE are seen.
 //
@@ -111,16 +113,26 @@ const (
 	fromStart = `\b(?:from|join)(?:\s*\(\s*|\s+)+`
 	// A FROM-list comma, then any opening parentheses.
 	listStart = `,\s*(?:\(\s*)*`
+	// ONLY before the table, with or without a parenthesis: FROM ONLY
+	// audit_log, FROM ONLY (audit_log) (TICK-559).
+	onlyPrefix = `(?:only(?:\s+|\s*\(\s*))?`
+	// A reference to audit_log whose row name is group 1 or group 2: ONLY
+	// (audit_log), [ONLY] audit_log, or audit_log * (the descendant star,
+	// which Postgres 16 accepts before an alias: FROM audit_log * a).
+	auditRef = `(?:only\s*\(\s*` + schemaPrefix + `(audit_log(?:_default|_p` + sqlIdent + `)?)\b\s*\)|(?:only\s+)?` +
+		schemaPrefix + `(audit_log(?:_default|_p` + sqlIdent + `)?)\b(?:\s*\*)?)`
 )
 
 var (
-	fromAudit = regexp.MustCompile(fromStart + `(?:only\s+)?` + auditTable)
+	fromAudit = regexp.MustCompile(fromStart + onlyPrefix + auditTable)
 	// audit_log as a later item of a FROM list: FROM records r, audit_log a.
-	fromList = regexp.MustCompile(`\bfrom\s[^;]*?` + listStart + `(?:only\s+)?` + auditTable)
+	fromList = regexp.MustCompile(`\bfrom\s[^;]*?` + listStart + onlyPrefix + auditTable)
 	// The table's row names in a statement: audit_log itself and the alias
-	// after FROM, JOIN or a FROM-list comma: audit_log [AS] alias. A keyword
-	// is not an alias.
-	aliasRE = regexp.MustCompile(`(?:` + fromStart + `|` + listStart + `)(?:only\s+)?` + schemaPrefix + `(audit_log(?:_default|_p` + sqlIdent + `)?)\b(?:\s+(?:as\s+)?(` + sqlIdent + `))?`)
+	// after FROM, JOIN or a FROM-list comma: audit_log [AS] alias, also after
+	// ONLY (audit_log) and audit_log * (groups 1 or 2, then 3), with or
+	// without a space before the alias (audit_log*a, ONLY(audit_log)a): the
+	// \b after the table name keeps audit_loga out. A keyword is not an alias.
+	aliasRE = regexp.MustCompile(`(?:` + fromStart + `|` + listStart + `)` + auditRef + `(?:\s*(?:as\s+)?(` + sqlIdent + `))?`)
 	// A write on audit_log that returns columns reads them too.
 	writeAudit = regexp.MustCompile(`\b(?:insert\s+into|update|delete\s+from|merge\s+into)\s+(?:only\s+)?` + auditTable)
 	returning  = regexp.MustCompile(`\breturning\b`)
@@ -129,7 +141,7 @@ var (
 	copyTo = regexp.MustCompile(`\bcopy\s+` + auditTable + `\s*(\([^)]*\))?\s*to\b`)
 	// TABLE audit_log is SELECT * FROM audit_log. Group 1 is the word before
 	// TABLE, if any; tableRead decides on it.
-	tableCmd = regexp.MustCompile(`(?:([a-z0-9_$]+)\s+)?\btable\s+(?:only\s+)?` + auditTable)
+	tableCmd = regexp.MustCompile(`(?:([a-z0-9_$]+)\s+)?\btable\s+` + onlyPrefix + auditTable)
 	// The protected columns. \b stops at diff_sha256 and friends, because _
 	// is a word character.
 	diffCol = regexp.MustCompile(`\b(diff_salt|diff)\b`)
@@ -185,9 +197,9 @@ func sqlKeyword(w string) bool {
 func wholeRow(s string) bool {
 	names := map[string]bool{}
 	for _, m := range aliasRE.FindAllStringSubmatch(s, -1) {
-		names[m[1]] = true
-		if m[2] != "" && !sqlKeyword(m[2]) {
-			names[m[2]] = true
+		names[m[1]+m[2]] = true // exactly one of the two is set
+		if m[3] != "" && !sqlKeyword(m[3]) {
+			names[m[3]] = true
 		}
 	}
 	for n := range names {
@@ -629,7 +641,7 @@ func repoRoot(t *testing.T) string {
 func TestAuditDiffReadOnlyInReader(t *testing.T) {
 	root := repoRoot(t)
 	for _, f := range scanDir(t, root, root, "", constIndex(t, root)) {
-		t.Errorf("%s: only internal/audit/read may read audit_log.diff or diff_salt, because only it applies the R7 masker; go through read.Reader (ADR-004 R7, TICK-541)", f)
+		t.Errorf("%s: only internal/audit/read may read audit_log.diff or diff_salt, because only it applies the R7 masker; go through read.Reader (ADR-004 R7, TICK-541). Since ADR-004-A1 such a query gets 42501 at Execute rather than leaking the diff, because only nava_audit_reader may read those columns; this check is the early warning (A1-10 rule 2)", f)
 	}
 }
 
@@ -674,7 +686,7 @@ func TestAuditDiffReaderFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	want = dedupe(want)
-	if len(want) < 57 {
+	if len(want) < 62 {
 		t.Fatalf("the fixture plants %d reads; it lost some", len(want))
 	}
 	for _, w := range want {
@@ -790,7 +802,26 @@ func TestDiffReads(t *testing.T) {
 		"SELECT diff FROM public . audit_log_v0":                      nil,
 		"SELECT a . id, a . seq * 2 FROM audit_log a":                 nil,
 		"SELECT a.diff FROM ( ( audit_log a ) )":                      {"diff"},
-		"SELECT diff FROM records WHERE kind IN ('x', 'audit_log')":   nil,
+		// TICK-559 (carried over from TICK-551): ONLY (audit_log) and
+		// audit_log *, each with look-alikes.
+		"SELECT a.diff FROM ONLY (audit_log) a":                           {"diff"},
+		"SELECT to_jsonb(a) FROM ONLY ( public.audit_log ) AS a":          {"row"},
+		"SELECT to_jsonb(a) FROM records r, only(audit_log) a":            {"row"},
+		"SELECT to_jsonb(a) FROM audit_log * a":                           {"row"},
+		"SELECT to_jsonb(a) FROM records r JOIN audit_log * AS a ON true": {"row"},
+		"TABLE ONLY (audit_log)":                                          {"table"},
+		// Security Low on PR #463: no space before the alias.
+		"SELECT to_jsonb(a) FROM audit_log*a":                             {"row"},
+		"SELECT to_jsonb(a) FROM audit_log *a":                            {"row"},
+		"SELECT to_jsonb(a) FROM ONLY(audit_log)a":                        {"row"},
+		"SELECT to_jsonb(a) FROM records r, audit_log*a":                  {"row"},
+		"SELECT to_jsonb(a) FROM records r JOIN ONLY(audit_log)a ON true": {"row"},
+		"SELECT a.id FROM ONLY (audit_log) a":                             nil,
+		"SELECT a.id, a.seq * 2 FROM audit_log * a":                       nil,
+		"SELECT to_jsonb(s) FROM (SELECT id FROM audit_log) s":            nil,
+		"SELECT to_jsonb(a) FROM onlyaudit_log a":                         nil,
+		"SELECT a.diff FROM ONLY (audit_log_v0) a":                        nil,
+		"SELECT diff FROM records WHERE kind IN ('x', 'audit_log')":       nil,
 		// Not a read of the protected columns.
 		"SELECT diff_sha256, diff_truncated, diff_redacted FROM audit_log": nil,
 		"SELECT count(*) FROM audit_log":                                   nil,

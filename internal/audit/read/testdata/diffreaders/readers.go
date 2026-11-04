@@ -77,6 +77,18 @@ const (
 	spacedStarSQL = `SELECT a . * FROM audit_log a`                                             // want: star
 	halfStarSQL   = `SELECT a. * FROM audit_log a`                                              // want: star
 
+	// TICK-559 (TICK-551 carry-over): FROM ONLY (audit_log) a and FROM
+	// audit_log * a, both accepted by Postgres 16.
+	onlyParenSQL  = `SELECT a.diff FROM ONLY (audit_log) a`               // want: diff
+	onlyParenRow  = `SELECT to_jsonb(a) FROM ONLY ( public.audit_log ) a` // want: row
+	descStarRow   = `SELECT to_jsonb(a) FROM audit_log * a`               // want: row
+	descStarJoin  = `SELECT row_to_json(l) FROM records r, audit_log * l` // want: row
+	descStarTight = `SELECT to_jsonb(a) FROM audit_log*a`                 // want: row
+	// Look-alikes: safe columns through the same forms, a subquery's alias.
+	onlyParenID = `SELECT a.id FROM ONLY (audit_log) a`
+	descStarID  = `SELECT a.id, a.seq * 2 FROM audit_log * a`
+	subqueryRow = `SELECT to_jsonb(s) FROM (SELECT id FROM audit_log) s`
+
 	// Look-alikes: DDL that names the table, other columns, other tables, a pure insert, comments,
 	// aggregates and casts of a column, COPY in, COPY out of safe columns.
 	arrayIDSQL  = `SELECT array_agg(id) FROM audit_log`
