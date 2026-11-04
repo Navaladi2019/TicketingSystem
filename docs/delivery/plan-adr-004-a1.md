@@ -4,7 +4,7 @@ id: PLAN-005-A1
 title: Implementing ADR-004 amendment A1 (only nava_audit_reader reads audit_log.diff and diff_salt, through the masking reader's own pool)
 adr: "[[ADR-004-A1-diff-read-role]] (ACCEPTED 2026-11-04, TICK-549; PR #452 merged at 2bf7fc6)"
 issue: TICK-556
-status: PROPOSED (awaiting the Solution Architect's PLAN VERDICT)
+status: PROPOSED, revised for the Solution Architect's CHANGES (D-A1-6, TICK-558, TICK-559); D-A1-1 to D-A1-5, D-A1-7 and D-A1-8 approved
 date: 2026-11-04
 owner: Technical Lead
 ---
@@ -36,7 +36,7 @@ TICK-551 (the TICK-541 guard's Low gaps) already exists. Its trigger was "TICK-5
 | **D-A1-3** | **T-A1-2 depends on TICK-538 and TICK-552, because their files overlap.** TICK-538 (PR #448) edits `db/grants.yaml` and adds R29 to `internal/db/audited/check.go`, the same CI-A3 gate that A1-9 extends. TICK-552 (PR #450) reworks the isolation harness that reads the diff through `read.Reader` (`internal/tenancy/isolation/audit_paths.go`), and T-A1-2 moves that harness to the reader pool. Both are in review now. If either is not merged when T-A1-1 is done, it becomes the critical path. |
 | **D-A1-4** | **Guard rule 1 is its own task (T-A1-3) and comes after TICK-551.** A1-10 allows it to follow later. It can only test against the `read.OpenPool` and the DSN name that T-A1-2 creates. TICK-551 edits the same guard file (`diffreaders_test.go`), so the two are serialized. Rule 1 still lands inside S14, because AR-TICK-549-01 relies on it. |
 | **D-A1-5** | **P5-20 (TICK-437, the S14 acceptance kit) now also depends on TICK-557, TICK-558 and TICK-559. This is done on the issue.** S14 is not accepted, and `main` does not get the audit log, until Postgres enforces the diff wall. |
-| **D-A1-6** | **The DSN goes in `internal/platform/config`.** A1-6 says "the `cmd/nava` config loader". In this codebase that loader is `internal/platform/config`, which already has one file per role (`onboard.go`, `purge.go`, `groupsync.go`), wired from `cmd/nava`. T-A1-2 adds `auditreader.go` in the same style. T-A1-3's rule 1 allows exactly that package. This is a placement decision, not a change to the ADR. |
+| **D-A1-6** | **The DSN reaches nava-core only (revised after the Solution Architect's CHANGES).** `config.Load` is shared by `cmd/nava-core`, `cmd/nava-worker` and `cmd/nava-relay`, so the key must **not** be added to its `Config`. If it were, the worker and relay would either need the raw-diff credential or fail to start, and AR-TICK-549-01 accepts that credential in nava-core only. Instead, T-A1-2 does three things. It adds `internal/platform/config/auditreader.go` with its own `LoadAuditReader(lookup)`, in the same style as `onboard.go`, `purge.go` and `groupsync.go`. Only `cmd/nava-core/main.go` calls `LoadAuditReader`, then `read.OpenPool`, and hands the `*read.Pool` to the reader. And `NAVA_AUDIT_READER_DATABASE_URL` is set on the `nava-core` compose service and in the CI isolation stack only; `cmd/nava-core/compose_test.go` asserts that nava-worker and nava-relay do not have it. A1-6's "`cmd/nava` config loader" means this pair: `cmd/nava-core` plus `LoadAuditReader`. T-A1-3's rule 1 allows exactly these call sites. This is placement only, so the ADR needs no erratum. |
 | **D-A1-7** | **No grooming meeting.** As with D-E5-9, the acceptance tests come from an amendment that three reviewers approved after two rounds, and the Technical Architect checked its fidelity. The Solution Architect's plan verdict is the check. |
 | **D-A1-8** | **Export (A1-5, A1-7).** There is no export handler on the story branch yet (P5-17 shipped list and history only). T-A1-2 covers list and history. The rule "export pages use the reader pool; lease and entry stay on `nava_app`" goes into the contract of whichever task builds export. It is recorded in the decision log (trigger: an export task is created). |
 
@@ -83,8 +83,8 @@ gantt
 | Task | Expected files |
 |---|---|
 | T-A1-1 | `internal/audit/read/definition_masker.go`, `mask.go`, `mask_test.go`; the audit handler's error mapping in `internal/server` |
-| T-A1-2 | `db/grants.yaml`; one policy migration; `internal/db/audited/manifest.go`, `check.go`; `internal/db/dbtest/`; `internal/tenancy/isolation/`; `internal/audit/read/`; `internal/platform/config/`, `cmd/nava`; `internal/server/`; `compose.yaml`, `.env.example`, the CI isolation stack, both PgBouncer `.ini` files; `docs/adr/ADR-004-audit-log.md` and its `.html` |
-| T-A1-3 | `internal/audit/read/diffreaders_test.go` or a sibling, plus `testdata/` |
+| T-A1-2 | `db/grants.yaml`; one policy migration; `internal/db/audited/manifest.go`, `check.go`; `internal/db/dbtest/`; `internal/tenancy/isolation/`; `internal/audit/read/`; `internal/platform/config/auditreader.go`, `cmd/nava-core/main.go`, `cmd/nava-core/compose_test.go`; `internal/server/`; `compose.yaml`, `.env.example`, the CI isolation stack, both PgBouncer `.ini` files; `docs/adr/ADR-004-audit-log.md` and its `.html` |
+| T-A1-3 | `internal/audit/read/diffreaders_test.go` or a sibling, plus `testdata/` (fixtures in a fake `cmd/nava-core` and `cmd/nava-worker`) |
 
 Overlaps are serialized by dependencies:
 - `internal/audit/read` and `internal/server`: T-A1-1 → T-A1-2;
