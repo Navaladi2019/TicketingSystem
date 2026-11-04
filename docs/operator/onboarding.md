@@ -438,3 +438,21 @@ SELECT t.state, a.group_id, g.keycloak_group_id, g.deleted_at
   JOIN groups g ON (g.tenant_id, g.id) = (a.tenant_id, a.group_id)
  WHERE t.id = :'tenant_id'::uuid;   -- state active, the current Keycloak id, deleted_at empty
 ```
+
+## Auditors group for tenants that existed before S14 (TICK-567)
+
+Onboarding creates `/t/<tenant>/auditors` and its `tenant_auditor_group` row
+for new tenants only. A tenant activated before S14 has neither, so only its
+admins hold `audit.read`. Run the reconcile once per upgrade, from the
+`nava-onboard` container, with the ids of the active tenants (list them as the
+superuser: `SELECT id FROM tenants WHERE state = 'active'`):
+
+```sh
+docker compose exec -T nava-onboard nava-onboard reconcile-auditors <tenant-id> [<tenant-id>...]
+```
+
+Each tenant is handled alone, under its own tenant context. A tenant that has
+the row is left as it is, with no call to Keycloak, so the command is safe to
+repeat. A tenant that is unknown or not active is refused. The group starts
+empty: add auditors in Keycloak as for a new tenant. A failure for one tenant
+is logged with its id, the others still run, and the command exits non-zero.

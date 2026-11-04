@@ -26,7 +26,7 @@ Step 2 is about versions published *before* this release, so the stack has to st
    2. Runs that commit's `tools/seed.sh`: tenants A and B with `incident`, `request` and `change` at version 1.
    3. Has `admin@tenant-a.test` publish incident version 2 (`tools/prepublish.mjs`).
    4. Upgrades the same stack (same volumes) to this checkout. The `migrate` service applies the 13 S14 migrations, the backfill among them.
-   5. Applies the S14 realm delta (`tools/realm-delta.mjs`): the `auditors` groups and `auditor@tenant-a.test`. Keycloak imports `realm-nava.json` only into a realm that does not exist yet, so an upgraded realm needs them added.
+   5. Runs `nava-onboard reconcile-auditors` for tenants A and B (TICK-567): each gets its `/t/<tenant>/auditors` group and `tenant_auditor_group` row, as onboarding gives a new tenant. Then applies the user part of the S14 realm delta (`tools/realm-delta.mjs`): `auditor@tenant-a.test`, added to A's auditors group. Keycloak imports `realm-nava.json` only into a realm that does not exist yet.
    6. Runs this checkout's `tools/seed.sh` and `tools/tunnels.sh up`, then checks `/readyz`.
 2. Run the folder: `sh docs/acceptance/guide/tools/api-test.sh S14A`. In Bruno desktop, open `docs/acceptance/guide/bruno/` with the `local` environment and run folder **S14 audit**.
 3. Users (dev-only seed users, passwords in `bruno/environments/local.bru`):
@@ -89,7 +89,7 @@ Folder `S14` stays read-only, so `s14_audit`'s "reading the timeline writes no a
 ## Known limits
 
 - **AC2 needs versions the backfill has seen.** On a stack created at the story branch, `tools/seed.sh` writes the version-1 rows after the migrations, so nothing is backfilled and S14.24 fails unless the backfill is re-run (the shortcut above).
-- **Tenants that existed before S14 have no auditors group after an upgrade.** Onboarding creates `/t/<tenant>/auditors` for new tenants only, and nothing creates it, or its `tenant_auditor_group` row, for existing ones. On the dev stack, `realm-delta.mjs` and `seed.sh` do it by hand. In a real upgrade, only tenant admins hold `audit.read` until someone creates the group. Routed to the Technical Lead as a question; not a criterion of this story.
+- **Tenants that existed before S14 have no auditors group until the reconcile runs.** Onboarding creates `/t/<tenant>/auditors` for new tenants only. For existing ones, run `nava-onboard reconcile-auditors <tenant-id>...` (TICK-567) after the upgrade. It is per tenant and safe to repeat, and it adds no member. Until it runs, only tenant admins hold `audit.read`.
 - **Onboarding's version-1 seed writes no audit entry** (`internal/entitytypes` `Store.Seed`). A tenant onboarded after the S14 migrations and before migration B has its three templates off the timeline until B re-runs the backfill (ADR-004 R25).
 - **`tools/seed.sh` on Windows with the mingw64 curl:** `curl -o /dev/null` fails with exit 23 because the script exports `MSYS_NO_PATHCONV=1`, and `set -e` stops the seed. The runs used a host-local wrapper that maps `/dev/null` to `NUL`. The script itself is unchanged.
 - The verified branch does not contain the latest `main` (`2fd9c74`, TICK-523). Merging `main` in is part of the story→main checklist (`docs/delivery/branching-strategy.md`).
