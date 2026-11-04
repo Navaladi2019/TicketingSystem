@@ -50,12 +50,13 @@ accepted this over the `go tool cover -func` line as the definition (TICK-518,
 
 ## Rollout
 
-The baseline was below 95%, so the `coverage` CI job runs
-`make check-coverage COVERAGE_REPORT_ONLY=1` for now: it prints the total and
-every package's gap, and fails only on bad input (a missing profile, a stale
-exclusion). The follow-up PR changes the step to `make check-coverage`, and
-the line in `tools/ci/cisteps/required.yaml` with it, once the total reaches
-95%. That PR closes TICK-518.
+The baseline was 85.2% (2026-11-03), so the `coverage` CI job first ran
+`make check-coverage COVERAGE_REPORT_ONLY=1`, which printed the gap without
+failing. The fill-in tasks TICK-519 to TICK-522 raised the total to 96.4% on
+`main` (2026-11-04), and the job now runs `make check-coverage`: a change that
+takes the total below 95% fails CI. `COVERAGE_REPORT_ONLY=1` stays for local
+use. The step is listed in `tools/ci/cisteps/required.yaml` without it, so it
+cannot go back to report-only silently.
 
 The `coverage` job runs on every change that runs `unit`: `make ci-stages`
 adds `integration` to any change that needs `unit`, and the job runs even
