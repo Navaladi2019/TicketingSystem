@@ -1,0 +1,32 @@
+meta {
+  name: S14.27 AC3: Bob reads tenant A's incident history: the same 404
+  type: http
+  seq: 27
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s14_rec}}/history
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 404 problem+json, code not_found, no instance', () => {
+    expect(res.getStatus()).to.eql(404);
+    expect(N.header('Content-Type') || '').to.include('application/problem+json');
+    expect(N.json().code).to.eql('not_found');
+    expect(N.json()).to.not.have.property('instance');
+  });
+  N.status(404);
+  test("body byte-identical to S14.26's 404", () => expect(N.text()).to.eql(bru.getVar('s14_ref404')));
+  N.noLeak(bru.getVar('s14_rec'), 'S14 ' + bru.getVar('s14_run'));
+}
+
+docs {
+  Byte-identical to S14.26, so Bob cannot tell that tenant A's incident exists; nothing of it in the body.
+}

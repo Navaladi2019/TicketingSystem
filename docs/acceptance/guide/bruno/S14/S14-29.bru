@@ -1,0 +1,36 @@
+meta {
+  name: S14.29 AC4: the refused publish stored nothing and wrote no entry
+  type: http
+  seq: 29
+}
+
+get {
+  url: {{core_url}}/api/v1/audit/entries?from={{s14_t0}}&domain=config&limit=500
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{auditor_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const r = await N.send({ url: N.url('{{core_url}}/api/v1/entity-types/incident'), method: 'GET', headers: { Authorization: 'Bearer ' + bru.getVar('admin_a_token') } });
+  bru.setVar('s14_after_secret', String(r.data && r.data.version));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test("the incident type is still at S14.16's version", () => expect(bru.getVar('s14_after_secret')).to.eql(bru.getVar('s14_new')));
+  const cfg = N.json().items.filter(e => e.subject_id === bru.getVar('s14_inc_def'));
+  test('one config entry for the incident type since S14.15: the publish of S14.16', () => {
+    expect(cfg.map(e => e.action + ' v' + e.version_after)).to.eql(['publish v' + bru.getVar('s14_new')]);
+  });
+  N.noLeak('s14-not-a-real-secret-' + bru.getVar('s14_run'));
+}
+
+docs {
+  The incident type is still at S14.16's version, and the only config entry since S14.15 is that publish.
+}

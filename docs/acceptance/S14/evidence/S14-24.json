@@ -1,0 +1,53 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident/01a1a7aa-c1d2-722d-a51d-27638249a965/history",
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json",
+      "x-request-id": "85ecaefe3e4dcfff79ac2acedd135d7d"
+    },
+    "body": {
+      "items": [
+        {
+          "action": "update",
+          "actor_id": "b4f00c92-8fe3-4907-9c6f-d9dd1d684d3d",
+          "after": {
+            "priority": 1,
+            "short_description": "S14 112a9c7c audit timeline",
+            "state": "new"
+          },
+          "at": "2026-11-04T17:45:48.267887Z",
+          "before": {
+            "priority": 2,
+            "short_description": "S14 112a9c7c audit timeline",
+            "state": "new"
+          },
+          "changed": [
+            "/data/priority"
+          ],
+          "source": "user"
+        },
+        {
+          "action": "create",
+          "actor_id": "b4f00c92-8fe3-4907-9c6f-d9dd1d684d3d",
+          "after": {
+            "priority": 2,
+            "short_description": "S14 112a9c7c audit timeline",
+            "state": "new"
+          },
+          "at": "2026-11-04T17:45:48.239718Z",
+          "changed": [
+            "/data/priority",
+            "/data/short_description",
+            "/data/state"
+          ],
+          "source": "user"
+        }
+      ]
+    }
+  }
+}

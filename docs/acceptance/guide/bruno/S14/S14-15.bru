@@ -1,0 +1,34 @@
+meta {
+  name: S14.15 AC1: the admin reads the current incident version
+  type: http
+  seq: 15
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/incident
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+script:pre-request {
+  bru.setVar('s14_t0', new Date(Date.now() - 5000).toISOString());
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  test('the incident type, current', () => { expect(b.key).to.eql('incident'); expect(b.current).to.eql(true); });
+  bru.setVar('s14_prev', String(b.version));
+  bru.setVar('s14_cur_schema', N.rawMember(N.text(), 'schema'));
+  bru.setVar('s14_fixed', JSON.stringify(b.fixed_columns));
+  bru.setVar('s14_states', JSON.stringify(b.states));
+}
+
+docs {
+  Kept for the publish body (S14.16) and the secret publish (S14.28). The timeline read of S14.20 starts 5 s before this request.
+}

@@ -1,0 +1,26 @@
+meta {
+  name: S14.21 AC1: the admin sees the same timeline
+  type: http
+  seq: 21
+}
+
+get {
+  url: {{core_url}}/api/v1/audit/entries?from={{s14_t0}}&limit=500
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const ids = N.json().items.filter(e => e.subject_id === bru.getVar('s14_rec') || (e.action === 'publish' && e.version_after === Number(bru.getVar('s14_new')))).map(e => e.action);
+  test('update, create, publish', () => expect(ids).to.eql(['update', 'create', 'publish']));
+}
+
+docs {
+  A tenant admin also holds `audit.read`: the same three entries, in the same order.
+}

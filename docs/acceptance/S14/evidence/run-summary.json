@@ -1,0 +1,387 @@
+[
+  {
+    "request": "S14.1",
+    "method": "POST",
+    "url": "http://127.0.0.1:18081/realms/nava/protocol/openid-connect/token",
+    "status": 200,
+    "tests_passed": 3,
+    "tests_failed": 0,
+    "tests": [
+      "HTTP 200 from Keycloak",
+      "access token issued",
+      "issuer is the pinned realm URL"
+    ]
+  },
+  {
+    "request": "S14.2",
+    "method": "POST",
+    "url": "http://127.0.0.1:18081/realms/nava/protocol/openid-connect/token",
+    "status": 200,
+    "tests_passed": 3,
+    "tests_failed": 0,
+    "tests": [
+      "HTTP 200 from Keycloak",
+      "access token issued",
+      "issuer is the pinned realm URL"
+    ]
+  },
+  {
+    "request": "S14.3",
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/audit/entries?limit=2",
+    "status": 200,
+    "tests_passed": 4,
+    "tests_failed": 0,
+    "tests": [
+      "HTTP 200",
+      "items is an array of at most 2",
+      "newest first",
+      "diff_salt only with an unredacted diff"
+    ]
+  },
+  {
+    "request": "S14.4",
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/audit/entries?limit=2&page_token=<token>",
+    "status": 200,
+    "tests_passed": 2,
+    "tests_failed": 0,
+    "tests": [
+      "HTTP 200",
+      "no entry of the first page"
+    ]
+  },
+  {
+    "request": "S14.5",
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/audit/entries?domain=config&limit=50",
+    "status": 200,
+    "tests_passed": 2,
+    "tests_failed": 0,
+    "tests": [
+      "HTTP 200",
+      "every entry is config"
+    ]
+  },
+  {
+    "request": "S14.6",
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/audit/entries?subject_id=00000000-0000-4000-8000-00000000dead",
+    "status": 200,
+    "tests_passed": 2,
+    "tests_failed": 0,
+    "tests": [
+      "HTTP 200",
+      "no items, no next page"
+    ]
+  },
+  {
+    "request": "S14.7",
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/audit/entries",
+    "status": 401,
+    "tests_passed": 3,
+    "tests_failed": 0,
+    "tests": [
+      "HTTP 401",
+      "problem+json, code invalid_token",
+      "problem instance is this response's X-Request-Id"
+    ]
+  },
+  {
+    "request": "S14.8",
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/audit/entries",
+    "status": 403,
+    "tests_passed": 3,
+    "tests_failed": 0,
+    "tests": [
+      "HTTP 403",
+      "problem+json, code forbidden",
+      "problem instance is this response's X-Request-Id"
+    ]
+  },
+  {
+    "request": "S14.9",
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/audit/entries?limit=501",
+    "status": 400,
+    "tests_passed": 3,
+    "tests_failed": 0,
+    "tests": [
+      "HTTP 400",
+      "problem+json, code validation_failed",
+      "problem instance is this response's X-Request-Id"
+    ]
+  },
+  {
+    "request": "S14.10",
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/audit/entries?page_token=<token>",
+    "status": 400,
+    "tests_passed": 3,
+    "tests_failed": 0,
+    "tests": [
+      "HTTP 400",
+      "problem+json, code invalid_cursor",
+      "problem instance is this response's X-Request-Id"
+    ]
+  },
+  {
+    "request": "S14.11",
+    "method": "POST",
+    "url": "http://127.0.0.1:18081/realms/nava/protocol/openid-connect/token",
+    "status": 200,
+    "tests_passed": 3,
+    "tests_failed": 0,
+    "tests": [
+      "HTTP 200 from Keycloak",
+      "access token issued",
+      "issuer is the pinned realm URL"
+    ]
+  },
+  {
+    "request": "S14.12",
+    "method": "POST",
+    "url": "http://127.0.0.1:18081/realms/nava/protocol/openid-connect/token",
+    "status": 200,
+    "tests_passed": 3,
+    "tests_failed": 0,
+    "tests": [
+      "HTTP 200 from Keycloak",
+      "access token issued",
+      "issuer is the pinned realm URL"
+    ]
+  },
+  {
+    "request": "S14.13",
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/me",
+    "status": 200,
+    "tests_passed": 3,
+    "tests_failed": 0,
+    "tests": [
+      "HTTP 200",
+      "tenant_id is 00000000-0000-4000-8000-0000000000a1",
+      "Me has the contract fields"
+    ]
+  },
+  {
+    "request": "S14.14",
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/me",
+    "status": 200,
+    "tests_passed": 3,
+    "tests_failed": 0,
+    "tests": [
+      "HTTP 200",
+      "tenant_id is 00000000-0000-4000-8000-0000000000a1",
+      "Me has the contract fields"
+    ]
+  },
+  {
+    "request": "S14.15",
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/entity-types/incident",
+    "status": 200,
+    "tests_passed": 2,
+    "tests_failed": 0,
+    "tests": [
+      "HTTP 200",
+      "the incident type, current"
+    ]
+  },
+  {
+    "request": "S14.16",
+    "method": "POST",
+    "url": "http://127.0.0.1:18080/api/v1/entity-types/incident/versions",
+    "status": 201,
+    "tests_passed": 2,
+    "tests_failed": 0,
+    "tests": [
+      "HTTP 201",
+      "the next version, current"
+    ]
+  },
+  {
+    "request": "S14.17",
+    "method": "POST",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident",
+    "status": 201,
+    "tests_passed": 2,
+    "tests_failed": 0,
+    "tests": [
+      "HTTP 201",
+      "version 1 on the new schema version"
+    ]
+  },
+  {
+    "request": "S14.18",
+    "method": "PATCH",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident/01a1a7aa-c1d2-722d-a51d-27638249a965",
+    "status": 200,
+    "tests_passed": 2,
+    "tests_failed": 0,
+    "tests": [
+      "HTTP 200",
+      "version 2, priority 1"
+    ]
+  },
+  {
+    "request": "S14.19",
+    "method": "POST",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident",
+    "status": 201,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "tests": [
+      "HTTP 201"
+    ]
+  },
+  {
+    "request": "S14.20",
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/audit/entries?from=2026-11-04T17:45:43.170Z&limit=500",
+    "status": 200,
+    "tests_passed": 12,
+    "tests_failed": 0,
+    "tests": [
+      "HTTP 200",
+      "newest first",
+      "the publish of S14.16 is on the timeline",
+      "the incident's create and update are on the timeline, and nothing else of it",
+      "in order: publish, then create, then update (newest first: update, create, publish)",
+      "the publish: config, by the admin, source user, version n-1 to n, the content hash, a diff adding the property",
+      "the record entries: record domain, by Alice, source user, on the published incident type",
+      "the create: version 1, a diff that adds the data",
+      "the update: version 1 to 2, a diff replacing the priority 2 with 1",
+      "no diff is masked for these entries (the incident type has no secret property)",
+      "tenant B's incident (S14.19) is not on tenant A's timeline",
+      "response names nothing of the other tenant"
+    ]
+  },
+  {
+    "request": "S14.21",
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/audit/entries?from=2026-11-04T17:45:43.170Z&limit=500",
+    "status": 200,
+    "tests_passed": 2,
+    "tests_failed": 0,
+    "tests": [
+      "HTTP 200",
+      "update, create, publish"
+    ]
+  },
+  {
+    "request": "S14.22",
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/audit/entries?domain=config&subject_type=entity_definition&limit=500",
+    "status": 200,
+    "tests_passed": 6,
+    "tests_failed": 0,
+    "tests": [
+      "HTTP 200",
+      "three backfilled version-1 creates, one per seeded type (incident, request, change)",
+      "each v1: the system actor onboarding, source onboarding, version 1, no diff, the content hash",
+      "the incident type's v1 is among them: the same definition as S14.16's publish",
+      "a backfilled publish (a version published before the upgrade) names its publisher, source user",
+      "S14.16's publish is live, not backfilled"
+    ]
+  },
+  {
+    "request": "S14.23",
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/audit/entries",
+    "status": 403,
+    "tests_passed": 3,
+    "tests_failed": 0,
+    "tests": [
+      "HTTP 403",
+      "problem+json, code forbidden",
+      "problem instance is this response's X-Request-Id"
+    ]
+  },
+  {
+    "request": "S14.24",
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident/01a1a7aa-c1d2-722d-a51d-27638249a965/history",
+    "status": 200,
+    "tests_passed": 4,
+    "tests_failed": 0,
+    "tests": [
+      "HTTP 200",
+      "update, create",
+      "each by Alice, source user",
+      "the update changed the priority 2 to 1"
+    ]
+  },
+  {
+    "request": "S14.25",
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/audit/entries",
+    "status": 403,
+    "tests_passed": 4,
+    "tests_failed": 0,
+    "tests": [
+      "HTTP 403",
+      "problem+json, code forbidden",
+      "problem instance is this response's X-Request-Id",
+      "response names nothing of the other tenant"
+    ]
+  },
+  {
+    "request": "S14.26",
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident/00000000-0000-4000-8000-00000000dead/history",
+    "status": 404,
+    "tests_passed": 2,
+    "tests_failed": 0,
+    "tests": [
+      "HTTP 404 problem+json, code not_found, no instance",
+      "HTTP 404"
+    ]
+  },
+  {
+    "request": "S14.27",
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident/01a1a7aa-c1d2-722d-a51d-27638249a965/history",
+    "status": 404,
+    "tests_passed": 4,
+    "tests_failed": 0,
+    "tests": [
+      "HTTP 404 problem+json, code not_found, no instance",
+      "HTTP 404",
+      "body byte-identical to S14.26's 404",
+      "response names nothing of the other tenant"
+    ]
+  },
+  {
+    "request": "S14.28",
+    "method": "POST",
+    "url": "http://127.0.0.1:18080/api/v1/entity-types/incident/versions",
+    "status": 422,
+    "tests_passed": 5,
+    "tests_failed": 0,
+    "tests": [
+      "HTTP 422",
+      "problem+json, code config_secret_in_content",
+      "problem instance is this response's X-Request-Id",
+      "errors[] points at /definition/schema/properties/api_token_s14_112a9c7c/default",
+      "response names nothing of the other tenant"
+    ]
+  },
+  {
+    "request": "S14.29",
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/audit/entries?from=2026-11-04T17:45:43.170Z&domain=config&limit=500",
+    "status": 200,
+    "tests_passed": 4,
+    "tests_failed": 0,
+    "tests": [
+      "HTTP 200",
+      "the incident type is still at S14.16's version",
+      "one config entry for the incident type since S14.15: the publish of S14.16",
+      "response names nothing of the other tenant"
+    ]
+  }
+]

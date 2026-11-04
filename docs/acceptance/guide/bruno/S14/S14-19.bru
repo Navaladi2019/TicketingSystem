@@ -1,0 +1,35 @@
+meta {
+  name: S14.19 Isolation: Bob creates an incident in tenant B
+  type: http
+  seq: 19
+}
+
+post {
+  url: {{core_url}}/api/v1/records/incident
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+  Idempotency-Key: tick437-s14-{{s14_run}}-create-b
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "S14 {{s14_run}} tenant B only"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  bru.setVar('s14_rec_b', N.json().id);
+}
+
+docs {
+  Tenant B's own write in the same window. S14.20 shows it is not on tenant A's timeline.
+}

@@ -1,0 +1,49 @@
+meta {
+  name: S14.16 AC1: the admin publishes a new incident-type version: 201
+  type: http
+  seq: 16
+}
+
+post {
+  url: {{core_url}}/api/v1/entity-types/incident/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick437-s14-{{s14_run}}-publish
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "definition": "set by the pre-request script (built from the current incident version)"
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const cur = JSON.parse(bru.getVar('s14_cur_schema'));
+  const run = bru.getVar('s14_run');
+  const body = (schema) => JSON.stringify({ definition: { schema, fixed_columns: JSON.parse(bru.getVar('s14_fixed')), states: JSON.parse(bru.getVar('s14_states')) } });
+  const next = JSON.parse(JSON.stringify(cur));
+  next.properties['impact_s14_' + run] = { type: 'string', title: 'Impact (S14 run ' + run + ')', maxLength: 200 };
+  req.setBody(body(next));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  test('the next version, current', () => {
+    expect(b.version).to.eql(Number(bru.getVar('s14_prev')) + 1);
+    expect(b.current).to.eql(true);
+  });
+  bru.setVar('s14_new', String(b.version));
+  bru.setVar('s14_new_sha', b.schema_sha256);
+}
+
+docs {
+  The current schema plus an optional property `impact_s14_<run>`: compatible, so 201 with the next version.
+}

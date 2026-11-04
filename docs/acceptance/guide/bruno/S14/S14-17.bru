@@ -1,0 +1,41 @@
+meta {
+  name: S14.17 AC1: Alice creates an incident on the new version: 201
+  type: http
+  seq: 17
+}
+
+post {
+  url: {{core_url}}/api/v1/records/incident
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: tick437-s14-{{s14_run}}-create
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "S14 {{s14_run}} audit timeline",
+      "priority": 2
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  test('version 1 on the new schema version', () => {
+    expect(b.version).to.eql(1);
+    expect(b.schema_version).to.eql(Number(bru.getVar('s14_new')));
+  });
+  bru.setVar('s14_rec', b.id);
+}
+
+docs {
+  An incident written after the publish, so it is validated against the new version.
+}

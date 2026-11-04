@@ -1,0 +1,49 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/audit/entries?from=2026-11-04T17:45:43.170Z&domain=config&limit=500",
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json",
+      "x-request-id": "7ae8bdd77436998a9cdb66ad40d4f1b5"
+    },
+    "body": {
+      "items": [
+        {
+          "action": "publish",
+          "actor_principal_id": "b7807dfa-32b1-45e0-a92a-523b9063eca4",
+          "backfilled": false,
+          "causation_depth": 0,
+          "content_sha256": "840460925721131b3b5c7057d1e6825d590c7d90404977034d94101dc274715c",
+          "diff": [
+            {
+              "op": "add",
+              "path": "/properties/impact_s14_112a9c7c",
+              "value": {
+                "maxLength": 200,
+                "title": "Impact (S14 run 112a9c7c)",
+                "type": "string"
+              }
+            }
+          ],
+          "diff_redacted": false,
+          "diff_salt": "e565d53e89bd09b5164a0ea036165fb7",
+          "diff_sha256": "d17e0b248e51bdc409b638c3c40cc5c11c414a0f03e07e93bef3d603e9ecd5ea",
+          "diff_truncated": false,
+          "domain": "config",
+          "id": "01a1a7aa-c1b1-7273-824b-dac97f272d34",
+          "occurred_at": "2026-11-04T17:45:48.204425Z",
+          "request_id": "721a6b9aec76604b0738fff8a4ab7963",
+          "source": "user",
+          "subject_id": "30c1671a-1be5-4410-82bf-ff6604786b2e",
+          "subject_type": "entity_definition",
+          "version_after": 3,
+          "version_before": 2
+        }
+      ]
+    }
+  }
+}

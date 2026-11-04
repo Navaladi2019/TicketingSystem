@@ -1,8 +1,8 @@
 meta {
-  name: S14 audit timeline
+  name: S14 audit
   seq: 10
 }
 
 docs {
-  TICK-435 (P5-17, ADR-004 R7 and R8). The tenant's one audit timeline, `GET /api/v1/audit/entries`, read by tenant A's admin (who holds `audit.read`): newest first, filtered, stable pages with no overlap, every `diff` masked for the reader, and `diff_salt` only with an unredacted diff. Alice is a member without `audit.read`: 403. 429, 500 and 501 are in the coverage page. Needs `tools/seed.sh`.
+  Story S14, TICK-419 (kit TICK-437). S14.1-S14.10 (TICK-435, P5-17, ADR-004 R7 and R8) are the reader's contract: `GET /api/v1/audit/entries` read by tenant A's admin (who holds `audit.read`), newest first, filtered, stable pages with no overlap, every `diff` masked for the reader, `diff_salt` only with an unredacted diff; Alice, a member without `audit.read`, gets 403. S14.11-S14.29 walk the story's four acceptance steps (AC1-AC4) with the story users: `admin@tenant-a.test`, `auditor@tenant-a.test` (tenant A's auditors group), `agent@tenant-a` is Alice (`alice@tenant-a.test`), `agent@tenant-b` is Bob (`bob@tenant-b.test`). Needs `tools/seed.sh`. AC2 (backfilled entries) needs a stack whose entity-type versions existed before the S14 migrations ran: start the stack at a commit before S14, run that commit's `tools/seed.sh`, then upgrade the same stack to this branch and run `tools/seed.sh` again (docs/acceptance/S14/README.md). On a stack created at this branch, the seeded versions were never backfilled and S14.22 fails. Runs again on the same stack: each pass publishes the next incident version and creates two incidents. 429, 500 and 501 are in the coverage page. CI-A2 is not asserted for configuration tables (D-5-8: their commit check arrives in S15).
 }

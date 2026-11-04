@@ -1,0 +1,108 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/audit/entries?from=2026-11-04T17:45:43.170Z&limit=500",
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json",
+      "x-request-id": "72231de81e23e495c1c8e657cb7fb77a"
+    },
+    "body": {
+      "items": [
+        {
+          "action": "update",
+          "actor_principal_id": "b4f00c92-8fe3-4907-9c6f-d9dd1d684d3d",
+          "backfilled": false,
+          "causation_depth": 0,
+          "causation_id": "01a1a7aa-c1f0-7d9a-9ca2-7748a987f97d",
+          "diff": [
+            {
+              "op": "replace",
+              "path": "/priority",
+              "value": 1
+            }
+          ],
+          "diff_redacted": false,
+          "diff_salt": "106d7eab6794a12830385232acfe2b6d",
+          "diff_sha256": "d8be3fd7d91a25b689d2587ea07f13b292ffb343d9cd457c18a7bcef1bf80f4a",
+          "diff_truncated": false,
+          "domain": "record",
+          "entity_definition_id": "30c1671a-1be5-4410-82bf-ff6604786b2e",
+          "id": "01a1a7aa-c1f3-7935-866c-cb040df5b451",
+          "occurred_at": "2026-11-04T17:45:48.267887Z",
+          "request_id": "df9161025034bc32a26d64fdca380678",
+          "source": "user",
+          "subject_id": "01a1a7aa-c1d2-722d-a51d-27638249a965",
+          "subject_type": "record",
+          "version_after": 2,
+          "version_before": 1
+        },
+        {
+          "action": "create",
+          "actor_principal_id": "b4f00c92-8fe3-4907-9c6f-d9dd1d684d3d",
+          "backfilled": false,
+          "causation_depth": 0,
+          "causation_id": "01a1a7aa-c1d1-7004-b78a-3dee795adf42",
+          "diff": [
+            {
+              "op": "add",
+              "path": "",
+              "value": {
+                "priority": 2,
+                "short_description": "S14 112a9c7c audit timeline",
+                "state": "new"
+              }
+            }
+          ],
+          "diff_redacted": false,
+          "diff_salt": "53884028a8e76af78d56463939983247",
+          "diff_sha256": "f4ca5fc259c2683aedcb4c45934a9475f523456ee3137f05e128107146ddfba9",
+          "diff_truncated": false,
+          "domain": "record",
+          "entity_definition_id": "30c1671a-1be5-4410-82bf-ff6604786b2e",
+          "id": "01a1a7aa-c1d3-7d84-831a-29a31655ba0c",
+          "occurred_at": "2026-11-04T17:45:48.239718Z",
+          "request_id": "0ad617d8ed1487f5d428f6279d34788a",
+          "source": "user",
+          "subject_id": "01a1a7aa-c1d2-722d-a51d-27638249a965",
+          "subject_type": "record",
+          "version_after": 1
+        },
+        {
+          "action": "publish",
+          "actor_principal_id": "b7807dfa-32b1-45e0-a92a-523b9063eca4",
+          "backfilled": false,
+          "causation_depth": 0,
+          "content_sha256": "840460925721131b3b5c7057d1e6825d590c7d90404977034d94101dc274715c",
+          "diff": [
+            {
+              "op": "add",
+              "path": "/properties/impact_s14_112a9c7c",
+              "value": {
+                "maxLength": 200,
+                "title": "Impact (S14 run 112a9c7c)",
+                "type": "string"
+              }
+            }
+          ],
+          "diff_redacted": false,
+          "diff_salt": "e565d53e89bd09b5164a0ea036165fb7",
+          "diff_sha256": "d17e0b248e51bdc409b638c3c40cc5c11c414a0f03e07e93bef3d603e9ecd5ea",
+          "diff_truncated": false,
+          "domain": "config",
+          "id": "01a1a7aa-c1b1-7273-824b-dac97f272d34",
+          "occurred_at": "2026-11-04T17:45:48.204425Z",
+          "request_id": "721a6b9aec76604b0738fff8a4ab7963",
+          "source": "user",
+          "subject_id": "30c1671a-1be5-4410-82bf-ff6604786b2e",
+          "subject_type": "entity_definition",
+          "version_after": 3,
+          "version_before": 2
+        }
+      ]
+    }
+  }
+}

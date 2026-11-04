@@ -1,0 +1,118 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/audit/entries?domain=config&subject_type=entity_definition&limit=500",
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json",
+      "x-request-id": "05b72c6f7469073a66fa6516e6f97daa"
+    },
+    "body": {
+      "items": [
+        {
+          "action": "publish",
+          "actor_principal_id": "b7807dfa-32b1-45e0-a92a-523b9063eca4",
+          "backfilled": false,
+          "causation_depth": 0,
+          "content_sha256": "840460925721131b3b5c7057d1e6825d590c7d90404977034d94101dc274715c",
+          "diff": [
+            {
+              "op": "add",
+              "path": "/properties/impact_s14_112a9c7c",
+              "value": {
+                "maxLength": 200,
+                "title": "Impact (S14 run 112a9c7c)",
+                "type": "string"
+              }
+            }
+          ],
+          "diff_redacted": false,
+          "diff_salt": "e565d53e89bd09b5164a0ea036165fb7",
+          "diff_sha256": "d17e0b248e51bdc409b638c3c40cc5c11c414a0f03e07e93bef3d603e9ecd5ea",
+          "diff_truncated": false,
+          "domain": "config",
+          "id": "01a1a7aa-c1b1-7273-824b-dac97f272d34",
+          "occurred_at": "2026-11-04T17:45:48.204425Z",
+          "request_id": "721a6b9aec76604b0738fff8a4ab7963",
+          "source": "user",
+          "subject_id": "30c1671a-1be5-4410-82bf-ff6604786b2e",
+          "subject_type": "entity_definition",
+          "version_after": 3,
+          "version_before": 2
+        },
+        {
+          "action": "publish",
+          "actor_principal_id": "b7807dfa-32b1-45e0-a92a-523b9063eca4",
+          "backfilled": true,
+          "causation_depth": 0,
+          "content_sha256": "a4c6ea582b140d5087d49c8b83b73cab43ee21052db74851fc0360d71e9a38c0",
+          "diff_redacted": false,
+          "diff_truncated": false,
+          "domain": "config",
+          "entity_definition_id": "30c1671a-1be5-4410-82bf-ff6604786b2e",
+          "id": "5886d5e0-7f54-5b61-bee1-54ae8cbf1ac2",
+          "occurred_at": "2026-11-04T17:44:11.42673Z",
+          "source": "user",
+          "subject_id": "30c1671a-1be5-4410-82bf-ff6604786b2e",
+          "subject_type": "entity_definition",
+          "version_after": 2,
+          "version_before": 1
+        },
+        {
+          "action": "create",
+          "actor_system": "onboarding",
+          "backfilled": true,
+          "causation_depth": 0,
+          "content_sha256": "3cb24cd57f4e728513c69d0a134b0e02f2e5399afdf9f2a1c48ad74ceb151c4f",
+          "diff_redacted": false,
+          "diff_truncated": false,
+          "domain": "config",
+          "entity_definition_id": "30c1671a-1be5-4410-82bf-ff6604786b2e",
+          "id": "6c17adf7-ccda-5bd7-b724-619a879fb7f9",
+          "occurred_at": "2026-11-04T17:44:10.872867Z",
+          "source": "onboarding",
+          "subject_id": "30c1671a-1be5-4410-82bf-ff6604786b2e",
+          "subject_type": "entity_definition",
+          "version_after": 1
+        },
+        {
+          "action": "create",
+          "actor_system": "onboarding",
+          "backfilled": true,
+          "causation_depth": 0,
+          "content_sha256": "7cd7c3b885a4b0a9d0ceab2c18f9dd7fad7c588e6c867599ebe6dd1329756906",
+          "diff_redacted": false,
+          "diff_truncated": false,
+          "domain": "config",
+          "entity_definition_id": "789e651c-f700-4ca9-b8cd-a765521827f8",
+          "id": "5dc9e0dc-9376-59c3-9417-de4b873e2452",
+          "occurred_at": "2026-11-04T17:44:10.872867Z",
+          "source": "onboarding",
+          "subject_id": "789e651c-f700-4ca9-b8cd-a765521827f8",
+          "subject_type": "entity_definition",
+          "version_after": 1
+        },
+        {
+          "action": "create",
+          "actor_system": "onboarding",
+          "backfilled": true,
+          "causation_depth": 0,
+          "content_sha256": "567cd636405ff3d074fcdf4cc836c1b762826bd3ee2c780ed30439cb9ab65645",
+          "diff_redacted": false,
+          "diff_truncated": false,
+          "domain": "config",
+          "entity_definition_id": "f888f458-18c9-4cf8-a637-17efb818a80e",
+          "id": "0e15887e-5833-591e-8ed4-186a2f89b167",
+          "occurred_at": "2026-11-04T17:44:10.872867Z",
+          "source": "onboarding",
+          "subject_id": "f888f458-18c9-4cf8-a637-17efb818a80e",
+          "subject_type": "entity_definition",
+          "version_after": 1
+        }
+      ]
+    }
+  }
+}

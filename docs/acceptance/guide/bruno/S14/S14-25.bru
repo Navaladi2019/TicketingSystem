@@ -1,0 +1,25 @@
+meta {
+  name: S14.25 AC3: agent@tenant-b (Bob) reads the timeline: 403
+  type: http
+  seq: 25
+}
+
+get {
+  url: {{core_url}}/api/v1/audit/entries
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('forbidden', 403);
+  N.noLeak(bru.getVar('s14_rec'), bru.getVar('s14_inc_def'));
+}
+
+docs {
+  Bob holds no `audit.read` in tenant B, and the timeline is only ever his own tenant's.
+}

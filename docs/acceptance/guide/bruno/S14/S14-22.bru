@@ -1,0 +1,54 @@
+meta {
+  name: S14.22 AC2: the backfilled entity-type versions
+  type: http
+  seq: 22
+}
+
+get {
+  url: {{core_url}}/api/v1/audit/entries?domain=config&subject_type=entity_definition&limit=500
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{auditor_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const items = N.json().items;
+  const back = items.filter(e => e.backfilled);
+  const v1 = back.filter(e => e.action === 'create');
+  test('three backfilled version-1 creates, one per seeded type (incident, request, change)', () => {
+    expect(v1, 'no backfilled entry: was the stack upgraded from a pre-S14 commit? (folder docs)').to.have.length(3);
+    expect(new Set(v1.map(e => e.subject_id)).size).to.eql(3);
+  });
+  test('each v1: the system actor onboarding, source onboarding, version 1, no diff, the content hash', () => v1.forEach(e => {
+    expect(e.actor_system, e.subject_id).to.eql('onboarding');
+    expect(e, e.subject_id).to.not.have.property('actor_principal_id');
+    expect(e.source, e.subject_id).to.eql('onboarding');
+    expect(e.version_after, e.subject_id).to.eql(1);
+    expect(e, e.subject_id).to.not.have.property('version_before');
+    expect(e, e.subject_id).to.not.have.property('diff');
+    expect(e.content_sha256, e.subject_id).to.match(/^[0-9a-f]{64}$/);
+  }));
+  test("the incident type's v1 is among them: the same definition as S14.16's publish", () => {
+    expect(v1.map(e => e.subject_id)).to.include(bru.getVar('s14_inc_def'));
+  });
+  test('a backfilled publish (a version published before the upgrade) names its publisher, source user', () => back.filter(e => e.action === 'publish').forEach(e => {
+    expect(e.actor_principal_id, e.subject_id).to.be.a('string');
+    expect(e.source, e.subject_id).to.eql('user');
+    expect(e.version_before, e.subject_id).to.eql(e.version_after - 1);
+  }));
+  test("S14.16's publish is live, not backfilled", () => {
+    const live = items.find(e => e.action === 'publish' && e.subject_id === bru.getVar('s14_inc_def') && e.version_after === Number(bru.getVar('s14_new')));
+    expect(live).to.be.an('object');
+    expect(live.backfilled).to.eql(false);
+  });
+  console.log('S14.22 backfilled:', back.map(e => `${e.action} v${e.version_after} ${e.actor_system || 'user'}`).join(', '));
+}
+
+docs {
+  Every version written before the S14 migrations is in the log once, marked `backfilled`: tenant A's `incident`, `request` and `change` version 1 (`create`, system actor `onboarding`, no diff, the content hash), and any version published before the upgrade (`publish`, by its publisher, `source: user`). The publish of S14.16 is a live entry, not backfilled. Needs the upgrade setup (see the folder docs).
+}

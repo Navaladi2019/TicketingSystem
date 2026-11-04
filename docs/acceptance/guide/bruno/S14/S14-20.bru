@@ -1,0 +1,82 @@
+meta {
+  name: S14.20 AC1 (CI-A11): the auditor sees the publish and both record changes on one timeline
+  type: http
+  seq: 20
+}
+
+get {
+  url: {{core_url}}/api/v1/audit/entries?from={{s14_t0}}&limit=500
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{auditor_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const items = N.json().items;
+  test('newest first', () => {
+    for (let i = 1; i < items.length; i++) expect(Date.parse(items[i - 1].occurred_at)).to.be.at.least(Date.parse(items[i].occurred_at));
+  });
+  const pubAt = items.findIndex(e => e.domain === 'config' && e.subject_type === 'entity_definition' && e.version_after === Number(bru.getVar('s14_new')) && e.action === 'publish');
+  const recE = items.filter(e => e.subject_type === 'record' && e.subject_id === bru.getVar('s14_rec'));
+  const crAt = items.findIndex(e => e.subject_id === bru.getVar('s14_rec') && e.action === 'create');
+  const upAt = items.findIndex(e => e.subject_id === bru.getVar('s14_rec') && e.action === 'update');
+  const pub = items[pubAt], cr = items[crAt], up = items[upAt];
+  test('the publish of S14.16 is on the timeline', () => expect(pubAt).to.be.at.least(0));
+  test("the incident's create and update are on the timeline, and nothing else of it", () => {
+    expect(crAt).to.be.at.least(0);
+    expect(upAt).to.be.at.least(0);
+    expect(recE.map(e => e.action).sort()).to.eql(['create', 'update']);
+  });
+  test('in order: publish, then create, then update (newest first: update, create, publish)', () => {
+    expect(upAt).to.be.below(crAt);
+    expect(crAt).to.be.below(pubAt);
+  });
+  test('the publish: config, by the admin, source user, version n-1 to n, the content hash, a diff adding the property', () => {
+    expect(pub.domain).to.eql('config');
+    expect(pub.actor_principal_id).to.eql(bru.getVar('s14_admin'));
+    expect(pub).to.not.have.property('actor_system');
+    expect(pub.source).to.eql('user');
+    expect(pub.version_before).to.eql(Number(bru.getVar('s14_prev')));
+    expect(pub.content_sha256).to.eql(bru.getVar('s14_new_sha'));
+    expect(pub.backfilled).to.eql(false);
+    expect(pub.diff).to.be.an('array');
+    expect(pub.diff.map(o => o.op + ' ' + o.path)).to.include('add /properties/impact_s14_' + bru.getVar('s14_run'));
+  });
+  test('the record entries: record domain, by Alice, source user, on the published incident type', () => [cr, up].forEach(e => {
+    expect(e.domain, e.action).to.eql('record');
+    expect(e.actor_principal_id, e.action).to.eql(bru.getVar('s14_alice'));
+    expect(e.source, e.action).to.eql('user');
+    expect(e.entity_definition_id, e.action).to.eql(pub.subject_id);
+    expect(e.backfilled, e.action).to.eql(false);
+  }));
+  test('the create: version 1, a diff that adds the data', () => {
+    expect(cr.version_after).to.eql(1);
+    expect(cr).to.not.have.property('version_before');
+    expect(cr.diff).to.be.an('array').and.not.empty;
+  });
+  test('the update: version 1 to 2, a diff replacing the priority 2 with 1', () => {
+    expect(up.version_before).to.eql(1);
+    expect(up.version_after).to.eql(2);
+    const op = up.diff.find(o => /priority$/.test(o.path));
+    expect(op, JSON.stringify(up.diff)).to.include({ op: 'replace', value: 1 });
+  });
+  test('no diff is masked for these entries (the incident type has no secret property)', () => [pub, cr, up].forEach(e => {
+    expect(e.diff_redacted, e.action).to.eql(false);
+    expect(e.diff_salt, e.action).to.match(/^[0-9a-f]+$/);
+  }));
+  test("tenant B's incident (S14.19) is not on tenant A's timeline", () => {
+    items.forEach(e => expect(e.subject_id).to.not.eql(bru.getVar('s14_rec_b')));
+  });
+  N.noLeak(bru.getVar('s14_rec_b'), 'tenant B only');
+  bru.setVar('s14_inc_def', pub.subject_id);
+  console.log('S14.20 timeline (newest first):', items.map(e => `${e.domain}/${e.action}/${e.subject_type}`).join(', '));
+}
+
+docs {
+  Every entry since S14.15, newest first. The publish (domain `config`, by the admin), Alice's create and update of the incident (domain `record`), in that order on one page, each with its actor, `source: user` and a diff. The record entries name the incident type whose publish comes first (`entity_definition_id` equals the publish's `subject_id`). Tenant B's incident of S14.19 is not there.
+}

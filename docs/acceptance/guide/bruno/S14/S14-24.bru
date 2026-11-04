@@ -1,0 +1,28 @@
+meta {
+  name: S14.24 AC3: Alice reads the incident's own history
+  type: http
+  seq: 24
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s14_rec}}/history
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const items = N.json().items;
+  test('update, create', () => expect(items.map(i => i.action)).to.eql(['update', 'create']));
+  test('each by Alice, source user', () => items.forEach(i => { expect(i.actor_id).to.eql(bru.getVar('s14_alice')); expect(i.source).to.eql('user'); }));
+  test('the update changed the priority 2 to 1', () => { expect(items[0].before.priority).to.eql(2); expect(items[0].after.priority).to.eql(1); });
+}
+
+docs {
+  Any user of the tenant reads a record's history: update then create, by Alice.
+}
