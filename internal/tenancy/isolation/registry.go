@@ -434,7 +434,7 @@ func Paths() []Path {
 		sql("audit_log: insert an audit row for tenant B", "nava_app", Denied,
 			"INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, actor_system, source) VALUES ($1, $2, 'record', 'update', 'record', $3, 'user', 'user')",
 			TenantB, NewID, RecordB2),
-		sql("audit_log: audit tenant B's record from tenant A", "nava_worker", Denied,
+		sql("audit_log: worker inserts a row with tenant B's tenant_id (WITH CHECK)", "nava_worker", Denied,
 			"INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, actor_system, source) VALUES ($1, $2, 'record', 'update', 'record', $3, 'workflow', 'workflow')",
 			TenantB, NewID, RecordB2),
 		sql("audit_log: rewrite tenant B's audit rows", "nava_app", Denied,
