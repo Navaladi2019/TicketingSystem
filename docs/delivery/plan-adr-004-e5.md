@@ -4,7 +4,7 @@ id: PLAN-005-E5
 title: Implementing ADR-004 erratum E5 (group sync tombstones groups, no FK actions on audited tables, no secrets in record payloads)
 adr: "[[ADR-004-E5-no-fk-actions-no-record-secrets]] (ACCEPTED 2026-11-04, TICK-529; PR #431 merged at 17d5378)"
 issue: TICK-533
-status: DRAFT, awaiting the Solution Architect's PLAN VERDICT
+status: APPROVED (Solution Architect, TICK-533, 2026-11-04), with the D-E5-3 amendment folded in
 date: 2026-11-04
 owner: Technical Lead
 ---
@@ -26,7 +26,7 @@ owner: Technical Lead
 | T-E5-7 | TICK-540 | `security` | Adversarial proof that a secret in a record write leaks nowhere (CI-E5-7, D8 half) |
 | P5-13c | TICK-530 (amended) | `core-dev` | Trigger attached to `records` (`attached: true`), CI-E5-1 passes attached, N3 runbook extended to `tenant_auditor_group` |
 
-**Order:** T-E5-1 → (T-E5-2 ‖ T-E5-3) → T-E5-5 → TICK-530. TICK-452 (PR #432, currently `VERDICT: CHANGES`) gates T-E5-4, T-E5-5, T-E5-7 and TICK-530. T-E5-6 has no prerequisite and starts first, as the ADR allows.
+**Order:** T-E5-1 → (T-E5-2 ‖ T-E5-3) → T-E5-5 → TICK-530. T-E5-5 waits for both T-E5-2 and T-E5-3. TICK-452 (PR #432, currently `VERDICT: CHANGES`) gates T-E5-4, T-E5-5, T-E5-7 and TICK-530. T-E5-6 has no prerequisite and starts first, as the ADR allows.
 
 **The one risk that matters most:** step (ii) running before step (i)'s sync is in. If DELETE on `groups` is revoked while sync still deletes, every tenant's sync, deprovisioning included, fails: the same stall E5 exists to remove. T-E5-5 depends on T-E5-2, and its first acceptance test runs a full sync with DELETE revoked (D-E5-3).
 
@@ -36,7 +36,7 @@ owner: Technical Lead
 |---|---|
 | **D-E5-1** | **Step (i) is one task, and its tests are database-level.** The expand migrations, grants, policies, catalogue entries and I1 ship together because CI-E5-5 and CI-E5-5b test them as one set, and splitting them would leave a policy without its grant. I5 is followed literally: the `CHECK (live)` and the D11 FK are added `NOT VALID` and validated in a second migration of the same PR; the migration that adds `groups.live` sets `lock_timeout`. |
 | **D-E5-2** | **Sync (T-E5-2) and the readers (T-E5-3) are separate tasks.** They touch disjoint packages (`internal/groupsync` versus `internal/identity/pgstore`, `internal/onboard`, the picker query), both need only T-E5-1, and each has its own CI-E5 tests. Both go to `backend-dev`; they can run in parallel. |
-| **D-E5-3** | **Step (ii) depends on T-E5-2 and TICK-452.** On T-E5-2 because a revoked DELETE breaks the old sync (the risk above). On TICK-452 because PR #432 edits `records_pipeline_test.go`, one of the ADR's tests to rewrite. Within M1 there is no deployed fleet, so "after step (i)'s binaries run everywhere" (D10) means "after T-E5-2 has merged into the story branch". The rollout rule I4 (stop-old, then start-new) is written into the operator docs by T-E5-2 for the first real deploy. **The Solution Architect is asked to confirm this reading in the plan verdict.** |
+| **D-E5-3** | **Step (ii) depends on T-E5-2, T-E5-3 and TICK-452.** On T-E5-3 because D10 ships step (i) with the D4 filters, so step (i) is 534, 535 and 536 together (Solution Architect, plan verdict). On T-E5-2 because a revoked DELETE breaks the old sync (the risk above). On TICK-452 because PR #432 edits `records_pipeline_test.go`, one of the ADR's tests to rewrite. Within M1 there is no deployed fleet, so "after step (i)'s binaries run everywhere" (D10) means "after T-E5-2 and T-E5-3 have both merged into the story branch" (confirmed by the Solution Architect in the plan verdict). The rollout rule I4 (stop-old, then start-new) is written into the operator docs by T-E5-2 for the first real deploy. |
 | **D-E5-4** | **TICK-530 keeps P5-13c's number and scope, amended to E5.** It now depends on T-E5-5 and TICK-452, carries the attach, CI-A2 (records), the attached run of CI-E5-1, and N3 (runbook and its cross-tenant test extended to `tenant_auditor_group`), because the ADR names P5-13c for both. |
 | **D-E5-5** | **D6/D7 is `core-dev`, not `backend-dev`.** The lookup must run inside the pipeline transaction under RLS (D6), in `internal/records/pipeline`, which TICK-452 is rewriting. It depends on TICK-452 and T-E5-1. |
 | **D-E5-6** | **D8 is a test task for `security`, not a code change.** PR #432 already refuses a secret path in a record write with `audit_secret_in_diff` (`internal/records/pipeline/audit.go`). What E5 adds is the proof that the value reaches none of the six surfaces in CI-E5-7. If a surface leaks, the Security reviewer reports it and the Technical Lead opens a `core-dev` fix task; T-E5-7 does not close on a skipped test. |
@@ -63,7 +63,7 @@ flowchart LR
     ADR --> E1 & E6
     E1 --> E2 & E3 & E4
     T452 --> E4 & E5 & E7 & T530
-    E2 --> E5 --> T530
+    E2 & E3 --> E5 --> T530
     E1 --> E5
     T530 & E4 & E6 & E7 & E3 --> T437
     classDef done fill:#bbf7d0,stroke:#15803d
@@ -80,8 +80,9 @@ gantt
   T-E5-2 sync tombstones         :e2, after e1, 2d
   T-E5-3 reader filters          :e3, after e1, 1d
   T-E5-4 D6 + D7 pipeline        :e4, after e1, 2d
-  T-E5-7 D8 leak surfaces        :e7, 2026-11-05, 1d
-  T-E5-5 step ii contract + R29  :e5, after e2, 1d
+  TICK-452 merged (assumed)      :milestone, m452, 2026-11-06, 0d
+  T-E5-7 D8 leak surfaces        :e7, after m452, 1d
+  T-E5-5 step ii contract + R29  :e5, after e2 e3, 1d
   TICK-530 attach                :t530, after e5, 1d
 ```
 
