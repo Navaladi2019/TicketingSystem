@@ -58,6 +58,10 @@ func AllowList() map[string]Policy {
 // tombstoned (ADR-004-E5 D5, TICK-534) let group sync delete its own
 // tenant's admins or auditors pointer only once the group it names is
 // tombstoned; the outer columns are qualified with the pointer table (N1).
+// groups_insert_onboard_auditors, groups_select_onboard_auditors and
+// tenant_auditor_group_insert_active (P5-23, TICK-568) let onboarding's
+// upgrade reconcile write an active tenant's auditors group and pointer
+// once, and read only that group.
 func PinnedTenantPolicies() map[string]Policy {
 	own := TenantPred("id")
 	and := func(state string) string { return "(" + own + " AND (state = '" + state + "'::text))" }
@@ -67,7 +71,17 @@ func PinnedTenantPolicies() map[string]Policy {
 		return "(" + TenantPred("tenant_id") + " AND (EXISTS ( SELECT 1\n   FROM groups g\n  WHERE ((g.tenant_id = " + table +
 			".tenant_id) AND (g.id = " + table + ".group_id) AND (g.deleted_at IS NOT NULL)))))"
 	}
+	// P5-23 (TICK-568): nava_onboard creates the auditors group of an active
+	// tenant that has none, and only that group (migration 20261104191200).
+	active := " AND (tenant_id IN ( SELECT t.id\n   FROM tenants t\n  WHERE (t.state = 'active'::text)))"
+	auditorsPath := " AND (path = (('/t/'::text || (tenant_id)::text) || '/auditors'::text))"
+	auditorsActive := TenantPred("tenant_id") + auditorsPath + active
 	return map[string]Policy{
+		"public.groups.groups_insert_onboard_auditors": {"INSERT", "nava_onboard", "", "(" + auditorsActive +
+			" AND (NOT (EXISTS ( SELECT 1\n   FROM tenant_auditor_group p\n  WHERE (p.tenant_id = groups.tenant_id)))))"},
+		"public.groups.groups_select_onboard_auditors": {"SELECT", "nava_onboard", "(" + auditorsActive + ")", ""},
+		"public.tenant_auditor_group.tenant_auditor_group_insert_active": {"INSERT", "nava_onboard", "", "(" + TenantPred("tenant_id") + active +
+			" AND (EXISTS ( SELECT 1\n   FROM groups g\n  WHERE ((g.tenant_id = tenant_auditor_group.tenant_id) AND (g.id = tenant_auditor_group.group_id) AND (g.deleted_at IS NULL)))))"},
 		"public.tenants.tenants_onboard_insert":                                {"INSERT", "nava_onboard", "", and("provisioning")},
 		"public.tenants.tenants_activate":                                      {"UPDATE", "nava_onboard", and("provisioning"), and("active")},
 		"public.tenant_email_domain.email_domain_onboard":                      {"INSERT", "nava_onboard", "", ownProvisioning},

@@ -165,6 +165,11 @@ func migrateTo(t *testing.T, m *grants.Manifest, fsys fs.FS) (migrate.Result, er
 	if _, err := fs.Stat(fsys, auditReaderPoliciesMigration); err != nil {
 		fsys = withMigrationFrom(t, fsys, auditReaderPoliciesMigration)
 	}
+	// The same for P5-23's policies (TICK-568), which the catalogue pins:
+	// they need only groups, tenants and tenant_auditor_group (20261102130100).
+	if _, err := fs.Stat(fsys, auditorGroupActiveTenantMigration); err != nil {
+		fsys = withMigrationFrom(t, fsys, auditorGroupActiveTenantMigration)
+	}
 	log, _ := newLog()
 	return migrate.Run(context.Background(), roleConfig(t, withV0.Owner(), withV0.PlatformDatabase),
 		fsys, &withV0, &a, globalTables(t), log, migrate.Options{LockRetrySeconds: 1})
@@ -172,6 +177,9 @@ func migrateTo(t *testing.T, m *grants.Manifest, fsys fs.FS) (migrate.Result, er
 
 // auditReaderPoliciesMigration is ADR-004-A1 A1-3's policy migration (TICK-558).
 const auditReaderPoliciesMigration = "20261104133000_audit_reader_policies.sql"
+
+// auditorGroupActiveTenantMigration is P5-23's policy migration (TICK-568).
+const auditorGroupActiveTenantMigration = "20261104191200_auditor_group_active_tenant.sql"
 
 // withMigrationFrom is fsys plus the real migration name.
 func withMigrationFrom(t *testing.T, fsys fs.FS, name string) fs.FS {
