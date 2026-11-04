@@ -72,8 +72,8 @@ func TestDeletedAdminGroupCascadesAndSyncStillCommits(t *testing.T) {
 	if r := once(t, s); r.Err != nil {
 		t.Fatalf("sync must commit when the admins group is deleted: %v", r.Err)
 	}
-	if n := count(t, super, "SELECT count(*) FROM groups WHERE tenant_id = $1 AND keycloak_group_id = 'gadm'", tid); n != 0 {
-		t.Errorf("deleted admins group still mirrored")
+	if n := count(t, super, "SELECT count(*) FROM groups WHERE tenant_id = $1 AND keycloak_group_id = 'gadm' AND deleted_at IS NULL", tid); n != 0 {
+		t.Errorf("deleted admins group still live")
 	}
 	if n := count(t, super, "SELECT count(*) FROM tenant_admin_group WHERE tenant_id = $1", tid); n != 0 {
 		t.Errorf("tenant_admin_group rows after the cascade = %d, want 0", n)

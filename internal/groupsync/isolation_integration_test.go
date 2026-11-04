@@ -145,7 +145,7 @@ func TestHostileSnapshotNeverTouchesAnotherTenant(t *testing.T) {
 
 	// 2. A names an org-unit parent it does not have (B's only): refused.
 	//    A rolls back alone: A's rows are unchanged (apply had already
-	//    tombstoned A's principals and deleted its groups before the org units failed), and
+	//    tombstoned A's principals and groups before the org units failed), and
 	//    B, visited after A, still syncs.
 	attacker := tenantRows(t, super, a)
 	dir.set(a, identity.DirectoryChanges{OrgUnits: []identity.DirectoryGroup{
@@ -167,7 +167,7 @@ func TestHostileSnapshotNeverTouchesAnotherTenant(t *testing.T) {
 	}
 	victim = tenantRows(t, super, b)
 
-	// 3. A's directory empties: A's groups, memberships and org units go and
+	// 3. A's directory empties: A's groups are tombstoned, its memberships and org units go, and
 	//    its principals are tombstoned; no B row changes.
 	dir.set(a, identity.DirectoryChanges{})
 	if r := syncAll(t, s)[a]; r.Err != nil {
@@ -176,11 +176,14 @@ func TestHostileSnapshotNeverTouchesAnotherTenant(t *testing.T) {
 	if got := tenantRows(t, super, b); got != victim {
 		t.Fatalf("tenant A's empty snapshot deleted tenant B's rows:\n before %s\n after  %s", victim, got)
 	}
-	if n := count(t, super, `SELECT (SELECT count(*) FROM groups WHERE tenant_id = $1)
+	if n := count(t, super, `SELECT (SELECT count(*) FROM groups WHERE tenant_id = $1 AND deleted_at IS NULL)
 		+ (SELECT count(*) FROM group_members WHERE tenant_id = $1)
 		+ (SELECT count(*) FROM org_units WHERE tenant_id = $1)
 		+ (SELECT count(*) FROM principals WHERE tenant_id = $1 AND (deleted_at IS NULL OR enabled))`, a); n != 0 {
 		t.Errorf("tenant A after an empty snapshot: %d rows left that are not tombstoned principals, want 0", n)
+	}
+	if n := count(t, super, "SELECT count(*) FROM groups WHERE tenant_id = $1 AND deleted_at IS NOT NULL", a); n == 0 {
+		t.Errorf("tenant A's groups were lost, want tombstones")
 	}
 	if n := count(t, super, "SELECT count(*) FROM principals WHERE tenant_id = $1", a); n == 0 {
 		t.Errorf("tenant A's principals were deleted, want tombstones")

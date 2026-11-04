@@ -269,8 +269,8 @@ func TestGroupRemovalReflectedAfterOneCycle(t *testing.T) {
 	if r := once(t, s); r.Err != nil {
 		t.Fatal(r.Err)
 	}
-	if n := count(t, super, "SELECT count(*) FROM groups WHERE tenant_id = $1 AND keycloak_group_id = 'g2'", tid); n != 0 {
-		t.Errorf("removed group still mirrored")
+	if n := count(t, super, "SELECT count(*) FROM groups WHERE tenant_id = $1 AND keycloak_group_id = 'g2' AND deleted_at IS NULL", tid); n != 0 {
+		t.Errorf("removed group still live")
 	}
 	if n := count(t, super, "SELECT count(*) FROM group_members WHERE tenant_id = $1", tid); n != 1 {
 		t.Errorf("memberships = %d, want 1", n)

@@ -334,3 +334,10 @@ Recorded as AR-036, which also covers the tenant a binding/org mismatch
 (`onboarding_conflict` on retry) leaves `provisioning`; needs an operator
 "abandon" operation that removes the Keycloak
 objects and releases the rows.
+
+## Rolling out group sync (ADR-004-E5, I4)
+
+Group sync no longer deletes a group that Keycloak drops: it tombstones the group
+(`deleted_at`) and revives it on the same id if it returns. Roll out as **stop the old
+`nava-groupsync`, then start the new one**; never run both. An old instance that meets
+a revived group fails closed on D11 and rolls back its transaction.
