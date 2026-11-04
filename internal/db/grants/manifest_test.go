@@ -19,7 +19,8 @@ func TestRepositoryManifestParses(t *testing.T) {
 	// ADR-001 A.3: one role per system actor. The runtime roles log in
 	// through PgBouncer with CONNECT and USAGE on public; nava_backup is
 	// LOGIN REPLICATION with no grant at all.
-	runtime := []string{"nava_app", "nava_groupsync", "nava_onboard", "nava_purge", "nava_relay", "nava_worker"}
+	// nava_audit_reader (ADR-004-A1 A1-1) is the masking reader's own login.
+	runtime := []string{"nava_app", "nava_audit_reader", "nava_groupsync", "nava_onboard", "nava_purge", "nava_relay", "nava_worker"}
 	if got := m.PgBouncerLogins(); strings.Join(got, ",") != strings.Join(runtime, ",") {
 		t.Fatalf("PgBouncer allow-list = %v, want %v", got, runtime)
 	}

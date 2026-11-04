@@ -78,9 +78,12 @@ const modulePath = "github.com/Navaladi2019/TicketingSystem"
 
 // diffReaderAllowed reports whether the file at rel (slash-separated,
 // relative to the repository root) may read audit_log.diff or diff_salt:
-// only the reader package, which masks every diff it returns.
+// only the reader package, which masks every diff it returns, and the
+// ADR-004-A1 isolation probes, each of which must be refused with 42501 or
+// runs as nava_audit_reader (TICK-558).
 func diffReaderAllowed(rel string) bool {
-	return rel == "internal/audit/read" || strings.HasPrefix(rel, "internal/audit/read/")
+	return rel == "internal/audit/read" || strings.HasPrefix(rel, "internal/audit/read/") ||
+		rel == "internal/tenancy/isolation/audit_reader_paths.go"
 }
 
 // diffRead is one reported read.
