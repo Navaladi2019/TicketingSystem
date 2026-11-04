@@ -1,0 +1,51 @@
+// Package diffreaders is the permanent red fixture of the TICK-541 diff
+// reader test (internal/audit/read/diffreaders_test.go). Every line marked
+// `// want: <what>...` plants a read of audit_log.diff or diff_salt that the
+// test must report on that line; every unmarked statement is a look-alike it
+// must not report. It lives under testdata, so it is never built.
+package diffreaders
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/jackc/pgx/v5"
+)
+
+const (
+	logTable = "audit_log"
+	cols     = "id, diff, diff_salt"
+)
+
+const (
+	plainSQL   = `SELECT id, diff FROM audit_log WHERE tenant_id = $1`                        // want: diff
+	saltSQL    = "select DIFF_SALT\n\tfrom public.\"audit_log\" where id = $1"                // want: diff_salt
+	bothSQL    = `SELECT diff, diff_salt FROM audit_log`                                      // want: diff diff_salt
+	joinSQL    = `SELECT r.id, a.diff FROM records r JOIN audit_log a ON a.subject_id = r.id` // want: diff
+	starSQL    = `SELECT * FROM audit_log WHERE id = $1`                                      // want: star
+	aliasStar  = `SELECT a.* FROM audit_log a`                                                // want: star
+	rowSQL     = `SELECT row_to_json(a) FROM audit_log a`                                     // want: row
+	partSQL    = `SELECT diff FROM ONLY audit_log_default`                                    // want: diff
+	returnSQL  = `UPDATE audit_log SET erased_at = now() WHERE id = $1 RETURNING diff_salt`   // want: diff_salt
+	fromConsts = "SELECT " + cols + " FROM " + logTable                                       // want: diff diff_salt
+
+	// Look-alikes: other columns, other tables, a pure insert, comments.
+	hashSQL    = `SELECT diff_sha256, diff_truncated, diff_redacted FROM audit_log`
+	countSQL   = `SELECT count(*) FROM audit_log WHERE tenant_id = $1`
+	v0SQL      = `SELECT diff FROM audit_log_v0`
+	otherSQL   = `SELECT diff FROM record_diffs`
+	insertSQL  = `INSERT INTO audit_log (tenant_id, diff, diff_salt) VALUES ($1, $2::json, $3)`
+	commentSQL = "-- SELECT diff FROM audit_log\nSELECT 1"
+	blockSQL   = "SELECT 1 /* diff FROM audit_log */"
+)
+
+func plant(ctx context.Context, tx pgx.Tx, where string) error {
+	// A fmt.Sprintf with the table in the format.
+	q := fmt.Sprintf("SELECT diff FROM audit_log WHERE %s", where) // want: diff
+	// And with the table as an argument, from a constant.
+	r := fmt.Sprintf("SELECT %s FROM %s", cols, logTable) // want: diff diff_salt
+	// A concatenation with an unknown middle.
+	s := "SELECT diff_salt, " + where + " FROM audit_log" // want: diff_salt
+	_, err := tx.Exec(ctx, q+r+s)
+	return err
+}
