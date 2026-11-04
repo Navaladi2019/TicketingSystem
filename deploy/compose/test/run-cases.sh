@@ -1,9 +1,12 @@
 #!/bin/sh
 # The stack-test registry, derived from the files in cases/. Each case carries one header line:
-#   # stack-case: job=<stack|stack-db|stack-internal|none>[,<job>] order=<n> mode=<serial|parallel>
+#   # stack-case: job=<stack|stack-db|stack-internal|none>[,<job>] order=<n> mode=<serial|parallel> [area=<keycloak|pgbouncer|db>]
 # job: the CI job that runs it (none: by name only). order: run order, lower first; the
 # default is 20; cases that stop or restart services sort after the read-only ones.
 # mode: parallel cases only read the stack, so `PARALLEL=1` runs them at once.
+# area (TICK-563): the service the case tests. `run` skips it unless AREAS names that area
+# (AREAS: all, the default, none, or a comma list; CI sets it from cichanged -areas). A case
+# without area= always runs: identity_attacks and every tenant-isolation case have none.
 #
 #   run-cases.sh list <jobs>              case names in run order (<jobs>: a comma list, or all)
 #   run-cases.sh registry                 the registry as YAML
@@ -17,7 +20,7 @@ dir=$(cd "$(dirname "$0")" && pwd)
 cases=${CASES_DIR:-$dir/cases}
 die() { echo "run-cases: $*" >&2; exit 1; }
 
-# TABLE: "order name mode jobs" rows, sorted. Built in this shell (not a pipeline's last
+# TABLE: "order name mode jobs area" rows (area - for none), sorted. Built in this shell (not a pipeline's last
 # stage) so a bad header stops the command.
 load() {
     rows=$(
@@ -26,12 +29,13 @@ load() {
             n=$(basename "$f" .sh)
             h=$(sed -n 's/^# stack-case: //p' "$f" | head -n 1)
             [ -n "$h" ] || die "$f has no '# stack-case:' header"
-            j=; o=20; m=serial
+            j=; o=20; m=serial; a=-
             for kv in $h; do
                 case $kv in
                 job=*) j=${kv#job=} ;;
                 order=*) o=${kv#order=} ;;
                 mode=*) m=${kv#mode=} ;;
+                area=*) a=${kv#area=} ;;
                 *) die "$f: unknown header field '$kv'" ;;
                 esac
             done
@@ -41,7 +45,8 @@ load() {
             done
             case $o in ''|*[!0-9]*) die "$f: order '$o' is not a number" ;; esac
             case $m in serial|parallel) ;; *) die "$f: mode '$m' is not serial or parallel" ;; esac
-            printf '%s %s %s %s\n' "$o" "$n" "$m" "$j"
+            case $a in -|keycloak|pgbouncer|db) ;; *) die "$f: unknown area '$a'" ;; esac
+            printf '%s %s %s %s %s\n' "$o" "$n" "$m" "$j" "$a"
         done
     ) || exit 1
     [ -n "$rows" ] || die "no cases in $cases"
@@ -55,6 +60,24 @@ rows() {
         { m = split($4, j, ","); ok = 0
           for (a = 1; a <= m; a++) { if (want == "all" && j[a] != "none") ok = 1; for (b = 1; b <= n; b++) if (j[a] == w[b]) ok = 1 }
           if (ok) print }'
+}
+
+# areas_check: AREAS is all, none, or a comma list of known areas.
+areas_check() {
+    case ${AREAS:-all} in all|none) return 0 ;; esac
+    for one in $(echo "$AREAS" | tr ',' ' '); do
+        case $one in keycloak|pgbouncer|db) ;; *) die "AREAS: unknown area '$one'" ;; esac
+    done
+}
+
+# touched <rows> [skip]: the rows that run under AREAS (no area, or an area AREAS names);
+# with skip, "name area" for each of the others.
+touched() {
+    printf '%s\n' "$1" | awk -v areas="${AREAS:-all}" -v skip="${2:-}" '
+        BEGIN { n = split(areas, w, ","); for (i = 1; i <= n; i++) on[w[i]] = 1 }
+        NF { keep = ($5 == "-" || areas == "all" || ($5 in on))
+             if (skip == "" && keep) print
+             if (skip != "" && !keep) print $2, $5 }'
 }
 
 # names <jobs> [mode]
@@ -90,8 +113,14 @@ run_parallel() { # names: at once, each output printed whole when it ends
 }
 
 run() {
-    r=$(rows "$1")
-    [ -n "$r" ] || die "no case runs in job '$1'"
+    areas_check
+    whole=$(rows "$1")
+    [ -n "$whole" ] || die "no case runs in job '$1'"
+    touched "$whole" skip | while read -r sn sa; do printf 'SKIP %s (area %s not touched)\n' "$sn" "$sa"; done
+    r=$(touched "$whole")
+    if [ -z "$r" ]; then printf 'ok: every stack case in %s skipped (AREAS=%s)\n' "$1" "${AREAS:-all}"; return 0; fi
+    # names and rows below read TABLE: keep only the cases that run.
+    TABLE=$r
     if [ "${PARALLEL:-}" = 1 ]; then
         # The serial cases that sort before the first parallel one (healthy) gate the parallel
         # group, which runs next; the rest of the serial cases follow it.
@@ -113,7 +142,7 @@ run() {
 load
 case ${1:-} in
 list) names "${2:?jobs}" "${3:-}" ;;
-registry) printf '%s\n' "$TABLE" | awk '{ printf "- name: %s\n  make: %s\n  serial: %s\n  order: %s\n  ci_jobs: [%s]\n", $2, "stack-test-" $2, ($3 == "serial" ? "true" : "false"), $1, $4 }' ;;
+registry) printf '%s\n' "$TABLE" | awk '{ printf "- name: %s\n  make: %s\n  serial: %s\n  order: %s\n  ci_jobs: [%s]\n", $2, "stack-test-" $2, ($3 == "serial" ? "true" : "false"), $1, $4; if ($5 != "-") printf "  area: %s\n", $5 }' ;;
 run) run "${2:?jobs}" ;;
 check) echo "ok: $(printf '%s\n' "$TABLE" | wc -l | tr -d ' ') cases" ;;
 *) echo "usage: run-cases.sh list|registry|run|check" >&2; exit 1 ;;

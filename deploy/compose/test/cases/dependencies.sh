@@ -1,5 +1,5 @@
 #!/bin/sh
-# stack-case: job=stack order=50 mode=serial
+# stack-case: job=stack order=50 mode=serial area=keycloak
 set -eu
 . "$(dirname "$0")/../case-env.sh"
 

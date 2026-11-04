@@ -236,17 +236,18 @@ func scanJoined(ptr patchwalk.Pointer, shapes bool) (patchwalk.Pointer, Reason, 
 		}
 		return scan("/"+strings.Join(segs, "/"), shapes)
 	}
-	if _, bad := both(segs); !bad {
+	r, bad := both(segs)
+	if !bad {
 		return "", "", false
 	}
-	for i := range segs {
+	for i := range len(segs) - 1 {
 		if r, bad := both(segs[:i+1]); bad {
 			return patchwalk.FromSegments(segs[:i]), r, true
 		}
 	}
-	// Unreachable: the full prefix is ptr itself. Fail closed at the root.
-	r, _ := both(segs)
-	return "", r, true
+	// No shorter prefix matches, so the match ends in the last token. (segs
+	// is never empty here: an empty pointer has no text to match.)
+	return patchwalk.FromSegments(segs[:max(len(segs)-1, 0)]), r, true
 }
 
 // scan is every match Check makes: on a value, a key, a pointer token and both

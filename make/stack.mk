@@ -11,6 +11,10 @@
 # restarts the stack, and dbroles changes roles. worker polls nava-tq, the queue the sdk
 # suite's workers poll, so it sorts after that suite.
 # JOB: a comma list of CI jobs (stack, stack-db, stack-internal), or all.
+# AREAS (TICK-563): the stack-case areas to run, all (the default: every case),
+# none, or a comma list of keycloak, pgbouncer and db; a case whose area= is not
+# listed prints "SKIP <case> (area <x> not touched)". CI sets it from
+# `cichanged -areas`; a case without area= always runs.
 JOB ?= stack,stack-db
 stack-tests:
 	@sh deploy/compose/test/run-cases.sh run $(JOB)

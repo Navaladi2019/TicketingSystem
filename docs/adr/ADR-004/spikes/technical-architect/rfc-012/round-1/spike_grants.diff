@@ -1,0 +1,33 @@
+diff --git a/db/grants.yaml b/db/grants.yaml
+index 5de550d..aa6bafa 100644
+--- a/db/grants.yaml
++++ b/db/grants.yaml
+@@ -79,7 +79,7 @@ roles:
+         SELECT: [tenant_id, id, occurred_at, txid, domain, action, subject_type, subject_id, entity_definition_id,
+                  version_before, version_after, actor_principal_id, actor_system, source, source_ref,
+                  change_set_id, causation_id, causation_depth, request_id, backfilled, content_sha256,
+-                 diff_sha256, diff_truncated, diff, diff_salt, seq, sealed_at, erased_at]
++                 diff_sha256, diff_truncated, seq, sealed_at, erased_at]
+       # R14: the export lease and chain:reseed's repoint. Never seq,
+       # entry_hash or version.
+       audit_chain_head:
+@@ -213,6 +213,19 @@ roles:
+   # or diff_salt; INSERT on the R10 columns for its audit/erase entries;
+   # UPDATE of the four erase columns, which the R11 erase transition is the
+   # only way to use. Epic 30 adds its record-table grants.
++  nava_audit_reader:
++    attributes: [LOGIN]
++    pgbouncer_login: true
++    database: [CONNECT]
++    schemas: { public: [USAGE] }
++    tables:
++      audit_log:
++        SELECT: [tenant_id, id, occurred_at, domain, action, subject_type, subject_id, entity_definition_id,
++                 version_before, version_after, actor_principal_id, actor_system, source, source_ref,
++                 change_set_id, causation_id, causation_depth, request_id, backfilled, content_sha256,
++                 diff_sha256, diff_truncated, diff, diff_salt, seq, sealed_at, erased_at]
++      entity_definition_versions: { SELECT: [definition_id, schema] }
++
+   nava_erasure:
+     attributes: [LOGIN]
+     database: [CONNECT]

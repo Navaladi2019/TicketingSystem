@@ -270,3 +270,13 @@ func FuzzWalk(f *testing.F) {
 		}
 	})
 }
+
+// Each Field names itself in errors and logs; an out-of-range one is
+// "unknown", never another field's name.
+func TestFieldString(t *testing.T) {
+	for f, want := range map[Field]string{FieldPath: "path", FieldFrom: "from", FieldValue: "value", 0: "unknown", FieldValue + 1: "unknown"} {
+		if got := f.String(); got != want {
+			t.Errorf("Field(%d).String() = %q, want %q", int(f), got, want)
+		}
+	}
+}

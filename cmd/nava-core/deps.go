@@ -10,6 +10,16 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/temporaltls"
 )
 
+// Seams for tests: the constructors that only fail on conditions this
+// process cannot produce from configuration.
+//
+//nolint:gochecknoglobals // test seams, replaced only by tests
+var (
+	newOutboundClient = telemetry.NewOutboundClient
+	healthTemporal    = health.Temporal
+	newHealthMonitor  = health.NewMonitor
+)
+
 // newMonitor builds the dependency checks behind /healthz and /readyz. The
 // returned func closes the pool and the client the checks use; call it after
 // the monitor has stopped.
@@ -23,18 +33,18 @@ func newMonitor(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry,
 		closePG()
 		return nil, nil, err
 	}
-	tc, closeTemporal, err := health.Temporal(cfg.Deps.TemporalAddress, tlsConfig, log)
+	tc, closeTemporal, err := healthTemporal(cfg.Deps.TemporalAddress, tlsConfig, log)
 	if err != nil {
 		closePG()
 		return nil, nil, err
 	}
-	out, err := telemetry.NewOutboundClient(tel, telemetry.OutboundOptions{})
+	out, err := newOutboundClient(tel, telemetry.OutboundOptions{})
 	if err != nil {
 		closePG()
 		closeTemporal()
 		return nil, nil, err
 	}
-	mon, err := health.NewMonitor(log, tel.MeterProvider,
+	mon, err := newHealthMonitor(log, tel.MeterProvider,
 		[]health.Check{pg, health.Keycloak(cfg.Deps.KeycloakManagementURL, cfg.Deps.KeycloakTokenURL, out), tc}, health.Options{})
 	if err != nil {
 		closePG()

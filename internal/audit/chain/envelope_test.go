@@ -386,3 +386,97 @@ func TestImportBoundary(t *testing.T) {
 		}
 	}
 }
+
+// TestUnmarshalRejectsWithReason pins the error each strict-parse refusal
+// reports for an edited canonical envelope: the verifier passes these
+// details through as the malformed_line finding, so a reader can tell what
+// was tampered.
+func TestUnmarshalRejectsWithReason(t *testing.T) {
+	b, err := CanonicalEnvelope(baseEnvelope())
+	if err != nil {
+		t.Fatal(err)
+	}
+	canon := string(b)
+	edit := func(old, repl string) []byte {
+		t.Helper()
+		if !strings.Contains(canon, old) {
+			t.Fatalf("canonical envelope has no %s", old)
+		}
+		return []byte(strings.Replace(canon, old, repl, 1))
+	}
+	cases := []struct {
+		name string
+		in   []byte
+		want string
+	}{
+		{"invalid-utf8", edit(`"source":"workflow"`, "\"source\":\"work\xffflow\""), "chain: invalid envelope: invalid UTF-8"},
+		{"empty", []byte(``), "chain: invalid envelope: EOF"},
+		{"non-string-key", []byte(`{1:2}`), "chain: invalid envelope: invalid character '1'"},
+		{"member-value-invalid", edit(`"source":"workflow"`, `"source":}`),
+			"chain: invalid envelope: source: invalid character '}' looking for beginning of value"},
+		{"unterminated-object", []byte(strings.TrimSuffix(canon, "}")), "chain: invalid envelope: EOF"},
+		// Year 0000 and U+0000 parse, but the encoder refuses them, so the
+		// round-trip check rejects the envelope rather than hash it.
+		{"year-zero", edit(`"occurred_at":"2026-`, `"occurred_at":"0000-`),
+			"chain: invalid envelope: occurred_at: year outside 0001-9999"},
+		{"nul-in-text", edit(`"source":"workflow"`, `"source":"work\u0000flow"`),
+			"chain: invalid envelope: source: U+0000 (PostgreSQL text cannot store it)"},
+		{"duplicate-member", edit(`{`, `{"source":"user",`), `chain: invalid envelope: duplicate member "source"`},
+		{"unknown-member", edit(`{`, `{"note":"x",`), `chain: invalid envelope: unknown member "note"`},
+		{"causation-depth-fraction", edit(`"causation_depth":0`, `"causation_depth":0.5`),
+			"chain: invalid envelope: causation_depth: want a plain integer"},
+		{"causation-depth-over-smallint", edit(`"causation_depth":0`, `"causation_depth":32768`),
+			"chain: invalid envelope: causation_depth: out of smallint range"},
+		{"causation-depth-under-smallint", edit(`"causation_depth":0`, `"causation_depth":-32769`),
+			"chain: invalid envelope: causation_depth: out of smallint range"},
+		{"tenant-id-not-a-string", edit(`"tenant_id":"0190f3a0-0000-7000-8000-000000000001"`, `"tenant_id":1`),
+			"chain: invalid envelope: tenant_id: want a string"},
+		{"occurred-at-not-a-string", edit(`"occurred_at":"2026-11-02T10:00:00.000000Z"`, `"occurred_at":true`),
+			"chain: invalid envelope: occurred_at: want a string"},
+		{"content-sha256-not-a-string", edit(`"content_sha256":null`, `"content_sha256":7`),
+			"chain: invalid envelope: content_sha256: want a string"},
+		{"content-sha256-short", edit(`"content_sha256":null`, `"content_sha256":"abcd"`),
+			"chain: invalid envelope: content_sha256: chain: invalid envelope: want 64 lowercase hex characters, got 4"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var e Envelope
+			err := e.UnmarshalJSON(c.in)
+			if !errors.Is(err, ErrInvalidEnvelope) || err.Error() != c.want {
+				t.Fatalf("err = %v, want %s", err, c.want)
+			}
+			if !reflect.DeepEqual(e, Envelope{}) {
+				t.Fatal("a rejected envelope was partly written")
+			}
+		})
+	}
+}
+
+// An envelope the encoder refuses has no envelope_sha256: EnvelopeSHA256
+// returns the encoder's error and a zero hash, never a hash of partial bytes.
+func TestEnvelopeSHA256RejectsUnencodable(t *testing.T) {
+	e := baseEnvelope()
+	e.OccurredAt = time.Date(10000, 1, 1, 0, 0, 0, 0, time.UTC)
+	h, err := EnvelopeSHA256(e)
+	if !errors.Is(err, ErrInvalidEnvelope) || !strings.HasSuffix(err.Error(), "occurred_at: year outside 0001-9999") {
+		t.Fatalf("err = %v", err)
+	}
+	if h != [32]byte{} {
+		t.Fatal("hash returned with an error")
+	}
+}
+
+// ParseSalt16 accepts exactly 32 lowercase hex characters.
+func TestParseSalt16Rejects(t *testing.T) {
+	good := strings.Repeat("0f", 16)
+	for s, want := range map[string]string{
+		good[:30]:               "chain: invalid envelope: want 32 lowercase hex characters, got 30",
+		good + "00":             "chain: invalid envelope: want 32 lowercase hex characters, got 34",
+		strings.ToUpper(good):   "chain: invalid envelope: hex must be lowercase [0-9a-f]",
+		strings.Repeat("g", 32): "chain: invalid envelope: hex must be lowercase [0-9a-f]",
+	} {
+		if _, err := ParseSalt16(s); !errors.Is(err, ErrInvalidEnvelope) || err.Error() != want {
+			t.Errorf("ParseSalt16(%q) err = %v, want %s", s, err, want)
+		}
+	}
+}
