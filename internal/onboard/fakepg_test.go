@@ -44,12 +44,6 @@ type fakePGServer struct {
 	addr    string
 }
 
-func (f *fakePGServer) statements() []string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]string(nil), f.seen...)
-}
-
 func startFakePGServer(t *testing.T, handler func(sql string) scripted) *fakePGServer {
 	t.Helper()
 	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
