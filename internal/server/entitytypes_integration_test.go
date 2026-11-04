@@ -204,7 +204,10 @@ type etEnv struct {
 	logs   *etLogBuf
 }
 
-func newETEnv(t *testing.T) *etEnv {
+func newETEnv(t *testing.T) *etEnv { return newETEnvWith(t) }
+
+// newETEnvWith is newETEnv with extra handler options.
+func newETEnvWith(t *testing.T, extra ...server.Option) *etEnv {
 	t.Helper()
 	super, pool := etCluster(t)
 	a, b := etSeedTenant(t, super, "a"), etSeedTenant(t, super, "b")
@@ -225,7 +228,7 @@ func newETEnv(t *testing.T) *etEnv {
 	lim.reset(true)
 	logs := &etLogBuf{}
 	h, err := server.NewHandler(slog.New(slog.NewTextHandler(testLogWriter{t, logs}, &slog.HandlerOptions{Level: slog.LevelWarn})), tel, tokens, stubPaths{},
-		server.WithLimiter(lim), server.WithPool(pool), server.WithCursors(kr))
+		append([]server.Option{server.WithLimiter(lim), server.WithPool(pool), server.WithCursors(kr)}, extra...)...)
 	if err != nil {
 		t.Fatal(err)
 	}

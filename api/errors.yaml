@@ -104,3 +104,7 @@ codes:
     status: 422
     title: Secret in configuration
     detail: The definition sets a value at a secret path. See errors for the path; the value is never echoed.
+  - code: history_too_long
+    status: 422
+    title: History too long
+    detail: The record has more audit entries than a history page can replay. The history of this record cannot be read through this endpoint.
