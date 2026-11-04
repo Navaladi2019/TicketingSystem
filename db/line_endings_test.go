@@ -20,7 +20,7 @@ func TestMigrationsHaveLFLineEndings(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(bad) > 0 {
-		t.Fatalf("migrations contain carriage returns (CRLF line endings); .gitattributes must pin *.sql to eol=lf, then `git rm --cached -r db/migrations && git checkout -- db/migrations`: %v", bad)
+		t.Fatalf("migrations contain carriage returns (CRLF line endings); .gitattributes must pin *.sql to eol=lf, then `git rm --cached -r -q db/migrations && git checkout HEAD -- db/migrations`: %v", bad)
 	}
 }
 
