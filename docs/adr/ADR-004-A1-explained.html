@@ -25,7 +25,7 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 </style>
 </head><body><main>
 
-<span class="pill">PROPOSED · 2026-11-04</span> <span class="src">ADR-004-A1 · issue TICK-549 · RFC-012 rev 1 · amends ADR-004 (R7, R12, R14, CI-A3) · source: TICK-541 / PR #443 Security review</span>
+<span class="pill" style="background:var(--goodbg);color:var(--good);border-color:var(--good)">ACCEPTED · 2026-11-04</span> <span class="src">ADR-004-A1 · issue TICK-549 · RFC-012 rev 1 · amends ADR-004 (R7, R12, R14, CI-A3) · source: TICK-541 / PR #443 Security review</span>
 
 <h1>Only the masking reader may read the raw audit diff, and the database enforces it</h1>
 
@@ -106,8 +106,8 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 <tr><td>Postgres full test run with the permission removed</td><td>1103 passed, and exactly 7 tests failed, all on the reader path or asserting the old permission. The ADR lists each one: 5 move to the new pool, and 2 are inverted.</td></tr>
 <tr><td>Postgres spike on the masker</td><td>Reproduced the fail-open: the new role saw 0 schemas and got no error. Adding it to the policy returned the row. Hence the fail-closed rule.</td></tr>
 <tr><td>Postgres spike on the cap</td><td><code>pool_size=5</code> queues extra requests, while a database connection limit rejects them. We chose <code>pool_size</code>.</td></tr>
-<tr><td>Red to green (to be built)</td><td>These fail today and must pass afterwards: CI-A3 (only the reader holds the columns, every partition walked, the exact policy list), <code>diff-denied</code>, <code>reader-scoped</code>, <code>reader-masks</code> and the masker unit case.</td></tr>
+<tr><td>Red to green (to be built)</td><td>These fail today and must pass afterwards: CI-A3 (no runtime role other than the reader holds the columns, checked over every runtime role, with the table-owner account <code>nava_migrator</code> excluded because an owner always holds every privilege; every partition walked; the exact policy list), <code>diff-denied</code> (each other role tries every way of reading the diff and must be refused; <code>nava_erasure</code> connects straight to PostgreSQL because it has no PgBouncer login, and the other roles go through PgBouncer), <code>reader-scoped</code>, <code>reader-masks</code> and the masker unit case.</td></tr>
 </table>
 
-<p class="src">Process: the Solution Architect framed RFC-012. In round 1, the Technical Architect approved with a spike. Security (B1, the fail-open masker) and Postgres (B2, the test list) asked for changes, and the CTO settled the cap, the <code>records</code> question and the accepted risk. Rev 1 resolved both blocking items. In round 2, Security and Postgres approved, with the two conditions written in above. The status stays PROPOSED until the Solution Architect's verdict. Checked against invariants ADR-001 I1–I9, because the project description defines none.</p>
+<p class="src">Process: the Solution Architect framed RFC-012. In round 1, the Technical Architect approved with a spike. Security (B1, the fail-open masker) and Postgres (B2, the test list) asked for changes, and the CTO settled the cap, the <code>records</code> question and the accepted risk. Rev 1 resolved both blocking items. In round 2, Security and Postgres approved, with the two conditions written in above. The Technical Architect then confirmed this document matches the approved design; its two wording fixes are folded in. The Solution Architect accepted the amendment on 2026-11-04. Checked against invariants ADR-001 I1–I9, because the project description defines none.</p>
 </main></body></html>
