@@ -327,6 +327,8 @@ func TestPatchHistoryPagesNewestFirst(t *testing.T) {
 // A history page reads at most the cap's rows; a record over the cap is a 422
 // history_too_long with no audit row read, logged and counted, and another
 // record and another tenant are unaffected (P5-17-fu2, TICK-542).
+//
+// covers: getRecordHistory 422
 func TestPatchHistoryIsCapped(t *testing.T) {
 	const limit = 4
 	var reads []int

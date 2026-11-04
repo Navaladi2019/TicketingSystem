@@ -54,6 +54,8 @@ func (e *etEnv) auditGet(t *testing.T, token, query string) (*httptest.ResponseR
 
 // Filters, stable non-overlapping pages, CI-A14 on the read (an unredacted
 // entry carries the salt and its diff verifies), and the gate.
+//
+// covers: listAuditEntries 200 400 403
 func TestListAuditEntriesPagesFiltersAndGate(t *testing.T) {
 	e := newPatchEnv(t)
 	r := e.mustCreateRec(t, "user-a", "job", "al-1", `{"short_description": "one"}`)
