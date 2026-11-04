@@ -27,7 +27,11 @@
 # runs the jobs its change needs: the changes job asks `make ci-stages`
 # (tools/ci/cichanged, the rules of `make ci-changed`), lint always runs, and a
 # change under .github/workflows runs everything. Every later push to a
-# labelled pull request runs again. Adding any other label starts a run whose
+# labelled pull request runs again. Inside stack, make stack-tests skips the
+# keycloak, pgbouncer and db cases (area= in the case header) whose area the
+# change does not touch (AREAS, from cichanged -areas); the ci:full label (which
+# also counts as ci:run), a manual run, a pull request into main and a push to
+# main run every case. identity_attacks and the isolation cases have no area. Adding any other label starts a run whose
 # jobs are all skipped. Only main runs every job whatever changed (CI_ALL=1 on
 # a push or manual run on main); a red push to main opens a P0 issue
 # (main-red). A manual run (workflow_dispatch) on another branch runs the jobs
@@ -81,24 +85,26 @@ env:
 # stays in the group). Pull requests still cancel their older run.
 # A scheduled run (story-branches only) has a group of its own, so it never
 # displaces a manual run queued on main. A pull request labelled with anything
-# but ci:run (a run whose jobs are all skipped) has a group of its own too, so
+# but ci:run or ci:full (a run whose jobs are all skipped) has a group of its own too, so
 # it never cancels the pull request's real run (TICK-563).
 concurrency:
-  group: ${{ github.event_name == 'push' && format('ci-push-{0}-{1}', github.ref, github.sha) || github.event_name == 'schedule' && 'ci-schedule' || github.event.action == 'labeled' && github.event.label.name != 'ci:run' && format('ci-label-{0}', github.run_id) || format('ci-{0}', github.ref) }}
+  group: ${{ github.event_name == 'push' && format('ci-push-{0}-{1}', github.ref, github.sha) || github.event_name == 'schedule' && 'ci-schedule' || github.event.action == 'labeled' && github.event.label.name != 'ci:run' && github.event.label.name != 'ci:full' && format('ci-label-{0}', github.run_id) || format('ci-{0}', github.ref) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   changes:
     # Which of unit, integration and stack this change needs. A scheduled run
-    # is story-branches alone, and a label other than ci:run runs nothing
+    # is story-branches alone, and a label other than ci:run or ci:full runs nothing
     # (TICK-563): skipping this job skips the jobs that need it.
-    if: github.event_name != 'schedule' && (github.event.action != 'labeled' || github.event.label.name == 'ci:run')
+    if: github.event_name != 'schedule' && (github.event.action != 'labeled' || github.event.label.name == 'ci:run' || github.event.label.name == 'ci:full')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       unit: ${{ steps.stages.outputs.unit }}
       integration: ${{ steps.stages.outputs.integration }}
       stack: ${{ steps.stages.outputs.stack }}
+      # The stack-case areas make stack-tests runs: all, none or a list (TICK-563).
+      areas: ${{ steps.stages.outputs.areas }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -124,8 +130,12 @@ jobs:
           # Every stage on a push or manual run on main only: a merge result
           # has no meaningful diff base. Never on another branch (TICK-563).
           CI_ALL: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && '1' || '' }}
-          # A pull request without the ci:run label: lint only (TICK-563).
-          CI_LINT_ONLY: ${{ github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'ci:run') && '1' || '' }}
+          # A pull request without the ci:run or ci:full label: lint only (TICK-563).
+          CI_LINT_ONLY: ${{ github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'ci:run') && !contains(github.event.pull_request.labels.*.name, 'ci:full') && '1' || '' }}
+          # Every stack-case area: the ci:full label, a manual run, and every
+          # pull request into main, story PRs among them (a branch name cannot
+          # tell a story PR from a task PR). On a push to main CI_ALL sets it.
+          CI_AREAS_ALL: ${{ (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && (github.base_ref == 'main' || contains(github.event.pull_request.labels.*.name, 'ci:full')))) && '1' || '' }}
         run: make ci-stages
       # Only main writes the cache (TICK-400); see CACHE_WRITE above.
       - name: Save the Go build cache
@@ -138,7 +148,7 @@ jobs:
           key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
 
   lint:
-    if: github.event_name != 'schedule' && (github.event.action != 'labeled' || github.event.label.name == 'ci:run')
+    if: github.event_name != 'schedule' && (github.event.action != 'labeled' || github.event.label.name == 'ci:run' || github.event.label.name == 'ci:full')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -401,6 +411,8 @@ jobs:
       # to this file (TICK-296). The reports below are written by the sdk and identity_attacks cases.
       - name: Stack cases (stack)
         id: cases-stack
+        env:
+          AREAS: ${{ needs.changes.outputs.areas }}
         run: make stack-tests JOB=stack
       - name: CI-6 report
         if: always()
@@ -431,6 +443,8 @@ jobs:
       - name: Stack cases (stack-db)
         id: cases-db
         if: ${{ !cancelled() && steps.up-db.outcome == 'success' }}
+        env:
+          AREAS: ${{ needs.changes.outputs.areas }}
         run: make stack-tests JOB=stack-db
       - name: Logs on failure (stack-db)
         if: always() && (steps.up-db.outcome == 'failure' || steps.cases-db.outcome == 'failure')
@@ -448,6 +462,8 @@ jobs:
       - name: Stack cases (stack-internal)
         id: cases-internal
         if: ${{ !cancelled() && steps.ca.outcome == 'success' }}
+        env:
+          AREAS: ${{ needs.changes.outputs.areas }}
         run: make stack-tests JOB=stack-internal
       - name: Logs on failure (stack-internal)
         if: always() && steps.cases-internal.outcome == 'failure'
@@ -524,8 +540,8 @@ jobs:
     # request into a merged story branch goes red on itself. On main (push,
     # schedule or manual run) it keeps one issue open while red and closes it
     # when green. Not in main-red's needs: drift is not a red main.
-    # A label other than ci:run runs nothing (TICK-563).
-    if: github.event.action != 'labeled' || github.event.label.name == 'ci:run'
+    # A label other than ci:run or ci:full runs nothing (TICK-563).
+    if: github.event.action != 'labeled' || github.event.label.name == 'ci:run' || github.event.label.name == 'ci:full'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # Runs that may touch the issue (main, not a pull request) queue behind
