@@ -222,6 +222,9 @@ paths:
         JSON pointers, under `/data`, of the properties that differ; arrays
         count as one value. Values are unmasked until S10. The 404 is that of
         getRecord, byte for byte, with no `instance`.
+        A record with more than 500 audit entries is a 422 `history_too_long`:
+        one page replays the whole history, so the history is capped
+        (docs/budgets.md).
       parameters:
         - $ref: "#/components/parameters/Entity"
         - name: id
@@ -257,6 +260,8 @@ paths:
           $ref: "../openapi.yaml#/components/responses/Problem"
         "404":
           $ref: "../openapi.yaml#/components/responses/ProblemNoInstance"
+        "422":
+          $ref: "../openapi.yaml#/components/responses/Problem"
         "429":
           $ref: "../openapi.yaml#/components/responses/Problem"
         "500":

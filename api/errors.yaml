@@ -108,3 +108,7 @@ codes:
     status: 422
     title: Assignment group removed
     detail: The record names an assignment group that is not a live group of this tenant. Keep the record's current group or choose another one. See errors for the property.
+  - code: history_too_long
+    status: 422
+    title: History too long
+    detail: The record has more audit entries than a history page can replay. The history of this record cannot be read through this endpoint.

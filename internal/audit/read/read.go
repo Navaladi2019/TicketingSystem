@@ -11,6 +11,7 @@ package read
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -77,9 +78,44 @@ type Filter struct {
 	AfterSeq *int64
 }
 
+// DefaultMaxRecordEntries is the most audit entries RecordEntries replays for
+// one record when Reader.MaxRecordEntries is not set. A history page replays
+// the record's whole history (see RecordEntries), so the cap bounds what one
+// page reads and replays (P5-17-fu2, TICK-542). See docs/budgets.md.
+const DefaultMaxRecordEntries = 500
+
+// ErrHistoryTooLong is returned by RecordEntries when the record has more
+// entries than the cap. No entry is read or replayed in that case.
+var ErrHistoryTooLong = errors.New("audit/read: record history is longer than the cap")
+
+// HistoryTooLongError carries the numbers of an ErrHistoryTooLong for the
+// caller's log and metric. It never carries record data.
+type HistoryTooLongError struct {
+	Entries, Max int64
+}
+
+func (e *HistoryTooLongError) Error() string {
+	return fmt.Sprintf("%v: %d entries, cap %d", ErrHistoryTooLong, e.Entries, e.Max)
+}
+
+func (e *HistoryTooLongError) Unwrap() error { return ErrHistoryTooLong }
+
 // Reader reads the log through a Masker.
 type Reader struct {
 	Masker Masker
+	// MaxRecordEntries caps the entries RecordEntries reads for one record;
+	// zero means DefaultMaxRecordEntries.
+	MaxRecordEntries int
+	// OnRecordRows, when not nil, is called with the number of audit rows each
+	// RecordEntries read returned. It is a test hook that counts rows read.
+	OnRecordRows func(n int)
+}
+
+func (r *Reader) maxRecordEntries() int {
+	if r.MaxRecordEntries > 0 {
+		return r.MaxRecordEntries
+	}
+	return DefaultMaxRecordEntries
 }
 
 const columns = `id, occurred_at, domain, action, subject_type, subject_id, entity_definition_id,
@@ -124,20 +160,44 @@ LIMIT $10`, tenantID, f.From, f.To, f.Domain, f.SubjectType, f.SubjectID, f.Afte
 // RecordEntries returns every record-domain entry of one record that changed
 // it (create, update, state_change), oldest first, masked for the reader. It
 // reads the record's whole history, because a version's payload is the
-// replay of the diffs before it (see Replay). The caller has already checked
-// that the record exists and that the reader may see it.
+// replay of the diffs before it (see Replay). That makes a page cost the whole
+// history, so the history is capped: the entries are counted first, and a
+// record with more than the cap gets *HistoryTooLongError (Is
+// ErrHistoryTooLong) with nothing read. The caller has already checked that
+// the record exists and that the reader may see it.
 func (r *Reader) RecordEntries(ctx context.Context, tx pgx.Tx, tenantID, recordID uuid.UUID) ([]Entry, error) {
+	limit := r.maxRecordEntries()
+	var n int64
+	if err := tx.QueryRow(ctx, `SELECT count(*)
+FROM audit_log
+WHERE tenant_id = $1 AND domain = 'record' AND subject_type = 'record' AND subject_id = $2
+  AND action IN ('create', 'update', 'state_change')`, tenantID, recordID).Scan(&n); err != nil {
+		return nil, fmt.Errorf("audit/read: count record entries: %w", err)
+	}
+	if n > int64(limit) {
+		return nil, &HistoryTooLongError{Entries: n, Max: int64(limit)}
+	}
+	// The read is bounded as well: if entries arrive between the count and
+	// the read, it stops one row past the cap and is refused, never replayed
+	// from a cut history.
 	rows, err := tx.Query(ctx, `SELECT `+columns+`
 FROM audit_log
 WHERE tenant_id = $1 AND domain = 'record' AND subject_type = 'record' AND subject_id = $2
   AND action IN ('create', 'update', 'state_change')
-ORDER BY occurred_at, id`, tenantID, recordID)
+ORDER BY occurred_at, id
+LIMIT $3`, tenantID, recordID, limit+1)
 	if err != nil {
 		return nil, fmt.Errorf("audit/read: record entries: %w", err)
 	}
 	entries, err := scan(rows)
 	if err != nil {
 		return nil, err
+	}
+	if r.OnRecordRows != nil {
+		r.OnRecordRows(len(entries))
+	}
+	if len(entries) > limit {
+		return nil, &HistoryTooLongError{Entries: int64(len(entries)), Max: int64(limit)}
 	}
 	return entries, r.mask(ctx, tx, entries)
 }

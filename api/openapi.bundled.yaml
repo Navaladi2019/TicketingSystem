@@ -534,7 +534,7 @@ paths:
       operationId: getRecordHistory
       summary: A record's change history
       description: >
-        Any user of the tenant (S9). The record's `create` and `update` audit rows, newest first, cursor-paged. The cursor is bound to the tenant, the principal and the route. `before` and `after` are the record's `data` before and after the write (merge-patch semantics: an absent key is a removed key; `before` is absent on a create). `changed` lists the JSON pointers, under `/data`, of the properties that differ; arrays count as one value. Values are unmasked until S10. The 404 is that of getRecord, byte for byte, with no `instance`.
+        Any user of the tenant (S9). The record's `create` and `update` audit rows, newest first, cursor-paged. The cursor is bound to the tenant, the principal and the route. `before` and `after` are the record's `data` before and after the write (merge-patch semantics: an absent key is a removed key; `before` is absent on a create). `changed` lists the JSON pointers, under `/data`, of the properties that differ; arrays count as one value. Values are unmasked until S10. The 404 is that of getRecord, byte for byte, with no `instance`. A record with more than 500 audit entries is a 422 `history_too_long`: one page replays the whole history, so the history is capped (docs/budgets.md).
 
       parameters:
         - $ref: "#/components/parameters/Entity"
@@ -571,6 +571,8 @@ paths:
           $ref: "#/components/responses/Problem"
         "404":
           $ref: "#/components/responses/ProblemNoInstance"
+        "422":
+          $ref: "#/components/responses/Problem"
         "429":
           $ref: "#/components/responses/Problem"
         "500":

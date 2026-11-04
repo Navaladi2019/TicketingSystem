@@ -2768,6 +2768,20 @@ func (response GetRecordHistory404ApplicationProblemPlusJSONResponse) VisitGetRe
 	return err
 }
 
+type GetRecordHistory422ApplicationProblemPlusJSONResponse Problem
+
+func (response GetRecordHistory422ApplicationProblemPlusJSONResponse) VisitGetRecordHistoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetRecordHistory429ApplicationProblemPlusJSONResponse Problem
 
 func (response GetRecordHistory429ApplicationProblemPlusJSONResponse) VisitGetRecordHistoryResponse(w http.ResponseWriter) error {

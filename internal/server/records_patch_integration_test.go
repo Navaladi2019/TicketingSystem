@@ -13,6 +13,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/server"
 )
 
 // patchSchema: short_description is required with no default, state is
@@ -38,9 +40,11 @@ func patchTypeBody(key, prefix string) string {
 		key, key, prefix, patchSchema)
 }
 
-func newPatchEnv(t *testing.T) *etEnv {
+func newPatchEnv(t *testing.T) *etEnv { return newPatchEnvWith(t) }
+
+func newPatchEnvWith(t *testing.T, extra ...server.Option) *etEnv {
 	t.Helper()
-	e := newETEnv(t)
+	e := newETEnvWith(t, extra...)
 	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "pt-a", patchTypeBody("job", "JOB")); rec.Code != http.StatusCreated {
 		t.Fatalf("seed type = %d: %s", rec.Code, rec.Body)
 	}
@@ -312,6 +316,78 @@ func TestPatchHistoryPagesNewestFirst(t *testing.T) {
 	missing := e.do(t, http.MethodGet, "/api/v1/records/job/0194f2c0-0000-7000-8000-000000000000/history", "user-b", "", "")
 	if rec.Code != http.StatusNotFound || withoutInstance(t, rec) != withoutInstance(t, missing) {
 		t.Errorf("tenant B history = %d %s, want the missing record's 404", rec.Code, rec.Body)
+	}
+}
+
+// A history page reads at most the cap's rows; a record over the cap is a 422
+// history_too_long with no audit row read, logged and counted, and another
+// record and another tenant are unaffected (P5-17-fu2, TICK-542).
+func TestPatchHistoryIsCapped(t *testing.T) {
+	const limit = 4
+	var reads []int
+	e := newPatchEnvWith(t, server.WithHistoryCap(limit, func(n int) { reads = append(reads, n) }))
+	r := e.mustCreateRec(t, "user-a", "job", "c1", `{"short_description": "one"}`)
+	history := func(id string, q string) *httptest.ResponseRecorder {
+		return e.do(t, http.MethodGet, "/api/v1/records/job/"+id+"/history"+q, "user-a", "", "")
+	}
+	// Up to the cap (a create and three patches), every page reads the
+	// record's entries, never more than the cap.
+	for i := range limit - 1 {
+		if rec := e.patch(t, "user-a", "job", r.ID, fmt.Sprintf(`W/"%d"`, i+1), fmt.Sprintf(`{"data": {"note": "n%d"}}`, i)); rec.Code != http.StatusOK {
+			t.Fatalf("patch %d = %d: %s", i, rec.Code, rec.Body)
+		}
+	}
+	token := ""
+	for pages := 0; ; pages++ {
+		q := "?limit=1"
+		if token != "" {
+			q += "&cursor=" + url.QueryEscape(token)
+		}
+		rec := history(r.ID, q)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("page %d = %d: %s", pages, rec.Code, rec.Body)
+		}
+		var p struct {
+			Next string `json:"next_cursor"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
+			t.Fatal(err)
+		}
+		if token = p.Next; token == "" {
+			break
+		}
+	}
+	if len(reads) != limit {
+		t.Fatalf("%d pages, want %d", len(reads), limit)
+	}
+	for i, n := range reads {
+		if n > limit {
+			t.Errorf("page %d read %d audit rows, over the cap %d", i, n, limit)
+		}
+	}
+	// One more write puts the record over the cap.
+	if rec := e.patch(t, "user-a", "job", r.ID, fmt.Sprintf(`W/"%d"`, limit), `{"data": {"note": "over"}}`); rec.Code != http.StatusOK {
+		t.Fatalf("patch over the cap = %d: %s", rec.Code, rec.Body)
+	}
+	before := len(reads)
+	rec := history(r.ID, "")
+	if rec.Code != http.StatusUnprocessableEntity || patchProblemCode(t, rec) != "history_too_long" {
+		t.Fatalf("over the cap = %d, want 422 history_too_long: %s", rec.Code, rec.Body)
+	}
+	if got := reads[before:]; len(got) != 0 {
+		t.Errorf("over-cap read returned %v audit rows, want none", got)
+	}
+	if out := e.logs.String(); !strings.Contains(out, "record history longer than the cap") || !strings.Contains(out, "entries=5") || strings.Contains(out, "note") {
+		t.Errorf("log = %q, want the cap warning with the counts and no record data", out)
+	}
+	// Another record of the tenant is not affected.
+	other := e.mustCreateRec(t, "user-a", "job", "c-other", `{"short_description": "other"}`)
+	if rec := history(other.ID, ""); rec.Code != http.StatusOK {
+		t.Errorf("another record = %d: %s", rec.Code, rec.Body)
+	}
+	// An over-cap record still answers tenant B with the missing record's 404.
+	if rec := e.do(t, http.MethodGet, "/api/v1/records/job/"+r.ID+"/history", "user-b", "", ""); rec.Code != http.StatusNotFound {
+		t.Errorf("tenant B = %d, want 404: %s", rec.Code, rec.Body)
 	}
 }
 
