@@ -6,8 +6,8 @@
 # tools/ci/coverage-exclude.txt (each with its reason), and fails when the
 # total is below COVERAGE_MIN percent, listing the 20 worst-covered packages.
 # It writes the merged profile (coverage-total.out) and coverage.html even
-# when it fails. COVERAGE_REPORT_ONLY=1 prints the gap and exits 0: the CI
-# step runs that way until the total reaches the minimum (TICK-518 rollout).
+# when it fails. COVERAGE_REPORT_ONLY=1 prints the gap and exits 0 (local
+# use; CI enforces since the total reached the minimum, TICK-518).
 # Run make test and make test-integration first; on a laptop without Docker,
 # COVERAGE_PROFILES=coverage.out checks the unit half alone.
 # -mains: a package tree excluded as a test-only helper must not be imported
