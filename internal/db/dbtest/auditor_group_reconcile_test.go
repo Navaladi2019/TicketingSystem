@@ -66,12 +66,12 @@ func TestTick567ReconcileTwiceChangesNothing(t *testing.T) {
 	if _, err := onboard.ReconcileAuditorGroup(t.Context(), st, dir, a); err != nil {
 		t.Fatal(err)
 	}
-	before := queryString(t, super, "SELECT (SELECT count(*) FROM groups WHERE tenant_id = $1)::text || '/' || (SELECT count(*) FROM tenant_auditor_group)::text", tenantA)
+	before := queryString(t, super, "SELECT (SELECT count(*) FROM groups WHERE tenant_id = $1)::text || '/' || (SELECT count(*) FROM tenant_auditor_group WHERE tenant_id = $1)::text", tenantA)
 	created, err := onboard.ReconcileAuditorGroup(t.Context(), st, dir, a)
 	if err != nil || created {
 		t.Fatalf("second run = %v, %v; want a no-op", created, err)
 	}
-	if after := queryString(t, super, "SELECT (SELECT count(*) FROM groups WHERE tenant_id = $1)::text || '/' || (SELECT count(*) FROM tenant_auditor_group)::text", tenantA); after != before {
+	if after := queryString(t, super, "SELECT (SELECT count(*) FROM groups WHERE tenant_id = $1)::text || '/' || (SELECT count(*) FROM tenant_auditor_group WHERE tenant_id = $1)::text", tenantA); after != before {
 		t.Errorf("rows %s -> %s", before, after)
 	}
 	if len(dir.ensured) != 1 {
