@@ -14,8 +14,7 @@
 #   stack-db         a second stack: db-roles/migrate idempotency, role and hba tests
 #   stack-internal   the internal overlay on a fresh stack
 #   coverage         merges the unit and integration coverage profiles and
-#                    gates the total at 95% (make check-coverage, TICK-518);
-#                    report-only until the total reaches it. Runs whenever
+#                    fails below 95% (make check-coverage, TICK-518). Runs whenever
 #                    unit does; a change that needs unit also runs integration
 # A pull request runs only the jobs its change needs: the changes job asks
 # `make ci-stages` (tools/ci/cichanged, the rules of `make ci-changed`), lint
@@ -507,8 +506,8 @@ jobs:
     # TICK-518: the total Go coverage of the unit run (make test) and the
     # integration run against PostgreSQL (make test-integration), with
     # tools/ci/coverage-exclude.txt dropped, must be at least COVERAGE_MIN
-    # (95). Report-only (COVERAGE_REPORT_ONLY=1) until the total reaches it;
-    # the follow-up PR that drops it closes TICK-518. Runs on every change
+    # (95), or the job fails (enforcing since the total reached 96.4%,
+    # TICK-518; it was report-only before). Runs on every change
     # that runs unit (make ci-stages adds integration to those), even when
     # unit or integration failed or was skipped: a missing profile then fails
     # the download, so the job is never skipped as "not needed" (TICK-518).
@@ -540,8 +539,8 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: coverage-integration
-      - name: Coverage gate (report-only until 95%, TICK-518)
-        run: make check-coverage COVERAGE_REPORT_ONLY=1
+      - name: Coverage gate (95%, TICK-518)
+        run: make check-coverage
       - name: Coverage report
         if: always()
         uses: actions/upload-artifact@v4
