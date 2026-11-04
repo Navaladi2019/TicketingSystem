@@ -35,12 +35,15 @@
 package read_test
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -53,11 +56,22 @@ import (
 
 const modulePath = "github.com/Navaladi2019/TicketingSystem"
 
+// isolationPkg is the tenant-isolation harness. Its probes read the raw diff
+// and diff_salt columns on purpose: they prove RLS hides tenant A's diff from
+// tenant B at the database layer, which a read through the masker would not
+// test, and CI-A5 inspects the stored column (CTO ruling on TICK-552,
+// TICK-555). It never ships: TestIsolationHarnessNotInBinaries fails if any
+// non-test file outside it imports it, so no cmd/ binary can link it.
+const isolationPkg = "internal/tenancy/isolation"
+
 // diffReaderAllowed reports whether the file at rel (slash-separated,
 // relative to the repository root) may read audit_log.diff or diff_salt:
-// only the reader package, which masks every diff it returns.
+// the reader package, which masks every diff it returns, and the files of
+// the isolation harness package itself (not a subdirectory, which is another
+// package, nor a sibling).
 func diffReaderAllowed(rel string) bool {
-	return rel == "internal/audit/read" || strings.HasPrefix(rel, "internal/audit/read/")
+	return rel == "internal/audit/read" || strings.HasPrefix(rel, "internal/audit/read/") ||
+		path.Dir(rel) == isolationPkg
 }
 
 // diffRead is one reported read.
@@ -549,8 +563,15 @@ func TestAuditDiffReaderFixture(t *testing.T) {
 	if got := scanDir(t, root, dir, "internal/audit/read/fixture", idx); len(got) != 0 {
 		t.Errorf("internal/audit/read may read the diff, got %v", got)
 	}
-	// But not a sibling with a shared prefix, nor the rest of internal/audit.
-	for _, at := range []string{"internal/audit/reader", "internal/audit"} {
+	// The isolation harness package is allowed too, but only that package.
+	if got := scanDir(t, root, dir, isolationPkg, idx); len(got) != 0 {
+		t.Errorf("%s may read the diff, got %v", isolationPkg, got)
+	}
+	// But not a sibling with a shared prefix, nor the rest of internal/audit,
+	// nor a sibling, parent, look-alike or subpackage of the harness.
+	for _, at := range []string{"internal/audit/reader", "internal/audit",
+		"internal/tenancy/other", "internal/tenancy", "internal/tenancy/isolationx",
+		"internal/tenancy/isolation/sub", "cmd/nava/internal/tenancy/isolation"} {
 		if got := scanDir(t, root, dir, at, idx); len(got) != len(want) {
 			t.Errorf("%s is not the reader: want %d findings, got %d", at, len(want), len(got))
 		}
@@ -624,5 +645,99 @@ func TestDiffReads(t *testing.T) {
 		if got := diffReads(in); !slices.Equal(got, want) {
 			t.Errorf("diffReads(%q) = %v, want %v", in, got, want)
 		}
+	}
+}
+
+// TestIsolationHarnessNotInBinaries keeps the internal/tenancy/isolation
+// allowance in diffReaderAllowed safe: ADR-004 R7 is about a runtime read of
+// an unmasked diff, and the harness can cause none only while no shipped
+// binary links it (TICK-555). Two checks:
+//   - go list -deps over every cmd/ package must not list the harness, so no
+//     binary reaches it directly or transitively;
+//   - no non-test Go file outside the harness, under any build tag and in any
+//     module, imports it, so a tagged build cannot link it either and the
+//     first check cannot go stale.
+func TestIsolationHarnessNotInBinaries(t *testing.T) {
+	root := repoRoot(t)
+	harness := modulePath + "/" + isolationPkg
+
+	cmd := exec.CommandContext(context.Background(), "go", "list", "-deps", "-f", "{{.ImportPath}}", "./cmd/...")
+	cmd.Dir = root
+	out, err := cmd.Output()
+	if err != nil {
+		var stderr string
+		if ee := (*exec.ExitError)(nil); errors.As(err, &ee) {
+			stderr = string(ee.Stderr)
+		}
+		t.Fatalf("go list -deps ./cmd/...: %v: %s", err, stderr)
+	}
+	deps := strings.Fields(string(out))
+	if !slices.Contains(deps, modulePath+"/internal/db/audited") {
+		t.Fatalf("go list -deps ./cmd/... does not list internal/db/audited; the check would pass on nothing")
+	}
+	if slices.Contains(deps, harness) {
+		t.Errorf("a cmd/ binary links %s; the isolation harness reads raw audit_log.diff and must never ship (ADR-004 R7, TICK-555)", harness)
+	}
+
+	for _, f := range harnessImporters(t, root, harness) {
+		t.Errorf("%s imports %s; only its own tests may, so no binary can link the harness (ADR-004 R7, TICK-555)", f, harness)
+	}
+}
+
+// harnessImporters returns the non-test Go files under root, outside the
+// harness package itself, that import harness. Build tags are ignored.
+func harnessImporters(t *testing.T, root, harness string) []string {
+	t.Helper()
+	var bad []string
+	fset := token.NewFileSet()
+	for dir, paths := range goDirs(t, root) {
+		rel, err := filepath.Rel(root, dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if filepath.ToSlash(rel) == isolationPkg {
+			continue
+		}
+		for _, p := range paths {
+			f, err := parser.ParseFile(fset, p, nil, parser.ImportsOnly)
+			if err != nil {
+				t.Fatalf("parse %s: %v", p, err)
+			}
+			for _, is := range f.Imports {
+				if ip, _ := strconv.Unquote(is.Path.Value); ip == harness {
+					r, _ := filepath.Rel(root, p)
+					bad = append(bad, filepath.ToSlash(r))
+				}
+			}
+		}
+	}
+	sort.Strings(bad)
+	return bad
+}
+
+// TestHarnessImportersFindsPlantedImport is the positive control for the
+// static half of TestIsolationHarnessNotInBinaries: a planted non-test file
+// that imports the harness, behind a build tag, is reported; a test file is not.
+func TestHarnessImportersFindsPlantedImport(t *testing.T) {
+	root := t.TempDir()
+	harness := modulePath + "/" + isolationPkg
+	write := func(rel, src string) {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	imp := `import _ "` + harness + `"`
+	write("cmd/planted/main.go", "//go:build tools\n\npackage main\n\n"+imp+"\n\nfunc main() {}\n")
+	write("internal/tenancy/other/other.go", "package other\n\n"+imp+"\n")
+	write("internal/tenancy/other/other_test.go", "package other\n\n"+imp+"\n")
+	write(isolationPkg+"/self.go", "package isolation\n\n"+imp+"\n")
+	got := harnessImporters(t, root, harness)
+	want := []string{"cmd/planted/main.go", "internal/tenancy/other/other.go"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
 	}
 }
