@@ -29,14 +29,29 @@ const (
 	returnSQL  = `UPDATE audit_log SET erased_at = now() WHERE id = $1 RETURNING diff_salt`   // want: diff_salt
 	fromConsts = "SELECT " + cols + " FROM " + logTable                                       // want: diff diff_salt
 
-	// Look-alikes: other columns, other tables, a pure insert, comments.
-	hashSQL    = `SELECT diff_sha256, diff_truncated, diff_redacted FROM audit_log`
-	countSQL   = `SELECT count(*) FROM audit_log WHERE tenant_id = $1`
-	v0SQL      = `SELECT diff FROM audit_log_v0`
-	otherSQL   = `SELECT diff FROM record_diffs`
-	insertSQL  = `INSERT INTO audit_log (tenant_id, diff, diff_salt) VALUES ($1, $2::json, $3)`
-	commentSQL = "-- SELECT diff FROM audit_log\nSELECT 1"
-	blockSQL   = "SELECT 1 /* diff FROM audit_log */"
+	// The whole row: aggregates, a cast, a bare select-list item, a bare COPY.
+	jsonAggSQL  = `SELECT json_agg(a) FROM audit_log a WHERE a.tenant_id = $1` // want: row
+	jsonbAggSQL = `SELECT jsonb_agg(l ORDER BY l.seq) FROM audit_log AS l`     // want: row
+	arrayAggSQL = `SELECT array_agg(audit_log) FROM audit_log`                 // want: row
+	castSQL     = `SELECT a::text FROM audit_log a WHERE a.id = $1`            // want: row
+	wholeRowSQL = `SELECT audit_log FROM audit_log WHERE id = $1`              // want: row
+	aliasRowSQL = `SELECT a.id, a FROM audit_log a`                            // want: row
+	copyAllSQL  = `COPY audit_log TO STDOUT`                                   // want: copy
+	copyColsSQL = `COPY public.audit_log (id, diff) TO STDOUT (FORMAT csv)`    // want: diff
+
+	// Look-alikes: other columns, other tables, a pure insert, comments,
+	// aggregates and casts of a column, COPY in, COPY out of safe columns.
+	arrayIDSQL  = `SELECT array_agg(id) FROM audit_log`
+	colCastSQL  = `SELECT a.id::text, tenant_id::text FROM audit_log a`
+	copyInSQL   = `COPY audit_log (id) FROM STDIN`
+	copySafeSQL = `COPY audit_log (id, diff_sha256) TO STDOUT`
+	hashSQL     = `SELECT diff_sha256, diff_truncated, diff_redacted FROM audit_log`
+	countSQL    = `SELECT count(*) FROM audit_log WHERE tenant_id = $1`
+	v0SQL       = `SELECT diff FROM audit_log_v0`
+	otherSQL    = `SELECT diff FROM record_diffs`
+	insertSQL   = `INSERT INTO audit_log (tenant_id, diff, diff_salt) VALUES ($1, $2::json, $3)`
+	commentSQL  = "-- SELECT diff FROM audit_log\nSELECT 1"
+	blockSQL    = "SELECT 1 /* diff FROM audit_log */"
 )
 
 func plant(ctx context.Context, tx pgx.Tx, where string) error {

@@ -6,11 +6,18 @@
 // The check is static and runs in `task test`. It parses every non-test Go
 // file in the repository (every module, build tags ignored, so a tagged file
 // cannot hide a read) and reports a string, constant, `+` concatenation or
-// fmt.Sprintf result whose SQL reads audit_log (FROM or JOIN, or a write with
-// RETURNING) and names diff or diff_salt, selects a star, or turns the whole
-// row into JSON. Matching is case-insensitive, with any whitespace, quotes or
+// fmt.Sprintf result whose SQL reads audit_log (FROM or JOIN, a write with
+// RETURNING, or COPY ... TO) and names diff or diff_salt, selects a star,
+// uses the whole row (to_jsonb(a), json_agg(a), array_agg(a), a::text,
+// SELECT audit_log FROM audit_log, ...), or COPYs the table out without a
+// column list. Matching is case-insensitive, with any whitespace, quotes or
 // schema prefix; SQL comments are ignored. diff_sha256, diff_truncated and
 // diff_redacted are other columns and do not match.
+//
+// Known limit: only constants fold. A part held in a package or local var,
+// a function result or a parameter becomes "?", so
+// `"SELECT " + colsVar + " FROM audit_log"` with diff in colsVar is not
+// seen. Keep column lists in consts; review still owns that case.
 //
 // testdata/diffreaders plants every form; TestAuditDiffReaderFixture proves
 // each one is reported, so the check cannot rot into a test that passes on
@@ -63,17 +70,67 @@ const (
 
 var (
 	fromAudit = regexp.MustCompile(`\b(?:from|join)\s+(?:only\s+)?` + auditTable)
+	// The table's row names in a statement: audit_log itself and the alias
+	// after FROM or JOIN audit_log [AS] alias. A keyword is not an alias.
+	aliasRE = regexp.MustCompile(`\b(?:from|join)\s+(?:only\s+)?(?:` + sqlIdent + `\.)?(audit_log(?:_default|_p` + sqlIdent + `)?)\b(?:\s+(?:as\s+)?(` + sqlIdent + `))?`)
 	// A write on audit_log that returns columns reads them too.
 	writeAudit = regexp.MustCompile(`\b(?:insert\s+into|update|delete\s+from|merge\s+into)\s+(?:only\s+)?` + auditTable)
 	returning  = regexp.MustCompile(`\breturning\b`)
+	// COPY audit_log [(cols)] TO: a bare one exports every column. COPY
+	// audit_log FROM is a write; COPY (SELECT ...) TO is seen by its SELECT.
+	copyTo = regexp.MustCompile(`\bcopy\s+` + auditTable + `\s*(\([^)]*\))?\s*to\b`)
 	// The protected columns. \b stops at diff_sha256 and friends, because _
 	// is a word character.
 	diffCol = regexp.MustCompile(`\b(diff_salt|diff)\b`)
 	// SELECT *, alias.*, RETURNING * (count(*) is not a star select).
 	starSel = regexp.MustCompile(`(?:\bselect\s+(?:distinct\s+)?|\breturning\s+|` + sqlIdent + `\.)\*`)
-	// The whole row as JSON or text: to_jsonb(a), row_to_json(a), a::text.
-	rowFn = regexp.MustCompile(`\b(?:to_jsonb?|row_to_json|jsonb?_populate_record|hstore)\s*\(\s*` + sqlIdent + `\s*\)`)
+)
 
+// sqlKeyword reports whether w may follow FROM audit_log without being an
+// alias.
+func sqlKeyword(w string) bool {
+	switch w {
+	case "where", "join", "inner", "left", "right", "full", "cross", "natural", "on", "using", "order",
+		"group", "having", "limit", "offset", "for", "union", "intersect", "except", "window",
+		"returning", "fetch", "tablesample", "set":
+		return true
+	}
+	return false
+}
+
+// wholeRow reports whether s uses a whole audit_log row, which carries diff
+// and diff_salt, through one of its row names: as an argument of a row
+// function or aggregate (to_jsonb(a), row_to_json(a), json_agg(a),
+// jsonb_agg(a), array_agg(a), ...), in a cast (a::text), or as a bare
+// select-list item (SELECT audit_log FROM audit_log, SELECT a.id, a FROM
+// audit_log a). A column of the row (a.id, a.id::text) is not the row.
+func wholeRow(s string) bool {
+	names := map[string]bool{}
+	for _, m := range aliasRE.FindAllStringSubmatch(s, -1) {
+		names[m[1]] = true
+		if m[2] != "" && !sqlKeyword(m[2]) {
+			names[m[2]] = true
+		}
+	}
+	for n := range names {
+		q := regexp.QuoteMeta(n)
+		for _, re := range []string{
+			// A row function or aggregate over the row.
+			`\b(?:to_jsonb?|row_to_json|json_agg|jsonb_agg|array_agg|string_agg|jsonb?_populate_record|hstore|json_object_agg|jsonb_object_agg|row)\s*\(\s*(?:distinct\s+)?` + q + `\s*(?:\)|,|\border\b)`,
+			// A cast of the row; a.col::text has a dot before the cast.
+			`(?:^|[^.a-z0-9_$])` + q + `\s*::`,
+			// A bare select-list item.
+			`(?:\bselect\s+(?:distinct\s+)?|,\s*)` + q + `\s*(?:,|\bfrom\b)`,
+		} {
+			if regexp.MustCompile(re).MatchString(s) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+var (
 	lineCommentRE  = regexp.MustCompile(`--[^\n]*`)
 	blockCommentRE = regexp.MustCompile(`(?s)/\*.*?\*/`)
 	verbRE         = regexp.MustCompile(`%(?:\[\d+\])?[-+# 0]*\d*(?:\.\d+)?[a-zA-Z%]`)
@@ -87,7 +144,8 @@ func diffReads(s string) []string {
 	s = lineCommentRE.ReplaceAllString(s, " ")
 	s = strings.ReplaceAll(s, `"`, "")
 	s = strings.ReplaceAll(s, "`", "")
-	if reads := fromAudit.MatchString(s) || writeAudit.MatchString(s) && returning.MatchString(s); !reads {
+	copied := copyTo.FindStringSubmatch(s)
+	if reads := fromAudit.MatchString(s) || writeAudit.MatchString(s) && returning.MatchString(s) || copied != nil; !reads {
 		return nil
 	}
 	var out []string
@@ -97,8 +155,11 @@ func diffReads(s string) []string {
 	if starSel.MatchString(s) {
 		out = append(out, "star")
 	}
-	if rowFn.MatchString(s) {
+	if wholeRow(s) {
 		out = append(out, "row")
+	}
+	if copied != nil && copied[1] == "" {
+		out = append(out, "copy")
 	}
 	slices.Sort(out)
 	return slices.Compact(out)
@@ -350,7 +411,7 @@ func TestAuditDiffReaderFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	want = dedupe(want)
-	if len(want) < 14 {
+	if len(want) < 24 {
 		t.Fatalf("the fixture plants %d reads; it lost some", len(want))
 	}
 	for _, w := range want {
@@ -410,6 +471,14 @@ func TestDiffReads(t *testing.T) {
 		"SELECT diff FROM ONLY audit_log_default":                              {"diff"},
 		"UPDATE audit_log SET erased_at = now() RETURNING diff":                {"diff"},
 		"DELETE FROM audit_log WHERE id = $1 RETURNING *":                      {"star"},
+		"SELECT json_agg(a) FROM audit_log a":                                  {"row"},
+		"SELECT jsonb_agg(l ORDER BY l.seq) FROM audit_log AS l":               {"row"},
+		"SELECT array_agg(DISTINCT audit_log) FROM audit_log":                  {"row"},
+		"SELECT a::text FROM audit_log a":                                      {"row"},
+		"SELECT audit_log FROM audit_log":                                      {"row"},
+		"SELECT a.id, a FROM audit_log a WHERE true":                           {"row"},
+		"COPY audit_log TO STDOUT":                                             {"copy"},
+		"COPY public.audit_log (id, diff_salt) TO STDOUT":                      {"diff_salt"},
 		// Not a read of the protected columns.
 		"SELECT diff_sha256, diff_truncated, diff_redacted FROM audit_log": nil,
 		"SELECT count(*) FROM audit_log":                                   nil,
@@ -418,6 +487,12 @@ func TestDiffReads(t *testing.T) {
 		"INSERT INTO audit_log (diff, diff_salt) VALUES ($1, $2)":          nil,
 		"-- SELECT diff FROM audit_log\nSELECT 1":                          nil,
 		"SELECT 1 /* diff FROM audit_log */":                               nil,
+		"SELECT array_agg(id) FROM audit_log":                              nil,
+		"SELECT tenant_id::text FROM audit_log a":                          nil,
+		"SELECT a.id::text, a.seq FROM audit_log a":                        nil,
+		"SELECT json_agg(a.id) FROM audit_log a WHERE true":                nil,
+		"COPY audit_log (id) FROM STDIN":                                   nil,
+		"COPY audit_log (id, diff_sha256) TO STDOUT":                       nil,
 	}
 	for in, want := range cases {
 		if got := diffReads(in); !slices.Equal(got, want) {
