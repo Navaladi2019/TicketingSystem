@@ -12,14 +12,15 @@ package pipeline_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/audit"
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
@@ -50,7 +51,7 @@ func (s *startSink) RecordChanged(ctx context.Context, tx pgx.Tx, ev pipeline.Ev
 			return err
 		}
 		if !claimed {
-			if err := pipeline.AuditSuppressed(ctx, tx, c, ev, time.Now()); err != nil {
+			if err := pipeline.AuditSuppressed(ctx, tx, c, ev); err != nil {
 				return err
 			}
 			continue
@@ -87,11 +88,6 @@ func starts(t *testing.T, e env, tenant, record, def uuid.UUID) int {
 func startRows(t *testing.T, e env, tenant uuid.UUID) int {
 	t.Helper()
 	return count(t, e.super, `SELECT count(*) FROM outbox WHERE tenant_id = $1 AND kind = $2`, tenant, outbox.InterpreterKind)
-}
-
-func auditRows(t *testing.T, e env, tenant uuid.UUID, action string) int {
-	t.Helper()
-	return count(t, e.super, `SELECT count(*) FROM audit_log_v0 WHERE tenant_id = $1 AND action = $2`, tenant, action)
 }
 
 // createWithStart is S11b's step 1: a user creates R, which mints origin O at
@@ -149,21 +145,132 @@ func TestCI10_WriteBackToTriggeringRecordCommits(t *testing.T) {
 	if n := startRows(t, e, f.id); n != 1 {
 		t.Errorf("%d start rows, want 1", n)
 	}
-	if n := auditRows(t, e, f.id, cascade.ActionCycle); n != 1 {
+	if n := entries(t, e, f.id, cycleAction); n != 1 {
 		t.Errorf("%d cascade_cycle rows, want 1 (the write-back fired D again)", n)
 	}
-	var source string
-	var actor, auditOrigin *uuid.UUID
-	var depth int16
-	var after []byte
-	if err := e.super.QueryRow(context.Background(), `SELECT source, actor_id, causation_origin_id, causation_depth, after
-		FROM audit_log_v0 WHERE tenant_id = $1 AND action = 'cascade_cycle'`, f.id).Scan(&source, &actor, &auditOrigin, &depth, &after); err != nil {
+	// ADR-004-E1 R2a: domain record, subject K(T, O, R, D), version_after R's
+	// version after the write, no version_before, the writer, O and the
+	// write's depth, R's entity type, one add of /cascade and no record data.
+	got := readEntry(t, e, f.id, cycleAction)
+	want := entryRow{
+		Domain: "record", SubjectType: "cascade_key", SubjectID: audit.CascadeKey(f.id, origin, r.RecordID, d),
+		DefinitionID: definitionID(t, e, f.id), VersionAfter: ptr(int64(2)),
+		ActorSystem: ptr("workflow"), Source: "workflow", CausationID: &origin, CausationDepth: 1,
+		Diff: `[{"op":"add","path":"/cascade","value":{"definition_id":"` + d.String() + `","origin_id":"` + origin.String() +
+			`","reason":"ErrCascadeCycle","record_id":"` + r.RecordID.String() + `"}}]`,
+	}
+	if diff := got.diff(want); diff != "" {
+		t.Fatalf("cascade_cycle entry: %s", diff)
+	}
+}
+
+// cycleAction and tooDeepAction are ADR-004-E1's cascade actions.
+const (
+	cycleAction   = string(audit.ActionCascadeCycle)
+	tooDeepAction = string(audit.ActionCascadeTooDeep)
+)
+
+// entryRow is an audit_log entry's envelope and diff as the tests compare it.
+type entryRow struct {
+	Domain, Action, SubjectType string
+	SubjectID                   uuid.UUID
+	DefinitionID                *uuid.UUID
+	VersionBefore, VersionAfter *int64
+	ActorPrincipal              *uuid.UUID
+	ActorSystem                 *string
+	Source                      string
+	CausationID                 *uuid.UUID
+	CausationDepth              int16
+	Diff                        string
+}
+
+const entryColumns = `domain, action, subject_type, subject_id, entity_definition_id, version_before, version_after,
+	actor_principal_id, actor_system, source, causation_id, causation_depth, diff::text`
+
+func scanEntry(row pgx.Row) (entryRow, error) {
+	var r entryRow
+	var diff *string
+	err := row.Scan(&r.Domain, &r.Action, &r.SubjectType, &r.SubjectID, &r.DefinitionID, &r.VersionBefore, &r.VersionAfter,
+		&r.ActorPrincipal, &r.ActorSystem, &r.Source, &r.CausationID, &r.CausationDepth, &diff)
+	if diff != nil {
+		r.Diff = *diff
+	}
+	return r, err
+}
+
+// readEntry reads the tenant's one entry with action; it fails unless there
+// is exactly one.
+func readEntry(t *testing.T, e env, tenant uuid.UUID, action string, extra ...any) entryRow {
+	t.Helper()
+	q := `SELECT ` + entryColumns + ` FROM audit_log WHERE tenant_id = $1 AND action = $2`
+	if len(extra) > 0 {
+		q += ` AND subject_id = $3`
+	}
+	rows, err := e.super.Query(context.Background(), q, append([]any{tenant, action}, extra...)...)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if source != "workflow" || actor != nil || auditOrigin == nil || *auditOrigin != origin || depth != 1 ||
-		string(after) != `{"reason": "cascade_cycle", "definition_id": "`+d.String()+`"}` {
-		t.Fatalf("cascade_cycle row: source %s actor %v origin %v depth %d after %s", source, actor, auditOrigin, depth, after)
+	got, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (entryRow, error) { return scanEntry(r) })
+	if err != nil {
+		t.Fatal(err)
 	}
+	if len(got) != 1 {
+		t.Fatalf("%d %s entries, want 1: %+v", len(got), action, got)
+	}
+	return got[0]
+}
+
+// diff names every field of r that differs from want; Action is compared
+// only when want sets it.
+func (r entryRow) diff(want entryRow) string {
+	if want.Action == "" {
+		want.Action = r.Action
+	}
+	g, w := fmt.Sprintf("%+v", r.deref()), fmt.Sprintf("%+v", want.deref())
+	if g == w {
+		return ""
+	}
+	return "got  " + g + "\nwant " + w
+}
+
+// deref prints the pointer fields by value.
+func (r entryRow) deref() map[string]any {
+	str := func(p any) string {
+		switch v := p.(type) {
+		case *uuid.UUID:
+			if v != nil {
+				return v.String()
+			}
+		case *int64:
+			if v != nil {
+				return fmt.Sprint(*v)
+			}
+		case *string:
+			if v != nil {
+				return *v
+			}
+		}
+		return "<nil>"
+	}
+	return map[string]any{
+		"domain": r.Domain, "action": r.Action, "subject_type": r.SubjectType, "subject_id": r.SubjectID.String(),
+		"entity_definition_id": str(r.DefinitionID), "version_before": str(r.VersionBefore), "version_after": str(r.VersionAfter),
+		"actor_principal_id": str(r.ActorPrincipal), "actor_system": str(r.ActorSystem), "source": r.Source,
+		"causation_id": str(r.CausationID), "causation_depth": r.CausationDepth, "diff": r.Diff,
+	}
+}
+
+func ptr[T any](v T) *T { return &v }
+
+// definitionID is the tenant's incident entity type id.
+func definitionID(t *testing.T, e env, tenant uuid.UUID) *uuid.UUID {
+	t.Helper()
+	var id uuid.UUID
+	if err := e.super.QueryRow(context.Background(), `SELECT id FROM entity_definitions WHERE tenant_id = $1 AND key = $2`,
+		tenant, entityKey).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return &id
 }
 
 // (b) Two update_record steps of D on R, under one origin: both commit, D
@@ -187,7 +294,7 @@ func TestCI10_SiblingAndSelfRetriggeringWritesAreNotCycles(t *testing.T) {
 	if n := starts(t, e, f.id, r.RecordID, d); n != 1 {
 		t.Errorf("(b) %d starts of D, want 1", n)
 	}
-	if n := auditRows(t, e, f.id, cascade.ActionCycle); n != 2 {
+	if n := entries(t, e, f.id, cycleAction); n != 2 {
 		t.Errorf("(b) %d cascade_cycle rows, want 2", n)
 	}
 
@@ -204,7 +311,7 @@ func TestCI10_SiblingAndSelfRetriggeringWritesAreNotCycles(t *testing.T) {
 	if n := startRows(t, e, f.id); n != 1 {
 		t.Errorf("(c) %d start rows, want 1", n)
 	}
-	if n := auditRows(t, e, f.id, cascade.ActionCycle); n != 5 {
+	if n := entries(t, e, f.id, cycleAction); n != 5 {
 		t.Errorf("(c) %d cascade_cycle rows, want 5, one per write D made to R", n)
 	}
 
@@ -251,7 +358,7 @@ func TestCI10_RetriedActivityCreatesNoSecondStart(t *testing.T) {
 	if n := starts(t, e, f.id, r.RecordID, d); n != 1 {
 		t.Errorf("%d starts of D, want 1", n)
 	}
-	if n := auditRows(t, e, f.id, cascade.ActionCycle); n != 1 {
+	if n := entries(t, e, f.id, cycleAction); n != 1 {
 		t.Errorf("%d cascade_cycle rows, want 1", n)
 	}
 
@@ -349,34 +456,43 @@ func TestCI10_DepthBeyondLimitRejectedAndAuditedOnTheRunner(t *testing.T) {
 	if sink.calls() != 0 {
 		t.Errorf("the refused write called the sink")
 	}
-	var record, actor, auditOrigin *uuid.UUID
-	var source string
-	var depth int16
-	var after []byte
-	if err := e.super.QueryRow(ctx, `SELECT record_id, actor_id, source, causation_origin_id, causation_depth, after
-		FROM audit_log_v0 WHERE tenant_id = $1 AND action = 'cascade_rejected'`, f.id).
-		Scan(&record, &actor, &source, &auditOrigin, &depth, &after); err != nil {
-		t.Fatalf("exactly one cascade_rejected row: %v", err)
+	// ADR-004-E1 R2a, CI-A17 (d): a create has no record, so the subject is
+	// K(T, O, nil, nil) and the diff names no record_id; no version.
+	got := readEntry(t, e, f.id, tooDeepAction)
+	want := entryRow{
+		Domain: "record", SubjectType: "cascade_key", SubjectID: audit.CascadeKey(f.id, origin, uuid.Nil, uuid.Nil),
+		DefinitionID: definitionID(t, e, f.id), ActorPrincipal: &f.principal.PrincipalID, Source: "rule",
+		CausationID: &origin, CausationDepth: 9,
+		Diff: `[{"op":"add","path":"/cascade","value":{"depth":9,"limit":8,"origin_id":"` + origin.String() + `","reason":"ErrCascadeTooDeep"}}]`,
 	}
-	if record != nil || actor == nil || *actor != f.principal.PrincipalID || source != "rule" ||
-		auditOrigin == nil || *auditOrigin != origin || depth != 9 || string(after) != `{"reason": "cascade_too_deep"}` {
-		t.Fatalf("cascade_rejected row: record %v actor %v source %s origin %v depth %d after %s",
-			record, actor, source, auditOrigin, depth, after)
+	if diff := got.diff(want); diff != "" {
+		t.Fatalf("cascade_too_deep entry of a create: %s", diff)
 	}
 
-	// An update at depth 9: the record is unchanged, one row names it.
+	// An update at depth 9: the record is unchanged, and the one entry's
+	// subject is the record, read under RLS on the runner.
 	r := mustCreate(t, e, p, f, map[string]any{"title": "printer"})
 	update := workflowCmd(f, r.RecordID, 1, tooDeep, "deep")
 	refused(update)
 	if _, _, _, v, _ := storedData(t, e, r.RecordID); v != 1 {
 		t.Errorf("version %d after the refused update, want 1", v)
 	}
-	if n := count(t, e.super, `SELECT count(*) FROM audit_log_v0 WHERE tenant_id = $1 AND action = 'cascade_rejected' AND record_id = $2`,
-		f.id, r.RecordID); n != 1 {
-		t.Errorf("%d cascade_rejected rows naming the record, want 1", n)
+	got = readEntry(t, e, f.id, tooDeepAction, r.RecordID)
+	want = entryRow{
+		Domain: "record", SubjectType: "record", SubjectID: r.RecordID,
+		DefinitionID: definitionID(t, e, f.id), VersionBefore: ptr(int64(1)), ActorSystem: ptr("workflow"), Source: "workflow",
+		CausationID: &origin, CausationDepth: 9,
+		Diff: `[{"op":"add","path":"/cascade","value":{"depth":9,"limit":8,"origin_id":"` + origin.String() +
+			`","reason":"ErrCascadeTooDeep","record_id":"` + r.RecordID.String() + `"}}]`,
 	}
-	if n := auditRows(t, e, f.id, cascade.ActionRejected); n != 2 {
-		t.Errorf("%d cascade_rejected rows in all, want 2", n)
+	if diff := got.diff(want); diff != "" {
+		t.Fatalf("cascade_too_deep entry of an update: %s", diff)
+	}
+	if n := entries(t, e, f.id, tooDeepAction); n != 2 {
+		t.Errorf("%d cascade_too_deep entries in all, want 2", n)
+	}
+	if n := recordEntries(t, e, r.RecordID); n != 2 {
+		t.Errorf("%d entries with the record as subject, want 2 (its create, and the refused update)", n)
 	}
 	// The refused update's key was not used: the retry at a legal depth runs.
 	update.Causation.Depth = config.CascadeDepthLimit
@@ -393,11 +509,11 @@ func TestCI10_StartKeyIsPerTenant(t *testing.T) {
 	ctx := context.Background()
 	record, origin, d := uuid.New(), uuid.New(), uuid.New()
 	for _, f := range []tenantFixture{a, b} {
-		mustExec(t, e.super, `INSERT INTO records (tenant_id, id, causation_origin_id, causation_depth) VALUES ($1, $2, $3, 0)`,
+		seedRecord(t, e, f.id, record, `INSERT INTO records (tenant_id, id, causation_origin_id, causation_depth) VALUES ($1, $2, $3, 0)`,
 			f.id, record, origin)
 	}
 	aOnly := uuid.New()
-	mustExec(t, e.super, `INSERT INTO records (tenant_id, id, causation_origin_id, causation_depth) VALUES ($1, $2, $3, 0)`,
+	seedRecord(t, e, a.id, aOnly, `INSERT INTO records (tenant_id, id, causation_origin_id, causation_depth) VALUES ($1, $2, $3, 0)`,
 		a.id, aOnly, origin)
 
 	claim := func(f tenantFixture, rec uuid.UUID) (bool, error) {
@@ -441,7 +557,7 @@ func TestCI10_ConcurrentClaimsOfOneKey(t *testing.T) {
 
 	for _, firstCommits := range []bool{true, false} {
 		record := uuid.New()
-		mustExec(t, e.super, `INSERT INTO records (tenant_id, id, causation_origin_id, causation_depth) VALUES ($1, $2, $3, 0)`,
+		seedRecord(t, e, f.id, record, `INSERT INTO records (tenant_id, id, causation_origin_id, causation_depth) VALUES ($1, $2, $3, 0)`,
 			f.id, record, uuid.New())
 		key := cascade.Key{RecordID: record, DefinitionID: d}
 
@@ -505,8 +621,8 @@ func TestCascadeStartGuards(t *testing.T) {
 	f := seedTenant(t, e)
 	ctx := context.Background()
 	bare, keyed, origin := uuid.New(), uuid.New(), uuid.New()
-	mustExec(t, e.super, `INSERT INTO records (tenant_id, id) VALUES ($1, $2)`, f.id, bare)
-	mustExec(t, e.super, `INSERT INTO records (tenant_id, id, causation_origin_id, causation_depth) VALUES ($1, $2, $3, 2)`,
+	seedRecord(t, e, f.id, bare, `INSERT INTO records (tenant_id, id) VALUES ($1, $2)`, f.id, bare)
+	seedRecord(t, e, f.id, keyed, `INSERT INTO records (tenant_id, id, causation_origin_id, causation_depth) VALUES ($1, $2, $3, 2)`,
 		f.id, keyed, origin)
 	d := uuid.New()
 	start := func(record uuid.UUID, c outbox.Causation) outbox.Entry {

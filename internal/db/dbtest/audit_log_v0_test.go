@@ -87,7 +87,8 @@ func TestP510aAuditLogRenamed(t *testing.T) {
 	for _, role := range []string{"nava_app", "nava_worker"} {
 		got := queryString(t, super, `SELECT string_agg(p || '=' || has_table_privilege($1, 'audit_log_v0', p)::text, ',' ORDER BY p)
 			FROM unnest(ARRAY['DELETE', 'INSERT', 'SELECT', 'TRUNCATE', 'UPDATE']) p`, role)
-		if want := "DELETE=false,INSERT=true,SELECT=true,TRUNCATE=false,UPDATE=false"; got != want {
+		// Read-only since P5-13b (TICK-452): INSERT is revoked too.
+		if want := "DELETE=false,INSERT=false,SELECT=true,TRUNCATE=false,UPDATE=false"; got != want {
 			t.Errorf("%s on audit_log_v0: %s, want %s", role, got, want)
 		}
 	}
