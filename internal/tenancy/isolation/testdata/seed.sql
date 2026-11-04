@@ -21,8 +21,11 @@ INSERT INTO tenant_identity_binding (tenant_id, issuer, org_id, idp_aliases) VAL
 -- The seed's records rows are bare fixtures for the isolation probes, not
 -- record writes: their audit entries are the curated set below, not one per
 -- row. The records commit-check trigger (P5-13c, ADR-004 decision 2) is off
--- for this one transaction (the file runs as one implicit transaction) and
--- back on at its end, so every row the suite writes later is checked.
+-- for this one explicit transaction, from here to the COMMIT at the end of
+-- the file, and back on before it commits, so every row the suite writes
+-- later is checked. The transaction does not depend on how the loader sends
+-- the file; the harness asserts the trigger is enabled after the seed.
+BEGIN;
 ALTER TABLE records DISABLE TRIGGER records_audit_commit_check;
 
 INSERT INTO records (tenant_id, id) VALUES
@@ -199,3 +202,4 @@ INSERT INTO record_counters (tenant_id, entity_definition_id, next) VALUES
 
 -- Back on before the seed commits (see the DISABLE above the records rows).
 ALTER TABLE records ENABLE TRIGGER records_audit_commit_check;
+COMMIT;
