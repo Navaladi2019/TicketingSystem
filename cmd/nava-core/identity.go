@@ -44,7 +44,7 @@ func newResolver(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
-	out, err := telemetry.NewOutboundClient(tel, telemetry.OutboundOptions{})
+	out, err := newOutboundClient(tel, telemetry.OutboundOptions{})
 	if err != nil {
 		pool.Close()
 		return nil, nil, nil, nil, err
