@@ -147,7 +147,17 @@ func mustExec(t *testing.T, conn *pgx.Conn, sql string, args ...any) {
 func seedRecord(t *testing.T, conn *pgx.Conn, tenant, record uuid.UUID) {
 	t.Helper()
 	mustExec(t, conn, "INSERT INTO tenants (id, state) VALUES ($1, 'active') ON CONFLICT DO NOTHING", tenant)
-	mustExec(t, conn, "INSERT INTO records (tenant_id, id) VALUES ($1, $2)", tenant, record)
+	mustExec(t, conn, `WITH r AS (INSERT INTO records (tenant_id, id) VALUES ($1, $2) RETURNING tenant_id, id, version)
+		`+recordEntrySQL("create"), tenant, record)
+}
+
+// recordEntrySQL is the tail of a statement whose CTE r returns the written
+// records rows (tenant_id, id, version): it writes each row's audit_log
+// entry, so the transaction passes the records commit-check trigger at
+// COMMIT (ADR-004 decision 2, P5-13c).
+func recordEntrySQL(action string) string {
+	return `INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, version_after, actor_system, source)
+		SELECT tenant_id, gen_random_uuid(), 'record', '` + action + `', 'record', id, version, 'system', 'system' FROM r`
 }
 
 func version(t *testing.T, conn *pgx.Conn, tenant, record uuid.UUID) int64 {
@@ -204,9 +214,12 @@ func signal(record uuid.UUID, dedupe string) outbox.Entry {
 }
 
 // bumpSQL is the write pipeline's version bump (D-3-6), which outbox leaves
-// to its caller. Test files are outside the single-writer check
+// to its caller, with the update's audit entry the pipeline writes in the
+// same transaction (P5-13c). Test files are outside the single-writer check
 // (internal/records/arch_test.go).
-const bumpSQL = `UPDATE records SET version = version + 1 WHERE id = $1 RETURNING version`
+var bumpSQL = `WITH r AS (UPDATE records SET version = version + 1 WHERE id = $1 RETURNING tenant_id, id, version),
+	a AS (` + recordEntrySQL("update") + `)
+	SELECT version FROM r`
 
 // write is a pipeline-shaped write in tx: it bumps e's record's version, as
 // the pipeline's UPDATE does, and enqueues e at the new version. The bump
@@ -423,7 +436,7 @@ func TestCI10_ConcurrentProducersConsecutiveTargetSeq(t *testing.T) {
 		}()
 		deadline := time.Now().Add(10 * time.Second)
 		for count(t, e.super, `SELECT count(*) FROM pg_stat_activity
-			WHERE usename = 'nava_app' AND wait_event_type = 'Lock' AND query LIKE 'UPDATE records%'`) != 1 {
+			WHERE usename = 'nava_app' AND wait_event_type = 'Lock' AND query LIKE '%UPDATE records SET version%'`) != 1 {
 			if time.Now().After(deadline) {
 				t.Fatal("the second producer never waited on the record lock")
 			}
@@ -659,7 +672,7 @@ func TestEnqueueAtVersion(t *testing.T) {
 	var id uuid.UUID
 	err := tenancy.InTenantTx(ctx, e.app, tenant, func(tx pgx.Tx) error {
 		// The pipeline's own bump, in the same transaction.
-		if _, err := tx.Exec(ctx, "UPDATE records SET version = version + 1 WHERE id = $1", record); err != nil {
+		if _, err := tx.Exec(ctx, bumpSQL, record); err != nil {
 			return err
 		}
 		var err error

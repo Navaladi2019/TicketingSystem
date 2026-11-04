@@ -162,7 +162,14 @@ func (e *etIso) cleanup() error {
 	for _, q := range []string{
 		`DELETE FROM audit_log WHERE subject_type = 'record' AND subject_id IN (SELECT r.id FROM records r JOIN entity_definitions d
 			ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id WHERE d.key LIKE 'iso_et_%')`,
-		`DELETE FROM records WHERE entity_definition_id IN (SELECT id FROM entity_definitions WHERE key LIKE 'iso\_et\_%')`,
+		// The delete writes each record's entry, as the records commit-check
+		// trigger requires (P5-13c); the next statement removes those
+		// entries before their definitions go.
+		`WITH r AS (DELETE FROM records WHERE entity_definition_id IN (SELECT id FROM entity_definitions WHERE key LIKE 'iso\_et\_%')
+			RETURNING tenant_id, id, version, entity_definition_id)
+			INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, entity_definition_id, version_after, actor_system, source)
+			SELECT tenant_id, gen_random_uuid(), 'record', 'delete', 'record', id, entity_definition_id, version, 'system', 'system' FROM r`,
+		`DELETE FROM audit_log WHERE subject_type = 'record' AND action = 'delete' AND entity_definition_id IN (SELECT id FROM entity_definitions WHERE key LIKE 'iso\_et\_%')`,
 		`DELETE FROM record_counters WHERE entity_definition_id IN (SELECT id FROM entity_definitions WHERE key LIKE 'iso\_et\_%')`,
 		`DELETE FROM entity_definition_versions WHERE definition_id IN (SELECT id FROM entity_definitions WHERE key LIKE 'iso\_et\_%')`,
 		`DELETE FROM entity_definitions WHERE key LIKE 'iso\_et\_%'`,

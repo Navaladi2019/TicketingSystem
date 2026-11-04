@@ -130,7 +130,10 @@ approve_id() {
 # or record table (PLAN-003 D-3-6). A rerun keeps both rows and the origin.
 seed_record() {
 	printf "INSERT INTO tenants (id, state) VALUES ('%s', 'active') ON CONFLICT DO NOTHING;\n" "$TENANT_ID" | psql_q
-	printf "INSERT INTO records (tenant_id, id, causation_origin_id, causation_depth) VALUES ('%s', '%s', gen_random_uuid(), 0) ON CONFLICT DO NOTHING;\n" \
+	# The record and its audit entry in one statement: the records commit-check
+	# trigger refuses a record written without one (P5-13c). A rerun inserts
+	# neither.
+	printf "WITH r AS (INSERT INTO records (tenant_id, id, causation_origin_id, causation_depth) VALUES ('%s', '%s', gen_random_uuid(), 0) ON CONFLICT DO NOTHING RETURNING tenant_id, id, version) INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, version_after, actor_system, source) SELECT tenant_id, gen_random_uuid(), 'record', 'create', 'record', id, version, 'system', 'system' FROM r;\n" \
 		"$TENANT_ID" "$1" | psql_q
 }
 

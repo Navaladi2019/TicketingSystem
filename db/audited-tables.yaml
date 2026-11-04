@@ -29,10 +29,9 @@
 # Adding, removing or exempting a table is a security-review change (D-P10).
 
 audited:
-  # held: TICK-529. P5-13c (TICK-530) attaches the trigger; ADR-004-E5 made
-  # the groups FK ON DELETE RESTRICT (TICK-538, R29), so no FK action
-  # rewrites records. Until the attach the P3-13 architecture test
-  # (internal/records/arch_test.go) is the guard.
+  # Attached by P5-13c (TICK-530, 20261104110000) after ADR-004-E5 step (ii):
+  # the groups FK is ON DELETE RESTRICT (TICK-538, R29), so no FK action
+  # rewrites records.
   # The columns are every column a writer may UPDATE (db/grants.yaml).
   records:
     writer_roles: [nava_app, nava_worker]
@@ -40,7 +39,7 @@ audited:
                       updated_at, data, causation_origin_id, causation_depth]
     subject_type: record
     subject_id_column: id
-    attached: false
+    attached: true
   # P5-32 (migration B, D-5-8) attaches the trigger to both; P5-14 makes the
   # S8 publish path write their entries.
   entity_definitions:

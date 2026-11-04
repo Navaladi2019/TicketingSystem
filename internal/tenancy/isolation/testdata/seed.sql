@@ -18,6 +18,13 @@ INSERT INTO tenant_identity_binding (tenant_id, issuer, org_id, idp_aliases) VAL
     ('0b000000-0000-4000-8000-00000000000b', 'https://idp.example/realms/nava', 'org-b', '{idp-b}'),
     ('0b000000-0000-4000-8000-00000000000b', 'https://idp.example/realms/nava', 'org-b2', '{}');
 
+-- The seed's records rows are bare fixtures for the isolation probes, not
+-- record writes: their audit entries are the curated set below, not one per
+-- row. The records commit-check trigger (P5-13c, ADR-004 decision 2) is off
+-- for this one transaction (the file runs as one implicit transaction) and
+-- back on at its end, so every row the suite writes later is checked.
+ALTER TABLE records DISABLE TRIGGER records_audit_commit_check;
+
 INSERT INTO records (tenant_id, id) VALUES
     ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000000a1'),
     ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000000a2'),
@@ -189,3 +196,6 @@ INSERT INTO record_counters (tenant_id, entity_definition_id, next) VALUES
     ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000006a1', 2),
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b1', 2),
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b2', 5);
+
+-- Back on before the seed commits (see the DISABLE above the records rows).
+ALTER TABLE records ENABLE TRIGGER records_audit_commit_check;

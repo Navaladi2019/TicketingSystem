@@ -241,7 +241,10 @@ func newInterpRow(t *testing.T) *interpRow {
 	}
 	r := &interpRow{tenant: uuid.New(), record: uuid.New(), start: start, origin: uuid.New()}
 	psql(t, fmt.Sprintf(`INSERT INTO tenants (id, state) VALUES ('%s', 'active');
-INSERT INTO records (tenant_id, id, causation_origin_id, causation_depth) VALUES ('%[1]s', '%s', '%s', 0);`,
+WITH r AS (INSERT INTO records (tenant_id, id, causation_origin_id, causation_depth) VALUES ('%[1]s', '%s', '%s', 0)
+    RETURNING tenant_id, id, version)
+INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, version_after, actor_system, source)
+SELECT tenant_id, gen_random_uuid(), 'record', 'create', 'record', id, version, 'system', 'system' FROM r;`,
 		r.tenant, r.record, r.origin))
 	t.Cleanup(func() {
 		psql(t, fmt.Sprintf(`UPDATE outbox SET dead_at = now(), last_error = 'TICK-367 cleanup'

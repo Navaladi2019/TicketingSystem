@@ -7,3 +7,4 @@
   - **Bruno S9.13 and S9.14** (history) are gated on TICK-435 with a visible skip message (`bru.runner.skipRequest()`), not deleted and not seeded from v0; TICK-435 turns both back on (Technical Lead, option 2 on TICK-452).
   - **Actions and secrets:** keep `state_change`/`update` and R6 rejection as implemented. The `writeOnly` reading is Q2 of TICK-529. Any change there arrives as a follow-up task.
 - **Cost:** the commit-check guard on `records` lands one task later than planned. Until then the arch test guards it, as the S1 fallback already allows.
+- **Closed:** TICK-530 (P5-13c) attached the trigger after ADR-004-E5 step (ii) (`20261104110000_records_audit_commit_check.sql`, `records` `attached: true`). The `held: TICK-529` comment and the CI-A2 (records) and CI-A17 (c) skips are gone.

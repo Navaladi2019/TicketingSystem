@@ -84,7 +84,17 @@ func TestTombstoneWithoutDeleteOnGroups(t *testing.T) {
 		t.Fatal(r.Err)
 	}
 	seedPointers(t, super, tid)
-	exec(t, super, "INSERT INTO records (tenant_id, id, assignment_group_id) VALUES ($1, $2, $3)", tid, uuid.New(), gid(t, super, tid, "gadm"))
+	// The record and its audit entry commit together, as the records
+	// commit-check trigger requires (P5-13c, TICK-530).
+	exec(t, super, `WITH r AS (INSERT INTO records (tenant_id, id, assignment_group_id) VALUES ($1, $2, $3) RETURNING tenant_id, id, version)
+		INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, version_after, actor_system, source)
+		SELECT tenant_id, gen_random_uuid(), 'record', 'create', 'record', id, version, 'system', 'system' FROM r`,
+		tid, uuid.New(), gid(t, super, tid, "gadm"))
+	// CI-E5-1 is the attached run (TICK-530): the commit-check trigger is on
+	// records, so a group-sync write that reached a record would fail at COMMIT.
+	if n := count(t, super, "SELECT count(*) FROM pg_trigger WHERE tgrelid = 'records'::regclass AND tgname = 'records_audit_commit_check' AND tgenabled = 'O'"); n != 1 {
+		t.Fatal("records_audit_commit_check is not attached to records (P5-13c)")
+	}
 	if n := count(t, super, "SELECT count(*) FROM (SELECT 1 WHERE has_table_privilege('nava_groupsync', 'public.groups', 'DELETE')) x"); n != 0 {
 		t.Fatal("nava_groupsync still holds DELETE on groups after the migrations (TICK-538 step ii-a)")
 	}

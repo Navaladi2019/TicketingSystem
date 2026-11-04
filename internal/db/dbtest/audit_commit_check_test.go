@@ -170,10 +170,11 @@ func TestP511CatalogueCIA3(t *testing.T) {
 	if p, err := auditedManifest(t).Check(ctx, super, m, g); err != nil || len(p) != 0 {
 		t.Fatalf("real manifest: problems %v, err %v", p, err)
 	}
-	// No table has the trigger: this task attaches it to none.
-	if n := queryString(t, super, `SELECT count(*)::text FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid
-		WHERE p.proname = 'audit_commit_check'`); n != "0" {
-		t.Errorf("%s audit_commit_check triggers after the real migrations, want 0", n)
+	// Exactly one table has the trigger: records (P5-13c, TICK-530). P5-32
+	// attaches it to the entity-definition tables.
+	if got := queryString(t, super, `SELECT coalesce(string_agg(t.tgrelid::regclass::text || ':' || t.tgname || ':' || t.tgenabled, ','), '')
+		FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid WHERE p.proname = 'audit_commit_check'`); got != "records:records_audit_commit_check:O" {
+		t.Errorf("audit_commit_check triggers after the real migrations: %q, want records:records_audit_commit_check:O", got)
 	}
 
 	def := commitCheckDef(t, super)
@@ -197,8 +198,10 @@ func TestP511CatalogueCIA3(t *testing.T) {
 	}{
 		{"attached test table passes", nil, func() *audited.Manifest { return withTestTable(nil) }, ""},
 		{"trigger on a table not attached",
-			[]string{fmt.Sprintf(trig, "data", "records", "DEFERRABLE INITIALLY DEFERRED", "'record', 'id'")},
+			[]string{fmt.Sprintf(trig, "current_version, updated_at", "entity_definitions", "DEFERRABLE INITIALLY DEFERRED", "'entity_definition', 'id'")},
 			func() *audited.Manifest { return withTestTable(nil) }, "but the table is not attached: true"},
+		{"records attached without its trigger", []string{"DROP TRIGGER records_audit_commit_check ON records"},
+			func() *audited.Manifest { return withTestTable(nil) }, "has 0 audit_commit_check triggers"},
 		{"attached without a trigger", []string{"DROP TRIGGER " + testTable + "_audit_commit_check ON " + testTable},
 			func() *audited.Manifest { return withTestTable(nil) }, "has 0 audit_commit_check triggers"},
 		{"UPDATE OF other columns", []string{
