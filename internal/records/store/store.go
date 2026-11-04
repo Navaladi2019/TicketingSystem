@@ -1,9 +1,9 @@
 // Package store is the data access of the record write pipeline (PLAN-003
-// D-3-6): the records and record_write_keys statements, the read of S9's
-// audit_log_v0 history, and the split of a record's payload between its fixed
-// columns and data. The audit entry of a write is not written here: the
-// pipeline writes it through audit.Append (ADR-004 decision 1, P5-13b), and
-// audit_log_v0 is read-only. Only internal/records/pipeline
+// D-3-6): the records and record_write_keys statements and the split of a
+// record's payload between its fixed columns and data. The audit entry of a
+// write is not written here: the pipeline writes it through audit.Append
+// (ADR-004 decision 1, P5-13b), and a record's history is read from audit_log
+// by internal/audit/read (P5-17). Only internal/records/pipeline
 // writes through it; P3-13's static test keeps it that way.
 //
 // Every function takes the caller's transaction, opened by tenancy.InTenantTx,
@@ -159,15 +159,6 @@ RETURNING version`,
 		return 0, fmt.Errorf("records/store: update record: %w", err)
 	}
 	return v, nil
-}
-
-// Snapshot is a record as an audit row's before or after holds it: the
-// payload merged with its fixed columns, and what a replay returns.
-type Snapshot struct {
-	Number        string         `json:"number"`
-	Version       int64          `json:"version"`
-	SchemaVersion int            `json:"schema_version"`
-	Data          map[string]any `json:"data"`
 }
 
 // PayloadJSON returns the payload of record id at version, built by
@@ -370,82 +361,4 @@ func (r *Record) Split(payload map[string]any, fixed map[string]string) error {
 	}
 	r.Data = data
 	return nil
-}
-
-// HistoryRow is one create or update row of a record's audit history.
-type HistoryRow struct {
-	ID            uuid.UUID
-	At            time.Time
-	ActorID       *uuid.UUID
-	Source        string
-	Action        string
-	Before, After *Snapshot
-}
-
-// History returns the record's create and update audit rows, newest first
-// (at, then id, both descending). When afterID is not uuid.Nil it returns only
-// the rows older than the position (afterAt, afterID). It reads limit rows.
-// The cascade rows (they change no record) are left out.
-func History(ctx context.Context, tx pgx.Tx, tenantID, recordID uuid.UUID, afterAt time.Time, afterID uuid.UUID, limit int) ([]HistoryRow, error) {
-	rows, err := tx.Query(ctx, `
-SELECT id, at, actor_id, source, action, before, after
-FROM audit_log_v0
-WHERE tenant_id = $1 AND record_id = $2 AND action IN ('create', 'update')
-  AND ($3::uuid IS NULL OR (at, id) < ($4::timestamptz, $3::uuid))
-ORDER BY at DESC, id DESC
-LIMIT $5`, tenantID, recordID, optionalID(afterID), afterAt, limit)
-	if err != nil {
-		return nil, fmt.Errorf("records/store: read history: %w", err)
-	}
-	defer rows.Close()
-	var out []HistoryRow
-	for rows.Next() {
-		var (
-			h             HistoryRow
-			before, after []byte
-		)
-		if err := rows.Scan(&h.ID, &h.At, &h.ActorID, &h.Source, &h.Action, &before, &after); err != nil {
-			return nil, fmt.Errorf("records/store: scan history: %w", err)
-		}
-		if h.Before, err = decodeSnapshot(before); err != nil {
-			return nil, err
-		}
-		if h.After, err = decodeSnapshot(after); err != nil {
-			return nil, err
-		}
-		out = append(out, h)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("records/store: read history: %w", err)
-	}
-	return out, nil
-}
-
-func optionalID(id uuid.UUID) *uuid.UUID {
-	if id == uuid.Nil {
-		return nil
-	}
-	return &id
-}
-
-// decodeSnapshot reads an audit row's before or after; NULL is nil. Numbers
-// stay exact.
-func decodeSnapshot(b []byte) (*Snapshot, error) {
-	if b == nil {
-		return nil, nil
-	}
-	var raw struct {
-		Number        string          `json:"number"`
-		Version       int64           `json:"version"`
-		SchemaVersion int             `json:"schema_version"`
-		Data          json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(b, &raw); err != nil {
-		return nil, fmt.Errorf("records/store: decode audit snapshot: %w", err)
-	}
-	data, err := DecodeObject(raw.Data)
-	if err != nil {
-		return nil, fmt.Errorf("records/store: decode audit snapshot: %w", err)
-	}
-	return &Snapshot{Number: raw.Number, Version: raw.Version, SchemaVersion: raw.SchemaVersion, Data: data}, nil
 }

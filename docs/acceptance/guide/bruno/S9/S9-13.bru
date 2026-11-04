@@ -14,12 +14,6 @@ headers {
   Authorization: Bearer {{alice_token}}
 }
 
-script:pre-request {
-  // D-5-14: gated on TICK-435 (P5-17). P5-17 removes this gate.
-  console.log("SKIPPED S9.13: gated on TICK-435 (P5-17), the history endpoint on the new audit log (D-5-14)");
-  bru.runner.skipRequest();
-}
-
 tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
   N.status(200);

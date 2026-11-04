@@ -208,7 +208,7 @@ func (r PoolRunner) InTenantTx(ctx context.Context, tenantID uuid.UUID, fn func(
 	return tenancy.InTenantTx(ctx, r.Pool, tenantID, fn)
 }
 
-// Clock gives the time written to updated_at and audit_log_v0.at.
+// Clock gives the time written to updated_at.
 type Clock interface{ Now() time.Time }
 
 // SystemClock is the wall clock.

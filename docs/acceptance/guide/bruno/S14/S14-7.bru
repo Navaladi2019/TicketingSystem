@@ -1,0 +1,20 @@
+meta {
+  name: S14.7 listAuditEntries 401: no token
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{core_url}}/api/v1/audit/entries
+  body: none
+  auth: none
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_token', 401);
+}
+
+docs {
+  Missing token.
+}

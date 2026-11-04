@@ -15,6 +15,11 @@ import (
 // The test stops at the rename: P5-10b's migration then creates the new
 // audit_log, and TestP510bAuditLog covers it.
 
+// insertAudit is S9's audit insert, as it ran before the rename: tenant $1,
+// record $2, idempotency key $3. audit_log_v0 itself was dropped by P5-17.
+const insertAudit = `INSERT INTO audit_log_v0 (tenant_id, id, record_id, action, actor_id, source, after, idempotency_key)
+	VALUES ($1, gen_random_uuid(), $2, 'create', NULL, 'workflow', '{}', $3)`
+
 const auditLogV0Migration = "20261102130000_audit_log_v0.sql"
 
 func TestP510aAuditLogRenamed(t *testing.T) {

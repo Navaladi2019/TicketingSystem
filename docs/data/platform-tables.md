@@ -392,6 +392,8 @@ path moves; the service layer publishes the version and moves
 
 ## Records pipeline: records, audit_log_v0, record_counters (P3-09)
 
+> **P5-17 (TICK-435) dropped `audit_log_v0`** (`db/migrations/20261104100000_drop_audit_log_v0.sql`). The record history is read from ADR-004's `audit_log` ([`audit-log.md`](audit-log.md)). This section stays as the record of what S9 measured.
+
 P5-10a (TICK-427, PLAN-005 D-5-1) renamed S9's `audit_log` and its
 constraints, indexes and policies to `audit_log_v0*`
 (`db/migrations/20261102130000_audit_log_v0.sql`), freeing the name for

@@ -18,6 +18,27 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for AuditEntryDomain.
+const (
+	AuditEntryDomainAudit  AuditEntryDomain = "audit"
+	AuditEntryDomainConfig AuditEntryDomain = "config"
+	AuditEntryDomainRecord AuditEntryDomain = "record"
+)
+
+// Valid indicates whether the value is a known member of the AuditEntryDomain enum.
+func (e AuditEntryDomain) Valid() bool {
+	switch e {
+	case AuditEntryDomainAudit:
+		return true
+	case AuditEntryDomainConfig:
+		return true
+	case AuditEntryDomainRecord:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for EntityTypeVersionCompat.
 const (
 	Compatible    EntityTypeVersionCompat = "compatible"
@@ -88,6 +109,111 @@ func (e RecordChangeAction) Valid() bool {
 	default:
 		return false
 	}
+}
+
+// Defines values for ListAuditEntriesParamsDomain.
+const (
+	ListAuditEntriesParamsDomainAudit  ListAuditEntriesParamsDomain = "audit"
+	ListAuditEntriesParamsDomainConfig ListAuditEntriesParamsDomain = "config"
+	ListAuditEntriesParamsDomainRecord ListAuditEntriesParamsDomain = "record"
+)
+
+// Valid indicates whether the value is a known member of the ListAuditEntriesParamsDomain enum.
+func (e ListAuditEntriesParamsDomain) Valid() bool {
+	switch e {
+	case ListAuditEntriesParamsDomainAudit:
+		return true
+	case ListAuditEntriesParamsDomainConfig:
+		return true
+	case ListAuditEntriesParamsDomainRecord:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListAuditEntriesParamsSubjectType.
+const (
+	ListAuditEntriesParamsSubjectTypeAuditChain       ListAuditEntriesParamsSubjectType = "audit_chain"
+	ListAuditEntriesParamsSubjectTypeAuditExport      ListAuditEntriesParamsSubjectType = "audit_export"
+	ListAuditEntriesParamsSubjectTypeCascadeKey       ListAuditEntriesParamsSubjectType = "cascade_key"
+	ListAuditEntriesParamsSubjectTypeEntityDefinition ListAuditEntriesParamsSubjectType = "entity_definition"
+	ListAuditEntriesParamsSubjectTypeErasureRequest   ListAuditEntriesParamsSubjectType = "erasure_request"
+	ListAuditEntriesParamsSubjectTypeRecord           ListAuditEntriesParamsSubjectType = "record"
+)
+
+// Valid indicates whether the value is a known member of the ListAuditEntriesParamsSubjectType enum.
+func (e ListAuditEntriesParamsSubjectType) Valid() bool {
+	switch e {
+	case ListAuditEntriesParamsSubjectTypeAuditChain:
+		return true
+	case ListAuditEntriesParamsSubjectTypeAuditExport:
+		return true
+	case ListAuditEntriesParamsSubjectTypeCascadeKey:
+		return true
+	case ListAuditEntriesParamsSubjectTypeEntityDefinition:
+		return true
+	case ListAuditEntriesParamsSubjectTypeErasureRequest:
+		return true
+	case ListAuditEntriesParamsSubjectTypeRecord:
+		return true
+	default:
+		return false
+	}
+}
+
+// AuditEntry defines model for AuditEntry.
+type AuditEntry struct {
+	Action string `json:"action"`
+
+	// ActorPrincipalId Absent when a system actor made the change (`actor_system`).
+	ActorPrincipalId *openapi_types.UUID `json:"actor_principal_id,omitempty"`
+	ActorSystem      *string             `json:"actor_system,omitempty"`
+	Backfilled       bool                `json:"backfilled"`
+	CausationDepth   int                 `json:"causation_depth"`
+	CausationId      *openapi_types.UUID `json:"causation_id,omitempty"`
+	ChangeSetId      *openapi_types.UUID `json:"change_set_id,omitempty"`
+
+	// ContentSha256 Lowercase hex.
+	ContentSha256 *string `json:"content_sha256,omitempty"`
+
+	// Diff The RFC 6902 patch as this reader may see it. Absent when the entry has none or it was erased.
+	Diff *json.RawMessage `json:"diff,omitempty"`
+
+	// DiffRedacted True when `diff` differs from the stored diff for this reader (R7).
+	DiffRedacted bool `json:"diff_redacted"`
+
+	// DiffSalt Lowercase hex. Present only with an unredacted diff.
+	DiffSalt *string `json:"diff_salt,omitempty"`
+
+	// DiffSha256 Lowercase hex.
+	DiffSha256         *string             `json:"diff_sha256,omitempty"`
+	DiffTruncated      bool                `json:"diff_truncated"`
+	Domain             AuditEntryDomain    `json:"domain"`
+	EntityDefinitionId *openapi_types.UUID `json:"entity_definition_id,omitempty"`
+	ErasedAt           *time.Time          `json:"erased_at,omitempty"`
+	Id                 openapi_types.UUID  `json:"id"`
+	OccurredAt         time.Time           `json:"occurred_at"`
+	RequestId          *string             `json:"request_id,omitempty"`
+	SealedAt           *time.Time          `json:"sealed_at,omitempty"`
+
+	// Seq The chain position. Absent until the entry is sealed.
+	Seq           *int64             `json:"seq,omitempty"`
+	Source        string             `json:"source"`
+	SourceRef     *string            `json:"source_ref,omitempty"`
+	SubjectId     openapi_types.UUID `json:"subject_id"`
+	SubjectType   string             `json:"subject_type"`
+	VersionAfter  *int64             `json:"version_after,omitempty"`
+	VersionBefore *int64             `json:"version_before,omitempty"`
+}
+
+// AuditEntryDomain defines model for AuditEntry.Domain.
+type AuditEntryDomain string
+
+// AuditEntryList defines model for AuditEntryList.
+type AuditEntryList struct {
+	Items         []AuditEntry `json:"items"`
+	NextPageToken *string      `json:"next_page_token,omitempty"`
 }
 
 // CreateEntityTypeRequest Deliberately unconstrained here: the server checks every field after the admin check and answers 422 `invalid_definition` with `errors[].pointer`. Kept as the request bytes (`json.RawMessage`) so the schema is stored byte for byte.
@@ -276,6 +402,29 @@ type Entity = string
 // Key defines model for Key.
 type Key = string
 
+// ListAuditEntriesParams defines parameters for ListAuditEntries.
+type ListAuditEntriesParams struct {
+	// From Entries at or after this time (`occurred_at`).
+	From *time.Time `form:"from,omitempty" json:"from,omitempty"`
+
+	// To Entries before this time (`occurred_at`).
+	To          *time.Time                         `form:"to,omitempty" json:"to,omitempty"`
+	Domain      *ListAuditEntriesParamsDomain      `form:"domain,omitempty" json:"domain,omitempty"`
+	SubjectType *ListAuditEntriesParamsSubjectType `form:"subject_type,omitempty" json:"subject_type,omitempty"`
+	SubjectId   *openapi_types.UUID                `form:"subject_id,omitempty" json:"subject_id,omitempty"`
+
+	// AfterSeq Only sealed entries whose chain `seq` is above this.
+	AfterSeq  *int64  `form:"after_seq,omitempty" json:"after_seq,omitempty"`
+	Limit     *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	PageToken *string `form:"page_token,omitempty" json:"page_token,omitempty"`
+}
+
+// ListAuditEntriesParamsDomain defines parameters for ListAuditEntries.
+type ListAuditEntriesParamsDomain string
+
+// ListAuditEntriesParamsSubjectType defines parameters for ListAuditEntries.
+type ListAuditEntriesParamsSubjectType string
+
 // ListEntityTypesParams defines parameters for ListEntityTypes.
 type ListEntityTypesParams struct {
 	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
@@ -332,6 +481,9 @@ type PatchRecordApplicationMergePatchPlusJSONRequestBody = PatchRecordRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// ListAuditEntries The tenant's audit timeline
+	// (GET /api/v1/audit/entries)
+	ListAuditEntries(w http.ResponseWriter, r *http.Request, params ListAuditEntriesParams)
 	// ListEntityTypes List the tenant's entity types
 	// (GET /api/v1/entity-types)
 	ListEntityTypes(w http.ResponseWriter, r *http.Request, params ListEntityTypesParams)
@@ -375,6 +527,130 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// ListAuditEntries operation middleware
+func (siw *ServerInterfaceWrapper) ListAuditEntries(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListAuditEntriesParams
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "to", r.URL.Query(), &params.To, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "domain" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "domain", r.URL.Query(), &params.Domain, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "domain"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "domain", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "subject_type" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "subject_type", r.URL.Query(), &params.SubjectType, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "subject_type"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "subject_type", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "subject_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "subject_id", r.URL.Query(), &params.SubjectId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "subject_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "subject_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "after_seq" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "after_seq", r.URL.Query(), &params.AfterSeq, runtime.BindQueryParameterOptions{Type: "integer", Format: "int64"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "after_seq"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "after_seq", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "page_token" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "page_token", r.URL.Query(), &params.PageToken, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "page_token"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page_token", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAuditEntries(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // ListEntityTypes operation middleware
 func (siw *ServerInterfaceWrapper) ListEntityTypes(w http.ResponseWriter, r *http.Request) {
@@ -1003,6 +1279,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/entity-types/{key}", wrapper.GetEntityType)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/entity-types/{key}/versions", wrapper.PublishEntityTypeVersion)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/entity-types/{key}/versions/{n}", wrapper.GetEntityTypeVersion)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/audit/entries", wrapper.ListAuditEntries)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/records/{entity}", wrapper.CreateRecord)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/records/{entity}/{id}", wrapper.GetRecord)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/v1/records/{entity}/{id}", wrapper.PatchRecord)
@@ -1014,6 +1291,114 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 type ProblemApplicationProblemPlusJSONResponse Problem
 
 type ProblemNoInstanceApplicationProblemPlusJSONResponse ProblemNoInstance
+
+type ListAuditEntriesRequestObject struct {
+	Params ListAuditEntriesParams
+}
+
+type ListAuditEntriesResponseObject interface {
+	VisitListAuditEntriesResponse(w http.ResponseWriter) error
+}
+
+type ListAuditEntries200JSONResponse AuditEntryList
+
+func (response ListAuditEntries200JSONResponse) VisitListAuditEntriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAuditEntries400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response ListAuditEntries400ApplicationProblemPlusJSONResponse) VisitListAuditEntriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAuditEntries401ApplicationProblemPlusJSONResponse Problem
+
+func (response ListAuditEntries401ApplicationProblemPlusJSONResponse) VisitListAuditEntriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAuditEntries403ApplicationProblemPlusJSONResponse Problem
+
+func (response ListAuditEntries403ApplicationProblemPlusJSONResponse) VisitListAuditEntriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAuditEntries429ApplicationProblemPlusJSONResponse Problem
+
+func (response ListAuditEntries429ApplicationProblemPlusJSONResponse) VisitListAuditEntriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAuditEntries500ApplicationProblemPlusJSONResponse Problem
+
+func (response ListAuditEntries500ApplicationProblemPlusJSONResponse) VisitListAuditEntriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAuditEntries501ApplicationProblemPlusJSONResponse Problem
+
+func (response ListAuditEntries501ApplicationProblemPlusJSONResponse) VisitListAuditEntriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
 
 type ListEntityTypesRequestObject struct {
 	Params ListEntityTypesParams
@@ -2419,6 +2804,9 @@ func (response GetRecordHistory501ApplicationProblemPlusJSONResponse) VisitGetRe
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// ListAuditEntries The tenant's audit timeline
+	// (GET /api/v1/audit/entries)
+	ListAuditEntries(ctx context.Context, request ListAuditEntriesRequestObject) (ListAuditEntriesResponseObject, error)
 	// ListEntityTypes List the tenant's entity types
 	// (GET /api/v1/entity-types)
 	ListEntityTypes(ctx context.Context, request ListEntityTypesRequestObject) (ListEntityTypesResponseObject, error)
@@ -2491,6 +2879,32 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// ListAuditEntries operation middleware
+func (sh *strictHandler) ListAuditEntries(w http.ResponseWriter, r *http.Request, params ListAuditEntriesParams) {
+	var request ListAuditEntriesRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListAuditEntries(ctx, request.(ListAuditEntriesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListAuditEntries")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListAuditEntriesResponseObject); ok {
+		if err := validResponse.VisitListAuditEntriesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // ListEntityTypes operation middleware
