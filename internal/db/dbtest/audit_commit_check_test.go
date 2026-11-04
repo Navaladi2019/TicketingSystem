@@ -832,49 +832,63 @@ func importCommitOn(t *testing.T, conn *pgx.Conn, tenant string, n int, mode str
 
 // Finding 5 item 3: on each sparse fixture, the commit check of an import
 // into a tenant absent from the statistics is linear: t(4N)/t(N) < 8 for
-// N = 1,000 (an O(n^2) check gives about 16). Each timing is the fastest of
-// three imports, each into a new tenant.
+// N = 1,000 (an O(n^2) check gives about 16). For each size the timing is
+// the median of linearityRuns fresh fixtures, each import into a new tenant,
+// as TestP511CommitCheckPooledSession does (TICK-560): one fixture whose
+// 1,000-subject baseline lands fast on a shared runner (78 ms against the
+// usual 180 ms) no longer decides the ratio on its own.
 func TestP511CommitCheckLinearity(t *testing.T) {
-	const n = 1000
-	run := func(t *testing.T, super *pgx.Conn) {
-		t.Helper()
+	for _, fx := range []struct {
+		name string
+		load func(t *testing.T, super *pgx.Conn)
+	}{
+		{"10000 tenants 1 row each", func(t *testing.T, super *pgx.Conn) {
+			exec(t, super, "ALTER TABLE audit_log_default SET (autovacuum_enabled = false)")
+			loadEntries(t, super, "SELECT "+fixtureTenant("t")+", "+lastMonth+"t FROM generate_series(1, 10000) t")
+		}},
+		{"young partition 60 rows", func(t *testing.T, super *pgx.Conn) {
+			youngPartition(t, super)
+			loadEntries(t, super, "SELECT "+fixtureTenant("1 + g % 20")+", "+thisMonth("g", "60")+" FROM generate_series(1, 60) g")
+		}},
+	} {
+		t.Run(fx.name, func(t *testing.T) {
+			t1, t4 := linearityMedians(t, fx.load)
+			ratio := float64(t4) / float64(t1)
+			if ratio >= 8 {
+				t.Errorf("median t(%d)/median t(%d) = %.2f (%v / %v), want < 8: the commit check is not linear", 4*linearityN, linearityN, ratio, t4, t1)
+			}
+		})
+	}
+}
+
+// linearityN and linearityRuns are item 3's N and its number of fresh
+// fixtures per size.
+const linearityN, linearityRuns = 1000, 3
+
+// linearityMedians builds linearityRuns fresh fixtures with load; on each it
+// times the COMMIT of an import of N and then of 4N subjects, each into a new
+// tenant absent from the statistics. It returns the median t(N) and the
+// median t(4N), logging every sample.
+func linearityMedians(t *testing.T, load func(t *testing.T, super *pgx.Conn)) (time.Duration, time.Duration) {
+	t.Helper()
+	t1s := make([]time.Duration, 0, linearityRuns)
+	t4s := make([]time.Duration, 0, linearityRuns)
+	for r := range linearityRuns {
+		migratedPlatform(t)
+		super := superNava(t)
+		load(t, super)
 		createTestTable(t, super, auditedManifest(t).Writers())
 		exec(t, super, "ANALYZE audit_log")
-		next := 0
-		best := func(size int) time.Duration {
-			var b time.Duration
-			for range 3 {
-				next++
-				tenant := fmt.Sprintf("0190c000-0000-7000-8000-%012x", next)
-				exec(t, super, "INSERT INTO tenants (id, state) VALUES ($1, 'active')", tenant)
-				d := importCommit(t, tenant, size)
-				if b == 0 || d < b {
-					b = d
-				}
-			}
-			return b
-		}
-		t1, t4 := best(n), best(4*n)
-		ratio := float64(t4) / float64(t1)
-		t.Logf("commit of %d subjects %v, of %d subjects %v: ratio %.2f", n, t1, 4*n, t4, ratio)
-		if ratio >= 8 {
-			t.Errorf("t(%d)/t(%d) = %.2f (%v / %v), want < 8: the commit check is not linear", 4*n, n, ratio, t4, t1)
-		}
+		t1 := importCommit(t, newTenant(t, super, "0190c000", 1), linearityN)
+		t4 := importCommit(t, newTenant(t, super, "0190c000", 2), 4*linearityN)
+		t.Logf("fixture %d: commit of %d subjects %v, of %d subjects %v: ratio %.2f", r+1, linearityN, t1, 4*linearityN, t4, float64(t4)/float64(t1))
+		t1s, t4s = append(t1s, t1), append(t4s, t4)
 	}
-	t.Run("10000 tenants 1 row each", func(t *testing.T) {
-		migratedPlatform(t)
-		super := superNava(t)
-		exec(t, super, "ALTER TABLE audit_log_default SET (autovacuum_enabled = false)")
-		loadEntries(t, super, "SELECT "+fixtureTenant("t")+", "+lastMonth+"t FROM generate_series(1, 10000) t")
-		run(t, super)
-	})
-	t.Run("young partition 60 rows", func(t *testing.T) {
-		migratedPlatform(t)
-		super := superNava(t)
-		youngPartition(t, super)
-		loadEntries(t, super, "SELECT "+fixtureTenant("1 + g % 20")+", "+thisMonth("g", "60")+" FROM generate_series(1, 60) g")
-		run(t, super)
-	})
+	slices.Sort(t1s)
+	slices.Sort(t4s)
+	t1, t4 := t1s[linearityRuns/2], t4s[linearityRuns/2]
+	t.Logf("median over %d fresh fixtures: t(%d) %v, t(%d) %v: ratio %.2f", linearityRuns, linearityN, t1, 4*linearityN, t4, float64(t4)/float64(t1))
+	return t1, t4
 }
 
 // Finding 5 item 3 (c), ADR-004-E3: the pooled-session case. In each
