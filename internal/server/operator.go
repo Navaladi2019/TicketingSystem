@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Navaladi2019/TicketingSystem/api"
+	"github.com/Navaladi2019/TicketingSystem/internal/audit/read"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/onboard"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
@@ -55,6 +56,8 @@ type options struct {
 	// hook of the audit reader. Only tests set them (export_test.go).
 	historyCap  int
 	historyRows func(int)
+	// auditMasker replaces the production read.DefinitionMasker; set by tests only.
+	auditMasker read.Masker
 }
 
 // WithPool gives the tenant routes their database (the nava_app pool). Tenant
