@@ -388,7 +388,7 @@ func auditDirectSQLEveryRole(ctx context.Context, cl Cluster) error {
 			return fmt.Errorf("control: nava_app lacks SELECT on %v; the reader's grant (TICK-435) is gone", p.cols)
 		}
 		if n, err := count(app, uuid.MustParse(TenantA), p); err != nil || n < 1 {
-			return fmt.Errorf("control: nava_app in tenant A %s: %d rows, %w; want tenant A's entry", p.name, n, err)
+			return fmt.Errorf("control: nava_app in tenant A %s: %d rows, %s; want tenant A's entry", p.name, n, errText(err))
 		}
 	}
 
@@ -485,17 +485,17 @@ func auditOnboardPinned(ctx context.Context, cl Cluster) error {
 		return err
 	}
 	if got, err := read(auditProvisioningTenant); err != nil || !slices.Equal(got, []string{auditProvisioningTenant}) {
-		return fmt.Errorf("nava_onboard in provisioning tenant P reads %v, %w; want P's entry only", got, err)
+		return fmt.Errorf("nava_onboard in provisioning tenant P reads %v, %s; want P's entry only", got, errText(err))
 	}
 	if got, err := read(TenantA); err != nil || len(got) != 0 {
-		return fmt.Errorf("nava_onboard in active tenant A reads %v, %w; want nothing", got, err)
+		return fmt.Errorf("nava_onboard in active tenant A reads %v, %s; want nothing", got, errText(err))
 	}
 	if err := insert(auditProvisioningTenant, auditProvisioningTenant); err != nil {
 		return fmt.Errorf("control: nava_onboard appends for its provisioning tenant: %w", err)
 	}
 	for _, c := range [][2]string{{auditProvisioningTenant, TenantB}, {auditProvisioningTenant, TenantA}, {TenantA, TenantA}, {TenantA, TenantB}} {
 		if err := insert(c[0], c[1]); sqlState(err) != "42501" {
-			return fmt.Errorf("nava_onboard in tenant %s appends for tenant %s: %w; want 42501", c[0], c[1], err)
+			return fmt.Errorf("nava_onboard in tenant %s appends for tenant %s: %s; want 42501", c[0], c[1], errText(err))
 		}
 	}
 	return nil
@@ -551,7 +551,7 @@ func auditRecordSetup(ctx context.Context, e *etIso) (*auditRecordFixture, error
 		ID string `json:"id"`
 	}
 	if err := json.Unmarshal([]byte(body), &r); err != nil || r.ID == "" {
-		return nil, fmt.Errorf("control: tenant A's record has no id: %w: %s", err, body)
+		return nil, fmt.Errorf("control: tenant A's record has no id: %s: %s", errText(err), body)
 	}
 	patch := http.Header{"Content-Type": {"application/merge-patch+json"}, "If-Match": {`W/"1"`}}
 	if code, body := e.do(ctx, http.MethodPatch, "/api/v1/records/iso_et_aud/"+r.ID, etCallerA, `{"data": {"note": "again"}}`, patch); code != http.StatusOK {
@@ -571,6 +571,15 @@ func auditRecordSetup(ctx context.Context, e *etIso) (*auditRecordFixture, error
 	}
 	fx.aOnly = append(fx.aOnly, r.ID, extra.changeSet, TenantA)
 	return fx, nil
+}
+
+// errText is err's message, or "no error", for a failure message that also
+// fires when the call succeeded with the wrong result.
+func errText(err error) string {
+	if err == nil {
+		return "no error"
+	}
+	return err.Error()
 }
 
 func leaks(body string, ids []string) string {
@@ -620,27 +629,27 @@ func auditReaderOtherTenant(ctx context.Context, e *etIso) error {
 	for _, tok := range []string{etCallerA, auditCallerAAuditor} {
 		code, body, p, err := e.auditPage(ctx, tok, "?subject_id="+fx.record)
 		if err != nil || code != http.StatusOK || len(p.Items) < 3 {
-			return fmt.Errorf("control: %s reads tenant A's record entries = %d, %w, %s; want 200 with the create, the update and the sealed entry", tok, code, err, body)
+			return fmt.Errorf("control: %s reads tenant A's record entries = %d, %s, %s; want 200 with the create, the update and the sealed entry", tok, code, errText(err), body)
 		}
 	}
 	if code, body, p, err := e.auditPage(ctx, etCallerA, fmt.Sprintf("?after_seq=%d", auditSealSeq-1)); err != nil || code != http.StatusOK ||
 		!slices.Equal(p.ids(), []string{fx.extra.entry}) {
-		return fmt.Errorf("control: tenant A's admin after seq %d = %d, %w, %s; want its sealed entry only", auditSealSeq-1, code, err, body)
+		return fmt.Errorf("control: tenant A's admin after seq %d = %d, %s, %s; want its sealed entry only", auditSealSeq-1, code, errText(err), body)
 	}
 	code, body, first, err := e.auditPage(ctx, etCallerA, "?limit=1")
 	if err != nil || code != http.StatusOK || first.Next == nil {
-		return fmt.Errorf("control: tenant A's first page = %d, %w, %s; want 200 with a next_page_token", code, err, body)
+		return fmt.Errorf("control: tenant A's first page = %d, %s, %s; want 200 with a next_page_token", code, errText(err), body)
 	}
 	token := url.QueryEscape(*first.Next)
 	if code, body, _, err := e.auditPage(ctx, etCallerA, "?limit=1&page_token="+token); err != nil || code != http.StatusOK {
-		return fmt.Errorf("control: tenant A replaying its own page token = %d, %w, %s; want 200", code, err, body)
+		return fmt.Errorf("control: tenant A replaying its own page token = %d, %s, %s; want 200", code, errText(err), body)
 	}
 	if code, body := e.do(ctx, http.MethodGet, "/api/v1/audit/entries", auditCallerAAgent, "", nil); code != http.StatusForbidden {
 		return fmt.Errorf("control: tenant A's agent reads the timeline = %d %s; want 403", code, body)
 	}
 	if code, body, p, err := e.auditPage(ctx, etCallerBAdmin, "?subject_id="+RecordA2); err != nil || code != http.StatusOK ||
 		!slices.Equal(p.ids(), []string{auditEntryB1}) {
-		return fmt.Errorf("tenant B's admin reads subject %s, which both tenants' seeded entries name = %d, %w, %s; want its own entry %s only", RecordA2, code, err, body, auditEntryB1)
+		return fmt.Errorf("tenant B's admin reads subject %s, which both tenants' seeded entries name = %d, %s, %s; want its own entry %s only", RecordA2, code, errText(err), body, auditEntryB1)
 	}
 
 	const unknown = "00000000-0000-4000-8000-0000000dead1"
@@ -793,7 +802,7 @@ func auditCanaryBytes(ctx context.Context, e *etIso) error {
 		ID string `json:"id"`
 	}
 	if err := json.Unmarshal([]byte(body), &r); err != nil || r.ID == "" {
-		return fmt.Errorf("control: the record has no id: %w: %s", err, body)
+		return fmt.Errorf("control: the record has no id: %s: %s", errText(err), body)
 	}
 	publish := func(def string) (int, string) {
 		return e.do(ctx, http.MethodPost, "/api/v1/entity-types/iso_et_sec/versions", etCallerA, fmt.Sprintf(`{"definition": %s}`, def), nil)
