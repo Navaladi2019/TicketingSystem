@@ -54,7 +54,7 @@ A story that merged through its story PR needs no entry. A bad entry (unknown st
 
 Take the utmost care here. Before the story PR opens:
 
-1. Merge the current `main` into the story branch and resolve any conflict there, never on `main`. Re-run the full GitHub Actions suite on the result, including the tenancy-isolation tests (`gh workflow run ci --ref <story-branch>`).
+1. Merge the current `main` into the story branch and resolve any conflict there, never on `main`. Re-run GitHub Actions on the result, including the tenancy-isolation tests: the story PR carries the `ci:run` label, so it runs every job the whole story diff needs (`gh workflow run ci --ref <story-branch>` does the same without a PR; TICK-563).
 2. The Principal Software Engineer reviews the whole story diff against `main`, not task by task. The Security & Multi-Tenancy Reviewer joins when the diff touches tenant data, auth or ACLs.
 3. The Quality, Testing & CI Advisor confirms that every job is green and that the story's acceptance kit passed on a fresh stack (`story-acceptance`).
 4. The story PR lists the files it changes and confirms that no other open story touches them.

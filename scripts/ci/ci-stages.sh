@@ -1,14 +1,19 @@
 #!/bin/sh
 # make ci-stages: the CI stages the change against BASE needs, from
-# tools/ci/cichanged (the rules make ci-changed uses). Two cases run every
-# stage: CI_ALL=1 (the workflow's manual run) and a change under
-# .github/workflows, since only a full run proves a workflow edit.
+# tools/ci/cichanged (the rules make ci-changed uses). CI_LINT_ONLY=1 (a
+# pull request without the ci:run label, TICK-563) runs ci-lint alone, before
+# any other rule. Two cases run every stage: CI_ALL=1 (the workflow's push or
+# manual run on main) and a change under .github/workflows, since only a full
+# run proves a workflow edit.
 # With GITHUB_OUTPUT set, also writes unit, integration and stack as
 # true/false for the workflow's job conditions.
 set -eu
 
 all="ci-lint ci-unit ci-integration ci-stack"
-if [ "${CI_ALL:-}" = 1 ]; then
+if [ "${CI_LINT_ONLY:-}" = 1 ]; then
+    stages=ci-lint
+    echo "ci-stages: CI_LINT_ONLY=1 (no ci:run label), ci-lint only" >&2
+elif [ "${CI_ALL:-}" = 1 ]; then
     stages=$all
     echo "ci-stages: CI_ALL=1, every stage" >&2
 else
