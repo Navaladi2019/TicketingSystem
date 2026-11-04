@@ -114,6 +114,9 @@ type etIso struct {
 	super *pgx.Conn
 	keys  int
 	stop  func()
+	// cluster is the suite's database, for cases that also drive it as
+	// another role (the audit paths seal as nava_worker).
+	cluster Cluster
 }
 
 func newETIso(ctx context.Context, c Cluster) (*etIso, error) {
@@ -137,6 +140,12 @@ func newETIso(ctx context.Context, c Cluster) (*etIso, error) {
 		etCallerA:      {TenantID: uuid.MustParse(TenantA), PrincipalID: uuid.MustParse(principalA1), Groups: []uuid.UUID{uuid.MustParse(adminGroupA)}},
 		etCallerB:      {TenantID: uuid.MustParse(TenantB), PrincipalID: uuid.MustParse(principalB1)},
 		etCallerBAdmin: {TenantID: uuid.MustParse(TenantB), PrincipalID: uuid.MustParse(principalB2), Groups: []uuid.UUID{uuid.MustParse(adminGroupB)}},
+		// The audit readers (P5-19, TICK-436): each tenant's auditor (a member
+		// of its auditors group) and an agent (in a group that is neither).
+		auditCallerAAuditor: {TenantID: uuid.MustParse(TenantA), PrincipalID: uuid.MustParse(principalA2), Groups: []uuid.UUID{uuid.MustParse(auditorGroupA)}},
+		auditCallerAAgent:   {TenantID: uuid.MustParse(TenantA), PrincipalID: uuid.MustParse(principalA2)},
+		auditCallerBAuditor: {TenantID: uuid.MustParse(TenantB), PrincipalID: uuid.MustParse(principalB1), Groups: []uuid.UUID{uuid.MustParse(auditorGroupB)}},
+		auditCallerBAgent:   {TenantID: uuid.MustParse(TenantB), PrincipalID: uuid.MustParse(principalB1), Groups: []uuid.UUID{uuid.MustParse(GroupB1)}},
 	}
 	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel, tokens, pgstore.New(pool),
 		server.WithPool(pool), server.WithCursors(kr))
@@ -144,7 +153,7 @@ func newETIso(ctx context.Context, c Cluster) (*etIso, error) {
 		_ = tel.Shutdown(context.Background())
 		return nil, err
 	}
-	return &etIso{h: h, super: super, stop: func() { _ = tel.Shutdown(context.Background()) }}, nil
+	return &etIso{h: h, super: super, stop: func() { _ = tel.Shutdown(context.Background()) }, cluster: c}, nil
 }
 
 // cleanup deletes every row the cases write, as the superuser.
