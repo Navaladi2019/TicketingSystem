@@ -166,28 +166,39 @@ func report(w io.Writer, s *summary, now time.Time) []string {
 }
 
 func main() {
-	out := flag.String("out", "ci5-report.md", "report file")
-	flag.Parse()
-	s, err := read(os.Stdin, os.Stdout)
+	os.Exit(cli(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+}
+
+// cli runs ci5report with the arguments after the program name and returns the
+// exit code: 1 when the report has problems, 2 when the run itself failed.
+func cli(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("ci5report", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	out := fs.String("out", "ci5-report.md", "report file")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	s, err := read(stdin, stdout)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ci5report:", err)
-		os.Exit(2)
+		_, _ = fmt.Fprintln(stderr, "ci5report:", err)
+		return 2
 	}
 	f, err := os.Create(*out)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ci5report:", err)
-		os.Exit(2)
+		_, _ = fmt.Fprintln(stderr, "ci5report:", err)
+		return 2
 	}
 	problems := report(f, s, time.Now())
 	if err := f.Close(); err != nil {
-		fmt.Fprintln(os.Stderr, "ci5report:", err)
-		os.Exit(2)
+		_, _ = fmt.Fprintln(stderr, "ci5report:", err)
+		return 2
 	}
-	fmt.Println("ci5report: wrote", *out)
+	_, _ = fmt.Fprintln(stdout, "ci5report: wrote", *out)
 	for _, pr := range problems {
-		fmt.Fprintln(os.Stderr, "ci5report:", pr)
+		_, _ = fmt.Fprintln(stderr, "ci5report:", pr)
 	}
 	if len(problems) > 0 {
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }

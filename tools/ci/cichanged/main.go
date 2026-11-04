@@ -18,6 +18,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path"
@@ -48,16 +49,27 @@ func stackRoots() [][]string {
 }
 
 func main() {
-	base := flag.String("base", "origin/main", "base ref of the change")
-	verbose := flag.Bool("v", false, "print the reason for each file on stderr")
-	flag.Parse()
-	if err := run(*base, *verbose); err != nil {
-		fmt.Fprintln(os.Stderr, "cichanged:", err)
-		os.Exit(2)
-	}
+	os.Exit(cli(os.Args[1:], os.Stdout, os.Stderr))
 }
 
-func run(base string, verbose bool) error {
+// cli runs cichanged with the arguments after the program name and returns
+// the exit code: 2 for a bad flag or a failed git or go list.
+func cli(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("cichanged", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	base := fs.String("base", "origin/main", "base ref of the change")
+	verbose := fs.Bool("v", false, "print the reason for each file on stderr")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if err := run(*base, *verbose, stdout, stderr); err != nil {
+		_, _ = fmt.Fprintln(stderr, "cichanged:", err)
+		return 2
+	}
+	return 0
+}
+
+func run(base string, verbose bool, stdout, stderr io.Writer) error {
 	files, err := changedFiles(base)
 	if err != nil {
 		return err
@@ -69,10 +81,10 @@ func run(base string, verbose bool) error {
 	stages, reasons := classify(files, g)
 	if verbose {
 		for _, r := range reasons {
-			fmt.Fprintln(os.Stderr, "cichanged:", r)
+			_, _ = fmt.Fprintln(stderr, "cichanged:", r)
 		}
 	}
-	fmt.Println(strings.Join(stages, " "))
+	_, _ = fmt.Fprintln(stdout, strings.Join(stages, " "))
 	return nil
 }
 
