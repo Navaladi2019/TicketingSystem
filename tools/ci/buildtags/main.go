@@ -20,6 +20,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"go/build/constraint"
@@ -36,15 +37,27 @@ import (
 const maxTags = 16
 
 func main() {
-	dir := flag.String("dir", ".", "repository root; every module under it is checked")
-	list := flag.Bool("list", false, "print the tag sets and their files, do not vet")
-	flag.Parse()
-	code, err := run(*dir, *list, os.Stdout, goVet)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "buildtags:", err)
-		os.Exit(2)
+	os.Exit(cli(os.Args[1:], os.Stdout, os.Stderr, goVet))
+}
+
+// cli parses the flags and runs; it returns 2 on bad input.
+func cli(args []string, stdout, stderr io.Writer, vet vetFunc) int {
+	fs := flag.NewFlagSet("buildtags", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	dir := fs.String("dir", ".", "repository root; every module under it is checked")
+	list := fs.Bool("list", false, "print the tag sets and their files, do not vet")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
 	}
-	os.Exit(code)
+	code, err := run(*dir, *list, stdout, vet)
+	if err != nil {
+		fmt.Fprintln(stderr, "buildtags:", err)
+		return 2
+	}
+	return code
 }
 
 // vetFunc runs go vet with tags in the module at dir, writing its output to w.

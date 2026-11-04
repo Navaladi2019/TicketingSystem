@@ -8,8 +8,10 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,25 +21,38 @@ import (
 )
 
 func main() {
-	dir := flag.String("dir", ".", "directory holding Makefile and Taskfile.yml")
-	flag.Parse()
-	targets := flag.Args()
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, makeCommands))
+}
+
+// run is the command: 0 in step, 1 on drift, 2 on bad input.
+func run(args []string, stdout, stderr io.Writer, makeCmds func(dir, target string) ([]string, error)) int {
+	fs := flag.NewFlagSet("check-taskfile", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	dir := fs.String("dir", ".", "directory holding Makefile and Taskfile.yml")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	targets := fs.Args()
 	if len(targets) == 0 {
 		targets = []string{"build", "test", "lint"}
 	}
 
-	problems, err := check(*dir, targets, makeCommands)
+	problems, err := check(*dir, targets, makeCmds)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "check-taskfile:", err)
-		os.Exit(2)
+		fmt.Fprintln(stderr, "check-taskfile:", err)
+		return 2
 	}
 	for _, p := range problems {
-		fmt.Fprintln(os.Stderr, "check-taskfile:", p)
+		fmt.Fprintln(stderr, "check-taskfile:", p)
 	}
 	if len(problems) > 0 {
-		os.Exit(1)
+		return 1
 	}
-	fmt.Println("check-taskfile: ok:", strings.Join(targets, ", "))
+	fmt.Fprintln(stdout, "check-taskfile: ok:", strings.Join(targets, ", "))
+	return 0
 }
 
 // check compares each target's commands; makeCmds returns the Makefile side.

@@ -47,26 +47,37 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/tools/ci/internal/reviewcfg"
 )
 
-func main() {
-	tags := flag.String("tags", "", "comma-separated build tags the step tests with")
-	pathsFile := flag.String("paths", "docs/delivery/review-paths.yaml", "review path list")
-	root := flag.String("root", ".", "repository root the path list is relative to")
-	verbose := flag.Bool("v", false, "print every output line, as go test -v")
-	tee := flag.String("tee", "", "also write the raw go test -json stream to this file")
-	in := flag.Bool("in", false, "the arguments are go test -json files, not a command")
-	flag.Parse()
+func main() { os.Exit(cli(os.Args[1:], os.Stdout, os.Stderr)) }
+
+// cli parses the flags and runs the check, returning the exit code (see run);
+// 2 for bad flags or a run that could not be checked.
+func cli(args []string, stdout, stderr io.Writer) int {
+	fl := flag.NewFlagSet("suiteran", flag.ContinueOnError)
+	fl.SetOutput(stderr)
+	tags := fl.String("tags", "", "comma-separated build tags the step tests with")
+	pathsFile := fl.String("paths", "docs/delivery/review-paths.yaml", "review path list")
+	root := fl.String("root", ".", "repository root the path list is relative to")
+	verbose := fl.Bool("v", false, "print every output line, as go test -v")
+	tee := fl.String("tee", "", "also write the raw go test -json stream to this file")
+	in := fl.Bool("in", false, "the arguments are go test -json files, not a command")
+	if err := fl.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0 // as flag.ExitOnError does
+		}
+		return 2
+	}
 
 	code, err := run(options{
 		tags: splitTags(*tags), pathsFile: *pathsFile, root: *root,
-		verbose: *verbose, tee: *tee, in: *in, args: flag.Args(),
-	}, os.Stdout)
+		verbose: *verbose, tee: *tee, in: *in, args: fl.Args(),
+	}, stdout)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "suiteran:", err)
+		fmt.Fprintln(stderr, "suiteran:", err)
 		if code == 0 {
 			code = 2
 		}
 	}
-	os.Exit(code)
+	return code
 }
 
 type options struct {
@@ -178,6 +189,11 @@ func runCommand(s *stream, args []string, tee string) (int, error) {
 		return 0, err
 	}
 	readErr := s.read(r)
+	if readErr != nil {
+		// Drain the rest, or a command still writing blocks on a full pipe
+		// and Wait never returns.
+		_, _ = io.Copy(io.Discard, r)
+	}
 	waitErr := cmd.Wait()
 	if readErr != nil {
 		return 0, readErr
