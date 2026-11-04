@@ -104,6 +104,10 @@ codes:
     status: 422
     title: Secret in configuration
     detail: The definition sets a value at a secret path. See errors for the path; the value is never echoed.
+  - code: assignment_group_removed
+    status: 422
+    title: Assignment group removed
+    detail: The record names an assignment group that is not a live group of this tenant. Keep the record's current group or choose another one. See errors for the property.
   - code: history_too_long
     status: 422
     title: History too long

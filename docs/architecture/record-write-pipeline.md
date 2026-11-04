@@ -26,7 +26,10 @@ flowchart TD
     H --> S[state model: create in Initial,<br/>update only along a listed transition]
     S --> U[each unique property set or changed:<br/>advisory xact lock, then SELECT]
     U --> I[split fixed columns out of data]
-    I --> N[create: record_counters upsert<br/>RETURNING next - 1]
+    I --> GR{assignment_group_id<br/>set or changed?}
+    GR -- yes: not a live group of the tenant --> GX[ErrAssignmentGroupRemoved<br/>422, nothing written]
+    GR -- no, or live --> N
+    N[create: record_counters upsert<br/>RETURNING next - 1]
     N --> J[INSERT, or UPDATE ... version = version + 1<br/>WHERE tenant_id, id, version = expected]
     J --> W[keyed write: one record_write_keys row<br/>D-5-3, P5-13a]
     W --> K[one audit_log entry<br/>(audit.Append, ADR-004)]
@@ -98,6 +101,18 @@ flowchart TD
   keys sorted, fixed uuid columns lowercase. A missing or null value is not
   checked. There is no JSONB unique index (D25); the check scans the type's
   records in the tenant.
+- **Removed assignment group (ADR-004-E5 D6, D7, N4; TICK-537).** When a
+  write sets `assignment_group_id` (a create with any non-null value) or
+  changes it, `store.GroupLive` reads `groups` in the write's transaction,
+  under RLS, never from a cache. A tombstoned group, another tenant's group
+  (live or tombstoned) and an unknown id are all `ErrAssignmentGroupRemoved`,
+  before the counter, the record, `record_write_keys`, the audit entry and the
+  sink, so nothing is written. Because the check runs before the `INSERT` or
+  `UPDATE`, neither ends at a `23503` on `records_assignment_group_fkey`. An
+  unchanged value passes, even when its group is tombstoned, and clearing
+  the field passes. Reads (`store.Get`) join `groups` and set
+  `AssignmentGroupRemoved`; the API returns it as
+  `assignment_group: {id, removed}`. Nothing clears or reassigns the field.
 
 ## Errors
 
@@ -109,6 +124,7 @@ flowchart TD
 | `*ErrValidation{Fields}` | Schema failures, JSON pointers and keywords only |
 | `*ErrIllegalTransition{From, To}` | State change not in the state model, or a create not in `Initial` |
 | `*ErrUniqueViolation{Field}` | Another record of the type holds the unique value |
+| `ErrAssignmentGroupRemoved` | `assignment_group_id` set or changed to a group that is not live in the tenant (422 `assignment_group_removed`) |
 | `ErrVersionConflict` | Not at `ExpectedVersion` |
 | `*ErrIdempotencyConflict{Concurrent}` | Key held by another write (409), or a concurrent duplicate: roll back and retry |
 
