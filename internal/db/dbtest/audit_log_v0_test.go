@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/Navaladi2019/TicketingSystem/db"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/audited"
@@ -157,7 +158,40 @@ func migrateTo(t *testing.T, m *grants.Manifest, fsys fs.FS) (migrate.Result, er
 		r.Attached = false
 		a.Audited["records"] = r
 	}
+	// CI-A3 pins audit_log_select's roles (ADR-004-A1 A1-9), which only
+	// 20261104133000 sets. It alters two policies of tables that exist from
+	// 20261102233600 on and depends on nothing after it, so a run that stops
+	// earlier applies it out of order, as the migrate job allows.
+	if _, err := fs.Stat(fsys, auditReaderPoliciesMigration); err != nil {
+		fsys = withMigrationFrom(t, fsys, auditReaderPoliciesMigration)
+	}
 	log, _ := newLog()
 	return migrate.Run(context.Background(), roleConfig(t, withV0.Owner(), withV0.PlatformDatabase),
 		fsys, &withV0, &a, globalTables(t), log, migrate.Options{LockRetrySeconds: 1})
+}
+
+// auditReaderPoliciesMigration is ADR-004-A1 A1-3's policy migration (TICK-558).
+const auditReaderPoliciesMigration = "20261104133000_audit_reader_policies.sql"
+
+// withMigrationFrom is fsys plus the real migration name.
+func withMigrationFrom(t *testing.T, fsys fs.FS, name string) fs.FS {
+	t.Helper()
+	out := fstest.MapFS{}
+	entries, err := fs.ReadDir(fsys, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		b, err := fs.ReadFile(fsys, e.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		out[e.Name()] = &fstest.MapFile{Data: b}
+	}
+	b, err := fs.ReadFile(db.Migrations(), name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out[name] = &fstest.MapFile{Data: b}
+	return out
 }

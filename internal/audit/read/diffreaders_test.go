@@ -1,7 +1,9 @@
 // The architecture test for the audit diff read path (ADR-004 R7, TICK-541):
 // only internal/audit/read reads audit_log.diff or audit_log.diff_salt. That
-// package is the only place the R7 masker runs, and nava_app holds SELECT on
-// both columns, so a query anywhere else could return a raw, unmasked diff.
+// package is the only place the R7 masker runs. Since ADR-004-A1 (TICK-558)
+// Postgres is the gate: only nava_audit_reader, whose pool only that package
+// holds, may SELECT either column, so a query anywhere else gets 42501 at
+// Execute. This check stays as layer 2 (A1-10 rule 2), an early warning.
 //
 // The check is static and runs in `task test`. It parses every non-test Go
 // file in the repository (every module, build tags ignored, so a tagged file
@@ -44,9 +46,8 @@
 //   - An implicitly repeated const (const ( x = "audit_log"; y )) does not
 //     fold, and fmt verbs with an explicit index (%[2]s) are filled in
 //     order, not by index (Security E on PR #458).
-//   - D and E are layer-2 gaps: Postgres is the gate once TICK-558 revokes
-//     nava_app on diff. Revisit if one shows up in a review or TICK-558
-//     slips past S14.
+//   - D and E are layer-2 gaps: Postgres is the gate since TICK-558 revoked
+//     nava_app on diff. Revisit if one shows up in a review.
 //   - A function's local consts apply to its whole body, not per block, and a
 //     local var that shadows a const of the same name still folds as the
 //     const.
