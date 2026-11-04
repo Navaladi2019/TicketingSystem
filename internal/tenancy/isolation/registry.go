@@ -216,12 +216,15 @@ type Path struct {
 // "Annex B coverage"). The report prints it above each group.
 func Coverage() map[string]string {
 	return map[string]string{
-		"CI-2":  "full: generic checks on every tenant table; forged-tenant HTTP paths (T17); the forged write on POST /api/v1/records/incident, StoredUnderA (P3-18)",
-		"CI-9":  "full: nava_relay, nava_purge, nava_onboard and nava_backup reach (T12); nava_backup through T08's pg_hba cases",
-		"CI-8":  "partial → P3-37 (S10): the masked-field filter 400 needs S10's masks; here the record routes' byte-identical 404 on GET, PATCH and history, stale If-Match 412, and (e)/(f) (TICK-87); cursor cases from T23; idempotency cases from T22",
-		"CI-10": "partial → P3-42 (S11b): (g) signal ping-pong needs the interpreter; (f) the start key is per tenant, here; (a)–(e) are TestCI10_* in internal/records/pipeline and the outbox depth limit TestCI10_* in internal/outbox, both against real PostgreSQL in make test-integration",
-		"T26":   "full: deprovisioning within D-P9's 10 minutes and the Epic 03 identity boundary (TICK-82); cases 1, 2, 6 and 8 run here, cases 3, 4, 5 and 7 need the real Keycloak and run in make stack-test-identity",
-		"CI-5":  "full in make identity-attacks (real Keycloak, the CI stack job, ci5-report artifact); here every case is registered: token shapes through the API handler (401 for the stated reason), the duplicate binding on this database, Keycloak-only cases as Stack paths on TestCI5",
+		"CI-2":   "full: generic checks on every tenant table; forged-tenant HTTP paths (T17); the forged write on POST /api/v1/records/incident, StoredUnderA (P3-18)",
+		"CI-9":   "full: nava_relay, nava_purge, nava_onboard and nava_backup reach (T12); nava_backup through T08's pg_hba cases",
+		"CI-8":   "partial → P3-37 (S10): the masked-field filter 400 needs S10's masks; here the record routes' byte-identical 404 on GET, PATCH and history, stale If-Match 412, and (e)/(f) (TICK-87); cursor cases from T23; idempotency cases from T22",
+		"CI-10":  "partial → P3-42 (S11b): (g) signal ping-pong needs the interpreter; (f) the start key is per tenant, here; (a)–(e) are TestCI10_* in internal/records/pipeline and the outbox depth limit TestCI10_* in internal/outbox, both against real PostgreSQL in make test-integration",
+		"T26":    "full: deprovisioning within D-P9's 10 minutes and the Epic 03 identity boundary (TICK-82); cases 1, 2, 6 and 8 run here, cases 3, 4, 5 and 7 need the real Keycloak and run in make stack-test-identity",
+		"CI-A4":  "partial (ADR-004, P5-19): audit_log through the parent, its DEFAULT partition, audit_chain_head and record_write_keys as every runtime role, with no tenant and with onboarding's pinned policies; GET /api/v1/audit/entries and record history for tenant B's admin, auditor and agent. Export, stubs and reseed: their own tasks",
+		"CI-A5":  "partial (ADR-004, P5-19): table bytes of audit_log and entity_definition_versions after record and S8 canaries; export bytes: the export task",
+		"CI-A10": "full (ADR-004, P5-19): the nava-core and nava-worker pools from compose.yaml log in as nava_app and nava_worker and rerun the P5-10b matrix; nava_onboard and nava_groupsync are TestP510b* in internal/db/dbtest",
+		"CI-5":   "full in make identity-attacks (real Keycloak, the CI stack job, ci5-report artifact); here every case is registered: token shapes through the API handler (401 for the stated reason), the duplicate binding on this database, Keycloak-only cases as Stack paths on TestCI5",
 	}
 }
 
@@ -434,7 +437,7 @@ func Paths() []Path {
 		sql("audit_log: insert an audit row for tenant B", "nava_app", Denied,
 			"INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, actor_system, source) VALUES ($1, $2, 'record', 'update', 'record', $3, 'user', 'user')",
 			TenantB, NewID, RecordB2),
-		sql("audit_log: audit tenant B's record from tenant A", "nava_worker", Denied,
+		sql("audit_log: worker inserts a row with tenant B's tenant_id (WITH CHECK)", "nava_worker", Denied,
 			"INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, actor_system, source) VALUES ($1, $2, 'record', 'update', 'record', $3, 'workflow', 'workflow')",
 			TenantB, NewID, RecordB2),
 		sql("audit_log: rewrite tenant B's audit rows", "nava_app", Denied,
@@ -480,5 +483,6 @@ func Paths() []Path {
 	paths = append(paths, recordPaths()...)
 	paths = append(paths, recordCI8Paths()...)
 	paths = append(paths, cascadePaths()...)
+	paths = append(paths, auditPaths()...)
 	return append(paths, boundaryPaths()...)
 }

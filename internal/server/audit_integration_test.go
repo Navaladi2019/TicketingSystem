@@ -160,13 +160,11 @@ func TestListAuditEntriesTokenBindingAndTenant(t *testing.T) {
 	}
 }
 
-// R7 end to end: an entry whose diff holds a value at a pointer the
-// definition marks secret is read with {"redacted":"mask"} in its place, no
-// salt, and diff_redacted true. The write path refuses such a diff (R6), so
-// the row is seeded as the superuser, as an entry written under an older
-// schema would be.
-func TestListAuditEntriesMasksSecretProperties(t *testing.T) {
-	e := newETEnv(t)
+// seedSecretEntry creates a vault record in tenant A, whose definition marks
+// /token secret, and seeds an update entry on it whose diff holds the secret
+// hunter2 at /token. It returns the record id.
+func (e *etEnv) seedSecretEntry(t *testing.T) string {
+	t.Helper()
 	const body = `{"key": "vault", "name": "Vault", "number_prefix": "VLT", "definition": {"schema": {
   "$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "additionalProperties": false,
   "required": ["state"], "properties": {"state": {"type": "string", "enum": ["new"], "default": "new"},
@@ -187,7 +185,18 @@ func TestListAuditEntriesMasksSecretProperties(t *testing.T) {
 		e.a.id, r.ID, def, diff); err != nil {
 		t.Fatal(err)
 	}
-	rec, p := e.auditGet(t, "admin-a", "?subject_id="+r.ID+"&limit=1")
+	return r.ID
+}
+
+// R7 end to end: an entry whose diff holds a value at a pointer the
+// definition marks secret is read with {"redacted":"mask"} in its place, no
+// salt, and diff_redacted true. The write path refuses such a diff (R6), so
+// the row is seeded as the superuser, as an entry written under an older
+// schema would be.
+func TestListAuditEntriesMasksSecretProperties(t *testing.T) {
+	e := newETEnv(t)
+	id := e.seedSecretEntry(t)
+	rec, p := e.auditGet(t, "admin-a", "?subject_id="+id+"&limit=1")
 	if rec.Code != http.StatusOK || len(p.Items) != 1 {
 		t.Fatalf("read = %d: %s", rec.Code, rec.Body)
 	}
@@ -198,5 +207,40 @@ func TestListAuditEntriesMasksSecretProperties(t *testing.T) {
 	}
 	if rec.Body.Len() > 0 && json.Valid(rec.Body.Bytes()) && strings.Contains(rec.Body.String(), "hunter2") {
 		t.Errorf("the secret is in the response: %s", rec.Body)
+	}
+}
+
+// R7 on the history endpoint (TICK-541; PSE review of PR #438): the history
+// replays the same diffs, so the secret is {"redacted":"mask"} in after and
+// absent from the whole body. Before TICK-541 only the list endpoint's
+// masking was tested.
+func TestRecordHistoryMasksSecretProperties(t *testing.T) {
+	e := newETEnv(t)
+	id := e.seedSecretEntry(t)
+	rec := e.do(t, http.MethodGet, "/api/v1/records/vault/"+id+"/history", "user-a", "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("history = %d: %s", rec.Code, rec.Body)
+	}
+	if strings.Contains(rec.Body.String(), "hunter2") {
+		t.Errorf("the secret is in the history response: %s", rec.Body)
+	}
+	var p struct {
+		Items []struct {
+			Action string                     `json:"action"`
+			After  map[string]json.RawMessage `json:"after"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
+		t.Fatal(err)
+	}
+	// Newest first: the seeded update, then the create.
+	if len(p.Items) != 2 || p.Items[0].Action != "update" {
+		t.Fatalf("history = %s, want the seeded update and the create", rec.Body)
+	}
+	if got := string(p.Items[0].After["token"]); got != `{"redacted":"mask"}` {
+		t.Errorf("after.token = %s, want {\"redacted\":\"mask\"}; body %s", got, rec.Body)
+	}
+	if got := string(p.Items[0].After["n"]); got != "1" {
+		t.Errorf("after.n = %s, want 1 (the unmasked op still replays); body %s", got, rec.Body)
 	}
 }

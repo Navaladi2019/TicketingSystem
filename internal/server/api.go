@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/metric"
 
 	"github.com/Navaladi2019/TicketingSystem/api"
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/read"
@@ -72,7 +73,13 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 	if opts.pool != nil {
 		// The S9 composition (PLAN-003): any tenant member writes, no events.
 		// S10 swaps the authorizer, S11b the sink.
-		h.audit = &read.Reader{Masker: read.DefinitionMasker{}}
+		h.audit = &read.Reader{Masker: read.DefinitionMasker{}, MaxRecordEntries: opts.historyCap, OnRecordRows: opts.historyRows}
+		if h.historyTooLong, err = tel.MeterProvider.Meter("github.com/Navaladi2019/TicketingSystem/internal/server").Int64Counter(
+			"nava.records.history.too_long",
+			metric.WithDescription("Record history requests refused because the record has more audit entries than the cap."),
+			metric.WithUnit("{request}")); err != nil {
+			return nil, err
+		}
 		h.pipe = pipeline.New(authz.TenantMemberAuthorizer{}, h.store, pipeline.NoopSink{}, pipeline.PoolRunner{Pool: opts.pool}, pipeline.SystemClock{})
 	}
 	api.HandlerWithOptions(
@@ -166,6 +173,9 @@ type handlers struct {
 	// audit serves the audit timeline and a record's history (P5-17); nil
 	// answers 501 not_implemented.
 	audit *read.Reader
+	// historyTooLong counts the histories refused for their length; nil
+	// counts nothing.
+	historyTooLong metric.Int64Counter
 }
 
 // errNoPrincipal means a handler ran outside the authentication middleware:
