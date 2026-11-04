@@ -52,6 +52,15 @@ const (
 	copyTableSQL = `COPY (TABLE public.audit_log) TO STDOUT`          // want: table
 	bareAliasSQL = `SELECT a FROM audit_log a WHERE a.tenant_id = $1` // want: row
 
+	// TICK-551: a comma join (1), TABLE after a CTE and as an INSERT source
+	// (2), a parenthesised star (5).
+	commaSQL      = `SELECT a.diff FROM records r, audit_log a WHERE a.subject_id = r.id` // want: diff
+	commaRowSQL   = `SELECT to_jsonb(a) FROM records r, public.audit_log AS a`            // want: row
+	cteTableSQL   = `WITH x AS (SELECT 1) TABLE audit_log`                                // want: table
+	insertTblSQL  = `INSERT INTO audit_copy TABLE audit_log`                              // want: table
+	insertColsSQL = `INSERT INTO audit_copy (id, diff) TABLE public.audit_log`            // want: table diff
+	parenStarSQL  = `SELECT (a).* FROM audit_log a`                                       // want: star
+
 	// Look-alikes: DDL that names the table, other columns, other tables, a pure insert, comments,
 	// aggregates and casts of a column, COPY in, COPY out of safe columns.
 	arrayIDSQL  = `SELECT array_agg(id) FROM audit_log`
@@ -67,6 +76,14 @@ const (
 	insertSQL   = `INSERT INTO audit_log (tenant_id, diff, diff_salt) VALUES ($1, $2::json, $3)`
 	commentSQL  = "-- SELECT diff FROM audit_log\nSELECT 1"
 	blockSQL    = "SELECT 1 /* diff FROM audit_log */"
+
+	// TICK-551 look-alikes: a comma join of another table, TABLE of another
+	// table after a CTE or into audit_log, a parenthesised column.
+	commaV0SQL    = `SELECT r.diff, r.audit_log_id FROM records r, audit_log_v0 v`
+	cteOtherSQL   = `WITH x AS (SELECT 1) TABLE audit_log_v0`
+	insertFromSQL = `INSERT INTO audit_log TABLE audit_staging`
+	parenColSQL   = `SELECT (a).id, (a).seq FROM audit_log a`
+	createAsSQL   = `CREATE TABLE audit_copy (LIKE audit_log)`
 )
 
 func plant(ctx context.Context, tx pgx.Tx, where string) error {
@@ -78,6 +95,23 @@ func plant(ctx context.Context, tx pgx.Tx, where string) error {
 	s := "SELECT diff_salt, " + where + " FROM audit_log" // want: diff_salt
 	// Another package's constant as a Sprintf argument.
 	u := fmt.Sprintf("SELECT id, diff FROM %s WHERE %s", audited.LogTable, where) // want: diff
-	_, err := tx.Exec(ctx, q+r+s+u)
-	return err
+	// A const declared inside the function (TICK-551 item 4), and one built
+	// from it.
+	const localTable = "audit_log"
+	const localSQL = "SELECT diff FROM " + localTable // want: diff
+	v := "SELECT id, diff_salt FROM " + localTable    // want: diff_salt
+	// Look-alike: a local const naming another table.
+	const otherTable = "audit_log_v0"
+	w := "SELECT diff FROM " + otherTable
+	_, err := tx.Exec(ctx, q+r+s+u+v+w)
+	if err != nil {
+		return err
+	}
+	// A function literal sees its own consts and the enclosing ones.
+	run := func() error {
+		const litCols = "diff, diff_salt"
+		_, err := tx.Exec(ctx, "SELECT "+litCols+" FROM "+localTable) // want: diff diff_salt
+		return err
+	}
+	return run()
 }
