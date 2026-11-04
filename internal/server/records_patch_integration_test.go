@@ -71,7 +71,7 @@ func (e *etEnv) patch(t *testing.T, token, entity, id, ifMatch, body string) *ht
 func (e *etEnv) auditCount(t *testing.T, id string) int {
 	t.Helper()
 	var n int
-	if err := e.super.QueryRow(t.Context(), "SELECT count(*) FROM audit_log_v0 WHERE tenant_id = $1 AND record_id = $2", e.a.id, id).Scan(&n); err != nil {
+	if err := e.super.QueryRow(t.Context(), "SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND subject_type = 'record' AND subject_id = $2", e.a.id, id).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	return n
@@ -154,7 +154,7 @@ func TestPatchMissingRecordIsA404NotA428(t *testing.T) {
 		}
 	}
 	if got := e.auditCount(t, r.ID); got != 1 {
-		t.Errorf("audit rows = %d, want only the create", got)
+		t.Errorf("audit entries = %d, want only the create", got)
 	}
 }
 
@@ -222,12 +222,16 @@ func TestPatchUniqueViolationAndIllegalTransition(t *testing.T) {
 	}
 }
 
+// The history pages over live writes on the audit log (P5-17, TICK-435;
+// D-5-14 had TICK-452 page over seeded v0 rows meanwhile): a create and two
+// patches, read newest first, one row per page.
 func TestPatchHistoryPagesNewestFirst(t *testing.T) {
 	e := newPatchEnv(t)
 	r := e.mustCreateRec(t, "user-a", "job", "c1", `{"short_description": "one"}`)
-	for i, v := range []string{"a", "b"} {
-		if rec := e.patch(t, "user-a", "job", r.ID, fmt.Sprintf(`W/"%d"`, i+1), fmt.Sprintf(`{"data": {"note": %q}}`, v)); rec.Code != http.StatusOK {
-			t.Fatalf("patch %d = %d: %s", i, rec.Code, rec.Body)
+	for i, note := range []string{"a", "b"} {
+		rec := e.patch(t, "user-a", "job", r.ID, fmt.Sprintf(`W/"%d"`, i+1), fmt.Sprintf(`{"data": {"note": %q}}`, note))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("patch %q = %d: %s", note, rec.Code, rec.Body)
 		}
 	}
 	type page struct {
@@ -337,7 +341,7 @@ func TestPatchRecordIgnoresCausationFromTheRequest(t *testing.T) {
 	}
 	for _, q := range []string{
 		"SELECT causation_depth, causation_origin_id::text FROM records WHERE tenant_id = $1 AND id = $2",
-		"SELECT causation_depth, causation_origin_id::text FROM audit_log_v0 WHERE tenant_id = $1 AND record_id = $2 AND action = 'update'",
+		"SELECT causation_depth, causation_id::text FROM audit_log WHERE tenant_id = $1 AND subject_type = 'record' AND subject_id = $2 AND action = 'update'",
 	} {
 		var (
 			depth  *int16

@@ -29,7 +29,9 @@
 # Adding, removing or exempting a table is a security-review change (D-P10).
 
 audited:
-  # P5-13b (TICK-452) attaches the trigger, if S1 item 1 holds (PLAN-005).
+  # held: TICK-529. P5-13c (TICK-530) attaches the trigger once the RFC on
+  # the groups FK ON DELETE SET NULL is decided (D-5-14); until then the
+  # P3-13 architecture test (internal/records/arch_test.go) is the guard.
   # The columns are every column a writer may UPDATE (db/grants.yaml).
   records:
     writer_roles: [nava_app, nava_worker]
@@ -56,8 +58,6 @@ audited:
 exempt:
   audit_log:
     reason: "The audit log itself (ADR-004 decision 1); R10 and R11 guard its writes."
-  audit_log_v0:
-    reason: "S9's audit table, read-only from P5-13b and dropped by P5-17 (PLAN-005 D-5-1)."
   audit_chain_head:
     reason: "Chain state (R14). A seal is visible in the sealed entries; reseed and export write their own audit entries (R17, R19)."
   record_write_keys:

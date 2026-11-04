@@ -78,16 +78,31 @@ func TestP304ForeignKeyAndRuntimeRolesCannotWrite(t *testing.T) {
 	}
 
 	exec(t, super, "UPDATE tenants SET state = 'active' WHERE id = $1", tenantA)
+	const update = "UPDATE tenant_admin_group SET group_id = $2 WHERE tenant_id = $1"
+	const del = "DELETE FROM tenant_admin_group WHERE tenant_id = $1 AND $2::uuid IS NOT NULL"
 	for _, role := range []string{"nava_app", "nava_worker", "nava_groupsync", "nava_onboard"} {
 		conn := asRole(t, role)
-		for what, sql := range map[string]string{
-			"UPDATE": "UPDATE tenant_admin_group SET group_id = $2 WHERE tenant_id = $1",
-			"DELETE": "DELETE FROM tenant_admin_group WHERE tenant_id = $1 AND $2::uuid IS NOT NULL",
-		} {
-			_, err := execIn(conn, tenantA, sql, tenantA, tenantA)
-			wantSQLState(t, role+" "+what, err, "42501")
+		_, err := execIn(conn, tenantA, update, tenantA, tenantA)
+		wantSQLState(t, role+" UPDATE", err, "42501")
+		if role == "nava_groupsync" {
+			continue // ADR-004-E5 D5: DELETE under a policy, below
 		}
+		_, err = execIn(conn, tenantA, del, tenantA, tenantA)
+		wantSQLState(t, role+" DELETE", err, "42501")
 	}
+	// CI-E5-5b (ADR-004-E5 D5): nava_groupsync deletes the pointer only once
+	// its group is tombstoned. While the group is live, 0 rows.
+	sync := asRole(t, "nava_groupsync")
+	if n, err := execIn(sync, tenantA, del, tenantA, tenantA); err != nil || n != 0 {
+		t.Errorf("nava_groupsync DELETE of a live group's pointer: %d rows, %v; want 0, nil", n, err)
+	}
+	exec(t, super, "DELETE FROM group_members WHERE tenant_id = $1 AND group_id = $1", tenantA)
+	exec(t, super, "UPDATE groups SET deleted_at = now() WHERE tenant_id = $1 AND id = $1", tenantA)
+	if n, err := execIn(sync, tenantA, del, tenantA, tenantA); err != nil || n != 1 {
+		t.Errorf("nava_groupsync DELETE of a tombstoned group's pointer: %d rows, %v; want 1, nil", n, err)
+	}
+	exec(t, super, "UPDATE groups SET deleted_at = NULL WHERE tenant_id = $1 AND id = $1", tenantA)
+	exec(t, super, "INSERT INTO tenant_admin_group (tenant_id, group_id) VALUES ($1, $1)", tenantA)
 	for _, role := range []string{"nava_app", "nava_worker", "nava_groupsync"} {
 		_, err := execIn(asRole(t, role), tenantA, insertAdminGroupRow, tenantB, tenantB)
 		wantSQLState(t, role+" INSERT", err, "42501")

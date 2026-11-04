@@ -160,7 +160,7 @@ func TestDemoWritesThroughThePipeline(t *testing.T) {
 		audits  int
 	)
 	if err := super.QueryRow(ctx, `SELECT r.version, r.number,
-		(SELECT count(*) FROM audit_log_v0 a WHERE a.tenant_id = r.tenant_id AND a.record_id = r.id)
+		(SELECT count(*) FROM audit_log a WHERE a.tenant_id = r.tenant_id AND a.subject_type = 'record' AND a.subject_id = r.id)
 		FROM records r WHERE r.tenant_id = $1 AND r.id = $2`, tenantA, record).Scan(&version, &number, &audits); err != nil {
 		t.Fatal(err)
 	}

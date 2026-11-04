@@ -1664,6 +1664,56 @@ test('update then create', () => {
     }
 
 
+# --------------------------------------------------------------------------- S14
+def s14():
+    audit = "{{core_url}}/api/v1/audit/entries"
+    return {
+        "dir": "S14", "name": "S14 audit timeline",
+        "desc": "TICK-435 (P5-17, ADR-004 R7 and R8). The tenant's one audit timeline, `GET /api/v1/audit/entries`, read by tenant A's admin (who holds `audit.read`): newest first, filtered, stable pages with no overlap, every `diff` masked for the reader, and `diff_salt` only with an unredacted diff. Alice is a member without `audit.read`: 403. 429, 500 and 501 are in the coverage page. Needs `tools/seed.sh`.",
+        "items": [
+            token("S14.1 Sign in as tenant A's admin", "admin_a_username", "admin_a_password", "admin_a_token"),
+            token("S14.2 Sign in as Alice (tenant A, no audit.read)", "alice_username", "alice_password", "alice_token"),
+            req("S14.3 listAuditEntries 200: the timeline, newest first", "GET", audit + "?limit=2", auth="admin_a_token",
+                desc="At most 2 entries, newest first. A redacted diff carries no `diff_salt`; an unredacted one carries it. Keeps the page token for S14.4.",
+                tests="""N.status(200);
+const b = N.json();
+test('items is an array of at most 2', () => { expect(b.items).to.be.an('array'); expect(b.items.length).to.be.at.most(2); });
+test('newest first', () => {
+  for (let i = 1; i < b.items.length; i++) expect(Date.parse(b.items[i - 1].occurred_at)).to.be.at.least(Date.parse(b.items[i].occurred_at));
+});
+test('diff_salt only with an unredacted diff', () => b.items.forEach(e => {
+  if (e.diff_redacted) expect(e, e.id).to.not.have.property('diff_salt');
+  if (e.diff && !e.diff_redacted) expect(e.diff_salt, e.id).to.be.a('string');
+}));
+bru.setVar('s14_first_ids', JSON.stringify(b.items.map(e => e.id)));
+bru.setVar('s14_token', b.next_page_token || '');"""),
+            req("S14.4 listAuditEntries 200: the next page does not overlap", "GET", audit + "?limit=2&page_token={{s14_token}}", auth="admin_a_token",
+                desc="Skipped when the tenant has two entries or fewer. The second page shares no entry with the first.",
+                pre="if (!bru.getVar('s14_token')) { bru.runner.skipRequest(); }",
+                tests="""N.status(200);
+test('no entry of the first page', () => {
+  const first = JSON.parse(bru.getVar('s14_first_ids'));
+  N.json().items.forEach(e => expect(first).to.not.include(e.id));
+});"""),
+            req("S14.5 listAuditEntries 200: the domain filter", "GET", audit + "?domain=config&limit=50", auth="admin_a_token",
+                desc="Only `config` entries (entity types).",
+                tests="""N.status(200);
+test('every entry is config', () => N.json().items.forEach(e => expect(e.domain).to.eql('config')));"""),
+            req("S14.6 listAuditEntries 200: a subject nobody wrote is an empty page", "GET", audit + "?subject_id=00000000-0000-4000-8000-00000000dead", auth="admin_a_token",
+                desc="An empty result is an empty page, not an error.",
+                tests="""N.status(200);
+test('no items, no next page', () => { expect(N.json().items).to.eql([]); expect(N.json().next_page_token || '').to.eql(''); });"""),
+            problem_req("S14.7 listAuditEntries 401: no token", "GET", audit, "invalid_token", 401, desc="Missing token."),
+            problem_req("S14.8 listAuditEntries 403: a member without audit.read", "GET", audit, "forbidden", 403, auth="alice_token",
+                        desc="Alice is neither a tenant admin nor in the auditors group."),
+            problem_req("S14.9 listAuditEntries 400: limit above 500", "GET", audit + "?limit=501", "validation_failed", 400, auth="admin_a_token",
+                        desc="The page size is at most 500."),
+            problem_req("S14.10 listAuditEntries 400: a page_token that is not ours", "GET", audit + "?page_token=not-a-token", "invalid_cursor", 400,
+                        auth="admin_a_token", desc="One code for every bad token."),
+        ],
+    }
+
+
 # --------------------------------------------------------------------------- X3
 ADMIN = [
     ("nava-core", "admin_url", ["keycloak", "postgres", "temporal"]),
@@ -1738,7 +1788,7 @@ if (wait > 0) {{ console.log(`waiting ${{Math.round(wait / 1000)}} s for the tok
     }
 
 
-FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, x1, x2, x4, x5, x3, late]
+FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s14, x1, x2, x4, x5, x3, late]
 
 ENV = [
     ("core_url", "http://127.0.0.1:18080"),

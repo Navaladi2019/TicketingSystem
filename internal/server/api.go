@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Navaladi2019/TicketingSystem/api"
+	"github.com/Navaladi2019/TicketingSystem/internal/audit/read"
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
@@ -71,6 +72,7 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 	if opts.pool != nil {
 		// The S9 composition (PLAN-003): any tenant member writes, no events.
 		// S10 swaps the authorizer, S11b the sink.
+		h.audit = &read.Reader{Masker: read.DefinitionMasker{}}
 		h.pipe = pipeline.New(authz.TenantMemberAuthorizer{}, h.store, pipeline.NoopSink{}, pipeline.PoolRunner{Pool: opts.pool}, pipeline.SystemClock{})
 	}
 	api.HandlerWithOptions(
@@ -161,6 +163,9 @@ type handlers struct {
 	store   entitytypes.Store
 	// pipe serves the record endpoints; nil answers 501 not_implemented.
 	pipe *pipeline.Pipeline
+	// audit serves the audit timeline and a record's history (P5-17); nil
+	// answers 501 not_implemented.
+	audit *read.Reader
 }
 
 // errNoPrincipal means a handler ran outside the authentication middleware:

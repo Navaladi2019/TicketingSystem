@@ -544,7 +544,7 @@ func TestIdempotencyKeyMismatchConflicts(t *testing.T) {
 		}(), nil},
 	}
 	keys := count(t, e.super, "SELECT count(*) FROM record_write_keys WHERE tenant_id = $1", f.id)
-	audits := count(t, e.super, "SELECT count(*) FROM audit_log_v0 WHERE tenant_id = $1", f.id)
+	audits := count(t, e.super, "SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND domain = 'record'", f.id)
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			got, err := write(ctx, e, p, f.id, c.cmd)
@@ -560,7 +560,7 @@ func TestIdempotencyKeyMismatchConflicts(t *testing.T) {
 			}
 		})
 	}
-	if n := count(t, e.super, "SELECT count(*) FROM audit_log_v0 WHERE tenant_id = $1", f.id); n != audits {
+	if n := count(t, e.super, "SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND domain = 'record'", f.id); n != audits {
 		t.Fatalf("%d audit rows after the table, want %d: a conflict or replay wrote", n, audits)
 	}
 	if n := count(t, e.super, "SELECT count(*) FROM record_write_keys WHERE tenant_id = $1", f.id); n != keys || keys != 2 {
