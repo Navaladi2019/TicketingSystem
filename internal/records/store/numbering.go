@@ -34,3 +34,5 @@ RETURNING next - 1`, tenantID, entityDefinitionID).Scan(&n)
 func FormatNumber(prefix string, n int64) string {
 	return fmt.Sprintf("%s%07d", prefix, n)
 }
+
+// TICK-563 demo: an internal/records-only change (stack case areas).
