@@ -120,9 +120,11 @@ func TestCheckRejectsURLUserinfoSplitAcrossTokens(t *testing.T) {
 		diff string
 		path patchwalk.Pointer
 	}{
-		"op path":    {`[{"op":"add","path":"/https://` + userinfo + `","value":1}]`, "/https:/"},
-		"from":       {`[{"op":"copy","from":"/https://` + userinfo + `","path":"/z"}]`, "/https:/"},
-		"nested key": {`[{"op":"add","path":"/m","value":{"https:":{"":{"` + userinfo + `":1}}}}]`, "/m/https:/"},
+		"op path": {`[{"op":"add","path":"/https://` + userinfo + `","value":1}]`, "/https:/"},
+		// The match ends before the last token, so a shorter prefix names it.
+		"token after the userinfo": {`[{"op":"add","path":"/https://` + userinfo + `/tail","value":1}]`, "/https:/"},
+		"from":                     {`[{"op":"copy","from":"/https://` + userinfo + `","path":"/z"}]`, "/https:/"},
+		"nested key":               {`[{"op":"add","path":"/m","value":{"https:":{"":{"` + userinfo + `":1}}}}]`, "/m/https:/"},
 		"path and key": {
 			`[{"op":"add","path":"/https:","value":{"":{"` + userinfo + `":1}}}]`, "/https:/"},
 		"deep after scheme": {

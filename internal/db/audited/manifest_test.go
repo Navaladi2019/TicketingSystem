@@ -169,6 +169,11 @@ exempt:
 		"both lists":   {strings.Replace(good, "outbox:", "records:", 1), "also listed under exempt"},
 		"the log":      {strings.Replace(good, "  records:", "  audit_log:", 1), "cannot audit itself"},
 		"unknown key":  {strings.Replace(good, "attached: false", "attached: false\n    attach: true", 1), "attach"},
+		"no audited":   {"audited: {}\nexempt:\n  outbox: { reason: \"transport\" }\n", "no audited tables"},
+		"bad name":     {strings.Replace(good, "  records:", "  a.b.c:", 1), "audited: "},
+		"dup columns":  {strings.Replace(good, "[data]", "[data, data]", 1), "audited_columns repeat"},
+		"subject col":  {strings.Replace(good, "subject_id_column: id", "subject_id_column: Id", 1), `subject_id_column "Id"`},
+		"bad exempt":   {strings.Replace(good, "outbox:", "a.b.c:", 1), "exempt: "},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := audited.Parse([]byte(tc.yaml), grantManifest(t))
@@ -208,4 +213,14 @@ func sameSet(a, b []string) bool {
 	slices.Sort(x)
 	slices.Sort(y)
 	return slices.Equal(x, y)
+}
+
+// Load fails on either manifest it cannot parse.
+func TestLoadRejectsBadInput(t *testing.T) {
+	if _, _, err := audited.Load([]byte("roles: ["), db.AuditedTables()); err == nil {
+		t.Error("Load accepted a grants manifest that is not YAML")
+	}
+	if _, _, err := audited.Load(db.Grants(), []byte("audited: {}")); err == nil || !strings.Contains(err.Error(), "no audited tables") {
+		t.Errorf("Load of an empty audited manifest: %v", err)
+	}
 }
