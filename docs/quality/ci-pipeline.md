@@ -372,9 +372,10 @@ branch starts no run: TICK-563 removed `TICK-**` from `on.push.branches`
 
 | Event | Jobs that run |
 | --- | --- |
-| pull request without the `ci:run` label | `changes`, `lint`, `story-branches` (`make ci-stages` with `CI_LINT_ONLY=1` sets every stage false) |
-| pull request with `ci:run` (added, or already there on a later push) | `changes`, `lint`, `story-branches` and the jobs its change needs (table below) |
-| `labeled` with any label but `ci:run` | none: every job's `if:` skips it, and the run has a concurrency group of its own so it never cancels the real one |
+| pull request with neither `ci:run` nor `ci:full` | `changes`, `lint`, `story-branches` (`make ci-stages` with `CI_LINT_ONLY=1` sets every stage false) |
+| pull request with `ci:run` (added, or already there on a later push) | `changes`, `lint`, `story-branches` and the jobs its change needs (table below); `stack` skips the cases of untouched areas (below) |
+| pull request with `ci:full` | as `ci:run`, and `stack` runs every case |
+| `labeled` with any label but `ci:run` or `ci:full` | none: every job's `if:` skips it, and the run has a concurrency group of its own so it never cancels the real one |
 | push or manual run on `main` | every job (`CI_ALL=1`) and `main-red` on failure |
 | manual run on another branch | the jobs its diff against `main` needs (`CI_ALL` is never set off `main`) |
 | schedule | `story-branches` only |
@@ -402,6 +403,33 @@ in `tools/ci/cichanged` runs `scripts/ci/ci-stages.sh` on such a diff and checks
 `unit=false integration=false stack=false`. A change under `.github/workflows`
 runs every job, since only a full run proves a workflow edit. A skipped job
 shows as skipped, not failed, and a skipped required check counts as passed.
+
+**Stack cases by area (TICK-563).** Keycloak and PgBouncer stay in the stack
+(`nava-core` needs both); only the cases that test them can be skipped. A case
+header may carry `area=keycloak|pgbouncer|db`:
+
+| Area | Cases | Turned on by (`tools/ci/cichanged/areas.go`) |
+| --- | --- | --- |
+| `keycloak` | `keycloak_restart`, `dependencies`, `identity` | `deploy/compose/keycloak/`, `internal/identity/`, `internal/identitystack/`, group sync (`internal/groupsync/`, `cmd/nava-groupsync/`), `make/identity.mk`, those case files |
+| `pgbouncer` | `pgbouncer` | `deploy/compose/pgbouncer/`, the pool code (`internal/db`, `internal/db/pooltest`), the case file |
+| `db` | `idempotent` | `db/` (migrations), `cmd/nava-db/`, `deploy/compose/nava-db/`, `internal/db/{roles,migrate,grants,hba,catalog,scram}`, the case file |
+
+Every other case has no area and always runs: `identity_attacks` and every
+tenant-isolation case among them (`TestRealCaseAreas` in `tools/ci/stackcases`
+fails if any other case gains an area). A stack-relevant file that no area rule
+names turns areas on by kind: a Go package in no area, `temporal-server/` and a
+case of no area turn on none; anything else (`go.mod`, the Makefile, the pins,
+compose files, the case runner, a file no rule knows) turns on every area.
+`make ci-stages` writes the result as the `areas` output (`all`, `none` or a
+list); the three `make stack-tests` steps get it as `AREAS`, and
+`deploy/compose/test/run-cases.sh` prints `SKIP <case> (area <x> not touched)`
+for each skipped case. Without `AREAS` (locally) every case runs. Every area
+runs (`CI_AREAS_ALL=1`, or `CI_ALL=1` on `main`) with the `ci:full` label, on a
+manual run, on a push to `main` and on every pull request into `main`: a
+branch name cannot tell a story → `main` PR from a task PR, so task PRs into
+`main` run every case too. Skipping applies to task PRs into story branches.
+The mapping is tested in `TestClassifyAreas`, the runner in
+`TestAreasSkipUntouchedCases`.
 
 A push to `main` sets `CI_ALL=1`: the merged tree runs every job, since a merge
 result has no meaningful diff base. Each push has its own concurrency group (per ref and sha), so a newer

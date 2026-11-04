@@ -10,8 +10,10 @@ import (
 )
 
 // stagesClone clones the repository's HEAD (sharing its objects) onto a new
-// branch, applies edit there and commits it, and returns the clone and the
-// base commit. scripts/ci/ci-stages.sh then sees exactly edit as the change.
+// branch, commits this checkout's own cichanged sources over it as the base
+// (so the clone runs the code under test, not HEAD's), applies edit and
+// commits it, and returns the clone and the base commit.
+// scripts/ci/ci-stages.sh then sees exactly edit as the change.
 func stagesClone(t *testing.T, edit func(dir string)) (string, string) {
 	t.Helper()
 	root, err := git("rev-parse", "--show-toplevel")
@@ -37,6 +39,24 @@ func stagesClone(t *testing.T, edit func(dir string)) (string, string) {
 	run("checkout", "-q", "-b", "change", base)
 	run("config", "user.email", "ci@example.invalid")
 	run("config", "user.name", "ci")
+	srcs, err := filepath.Glob("*.go")
+	if err != nil || len(srcs) == 0 {
+		t.Fatalf("no cichanged sources: %v", err)
+	}
+	for _, f := range srcs {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeFiles(t, dir, map[string]string{"tools/ci/cichanged/" + f: string(b)})
+	}
+	run("add", "-A")
+	run("commit", "-q", "--allow-empty", "-m", "base")
+	out, err := git("-C", dir, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base = strings.TrimSpace(out)
 	edit(dir)
 	run("add", "-A")
 	run("commit", "-q", "-m", "change")
@@ -61,7 +81,7 @@ func ciStages(t *testing.T, dir, base string, env ...string) string {
 	cmd.Dir = dir
 	// Later entries win, so the runner's own GITHUB_OUTPUT, CI_ALL or
 	// CI_LINT_ONLY never leak in.
-	cmd.Env = append(os.Environ(), append([]string{"BASE=" + base, "GITHUB_OUTPUT=" + out, "CI_ALL=", "CI_LINT_ONLY="}, env...)...)
+	cmd.Env = append(os.Environ(), append([]string{"BASE=" + base, "GITHUB_OUTPUT=" + out, "CI_ALL=", "CI_LINT_ONLY=", "CI_AREAS_ALL="}, env...)...)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	if _, err := cmd.Output(); err != nil {
@@ -87,7 +107,7 @@ func writeFiles(t *testing.T, dir string, files map[string]string) {
 	}
 }
 
-const allFalse = "unit=false\nintegration=false\nstack=false\n"
+const allFalse = "unit=false\nintegration=false\nstack=false\nareas=none\n"
 
 // TICK-563: a pull request whose diff is only documentation under docs/ runs
 // lint alone, even with the ci:run label: unit, integration and stack are
@@ -125,7 +145,13 @@ func TestLintOnlyGatesAGoChange(t *testing.T) {
 	if got := ciStages(t, dir, base, "CI_LINT_ONLY=1"); got != allFalse {
 		t.Errorf("without ci:run: GITHUB_OUTPUT = %q, want %q", got, allFalse)
 	}
-	if got, want := ciStages(t, dir, base), "unit=true\nintegration=true\nstack=true\n"; got != want {
+	// cmd/nava-core is in no stack-case area, so the keycloak, pgbouncer and
+	// db cases are skipped, unless ci:full (or a PR into main) sets
+	// CI_AREAS_ALL.
+	if got, want := ciStages(t, dir, base), "unit=true\nintegration=true\nstack=true\nareas=none\n"; got != want {
 		t.Errorf("with ci:run: GITHUB_OUTPUT = %q, want %q", got, want)
+	}
+	if got, want := ciStages(t, dir, base, "CI_AREAS_ALL=1"), "unit=true\nintegration=true\nstack=true\nareas=all\n"; got != want {
+		t.Errorf("with ci:full: GITHUB_OUTPUT = %q, want %q", got, want)
 	}
 }
