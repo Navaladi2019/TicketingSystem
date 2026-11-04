@@ -229,6 +229,9 @@ func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http
 				case problem.ConfigSecretInContent:
 					h.reg.Write(w, r, problem.ConfigSecretInContent, pe.fields...)
 					return
+				case problem.DefinitionSecretRequired:
+					h.reg.Write(w, r, problem.DefinitionSecretRequired, pe.fields...)
+					return
 				case problem.InvalidIdPConfig:
 					h.reg.Write(w, r, problem.InvalidIdPConfig, pe.fields...)
 					return

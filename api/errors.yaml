@@ -104,3 +104,7 @@ codes:
     status: 422
     title: Secret in configuration
     detail: The definition sets a value at a secret path. See errors for the path; the value is never echoed.
+  - code: definition_secret_required
+    status: 422
+    title: Definition requires a secret property
+    detail: The definition requires a property marked x-nava-secret or writeOnly, which a record can never hold. See errors for the required entry.
