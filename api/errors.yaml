@@ -108,3 +108,7 @@ codes:
     status: 422
     title: Definition requires a secret property
     detail: The definition requires a property marked x-nava-secret or writeOnly, which a record can never hold. See errors for the required entry.
+  - code: history_too_long
+    status: 422
+    title: History too long
+    detail: The record has more audit entries than a history page can replay. The history of this record cannot be read through this endpoint.

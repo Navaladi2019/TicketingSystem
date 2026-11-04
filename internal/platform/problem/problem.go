@@ -53,6 +53,7 @@ const (
 	UniqueViolation          Code = "unique_violation"
 	ConfigSecretInContent    Code = "config_secret_in_content"
 	DefinitionSecretRequired Code = "definition_secret_required"
+	HistoryTooLong           Code = "history_too_long"
 )
 
 // Codes lists every Code constant.
@@ -61,7 +62,7 @@ func Codes() []Code {
 		TenantUnresolved, InvalidToken, IdempotencyKeyReuse, IdempotencyInFlight, Forbidden, DomainClaimed, InvalidIdPConfig, OnboardingConflict, InvalidCursor,
 		RateLimited, NotFound, ValidationFailed, MethodNotAllowed,
 		NotImplemented, InternalError, InvalidDefinition, EntityTypeExists, NumberPrefixTaken, SchemaBreakingChange, RecordInvalid,
-		IfMatchRequired, VersionConflict, IllegalTransition, UniqueViolation, ConfigSecretInContent, DefinitionSecretRequired,
+		IfMatchRequired, VersionConflict, IllegalTransition, UniqueViolation, ConfigSecretInContent, DefinitionSecretRequired, HistoryTooLong,
 	}
 }
 

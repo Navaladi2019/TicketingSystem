@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"net/http"
 	"net/url"
@@ -292,6 +293,17 @@ func (h *handlers) GetRecordHistory(ctx context.Context, req api.GetRecordHistor
 	})
 	if errors.Is(err, pipeline.ErrNotFound) || errors.Is(err, entitytypes.ErrNotFound) {
 		return h.notFound(ctx), nil
+	}
+	var tooLong *read.HistoryTooLongError
+	if errors.As(err, &tooLong) {
+		// The numbers only: no record data goes to the log or the metric.
+		h.log.WarnContext(ctx, "record history longer than the cap",
+			slog.String("code", string(problem.HistoryTooLong)), slog.String("entity", req.Entity),
+			slog.String("record_id", id.String()), slog.Int64("entries", tooLong.Entries), slog.Int64("cap", tooLong.Max))
+		if h.historyTooLong != nil {
+			h.historyTooLong.Add(ctx, 1)
+		}
+		return nil, &problemError{problem.HistoryTooLong, nil, err}
 	}
 	if err != nil {
 		return nil, err

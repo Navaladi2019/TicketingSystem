@@ -14,3 +14,11 @@ Locks a migration holds on tables that request paths need. `lock_timeout` bounds
 | Budget | Measured as | Limit | Baseline | Source | Owner |
 |---|---|---|---|---|---|
 | Migration A/B tenant-lock hold (S8 backfill, `audit_backfill_s8()`): ACCESS EXCLUSIVE on `tenants`, `entity_definition_versions` and `audit_log` until COMMIT | Wall time of `SELECT audit_backfill_s8()` as `nava_migrator`, `scratch/audit-backfill-s8/run.sh` | ≤ 18 s at 100k S8 versions | 0.18 ms per backfilled version, linear. A re-run with every entry present takes 2.32 s at 300k. Measured 2026-11-03 on postgres:16.10 with 16 CPUs | PR #414 `scratch/audit-backfill-s8/RESULT.md` (P5-15, TICK-433); Technical Architect's review §3 | Postgres & Data Modeling Specialist |
+
+## Record history
+
+A history page replays the record's whole audit history (`read.Reader.RecordEntries`), so the history is capped rather than paged in the database.
+
+| Budget | Measured as | Limit | Baseline | Source | Owner |
+|---|---|---|---|---|---|
+| Record history length (`GET /api/v1/records/{entity}/{id}/history`) | Audit entries of one record (create, update, state_change), counted before any is read. `TestPatchHistoryIsCapped` proves one page reads at most the cap's rows, with the `Reader.OnRecordRows` hook | 500 entries (`read.DefaultMaxRecordEntries`). Over it the endpoint answers `422 history_too_long`, logs `record history longer than the cap` and counts `nava.records.history.too_long`. Nothing is read or replayed | Page cost is O(entries) per page, so a walk is O(N²/limit); the cap bounds it. Trigger to lift the cap: TICK-548 (stored inverse diffs or snapshots, a schema change) | P5-17-fu2 (TICK-542), Technical Lead decision on the issue | Principal Software Engineer |

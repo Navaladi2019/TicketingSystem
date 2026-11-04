@@ -51,6 +51,10 @@ type options struct {
 	// the database.
 	pool    *pgxpool.Pool
 	cursors *cursor.Keyring
+	// historyCap and historyRows set the record-history cap and its row-count
+	// hook of the audit reader. Only tests set them (export_test.go).
+	historyCap  int
+	historyRows func(int)
 }
 
 // WithPool gives the tenant routes their database (the nava_app pool). Tenant
