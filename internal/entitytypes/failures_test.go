@@ -270,3 +270,63 @@ func TestPublishRefusalsAndFailures(t *testing.T) {
 		}
 	}
 }
+
+// Not parallel: it swaps the package-level marshalJSON.
+func TestEncodeFailuresWriteNothing(t *testing.T) {
+	orig := marshalJSON
+	marshalJSON = func(any) ([]byte, error) { return nil, errors.New("cannot encode") }
+	t.Cleanup(func() { marshalJSON = orig })
+	ctx, d := t.Context(), template(t)
+	noCalls := func() *fakeTx { return &fakeTx{t: t} } // any database call fails the test
+
+	_, err := Store{}.Create(ctx, &fakeTx{t: t, steps: []step{fail(pgx.ErrNoRows), fail(pgx.ErrNoRows)}}, uuid.New(),
+		NewInput{Name: "n", PublishedBy: uuid.New(), Definition: d})
+	if err == nil || !strings.Contains(err.Error(), "encode fixed columns") {
+		t.Errorf("Create: %v", err)
+	}
+	if _, err := (Store{}).Seed(ctx, noCalls(), uuid.New(), SeedInput{Definition: d}); err == nil || !strings.Contains(err.Error(), "encode fixed columns") {
+		t.Errorf("Seed: %v", err)
+	}
+	lock := step{scan: func(dest []any) error {
+		*dest[1].(*string) = d.NumberPrefix
+		*dest[2].(*int) = 1
+		return nil
+	}}
+	_, err = Store{}.Publish(ctx, &fakeTx{t: t, steps: []step{lock, versionRow(d, 1, 1, false)}}, uuid.New(),
+		PublishInput{Key: d.Key, PublishedBy: uuid.New(), Definition: d})
+	if err == nil || !strings.Contains(err.Error(), "encode fixed columns") {
+		t.Errorf("Publish: %v", err)
+	}
+
+	// States fail when the fixed columns encode: let the first call through.
+	n := 0
+	marshalJSON = func(v any) ([]byte, error) {
+		if n++; n == 1 {
+			return orig(v)
+		}
+		return nil, errors.New("cannot encode")
+	}
+	_, err = Store{}.Create(ctx, &fakeTx{t: t, steps: []step{fail(pgx.ErrNoRows), fail(pgx.ErrNoRows)}}, uuid.New(),
+		NewInput{Name: "n", PublishedBy: uuid.New(), Definition: d})
+	if err == nil || !strings.Contains(err.Error(), "encode states") {
+		t.Errorf("Create states: %v", err)
+	}
+	n = 0
+	if _, err := (Store{}).Seed(ctx, noCalls(), uuid.New(), SeedInput{Definition: d}); err == nil || !strings.Contains(err.Error(), "encode states") {
+		t.Errorf("Seed states: %v", err)
+	}
+	n = 0
+	_, err = Store{}.Publish(ctx, &fakeTx{t: t, steps: []step{lock, versionRow(d, 1, 1, false)}}, uuid.New(),
+		PublishInput{Key: d.Key, PublishedBy: uuid.New(), Definition: d})
+	if err == nil || !strings.Contains(err.Error(), "encode states") {
+		t.Errorf("Publish states: %v", err)
+	}
+}
+
+func TestEncodeFixedColumnsNilIsAnEmptyObject(t *testing.T) {
+	t.Parallel()
+	got, err := encodeFixedColumns(nil)
+	if err != nil || string(got) != "{}" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+}
