@@ -225,7 +225,9 @@ roles:
       groups: { SELECT: [tenant_id, id, keycloak_group_id, deleted_at], INSERT: [tenant_id, id, keycloak_group_id, path] }
       # Activate tests the row exists (TICK-373): SELECT on the key only.
       tenant_admin_group: { SELECT: [tenant_id], INSERT: [tenant_id, group_id] }
-      tenant_auditor_group: { INSERT: [tenant_id, group_id] }
+      # P5-23 (TICK-568): SELECT on the key, for the groups_insert_onboard_
+      # auditors probe and the upgrade reconcile's no-op check. Insert only.
+      tenant_auditor_group: { SELECT: [tenant_id], INSERT: [tenant_id, group_id] }
       # Seed templates (P3-06) while provisioning, with deterministic UUIDv5
       # ids, so a plain INSERT is enough: no SELECT, no upsert (P3-02).
       entity_definitions: { INSERT: [] }
