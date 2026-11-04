@@ -6,6 +6,7 @@ Delivery decisions that change a task's contract, newest first.
 
 <!-- docindex:start -->
 
+- [2026-11-04: TICK-559 / D-A1-6: rule 1 exempts four test files by exact path and finding kind](decisions/2026-11-04-tick-559-rule1-test-exemptions.md)
 - [2026-11-04: P5-17 drops audit_log_v0 in the same PR as the reader; reads fail between deploy and migrate](decisions/2026-11-04-p5-17-drop-v0-with-the-reader.md)
 - [2026-11-04: E5 step (ii) lands with an ACCESS EXCLUSIVE lock and no RESTRICT index; task PRs on a story branch must be green against its head](decisions/2026-11-04-e5-step-ii-lock-index-branch-collisions.md)
 - [2026-11-04: D-5-14, the records commit-check attach is held for TICK-529; the history gap until P5-17 is accepted](decisions/2026-11-04-d-5-14-records-attach-held.md)

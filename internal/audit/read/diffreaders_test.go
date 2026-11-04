@@ -129,9 +129,10 @@ var (
 	fromList = regexp.MustCompile(`\bfrom\s[^;]*?` + listStart + onlyPrefix + auditTable)
 	// The table's row names in a statement: audit_log itself and the alias
 	// after FROM, JOIN or a FROM-list comma: audit_log [AS] alias, also after
-	// ONLY (audit_log) and audit_log * (groups 1 or 2, then 3). A keyword is
-	// not an alias.
-	aliasRE = regexp.MustCompile(`(?:` + fromStart + `|` + listStart + `)` + auditRef + `(?:\s+(?:as\s+)?(` + sqlIdent + `))?`)
+	// ONLY (audit_log) and audit_log * (groups 1 or 2, then 3), with or
+	// without a space before the alias (audit_log*a, ONLY(audit_log)a): the
+	// \b after the table name keeps audit_loga out. A keyword is not an alias.
+	aliasRE = regexp.MustCompile(`(?:` + fromStart + `|` + listStart + `)` + auditRef + `(?:\s*(?:as\s+)?(` + sqlIdent + `))?`)
 	// A write on audit_log that returns columns reads them too.
 	writeAudit = regexp.MustCompile(`\b(?:insert\s+into|update|delete\s+from|merge\s+into)\s+(?:only\s+)?` + auditTable)
 	returning  = regexp.MustCompile(`\breturning\b`)
@@ -685,7 +686,7 @@ func TestAuditDiffReaderFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	want = dedupe(want)
-	if len(want) < 61 {
+	if len(want) < 62 {
 		t.Fatalf("the fixture plants %d reads; it lost some", len(want))
 	}
 	for _, w := range want {
@@ -809,6 +810,12 @@ func TestDiffReads(t *testing.T) {
 		"SELECT to_jsonb(a) FROM audit_log * a":                           {"row"},
 		"SELECT to_jsonb(a) FROM records r JOIN audit_log * AS a ON true": {"row"},
 		"TABLE ONLY (audit_log)":                                          {"table"},
+		// Security Low on PR #463: no space before the alias.
+		"SELECT to_jsonb(a) FROM audit_log*a":                             {"row"},
+		"SELECT to_jsonb(a) FROM audit_log *a":                            {"row"},
+		"SELECT to_jsonb(a) FROM ONLY(audit_log)a":                        {"row"},
+		"SELECT to_jsonb(a) FROM records r, audit_log*a":                  {"row"},
+		"SELECT to_jsonb(a) FROM records r JOIN ONLY(audit_log)a ON true": {"row"},
 		"SELECT a.id FROM ONLY (audit_log) a":                             nil,
 		"SELECT a.id, a.seq * 2 FROM audit_log * a":                       nil,
 		"SELECT to_jsonb(s) FROM (SELECT id FROM audit_log) s":            nil,
