@@ -925,7 +925,7 @@ func auditCanaryBytes(ctx context.Context, e *etIso) error {
 		found = append(found, fmt.Sprintf("iso_et_sec has %d versions, want the create and the control publish only", versions))
 	}
 
-	if err := auditControlsUncompressed(ctx, e.super, recordMarker, publishMarker); err != nil {
+	if err := auditControlsUncompressed(ctx, e.super, publishMarker); err != nil {
 		return err
 	}
 	logBytes, versionBytes, err := auditTableBytes(ctx, e.super)
@@ -958,39 +958,31 @@ func auditCanaryBytes(ctx context.Context, e *etIso) error {
 // auditControlsUncompressed (TICK-552): the scan looks for plain bytes, and
 // PostgreSQL compresses a value (pglz or lz4, inline or in TOAST) once its
 // tuple passes about 2 kB, after which a canary in it is no longer a plain
-// byte string. The canary attempts have the controls' shape, so the controls
-// must be stored uncompressed: the control publish's
-// entity_definition_versions.schema, and the diff of every audit_log entry
-// that carries the record marker or the publish marker. A fixture that grows
-// past the threshold then fails here instead of hiding a leak.
-func auditControlsUncompressed(ctx context.Context, super *pgx.Conn, recordMarker, publishMarker string) error {
-	check := func(what, q, marker string, exact bool) error {
-		var n int
-		var compressed []string
-		if err := super.QueryRow(ctx, q, TenantA, marker).Scan(&n, &compressed); err != nil {
-			return fmt.Errorf("control: compression of %s: %w", what, err)
-		}
-		if n < 1 || (exact && n != 1) {
-			return fmt.Errorf("control: %d %s rows carry the marker %s; the scan proves nothing", n, what, marker)
-		}
-		if len(compressed) > 0 {
-			return fmt.Errorf("control: %s with the marker %s is stored compressed (%s), so a canary in a row of its shape is not plain bytes; the scan proves nothing",
-				what, marker, strings.Join(compressed, ", "))
-		}
-		return nil
-	}
-	if err := check("entity_definition_versions.schema",
+// byte string. The canary attempts have the controls' shape, so the control
+// publish's entity_definition_versions.schema must be stored uncompressed. A
+// fixture that grows past the threshold then fails here instead of hiding a
+// leak.
+//
+// audit_log needs no query of its own, and may not have one: only
+// internal/audit/read reads audit_log.diff (TICK-541). The markers reach
+// audit_log in the diff only, so if a marker's diff is compressed, the marker
+// is not in audit_log's plain bytes, and auditCanaryBytes's marker control
+// already fails with "the scan proves nothing".
+func auditControlsUncompressed(ctx context.Context, super *pgx.Conn, publishMarker string) error {
+	var n int
+	var compressed []string
+	if err := super.QueryRow(ctx,
 		`SELECT count(*), coalesce(array_agg(pg_column_compression(v.schema)) FILTER (WHERE pg_column_compression(v.schema) IS NOT NULL), '{}')
 		 FROM entity_definition_versions v JOIN entity_definitions d ON d.tenant_id = v.tenant_id AND d.id = v.definition_id
-		 WHERE d.tenant_id = $1 AND d.key = 'iso_et_sec' AND strpos(v.schema::text, $2) > 0`, publishMarker, true); err != nil {
-		return err
+		 WHERE d.tenant_id = $1 AND d.key = 'iso_et_sec' AND strpos(v.schema::text, $2) > 0`, TenantA, publishMarker).Scan(&n, &compressed); err != nil {
+		return fmt.Errorf("control: compression of entity_definition_versions.schema: %w", err)
 	}
-	for _, m := range []string{recordMarker, publishMarker} {
-		if err := check("audit_log.diff",
-			`SELECT count(*), coalesce(array_agg(pg_column_compression(diff)) FILTER (WHERE pg_column_compression(diff) IS NOT NULL), '{}')
-			 FROM audit_log WHERE tenant_id = $1 AND strpos(diff::text, $2) > 0`, m, false); err != nil {
-			return err
-		}
+	if n != 1 {
+		return fmt.Errorf("control: %d entity_definition_versions rows carry the marker %s, want 1; the scan proves nothing", n, publishMarker)
+	}
+	if len(compressed) > 0 {
+		return fmt.Errorf("control: entity_definition_versions.schema with the marker %s is stored compressed (%s), so a canary in a row of its shape is not plain bytes; the scan proves nothing",
+			publishMarker, strings.Join(compressed, ", "))
 	}
 	return nil
 }
