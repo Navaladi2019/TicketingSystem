@@ -568,7 +568,7 @@ func TestP510bErasureCannotReadDiff(t *testing.T) {
 		t.Errorf("nava_erasure reads its R23 columns: %d rows, %v", n, err)
 	}
 	// R14, A6.1: nothing else.
-	for _, table := range []string{"audit_chain_head", "record_write_keys", "records", "audit_log_v0"} {
+	for _, table := range []string{"audit_chain_head", "record_write_keys", "records"} {
 		_, err := execIn(erasure, tenantA, "SELECT count(*) FROM "+table)
 		wantSQLState(t, "nava_erasure reads "+table, err, "42501")
 	}

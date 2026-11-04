@@ -296,21 +296,12 @@ func recHistoryCursorReplay(ctx context.Context, e *etIso) error {
 	if code, body := e.do(ctx, http.MethodPatch, "/api/v1/records/iso_et_rec/"+id, etCallerA, `{"data": {"note": "again"}}`, patch); code != http.StatusOK {
 		return fmt.Errorf("control: tenant A patching its record = %d %s, want 200", code, body)
 	}
-	// D-5-14 (TICK-452): the history endpoint reads S9's audit_log_v0 until
-	// P5-17 (TICK-435) moves it to audit_log, and the pipeline no longer
-	// writes v0. So the record's two v0 rows (its create and the patch) are
-	// seeded as the superuser, giving the page a next cursor to replay.
-	for i, action := range []string{"create", "update"} {
-		if _, err := e.super.Exec(ctx, `INSERT INTO audit_log_v0 (tenant_id, id, record_id, action, actor_id, source, after, at)
-			SELECT tenant_id, gen_random_uuid(), id, $2, created_by, 'user', '{}', now() - make_interval(secs => 10 - $3::int)
-			FROM records WHERE id = $1`, id, action, i); err != nil {
-			return fmt.Errorf("seed tenant A's v0 history: %w", err)
-		}
-	}
-	// Tenant B's first page of tenant A's history, now that the record has
-	// rows to leak (TICK-531): the same 404 as for a missing record, so a
-	// handler that read History before the tenant-scoped record lookup
-	// fails here. P5-17 (TICK-435) repeats this against live writes.
+	// Tenant B's first page of tenant A's history. The record has live
+	// audit_log rows from the create and the patch above (TICK-531, restored
+	// on the new log by P5-17, TICK-435), so a handler that stopped calling
+	// Get first, or read History before the tenant-scoped record lookup,
+	// would answer 200 with them and fail here: the same 404 as for a
+	// missing record.
 	const missing = "0194f2c0-0000-7000-8000-000000000000"
 	oc, ob := e.do(ctx, http.MethodGet, "/api/v1/records/iso_et_rec/"+id+"/history", etCallerB, "", nil)
 	uc, ub := e.do(ctx, http.MethodGet, "/api/v1/records/iso_et_rec/"+missing+"/history", etCallerB, "", nil)

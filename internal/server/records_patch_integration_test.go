@@ -13,8 +13,6 @@ import (
 	"net/url"
 	"strings"
 	"testing"
-
-	"github.com/google/uuid"
 )
 
 // patchSchema: short_description is required with no default, state is
@@ -224,15 +222,18 @@ func TestPatchUniqueViolationAndIllegalTransition(t *testing.T) {
 	}
 }
 
-// D-5-14 (TICK-452): since P5-13b the pipeline writes audit_log, and the
-// history endpoint still reads S9's audit_log_v0 until P5-17 (TICK-435)
-// rebuilds it on the new log. So this test pages over v0 rows seeded as the
-// superuser (a create and two updates, as S9 wrote them); P5-17 restores it
-// against live writes, and the story does not reach main before that.
+// The history pages over live writes on the audit log (P5-17, TICK-435;
+// D-5-14 had TICK-452 page over seeded v0 rows meanwhile): a create and two
+// patches, read newest first, one row per page.
 func TestPatchHistoryPagesNewestFirst(t *testing.T) {
 	e := newPatchEnv(t)
 	r := e.mustCreateRec(t, "user-a", "job", "c1", `{"short_description": "one"}`)
-	e.seedV0History(t, r.ID, "a", "b")
+	for i, note := range []string{"a", "b"} {
+		rec := e.patch(t, "user-a", "job", r.ID, fmt.Sprintf(`W/"%d"`, i+1), fmt.Sprintf(`{"data": {"note": %q}}`, note))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("patch %q = %d: %s", note, rec.Code, rec.Body)
+		}
+	}
 	type page struct {
 		Items []struct {
 			Action  string         `json:"action"`
@@ -360,35 +361,5 @@ func TestPatchRecordIgnoresCausationFromTheRequest(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), forged) {
 		t.Errorf("the response carries the request's causation origin: %s", rec.Body)
-	}
-}
-
-// seedV0History writes, as the superuser, the audit_log_v0 rows S9's
-// pipeline wrote for record id: its create, then one update per note, each
-// a second apart, by the record's creator (D-5-14).
-func (e *etEnv) seedV0History(t *testing.T, id string, notes ...string) {
-	t.Helper()
-	snap := func(version int, note string) string {
-		data := `{"short_description": "one"}`
-		if note != "" {
-			data = fmt.Sprintf(`{"short_description": "one", "note": %q}`, note)
-		}
-		return fmt.Sprintf(`{"number": "JOB0000001", "version": %d, "schema_version": 1, "data": %s}`, version, data)
-	}
-	insert := func(i int, action string, before *string, after string) {
-		t.Helper()
-		if _, err := e.super.Exec(t.Context(), `INSERT INTO audit_log_v0 (tenant_id, id, record_id, action, actor_id, source, before, after, at)
-			SELECT tenant_id, $3, id, $4, created_by, 'user', $5::jsonb, $6::jsonb, now() - make_interval(secs => 100 - $7::int)
-			FROM records WHERE tenant_id = $1 AND id = $2`,
-			e.a.id, id, uuid.Must(uuid.NewV7()), action, before, after, i); err != nil {
-			t.Fatal(err)
-		}
-	}
-	insert(0, "create", nil, snap(1, ""))
-	prev := ""
-	for i, n := range notes {
-		b := snap(i+1, prev)
-		insert(i+1, "update", &b, snap(i+2, n))
-		prev = n
 	}
 }

@@ -3,9 +3,13 @@
 package dbtest
 
 import (
+	"context"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 // Security review of P5-10b (TICK-450): adversarial cases that the
@@ -47,9 +51,13 @@ func TestP510bAdversarialTransitionsStayInTenant(t *testing.T) {
 	}
 }
 
-// R23: no role without a SELECT grant on diff or diff_salt may learn their
-// contents, not through a WHERE predicate on an UPDATE (a row-count oracle),
-// not through RETURNING, not through an expression in SET.
+// R23: the transition roles (nava_erasure, nava_worker) have no SELECT grant
+// on diff or diff_salt, so they may not learn their contents: not through a
+// WHERE predicate on an UPDATE (a row-count oracle), not through RETURNING,
+// not through an expression in SET. nava_app is the reader since P5-17
+// (TICK-435, R8): it holds SELECT on those columns under row-level security,
+// and TestP510bAppReaderGrantAndTenantBoundary pins exactly what it holds and
+// that it reads only its own tenant's rows.
 func TestP510bAdversarialNoDiffOracle(t *testing.T) {
 	migratedPlatform(t)
 	super := superNava(t)
@@ -77,11 +85,6 @@ func TestP510bAdversarialNoDiffOracle(t *testing.T) {
 			sealEntry + ` RETURNING diff`,
 			sealEntry + ` RETURNING diff_salt`,
 		},
-		"nava_app": {
-			`SELECT diff FROM audit_log WHERE tenant_id = $1 AND id = $2`,
-			`SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND id = $2 AND diff::text LIKE '%"op"%'`,
-			`SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND id = $2 AND action = 'update'`,
-		},
 	}
 	for role, qs := range probes {
 		conn := asRole(t, role)
@@ -95,6 +98,70 @@ func TestP510bAdversarialNoDiffOracle(t *testing.T) {
 			wantSQLState(t, role+": "+q, err, "42501")
 			exec(t, super, "DELETE FROM audit_log WHERE tenant_id = $1", tenantA)
 		}
+	}
+}
+
+// P5-17 (TICK-435), Security review: nava_app is the audit reader. It holds
+// SELECT on exactly the reader column list of db/grants.yaml (with the
+// commit-check columns the merge adds), no UPDATE on any audit_log column, and
+// no table-level DELETE or TRUNCATE; and the grant is not the tenant boundary,
+// row-level security is: with tenant A set it reads none of tenant B's rows,
+// diff and diff_salt included, with or without a tenant predicate, and with
+// no tenant set it reads nothing.
+func TestP510bAppReaderGrantAndTenantBoundary(t *testing.T) {
+	migratedPlatform(t)
+	super := superNava(t)
+	seedTenants(t, super, []string{tenantA, tenantB}, nil)
+	seedPipeline(t, super, tenantA, tenantB)
+	app := asRole(t, "nava_app")
+
+	m, _ := manifests(t)
+	want := slices.Clone(m.Roles["nava_app"].Tables["audit_log"]["SELECT"])
+	slices.Sort(want)
+	got := strings.Fields(queryString(t, super, `SELECT coalesce(string_agg(a.attname, ' ' ORDER BY a.attname), '')
+		FROM pg_attribute a WHERE a.attrelid = 'audit_log'::regclass AND a.attnum > 0 AND NOT a.attisdropped
+		  AND has_column_privilege('nava_app', a.attrelid, a.attnum, 'SELECT')`))
+	if !slices.Equal(got, want) {
+		t.Errorf("nava_app SELECT columns on audit_log = %v, want the reader list %v", got, want)
+	}
+	if bad := queryString(t, super, `SELECT coalesce(string_agg(a.attname, ' '), '')
+		FROM pg_attribute a WHERE a.attrelid = 'audit_log'::regclass AND a.attnum > 0 AND NOT a.attisdropped
+		  AND (has_column_privilege('nava_app', a.attrelid, a.attnum, 'UPDATE'))`); bad != "" {
+		t.Errorf("nava_app can UPDATE audit_log columns: %s", bad)
+	}
+	for _, priv := range []string{"DELETE", "TRUNCATE", "UPDATE"} {
+		if queryString(t, super, "SELECT has_table_privilege('nava_app', 'audit_log', $1)::text", priv) != "false" {
+			t.Errorf("nava_app holds table-level %s on audit_log", priv)
+		}
+	}
+
+	a := appendEntry(t, app, tenantA, 1)
+	b := appendEntry(t, app, tenantB, 1)
+	count := func(tenant, q string, args ...any) int {
+		t.Helper()
+		var n int
+		if err := inTenantTx(app, tenant, func(tx pgx.Tx) error {
+			return tx.QueryRow(context.Background(), q, args...).Scan(&n)
+		}); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+		return n
+	}
+	const read = `SELECT count(*) FROM (SELECT diff, diff_salt FROM audit_log`
+	if n := count(tenantA, read+` WHERE tenant_id = $1) r`, tenantB); n != 0 {
+		t.Errorf("tenant A reads %d of tenant B's diff rows by tenant_id, want 0", n)
+	}
+	if n := count(tenantA, read+` WHERE id = $1) r`, b); n != 0 {
+		t.Errorf("tenant A reads tenant B's entry by id: %d rows, want 0", n)
+	}
+	if n := count(tenantA, `SELECT count(*) FROM audit_log WHERE tenant_id <> $1`, tenantA); n != 0 {
+		t.Errorf("tenant A reads %d rows of other tenants with no tenant predicate, want 0", n)
+	}
+	if n := count(tenantA, read+` WHERE id = $1) r`, a); n != 1 {
+		t.Errorf("control: tenant A reads its own entry: %d rows, want 1", n)
+	}
+	if n := count("", read+`) r`); n != 0 {
+		t.Errorf("with app.tenant_id unset nava_app reads %d rows, want 0", n)
 	}
 }
 

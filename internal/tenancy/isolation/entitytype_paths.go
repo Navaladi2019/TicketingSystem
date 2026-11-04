@@ -153,8 +153,6 @@ func (e *etIso) cleanup() error {
 	for _, q := range []string{
 		`DELETE FROM audit_log WHERE subject_type = 'record' AND subject_id IN (SELECT r.id FROM records r JOIN entity_definitions d
 			ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id WHERE d.key LIKE 'iso_et_%')`,
-		`DELETE FROM audit_log_v0 WHERE record_id IN (SELECT r.id FROM records r JOIN entity_definitions d
-			ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id WHERE d.key LIKE 'iso\_et\_%')`,
 		`DELETE FROM records WHERE entity_definition_id IN (SELECT id FROM entity_definitions WHERE key LIKE 'iso\_et\_%')`,
 		`DELETE FROM record_counters WHERE entity_definition_id IN (SELECT id FROM entity_definitions WHERE key LIKE 'iso\_et\_%')`,
 		`DELETE FROM entity_definition_versions WHERE definition_id IN (SELECT id FROM entity_definitions WHERE key LIKE 'iso\_et\_%')`,

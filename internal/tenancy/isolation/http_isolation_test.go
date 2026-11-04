@@ -402,7 +402,7 @@ func (r *apiRunner) runStoredUnderA(t *testing.T, c *HTTPCall) (status, detail s
 				// TODO(TODO-S9-01): P3-42: this leaves the record's outbox and
 				// cascade_start rows behind. Once the EventSink is wired,
 				// delete cascade_start first, then outbox, then these.
-				for _, q := range []string{`DELETE FROM audit_log_v0 WHERE tenant_id = $1 AND record_id = $2`, `DELETE FROM records WHERE tenant_id = $1 AND id = $2`} {
+				for _, q := range []string{`DELETE FROM audit_log WHERE tenant_id = $1 AND subject_id = $2`, `DELETE FROM records WHERE tenant_id = $1 AND id = $2`} {
 					if _, err := super.Exec(context.Background(), q, TenantA, row.ID); err != nil {
 						t.Errorf("cleanup: %v", err)
 					}

@@ -3,10 +3,15 @@
 package dbtest
 
 import (
+	"context"
+	"io/fs"
 	"strings"
 	"testing"
 
 	"github.com/Navaladi2019/TicketingSystem/db"
+	"github.com/Navaladi2019/TicketingSystem/internal/db/audited"
+	"github.com/Navaladi2019/TicketingSystem/internal/db/grants"
+	"github.com/Navaladi2019/TicketingSystem/internal/db/migrate"
 )
 
 // P5-10a (TICK-427), PLAN-005 D-5-1: S9's audit_log becomes audit_log_v0 with
@@ -14,6 +19,11 @@ import (
 // name, so ADR-004's audit_log (P5-10b) can take the name and its _pkey.
 // The test stops at the rename: P5-10b's migration then creates the new
 // audit_log, and TestP510bAuditLog covers it.
+
+// insertAudit is S9's audit insert, as it ran before the rename: tenant $1,
+// record $2, idempotency key $3. audit_log_v0 itself was dropped by P5-17.
+const insertAudit = `INSERT INTO audit_log_v0 (tenant_id, id, record_id, action, actor_id, source, after, idempotency_key)
+	VALUES ($1, gen_random_uuid(), $2, 'create', NULL, 'workflow', '{}', $3)`
 
 const auditLogV0Migration = "20261102130000_audit_log_v0.sql"
 
@@ -76,9 +86,12 @@ func TestP510aAuditLogRenamed(t *testing.T) {
 		t.Errorf("relations still named audit_log*: %s", bad)
 	}
 
-	// The rest of the migrations, P5-10b's new audit_log included, then the
-	// grants manifest: RLS and the append-only grants survived.
-	if _, err := migrateFS(t, m, db.Migrations()); err != nil {
+	// The migrations up to the one that drops the table, P5-10b's new
+	// audit_log included, then the grants manifest: RLS and the read-only
+	// grants survived. db/grants.yaml no longer lists audit_log_v0 (P5-17
+	// dropped it), so this run lists it as it did until then: SELECT for the
+	// two runtime roles, and the table exempt from audit.
+	if _, err := migrateTo(t, m, migrationsBefore(t, auditLogV0Drop)); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	if got := queryString(t, super, "SELECT relrowsecurity::text || relforcerowsecurity::text FROM pg_class WHERE oid = 'audit_log_v0'::regclass"); got != "truetrue" {
@@ -92,4 +105,43 @@ func TestP510aAuditLogRenamed(t *testing.T) {
 			t.Errorf("%s on audit_log_v0: %s, want %s", role, got, want)
 		}
 	}
+
+	// P5-17 (TICK-435): the full set of migrations drops it.
+	if _, err := migrateFS(t, m, db.Migrations()); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if got := queryString(t, super, "SELECT coalesce(to_regclass('public.audit_log_v0')::text, '')"); got != "" {
+		t.Errorf("audit_log_v0 still exists after %s: %s", auditLogV0Drop, got)
+	}
+}
+
+const auditLogV0Drop = "20261104100000_drop_audit_log_v0.sql"
+
+// migrateTo runs the migrations in fsys and the grants manifest and gate as
+// migrateFS does, but with audit_log_v0 in the manifest and exempt from audit
+// as they were before the drop.
+func migrateTo(t *testing.T, m *grants.Manifest, fsys fs.FS) (migrate.Result, error) {
+	t.Helper()
+	withV0 := *m
+	withV0.Roles = make(map[string]grants.Role, len(m.Roles))
+	for name, r := range m.Roles {
+		if name == "nava_app" || name == "nava_worker" {
+			tables := make(map[string]map[string][]string, len(r.Tables)+1)
+			for tbl, privs := range r.Tables {
+				tables[tbl] = privs
+			}
+			tables["audit_log_v0"] = map[string][]string{"SELECT": {}}
+			r.Tables = tables
+		}
+		withV0.Roles[name] = r
+	}
+	a := *auditedManifest(t)
+	a.Exempt = make(map[string]audited.Exemption, len(a.Exempt)+1)
+	for name, e := range auditedManifest(t).Exempt {
+		a.Exempt[name] = e
+	}
+	a.Exempt["audit_log_v0"] = audited.Exemption{Reason: "read-only until P5-17 drops it"}
+	log, _ := newLog()
+	return migrate.Run(context.Background(), roleConfig(t, withV0.Owner(), withV0.PlatformDatabase),
+		fsys, &withV0, &a, globalTables(t), log, migrate.Options{LockRetrySeconds: 1})
 }

@@ -2,7 +2,7 @@
 
 // P5-13b (TICK-452): the pipeline writes ADR-004 entries through
 // audit.Append, the records table carries the commit-check trigger, and
-// audit_log_v0 is read-only. Against a real PostgreSQL under RLS, as the real
+// the write path runs against a real PostgreSQL under RLS, as the real
 // writer roles.
 
 package pipeline_test
@@ -203,34 +203,6 @@ func TestDuplicateEntryAbortsTheWrite(t *testing.T) {
 	}
 	if n := count(t, e.super, `SELECT count(*) FROM audit_log WHERE tenant_id = $1`, f.id); n != before {
 		t.Errorf("%d entries, want %d", n, before)
-	}
-}
-
-// D-5-1: audit_log_v0 is read-only. An INSERT as either writer role is
-// refused by the grants; a read still works until P5-17 drops the table.
-func TestAuditLogV0IsReadOnly(t *testing.T) {
-	e := migrated(t)
-	f := seedTenant(t, e)
-	ctx := context.Background()
-	for _, role := range []string{"nava_app", "nava_worker"} {
-		pool := e.app
-		if role != "nava_app" {
-			pool = rolePool(t, e, role)
-		}
-		err := tenancy.InTenantTx(ctx, pool, f.id, func(tx pgx.Tx) error {
-			_, err := tx.Exec(ctx, `INSERT INTO audit_log_v0 (tenant_id, id, action, source) VALUES ($1, $2, 'create', 'system')`,
-				f.id, uuid.New())
-			return err
-		})
-		if sqlState(err) != "42501" {
-			t.Errorf("INSERT INTO audit_log_v0 as %s: %v, want 42501", role, err)
-		}
-		if err := tenancy.InTenantTx(ctx, pool, f.id, func(tx pgx.Tx) error {
-			_, err := tx.Exec(ctx, `SELECT count(*) FROM audit_log_v0`)
-			return err
-		}); err != nil {
-			t.Errorf("SELECT on audit_log_v0 as %s: %v, want it readable", role, err)
-		}
 	}
 }
 

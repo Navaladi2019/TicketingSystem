@@ -69,7 +69,7 @@ The DEFAULT partition is under ENABLE + FORCE RLS and has no policy and no grant
 
 Later tasks add the rest:
 - P5-11 generates the `nava_onboard` and `nava_groupsync` writer grants and policies.
-- P5-17 adds the reader's SELECT.
+- P5-17 (TICK-435) added the reader's SELECT (nava_app, diff and diff_salt included).
 - P5-33 adds onboarding's pinned INSERT on the head (A6.2).
 - P5-15 and P5-32 add the migrator's temporary policies, created and dropped inside the backfill (see [S8 backfill](#s8-backfill-migration-a-p5-15)).
 

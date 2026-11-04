@@ -43,8 +43,17 @@ func TestLoadRealManifest(t *testing.T) {
 			}
 		}
 	}
-	if got := m.Roles["nava_app"].Tables[audited.LogTable]["SELECT"]; !sameSet(got, audited.SelectColumns()) {
-		t.Errorf("nava_app SELECT on audit_log = %v, want exactly the commit-check columns", got)
+	// nava_app is also the reader (P5-17, R8): db/grants.yaml lists its read
+	// columns, diff and diff_salt included, and the merge adds the commit-check
+	// columns to them. nava_onboard, a writer only, gets exactly the latter.
+	got := m.Roles["nava_app"].Tables[audited.LogTable]["SELECT"]
+	for _, c := range append(audited.SelectColumns(), "diff", "diff_salt") {
+		if !slices.Contains(got, c) {
+			t.Errorf("nava_app SELECT on audit_log lacks %s: %v", c, got)
+		}
+	}
+	if got := m.Roles["nava_onboard"].Tables[audited.LogTable]["SELECT"]; !sameSet(got, audited.SelectColumns()) {
+		t.Errorf("nava_onboard SELECT on audit_log = %v, want exactly the commit-check columns", got)
 	}
 	if got := m.Roles["nava_onboard"].Tables[audited.LogTable]; len(got) != 2 {
 		t.Errorf("nava_onboard on audit_log = %v, want INSERT and SELECT only", got)
