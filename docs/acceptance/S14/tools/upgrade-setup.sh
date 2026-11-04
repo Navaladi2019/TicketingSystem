@@ -38,7 +38,8 @@ mkdir -p deploy/compose/certs && cp -R "$PRE/deploy/compose/certs/." deploy/comp
 docker compose --profile operator up -d --build --wait
 docker compose logs migrate | grep '"migrate done"'
 echo "s14: reconcile the auditors group of the tenants that existed before S14"
-docker compose exec -T nava-onboard nava-onboard reconcile-auditors \n  00000000-0000-4000-8000-0000000000a1 00000000-0000-4000-8000-0000000000b1
+docker compose exec -T nava-onboard nava-onboard reconcile-auditors \
+  00000000-0000-4000-8000-0000000000a1 00000000-0000-4000-8000-0000000000b1
 node docs/acceptance/S14/tools/realm-delta.mjs
 sh docs/acceptance/guide/tools/seed.sh
 sh docs/acceptance/guide/tools/tunnels.sh up
