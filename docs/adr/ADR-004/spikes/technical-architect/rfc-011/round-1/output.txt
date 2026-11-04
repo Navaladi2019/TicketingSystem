@@ -1,0 +1,55 @@
+=== seed (superuser) ===
+ 00000000-0000-0000-0000-0000000000f1 |       7 | 00000000-0000-0000-0000-000000000001 | 2026-01-01 00:00:00+00
+ 00000000-0000-0000-0000-0000000000f2 |       7 | 00000000-0000-0000-0000-000000000002 | 2026-01-01 00:00:00+00
+ 00000000-0000-0000-0000-0000000000f3 |       7 | 00000000-0000-0000-0000-000000000003 | 2026-01-01 00:00:00+00
+ 00000000-0000-0000-0000-0000000000f4 |       7 | 00000000-0000-0000-0000-000000000004 | 2026-01-01 00:00:00+00
+ 00000000-0000-0000-0000-0000000000f5 |       7 | 00000000-0000-0000-0000-000000000005 | 2026-01-01 00:00:00+00
+ 00000000-0000-0000-0000-0000000000f6 |       7 | 00000000-0000-0000-0000-000000000006 | 2026-01-01 00:00:00+00
+=== S0: no commit check attached. nava_groupsync deletes g1 (no grant on records; no RLS policy for the owner on records under FORCE) ===
+ groupsync_may_update_records 
+ f
+psql:/run.sql:12: NOTICE:  PROBE BEFORE UPDATE on records: current_user=own session_user=nava_groupsync depth=2 row_security=on old.grp=00000000-0000-0000-0000-000000000001 new.grp=<NULL>
+ 00000000-0000-0000-0000-0000000000f1 |       7 |                     | 2026-01-01 00:00:00+00
+=== attach commit check as 20261104100000 (no WHEN) ===
+=== S1: nava_groupsync deletes g2 with the check attached ===
+psql:/run.sql:23: NOTICE:  PROBE BEFORE UPDATE on records: current_user=own session_user=nava_groupsync depth=2 row_security=on old.grp=00000000-0000-0000-0000-000000000002 new.grp=<NULL>
+psql:/run.sql:25: NOTICE:  CHECK fires: current_user=nava_groupsync depth=1
+psql:/run.sql:25: ERROR:  permission denied for table audit_log
+ 00000000-0000-0000-0000-0000000000f2 |       7 | 00000000-0000-0000-0000-000000000002
+=== option (c): same trigger WHEN (pg_trigger_depth() = 0) ===
+=== S2: nava_groupsync deletes g3 under (c) ===
+psql:/run.sql:37: NOTICE:  PROBE BEFORE UPDATE on records: current_user=own session_user=nava_groupsync depth=2 row_security=on old.grp=00000000-0000-0000-0000-000000000003 new.grp=<NULL>
+ 00000000-0000-0000-0000-0000000000f3 |       7 |                     | 2026-01-01 00:00:00+00 |          0
+=== S3: under (c), a raw nava_app UPDATE at depth 0 is still caught ===
+psql:/run.sql:45: NOTICE:  PROBE BEFORE UPDATE on records: current_user=nava_app session_user=nava_app depth=1 row_security=on old.grp=<NULL> new.grp=00000000-0000-0000-0000-000000000004
+psql:/run.sql:46: NOTICE:  CHECK fires: current_user=nava_app depth=1
+psql:/run.sql:46: ERROR:  audit_missing: record 00000000-0000-0000-0000-0000000000f3
+=== S4: under (c), ANY write issued from inside a trigger escapes: nava_app inserts into an unaudited table whose trigger updates records ===
+psql:/run.sql:61: NOTICE:  PROBE BEFORE UPDATE on records: current_user=nava_app session_user=nava_app depth=2 row_security=on old.grp=00000000-0000-0000-0000-000000000004 new.grp=<NULL>
+ 00000000-0000-0000-0000-0000000000f4 |       7 |                     |          0
+=== R29 query (proposed), before the FK change ===
+ records       | records_assignment_group_fkey | n           | a           | {4}
+=== option (e): FK -> RESTRICT, trigger without WHEN; tombstone instead of delete ===
+=== S5: nava_groupsync tombstones g5 (commits; no records event) and tries DELETE g6 (denied) ===
+psql:/run.sql:93: ERROR:  permission denied for table groups
+=== S6: superuser hard-deletes referenced g6 -> RESTRICT ===
+=== S7: FK accepts a NEW reference to tombstoned g5 (only the D6 pipeline check can stop it) ===
+psql:/run.sql:97: ERROR:  update or delete on table "groups" violates foreign key constraint "records_assignment_group_fkey" on table "records"
+DETAIL:  Key (tenant_id, id)=(11111111-1111-1111-1111-111111111111, 00000000-0000-0000-0000-000000000006) is still referenced from table "records".
+psql:/run.sql:102: NOTICE:  PROBE BEFORE UPDATE on records: current_user=nava_app session_user=nava_app depth=1 row_security=on old.grp=00000000-0000-0000-0000-000000000006 new.grp=00000000-0000-0000-0000-000000000005
+psql:/run.sql:103: NOTICE:  CHECK fires: current_user=nava_app depth=1
+ 00000000-0000-0000-0000-0000000000f1 |       7 | 
+ 00000000-0000-0000-0000-0000000000f2 |       7 | 00000000-0000-0000-0000-000000000002
+ 00000000-0000-0000-0000-0000000000f3 |       7 | 
+ 00000000-0000-0000-0000-0000000000f4 |       7 | 
+ 00000000-0000-0000-0000-0000000000f5 |       7 | 00000000-0000-0000-0000-000000000005
+ 00000000-0000-0000-0000-0000000000f6 |       8 | 00000000-0000-0000-0000-000000000005
+ PostgreSQL 16.10 (Debian 16.10-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+--- live.sql
+--- L1: tombstone a group that still has a member (expect FK error)
+--- L2: delete members then tombstone, one transaction (expect success)
+psql:/live.sql:14: ERROR:  update or delete on table "g2" violates foreign key constraint "gm2_tenant_id_group_id_live_fkey" on table "gm2"
+--- L3: add a member to the tombstoned group (expect FK error)
+--- L4: revive and add (expect success)
+psql:/live.sql:21: ERROR:  insert or update on table "gm2" violates foreign key constraint "gm2_tenant_id_group_id_live_fkey"
+--------------------------------------+--------------------------------------+--------------------------------------+------

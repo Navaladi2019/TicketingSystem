@@ -2,9 +2,11 @@ package db_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/noop"
 	tracenoop "go.opentelemetry.io/otel/trace/noop"
 
@@ -72,5 +74,54 @@ func TestNewPoolTracesACopy(t *testing.T) {
 	}
 	if cfg.ConnConfig.Tracer != nil {
 		t.Error("NewPool changed the caller's config")
+	}
+}
+
+// errMeterProvider's meters refuse every observable counter, as an SDK
+// with a broken view or exporter can.
+type errMeterProvider struct{ noop.MeterProvider }
+
+func (errMeterProvider) Meter(string, ...metric.MeterOption) metric.Meter { return errMeter{} }
+
+type errMeter struct{ noop.Meter }
+
+func (errMeter) Int64ObservableCounter(string, ...metric.Int64ObservableCounterOption) (metric.Int64ObservableCounter, error) {
+	return nil, errors.New("instrument refused")
+}
+
+// TestNewPoolErrorsQuoteNoCredential: neither failure echoes the connection
+// string, which carries the password.
+func TestNewPoolErrorsQuoteNoCredential(t *testing.T) {
+	t.Parallel()
+	const secret = "s3cret-in-the-dsn"
+	tests := map[string]struct {
+		mp   metric.MeterProvider
+		edit func(*pgxpool.Config)
+		want string
+	}{
+		"invalid pool config": {noop.NewMeterProvider(), func(c *pgxpool.Config) { c.MaxConns = 0 }, "db: cannot create the PostgreSQL pool"},
+		"metrics refused":     {errMeterProvider{}, func(*pgxpool.Config) {}, "db: cannot register the pool metrics"},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			cfg, err := pgxpool.ParseConfig("postgres://nava:" + secret + "@127.0.0.1:1/nava?connect_timeout=1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			tc.edit(cfg)
+			tel := &telemetry.Telemetry{TracerProvider: tracenoop.NewTracerProvider(), MeterProvider: tc.mp}
+			pool, err := db.NewPool(t.Context(), cfg, tel)
+			if pool != nil {
+				pool.Close()
+				t.Fatal("got a pool, want nil")
+			}
+			if err == nil || err.Error() != tc.want {
+				t.Fatalf("err = %v, want %q", err, tc.want)
+			}
+			if strings.Contains(err.Error(), secret) {
+				t.Fatalf("error quotes the password: %v", err)
+			}
+		})
 	}
 }
