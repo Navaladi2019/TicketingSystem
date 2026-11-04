@@ -75,10 +75,13 @@ steps:
   - job: stack
     run: make stack-tests JOB=stack
     why: every stack case with job=stack, among them the CI-6 and CI-7 SDK suite, realm nava and the CI-5 adversarial identity suite (T19), each under suiteran
-  - job: stack-db
+  # stack-db and stack-internal were jobs of their own until TICK-563; their
+  # cases now run in the stack job, each on a fresh stack, after its one image
+  # build. Same steps, same make targets, moved job.
+  - job: stack
     run: make stack-tests JOB=stack-db
     why: the database stack cases (idempotent, dbroles, hba)
-  - job: stack-internal
+  - job: stack
     run: make stack-tests JOB=stack-internal
     why: the internal overlay comes up healthy with no egress
   - job: stack

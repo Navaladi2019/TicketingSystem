@@ -11,6 +11,7 @@ Delivery decisions that change a task's contract, newest first.
 - [2026-11-04: P5-17 drops audit_log_v0 in the same PR as the reader; reads fail between deploy and migrate](decisions/2026-11-04-p5-17-drop-v0-with-the-reader.md)
 - [2026-11-04: E5 step (ii) lands with an ACCESS EXCLUSIVE lock and no RESTRICT index; task PRs on a story branch must be green against its head](decisions/2026-11-04-e5-step-ii-lock-index-branch-collisions.md)
 - [2026-11-04: D-5-14, the records commit-check attach is held for TICK-529; the history gap until P5-17 is accepted](decisions/2026-11-04-d-5-14-records-attach-held.md)
+- [2026-11-04 — CI on task branches only via PR + `ci:run` label; push trigger on `TICK-**` removed (reverses the accepted cost of TICK-289)](decisions/2026-11-04-ci-run-label.md)
 - [2026-11-03: S8 schemas mark secrets only on top-level properties; the R6 check reads the whole schema](decisions/2026-11-03-secret-markers-top-level-only.md)
 - [2026-11-03: PLAN-005-E3 drafted: ADR-004-E3 lands as two postgres-dev tasks in S14; the clause ships as a new migration; TICK-452 waits on both](decisions/2026-11-03-plan-005-e3-adr-004-e3.md)
 - [2026-11-02: PLAN-005 groomed: 30 tasks, D-3-13 revised, `diff_truncated` inside the hash, v0 dropped in P5-17](decisions/2026-11-02-plan-005-grooming.md)
