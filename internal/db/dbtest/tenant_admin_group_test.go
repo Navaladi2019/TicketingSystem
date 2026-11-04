@@ -271,19 +271,31 @@ func TestP304RecordAdminGroupCreatesTheGroup(t *testing.T) {
 	}
 }
 
-// The tenant's admins group going away removes the row (ON DELETE CASCADE).
-func TestP304DeletingTheGroupRemovesTheRow(t *testing.T) {
+// The tenant's admins group going away removes the row. Group sync tombstones
+// the group (it may not delete it, ADR-004-E5 D2, TICK-538) and then deletes
+// the pointer, which tenant_admin_group_delete_tombstoned allows only once
+// the group is tombstoned (D5).
+func TestP304TombstoningTheGroupRemovesTheRow(t *testing.T) {
 	migratedPlatform(t)
 	super := superNava(t)
 	seedTenants(t, super, []string{tenantA}, nil)
 	seedIdentity(t, super, tenantA)
 	exec(t, super, insertAdminGroupRow, tenantA, tenantA)
 	sync := asRole(t, "nava_groupsync")
-	if n, err := execIn(sync, tenantA, "DELETE FROM groups WHERE tenant_id = $1", tenantA); err != nil || n != 1 {
-		t.Fatalf("nava_groupsync deletes the admins group: %d rows, %v", n, err)
+	if n, err := execIn(sync, tenantA, "DELETE FROM tenant_admin_group WHERE tenant_id = $1", tenantA); err != nil || n != 0 {
+		t.Fatalf("nava_groupsync deletes the pointer of a live group: %d rows, %v; want 0, nil", n, err)
+	}
+	if _, err := execIn(sync, tenantA, "DELETE FROM group_members WHERE tenant_id = $1 AND group_id = $1", tenantA); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := execIn(sync, tenantA, "UPDATE groups SET deleted_at = now() WHERE tenant_id = $1", tenantA); err != nil || n != 1 {
+		t.Fatalf("nava_groupsync tombstones the admins group: %d rows, %v", n, err)
+	}
+	if n, err := execIn(sync, tenantA, "DELETE FROM tenant_admin_group WHERE tenant_id = $1", tenantA); err != nil || n != 1 {
+		t.Fatalf("nava_groupsync deletes the pointer of a tombstoned group: %d rows, %v; want 1, nil", n, err)
 	}
 	if got := queryString(t, super, "SELECT count(*)::text FROM tenant_admin_group WHERE tenant_id = $1", tenantA); got != "0" {
-		t.Errorf("rows after the group is deleted: %s, want 0", got)
+		t.Errorf("rows after the group is tombstoned: %s, want 0", got)
 	}
 }
 

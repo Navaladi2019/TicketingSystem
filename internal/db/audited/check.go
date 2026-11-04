@@ -23,6 +23,10 @@ import (
 //     or tenant column;
 //   - a runtime role holding TRUNCATE on an audited table: the row trigger
 //     does not fire on TRUNCATE, so it would bypass the commit check;
+//   - R29 (ADR-004-E5 D3): a foreign key on an audited table whose ON DELETE
+//     or ON UPDATE is anything but NO ACTION or RESTRICT. An FK action
+//     rewrites the table with no audit entry, and the commit check would
+//     refuse it at COMMIT, stalling whatever wrote the referenced row;
 //   - an audit_commit_check trigger on a table not marked attached: true, an
 //     attached table without exactly one, and one that is not an enabled
 //     AFTER INSERT OR DELETE [OR UPDATE OF exactly audited_columns]
@@ -92,7 +96,14 @@ func (a *Manifest) Check(ctx context.Context, q catalog.Querier, m *grants.Manif
 			bad("%s", s)
 		}
 	}
-	p, err := a.checkTriggers(ctx, q)
+	p, err := a.checkFKActions(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	for _, s := range p {
+		bad("%s", s)
+	}
+	p, err = a.checkTriggers(ctx, q)
 	if err != nil {
 		return nil, err
 	}
@@ -195,6 +206,66 @@ func (a *Manifest) checkTable(ctx context.Context, q catalog.Querier, name strin
 	}
 	for _, r := range truncaters {
 		out = append(out, fmt.Sprintf("audited table %s: runtime role %s holds TRUNCATE, which the commit-check trigger does not see", name, r))
+	}
+	return out, nil
+}
+
+// r29Query is ADR-004-E5's R29 query verbatim, with $1 the audited tables:
+// every foreign key on one of them whose delete or update action is not NO
+// ACTION (a) or RESTRICT (r). conparentid = 0 keeps a partition's inherited
+// copy out, so a partitioned table is checked once, on its parent.
+const r29Query = `SELECT c.conrelid::regclass, c.conname, c.confdeltype, c.confupdtype
+  FROM pg_constraint c
+ WHERE c.contype = 'f' AND c.conparentid = 0
+   AND c.conrelid = ANY ($1::regclass[])
+   AND (c.confdeltype NOT IN ('a','r') OR c.confupdtype NOT IN ('a','r'))`
+
+// fkAction names a pg_constraint confdeltype / confupdtype code.
+func fkAction(code string) string {
+	switch code {
+	case "a":
+		return "NO ACTION"
+	case "r":
+		return "RESTRICT"
+	case "c":
+		return "CASCADE"
+	case "n":
+		return "SET NULL"
+	case "d":
+		return "SET DEFAULT"
+	}
+	return code
+}
+
+// checkFKActions is R29 (ADR-004-E5 D3). An audited table that does not
+// exist is checkTable's report; it is left out of the list here, because a
+// regclass cast of a missing name would fail the whole check.
+func (a *Manifest) checkFKActions(ctx context.Context, q catalog.Querier) ([]string, error) {
+	var names []string
+	for _, name := range a.TableNames() {
+		names = append(names, qualify(name))
+	}
+	existing, err := strs(ctx, q, `SELECT n FROM unnest($1::text[]) n WHERE pg_catalog.to_regclass(n) IS NOT NULL ORDER BY 1`, names)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := q.Query(ctx, `SELECT conrelid::text, conname::text, confdeltype::text, confupdtype::text
+		FROM (`+r29Query+`) r ORDER BY 1, 2`, existing)
+	if err != nil {
+		return nil, err
+	}
+	type fk struct{ table, name, del, upd string }
+	fks, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (fk, error) {
+		var f fk
+		return f, r.Scan(&f.table, &f.name, &f.del, &f.upd)
+	})
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, f := range fks {
+		out = append(out, fmt.Sprintf("audited table %s: foreign key %s has ON DELETE %s ON UPDATE %s; R29 allows only NO ACTION or RESTRICT",
+			f.table, f.name, fkAction(f.del), fkAction(f.upd)))
 	}
 	return out, nil
 }

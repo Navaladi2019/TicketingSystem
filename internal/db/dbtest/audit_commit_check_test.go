@@ -245,6 +245,27 @@ func TestP511CatalogueCIA3(t *testing.T) {
 			func() *audited.Manifest { return withTestTable(nil) }, "function audit_commit_check() has no SET plan_cache_mode=force_custom_plan"},
 		{"copy without the clause in another schema", []string{"CREATE SCHEMA p511_copy", withoutClause(t, def, "p511_copy.audit_commit_check")},
 			func() *audited.Manifest { return withTestTable(nil) }, "function p511_copy.audit_commit_check() has no SET plan_cache_mode=force_custom_plan"},
+		// CI-E5-3 (ADR-004-E5 R29): an FK action on an audited table fails
+		// CI-A3, on the scratch table and on records alike; NO ACTION and
+		// RESTRICT pass (records' own FK is RESTRICT after TICK-538).
+		{"R29: ON DELETE SET NULL (col) on an audited table", []string{
+			"ALTER TABLE " + testTable + " ADD COLUMN grp uuid, ADD CONSTRAINT p511_grp_fkey FOREIGN KEY (tenant_id, grp) REFERENCES groups (tenant_id, id) ON DELETE SET NULL (grp)",
+		}, func() *audited.Manifest { return withTestTable(nil) },
+			"audited table p511_audited: foreign key p511_grp_fkey has ON DELETE SET NULL ON UPDATE NO ACTION; R29"},
+		{"R29: ON UPDATE CASCADE on an audited table", []string{
+			"ALTER TABLE " + testTable + " ADD COLUMN grp uuid, ADD CONSTRAINT p511_grp_fkey FOREIGN KEY (tenant_id, grp) REFERENCES groups (tenant_id, id) ON UPDATE CASCADE",
+		}, func() *audited.Manifest { return withTestTable(nil) },
+			"audited table p511_audited: foreign key p511_grp_fkey has ON DELETE NO ACTION ON UPDATE CASCADE; R29"},
+		{"R29: NO ACTION and RESTRICT pass", []string{
+			"ALTER TABLE " + testTable + " ADD COLUMN grp uuid, ADD COLUMN grp2 uuid," +
+				" ADD CONSTRAINT p511_grp_fkey FOREIGN KEY (tenant_id, grp) REFERENCES groups (tenant_id, id)," +
+				" ADD CONSTRAINT p511_grp2_fkey FOREIGN KEY (tenant_id, grp2) REFERENCES groups (tenant_id, id) ON DELETE RESTRICT ON UPDATE RESTRICT",
+		}, func() *audited.Manifest { return withTestTable(nil) }, ""},
+		{"R29: records back on ON DELETE SET NULL", []string{
+			"ALTER TABLE records DROP CONSTRAINT records_assignment_group_fkey, ADD CONSTRAINT records_assignment_group_fkey" +
+				" FOREIGN KEY (tenant_id, assignment_group_id) REFERENCES groups (tenant_id, id) ON DELETE SET NULL (assignment_group_id) NOT VALID",
+		}, func() *audited.Manifest { return withTestTable(nil) },
+			"audited table records: foreign key records_assignment_group_fkey has ON DELETE SET NULL ON UPDATE NO ACTION; R29"},
 		{"leftover migrator policy (R26.3)", []string{
 			"CREATE POLICY p511_migrator ON tenants FOR SELECT TO nava_migrator USING (true)",
 		}, func() *audited.Manifest { return withTestTable(nil) }, "policy public.tenants.p511_migrator is left over for nava_migrator"},

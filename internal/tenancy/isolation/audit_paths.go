@@ -60,6 +60,10 @@ const (
 // chain the suite seals, so after_seq can single it out.
 const auditSealSeq = 900001
 
+// auditEveryLogin is the report's Role for a DB path that runs as every
+// platform login (auditManifestLogins).
+const auditEveryLogin = "every login"
+
 func auditPaths() []Path {
 	sql := func(name, role string, expect Expect, query string, args ...any) Path {
 		return Path{Name: name, Case: "CI-A4", Role: role, SQL: &SQLCall{Query: query, Args: args, Expect: expect}}
@@ -136,17 +140,19 @@ func auditPaths() []Path {
 			 schema_version, audit_entry_id) VALUES ($1, 'iso-new', $2, 'update', $3, 'TCK0000001', 3, 1, $4)`,
 			TenantA, EntityDefinitionB1, RecordA2, NewID),
 
+		// Role is only the report's label on a DB path (Path.Role): these run
+		// as every platform login, or as both service pools.
 		{Name: "audit_log_default: every runtime role is refused on the DEFAULT partition with 42501", Case: "CI-A4",
-			Role: "nava_app", DB: auditDefaultPartitionRefused},
+			Role: auditEveryLogin, DB: auditDefaultPartitionRefused},
 		{Name: "audit_log: tenant B reads none of tenant A's entries by id, subject, change set, seq, diff or tenant, as every runtime role, and none with no tenant", Case: "CI-A4",
-			Role: "nava_app", DB: auditDirectSQLEveryRole},
+			Role: auditEveryLogin, DB: auditDirectSQLEveryRole},
 		{Name: "audit_log: onboarding's pinned policies keep it to its own provisioning tenant", Case: "CI-A4",
 			Role: "nava_onboard", DB: auditOnboardPinned},
 		et("CI-A4", "audit entries: tenant B's admin, auditor and agent get, for tenant A's subject, change set, seq and page token, the unknown value's response", auditReaderOtherTenant),
 		et("CI-A4", "record history: tenant B's admin, auditor and agent get the missing record's 404 for tenant A's record, and the history holds record-domain entries only", auditHistory),
 		et("CI-A5", "secret canaries in records and S8 publishes are refused and never reach audit_log or entity_definition_versions bytes", auditCanaryBytes),
 		{Name: "the nava-core and nava-worker pools connect as nava_app and nava_worker, and the P5-10b role matrix holds through them", Case: "CI-A10",
-			Role: "nava_app", DB: auditServicePoolMatrix},
+			Role: "nava_app, nava_worker", DB: auditServicePoolMatrix},
 	}
 }
 
@@ -919,6 +925,9 @@ func auditCanaryBytes(ctx context.Context, e *etIso) error {
 		found = append(found, fmt.Sprintf("iso_et_sec has %d versions, want the create and the control publish only", versions))
 	}
 
+	if err := auditControlsUncompressed(ctx, e.super, publishMarker); err != nil {
+		return err
+	}
 	logBytes, versionBytes, err := auditTableBytes(ctx, e.super)
 	if err != nil {
 		return err
@@ -946,6 +955,38 @@ func auditCanaryBytes(ctx context.Context, e *etIso) error {
 	return nil
 }
 
+// auditControlsUncompressed (TICK-552): the scan looks for plain bytes, and
+// PostgreSQL compresses a value (pglz or lz4, inline or in TOAST) once its
+// tuple passes about 2 kB, after which a canary in it is no longer a plain
+// byte string. The canary attempts have the controls' shape, so the control
+// publish's entity_definition_versions.schema must be stored uncompressed. A
+// fixture that grows past the threshold then fails here instead of hiding a
+// leak.
+//
+// audit_log needs no query of its own, and may not have one: only
+// internal/audit/read reads audit_log.diff (TICK-541). The markers reach
+// audit_log in the diff only, so if a marker's diff is compressed, the marker
+// is not in audit_log's plain bytes, and auditCanaryBytes's marker control
+// already fails with "the scan proves nothing".
+func auditControlsUncompressed(ctx context.Context, super *pgx.Conn, publishMarker string) error {
+	var n int
+	var compressed []string
+	if err := super.QueryRow(ctx,
+		`SELECT count(*), coalesce(array_agg(pg_column_compression(v.schema)) FILTER (WHERE pg_column_compression(v.schema) IS NOT NULL), '{}')
+		 FROM entity_definition_versions v JOIN entity_definitions d ON d.tenant_id = v.tenant_id AND d.id = v.definition_id
+		 WHERE d.tenant_id = $1 AND d.key = 'iso_et_sec' AND strpos(v.schema::text, $2) > 0`, TenantA, publishMarker).Scan(&n, &compressed); err != nil {
+		return fmt.Errorf("control: compression of entity_definition_versions.schema: %w", err)
+	}
+	if n != 1 {
+		return fmt.Errorf("control: %d entity_definition_versions rows carry the marker %s, want 1; the scan proves nothing", n, publishMarker)
+	}
+	if len(compressed) > 0 {
+		return fmt.Errorf("control: entity_definition_versions.schema with the marker %s is stored compressed (%s), so a canary in a row of its shape is not plain bytes; the scan proves nothing",
+			publishMarker, strings.Join(compressed, ", "))
+	}
+	return nil
+}
+
 // auditServiceURL is service's NAVA_DATABASE_URL in compose.yaml, with
 // ${VAR:-default} resolved to its default.
 func auditServiceURL(service string) (string, error) {
@@ -965,14 +1006,24 @@ func auditServiceURL(service string) (string, error) {
 	if !ok || v == "" {
 		return "", fmt.Errorf("compose.yaml: %s has no NAVA_DATABASE_URL", service)
 	}
+	return composeDefaults(service, v)
+}
+
+// composeDefaults resolves each ${VAR:-default} in v to its default. A
+// variable with no default, or a ${ with no closing }, is an error, never a
+// panic (TICK-552).
+func composeDefaults(service, v string) (string, error) {
 	for {
 		i := strings.Index(v, "${")
 		if i < 0 {
 			return v, nil
 		}
 		j := strings.Index(v[i:], "}")
+		if j < 0 {
+			return "", fmt.Errorf("compose.yaml: %s: an unterminated ${ in NAVA_DATABASE_URL", service)
+		}
 		_, def, ok := strings.Cut(v[i+2:i+j], ":-")
-		if j < 0 || !ok {
+		if !ok {
 			return "", fmt.Errorf("compose.yaml: %s: a variable with no default in NAVA_DATABASE_URL", service)
 		}
 		v = v[:i] + def + v[i+j+1:]

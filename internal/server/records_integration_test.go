@@ -221,14 +221,16 @@ func TestCreateRecordValidationAndAuth(t *testing.T) {
 	}
 }
 
+// Since ADR-004-E5 D6 (TICK-537) an assignment group that is not a live group
+// of the tenant is 422 assignment_group_removed, not a mapped 23503.
 func TestCreateRecordForeignGroupIsTheSame422AsARandomUUID(t *testing.T) {
 	e := newRecEnv(t)
 	random := "00000000-0000-4000-8000-00000000dead"
 	foreign := e.b.adminGroup.String() // tenant B's group, named by a tenant A user
 	rr := e.createRec(t, "user-a", "ticket", "g1", fmt.Sprintf(`{"short_description": "x", "group": %q}`, random))
 	rf := e.createRec(t, "user-a", "ticket", "g2", fmt.Sprintf(`{"short_description": "x", "group": %q}`, foreign))
-	p := wantProblem(t, rr, http.StatusUnprocessableEntity, problem.RecordInvalid)
-	wantProblem(t, rf, http.StatusUnprocessableEntity, problem.RecordInvalid)
+	p := wantProblem(t, rr, http.StatusUnprocessableEntity, problem.AssignmentGroupRemoved)
+	wantProblem(t, rf, http.StatusUnprocessableEntity, problem.AssignmentGroupRemoved)
 	if got := pointers(p); len(got) != 1 || got[0] != "/data/group" {
 		t.Errorf("pointers = %v, want [/data/group]", got)
 	}

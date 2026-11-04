@@ -20,7 +20,7 @@ func TestE5GroupsTombstoneMigrationsSplit(t *testing.T) {
 		}
 		return string(b)
 	}
-	lockTimeout := regexp.MustCompile(`(?m)^SET LOCAL lock_timeout = '\d+s';$`)
+	lockTimeout := regexp.MustCompile(`(?m)^SET LOCAL lock_timeout = '\d+s';\r?$`)
 	expand := read("20261104013400_groups_tombstone.sql")
 	validate := read("20261104013500_groups_tombstone_validate.sql")
 	for name, body := range map[string]string{"expand": expand, "validate": validate} {
