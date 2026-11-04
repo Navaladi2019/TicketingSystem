@@ -154,7 +154,10 @@ LIMIT $10`, tenantID, f.From, f.To, f.Domain, f.SubjectType, f.SubjectID, f.Afte
 	if err != nil {
 		return nil, err
 	}
-	return entries, r.mask(ctx, tx, entries)
+	if err := r.mask(ctx, tx, entries); err != nil {
+		return nil, err
+	}
+	return entries, nil
 }
 
 // RecordEntries returns every record-domain entry of one record that changed
@@ -199,7 +202,10 @@ LIMIT $3`, tenantID, recordID, limit+1)
 	if len(entries) > limit {
 		return nil, &HistoryTooLongError{Entries: int64(len(entries)), Max: int64(limit)}
 	}
-	return entries, r.mask(ctx, tx, entries)
+	if err := r.mask(ctx, tx, entries); err != nil {
+		return nil, err
+	}
+	return entries, nil
 }
 
 func scan(rows pgx.Rows) ([]Entry, error) {
@@ -233,6 +239,7 @@ func scan(rows pgx.Rows) ([]Entry, error) {
 func (r *Reader) mask(ctx context.Context, tx pgx.Tx, entries []Entry) error {
 	type key struct {
 		domain, subject string
+		hasDef          bool
 		def             uuid.UUID
 	}
 	cache := map[key][]patchwalk.Pointer{}
@@ -244,7 +251,7 @@ func (r *Reader) mask(ctx context.Context, tx pgx.Tx, entries []Entry) error {
 		}
 		k := key{domain: e.Domain, subject: e.SubjectType}
 		if e.EntityDefinitionID != nil {
-			k.def = *e.EntityDefinitionID
+			k.hasDef, k.def = true, *e.EntityDefinitionID
 		}
 		paths, ok := cache[k]
 		if !ok {

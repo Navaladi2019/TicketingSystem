@@ -103,6 +103,8 @@ func (h *handlers) ListAuditEntries(ctx context.Context, req api.ListAuditEntrie
 		return nil, &problemError{problem.Forbidden, nil, err}
 	case errors.As(err, &pe):
 		return nil, pe
+	case errors.Is(err, read.ErrNoDefinitionVersions):
+		return nil, h.maskerFailed(ctx, err)
 	case err != nil:
 		return nil, err
 	}
@@ -147,4 +149,12 @@ func hexOf(b []byte) *string {
 	}
 	s := hex.EncodeToString(b)
 	return &s
+}
+
+// maskerFailed maps a masker that found no visible version of an entry's
+// definition to 500 internal (ADR-004-A1 A1-4). WriteError logs err once; its
+// text names the definition and never holds a diff value, a pointer value or
+// the salt.
+func (h *handlers) maskerFailed(_ context.Context, err error) error {
+	return &problemError{problem.InternalError, nil, err}
 }

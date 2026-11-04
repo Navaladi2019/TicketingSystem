@@ -73,7 +73,11 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 	if opts.pool != nil {
 		// The S9 composition (PLAN-003): any tenant member writes, no events.
 		// S10 swaps the authorizer, S11b the sink.
-		h.audit = &read.Reader{Masker: read.DefinitionMasker{}, MaxRecordEntries: opts.historyCap, OnRecordRows: opts.historyRows}
+		var masker read.Masker = read.DefinitionMasker{}
+		if opts.auditMasker != nil {
+			masker = opts.auditMasker
+		}
+		h.audit = &read.Reader{Masker: masker, MaxRecordEntries: opts.historyCap, OnRecordRows: opts.historyRows}
 		if h.historyTooLong, err = tel.MeterProvider.Meter("github.com/Navaladi2019/TicketingSystem/internal/server").Int64Counter(
 			"nava.records.history.too_long",
 			metric.WithDescription("Record history requests refused because the record has more audit entries than the cap."),

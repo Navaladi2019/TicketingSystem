@@ -305,6 +305,9 @@ func (h *handlers) GetRecordHistory(ctx context.Context, req api.GetRecordHistor
 		}
 		return nil, &problemError{problem.HistoryTooLong, nil, err}
 	}
+	if errors.Is(err, read.ErrNoDefinitionVersions) {
+		return nil, h.maskerFailed(ctx, err)
+	}
 	if err != nil {
 		return nil, err
 	}

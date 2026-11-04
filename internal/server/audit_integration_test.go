@@ -6,6 +6,7 @@
 package server_test
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -16,7 +17,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/chain"
+	"github.com/Navaladi2019/TicketingSystem/internal/audit/patchwalk"
+	"github.com/Navaladi2019/TicketingSystem/internal/audit/read"
+	"github.com/Navaladi2019/TicketingSystem/internal/server"
 )
 
 type auditPage struct {
@@ -242,5 +249,50 @@ func TestRecordHistoryMasksSecretProperties(t *testing.T) {
 	}
 	if got := string(p.Items[0].After["n"]); got != "1" {
 		t.Errorf("after.n = %s, want 1 (the unmasked op still replays); body %s", got, rec.Body)
+	}
+}
+
+// failingMasker is a masker whose definition has no visible version.
+type failingMasker struct{ def uuid.UUID }
+
+func (f failingMasker) MaskedPaths(context.Context, pgx.Tx, read.Subject) ([]patchwalk.Pointer, error) {
+	return nil, fmt.Errorf("masker: %w", &read.NoDefinitionVersionsError{DefinitionID: f.def})
+}
+
+// ADR-004-A1 A1-4: when the masker cannot tell which properties are secret,
+// both audit reads answer 500 internal with no diff and no salt, and the log
+// names the definition and nothing from the entry.
+func TestAuditReadsFailClosedWhenMaskerHasNoVersions(t *testing.T) {
+	def := uuid.New()
+	e := newETEnvWith(t, server.WithAuditMasker(failingMasker{def}))
+	id := e.seedSecretEntry(t)
+	for _, tc := range []struct{ name, token, path string }{
+		{"list", "admin-a", "/api/v1/audit/entries?subject_id=" + id},
+		{"history", "user-a", "/api/v1/records/vault/" + id + "/history"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := e.do(t, http.MethodGet, tc.path, tc.token, "", "")
+			if rec.Code != http.StatusInternalServerError {
+				t.Fatalf("status = %d, want 500: %s", rec.Code, rec.Body)
+			}
+			body := rec.Body.String()
+			for _, bad := range []string{`"diff"`, "diff_salt", "hunter2"} {
+				if strings.Contains(body, bad) {
+					t.Errorf("body contains %s: %s", bad, body)
+				}
+			}
+			if !strings.Contains(body, "internal_error") {
+				t.Errorf("body is not the internal problem: %s", body)
+			}
+		})
+	}
+	logs := e.logs.String()
+	if !strings.Contains(logs, def.String()) {
+		t.Errorf("log does not name definition %s: %s", def, logs)
+	}
+	for _, bad := range []string{"hunter2", "00112233445566778899aabbccddeeff", "/token"} {
+		if strings.Contains(logs, bad) {
+			t.Errorf("log contains %q: %s", bad, logs)
+		}
 	}
 }
