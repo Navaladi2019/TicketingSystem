@@ -8,7 +8,7 @@
     "status": 403,
     "headers": {
       "content-type": "application/problem+json",
-      "x-request-id": "a874c14e2b35365289c7d802cd8ebe27"
+      "x-request-id": "a70709243321b4552886917d3d077647"
     },
     "body": {
       "type": "urn:nava:problem:forbidden",
@@ -16,7 +16,7 @@
       "status": 403,
       "code": "forbidden",
       "detail": "The token does not allow this operation.",
-      "instance": "urn:nava:request:a874c14e2b35365289c7d802cd8ebe27"
+      "instance": "urn:nava:request:a70709243321b4552886917d3d077647"
     }
   }
 }

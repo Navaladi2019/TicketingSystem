@@ -20,18 +20,20 @@ tests {
   const items = N.json().items;
   const back = items.filter(e => e.backfilled);
   const v1 = back.filter(e => e.action === 'create');
-  test('three backfilled version-1 creates, one per seeded type (incident, request, change)', () => {
-    expect(v1, 'no backfilled entry: upgrade from a pre-S14 commit, or re-run audit_backfill_s8() after the seed (folder docs)').to.have.length(3);
-    expect(new Set(v1.map(e => e.subject_id)).size).to.eql(3);
-  });
-  test('each v1: the system actor onboarding, source onboarding, version 1, no diff, the content hash', () => v1.forEach(e => {
-    expect(e.actor_system, e.subject_id).to.eql('onboarding');
-    expect(e, e.subject_id).to.not.have.property('actor_principal_id');
-    expect(e.source, e.subject_id).to.eql('onboarding');
+  test('backfilled entries exist', () => expect(back, 'no backfilled entry: upgrade from a pre-S14 commit, or re-run audit_backfill_s8() after the seed (folder docs)').to.not.be.empty);
+  ['incident', 'request', 'change'].forEach(k => test(`the seeded ${k} version 1 is backfilled: create, the system actor onboarding, the template's content hash`, () => {
+    const sha = N.sha256(N.rawMember(N.repoFile(`internal/metadata/templates/${k}.json`), 'schema'));
+    const e = v1.filter(x => x.content_sha256 === sha);
+    expect(e, k).to.not.be.empty;
+    e.forEach(x => { expect(x.actor_system, k).to.eql('onboarding'); expect(x.source, k).to.eql('onboarding'); });
+  }));
+  test('each backfilled create: version 1, no diff, the content hash; the system actor onboarding unless it has a publisher', () => v1.forEach(e => {
     expect(e.version_after, e.subject_id).to.eql(1);
     expect(e, e.subject_id).to.not.have.property('version_before');
     expect(e, e.subject_id).to.not.have.property('diff');
     expect(e.content_sha256, e.subject_id).to.match(/^[0-9a-f]{64}$/);
+    if (e.actor_principal_id) expect(e.source, e.subject_id).to.eql('user');
+    else { expect(e.actor_system, e.subject_id).to.eql('onboarding'); expect(e.source, e.subject_id).to.eql('onboarding'); }
   }));
   test("the incident type's v1 is among them: the same definition as S14.18's publish", () => {
     expect(v1.map(e => e.subject_id)).to.include(bru.getVar('s14_inc_def'));

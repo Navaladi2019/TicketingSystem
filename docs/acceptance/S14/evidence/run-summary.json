@@ -116,7 +116,7 @@
   {
     "request": "S14.20",
     "method": "PATCH",
-    "url": "http://127.0.0.1:18080/api/v1/records/incident/01a1a7cd-7d1e-704b-b855-e08ae43e4b6b",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident/01a1a7e0-cfd8-7b69-83b3-f91acd921a9b",
     "status": 200,
     "tests_passed": 2,
     "tests_failed": 0,
@@ -139,7 +139,7 @@
   {
     "request": "S14.22",
     "method": "GET",
-    "url": "http://127.0.0.1:18080/api/v1/audit/entries?from=2026-11-04T18:23:39.317Z&limit=500",
+    "url": "http://127.0.0.1:18080/api/v1/audit/entries?from=2026-11-04T18:44:45.662Z&limit=500",
     "status": 200,
     "tests_passed": 12,
     "tests_failed": 0,
@@ -161,7 +161,7 @@
   {
     "request": "S14.23",
     "method": "GET",
-    "url": "http://127.0.0.1:18080/api/v1/audit/entries?from=2026-11-04T18:23:39.317Z&limit=500",
+    "url": "http://127.0.0.1:18080/api/v1/audit/entries?from=2026-11-04T18:44:45.662Z&limit=500",
     "status": 200,
     "tests_passed": 2,
     "tests_failed": 0,
@@ -175,12 +175,15 @@
     "method": "GET",
     "url": "http://127.0.0.1:18080/api/v1/audit/entries?domain=config&subject_type=entity_definition&limit=500",
     "status": 200,
-    "tests_passed": 6,
+    "tests_passed": 9,
     "tests_failed": 0,
     "tests": [
       "HTTP 200",
-      "three backfilled version-1 creates, one per seeded type (incident, request, change)",
-      "each v1: the system actor onboarding, source onboarding, version 1, no diff, the content hash",
+      "backfilled entries exist",
+      "the seeded incident version 1 is backfilled: create, the system actor onboarding, the template's content hash",
+      "the seeded request version 1 is backfilled: create, the system actor onboarding, the template's content hash",
+      "the seeded change version 1 is backfilled: create, the system actor onboarding, the template's content hash",
+      "each backfilled create: version 1, no diff, the content hash; the system actor onboarding unless it has a publisher",
       "the incident type's v1 is among them: the same definition as S14.18's publish",
       "a backfilled publish (a version published before the upgrade) names its publisher, source user",
       "S14.18's publish is live, not backfilled"
@@ -202,7 +205,7 @@
   {
     "request": "S14.26",
     "method": "GET",
-    "url": "http://127.0.0.1:18080/api/v1/records/incident/01a1a7cd-7d1e-704b-b855-e08ae43e4b6b/history",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident/01a1a7e0-cfd8-7b69-83b3-f91acd921a9b/history",
     "status": 200,
     "tests_passed": 4,
     "tests_failed": 0,
@@ -242,7 +245,7 @@
   {
     "request": "S14.29",
     "method": "GET",
-    "url": "http://127.0.0.1:18080/api/v1/records/incident/01a1a7cd-7d1e-704b-b855-e08ae43e4b6b/history",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident/01a1a7e0-cfd8-7b69-83b3-f91acd921a9b/history",
     "status": 404,
     "tests_passed": 4,
     "tests_failed": 0,
@@ -264,14 +267,14 @@
       "HTTP 422",
       "problem+json, code config_secret_in_content",
       "problem instance is this response's X-Request-Id",
-      "errors[] points at /definition/schema/properties/api_token_s14_23e70a4a/default",
+      "errors[] points at /definition/schema/properties/api_token_s14_aeeb1b63/default",
       "response names nothing of the other tenant"
     ]
   },
   {
     "request": "S14.31",
     "method": "GET",
-    "url": "http://127.0.0.1:18080/api/v1/audit/entries?from=2026-11-04T18:23:39.317Z&domain=config&limit=500",
+    "url": "http://127.0.0.1:18080/api/v1/audit/entries?from=2026-11-04T18:44:45.662Z&domain=config&limit=500",
     "status": 200,
     "tests_passed": 4,
     "tests_failed": 0,

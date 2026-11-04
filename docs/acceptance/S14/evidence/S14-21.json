@@ -2,28 +2,28 @@
   "request": {
     "method": "POST",
     "url": "http://127.0.0.1:18080/api/v1/records/incident",
-    "body": "{\n  \"data\": {\n    \"short_description\": \"S14 23e70a4a tenant B only\"\n  }\n}"
+    "body": "{\n  \"data\": {\n    \"short_description\": \"S14 aeeb1b63 tenant B only\"\n  }\n}"
   },
   "response": {
     "status": 201,
     "headers": {
       "content-type": "application/json",
       "etag": "W/\"1\"",
-      "location": "/api/v1/records/incident/01a1a7cd-7d55-7c32-b923-782e26803075",
-      "x-request-id": "f52dce03a230c873b20b59d20807fc07"
+      "location": "/api/v1/records/incident/01a1a7e0-d034-7615-ab6b-46082af1e875",
+      "x-request-id": "381285d96f19af1d40ffd44d14b70769"
     },
     "body": {
-      "created_at": "2026-11-04T18:23:44.469799Z",
+      "created_at": "2026-11-04T18:44:50.868398Z",
       "data": {
         "priority": 3,
-        "short_description": "S14 23e70a4a tenant B only",
+        "short_description": "S14 aeeb1b63 tenant B only",
         "state": "new"
       },
-      "id": "01a1a7cd-7d55-7c32-b923-782e26803075",
+      "id": "01a1a7e0-d034-7615-ab6b-46082af1e875",
       "number": "INC0000001",
       "schema_version": 1,
       "state": "new",
-      "updated_at": "2026-11-04T18:23:44.469799Z",
+      "updated_at": "2026-11-04T18:44:50.868398Z",
       "version": 1
     }
   }

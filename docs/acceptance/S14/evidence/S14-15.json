@@ -8,21 +8,21 @@
     "status": 200,
     "headers": {
       "content-type": "application/json",
-      "x-request-id": "3d18c61f612010c33cf2f6f684a83e03"
+      "x-request-id": "b94d5573658779d84f7cbcaf0f2e232e"
     },
     "body": {
       "group_paths": [
         {
-          "id": "7f075290-5d28-4d40-9906-5544568128c4",
+          "id": "0dc327e1-d1a1-4ebb-9488-dd58ef9cd025",
           "path": "/admins"
         }
       ],
       "groups": [
-        "7f075290-5d28-4d40-9906-5544568128c4"
+        "0dc327e1-d1a1-4ebb-9488-dd58ef9cd025"
       ],
       "idp_alias": "",
       "tenant_id": "00000000-0000-4000-8000-0000000000a1",
-      "user_id": "821e7f75-3a0e-4bc3-91f7-dd0028ecb35b"
+      "user_id": "fbda7304-33a4-4dac-af38-33996cc5d6e3"
     }
   }
 }

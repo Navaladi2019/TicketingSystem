@@ -2,7 +2,7 @@
 
 Kit task TICK-437 (P5-20). Story branch `TICK-419/one-audit-log`, verified at `71ac70b` (code) on 2026-11-04. ADR-004, PLAN-005, grooming TICK-449.
 
-**Result: PASS.** All four acceptance steps pass on a fresh stack. The final run used Bruno folder **S14 audit** (`bruno/S14A/`): 21 requests, 73 of 73 tests passed. The reader folder **S14 audit timeline** (`bruno/S14/`, TICK-435) also passed on the same stack: 10 requests, 28 of 28 tests. CI runs the folder in the stack case `s14_acceptance`.
+**Result: PASS.** All four acceptance steps pass on a fresh stack. The final run used Bruno folder **S14 audit** (`bruno/S14A/`): 21 requests, 76 of 76 tests passed. The reader folder **S14 audit timeline** (`bruno/S14/`, TICK-435) also passed on the same stack: 10 requests, 28 of 28 tests. CI runs the folder in the stack case `s14_acceptance`.
 
 ## What you can now do
 
@@ -57,7 +57,7 @@ Evidence is in `evidence/`: one JSON file per request from S14.15 on, holding th
 | # | Criterion | Result | Bruno requests (folder S14A) | Evidence |
 |---|---|---|---|---|
 | AC1 (CI-A11) | The admin publishes a new incident-type version and an agent creates and updates an incident. As the auditor, `GET /api/v1/audit/entries` shows the publish and both record changes on one timeline, with actor, source and diff | ✅ | S14.17–S14.23 | `S14-22.json`: newest first, update (v1→2, `replace /priority 1`), create (v1, `add ""`), publish (v2→3, `add /properties/impact_s14_<run>`). Each has `source: user`. The publish is by the admin and the record entries are by Alice. The record entries' `entity_definition_id` is the publish's `subject_id`. `S14-23.json`: the admin sees the same order. |
-| AC2 | Entity-type versions published before this release appear as backfilled entries | ✅ | S14.24 | `S14-24.json`: three `create` v1 entries (`actor_system: onboarding`, `source: onboarding`, no diff, `content_sha256`). One `publish` v2 by the admin (`source: user`), published before the upgrade. All have `backfilled: true`; S14.18's live publish is `false`. `db-backfill-per-tenant.txt`: tenant A has 4 pre-upgrade versions and 4 backfilled entries, tenant B 3 and 3, each matching a version of the same tenant. |
+| AC2 | Entity-type versions published before this release appear as backfilled entries | ✅ | S14.24 | `S14-24.json`: three `create` v1 entries (`actor_system: onboarding`, `source: onboarding`, no diff). S14.24 finds each seeded type by its `content_sha256`, the SHA-256 of the template's schema bytes, so other types on a shared stack do not matter. One `publish` v2 by the admin (`source: user`), published before the upgrade. All have `backfilled: true`; S14.18's live publish is `false`. `db-backfill-per-tenant.txt`: tenant A has 4 pre-upgrade versions and 4 backfilled entries, tenant B 3 and 3, each matching a version of the same tenant. |
 | AC3 | `agent@tenant-a` gets 403 on `/api/v1/audit/entries` but sees the incident's history; `agent@tenant-b` sees nothing of tenant A | ✅ | S14.25–S14.29, S14.21–S14.22 | `S14-25.json`: Alice 403 `forbidden`. `S14-26.json`: Alice reads the history (update, create, by her). `S14-27.json`: Bob 403. `S14-29.json`: Bob reading the history of A's incident gets a 404 byte-identical to the 404 for an id that exists nowhere (`S14-28.json`). |
 | AC4 | A publish whose schema puts a secret value in the content is refused with `config_secret_in_content`, naming the path only | ✅ | S14.30–S14.31 | `S14-30.json`: 422, `errors[0].pointer` is `/definition/schema/properties/api_token_s14_<run>/default`, and the value appears nowhere in the body. `S14-31.json`: the type is still at S14.18's version and no config entry was written. |
 
@@ -100,8 +100,9 @@ Folder `S14` stays read-only, so `s14_audit`'s "reading the timeline writes no a
 |---|---|---|---|---|---|
 | 1, 17:41Z | Same steps as `upgrade-setup.sh`, by hand | S14 with the story steps appended (first layout) | 29 | 95/95 | PASS |
 | 2, 17:45Z | `upgrade-setup.sh` | same | 29 | 95/95 | PASS |
-| 3, 18:23Z | `upgrade-setup.sh` | S14 (reader), then S14A (story, final layout) | 10 + 21 | 28/28 + 73/73 | PASS; this run's evidence is in `evidence/` |
+| 3, 18:23Z | `upgrade-setup.sh` | S14 (reader), then S14A (story) | 10 + 21 | 28/28 + 73/73 | PASS |
+| 4, 18:44Z | `upgrade-setup.sh` | S14, then S14A (final: S14.24 finds the seeded types by template hash) | 10 + 21 | 28/28 + 76/76 | PASS; this run's evidence is in `evidence/` |
 
-The first layout failed CI run 41883058627: its story steps write audit entries, which broke `s14_audit`'s read-only check, and its backfill step had no pre-release versions on CI's stack. Both are fixed by the S14A folder and the `s14_acceptance` case.
+The first layout failed CI run 41883058627: its story steps write audit entries, which broke `s14_audit`'s read-only check, and its backfill step had no pre-release versions on CI's stack. Both are fixed by the S14A folder and the `s14_acceptance` case. CI run 41887273285 then failed S14.24 alone, because it expected exactly three backfilled creates and tenant A on CI's shared stack has a fourth type written by another case. S14.24 now matches the seeded types by content hash.
 
 Bruno CLI 4.3.0 (`api-test.sh`), Node.js 22, Docker Desktop, Git Bash on Windows 11. The full reports (`docs/acceptance/guide/reports/`) are not published: they hold dev-only passwords and short-lived tokens.
