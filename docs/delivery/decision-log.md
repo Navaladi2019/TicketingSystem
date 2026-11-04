@@ -6,6 +6,7 @@ Delivery decisions that change a task's contract, newest first.
 
 <!-- docindex:start -->
 
+- [2026-11-04: PLAN-005-E5 drafted: ADR-004-E5 lands as seven tasks in S14; step (ii) waits for the tombstoning sync; P5-13c attaches last](decisions/2026-11-04-plan-005-e5-adr-004-e5.md)
 - [2026-11-03: PLAN-005-E3 drafted: ADR-004-E3 lands as two postgres-dev tasks in S14; the clause ships as a new migration; TICK-452 waits on both](decisions/2026-11-03-plan-005-e3-adr-004-e3.md)
 - [2026-11-02: PLAN-005 groomed: 30 tasks, D-3-13 revised, `diff_truncated` inside the hash, v0 dropped in P5-17](decisions/2026-11-02-plan-005-grooming.md)
 - [2026-11-02: PLAN-005 approved; S14 and S15 move S10 to S12 back about 4 to 5 weeks](decisions/2026-11-02-plan-005-approved.md)
