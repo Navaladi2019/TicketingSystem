@@ -2,16 +2,20 @@
 
 package dbtest
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
-// Adversarial (Security review of P3-09, TICK-353): the ON DELETE SET NULL
-// action on records_assignment_group_fkey runs as the table owner, so RLS
-// does not limit it; only the composite key does. Tenants A and B each hold
-// a group with the same UUID, and each tenant's pipeline record names it.
-// Group sync deleting tenant A's group must clear only tenant A's record.
-// Tenant B's record must keep its group. A single-column FK on
-// assignment_group_id would clear B's record as well.
-func TestP309GroupDeleteSetNullStaysInTenant(t *testing.T) {
+// Adversarial (Security review of P3-09, TICK-353; rewritten for ADR-004-E5,
+// TICK-538). Tenants A and B each hold a group with the same UUID, and each
+// tenant's pipeline record names it. Group sync running for tenant A must
+// reach only tenant A's group: naming tenant B's group reaches nothing, and
+// neither record changes. Sync tombstones, never deletes (it holds no DELETE
+// on groups), and records_assignment_group_fkey is ON DELETE RESTRICT, so no
+// FK action can rewrite either tenant's record; even the owner's delete of
+// the shared id in tenant A stops at the composite key's RESTRICT.
+func TestP309GroupTombstoneStaysInTenant(t *testing.T) {
 	migratedPlatform(t)
 	super := superNava(t)
 	seedTenants(t, super, []string{tenantA, tenantB}, nil)
@@ -26,25 +30,29 @@ func TestP309GroupDeleteSetNullStaysInTenant(t *testing.T) {
 	sync := asRole(t, "nava_groupsync")
 
 	// Attack first: group sync running for tenant A names tenant B's group.
-	// RLS hides B's row, so the delete reaches nothing.
-	if n, err := execIn(sync, tenantA, "DELETE FROM groups WHERE tenant_id = $1 AND id = $2", tenantB, shared); err != nil || n != 0 {
-		t.Fatalf("tenant A's sync deletes tenant B's group: %d rows, %v; want 0, nil", n, err)
+	// RLS hides B's row, so the tombstone reaches nothing.
+	if n, err := execIn(sync, tenantA, "UPDATE groups SET deleted_at = now() WHERE tenant_id = $1 AND id = $2", tenantB, shared); err != nil || n != 0 {
+		t.Fatalf("tenant A's sync tombstones tenant B's group: %d rows, %v; want 0, nil", n, err)
 	}
-	if n, err := execIn(sync, tenantA, "DELETE FROM groups WHERE tenant_id = $1 AND id = $2", tenantA, shared); err != nil || n != 1 {
-		t.Fatalf("tenant A's sync deletes its own group: %d rows, %v; want 1, nil", n, err)
+	if n, err := execIn(sync, tenantA, "UPDATE groups SET deleted_at = now() WHERE tenant_id = $1 AND id = $2", tenantA, shared); err != nil || n != 1 {
+		t.Fatalf("tenant A's sync tombstones its own group: %d rows, %v; want 1, nil", n, err)
 	}
+	// The owner bypasses RLS; the composite key still limits RESTRICT to
+	// tenant A's record, which names the group, so the delete fails.
+	_, err := super.Exec(context.Background(), "DELETE FROM groups WHERE tenant_id = $1 AND id = $2", tenantA, shared)
+	wantSQLState(t, "owner deletes tenant A's group that tenant A's record names", err, "23503")
 
 	group := func(tid string) string {
 		return queryString(t, super, "SELECT coalesce(assignment_group_id::text, 'null') FROM records WHERE tenant_id = $1 AND id = $2",
 			tid, pipelineRecord(tid))
 	}
-	if got := group(tenantA); got != "null" {
-		t.Errorf("tenant A's record group after its group was deleted = %s, want null", got)
+	for _, tid := range []string{tenantA, tenantB} {
+		if got := group(tid); got != shared {
+			t.Errorf("record group of %s after tenant A's group was tombstoned = %s, want %s (unchanged)", tid, got, shared)
+		}
 	}
-	if got := group(tenantB); got != shared {
-		t.Errorf("tenant B's record group after tenant A's group was deleted = %s, want %s (unchanged)", got, shared)
-	}
-	if got := queryString(t, super, "SELECT count(*)::text FROM groups WHERE tenant_id = $1 AND id = $2", tenantB, shared); got != "1" {
-		t.Errorf("tenant B's group rows = %s, want 1", got)
+	if got := queryString(t, super, "SELECT string_agg(tenant_id || ':' || (deleted_at IS NOT NULL)::text, ',' ORDER BY tenant_id = $1 DESC) FROM groups WHERE id = $2",
+		tenantA, shared); got != tenantA+":true,"+tenantB+":false" {
+		t.Errorf("shared groups (tenant:tombstoned) = %s, want %s:true,%s:false", got, tenantA, tenantB)
 	}
 }

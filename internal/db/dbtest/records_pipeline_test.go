@@ -298,27 +298,6 @@ func TestP309NumberingUpsertAndUniqueness(t *testing.T) {
 	}
 }
 
-// Group sync deletes a group Keycloak no longer has. A record naming it
-// must not block that delete (it would stall the tenant's sync,
-// deprovisioning included): the record's group is cleared, its tenant_id
-// kept.
-func TestP309GroupDeleteClearsRecordGroup(t *testing.T) {
-	migratedPlatform(t)
-	super := superNava(t)
-	seedTenants(t, super, []string{tenantA}, nil)
-	seedPipeline(t, super, tenantA)
-	sync := asRole(t, "nava_groupsync")
-
-	n, err := execIn(sync, tenantA, "DELETE FROM groups WHERE tenant_id = $1 AND id = ANY($2::uuid[])", tenantA, []string{tenantA})
-	if err != nil || n != 1 {
-		t.Fatalf("group sync deletes a group a record names: %d rows, %v; want 1, nil", n, err)
-	}
-	if got := queryString(t, super, "SELECT tenant_id || ':' || coalesce(assignment_group_id::text, 'null') FROM records WHERE id = $1",
-		pipelineRecord(tenantA)); got != tenantA+":null" {
-		t.Errorf("record after its group was deleted = %s, want %s:null", got, tenantA)
-	}
-}
-
 // Acceptance (P3-01 verdict condition): on a fresh cluster nava_app plans
 // with custom plans, from db-roles alone, and no other role's plan mode
 // changes. Drift, role-wide or in one database, is converged and logged,

@@ -49,13 +49,14 @@ while `deleted_at IS NULL`. So, for every role including the owner:
 | Insert a member into a tombstoned group | `23503` |
 | Set `deleted_at` on a group that still has a member | `23503` |
 | Insert a member with `live = false` | `23514` |
-| `DELETE FROM groups` with members (until step (ii)) | Cascades as before; the NO ACTION check runs after the cascade |
+| `DELETE FROM groups` as `nava_groupsync` (after step (ii), TICK-538) | `42501`: no DELETE grant, no `groups_delete` policy |
+| Owner `DELETE` of a group a record names (after step (ii)) | `23503` (`records_assignment_group_fkey`, `ON DELETE RESTRICT`) |
 
 ## Grants and policies (nava_groupsync)
 
 | Object | Change |
 |---|---|
-| `groups` | `UPDATE (path, deleted_at)`. Never `id` or `keycloak_group_id`. DELETE stays until step (ii), TICK-538. |
+| `groups` | `UPDATE (path, deleted_at)`. Never `id` or `keycloak_group_id`. DELETE and `groups_delete` removed in step (ii-a), TICK-538. |
 | `tenant_admin_group` | `DELETE`, under `tenant_admin_group_delete_tombstoned` |
 | `tenant_auditor_group` | `SELECT (tenant_id, group_id)` and `DELETE`; added to `tenant_auditor_group_select`'s `TO` list (I1); DELETE under `tenant_auditor_group_delete_tombstoned` |
 

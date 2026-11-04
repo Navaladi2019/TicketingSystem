@@ -29,9 +29,10 @@
 # Adding, removing or exempting a table is a security-review change (D-P10).
 
 audited:
-  # held: TICK-529. P5-13c (TICK-530) attaches the trigger once the RFC on
-  # the groups FK ON DELETE SET NULL is decided (D-5-14); until then the
-  # P3-13 architecture test (internal/records/arch_test.go) is the guard.
+  # held: TICK-529. P5-13c (TICK-530) attaches the trigger; ADR-004-E5 made
+  # the groups FK ON DELETE RESTRICT (TICK-538, R29), so no FK action
+  # rewrites records. Until the attach the P3-13 architecture test
+  # (internal/records/arch_test.go) is the guard.
   # The columns are every column a writer may UPDATE (db/grants.yaml).
   records:
     writer_roles: [nava_app, nava_worker]
