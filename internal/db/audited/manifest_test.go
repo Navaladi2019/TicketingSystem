@@ -43,14 +43,34 @@ func TestLoadRealManifest(t *testing.T) {
 			}
 		}
 	}
-	// nava_app is also the reader (P5-17, R8): db/grants.yaml lists its read
-	// columns, diff and diff_salt included, and the merge adds the commit-check
-	// columns to them. nava_onboard, a writer only, gets exactly the latter.
+	// ADR-004-A1 A1-2 (inverted from P5-17): nava_app reads every reader
+	// column but diff and diff_salt, which only nava_audit_reader holds
+	// (A1-1). The merge still adds the commit-check columns to nava_app's.
 	got := m.Roles["nava_app"].Tables[audited.LogTable]["SELECT"]
-	for _, c := range append(audited.SelectColumns(), "diff", "diff_salt") {
+	for _, c := range audited.SelectColumns() {
 		if !slices.Contains(got, c) {
 			t.Errorf("nava_app SELECT on audit_log lacks %s: %v", c, got)
 		}
+	}
+	for _, name := range m.RoleNames() {
+		sel := m.Roles[name].Tables[audited.LogTable]["SELECT"]
+		holds := slices.Contains(sel, "diff") || slices.Contains(sel, "diff_salt")
+		if want := name == "nava_audit_reader"; holds != want {
+			t.Errorf("%s SELECT on audit_log names diff or diff_salt = %v, want %v (A1-1, A1-2): %v", name, holds, want, sel)
+		}
+	}
+	reader := m.Roles["nava_audit_reader"]
+	if !sameSet(reader.Tables[audited.LogTable]["SELECT"], audited.ReaderColumns()) || len(reader.Tables[audited.LogTable]) != 1 {
+		t.Errorf("nava_audit_reader on audit_log = %v, want SELECT on exactly the A1-1 columns", reader.Tables[audited.LogTable])
+	}
+	if slices.Contains(audited.ReaderColumns(), "txid") {
+		t.Errorf("the A1-1 reader columns name txid")
+	}
+	if got := reader.Tables["entity_definition_versions"]; len(got) != 1 || !sameSet(got["SELECT"], []string{"tenant_id", "definition_id", "schema"}) {
+		t.Errorf("nava_audit_reader on entity_definition_versions = %v, want SELECT (tenant_id, definition_id, schema)", got)
+	}
+	if len(reader.Tables) != 2 || len(reader.Functions) != 0 || !reader.PgBouncerLogin || !slices.Equal(reader.Attributes, []string{"LOGIN"}) {
+		t.Errorf("nava_audit_reader = %+v, want LOGIN, pgbouncer_login and two tables only", reader)
 	}
 	if got := m.Roles["nava_onboard"].Tables[audited.LogTable]["SELECT"]; !sameSet(got, audited.SelectColumns()) {
 		t.Errorf("nava_onboard SELECT on audit_log = %v, want exactly the commit-check columns", got)
@@ -62,7 +82,7 @@ func TestLoadRealManifest(t *testing.T) {
 	if w := raw.Roles["nava_worker"].Tables[audited.LogTable]; len(m.Roles["nava_worker"].Tables[audited.LogTable]["SELECT"]) != len(w["SELECT"]) {
 		t.Errorf("nava_worker's sealer SELECT changed in the merge")
 	}
-	for _, r := range []string{"nava_groupsync", "nava_relay", "nava_purge", "nava_erasure"} {
+	for _, r := range []string{"nava_groupsync", "nava_relay", "nava_purge", "nava_erasure", "nava_audit_reader"} {
 		if !reflect.DeepEqual(m.Roles[r], raw.Roles[r]) {
 			t.Errorf("%s writes no audited table, but the merge changed its grants", r)
 		}

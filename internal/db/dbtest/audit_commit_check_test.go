@@ -269,6 +269,33 @@ func TestP511CatalogueCIA3(t *testing.T) {
 				" FOREIGN KEY (tenant_id, assignment_group_id) REFERENCES groups (tenant_id, id) ON DELETE SET NULL (assignment_group_id) NOT VALID",
 		}, func() *audited.Manifest { return withTestTable(nil) },
 			"audited table records: foreign key records_assignment_group_fkey has ON DELETE SET NULL ON UPDATE NO ACTION; R29"},
+		// ADR-004-A1 A1-9: only nava_audit_reader reads diff and diff_salt,
+		// on audit_log and on every pg_inherits child; no runtime role holds
+		// anything directly on a partition; audit_log_select is TO exactly
+		// nava_worker, nava_erasure and nava_audit_reader.
+		{"A1-9: nava_app holds SELECT (diff)", []string{"GRANT SELECT (diff) ON audit_log TO nava_app"},
+			func() *audited.Manifest { return withTestTable(nil) }, "runtime role nava_app holds SELECT on public.audit_log.diff"},
+		{"A1-9: nava_worker holds SELECT (diff_salt)", []string{"GRANT SELECT (diff_salt) ON audit_log TO nava_worker"},
+			func() *audited.Manifest { return withTestTable(nil) }, "runtime role nava_worker holds SELECT on public.audit_log.diff_salt"},
+		{"A1-9: table-level SELECT reaches diff", []string{"GRANT SELECT ON audit_log TO nava_groupsync"},
+			func() *audited.Manifest { return withTestTable(nil) }, "runtime role nava_groupsync holds SELECT on public.audit_log.diff"},
+		{"A1-9: diff on the DEFAULT partition", []string{"GRANT SELECT (diff) ON audit_log_default TO nava_erasure"},
+			func() *audited.Manifest { return withTestTable(nil) }, "runtime role nava_erasure holds SELECT on public.audit_log_default.diff"},
+		{"A1-9: diff on a nested partition", []string{
+			"CREATE TABLE p511_sub PARTITION OF audit_log FOR VALUES FROM ('2001-01-01') TO ('2001-02-01') PARTITION BY RANGE (occurred_at)",
+			"CREATE TABLE p511_leaf PARTITION OF p511_sub FOR VALUES FROM ('2001-01-01') TO ('2001-02-01')",
+			"GRANT SELECT (diff_salt) ON p511_leaf TO nava_relay",
+		}, func() *audited.Manifest { return withTestTable(nil) }, "runtime role nava_relay holds SELECT on public.p511_leaf.diff_salt"},
+		{"A1-9: the reader's SELECT on a partition", []string{"GRANT SELECT (tenant_id) ON audit_log_default TO nava_audit_reader"},
+			func() *audited.Manifest { return withTestTable(nil) }, "runtime role nava_audit_reader holds a privilege directly on partition public.audit_log_default"},
+		{"A1-9: INSERT on a partition", []string{"GRANT INSERT ON audit_log_default TO nava_app"},
+			func() *audited.Manifest { return withTestTable(nil) }, "runtime role nava_app holds a privilege directly on partition public.audit_log_default"},
+		{"A1-9: nava_app back in audit_log_select", []string{"ALTER POLICY audit_log_select ON audit_log TO nava_worker, nava_erasure, nava_audit_reader, nava_app"},
+			func() *audited.Manifest { return withTestTable(nil) }, "policy audit_log_select on audit_log is TO [nava_app nava_audit_reader nava_erasure nava_worker], want exactly [nava_audit_reader nava_erasure nava_worker]"},
+		{"A1-9: the reader left out of audit_log_select", []string{"ALTER POLICY audit_log_select ON audit_log TO nava_worker, nava_erasure"},
+			func() *audited.Manifest { return withTestTable(nil) }, "policy audit_log_select on audit_log is TO [nava_erasure nava_worker], want exactly [nava_audit_reader nava_erasure nava_worker]"},
+		{"A1-9: no audit_log_select", []string{"DROP POLICY audit_log_select ON audit_log"},
+			func() *audited.Manifest { return withTestTable(nil) }, "policy audit_log_select on audit_log is TO [], want exactly"},
 		{"leftover migrator policy (R26.3)", []string{
 			"CREATE POLICY p511_migrator ON tenants FOR SELECT TO nava_migrator USING (true)",
 		}, func() *audited.Manifest { return withTestTable(nil) }, "policy public.tenants.p511_migrator is left over for nava_migrator"},

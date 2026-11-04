@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -30,6 +31,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Navaladi2019/TicketingSystem/db"
+	"github.com/Navaladi2019/TicketingSystem/internal/audit/read"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/audited"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/catalog"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/migrate"
@@ -146,6 +148,25 @@ func etCluster(t *testing.T) (*pgx.Conn, *pgxpool.Pool) {
 	return super, pool
 }
 
+// etAuditReader opens the audit reader's own pool as nava-core does
+// (read.OpenPool with a DSN, ADR-004-A1 A1-5, A1-6): nava_audit_reader on the
+// platform database app's pool uses.
+func etAuditReader(t *testing.T, app *pgxpool.Pool) *read.Pool {
+	t.Helper()
+	u, err := url.Parse(os.Getenv("NAVA_TEST_PG_URL"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.User = url.UserPassword("nava_audit_reader", etPassword("nava_audit_reader"))
+	u.Path = "/" + app.Config().ConnConfig.Database
+	p, err := read.OpenPool(t.Context(), u.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(p.Close)
+	return p
+}
+
 // etTenant is a seeded tenant: an admin (member of the group
 // tenant_admin_group names), a plain user, and a user in a group that is
 // called admins but is not the tenant's admin group.
@@ -227,8 +248,9 @@ func newETEnvWith(t *testing.T, extra ...server.Option) *etEnv {
 	lim := &spyLimiter{}
 	lim.reset(true)
 	logs := &etLogBuf{}
+	reader := etAuditReader(t, pool)
 	h, err := server.NewHandler(slog.New(slog.NewTextHandler(testLogWriter{t, logs}, &slog.HandlerOptions{Level: slog.LevelWarn})), tel, tokens, stubPaths{},
-		append([]server.Option{server.WithLimiter(lim), server.WithPool(pool), server.WithCursors(kr)}, extra...)...)
+		append([]server.Option{server.WithLimiter(lim), server.WithPool(pool), server.WithAuditReader(reader), server.WithCursors(kr)}, extra...)...)
 	if err != nil {
 		t.Fatal(err)
 	}

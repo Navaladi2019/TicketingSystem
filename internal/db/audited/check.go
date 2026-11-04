@@ -39,7 +39,11 @@ import (
 //   - a writer role that cannot run the check or append: SELECT on a probe
 //     column, INSERT on an R10 column, or an audit_log SELECT or INSERT
 //     policy for it, missing;
-//   - any policy left over for the owner (nava_migrator), R26.3.
+//   - any policy left over for the owner (nava_migrator), R26.3;
+//   - ADR-004-A1 A1-9: a runtime role but ReaderRole holding SELECT on
+//     DiffColumns of audit_log or of any pg_inherits descendant of it; a
+//     runtime role holding any privilege directly on a partition; and a
+//     SelectPolicy role list that is not exactly SelectPolicyRoles.
 //
 // The policies' predicates are the catalogue gate's business
 // (catalog.PolicyProblems), which pins the generated ones too. An error
@@ -118,6 +122,14 @@ func (a *Manifest) Check(ctx context.Context, q catalog.Querier, m *grants.Manif
 		bad("%s", s)
 	}
 	p, err = a.checkWriters(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	for _, s := range p {
+		bad("%s", s)
+	}
+
+	p, err = checkDiffReaders(ctx, q, runtime)
 	if err != nil {
 		return nil, err
 	}
@@ -464,6 +476,57 @@ func (a *Manifest) checkWriters(ctx context.Context, q catalog.Querier) ([]strin
 		for _, m := range missing {
 			out = append(out, fmt.Sprintf("writer role %s cannot run the commit check or append: no %s on %s", w, m, log))
 		}
+	}
+	return out, nil
+}
+
+// checkDiffReaders is A1-9. Runtime roles are every manifest role but the
+// owner, which owns audit_log and so holds every privilege. A partition
+// inherits no grant from its parent, so a grant on one is reported even when
+// it names no diff column: queried directly, a partition is outside the
+// parent's grants and the reader's pool alike.
+func checkDiffReaders(ctx context.Context, q catalog.Querier, runtime []string) ([]string, error) {
+	var out []string
+	readers, err := strs(ctx, q, `WITH RECURSIVE tree(oid) AS (
+			SELECT pg_catalog.to_regclass($1)::oid
+			UNION SELECT i.inhrelid FROM pg_catalog.pg_inherits i JOIN tree ON i.inhparent = tree.oid)
+		SELECT 'runtime role ' || r || ' holds SELECT on ' || n.nspname || '.' || c.relname || '.' || a.attname
+		       || '; only ' || $4 || ' may read it (ADR-004-A1 A1-9)'
+		FROM tree JOIN pg_catalog.pg_class c ON c.oid = tree.oid
+		JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+		JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid AND a.attname = ANY ($3::text[]) AND NOT a.attisdropped
+		CROSS JOIN unnest($2::text[]) r
+		WHERE r <> $4 AND pg_catalog.has_column_privilege(r, c.oid, a.attnum, 'SELECT')
+		ORDER BY 1`, "public."+LogTable, runtime, DiffColumns(), ReaderRole)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, readers...)
+	direct, err := strs(ctx, q, `SELECT 'runtime role ' || r || ' holds a privilege directly on partition ' || n.nspname || '.' || c.relname
+		       || ' (ADR-004-A1 A1-9)'
+		FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+		CROSS JOIN unnest($1::text[]) r
+		WHERE c.relispartition
+		  AND (pg_catalog.has_table_privilege(r, c.oid, 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
+		       OR pg_catalog.has_any_column_privilege(r, c.oid, 'SELECT, INSERT, UPDATE, REFERENCES'))
+		ORDER BY 1`, runtime)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, direct...)
+	rows, err := q.Query(ctx, `SELECT coalesce((SELECT ARRAY(SELECT CASE WHEN r = 0 THEN 'public' ELSE pg_catalog.pg_get_userbyid(r)::text END
+		FROM unnest(p.polroles) r ORDER BY 1)
+		FROM pg_catalog.pg_policy p WHERE p.polrelid = pg_catalog.to_regclass($1) AND p.polname = $2), '{}'::text[])`,
+		"public."+LogTable, SelectPolicy)
+	if err != nil {
+		return nil, err
+	}
+	got, err := pgx.CollectExactlyOneRow(rows, pgx.RowTo[[]string])
+	if err != nil {
+		return nil, err
+	}
+	if want := SelectPolicyRoles(); !slices.Equal(got, want) {
+		out = append(out, fmt.Sprintf("policy %s on %s is TO %v, want exactly %v (ADR-004-A1 A1-3, A1-9)", SelectPolicy, LogTable, got, want))
 	}
 	return out, nil
 }

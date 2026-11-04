@@ -71,15 +71,16 @@ roles:
                  updated_at, data, causation_origin_id, causation_depth]
       # audit_log: as a writer of an audited table, its INSERT on the R10
       # columns and SELECT on the commit-check columns are generated from
-      # db/audited-tables.yaml (R12, P5-11). The list below is the reader's
-      # (P5-17, R8): every column the audit read endpoints return, diff and
-      # diff_salt included, behind audit.read and the masker. Never the seal
-      # columns' UPDATE.
+      # db/audited-tables.yaml (R12, P5-11). The list below is every column
+      # the audit read endpoints return (P5-17, R8) but diff and diff_salt:
+      # since ADR-004-A1 (A1-2) only nava_audit_reader reads those, so any
+      # nava_app query that names them gets 42501. Never the seal columns'
+      # UPDATE.
       audit_log:
         SELECT: [tenant_id, id, occurred_at, txid, domain, action, subject_type, subject_id, entity_definition_id,
                  version_before, version_after, actor_principal_id, actor_system, source, source_ref,
                  change_set_id, causation_id, causation_depth, request_id, backfilled, content_sha256,
-                 diff_sha256, diff_truncated, diff, diff_salt, seq, sealed_at, erased_at]
+                 diff_sha256, diff_truncated, seq, sealed_at, erased_at]
       # R14: the export lease and chain:reseed's repoint. Never seq,
       # entry_hash or version.
       audit_chain_head:
@@ -113,6 +114,31 @@ roles:
       entity_definitions: { SELECT: [], INSERT: [], UPDATE: [current_version, updated_at] }
       entity_definition_versions: { SELECT: [], INSERT: [] }
     functions: {}
+
+  # ADR-004-A1 A1-1 (TICK-558): the masking reader's own login, held only by
+  # internal/audit/read's pool (read.OpenPool, NAVA_AUDIT_READER_DATABASE_URL,
+  # nava-core only). The one runtime role that reads audit_log.diff and
+  # diff_salt; never txid. It reads entity_definition_versions for the
+  # masker's secret pointers. A member of nothing, owns nothing, writes
+  # nothing, nothing on records or on any partition. Its rows come from
+  # audit_log_select and entity_definition_versions_select under the
+  # canonical predicate (20261104133000_audit_reader_policies.sql). PgBouncer
+  # caps it at pool_size=5 (A1-8).
+  nava_audit_reader:
+    attributes: [LOGIN]
+    pgbouncer_login: true
+    database: [CONNECT]
+    schemas: { public: [USAGE] }
+    tables:
+      audit_log:
+        SELECT: [tenant_id, id, occurred_at, domain, action, subject_type, subject_id, entity_definition_id,
+                 version_before, version_after, actor_principal_id, actor_system, source, source_ref,
+                 change_set_id, causation_id, causation_depth, request_id, backfilled, content_sha256,
+                 diff_sha256, diff_truncated, diff, diff_salt, seq, sealed_at, erased_at]
+      # tenant_id as well as the masker's two columns: CI-2 (ADR-001) needs every
+      # role that reads a tenant table's rows to read its tenant_id, so a row of
+      # another tenant can be told apart.
+      entity_definition_versions: { SELECT: [tenant_id, definition_id, schema] }
 
   # As nava_app, without idempotency_keys or tenants; the final activity
   # closes workflow_ref.

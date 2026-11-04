@@ -72,6 +72,32 @@ func ProbeColumns() []string {
 	return []string{"tenant_id", "occurred_at", "txid", "subject_type", "subject_id"}
 }
 
+// ReaderRole is the one runtime role that reads audit_log.diff and diff_salt
+// (ADR-004-A1 A1-1), through internal/audit/read's own pool.
+const ReaderRole = "nava_audit_reader"
+
+// DiffColumns are the raw-diff columns only ReaderRole may SELECT (A1-9).
+func DiffColumns() []string { return []string{"diff", "diff_salt"} }
+
+// ReaderColumns are ReaderRole's SELECT columns on audit_log (A1-1): every
+// column the reader returns, diff and diff_salt included, never txid.
+func ReaderColumns() []string {
+	return []string{
+		"tenant_id", "id", "occurred_at", "domain", "action", "subject_type", "subject_id", "entity_definition_id",
+		"version_before", "version_after", "actor_principal_id", "actor_system", "source", "source_ref",
+		"change_set_id", "causation_id", "causation_depth", "request_id", "backfilled", "content_sha256",
+		"diff_sha256", "diff_truncated", "diff", "diff_salt", "seq", "sealed_at", "erased_at",
+	}
+}
+
+// SelectPolicy is audit_log's hand-written SELECT policy, and SelectPolicyRoles
+// exactly the roles it is TO (A1-3, A1-9). nava_app is not one: its rows come
+// from the generated audit_log_writer_select.
+const SelectPolicy = "audit_log_select"
+
+// SelectPolicyRoles is the role list of SelectPolicy, sorted.
+func SelectPolicyRoles() []string { return []string{ReaderRole, "nava_erasure", "nava_worker"} }
+
 var identRe = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
 // Parse decodes and validates a manifest against the grant manifest m: every

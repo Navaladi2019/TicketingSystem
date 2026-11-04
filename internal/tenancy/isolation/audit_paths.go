@@ -18,7 +18,6 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/Navaladi2019/TicketingSystem/db"
-	"github.com/Navaladi2019/TicketingSystem/internal/audit/read"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/audited"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	platformdb "github.com/Navaladi2019/TicketingSystem/internal/platform/db"
@@ -99,9 +98,9 @@ func auditPaths() []Path {
 			"SELECT tenant_id FROM audit_log WHERE id = $1", auditEntryB2),
 		sql("audit_log: the erasure job reads tenant B's entry by its full key", "nava_erasure", OwnRowsOnly,
 			"SELECT tenant_id FROM audit_log WHERE tenant_id = $1 AND id = $2", TenantB, auditEntryB1),
-		// The diff and the salt are read only through read.Reader (TICK-541):
-		// auditDirectSQLEveryRole asks the reader, unmasked, for tenant A's
-		// entry from tenant B's transaction, tenant A's id forged.
+		// The diff and the salt: only nava_audit_reader may read them
+		// (ADR-004-A1); audit_reader_paths.go probes every other role
+		// (diff-denied) and the reader's tenant wall (reader-scoped).
 		sql("audit_log: the sealer seals tenant B's entry", "nava_worker", Denied,
 			`UPDATE audit_log SET seq = 1, prev_hash = sha256('p'), entry_hash = sha256('e'), sealed_at = now()
 			 WHERE tenant_id = $1 AND id = $2`, TenantB, auditEntryB2),
@@ -340,47 +339,16 @@ func auditProbes() []auditProbe {
 	}
 }
 
-// auditReaderColumns are the audit_log columns read.Reader selects
-// (internal/audit/read columns), diff and diff_salt included. A role with
-// SELECT on all of them reads through the reader; one without gets 42501.
-func auditReaderColumns() []string {
-	return []string{"tenant_id", "id", "occurred_at", "domain", "action", "subject_type", "subject_id",
-		"entity_definition_id", "version_before", "version_after", "actor_principal_id", "actor_system", "source",
-		"source_ref", "change_set_id", "causation_id", "causation_depth", "request_id", "backfilled", "content_sha256",
-		"diff_sha256", "diff_truncated", "seq", "sealed_at", "erased_at", "diff", "diff_salt"}
-}
-
-// auditReaderProbe reads, through read.Reader with no mask, the entries of
-// fx's subject that the reader returns for tenant asked, in the transaction
-// of tenant ctxTenant (uuid.Nil: no tenant set). The reader takes the tenant
-// as an argument, so asked = tenant A from tenant B's transaction is the
-// forged-tenant call: only row-level security stands between it and tenant
-// A's raw diff and salt.
-func auditReaderProbe(ctx context.Context, pool *pgxpool.Pool, ctxTenant, asked uuid.UUID, fx auditFixtureA) ([]read.Entry, error) {
-	r := read.Reader{Masker: read.StaticMasker{}}
-	subject := uuid.MustParse(fx.subject)
-	var out []read.Entry
-	err := inTx(ctx, pool, ctxTenant, func(tx pgx.Tx) error {
-		var err error
-		out, err = r.List(ctx, tx, asked, read.Filter{SubjectID: &subject}, nil, 100)
-		return err
-	})
-	return out, err
-}
-
 // auditDirectSQLEveryRole: tenant B's transaction, as every platform login,
 // names tenant A's entry by each of its keys. A role with SELECT on the
 // probe's columns must succeed with zero rows: row-level security is the
-// tenant boundary, and nava_app holds diff and diff_salt (TICK-435), so its
-// probes must not be refused either. A role without them must get 42501.
-// The same probes with no tenant reach zero rows. The diff and the salt are
-// probed through read.Reader, unmasked (TICK-541: only the reader reads
-// them): asked for tenant A, and for tenant B, it returns nothing of tenant
-// A's entry. (An empty app.tenant_id
-// is CI-2's generic check on every tenant table, audit_log's partitions
-// included: only this package's tests may set it, navalint setconfig.)
-// Control: nava_app in tenant A finds the entry through every probe, and the
-// reader returns it with its diff and salt.
+// tenant boundary, so its probes must not be refused either. A role without
+// them must get 42501. The same probes with no tenant reach zero rows. The
+// diff and the salt are ADR-004-A1's cases (audit_reader_paths.go). (An
+// empty app.tenant_id is CI-2's generic check on every tenant table,
+// audit_log's partitions included: only this package's tests may set it,
+// navalint setconfig.) Control: nava_app in tenant A finds the entry through
+// every probe.
 func auditDirectSQLEveryRole(ctx context.Context, cl Cluster) error {
 	super, err := cl.Super()
 	if err != nil {
@@ -423,47 +391,18 @@ func auditDirectSQLEveryRole(ctx context.Context, cl Cluster) error {
 			return err
 		}
 		if !ok {
-			return fmt.Errorf("control: nava_app lacks SELECT on %v; the reader's grant (TICK-435) is gone", p.cols)
+			return fmt.Errorf("control: nava_app lacks SELECT on %v; its reader columns (TICK-435) are gone", p.cols)
 		}
 		if n, err := count(app, uuid.MustParse(TenantA), p); err != nil || n < 1 {
 			return fmt.Errorf("control: nava_app in tenant A %s: %d rows, %s; want tenant A's entry", p.name, n, errText(err))
 		}
 	}
-	if ok, err := granted("nava_app", auditReaderColumns()); err != nil || !ok {
-		return fmt.Errorf("control: nava_app lacks SELECT on the reader's columns (%s); the reader's grant (TICK-435) is gone", errText(err))
-	}
-	got, err := auditReaderProbe(ctx, app, uuid.MustParse(TenantA), uuid.MustParse(TenantA), fx)
-	if err != nil || len(got) != 1 || got[0].ID.String() != fx.entry || !strings.Contains(string(got[0].Diff), "a-only") || len(got[0].DiffSalt) == 0 {
-		return fmt.Errorf("control: read.Reader in tenant A returns %d entries, %s; want tenant A's entry with its diff and salt", len(got), errText(err))
-	}
-
 	var bad []string
 	readers := 0
 	for _, role := range roles {
 		pool, err := cl.Pool(role)
 		if err != nil {
 			return err
-		}
-		ok, err := granted(role, auditReaderColumns())
-		if err != nil {
-			pool.Close()
-			return err
-		}
-		for _, c := range []struct {
-			name      string
-			ctx, asks uuid.UUID
-		}{
-			{"tenant B, the reader asked for tenant A", uuid.MustParse(TenantB), uuid.MustParse(TenantA)},
-			{"tenant B, the reader asked for tenant B", uuid.MustParse(TenantB), uuid.MustParse(TenantB)},
-			{"no tenant, the reader asked for tenant A", uuid.Nil, uuid.MustParse(TenantA)},
-		} {
-			got, err := auditReaderProbe(ctx, pool, c.ctx, c.asks, fx)
-			switch {
-			case ok && (err != nil || len(got) != 0):
-				bad = append(bad, fmt.Sprintf("%s, %s, diff and salt: %d entries, %v; want none", role, c.name, len(got), err))
-			case !ok && sqlState(err) != "42501":
-				bad = append(bad, fmt.Sprintf("%s, %s, diff and salt: %d entries, %v; want 42501 (no SELECT on the reader's columns)", role, c.name, len(got), err))
-			}
 		}
 		for _, p := range auditProbes() {
 			ok, err := granted(role, p.cols)

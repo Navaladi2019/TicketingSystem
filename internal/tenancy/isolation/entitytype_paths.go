@@ -147,8 +147,15 @@ func newETIso(ctx context.Context, c Cluster) (*etIso, error) {
 		auditCallerBAuditor: {TenantID: uuid.MustParse(TenantB), PrincipalID: uuid.MustParse(principalB1), Groups: []uuid.UUID{uuid.MustParse(auditorGroupB)}},
 		auditCallerBAgent:   {TenantID: uuid.MustParse(TenantB), PrincipalID: uuid.MustParse(principalB1), Groups: []uuid.UUID{uuid.MustParse(GroupB1)}},
 	}
+	// The audit routes read on the reader's own pool, as nava-core does
+	// (ADR-004-A1 A1-5).
+	reader, err := c.AuditReader()
+	if err != nil {
+		_ = tel.Shutdown(context.Background())
+		return nil, err
+	}
 	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel, tokens, pgstore.New(pool),
-		server.WithPool(pool), server.WithCursors(kr))
+		server.WithPool(pool), server.WithAuditReader(reader), server.WithCursors(kr))
 	if err != nil {
 		_ = tel.Shutdown(context.Background())
 		return nil, err

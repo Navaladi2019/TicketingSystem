@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"testing"
@@ -29,6 +30,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Navaladi2019/TicketingSystem/db"
+	"github.com/Navaladi2019/TicketingSystem/internal/audit/read"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/audited"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/catalog"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/grants"
@@ -252,6 +254,21 @@ func (c cluster) PooledSize(role string, conns int32) (*pgxpool.Pool, error) {
 }
 
 func (c cluster) Super() (*pgx.Conn, error) { return c.e.superConn(c.t), nil }
+
+func (c cluster) AuditReader() (*read.Pool, error) {
+	cfg := c.e.roleConfig(audited.ReaderRole, true)
+	dsn := (&url.URL{
+		Scheme: "postgres", User: url.UserPassword(cfg.User, cfg.Password),
+		Host: net.JoinHostPort(cfg.Host, strconv.Itoa(int(cfg.Port))), Path: "/" + cfg.Database,
+		RawQuery: "sslmode=disable",
+	}).String()
+	p, err := read.OpenPool(c.t.Context(), dsn)
+	if err != nil {
+		return nil, err
+	}
+	c.t.Cleanup(p.Close)
+	return p, nil
+}
 
 // runtimeRoles are the roles CI-2 runs as: every manifest role but the
 // owner (as catalog's CI-3 and CI-4 count them), then the owner, whom only

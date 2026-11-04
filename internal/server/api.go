@@ -77,7 +77,9 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 		if opts.auditMasker != nil {
 			masker = opts.auditMasker
 		}
-		h.audit = &read.Reader{Masker: masker, MaxRecordEntries: opts.historyCap, OnRecordRows: opts.historyRows}
+		if opts.auditPool != nil {
+			h.audit = &read.Reader{Pool: opts.auditPool, Masker: masker, MaxRecordEntries: opts.historyCap, OnRecordRows: opts.historyRows}
+		}
 		if h.historyTooLong, err = tel.MeterProvider.Meter("github.com/Navaladi2019/TicketingSystem/internal/server").Int64Counter(
 			"nava.records.history.too_long",
 			metric.WithDescription("Record history requests refused because the record has more audit entries than the cap."),
@@ -174,8 +176,8 @@ type handlers struct {
 	store   entitytypes.Store
 	// pipe serves the record endpoints; nil answers 501 not_implemented.
 	pipe *pipeline.Pipeline
-	// audit serves the audit timeline and a record's history (P5-17); nil
-	// answers 501 not_implemented.
+	// audit serves the audit timeline and a record's history (P5-17) on the
+	// nava_audit_reader pool (ADR-004-A1); nil answers 501 not_implemented.
 	audit *read.Reader
 	// historyTooLong counts the histories refused for their length; nil
 	// counts nothing.

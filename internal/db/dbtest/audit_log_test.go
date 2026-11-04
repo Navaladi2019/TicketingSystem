@@ -600,7 +600,7 @@ func TestP510bNoTenantNoRows(t *testing.T) {
 		"record_write_keys": "SELECT count(*) FROM record_write_keys WHERE tenant_id::text = ANY ($1::text[])",
 	}
 	readers := map[string][]string{
-		"audit_log":         {"nava_app", "nava_worker", "nava_erasure"},
+		"audit_log":         {"nava_app", "nava_worker", "nava_erasure", "nava_audit_reader"},
 		"audit_chain_head":  {"nava_app", "nava_worker"},
 		"record_write_keys": {"nava_app", "nava_worker"},
 	}
