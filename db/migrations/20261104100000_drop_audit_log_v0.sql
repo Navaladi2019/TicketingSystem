@@ -12,13 +12,18 @@
 -- development stacks. db/grants.yaml loses its two audit_log_v0 lines in
 -- the same change.
 --
--- Rollout order (contract step, Postgres review of PR #432). Deploy the new
--- binary first, then apply this migration and the grants. An old binary
--- still reads audit_log_v0 for history and breaks once the table is gone;
--- it no longer writes it (INSERT was revoked in P5-13b). Runbook:
--- docs/architecture/record-write-pipeline.md, "Rollout order".
+-- Rollout order. Binary first, then this migration, back to back. The new
+-- binary reads only audit_log, and the reader's SELECT on audit_log comes
+-- from the grants that nava-db migrate applies. Between the binary deploy and
+-- nava-db migrate, GET /api/v1/audit/entries and the record history fail;
+-- record writes do not. An old binary breaks once the table is gone, so the
+-- migration never runs first. Every stack today is development. For a stack
+-- that must have zero downtime, split the release: migrate with the reader
+-- grant, deploy the binary, then drop (and remove the audit_log_v0 grant).
+-- Runbook: docs/architecture/record-write-pipeline.md, "Rollout order".
 
 -- +goose Up
+SET LOCAL lock_timeout = '5s';
 DROP TABLE audit_log_v0;
 
 -- +goose Down

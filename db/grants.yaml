@@ -79,8 +79,7 @@ roles:
         SELECT: [tenant_id, id, occurred_at, txid, domain, action, subject_type, subject_id, entity_definition_id,
                  version_before, version_after, actor_principal_id, actor_system, source, source_ref,
                  change_set_id, causation_id, causation_depth, request_id, backfilled, content_sha256,
-                 diff_sha256, diff_truncated, diff, diff_salt, seq, prev_hash, entry_hash, sealed_at,
-                 erased_at, erasure_ref]
+                 diff_sha256, diff_truncated, diff, diff_salt, seq, sealed_at, erased_at]
       # R14: the export lease and chain:reseed's repoint. Never seq,
       # entry_hash or version.
       audit_chain_head:

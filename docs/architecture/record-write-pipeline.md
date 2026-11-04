@@ -139,19 +139,26 @@ it with SIGKILL, and checks that no record or audit row is left.
 ## Rollout order: the audit_log_v0 contract step (P5-17, TICK-435)
 
 Moving record history from `audit_log_v0` to `audit_log` is an expand and
-contract change, and the order of deployment matters (Postgres review of
-PR #432):
+contract change (Postgres review of PR #438). The decision and its trigger are
+in `docs/delivery/decisions/2026-11-04-p5-17-drop-v0-with-the-reader.md`.
 
 1. **Expand (P5-13b, already deployed).** The binary writes `audit_log`
    through `audit.Append`. `audit_log_v0` is still there, read-only for the
    runtime roles, and the old history endpoint reads it.
-2. **Deploy the new binary first (P5-17).** It reads a record's history from
-   `audit_log` through `internal/audit/read` and never names `audit_log_v0`.
-3. **Then apply the migration and the grants.** `20261104100000_drop_audit_log_v0.sql`
-   drops the table, and the `db/grants.yaml` that no longer lists it is
-   applied. Revoking INSERT on the table (P5-13b) and dropping it are contract
-   steps: an old binary that still writes or reads `audit_log_v0` breaks once
-   they run. Never apply them before every instance runs the new binary.
+2. **Deploy the new binary, then run `nava-db migrate` at once.** The new
+   binary reads a record's history from `audit_log` through
+   `internal/audit/read` and never names `audit_log_v0`. The reader's
+   `SELECT` on `audit_log` (`db/grants.yaml`) and the drop
+   (`20261104100000_drop_audit_log_v0.sql`) are applied by the migrate. So
+   **between the binary deploy and `nava-db migrate`, audit list and history
+   reads fail**; record writes keep working. Run the two back to back.
+3. **Never migrate first.** Revoking INSERT on the table (P5-13b) and dropping
+   it are contract steps: an old binary that still reads `audit_log_v0` for
+   history breaks once it is gone.
+
+**Zero-downtime alternative.** For a stack that must not lose reads, split the
+release: migrate with the reader grant (no drop), deploy the binary, then drop
+`audit_log_v0` and remove its grant in a later release.
 
 Rows of `audit_log_v0` are not copied to `audit_log` (S9 ran on development
 stacks); a record written before P5-13b shows an empty history after the drop.
