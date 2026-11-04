@@ -8,7 +8,9 @@
 #   2. The same stack (same volumes, same COMPOSE_PROJECT_NAME) rebuilt from
 #      this checkout: the migrate service runs the S14 migrations, the
 #      backfill among them.
-#   3. The S14 realm delta (auditors groups, auditor@tenant-a.test), which
+#   3. The auditors-group reconcile (nava-onboard reconcile-auditors, TICK-567)
+#      for the tenants that existed before S14, then the S14 realm delta
+#      (auditor@tenant-a.test in A's auditors group), which
 #      Keycloak does not import into a realm that already exists, then this
 #      checkout's tools/seed.sh and tools/tunnels.sh up.
 #
@@ -35,6 +37,8 @@ echo "s14: upgrade the same stack to $(git rev-parse --short HEAD)"
 mkdir -p deploy/compose/certs && cp -R "$PRE/deploy/compose/certs/." deploy/compose/certs/
 docker compose --profile operator up -d --build --wait
 docker compose logs migrate | grep '"migrate done"'
+echo "s14: reconcile the auditors group of the tenants that existed before S14"
+docker compose exec -T nava-onboard nava-onboard reconcile-auditors \n  00000000-0000-4000-8000-0000000000a1 00000000-0000-4000-8000-0000000000b1
 node docs/acceptance/S14/tools/realm-delta.mjs
 sh docs/acceptance/guide/tools/seed.sh
 sh docs/acceptance/guide/tools/tunnels.sh up
