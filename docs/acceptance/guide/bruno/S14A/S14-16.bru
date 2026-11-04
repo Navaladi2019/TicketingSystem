@@ -1,0 +1,25 @@
+meta {
+  name: S14.16 Alice's principal id
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.me('00000000-0000-4000-8000-0000000000a1');
+  bru.setVar('s14_alice', N.json().user_id);
+}
+
+docs {
+  Kept to check the actor of the record entries.
+}

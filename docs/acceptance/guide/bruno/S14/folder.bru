@@ -4,5 +4,5 @@ meta {
 }
 
 docs {
-  TICK-435 (P5-17, ADR-004 R7 and R8). The tenant's one audit timeline, `GET /api/v1/audit/entries`, read by tenant A's admin (who holds `audit.read`): newest first, filtered, stable pages with no overlap, every `diff` masked for the reader, and `diff_salt` only with an unredacted diff. Alice is a member without `audit.read`: 403. 429, 500 and 501 are in the coverage page. Needs `tools/seed.sh`.
+  TICK-435 (P5-17, ADR-004 R7 and R8). The tenant's one audit timeline, `GET /api/v1/audit/entries`, read by tenant A's admin (who holds `audit.read`): newest first, filtered, stable pages with no overlap, every `diff` masked for the reader, and `diff_salt` only with an unredacted diff. Alice is a member without `audit.read`: 403. 429, 500 and 501 are in the coverage page. Needs `tools/seed.sh`. Reads only: the stack case `s14_audit` checks that the folder wrote no audit entry. The story's acceptance steps are folder S14A.
 }
