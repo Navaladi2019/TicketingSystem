@@ -117,9 +117,13 @@ func TestP510aAuditLogRenamed(t *testing.T) {
 
 const auditLogV0Drop = "20261104100000_drop_audit_log_v0.sql"
 
+// recordsAttachMigration attaches the commit-check trigger to records.
+const recordsAttachMigration = "20261104110000_records_audit_commit_check.sql"
+
 // migrateTo runs the migrations in fsys and the grants manifest and gate as
-// migrateFS does, but with audit_log_v0 in the manifest and exempt from audit
-// as they were before the drop.
+// migrateFS does, but with the manifests as they were at that version:
+// audit_log_v0 in the grants and exempt from audit before the drop, and
+// records not yet attached before its attach migration.
 func migrateTo(t *testing.T, m *grants.Manifest, fsys fs.FS) (migrate.Result, error) {
 	t.Helper()
 	withV0 := *m
@@ -141,6 +145,18 @@ func migrateTo(t *testing.T, m *grants.Manifest, fsys fs.FS) (migrate.Result, er
 		a.Exempt[name] = e
 	}
 	a.Exempt["audit_log_v0"] = audited.Exemption{Reason: "read-only until P5-17 drops it"}
+	// The manifest as it was at that version: records is attached by
+	// 20261104110000 (P5-13c, TICK-530), so before it records is not
+	// attached: true yet.
+	if _, err := fs.Stat(fsys, recordsAttachMigration); err != nil {
+		a.Audited = make(map[string]audited.Table, len(a.Audited))
+		for name, e := range auditedManifest(t).Audited {
+			a.Audited[name] = e
+		}
+		r := a.Audited["records"]
+		r.Attached = false
+		a.Audited["records"] = r
+	}
 	log, _ := newLog()
 	return migrate.Run(context.Background(), roleConfig(t, withV0.Owner(), withV0.PlatformDatabase),
 		fsys, &withV0, &a, globalTables(t), log, migrate.Options{LockRetrySeconds: 1})

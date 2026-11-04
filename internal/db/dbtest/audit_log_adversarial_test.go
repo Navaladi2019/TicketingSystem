@@ -31,8 +31,12 @@ func TestP510bAdversarialTransitionsStayInTenant(t *testing.T) {
 	if n, err := execIn(asRole(t, "nava_erasure"), tenantA, eraseEntry, tenantB, victim, ref); err != nil || n != 0 {
 		t.Errorf("nava_erasure (tenant A) erases tenant B's entry: %d rows, %v; want 0 rows", n, err)
 	}
+	// No tenant predicate, aimed at B's subject: tenant A's own seeded
+	// record entries (the commit-check fixtures, P5-13c) are not in reach of
+	// the probe, so a non-zero count is B's row.
 	if n, err := execIn(asRole(t, "nava_erasure"), tenantA,
-		`UPDATE audit_log SET diff = NULL, diff_salt = NULL, erased_at = now(), erasure_ref = $1`, ref); err != nil || n != 0 {
+		`UPDATE audit_log SET diff = NULL, diff_salt = NULL, erased_at = now(), erasure_ref = $1 WHERE subject_id = $2`,
+		ref, pipelineRecord(tenantB)); err != nil || n != 0 {
 		t.Errorf("nava_erasure (tenant A, no tenant predicate) erases: %d rows, %v; want 0 rows", n, err)
 	}
 	if n, err := execIn(asRole(t, "nava_worker"), tenantA, sealEntry, tenantB, victim); err != nil || n != 0 {

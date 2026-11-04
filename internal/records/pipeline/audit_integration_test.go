@@ -129,8 +129,8 @@ func TestCIA2RawRecordWriteFailsAtCommit(t *testing.T) {
 		}
 		for name, stmt := range map[string]func(tx pgx.Tx) error{
 			"insert": func(tx pgx.Tx) error {
-				_, err := tx.Exec(ctx, `INSERT INTO records (tenant_id, id, entity_definition_id, number, state, data)
-					VALUES ($1, $2::uuid, $3, 'RAW-' || $2::text, 'open', '{}')`, f.id, uuid.New(), defID)
+				_, err := tx.Exec(ctx, `INSERT INTO records (tenant_id, id, entity_definition_id, schema_version, number, state, data)
+					VALUES ($1, $2::uuid, $3, 1, 'RAW-' || $2::text, 'open', '{}')`, f.id, uuid.New(), defID)
 				return err
 			},
 			"update": func(tx pgx.Tx) error {

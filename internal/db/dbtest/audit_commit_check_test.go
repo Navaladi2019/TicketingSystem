@@ -172,7 +172,7 @@ func TestP511CatalogueCIA3(t *testing.T) {
 	}
 	// Exactly one table has the trigger: records (P5-13c, TICK-530). P5-32
 	// attaches it to the entity-definition tables.
-	if got := queryString(t, super, `SELECT coalesce(string_agg(t.tgrelid::regclass::text || ':' || t.tgname || ':' || t.tgenabled, ','), '')
+	if got := queryString(t, super, `SELECT coalesce(string_agg(t.tgrelid::regclass::text || ':' || t.tgname || ':' || t.tgenabled::text, ','), '')
 		FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid WHERE p.proname = 'audit_commit_check'`); got != "records:records_audit_commit_check:O" {
 		t.Errorf("audit_commit_check triggers after the real migrations: %q, want records:records_audit_commit_check:O", got)
 	}
