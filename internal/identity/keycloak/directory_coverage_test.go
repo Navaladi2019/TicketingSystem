@@ -110,7 +110,7 @@ var (
 	pGroup    = uuid.MustParse("00000000-0000-4000-8000-000000000022")
 	rootA     = "/t/" + tA.String()
 	covGroupA = fmt.Sprintf(`{"id":"g1","name":"x","path":%q}`, rootA+"/x")
-	covGroupB = fmt.Sprintf(`{"id":"gb","name":"x","path":%q}`, "/t/"+tB.String()+"/x")
+	covGroupB = fmt.Sprintf(`{"id":"g1","name":"x","path":%q}`, "/t/"+tB.String()+"/x")
 	rootAJS   = fmt.Sprintf(`{"id":"g-root","name":%q,"path":%q}`, tA.String(), rootA)
 )
 

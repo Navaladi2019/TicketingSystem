@@ -12,17 +12,21 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/identity/keycloak"
 )
 
-// pg answers by statement text: a key contained in the statement selects the
-// answer; no match is an error so a test fails loudly when the code sends
-// something unexpected.
+// pg answers by statement text: the longest key contained in the statement
+// selects the answer, so the choice never depends on map order. No match is an
+// error so a test fails loudly when the code sends something unexpected.
 func pg(answers map[string]scripted) func(string) scripted {
 	return func(sql string) scripted {
-		for k, v := range answers {
-			if strings.Contains(sql, k) {
-				return v
+		best, found := "", false
+		for k := range answers {
+			if strings.Contains(sql, k) && (!found || len(k) > len(best)) {
+				best, found = k, true
 			}
 		}
-		return scripted{err: "unexpected statement: " + sql}
+		if !found {
+			return scripted{err: "unexpected statement: " + sql}
+		}
+		return answers[best]
 	}
 }
 

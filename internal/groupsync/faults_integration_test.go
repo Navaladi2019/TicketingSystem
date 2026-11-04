@@ -3,10 +3,13 @@
 package groupsync_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,8 +25,7 @@ import (
 )
 
 var (
-	errInjected  = errors.New("injected database fault")
-	errSwallowed = errors.New("fault swallowed")
+	errInjected = errors.New("injected database fault")
 )
 
 // faults numbers every place a database call can fail, in call order, and
@@ -33,12 +35,15 @@ var (
 type faults struct {
 	failAt, n int
 	fired     bool
+	// what names the fault that fired: the call kind and the statement.
+	what string
 }
 
-func (f *faults) hit() bool {
+func (f *faults) hit(what string) bool {
 	f.n++
 	if f.n-1 == f.failAt {
 		f.fired = true
+		f.what = what
 		return true
 	}
 	return false
@@ -50,24 +55,24 @@ type faultTx struct {
 }
 
 func (x *faultTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
-	if x.f.hit() {
+	if x.f.hit("Query: " + sql) {
 		return nil, errInjected
 	}
 	rows, err := x.Tx.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, err
 	}
-	if x.f.hit() {
+	if x.f.hit("Scan: " + sql) {
 		return &scanFailRows{rows}, nil
 	}
-	if x.f.hit() {
+	if x.f.hit("Rows.Err: " + sql) {
 		return &endFailRows{rows}, nil
 	}
 	return rows, nil
 }
 
 func (x *faultTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
-	if x.f.hit() {
+	if x.f.hit("QueryRow: " + sql) {
 		return errRow{}
 	}
 	return x.Tx.QueryRow(ctx, sql, args...)
@@ -75,17 +80,17 @@ func (x *faultTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 
 func (x *faultTx) SendBatch(ctx context.Context, b *pgx.Batch) pgx.BatchResults {
 	br := x.Tx.SendBatch(ctx, b)
-	if x.f.hit() {
+	if x.f.hit("Batch.Exec") {
 		return &failExecBatch{br}
 	}
-	if x.f.hit() {
+	if x.f.hit("Batch.Close") {
 		return &failCloseBatch{br}
 	}
 	return br
 }
 
 func (x *faultTx) Begin(ctx context.Context) (pgx.Tx, error) {
-	if x.f.hit() {
+	if x.f.hit("Begin savepoint") {
 		return nil, errInjected
 	}
 	sp, err := x.Tx.Begin(ctx)
@@ -96,7 +101,7 @@ func (x *faultTx) Begin(ctx context.Context) (pgx.Tx, error) {
 }
 
 func (x *faultTx) Commit(ctx context.Context) error {
-	if x.f.hit() {
+	if x.f.hit("Commit savepoint") {
 		_ = x.Rollback(ctx)
 		return errInjected
 	}
@@ -134,20 +139,21 @@ func (b *failCloseBatch) Close() error { _ = b.BatchResults.Close(); return errI
 // injected fault must come back as an error wrapping errInjected and leave
 // rows() as it was. The first run that injects nothing must succeed; it
 // commits. It returns the number of fault points it passed.
-func sweep(t *testing.T, pool *pgxpool.Pool, tid uuid.UUID, rows func() string, run func(context.Context, pgx.Tx) error) int {
+//
+// A fault the code under test swallows (run returns nil although a call
+// failed) is a possible partial write, so it fails the test unless
+// mayBeSwallowed approves that exact call. An approved one is committed, and
+// the rows must still equal their starting value: the swallowed call did
+// nothing.
+func sweep(t *testing.T, pool *pgxpool.Pool, tid uuid.UUID, rows func() string, mayBeSwallowed func(what string) bool,
+	run func(context.Context, pgx.Tx) error) int {
 	t.Helper()
 	ctx := context.Background()
 	before := rows()
 	for failAt := 0; failAt < 2000; failAt++ {
 		f := &faults{failAt: failAt}
 		err := tenancy.InTenantTx(ctx, pool, tid, func(tx pgx.Tx) error {
-			err := run(ctx, &faultTx{tx, f})
-			if err == nil && f.fired {
-				// A fault the code swallowed (an ignored Close, say): roll it
-				// back so the next run starts from the same rows.
-				return errSwallowed
-			}
-			return err
+			return run(ctx, &faultTx{tx, f})
 		})
 		if !f.fired {
 			if err != nil {
@@ -156,9 +162,9 @@ func sweep(t *testing.T, pool *pgxpool.Pool, tid uuid.UUID, rows func() string, 
 			return failAt
 		}
 		switch {
-		case errors.Is(err, errSwallowed):
+		case err == nil && !mayBeSwallowed(f.what):
+			t.Fatalf("fault %d (%s) was swallowed: the code returned success after a failed database call", failAt, f.what)
 		case err == nil:
-			t.Fatalf("fault %d: no error and no rollback", failAt)
 		case !errors.Is(err, errInjected):
 			t.Fatalf("fault %d: error %v does not wrap the injected fault", failAt, err)
 		}
@@ -252,7 +258,8 @@ func TestApplyDatabaseFaultsRollBackAndStayInTheTenant(t *testing.T) {
 	}
 	rowsA := func() string { return tenantRows(t, super, a) }
 	rowsB := tenantRows(t, super, b)
-	tried := sweep(t, pool, a, rowsA, func(ctx context.Context, tx pgx.Tx) error {
+	// apply swallows nothing: every database failure must reach the caller.
+	tried := sweep(t, pool, a, rowsA, func(string) bool { return false }, func(ctx context.Context, tx pgx.Tx) error {
 		return groupsync.ApplyForTest(ctx, tx, a, snap, time.Now(), 8)
 	})
 	if tried < 20 {
@@ -293,7 +300,11 @@ func TestPlaceInviteesDatabaseFaults(t *testing.T) {
 		return out
 	}
 	before := invites()
-	tried := sweep(t, pool, a, invites, func(ctx context.Context, tx pgx.Tx) error {
+	// The one fault placeInvitees swallows by design: the consume of a single
+	// invite fails inside its savepoint, which is rolled back and logged, and
+	// the other invites and the tenant still sync. Nothing else may be swallowed.
+	consumeOnly := func(what string) bool { return strings.HasPrefix(what, "QueryRow: UPDATE pending_invite") }
+	tried := sweep(t, pool, a, invites, consumeOnly, func(ctx context.Context, tx pgx.Tx) error {
 		return s.PlaceInviteesForTest(ctx, tx, a, dir)
 	})
 	if tried < 8 {
@@ -338,15 +349,30 @@ func TestSyncerErrorPaths(t *testing.T) {
 		t.Error("Once with a cancelled context must fail")
 	}
 
-	// Lag past ten minutes is observed (and logged), not an error.
+	// Lag past ten minutes is logged once, naming the tenant and the lag.
+	var buf lockedBuffer
+	lagLog := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	clock := time.Now()
-	lagged, err := groupsync.New(pool, dir, noop.NewMeterProvider(), log, groupsync.Options{Now: func() time.Time {
+	lagged, err := groupsync.New(pool, dir, noop.NewMeterProvider(), lagLog, groupsync.Options{Now: func() time.Time {
 		clock = clock.Add(11 * time.Minute)
 		return clock
 	}})
 	must(t, err)
 	if rs, err := lagged.Once(context.Background()); err != nil || len(rs) != 1 || rs[0].Err != nil {
 		t.Fatalf("lagged: %+v %v", rs, err)
+	}
+	var warns []map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+		var rec map[string]any
+		if line != "" && json.Unmarshal([]byte(line), &rec) == nil && rec["msg"] == "group sync lag over 10 minutes" {
+			warns = append(warns, rec)
+		}
+	}
+	if len(warns) != 1 || warns[0]["tenant_id"] != a.String() || warns[0]["level"] != "WARN" {
+		t.Fatalf("lag warnings = %v, want exactly one for tenant %s", warns, a)
+	}
+	if secs, _ := warns[0]["lag_seconds"].(float64); secs <= 600 {
+		t.Fatalf("lag_seconds = %v, want more than 600", warns[0]["lag_seconds"])
 	}
 
 	// Run returns nil once its context is cancelled, after at least one cycle.
@@ -368,4 +394,22 @@ func TestSyncerErrorPaths(t *testing.T) {
 	if err := runner.Run(downCtx); err != nil {
 		t.Errorf("Run with the database down must keep running until cancelled: %v", err)
 	}
+}
+
+// lockedBuffer is a bytes.Buffer safe for a logger used from several goroutines.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }

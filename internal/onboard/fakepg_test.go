@@ -113,7 +113,9 @@ func (f *fakePGServer) serve(c net.Conn) {
 			case strings.HasPrefix(lower, "rollback"):
 				status = 'I'
 				b.Send(&pgproto3.CommandComplete{CommandTag: []byte("ROLLBACK")})
-			// The tenant scoping call that tenancy.InTenantTx sends.
+			// The tenant scoping call that tenancy.InTenantTx sends. The fake answers it
+			// blindly: these tests prove error mapping, not tenant scoping, which the
+			// real-Postgres RLS tests (dbtest, identitystack, tenancy/isolation) prove.
 			case strings.HasPrefix(lower, "select set_"):
 				b.Send(&pgproto3.RowDescription{Fields: pgFields(oidText)})
 				b.Send(&pgproto3.DataRow{Values: [][]byte{[]byte("")}})
@@ -134,7 +136,7 @@ func (f *fakePGServer) serve(c net.Conn) {
 					}
 					b.Send(&pgproto3.DataRow{Values: vals})
 				}
-				b.Send(&pgproto3.CommandComplete{CommandTag: []byte("SELECT")})
+				b.Send(&pgproto3.CommandComplete{CommandTag: []byte("SELECT")}) // INSERT/UPDATE report 0 rows too
 			}
 			b.Send(&pgproto3.ReadyForQuery{TxStatus: status})
 			if b.Flush() != nil {
