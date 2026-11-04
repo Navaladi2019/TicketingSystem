@@ -20,7 +20,7 @@ func TestE5GroupsContractMigrationsSplit(t *testing.T) {
 		}
 		return string(b)
 	}
-	lockTimeout := regexp.MustCompile(`(?m)^SET LOCAL lock_timeout = '\d+s';$`)
+	lockTimeout := regexp.MustCompile(`(?m)^SET LOCAL lock_timeout = '\d+s';\r?$`)
 	contract := read("20261104043000_groups_contract.sql")
 	validate := read("20261104043100_groups_contract_validate.sql")
 	for name, body := range map[string]string{"(ii-a)": contract, "(ii-b)": validate} {
