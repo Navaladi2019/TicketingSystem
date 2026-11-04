@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-004 amendment A1 explained: only the masking reader may read the raw audit diff</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.pill{display:inline-block;font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left}
+th{background:var(--soft)}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:40px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--soft);padding:1px 5px;border-radius:4px}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+.bad{color:var(--bad);font-weight:600}.good{color:var(--good);font-weight:600}
+figure{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure svg{width:100%;min-width:640px;height:auto;display:block}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
+</style>
+</head><body><main>
+
+<span class="pill">PROPOSED · 2026-11-04</span> <span class="src">ADR-004-A1 · issue TICK-549 · RFC-012 rev 1 · amends ADR-004 (R7, R12, R14, CI-A3) · source: TICK-541 / PR #443 Security review</span>
+
+<h1>Only the masking reader may read the raw audit diff, and the database enforces it</h1>
+
+<blockquote><strong>In one sentence.</strong> Today the database lets the main application account read the full, unmasked change history of a record, secret fields included, and only a coding convention keeps other code from doing so. From now on, a separate database account is the only one allowed to read those columns. It is used only by the one piece of code that hides secrets, and PostgreSQL itself refuses every other attempt.</blockquote>
+
+<h2>Words used here</h2>
+<dl>
+<dt>Audit log and diff</dt><dd>ADR-004 keeps one tamper-evident log of every change. Each entry has a <code>diff</code>, the exact before-and-after change (in JSON Patch format), and a random <code>diff_salt</code> used to hash it. A diff can contain the values of fields marked secret.</dd>
+<dt>Masking (rule R7)</dt><dd>When someone reads the log, values they are not allowed to see are replaced with <code>{"redacted":"mask"}</code>. The code that does this, the "masker", lives only in <code>internal/audit/read</code>.</dd>
+<dt>Database role</dt><dd>An account the application uses to log in to PostgreSQL. <code>nava_app</code> is the main API's account. Each role gets only the table and column permissions listed in one file, <code>db/grants.yaml</code> (invariant I3, least privilege).</dd>
+<dt>RLS (row-level security)</dt><dd>PostgreSQL rules that limit which <em>rows</em> a role sees: only the current tenant's. RLS does not limit <em>columns</em>, which is why it does not help here.</dd>
+<dt>Pool and PgBouncer</dt><dd>A pool is a set of reusable database connections for one role. PgBouncer sits in front of PostgreSQL and shares connections between requests, one transaction at a time.</dd>
+<dt>SQLSTATE 42501</dt><dd>PostgreSQL's error code for "permission denied". Tests check this code, not the wording of the message.</dd>
+</dl>
+
+<h2>The problem</h2>
+<p><code>nava_app</code> had permission to read <code>diff</code> and <code>diff_salt</code>. The masker runs in one package, but any other code running as <code>nava_app</code> could query those columns and get <span class="bad">secrets in the clear</span>. That includes a query for a user in the same tenant who is not allowed to see them. TICK-541 added a check that scans the source code for such queries, but Security showed three ways past it: a query assembled piece by piece, a column list kept in a variable, and SQL that is not Go code. No code does this today. This is a risk that grows with the codebase, not a live leak.</p>
+
+<figure>
+<svg viewBox="0 0 760 250" xmlns="http://www.w3.org/2000/svg" font-size="13">
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#59636e"/></marker></defs>
+<text x="20" y="22" font-weight="700">Before</text><text x="400" y="22" font-weight="700">After (A1)</text>
+<rect x="20" y="40" width="150" height="40" rx="6" fill="#ddf4ff" stroke="#0969da"/><text x="95" y="65" text-anchor="middle">audit/read (masks)</text>
+<rect x="20" y="100" width="150" height="40" rx="6" fill="#ffebe9" stroke="#cf222e"/><text x="95" y="125" text-anchor="middle">any other package</text>
+<rect x="210" y="70" width="140" height="40" rx="6" fill="#f6f8fa" stroke="#59636e"/><text x="280" y="95" text-anchor="middle">nava_app</text>
+<rect x="210" y="170" width="140" height="44" rx="6" fill="#fff8c5" stroke="#9a6700"/><text x="280" y="190" text-anchor="middle">audit_log.diff</text><text x="280" y="206" text-anchor="middle">readable</text>
+<line x1="170" y1="60" x2="208" y2="85" stroke="#59636e" marker-end="url(#a)"/><line x1="170" y1="120" x2="208" y2="98" stroke="#cf222e" marker-end="url(#a)"/><line x1="280" y1="110" x2="280" y2="168" stroke="#cf222e" marker-end="url(#a)"/>
+<rect x="400" y="40" width="150" height="40" rx="6" fill="#ddf4ff" stroke="#0969da"/><text x="475" y="65" text-anchor="middle">audit/read (masks)</text>
+<rect x="400" y="120" width="150" height="40" rx="6" fill="#f6f8fa" stroke="#59636e"/><text x="475" y="145" text-anchor="middle">any other package</text>
+<rect x="590" y="40" width="150" height="40" rx="6" fill="#dafbe1" stroke="#1a7f37"/><text x="665" y="65" text-anchor="middle">nava_audit_reader</text>
+<rect x="590" y="120" width="150" height="40" rx="6" fill="#f6f8fa" stroke="#59636e"/><text x="665" y="145" text-anchor="middle">nava_app</text>
+<rect x="590" y="190" width="150" height="44" rx="6" fill="#fff8c5" stroke="#9a6700"/><text x="665" y="210" text-anchor="middle">audit_log.diff</text>
+<line x1="550" y1="60" x2="588" y2="60" stroke="#1a7f37" marker-end="url(#a)"/><line x1="550" y1="140" x2="588" y2="140" stroke="#59636e" marker-end="url(#a)"/>
+<path d="M740,60 C770,60 770,212 742,212" fill="none" stroke="#1a7f37" marker-end="url(#a)"/>
+<line x1="665" y1="160" x2="665" y2="188" stroke="#cf222e" stroke-dasharray="4 3"/><text x="610" y="180" fill="#cf222e" font-weight="700">42501 ✕</text>
+</svg>
+<figcaption>After A1, only the masking package holds the connection that may read the diff. PostgreSQL refuses every <code>nava_app</code> query on those columns.</figcaption>
+</figure>
+
+<h2>Options we considered</h2>
+<table>
+<tr><th>Option</th><th>What it means</th><th>Verdict</th></tr>
+<tr><td>(a) Database function with owner rights</td><td>Remove the permission and add a <code>SECURITY DEFINER</code> function, which runs with its owner's rights, to return the diff.</td><td class="bad">Rejected. Invariant I3 forbids such functions for runtime roles, and every package could still call it.</td></tr>
+<tr><td>(b) Switch role inside the transaction</td><td><code>nava_app</code> runs <code>SET LOCAL ROLE nava_audit_reader</code>.</td><td class="bad">Rejected. <code>nava_app</code> would have to be a member of the reader role, which I3 forbids, and any package could switch.</td></tr>
+<tr><td>(c) Mask inside the database</td><td>A view or SQL function applies the masks.</td><td class="bad">Rejected. CI bans views that run with their owner's rights, and a view that runs with the caller's rights needs the very permission we are removing. It would also duplicate the masker in SQL.</td></tr>
+<tr><td>(d) Keep only the source-code check</td><td>Accept the risk.</td><td class="bad">Rejected as the end state. CI cannot prove that a read is denied, and the known bypasses stay open.</td></tr>
+<tr><td><strong>(e) A separate account with its own connections</strong></td><td>A new login role, <code>nava_audit_reader</code>, with its own PgBouncer login and its own pool, held only by the masking package.</td><td class="good">Chosen. The database enforces the wall, there is no role switch and no I3 exception, and masking stays in one place.</td></tr>
+</table>
+
+<h2>The decision</h2>
+<ul>
+<li><strong>A new role,</strong> <code>nava_audit_reader</code>. It may read the audit columns, <code>diff</code> and <code>diff_salt</code> included, and the entity schemas the masker needs. It cannot write anything, and it cannot read tickets (<code>records</code>).</li>
+<li><strong><code>nava_app</code> loses</strong> the two columns. Writers are unaffected, because inserting a diff does not need read permission (spiked).</li>
+<li><strong>Row rules</strong> (RLS policies) on <code>audit_log</code> and <code>entity_definition_versions</code> name the new role. The <code>audit_log_select</code> list becomes exactly <code>nava_worker, nava_erasure, nava_audit_reader</code>, and CI checks that exact list. <code>nava_app</code> keeps row access only through the generated writer policy.</li>
+<li><strong>The masker fails closed.</strong> Review found that without the policy change, the new role would see no schemas, conclude that nothing is secret, and return everything. Now "no schema found" is an error, never an empty mask.</li>
+<li><strong>Connections are capped</strong> at 5, by PgBouncer <code>pool_size=5</code> and the client pool's <code>MaxConns = 5</code>.</li>
+<li><strong>The TICK-541 source check stays,</strong> as a second layer. It now watches the one thing the database cannot: only the masking package may open the reader pool, and only the config loader may read its connection string.</li>
+</ul>
+
+<h2>How it is rolled out</h2>
+<ol>
+<li>Step 1: the new role, <em>with its password in every environment</em> (a missing password stops the role-setup job for every role); the pooler cap; the policy change; removing <code>nava_app</code>'s permission; and the new tests, which fail at first.</li>
+<li>Step 2: the reader's own pool, the fail-closed masker, and the audit endpoints moved onto that pool.</li>
+</ol>
+<p><strong>Steps 1 and 2 ship in one pull request, and neither merges alone,</strong> because between them the audit pages would return errors. Preferably this lands inside the open audit-log story (TICK-419) before that story reaches <code>main</code>, so <code>main</code> never has the gap. The source-check update can follow later.</p>
+
+<h2>What we accept (residual risks)</h2>
+<table>
+<tr><th>Id</th><th>Severity</th><th>Risk</th><th>When we revisit</th></tr>
+<tr><td>AR-TICK-549-01</td><td>Low</td><td>The reader's connection string is on the same server as the API, so code in the API that <em>deliberately</em> opens that pool could read raw diffs. The source check and review cover this. The database cannot, because it is all one process. Tenants stay isolated either way.</td><td>A second service needs audit reads, or tenant code ever runs inside the API.</td></tr>
+<tr><td>AR-TICK-549-02</td><td>Info</td><td>One more connection pool: up to 5 connections per PgBouncer instance.</td><td>We run more than one PgBouncer in front of the same database.</td></tr>
+</table>
+
+<h2>Evidence</h2>
+<table>
+<tr><th>Check</th><th>Result</th></tr>
+<tr><td>Technical Architect spike (PostgreSQL 16.10, PgBouncer 1.24.1)</td><td class="good">PASS. For <code>nava_app</code> and <code>nava_worker</code>, PostgreSQL refused all 14 ways of reading the diff with 42501, including reading the partition directly and filtering on the diff. Inserts still work. The new role logs in through a running PgBouncer with no config change. The reader sees only its own tenant.</td></tr>
+<tr><td>Postgres full test run with the permission removed</td><td>1103 passed, and exactly 7 tests failed, all on the reader path or asserting the old permission. The ADR lists each one: 5 move to the new pool, and 2 are inverted.</td></tr>
+<tr><td>Postgres spike on the masker</td><td>Reproduced the fail-open: the new role saw 0 schemas and got no error. Adding it to the policy returned the row. Hence the fail-closed rule.</td></tr>
+<tr><td>Postgres spike on the cap</td><td><code>pool_size=5</code> queues extra requests, while a database connection limit rejects them. We chose <code>pool_size</code>.</td></tr>
+<tr><td>Red to green (to be built)</td><td>These fail today and must pass afterwards: CI-A3 (only the reader holds the columns, every partition walked, the exact policy list), <code>diff-denied</code>, <code>reader-scoped</code>, <code>reader-masks</code> and the masker unit case.</td></tr>
+</table>
+
+<p class="src">Process: the Solution Architect framed RFC-012. In round 1, the Technical Architect approved with a spike. Security (B1, the fail-open masker) and Postgres (B2, the test list) asked for changes, and the CTO settled the cap, the <code>records</code> question and the accepted risk. Rev 1 resolved both blocking items. In round 2, Security and Postgres approved, with the two conditions written in above. The status stays PROPOSED until the Solution Architect's verdict. Checked against invariants ADR-001 I1–I9, because the project description defines none.</p>
+</main></body></html>
