@@ -91,8 +91,8 @@ func TestReaderReturnsNoEntryWhenMaskerFails(t *testing.T) {
 	tenant := uuid.New()
 
 	for name, read := range map[string]func() ([]Entry, error){
-		"List":          func() ([]Entry, error) { return r.List(t.Context(), tx, tenant, Filter{}, nil, 10) },
-		"RecordEntries": func() ([]Entry, error) { return r.RecordEntries(t.Context(), tx, tenant, uuid.New()) },
+		"List":          func() ([]Entry, error) { return r.list(t.Context(), tx, tenant, Filter{}, nil, 10) },
+		"RecordEntries": func() ([]Entry, error) { return r.recordEntries(t.Context(), tx, tenant, uuid.New()) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			entries, err := read()

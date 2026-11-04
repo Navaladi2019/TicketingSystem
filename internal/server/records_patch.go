@@ -239,7 +239,7 @@ func (h *handlers) GetRecordHistory(ctx context.Context, req api.GetRecordHistor
 	if !ok || p.PrincipalID == uuid.Nil {
 		return nil, errNoPrincipal
 	}
-	if h.pool == nil || h.cursors == nil {
+	if h.pool == nil || h.cursors == nil || h.audit == nil {
 		return nil, notImplemented()
 	}
 	id, perr := uuid.Parse(req.Id)
@@ -269,7 +269,12 @@ func (h *handlers) GetRecordHistory(ctx context.Context, req api.GetRecordHistor
 			return nil, &problemError{problem.InvalidCursor, nil, err}
 		}
 	}
-	var changes []read.Change
+	// Two transactions (ADR-004-A1 A1-7). First nava_app reads the record in
+	// the caller's tenant, so another tenant's record, an unreadable one and
+	// a missing one are the same 404 before any audit row is read (Security
+	// review of PR #432). Only then does the reader's pool read its entries.
+	// READ COMMITTED gives each statement its own snapshot, so the split adds
+	// no race.
 	err = tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) error {
 		if _, _, err := h.store.Current(ctx, tx, req.Entity); err != nil {
 			return err
@@ -281,16 +286,15 @@ func (h *handlers) GetRecordHistory(ctx context.Context, req api.GetRecordHistor
 		if rec.EntityKey != req.Entity {
 			return pipeline.ErrNotFound
 		}
-		// The record is read first, in the caller's tenant, so another
-		// tenant's record and a missing one are the same 404 before any
-		// audit row is read (Security review of PR #432).
-		entries, err := h.audit.RecordEntries(ctx, tx, p.TenantID, id)
-		if err != nil {
-			return err
-		}
-		changes = historyPage(read.Replay(entries), afterAt, afterID, limit+1)
 		return nil
 	})
+	var changes []read.Change
+	if err == nil {
+		var entries []read.Entry
+		if entries, err = h.audit.RecordEntries(ctx, p.TenantID, id); err == nil {
+			changes = historyPage(read.Replay(entries), afterAt, afterID, limit+1)
+		}
+	}
 	if errors.Is(err, pipeline.ErrNotFound) || errors.Is(err, entitytypes.ErrNotFound) {
 		return h.notFound(ctx), nil
 	}

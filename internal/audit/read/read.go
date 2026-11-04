@@ -3,8 +3,11 @@
 // both with every diff masked for the reader.
 //
 // The caller gates the read (authz.RequireAuditPermission for the timeline,
-// the record ACL for a history) and runs it in the tenant's transaction; row
-// level security scopes every query to that tenant, and each query names the
+// the record ACL for a history) in its own nava_app transaction. The Reader
+// then reads on its own Pool, logged in as nava_audit_reader, the one runtime
+// role that may read audit_log.diff and diff_salt (ADR-004-A1): each read is
+// one tenancy.InTenantTx with the masker in the same transaction. Row level
+// security scopes every query to that tenant, and each query names the
 // tenant as well so the planner uses the tenant-led indexes.
 package read
 
@@ -19,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/patchwalk"
+	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
 // Entry is one audit_log entry as a reader sees it.
@@ -100,8 +104,11 @@ func (e *HistoryTooLongError) Error() string {
 
 func (e *HistoryTooLongError) Unwrap() error { return ErrHistoryTooLong }
 
-// Reader reads the log through a Masker.
+// Reader reads the log on Pool through a Masker.
 type Reader struct {
+	// Pool is the nava_audit_reader pool (OpenPool). A Reader without one
+	// fails every read with ErrNoPool.
+	Pool   *Pool
 	Masker Masker
 	// MaxRecordEntries caps the entries RecordEntries reads for one record;
 	// zero means DefaultMaxRecordEntries.
@@ -123,11 +130,55 @@ version_before, version_after, actor_principal_id, actor_system, source, source_
 causation_id, causation_depth, request_id, backfilled, content_sha256, diff_sha256, diff_truncated,
 seq, sealed_at, erased_at, diff::text, diff_salt`
 
-// List returns up to limit entries matching f, newest first (occurred_at, then
-// id, both descending), older than after when after is not nil. Pages follow
-// the primary key's order, so they neither overlap nor skip an entry that
-// existed when the first page was read.
-func (r *Reader) List(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, f Filter, after *Position, limit int) ([]Entry, error) {
+// List returns up to limit of tenantID's entries matching f, newest first
+// (occurred_at, then id, both descending), older than after when after is not
+// nil. Pages follow the primary key's order, so they neither overlap nor skip
+// an entry that existed when the first page was read. It runs in its own
+// transaction on the reader's pool, with the tenant set transaction-locally.
+func (r *Reader) List(ctx context.Context, tenantID uuid.UUID, f Filter, after *Position, limit int) ([]Entry, error) {
+	var out []Entry
+	err := r.inTx(ctx, tenantID, func(tx pgx.Tx) error {
+		var err error
+		out, err = r.list(ctx, tx, tenantID, f, after, limit)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// RecordEntries returns every record-domain entry of one record that changed
+// it (create, update, state_change), oldest first, masked for the reader. It
+// reads the record's whole history, because a version's payload is the
+// replay of the diffs before it (see Replay). That makes a page cost the whole
+// history, so the history is capped: the entries are counted first, and a
+// record with more than the cap gets *HistoryTooLongError (Is
+// ErrHistoryTooLong) with nothing read. The caller has already checked, in
+// its own nava_app transaction, that the record exists and that the reader
+// may see it (ADR-004-A1 A1-7). It runs in its own transaction on the
+// reader's pool.
+func (r *Reader) RecordEntries(ctx context.Context, tenantID, recordID uuid.UUID) ([]Entry, error) {
+	var out []Entry
+	err := r.inTx(ctx, tenantID, func(tx pgx.Tx) error {
+		var err error
+		out, err = r.recordEntries(ctx, tx, tenantID, recordID)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (r *Reader) inTx(ctx context.Context, tenantID uuid.UUID, fn func(pgx.Tx) error) error {
+	if r.Pool == nil || r.Pool.pool == nil {
+		return ErrNoPool
+	}
+	return tenancy.InTenantTx(ctx, r.Pool.pool, tenantID, fn)
+}
+
+func (r *Reader) list(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, f Filter, after *Position, limit int) ([]Entry, error) {
 	var (
 		afterAt *time.Time
 		afterID *uuid.UUID
@@ -160,15 +211,7 @@ LIMIT $10`, tenantID, f.From, f.To, f.Domain, f.SubjectType, f.SubjectID, f.Afte
 	return entries, nil
 }
 
-// RecordEntries returns every record-domain entry of one record that changed
-// it (create, update, state_change), oldest first, masked for the reader. It
-// reads the record's whole history, because a version's payload is the
-// replay of the diffs before it (see Replay). That makes a page cost the whole
-// history, so the history is capped: the entries are counted first, and a
-// record with more than the cap gets *HistoryTooLongError (Is
-// ErrHistoryTooLong) with nothing read. The caller has already checked that
-// the record exists and that the reader may see it.
-func (r *Reader) RecordEntries(ctx context.Context, tx pgx.Tx, tenantID, recordID uuid.UUID) ([]Entry, error) {
+func (r *Reader) recordEntries(ctx context.Context, tx pgx.Tx, tenantID, recordID uuid.UUID) ([]Entry, error) {
 	limit := r.maxRecordEntries()
 	var n int64
 	if err := tx.QueryRow(ctx, `SELECT count(*)

@@ -76,12 +76,14 @@ func (h *handlers) ListAuditEntries(ctx context.Context, req api.ListAuditEntrie
 	if err != nil {
 		return nil, err
 	}
-	var entries []read.Entry
+	// Two transactions (ADR-004-A1 A1-7): the gate and the cursor on
+	// nava_app, then the page on the reader's own pool, which alone may read
+	// the diff and the salt, with the masker in the same transaction.
+	var after *read.Position
 	err = tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) error {
 		if err := authz.RequireAuditPermission(ctx, tx, p, authz.PermAuditRead); err != nil {
 			return err
 		}
-		var after *read.Position
 		if prm.PageToken != nil {
 			pos, err := h.cursors.Decode(claims, *prm.PageToken)
 			if err != nil {
@@ -93,9 +95,7 @@ func (h *handlers) ListAuditEntries(ctx context.Context, req api.ListAuditEntrie
 			}
 			after = &read.Position{At: at, ID: id}
 		}
-		var err error
-		entries, err = h.audit.List(ctx, tx, p.TenantID, f, after, limit+1)
-		return err
+		return nil
 	})
 	var pe *problemError
 	switch {
@@ -103,6 +103,11 @@ func (h *handlers) ListAuditEntries(ctx context.Context, req api.ListAuditEntrie
 		return nil, &problemError{problem.Forbidden, nil, err}
 	case errors.As(err, &pe):
 		return nil, pe
+	case err != nil:
+		return nil, err
+	}
+	entries, err := h.audit.List(ctx, p.TenantID, f, after, limit+1)
+	switch {
 	case errors.Is(err, read.ErrNoDefinitionVersions):
 		return nil, h.maskerFailed(ctx, err)
 	case err != nil:
