@@ -31,6 +31,20 @@ func countEntries(t *testing.T, conn *pgx.Conn, tenant string) int {
 	return n
 }
 
+// countOtherTenants counts the audit_log entries conn sees under tenant that
+// belong to any other tenant. Tenant A's own entries (seedTenants writes one
+// per seeded record, P5-13c) are not a leak.
+func countOtherTenants(t *testing.T, conn *pgx.Conn, tenant string) int {
+	t.Helper()
+	var n int
+	if err := inTenantTx(conn, tenant, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), "SELECT count(*) FROM audit_log WHERE tenant_id <> $1::uuid", tenant).Scan(&n)
+	}); err != nil {
+		t.Fatalf("count other tenants' audit_log as tenant %s: %v", tenant, err)
+	}
+	return n
+}
+
 // Every canonical writer, with tenant A set, sees none of tenant B's
 // entries and cannot append one in B's name.
 func TestP511AdversarialCanonicalWritersStayInTenant(t *testing.T) {
@@ -44,8 +58,8 @@ func TestP511AdversarialCanonicalWritersStayInTenant(t *testing.T) {
 			continue
 		}
 		conn := asRole(t, role)
-		if n := countEntries(t, conn, tenantA); n != 0 {
-			t.Errorf("%s (tenant A) sees %d audit entries, want 0 (B's entry leaked)", role, n)
+		if n := countOtherTenants(t, conn, tenantA); n != 0 {
+			t.Errorf("%s (tenant A) sees %d of other tenants' audit entries, want 0 (B's entry leaked)", role, n)
 		}
 		_, err := execIn(conn, tenantA, insertEntryAs, tenantB, uuid.NewString(), uuid.NewString(), 1, "record")
 		wantSQLState(t, role+" (tenant A) appends an entry for tenant B", err, "42501")

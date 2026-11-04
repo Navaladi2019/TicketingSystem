@@ -135,6 +135,17 @@ func setup(ctx context.Context) (*env, error) {
 	if _, err := sc.PgConn().Exec(ctx, string(seed)).ReadAll(); err != nil {
 		return nil, fmt.Errorf("seed: %w", err)
 	}
+	// The seed turns the records commit-check trigger off for its own
+	// transaction (P5-13c). A seed that stopped partway, or a loader that ran
+	// it statement by statement, must not leave the suite running unchecked.
+	var enabled string
+	if err := sc.QueryRow(ctx, `SELECT coalesce((SELECT tgenabled::text FROM pg_trigger
+		WHERE tgrelid = 'records'::regclass AND tgname = 'records_audit_commit_check'), 'missing')`).Scan(&enabled); err != nil {
+		return nil, fmt.Errorf("seed: read records_audit_commit_check: %w", err)
+	}
+	if enabled != "O" {
+		return nil, fmt.Errorf("seed: records_audit_commit_check is %q after the seed, want enabled (O)", enabled)
+	}
 	if e.tables, err = catalog.TenantTables(ctx, sc, g); err != nil {
 		return nil, err
 	}

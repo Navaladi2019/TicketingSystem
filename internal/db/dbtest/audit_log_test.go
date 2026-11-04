@@ -553,7 +553,7 @@ func TestP510bErasureCannotReadDiff(t *testing.T) {
 	super := superNava(t)
 	seedTenants(t, super, []string{tenantA}, nil)
 	seedPipeline(t, super, tenantA)
-	appendEntry(t, asRole(t, "nava_app"), tenantA, 1)
+	entry := appendEntry(t, asRole(t, "nava_app"), tenantA, 1)
 	erasure := asRole(t, "nava_erasure")
 	for _, q := range []string{"SELECT diff FROM audit_log", "SELECT diff_salt FROM audit_log", "SELECT * FROM audit_log",
 		"SELECT count(*) FROM audit_log WHERE diff IS NOT NULL", "SELECT diff_sha256 FROM audit_log", "SELECT seq FROM audit_log"} {
@@ -562,8 +562,10 @@ func TestP510bErasureCannotReadDiff(t *testing.T) {
 	}
 	var n int
 	if err := inTenantTx(erasure, tenantA, func(tx pgx.Tx) error {
+		// The test's own entry: seedTenants and seedPipeline also write the
+		// seeded records' entries (P5-13c).
 		return tx.QueryRow(context.Background(), `SELECT count(*) FROM (SELECT tenant_id, occurred_at, id, subject_type,
-			subject_id, erased_at, erasure_ref FROM audit_log) s`).Scan(&n)
+			subject_id, erased_at, erasure_ref FROM audit_log WHERE id = $1::uuid) s`, entry).Scan(&n)
 	}); err != nil || n != 1 {
 		t.Errorf("nava_erasure reads its R23 columns: %d rows, %v", n, err)
 	}
@@ -581,15 +583,19 @@ func TestP510bNoTenantNoRows(t *testing.T) {
 	super := superNava(t)
 	seedTenants(t, super, []string{tenantA, tenantB}, nil)
 	seedPipeline(t, super, tenantA, tenantB)
+	var entries []string // the test's own audit_log entries, one per tenant
 	for _, tenant := range []string{tenantA, tenantB} {
 		id := appendEntry(t, asRole(t, "nava_app"), tenant, 1)
+		entries = append(entries, id)
 		exec(t, super, "INSERT INTO audit_chain_head (tenant_id, id) VALUES ($1, gen_random_uuid())", tenant)
 		exec(t, super, `INSERT INTO record_write_keys (tenant_id, idempotency_key, definition_id, action, record_id,
 			number, version, schema_version, audit_entry_id) VALUES ($1, 'k', $1, 'create', $2, 'TCK0000001', 1, 1, $3)`,
 			tenant, pipelineRecord(tenant), id)
 	}
 	probes := map[string]string{
-		"audit_log":         "SELECT count(*) FROM (SELECT tenant_id FROM audit_log WHERE tenant_id::text = ANY ($1::text[])) s",
+		// Scoped to the test's own entries: seedTenants and seedPipeline
+		// also write the seeded records' entries (P5-13c).
+		"audit_log":         "SELECT count(*) FROM (SELECT tenant_id FROM audit_log WHERE tenant_id::text = ANY ($1::text[]) AND id::text = ANY ($2::text[])) s",
 		"audit_chain_head":  "SELECT count(*) FROM audit_chain_head WHERE tenant_id::text = ANY ($1::text[])",
 		"record_write_keys": "SELECT count(*) FROM record_write_keys WHERE tenant_id::text = ANY ($1::text[])",
 	}
@@ -611,7 +617,11 @@ func TestP510bNoTenantNoRows(t *testing.T) {
 							return err
 						}
 					}
-					return tx.QueryRow(context.Background(), probes[table], both).Scan(&n)
+					args := []any{both}
+					if table == "audit_log" {
+						args = append(args, entries)
+					}
+					return tx.QueryRow(context.Background(), probes[table], args...).Scan(&n)
 				})
 				want := map[string]int{"unset": 0, "empty": 0, "A": 1}[mode]
 				if err != nil || n != want {

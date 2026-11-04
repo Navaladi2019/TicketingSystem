@@ -196,52 +196,65 @@ stays valid. Every one but the realm, the TTL and the fetch base URL is required
 
 ## Retry fails with admin group missing
 
-**Detect.** Onboarding stops at the admins-group step, the tenant stays
-`provisioning`, and every retry with the same key fails. `nava-onboard` logs one
-ERROR line each time:
+This section covers both of onboarding's group steps: the `admins` group, whose
+pointer is `tenant_admin_group`, and the `auditors` group (D-5-4), whose pointer is
+`tenant_auditor_group` (ADR-004-E5 N3, TICK-530). The steps are the same; the
+psql variables `group_name` and `pointer_table` select the group.
+
+| Log message | `group_name` | `pointer_table` |
+| --- | --- | --- |
+| `onboard: admins group has no groups row` | `admins` | `tenant_admin_group` |
+| `onboard: auditors group has no groups row` | `auditors` | `tenant_auditor_group` |
+
+**Detect.** Onboarding stops at the admins-group or the auditors-group step, the
+tenant stays `provisioning`, and every retry with the same key fails.
+`nava-onboard` logs one ERROR line each time, for example:
 
 ```json
 {"level":"ERROR","msg":"onboard: admins group has no groups row","tenant_id":"<tenant uuid>","keycloak_group_id":"<current Keycloak group id>"}
 ```
 
-The error is `ErrAdminGroupMissing` (TICK-369). Cause: the `admins` group under
-`/t/<tenant_id>/` was deleted and re-created in Keycloak, so `groups` still holds a
-stale row for it under the old Keycloak id. Group sync does not repair this on its
-own (it would re-point which Keycloak group grants tenant admin; D-P10). The fix
-is this operator step.
+The error is `ErrAdminGroupMissing` (TICK-369) for either group. Cause: the group
+under `/t/<tenant_id>/` was deleted and re-created in Keycloak, so `groups` still
+holds a stale row for it under the old Keycloak id. If group sync saw the old group
+go, the stale row is tombstoned (`deleted_at` set, ADR-004-E5 D1). Group sync does
+not repair this on its own (it would re-point which Keycloak group grants tenant
+admin or audit access; D-P10). The fix is this operator step.
 
 **Confirm.** Run the queries as the bootstrap superuser, `pgadmin`, over the
-Unix socket: it is the only role that can. `groups`, `tenant_admin_group` and
-`tenants` are under `FORCE ROW LEVEL SECURITY`; the migration owner
+Unix socket: it is the only role that can. `groups`, `tenant_admin_group`,
+`tenant_auditor_group` and `tenants` are under `FORCE ROW LEVEL SECURITY`; the migration owner
 (`nava_migrator`) and every runtime role are `NOBYPASSRLS`, so without
 `app.tenant_id` they see no rows and the repair would change nothing (`UPDATE 0`).
 `pg_hba.conf` lets `pgadmin` in over the socket only, which only the `postgres`
 container mounts. On the compose stack, from the repository directory, with the
-two ids from the log line:
+two ids from the log line and the group's row of the table above:
 
 ```sh
 docker compose exec -it postgres sh -c \
   'export PGPASSWORD="$(cat /run/pg_superuser_password)"; \
    exec psql -h /var/run/postgresql -U pgadmin -d nava "$@"' \
   sh -v ON_ERROR_STOP=1 \
-     -v tenant_id=<tenant uuid> -v kc_group_id=<keycloak group id>
+     -v tenant_id=<tenant uuid> -v kc_group_id=<keycloak group id> \
+     -v group_name=<admins or auditors> -v pointer_table=<tenant_admin_group or tenant_auditor_group>
 ```
 
 The password is read inside the container and never appears in an argument list.
 Set `ON_ERROR_STOP=1` first, so psql stops at a failed statement, and run the
 blocks below one at a time.
-`:'tenant_id'` and `:'kc_group_id'` below are those psql variables.
+`:'tenant_id'`, `:'kc_group_id'`, `:'group_name'` and `:"pointer_table"` below are
+those psql variables (`:"pointer_table"` is the table name, as an identifier).
 
 ```sql
--- The stale row: the tenant's admins group, under an id Keycloak no longer has.
-SELECT id, keycloak_group_id, path
+-- The stale row: the tenant's group, under an id Keycloak no longer has.
+SELECT id, keycloak_group_id, path, deleted_at
   FROM groups
  WHERE tenant_id = :'tenant_id'::uuid
-   AND path = '/t/' || :'tenant_id' || '/admins';
+   AND path = '/t/' || :'tenant_id' || '/' || :'group_name';
 
--- The tenant must have no tenant_admin_group row yet (0 rows), and the current
--- Keycloak id must have no groups row (0 rows), or this is a different problem.
-SELECT * FROM tenant_admin_group WHERE tenant_id = :'tenant_id'::uuid;
+-- The tenant must have no pointer row yet (0 rows), and the current Keycloak id
+-- must have no groups row (0 rows), or this is a different problem.
+SELECT * FROM :"pointer_table" WHERE tenant_id = :'tenant_id'::uuid;
 SELECT * FROM groups WHERE tenant_id = :'tenant_id'::uuid AND keycloak_group_id = :'kc_group_id';
 ```
 
@@ -253,7 +266,7 @@ cause is not this one. Three empty results mean you are not connected as
 **Check Keycloak.** Before any repair, check that the logged `keycloak_group_id`
 is the tenant's admins group in Keycloak; the repair trusts it. From the repository
 directory, with the id from the log line. It must print `"path" : "/t/<tenant
-uuid>/admins"` and exit 0; a non-zero exit (an unknown id, a failed login) or any
+uuid>/<group_name>"` and exit 0; a non-zero exit (an unknown id, a failed login) or any
 other path means stop. The admin password reaches `kcadm.sh` through
 `KC_CLI_PASSWORD`, not `--password`, so it is in no process argument list, and the
 temporary config file, which holds a master-realm refresh token, is removed on exit.
@@ -273,27 +286,31 @@ statement. Read its tag before you commit: it must be exactly `UPDATE 1` or
 `DELETE 1`. Then run the `COMMIT` block; for any other tag, run the `ROLLBACK`
 block and stop.
 
-Option A (preferred): point the stale row at the current Keycloak id. Its platform
-id and memberships stay; the next group sync cycle (at most 5 minutes) refreshes
-the memberships.
+Option A (preferred): point the stale row at the current Keycloak id, and clear
+its tombstone if group sync set one. The group exists in Keycloak again (you
+checked), so this is the revival group sync itself does on the same platform id
+(ADR-004-E5 D1). Its platform id and any memberships stay; the next group sync
+cycle (at most 5 minutes) refreshes the memberships.
 
 ```sql
 BEGIN;
 UPDATE groups
-   SET keycloak_group_id = :'kc_group_id'
+   SET keycloak_group_id = :'kc_group_id', deleted_at = NULL
  WHERE tenant_id = :'tenant_id'::uuid
-   AND path = '/t/' || :'tenant_id' || '/admins';
+   AND path = '/t/' || :'tenant_id' || '/' || :'group_name';
 ```
 
-Option B: remove the stale row. Its `group_members` and any `tenant_admin_group`
-row go with it (ON DELETE CASCADE); retry inserts a fresh row, and group sync
-re-adds the members. `path` is not unique, so check that the tag is `DELETE 1`.
+Option B: remove the stale row. Its `group_members` and any pointer row go with it
+(ON DELETE CASCADE); retry inserts a fresh row, and group sync re-adds the members.
+`path` is not unique, so check that the tag is `DELETE 1`. If a record names the
+group as its assignment group, the delete fails (`records_assignment_group_fkey` is
+ON DELETE RESTRICT, ADR-004-E5 D2): psql stops, and you use option A instead.
 
 ```sql
 BEGIN;
 DELETE FROM groups
  WHERE tenant_id = :'tenant_id'::uuid
-   AND path = '/t/' || :'tenant_id' || '/admins';
+   AND path = '/t/' || :'tenant_id' || '/' || :'group_name';
 ```
 
 The tag was exactly 1:
@@ -309,14 +326,14 @@ ROLLBACK;
 ```
 
 **Retry.** Run the original onboarding request again with the same
-`Idempotency-Key` and body (see "Steps and recovery"). The admins-group step now
-finds a row for the current id, writes `tenant_admin_group`, and onboarding
-continues to the invite and activation. Check:
+`Idempotency-Key` and body (see "Steps and recovery"). The group step now finds a
+row for the current id, writes the pointer row, and onboarding continues to the
+invite and activation. Check:
 
 ```sql
 SELECT t.state, a.group_id, g.keycloak_group_id
   FROM tenants t
-  JOIN tenant_admin_group a ON a.tenant_id = t.id
+  JOIN :"pointer_table" a ON a.tenant_id = t.id
   JOIN groups g ON (g.tenant_id, g.id) = (a.tenant_id, a.group_id)
  WHERE t.id = :'tenant_id'::uuid;   -- state active, the current Keycloak id
 ```
@@ -341,3 +358,83 @@ Group sync no longer deletes a group that Keycloak drops: it tombstones the grou
 (`deleted_at`) and revives it on the same id if it returns. Roll out as **stop the old
 `nava-groupsync`, then start the new one**; never run both. An old instance that meets
 a revived group fails closed on D11 and rolls back its transaction.
+
+## Pointer missing after a group came back (R-E5-4)
+
+ADR-004-E5 risk R-E5-4, recovery path N3 (TICK-530). It covers both pointers, with
+the same `group_name` and `pointer_table` values as the section "Retry fails with
+admin group missing".
+
+**Detect.** An active tenant reports that no one can act as its admin (or its
+auditors are refused), typically after a Keycloak restore. Earlier, group sync logged
+one WARN line when the group went:
+
+```json
+{"level":"WARN","msg":"group sync: the tenant's admins group was deleted in the directory; the tenant has no admin until one is recorded","tenant_id":"<tenant uuid>"}
+```
+
+Cause: when Keycloak dropped the `admins` or `auditors` group, group sync tombstoned
+it and deleted its pointer row (ADR-004-E5 D1, D5). When the same Keycloak group came
+back, sync revived it on the same platform id, but it never re-creates a pointer:
+that would silently re-grant admin or audit access to whoever is in the revived
+group. This fails closed. Onboarding cannot re-record it either, because its insert
+policy admits only `provisioning` tenants. This operator step re-records it.
+
+**Confirm.** Connect as `pgadmin` exactly as in "Retry fails with admin group
+missing", with `kc_group_id` set to the group's current Keycloak id. Run the
+"Check Keycloak" step from that section first: the id must be the tenant's
+`/t/<tenant uuid>/<group_name>` group, and its members must be the people who should
+hold the role. Then:
+
+```sql
+-- The live group: one row, deleted_at empty, under the current Keycloak id.
+SELECT id, keycloak_group_id, path, deleted_at
+  FROM groups
+ WHERE tenant_id = :'tenant_id'::uuid
+   AND keycloak_group_id = :'kc_group_id'
+   AND path = '/t/' || :'tenant_id' || '/' || :'group_name'
+   AND deleted_at IS NULL;
+
+-- The tenant has no pointer row (0 rows), or this is a different problem.
+SELECT * FROM :"pointer_table" WHERE tenant_id = :'tenant_id'::uuid;
+```
+
+Expect one row, then none. If the first query returns no row, the group is not back
+(or sync has not run yet; wait one cycle, at most 5 minutes); stop. If the second
+returns a row, the pointer is there; stop.
+
+**Re-record.** One statement in a transaction. Its tag must be exactly `INSERT 0 1`;
+then run the `COMMIT` block. For any other tag, run the `ROLLBACK` block and stop.
+
+```sql
+BEGIN;
+INSERT INTO :"pointer_table" (tenant_id, group_id)
+SELECT tenant_id, id
+  FROM groups
+ WHERE tenant_id = :'tenant_id'::uuid
+   AND keycloak_group_id = :'kc_group_id'
+   AND path = '/t/' || :'tenant_id' || '/' || :'group_name'
+   AND deleted_at IS NULL;
+```
+
+The tag was exactly `INSERT 0 1`:
+
+```sql
+COMMIT;
+```
+
+Any other tag:
+
+```sql
+ROLLBACK;
+```
+
+**Check.** The pointer names the live group under the current Keycloak id:
+
+```sql
+SELECT t.state, a.group_id, g.keycloak_group_id, g.deleted_at
+  FROM tenants t
+  JOIN :"pointer_table" a ON a.tenant_id = t.id
+  JOIN groups g ON (g.tenant_id, g.id) = (a.tenant_id, a.group_id)
+ WHERE t.id = :'tenant_id'::uuid;   -- state active, the current Keycloak id, deleted_at empty
+```

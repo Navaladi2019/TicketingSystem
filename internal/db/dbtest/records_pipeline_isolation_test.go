@@ -24,7 +24,7 @@ func TestP309GroupTombstoneStaysInTenant(t *testing.T) {
 	for _, tid := range []string{tenantA, tenantB} {
 		exec(t, super, `INSERT INTO groups (tenant_id, id, keycloak_group_id, path)
 			VALUES ($1::uuid, $2, 'kc-shared', '/t/' || $1::text || '/shared')`, tid, shared)
-		exec(t, super, "UPDATE records SET assignment_group_id = $2 WHERE tenant_id = $1 AND id = $3",
+		exec(t, super, withRecordEntry("UPDATE records SET assignment_group_id = $2 WHERE tenant_id = $1 AND id = $3"),
 			tid, shared, pipelineRecord(tid))
 	}
 	sync := asRole(t, "nava_groupsync")

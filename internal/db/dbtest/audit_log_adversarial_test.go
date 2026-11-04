@@ -31,8 +31,13 @@ func TestP510bAdversarialTransitionsStayInTenant(t *testing.T) {
 	if n, err := execIn(asRole(t, "nava_erasure"), tenantA, eraseEntry, tenantB, victim, ref); err != nil || n != 0 {
 		t.Errorf("nava_erasure (tenant A) erases tenant B's entry: %d rows, %v; want 0 rows", n, err)
 	}
+	// No tenant predicate, aimed at B's entry by its own id. Not by subject:
+	// pipelineRecord gives tenants A and B the same record id, so a subject
+	// predicate would also reach A's seeded record entry (P5-13c), which RLS
+	// lets the caller see.
 	if n, err := execIn(asRole(t, "nava_erasure"), tenantA,
-		`UPDATE audit_log SET diff = NULL, diff_salt = NULL, erased_at = now(), erasure_ref = $1`, ref); err != nil || n != 0 {
+		`UPDATE audit_log SET diff = NULL, diff_salt = NULL, erased_at = now(), erasure_ref = $1 WHERE id = $2`,
+		ref, victim); err != nil || n != 0 {
 		t.Errorf("nava_erasure (tenant A, no tenant predicate) erases: %d rows, %v; want 0 rows", n, err)
 	}
 	if n, err := execIn(asRole(t, "nava_worker"), tenantA, sealEntry, tenantB, victim); err != nil || n != 0 {

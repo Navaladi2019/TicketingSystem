@@ -132,7 +132,11 @@ func seedRef(t *testing.T, conn *pgx.Conn, tenant uuid.UUID, kind string) (workf
 	t.Helper()
 	outboxID, record := uuid.New(), uuid.New()
 	mustExec(t, conn, "INSERT INTO tenants (id, state) VALUES ($1, 'active') ON CONFLICT DO NOTHING", tenant)
-	mustExec(t, conn, "INSERT INTO records (tenant_id, id) VALUES ($1, $2)", tenant, record)
+	// The record and its audit entry commit together, as the records
+	// commit-check trigger requires (ADR-004 decision 2, P5-13c).
+	mustExec(t, conn, `WITH r AS (INSERT INTO records (tenant_id, id) VALUES ($1, $2) RETURNING tenant_id, id, version)
+		INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, version_after, actor_system, source)
+		SELECT tenant_id, gen_random_uuid(), 'record', 'create', 'record', id, version, 'system', 'system' FROM r`, tenant, record)
 	mustExec(t, conn, "INSERT INTO workflow_ref (tenant_id, outbox_id, record_id, kind) VALUES ($1, $2, $3, $4)",
 		tenant, outboxID, record, kind)
 	return "t:" + tenant.String() + ":" + kind + ":" + outboxID.String(), outboxID
