@@ -241,6 +241,11 @@ func testEraseEntryShape(t *testing.T, e encoding) {
 		"empty-list":          `[{"op":"add","path":"/erased_ids","value":[]}]`,
 		"over-the-r23-cap":    ids(many...),
 		"uppercase-id-listed": ids(strings.ToUpper(erasedID)),
+		"trailing-data":       ids(erasedID) + ` {}`,
+		"trailing-array":      ids(erasedID) + ids(erasedID),
+		"duplicate-member":    `[{"op":"remove","op":"add","path":"/erased_ids","value":["` + erasedID + `"]}]`,
+		"duplicate-value":     `[{"op":"add","path":"/erased_ids","value":[],"value":["` + erasedID + `"]}]`,
+		"missing-member":      `[{"op":"add","value":["` + erasedID + `"]}]`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			wantFailure(t, e, pendingWith(t, d), failure{bodyLine(int(erasedSeq)), erasedSeq, verify.ReasonErasureUnlisted,
