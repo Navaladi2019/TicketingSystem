@@ -1,5 +1,5 @@
 #!/bin/sh
-# stack-case: job=stack-db order=60 mode=serial
+# stack-case: job=stack-db order=60 mode=serial area=db
 set -eu
 . "$(dirname "$0")/../case-env.sh"
 

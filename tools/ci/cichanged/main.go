@@ -9,8 +9,13 @@
 // ci-stack when an image or a stack test does. A file no rule knows runs every
 // stage, so a new kind of file is never skipped by default.
 //
-// Usage: cichanged [-base origin/main] [-v]. -v prints why each file needs
-// its stages on stderr.
+// With -areas it prints instead the stack-case areas the change touches
+// (TICK-563): all, none, or a comma list of keycloak, pgbouncer and db, which
+// `make stack-tests AREAS=...` uses to skip the cases of untouched areas. A
+// file no area rule knows turns on every area.
+//
+// Usage: cichanged [-base origin/main] [-v] [-areas]. -v prints why each file
+// needs its stages (or areas) on stderr.
 package main
 
 import (
@@ -59,17 +64,18 @@ func cli(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	base := fs.String("base", "origin/main", "base ref of the change")
 	verbose := fs.Bool("v", false, "print the reason for each file on stderr")
+	areas := fs.Bool("areas", false, "print the stack-case areas the change touches instead of the stages")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if err := run(*base, *verbose, stdout, stderr); err != nil {
+	if err := run(*base, *verbose, *areas, stdout, stderr); err != nil {
 		_, _ = fmt.Fprintln(stderr, "cichanged:", err)
 		return 2
 	}
 	return 0
 }
 
-func run(base string, verbose bool, stdout, stderr io.Writer) error {
+func run(base string, verbose, areas bool, stdout, stderr io.Writer) error {
 	files, err := changedFiles(base)
 	if err != nil {
 		return err
@@ -77,6 +83,16 @@ func run(base string, verbose bool, stdout, stderr io.Writer) error {
 	g, err := loadGraph()
 	if err != nil {
 		return err
+	}
+	if areas {
+		out, reasons := classifyAreas(files, g)
+		if verbose {
+			for _, r := range reasons {
+				_, _ = fmt.Fprintln(stderr, "cichanged:", r)
+			}
+		}
+		_, _ = fmt.Fprintln(stdout, out)
+		return nil
 	}
 	stages, reasons := classify(files, g)
 	if verbose {
