@@ -10,12 +10,22 @@
 // RETURNING, or COPY ... TO) and names diff or diff_salt, selects a star,
 // uses the whole row (to_jsonb(a), json_agg(a), array_agg(a), a::text,
 // SELECT audit_log FROM audit_log, SELECT a FROM audit_log a, ...), COPYs
-// the table out without a column list, or runs TABLE audit_log. Matching is case-insensitive, with any whitespace, quotes or
-// schema prefix; SQL comments are ignored. diff_sha256, diff_truncated and
+// the table out without a column list, or runs TABLE audit_log. Matching
+// is case-insensitive, with any whitespace, quotes or schema prefix; SQL
+// comments are ignored. diff_sha256, diff_truncated and
 // diff_redacted are other columns and do not match.
 //
+// The table is seen after FROM, JOIN or a comma in a FROM list (FROM
+// records r, audit_log a), also inside a parenthesised join and with spaces
+// around a schema dot (public . audit_log); (a).* and a . * are stars. TABLE audit_log fails closed:
+// it counts after any word but the DDL and ACL ones in tableDDL, so INSERT
+// ... OVERRIDING SYSTEM VALUE TABLE and DECLARE c CURSOR FOR TABLE are seen.
+//
 // Constants fold across packages: `"SELECT diff FROM " + audited.LogTable`
-// and `fmt.Sprintf("... FROM %s", audited.LogTable)` are seen.
+// and `fmt.Sprintf("... FROM %s", audited.LogTable)` are seen, through a
+// named import (aud.LogTable) or a dot import (LogTable). Imports are scoped
+// per file, so two files that give the same local name to different packages
+// do not shadow each other. A const declared inside a function folds too.
 //
 // Known limits (static, one string at a time; review owns these, and the
 // database-layer fix is RFC TICK-549):
@@ -28,6 +38,18 @@
 //     time) is never one string, so it is not seen.
 //   - A constant built from another package's constant is two hops and is
 //     not resolved.
+//   - A whole row used outside the listed row functions, casts and bare
+//     select-list items is not seen: SELECT (a), a AS z, CAST(a AS text),
+//     jsonb_build_object('r', a), ARRAY[a] (Security D on PR #458).
+//   - An implicitly repeated const (const ( x = "audit_log"; y )) does not
+//     fold, and fmt verbs with an explicit index (%[2]s) are filled in
+//     order, not by index (Security E on PR #458).
+//   - D and E are layer-2 gaps: Postgres is the gate once TICK-558 revokes
+//     nava_app on diff. Revisit if one shows up in a review or TICK-558
+//     slips past S14.
+//   - A function's local consts apply to its whole body, not per block, and a
+//     local var that shadows a const of the same name still folds as the
+//     const.
 //
 // testdata/diffreaders plants every form; TestAuditDiffReaderFixture proves
 // each one is reported, so the check cannot rot into a test that passes on
@@ -40,6 +62,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -73,31 +96,69 @@ func (d diffRead) String() string {
 
 const (
 	sqlIdent = `[a-z_][a-z0-9_$]*`
+	// An optional schema prefix, with any whitespace around the dot
+	// (public . audit_log).
+	schemaPrefix = `(?:` + sqlIdent + `\s*\.\s*)?`
 	// audit_log or one of its partitions (audit_log_default) as a read
 	// source; audit_log_v0 and other look-alike names are not it.
-	auditTable = `(?:` + sqlIdent + `\.)?audit_log(?:_default|_p` + sqlIdent + `)?\b`
+	auditTable = schemaPrefix + `audit_log(?:_default|_p` + sqlIdent + `)?\b`
+	// FROM or JOIN, then any opening parentheses of a parenthesised join
+	// (FROM (audit_log a CROSS JOIN x)).
+	fromStart = `\b(?:from|join)(?:\s*\(\s*|\s+)+`
+	// A FROM-list comma, then any opening parentheses.
+	listStart = `,\s*(?:\(\s*)*`
 )
 
 var (
-	fromAudit = regexp.MustCompile(`\b(?:from|join)\s+(?:only\s+)?` + auditTable)
+	fromAudit = regexp.MustCompile(fromStart + `(?:only\s+)?` + auditTable)
+	// audit_log as a later item of a FROM list: FROM records r, audit_log a.
+	fromList = regexp.MustCompile(`\bfrom\s[^;]*?` + listStart + `(?:only\s+)?` + auditTable)
 	// The table's row names in a statement: audit_log itself and the alias
-	// after FROM or JOIN audit_log [AS] alias. A keyword is not an alias.
-	aliasRE = regexp.MustCompile(`\b(?:from|join)\s+(?:only\s+)?(?:` + sqlIdent + `\.)?(audit_log(?:_default|_p` + sqlIdent + `)?)\b(?:\s+(?:as\s+)?(` + sqlIdent + `))?`)
+	// after FROM, JOIN or a FROM-list comma: audit_log [AS] alias. A keyword
+	// is not an alias.
+	aliasRE = regexp.MustCompile(`(?:` + fromStart + `|` + listStart + `)(?:only\s+)?` + schemaPrefix + `(audit_log(?:_default|_p` + sqlIdent + `)?)\b(?:\s+(?:as\s+)?(` + sqlIdent + `))?`)
 	// A write on audit_log that returns columns reads them too.
 	writeAudit = regexp.MustCompile(`\b(?:insert\s+into|update|delete\s+from|merge\s+into)\s+(?:only\s+)?` + auditTable)
 	returning  = regexp.MustCompile(`\breturning\b`)
 	// COPY audit_log [(cols)] TO: a bare one exports every column. COPY
 	// audit_log FROM is a write; COPY (SELECT ...) TO is seen by its SELECT.
 	copyTo = regexp.MustCompile(`\bcopy\s+` + auditTable + `\s*(\([^)]*\))?\s*to\b`)
-	// TABLE audit_log is SELECT * FROM audit_log. It must start a statement
-	// or a set operand, so CREATE, ALTER, LOCK or GRANT ... TABLE do not match.
-	tableCmd = regexp.MustCompile(`(?:^|[;(]|\bunion(?:\s+all)?|\bexcept|\bintersect)\s*table\s+(?:only\s+)?` + auditTable)
+	// TABLE audit_log is SELECT * FROM audit_log. Group 1 is the word before
+	// TABLE, if any; tableRead decides on it.
+	tableCmd = regexp.MustCompile(`(?:([a-z0-9_$]+)\s+)?\btable\s+(?:only\s+)?` + auditTable)
 	// The protected columns. \b stops at diff_sha256 and friends, because _
 	// is a word character.
 	diffCol = regexp.MustCompile(`\b(diff_salt|diff)\b`)
-	// SELECT *, alias.*, RETURNING * (count(*) is not a star select).
-	starSel = regexp.MustCompile(`(?:\bselect\s+(?:distinct\s+)?|\breturning\s+|` + sqlIdent + `\.)\*`)
+	// SELECT *, alias.*, alias . *, (alias).*, RETURNING * (count(*) is not
+	// a star select).
+	starSel = regexp.MustCompile(`(?:\bselect\s+(?:distinct\s+)?|\breturning\s+|(?:` + sqlIdent + `|\))\s*\.\s*)\*`)
 )
+
+// tableDDL reports whether w may stand before TABLE audit_log without
+// reading it: DDL (CREATE, ALTER, DROP, TRUNCATE, LOCK, LIKE, REFERENCES)
+// and GRANT, REVOKE or COMMENT ... ON TABLE.
+func tableDDL(w string) bool {
+	switch w {
+	case "create", "alter", "lock", "drop", "truncate", "on", "like", "references":
+		return true
+	}
+	return false
+}
+
+// tableRead reports whether s runs TABLE audit_log as a query. It fails
+// closed: every TABLE audit_log counts unless the word before it is in
+// tableDDL, so a prefix nobody listed (INSERT ... OVERRIDING SYSTEM VALUE,
+// DECLARE c CURSOR FOR, WITH x AS MATERIALIZED (...)) is still seen. The
+// cost is over-reporting a DDL form that is not listed, such as CREATE TEMP
+// TABLE audit_log; add its word here when one turns up.
+func tableRead(s string) bool {
+	for _, m := range tableCmd.FindAllStringSubmatch(s, -1) {
+		if !tableDDL(m[1]) {
+			return true
+		}
+	}
+	return false
+}
 
 // sqlKeyword reports whether w may follow FROM audit_log without being an
 // alias.
@@ -105,7 +166,7 @@ func sqlKeyword(w string) bool {
 	switch w {
 	case "where", "join", "inner", "left", "right", "full", "cross", "natural", "on", "using", "order",
 		"group", "having", "limit", "offset", "for", "union", "intersect", "except", "window",
-		"returning", "fetch", "tablesample", "set":
+		"returning", "fetch", "tablesample", "set", "from", "and", "or":
 		return true
 	}
 	return false
@@ -158,8 +219,8 @@ func diffReads(s string) []string {
 	s = strings.ReplaceAll(s, `"`, "")
 	s = strings.ReplaceAll(s, "`", "")
 	copied := copyTo.FindStringSubmatch(s)
-	table := tableCmd.MatchString(s)
-	if reads := fromAudit.MatchString(s) || writeAudit.MatchString(s) && returning.MatchString(s) || copied != nil || table; !reads {
+	table := tableRead(s)
+	if reads := fromAudit.MatchString(s) || fromList.MatchString(s) || writeAudit.MatchString(s) && returning.MatchString(s) || copied != nil || table; !reads {
 		return nil
 	}
 	var out []string
@@ -183,8 +244,9 @@ func diffReads(s string) []string {
 }
 
 // scanFile reports the protected-column reads in one Go file at rel. consts
-// holds the string constants of the file's package, so a query built from a
-// named constant is seen too.
+// holds the string constants the file sees (its package's and its own
+// imports'), so a query built from a named constant is seen too; a function
+// body adds its local consts on top.
 func scanFile(fset *token.FileSet, rel string, f *ast.File, consts map[string]string) []diffRead {
 	if diffReaderAllowed(rel) {
 		return nil
@@ -195,24 +257,55 @@ func scanFile(fset *token.FileSet, rel string, f *ast.File, consts map[string]st
 			out = append(out, diffRead{rel, fset.Position(n.Pos()).Line, w})
 		}
 	}
-	ast.Inspect(f, func(n ast.Node) bool {
-		switch n := n.(type) {
-		case *ast.BasicLit:
-			if s, ok := stringValue(n, consts); ok {
-				report(n, s)
+	var walk func(root ast.Node, consts map[string]string)
+	walk = func(root ast.Node, consts map[string]string) {
+		ast.Inspect(root, func(n ast.Node) bool {
+			switch n := n.(type) {
+			case *ast.FuncDecl:
+				if n.Body != nil {
+					walk(n.Body, localConsts(n.Body, consts))
+				}
+				return false
+			case *ast.FuncLit:
+				walk(n.Body, localConsts(n.Body, consts))
+				return false
+			case *ast.BasicLit, *ast.BinaryExpr:
+				if s, ok := stringValue(n.(ast.Expr), consts); ok {
+					report(n, s)
+				}
+			case *ast.CallExpr:
+				if s, ok := sprintfValue(n, consts); ok {
+					report(n, s)
+				}
 			}
-		case *ast.BinaryExpr:
-			if s, ok := stringValue(n, consts); ok {
-				report(n, s)
-			}
-		case *ast.CallExpr:
-			if s, ok := sprintfValue(n, consts); ok {
-				report(n, s)
-			}
-		}
-		return true
-	})
+			return true
+		})
+	}
+	walk(f, consts)
 	return dedupe(out)
+}
+
+// localConsts returns outer plus the string consts declared in body, not
+// counting nested function literals, which add their own.
+func localConsts(body *ast.BlockStmt, outer map[string]string) map[string]string {
+	env := maps.Clone(outer)
+	if env == nil {
+		env = map[string]string{}
+	}
+	for range 2 { // a second pass resolves constants built from constants
+		ast.Inspect(body, func(n ast.Node) bool {
+			switch n := n.(type) {
+			case *ast.FuncLit:
+				return false
+			case *ast.DeclStmt:
+				if g, ok := n.Decl.(*ast.GenDecl); ok {
+					foldConsts(g, env, nil)
+				}
+			}
+			return true
+		})
+	}
+	return env
 }
 
 // stringValue folds e to a constant string: a literal, a parenthesised or
@@ -294,34 +387,58 @@ func dedupe(ds []diffRead) []diffRead {
 }
 
 // packageConsts returns the string constants declared at package level in
-// files (one directory's non-test files), on top of seed: the qualified
-// "pkg.Const" names the files' imports bring in (importScope).
-func packageConsts(files []*ast.File, seed map[string]string) map[string]string {
-	consts := make(map[string]string, len(seed))
-	for k, v := range seed {
-		consts[k] = v
-	}
+// files (one directory's non-test files). Each file's declarations fold
+// against scopes[i], the constants its own imports bring in (importScope);
+// scopes may be nil.
+func packageConsts(files []*ast.File, scopes []map[string]string) map[string]string {
+	pkg := map[string]string{}
 	for range 2 { // a second pass resolves constants built from constants
-		for _, f := range files {
+		for i, f := range files {
+			var scope map[string]string
+			if i < len(scopes) {
+				scope = scopes[i]
+			}
+			env := fileConsts(pkg, scope)
 			for _, d := range f.Decls {
-				g, ok := d.(*ast.GenDecl)
-				if !ok || g.Tok != token.CONST {
-					continue
-				}
-				for _, sp := range g.Specs {
-					vs := sp.(*ast.ValueSpec)
-					for i, name := range vs.Names {
-						if i < len(vs.Values) {
-							if s, ok := stringValue(vs.Values[i], consts); ok {
-								consts[name.Name] = s
-							}
-						}
-					}
+				if g, ok := d.(*ast.GenDecl); ok {
+					foldConsts(g, env, pkg)
 				}
 			}
 		}
 	}
-	return consts
+	return pkg
+}
+
+// fileConsts is what one file sees: its imports' constants and its
+// package's. Go rejects a dot-imported name that clashes with a package-level
+// name, so the order does not matter.
+func fileConsts(pkg, scope map[string]string) map[string]string {
+	env := make(map[string]string, len(pkg)+len(scope))
+	maps.Copy(env, scope)
+	maps.Copy(env, pkg)
+	return env
+}
+
+// foldConsts adds the string constants of a const declaration to env, and
+// to out when it is not nil.
+func foldConsts(g *ast.GenDecl, env, out map[string]string) {
+	if g.Tok != token.CONST {
+		return
+	}
+	for _, sp := range g.Specs {
+		vs := sp.(*ast.ValueSpec)
+		for i, name := range vs.Names {
+			if i >= len(vs.Values) {
+				continue
+			}
+			if s, ok := stringValue(vs.Values[i], env); ok {
+				env[name.Name] = s
+				if out != nil {
+					out[name.Name] = s
+				}
+			}
+		}
+	}
 }
 
 // goDirs returns the non-test .go files under start, by directory, skipping
@@ -399,10 +516,21 @@ func moduleAt(root, dir string, cache map[string][2]string) (mod, modDir string,
 // folds to "audit_log" (Security finding 1 on PR #443).
 func constIndex(t *testing.T, root string) map[string]pkgConsts {
 	t.Helper()
+	idx := indexDir(t, root, root)
+	if idx[modulePath+"/internal/db/audited"].consts["LogTable"] != "audit_log" {
+		t.Fatal("the const index does not resolve audited.LogTable; the guard would miss it")
+	}
+	return idx
+}
+
+// indexDir maps the import path of every package under start to its string
+// constants.
+func indexDir(t *testing.T, root, start string) map[string]pkgConsts {
+	t.Helper()
 	cache := map[string][2]string{}
 	idx := map[string]pkgConsts{}
 	fset := token.NewFileSet()
-	for dir, paths := range goDirs(t, root) {
+	for dir, paths := range goDirs(t, start) {
 		mod, modDir, ok := moduleAt(root, dir, cache)
 		if !ok {
 			continue
@@ -414,29 +542,33 @@ func constIndex(t *testing.T, root string) map[string]pkgConsts {
 		files := parseDir(t, fset, paths)
 		idx[path.Join(mod, filepath.ToSlash(rel))] = pkgConsts{files[0].Name.Name, packageConsts(files, nil)}
 	}
-	if idx[modulePath+"/internal/db/audited"].consts["LogTable"] != "audit_log" {
-		t.Fatal("the const index does not resolve audited.LogTable; the guard would miss it")
-	}
 	return idx
 }
 
-// importScope returns the qualified constants ("audited.LogTable") that the
-// files' imports of repository packages bring in, under each import's local
-// name.
-func importScope(files []*ast.File, idx map[string]pkgConsts) map[string]string {
+// importScope returns the constants that one file's imports of repository
+// packages bring in: qualified by the import's local name
+// ("audited.LogTable", "aud.LogTable"), or bare for a dot import. It is per
+// file, because two files of a package may give one local name to two
+// different packages (PSE finding on TICK-541).
+func importScope(f *ast.File, idx map[string]pkgConsts) map[string]string {
 	scope := map[string]string{}
-	for _, f := range files {
-		for _, is := range f.Imports {
-			p, _ := strconv.Unquote(is.Path.Value)
-			pc, ok := idx[p]
-			if !ok {
-				continue
-			}
-			local := pc.name
-			if is.Name != nil {
-				local = is.Name.Name
-			}
-			for k, v := range pc.consts {
+	for _, is := range f.Imports {
+		p, _ := strconv.Unquote(is.Path.Value)
+		pc, ok := idx[p]
+		if !ok {
+			continue
+		}
+		local := pc.name
+		if is.Name != nil {
+			local = is.Name.Name
+		}
+		if local == "_" {
+			continue
+		}
+		for k, v := range pc.consts {
+			if local == "." {
+				scope[k] = v
+			} else {
 				scope[local+"."+k] = v
 			}
 		}
@@ -453,7 +585,11 @@ func scanDir(t *testing.T, root, start, prefix string, idx map[string]pkgConsts)
 	fset := token.NewFileSet()
 	for _, paths := range goDirs(t, start) {
 		files := parseDir(t, fset, paths)
-		consts := packageConsts(files, importScope(files, idx))
+		scopes := make([]map[string]string, len(files))
+		for i, f := range files {
+			scopes[i] = importScope(f, idx)
+		}
+		pkg := packageConsts(files, scopes)
 		for i, f := range files {
 			rel, err := filepath.Rel(root, paths[i])
 			if err != nil {
@@ -464,7 +600,7 @@ func scanDir(t *testing.T, root, start, prefix string, idx map[string]pkgConsts)
 				r, _ := filepath.Rel(start, paths[i])
 				rel = path.Join(prefix, filepath.ToSlash(r))
 			}
-			out = append(out, scanFile(fset, rel, f, consts)...)
+			out = append(out, scanFile(fset, rel, f, fileConsts(pkg, scopes[i]))...)
 		}
 	}
 	return dedupe(out)
@@ -504,7 +640,10 @@ func TestAuditDiffReaderFixture(t *testing.T) {
 	root := repoRoot(t)
 	dir := filepath.Join(root, "internal", "audit", "read", "testdata", "diffreaders")
 	const at = "internal/server/planted"
+	// The fixture's own packages (diffreaders/shadow) resolve like any
+	// repository package.
 	idx := constIndex(t, root)
+	maps.Copy(idx, indexDir(t, root, dir))
 	got := scanDir(t, root, dir, at, idx)
 
 	var want []diffRead
@@ -531,7 +670,7 @@ func TestAuditDiffReaderFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	want = dedupe(want)
-	if len(want) < 32 {
+	if len(want) < 57 {
 		t.Fatalf("the fixture plants %d reads; it lost some", len(want))
 	}
 	for _, w := range want {
@@ -602,6 +741,52 @@ func TestDiffReads(t *testing.T) {
 		"TABLE audit_log":                                                      {"table"},
 		"SELECT 1 UNION ALL TABLE only public.audit_log":                       {"table"},
 		"SELECT a FROM audit_log a":                                            {"row"},
+		// TICK-551.
+		"SELECT a.diff FROM records r, audit_log a":                 {"diff"},
+		"SELECT to_jsonb(a) FROM records r, audit_log a":            {"row"},
+		"SELECT x FROM records r , ONLY public.audit_log_default a": nil,
+		"SELECT a.id FROM records r,audit_log a, other o":           nil,
+		"SELECT * FROM records r, audit_log a":                      {"star"},
+		"WITH x AS (SELECT 1) TABLE audit_log":                      {"table"},
+		"INSERT INTO t TABLE audit_log":                             {"table"},
+		"INSERT INTO s.t AS x TABLE audit_log":                      {"table"},
+		"INSERT INTO t (a, b) TABLE audit_log":                      {"table"},
+		"CREATE TABLE t AS TABLE audit_log":                         {"table"},
+		"SELECT (a).* FROM audit_log a":                             {"star"},
+		"SELECT ( a ) . * FROM audit_log a":                         {"star"},
+		"SELECT diff FROM records r, audit_log_v0 a":                nil,
+		"SELECT r.diff, r.audit_log_id FROM records r, other o":     nil,
+		"WITH x AS (SELECT 1) TABLE audit_log_v0":                   nil,
+		"INSERT INTO audit_log TABLE staging":                       nil,
+		"SELECT (a).id FROM audit_log a":                            nil,
+		"SELECT count(*) FROM records r, audit_log a":               nil,
+		// Review round 1: TABLE fails closed, so unlisted prefixes are seen
+		// and only the DDL and ACL forms stay quiet.
+		"INSERT INTO t OVERRIDING SYSTEM VALUE TABLE audit_log":        {"table"},
+		"INSERT INTO t (a, b) OVERRIDING USER VALUE TABLE audit_log":   {"table"},
+		"DECLARE c CURSOR FOR TABLE audit_log":                         {"table"},
+		"DECLARE c CURSOR WITH HOLD FOR TABLE ONLY public.audit_log":   {"table"},
+		"WITH x AS MATERIALIZED (SELECT 1) TABLE audit_log":            {"table"},
+		"PREPARE p AS TABLE audit_log":                                 {"table"},
+		"(TABLE audit_log)":                                            {"table"},
+		"ALTER TABLE ONLY audit_log ADD COLUMN x int; TABLE audit_log": {"table"},
+		"SELECT x FROM astable audit_log":                              nil,
+		"SELECT x FROM audit_table audit_log":                          nil,
+		"DROP TABLE audit_log":                                         nil,
+		"TRUNCATE TABLE ONLY audit_log":                                nil,
+		"LOCK TABLE audit_log IN SHARE MODE":                           nil,
+		"REVOKE ALL ON TABLE public.audit_log FROM nava_app":           nil,
+		"COMMENT ON TABLE audit_log IS 'x'":                            nil,
+		"CREATE TABLE audit_log (id int)":                              nil,
+		"CREATE TABLE t (id int REFERENCES audit_log)":                 nil,
+		// Security A, B, C look-alikes (the positives are in
+		// diffreaders_bypass_test.go).
+		"SELECT a.diff FROM records r, (audit_log_v0 a CROSS JOIN x)": nil,
+		"SELECT s.diff FROM (SELECT diff FROM record_diffs) s":        nil,
+		"SELECT diff FROM public . audit_log_v0":                      nil,
+		"SELECT a . id, a . seq * 2 FROM audit_log a":                 nil,
+		"SELECT a.diff FROM ( ( audit_log a ) )":                      {"diff"},
+		"SELECT diff FROM records WHERE kind IN ('x', 'audit_log')":   nil,
 		// Not a read of the protected columns.
 		"SELECT diff_sha256, diff_truncated, diff_redacted FROM audit_log": nil,
 		"SELECT count(*) FROM audit_log":                                   nil,
