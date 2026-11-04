@@ -40,10 +40,12 @@ const opaqueMessage = "error withheld from the history; the worker log has its s
 const sideEffectDenied = "\x00nava.TenantGuard: side effect withheld"
 
 // resultOK reports whether an activity, workflow or update result may be
-// recorded: nil (or a nil value, which encodes as null), or a value argOK
-// accepts. With directive set (the result of an activity, not a local one),
-// a Directive is accepted too if directiveOK passes its encoding; without it a
-// Directive falls to the generic rule and fails, since its kind is not a UUID.
+// recorded: nil (or a typed nil value, which encodes as null), or a value
+// argOK accepts. With directive set (the result of an activity, not a local
+// one), a Directive is accepted too if directiveOK passes its encoding, and a
+// typed nil *Directive is refused: it goes to directiveResultOK, which fails
+// closed, not to the null rule. Without directive set a Directive falls to the
+// generic rule and fails, since its kind is not a UUID.
 func resultOK(v any, directive bool) bool {
 	if v == nil {
 		return true
