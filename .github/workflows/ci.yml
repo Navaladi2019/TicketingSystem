@@ -10,29 +10,39 @@
 #                    (no containers)
 #   integration      -tags integration against a throwaway PostgreSQL, the
 #                    isolation suite, then the ci-isolated --down tag check
-#   stack            image build, compose up, smoke, platform and Temporal tests
-#   stack-db         a second stack: db-roles/migrate idempotency, role and hba tests
-#   stack-internal   the internal overlay on a fresh stack
+#   stack            one image build (make image-ci, once per run), then three
+#                    stacks in turn, each torn down before the next: the
+#                    platform and Temporal cases; a fresh stack for the
+#                    database cases (db-roles/migrate idempotency, roles,
+#                    hba); the internal overlay. The database and overlay
+#                    phases run even when an earlier phase failed (TICK-563;
+#                    they were the stack-db and stack-internal jobs)
 #   coverage         merges the unit and integration coverage profiles and
 #                    fails below 95% (make check-coverage, TICK-518). Runs whenever
 #                    unit does; a change that needs unit also runs integration
-# A pull request runs only the jobs its change needs: the changes job asks
-# `make ci-stages` (tools/ci/cichanged, the rules of `make ci-changed`), lint
-# always runs, and a change under .github/workflows runs everything. A push to
-# main or to a TICK-** branch runs every job on the merged tree (TICK-289),
-# and a red push to main opens a P0 issue (main-red). Run the full pipeline by
-# hand from the Actions tab (workflow_dispatch) on any branch.
+# Triggers (TICK-563, for Actions cost): a push to main, a pull request, a
+# manual run and the schedule. A push to a task or story branch starts no run.
+# A pull request without the ci:run label runs changes, lint and
+# story-branches only (make ci-stages with CI_LINT_ONLY=1). With the label it
+# runs the jobs its change needs: the changes job asks `make ci-stages`
+# (tools/ci/cichanged, the rules of `make ci-changed`), lint always runs, and a
+# change under .github/workflows runs everything. Every later push to a
+# labelled pull request runs again. Adding any other label starts a run whose
+# jobs are all skipped. Only main runs every job whatever changed (CI_ALL=1 on
+# a push or manual run on main); a red push to main opens a P0 issue
+# (main-red). A manual run (workflow_dispatch) on another branch runs the jobs
+# its diff against main needs.
 # A step listed in tools/ci/cisteps/required.yaml must stay: make
 # check-ci-steps fails the lint job when one is removed, disabled or allowed to
 # fail (TICK-297).
 #   story-branches   every story branch's work is on main (TICK-322); runs on
 #                    every event and every 6 hours (schedule, which runs no
 #                    other job), and on main keeps one issue open while red
-# Budget: see "Job time budgets" in docs/quality/ci-pipeline.md. The three
-# stack jobs build the images first (4 to 13 minutes of each run, by how much
-# of the image cache survives). stack also runs about 10 to 12 minutes of
-# cases, so its timeout-minutes is 35 (TICK-400, was 25); stack-db and
-# stack-internal stay at 25 (TICK-258), the others at 10. Each job keeps its
+# Budget: see "Job time budgets" in docs/quality/ci-pipeline.md. stack builds
+# the images first (4 to 13 minutes, by how much of the image cache survives),
+# then runs about 10 to 12 minutes of stack cases and 2 to 3 of database and
+# overlay cases, so its timeout-minutes is 40 (TICK-400, TICK-563); the
+# others are at 10 or 5. Each job keeps its
 # own Go build cache (key per job, refreshed every run on main), the CI tools
 # are cached by version, and image layers live in the Actions cache (gha).
 # Only runs on main write the Go and image caches (CACHE_WRITE, TICK-400):
@@ -44,11 +54,13 @@ name: ci
 
 on:
   pull_request:
+    # labeled: adding ci:run starts a run of the jobs the change needs. Every
+    # other label is skipped by the jobs' if: (TICK-563).
+    types: [opened, synchronize, reopened, labeled]
   push:
-    # 'TICK-**' (** crosses /) matches story branches (TICK-<story>/<slug>)
-    # and task branches alike: a glob cannot tell them apart, and the extra
-    # runs on task branches are an accepted cost (TICK-289).
-    branches: [main, 'TICK-**']
+    # main only (TICK-563): a task or story branch runs through its pull
+    # request and the ci:run label. This reverses TICK-289's push on TICK-**.
+    branches: [main]
   workflow_dispatch:
   # story-branches only: a story branch drifts from main without any push to
   # main (a PR merged into it), so it is checked on a clock too (TICK-322).
@@ -65,21 +77,22 @@ env:
 
 # A push gets a group of its own (per ref and sha), so a newer merge neither
 # cancels nor replaces a queued run: GitHub keeps one pending run per group even
-# with cancel-in-progress off. The ref keeps the same sha pushed to main and to
-# a TICK-** branch from sharing a group. Pull requests still cancel their older
-# run.
+# with cancel-in-progress off (only main has push runs since TICK-563; the ref
+# stays in the group). Pull requests still cancel their older run.
 # A scheduled run (story-branches only) has a group of its own, so it never
-# displaces a manual run queued on main.
+# displaces a manual run queued on main. A pull request labelled with anything
+# but ci:run (a run whose jobs are all skipped) has a group of its own too, so
+# it never cancels the pull request's real run (TICK-563).
 concurrency:
-  group: ${{ github.event_name == 'push' && format('ci-push-{0}-{1}', github.ref, github.sha) || github.event_name == 'schedule' && 'ci-schedule' || format('ci-{0}', github.ref) }}
+  group: ${{ github.event_name == 'push' && format('ci-push-{0}-{1}', github.ref, github.sha) || github.event_name == 'schedule' && 'ci-schedule' || github.event.action == 'labeled' && github.event.label.name != 'ci:run' && format('ci-label-{0}', github.run_id) || format('ci-{0}', github.ref) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   changes:
-    # Which of unit, integration and the stack jobs this change needs. A
-    # scheduled run is story-branches alone: skipping this job skips the jobs
-    # that need it.
-    if: github.event_name != 'schedule'
+    # Which of unit, integration and stack this change needs. A scheduled run
+    # is story-branches alone, and a label other than ci:run runs nothing
+    # (TICK-563): skipping this job skips the jobs that need it.
+    if: github.event_name != 'schedule' && (github.event.action != 'labeled' || github.event.label.name == 'ci:run')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -108,9 +121,11 @@ jobs:
         id: stages
         env:
           BASE: origin/${{ github.base_ref || 'main' }}
-          # Every stage on a manual run and on a push: a merge result has no
-          # meaningful diff base.
-          CI_ALL: ${{ github.event_name != 'pull_request' && '1' || '' }}
+          # Every stage on a push or manual run on main only: a merge result
+          # has no meaningful diff base. Never on another branch (TICK-563).
+          CI_ALL: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && '1' || '' }}
+          # A pull request without the ci:run label: lint only (TICK-563).
+          CI_LINT_ONLY: ${{ github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'ci:run') && '1' || '' }}
         run: make ci-stages
       # Only main writes the cache (TICK-400); see CACHE_WRITE above.
       - name: Save the Go build cache
@@ -123,7 +138,7 @@ jobs:
           key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
 
   lint:
-    if: github.event_name != 'schedule'
+    if: github.event_name != 'schedule' && (github.event.action != 'labeled' || github.event.label.name == 'ci:run')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -341,11 +356,17 @@ jobs:
           key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
 
   stack:
-    # Platform and Temporal stack tests; the database tests run in stack-db.
+    # The three stack phases share one image build (TICK-563): the images
+    # stay in the runner's Docker after each phase's down -v. The database
+    # and overlay phases were the jobs stack-db and stack-internal, each of
+    # which built the same images again (4 to 13 minutes) for 1 to 2 minutes
+    # of cases. Each phase starts from a fresh stack, as those jobs did, and
+    # runs even when an earlier phase failed, so one red run still reports all
+    # three.
     needs: changes
     if: needs.changes.outputs.stack == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
     env:
       IMAGE_CACHE: gha
     steps:
@@ -366,14 +387,20 @@ jobs:
             go-${{ github.job }}-
       - uses: docker/setup-buildx-action@v3
       - uses: crazy-max/ghaction-github-runtime@v3
+      # Once per run: every phase below uses these images.
       - name: Build images (layer cache in gha)
+        id: images
         run: make image-ci
+
+      # Phase 1: the platform and Temporal cases.
       - name: Start the stack
+        id: up
         run: make stack-up
       # Every case with job=stack in deploy/compose/test/cases/*.sh, in registry order, each in
       # its own log group; a failure names the case. A new case file runs here without a change
       # to this file (TICK-296). The reports below are written by the sdk and identity_attacks cases.
       - name: Stack cases (stack)
+        id: cases-stack
         run: make stack-tests JOB=stack
       - name: CI-6 report
         if: always()
@@ -389,107 +416,43 @@ jobs:
           name: ci5-report
           path: ci5-report.md
           if-no-files-found: error
-      - name: Logs on failure
-        if: failure()
+      - name: Logs on failure (stack)
+        if: always() && (steps.up.outcome == 'failure' || steps.cases-stack.outcome == 'failure')
         run: make stack-logs
-      - name: Tear down
+      - name: Tear down (stack)
         if: always()
         run: make stack-down
-      # Only main writes the cache (TICK-400); see CACHE_WRITE above.
-      - name: Save the Go build cache
-        if: success() && env.CACHE_WRITE == 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
 
-  stack-db:
-    # Database stack tests on their own stack, beside stack.
-    needs: changes
-    if: needs.changes.outputs.stack == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    env:
-      IMAGE_CACHE: gha
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: false
-      - name: Restore the Go build cache
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
-          restore-keys: |
-            go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-
-            go-${{ github.job }}-
-      - uses: docker/setup-buildx-action@v3
-      - uses: crazy-max/ghaction-github-runtime@v3
-      - name: Build images (layer cache in gha)
-        run: make image-ci
-      - name: Start the stack
+      # Phase 2: the database cases (job=stack-db) on a fresh stack.
+      - name: Start a fresh stack (stack-db)
+        id: up-db
+        if: ${{ !cancelled() && steps.images.outcome == 'success' }}
         run: make stack-up
-      # The cases with job=stack-db, on this job's own stack (see the stack job).
       - name: Stack cases (stack-db)
+        id: cases-db
+        if: ${{ !cancelled() && steps.up-db.outcome == 'success' }}
         run: make stack-tests JOB=stack-db
-      - name: Logs on failure
-        if: failure()
+      - name: Logs on failure (stack-db)
+        if: always() && (steps.up-db.outcome == 'failure' || steps.cases-db.outcome == 'failure')
         run: make stack-logs
-      - name: Tear down
+      - name: Tear down (stack-db)
         if: always()
         run: make stack-down
-      # Only main writes the cache (TICK-400); see CACHE_WRITE above.
-      - name: Save the Go build cache
-        if: success() && env.CACHE_WRITE == 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
 
-  stack-internal:
-    # The internal overlay brings up its own stack, so it runs beside stack.
-    needs: changes
-    if: needs.changes.outputs.stack == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    env:
-      IMAGE_CACHE: gha
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: false
-      - name: Restore the Go build cache
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
-          restore-keys: |
-            go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-
-            go-${{ github.job }}-
-      - uses: docker/setup-buildx-action@v3
-      - uses: crazy-max/ghaction-github-runtime@v3
-      - name: Build images (layer cache in gha)
-        run: make image-ci
+      # Phase 3: the internal overlay (job=stack-internal), which brings up
+      # its own stack.
       - name: Dev installation CA
+        id: ca
+        if: ${{ !cancelled() && steps.images.outcome == 'success' }}
         run: make dev-ca
       - name: Stack cases (stack-internal)
+        id: cases-internal
+        if: ${{ !cancelled() && steps.ca.outcome == 'success' }}
         run: make stack-tests JOB=stack-internal
-      - name: Logs on failure
-        if: failure()
+      - name: Logs on failure (stack-internal)
+        if: always() && steps.cases-internal.outcome == 'failure'
         run: make stack-logs
-      - name: Tear down
+      - name: Tear down (stack-internal)
         if: always()
         run: make stack-down
       # Only main writes the cache (TICK-400); see CACHE_WRITE above.
@@ -561,6 +524,8 @@ jobs:
     # request into a merged story branch goes red on itself. On main (push,
     # schedule or manual run) it keeps one issue open while red and closes it
     # when green. Not in main-red's needs: drift is not a red main.
+    # A label other than ci:run runs nothing (TICK-563).
+    if: github.event.action != 'labeled' || github.event.label.name == 'ci:run'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # Runs that may touch the issue (main, not a pull request) queue behind
@@ -618,7 +583,7 @@ jobs:
     # A push to main with any failed job opens (or comments on) the P0
     # "main is red" issue. A skipped job is not a failure; a cancelled run
     # does not fire this.
-    needs: [changes, lint, unit, temporal-server, integration, stack, stack-db, stack-internal, coverage]
+    needs: [changes, lint, unit, temporal-server, integration, stack, coverage]
     if: failure() && github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
