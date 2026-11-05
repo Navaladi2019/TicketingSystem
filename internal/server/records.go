@@ -37,6 +37,10 @@ const pgForeignKeyViolation = "23503"
 // in the tenant. It is the same for an unknown id and another tenant's id.
 const refRule = "reference"
 
+// groupRemovedRule is the rule of the field error of a 422
+// assignment_group_removed (ADR-004-E5 D6).
+const groupRemovedRule = "removed"
+
 // fkColumn maps the records foreign keys a payload can name to the fixed
 // column they guard. records_created_by_fkey is the caller, not payload.
 func fkColumn(constraint string) (string, bool) {
@@ -180,10 +184,16 @@ func (h *handlers) fixedColumnsOf(ctx context.Context, tx pgx.Tx, entity string,
 }
 
 func recordBody(r *pipeline.Record, data map[string]any) api.Record {
-	return api.Record{
+	body := api.Record{
 		Id: r.ID, Number: r.Number, Version: r.Version, SchemaVersion: r.SchemaVersion, State: r.State,
 		Data: data, CreatedAt: r.CreatedAt.UTC(), UpdatedAt: r.UpdatedAt.UTC(),
 	}
+	// D7: a record keeps its group after the group is tombstoned, and the
+	// read says so.
+	if r.AssignmentGroupID != nil {
+		body.AssignmentGroup = &api.RecordAssignmentGroup{Id: *r.AssignmentGroupID, Removed: r.AssignmentGroupRemoved}
+	}
+	return body
 }
 
 // parseRecordBody reads `{data: {...}}`. Numbers stay exact.
@@ -235,6 +245,10 @@ func (h *handlers) recordError(ctx context.Context, err error, fixed map[string]
 		return pe
 	case errors.Is(err, authz.ErrForbidden):
 		return &problemError{problem.Forbidden, nil, err}
+	case errors.Is(err, pipeline.ErrAssignmentGroupRemoved):
+		// One body for a tombstoned group, another tenant's group and an
+		// unknown id, on create and on update (ADR-004-E5 D6, N4).
+		return &problemError{problem.AssignmentGroupRemoved, columnFields(fixed, metadata.ColumnAssignmentGroupID, groupRemovedRule), err}
 	case errors.As(err, &it):
 		return &problemError{problem.IllegalTransition, []problem.FieldError{invalid("/data/"+escapePointer(stateProp), "transition")}, err}
 	case errors.As(err, &uv):
@@ -251,25 +265,32 @@ func (h *handlers) recordError(ctx context.Context, err error, fixed map[string]
 		if !ok {
 			return err
 		}
-		var props []string
-		for prop, c := range fixed {
-			if c == col {
-				props = append(props, prop)
-			}
-		}
-		if len(props) == 0 {
+		fields := columnFields(fixed, col, refRule)
+		if len(fields) == 0 {
 			return err
-		}
-		slices.Sort(props)
-		fields := make([]problem.FieldError, len(props))
-		for i, prop := range props {
-			fields[i] = invalid("/data/"+escapePointer(prop), refRule)
 		}
 		pr := recordInvalid(fields...)
 		pr.err = errors.New("record references an unknown principal or group")
 		return pr
 	}
 	return err
+}
+
+// columnFields is one field error, with rule, for each payload property
+// mapped to the fixed column col, sorted by property.
+func columnFields(fixed map[string]string, col, rule string) []problem.FieldError {
+	var props []string
+	for prop, c := range fixed {
+		if c == col {
+			props = append(props, prop)
+		}
+	}
+	slices.Sort(props)
+	fields := make([]problem.FieldError, len(props))
+	for i, prop := range props {
+		fields[i] = invalid("/data/"+escapePointer(prop), rule)
+	}
+	return fields
 }
 
 // escapePointer escapes one JSON pointer token (RFC 6901).

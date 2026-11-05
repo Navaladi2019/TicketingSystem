@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/audit/read"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/cursor"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/logging"
@@ -37,6 +38,12 @@ func main() {
 // either one fails, then drains both and flushes telemetry.
 func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error {
 	cfg, err := config.Load(lookup)
+	if err != nil {
+		return err
+	}
+	// ADR-004-A1 A1-6 (PLAN-005-A1 D-A1-6): only nava-core loads the audit
+	// reader's DSN, and it does not start without it.
+	readerCfg, err := config.LoadAuditReader(lookup)
 	if err != nil {
 		return err
 	}
@@ -67,7 +74,16 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 		_ = tel.Shutdown(context.WithoutCancel(ctx))
 		return err
 	}
-	public, err := server.NewHandler(log, tel, resolver, paths, server.WithRateLimit(cfg.RateLimit), server.WithPool(pool), server.WithCursors(cursors))
+	// The reader's own pool (A1-5): the only pool that reads audit_log.diff
+	// and diff_salt. It is handed to the server once and closed on return.
+	auditPool, err := read.OpenPool(ctx, readerCfg.DatabaseURL, read.WithTelemetry(tel))
+	if err != nil {
+		_ = tel.Shutdown(context.WithoutCancel(ctx))
+		return err
+	}
+	defer auditPool.Close()
+	public, err := server.NewHandler(log, tel, resolver, paths, server.WithRateLimit(cfg.RateLimit), server.WithPool(pool),
+		server.WithAuditReader(auditPool), server.WithCursors(cursors))
 	if err != nil {
 		_ = tel.Shutdown(context.WithoutCancel(ctx))
 		return err

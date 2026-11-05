@@ -40,8 +40,8 @@ import (
 	"go.opentelemetry.io/otel/metric/noop"
 
 	"github.com/Navaladi2019/TicketingSystem/db"
+	"github.com/Navaladi2019/TicketingSystem/internal/db/audited"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/catalog"
-	"github.com/Navaladi2019/TicketingSystem/internal/db/grants"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/migrate"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/roles"
 	"github.com/Navaladi2019/TicketingSystem/internal/groupsync"
@@ -80,7 +80,7 @@ func newCI5Env(t *testing.T) *ci5Env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, err := grants.Parse(db.Grants())
+	m, am, err := audited.Load(db.Grants(), db.AuditedTables())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func newCI5Env(t *testing.T) *ci5Env {
 	}
 	owner := superCfg.Copy()
 	owner.User, owner.Password, owner.Database = m.Owner(), ci5Password(m.Owner()), m.PlatformDatabase
-	if _, err := migrate.Run(ctx, owner, db.Migrations(), m, gt, log, migrate.Options{LockRetrySeconds: 1}); err != nil {
+	if _, err := migrate.Run(ctx, owner, db.Migrations(), m, am, gt, log, migrate.Options{LockRetrySeconds: 1}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	sup := superCfg.Copy()

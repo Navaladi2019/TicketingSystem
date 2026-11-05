@@ -106,6 +106,17 @@ DO \$\$ BEGIN
     RAISE EXCEPTION 'no groups row for /t/$A/admins after group sync';
   END IF;
 END \$\$;
+-- Auditors groups (P5-18): the realm import creates /t/<tenant>/auditors and
+-- group sync the groups rows; the pointer rows of tenants onboarded before
+-- tenant_auditor_group are written here, as the migrator.
+INSERT INTO tenant_auditor_group (tenant_id, group_id)
+  SELECT tenant_id, id FROM groups WHERE tenant_id IN ('$A', '$B') AND path = '/t/' || tenant_id::text || '/auditors'
+  ON CONFLICT DO NOTHING;
+DO \$\$ BEGIN
+  IF (SELECT count(*) FROM tenant_auditor_group WHERE tenant_id IN ('$A', '$B')) <> 2 THEN
+    RAISE EXCEPTION 'no groups row for an auditors group after group sync';
+  END IF;
+END \$\$;
 CREATE TEMP TABLE seed_tpl (name text, doc json);
 INSERT INTO seed_tpl VALUES
   ('Incident', \$tpl\$$(tpl incident)\$tpl\$),

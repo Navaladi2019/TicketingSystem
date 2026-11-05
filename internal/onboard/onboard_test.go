@@ -33,6 +33,9 @@ type fakeStore struct {
 	adminWrites int
 	adminErr    error
 
+	auditorGroups map[uuid.UUID]string
+	auditorWrites int
+
 	seeded   map[uuid.UUID]entitytypes.SeedInput // by version id
 	seedErr  error
 	seedFail int // fail the Nth call (1-based), once
@@ -40,7 +43,7 @@ type fakeStore struct {
 }
 
 func newStore() *fakeStore {
-	return &fakeStore{rows: map[uuid.UUID][]byte{}, active: map[uuid.UUID]bool{}, bindings: map[uuid.UUID]string{}, lockHeld: map[uuid.UUID]*sync.Mutex{}, domains: map[string]uuid.UUID{}, adminGroups: map[uuid.UUID]string{}}
+	return &fakeStore{rows: map[uuid.UUID][]byte{}, active: map[uuid.UUID]bool{}, bindings: map[uuid.UUID]string{}, lockHeld: map[uuid.UUID]*sync.Mutex{}, domains: map[string]uuid.UUID{}, adminGroups: map[uuid.UUID]string{}, auditorGroups: map[uuid.UUID]string{}}
 }
 
 func (s *fakeStore) Lock(_ context.Context, id uuid.UUID) (func(), error) {
@@ -100,6 +103,14 @@ func (s *fakeStore) RecordAdminGroup(_ context.Context, id uuid.UUID, kc string)
 	return nil
 }
 
+func (s *fakeStore) RecordAuditorGroup(_ context.Context, id uuid.UUID, kc string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.auditorGroups[id] = kc
+	s.auditorWrites++
+	return nil
+}
+
 func (s *fakeStore) SeedEntityType(_ context.Context, id uuid.UUID, in entitytypes.SeedInput) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -147,6 +158,7 @@ type fakeDir struct {
 	createErr error
 
 	groupEnsures int
+	auditEnsures int
 	groupErr     error
 	specSeen     keycloak.IdPSpec
 	specs        *Specs
@@ -183,6 +195,13 @@ func (d *fakeDir) EnsureAdminGroup(_ context.Context, id uuid.UUID) (string, err
 	defer d.mu.Unlock()
 	d.groupEnsures++
 	return "kc-admins-" + id.String(), d.groupErr
+}
+
+func (d *fakeDir) EnsureAuditorGroup(_ context.Context, id uuid.UUID) (string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.auditEnsures++
+	return "kc-auditors-" + id.String(), nil
 }
 
 func (d *fakeDir) FindTenantOrg(_ context.Context, id uuid.UUID, _ string) (string, bool, error) {
@@ -517,6 +536,24 @@ func TestOnboardRecordsAdminGroupOnceAndRetryAddsNone(t *testing.T) {
 	id := TenantID("op-1", "k")
 	if len(st.adminGroups) != 1 || st.adminGroups[id] != "kc-admins-"+id.String() || st.adminWrites != 1 || dir.groupEnsures != 1 {
 		t.Errorf("groups=%v writes=%d ensures=%d", st.adminGroups, st.adminWrites, dir.groupEnsures)
+	}
+}
+
+func TestOnboardRecordsAuditorGroupOnce(t *testing.T) {
+	svc, st, dir := newSvc(t)
+	st.failOnce = errors.New("killed")
+	_, _ = svc.Onboard(t.Context(), op1, "k", []byte("h"), validReq())
+	for range 2 {
+		if _, err := svc.Onboard(t.Context(), op1, "k", []byte("h"), validReq()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	id := TenantID("op-1", "k")
+	if len(st.auditorGroups) != 1 || st.auditorGroups[id] != "kc-auditors-"+id.String() || st.auditorWrites != 1 || dir.auditEnsures != 1 {
+		t.Errorf("groups=%v writes=%d ensures=%d", st.auditorGroups, st.auditorWrites, dir.auditEnsures)
+	}
+	if AuditorGroupID(id) == AdminGroupID(id) {
+		t.Error("auditor and admin group ids must differ")
 	}
 }
 

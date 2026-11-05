@@ -6,13 +6,15 @@
 // record R. A claimed Claim is the only value outbox.EnqueueStart takes, so a
 // start cannot be enqueued without its key (A5-6). On a repeat the sink
 // enqueues nothing, calls pipeline.AuditSuppressed, and the write commits
-// (A5-4). This package writes no record table: the audit row goes through the
-// pipeline, the only writer of audit_log (PLAN-003 D-3-6).
+// (A5-4). This package writes no record table: the cascade_cycle entry
+// (ADR-004-E1 R2a) goes through pipeline.AuditSuppressed and audit.Append
+// (PLAN-003 D-3-6).
 //
-// The tenant, origin and depth of a claim are never arguments: ClaimStart
-// reads them from R's records row, which row-level security lets it see only
-// for the transaction's tenant, as the pipeline stored them for this write.
-// No outbox payload or definition data can name the key (A5, I9).
+// The tenant, origin, depth, version and entity type of a claim are never
+// arguments: ClaimStart reads them from R's records row, which row-level
+// security lets it see only for the transaction's tenant, as the pipeline
+// stored them for this write. No outbox payload or definition data can name
+// the key (A5, I9).
 package cascade
 
 import (
@@ -24,26 +26,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Audit actions and reasons of the cascade audit rows the pipeline writes
-// (audit_log.action; the reason is in the row's after, under DetailReason).
-const (
-	// ActionCycle is a suppressed start (A5-4): the write committed and D
-	// did not start again on R under this origin.
-	ActionCycle = "cascade_cycle"
-	// ActionRejected is a write the pipeline refused for its depth (I9); the
-	// write rolled back.
-	ActionRejected = "cascade_rejected"
-
-	ReasonCycle   = "cascade_cycle"
-	ReasonTooDeep = "cascade_too_deep"
-
-	// DetailReason and DetailDefinition are the keys of a cascade audit
-	// row's detail: its reason, and the suppressed definition.
-	DetailReason     = "reason"
-	DetailDefinition = "definition_id"
-
-	pkeyConstraint = "cascade_start_pkey"
-)
+const pkeyConstraint = "cascade_start_pkey"
 
 var (
 	// ErrRecordNotFound means the transaction's tenant has no such record,
@@ -73,6 +56,11 @@ type Claim struct {
 	depth        int16
 	recordID     uuid.UUID
 	definitionID uuid.UUID
+	// version and entityDefinitionID are R's, as the triggering write left
+	// them: the cascade_cycle entry's version_after and entity type
+	// (ADR-004-E1).
+	version            int64
+	entityDefinitionID uuid.UUID
 }
 
 // Claimed reports whether this claim holds the key.
@@ -93,11 +81,19 @@ func (c Claim) DefinitionID() uuid.UUID { return c.definitionID }
 // Causation is the origin and depth stored on R by the triggering write.
 func (c Claim) Causation() (origin uuid.UUID, depth int16) { return c.originID, c.depth }
 
+// Version is R's version after the triggering write (ADR-004-E1: the
+// cascade_cycle entry's version_after).
+func (c Claim) Version() int64 { return c.version }
+
+// EntityDefinitionID is R's entity type; uuid.Nil for a bare row with none.
+func (c Claim) EntityDefinitionID() uuid.UUID { return c.entityDefinitionID }
+
 const (
 	// The triggering write already holds this lock (A5-1); taking it again
 	// is free and keeps the order when ClaimStart is called on its own.
-	lockRecordSQL = `SELECT tenant_id, causation_origin_id, causation_depth FROM records WHERE id = $1 FOR UPDATE`
-	claimSQL      = `INSERT INTO cascade_start (tenant_id, causation_origin_id, record_id, definition_id, outbox_id)
+	lockRecordSQL = `SELECT tenant_id, causation_origin_id, causation_depth, version, entity_definition_id
+FROM records WHERE id = $1 FOR UPDATE`
+	claimSQL = `INSERT INTO cascade_start (tenant_id, causation_origin_id, record_id, definition_id, outbox_id)
 VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT ON CONSTRAINT ` + pkeyConstraint + ` DO NOTHING
 RETURNING outbox_id`
@@ -121,9 +117,10 @@ func ClaimStart(ctx context.Context, tx pgx.Tx, k Key) (c Claim, claimed bool, e
 	var (
 		origin *uuid.UUID
 		depth  *int16
+		defID  *uuid.UUID
 	)
 	c = Claim{recordID: k.RecordID, definitionID: k.DefinitionID}
-	switch err := tx.QueryRow(ctx, lockRecordSQL, k.RecordID).Scan(&c.tenantID, &origin, &depth); {
+	switch err := tx.QueryRow(ctx, lockRecordSQL, k.RecordID).Scan(&c.tenantID, &origin, &depth, &c.version, &defID); {
 	case errors.Is(err, pgx.ErrNoRows):
 		return Claim{}, false, ErrRecordNotFound
 	case err != nil:
@@ -133,6 +130,9 @@ func ClaimStart(ctx context.Context, tx pgx.Tx, k Key) (c Claim, claimed bool, e
 		return Claim{}, false, ErrNoOrigin
 	}
 	c.originID, c.depth = *origin, *depth
+	if defID != nil {
+		c.entityDefinitionID = *defID
+	}
 
 	id, err := uuid.NewV7()
 	if err != nil {

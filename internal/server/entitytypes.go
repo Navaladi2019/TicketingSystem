@@ -183,13 +183,17 @@ func (h *handlers) CreateEntityType(ctx context.Context, req api.CreateEntityTyp
 			return err
 		}
 		cr, perr := parseCreate(raw)
-		if perr != nil {
+		if perr != nil { // a secret reaches secretProblem below through problemError.Unwrap
 			return perr
 		}
 		var err error
 		v, err = h.store.Create(ctx, tx, p.TenantID, entitytypes.NewInput{Name: cr.name, PublishedBy: p.PrincipalID, Definition: cr.def})
 		return err
 	})
+	var (
+		secret   *entitytypes.SecretInContentError
+		required *entitytypes.SecretRequiredError
+	)
 	switch {
 	case errors.Is(err, authz.ErrForbidden):
 		return nil, &problemError{problem.Forbidden, nil, err}
@@ -197,6 +201,10 @@ func (h *handlers) CreateEntityType(ctx context.Context, req api.CreateEntityTyp
 		return nil, &problemError{problem.EntityTypeExists, nil, err}
 	case errors.Is(err, entitytypes.ErrPrefixTaken):
 		return nil, &problemError{problem.NumberPrefixTaken, nil, err}
+	case errors.As(err, &secret):
+		return nil, h.secretProblem(ctx, secret, err)
+	case errors.As(err, &required):
+		return nil, h.secretRequiredProblem(ctx, required, err)
 	case err != nil:
 		return nil, err
 	}
@@ -242,8 +250,14 @@ func (h *handlers) PublishEntityTypeVersion(ctx context.Context, req api.Publish
 	var (
 		breaking *entitytypes.BreakingError
 		invalidD *metadata.ErrInvalidDefinition
+		secret   *entitytypes.SecretInContentError
+		required *entitytypes.SecretRequiredError
 	)
 	switch {
+	case errors.As(err, &secret):
+		return nil, h.secretProblem(ctx, secret, err)
+	case errors.As(err, &required):
+		return nil, h.secretRequiredProblem(ctx, required, err)
 	case errors.Is(err, authz.ErrForbidden):
 		return nil, &problemError{problem.Forbidden, nil, err}
 	case errors.Is(err, entitytypes.ErrNotFound):
@@ -297,6 +311,27 @@ func parsePublish(raw json.RawMessage) (metadata.Definition, *problemError) {
 		return metadata.Definition{}, unprocessable(bad...)
 	}
 	return metadata.Definition{Schema: def.Schema, FixedColumns: def.FixedColumns, States: def.States}, nil
+}
+
+// secretProblem is the 422 config_secret_in_content. The response and the log
+// name the schema path and the rule, never the value.
+func (h *handlers) secretProblem(ctx context.Context, e *entitytypes.SecretInContentError, err error) *problemError {
+	ptr := "/definition/schema" + e.Path
+	h.log.WarnContext(ctx, "entity type refused: secret in content",
+		slog.String("code", string(problem.ConfigSecretInContent)), slog.String("path", ptr), slog.String("reason", e.Reason))
+	return &problemError{problem.ConfigSecretInContent, []problem.FieldError{invalid(ptr, "secret")}, err}
+}
+
+// secretRequiredProblem is the 422 definition_secret_required: one error per
+// required entry that names a marked property.
+func (h *handlers) secretRequiredProblem(ctx context.Context, e *entitytypes.SecretRequiredError, err error) *problemError {
+	fields := make([]problem.FieldError, len(e.Paths))
+	for i, p := range e.Paths {
+		fields[i] = invalid("/definition/schema"+p, "secret_required")
+	}
+	h.log.WarnContext(ctx, "entity type refused: required secret property",
+		slog.String("code", string(problem.DefinitionSecretRequired)), slog.Int("entries", len(e.Paths)))
+	return &problemError{problem.DefinitionSecretRequired, fields, err}
 }
 
 func invalid(pointer, rule string) problem.FieldError {
@@ -359,6 +394,14 @@ func parseCreate(raw json.RawMessage) (createRequest, *problemError) {
 		defOK = true
 	}
 	cr.def = metadata.Definition{Key: cr.key, Schema: def.Schema, NumberPrefix: cr.prefix, FixedColumns: def.FixedColumns, States: def.States}
+	// A value at a marked property is config_secret_in_content, ahead of the
+	// generic compile errors (ADR-004 R6).
+	if defOK {
+		var secret *entitytypes.SecretInContentError
+		if err := entitytypes.CheckSchemaSecrets(def.Schema); errors.As(err, &secret) {
+			return cr, &problemError{problem.ConfigSecretInContent, nil, err}
+		}
+	}
 	// Compile runs whenever the definition decoded, so one response lists the
 	// field errors and the definition errors together.
 	if defOK {

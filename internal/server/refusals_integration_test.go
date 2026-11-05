@@ -48,6 +48,7 @@ func refusalOps(id string) []refusalOp {
 		{id: "patchRecord", method: http.MethodPatch, path: "/api/v1/records/ticket/" + id, write: true, want: http.StatusOK,
 			body: `{"data": {"short_description": "patched"}}`},
 		{id: "getRecordHistory", method: http.MethodGet, path: "/api/v1/records/ticket/" + id + "/history", want: http.StatusOK},
+		{id: "listAuditEntries", method: http.MethodGet, path: "/api/v1/audit/entries", want: http.StatusOK},
 	}
 }
 
@@ -146,6 +147,7 @@ func checkRefusals(t *testing.T, e *etEnv, status int, code problem.Code, token 
 // covers: getRecord 401
 // covers: patchRecord 401
 // covers: getRecordHistory 401
+// covers: listAuditEntries 401
 func TestEveryTenantOperationWithoutATokenIs401AndWritesNothing(t *testing.T) {
 	e := newRecEnv(t)
 	checkRefusals(t, e, http.StatusUnauthorized, problem.InvalidToken, "", func() {}, func() {})
@@ -160,6 +162,7 @@ func TestEveryTenantOperationWithoutATokenIs401AndWritesNothing(t *testing.T) {
 // covers: getRecord 429
 // covers: patchRecord 429
 // covers: getRecordHistory 429
+// covers: listAuditEntries 429
 func TestEveryTenantOperationOverTheLimitIs429AndWritesNothing(t *testing.T) {
 	e := newRecEnv(t)
 	checkRefusals(t, e, http.StatusTooManyRequests, problem.RateLimited, "admin-a",
@@ -186,6 +189,7 @@ func withoutIdempotencyKeys(counts []string) []string {
 // covers: getRecord 500
 // covers: patchRecord 500
 // covers: getRecordHistory 500
+// covers: listAuditEntries 500
 func TestEveryTenantOperationOnADatabaseFailureIs500AndWritesNothing(t *testing.T) {
 	// The table each operation reads or writes first in its own store;
 	// renaming it is a database failure in the middle of the request.
@@ -199,6 +203,7 @@ func TestEveryTenantOperationOnADatabaseFailureIs500AndWritesNothing(t *testing.
 		"getRecord":                "records",
 		"patchRecord":              "records",
 		"getRecordHistory":         "audit_log",
+		"listAuditEntries":         "audit_log",
 	}
 	e := newRecEnv(t)
 	r := e.mustCreateRec(t, "user-a", "ticket", "seed", `{"short_description": "seed"}`)

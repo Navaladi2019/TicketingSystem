@@ -2,13 +2,11 @@ package store_test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"math"
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -96,36 +94,34 @@ func TestStatementErrorsAreWrapped(t *testing.T) {
 	err = store.Insert(ctx, &fakeTx{execErr: errBoom}, &store.Record{TenantID: tenant, ID: id})
 	checkErr(t, err, errBoom, "records/store: insert record: boom")
 
-	err = store.InsertAudit(ctx, &fakeTx{execErr: errBoom}, &store.Audit{TenantID: tenant, ID: id, Action: "create"})
-	checkErr(t, err, errBoom, "records/store: insert audit: boom")
+	// The v0 audit statements (InsertAudit, AuditByKey) left the store with
+	// P5-13b/P5-17; their idempotency successor is record_write_keys (D-5-3).
+	err = store.InsertWriteKey(ctx, &fakeTx{execErr: errBoom}, &store.WriteKey{TenantID: tenant, RecordID: id, Action: "create"})
+	checkErr(t, err, errBoom, "records/store: insert write key: boom")
 
-	_, err = store.AuditByKey(ctx, &fakeTx{row: failRow(errBoom)}, tenant, "k")
-	checkErr(t, err, errBoom, "records/store: read audit by key: boom")
+	_, err = store.WriteKeyByKey(ctx, &fakeTx{row: failRow(errBoom)}, tenant, "k")
+	checkErr(t, err, errBoom, "records/store: read write key: boom")
+
+	_, err = store.PayloadJSON(ctx, &fakeTx{row: failRow(errBoom)}, tenant, id, 1, nil)
+	checkErr(t, err, errBoom, "records/store: read payload as jsonb: boom")
+
+	_, err = store.GroupLive(ctx, &fakeTx{row: failRow(errBoom)}, tenant, id)
+	checkErr(t, err, errBoom, "records/store: read group: boom")
 
 	err = store.LockUnique(ctx, &fakeTx{execErr: errBoom}, tenant, id, "serial", `"SN-1"`)
 	checkErr(t, err, errBoom, "records/store: lock unique value: boom")
 
 	_, err = store.UniqueTaken(ctx, &fakeTx{row: failRow(errBoom)}, tenant, id, uuid.Nil, "serial", "SN-1", nil)
 	checkErr(t, err, errBoom, "records/store: check unique value: boom")
-
-	_, err = store.History(ctx, &fakeTx{queryErr: errBoom}, tenant, id, time.Time{}, uuid.Nil, 10)
-	checkErr(t, err, errBoom, "records/store: read history: boom")
 }
 
 // Data that does not encode to JSON fails before any statement runs.
 func TestUnencodableValuesFailBeforeAnyStatement(t *testing.T) {
 	ctx := context.Background()
 	nan := map[string]any{"x": math.NaN()}
-	snap := &store.Snapshot{Data: nan}
 	cases := map[string]func(tx pgx.Tx) error{
 		"insert": func(tx pgx.Tx) error { return store.Insert(ctx, tx, &store.Record{Data: nan}) },
 		"update": func(tx pgx.Tx) error { _, err := store.Update(ctx, tx, &store.Record{Data: nan}, 1); return err },
-		"audit before": func(tx pgx.Tx) error {
-			return store.InsertAudit(ctx, tx, &store.Audit{Before: snap})
-		},
-		"audit after": func(tx pgx.Tx) error {
-			return store.InsertAudit(ctx, tx, &store.Audit{After: snap})
-		},
 		"unique value": func(tx pgx.Tx) error {
 			_, err := store.UniqueTaken(ctx, tx, uuid.New(), uuid.New(), uuid.Nil, "tag", math.Inf(1), nil)
 			return err
@@ -134,8 +130,6 @@ func TestUnencodableValuesFailBeforeAnyStatement(t *testing.T) {
 	prefix := map[string]string{
 		"insert":       "records/store: encode data: ",
 		"update":       "records/store: encode data: ",
-		"audit before": "records/store: encode audit snapshot: ",
-		"audit after":  "records/store: encode audit snapshot: ",
 		"unique value": "records/store: encode unique value: ",
 	}
 	for name, run := range cases {
@@ -152,17 +146,21 @@ func TestUnencodableValuesFailBeforeAnyStatement(t *testing.T) {
 	}
 }
 
-// An audit row holds a snapshot or a detail, never both.
-func TestInsertAuditRefusesSnapshotAndDetail(t *testing.T) {
-	tx := &fakeTx{}
-	err := store.InsertAudit(context.Background(), tx, &store.Audit{
-		After: &store.Snapshot{}, Detail: map[string]string{"reason": "cascade_cycle"},
-	})
-	if err == nil || err.Error() != "records/store: an audit row has a snapshot or a detail, not both" {
-		t.Fatalf("err = %v", err)
+// A key another write holds is ErrDuplicateKey (D-5-3); a unique violation
+// on any other constraint stays a wrapped database error.
+func TestInsertWriteKeyMapsTheDuplicateKey(t *testing.T) {
+	ctx := context.Background()
+	dup := &pgconn.PgError{Code: "23505", ConstraintName: "record_write_keys_pkey"}
+	if err := store.InsertWriteKey(ctx, &fakeTx{execErr: dup}, &store.WriteKey{}); !errors.Is(err, store.ErrDuplicateKey) {
+		t.Fatalf("err = %v, want ErrDuplicateKey", err)
 	}
-	if len(tx.sql) != 0 {
-		t.Errorf("statements ran: %q", tx.sql)
+	other := &pgconn.PgError{Code: "23505", ConstraintName: "some_other_key"}
+	err := store.InsertWriteKey(ctx, &fakeTx{execErr: other}, &store.WriteKey{})
+	if errors.Is(err, store.ErrDuplicateKey) || !errors.Is(err, other) {
+		t.Fatalf("err = %v, want the wrapped database error", err)
+	}
+	if err := store.InsertWriteKey(ctx, &fakeTx{}, &store.WriteKey{}); err != nil {
+		t.Fatalf("insert = %v", err)
 	}
 }
 
@@ -178,37 +176,22 @@ func TestGetRefusesUndecodableData(t *testing.T) {
 	}
 }
 
-// keyedRow scans an AuditByKey row.
-func keyedRow(record *uuid.UUID, entityKey *string, after []byte) rowFunc {
-	return func(dest ...any) error {
-		*dest[0].(**uuid.UUID) = record
-		*dest[1].(**string) = entityKey
-		*dest[2].(*string) = "create"
-		*dest[3].(*[]byte) = after
-		return nil
-	}
-}
-
-func TestAuditByKeyRefusesRowsOfNoPipelineRecord(t *testing.T) {
+// WriteKeyByKey returns the scanned row, and ErrNotFound for no row.
+func TestWriteKeyByKey(t *testing.T) {
 	ctx := context.Background()
-	rec, key := uuid.New(), "asset"
-	const noRecord = "records/store: keyed audit row names no pipeline record"
-	for name, row := range map[string]rowFunc{
-		"no record":      keyedRow(nil, &key, []byte(`{}`)),
-		"no entity type": keyedRow(&rec, nil, []byte(`{}`)),
-		"no snapshot":    keyedRow(&rec, &key, nil),
-	} {
-		t.Run(name, func(t *testing.T) {
-			if _, err := store.AuditByKey(ctx, &fakeTx{row: row}, uuid.New(), "k"); err == nil || err.Error() != noRecord {
-				t.Fatalf("err = %v, want %q", err, noRecord)
-			}
-		})
+	tenant, rec := uuid.New(), uuid.New()
+	tx := &fakeTx{row: func(dest ...any) error {
+		*dest[1].(*string) = "update"
+		*dest[2].(*uuid.UUID) = rec
+		*dest[3].(*string) = "AST1"
+		*dest[4].(*int64) = 3
+		return nil
+	}}
+	k, err := store.WriteKeyByKey(ctx, tx, tenant, "k")
+	if err != nil || k.TenantID != tenant || k.IdempotencyKey != "k" || k.Action != "update" || k.RecordID != rec || k.Number != "AST1" || k.Version != 3 {
+		t.Fatalf("WriteKeyByKey = %+v, %v", k, err)
 	}
-	_, err := store.AuditByKey(ctx, &fakeTx{row: keyedRow(&rec, &key, []byte(`"text"`))}, uuid.New(), "k")
-	if err == nil || !strings.HasPrefix(err.Error(), "records/store: decode audit snapshot: ") {
-		t.Fatalf("bad snapshot: %v", err)
-	}
-	_, err = store.AuditByKey(ctx, &fakeTx{row: failRow(pgx.ErrNoRows)}, uuid.New(), "k")
+	_, err = store.WriteKeyByKey(ctx, &fakeTx{row: failRow(pgx.ErrNoRows)}, tenant, "k")
 	checkErr(t, err, store.ErrNotFound, "records/store: not found")
 }
 
@@ -265,60 +248,50 @@ func TestPayloadAndSplitOfEmptyInput(t *testing.T) {
 	}
 }
 
-// fakeRows yields one row per scan function.
-type fakeRows struct {
-	pgx.Rows
-	scans []rowFunc
-	i     int
-	err   error
-}
-
-func (r *fakeRows) Next() bool             { r.i++; return r.i <= len(r.scans) }
-func (r *fakeRows) Scan(dest ...any) error { return r.scans[r.i-1](dest...) }
-func (r *fakeRows) Close()                 {}
-func (r *fakeRows) Err() error             { return r.err }
-
-func historyRow(before, after string) rowFunc {
-	return func(dest ...any) error {
-		*dest[0].(*uuid.UUID) = uuid.New()
-		*dest[3].(*string) = "user"
-		*dest[4].(*string) = "update"
-		if before != "" {
-			*dest[5].(*[]byte) = []byte(before)
-		}
-		if after != "" {
-			*dest[6].(*[]byte) = []byte(after)
-		}
-		return nil
-	}
-}
-
-func TestHistoryErrors(t *testing.T) {
+// PayloadJSON builds the payload from the four known fixed columns only,
+// passes property names as parameters, and is ErrStale for no row.
+func TestPayloadJSON(t *testing.T) {
 	ctx := context.Background()
-	good := `{"number":"AST1","version":1,"schema_version":1,"data":{"n":1}}`
-	cases := []struct {
-		name string
-		rows *fakeRows
-		want string
-	}{
-		{"scan fails", &fakeRows{scans: []rowFunc{failRow(errBoom)}}, "records/store: scan history: boom"},
-		{"before not JSON", &fakeRows{scans: []rowFunc{historyRow(`{`, good)}}, "records/store: decode audit snapshot: "},
-		{"after data not an object", &fakeRows{scans: []rowFunc{historyRow(good, `{"data":[1]}`)}}, "records/store: decode audit snapshot: "},
-		{"rows fail", &fakeRows{err: errBoom}, "records/store: read history: boom"},
+	fixed := map[string]string{
+		"assignee": metadata.ColumnAssigneeID,
+		"group":    metadata.ColumnAssignmentGroupID,
+		"reporter": metadata.ColumnRequesterID,
+		"status":   metadata.ColumnState,
 	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got, err := store.History(ctx, &fakeTx{rows: c.rows}, uuid.New(), uuid.New(), time.Time{}, uuid.Nil, 10)
-			if err == nil || !strings.HasPrefix(err.Error(), c.want) || got != nil {
-				t.Fatalf("History = %v, %v; want %q", got, err, c.want)
-			}
-		})
+	tx := &fakeTx{row: func(dest ...any) error { *dest[0].(*string) = `{"status":"open"}`; return nil }}
+	got, err := store.PayloadJSON(ctx, tx, uuid.New(), uuid.New(), 2, fixed)
+	if err != nil || string(got) != `{"status":"open"}` {
+		t.Fatalf("PayloadJSON = %s, %v", got, err)
+	}
+	if !strings.Contains(tx.sql[0], "jsonb_build_object($8::text, state)") ||
+		!strings.Contains(tx.sql[0], "CASE WHEN assignee_id IS NULL") {
+		t.Errorf("SQL %q", tx.sql[0])
+	}
+	if want := []any{"assignee", "group", "reporter", "status"}; !reflect.DeepEqual(tx.args[0][4:], want) {
+		t.Errorf("property args = %v, want %v", tx.args[0][4:], want)
 	}
 
-	// A row with no before (a create) decodes to a nil Before, numbers exact.
-	got, err := store.History(ctx, &fakeTx{rows: &fakeRows{scans: []rowFunc{historyRow("", good)}}},
-		uuid.New(), uuid.New(), time.Time{}, uuid.Nil, 10)
-	if err != nil || len(got) != 1 || got[0].Before != nil || got[0].After.Number != "AST1" || got[0].After.Data["n"] != json.Number("1") {
-		t.Fatalf("History = %+v, %v", got, err)
+	_, err = store.PayloadJSON(ctx, &fakeTx{row: failRow(pgx.ErrNoRows)}, uuid.New(), uuid.New(), 2, nil)
+	if !errors.Is(err, store.ErrStale) {
+		t.Fatalf("no row: %v, want ErrStale", err)
+	}
+
+	bad := &fakeTx{}
+	_, err = store.PayloadJSON(ctx, bad, uuid.New(), uuid.New(), 2, map[string]string{"owner": "created_by"})
+	if err == nil || err.Error() != `records/store: unknown fixed column "created_by"` {
+		t.Fatalf("unknown column: %v", err)
+	}
+	if len(bad.sql) != 0 {
+		t.Errorf("statements ran: %q", bad.sql)
+	}
+}
+
+// GroupLive reports the EXISTS answer it reads.
+func TestGroupLive(t *testing.T) {
+	for _, want := range []bool{true, false} {
+		tx := &fakeTx{row: func(dest ...any) error { *dest[0].(*bool) = want; return nil }}
+		if live, err := store.GroupLive(context.Background(), tx, uuid.New(), uuid.New()); err != nil || live != want {
+			t.Fatalf("GroupLive = %v, %v; want %v", live, err, want)
+		}
 	}
 }

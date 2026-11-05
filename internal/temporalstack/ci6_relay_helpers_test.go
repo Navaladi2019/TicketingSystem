@@ -332,7 +332,10 @@ func newTarget(t *testing.T) *target {
 	t.Helper()
 	tg := &target{tenant: uuid.New(), record: uuid.New(), start: newID(t), origin: uuid.New()}
 	psqlSuper(t, fmt.Sprintf(`INSERT INTO tenants (id, state) VALUES ('%s', 'active');
-INSERT INTO records (tenant_id, id, causation_origin_id, causation_depth) VALUES ('%[1]s', '%s', '%s', 0);`,
+WITH r AS (INSERT INTO records (tenant_id, id, causation_origin_id, causation_depth) VALUES ('%[1]s', '%s', '%s', 0)
+    RETURNING tenant_id, id, version)
+INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, version_after, actor_system, source)
+SELECT tenant_id, gen_random_uuid(), 'record', 'create', 'record', id, version, 'system', 'system' FROM r;`,
 		tg.tenant, tg.record, tg.origin))
 	t.Cleanup(func() {
 		psqlSuper(t, fmt.Sprintf(`UPDATE outbox SET dead_at = now(), last_error = 'CI-6 cleanup'
@@ -360,11 +363,14 @@ func relayWorkflowID(tenant, start uuid.UUID) string {
 func (tg *target) refs() string { return `{"record_id":"` + tg.record.String() + `"}` }
 
 // signalRowSQL is a pipeline write plus outbox.EnqueueAtVersion for a
-// signal: bump the record's version and insert the row with it as
-// target_seq, under the record's causation.
+// signal: bump the record's version, write the update's audit entry (the
+// records commit-check trigger, P5-13c) and insert the row with the version
+// as target_seq, under the record's causation.
 func (tg *target) signalRowSQL(id uuid.UUID, kind, payload string) string {
 	return fmt.Sprintf(`WITH v AS (UPDATE records SET version = version + 1 WHERE tenant_id = '%[1]s' AND id = '%[2]s'
-    RETURNING version, causation_origin_id, causation_depth)
+    RETURNING tenant_id, id, version, causation_origin_id, causation_depth),
+a AS (INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, version_after, actor_system, source)
+    SELECT tenant_id, gen_random_uuid(), 'record', 'update', 'record', id, version, 'system', 'system' FROM v)
 INSERT INTO outbox (id, tenant_id, kind, kind_version, dedupe_key, target_key, target_seq, causation_id, causation_depth, payload)
 SELECT '%[3]s', '%[1]s', '%[4]s', 1, '%[3]s', '%[5]s', version, causation_origin_id, causation_depth, '%[6]s'::jsonb FROM v;
 `, tg.tenant, tg.record, id, kind, relayType+":"+tg.start.String(), payload)

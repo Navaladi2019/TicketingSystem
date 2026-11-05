@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Navaladi2019/TicketingSystem/api"
+	"github.com/Navaladi2019/TicketingSystem/internal/audit/read"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 )
@@ -132,5 +133,36 @@ func TestPatchAndHistoryRefuseAPrincipalWithoutAnID(t *testing.T) {
 	}
 	if _, err := h.GetRecordHistory(t.Context(), api.GetRecordHistoryRequestObject{}); !errors.Is(err, errNoPrincipal) {
 		t.Errorf("GetRecordHistory err = %v", err)
+	}
+}
+
+// historyPage pages newest first over the oldest-first replay, strictly older
+// than the cursor position, and stops at n.
+func TestHistoryPage(t *testing.T) {
+	t.Parallel()
+	base := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
+	mk := func(sec int, id byte) read.Change {
+		return read.Change{Entry: read.Entry{OccurredAt: base.Add(time.Duration(sec) * time.Second), ID: uuid.UUID{15: id}}}
+	}
+	changes := []read.Change{mk(1, 1), mk(2, 2), mk(2, 3), mk(3, 4)} // oldest first
+	ids := func(cs []read.Change) []byte {
+		var out []byte
+		for _, c := range cs {
+			out = append(out, c.Entry.ID[15])
+		}
+		return out
+	}
+	if got := ids(historyPage(changes, time.Time{}, uuid.Nil, 10)); !slices.Equal(got, []byte{4, 3, 2, 1}) {
+		t.Errorf("first page = %v", got)
+	}
+	if got := ids(historyPage(changes, time.Time{}, uuid.Nil, 2)); !slices.Equal(got, []byte{4, 3}) {
+		t.Errorf("limited = %v", got)
+	}
+	// After (t+2, id 3): the same instant with a smaller id, then older.
+	if got := ids(historyPage(changes, base.Add(2*time.Second), uuid.UUID{15: 3}, 10)); !slices.Equal(got, []byte{2, 1}) {
+		t.Errorf("after a position = %v", got)
+	}
+	if got := historyPage(nil, time.Time{}, uuid.Nil, 3); len(got) != 0 {
+		t.Errorf("empty history = %v", got)
 	}
 }

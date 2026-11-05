@@ -93,6 +93,10 @@ type Store interface {
 	// and the tenant_admin_group row naming it. Idempotent: a retry writes
 	// neither a second group nor a second row.
 	RecordAdminGroup(ctx context.Context, tenantID uuid.UUID, kcGroupID string) error
+	// RecordAuditorGroup is RecordAdminGroup for the tenant's auditors group
+	// (platform id AuditorGroupID, path /t/<tenant>/auditors) and the
+	// tenant_auditor_group row naming it. Idempotent.
+	RecordAuditorGroup(ctx context.Context, tenantID uuid.UUID, kcGroupID string) error
 	// SeedEntityType inserts one entity type at version 1 with the ids in in,
 	// idempotently (INSERT ... ON CONFLICT DO NOTHING), and reports whether it
 	// inserted anything. Only a provisioning tenant can be seeded: the table
@@ -109,6 +113,7 @@ type Directory interface {
 	CreateTenantOrg(ctx context.Context, tenantID uuid.UUID, alias string, domains []string) (string, error)
 	InviteUser(ctx context.Context, tenantID uuid.UUID, email string) error
 	EnsureAdminGroup(ctx context.Context, tenantID uuid.UUID) (keycloakGroupID string, err error)
+	EnsureAuditorGroup(ctx context.Context, tenantID uuid.UUID) (keycloakGroupID string, err error)
 }
 
 // OrgFinder finds the organization an interrupted onboarding already created
@@ -155,6 +160,13 @@ func New(o Options) (*Service, error) {
 // TenantID derives the tenant id of (operator, key).
 func TenantID(operatorPrincipal, key string) uuid.UUID {
 	return uuid.NewSHA1(Namespace, []byte(operatorPrincipal+"\x00"+key))
+}
+
+// AuditorGroupID is the platform id of a tenant's auditors group, derived like
+// AdminGroupID. A group sync that created the row first keeps its own id, and
+// tenant_auditor_group then names that one (Store.RecordAuditorGroup).
+func AuditorGroupID(tenantID uuid.UUID) uuid.UUID {
+	return uuid.NewSHA1(Namespace, []byte("auditor-group:"+tenantID.String()))
 }
 
 // AdminGroupID is the platform id of a tenant's admins group, derived from the
@@ -230,6 +242,20 @@ func (s *Service) Onboard(ctx context.Context, operator identity.Operator, key s
 			s.o.Log.ErrorContext(ctx, "onboard: admins group has no groups row",
 				slog.String("tenant_id", tenantID.String()),
 				slog.String("keycloak_group_id", kcGroupID))
+		}
+		return Result{}, err
+	}
+	// The auditors group is created and recorded the same way (D-5-4). No one
+	// is placed in it.
+	kcAuditorID, err := s.o.Directory.EnsureAuditorGroup(ctx, tenantID)
+	if err != nil {
+		return Result{}, fmt.Errorf("onboard: auditor group: %w", err)
+	}
+	if err := s.o.Store.RecordAuditorGroup(ctx, tenantID, kcAuditorID); err != nil {
+		if errors.Is(err, ErrAdminGroupMissing) {
+			s.o.Log.ErrorContext(ctx, "onboard: auditors group has no groups row",
+				slog.String("tenant_id", tenantID.String()),
+				slog.String("keycloak_group_id", kcAuditorID))
 		}
 		return Result{}, err
 	}

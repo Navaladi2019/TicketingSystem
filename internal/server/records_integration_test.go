@@ -228,6 +228,8 @@ func TestCreateRecordValidationAndAuth(t *testing.T) {
 	}
 }
 
+// Since ADR-004-E5 D6 (TICK-537) an assignment group that is not a live group
+// of the tenant is 422 assignment_group_removed, not a mapped 23503.
 // covers: createRecord 422
 func TestCreateRecordForeignGroupIsTheSame422AsARandomUUID(t *testing.T) {
 	e := newRecEnv(t)
@@ -235,8 +237,8 @@ func TestCreateRecordForeignGroupIsTheSame422AsARandomUUID(t *testing.T) {
 	foreign := e.b.adminGroup.String() // tenant B's group, named by a tenant A user
 	rr := e.createRec(t, "user-a", "ticket", "g1", fmt.Sprintf(`{"short_description": "x", "group": %q}`, random))
 	rf := e.createRec(t, "user-a", "ticket", "g2", fmt.Sprintf(`{"short_description": "x", "group": %q}`, foreign))
-	p := wantProblem(t, rr, http.StatusUnprocessableEntity, problem.RecordInvalid)
-	wantProblem(t, rf, http.StatusUnprocessableEntity, problem.RecordInvalid)
+	p := wantProblem(t, rr, http.StatusUnprocessableEntity, problem.AssignmentGroupRemoved)
+	wantProblem(t, rf, http.StatusUnprocessableEntity, problem.AssignmentGroupRemoved)
 	if got := pointers(p); len(got) != 1 || got[0] != "/data/group" {
 		t.Errorf("pointers = %v, want [/data/group]", got)
 	}
@@ -332,7 +334,7 @@ func TestGetRecordAppliesDefaultsOfTheCurrentSchemaVersion(t *testing.T) {
 
 // Causation (origin, depth) never comes from the request (TICK-88 security
 // review): a client that could set it could suppress its own tenant's
-// automation or flood audit_log with cascade_rejected rows. The handler builds
+// automation or flood audit_log with cascade_too_deep entries. The handler builds
 // the pipeline command with an empty Causation, so a create that tries to
 // carry one in the body, the query or the headers is a depth-0 write whose
 // origin is freshly minted, not the one the client named.
@@ -364,7 +366,7 @@ func TestCreateRecordIgnoresCausationFromTheRequest(t *testing.T) {
 	}
 	for _, q := range []string{
 		"SELECT causation_depth, causation_origin_id::text FROM records WHERE tenant_id = $1 AND id = $2",
-		"SELECT causation_depth, causation_origin_id::text FROM audit_log WHERE tenant_id = $1 AND record_id = $2",
+		"SELECT causation_depth, causation_id::text FROM audit_log WHERE tenant_id = $1 AND subject_type = 'record' AND subject_id = $2",
 	} {
 		var (
 			depth  *int16

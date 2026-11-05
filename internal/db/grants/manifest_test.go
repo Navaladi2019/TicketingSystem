@@ -19,11 +19,14 @@ func TestRepositoryManifestParses(t *testing.T) {
 	// ADR-001 A.3: one role per system actor. The runtime roles log in
 	// through PgBouncer with CONNECT and USAGE on public; nava_backup is
 	// LOGIN REPLICATION with no grant at all.
-	runtime := []string{"nava_app", "nava_groupsync", "nava_onboard", "nava_purge", "nava_relay", "nava_worker"}
+	// nava_audit_reader (ADR-004-A1 A1-1) is the masking reader's own login.
+	runtime := []string{"nava_app", "nava_audit_reader", "nava_groupsync", "nava_onboard", "nava_purge", "nava_relay", "nava_worker"}
 	if got := m.PgBouncerLogins(); strings.Join(got, ",") != strings.Join(runtime, ",") {
 		t.Fatalf("PgBouncer allow-list = %v, want %v", got, runtime)
 	}
-	want := append([]string{"keycloak", "nava_backup", "nava_migrator", "pgbouncer_auth", "temporal"}, runtime...)
+	// nava_erasure (ADR-001-A6.1) is a runtime role without PgBouncer: its
+	// credential lives with the job runner and it connects directly.
+	want := append([]string{"keycloak", "nava_backup", "nava_erasure", "nava_migrator", "pgbouncer_auth", "temporal"}, runtime...)
 	for _, name := range want {
 		if _, ok := m.Roles[name]; !ok {
 			t.Errorf("role %s missing", name)
@@ -32,12 +35,15 @@ func TestRepositoryManifestParses(t *testing.T) {
 	if len(m.Roles) != len(want) {
 		t.Errorf("roles = %v, want exactly %v", m.RoleNames(), want)
 	}
-	for _, name := range runtime {
+	for _, name := range append([]string{"nava_erasure"}, runtime...) {
 		r := m.Roles[name]
 		if strings.Join(r.Attributes, ",") != "LOGIN" || strings.Join(r.Database, ",") != "CONNECT" ||
 			strings.Join(r.Schemas["public"], ",") != "USAGE" || len(r.Schemas) != 1 {
 			t.Errorf("runtime role %s: %+v, want LOGIN, CONNECT and USAGE on public", name, r)
 		}
+	}
+	if e := m.Roles["nava_erasure"]; e.PgBouncerLogin || len(e.Settings)+len(e.Functions) != 0 {
+		t.Errorf("nava_erasure: %+v, want no PgBouncer login, settings or functions", e)
 	}
 	b := m.Roles["nava_backup"]
 	if strings.Join(b.Attributes, ",") != "LOGIN,REPLICATION" || b.PgBouncerLogin ||

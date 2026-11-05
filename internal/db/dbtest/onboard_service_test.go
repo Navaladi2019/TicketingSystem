@@ -57,6 +57,10 @@ func (d *e2eDir) EnsureAdminGroup(_ context.Context, id uuid.UUID) (string, erro
 	return "kc-admins-" + id.String(), nil
 }
 
+func (d *e2eDir) EnsureAuditorGroup(_ context.Context, id uuid.UUID) (string, error) {
+	return "kc-auditors-" + id.String(), nil
+}
+
 func (d *e2eDir) FindTenantOrg(_ context.Context, id uuid.UUID, _ string) (string, bool, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()

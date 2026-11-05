@@ -1,0 +1,35 @@
+meta {
+  name: S14.3 listAuditEntries 200: the timeline, newest first
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{core_url}}/api/v1/audit/entries?limit=2
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  test('items is an array of at most 2', () => { expect(b.items).to.be.an('array'); expect(b.items.length).to.be.at.most(2); });
+  test('newest first', () => {
+    for (let i = 1; i < b.items.length; i++) expect(Date.parse(b.items[i - 1].occurred_at)).to.be.at.least(Date.parse(b.items[i].occurred_at));
+  });
+  test('diff_salt only with an unredacted diff', () => b.items.forEach(e => {
+    if (e.diff_redacted) expect(e, e.id).to.not.have.property('diff_salt');
+    if (e.diff && !e.diff_redacted) expect(e.diff_salt, e.id).to.be.a('string');
+  }));
+  bru.setVar('s14_first_ids', JSON.stringify(b.items.map(e => e.id)));
+  bru.setVar('s14_token', b.next_page_token || '');
+}
+
+docs {
+  At most 2 entries, newest first. A redacted diff carries no `diff_salt`; an unredacted one carries it. Keeps the page token for S14.4.
+}

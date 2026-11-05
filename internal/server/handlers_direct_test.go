@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Navaladi2019/TicketingSystem/api"
+	"github.com/Navaladi2019/TicketingSystem/internal/audit/read"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/cursor"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
@@ -129,7 +130,7 @@ func TestRecordHandlersAnswerNotFoundForImpossibleKeysAndIDs(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 	h := testHandlers(t)
-	h.pool, h.pipe, h.cursors = pool, &pipeline.Pipeline{}, &cursor.Keyring{}
+	h.pool, h.pipe, h.cursors, h.audit = pool, &pipeline.Pipeline{}, &cursor.Keyring{}, &read.Reader{}
 	ctx := principalCtx(t)
 	long := strings.Repeat("a", maxKeyBytes+1)
 
@@ -207,7 +208,7 @@ func TestHistoryRefusesCursorsThatDoNotDecode(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 	h := testHandlers(t)
-	h.pool, h.cursors = pool, ring
+	h.pool, h.cursors, h.audit = pool, ring, &read.Reader{}
 	ctx := principalCtx(t)
 	id := uuid.New()
 
@@ -263,7 +264,7 @@ func TestCursorRoutesRefuseAPrincipalWithoutATenant(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 	h := testHandlers(t)
-	h.pool, h.cursors = pool, ring
+	h.pool, h.cursors, h.audit = pool, ring, &read.Reader{}
 	// No tenant: the cursor claims cannot be built, so no query may run.
 	ctx := identity.NewContext(t.Context(), identity.Principal{PrincipalID: uuid.New()})
 

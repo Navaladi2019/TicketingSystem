@@ -10,6 +10,8 @@
 #                    (no containers)
 #   integration      -tags integration against a throwaway PostgreSQL, the
 #                    isolation suite, then the ci-isolated --down tag check
+#   commit-check-budget  TestCommitCheckBudget alone on its own runner
+#                    (ADR-004-E3 budget rows, TICK-509)
 #   stack            one image build (make image-ci, once per run), then three
 #                    stacks in turn, each torn down before the next: the
 #                    platform and Temporal cases; a fresh stack for the
@@ -365,6 +367,45 @@ jobs:
             ~/go/pkg/mod
           key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
 
+  commit-check-budget:
+    # ADR-004-E3's commit-check budget rows (D-E3-4, TICK-509):
+    # TestCommitCheckBudget alone on a runner of its own, with nothing beside
+    # it, on the docs/pins.md postgres image. Both arms (the shipped function
+    # and the same-run reference) run in this one job, which the verdict rule
+    # needs. Runs whenever integration does; the integration shards leave
+    # the test out.
+    needs: changes
+    if: needs.changes.outputs.integration == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Restore the Go build cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-
+            go-${{ github.job }}-
+      - name: Commit-check budget rows (TestCommitCheckBudget alone)
+        run: make test-commit-check-budget
+      # Only main writes the cache (TICK-400); see CACHE_WRITE above.
+      - name: Save the Go build cache
+        if: success() && env.CACHE_WRITE == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
+
   stack:
     # The three stack phases share one image build (TICK-563): the images
     # stay in the runner's Docker after each phase's down -v. The database
@@ -599,7 +640,7 @@ jobs:
     # A push to main with any failed job opens (or comments on) the P0
     # "main is red" issue. A skipped job is not a failure; a cancelled run
     # does not fire this.
-    needs: [changes, lint, unit, temporal-server, integration, stack, coverage]
+    needs: [changes, lint, unit, temporal-server, integration, commit-check-budget, stack, coverage]
     if: failure() && github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 5

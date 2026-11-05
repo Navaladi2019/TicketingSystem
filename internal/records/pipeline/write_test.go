@@ -99,13 +99,14 @@ func (x *scriptTx) ranAny(fragment string) bool {
 // Fragments of the store's statements.
 const (
 	sqlDefinition = "SELECT id FROM entity_definitions"
-	sqlAuditByKey = "FROM audit_log a"
+	sqlWriteKey   = "FROM record_write_keys"
 	sqlGet        = "r.data, r.causation_origin_id"
 	sqlLock       = "pg_advisory_xact_lock"
 	sqlTaken      = "SELECT EXISTS"
 	sqlNumber     = "record_counters"
 	sqlInsert     = "INSERT INTO records"
 	sqlUpdate     = "UPDATE records"
+	sqlPayload    = "::text FROM records"
 	sqlAudit      = "INSERT INTO audit_log"
 )
 
@@ -115,6 +116,10 @@ func scanUUID(id uuid.UUID) func(...any) error {
 
 func scanInt(n int64) func(...any) error {
 	return func(dest ...any) error { *dest[0].(*int64) = n; return nil }
+}
+
+func scanString(v string) func(...any) error {
+	return func(dest ...any) error { *dest[0].(*string) = v; return nil }
 }
 
 func scanBool(b bool) func(...any) error {
@@ -327,12 +332,12 @@ func TestWriteReplayReadFailure(t *testing.T) {
 	p := unitPipeline(fakeAuthz{}, fakeDefs{cur: assetDef(t), curVersion: 1})
 	cmd := f.create(map[string]any{"name": "x"})
 	cmd.Actor.PrincipalID, cmd.Source, cmd.IdempotencyKey = uuid.Nil, pipeline.SourceSystem, "sys:1"
-	tx := f.tx(t, stmt{match: sqlAuditByKey, err: errBoom})
+	tx := f.tx(t, stmt{match: sqlWriteKey, err: errBoom})
 	_, err := p.Write(t.Context(), tx, cmd)
 	if !errors.Is(err, errBoom) {
 		t.Fatalf("err = %v, want the read's error", err)
 	}
-	if want := "pipeline: records/store: read audit by key: boom"; err.Error() != want {
+	if want := "pipeline: records/store: read write key: boom"; err.Error() != want {
 		t.Errorf("message %q, want %q", err, want)
 	}
 	if tx.ranAny(sqlDefinition) {
@@ -427,7 +432,8 @@ func TestCreateStatementFailures(t *testing.T) {
 	p := unitPipeline(fakeAuthz{}, fakeDefs{cur: assetDef(t), curVersion: 1})
 	ok := []stmt{
 		{match: sqlLock}, {match: sqlTaken, scan: scanBool(false)}, {match: sqlNumber, scan: scanInt(1)},
-		{match: sqlInsert}, {match: sqlAudit},
+		{match: sqlInsert}, {match: sqlPayload, scan: scanString(`{"name":"x","serial":"SN-1","status":"active"}`)},
+		{match: sqlAudit},
 	}
 	cases := []struct {
 		fail     string
@@ -437,7 +443,8 @@ func TestCreateStatementFailures(t *testing.T) {
 		{sqlLock, "pipeline: records/store: lock unique value: boom", sqlTaken},
 		{sqlTaken, "pipeline: records/store: check unique value: boom", sqlNumber},
 		{sqlNumber, "pipeline: records/store: take record number: boom", sqlInsert},
-		{sqlAudit, "pipeline: records/store: insert audit: boom", ""},
+		{sqlPayload, "pipeline: records/store: read payload as jsonb: boom", sqlAudit},
+		{sqlAudit, "pipeline: audit: audit: insert entry: boom", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.fail, func(t *testing.T) {
@@ -587,11 +594,11 @@ func TestAuditSuppressedInsertFailure(t *testing.T) {
 	if err != nil || claimed {
 		t.Fatalf("ClaimStart = %v, %v; want an unclaimed start", claimed, err)
 	}
-	err = pipeline.AuditSuppressed(t.Context(), tx, c, pipeline.Event{Source: pipeline.SourceWorkflow}, time.Now())
+	err = pipeline.AuditSuppressed(t.Context(), tx, c, pipeline.Event{Source: pipeline.SourceWorkflow})
 	if !errors.Is(err, errBoom) {
 		t.Fatalf("err = %v, want the insert's error", err)
 	}
-	if want := "pipeline: audit the suppressed start: records/store: insert audit: boom"; err.Error() != want {
+	if want := "pipeline: audit the suppressed start: audit: insert entry: boom"; err.Error() != want {
 		t.Errorf("message %q, want %q", err, want)
 	}
 }

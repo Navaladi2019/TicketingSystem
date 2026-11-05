@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"testing"
@@ -29,6 +30,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Navaladi2019/TicketingSystem/db"
+	"github.com/Navaladi2019/TicketingSystem/internal/audit/read"
+	"github.com/Navaladi2019/TicketingSystem/internal/db/audited"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/catalog"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/grants"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/migrate"
@@ -83,7 +86,7 @@ func setup(ctx context.Context) (*env, error) {
 	if err != nil {
 		return nil, err
 	}
-	m, err := grants.Parse(db.Grants())
+	m, am, err := audited.Load(db.Grants(), db.AuditedTables())
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +118,7 @@ func setup(ctx context.Context) (*env, error) {
 	}
 	mig := super.Copy()
 	mig.User, mig.Password, mig.Database = m.Owner(), password(m.Owner()), m.PlatformDatabase
-	if _, err := migrate.Run(ctx, mig, db.Migrations(), m, g, log, migrate.Options{LockRetrySeconds: 1}); err != nil {
+	if _, err := migrate.Run(ctx, mig, db.Migrations(), m, am, g, log, migrate.Options{LockRetrySeconds: 1}); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 
@@ -133,6 +136,17 @@ func setup(ctx context.Context) (*env, error) {
 	// The simple protocol runs the whole file as one implicit transaction.
 	if _, err := sc.PgConn().Exec(ctx, string(seed)).ReadAll(); err != nil {
 		return nil, fmt.Errorf("seed: %w", err)
+	}
+	// The seed turns the records commit-check trigger off for its own
+	// transaction (P5-13c). A seed that stopped partway, or a loader that ran
+	// it statement by statement, must not leave the suite running unchecked.
+	var enabled string
+	if err := sc.QueryRow(ctx, `SELECT coalesce((SELECT tgenabled::text FROM pg_trigger
+		WHERE tgrelid = 'records'::regclass AND tgname = 'records_audit_commit_check'), 'missing')`).Scan(&enabled); err != nil {
+		return nil, fmt.Errorf("seed: read records_audit_commit_check: %w", err)
+	}
+	if enabled != "O" {
+		return nil, fmt.Errorf("seed: records_audit_commit_check is %q after the seed, want enabled (O)", enabled)
 	}
 	if e.tables, err = catalog.TenantTables(ctx, sc, g); err != nil {
 		return nil, err
@@ -240,6 +254,21 @@ func (c cluster) PooledSize(role string, conns int32) (*pgxpool.Pool, error) {
 }
 
 func (c cluster) Super() (*pgx.Conn, error) { return c.e.superConn(c.t), nil }
+
+func (c cluster) AuditReader() (*read.Pool, error) {
+	cfg := c.e.roleConfig(audited.ReaderRole, true)
+	dsn := (&url.URL{
+		Scheme: "postgres", User: url.UserPassword(cfg.User, cfg.Password),
+		Host: net.JoinHostPort(cfg.Host, strconv.Itoa(int(cfg.Port))), Path: "/" + cfg.Database,
+		RawQuery: "sslmode=disable",
+	}).String()
+	p, err := read.OpenPool(c.t.Context(), dsn)
+	if err != nil {
+		return nil, err
+	}
+	c.t.Cleanup(p.Close)
+	return p, nil
+}
 
 // runtimeRoles are the roles CI-2 runs as: every manifest role but the
 // owner (as catalog's CI-3 and CI-4 count them), then the owner, whom only

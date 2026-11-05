@@ -276,8 +276,8 @@ func TestChangesSinceSnapshotAndCursor(t *testing.T) {
 	for _, u := range snap.Users {
 		emails[u.Email] = true
 	}
-	if !emails["alice@tenant-a.test"] || !emails["admin@tenant-a.test"] || len(emails) != 2 {
-		t.Errorf("tenant A users = %v, want alice and admin only", emails)
+	if !emails["alice@tenant-a.test"] || !emails["admin@tenant-a.test"] || !emails["auditor@tenant-a.test"] || len(emails) != 3 {
+		t.Errorf("tenant A users = %v, want alice, admin and auditor only", emails)
 	}
 	var units []string
 	for _, g := range snap.OrgUnits {

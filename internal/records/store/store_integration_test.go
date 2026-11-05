@@ -25,8 +25,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Navaladi2019/TicketingSystem/db"
+	"github.com/Navaladi2019/TicketingSystem/internal/audit"
+	"github.com/Navaladi2019/TicketingSystem/internal/db/audited"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/catalog"
-	"github.com/Navaladi2019/TicketingSystem/internal/db/grants"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/migrate"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/roles"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
@@ -79,7 +80,7 @@ type env struct {
 func migrated(t *testing.T) env {
 	t.Helper()
 	ctx := context.Background()
-	m, err := grants.Parse(db.Grants())
+	m, am, err := audited.Load(db.Grants(), db.AuditedTables())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +106,7 @@ func migrated(t *testing.T) env {
 	owner := superConfig(t).Copy()
 	owner.User, owner.Database = m.Owner(), m.PlatformDatabase
 	owner.Password, _ = testPassword(m.Owner())
-	if _, err := migrate.Run(ctx, owner, db.Migrations(), m, g, log, migrate.Options{LockRetrySeconds: 1}); err != nil {
+	if _, err := migrate.Run(ctx, owner, db.Migrations(), m, am, g, log, migrate.Options{LockRetrySeconds: 1}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
@@ -179,6 +180,22 @@ func tx(t *testing.T, e env, tenant uuid.UUID, fn func(context.Context, pgx.Tx) 
 	}
 }
 
+// recordEntry appends rec's audit entry in tx, which the records commit check
+// (ADR-004-E5, P5-13c) requires of every records write. The v0 audit
+// statements left the store with P5-13b/P5-17.
+func recordEntry(ctx context.Context, tx pgx.Tx, rec *store.Record, action audit.Action, before *int64, actor uuid.UUID) (uuid.UUID, error) {
+	va, def := rec.Version, rec.EntityDefinitionID
+	return audit.Append(ctx, tx, audit.Entry{Domain: audit.DomainRecord, Action: action, SubjectType: audit.SubjectRecord,
+		SubjectID: rec.ID, EntityDefinitionID: &def, VersionBefore: before, VersionAfter: &va,
+		Actor: audit.Actor{PrincipalID: &actor}, Source: audit.SourceUser})
+}
+
+// writeKey is rec's record_write_keys row for key.
+func writeKey(rec *store.Record, key, action string, entry uuid.UUID) *store.WriteKey {
+	return &store.WriteKey{TenantID: rec.TenantID, IdempotencyKey: key, DefinitionID: rec.EntityDefinitionID, Action: action,
+		RecordID: rec.ID, Number: rec.Number, Version: rec.Version, SchemaVersion: rec.SchemaVersion, AuditEntryID: entry}
+}
+
 // TestStatementsOnTheServersPoolMode runs every store statement that takes a
 // jsonb argument, and the reads that return one, on a nava_app pool in
 // QueryExecModeExec (TICK-471). Before TICK-411 and TICK-358 each jsonb
@@ -220,9 +237,11 @@ func TestStatementsOnTheServersPoolMode(t *testing.T) {
 		if err := store.Insert(ctx, tx, &rec); err != nil {
 			return err
 		}
-		return store.InsertAudit(ctx, tx, &store.Audit{TenantID: tenant, ID: uuid.New(), RecordID: rec.ID,
-			Action: "create", ActorID: &principal, Source: "user", IdempotencyKey: &key, At: now,
-			After: &store.Snapshot{Number: rec.Number, Version: 1, SchemaVersion: 1, Data: rec.Payload(fixed)}})
+		entry, err := recordEntry(ctx, tx, &rec, audit.ActionCreate, nil, principal)
+		if err != nil {
+			return err
+		}
+		return store.InsertWriteKey(ctx, tx, writeKey(&rec, key, "create", entry))
 	})
 
 	// UniqueTaken binds the value as $4::jsonb, on data and on each fixed
@@ -260,10 +279,17 @@ func TestStatementsOnTheServersPoolMode(t *testing.T) {
 		})
 	}
 
-	// Update (data jsonb) and its audit row (before and after), then a stale
-	// update and a cascade row with a detail.
+	// Update (data jsonb) and its audit entry, the payload read before and
+	// after it, then a stale update.
 	tx(t, e, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		before := store.Snapshot{Number: rec.Number, Version: 1, SchemaVersion: 1, Data: rec.Payload(fixed)}
+		before, err := store.PayloadJSON(ctx, tx, tenant, rec.ID, 1, fixed)
+		if err != nil {
+			return err
+		}
+		var b map[string]any
+		if err := json.Unmarshal(before, &b); err != nil || b["name"] != "one" || b["status"] != "active" || b["owner"] != principal.String() {
+			t.Errorf("PayloadJSON before = %s, %v", before, err)
+		}
 		rec.Data["name"] = "renamed"
 		rec.UpdatedAt = now.Add(time.Second)
 		v, err := store.Update(ctx, tx, &rec, 1)
@@ -276,20 +302,26 @@ func TestStatementsOnTheServersPoolMode(t *testing.T) {
 		if _, err := store.Update(ctx, tx, &rec, 1); !errors.Is(err, store.ErrStale) {
 			t.Errorf("stale update: %v, want ErrStale", err)
 		}
-		if err := store.InsertAudit(ctx, tx, &store.Audit{TenantID: tenant, ID: uuid.New(), RecordID: rec.ID,
-			Action: "update", ActorID: &principal, Source: "user", At: rec.UpdatedAt, Before: &before,
-			After: &store.Snapshot{Number: rec.Number, Version: 2, SchemaVersion: 1, Data: rec.Payload(fixed)}}); err != nil {
+		rec.Version = v
+		after, err := store.PayloadJSON(ctx, tx, tenant, rec.ID, 2, fixed)
+		if err != nil {
 			return err
 		}
-		return store.InsertAudit(ctx, tx, &store.Audit{TenantID: tenant, ID: uuid.New(), Action: "cascade_rejected",
-			Source: "system", At: rec.UpdatedAt, Detail: map[string]string{"reason": "depth"}})
+		var a map[string]any
+		if err := json.Unmarshal(after, &a); err != nil || a["name"] != "renamed" {
+			t.Errorf("PayloadJSON after = %s, %v", after, err)
+		}
+		if _, err := store.PayloadJSON(ctx, tx, tenant, rec.ID, 1, fixed); !errors.Is(err, store.ErrStale) {
+			t.Errorf("PayloadJSON at the old version: %v, want ErrStale", err)
+		}
+		v1 := int64(1)
+		_, err = recordEntry(ctx, tx, &rec, audit.ActionUpdate, &v1, principal)
+		return err
 	})
 
 	// The idempotency key is taken: ErrDuplicateKey, in a transaction of its own.
 	err := tenancy.InTenantTx(context.Background(), e.app, tenant, func(tx pgx.Tx) error {
-		return store.InsertAudit(context.Background(), tx, &store.Audit{TenantID: tenant, ID: uuid.New(), RecordID: rec.ID,
-			Action: "update", Source: "system", IdempotencyKey: &key, At: now,
-			After: &store.Snapshot{Number: rec.Number, Version: 2, SchemaVersion: 1, Data: map[string]any{}}})
+		return store.InsertWriteKey(context.Background(), tx, writeKey(&rec, key, "update", uuid.New()))
 	})
 	if !errors.Is(err, store.ErrDuplicateKey) {
 		t.Errorf("second row with the key: %v, want ErrDuplicateKey", err)
@@ -304,29 +336,22 @@ func TestStatementsOnTheServersPoolMode(t *testing.T) {
 		if got.Version != 2 || got.Data["name"] != "renamed" || got.Data["tag"] != json.Number("7") || got.State != "active" {
 			t.Errorf("Get = version %d, data %v, state %q", got.Version, got.Data, got.State)
 		}
-		kw, err := store.AuditByKey(ctx, tx, tenant, key)
+		kw, err := store.WriteKeyByKey(ctx, tx, tenant, key)
 		if err != nil {
 			return err
 		}
-		if kw.RecordID != rec.ID || kw.Action != "create" || kw.After.Data["name"] != "one" {
-			t.Errorf("AuditByKey = %+v", kw)
+		if kw.RecordID != rec.ID || kw.Action != "create" || kw.Version != 1 || kw.Number != rec.Number {
+			t.Errorf("WriteKeyByKey = %+v", kw)
 		}
-		h, err := store.History(ctx, tx, tenant, rec.ID, time.Time{}, uuid.Nil, 10)
-		if err != nil {
-			return err
-		}
-		if len(h) != 2 || h[0].Action != "update" || h[0].Before == nil || h[0].Before.Data["name"] != "one" ||
-			h[0].After.Data["name"] != "renamed" || h[1].Action != "create" {
-			t.Errorf("History = %+v, want the update then the create", h)
+		if _, err := store.WriteKeyByKey(ctx, tx, tenant, "no-such-key"); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("unknown key: %v, want ErrNotFound", err)
 		}
 		return nil
 	})
 
 	// Stored as jsonb objects, not as strings or bytea text.
 	rows, err := e.super.Query(context.Background(), `
-SELECT jsonb_typeof(data) FROM records WHERE tenant_id = $1
-UNION ALL SELECT jsonb_typeof(after) FROM audit_log WHERE tenant_id = $1
-UNION ALL SELECT jsonb_typeof(before) FROM audit_log WHERE tenant_id = $1 AND before IS NOT NULL`, tenant)
+SELECT jsonb_typeof(data) FROM records WHERE tenant_id = $1`, tenant)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -334,8 +359,8 @@ UNION ALL SELECT jsonb_typeof(before) FROM audit_log WHERE tenant_id = $1 AND be
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(kinds) != 5 {
-		t.Errorf("%d jsonb values, want 5 (data, three afters, one before)", len(kinds))
+	if len(kinds) != 1 {
+		t.Errorf("%d jsonb values, want 1 (the record's data)", len(kinds))
 	}
 	for _, k := range kinds {
 		if k != "object" {
@@ -347,8 +372,8 @@ UNION ALL SELECT jsonb_typeof(before) FROM audit_log WHERE tenant_id = $1 AND be
 // TestStatementsStayInTheTransactionsTenant: every store statement runs in
 // a tenancy.InTenantTx transaction, and row-level security keeps it to that
 // transaction's tenant even when the tenant_id argument names another one.
-// Tenant B's transaction cannot read, update, number into, audit or history
-// tenant A's record, nor insert a row for tenant A, and tenant A's record is
+// Tenant B's transaction cannot read, update, number into, read the write key
+// or the payload of tenant A's record, nor insert a row for tenant A, and tenant A's record is
 // unchanged afterwards.
 func TestStatementsStayInTheTransactionsTenant(t *testing.T) {
 	e := migrated(t)
@@ -367,7 +392,7 @@ func TestStatementsStayInTheTransactionsTenant(t *testing.T) {
 		})
 	}
 
-	// Tenant A's record and its keyed create row.
+	// Tenant A's record, its create entry and its write key.
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	key := "store-cross-tenant-1"
 	pa := principals[tenantA]
@@ -389,9 +414,11 @@ func TestStatementsStayInTheTransactionsTenant(t *testing.T) {
 		if err := store.Insert(ctx, tx, &rec); err != nil {
 			return err
 		}
-		return store.InsertAudit(ctx, tx, &store.Audit{TenantID: tenantA, ID: uuid.New(), RecordID: rec.ID,
-			Action: "create", ActorID: &pa, Source: "user", IdempotencyKey: &key, At: now,
-			After: &store.Snapshot{Number: rec.Number, Version: 1, SchemaVersion: 1, Data: rec.Payload(fixed)}})
+		entry, err := recordEntry(ctx, tx, &rec, audit.ActionCreate, nil, pa)
+		if err != nil {
+			return err
+		}
+		return store.InsertWriteKey(ctx, tx, writeKey(&rec, key, "create", entry))
 	})
 
 	// Tenant B's transaction, naming tenant A's id and record explicitly.
@@ -407,12 +434,11 @@ func TestStatementsStayInTheTransactionsTenant(t *testing.T) {
 		if _, err := store.Update(ctx, tx, &forged, 1); !errors.Is(err, store.ErrStale) {
 			t.Errorf("B updates A's record: %v, want ErrStale (no row)", err)
 		}
-		if _, err := store.AuditByKey(ctx, tx, tenantA, key); !errors.Is(err, store.ErrNotFound) {
+		if _, err := store.WriteKeyByKey(ctx, tx, tenantA, key); !errors.Is(err, store.ErrNotFound) {
 			t.Errorf("B reads A's idempotency key: %v, want ErrNotFound", err)
 		}
-		h, err := store.History(ctx, tx, tenantA, rec.ID, time.Time{}, uuid.Nil, 10)
-		if err != nil || len(h) != 0 {
-			t.Errorf("B reads A's history: %v, %v; want none", h, err)
+		if p, err := store.PayloadJSON(ctx, tx, tenantA, rec.ID, 1, fixed); !errors.Is(err, store.ErrStale) {
+			t.Errorf("B reads A's payload: %s, %v; want ErrStale (no row)", p, err)
 		}
 		taken, err := store.UniqueTaken(ctx, tx, tenantA, rec.EntityDefinitionID, uuid.Nil, "serial", "SN-A", fixed)
 		if err != nil || taken {
@@ -429,9 +455,8 @@ func TestStatementsStayInTheTransactionsTenant(t *testing.T) {
 			r.Number = "AST9999999"
 			return store.Insert(ctx, tx, &r)
 		},
-		"insert audit": func(ctx context.Context, tx pgx.Tx) error {
-			return store.InsertAudit(ctx, tx, &store.Audit{TenantID: tenantA, ID: uuid.New(), RecordID: rec.ID,
-				Action: "update", Source: "system", At: now, After: &store.Snapshot{Data: map[string]any{}}})
+		"insert write key": func(ctx context.Context, tx pgx.Tx) error {
+			return store.InsertWriteKey(ctx, tx, writeKey(&rec, "forged-key", "update", uuid.New()))
 		},
 		"take a number": func(ctx context.Context, tx pgx.Tx) error {
 			_, err := store.NextNumber(ctx, tx, tenantA, rec.EntityDefinitionID)
@@ -455,12 +480,15 @@ func TestStatementsStayInTheTransactionsTenant(t *testing.T) {
 		if got.Version != 1 || got.Data["name"] != "a-secret" {
 			t.Errorf("A's record after B's attempts: version %d, data %v", got.Version, got.Data)
 		}
-		h, err := store.History(ctx, tx, tenantA, rec.ID, time.Time{}, uuid.Nil, 10)
+		kw, err := store.WriteKeyByKey(ctx, tx, tenantA, key)
 		if err != nil {
 			return err
 		}
-		if len(h) != 1 || h[0].Action != "create" {
-			t.Errorf("A's history after B's attempts: %+v, want the create only", h)
+		if kw.RecordID != rec.ID || kw.Action != "create" {
+			t.Errorf("A's write key after B's attempts: %+v", kw)
+		}
+		if _, err := store.WriteKeyByKey(ctx, tx, tenantA, "forged-key"); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("B's forged key for A exists: %v", err)
 		}
 		return nil
 	})

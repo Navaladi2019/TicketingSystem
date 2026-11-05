@@ -86,7 +86,8 @@ func TestT16TenantRowsInvisible(t *testing.T) {
 		"UPDATE groups SET path = path WHERE tenant_id = $1",
 		"UPDATE org_units SET name = 'x' WHERE tenant_id = $1",
 		"UPDATE principals SET enabled = false, deleted_at = now() WHERE tenant_id = $1",
-		"DELETE FROM groups WHERE tenant_id = $1",
+		// Sync tombstones a group, never deletes it (ADR-004-E5, TICK-538).
+		"UPDATE groups SET deleted_at = now() WHERE tenant_id = $1",
 		"DELETE FROM group_members WHERE tenant_id = $1",
 		"DELETE FROM org_units WHERE tenant_id = $1",
 	} {
@@ -135,8 +136,9 @@ func TestT16ForeignKeysRejectCrossTenant(t *testing.T) {
 	wantSQLState(t, "an org unit as its own parent", err, "23514")
 }
 
-// Removing a group removes its memberships, in its own
-// tenant only; a parent unit with children cannot be removed alone, but its
+// Group sync tombstones a group, in its own tenant only, and only once its
+// memberships are gone (ADR-004-E5 D11; it may no longer delete a group,
+// TICK-538); a parent unit with children cannot be removed alone, but its
 // subtree can in one statement.
 func TestT16DeletesCascadeWithinTenant(t *testing.T) {
 	migratedPlatform(t)
@@ -158,17 +160,22 @@ func TestT16DeletesCascadeWithinTenant(t *testing.T) {
 	if members(tenantA) != "0" || members(tenantB) != "1" {
 		t.Errorf("memberships after tombstoning A's principal: A %s, B %s; want 0, 1", members(tenantA), members(tenantB))
 	}
-	if _, err := execIn(sync, tenantB, "DELETE FROM groups WHERE tenant_id = $1", tenantB); err != nil {
-		t.Fatalf("delete B's group: %v", err)
+	_, err := execIn(sync, tenantB, "UPDATE groups SET deleted_at = now() WHERE tenant_id = $1", tenantB)
+	wantSQLState(t, "tombstone B's group while it has a member", err, "23503")
+	if n, err := execIn(sync, tenantB, "DELETE FROM group_members WHERE tenant_id = $1 AND group_id = $1", tenantB); err != nil || n != 1 {
+		t.Fatalf("delete B's group's memberships: %d rows, %v; want 1, nil", n, err)
 	}
-	if members(tenantB) != "0" {
-		t.Errorf("B's memberships after deleting its group: %s, want 0", members(tenantB))
+	if n, err := execIn(sync, tenantB, "UPDATE groups SET deleted_at = now() WHERE tenant_id = $1", tenantB); err != nil || n != 1 {
+		t.Fatalf("tombstone B's group: %d rows, %v; want 1, nil", n, err)
+	}
+	if got := queryString(t, super, "SELECT count(*)::text FROM groups WHERE deleted_at IS NOT NULL AND tenant_id IN ($1, $2)", tenantA, tenantB); got != "1" {
+		t.Errorf("tombstoned groups across A and B: %s, want 1 (B's only)", got)
 	}
 
 	if _, err := execIn(sync, tenantA, "INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name) VALUES ($1, gen_random_uuid(), $1, 'kc-child', 'Child')", tenantA); err != nil {
 		t.Fatal(err)
 	}
-	_, err := execIn(sync, tenantA, "DELETE FROM org_units WHERE tenant_id = $1 AND id = $1", tenantA)
+	_, err = execIn(sync, tenantA, "DELETE FROM org_units WHERE tenant_id = $1 AND id = $1", tenantA)
 	wantSQLState(t, "delete a parent unit with a child", err, "23503")
 	if n, err := execIn(sync, tenantA, "DELETE FROM org_units WHERE tenant_id = $1", tenantA); err != nil || n != 2 {
 		t.Errorf("delete A's whole tree: %d rows, %v; want 2, nil", n, err)

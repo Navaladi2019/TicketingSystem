@@ -1,0 +1,86 @@
+psql:/work/load.sql:4: NOTICE:  truncate cascades to table "audit_chain_head"
+psql:/work/load.sql:4: NOTICE:  truncate cascades to table "record_write_keys"
+ tenants 
+---------
+   10000
+(1 row)
+
+ versions 
+----------
+   300000
+(1 row)
+
+Time: 2.642 ms
+Time: 2.072 ms
+ first_run_added 
+-----------------
+          300000
+(1 row)
+
+Time: 51654.781 ms (00:51.655)
+Time: 5.387 ms
+Time: 0.323 ms
+ rerun_added 
+-------------
+           0
+(1 row)
+
+Time: 1620.321 ms (00:01.620)
+Time: 2.572 ms
+Time: 0.346 ms
+  ids   
+--------
+ 300000
+(1 row)
+
+Time: 37.139 ms
+ entries | tenants_with_entries 
+---------+----------------------
+  300000 |                10000
+(1 row)
+
+ migrator_policies 
+-------------------
+                 0
+(1 row)
+
+ audit_log_size 
+----------------
+ 172 MB
+(1 row)
+
+              set_config              
+--------------------------------------
+ 001b0e88-e233-447d-b181-b00a61b73614
+(1 row)
+
+                                                                           QUERY PLAN                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Result (actual time=0.298..0.300 rows=0 loops=1)
+   One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = (current_setting('app.tenant_id'::text))::uuid)
+   Buffers: shared hit=14 read=3
+   ->  Nested Loop Anti Join (actual time=0.295..0.296 rows=0 loops=1)
+         Join Filter: ((l.subject_id = v.definition_id) AND (l.version_after = v.version))
+         Rows Removed by Join Filter: 435
+         Buffers: shared hit=14 read=3
+         ->  Bitmap Heap Scan on entity_definition_versions v (actual time=0.045..0.181 rows=30 loops=1)
+               Recheck Cond: (tenant_id = (current_setting('app.tenant_id'::text))::uuid)
+               Heap Blocks: exact=10
+               Buffers: shared hit=12 read=1
+               ->  Bitmap Index Scan on entity_definition_versions_tenant_id_id_key (actual time=0.034..0.035 rows=30 loops=1)
+                     Index Cond: (tenant_id = (current_setting('app.tenant_id'::text))::uuid)
+                     Buffers: shared hit=2 read=1
+         ->  Materialize (actual time=0.002..0.003 rows=16 loops=30)
+               Buffers: shared hit=2 read=2
+               ->  Result (actual time=0.043..0.051 rows=30 loops=1)
+                     One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = (current_setting('app.tenant_id'::text))::uuid)
+                     Buffers: shared hit=2 read=2
+                     ->  Index Scan using audit_log_default_subject on audit_log_default l (actual time=0.042..0.047 rows=30 loops=1)
+                           Index Cond: ((tenant_id = (current_setting('app.tenant_id'::text))::uuid) AND (subject_type = 'entity_definition'::text))
+                           Buffers: shared hit=2 read=2
+ Planning:
+   Buffers: shared hit=774 read=26
+ Planning Time: 1.742 ms
+ Execution Time: 0.351 ms
+(26 rows)
+
