@@ -70,9 +70,14 @@ So a platform identity must never name a workflow type or task queue it does not
 own (S1: a relay start of `temporal-sys-batch-workflow` terminated another
 tenant's workflow). A request is allowed only if **every** workflow type, task
 queue and workflow id it names is on the compiled-in allow-list in
-`authz/policy.go` (`platformWorkflowTypes = {nava.interpreter}`,
+`authz/policy.go` (`platformWorkflowTypes = {audit.seal, nava.interpreter}`,
 `platformTaskQueues = {nava-tq}`; `nava.interpreter` is the one generic type every
-workflow definition runs as, PLAN-003 D-3-11). The two M1 smoke types were
+workflow definition runs as, PLAN-003 D-3-11). `audit.seal` is the ADR-004 R16
+audit sealer (R18, TICK-438). It is also the one entry of
+`startOnlyWorkflowTypes`: only a relay start may name it, and a worker's
+`StartChildWorkflowExecution` or `ContinueAsNewWorkflowExecution` of it is
+denied (TICK-449), because the sealer reschedules through the outbox
+(`authz/workload_audit_seal_test.go`). The two M1 smoke types were
 removed in TICK-374: the stack
 tests register their own bodies as `nava.interpreter`, so CI-6 runs the
 allow-list we ship, and `authz/workload_smoke_removed_test.go` asserts that the
@@ -93,6 +98,7 @@ prints both sets.
 | | | queue not in the set | `task_queue_not_allowed` |
 | D9c | `ScheduleActivityTask` | queue set and not in the set | `task_queue_not_allowed` |
 | D9c | `StartChildWorkflowExecution`, `ContinueAsNewWorkflowExecution` | type not in the set (empty is denied, not inherited) | `workflow_type_not_allowed` |
+| | | type in `startOnlyWorkflowTypes` (`audit.seal`) | `workflow_type_not_allowed` |
 | | | queue set and not in the set | `task_queue_not_allowed` |
 | D9c | `ScheduleActivityTask`, `StartChildWorkflowExecution`, `ContinueAsNewWorkflowExecution` | queue kind not NORMAL / UNSPECIFIED | `task_queue_kind_not_allowed` |
 | D9c | `StickyAttributes` (`command=StickyAttributes`) | the D9b STICKY rule fails | `sticky_queue_not_allowed` |

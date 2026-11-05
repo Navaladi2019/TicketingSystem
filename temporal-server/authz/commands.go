@@ -293,11 +293,14 @@ func checkCommand(cmd *commandpb.Command, tenant string) (reason, target, detail
 }
 
 // checkCommandWorkload is D9c for a child or continue-as-new: the workflow type
-// is a platform type (an empty one is denied, not inherited) and the task queue
-// is empty (inherited) or a platform queue.
+// is a platform type that is not start-only (an empty one is denied, not
+// inherited) and the task queue is empty (inherited) or a platform queue.
 func checkCommandWorkload(wt *commonpb.WorkflowType, tq *taskqueuepb.TaskQueue) (reason, detail string) {
 	if reason, detail := checkWorkflowType(wt.GetName()); reason != "" {
 		return reason, detail
+	}
+	if name := wt.GetName(); inSet(startOnlyWorkflowTypes, name) {
+		return ReasonWorkflowType, "workflow type " + strconv.Quote(name) + " is start-only"
 	}
 	return checkCommandTaskQueue(tq)
 }

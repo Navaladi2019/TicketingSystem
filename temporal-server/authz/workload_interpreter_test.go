@@ -41,9 +41,11 @@ func requireAPIDeny(t *testing.T, id Identity, api string, req any) {
 }
 
 func TestInterpreterTypeIsAllowListed(t *testing.T) {
-	// TICK-374: nava.interpreter is the only platform workflow type.
-	if got := sortedKeys(platformWorkflowTypes); len(got) != 1 || got[0] != interpreterType {
-		t.Fatalf("platformWorkflowTypes = %v, want exactly [%s]", got, interpreterType)
+	// TICK-374: nava.interpreter is the only generic platform workflow type;
+	// the full set, audit.seal included, is pinned by TestAuditSealIsAllowListed.
+	if !inSet(platformWorkflowTypes, interpreterType) || inSet(startOnlyWorkflowTypes, interpreterType) {
+		t.Fatalf("platformWorkflowTypes = %v, startOnly = %v: want %s allow-listed and not start-only",
+			sortedKeys(platformWorkflowTypes), sortedKeys(startOnlyWorkflowTypes), interpreterType)
 	}
 	// D-3-11: no separate interpreter queue.
 	if got := sortedKeys(platformTaskQueues); len(got) != 1 || got[0] != "nava-tq" {

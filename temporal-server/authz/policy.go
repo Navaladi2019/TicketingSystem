@@ -228,9 +228,19 @@ var deniedByDefault = []string{
 // definition is data, not a new type, so it never needs a policy PR. It is the
 // only entry: the M1 smoke types are gone (TICK-374), and the stack tests
 // register their own bodies under this type, so they run the shipped policy.
+//
+// audit.seal is the R16 audit sealer (ADR-004 R18, TICK-438), on nava-tq with
+// the same start rules: nava-relay starts it under a `t:<tenant>:` id. It is
+// also in startOnlyWorkflowTypes (TICK-449 grooming): no worker command may
+// name it, so a StartChildWorkflowExecution or ContinueAsNewWorkflowExecution
+// of audit.seal is denied (D9c, commands.go). The sealer reschedules through
+// the outbox, so every sealer run is a relay start the head fences.
 var (
 	platformTaskQueues    = set("nava-tq")
-	platformWorkflowTypes = set("nava.interpreter")
+	platformWorkflowTypes = set("nava.interpreter", "audit.seal")
+	// startOnlyWorkflowTypes is a subset of platformWorkflowTypes that only a
+	// relay start may name; a child or continue-as-new of one is denied.
+	startOnlyWorkflowTypes = set("audit.seal")
 )
 
 // stickyQueueName is the SDK's own sticky queue name, `<host>:<uuid>`
