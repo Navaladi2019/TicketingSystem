@@ -91,6 +91,8 @@ prints both sets.
 | | | queue kind not NORMAL / UNSPECIFIED | `task_queue_kind_not_allowed` |
 | | | queue name not in the set | `task_queue_not_allowed` |
 | | | workflow id without `t:<tenant>:` | `workflow_id_no_tenant` |
+| | | `CronSchedule` set (any non-empty string; TICK-573) | `start_cron` |
+| | | workflow `RetryPolicy` set (any, an empty one included; TICK-573) | `start_retry_policy` |
 | D9a | `nava-relay` `SignalWorkflowExecution` | workflow id without `t:<tenant>:` | `workflow_id_no_tenant` |
 | D9b | `nava-worker` `PollWorkflowTaskQueue` | NORMAL queue not in the set | `task_queue_not_allowed` |
 | | | STICKY name not `<host>:<uuid>`, or in the set, or `NormalName` not in the set (empty included) | `sticky_queue_not_allowed` |
@@ -194,7 +196,7 @@ page. The alert rule, once an alerting backend exists (not in M1 compose):
     summary: "nava-worker sent a cross-tenant or unlisted workflow command"
     description: "Find workflow_id and the certificate in the error log line 'Temporal workflow command denied'."
 - alert: TemporalWorkloadDenied
-  expr: sum by (identity, reason) (increase(nava_authz_denied{command="none", reason=~"workflow_type_not_allowed|task_queue_not_allowed|task_queue_kind_not_allowed|sticky_queue_not_allowed|workflow_id_no_tenant|worker_versioning_not_allowed|task_token_invalid"}[5m])) > 0
+  expr: sum by (identity, reason) (increase(nava_authz_denied{command="none", reason=~"workflow_type_not_allowed|task_queue_not_allowed|task_queue_kind_not_allowed|sticky_queue_not_allowed|workflow_id_no_tenant|worker_versioning_not_allowed|task_token_invalid|start_cron|start_retry_policy"}[5m])) > 0
   labels: {severity: page}
   annotations:
     summary: "a platform certificate named a workflow type, task queue or workflow id off the D9 allow-list"
