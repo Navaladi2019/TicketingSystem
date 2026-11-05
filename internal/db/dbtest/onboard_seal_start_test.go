@@ -18,7 +18,7 @@ import (
 
 const insertSealRow = `INSERT INTO outbox (id, tenant_id, kind, kind_version, dedupe_key, target_key, target_seq,
 	causation_id, causation_depth, payload, trace_context)
-	VALUES ($1, $2, $3, 1, 'audit.seal:1', 'audit.seal:' || $1::text, 1, $1, 0, '{}', NULL)`
+	VALUES ($1::uuid, $2, $3, 1, 'audit.seal:1', 'audit.seal:' || ($1::uuid)::text, 1, $1::uuid, 0, '{}', NULL)`
 
 func TestP533OnboardInsertsSealRowForOwnProvisioningTenantOnly(t *testing.T) {
 	migratedPlatform(t)

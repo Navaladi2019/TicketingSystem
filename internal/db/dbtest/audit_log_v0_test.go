@@ -170,6 +170,11 @@ func migrateTo(t *testing.T, m *grants.Manifest, fsys fs.FS) (migrate.Result, er
 	if _, err := fs.Stat(fsys, auditorGroupActiveTenantMigration); err != nil {
 		fsys = withMigrationFrom(t, fsys, auditorGroupActiveTenantMigration)
 	}
+	// And P5-33's (TICK-441), which the catalogue pins: they need only
+	// audit_chain_head (20261102233600), outbox (00002) and tenants.
+	if _, err := fs.Stat(fsys, onboardSealStartMigration); err != nil {
+		fsys = withMigrationFrom(t, fsys, onboardSealStartMigration)
+	}
 	log, _ := newLog()
 	return migrate.Run(context.Background(), roleConfig(t, withV0.Owner(), withV0.PlatformDatabase),
 		fsys, &withV0, &a, globalTables(t), log, migrate.Options{LockRetrySeconds: 1})
@@ -203,3 +208,6 @@ func withMigrationFrom(t *testing.T, fsys fs.FS, name string) fs.FS {
 	out[name] = &fstest.MapFile{Data: b}
 	return out
 }
+
+// onboardSealStartMigration is P5-33's policy migration (TICK-441).
+const onboardSealStartMigration = "20261105100000_onboard_seal_start.sql"
