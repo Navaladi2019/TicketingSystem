@@ -26,7 +26,7 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 
 <span class="pill" style="background:var(--goodbg);color:var(--good);border-color:var(--good)">ACCEPTED · 2026-11-03</span> <span class="src">ADR-004-E4 · issue TICK-517 · amends ADR-004-E3 (Budget) · source: TICK-509 / PR #420 review, finding 1</span>
 
-<span class="pill">PROPOSED · 2026-11-05</span> <span class="src">ADR-004-E6 · issue TICK-526 · amends ADR-004-E4 (accepted risk E4-R1 / AR-TICK-517-01) · source: TICK-526 spike</span>
+<span class="pill" style="background:var(--goodbg);color:var(--good);border-color:var(--good)">ACCEPTED · 2026-11-05</span> <span class="src">ADR-004-E6 · issue TICK-526 · amends ADR-004-E4 (accepted risk E4-R1 / AR-TICK-517-01) · source: TICK-526 spike</span>
 
 <h1>The slowdown alarm should compare each machine type with its own past, not with a fixed limit</h1>
 
@@ -83,12 +83,14 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 <li><strong>Trigger to look again at the risk:</strong> two <code>main</code> runs in a row on recorded models, each with an off-baseline row. Or a baseline re-take that is more than 1.2× the same model's previous baseline. Runs on machines with no baseline are skipped.</li>
 <li><strong>A slow machine is not a regression.</strong> A baseline over the fixed limit with a normal ratio is recorded as "slow host" and needs no escalation. The 7763 import baseline is annotated that way: 194.9 µs, with a ratio of 8.58, in line with 8.13–9.75 on the other models.</li>
 <li><strong>Still manual.</strong> As in E4, the Postgres specialist reads the logged numbers, and nothing alerts anyone automatically. The warnings themselves do not change.</li>
+<li><strong>A baseline is the median of at least 3 runs.</strong> The band is close to the worst noise we measured, so a baseline taken from one unlucky run would shift it. The spike's rerun recipe takes about 6 minutes.</li>
 </ol>
 
 <h2>The change</h2>
 <ul>
 <li><code>docs/security/accepted-risks.md</code>: the AR-TICK-517-01 trigger is reworded.</li>
 <li><code>docs/budgets.md</code>: the 7763 import baseline gets a "slow host, not a regression" note.</li>
+<li><code>docs/budgets.md</code>: the method now says a baseline is the median of at least 3 runs on that CPU model.</li>
 <li>The spike note is archived under <code>docs/adr/ADR-004/spikes/technical-architect/</code>.</li>
 </ul>
 <p>No code, CI job, threshold, database or production behaviour changes, so no plan issue is needed.</p>
@@ -104,5 +106,6 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 <li>The spike note, with all 16 raw result lines, job links, per-model max/min and the rerun script: <code>docs/adr/ADR-004/spikes/technical-architect/e4-r1-cpu-variance.md</code> (CI run <a href="https://github.com/Navaladi2019/TicketingSystem/actions/runs/41964296547">41964296547</a>).</li>
 <li>Spread per model (max/min, models with at least 3 runs): EPYC 7763 ≤ 1.127, Xeon 8573C ≤ 1.038, EPYC 9V45 ≤ 1.069. The spike's pass criterion was under 1.2.</li>
 <li>Red to green: there is no code, so this is checked against the spike data. With no regression present, the old cue goes off on all 7 of the 7763 runs (red), and the new cue goes off on 0 of the 16 runs (green). On 9V45, a 1.2× slowdown crosses the band but stays more than 1.8× below the fixed limit.</li>
+<li>Review: the Technical Architect's round-1 critique recomputed every row against its baseline (highest 1.095) and approved with nothing contested. Accepted by the Solution Architect on 2026-11-05.</li>
 </ul>
 </main></body></html>
