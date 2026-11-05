@@ -7,6 +7,7 @@ import (
 	"errors"
 
 	"github.com/exaring/otelpgx"
+	"github.com/jackc/pgx/v5/multitracer"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
@@ -24,6 +25,10 @@ var ErrNilProvider = errors.New("db: telemetry providers must not be nil")
 // The tracer records no SQL text and no query parameters: span names are
 // SQL keywords (telemetry.DBSpanName), and the statement attribute is off.
 // otelpgx.WithIncludeQueryParameters is banned by lint.
+//
+// The pool also gets ParseFailureCloser, so a statement whose Parse failed
+// inside a transaction does not get the client closed by PgBouncer on its
+// next run (TICK-550).
 func NewPool(ctx context.Context, cfg *pgxpool.Config, tel *telemetry.Telemetry) (*pgxpool.Pool, error) {
 	if tel == nil || tel.TracerProvider == nil || tel.MeterProvider == nil {
 		return nil, ErrNilProvider
@@ -32,13 +37,16 @@ func NewPool(ctx context.Context, cfg *pgxpool.Config, tel *telemetry.Telemetry)
 		return nil, errors.New("db: nil pool config")
 	}
 	cfg = cfg.Copy()
-	cfg.ConnConfig.Tracer = otelpgx.NewTracer(
-		otelpgx.WithTracerProvider(tel.TracerProvider),
-		otelpgx.WithMeterProvider(tel.MeterProvider),
-		otelpgx.WithSpanNameCtxFunc(func(ctx context.Context, stmt string) string {
-			return telemetry.DBSpanName(otelpgx.SQLOperationName(ctx, stmt))
-		}),
-		otelpgx.WithDisableSQLStatementInAttributes(),
+	cfg.ConnConfig.Tracer = multitracer.New(
+		otelpgx.NewTracer(
+			otelpgx.WithTracerProvider(tel.TracerProvider),
+			otelpgx.WithMeterProvider(tel.MeterProvider),
+			otelpgx.WithSpanNameCtxFunc(func(ctx context.Context, stmt string) string {
+				return telemetry.DBSpanName(otelpgx.SQLOperationName(ctx, stmt))
+			}),
+			otelpgx.WithDisableSQLStatementInAttributes(),
+		),
+		ParseFailureCloser{},
 	)
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
