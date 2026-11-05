@@ -1,0 +1,5 @@
+## 2026-11-05: C5 amended: WithDelay option (P5-34a) and EnqueueReseed with reseed dedupe key (P5-35)
+- **Decided by:** the Technical Lead on TICK-439 and TICK-440. The Technical Architect concurs. No dissent.
+- **Why:** R16 needs A1's start row o′ to carry `available_at = now() + seal_interval_s`. C5 as shipped in PR #473 could not set it. A reseed at a head version an A1 already used would also collide with that run's `audit.seal:<version>` dedupe key.
+- **Decision:** `outbox.EnqueueSeal(ctx, tx, headVersion, opts ...SealOption)` with `outbox.WithDelay(d)`. `available_at` is computed in SQL on the database clock. With no option the row is available at once. A negative delay is refused. A separate `outbox.EnqueueReseed(ctx, tx, headVersion, reseedID)` uses `dedupe_key = audit.seal:<version>:reseed:<reseedID>`; TICK-446 implements it. The positional `delay time.Duration` form proposed in an earlier TICK-439 comment is withdrawn. The C5 paragraph of `docs/delivery/plan-adr-004.md` states both parts.
+- **Dissent:** none.

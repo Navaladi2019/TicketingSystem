@@ -86,7 +86,12 @@ func Append(ctx context.Context, tx pgx.Tx, e Entry) (uuid.UUID, error)
 
 **C4 · Export file (P5-02 writes the spec; P5-40 produces; P5-03 consumes):** `docs/api/audit-export-v1.md`. The format is JSONL `nava.audit.export/v1`: a header line, then the anchor (a stub or genesis), then full entries and stub lines in `seq` order, then unsealed lines, then a trailer `{anchor_seq, last_seq, head_hash, count, stub_count, unsealed_count, verifiable}`. CSV has the same lines.
 
-**C5 · Seal start row (P5-31 produces; P5-32, P5-33 and P5-34a consume).** `outbox.EnqueueSeal(ctx, tx, headVersion int64) (outboxID uuid.UUID, error)` (no tenant argument: the tenant comes from the tx's `app.tenant_id`; the caller holds the head row `FOR UPDATE`; the row's `dedupe_key` is `audit.seal:<headVersion>`) inserts `kind = 'audit.seal'`, `target_key = 'audit.seal:<id>'`, `target_seq = headVersion`, payload `{}`, and no `workflow_ref`. The relay starts it as `t:<tenant>:audit.seal:<id>` (A6.3).
+**C5 · Seal start row (P5-31 produces; P5-32, P5-33, P5-34a and P5-35 consume; amended on TICK-440).** Two entry points. Neither takes a tenant argument (the tenant comes from the tx's `app.tenant_id`), and the caller of either holds the tenant's head row `FOR UPDATE`.
+
+- `outbox.EnqueueSeal(ctx, tx, headVersion int64, opts ...outbox.SealOption) (outboxID uuid.UUID, error)` (P5-31; it also takes the head lock itself before it writes), with `dedupe_key = audit.seal:<headVersion>`, inserts `kind = 'audit.seal'`, `target_key = 'audit.seal:<id>'`, `target_seq = headVersion`, payload `{}`, and no `workflow_ref`. `outbox.WithDelay(d time.Duration)` sets `available_at = now() + make_interval(secs => d)` on the database clock, never the worker's; A1 (P5-34a) passes the head's `seal_interval_s` (R16). With no option the row is available at once (`available_at = now()`), which onboarding (P5-33) relies on; existing `EnqueueSeal(ctx, tx, v)` calls are unchanged. A negative delay is `ErrInvalidEntry` and writes nothing.
+- `outbox.EnqueueReseed(ctx, tx, headVersion int64, reseedID uuid.UUID) (outboxID uuid.UUID, error)` (P5-35, TICK-446) writes the same row shape with `dedupe_key = audit.seal:<headVersion>:reseed:<reseedID>`, so a reseed at a version A1 already used does not collide with that run's row. Reseed never calls `EnqueueSeal`.
+
+The relay starts either row as `t:<tenant>:audit.seal:<id>` (A6.3).
 
 ## Task graph
 

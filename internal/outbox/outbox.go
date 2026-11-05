@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -254,13 +255,32 @@ const (
 	lockHeadSQL = `SELECT tenant_id, version FROM audit_chain_head WHERE tenant_id = $1 FOR UPDATE`
 	// causation_id is the row's own id at depth 0: a seal run starts no
 	// cascade and carries none forward (I9, A5-3).
+	// available_at is computed on the database clock (now() is the
+	// transaction start), never the worker's: $7 is the delay in seconds,
+	// 0 when no WithDelay was given, which is the column default now().
 	insertSealSQL = `INSERT INTO outbox (id, tenant_id, kind, kind_version, dedupe_key, target_key, target_seq,
-    causation_id, causation_depth, payload, trace_context)
-VALUES ($1, $2, '` + SealKind + `', 1, $3, $4, $5, $1, 0, '{}', $6)
+    causation_id, causation_depth, payload, trace_context, available_at)
+VALUES ($1, $2, '` + SealKind + `', 1, $3, $4, $5, $1, 0, '{}', $6, now() + make_interval(secs => $7))
 ON CONFLICT (tenant_id, dedupe_key) DO NOTHING
 RETURNING id`
 	sealDedupeSQL = `SELECT id FROM outbox WHERE tenant_id = $1 AND dedupe_key = $2`
 )
+
+// SealOption tunes one EnqueueSeal call (PLAN-005 C5, as amended on
+// TICK-440). The zero set of options is the original C5 behaviour.
+type SealOption func(*sealOptions)
+
+type sealOptions struct {
+	delay time.Duration
+}
+
+// WithDelay makes the seal row available d after the transaction's start on
+// the database clock: available_at = now() + d (ADR-004 R16, A1's
+// seal_interval_s). A negative d makes EnqueueSeal return ErrInvalidEntry.
+// Without it the row is available at once, as onboarding (P5-33) needs.
+func WithDelay(d time.Duration) SealOption {
+	return func(o *sealOptions) { o.delay = d }
+}
 
 // SealDedupeKey is the dedupe_key of the seal start row enqueued at
 // headVersion (PLAN-005 C5).
@@ -281,6 +301,7 @@ const sealDedupePrefix = SealKind + ":"
 //   - target_seq = headVersion, the tenant's audit_chain_head.version;
 //   - dedupe_key = SealDedupeKey(headVersion);
 //   - causation is the row's own id at depth 0;
+//   - available_at = now() + the WithDelay duration, or now() without it;
 //   - no workflow_ref row: workflow_ref.record_id references records, and a
 //     seal run is never signalled.
 //
@@ -295,13 +316,23 @@ const sealDedupePrefix = SealKind + ":"
 // transaction's.
 //
 // If the tenant already has a row with this dedupe key, it returns that
-// row's id and a nil error and writes nothing. Only a seal row can hold it:
-// every other producer refuses a dedupe key with the SealKind prefix.
+// row's id and a nil error and writes nothing, whatever delay it was given.
+// Only a seal row can hold it: every other producer refuses a dedupe key with
+// the SealKind prefix.
 //
 // tx must come from tenancy.InTenantTx. On any error the caller rolls tx back.
-func EnqueueSeal(ctx context.Context, tx pgx.Tx, headVersion int64) (uuid.UUID, error) {
+func EnqueueSeal(ctx context.Context, tx pgx.Tx, headVersion int64, opts ...SealOption) (uuid.UUID, error) {
 	if headVersion < 1 {
 		return uuid.Nil, fmt.Errorf("%w: head version %d is below 1", ErrInvalidEntry, headVersion)
+	}
+	var o sealOptions
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&o)
+		}
+	}
+	if o.delay < 0 {
+		return uuid.Nil, fmt.Errorf("%w: negative seal delay", ErrInvalidEntry)
 	}
 	txTenant, err := tenancy.TenantOf(ctx, tx)
 	if errors.Is(err, tenancy.ErrNoTenant) {
@@ -332,7 +363,7 @@ func EnqueueSeal(ctx context.Context, tx pgx.Tx, headVersion int64) (uuid.UUID, 
 	dedupe := SealDedupeKey(headVersion)
 	var inserted uuid.UUID
 	err = tx.QueryRow(ctx, insertSealSQL, id, tenant, dedupe, SealKind+":"+id.String(), headVersion,
-		traceparent(ctx)).Scan(&inserted)
+		traceparent(ctx), o.delay.Seconds()).Scan(&inserted)
 	if err == nil {
 		return inserted, nil
 	}

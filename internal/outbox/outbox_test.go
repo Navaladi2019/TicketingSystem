@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/baggage"
@@ -94,6 +95,16 @@ func TestSealPathsRefuseBeforeAnyWrite(t *testing.T) {
 	for _, v := range []int64{0, -1} {
 		if _, err := EnqueueSeal(context.Background(), nil, v); !errors.Is(err, ErrInvalidEntry) {
 			t.Fatalf("EnqueueSeal(%d) = %v, want ErrInvalidEntry", v, err)
+		}
+	}
+	// C5 as amended (TICK-440): a negative delay is refused before any query;
+	// the last WithDelay wins, so a later negative one is refused too.
+	for _, opts := range [][]SealOption{
+		{WithDelay(-time.Nanosecond)},
+		{WithDelay(10 * time.Second), WithDelay(-time.Second)},
+	} {
+		if _, err := EnqueueSeal(context.Background(), nil, 1, opts...); !errors.Is(err, ErrInvalidEntry) {
+			t.Fatalf("EnqueueSeal with a negative delay = %v, want ErrInvalidEntry", err)
 		}
 	}
 }
