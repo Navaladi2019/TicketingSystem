@@ -445,6 +445,8 @@ const (
 	classD9aQueue        = "D9a: platform queue"
 	classD9aKind         = "D9a: NORMAL or UNSPECIFIED"
 	classD9aNormalName   = "D9a: unused, as Kind is not STICKY (tqid.PartitionFromProto rejects it)"
+	classD9aCron         = "D9a: empty (TICK-573)"
+	classD9aRetry        = "D9a: unset (TICK-573)"
 	classD9bQueue        = "D9b: platform queue, or sticky-shaped when STICKY"
 	classD9bKind         = "D9b: selects the NORMAL or the STICKY rule"
 	classD9bNormalName   = "D9b: platform queue when STICKY, else unused (tqid rejects it)"
@@ -536,6 +538,7 @@ var requestFieldRules = map[Identity]map[string]map[string]string{
 		"StartWorkflowExecution": withFailures(map[string]string{
 			"workflow_id": classD9aID, "workflow_type.name": classD9aType,
 			"task_queue.name": classD9aQueue, "task_queue.kind": classD9aKind, "task_queue.normal_name": classD9aNormalName,
+			"cron_schedule": classD9aCron, "retry_policy": classD9aRetry, "retry_policy.": classD9aRetry,
 			"links[].workflow_event.workflow_id":                        classD9hLink,
 			"links[].batch_job.":                                        classD9hLinkVariant,
 			"completion_callbacks[].links[].workflow_event.workflow_id": classD9hLink,
@@ -544,6 +547,7 @@ var requestFieldRules = map[Identity]map[string]map[string]string{
 		"SignalWithStartWorkflowExecution": {
 			"workflow_id": classD9aID, "workflow_type.name": classD9aType,
 			"task_queue.name": classD9aQueue, "task_queue.kind": classD9aKind, "task_queue.normal_name": classD9aNormalName,
+			"cron_schedule": classD9aCron, "retry_policy": classD9aRetry, "retry_policy.": classD9aRetry,
 			"links[].workflow_event.workflow_id": classD9hLink,
 			"links[].batch_job.":                 classD9hLinkVariant,
 		},
