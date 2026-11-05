@@ -390,7 +390,7 @@ func writeWorkloadTable(b *strings.Builder) {
 	for _, set := range []struct {
 		name    string
 		entries map[string]struct{}
-	}{{"platformWorkflowTypes", platformWorkflowTypes}, {"platformTaskQueues", platformTaskQueues}} {
+	}{{"platformWorkflowTypes", platformWorkflowTypes}, {"startOnlyWorkflowTypes", startOnlyWorkflowTypes}, {"platformTaskQueues", platformTaskQueues}} {
 		fmt.Fprintf(b, "| `%s` | `%s` |\n", set.name, strings.Join(sortedKeys(set.entries), "`, `"))
 	}
 	fmt.Fprintf(b, "\nA STICKY queue name must match `%s`, must not be in `platformTaskQueues`, and its `NormalName` must be in `platformTaskQueues`.\n", stickyQueueName)
@@ -399,7 +399,7 @@ func writeWorkloadTable(b *strings.Builder) {
 	b.WriteString("| D9d | `TaskToken` decodes as `token.v1.Task` and its `WorkflowId` has a `t:<tenant>:` prefix. |\n")
 	b.WriteString("| D9d query clause | `TaskToken` decodes as `token.v1.QueryTask` and its `TaskQueue` is in `platformTaskQueues` or sticky-shaped. |\n")
 	b.WriteString("| D9e, D9f | The request's workflow id has a `t:<tenant>:` prefix. |\n")
-	b.WriteString("| D9c | A command's task queue has Kind NORMAL or UNSPECIFIED and an empty name or one in `platformTaskQueues`; a child or continue-as-new names a type in `platformWorkflowTypes`. |\n")
+	b.WriteString("| D9c | A command's task queue has Kind NORMAL or UNSPECIFIED and an empty name or one in `platformTaskQueues`; a child or continue-as-new names a type in `platformWorkflowTypes` and not in `startOnlyWorkflowTypes`. |\n")
 	b.WriteString("| D9g | `StickyTaskQueue` is empty or sticky-shaped and not in `platformTaskQueues`; every `WorkerHeartbeat.TaskQueue`, on polls too, is in `platformTaskQueues`. |\n")
 	b.WriteString("| D9h-links | Every link is a workflow event link whose `WorkflowId` has a `t:<tenant>:` prefix. |\n")
 	b.WriteString("| D9h-failures | Every `ChildWorkflowExecutionFailureInfo` workflow id along a failure's `cause` chain has a `t:<tenant>:` prefix. |\n")

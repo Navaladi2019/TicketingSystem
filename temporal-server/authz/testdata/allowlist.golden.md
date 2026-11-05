@@ -195,7 +195,8 @@ A request to one of these APIs is allowed only if every workflow type, task queu
 
 | Set | Entries |
 |---|---|
-| `platformWorkflowTypes` | `nava.interpreter` |
+| `platformWorkflowTypes` | `audit.seal`, `nava.interpreter` |
+| `startOnlyWorkflowTypes` | `audit.seal` |
 | `platformTaskQueues` | `nava-tq` |
 
 A STICKY queue name must match `^[^/]+:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`, must not be in `platformTaskQueues`, and its `NormalName` must be in `platformTaskQueues`.
@@ -206,7 +207,7 @@ A STICKY queue name must match `^[^/]+:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 | D9d | `TaskToken` decodes as `token.v1.Task` and its `WorkflowId` has a `t:<tenant>:` prefix. |
 | D9d query clause | `TaskToken` decodes as `token.v1.QueryTask` and its `TaskQueue` is in `platformTaskQueues` or sticky-shaped. |
 | D9e, D9f | The request's workflow id has a `t:<tenant>:` prefix. |
-| D9c | A command's task queue has Kind NORMAL or UNSPECIFIED and an empty name or one in `platformTaskQueues`; a child or continue-as-new names a type in `platformWorkflowTypes`. |
+| D9c | A command's task queue has Kind NORMAL or UNSPECIFIED and an empty name or one in `platformTaskQueues`; a child or continue-as-new names a type in `platformWorkflowTypes` and not in `startOnlyWorkflowTypes`. |
 | D9g | `StickyTaskQueue` is empty or sticky-shaped and not in `platformTaskQueues`; every `WorkerHeartbeat.TaskQueue`, on polls too, is in `platformTaskQueues`. |
 | D9h-links | Every link is a workflow event link whose `WorkflowId` has a `t:<tenant>:` prefix. |
 | D9h-failures | Every `ChildWorkflowExecutionFailureInfo` workflow id along a failure's `cause` chain has a `t:<tenant>:` prefix. |
