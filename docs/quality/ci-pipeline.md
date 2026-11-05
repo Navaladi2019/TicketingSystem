@@ -1,8 +1,9 @@
 # CI pipeline (T05)
 
 `make ci` runs every gate locally, for a human debugging a failure. **Agents
-verify in GitHub, not locally:** push the branch or open a PR and read the `ci`
-workflow, or run `gh workflow run ci --ref <branch>` for a full run. The GitHub workflow `.github/workflows/ci.yml`
+verify in GitHub, not locally:** open a PR, add the `ci:run` label and read
+the `ci` workflow (a push to a task branch starts no run since TICK-563; see
+"In GitHub"). The GitHub workflow `.github/workflows/ci.yml`
 calls only `make` targets. Install the pinned tools once with `make tools`.
 
 ## Gates, in order
@@ -19,14 +20,28 @@ calls only `make` targets. Install the pinned tools once with `make tools`.
 In GitHub, the `temporal-server` job runs the module's tests and then
 `make vulncheck-temporal-server`, which must report zero findings: there is no
 exception and no allowlist (ADR-001 A1 Decision 3, TICK-121).
-`lint`, `unit`, `temporal-server`, `integration`, `stack`,
-`stack-db` and `stack-internal` run as seven parallel jobs (the ones a pull
-request needs, see "In GitHub" below), each a separate
-check (decision log, 2026-10-20). Inside each job, steps follow the order above
-and the first failure stops the job. The stack tests are split over three jobs,
-each with its own compose stack: `stack` (healthy, smoke, PgBouncer, every
-Temporal case, SDK, dependencies, trace, redact), `stack-db` (idempotent,
-dbroles, hba) and `stack-internal` (the internal overlay).
+`lint`, `unit`, `temporal-server`, `integration`, `commit-check-budget`
+and `stack` run as six parallel jobs (the ones a pull request needs, see "In
+GitHub" below), each a separate check (decision log, 2026-10-20). Inside each job, steps follow the
+order above and the first failure stops the job, with one exception in
+`stack`. The `stack` job builds the images once (`make image-ci`) and then runs
+three phases in turn, each on a fresh compose stack that is torn down
+(`down -v`) before the next: the `job=stack` cases (healthy, smoke, PgBouncer,
+every Temporal case, SDK, dependencies, trace, redact), the `job=stack-db`
+cases (idempotent, dbroles, hba) and the `job=stack-internal` case (the
+internal overlay). The second and third phases run even when an earlier phase
+failed, so one red run reports all three. Until TICK-563 the last two were the
+jobs `stack-db` and `stack-internal`, which each rebuilt the same images.
+`commit-check-budget` runs `TestCommitCheckBudget` alone on a runner of its
+own (`make test-commit-check-budget`, `scripts/ci/commit-check-budget.sh`),
+whenever `integration` runs. The test measures ADR-004-E3's absolute µs
+budget rows, which drifted 10-36 % over the ceilings when the test shared the
+`integration` runner with the dbtest shards. The integration shards leave it
+out, so it runs once (D-E3-4, TICK-509). Under ADR-004-E4 the absolute
+thresholds are report-only: the job fails only when no rows were measured, a
+same-run ratio is out of range or the per-call row is not flat; a row over
+its threshold gets a `::warning::` annotation, and both rows, with the host's
+`cpu=` model, go to the step summary.
 
 `make ci-stack` runs all of them locally (TICK-153): the main stack, then the
 internal overlay as a project of its own (`<project>-int`, host ports 0 so
@@ -83,6 +98,7 @@ and the 7 green push runs of story branch `TICK-334/workflow-interpreter`
 | `stack-db` | 381 s / 793 s | 409 s / 789 s | 254 s / 652 s | 43 s / 55 s | 25 |
 | `stack-internal` | 432 s / 795 s | 356 s / 742 s | 256 s / 684 s | 34 s / 47 s | 25 |
 | `lint`, `unit`, `temporal-server`, `integration` | under 5 min | | | | 10 |
+| `commit-check-budget` | | 120 s, cold Go cache (run 41673342312; the test itself 13 s) | | | 10 |
 | `changes` | under 1 min | | | | 5 |
 
 Run ids: on `main`, 41261072764, 41257268224, 41254956177, 41248729699,
@@ -120,13 +136,35 @@ What TICK-400 changed:
   and post steps about 70 s, total about 1,600 s (27 min). 35 minutes leaves
   about 30 % above that. A real hang still ends within 35 minutes.
 - `stack-db` and `stack-internal` stay at 25. Their cold-cache worst case is
-  about 900 s (15 min), so 25 leaves more than 60 % above it.
+  about 900 s (15 min), so 25 leaves more than 60 % above it. (Both jobs were
+  merged into `stack` by TICK-563, below.)
+
+**TICK-563: one image build per run.** `stack-db` and `stack-internal`
+spent 4 to 6 minutes building images for 1 to 2 minutes of cases (5 green
+TICK-** push runs, 2026-11-04: 41874581809, 41871127841, 41865720864,
+41858761212, 41837359412; image build 4.0 to 5.9 min in every stack job). Two
+ways to build once were compared on billed minutes (GitHub bills each job
+rounded up to the whole minute):
+
+| Option | `stack`-family billed minutes per run |
+|---|---|
+| Before: three jobs, three builds | 34 (18 + 8 + 8, run 41874581809) |
+| `images` job, `docker save \| zstd` artifact, three loading jobs | about 32 (images about 9: set-up, build, save and upload of every image; each stack job adds download and `docker load`) |
+| Merge into `stack`, phases in turn (chosen) | about 21 (18 + 1 for a second stack up and the stack-db cases + 1 to 2 for the overlay) |
+
+Merging also adds no artifact or cache storage, and the Actions cache was
+already over its 10 GB. The cost is wall clock: `stack`, already the longest
+job, grows by about 3 minutes. Its `timeout-minutes` goes from 35 to 40: the
+TICK-400 cold-cache worst case (about 1,600 s) plus the two extra phases (two
+stack starts at 47 s, cases at 55 s and the overlay at about 60 s, teardowns)
+is about 1,850 s (31 min), and 40 keeps about 30 % above it, as TICK-400 did.
+The measured run of this change is in its PR description.
 
 Revisit when:
 
-- a green `stack` run exceeds 28 minutes: split the `stack` cases across two
-  jobs, or move `make image-ci` into its own job that hands the images to the
-  three stack jobs;
+- a green `stack` run exceeds 32 minutes: split the `stack` cases across two
+  jobs, or move `make image-ci` into its own job that hands the images to
+  them as an artifact;
 - the image build on a `main` run stays under 4 minutes: lower `stack` back
   towards 25;
 - the `stack` cases alone pass 15 minutes. They grew from about 600 s to about
@@ -337,35 +375,82 @@ settled by the human on 2026-10-25 (decision log): it can.
 
 ### In GitHub
 
-A pull request runs only the jobs its change needs. The `changes` job runs
-`make ci-stages`, which prints the same stages `cichanged` picks and writes
-`unit`, `integration` and `stack` as `true` or `false` for the job conditions:
+**Triggers (TICK-563).** The workflow runs on a push to `main`, on a pull
+request (`opened`, `synchronize`, `reopened`, `labeled`), by hand
+(`workflow_dispatch`) and on the 6-hour schedule. A push to a task or story
+branch starts no run: TICK-563 removed `TICK-**` from `on.push.branches`
+(it was added by TICK-289), for Actions cost.
+
+| Event | Jobs that run |
+| --- | --- |
+| pull request with neither `ci:run` nor `ci:full` | `changes`, `lint`, `story-branches` (`make ci-stages` with `CI_LINT_ONLY=1` sets every stage false) |
+| pull request with `ci:run` (added, or already there on a later push) | `changes`, `lint`, `story-branches` and the jobs its change needs (table below); `stack` skips the cases of untouched areas (below) |
+| pull request with `ci:full` | as `ci:run`, and `stack` runs every case |
+| `labeled` with any label but `ci:run` or `ci:full` | none: every job's `if:` skips it, and the run has a concurrency group of its own so it never cancels the real one |
+| push or manual run on `main` | every job (`CI_ALL=1`) and `main-red` on failure |
+| manual run on another branch | the jobs its diff against `main` needs (`CI_ALL` is never set off `main`) |
+| schedule | `story-branches` only |
+
+Add `ci:run` when the pull request is ready for review; later pushes run again
+without adding it again. A story → `main` pull request needs `ci:run` before it
+merges (the story-acceptance flow adds it); its diff is the whole story, so it
+runs every job the story touched, and the push to `main` after the merge runs
+every job.
+
+With the label, the `changes` job runs `make ci-stages`, which prints the same
+stages `cichanged` picks and writes `unit`, `integration` and `stack` as
+`true` or `false` for the job conditions:
 
 | Stage needed | Jobs that run |
 | --- | --- |
-| always | `changes`, `lint` |
-| `ci-unit` | `unit`, `temporal-server` |
+| always | `changes`, `lint`, `story-branches` |
+| `ci-unit` | `unit`, `temporal-server` (and `coverage`, which adds `integration`) |
 | `ci-integration` | `integration` |
-| `ci-stack` | `stack`, `stack-db`, `stack-internal` |
+| `ci-stack` | `stack` (its three phases) |
 
-A change under `.github/workflows` runs every job, since only a full run proves
-a workflow edit. A skipped job shows as skipped, not failed. For a full run on
-any branch, start the `ci` workflow by hand from the Actions tab
-(`workflow_dispatch`, or `gh workflow run ci --ref <branch>`); it sets
-`CI_ALL=1`, so every job runs.
+A diff of only documentation (`.md` and `.html` outside a Go package and
+`testdata`) needs `ci-lint` alone; `TestDocsOnlyDiffRunsNoUnitIntegrationOrStack`
+in `tools/ci/cichanged` runs `scripts/ci/ci-stages.sh` on such a diff and checks
+`unit=false integration=false stack=false`. A change under `.github/workflows`
+runs every job, since only a full run proves a workflow edit. A skipped job
+shows as skipped, not failed, and a skipped required check counts as passed.
 
-A push to `main` or to any `TICK-**` branch (TICK-289) also sets `CI_ALL=1`:
-the merged tree runs every job, since a merge result has no meaningful diff
-base. Story branches are `TICK-<story>/<slug>`, so the filter needs `**` to
-cross the `/`; it matches task branches too, which then run the full suite on
-every push (an accepted cost: a glob cannot tell the two apart). Each push has its own concurrency group (per ref and sha), so a newer
+**Stack cases by area (TICK-563).** Keycloak and PgBouncer stay in the stack
+(`nava-core` needs both); only the cases that test them can be skipped. A case
+header may carry `area=keycloak|pgbouncer|db`:
+
+| Area | Cases | Turned on by (`tools/ci/cichanged/areas.go`) |
+| --- | --- | --- |
+| `keycloak` | `keycloak_restart`, `dependencies`, `identity` | `deploy/compose/keycloak/`, `internal/identity/`, `internal/identitystack/`, group sync (`internal/groupsync/`, `cmd/nava-groupsync/`), `make/identity.mk`, those case files |
+| `pgbouncer` | `pgbouncer` | `deploy/compose/pgbouncer/`, the pool code (`internal/db`, `internal/db/pooltest`), the case file |
+| `db` | `idempotent` | `db/` (migrations), `cmd/nava-db/`, `deploy/compose/nava-db/`, `internal/db/{roles,migrate,grants,hba,catalog,scram}`, the case file |
+
+Every other case has no area and always runs: `identity_attacks` and every
+tenant-isolation case among them (`TestRealCaseAreas` in `tools/ci/stackcases`
+fails if any other case gains an area). A stack-relevant file that no area rule
+names turns areas on by kind: a Go package in no area, `temporal-server/` and a
+case of no area turn on none; anything else (`go.mod`, the Makefile, the pins,
+compose files, the case runner, a file no rule knows) turns on every area.
+`make ci-stages` writes the result as the `areas` output (`all`, `none` or a
+list); the three `make stack-tests` steps get it as `AREAS`, and
+`deploy/compose/test/run-cases.sh` prints `SKIP <case> (area <x> not touched)`
+for each skipped case. Without `AREAS` (locally) every case runs. Every area
+runs (`CI_AREAS_ALL=1`, or `CI_ALL=1` on `main`) with the `ci:full` label, on a
+manual run, on a push to `main` and on every pull request into `main`: a
+branch name cannot tell a story → `main` PR from a task PR, so task PRs into
+`main` run every case too. Skipping applies to task PRs into story branches.
+The mapping is tested in `TestClassifyAreas`, the runner in
+`TestAreasSkipUntouchedCases`.
+
+A push to `main` sets `CI_ALL=1`: the merged tree runs every job, since a merge
+result has no meaningful diff base. Each push has its own concurrency group (per ref and sha), so a newer
 merge neither cancels nor replaces the run of an older one. When any job of a
 push to `main` fails, the `main-red` job (`scripts/ci/main-red.sh`, the only
 job with `issues: write` besides `story-branches`) opens a GitHub issue `main is red: <short sha>`
 labelled `P0`, with the failing jobs and the run URL; while one such issue is
 open, a later red push comments on it instead. Close it once `main` is green. Locally, `make ci-stages`
-prints the stages for the current branch and `CI_ALL=1 make ci-stages` prints
-all four.
+prints the stages for the current branch, `CI_ALL=1 make ci-stages` prints
+all four and `CI_LINT_ONLY=1 make ci-stages` prints `ci-lint`.
 
 ### Story branches (TICK-322)
 

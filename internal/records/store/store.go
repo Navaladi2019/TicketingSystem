@@ -1,6 +1,9 @@
 // Package store is the data access of the record write pipeline (PLAN-003
-// D-3-6): the records and audit_log statements, and the split of a record's
-// payload between its fixed columns and data. Only internal/records/pipeline
+// D-3-6): the records and record_write_keys statements and the split of a
+// record's payload between its fixed columns and data. The audit entry of a
+// write is not written here: the pipeline writes it through audit.Append
+// (ADR-004 decision 1, P5-13b), and a record's history is read from audit_log
+// by internal/audit/read (P5-17). Only internal/records/pipeline
 // writes through it; P3-13's static test keeps it that way.
 //
 // Every function takes the caller's transaction, opened by tenancy.InTenantTx,
@@ -16,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,13 +35,14 @@ var (
 	ErrNotFound = errors.New("records/store: not found")
 	// ErrStale means an update found no row at the expected version.
 	ErrStale = errors.New("records/store: stale version")
-	// ErrDuplicateKey means another write holds the audit row's idempotency
-	// key. The statement aborted the caller's transaction.
+	// ErrDuplicateKey means another write holds the idempotency key. The
+	// statement aborted the caller's transaction.
 	ErrDuplicateKey = errors.New("records/store: duplicate idempotency key")
 )
 
-// idempotencyIndex is the partial unique index on audit_log (P3-09).
-const idempotencyIndex = "audit_log_idempotency_key"
+// idempotencyIndex is the primary key of record_write_keys (D-5-3): one
+// write per tenant and key.
+const idempotencyIndex = "record_write_keys_pkey"
 
 // Record is one records row of a pipeline record. Data never holds a property
 // mapped to a fixed column (TICK-360); Payload merges them back.
@@ -53,12 +58,15 @@ type Record struct {
 	RequesterID        *uuid.UUID
 	AssigneeID         *uuid.UUID
 	AssignmentGroupID  *uuid.UUID
-	CreatedBy          *uuid.UUID
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-	Data               map[string]any
-	CausationOriginID  *uuid.UUID
-	CausationDepth     int16
+	// AssignmentGroupRemoved is read, never written: the record's group is
+	// tombstoned (ADR-004-E5 D7). The record keeps pointing at it.
+	AssignmentGroupRemoved bool
+	CreatedBy              *uuid.UUID
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+	Data                   map[string]any
+	CausationOriginID      *uuid.UUID
+	CausationDepth         int16
 }
 
 // DefinitionID returns the id of the tenant's entity type key, or ErrNotFound.
@@ -77,9 +85,10 @@ func DefinitionID(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, key string
 const recordSelect = `
 SELECT r.tenant_id, r.id, r.entity_definition_id, d.key, r.version, r.schema_version, r.number, r.state,
        r.requester_id, r.assignee_id, r.assignment_group_id, r.created_by, r.created_at, r.updated_at,
-       r.data, r.causation_origin_id, coalesce(r.causation_depth, 0)
+       r.data, r.causation_origin_id, coalesce(r.causation_depth, 0), coalesce(g.deleted_at IS NOT NULL, false)
 FROM records r
 JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
 WHERE r.tenant_id = $1 AND r.id = $2`
 
 // Get returns the record, or ErrNotFound. A PLAN-001 bare row (no entity
@@ -95,7 +104,7 @@ func scan(row pgx.Row) (*Record, error) {
 	)
 	err := row.Scan(&r.TenantID, &r.ID, &r.EntityDefinitionID, &r.EntityKey, &r.Version, &r.SchemaVersion, &r.Number, &r.State,
 		&r.RequesterID, &r.AssigneeID, &r.AssignmentGroupID, &r.CreatedBy, &r.CreatedAt, &r.UpdatedAt,
-		&data, &r.CausationOriginID, &r.CausationDepth)
+		&data, &r.CausationOriginID, &r.CausationDepth, &r.AssignmentGroupRemoved)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -106,6 +115,20 @@ func scan(row pgx.Row) (*Record, error) {
 		return nil, fmt.Errorf("records/store: decode data: %w", err)
 	}
 	return &r, nil
+}
+
+// GroupLive reports whether the transaction's tenant has group id and it is
+// not tombstoned (ADR-004-E5 D6). It reads groups in the caller's transaction,
+// so under its RLS, never from a cache: another tenant's group, live or
+// tombstoned, and an id no tenant has all read false and are not told apart.
+func GroupLive(ctx context.Context, tx pgx.Tx, tenantID, id uuid.UUID) (bool, error) {
+	var live bool
+	err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM groups WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL)`,
+		tenantID, id).Scan(&live)
+	if err != nil {
+		return false, fmt.Errorf("records/store: read group: %w", err)
+	}
+	return live, nil
 }
 
 // Insert writes a new record at r.Version.
@@ -156,117 +179,100 @@ RETURNING version`,
 	return v, nil
 }
 
-// Snapshot is a record as an audit row's before or after holds it: the
-// payload merged with its fixed columns, and what a replay returns.
-type Snapshot struct {
-	Number        string         `json:"number"`
-	Version       int64          `json:"version"`
-	SchemaVersion int            `json:"schema_version"`
-	Data          map[string]any `json:"data"`
+// PayloadJSON returns the payload of record id at version, built by
+// PostgreSQL from the stored row and returned as jsonb text: data, with every
+// property of fixed (property to column, metadata.Compiled.FixedColumns) set
+// from its column and an unset uuid column leaving its property out, as
+// Payload does. It returns ErrStale when the record is not at version.
+//
+// These bytes are the input to jsondiff.Diff for the record's audit entry
+// (TICK-451 review, binding on P5-13b): the jsonb value as PostgreSQL holds
+// it, never the request body or a re-marshalled Go value, so a number keeps
+// the literal jsonb prints and diff_sha256 does not depend on how the client
+// spelled it.
+func PayloadJSON(ctx context.Context, tx pgx.Tx, tenantID, id uuid.UUID, version int64, fixed map[string]string) (json.RawMessage, error) {
+	props := slices.Sorted(maps.Keys(fixed))
+	args := []any{tenantID, id, version, props}
+	expr := "(data - $4::text[])"
+	for _, prop := range props {
+		col := fixed[prop]
+		switch col {
+		case metadata.ColumnState, metadata.ColumnRequesterID, metadata.ColumnAssigneeID, metadata.ColumnAssignmentGroupID:
+		default:
+			return nil, fmt.Errorf("records/store: unknown fixed column %q", col)
+		}
+		args = append(args, prop)
+		n := len(args)
+		// col is one of the four constants above, never input.
+		if col == metadata.ColumnState {
+			expr += fmt.Sprintf(" || jsonb_build_object($%d::text, %s)", n, col)
+			continue
+		}
+		expr += fmt.Sprintf(" || CASE WHEN %s IS NULL THEN '{}'::jsonb ELSE jsonb_build_object($%d::text, %s) END", col, n, col)
+	}
+	var s string
+	err := tx.QueryRow(ctx, "SELECT ("+expr+")::text FROM records WHERE tenant_id = $1 AND id = $2 AND version = $3", args...).Scan(&s)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrStale
+	}
+	if err != nil {
+		return nil, fmt.Errorf("records/store: read payload as jsonb: %w", err)
+	}
+	return json.RawMessage(s), nil
 }
 
-// Audit is one audit_log row.
-type Audit struct {
-	TenantID uuid.UUID
-	ID       uuid.UUID
-	// RecordID is uuid.Nil (NULL) only when there is no record to name: a
-	// rejected create.
-	RecordID      uuid.UUID
+// WriteKey is one record_write_keys row (D-5-3): the write that holds an
+// idempotency key and the Result a replay returns.
+type WriteKey struct {
+	TenantID       uuid.UUID
+	IdempotencyKey string
+	DefinitionID   uuid.UUID
+	// Action is "create" or "update".
 	Action        string
-	ActorID       *uuid.UUID
-	Source        string
-	Before, After *Snapshot
-	// Detail is written to after on a row that changed no record (the
-	// cascade rows: its reason, and the suppressed definition). It holds
-	// references and codes only, never record data. Set it or After, not
-	// both.
-	Detail            map[string]string
-	CausationOriginID *uuid.UUID
-	CausationDepth    int16
-	// IdempotencyKey is set on the primary row of a write only (D-3-13).
-	IdempotencyKey *string
-	At             time.Time
+	RecordID      uuid.UUID
+	Number        string
+	Version       int64
+	SchemaVersion int
+	// AuditEntryID is a soft pointer to the write's primary audit entry.
+	AuditEntryID uuid.UUID
 }
 
-// InsertAudit writes a. A second row with the same idempotency key is
-// ErrDuplicateKey; tx is aborted then.
-func InsertAudit(ctx context.Context, tx pgx.Tx, a *Audit) error {
-	before, err := encodeSnapshot(a.Before)
-	if err != nil {
-		return err
-	}
-	after, err := encodeSnapshot(a.After)
-	if err != nil {
-		return err
-	}
-	if a.Detail != nil {
-		if a.After != nil {
-			return errors.New("records/store: an audit row has a snapshot or a detail, not both")
-		}
-		if after, err = json.Marshal(a.Detail); err != nil {
-			return fmt.Errorf("records/store: encode audit detail: %w", err)
-		}
-	}
-	var record *uuid.UUID
-	if a.RecordID != uuid.Nil {
-		record = &a.RecordID
-	}
-	_, err = tx.Exec(ctx, `
-INSERT INTO audit_log (tenant_id, id, record_id, action, actor_id, source, before, after,
-    causation_origin_id, causation_depth, idempotency_key, at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-		a.TenantID, a.ID, record, a.Action, a.ActorID, a.Source, jsonParam(before), jsonParam(after),
-		a.CausationOriginID, a.CausationDepth, a.IdempotencyKey, a.At)
+// InsertWriteKey claims k.IdempotencyKey for the write, in the write's
+// transaction. A key another write holds is ErrDuplicateKey, also when that
+// write has not committed yet (the insert waits for it); tx is aborted then.
+func InsertWriteKey(ctx context.Context, tx pgx.Tx, k *WriteKey) error {
+	_, err := tx.Exec(ctx, `
+INSERT INTO record_write_keys (tenant_id, idempotency_key, definition_id, action, record_id, number,
+    version, schema_version, audit_entry_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		k.TenantID, k.IdempotencyKey, k.DefinitionID, k.Action, k.RecordID, k.Number,
+		k.Version, k.SchemaVersion, k.AuditEntryID)
 	var pe *pgconn.PgError
 	if errors.As(err, &pe) && pe.Code == "23505" && pe.ConstraintName == idempotencyIndex {
 		return ErrDuplicateKey
 	}
 	if err != nil {
-		return fmt.Errorf("records/store: insert audit: %w", err)
+		return fmt.Errorf("records/store: insert write key: %w", err)
 	}
 	return nil
 }
 
-// KeyedWrite is the write that holds an idempotency key: its primary audit
-// row and the entity type of its record.
-type KeyedWrite struct {
-	RecordID  uuid.UUID
-	EntityKey string
-	// Action is the audit row's action: "create" or "update".
-	Action string
-	After  *Snapshot
-}
-
-// AuditByKey returns the write that holds the idempotency key, or
-// ErrNotFound.
-func AuditByKey(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, key string) (*KeyedWrite, error) {
-	var (
-		record    *uuid.UUID
-		entityKey *string
-		action    string
-		after     []byte
-	)
+// WriteKeyByKey returns the write that holds the idempotency key, or
+// ErrNotFound. It reads record_write_keys only, never the audit log.
+func WriteKeyByKey(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, key string) (*WriteKey, error) {
+	k := WriteKey{TenantID: tenantID, IdempotencyKey: key}
 	err := tx.QueryRow(ctx, `
-SELECT a.record_id, d.key, a.action, a.after
-FROM audit_log a
-LEFT JOIN records r ON r.tenant_id = a.tenant_id AND r.id = a.record_id
-LEFT JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
-WHERE a.tenant_id = $1 AND a.idempotency_key = $2 AND a.idempotency_key IS NOT NULL`, tenantID, key).
-		Scan(&record, &entityKey, &action, &after)
+SELECT definition_id, action, record_id, number, version, schema_version, audit_entry_id
+FROM record_write_keys
+WHERE tenant_id = $1 AND idempotency_key = $2`, tenantID, key).
+		Scan(&k.DefinitionID, &k.Action, &k.RecordID, &k.Number, &k.Version, &k.SchemaVersion, &k.AuditEntryID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
-		return nil, fmt.Errorf("records/store: read audit by key: %w", err)
+		return nil, fmt.Errorf("records/store: read write key: %w", err)
 	}
-	if record == nil || entityKey == nil || after == nil {
-		return nil, errors.New("records/store: keyed audit row names no pipeline record")
-	}
-	var s Snapshot
-	if err := json.Unmarshal(after, &s); err != nil {
-		return nil, fmt.Errorf("records/store: decode audit snapshot: %w", err)
-	}
-	return &KeyedWrite{RecordID: *record, EntityKey: *entityKey, Action: action, After: &s}, nil
+	return &k, nil
 }
 
 // jsonParam is a jsonb statement argument. Over QueryExecModeExec (nava-core's
@@ -277,17 +283,6 @@ func jsonParam(b []byte) any {
 		return nil
 	}
 	return string(b)
-}
-
-func encodeSnapshot(s *Snapshot) ([]byte, error) {
-	if s == nil {
-		return nil, nil
-	}
-	b, err := json.Marshal(s)
-	if err != nil {
-		return nil, fmt.Errorf("records/store: encode audit snapshot: %w", err)
-	}
-	return b, nil
 }
 
 // DecodeObject decodes a JSON object with numbers as json.Number, the form
@@ -384,82 +379,4 @@ func (r *Record) Split(payload map[string]any, fixed map[string]string) error {
 	}
 	r.Data = data
 	return nil
-}
-
-// HistoryRow is one create or update row of a record's audit history.
-type HistoryRow struct {
-	ID            uuid.UUID
-	At            time.Time
-	ActorID       *uuid.UUID
-	Source        string
-	Action        string
-	Before, After *Snapshot
-}
-
-// History returns the record's create and update audit rows, newest first
-// (at, then id, both descending). When afterID is not uuid.Nil it returns only
-// the rows older than the position (afterAt, afterID). It reads limit rows.
-// The cascade rows (they change no record) are left out.
-func History(ctx context.Context, tx pgx.Tx, tenantID, recordID uuid.UUID, afterAt time.Time, afterID uuid.UUID, limit int) ([]HistoryRow, error) {
-	rows, err := tx.Query(ctx, `
-SELECT id, at, actor_id, source, action, before, after
-FROM audit_log
-WHERE tenant_id = $1 AND record_id = $2 AND action IN ('create', 'update')
-  AND ($3::uuid IS NULL OR (at, id) < ($4::timestamptz, $3::uuid))
-ORDER BY at DESC, id DESC
-LIMIT $5`, tenantID, recordID, optionalID(afterID), afterAt, limit)
-	if err != nil {
-		return nil, fmt.Errorf("records/store: read history: %w", err)
-	}
-	defer rows.Close()
-	var out []HistoryRow
-	for rows.Next() {
-		var (
-			h             HistoryRow
-			before, after []byte
-		)
-		if err := rows.Scan(&h.ID, &h.At, &h.ActorID, &h.Source, &h.Action, &before, &after); err != nil {
-			return nil, fmt.Errorf("records/store: scan history: %w", err)
-		}
-		if h.Before, err = decodeSnapshot(before); err != nil {
-			return nil, err
-		}
-		if h.After, err = decodeSnapshot(after); err != nil {
-			return nil, err
-		}
-		out = append(out, h)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("records/store: read history: %w", err)
-	}
-	return out, nil
-}
-
-func optionalID(id uuid.UUID) *uuid.UUID {
-	if id == uuid.Nil {
-		return nil
-	}
-	return &id
-}
-
-// decodeSnapshot reads an audit row's before or after; NULL is nil. Numbers
-// stay exact.
-func decodeSnapshot(b []byte) (*Snapshot, error) {
-	if b == nil {
-		return nil, nil
-	}
-	var raw struct {
-		Number        string          `json:"number"`
-		Version       int64           `json:"version"`
-		SchemaVersion int             `json:"schema_version"`
-		Data          json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(b, &raw); err != nil {
-		return nil, fmt.Errorf("records/store: decode audit snapshot: %w", err)
-	}
-	data, err := DecodeObject(raw.Data)
-	if err != nil {
-		return nil, fmt.Errorf("records/store: decode audit snapshot: %w", err)
-	}
-	return &Snapshot{Number: raw.Number, Version: raw.Version, SchemaVersion: raw.SchemaVersion, Data: data}, nil
 }

@@ -31,6 +31,7 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/Navaladi2019/TicketingSystem/db"
+	"github.com/Navaladi2019/TicketingSystem/internal/db/audited"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/catalog"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/grants"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/migrate"
@@ -64,13 +65,28 @@ func password(role string) string { return "test-pw-" + role }
 
 func passwords(role string) (string, bool) { return password(role), true }
 
+// manifest is the effective grant manifest: db/grants.yaml with every
+// audited-table writer's generated audit_log grants merged in (P5-11).
 func manifest(t *testing.T) *grants.Manifest {
 	t.Helper()
-	m, err := grants.Parse(db.Grants())
+	m, _ := manifests(t)
+	return m
+}
+
+// auditedManifest is db/audited-tables.yaml.
+func auditedManifest(t *testing.T) *audited.Manifest {
+	t.Helper()
+	_, a := manifests(t)
+	return a
+}
+
+func manifests(t *testing.T) (*grants.Manifest, *audited.Manifest) {
+	t.Helper()
+	m, a, err := audited.Load(db.Grants(), db.AuditedTables())
 	if err != nil {
 		t.Fatal(err)
 	}
-	return m
+	return m, a
 }
 
 // logBuffer is a JSON slog logger whose output the test can read.
@@ -189,7 +205,7 @@ func migrateFS(t *testing.T, m *grants.Manifest, fsys fs.FS) (migrate.Result, er
 	t.Helper()
 	log, _ := newLog()
 	return migrate.Run(context.Background(), roleConfig(t, m.Owner(), m.PlatformDatabase),
-		fsys, m, globalTables(t), log, migrate.Options{LockRetrySeconds: 1})
+		fsys, m, auditedManifest(t), globalTables(t), log, migrate.Options{LockRetrySeconds: 1})
 }
 
 // migrateOnlyFS applies the pending migrations in fsys as nava_migrator and

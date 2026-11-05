@@ -19,13 +19,25 @@ const (
 // migrationsBefore is the real migrations up to, not including, name.
 func migrationsBefore(t *testing.T, name string) fs.FS {
 	t.Helper()
+	return migrationsWhile(t, func(n string) bool { return n < name })
+}
+
+// migrationsThrough is the real migrations up to and including name.
+func migrationsThrough(t *testing.T, name string) fs.FS {
+	t.Helper()
+	return migrationsWhile(t, func(n string) bool { return n <= name })
+}
+
+// migrationsWhile is the real migrations whose file name keep accepts.
+func migrationsWhile(t *testing.T, keep func(string) bool) fs.FS {
+	t.Helper()
 	out := fstest.MapFS{}
 	entries, err := fs.ReadDir(db.Migrations(), ".")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, e := range entries {
-		if e.Name() >= name {
+		if !keep(e.Name()) {
 			continue
 		}
 		b, err := fs.ReadFile(db.Migrations(), e.Name())

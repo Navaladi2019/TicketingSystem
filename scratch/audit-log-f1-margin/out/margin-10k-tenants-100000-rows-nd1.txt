@@ -1,0 +1,83 @@
+psql:/work/load.sql:6: NOTICE:  truncate cascades to table "audit_chain_head"
+psql:/work/load.sql:6: NOTICE:  truncate cascades to table "record_write_keys"
+psql:/work/load.sql:9: NOTICE:  constraint "audit_log_tenant_fkey" of relation "audit_log" does not exist, skipping
+  rows  | tenants 
+--------+---------
+ 100000 |   10000
+(1 row)
+
+   attname   | n_distinct | has_histogram 
+-------------+------------+---------------
+ occurred_at |          1 | t
+ subject_id  |         -1 | t
+ tenant_id   |       9996 | t
+ txid        |   -0.49552 | t
+(4 rows)
+
+                                                                                                              QUERY PLAN                                                                                                               
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=12.29..12.30 rows=1 width=8)
+   ->  Bitmap Heap Scan on audit_log_default audit_log  (cost=4.44..12.28 rows=2 width=0)
+         Recheck Cond: ((tenant_id = '00000000-0000-4000-8000-000000000001'::uuid) AND (occurred_at >= '2026-10-10 00:00:00+00'::timestamp with time zone) AND (occurred_at < '2026-10-13 00:00:00+00'::timestamp with time zone))
+         ->  Bitmap Index Scan on audit_log_default_tenant_time  (cost=0.00..4.44 rows=2 width=0)
+               Index Cond: ((tenant_id = '00000000-0000-4000-8000-000000000001'::uuid) AND (occurred_at >= '2026-10-10 00:00:00+00'::timestamp with time zone) AND (occurred_at < '2026-10-13 00:00:00+00'::timestamp with time zone))
+(5 rows)
+
+ actual_rows_in_window 
+-----------------------
+                     2
+(1 row)
+
+              set_config              
+--------------------------------------
+ 00000000-0000-4000-8000-000000000001
+(1 row)
+
+--- all indexes, generic plan (the plan the trigger caches)
+                                                       QUERY PLAN                                                        
+-------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.42..8.45 rows=1 width=4)
+   ->  Result  (cost=0.42..8.45 rows=1 width=4)
+         One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = $1)
+         ->  Index Scan using audit_log_default_subject on audit_log_default audit_log  (cost=0.42..8.45 rows=1 width=0)
+               Index Cond: ((tenant_id = $1) AND (subject_type = $4) AND (subject_id = $5) AND (occurred_at = $2))
+               Filter: (txid = $3)
+(6 rows)
+
+--- all indexes, custom plan (plpgsql's first five calls)
+                                                                                                                                QUERY PLAN                                                                                                                                
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.42..8.45 rows=1 width=4)
+   ->  Result  (cost=0.42..8.45 rows=1 width=4)
+         One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-000000000001'::uuid)
+         ->  Index Scan using audit_log_default_subject on audit_log_default audit_log  (cost=0.42..8.45 rows=1 width=0)
+               Index Cond: ((tenant_id = '00000000-0000-4000-8000-000000000001'::uuid) AND (subject_type = 'record'::text) AND (subject_id = '17a166c1-ddb9-4862-aa99-eecb25e21bf1'::uuid) AND (occurred_at = '2026-11-03 00:18:23.584954+00'::timestamp with time zone))
+               Filter: (txid = '1'::xid8)
+(6 rows)
+
+--- R2 key and subject index removed, generic (best prefix path)
+                                               QUERY PLAN                                                
+---------------------------------------------------------------------------------------------------------
+ Limit  (cost=4.53..42.59 rows=1 width=4)
+   ->  Result  (cost=4.53..42.59 rows=1 width=4)
+         One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = $1)
+         ->  Bitmap Heap Scan on audit_log_default audit_log  (cost=4.53..42.59 rows=1 width=0)
+               Recheck Cond: ((tenant_id = $1) AND (occurred_at = $2))
+               Filter: ((txid = $3) AND (subject_type = $4) AND (subject_id = $5))
+               ->  Bitmap Index Scan on audit_log_default_tenant_time  (cost=0.00..4.52 rows=10 width=0)
+                     Index Cond: ((tenant_id = $1) AND (occurred_at = $2))
+(8 rows)
+
+--- R2 key and subject index removed, custom (best prefix path)
+                                                                                 QUERY PLAN                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=4.53..42.59 rows=1 width=4)
+   ->  Result  (cost=4.53..42.59 rows=1 width=4)
+         One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-000000000001'::uuid)
+         ->  Bitmap Heap Scan on audit_log_default audit_log  (cost=4.53..42.59 rows=1 width=0)
+               Recheck Cond: ((tenant_id = '00000000-0000-4000-8000-000000000001'::uuid) AND (occurred_at = '2026-11-03 00:18:23.585648+00'::timestamp with time zone))
+               Filter: ((txid = '1'::xid8) AND (subject_type = 'record'::text) AND (subject_id = 'dd55977f-ec5d-4f33-83b0-96d0b36d2fbc'::uuid))
+               ->  Bitmap Index Scan on audit_log_default_tenant_time  (cost=0.00..4.52 rows=10 width=0)
+                     Index Cond: ((tenant_id = '00000000-0000-4000-8000-000000000001'::uuid) AND (occurred_at = '2026-11-03 00:18:23.585648+00'::timestamp with time zone))
+(8 rows)
+

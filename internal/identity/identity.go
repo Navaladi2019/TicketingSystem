@@ -102,6 +102,10 @@ type DirectoryAdmin interface {
 	// Onboarding records the platform id of that group in tenant_admin_group;
 	// InviteUser and invitee placement put the invited admin in it.
 	EnsureAdminGroup(ctx context.Context, tenantID uuid.UUID) (keycloakGroupID string, err error)
+	// EnsureAuditorGroup is EnsureAdminGroup for the AuditorGroupName group
+	// (/t/<tenant_id>/auditors). Onboarding records its platform id in
+	// tenant_auditor_group. No invitee is placed in it.
+	EnsureAuditorGroup(ctx context.Context, tenantID uuid.UUID) (keycloakGroupID string, err error)
 	// ChangesSince is poll and diff (D-P13): a full snapshot plus a digest
 	// cursor; Unchanged when the digest matches cursor.
 	ChangesSince(ctx context.Context, tenantID uuid.UUID, cursor string) (DirectoryChanges, string, error)
@@ -111,6 +115,11 @@ type DirectoryAdmin interface {
 // tenant's root group. Only the directory adapter and onboarding use the name;
 // authorization uses the platform id in tenant_admin_group, never the path.
 const AdminGroupName = "admins"
+
+// AuditorGroupName is the name of every tenant's auditors group, a child of
+// the tenant's root group. Authorization uses the platform id in
+// tenant_auditor_group, never the path (D-5-4).
+const AuditorGroupName = "auditors"
 
 // DirectoryChanges is one ChangesSince snapshot. Directory membership is
 // membership of a group under /t/<tenant_id>/ (TICK-73 ruling 2026-10-25), so

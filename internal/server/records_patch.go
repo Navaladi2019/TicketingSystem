@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"net/http"
 	"net/url"
@@ -18,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/Navaladi2019/TicketingSystem/api"
+	"github.com/Navaladi2019/TicketingSystem/internal/audit/read"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/cursor"
@@ -237,7 +239,7 @@ func (h *handlers) GetRecordHistory(ctx context.Context, req api.GetRecordHistor
 	if !ok || p.PrincipalID == uuid.Nil {
 		return nil, errNoPrincipal
 	}
-	if h.pool == nil || h.cursors == nil {
+	if h.pool == nil || h.cursors == nil || h.audit == nil {
 		return nil, notImplemented()
 	}
 	id, perr := uuid.Parse(req.Id)
@@ -267,7 +269,12 @@ func (h *handlers) GetRecordHistory(ctx context.Context, req api.GetRecordHistor
 			return nil, &problemError{problem.InvalidCursor, nil, err}
 		}
 	}
-	var rows []pipeline.Change
+	// Two transactions (ADR-004-A1 A1-7). First nava_app reads the record in
+	// the caller's tenant, so another tenant's record, an unreadable one and
+	// a missing one are the same 404 before any audit row is read (Security
+	// review of PR #432). Only then does the reader's pool read its entries.
+	// READ COMMITTED gives each statement its own snapshot, so the split adds
+	// no race.
 	err = tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) error {
 		if _, _, err := h.store.Current(ctx, tx, req.Entity); err != nil {
 			return err
@@ -279,39 +286,83 @@ func (h *handlers) GetRecordHistory(ctx context.Context, req api.GetRecordHistor
 		if rec.EntityKey != req.Entity {
 			return pipeline.ErrNotFound
 		}
-		rows, err = pipeline.History(ctx, tx, p.TenantID, id, afterAt, afterID, limit+1)
-		return err
+		return nil
 	})
+	var changes []read.Change
+	if err == nil {
+		var entries []read.Entry
+		if entries, err = h.audit.RecordEntries(ctx, p.TenantID, id); err == nil {
+			changes = historyPage(read.Replay(entries), afterAt, afterID, limit+1)
+		}
+	}
 	if errors.Is(err, pipeline.ErrNotFound) || errors.Is(err, entitytypes.ErrNotFound) {
 		return h.notFound(ctx), nil
+	}
+	var tooLong *read.HistoryTooLongError
+	if errors.As(err, &tooLong) {
+		// The numbers only: no record data goes to the log or the metric.
+		h.log.WarnContext(ctx, "record history longer than the cap",
+			slog.String("code", string(problem.HistoryTooLong)), slog.String("entity", req.Entity),
+			slog.String("record_id", id.String()), slog.Int64("entries", tooLong.Entries), slog.Int64("cap", tooLong.Max))
+		if h.historyTooLong != nil {
+			h.historyTooLong.Add(ctx, 1)
+		}
+		return nil, &problemError{problem.HistoryTooLong, nil, err}
+	}
+	if errors.Is(err, read.ErrNoDefinitionVersions) {
+		return nil, h.maskerFailed(ctx, err)
 	}
 	if err != nil {
 		return nil, err
 	}
-	out := api.RecordHistory{Items: make([]api.RecordChange, 0, min(len(rows), limit))}
-	for _, c := range rows[:min(len(rows), limit)] {
+	out := api.RecordHistory{Items: make([]api.RecordChange, 0, min(len(changes), limit))}
+	for _, c := range changes[:min(len(changes), limit)] {
 		after := c.After
 		if after == nil {
 			after = map[string]any{}
 		}
+		action := c.Entry.Action
+		if action == "state_change" {
+			action = string(api.Update) // a state change is an update of the record
+		}
 		item := api.RecordChange{
-			At: c.At.UTC(), Source: c.Source, Action: api.RecordChangeAction(c.Action),
-			ActorId: c.ActorID, Changed: ChangedPaths(c.Before, c.After), After: after,
+			At: c.Entry.OccurredAt.UTC(), Source: c.Entry.Source, Action: api.RecordChangeAction(action),
+			ActorId: c.Entry.ActorPrincipalID, Changed: []string{}, After: after,
+		}
+		if c.Known {
+			item.Changed = ChangedPaths(c.Before, c.After)
 		}
 		if c.Before != nil {
 			item.Before = &c.Before
 		}
 		out.Items = append(out.Items, item)
 	}
-	if len(rows) > limit {
-		last := rows[limit-1]
-		next, err := h.cursors.Encode(claims, encodeHistoryPos(last.At, last.ID))
+	if len(changes) > limit {
+		last := changes[limit-1].Entry
+		next, err := h.cursors.Encode(claims, encodeHistoryPos(last.OccurredAt, last.ID))
 		if err != nil {
 			return nil, err
 		}
 		out.NextCursor = &next
 	}
 	return api.GetRecordHistory200JSONResponse(out), nil
+}
+
+// historyPage returns up to n changes, newest first, older than the position
+// (afterAt, afterID) when afterID is not uuid.Nil. changes is oldest first.
+func historyPage(changes []read.Change, afterAt time.Time, afterID uuid.UUID, n int) []read.Change {
+	var out []read.Change
+	for i := len(changes) - 1; i >= 0 && len(out) < n; i-- {
+		e := changes[i].Entry
+		if afterID != uuid.Nil {
+			older := e.OccurredAt.Before(afterAt) || (e.OccurredAt.Equal(afterAt) && e.ID.String() < afterID.String())
+			if !older {
+				continue
+			}
+		}
+		out = append(out, changes[i])
+	}
+	return out
 }
 
 // ChangedPaths lists, sorted, the JSON pointers under /data of the properties

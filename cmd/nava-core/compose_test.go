@@ -238,3 +238,58 @@ func TestComposeNavaCoreHasCursorKeyring(t *testing.T) {
 		t.Errorf("compose nava-core yields no cursor keyring: %+v", cfg.Cursor.ActiveKeyID)
 	}
 }
+
+// TestComposeAuditReaderDSNOnNavaCoreOnly (ADR-004-A1 A1-6, PLAN-005-A1
+// D-A1-6): nava-core gets the audit reader's DSN, logging in as
+// nava_audit_reader through PgBouncer, and LoadAuditReader accepts it; no
+// other service has it, nava-worker and nava-relay included. db-roles has
+// the role's password (A1-11).
+func TestComposeAuditReaderDSNOnNavaCoreOnly(t *testing.T) {
+	t.Parallel()
+	core := composeEnv(t, "../../compose.yaml", "nava-core")
+	dsn := core[config.AuditReaderDatabaseURLKey]
+	u, err := url.Parse(dsn)
+	if err != nil || u.User.Username() != "nava_audit_reader" || u.Hostname() != "pgbouncer" {
+		t.Fatalf("compose nava-core %s = %q, want nava_audit_reader through pgbouncer", config.AuditReaderDatabaseURLKey, dsn)
+	}
+	if _, err := config.LoadAuditReader(func(k string) (string, bool) { v, ok := core[k]; return v, ok }); err != nil {
+		t.Errorf("LoadAuditReader with the compose nava-core environment: %v", err)
+	}
+	b, err := os.ReadFile("../../compose.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Services map[string]any `yaml:"services"`
+	}
+	if err := yaml.Unmarshal(b, &doc); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []string{"nava-worker", "nava-relay"} {
+		if _, ok := doc.Services[s]; !ok {
+			t.Fatalf("compose.yaml has no %s service", s)
+		}
+	}
+	for s := range doc.Services {
+		if s == "nava-core" {
+			continue
+		}
+		if v, ok := composeEnv(t, "../../compose.yaml", s)[config.AuditReaderDatabaseURLKey]; ok {
+			t.Errorf("compose %s sets %s = %q; only nava-core may hold the reader's DSN", s, config.AuditReaderDatabaseURLKey, v)
+		}
+	}
+	for _, f := range []string{"../../compose.yaml", "../../deploy/compose/compose.internal.yaml", "../../deploy/compose/compose.test.yaml", "../../deploy/compose/compose.ci.yaml"} {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if f != "../../compose.yaml" && strings.Contains(string(b), config.AuditReaderDatabaseURLKey) {
+			t.Errorf("%s sets %s; only compose.yaml's nava-core may", f, config.AuditReaderDatabaseURLKey)
+		}
+	}
+	if pw := composeEnv(t, "../../compose.yaml", "db-roles")["DBROLES_PASSWORD_NAVA_AUDIT_READER"]; pw == "" {
+		t.Errorf("compose db-roles has no DBROLES_PASSWORD_NAVA_AUDIT_READER; db-roles fails closed without it")
+	} else if !strings.Contains(dsn, ":"+pw+"@") {
+		t.Errorf("the nava-core reader DSN does not carry db-roles' nava_audit_reader password")
+	}
+}

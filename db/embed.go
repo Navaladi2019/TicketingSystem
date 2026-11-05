@@ -1,6 +1,6 @@
-// Package db embeds the platform database's migrations, grant manifest and
-// pg_hba.conf, so the nava-db binary carries exactly the files reviewed in
-// the repository.
+// Package db embeds the platform database's migrations, grant manifest,
+// audited-tables manifest and pg_hba.conf, so the nava-db binary carries
+// exactly the files reviewed in the repository.
 package db
 
 import (
@@ -16,6 +16,9 @@ var grants []byte
 
 //go:embed global-tables.yaml
 var globalTables []byte
+
+//go:embed audited-tables.yaml
+var auditedTables []byte
 
 //go:embed pg_hba.conf
 var hbaConf []byte
@@ -38,6 +41,9 @@ func Grants() []byte { return grants }
 
 // GlobalTables returns db/global-tables.yaml.
 func GlobalTables() []byte { return globalTables }
+
+// AuditedTables returns db/audited-tables.yaml.
+func AuditedTables() []byte { return auditedTables }
 
 // HBA returns db/pg_hba.conf, for internal/db/hba's checks.
 func HBA() []byte { return hbaConf }

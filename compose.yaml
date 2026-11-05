@@ -76,6 +76,12 @@ services:
       DBROLES_PASSWORD_NAVA_PURGE: ${NAVA_PURGE_DB_PASSWORD:-dev-only-purge}
       DBROLES_PASSWORD_NAVA_ONBOARD: ${NAVA_ONBOARD_DB_PASSWORD:-dev-only-onboard}
       DBROLES_PASSWORD_NAVA_GROUPSYNC: ${NAVA_GROUPSYNC_DB_PASSWORD:-dev-only-groupsync}
+      # ADR-004-A1 A1-11: the masking reader's login. db-roles fails closed for
+      # every role when a LOGIN role has no password, so it ships with the role.
+      DBROLES_PASSWORD_NAVA_AUDIT_READER: ${NAVA_AUDIT_READER_DB_PASSWORD:-dev-only-audit-reader}
+      # ADR-001-A6.1: throwaway test credential for the erasure role (P5-10b).
+      # No service runs as nava_erasure in the stack; tests connect directly.
+      DBROLES_PASSWORD_NAVA_ERASURE: ${NAVA_ERASURE_DB_PASSWORD:-dev-only-erasure}
       DBROLES_PASSWORD_NAVA_BACKUP: ${NAVA_BACKUP_DB_PASSWORD:-dev-only-backup}
       DBROLES_PASSWORD_KEYCLOAK: ${KEYCLOAK_DB_PASSWORD:-dev-only-keycloak}
       DBROLES_PASSWORD_TEMPORAL: ${TEMPORAL_DB_PASSWORD:-dev-only-temporal}
@@ -363,6 +369,10 @@ services:
       NAVA_TEMPORAL_TLS_SERVER_NAME: temporal
       # nava_app (db/grants.yaml) through PgBouncer; PostgreSQL gates /readyz.
       NAVA_DATABASE_URL: postgres://nava_app:${NAVA_APP_DB_PASSWORD:-dev-only-app}@pgbouncer:5432/nava?sslmode=disable
+      # ADR-004-A1 A1-6: the audit reader's own login (nava_audit_reader), the
+      # only one that reads audit_log.diff and diff_salt. nava-core only: no
+      # other service gets it. nava-core does not start without it.
+      NAVA_AUDIT_READER_DATABASE_URL: postgres://nava_audit_reader:${NAVA_AUDIT_READER_DB_PASSWORD:-dev-only-audit-reader}@pgbouncer:5432/nava?sslmode=disable
       # Tenant access tokens (T17): the exact iss allow-list, one value. It is
       # the pinned issuer (KC_HOSTNAME, TICK-160), whatever Host the token
       # request used; keys come from that issuer's own discovery document.

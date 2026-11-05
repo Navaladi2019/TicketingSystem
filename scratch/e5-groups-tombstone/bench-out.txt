@@ -1,0 +1,163 @@
+Timing is on.
+psql:/bench.sql:6: NOTICE:  table "group_members" does not exist, skipping
+psql:/bench.sql:6: NOTICE:  table "groups" does not exist, skipping
+DROP TABLE
+Time: 0.663 ms
+CREATE TABLE
+Time: 28.147 ms
+CREATE TABLE
+Time: 10.871 ms
+CREATE INDEX
+Time: 10.450 ms
+INSERT 0 50000
+Time: 576.242 ms
+INSERT 0 2500000
+Time: 102102.575 ms (01:42.103)
+VACUUM
+Time: 210.059 ms
+VACUUM
+Time: 340.146 ms
+ groups 
+--------
+  50000
+(1 row)
+
+Time: 2.963 ms
+ memberships 
+-------------
+     2500000
+(1 row)
+
+Time: 57.094 ms
+ groups_before | members_before 
+---------------+----------------
+ 11 MB         | 556 MB
+(1 row)
+
+Time: 1.142 ms
+SELECT 100000
+Time: 127.970 ms
+BEGIN
+Time: 0.200 ms
+INSERT 0 100000
+Time: 2871.230 ms (00:02.871)
+ROLLBACK
+Time: 0.319 ms
+BEGIN
+Time: 0.208 ms
+INSERT 0 100000
+Time: 2082.723 ms (00:02.083)
+ROLLBACK
+Time: 0.252 ms
+BEGIN
+Time: 0.221 ms
+SET
+Time: 0.203 ms
+ALTER TABLE
+Time: 204.552 ms
+ALTER TABLE
+Time: 1.675 ms
+   relation    |         mode          
+---------------+-----------------------
+ groups        | AccessExclusiveLock
+ groups        | AccessShareLock
+ groups        | ShareLock
+ groups        | ShareRowExclusiveLock
+ group_members | AccessExclusiveLock
+ group_members | AccessShareLock
+ group_members | ShareRowExclusiveLock
+(7 rows)
+
+Time: 1.985 ms
+COMMIT
+Time: 10.760 ms
+BEGIN
+Time: 0.295 ms
+SET
+Time: 0.175 ms
+ALTER TABLE
+Time: 171.034 ms
+ALTER TABLE
+Time: 742.160 ms
+   relation    |           mode           
+---------------+--------------------------
+ groups        | AccessShareLock
+ groups        | RowShareLock
+ group_members | AccessShareLock
+ group_members | ShareUpdateExclusiveLock
+(4 rows)
+
+Time: 0.609 ms
+COMMIT
+Time: 3.018 ms
+VACUUM
+Time: 256.107 ms
+VACUUM
+Time: 2436.915 ms (00:02.437)
+ groups_after | members_after | groups_live_key 
+--------------+---------------+-----------------
+ 13 MB        | 566 MB        | 2904 kB
+(1 row)
+
+Time: 0.665 ms
+BEGIN
+Time: 0.262 ms
+INSERT 0 100000
+Time: 3250.821 ms (00:03.251)
+ROLLBACK
+Time: 0.227 ms
+BEGIN
+Time: 0.175 ms
+INSERT 0 100000
+Time: 3114.329 ms (00:03.114)
+ROLLBACK
+Time: 0.149 ms
+BEGIN
+Time: 0.088 ms
+                                              QUERY PLAN                                               
+-------------------------------------------------------------------------------------------------------
+ Delete on group_members (actual time=9.495..9.498 rows=0 loops=1)
+   Buffers: shared hit=820 read=52 dirtied=53
+   InitPlan 1 (returns $0,$1)
+     ->  Limit (actual time=9.073..9.076 rows=1 loops=1)
+           Buffers: shared hit=715
+           ->  Sort (actual time=9.071..9.073 rows=1 loops=1)
+                 Sort Key: groups.id
+                 Sort Method: top-N heapsort  Memory: 25kB
+                 Buffers: shared hit=715
+                 ->  Seq Scan on groups (actual time=0.004..4.408 rows=50000 loops=1)
+                       Buffers: shared hit=715
+   ->  Index Scan using group_members_pkey on group_members (actual time=9.127..9.334 rows=50 loops=1)
+         Index Cond: ((tenant_id = $0) AND (group_id = $1))
+         Buffers: shared hit=721 read=51 dirtied=2
+ Planning:
+   Buffers: shared hit=7 read=5 dirtied=2
+ Planning Time: 0.146 ms
+ Execution Time: 9.632 ms
+(18 rows)
+
+Time: 10.374 ms
+                                          QUERY PLAN                                           
+-----------------------------------------------------------------------------------------------
+ Update on groups (actual time=8.837..8.838 rows=0 loops=1)
+   Buffers: shared hit=730 read=9 dirtied=4
+   InitPlan 1 (returns $0,$1)
+     ->  Limit (actual time=8.674..8.675 rows=1 loops=1)
+           Buffers: shared hit=715
+           ->  Sort (actual time=8.671..8.672 rows=1 loops=1)
+                 Sort Key: groups_1.id
+                 Sort Method: top-N heapsort  Memory: 25kB
+                 Buffers: shared hit=715
+                 ->  Seq Scan on groups groups_1 (actual time=0.004..4.253 rows=50000 loops=1)
+                       Buffers: shared hit=715
+   ->  Index Scan using groups_live_key on groups (actual time=8.699..8.700 rows=1 loops=1)
+         Index Cond: ((tenant_id = $0) AND (id = $1))
+         Buffers: shared hit=719
+ Planning Time: 0.096 ms
+ Trigger for constraint group_members_group_live_fkey: time=0.251 calls=1
+ Execution Time: 9.126 ms
+(17 rows)
+
+Time: 9.692 ms
+ROLLBACK
+Time: 0.190 ms

@@ -43,6 +43,20 @@ provably Compatible. A local `$ref` must target a subschema the walker checks
 | `MaxSchemaBytes` | 64 KiB | Largest `Definition.Schema` |
 | `MaxSchemaDepth` | 32 | Deepest object/array nesting; the root is depth 1 |
 
+## Secret-marked properties (`writeOnly`)
+
+A top-level property may carry `x-nava-secret: true` or `writeOnly: true`. On
+this platform, for a record, `writeOnly` is narrowed from JSON Schema's
+"accepted, not returned" to **"never accepted in a record"**: a value at a
+marked path is refused with `422 audit_secret_in_diff`. The marker is also a
+definition-time rule (ADR-004-E5 D9): create and publish refuse a definition
+that requires a marked property, through `required` or `dependentRequired`, at
+the root or in any subschema that applies at the root instance location
+(`allOf`, `anyOf`, `oneOf`, `if`, `then`, `else`, `not`, `dependentSchemas`),
+with `422 definition_secret_required` and `errors[].pointer` naming the
+offending entry. No record could satisfy such a definition. The marker itself,
+on a property that is not required, stays legal.
+
 ## Compatibility classes
 
 | Class | Changes |

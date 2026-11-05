@@ -26,8 +26,8 @@ import (
 	"go.opentelemetry.io/otel/metric/noop"
 
 	"github.com/Navaladi2019/TicketingSystem/db"
+	"github.com/Navaladi2019/TicketingSystem/internal/db/audited"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/catalog"
-	"github.com/Navaladi2019/TicketingSystem/internal/db/grants"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/migrate"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/roles"
 	"github.com/Navaladi2019/TicketingSystem/internal/groupsync"
@@ -58,7 +58,7 @@ func ident(s string) string { return pgx.Identifier{s}.Sanitize() }
 func cluster(t *testing.T) (*pgx.Conn, *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.Background()
-	m, err := grants.Parse(db.Grants())
+	m, am, err := audited.Load(db.Grants(), db.AuditedTables())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func cluster(t *testing.T) (*pgx.Conn, *pgxpool.Pool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := migrate.Run(ctx, owner, db.Migrations(), m, gt, log, migrate.Options{LockRetrySeconds: 1}); err != nil {
+	if _, err := migrate.Run(ctx, owner, db.Migrations(), m, am, gt, log, migrate.Options{LockRetrySeconds: 1}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
@@ -269,8 +269,8 @@ func TestGroupRemovalReflectedAfterOneCycle(t *testing.T) {
 	if r := once(t, s); r.Err != nil {
 		t.Fatal(r.Err)
 	}
-	if n := count(t, super, "SELECT count(*) FROM groups WHERE tenant_id = $1 AND keycloak_group_id = 'g2'", tid); n != 0 {
-		t.Errorf("removed group still mirrored")
+	if n := count(t, super, "SELECT count(*) FROM groups WHERE tenant_id = $1 AND keycloak_group_id = 'g2' AND deleted_at IS NULL", tid); n != 0 {
+		t.Errorf("removed group still live")
 	}
 	if n := count(t, super, "SELECT count(*) FROM group_members WHERE tenant_id = $1", tid); n != 1 {
 		t.Errorf("memberships = %d, want 1", n)

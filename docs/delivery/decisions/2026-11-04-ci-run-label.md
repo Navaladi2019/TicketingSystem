@@ -1,0 +1,14 @@
+## 2026-11-04 — CI on task branches only via PR + `ci:run` label; push trigger on `TICK-**` removed (reverses the accepted cost of TICK-289)
+- **Decided by:** vknavaladi. Implemented on TICK-563.
+- **Reason:** Actions cost. Over about 18 hours there were 197 runs at about 39 billed minutes for a full run, and 78 of 122 commits ran twice (push to `TICK-**` with `CI_ALL=1`, and the pull request).
+- **Decision:**
+  - `on.push.branches` is `[main]` only. A pull request runs on `opened`, `synchronize`, `reopened` and `labeled`.
+  - Without the `ci:run` label a pull request runs `changes`, `lint` and `story-branches` only (`make ci-stages` with `CI_LINT_ONLY=1`). With it, the jobs its change needs run, on every later push too. Any other label starts a run whose jobs are all skipped, in a concurrency group of its own.
+  - `CI_ALL=1` (every job whatever changed) only on a push or manual run on `main`.
+  - The images are built once per run: `stack-db` and `stack-internal` became phases of the `stack` job, each on a fresh stack (fewer billed minutes than a shared image artifact; numbers in `docs/quality/ci-pipeline.md`, "TICK-563: one image build per run").
+  - Stack cases by area (section 4, same task): `keycloak_restart`, `dependencies` and `identity` are `area=keycloak`, `pgbouncer` is `area=pgbouncer`, `idempotent` is `area=db`; `make stack-tests` skips a case whose area the change does not touch (`cichanged -areas`; an unknown file turns on every area). `identity_attacks` and the tenant-isolation cases have no area and always run. The `ci:full` label (which also counts as `ci:run`), a manual run, a push to `main` and every pull request into `main` (story PRs among them) run every case.
+- **Unchanged:** `main-red`, the 95 % `coverage` gate, the isolation tests in `integration`, the full run on every push to `main`, and every step in `tools/ci/cisteps/required.yaml` (the `stack-db` and `stack-internal` steps moved to job `stack`).
+- **Accepted risk:** AR-TICK-563-01. A pull request merged without `ci:run` shows its skipped jobs as passed required checks; the push to `main` then runs every job and `main-red` opens a P0.
+- **Revisit if:** a red `main` appears that a task PR without the label would have caught.
+- **Follow-up:** the Technical Lead updates the agent instructions and the delivery squad flow (the implementer adds `ci:run` when the PR is ready for review; story acceptance adds it to the story → `main` PR). The owner removes `stack-db` and `stack-internal` from `main`'s required status checks.
+- **Dissent:** none.

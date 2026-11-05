@@ -84,6 +84,10 @@ func (d *fakeDir) EnsureAdminGroup(_ context.Context, id uuid.UUID) (string, err
 	return "kc-admins-" + id.String(), nil
 }
 
+func (d *fakeDir) EnsureAuditorGroup(_ context.Context, id uuid.UUID) (string, error) {
+	return "kc-auditors-" + id.String(), nil
+}
+
 func (d *fakeDir) FindTenantOrg(_ context.Context, id uuid.UUID, _ string) (string, bool, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -179,7 +183,7 @@ func newIDEnv(t *testing.T, appPoolOverride *pgxpool.Pool) *idEnv {
 	t.Cleanup(func() { _ = tel.Shutdown(context.Background()) })
 	lim := &spyLimiter{}
 	lim.reset(true)
-	h, err := server.NewHandler(slog.New(slog.NewTextHandler(testLogWriter{t}, &slog.HandlerOptions{Level: slog.LevelError})),
+	h, err := server.NewHandler(slog.New(slog.NewTextHandler(testLogWriter{t, nil}, &slog.HandlerOptions{Level: slog.LevelError})),
 		tel, adapter, pgstore.New(appPool), server.WithLimiter(lim), server.WithPool(pool), server.WithOperator(adapter, svc))
 	if err != nil {
 		t.Fatal(err)

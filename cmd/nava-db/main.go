@@ -4,8 +4,11 @@
 //	nava-db roles    db-roles: as the bootstrap superuser, converge roles,
 //	                 memberships, databases and the PgBouncer lookup to db/grants.yaml
 //	nava-db migrate  as nava_migrator, directly to PostgreSQL (not PgBouncer):
-//	                 apply the migrations, then the grant manifest, then the
-//	                 catalogue gate (ADR-001 CI-1, CI-3, CI-4)
+//	                 apply the migrations, then generate every audited-table
+//	                 writer's audit_log policies and grants from
+//	                 db/audited-tables.yaml (ADR-004 R12), then the grant
+//	                 manifest, then the catalogue gate (ADR-001 CI-1, CI-3,
+//	                 CI-4; ADR-004 CI-A3)
 //
 // The connection comes from the libpq environment (PGHOST, PGPORT, PGUSER,
 // ...). PGPASSWORD_FILE, when set, is read for the password, so a secret
@@ -26,8 +29,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/Navaladi2019/TicketingSystem/db"
+	"github.com/Navaladi2019/TicketingSystem/internal/db/audited"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/catalog"
-	"github.com/Navaladi2019/TicketingSystem/internal/db/grants"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/migrate"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/roles"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
@@ -49,7 +52,7 @@ func run(ctx context.Context, args []string, lookup config.LookupFunc, log *slog
 	if len(args) != 1 || (args[0] != "roles" && args[0] != "migrate") {
 		return errors.New("usage: nava-db roles|migrate")
 	}
-	m, err := grants.Parse(db.Grants())
+	m, a, err := audited.Load(db.Grants(), db.AuditedTables())
 	if err != nil {
 		return err
 	}
@@ -71,7 +74,7 @@ func run(ctx context.Context, args []string, lookup config.LookupFunc, log *slog
 			return err
 		}
 		cfg.Database = m.PlatformDatabase
-		_, err = migrate.Run(ctx, cfg, db.Migrations(), m, g, log, migrate.Options{})
+		_, err = migrate.Run(ctx, cfg, db.Migrations(), m, a, g, log, migrate.Options{})
 	}
 	return err
 }

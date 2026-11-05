@@ -63,7 +63,8 @@ func newProducer(t *testing.T, e env) *producer {
 	t.Helper()
 	p := &producer{t: t, e: e, tenant: uuid.New(), record: uuid.New()}
 	mustExec(t, e.super, "INSERT INTO tenants (id, state) VALUES ($1, 'active') ON CONFLICT DO NOTHING", p.tenant)
-	mustExec(t, e.super, "INSERT INTO records (tenant_id, id) VALUES ($1, $2)", p.tenant, p.record)
+	mustExec(t, e.super, `WITH r AS (INSERT INTO records (tenant_id, id) VALUES ($1, $2) RETURNING tenant_id, id, version)
+		`+recordEntrySQL("create"), p.tenant, p.record)
 	return p
 }
 

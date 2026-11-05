@@ -13,6 +13,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/server"
 )
 
 // patchSchema: short_description is required with no default, state is
@@ -38,9 +40,11 @@ func patchTypeBody(key, prefix string) string {
 		key, key, prefix, patchSchema)
 }
 
-func newPatchEnv(t *testing.T) *etEnv {
+func newPatchEnv(t *testing.T) *etEnv { return newPatchEnvWith(t) }
+
+func newPatchEnvWith(t *testing.T, extra ...server.Option) *etEnv {
 	t.Helper()
-	e := newETEnv(t)
+	e := newETEnvWith(t, extra...)
 	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "pt-a", patchTypeBody("job", "JOB")); rec.Code != http.StatusCreated {
 		t.Fatalf("seed type = %d: %s", rec.Code, rec.Body)
 	}
@@ -71,7 +75,7 @@ func (e *etEnv) patch(t *testing.T, token, entity, id, ifMatch, body string) *ht
 func (e *etEnv) auditCount(t *testing.T, id string) int {
 	t.Helper()
 	var n int
-	if err := e.super.QueryRow(t.Context(), "SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND record_id = $2", e.a.id, id).Scan(&n); err != nil {
+	if err := e.super.QueryRow(t.Context(), "SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND subject_type = 'record' AND subject_id = $2", e.a.id, id).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	return n
@@ -156,7 +160,7 @@ func TestPatchMissingRecordIsA404NotA428(t *testing.T) {
 		}
 	}
 	if got := e.auditCount(t, r.ID); got != 1 {
-		t.Errorf("audit rows = %d, want only the create", got)
+		t.Errorf("audit entries = %d, want only the create", got)
 	}
 }
 
@@ -226,13 +230,17 @@ func TestPatchUniqueViolationAndIllegalTransition(t *testing.T) {
 	}
 }
 
+// The history pages over live writes on the audit log (P5-17, TICK-435;
+// D-5-14 had TICK-452 page over seeded v0 rows meanwhile): a create and two
+// patches, read newest first, one row per page.
 // covers: getRecordHistory 200 400 404
 func TestPatchHistoryPagesNewestFirst(t *testing.T) {
 	e := newPatchEnv(t)
 	r := e.mustCreateRec(t, "user-a", "job", "c1", `{"short_description": "one"}`)
-	for i, v := range []string{"a", "b"} {
-		if rec := e.patch(t, "user-a", "job", r.ID, fmt.Sprintf(`W/"%d"`, i+1), fmt.Sprintf(`{"data": {"note": %q}}`, v)); rec.Code != http.StatusOK {
-			t.Fatalf("patch %d = %d: %s", i, rec.Code, rec.Body)
+	for i, note := range []string{"a", "b"} {
+		rec := e.patch(t, "user-a", "job", r.ID, fmt.Sprintf(`W/"%d"`, i+1), fmt.Sprintf(`{"data": {"note": %q}}`, note))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("patch %q = %d: %s", note, rec.Code, rec.Body)
 		}
 	}
 	type page struct {
@@ -316,6 +324,80 @@ func TestPatchHistoryPagesNewestFirst(t *testing.T) {
 	}
 }
 
+// A history page reads at most the cap's rows; a record over the cap is a 422
+// history_too_long with no audit row read, logged and counted, and another
+// record and another tenant are unaffected (P5-17-fu2, TICK-542).
+//
+// covers: getRecordHistory 422
+func TestPatchHistoryIsCapped(t *testing.T) {
+	const limit = 4
+	var reads []int
+	e := newPatchEnvWith(t, server.WithHistoryCap(limit, func(n int) { reads = append(reads, n) }))
+	r := e.mustCreateRec(t, "user-a", "job", "c1", `{"short_description": "one"}`)
+	history := func(id string, q string) *httptest.ResponseRecorder {
+		return e.do(t, http.MethodGet, "/api/v1/records/job/"+id+"/history"+q, "user-a", "", "")
+	}
+	// Up to the cap (a create and three patches), every page reads the
+	// record's entries, never more than the cap.
+	for i := range limit - 1 {
+		if rec := e.patch(t, "user-a", "job", r.ID, fmt.Sprintf(`W/"%d"`, i+1), fmt.Sprintf(`{"data": {"note": "n%d"}}`, i)); rec.Code != http.StatusOK {
+			t.Fatalf("patch %d = %d: %s", i, rec.Code, rec.Body)
+		}
+	}
+	token := ""
+	for pages := 0; ; pages++ {
+		q := "?limit=1"
+		if token != "" {
+			q += "&cursor=" + url.QueryEscape(token)
+		}
+		rec := history(r.ID, q)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("page %d = %d: %s", pages, rec.Code, rec.Body)
+		}
+		var p struct {
+			Next string `json:"next_cursor"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
+			t.Fatal(err)
+		}
+		if token = p.Next; token == "" {
+			break
+		}
+	}
+	if len(reads) != limit {
+		t.Fatalf("%d pages, want %d", len(reads), limit)
+	}
+	for i, n := range reads {
+		if n > limit {
+			t.Errorf("page %d read %d audit rows, over the cap %d", i, n, limit)
+		}
+	}
+	// One more write puts the record over the cap.
+	if rec := e.patch(t, "user-a", "job", r.ID, fmt.Sprintf(`W/"%d"`, limit), `{"data": {"note": "over"}}`); rec.Code != http.StatusOK {
+		t.Fatalf("patch over the cap = %d: %s", rec.Code, rec.Body)
+	}
+	before := len(reads)
+	rec := history(r.ID, "")
+	if rec.Code != http.StatusUnprocessableEntity || patchProblemCode(t, rec) != "history_too_long" {
+		t.Fatalf("over the cap = %d, want 422 history_too_long: %s", rec.Code, rec.Body)
+	}
+	if got := reads[before:]; len(got) != 0 {
+		t.Errorf("over-cap read returned %v audit rows, want none", got)
+	}
+	if out := e.logs.String(); !strings.Contains(out, "record history longer than the cap") || !strings.Contains(out, "entries=5") || strings.Contains(out, "note") {
+		t.Errorf("log = %q, want the cap warning with the counts and no record data", out)
+	}
+	// Another record of the tenant is not affected.
+	other := e.mustCreateRec(t, "user-a", "job", "c-other", `{"short_description": "other"}`)
+	if rec := history(other.ID, ""); rec.Code != http.StatusOK {
+		t.Errorf("another record = %d: %s", rec.Code, rec.Body)
+	}
+	// An over-cap record still answers tenant B with the missing record's 404.
+	if rec := e.do(t, http.MethodGet, "/api/v1/records/job/"+r.ID+"/history", "user-b", "", ""); rec.Code != http.StatusNotFound {
+		t.Errorf("tenant B = %d, want 404: %s", rec.Code, rec.Body)
+	}
+}
+
 // Causation never comes from the request (TICK-88 security review).
 // covers: patchRecord 200
 func TestPatchRecordIgnoresCausationFromTheRequest(t *testing.T) {
@@ -343,7 +425,7 @@ func TestPatchRecordIgnoresCausationFromTheRequest(t *testing.T) {
 	}
 	for _, q := range []string{
 		"SELECT causation_depth, causation_origin_id::text FROM records WHERE tenant_id = $1 AND id = $2",
-		"SELECT causation_depth, causation_origin_id::text FROM audit_log WHERE tenant_id = $1 AND record_id = $2 AND action = 'update'",
+		"SELECT causation_depth, causation_id::text FROM audit_log WHERE tenant_id = $1 AND subject_type = 'record' AND subject_id = $2 AND action = 'update'",
 	} {
 		var (
 			depth  *int16

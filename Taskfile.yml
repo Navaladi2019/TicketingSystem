@@ -42,6 +42,11 @@ tasks:
     cmds:
       - NAVA_IT_COVERAGE=coverage-integration.out sh scripts/ci/test-integration.sh
 
+  test:commit-check-budget:
+    desc: Run TestCommitCheckBudget alone against a throwaway postgres container (needs Docker), the same as make test-commit-check-budget; CI is the baseline, not a laptop
+    cmds:
+      - sh scripts/ci/commit-check-budget.sh
+
   bench:relay:
     desc: Run the relay claim-latency benchmark (T33, report-only) against a throwaway postgres container (needs Docker), the same as make bench-relay
     cmds:

@@ -237,7 +237,7 @@ func TestMigrateFailsWhenGateCannotRun(t *testing.T) {
 	m := migratedCluster(t)
 	cfg, f := withFault(roleConfig(t, m.Owner(), m.PlatformDatabase), sqlIs("SELECT current_database()::text"), 1)
 	log, buf := newLog()
-	_, err := migrate.Run(context.Background(), cfg, db.Migrations(), m, globalTables(t), log, migrate.Options{LockRetrySeconds: 1})
+	_, err := migrate.Run(context.Background(), cfg, db.Migrations(), m, auditedManifest(t), globalTables(t), log, migrate.Options{LockRetrySeconds: 1})
 	wantFault(t, err, f)
 	if strings.Contains(err.Error(), "apply grants manifest") {
 		t.Fatalf("err = %v; the manifest step should have passed", err)

@@ -527,6 +527,24 @@
       ]
     },
     {
+      "username": "auditor@tenant-a.test",
+      "email": "auditor@tenant-a.test",
+      "emailVerified": true,
+      "firstName": "Auditor",
+      "lastName": "A",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dev-only-auditor-a",
+          "temporary": false
+        }
+      ],
+      "groups": [
+        "/t/00000000-0000-4000-8000-0000000000a1/auditors"
+      ]
+    },
+    {
       "username": "bob@tenant-b.test",
       "email": "bob@tenant-b.test",
       "emailVerified": true,
@@ -574,6 +592,9 @@
           "name": "00000000-0000-4000-8000-0000000000a1",
           "subGroups": [
             {
+              "name": "auditors"
+            },
+            {
               "name": "service-desk"
             },
             {
@@ -597,6 +618,9 @@
         {
           "name": "00000000-0000-4000-8000-0000000000b1",
           "subGroups": [
+            {
+              "name": "auditors"
+            },
             {
               "name": "service-desk"
             },
@@ -647,6 +671,9 @@
         },
         {
           "username": "admin@tenant-a.test"
+        },
+        {
+          "username": "auditor@tenant-a.test"
         }
       ]
     },

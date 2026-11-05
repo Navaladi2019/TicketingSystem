@@ -52,6 +52,11 @@ paths:
         characters, `number_prefix` matches `^[A-Z]{2,6}$` and never changes
         after create, and `definition` is the entity definition without key
         and number prefix. `schema` is stored as the exact request bytes.
+        A definition that requires a property marked `x-nava-secret` or
+        `writeOnly` (in `required` or `dependentRequired`, at the root or in any
+        subschema that applies there) answers 422 `definition_secret_required`,
+        with `errors[].pointer` naming the offending entry; the marker itself
+        is legal.
       parameters:
         - name: Idempotency-Key
           in: header
@@ -128,6 +133,10 @@ paths:
         The new definition is classified against the current version (D-3-5):
         a breaking change answers 422 `schema_breaking_change` with
         `errors[].pointer` naming each offending path, and adds nothing.
+        A definition that requires a marked (`x-nava-secret` or `writeOnly`)
+        property answers 422 `definition_secret_required`, with
+        `errors[].pointer` naming the offending `required` entry, and adds
+        nothing.
         Compatible and needs-backfill changes publish. An unknown key and
         another tenant's key give the same 404, byte for byte, with no
         `instance`. `Idempotency-Key` is required.

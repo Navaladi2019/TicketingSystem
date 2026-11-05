@@ -99,7 +99,7 @@ func ci8Setup(ctx context.Context, e *etIso) (*ci8Fixture, error) {
 		return nil, err
 	}
 	fx := &ci8Fixture{a: a, b: b}
-	if err := e.super.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE record_id = $1`, a).Scan(&fx.audits); err != nil {
+	if err := e.super.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE subject_type = 'record' AND subject_id = $1`, a).Scan(&fx.audits); err != nil {
 		return nil, err
 	}
 	// The create and the patch to version 2 each audit once. Without this, a
@@ -221,7 +221,7 @@ func ci8Unchanged(ctx context.Context, e *etIso, fx *ci8Fixture) error {
 		TenantA, fx.a).Scan(&v, &note); err != nil {
 		return err
 	}
-	if err := e.super.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE record_id = $1`, fx.a).Scan(&n); err != nil {
+	if err := e.super.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE subject_type = 'record' AND subject_id = $1`, fx.a).Scan(&n); err != nil {
 		return err
 	}
 	if v != 2 || note != "v2" || n != fx.audits {
