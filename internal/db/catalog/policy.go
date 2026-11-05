@@ -58,6 +58,10 @@ func AllowList() map[string]Policy {
 // tombstoned (ADR-004-E5 D5, TICK-534) let group sync delete its own
 // tenant's admins or auditors pointer only once the group it names is
 // tombstoned; the outer columns are qualified with the pointer table (N1).
+// audit_chain_head_onboard_insert and outbox_onboard_seal_insert (P5-33,
+// TICK-441, ADR-001-A6.2) let onboarding seed the chain head and the first
+// audit.seal start row (outbox: that kind only) while the tenant is
+// provisioning.
 // groups_insert_onboard_auditors, groups_select_onboard_auditors and
 // tenant_auditor_group_insert_active (P5-23, TICK-568) let onboarding's
 // upgrade reconcile write an active tenant's auditors group and pointer
@@ -99,6 +103,8 @@ func PinnedTenantPolicies() map[string]Policy {
 		"public.entity_definition_versions.entity_definition_versions_onboard": {"INSERT", "nava_onboard", "", ownProvisioning},
 		"public.audit_log.audit_log_onboard_insert":                            {"INSERT", "nava_onboard", "", ownProvisioning},
 		"public.audit_log.audit_log_onboard_select":                            {"SELECT", "nava_onboard", ownProvisioning, ""},
+		"public.audit_chain_head.audit_chain_head_onboard_insert":              {"INSERT", "nava_onboard", "", ownProvisioning},
+		"public.outbox.outbox_onboard_seal_insert":                             {"INSERT", "nava_onboard", "", "(" + TenantPred("tenant_id") + " AND " + provisioning + " AND (kind = 'audit.seal'::text))"},
 	}
 }
 

@@ -232,6 +232,12 @@ roles:
       # ids, so a plain INSERT is enough: no SELECT, no upsert (P3-02).
       entity_definitions: { INSERT: [] }
       entity_definition_versions: { INSERT: [] }
+      # P5-33 (TICK-441, ADR-001-A6.2): the chain head and the first
+      # audit.seal start row, plain INSERT only (no SELECT, no RETURNING, no
+      # DO UPDATE), behind pinned provisioning policies; the outbox policy
+      # also requires kind = 'audit.seal'. Columns equal outbox.insertSealSQL.
+      audit_chain_head: { INSERT: [tenant_id, id, next_seal_outbox_id, next_seal_at] }
+      outbox: { INSERT: [id, tenant_id, kind, kind_version, dedupe_key, target_key, target_seq, causation_id, causation_depth, payload, trace_context] }
 
   # ADR-001-A6.1 (P5-10b): the one-shot erasure job (Epic 30), one run per
   # erasure request with app.tenant_id set, under canonical policies only.
