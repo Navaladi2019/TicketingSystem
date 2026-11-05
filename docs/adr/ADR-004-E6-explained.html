@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-004 erratum E6 explained: the slowdown alarm compares each machine type with itself</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.pill{display:inline-block;font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left}
+th{background:var(--soft)}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:40px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--soft);padding:1px 5px;border-radius:4px}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+.bad{color:var(--bad);font-weight:600}.good{color:var(--good);font-weight:600}
+figure{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure svg{width:100%;min-width:640px;height:auto;display:block}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
+</style></head><body><main>
+
+<span class="pill" style="background:var(--goodbg);color:var(--good);border-color:var(--good)">ACCEPTED · 2026-11-03</span> <span class="src">ADR-004-E4 · issue TICK-517 · amends ADR-004-E3 (Budget) · source: TICK-509 / PR #420 review, finding 1</span>
+
+<span class="pill">PROPOSED · 2026-11-05</span> <span class="src">ADR-004-E6 · issue TICK-526 · amends ADR-004-E4 (accepted risk E4-R1 / AR-TICK-517-01) · source: TICK-526 spike</span>
+
+<h1>The slowdown alarm should compare each machine type with its own past, not with a fixed limit</h1>
+
+<blockquote><strong>In one sentence.</strong> The cue we chose for "the audit check got slower everywhere" went off constantly on one kind of CI machine and could not go off on another. We replace it with a per-machine comparison: if one machine type reads more than 1.2× its own recorded baseline in two <code>main</code> runs in a row, someone looks. Nothing in CI or in the product changes.</blockquote>
+
+<h2>Words used here</h2>
+<dl>
+<dt>Commit check, clause arm, reference arm, ratio</dt><dd>As in ADR-004-E4. The CI job <code>commit-check-budget</code> times the real audit check (the <em>clause</em> arm) and an unchanged copy (the <em>reference</em> arm) on the same machine. It fails if the clause/reference <em>ratio</em> is out of range.</dd>
+<dt>Review threshold, <code>warn</code></dt><dd>Fixed limits: 300 µs per call and 175 µs per import record (µs means millionths of a second). Since E4, going over one only produces a yellow warning (<code>warn</code>), and the job still passes.</dd>
+<dt>CPU model</dt><dd>The processor of the rented GitHub machine (the <em>runner</em>). We ask for the same machine size every time, but GitHub hands out several processor models, and the fastest is about 2.4× faster than the slowest. Every run now logs its model.</dd>
+<dt>Baseline</dt><dd>A timing recorded for one CPU model in <code>docs/budgets.md</code>: that model's normal speed.</dd>
+<dt>Uniform regression</dt><dd>A change that slows both arms equally, for example a slower shared insert path or a Postgres upgrade. The ratio does not move, so the CI gate cannot see it. ADR-004-E4 accepted this risk (E4-R1) and named a cue that tells a person to look.</dd>
+</dl>
+
+<h2>The problem</h2>
+<p>E4's cue was "two <code>warn</code> runs in a row on <code>main</code>, on a CPU model we have a baseline for". A spike (a small, timeboxed measurement experiment) ran the job 16 times on one version of the code. The good news is that one CPU model gives steady timings: at most 1.13× apart, and usually under 1.07×. The bad news is that <code>warn</code> applies one fixed limit to every machine, and the machines differ far more than that:</p>
+<ul>
+<li><span class="bad">Always on.</span> The AMD EPYC 7763 machine is simply slow. Its import timing is normally 189–195 µs, over the 175 µs limit, so all 7 of its runs were <code>warn</code>. It got 7 of the 16 runs, so the cue would go off week after week with nothing wrong, and people would learn to ignore it.</li>
+<li><span class="bad">Never on.</span> The AMD EPYC 9V45 machine is fast, at about 80 µs per import record. The code would have to get about 2.2× slower before it crossed the limit, so a 1.5× slowdown would go unnoticed.</li>
+</ul>
+
+<figure>
+<svg viewBox="0 0 760 300" xmlns="http://www.w3.org/2000/svg" font-size="13">
+<text x="20" y="22" font-weight="700">Import row, µs per record: recorded baseline and the new 1.2× band, per CPU model</text>
+<line x1="160" y1="40" x2="160" y2="240" stroke="#59636e"/>
+<line x1="160" y1="240" x2="740" y2="240" stroke="#59636e"/>
+<line x1="510" y1="40" x2="510" y2="240" stroke="#cf222e" stroke-dasharray="5,4"/><text x="510" y="36" text-anchor="middle" fill="#cf222e">175 µs threshold (old cue)</text>
+<text x="20" y="72">EPYC 9V45</text>
+<rect x="160" y="58" width="161" height="18" fill="#0969da"/><rect x="321" y="58" width="32" height="18" fill="#0969da" opacity=".25"/><text x="360" y="72">80.3, cue above 96</text>
+<text x="20" y="122">EPYC 9V74*</text>
+<rect x="160" y="108" width="255" height="18" fill="#0969da"/><rect x="415" y="108" width="51" height="18" fill="#0969da" opacity=".25"/><text x="472" y="122">127.7, cue above 153</text>
+<text x="20" y="172">EPYC 7763</text>
+<rect x="160" y="158" width="390" height="18" fill="#9a6700"/><rect x="550" y="158" width="78" height="18" fill="#9a6700" opacity=".25"/><text x="634" y="172">194.9, above 234</text>
+<text x="20" y="190" font-size="11" fill="#59636e">(always warn)</text>
+<text x="160" y="258" font-size="12" fill="#59636e" text-anchor="middle">0</text><text x="360" y="258" font-size="12" fill="#59636e" text-anchor="middle">100</text><text x="560" y="258" font-size="12" fill="#59636e" text-anchor="middle">200</text>
+<text x="20" y="288" font-size="12">Solid bar: the model's baseline. Pale extension: the 1.2× band. A run past the pale end is off-baseline. *9V74 is the run labelled "CPU not logged".</text>
+</svg>
+<figcaption>The fixed red line sits above the fast machines' bands and below the slow machine's normal value. A per-model band fits each machine.</figcaption>
+</figure>
+
+<h2>Options considered</h2>
+<table>
+<tr><th>Option</th><th>What it means</th><th>Outcome</th></tr>
+<tr><td>Keep the E4 cue</td><td>Two warnings in a row</td><td>Rejected. It is always on for 7763 and blind below about 2.2× on 9V45</td></tr>
+<tr><td><strong>Per-model band</strong></td><td>Compare each run with its own model's baseline, and look when two runs in a row are more than 1.2× off</td><td class="good">Chosen. It fits the measured noise (≤ 1.13×), catches a 1.2× slowdown on every recorded model, and needs no code</td></tr>
+<tr><td>Warning rate over a time window</td><td>Count warnings per week</td><td>Rejected. It is still tied to the fixed limit, so it has the same two faults</td></tr>
+<tr><td>Make the band an automatic CI check now</td><td>The script compares and flags</td><td>Deferred. It needs baselines the script can read, and a hard gate this tight would go red on noise. It may come later as a summary line, never as a failure</td></tr>
+<tr><td>Re-check every baseline that is over the limit</td><td>The second half of the old cue</td><td>Changed. Every 7763 re-take is over the limit, so this clause would also be always on. Now it reads: a re-take more than 1.2× that model's <em>previous</em> baseline</td></tr>
+</table>
+
+<h2>The decision</h2>
+<ol>
+<li><strong>Off-baseline row:</strong> on a CPU model with a recorded baseline, any of the four timings is more than 1.2× that model's baseline. The four timings are per call after 200, 1,000 and 5,000 writes, and per import record.</li>
+<li><strong>Trigger to look again at the risk:</strong> two <code>main</code> runs in a row on recorded models, each with an off-baseline row. Or a baseline re-take that is more than 1.2× the same model's previous baseline. Runs on machines with no baseline are skipped.</li>
+<li><strong>A slow machine is not a regression.</strong> A baseline over the fixed limit with a normal ratio is recorded as "slow host" and needs no escalation. The 7763 import baseline is annotated that way: 194.9 µs, with a ratio of 8.58, in line with 8.13–9.75 on the other models.</li>
+<li><strong>Still manual.</strong> As in E4, the Postgres specialist reads the logged numbers, and nothing alerts anyone automatically. The warnings themselves do not change.</li>
+</ol>
+
+<h2>The change</h2>
+<ul>
+<li><code>docs/security/accepted-risks.md</code>: the AR-TICK-517-01 trigger is reworded.</li>
+<li><code>docs/budgets.md</code>: the 7763 import baseline gets a "slow host, not a regression" note.</li>
+<li>The spike note is archived under <code>docs/adr/ADR-004/spikes/technical-architect/</code>.</li>
+</ul>
+<p>No code, CI job, threshold, database or production behaviour changes, so no plan issue is needed.</p>
+
+<h2>What we are accepting</h2>
+<ul>
+<li><strong>A slowdown under 1.2× still passes unseen</strong>, and so does one that shows only on machine types we have no baseline for. A slowdown of 1.2× or more is seen only when someone reads the logs. Severity stays low (AR-TICK-517-01).</li>
+<li><strong>The evidence covers one hour on one code version.</strong> Older baselines from other days, on other code versions, fall inside the same ranges or within 1% of them. Day-to-day drift is still not fully measured. If it is larger, the band gives false alarms. A false alarm costs a look, not a red build. If two happen within 30 days, we re-run the spike across days and then widen the band or switch to a rolling median.</li>
+</ul>
+
+<h2>Evidence</h2>
+<ul>
+<li>The spike note, with all 16 raw result lines, job links, per-model max/min and the rerun script: <code>docs/adr/ADR-004/spikes/technical-architect/e4-r1-cpu-variance.md</code> (CI run <a href="https://github.com/Navaladi2019/TicketingSystem/actions/runs/41964296547">41964296547</a>).</li>
+<li>Spread per model (max/min, models with at least 3 runs): EPYC 7763 ≤ 1.127, Xeon 8573C ≤ 1.038, EPYC 9V45 ≤ 1.069. The spike's pass criterion was under 1.2.</li>
+<li>Red to green: there is no code, so this is checked against the spike data. With no regression present, the old cue goes off on all 7 of the 7763 runs (red), and the new cue goes off on 0 of the 16 runs (green). On 9V45, a 1.2× slowdown crosses the band but stays more than 1.8× below the fixed limit.</li>
+</ul>
+</main></body></html>
