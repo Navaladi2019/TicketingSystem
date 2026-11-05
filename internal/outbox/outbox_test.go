@@ -76,6 +76,37 @@ func TestEnqueueStartPathsRefuseBeforeAnyWrite(t *testing.T) {
 	}
 }
 
+// A seal start has its own entry point (A6.3): EnqueueAtVersion refuses one,
+// and EnqueueSeal refuses a head version below 1, both before any query (tx
+// is nil, so a query would panic).
+func TestSealPathsRefuseBeforeAnyWrite(t *testing.T) {
+	seal := validEntry()
+	seal.Kind, seal.Target = SealKind, TargetStart{Kind: SealKind}
+	if _, err := EnqueueAtVersion(context.Background(), nil, seal, 1); !errors.Is(err, ErrInvalidEntry) {
+		t.Fatalf("EnqueueAtVersion of a seal start = %v, want ErrInvalidEntry", err)
+	}
+	// The seal dedupe namespace is EnqueueSeal's alone.
+	reserved := validEntry()
+	reserved.DedupeKey = SealDedupeKey(1)
+	if _, err := EnqueueAtVersion(context.Background(), nil, reserved, 1); !errors.Is(err, ErrInvalidEntry) {
+		t.Fatalf("EnqueueAtVersion with a seal dedupe key = %v, want ErrInvalidEntry", err)
+	}
+	for _, v := range []int64{0, -1} {
+		if _, err := EnqueueSeal(context.Background(), nil, v); !errors.Is(err, ErrInvalidEntry) {
+			t.Fatalf("EnqueueSeal(%d) = %v, want ErrInvalidEntry", v, err)
+		}
+	}
+}
+
+func TestSealDedupeKey(t *testing.T) {
+	if got := SealDedupeKey(42); got != "audit.seal:42" {
+		t.Fatalf("SealDedupeKey(42) = %q", got)
+	}
+	if !ValidKind(SealKind) {
+		t.Fatal("SealKind is not a valid kind, so the relay would mark its rows dead")
+	}
+}
+
 func TestDepthAtLimitPassesValidation(t *testing.T) {
 	e := validEntry()
 	e.Causation = Causation{OriginID: uuid.New(), Depth: 8}
