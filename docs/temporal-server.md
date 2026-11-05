@@ -55,6 +55,8 @@ token's workflow id `t:<tenant>:…`. One bad command denies the whole response.
 | child (same-tenant target) without a `nava-tenant` header equal to the task's tenant | `child_header` |
 | continue-as-new without a `nava-tenant` header equal to the task's tenant | `continue_as_new_header` |
 | continue-as-new with `cron_schedule` | `continue_as_new_cron` |
+| child with `cron_schedule` (any non-empty string; TICK-576), checked after the tenant and D9c rules | `child_cron` |
+| child with a workflow `retry_policy` (any, an empty one included; TICK-576), checked after `child_cron` | `child_retry_policy` |
 | child, continue-as-new or upsert sets `NavaTenantId` to anything but the task's tenant (unset is allowed) | `search_attribute_tenant` |
 
 The `nava-tenant` header and `NavaTenantId` must be default-converter string

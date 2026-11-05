@@ -468,6 +468,8 @@ const (
 	classE1Header        = "E1: `nava-tenant` header is the task's tenant"
 	classE1SearchAttr    = "E1: a `NavaTenantId` it sets is the task's tenant"
 	classE1Cron          = "E1: empty"
+	classE1ChildCron     = "E1: empty (TICK-576)"
+	classE1ChildRetry    = "E1: unset (TICK-576)"
 	classD9cStickyQueue  = "D9c: sticky-shaped, not a platform queue"
 	classD9cStickyNormal = "D9c: platform queue"
 	classD9cStickyKind   = "D9c: the sticky rule applies whatever Kind says"
@@ -587,6 +589,9 @@ var requestFieldRules = map[Identity]map[string]map[string]string{
 			cmdChild + "header.":                              classE1Header,
 			cmdChild + "search_attributes.":                   classE1SearchAttr,
 			cmdChild + "workflow_type.name":                   classD9cType,
+			cmdChild + "cron_schedule":                        classE1ChildCron,
+			cmdChild + "retry_policy":                         classE1ChildRetry,
+			cmdChild + "retry_policy.":                        classE1ChildRetry,
 			cmdSignal + "namespace":                           classE1Namespace,
 			cmdSignal + "execution.workflow_id":               classE1Target,
 			cmdCancel + "namespace":                           classE1Namespace,
