@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/mail"
 	"net/url"
@@ -137,6 +138,8 @@ type DirectoryConfig struct {
 	// InviteTTL is how long a pending invite is valid. Zero is
 	// DefaultInviteTTL.
 	InviteTTL time.Duration
+	// Logger defaults to slog.Default().
+	Logger *slog.Logger
 }
 
 // Directory implements identity.DirectoryAdmin.
@@ -149,6 +152,7 @@ type Directory struct {
 	invites    InviteWriter
 	inviteTTL  time.Duration
 	now        func() time.Time
+	log        *slog.Logger
 }
 
 var _ identity.DirectoryAdmin = (*Directory)(nil)
@@ -185,7 +189,11 @@ func NewDirectory(cfg DirectoryConfig, out *telemetry.OutboundClient) (*Director
 	if cfg.InviteTTL == 0 {
 		cfg.InviteTTL = DefaultInviteTTL
 	}
+	if cfg.Logger == nil {
+		cfg.Logger = slog.Default()
+	}
 	d := &Directory{
+		log:     cfg.Logger,
 		api:     &admin{base: strings.TrimRight(cfg.BaseURL, "/"), realm: cfg.Realm, out: out, now: time.Now},
 		runtime: &account{creds: cfg.Runtime, orgs: orgMemberRead},
 		reg:     cfg.Registry,
@@ -313,24 +321,57 @@ func (d *Directory) EnsureAuditorGroup(ctx context.Context, tenantID uuid.UUID) 
 }
 
 func (d *Directory) ensureTenantGroup(ctx context.Context, tenantID uuid.UUID, name string) (string, error) {
-	if err := requireTenant(tenantID); err != nil {
-		return "", err
-	}
-	root, err := d.ensureRootGroup(ctx, tenantID)
+	g, created, err := d.ensureTenantGroupReport(ctx, tenantID, name)
 	if err != nil {
 		return "", err
 	}
-	g, err := d.childGroup(ctx, tenantID, name)
+	if !created {
+		d.warnIfAdoptedWithMembers(ctx, tenantID, g)
+	}
+	return g.ID, nil
+}
+
+// ensureTenantGroupReport finds /t/<tenant_id>/<name>, creating it when
+// missing. created is false when the group already existed (adopted).
+func (d *Directory) ensureTenantGroupReport(ctx context.Context, tenantID uuid.UUID, name string) (g kcGroup, created bool, err error) {
+	if err := requireTenant(tenantID); err != nil {
+		return kcGroup{}, false, err
+	}
+	root, err := d.ensureRootGroup(ctx, tenantID)
+	if err != nil {
+		return kcGroup{}, false, err
+	}
+	g, err = d.childGroup(ctx, tenantID, name)
 	if !errors.Is(err, identity.ErrNotFound) {
-		return g.ID, err
+		return g, false, err
 	}
 	_, err = d.api.do(ctx, d.runtime, http.MethodPost, "/groups/{id}/children", "/groups/"+url.PathEscape(root.ID)+"/children",
 		nil, map[string]string{"name": name}, http.StatusCreated)
 	if err != nil && !errors.Is(err, identity.ErrAlreadyExists) {
-		return "", err
+		return kcGroup{}, false, err
 	}
+	created = err == nil
 	g, err = d.childGroup(ctx, tenantID, name)
-	return g.ID, err
+	return g, created, err
+}
+
+// warnIfAdoptedWithMembers logs when an existing group, not created by this
+// call, already has members: after the next group sync they hold the group's
+// permissions (for auditors, audit.read). It warns and does not refuse.
+func (d *Directory) warnIfAdoptedWithMembers(ctx context.Context, tenantID uuid.UUID, g kcGroup) {
+	members, err := d.groupMembers(ctx, g.ID)
+	if err != nil {
+		d.log.WarnContext(ctx, "adopted an existing tenant group; member count unavailable",
+			slog.String("tenant_id", tenantID.String()), slog.String("group_path", g.Path),
+			slog.String("error_type", fmt.Sprintf("%T", err)))
+		return
+	}
+	if len(members) == 0 {
+		return
+	}
+	d.log.WarnContext(ctx, "adopted an existing tenant group that already has members",
+		slog.String("tenant_id", tenantID.String()), slog.String("group_path", g.Path),
+		slog.Int("member_count", len(members)))
 }
 
 // adminGroup finds /t/<tenant_id>/admins, or identity.ErrNotFound.

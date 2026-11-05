@@ -180,6 +180,7 @@ func newBackends(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry
 		IdPs:       b.specs.Source,
 		Invites:    b.store,
 		InviteTTL:  cfg.InviteTTL,
+		Logger:     log,
 	}, out)
 	if err != nil {
 		b.close()

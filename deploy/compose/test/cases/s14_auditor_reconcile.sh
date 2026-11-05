@@ -61,12 +61,16 @@ pass "an auditor without the group is refused (403)"
 reconcile() { compose exec -T nava-onboard nava-onboard reconcile-auditors "$A"; }
 reconcile || fail "reconcile-auditors (first run) failed"
 first=$(snapshot)
+first_group=$(kc "$KC/admin/realms/nava/group-by-path/t/$A/auditors" | first_id)
+b_row_before=$(count "SELECT coalesce(string_agg(id::text || ':' || path, ',' ORDER BY id), '') FROM groups WHERE tenant_id = '$B'")
 [ "$first" = "1/1/0/$b_before" ] || fail "after the reconcile: groups/pointer/members/B-pointer = $first, want 1/1/0/$b_before"
 [ "$(kc "$KC/admin/realms/nava/group-by-path/t/$A/auditors" | first_id)" ] || fail "Keycloak has no /t/$A/auditors after the reconcile"
 pass "reconcile created the Keycloak group, the groups row and the pointer, with no member, and left B alone"
 
 reconcile || fail "reconcile-auditors (second run) failed"
 [ "$(snapshot)" = "$first" ] || fail "second reconcile changed rows: $first -> $(snapshot)"
+[ "$(kc "$KC/admin/realms/nava/group-by-path/t/$A/auditors" | first_id)" = "$first_group" ] || fail "second reconcile changed A's Keycloak group id"
+[ "$(count "SELECT coalesce(string_agg(id::text || ':' || path, ',' ORDER BY id), '') FROM groups WHERE tenant_id = '$B'")" = "$b_row_before" ] || fail "second reconcile changed B's groups rows"
 pass "a second reconcile changes nothing"
 
 # An auditor added afterwards reads the timeline.

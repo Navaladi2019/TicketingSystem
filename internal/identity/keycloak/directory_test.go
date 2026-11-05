@@ -1,10 +1,12 @@
 package keycloak
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -714,5 +716,83 @@ func TestEnsureAuditorGroupCreatesAuditorsNotAdmins(t *testing.T) {
 	}
 	if _, err := d.EnsureAuditorGroup(t.Context(), uuid.Nil); !errors.Is(err, identity.ErrInvalidInput) {
 		t.Errorf("nil tenant: %v", err)
+	}
+}
+
+// adoptMux serves a tenant whose auditors group already exists (adopted=true)
+// or is created by the call (adopted=false), with the given member JSON.
+func adoptMux(adopted bool, members string) http.Handler {
+	var created atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /realms/nava/protocol/openid-connect/token", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"access_token":"tok","expires_in":300}`)
+	})
+	mux.HandleFunc("GET /admin/realms/nava/group-by-path/t/"+dirTenantA.String(), func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintf(w, `{"id":"g-root","name":%q,"path":%q}`, dirTenantA.String(), rootPath(dirTenantA))
+	})
+	mux.HandleFunc("GET /admin/realms/nava/group-by-path/t/"+dirTenantA.String()+"/auditors", func(w http.ResponseWriter, _ *http.Request) {
+		if !adopted && created.Load() == 0 {
+			http.NotFound(w, nil)
+			return
+		}
+		fmt.Fprintf(w, `{"id":"g-auditors","name":"auditors","path":%q}`, rootPath(dirTenantA)+"/auditors")
+	})
+	mux.HandleFunc("POST /admin/realms/nava/groups/g-root/children", func(w http.ResponseWriter, _ *http.Request) {
+		created.Add(1)
+		w.WriteHeader(http.StatusCreated)
+	})
+	mux.HandleFunc("GET /admin/realms/nava/groups/g-auditors/members", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("first") != "" && r.URL.Query().Get("first") != "0" {
+			fmt.Fprint(w, `[]`)
+			return
+		}
+		fmt.Fprint(w, members)
+	})
+	return mux
+}
+
+func TestEnsureAuditorGroupWarnsWhenAdoptedWithMembers(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(adoptMux(true, `[{"id":"u1"},{"id":"u2"}]`))
+	t.Cleanup(srv.Close)
+	var buf bytes.Buffer
+	d, _ := directoryFor(t, srv.URL, func(c *DirectoryConfig) {
+		c.Logger = slog.New(slog.NewJSONHandler(&buf, nil))
+	})
+	if id, err := d.EnsureAuditorGroup(t.Context(), dirTenantA); err != nil || id != "g-auditors" {
+		t.Fatalf("id = %q, %v", id, err)
+	}
+	out := buf.String()
+	if n := strings.Count(out, `"level":"WARN"`); n != 1 {
+		t.Fatalf("warnings = %d, want 1: %s", n, out)
+	}
+	for _, want := range []string{`"tenant_id":"` + dirTenantA.String() + `"`, `"group_path":"` + rootPath(dirTenantA) + `/auditors"`, `"member_count":2`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log %s lacks %s", out, want)
+		}
+	}
+}
+
+func TestEnsureAuditorGroupNoWarningWhenCreatedOrEmpty(t *testing.T) {
+	t.Parallel()
+	for name, h := range map[string]http.Handler{
+		"created":       adoptMux(false, `[{"id":"u1"}]`),
+		"adopted empty": adoptMux(true, `[]`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			srv := httptest.NewServer(h)
+			t.Cleanup(srv.Close)
+			var buf bytes.Buffer
+			d, _ := directoryFor(t, srv.URL, func(c *DirectoryConfig) {
+				c.Logger = slog.New(slog.NewJSONHandler(&buf, nil))
+			})
+			if _, err := d.EnsureAuditorGroup(t.Context(), dirTenantA); err != nil {
+				t.Fatal(err)
+			}
+			if buf.Len() != 0 {
+				t.Errorf("unexpected log: %s", buf.String())
+			}
+		})
 	}
 }
