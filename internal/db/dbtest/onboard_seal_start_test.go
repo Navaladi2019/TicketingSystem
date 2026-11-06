@@ -77,6 +77,21 @@ func TestP533OnboardInsertsHeadForOwnProvisioningTenantOnly(t *testing.T) {
 	wantSQLState(t, "nava_onboard names head.version", err, "42501")
 	_, err = execIn(on, tenantX, "SELECT * FROM audit_chain_head")
 	wantSQLState(t, "nava_onboard reads the head", err, "42501")
+	// TICK-580: no UPDATE or DELETE on the head, not even its own provisioning
+	// tenant's. No WHERE clause and no column read on the right-hand side, so
+	// only the UPDATE/DELETE privilege is tested: a WHERE would fail on the
+	// missing SELECT and mask a regressed grant.
+	for _, q := range []string{
+		"UPDATE audit_chain_head SET seq = 1",
+		"UPDATE audit_chain_head SET next_seal_outbox_id = NULL",
+		"DELETE FROM audit_chain_head",
+	} {
+		_, err := execIn(on, tenantX, q)
+		wantSQLState(t, "nava_onboard "+q, err, "42501")
+	}
+	if n := countRows(t, "SELECT count(*) FROM audit_chain_head WHERE tenant_id = $1 AND seq = 0", tenantX); n != 1 {
+		t.Errorf("own head rows with seq 0 = %d, want 1 (head changed or deleted)", n)
+	}
 }
 
 func TestP533SeedAuditChainIsIdempotent(t *testing.T) {
