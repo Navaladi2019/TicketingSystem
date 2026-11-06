@@ -15,6 +15,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity/keycloak"
+	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
@@ -249,6 +250,54 @@ func (s *PGStore) SeedEntityType(ctx context.Context, tenantID uuid.UUID, in ent
 		return false, fmt.Errorf("onboard: seed entity type: %w", err)
 	}
 	return inserted, nil
+}
+
+// Head and first seal start row (ADR-001-A6.2). nava_onboard has INSERT only,
+// so outbox.EnqueueSeal (which locks the head and reads back) is not usable:
+// this is the same row, written with a plain INSERT, no RETURNING and no
+// conflict clause on the outbox. The column list must equal outbox's
+// insertSealSQL (TestSealInsertMatchesOutbox).
+const (
+	insertHeadSQL = `INSERT INTO audit_chain_head (tenant_id, id, next_seal_outbox_id, next_seal_at)
+VALUES ($1, $2, $3, now())
+ON CONFLICT DO NOTHING`
+	insertSealStartSQL = `INSERT INTO outbox (id, tenant_id, kind, kind_version, dedupe_key, target_key, target_seq,
+    causation_id, causation_depth, payload, trace_context)
+VALUES ($1, $2, '` + outbox.SealKind + `', 1, $3, $4, $5, $1, 0, '{}', NULL)`
+	// seedHeadVersion is audit_chain_head.version's default, the version the
+	// first start row is seeded at.
+	seedHeadVersion = 1
+)
+
+// SeedAuditChain implements Store. The head insert is the idempotency
+// record: if the head exists (an earlier run, or migration B), nothing else is
+// written, so a retry leaves one head and one live lineage. Both rows are in
+// one transaction. The ids are minted here, since there is no RETURNING.
+func (s *PGStore) SeedAuditChain(ctx context.Context, tenantID uuid.UUID) error {
+	headID, err := uuid.NewV7()
+	if err != nil {
+		return fmt.Errorf("onboard: seed audit chain: %w", err)
+	}
+	sealID, err := uuid.NewV7()
+	if err != nil {
+		return fmt.Errorf("onboard: seed audit chain: %w", err)
+	}
+	err = tenancy.InTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, insertHeadSQL, tenantID, headID, sealID)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return nil
+		}
+		_, err = tx.Exec(ctx, insertSealStartSQL, sealID, tenantID,
+			outbox.SealDedupeKey(seedHeadVersion), outbox.SealKind+":"+sealID.String(), int64(seedHeadVersion))
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("onboard: seed audit chain: %w", err)
+	}
+	return nil
 }
 
 // ErrNotProvisioning is returned by Activate when it found no provisioning row of the tenant.

@@ -305,3 +305,5 @@ func TestOnboardKillBeforeBindingThenRetryLive(t *testing.T) {
 		t.Error("idp alias is not server-derived")
 	}
 }
+
+func (s *resumeStore) SeedAuditChain(context.Context, uuid.UUID) error { return nil }

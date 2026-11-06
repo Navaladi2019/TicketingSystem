@@ -70,7 +70,7 @@ The DEFAULT partition is under ENABLE + FORCE RLS and has no policy and no grant
 Later tasks add the rest:
 - P5-11 generates the `nava_onboard` and `nava_groupsync` writer grants and policies.
 - P5-17 (TICK-435) added the reader's SELECT (nava_app, diff and diff_salt included).
-- P5-33 adds onboarding's pinned INSERT on the head (A6.2).
+- P5-33 (TICK-441) added onboarding's pinned INSERT on the head and on `outbox` (`kind = 'audit.seal'` only) (A6.2); it commits while the tenant is `provisioning`, and `Activate` is a later transaction.
 - P5-15 and P5-32 add the migrator's temporary policies, created and dropped inside the backfill (see [S8 backfill](#s8-backfill-migration-a-p5-15)).
 
 The column grants decide which columns a role may name. Two triggers decide what a role may do with them:

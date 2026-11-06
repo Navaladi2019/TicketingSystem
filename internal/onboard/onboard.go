@@ -102,6 +102,11 @@ type Store interface {
 	// inserted anything. Only a provisioning tenant can be seeded: the table
 	// policies refuse an active one.
 	SeedEntityType(ctx context.Context, tenantID uuid.UUID, in entitytypes.SeedInput) (inserted bool, err error)
+	// SeedAuditChain inserts the tenant's audit_chain_head row and its first
+	// audit.seal start row, in one transaction, idempotently on the head's
+	// primary key (ADR-001-A6.2, ADR-004 R16). It must run while the tenant is
+	// provisioning, in a transaction that commits before Activate.
+	SeedAuditChain(ctx context.Context, tenantID uuid.UUID) error
 	// Activate moves the tenant from provisioning to active. An already-active
 	// tenant is ErrNotProvisioning; a tenant with no tenant_admin_group row is
 	// ErrNoTenantAdmin and stays provisioning.
@@ -257,6 +262,12 @@ func (s *Service) Onboard(ctx context.Context, operator identity.Operator, key s
 				slog.String("tenant_id", tenantID.String()),
 				slog.String("keycloak_group_id", kcAuditorID))
 		}
+		return Result{}, err
+	}
+	// Every audited write has committed by now, while the tenant is still
+	// provisioning: the commit check reads under the pinned provisioning
+	// policy, so Activate must be its own, later transaction.
+	if err := s.o.Store.SeedAuditChain(ctx, tenantID); err != nil {
 		return Result{}, err
 	}
 	if err := s.inviteAdmin(ctx, tenantID, req.AdminEmail); err != nil {
