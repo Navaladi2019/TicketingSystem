@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Navaladi2019/TicketingSystem/db"
+	"github.com/Navaladi2019/TicketingSystem/internal/db/migrate"
 )
 
 // ADR-004-E5 step (ii), contract (TICK-538; D2, D10). Seeded identity ids
@@ -97,8 +98,12 @@ func TestE5GroupsContractMigrationLocks(t *testing.T) {
 	if _, err := tx.Exec(ctx, "LOCK TABLE records IN ROW EXCLUSIVE MODE"); err != nil {
 		t.Fatal(err)
 	}
+	// One attempt: this checks the file's own lock_timeout, not the
+	// runner's retry of it (TICK-579, lock_timeout_test.go).
+	log, _ := newLog()
 	start := time.Now()
-	err = migrateOnlyFS(t, m, migrationsThrough(t, groupsContractMigration))
+	_, err = migrate.Up(ctx, roleConfig(t, m.Owner(), m.PlatformDatabase),
+		migrationsThrough(t, groupsContractMigration), log, migrate.Options{LockRetrySeconds: 1, DDLAttempts: 1})
 	waited := time.Since(start)
 	_ = tx.Rollback(ctx)
 	var pgErr *pgconn.PgError
