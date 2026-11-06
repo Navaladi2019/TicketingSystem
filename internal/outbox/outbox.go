@@ -255,10 +255,20 @@ const (
 	lockHeadSQL = `SELECT tenant_id, version FROM audit_chain_head WHERE tenant_id = $1 FOR UPDATE`
 	// causation_id is the row's own id at depth 0: a seal run starts no
 	// cascade and carries none forward (I9, A5-3).
-	// available_at is computed on the database clock (now() is the
-	// transaction start), never the worker's: $7 is the delay in seconds,
-	// 0 when no WithDelay was given, which is the column default now().
+	// Its column list is pinned: onboarding's seal insert (P5-33) and the
+	// nava_onboard grant equal it (TestSealInsertMatchesOutbox), so the
+	// no-option path never names available_at, which takes its default now().
 	insertSealSQL = `INSERT INTO outbox (id, tenant_id, kind, kind_version, dedupe_key, target_key, target_seq,
+    causation_id, causation_depth, payload, trace_context)
+VALUES ($1, $2, '` + SealKind + `', 1, $3, $4, $5, $1, 0, '{}', $6)
+ON CONFLICT (tenant_id, dedupe_key) DO NOTHING
+RETURNING id`
+	// insertDelayedSealSQL is insertSealSQL plus available_at, used only
+	// when WithDelay is given (TICK-440). available_at is computed on the
+	// database clock (now() is the transaction start), never the worker's:
+	// $7 is the delay in seconds. TestDelayedSealInsertColumns pins its
+	// columns to insertSealSQL's plus available_at.
+	insertDelayedSealSQL = `INSERT INTO outbox (id, tenant_id, kind, kind_version, dedupe_key, target_key, target_seq,
     causation_id, causation_depth, payload, trace_context, available_at)
 VALUES ($1, $2, '` + SealKind + `', 1, $3, $4, $5, $1, 0, '{}', $6, now() + make_interval(secs => $7))
 ON CONFLICT (tenant_id, dedupe_key) DO NOTHING
@@ -271,7 +281,8 @@ RETURNING id`
 type SealOption func(*sealOptions)
 
 type sealOptions struct {
-	delay time.Duration
+	delay   time.Duration
+	delayed bool // WithDelay was given, even WithDelay(0)
 }
 
 // WithDelay makes the seal row available d after the transaction's start on
@@ -279,7 +290,7 @@ type sealOptions struct {
 // seal_interval_s). A negative d makes EnqueueSeal return ErrInvalidEntry.
 // Without it the row is available at once, as onboarding (P5-33) needs.
 func WithDelay(d time.Duration) SealOption {
-	return func(o *sealOptions) { o.delay = d }
+	return func(o *sealOptions) { o.delay, o.delayed = d, true }
 }
 
 // SealDedupeKey is the dedupe_key of the seal start row enqueued at
@@ -362,8 +373,12 @@ func EnqueueSeal(ctx context.Context, tx pgx.Tx, headVersion int64, opts ...Seal
 	// RLS WITH CHECK refuses a row whose tenant_id is not app.tenant_id.
 	dedupe := SealDedupeKey(headVersion)
 	var inserted uuid.UUID
-	err = tx.QueryRow(ctx, insertSealSQL, id, tenant, dedupe, SealKind+":"+id.String(), headVersion,
-		traceparent(ctx), o.delay.Seconds()).Scan(&inserted)
+	args := []any{id, tenant, dedupe, SealKind + ":" + id.String(), headVersion, traceparent(ctx)}
+	sql := insertSealSQL
+	if o.delayed {
+		sql, args = insertDelayedSealSQL, append(args, o.delay.Seconds())
+	}
+	err = tx.QueryRow(ctx, sql, args...).Scan(&inserted)
 	if err == nil {
 		return inserted, nil
 	}
