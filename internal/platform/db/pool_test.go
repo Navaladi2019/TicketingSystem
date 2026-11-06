@@ -2,9 +2,13 @@ package db_test
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/exaring/otelpgx"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/multitracer"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/noop"
@@ -74,6 +78,31 @@ func TestNewPoolTracesACopy(t *testing.T) {
 	}
 	if cfg.ConnConfig.Tracer != nil {
 		t.Error("NewPool changed the caller's config")
+	}
+}
+
+// TestNewPoolClosesFailedParses: the pool's tracer keeps otelpgx on every
+// hook and adds ParseFailureCloser as a prepare tracer (TICK-550).
+func TestNewPoolClosesFailedParses(t *testing.T) {
+	t.Parallel()
+	tel := &telemetry.Telemetry{TracerProvider: tracenoop.NewTracerProvider(), MeterProvider: noop.NewMeterProvider()}
+	pool, err := db.NewPool(t.Context(), config(t), tel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	mt, ok := pool.Config().ConnConfig.Tracer.(*multitracer.Tracer)
+	if !ok {
+		t.Fatalf("tracer is %T, want *multitracer.Tracer", pool.Config().ConnConfig.Tracer)
+	}
+	if !slices.ContainsFunc(mt.PrepareTracers, func(p pgx.PrepareTracer) bool { _, ok := p.(db.ParseFailureCloser); return ok }) {
+		t.Error("no ParseFailureCloser among the prepare tracers")
+	}
+	if !slices.ContainsFunc(mt.QueryTracers, func(q pgx.QueryTracer) bool { _, ok := q.(*otelpgx.Tracer); return ok }) {
+		t.Error("no otelpgx tracer among the query tracers")
+	}
+	if len(mt.PoolAcquireTracers) != 1 {
+		t.Errorf("%d pool acquire tracers, want 1 (otelpgx)", len(mt.PoolAcquireTracers))
 	}
 }
 

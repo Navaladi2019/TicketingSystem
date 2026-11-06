@@ -46,9 +46,14 @@ const (
 	ReasonActivityHeader    = "activity_header"
 	ReasonChildHeader       = "child_header"
 	ReasonCronSchedule      = "continue_as_new_cron"
-	ReasonTenantSearchAttr  = "search_attribute_tenant"
-	ReasonMalformedRequest  = "request_malformed"
-	ReasonProtocolMessage   = "protocol_message_not_allowed"
+	// ReasonChildCron is a child start that sets a CronSchedule (TICK-576).
+	ReasonChildCron = "child_cron"
+	// ReasonChildRetryPolicy is a child start that sets a workflow RetryPolicy
+	// (TICK-576).
+	ReasonChildRetryPolicy = "child_retry_policy"
+	ReasonTenantSearchAttr = "search_attribute_tenant"
+	ReasonMalformedRequest = "request_malformed"
+	ReasonProtocolMessage  = "protocol_message_not_allowed"
 )
 
 // Values of the `command` metric tag besides the command names below.
@@ -252,6 +257,9 @@ func checkCommand(cmd *commandpb.Command, tenant string) (reason, target, detail
 		if reason, detail := checkCommandWorkload(a.GetWorkflowType(), a.GetTaskQueue()); reason != "" {
 			return reason, a.GetWorkflowId(), detail
 		}
+		if reason, detail := checkChildSchedule(a.GetCronSchedule(), a.GetRetryPolicy()); reason != "" {
+			return reason, a.GetWorkflowId(), detail
+		}
 	case enumspb.COMMAND_TYPE_SIGNAL_EXTERNAL_WORKFLOW_EXECUTION:
 		a := cmd.GetSignalExternalWorkflowExecutionCommandAttributes()
 		return checkTarget(a.GetNamespace(), a.GetExecution().GetWorkflowId(), tenant)
@@ -290,6 +298,24 @@ func checkCommand(cmd *commandpb.Command, tenant string) (reason, target, detail
 		}
 	}
 	return "", "", ""
+}
+
+// checkChildSchedule is the TICK-573 start rule applied to a child
+// (TICK-576): a child start may not make the server create runs on its own.
+// A CronSchedule (any non-empty string, blank included) starts a child run on
+// every tick, and a workflow RetryPolicy (any, an empty one included, which
+// the server fills with its retrying defaults) starts one after every failure.
+// The child stays in the task's tenant, so this is defence in depth behind the
+// worker's in-process guard (internal/workerguard), which denies a child cron.
+func checkChildSchedule(cron string, retry *commonpb.RetryPolicy) (reason, detail string) {
+	switch reason, detail := checkStartSchedule(cron, retry); reason {
+	case ReasonStartCron:
+		return ReasonChildCron, detail
+	case ReasonStartRetryPolicy:
+		return ReasonChildRetryPolicy, detail
+	default:
+		return reason, detail
+	}
 }
 
 // checkCommandWorkload is D9c for a child or continue-as-new: the workflow type
