@@ -10,6 +10,10 @@ package lineage_test
 import (
 	"context"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
 // nava_purge cannot lock any head. A row lock needs UPDATE privilege; without
@@ -37,7 +41,7 @@ func TestPurgeRoleCannotInsertHead(t *testing.T) {
 
 // A user predicate cannot widen the policy: RLS quals run before the query's
 // own WHERE, so a live head stays invisible however the query asks, and no
-// tenant setting (app.tenant_id) widens it either.
+// tenant setting (tenancy.InTenantTx) widens it either.
 func TestPurgeRoleCannotSeeLiveHeadsByPredicate(t *testing.T) {
 	e := migrated(t)
 	ctx := context.Background()
@@ -55,19 +59,15 @@ func TestPurgeRoleCannotSeeLiveHeadsByPredicate(t *testing.T) {
 			t.Fatalf("%s: nava_purge sees %d live or lineage-less heads, want 0", q, n)
 		}
 	}
-	tx, err := e.purge.Begin(ctx)
+	// The tenant set the way every tenant transaction sets it.
+	var n int64
+	err := tenancy.InTenantTx(ctx, e.purge, alive, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, "SELECT count(*) FROM audit_chain_head WHERE tenant_id = $1", alive).Scan(&n)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := tx.Exec(ctx, "SELECT set_config('app.tenant_id', $1, true)", alive.String()); err != nil {
-		t.Fatal(err)
-	}
-	var n int64
-	if err := tx.QueryRow(ctx, "SELECT count(*) FROM audit_chain_head WHERE tenant_id = $1", alive).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
 	if n != 0 {
-		t.Fatalf("nava_purge with app.tenant_id set sees the tenant's live head: %d", n)
+		t.Fatalf("nava_purge in the tenant's own transaction sees its live head: %d", n)
 	}
 }
