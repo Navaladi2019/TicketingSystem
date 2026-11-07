@@ -80,13 +80,15 @@ const ReaderRole = "nava_audit_reader"
 func DiffColumns() []string { return []string{"diff", "diff_salt"} }
 
 // ReaderColumns are ReaderRole's SELECT columns on audit_log (A1-1): every
-// column the reader returns, diff and diff_salt included, never txid.
+// column the reader returns, diff and diff_salt included, never txid; and
+// prev_hash and entry_hash for the export's R20 anchor and stubs (P5-40a,
+// TICK-612).
 func ReaderColumns() []string {
 	return []string{
 		"tenant_id", "id", "occurred_at", "domain", "action", "subject_type", "subject_id", "entity_definition_id",
 		"version_before", "version_after", "actor_principal_id", "actor_system", "source", "source_ref",
 		"change_set_id", "causation_id", "causation_depth", "request_id", "backfilled", "content_sha256",
-		"diff_sha256", "diff_truncated", "diff", "diff_salt", "seq", "sealed_at", "erased_at",
+		"diff_sha256", "diff_truncated", "diff", "diff_salt", "seq", "prev_hash", "entry_hash", "sealed_at", "erased_at",
 	}
 }
 

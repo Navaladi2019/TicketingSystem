@@ -82,7 +82,10 @@ roles:
                  change_set_id, causation_id, causation_depth, request_id, backfilled, content_sha256,
                  diff_sha256, diff_truncated, seq, sealed_at, erased_at]
       # R14: the export lease and chain:reseed's repoint. Never seq,
-      # entry_hash or version.
+      # entry_hash or version. SELECT is table-level: the R19 lease take
+      # (WHERE export_lease_until IS NULL OR < now()) and its RETURNING seq,
+      # entry_hash, the R20 head_seq and head_hash, need it (P5-40a,
+      # TICK-612; pinned by TestP540aExportLeaseAndHeadRead).
       audit_chain_head:
         SELECT: []
         UPDATE: [export_lease_until, next_seal_outbox_id, next_seal_at]
@@ -130,11 +133,14 @@ roles:
     database: [CONNECT]
     schemas: { public: [USAGE] }
     tables:
+      # prev_hash and entry_hash (P5-40a, TICK-612): the export pages run on
+      # this pool (A1-5) and emit the R20 anchor and stubs, which carry both
+      # hashes for every seq in the range. Hashes only, no new content.
       audit_log:
         SELECT: [tenant_id, id, occurred_at, domain, action, subject_type, subject_id, entity_definition_id,
                  version_before, version_after, actor_principal_id, actor_system, source, source_ref,
                  change_set_id, causation_id, causation_depth, request_id, backfilled, content_sha256,
-                 diff_sha256, diff_truncated, diff, diff_salt, seq, sealed_at, erased_at]
+                 diff_sha256, diff_truncated, diff, diff_salt, seq, prev_hash, entry_hash, sealed_at, erased_at]
       # tenant_id as well as the masker's two columns: CI-2 (ADR-001) needs every
       # role that reads a tenant table's rows to read its tenant_id, so a row of
       # another tenant can be told apart.
