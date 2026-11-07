@@ -196,7 +196,10 @@ Add a type to the allowed list only after a review that its messages are
 constants or ids. `nava.WorkflowRejected` (P3-22a) is the interpreter's: only
 `workerguard.Rejected(r)` builds it, from the closed `Rejection` constants,
 and the guard keeps its message only when it is one of their texts. AR-044's
-`guarderrtype` reports the type outside `internal/workerguard`. An activity panic is recovered in the guard and withheld,
+`guarderrtype` reports the type outside `internal/workerguard`. The two
+`nava.audit.seal` types (TICK-585) may also be built in `internal/audit/seal`,
+and there `guarderrtype` reports any call that builds one with a message that
+is not a constant (TICK-594). An activity panic is recovered in the guard and withheld,
 so neither its value nor its stack is recorded. A workflow panic is not: see
 AR-042. The full path table, with severities, is in
 `docs/security/temporal-ci6.md` ("Remaining history-write paths").
