@@ -3,6 +3,7 @@ package seal_test
 import (
 	"context"
 	"errors"
+	"math"
 	"sync"
 	"testing"
 	"time"
@@ -63,6 +64,11 @@ type commandRecorder struct {
 	continues int
 	order     []string
 	options   map[string]workflow.ActivityOptions // as scheduled, by activity type
+	// serverRetries gives MaximumAttempts 0 the server's meaning, unlimited,
+	// as math.MaxInt32. The SDK test environment would turn it into ten
+	// attempts (defaultMaximumAttemptsForUnitTest); a non-zero cap is passed
+	// through unchanged, so a capped policy still runs out.
+	serverRetries bool
 }
 
 func (r *commandRecorder) InterceptWorkflow(_ workflow.Context, next interceptor.WorkflowInboundInterceptor) interceptor.WorkflowInboundInterceptor {
@@ -89,8 +95,16 @@ func (o *recOutbound) ExecuteActivity(ctx workflow.Context, activityType string,
 	if o.r.options == nil {
 		o.r.options = map[string]workflow.ActivityOptions{}
 	}
-	o.r.options[activityType] = workflow.GetActivityOptions(ctx)
+	opts := workflow.GetActivityOptions(ctx)
+	o.r.options[activityType] = opts
+	serverRetries := o.r.serverRetries
 	o.r.mu.Unlock()
+	if serverRetries && opts.RetryPolicy != nil && opts.RetryPolicy.MaximumAttempts == 0 {
+		p := *opts.RetryPolicy
+		p.MaximumAttempts = math.MaxInt32
+		opts.RetryPolicy = &p
+		ctx = workflow.WithActivityOptions(ctx, opts)
+	}
 	return o.Next.ExecuteActivity(ctx, activityType, args...)
 }
 
@@ -215,9 +229,8 @@ func TestWorkflowRunsA2AfterRetriedA1(t *testing.T) {
 // time, not the whole call (TICK-440 review, "bounded A2"). Both have an
 // explicit retry policy as scheduled: A1's has no attempt cap, so an outage
 // before A1 commits never ends the lineage (TICK-587), and A2's is capped at
-// A2MaxAttempts. Both cap the backoff at a minute. The options are asserted
-// as scheduled, not by running past ten A1 failures: the SDK test environment
-// turns an uncapped policy into ten attempts (defaultMaximumAttemptsForUnitTest).
+// A2MaxAttempts. Both cap the backoff at a minute.
+// TestWorkflowA1OutlastsAnOutage runs the uncapped policy past 30 failures.
 func TestWorkflowActivityOptions(t *testing.T) {
 	f := scenarios()["next run"]
 	rec := &commandRecorder{}
@@ -241,5 +254,27 @@ func TestWorkflowActivityOptions(t *testing.T) {
 	}
 	if seal.A2HeartbeatTimeout <= 0 || seal.A2HeartbeatTimeout >= seal.A2StartToClose {
 		t.Error("A2's heartbeat timeout does not bound a batch")
+	}
+}
+
+// TestWorkflowA1OutlastsAnOutage (TICK-588 M1): A1 failing with a retryable
+// error 30 times, about 25 simulated minutes of a PostgreSQL outage, is still
+// retried, so the run completes: A1 ran 31 times, then A2 once. With A1
+// capped at ten attempts (the mutation) the run fails before o′ exists and
+// the lineage ends. The recorder gives the uncapped policy its server meaning
+// (serverRetries), which the SDK test environment would otherwise cap at ten.
+func TestWorkflowA1OutlastsAnOutage(t *testing.T) {
+	const failures = 30
+	f := &fakeActs{a1: func(ctx context.Context) (seal.Rescheduled, error) {
+		if activity.GetInfo(ctx).Attempt <= failures {
+			return seal.Rescheduled{}, errors.New("dial tcp: connection refused")
+		}
+		return nextRun()
+	}}
+	if err := runWorkflow(t, f, &commandRecorder{serverRetries: true}); err != nil {
+		t.Fatalf("the run failed after %d A1 attempts: %v", f.a1Calls, err)
+	}
+	if f.a1Calls != failures+1 || f.a2Calls != 1 {
+		t.Errorf("A1 ran %d times, A2 %d; want %d and 1", f.a1Calls, f.a2Calls, failures+1)
 	}
 }

@@ -38,7 +38,8 @@ const A2MaxAttempts = 10
 // lineage with nothing to report it until chain:reseed. A1 is idempotent
 // (R16: a retry after commit finds the head moved on and does nothing), so
 // retrying until the outage ends is safe; the backoff stays capped at a
-// minute. NoRun is non-retryable and still ends the retries at once.
+// minute. NoRun and HeadNotFound are non-retryable and still end the retries
+// at once (TICK-588 M1).
 func A1RetryPolicy() *temporal.RetryPolicy {
 	return &temporal.RetryPolicy{
 		InitialInterval:    time.Second,

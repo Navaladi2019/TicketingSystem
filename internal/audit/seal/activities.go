@@ -22,11 +22,14 @@ const (
 	SealActivity       = outbox.SealKind + ".Seal"
 )
 
-// ApplicationError types. Both are non-retryable: a retry would read the
-// same header, or the same entry.
+// ApplicationError types. All are non-retryable: a retry would read the
+// same workflow id, the same entry, or the same missing head. HeadNotFound
+// matters because A1 retries without an attempt cap (TICK-588 M1): a tenant
+// with no audit_chain_head would otherwise be retried every minute forever.
 const (
-	ErrTypeNoRun      = "nava.audit.seal.NoRun"
-	ErrTypeUnsealable = "nava.audit.seal.Unsealable"
+	ErrTypeNoRun        = "nava.audit.seal.NoRun"
+	ErrTypeUnsealable   = "nava.audit.seal.Unsealable"
+	ErrTypeHeadNotFound = "nava.audit.seal.HeadNotFound"
 )
 
 // Rescheduled is A1's result. It holds references only, as workerguard
@@ -69,6 +72,9 @@ func (a *Activities) Reschedule(ctx context.Context) (Rescheduled, error) {
 	if err != nil {
 		a.Metrics.rescheduleFailed(ctx)
 		a.logger().WarnContext(ctx, "audit seal reschedule failed", a.attrs(ctx, slog.Any("error", err))...)
+		if errors.Is(err, ErrHeadNotFound) {
+			return Rescheduled{}, temporal.NewNonRetryableApplicationError("seal: audit chain head not found", ErrTypeHeadNotFound, nil)
+		}
 		return Rescheduled{}, err
 	}
 	if next == uuid.Nil {

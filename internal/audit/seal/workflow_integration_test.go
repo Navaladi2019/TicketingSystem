@@ -336,18 +336,17 @@ func TestBoundedA2ContinuesInNextRun(t *testing.T) {
 }
 
 // A failed A1 attempt counts in audit_seal_failures_total{reason=reschedule}
-// (TICK-587): a tenant whose head is missing fails every A1 attempt with the
-// retryable ErrHeadNotFound, each one counted, and the run never reaches A2.
+// (TICK-587). A tenant whose head is missing fails A1 with the non-retryable
+// nava.audit.seal.HeadNotFound (TICK-588 M1: A1 is otherwise retried without
+// a cap): one attempt, counted once, and the run never reaches A2.
 func TestRescheduleFailuresCounted(t *testing.T) {
 	e := migrated(t)
 	tenant := uuid.New() // no head row
 	m, metric := promMetrics(t)
 	r := &workflowRun{acts: &seal.Activities{Pool: e.worker, Metrics: m}}
-	if err := r.run(t, tenant, uuid.Must(uuid.NewV7())); err == nil {
-		t.Fatal("a run with no head completed")
-	}
-	if got := metric("audit_seal_failures_total", seal.ReasonReschedule); got < 1 {
-		t.Errorf("audit_seal_failures_total{reason=reschedule} = %v, want every failed A1 attempt counted", got)
+	assertAppError(t, r.run(t, tenant, uuid.Must(uuid.NewV7())), seal.ErrTypeHeadNotFound)
+	if got := metric("audit_seal_failures_total", seal.ReasonReschedule); got != 1 {
+		t.Errorf("audit_seal_failures_total{reason=reschedule} = %v, want 1: HeadNotFound is not retried", got)
 	}
 	if got := metric("audit_seal_failures_total", seal.ReasonError) + metric("audit_seal_failures_total", seal.ReasonUnsealable); got != 0 {
 		t.Errorf("A2 failures counted %v with A1 never committing, want 0", got)
