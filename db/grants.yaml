@@ -192,7 +192,7 @@ roles:
         UPDATE: [available_at, attempts, last_error, dispatched_at, dead_at]
 
   # DELETE plus SELECT on the key and expiry-predicate columns, behind the
-  # paired purge policies.
+  # paired purge policies; and the dead-lineage gauge's read (TICK-590).
   nava_purge:
     attributes: [LOGIN]
     pgbouncer_login: true
@@ -202,6 +202,10 @@ roles:
       outbox: { SELECT: [tenant_id, id, dispatched_at, dead_at], DELETE: [] }
       workflow_ref: { SELECT: [tenant_id, outbox_id, closed_at], DELETE: [] }
       idempotency_keys: { SELECT: [tenant_id, principal_id, key, expires_at], DELETE: [] }
+      # P5-34f (TICK-590, ADR-004 R17): the dead-lineage gauge reads the key
+      # and R17's column behind audit_chain_head_purge_select, whose USING is
+      # R17's predicate: only dead heads, never written.
+      audit_chain_head: { SELECT: [tenant_id, next_seal_at] }
 
   # Creates its own tenant (provisioning), binds it, activates it.
   nava_onboard:

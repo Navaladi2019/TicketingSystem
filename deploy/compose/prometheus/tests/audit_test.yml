@@ -1,0 +1,53 @@
+# promtool test rules for rules/audit.yml (TICK-590). Run by
+# make check-alert-rules (scripts/ci/alert-rules.sh) with the pinned
+# prom/prometheus image; this directory is not mounted into Prometheus.
+rule_files:
+  - ../rules/audit.yml
+
+evaluation_interval: 1m
+
+tests:
+  # AuditDeadLineage: silent at 0, fires at 1, silent again after a reseed.
+  - interval: 1m
+    input_series:
+      - series: 'audit_dead_lineages{job="nava-purge",instance="nava-purge:9090"}'
+        values: '0 0 0 1 1 0'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: AuditDeadLineage
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: AuditDeadLineage
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: An audit seal lineage has stopped; its next run is more than 10 min overdue (ADR-004 R17).
+              description: >-
+                No run will seal the tenant's entries again until
+                POST /api/v1/audit/chain:reseed. The tenant_id is on the
+                nava-purge "audit seal lineage dead" log line.
+      - eval_time: 5m
+        alertname: AuditDeadLineage
+        exp_alerts: []
+
+  # AuditSealLag (TICK-453): silent at 600 s, fires above it.
+  - interval: 1m
+    input_series:
+      - series: 'audit_unsealed_oldest_seconds{job="nava-worker",instance="nava-worker:9090"}'
+        values: '600 601'
+    alert_rule_test:
+      - eval_time: 0m
+        alertname: AuditSealLag
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: AuditSealLag
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: An audit entry has been unsealed for more than 600 s (ADR-004 R-A2).
+              description: >-
+                Check audit_seal_failures_total and the nava-worker "audit seal failed"
+                log line for the tenant; a poison entry blocks the tenant until fixed,
+                and a dead lineage needs chain:reseed.

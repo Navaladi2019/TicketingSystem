@@ -8,6 +8,13 @@
 # tenant is stuck: a poison entry (audit_seal_failures_total{reason="unsealable"}
 # rises with it) or a sealer outage. Recovery: fix the entry, or
 # POST /api/v1/audit/chain:reseed for a dead lineage (R17).
+#
+# audit_dead_lineages (TICK-590) is nava-purge's count, over every tenant, of
+# the audit_chain_head rows that match R17's chain:reseed predicate
+# (next_seal_at < now() - 10 min, internal/audit/lineage.Predicate): a lineage
+# that stopped, whatever stopped it. No tenant label; nava-purge logs
+# "audit seal lineage dead" with the tenant_id. It fires exactly when a reseed
+# becomes allowed. Tests: audit_test.yml (make check-alert-rules).
 groups:
   - name: audit
     rules:
@@ -21,3 +28,13 @@ groups:
             Check audit_seal_failures_total and the nava-worker "audit seal failed"
             log line for the tenant; a poison entry blocks the tenant until fixed,
             and a dead lineage needs chain:reseed.
+      - alert: AuditDeadLineage
+        expr: max(audit_dead_lineages) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: An audit seal lineage has stopped; its next run is more than 10 min overdue (ADR-004 R17).
+          description: >-
+            No run will seal the tenant's entries again until
+            POST /api/v1/audit/chain:reseed. The tenant_id is on the
+            nava-purge "audit seal lineage dead" log line.

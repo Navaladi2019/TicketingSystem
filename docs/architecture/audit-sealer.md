@@ -59,7 +59,38 @@ sequenceDiagram
 | `audit_unsealed_oldest_seconds` | gauge | Age, now, of the oldest unsealed entry over the tenants this worker sealed. Each A2 attempt measures its tenant; the value keeps growing between runs, and a tenant not measured for 15 min drops out. No tenant label. |
 | `audit_seal_failures_total{reason}` | counter | Failed attempts: A2 `unsealable` (a poison entry) or `error` (retried), and A1 `reschedule` (retried without a cap, so a lineage held up before it commits shows here). |
 
-`deploy/compose/prometheus/rules/audit.yml` fires `AuditSealLag` at `max(audit_unsealed_oldest_seconds) > 600`. A failed attempt logs `audit seal failed` with `tenant_id` and `workflow_id`. The gauge is per worker, so a lineage that stops running (no worker measures it) is R17's `next_seal_at` check, not this alert.
+`deploy/compose/prometheus/rules/audit.yml` fires `AuditSealLag` at `max(audit_unsealed_oldest_seconds) > 600`. A failed attempt logs `audit seal failed` with `tenant_id` and `workflow_id`. The gauge is per worker, so a lineage that stops running (no worker measures it) is caught by `AuditDeadLineage` below, not this alert.
+
+## Capacity
+
+One tenant's chain sustains about **950 entries/s**: a run seals at most `DefaultMaxBatches` × 1,000 = 10,000 entries, and a capped run sets the interval to 10 s, so the next run is due 10 s after the last one ends: 10,000 entries per run plus 10 s. A tenant that writes faster than that builds a backlog that keeps growing until `AuditSealLag` fires at 600 s; nothing is lost, sealing only falls behind. The knob is `DefaultMaxBatches` (more batches per run, inside A2's 5 min `StartToClose`), not the interval, whose 10 s floor is the head's `seal_interval_s` check.
+
+## Dead lineages (R17)
+
+A lineage is dead when no run will come: its head's `next_seal_at` is more than 10 min in the past. Whatever ended it (A1's `HeadNotFound`, a guard deny on A1, an operator terminating the run, a relay outage that outlived the row), the head shows it the same way, so one check covers them all (TICK-590).
+
+`internal/audit/lineage` holds R17's predicate once, `lineage.Predicate` (`next_seal_at < now() - interval '10 minutes'`), and both readers evaluate it:
+
+```mermaid
+flowchart LR
+    P["lineage.Predicate<br/>next_seal_at &lt; now() - 10 min"]
+    G["lineage.ReseedAllowed<br/>nava_app, own tenant, FOR UPDATE"]
+    M["lineage.Monitor (nava-purge)<br/>nava_purge, every tenant, each minute"]
+    POL["policy audit_chain_head_purge_select<br/>USING = the predicate"]
+    R["chain:reseed<br/>409 chain_alive unless dead"]
+    A["audit_dead_lineages gauge<br/>AuditDeadLineage at &gt; 0"]
+    P --> G --> R
+    P --> M --> A
+    P -. "pinned: lineage.PolicyQual" .-> POL
+    POL --> M
+```
+
+- **The gate.** `lineage.ReseedAllowed` runs `ReseedGateSQL` first in the reseed transaction, as `nava_app` under the head lock. The `chain:reseed` endpoint (P5-42) must call it, not restate it.
+- **The gauge.** `nava-purge` runs `lineage.Monitor` every minute as `nava_purge` and exports `audit_dead_lineages`, the number of dead heads, with no tenant label. Each dead tenant goes on a `audit seal lineage dead` warning with `tenant_id` and `next_seal_at`. A failed read logs `audit dead lineage check failed` and withdraws the value rather than leaving a stale 0.
+- **The role.** `nava_purge` reads `audit_chain_head` through `audit_chain_head_purge_select`, whose `USING` is the same predicate, and its grant is SELECT on `tenant_id` and `next_seal_at` only (`db/grants.yaml`). It sees dead heads and nothing else, and writes nothing. The policy is on `internal/db/catalog.AllowList`, pinned to `lineage.PolicyQual`.
+- **The alert.** `AuditDeadLineage` fires at `max(audit_dead_lineages) > 0` (`deploy/compose/prometheus/rules/audit.yml`), so it fires exactly when a reseed becomes allowed. Recovery is `POST /api/v1/audit/chain:reseed` for the logged tenant.
+
+What keeps the two sides together: `TestPredicateIsR17` pins the 10 min; `TestBothReadersUseThePredicate` requires both SQL statements to contain `Predicate` and no other interval; `TestNoOtherCopyOfThePredicate` fails on any production Go or SQL file that compares `next_seal_at` itself (the policy's migration excepted); the catalog guard and `TestPolicyIsThePredicate` fail when the policy, `PolicyQual` or `Predicate` drift apart. Against PostgreSQL, heads 30 s either side of 10 min must read 1 and 0 on the gauge and agree with the gate (`lineage_integration_test.go`), and `TestAlertRules` runs `promtool test rules` on `deploy/compose/prometheus/tests/audit_test.yml`.
 
 ## On the stack
 

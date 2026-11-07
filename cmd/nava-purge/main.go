@@ -1,6 +1,7 @@
 // Command nava-purge deletes expired idempotency_keys, outbox and workflow_ref
-// rows on a ticker, connected as nava_purge (ADR-001 A.3). It serves /metrics,
-// /healthz and /readyz on the admin listener.
+// rows on a ticker, connected as nava_purge (ADR-001 A.3), and counts dead
+// audit seal lineages (ADR-004 R17, audit_dead_lineages; TICK-590). It serves
+// /metrics, /healthz and /readyz on the admin listener.
 package main
 
 import (
@@ -20,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/audit/lineage"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/health"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/logging"
@@ -75,6 +77,11 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 		_ = tel.Shutdown(context.WithoutCancel(ctx))
 		return err
 	}
+	dead, err := lineage.NewMonitor(pool, tel.MeterProvider, log, lineage.DefaultInterval)
+	if err != nil {
+		_ = tel.Shutdown(context.WithoutCancel(ctx))
+		return err
+	}
 	mon, err := health.NewMonitor(log, tel.MeterProvider,
 		[]health.Check{{Name: "postgres", Critical: true, Probe: pool.Ping}}, health.Options{})
 	if err != nil {
@@ -87,12 +94,16 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 		slog.Duration("interval", cfg.Interval))
 	stopCtx, stopAll := context.WithCancel(ctx)
 	defer stopAll()
-	var serveErr, purgeErr error
+	var serveErr, purgeErr, deadErr error
 	var wg sync.WaitGroup
 	wg.Go(func() { mon.Run(stopCtx) })
 	wg.Go(func() {
 		defer stopAll()
 		purgeErr = recovered(func() error { return purger.Run(stopCtx) })
+	})
+	wg.Go(func() {
+		defer stopAll()
+		deadErr = recovered(func() error { return dead.Run(stopCtx) })
 	})
 	wg.Go(func() {
 		defer stopAll()
@@ -121,19 +132,19 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 	if telErr != nil {
 		log.WarnContext(flushCtx, "telemetry shutdown failed", slog.Any("error", telErr))
 	}
-	return errors.Join(serveErr, purgeErr, telErr)
+	return errors.Join(serveErr, purgeErr, deadErr, telErr)
 }
 
-// newPool connects lazily as the URL's role. Two connections are enough: one
-// batch at a time plus the readiness ping. QueryExecModeExec keeps the
-// statements unnamed, so the pool also works behind PgBouncer's transaction
-// mode.
+// newPool connects lazily as the URL's role. Three connections are enough:
+// one purge batch, one dead-lineage read and the readiness ping.
+// QueryExecModeExec keeps the statements unnamed, so the pool also works
+// behind PgBouncer's transaction mode.
 func newPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, errors.New("NAVA_DATABASE_URL is not a valid PostgreSQL connection string")
 	}
-	cfg.MaxConns = 2
+	cfg.MaxConns = 3
 	cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
 	cfg.ConnConfig.ConnectTimeout = 5 * time.Second
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)

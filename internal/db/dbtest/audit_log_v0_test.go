@@ -175,6 +175,11 @@ func migrateTo(t *testing.T, m *grants.Manifest, fsys fs.FS) (migrate.Result, er
 	if _, err := fs.Stat(fsys, onboardSealStartMigration); err != nil {
 		fsys = withMigrationFrom(t, fsys, onboardSealStartMigration)
 	}
+	// And P5-34f's (TICK-590), which the allow-list pins: it needs only
+	// audit_chain_head (20261102233600).
+	if _, err := fs.Stat(fsys, deadLineageMigration); err != nil {
+		fsys = withMigrationFrom(t, fsys, deadLineageMigration)
+	}
 	log, _ := newLog()
 	return migrate.Run(context.Background(), roleConfig(t, withV0.Owner(), withV0.PlatformDatabase),
 		fsys, &withV0, &a, globalTables(t), log, migrate.Options{LockRetrySeconds: 1})
@@ -182,6 +187,9 @@ func migrateTo(t *testing.T, m *grants.Manifest, fsys fs.FS) (migrate.Result, er
 
 // auditReaderPoliciesMigration is ADR-004-A1 A1-3's policy migration (TICK-558).
 const auditReaderPoliciesMigration = "20261104133000_audit_reader_policies.sql"
+
+// deadLineageMigration is P5-34f's nava_purge policy on audit_chain_head (TICK-590).
+const deadLineageMigration = "20261107100000_audit_chain_head_dead_lineage.sql"
 
 // auditorGroupActiveTenantMigration is P5-23's policy migration (TICK-568).
 const auditorGroupActiveTenantMigration = "20261104191200_auditor_group_active_tenant.sql"

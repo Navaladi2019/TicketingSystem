@@ -65,12 +65,14 @@ The DEFAULT partition is under ENABLE + FORCE RLS and has no policy and no grant
 | `nava_app` | INSERT on the R10 columns; SELECT on the commit-check columns | SELECT; UPDATE `export_lease_until`, `next_seal_outbox_id`, `next_seal_at` | SELECT, INSERT |
 | `nava_worker` | INSERT on the R10 columns; SELECT on every column except `diff` and `diff_salt`; UPDATE of the 4 seal columns | SELECT; UPDATE `version`, `seq`, `entry_hash`, `next_seal_outbox_id`, `next_seal_at`, `seal_interval_s` | SELECT, INSERT |
 | `nava_erasure` | SELECT on the R23 columns only; INSERT on the R10 columns; UPDATE `diff`, `diff_salt`, `erased_at`, `erasure_ref` | — | — |
+| `nava_purge` | — | SELECT `tenant_id`, `next_seal_at` of dead heads only (`audit_chain_head_purge_select`, R17's predicate, every tenant; TICK-590) | — |
 | everyone | no DELETE | no INSERT, no DELETE | no UPDATE, no DELETE |
 
 Later tasks add the rest:
 - P5-11 generates the `nava_onboard` and `nava_groupsync` writer grants and policies.
 - P5-17 (TICK-435) added the reader's SELECT (nava_app, diff and diff_salt included).
 - P5-33 (TICK-441) added onboarding's pinned INSERT on the head and on `outbox` (`kind = 'audit.seal'` only) (A6.2); it commits while the tenant is `provisioning`, and `Activate` is a later transaction.
+- P5-34f (TICK-590) added `nava_purge`'s read of dead heads for the `audit_dead_lineages` gauge (see [Audit sealer](../architecture/audit-sealer.md#dead-lineages-r17)).
 - P5-15 and P5-32 add the migrator's temporary policies, created and dropped inside the backfill (see [S8 backfill](#s8-backfill-migration-a-p5-15)).
 
 The column grants decide which columns a role may name. Two triggers decide what a role may do with them:
