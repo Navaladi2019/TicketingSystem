@@ -7,6 +7,7 @@ Delivery decisions that change a task's contract, newest first.
 <!-- docindex:start -->
 
 - [2026-11-07: TICK-594: guarderrtype covers the audit.seal message; cause and details stay runtime-checked; a seal type held in a variable is deferred](decisions/2026-11-07-tick-594-seal-guard-lint-scope.md)
+- [2026-11-07: PLAN-005-E7 drafted: ADR-004-E7 lands as two tasks in S15; S15 acceptance waits for them](decisions/2026-11-07-plan-005-e7-adr-004-e7.md)
 - [2026-11-05: C5 amended: WithDelay option (P5-34a) and EnqueueReseed with reseed dedupe key (P5-35)](decisions/2026-11-05-c5-withdelay-and-enqueuereseed.md)
 - [2026-11-04: TICK-559 / D-A1-6: rule 1 exempts four test files by exact path and finding kind](decisions/2026-11-04-tick-559-rule1-test-exemptions.md)
 - [2026-11-04: PLAN-005-E5 approved: ADR-004-E5 lands as seven tasks in S14; step (ii) waits for the tombstoning sync; P5-13c attaches last](decisions/2026-11-04-plan-005-e5-adr-004-e5.md)

@@ -41,6 +41,9 @@ steps:
   - job: temporal-server
     run: make temporal-server-test
     why: the temporal-server module's tests under suiteran
+  - job: temporal-server
+    run: make lint-temporal-server
+    why: golangci-lint on the temporal-server module; make lint's ./... stops at its go.mod, so without it the D9/E1 authorizer is linted by nothing (TICK-584)
 
   # The coverage gate (TICK-518): both profiles, the gate and its report.
   - job: unit

@@ -11,15 +11,44 @@ calls only `make` targets. Install the pinned tools once with `make tools`.
 | Stage | Make target | What fails it | Containers |
 | --- | --- | --- | --- |
 | Lint | `ci-lint` | tool versions differ from `docs/pins.md`, `gofmt`, `go vet`, `vet-tags` (`go vet` once per build-tag set the `//go:build` lines use), golangci-lint, `lint-fixture` (exactly 5 forbidigo findings), `check-taskfile`, `check-pins`, `check-generate` (`api/api.gen.go` differs from what `go generate ./api/...` writes), `check-guide` (`docs/acceptance/guide/`, among it `bruno/lib/nava.js` `REGISTERED`, differs from what `build/build.py` writes; TICK-391), `check-ci-steps` (`ci.yml` lost a step listed in `tools/ci/cisteps/required.yaml`), `check-openapi`, `govulncheck ./...` in both modules at once (`vulncheck-ci`, below) | none |
-| Unit | `ci-unit` | `go test -race ./...` under the host-wide race lock (below), temporal-server unit tests | none |
+| Unit | `ci-unit` | `go test -race ./...` under the host-wide race lock (below), temporal-server unit tests, golangci-lint on the temporal-server module (`lint-temporal-server`, TICK-584) | none |
 | Integration | `ci-integration` | any `//go:build integration` test (`internal/db/dbtest`, `internal/db/pooltest`, `internal/tenancy`, `internal/platform/health`) against throwaway PostgreSQL clusters and two PgBouncers (tags from `docs/pins.md`), or the dbtest shards running fewer tests than the package lists | Docker |
 | Isolation (in `ci-integration`, after `test-integration`) | `isolation` | the tenant isolation suite (`internal/tenancy/isolation`, T11, ADR-001 CI-2): any role × tenant table, registered path or fixture failing; writes the report `isolation-report.md` at the repository root (uploaded as the `isolation-report` artifact, even when the job fails) | Docker |
 | ci-isolated `--down` (in `ci-integration`, after `isolation`; its own step in the `integration` job) | `test-ci-isolated-down` | `make ci-isolated-down ID=<ID>` leaves a `nava/*:<ID>` tag or removes one of another ID (TICK-211, throwaway tags on an empty imported image). Not part of `make test-integration`, so the local integration loop does not pay for it (TICK-224) | Docker |
 | Stack | `ci-stack` | image build, every container healthy, `GET /healthz` smoke from inside the compose network, then the stack tests (`pgbouncer`, `temporal`, `dependencies`, `trace`, `redact`, `idempotent`, `dbroles`, `hba`, `internal`) | compose |
 
-In GitHub, the `temporal-server` job runs the module's tests and then
-`make vulncheck-temporal-server`, which must report zero findings: there is no
-exception and no allowlist (ADR-001 A1 Decision 3, TICK-121).
+In GitHub, the `temporal-server` job runs the module's tests, then
+`make lint-temporal-server`, then `make vulncheck-temporal-server`, which must
+report zero findings: there is no exception and no allowlist (ADR-001 A1
+Decision 3, TICK-121). `lint-temporal-server` (TICK-584) runs golangci-lint
+from `temporal-server/` with the root `.golangci.yml`: `make lint` runs
+`./...` from the root, and with no `go.work` that pattern stops at the
+module's own `go.mod`, so before TICK-584 no job linted the D9/E1 authorizer.
+It checks the pinned golangci-lint version first (`check-golangci-lint`, the
+half of `check-tools` it needs). A waiver in the module still has to pass the
+ADR-002-E1 nolint gate, which greps every tracked `.go` file. The job shares
+the lint job's pinned-tools cache and adds the golangci-lint cache to its Go
+cache.
+
+**temporal-server lint ratchet (TICK-584).** The first full run found 45
+findings already on `main`, so `lint-temporal-server` passes
+`--new-from-merge-base=$(BASE)` and reports only findings in lines changed
+since the merge base with the pull request's base (the job checks out full
+history and sets `BASE` like the lint job). A planted errcheck violation in
+`temporal-server/authz` still turns the job red (PR #484, run 42169424211).
+A push to `main` lints nothing new (the merge base is `HEAD`); pull requests
+are the gate. `make lint-temporal-server TSRV_LINT_NEW=` lints the whole
+module. Remove the ratchet (`TSRV_LINT_NEW`) when the backlog below is fixed.
+
+| Linter | Count | Where (`temporal-server/`) |
+| --- | --- | --- |
+| gochecknoglobals | 25 | `authz/authorizer.go` 66, 69, 158; `authz/commands.go` 68, 91; `authz/identity.go` 29; `authz/policy.go` 28, 129, 232, 233; `cmd/server/check.go` 61; `internal/devcerts/devcerts.go` 47, 51, 56; tests: `authz/policy_test.go` 30, 34, 214, 215, 436, 534, 644; `authz/adversarial_sticky_command_test.go` 27; `authz/workload_smoke_removed_test.go` 21; `authz/workload_t27k_test.go` 139; `cmd/server/check_test.go` 64 |
+| noctx | 10 | `cmd/server/tools.go` 39, 90, 110; tests: `cmd/server/server_test.go` 355, 365, 390, 429, 482, 501; `gomod_test.go` 27 |
+| revive | 4 | `authz/identity.go` 17 (exported const without comment); tests: `authz/adversarial_test.go` 70, 75 and `cmd/server/server_test.go` 257 (context not first) |
+| gosec | 3 | `cmd/server/check.go` 198; `internal/devcerts/devcerts.go` 199, 212 |
+| errorlint | 1 | `cmd/server/bootstrap.go` 127 |
+| nolintlint | 1 | `authz/workload_a2_test.go` 60 (unused `//nolint:staticcheck`) |
+| staticcheck | 1 | `authz/policy_test.go` 229 (QF1002 tagged switch) |
 `lint`, `unit`, `temporal-server`, `integration`, `commit-check-budget`
 and `stack` run as six parallel jobs (the ones a pull request needs, see "In
 GitHub" below), each a separate check (decision log, 2026-10-20). Inside each job, steps follow the
@@ -64,8 +93,8 @@ there; production files never set them.
 **Time budget: under 5 minutes wall clock on a warm cache.** What keeps it there:
 - Each job restores its own Go module and build cache (`actions/cache`, key per
   job and commit, falling back to the newest entry), so `go vet`, `go test` and
-  the temporal-server tests compile only what changed. The lint job also caches
-  the golangci-lint cache and the pinned tools (`~/go/bin`, keyed on the
+  the temporal-server tests compile only what changed. The lint and
+  temporal-server jobs also cache the golangci-lint cache and the pinned tools (`~/go/bin`, keyed on the
   Makefile, which holds the versions).
 - `make image-ci` builds the images with `docker buildx bake` and keeps the
   layers in the Actions cache (`IMAGE_CACHE=gha`), while the registry images are
@@ -97,7 +126,8 @@ and the 7 green push runs of story branch `TICK-334/workflow-interpreter`
 | `stack` | 835 s / 1,399 s | 947 s / 1,474 s | 299 s / 678 s (758 s in cancelled run 41278740124) | 480 s / 719 s | 35 (was 25) |
 | `stack-db` | 381 s / 793 s | 409 s / 789 s | 254 s / 652 s | 43 s / 55 s | 25 |
 | `stack-internal` | 432 s / 795 s | 356 s / 742 s | 256 s / 684 s | 34 s / 47 s | 25 |
-| `lint`, `unit`, `temporal-server`, `integration` | under 5 min | | | | 10 |
+| `lint`, `unit`, `integration` | under 5 min | | | | 10 |
+| `temporal-server` | about 4 min (run 42169424211, PR #484: tests 143 s, golangci-lint 19 s cold) | | | | 10 |
 | `commit-check-budget` | | 120 s, cold Go cache (run 41673342312; the test itself 13 s) | | | 10 |
 | `changes` | under 1 min | | | | 5 |
 
@@ -409,8 +439,8 @@ stages `cichanged` picks and writes `unit`, `integration` and `stack` as
 | `ci-stack` | `stack` (its three phases) |
 
 A diff of only documentation (`.md` and `.html` outside a Go package and
-`testdata`) needs `ci-lint` alone; `TestDocsOnlyDiffRunsNoUnitIntegrationOrStack`
-in `tools/ci/cichanged` runs `scripts/ci/ci-stages.sh` on such a diff and checks
+`testdata`) needs `ci-lint` alone; the `TestCIStages` subtest "docs-only diff runs no unit,
+integration or stack" in `tools/ci/cichanged` runs `scripts/ci/ci-stages.sh` on such a diff and checks
 `unit=false integration=false stack=false`. A change under `.github/workflows`
 runs every job, since only a full run proves a workflow edit. A skipped job
 shows as skipped, not failed, and a skipped required check counts as passed.

@@ -14,12 +14,15 @@ package migrate
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 	"github.com/pressly/goose/v3/lock"
@@ -36,6 +39,45 @@ type Options struct {
 	// so a second run waits up to 10 minutes).
 	LockRetrySeconds uint64
 	LockAttempts     uint64
+
+	// LockTimeout is the lock_timeout the migrations run under (default 5s):
+	// a DDL statement that waits longer than this for a table lock fails with
+	// SQLSTATE 55P03 instead of queueing every reader and writer of the table
+	// behind it (TICK-579). It is a session setting, so a transactional
+	// migration can still override it with SET LOCAL. A NO TRANSACTION
+	// migration that sets its own must RESET it before it ends.
+	LockTimeout time.Duration
+	// DDLAttempts bounds how many times a run that hit the lock_timeout runs
+	// the pending migrations again (default 10). DDLBackoff is the wait
+	// before the first retry (default 1s); each retry doubles it, up to
+	// DDLMaxBackoff (default 30s). The failed migration's transaction rolled
+	// back, and every NO TRANSACTION migration is safe to re-run
+	// (TestNoTransactionMigrationsAreIdempotent), so a retry resumes at it.
+	DDLAttempts   int
+	DDLBackoff    time.Duration
+	DDLMaxBackoff time.Duration
+}
+
+func (o Options) withDefaults() Options {
+	if o.LockRetrySeconds == 0 {
+		o.LockRetrySeconds = 2
+	}
+	if o.LockAttempts == 0 {
+		o.LockAttempts = 300
+	}
+	if o.LockTimeout == 0 {
+		o.LockTimeout = 5 * time.Second
+	}
+	if o.DDLAttempts == 0 {
+		o.DDLAttempts = 10
+	}
+	if o.DDLBackoff == 0 {
+		o.DDLBackoff = time.Second
+	}
+	if o.DDLMaxBackoff == 0 {
+		o.DDLMaxBackoff = 30 * time.Second
+	}
+	return o
 }
 
 // Result is what one run applied.
@@ -125,22 +167,31 @@ func Up(ctx context.Context, cfg *pgx.ConnConfig, fsys fs.FS, log *slog.Logger, 
 // upFresh is Up, and reports whether the run applied the first migration in
 // fsys: the database had none applied before it.
 func upFresh(ctx context.Context, cfg *pgx.ConnConfig, fsys fs.FS, log *slog.Logger, opt Options) ([]string, bool, error) {
-	if opt.LockRetrySeconds == 0 {
-		opt.LockRetrySeconds = 2
-	}
-	if opt.LockAttempts == 0 {
-		opt.LockAttempts = 300
-	}
+	opt = opt.withDefaults()
 	locker, err := lock.NewPostgresSessionLocker(lock.WithLockTimeout(opt.LockRetrySeconds, opt.LockAttempts))
 	if err != nil {
 		return nil, false, err
 	}
-	db := stdlib.OpenDB(*cfg)
+	// The advisory lock is pg_try_advisory_lock, which never waits, so the
+	// lock_timeout bounds only the migrations' own lock waits.
+	mcfg := cfg.Copy()
+	if mcfg.RuntimeParams == nil {
+		mcfg.RuntimeParams = map[string]string{}
+	}
+	mcfg.RuntimeParams["lock_timeout"] = fmt.Sprintf("%dms", opt.LockTimeout.Milliseconds())
+	db := stdlib.OpenDB(*mcfg)
 	defer func() { _ = db.Close() }()
-	return up(ctx, db, fsys, locker, log)
+	return up(ctx, db, fsys, locker, log, opt)
 }
 
-func up(ctx context.Context, db *sql.DB, fsys fs.FS, locker lock.SessionLocker, log *slog.Logger) ([]string, bool, error) {
+// isLockTimeout reports whether err is a lock_timeout expiry (55P03
+// lock_not_available).
+func isLockTimeout(err error) bool {
+	var pg *pgconn.PgError
+	return errors.As(err, &pg) && pg.Code == "55P03"
+}
+
+func up(ctx context.Context, db *sql.DB, fsys fs.FS, locker lock.SessionLocker, log *slog.Logger, opt Options) ([]string, bool, error) {
 	// Out of order: new migrations carry timestamp versions (TICK-290), and
 	// one from a long-lived branch can be older than one already applied.
 	// goose applies such a missing migration instead of refusing the run.
@@ -152,9 +203,40 @@ func up(ctx context.Context, db *sql.DB, fsys fs.FS, locker lock.SessionLocker, 
 	if err != nil {
 		return nil, false, err
 	}
-	results, err := p.Up(ctx)
-	if err != nil {
-		return nil, false, fmt.Errorf("migrate: %w", err)
+	// A migration that hits the lock_timeout is retried with a doubling
+	// backoff. Each attempt takes and releases the advisory lock, so another
+	// run may apply the rest meanwhile; this one then finds nothing pending.
+	var results []*goose.MigrationResult
+	backoff := opt.DDLBackoff
+	for attempt := 1; ; attempt++ {
+		r, err := p.Up(ctx)
+		if err == nil {
+			results = append(results, r...)
+			break
+		}
+		var partial *goose.PartialError
+		if errors.As(err, &partial) {
+			results = append(results, partial.Applied...)
+		}
+		if !isLockTimeout(err) || attempt >= opt.DDLAttempts {
+			if isLockTimeout(err) {
+				err = fmt.Errorf("lock_timeout %s hit on %d attempts: %w", opt.LockTimeout, attempt, err)
+			}
+			return nil, false, fmt.Errorf("migrate: %w", err)
+		}
+		log.WarnContext(ctx, "migration hit lock_timeout, retrying",
+			slog.Int("attempt", attempt),
+			slog.Int("max_attempts", opt.DDLAttempts),
+			slog.Duration("backoff", backoff),
+			slog.String("error", err.Error()))
+		t := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return nil, false, fmt.Errorf("migrate: %w (after %w)", ctx.Err(), err)
+		case <-t.C:
+		}
+		backoff = min(2*backoff, opt.DDLMaxBackoff)
 	}
 	names := make([]string, 0, len(results))
 	for _, r := range results {
