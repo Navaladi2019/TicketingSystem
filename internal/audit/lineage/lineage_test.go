@@ -49,8 +49,9 @@ func TestBothReadersUseThePredicate(t *testing.T) {
 	}
 }
 
-// nextSealAtCompare finds a comparison on next_seal_at written out by hand.
-var nextSealAtCompare = regexp.MustCompile(`next_seal_at\s*(<|>|<=|>=)`)
+// nextSealAtCompare finds a comparison on next_seal_at written out by hand,
+// with the column on either side, or a BETWEEN on it (TICK-591).
+var nextSealAtCompare = regexp.MustCompile(`(?i)next_seal_at\s*(<|>)|next_seal_at\s+between\b|(<|>)=?\s*next_seal_at`)
 
 // No production Go or SQL file outside this package restates R17, except the
 // migration whose policy the catalog guard pins to PolicyQual. A reseed gate
@@ -86,6 +87,33 @@ func TestNoOtherCopyOfThePredicate(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The guard's pattern sees every way of writing the comparison.
+func TestNextSealAtCompareMatches(t *testing.T) {
+	for _, sql := range []string{
+		"next_seal_at < now() - interval '9 minutes'",
+		"next_seal_at <= now()",
+		"next_seal_at>now()",
+		"now() - interval '9 minutes' > next_seal_at",
+		"now() >= next_seal_at",
+		"now()-interval '1 hour'<next_seal_at",
+		"next_seal_at BETWEEN a AND b",
+		"next_seal_at between a and b",
+	} {
+		if !nextSealAtCompare.MatchString(sql) {
+			t.Errorf("guard misses %q", sql)
+		}
+	}
+	for _, sql := range []string{
+		"SET next_seal_outbox_id = $2, next_seal_at = now() + make_interval(secs => $3)",
+		"INSERT INTO audit_chain_head (tenant_id, id, next_seal_outbox_id, next_seal_at)",
+		"SELECT next_seal_at FROM audit_chain_head",
+	} {
+		if nextSealAtCompare.MatchString(sql) {
+			t.Errorf("guard flags %q, which compares nothing", sql)
+		}
 	}
 }
 

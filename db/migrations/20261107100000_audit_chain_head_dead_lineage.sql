@@ -8,14 +8,22 @@
 -- lease, and no write.
 --
 -- A policy only: a catalogue update, no rewrite, no index (one row per
--- tenant). Registered in internal/db/catalog.AllowList, pinned to
+-- tenant). CREATE POLICY takes an ACCESS EXCLUSIVE lock on the head, and a
+-- seal run holds head row locks for up to 10,000 entries, so lock_timeout
+-- fails the migration after 5 s rather than queueing every seal behind it;
+-- rerun it (TICK-590 Postgres review R1). Registered in
+-- internal/db/catalog.AllowList, pinned to
 -- lineage.PolicyQual.
 
 -- +goose Up
+
+SET LOCAL lock_timeout = '5s';
 
 CREATE POLICY audit_chain_head_purge_select ON audit_chain_head FOR SELECT TO nava_purge
     USING (next_seal_at < now() - interval '10 minutes');
 
 -- +goose Down
+
+SET LOCAL lock_timeout = '5s';
 
 DROP POLICY audit_chain_head_purge_select ON audit_chain_head;

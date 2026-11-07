@@ -14,7 +14,10 @@
 # (next_seal_at < now() - 10 min, internal/audit/lineage.Predicate): a lineage
 # that stopped, whatever stopped it. No tenant label; nava-purge logs
 # "audit seal lineage dead" with the tenant_id. It fires exactly when a reseed
-# becomes allowed. Tests: audit_test.yml (make check-alert-rules).
+# becomes allowed. nava-purge withdraws the gauge when its read fails, so
+# AuditDeadLineageCheckDown pages when the series has been gone for 5 min
+# (TICK-591): a check that keeps failing must not look like "no dead
+# lineages". Tests: ../tests/audit_test.yml (lineage.TestAlertRules).
 groups:
   - name: audit
     rules:
@@ -38,3 +41,15 @@ groups:
             No run will seal the tenant's entries again until
             POST /api/v1/audit/chain:reseed. The tenant_id is on the
             nava-purge "audit seal lineage dead" log line.
+      - alert: AuditDeadLineageCheckDown
+        expr: absent(audit_dead_lineages)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: The audit dead-lineage check has reported nothing for 5 min, so a stopped seal lineage would not alert (ADR-004 R17).
+          description: >-
+            nava-purge withdraws audit_dead_lineages when its read fails. Check
+            the nava-purge "audit dead lineage check failed" log line (a lost
+            grant, a dropped policy or a renamed column), and that nava-purge
+            is up and scraped.
