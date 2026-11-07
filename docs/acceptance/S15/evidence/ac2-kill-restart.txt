@@ -1,0 +1,47 @@
+== before the load (2026-11-07T13:28:10Z)
+              tenant_id               | version | head_seq | seal_interval_s | next_seal_at | unsealed | oldest_unsealed_s | seal_rows_pending | seal_rows_dead 
+--------------------------------------+---------+----------+-----------------+--------------+----------+-------------------+-------------------+----------------
+ 00000000-0000-4000-8000-0000000000a1 |       9 |        6 |              10 | 13:28:18     |        0 |                   |                 1 |              0
+ 00000000-0000-4000-8000-0000000000b1 |       8 |        3 |             300 | 13:32:57     |        1 |                 3 |                 1 |              0
+ 62abcbbf-8780-51b1-9bf9-41bdf14c553a |       7 |        3 |             300 | 13:29:22     |        0 |                   |                 1 |              0
+
+== just before the kill (worker running, writes arriving) (2026-11-07T13:28:26Z)
+              tenant_id               | version | head_seq | seal_interval_s | next_seal_at | unsealed | oldest_unsealed_s | seal_rows_pending | seal_rows_dead 
+--------------------------------------+---------+----------+-----------------+--------------+----------+-------------------+-------------------+----------------
+ 00000000-0000-4000-8000-0000000000a1 |      10 |       96 |              10 | 13:28:28     |      127 |                 9 |                 1 |              0
+ 00000000-0000-4000-8000-0000000000b1 |       8 |        3 |             300 | 13:32:57     |      217 |                19 |                 1 |              0
+ 62abcbbf-8780-51b1-9bf9-41bdf14c553a |       7 |        3 |             300 | 13:29:22     |        0 |                   |                 1 |              0
+
+== 2026-11-07T13:28:27Z docker compose kill nava-worker
+ Container s15acc-nava-worker-1 Killing 
+ Container s15acc-nava-worker-1 Killed 
+s15acc-nava-worker-1 exited Exited (137) 1 second ago
+== worker down 25 s, writes still arriving: unsealed grows, head_seq stands (2026-11-07T13:28:55Z)
+              tenant_id               | version | head_seq | seal_interval_s | next_seal_at | unsealed | oldest_unsealed_s | seal_rows_pending | seal_rows_dead 
+--------------------------------------+---------+----------+-----------------+--------------+----------+-------------------+-------------------+----------------
+ 00000000-0000-4000-8000-0000000000a1 |      10 |       96 |              10 | 13:28:28     |      525 |                38 |                 0 |              0
+ 00000000-0000-4000-8000-0000000000b1 |       8 |        3 |             300 | 13:32:57     |      615 |                47 |                 1 |              0
+ 62abcbbf-8780-51b1-9bf9-41bdf14c553a |       7 |        3 |             300 | 13:29:22     |        0 |                   |                 1 |              0
+
+== 2026-11-07T13:28:56Z docker compose up -d --no-deps --wait nava-worker
+ Container s15acc-nava-worker-1 Starting 
+ Container s15acc-nava-worker-1 Started 
+ Container s15acc-nava-worker-1 Waiting 
+ Container s15acc-nava-worker-1 Healthy 
+load: tenant A: 840 incidents created, statuses {"201":840}
+load: tenant B: 838 incidents created, statuses {"201":838}
+== writes done (2026-11-07T13:29:12Z)
+              tenant_id               | version | head_seq | seal_interval_s | next_seal_at | unsealed | oldest_unsealed_s | seal_rows_pending | seal_rows_dead 
+--------------------------------------+---------+----------+-----------------+--------------+----------+-------------------+-------------------+----------------
+ 00000000-0000-4000-8000-0000000000a1 |      12 |      807 |              10 | 13:29:19     |       39 |                 4 |                 1 |              0
+ 00000000-0000-4000-8000-0000000000b1 |       8 |        3 |             300 | 13:32:57     |      839 |                64 |                 1 |              0
+ 62abcbbf-8780-51b1-9bf9-41bdf14c553a |       7 |        3 |             300 | 13:29:22     |        0 |                   |                 1 |              0
+
+== backlog sealed (2026-11-07T13:33:05Z)
+              tenant_id               | version | head_seq | seal_interval_s | next_seal_at | unsealed | oldest_unsealed_s | seal_rows_pending | seal_rows_dead 
+--------------------------------------+---------+----------+-----------------+--------------+----------+-------------------+-------------------+----------------
+ 00000000-0000-4000-8000-0000000000a1 |      18 |      846 |             300 | 13:34:40     |        0 |                   |                 1 |              0
+ 00000000-0000-4000-8000-0000000000b1 |       9 |      842 |              10 | 13:37:57     |        0 |                   |                 1 |              0
+ 62abcbbf-8780-51b1-9bf9-41bdf14c553a |       8 |        3 |             300 | 13:34:22     |        0 |                   |                 1 |              0
+
+== kill at 2026-11-07T13:28:27Z

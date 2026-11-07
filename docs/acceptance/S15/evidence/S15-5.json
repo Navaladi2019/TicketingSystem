@@ -1,0 +1,34 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:28082/api/v1/operator/tenants",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Content-Length": "528",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:28082",
+      "Connection": "keep-alive",
+      "Idempotency-Key": "tick443-s15-mw6fps5b-onboard",
+      "Content-Type": "application/json"
+    },
+    "body": "{\n  \"admin_email\": \"admin@s15-mw6fps5b.test\",\n  \"email_domains\": [\n    \"s15-mw6fps5b.test\"\n  ],\n  \"identity_provider\": {\n    \"provider_id\": \"oidc\",\n    \"display_name\": \"S15 acceptance IdP\",\n    \"config\": {\n      \"clientId\": \"acceptance-client\",\n      \"clientSecret\": \"dev-only-not-a-secret\",\n      \"authorizationUrl\": \"https://93.184.216.34/auth\",\n      \"tokenUrl\": \"https://93.184.216.34/token\",\n      \"jwksUrl\": \"https://93.184.216.34/jwks\",\n      \"useJwksUrl\": \"true\",\n      \"defaultScope\": \"openid email profile\"\n    }\n  }\n}"
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "state": "active",
+      "tenant_id": "62abcbbf-8780-51b1-9bf9-41bdf14c553a"
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 201",
+      "status": "pass"
+    },
+    {
+      "test": "tenant_id is a uuid, state active",
+      "status": "pass"
+    }
+  ]
+}
