@@ -477,7 +477,7 @@ func TestReschedule(t *testing.T) {
 			t.Fatalf("stale Reschedule = %s, %v; want a no-op", next, err)
 		}
 	}
-	if h := readHead(t, e, tenant); h.version != 3 || h.next == nil || *h.next != o || h.nextAt != nil {
+	if h := readHead(t, e, tenant); h.version != 3 || h.next == nil || *h.next != o || h.nextAt != nil || h.interval != 40 {
 		t.Fatalf("a stale A1 changed the head: %+v", h)
 	}
 	if got := count(t, e.super, "SELECT count(*) FROM outbox WHERE tenant_id = $1", tenant); got != 0 {
@@ -649,5 +649,169 @@ func TestSealTenantIsolation(t *testing.T) {
 	}
 	if _, err := seal.Reschedule(asTenant(none), e.worker, bo); !errors.Is(err, seal.ErrHeadNotFound) {
 		t.Errorf("Reschedule with no head: %v, want ErrHeadNotFound", err)
+	}
+}
+
+// booked is how o′ was booked: available_at − created_at, exactly (the
+// delay A1 applied), and available_at − now(), read just after A1.
+func booked(t *testing.T, e itEnv, tenant, next uuid.UUID) (gapUS int64, ahead float64, availableAt time.Time) {
+	t.Helper()
+	if err := e.super.QueryRow(context.Background(), `SELECT
+		(extract(epoch FROM available_at - created_at) * 1000000)::bigint,
+		extract(epoch FROM available_at - now())::float8, available_at
+		FROM outbox WHERE tenant_id = $1 AND id = $2`, tenant, next).Scan(&gapUS, &ahead, &availableAt); err != nil {
+		t.Fatal(err)
+	}
+	return gapUS, ahead, availableAt
+}
+
+// assertBooked checks that o′ was booked want seconds ahead (exactly from
+// its created_at, ±2 s from now()), that the head points at it with
+// next_seal_at = its available_at, and that the head stores want as
+// seal_interval_s.
+func assertBooked(t *testing.T, e itEnv, tenant, next uuid.UUID, want int32) {
+	t.Helper()
+	gapUS, ahead, availableAt := booked(t, e, tenant, next)
+	if gapUS != int64(want)*1_000_000 {
+		t.Errorf("o′ available_at - created_at = %d µs, want %d s", gapUS, want)
+	}
+	if ahead < float64(want)-2 || ahead > float64(want)+2 {
+		t.Errorf("o′ available_at - now() = %.1f s, want %d s ±2 s", ahead, want)
+	}
+	h := readHead(t, e, tenant)
+	if h.next == nil || *h.next != next {
+		t.Errorf("head next_seal_outbox_id %v, want o′ %s", h.next, next)
+	}
+	if h.nextAt == nil || !h.nextAt.Equal(availableAt) {
+		t.Errorf("next_seal_at %v, want o′'s available_at %s", h.nextAt, availableAt)
+	}
+	if h.interval != want {
+		t.Errorf("head seal_interval_s %d, want %d", h.interval, want)
+	}
+}
+
+// postIdleLineage seeds a tenant whose head points at run o with the
+// interval at 300 s (an idle tenant), and returns both.
+func postIdleLineage(t *testing.T, e itEnv) (uuid.UUID, uuid.UUID) {
+	t.Helper()
+	tenant := newTenant(t, e)
+	o := uuid.Must(uuid.NewV7())
+	mustExec(t, e.super, `UPDATE audit_chain_head SET next_seal_outbox_id = $2, seal_interval_s = $3
+		WHERE tenant_id = $1`, tenant, o, int32(seal.MaxIntervalSeconds))
+	return tenant, o
+}
+
+// ADR-004-E7: with a pending entry, A1 books o′ 10 s ahead whatever the
+// stored interval, and stores 10 with the repoint. A stale A1 with pending
+// work still writes nothing.
+func TestRescheduleWithPendingWorkBooks10s(t *testing.T) {
+	e := migrated(t)
+	tenant, o := postIdleLineage(t, e)
+	writeEntries(t, e, tenant, 1)
+	ctx := asTenant(tenant)
+
+	before := readHead(t, e, tenant)
+	if next, err := seal.Reschedule(ctx, e.worker, uuid.Must(uuid.NewV7())); err != nil || next != uuid.Nil {
+		t.Fatalf("stale Reschedule = %s, %v; want a no-op", next, err)
+	}
+	if h := readHead(t, e, tenant); h.version != before.version || h.interval != seal.MaxIntervalSeconds || h.nextAt != nil {
+		t.Fatalf("a stale A1 with pending work changed the head: %+v", h)
+	}
+	if got := count(t, e.super, "SELECT count(*) FROM outbox WHERE tenant_id = $1", tenant); got != 0 {
+		t.Fatalf("a stale A1 wrote %d outbox rows", got)
+	}
+
+	next, err := seal.Reschedule(ctx, e.worker, o)
+	if err != nil || next == uuid.Nil {
+		t.Fatalf("Reschedule(o) = %s, %v", next, err)
+	}
+	assertBooked(t, e, tenant, next, seal.MinIntervalSeconds)
+	if h := readHead(t, e, tenant); h.version != before.version+1 {
+		t.Errorf("head version %d, want %d", h.version, before.version+1)
+	}
+}
+
+// ADR-004-E7: with no pending entry, A1 books o′ at the stored interval, as
+// before, and leaves it stored. Sealed entries are not pending.
+func TestRescheduleIdleBooksStoredInterval(t *testing.T) {
+	e := migrated(t)
+	tenant, o := postIdleLineage(t, e)
+	writeEntries(t, e, tenant, 2)
+	if n, err := seal.Seal(asTenant(tenant), e.worker); err != nil || n != 2 {
+		t.Fatalf("Seal = %d, %v; want 2", n, err)
+	}
+	mustExec(t, e.super, "UPDATE audit_chain_head SET seal_interval_s = $2 WHERE tenant_id = $1", tenant, int32(seal.MaxIntervalSeconds))
+
+	next, err := seal.Reschedule(asTenant(tenant), e.worker, o)
+	if err != nil || next == uuid.Nil {
+		t.Fatalf("Reschedule(o) = %s, %v", next, err)
+	}
+	assertBooked(t, e, tenant, next, seal.MaxIntervalSeconds)
+}
+
+// CI-A16, idle tenant with a backlog above the cap (ADR-004-E7, RFC-013):
+// head at 300 s, 20,000 unsealed entries. Run n's A1 books o′ 10 s ahead and
+// its capped A2 seals 10,000, so the rest is picked up 10 s later, not after
+// 300 s. Red before E7: o′ was booked at the stored 300 s.
+func TestIdleTenantBacklogAboveCapBooks10s(t *testing.T) {
+	e := migrated(t)
+	tenant, o := postIdleLineage(t, e)
+	const capped = seal.DefaultMaxBatches * seal.BatchSize
+	writeEntries(t, e, tenant, 2*capped)
+	ctx := asTenant(tenant)
+
+	next, err := seal.Reschedule(ctx, e.worker, o)
+	if err != nil || next == uuid.Nil {
+		t.Fatalf("Reschedule(o) = %s, %v", next, err)
+	}
+	assertBooked(t, e, tenant, next, seal.MinIntervalSeconds)
+
+	n, err := seal.Seal(ctx, e.worker, seal.WithMaxBatches(seal.DefaultMaxBatches))
+	if err != nil || n != capped {
+		t.Fatalf("Seal = %d, %v; want %d", n, err, capped)
+	}
+	if got := assertChain(t, e, tenant); got != capped {
+		t.Errorf("%d sealed, want %d", got, capped)
+	}
+	if h := readHead(t, e, tenant); h.interval != seal.MinIntervalSeconds || h.next == nil || *h.next != next {
+		t.Errorf("after run n the head is %+v, want seal_interval_s %d and o′ %s", h, seal.MinIntervalSeconds, next)
+	}
+}
+
+// CI-A16, poison fan-out (TA F9): a post-idle tenant (head at 300 s) with a
+// poison entry gets a run every 10 s. Each A1 books o′ at 10 s, no A2 uses a
+// seq, and the lineage stays alive: the head always points at the latest o′.
+func TestPoisonAfterIdleBooks10sAndKeepsLineage(t *testing.T) {
+	e := migrated(t)
+	tenant, o := postIdleLineage(t, e)
+	mustExec(t, e.super, `INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id,
+		version_after, actor_system, source) VALUES ($1, $2, 'record', 'update', 'record', gen_random_uuid(), $3,
+		'system', 'system')`, tenant, uuid.Must(uuid.NewV7()), int64(chain.MaxSafeInteger)+1)
+	writeEntries(t, e, tenant, 2)
+	ctx := asTenant(tenant)
+	seqBefore := readHead(t, e, tenant).seq
+
+	const runs = 3
+	run := o
+	for i := 1; i <= runs; i++ {
+		next, err := seal.Reschedule(ctx, e.worker, run)
+		if err != nil || next == uuid.Nil {
+			t.Fatalf("run %d: Reschedule = %s, %v; the lineage ended", i, next, err)
+		}
+		assertBooked(t, e, tenant, next, seal.MinIntervalSeconds)
+		if _, err := seal.Seal(ctx, e.worker); !errors.Is(err, seal.ErrUnsealable) {
+			t.Fatalf("run %d: Seal error %v, want ErrUnsealable", i, err)
+		}
+		h := readHead(t, e, tenant)
+		if h.seq != seqBefore {
+			t.Errorf("run %d: head seq %d, want %d: a seq was used", i, h.seq, seqBefore)
+		}
+		if h.next == nil || *h.next != next {
+			t.Errorf("run %d: head points at %v, want the latest o′ %s", i, h.next, next)
+		}
+		run = next
+	}
+	if got := count(t, e.super, "SELECT count(*) FROM outbox WHERE tenant_id = $1", tenant); got != runs {
+		t.Errorf("%d outbox rows, want one o′ per run", got)
 	}
 }

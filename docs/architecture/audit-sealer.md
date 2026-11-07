@@ -19,8 +19,10 @@ sequenceDiagram
     A1->>H: SELECT ... FOR UPDATE
     alt next_seal_outbox_id = o
         A1->>H: version = version + 1
-        A1->>O: EnqueueSeal(version, WithDelay(seal_interval_s))
-        A1->>H: next_seal_outbox_id = o', next_seal_at = now() + interval
+        A1->>L: EXISTS unsealed entry? (audit_log_unsealed)
+        Note over A1: pending: delay = 10 s, else delay = seal_interval_s
+        A1->>O: EnqueueSeal(version, WithDelay(delay))
+        A1->>H: next_seal_outbox_id = o', next_seal_at = now() + delay, seal_interval_s = delay
     else stale lineage
         A1-->>W: no-op
     end
@@ -39,7 +41,7 @@ sequenceDiagram
 
 - **R15a.** `seq` comes only from the head row read `FOR UPDATE` in the transaction that assigns it. The head advances in that same transaction. A second sealer waits on the lock and then reads the moved head.
 - **A1 is idempotent.** A retry after commit finds `next_seal_outbox_id = o′`, not `o`, and does nothing. Two A1s of one run racing produce one `o′`.
-- **The interval is stored on the head.** A1 commits before A2 runs, so `o′` takes the interval the previous run's A2 left. That is why A2 returns no count: the next run needs nothing from the workflow history.
+- **The interval is stored on the head (ADR-004-E7).** A1, on the non-stale path and under the head lock, probes `EXISTS (... audit_log WHERE tenant_id = $1 AND sealed_at IS NULL)` (partial index `audit_log_unsealed`). If the tenant has work pending, A1 books `o′` 10 s ahead and stores `seal_interval_s = 10` in the same `UPDATE` that repoints the head; otherwise it books `o′` at the stored interval. A2's last (or capped) batch stores the interval for later runs: 10 s if the run sealed anything, otherwise doubled up to 300 s; an A2 error leaves it as it was. So an entry written after idle is sealed within the delay already booked when it was written (≤ 300 s) plus one run, absent an A2 failure. A2 returns no count: the next run needs nothing from the workflow history.
 - **A poison entry fails its batch.** An envelope that cannot be canonicalised (`chain.ErrInvalidEnvelope`, for example `version_after` above 2^53 − 1) rolls back the whole batch, so no `seq` is used and the head does not move. The activity returns the non-retryable `nava.audit.seal.Unsealable`, which the worker guard records as is (TICK-585), so the run's failure in the history names it and the guard counts no deny; `nava.audit.seal.HeadNotFound` is allowed the same way. The lineage stays alive past it because A1 committed `o′` first; the next run meets the same entry and fails again, because skipping it would break the `(occurred_at, id)` order.
 - **Order.** Entries are sealed in `(occurred_at, id)` order within a batch. An entry that commits late, such as a back-filled one, gets the next `seq` when it arrives. The golden-vector test seeds the P5-02 chain in that arrival order.
 
@@ -49,7 +51,7 @@ sequenceDiagram
 
 - **A1, then A2, always.** A2 runs whatever A1 returned. A1 returns no `o′` for a stale lineage, and for a retry of an A1 that had already committed (its worker died before reporting); R15's head lock makes the overlapping A2 safe. Only an A1 failure skips A2.
 - **No child, no continue-as-new.** The only way to the next run is A1's outbox row, which the relay starts and the head fences. The Authorizer sees only the workflow id, so `TestWorkflowStartsNoChildAndNeverContinuesAsNew` and `TestRecordedHistoriesShape` enforce it.
-- **Bounded A2.** One A2 call seals at most `DefaultMaxBatches` (10) batches, heartbeats after each committed batch (`HeartbeatTimeout` 30 s, `StartToClose` 5 min), and returns; the capped run sets the interval to 10 s and the next run continues the chain. A2 has an explicit retry policy of 10 attempts, after which the next run, already committed by A1, tries again. A1 retries with no attempt cap (TICK-587): it is the step that commits the next run, so a capped A1 that ran out during a PostgreSQL or PgBouncer outage would end the lineage silently until `chain:reseed`. A1 is idempotent (R16), so retrying until the outage ends is safe; both cap the backoff at 1 min. `NoRun`, `HeadNotFound` (A1, TICK-588 M1: otherwise a tenant with no head would be retried forever) and `Unsealable` (A2) are non-retryable.
+- **Bounded A2.** One A2 call seals at most `DefaultMaxBatches` (10) batches, heartbeats after each committed batch (`HeartbeatTimeout` 30 s, `StartToClose` 5 min), and returns. The next run continues the chain 10 s after this run's A1 committed: A1 saw the backlog and booked `o′` at 10 s (E7), so a backlog above the cap after idle is not held for the stored 300 s; the capped A2 then stores 10 s for later runs. A run can therefore start while the previous one's A2 is still sealing; the two serialise on the head lock (R15a). A2 has an explicit retry policy of 10 attempts, after which the next run, already committed by A1, tries again. A1 retries with no attempt cap (TICK-587): it is the step that commits the next run, so a capped A1 that ran out during a PostgreSQL or PgBouncer outage would end the lineage silently until `chain:reseed`. A1 is idempotent (R16), so retrying until the outage ends is safe; both cap the backoff at 1 min. `NoRun`, `HeadNotFound` (A1, TICK-588 M1: otherwise a tenant with no head would be retried forever) and `Unsealable` (A2) are non-retryable.
 - **Kill between A1 and A2.** `o′` is already committed, so the next run seals what this run left.
 
 ## Metrics and alert (R-A2)
@@ -63,7 +65,7 @@ sequenceDiagram
 
 ## Capacity
 
-One tenant's chain sustains about **950 entries/s**: a run seals at most `DefaultMaxBatches` × 1,000 = 10,000 entries, and a capped run sets the interval to 10 s, so the next run is due 10 s after the last one ends: 10,000 entries per run plus 10 s. A tenant that writes faster than that builds a backlog that keeps growing until `AuditSealLag` fires at 600 s; nothing is lost, sealing only falls behind. The knob is `DefaultMaxBatches` (more batches per run, inside A2's 5 min `StartToClose`), not the interval, whose 10 s floor is the head's `seal_interval_s` check.
+A run seals at most `DefaultMaxBatches` × 1,000 = 10,000 entries. While the tenant has work pending, each A1 books the next run 10 s after it commits (ADR-004-E7), so in steady state runs start every 10 s and, when an A2 takes longer than that, overlap: the later run's batches wait on the head lock, so `seq` stays single and ordered, and throughput is bounded by how fast A2 seals under the lock, not by the interval. After idle, the first pending entry waits at most the delay already booked (≤ 300 s) plus one run, absent an A2 failure; a poison entry instead blocks the tenant (a run every 10 s, each failing) until `chain:reseed` or a fix, which `audit_seal_failures_total` shows. A tenant that writes faster than A2 seals builds a backlog that keeps growing until `AuditSealLag` fires at 600 s; nothing is lost, sealing only falls behind. The knob is `DefaultMaxBatches` (more batches per run, inside A2's 5 min `StartToClose`), not the interval, whose 10 s floor is the head's `seal_interval_s` check.
 
 ## Dead lineages (R17)
 
@@ -101,4 +103,4 @@ What keeps the two sides together: `TestPredicateIsR17` pins the 10 min; `TestBo
 
 `internal/audit/seal/testdata/histories` holds four recorded runs (live lineage, stale lineage, A1 retried after commit, poison A2), recorded behind the worker guard by `make seal-record-histories`. `TestReplayRecordedHistories` replays them; histories are only ever added.
 
-Tests: `internal/audit/seal/*_integration_test.go` run against real PostgreSQL. They cover concurrent sealers (no duplicate `seq`), waiting on the head lock, the stale lineage, the A1 race, the interval rule, tenant isolation, the poison batch, the golden vectors through `verify.Verify`, and CI-A16 for the workflow (`workflow_integration_test.go`: kill between A1 and A2, A1 retried after commit, poison, idle tenant within 300 s, bounded A2).
+Tests: `internal/audit/seal/*_integration_test.go` run against real PostgreSQL. They cover concurrent sealers (no duplicate `seq`), waiting on the head lock, the stale lineage, the A1 race, the interval rule, A1's pending-work probe (E7: 10 s with pending work, the stored interval without, a backlog above the cap after idle, poison after idle), tenant isolation, the poison batch, the golden vectors through `verify.Verify`, and CI-A16 for the workflow (`workflow_integration_test.go`: kill between A1 and A2, A1 retried after commit, poison, idle tenant within 300 s, bounded A2).
