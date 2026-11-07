@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -15,6 +16,12 @@ func set(s ...string) map[string]bool {
 	}
 	return m
 }
+
+// realGraph is loadGraph on this repository, loaded once per test binary and
+// shared by the tests that read the real graph: one load runs go list over
+// the whole module eight times, which under task test's -race run of every
+// package pushed this package past go test's 10-minute timeout (TICK-597).
+var realGraph = sync.OnceValues(loadGraph)
 
 func testGraph() graph {
 	return graph{
@@ -72,7 +79,7 @@ func TestClassify(t *testing.T) {
 // The real graph: the integration stage covers the db packages,
 // the stack covers nava-core's server, and a CI tool is unit-only.
 func TestLoadGraph(t *testing.T) {
-	g, err := loadGraph()
+	g, err := realGraph()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +110,7 @@ func TestLoadGraph(t *testing.T) {
 // suites on main"). The real graph: a pull request that touches only one of
 // these files must not skip the suite.
 func TestStorySuitesSelected(t *testing.T) {
-	g, err := loadGraph()
+	g, err := realGraph()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +157,7 @@ func TestEveryCommandIsAStackRoot(t *testing.T) {
 		"cmd/demo-interpreter": true, // the S11a demo (TICK-352): make demo-interpreter-*, no image or stack test builds it
 		"cmd/nava":             true, // the offline CLI (P5-03, TICK-425): unit-tested, no image or stack test builds it
 	}
-	g, err := loadGraph()
+	g, err := realGraph()
 	if err != nil {
 		t.Fatal(err)
 	}

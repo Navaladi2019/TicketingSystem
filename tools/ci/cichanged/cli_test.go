@@ -14,7 +14,7 @@ func TestCLIRealRepo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	g, err := loadGraph()
+	g, err := realGraph()
 	if err != nil {
 		t.Fatal(err)
 	}
