@@ -439,8 +439,8 @@ stages `cichanged` picks and writes `unit`, `integration` and `stack` as
 | `ci-stack` | `stack` (its three phases) |
 
 A diff of only documentation (`.md` and `.html` outside a Go package and
-`testdata`) needs `ci-lint` alone; `TestDocsOnlyDiffRunsNoUnitIntegrationOrStack`
-in `tools/ci/cichanged` runs `scripts/ci/ci-stages.sh` on such a diff and checks
+`testdata`) needs `ci-lint` alone; the `TestCIStages` subtest "docs-only diff runs no unit,
+integration or stack" in `tools/ci/cichanged` runs `scripts/ci/ci-stages.sh` on such a diff and checks
 `unit=false integration=false stack=false`. A change under `.github/workflows`
 runs every job, since only a full run proves a workflow edit. A skipped job
 shows as skipped, not failed, and a skipped required check counts as passed.
