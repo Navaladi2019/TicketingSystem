@@ -1,0 +1,8 @@
+meta {
+  name: S15 seal
+  seq: 12
+}
+
+docs {
+  Story S15, TICK-420 (kit TICK-443, docs/acceptance/S15/README.md). AC1 (S15.5-S15.11): a new tenant is onboarded, and Alice's incidents in tenant A are sealed: each audit entry gets a `seq` and a `sealed_at`. S15.6-S15.9 bring the sealer out of its idle back-off (the first two entries wait for runs already scheduled at the backed-off interval, at most 300 s each); S15.10-S15.11 then show the active tenant: sealed about 10 s after the write. The entry's `entry_hash` is not in the API (D-5-9: S15 has no `api/` change); docs/acceptance/S15/tools/seq-check.sql shows it. Isolation (S15.12-S15.14): Bob's entry in tenant B is not in A's chain, and Bob cannot read A's incident. AC4 (S15.15): the R-A2 metrics on nava-worker's /metrics. The worker kill (AC2) and the idle tenant (AC3) are folders S15K and S15I, run by docs/acceptance/S15/tools/run-kit.sh. Needs a stack whose tenants A and B have a chain head: docs/acceptance/S15/tools/upgrade-setup.sh. Runs again on the same stack.
+}

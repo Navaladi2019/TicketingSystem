@@ -1,0 +1,31 @@
+meta {
+  name: S15K.1 Sign in as auditor@tenant-a
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{keycloak_url}}/realms/{{realm}}/protocol/openid-connect/token
+  body: formUrlEncoded
+  auth: none
+}
+
+body:form-urlencoded {
+  grant_type: password
+  client_id: nava-web
+  scope: openid
+  username: {{auditor_a_username}}
+  password: {{auditor_a_password}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 200 from Keycloak', () => expect(res.getStatus()).to.eql(200));
+  const tok = N.json();
+  test('access token issued', () => expect(tok.access_token).to.be.a('string'));
+  bru.setVar('auditor_token', tok.access_token);
+}
+
+docs {
+  Signs in as `{{auditor_a_username}}` through Keycloak (client `nava-web`, password grant) and keeps the access token in the runtime variable `auditor_token`.
+}

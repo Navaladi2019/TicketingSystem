@@ -1,0 +1,8 @@
+meta {
+  name: S15 seal after idle
+  seq: 14
+}
+
+docs {
+  Story S15, TICK-420, AC3 (kit TICK-443). Run by docs/acceptance/S15/tools/run-kit.sh once tenant A's sealer has backed off to its longest interval (`audit_chain_head.seal_interval_s = 300`, after about 5 minutes with no write; R16). Alice writes one incident; its entry is sealed within 300 s.
+}

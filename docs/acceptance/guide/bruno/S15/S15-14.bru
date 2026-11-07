@@ -1,0 +1,26 @@
+meta {
+  name: S15.14 Isolation: Bob cannot read tenant A's incident: 404
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s15_rec3}}/history
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(404);
+  test('problem code not_found', () => expect(N.json().code).to.eql('not_found'));
+  N.noLeak(bru.getVar('s15_rec3'), 'S15 ' + bru.getVar('s15_run'));
+}
+
+docs {
+  Bob, in tenant B, asks for the history of tenant A's incident of S15.10: the same 404 as for an id that does not exist (S14.28, S14.29).
+}

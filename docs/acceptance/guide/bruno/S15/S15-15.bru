@@ -1,0 +1,32 @@
+meta {
+  name: S15.15 AC4: audit_unsealed_oldest_seconds and audit_seal_failures_total are on nava-worker's /metrics
+  type: http
+  seq: 15
+}
+
+get {
+  url: {{worker_admin_url}}/metrics
+  body: none
+  auth: none
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const lines = N.text().split('\n');
+  const series = (name) => lines.filter(l => l.startsWith(name + ' ') || l.startsWith(name + '{'));
+  const gauge = series('audit_unsealed_oldest_seconds');
+  const failures = series('audit_seal_failures_total');
+  test('audit_unsealed_oldest_seconds has a sample', () => expect(gauge.length).to.be.at.least(1));
+  test('audit_seal_failures_total has a sample', () => expect(failures.length).to.be.at.least(1));
+  test('neither carries a tenant label (TICK-93)', () => [...gauge, ...failures].forEach(l => expect(l).to.not.match(/tenant/)));
+  test('the HELP lines name both metrics', () => {
+    expect(lines.some(l => l.startsWith('# HELP audit_unsealed_oldest_seconds'))).to.eql(true);
+    expect(lines.some(l => l.startsWith('# HELP audit_seal_failures_total'))).to.eql(true);
+  });
+  console.log('S15.15 samples:', JSON.stringify([...gauge, ...failures]));
+}
+
+docs {
+  nava-worker's admin listener, reached through `tools/tunnels.sh up` at `{{worker_admin_url}}`. The gauge is the age of the oldest unsealed entry over the tenants this worker sealed (0 when everything is sealed); the counter counts failed seal attempts by reason. Prometheus scrapes both, and `deploy/compose/prometheus/rules/audit.yml` alerts on them.
+}

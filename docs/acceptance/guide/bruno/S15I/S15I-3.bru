@@ -1,0 +1,42 @@
+meta {
+  name: S15I.3 AC3: Alice writes one incident in the idle tenant: 201
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{core_url}}/api/v1/records/incident
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: tick443-s15-{{s15_run}}-idle
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "S15 {{s15_run}} idle",
+      "priority": 2
+    }
+  }
+}
+
+script:pre-request {
+  bru.setVar('s15_run', Date.now().toString(36));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  test('version 1', () => expect(b.version).to.eql(1));
+  bru.setVar('s15_idle', b.id);
+}
+
+docs {
+  The first write after tenant A was left idle at the 300 s interval.
+}

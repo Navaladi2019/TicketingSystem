@@ -1,0 +1,38 @@
+meta {
+  name: S15.12 Isolation: Bob creates an incident in tenant B: 201
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{core_url}}/api/v1/records/incident
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+  Idempotency-Key: tick443-s15-{{s15_run}}-recb
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "S15 {{s15_run}} recb",
+      "priority": 2
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  test('version 1', () => expect(b.version).to.eql(1));
+  bru.setVar('s15_recb', b.id);
+}
+
+docs {
+  Tenant B's entry goes into B's own chain, with B's own seq.
+}

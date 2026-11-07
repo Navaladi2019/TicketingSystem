@@ -1,0 +1,44 @@
+meta {
+  name: S15.13 AC1, isolation: tenant A's chain from the first incident on has no gap and holds nothing of tenant B
+  type: http
+  seq: 13
+}
+
+get {
+  url: {{core_url}}/api/v1/audit/entries?after_seq={{s15_after}}&limit=500
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{auditor_token}}
+}
+
+script:pre-request {
+  bru.setVar('s15_after', String(Number(bru.getVar('s15_seq_rec1')) - 1));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const items = N.json().items;
+  const seqs = items.map(e => e.seq);
+  const first = Number(bru.getVar('s15_seq_rec1'));
+  test('every entry returned is sealed', () => seqs.forEach(s => expect(s).to.be.a('number')));
+  test('no seq twice', () => expect(new Set(seqs).size).to.eql(seqs.length));
+  test('seqs run from the first incident on with no gap', () => {
+    const sorted = [...seqs].sort((a, b) => a - b);
+    expect(sorted[0]).to.eql(first);
+    sorted.forEach((s, i) => expect(s).to.eql(first + i));
+  });
+  test('the three incidents are in it', () => {
+    expect(items.map(e => e.subject_id)).to.include.members([bru.getVar('s15_rec1'), bru.getVar('s15_rec2'), bru.getVar('s15_rec3')]);
+  });
+  test("tenant B's incident is not in tenant A's chain", () => items.forEach(e => expect(e.subject_id).to.not.eql(bru.getVar('s15_recb'))));
+  N.noLeak(bru.getVar('s15_recb'));
+  console.log('S15.13 tenant A seqs', seqs.length ? `${Math.min(...seqs)}..${Math.max(...seqs)}` : 'none', `(${seqs.length} entries)`);
+}
+
+docs {
+  `after_seq` keeps the sealed entries above it. From S15.7's `seq` on, tenant A's entries form one run of consecutive numbers, each once, and none of them is Bob's.
+}

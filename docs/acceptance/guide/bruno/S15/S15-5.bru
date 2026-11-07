@@ -1,0 +1,62 @@
+meta {
+  name: S15.5 AC1: the operator onboards a new tenant: 201
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{onboard_url}}/api/v1/operator/tenants
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{operator_token}}
+  Idempotency-Key: tick443-s15-{{s15_run}}-onboard
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "admin_email": "admin@{{s15_domain}}",
+    "email_domains": [
+      "{{s15_domain}}"
+    ],
+    "identity_provider": {
+      "provider_id": "oidc",
+      "display_name": "S15 acceptance IdP",
+      "config": {
+        "clientId": "acceptance-client",
+        "clientSecret": "dev-only-not-a-secret",
+        "authorizationUrl": "https://93.184.216.34/auth",
+        "tokenUrl": "https://93.184.216.34/token",
+        "jwksUrl": "https://93.184.216.34/jwks",
+        "useJwksUrl": "true",
+        "defaultScope": "openid email profile"
+      }
+    }
+  }
+}
+
+script:pre-request {
+  const run = Date.now().toString(36);
+  bru.setVar('s15_run', run);
+  bru.setVar('s15_domain', `s15-${run}.test`);
+  bru.setVar('s15_t0', new Date().toISOString());
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  test('tenant_id is a uuid, state active', () => {
+    expect(b.tenant_id).to.match(/^[0-9a-f-]{36}$/);
+    expect(b.state).to.eql('active');
+  });
+  bru.setVar('s15_new_tenant', b.tenant_id);
+  console.log('S15.5 new tenant:', b.tenant_id);
+}
+
+docs {
+  Onboarding writes the tenant's chain head and its first `audit.seal` start row in the same transaction (ADR-001-A6.2, P5-33), and its three entity types with their v1 `config/create` entries. The new tenant's admin signs in through the tenant's own IdP, which Bruno cannot drive, so the sealing of the new tenant is shown from the database: run-kit.sh writes `evidence/ac1-seal-latency.txt` (the three onboarding entries of this tenant, sealed seconds after onboarding).
+}
