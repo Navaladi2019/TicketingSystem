@@ -158,6 +158,18 @@ func migrateTo(t *testing.T, m *grants.Manifest, fsys fs.FS) (migrate.Result, er
 		r.Attached = false
 		a.Audited["records"] = r
 	}
+	// And the entity-definition tables are attached by migration B
+	// (20261107053707, P5-32, TICK-442).
+	if _, err := fs.Stat(fsys, migrationB); err != nil {
+		attached := a.Audited
+		a.Audited = make(map[string]audited.Table, len(attached))
+		for name, e := range attached {
+			if name == "entity_definitions" || name == "entity_definition_versions" {
+				e.Attached = false
+			}
+			a.Audited[name] = e
+		}
+	}
 	// CI-A3 pins audit_log_select's roles (ADR-004-A1 A1-9), which only
 	// 20261104133000 sets. It alters two policies of tables that exist from
 	// 20261102233600 on and depends on nothing after it, so a run that stops

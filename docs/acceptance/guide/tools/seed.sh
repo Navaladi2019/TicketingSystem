@@ -122,18 +122,33 @@ INSERT INTO seed_tpl VALUES
   ('Incident', \$tpl\$$(tpl incident)\$tpl\$),
   ('Request', \$tpl\$$(tpl request)\$tpl\$),
   ('Change', \$tpl\$$(tpl change)\$tpl\$);
-INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version)
+-- Each insert writes its config entry in the same statement, only for the
+-- rows it inserted, so the commit check on both tables passes (P5-32).
+WITH d AS (
+  INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version)
   SELECT t.id, gen_random_uuid(), s.doc->>'key', s.name, s.doc->>'number_prefix', 1
   FROM seed_tpl s CROSS JOIN tenants t WHERE t.id IN ('$A', '$B')
-  ON CONFLICT DO NOTHING;
-INSERT INTO entity_definition_versions
-  (tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat, published_by)
+  ON CONFLICT DO NOTHING
+  RETURNING tenant_id, id)
+INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, actor_system, source, content_sha256)
+  SELECT tenant_id, gen_random_uuid(), 'config', 'create', 'entity_definition', id, 'onboarding', 'onboarding',
+         sha256(''::bytea)
+  FROM d;
+WITH v AS (
+  INSERT INTO entity_definition_versions
+    (tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat, published_by)
   SELECT d.tenant_id, gen_random_uuid(), d.id, 1, s.doc->'schema',
          sha256(convert_to((s.doc->'schema')::text, 'UTF8')),
          (s.doc->'fixed_columns')::jsonb, (s.doc->'states')::jsonb, 'initial', NULL
   FROM seed_tpl s JOIN entity_definitions d ON d.key = s.doc->>'key'
   WHERE d.tenant_id IN ('$A', '$B')
-  ON CONFLICT DO NOTHING;
+  ON CONFLICT DO NOTHING
+  RETURNING tenant_id, definition_id, version, schema_sha256)
+INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, version_after, actor_system, source,
+    content_sha256)
+  SELECT tenant_id, gen_random_uuid(), 'config', 'create', 'entity_definition', definition_id, version, 'onboarding',
+         'onboarding', schema_sha256
+  FROM v;
 SELECT d.tenant_id AS tenant, d.key, d.current_version, encode(v.schema_sha256, 'hex') AS v1_schema_sha256
   FROM entity_definitions d JOIN entity_definition_versions v
     ON v.tenant_id = d.tenant_id AND v.definition_id = d.id AND v.version = 1

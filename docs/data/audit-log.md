@@ -71,7 +71,7 @@ Later tasks add the rest:
 - P5-11 generates the `nava_onboard` and `nava_groupsync` writer grants and policies.
 - P5-17 (TICK-435) added the reader's SELECT (nava_app, diff and diff_salt included).
 - P5-33 (TICK-441) added onboarding's pinned INSERT on the head and on `outbox` (`kind = 'audit.seal'` only) (A6.2); it commits while the tenant is `provisioning`, and `Activate` is a later transaction.
-- P5-15 and P5-32 add the migrator's temporary policies, created and dropped inside the backfill (see [S8 backfill](#s8-backfill-migration-a-p5-15)).
+- P5-15 and P5-32 add the migrator's temporary policies, created and dropped inside the backfill and the seeder (see [S8 backfill](#s8-backfill-migration-a-p5-15) and [Migration B](#migration-b-p5-32)).
 
 The column grants decide which columns a role may name. Two triggers decide what a role may do with them:
 - `audit_log_assert_insert` (R10) **asserts** `occurred_at = now()`, `txid = pg_current_xact_id()` and `backfilled = false` for every role except `nava_migrator`. For every role, the migrator included, it requires the seal and erasure columns to be NULL. It never rewrites a row: a rewrite could move the row to another partition, which PG 16 refuses.
@@ -156,6 +156,60 @@ erDiagram
 | 10,000 | 300,000 | 54.69 s | 2.32 s |
 
 Runbook: the migration sets `lock_timeout = '5s'`. That limits only how long it **waits** to take the locks; once it has them it holds them for the whole run, about 0.18 ms per version to backfill (budget: ≤ 18 s at 100k versions, `docs/budgets.md`). Size the window from the S8 version count, not from `lock_timeout`. The function takes the locks in the order tenants, entity_definition_versions, audit_log (the order of its CREATE POLICY statements); an explicit `LOCK TABLE` up front was measured and not adopted (`scratch/audit-backfill-s8/tick515-lock/RESULT.md`).
+
+## Migration B (P5-32)
+
+Migration: `db/migrations/20261107053707_audit_migration_b.sql`, one transaction (ADR-004 R25 B half, R26, R27). In order:
+
+1. **Locks (R27).** `lock_timeout = 5s`, then `LOCK TABLE tenants, entity_definitions, entity_definition_versions, audit_log, audit_chain_head, outbox IN ACCESS EXCLUSIVE MODE`, in that order, before any other work. A timeout rolls back the attempt's subtransaction, which releases whatever part of the set it took, and retries: five attempts, 1 to 4 s apart. Every later statement needs at most a lock already held.
+2. **Backfill re-run.** `SELECT audit_backfill_s8()`: the versions published between migration A and the deploy get their backfilled entry; versions the publish path audited keep theirs (CI-A9).
+3. **Attach.** `audit_commit_check` on `entity_definitions` (`AFTER INSERT OR DELETE OR UPDATE OF current_version, updated_at`, subject `id`) and on `entity_definition_versions` (`AFTER INSERT OR DELETE`, insert-only, subject `definition_id`). `db/audited-tables.yaml` marks both `attached: true`.
+4. **Seed.** `SELECT audit_seed_chain_heads()`: per tenant without a head, the head and the first `audit.seal` start row, the rows onboarding writes (P5-33).
+5. **Gate.** Fails if any `nava_migrator` policy is left (R26.3).
+
+```mermaid
+erDiagram
+    tenants ||--|| audit_chain_head : "one per tenant"
+    audit_chain_head ||--|| outbox : "next_seal_outbox_id"
+    audit_chain_head {
+        uuid tenant_id PK
+        uuid id "UUIDv7"
+        bigint version "1 (default)"
+        bigint seq "0 (default)"
+        bytea entry_hash "32 zero bytes (default)"
+        uuid next_seal_outbox_id "= the start row"
+        timestamptz next_seal_at "now()"
+        int seal_interval_s "10 (default)"
+    }
+    outbox {
+        uuid tenant_id PK
+        uuid id PK "UUIDv7"
+        text kind "audit.seal"
+        smallint kind_version "1"
+        text dedupe_key "audit.seal:1"
+        text target_key "audit.seal:<id>"
+        bigint target_seq "1 = head version"
+        uuid causation_id "= id"
+        smallint causation_depth "0"
+        jsonb payload "{}"
+        text trace_context "NULL"
+        timestamptz available_at "now()"
+    }
+```
+
+- **Same rows as onboarding and C5.** The start row is the row `outbox.EnqueueSeal(ctx, tx, 1)` writes with no option, and the head is the row `onboard.PGStore.SeedAuditChain` writes. `TestP532SealRowMatchesEnqueueSeal` compares all three column by column, except the ids and the clock (TICK-449 grooming). The ids are UUIDv7: 48 bits of `clock_timestamp()` milliseconds, then `gen_random_uuid()`'s random bits (`audit_seed_uuidv7`; PG 16 has no `uuidv7()`).
+- **Idempotent both ways.** The head's primary key is the idempotency record (`ON CONFLICT DO NOTHING`). A tenant onboarding already seeded keeps its rows; a tenant still provisioning gets them from B, and onboarding's later `SeedAuditChain` writes nothing. A seal row with no head is corruption, so the start-row insert has no `ON CONFLICT` and fails B on it.
+- **Access path (R26).** Three temporary policies, created and dropped inside `audit_seed_chain_heads()`: `FOR SELECT TO nava_migrator USING (true)` on `tenants` (the only cross-tenant one, to list ids), and canonical INSERT on `audit_chain_head` and on `outbox`. Plain INSERTs with no RETURNING, so no SELECT policy is needed. Both new functions are SECURITY INVOKER, owned by `nava_migrator`, with no EXECUTE grant.
+- **Onboarding's entity types.** From B on, `entitytypes.Store.Seed` (nava_onboard) writes the v1 config `create` entry in its own transaction: actor `onboarding`, source `onboarding`, `content_sha256 = schema_sha256`, no diff (nava_onboard cannot read the stored schema; R3 makes the hash the evidence). It is the entry the backfill gives such a version, without `backfilled`.
+
+Measured on postgres:16.10 in Docker (16 CPUs, Windows 11 host), from `scratch/audit-migration-b/RESULT.md`. B holds all six locks for the whole time:
+
+| Tenants | S8 versions | Migration B | Backfill re-run | Seeding |
+|---:|---:|---:|---:|---:|
+| 1,000 | 30,093 | 0.48 s | 175.5 ms | 202.0 ms |
+| 10,000 | 300,972 | 4.29 s | 2,864.3 ms | 1,281.7 ms |
+
+Runbook: size the window as about 0.13 ms per tenant plus 9.5 µs per S8 version, plus about 0.1 s. Per tenant, B writes one head row (one index) and one outbox row (four indexes), once: 1.9 MB and 4.4 MB at 10,000 tenants. These are onboarding's rows, so B adds no index and no lasting write path.
 
 ## Cost
 

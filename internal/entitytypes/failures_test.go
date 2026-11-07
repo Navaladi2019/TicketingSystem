@@ -18,6 +18,7 @@ import (
 type step struct {
 	scan    func(dest []any) error // QueryRow
 	execErr error                  // Exec
+	tag     string                 // Exec's command tag, e.g. "INSERT 0 1"
 	query   *fakeRows              // Query
 	qErr    error
 }
@@ -46,7 +47,8 @@ func (r fakeRow) Scan(dest ...any) error { return r.scan(dest) }
 func (f *fakeTx) QueryRow(context.Context, string, ...any) pgx.Row { return fakeRow{f.next().scan} }
 
 func (f *fakeTx) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
-	return pgconn.CommandTag{}, f.next().execErr
+	s := f.next()
+	return pgconn.NewCommandTag(s.tag), s.execErr
 }
 
 func (f *fakeTx) Query(context.Context, string, ...any) (pgx.Rows, error) {
@@ -220,6 +222,8 @@ func TestSeedReportsDatabaseFailures(t *testing.T) {
 	for name, steps := range map[string][]step{
 		"definition": {execFail(errDB)},
 		"version":    {{}, execFail(errDB)},
+		// Both rows inserted, then the entry's tenant read fails.
+		"audit": {{tag: "INSERT 0 1"}, {tag: "INSERT 0 1"}, fail(errDB)},
 	} {
 		inserted, err := Store{}.Seed(ctx, &fakeTx{t: t, steps: steps}, uuid.New(), in)
 		if !errors.Is(err, errDB) || inserted || !strings.Contains(err.Error(), "seed "+name) {

@@ -235,8 +235,10 @@ type SeedInput struct {
 // It needs INSERT only (nava_onboard has no SELECT on either table, so it reads
 // nothing back) and writes published_by NULL: the tenant is still provisioning
 // and has no principal. A retry after a crash finishes what is missing and
-// never duplicates; on a second run it inserts nothing. The caller's
-// transaction must run as the tenant (tenancy.InTenantTx).
+// never duplicates; on a second run it inserts nothing. When it inserts, it
+// also writes the version's config create entry (auditSeed), which the
+// commit check on both tables requires from migration B (P5-32) on. The
+// caller's transaction must run as the tenant (tenancy.InTenantTx).
 func (Store) Seed(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, in SeedInput) (bool, error) {
 	d := in.Definition
 	fixed, err := encodeFixedColumns(d.FixedColumns)
@@ -263,7 +265,13 @@ ON CONFLICT DO NOTHING`, tenantID, in.VersionID, in.DefinitionID, string(d.Schem
 	if err != nil {
 		return false, fmt.Errorf("entitytypes: seed version: %w", err)
 	}
-	return def.RowsAffected()+ver.RowsAffected() > 0, nil
+	if def.RowsAffected()+ver.RowsAffected() == 0 {
+		return false, nil
+	}
+	if err := auditSeed(ctx, tx, in.DefinitionID, sum); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // PublishInput is the next version of an existing entity type. Definition

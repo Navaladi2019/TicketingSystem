@@ -137,16 +137,22 @@ func setup(ctx context.Context) (*env, error) {
 	if _, err := sc.PgConn().Exec(ctx, string(seed)).ReadAll(); err != nil {
 		return nil, fmt.Errorf("seed: %w", err)
 	}
-	// The seed turns the records commit-check trigger off for its own
-	// transaction (P5-13c). A seed that stopped partway, or a loader that ran
-	// it statement by statement, must not leave the suite running unchecked.
-	var enabled string
-	if err := sc.QueryRow(ctx, `SELECT coalesce((SELECT tgenabled::text FROM pg_trigger
-		WHERE tgrelid = 'records'::regclass AND tgname = 'records_audit_commit_check'), 'missing')`).Scan(&enabled); err != nil {
-		return nil, fmt.Errorf("seed: read records_audit_commit_check: %w", err)
-	}
-	if enabled != "O" {
-		return nil, fmt.Errorf("seed: records_audit_commit_check is %q after the seed, want enabled (O)", enabled)
+	// The seed turns the commit-check triggers off for its own transaction
+	// (P5-13c, P5-32). A seed that stopped partway, or a loader that ran it
+	// statement by statement, must not leave the suite running unchecked.
+	for _, tr := range []struct{ table, name string }{
+		{"records", "records_audit_commit_check"},
+		{"entity_definitions", "entity_definitions_audit_commit_check"},
+		{"entity_definition_versions", "entity_definition_versions_audit_commit_check"},
+	} {
+		var enabled string
+		if err := sc.QueryRow(ctx, `SELECT coalesce((SELECT tgenabled::text FROM pg_trigger
+			WHERE tgrelid = $1::regclass AND tgname = $2), 'missing')`, tr.table, tr.name).Scan(&enabled); err != nil {
+			return nil, fmt.Errorf("seed: read %s: %w", tr.name, err)
+		}
+		if enabled != "O" {
+			return nil, fmt.Errorf("seed: %s is %q after the seed, want enabled (O)", tr.name, enabled)
+		}
 	}
 	if e.tables, err = catalog.TenantTables(ctx, sc, g); err != nil {
 		return nil, err

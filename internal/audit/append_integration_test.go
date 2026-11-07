@@ -175,8 +175,13 @@ func seedTenant(t *testing.T, e itEnv, tenant, principal uuid.UUID, definition *
 	mustExec(t, e.super, `INSERT INTO principals (tenant_id, id, keycloak_user_id, enabled, synced_at)
 		VALUES ($1, $2, $3, true, now()) ON CONFLICT (tenant_id, id) DO NOTHING`, tenant, principal, "kc-"+principal.String())
 	if definition != nil {
-		mustExec(t, e.super, `INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version)
-			VALUES ($1, $2, 'incident', 'Incident', 'INC', 1) ON CONFLICT (tenant_id, id) DO NOTHING`, tenant, *definition)
+		// The definition's own config entry, in the same statement and only
+		// when it inserted, so the commit check passes (P5-32).
+		mustExec(t, e.super, `WITH d AS (INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version)
+			VALUES ($1, $2, 'incident', 'Incident', 'INC', 1) ON CONFLICT (tenant_id, id) DO NOTHING RETURNING tenant_id, id)
+			INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, actor_system, source, content_sha256)
+			SELECT tenant_id, gen_random_uuid(), 'config', 'create', 'entity_definition', id, 'onboarding', 'onboarding', sha256(''::bytea) FROM d`,
+			tenant, *definition)
 	}
 }
 
