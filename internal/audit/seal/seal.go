@@ -142,7 +142,7 @@ const (
     causation_id, causation_depth, request_id, backfilled, content_sha256, diff_sha256, diff_truncated
 FROM audit_log
 WHERE tenant_id = $1 AND sealed_at IS NULL
-ORDER BY id
+ORDER BY occurred_at, id
 LIMIT $2`
 	// The R11 seal transition, one statement for the batch. occurred_at is
 	// the partition key, so each row is found in its partition. sealed_at IS
