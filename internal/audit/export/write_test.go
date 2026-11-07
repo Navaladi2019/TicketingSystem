@@ -26,6 +26,12 @@ type fakeLog struct {
 	pages    int
 	failAt   int // fail the nth ExportRange call (1-based); 0 never
 	calls    int
+	// onRange runs at the start of each ExportRange call, before it reads: a
+	// test commits something between two pages here.
+	onRange func(call int)
+	// erase is what ExportEraseEntries finds; eraseCalls records each ref list.
+	erase      []read.ExportRow
+	eraseCalls [][]uuid.UUID
 }
 
 func subjA() uuid.UUID { return uuid.MustParse("0190f3a0-0000-7000-8000-0000000000a1") }
@@ -125,6 +131,9 @@ func (l *fakeLog) ExportSeq(_ context.Context, _ uuid.UUID, seq int64, _ read.Ex
 func (l *fakeLog) ExportRange(_ context.Context, _ uuid.UUID, f read.ExportFilter, _ []uuid.UUID, after, head int64, limit int, only bool, _ read.ExportPageOptions) ([]read.ExportRow, error) {
 	l.calls++
 	l.pages++
+	if l.onRange != nil {
+		l.onRange(l.calls)
+	}
 	if l.failAt != 0 && l.calls == l.failAt {
 		return nil, errors.New("page failed")
 	}
@@ -153,6 +162,20 @@ func (l *fakeLog) ExportUnsealed(_ context.Context, _ uuid.UUID, _ read.ExportFi
 		return nil, nil
 	}
 	return l.unsealed, nil
+}
+
+func (l *fakeLog) ExportEraseEntries(_ context.Context, _ uuid.UUID, refs []uuid.UUID, _ read.ExportPageOptions) ([]read.ExportRow, error) {
+	l.eraseCalls = append(l.eraseCalls, refs)
+	var out []read.ExportRow
+	for _, r := range l.erase {
+		for _, ref := range refs {
+			if r.Entry.SubjectID == ref {
+				r.Match = true
+				out = append(out, r)
+			}
+		}
+	}
+	return out, nil
 }
 
 func run(t *testing.T, l *fakeLog, pageSize int, req export.Request) ([]byte, error) {
@@ -445,5 +468,155 @@ func TestHeaderRecordsTheRequest(t *testing.T) {
 	}
 	if h.Kind != "header" || h.Format != export.Format || h.Stubs || h.Filter.SubjectID == nil || *h.Filter.SubjectID != subjA().String() || h.Filter.Domain != nil {
 		t.Errorf("header = %+v", h)
+	}
+}
+
+// ---- TICK-613 (ADR-004-E8 Follow-up): the matching audit/erase entry is
+// always exported, whatever its occurred_at.
+
+func refR24() uuid.UUID { return uuid.MustParse("0190f3a0-0000-7000-8000-0000000000f1") }
+
+// eraseEntryFor is an unsealed audit/erase entry listing ids under refR24(), with
+// an occurred_at after the export start.
+func eraseEntryFor(t *testing.T, l *fakeLog, ids ...uuid.UUID) read.ExportRow {
+	t.Helper()
+	list, err := json.Marshal(ids)
+	if err != nil {
+		t.Fatal(err)
+	}
+	diff := []byte(`[{"op":"add","path":"/erased_ids","value":` + string(list) + `}]`)
+	salt := [16]byte{0xee}
+	d := chain.DiffSHA256(salt, diff)
+	return read.ExportRow{TenantID: l.tenant, Match: true, Entry: read.Entry{
+		ID: uuid.MustParse("0190f3a0-0000-7000-8000-0000000000e9"), OccurredAt: base().Add(48 * time.Hour),
+		Domain: "audit", Action: "erase", SubjectType: "erasure_request", SubjectID: refR24(), Source: "user",
+		ActorSystem: ptr("system"), DiffSHA256: d[:], Diff: diff, DiffSalt: salt[:],
+	}}
+}
+
+// eraseScenario: the head is read at seq n; then, before the page holding the
+// entry at seq 3 is read, an erasure of that entry commits. The refs query ran
+// before it, so the erase entry is in neither the range nor the unsealed query.
+func eraseScenario(t *testing.T, n int) *fakeLog {
+	t.Helper()
+	l := newFakeLog(t, n)
+	x := &l.rows[2]
+	l.erase = []read.ExportRow{eraseEntryFor(t, l, x.Entry.ID)}
+	l.onRange = func(call int) {
+		if call == 2 { // page size 2: the second page holds seq 3
+			now := base().Add(48 * time.Hour)
+			x.Entry.ErasedAt, x.ErasureRef = &now, ptr(refR24())
+			x.Entry.Diff, x.Entry.DiffSalt = nil, nil
+		}
+	}
+	return l
+}
+
+// CI-A6 extension: an erasure that commits after the lease and head statement
+// and before the page holding the erased entry gives pending, not
+// erasure_unlisted.
+func TestEraseAfterHeadIsPending(t *testing.T) {
+	t.Parallel()
+	l := eraseScenario(t, 4)
+	b, err := run(t, l, 2, export.Request{Stubs: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep := verdict(t, b)
+	if rep.Outcome != verify.OutcomePending {
+		t.Fatalf("outcome = %s, failure %+v\n%s", rep.Outcome, rep.Failure, b)
+	}
+	if rep.Lines[3] != verify.LinePending || rep.UnsealedCount != 1 {
+		t.Errorf("lines %v, unsealed %d; want pending at seq 3 and one tail line", rep.Lines, rep.UnsealedCount)
+	}
+	ls := lines(b)
+	if !strings.Contains(ls[len(ls)-2], `"action":"erase"`) || !strings.Contains(ls[len(ls)-2], `"sealed":false,"in_verified_range":false,"seq":null`) {
+		t.Errorf("the line before the trailer is not the unsealed erase entry: %s", ls[len(ls)-2])
+	}
+}
+
+// Dropping the tail erase line leaves the erased entry unlisted (R24).
+func TestDroppedTailEraseLineIsUnlisted(t *testing.T) {
+	t.Parallel()
+	b, err := run(t, eraseScenario(t, 4), 2, export.Request{Stubs: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ls := lines(b)
+	ls = append(ls[:len(ls)-2], ls[len(ls)-1]) // the erase line is just before the trailer
+	var tr map[string]any
+	if err := json.Unmarshal([]byte(ls[len(ls)-1]), &tr); err != nil {
+		t.Fatal(err)
+	}
+	tr["unsealed_count"] = 0
+	nb, err := json.Marshal(tr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ls[len(ls)-1] = string(nb)
+	rep := verdict(t, []byte(strings.Join(ls, "\n")+"\n"))
+	if rep.Outcome != verify.OutcomeTampered || rep.Failure == nil || rep.Failure.Reason != verify.ReasonErasureUnlisted {
+		t.Fatalf("outcome = %s, failure %+v; want tampered erasure_unlisted", rep.Outcome, rep.Failure)
+	}
+}
+
+// A sealed erase entry beyond head_seq is also tail material: unsealed on the
+// line, seq null.
+func TestEraseSealedBeyondHeadIsTail(t *testing.T) {
+	t.Parallel()
+	l := eraseScenario(t, 4)
+	l.erase[0].Entry.Seq = ptr(int64(5))
+	b, err := run(t, l, 2, export.Request{Stubs: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep := verdict(t, b); rep.Outcome != verify.OutcomePending {
+		t.Fatalf("outcome = %s, failure %+v", rep.Outcome, rep.Failure)
+	}
+}
+
+// Each erasure_ref is fetched once, and an erase entry the unsealed query
+// already returned is not written again.
+func TestEraseEntryFetchedOnceAndNotRepeated(t *testing.T) {
+	t.Parallel()
+	l := eraseScenario(t, 5)
+	y := &l.rows[3]
+	l.erase = []read.ExportRow{eraseEntryFor(t, l, l.rows[2].Entry.ID, y.Entry.ID)}
+	inner := l.onRange
+	l.onRange = func(call int) {
+		inner(call)
+		if call == 2 { // the second erased entry shares the ref
+			now := base().Add(48 * time.Hour)
+			y.Entry.ErasedAt, y.ErasureRef = &now, ptr(refR24())
+			y.Entry.Diff, y.Entry.DiffSalt = nil, nil
+		}
+	}
+	l.unsealed = []read.ExportRow{l.erase[0]} // the unsealed query returned it too
+	b, err := run(t, l, 2, export.Request{Stubs: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(l.eraseCalls) != 1 || len(l.eraseCalls[0]) != 1 {
+		t.Errorf("erase fetches %v, want one call with one ref", l.eraseCalls)
+	}
+	if n := strings.Count(string(b), `"action":"erase"`); n != 1 {
+		t.Errorf("the erase entry is written %d times, want 1", n)
+	}
+	if rep := verdict(t, b); rep.Outcome != verify.OutcomePending {
+		t.Fatalf("outcome = %s, failure %+v", rep.Outcome, rep.Failure)
+	}
+}
+
+// An erase entry already inside the verified range adds nothing to the tail.
+func TestEraseEntryInRangeAddsNothing(t *testing.T) {
+	t.Parallel()
+	l := eraseScenario(t, 4)
+	l.erase[0].Entry.Seq = ptr(int64(4)) // sealed, seq <= head_seq
+	b, err := run(t, l, 2, export.Request{Stubs: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), `"action":"erase"`) {
+		t.Errorf("an in-range erase entry was written in the tail:\n%s", b)
 	}
 }

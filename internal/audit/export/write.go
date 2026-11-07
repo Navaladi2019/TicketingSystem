@@ -24,6 +24,9 @@ type Source interface {
 	ExportErasureRefs(ctx context.Context, tenantID uuid.UUID, f read.ExportFilter, o read.ExportPageOptions) ([]uuid.UUID, error)
 	ExportSeq(ctx context.Context, tenantID uuid.UUID, seq int64, o read.ExportPageOptions) (read.ExportRow, bool, error)
 	ExportRange(ctx context.Context, tenantID uuid.UUID, f read.ExportFilter, erased []uuid.UUID, after, head int64, limit int, onlyMatches bool, o read.ExportPageOptions) ([]read.ExportRow, error)
+	// ExportEraseEntries finds the audit/erase entries for refs, whatever their
+	// occurred_at or seq (R24, ADR-004-E8 Follow-up).
+	ExportEraseEntries(ctx context.Context, tenantID uuid.UUID, refs []uuid.UUID, o read.ExportPageOptions) ([]read.ExportRow, error)
 	ExportUnsealed(ctx context.Context, tenantID uuid.UUID, f read.ExportFilter, erased []uuid.UUID, head int64, start time.Time, after *read.Position, limit int, o read.ExportPageOptions) ([]read.ExportRow, error)
 }
 
@@ -110,6 +113,16 @@ func (e *Exporter) Write(ctx context.Context, w io.Writer, flush func(), s Sessi
 	}
 
 	var count, stubCount, unsealed int64
+	// wanted is every erasure_ref of an erased entry written, in first-seen
+	// order; each is fetched once below.
+	wanted, wantedSet := []uuid.UUID{}, map[uuid.UUID]bool{}
+	want := func(r read.ExportRow) {
+		if r.Entry.ErasedAt != nil && r.ErasureRef != nil && !wantedSet[*r.ErasureRef] {
+			wantedSet[*r.ErasureRef] = true
+			wanted = append(wanted, *r.ErasureRef)
+		}
+	}
+	written := map[uuid.UUID]bool{} // ids written in the tail
 	anchorSeq := int64(0)
 	if found {
 		anchorSeq = first - 1
@@ -132,6 +145,7 @@ func (e *Exporter) Write(ctx context.Context, w io.Writer, flush func(), s Sessi
 						return err
 					}
 					count++
+					want(r)
 					if err = emit(line); err != nil {
 						return err
 					}
@@ -168,6 +182,8 @@ func (e *Exporter) Write(ctx context.Context, w io.Writer, flush func(), s Sessi
 				return err
 			}
 			unsealed++
+			want(r)
+			written[r.Entry.ID] = true
 			if err = emit(line); err != nil {
 				return err
 			}
@@ -178,6 +194,37 @@ func (e *Exporter) Write(ctx context.Context, w io.Writer, flush func(), s Sessi
 		}
 		if len(rows) < e.pageSize() {
 			break
+		}
+	}
+
+	// R24 (ADR-004-E8 Follow-up): for each erased entry written, the matching
+	// audit/erase entry is exported whatever its occurred_at. One in the
+	// verified range is already there; one that is unsealed or beyond head
+	// goes in the tail, once. It may have committed after the export start,
+	// so the unsealed query's occurred_at bound did not see it.
+	for len(wanted) > 0 {
+		n := min(len(wanted), e.pageSize())
+		rows, err := e.Source.ExportEraseEntries(ctx, s.TenantID, wanted[:n], o)
+		if err != nil {
+			return err
+		}
+		wanted = wanted[n:]
+		for _, r := range rows {
+			if (r.Entry.Seq != nil && *r.Entry.Seq <= s.HeadSeq) || written[r.Entry.ID] {
+				continue
+			}
+			line, err := entryLine(r, false)
+			if err != nil {
+				return err
+			}
+			unsealed++
+			written[r.Entry.ID] = true
+			if err = emit(line); err != nil {
+				return err
+			}
+		}
+		if err := endPage(); err != nil {
+			return err
 		}
 	}
 

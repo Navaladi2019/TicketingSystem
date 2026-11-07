@@ -253,6 +253,36 @@ LIMIT $14`, tenantID, head, start, f.From, f.To, f.Domain, f.SubjectType, f.Subj
 	return out, err
 }
 
+// ExportEraseEntries returns the audit/erase entries whose subject_id is one
+// of refs, sealed or not and whatever their occurred_at (R24, ADR-004-E8
+// "Follow-up"). It is one read on the reader pool under the export's tenant
+// scope; the reader already has erasure_ref (TICK-612), so it needs no new
+// grant. Rows come back as matches, diffs masked for the reader.
+func (r *Reader) ExportEraseEntries(ctx context.Context, tenantID uuid.UUID, refs []uuid.UUID, o ExportPageOptions) ([]ExportRow, error) {
+	var out []ExportRow
+	err := r.pageTx(ctx, tenantID, o, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `SELECT `+exportColumns+` FROM (
+  SELECT `+exportInner+`, true AS m FROM audit_log
+  WHERE tenant_id = $1 AND domain = 'audit' AND action = 'erase' AND subject_type = 'erasure_request'
+    AND subject_id = ANY($2::uuid[])
+) t
+ORDER BY occurred_at, id`, tenantID, nonNil(refs))
+		if err != nil {
+			return fmt.Errorf("audit/read: export erase entries: %w", err)
+		}
+		got, err := scanExport(rows)
+		if err != nil {
+			return err
+		}
+		if err := r.maskExport(ctx, tx, got); err != nil {
+			return err
+		}
+		out = got
+		return nil
+	})
+	return out, err
+}
+
 // exportMatchUnsealed is exportMatch with the same parameter numbers; kept as
 // its own name so a reader of ExportUnsealed sees the predicate is the same.
 const exportMatchUnsealed = exportMatch
