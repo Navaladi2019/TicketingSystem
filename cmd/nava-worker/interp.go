@@ -10,7 +10,7 @@ import (
 // ApplyStep activities (regular activities, never local) on w, which polls
 // nava-tq (D-3-11), behind the guard workerOptions installs. acts nil
 // registers nothing: interpreterActivities returns nil in a production build
-// (interp_default.go), and the worker stays activity-only.
+// (interp_default.go), and the worker runs only audit.seal (registerSealer).
 func registerInterpreter(w worker.Registry, acts *interp.Activities) {
 	if acts == nil {
 		return

@@ -9,11 +9,11 @@
 //     under the head lock. seq comes only from the locked head (R15a), and
 //     the head's seq and entry_hash advance in the same transaction.
 //
-// The workflow that calls them is P5-34b. The tenant is never an argument:
-// every transaction is opened by workerguard.InTenantTx with the tenant the
-// activity guard verified (I2), and RLS limits every statement to it. Both
-// run as nava_worker, the only role with the R11 seal transition and the
-// head's sealer columns (R14).
+// The workflow that calls them, audit.seal, is in workflow.go (P5-34b). The
+// tenant is never an argument: every transaction is opened by
+// workerguard.InTenantTx with the tenant the activity guard verified (I2),
+// and RLS limits every statement to it. Both run as nava_worker, the only
+// role with the R11 seal transition and the head's sealer columns (R14).
 //
 // Neither returns record data: A1 returns the next run's outbox id, A2 a
 // count, and the Temporal activities in activities.go return less still
@@ -156,30 +156,56 @@ WHERE a.tenant_id = $1 AND a.occurred_at = u.occurred_at AND a.id = u.id AND a.s
 	setIntervalSQL = `UPDATE audit_chain_head SET seal_interval_s = $2 WHERE tenant_id = $1`
 )
 
+// Option configures Seal.
+type Option func(*sealOptions)
+
+type sealOptions struct {
+	maxBatches int
+	progress   func(sealed int)
+}
+
+// WithMaxBatches caps Seal at n batches (n BatchSize entries); n <= 0 is no
+// cap. The capped batch counts as the run's last: it sets the interval, and
+// the next run continues the chain from the head (TICK-440 review, "bounded
+// A2").
+func WithMaxBatches(n int) Option { return func(o *sealOptions) { o.maxBatches = n } }
+
+// WithProgress calls f, with the running total, after each committed batch
+// that is not the run's last. The activity heartbeats there.
+func WithProgress(f func(sealed int)) Option { return func(o *sealOptions) { o.progress = f } }
+
 // Seal is A2: it seals the tenant's unsealed entries batch by batch until a
-// batch finds fewer than BatchSize, and returns how many it sealed. Each
-// batch is its own transaction under the head lock. The last one also sets seal_interval_s
-// by NextInterval, for the next A1 (R16). On an error the failing batch is
-// rolled back; batches committed before it stay sealed, and the interval is
-// left as it was.
-func Seal(ctx context.Context, pool *pgxpool.Pool) (int, error) {
+// batch finds fewer than BatchSize, or WithMaxBatches batches have run, and
+// returns how many it sealed. Each batch is its own transaction under the
+// head lock. The last one also sets seal_interval_s by NextInterval, for the
+// next A1 (R16). On an error the failing batch is rolled back; batches
+// committed before it stay sealed, and the interval is left as it was.
+func Seal(ctx context.Context, pool *pgxpool.Pool, opts ...Option) (int, error) {
+	var o sealOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
 	total := 0
-	for {
-		n, err := sealBatch(ctx, pool, total)
+	for batch := 1; ; batch++ {
+		final := o.maxBatches > 0 && batch >= o.maxBatches
+		n, err := sealBatch(ctx, pool, total, final)
 		total += n
 		if err != nil {
 			return total, err
 		}
-		if n < BatchSize {
+		if n < BatchSize || final {
 			return total, nil
+		}
+		if o.progress != nil {
+			o.progress(total)
 		}
 	}
 }
 
-// sealBatch is one A2 transaction. A short batch is the run's last: it also
-// sets the interval, the run counting as sealing if sealedBefore or this
-// batch sealed anything.
-func sealBatch(ctx context.Context, pool *pgxpool.Pool, sealedBefore int) (int, error) {
+// sealBatch is one A2 transaction. A short batch, or the final one under the
+// cap, is the run's last: it also sets the interval, the run counting as
+// sealing if sealedBefore or this batch sealed anything.
+func sealBatch(ctx context.Context, pool *pgxpool.Pool, sealedBefore int, final bool) (int, error) {
 	tenant, ok := workerguard.TenantFromContext(ctx)
 	if !ok {
 		return 0, tenancy.ErrNoTenant
@@ -238,7 +264,7 @@ func sealBatch(ctx context.Context, pool *pgxpool.Pool, sealedBefore int) (int, 
 				return fmt.Errorf("seal: advance head: %w", err)
 			}
 		}
-		if n < BatchSize {
+		if n < BatchSize || final {
 			next := NextInterval(interval, sealedBefore+n > 0)
 			if next != interval {
 				if _, err := tx.Exec(ctx, setIntervalSQL, tenant, next); err != nil {

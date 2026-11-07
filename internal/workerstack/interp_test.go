@@ -9,19 +9,21 @@ package workerstack
 //
 // nava-worker-interptest polls workflow and activity tasks on nava-tq. It is
 // up only inside startInterpWorker's test, in the serial `worker` case. The
-// test bodies of the temporalstack suite (parallel `sdk` case), of
-// demo_outbox (serial, after this case) and closeRef in this package are all
-// registered as nava.interpreter on nava-tq too (TICK-374), so none may poll
+// test bodies of the temporalstack suite (serial `sdk` case) and of
+// demo_outbox (serial, after this case) are registered as nava.interpreter
+// on nava-tq too (TICK-374), so none may poll
 // while it runs: the case order keeps them apart (tools/ci/stackcases
-// TestInterpreterQueueOrdering), and each body's worker checks first that no
-// nava-worker-interptest container is running (requireQueueFree). Its
+// TestInterpreterQueueOrdering), and each temporalstack body's worker checks
+// first that no nava-worker-interptest container is running
+// (requireQueueFree there). Its
 // cleanup removes the container and waits until it is gone, failed test or
 // not, so no interpreter poller outlives the case.
 //
-// The always-on nava-worker also polls activity tasks on nava-tq and does not
-// register NextStep or ApplyStep: an attempt it took would fail as
-// ActivityNotRegisteredError (retryable), spend one of the bounded attempts
-// and add its backoff. So startInterpWorker stops it for the test and its
+// The always-on nava-worker also polls nava-tq: it registers audit.seal but
+// not nava.interpreter, NextStep or ApplyStep. A task it took would fail and
+// wait for a retry. Every worker that polls a queue registers the same
+// workflow types (the nava-tq rule, TICK-453), so startInterpWorker stops it
+// for the test and its
 // cleanup starts it again and waits until it is healthy, failed test or not
 // (Technical Lead, 2026-11-01): nava-worker-interptest is the only nava-tq
 // poller while the case runs.
@@ -418,21 +420,5 @@ func TestInterpreterCrossTenantIsNotFound(t *testing.T) {
 				t.Errorf("workflow_ref open: %q, want t (the run never reached its end step)", got)
 			}
 		})
-	}
-}
-
-// requireQueueFree fails the test if nava-worker-interptest has a container
-// running: a test body registered as nava.interpreter on nava-tq must not
-// share the queue with it (TICK-374).
-func requireQueueFree(t *testing.T) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
-	defer cancel()
-	out, err := composeIn(ctx, nil, "ps", "--quiet", interpService)
-	if err != nil {
-		t.Fatalf("compose ps %s: %v\n%s", interpService, err, out)
-	}
-	if id := strings.TrimSpace(out); id != "" {
-		t.Fatalf("%s is running (%s): it polls nava-tq as %s, so this test's body must not", interpService, id, platformType)
 	}
 }
