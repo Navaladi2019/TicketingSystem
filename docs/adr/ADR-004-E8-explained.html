@@ -22,7 +22,7 @@ figure svg{width:100%;min-width:640px;height:auto;display:block}
 figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
 </style></head><body><main>
 
-<span class="pill">DRAFT · 2026-11-08</span> <span class="src">ADR-004-E8 · issue TICK-612 · corrects ADR-004-A1 A1-1, clarifies A1-7 · evidence: PR #508</span>
+<span class="pill" style="background:var(--goodbg);color:var(--good);border-color:var(--good)">ACCEPTED · 2026-11-08</span> <span class="src">ADR-004-E8 · issue TICK-612 · corrects ADR-004-A1 A1-1, clarifies A1-7 · evidence: PR #508</span>
 
 <h1>The audit export can read the chain columns it has to print</h1>
 
@@ -69,7 +69,7 @@ figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
 </figure>
 <ul>
 <li><strong>A1-1:</strong> the reader's <code>audit_log</code> list gains <code>prev_hash</code>, <code>entry_hash</code> and <code>erasure_ref</code>. It still never includes <code>txid</code> and still has no write rights.</li>
-<li><strong>A1-7:</strong> the chain's latest position ("head") is read by the same statement that takes the one-export-per-tenant lock, on <code>nava_app</code>. If that statement finds no free lock, the caller gets <code>409 export_in_progress</code>.</li>
+<li><strong>A1-7:</strong> the chain's latest position ("head") is read by the same statement that takes the one-export-per-tenant lock, on <code>nava_app</code>. If that statement finds no free lock, the caller gets <code>409 export_in_progress</code>. That lock is released before the first page is read, so the background sealer is never blocked while a file streams.</li>
 </ul>
 
 <h2>What is being accepted</h2>
@@ -79,11 +79,12 @@ figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
 <tr><td><code>erasure_ref</code></td><td>No. It is the same value as <code>subject_id</code> of the matching erasure entry, which the reader already reads. <code>erased_at</code> already shows that an entry was erased.</td></tr>
 </table>
 <p>Tenant isolation is untouched. The reader still sees only the current tenant's rows. With no tenant set, it sees nothing. Only the reader can read the diff columns, and the policy's role list is unchanged. <strong>No new accepted risk.</strong></p>
+<p><strong>One limit, and its fix.</strong> The head and the pages are read at slightly different moments. The chain links are fine with that, because they never change once sealed. The limit is this: if someone's data is erased <em>while</em> an export is running, the file could show the erased entry without the erasure record that explains it, and the checker would wrongly report <em>tampered</em>. This gap pre-dates E8. The fix is decided: the exporter always fetches the matching erasure record, and if that record is not sealed yet, the checker reports <em>pending</em> instead of <em>tampered</em>. It ships with the export task (TICK-444, follow-up TICK-613), along with a test that erases an entry mid-export.</p>
 
 <h2>Evidence</h2>
 <ul>
 <li>Catalogue check on PostgreSQL 16.10: the reader had no read right on the two hashes, which causes the export failure. See <code>docs/adr/ADR-004/spikes/postgres/e8/</code>.</li>
 <li>Red to green: <code>TestP540aReaderReadsChainHashes</code> fails before the grant and passes after it, including the other-tenant and no-tenant zero-row checks. <code>TestP540aExportLeaseAndHeadRead</code> pins the lock-and-head statement.</li>
-<li><strong>Open at DRAFT:</strong> PR #508 does not yet grant <code>erasure_ref</code>. It must add it before this erratum is accepted.</li>
+<li>PR #508 now grants all three columns, and its CI is green. The Security reviewer approved it. The Technical Architect's critique raised no objection once the three wording fixes were made.</li>
 </ul>
 </main></body></html>
