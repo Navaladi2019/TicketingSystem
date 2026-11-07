@@ -6,6 +6,7 @@ Delivery decisions that change a task's contract, newest first.
 
 <!-- docindex:start -->
 
+- [2026-11-05: C5 amended: WithDelay option (P5-34a) and EnqueueReseed with reseed dedupe key (P5-35)](decisions/2026-11-05-c5-withdelay-and-enqueuereseed.md)
 - [2026-11-04: TICK-559 / D-A1-6: rule 1 exempts four test files by exact path and finding kind](decisions/2026-11-04-tick-559-rule1-test-exemptions.md)
 - [2026-11-04: PLAN-005-E5 approved: ADR-004-E5 lands as seven tasks in S14; step (ii) waits for the tombstoning sync; P5-13c attaches last](decisions/2026-11-04-plan-005-e5-adr-004-e5.md)
 - [2026-11-04: PLAN-005-A1 drafted: ADR-004-A1 lands as three tasks in S14; role, revoke and pool ship as one PR; the masker fails closed first](decisions/2026-11-04-plan-005-a1-adr-004-a1.md)

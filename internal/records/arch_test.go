@@ -44,7 +44,8 @@ const modulePath = "github.com/Navaladi2019/TicketingSystem"
 func recordTable(name string) bool {
 	switch name {
 	// audit_log is ADR-004's table; outside the pipeline only its one writer,
-	// audit.Append, may write it (auditWriter).
+	// audit.Append, and the sealer's seal transition may write it
+	// (auditWriter).
 	case "records", "audit_log", "record_counters", "comments", "record_links":
 		return true
 	}
@@ -66,8 +67,17 @@ func writerAllowed(rel string) bool {
 // is still reported: those would skip validate, the secret check and the
 // ::json binding, and this gate must not lean on the database grants
 // (P5-12b, TICK-430).
+//
+// internal/audit/seal/seal.go may UPDATE audit_log and nothing else: it is the
+// sealer's R11 seal transition (ADR-004 R11, R16; P5-34a, TICK-440), which the
+// audit_log_guard_update trigger limits to nava_worker setting the four seal
+// columns of an unsealed row. Any other write there is still reported.
 func auditWriter(rel, kind, table string) bool {
-	return kind == "insert" && table == "audit_log" && rel == "internal/audit/append.go"
+	if table != "audit_log" {
+		return false
+	}
+	return kind == "insert" && rel == "internal/audit/append.go" ||
+		kind == "update" && rel == "internal/audit/seal/seal.go"
 }
 
 // probeExempt is the tenant isolation suite's path registry: its INSERT and
@@ -560,6 +570,44 @@ var copyTable = pgx.Identifier{"audit_log"}
 		{"internal/audit/other.go", 13, "identifier", "audit_log"},
 	}); !slices.Equal(got, want) {
 		t.Errorf("other.go: got %v, want %v", got, want)
+	}
+}
+
+// TestSealerIsTheAuditLogSealer: internal/audit/seal/seal.go may UPDATE
+// audit_log (the R11 seal transition) and nothing else: no INSERT or DELETE
+// on audit_log, no pgx.Identifier (CopyFrom) form, no other table. Another
+// file of the package may not write audit_log at all.
+func TestSealerIsTheAuditLogSealer(t *testing.T) {
+	const src = `package seal
+
+import "github.com/jackc/pgx/v5"
+
+const sealSQL = "UPDATE audit_log SET seq = $2 WHERE id = $1"
+
+const sneakySQL = "UPDATE records SET state = $2 WHERE id = $1"
+
+const insertSQL = "INSERT INTO audit_log (tenant_id) VALUES ($1)"
+
+const deleteSQL = "DELETE FROM audit_log WHERE id = $1"
+
+var copyTable = pgx.Identifier{"audit_log"}
+`
+	if got, want := scanSource(t, "internal/audit/seal/seal.go", src), dedupe([]finding{
+		{"internal/audit/seal/seal.go", 7, "update", "records"},
+		{"internal/audit/seal/seal.go", 9, "insert", "audit_log"},
+		{"internal/audit/seal/seal.go", 11, "delete", "audit_log"},
+		{"internal/audit/seal/seal.go", 13, "identifier", "audit_log"},
+	}); !slices.Equal(got, want) {
+		t.Errorf("seal.go: got %v, want %v", got, want)
+	}
+	if got, want := scanSource(t, "internal/audit/seal/activities.go", src), dedupe([]finding{
+		{"internal/audit/seal/activities.go", 5, "update", "audit_log"},
+		{"internal/audit/seal/activities.go", 7, "update", "records"},
+		{"internal/audit/seal/activities.go", 9, "insert", "audit_log"},
+		{"internal/audit/seal/activities.go", 11, "delete", "audit_log"},
+		{"internal/audit/seal/activities.go", 13, "identifier", "audit_log"},
+	}); !slices.Equal(got, want) {
+		t.Errorf("activities.go: got %v, want %v", got, want)
 	}
 }
 

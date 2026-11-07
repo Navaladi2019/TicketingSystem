@@ -214,3 +214,59 @@ func TestEnqueueSealTenantIsolation(t *testing.T) {
 		})
 	}
 }
+
+// AC (C5 as amended on TICK-440): WithDelay sets available_at = now() + d on
+// the database clock. now() is the transaction start, as created_at's
+// default is, so the test compares the two columns of the row itself and
+// never wall-clock time. Without the option the row is available at once
+// (available_at = created_at), which onboarding (P5-33) relies on.
+func TestEnqueueSealWithDelay(t *testing.T) {
+	e := migrated(t)
+	ctx := context.Background()
+	for _, c := range []struct {
+		name  string
+		opts  []outbox.SealOption
+		delay time.Duration
+	}{
+		{"no option", nil, 0},
+		{"zero", []outbox.SealOption{outbox.WithDelay(0)}, 0},
+		{"seal interval", []outbox.SealOption{outbox.WithDelay(300 * time.Second)}, 300 * time.Second},
+		{"sub-second", []outbox.SealOption{outbox.WithDelay(1500 * time.Millisecond)}, 1500 * time.Millisecond},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			tenant := uuid.New()
+			seedHead(t, e.super, tenant, 1)
+			var id uuid.UUID
+			err := tenancy.InTenantTx(ctx, e.worker, tenant, func(tx pgx.Tx) error {
+				var err error
+				id, err = outbox.EnqueueSeal(ctx, tx, 1, c.opts...)
+				return err
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var gap time.Duration
+			if err := e.super.QueryRow(ctx, `SELECT (extract(epoch FROM available_at - created_at) * 1000000)::bigint
+				FROM outbox WHERE tenant_id = $1 AND id = $2`, tenant, id).Scan(&gap); err != nil {
+				t.Fatal(err)
+			}
+			if gap *= time.Microsecond; gap != c.delay {
+				t.Errorf("available_at - created_at = %s, want %s", gap, c.delay)
+			}
+		})
+	}
+
+	// A negative delay writes nothing.
+	tenant := uuid.New()
+	seedHead(t, e.super, tenant, 1)
+	err := tenancy.InTenantTx(ctx, e.worker, tenant, func(tx pgx.Tx) error {
+		_, err := outbox.EnqueueSeal(ctx, tx, 1, outbox.WithDelay(-time.Second))
+		return err
+	})
+	if !errors.Is(err, outbox.ErrInvalidEntry) {
+		t.Errorf("negative delay: %v, want ErrInvalidEntry", err)
+	}
+	if n := count(t, e.super, "SELECT count(*) FROM outbox WHERE tenant_id = $1", tenant); n != 0 {
+		t.Errorf("%d outbox rows after a negative delay, want 0", n)
+	}
+}

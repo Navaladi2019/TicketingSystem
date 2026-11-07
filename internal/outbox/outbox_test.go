@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/baggage"
@@ -94,6 +97,16 @@ func TestSealPathsRefuseBeforeAnyWrite(t *testing.T) {
 	for _, v := range []int64{0, -1} {
 		if _, err := EnqueueSeal(context.Background(), nil, v); !errors.Is(err, ErrInvalidEntry) {
 			t.Fatalf("EnqueueSeal(%d) = %v, want ErrInvalidEntry", v, err)
+		}
+	}
+	// C5 as amended (TICK-440): a negative delay is refused before any query;
+	// the last WithDelay wins, so a later negative one is refused too.
+	for _, opts := range [][]SealOption{
+		{WithDelay(-time.Nanosecond)},
+		{WithDelay(10 * time.Second), WithDelay(-time.Second)},
+	} {
+		if _, err := EnqueueSeal(context.Background(), nil, 1, opts...); !errors.Is(err, ErrInvalidEntry) {
+			t.Fatalf("EnqueueSeal with a negative delay = %v, want ErrInvalidEntry", err)
 		}
 	}
 }
@@ -193,4 +206,38 @@ func mustTraceState(t *testing.T, s string) trace.TraceState {
 		t.Fatal(err)
 	}
 	return ts
+}
+
+// insertColumns returns the column list of the INSERT INTO outbox in sql.
+func insertColumns(t *testing.T, sql string) []string {
+	t.Helper()
+	m := regexp.MustCompile(`INSERT INTO outbox \(([^)]*)\)`).FindStringSubmatch(sql)
+	if m == nil {
+		t.Fatalf("no INSERT INTO outbox in %q", sql)
+	}
+	var cols []string
+	for _, c := range strings.Split(m[1], ",") {
+		cols = append(cols, strings.TrimSpace(c))
+	}
+	return cols
+}
+
+// The delayed seal insert (TICK-440) names insertSealSQL's columns plus
+// available_at and nothing else, and is the same statement otherwise: same
+// values for those columns, same conflict handling. insertSealSQL keeps
+// P5-31's column list, which onboarding (P5-33) and the nava_onboard grant
+// equal (TestSealInsertMatchesOutbox).
+func TestDelayedSealInsertColumns(t *testing.T) {
+	base := insertColumns(t, insertSealSQL)
+	if got, want := insertColumns(t, insertDelayedSealSQL), append(slices.Clone(base), "available_at"); !slices.Equal(got, want) {
+		t.Errorf("delayed seal insert columns %v, want %v", got, want)
+	}
+	if slices.Contains(base, "available_at") {
+		t.Errorf("insertSealSQL names available_at; the no-option path must take its default")
+	}
+	want := strings.Replace(insertSealSQL, "trace_context)", "trace_context, available_at)", 1)
+	want = strings.Replace(want, "$6)", "$6, now() + make_interval(secs => $7))", 1)
+	if insertDelayedSealSQL != want {
+		t.Errorf("insertDelayedSealSQL differs from insertSealSQL by more than available_at: %s", insertDelayedSealSQL)
+	}
 }
