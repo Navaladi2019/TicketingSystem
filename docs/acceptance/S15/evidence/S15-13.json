@@ -1,0 +1,151 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:28080/api/v1/audit/entries?after_seq=3&limit=500",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:28080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "items": [
+        {
+          "action": "create",
+          "actor_principal_id": "d099002f-6ae2-4204-a36c-d368ca44b97c",
+          "backfilled": false,
+          "causation_depth": 0,
+          "causation_id": "01a1b631-c972-7583-9301-0be24924588a",
+          "diff": [
+            {
+              "op": "add",
+              "path": "",
+              "value": {
+                "priority": 2,
+                "short_description": "S15 mw6fps5b rec3",
+                "state": "new"
+              }
+            }
+          ],
+          "diff_redacted": false,
+          "diff_salt": "e3d476cbf5c587279fb3be5b82192e70",
+          "diff_sha256": "501951a00c96faff8bf693390d033b13f4de4f9f178ede1f54770c1f8e7e923d",
+          "diff_truncated": false,
+          "domain": "record",
+          "entity_definition_id": "c93df269-ab20-4325-a2ef-41b74e036fe0",
+          "id": "01a1b631-c97a-742e-ab0a-38c2ded72f31",
+          "occurred_at": "2026-11-07T13:27:58.572208Z",
+          "request_id": "2fe46824725543555f4749f19f230e7b",
+          "sealed_at": "2026-11-07T13:28:08.401216Z",
+          "seq": 6,
+          "source": "user",
+          "subject_id": "01a1b631-c976-743d-9c67-b5c9c0e31628",
+          "subject_type": "record",
+          "version_after": 1
+        },
+        {
+          "action": "create",
+          "actor_principal_id": "d099002f-6ae2-4204-a36c-d368ca44b97c",
+          "backfilled": false,
+          "causation_depth": 0,
+          "causation_id": "01a1b62f-56e4-77d9-8299-746234199428",
+          "diff": [
+            {
+              "op": "add",
+              "path": "",
+              "value": {
+                "priority": 2,
+                "short_description": "S15 mw6fps5b rec2",
+                "state": "new"
+              }
+            }
+          ],
+          "diff_redacted": false,
+          "diff_salt": "9cb77168b11efed57380986fdb6f4871",
+          "diff_sha256": "90d8ad194beef63d4e2af34d52ffe5e758dc7db809876a7641d0f970245ca582",
+          "diff_truncated": false,
+          "domain": "record",
+          "entity_definition_id": "c93df269-ab20-4325-a2ef-41b74e036fe0",
+          "id": "01a1b62f-56e9-78e6-9969-c409bde3aa6f",
+          "occurred_at": "2026-11-07T13:25:18.177808Z",
+          "request_id": "680d5203b433be955ff0a46aa351ecb5",
+          "sealed_at": "2026-11-07T13:27:57.829334Z",
+          "seq": 5,
+          "source": "user",
+          "subject_id": "01a1b62f-56e6-7a97-8c4f-16059f2cd09a",
+          "subject_type": "record",
+          "version_after": 1
+        },
+        {
+          "action": "create",
+          "actor_principal_id": "d099002f-6ae2-4204-a36c-d368ca44b97c",
+          "backfilled": false,
+          "causation_depth": 0,
+          "causation_id": "01a1b62e-27e3-7b54-b62f-f0362459f807",
+          "diff": [
+            {
+              "op": "add",
+              "path": "",
+              "value": {
+                "priority": 2,
+                "short_description": "S15 mw6fps5b rec1",
+                "state": "new"
+              }
+            }
+          ],
+          "diff_redacted": false,
+          "diff_salt": "53a13369fdad2e62d008bcec558fb387",
+          "diff_sha256": "2ac8b0cd7d806b36cbd35533cbc1f125c0018b8604f71dd6e506d8bc0a4d9ce6",
+          "diff_truncated": false,
+          "domain": "record",
+          "entity_definition_id": "c93df269-ab20-4325-a2ef-41b74e036fe0",
+          "id": "01a1b62e-27f0-7e6f-8c8e-695cb0023d24",
+          "occurred_at": "2026-11-07T13:24:00.60498Z",
+          "request_id": "12d174e0bdbee88e251af7e3452bd5e6",
+          "sealed_at": "2026-11-07T13:25:17.594338Z",
+          "seq": 4,
+          "source": "user",
+          "subject_id": "01a1b62e-27e8-7a3a-8466-9752415c42fc",
+          "subject_type": "record",
+          "version_after": 1
+        }
+      ]
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 200",
+      "status": "pass"
+    },
+    {
+      "test": "every entry returned is sealed",
+      "status": "pass"
+    },
+    {
+      "test": "no seq twice",
+      "status": "pass"
+    },
+    {
+      "test": "seqs run from the first incident on with no gap",
+      "status": "pass"
+    },
+    {
+      "test": "the three incidents are in it",
+      "status": "pass"
+    },
+    {
+      "test": "tenant B's incident is not in tenant A's chain",
+      "status": "pass"
+    },
+    {
+      "test": "response names nothing of the other tenant",
+      "status": "pass"
+    }
+  ]
+}

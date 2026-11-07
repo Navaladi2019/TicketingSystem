@@ -1,0 +1,419 @@
+{
+  "requests": 21,
+  "tests": 71,
+  "failed": 2,
+  "results": [
+    {
+      "request": "S15-1",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200 from Keycloak",
+          "status": "pass"
+        },
+        {
+          "test": "access token issued",
+          "status": "pass"
+        },
+        {
+          "test": "issuer is the pinned realm URL",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S15-2",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200 from Keycloak",
+          "status": "pass"
+        },
+        {
+          "test": "access token issued",
+          "status": "pass"
+        },
+        {
+          "test": "issuer is the pinned realm URL",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S15-3",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200 from Keycloak",
+          "status": "pass"
+        },
+        {
+          "test": "access token issued",
+          "status": "pass"
+        },
+        {
+          "test": "issuer is the pinned realm URL",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S15-4",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200 from Keycloak",
+          "status": "pass"
+        },
+        {
+          "test": "access token issued",
+          "status": "pass"
+        },
+        {
+          "test": "issuer is the pinned realm URL",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S15-5",
+      "status": 201,
+      "tests": [
+        {
+          "test": "HTTP 201",
+          "status": "pass"
+        },
+        {
+          "test": "tenant_id is a uuid, state active",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S15-6",
+      "status": 201,
+      "tests": [
+        {
+          "test": "HTTP 201",
+          "status": "pass"
+        },
+        {
+          "test": "version 1",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S15-7",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "the incident's create entry is on the auditor's timeline",
+          "status": "pass"
+        },
+        {
+          "test": "sealed: a seq of 1 or more, and a sealed_at",
+          "status": "pass"
+        },
+        {
+          "test": "sealed 300 s or less after it was written (sealed_at - occurred_at, database clock)",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S15-8",
+      "status": 201,
+      "tests": [
+        {
+          "test": "HTTP 201",
+          "status": "pass"
+        },
+        {
+          "test": "version 1",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S15-9",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "the incident's create entry is on the auditor's timeline",
+          "status": "pass"
+        },
+        {
+          "test": "sealed: a seq of 1 or more, and a sealed_at",
+          "status": "pass"
+        },
+        {
+          "test": "sealed 300 s or less after it was written (sealed_at - occurred_at, database clock)",
+          "status": "pass"
+        },
+        {
+          "test": "a later seq than the first incident",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S15-10",
+      "status": 201,
+      "tests": [
+        {
+          "test": "HTTP 201",
+          "status": "pass"
+        },
+        {
+          "test": "version 1",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S15-11",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "the incident's create entry is on the auditor's timeline",
+          "status": "pass"
+        },
+        {
+          "test": "sealed: a seq of 1 or more, and a sealed_at",
+          "status": "pass"
+        },
+        {
+          "test": "sealed 20 s or less after it was written (sealed_at - occurred_at, database clock)",
+          "status": "pass"
+        },
+        {
+          "test": "a later seq than the second incident",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S15-12",
+      "status": 201,
+      "tests": [
+        {
+          "test": "HTTP 201",
+          "status": "pass"
+        },
+        {
+          "test": "version 1",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S15-13",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "every entry returned is sealed",
+          "status": "pass"
+        },
+        {
+          "test": "no seq twice",
+          "status": "pass"
+        },
+        {
+          "test": "seqs run from the first incident on with no gap",
+          "status": "pass"
+        },
+        {
+          "test": "the three incidents are in it",
+          "status": "pass"
+        },
+        {
+          "test": "tenant B's incident is not in tenant A's chain",
+          "status": "pass"
+        },
+        {
+          "test": "response names nothing of the other tenant",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S15-14",
+      "status": 404,
+      "tests": [
+        {
+          "test": "HTTP 404",
+          "status": "pass"
+        },
+        {
+          "test": "problem code not_found",
+          "status": "pass"
+        },
+        {
+          "test": "response names nothing of the other tenant",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S15-15",
+      "status": 200,
+      "tests": [
+        {
+          "test": "audit_seal_failures_total has a sample",
+          "status": "fail",
+          "error": "expected +0 to be at least 1"
+        },
+        {
+          "test": "the HELP lines name both metrics",
+          "status": "fail",
+          "error": "expected false to deeply equal true"
+        },
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "audit_unsealed_oldest_seconds has a sample",
+          "status": "pass"
+        },
+        {
+          "test": "neither carries a tenant label (TICK-93)",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S15I-1",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200 from Keycloak",
+          "status": "pass"
+        },
+        {
+          "test": "access token issued",
+          "status": "pass"
+        },
+        {
+          "test": "issuer is the pinned realm URL",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S15I-2",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200 from Keycloak",
+          "status": "pass"
+        },
+        {
+          "test": "access token issued",
+          "status": "pass"
+        },
+        {
+          "test": "issuer is the pinned realm URL",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S15I-3",
+      "status": 201,
+      "tests": [
+        {
+          "test": "HTTP 201",
+          "status": "pass"
+        },
+        {
+          "test": "version 1",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S15I-4",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "the incident's create entry is on the auditor's timeline",
+          "status": "pass"
+        },
+        {
+          "test": "sealed: a seq of 1 or more, and a sealed_at",
+          "status": "pass"
+        },
+        {
+          "test": "sealed 300 s or less after it was written (sealed_at - occurred_at, database clock)",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S15K-1",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200 from Keycloak",
+          "status": "pass"
+        },
+        {
+          "test": "access token issued",
+          "status": "pass"
+        },
+        {
+          "test": "issuer is the pinned realm URL",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S15K-2",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "the load wrote entries after the kill",
+          "status": "pass"
+        },
+        {
+          "test": "every entry since the kill is sealed",
+          "status": "pass"
+        },
+        {
+          "test": "no seq twice",
+          "status": "pass"
+        },
+        {
+          "test": "consecutive seqs: no gap",
+          "status": "pass"
+        }
+      ]
+    }
+  ]
+}
