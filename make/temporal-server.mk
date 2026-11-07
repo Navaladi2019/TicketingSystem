@@ -15,8 +15,14 @@ temporal-server-test:
 ## make lint runs ./... from the root, which stops at this module's go.mod, so
 ## the D9/E1 authorizer was linted by nothing. The ADR-002-E1 nolint gate
 ## (scripts/ci/nolint-allowlist.sh) already greps this module's files.
+## Ratchet: the module had 45 findings when this target was added (listed in
+## docs/quality/ci-pipeline.md), so it reports only findings in lines changed
+## since the merge base with BASE (default origin/main). TSRV_LINT_NEW= (empty)
+## lints the whole module; drop the ratchet once the backlog is fixed.
+TSRV_LINT_NEW ?= --new-from-merge-base=$(BASE)
 lint-temporal-server: check-golangci-lint
-	cd temporal-server && $(GOLANGCI_LINT) run --config ../.golangci.yml ./...
+	@[ -z "$(TSRV_LINT_NEW)" ] || git rev-parse -q --verify $(BASE) >/dev/null || { echo "lint-temporal-server: $(BASE) not found; fetch it first (git fetch origin main)"; exit 1; }
+	cd temporal-server && $(GOLANGCI_LINT) run --config ../.golangci.yml $(TSRV_LINT_NEW) ./...
 
 ## Build the custom Temporal server image (ADR-001 D22, task T27a).
 temporal-server-image:

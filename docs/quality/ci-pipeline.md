@@ -29,6 +29,26 @@ half of `check-tools` it needs). A waiver in the module still has to pass the
 ADR-002-E1 nolint gate, which greps every tracked `.go` file. The job shares
 the lint job's pinned-tools cache and adds the golangci-lint cache to its Go
 cache.
+
+**temporal-server lint ratchet (TICK-584).** The first full run found 45
+findings already on `main`, so `lint-temporal-server` passes
+`--new-from-merge-base=$(BASE)` and reports only findings in lines changed
+since the merge base with the pull request's base (the job checks out full
+history and sets `BASE` like the lint job). A planted errcheck violation in
+`temporal-server/authz` still turns the job red (PR #484, run 42169424211).
+A push to `main` lints nothing new (the merge base is `HEAD`); pull requests
+are the gate. `make lint-temporal-server TSRV_LINT_NEW=` lints the whole
+module. Remove the ratchet (`TSRV_LINT_NEW`) when the backlog below is fixed.
+
+| Linter | Count | Where (`temporal-server/`) |
+| --- | --- | --- |
+| gochecknoglobals | 25 | `authz/authorizer.go` 66, 69, 158; `authz/commands.go` 68, 91; `authz/identity.go` 29; `authz/policy.go` 28, 129, 232, 233; `cmd/server/check.go` 61; `internal/devcerts/devcerts.go` 47, 51, 56; tests: `authz/policy_test.go` 30, 34, 214, 215, 436, 534, 644; `authz/adversarial_sticky_command_test.go` 27; `authz/workload_smoke_removed_test.go` 21; `authz/workload_t27k_test.go` 139; `cmd/server/check_test.go` 64 |
+| noctx | 10 | `cmd/server/tools.go` 39, 90, 110; tests: `cmd/server/server_test.go` 355, 365, 390, 429, 482, 501; `gomod_test.go` 27 |
+| revive | 4 | `authz/identity.go` 17 (exported const without comment); tests: `authz/adversarial_test.go` 70, 75 and `cmd/server/server_test.go` 257 (context not first) |
+| gosec | 3 | `cmd/server/check.go` 198; `internal/devcerts/devcerts.go` 199, 212 |
+| errorlint | 1 | `cmd/server/bootstrap.go` 127 |
+| nolintlint | 1 | `authz/workload_a2_test.go` 60 (unused `//nolint:staticcheck`) |
+| staticcheck | 1 | `authz/policy_test.go` 229 (QF1002 tagged switch) |
 `lint`, `unit`, `temporal-server`, `integration`, `commit-check-budget`
 and `stack` run as six parallel jobs (the ones a pull request needs, see "In
 GitHub" below), each a separate check (decision log, 2026-10-20). Inside each job, steps follow the
@@ -107,7 +127,7 @@ and the 7 green push runs of story branch `TICK-334/workflow-interpreter`
 | `stack-db` | 381 s / 793 s | 409 s / 789 s | 254 s / 652 s | 43 s / 55 s | 25 |
 | `stack-internal` | 432 s / 795 s | 356 s / 742 s | 256 s / 684 s | 34 s / 47 s | 25 |
 | `lint`, `unit`, `integration` | under 5 min | | | | 10 |
-| `temporal-server` | under 5 min before TICK-584; golangci-lint added, cold run not yet measured | | | | 20 (was 10, TICK-584) |
+| `temporal-server` | about 4 min (run 42169424211, PR #484: tests 143 s, golangci-lint 19 s cold) | | | | 10 |
 | `commit-check-budget` | | 120 s, cold Go cache (run 41673342312; the test itself 13 s) | | | 10 |
 | `changes` | under 1 min | | | | 5 |
 
