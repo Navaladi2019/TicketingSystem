@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/audit/lineage"
 )
 
 // Policy is one row of pg_policies as the allow-list guard compares it: the
@@ -38,6 +40,8 @@ func AllowList() map[string]Policy {
 		"public.outbox.outbox_purge_select":                {"SELECT", "nava_purge", outboxExpired, ""},
 		"public.workflow_ref.workflow_ref_purge":           {"DELETE", "nava_purge", refExpired, ""},
 		"public.workflow_ref.workflow_ref_purge_select":    {"SELECT", "nava_purge", refExpired, ""},
+		// P5-34f (TICK-590): R17's predicate, shared with the chain:reseed gate.
+		"public.audit_chain_head.audit_chain_head_purge_select": {"SELECT", "nava_purge", lineage.PolicyQual, ""},
 	}
 }
 

@@ -5,7 +5,9 @@ package workerguard
 // seal.ErrTypeUnsealable and seal.ErrTypeHeadNotFound are these constants.
 // Both are built only with a constant message and no cause or details
 // (internal/audit/seal/activities.go), which is what failureTypeAllowed
-// requires.
+// requires. navalint guarderrtype enforces it: it reports these types outside
+// internal/workerguard and internal/audit/seal, and a non-constant message
+// inside internal/audit/seal (TICK-594).
 const (
 	// ErrTypeAuditSealUnsealable: a poison entry fails A2 (ErrUnsealable).
 	ErrTypeAuditSealUnsealable = "nava.audit.seal.Unsealable"

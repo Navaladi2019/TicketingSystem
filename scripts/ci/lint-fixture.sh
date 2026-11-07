@@ -15,7 +15,11 @@
 #              internal/identity/keycloak (T15, CI-11), seen by both passes.
 #   navalint guarderrtype: 1 reference to workerguard.ErrTypeTenantGuard and
 #              1 "nava.WorkflowRefNotFound" literal outside
-#              internal/workerguard (AR-044, P3-26), seen by both passes.
+#              internal/workerguard (AR-044, P3-26), and 1 reference to
+#              seal.ErrTypeUnsealable and 1 to
+#              workerguard.ErrTypeAuditSealHeadNotFound outside
+#              internal/workerguard and internal/audit/seal (TICK-594),
+#              seen by both passes.
 #   workflowcheck: 1 range over a map in a workflow function (D-3-23).
 set -u
 cd "$(dirname "$0")/../.."
@@ -57,6 +61,13 @@ test "$n" -eq "$want" || { echo "lint-fixture: expected $want guarderrtype findi
 echo "$out" | grep -q "workerguard.ErrTypeTenantGuard used outside" || { echo "lint-fixture: the ErrTypeTenantGuard reference was not reported"; exit 1; }
 echo "$out" | grep -q 'failure type "nava.WorkflowRefNotFound"' || { echo "lint-fixture: the nava.WorkflowRefNotFound literal was not reported"; exit 1; }
 echo "lint-fixture: ok, $n guarderrtype findings"
+
+want=4
+n=$(echo "$out" | grep -c "guarderrtype.go:.*outside internal/workerguard and internal/audit/seal: only the worker guard and the audit sealer build this failure type (TICK-594)$" || true)
+test "$n" -eq "$want" || { echo "lint-fixture: expected $want guarderrtype audit.seal findings, got $n"; exit 1; }
+echo "$out" | grep -q "seal.ErrTypeUnsealable used outside" || { echo "lint-fixture: the seal.ErrTypeUnsealable reference was not reported"; exit 1; }
+echo "$out" | grep -q "workerguard.ErrTypeAuditSealHeadNotFound used outside" || { echo "lint-fixture: the ErrTypeAuditSealHeadNotFound reference was not reported"; exit 1; }
+echo "lint-fixture: ok, $n guarderrtype audit.seal findings"
 
 # workflowcheck (D-3-23): exactly the 1 planted map range in workflow code.
 code=0; out=$(GOFLAGS=-tags=lintfixture sh scripts/ci/workflowcheck.sh ./internal/platform/lintfixture/ 2>&1) || code=$?

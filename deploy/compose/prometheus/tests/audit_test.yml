@@ -1,0 +1,106 @@
+# promtool test rules for rules/audit.yml (TICK-590). Run by
+# internal/audit/lineage.TestAlertRules (integration) with the pinned
+# prom/prometheus image; this directory is not mounted into Prometheus.
+rule_files:
+  - ../rules/audit.yml
+
+evaluation_interval: 1m
+
+tests:
+  # AuditDeadLineage: silent at 0, fires at 1, silent again after a reseed.
+  - interval: 1m
+    input_series:
+      - series: 'audit_dead_lineages{job="nava",instance="nava-purge:9090"}'
+        values: '0 0 0 1 1 0'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: AuditDeadLineage
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: AuditDeadLineage
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: An audit seal lineage has stopped; its next run is more than 10 min overdue (ADR-004 R17).
+              description: >-
+                No run will seal the tenant's entries again until
+                POST /api/v1/audit/chain:reseed. The tenant_id is on the
+                nava-purge "audit seal lineage dead" log line.
+      - eval_time: 5m
+        alertname: AuditDeadLineage
+        exp_alerts: []
+
+  # AuditDeadLineageCheckDown (TICK-591): silent while the gauge reports, even
+  # at 0; after nava-purge withdraws it (a failed read), pending, then firing
+  # once it has been gone for 5 min.
+  - interval: 1m
+    input_series:
+      - series: 'audit_dead_lineages{job="nava",instance="nava-purge:9090"}'
+        values: '0 0 0 stale'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: AuditDeadLineageCheckDown
+        exp_alerts: []
+      - eval_time: 7m
+        alertname: AuditDeadLineageCheckDown
+        exp_alerts: []
+      - eval_time: 8m
+        alertname: AuditDeadLineageCheckDown
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: The audit dead-lineage check has reported nothing for 5 min, so a stopped seal lineage would not alert (ADR-004 R17).
+              description: >-
+                nava-purge withdraws audit_dead_lineages when its read fails. Check
+                the nava-purge "audit dead lineage check failed" log line (a lost
+                grant, a dropped policy or a renamed column), and that nava-purge
+                is up and scraped.
+      # The dead-lineage alert itself stays silent with no series.
+      - eval_time: 8m
+        alertname: AuditDeadLineage
+        exp_alerts: []
+
+  # No series at all from the start (nava-purge never scraped): fires after 5 min.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="nava",instance="nava-purge:9090"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: AuditDeadLineageCheckDown
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: AuditDeadLineageCheckDown
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: The audit dead-lineage check has reported nothing for 5 min, so a stopped seal lineage would not alert (ADR-004 R17).
+              description: >-
+                nava-purge withdraws audit_dead_lineages when its read fails. Check
+                the nava-purge "audit dead lineage check failed" log line (a lost
+                grant, a dropped policy or a renamed column), and that nava-purge
+                is up and scraped.
+
+  # AuditSealLag (TICK-453): silent at 600 s, fires above it.
+  - interval: 1m
+    input_series:
+      - series: 'audit_unsealed_oldest_seconds{job="nava-worker",instance="nava-worker:9090"}'
+        values: '600 601'
+    alert_rule_test:
+      - eval_time: 0m
+        alertname: AuditSealLag
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: AuditSealLag
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: An audit entry has been unsealed for more than 600 s (ADR-004 R-A2).
+              description: >-
+                Check audit_seal_failures_total and the nava-worker "audit seal failed"
+                log line for the tenant; a poison entry blocks the tenant until fixed,
+                and a dead lineage needs chain:reseed.

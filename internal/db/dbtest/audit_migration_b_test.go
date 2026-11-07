@@ -40,9 +40,13 @@ func migrateBeforeB(t *testing.T, m *grants.Manifest) (migrate.Result, error) {
 		}
 		a.Audited[name] = e
 	}
+	// The catalogue pins P5-34f's policy (TICK-590), which sorts after B but
+	// needs only audit_chain_head, so the run applies it out of order, as
+	// migrateTo does.
+	fsys := withMigrationFrom(t, migrationsBefore(t, migrationB), deadLineageMigration)
 	log, _ := newLog()
 	return migrate.Run(context.Background(), roleConfig(t, m.Owner(), m.PlatformDatabase),
-		migrationsBefore(t, migrationB), m, &a, globalTables(t), log, migrate.Options{LockRetrySeconds: 1})
+		fsys, m, &a, globalTables(t), log, migrate.Options{LockRetrySeconds: 1})
 }
 
 // entriesPerVersion lists every S8 version that does not have exactly one
