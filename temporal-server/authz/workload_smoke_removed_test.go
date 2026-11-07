@@ -22,7 +22,7 @@ var removedSmokeTypes = []string{"nava.smoke.Echo", "nava.smoke.relay"}
 
 func TestSmokeTypesDenied(t *testing.T) {
 	for _, wt := range removedSmokeTypes {
-		if inSet(platformWorkflowTypes, wt) {
+		if inSet(platformWorkflowTypes(), wt) {
 			t.Fatalf("%s is still in platformWorkflowTypes", wt)
 		}
 		t.Run(wt, func(t *testing.T) { requireTypeDenied(t, wt) })
@@ -34,7 +34,7 @@ func TestSmokeTypesDenied(t *testing.T) {
 // with the tenantA prefix and header. A start-only type is denied as a child
 // or continue-as-new.
 func TestChildAndContinueAsNewAllowEveryPlatformType(t *testing.T) {
-	types := sortedKeys(platformWorkflowTypes)
+	types := sortedKeys(platformWorkflowTypes())
 	if len(types) == 0 {
 		t.Fatal("platformWorkflowTypes is empty")
 	}
@@ -49,7 +49,7 @@ func TestChildAndContinueAsNewAllowEveryPlatformType(t *testing.T) {
 			child.GetStartChildWorkflowExecutionCommandAttributes().WorkflowType.Name = wt
 			can := interpreterContinueAsNew(jsonString("tenantA"))
 			can.GetContinueAsNewWorkflowExecutionCommandAttributes().WorkflowType.Name = wt
-			if inSet(startOnlyWorkflowTypes, wt) {
+			if inSet(startOnlyWorkflowTypes(), wt) {
 				requireCommandDeny(t, denyCase{name: wt, req: respond(tok, child), reason: ReasonWorkflowType,
 					command: "StartChildWorkflowExecution", workflowID: wfA, target: "t:tenantA:wf:1:child", commandIdx: "0"})
 				requireCommandDeny(t, denyCase{name: wt, req: respond(tok, can), reason: ReasonWorkflowType,

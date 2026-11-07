@@ -390,7 +390,7 @@ func writeWorkloadTable(b *strings.Builder) {
 	for _, set := range []struct {
 		name    string
 		entries map[string]struct{}
-	}{{"platformWorkflowTypes", platformWorkflowTypes}, {"startOnlyWorkflowTypes", startOnlyWorkflowTypes}, {"platformTaskQueues", platformTaskQueues}} {
+	}{{"platformWorkflowTypes", platformWorkflowTypes()}, {"startOnlyWorkflowTypes", startOnlyWorkflowTypes()}, {"platformTaskQueues", platformTaskQueues()}} {
 		fmt.Fprintf(b, "| `%s` | `%s` |\n", set.name, strings.Join(sortedKeys(set.entries), "`, `"))
 	}
 	fmt.Fprintf(b, "\nA STICKY queue name must match `%s`, must not be in `platformTaskQueues`, and its `NormalName` must be in `platformTaskQueues`.\n", stickyQueueName)

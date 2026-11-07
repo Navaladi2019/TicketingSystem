@@ -343,7 +343,7 @@ func checkQueryTaskToken(request any) *commandDenial {
 		return &commandDenial{reason: ReasonTaskToken, command: commandNone, index: -1, detail: err.Error()}
 	}
 	tq := token.GetTaskQueue()
-	if !inSet(platformTaskQueues, tq) && !stickyQueueName.MatchString(tq) {
+	if !inSet(platformTaskQueues(), tq) && !stickyQueueName.MatchString(tq) {
 		return pollDenial(ReasonTaskQueue, "query token task queue "+strconv.Quote(truncate(tq, maxLoggedName)))
 	}
 	return failureDenial(req.GetFailure(), "") // a QueryTask token names no workflow, so no tenant
@@ -358,7 +358,7 @@ func checkShutdownWorker(request any) *commandDenial {
 	if !ok {
 		return malformed(request)
 	}
-	if name := req.GetStickyTaskQueue(); name != "" && (!stickyQueueName.MatchString(name) || inSet(platformTaskQueues, name)) {
+	if name := req.GetStickyTaskQueue(); name != "" && (!stickyQueueName.MatchString(name) || inSet(platformTaskQueues(), name)) {
 		return pollDenial(ReasonStickyQueue, "sticky task queue "+strconv.Quote(truncate(name, maxLoggedName)))
 	}
 	if hb := req.GetWorkerHeartbeat(); hb != nil {
@@ -385,7 +385,7 @@ func checkRecordWorkerHeartbeat(request any) *commandDenial {
 // checkHeartbeatTaskQueue allows a heartbeat on a platform queue; an empty
 // TaskQueue is denied.
 func checkHeartbeatTaskQueue(hb *workerpb.WorkerHeartbeat) (reason, detail string) {
-	if inSet(platformTaskQueues, hb.GetTaskQueue()) {
+	if inSet(platformTaskQueues(), hb.GetTaskQueue()) {
 		return "", ""
 	}
 	return ReasonTaskQueue, "heartbeat task queue " + strconv.Quote(truncate(hb.GetTaskQueue(), maxLoggedName))
@@ -553,7 +553,7 @@ func malformed(request any) *commandDenial {
 
 // checkWorkflowType allows only a platform workflow type; "" is denied.
 func checkWorkflowType(name string) (reason, detail string) {
-	if inSet(platformWorkflowTypes, name) {
+	if inSet(platformWorkflowTypes(), name) {
 		return "", ""
 	}
 	return ReasonWorkflowType, "workflow type " + strconv.Quote(truncate(name, maxLoggedName))
@@ -566,7 +566,7 @@ func checkNormalTaskQueue(tq *taskqueuepb.TaskQueue) (reason, detail string) {
 	default:
 		return ReasonTaskQueueKind, "task queue kind " + tq.GetKind().String()
 	}
-	if !inSet(platformTaskQueues, tq.GetName()) {
+	if !inSet(platformTaskQueues(), tq.GetName()) {
 		return ReasonTaskQueue, "task queue " + strconv.Quote(truncate(tq.GetName(), maxLoggedName))
 	}
 	return "", ""
@@ -577,10 +577,10 @@ func checkNormalTaskQueue(tq *taskqueuepb.TaskQueue) (reason, detail string) {
 // for a platform NormalName (an empty NormalName is denied).
 func checkStickyTaskQueue(tq *taskqueuepb.TaskQueue) (reason, detail string) {
 	name := tq.GetName()
-	if !stickyQueueName.MatchString(name) || inSet(platformTaskQueues, name) {
+	if !stickyQueueName.MatchString(name) || inSet(platformTaskQueues(), name) {
 		return ReasonStickyQueue, "sticky task queue " + strconv.Quote(truncate(name, maxLoggedName))
 	}
-	if !inSet(platformTaskQueues, tq.GetNormalName()) {
+	if !inSet(platformTaskQueues(), tq.GetNormalName()) {
 		return ReasonStickyQueue, "sticky normal name " + strconv.Quote(truncate(tq.GetNormalName(), maxLoggedName))
 	}
 	return "", ""

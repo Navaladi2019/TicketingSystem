@@ -235,13 +235,17 @@ var deniedByDefault = []string{
 // name it, so a StartChildWorkflowExecution or ContinueAsNewWorkflowExecution
 // of audit.seal is denied (D9c, commands.go). The sealer reschedules through
 // the outbox, so every sealer run is a relay start the head fences.
-var (
-	platformTaskQueues    = set("nava-tq")
-	platformWorkflowTypes = set("nava.interpreter", "audit.seal")
-	// startOnlyWorkflowTypes is a subset of platformWorkflowTypes that only a
-	// relay start may name; a child or continue-as-new of one is denied.
-	startOnlyWorkflowTypes = set("audit.seal")
-)
+//
+// The sets are built by functions, not held in package variables
+// (gochecknoglobals, TICK-610): each call returns a fresh set, so no caller can
+// widen the allow-list for another.
+func platformTaskQueues() map[string]struct{} { return set("nava-tq") }
+
+func platformWorkflowTypes() map[string]struct{} { return set("nava.interpreter", "audit.seal") }
+
+// startOnlyWorkflowTypes is a subset of platformWorkflowTypes that only a
+// relay start may name; a child or continue-as-new of one is denied.
+func startOnlyWorkflowTypes() map[string]struct{} { return set("audit.seal") }
 
 // stickyQueueName is the SDK's own sticky queue name, `<host>:<uuid>`
 // (sdk-go v1.49.0 getWorkerTaskQueue). At server v1.29.7 a sticky partition and

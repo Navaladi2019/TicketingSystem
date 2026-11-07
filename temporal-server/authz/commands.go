@@ -325,7 +325,7 @@ func checkCommandWorkload(wt *commonpb.WorkflowType, tq *taskqueuepb.TaskQueue) 
 	if reason, detail := checkWorkflowType(wt.GetName()); reason != "" {
 		return reason, detail
 	}
-	if name := wt.GetName(); inSet(startOnlyWorkflowTypes, name) {
+	if name := wt.GetName(); inSet(startOnlyWorkflowTypes(), name) {
 		return ReasonWorkflowType, "workflow type " + strconv.Quote(name) + " is start-only"
 	}
 	return checkCommandTaskQueue(tq)
@@ -341,7 +341,7 @@ func checkCommandTaskQueue(tq *taskqueuepb.TaskQueue) (reason, detail string) {
 	default:
 		return ReasonTaskQueueKind, "task queue kind " + tq.GetKind().String()
 	}
-	if name := tq.GetName(); name != "" && !inSet(platformTaskQueues, name) {
+	if name := tq.GetName(); name != "" && !inSet(platformTaskQueues(), name) {
 		return ReasonTaskQueue, "task queue " + strconv.Quote(truncate(name, maxLoggedName))
 	}
 	return "", ""
