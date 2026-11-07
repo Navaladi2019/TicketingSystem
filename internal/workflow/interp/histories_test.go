@@ -33,6 +33,12 @@ import (
 // historiesRepoDir is historiesDir relative to the repository root.
 const historiesRepoDir = "internal/workflow/testdata/histories"
 
+// sealHistoriesRepoDir holds the audit.seal histories its replay gate
+// (internal/audit/seal/replay_test.go) replays. They are append-only too
+// (TICK-586), with no tombstone: audit.seal has no GetVersion arm to retire
+// yet, so R-9 fails every edit and every deletion.
+const sealHistoriesRepoDir = "internal/audit/seal/testdata/histories"
+
 // --- Append-only --------------------------------------------------------
 
 // retiredManifestRepoPath is retiredManifestPath relative to the repository
@@ -124,7 +130,9 @@ type appendOnlyOpts struct {
 //   - R-6': for every added entry, base's internal/workflow source has
 //     GetVersion(ctx, change_id, workflow.DefaultVersion, ...);
 //   - R-8: every added entry, read by its blob and replayed by opts.replay,
-//     fails with TMPRL1100 "removed support of version -1" for its change id.
+//     fails with TMPRL1100 "removed support of version -1" for its change id;
+//   - R-9: an audit.seal history on base (sealHistoriesRepoDir) that the work
+//     tree changed or deleted fails; there is no tombstone for these.
 //
 // An added entry is one whose history no entry on base names. It returns one
 // error listing every violation.
@@ -205,6 +213,15 @@ func checkAppendOnly(t *testing.T, repo, base string, opts appendOnlyOpts) error
 		}
 	}
 
+	// R-9: the audit.seal histories, with no tombstone.
+	sealProblems, err := checkSealHistories(t, repo, base)
+	if err != nil {
+		return err
+	}
+	for _, p := range sealProblems {
+		add("R-9", p)
+	}
+
 	// R-4, R-5', R-7' on the work tree.
 	srcs, err := workflowSources(repo)
 	if err != nil {
@@ -274,6 +291,39 @@ func checkAppendOnly(t *testing.T, repo, base string, opts appendOnlyOpts) error
 			base, strings.Join(problems, "\n"))
 	}
 	return nil
+}
+
+// checkSealHistories lists every audit.seal history on base that the work
+// tree at repo changed or deleted (R-9). A base without the directory has
+// nothing to check.
+func checkSealHistories(t *testing.T, repo, base string) ([]string, error) {
+	t.Helper()
+	out, err := git(t, repo, "ls-tree", "-r", "--full-tree", base, "--", sealHistoriesRepoDir)
+	if err != nil {
+		return nil, fmt.Errorf("git ls-tree %s -- %s: %w (fetch main first; the checkout needs its history)", base, sealHistoriesRepoDir, err)
+	}
+	var problems []string
+	for line := range strings.Lines(out) {
+		meta, path, ok := strings.Cut(strings.TrimRight(line, "\r\n"), "\t")
+		fields := strings.Fields(meta)
+		if !ok || len(fields) != 3 || fields[1] != "blob" {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(repo, filepath.FromSlash(path))); errors.Is(err, os.ErrNotExist) {
+			problems = append(problems, path+" was deleted; an audit.seal history on main is never removed "+
+				"(it has no tombstone: audit.seal has no GetVersion arm to retire)")
+			continue
+		}
+		got, err := git(t, repo, "hash-object", "--", path)
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(got) != fields[2] {
+			problems = append(problems, path+" was changed; an audit.seal history on main is never edited "+
+				"(record a new history under a new name and list it in wantHistories)")
+		}
+	}
+	return problems, nil
 }
 
 // baseRetiredManifest reads base's manifest; none on base is an empty list.
@@ -496,6 +546,7 @@ func TestAppendOnlyCheck(t *testing.T) {
 		s.git("config", "core.autocrlf", "false")
 		s.write(historiesRepoDir+"/old.json", signal)
 		s.write(historiesRepoDir+"/keep.json", timeout)
+		s.write(sealHistoriesRepoDir+"/sealed.json", timeout) // any committed audit.seal history
 		if !noManifest {
 			s.write(retiredManifestRepoPath, []byte(manifestJSON(olderTombstone)+"\n"))
 		}
@@ -667,6 +718,28 @@ func TestAppendOnlyCheck(t *testing.T) {
 			mutate: func(s *appendScratch) { s.write(historiesRepoDir+"/keep.json", append(slices.Clone(timeout), '\n')) },
 			rules:  []string{"R-1"},
 			want:   []string{historiesRepoDir + "/keep.json was changed"}},
+		{name: "a new audit.seal history", mutate: func(s *appendScratch) {
+			s.write(sealHistoriesRepoDir+"/new.json", []byte(`{"events":[3]}`))
+		}},
+		{name: "R-9: edited audit.seal history",
+			mutate: func(s *appendScratch) {
+				s.write(sealHistoriesRepoDir+"/sealed.json", append(slices.Clone(timeout), '\n'))
+			},
+			rules: []string{"R-9"},
+			want:  []string{sealHistoriesRepoDir + "/sealed.json was changed"}},
+		{name: "R-9: deleted audit.seal history",
+			mutate: func(s *appendScratch) { s.remove(sealHistoriesRepoDir + "/sealed.json") },
+			rules:  []string{"R-9"},
+			want:   []string{sealHistoriesRepoDir + "/sealed.json was deleted"}},
+		{name: "R-9: a tombstone does not excuse deleting an audit.seal history",
+			mutate: func(s *appendScratch) {
+				s.remove(sealHistoriesRepoDir + "/sealed.json")
+				manifest(s, tombstoneJSON(s.t, "sealed.json", strings.TrimSpace(s.git("rev-parse", "base:"+sealHistoriesRepoDir+"/sealed.json")), "step-x", "TICK-586"))
+				s.write(scratchWF, goSrc(wfImport, callOlder+"\n"+callStepRaised))
+			},
+			// The tombstone names no interp history, so R-2 flags it too.
+			rules: []string{"R-9", "R-2"},
+			want:  []string{sealHistoriesRepoDir + "/sealed.json was deleted"}},
 		{name: "R-1: edit to a history that has a tombstone",
 			mutate: func(s *appendScratch) {
 				retire(s)

@@ -50,6 +50,11 @@ const (
 	ReasonStickyQueue   = "sticky_queue_not_allowed"
 	// ReasonWorkerVersioning is a versioned poll (D9b+, ADR-001-A2).
 	ReasonWorkerVersioning = "worker_versioning_not_allowed"
+	// ReasonStartCron is a relay start that sets a CronSchedule (TICK-573).
+	ReasonStartCron = "start_cron"
+	// ReasonStartRetryPolicy is a relay start that sets a workflow RetryPolicy
+	// (TICK-573).
+	ReasonStartRetryPolicy = "start_retry_policy"
 )
 
 // maxLoggedNamespace bounds the client-supplied namespace written to the log.
@@ -185,22 +190,30 @@ var workloadChecks = map[Identity]map[string]workloadCheck{
 
 // checkStartRequest is D9a for starts: the workflow type and the task queue are
 // allow-listed, the queue is NORMAL, and the workflow id has a tenant prefix.
+// The start must also not make the server create runs on its own (TICK-573): a
+// CronSchedule starts a run on every tick and a workflow RetryPolicy starts one
+// after every failure. Neither run is a relay start, so the outbox never
+// fenced it (ADR-004 R16, R18); the relay sets neither. Continue-as-new's cron
+// is denied in commands.go (erratum E1).
 func checkStartRequest(request any) *commandDenial {
-	var workflowID string
+	var workflowID, cron string
 	var wt *commonpb.WorkflowType
 	var tq *taskqueuepb.TaskQueue
 	var links []*commonpb.Link
 	var continued *failurepb.Failure
+	var retry *commonpb.RetryPolicy
 	switch req := request.(type) {
 	case *workflowservice.StartWorkflowExecutionRequest:
 		workflowID, wt, tq = req.GetWorkflowId(), req.GetWorkflowType(), req.GetTaskQueue()
 		links, continued = req.GetLinks(), req.GetContinuedFailure()
+		cron, retry = req.GetCronSchedule(), req.GetRetryPolicy()
 		for _, cb := range req.GetCompletionCallbacks() {
 			links = slices.Concat(links, cb.GetLinks())
 		}
 	case *workflowservice.SignalWithStartWorkflowExecutionRequest:
 		workflowID, wt, tq = req.GetWorkflowId(), req.GetWorkflowType(), req.GetTaskQueue()
 		links = req.GetLinks()
+		cron, retry = req.GetCronSchedule(), req.GetRetryPolicy()
 	default:
 		return malformed(request)
 	}
@@ -218,9 +231,26 @@ func checkStartRequest(request any) *commandDenial {
 		}
 	}
 	if reason == "" {
+		reason, detail = checkStartSchedule(cron, retry)
+	}
+	if reason == "" {
 		return nil
 	}
 	return &commandDenial{reason: reason, command: commandNone, index: -1, workflowID: workflowID, detail: detail}
+}
+
+// checkStartSchedule denies a start that sets a CronSchedule (any non-empty
+// string, blank included: the rule does not depend on the server's cron
+// parser) or any workflow RetryPolicy, even an empty one, which the server
+// fills with its retrying defaults.
+func checkStartSchedule(cron string, retry *commonpb.RetryPolicy) (reason, detail string) {
+	if cron != "" {
+		return ReasonStartCron, "cron schedule " + strconv.Quote(truncate(cron, maxLoggedName))
+	}
+	if retry != nil {
+		return ReasonStartRetryPolicy, "workflow retry policy set"
+	}
+	return "", ""
 }
 
 // checkSignalRequest is D9a for signals: the target workflow id has a tenant
@@ -313,7 +343,7 @@ func checkQueryTaskToken(request any) *commandDenial {
 		return &commandDenial{reason: ReasonTaskToken, command: commandNone, index: -1, detail: err.Error()}
 	}
 	tq := token.GetTaskQueue()
-	if !inSet(platformTaskQueues, tq) && !stickyQueueName.MatchString(tq) {
+	if !inSet(platformTaskQueues(), tq) && !stickyQueueName.MatchString(tq) {
 		return pollDenial(ReasonTaskQueue, "query token task queue "+strconv.Quote(truncate(tq, maxLoggedName)))
 	}
 	return failureDenial(req.GetFailure(), "") // a QueryTask token names no workflow, so no tenant
@@ -328,7 +358,7 @@ func checkShutdownWorker(request any) *commandDenial {
 	if !ok {
 		return malformed(request)
 	}
-	if name := req.GetStickyTaskQueue(); name != "" && (!stickyQueueName.MatchString(name) || inSet(platformTaskQueues, name)) {
+	if name := req.GetStickyTaskQueue(); name != "" && (!stickyQueueName.MatchString(name) || inSet(platformTaskQueues(), name)) {
 		return pollDenial(ReasonStickyQueue, "sticky task queue "+strconv.Quote(truncate(name, maxLoggedName)))
 	}
 	if hb := req.GetWorkerHeartbeat(); hb != nil {
@@ -355,7 +385,7 @@ func checkRecordWorkerHeartbeat(request any) *commandDenial {
 // checkHeartbeatTaskQueue allows a heartbeat on a platform queue; an empty
 // TaskQueue is denied.
 func checkHeartbeatTaskQueue(hb *workerpb.WorkerHeartbeat) (reason, detail string) {
-	if inSet(platformTaskQueues, hb.GetTaskQueue()) {
+	if inSet(platformTaskQueues(), hb.GetTaskQueue()) {
 		return "", ""
 	}
 	return ReasonTaskQueue, "heartbeat task queue " + strconv.Quote(truncate(hb.GetTaskQueue(), maxLoggedName))
@@ -523,7 +553,7 @@ func malformed(request any) *commandDenial {
 
 // checkWorkflowType allows only a platform workflow type; "" is denied.
 func checkWorkflowType(name string) (reason, detail string) {
-	if inSet(platformWorkflowTypes, name) {
+	if inSet(platformWorkflowTypes(), name) {
 		return "", ""
 	}
 	return ReasonWorkflowType, "workflow type " + strconv.Quote(truncate(name, maxLoggedName))
@@ -536,7 +566,7 @@ func checkNormalTaskQueue(tq *taskqueuepb.TaskQueue) (reason, detail string) {
 	default:
 		return ReasonTaskQueueKind, "task queue kind " + tq.GetKind().String()
 	}
-	if !inSet(platformTaskQueues, tq.GetName()) {
+	if !inSet(platformTaskQueues(), tq.GetName()) {
 		return ReasonTaskQueue, "task queue " + strconv.Quote(truncate(tq.GetName(), maxLoggedName))
 	}
 	return "", ""
@@ -547,10 +577,10 @@ func checkNormalTaskQueue(tq *taskqueuepb.TaskQueue) (reason, detail string) {
 // for a platform NormalName (an empty NormalName is denied).
 func checkStickyTaskQueue(tq *taskqueuepb.TaskQueue) (reason, detail string) {
 	name := tq.GetName()
-	if !stickyQueueName.MatchString(name) || inSet(platformTaskQueues, name) {
+	if !stickyQueueName.MatchString(name) || inSet(platformTaskQueues(), name) {
 		return ReasonStickyQueue, "sticky task queue " + strconv.Quote(truncate(name, maxLoggedName))
 	}
-	if !inSet(platformTaskQueues, tq.GetNormalName()) {
+	if !inSet(platformTaskQueues(), tq.GetNormalName()) {
 		return ReasonStickyQueue, "sticky normal name " + strconv.Quote(truncate(tq.GetNormalName(), maxLoggedName))
 	}
 	return "", ""

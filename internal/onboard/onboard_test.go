@@ -40,10 +40,15 @@ type fakeStore struct {
 	seedErr  error
 	seedFail int // fail the Nth call (1-based), once
 	seedCall int
+
+	chains             map[uuid.UUID]bool
+	chainErr           error
+	chainCalls         int
+	chainAfterActivate bool
 }
 
 func newStore() *fakeStore {
-	return &fakeStore{rows: map[uuid.UUID][]byte{}, active: map[uuid.UUID]bool{}, bindings: map[uuid.UUID]string{}, lockHeld: map[uuid.UUID]*sync.Mutex{}, domains: map[string]uuid.UUID{}, adminGroups: map[uuid.UUID]string{}, auditorGroups: map[uuid.UUID]string{}}
+	return &fakeStore{rows: map[uuid.UUID][]byte{}, active: map[uuid.UUID]bool{}, bindings: map[uuid.UUID]string{}, lockHeld: map[uuid.UUID]*sync.Mutex{}, domains: map[string]uuid.UUID{}, adminGroups: map[uuid.UUID]string{}, auditorGroups: map[uuid.UUID]string{}, chains: map[uuid.UUID]bool{}}
 }
 
 func (s *fakeStore) Lock(_ context.Context, id uuid.UUID) (func(), error) {
@@ -666,5 +671,52 @@ func TestOnboardSeedErrorStopsBeforeActivation(t *testing.T) {
 	}
 	if st.active[TenantID("op-1", "key-err")] || len(dir.invites) != 0 {
 		t.Errorf("active=%v invites=%v, want a provisioning tenant with no invite", st.active[TenantID("op-1", "key-err")], dir.invites)
+	}
+}
+
+func (s *fakeStore) SeedAuditChain(_ context.Context, id uuid.UUID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.chainErr != nil {
+		return s.chainErr
+	}
+	if s.active[id] {
+		s.chainAfterActivate = true
+	}
+	s.chains[id] = true // one head per tenant: a retry overwrites, never adds
+	s.chainCalls++
+	return nil
+}
+
+// The audited writes (chain head and seal start row) commit while the tenant
+// is provisioning, before Activate (TICK-441 activation order).
+func TestOnboardSeedsAuditChainBeforeActivation(t *testing.T) {
+	svc, st, _ := newSvc(t)
+	res, err := svc.Onboard(t.Context(), op1, "k", []byte("h"), validReq())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.chains[res.TenantID] || st.chainCalls != 1 || st.chainAfterActivate {
+		t.Errorf("chain=%v calls=%d afterActivate=%v, want seeded once, before Activate", st.chains[res.TenantID], st.chainCalls, st.chainAfterActivate)
+	}
+}
+
+// A failed seed leaves the tenant provisioning; the retry seeds and activates.
+func TestOnboardSeedFailureLeavesProvisioningAndRetryFinishes(t *testing.T) {
+	svc, st, _ := newSvc(t)
+	st.chainErr = errors.New("crash")
+	if _, err := svc.Onboard(t.Context(), op1, "k", []byte("h"), validReq()); err == nil {
+		t.Fatal("want the seed error")
+	}
+	id := TenantID("op-1", "k")
+	if st.active[id] {
+		t.Fatal("tenant activated after a failed seed")
+	}
+	st.chainErr = nil
+	if _, err := svc.Onboard(t.Context(), op1, "k", []byte("h"), validReq()); err != nil {
+		t.Fatal(err)
+	}
+	if !st.active[id] || !st.chains[id] || st.chainAfterActivate {
+		t.Errorf("active=%v chain=%v afterActivate=%v", st.active[id], st.chains[id], st.chainAfterActivate)
 	}
 }

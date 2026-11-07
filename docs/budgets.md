@@ -14,6 +14,7 @@ Locks a migration holds on tables that request paths need. `lock_timeout` bounds
 | Budget | Measured as | Limit | Baseline | Source | Owner |
 |---|---|---|---|---|---|
 | Migration A/B tenant-lock hold (S8 backfill, `audit_backfill_s8()`): ACCESS EXCLUSIVE on `tenants`, `entity_definition_versions` and `audit_log` until COMMIT | Wall time of `SELECT audit_backfill_s8()` as `nava_migrator`, `scratch/audit-backfill-s8/run.sh` | ≤ 18 s at 100k S8 versions | 0.18 ms per backfilled version, linear. A re-run with every entry present takes 2.32 s at 300k. Measured 2026-11-03 on postgres:16.10 with 16 CPUs | PR #414 `scratch/audit-backfill-s8/RESULT.md` (P5-15, TICK-433); Technical Architect's review §3 | Postgres & Data Modeling Specialist |
+| Migration B lock hold (P5-32): ACCESS EXCLUSIVE on `tenants`, `entity_definitions`, `entity_definition_versions`, `audit_log`, `audit_chain_head` and `outbox` until COMMIT (R27) | Wall time of migration B alone (`migrate.Up` of `20261107053707_audit_migration_b.sql`), `docs/data/audit-migration-b-bench/run.sh` | ≤ 5 s at 10,000 tenants and 300,000 S8 versions | 4.29 s at 10,000 tenants / 300,972 versions (backfill re-run 2.86 s, seeding 1.28 s); 0.48 s at 1,000 / 30,093. About 0.13 ms per tenant plus 9.5 µs per version plus 0.1 s, linear. Measured 2026-11-07 on postgres:16.10 with 16 CPUs | `docs/data/audit-migration-b-bench/RESULT.md` (P5-32, TICK-442) | Postgres & Data Modeling Specialist |
 
 ## Record history
 

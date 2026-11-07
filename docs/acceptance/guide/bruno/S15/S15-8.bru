@@ -1,0 +1,43 @@
+meta {
+  name: S15.8 AC1: Alice creates a second incident right after the first was sealed: 201
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{core_url}}/api/v1/records/incident
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: tick443-s15-{{s15_run}}-rec2
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "S15 {{s15_run}} rec2",
+      "priority": 2
+    }
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await require('./lib/s15')(N, bru).fresh();
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  test('version 1', () => expect(b.version).to.eql(1));
+  bru.setVar('s15_rec2', b.id);
+}
+
+docs {
+  Written right after S15.7 saw the first one sealed. The run that sealed it booked its successor 10 s ahead in A1, because the first entry was still pending then (ADR-004-E7, docs/architecture/audit-sealer.md), so this entry is sealed by that successor: about 10 s plus one run.
+}

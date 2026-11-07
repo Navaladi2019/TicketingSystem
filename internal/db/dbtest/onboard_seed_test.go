@@ -89,9 +89,9 @@ func TestP306SeedRetryInsertsNothingAndFinishesWhatIsMissing(t *testing.T) {
 
 	// Simulate a crash: one type gone entirely, another with no version.
 	super := superNava(t)
-	exec(t, super, "DELETE FROM entity_definition_versions WHERE tenant_id = $1 AND definition_id IN ($2, $3)",
+	exec(t, super, withDefinitionEntry("DELETE FROM entity_definition_versions WHERE tenant_id = $1 AND definition_id IN ($2, $3)"),
 		id, onboard.EntityDefinitionID(id, "change"), onboard.EntityDefinitionID(id, "request"))
-	exec(t, super, "DELETE FROM entity_definitions WHERE tenant_id = $1 AND id = $2", id, onboard.EntityDefinitionID(id, "change"))
+	exec(t, super, withDefinitionEntry("DELETE FROM entity_definitions WHERE tenant_id = $1 AND id = $2"), id, onboard.EntityDefinitionID(id, "change"))
 	if err := onboard.SeedEntityTypes(t.Context(), s, id); err != nil {
 		t.Fatalf("SeedEntityTypes after a partial seed: %v", err)
 	}
@@ -129,8 +129,8 @@ func TestOnboardCannotSeedActiveTenant(t *testing.T) {
 		t.Errorf("SeedEntityTypes on an active tenant = %v, want SQLSTATE 42501", err)
 	}
 	super := superNava(t)
-	exec(t, super, "DELETE FROM entity_definition_versions WHERE tenant_id = $1", id)
-	exec(t, super, "DELETE FROM entity_definitions WHERE tenant_id = $1", id)
+	exec(t, super, withDefinitionEntry("DELETE FROM entity_definition_versions WHERE tenant_id = $1"), id)
+	exec(t, super, withDefinitionEntry("DELETE FROM entity_definitions WHERE tenant_id = $1"), id)
 	if err := onboard.SeedEntityTypes(t.Context(), s, id); err == nil {
 		t.Fatal("SeedEntityTypes into an emptied active tenant succeeded, want a refusal")
 	}

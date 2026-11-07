@@ -170,3 +170,36 @@ func auditVersion(ctx context.Context, tx pgx.Tx, definitionID uuid.UUID, versio
 	}
 	return nil
 }
+
+// onboardingActor is the system actor of a version onboarding seeded before
+// the tenant had a principal (ADR-004 R25, the actor migration A's backfill
+// gives the same version).
+const onboardingActor = "onboarding"
+
+// auditSeed writes the config create entry of a version 1 Seed just inserted
+// in tx (P5-32, TICK-442). It is the entry migration A's backfill gives such
+// a version, without backfilled: actor onboarding, source onboarding,
+// content_sha256 = schema_sha256, no diff. nava_onboard has no SELECT on the
+// versions table, so there is no stored schema to diff against, and R3 makes
+// the content hash the config entry's evidence. One entry covers both rows:
+// the commit check on each matches the subject, the definition id.
+func auditSeed(ctx context.Context, tx pgx.Tx, definitionID uuid.UUID, schemaSum [sha256.Size]byte) error {
+	actor, va := onboardingActor, int64(1)
+	e := audit.Entry{
+		Domain:        audit.DomainConfig,
+		Action:        audit.ActionCreate,
+		SubjectType:   audit.SubjectEntityDefinition,
+		SubjectID:     definitionID,
+		VersionAfter:  &va,
+		Actor:         audit.Actor{System: &actor},
+		Source:        audit.SourceOnboarding,
+		ContentSHA256: &schemaSum,
+	}
+	if id := requestid.FromContext(ctx); id != "" {
+		e.RequestID = &id
+	}
+	if _, err := audit.Append(ctx, tx, e); err != nil {
+		return fmt.Errorf("entitytypes: seed audit: %w", err)
+	}
+	return nil
+}

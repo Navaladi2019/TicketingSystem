@@ -17,6 +17,12 @@ import (
 // The two must never poll nava-tq at the same time. These tests assert the
 // stack-case registry that keeps them apart, so a header edit that breaks it
 // fails `task test` instead of a stack run.
+//
+// TICK-453 makes it one rule: every worker that polls a task queue registers
+// the same workflow types. The always-on nava-worker registers audit.seal on
+// nava-tq, so each of those cases stops it while its own workers poll
+// (internal/temporalstack TestMain, internal/workerstack startInterpWorker)
+// and is therefore serial: a parallel case only reads the stack.
 
 const (
 	repoRoot = "../../.."
@@ -24,7 +30,9 @@ const (
 )
 
 var (
-	makeExec  = regexp.MustCompile(`(?m)^\s*exec make\b.*\s(stack-test-[A-Za-z0-9_-]+)\s*$`)
+	// A case runs its make target directly (exec make) or through lib.sh's
+	// with_worker_restored, which brings nava-worker back after it (TICK-453).
+	makeExec  = regexp.MustCompile(`(?m)^\s*(?:exec|with_worker_restored) make\b.*\s(stack-test-[A-Za-z0-9_-]+)\s*$`)
 	targetDef = regexp.MustCompile(`^(stack-test-[A-Za-z0-9_-]+):`)
 )
 
@@ -105,7 +113,8 @@ func recipes(t *testing.T) map[string]string {
 // case runs internal/temporalstack: the sdk suite, and demo_outbox, whose
 // test starts a relayProbe worker) and interp (the case runs
 // internal/workerstack, whose interpreter cases start nava-worker-interptest;
-// its closeRef body runs in the same serial go test process).
+// TestWorkerServiceSealsThroughTheGuard runs in the same serial go test
+// process and starts no worker of its own).
 func queueUsers(t *testing.T, cases map[string]stackCase) (bodies, interp []stackCase) {
 	t.Helper()
 	recs := recipes(t)
@@ -156,6 +165,7 @@ func TestInterpreterQueueOrdering(t *testing.T) {
 }
 
 // queueRuleViolations returns one message per broken rule:
+//   - a test-body case is serial: it stops nava-worker for its run (TICK-453);
 //   - a case that starts nava-worker-interptest is serial, so with or without
 //     PARALLEL=1 it runs alone and never shares nava-tq with another case;
 //   - a parallel test-body case (sdk) sorts before it, so the parallel group
@@ -168,6 +178,11 @@ func TestInterpreterQueueOrdering(t *testing.T) {
 // and the body's worker refuses to start while one runs (requireQueueFree).
 func queueRuleViolations(bodies, interp []stackCase) []string {
 	var out []string
+	for _, b := range bodies {
+		if b.mode != "serial" {
+			out = append(out, fmt.Sprintf("case %s runs temporalstack test bodies on nava-tq, which stops nava-worker, but is mode=%s; it must be serial", b.name, b.mode))
+		}
+	}
 	for _, i := range interp {
 		if i.mode != "serial" {
 			out = append(out, fmt.Sprintf("case %s starts nava-worker-interptest but is mode=%s; it must be serial", i.name, i.mode))
@@ -184,16 +199,20 @@ func queueRuleViolations(bodies, interp []stackCase) []string {
 
 // Mutation check: each way of breaking the rule is reported.
 func TestQueueRuleViolationsCatchesBrokenOrders(t *testing.T) {
-	sdk := stackCase{name: "sdk", mode: "parallel", order: 12}
+	sdk := stackCase{name: "sdk", mode: "serial", order: 12}
+	parallelSDK := stackCase{name: "sdk", mode: "parallel", order: 12}
 	for what, tc := range map[string]struct {
 		bodies, interp []stackCase
 		want           int
 	}{
 		"today's order":             {[]stackCase{sdk}, []stackCase{{name: "worker", mode: "serial", order: 20}}, 0},
 		"interpreter case parallel": {[]stackCase{sdk}, []stackCase{{name: "worker", mode: "parallel", order: 20}}, 1},
-		"interpreter case first":    {[]stackCase{sdk}, []stackCase{{name: "worker", mode: "serial", order: 5}}, 1},
-		"same order":                {[]stackCase{sdk}, []stackCase{{name: "worker", mode: "serial", order: 12}}, 1},
-		"serial body after":         {[]stackCase{sdk, {name: "demo_outbox", mode: "serial", order: 22}}, []stackCase{{name: "worker", mode: "serial", order: 20}}, 0},
+		"body case parallel":        {[]stackCase{parallelSDK}, []stackCase{{name: "worker", mode: "serial", order: 20}}, 1},
+		// A parallel body is one violation, and sorting with or after the
+		// interpreter case is a second.
+		"interpreter case first": {[]stackCase{parallelSDK}, []stackCase{{name: "worker", mode: "serial", order: 5}}, 2},
+		"same order":             {[]stackCase{parallelSDK}, []stackCase{{name: "worker", mode: "serial", order: 12}}, 2},
+		"serial body after":      {[]stackCase{sdk, {name: "demo_outbox", mode: "serial", order: 22}}, []stackCase{{name: "worker", mode: "serial", order: 20}}, 0},
 	} {
 		if got := queueRuleViolations(tc.bodies, tc.interp); len(got) != tc.want {
 			t.Errorf("%s: got %d violations %v, want %d", what, len(got), got, tc.want)

@@ -390,7 +390,7 @@ func writeWorkloadTable(b *strings.Builder) {
 	for _, set := range []struct {
 		name    string
 		entries map[string]struct{}
-	}{{"platformWorkflowTypes", platformWorkflowTypes}, {"platformTaskQueues", platformTaskQueues}} {
+	}{{"platformWorkflowTypes", platformWorkflowTypes()}, {"startOnlyWorkflowTypes", startOnlyWorkflowTypes()}, {"platformTaskQueues", platformTaskQueues()}} {
 		fmt.Fprintf(b, "| `%s` | `%s` |\n", set.name, strings.Join(sortedKeys(set.entries), "`, `"))
 	}
 	fmt.Fprintf(b, "\nA STICKY queue name must match `%s`, must not be in `platformTaskQueues`, and its `NormalName` must be in `platformTaskQueues`.\n", stickyQueueName)
@@ -399,7 +399,7 @@ func writeWorkloadTable(b *strings.Builder) {
 	b.WriteString("| D9d | `TaskToken` decodes as `token.v1.Task` and its `WorkflowId` has a `t:<tenant>:` prefix. |\n")
 	b.WriteString("| D9d query clause | `TaskToken` decodes as `token.v1.QueryTask` and its `TaskQueue` is in `platformTaskQueues` or sticky-shaped. |\n")
 	b.WriteString("| D9e, D9f | The request's workflow id has a `t:<tenant>:` prefix. |\n")
-	b.WriteString("| D9c | A command's task queue has Kind NORMAL or UNSPECIFIED and an empty name or one in `platformTaskQueues`; a child or continue-as-new names a type in `platformWorkflowTypes`. |\n")
+	b.WriteString("| D9c | A command's task queue has Kind NORMAL or UNSPECIFIED and an empty name or one in `platformTaskQueues`; a child or continue-as-new names a type in `platformWorkflowTypes` and not in `startOnlyWorkflowTypes`. |\n")
 	b.WriteString("| D9g | `StickyTaskQueue` is empty or sticky-shaped and not in `platformTaskQueues`; every `WorkerHeartbeat.TaskQueue`, on polls too, is in `platformTaskQueues`. |\n")
 	b.WriteString("| D9h-links | Every link is a workflow event link whose `WorkflowId` has a `t:<tenant>:` prefix. |\n")
 	b.WriteString("| D9h-failures | Every `ChildWorkflowExecutionFailureInfo` workflow id along a failure's `cause` chain has a `t:<tenant>:` prefix. |\n")
@@ -445,6 +445,8 @@ const (
 	classD9aQueue        = "D9a: platform queue"
 	classD9aKind         = "D9a: NORMAL or UNSPECIFIED"
 	classD9aNormalName   = "D9a: unused, as Kind is not STICKY (tqid.PartitionFromProto rejects it)"
+	classD9aCron         = "D9a: empty (TICK-573)"
+	classD9aRetry        = "D9a: unset (TICK-573)"
 	classD9bQueue        = "D9b: platform queue, or sticky-shaped when STICKY"
 	classD9bKind         = "D9b: selects the NORMAL or the STICKY rule"
 	classD9bNormalName   = "D9b: platform queue when STICKY, else unused (tqid rejects it)"
@@ -466,6 +468,8 @@ const (
 	classE1Header        = "E1: `nava-tenant` header is the task's tenant"
 	classE1SearchAttr    = "E1: a `NavaTenantId` it sets is the task's tenant"
 	classE1Cron          = "E1: empty"
+	classE1ChildCron     = "E1: empty (TICK-576)"
+	classE1ChildRetry    = "E1: unset (TICK-576)"
 	classD9cStickyQueue  = "D9c: sticky-shaped, not a platform queue"
 	classD9cStickyNormal = "D9c: platform queue"
 	classD9cStickyKind   = "D9c: the sticky rule applies whatever Kind says"
@@ -536,6 +540,7 @@ var requestFieldRules = map[Identity]map[string]map[string]string{
 		"StartWorkflowExecution": withFailures(map[string]string{
 			"workflow_id": classD9aID, "workflow_type.name": classD9aType,
 			"task_queue.name": classD9aQueue, "task_queue.kind": classD9aKind, "task_queue.normal_name": classD9aNormalName,
+			"cron_schedule": classD9aCron, "retry_policy": classD9aRetry, "retry_policy.": classD9aRetry,
 			"links[].workflow_event.workflow_id":                        classD9hLink,
 			"links[].batch_job.":                                        classD9hLinkVariant,
 			"completion_callbacks[].links[].workflow_event.workflow_id": classD9hLink,
@@ -544,6 +549,7 @@ var requestFieldRules = map[Identity]map[string]map[string]string{
 		"SignalWithStartWorkflowExecution": {
 			"workflow_id": classD9aID, "workflow_type.name": classD9aType,
 			"task_queue.name": classD9aQueue, "task_queue.kind": classD9aKind, "task_queue.normal_name": classD9aNormalName,
+			"cron_schedule": classD9aCron, "retry_policy": classD9aRetry, "retry_policy.": classD9aRetry,
 			"links[].workflow_event.workflow_id": classD9hLink,
 			"links[].batch_job.":                 classD9hLinkVariant,
 		},
@@ -583,6 +589,9 @@ var requestFieldRules = map[Identity]map[string]map[string]string{
 			cmdChild + "header.":                              classE1Header,
 			cmdChild + "search_attributes.":                   classE1SearchAttr,
 			cmdChild + "workflow_type.name":                   classD9cType,
+			cmdChild + "cron_schedule":                        classE1ChildCron,
+			cmdChild + "retry_policy":                         classE1ChildRetry,
+			cmdChild + "retry_policy.":                        classE1ChildRetry,
 			cmdSignal + "namespace":                           classE1Namespace,
 			cmdSignal + "execution.workflow_id":               classE1Target,
 			cmdCancel + "namespace":                           classE1Namespace,
