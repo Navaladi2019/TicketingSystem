@@ -2,9 +2,9 @@
   "events": [
     {
       "eventId": "1",
-      "eventTime": "2026-11-07T02:17:37.708395200Z",
+      "eventTime": "2026-11-07T05:39:31.426073100Z",
       "eventType": "EVENT_TYPE_WORKFLOW_EXECUTION_STARTED",
-      "taskId": "1048727",
+      "taskId": "1048736",
       "workflowExecutionStartedEventAttributes": {
         "workflowType": {
           "name": "audit.seal"
@@ -26,9 +26,9 @@
         "workflowExecutionTimeout": "0s",
         "workflowRunTimeout": "0s",
         "workflowTaskTimeout": "10s",
-        "originalExecutionRunId": "01a1b3cc-10ac-7607-aad1-a65940bf5a98",
+        "originalExecutionRunId": "01a1b484-e7e2-711d-b79a-a92a35b589ca",
         "identity": "nava-record-histories",
-        "firstExecutionRunId": "01a1b3cc-10ac-7607-aad1-a65940bf5a98",
+        "firstExecutionRunId": "01a1b484-e7e2-711d-b79a-a92a35b589ca",
         "attempt": 1,
         "firstWorkflowTaskBackoff": "0s",
         "header": {
@@ -46,9 +46,9 @@
     },
     {
       "eventId": "2",
-      "eventTime": "2026-11-07T02:17:37.708911500Z",
+      "eventTime": "2026-11-07T05:39:31.426073100Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
-      "taskId": "1048728",
+      "taskId": "1048737",
       "workflowTaskScheduledEventAttributes": {
         "taskQueue": {
           "name": "nava-tq",
@@ -60,30 +60,30 @@
     },
     {
       "eventId": "3",
-      "eventTime": "2026-11-07T02:17:37.711019Z",
+      "eventTime": "2026-11-07T05:39:31.450341400Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
-      "taskId": "1048733",
+      "taskId": "1048742",
       "workflowTaskStartedEventAttributes": {
         "scheduledEventId": "2",
         "identity": "nava-record-histories",
-        "requestId": "af10aa2b-27a1-427d-ab64-6a73a79e72ee",
+        "requestId": "7b73fcff-ba45-4f27-b953-233f4e1fc375",
         "historySizeBytes": "521",
         "workerVersion": {
-          "buildId": "96a80d95413e52dde30bafc008a667a3"
+          "buildId": "25bb74e68c231ceaaa3f371d188455e6"
         }
       }
     },
     {
       "eventId": "4",
-      "eventTime": "2026-11-07T02:17:37.714235200Z",
+      "eventTime": "2026-11-07T05:39:31.505261800Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
-      "taskId": "1048738",
+      "taskId": "1048747",
       "workflowTaskCompletedEventAttributes": {
         "scheduledEventId": "2",
         "startedEventId": "3",
         "identity": "nava-record-histories",
         "workerVersion": {
-          "buildId": "96a80d95413e52dde30bafc008a667a3"
+          "buildId": "25bb74e68c231ceaaa3f371d188455e6"
         },
         "sdkMetadata": {
           "langUsedFlags": [
@@ -97,9 +97,9 @@
     },
     {
       "eventId": "5",
-      "eventTime": "2026-11-07T02:17:37.714235200Z",
+      "eventTime": "2026-11-07T05:39:31.505261800Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED",
-      "taskId": "1048739",
+      "taskId": "1048748",
       "activityTaskScheduledEventAttributes": {
         "activityId": "5",
         "activityType": {
@@ -127,32 +127,31 @@
         "retryPolicy": {
           "initialInterval": "1s",
           "backoffCoefficient": 2,
-          "maximumInterval": "60s",
-          "maximumAttempts": 10
+          "maximumInterval": "60s"
         },
         "useWorkflowBuildId": true
       }
     },
     {
       "eventId": "6",
-      "eventTime": "2026-11-07T02:17:37.714235200Z",
+      "eventTime": "2026-11-07T05:39:31.505261800Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_STARTED",
-      "taskId": "1048743",
+      "taskId": "1048752",
       "activityTaskStartedEventAttributes": {
         "scheduledEventId": "5",
         "identity": "nava-record-histories",
-        "requestId": "b3877f75-14cb-42bb-a104-1ecb1f3bb6af",
+        "requestId": "4f0fb0af-7ae5-4cff-b749-7775e2cce765",
         "attempt": 1,
         "workerVersion": {
-          "buildId": "96a80d95413e52dde30bafc008a667a3"
+          "buildId": "25bb74e68c231ceaaa3f371d188455e6"
         }
       }
     },
     {
       "eventId": "7",
-      "eventTime": "2026-11-07T02:17:37.716893800Z",
+      "eventTime": "2026-11-07T05:39:31.555974400Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_COMPLETED",
-      "taskId": "1048744",
+      "taskId": "1048753",
       "activityTaskCompletedEventAttributes": {
         "result": {
           "payloads": [
@@ -171,9 +170,9 @@
     },
     {
       "eventId": "8",
-      "eventTime": "2026-11-07T02:17:37.716893800Z",
+      "eventTime": "2026-11-07T05:39:31.555974400Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
-      "taskId": "1048745",
+      "taskId": "1048754",
       "workflowTaskScheduledEventAttributes": {
         "taskQueue": {
           "name": "nava-tq",
@@ -185,30 +184,30 @@
     },
     {
       "eventId": "9",
-      "eventTime": "2026-11-07T02:17:37.717943200Z",
+      "eventTime": "2026-11-07T05:39:31.599833100Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
-      "taskId": "1048748",
+      "taskId": "1048757",
       "workflowTaskStartedEventAttributes": {
         "scheduledEventId": "8",
         "identity": "nava-record-histories",
-        "requestId": "3c49205a-4e53-4bd4-b9cf-021ab3a2010a",
-        "historySizeBytes": "1268",
+        "requestId": "c0e53975-0c13-4802-8d99-b3414608cdd2",
+        "historySizeBytes": "1266",
         "workerVersion": {
-          "buildId": "96a80d95413e52dde30bafc008a667a3"
+          "buildId": "25bb74e68c231ceaaa3f371d188455e6"
         }
       }
     },
     {
       "eventId": "10",
-      "eventTime": "2026-11-07T02:17:37.721236800Z",
+      "eventTime": "2026-11-07T05:39:31.702513400Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
-      "taskId": "1048753",
+      "taskId": "1048762",
       "workflowTaskCompletedEventAttributes": {
         "scheduledEventId": "8",
         "startedEventId": "9",
         "identity": "nava-record-histories",
         "workerVersion": {
-          "buildId": "96a80d95413e52dde30bafc008a667a3"
+          "buildId": "25bb74e68c231ceaaa3f371d188455e6"
         },
         "sdkMetadata": {},
         "meteringMetadata": {}
@@ -216,9 +215,9 @@
     },
     {
       "eventId": "11",
-      "eventTime": "2026-11-07T02:17:37.721236800Z",
+      "eventTime": "2026-11-07T05:39:31.702513400Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED",
-      "taskId": "1048754",
+      "taskId": "1048763",
       "activityTaskScheduledEventAttributes": {
         "activityId": "11",
         "activityType": {
@@ -254,30 +253,30 @@
     },
     {
       "eventId": "12",
-      "eventTime": "2026-11-07T02:17:37.721236800Z",
+      "eventTime": "2026-11-07T05:39:31.702513400Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_STARTED",
-      "taskId": "1048757",
+      "taskId": "1048766",
       "activityTaskStartedEventAttributes": {
         "scheduledEventId": "11",
         "identity": "nava-record-histories",
-        "requestId": "e6ffdf58-55e4-46bd-85f5-1cde94eaa336",
+        "requestId": "0afafaaf-e6d9-4d4c-a54c-a65d0d8b97b4",
         "attempt": 1,
         "workerVersion": {
-          "buildId": "96a80d95413e52dde30bafc008a667a3"
+          "buildId": "25bb74e68c231ceaaa3f371d188455e6"
         }
       }
     },
     {
       "eventId": "13",
-      "eventTime": "2026-11-07T02:17:37.723816400Z",
+      "eventTime": "2026-11-07T05:39:31.780484800Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_FAILED",
-      "taskId": "1048758",
+      "taskId": "1048767",
       "activityTaskFailedEventAttributes": {
         "failure": {
-          "message": "error withheld from the history; the worker log has its shape",
+          "message": "seal: entry cannot be canonicalised",
           "source": "GoSDK",
           "applicationFailureInfo": {
-            "type": "nava.Opaque",
+            "type": "nava.audit.seal.Unsealable",
             "nonRetryable": true
           }
         },
@@ -289,9 +288,9 @@
     },
     {
       "eventId": "14",
-      "eventTime": "2026-11-07T02:17:37.723816400Z",
+      "eventTime": "2026-11-07T05:39:31.786518900Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
-      "taskId": "1048759",
+      "taskId": "1048768",
       "workflowTaskScheduledEventAttributes": {
         "taskQueue": {
           "name": "nava-tq",
@@ -303,30 +302,30 @@
     },
     {
       "eventId": "15",
-      "eventTime": "2026-11-07T02:17:37.725405400Z",
+      "eventTime": "2026-11-07T05:39:31.824638500Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
-      "taskId": "1048762",
+      "taskId": "1048771",
       "workflowTaskStartedEventAttributes": {
         "scheduledEventId": "14",
         "identity": "nava-record-histories",
-        "requestId": "3961894e-5135-465e-a25a-021f1292b183",
-        "historySizeBytes": "1993",
+        "requestId": "57cf1f1f-7c92-4025-a795-ef051e5a2c82",
+        "historySizeBytes": "1980",
         "workerVersion": {
-          "buildId": "96a80d95413e52dde30bafc008a667a3"
+          "buildId": "25bb74e68c231ceaaa3f371d188455e6"
         }
       }
     },
     {
       "eventId": "16",
-      "eventTime": "2026-11-07T02:17:37.729437600Z",
+      "eventTime": "2026-11-07T05:39:31.889878Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
-      "taskId": "1048766",
+      "taskId": "1048775",
       "workflowTaskCompletedEventAttributes": {
         "scheduledEventId": "14",
         "startedEventId": "15",
         "identity": "nava-record-histories",
         "workerVersion": {
-          "buildId": "96a80d95413e52dde30bafc008a667a3"
+          "buildId": "25bb74e68c231ceaaa3f371d188455e6"
         },
         "sdkMetadata": {
           "sdkName": "temporal-go",
@@ -337,18 +336,18 @@
     },
     {
       "eventId": "17",
-      "eventTime": "2026-11-07T02:17:37.729437600Z",
+      "eventTime": "2026-11-07T05:39:31.890445400Z",
       "eventType": "EVENT_TYPE_WORKFLOW_EXECUTION_FAILED",
-      "taskId": "1048767",
+      "taskId": "1048776",
       "workflowExecutionFailedEventAttributes": {
         "failure": {
           "message": "activity error",
           "source": "GoSDK",
           "cause": {
-            "message": "error withheld from the history; the worker log has its shape",
+            "message": "seal: entry cannot be canonicalised",
             "source": "GoSDK",
             "applicationFailureInfo": {
-              "type": "nava.Opaque",
+              "type": "nava.audit.seal.Unsealable",
               "nonRetryable": true
             }
           },

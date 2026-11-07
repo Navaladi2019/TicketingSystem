@@ -67,6 +67,7 @@ func recordScenarios() []sealScenario {
 		uuid.MustParse("01a1b3c0-0000-7000-8000-000000000002"),
 		uuid.MustParse("01a1b3c0-0000-7000-8000-000000000003"),
 		uuid.MustParse("01a1b3c0-0000-7000-8000-000000000004"),
+		uuid.MustParse("01a1b3c0-0000-7000-8000-000000000005"),
 	}
 	return []sealScenario{
 		// A live lineage: A1 commits o′, A2 seals.
@@ -86,6 +87,11 @@ func recordScenarios() []sealScenario {
 		{name: "poison", run: runs[3], a1: live(runs[3]), a2: func(context.Context) error {
 			return temporal.NewNonRetryableApplicationError("seal: entry cannot be canonicalised", seal.ErrTypeUnsealable, nil)
 		}},
+		// A tenant with no audit_chain_head: A1 fails non-retryably and A2
+		// never runs (TICK-588 M1, TICK-585).
+		{name: "head-not-found", run: runs[4], a1: func(context.Context) (seal.Rescheduled, error) {
+			return seal.Rescheduled{}, temporal.NewNonRetryableApplicationError("seal: audit chain head not found", seal.ErrTypeHeadNotFound, nil)
+		}, a2: ok},
 	}
 }
 
@@ -156,7 +162,7 @@ func recordRun(t *testing.T, c client.Client, s sealScenario) *historypb.History
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = run.Get(ctx, nil) // the poison run fails; its history is what is kept
+	_ = run.Get(ctx, nil) // the poison and head-not-found runs fail; its history is what is kept
 	it := c.GetWorkflowHistory(ctx, id, run.GetRunID(), false, enumspb.HISTORY_EVENT_FILTER_TYPE_ALL_EVENT)
 	h := &historypb.History{}
 	for it.HasNext() {

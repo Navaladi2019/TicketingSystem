@@ -108,9 +108,15 @@ func sideEffectValueOK(v any) bool {
 
 // failureTypeAllowed lists the ApplicationError types whose message is
 // recorded as is. Their messages are constants or ids (review rule, TICK-245):
-// add a type here only with that review.
+// add a type here only with that review. The audit.seal types joined with
+// TICK-585 (guard review there).
 func failureTypeAllowed(t string) bool {
-	return t == ErrTypeTenantGuard || t == ErrTypeWorkflowRef || t == ErrTypeWorkflowRejected
+	switch t {
+	case ErrTypeTenantGuard, ErrTypeWorkflowRef, ErrTypeWorkflowRejected,
+		ErrTypeAuditSealUnsealable, ErrTypeAuditSealHeadNotFound:
+		return true
+	}
+	return false
 }
 
 // failureMessageAllowed: an allowed type keeps its message, except that an

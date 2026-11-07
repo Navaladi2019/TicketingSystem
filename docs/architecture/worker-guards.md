@@ -186,7 +186,7 @@ flowchart TD
   S -- yes --> P[recorded unchanged]
   S -- no --> C{cancel or timeout error?}
   C -- yes --> K[type kept; cause checked the same way;<br/>details argOK rejects dropped]
-  C -- no --> A{ApplicationError of an allowed type<br/>nava.TenantGuard, nava.WorkflowRefNotFound,<br/>nava.WorkflowRejected with a Rejected text,<br/>no cause?}
+  C -- no --> A{ApplicationError of an allowed type<br/>nava.TenantGuard, nava.WorkflowRefNotFound,<br/>nava.WorkflowRejected with a Rejected text,<br/>nava.audit.seal.Unsealable, nava.audit.seal.HeadNotFound,<br/>no cause?}
   A -- yes --> D[message and type kept;<br/>details argOK rejects dropped]
   A -- no --> O[nava.Opaque, fixed text,<br/>same non-retryable flag]
   O --> L[deny alert + withheld line<br/>with the error's shape, never its text]

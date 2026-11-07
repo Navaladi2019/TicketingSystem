@@ -1,0 +1,248 @@
+{
+  "events": [
+    {
+      "eventId": "1",
+      "eventTime": "2026-11-07T05:39:32.124340400Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_EXECUTION_STARTED",
+      "taskId": "1048781",
+      "workflowExecutionStartedEventAttributes": {
+        "workflowType": {
+          "name": "audit.seal"
+        },
+        "taskQueue": {
+          "name": "nava-tq",
+          "kind": "TASK_QUEUE_KIND_NORMAL"
+        },
+        "input": {
+          "payloads": [
+            {
+              "metadata": {
+                "encoding": "anNvbi9wbGFpbg=="
+              },
+              "data": "eyJvdXRib3hfaWQiOiIwMWExYjNjMC0wMDAwLTcwMDAtODAwMC0wMDAwMDAwMDAwMDUiLCJraW5kX3ZlcnNpb24iOjEsImNhdXNhdGlvbl9kZXB0aCI6MCwicGF5bG9hZCI6e319"
+            }
+          ]
+        },
+        "workflowExecutionTimeout": "0s",
+        "workflowRunTimeout": "0s",
+        "workflowTaskTimeout": "10s",
+        "originalExecutionRunId": "01a1b484-ea9c-7531-a02c-293d3df2f3ad",
+        "identity": "nava-record-histories",
+        "firstExecutionRunId": "01a1b484-ea9c-7531-a02c-293d3df2f3ad",
+        "attempt": 1,
+        "firstWorkflowTaskBackoff": "0s",
+        "header": {
+          "fields": {
+            "nava-tenant": {
+              "metadata": {
+                "encoding": "anNvbi9wbGFpbg=="
+              },
+              "data": "IjVkMWM5YTdlLTNiMmYtNGU2MC04YTE0LTdjOWQwZTJmNGIzMSI="
+            }
+          }
+        },
+        "workflowId": "t:5d1c9a7e-3b2f-4e60-8a14-7c9d0e2f4b31:audit.seal:01a1b3c0-0000-7000-8000-000000000005"
+      }
+    },
+    {
+      "eventId": "2",
+      "eventTime": "2026-11-07T05:39:32.124920800Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
+      "taskId": "1048782",
+      "workflowTaskScheduledEventAttributes": {
+        "taskQueue": {
+          "name": "nava-tq",
+          "kind": "TASK_QUEUE_KIND_NORMAL"
+        },
+        "startToCloseTimeout": "10s",
+        "attempt": 1
+      }
+    },
+    {
+      "eventId": "3",
+      "eventTime": "2026-11-07T05:39:32.153755100Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
+      "taskId": "1048787",
+      "workflowTaskStartedEventAttributes": {
+        "scheduledEventId": "2",
+        "identity": "nava-record-histories",
+        "requestId": "0e84a6ff-4ae5-4674-997d-c38cf23b324e",
+        "historySizeBytes": "519",
+        "workerVersion": {
+          "buildId": "25bb74e68c231ceaaa3f371d188455e6"
+        }
+      }
+    },
+    {
+      "eventId": "4",
+      "eventTime": "2026-11-07T05:39:32.192868300Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
+      "taskId": "1048792",
+      "workflowTaskCompletedEventAttributes": {
+        "scheduledEventId": "2",
+        "startedEventId": "3",
+        "identity": "nava-record-histories",
+        "workerVersion": {
+          "buildId": "25bb74e68c231ceaaa3f371d188455e6"
+        },
+        "sdkMetadata": {
+          "langUsedFlags": [
+            3
+          ],
+          "sdkName": "temporal-go",
+          "sdkVersion": "1.49.0"
+        },
+        "meteringMetadata": {}
+      }
+    },
+    {
+      "eventId": "5",
+      "eventTime": "2026-11-07T05:39:32.192868300Z",
+      "eventType": "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED",
+      "taskId": "1048793",
+      "activityTaskScheduledEventAttributes": {
+        "activityId": "5",
+        "activityType": {
+          "name": "audit.seal.Reschedule"
+        },
+        "taskQueue": {
+          "name": "nava-tq",
+          "kind": "TASK_QUEUE_KIND_NORMAL"
+        },
+        "header": {
+          "fields": {
+            "nava-tenant": {
+              "metadata": {
+                "encoding": "anNvbi9wbGFpbg=="
+              },
+              "data": "IjVkMWM5YTdlLTNiMmYtNGU2MC04YTE0LTdjOWQwZTJmNGIzMSI="
+            }
+          }
+        },
+        "scheduleToCloseTimeout": "0s",
+        "scheduleToStartTimeout": "0s",
+        "startToCloseTimeout": "10s",
+        "heartbeatTimeout": "0s",
+        "workflowTaskCompletedEventId": "4",
+        "retryPolicy": {
+          "initialInterval": "1s",
+          "backoffCoefficient": 2,
+          "maximumInterval": "60s"
+        },
+        "useWorkflowBuildId": true
+      }
+    },
+    {
+      "eventId": "6",
+      "eventTime": "2026-11-07T05:39:32.197153900Z",
+      "eventType": "EVENT_TYPE_ACTIVITY_TASK_STARTED",
+      "taskId": "1048797",
+      "activityTaskStartedEventAttributes": {
+        "scheduledEventId": "5",
+        "identity": "nava-record-histories",
+        "requestId": "f9a206cd-d3a6-4425-9d6d-d2f4c761eaa4",
+        "attempt": 1,
+        "workerVersion": {
+          "buildId": "25bb74e68c231ceaaa3f371d188455e6"
+        }
+      }
+    },
+    {
+      "eventId": "7",
+      "eventTime": "2026-11-07T05:39:32.213159900Z",
+      "eventType": "EVENT_TYPE_ACTIVITY_TASK_FAILED",
+      "taskId": "1048798",
+      "activityTaskFailedEventAttributes": {
+        "failure": {
+          "message": "seal: audit chain head not found",
+          "source": "GoSDK",
+          "applicationFailureInfo": {
+            "type": "nava.audit.seal.HeadNotFound",
+            "nonRetryable": true
+          }
+        },
+        "scheduledEventId": "5",
+        "startedEventId": "6",
+        "identity": "nava-record-histories",
+        "retryState": "RETRY_STATE_NON_RETRYABLE_FAILURE"
+      }
+    },
+    {
+      "eventId": "8",
+      "eventTime": "2026-11-07T05:39:32.213159900Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
+      "taskId": "1048799",
+      "workflowTaskScheduledEventAttributes": {
+        "taskQueue": {
+          "name": "nava-tq",
+          "kind": "TASK_QUEUE_KIND_NORMAL"
+        },
+        "startToCloseTimeout": "10s",
+        "attempt": 1
+      }
+    },
+    {
+      "eventId": "9",
+      "eventTime": "2026-11-07T05:39:32.229298800Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
+      "taskId": "1048802",
+      "workflowTaskStartedEventAttributes": {
+        "scheduledEventId": "8",
+        "identity": "nava-record-histories",
+        "requestId": "be8cd83d-baa8-4d94-91ac-63e28c2c8e21",
+        "historySizeBytes": "1250",
+        "workerVersion": {
+          "buildId": "25bb74e68c231ceaaa3f371d188455e6"
+        }
+      }
+    },
+    {
+      "eventId": "10",
+      "eventTime": "2026-11-07T05:39:32.273744700Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
+      "taskId": "1048806",
+      "workflowTaskCompletedEventAttributes": {
+        "scheduledEventId": "8",
+        "startedEventId": "9",
+        "identity": "nava-record-histories",
+        "workerVersion": {
+          "buildId": "25bb74e68c231ceaaa3f371d188455e6"
+        },
+        "sdkMetadata": {},
+        "meteringMetadata": {}
+      }
+    },
+    {
+      "eventId": "11",
+      "eventTime": "2026-11-07T05:39:32.273744700Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_EXECUTION_FAILED",
+      "taskId": "1048807",
+      "workflowExecutionFailedEventAttributes": {
+        "failure": {
+          "message": "activity error",
+          "source": "GoSDK",
+          "cause": {
+            "message": "seal: audit chain head not found",
+            "source": "GoSDK",
+            "applicationFailureInfo": {
+              "type": "nava.audit.seal.HeadNotFound",
+              "nonRetryable": true
+            }
+          },
+          "activityFailureInfo": {
+            "scheduledEventId": "5",
+            "startedEventId": "6",
+            "identity": "nava-record-histories",
+            "activityType": {
+              "name": "audit.seal.Reschedule"
+            },
+            "activityId": "5",
+            "retryState": "RETRY_STATE_NON_RETRYABLE_FAILURE"
+          }
+        },
+        "retryState": "RETRY_STATE_RETRY_POLICY_NOT_SET",
+        "workflowTaskCompletedEventId": "10"
+      }
+    }
+  ]
+}
