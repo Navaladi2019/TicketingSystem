@@ -13,7 +13,15 @@ func rewrite(ctx context.Context, tx execer) error {
 
 type holder struct{ sealSQL string }
 
-// Look-alike: a field named like the constant is not the constant.
-func field(h holder) string {
-	return h.sealSQL
+// Look-alike: a field named like the constant is not the constant, whether
+// read or set in a struct literal.
+func field(h holder) (string, holder) {
+	return h.sealSQL, holder{sealSQL: "x"}
 }
+
+type queries map[string]bool
+
+// A map literal's key is a use of the constant (PR #487 review).
+var known = map[string]bool{sealSQL: true} // want: update audit_log
+
+var named = queries{sealSQL: true} // want: update audit_log

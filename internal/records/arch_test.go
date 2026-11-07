@@ -22,6 +22,13 @@
 //
 // testdata/writers plants every form; TestRecordWriterFixture proves each one
 // is reported, so the check cannot rot into a test that passes on nothing.
+// testdata/sqlconsts does the same for the cross-file forms
+// (TestSQLConstantUsedElsewhere).
+//
+// Known limit: the check has no dataflow. SQL that leaves an allowed file
+// through a function result (`func q() string { return sealSQL }` called from
+// a sibling) or is built at runtime is not seen. The database grants, RLS and
+// the audit_log_guard_update trigger remain the control for those.
 package records
 
 import (
@@ -100,27 +107,39 @@ func sealColumn(col string) bool {
 }
 
 var (
-	// UPDATE [ONLY] [schema.]audit_log [[AS] alias] SET <list>, up to FROM,
-	// WHERE, RETURNING, a semicolon or the end.
-	auditUpdateRE = regexp.MustCompile(`(?s)\bupdate\s+(?:only\s+)?(?:` + ident + `\.)?audit_log\b(?:\s+(?:as\s+)?` + ident + `)?\s+set\s+(.*?)(?:\bfrom\b|\bwhere\b|\breturning\b|;|$)`)
-	parenRE       = regexp.MustCompile(`\([^()]*\)`)
+	// The head of an UPDATE of audit_log, up to and including SET:
+	// UPDATE [ONLY] [schema.]audit_log [*] [[AS] alias] SET.
+	auditUpdateRE = regexp.MustCompile(`\bupdate\s+(?:only\s+)?(?:` + ident + `\.)?audit_log\b(?:\s*\*)?(?:\s+(?:as\s+)?` + ident + `)?\s+set\b`)
+	// A PostgreSQL dollar quote, $$ or $tag$: not read, so it fails closed.
+	dollarQuoteRE = regexp.MustCompile(`\$[a-z_]*\$`)
 )
 
 // sealColumnsOnly reports whether every UPDATE of audit_log in sql sets only
-// the seal columns (sealColumn). A row-form SET (a, b) = (...) or anything it
-// cannot read counts as setting other columns.
+// the seal columns (sealColumn). It fails closed: a row-form SET (a, b) =
+// (...), a dollar-quoted string, an UPDATE it cannot find the SET of, or
+// anything else it cannot read counts as setting other columns.
+//
+// Each SET list is read with string literals blanked and up to the first
+// FROM, WHERE, RETURNING or semicolon outside parentheses, or the `)` closing
+// an enclosing CTE, so a keyword inside a subquery or a string does not end it
+// early (TICK-581 review).
 func sealColumnsOnly(sql string) bool {
-	s := normalizeSQL(sql)
-	ms := auditUpdateRE.FindAllStringSubmatch(s, -1)
-	if len(ms) == 0 {
+	s := scanSQL(normalizeSQL(sql), true)
+	if dollarQuoteRE.MatchString(s) {
 		return false
 	}
-	for _, m := range ms {
-		list := m[1]
-		for prev := ""; prev != list; {
-			prev, list = list, parenRE.ReplaceAllString(list, "_")
+	heads := auditUpdateRE.FindAllStringIndex(s, -1)
+	updates := 0
+	for _, w := range sqlWrites(s) {
+		if w == [2]string{"update", "audit_log"} {
+			updates++
 		}
-		for _, a := range strings.Split(list, ",") {
+	}
+	if len(heads) == 0 || len(heads) != updates {
+		return false // an UPDATE of audit_log whose SET list this cannot find
+	}
+	for _, h := range heads {
+		for _, a := range strings.Split(topLevelSetList(s[h[1]:]), ",") {
 			col, _, ok := strings.Cut(a, "=")
 			col = strings.TrimSpace(col)
 			if i := strings.LastIndexByte(col, '.'); i >= 0 {
@@ -132,6 +151,52 @@ func sealColumnsOnly(sql string) bool {
 		}
 	}
 	return true
+}
+
+// topLevelSetList returns the SET list at the start of s (normalized, string
+// literals blanked) with every parenthesised group replaced by "_": up to the
+// first FROM, WHERE, RETURNING or semicolon at depth 0, an unmatched ")" (the
+// end of a CTE) or the end.
+func topLevelSetList(s string) string {
+	var b strings.Builder
+	depth := 0
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c == '(':
+			if depth == 0 {
+				b.WriteByte('_')
+			}
+			depth++
+		case c == ')':
+			if depth == 0 {
+				return b.String()
+			}
+			depth--
+		case depth > 0:
+		case c == ';':
+			return b.String()
+		case identByte(c) && (i == 0 || !identByte(s[i-1])):
+			j := i
+			for j < len(s) && identByte(s[j]) {
+				j++
+			}
+			switch word := s[i:j]; word {
+			case "from", "where", "returning":
+				return b.String()
+			default:
+				b.WriteString(word)
+			}
+			i = j - 1
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
+}
+
+func identByte(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_' || c == '$'
 }
 
 // probeExempt is the tenant isolation suite's path registry: its INSERT and
@@ -203,9 +268,6 @@ var (
 	truncateRE = regexp.MustCompile(`\btruncate(?:\s+table)?\s+((?:only\s+)?(?:` + ident + `\.)?` + ident + `(?:\s*\*)?(?:\s*,\s*(?:only\s+)?(?:` + ident + `\.)?` + ident + `(?:\s*\*)?)*)`)
 	// COPY <table> [(cols)] FROM.
 	copyRE = regexp.MustCompile(`\bcopy\s+((?:` + ident + `\.)?` + ident + `)\s*(?:\(|from\b)`)
-	// SQL comments, removed before matching.
-	lineCommentRE  = regexp.MustCompile(`--[^\n]*`)
-	blockCommentRE = regexp.MustCompile(`(?s)/\*.*?\*/`)
 	// A fmt verb, for substituting Sprintf arguments.
 	verbRE = regexp.MustCompile(`%(?:\[\d+\])?[-+# 0]*\d*(?:\.\d+)?[a-zA-Z%]`)
 )
@@ -213,10 +275,68 @@ var (
 // normalizeSQL lower-cases s and removes SQL comments and identifier quotes.
 func normalizeSQL(s string) string {
 	s = strings.ToLower(s)
-	s = blockCommentRE.ReplaceAllString(s, " ")
-	s = lineCommentRE.ReplaceAllString(s, " ")
+	s = scanSQL(s, false)
 	s = strings.ReplaceAll(s, `"`, "")
 	return strings.ReplaceAll(s, "`", "")
+}
+
+// scanSQL replaces each SQL comment in s with a space, skipping comment
+// markers inside single-quoted strings, so `'--'` cannot hide the rest of
+// the line (TICK-581 review). With blank, it also replaces each
+// single-quoted string with '_', so a keyword inside one is not read as SQL.
+// Block comments nest, as in PostgreSQL. An unterminated string or comment
+// runs to the end.
+func scanSQL(s string, blank bool) string {
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		switch {
+		case s[i] == '\'':
+			j := i + 1
+			for j < len(s) {
+				if s[j] == '\'' {
+					if j+1 < len(s) && s[j+1] == '\'' { // '' is a quote inside the string
+						j += 2
+						continue
+					}
+					j++
+					break
+				}
+				j++
+			}
+			if blank {
+				b.WriteString("'_'")
+			} else {
+				b.WriteString(s[i:j])
+			}
+			i = j
+		case strings.HasPrefix(s[i:], "--"):
+			for i < len(s) && s[i] != '\n' {
+				i++
+			}
+			b.WriteByte(' ')
+		case strings.HasPrefix(s[i:], "/*"):
+			depth := 0
+			for i < len(s) {
+				if strings.HasPrefix(s[i:], "/*") {
+					depth++
+					i += 2
+				} else if strings.HasPrefix(s[i:], "*/") {
+					depth--
+					i += 2
+					if depth == 0 {
+						break
+					}
+				} else {
+					i++
+				}
+			}
+			b.WriteByte(' ')
+		default:
+			b.WriteByte(s[i])
+			i++
+		}
+	}
+	return b.String()
 }
 
 // sqlWrites returns the (op, table) pairs of every record-table write in s.
@@ -373,11 +493,20 @@ func scanFile(fset *token.FileSet, rel string, f *ast.File, pkg packageStrings, 
 
 // declNames returns the identifiers of f that name something rather than use
 // it: struct fields and parameters, declared constants, variables, types and
-// functions, `:=` targets, composite-literal keys and labels. A use of a
+// functions, `:=` targets, struct-literal keys and labels. A use of a
 // local that shadows a package string is still reported: the gate errs on the
 // side of a finding.
 func declNames(f *ast.File) map[*ast.Ident]bool {
 	out := map[*ast.Ident]bool{}
+	mapTypes := map[string]bool{}
+	ast.Inspect(f, func(n ast.Node) bool {
+		if ts, ok := n.(*ast.TypeSpec); ok {
+			if _, ok := ts.Type.(*ast.MapType); ok {
+				mapTypes[ts.Name.Name] = true
+			}
+		}
+		return true
+	})
 	add := func(ids ...*ast.Ident) {
 		for _, id := range ids {
 			if id != nil {
@@ -403,9 +532,20 @@ func declNames(f *ast.File) map[*ast.Ident]bool {
 					}
 				}
 			}
-		case *ast.KeyValueExpr:
-			if id, ok := n.Key.(*ast.Ident); ok {
-				add(id)
+		case *ast.CompositeLit:
+			// A struct literal's key names a field; a map literal's key is a
+			// use (PR #487 review). Without types a literal counts as a map
+			// when its type is a map type or a name this file declares as
+			// one; a map type from another package is the known miss.
+			if isMapType(n.Type, mapTypes) {
+				break
+			}
+			for _, e := range n.Elts {
+				if kv, ok := e.(*ast.KeyValueExpr); ok {
+					if id, ok := kv.Key.(*ast.Ident); ok {
+						add(id)
+					}
+				}
 			}
 		case *ast.LabeledStmt:
 			add(n.Label)
@@ -415,6 +555,17 @@ func declNames(f *ast.File) map[*ast.Ident]bool {
 		return true
 	})
 	return out
+}
+
+// isMapType reports whether t is a map type or a name in mapTypes.
+func isMapType(t ast.Expr, mapTypes map[string]bool) bool {
+	switch t := t.(type) {
+	case *ast.MapType:
+		return true
+	case *ast.Ident:
+		return mapTypes[t.Name]
+	}
+	return false
 }
 
 // stringValue folds e to a constant string: a literal, a parenthesised or
@@ -777,6 +928,22 @@ func TestSealColumnsOnly(t *testing.T) {
 		"UPDATE audit_log SET (seq, sealed_at) = ($2, now()) WHERE id = $1":                    false,
 		"UPDATE audit_log SET seq = 1; UPDATE audit_log SET diff = NULL":                       false,
 		"INSERT INTO audit_log (seq) VALUES (1)":                                               false,
+
+		// PR #487 review: the SET list must not end at a keyword inside a
+		// subquery or a string literal, and every UPDATE must be read.
+		"UPDATE audit_log SET seq = (SELECT max(seq) FROM audit_log), diff = NULL WHERE id = $1":     false,
+		"UPDATE audit_log SET sealed_at = 'x where y', diff = NULL WHERE id = $1":                    false,
+		"UPDATE audit_log SET seq = (SELECT 1 WHERE true), diff = NULL":                              false,
+		"UPDATE audit_log SET seq = 'where', diff = NULL WHERE id = $1":                              false,
+		"UPDATE audit_log SET seq = 1; UPDATE audit_log* SET diff = NULL":                            false,
+		"UPDATE audit_log SET seq = '--', diff = NULL WHERE id = $1":                                 false,
+		"UPDATE audit_log SET seq = 'it''s', diff = NULL WHERE id = $1":                              false,
+		"UPDATE audit_log SET seq = $$x$$, diff = NULL WHERE id = $1":                                false,
+		"UPDATE audit_log SET seq = 1 RETURNING (SELECT diff FROM audit_log)":                        true,
+		"UPDATE audit_log SET seq = (SELECT max(seq) FROM audit_log) WHERE id = $1":                  true,
+		"UPDATE audit_log SET sealed_at = 'x where y' WHERE id = $1":                                 true,
+		"WITH s AS (UPDATE audit_log SET seq = 1 WHERE id = $1) SELECT 1":                            true,
+		"WITH s AS (UPDATE audit_log SET seq = 1), t AS (UPDATE audit_log SET diff = NULL) SELECT 1": false,
 	}
 	for in, want := range cases {
 		if got := sealColumnsOnly(in); got != want {
@@ -967,6 +1134,10 @@ func TestSQLWrites(t *testing.T) {
 		"UPDATE recordsx SET a = 1":                                             nil,
 		"-- UPDATE records\nSELECT 1":                                           nil,
 		"SELECT 1 /* DELETE FROM comments */":                                   nil,
+		"SELECT 1 /* a /* nested */ DELETE FROM comments */":                    nil,
+		"SELECT '--'; UPDATE records SET x = 1":                                 {{"update", "records"}},
+		"SELECT '/*'; DELETE FROM comments; SELECT '*/'":                        {{"delete", "comments"}},
+		"SELECT 'it''s -- not a comment'; UPDATE records SET x = 1":             {{"update", "records"}},
 	}
 	for in, want := range cases {
 		if got := sqlWrites(in); !slices.Equal(got, want) {
