@@ -121,13 +121,12 @@ func TestWorkerServiceReadyAndAdminListener(t *testing.T) {
 	}
 }
 
-// activityAllows sums the guard's allow decisions on activities.
-func activityAllows(t *testing.T) float64 {
+// activityDecisions sums the guard's decisions on activities from one /metrics
+// scrape: allow, and every other outcome (a denial or an internal error).
+func activityDecisions(t *testing.T) (allow, other float64) {
 	t.Helper()
-	var sum float64
 	for line := range strings.SplitSeq(admin(t, "/metrics"), "\n") {
-		if !strings.HasPrefix(line, decisions+"{") ||
-			!strings.Contains(line, `guard="activity"`) || !strings.Contains(line, `outcome="allow"`) {
+		if !strings.HasPrefix(line, decisions+"{") || !strings.Contains(line, `guard="activity"`) {
 			continue
 		}
 		f := strings.Fields(line)
@@ -135,9 +134,13 @@ func activityAllows(t *testing.T) float64 {
 		if err != nil {
 			t.Fatalf("%s line %q: %v", decisions, line, err)
 		}
-		sum += v
+		if strings.Contains(line, `outcome="allow"`) {
+			allow += v
+		} else {
+			other += v
+		}
 	}
-	return sum
+	return allow, other
 }
 
 // The nava-tq rule (TICK-453, Technical Lead 2026-11-07): every worker that
@@ -213,10 +216,12 @@ func awaitSealed(t *testing.T, tenant, first uuid.UUID, want int) string {
 // service. A1 and A2 pass the activity guard (counted on /metrics) and reach
 // PostgreSQL as nava_worker under RLS: the entry is sealed at seq 1, the head
 // points at the next run, the first start row is dispatched, and
-// /metrics exports the sealer's audit_unsealed_oldest_seconds.
+// /metrics exports the sealer's audit_unsealed_oldest_seconds. The guard
+// denies nothing meanwhile: its non-allow activity decisions do not move
+// (TICK-589), so a denial cannot hide behind a later successful seal.
 func TestWorkerServiceSealsThroughTheGuard(t *testing.T) {
 	awaitReady(t)
-	before := activityAllows(t)
+	before, deniedBefore := activityDecisions(t)
 	tenant, first := seedSealLineage(t)
 	writeAuditEntry(t, tenant)
 
@@ -227,8 +232,12 @@ func TestWorkerServiceSealsThroughTheGuard(t *testing.T) {
 	if got := psqlSuper(t, fmt.Sprintf(`SELECT count(*) FROM audit_log WHERE tenant_id = '%s' AND seq = 1 AND entry_hash IS NOT NULL`, tenant)); got != "1" {
 		t.Errorf("%s entries at seq 1 with an entry_hash, want 1", got)
 	}
-	if after := activityAllows(t); after < before+2 {
+	after, deniedAfter := activityDecisions(t)
+	if after < before+2 {
 		t.Errorf("%s{guard=activity,outcome=allow} went from %v to %v; want A1 and A2 counted", decisions, before, after)
+	}
+	if deniedAfter != deniedBefore {
+		t.Errorf("%s{guard=activity,outcome!=allow} went from %v to %v; want no guard denial during the seal", decisions, deniedBefore, deniedAfter)
 	}
 	if m := admin(t, "/metrics"); !strings.Contains(m, "audit_unsealed_oldest_seconds") {
 		t.Error("/metrics has no audit_unsealed_oldest_seconds")
