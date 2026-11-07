@@ -11,6 +11,7 @@ import (
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	enumspb "go.temporal.io/api/enums/v1"
+	failurepb "go.temporal.io/api/failure/v1"
 	historypb "go.temporal.io/api/history/v1"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/interceptor"
@@ -32,10 +33,30 @@ import (
 var historiesDir = filepath.Join("testdata", "histories") //nolint:gochecknoglobals // a fixed path
 
 // wantHistories is the set the gate requires: a live lineage, a stale one,
-// an A1 retried after its commit, and a poison A2.
+// an A1 retried after its commit, a poison A2, and an A1 that finds no head.
 //
 //nolint:gochecknoglobals // the fixed set
-var wantHistories = []string{"a1-retried.json", "next-run.json", "poison.json", "stale.json"}
+var wantHistories = []string{"a1-retried.json", "head-not-found.json", "next-run.json", "poison.json", "stale.json"}
+
+// wantFailure is the ApplicationError type each failed history records, at
+// the activity and the workflow failure: the sealer's own type, which the
+// worker guard allows, never nava.Opaque (TICK-585). A history not listed
+// completes.
+//
+//nolint:gochecknoglobals // the fixed set
+var wantFailure = map[string]string{
+	"poison.json":         seal.ErrTypeUnsealable,
+	"head-not-found.json": seal.ErrTypeHeadNotFound,
+}
+
+// wantScheduled is what each history schedules: A1 then A2, except a run
+// whose A1 failed non-retryably, which ends before A2.
+func wantScheduled(name string) []string {
+	if name == "head-not-found.json" {
+		return []string{seal.RescheduleActivity}
+	}
+	return []string{seal.RescheduleActivity, seal.SealActivity}
+}
 
 type sealHistory struct {
 	name, workflowID string
@@ -108,7 +129,8 @@ func TestReplayRecordedHistories(t *testing.T) {
 }
 
 // TestRecordedHistoriesShape: in every recorded run A1 is scheduled before
-// A2, A2 is scheduled whatever A1 returned, and no run starts a child or
+// A2, A2 is scheduled whatever A1 returned (only a non-retryable A1 failure
+// ends the run before it), and no run starts a child or
 // continues as new (TICK-438 / TICK-572): the history, not just the code,
 // shows the sealer reschedules only through the outbox.
 func TestRecordedHistoriesShape(t *testing.T) {
@@ -124,11 +146,52 @@ func TestRecordedHistoriesShape(t *testing.T) {
 					scheduled = append(scheduled, e.GetActivityTaskScheduledEventAttributes().GetActivityType().GetName())
 				}
 			}
-			if want := []string{seal.RescheduleActivity, seal.SealActivity}; !slices.Equal(scheduled, want) {
+			if want := wantScheduled(h.name); !slices.Equal(scheduled, want) {
 				t.Errorf("scheduled %v, want %v", scheduled, want)
 			}
 			if !strings.HasPrefix(h.workflowID, "t:") {
 				t.Errorf("workflow id %q has no tenant prefix", h.workflowID)
+			}
+		})
+	}
+}
+
+// TestRecordedHistoriesFailureType: a failed run records the sealer's
+// failure type with its constant message, non-retryable, on the failed
+// activity and on the workflow, and no failed event holds nava.Opaque
+// (TICK-585). A retried attempt's last failure (a1-retried) is not checked.
+func TestRecordedHistoriesFailureType(t *testing.T) {
+	for _, h := range loadHistories(t) {
+		t.Run(h.name, func(t *testing.T) {
+			want := wantFailure[h.name]
+			var got []string
+			for _, e := range h.h.GetEvents() {
+				var f *failurepb.Failure
+				switch e.GetEventType() {
+				case enumspb.EVENT_TYPE_ACTIVITY_TASK_FAILED:
+					f = e.GetActivityTaskFailedEventAttributes().GetFailure()
+				case enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED:
+					f = e.GetWorkflowExecutionFailedEventAttributes().GetFailure()
+				default:
+					continue
+				}
+				for ; f != nil; f = f.GetCause() {
+					if a := f.GetApplicationFailureInfo(); a != nil {
+						got = append(got, a.GetType())
+						if a.GetType() == workerguard.ErrTypeOpaque {
+							t.Errorf("event %d records %s", e.GetEventId(), workerguard.ErrTypeOpaque)
+						}
+						if a.GetType() == want && !a.GetNonRetryable() {
+							t.Errorf("event %d: %s is retryable", e.GetEventId(), want)
+						}
+					}
+				}
+			}
+			switch {
+			case want == "" && len(got) > 0:
+				t.Errorf("failure types %v in a run that completes", got)
+			case want != "" && !slices.Equal(got, []string{want, want}):
+				t.Errorf("failure types %v, want %s on the activity and the workflow", got, want)
 			}
 		})
 	}

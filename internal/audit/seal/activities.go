@@ -26,10 +26,14 @@ const (
 // same workflow id, the same entry, or the same missing head. HeadNotFound
 // matters because A1 retries without an attempt cap (TICK-588 M1): a tenant
 // with no audit_chain_head would otherwise be retried every minute forever.
+// Unsealable and HeadNotFound are workerguard's constants: the guard records
+// them as is (TICK-585), so their messages stay constants with no cause or
+// details. NoRun is withheld as nava.Opaque, as its message carries the
+// workflow id parse error.
 const (
 	ErrTypeNoRun        = "nava.audit.seal.NoRun"
-	ErrTypeUnsealable   = "nava.audit.seal.Unsealable"
-	ErrTypeHeadNotFound = "nava.audit.seal.HeadNotFound"
+	ErrTypeUnsealable   = workerguard.ErrTypeAuditSealUnsealable
+	ErrTypeHeadNotFound = workerguard.ErrTypeAuditSealHeadNotFound
 )
 
 // Rescheduled is A1's result. It holds references only, as workerguard
