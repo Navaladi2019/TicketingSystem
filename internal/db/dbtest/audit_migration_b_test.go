@@ -112,6 +112,12 @@ func TestP532MigrationB(t *testing.T) {
 	}
 	const lineage = "SELECT h.id::text || '/' || o.id::text FROM audit_chain_head h JOIN outbox o ON o.tenant_id = h.tenant_id AND o.kind = 'audit.seal' WHERE h.tenant_id = $1"
 	before := queryString(t, super, lineage, onboarded)
+	// A tenant still provisioning when B runs: B seeds it, and onboarding's
+	// SeedAuditChain after B writes nothing more (Security, PR #492).
+	provisioning := uuid.New()
+	if _, err := s.Begin(t.Context(), provisioning, []byte("h"), nil); err != nil {
+		t.Fatal(err)
+	}
 
 	migrateAll(t, m)
 
@@ -135,6 +141,22 @@ func TestP532MigrationB(t *testing.T) {
 		if n := countRows(t, sealShape, tenant); n != 1 {
 			t.Errorf("tenant %s: head and start row are not the onboarding/C5 shape", tenant)
 		}
+	}
+	seededByB := queryString(t, super, lineage, provisioning)
+	if err := s.SeedAuditChain(t.Context(), provisioning); err != nil {
+		t.Fatalf("SeedAuditChain after B for a tenant B seeded: %v", err)
+	}
+	if n := countRows(t, "SELECT count(*) FROM audit_chain_head WHERE tenant_id = $1", provisioning); n != 1 {
+		t.Errorf("provisioning tenant: %d heads after B and SeedAuditChain, want 1", n)
+	}
+	if n := countRows(t, "SELECT count(*) FROM outbox WHERE tenant_id = $1 AND kind = 'audit.seal'", provisioning); n != 1 {
+		t.Errorf("provisioning tenant: %d seal rows after B and SeedAuditChain, want 1", n)
+	}
+	if n := countRows(t, sealShape, provisioning); n != 1 {
+		t.Errorf("provisioning tenant: head and start row are not the onboarding/C5 shape")
+	}
+	if after := queryString(t, super, lineage, provisioning); after != seededByB {
+		t.Errorf("provisioning tenant's head/start row changed from B's %s to %s", seededByB, after)
 	}
 	if after := queryString(t, super, lineage, onboarded); after != before {
 		t.Errorf("onboarded tenant's head/start row changed from %s to %s", before, after)
@@ -357,5 +379,40 @@ func TestP532LocksInOrderAndRetries(t *testing.T) {
 	}
 	if n := countRows(t, "SELECT count(*) FROM pg_trigger WHERE tgname = 'entity_definitions_audit_commit_check'"); n != 1 {
 		t.Errorf("entity_definitions trigger count %d after the retried run, want 1", n)
+	}
+}
+
+// Security (PR #492): no runtime writer can switch the commit check off.
+// ALTER TABLE ... DISABLE TRIGGER needs the table owner (nava_migrator), so
+// nava_app and nava_onboard get 42501 on either table.
+func TestP532RuntimeRolesCannotDisableCommitCheck(t *testing.T) {
+	migratedPlatform(t)
+	seedTenants(t, superNava(t), []string{tenantA}, []string{tenantX})
+	for _, role := range []string{"nava_app", audited.OnboardRole} {
+		conn := asRole(t, role)
+		tenant := tenantA
+		if role == audited.OnboardRole {
+			tenant = tenantX
+		}
+		for _, tr := range []struct{ table, name string }{
+			{"entity_definitions", "entity_definitions_audit_commit_check"},
+			{"entity_definition_versions", "entity_definition_versions_audit_commit_check"},
+		} {
+			for _, verb := range []string{"DISABLE", "ENABLE"} {
+				q := "ALTER TABLE " + tr.table + " " + verb + " TRIGGER " + tr.name
+				_, err := execIn(conn, tenant, q)
+				wantSQLState(t, role+": "+q, err, "42501")
+			}
+			if _, err := execIn(conn, tenant, "DROP TRIGGER "+tr.name+" ON "+tr.table); err == nil {
+				t.Errorf("%s dropped %s", role, tr.name)
+			} else {
+				wantSQLState(t, role+": DROP TRIGGER "+tr.name, err, "42501")
+			}
+		}
+	}
+	if got := queryString(t, superNava(t), `SELECT string_agg(tgname || ':' || tgenabled::text, ',' ORDER BY tgname COLLATE "C")
+		FROM pg_trigger WHERE tgname IN ('entity_definitions_audit_commit_check', 'entity_definition_versions_audit_commit_check')`); got !=
+		"entity_definition_versions_audit_commit_check:O,entity_definitions_audit_commit_check:O" {
+		t.Errorf("triggers after the attempts: %s, want both present and enabled", got)
 	}
 }
