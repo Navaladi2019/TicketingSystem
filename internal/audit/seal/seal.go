@@ -60,8 +60,11 @@ var (
 	ErrSealRace = errors.New("seal: entry sealed outside the head lock")
 )
 
-// NextInterval is the R16 rule: 10 s after a run that sealed anything,
-// otherwise the current interval doubled, up to 300 s.
+// NextInterval is A2's half of the R16 rule (ADR-004-E7): the interval A2's
+// last batch stores for later runs, 10 s after a run that sealed anything,
+// otherwise the current interval doubled, up to 300 s. A1 books the next run
+// at it only when the tenant has no unsealed entry; with pending work A1
+// books 10 s itself (Reschedule).
 func NextInterval(current int32, sealedAny bool) int32 {
 	if sealedAny {
 		return MinIntervalSeconds
@@ -75,19 +78,30 @@ const (
 	// so a role that bypasses RLS still locks only this tenant's head.
 	lockForRescheduleSQL = `SELECT next_seal_outbox_id, seal_interval_s FROM audit_chain_head
 WHERE tenant_id = $1 FOR UPDATE`
+	// ADR-004-E7: does the tenant have work pending? tenant_id-led, so it is
+	// served by the audit_log_unsealed partial index; the predicate names the
+	// tenant as RLS does.
+	pendingSQL     = `SELECT EXISTS (SELECT 1 FROM audit_log WHERE tenant_id = $1 AND sealed_at IS NULL)`
 	bumpVersionSQL = `UPDATE audit_chain_head SET version = version + 1 WHERE tenant_id = $1 RETURNING version`
 	// next_seal_at uses the same now() and interval as the start row's
-	// available_at (outbox.WithDelay), so the two are equal.
+	// available_at (outbox.WithDelay), so the two are equal. seal_interval_s
+	// is the interval o′ was booked at: 10 s when work was pending (E7),
+	// otherwise the stored value, unchanged.
 	repointSQL = `UPDATE audit_chain_head
-SET next_seal_outbox_id = $2, next_seal_at = now() + make_interval(secs => $3)
+SET next_seal_outbox_id = $2, next_seal_at = now() + make_interval(secs => $3), seal_interval_s = $4
 WHERE tenant_id = $1`
 )
 
 // Reschedule is A1 for run o, the outbox id of the running workflow's start
 // row. Under the head lock, if next_seal_outbox_id is o it bumps the head's
-// version, enqueues start row o′ at that version with available_at = now() +
-// seal_interval_s (outbox.EnqueueSeal, outbox.WithDelay), points
-// next_seal_outbox_id and next_seal_at at o′, commits, and returns o′.
+// version and checks whether the tenant has any unsealed entry
+// (ADR-004-E7). If it has, the delay is MinIntervalSeconds; otherwise it is
+// the stored seal_interval_s. It enqueues start row o′ at that version with
+// available_at = now() + delay (outbox.EnqueueSeal, outbox.WithDelay), and in
+// one UPDATE points next_seal_outbox_id and next_seal_at at o′ and stores the
+// delay as seal_interval_s, then commits and returns o′. So after idle a
+// tenant with pending work is sealed again 10 s later, not at the 300 s the
+// previous run's A2 stored.
 // Otherwise the lineage is stale (a reseed or an earlier A1 of this run moved
 // the head on): it writes nothing and returns uuid.Nil. A retry after commit
 // is therefore a no-op too.
@@ -115,12 +129,19 @@ func Reschedule(ctx context.Context, pool *pgxpool.Pool, o uuid.UUID) (uuid.UUID
 		if err := tx.QueryRow(ctx, bumpVersionSQL, tenant).Scan(&version); err != nil {
 			return fmt.Errorf("seal: bump head version: %w", err)
 		}
+		var pending bool
+		if err := tx.QueryRow(ctx, pendingSQL, tenant).Scan(&pending); err != nil {
+			return fmt.Errorf("seal: probe pending entries: %w", err)
+		}
+		if pending {
+			interval = MinIntervalSeconds
+		}
 		delay := time.Duration(interval) * time.Second
 		id, err := outbox.EnqueueSeal(ctx, tx, version, outbox.WithDelay(delay))
 		if err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, repointSQL, tenant, id, delay.Seconds()); err != nil {
+		if _, err := tx.Exec(ctx, repointSQL, tenant, id, delay.Seconds(), interval); err != nil {
 			return fmt.Errorf("seal: repoint head: %w", err)
 		}
 		next = id

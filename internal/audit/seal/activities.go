@@ -90,8 +90,8 @@ func (a *Activities) Reschedule(ctx context.Context) (Rescheduled, error) {
 // Seal is A2. It seals at most MaxBatches batches and heartbeats after each
 // committed one, so the workflow's HeartbeatTimeout bounds a stuck batch, not
 // the whole backlog. It returns no count: workerguard records only
-// references, and the run's outcome the next A1 needs is already on the head
-// (seal_interval_s).
+// references, and the run's outcome later A1s need is already on the head
+// (seal_interval_s, and the unsealed entries A1 probes for).
 //
 // Every attempt then measures the tenant's oldest unsealed entry for
 // audit_unsealed_oldest_seconds, and a failed attempt counts in
