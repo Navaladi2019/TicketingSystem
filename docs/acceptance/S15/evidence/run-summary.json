@@ -1,7 +1,7 @@
 {
   "requests": 21,
   "tests": 71,
-  "failed": 2,
+  "failed": 0,
   "results": [
     {
       "request": "S15-1",
@@ -276,16 +276,6 @@
       "status": 200,
       "tests": [
         {
-          "test": "audit_seal_failures_total has a sample",
-          "status": "fail",
-          "error": "expected +0 to be at least 1"
-        },
-        {
-          "test": "the HELP lines name both metrics",
-          "status": "fail",
-          "error": "expected false to deeply equal true"
-        },
-        {
           "test": "HTTP 200",
           "status": "pass"
         },
@@ -294,7 +284,15 @@
           "status": "pass"
         },
         {
+          "test": "audit_seal_failures_total has a sample",
+          "status": "pass"
+        },
+        {
           "test": "neither carries a tenant label (TICK-93)",
+          "status": "pass"
+        },
+        {
+          "test": "the HELP lines name both metrics",
           "status": "pass"
         }
       ]
