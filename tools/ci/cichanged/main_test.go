@@ -16,6 +16,22 @@ func set(s ...string) map[string]bool {
 	return m
 }
 
+// TestRealRepo loads this repository's graph once and runs every check that
+// reads it as a subtest: one load runs go list over the whole module eight
+// times, and loading it per test helped push this package past go test's
+// 10-minute timeout under task test's -race run of every package
+// (TICK-597).
+func TestRealRepo(t *testing.T) {
+	g, err := loadGraph()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Run("cli", func(t *testing.T) { testCLIRealRepo(t, g) })
+	t.Run("load graph", func(t *testing.T) { testLoadGraph(t, g) })
+	t.Run("story suites selected", func(t *testing.T) { testStorySuitesSelected(t, g) })
+	t.Run("every command is a stack root", func(t *testing.T) { testEveryCommandIsAStackRoot(t, g) })
+}
+
 func testGraph() graph {
 	return graph{
 		packages:    set("internal/db/roles", "internal/db", "internal/server", "tools/ci/checkpins", "db", "internal/platform/telemetry"),
@@ -71,11 +87,7 @@ func TestClassify(t *testing.T) {
 
 // The real graph: the integration stage covers the db packages,
 // the stack covers nava-core's server, and a CI tool is unit-only.
-func TestLoadGraph(t *testing.T) {
-	g, err := loadGraph()
-	if err != nil {
-		t.Fatal(err)
-	}
+func testLoadGraph(t *testing.T, g graph) {
 	for _, c := range []struct {
 		pkg                string
 		integration, stack bool
@@ -102,11 +114,7 @@ func TestLoadGraph(t *testing.T) {
 // must select that stage (TICK-292, docs/delivery/merge-safety.md "Story
 // suites on main"). The real graph: a pull request that touches only one of
 // these files must not skip the suite.
-func TestStorySuitesSelected(t *testing.T) {
-	g, err := loadGraph()
-	if err != nil {
-		t.Fatal(err)
-	}
+func testStorySuitesSelected(t *testing.T, g graph) {
 	for _, c := range []struct {
 		suite, file, stage string
 	}{
@@ -144,15 +152,11 @@ func TestStorySuitesSelected(t *testing.T) {
 
 // Every command under cmd/ is an image, a stack test's binary, or listed
 // here as neither, so a new command cannot skip the stack stage unseen.
-func TestEveryCommandIsAStackRoot(t *testing.T) {
+func testEveryCommandIsAStackRoot(t *testing.T, g graph) {
 	notStack := map[string]bool{
 		"cmd/openapi-compat":   true, // lint's check-openapi
 		"cmd/demo-interpreter": true, // the S11a demo (TICK-352): make demo-interpreter-*, no image or stack test builds it
 		"cmd/nava":             true, // the offline CLI (P5-03, TICK-425): unit-tested, no image or stack test builds it
-	}
-	g, err := loadGraph()
-	if err != nil {
-		t.Fatal(err)
 	}
 	root, err := git("rev-parse", "--show-toplevel")
 	if err != nil {
