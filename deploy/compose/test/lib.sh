@@ -172,3 +172,16 @@ t_temporal_confinement() {
     done
     pass "temporal-server is only on temporal-backplane and shares no network with a platform process"
 }
+
+# with_worker_restored <cmd...>: runs cmd, then makes sure the always-on
+# nava-worker is up and healthy again, whatever cmd did. The temporalstack
+# cases stop it for their run (the nava-tq rule, TICK-453); their TestMain
+# starts it again, but a go test -timeout panic skips that, and every later
+# case needs the sealer running. Exits with cmd's status, or 1 if the restart
+# failed.
+with_worker_restored() {
+    st=0
+    "$@" || st=$?
+    compose up -d --no-deps --wait --wait-timeout 180 nava-worker || { echo "FAIL: nava-worker not restored after $*" >&2; [ "$st" -ne 0 ] || st=1; }
+    return "$st"
+}
