@@ -163,7 +163,7 @@ Runbook: the migration sets `lock_timeout = '5s'`. That limits only how long it 
 
 Migration: `db/migrations/20261107053707_audit_migration_b.sql`, one transaction (ADR-004 R25 B half, R26, R27). In order:
 
-1. **Locks (R27).** `lock_timeout = 5s`, then `LOCK TABLE tenants, entity_definitions, entity_definition_versions, audit_log, audit_chain_head, outbox IN ACCESS EXCLUSIVE MODE`, in that order, before any other work. A timeout rolls back the attempt's subtransaction, which releases whatever part of the set it took, and retries: five attempts, 1 to 4 s apart. Every later statement needs at most a lock already held.
+1. **Locks (R27).** `lock_timeout = 5s`, then `LOCK TABLE tenants, entity_definitions, entity_definition_versions, audit_log, audit_chain_head, outbox IN ACCESS EXCLUSIVE MODE`, in that order, before any other work. A timeout fails B with `55P03`; its transaction rolls back, releasing whatever part of the set it took, and the migrator retries it (TICK-579: 10 attempts, backoff doubling from 1 s to 30 s, about 3.4 min worst case). The migrator is the retry's only owner; B has no retry loop of its own (TICK-606). Every later statement needs at most a lock already held.
 2. **Backfill re-run.** `SELECT audit_backfill_s8()`: the versions published between migration A and the deploy get their backfilled entry; versions the publish path audited keep theirs (CI-A9).
 3. **Attach.** `audit_commit_check` on `entity_definitions` (`AFTER INSERT OR DELETE OR UPDATE OF current_version, updated_at`, subject `id`) and on `entity_definition_versions` (`AFTER INSERT OR DELETE`, insert-only, subject `definition_id`). `db/audited-tables.yaml` marks both `attached: true`.
 4. **Seed.** `SELECT audit_seed_chain_heads()`: per tenant without a head, the head and the first `audit.seal` start row, the rows onboarding writes (P5-33).
@@ -204,7 +204,7 @@ erDiagram
 - **Access path (R26).** Three temporary policies, created and dropped inside `audit_seed_chain_heads()`: `FOR SELECT TO nava_migrator USING (true)` on `tenants` (the only cross-tenant one, to list ids), and canonical INSERT on `audit_chain_head` and on `outbox`. Plain INSERTs with no RETURNING, so no SELECT policy is needed. Both new functions are SECURITY INVOKER, owned by `nava_migrator`, with no EXECUTE grant.
 - **Onboarding's entity types.** From B on, `entitytypes.Store.Seed` (nava_onboard) writes the v1 config `create` entry in its own transaction: actor `onboarding`, source `onboarding`, `content_sha256 = schema_sha256`, no diff (nava_onboard cannot read the stored schema; R3 makes the hash the evidence). It is the entry the backfill gives such a version, without `backfilled`.
 
-Measured on postgres:16.10 in Docker (16 CPUs, Windows 11 host), from `scratch/audit-migration-b/RESULT.md`. B holds all six locks for the whole time:
+Measured on postgres:16.10 in Docker (16 CPUs, Windows 11 host), from `docs/data/audit-migration-b-bench/RESULT.md`. B holds all six locks for the whole time:
 
 | Tenants | S8 versions | Migration B | Backfill re-run | Seeding |
 |---:|---:|---:|---:|---:|

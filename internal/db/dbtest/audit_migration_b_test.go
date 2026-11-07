@@ -5,6 +5,7 @@ package dbtest
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -324,12 +325,28 @@ func TestP532RawConfigWriteFailsAtCommit(t *testing.T) {
 // R27: B takes its six locks in the fixed order before any other work, and a
 // lock that times out is retried, holding none of the set while it waits.
 // The blocker holds outbox, the last of the six, for longer than one
-// lock_timeout (5 s), so B succeeds only by retrying.
+// lock_timeout (5 s), so B succeeds only by retrying. The retry has one
+// owner, main's migrator (TICK-579, TICK-606): B fails with 55P03, its
+// transaction rolls back, and the runner logs the retry and re-runs it. The
+// retried run still leaves one entry per S8 version (CI-A9) and no
+// nava_migrator policy (R26.3).
 func TestP532LocksInOrderAndRetries(t *testing.T) {
 	m := freshCluster(t)
+	if err := migrateOnlyFS(t, m, migrationsBefore(t, auditBackfillMigration)); err != nil {
+		t.Fatalf("migrate to before %s: %v", auditBackfillMigration, err)
+	}
+	super := superNava(t)
+	seedBackfillVersions(t, super)
+	if err := migrateOnlyFS(t, m, migrationsThrough(t, auditBackfillMigration)); err != nil {
+		t.Fatalf("migrate through %s: %v", auditBackfillMigration, err)
+	}
 	if _, err := migrateBeforeB(t, m); err != nil {
 		t.Fatalf("migrate to before %s: %v", migrationB, err)
 	}
+	// Published between A and the deploy: B's backfill re-run must add it.
+	gap := uuid.NewString()
+	exec(t, super, insertVersionRaw, tenantB, gap, tenantB, 2, testSchema, schemaSum(testSchema), "compatible", tenantB)
+
 	ctx := context.Background()
 	blocker := superNava(t)
 	blockTx, err := blocker.Begin(ctx)
@@ -340,8 +357,10 @@ func TestP532LocksInOrderAndRetries(t *testing.T) {
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)
+	log, logs := newLog()
 	go func() {
-		_, err := migrateFS(t, m, db.Migrations())
+		_, err := migrate.Run(ctx, roleConfig(t, m.Owner(), m.PlatformDatabase),
+			db.Migrations(), m, auditedManifest(t), globalTables(t), log, migrate.Options{LockRetrySeconds: 1})
 		done <- err
 	}()
 
@@ -383,6 +402,20 @@ func TestP532LocksInOrderAndRetries(t *testing.T) {
 	}
 	if n := countRows(t, "SELECT count(*) FROM pg_trigger WHERE tgname = 'entity_definitions_audit_commit_check'"); n != 1 {
 		t.Errorf("entity_definitions trigger count %d after the retried run, want 1", n)
+	}
+	// One owner: the migrator saw B's lock_timeout and retried it.
+	if !strings.Contains(logs.String(), `"msg":"migration hit lock_timeout, retrying"`) ||
+		!strings.Contains(logs.String(), "version:"+strings.SplitN(migrationB, "_", 2)[0]+")") {
+		t.Errorf("the migrator did not retry %s on lock_timeout; log: %s", migrationB, logs.String())
+	}
+	if bad := queryString(t, super, entriesPerVersion); bad != "" {
+		t.Errorf("versions without exactly one entry after the retried B (CI-A9): %s", bad)
+	}
+	if n := countRows(t, "SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND id = $2 AND backfilled", tenantB, backfillID(tenantB, gap)); n != 1 {
+		t.Errorf("version published between A and B: %d backfilled entries after the retried B, want 1", n)
+	}
+	if n := countRows(t, "SELECT count(*) FROM pg_policy WHERE 'nava_migrator'::regrole = ANY (polroles)"); n != 0 {
+		t.Errorf("%d nava_migrator policies left after the retried B, want 0 (R26.3)", n)
 	}
 }
 
