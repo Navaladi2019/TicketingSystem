@@ -108,6 +108,49 @@ func TestMetrics(t *testing.T) {
 	none.observe(stuck, now, true)
 }
 
+// A healthy worker that has not failed yet still exports
+// audit_seal_failures_total at 0 for every reason, with no tenant label, so
+// S15 AC4 finds the series on /metrics and the alert's rate() has a series
+// to read before the first failure (TICK-598).
+func TestMetricsFailuresAtZeroFromStart(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	reader, err := otelprom.New(otelprom.WithRegisterer(reg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
+	if _, err := NewMetrics(mp); err != nil {
+		t.Fatal(err)
+	}
+
+	got := scrape(t, reg) // scrape fails the test on a tenant label
+	for _, reason := range []string{ReasonUnsealable, ReasonError, ReasonReschedule} {
+		key := "audit_seal_failures_total{" + reason + "}"
+		v, ok := got[key]
+		if !ok {
+			t.Errorf("no %s sample before any failure; scraped %v", key, got)
+			continue
+		}
+		if v != 0 {
+			t.Errorf("%s = %v before any failure, want 0", key, v)
+		}
+	}
+	mfs, err := reg.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	help := map[string]bool{}
+	for _, mf := range mfs {
+		help[mf.GetName()] = mf.GetHelp() != ""
+	}
+	for _, name := range []string{"audit_seal_failures_total", "audit_unsealed_oldest_seconds"} {
+		if !help[name] {
+			t.Errorf("%s has no HELP line on a fresh worker", name)
+		}
+	}
+}
+
 // The R-A2 alert (deploy/compose/prometheus/rules/audit.yml) fires on the
 // exported gauge name at 600 s, and the local Prometheus loads it.
 func TestAlertRule(t *testing.T) {

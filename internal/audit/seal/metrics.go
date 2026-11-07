@@ -71,6 +71,12 @@ func newMetrics(mp metric.MeterProvider, now func() time.Time) (*Metrics, error)
 	if err != nil {
 		return nil, fmt.Errorf("seal: %s: %w", SealFailuresMetric, err)
 	}
+	// The exporter emits a counter series only after its first Add, so start
+	// every reason at 0: a healthy worker then shows the series on /metrics
+	// and the alert's rate() has one to read (TICK-598).
+	for _, reason := range []string{ReasonUnsealable, ReasonError, ReasonReschedule} {
+		m.failures.Add(context.Background(), 0, metric.WithAttributes(attribute.String("reason", reason)))
+	}
 	_, err = meter.Float64ObservableGauge(UnsealedOldestMetric,
 		metric.WithUnit("s"),
 		metric.WithDescription("Age of the oldest unsealed audit entry over the tenants this worker sealed (ADR-004 R-A2)."),
