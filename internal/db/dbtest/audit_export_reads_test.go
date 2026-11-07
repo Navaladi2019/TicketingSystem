@@ -15,10 +15,11 @@ import (
 
 // P5-40a (TICK-612): the reads the R19/R20 export (P5-40, TICK-444) needs.
 //
-//   - nava_audit_reader reads audit_log.prev_hash and entry_hash, so the
-//     export pages (A1-5: reader pool, masker in the same transaction) can
-//     emit the R20 anchor and stubs. Row access is still audit_log_select
-//     under the canonical predicate.
+//   - nava_audit_reader reads audit_log.prev_hash, entry_hash and
+//     erasure_ref, so the export pages (A1-5: reader pool, masker in the same
+//     transaction) can emit the R20 anchor, stub and entry lines. Row access
+//     is still audit_log_select under the canonical predicate (CI-A4: no
+//     tenant, no rows).
 //   - nava_app takes the R19 lease and reads head_seq and head_hash in one
 //     statement (A1-7 keeps the lease on nava_app). Its table-level SELECT on
 //     audit_chain_head already covers the WHERE on export_lease_until and the
@@ -49,7 +50,7 @@ func TestP540aReaderReadsChainHashes(t *testing.T) {
 		}
 	}
 
-	const stub = `SELECT seq, prev_hash, entry_hash FROM audit_log WHERE id = $1`
+	const stub = `SELECT seq, prev_hash, entry_hash, erasure_ref FROM audit_log WHERE id = $1`
 	read := func(tenant, id string) (rows int, prev, entry []byte, err error) {
 		err = inTenantTx(reader, tenant, func(tx pgx.Tx) error {
 			r, err := tx.Query(context.Background(), stub, id)
@@ -59,7 +60,8 @@ func TestP540aReaderReadsChainHashes(t *testing.T) {
 			defer r.Close()
 			for r.Next() {
 				var seq int64
-				if err := r.Scan(&seq, &prev, &entry); err != nil {
+				var ref *string
+				if err := r.Scan(&seq, &prev, &entry, &ref); err != nil {
 					return err
 				}
 				rows++
@@ -82,12 +84,10 @@ func TestP540aReaderReadsChainHashes(t *testing.T) {
 		t.Errorf("the reader with no tenant reads a stub: %d rows, %v; want 0", n, err)
 	}
 
-	// The widening is the two hashes only: the reader still cannot read txid
-	// or erasure_ref, and nava_app still cannot read the hashes.
-	for _, col := range []string{"txid", "erasure_ref"} {
-		_, err := execIn(reader, tenantA, "SELECT "+col+" FROM audit_log WHERE id = $1", a)
-		wantSQLState(t, "nava_audit_reader reads "+col, err, "42501")
-	}
+	// The widening is those three columns only: the reader still cannot read
+	// txid, and nava_app still cannot read the hashes.
+	_, err = execIn(reader, tenantA, "SELECT txid FROM audit_log WHERE id = $1", a)
+	wantSQLState(t, "nava_audit_reader reads txid", err, "42501")
 	for _, col := range []string{"prev_hash", "entry_hash"} {
 		_, err := execIn(app, tenantA, "SELECT "+col+" FROM audit_log WHERE id = $1", a)
 		wantSQLState(t, "nava_app reads audit_log."+col, err, "42501")
