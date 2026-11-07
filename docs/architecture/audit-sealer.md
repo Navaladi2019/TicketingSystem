@@ -49,7 +49,7 @@ sequenceDiagram
 
 - **A1, then A2, always.** A2 runs whatever A1 returned. A1 returns no `o′` for a stale lineage, and for a retry of an A1 that had already committed (its worker died before reporting); R15's head lock makes the overlapping A2 safe. Only an A1 failure skips A2.
 - **No child, no continue-as-new.** The only way to the next run is A1's outbox row, which the relay starts and the head fences. The Authorizer sees only the workflow id, so `TestWorkflowStartsNoChildAndNeverContinuesAsNew` and `TestRecordedHistoriesShape` enforce it.
-- **Bounded A2.** One A2 call seals at most `DefaultMaxBatches` (10) batches, heartbeats after each committed batch (`HeartbeatTimeout` 30 s, `StartToClose` 5 min), and returns; the capped run sets the interval to 10 s and the next run continues the chain. Both activities have an explicit retry policy of 10 attempts; `NoRun` and `Unsealable` are non-retryable.
+- **Bounded A2.** One A2 call seals at most `DefaultMaxBatches` (10) batches, heartbeats after each committed batch (`HeartbeatTimeout` 30 s, `StartToClose` 5 min), and returns; the capped run sets the interval to 10 s and the next run continues the chain. A2 has an explicit retry policy of 10 attempts, after which the next run, already committed by A1, tries again. A1 retries with no attempt cap (TICK-587): it is the step that commits the next run, so a capped A1 that ran out during a PostgreSQL or PgBouncer outage would end the lineage silently until `chain:reseed`. A1 is idempotent (R16), so retrying until the outage ends is safe; both cap the backoff at 1 min. `NoRun` and `Unsealable` are non-retryable.
 - **Kill between A1 and A2.** `o′` is already committed, so the next run seals what this run left.
 
 ## Metrics and alert (R-A2)
@@ -57,7 +57,7 @@ sequenceDiagram
 | Metric (Prometheus name) | Kind | Meaning |
 | --- | --- | --- |
 | `audit_unsealed_oldest_seconds` | gauge | Age, now, of the oldest unsealed entry over the tenants this worker sealed. Each A2 attempt measures its tenant; the value keeps growing between runs, and a tenant not measured for 15 min drops out. No tenant label. |
-| `audit_seal_failures_total{reason}` | counter | Failed A2 attempts: `unsealable` (a poison entry) or `error` (retried). |
+| `audit_seal_failures_total{reason}` | counter | Failed attempts: A2 `unsealable` (a poison entry) or `error` (retried), and A1 `reschedule` (retried without a cap, so a lineage held up before it commits shows here). |
 
 `deploy/compose/prometheus/rules/audit.yml` fires `AuditSealLag` at `max(audit_unsealed_oldest_seconds) > 600`. A failed attempt logs `audit seal failed` with `tenant_id` and `workflow_id`. The gauge is per worker, so a lineage that stops running (no worker measures it) is R17's `next_seal_at` check, not this alert.
 

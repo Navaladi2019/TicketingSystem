@@ -66,8 +66,13 @@ func (a *Activities) Reschedule(ctx context.Context) (Rescheduled, error) {
 		return Rescheduled{}, temporal.NewNonRetryableApplicationError("seal: "+err.Error(), ErrTypeNoRun, nil)
 	}
 	next, err := Reschedule(ctx, a.Pool, o)
-	if err != nil || next == uuid.Nil {
+	if err != nil {
+		a.Metrics.rescheduleFailed(ctx)
+		a.logger().WarnContext(ctx, "audit seal reschedule failed", a.attrs(ctx, slog.Any("error", err))...)
 		return Rescheduled{}, err
+	}
+	if next == uuid.Nil {
+		return Rescheduled{}, nil
 	}
 	return Rescheduled{NextOutboxID: &next}, nil
 }

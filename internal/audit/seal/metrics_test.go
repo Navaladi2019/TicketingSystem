@@ -75,12 +75,14 @@ func TestMetrics(t *testing.T) {
 	m.failed(ctx, fmt.Errorf("%w: entry x: version_after", ErrUnsealable))
 	m.failed(ctx, errors.New("connection reset"))
 	m.failed(ctx, ErrUnsealable)
+	m.rescheduleFailed(ctx)
 
 	got := scrape(t, reg)
 	if got["audit_unsealed_oldest_seconds"] != 100 {
 		t.Errorf("gauge %v, want 100 (the worst tenant)", got["audit_unsealed_oldest_seconds"])
 	}
-	if got["audit_seal_failures_total{unsealable}"] != 2 || got["audit_seal_failures_total{error}"] != 1 {
+	if got["audit_seal_failures_total{unsealable}"] != 2 || got["audit_seal_failures_total{error}"] != 1 ||
+		got["audit_seal_failures_total{reschedule}"] != 1 {
 		t.Errorf("failures %v, want unsealable 2 and error 1", got)
 	}
 
@@ -102,6 +104,7 @@ func TestMetrics(t *testing.T) {
 
 	var none *Metrics
 	none.failed(ctx, ErrUnsealable)
+	none.rescheduleFailed(ctx)
 	none.observe(stuck, now, true)
 }
 

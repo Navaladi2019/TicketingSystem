@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"go.temporal.io/sdk/activity"
@@ -61,6 +62,7 @@ type commandRecorder struct {
 	children  []string
 	continues int
 	order     []string
+	options   map[string]workflow.ActivityOptions // as scheduled, by activity type
 }
 
 func (r *commandRecorder) InterceptWorkflow(_ workflow.Context, next interceptor.WorkflowInboundInterceptor) interceptor.WorkflowInboundInterceptor {
@@ -84,6 +86,10 @@ type recOutbound struct {
 func (o *recOutbound) ExecuteActivity(ctx workflow.Context, activityType string, args ...any) workflow.Future {
 	o.r.mu.Lock()
 	o.r.order = append(o.r.order, activityType)
+	if o.r.options == nil {
+		o.r.options = map[string]workflow.ActivityOptions{}
+	}
+	o.r.options[activityType] = workflow.GetActivityOptions(ctx)
 	o.r.mu.Unlock()
 	return o.Next.ExecuteActivity(ctx, activityType, args...)
 }
@@ -204,14 +210,26 @@ func TestWorkflowRunsA2AfterRetriedA1(t *testing.T) {
 	}
 }
 
-// The activity bounds: both have an explicit, finite retry policy; A2 has a
-// heartbeat timeout well under its start-to-close, so a stuck batch is
-// noticed after one batch's worth of time, not the whole call (TICK-440
-// review, "bounded A2").
+// The activity bounds: A2 has a heartbeat timeout well under its
+// start-to-close, so a stuck batch is noticed after one batch's worth of
+// time, not the whole call (TICK-440 review, "bounded A2"). Both have an
+// explicit retry policy as scheduled: A1's has no attempt cap, so an outage
+// before A1 commits never ends the lineage (TICK-587), and A2's is capped at
+// A2MaxAttempts. Both cap the backoff at a minute. The options are asserted
+// as scheduled, not by running past ten A1 failures: the SDK test environment
+// turns an uncapped policy into ten attempts (defaultMaximumAttemptsForUnitTest).
 func TestWorkflowActivityOptions(t *testing.T) {
 	f := scenarios()["next run"]
-	if err := runWorkflow(t, f, &commandRecorder{}); err != nil {
+	rec := &commandRecorder{}
+	if err := runWorkflow(t, f, rec); err != nil {
 		t.Fatal(err)
+	}
+	p1, p2 := rec.options[seal.RescheduleActivity].RetryPolicy, rec.options[seal.SealActivity].RetryPolicy
+	if p1 == nil || p1.MaximumAttempts != 0 || p1.MaximumInterval != time.Minute {
+		t.Errorf("A1 scheduled with retry policy %+v, want no attempt cap and a 1 min backoff cap", p1)
+	}
+	if p2 == nil || p2.MaximumAttempts != seal.A2MaxAttempts || seal.A2MaxAttempts <= 0 || p2.MaximumInterval != time.Minute {
+		t.Errorf("A2 scheduled with retry policy %+v, want %d attempts and a 1 min backoff cap", p2, seal.A2MaxAttempts)
 	}
 	a1, a2 := f.infos[seal.RescheduleActivity], f.infos[seal.SealActivity]
 	if a1.StartToCloseTimeout != seal.A1StartToClose {
@@ -223,8 +241,5 @@ func TestWorkflowActivityOptions(t *testing.T) {
 	}
 	if seal.A2HeartbeatTimeout <= 0 || seal.A2HeartbeatTimeout >= seal.A2StartToClose {
 		t.Error("A2's heartbeat timeout does not bound a batch")
-	}
-	if p := seal.RetryPolicy(); p.MaximumAttempts <= 0 {
-		t.Error("the retry policy is unbounded")
 	}
 }

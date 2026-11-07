@@ -29,6 +29,10 @@ const (
 const (
 	ReasonUnsealable = "unsealable" // a poison entry (ErrUnsealable)
 	ReasonError      = "error"      // anything else; Temporal retries it
+	// ReasonReschedule is a failed A1 attempt (TICK-587). A1 retries without
+	// an attempt cap, so a lineage held up before it commits its next run
+	// shows here, attempt by attempt, rather than going quiet.
+	ReasonReschedule = "reschedule"
 )
 
 // LagStaleAfter drops a tenant from the gauge when no A2 has measured it for
@@ -63,7 +67,7 @@ func newMetrics(mp metric.MeterProvider, now func() time.Time) (*Metrics, error)
 	meter := mp.Meter("github.com/Navaladi2019/TicketingSystem/internal/audit/seal")
 	var err error
 	m.failures, err = meter.Int64Counter(SealFailuresMetric,
-		metric.WithDescription("Audit sealer A2 activity attempts that failed, by reason (ADR-004 R-A2)."))
+		metric.WithDescription("Audit sealer activity attempts that failed, by reason: A2 unsealable or error, A1 reschedule (ADR-004 R-A2)."))
 	if err != nil {
 		return nil, fmt.Errorf("seal: %s: %w", SealFailuresMetric, err)
 	}
@@ -90,6 +94,14 @@ func (m *Metrics) failed(ctx context.Context, err error) {
 		reason = ReasonUnsealable
 	}
 	m.failures.Add(ctx, 1, metric.WithAttributes(attribute.String("reason", reason)))
+}
+
+// rescheduleFailed counts one failed A1 attempt.
+func (m *Metrics) rescheduleFailed(ctx context.Context) {
+	if m == nil {
+		return
+	}
+	m.failures.Add(ctx, 1, metric.WithAttributes(attribute.String("reason", ReasonReschedule)))
 }
 
 // observe records tenant's oldest unsealed entry; ok false means none.

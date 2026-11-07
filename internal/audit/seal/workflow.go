@@ -26,19 +26,35 @@ const (
 	A2HeartbeatTimeout = 30 * time.Second
 )
 
-// MaxAttempts bounds the retries of A1 and A2. The SDK default retries
-// forever; with this a persistent retryable fault fails the run after MaxAttempts, about six
-// minutes of backoff, and the next run (already committed by A1) tries
-// again. NoRun and Unsealable are non-retryable and end the retries at once.
-const MaxAttempts = 10
+// A2MaxAttempts bounds the retries of A2. A persistent retryable fault fails
+// the run after A2MaxAttempts, about six minutes of backoff, and the next run,
+// which A1 has already committed, tries again. Unsealable is non-retryable and
+// ends the retries at once.
+const A2MaxAttempts = 10
 
-// RetryPolicy is the explicit RetryPolicy of A1 and A2.
-func RetryPolicy() *temporal.RetryPolicy {
+// A1RetryPolicy is A1's RetryPolicy: no attempt cap (TICK-587). A1 is the
+// step that commits the next run, so a capped A1 that ran out of attempts
+// during an outage (PostgreSQL or PgBouncer down) would end the tenant's
+// lineage with nothing to report it until chain:reseed. A1 is idempotent
+// (R16: a retry after commit finds the head moved on and does nothing), so
+// retrying until the outage ends is safe; the backoff stays capped at a
+// minute. NoRun is non-retryable and still ends the retries at once.
+func A1RetryPolicy() *temporal.RetryPolicy {
 	return &temporal.RetryPolicy{
 		InitialInterval:    time.Second,
 		BackoffCoefficient: 2,
 		MaximumInterval:    time.Minute,
-		MaximumAttempts:    MaxAttempts,
+		MaximumAttempts:    0, // unlimited
+	}
+}
+
+// A2RetryPolicy is A2's RetryPolicy, capped at A2MaxAttempts.
+func A2RetryPolicy() *temporal.RetryPolicy {
+	return &temporal.RetryPolicy{
+		InitialInterval:    time.Second,
+		BackoffCoefficient: 2,
+		MaximumInterval:    time.Minute,
+		MaximumAttempts:    A2MaxAttempts,
 	}
 }
 
@@ -66,7 +82,7 @@ func RegisterWorkflow(r worker.WorkflowRegistry) {
 func Workflow(ctx workflow.Context, _ outbox.Delivery) error {
 	a1 := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: A1StartToClose,
-		RetryPolicy:         RetryPolicy(),
+		RetryPolicy:         A1RetryPolicy(),
 	})
 	var next Rescheduled
 	if err := workflow.ExecuteActivity(a1, RescheduleActivity).Get(a1, &next); err != nil {
@@ -75,7 +91,7 @@ func Workflow(ctx workflow.Context, _ outbox.Delivery) error {
 	a2 := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: A2StartToClose,
 		HeartbeatTimeout:    A2HeartbeatTimeout,
-		RetryPolicy:         RetryPolicy(),
+		RetryPolicy:         A2RetryPolicy(),
 	})
 	return workflow.ExecuteActivity(a2, SealActivity).Get(a2, nil)
 }
