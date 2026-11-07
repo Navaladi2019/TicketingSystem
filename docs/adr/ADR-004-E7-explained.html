@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-004 erratum E7 explained: the sealer speeds up as soon as there is work</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.pill{display:inline-block;font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left}
+th{background:var(--soft)}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:40px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--soft);padding:1px 5px;border-radius:4px}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+.bad{color:var(--bad);font-weight:600}.good{color:var(--good);font-weight:600}
+figure{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure svg{width:100%;min-width:640px;height:auto;display:block}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+
+<span class="pill" style="background:var(--goodbg);color:var(--good);border-color:var(--good)">ACCEPTED · 2026-11-07</span> <span class="src">ADR-004-E7 · issue TICK-600 · clarifies ADR-004 R16 · RFC-013 rev 1 · source: TICK-443 S15 acceptance kit, S15.9</span>
+
+<h1>The audit sealer should speed up as soon as there is work, not one run later</h1>
+
+<blockquote><strong>In one sentence.</strong> After a quiet period, the background job that seals audit entries waited one extra slow cycle (up to 5 minutes) before going fast. With a large burst that meant up to about 10 minutes, which can set off an alarm on a healthy system. We fix the code so the job checks for waiting work before it books its next run, and we reword the rule (R16) to say exactly who does what.</blockquote>
+
+<h2>Words used here</h2>
+<dl>
+<dt>Sealing</dt><dd>Giving each audit entry its place in a tamper-evident hash chain (a numbered sequence, <code>seq</code>, where each entry's fingerprint depends on the one before). Entries are readable before they are sealed. Sealing is what makes later tampering detectable.</dd>
+<dt>Run, A1, A2</dt><dd>The sealer is a recurring background job; each occurrence is a <em>run</em>. A run has two steps. <strong>A1</strong> books the next run. <strong>A2</strong> then seals up to 10,000 waiting entries.</dd>
+<dt>Interval</dt><dd>How long until the next run: 10 seconds when busy, doubling to at most 300 seconds (5 minutes) when quiet. It is stored on the tenant's chain record (<code>seal_interval_s</code>).</dd>
+<dt>Lineage</dt><dd>The unbroken series of runs for one tenant. If it ever stops, an operator has to restart it (<code>chain:reseed</code>).</dd>
+<dt>Poison entry</dt><dd>An entry that cannot be sealed. Every run fails on it until someone fixes it.</dd>
+<dt>Temporal determinism</dt><dd>Our workflow engine re-plays a job's recorded history to recover it after a crash. The job's control logic must therefore make the same decisions on replay. Changes inside a step (an "activity") are safe; changes to the order of steps are not.</dd>
+</dl>
+
+<h2>The problem</h2>
+<p>A1 books the next run <em>before</em> A2 works. That order is deliberate: if A2 crashes or hits a poison entry, the next run is already booked and the lineage never stops. But A1 used the interval that the <em>previous</em> run's A2 left behind. After a quiet period that is 300 s, even when work has just arrived.</p>
+<figure><svg viewBox="0 0 760 170" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="13">
+<line x1="20" y1="60" x2="740" y2="60" stroke="#59636e"/><line x1="20" y1="140" x2="740" y2="140" stroke="#59636e"/>
+<text x="20" y="25" fill="#cf222e" font-weight="bold">Before: big burst after quiet</text>
+<circle cx="60" cy="60" r="7" fill="#0969da"/><text x="40" y="85">run n</text><text x="30" y="47" font-size="11">seals 10,000</text>
+<circle cx="400" cy="60" r="7" fill="#0969da"/><text x="375" y="85">run n+1</text><text x="185" y="52" font-size="11">booked +300 s (old interval)</text>
+<circle cx="720" cy="60" r="7" fill="#cf222e"/><text x="660" y="85">leftovers ~600 s</text>
+<text x="20" y="110" fill="#1a7f37" font-weight="bold">After: A1 sees waiting work</text>
+<circle cx="60" cy="140" r="7" fill="#0969da"/><text x="40" y="162">run n</text>
+<circle cx="100" cy="140" r="7" fill="#1a7f37"/><text x="88" y="128" font-size="11">+10 s</text>
+<circle cx="140" cy="140" r="7" fill="#1a7f37"/><text x="130" y="162">done</text>
+</svg><figcaption>A1 now books 10 s ahead whenever unsealed entries exist, so a burst is cleared in 10-second steps.</figcaption></figure>
+
+<h2>Options considered</h2>
+<table><tr><th>Option</th><th>Verdict</th><th>Why</th></tr>
+<tr><td>Keep the code; reword the rule and accept about 10 minutes after a quiet period</td><td class="bad">Rejected</td><td>Weakens a promise we made (≤ 5 min after quiet) and makes the 10-minute alarm fire on a healthy system</td></tr>
+<tr><td>Run A2 before A1</td><td class="bad">Rejected</td><td>A crash or poison entry in A2 would stop the lineage for good until an operator steps in</td></tr>
+<tr><td><strong>A1 checks for waiting entries and books 10 s if there are any</strong></td><td class="good">Chosen</td><td>Restores the promise, keeps the crash safety, needs no new database permission and no workflow change</td></tr></table>
+
+<h2>The fix</h2>
+<ul>
+<li>In A1, under the tenant's chain lock, one quick indexed check: are there unsealed entries? If so, book the next run at 10 s and store 10 s. If not, keep today's behaviour.</li>
+<li>Only the code inside step A1 changes, so recorded job histories still replay (determinism holds). A repeated A1 still does nothing the second time (idempotent).</li>
+<li>Tests: a big burst after a quiet period books the next run at about 10 s (fails today, passes after the fix); a poison entry gives 10-second retries without breaking the lineage; the S15 acceptance kit is updated to expect fast sealing after quiet.</li>
+<li>The architecture note <code>docs/architecture/audit-sealer.md</code> is corrected alongside.</li>
+</ul>
+
+<h2>What we accept</h2>
+<ul>
+<li>One extra small database check per run, about 3.3 per second for every 1,000 quiet tenants.</li>
+<li>A tenant stuck on a poison entry is retried every 10 s, the same as an active tenant with poison today. The failure counter and alarm already cover it.</li>
+<li>An entry written just after a run finished still waits for the run already booked (at most 5 minutes). That is the documented bound.</li>
+</ul>
+
+<h2>Evidence</h2>
+<ul>
+<li>Observed in the S15 acceptance kit: the second write after a quiet period was sealed after 160 s instead of about 10 s.</li>
+<li>Code reading by the Technical Architect, who confirmed the roughly 600 s case for bursts above 10,000 entries directly from the source. No spike was needed, because the chosen option removes the case.</li>
+</ul>
+</main></body></html>
