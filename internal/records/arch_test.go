@@ -110,24 +110,21 @@ var (
 	// The head of an UPDATE of audit_log, up to and including SET:
 	// UPDATE [ONLY] [schema.]audit_log [*] [[AS] alias] SET.
 	auditUpdateRE = regexp.MustCompile(`\bupdate\s+(?:only\s+)?(?:` + ident + `\.)?audit_log\b(?:\s*\*)?(?:\s+(?:as\s+)?` + ident + `)?\s+set\b`)
-	// A PostgreSQL dollar quote, $$ or $tag$: not read, so it fails closed.
-	dollarQuoteRE = regexp.MustCompile(`\$[a-z_]*\$`)
+	// The opening tag of a PostgreSQL dollar-quoted string, $$ or $tag$.
+	dollarTagRE = regexp.MustCompile(`^\$(?:[a-zA-Z_][a-zA-Z0-9_]*)?\$`)
 )
 
 // sealColumnsOnly reports whether every UPDATE of audit_log in sql sets only
 // the seal columns (sealColumn). It fails closed: a row-form SET (a, b) =
-// (...), a dollar-quoted string, an UPDATE it cannot find the SET of, or
-// anything else it cannot read counts as setting other columns.
+// (...), an UPDATE it cannot find the SET of, or anything else it cannot read
+// counts as setting other columns.
 //
 // Each SET list is read with string literals blanked and up to the first
 // FROM, WHERE, RETURNING or semicolon outside parentheses, or the `)` closing
 // an enclosing CTE, so a keyword inside a subquery or a string does not end it
 // early (TICK-581 review).
 func sealColumnsOnly(sql string) bool {
-	s := scanSQL(normalizeSQL(sql), true)
-	if dollarQuoteRE.MatchString(s) {
-		return false
-	}
+	s := normalize(sql, true)
 	heads := auditUpdateRE.FindAllStringIndex(s, -1)
 	updates := 0
 	for _, w := range sqlWrites(s) {
@@ -195,8 +192,53 @@ func topLevelSetList(s string) string {
 	return b.String()
 }
 
+// sqlStringEnd reports whether a string literal starts at s[i] and, if so,
+// the index just past it (len(s) when unterminated). It reads the three
+// PostgreSQL forms: '...' with ” escapes, E'...' with backslash escapes as
+// well, and $tag$...$tag$ dollar quotes with an empty or identifier tag
+// (PR #487 re-review). An E or a $ that continues an identifier starts none.
+func sqlStringEnd(s string, i int) (int, bool) {
+	afterIdent := i > 0 && identByte(s[i-1])
+	switch {
+	case s[i] == '\'':
+		return quotedEnd(s, i+1, false), true
+	case (s[i] == 'e' || s[i] == 'E') && i+1 < len(s) && s[i+1] == '\'' && !afterIdent:
+		return quotedEnd(s, i+2, true), true
+	case s[i] == '$' && !afterIdent:
+		tag := dollarTagRE.FindString(s[i:])
+		if tag == "" {
+			return 0, false // a $1 placeholder
+		}
+		body := i + len(tag)
+		if k := strings.Index(s[body:], tag); k >= 0 {
+			return body + k + len(tag), true
+		}
+		return len(s), true
+	}
+	return 0, false
+}
+
+// quotedEnd returns the index just past the quote closing a '...' string
+// whose body starts at j: ” is an escaped quote, and so, with backslash,
+// is any byte after a backslash.
+func quotedEnd(s string, j int, backslash bool) int {
+	for j < len(s) {
+		switch {
+		case backslash && s[j] == '\\':
+			j += 2
+		case s[j] == '\'' && j+1 < len(s) && s[j+1] == '\'':
+			j += 2
+		case s[j] == '\'':
+			return j + 1
+		default:
+			j++
+		}
+	}
+	return len(s)
+}
+
 func identByte(c byte) bool {
-	return c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_' || c == '$'
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '$'
 }
 
 // probeExempt is the tenant isolation suite's path registry: its INSERT and
@@ -272,43 +314,39 @@ var (
 	verbRE = regexp.MustCompile(`%(?:\[\d+\])?[-+# 0]*\d*(?:\.\d+)?[a-zA-Z%]`)
 )
 
-// normalizeSQL lower-cases s and removes SQL comments and identifier quotes.
+// normalizeSQL removes SQL comments, lower-cases s and drops identifier
+// quotes.
 func normalizeSQL(s string) string {
-	s = strings.ToLower(s)
-	s = scanSQL(s, false)
+	return normalize(s, false)
+}
+
+// normalize is normalizeSQL that, with blank, also blanks string literals. The
+// strings are read before lower-casing, as dollar-quote tags are
+// case-sensitive.
+func normalize(s string, blank bool) string {
+	s = strings.ToLower(scanSQL(s, blank))
 	s = strings.ReplaceAll(s, `"`, "")
 	return strings.ReplaceAll(s, "`", "")
 }
 
 // scanSQL replaces each SQL comment in s with a space, skipping comment
-// markers inside single-quoted strings, so `'--'` cannot hide the rest of
-// the line (TICK-581 review). With blank, it also replaces each
-// single-quoted string with '_', so a keyword inside one is not read as SQL.
-// Block comments nest, as in PostgreSQL. An unterminated string or comment
-// runs to the end.
+// markers inside string literals, so `'--'` cannot hide the rest of the line
+// (TICK-581 review). With blank, it also replaces each string literal with
+// '_', so a keyword inside one is not read as SQL. Block comments nest, as in
+// PostgreSQL. An unterminated string or comment runs to the end.
 func scanSQL(s string, blank bool) string {
 	var b strings.Builder
 	for i := 0; i < len(s); {
-		switch {
-		case s[i] == '\'':
-			j := i + 1
-			for j < len(s) {
-				if s[j] == '\'' {
-					if j+1 < len(s) && s[j+1] == '\'' { // '' is a quote inside the string
-						j += 2
-						continue
-					}
-					j++
-					break
-				}
-				j++
-			}
+		if j, ok := sqlStringEnd(s, i); ok {
 			if blank {
 				b.WriteString("'_'")
 			} else {
 				b.WriteString(s[i:j])
 			}
 			i = j
+			continue
+		}
+		switch {
 		case strings.HasPrefix(s[i:], "--"):
 			for i < len(s) && s[i] != '\n' {
 				i++
@@ -931,14 +969,19 @@ func TestSealColumnsOnly(t *testing.T) {
 
 		// PR #487 review: the SET list must not end at a keyword inside a
 		// subquery or a string literal, and every UPDATE must be read.
-		"UPDATE audit_log SET seq = (SELECT max(seq) FROM audit_log), diff = NULL WHERE id = $1":     false,
-		"UPDATE audit_log SET sealed_at = 'x where y', diff = NULL WHERE id = $1":                    false,
-		"UPDATE audit_log SET seq = (SELECT 1 WHERE true), diff = NULL":                              false,
-		"UPDATE audit_log SET seq = 'where', diff = NULL WHERE id = $1":                              false,
-		"UPDATE audit_log SET seq = 1; UPDATE audit_log* SET diff = NULL":                            false,
-		"UPDATE audit_log SET seq = '--', diff = NULL WHERE id = $1":                                 false,
-		"UPDATE audit_log SET seq = 'it''s', diff = NULL WHERE id = $1":                              false,
-		"UPDATE audit_log SET seq = $$x$$, diff = NULL WHERE id = $1":                                false,
+		"UPDATE audit_log SET seq = (SELECT max(seq) FROM audit_log), diff = NULL WHERE id = $1": false,
+		"UPDATE audit_log SET sealed_at = 'x where y', diff = NULL WHERE id = $1":                false,
+		"UPDATE audit_log SET seq = (SELECT 1 WHERE true), diff = NULL":                          false,
+		"UPDATE audit_log SET seq = 'where', diff = NULL WHERE id = $1":                          false,
+		"UPDATE audit_log SET seq = 1; UPDATE audit_log* SET diff = NULL":                        false,
+		"UPDATE audit_log SET seq = '--', diff = NULL WHERE id = $1":                             false,
+		"UPDATE audit_log SET seq = 'it''s', diff = NULL WHERE id = $1":                          false,
+		"UPDATE audit_log SET seq = $$x$$, diff = NULL WHERE id = $1":                            false,
+		// PR #487 re-review: E'...' backslash escapes and $tag$ strings.
+		`UPDATE audit_log SET seq = E'\'', diff = NULL WHERE id = $1`:                                false,
+		`UPDATE audit_log SET seq = $a1$'$a1$, diff = NULL WHERE id = $1`:                            false,
+		`UPDATE audit_log SET seq = $$where$$ WHERE id = $1`:                                         true,
+		`UPDATE audit_log SET seq = $A$ $a$ , diff = NULL $A$ WHERE id = $1`:                         true,
 		"UPDATE audit_log SET seq = 1 RETURNING (SELECT diff FROM audit_log)":                        true,
 		"UPDATE audit_log SET seq = (SELECT max(seq) FROM audit_log) WHERE id = $1":                  true,
 		"UPDATE audit_log SET sealed_at = 'x where y' WHERE id = $1":                                 true,
@@ -1138,6 +1181,9 @@ func TestSQLWrites(t *testing.T) {
 		"SELECT '--'; UPDATE records SET x = 1":                                 {{"update", "records"}},
 		"SELECT '/*'; DELETE FROM comments; SELECT '*/'":                        {{"delete", "comments"}},
 		"SELECT 'it''s -- not a comment'; UPDATE records SET x = 1":             {{"update", "records"}},
+		`SELECT E'\'--'; UPDATE records SET x = 1`:                              {{"update", "records"}},
+		`SELECT $a$--$a$; UPDATE records SET x = 1`:                             {{"update", "records"}},
+		`SELECT e'\'; UPDATE records SET x = 1`:                                 {{"update", "records"}},
 	}
 	for in, want := range cases {
 		if got := sqlWrites(in); !slices.Equal(got, want) {
