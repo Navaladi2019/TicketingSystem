@@ -11,6 +11,10 @@
 //     INSERTs into, UPDATEs, DELETEs from, MERGEs into, TRUNCATEs or COPYs
 //     into a record table, matched case-insensitively with any whitespace,
 //     with or without double quotes and a schema prefix;
+//   - a use of a package-level string constant or variable holding such SQL
+//     from a file other than the one declaring it, or of an exported one from
+//     another package of the module, judged by the using file's path, so SQL
+//     parked in an allowed file cannot be run from a forbidden one (TICK-581);
 //   - a pgx.Identifier literal naming a record table (the CopyFrom form);
 //   - an import of internal/records/pipeline outside internal/server,
 //     internal/workflow, internal/onboard and cmd/demo-outbox (the S7 demo,
@@ -26,6 +30,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -72,12 +77,61 @@ func writerAllowed(rel string) bool {
 // sealer's R11 seal transition (ADR-004 R11, R16; P5-34a, TICK-440), which the
 // audit_log_guard_update trigger limits to nava_worker setting the four seal
 // columns of an unsealed row. Any other write there is still reported.
-func auditWriter(rel, kind, table string) bool {
+//
+// The seal.go allowance covers only an UPDATE whose SET list names nothing but
+// the seal columns (sealColumnsOnly); the gate checks this itself rather than
+// leaning on the trigger (TICK-581).
+func auditWriter(rel, kind, table, sql string) bool {
 	if table != "audit_log" {
 		return false
 	}
 	return kind == "insert" && rel == "internal/audit/append.go" ||
-		kind == "update" && rel == "internal/audit/seal/seal.go"
+		kind == "update" && rel == "internal/audit/seal/seal.go" && sealColumnsOnly(sql)
+}
+
+// sealColumn reports whether col is one of the four columns of the R11 seal
+// transition (ADR-004 R11).
+func sealColumn(col string) bool {
+	switch col {
+	case "seq", "prev_hash", "entry_hash", "sealed_at":
+		return true
+	}
+	return false
+}
+
+var (
+	// UPDATE [ONLY] [schema.]audit_log [[AS] alias] SET <list>, up to FROM,
+	// WHERE, RETURNING, a semicolon or the end.
+	auditUpdateRE = regexp.MustCompile(`(?s)\bupdate\s+(?:only\s+)?(?:` + ident + `\.)?audit_log\b(?:\s+(?:as\s+)?` + ident + `)?\s+set\s+(.*?)(?:\bfrom\b|\bwhere\b|\breturning\b|;|$)`)
+	parenRE       = regexp.MustCompile(`\([^()]*\)`)
+)
+
+// sealColumnsOnly reports whether every UPDATE of audit_log in sql sets only
+// the seal columns (sealColumn). A row-form SET (a, b) = (...) or anything it
+// cannot read counts as setting other columns.
+func sealColumnsOnly(sql string) bool {
+	s := normalizeSQL(sql)
+	ms := auditUpdateRE.FindAllStringSubmatch(s, -1)
+	if len(ms) == 0 {
+		return false
+	}
+	for _, m := range ms {
+		list := m[1]
+		for prev := ""; prev != list; {
+			prev, list = list, parenRE.ReplaceAllString(list, "_")
+		}
+		for _, a := range strings.Split(list, ",") {
+			col, _, ok := strings.Cut(a, "=")
+			col = strings.TrimSpace(col)
+			if i := strings.LastIndexByte(col, '.'); i >= 0 {
+				col = col[i+1:] // a qualified column, a.seq
+			}
+			if !ok || !sealColumn(col) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // probeExempt is the tenant isolation suite's path registry: its INSERT and
@@ -156,13 +210,18 @@ var (
 	verbRE = regexp.MustCompile(`%(?:\[\d+\])?[-+# 0]*\d*(?:\.\d+)?[a-zA-Z%]`)
 )
 
-// sqlWrites returns the (op, table) pairs of every record-table write in s.
-func sqlWrites(s string) [][2]string {
+// normalizeSQL lower-cases s and removes SQL comments and identifier quotes.
+func normalizeSQL(s string) string {
 	s = strings.ToLower(s)
 	s = blockCommentRE.ReplaceAllString(s, " ")
 	s = lineCommentRE.ReplaceAllString(s, " ")
 	s = strings.ReplaceAll(s, `"`, "")
-	s = strings.ReplaceAll(s, "`", "")
+	return strings.ReplaceAll(s, "`", "")
+}
+
+// sqlWrites returns the (op, table) pairs of every record-table write in s.
+func sqlWrites(s string) [][2]string {
+	s = normalizeSQL(s)
 	var out [][2]string
 	add := func(op, ref string) {
 		ref = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(ref), "*"))
@@ -189,14 +248,42 @@ func sqlWrites(s string) [][2]string {
 	return out
 }
 
+// pkgString is a package-level string constant or variable and the file
+// declaring it.
+type pkgString struct {
+	value string
+	decl  *ast.File
+}
+
+// packageStrings are a package's package-level string constants and
+// variables, by name.
+type packageStrings map[string]pkgString
+
+// modulePackage is one package of the module, as another package sees it.
+type modulePackage struct {
+	name     string         // the package clause name
+	exported packageStrings // its exported string constants and variables
+}
+
+// env resolves the names a string expression in one file may use: the
+// package's strings, and the exported strings of the module packages the file
+// imports, by local import name.
+type env struct {
+	pkg     packageStrings
+	imports map[string]packageStrings
+}
+
 // scanFile reports the record-table writes and forbidden imports of one Go
-// source file at rel (slash-separated, relative to the module root). consts
-// holds the string constants of the file's package, so a write built from a
-// named constant is seen too.
-func scanFile(fset *token.FileSet, rel string, f *ast.File, consts map[string]string) []finding {
+// source file at rel (slash-separated, relative to the module root). pkg holds
+// the string constants and variables of the file's package and mod the
+// module's packages by module-relative directory (nil in single-file tests),
+// so a write built from a named string is seen, and so is one run from this
+// file with SQL declared in another file or package (TICK-581).
+func scanFile(fset *token.FileSet, rel string, f *ast.File, pkg packageStrings, mod map[string]modulePackage) []finding {
 	var out []finding
 	dir := path.Dir(rel)
 	pgxNames := map[string]bool{}
+	en := env{pkg: pkg, imports: map[string]packageStrings{}}
 	for _, is := range f.Imports {
 		p, _ := strconv.Unquote(is.Path.Value)
 		if p == "github.com/jackc/pgx/v5" {
@@ -206,8 +293,27 @@ func scanFile(fset *token.FileSet, rel string, f *ast.File, consts map[string]st
 			}
 			pgxNames[name] = true
 		}
-		if imp, ok := strings.CutPrefix(p, modulePath+"/"); ok && !importAllowed(dir, imp) {
+		imp, ok := strings.CutPrefix(p, modulePath+"/")
+		if !ok {
+			continue
+		}
+		if !importAllowed(dir, imp) {
 			out = append(out, finding{rel, fset.Position(is.Pos()).Line, "import", imp})
+		}
+		if mp, ok := mod[imp]; ok && len(mp.exported) > 0 {
+			name := mp.name
+			if is.Name != nil {
+				name = is.Name.Name
+			}
+			switch name {
+			case "_":
+			case ".": // a dot import: its names are used unqualified
+				merged := maps.Clone(en.pkg)
+				maps.Copy(merged, mp.exported)
+				en.pkg = merged
+			default:
+				en.imports[name] = mp.exported
+			}
 		}
 	}
 	if writerAllowed(rel) || probeExempt(rel) {
@@ -216,40 +322,105 @@ func scanFile(fset *token.FileSet, rel string, f *ast.File, consts map[string]st
 
 	report := func(n ast.Node, s string) {
 		for _, w := range sqlWrites(s) {
-			if !auditWriter(rel, w[0], w[1]) {
+			if !auditWriter(rel, w[0], w[1], s) {
 				out = append(out, finding{rel, fset.Position(n.Pos()).Line, w[0], w[1]})
+			}
+		}
+	}
+	declared := declNames(f)
+	var visit func(ast.Node) bool
+	visit = func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.BasicLit:
+			if s, ok := stringValue(n, en); ok {
+				report(n, s)
+			}
+		case *ast.BinaryExpr:
+			if s, ok := stringValue(n, en); ok {
+				report(n, s)
+			}
+		case *ast.CallExpr:
+			if s, ok := sprintfValue(n, en); ok {
+				report(n, s)
+			}
+		case *ast.CompositeLit:
+			if isPgxIdentifier(n.Type, pgxNames) && len(n.Elts) > 0 {
+				if s, ok := stringValue(n.Elts[len(n.Elts)-1], en); ok && recordTable(strings.ToLower(s)) {
+					out = append(out, finding{rel, fset.Position(n.Pos()).Line, "identifier", strings.ToLower(s)})
+				}
+			}
+		case *ast.Ident:
+			// A package string declared in another file: its SQL runs here,
+			// so this file's path decides (TICK-581). One declared in this
+			// file was already judged at its literal.
+			if ps, ok := en.pkg[n.Name]; ok && ps.decl != f && !declared[n] {
+				report(n, ps.value)
+			}
+		case *ast.SelectorExpr:
+			// pkg.Name of another module package. Otherwise walk only the
+			// operand: Sel is a field or method name, never a package string.
+			if s, ok := stringValue(n, en); ok {
+				report(n, s)
+			}
+			ast.Inspect(n.X, visit)
+			return false
+		}
+		return true
+	}
+	ast.Inspect(f, visit)
+	return dedupe(out)
+}
+
+// declNames returns the identifiers of f that name something rather than use
+// it: struct fields and parameters, declared constants, variables, types and
+// functions, `:=` targets, composite-literal keys and labels. A use of a
+// local that shadows a package string is still reported: the gate errs on the
+// side of a finding.
+func declNames(f *ast.File) map[*ast.Ident]bool {
+	out := map[*ast.Ident]bool{}
+	add := func(ids ...*ast.Ident) {
+		for _, id := range ids {
+			if id != nil {
+				out[id] = true
 			}
 		}
 	}
 	ast.Inspect(f, func(n ast.Node) bool {
 		switch n := n.(type) {
-		case *ast.BasicLit:
-			if s, ok := stringValue(n, consts); ok {
-				report(n, s)
-			}
-		case *ast.BinaryExpr:
-			if s, ok := stringValue(n, consts); ok {
-				report(n, s)
-			}
-		case *ast.CallExpr:
-			if s, ok := sprintfValue(n, consts); ok {
-				report(n, s)
-			}
-		case *ast.CompositeLit:
-			if isPgxIdentifier(n.Type, pgxNames) && len(n.Elts) > 0 {
-				if s, ok := stringValue(n.Elts[len(n.Elts)-1], consts); ok && recordTable(strings.ToLower(s)) {
-					out = append(out, finding{rel, fset.Position(n.Pos()).Line, "identifier", strings.ToLower(s)})
+		case *ast.Field:
+			add(n.Names...)
+		case *ast.ValueSpec:
+			add(n.Names...)
+		case *ast.TypeSpec:
+			add(n.Name)
+		case *ast.FuncDecl:
+			add(n.Name)
+		case *ast.AssignStmt:
+			if n.Tok == token.DEFINE {
+				for _, l := range n.Lhs {
+					if id, ok := l.(*ast.Ident); ok {
+						add(id)
+					}
 				}
 			}
+		case *ast.KeyValueExpr:
+			if id, ok := n.Key.(*ast.Ident); ok {
+				add(id)
+			}
+		case *ast.LabeledStmt:
+			add(n.Label)
+		case *ast.BranchStmt:
+			add(n.Label)
 		}
 		return true
 	})
-	return dedupe(out)
+	return out
 }
 
 // stringValue folds e to a constant string: a literal, a parenthesised or
-// `+`-joined string, or a package string constant.
-func stringValue(e ast.Expr, consts map[string]string) (string, bool) {
+// `+`-joined string, a package string constant or variable, or an exported
+// one of an imported module package.
+func stringValue(e ast.Expr, en env) (string, bool) {
 	switch e := e.(type) {
 	case *ast.BasicLit:
 		if e.Kind != token.STRING {
@@ -258,16 +429,23 @@ func stringValue(e ast.Expr, consts map[string]string) (string, bool) {
 		s, err := strconv.Unquote(e.Value)
 		return s, err == nil
 	case *ast.ParenExpr:
-		return stringValue(e.X, consts)
+		return stringValue(e.X, en)
 	case *ast.Ident:
-		s, ok := consts[e.Name]
-		return s, ok
+		ps, ok := en.pkg[e.Name]
+		return ps.value, ok
+	case *ast.SelectorExpr:
+		x, ok := e.X.(*ast.Ident)
+		if !ok {
+			return "", false
+		}
+		ps, ok := en.imports[x.Name][e.Sel.Name]
+		return ps.value, ok
 	case *ast.BinaryExpr:
 		if e.Op != token.ADD {
 			return "", false
 		}
-		l, lok := stringValue(e.X, consts)
-		r, rok := stringValue(e.Y, consts)
+		l, lok := stringValue(e.X, en)
+		r, rok := stringValue(e.Y, en)
 		switch {
 		case lok && rok:
 			return l + r, true
@@ -283,13 +461,13 @@ func stringValue(e ast.Expr, consts map[string]string) (string, bool) {
 // sprintfValue renders a fmt.Sprintf (or Fprintf, Errorf, ...) call with a
 // constant format, substituting every constant string argument and "?" for
 // the rest, so `fmt.Sprintf("INSERT INTO %s", "audit_log")` is seen.
-func sprintfValue(c *ast.CallExpr, consts map[string]string) (string, bool) {
+func sprintfValue(c *ast.CallExpr, en env) (string, bool) {
 	sel, ok := c.Fun.(*ast.SelectorExpr)
 	if !ok || !strings.HasSuffix(sel.Sel.Name, "printf") && sel.Sel.Name != "Errorf" {
 		return "", false
 	}
 	for i, a := range c.Args {
-		format, ok := stringValue(a, consts)
+		format, ok := stringValue(a, en)
 		if !ok || !strings.Contains(format, "%") {
 			continue
 		}
@@ -302,7 +480,7 @@ func sprintfValue(c *ast.CallExpr, consts map[string]string) (string, bool) {
 			if next >= len(args) {
 				return "?"
 			}
-			s, ok := stringValue(args[next], consts)
+			s, ok := stringValue(args[next], en)
 			next++
 			if !ok {
 				return "?"
@@ -327,31 +505,50 @@ func dedupe(fs []finding) []finding {
 	return slices.Compact(fs)
 }
 
-// packageConsts returns the string constants declared at package level in
-// files (one package's non-test files).
-func packageConsts(files []*ast.File) map[string]string {
-	consts := map[string]string{}
-	for range 2 { // a second pass resolves constants built from constants
+// newPackageStrings returns the string constants and variables declared at
+// package level in files (one package's non-test files). A variable counts at
+// its initial value: the check is static, and SQL parked in a variable is
+// still SQL (TICK-581).
+func newPackageStrings(files []*ast.File) packageStrings {
+	strs := packageStrings{}
+	// Repeat so strings built from strings resolve, whatever the declaration
+	// order; each pass resolves at least one more level, so ten is plenty.
+	for pass, changed := 0, true; changed && pass < 10; pass++ {
+		changed = false
 		for _, f := range files {
 			for _, d := range f.Decls {
 				g, ok := d.(*ast.GenDecl)
-				if !ok || g.Tok != token.CONST {
+				if !ok || g.Tok != token.CONST && g.Tok != token.VAR {
 					continue
 				}
 				for _, sp := range g.Specs {
 					vs := sp.(*ast.ValueSpec)
 					for i, name := range vs.Names {
-						if i < len(vs.Values) {
-							if s, ok := stringValue(vs.Values[i], consts); ok {
-								consts[name.Name] = s
-							}
+						if i >= len(vs.Values) || name.Name == "_" {
+							continue
+						}
+						s, ok := stringValue(vs.Values[i], env{pkg: strs})
+						if old, had := strs[name.Name]; ok && (!had || old.value != s) {
+							strs[name.Name] = pkgString{s, f}
+							changed = true
 						}
 					}
 				}
 			}
 		}
 	}
-	return consts
+	return strs
+}
+
+// exported returns the exported subset of strs.
+func (strs packageStrings) exported() packageStrings {
+	out := packageStrings{}
+	for name, ps := range strs {
+		if ast.IsExported(name) {
+			out[name] = ps
+		}
+	}
+	return out
 }
 
 // scanDir parses every non-test .go file under root (walking from start,
@@ -386,29 +583,43 @@ func scanDir(t *testing.T, root, start, prefix string) []finding {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var out []finding
+	type pkg struct {
+		rels  []string
+		files []*ast.File
+		strs  packageStrings
+	}
 	fset := token.NewFileSet()
+	pkgs := map[string]*pkg{} // by module-relative directory
 	for _, paths := range byDir {
-		files := make([]*ast.File, 0, len(paths))
-		for _, p := range paths {
-			f, err := parser.ParseFile(fset, p, nil, parser.SkipObjectResolution)
+		p := &pkg{}
+		for _, fp := range paths {
+			f, err := parser.ParseFile(fset, fp, nil, parser.SkipObjectResolution)
 			if err != nil {
-				t.Fatalf("parse %s: %v", p, err)
+				t.Fatalf("parse %s: %v", fp, err)
 			}
-			files = append(files, f)
-		}
-		consts := packageConsts(files)
-		for i, f := range files {
-			rel, err := filepath.Rel(root, paths[i])
+			rel, err := filepath.Rel(root, fp)
 			if err != nil {
 				t.Fatal(err)
 			}
 			rel = filepath.ToSlash(rel)
 			if prefix != "" {
-				r, _ := filepath.Rel(start, paths[i])
+				r, _ := filepath.Rel(start, fp)
 				rel = path.Join(prefix, filepath.ToSlash(r))
 			}
-			out = append(out, scanFile(fset, rel, f, consts)...)
+			p.files = append(p.files, f)
+			p.rels = append(p.rels, rel)
+		}
+		p.strs = newPackageStrings(p.files)
+		pkgs[path.Dir(p.rels[0])] = p
+	}
+	mod := map[string]modulePackage{}
+	for dir, p := range pkgs {
+		mod[dir] = modulePackage{p.files[0].Name.Name, p.strs.exported()}
+	}
+	var out []finding
+	for _, p := range pkgs {
+		for i, f := range p.files {
+			out = append(out, scanFile(fset, p.rels[i], f, p.strs, mod)...)
 		}
 	}
 	return dedupe(out)
@@ -468,7 +679,26 @@ func TestRecordWriterFixture(t *testing.T) {
 	root := moduleRoot(t)
 	dir := filepath.Join(root, "internal", "records", "testdata", "writers")
 	got := scanDir(t, root, dir, "internal/records/testdata/writers")
+	want := plantedWrites(t, dir, "internal/records/testdata/writers")
+	if len(want) < 12 {
+		t.Fatalf("the fixture plants %d writes; it lost some", len(want))
+	}
+	compareFindings(t, got, want)
 
+	// The same files inside the pipeline are allowed: the check is by path.
+	if got := scanDir(t, root, dir, "internal/records/pipeline/fixture"); len(got) != 0 {
+		t.Errorf("the pipeline may write the record tables, got %v", got)
+	}
+	// But not elsewhere under internal/records (S10's list code).
+	if got := scanDir(t, root, dir, "internal/records/list"); len(got) != len(want) {
+		t.Errorf("internal/records/list is not the pipeline: want %d findings, got %d", len(want), len(got))
+	}
+}
+
+// plantedWrites returns the `// want:` lines of the Go files under dir, with
+// paths as if dir were prefix.
+func plantedWrites(t *testing.T, dir, prefix string) []finding {
+	t.Helper()
 	var want []finding
 	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".go") {
@@ -479,7 +709,7 @@ func TestRecordWriterFixture(t *testing.T) {
 			return err
 		}
 		r, _ := filepath.Rel(dir, p)
-		rel := path.Join("internal/records/testdata/writers", filepath.ToSlash(r))
+		rel := path.Join(prefix, filepath.ToSlash(r))
 		for i, line := range strings.Split(string(b), "\n") {
 			for _, m := range wantRE.FindAllStringSubmatch(line, -1) {
 				want = append(want, finding{rel, i + 1, m[1], m[2]})
@@ -490,10 +720,13 @@ func TestRecordWriterFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want = dedupe(want)
-	if len(want) < 12 {
-		t.Fatalf("the fixture plants %d writes; it lost some", len(want))
-	}
+	return dedupe(want)
+}
+
+// compareFindings reports a planted write that was missed and a finding
+// nothing planted.
+func compareFindings(t *testing.T, got, want []finding) {
+	t.Helper()
 	for _, w := range want {
 		if !slices.Contains(got, w) {
 			t.Errorf("planted write not reported: %s", w)
@@ -504,14 +737,51 @@ func TestRecordWriterFixture(t *testing.T) {
 			t.Errorf("look-alike reported: %s", g)
 		}
 	}
+}
 
-	// The same files inside the pipeline are allowed: the check is by path.
-	if got := scanDir(t, root, dir, "internal/records/pipeline/fixture"); len(got) != 0 {
-		t.Errorf("the pipeline may write the record tables, got %v", got)
+// TestSQLConstantUsedElsewhere is the TICK-581 criterion: SQL parked in a
+// package constant or variable of an allowed file (here the fixture's
+// internal/audit/seal/seal.go) is reported where another file of the package,
+// or another package through an exported name, runs it. seal.go's own use and
+// its seal-column UPDATEs stay allowed; its UPDATEs of other columns do not.
+func TestSQLConstantUsedElsewhere(t *testing.T) {
+	root := moduleRoot(t)
+	dir := filepath.Join(root, "internal", "records", "testdata", "sqlconsts")
+	got := scanDir(t, root, dir, "internal")
+	want := plantedWrites(t, dir, "internal")
+	if len(want) < 6 {
+		t.Fatalf("the fixture plants %d writes; it lost some", len(want))
 	}
-	// But not elsewhere under internal/records (S10's list code).
-	if got := scanDir(t, root, dir, "internal/records/list"); len(got) != len(want) {
-		t.Errorf("internal/records/list is not the pipeline: want %d findings, got %d", len(want), len(got))
+	compareFindings(t, got, want)
+
+	// The two-file case exactly as the issue states it.
+	files := map[string]string{
+		"internal/audit/seal/seal.go":  "package seal\n\nconst rewriteSQL = `UPDATE audit_log SET seq = $2 WHERE id = $1`\n",
+		"internal/audit/seal/other.go": "package seal\n\nfunc run(exec func(string)) {\n\texec(rewriteSQL)\n}\n",
+	}
+	want = []finding{{"internal/audit/seal/other.go", 4, "update", "audit_log"}}
+	if got := scanSources(t, files); !slices.Equal(got, want) {
+		t.Errorf("two-file case: got %v, want %v", got, want)
+	}
+}
+
+// TestSealColumnsOnly: the seal.go allowance reads the SET list.
+func TestSealColumnsOnly(t *testing.T) {
+	cases := map[string]bool{
+		"UPDATE audit_log SET seq = $2 WHERE id = $1":                                          true,
+		"update public.audit_log as a set a.seq = u.seq, sealed_at = now() from u where true":  true,
+		"UPDATE audit_log SET prev_hash = $2, entry_hash = coalesce($3, $4, $5) WHERE id = $1": true,
+		"UPDATE audit_log SET entry_hash = $2;":                                                true,
+		"UPDATE audit_log SET diff = NULL WHERE id = $1":                                       false,
+		"UPDATE audit_log SET seq = $2, diff_salt = NULL WHERE id = $1":                        false,
+		"UPDATE audit_log SET (seq, sealed_at) = ($2, now()) WHERE id = $1":                    false,
+		"UPDATE audit_log SET seq = 1; UPDATE audit_log SET diff = NULL":                       false,
+		"INSERT INTO audit_log (seq) VALUES (1)":                                               false,
+	}
+	for in, want := range cases {
+		if got := sealColumnsOnly(in); got != want {
+			t.Errorf("sealColumnsOnly(%q) = %v, want %v", in, got, want)
+		}
 	}
 }
 
@@ -591,12 +861,15 @@ const insertSQL = "INSERT INTO audit_log (tenant_id) VALUES ($1)"
 const deleteSQL = "DELETE FROM audit_log WHERE id = $1"
 
 var copyTable = pgx.Identifier{"audit_log"}
+
+const scrubSQL = "UPDATE audit_log SET diff = NULL WHERE id = $1"
 `
 	if got, want := scanSource(t, "internal/audit/seal/seal.go", src), dedupe([]finding{
 		{"internal/audit/seal/seal.go", 7, "update", "records"},
 		{"internal/audit/seal/seal.go", 9, "insert", "audit_log"},
 		{"internal/audit/seal/seal.go", 11, "delete", "audit_log"},
 		{"internal/audit/seal/seal.go", 13, "identifier", "audit_log"},
+		{"internal/audit/seal/seal.go", 15, "update", "audit_log"}, // not a seal column (TICK-581)
 	}); !slices.Equal(got, want) {
 		t.Errorf("seal.go: got %v, want %v", got, want)
 	}
@@ -606,6 +879,7 @@ var copyTable = pgx.Identifier{"audit_log"}
 		{"internal/audit/seal/activities.go", 9, "insert", "audit_log"},
 		{"internal/audit/seal/activities.go", 11, "delete", "audit_log"},
 		{"internal/audit/seal/activities.go", 13, "identifier", "audit_log"},
+		{"internal/audit/seal/activities.go", 15, "update", "audit_log"},
 	}); !slices.Equal(got, want) {
 		t.Errorf("activities.go: got %v, want %v", got, want)
 	}
@@ -652,7 +926,28 @@ func scanSource(t *testing.T, rel, src string) []finding {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return scanFile(fset, rel, f, packageConsts([]*ast.File{f}))
+	return scanFile(fset, rel, f, newPackageStrings([]*ast.File{f}), nil)
+}
+
+// scanSources scans one package made of files (rel path to source).
+func scanSources(t *testing.T, files map[string]string) []finding {
+	t.Helper()
+	fset := token.NewFileSet()
+	rels := slices.Sorted(maps.Keys(files))
+	parsed := make([]*ast.File, len(rels))
+	for i, rel := range rels {
+		f, err := parser.ParseFile(fset, rel, files[rel], parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatal(err)
+		}
+		parsed[i] = f
+	}
+	strs := newPackageStrings(parsed)
+	var out []finding
+	for i, f := range parsed {
+		out = append(out, scanFile(fset, rels[i], f, strs, nil)...)
+	}
+	return dedupe(out)
 }
 
 func TestSQLWrites(t *testing.T) {
