@@ -3,6 +3,7 @@ package seal
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 
 	"github.com/google/uuid"
@@ -15,7 +16,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/workerguard"
 )
 
-// The registered activity names. The sealer workflow (P5-34b) schedules them.
+// The registered activity names. The audit.seal workflow schedules them.
 const (
 	RescheduleActivity = outbox.SealKind + ".Reschedule"
 	SealActivity       = outbox.SealKind + ".Seal"
@@ -35,10 +36,19 @@ type Rescheduled struct {
 	NextOutboxID *uuid.UUID `json:"next_outbox_id,omitempty"`
 }
 
+// DefaultMaxBatches is how many batches one A2 call seals at most when
+// Activities.MaxBatches is unset: 10,000 entries. A tenant with a longer
+// backlog is continued by the next run, 10 s later (TICK-440 review).
+const DefaultMaxBatches = 10
+
 // Activities are A1 and A2 on a nava_worker pool. Register them with
-// Register.
+// Register. Metrics and Log may be nil.
 type Activities struct {
-	Pool *pgxpool.Pool
+	Pool    *pgxpool.Pool
+	Metrics *Metrics
+	Log     *slog.Logger
+	// MaxBatches caps the batches of one A2 call; 0 is DefaultMaxBatches.
+	MaxBatches int
 }
 
 // Register adds the activities to r under their fixed names.
@@ -62,15 +72,72 @@ func (a *Activities) Reschedule(ctx context.Context) (Rescheduled, error) {
 	return Rescheduled{NextOutboxID: &next}, nil
 }
 
-// Seal is A2. It returns no count: workerguard records only references, and
-// the run's outcome the next A1 needs is already on the head
+// Seal is A2. It seals at most MaxBatches batches and heartbeats after each
+// committed one, so the workflow's HeartbeatTimeout bounds a stuck batch, not
+// the whole backlog. It returns no count: workerguard records only
+// references, and the run's outcome the next A1 needs is already on the head
 // (seal_interval_s).
+//
+// Every attempt then measures the tenant's oldest unsealed entry for
+// audit_unsealed_oldest_seconds, and a failed attempt counts in
+// audit_seal_failures_total. A poison entry fails the attempt without a retry
+// and is never skipped: skipping it would break the (occurred_at, id) order.
+// The next run, which A1 has already committed, meets it again.
 func (a *Activities) Seal(ctx context.Context) error {
-	_, err := Seal(ctx, a.Pool)
+	limit := a.MaxBatches
+	if limit <= 0 {
+		limit = DefaultMaxBatches
+	}
+	n, err := Seal(ctx, a.Pool, WithMaxBatches(limit), WithProgress(func(int) {
+		activity.RecordHeartbeat(ctx)
+	}))
+	a.measure(ctx)
+	if err != nil {
+		a.Metrics.failed(ctx, err)
+		a.logger().WarnContext(ctx, "audit seal failed", a.attrs(ctx, slog.Int("sealed", n), slog.Any("error", err))...)
+	}
 	if errors.Is(err, ErrUnsealable) {
 		return temporal.NewNonRetryableApplicationError("seal: entry cannot be canonicalised", ErrTypeUnsealable, nil)
 	}
 	return err
+}
+
+// measure records the tenant's oldest unsealed entry on the gauge. A failed
+// read leaves the last sample in place, so the gauge keeps aging.
+func (a *Activities) measure(ctx context.Context) {
+	if a.Metrics == nil {
+		return
+	}
+	tenant, ok := workerguard.TenantFromContext(ctx)
+	if !ok {
+		return
+	}
+	oldest, found, err := OldestUnsealed(ctx, a.Pool)
+	if err != nil {
+		a.logger().WarnContext(ctx, "audit seal lag not measured", a.attrs(ctx, slog.Any("error", err))...)
+		return
+	}
+	a.Metrics.observe(tenant, oldest, found)
+}
+
+func (a *Activities) logger() *slog.Logger {
+	if a.Log == nil {
+		return slog.New(slog.DiscardHandler)
+	}
+	return a.Log
+}
+
+// attrs are the log attributes of an A2 line: the tenant and the workflow
+// id, never an entry's values.
+func (a *Activities) attrs(ctx context.Context, extra ...any) []any {
+	out := make([]any, 0, 2+len(extra))
+	if tenant, ok := workerguard.TenantFromContext(ctx); ok {
+		out = append(out, slog.String("tenant_id", tenant.String()))
+	}
+	if activity.IsActivity(ctx) {
+		out = append(out, slog.String("workflow_id", activity.GetInfo(ctx).WorkflowExecution.ID))
+	}
+	return append(out, extra...)
 }
 
 // errNotSealRun is RunOf's error for any id that is not a sealer run's.

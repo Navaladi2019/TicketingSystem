@@ -13,6 +13,13 @@
 workflow-record-histories:
 	go test -tags recordhistories -run '^TestRecordHistories$$' -count=1 -v -timeout 15m ./internal/workflow/interp
 
+# Records the audit.seal histories its replay gate replays (P5-34b) into
+# internal/audit/seal/testdata/histories/, the same way: a dev server, the
+# worker guard, stand-in activities; only missing files are written.
+.PHONY: seal-record-histories
+seal-record-histories:
+	go test -tags recordhistories -run '^TestRecordHistories$$' -count=1 -v -timeout 15m ./internal/audit/seal
+
 # The S11a demo (TICK-352, docs/acceptance/s11a-workflow-interpreter.md): one
 # nava.interpreter run of fixture-v1 on the stack, started and signalled
 # through outbox rows (cmd/demo-interpreter, as nava_app) and run by

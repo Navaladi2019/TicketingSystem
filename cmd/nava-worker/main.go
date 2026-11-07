@@ -28,6 +28,7 @@ import (
 	tlog "go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/worker"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/audit/seal"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/db"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/health"
@@ -121,8 +122,9 @@ func exportLogs(log *slog.Logger, tel *telemetry.Telemetry, level slog.Leveler) 
 	return logging.WithExport(log, tel.LogHandler(service), level)
 }
 
-// newWorker builds the guarded client and worker, the workflow_ref activities'
-// pool and the readiness checks, and registers the interpreter when
+// newWorker builds the guarded client and worker, the workflow_ref and sealer
+// activities' pool and the readiness checks, registers the audit sealer, and
+// registers the interpreter when
 // interpreterActivities returns its ports (an interptest build only). The
 // returned func closes the client and the pools; call it after the worker has
 // stopped.
@@ -180,8 +182,17 @@ func newWorker(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, 
 		return nil, nil, nil, err
 	}
 
-	w := worker.New(c, taskQueue, workerOptions(g, acts != nil, fatal))
+	sm, err := seal.NewMetrics(tel.MeterProvider)
+	if err != nil {
+		closeAll()
+		return nil, nil, nil, err
+	}
+
+	// The sealer is always registered, so the worker always polls workflow
+	// tasks on nava-tq.
+	w := worker.New(c, taskQueue, workerOptions(g, true, fatal))
 	(&workerguard.Activities{Pool: pool}).Register(w)
+	registerSealer(w, &seal.Activities{Pool: pool, Metrics: sm, Log: log})
 	registerInterpreter(w, acts)
 	return w, mon, closeAll, nil
 }
@@ -201,10 +212,10 @@ func clientOptions(log *slog.Logger, address string, tlsConfig *tls.Config, tt *
 }
 
 // workerOptions puts the guard last, through workerguard.WorkerOptions. The
-// worker polls workflow tasks only when workflows is set (the interpreter is
-// registered, an interptest build); otherwise it polls activity tasks only: a
-// workflow poller with nothing registered would take workflow tasks on
-// nava-tq and fail them.
+// worker polls workflow tasks only when workflows is set; otherwise it polls
+// activity tasks only: a workflow poller with nothing registered would take
+// workflow tasks on nava-tq and fail them. newWorker always sets it, since
+// audit.seal is always registered.
 //
 // The SDK stops the worker on a fatal poll error (NamespaceNotFound,
 // InvalidArgument, ...) and reports it only through OnFatalError, which sends
@@ -272,4 +283,12 @@ func recovered(fn func() error) (err error) {
 		}
 	}()
 	return fn()
+}
+
+// registerSealer registers audit.seal and its A1 and A2 activities on w,
+// which polls nava-tq (ADR-004 R16, R18), behind the guard workerOptions
+// installs.
+func registerSealer(w worker.Registry, acts *seal.Activities) {
+	seal.RegisterWorkflow(w)
+	acts.Register(w)
 }

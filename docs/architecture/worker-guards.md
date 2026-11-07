@@ -36,9 +36,10 @@ service `nava-worker` (image `nava/nava-worker`):
 - Client: namespace `nava`, the `nava-worker` certificate over mTLS through the
   `temporal` gateway, options from `ConfigureClient`. Worker: queue `nava-tq`,
   options from `WorkerOptions`. Activity code gets no client (AR-025).
-- Hosts the `workflow_ref` activity only, as `nava_worker` through PgBouncer.
-  No workflow is registered yet, so the workflow poller is off
-  (`DisableWorkflowWorker`); T32b registers the first workflow and turns it on.
+- Hosts the `workflow_ref` activity and the audit sealer (`audit.seal` and its
+  A1 and A2 activities, TICK-453, `docs/architecture/audit-sealer.md`), as
+  `nava_worker` through PgBouncer. With `audit.seal` registered the workflow
+  poller is on.
 - Admin listener on `NAVA_ADMIN_ADDR` (`:9090`): `telemetry.NewAdminHandler`,
   not wrapped in `httpobs.Middleware`. `/metrics` carries
   `nava_worker_guard_decisions_total` and the SDK metrics; `/readyz` is 200
