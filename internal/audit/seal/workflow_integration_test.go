@@ -305,12 +305,15 @@ func TestIdleTenantSealedWithin300s(t *testing.T) {
 // Bounded A2 (TICK-440 review, binding): with a backlog above the cap, one
 // A2 call seals MaxBatches batches, heartbeats between them, and returns;
 // the capped run sets the interval to 10 s, and the next run continues the
-// chain with no gap or duplicate seq.
+// chain with no gap or duplicate seq. The entries come from three
+// transactions with ids running backwards against occurred_at, so A2 must
+// seal in (occurred_at, id) order across the run boundary, not in id order
+// (Postgres review of PR #486).
 func TestBoundedA2ContinuesInNextRun(t *testing.T) {
 	e := migrated(t)
 	tenant, o := lineage(t, e)
 	const maxBatches = 2
-	writeEntries(t, e, tenant, maxBatches*seal.BatchSize+5)
+	writeEntriesBackwards(t, e, tenant, maxBatches*seal.BatchSize+5, 3)
 	acts := &seal.Activities{Pool: e.worker, MaxBatches: maxBatches}
 
 	r := &workflowRun{acts: acts}

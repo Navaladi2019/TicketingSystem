@@ -180,6 +180,35 @@ func writeEntries(t *testing.T, e itEnv, tenant uuid.UUID, n int) []uuid.UUID {
 	return ids
 }
 
+// writeEntriesBackwards writes n entries in txs transactions, so they carry
+// txs distinct occurred_at values (now() is the transaction's start), with
+// ids running backwards against time: each transaction writes ids older than
+// the one before it. Sealing in id order alone puts seq against
+// (occurred_at, id) order, which assertChain catches.
+func writeEntriesBackwards(t *testing.T, e itEnv, tenant uuid.UUID, n, txs int) {
+	t.Helper()
+	ids := make([]uuid.UUID, n)
+	for i := range ids {
+		ids[i] = uuid.Must(uuid.NewV7())
+	}
+	per := (n + txs - 1) / txs
+	for end := n; end > 0; end -= per {
+		chunk := ids[max(0, end-per):end]
+		if err := tenancy.InTenantTx(context.Background(), e.worker, tenant, func(tx pgx.Tx) error {
+			_, err := tx.Exec(context.Background(), `INSERT INTO audit_log
+				(tenant_id, id, domain, action, subject_type, subject_id, actor_system, source)
+				SELECT $1, u, 'audit', 'export', 'audit_export', gen_random_uuid(), 'system', 'system'
+				FROM unnest($2::uuid[]) AS u`, tenant, chunk)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := count(t, e.super, `SELECT count(DISTINCT occurred_at) FROM audit_log WHERE tenant_id = $1 AND sealed_at IS NULL`, tenant); got != int64(txs) {
+		t.Fatalf("%d distinct occurred_at values, want %d: the fixture needs one per transaction", got, txs)
+	}
+}
+
 type head struct {
 	version   int64
 	seq       int64
@@ -202,8 +231,9 @@ func readHead(t *testing.T, e itEnv, tenant uuid.UUID) head {
 
 // assertChain checks the tenant's sealed entries as the verifier would: seq
 // 1..n without a gap or duplicate, each prev_hash the entry_hash before it
-// (genesis first), each entry_hash recomputed from the stored envelope, and
-// the head at the last one. It returns n.
+// (genesis first), each entry_hash recomputed from the stored envelope, seq
+// in (occurred_at, id) order (the order A2 seals in; Postgres review of
+// PR #486), and the head at the last one. It returns n.
 func assertChain(t *testing.T, e itEnv, tenant uuid.UUID) int64 {
 	t.Helper()
 	ctx := context.Background()
@@ -239,6 +269,10 @@ func assertChain(t *testing.T, e itEnv, tenant uuid.UUID) int64 {
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
+	}
+	if bad := count(t, e.super, `SELECT count(*) FROM (SELECT seq, row_number() OVER (ORDER BY occurred_at, id) AS rn
+		FROM audit_log WHERE tenant_id = $1 AND sealed_at IS NOT NULL) s WHERE seq <> rn`, tenant); bad != 0 {
+		t.Fatalf("%d sealed entries whose seq is not their position in (occurred_at, id) order", bad)
 	}
 	h := readHead(t, e, tenant)
 	if h.seq != n || [32]byte(h.entryHash) != prev {
