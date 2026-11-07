@@ -33,20 +33,20 @@ func auditSealSignalWithStart(wfID, wt string) *workflowservice.SignalWithStartW
 // The sets hold exactly what R18 adds: audit.seal joins nava.interpreter, no
 // new queue, and audit.seal is the one start-only type.
 func TestAuditSealIsAllowListed(t *testing.T) {
-	if got := sortedKeys(platformWorkflowTypes); len(got) != 2 || got[0] != auditSealType || got[1] != interpreterType {
+	if got := sortedKeys(platformWorkflowTypes()); len(got) != 2 || got[0] != auditSealType || got[1] != interpreterType {
 		t.Fatalf("platformWorkflowTypes = %v, want exactly [%s %s]", got, auditSealType, interpreterType)
 	}
-	if got := sortedKeys(startOnlyWorkflowTypes); len(got) != 1 || got[0] != auditSealType {
+	if got := sortedKeys(startOnlyWorkflowTypes()); len(got) != 1 || got[0] != auditSealType {
 		t.Fatalf("startOnlyWorkflowTypes = %v, want exactly [%s]", got, auditSealType)
 	}
 	// A start-only type must still be a platform type, or the relay could not
 	// start it either and the entry would silently mean nothing.
-	for _, wt := range sortedKeys(startOnlyWorkflowTypes) {
-		if !inSet(platformWorkflowTypes, wt) {
+	for _, wt := range sortedKeys(startOnlyWorkflowTypes()) {
+		if !inSet(platformWorkflowTypes(), wt) {
 			t.Errorf("start-only type %q is not in platformWorkflowTypes", wt)
 		}
 	}
-	if got := sortedKeys(platformTaskQueues); len(got) != 1 || got[0] != "nava-tq" {
+	if got := sortedKeys(platformTaskQueues()); len(got) != 1 || got[0] != "nava-tq" {
 		t.Fatalf("platformTaskQueues = %v, want exactly [nava-tq]", got)
 	}
 }
