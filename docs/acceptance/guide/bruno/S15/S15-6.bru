@@ -39,5 +39,5 @@ tests {
 }
 
 docs {
-  The first write after the stack has been quiet, so tenant A's sealer may have backed off (up to 300 s, R16). S15.7 waits for it; the run that seals it resets the interval to 10 s.
+  The first write after the stack has been quiet, so tenant A's sealer may have backed off (up to 300 s, R16). S15.7 waits for it. The run that seals it finds the entry pending in A1 and books the next run 10 s ahead (ADR-004-E7).
 }

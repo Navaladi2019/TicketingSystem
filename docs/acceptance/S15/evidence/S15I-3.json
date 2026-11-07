@@ -9,25 +9,25 @@
       "Accept-Encoding": "gzip, compress, deflate, br",
       "Host": "127.0.0.1:28080",
       "Connection": "keep-alive",
-      "Idempotency-Key": "tick443-s15-mw6jin8j-idle",
+      "Idempotency-Key": "tick443-s15-mw6n8ppq-idle",
       "Content-Type": "application/json"
     },
-    "body": "{\n  \"data\": {\n    \"short_description\": \"S15 mw6jin8j idle\",\n    \"priority\": 2\n  }\n}"
+    "body": "{\n  \"data\": {\n    \"short_description\": \"S15 mw6n8ppq idle\",\n    \"priority\": 2\n  }\n}"
   },
   "response": {
     "status": 201,
     "body": {
-      "created_at": "2026-11-07T15:10:24.569706Z",
+      "created_at": "2026-11-07T16:54:39.698206Z",
       "data": {
         "priority": 2,
-        "short_description": "S15 mw6jin8j idle",
+        "short_description": "S15 mw6n8ppq idle",
         "state": "new"
       },
-      "id": "01a1b68f-9139-7ac6-a606-1f48a967d608",
-      "number": "INC0000846",
+      "id": "01a1b6ef-0352-7326-ad66-fe532e96c6ca",
+      "number": "INC0000794",
       "schema_version": 1,
       "state": "new",
-      "updated_at": "2026-11-07T15:10:24.569706Z",
+      "updated_at": "2026-11-07T16:54:39.698206Z",
       "version": 1
     }
   },

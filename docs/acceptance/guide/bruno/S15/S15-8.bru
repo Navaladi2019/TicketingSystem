@@ -39,5 +39,5 @@ tests {
 }
 
 docs {
-  Written right after S15.7 saw the first one sealed. The run that sealed it set the interval back to 10 s, but its A1 had already scheduled the next run with the backed-off interval (A1 commits before A2, docs/architecture/audit-sealer.md), so this entry waits for that run: up to 300 s.
+  Written right after S15.7 saw the first one sealed. The run that sealed it booked its successor 10 s ahead in A1, because the first entry was still pending then (ADR-004-E7, docs/architecture/audit-sealer.md), so this entry is sealed by that successor: about 10 s plus one run.
 }
