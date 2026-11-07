@@ -5,6 +5,8 @@ package dbtest
 import (
 	"context"
 	"errors"
+	"io/fs"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -416,6 +418,29 @@ func TestP532LocksInOrderAndRetries(t *testing.T) {
 	}
 	if n := countRows(t, "SELECT count(*) FROM pg_policy WHERE 'nava_migrator'::regrole = ANY (polroles)"); n != 0 {
 		t.Errorf("%d nava_migrator policies left after the retried B, want 0 (R26.3)", n)
+	}
+}
+
+// R27: the six locks are taken in one LOCK TABLE, in the fixed order.
+// PostgreSQL locks a LOCK TABLE list one table at a time, left to right
+// (PG 16 sql-lock), so the statement text is the lock order.
+// TestP532LocksInOrderAndRetries proves outbox is last and that the set is
+// released between attempts.
+func TestP532LockOrderIsR27(t *testing.T) {
+	src, err := fs.ReadFile(db.Migrations(), migrationB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	up := strings.SplitN(string(src), "-- +goose Down", 2)[0]
+	re := regexp.MustCompile(`(?ms)^LOCK TABLE\s+(.+?)\s+IN ACCESS EXCLUSIVE MODE\s*;`)
+	ms := re.FindAllStringSubmatch(up, -1)
+	if len(ms) != 1 {
+		t.Fatalf("migration B has %d LOCK TABLE ... IN ACCESS EXCLUSIVE MODE statements, want exactly 1 (R27)", len(ms))
+	}
+	got := strings.Join(strings.Fields(strings.ReplaceAll(ms[0][1], ",", " ")), ",")
+	const want = "tenants,entity_definitions,entity_definition_versions,audit_log,audit_chain_head,outbox"
+	if got != want {
+		t.Errorf("migration B locks %s, want the R27 order %s", got, want)
 	}
 }
 

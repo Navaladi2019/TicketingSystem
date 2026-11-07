@@ -51,6 +51,8 @@ take each lock. When this was measured, B retried a timeout itself, five
 times, 1 to 4 s apart. Since TICK-606 the retry has one owner, the migrator
 (TICK-579): a timeout fails B, its transaction rolls back and releases the
 six, and the runner re-runs it, up to 10 attempts with a backoff doubling
-from 1 s to 30 s, about 3.4 min worst case (`TestP532LocksInOrderAndRetries`).
+from 1 s to 30 s (`TestP532LocksInOrderAndRetries`). `lock_timeout`
+bounds each lock wait, so one attempt waits at most 6 x 5 s = 30 s: about
+7.5 min worst case, about 3.4 min when one lock is contended.
 The lock-hold times above are unchanged: they time B after it holds the
 six.

@@ -41,13 +41,16 @@
 --
 -- Locks (R27, R-A6). Every later statement needs at most the lock already
 -- held, so nothing here can wait once step 1 holds. The retry has one owner,
--- the migrator (internal/db/migrate, TICK-579, ADR-004-E5): a LOCK TABLE
--- that waits past lock_timeout fails with 55P03, the whole transaction rolls
--- back and releases whatever part of the set it took, and the runner re-runs
--- B after a doubling backoff (1 s to 30 s, 10 attempts, about 3.4 min worst
--- case before the run fails). So a retry never holds a lock while it waits.
--- B keeps no retry of its own: with both, the attempts multiplied (5 x 10,
--- about 8.4 min). The locks block tenant resolution, S8, audit writes and the
+-- the migrator (internal/db/migrate, TICK-579, ADR-004-E5): a lock wait past
+-- lock_timeout fails with 55P03, the whole transaction rolls back and
+-- releases whatever part of the set it took, and the runner re-runs B after
+-- a doubling backoff (1 s to 30 s, 10 attempts). So a retry never holds a
+-- lock while it waits. lock_timeout bounds each lock wait, not the
+-- statement: one attempt waits at most 6 x 5 s = 30 s, so 10 attempts plus
+-- 151 s of backoff is at most about 7.5 min before the run fails, about
+-- 3.4 min when one lock is contended. B keeps no retry of its own: with both,
+-- the attempts multiplied (5 x 10, at most about 29 min, about 8.4 min with
+-- one lock contended). The locks block tenant resolution, S8, audit writes and the
 -- relay until COMMIT: measured on PG 16.10, 0.48 s for 1,000 tenants and
 -- 30,093 versions, 4.29 s for 10,000 and 300,972, about 0.13 ms per tenant
 -- plus 9.5 us per version (docs/data/audit-migration-b-bench/RESULT.md).
