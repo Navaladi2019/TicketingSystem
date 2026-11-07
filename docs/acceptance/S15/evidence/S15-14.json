@@ -1,7 +1,7 @@
 {
   "request": {
     "method": "GET",
-    "url": "http://127.0.0.1:28080/api/v1/records/incident/01a1b68b-a257-73eb-9436-de584be07e26/history",
+    "url": "http://127.0.0.1:28080/api/v1/records/incident/01a1b6eb-0ae3-7c5b-95b1-d7a8cfa55867/history",
     "headers": {
       "Accept": "application/json, text/plain, */*",
       "User-Agent": "bruno-runtime/4.3.0",

@@ -156,7 +156,7 @@
           "status": "pass"
         },
         {
-          "test": "sealed 300 s or less after it was written (sealed_at - occurred_at, database clock)",
+          "test": "sealed 30 s or less after it was written (sealed_at - occurred_at, database clock; ADR-004-E7: about 10 s plus one run)",
           "status": "pass"
         },
         {

@@ -2009,7 +2009,7 @@ def s15_seal():
     return {
         "dir": "S15", "name": "S15 seal",
         "desc": r"""
-Story S15, TICK-420 (kit TICK-443, docs/acceptance/S15/README.md). AC1 (S15.5-S15.11): a new tenant is onboarded, and Alice's incidents in tenant A are sealed: each audit entry gets a `seq` and a `sealed_at`. S15.6-S15.9 bring the sealer out of its idle back-off (the first two entries wait for runs already scheduled at the backed-off interval, at most 300 s each); S15.10-S15.11 then show the active tenant: sealed about 10 s after the write. The entry's `entry_hash` is not in the API (D-5-9: S15 has no `api/` change); docs/acceptance/S15/tools/seq-check.sql shows it. Isolation (S15.12-S15.14): Bob's entry in tenant B is not in A's chain, and Bob cannot read A's incident. AC4 (S15.15): the R-A2 metrics on nava-worker's /metrics. The worker kill (AC2) and the idle tenant (AC3) are folders S15K and S15I, run by docs/acceptance/S15/tools/run-kit.sh. Needs a stack whose tenants A and B have a chain head: docs/acceptance/S15/tools/upgrade-setup.sh. Runs again on the same stack.
+Story S15, TICK-420 (kit TICK-443, docs/acceptance/S15/README.md). AC1 (S15.5-S15.11): a new tenant is onboarded, and Alice's incidents in tenant A are sealed: each audit entry gets a `seq` and a `sealed_at`. S15.6-S15.7: the first entry after idle waits for the run already booked at the backed-off interval (at most 300 s, AC3's bound); that run's A1 sees the entry pending and books the next run 10 s ahead (ADR-004-E7). S15.8-S15.11 then show the active tenant: the second and third entries are sealed about 10 s after the write. The entry's `entry_hash` is not in the API (D-5-9: S15 has no `api/` change); docs/acceptance/S15/tools/seq-check.sql shows it. Isolation (S15.12-S15.14): Bob's entry in tenant B is not in A's chain, and Bob cannot read A's incident. AC4 (S15.15): the R-A2 metrics on nava-worker's /metrics. The worker kill (AC2) and the idle tenant (AC3) are folders S15K and S15I, run by docs/acceptance/S15/tools/run-kit.sh. Needs a stack whose tenants A and B have a chain head: docs/acceptance/S15/tools/upgrade-setup.sh. Runs again on the same stack.
 """,
         "items": [
             token("S15.1 Sign in as the operator", "operator_username", "operator_password", "operator_token", client="nava-operator-cli"),
@@ -2082,7 +2082,7 @@ test('version 1', () => expect(b.version).to.eql(1));
 bru.setVar('s15_rec1', b.id);
 """,
                 desc=r"""
-The first write after the stack has been quiet, so tenant A's sealer may have backed off (up to 300 s, R16). S15.7 waits for it; the run that seals it resets the interval to 10 s.
+The first write after the stack has been quiet, so tenant A's sealer may have backed off (up to 300 s, R16). S15.7 waits for it. The run that seals it finds the entry pending in A1 and books the next run 10 s ahead (ADR-004-E7).
 """),
             req("S15.7 AC1: the first incident's entry is sealed",
                 "GET",
@@ -2144,14 +2144,14 @@ test('version 1', () => expect(b.version).to.eql(1));
 bru.setVar('s15_rec2', b.id);
 """,
                 desc=r"""
-Written right after S15.7 saw the first one sealed. The run that sealed it set the interval back to 10 s, but its A1 had already scheduled the next run with the backed-off interval (A1 commits before A2, docs/architecture/audit-sealer.md), so this entry waits for that run: up to 300 s.
+Written right after S15.7 saw the first one sealed. The run that sealed it booked its successor 10 s ahead in A1, because the first entry was still pending then (ADR-004-E7, docs/architecture/audit-sealer.md), so this entry is sealed by that successor: about 10 s plus one run.
 """),
-            req("S15.9 AC1: the second incident's entry is sealed by the next run, within 300 s",
+            req("S15.9 AC1: the second incident's entry is sealed by the next run, within about 10 s",
                 "GET",
                 "{{core_url}}/api/v1/audit/entries?subject_id={{s15_rec2}}&limit=10",
                 auth="auditor_token",
                 pre=S15_PRE + r"""
-// Polls, once a second, until the entry has a seq, for up to 330 s; this
+// Polls, once a second, until the entry has a seq, for up to 60 s; this
 // request then reads the sealed entry.
 const t0 = Date.now();
 const T = require('./lib/s15')(N, bru);
@@ -2163,7 +2163,7 @@ for (;;) {
     headers: { Authorization: 'Bearer ' + bru.getVar('auditor_token') },
   });
   const e = ((r.data && r.data.items) || []).find(x => x.action === 'create');
-  if ((e && e.seq) || Date.now() - t0 > 330 * 1000) break;
+  if ((e && e.seq) || Date.now() - t0 > 60 * 1000) break;
   await bru.sleep(1000);
 }
 bru.setVar('s15_polled_s_rec2', String(Math.round((Date.now() - t0) / 1000)));
@@ -2178,13 +2178,13 @@ test('sealed: a seq of 1 or more, and a sealed_at', () => {
   expect(e.sealed_at).to.be.a('string');
 });
 const lat = (Date.parse(e.sealed_at) - Date.parse(e.occurred_at)) / 1000;
-test('sealed 300 s or less after it was written (sealed_at - occurred_at, database clock)', () => expect(lat).to.be.at.least(0).and.at.most(300));
+test('sealed 30 s or less after it was written (sealed_at - occurred_at, database clock; ADR-004-E7: about 10 s plus one run)', () => expect(lat).to.be.at.least(0).and.at.most(30));
 bru.setVar('s15_seq_rec2', String(e.seq));
 console.log('S15.9:', JSON.stringify({ seq: e.seq, occurred_at: e.occurred_at, sealed_at: e.sealed_at, latency_s: lat, polled_s: Number(bru.getVar('s15_polled_s_rec2')) }));
 test('a later seq than the first incident', () => expect(e.seq).to.be.above(Number(bru.getVar('s15_seq_rec1'))));
 """,
                 desc=r"""
-The run S15.7 waited for had its successor already scheduled at the backed-off interval, so this entry is sealed by that successor: within 300 s, the AC3 bound. That run seals something too, so from then on the tenant is sealed every 10 s (S15.11).
+ADR-004-E7: the second write after idle is sealed by the run that S15.7's run booked 10 s ahead, so within about 10 s plus one run. The test fails above 30 s (the relay's pick-up and the run itself); the log line has the measured value. Before E7 this entry waited for a run booked at the backed-off interval, up to 300 s.
 """),
             req("S15.10 AC1: Alice creates a third incident, the tenant now sealing every 10 s: 201",
                 "POST",
@@ -2207,7 +2207,7 @@ test('version 1', () => expect(b.version).to.eql(1));
 bru.setVar('s15_rec3', b.id);
 """,
                 desc=r"""
-Written right after S15.9 saw the second one sealed. Two runs in a row have sealed something, so the next run is 10 s away (R16).
+Written right after S15.9 saw the second one sealed. The tenant has been sealing every 10 s since S15.7's run (R16, ADR-004-E7), so the next run is at most 10 s away.
 """),
             req("S15.11 AC1: the third incident's entry is sealed within about 10 s",
                 "GET",

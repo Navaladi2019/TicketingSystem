@@ -9,25 +9,25 @@
       "Accept-Encoding": "gzip, compress, deflate, br",
       "Host": "127.0.0.1:28080",
       "Connection": "keep-alive",
-      "Idempotency-Key": "tick443-s15-mw6jb0hh-rec3",
+      "Idempotency-Key": "tick443-s15-mw6n1tok-rec3",
       "Content-Type": "application/json"
     },
-    "body": "{\n  \"data\": {\n    \"short_description\": \"S15 mw6jb0hh rec3\",\n    \"priority\": 2\n  }\n}"
+    "body": "{\n  \"data\": {\n    \"short_description\": \"S15 mw6n1tok rec3\",\n    \"priority\": 2\n  }\n}"
   },
   "response": {
     "status": 201,
     "body": {
-      "created_at": "2026-11-07T15:06:06.807257Z",
+      "created_at": "2026-11-07T16:50:19.49181Z",
       "data": {
         "priority": 2,
-        "short_description": "S15 mw6jb0hh rec3",
+        "short_description": "S15 mw6n1tok rec3",
         "state": "new"
       },
-      "id": "01a1b68b-a257-73eb-9436-de584be07e26",
+      "id": "01a1b6eb-0ae3-7c5b-95b1-d7a8cfa55867",
       "number": "INC0000003",
       "schema_version": 1,
       "state": "new",
-      "updated_at": "2026-11-07T15:06:06.807257Z",
+      "updated_at": "2026-11-07T16:50:19.49181Z",
       "version": 1
     }
   },
