@@ -63,7 +63,7 @@ sequenceDiagram
 
 ## On the stack
 
-`nava-worker` registers `audit.seal` on `nava-tq`, so the stack keeps one rule (TICK-453): every worker that polls a task queue registers the same workflow types. Cases that bring their own `nava-tq` worker (`sdk`, `demo_outbox`, the interpreter cases) stop `nava-worker` for their run and are serial; `with_worker_restored` (`deploy/compose/test/lib.sh`) brings it back even if the suite panics. Two checks keep it up and start no worker: `TestOnboardedTenantIsSealed` (an onboarded tenant's entry is sealed at seq 1 and the lineage moves on) and `TestWorkerServiceSealsThroughTheGuard` (A1 and A2 counted by the activity guard on `/metrics`).
+`nava-worker` registers `audit.seal` on `nava-tq`, so the stack keeps one rule (TICK-453): every worker that polls a task queue registers the same workflow types. Cases that bring their own `nava-tq` workflow worker take `nava-worker` out for their run and are serial: `sdk` and `demo_outbox` swap it for the activity-only `nava-worker-activities` (`NAVA_WORKER_WORKFLOWS=off`, so `nava.workflow_ref.Close` still runs), the interpreter cases stop it. `with_worker_restored` (`deploy/compose/test/lib.sh`) puts `nava-worker` back even if the suite panics. Two checks keep it up and start no worker: `TestOnboardedTenantIsSealed` (an onboarded tenant's entry is sealed at seq 1 and the lineage moves on) and `TestWorkerServiceSealsThroughTheGuard` (A1 and A2 counted by the activity guard on `/metrics`).
 
 ## Replay gate
 

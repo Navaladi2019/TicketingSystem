@@ -39,7 +39,8 @@ service `nava-worker` (image `nava/nava-worker`):
 - Hosts the `workflow_ref` activity and the audit sealer (`audit.seal` and its
   A1 and A2 activities, TICK-453, `docs/architecture/audit-sealer.md`), as
   `nava_worker` through PgBouncer. With `audit.seal` registered the workflow
-  poller is on.
+  poller is on. `NAVA_WORKER_WORKFLOWS=off` (stack-only, `nava-worker-activities`)
+  registers no workflow and polls activity tasks only.
 - Admin listener on `NAVA_ADMIN_ADDR` (`:9090`): `telemetry.NewAdminHandler`,
   not wrapped in `httpobs.Middleware`. `/metrics` carries
   `nava_worker_guard_decisions_total` and the SDK metrics; `/readyz` is 200
