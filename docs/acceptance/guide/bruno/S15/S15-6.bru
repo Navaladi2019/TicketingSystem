@@ -25,6 +25,11 @@ body:json {
   }
 }
 
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await require('./lib/s15')(N, bru).fresh();
+}
+
 tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
   N.status(201);

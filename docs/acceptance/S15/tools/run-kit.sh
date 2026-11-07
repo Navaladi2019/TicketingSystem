@@ -37,7 +37,8 @@ FAILED=
 bruno() {
   f=$1; shift
   # shellcheck disable=SC2086
-  sh docs/acceptance/guide/tools/api-test.sh "$f" $BRU "$@" || FAILED="$FAILED $f"
+  # Bruno (Node on Windows) needs Git Bash to convert its report paths.
+  env -u MSYS_NO_PATHCONV sh docs/acceptance/guide/tools/api-test.sh "$f" $BRU "$@" || FAILED="$FAILED $f"
   cp "docs/acceptance/guide/reports/$f.json" "$EV/.bruno-$f.json"
 }
 BRU="--env-var core_url=http://127.0.0.1:$CORE_PORT \

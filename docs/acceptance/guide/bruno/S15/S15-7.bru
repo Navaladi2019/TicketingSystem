@@ -15,11 +15,14 @@ headers {
 }
 
 script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await require('./lib/s15')(N, bru).fresh();
   // Polls, once a second, until the entry has a seq, for up to 330 s; this
   // request then reads the sealed entry.
-  const N = require('./lib/nava')({ test, expect, res: null, bru });
   const t0 = Date.now();
+  const T = require('./lib/s15')(N, bru);
   for (;;) {
+    await T.fresh('auditor_token');
     const r = await N.send({
       url: N.url('{{core_url}}/api/v1/audit/entries?subject_id={{s15_rec1}}&limit=10'),
       method: 'GET',
@@ -46,7 +49,6 @@ tests {
   test('sealed 300 s or less after it was written (sealed_at - occurred_at, database clock)', () => expect(lat).to.be.at.least(0).and.at.most(300));
   bru.setVar('s15_seq_rec1', String(e.seq));
   console.log('S15.7:', JSON.stringify({ seq: e.seq, occurred_at: e.occurred_at, sealed_at: e.sealed_at, latency_s: lat, polled_s: Number(bru.getVar('s15_polled_s_rec1')) }));
-  
 }
 
 docs {

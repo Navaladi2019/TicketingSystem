@@ -26,6 +26,8 @@ body:json {
 }
 
 script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await require('./lib/s15')(N, bru).fresh();
   bru.setVar('s15_run', Date.now().toString(36));
 }
 

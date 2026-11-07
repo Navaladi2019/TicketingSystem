@@ -15,6 +15,8 @@ headers {
 }
 
 script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await require('./lib/s15')(N, bru).fresh();
   bru.setVar('s15_after', String(Number(bru.getVar('s15_seq_rec1')) - 1));
 }
 
