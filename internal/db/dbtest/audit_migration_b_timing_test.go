@@ -13,7 +13,7 @@ import (
 // P5-32 (TICK-442) evidence, opt-in: how long migration B holds its six
 // ACCESS EXCLUSIVE locks (R27, R-A6) at realistic S8 volumes. Off unless
 // NAVA_BENCH_MIGRATION_B lists tenant counts, e.g. "1000,10000";
-// scratch/audit-migration-b/run.sh runs it and keeps the output. Each size
+// docs/data/audit-migration-b-bench/run.sh runs it and keeps the output. Each size
 // loads, before B: the tenants, one principal each, 10 types per tenant with
 // versions 1 to 3 (half the tenants' v1 with no publisher, as onboarding
 // seeded it), migration A's backfill, and then a version 4 for 1% of the
@@ -23,7 +23,7 @@ import (
 func TestP532MigrationBTiming(t *testing.T) {
 	sizes := os.Getenv("NAVA_BENCH_MIGRATION_B")
 	if sizes == "" {
-		t.Skip("NAVA_BENCH_MIGRATION_B not set (see scratch/audit-migration-b/run.sh)")
+		t.Skip("NAVA_BENCH_MIGRATION_B not set (see docs/data/audit-migration-b-bench/run.sh)")
 	}
 	for _, s := range strings.Split(sizes, ",") {
 		tenants, err := strconv.Atoi(strings.TrimSpace(s))

@@ -6,8 +6,8 @@
 #                    acceptance guide), required
 #                    CI steps, OpenAPI, govulncheck (no containers)
 #   unit             go test -race (no containers)
-#   temporal-server  the custom server module's unit tests and govulncheck
-#                    (no containers)
+#   temporal-server  the custom server module's unit tests, golangci-lint
+#                    (TICK-584) and govulncheck (no containers)
 #   integration      -tags integration against a throwaway PostgreSQL, the
 #                    isolation suite, then the ci-isolated --down tag check
 #   commit-check-budget  TestCommitCheckBudget alone on its own runner
@@ -280,8 +280,14 @@ jobs:
     if: needs.changes.outputs.unit == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      # lint-temporal-server reports only lines changed since the merge base
+      # (TICK-584 ratchet), so the checkout needs the base's history.
+      BASE: origin/${{ github.base_ref || 'main' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version-file: temporal-server/go.mod
@@ -292,14 +298,27 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
+            ~/.cache/golangci-lint
           key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
           restore-keys: |
             go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-
             go-${{ github.job }}-
+      # The lint job's tools cache (same key): golangci-lint and govulncheck.
+      - name: Cache pinned tools
+        id: tools
+        uses: actions/cache@v4
+        with:
+          path: ~/go/bin
+          key: tools-${{ hashFiles('Makefile', 'make/lint.mk') }}
+      - name: Install pinned tools
+        if: steps.tools.outputs.cache-hit != 'true'
+        run: make tools
       - name: temporal-server unit tests
         run: make temporal-server-test
-      - name: Install govulncheck
-        run: make tools-govulncheck
+      # make lint's ./... stops at this module's go.mod (TICK-584). Only
+      # findings in changed lines until the existing backlog is fixed.
+      - name: golangci-lint (temporal-server)
+        run: make lint-temporal-server
       # ADR-001 A1 Decision 3: zero findings, no exception and no allowlist.
       - name: govulncheck (temporal-server)
         run: make vulncheck-temporal-server
@@ -311,6 +330,7 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
+            ~/.cache/golangci-lint
           key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
 
   integration:

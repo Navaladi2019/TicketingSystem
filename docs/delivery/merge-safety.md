@@ -102,7 +102,7 @@ TICK-289, TICK-290 and TICK-291 must not edit `Makefile`, because S5 and S7 are 
 
 ## 6. Story suites on main
 
-TICK-292 (D9). Measured on `main` at `4392c26`, after S5 (TICK-47) and S7 (TICK-49) landed. Every suite below runs on every push to `main` (TICK-289 selects every stage on a push). On a pull request, `make ci-stages` selects the job when a file the suite covers changes. `TestStorySuitesSelected` and `TestEveryCommandIsAStackRoot` in `tools/ci/cichanged` check that selection.
+TICK-292 (D9). Measured on `main` at `4392c26`, after S5 (TICK-47) and S7 (TICK-49) landed. Every suite below runs on every push to `main` (TICK-289 selects every stage on a push). On a pull request, `make ci-stages` selects the job when a file the suite covers changes. The `TestRealRepo` subtests "story suites selected" and "every command is a stack root" in `tools/ci/cichanged` check that selection (TICK-597 folded them under one graph load).
 
 | Suite (ADR-001 Annex B) | Story | `make` target | `ci.yml` job, step |
 |---|---|---|---|

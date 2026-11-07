@@ -3,7 +3,8 @@
 --
 --   1. takes the six R27 ACCESS EXCLUSIVE locks up front, in the fixed order
 --      tenants, entity_definitions, entity_definition_versions, audit_log,
---      audit_chain_head, outbox, under lock_timeout, retrying on timeout;
+--      audit_chain_head, outbox, under lock_timeout; the migrator retries
+--      a timeout (TICK-579, below);
 --   2. re-runs migration A's backfill (audit_backfill_s8, 20261103120000).
 --      Its NOT EXISTS dedupe adds only the versions published between A and
 --      the deploy that made the S8 publish path call audit.Append (P5-14),
@@ -39,42 +40,29 @@
 -- policies included.
 --
 -- Locks (R27, R-A6). Every later statement needs at most the lock already
--- held, so nothing here can wait once step 1 holds. A failed attempt rolls
--- back its subtransaction, which releases whatever part of the set it took,
--- so a retry never holds a lock while it waits. Five attempts, waiting
--- 1, 2, 3, 4 s in between: about 35 s worst case before the migration fails
--- and is re-run. The locks block tenant resolution, S8, audit writes and the
+-- held, so nothing here can wait once step 1 holds. The retry has one owner,
+-- the migrator (internal/db/migrate, TICK-579, ADR-004-E5): a lock wait past
+-- lock_timeout fails with 55P03, the whole transaction rolls back and
+-- releases whatever part of the set it took, and the runner re-runs B after
+-- a doubling backoff (1 s to 30 s, 10 attempts). So a retry never holds a
+-- lock while it waits. lock_timeout bounds each lock wait, not the
+-- statement: one attempt waits at most 6 x 5 s = 30 s, so 10 attempts plus
+-- 151 s of backoff is at most about 7.5 min before the run fails, about
+-- 3.4 min when one lock is contended. B keeps no retry of its own: with both,
+-- the attempts multiplied (5 x 10, at most about 29 min, about 8.4 min with
+-- one lock contended). The locks block tenant resolution, S8, audit writes and the
 -- relay until COMMIT: measured on PG 16.10, 0.48 s for 1,000 tenants and
 -- 30,093 versions, 4.29 s for 10,000 and 300,972, about 0.13 ms per tenant
--- plus 9.5 us per version (scratch/audit-migration-b/RESULT.md).
+-- plus 9.5 us per version (docs/data/audit-migration-b-bench/RESULT.md).
 
 -- +goose Up
 
 SET LOCAL lock_timeout = '5s';
 
--- R27: all six locks, in order, before any other work.
--- +goose StatementBegin
-DO $$
-DECLARE
-    attempt integer := 0;
-BEGIN
-    LOOP
-        BEGIN
-            LOCK TABLE tenants, entity_definitions, entity_definition_versions, audit_log, audit_chain_head, outbox
-                IN ACCESS EXCLUSIVE MODE;
-            EXIT;
-        EXCEPTION WHEN lock_not_available THEN
-            attempt := attempt + 1;
-            IF attempt >= 5 THEN
-                RAISE;
-            END IF;
-            RAISE NOTICE 'migration B: lock attempt % timed out, retrying', attempt;
-            PERFORM pg_sleep(attempt);
-        END;
-    END LOOP;
-END
-$$;
--- +goose StatementEnd
+-- R27: all six locks, in order, before any other work. A timeout fails the
+-- migration with 55P03, and the migrator retries it.
+LOCK TABLE tenants, entity_definitions, entity_definition_versions, audit_log, audit_chain_head, outbox
+    IN ACCESS EXCLUSIVE MODE;
 
 -- R25: the re-run. The number it added is in the migration log.
 SELECT audit_backfill_s8();

@@ -9,12 +9,15 @@ import (
 	"testing"
 )
 
-// stagesClone clones the repository's HEAD (sharing its objects) onto a new
-// branch, commits this checkout's own cichanged sources over it as the base
-// (so the clone runs the code under test, not HEAD's), applies edit and
-// commits it, and returns the clone and the base commit.
-// scripts/ci/ci-stages.sh then sees exactly edit as the change.
-func stagesClone(t *testing.T, edit func(dir string)) (string, string) {
+// stagesClone clones the repository's HEAD (sharing its objects) and commits
+// this checkout's own cichanged sources over it as the base (so the clone
+// runs the code under test, not HEAD's), and returns the clone and the base
+// commit. Every ci-stages.sh scenario reuses this one clone through
+// stagesChange: go list's first pass over a freshly written tree costs about
+// twice a later one, and each scenario runs cichanged, so a clone per
+// scenario helped push this package past go test's 10-minute timeout under
+// task test (TICK-597).
+func stagesClone(t *testing.T) (string, string) {
 	t.Helper()
 	root, err := git("rev-parse", "--show-toplevel")
 	if err != nil {
@@ -30,15 +33,9 @@ func stagesClone(t *testing.T, edit func(dir string)) (string, string) {
 	if _, err := git("clone", "-q", "--shared", "--no-checkout", root, dir); err != nil {
 		t.Fatal(err)
 	}
-	run := func(args ...string) {
-		t.Helper()
-		if _, err := git(append([]string{"-C", dir}, args...)...); err != nil {
-			t.Fatal(err)
-		}
-	}
-	run("checkout", "-q", "-b", "change", base)
-	run("config", "user.email", "ci@example.invalid")
-	run("config", "user.name", "ci")
+	gitIn(t, dir, "checkout", "-q", "-b", "base", base)
+	gitIn(t, dir, "config", "user.email", "ci@example.invalid")
+	gitIn(t, dir, "config", "user.name", "ci")
 	srcs, err := filepath.Glob("*.go")
 	if err != nil || len(srcs) == 0 {
 		t.Fatalf("no cichanged sources: %v", err)
@@ -50,17 +47,33 @@ func stagesClone(t *testing.T, edit func(dir string)) (string, string) {
 		}
 		writeFiles(t, dir, map[string]string{"tools/ci/cichanged/" + f: string(b)})
 	}
-	run("add", "-A")
-	run("commit", "-q", "--allow-empty", "-m", "base")
+	gitIn(t, dir, "add", "-A")
+	gitIn(t, dir, "commit", "-q", "--allow-empty", "-m", "base")
 	out, err := git("-C", dir, "rev-parse", "HEAD")
 	if err != nil {
 		t.Fatal(err)
 	}
-	base = strings.TrimSpace(out)
+	return dir, strings.TrimSpace(out)
+}
+
+// stagesChange resets the clone's change branch to base, applies edit and
+// commits it, so scripts/ci/ci-stages.sh then sees exactly edit as the
+// change, whatever an earlier scenario committed.
+func stagesChange(t *testing.T, dir, base string, edit func(dir string)) {
+	t.Helper()
+	gitIn(t, dir, "checkout", "-q", "-B", "change", base)
+	gitIn(t, dir, "reset", "-q", "--hard", base)
+	gitIn(t, dir, "clean", "-q", "-fdx")
 	edit(dir)
-	run("add", "-A")
-	run("commit", "-q", "-m", "change")
-	return dir, base
+	gitIn(t, dir, "add", "-A")
+	gitIn(t, dir, "commit", "-q", "-m", "change")
+}
+
+func gitIn(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	if _, err := git(append([]string{"-C", dir}, args...)...); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // ciStages runs this checkout's scripts/ci/ci-stages.sh (the recipe of make
@@ -109,12 +122,24 @@ func writeFiles(t *testing.T, dir string, files map[string]string) {
 
 const allFalse = "unit=false\nintegration=false\nstack=false\nareas=none\n"
 
+// The ci-stages.sh scenarios share one clone and run one after another
+// (TICK-597): each runs cichanged, whose go list passes over the whole module
+// only compete with each other when run in parallel.
+func TestCIStages(t *testing.T) {
+	dir, base := stagesClone(t)
+	t.Run("docs-only diff runs no unit, integration or stack", func(t *testing.T) {
+		testDocsOnlyDiffRunsNoUnitIntegrationOrStack(t, dir, base)
+	})
+	t.Run("lint-only gates a Go change", func(t *testing.T) {
+		testLintOnlyGatesAGoChange(t, dir, base)
+	})
+}
+
 // TICK-563: a pull request whose diff is only documentation under docs/ runs
 // lint alone, even with the ci:run label: unit, integration and stack are
 // false in the outputs the workflow's job conditions read.
-func TestDocsOnlyDiffRunsNoUnitIntegrationOrStack(t *testing.T) {
-	t.Parallel()
-	dir, base := stagesClone(t, func(dir string) {
+func testDocsOnlyDiffRunsNoUnitIntegrationOrStack(t *testing.T, dir, base string) {
+	stagesChange(t, dir, base, func(dir string) {
 		writeFiles(t, dir, map[string]string{
 			"docs/quality/tick-563-test-plan.md":    "# plan\n",
 			"docs/reviews/tick-563-review.md":       "# review\n",
@@ -130,9 +155,8 @@ func TestDocsOnlyDiffRunsNoUnitIntegrationOrStack(t *testing.T) {
 
 // TICK-563: a pull request without the ci:run label (CI_LINT_ONLY=1) runs
 // lint alone even for a Go change that, labelled, needs every stage.
-func TestLintOnlyGatesAGoChange(t *testing.T) {
-	t.Parallel()
-	dir, base := stagesClone(t, func(dir string) {
+func testLintOnlyGatesAGoChange(t *testing.T, dir, base string) {
+	stagesChange(t, dir, base, func(dir string) {
 		p := filepath.Join(dir, "cmd", "nava-core", "main.go")
 		b, err := os.ReadFile(p)
 		if err != nil {

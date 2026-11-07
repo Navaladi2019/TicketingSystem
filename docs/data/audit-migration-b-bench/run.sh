@@ -7,7 +7,7 @@
 # Output: out/timing.txt.
 set -eu
 cd "$(dirname "$0")"
-tag=$(sed -n 's/^| `postgres` | \([^ |]*\) |.*/\1/p' ../../docs/pins.md)
+tag=$(sed -n 's/^| `postgres` | \([^ |]*\) |.*/\1/p' ../../pins.md)
 [ -n "$tag" ] || { echo "no postgres row in docs/pins.md" >&2; exit 1; }
 MSYS_NO_PATHCONV=1; export MSYS_NO_PATHCONV
 name=nava-migration-b-$$
@@ -24,8 +24,8 @@ mkdir -p out
   echo "# $(date -u +%FT%TZ) postgres:$tag, host: $(uname -srm)"
   docker exec "$name" nproc | sed 's/^/# container cpus: /'
 } > out/env.txt
-cd ../..
+cd ../../..
 NAVA_TEST_PG_URL="postgres://pgadmin:test-only@127.0.0.1:$port/postgres" \
 NAVA_BENCH_MIGRATION_B="${1:-1000,10000}" \
     go test -tags integration -count=1 -timeout 30m -v -run '^TestP532MigrationBTiming$' ./internal/db/dbtest/ |
-    tee scratch/audit-migration-b/out/timing.txt
+    tee docs/data/audit-migration-b-bench/out/timing.txt

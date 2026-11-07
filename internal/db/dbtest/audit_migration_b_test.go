@@ -5,6 +5,9 @@ package dbtest
 import (
 	"context"
 	"errors"
+	"io/fs"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -324,12 +327,28 @@ func TestP532RawConfigWriteFailsAtCommit(t *testing.T) {
 // R27: B takes its six locks in the fixed order before any other work, and a
 // lock that times out is retried, holding none of the set while it waits.
 // The blocker holds outbox, the last of the six, for longer than one
-// lock_timeout (5 s), so B succeeds only by retrying.
+// lock_timeout (5 s), so B succeeds only by retrying. The retry has one
+// owner, main's migrator (TICK-579, TICK-606): B fails with 55P03, its
+// transaction rolls back, and the runner logs the retry and re-runs it. The
+// retried run still leaves one entry per S8 version (CI-A9) and no
+// nava_migrator policy (R26.3).
 func TestP532LocksInOrderAndRetries(t *testing.T) {
 	m := freshCluster(t)
+	if err := migrateOnlyFS(t, m, migrationsBefore(t, auditBackfillMigration)); err != nil {
+		t.Fatalf("migrate to before %s: %v", auditBackfillMigration, err)
+	}
+	super := superNava(t)
+	seedBackfillVersions(t, super)
+	if err := migrateOnlyFS(t, m, migrationsThrough(t, auditBackfillMigration)); err != nil {
+		t.Fatalf("migrate through %s: %v", auditBackfillMigration, err)
+	}
 	if _, err := migrateBeforeB(t, m); err != nil {
 		t.Fatalf("migrate to before %s: %v", migrationB, err)
 	}
+	// Published between A and the deploy: B's backfill re-run must add it.
+	gap := uuid.NewString()
+	exec(t, super, insertVersionRaw, tenantB, gap, tenantB, 2, testSchema, schemaSum(testSchema), "compatible", tenantB)
+
 	ctx := context.Background()
 	blocker := superNava(t)
 	blockTx, err := blocker.Begin(ctx)
@@ -340,8 +359,10 @@ func TestP532LocksInOrderAndRetries(t *testing.T) {
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)
+	log, logs := newLog()
 	go func() {
-		_, err := migrateFS(t, m, db.Migrations())
+		_, err := migrate.Run(ctx, roleConfig(t, m.Owner(), m.PlatformDatabase),
+			db.Migrations(), m, auditedManifest(t), globalTables(t), log, migrate.Options{LockRetrySeconds: 1})
 		done <- err
 	}()
 
@@ -383,6 +404,43 @@ func TestP532LocksInOrderAndRetries(t *testing.T) {
 	}
 	if n := countRows(t, "SELECT count(*) FROM pg_trigger WHERE tgname = 'entity_definitions_audit_commit_check'"); n != 1 {
 		t.Errorf("entity_definitions trigger count %d after the retried run, want 1", n)
+	}
+	// One owner: the migrator saw B's lock_timeout and retried it.
+	if !strings.Contains(logs.String(), `"msg":"migration hit lock_timeout, retrying"`) ||
+		!strings.Contains(logs.String(), "version:"+strings.SplitN(migrationB, "_", 2)[0]+")") {
+		t.Errorf("the migrator did not retry %s on lock_timeout; log: %s", migrationB, logs.String())
+	}
+	if bad := queryString(t, super, entriesPerVersion); bad != "" {
+		t.Errorf("versions without exactly one entry after the retried B (CI-A9): %s", bad)
+	}
+	if n := countRows(t, "SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND id = $2 AND backfilled", tenantB, backfillID(tenantB, gap)); n != 1 {
+		t.Errorf("version published between A and B: %d backfilled entries after the retried B, want 1", n)
+	}
+	if n := countRows(t, "SELECT count(*) FROM pg_policy WHERE 'nava_migrator'::regrole = ANY (polroles)"); n != 0 {
+		t.Errorf("%d nava_migrator policies left after the retried B, want 0 (R26.3)", n)
+	}
+}
+
+// R27: the six locks are taken in one LOCK TABLE, in the fixed order.
+// PostgreSQL locks a LOCK TABLE list one table at a time, left to right
+// (PG 16 sql-lock), so the statement text is the lock order.
+// TestP532LocksInOrderAndRetries proves outbox is last and that the set is
+// released between attempts.
+func TestP532LockOrderIsR27(t *testing.T) {
+	src, err := fs.ReadFile(db.Migrations(), migrationB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	up := strings.SplitN(string(src), "-- +goose Down", 2)[0]
+	re := regexp.MustCompile(`(?ms)^LOCK TABLE\s+(.+?)\s+IN ACCESS EXCLUSIVE MODE\s*;`)
+	ms := re.FindAllStringSubmatch(up, -1)
+	if len(ms) != 1 {
+		t.Fatalf("migration B has %d LOCK TABLE ... IN ACCESS EXCLUSIVE MODE statements, want exactly 1 (R27)", len(ms))
+	}
+	got := strings.Join(strings.Fields(strings.ReplaceAll(ms[0][1], ",", " ")), ",")
+	const want = "tenants,entity_definitions,entity_definition_versions,audit_log,audit_chain_head,outbox"
+	if got != want {
+		t.Errorf("migration B locks %s, want the R27 order %s", got, want)
 	}
 }
 

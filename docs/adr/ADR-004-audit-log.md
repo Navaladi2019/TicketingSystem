@@ -103,7 +103,7 @@ deciders: Solution Architect (author); Technical Architect (round 1 CHANGES; rou
 - **R16 · the self-rescheduling sealer.** Run *o* is workflow `t:<tenant>:audit.seal:<o>`, an ordinary D22 start.
   - **A1** runs in its own transaction and commits first. It locks the head `FOR UPDATE`. If `next_seal_outbox_id = o`, it bumps `version`, inserts start row *o′* (`target_key = audit.seal:<o′>`, `target_seq = version`, `available_at = now() + seal_interval_s`), and repoints `next_seal_outbox_id`. Otherwise it does nothing (a stale lineage).
   - **A2** seals in batches of 1,000, in `(occurred_at, id)` order, one transaction per batch, under the head lock (R15).
-  - **Interval:** 10 s after a run that sealed anything; otherwise doubled, up to 300 s.
+  - **Interval:** 10 s after a run that sealed anything; otherwise doubled, up to 300 s. *(Clarified by [[ADR-004-E7-a1-books-10s-when-work-pending]]: A1 books 10 s when the tenant has unsealed entries; A2 stores the interval for later runs.)*
   - **Seeding:** onboarding inserts the head and the first start row (ADR-001-A6.2). Migration B does the same for existing tenants.
   - **Writers never touch the outbox or the head.**
 - **R17 · `chain:reseed` [Sec].** `POST /api/v1/audit/chain:reseed`, as `nava_app`, under the head lock.
