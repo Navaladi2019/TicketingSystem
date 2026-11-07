@@ -116,3 +116,7 @@ codes:
     status: 422
     title: History too long
     detail: The record has more audit entries than a history page can replay. The history of this record cannot be read through this endpoint.
+  - code: export_in_progress
+    status: 409
+    title: Export in progress
+    detail: Another audit export of this tenant is running. Retry when it has finished.

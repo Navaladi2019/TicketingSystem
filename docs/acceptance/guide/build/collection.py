@@ -2530,7 +2530,65 @@ if (wait > 0) {{ console.log(`waiting ${{Math.round(wait / 1000)}} s for the tok
     }
 
 
-FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s14, s14_story, s15_seal, s15_kill, s15_idle, x1, x2, x4, x5, x3, late]
+# --------------------------------------------------------------------------- S16
+S16_PARSE = """const raw = typeof res.getBody() === 'string' ? res.getBody() : JSON.stringify(res.getBody());
+const lines = raw.split('\n').filter(l => l.length);
+const ls = lines.map(l => JSON.parse(l));"""
+
+
+def s16():
+    exp = "{{core_url}}/api/v1/audit/entries:export"
+    return {
+        "dir": "S16", "name": "S16 audit export",
+        "desc": "TICK-444 (P5-40, ADR-004 R19 to R21). `GET /api/v1/audit/entries:export`, the verifiable JSONL export, downloaded by tenant A's admin (who holds `audit.export`). Each file starts with a header, then the anchor, then the range, then the trailer, and `nava audit verify` accepts it. Alice is a member without `audit.export`: 403. The 409 `export_in_progress` of a second concurrent export, 429, 500 and 501 are in the coverage page. Needs `tools/seed.sh`. The export writes one `audit/export` entry per call.",
+        "items": [
+            token("S16.1 Sign in as tenant A's admin", "admin_a_username", "admin_a_password", "admin_a_token"),
+            token("S16.2 Sign in as Alice (tenant A, no audit.export)", "alice_username", "alice_password", "alice_token"),
+            req("S16.3 exportAuditEntries 200: the whole log", "GET", exp, auth="admin_a_token",
+                desc="One JSON object per line: the header names the format and the request, the last line is the trailer. Save the body and run `nava audit verify <file>`: it exits 0.",
+                tests=S16_PARSE + """
+N.status(200);
+test('content type is ndjson', () => expect(res.getHeader('content-type')).to.include('application/x-ndjson'));
+test('header first, trailer last', () => {
+  expect(ls[0].kind).to.eql('header');
+  expect(ls[0].format).to.eql('nava.audit.export/v1');
+  expect(ls[0].stubs).to.eql(true);
+  expect(ls[ls.length - 1].kind).to.eql('trailer');
+});
+test('the anchor follows the header', () => expect(ls[1].kind).to.be.oneOf(['anchor', 'trailer']));
+test('the trailer counts match the lines', () => {
+  const t = ls[ls.length - 1];
+  expect(t.count).to.eql(ls.filter(l => l.kind === 'entry' && l.sealed).length);
+  expect(t.stub_count).to.eql(ls.filter(l => l.kind === 'stub').length);
+});
+test('a redacted entry carries no diff_salt', () => ls.filter(l => l.kind === 'entry' && l.diff_redacted).forEach(l => expect(l.diff_salt).to.eql(null)));"""),
+            req("S16.4 exportAuditEntries 200: filtered by domain", "GET", exp + "?domain=config", auth="admin_a_token",
+                desc="Entries of the config domain are in full; every other seq of the range is a hash-only stub. The file still verifies.",
+                tests=S16_PARSE + """
+N.status(200);
+test('full lines are config; the rest are stubs', () => {
+  ls.filter(l => l.kind === 'entry' && l.sealed).forEach(l => expect(l.envelope.domain).to.eql('config'));
+  ls.filter(l => l.kind === 'stub').forEach(l => expect(Object.keys(l).sort()).to.eql(['entry_hash', 'envelope_sha256', 'kind', 'prev_hash', 'seq']));
+});"""),
+            req("S16.5 exportAuditEntries 200: stubs=false", "GET", exp + "?stubs=false&subject_id=00000000-0000-4000-8000-00000000dead", auth="admin_a_token",
+                desc="Matches only. The header records the request (`stubs: false`). With nothing matching, the file has the anchor and no range lines, `verifiable` is false and `nava audit verify` exits with the unverifiable code, not the tampered one.",
+                tests=S16_PARSE + """
+N.status(200);
+test('stubs false is recorded and nothing is verifiable', () => {
+  expect(ls[0].stubs).to.eql(false);
+  expect(ls.filter(l => l.kind === 'stub')).to.eql([]);
+  expect(ls[ls.length - 1].verifiable).to.eql(false);
+});"""),
+            problem_req("S16.6 exportAuditEntries 401: no token", "GET", exp, "invalid_token", 401, desc="Missing token."),
+            problem_req("S16.7 exportAuditEntries 403: a member without audit.export", "GET", exp, "forbidden", 403, auth="alice_token",
+                        desc="Alice is neither a tenant admin nor in the auditors group."),
+            problem_req("S16.8 exportAuditEntries 400: from after to", "GET", exp + "?from=2030-01-02T00:00:00Z&to=2030-01-01T00:00:00Z",
+                        "validation_failed", 400, auth="admin_a_token", desc="The window must have from before to."),
+        ],
+    }
+
+
+FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s14, s14_story, s16, s15_seal, s15_kill, s15_idle, x1, x2, x4, x5, x3, late]
 
 ENV = [
     ("core_url", "http://127.0.0.1:18080"),
