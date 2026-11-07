@@ -9,12 +9,8 @@ import (
 
 // The real repository against HEAD: the command prints the stages classify
 // picks for the uncommitted files, and with -v one reason per file.
-func TestCLIRealRepo(t *testing.T) {
+func testCLIRealRepo(t *testing.T, g graph) {
 	files, err := changedFiles("HEAD")
-	if err != nil {
-		t.Fatal(err)
-	}
-	g, err := realGraph()
 	if err != nil {
 		t.Fatal(err)
 	}
