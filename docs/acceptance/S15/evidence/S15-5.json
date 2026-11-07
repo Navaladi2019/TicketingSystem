@@ -9,16 +9,16 @@
       "Accept-Encoding": "gzip, compress, deflate, br",
       "Host": "127.0.0.1:28082",
       "Connection": "keep-alive",
-      "Idempotency-Key": "tick443-s15-mw6fps5b-onboard",
+      "Idempotency-Key": "tick443-s15-mw6jb0hh-onboard",
       "Content-Type": "application/json"
     },
-    "body": "{\n  \"admin_email\": \"admin@s15-mw6fps5b.test\",\n  \"email_domains\": [\n    \"s15-mw6fps5b.test\"\n  ],\n  \"identity_provider\": {\n    \"provider_id\": \"oidc\",\n    \"display_name\": \"S15 acceptance IdP\",\n    \"config\": {\n      \"clientId\": \"acceptance-client\",\n      \"clientSecret\": \"dev-only-not-a-secret\",\n      \"authorizationUrl\": \"https://93.184.216.34/auth\",\n      \"tokenUrl\": \"https://93.184.216.34/token\",\n      \"jwksUrl\": \"https://93.184.216.34/jwks\",\n      \"useJwksUrl\": \"true\",\n      \"defaultScope\": \"openid email profile\"\n    }\n  }\n}"
+    "body": "{\n  \"admin_email\": \"admin@s15-mw6jb0hh.test\",\n  \"email_domains\": [\n    \"s15-mw6jb0hh.test\"\n  ],\n  \"identity_provider\": {\n    \"provider_id\": \"oidc\",\n    \"display_name\": \"S15 acceptance IdP\",\n    \"config\": {\n      \"clientId\": \"acceptance-client\",\n      \"clientSecret\": \"dev-only-not-a-secret\",\n      \"authorizationUrl\": \"https://93.184.216.34/auth\",\n      \"tokenUrl\": \"https://93.184.216.34/token\",\n      \"jwksUrl\": \"https://93.184.216.34/jwks\",\n      \"useJwksUrl\": \"true\",\n      \"defaultScope\": \"openid email profile\"\n    }\n  }\n}"
   },
   "response": {
     "status": 201,
     "body": {
       "state": "active",
-      "tenant_id": "62abcbbf-8780-51b1-9bf9-41bdf14c553a"
+      "tenant_id": "b28827a9-18b2-594e-8919-19d0841dd16c"
     }
   },
   "tests": [

@@ -1,7 +1,7 @@
-Seal latency of every entry written since 2026-11-07T13:23:33Z (sealed_at - occurred_at)
+Seal latency of every entry written since 2026-11-07T15:04:04Z (sealed_at - occurred_at)
               tenant_id               | entries | sealed | p50_s | max_s 
 --------------------------------------+---------+--------+-------+-------
- 00000000-0000-4000-8000-0000000000a1 |       3 |      3 |  77.0 | 159.7
+ 00000000-0000-4000-8000-0000000000a1 |       3 |      3 |  16.1 |  79.8
  00000000-0000-4000-8000-0000000000b1 |       1 |      0 |       |      
- 62abcbbf-8780-51b1-9bf9-41bdf14c553a |       3 |      3 |   0.8 |   0.8
+ b28827a9-18b2-594e-8919-19d0841dd16c |       3 |      3 |   0.7 |   0.7
 

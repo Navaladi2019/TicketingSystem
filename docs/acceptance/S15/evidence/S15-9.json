@@ -1,7 +1,7 @@
 {
   "request": {
     "method": "GET",
-    "url": "http://127.0.0.1:28080/api/v1/audit/entries?subject_id=01a1b62f-56e6-7a97-8c4f-16059f2cd09a&limit=10",
+    "url": "http://127.0.0.1:28080/api/v1/audit/entries?subject_id=01a1b68a-6927-795c-9104-54638545df5d&limit=10",
     "headers": {
       "Accept": "application/json, text/plain, */*",
       "User-Agent": "bruno-runtime/4.3.0",
@@ -18,34 +18,34 @@
       "items": [
         {
           "action": "create",
-          "actor_principal_id": "d099002f-6ae2-4204-a36c-d368ca44b97c",
+          "actor_principal_id": "46fdd1cd-7a37-4d1d-9720-355787855926",
           "backfilled": false,
           "causation_depth": 0,
-          "causation_id": "01a1b62f-56e4-77d9-8299-746234199428",
+          "causation_id": "01a1b68a-6925-7a26-b628-d71f2d2c3489",
           "diff": [
             {
               "op": "add",
               "path": "",
               "value": {
                 "priority": 2,
-                "short_description": "S15 mw6fps5b rec2",
+                "short_description": "S15 mw6jb0hh rec2",
                 "state": "new"
               }
             }
           ],
           "diff_redacted": false,
-          "diff_salt": "9cb77168b11efed57380986fdb6f4871",
-          "diff_sha256": "90d8ad194beef63d4e2af34d52ffe5e758dc7db809876a7641d0f970245ca582",
+          "diff_salt": "addae2bb98bc9ed9caf7a8ecd8ad2eaa",
+          "diff_sha256": "58b7042978084833edf42bbbe5ec1298b90d1264d3b9d5947ad467b8a4352141",
           "diff_truncated": false,
           "domain": "record",
-          "entity_definition_id": "c93df269-ab20-4325-a2ef-41b74e036fe0",
-          "id": "01a1b62f-56e9-78e6-9969-c409bde3aa6f",
-          "occurred_at": "2026-11-07T13:25:18.177808Z",
-          "request_id": "680d5203b433be955ff0a46aa351ecb5",
-          "sealed_at": "2026-11-07T13:27:57.829334Z",
+          "entity_definition_id": "bc2052dc-81a3-42f0-a676-3b118904caef",
+          "id": "01a1b68a-6928-7cc8-9641-89301ae3f344",
+          "occurred_at": "2026-11-07T15:04:46.627728Z",
+          "request_id": "743ff7a285f6a20a54d7b91c7d841a55",
+          "sealed_at": "2026-11-07T15:06:06.399676Z",
           "seq": 5,
           "source": "user",
-          "subject_id": "01a1b62f-56e6-7a97-8c4f-16059f2cd09a",
+          "subject_id": "01a1b68a-6927-795c-9104-54638545df5d",
           "subject_type": "record",
           "version_after": 1
         }
