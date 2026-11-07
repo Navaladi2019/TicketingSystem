@@ -178,8 +178,16 @@ func (e *etIso) cleanup() error {
 			SELECT tenant_id, gen_random_uuid(), 'record', 'delete', 'record', id, entity_definition_id, version, 'system', 'system' FROM r`,
 		`DELETE FROM audit_log WHERE subject_type = 'record' AND action = 'delete' AND entity_definition_id IN (SELECT id FROM entity_definitions WHERE key LIKE 'iso\_et\_%')`,
 		`DELETE FROM record_counters WHERE entity_definition_id IN (SELECT id FROM entity_definitions WHERE key LIKE 'iso\_et\_%')`,
-		`DELETE FROM entity_definition_versions WHERE definition_id IN (SELECT id FROM entity_definitions WHERE key LIKE 'iso\_et\_%')`,
-		`DELETE FROM entity_definitions WHERE key LIKE 'iso\_et\_%'`,
+		// The entity-definition deletes write one config delete entry per
+		// type, as their commit-check triggers require (P5-32, migration B).
+		`WITH v AS (DELETE FROM entity_definition_versions WHERE definition_id IN (SELECT id FROM entity_definitions WHERE key LIKE 'iso\_et\_%')
+			RETURNING tenant_id, definition_id)
+			INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, actor_system, source)
+			SELECT tenant_id, gen_random_uuid(), 'config', 'delete', 'entity_definition', definition_id, 'system', 'system'
+			FROM (SELECT DISTINCT tenant_id, definition_id FROM v) d`,
+		`WITH d AS (DELETE FROM entity_definitions WHERE key LIKE 'iso\_et\_%' RETURNING tenant_id, id)
+			INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, actor_system, source)
+			SELECT tenant_id, gen_random_uuid(), 'config', 'delete', 'entity_definition', id, 'system', 'system' FROM d`,
 		`DELETE FROM idempotency_keys WHERE key LIKE 'iso-et-%'`,
 	} {
 		if _, err := e.super.Exec(ctx, q); err != nil {

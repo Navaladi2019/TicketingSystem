@@ -77,12 +77,12 @@ func seedBackfillVersions(t *testing.T, super *pgx.Conn) map[string][]string {
 	ids := map[string][]string{tenantA: {tenantA}}
 	for v, compat := range map[int]string{2: "compatible", 3: "needs_backfill"} {
 		id := uuid.NewString()
-		exec(t, super, insertVersion, tenantA, id, tenantA, v, testSchema, schemaSum(testSchema), compat, tenantA)
+		exec(t, super, insertVersionRaw, tenantA, id, tenantA, v, testSchema, schemaSum(testSchema), compat, tenantA)
 		ids[tenantA] = append(ids[tenantA], id)
 	}
 	seedIdentity(t, super, tenantB)
-	exec(t, super, insertType, tenantB, "ticket", "TCK")
-	exec(t, super, insertVersion, tenantB, tenantB, tenantB, 1, testSchema, schemaSum(testSchema), "initial", nil)
+	exec(t, super, insertTypeRaw, tenantB, "ticket", "TCK")
+	exec(t, super, insertVersionRaw, tenantB, tenantB, tenantB, 1, testSchema, schemaSum(testSchema), "initial", nil)
 	ids[tenantB] = []string{tenantB}
 	// Past, distinct publish times, so occurred_at = published_at is visible.
 	exec(t, super, "UPDATE entity_definition_versions SET published_at = now() - make_interval(days => version * 10)")
@@ -160,7 +160,7 @@ func TestP515BackfillOnePerVersion(t *testing.T) {
 	if got := queryString(t, mig, "SELECT audit_backfill_s8()::text"); got != "0" {
 		t.Errorf("re-run added %s entries, want 0", got)
 	}
-	exec(t, super, insertVersion, tenantB, uuid.NewString(), tenantB, 2, testSchema, schemaSum(testSchema), "compatible", tenantB)
+	exec(t, super, insertVersionRaw, tenantB, uuid.NewString(), tenantB, 2, testSchema, schemaSum(testSchema), "compatible", tenantB)
 	if got := queryString(t, mig, "SELECT audit_backfill_s8()::text"); got != "1" {
 		t.Errorf("re-run after one new publish added %s entries, want 1", got)
 	}
