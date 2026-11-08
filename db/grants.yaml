@@ -113,6 +113,9 @@ roles:
       # once; publishing moves current_version. A version is insert-only (D-3-4).
       entity_definitions: { SELECT: [], INSERT: [], UPDATE: [current_version, updated_at] }
       entity_definition_versions: { SELECT: [], INSERT: [] }
+      # ACLs and shares (P3-30, TICK-615): immutable, insert-only.
+      acl_versions: { SELECT: [], INSERT: [] }
+      record_shares: { SELECT: [], INSERT: [] }
     functions: {}
 
   # ADR-004-A1 A1-1 (TICK-558): the masking reader's own login, held only by
@@ -177,6 +180,8 @@ roles:
       tenant_auditor_group: { SELECT: [] }
       entity_definitions: { SELECT: [] }
       entity_definition_versions: { SELECT: [] }
+      acl_versions: { SELECT: [], INSERT: [] }
+      record_shares: { SELECT: [], INSERT: [] }
 
   # Every column of outbox but dedupe_key and last_error; writes only the
   # dispatch columns. Nothing on workflow_ref or records.

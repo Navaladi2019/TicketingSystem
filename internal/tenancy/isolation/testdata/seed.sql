@@ -204,6 +204,25 @@ INSERT INTO record_counters (tenant_id, entity_definition_id, next) VALUES
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b1', 2),
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b2', 5);
 
+-- ACLs and shares (P3-30, TICK-615). Tenant B's ticket has two ACL versions,
+-- tenant A's one, under the same version numbers, so a lookup by version alone
+-- would find both tenants' rows. Tenant B also shares its record b2 with
+-- tenant A's principal id 0a…3a1 (SharedSharePrincipal): principal_id has no
+-- foreign key, so a list join by principal id alone would find tenant B's
+-- share.
+INSERT INTO acl_versions (tenant_id, entity_definition_id, version, rules, masks, published_by) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000006a1', 1, '{}', '{}', '0a000000-0000-4000-8000-0000000003a1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b1', 1, '{}', '{}', '0b000000-0000-4000-8000-0000000003b1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b1', 2, '{"b": 2}', '{}', '0b000000-0000-4000-8000-0000000003b1');
+
+INSERT INTO record_shares (tenant_id, record_id, principal_id, principal_kind, granted_by) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000000a2', '0a000000-0000-4000-8000-0000000003a1', 'user',
+        '0a000000-0000-4000-8000-0000000003a1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000000b2', '0a000000-0000-4000-8000-0000000003a1', 'user',
+        '0b000000-0000-4000-8000-0000000003b1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000000b2', '0b000000-0000-4000-8000-0000000004b1', 'group',
+        '0b000000-0000-4000-8000-0000000003b1');
+
 -- Back on before the seed commits (see the DISABLE above the records rows).
 ALTER TABLE records ENABLE TRIGGER records_audit_commit_check;
 ALTER TABLE entity_definitions ENABLE TRIGGER entity_definitions_audit_commit_check;

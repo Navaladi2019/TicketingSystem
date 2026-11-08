@@ -494,5 +494,6 @@ func Paths() []Path {
 	paths = append(paths, cascadePaths()...)
 	paths = append(paths, auditPaths()...)
 	paths = append(paths, auditReaderPaths()...)
+	paths = append(paths, aclPaths()...)
 	return append(paths, boundaryPaths()...)
 }

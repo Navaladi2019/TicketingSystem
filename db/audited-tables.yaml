@@ -54,6 +54,24 @@ audited:
     subject_type: entity_definition
     subject_id_column: definition_id
     attached: true
+  # P3-30 (TICK-615): insert-only. Publishing an ACL changes the entity
+  # type's configuration and a share changes who may see a record, so both
+  # are audited under their subject's type. Not attached yet: nothing writes
+  # these tables until S10's write paths (P3-31 publish, the share route),
+  # and the task that adds each path writes its audit entry and attaches
+  # the trigger with it.
+  acl_versions:
+    writer_roles: [nava_app, nava_worker]
+    audited_columns: []
+    subject_type: entity_definition
+    subject_id_column: entity_definition_id
+    attached: false
+  record_shares:
+    writer_roles: [nava_app, nava_worker]
+    audited_columns: []
+    subject_type: record
+    subject_id_column: record_id
+    attached: false
 
 exempt:
   audit_log:
