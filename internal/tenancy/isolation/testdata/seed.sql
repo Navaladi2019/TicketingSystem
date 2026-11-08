@@ -20,13 +20,17 @@ INSERT INTO tenant_identity_binding (tenant_id, issuer, org_id, idp_aliases) VAL
 
 -- The seed's records rows are bare fixtures for the isolation probes, not
 -- record writes: their audit entries are the curated set below, not one per
--- row. The records commit-check trigger (P5-13c, ADR-004 decision 2) is off
+-- row. The same holds for its entity types and versions. The commit-check
+-- triggers on records (P5-13c, ADR-004 decision 2) and on the two
+-- entity-definition tables (P5-32, migration B) are off
 -- for this one explicit transaction, from here to the COMMIT at the end of
 -- the file, and back on before it commits, so every row the suite writes
 -- later is checked. The transaction does not depend on how the loader sends
--- the file; the harness asserts the trigger is enabled after the seed.
+-- the file; the harness asserts the triggers are enabled after the seed.
 BEGIN;
 ALTER TABLE records DISABLE TRIGGER records_audit_commit_check;
+ALTER TABLE entity_definitions DISABLE TRIGGER entity_definitions_audit_commit_check;
+ALTER TABLE entity_definition_versions DISABLE TRIGGER entity_definition_versions_audit_commit_check;
 
 INSERT INTO records (tenant_id, id) VALUES
     ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000000a1'),
@@ -202,4 +206,6 @@ INSERT INTO record_counters (tenant_id, entity_definition_id, next) VALUES
 
 -- Back on before the seed commits (see the DISABLE above the records rows).
 ALTER TABLE records ENABLE TRIGGER records_audit_commit_check;
+ALTER TABLE entity_definitions ENABLE TRIGGER entity_definitions_audit_commit_check;
+ALTER TABLE entity_definition_versions ENABLE TRIGGER entity_definition_versions_audit_commit_check;
 COMMIT;

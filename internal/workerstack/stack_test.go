@@ -2,22 +2,20 @@
 
 // Package workerstack tests the nava-worker compose service (T31b, TICK-159)
 // in the running stack: it is ready, its admin listener serves /metrics and
-// the probes untraced and unpublished, and it runs a workflow's activity
-// through the T31 guard and the nava_worker database role.
+// the probes untraced and unpublished, and it runs the audit sealer's
+// activities through the T31 guard and the nava_worker database role.
 //
 //	make stack-up
 //	make stack-test-worker
 //
-// Its test workflow polls nava-tq, the only allow-listed queue, so it runs
-// after stack-test-sdk, never beside it (STACK_TESTS_SERIAL in make/nava-worker.mk).
+// No test here polls nava-tq beside the always-on nava-worker; the
+// interpreter cases stop it first (the nava-tq rule, TestWorkerServiceSealsThroughTheGuard).
 package workerstack
 
 import (
-	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"errors"
-	"log/slog"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,24 +26,12 @@ import (
 
 	"github.com/google/uuid"
 	"go.temporal.io/sdk/client"
-	"go.temporal.io/sdk/temporal"
-	"go.temporal.io/sdk/worker"
-	"go.temporal.io/sdk/workflow"
-
-	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
-	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
-	"github.com/Navaladi2019/TicketingSystem/internal/workerguard"
-	"github.com/Navaladi2019/TicketingSystem/internal/workflow/interp"
 )
 
-// The D9 allow-list's platform workload: workflow type nava.interpreter on
-// nava-tq. closeRef is registered under it (TICK-374), so the stack runs the
-// allow-list we ship.
+// The namespace and the always-on worker's compose service.
 const (
-	namespace    = "nava"
-	platformType = interp.WorkflowType
-	taskQueue    = "nava-tq"
-	service      = "nava-worker"
+	namespace = "nava"
+	service   = "nava-worker"
 	// The guard's allow decisions on activities, as Prometheus names them.
 	decisions = "nava_worker_guard_decisions_total"
 )
@@ -135,13 +121,12 @@ func TestWorkerServiceReadyAndAdminListener(t *testing.T) {
 	}
 }
 
-// activityAllows sums the guard's allow decisions on activities.
-func activityAllows(t *testing.T) float64 {
+// activityDecisions sums the guard's decisions on activities from one /metrics
+// scrape: allow, and every other outcome (a denial or an internal error).
+func activityDecisions(t *testing.T) (allow, other float64) {
 	t.Helper()
-	var sum float64
 	for line := range strings.SplitSeq(admin(t, "/metrics"), "\n") {
-		if !strings.HasPrefix(line, decisions+"{") ||
-			!strings.Contains(line, `guard="activity"`) || !strings.Contains(line, `outcome="allow"`) {
+		if !strings.HasPrefix(line, decisions+"{") || !strings.Contains(line, `guard="activity"`) {
 			continue
 		}
 		f := strings.Fields(line)
@@ -149,73 +134,113 @@ func activityAllows(t *testing.T) float64 {
 		if err != nil {
 			t.Fatalf("%s line %q: %v", decisions, line, err)
 		}
-		sum += v
+		if strings.Contains(line, `outcome="allow"`) {
+			allow += v
+		} else {
+			other += v
+		}
 	}
-	return sum
+	return allow, other
 }
 
-// closeRef is registered as the allow-listed platform type. It schedules
-// only the workflow_ref activity, which the nava-worker service alone polls.
-func closeRef(ctx workflow.Context) error {
-	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		TaskQueue:           taskQueue,
-		StartToCloseTimeout: 30 * time.Second,
-		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
-	})
-	return workflow.ExecuteActivity(ctx, workerguard.CloseWorkflowRefActivity).Get(ctx, nil)
+// The nava-tq rule (TICK-453, Technical Lead 2026-11-07): every worker that
+// polls a task queue registers the same workflow types. nava-worker registers
+// audit.seal there; nava-worker-interptest registers audit.seal and
+// nava.interpreter, so the interpreter cases stop nava-worker while it runs
+// (startInterpWorker). This test needs nava-worker up, so it starts no worker
+// of its own on nava-tq: the service runs a workflow it registers, audit.seal,
+// started by the stack's relay. A new case that brings its own worker to
+// nava-tq stops nava-worker first, as startInterpWorker does.
+//
+// It replaces the closeRef body (T31b), which polled nava-tq as
+// nava.interpreter beside the service. workflow_ref in the service image is
+// still covered: TestInterpreterStartedByTheRelayCompletes ends in
+// CloseWorkflowRef on nava-worker-interptest, the same Dockerfile.
+
+// psqlSuper runs sql as the superuser over the postgres container's Unix
+// socket (deploy/compose/test/lib.sh psql_super), unaligned, tuples only.
+func psqlSuper(t *testing.T, sql string) string {
+	t.Helper()
+	out, err := compose(t, "", "exec", "-T", "postgres", "sh", "-c",
+		`PGPASSWORD=$(cat /run/pg_superuser_password) exec psql -X -q -t -A -v ON_ERROR_STOP=1 -U pgadmin -d nava -c "$0"`, sql)
+	if err != nil {
+		t.Fatalf("psql %q: %v (%s)", sql, err, out)
+	}
+	return strings.TrimSpace(out)
 }
 
-// A relay-started workflow's workflow_ref activity runs in the service: the
-// guard allows it (the header is the id's tenant) and counts it on /metrics,
-// and the activity reaches PostgreSQL as nava_worker, where RLS and the
-// tenant find no row for this new workflow.
-func TestWorkerServiceRunsTheGuardedActivity(t *testing.T) {
+// seedSealLineage writes, as onboarding's SeedAuditChain does (A6.2), an
+// active tenant, its audit_chain_head and the first audit.seal start row at
+// head version 1, and returns the tenant and that row's id. The relay starts
+// the row as t:<tenant>:audit.seal:<id>.
+func seedSealLineage(t *testing.T) (tenant, first uuid.UUID) {
+	t.Helper()
+	tenant, first = uuid.New(), uuid.Must(uuid.NewV7())
+	psqlSuper(t, fmt.Sprintf(`BEGIN;
+INSERT INTO tenants (id, state) VALUES ('%[1]s', 'active');
+INSERT INTO audit_chain_head (tenant_id, id, next_seal_outbox_id, next_seal_at) VALUES ('%[1]s', '%[3]s', '%[2]s', now());
+INSERT INTO outbox (id, tenant_id, kind, kind_version, dedupe_key, target_key, target_seq, causation_id, causation_depth, payload)
+VALUES ('%[2]s', '%[1]s', 'audit.seal', 1, 'audit.seal:1', 'audit.seal:%[2]s', 1, '%[2]s', 0, '{}');
+COMMIT;`, tenant, first, uuid.Must(uuid.NewV7())))
+	return tenant, first
+}
+
+// writeAuditEntry inserts one unsealed audit entry for tenant.
+func writeAuditEntry(t *testing.T, tenant uuid.UUID) {
+	t.Helper()
+	psqlSuper(t, fmt.Sprintf(`INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, actor_system, source)
+VALUES ('%s', '%s', 'audit', 'export', 'audit_export', gen_random_uuid(), 'system', 'system')`, tenant, uuid.Must(uuid.NewV7())))
+}
+
+// awaitSealed polls, bounded, until tenant has no unsealed entry and its head
+// has sealed want entries and moved past the first run, and returns the head
+// as "seq|next_seal_outbox_id".
+func awaitSealed(t *testing.T, tenant, first uuid.UUID, want int) string {
+	t.Helper()
+	q := fmt.Sprintf(`SELECT (SELECT count(*) FROM audit_log WHERE tenant_id = '%[1]s' AND sealed_at IS NULL)
+	|| '|' || h.seq || '|' || coalesce(h.next_seal_outbox_id::text, '') FROM audit_chain_head h WHERE h.tenant_id = '%[1]s'`, tenant)
+	var got string
+	for deadline := time.Now().Add(3 * time.Minute); time.Now().Before(deadline); time.Sleep(2 * time.Second) {
+		got = psqlSuper(t, q)
+		f := strings.Split(got, "|")
+		if len(f) == 3 && f[0] == "0" && f[1] == strconv.Itoa(want) && f[2] != "" && f[2] != first.String() {
+			return f[1] + "|" + f[2]
+		}
+	}
+	t.Fatalf("tenant %s not sealed within 3m: unsealed|head seq|next run = %q, want 0|%d|<not %s>", tenant, got, want, first)
+	return ""
+}
+
+// TestWorkerServiceSealsThroughTheGuard (TICK-453, CI-A16 on the stack): a
+// relay-started audit.seal run of a seeded tenant runs in the nava-worker
+// service. A1 and A2 pass the activity guard (counted on /metrics) and reach
+// PostgreSQL as nava_worker under RLS: the entry is sealed at seq 1, the head
+// points at the next run, the first start row is dispatched, and
+// /metrics exports the sealer's audit_unsealed_oldest_seconds. The guard
+// denies nothing meanwhile: its non-allow activity decisions do not move
+// (TICK-589), so a denial cannot hide behind a later successful seal.
+func TestWorkerServiceSealsThroughTheGuard(t *testing.T) {
 	awaitReady(t)
-	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
-	defer cancel()
-	before := activityAllows(t)
+	before, deniedBefore := activityDecisions(t)
+	tenant, first := seedSealLineage(t)
+	writeAuditEntry(t, tenant)
 
-	tel, err := telemetry.New(ctx, config.Telemetry{})
-	if err != nil {
-		t.Fatal(err)
+	awaitSealed(t, tenant, first, 1)
+	if got := psqlSuper(t, fmt.Sprintf(`SELECT dispatched_at IS NOT NULL FROM outbox WHERE tenant_id = '%s' AND id = '%s'`, tenant, first)); got != "t" {
+		t.Errorf("the first start row is not dispatched (%q)", got)
 	}
-	t.Cleanup(func() { _ = tel.Shutdown(context.Background()) })
-	tt, err := tel.NewTemporal(slog.New(slog.DiscardHandler))
-	if err != nil {
-		t.Fatal(err)
+	if got := psqlSuper(t, fmt.Sprintf(`SELECT count(*) FROM audit_log WHERE tenant_id = '%s' AND seq = 1 AND entry_hash IS NOT NULL`, tenant)); got != "1" {
+		t.Errorf("%s entries at seq 1 with an entry_hash, want 1", got)
 	}
-	setup := func(o *client.Options) { workerguard.ConfigureClient(o, tt) }
-
-	// The test's worker runs the workflow only: no activity poller.
-	w := worker.New(dial(t, "nava-worker", setup), taskQueue, worker.Options{LocalActivityWorkerOnly: true})
-	w.RegisterWorkflowWithOptions(closeRef, workflow.RegisterOptions{Name: platformType})
-	// closeRef shares nava.interpreter on nava-tq with nava-worker-interptest,
-	// which only the interpreter cases of this package start and remove.
-	requireQueueFree(t)
-	if err := w.Start(); err != nil {
-		t.Fatalf("test worker start: %v", err)
+	after, deniedAfter := activityDecisions(t)
+	if after < before+2 {
+		t.Errorf("%s{guard=activity,outcome=allow} went from %v to %v; want A1 and A2 counted", decisions, before, after)
 	}
-	t.Cleanup(w.Stop)
-
-	tenant := uuid.New()
-	id := "t:" + tenant.String() + ":t31b:" + uuid.NewString()
-	relay := dial(t, "nava-relay", setup)
-	run, err := relay.ExecuteWorkflow(workerguard.ContextWithTenant(ctx, tenant),
-		client.StartWorkflowOptions{ID: id, TaskQueue: taskQueue, WorkflowExecutionTimeout: 2 * time.Minute}, platformType)
-	if err != nil {
-		t.Fatalf("start %s: %v", id, err)
+	if deniedAfter != deniedBefore {
+		t.Errorf("%s{guard=activity,outcome!=allow} went from %v to %v; want no guard denial during the seal", decisions, deniedBefore, deniedAfter)
 	}
-	system := dial(t, "temporal-system")
-	t.Cleanup(func() { _ = system.TerminateWorkflow(context.Background(), id, "", "T31b cleanup") })
-
-	// The relay may not read history; nava-core reads the result.
-	err = dial(t, "nava-core", setup).GetWorkflow(ctx, id, run.GetRunID()).Get(ctx, nil)
-	var app *temporal.ApplicationError
-	if !errors.As(err, &app) || app.Type() != workerguard.ErrTypeWorkflowRef {
-		t.Fatalf("workflow result %v; want the service's %s from the activity", err, workerguard.ErrTypeWorkflowRef)
-	}
-	if after := activityAllows(t); after < before+1 {
-		t.Errorf("%s{guard=activity,outcome=allow} went from %v to %v; want one more", decisions, before, after)
+	if m := admin(t, "/metrics"); !strings.Contains(m, "audit_unsealed_oldest_seconds") {
+		t.Error("/metrics has no audit_unsealed_oldest_seconds")
 	}
 }
 

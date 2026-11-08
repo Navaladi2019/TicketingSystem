@@ -40,20 +40,20 @@ audited:
     subject_type: record
     subject_id_column: id
     attached: true
-  # P5-32 (migration B, D-5-8) attaches the trigger to both; P5-14 makes the
-  # S8 publish path write their entries.
+  # Attached by P5-32 (migration B, TICK-442, 20261107053707, D-5-8); P5-14
+  # makes the S8 publish path write their entries.
   entity_definitions:
     writer_roles: [nava_app, nava_onboard]
     audited_columns: [current_version, updated_at]
     subject_type: entity_definition
     subject_id_column: id
-    attached: false
+    attached: true
   entity_definition_versions:
     writer_roles: [nava_app, nava_onboard]
     audited_columns: []
     subject_type: entity_definition
     subject_id_column: definition_id
-    attached: false
+    attached: true
 
 exempt:
   audit_log:

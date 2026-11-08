@@ -158,6 +158,18 @@ func migrateTo(t *testing.T, m *grants.Manifest, fsys fs.FS) (migrate.Result, er
 		r.Attached = false
 		a.Audited["records"] = r
 	}
+	// And the entity-definition tables are attached by migration B
+	// (20261107053707, P5-32, TICK-442).
+	if _, err := fs.Stat(fsys, migrationB); err != nil {
+		attached := a.Audited
+		a.Audited = make(map[string]audited.Table, len(attached))
+		for name, e := range attached {
+			if name == "entity_definitions" || name == "entity_definition_versions" {
+				e.Attached = false
+			}
+			a.Audited[name] = e
+		}
+	}
 	// CI-A3 pins audit_log_select's roles (ADR-004-A1 A1-9), which only
 	// 20261104133000 sets. It alters two policies of tables that exist from
 	// 20261102233600 on and depends on nothing after it, so a run that stops
@@ -170,6 +182,16 @@ func migrateTo(t *testing.T, m *grants.Manifest, fsys fs.FS) (migrate.Result, er
 	if _, err := fs.Stat(fsys, auditorGroupActiveTenantMigration); err != nil {
 		fsys = withMigrationFrom(t, fsys, auditorGroupActiveTenantMigration)
 	}
+	// And P5-33's (TICK-441), which the catalogue pins: they need only
+	// audit_chain_head (20261102233600), outbox (00002) and tenants.
+	if _, err := fs.Stat(fsys, onboardSealStartMigration); err != nil {
+		fsys = withMigrationFrom(t, fsys, onboardSealStartMigration)
+	}
+	// And P5-34f's (TICK-590), which the allow-list pins: it needs only
+	// audit_chain_head (20261102233600).
+	if _, err := fs.Stat(fsys, deadLineageMigration); err != nil {
+		fsys = withMigrationFrom(t, fsys, deadLineageMigration)
+	}
 	log, _ := newLog()
 	return migrate.Run(context.Background(), roleConfig(t, withV0.Owner(), withV0.PlatformDatabase),
 		fsys, &withV0, &a, globalTables(t), log, migrate.Options{LockRetrySeconds: 1})
@@ -177,6 +199,9 @@ func migrateTo(t *testing.T, m *grants.Manifest, fsys fs.FS) (migrate.Result, er
 
 // auditReaderPoliciesMigration is ADR-004-A1 A1-3's policy migration (TICK-558).
 const auditReaderPoliciesMigration = "20261104133000_audit_reader_policies.sql"
+
+// deadLineageMigration is P5-34f's nava_purge policy on audit_chain_head (TICK-590).
+const deadLineageMigration = "20261107100000_audit_chain_head_dead_lineage.sql"
 
 // auditorGroupActiveTenantMigration is P5-23's policy migration (TICK-568).
 const auditorGroupActiveTenantMigration = "20261104191200_auditor_group_active_tenant.sql"
@@ -203,3 +228,6 @@ func withMigrationFrom(t *testing.T, fsys fs.FS, name string) fs.FS {
 	out[name] = &fstest.MapFile{Data: b}
 	return out
 }
+
+// onboardSealStartMigration is P5-33's policy migration (TICK-441).
+const onboardSealStartMigration = "20261105100000_onboard_seal_start.sql"

@@ -36,9 +36,11 @@ service `nava-worker` (image `nava/nava-worker`):
 - Client: namespace `nava`, the `nava-worker` certificate over mTLS through the
   `temporal` gateway, options from `ConfigureClient`. Worker: queue `nava-tq`,
   options from `WorkerOptions`. Activity code gets no client (AR-025).
-- Hosts the `workflow_ref` activity only, as `nava_worker` through PgBouncer.
-  No workflow is registered yet, so the workflow poller is off
-  (`DisableWorkflowWorker`); T32b registers the first workflow and turns it on.
+- Hosts the `workflow_ref` activity and the audit sealer (`audit.seal` and its
+  A1 and A2 activities, TICK-453, `docs/architecture/audit-sealer.md`), as
+  `nava_worker` through PgBouncer. With `audit.seal` registered the workflow
+  poller is on. `NAVA_WORKER_WORKFLOWS=off` (stack-only, `nava-worker-activities`)
+  registers no workflow and polls activity tasks only.
 - Admin listener on `NAVA_ADMIN_ADDR` (`:9090`): `telemetry.NewAdminHandler`,
   not wrapped in `httpobs.Middleware`. `/metrics` carries
   `nava_worker_guard_decisions_total` and the SDK metrics; `/readyz` is 200
@@ -72,7 +74,7 @@ PostgreSQL. It runs after `stack-test-sdk`, whose workers also poll `nava-tq`.
 | Signal | header missing or another tenant | **dropped**; the workflow keeps running |
 | Update | header missing or another tenant | rejected by the validator |
 | Activity | header missing or another tenant (TICK-84 finding 1) | fails non-retryably; the body never runs |
-| Child | id not prefixed with this tenant (the SDK default `<runID>_<n>` is not), other namespace, cron, `NavaTenantId` of another tenant, or under a non-Keyword key | the child future fails |
+| Child | id not prefixed with this tenant (the SDK default `<runID>_<n>` is not), other namespace, cron (the server's authorizer also denies a child cron or workflow retry policy, `child_cron` / `child_retry_policy`, TICK-576), `NavaTenantId` of another tenant, or under a non-Keyword key | the child future fails |
 | Signal-external, signal-child, cancel-external | target id not prefixed with this tenant, other namespace | the future fails |
 | Continue-as-new | header not this tenant (no Propagator, or rewritten on the returned error: checked again when the workflow returns), a cron schedule copied from a cron-started run, or the copied `NavaTenantId` is another tenant's | the workflow fails instead of continuing |
 | Upsert `NavaTenantId` | another value, or unset; or any change through a non-Keyword key of the same name (Text, KeywordList, ...), which the SDK encodes under the same name | the upsert fails |
@@ -184,7 +186,7 @@ flowchart TD
   S -- yes --> P[recorded unchanged]
   S -- no --> C{cancel or timeout error?}
   C -- yes --> K[type kept; cause checked the same way;<br/>details argOK rejects dropped]
-  C -- no --> A{ApplicationError of an allowed type<br/>nava.TenantGuard, nava.WorkflowRefNotFound,<br/>nava.WorkflowRejected with a Rejected text,<br/>no cause?}
+  C -- no --> A{ApplicationError of an allowed type<br/>nava.TenantGuard, nava.WorkflowRefNotFound,<br/>nava.WorkflowRejected with a Rejected text,<br/>nava.audit.seal.Unsealable, nava.audit.seal.HeadNotFound,<br/>no cause?}
   A -- yes --> D[message and type kept;<br/>details argOK rejects dropped]
   A -- no --> O[nava.Opaque, fixed text,<br/>same non-retryable flag]
   O --> L[deny alert + withheld line<br/>with the error's shape, never its text]
@@ -194,7 +196,10 @@ Add a type to the allowed list only after a review that its messages are
 constants or ids. `nava.WorkflowRejected` (P3-22a) is the interpreter's: only
 `workerguard.Rejected(r)` builds it, from the closed `Rejection` constants,
 and the guard keeps its message only when it is one of their texts. AR-044's
-`guarderrtype` reports the type outside `internal/workerguard`. An activity panic is recovered in the guard and withheld,
+`guarderrtype` reports the type outside `internal/workerguard`. The two
+`nava.audit.seal` types (TICK-585) may also be built in `internal/audit/seal`,
+and there `guarderrtype` reports any call that builds one with a message that
+is not a constant (TICK-594). An activity panic is recovered in the guard and withheld,
 so neither its value nor its stack is recorded. A workflow panic is not: see
 AR-042. The full path table, with severities, is in
 `docs/security/temporal-ci6.md` ("Remaining history-write paths").

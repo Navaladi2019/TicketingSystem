@@ -3,7 +3,7 @@
 //	go vet -vettool=bin/navalint ./...
 //
 // `make lint` builds and runs it: setconfig (T07), idpclaims (T15, CI-11) and
-// guarderrtype (AR-044, P3-26).
+// guarderrtype (AR-044, P3-26, TICK-594).
 package main
 
 import (

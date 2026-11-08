@@ -170,11 +170,14 @@ func TestP511CatalogueCIA3(t *testing.T) {
 	if p, err := auditedManifest(t).Check(ctx, super, m, g); err != nil || len(p) != 0 {
 		t.Fatalf("real manifest: problems %v, err %v", p, err)
 	}
-	// Exactly one table has the trigger: records (P5-13c, TICK-530). P5-32
-	// attaches it to the entity-definition tables.
-	if got := queryString(t, super, `SELECT coalesce(string_agg(t.tgrelid::regclass::text || ':' || t.tgname || ':' || t.tgenabled::text, ','), '')
-		FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid WHERE p.proname = 'audit_commit_check'`); got != "records:records_audit_commit_check:O" {
-		t.Errorf("audit_commit_check triggers after the real migrations: %q, want records:records_audit_commit_check:O", got)
+	// Exactly three tables have the trigger: records (P5-13c, TICK-530) and
+	// the entity-definition tables (P5-32, migration B, TICK-442).
+	const wantTriggers = "entity_definition_versions:entity_definition_versions_audit_commit_check:O," +
+		"entity_definitions:entity_definitions_audit_commit_check:O,records:records_audit_commit_check:O"
+	if got := queryString(t, super, `SELECT coalesce(string_agg(t.tgrelid::regclass::text || ':' || t.tgname || ':' || t.tgenabled::text, ','
+		ORDER BY t.tgname COLLATE "C"), '')
+		FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid WHERE p.proname = 'audit_commit_check'`); got != wantTriggers {
+		t.Errorf("audit_commit_check triggers after the real migrations: %q, want %s", got, wantTriggers)
 	}
 
 	def := commitCheckDef(t, super)
@@ -197,9 +200,13 @@ func TestP511CatalogueCIA3(t *testing.T) {
 		want  string // "" = no problem
 	}{
 		{"attached test table passes", nil, func() *audited.Manifest { return withTestTable(nil) }, ""},
-		{"trigger on a table not attached",
-			[]string{fmt.Sprintf(trig, "current_version, updated_at", "entity_definitions", "DEFERRABLE INITIALLY DEFERRED", "'entity_definition', 'id'")},
-			func() *audited.Manifest { return withTestTable(nil) }, "but the table is not attached: true"},
+		{"trigger on a table not attached", nil, func() *audited.Manifest {
+			a := withTestTable(nil)
+			e := a.Audited["entity_definitions"]
+			e.Attached = false
+			a.Audited["entity_definitions"] = e
+			return a
+		}, "but the table is not attached: true"},
 		{"records attached without its trigger", []string{"DROP TRIGGER records_audit_commit_check ON records"},
 			func() *audited.Manifest { return withTestTable(nil) }, "has 0 audit_commit_check triggers"},
 		{"attached without a trigger", []string{"DROP TRIGGER " + testTable + "_audit_commit_check ON " + testTable},

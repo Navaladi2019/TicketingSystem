@@ -326,6 +326,7 @@ services:
       - --storage.tsdb.retention.time=2d
     volumes:
       - ./deploy/compose/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/compose/prometheus/rules:/etc/prometheus/rules:ro
     networks: [internal, operator]
     ports:
       - "127.0.0.1:9091:9091"

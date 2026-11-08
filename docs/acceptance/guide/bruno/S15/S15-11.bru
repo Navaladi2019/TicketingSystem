@@ -1,0 +1,57 @@
+meta {
+  name: S15.11 AC1: the third incident's entry is sealed within about 10 s
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{core_url}}/api/v1/audit/entries?subject_id={{s15_rec3}}&limit=10
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{auditor_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await require('./lib/s15')(N, bru).fresh();
+  // Polls, once a second, until the entry has a seq, for up to 60 s; this
+  // request then reads the sealed entry.
+  const t0 = Date.now();
+  const T = require('./lib/s15')(N, bru);
+  for (;;) {
+    await T.fresh('auditor_token');
+    const r = await N.send({
+      url: N.url('{{core_url}}/api/v1/audit/entries?subject_id={{s15_rec3}}&limit=10'),
+      method: 'GET',
+      headers: { Authorization: 'Bearer ' + bru.getVar('auditor_token') },
+    });
+    const e = ((r.data && r.data.items) || []).find(x => x.action === 'create');
+    if ((e && e.seq) || Date.now() - t0 > 60 * 1000) break;
+    await bru.sleep(1000);
+  }
+  bru.setVar('s15_polled_s_rec3', String(Math.round((Date.now() - t0) / 1000)));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const items = N.json().items;
+  const e = items.find(x => x.action === 'create');
+  test("the incident's create entry is on the auditor's timeline", () => expect(e).to.be.an('object'));
+  test('sealed: a seq of 1 or more, and a sealed_at', () => {
+    expect(e.seq).to.be.a('number').and.at.least(1);
+    expect(e.sealed_at).to.be.a('string');
+  });
+  const lat = (Date.parse(e.sealed_at) - Date.parse(e.occurred_at)) / 1000;
+  test('sealed 20 s or less after it was written (sealed_at - occurred_at, database clock)', () => expect(lat).to.be.at.least(0).and.at.most(20));
+  bru.setVar('s15_seq_rec3', String(e.seq));
+  console.log('S15.11:', JSON.stringify({ seq: e.seq, occurred_at: e.occurred_at, sealed_at: e.sealed_at, latency_s: lat, polled_s: Number(bru.getVar('s15_polled_s_rec3')) }));
+  test('a later seq than the second incident', () => expect(e.seq).to.be.above(Number(bru.getVar('s15_seq_rec2'))));
+}
+
+docs {
+  The story's "within about 10 s": the sealer runs every 10 s after a run that sealed anything (R16), and the relay starts the next run when its row comes due. The test allows 20 s for the relay's pick-up; the log line has the measured value.
+}

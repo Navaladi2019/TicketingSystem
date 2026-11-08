@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -17,20 +18,60 @@ import (
 // deletes a version (D-3-4).
 
 const (
-	// insertType has the type's id and tenant as $1, its key as $2 and its
-	// number_prefix as $3.
-	insertType = `INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version)
+	// insertTypeRaw has the type's id and tenant as $1, its key as $2 and its
+	// number_prefix as $3. It writes no audit entry: after migration B
+	// (P5-32) its COMMIT fails the commit check, so only tests of a schema
+	// before B, or of the check itself, use it.
+	insertTypeRaw = `INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version)
 		VALUES ($1, $1, $2, 'Ticket', $3, 1)`
-	insertTypeNewID = `INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version)
-		VALUES ($1, gen_random_uuid(), $2, 'Ticket', $3, 1)`
-	// insertVersion: tenant $1, version id $2, type $3, version $4, schema
+	// insertType is insertTypeRaw plus the type's config entry in the same
+	// statement, so a fixture's COMMIT passes the commit check. The entry
+	// takes its values from the parameters, not RETURNING: nava_onboard has
+	// no SELECT on the table. version_after is NULL, so the entry never
+	// counts as a version's (CI-A9).
+	insertType = `WITH d AS (` + insertTypeRaw + `) ` + configEntry +
+		` VALUES ($1, gen_random_uuid()` + typeEntryValues + `, $1` + typeEntryTail + `)`
+	insertTypeNewID = `WITH n AS (SELECT gen_random_uuid() AS id),
+		d AS (INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version)
+			SELECT $1, n.id, $2, 'Ticket', $3, 1 FROM n) ` +
+		configEntry + ` SELECT $1, gen_random_uuid()` + typeEntryValues + `, n.id` + typeEntryTail + ` FROM n`
+	// configEntry is the column list of every fixture's config entry.
+	configEntry = `INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, version_after,
+		actor_system, source, content_sha256)`
+	typeEntryValues = `, 'config', 'create', 'entity_definition'`
+	typeEntryTail   = `, NULL, 'system', 'system', sha256(''::bytea)`
+	// insertVersionRaw: tenant $1, version id $2, type $3, version $4, schema
 	// bytes $5 (as text, so nothing re-encodes them), schema_sha256 $6,
-	// compat $7, published_by $8.
-	insertVersion = `INSERT INTO entity_definition_versions
+	// compat $7, published_by $8. No audit entry, like insertTypeRaw.
+	insertVersionRaw = `INSERT INTO entity_definition_versions
 		(tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat, published_by)
 		VALUES ($1, $2, $3, $4, $5::text::json, $6, '{}', '{}', $7, $8)`
+	// insertVersion is insertVersionRaw plus the version's config entry
+	// (create for version 1, publish after), as the publish path writes it.
+	insertVersion = `WITH v AS (` + insertVersionRaw + `) ` + configEntry + `
+		VALUES ($1, gen_random_uuid(), 'config', CASE WHEN $4 = 1 THEN 'create' ELSE 'publish' END,
+			'entity_definition', $3, $4, 'system', 'system', $6)`
 	testSchema = `{"type": "object"}`
 )
+
+// withDefinitionEntry turns one UPDATE or DELETE of entity_definitions or
+// entity_definition_versions (no RETURNING) into a statement that also
+// writes an audit entry per written type, so a fixture's COMMIT passes the
+// commit check (P5-32). The caller needs SELECT on the table: the
+// superuser, or nava_app.
+func withDefinitionEntry(write string) string {
+	subject := "id"
+	if strings.Contains(write, "entity_definition_versions") {
+		subject = "definition_id"
+	}
+	action := "update"
+	if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(write)), "DELETE") {
+		action = "delete"
+	}
+	return "WITH w AS (" + write + " RETURNING tenant_id, " + subject + " AS subject) " + configEntry +
+		" SELECT tenant_id, gen_random_uuid(), 'config', '" + action + "', 'entity_definition', subject, NULL::bigint," +
+		" 'system', 'system', sha256(''::bytea) FROM (SELECT DISTINCT tenant_id, subject FROM w) s"
+}
 
 func schemaSum(s string) []byte {
 	sum := sha256.Sum256([]byte(s))
@@ -40,14 +81,27 @@ func schemaSum(s string) []byte {
 // seedEntityTypes writes, as the superuser, one principal (through
 // seedIdentity), one type and its version 1 for each tenant, each with id =
 // the tenant id, and the same key and number_prefix in every tenant.
-// seedTenants must have created the tenants.
+// seedTenants must have created the tenants. Before migration B (a test that
+// runs only some migrations) it writes no audit entries, as S8 did then.
 func seedEntityTypes(t *testing.T, super *pgx.Conn, tenants ...string) {
 	t.Helper()
 	seedIdentity(t, super, tenants...)
-	for _, id := range tenants {
-		exec(t, super, insertType, id, "ticket", "TCK")
-		exec(t, super, insertVersion, id, id, id, 1, testSchema, schemaSum(testSchema), "initial", id)
+	typ, ver := insertTypeRaw, insertVersionRaw
+	if definitionsAudited(t, super) {
+		typ, ver = insertType, insertVersion
 	}
+	for _, id := range tenants {
+		exec(t, super, typ, id, "ticket", "TCK")
+		exec(t, super, ver, id, id, id, 1, testSchema, schemaSum(testSchema), "initial", id)
+	}
+}
+
+// definitionsAudited reports whether migration B has attached the commit
+// check to entity_definitions (P5-32).
+func definitionsAudited(t *testing.T, conn *pgx.Conn) bool {
+	t.Helper()
+	return queryString(t, conn, `SELECT count(*)::text FROM pg_trigger
+		WHERE tgname = 'entity_definitions_audit_commit_check'`) != "0"
 }
 
 // Acceptance: with tenant A set, neither nava_app nor nava_worker sees a row
@@ -152,7 +206,7 @@ func TestP302NumberPrefixPerTenantAndFixed(t *testing.T) {
 		_, err := execIn(app, tenantA, q, tenantA)
 		wantSQLState(t, "nava_app: "+q, err, "42501")
 	}
-	if n, err := execIn(app, tenantA, "UPDATE entity_definitions SET current_version = 2, updated_at = now() WHERE tenant_id = $1", tenantA); err != nil || n != 1 {
+	if n, err := execIn(app, tenantA, withDefinitionEntry("UPDATE entity_definitions SET current_version = 2, updated_at = now() WHERE tenant_id = $1"), tenantA); err != nil || n != 1 {
 		t.Errorf("control: nava_app moves its own current_version: %d rows, %v; want 1, nil", n, err)
 	}
 	if got := queryString(t, super, "SELECT number_prefix || ':' || key FROM entity_definitions WHERE tenant_id = $1", tenantA); got != "TCK:ticket" {

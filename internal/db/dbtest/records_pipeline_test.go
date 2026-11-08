@@ -276,7 +276,8 @@ func TestP309NumberingUpsertAndUniqueness(t *testing.T) {
 	super := superNava(t)
 	seedTenants(t, super, []string{tenantA}, nil)
 	seedEntityTypes(t, super, tenantA)
-	exec(t, super, "INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version) VALUES ($1, $2, 'incident', 'Incident', 'INC', 1)", tenantA, tenantY)
+	exec(t, super, "WITH d AS (INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version) VALUES ($1, $2, 'incident', 'Incident', 'INC', 1)) "+
+		configEntry+" VALUES ($1, gen_random_uuid()"+typeEntryValues+", $2"+typeEntryTail+")", tenantA, tenantY)
 	app := asRole(t, "nava_app")
 
 	for want := 1; want <= 3; want++ {

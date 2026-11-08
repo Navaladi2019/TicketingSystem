@@ -52,7 +52,7 @@ func jsonString(s string) *commonpb.Payload {
 // entry, so a policy change never shifts which type these tests exercise;
 // TestChildAndContinueAsNewAllowEveryPlatformType covers every entry.
 func platformType() string  { return interpreterType }
-func platformQueue() string { return sortedKeys(platformTaskQueues)[0] }
+func platformQueue() string { return sortedKeys(platformTaskQueues())[0] }
 
 func startChild(namespace, workflowID string) *commandpb.Command {
 	return startChildWith(namespace, workflowID, jsonString("tenantA"), nil)
