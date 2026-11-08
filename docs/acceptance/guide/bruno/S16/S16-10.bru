@@ -12,6 +12,7 @@ post {
 
 headers {
   Authorization: Bearer {{alice_token}}
+  Idempotency-Key: {{$guid}}
 }
 
 tests {

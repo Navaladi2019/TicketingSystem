@@ -12,6 +12,7 @@ post {
 
 headers {
   Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: {{$guid}}
 }
 
 tests {

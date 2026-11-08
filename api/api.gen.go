@@ -471,6 +471,11 @@ type Entity = string
 // Key defines model for Key.
 type Key = string
 
+// ReseedAuditChainParams defines parameters for ReseedAuditChain.
+type ReseedAuditChainParams struct {
+	IdempotencyKey string `json:"Idempotency-Key"`
+}
+
 // ListAuditEntriesParams defines parameters for ListAuditEntries.
 type ListAuditEntriesParams struct {
 	// From Entries at or after this time (`occurred_at`).
@@ -577,7 +582,7 @@ type PatchRecordApplicationMergePatchPlusJSONRequestBody = PatchRecordRequest
 type ServerInterface interface {
 	// ReseedAuditChain Restart a dead audit seal lineage
 	// (POST /api/v1/audit/chain:reseed)
-	ReseedAuditChain(w http.ResponseWriter, r *http.Request)
+	ReseedAuditChain(w http.ResponseWriter, r *http.Request, params ReseedAuditChainParams)
 	// ListAuditEntries The tenant's audit timeline
 	// (GET /api/v1/audit/entries)
 	ListAuditEntries(w http.ResponseWriter, r *http.Request, params ListAuditEntriesParams)
@@ -631,8 +636,39 @@ type MiddlewareFunc func(http.Handler) http.Handler
 // ReseedAuditChain operation middleware
 func (siw *ServerInterfaceWrapper) ReseedAuditChain(w http.ResponseWriter, r *http.Request) {
 
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ReseedAuditChainParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ReseedAuditChain(w, r)
+		siw.Handler.ReseedAuditChain(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1533,6 +1569,7 @@ type ProblemApplicationProblemPlusJSONResponse Problem
 type ProblemNoInstanceApplicationProblemPlusJSONResponse ProblemNoInstance
 
 type ReseedAuditChainRequestObject struct {
+	Params ReseedAuditChainParams
 }
 
 type ReseedAuditChainResponseObject interface {
@@ -1553,9 +1590,23 @@ func (response ReseedAuditChain200JSONResponse) VisitReseedAuditChainResponse(w 
 	return err
 }
 
-type ReseedAuditChain401ApplicationProblemPlusJSONResponse struct {
+type ReseedAuditChain400ApplicationProblemPlusJSONResponse struct {
 	ProblemApplicationProblemPlusJSONResponse
 }
+
+func (response ReseedAuditChain400ApplicationProblemPlusJSONResponse) VisitReseedAuditChainResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReseedAuditChain401ApplicationProblemPlusJSONResponse Problem
 
 func (response ReseedAuditChain401ApplicationProblemPlusJSONResponse) VisitReseedAuditChainResponse(w http.ResponseWriter) error {
 
@@ -3414,8 +3465,10 @@ type strictHandler struct {
 }
 
 // ReseedAuditChain operation middleware
-func (sh *strictHandler) ReseedAuditChain(w http.ResponseWriter, r *http.Request) {
+func (sh *strictHandler) ReseedAuditChain(w http.ResponseWriter, r *http.Request, params ReseedAuditChainParams) {
 	var request ReseedAuditChainRequestObject
+
+	request.Params = params
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.ReseedAuditChain(ctx, request.(ReseedAuditChainRequestObject))

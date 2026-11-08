@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/google/uuid"
@@ -38,6 +39,13 @@ func (x *exportEnv) lineage(t *testing.T, tenant uuid.UUID, offset string) uuid.
 		t.Fatal(err)
 	}
 	return o
+}
+
+// reseed posts the reseed with a fresh Idempotency-Key, which every tenant
+// write requires.
+func (x *exportEnv) reseed(t *testing.T, token string) *httptest.ResponseRecorder {
+	t.Helper()
+	return x.do(t, http.MethodPost, reseedPath, token, uuid.NewString(), "")
 }
 
 type headState struct {
@@ -74,7 +82,7 @@ func TestReseedAliveRefusedThenDeadRestarts(t *testing.T) {
 	dead := x.lineage(t, x.a.id, "-5 minutes") // late, but not dead: R17 says 10 minutes
 	before := x.head(t, x.a.id)
 
-	rec := x.do(t, http.MethodPost, reseedPath, "admin-a", "", "")
+	rec := x.reseed(t, "admin-a")
 	if rec.Code != http.StatusConflict || patchProblemCode(t, rec) != "chain_alive" {
 		t.Fatalf("alive reseed = %d: %s", rec.Code, rec.Body)
 	}
@@ -91,7 +99,7 @@ func TestReseedAliveRefusedThenDeadRestarts(t *testing.T) {
 	if _, err := x.super.Exec(t.Context(), "UPDATE audit_chain_head SET next_seal_at = now() - interval '11 minutes' WHERE tenant_id = $1", x.a.id); err != nil {
 		t.Fatal(err)
 	}
-	rec = x.do(t, http.MethodPost, reseedPath, "admin-a", "", "")
+	rec = x.reseed(t, "admin-a")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("dead reseed = %d: %s", rec.Code, rec.Body)
 	}
@@ -133,24 +141,27 @@ func TestReseedAliveRefusedThenDeadRestarts(t *testing.T) {
 	}
 
 	// The lineage is alive again: a second call is refused.
-	if rec := x.do(t, http.MethodPost, reseedPath, "admin-a", "", ""); rec.Code != http.StatusConflict {
+	if rec := x.reseed(t, "admin-a"); rec.Code != http.StatusConflict {
 		t.Errorf("second reseed = %d, want 409", rec.Code)
 	}
 }
 
 // Auth, the tenant boundary and the unknown head (TICK-590 constraints).
 //
-// covers: reseedAuditChain 401 403
+// covers: reseedAuditChain 400 401 403
 // covers: reseedAuditChain 404
 func TestReseedGateTenantAndMissingHead(t *testing.T) {
 	x := newExportEnv(t)
 	x.lineage(t, x.a.id, "-20 minutes")
 	bOld := x.lineage(t, x.b.id, "-20 minutes")
 
-	if rec := x.do(t, http.MethodPost, reseedPath, "user-a", "", ""); rec.Code != http.StatusForbidden || patchProblemCode(t, rec) != "forbidden" {
+	if rec := x.reseed(t, "user-a"); rec.Code != http.StatusForbidden || patchProblemCode(t, rec) != "forbidden" {
 		t.Errorf("member without audit.export = %d: %s", rec.Code, rec.Body)
 	}
-	if rec := x.do(t, http.MethodPost, reseedPath, "", "", ""); rec.Code != http.StatusUnauthorized {
+	if rec := x.do(t, http.MethodPost, reseedPath, "admin-a", "", ""); rec.Code != http.StatusBadRequest {
+		t.Errorf("no Idempotency-Key = %d, want 400", rec.Code)
+	}
+	if rec := x.reseed(t, ""); rec.Code != http.StatusUnauthorized {
 		t.Errorf("no token = %d", rec.Code)
 	}
 	if n := x.count(t, "SELECT count(*) FROM audit_log WHERE action = 'reseed'"); n != 0 {
@@ -158,7 +169,7 @@ func TestReseedGateTenantAndMissingHead(t *testing.T) {
 	}
 
 	// Tenant A's admin restarts A only; B's dead head is untouched.
-	if rec := x.do(t, http.MethodPost, reseedPath, "admin-a", "", ""); rec.Code != http.StatusOK {
+	if rec := x.reseed(t, "admin-a"); rec.Code != http.StatusOK {
 		t.Fatalf("admin-a = %d: %s", rec.Code, rec.Body)
 	}
 	if h := x.head(t, x.b.id); h.next == nil || *h.next != bOld {
@@ -172,7 +183,7 @@ func TestReseedGateTenantAndMissingHead(t *testing.T) {
 	if _, err := x.super.Exec(t.Context(), "DELETE FROM audit_chain_head WHERE tenant_id = $1", x.b.id); err != nil {
 		t.Fatal(err)
 	}
-	rec := x.do(t, http.MethodPost, reseedPath, "admin-b", "", "")
+	rec := x.reseed(t, "admin-b")
 	if rec.Code != http.StatusNotFound || patchProblemCode(t, rec) != "not_found" {
 		t.Errorf("no head = %d: %s", rec.Code, rec.Body)
 	}
@@ -191,5 +202,29 @@ func TestReseedAppCannotWriteChainColumns(t *testing.T) {
 		if !errors.As(err, &pg) || pg.Code != "42501" {
 			t.Errorf("nava_app UPDATE %s: %v, want SQLSTATE 42501", set, err)
 		}
+	}
+}
+
+// C5 amendment: a retry with the same Idempotency-Key replays the first
+// answer, and the reseed happened once: one entry, one new outbox row.
+//
+// covers: reseedAuditChain 200
+func TestReseedRetryWithSameKeyIsIdempotent(t *testing.T) {
+	x := newExportEnv(t)
+	x.lineage(t, x.a.id, "-20 minutes")
+	key := uuid.NewString()
+	first := x.do(t, http.MethodPost, reseedPath, "admin-a", key, "")
+	second := x.do(t, http.MethodPost, reseedPath, "admin-a", key, "")
+	if first.Code != http.StatusOK || second.Code != http.StatusOK {
+		t.Fatalf("first %d: %s; retry %d: %s", first.Code, first.Body, second.Code, second.Body)
+	}
+	if first.Body.String() != second.Body.String() {
+		t.Errorf("retry answered %s, want the first answer %s", second.Body, first.Body)
+	}
+	if n := x.count(t, "SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND action = 'reseed'", x.a.id); n != 1 {
+		t.Errorf("%d reseed entries after a retry, want 1", n)
+	}
+	if n := x.count(t, "SELECT count(*) FROM outbox WHERE tenant_id = $1", x.a.id); n != 2 {
+		t.Errorf("%d outbox rows after a retry, want 2 (dead lineage, one reseed)", n)
 	}
 }

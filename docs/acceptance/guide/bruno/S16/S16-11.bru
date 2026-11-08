@@ -10,6 +10,10 @@ post {
   auth: none
 }
 
+headers {
+  Idempotency-Key: {{$guid}}
+}
+
 tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
   N.problem('invalid_token', 401);

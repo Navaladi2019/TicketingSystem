@@ -196,7 +196,16 @@ paths:
         call is refused with 409 `chain_alive` and writes nothing. Otherwise it
         starts a new lineage at the head's current version, retires the old
         one and writes an `audit/reseed` entry. The tenant is the token's.
-        There is no request body.
+        There is no request body. `Idempotency-Key` is required: a retry with
+        the same key returns the first answer.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
       responses:
         "200":
           description: The new lineage.
@@ -204,6 +213,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ChainReseed"
+        "400":
+          $ref: "../openapi.yaml#/components/responses/Problem"
         "401":
           $ref: "../openapi.yaml#/components/responses/Problem"
         "403":

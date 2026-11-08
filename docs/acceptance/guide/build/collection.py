@@ -2584,11 +2584,13 @@ test('stubs false is recorded and nothing is verifiable', () => {
                         desc="Alice is neither a tenant admin nor in the auditors group."),
             problem_req("S16.8 exportAuditEntries 400: from after to", "GET", exp + "?from=2030-01-02T00:00:00Z&to=2030-01-01T00:00:00Z",
                         "validation_failed", 400, auth="admin_a_token", desc="The window must have from before to."),
-            problem_req("S16.9 reseedAuditChain 409: the lineage is alive", "POST", "{{core_url}}/api/v1/audit/chain:reseed", "chain_alive", 409, auth="admin_a_token",
+            problem_req("S16.9 reseedAuditChain 409: the lineage is alive", "POST", "{{core_url}}/api/v1/audit/chain:reseed", "chain_alive", 409, headers={"Idempotency-Key": "{{$guid}}"}, auth="admin_a_token",
                         desc="The seal lineage of a running stack is alive (R17), so the reseed is refused and writes nothing. A dead lineage is reseeded in the integration tests."),
-            problem_req("S16.10 reseedAuditChain 403: a member without audit.export", "POST", "{{core_url}}/api/v1/audit/chain:reseed", "forbidden", 403, auth="alice_token",
+            problem_req("S16.10 reseedAuditChain 403: a member without audit.export", "POST", "{{core_url}}/api/v1/audit/chain:reseed", "forbidden", 403, headers={"Idempotency-Key": "{{$guid}}"}, auth="alice_token",
                         desc="Alice is neither a tenant admin nor in the auditors group."),
-            problem_req("S16.11 reseedAuditChain 401: no token", "POST", "{{core_url}}/api/v1/audit/chain:reseed", "invalid_token", 401, desc="Missing token."),
+            problem_req("S16.11 reseedAuditChain 401: no token", "POST", "{{core_url}}/api/v1/audit/chain:reseed", "invalid_token", 401, headers={"Idempotency-Key": "{{$guid}}"}, desc="Missing token."),
+            problem_req("S16.12 reseedAuditChain 400: no Idempotency-Key", "POST", "{{core_url}}/api/v1/audit/chain:reseed", "validation_failed", 400, auth="admin_a_token",
+                        desc="Every tenant write needs an Idempotency-Key; nothing is written."),
         ],
     }
 
