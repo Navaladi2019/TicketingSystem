@@ -50,7 +50,7 @@ func (x *exportEnv) reseed(t *testing.T, token string) *httptest.ResponseRecorde
 
 type headState struct {
 	version int64
-	next    *uuid.UUID
+	next    uuid.NullUUID
 }
 
 func (x *exportEnv) head(t *testing.T, tenant uuid.UUID) headState {
@@ -114,8 +114,8 @@ func TestReseedAliveRefusedThenDeadRestarts(t *testing.T) {
 	if after.version != before.version {
 		t.Errorf("version %d -> %d: reseed must not bump it", before.version, after.version)
 	}
-	if after.next == nil || *after.next != out.SealOutboxID || out.SealOutboxID == dead {
-		t.Errorf("head points at %v, response %s, dead %s: want the new row", after.next, out.SealOutboxID, dead)
+	if !after.next.Valid || after.next.UUID != out.SealOutboxID || out.SealOutboxID == dead {
+		t.Errorf("head points at %v, response %s, dead %s: want the new row", after.next.UUID, out.SealOutboxID, dead)
 	}
 	var targetSeq int64
 	if err := x.super.QueryRow(t.Context(), "SELECT target_seq FROM outbox WHERE id = $1", out.SealOutboxID).Scan(&targetSeq); err != nil || targetSeq != before.version {
@@ -136,7 +136,7 @@ func TestReseedAliveRefusedThenDeadRestarts(t *testing.T) {
 	if err != nil || next == uuid.Nil {
 		t.Fatalf("Reschedule(new) = %s, %v; sealing did not resume", next, err)
 	}
-	if got := x.head(t, x.a.id); got.next == nil || *got.next != next || got.version != before.version+1 {
+	if got := x.head(t, x.a.id); !got.next.Valid || got.next.UUID != next || got.version != before.version+1 {
 		t.Errorf("head after resume %+v, want next %s version %d", got, next, before.version+1)
 	}
 
@@ -172,7 +172,7 @@ func TestReseedGateTenantAndMissingHead(t *testing.T) {
 	if rec := x.reseed(t, "admin-a"); rec.Code != http.StatusOK {
 		t.Fatalf("admin-a = %d: %s", rec.Code, rec.Body)
 	}
-	if h := x.head(t, x.b.id); h.next == nil || *h.next != bOld {
+	if h := x.head(t, x.b.id); !h.next.Valid || h.next.UUID != bOld {
 		t.Errorf("tenant B's head changed: %+v", h)
 	}
 	if n := x.count(t, "SELECT count(*) FROM audit_log WHERE action = 'reseed' AND tenant_id = $1", x.b.id); n != 0 {
