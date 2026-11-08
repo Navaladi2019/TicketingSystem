@@ -177,9 +177,11 @@ type handlers struct {
 	store   entitytypes.Store
 	// pipe serves the record endpoints; nil answers 501 not_implemented.
 	pipe *pipeline.Pipeline
-	// acl decides record reads (and, inside pipe, writes). A record route
-	// without it answers 501 not_implemented, never an unchecked read.
-	acl authz.Authorizer
+	// acl decides record reads (and, inside pipe, writes) and gives the
+	// policy every record body and audit diff is shaped with (P3-33). A
+	// record or audit route without it answers 501 not_implemented, never an
+	// unchecked or unshaped read.
+	acl recordACL
 	// audit serves the audit timeline and a record's history (P5-17) on the
 	// nava_audit_reader pool (ADR-004-A1); nil answers 501 not_implemented.
 	audit *read.Reader
@@ -262,6 +264,12 @@ func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http
 					return
 				case problem.InvalidIdPConfig:
 					h.reg.Write(w, r, problem.InvalidIdPConfig, pe.fields...)
+					return
+				case problem.FieldNotWritable:
+					h.reg.Write(w, r, problem.FieldNotWritable, pe.fields...)
+					return
+				case problem.MaskedField:
+					h.reg.Write(w, r, problem.MaskedField, pe.fields...)
 					return
 				}
 			}

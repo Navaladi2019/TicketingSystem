@@ -36,7 +36,8 @@ func (e *NoDefinitionVersionsError) Unwrap() error { return ErrNoDefinitionVersi
 // the definition's x-nava-secret and writeOnly properties, from every version
 // the definition has published, because an old entry was written under an
 // older schema. Secret markers are top-level only (decision 2026-11-03), so
-// each pointer is "/<property>". S10 adds per-field masks to this port.
+// each pointer is "/<property>". FieldMasks adds S10's per-field masks on
+// top of it (P3-33).
 type DefinitionMasker struct{}
 
 // MaskedPaths reads the schemas of the definition's versions inside tx, so

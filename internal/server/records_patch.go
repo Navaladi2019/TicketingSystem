@@ -20,6 +20,7 @@ import (
 
 	"github.com/Navaladi2019/TicketingSystem/api"
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/read"
+	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
@@ -71,12 +72,12 @@ func ifMatchVersions(v *string) (versions []int64, ok bool) {
 // pipeline read, which a publish since the handler's own read may have moved
 // (TICK-413, TICK-481): map it under that one, as create and GET do. Defaults
 // stay the current ones.
-func patchBody(ctx context.Context, tx pgx.Tx, defs entitytypes.DefinitionReader, entity string, rec *pipeline.Record, curVersion int, cur *metadata.Compiled) (map[string]any, error) {
+func patchBody(ctx context.Context, tx pgx.Tx, defs entitytypes.DefinitionReader, entity string, rec *pipeline.Record, curVersion int, cur *metadata.Compiled) (map[string]any, map[string]string, error) {
 	fixed, err := fixedColumnsUnder(ctx, tx, defs, entity, rec.SchemaVersion, curVersion, cur)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return cur.ApplyDefaults(rec.Payload(fixed)), nil
+	return cur.ApplyDefaults(rec.Payload(fixed)), fixed, nil
 }
 
 // PatchRecord serves PATCH /api/v1/records/{entity}/{id}.
@@ -98,7 +99,6 @@ func (h *handlers) PatchRecord(ctx context.Context, req api.PatchRecordRequestOb
 	}
 	var (
 		rec       *pipeline.Record
-		data      map[string]any
 		tried     map[string]string // the handler's read; recordError prefers the pipeline's version
 		stateProp string
 		resp      api.PatchRecord200JSONResponse
@@ -143,12 +143,16 @@ func (h *handlers) PatchRecord(ctx context.Context, req api.PatchRecordRequestOb
 		if rec, err = pipeline.Get(ctx, tx, p.TenantID, id); err != nil {
 			return err
 		}
-		data, err = patchBody(ctx, tx, h.store, req.Entity, rec, curVersion, cur)
+		data, fixed, err := patchBody(ctx, tx, h.store, req.Entity, rec, curVersion, cur)
+		if err != nil {
+			return err
+		}
+		body, err := h.shapedBody(ctx, tx, p, rec, data, fixed)
 		if err != nil {
 			return err
 		}
 		resp = api.PatchRecord200JSONResponse{
-			Body:    recordBody(rec, data),
+			Body:    body,
 			Headers: api.PatchRecord200ResponseHeaders{ETag: etag(rec.Version)},
 		}
 		// The key completes in this transaction, with the write (TICK-482).
@@ -298,6 +302,9 @@ func (h *handlers) GetRecordHistory(ctx context.Context, req api.GetRecordHistor
 	// review of PR #432). Only then does the reader's pool read its entries.
 	// READ COMMITTED gives each statement its own snapshot, so the split adds
 	// no race.
+	// The policy is read in the transaction of the read check: every
+	// before, after and changed[] below is shaped with it (P3-33).
+	var pol *authz.Policy
 	err = tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) error {
 		if _, _, err := h.store.Current(ctx, tx, req.Entity); err != nil {
 			return err
@@ -309,7 +316,11 @@ func (h *handlers) GetRecordHistory(ctx context.Context, req api.GetRecordHistor
 		if rec.EntityKey != req.Entity {
 			return pipeline.ErrNotFound
 		}
-		return h.canRead(ctx, tx, p, rec)
+		if err := h.canRead(ctx, tx, p, rec); err != nil {
+			return err
+		}
+		pol, err = h.policy(ctx, tx, p, req.Entity)
+		return err
 	})
 	var changes []read.Change
 	if err == nil {
@@ -340,7 +351,9 @@ func (h *handlers) GetRecordHistory(ctx context.Context, req api.GetRecordHistor
 	}
 	out := api.RecordHistory{Items: make([]api.RecordChange, 0, min(len(changes), limit))}
 	for _, c := range changes[:min(len(changes), limit)] {
-		after := c.After
+		// A masked field is absent from before, after and changed[]; an entry
+		// that changed only masked fields stays, with an empty changed[].
+		before, after := authz.Shape(pol, p, c.Before), authz.Shape(pol, p, c.After)
 		if after == nil {
 			after = map[string]any{}
 		}
@@ -353,10 +366,10 @@ func (h *handlers) GetRecordHistory(ctx context.Context, req api.GetRecordHistor
 			ActorId: c.Entry.ActorPrincipalID, Changed: []string{}, After: after,
 		}
 		if c.Known {
-			item.Changed = ChangedPaths(c.Before, c.After)
+			item.Changed = ChangedPaths(before, after)
 		}
-		if c.Before != nil {
-			item.Before = &c.Before
+		if before != nil {
+			item.Before = &before
 		}
 		out.Items = append(out.Items, item)
 	}

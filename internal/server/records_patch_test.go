@@ -188,7 +188,7 @@ func TestPatchBodyMapsUnderTheVersionTheRowWasWrittenUnder(t *testing.T) {
 
 	// The handler read v1 as current; the row was written under v2.
 	defs := fakeDefs{cur: v1, curNum: 1, versions: map[int]*metadata.Compiled{1: v1, 2: v2}}
-	got, err := patchBody(t.Context(), nil, defs, "ticket", rec, 1, v1)
+	got, _, err := patchBody(t.Context(), nil, defs, "ticket", rec, 1, v1)
 	if err != nil {
 		t.Fatalf("patchBody: %v", err)
 	}
@@ -201,14 +201,14 @@ func TestPatchBodyMapsUnderTheVersionTheRowWasWrittenUnder(t *testing.T) {
 
 	// Same version as the handler read: no second read of the definition.
 	rec.SchemaVersion = 1
-	got, err = patchBody(t.Context(), nil, fakeDefs{cur: v1, curNum: 1}, "ticket", rec, 1, v1)
+	got, _, err = patchBody(t.Context(), nil, fakeDefs{cur: v1, curNum: 1}, "ticket", rec, 1, v1)
 	if err != nil || got["assignee"] != assignee.String() {
 		t.Errorf("same version: body = %v, err = %v, want assignee = %s", got, err, assignee)
 	}
 
 	// A version that cannot be read fails the request rather than guessing.
 	rec.SchemaVersion = 7
-	if _, err = patchBody(t.Context(), nil, defs, "ticket", rec, 1, v1); !errors.Is(err, entitytypes.ErrNotFound) {
+	if _, _, err = patchBody(t.Context(), nil, defs, "ticket", rec, 1, v1); !errors.Is(err, entitytypes.ErrNotFound) {
 		t.Errorf("unknown version: err = %v, want ErrNotFound", err)
 	}
 }

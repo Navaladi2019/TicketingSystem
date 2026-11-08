@@ -213,13 +213,14 @@ func (d fakeDefs) Current(context.Context, pgx.Tx, string) (*metadata.Compiled, 
 // fakeAuthz answers every write with err and every read with readErr, and
 // records the rows it was asked about.
 type fakeAuthz struct {
-	err, readErr error
-	calls        *[]authzCall
+	err, readErr, fieldsErr error
+	calls                   *[]authzCall
 }
 
 type authzCall struct {
-	op            string
-	before, after *authz.Row
+	op                    string
+	before, after         *authz.Row
+	beforeData, afterData map[string]any
 }
 
 func (a fakeAuthz) CanRead(_ context.Context, _ pgx.Tx, _ identity.Principal, _ string, r authz.Row) error {
@@ -234,6 +235,13 @@ func (a fakeAuthz) CanWrite(_ context.Context, _ pgx.Tx, _ identity.Principal, _
 		*a.calls = append(*a.calls, authzCall{op: authz.OpWrite, before: before, after: after})
 	}
 	return a.err
+}
+
+func (a fakeAuthz) CanWriteFields(_ context.Context, _ pgx.Tx, _ identity.Principal, _ string, before, after map[string]any) error {
+	if a.calls != nil {
+		*a.calls = append(*a.calls, authzCall{op: "fields", beforeData: before, afterData: after})
+	}
+	return a.fieldsErr
 }
 
 // runnerFunc is a TxRunner.

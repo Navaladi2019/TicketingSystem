@@ -26,7 +26,8 @@ type Subject struct {
 // Masker is the port that says which pointers of an entry's diff must not
 // leave the log for this reader (ADR-004 R7, PLAN-005 D-5-5). The pointers
 // are in the diff's own coordinates: for a record entry, "/<property>" of the
-// record payload. S10 adds per-field masks behind the same port. A masker
+// record payload. S10's per-field masks come through the same port
+// (FieldMasks, P3-33). A masker
 // runs in the caller's tenant transaction.
 type Masker interface {
 	MaskedPaths(ctx context.Context, tx pgx.Tx, s Subject) ([]patchwalk.Pointer, error)
@@ -221,4 +222,50 @@ func setMasked(doc any, segs []string) (any, bool) {
 		}
 	}
 	return doc, changed
+}
+
+// The domain and subject type of a record entry, the only entries whose diff
+// is a record payload and so the only ones field masks apply to.
+const (
+	domainRecord  = "record"
+	subjectRecord = "record"
+)
+
+// FieldMasks adds the record ACL's field masks (PLAN-003 S10, P3-33) to a
+// Masker, for one reader: Fields maps an entity definition id to the
+// top-level properties its current policy hides from that reader
+// (authz.ACL.ReadMasks, read by the caller on nava_app, where acl_versions is
+// readable). For a record entry of one of those definitions it returns
+// Base's pointers plus "/<field>" for each field; every other entry gets
+// Base's pointers only. A masked field is masked exactly as a secret is
+// (R7): {"redacted":"mask"}, and no salt with the diff.
+type FieldMasks struct {
+	Base   Masker
+	Fields map[uuid.UUID][]string
+}
+
+// MaskedPaths implements Masker.
+func (m FieldMasks) MaskedPaths(ctx context.Context, tx pgx.Tx, s Subject) ([]patchwalk.Pointer, error) {
+	paths, err := m.Base.MaskedPaths(ctx, tx, s)
+	if err != nil {
+		return nil, err
+	}
+	if s.Domain != domainRecord || s.SubjectType != subjectRecord || s.EntityDefinitionID == nil {
+		return paths, nil
+	}
+	for _, f := range m.Fields[*s.EntityDefinitionID] {
+		p := patchwalk.FromSegments([]string{f})
+		if !slices.Contains(paths, p) {
+			paths = append(paths, p)
+		}
+	}
+	return paths, nil
+}
+
+// WithFieldMasks returns a copy of r whose masker also applies fields
+// (FieldMasks). r itself is unchanged, so one Reader serves every caller.
+func (r *Reader) WithFieldMasks(fields map[uuid.UUID][]string) *Reader {
+	c := *r
+	c.Masker = FieldMasks{Base: r.Masker, Fields: fields}
+	return &c
 }

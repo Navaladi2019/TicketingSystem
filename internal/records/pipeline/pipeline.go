@@ -3,7 +3,8 @@
 // it loads the record and the entity type's current definition, checks that
 // the caller can read the record (an unreadable one is ErrNotFound), applies
 // the merge patch and defaults, validates against the JSON Schema, authorises
-// the write against the record before and after it (authz.Authorizer, A1;
+// the write against the record before and after it and against the field
+// masks (authz.Authorizer, A1, P3-33;
 // skipped only for the system sources rule, workflow, function and system),
 // writes the row with an optimistic version check, writes one ADR-004 audit
 // entry through audit.Append and calls the EventSink. Nothing commits unless
@@ -365,7 +366,7 @@ func (p *Pipeline) Runner() TxRunner { return p.runner }
 
 // Write performs cmd in tx, which must come from tenancy.InTenantTx at READ
 // COMMITTED (the default). It returns ErrInvalidCommand, ErrNotFound,
-// authz.ErrForbidden, *ErrValidation, *ErrIllegalTransition,
+// authz.ErrForbidden, *authz.ErrFieldNotWritable, *ErrValidation, *ErrIllegalTransition,
 // *ErrUniqueViolation, ErrAssignmentGroupRemoved, ErrVersionConflict,
 // *ErrIdempotencyConflict or
 // outbox.ErrCascadeTooDeep for a refused write; ErrRetryable, wrapping the
@@ -564,6 +565,9 @@ func (w *write) do(ctx context.Context) (Result, error) {
 }
 
 func (w *write) create(ctx context.Context, after map[string]any) (Result, error) {
+	// The caller's own data: the defaults applied below are not its writes
+	// (P3-33). ApplyDefaults returns a new map, so written stays as sent.
+	written := after
 	after = w.def.ApplyDefaults(after)
 	// The state column is never NULL, and a record starts in the initial
 	// state.
@@ -594,6 +598,9 @@ func (w *write) create(ctx context.Context, after map[string]any) (Result, error
 	// A new record has no shares. The check runs before the unique and
 	// group lookups, so a refused writer learns nothing from them.
 	if err := w.canWrite(ctx, nil, rowOf(rec, nil)); err != nil {
+		return Result{}, err
+	}
+	if err := w.canWriteFields(ctx, nil, written); err != nil {
 		return Result{}, err
 	}
 	if err := w.checkUnique(ctx, uuid.Nil, nil, after, fixed); err != nil {
@@ -653,8 +660,10 @@ func (w *write) update(ctx context.Context, patch map[string]any) (Result, error
 	}
 	before := rec.Payload(stored.FixedColumns())
 
-	after := mergePatch(deepCopy(before), patch)
-	after = w.def.ApplyDefaults(after)
+	// merged is the caller's write: the stored payload with its patch, before
+	// defaults (P3-33). ApplyDefaults returns a new map.
+	merged := mergePatch(deepCopy(before), patch)
+	after := w.def.ApplyDefaults(merged)
 	fe := w.def.Validate(after)
 	if _, ok := after[w.def.StateProperty()]; !ok {
 		fe = appendField(fe, metadata.FieldError{Path: "/" + escape(w.def.StateProperty()), Code: "required"})
@@ -677,6 +686,9 @@ func (w *write) update(ctx context.Context, patch map[string]any) (Result, error
 			return Result{}, fmt.Errorf("pipeline: %w", err)
 		}
 		if err := w.canWrite(ctx, beforeRow, rowOf(&next, beforeRow.SharedWith)); err != nil {
+			return Result{}, err
+		}
+		if err := w.canWriteFields(ctx, before, merged); err != nil {
 			return Result{}, err
 		}
 	}
@@ -805,6 +817,24 @@ func (w *write) canWrite(ctx context.Context, before, after *authz.Row) error {
 	}
 	err := w.p.authz.CanWrite(ctx, w.tx, w.cmd.Actor, w.cmd.EntityKey, before, after)
 	if err != nil && !errors.Is(err, authz.ErrForbidden) {
+		return fmt.Errorf("pipeline: %w", err)
+	}
+	return err
+}
+
+// canWriteFields is the mask write check of the authorise stage (P3-33),
+// beside canWrite and skipped for the same system sources. before is the
+// stored payload (nil on a create), after the caller's data without defaults.
+// A refusal is *authz.ErrFieldNotWritable or authz.ErrForbidden; a failure to
+// decide is wrapped. It runs before the unique and group lookups and every
+// write statement, so a refused write leaves no record, audit or outbox row.
+func (w *write) canWriteFields(ctx context.Context, before, after map[string]any) error {
+	if w.cmd.Source.system() {
+		return nil
+	}
+	err := w.p.authz.CanWriteFields(ctx, w.tx, w.cmd.Actor, w.cmd.EntityKey, before, after)
+	var nw *authz.ErrFieldNotWritable
+	if err != nil && !errors.As(err, &nw) && !errors.Is(err, authz.ErrForbidden) {
 		return fmt.Errorf("pipeline: %w", err)
 	}
 	return err
