@@ -43,6 +43,12 @@ type fakeTx struct {
 }
 
 func (f *fakeTx) QueryRow(_ context.Context, sql string, _ ...any) pgx.Row {
+	// The record lock names the transaction's tenant (TICK-480):
+	// tenancy.TenantOf reads it first. Unless a case scripts it, the
+	// transaction is scoped to a tenant.
+	if strings.Contains(sql, "current_setting('app.tenant_id'") && len(f.answers[sql]) == 0 {
+		return scanFunc(func(dest ...any) error { *dest[0].(*string) = uuid.NewString(); return nil })
+	}
 	a := f.answers[sql]
 	if len(a) == 0 {
 		f.t.Fatalf("unexpected QueryRow: %s", sql)
