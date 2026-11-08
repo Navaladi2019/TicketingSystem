@@ -4,9 +4,14 @@ package dbtest
 
 import (
 	"context"
+	"io/fs"
+	"slices"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/db/audited"
+	"github.com/Navaladi2019/TicketingSystem/internal/db/grants"
 )
 
 // P3-30 (TICK-615): acl_versions and record_shares, the S10 authorization
@@ -193,4 +198,38 @@ func TestP330IndexSet(t *testing.T) {
 	if got != want {
 		t.Errorf("index set:\n%s\nwant:\n%s", got, want)
 	}
+}
+
+// aclTablesMigration creates acl_versions and record_shares.
+const aclTablesMigration = "20261108124249_acl_tables.sql"
+
+// beforeACLTables is the pair of manifests for a run of the migrations in
+// fsys: when fsys stops before aclTablesMigration, both tables are left out
+// of the grants and audited manifests, which name tables the run has not
+// created yet (the grant step fails on a missing table). Otherwise m and a
+// are returned unchanged. Tests that migrate to an earlier version use it.
+func beforeACLTables(fsys fs.FS, m *grants.Manifest, a *audited.Manifest) (*grants.Manifest, *audited.Manifest) {
+	if _, err := fs.Stat(fsys, aclTablesMigration); err == nil {
+		return m, a
+	}
+	gm := *m
+	gm.Roles = make(map[string]grants.Role, len(m.Roles))
+	for name, r := range m.Roles {
+		tables := make(map[string]map[string][]string, len(r.Tables))
+		for tbl, privs := range r.Tables {
+			if !slices.Contains(aclTables, tbl) {
+				tables[tbl] = privs
+			}
+		}
+		r.Tables = tables
+		gm.Roles[name] = r
+	}
+	am := *a
+	am.Audited = make(map[string]audited.Table, len(a.Audited))
+	for name, e := range a.Audited {
+		if !slices.Contains(aclTables, name) {
+			am.Audited[name] = e
+		}
+	}
+	return &gm, &am
 }

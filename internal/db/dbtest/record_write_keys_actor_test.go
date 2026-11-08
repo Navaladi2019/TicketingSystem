@@ -92,7 +92,7 @@ func TestTICK626RecordWriteKeysActorBackfill(t *testing.T) {
 		t.Errorf("record_write_keys indexes:\n%s", got)
 	}
 
-	// Down, both migrations, then up again: the tenant-wide primary key comes
+	// Down past both migrations, then up again: the tenant-wide primary key comes
 	// back, the column goes, and the re-run fills it again.
 	sqlDB := openSQL(t, roleConfig(t, m.Owner(), m.PlatformDatabase))
 	p, err := goose.NewProvider(goose.DialectPostgres, sqlDB, db.Migrations(),
@@ -101,10 +101,10 @@ func TestTICK626RecordWriteKeysActorBackfill(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	for range 2 {
-		if _, err := p.Down(ctx); err != nil {
-			t.Fatalf("down: %v", err)
-		}
+	// DownTo the version before both, not two Down steps: a later migration
+	// (20261108124249_acl_tables.sql, TICK-615) sorts after them.
+	if _, err := p.DownTo(ctx, 20261108115959); err != nil {
+		t.Fatalf("down: %v", err)
 	}
 	if got := queryString(t, super, `SELECT pg_get_constraintdef(oid) FROM pg_constraint
 		WHERE conrelid = 'record_write_keys'::regclass AND conname = 'record_write_keys_pkey'`); got != "PRIMARY KEY (tenant_id, idempotency_key)" {
