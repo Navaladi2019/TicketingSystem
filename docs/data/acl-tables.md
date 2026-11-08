@@ -1,8 +1,11 @@
 # ACL and share tables (P3-30, TICK-615)
 
 PLAN-003 S10, D-3-2; ADR-001 I5 (one authorization layer, inside the query).
-Migration: `db/migrations/20261108124249_acl_tables.sql`. Tests:
-`internal/db/dbtest/acl_tables_test.go` and the isolation registry
+Migrations: `db/migrations/20261108124249_acl_tables.sql`, and
+`db/migrations/20261108184658_record_shares_typed_principals.sql` (P3-30a,
+TICK-625: typed principal columns). Tests:
+`internal/db/dbtest/acl_tables_test.go`,
+`internal/db/dbtest/record_shares_typed_test.go` and the isolation registry
 (`internal/tenancy/isolation/acl_paths.go`).
 
 ## Model
@@ -13,6 +16,8 @@ erDiagram
     records ||--o{ record_shares : "shared with"
     principals |o--o{ acl_versions : "published_by"
     principals |o--o{ record_shares : "granted_by"
+    principals |o--o{ record_shares : "user_id"
+    groups |o--o{ record_shares : "group_id"
     acl_versions {
         uuid tenant_id PK
         uuid entity_definition_id PK
@@ -26,18 +31,31 @@ erDiagram
         uuid tenant_id PK
         uuid record_id PK
         text principal_kind PK
-        uuid principal_id PK
+        uuid principal_id PK "generated: COALESCE(user_id, group_id)"
+        uuid user_id FK
+        uuid group_id FK
         uuid granted_by
         timestamptz granted_at
     }
 ```
 
 Every foreign key is composite, `(tenant_id, …)`, so it holds the tenant even
-though PostgreSQL checks it as the owner, past RLS. `principal_id` has no
-foreign key: it names a user (`principals`) or a group (`groups`) by
-`principal_kind`. A foreign id matches nothing, because the evaluator compares
-it only with the caller's own principal and group ids, read under the caller's
-tenant.
+though PostgreSQL checks it as the owner, past RLS.
+
+A share names its principal in `user_id` (FK to `principals`) or `group_id`
+(FK to `groups`). `record_shares_principal_check` holds exactly one of them
+set, the one `principal_kind` names. So a group id written as a user, a user
+id written as a group, an id the tenant does not have, and another tenant's
+user or group are all refused (23503 for the foreign keys, 23514 for the
+check). `principal_id` is a stored generated column,
+`COALESCE(user_id, group_id)`, that no writer can set (428C9). It keeps the
+primary key and the list-join index on one principal column. P3-30 had a
+single unchecked `principal_id`; P3-30a (TICK-625) replaced it while the table
+was still empty, which closed AR-S10-01.
+
+No index backs `record_shares_user_fkey` or `record_shares_group_fkey` from
+the parent side. Only a delete of a `principals` or `groups` row would use
+one, and neither is ever deleted: both are tombstoned (ADR-004-E5).
 
 ## Access and grants
 
@@ -67,7 +85,9 @@ on a 12th Gen Intel Core i7-1260P laptop (16 threads, Docker VM 19.4 GiB),
 shapes only). 1,000,000 records over 50 tenants, one holding 400,000;
 2,000,000 shares, 2,000 principal ids per tenant. Query: the big tenant's
 newest 50 records shared with 4 principal ids (one user, three groups), which
-reach 1,573 records. Script and full output: `scratch/acl-tables-bench/`.
+reach 1,573 records. The script ran from `scratch/acl-tables-bench/`, which
+TICK-625 removed; the figures below are the record. P3-30a keeps the same
+`(tenant_id, principal_id)` key, so they still apply.
 
 | Index | Size | Execution (2 runs, warm) | Buffers | 20,000-share insert |
 |---|---|---|---|---|

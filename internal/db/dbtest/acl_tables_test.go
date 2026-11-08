@@ -24,22 +24,27 @@ const (
 	// insertACL: tenant $1, type $2, version $3, publisher $4.
 	insertACL = `INSERT INTO acl_versions (tenant_id, entity_definition_id, version, rules, masks, published_by)
 		VALUES ($1, $2, $3, '{"roles": {}}', '{"fields": []}', $4)`
-	// insertShare: tenant $1, record $2, principal $3, kind $4, granter $5.
-	insertShare = `INSERT INTO record_shares (tenant_id, record_id, principal_id, principal_kind, granted_by)
-		VALUES ($1, $2, $3, $4, $5)`
+	// insertShare: tenant $1, record $2, user $3, group $4, kind $5,
+	// granter $6 (TICK-625: user_id and group_id replace principal_id).
+	insertShare = `INSERT INTO record_shares (tenant_id, record_id, user_id, group_id, principal_kind, granted_by)
+		VALUES ($1, $2, $3, $4, $5, $6)`
+	// insertShareGroup: tenant $1, group id $2, both the tenant's.
+	insertShareGroup = `INSERT INTO groups (tenant_id, id, keycloak_group_id, path)
+		VALUES ($1::uuid, $2::uuid, 'kc-' || $2::text, '/t/' || $1::text || '/shares')`
 )
 
 var aclTables = []string{"acl_versions", "record_shares"}
 
-// seedACL writes, as the superuser, for each tenant: seedPipeline's rows, ACL
-// version 1 of the tenant's type and a share of its pipeline record with its
+// seedACL writes, as the superuser, for each tenant: seedPipeline's rows
+// (among them a principal and a group whose id is the tenant id), ACL version
+// 1 of the tenant's type and a share of its pipeline record with its
 // principal (every id is the tenant id but the record's).
 func seedACL(t *testing.T, super *pgx.Conn, tenants ...string) {
 	t.Helper()
 	seedPipeline(t, super, tenants...)
 	for _, id := range tenants {
 		exec(t, super, insertACL, id, id, 1, id)
-		exec(t, super, insertShare, id, pipelineRecord(id), id, "user", id)
+		exec(t, super, insertShare, id, pipelineRecord(id), id, nil, "user", id)
 	}
 }
 
@@ -113,7 +118,7 @@ func TestP330TenantIsolation(t *testing.T) {
 		// An insert for tenant B from tenant A's transaction fails the policy.
 		_, err := execIn(conn, tenantA, insertACL, tenantB, tenantB, 2, tenantB)
 		wantSQLState(t, role+" in tenant A publishes tenant B's ACL", err, "42501")
-		_, err = execIn(conn, tenantA, insertShare, tenantB, pipelineRecord(tenantB), tenantB, "group", tenantB)
+		_, err = execIn(conn, tenantA, insertShare, tenantB, pipelineRecord(tenantB), nil, tenantB, "group", tenantB)
 		wantSQLState(t, role+" in tenant A shares for tenant B", err, "42501")
 		_, err = execIn(conn, "", insertACL, tenantA, tenantA, 2, tenantA)
 		wantSQLState(t, role+" with no tenant publishes an ACL", err, "42501")
@@ -178,23 +183,23 @@ func TestP330ForeignKeysRejectCrossTenant(t *testing.T) {
 	exec(t, super, withRecordEntry("INSERT INTO records (tenant_id, id) VALUES ($1, $2)"), tenantB, other)
 
 	app := asRole(t, "nava_app")
-	_, err := execIn(app, tenantA, insertShare, tenantA, other, tenantA, "user", tenantA)
+	_, err := execIn(app, tenantA, insertShare, tenantA, other, tenantA, nil, "user", tenantA)
 	wantSQLState(t, "tenant A shares tenant B's record", err, "23503")
 	_, err = execIn(app, tenantA, insertACL, tenantA, tenantB, 2, tenantA)
 	wantSQLState(t, "tenant A publishes an ACL for tenant B's type", err, "23503")
 	_, err = execIn(app, tenantA, insertACL, tenantA, tenantA, 2, tenantB)
 	wantSQLState(t, "tenant A names tenant B's principal as publisher", err, "23503")
-	_, err = execIn(app, tenantA, insertShare, tenantA, pipelineRecord(tenantA), tenantB, "group", tenantB)
+	_, err = execIn(app, tenantA, insertShare, tenantA, pipelineRecord(tenantA), nil, tenantA, "group", tenantB)
 	wantSQLState(t, "tenant A names tenant B's principal as granter", err, "23503")
 
 	// principal_kind is user or group; a user and a group with the same id
 	// are two shares, and a repeat of either is refused.
-	_, err = execIn(app, tenantA, insertShare, tenantA, pipelineRecord(tenantA), tenantA, "role", tenantA)
+	_, err = execIn(app, tenantA, insertShare, tenantA, pipelineRecord(tenantA), tenantA, nil, "role", tenantA)
 	wantSQLState(t, "a share with principal_kind role", err, "23514")
-	if _, err := execIn(app, tenantA, insertShare, tenantA, pipelineRecord(tenantA), tenantA, "group", nil); err != nil {
+	if _, err := execIn(app, tenantA, insertShare, tenantA, pipelineRecord(tenantA), nil, tenantA, "group", nil); err != nil {
 		t.Errorf("sharing with a group whose id a user also has: %v", err)
 	}
-	_, err = execIn(app, tenantA, insertShare, tenantA, pipelineRecord(tenantA), tenantA, "user", tenantA)
+	_, err = execIn(app, tenantA, insertShare, tenantA, pipelineRecord(tenantA), tenantA, nil, "user", tenantA)
 	wantSQLState(t, "a repeat share", err, "23505")
 }
 
