@@ -1,11 +1,5 @@
 package isolation
 
-// SharedSharePrincipal is tenant A's principal 0a…3a1, with whom tenant B
-// has also shared its record RecordB2 (testdata/seed.sql, P3-30).
-// record_shares.principal_id has no foreign key, so a list join by principal
-// id alone would meet tenant B's share.
-const SharedSharePrincipal = "0a000000-0000-4000-8000-0000000003a1"
-
 // aclPaths are the S10 authorization tables (P3-30, TICK-615): acl_versions
 // and record_shares are per tenant, insert-only, and their composite foreign
 // keys hold the tenant. The generic CI-2 checks cover them as every role; these
@@ -31,20 +25,31 @@ func aclPaths() []Path {
 			"UPDATE acl_versions SET rules = '{}' WHERE tenant_id = $1", TenantB),
 		sql("acl_versions: delete tenant B's ACL", "nava_worker", Denied,
 			"DELETE FROM acl_versions WHERE tenant_id = $1", TenantB),
-		sql("record_shares: list the records shared with a principal id in every tenant", "nava_app", OwnRowsOnly,
-			"SELECT tenant_id FROM record_shares WHERE principal_id = $1", SharedSharePrincipal),
+		// The list join (P3-34) by the caller's ids: tenant B's user and group
+		// ids find none of tenant B's shares from tenant A.
+		sql("record_shares: list the records shared with tenant B's user", "nava_app", OwnRowsOnly,
+			"SELECT tenant_id FROM record_shares WHERE principal_id = $1", PrincipalB1),
+		sql("record_shares: list the records shared with tenant B's group", "nava_worker", OwnRowsOnly,
+			"SELECT tenant_id FROM record_shares WHERE group_id = $1", GroupB1),
 		sql("record_shares: read tenant B's shares by record", "nava_worker", OwnRowsOnly,
 			"SELECT tenant_id FROM record_shares WHERE record_id = $1", RecordB2),
 		sql("record_shares: share a record for tenant B", "nava_app", Denied,
-			"INSERT INTO record_shares (tenant_id, record_id, principal_id, principal_kind) VALUES ($1, $2, $3, 'user')",
-			TenantB, RecordB2, NewID),
-		// The composite foreign key holds the tenant: tenant A cannot share
-		// tenant B's record.
+			"INSERT INTO record_shares (tenant_id, record_id, user_id, principal_kind) VALUES ($1, $2, $3, 'user')",
+			TenantB, RecordB2, PrincipalB1),
+		// The composite foreign keys hold the tenant, though the policy passes
+		// the row: tenant A cannot share tenant B's record, nor share its own
+		// record with tenant B's user or group (TICK-625, AR-S10-01).
 		sql("record_shares: share tenant B's record from tenant A", "nava_worker", Denied,
-			"INSERT INTO record_shares (tenant_id, record_id, principal_id, principal_kind) VALUES ($1, $2, $3, 'user')",
-			TenantA, RecordB2, NewID),
+			"INSERT INTO record_shares (tenant_id, record_id, user_id, principal_kind) VALUES ($1, $2, $3, 'user')",
+			TenantA, RecordB2, principalA1),
+		sql("record_shares: share a tenant A record with tenant B's user", "nava_app", Denied,
+			"INSERT INTO record_shares (tenant_id, record_id, user_id, principal_kind) VALUES ($1, $2, $3, 'user')",
+			TenantA, RecordA2, PrincipalB1),
+		sql("record_shares: share a tenant A record with tenant B's group", "nava_worker", Denied,
+			"INSERT INTO record_shares (tenant_id, record_id, group_id, principal_kind) VALUES ($1, $2, $3, 'group')",
+			TenantA, RecordA2, GroupB1),
 		sql("record_shares: rewrite tenant B's shares", "nava_app", Denied,
-			"UPDATE record_shares SET principal_id = $2 WHERE tenant_id = $1", TenantB, NewID),
+			"UPDATE record_shares SET user_id = $2 WHERE tenant_id = $1", TenantB, NewID),
 		sql("record_shares: delete tenant B's shares", "nava_worker", Denied,
 			"DELETE FROM record_shares WHERE tenant_id = $1", TenantB),
 	}

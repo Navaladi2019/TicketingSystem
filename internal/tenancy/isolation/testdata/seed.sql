@@ -206,21 +206,24 @@ INSERT INTO record_counters (tenant_id, entity_definition_id, next) VALUES
 
 -- ACLs and shares (P3-30, TICK-615). Tenant B's ticket has two ACL versions,
 -- tenant A's one, under the same version numbers, so a lookup by version alone
--- would find both tenants' rows. Tenant B also shares its record b2 with
--- tenant A's principal id 0a…3a1 (SharedSharePrincipal): principal_id has no
--- foreign key, so a list join by principal id alone would find tenant B's
--- share.
+-- would find both tenants' rows. Each tenant shares its record with its own
+-- user and its own 'agents' group (TICK-625: user_id and group_id carry
+-- composite foreign keys, so a share can name only its own tenant's
+-- principals); the two groups share a Keycloak id, so a lookup that joins
+-- groups by keycloak_group_id alone would find both tenants' shares.
 INSERT INTO acl_versions (tenant_id, entity_definition_id, version, rules, masks, published_by) VALUES
     ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000006a1', 1, '{}', '{}', '0a000000-0000-4000-8000-0000000003a1'),
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b1', 1, '{}', '{}', '0b000000-0000-4000-8000-0000000003b1'),
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b1', 2, '{"b": 2}', '{}', '0b000000-0000-4000-8000-0000000003b1');
 
-INSERT INTO record_shares (tenant_id, record_id, principal_id, principal_kind, granted_by) VALUES
-    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000000a2', '0a000000-0000-4000-8000-0000000003a1', 'user',
+INSERT INTO record_shares (tenant_id, record_id, user_id, group_id, principal_kind, granted_by) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000000a2', '0a000000-0000-4000-8000-0000000003a1', NULL, 'user',
         '0a000000-0000-4000-8000-0000000003a1'),
-    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000000b2', '0a000000-0000-4000-8000-0000000003a1', 'user',
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000000a2', NULL, '0a000000-0000-4000-8000-0000000004a1', 'group',
+        '0a000000-0000-4000-8000-0000000003a1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000000b2', '0b000000-0000-4000-8000-0000000003b1', NULL, 'user',
         '0b000000-0000-4000-8000-0000000003b1'),
-    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000000b2', '0b000000-0000-4000-8000-0000000004b1', 'group',
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000000b2', NULL, '0b000000-0000-4000-8000-0000000004b1', 'group',
         '0b000000-0000-4000-8000-0000000003b1');
 
 -- Back on before the seed commits (see the DISABLE above the records rows).
