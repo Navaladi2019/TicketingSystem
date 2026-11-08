@@ -12,7 +12,9 @@
 #                    isolation suite, then the ci-isolated --down tag check
 #   commit-check-budget  TestCommitCheckBudget alone on its own runner
 #                    (ADR-004-E3 budget rows, TICK-509)
-#   stack            one image build (make image-ci, once per run), then three
+#   stack            one image build (make image-ci, once per run; on a
+#                    pull request that does not touch the image build, thin
+#                    images over binaries built on the runner, TICK-628), then three
 #                    stacks in turn, each torn down before the next: the
 #                    platform and Temporal cases; a fresh stack for the
 #                    database cases (db-roles/migrate idempotency, roles,
@@ -68,6 +70,16 @@ on:
     # request and the ci:run label. This reverses TICK-289's push on TICK-**.
     branches: [main]
   workflow_dispatch:
+    inputs:
+      # How the stack job builds its images (TICK-628). auto: cichanged
+      # -images (real when the change touches a Dockerfile, .dockerignore,
+      # go.mod, go.sum or a compose build: block, else thin). Ignored on main,
+      # which always builds the real Dockerfiles.
+      images:
+        description: 'Stack images: auto, real (the Dockerfiles) or thin (Dockerfile.ci over host-built binaries)'
+        type: choice
+        options: [auto, real, thin]
+        default: auto
   # story-branches only: a story branch drifts from main without any push to
   # main (a PR merged into it), so it is checked on a clock too (TICK-322).
   schedule:
@@ -107,6 +119,8 @@ jobs:
       stack: ${{ steps.stages.outputs.stack }}
       # The stack-case areas make stack-tests runs: all, none or a list (TICK-563).
       areas: ${{ steps.stages.outputs.areas }}
+      # How stack builds its images: real or thin (TICK-628).
+      images: ${{ steps.stages.outputs.images }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -138,6 +152,8 @@ jobs:
           # pull request into main, story PRs among them (a branch name cannot
           # tell a story PR from a task PR). On a push to main CI_ALL sets it.
           CI_AREAS_ALL: ${{ (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && (github.base_ref == 'main' || contains(github.event.pull_request.labels.*.name, 'ci:full')))) && '1' || '' }}
+          # A manual run's images input (TICK-628); CI_ALL (main) wins.
+          CI_IMAGES: ${{ github.event_name == 'workflow_dispatch' && inputs.images || '' }}
         run: make ci-stages
       # Only main writes the cache (TICK-400); see CACHE_WRITE above.
       - name: Save the Go build cache
@@ -440,6 +456,9 @@ jobs:
     timeout-minutes: 40
     env:
       IMAGE_CACHE: gha
+      # 1: make image-ci builds the Go services from deploy/compose/Dockerfile.ci
+      # over the binaries the step before it builds (TICK-628, AR-TICK-628-01).
+      IMAGE_THIN: ${{ needs.changes.outputs.images == 'thin' && '1' || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -458,6 +477,13 @@ jobs:
             go-${{ github.job }}-
       - uses: docker/setup-buildx-action@v3
       - uses: crazy-max/ghaction-github-runtime@v3
+      # One go build of the seven service binaries for the thin images
+      # (TICK-628). Main builds them too, though its images are real, so the
+      # Go cache it saves holds this build (CGO off, -trimpath) and a pull
+      # request's build is warm.
+      - name: Build the Go service binaries
+        if: env.IMAGE_THIN == '1' || env.CACHE_WRITE == 'true'
+        run: make ci-binaries
       # Once per run: every phase below uses these images.
       - name: Build images (layer cache in gha)
         id: images
@@ -474,6 +500,9 @@ jobs:
         id: cases-stack
         env:
           AREAS: ${{ needs.changes.outputs.areas }}
+          # The mode=parallel cases run at once, as in make ci-stack (TICK-628).
+          # Here, not on the run: line: required.yaml matches that line exactly.
+          PARALLEL: "1"
         run: make stack-tests JOB=stack
       - name: CI-6 report
         if: always()
@@ -506,6 +535,9 @@ jobs:
         if: ${{ !cancelled() && steps.up-db.outcome == 'success' }}
         env:
           AREAS: ${{ needs.changes.outputs.areas }}
+          # The mode=parallel cases run at once, as in make ci-stack (TICK-628).
+          # Here, not on the run: line: required.yaml matches that line exactly.
+          PARALLEL: "1"
         run: make stack-tests JOB=stack-db
       - name: Logs on failure (stack-db)
         if: always() && (steps.up-db.outcome == 'failure' || steps.cases-db.outcome == 'failure')
@@ -525,6 +557,9 @@ jobs:
         if: ${{ !cancelled() && steps.ca.outcome == 'success' }}
         env:
           AREAS: ${{ needs.changes.outputs.areas }}
+          # The mode=parallel cases run at once, as in make ci-stack (TICK-628).
+          # Here, not on the run: line: required.yaml matches that line exactly.
+          PARALLEL: "1"
         run: make stack-tests JOB=stack-internal
       - name: Logs on failure (stack-internal)
         if: always() && steps.cases-internal.outcome == 'failure'
