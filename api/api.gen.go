@@ -214,6 +214,24 @@ func (e ExportAuditEntriesParamsSubjectType) Valid() bool {
 	}
 }
 
+// Defines values for ExportAuditEntriesParamsFormat.
+const (
+	Csv   ExportAuditEntriesParamsFormat = "csv"
+	Jsonl ExportAuditEntriesParamsFormat = "jsonl"
+)
+
+// Valid indicates whether the value is a known member of the ExportAuditEntriesParamsFormat enum.
+func (e ExportAuditEntriesParamsFormat) Valid() bool {
+	switch e {
+	case Csv:
+		return true
+	case Jsonl:
+		return true
+	default:
+		return false
+	}
+}
+
 // AuditEntry defines model for AuditEntry.
 type AuditEntry struct {
 	Action string `json:"action"`
@@ -516,6 +534,9 @@ type ExportAuditEntriesParams struct {
 
 	// Stubs Send non-matching entries of the range as stubs (default) or leave them out.
 	Stubs *bool `form:"stubs,omitempty" json:"stubs,omitempty"`
+
+	// Format `jsonl` (default) or `csv`: the same lines as RFC 4180 CSV (`docs/api/audit-export-v1.md` section 5). Any other value is 400 `validation_failed`.
+	Format *ExportAuditEntriesParamsFormat `form:"format,omitempty" json:"format,omitempty"`
 }
 
 // ExportAuditEntriesParamsDomain defines parameters for ExportAuditEntries.
@@ -523,6 +544,9 @@ type ExportAuditEntriesParamsDomain string
 
 // ExportAuditEntriesParamsSubjectType defines parameters for ExportAuditEntries.
 type ExportAuditEntriesParamsSubjectType string
+
+// ExportAuditEntriesParamsFormat defines parameters for ExportAuditEntries.
+type ExportAuditEntriesParamsFormat string
 
 // ListEntityTypesParams defines parameters for ListEntityTypes.
 type ListEntityTypesParams struct {
@@ -911,6 +935,19 @@ func (siw *ServerInterfaceWrapper) ExportAuditEntries(w http.ResponseWriter, r *
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "stubs"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "stubs", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "format" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "format", r.URL.Query(), &params.Format, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "format"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "format", Err: err})
 		}
 		return
 	}
@@ -1861,6 +1898,26 @@ func (response ExportAuditEntries200ApplicationxNdjsonResponse) VisitExportAudit
 			return err
 		}
 	}
+}
+
+type ExportAuditEntries200TextcsvResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response ExportAuditEntries200TextcsvResponse) VisitExportAuditEntriesResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/csv")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
 }
 
 type ExportAuditEntries400ApplicationProblemPlusJSONResponse struct {

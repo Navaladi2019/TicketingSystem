@@ -414,11 +414,25 @@ paths:
           schema:
             type: boolean
             default: true
+        - name: format
+          in: query
+          required: false
+          description: >
+            `jsonl` (default) or `csv`: the same lines as RFC 4180 CSV (`docs/api/audit-export-v1.md` section 5). Any other value is 400 `validation_failed`.
+
+          schema:
+            type: string
+            enum: [jsonl, csv]
+            default: jsonl
       responses:
         "200":
-          description: The export, one JSON object per line.
+          description: The export, one JSON object per line, or CSV when `format=csv`.
           content:
             application/x-ndjson:
+              schema:
+                type: string
+                format: binary
+            text/csv:
               schema:
                 type: string
                 format: binary

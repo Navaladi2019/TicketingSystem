@@ -48,6 +48,9 @@ type Request struct {
 	// Stubs is the request's stubs flag: true emits every non-matching seq as
 	// a stub line. It is recorded in the header as received (ADR-004-E2).
 	Stubs bool
+	// CSV is the requested file format: false is JSONL (the default). It is
+	// recorded in the audit/export entry's request diff.
+	CSV bool
 }
 
 // Session is a started export: the lease is held and the audit/export entry
@@ -120,9 +123,13 @@ RETURNING seq, entry_hash`, tenantID, (cap+leaseSlack).Seconds()).Scan(&s.HeadSe
 // requestDiff records the request as one RFC 6902 add op, so the audit trail
 // shows what was exported. It holds filter values and ids, never entry data.
 func requestDiff(req Request) ([]byte, error) {
+	format := "jsonl"
+	if req.CSV {
+		format = "csv"
+	}
 	b, err := json.Marshal([]any{map[string]any{
 		"op": "add", "path": "/request",
-		"value": map[string]any{"stubs": req.Stubs, "filter": filterJSON(req.Filter)},
+		"value": map[string]any{"format": format, "stubs": req.Stubs, "filter": filterJSON(req.Filter)},
 	}})
 	if err != nil {
 		return nil, fmt.Errorf("audit/export: encode request: %w", err)
