@@ -256,3 +256,55 @@ func FuzzParse(f *testing.F) {
 		_ = AssignStepIDs(d, nil)
 	})
 }
+
+// TestStepUnknownKey: Step reports a key the definition does not have.
+func TestStepUnknownKey(t *testing.T) {
+	d, err := Parse(encode(t, base()))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if s, ok := d.Step("nope"); ok || s != nil {
+		t.Errorf("Step(nope) = %v, %v; want nil, false", s, ok)
+	}
+}
+
+// TestCheckKeyRulesWithoutSchema: check repeats the schema's step-count and
+// key rules, so a Definition that never went through schema.json is still
+// refused with the same pointers.
+func TestCheckKeyRulesWithoutSchema(t *testing.T) {
+	tooMany := &Definition{Steps: make([]Step, MaxSteps+1)}
+	if got := tooMany.check(); !reflect.DeepEqual(got, []string{"/steps"}) {
+		t.Errorf("check(%d steps) = %v, want [/steps]", MaxSteps+1, got)
+	}
+
+	bad := &Definition{Start: "a", Steps: []Step{
+		{Key: "Upper", Type: TypeEnd},
+		{Key: "a", Type: TypeEnd},
+		{Key: "has-dash", Type: TypeEnd},
+		{Key: "a", Type: TypeEnd},
+		{Key: "", Type: TypeEnd},
+	}}
+	want := []string{"/steps/0/key", "/steps/2/key", "/steps/3/key", "/steps/4/key"}
+	if got := bad.check(); !reflect.DeepEqual(got, want) {
+		t.Errorf("check = %v, want %v", got, want)
+	}
+}
+
+func TestValidKey(t *testing.T) {
+	for k, want := range map[string]bool{
+		"a":                     true,
+		"a_1":                   true,
+		strings.Repeat("a", 40): true,
+		strings.Repeat("a", 41): false,
+		"":                      false,
+		"1a":                    false,
+		"Ab":                    false,
+		"aB":                    false,
+		"a-b":                   false,
+		"a b":                   false,
+	} {
+		if got := validKey(k); got != want {
+			t.Errorf("validKey(%q) = %v, want %v", k, got, want)
+		}
+	}
+}

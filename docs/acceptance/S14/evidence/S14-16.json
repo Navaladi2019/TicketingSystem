@@ -1,0 +1,28 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/me",
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json",
+      "x-request-id": "c83f35f71e3fddaba2533adf7233aee6"
+    },
+    "body": {
+      "group_paths": [
+        {
+          "id": "89009e6e-b5c0-4acb-9d5c-2f52bdf8a0f4",
+          "path": "/service-desk"
+        }
+      ],
+      "groups": [
+        "89009e6e-b5c0-4acb-9d5c-2f52bdf8a0f4"
+      ],
+      "idp_alias": "",
+      "tenant_id": "00000000-0000-4000-8000-0000000000a1",
+      "user_id": "7ea08c95-83fc-4d8d-aaa5-7b324d9adecd"
+    }
+  }
+}

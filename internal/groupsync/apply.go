@@ -282,19 +282,22 @@ type pair struct{ group, principal uuid.UUID }
 // applyGroups writes groups and their memberships. Membership needs the user
 // to be in the snapshot's directory: a member id with no principal is skipped.
 func applyGroups(ctx context.Context, tx pgx.Tx, tid string, groups []identity.DirectoryGroup, userIDs map[string]uuid.UUID, st *stats) error {
-	rows, err := tx.Query(ctx, `SELECT id, keycloak_group_id, path FROM groups WHERE tenant_id = $1::uuid`, tid)
+	// Tombstoned rows are read too (D4): a group that came back is revived
+	// on its own id, never inserted again (23505).
+	rows, err := tx.Query(ctx, `SELECT id, keycloak_group_id, path, deleted_at IS NOT NULL FROM groups WHERE tenant_id = $1::uuid`, tid)
 	if err != nil {
 		return fmt.Errorf("read groups: %w", err)
 	}
 	type groupRow struct {
-		id   uuid.UUID
-		path string
+		id      uuid.UUID
+		path    string
+		deleted bool
 	}
 	have := map[string]groupRow{}
 	for rows.Next() {
 		var kc string
 		var r groupRow
-		if err := rows.Scan(&r.id, &kc, &r.path); err != nil {
+		if err := rows.Scan(&r.id, &kc, &r.path, &r.deleted); err != nil {
 			rows.Close()
 			return fmt.Errorf("read groups: %w", err)
 		}
@@ -342,6 +345,11 @@ func applyGroups(ctx context.Context, tx pgx.Tx, tid string, groups []identity.D
 			b.Queue(`INSERT INTO groups (tenant_id, id, keycloak_group_id, path) VALUES ($1::uuid, $2::uuid, $3, $4)`,
 				tid, id.String(), g.KeycloakGroupID, g.Path)
 			st.GroupsWritten++
+		case cur.deleted:
+			// Revive on the same id. Memberships are re-inserted in batch 2,
+			// after this one, so the live FK accepts them.
+			b.Queue(`UPDATE groups SET path = $3, deleted_at = NULL WHERE tenant_id = $1::uuid AND id = $2::uuid`, tid, id.String(), g.Path)
+			st.GroupsWritten++
 		case cur.path != g.Path:
 			b.Queue(`UPDATE groups SET path = $3 WHERE tenant_id = $1::uuid AND id = $2::uuid`, tid, id.String(), g.Path)
 			st.GroupsWritten++
@@ -358,6 +366,10 @@ func applyGroups(ctx context.Context, tx pgx.Tx, tid string, groups []identity.D
 		return fmt.Errorf("write groups: %w", err)
 	}
 
+	// Batch 2 (I3): membership deletes first, so the tombstone passes the
+	// live FK (D11); then the tombstone; then the pointer deletes, which the
+	// policies allow only once the group is tombstoned. Inserts go last and
+	// only target live groups.
 	b = &pgx.Batch{}
 	for p := range haveMembers {
 		if !wantMembers[p] {
@@ -365,29 +377,30 @@ func applyGroups(ctx context.Context, tx pgx.Tx, tid string, groups []identity.D
 				tid, p.group.String(), p.principal.String())
 		}
 	}
-	for p := range wantMembers {
-		if !haveMembers[p] {
-			b.Queue(`INSERT INTO group_members (tenant_id, group_id, principal_id) VALUES ($1::uuid, $2::uuid, $3::uuid)`,
-				tid, p.group.String(), p.principal.String())
-		}
-	}
 	var gone []string
 	for kc, r := range have {
-		if !want[kc] {
+		if !want[kc] && !r.deleted {
 			gone = append(gone, r.id.String())
 		}
 	}
 	if len(gone) > 0 {
-		// One query: the delete below cascades to tenant_admin_group, so ask
-		// first whether the recorded admins group is going.
+		// Ask first whether the recorded admins group is going.
 		var recorded bool
 		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM tenant_admin_group WHERE tenant_id = $1::uuid AND group_id = ANY($2::uuid[]))`,
 			tid, gone).Scan(&recorded); err != nil {
 			return fmt.Errorf("read admin group: %w", err)
 		}
 		st.AdminGroupDeleted = recorded
-		b.Queue(`DELETE FROM groups WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[])`, tid, gone)
+		b.Queue(`UPDATE groups SET deleted_at = now() WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[])`, tid, gone)
+		b.Queue(`DELETE FROM tenant_admin_group WHERE tenant_id = $1::uuid AND group_id = ANY($2::uuid[])`, tid, gone)
+		b.Queue(`DELETE FROM tenant_auditor_group WHERE tenant_id = $1::uuid AND group_id = ANY($2::uuid[])`, tid, gone)
 		st.GroupsDeleted = len(gone)
+	}
+	for p := range wantMembers {
+		if !haveMembers[p] {
+			b.Queue(`INSERT INTO group_members (tenant_id, group_id, principal_id) VALUES ($1::uuid, $2::uuid, $3::uuid)`,
+				tid, p.group.String(), p.principal.String())
+		}
 	}
 	if err := send(ctx, tx, b); err != nil {
 		return fmt.Errorf("write group members: %w", err)

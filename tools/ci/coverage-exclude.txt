@@ -1,0 +1,29 @@
+# Files that do not count towards the coverage total (make check-coverage,
+# TICK-518). One pattern per line, then `# reason`; tools/ci/coverage fails on
+# a line without a reason or a pattern that matches no file.
+#
+# Allowed without further approval: generated code, cmd/*/main.go wiring and
+# test-only helper packages. Anything else needs the Technical Lead's approval
+# on TICK-518 (or its successor); excluding real logic to reach the minimum is
+# not acceptable.
+#
+# Patterns are matched against the file path inside the module: `dir/...` is
+# every file under dir, a leading `**/` is any directory depth, the rest is
+# path.Match syntax.
+
+# Generated code.
+**/*.gen.go                          # oapi-codegen output (api/api.gen.go, internal/apitest/api.gen.go); regenerated and diffed by make check-generate, not hand-written
+
+# Process wiring.
+cmd/*/main.go                        # main(): flag parsing and wiring of already-tested packages; the logic beside it (cmd/*/other.go) still counts
+internal/audit/chain/cmd/genvectors/main.go  # main() of the golden-vector generator, a developer tool run by hand
+
+# Test-only helper packages: imported by tests, test tools or build-tagged
+# test binaries, never by a production binary.
+internal/apitest/...                 # test-only OpenAPI contract and its server, used by API tests
+internal/audit/verify/verifytest/... # builds audit export fixtures for the verifier's tests
+internal/audit/chain/vectors/...     # builds the audit hash-chain golden vectors (test fixtures)
+internal/identity/contracttest/...   # the identity adapter contract suite, run by tests and tools/ci/ci5report
+internal/identity/keycloak/keycloaktest/... # fake Keycloak realm for tests
+internal/workflow/interp/interptest/... # interpreter fixture seams, linked only into the interptest-tagged worker for stack tests
+internal/tenancy/isolation/...       # the tenant isolation suite's path registry, read by its tests and navalint

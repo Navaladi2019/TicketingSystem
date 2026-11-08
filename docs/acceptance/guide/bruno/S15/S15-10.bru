@@ -1,0 +1,43 @@
+meta {
+  name: S15.10 AC1: Alice creates a third incident, the tenant now sealing every 10 s: 201
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{core_url}}/api/v1/records/incident
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: tick443-s15-{{s15_run}}-rec3
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "S15 {{s15_run}} rec3",
+      "priority": 2
+    }
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await require('./lib/s15')(N, bru).fresh();
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  test('version 1', () => expect(b.version).to.eql(1));
+  bru.setVar('s15_rec3', b.id);
+}
+
+docs {
+  Written right after S15.9 saw the second one sealed. The tenant has been sealing every 10 s since S15.7's run (R16, ADR-004-E7), so the next run is at most 10 s away.
+}

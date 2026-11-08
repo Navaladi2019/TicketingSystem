@@ -24,3 +24,11 @@ func TestGuardIsAllowed(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), guarderrtype.Analyzer,
 		guarderrtype.GuardPkg, guarderrtype.GuardPkg+"/sub")
 }
+
+// TestSealBuildsOnlyConstantMessages: internal/audit/seal may use the
+// audit.seal failure types, but only with a constant message, and no other
+// guard type; a package below it may not use them at all (TICK-594).
+func TestSealBuildsOnlyConstantMessages(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), guarderrtype.Analyzer,
+		guarderrtype.SealPkg, guarderrtype.SealPkg+"/sub")
+}

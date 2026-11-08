@@ -1,0 +1,83 @@
+Timing is off.
+psql:<stdin>:8: NOTICE:  table "rwk" does not exist, skipping
+DROP TABLE
+CREATE TABLE
+INSERT 0 2000000
+== before: PRIMARY KEY (tenant_id, idempotency_key)
+ALTER TABLE
+VACUUM
+  heap  |  pkey  
+--------+--------
+ 363 MB | 165 MB
+(1 row)
+
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+ Index Scan using rwk_pkey on rwk (actual time=0.100..0.101 rows=1 loops=1)
+   Index Cond: ((tenant_id = '00000000-0000-7000-8000-0000000001f4'::uuid) AND (idempotency_key = 'wf:6f5e8e098a9b0d233719cee0cf543e76:step-2'::text))
+   Buffers: shared read=5
+ Planning:
+   Buffers: shared hit=47 read=1
+ Planning Time: 0.279 ms
+ Execution Time: 0.129 ms
+(7 rows)
+
+== after: UNIQUE (tenant_id, idempotency_key, actor_principal_id) NULLS NOT DISTINCT
+Timing is on.
+CREATE INDEX
+Time: 10534.638 ms (00:10.535)
+ALTER TABLE
+Time: 48.958 ms
+Timing is off.
+VACUUM
+ actor_key 
+-----------
+ 198 MB
+(1 row)
+
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+ Index Scan using rwk_actor_key on rwk (actual time=0.053..0.054 rows=1 loops=1)
+   Index Cond: ((tenant_id = '00000000-0000-7000-8000-0000000001f4'::uuid) AND (idempotency_key = 'wf:6f5e8e098a9b0d233719cee0cf543e76:step-2'::text))
+   Filter: (NOT (actor_principal_id IS DISTINCT FROM '00000000-0000-7000-9000-00000000c35e'::uuid))
+   Buffers: shared hit=3 read=2
+ Planning:
+   Buffers: shared hit=49
+ Planning Time: 0.378 ms
+ Execution Time: 0.071 ms
+(8 rows)
+
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+ Index Scan using rwk_actor_key on rwk (actual time=0.023..0.024 rows=0 loops=1)
+   Index Cond: ((tenant_id = '00000000-0000-7000-8000-0000000001f4'::uuid) AND (idempotency_key = 'wf:6f5e8e098a9b0d233719cee0cf543e76:step-2'::text))
+   Filter: (NOT (actor_principal_id IS DISTINCT FROM '00000000-0000-7000-9000-00000000c350'::uuid))
+   Rows Removed by Filter: 1
+   Buffers: shared hit=5
+ Planning Time: 0.133 ms
+ Execution Time: 0.037 ms
+(7 rows)
+
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+ Index Scan using rwk_actor_key on rwk (actual time=0.019..0.020 rows=1 loops=1)
+   Index Cond: ((tenant_id = '00000000-0000-7000-8000-0000000001f4'::uuid) AND (idempotency_key = 'wf:8bd3de7b569e3c4fd3b9053d189ce944:step-5'::text))
+   Filter: (NOT (actor_principal_id IS DISTINCT FROM NULL::uuid))
+   Buffers: shared hit=5
+ Planning Time: 0.232 ms
+ Execution Time: 0.032 ms
+(6 rows)
+
+== insert cost, 20,000 rows
+Timing is on.
+INSERT 0 20000
+Time: 351.191 ms
+Timing is off.
+DROP INDEX
+DELETE 20000
+VACUUM
+ALTER TABLE
+Timing is on.
+INSERT 0 20000
+Time: 227.901 ms
+Timing is off.

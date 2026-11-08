@@ -23,8 +23,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/Navaladi2019/TicketingSystem/db"
+	"github.com/Navaladi2019/TicketingSystem/internal/db/audited"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/catalog"
-	"github.com/Navaladi2019/TicketingSystem/internal/db/grants"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/migrate"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/roles"
 )
@@ -50,7 +50,7 @@ func superConfig(t *testing.T) *pgx.ConnConfig {
 func migrated(t *testing.T) (*pgx.Conn, string) {
 	t.Helper()
 	ctx := context.Background()
-	m, err := grants.Parse(db.Grants())
+	m, am, err := audited.Load(db.Grants(), db.AuditedTables())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func migrated(t *testing.T) (*pgx.Conn, string) {
 	owner := superConfig(t).Copy()
 	owner.User, owner.Database = m.Owner(), m.PlatformDatabase
 	owner.Password, _ = testPassword(m.Owner())
-	if _, err := migrate.Run(ctx, owner, db.Migrations(), m, g, log, migrate.Options{LockRetrySeconds: 1}); err != nil {
+	if _, err := migrate.Run(ctx, owner, db.Migrations(), m, am, g, log, migrate.Options{LockRetrySeconds: 1}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
@@ -160,7 +160,7 @@ func TestDemoWritesThroughThePipeline(t *testing.T) {
 		audits  int
 	)
 	if err := super.QueryRow(ctx, `SELECT r.version, r.number,
-		(SELECT count(*) FROM audit_log a WHERE a.tenant_id = r.tenant_id AND a.record_id = r.id)
+		(SELECT count(*) FROM audit_log a WHERE a.tenant_id = r.tenant_id AND a.subject_type = 'record' AND a.subject_id = r.id)
 		FROM records r WHERE r.tenant_id = $1 AND r.id = $2`, tenantA, record).Scan(&version, &number, &audits); err != nil {
 		t.Fatal(err)
 	}

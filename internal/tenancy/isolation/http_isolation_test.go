@@ -245,7 +245,8 @@ func (r *apiRunner) runShape(t *testing.T, c *HTTPCall) (status, detail string) 
 	return statusPass, fmt.Sprintf("401, refused: %s", s.WantReason)
 }
 
-// rowCounts is one tenant's records and audit_log row counts.
+// rowCounts is one tenant's records and record-domain audit_log entry counts
+// (the pipeline writes audit_log since P5-13b, TICK-452).
 type rowCounts struct{ records, audit int }
 
 // countRows reads tenant's counts on the superuser connection, past
@@ -253,7 +254,7 @@ type rowCounts struct{ records, audit int }
 func countRows(ctx context.Context, super *pgx.Conn, tenant string) (rowCounts, error) {
 	var n rowCounts
 	err := super.QueryRow(ctx, `SELECT (SELECT count(*) FROM records WHERE tenant_id = $1),
-		(SELECT count(*) FROM audit_log WHERE tenant_id = $1)`, tenant).Scan(&n.records, &n.audit)
+		(SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND domain = 'record')`, tenant).Scan(&n.records, &n.audit)
 	return n, err
 }
 
@@ -401,7 +402,13 @@ func (r *apiRunner) runStoredUnderA(t *testing.T, c *HTTPCall) (status, detail s
 				// TODO(TODO-S9-01): P3-42: this leaves the record's outbox and
 				// cascade_start rows behind. Once the EventSink is wired,
 				// delete cascade_start first, then outbox, then these.
-				for _, q := range []string{`DELETE FROM audit_log WHERE tenant_id = $1 AND record_id = $2`, `DELETE FROM records WHERE tenant_id = $1 AND id = $2`} {
+				// The record's delete writes its own entry, as the records
+				// commit-check trigger requires (P5-13c); the second
+				// statement then removes every entry of the record.
+				for _, q := range []string{`WITH r AS (DELETE FROM records WHERE tenant_id = $1 AND id = $2 RETURNING tenant_id, id, version)
+					INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, version_after, actor_system, source)
+					SELECT tenant_id, gen_random_uuid(), 'record', 'delete', 'record', id, version, 'system', 'system' FROM r`,
+					`DELETE FROM audit_log WHERE tenant_id = $1 AND subject_id = $2`} {
 					if _, err := super.Exec(context.Background(), q, TenantA, row.ID); err != nil {
 						t.Errorf("cleanup: %v", err)
 					}

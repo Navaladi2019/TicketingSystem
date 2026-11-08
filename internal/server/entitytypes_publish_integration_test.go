@@ -7,6 +7,7 @@
 package server_test
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -21,6 +22,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/audit/jsondiff"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
@@ -58,6 +60,9 @@ func etVersionCount(t *testing.T, e *etEnv) int {
 	return n
 }
 
+// covers: publishEntityTypeVersion 201
+// covers: getEntityType 200
+// covers: getEntityTypeVersion 200
 func TestPublishGivesNextVersionAndLeavesV1Untouched(t *testing.T) {
 	e := newETEnv(t)
 	etCreateIncident(t, e)
@@ -98,6 +103,7 @@ func TestPublishGivesNextVersionAndLeavesV1Untouched(t *testing.T) {
 	}
 }
 
+// covers: publishEntityTypeVersion 201
 func TestPublishFiftyConcurrentGivesVersions2To51(t *testing.T) {
 	e := newETEnv(t)
 	etCreateIncident(t, e)
@@ -150,6 +156,7 @@ func TestPublishFiftyConcurrentGivesVersions2To51(t *testing.T) {
 	}
 }
 
+// covers: publishEntityTypeVersion 201 422
 func TestPublishClassifiesAgainstTheCurrentVersion(t *testing.T) {
 	e := newETEnv(t)
 	etCreateIncident(t, e)
@@ -180,6 +187,7 @@ func TestPublishClassifiesAgainstTheCurrentVersion(t *testing.T) {
 	}
 }
 
+// covers: publishEntityTypeVersion 403 404
 func TestPublishRequiresTheTenantAdminGroup(t *testing.T) {
 	e := newETEnv(t)
 	etCreateIncident(t, e)
@@ -195,6 +203,7 @@ func TestPublishRequiresTheTenantAdminGroup(t *testing.T) {
 	}
 }
 
+// covers: publishEntityTypeVersion 400 401 422
 func TestPublishRejectsNumberPrefixAndBadBodies(t *testing.T) {
 	e := newETEnv(t)
 	etCreateIncident(t, e)
@@ -212,6 +221,7 @@ func TestPublishRejectsNumberPrefixAndBadBodies(t *testing.T) {
 	}
 }
 
+// covers: publishEntityTypeVersion 404
 func TestPublishUnknownAndForeignKeysGiveTheSameNotFound(t *testing.T) {
 	e := newETEnv(t)
 	etCreateIncident(t, e)
@@ -228,6 +238,7 @@ func TestPublishUnknownAndForeignKeysGiveTheSameNotFound(t *testing.T) {
 	}
 }
 
+// covers: publishEntityTypeVersion 201 409
 func TestPublishIdempotentReplay(t *testing.T) {
 	e := newETEnv(t)
 	etCreateIncident(t, e)
@@ -264,6 +275,7 @@ func TestPublishRefusesNoPrincipalAndAddsNoRow(t *testing.T) {
 
 // An impossible key gets the byte-identical 404 whatever the body is: the key
 // shape is checked before the body is parsed (the admin check stays first).
+// covers: publishEntityTypeVersion 404
 func TestPublishOverlongKeyWithMalformedBodyIsNotFound(t *testing.T) {
 	e := newETEnv(t)
 	long := "/api/v1/entity-types/" + strings.Repeat("k", 65) + "/versions"
@@ -279,6 +291,7 @@ func TestPublishOverlongKeyWithMalformedBodyIsNotFound(t *testing.T) {
 
 // A stored current version that no longer compiles is a store defect: publish
 // answers 500, not a 422 with pointers into the stored schema.
+// covers: publishEntityTypeVersion 500
 func TestPublishOverABrokenStoredVersionIsInternalError(t *testing.T) {
 	e := newETEnv(t)
 	etCreateIncident(t, e)
@@ -289,4 +302,188 @@ func TestPublishOverABrokenStoredVersionIsInternalError(t *testing.T) {
 	}
 	rec := e.do(t, http.MethodPost, "/api/v1/entity-types/incident/versions", "admin-a", "k-broken", etPublishBody(t))
 	wantProblem(t, rec, http.StatusInternalServerError, problem.InternalError)
+}
+
+// P5-14 (TICK-432): publishing writes one config-domain audit entry.
+
+type etAuditRow struct {
+	Action        string
+	VersionBefore *int64
+	VersionAfter  int64
+	ContentSHA    []byte
+	Source        string
+	Actor         uuid.UUID
+	RequestID     *string
+}
+
+func etAuditRows(t *testing.T, e *etEnv) []etAuditRow {
+	t.Helper()
+	rows, err := e.super.Query(t.Context(), `
+SELECT action, version_before, version_after, content_sha256, source, actor_principal_id, request_id
+FROM audit_log WHERE tenant_id = $1 AND domain = 'config' AND subject_type = 'entity_definition' ORDER BY version_after`, e.a.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []etAuditRow
+	for rows.Next() {
+		var r etAuditRow
+		if err := rows.Scan(&r.Action, &r.VersionBefore, &r.VersionAfter, &r.ContentSHA, &r.Source, &r.Actor, &r.RequestID); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func TestPublishWritesCreateThenPublishEntries(t *testing.T) {
+	e := newETEnv(t)
+	etCreateIncident(t, e)
+	body := etPublishBody(t, `"description": "a <b>&amp; tag"`, `"description": "changed"`)
+	if rec := e.do(t, http.MethodPost, etVersionsPath, "admin-a", "k-aud-1", body); rec.Code != http.StatusCreated {
+		t.Fatalf("publish = %d: %s", rec.Code, rec.Body)
+	}
+	rows := etAuditRows(t, e)
+	if len(rows) != 2 {
+		t.Fatalf("%d entries, want 2: %+v", len(rows), rows)
+	}
+	for i, want := range []string{"create", "publish"} {
+		var sum []byte
+		if err := e.super.QueryRow(t.Context(),
+			"SELECT schema_sha256 FROM entity_definition_versions WHERE tenant_id = $1 AND version = $2", e.a.id, i+1).Scan(&sum); err != nil {
+			t.Fatal(err)
+		}
+		r := rows[i]
+		if r.Action != want || r.VersionAfter != int64(i+1) || r.Source != "user" || r.Actor != e.a.admin.PrincipalID || hex.EncodeToString(r.ContentSHA) != hex.EncodeToString(sum) {
+			t.Errorf("entry %d = %+v, want %s v%d with the version's schema_sha256", i, r, want, i+1)
+		}
+	}
+	for i, r := range rows {
+		if r.RequestID == nil || *r.RequestID == "" {
+			t.Errorf("entry %d has no request_id", i)
+		}
+	}
+	// S3: the stored diff is built from the jsonb read back, not the request.
+	var v1, v2, stored string
+	for n, dst := range map[int]*string{1: &v1, 2: &v2} {
+		if err := e.super.QueryRow(t.Context(),
+			"SELECT schema::jsonb::text FROM entity_definition_versions WHERE tenant_id = $1 AND version = $2", e.a.id, n).Scan(dst); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want, err := jsondiff.Diff([]byte(v1), []byte(v2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.super.QueryRow(t.Context(),
+		"SELECT diff::text FROM audit_log WHERE tenant_id = $1 AND domain = 'config' AND version_after = 2", e.a.id).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored != string(want) {
+		t.Errorf("stored diff = %s, want %s", stored, want)
+	}
+	if rows[0].VersionBefore != nil || rows[1].VersionBefore == nil || *rows[1].VersionBefore != 1 {
+		t.Errorf("version_before = %v, %v; want nil, 1", rows[0].VersionBefore, rows[1].VersionBefore)
+	}
+}
+
+func TestRolledBackPublishWritesNoVersionAndNoEntry(t *testing.T) {
+	e := newETEnv(t)
+	etCreateIncident(t, e)
+	errAbort := errors.New("abort after publish")
+	ctx := context.Background()
+	def := etDefinition(t, "incident", "INC")
+	def.Schema = json.RawMessage(strings.Replace(etSchema, `"description": "a <b>&amp; tag"`, `"description": "changed"`, 1))
+	err := tenancy.InTenantTx(ctx, e.pool, e.a.id, func(tx pgx.Tx) error {
+		v, err := entitytypes.Store{}.Publish(ctx, tx, e.a.id, entitytypes.PublishInput{Key: "incident", PublishedBy: e.a.admin.PrincipalID, Definition: def})
+		if err != nil {
+			t.Fatalf("Publish: %v", err)
+		}
+		if v.Version != 2 {
+			t.Fatalf("version = %d, want 2", v.Version)
+		}
+		return errAbort // the version row and the entry were written; now roll back
+	})
+	if !errors.Is(err, errAbort) {
+		t.Fatalf("tx = %v, want the abort", err)
+	}
+	if n := etVersionCount(t, e); n != 1 {
+		t.Errorf("%d versions after rollback, want 1", n)
+	}
+	if rows := etAuditRows(t, e); len(rows) != 1 || rows[0].Action != "create" {
+		t.Errorf("entries = %+v, want only the create", rows)
+	}
+}
+
+// M1: adding the marker to a property that already has a default must be
+// refused, though the diff never carries the default.
+func TestMarkerAddedToExistingDefaultIsRefused(t *testing.T) {
+	const canary = "hunter2-canary-value"
+	plain := strings.Replace(etSchema, `"note": {"type": "string", "description": "a <b>&amp; tag"}`,
+		`"note": {"type": "string", "default": "`+canary+`"}`, 1)
+	marked := strings.Replace(plain, `"default": "`+canary+`"`, `"default": "`+canary+`", "x-nava-secret": true`, 1)
+	e := newETEnv(t)
+	create := fmt.Sprintf(`{"key": "incident", "name": "T", "number_prefix": "INC", "definition": {"schema": %s, %s}}`, plain, etDefTail)
+	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "k-m1-0", create); rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d: %s", rec.Code, rec.Body)
+	}
+	body := fmt.Sprintf(`{"definition": {"schema": %s, %s}}`, marked, etDefTail)
+	rec := e.do(t, http.MethodPost, etVersionsPath, "admin-a", "k-m1-1", body)
+	p := wantProblem(t, rec, http.StatusUnprocessableEntity, problem.ConfigSecretInContent)
+	if got := pointers(p); !slices.Equal(got, []string{"/definition/schema/properties/note/default"}) {
+		t.Errorf("pointers = %v", got)
+	}
+	if strings.Contains(rec.Body.String(), canary) {
+		t.Error("response echoes the secret value")
+	}
+	if n := etVersionCount(t, e); n != 1 {
+		t.Errorf("%d versions, want 1", n)
+	}
+	if rows := etAuditRows(t, e); len(rows) != 1 {
+		t.Errorf("%d entries, want 1", len(rows))
+	}
+}
+
+func TestSecretDefaultIsRefusedAndNothingIsWritten(t *testing.T) {
+	const canary = "hunter2-canary-value"
+	secretSchema := strings.Replace(etSchema, `"note": {"type": "string", "description": "a <b>&amp; tag"}`,
+		`"note": {"type": "string", "x-nava-secret": true, "default": "`+canary+`"}`, 1)
+	e := newETEnv(t)
+
+	// Create: no definition, version or entry.
+	body := fmt.Sprintf(`{"key": "incident", "name": "T", "number_prefix": "INC", "definition": {"schema": %s, %s}}`, secretSchema, etDefTail)
+	rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "k-sec-0", body)
+	p := wantProblem(t, rec, http.StatusUnprocessableEntity, problem.ConfigSecretInContent)
+	if got := pointers(p); !slices.Equal(got, []string{"/definition/schema/properties/note/default"}) {
+		t.Errorf("pointers = %v", got)
+	}
+	if strings.Contains(rec.Body.String(), canary) {
+		t.Error("response echoes the secret value")
+	}
+	// The create path goes through secretProblem: the warning names the path.
+	if got := e.logs.String(); !strings.Contains(got, "entity type refused: secret in content") ||
+		!strings.Contains(got, "/definition/schema/properties/note/default") || strings.Contains(got, canary) {
+		t.Errorf("log lacks the secret warning with the path, or carries the value: %s", got)
+	}
+	if n := etVersionCount(t, e); n != 0 {
+		t.Errorf("%d versions after a refused create, want 0", n)
+	}
+
+	// Publish: v1 stays current, no v2 row, no second entry.
+	etCreateIncident(t, e)
+	body = fmt.Sprintf(`{"definition": {"schema": %s, %s}}`, secretSchema, etDefTail)
+	rec = e.do(t, http.MethodPost, etVersionsPath, "admin-a", "k-sec-1", body)
+	wantProblem(t, rec, http.StatusUnprocessableEntity, problem.ConfigSecretInContent)
+	if strings.Contains(rec.Body.String(), canary) {
+		t.Error("response echoes the secret value")
+	}
+	if n := etVersionCount(t, e); n != 1 {
+		t.Errorf("%d versions, want 1", n)
+	}
+	if rows := etAuditRows(t, e); len(rows) != 1 {
+		t.Errorf("%d entries, want 1", len(rows))
+	}
 }

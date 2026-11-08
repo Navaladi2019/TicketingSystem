@@ -1,7 +1,10 @@
 package problem_test
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -43,8 +46,8 @@ func TestRegistryMatchesGoCodes(t *testing.T) {
 			t.Errorf("PLAN-001 first code %q has no Go constant", c)
 		}
 	}
-	if n := len(problem.Codes()); n != 24 {
-		t.Errorf("%d Go codes, want 24; update this test with the registry", n)
+	if n := len(problem.Codes()); n != 28 {
+		t.Errorf("%d Go codes, want 28; update this test with the registry", n)
 	}
 }
 
@@ -108,5 +111,39 @@ func TestWrite(t *testing.T) {
 	reg.Write(rec, req, "no_such_code")
 	if rec.Code != 500 || !strings.Contains(rec.Body.String(), `"code":"internal_error"`) {
 		t.Errorf("unregistered code answered %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestWriteErrorReports5xxToTheLogOnly(t *testing.T) {
+	t.Parallel()
+	reg, _ := loadReal(t)
+	req := httptest.NewRequestWithContext(requestid.NewContext(t.Context(), "r1"), http.MethodGet, "/x", nil)
+	cause := errors.New("db password=hunter2 failed")
+
+	var logs bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&logs, nil))
+	rec := httptest.NewRecorder()
+	reg.WriteError(rec, req, log, problem.InternalError, cause)
+	if rec.Code != 500 || strings.Contains(rec.Body.String(), "hunter2") {
+		t.Fatalf("got %d %s: the body must not carry the cause", rec.Code, rec.Body)
+	}
+	if !strings.Contains(logs.String(), "hunter2") {
+		t.Fatalf("the cause must reach the log: %s", logs.String())
+	}
+
+	// A registered 4xx is not reported.
+	logs.Reset()
+	rec = httptest.NewRecorder()
+	reg.WriteError(rec, req, log, problem.RateLimited, cause)
+	if rec.Code != 429 || logs.Len() != 0 {
+		t.Fatalf("got %d, logs %q: a 4xx must not be logged as an error", rec.Code, logs.String())
+	}
+
+	// An unregistered code is reported and answered as internal_error.
+	logs.Reset()
+	rec = httptest.NewRecorder()
+	reg.WriteError(rec, req, log, "no_such_code", cause)
+	if rec.Code != 500 || logs.Len() == 0 {
+		t.Fatalf("got %d, logs %q", rec.Code, logs.String())
 	}
 }

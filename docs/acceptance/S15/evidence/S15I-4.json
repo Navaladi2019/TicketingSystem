@@ -1,0 +1,73 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:28080/api/v1/audit/entries?subject_id=01a1b6ef-0352-7326-ad66-fe532e96c6ca&limit=10",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:28080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "items": [
+        {
+          "action": "create",
+          "actor_principal_id": "db3f6e71-336c-423a-a504-2ce7ed48f2b3",
+          "backfilled": false,
+          "causation_depth": 0,
+          "causation_id": "01a1b6ef-034f-7dce-b61c-2b8a4603ae1a",
+          "diff": [
+            {
+              "op": "add",
+              "path": "",
+              "value": {
+                "priority": 2,
+                "short_description": "S15 mw6n8ppq idle",
+                "state": "new"
+              }
+            }
+          ],
+          "diff_redacted": false,
+          "diff_salt": "9f46174b9952242fc090b0b6b114422f",
+          "diff_sha256": "28b0a56c160838d11c11aa96af30bb28bd401415bb55835561c6c776a7b7bd25",
+          "diff_truncated": false,
+          "domain": "record",
+          "entity_definition_id": "b6424f14-3638-4cdc-94a1-381d57d14ccf",
+          "id": "01a1b6ef-0354-7a46-9afe-bb7af2c7fa7b",
+          "occurred_at": "2026-11-07T16:54:39.692522Z",
+          "request_id": "d0bd1c95f4b40f2eace7ca754f42db42",
+          "sealed_at": "2026-11-07T16:56:59.328626Z",
+          "seq": 797,
+          "source": "user",
+          "subject_id": "01a1b6ef-0352-7326-ad66-fe532e96c6ca",
+          "subject_type": "record",
+          "version_after": 1
+        }
+      ]
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 200",
+      "status": "pass"
+    },
+    {
+      "test": "the incident's create entry is on the auditor's timeline",
+      "status": "pass"
+    },
+    {
+      "test": "sealed: a seq of 1 or more, and a sealed_at",
+      "status": "pass"
+    },
+    {
+      "test": "sealed 300 s or less after it was written (sealed_at - occurred_at, database clock)",
+      "status": "pass"
+    }
+  ]
+}

@@ -25,6 +25,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/store"
+	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
 func wantFields(t *testing.T, err error, want ...metadata.FieldError) {
@@ -54,8 +55,8 @@ func TestInvalidCreateWritesNothing(t *testing.T) {
 	if n := count(t, e.super, "SELECT count(*) FROM records WHERE tenant_id = $1", f.id); n != 0 {
 		t.Errorf("%d records, want 0", n)
 	}
-	if n := count(t, e.super, "SELECT count(*) FROM audit_log WHERE tenant_id = $1", f.id); n != 0 {
-		t.Errorf("%d audit rows, want 0", n)
+	if n := count(t, e.super, "SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND domain = 'record'", f.id); n != 0 {
+		t.Errorf("%d audit entries, want 0", n)
 	}
 	if sink.calls() != 0 {
 		t.Errorf("%d sink calls, want 0", sink.calls())
@@ -100,8 +101,8 @@ func TestConcurrentUpdatesOneWins(t *testing.T) {
 	if !errors.Is(secondErr, pipeline.ErrVersionConflict) {
 		t.Fatalf("second update: %v, want ErrVersionConflict", secondErr)
 	}
-	if n := count(t, e.super, "SELECT count(*) FROM audit_log WHERE record_id = $1 AND action = 'update'", created.RecordID); n != 1 {
-		t.Fatalf("%d update audit rows, want 1", n)
+	if n := count(t, e.super, "SELECT count(*) FROM audit_log WHERE subject_type = 'record' AND subject_id = $1 AND action = 'update'", created.RecordID); n != 1 {
+		t.Fatalf("%d update audit entries, want 1", n)
 	}
 	data, _, _, version, _ := storedData(t, e, created.RecordID)
 	if version != 2 || data["summary"] != "one" {
@@ -242,9 +243,9 @@ func TestFixedColumnsOnlyInTheirColumn(t *testing.T) {
 	})
 }
 
-// AC: each committed write has exactly one audit row and exactly one
+// AC: each committed write has exactly one audit entry and exactly one
 // EventSink call inside the same transaction; a sink error rolls back the
-// record and the audit row.
+// record and the entry.
 func TestAuditAndSinkInTheWriteTransaction(t *testing.T) {
 	e := migrated(t)
 	f := seedTenant(t, e)
@@ -259,7 +260,7 @@ func TestAuditAndSinkInTheWriteTransaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	if sink.calls() != 2 || !reflect.DeepEqual(sink.audits, []int{1, 2}) {
-		t.Fatalf("sink calls %d, audit rows seen in the tx %v; want 2, [1 2]", sink.calls(), sink.audits)
+		t.Fatalf("sink calls %d, audit entries seen in the tx %v; want 2, [1 2]", sink.calls(), sink.audits)
 	}
 	defID := sink.events[0].EntityDefinitionID
 	if want := (pipeline.Event{Op: pipeline.OpUpdate, EntityDefinitionID: defID, RecordID: res.RecordID, Version: 2,
@@ -267,20 +268,26 @@ func TestAuditAndSinkInTheWriteTransaction(t *testing.T) {
 		Source: pipeline.SourceRule}); sink.events[1] != want {
 		t.Fatalf("event = %+v, want %+v", sink.events[1], want)
 	}
-	var action, source string
-	var actor *uuid.UUID
-	var depth int16
-	var before, after []byte
-	if err := e.super.QueryRow(context.Background(), `SELECT action, source, actor_id, causation_depth, before, after
-		FROM audit_log WHERE record_id = $1 ORDER BY id DESC LIMIT 1`, res.RecordID).Scan(&action, &source, &actor, &depth, &before, &after); err != nil {
-		t.Fatal(err)
+	// ADR-004 R1 (P5-13b): one record entry per write, built from the
+	// payloads as PostgreSQL stored them.
+	defPtr := &defID
+	create := readEntry(t, e, f.id, "create", res.RecordID)
+	if diff := create.diff(entryRow{
+		Domain: "record", Action: "create", SubjectType: "record", SubjectID: res.RecordID, DefinitionID: defPtr,
+		VersionAfter: ptr(int64(1)), ActorPrincipal: &f.principal.PrincipalID, Source: "user",
+		CausationID: &sink.events[0].Causation.OriginID,
+		Diff:        `[{"op":"add","path":"","value":{"priority":"low","status":"open","title":"printer"}}]`,
+	}); diff != "" {
+		t.Fatalf("create entry: %s", diff)
 	}
-	if action != "update" || source != "rule" || actor == nil || *actor != f.principal.PrincipalID || depth != 1 {
-		t.Fatalf("audit row %s %s %v depth %d", action, source, actor, depth)
-	}
-	if !strings.Contains(string(before), `"version": 1`) || !strings.Contains(string(after), `"version": 2`) ||
-		!strings.Contains(string(after), `"status": "open"`) {
-		t.Fatalf("audit before %s after %s", before, after)
+	update := readEntry(t, e, f.id, "update", res.RecordID)
+	if diff := update.diff(entryRow{
+		Domain: "record", Action: "update", SubjectType: "record", SubjectID: res.RecordID, DefinitionID: defPtr,
+		VersionBefore: ptr(int64(1)), VersionAfter: ptr(int64(2)), ActorPrincipal: &f.principal.PrincipalID, Source: "rule",
+		CausationID: &origin, CausationDepth: 1,
+		Diff: `[{"op":"add","path":"/summary","value":"x"}]`,
+	}); diff != "" {
+		t.Fatalf("update entry: %s", diff)
 	}
 
 	failing := &countingSink{err: errors.New("sink down")}
@@ -295,8 +302,8 @@ func TestAuditAndSinkInTheWriteTransaction(t *testing.T) {
 	if n := count(t, e.super, "SELECT count(*) FROM records WHERE id = $1", lost); n != 0 {
 		t.Errorf("the failed write left its record")
 	}
-	if n := count(t, e.super, "SELECT count(*) FROM audit_log WHERE record_id = $1", lost); n != 0 {
-		t.Errorf("the failed write left its audit row")
+	if n := count(t, e.super, "SELECT count(*) FROM audit_log WHERE subject_id = $1", lost); n != 0 {
+		t.Errorf("the failed write left its audit entry")
 	}
 }
 
@@ -323,11 +330,15 @@ func TestIdempotencyKeyReplays(t *testing.T) {
 	if again != first {
 		t.Fatalf("replay = %+v, want %+v", again, first)
 	}
-	if n := count(t, e.super, "SELECT count(*) FROM audit_log WHERE tenant_id = $1", f.id); n != 1 {
-		t.Fatalf("%d audit rows, want 1", n)
+	if n := count(t, e.super, "SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND domain = 'record'", f.id); n != 1 {
+		t.Fatalf("%d audit entries, want 1", n)
 	}
 	if n := count(t, e.super, "SELECT count(*) FROM records WHERE tenant_id = $1", f.id); n != 1 {
 		t.Fatalf("%d records, want 1", n)
+	}
+	if n := count(t, e.super, "SELECT count(*) FROM record_write_keys WHERE tenant_id = $1 AND idempotency_key = 'wf:w1:s1' AND record_id = $2",
+		f.id, first.RecordID); n != 1 {
+		t.Fatalf("%d record_write_keys rows name the create, want 1", n)
 	}
 
 	// An update replay returns its first result even after later writes.
@@ -344,6 +355,22 @@ func TestIdempotencyKeyReplays(t *testing.T) {
 	if upAgain, err := write(ctx, e, p, f.id, up); err != nil || upAgain != upFirst {
 		t.Fatalf("update replay = %+v, %v; want %+v", upAgain, err, upFirst)
 	}
+	// D-3-13 replay reads record_write_keys, never the audit log: with every
+	// record-domain audit entry gone both keys
+	// still replay their first result and write nothing.
+	if _, err := e.super.Exec(ctx, "DELETE FROM audit_log WHERE domain = 'record'"); err != nil {
+		t.Fatal(err)
+	}
+	if again, err := write(ctx, e, p, f.id, cmd); err != nil || again != first {
+		t.Fatalf("create replay without audit rows = %+v, %v; want %+v", again, err, first)
+	}
+	if upAgain, err := write(ctx, e, p, f.id, up); err != nil || upAgain != upFirst {
+		t.Fatalf("update replay without audit rows = %+v, %v; want %+v", upAgain, err, upFirst)
+	}
+	if n := count(t, e.super, "SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND domain = 'record'", f.id); n != 0 {
+		t.Fatalf("a replay wrote %d audit entries", n)
+	}
+
 	// The key names one write: reusing it for another record is a conflict
 	// (the full table is TestIdempotencyKeyMismatchConflicts).
 	other := mustCreate(t, e, p, f, map[string]any{"title": "other"})
@@ -354,8 +381,9 @@ func TestIdempotencyKeyReplays(t *testing.T) {
 		t.Fatalf("key reused for another record: %v, want a mismatch *ErrIdempotencyConflict", err)
 	}
 
-	// Concurrent duplicate: the second's audit insert waits on the first's
-	// uncommitted key, then hits 23505.
+	// Concurrent duplicate: the second's record_write_keys insert waits on
+	// the first's uncommitted key, then hits 23505 on record_write_keys_actor_key,
+	// which maps to the retryable conflict, never a 500.
 	dup := cmd
 	dup.IdempotencyKey = "wf:w2:s1"
 	holder := newPipeline(e, nil)
@@ -381,8 +409,68 @@ func TestIdempotencyKeyReplays(t *testing.T) {
 	if retry, err := write(ctx, e, p, f.id, dup); err != nil || retry != holderRes {
 		t.Fatalf("retry = %+v, %v; want %+v", retry, err, holderRes)
 	}
-	if n := count(t, e.super, "SELECT count(*) FROM audit_log WHERE idempotency_key = 'wf:w2:s1'"); n != 1 {
-		t.Fatalf("%d rows hold the key, want 1", n)
+	if n := count(t, e.super, "SELECT count(*) FROM record_write_keys WHERE idempotency_key = 'wf:w2:s1' AND record_id = $1", holderRes.RecordID); n != 1 {
+		t.Fatalf("%d record_write_keys rows hold the key for the winner, want 1", n)
+	}
+	if n := count(t, e.super, "SELECT count(*) FROM record_write_keys WHERE idempotency_key = 'wf:w2:s1'"); n != 1 {
+		t.Fatalf("%d record_write_keys rows hold the key, want 1", n)
+	}
+	if n := count(t, e.super, "SELECT count(*) FROM records r JOIN record_write_keys k ON k.tenant_id = r.tenant_id AND k.record_id = r.id WHERE r.tenant_id = $1 AND k.idempotency_key = 'wf:w2:s1'", f.id); n != 1 {
+		t.Fatalf("the race left %d records for the key, want 1", n)
+	}
+	// The key's audit_entry_id points at the winner's entry, its only one.
+	if n := count(t, e.super, `SELECT count(*) FROM audit_log a JOIN record_write_keys k ON k.tenant_id = a.tenant_id AND k.audit_entry_id = a.id
+		WHERE k.idempotency_key = 'wf:w2:s1' AND a.subject_id = k.record_id`); n != 1 {
+		t.Fatalf("%d audit entries are the key's audit_entry_id, want 1", n)
+	}
+	if n := recordEntries(t, e, holderRes.RecordID); n != 1 {
+		t.Fatalf("%d audit entries for the winner's record, want 1", n)
+	}
+}
+
+// CI-A1 extension (D-5-3): a keyed write that rolls back leaves no
+// record_write_keys row, so the key is free and its retry writes afresh.
+func TestIdempotencyKeyRollbackLeavesNoWriteKey(t *testing.T) {
+	e := migrated(t)
+	f := seedTenant(t, e)
+	ctx := context.Background()
+	cmd := createCmd(f, map[string]any{"title": "rolled back"})
+	cmd.Actor, cmd.Source, cmd.IdempotencyKey = f.system(), pipeline.SourceWorkflow, "wf:rb:s1"
+	cmd.Causation = workflowCausation()
+
+	// The sink fails after the key row is written, so the whole write rolls
+	// back with it.
+	failing := &countingSink{err: errors.New("sink down")}
+	if _, err := write(ctx, e, newPipeline(e, failing), f.id, cmd); err == nil {
+		t.Fatal("write with a failing sink succeeded")
+	}
+	// A caller that rolls back a successful write: nothing of it survives.
+	rollback := errors.New("roll back")
+	err := tenancy.InTenantTx(ctx, e.app, f.id, func(tx pgx.Tx) error {
+		c := cmd
+		c.IdempotencyKey = "wf:rb:s2"
+		if _, err := newPipeline(e, nil).Write(ctx, tx, c); err != nil {
+			return err
+		}
+		return rollback
+	})
+	if !errors.Is(err, rollback) {
+		t.Fatalf("err = %v, want the rollback", err)
+	}
+	for _, q := range []string{"record_write_keys", "records", "audit_log WHERE domain = 'record' AND"} {
+		if !strings.Contains(q, " WHERE ") {
+			q += " WHERE"
+		}
+		if n := count(t, e.super, "SELECT count(*) FROM "+q+" tenant_id = $1", f.id); n != 0 {
+			t.Fatalf("rolled-back writes left %d %s rows", n, q)
+		}
+	}
+	res, err := write(ctx, e, newPipeline(e, nil), f.id, cmd)
+	if err != nil {
+		t.Fatalf("retry after the rollback: %v", err)
+	}
+	if n := count(t, e.super, "SELECT count(*) FROM record_write_keys WHERE tenant_id = $1 AND record_id = $2", f.id, res.RecordID); n != 1 {
+		t.Fatalf("retry left %d record_write_keys rows, want 1", n)
 	}
 }
 
@@ -512,7 +600,7 @@ func TestPipelineKill(t *testing.T) {
 	if n := count(t, e.super, "SELECT count(*) FROM records WHERE tenant_id = $1", f.id); n != 0 {
 		t.Errorf("the killed write left %d records", n)
 	}
-	if n := count(t, e.super, "SELECT count(*) FROM audit_log WHERE tenant_id = $1", f.id); n != 0 {
+	if n := count(t, e.super, "SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND domain = 'record'", f.id); n != 0 {
 		t.Errorf("the killed write left %d audit rows", n)
 	}
 	// The tenant still writes normally.

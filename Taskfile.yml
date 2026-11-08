@@ -26,9 +26,9 @@ tasks:
       - go run ./cmd/nava-core
 
   test:
-    desc: Run all tests with the race detector (needs cgo), navalint's included, one race run per host at a time, failing when a registered isolation suite ran zero tests, the same as make test
+    desc: Run all tests with the race detector (needs cgo), navalint's included, one race run per host at a time, failing when a registered isolation suite ran zero tests, writing coverage.out (TICK-518), the same as make test
     cmds:
-      - go run ./tools/ci/racelock -- go run ./tools/ci/suiteran -- go test -json -race -trimpath ./...
+      - go run ./tools/ci/racelock -- go run ./tools/ci/suiteran -- go test -json -race -trimpath -covermode=atomic -coverpkg=./... -coverprofile=coverage.out ./...
       - go run ./tools/ci/racelock -- go -C tools/navalint test -race ./...
 
   test:short:
@@ -38,9 +38,14 @@ tasks:
       - go -C tools/navalint test ./...
 
   test:integration:
-    desc: Run every integration-tagged test against a throwaway postgres container (needs Docker), the same as make test-integration
+    desc: Run every integration-tagged test against a throwaway postgres container (needs Docker), writing coverage-integration.out, the same as make test-integration
     cmds:
-      - sh scripts/ci/test-integration.sh
+      - NAVA_IT_COVERAGE=coverage-integration.out sh scripts/ci/test-integration.sh
+
+  test:commit-check-budget:
+    desc: Run TestCommitCheckBudget alone against a throwaway postgres container (needs Docker), the same as make test-commit-check-budget; CI is the baseline, not a laptop
+    cmds:
+      - sh scripts/ci/commit-check-budget.sh
 
   bench:relay:
     desc: Run the relay claim-latency benchmark (T33, report-only) against a throwaway postgres container (needs Docker), the same as make bench-relay
@@ -66,6 +71,12 @@ tasks:
     desc: The forbidigo and navalint rules must report exactly their fixture findings
     cmds:
       - sh scripts/ci/lint-fixture.sh
+
+  check-coverage:
+    desc: "Merge coverage.out (task test) and coverage-integration.out (task test:integration), drop tools/ci/coverage-exclude.txt, fail below COVERAGE_MIN (95) and write coverage-total.out and coverage.html, the same as make check-coverage"
+    cmds:
+      - go run ./tools/ci/coverage check -min {{.COVERAGE_MIN | default "95"}} -exclude tools/ci/coverage-exclude.txt -mains ./cmd/... -o coverage-total.out {{if .COVERAGE_REPORT_ONLY}}-report-only -all{{end}} {{.COVERAGE_PROFILES | default "coverage.out coverage-integration.out"}}
+      - go tool cover -html=coverage-total.out -o coverage.html
 
   check-taskfile:
     desc: Fail if a Taskfile task (build, test, lint) drifts from its Makefile twin (needs make)

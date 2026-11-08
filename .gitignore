@@ -11,6 +11,9 @@
 /ci5.json
 /identity-stream.json
 /story-branches.md
+# make test / test-integration / check-coverage (TICK-518); *.out is above
+/coverage.html
+/.coverage-it-*/
 
 __pycache__/
 

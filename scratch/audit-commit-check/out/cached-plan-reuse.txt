@@ -1,0 +1,21 @@
+ relpages | reltuples 
+----------+-----------
+        2 |        60
+(1 row)
+
+Time: 0.138 ms
+Time: 0.699 ms
+Time: 3.127 ms
+Time: 0.760 ms
+Time: 2.651 ms
+--- same session: import of 1,000 then 4,000 subjects (COMMIT times)
+Time: 0.287 ms
+Time: 0.265 ms
+Time: 57.921 ms
+Time: 12.216 ms
+Time: 172.757 ms
+Time: 0.327 ms
+Time: 0.496 ms
+Time: 192.434 ms
+Time: 26.461 ms
+Time: 2923.161 ms (00:02.923)

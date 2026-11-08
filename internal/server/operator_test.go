@@ -311,3 +311,32 @@ func TestOperatorBoundaryPrecedesParameterBinding(t *testing.T) {
 		}
 	}
 }
+
+func TestOperatorOnboardRefusesOversizeBodyAndMalformedAuthorization(t *testing.T) {
+	h := operatorHandler(t, server.WithOperator(stubOperators{}, &stubOnboarder{}))
+
+	// Past 256 KiB the body is refused as validation_failed on /body, not read.
+	big := `{"name":"` + strings.Repeat("x", 300<<10) + `"}`
+	rec := postOnboard(t, h, "op-token", "k-big", big, "", nil)
+	if rec.Code != http.StatusBadRequest || code(t, rec) != "validation_failed" || !strings.Contains(rec.Body.String(), "/body") {
+		t.Fatalf("oversize body: %d %s", rec.Code, rec.Body)
+	}
+
+	// Anything but exactly one "Bearer <token>" header is a 401 that names the scheme.
+	for name, auth := range map[string]string{
+		"basic scheme":   "Basic abc",
+		"no token":       "Bearer",
+		"empty token":    "Bearer  ",
+		"space in token": "Bearer a b",
+	} {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/operator/tenants", strings.NewReader(onboardBody))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Idempotency-Key", "k1")
+		req.Header.Set("Authorization", auth)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized || code(t, rec) != "invalid_token" || rec.Header().Get("WWW-Authenticate") != "Bearer" {
+			t.Errorf("%s: %d %s", name, rec.Code, rec.Body)
+		}
+	}
+}

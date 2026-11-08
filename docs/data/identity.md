@@ -121,7 +121,7 @@ No other role holds anything on these tables.
 
 Also covered: `TestT16FederatedLinksFailClosed`, `TestT16KeysArePerTenant`
 (Keycloak ids are unique per tenant, not globally; group path check),
-`TestT16DeletesCascadeWithinTenant`, `TestT16WriteGrants`.
+`TestT16DeletesCascadeWithinTenant` (a group is tombstoned once its members are gone, ADR-004-E5), `TestT16WriteGrants`.
 `TestT09EveryTableForcesRLS` now expects the 4 new tables as well.
 
 ## Evidence
@@ -186,9 +186,16 @@ same plan and buffer count. The spread comes from the shared laptop.
 | S2 Snapshot of all 400,192 memberships | Index Only Scan `group_members_pkey`, 0 heap fetches | 93,381 | 364 ms |
 | S3 Members of one group (81) | Index Only Scan `group_members_pkey` | 23 | 1.69 ms |
 | S4 Children of an org unit | Index Scan `org_units_parent` | 3 | 0.127 ms |
-| S5 Delete a principal, cascading to 8 memberships | `principals_pkey`; cascade trigger 2.13 ms | 10 | 3.69 ms |
-| S6 Delete a group, cascading to its members | `groups_pkey`; cascade trigger | 9 | 6.02 ms |
+| S5 Tombstone a principal: delete its 8 memberships, then disable it | `group_members_principal`, then `principals_pkey` | 27 + 42 | 0.404 + 0.797 ms |
+| S6 Tombstone a group: delete its 80 members, then set `deleted_at` | `group_members_pkey`, then `groups_live_key`; `group_members_group_live_fkey` check 0.777 ms | 244 + 42 | 1.71 + 1.53 ms |
 | S7 Delete a leaf org unit (FK check for children) | `org_units_pkey`; FK check trigger | 8 | 1.55 ms |
+
+S5 and S6 were re-measured on 2026-11-04 (TICK-538, same script and seed,
+Intel i7-1260P, 16 threads, Docker 29.9.2, Windows 11 host): group sync no
+longer deletes a principal or a group, it removes the memberships and
+tombstones the row (ADR-004-E5). The tombstone does not fire
+`records_assignment_group_fkey`, which references `(tenant_id, id)`, not
+`deleted_at`. The earlier deletes measured 3.69 ms (S5) and 6.02 ms (S6).
 
 S2 is the most expensive read: a full snapshot of a 50k-user tenant, once
 per 5-minute tick (D-P13). It reads the primary key only.

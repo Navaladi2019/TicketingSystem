@@ -302,7 +302,7 @@ check names its reason, one of the codes in §4.1. The vectors use a subset.
    `pending` if that entry is unsealed). **The `audit/erase` diff is RFC 6902
    like every other diff** (R1, R5): exactly one op,
    `[{"op":"add","path":"/erased_ids","value":["<id>", ...]}]`, with 1 to
-   10,000 lowercase entry ids (R23). The verifier reads the ids from that op
+   1,500 lowercase entry ids (R23 as amended by ADR-004-E1). The verifier reads the ids from that op
    only and treats any other shape as not listing the id.
 8. **Verifiability is computed, not read.** The file is contiguous when the
    anchor is present and every `seq` in `anchor_seq+1..last_seq` appears

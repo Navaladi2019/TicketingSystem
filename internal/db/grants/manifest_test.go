@@ -19,11 +19,14 @@ func TestRepositoryManifestParses(t *testing.T) {
 	// ADR-001 A.3: one role per system actor. The runtime roles log in
 	// through PgBouncer with CONNECT and USAGE on public; nava_backup is
 	// LOGIN REPLICATION with no grant at all.
-	runtime := []string{"nava_app", "nava_groupsync", "nava_onboard", "nava_purge", "nava_relay", "nava_worker"}
+	// nava_audit_reader (ADR-004-A1 A1-1) is the masking reader's own login.
+	runtime := []string{"nava_app", "nava_audit_reader", "nava_groupsync", "nava_onboard", "nava_purge", "nava_relay", "nava_worker"}
 	if got := m.PgBouncerLogins(); strings.Join(got, ",") != strings.Join(runtime, ",") {
 		t.Fatalf("PgBouncer allow-list = %v, want %v", got, runtime)
 	}
-	want := append([]string{"keycloak", "nava_backup", "nava_migrator", "pgbouncer_auth", "temporal"}, runtime...)
+	// nava_erasure (ADR-001-A6.1) is a runtime role without PgBouncer: its
+	// credential lives with the job runner and it connects directly.
+	want := append([]string{"keycloak", "nava_backup", "nava_erasure", "nava_migrator", "pgbouncer_auth", "temporal"}, runtime...)
 	for _, name := range want {
 		if _, ok := m.Roles[name]; !ok {
 			t.Errorf("role %s missing", name)
@@ -32,12 +35,15 @@ func TestRepositoryManifestParses(t *testing.T) {
 	if len(m.Roles) != len(want) {
 		t.Errorf("roles = %v, want exactly %v", m.RoleNames(), want)
 	}
-	for _, name := range runtime {
+	for _, name := range append([]string{"nava_erasure"}, runtime...) {
 		r := m.Roles[name]
 		if strings.Join(r.Attributes, ",") != "LOGIN" || strings.Join(r.Database, ",") != "CONNECT" ||
 			strings.Join(r.Schemas["public"], ",") != "USAGE" || len(r.Schemas) != 1 {
 			t.Errorf("runtime role %s: %+v, want LOGIN, CONNECT and USAGE on public", name, r)
 		}
+	}
+	if e := m.Roles["nava_erasure"]; e.PgBouncerLogin || len(e.Settings)+len(e.Functions) != 0 {
+		t.Errorf("nava_erasure: %+v, want no PgBouncer login, settings or functions", e)
 	}
 	b := m.Roles["nava_backup"]
 	if strings.Join(b.Attributes, ",") != "LOGIN,REPLICATION" || b.PgBouncerLogin ||
@@ -103,6 +109,21 @@ func TestValidate(t *testing.T) {
 		{"bad setting value", "database: [CONNECT]", "database: [CONNECT]\n    settings: { plan_cache_mode: custom }", `plan_cache_mode = "custom" is not one of`},
 		{"owner with settings", "owner: { attributes: [LOGIN] }", "owner: { attributes: [LOGIN], settings: { plan_cache_mode: auto } }", "the owner takes no settings"},
 		{"second document", "reason: test\n", "reason: test\n---\nroles: {}\n", "more than one document"},
+		{"platform database not an identifier", "platform_database: nava", "platform_database: Nava", `platform_database "Nava" is not a lower-case identifier`},
+		{"platform database not listed", "platform_database: nava", "platform_database: other", `platform_database "other" is not listed under databases`},
+		{"database not an identifier", "nava: { owner: owner }", "nava: { owner: owner }\n  Keycloak: { owner: owner }", `database "Keycloak" is not a lower-case identifier`},
+		{"exception name not an identifier", "  pgbouncer_get_auth:", "  PgBouncer:", `infrastructure_exceptions: "PgBouncer" is not a lower-case identifier`},
+		{"exception in public", "    schema: pgbouncer", "    schema: public", `schema "public" must be a dedicated schema`},
+		{"exception function malformed", "    function: pgbouncer.get_auth(text)", "    function: get_auth", `infrastructure_exceptions.pgbouncer_get_auth: function "get_auth" is not schema.name(argtypes)`},
+		{"exception function outside its schema", "    function: pgbouncer.get_auth(text)", "    function: public.get_auth(text)", `function "public.get_auth(text)" is not in schema "pgbouncer"`},
+		{"exception granted to no one", "granted_to: [auth]", "granted_to: []", "pgbouncer_get_auth: granted_to is empty"},
+		{"exception granted to an unknown role", "granted_to: [auth]", "granted_to: [auth, ghost]", `granted_to "ghost" is not a role in this manifest`},
+		{"repeated attribute", "app:\n    attributes: [LOGIN]", "app:\n    attributes: [LOGIN, LOGIN]", "role app: attributes repeat"},
+		{"schema not an identifier", "schemas: { public: [USAGE] }", "schemas: { public: [USAGE], Bad: [USAGE] }", `role app: schema "Bad" is not a lower-case identifier`},
+		{"exception schema granted to another role", "schemas: { public: [USAGE] }", "schemas: { public: [USAGE], pgbouncer: [USAGE] }", "role app: schema pgbouncer belongs to infrastructure exception pgbouncer_get_auth"},
+		{"column not an identifier", "SELECT: [id, tenant_id]", "SELECT: [id, Tenant]", `column "Tenant" is not a lower-case identifier`},
+		{"schema-qualified table", "outbox: {", "public.outbox: {", ""},
+		{"bare function name in public", `"public.f(integer)"`, `"f(integer)"`, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -125,6 +146,19 @@ func TestValidate(t *testing.T) {
 				t.Fatalf("error = %v, want one containing %q", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestValidateEmptyManifest(t *testing.T) {
+	t.Parallel()
+	err := (&Manifest{}).Validate()
+	if err == nil {
+		t.Fatal("an empty manifest validates")
+	}
+	for _, want := range []string{`platform_database "" is not a lower-case identifier`, "no roles"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %v, want one containing %q", err, want)
+		}
 	}
 }
 

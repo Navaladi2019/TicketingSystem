@@ -1,6 +1,6 @@
-// Package db embeds the platform database's migrations, grant manifest and
-// pg_hba.conf, so the nava-db binary carries exactly the files reviewed in
-// the repository.
+// Package db embeds the platform database's migrations, grant manifest,
+// audited-tables manifest and pg_hba.conf, so the nava-db binary carries
+// exactly the files reviewed in the repository.
 package db
 
 import (
@@ -17,14 +17,21 @@ var grants []byte
 //go:embed global-tables.yaml
 var globalTables []byte
 
+//go:embed audited-tables.yaml
+var auditedTables []byte
+
 //go:embed pg_hba.conf
 var hbaConf []byte
 
 // Migrations returns the goose migration files, rooted at the migrations directory.
-func Migrations() fs.FS {
-	sub, err := fs.Sub(migrations, "migrations")
+func Migrations() fs.FS { return mustSub(migrations, "migrations") }
+
+// mustSub is fs.Sub for a directory embedded at build time, which cannot
+// fail for a valid name: an error is a programming error, so it panics.
+func mustSub(fsys fs.FS, dir string) fs.FS {
+	sub, err := fs.Sub(fsys, dir)
 	if err != nil {
-		panic(err) // the directory is embedded at build time
+		panic(err)
 	}
 	return sub
 }
@@ -34,6 +41,9 @@ func Grants() []byte { return grants }
 
 // GlobalTables returns db/global-tables.yaml.
 func GlobalTables() []byte { return globalTables }
+
+// AuditedTables returns db/audited-tables.yaml.
+func AuditedTables() []byte { return auditedTables }
 
 // HBA returns db/pg_hba.conf, for internal/db/hba's checks.
 func HBA() []byte { return hbaConf }

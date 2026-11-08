@@ -64,10 +64,10 @@ func TestP306cPublishedByCheckValidatesOverSeededTenants(t *testing.T) {
 	seedTenants(t, super, []string{tenantA, tenantB}, []string{tenantX})
 	seedIdentity(t, super, tenantA)
 	for _, id := range []string{tenantA, tenantB, tenantX} {
-		exec(t, super, insertType, id, "ticket", "TCK")
-		exec(t, super, insertVersion, id, id, id, 1, testSchema, schemaSum(testSchema), "initial", nil)
+		exec(t, super, insertTypeRaw, id, "ticket", "TCK")
+		exec(t, super, insertVersionRaw, id, id, id, 1, testSchema, schemaSum(testSchema), "initial", nil)
 	}
-	exec(t, super, insertVersion, tenantA, tenantB, tenantA, 2, testSchema, schemaSum(testSchema), "compatible", tenantA)
+	exec(t, super, insertVersionRaw, tenantA, tenantB, tenantA, 2, testSchema, schemaSum(testSchema), "compatible", tenantA)
 
 	migrateAll(t, m)
 	if !queryBool(t, super, `SELECT convalidated FROM pg_constraint

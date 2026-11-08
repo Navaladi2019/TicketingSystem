@@ -78,3 +78,13 @@ func TestP311ErrorMessages(t *testing.T) {
 		}
 	}
 }
+
+// A json.Number that is not a rational keeps its text as its key; normalise
+// never produces one, but the key must still be stable.
+func TestCanonicalValueNonRationalNumber(t *testing.T) {
+	k1, v := pipeline.CanonicalValue(json.Number("not-a-number"), false)
+	k2, _ := pipeline.CanonicalValue(json.Number("not-a-number"), false)
+	if k1 != "not-a-number" || k1 != k2 || v != json.Number("not-a-number") {
+		t.Fatalf("key %q (then %q), value %v", k1, k2, v)
+	}
+}

@@ -4,7 +4,7 @@ Scope: TICK-354, TICK-355. PLAN-003 D-3-2, D-3-6, D-3-7a, D-3-9, D-3-10,
 D-3-13, D-3-14, D-3-22; ADR-001 I4, I8, I9. Code: `internal/records/pipeline` (the one entry point),
 `internal/records/store` (its SQL), `outbox.EnqueueAtVersion`,
 `authz.TenantMemberAuthorizer`, `tenancy.TenantOf`. Tables:
-[`platform-tables.md`](../data/platform-tables.md#records-pipeline-records-audit_log-record_counters-p3-09).
+[`platform-tables.md`](../data/platform-tables.md#records-pipeline-records-audit_log_v0-record_counters-p3-09).
 
 `pipeline.Write(ctx, tx, cmd)` is the only way to create or update a record.
 It runs in the caller's `tenancy.InTenantTx` transaction and never commits:
@@ -26,9 +26,13 @@ flowchart TD
     H --> S[state model: create in Initial,<br/>update only along a listed transition]
     S --> U[each unique property set or changed:<br/>advisory xact lock, then SELECT]
     U --> I[split fixed columns out of data]
-    I --> N[create: record_counters upsert<br/>RETURNING next - 1]
+    I --> GR{assignment_group_id<br/>set or changed?}
+    GR -- yes: not a live group of the tenant --> GX[ErrAssignmentGroupRemoved<br/>422, nothing written]
+    GR -- no, or live --> N
+    N[create: record_counters upsert<br/>RETURNING next - 1]
     N --> J[INSERT, or UPDATE ... version = version + 1<br/>WHERE tenant_id, id, version = expected]
-    J --> K[one audit_log row<br/>idempotency key on it]
+    J --> W[keyed write: one record_write_keys row<br/>D-5-3, P5-13a]
+    W --> K[one audit_log entry<br/>(audit.Append, ADR-004)]
     K --> L[EventSink.RecordChanged in tx]
     L --> M[Result]
 ```
@@ -57,20 +61,27 @@ flowchart TD
 - **Audit.** One row per write: `action` is `create` or `update`, `before`
   (NULL on a create) and `after` are snapshots
   `{"number", "version", "schema_version", "data"}` with `data` the merged
-  payload. The idempotency key is on this row only.
+  payload. Until P5-13b the pipeline still copies the idempotency key onto
+  this row, but nothing reads it there.
 - **Idempotency (system writers only).** A user write with a key is
-  `ErrInvalidCommand`. Each principal has its own key space (TICK-480,
-  TICK-498): `audit_log_idempotency_key` is unique on
-  `(tenant_id, idempotency_key, actor_id) NULLS NOT DISTINCT`, so another
-  principal's write under the same key is neither replayed nor refused, and
-  a 409 never reveals that the key exists (AR-TICK-480-01, closed by TICK-498;
-  [audit-idempotency-per-actor.md](../data/audit-idempotency-per-actor.md)).
-  The key is looked up first, by the caller's actor; a hit for the same entity
-  type, op and (on an update) record returns the earlier `Result` from that
-  row's `after` and writes nothing. A hit for any other write is
+  `ErrInvalidCommand`. The key lives in `record_write_keys` (PLAN-005 D-5-3,
+  P5-13a), one row per keyed write inserted in the write's transaction, after
+  the record and before the audit row. Each principal has its own key space
+  (TICK-480, TICK-626): the row carries the writer's `actor_principal_id`
+  (NULL for a system writer), and `record_write_keys_actor_key` is unique on
+  `(tenant_id, idempotency_key, actor_principal_id) NULLS NOT DISTINCT`, so
+  another principal's write under the same key is neither replayed nor
+  refused, and a 409 never reveals that the key exists (AR-TICK-480-01;
+  [record-write-keys-per-principal.md](../data/record-write-keys-per-principal.md)).
+  The key is looked up there first, by the caller's principal; a hit for the
+  same entity type (by `definition_id`), op and (on an update) record returns
+  the earlier `Result` (record id, number, version, schema version) from that
+  row and writes nothing. Replay never reads the audit log. A hit for any
+  other write, or an entity type the tenant does not have, is
   `*ErrIdempotencyConflict` (P3-14 maps it to 409, as PLAN-001 T22 does for a
-  different body). A concurrent duplicate hits `23505` on
-  `audit_log_idempotency_key`, which aborts the transaction: `Write` returns
+  different body). A concurrent duplicate by the same principal waits on the
+  first write's uncommitted key and then hits `23505` on
+  `record_write_keys_actor_key`, which aborts the transaction: `Write` returns
   `*ErrIdempotencyConflict{Concurrent: true}`, and the retry replays.
 - **Numbering (D-3-9).** A create takes its number with one upsert,
   `INSERT INTO record_counters ... VALUES (..., 2) ON CONFLICT ... DO UPDATE
@@ -97,6 +108,18 @@ flowchart TD
   keys sorted, fixed uuid columns lowercase. A missing or null value is not
   checked. There is no JSONB unique index (D25); the check scans the type's
   records in the tenant.
+- **Removed assignment group (ADR-004-E5 D6, D7, N4; TICK-537).** When a
+  write sets `assignment_group_id` (a create with any non-null value) or
+  changes it, `store.GroupLive` reads `groups` in the write's transaction,
+  under RLS, never from a cache. A tombstoned group, another tenant's group
+  (live or tombstoned) and an unknown id are all `ErrAssignmentGroupRemoved`,
+  before the counter, the record, `record_write_keys`, the audit entry and the
+  sink, so nothing is written. Because the check runs before the `INSERT` or
+  `UPDATE`, neither ends at a `23503` on `records_assignment_group_fkey`. An
+  unchanged value passes, even when its group is tombstoned, and clearing
+  the field passes. Reads (`store.Get`) join `groups` and set
+  `AssignmentGroupRemoved`; the API returns it as
+  `assignment_group: {id, removed}`. Nothing clears or reassigns the field.
 
 ## Errors
 
@@ -108,6 +131,7 @@ flowchart TD
 | `*ErrValidation{Fields}` | Schema failures, JSON pointers and keywords only |
 | `*ErrIllegalTransition{From, To}` | State change not in the state model, or a create not in `Initial` |
 | `*ErrUniqueViolation{Field}` | Another record of the type holds the unique value |
+| `ErrAssignmentGroupRemoved` | `assignment_group_id` set or changed to a group that is not live in the tenant (422 `assignment_group_removed`) |
 | `ErrVersionConflict` | Not at `ExpectedVersion` |
 | `*ErrIdempotencyConflict{Concurrent}` | Key held by another write (409), or a concurrent duplicate: roll back and retry |
 
@@ -134,3 +158,31 @@ kill test re-runs the test binary as a child process (as
 `internal/relay/dispatch_integration_test.go` does), parks it in the
 test-only `beforeReturn` hook after every statement and before commit, kills
 it with SIGKILL, and checks that no record or audit row is left.
+
+## Rollout order: the audit_log_v0 contract step (P5-17, TICK-435)
+
+Moving record history from `audit_log_v0` to `audit_log` is an expand and
+contract change (Postgres review of PR #438). The decision and its trigger are
+in `docs/delivery/decisions/2026-11-04-p5-17-drop-v0-with-the-reader.md`.
+
+1. **Expand (P5-13b, already deployed).** The binary writes `audit_log`
+   through `audit.Append`. `audit_log_v0` is still there, read-only for the
+   runtime roles, and the old history endpoint reads it.
+2. **Deploy the new binary, then run `nava-db migrate` at once.** The new
+   binary reads a record's history from `audit_log` through
+   `internal/audit/read` and never names `audit_log_v0`. The reader's
+   `SELECT` on `audit_log` (`db/grants.yaml`) and the drop
+   (`20261104100000_drop_audit_log_v0.sql`) are applied by the migrate. So
+   **between the binary deploy and `nava-db migrate`, audit list and history
+   reads fail**; record writes keep working. Run the two back to back.
+3. **Never migrate first.** Revoking INSERT on the table (P5-13b) and dropping
+   it are contract steps: an old binary that still reads `audit_log_v0` for
+   history breaks once it is gone.
+
+**Zero-downtime alternative.** For a stack that must not lose reads, split the
+release: migrate with the reader grant (no drop), deploy the binary, then drop
+`audit_log_v0` and remove its grant in a later release.
+
+Rows of `audit_log_v0` are not copied to `audit_log` (S9 ran on development
+stacks); a record written before P5-13b shows an empty history after the drop.
+The drop is not reversible; restore from backup if the rows are needed.

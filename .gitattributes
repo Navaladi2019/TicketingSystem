@@ -8,6 +8,9 @@ go.sum   text eol=lf
 Makefile text eol=lf
 make/*.mk text eol=lf
 Taskfile.yml text eol=lf
+# SQL migrations: checks match statement ends with `(?m);$`, which a CRLF
+# checkout breaks (TICK-547, TestMigrationsHaveLFLineEndings).
+*.sql    text eol=lf
 
 # docs/ (ADRs, spike evidence) is kept byte-for-byte as recorded.
 docs/**  -text

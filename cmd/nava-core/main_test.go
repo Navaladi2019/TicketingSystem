@@ -102,8 +102,16 @@ func logLines(t *testing.T, out string) []string {
 	return lines
 }
 
-// runWith returns run bound to env instead of the process environment.
+// readerDSN is a reader DSN nothing listens on: run opens the pool without
+// connecting.
+const readerDSN = "postgres://nava_audit_reader:pw@127.0.0.1:1/nava?sslmode=disable"
+
+// runWith returns run bound to env instead of the process environment, with
+// the audit reader's DSN set unless env names it (ADR-004-A1 A1-6).
 func runWith(env map[string]string) func(context.Context, *syncBuffer) error {
+	if _, ok := env[config.AuditReaderDatabaseURLKey]; !ok {
+		env[config.AuditReaderDatabaseURLKey] = readerDSN
+	}
 	var lookup config.LookupFunc = func(k string) (string, bool) { v, ok := env[k]; return v, ok }
 	return func(ctx context.Context, out *syncBuffer) error { return run(ctx, lookup, out) }
 }
@@ -215,6 +223,26 @@ func TestRunListenFailureShutsDownBoth(t *testing.T) {
 			}
 		})
 	}
+}
+
+// ADR-004-A1 A1-6: without NAVA_AUDIT_READER_DATABASE_URL nava-core refuses
+// to start, with a config error that names the key, before it listens.
+func TestRunRefusesWithoutAuditReaderDSN(t *testing.T) {
+	public, admin := freeAddr(t), freeAddr(t)
+	start := runWith(map[string]string{"NAVA_HTTP_ADDR": public, "NAVA_ADMIN_ADDR": admin, config.AuditReaderDatabaseURLKey: ""})
+	var out syncBuffer
+	done := make(chan error, 1)
+	go func() { done <- start(t.Context(), &out) }()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "NAVA_AUDIT_READER_DATABASE_URL: required") {
+			t.Fatalf("run = %v, want the missing reader DSN config error", err)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("run started without the audit reader DSN")
+	}
+	assertClosed(t, "public", public)
+	assertClosed(t, "admin", admin)
 }
 
 func TestServePanicDrainsTheServer(t *testing.T) {

@@ -1,4 +1,4 @@
-.PHONY: test-integration test-integration-cleanup reap-integration bench-relay isolation test-ci-isolated-down
+.PHONY: test-integration test-integration-cleanup reap-integration bench-relay isolation test-ci-isolated-down test-commit-check-budget
 
 ci-integration: test-integration test-ci-isolated-down test-integration-cleanup
 
@@ -8,8 +8,10 @@ ci-integration: test-integration test-ci-isolated-down test-integration-cleanup
 # with ARGS the isolation suite does not run. The ci-isolated --down tag check
 # is its own target (test-ci-isolated-down, in ci-integration and its own
 # workflow step), so this loop stays fast (TICK-224).
+# NAVA_IT_COVERAGE: the script writes the integration half of make
+# check-coverage there (TICK-518).
 test-integration:
-	sh scripts/ci/test-integration.sh $(ARGS)
+	NAVA_IT_COVERAGE=coverage-integration.out sh scripts/ci/test-integration.sh $(ARGS)
 	$(if $(ARGS),@echo "isolation suite skipped (ARGS set); run make isolation",sh scripts/ci/isolation.sh)
 
 # test-integration.sh leaves no container or network behind after a run with
@@ -49,3 +51,11 @@ isolation:
 test-ci-isolated-down:
 	sh scripts/ci/test-ci-isolated-down.sh
 
+
+# The commit-check budget rows (ADR-004-E3, D-E3-4, TICK-509):
+# TestCommitCheckBudget alone on one throwaway cluster, which
+# test-integration's shards leave out. The ci.yml job commit-check-budget
+# runs it on a runner of its own; not part of ci-integration, since a laptop
+# is not the baseline. The verdict rule is ADR-004-E4's. Needs Docker.
+test-commit-check-budget:
+	sh scripts/ci/commit-check-budget.sh $(ARGS)

@@ -187,9 +187,15 @@ func (s Store) Create(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, in New
 	if err != nil {
 		return nil, fmt.Errorf("entitytypes: encode fixed columns: %w", err)
 	}
-	states, err := json.Marshal(d.States)
+	states, err := marshalJSON(d.States)
 	if err != nil {
 		return nil, fmt.Errorf("entitytypes: encode states: %w", err)
+	}
+	if err := CheckSchemaSecrets(d.Schema); err != nil {
+		return nil, err
+	}
+	if err := CheckSchemaSecretRequired(d.Schema); err != nil {
+		return nil, err
 	}
 	sum := sha256.Sum256(d.Schema)
 	defID, verID := uuid.New(), uuid.New()
@@ -207,6 +213,9 @@ INSERT INTO entity_definition_versions
 VALUES ($1, $2, $3, 1, $4::json, $5, $6::jsonb, $7::jsonb, 'initial', $8)`,
 		tenantID, verID, defID, string(d.Schema), sum[:], string(fixed), string(states), in.PublishedBy); err != nil {
 		return nil, fmt.Errorf("entitytypes: insert version: %w", err)
+	}
+	if err := auditVersion(ctx, tx, defID, 1, sum, in.PublishedBy); err != nil {
+		return nil, err
 	}
 	return s.GetVersion(ctx, tx, d.Key, 1)
 }
@@ -226,15 +235,17 @@ type SeedInput struct {
 // It needs INSERT only (nava_onboard has no SELECT on either table, so it reads
 // nothing back) and writes published_by NULL: the tenant is still provisioning
 // and has no principal. A retry after a crash finishes what is missing and
-// never duplicates; on a second run it inserts nothing. The caller's
-// transaction must run as the tenant (tenancy.InTenantTx).
+// never duplicates; on a second run it inserts nothing. When it inserts, it
+// also writes the version's config create entry (auditSeed), which the
+// commit check on both tables requires from migration B (P5-32) on. The
+// caller's transaction must run as the tenant (tenancy.InTenantTx).
 func (Store) Seed(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, in SeedInput) (bool, error) {
 	d := in.Definition
-	fixed, err := json.Marshal(d.FixedColumns)
+	fixed, err := encodeFixedColumns(d.FixedColumns)
 	if err != nil {
 		return false, fmt.Errorf("entitytypes: encode fixed columns: %w", err)
 	}
-	states, err := json.Marshal(d.States)
+	states, err := marshalJSON(d.States)
 	if err != nil {
 		return false, fmt.Errorf("entitytypes: encode states: %w", err)
 	}
@@ -254,7 +265,13 @@ ON CONFLICT DO NOTHING`, tenantID, in.VersionID, in.DefinitionID, string(d.Schem
 	if err != nil {
 		return false, fmt.Errorf("entitytypes: seed version: %w", err)
 	}
-	return def.RowsAffected()+ver.RowsAffected() > 0, nil
+	if def.RowsAffected()+ver.RowsAffected() == 0 {
+		return false, nil
+	}
+	if err := auditSeed(ctx, tx, in.DefinitionID, sum); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // PublishInput is the next version of an existing entity type. Definition
@@ -300,6 +317,12 @@ SELECT id, number_prefix, current_version FROM entity_definitions WHERE key = $1
 	}
 	d := in.Definition
 	d.Key, d.NumberPrefix = in.Key, prefix
+	if err := CheckSchemaSecrets(d.Schema); err != nil {
+		return nil, err
+	}
+	if err := CheckSchemaSecretRequired(d.Schema); err != nil {
+		return nil, err
+	}
 	next, err := metadata.Compile(d)
 	if err != nil {
 		return nil, err
@@ -315,7 +338,7 @@ SELECT id, number_prefix, current_version FROM entity_definitions WHERE key = $1
 	if err != nil {
 		return nil, fmt.Errorf("entitytypes: encode fixed columns: %w", err)
 	}
-	states, err := json.Marshal(d.States)
+	states, err := marshalJSON(d.States)
 	if err != nil {
 		return nil, fmt.Errorf("entitytypes: encode states: %w", err)
 	}
@@ -338,8 +361,15 @@ VALUES ($1, $2, $3, $4, $5::json, $6, $7::jsonb, $8::jsonb, $9, $10)`,
 UPDATE entity_definitions SET current_version = $1, updated_at = now() WHERE id = $2`, number, defID); err != nil {
 		return nil, fmt.Errorf("entitytypes: set current version: %w", err)
 	}
+	if err := auditVersion(ctx, tx, defID, number, sum, in.PublishedBy); err != nil {
+		return nil, err
+	}
 	return s.GetVersion(ctx, tx, in.Key, number)
 }
+
+// marshalJSON is json.Marshal; tests replace it to reach the encode-failure
+// branches, which a map of strings and a states slice cannot trigger.
+var marshalJSON = json.Marshal //nolint:gochecknoglobals // test seam, replaced only by tests
 
 // encodeFixedColumns encodes a definition's fixed columns as a JSON object.
 // A nil map (the request omitted fixed_columns, or sent null) is {}, never
@@ -349,7 +379,7 @@ func encodeFixedColumns(m map[string]string) ([]byte, error) {
 	if m == nil {
 		return []byte("{}"), nil
 	}
-	return json.Marshal(m)
+	return marshalJSON(m)
 }
 
 func mapUnique(err error) error {

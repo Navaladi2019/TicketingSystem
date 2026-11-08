@@ -14,7 +14,7 @@ import (
 // d28Roles is ADR-001 A.3 (D28): one role per system actor.
 func d28Roles() []string {
 	return []string{
-		"keycloak", "nava_app", "nava_backup", "nava_groupsync", "nava_migrator", "nava_onboard",
+		"keycloak", "nava_app", "nava_backup", "nava_erasure", "nava_groupsync", "nava_migrator", "nava_onboard",
 		"nava_purge", "nava_relay", "nava_worker", "pgbouncer_auth", "temporal",
 	}
 }

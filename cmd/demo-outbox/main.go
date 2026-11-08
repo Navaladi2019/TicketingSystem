@@ -138,12 +138,23 @@ func seedSQL() (string, error) {
 		return "", errors.New("demo entity type: the schema holds the literal's delimiter")
 	}
 	sum := sha256.Sum256([]byte(entitySchema))
-	return fmt.Sprintf(`INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version)
+	// The seed is a bare fixture, not a publish: like the isolation seed
+	// (internal/tenancy/isolation/testdata/seed.sql), it turns the
+	// entity-definition commit-check triggers (P5-32, migration B) off for
+	// its own explicit transaction and back on before it commits. Only
+	// audit.Append writes audit_log (internal/records/arch_test.go).
+	return fmt.Sprintf(`BEGIN;
+ALTER TABLE entity_definitions DISABLE TRIGGER entity_definitions_audit_commit_check;
+ALTER TABLE entity_definition_versions DISABLE TRIGGER entity_definition_versions_audit_commit_check;
+INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version)
 VALUES ('%[1]s', '%[2]s', '%[3]s', 'Demo note', '%[4]s', 1) ON CONFLICT DO NOTHING;
 INSERT INTO entity_definition_versions
   (tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat, published_by)
 VALUES ('%[1]s', '%[5]s', '%[2]s', 1, $nava$%[6]s$nava$::json, '\x%[7]s'::bytea, '%[8]s'::jsonb, '%[9]s'::jsonb, 'initial', NULL)
 ON CONFLICT DO NOTHING;
+ALTER TABLE entity_definitions ENABLE TRIGGER entity_definitions_audit_commit_check;
+ALTER TABLE entity_definition_versions ENABLE TRIGGER entity_definition_versions_audit_commit_check;
+COMMIT;
 `, tenantA, entityDefID, entityKey, entityPrefix, entityVersionID, entitySchema, hex.EncodeToString(sum[:]),
 		fixed, states), nil
 }

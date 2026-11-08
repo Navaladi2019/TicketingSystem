@@ -1,0 +1,43 @@
+meta {
+  name: S15.6 AC1: Alice creates a first incident: 201
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{core_url}}/api/v1/records/incident
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: tick443-s15-{{s15_run}}-rec1
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "S15 {{s15_run}} rec1",
+      "priority": 2
+    }
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await require('./lib/s15')(N, bru).fresh();
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  test('version 1', () => expect(b.version).to.eql(1));
+  bru.setVar('s15_rec1', b.id);
+}
+
+docs {
+  The first write after the stack has been quiet, so tenant A's sealer may have backed off (up to 300 s, R16). S15.7 waits for it. The run that seals it finds the entry pending in A1 and books the next run 10 s ahead (ADR-004-E7).
+}

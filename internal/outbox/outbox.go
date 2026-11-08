@@ -8,9 +8,10 @@
 // a producer enqueues at the version that write gave the record.
 //
 // The tenant is never an argument: every Enqueue function runs in a
-// transaction opened by tenancy.InTenantTx and takes tenant_id from the
-// records row it locks, which row-level security lets it see only for that
-// transaction's tenant.
+// transaction opened by tenancy.InTenantTx and takes tenant_id from the row
+// it locks (the records row, or for EnqueueSeal the tenant's
+// audit_chain_head row), which it can see only for that transaction's
+// tenant.
 package outbox
 
 import (
@@ -19,6 +20,8 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -44,6 +47,9 @@ var (
 	// ErrVersionMismatch means EnqueueAtVersion was given a version the
 	// record does not have in this transaction. Nothing is written.
 	ErrVersionMismatch = errors.New("outbox: record version mismatch")
+	// ErrHeadNotFound means the transaction's tenant has no audit_chain_head
+	// row, or the transaction has no tenant. EnqueueSeal writes nothing.
+	ErrHeadNotFound = errors.New("outbox: audit chain head not found")
 )
 
 // Target is where the relay delivers a row. It is sealed: only TargetStart
@@ -97,6 +103,11 @@ func ValidKind(s string) bool { return kindPattern.MatchString(s) }
 // InterpreterKind is the workflow type of the workflow interpreter. Its
 // starts go through EnqueueStart only, under a cascade.Claim (A5-6).
 const InterpreterKind = "nava.interpreter"
+
+// SealKind is the workflow type of the audit sealer (ADR-004 R16). Its
+// starts are not tied to a record and go through EnqueueSeal only
+// (ADR-001 A6.3).
+const SealKind = "audit.seal"
 
 // Delivery is the single argument the relay passes to Temporal for one row:
 // the input of a started workflow, or the body of a signal. Like the row it
@@ -160,7 +171,7 @@ RETURNING id`
 //
 // A start of InterpreterKind is ErrInvalidEntry: use EnqueueStart.
 func EnqueueAtVersion(ctx context.Context, tx pgx.Tx, e Entry, version int64) (uuid.UUID, error) {
-	if err := notInterpreterStart(e); err != nil {
+	if err := notOwnEntryPointStart(e); err != nil {
 		return uuid.Nil, err
 	}
 	return enqueue(ctx, tx, e, uuid.Nil, func() (uuid.UUID, int64, error) {
@@ -222,11 +233,165 @@ func EnqueueStart(ctx context.Context, tx pgx.Tx, c cascade.Claim, e Entry) (uui
 	return id, err
 }
 
-func notInterpreterStart(e Entry) error {
-	if t, ok := e.Target.(TargetStart); ok && (t.Kind == InterpreterKind || e.Kind == InterpreterKind) {
-		return fmt.Errorf("%w: a start of %s goes through EnqueueStart", ErrInvalidEntry, InterpreterKind)
+// notOwnEntryPointStart refuses, in EnqueueAtVersion, the starts that have
+// their own entry point: InterpreterKind (EnqueueStart) and SealKind
+// (EnqueueSeal).
+func notOwnEntryPointStart(e Entry) error {
+	t, ok := e.Target.(TargetStart)
+	if !ok {
+		return nil
+	}
+	for _, k := range [...]struct{ kind, via string }{{InterpreterKind, "EnqueueStart"}, {SealKind, "EnqueueSeal"}} {
+		if t.Kind == k.kind || e.Kind == k.kind {
+			return fmt.Errorf("%w: a start of %s goes through %s", ErrInvalidEntry, k.kind, k.via)
+		}
 	}
 	return nil
+}
+
+const (
+	// The head lock (ADR-001 A6.3, ADR-004 R15). The predicate names the
+	// transaction's tenant as well as RLS doing so, so a role that bypasses
+	// RLS still locks only its own tenant's head. Taking a lock the caller
+	// already holds is a no-op, so this is never a second lock.
+	lockHeadSQL = `SELECT tenant_id, version FROM audit_chain_head WHERE tenant_id = $1 FOR UPDATE`
+	// causation_id is the row's own id at depth 0: a seal run starts no
+	// cascade and carries none forward (I9, A5-3).
+	// Its column list is pinned: onboarding's seal insert (P5-33) and the
+	// nava_onboard grant equal it (TestSealInsertMatchesOutbox), so the
+	// no-option path never names available_at, which takes its default now().
+	insertSealSQL = `INSERT INTO outbox (id, tenant_id, kind, kind_version, dedupe_key, target_key, target_seq,
+    causation_id, causation_depth, payload, trace_context)
+VALUES ($1, $2, '` + SealKind + `', 1, $3, $4, $5, $1, 0, '{}', $6)
+ON CONFLICT (tenant_id, dedupe_key) DO NOTHING
+RETURNING id`
+	// insertDelayedSealSQL is insertSealSQL plus available_at, used only
+	// when WithDelay is given (TICK-440). available_at is computed on the
+	// database clock (now() is the transaction start), never the worker's:
+	// $7 is the delay in seconds. TestDelayedSealInsertColumns pins its
+	// columns to insertSealSQL's plus available_at.
+	insertDelayedSealSQL = `INSERT INTO outbox (id, tenant_id, kind, kind_version, dedupe_key, target_key, target_seq,
+    causation_id, causation_depth, payload, trace_context, available_at)
+VALUES ($1, $2, '` + SealKind + `', 1, $3, $4, $5, $1, 0, '{}', $6, now() + make_interval(secs => $7))
+ON CONFLICT (tenant_id, dedupe_key) DO NOTHING
+RETURNING id`
+	sealDedupeSQL = `SELECT id FROM outbox WHERE tenant_id = $1 AND dedupe_key = $2`
+)
+
+// SealOption tunes one EnqueueSeal call (PLAN-005 C5, as amended on
+// TICK-440). The zero set of options is the original C5 behaviour.
+type SealOption func(*sealOptions)
+
+type sealOptions struct {
+	delay   time.Duration
+	delayed bool // WithDelay was given, even WithDelay(0)
+}
+
+// WithDelay makes the seal row available d after the transaction's start on
+// the database clock: available_at = now() + d (ADR-004 R16, A1's
+// seal_interval_s). A negative d makes EnqueueSeal return ErrInvalidEntry.
+// Without it the row is available at once, as onboarding (P5-33) needs.
+func WithDelay(d time.Duration) SealOption {
+	return func(o *sealOptions) { o.delay, o.delayed = d, true }
+}
+
+// SealDedupeKey is the dedupe_key of the seal start row enqueued at
+// headVersion (PLAN-005 C5).
+func SealDedupeKey(headVersion int64) string {
+	return fmt.Sprintf("%s%d", sealDedupePrefix, headVersion)
+}
+
+// sealDedupePrefix starts every seal row's dedupe key, and no other row's.
+const sealDedupePrefix = SealKind + ":"
+
+// EnqueueSeal writes the start row of one audit sealer run in tx and returns
+// its id (PLAN-005 C5, ADR-001 A6.3). The row is not tied to a record:
+//
+//   - tenant_id is the tenant of tx (tenancy.TenantOf), never an argument;
+//   - kind = SealKind, kind_version 1, payload {} (references only);
+//   - target_key = audit.seal:<own id>, so the relay starts it as
+//     t:<tenant>:audit.seal:<id> with REJECT_DUPLICATE;
+//   - target_seq = headVersion, the tenant's audit_chain_head.version;
+//   - dedupe_key = SealDedupeKey(headVersion);
+//   - causation is the row's own id at depth 0;
+//   - available_at = now() + the WithDelay duration, or now() without it;
+//   - no workflow_ref row: workflow_ref.record_id references records, and a
+//     seal run is never signalled.
+//
+// The caller holds the tenant's head row FOR UPDATE in tx and passes the
+// version it read there (A1 after bumping it, or chain:reseed reusing it).
+// EnqueueSeal locks the head itself before it writes, so a row is never
+// written without the head lock held in tx; if headVersion is not the
+// head's version under that lock it returns ErrVersionMismatch and writes
+// nothing. A tenant with no head, or tx with no tenant, is ErrHeadNotFound.
+// The head is locked by the tenant of tx, and the insert runs under the
+// outbox RLS WITH CHECK, which refuses a row whose tenant_id is not the
+// transaction's.
+//
+// If the tenant already has a row with this dedupe key, it returns that
+// row's id and a nil error and writes nothing, whatever delay it was given.
+// Only a seal row can hold it: every other producer refuses a dedupe key with
+// the SealKind prefix.
+//
+// tx must come from tenancy.InTenantTx. On any error the caller rolls tx back.
+func EnqueueSeal(ctx context.Context, tx pgx.Tx, headVersion int64, opts ...SealOption) (uuid.UUID, error) {
+	if headVersion < 1 {
+		return uuid.Nil, fmt.Errorf("%w: head version %d is below 1", ErrInvalidEntry, headVersion)
+	}
+	var o sealOptions
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&o)
+		}
+	}
+	if o.delay < 0 {
+		return uuid.Nil, fmt.Errorf("%w: negative seal delay", ErrInvalidEntry)
+	}
+	txTenant, err := tenancy.TenantOf(ctx, tx)
+	if errors.Is(err, tenancy.ErrNoTenant) {
+		return uuid.Nil, ErrHeadNotFound
+	}
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("outbox: %w", err)
+	}
+	var (
+		tenant uuid.UUID
+		got    int64
+	)
+	switch err := tx.QueryRow(ctx, lockHeadSQL, txTenant).Scan(&tenant, &got); {
+	case errors.Is(err, pgx.ErrNoRows):
+		return uuid.Nil, ErrHeadNotFound
+	case err != nil:
+		return uuid.Nil, fmt.Errorf("outbox: lock audit chain head: %w", err)
+	}
+	if got != headVersion {
+		return uuid.Nil, fmt.Errorf("%w: head has %d, given %d", ErrVersionMismatch, got, headVersion)
+	}
+
+	id, err := uuid.NewV7()
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("outbox: new id: %w", err)
+	}
+	// RLS WITH CHECK refuses a row whose tenant_id is not app.tenant_id.
+	dedupe := SealDedupeKey(headVersion)
+	var inserted uuid.UUID
+	args := []any{id, tenant, dedupe, SealKind + ":" + id.String(), headVersion, traceparent(ctx)}
+	sql := insertSealSQL
+	if o.delayed {
+		sql, args = insertDelayedSealSQL, append(args, o.delay.Seconds())
+	}
+	err = tx.QueryRow(ctx, sql, args...).Scan(&inserted)
+	if err == nil {
+		return inserted, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, fmt.Errorf("outbox: insert seal row: %w", err)
+	}
+	var existing uuid.UUID
+	if err := tx.QueryRow(ctx, sealDedupeSQL, tenant, dedupe).Scan(&existing); err != nil {
+		return uuid.Nil, fmt.Errorf("outbox: dedupe lookup after conflict: %w", err)
+	}
+	return existing, nil
 }
 
 // lockRecord runs the record lock in the transaction's tenant and returns the
@@ -340,6 +505,9 @@ func validate(e Entry) (json.RawMessage, error) {
 	}
 	if e.DedupeKey == "" || len(e.DedupeKey) > maxDedupeKeyLen {
 		return nil, invalid("dedupe key must be 1 to %d bytes", maxDedupeKeyLen)
+	}
+	if strings.HasPrefix(e.DedupeKey, sealDedupePrefix) {
+		return nil, invalid("dedupe keys starting %q are EnqueueSeal's", sealDedupePrefix)
 	}
 	if e.RecordID == uuid.Nil {
 		return nil, invalid("no record id")

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/audit"
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/chain"
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/chain/vectors"
 )
@@ -353,7 +354,7 @@ func erasureListed(rng []xLine, ref, id string) bool {
 			Value []string `json:"value"`
 		}
 		if err := json.Unmarshal([]byte(*y.Diff), &ops); err != nil || len(ops) != 1 ||
-			ops[0].Op != "add" || ops[0].Path != "/erased_ids" || len(ops[0].Value) > 10000 {
+			ops[0].Op != "add" || ops[0].Path != "/erased_ids" || len(ops[0].Value) > audit.MaxErasedIDs {
 			continue
 		}
 		if slices.Contains(ops[0].Value, id) {
