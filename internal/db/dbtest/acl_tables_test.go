@@ -6,6 +6,7 @@ import (
 	"context"
 	"io/fs"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -44,11 +45,23 @@ func seedACL(t *testing.T, super *pgx.Conn, tenants ...string) {
 
 // Acceptance: both roles may SELECT and INSERT both tables and nothing more;
 // no other role has any privilege on either. RLS is ENABLEd and FORCEd.
+//
+// "No other role" is every role in the cluster but superusers, the
+// built-in pg_* roles and the owner nava_migrator, read from pg_roles rather
+// than listed by hand, so a role a later migration adds (as ADR-004 added
+// nava_audit_reader and nava_erasure) is checked without editing this test.
 func TestP330Grants(t *testing.T) {
 	migratedPlatform(t)
 	super := superNava(t)
+	roles := queryString(t, super, `SELECT string_agg(rolname, ',' ORDER BY rolname) FROM pg_roles
+		WHERE NOT rolsuper AND rolname NOT LIKE 'pg\_%' AND rolname <> 'nava_migrator'`)
+	for _, must := range []string{"nava_app", "nava_worker", "nava_audit_reader", "nava_erasure"} {
+		if !slices.Contains(strings.Split(roles, ","), must) {
+			t.Fatalf("roles in the cluster = %s, want %s among them", roles, must)
+		}
+	}
 	for _, table := range aclTables {
-		for _, role := range []string{"nava_app", "nava_worker", "nava_relay", "nava_purge", "nava_onboard", "nava_groupsync", "nava_backup"} {
+		for _, role := range strings.Split(roles, ",") {
 			for _, priv := range []string{"SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"} {
 				want := (role == "nava_app" || role == "nava_worker") && (priv == "SELECT" || priv == "INSERT")
 				got := queryBool(t, super, "SELECT has_table_privilege($1, $2, $3)", role, "public."+table, priv)
@@ -105,7 +118,7 @@ func TestP330TenantIsolation(t *testing.T) {
 		_, err = execIn(conn, "", insertACL, tenantA, tenantA, 2, tenantA)
 		wantSQLState(t, role+" with no tenant publishes an ACL", err, "42501")
 	}
-	for _, role := range []string{"nava_onboard", "nava_groupsync", "nava_relay", "nava_purge"} {
+	for _, role := range []string{"nava_onboard", "nava_groupsync", "nava_relay", "nava_purge", "nava_audit_reader", "nava_erasure"} {
 		for _, table := range aclTables {
 			_, err := execIn(asRole(t, role), tenantA, "SELECT count(*) FROM "+table)
 			wantSQLState(t, role+" reads "+table, err, "42501")
