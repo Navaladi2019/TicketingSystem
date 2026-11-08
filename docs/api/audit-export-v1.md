@@ -204,8 +204,15 @@ the canonical form.
   under a mask, `diff` holds the redacted diff, `diff_redacted` is `true`, and
   `diff_salt` is `null`; the diff hash is then not checkable from this file.
 - Erased (R11): `diff` and `diff_salt` are `null`, `erased_at` and
-  `erasure_ref` are set. The export includes the matching `audit/erase`
-  entries (R24).
+  `erasure_ref` are set. For every erased entry it writes, the export includes
+  the matching `audit/erase` entry (`subject_id = erasure_ref`), **whatever its
+  `occurred_at` and `seq`** and whether or not the filter selects it (R24,
+  ADR-004-E8 "Follow-up"). If that entry is sealed with `seq ≤ last_seq` it is
+  written in full in the range. If it is unsealed, or sealed beyond `last_seq`
+  (the erasure committed after the head was read), it is written in the
+  unsealed tail (below), and the verifier reports `pending`, not
+  `erasure_unlisted`. The exporter fetches each `erasure_ref` once and never
+  repeats an erase entry.
 
 ### `stub`
 
@@ -217,10 +224,19 @@ A sealed entry in the range that the filter excludes. Exactly these members.
 
 ### Unsealed lines
 
-Matching entries not yet sealed, with `occurred_at` ≤ the export start, come
-after the range: `kind: "entry"`, `sealed: false`, `in_verified_range: false`,
-and `seq`, `prev_hash`, `entry_hash`, `sealed_at` all `null`.
-`envelope_sha256` is the exporter's computation, for information only.
+Two kinds of entry come after the range: `kind: "entry"`, `sealed: false`,
+`in_verified_range: false`, and `seq`, `prev_hash`, `entry_hash`, `sealed_at`
+all `null`. `envelope_sha256` is the exporter's computation, for information
+only.
+
+1. Matching entries not yet sealed, with `occurred_at` ≤ the export start.
+2. The `audit/erase` entry of every erased entry in the file, when it is
+   outside the verified range (unsealed, or `seq > last_seq`), **with no
+   `occurred_at` bound**: it may be later than the export start. Without it an
+   erasure that commits after the head is read would make an honest export
+   `erasure_unlisted` (R24 says the export always includes the matching erase
+   entries). An erase entry already written as a matching unsealed entry is
+   not repeated.
 
 ### `trailer`
 
@@ -299,7 +315,9 @@ check names its reason, one of the codes in §4.1. The vectors use a subset.
    has gaps.
 7. Erased entries: R24 (`tampered`, `erasure_unlisted`, unless a chain-valid
    `audit/erase` entry with `subject_id = erasure_ref` lists the id;
-   `pending` if that entry is unsealed). **The `audit/erase` diff is RFC 6902
+   `pending` if that entry is unsealed or in the tail beyond `last_seq`; it is
+`erasure_unlisted` only when the entry is in neither the range nor the tail).
+**The `audit/erase` diff is RFC 6902
    like every other diff** (R1, R5): exactly one op,
    `[{"op":"add","path":"/erased_ids","value":["<id>", ...]}]`, with 1 to
    1,500 lowercase entry ids (R23 as amended by ADR-004-E1). The verifier reads the ids from that op

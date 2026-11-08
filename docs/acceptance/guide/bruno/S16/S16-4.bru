@@ -1,0 +1,32 @@
+meta {
+  name: S16.4 exportAuditEntries 200: filtered by domain
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{core_url}}/api/v1/audit/entries:export?domain=config
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  const raw = typeof res.getBody() === 'string' ? res.getBody() : JSON.stringify(res.getBody());
+  const lines = raw.split('
+  ').filter(l => l.length);
+  const ls = lines.map(l => JSON.parse(l));
+  N.status(200);
+  test('full lines are config; the rest are stubs', () => {
+    ls.filter(l => l.kind === 'entry' && l.sealed).forEach(l => expect(l.envelope.domain).to.eql('config'));
+    ls.filter(l => l.kind === 'stub').forEach(l => expect(Object.keys(l).sort()).to.eql(['entry_hash', 'envelope_sha256', 'kind', 'prev_hash', 'seq']));
+  });
+}
+
+docs {
+  Entries of the config domain are in full; every other seq of the range is a hash-only stub. The file still verifies.
+}

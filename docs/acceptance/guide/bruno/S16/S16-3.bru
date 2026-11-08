@@ -1,0 +1,42 @@
+meta {
+  name: S16.3 exportAuditEntries 200: the whole log
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{core_url}}/api/v1/audit/entries:export
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  const raw = typeof res.getBody() === 'string' ? res.getBody() : JSON.stringify(res.getBody());
+  const lines = raw.split('
+  ').filter(l => l.length);
+  const ls = lines.map(l => JSON.parse(l));
+  N.status(200);
+  test('content type is ndjson', () => expect(res.getHeader('content-type')).to.include('application/x-ndjson'));
+  test('header first, trailer last', () => {
+    expect(ls[0].kind).to.eql('header');
+    expect(ls[0].format).to.eql('nava.audit.export/v1');
+    expect(ls[0].stubs).to.eql(true);
+    expect(ls[ls.length - 1].kind).to.eql('trailer');
+  });
+  test('the anchor follows the header', () => expect(ls[1].kind).to.be.oneOf(['anchor', 'trailer']));
+  test('the trailer counts match the lines', () => {
+    const t = ls[ls.length - 1];
+    expect(t.count).to.eql(ls.filter(l => l.kind === 'entry' && l.sealed).length);
+    expect(t.stub_count).to.eql(ls.filter(l => l.kind === 'stub').length);
+  });
+  test('a redacted entry carries no diff_salt', () => ls.filter(l => l.kind === 'entry' && l.diff_redacted).forEach(l => expect(l.diff_salt).to.eql(null)));
+}
+
+docs {
+  One JSON object per line: the header names the format and the request, the last line is the trailer. Save the body and run `nava audit verify <file>`: it exits 0.
+}

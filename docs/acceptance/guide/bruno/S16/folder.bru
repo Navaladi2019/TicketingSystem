@@ -1,0 +1,8 @@
+meta {
+  name: S16 audit export
+  seq: 12
+}
+
+docs {
+  TICK-444 (P5-40, ADR-004 R19 to R21). `GET /api/v1/audit/entries:export`, the verifiable JSONL export, downloaded by tenant A's admin (who holds `audit.export`). Each file starts with a header, then the anchor, then the range, then the trailer, and `nava audit verify` accepts it. Alice is a member without `audit.export`: 403. The 409 `export_in_progress` of a second concurrent export, 429, 500 and 501 are in the coverage page. Needs `tools/seed.sh`. The export writes one `audit/export` entry per call.
+}

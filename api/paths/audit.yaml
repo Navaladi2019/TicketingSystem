@@ -90,6 +90,101 @@ paths:
           $ref: "../openapi.yaml#/components/responses/Problem"
         "501":
           $ref: "../openapi.yaml#/components/responses/Problem"
+  /api/v1/audit/entries:export:
+    get:
+      operationId: exportAuditEntries
+      summary: Download a verifiable JSONL export of the audit log
+      description: >
+        Needs `audit.export`: a tenant admin or a member of the tenant's
+        auditors group (R8). Streams `nava.audit.export/v1` JSONL (header,
+        anchor, the sealed range, unsealed matches, trailer;
+        `docs/api/audit-export-v1.md`) that `nava audit verify` accepts under
+        any filter. The `audit/export` entry commits before the first byte, and
+        one export runs per tenant at a time (R19): a second gets 409
+        `export_in_progress`. The range starts at the entry before the first
+        sealed entry of the time window and runs to the chain head read at the
+        start (R20). Entries that match are in full, the others are hash-only
+        stubs, unless `stubs=false`, which sends matches only and verifies
+        `unverifiable` when the filter leaves a gap. Diffs are masked for the
+        caller and `diff_salt` comes only with an unredacted diff (R7). Pages
+        of 5,000 rows, each its own short transaction, stop after 15 minutes
+        (R21). An error after the first byte ends the file without a trailer.
+      parameters:
+        - name: from
+          in: query
+          required: false
+          description: Entries at or after this time (`occurred_at`).
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          description: Entries before this time (`occurred_at`).
+          schema:
+            type: string
+            format: date-time
+        - name: domain
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [record, config, audit]
+        - name: subject_type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [record, cascade_key, entity_definition, audit_export, audit_chain, erasure_request]
+        - name: subject_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: change_set_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: after_seq
+          in: query
+          required: false
+          description: Incremental export. The range starts at `after_seq + 1`, anchored on `after_seq`.
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+        - name: stubs
+          in: query
+          required: false
+          description: Send non-matching entries of the range as stubs (default) or leave them out.
+          schema:
+            type: boolean
+            default: true
+      responses:
+        "200":
+          description: The export, one JSON object per line.
+          content:
+            application/x-ndjson:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "401":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "403":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "409":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "429":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "500":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "501":
+          $ref: "../openapi.yaml#/components/responses/Problem"
 components:
   schemas:
     AuditEntryList:

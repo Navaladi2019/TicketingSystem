@@ -1,0 +1,33 @@
+meta {
+  name: S16.5 exportAuditEntries 200: stubs=false
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{core_url}}/api/v1/audit/entries:export?stubs=false&subject_id=00000000-0000-4000-8000-00000000dead
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  const raw = typeof res.getBody() === 'string' ? res.getBody() : JSON.stringify(res.getBody());
+  const lines = raw.split('
+  ').filter(l => l.length);
+  const ls = lines.map(l => JSON.parse(l));
+  N.status(200);
+  test('stubs false is recorded and nothing is verifiable', () => {
+    expect(ls[0].stubs).to.eql(false);
+    expect(ls.filter(l => l.kind === 'stub')).to.eql([]);
+    expect(ls[ls.length - 1].verifiable).to.eql(false);
+  });
+}
+
+docs {
+  Matches only. The header records the request (`stubs: false`). With nothing matching, the file has the anchor and no range lines, `verifiable` is false and `nava audit verify` exits with the unverifiable code, not the tampered one.
+}

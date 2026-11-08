@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 
 	"github.com/Navaladi2019/TicketingSystem/api"
+	"github.com/Navaladi2019/TicketingSystem/internal/audit/export"
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/read"
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
@@ -79,6 +80,7 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 		}
 		if opts.auditPool != nil {
 			h.audit = &read.Reader{Pool: opts.auditPool, Masker: masker, MaxRecordEntries: opts.historyCap, OnRecordRows: opts.historyRows}
+			h.exporter = newExporter(h.audit, opts)
 		}
 		if h.historyTooLong, err = tel.MeterProvider.Meter("github.com/Navaladi2019/TicketingSystem/internal/server").Int64Counter(
 			"nava.records.history.too_long",
@@ -179,6 +181,8 @@ type handlers struct {
 	// audit serves the audit timeline and a record's history (P5-17) on the
 	// nava_audit_reader pool (ADR-004-A1); nil answers 501 not_implemented.
 	audit *read.Reader
+	// exporter streams the audit export (P5-40) from the same reader pool.
+	exporter *export.Exporter
 	// historyTooLong counts the histories refused for their length; nil
 	// counts nothing.
 	historyTooLong metric.Int64Counter
