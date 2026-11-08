@@ -9,7 +9,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
@@ -32,7 +31,7 @@ func (nopDefs) Current(context.Context, pgx.Tx, string) (*metadata.Compiled, int
 // Every malformed command is refused before the first statement: the nil tx
 // would panic if Write reached the database.
 func TestWriteRefusesBadCommands(t *testing.T) {
-	p := pipeline.New(authz.TenantMemberAuthorizer{}, nopDefs{}, pipeline.NoopSink{}, pipeline.PoolRunner{}, pipeline.SystemClock{})
+	p := pipeline.New(fakeAuthz{}, nopDefs{}, pipeline.NoopSink{}, pipeline.PoolRunner{}, pipeline.SystemClock{})
 	user := identity.Principal{TenantID: uuid.New(), PrincipalID: uuid.New()}
 	system := identity.Principal{TenantID: user.TenantID}
 	valid := pipeline.Command{Op: pipeline.OpCreate, EntityKey: "incident", Actor: user, Source: pipeline.SourceUser}
@@ -83,13 +82,13 @@ func TestNewNeedsEveryDependency(t *testing.T) {
 			t.Fatal("New with a nil sink did not panic")
 		}
 	}()
-	pipeline.New(authz.TenantMemberAuthorizer{}, nopDefs{}, nil, pipeline.PoolRunner{}, pipeline.SystemClock{})
+	pipeline.New(fakeAuthz{}, nopDefs{}, nil, pipeline.PoolRunner{}, pipeline.SystemClock{})
 }
 
 // A5-7 names the error a workflow write at depth 0 gets: ErrInvalidEntry,
 // as well as the pipeline's own ErrInvalidCommand.
 func TestWorkflowWriteAtDepthZeroIsInvalidEntry(t *testing.T) {
-	p := pipeline.New(authz.TenantMemberAuthorizer{}, nopDefs{}, pipeline.NoopSink{}, pipeline.PoolRunner{}, pipeline.SystemClock{})
+	p := pipeline.New(fakeAuthz{}, nopDefs{}, pipeline.NoopSink{}, pipeline.PoolRunner{}, pipeline.SystemClock{})
 	c := pipeline.Command{Op: pipeline.OpCreate, EntityKey: "incident", Actor: identity.Principal{TenantID: uuid.New()},
 		Source: pipeline.SourceWorkflow}
 	if _, err := p.Write(context.Background(), nil, c); !errors.Is(err, outbox.ErrInvalidEntry) || !errors.Is(err, pipeline.ErrInvalidCommand) {

@@ -422,7 +422,7 @@ func TestCI10_DepthBeyondLimitRejectedAndAuditedOnTheRunner(t *testing.T) {
 	f := seedTenant(t, e)
 	runner := &recordingRunner{TxRunner: pipeline.PoolRunner{Pool: e.app}}
 	sink := &countingSink{}
-	p := pipeline.New(authz.TenantMemberAuthorizer{}, entitytypes.Store{}, sink, runner, pipeline.SystemClock{})
+	p := pipeline.New(authz.ACL{Policies: authz.PolicyStore{}}, entitytypes.Store{}, sink, runner, pipeline.SystemClock{})
 	ctx := context.Background()
 	origin := uuid.New()
 	tooDeep := outbox.Causation{OriginID: origin, Depth: config.CascadeDepthLimit + 1}

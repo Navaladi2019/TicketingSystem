@@ -22,14 +22,12 @@
     "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."
   },
   "createRecord": {
-    "403": "Not reachable: the interim authorizer allows every tenant member, so no request is refused with 403. Unit tests cover the mapping (internal/server).",
     "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."
   },
   "getRecord": {
     "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."
   },
   "patchRecord": {
-    "403": "Not reachable: the interim authorizer allows every tenant member, so no request is refused with 403. Unit tests cover the mapping (internal/server).",
     "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."
   },
   "getRecordHistory": {

@@ -145,6 +145,33 @@ INSERT INTO entity_definition_versions
 ALTER TABLE entity_definitions ENABLE TRIGGER entity_definitions_audit_commit_check;
 ALTER TABLE entity_definition_versions ENABLE TRIGGER entity_definition_versions_audit_commit_check;
 COMMIT;
+-- TEMPORARY, stack seed only (D-3-27; removal owner TICK-620, P3-35): record
+-- authorization fails closed (P3-31), and these tenants never went through
+-- onboarding, which P3-35 makes publish the default incident ACL. Until then
+-- each seeded type gets an allow-all ACL version 1, in the acltest shape:
+-- every principal and every live group of the tenant, as group sync left
+-- them above, may read and write every record. Only a type with no ACL yet
+-- gets one, so a re-run changes nothing. No production path does this.
+-- acl_versions is not attached to the audit commit check yet (P3-30).
+INSERT INTO acl_versions (tenant_id, entity_definition_id, version, rules, masks)
+  SELECT d.tenant_id, d.id, 1,
+         jsonb_build_array(jsonb_build_object(
+           'id', 'seed-allow-all-d-3-27',
+           'ops', jsonb_build_array('read', 'write'),
+           'who', jsonb_build_object(
+             'users', coalesce((SELECT jsonb_agg(p.id ORDER BY p.id) FROM principals p WHERE p.tenant_id = d.tenant_id), '[]'::jsonb),
+             'groups', coalesce((SELECT jsonb_agg(g.id ORDER BY g.id) FROM groups g
+                                  WHERE g.tenant_id = d.tenant_id AND g.deleted_at IS NULL), '[]'::jsonb)))),
+         '[]'::jsonb
+  FROM entity_definitions d
+  WHERE d.tenant_id IN ('$A', '$B') AND d.key IN ('incident', 'request', 'change')
+    AND NOT EXISTS (SELECT 1 FROM acl_versions a WHERE a.tenant_id = d.tenant_id AND a.entity_definition_id = d.id);
+DO \$\$ BEGIN
+  IF (SELECT count(*) FROM acl_versions a JOIN entity_definitions d ON d.tenant_id = a.tenant_id AND d.id = a.entity_definition_id
+      WHERE d.tenant_id IN ('$A', '$B') AND d.key IN ('incident', 'request', 'change')) < 6 THEN
+    RAISE EXCEPTION 'a seeded entity type has no ACL';
+  END IF;
+END \$\$;
 SELECT d.tenant_id AS tenant, d.key, d.current_version, encode(v.schema_sha256, 'hex') AS v1_schema_sha256
   FROM entity_definitions d JOIN entity_definition_versions v
     ON v.tenant_id = d.tenant_id AND v.definition_id = d.id AND v.version = 1
@@ -152,3 +179,4 @@ SELECT d.tenant_id AS tenant, d.key, d.current_version, encode(v.schema_sha256, 
 SQL
 echo "seed: done. alice@tenant-a.test, admin@tenant-a.test and bob@tenant-b.test now resolve in GET /api/v1/me;"
 echo "seed: admin@tenant-a.test is tenant A's admin; both tenants have incident, request and change."
+echo "seed: each seeded type has a temporary allow-all ACL (D-3-27, removed by TICK-620)."

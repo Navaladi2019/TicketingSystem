@@ -71,8 +71,8 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 	a := apihttp.New(spec, reg, log, baseURL)
 	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors}
 	if opts.pool != nil {
-		// The S9 composition (PLAN-003): any tenant member writes, no events.
-		// S10 swaps the authorizer, S11b the sink.
+		// The S10 composition (PLAN-003): the record ACL reads and writes,
+		// no events yet. S11b swaps the sink.
 		var masker read.Masker = read.DefinitionMasker{}
 		if opts.auditMasker != nil {
 			masker = opts.auditMasker
@@ -86,7 +86,8 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 			metric.WithUnit("{request}")); err != nil {
 			return nil, err
 		}
-		h.pipe = pipeline.New(authz.TenantMemberAuthorizer{}, h.store, pipeline.NoopSink{}, pipeline.PoolRunner{Pool: opts.pool}, pipeline.SystemClock{})
+		h.acl = authz.ACL{Policies: authz.PolicyStore{}}
+		h.pipe = pipeline.New(h.acl, h.store, pipeline.NoopSink{}, pipeline.PoolRunner{Pool: opts.pool}, pipeline.SystemClock{})
 	}
 	api.HandlerWithOptions(
 		api.NewStrictHandlerWithOptions(h, nil, api.StrictHTTPServerOptions{
@@ -176,6 +177,9 @@ type handlers struct {
 	store   entitytypes.Store
 	// pipe serves the record endpoints; nil answers 501 not_implemented.
 	pipe *pipeline.Pipeline
+	// acl decides record reads (and, inside pipe, writes). A record route
+	// without it answers 501 not_implemented, never an unchecked read.
+	acl authz.Authorizer
 	// audit serves the audit timeline and a record's history (P5-17) on the
 	// nava_audit_reader pool (ADR-004-A1); nil answers 501 not_implemented.
 	audit *read.Reader

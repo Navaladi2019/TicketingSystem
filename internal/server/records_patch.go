@@ -31,8 +31,9 @@ import (
 )
 
 // PATCH and history of a record (TICK-358, P3-15). Check order of PATCH:
-// authn, entity type and record (the one 404), If-Match missing (428), stale
-// (412), body (422), then the authorizer inside the pipeline.
+// authn, entity type, record and read authorization (the one 404: an
+// unreadable record never yields 428 or 412, P3-31), If-Match missing (428),
+// stale (412), body (422), then the write authorizer inside the pipeline.
 
 const getRecordHistoryRoute = "getRecordHistory"
 
@@ -84,7 +85,7 @@ func (h *handlers) PatchRecord(ctx context.Context, req api.PatchRecordRequestOb
 	if !ok || p.PrincipalID == uuid.Nil {
 		return nil, errNoPrincipal
 	}
-	if h.pool == nil || h.pipe == nil {
+	if h.pool == nil || h.pipe == nil || h.acl == nil {
 		return nil, notImplemented()
 	}
 	id, perr := uuid.Parse(req.Id)
@@ -115,6 +116,9 @@ func (h *handlers) PatchRecord(ctx context.Context, req api.PatchRecordRequestOb
 		}
 		if before.EntityKey != req.Entity {
 			return pipeline.ErrNotFound
+		}
+		if err := h.canRead(ctx, tx, p, before); err != nil {
+			return err
 		}
 		// Only now may the caller learn that the record needs If-Match.
 		versions, ok := ifMatchVersions(req.Params.IfMatch)
@@ -257,7 +261,7 @@ func (h *handlers) GetRecordHistory(ctx context.Context, req api.GetRecordHistor
 	if !ok || p.PrincipalID == uuid.Nil {
 		return nil, errNoPrincipal
 	}
-	if h.pool == nil || h.cursors == nil || h.audit == nil {
+	if h.pool == nil || h.cursors == nil || h.audit == nil || h.acl == nil {
 		return nil, notImplemented()
 	}
 	id, perr := uuid.Parse(req.Id)
@@ -288,8 +292,9 @@ func (h *handlers) GetRecordHistory(ctx context.Context, req api.GetRecordHistor
 		}
 	}
 	// Two transactions (ADR-004-A1 A1-7). First nava_app reads the record in
-	// the caller's tenant, so another tenant's record, an unreadable one and
-	// a missing one are the same 404 before any audit row is read (Security
+	// the caller's tenant and checks the caller may read it (P3-31), so
+	// another tenant's record, an unreadable one and a missing one are the
+	// same 404 before any audit row is read (Security
 	// review of PR #432). Only then does the reader's pool read its entries.
 	// READ COMMITTED gives each statement its own snapshot, so the split adds
 	// no race.
@@ -304,7 +309,7 @@ func (h *handlers) GetRecordHistory(ctx context.Context, req api.GetRecordHistor
 		if rec.EntityKey != req.Entity {
 			return pipeline.ErrNotFound
 		}
-		return nil
+		return h.canRead(ctx, tx, p, rec)
 	})
 	var changes []read.Change
 	if err == nil {

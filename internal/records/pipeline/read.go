@@ -8,6 +8,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/authz"
+	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/store"
 )
 
@@ -26,6 +28,16 @@ func Get(ctx context.Context, tx pgx.Tx, tenantID, id uuid.UUID) (*Record, error
 		return nil, fmt.Errorf("pipeline: %w", err)
 	}
 	return rec, nil
+}
+
+// RowOf is what the ACL sees of rec for p: its fixed columns and p's
+// pair-matched shares (authz.SharesFor), read in tx.
+func RowOf(ctx context.Context, tx pgx.Tx, p identity.Principal, rec *Record) (authz.Row, error) {
+	shares, err := authz.SharesFor(ctx, tx, p, rec.ID)
+	if err != nil {
+		return authz.Row{}, fmt.Errorf("pipeline: %w", err)
+	}
+	return *rowOf(rec, shares), nil
 }
 
 // DecodeObject decodes a JSON object with numbers kept exact (json.Number),

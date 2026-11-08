@@ -286,13 +286,18 @@ func TestAIWriteCarriesSourceRef(t *testing.T) {
 	f := seedTenant(t, e)
 	ref := uuid.NewString()
 	cmd := createCmd(f, map[string]any{"title": "suggested"})
-	cmd.Actor, cmd.Source, cmd.SourceRef = f.system(), pipeline.SourceAI, &ref
+	// An AI write is authorized as its principal (D-3-26): f.principal, whom
+	// seedTenant's test ACL (acltest.AllowUsers) lets write. A principal-less
+	// AI write is refused (TestWriteScopeIsEnforcedBeforeAndAfter and the
+	// unit tests cover that).
+	cmd.Source, cmd.SourceRef = pipeline.SourceAI, &ref
 	res, err := write(context.Background(), e, newPipeline(e, nil), f.id, cmd)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := queryText(t, e, `SELECT source || ' ' || source_ref || ' ' || actor_system FROM audit_log WHERE subject_id = $1`, res.RecordID); got != "ai "+ref+" ai" {
-		t.Errorf("entry %q, want ai %s ai", got, ref)
+	want := "ai " + ref + " " + f.principal.PrincipalID.String()
+	if got := queryText(t, e, `SELECT source || ' ' || source_ref || ' ' || actor_principal_id::text FROM audit_log WHERE subject_id = $1`, res.RecordID); got != want {
+		t.Errorf("entry %q, want %q", got, want)
 	}
 }
 
