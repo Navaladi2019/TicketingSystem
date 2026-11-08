@@ -70,12 +70,23 @@ func (e *Exporter) Deadline() time.Duration {
 // without its trailer, which the verifier rejects as truncated. Write stops at
 // the cap (R21).
 func (e *Exporter) Write(ctx context.Context, w io.Writer, flush func(), s Session) error {
+	return e.stream(ctx, w, flush, s, func(bw *bufio.Writer) (func(any) error, error) {
+		enc := json.NewEncoder(bw)
+		enc.SetEscapeHTML(false) // the canonical envelope must keep < > & raw
+		return enc.Encode, nil
+	})
+}
+
+// stream is the one export walk; newEmit picks the line format (JSONL or CSV)
+// so both carry the same lines, order and trailer.
+func (e *Exporter) stream(ctx context.Context, w io.Writer, flush func(), s Session, newEmit func(*bufio.Writer) (func(any) error, error)) error {
 	ctx, cancel := context.WithTimeout(ctx, e.Deadline())
 	defer cancel()
 	bw := bufio.NewWriterSize(w, 64<<10)
-	enc := json.NewEncoder(bw)
-	enc.SetEscapeHTML(false) // the canonical envelope must keep < > & raw
-	emit := func(v any) error { return enc.Encode(v) }
+	emit, err := newEmit(bw)
+	if err != nil {
+		return err
+	}
 	endPage := func() error {
 		if err := bw.Flush(); err != nil {
 			return err
