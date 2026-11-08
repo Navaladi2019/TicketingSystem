@@ -418,6 +418,73 @@ func TestIdentitystackStreamMissingASuiteFails(t *testing.T) {
 	}
 }
 
+// TICK-628: onboard_invite_test.go (registered) runs only in make
+// stack-test-onboard. Against the real path list and the real ONBOARD_TESTS,
+// an onboard stream with no invite test fails naming the file under -run; one
+// invite test is enough; and identity's -skip scope never expects the file.
+func TestOnboardStreamMissingTheInviteSuiteFails(t *testing.T) {
+	t.Setenv("GOFLAGS", "")
+	b, err := os.ReadFile(filepath.Join(repoRoot, "make", "identity.mk"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`(?m)^ONBOARD_TESTS := (.+)$`).FindSubmatch(b)
+	if m == nil {
+		t.Fatal("make/identity.mk has no ONBOARD_TESTS := line")
+	}
+	pattern := strings.ReplaceAll(string(m[1]), "$$", "$")
+	ip := "github.com/Navaladi2019/TicketingSystem/internal/identitystack"
+	streamOf := func(tests ...string) string {
+		var s strings.Builder
+		for _, tn := range tests {
+			s.WriteString(`{"Action":"run","Package":"` + ip + `","Test":"` + tn + `"}` + "\n")
+			s.WriteString(`{"Action":"pass","Package":"` + ip + `","Test":"` + tn + `"}` + "\n")
+		}
+		s.WriteString(`{"Action":"pass","Package":"` + ip + `"}` + "\n")
+		f := filepath.Join(t.TempDir(), "onboard-stream.json")
+		if err := os.WriteFile(f, []byte(s.String()), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+	check := func(sc scope, stream string) (int, string) {
+		var out bytes.Buffer
+		code, err := run(options{
+			tags: []string{"identitystack"}, in: true, args: []string{stream}, scope: sc,
+			root: repoRoot, pathsFile: filepath.Join("docs", "delivery", "review-paths.yaml"),
+		}, &out)
+		if err != nil {
+			t.Fatalf("run: %v\n%s", err, out.String())
+		}
+		return code, out.String()
+	}
+	onboard, err := newScope(pattern, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, err := newScope("", pattern)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Only the non-invite onboarding test ran: the invite suite is missing.
+	noInvite := streamOf("TestOnboardDomainClaimedIsConflict")
+	if code, out := check(onboard, noInvite); code != 1 || !strings.Contains(out, "FAIL  internal/identitystack/onboard_invite_test.go, ran 0 of") {
+		t.Errorf("onboard scope, no invite test: exit %d, want 1 naming onboard_invite_test.go\n%s", code, out)
+	}
+	// One invite test ran: the onboard step passes, and no other registered
+	// identitystack suite is expected under its -run.
+	if code, out := check(onboard, streamOf("TestOnboardDomainClaimedIsConflict", "TestInvitedToTenantANotLinkedThroughTenantBIdP")); code != 0 ||
+		!strings.Contains(out, "ok    internal/identitystack/onboard_invite_test.go, ran 1 of") {
+		t.Errorf("onboard scope, one invite test: exit %d, want 0 with onboard_invite_test.go ok\n%s", code, out)
+	}
+	// identity's -skip scope leaves the file out (every one of its tests is
+	// in ONBOARD_TESTS), so the identity step cannot fail on it.
+	if _, out := check(identity, noInvite); strings.Contains(out, "onboard_invite_test.go") {
+		t.Errorf("identity scope lists onboard_invite_test.go as in the run\n%s", out)
+	}
+}
+
 // makeRecipe returns the recipe lines of target in a Makefile.
 func makeRecipe(makefile, target string) []string {
 	var out []string
