@@ -29,6 +29,13 @@ migrates.
   idempotent (`IF NOT EXISTS`): on failure it leaves partial state and no
   version row. `TestNoTransactionMigrationsAreIdempotent` re-runs every such
   file over a migrated database.
+- Migrations run under a session `lock_timeout` (5s,
+  `migrate.Options.LockTimeout`) and are retried up to 10 times on SQLSTATE
+  55P03 (TICK-579). `CREATE/DROP INDEX CONCURRENTLY` waits for older
+  transactions under that timeout, so a NO TRANSACTION migration that needs a
+  longer wait must `SET lock_timeout = '<n>s'` before the statement and
+  `RESET lock_timeout` at the end of the file, and stay re-runnable
+  (`DROP ... IF EXISTS` before `CREATE ... IF NOT EXISTS`).
 
 ## Adding a role
 
