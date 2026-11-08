@@ -482,6 +482,37 @@ open, a later red push comments on it instead. Close it once `main` is green. Lo
 prints the stages for the current branch, `CI_ALL=1 make ci-stages` prints
 all four and `CI_LINT_ONLY=1 make ci-stages` prints `ci-lint`.
 
+### Thin CI images (TICK-628)
+
+`make image-ci` used to spend about 4.7 minutes of every `stack` run on seven
+in-Docker `go build` steps. A pull request whose change does not touch the
+image build now builds the seven Go service binaries once on the runner
+(`make ci-binaries`: `CGO_ENABLED=0 go build -trimpath`, the `go.mod`
+toolchain, into `.ci-bin/`), and `make image-ci IMAGE_THIN=1` builds their
+images from `deploy/compose/Dockerfile.ci`, one target per binary, which only
+copies the binary onto the real final stage.
+
+| Run | Images |
+|---|---|
+| Push to `main` | Real Dockerfiles, always. `make ci-binaries` runs too, so the Go cache `main` saves is warm for the next PR's build. |
+| PR changing a `deploy/**/Dockerfile`, `Dockerfile.ci`, `.dockerignore`, `go.mod`, `go.sum`, or a `build:` block of `compose.yaml` or `deploy/compose/*.yaml` | Real Dockerfiles |
+| Any other PR, or a manual run on another branch | Thin |
+| Manual run with the `images` input `real` or `thin` | As chosen (ignored on `main`) |
+
+The `changes` job decides (`cichanged -images`, through `make ci-stages`'s
+`images` output); `TestClassifyImages` and the `TestCIStages` Dockerfile
+scenario test the rule. `TestDockerfileCIMatchesRealFinalStages` fails when a
+`Dockerfile.ci` target and the real final stage differ in base image, UID,
+user, binary path, entrypoint or exposed ports;
+`TestThinServicesCoverCompose` fails when a Go service of `compose.yaml` is
+missing from `CI_THIN_SERVICES` (`make/stack.mk`). `nava-worker-interptest`
+is not a thin image: the interpreter cases build it from the real Dockerfile
+with `compose up --build`. What a thin run no longer proves, the real build
+stage, is accepted risk AR-TICK-628-01.
+
+On a laptop: `make ci-binaries && make image-ci IMAGE_THIN=1` (set `GOARCH`
+on an arm64 host).
+
 ### Story branches (TICK-322)
 
 The `story-branches` job runs `make check-story-branches` on every event, and

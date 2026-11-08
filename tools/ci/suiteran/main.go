@@ -11,6 +11,14 @@
 // end in pass or fail; a skip does not count. A file that defines no test (a
 // helper) is listed and not held to that.
 //
+// -run and -skip declare the step's test scope the same way (TICK-628): the
+// step's go test -run or -skip, written next to the go test command. A
+// registered file none of whose top-level tests is in that scope is out of
+// the run; one that has a test in scope must run at least one of those. So two
+// steps that split one package with one pattern (-skip P in one, -run P in the
+// other) each check their own half, while a filter added to go test alone
+// still fails here. Patterns match top-level test names only (no "/").
+//
 // It prints the run's output as go test would without -json (with -v, all of
 // it), then one line per registered file in the run. It exits non-zero when
 // the command failed, a test or package failed, the stream held no go test
@@ -18,8 +26,8 @@
 //
 // Usage:
 //
-//	suiteran [-tags a,b] [-v] [-tee file] -- go test -json [flags] [packages]
-//	suiteran [-tags a,b] [-v] -in file...   (streams written by go test -json)
+//	suiteran [-tags a,b] [-run re] [-skip re] [-v] [-tee file] -- go test -json [flags] [packages]
+//	suiteran [-tags a,b] [-run re] [-skip re] [-v] -in file...   (streams written by go test -json)
 package main
 
 import (
@@ -39,6 +47,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"unicode"
@@ -60,16 +69,23 @@ func cli(args []string, stdout, stderr io.Writer) int {
 	verbose := fl.Bool("v", false, "print every output line, as go test -v")
 	tee := fl.String("tee", "", "also write the raw go test -json stream to this file")
 	in := fl.Bool("in", false, "the arguments are go test -json files, not a command")
+	runRe := fl.String("run", "", "the step's go test -run: only matching top-level tests are expected")
+	skipRe := fl.String("skip", "", "the step's go test -skip: matching top-level tests are not expected")
 	if err := fl.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0 // as flag.ExitOnError does
 		}
 		return 2
 	}
+	sc, err := newScope(*runRe, *skipRe)
+	if err != nil {
+		fmt.Fprintln(stderr, "suiteran:", err)
+		return 2
+	}
 
 	code, err := run(options{
 		tags: splitTags(*tags), pathsFile: *pathsFile, root: *root,
-		verbose: *verbose, tee: *tee, in: *in, args: fl.Args(),
+		verbose: *verbose, tee: *tee, in: *in, args: fl.Args(), scope: sc,
 	}, stdout)
 	if err != nil {
 		fmt.Fprintln(stderr, "suiteran:", err)
@@ -88,6 +104,47 @@ type options struct {
 	tee       string
 	in        bool
 	args      []string
+	scope     scope
+}
+
+// scope is the step's declared -run and -skip; a nil pattern is unset.
+type scope struct{ run, skip *regexp.Regexp }
+
+func newScope(run, skip string) (scope, error) {
+	var sc scope
+	for _, p := range []struct {
+		flag, re string
+		dst      **regexp.Regexp
+	}{{"-run", run, &sc.run}, {"-skip", skip, &sc.skip}} {
+		if p.re == "" {
+			continue
+		}
+		if strings.Contains(p.re, "/") {
+			return sc, fmt.Errorf("%s %q: only top-level test patterns (no /) are supported", p.flag, p.re)
+		}
+		re, err := regexp.Compile(p.re)
+		if err != nil {
+			return sc, fmt.Errorf("%s: %w", p.flag, err)
+		}
+		*p.dst = re
+	}
+	return sc, nil
+}
+
+// in reports whether the step means to run the top-level test name.
+func (sc scope) in(name string) bool {
+	return (sc.run == nil || sc.run.MatchString(name)) && (sc.skip == nil || !sc.skip.MatchString(name))
+}
+
+func (sc scope) String() string {
+	var parts []string
+	if sc.run != nil {
+		parts = append(parts, fmt.Sprintf("-run %q", sc.run.String()))
+	}
+	if sc.skip != nil {
+		parts = append(parts, fmt.Sprintf("-skip %q", sc.skip.String()))
+	}
+	return strings.Join(parts, " ")
 }
 
 func splitTags(s string) []string {
@@ -130,8 +187,8 @@ func run(o options, out io.Writer) (int, error) {
 		return 2, err
 	}
 	tags := stepTags(o.tags, o.args, o.in)
-	rep := check(s, files, tags)
-	fmt.Fprint(out, rep.String(tags))
+	rep := check(s, files, tags, o.scope)
+	fmt.Fprint(out, rep.String(tags, o.scope))
 
 	switch {
 	case cmdCode != 0:
@@ -443,14 +500,24 @@ type report struct {
 	files    []fileResult
 	events   int
 	failures []string
+	ran      int // top-level tests that ended in pass or fail, every package
 }
 
-func check(s *stream, files []suiteFile, tags []string) report {
+func check(s *stream, files []suiteFile, tags []string, sc scope) report {
 	ctxt := build.Default
 	ctxt.BuildTags = tags
 	r := report{events: s.events, failures: s.failures}
+	for _, tests := range s.ran {
+		r.ran += len(tests)
+	}
 	for _, f := range files {
-		fr := fileResult{Path: f.Path, Defined: len(f.Tests)}
+		var tests []string
+		for _, t := range f.Tests {
+			if sc.in(t) {
+				tests = append(tests, t)
+			}
+		}
+		fr := fileResult{Path: f.Path, Defined: len(tests)}
 		switch match, err := ctxt.MatchFile(f.Dir, filepath.Base(f.Path)); {
 		case err != nil:
 			fr.NotInRun = "build constraints unreadable: " + err.Error()
@@ -458,8 +525,10 @@ func check(s *stream, files []suiteFile, tags []string) report {
 			fr.NotInRun = "package not in the run"
 		case !match:
 			fr.NotInRun = "build constraints not met by -tags"
+		case len(f.Tests) > 0 && len(tests) == 0:
+			fr.NotInRun = "no test in the step's -run/-skip scope"
 		}
-		for _, t := range f.Tests {
+		for _, t := range tests {
 			if s.ran[f.ImportPath][t] {
 				fr.Ran++
 			}
@@ -484,9 +553,13 @@ func (r report) failed() bool {
 	return r.events == 0 || len(r.failures) > 0 || len(r.missing()) > 0
 }
 
-func (r report) String(tags []string) string {
+func (r report) String(tags []string, sc scope) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "\nsuiteran: registered isolation suites in this run (-tags %q):\n", strings.Join(tags, ","))
+	scopeNote := ""
+	if s := sc.String(); s != "" {
+		scopeNote = " " + s
+	}
+	fmt.Fprintf(&b, "\nsuiteran: registered isolation suites in this run (-tags %q%s):\n", strings.Join(tags, ","), scopeNote)
 	in, out := 0, 0
 	for _, f := range r.files {
 		if f.NotInRun != "" {
@@ -506,7 +579,10 @@ func (r report) String(tags []string) string {
 	if in == 0 {
 		b.WriteString("  (none)\n")
 	}
-	fmt.Fprintf(&b, "  %d registered files are outside this run (package not tested, or build constraints not met)\n", out)
+	fmt.Fprintf(&b, "  %d registered files are outside this run (package not tested, build constraints not met, or no test in the -run/-skip scope)\n", out)
+	// TICK-628: how many tests the step ran, so a -run/-skip split of one
+	// package can be read off the log.
+	fmt.Fprintf(&b, "  %d top-level tests ran (pass or fail)\n", r.ran)
 	if r.events == 0 {
 		b.WriteString("suiteran: FAIL: the stream held no go test -json event (is -json missing, or did go test not start?)\n")
 	}

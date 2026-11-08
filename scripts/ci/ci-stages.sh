@@ -11,6 +11,10 @@
 # runs (TICK-563). Every area runs with CI_ALL=1, with CI_AREAS_ALL=1 (the
 # ci:full label, a manual run, a pull request into main) and for a
 # workflow change.
+# And images (TICK-628): real or thin, how the stack job builds its images
+# (`cichanged -images`). CI_ALL=1 (main) is always real. CI_IMAGES=real or
+# thin (a manual run's images input) overrides the rule on any other ref. A
+# run without the stack stage writes real, which nothing reads.
 set -eu
 
 all="ci-lint ci-unit ci-integration ci-stack"
@@ -65,6 +69,25 @@ if [ -z "$areas" ]; then
 fi
 echo "ci-stages: stack-case areas: $areas" >&2
 
+images=real
+if [ "${CI_ALL:-}" = 1 ]; then
+    echo "ci-stages: CI_ALL=1, real images" >&2
+else
+    case " $stages " in
+        *" ci-stack "*)
+            case "${CI_IMAGES:-}" in
+                real | thin)
+                    images=$CI_IMAGES
+                    echo "ci-stages: CI_IMAGES=$CI_IMAGES" >&2
+                    ;;
+                '' | auto) images=$(go run ./tools/ci/cichanged -images -v -base "$base") ;;
+                *) echo "ci-stages: CI_IMAGES=$CI_IMAGES: want real, thin or auto" >&2; exit 2 ;;
+            esac
+            ;;
+    esac
+fi
+echo "ci-stages: stack images: $images" >&2
+
 if [ -n "${GITHUB_OUTPUT:-}" ]; then
     for s in unit integration stack; do
         case " $stages " in
@@ -73,4 +96,5 @@ if [ -n "${GITHUB_OUTPUT:-}" ]; then
         esac
     done >>"$GITHUB_OUTPUT"
     echo "areas=$areas" >>"$GITHUB_OUTPUT"
+    echo "images=$images" >>"$GITHUB_OUTPUT"
 fi
