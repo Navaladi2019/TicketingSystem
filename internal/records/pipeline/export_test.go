@@ -11,3 +11,7 @@ func MergePatch(target, patch map[string]any) map[string]any { return mergePatch
 
 // CanonicalValue exposes canonicalValue to the unit tests.
 func CanonicalValue(v any, column bool) (string, any) { return canonicalValue(v, column) }
+
+// SkipsAuthorizer exposes Source.system: whether a write from s skips the
+// authorizer (A1's allowlist).
+func SkipsAuthorizer(s Source) bool { return s.system() }

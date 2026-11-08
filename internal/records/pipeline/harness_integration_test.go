@@ -25,6 +25,7 @@ import (
 
 	"github.com/Navaladi2019/TicketingSystem/db"
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
+	"github.com/Navaladi2019/TicketingSystem/internal/authz/acltest"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/audited"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/catalog"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/migrate"
@@ -238,9 +239,14 @@ func seedTenantWith(t *testing.T, e env, defs ...metadata.Definition) tenantFixt
 		VALUES ($1, $2, $3, true, now())`, f.id, f.principal.PrincipalID, "kc-"+f.principal.PrincipalID.String())
 	for _, d := range defs {
 		inTx(t, e, f.id, func(tx pgx.Tx) error {
-			_, err := entitytypes.Store{}.Create(context.Background(), tx, f.id, entitytypes.NewInput{
+			if _, err := (entitytypes.Store{}).Create(context.Background(), tx, f.id, entitytypes.NewInput{
 				Name: d.Key, PublishedBy: f.principal.PrincipalID, Definition: d,
-			})
+			}); err != nil {
+				return err
+			}
+			// Authorization fails closed: the fixture's principal may read and
+			// write every record of the type (P3-31).
+			_, err := acltest.Publish(context.Background(), tx, d.Key, acltest.AllowUsers(f.principal.PrincipalID))
 			return err
 		})
 	}
@@ -296,7 +302,7 @@ func newPipeline(e env, sink pipeline.EventSink) *pipeline.Pipeline {
 	if sink == nil {
 		sink = pipeline.NoopSink{}
 	}
-	return pipeline.New(authz.TenantMemberAuthorizer{}, entitytypes.Store{}, sink, pipeline.PoolRunner{Pool: e.app}, pipeline.SystemClock{})
+	return pipeline.New(authz.ACL{Policies: authz.PolicyStore{}}, entitytypes.Store{}, sink, pipeline.PoolRunner{Pool: e.app}, pipeline.SystemClock{})
 }
 
 // write runs one Write in its own committed tenant transaction.

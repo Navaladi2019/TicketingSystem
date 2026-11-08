@@ -3,7 +3,7 @@
 Scope: TICK-354, TICK-355. PLAN-003 D-3-2, D-3-6, D-3-7a, D-3-9, D-3-10,
 D-3-13, D-3-14, D-3-22; ADR-001 I4, I8, I9. Code: `internal/records/pipeline` (the one entry point),
 `internal/records/store` (its SQL), `outbox.EnqueueAtVersion`,
-`authz.TenantMemberAuthorizer`, `tenancy.TenantOf`. Tables:
+`authz.ACL` ([record-acl.md](record-acl.md)), `tenancy.TenantOf`. Tables:
 [`platform-tables.md`](../data/platform-tables.md#records-pipeline-records-audit_log_v0-record_counters-p3-09).
 
 `pipeline.Write(ctx, tx, cmd)` is the only way to create or update a record.
@@ -18,15 +18,15 @@ flowchart TD
     B --> C{idempotency key?}
     C -- same entity type, op, record --> R[return the earlier Result]
     C -- another write holds it --> X[ErrIdempotencyConflict]
-    C -- none / not found --> D[load entity type + current version<br/>update: load record, check version]
+    C -- none / not found --> D[load entity type + current version<br/>update: load record, CanRead<br/>unreadable = ErrNotFound, then check version]
     D --> E[update: JSON Merge Patch<br/>onto the stored payload]
-    E --> F[Authorizer.CanWrite before, after]
-    F --> G[ApplyDefaults from current version]
+    E --> G[ApplyDefaults from current version]
     G --> H[Validate against current version]
     H --> S[state model: create in Initial,<br/>update only along a listed transition]
-    S --> U[each unique property set or changed:<br/>advisory xact lock, then SELECT]
-    U --> I[split fixed columns out of data]
-    I --> GR{assignment_group_id<br/>set or changed?}
+    S --> I[split fixed columns out of data]
+    I --> F[Authorizer.CanWrite before row, after row<br/>skipped for rule, workflow, function, system]
+    F --> U[each unique property set or changed:<br/>advisory xact lock, then SELECT]
+    U --> GR{assignment_group_id<br/>set or changed?}
     GR -- yes: not a live group of the tenant --> GX[ErrAssignmentGroupRemoved<br/>422, nothing written]
     GR -- no, or live --> N
     N[create: record_counters upsert<br/>RETURNING next - 1]
@@ -126,8 +126,8 @@ flowchart TD
 | Error | Meaning |
 | --- | --- |
 | `ErrInvalidCommand` | Caller bug: bad op, source, key or causation, or no tenant on tx |
-| `authz.ErrForbidden` | Actor of another tenant, or the Authorizer refused |
-| `ErrNotFound` | No such entity type or record in the tenant |
+| `authz.ErrForbidden` | Actor of another tenant, or the Authorizer refused the write (before or after row) |
+| `ErrNotFound` | No such entity type or record in the tenant, or (update) a record the actor cannot read |
 | `*ErrValidation{Fields}` | Schema failures, JSON pointers and keywords only |
 | `*ErrIllegalTransition{From, To}` | State change not in the state model, or a create not in `Initial` |
 | `*ErrUniqueViolation{Field}` | Another record of the type holds the unique value |
@@ -142,8 +142,8 @@ flowchart TD
   checks.
 - `NoopSink` is wired in S9. S11b's sink (P3-42) enqueues through
   `EnqueueAtVersion`.
-- `TenantMemberAuthorizer` lets any principal of the tenant, or a system
-  writer, write. S10 deletes it (P3-31).
+- The S9 interim authorizer is deleted (P3-31, AR-S9-01 closed); `authz.ACL`
+  decides every user and AI write ([record-acl.md](record-acl.md)).
 
 ## Tests
 

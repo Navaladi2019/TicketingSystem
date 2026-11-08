@@ -1,7 +1,10 @@
 // Package pipeline is the record write pipeline (PLAN-003 D-3-6): Write is the
 // single way to create or update a record. In the caller's tenant transaction
-// it loads the record and the entity type's current definition, authorises,
-// applies the merge patch and defaults, validates against the JSON Schema,
+// it loads the record and the entity type's current definition, checks that
+// the caller can read the record (an unreadable one is ErrNotFound), applies
+// the merge patch and defaults, validates against the JSON Schema, authorises
+// the write against the record before and after it (authz.Authorizer, A1;
+// skipped only for the system sources rule, workflow, function and system),
 // writes the row with an optimistic version check, writes one ADR-004 audit
 // entry through audit.Append and calls the EventSink. Nothing commits unless
 // every stage succeeds: the caller's tenancy.InTenantTx commits or rolls back.
@@ -97,6 +100,18 @@ const (
 	SourceAI       Source = "ai"
 	SourceSystem   Source = "system"
 )
+
+// system reports whether a write from s skips the authorizer: the explicit
+// allowlist of contract amendment A1. A user, an AI (no privilege through the
+// AI path) and any source not listed here, empty or unknown, are authorized
+// as their principal (fail closed).
+func (s Source) system() bool {
+	switch s {
+	case SourceRule, SourceWorkflow, SourceFunction, SourceSystem:
+		return true
+	}
+	return false
+}
 
 func (s Source) valid() bool {
 	switch s {
@@ -549,9 +564,6 @@ func (w *write) do(ctx context.Context) (Result, error) {
 }
 
 func (w *write) create(ctx context.Context, after map[string]any) (Result, error) {
-	if err := w.p.authz.CanWrite(ctx, w.cmd.Actor, w.cmd.EntityKey, nil, after); err != nil {
-		return Result{}, err
-	}
 	after = w.def.ApplyDefaults(after)
 	// The state column is never NULL, and a record starts in the initial
 	// state.
@@ -565,9 +577,6 @@ func (w *write) create(ctx context.Context, after map[string]any) (Result, error
 		return Result{}, &ErrIllegalTransition{To: state}
 	}
 	fixed := w.def.FixedColumns()
-	if err := w.checkUnique(ctx, uuid.Nil, nil, after, fixed); err != nil {
-		return Result{}, err
-	}
 	id, err := uuid.NewV7()
 	if err != nil {
 		return Result{}, fmt.Errorf("pipeline: new record id: %w", err)
@@ -581,6 +590,14 @@ func (w *write) create(ctx context.Context, after map[string]any) (Result, error
 	w.causation(rec)
 	if err := rec.Split(after, fixed); err != nil {
 		return Result{}, fmt.Errorf("pipeline: %w", err)
+	}
+	// A new record has no shares. The check runs before the unique and
+	// group lookups, so a refused writer learns nothing from them.
+	if err := w.canWrite(ctx, nil, rowOf(rec, nil)); err != nil {
+		return Result{}, err
+	}
+	if err := w.checkUnique(ctx, uuid.Nil, nil, after, fixed); err != nil {
+		return Result{}, err
 	}
 	if err := w.checkGroup(ctx, nil, rec.AssignmentGroupID); err != nil {
 		return Result{}, err
@@ -607,6 +624,23 @@ func (w *write) update(ctx context.Context, patch map[string]any) (Result, error
 	if rec.EntityKey != w.cmd.EntityKey {
 		return Result{}, ErrNotFound
 	}
+	// An unreadable record is a missing one, checked before the version so
+	// it never yields a version conflict (TICK-358 carry). Its shares are
+	// the caller's (pair-matched) and do not change in this write.
+	var beforeRow *authz.Row
+	if !w.cmd.Source.system() {
+		shares, err := authz.SharesFor(ctx, w.tx, w.cmd.Actor, rec.ID)
+		if err != nil {
+			return Result{}, fmt.Errorf("pipeline: %w", err)
+		}
+		beforeRow = rowOf(rec, shares)
+		if err := w.p.authz.CanRead(ctx, w.tx, w.cmd.Actor, w.cmd.EntityKey, *beforeRow); err != nil {
+			if errors.Is(err, authz.ErrNotVisible) {
+				return Result{}, ErrNotFound
+			}
+			return Result{}, fmt.Errorf("pipeline: %w", err)
+		}
+	}
 	if rec.Version != w.cmd.ExpectedVersion {
 		return Result{}, ErrVersionConflict
 	}
@@ -620,9 +654,6 @@ func (w *write) update(ctx context.Context, patch map[string]any) (Result, error
 	before := rec.Payload(stored.FixedColumns())
 
 	after := mergePatch(deepCopy(before), patch)
-	if err := w.p.authz.CanWrite(ctx, w.cmd.Actor, w.cmd.EntityKey, before, after); err != nil {
-		return Result{}, err
-	}
 	after = w.def.ApplyDefaults(after)
 	fe := w.def.Validate(after)
 	if _, ok := after[w.def.StateProperty()]; !ok {
@@ -637,6 +668,18 @@ func (w *write) update(ctx context.Context, patch map[string]any) (Result, error
 	}
 
 	fixed := w.def.FixedColumns()
+	// The after row is the record as this write leaves it: before and after
+	// must both be in the caller's write scope, so a write cannot move a
+	// record out of it. Checked before the unique and group lookups.
+	if !w.cmd.Source.system() {
+		next := *rec
+		if err := next.Split(after, fixed); err != nil {
+			return Result{}, fmt.Errorf("pipeline: %w", err)
+		}
+		if err := w.canWrite(ctx, beforeRow, rowOf(&next, beforeRow.SharedWith)); err != nil {
+			return Result{}, err
+		}
+	}
 	if err := w.checkUnique(ctx, rec.ID, before, after, fixed); err != nil {
 		return Result{}, err
 	}
@@ -751,6 +794,29 @@ func (w *write) checkGroup(ctx context.Context, stored, next *uuid.UUID) error {
 		return ErrAssignmentGroupRemoved
 	}
 	return nil
+}
+
+// canWrite asks the authorizer, unless the write's source is a system one
+// (Source.system). A refusal is authz.ErrForbidden; a failure to decide is
+// wrapped.
+func (w *write) canWrite(ctx context.Context, before, after *authz.Row) error {
+	if w.cmd.Source.system() {
+		return nil
+	}
+	err := w.p.authz.CanWrite(ctx, w.tx, w.cmd.Actor, w.cmd.EntityKey, before, after)
+	if err != nil && !errors.Is(err, authz.ErrForbidden) {
+		return fmt.Errorf("pipeline: %w", err)
+	}
+	return err
+}
+
+// rowOf is what the ACL sees of rec: its fixed columns, and shares, the
+// caller's pair-matched shares from authz.SharesFor.
+func rowOf(rec *store.Record, shares []uuid.UUID) *authz.Row {
+	return &authz.Row{
+		ID: rec.ID, State: rec.State, RequesterID: rec.RequesterID, AssigneeID: rec.AssigneeID,
+		AssignmentGroupID: rec.AssignmentGroupID, SharedWith: shares,
+	}
 }
 
 func (w *write) causation(rec *store.Record) {

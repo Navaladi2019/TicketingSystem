@@ -108,6 +108,7 @@ const (
 	sqlUpdate     = "UPDATE records"
 	sqlPayload    = "::text FROM records"
 	sqlAudit      = "INSERT INTO audit_log"
+	sqlShares     = "FROM record_shares"
 )
 
 func scanUUID(id uuid.UUID) func(...any) error {
@@ -209,9 +210,29 @@ func (d fakeDefs) Current(context.Context, pgx.Tx, string) (*metadata.Compiled, 
 	return d.cur, d.curVersion, nil
 }
 
-type fakeAuthz struct{ err error }
+// fakeAuthz answers every write with err and every read with readErr, and
+// records the rows it was asked about.
+type fakeAuthz struct {
+	err, readErr error
+	calls        *[]authzCall
+}
 
-func (a fakeAuthz) CanWrite(context.Context, identity.Principal, string, map[string]any, map[string]any) error {
+type authzCall struct {
+	op            string
+	before, after *authz.Row
+}
+
+func (a fakeAuthz) CanRead(_ context.Context, _ pgx.Tx, _ identity.Principal, _ string, r authz.Row) error {
+	if a.calls != nil {
+		*a.calls = append(*a.calls, authzCall{op: authz.OpRead, after: &r})
+	}
+	return a.readErr
+}
+
+func (a fakeAuthz) CanWrite(_ context.Context, _ pgx.Tx, _ identity.Principal, _ string, before, after *authz.Row) error {
+	if a.calls != nil {
+		*a.calls = append(*a.calls, authzCall{op: authz.OpWrite, before: before, after: after})
+	}
 	return a.err
 }
 
@@ -233,7 +254,9 @@ func newFixture() fixture {
 }
 
 func (f fixture) tx(t *testing.T, stmts ...stmt) *scriptTx {
-	return &scriptTx{t: t, tenant: f.tenant.String(), stmts: append(stmts, stmt{match: sqlDefinition, scan: scanUUID(f.defID)})}
+	return &scriptTx{t: t, tenant: f.tenant.String(), stmts: append(stmts,
+		stmt{match: sqlDefinition, scan: scanUUID(f.defID)},
+		stmt{match: sqlShares, scan: func(dest ...any) error { *dest[0].(*[]uuid.UUID) = nil; return nil }})}
 }
 
 func (f fixture) create(data map[string]any) pipeline.Command {

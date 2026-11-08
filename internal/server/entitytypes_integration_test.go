@@ -32,6 +32,8 @@ import (
 
 	"github.com/Navaladi2019/TicketingSystem/db"
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/read"
+	"github.com/Navaladi2019/TicketingSystem/internal/authz"
+	"github.com/Navaladi2019/TicketingSystem/internal/authz/acltest"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/audited"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/catalog"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/migrate"
@@ -225,6 +227,9 @@ type etEnv struct {
 	logs   *etLogBuf
 	lim    *spyLimiter // allows by default; reset(false) refuses every call
 	tel    *telemetry.Telemetry
+	// noTestACL stops do from publishing the allow-all test ACL for the
+	// entity types it creates (allowTenantUsers).
+	noTestACL bool
 }
 
 func newETEnv(t *testing.T) *etEnv { return newETEnvWith(t) }
@@ -279,7 +284,41 @@ func (e *etEnv) do(t *testing.T, method, path, token, idemKey, body string) *htt
 	}
 	rec := httptest.NewRecorder()
 	e.h.ServeHTTP(rec, req)
+	if method == http.MethodPost && path == "/api/v1/entity-types" && rec.Code == http.StatusCreated && !e.noTestACL {
+		e.allowTenantUsers(t, token, body)
+	}
 	return rec
+}
+
+// allowTenantUsers publishes, for an entity type just created with token,
+// an ACL that lets every seeded principal of that tenant read and write
+// every record. Record authorization fails closed (P3-31), and the S9 tests
+// predate it. A test of the ACL itself publishes a newer version with
+// publishACL, which replaces this one.
+func (e *etEnv) allowTenantUsers(t *testing.T, token, body string) {
+	t.Helper()
+	var in struct {
+		Key string `json:"key"`
+	}
+	if err := json.Unmarshal([]byte(body), &in); err != nil || in.Key == "" {
+		t.Fatalf("entity type body has no key: %v", err)
+	}
+	tn := e.a
+	if e.tokens[token].TenantID == e.b.id {
+		tn = e.b
+	}
+	e.publishACL(t, tn.id, in.Key, acltest.AllowUsers(tn.admin.PrincipalID, tn.user.PrincipalID, tn.lookalike.PrincipalID))
+}
+
+// publishACL publishes rules as the entity type's next ACL version.
+func (e *etEnv) publishACL(t *testing.T, tenant uuid.UUID, key string, rules ...authz.Rule) {
+	t.Helper()
+	if err := tenancy.InTenantTx(t.Context(), e.pool, tenant, func(tx pgx.Tx) error {
+		_, err := acltest.Publish(t.Context(), tx, key, rules...)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // etSchema is a valid schema, indented and with a duplicate-free but

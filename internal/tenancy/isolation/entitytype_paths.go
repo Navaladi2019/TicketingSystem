@@ -16,13 +16,16 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/authz/acltest"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity/pgstore"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/cursor"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
 	"github.com/Navaladi2019/TicketingSystem/internal/server"
+	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
 // entityTypePaths are the entity-type routes (P3-07, TICK-345; routes from
@@ -110,10 +113,12 @@ func (m etCallers) Resolve(_ context.Context, raw string) (identity.Principal, e
 }
 
 type etIso struct {
-	h     http.Handler
-	super *pgx.Conn
-	keys  int
-	stop  func()
+	h      http.Handler
+	pool   *pgxpool.Pool // nava_app
+	tokens etCallers
+	super  *pgx.Conn
+	keys   int
+	stop   func()
 	// cluster is the suite's database, for cases that also drive it as
 	// another role (the audit paths seal as nava_worker).
 	cluster Cluster
@@ -160,7 +165,7 @@ func newETIso(ctx context.Context, c Cluster) (*etIso, error) {
 		_ = tel.Shutdown(context.Background())
 		return nil, err
 	}
-	return &etIso{h: h, super: super, stop: func() { _ = tel.Shutdown(context.Background()) }, cluster: c}, nil
+	return &etIso{h: h, pool: pool, tokens: tokens, super: super, stop: func() { _ = tel.Shutdown(context.Background()) }, cluster: c}, nil
 }
 
 // cleanup deletes every row the cases write, as the superuser.
@@ -178,6 +183,7 @@ func (e *etIso) cleanup() error {
 			SELECT tenant_id, gen_random_uuid(), 'record', 'delete', 'record', id, entity_definition_id, version, 'system', 'system' FROM r`,
 		`DELETE FROM audit_log WHERE subject_type = 'record' AND action = 'delete' AND entity_definition_id IN (SELECT id FROM entity_definitions WHERE key LIKE 'iso\_et\_%')`,
 		`DELETE FROM record_counters WHERE entity_definition_id IN (SELECT id FROM entity_definitions WHERE key LIKE 'iso\_et\_%')`,
+		`DELETE FROM acl_versions WHERE entity_definition_id IN (SELECT id FROM entity_definitions WHERE key LIKE 'iso\_et\_%')`,
 		// The entity-definition deletes write one config delete entry per
 		// type, as their commit-check triggers require (P5-32, migration B).
 		`WITH v AS (DELETE FROM entity_definition_versions WHERE definition_id IN (SELECT id FROM entity_definitions WHERE key LIKE 'iso\_et\_%')
@@ -215,7 +221,37 @@ func (e *etIso) do(ctx context.Context, method, path, token, body string, header
 	}
 	rec := httptest.NewRecorder()
 	e.h.ServeHTTP(rec, req)
+	if method == http.MethodPost && path == "/api/v1/entity-types" && rec.Code == http.StatusCreated {
+		if err := e.allowTenantCallers(ctx, token, body); err != nil {
+			return http.StatusInternalServerError, "harness: publish the test ACL: " + err.Error()
+		}
+	}
 	return rec.Code, rec.Body.String()
+}
+
+// allowTenantCallers publishes, for an entity type token's tenant just
+// created, an ACL that lets every caller of that tenant read and write every
+// record: record authorization fails closed (P3-31), and these cases test
+// the tenant wall, not the ACL. It writes as nava_app in the tenant's own
+// transaction; cleanup deletes the row with its type.
+func (e *etIso) allowTenantCallers(ctx context.Context, token, body string) error {
+	var in struct {
+		Key string `json:"key"`
+	}
+	if err := json.Unmarshal([]byte(body), &in); err != nil {
+		return err
+	}
+	tenant := e.tokens[token].TenantID
+	var users []uuid.UUID
+	for _, p := range e.tokens {
+		if p.TenantID == tenant && !slices.Contains(users, p.PrincipalID) {
+			users = append(users, p.PrincipalID)
+		}
+	}
+	return tenancy.InTenantTx(ctx, e.pool, tenant, func(tx pgx.Tx) error {
+		_, err := acltest.Publish(ctx, tx, in.Key, acltest.AllowUsers(users...))
+		return err
+	})
 }
 
 // create makes key in tenant A, the positive control that the route is live

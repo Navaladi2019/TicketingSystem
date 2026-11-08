@@ -29,7 +29,9 @@ import (
 )
 
 // Record endpoints (TICK-357, P3-14). Check order on every records route:
-// authn, entity type (unknown is the one 404), record, authorizer, body.
+// authn, entity type (unknown is the one 404), record, read authorization
+// (an unreadable record is the same 404), body, then the write authorizer
+// inside the pipeline, after the schema check (P3-31).
 
 // pgForeignKeyViolation is SQLSTATE 23503.
 const pgForeignKeyViolation = "23503"
@@ -70,7 +72,7 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 	if !ok || p.PrincipalID == uuid.Nil {
 		return nil, errNoPrincipal
 	}
-	if h.pool == nil || h.pipe == nil {
+	if h.pool == nil || h.pipe == nil || h.acl == nil {
 		return nil, notImplemented()
 	}
 	if impossibleKey(req.Entity) {
@@ -90,8 +92,8 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 		if err != nil {
 			return err
 		}
-		// The authorizer runs inside the pipeline, after this envelope check
-		// and before the schema check. S9's authorizer reads neither.
+		// The write authorizer runs inside the pipeline, on the record as the
+		// write leaves it, after the schema check (P3-31).
 		data, perr := parseRecordBody(raw)
 		if perr != nil {
 			return perr
@@ -137,7 +139,7 @@ func (h *handlers) GetRecord(ctx context.Context, req api.GetRecordRequestObject
 	if !ok || p.PrincipalID == uuid.Nil {
 		return nil, errNoPrincipal
 	}
-	if h.pool == nil {
+	if h.pool == nil || h.acl == nil {
 		return nil, notImplemented()
 	}
 	id, perr := uuid.Parse(req.Id)
@@ -159,6 +161,9 @@ func (h *handlers) GetRecord(ctx context.Context, req api.GetRecordRequestObject
 		if rec.EntityKey != req.Entity {
 			return pipeline.ErrNotFound
 		}
+		if err := h.canRead(ctx, tx, p, rec); err != nil {
+			return err
+		}
 		// The row was split under its own version's mapping; defaults come
 		// from the current version for what an older version never wrote.
 		fixed, err := h.fixedColumnsOf(ctx, tx, req.Entity, rec.SchemaVersion, curVersion, cur)
@@ -175,6 +180,20 @@ func (h *handlers) GetRecord(ctx context.Context, req api.GetRecordRequestObject
 		return nil, err
 	}
 	return api.GetRecord200JSONResponse{Body: recordBody(rec, data), Headers: api.GetRecord200ResponseHeaders{ETag: etag(rec.Version)}}, nil
+}
+
+// canRead returns pipeline.ErrNotFound when p may not read rec, so the
+// caller answers the byte-identical missing-record 404 (P3-31).
+func (h *handlers) canRead(ctx context.Context, tx pgx.Tx, p identity.Principal, rec *pipeline.Record) error {
+	row, err := pipeline.RowOf(ctx, tx, p, rec)
+	if err != nil {
+		return err
+	}
+	err = h.acl.CanRead(ctx, tx, p, rec.EntityKey, row)
+	if errors.Is(err, authz.ErrNotVisible) {
+		return pipeline.ErrNotFound
+	}
+	return err
 }
 
 // fixedColumnsOf is the fixed-column mapping of the version a row was written
