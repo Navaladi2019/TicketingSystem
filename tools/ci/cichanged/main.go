@@ -14,8 +14,14 @@
 // `make stack-tests AREAS=...` uses to skip the cases of untouched areas. A
 // file no area rule knows turns on every area.
 //
-// Usage: cichanged [-base origin/main] [-v] [-areas]. -v prints why each file
-// needs its stages (or areas) on stderr.
+// With -images it prints instead how the stack job builds its images
+// (TICK-628): real (the deploy/compose Dockerfiles, as main always does) when
+// the change touches a Dockerfile, .dockerignore, go.mod, go.sum or a compose
+// build: block, else thin (deploy/compose/Dockerfile.ci over binaries built
+// on the runner, make image-ci IMAGE_THIN=1).
+//
+// Usage: cichanged [-base origin/main] [-v] [-areas | -images]. -v prints why
+// each file needs its stages (or areas, or image mode) on stderr.
 package main
 
 import (
@@ -65,8 +71,20 @@ func cli(args []string, stdout, stderr io.Writer) int {
 	base := fs.String("base", "origin/main", "base ref of the change")
 	verbose := fs.Bool("v", false, "print the reason for each file on stderr")
 	areas := fs.Bool("areas", false, "print the stack-case areas the change touches instead of the stages")
+	images := fs.Bool("images", false, "print the stack image build mode (real or thin) instead of the stages")
 	if err := fs.Parse(args); err != nil {
 		return 2
+	}
+	if *areas && *images {
+		_, _ = fmt.Fprintln(stderr, "cichanged: -areas and -images are exclusive")
+		return 2
+	}
+	if *images {
+		if err := runImages(*base, *verbose, stdout, stderr); err != nil {
+			_, _ = fmt.Fprintln(stderr, "cichanged:", err)
+			return 2
+		}
+		return 0
 	}
 	if err := run(*base, *verbose, *areas, stdout, stderr); err != nil {
 		_, _ = fmt.Fprintln(stderr, "cichanged:", err)
@@ -101,6 +119,41 @@ func run(base string, verbose, areas bool, stdout, stderr io.Writer) error {
 		}
 	}
 	_, _ = fmt.Fprintln(stdout, strings.Join(stages, " "))
+	return nil
+}
+
+// runImages prints real or thin for the change against base. It needs no
+// package graph: the rule reads only paths and compose build: blocks.
+func runImages(base string, verbose bool, stdout, stderr io.Writer) error {
+	files, err := changedFiles(base)
+	if err != nil {
+		return err
+	}
+	mb, err := mergeBase(base)
+	if err != nil {
+		return err
+	}
+	atBase := func(f string) ([]byte, error) {
+		if _, err := git("cat-file", "-e", mb+":"+f); err != nil {
+			return nil, nil // not on the base side
+		}
+		out, err := git("show", mb+":"+f)
+		return []byte(out), err
+	}
+	inTree := func(f string) ([]byte, error) {
+		b, err := os.ReadFile(filepath.FromSlash(f))
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return b, err
+	}
+	mode, reasons := classifyImages(files, atBase, inTree)
+	if verbose {
+		for _, r := range reasons {
+			_, _ = fmt.Fprintln(stderr, "cichanged:", r)
+		}
+	}
+	_, _ = fmt.Fprintln(stdout, mode)
 	return nil
 }
 
@@ -193,13 +246,13 @@ func packageOf(f string, packages map[string]bool) (string, bool) {
 // changedFiles lists the files that differ from the merge base with base,
 // committed or not, and the untracked ones.
 func changedFiles(base string) ([]string, error) {
-	mb, err := git("merge-base", base, "HEAD")
+	mb, err := mergeBase(base)
 	if err != nil {
-		return nil, fmt.Errorf("%w (fetch %s first)", err, base)
+		return nil, err
 	}
 	// --no-renames: a moved file counts at its old path too, so a file moved
 	// out of a package into docs/ still runs that package's stages.
-	diff, err := git("diff", "--name-only", "--no-renames", strings.TrimSpace(mb))
+	diff, err := git("diff", "--name-only", "--no-renames", mb)
 	if err != nil {
 		return nil, err
 	}
@@ -215,6 +268,15 @@ func changedFiles(base string) ([]string, error) {
 	}
 	slices.Sort(out)
 	return out, nil
+}
+
+// mergeBase is the merge base of base and HEAD.
+func mergeBase(base string) (string, error) {
+	mb, err := git("merge-base", base, "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("%w (fetch %s first)", err, base)
+	}
+	return strings.TrimSpace(mb), nil
 }
 
 func loadGraph() (graph, error) {

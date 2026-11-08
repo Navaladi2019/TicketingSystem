@@ -94,7 +94,7 @@ func ciStages(t *testing.T, dir, base string, env ...string) string {
 	cmd.Dir = dir
 	// Later entries win, so the runner's own GITHUB_OUTPUT, CI_ALL or
 	// CI_LINT_ONLY never leak in.
-	cmd.Env = append(os.Environ(), append([]string{"BASE=" + base, "GITHUB_OUTPUT=" + out, "CI_ALL=", "CI_LINT_ONLY=", "CI_AREAS_ALL="}, env...)...)
+	cmd.Env = append(os.Environ(), append([]string{"BASE=" + base, "GITHUB_OUTPUT=" + out, "CI_ALL=", "CI_LINT_ONLY=", "CI_AREAS_ALL=", "CI_IMAGES="}, env...)...)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	if _, err := cmd.Output(); err != nil {
@@ -120,7 +120,7 @@ func writeFiles(t *testing.T, dir string, files map[string]string) {
 	}
 }
 
-const allFalse = "unit=false\nintegration=false\nstack=false\nareas=none\n"
+const allFalse = "unit=false\nintegration=false\nstack=false\nareas=none\nimages=real\n"
 
 // The ci-stages.sh scenarios share one clone and run one after another
 // (TICK-597): each runs cichanged, whose go list passes over the whole module
@@ -133,6 +133,50 @@ func TestCIStages(t *testing.T) {
 	t.Run("lint-only gates a Go change", func(t *testing.T) {
 		testLintOnlyGatesAGoChange(t, dir, base)
 	})
+	t.Run("a Dockerfile change builds the real images", func(t *testing.T) {
+		testDockerfileChangeBuildsRealImages(t, dir, base)
+	})
+}
+
+// TICK-628: a change to deploy/compose/nava-core/Dockerfile builds the real
+// Dockerfiles in the stack job, even beside Go changes that alone would use
+// the thin CI images, and main (CI_ALL=1) is always real, whatever a manual
+// run's images input says.
+func testDockerfileChangeBuildsRealImages(t *testing.T, dir, base string) {
+	stagesChange(t, dir, base, func(dir string) {
+		for f, line := range map[string]string{
+			"deploy/compose/nava-core/Dockerfile": "# TICK-628 test change.",
+			"cmd/nava-core/main.go":               "// TICK-628 test change.",
+		} {
+			p := filepath.Join(dir, filepath.FromSlash(f))
+			b, err := os.ReadFile(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(p, append(b, []byte("\n"+line+"\n")...), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	})
+	images := func(env ...string) string {
+		// CI_AREAS_ALL=1 skips the cichanged -areas pass, which this
+		// scenario does not check, to stay inside go test's 10 minutes
+		// under task test (TICK-597). CI_ALL=1 runs no cichanged at all.
+		out := ciStages(t, dir, base, append([]string{"CI_AREAS_ALL=1"}, env...)...)
+		for _, l := range strings.Split(out, "\n") {
+			if v, ok := strings.CutPrefix(l, "images="); ok {
+				return v
+			}
+		}
+		t.Fatalf("GITHUB_OUTPUT has no images=: %q", out)
+		return ""
+	}
+	if got := images(); got != "real" {
+		t.Errorf("Dockerfile change: images=%s, want real", got)
+	}
+	if got := images("CI_ALL=1", "CI_IMAGES=thin"); got != "real" {
+		t.Errorf("CI_ALL=1, CI_IMAGES=thin: images=%s, want real", got)
+	}
 }
 
 // TICK-563: a pull request whose diff is only documentation under docs/ runs
@@ -172,10 +216,12 @@ func testLintOnlyGatesAGoChange(t *testing.T, dir, base string) {
 	// cmd/nava-core is in no stack-case area, so the keycloak, pgbouncer and
 	// db cases are skipped, unless ci:full (or a PR into main) sets
 	// CI_AREAS_ALL.
-	if got, want := ciStages(t, dir, base), "unit=true\nintegration=true\nstack=true\nareas=none\n"; got != want {
+	if got, want := ciStages(t, dir, base), "unit=true\nintegration=true\nstack=true\nareas=none\nimages=thin\n"; got != want {
 		t.Errorf("with ci:run: GITHUB_OUTPUT = %q, want %q", got, want)
 	}
-	if got, want := ciStages(t, dir, base, "CI_AREAS_ALL=1"), "unit=true\nintegration=true\nstack=true\nareas=all\n"; got != want {
-		t.Errorf("with ci:full: GITHUB_OUTPUT = %q, want %q", got, want)
+	// TICK-628: a manual run's images input (CI_IMAGES) overrides the rule;
+	// checked here, beside CI_AREAS_ALL, to save a cichanged pass (TICK-597).
+	if got, want := ciStages(t, dir, base, "CI_AREAS_ALL=1", "CI_IMAGES=real"), "unit=true\nintegration=true\nstack=true\nareas=all\nimages=real\n"; got != want {
+		t.Errorf("with ci:full and CI_IMAGES=real: GITHUB_OUTPUT = %q, want %q", got, want)
 	}
 }

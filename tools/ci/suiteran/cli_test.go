@@ -246,9 +246,9 @@ func TestStreamEvents(t *testing.T) {
 	if !s.packages[pkg] || len(s.packages) != 1 {
 		t.Errorf("packages = %v, want only %s", s.packages, pkg)
 	}
-	rep := check(s, nil, nil)
-	if !rep.failed() || !strings.Contains(rep.String(nil), "suiteran: FAIL: example.com/broken (build), example.com/p TestA, example.com/p") {
-		t.Errorf("report does not fail on the failures:\n%s", rep.String(nil))
+	rep := check(s, nil, nil, scope{})
+	if !rep.failed() || !strings.Contains(rep.String(nil, scope{}), "suiteran: FAIL: example.com/broken (build), example.com/p TestA, example.com/p") {
+		t.Errorf("report does not fail on the failures:\n%s", rep.String(nil, scope{}))
 	}
 }
 
@@ -409,14 +409,14 @@ func TestCheckUnreadableConstraints(t *testing.T) {
 	files := []suiteFile{
 		{Path: "z/gone_suite_test.go", Dir: filepath.Join(t.TempDir(), "gone"), ImportPath: "example.com/m/a", Tests: []string{"TestA"}},
 	}
-	rep := check(s, files, nil)
+	rep := check(s, files, nil, scope{})
 	if len(rep.files) != 1 || !strings.HasPrefix(rep.files[0].NotInRun, "build constraints unreadable: ") {
 		t.Fatalf("files = %+v, want the file out of the run as unreadable", rep.files)
 	}
 	if rep.failed() {
-		t.Errorf("report failed:\n%s", rep.String(nil))
+		t.Errorf("report failed:\n%s", rep.String(nil, scope{}))
 	}
-	if out := rep.String(nil); !strings.Contains(out, "(none)") || !strings.Contains(out, "1 registered files are outside this run") {
+	if out := rep.String(nil, scope{}); !strings.Contains(out, "(none)") || !strings.Contains(out, "1 registered files are outside this run") {
 		t.Errorf("report:\n%s", out)
 	}
 }

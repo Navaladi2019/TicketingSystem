@@ -82,5 +82,7 @@ go run ./tools/ci/ci5report -out "${CI5_REPORT:-ci5-report.md}" <"$ci5_stream" |
 if [ ! -s "$stack_stream" ]; then
     go test -tags identitystack -count=1 -json ./internal/identitystack >"$stack_stream" || status=1
 fi
-go run ./tools/ci/suiteran -tags identitystack,ci5 -in "$stack_stream" "$ci5_stream" || status=1
+# ONBOARD_TESTS (make identity-attacks): make stack-test-identity skips them and
+# make stack-test-onboard checks them (TICK-628), so they are out of scope here.
+go run ./tools/ci/suiteran -tags identitystack,ci5 ${ONBOARD_TESTS:+-skip "$ONBOARD_TESTS"} -in "$stack_stream" "$ci5_stream" || status=1
 exit "$status"

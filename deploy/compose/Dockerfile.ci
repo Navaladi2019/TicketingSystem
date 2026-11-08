@@ -1,0 +1,54 @@
+# Thin CI images (TICK-628): the final stage of each Go service's real
+# Dockerfile (deploy/compose/<service>/Dockerfile), over a binary that
+# `make ci-binaries` built on the runner into .ci-bin/ with the same flags
+# (CGO_ENABLED=0 go build -trimpath, the go.mod toolchain). One target per
+# binary; make image-ci IMAGE_THIN=1 points each compose service at its target.
+# Pull request stack runs use it unless the change touches the image build
+# (cichanged -images); main always builds the real Dockerfiles. The accepted
+# risk is AR-TICK-628-01. Build context: the repository root.
+#
+# TestDockerfileCIMatchesRealFinalStages (deploy/compose) fails when a target
+# here and the real final stage differ in base image, user, UID, binary path,
+# entrypoint or exposed ports. Keep each target's lines in that order.
+FROM alpine:3.22.1 AS base
+RUN adduser -D -u 10001 nava
+
+FROM base AS nava-core
+COPY .ci-bin/nava-core /usr/local/bin/nava-core
+USER nava
+EXPOSE 8080
+ENTRYPOINT ["/usr/local/bin/nava-core"]
+
+FROM base AS nava-db
+COPY .ci-bin/nava-db /usr/local/bin/nava-db
+USER nava
+ENTRYPOINT ["/usr/local/bin/nava-db"]
+
+FROM base AS nava-groupsync
+COPY .ci-bin/nava-groupsync /usr/local/bin/nava-groupsync
+USER nava
+ENTRYPOINT ["/usr/local/bin/nava-groupsync"]
+
+FROM base AS nava-onboard
+COPY .ci-bin/nava-onboard /usr/local/bin/nava-onboard
+USER nava
+EXPOSE 8081
+ENTRYPOINT ["/usr/local/bin/nava-onboard"]
+
+FROM base AS nava-purge
+COPY .ci-bin/nava-purge /usr/local/bin/nava-purge
+USER nava
+ENTRYPOINT ["/usr/local/bin/nava-purge"]
+
+FROM base AS nava-relay
+COPY .ci-bin/nava-relay /usr/local/bin/nava-relay
+USER nava
+ENTRYPOINT ["/usr/local/bin/nava-relay"]
+
+# The production nava-worker: no build tags. nava-worker-interptest
+# (compose.test.yaml, NAVA_BUILD_TAGS=interptest) is not built from here; the
+# interpreter cases build it from the real Dockerfile with compose up --build.
+FROM base AS nava-worker
+COPY .ci-bin/nava-worker /usr/local/bin/nava-worker
+USER nava
+ENTRYPOINT ["/usr/local/bin/nava-worker"]

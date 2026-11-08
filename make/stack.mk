@@ -1,4 +1,4 @@
-.PHONY: ci-stack ci-stack-run stack-tests stack-main stack-internal-beside stack-internal stack-up stack-down stack-logs image image-ci smoke
+.PHONY: ci-stack ci-stack-run stack-tests stack-main stack-internal-beside stack-internal stack-up stack-down stack-logs image image-ci ci-binaries smoke
 
 # Builds the images, brings the stack up, runs every stack test, then tears
 # it down (logs first on failure). The workflow runs `make stack-tests JOB=<job>`
@@ -6,7 +6,7 @@
 # The tests are the files in deploy/compose/test/cases/, ordered and assigned to a CI job by the
 # "# stack-case:" header of each (run-cases.sh); adding one needs no edit here or in ci.yml.
 # healthy gates the rest. The read-only (parallel) cases then run at once under PARALLEL=1
-# (TICK-153 O10), as ci-stack does; the CI jobs run one at a time. The serial cases follow in
+# (TICK-153 O10), as ci-stack does; the CI steps set PARALLEL=1 too (TICK-628). The serial cases follow in
 # order: dependencies stops Keycloak, trace counts every trace the Collector saw, idempotent
 # restarts the stack, and dbroles changes roles. worker polls nava-tq, the queue the sdk
 # suite's workers poll, so it sorts after that suite.
@@ -94,10 +94,33 @@ BAKE_CACHE_TO = $(if $(filter true,$(CACHE_WRITE)),--set $(1).cache-to=type=gha$
 BAKE_CACHE_GHA := $(foreach t,$(BAKE_CACHED),--set $(t).cache-from=type=gha,scope=$(t) $(call BAKE_CACHE_TO,$(t))) --set migrate.cache-from=type=gha,scope=db-roles
 BAKE_CACHE := $(if $(filter gha,$(IMAGE_CACHE)),$(BAKE_CACHE_GHA))
 PULL_POLICY := $(if $(filter local,$(IMAGE_CACHE)),--policy missing)
+#
+# IMAGE_THIN=1 (TICK-628): the Go services' images come from
+# deploy/compose/Dockerfile.ci, one target per binary, over the binaries
+# make ci-binaries built on the host into CI_BIN_DIR, so the build does no
+# go build in Docker. Pull request stack runs set it when the change does not
+# touch the image build (cichanged -images); main never does. The images keep
+# the real Dockerfiles' final stage (TestDockerfileCIMatchesRealFinalStages);
+# the risk that a pull request no longer builds the real build stage is
+# AR-TICK-628-01. CI_THIN_SERVICES maps each compose service to its target;
+# TestThinServicesCoverCompose fails when a Go service of compose.yaml is
+# missing from it.
+CI_BIN_DIR := .ci-bin
+CI_BINARIES := nava-core nava-db nava-groupsync nava-onboard nava-purge nava-relay nava-worker
+CI_THIN_SERVICES := db-roles=nava-db migrate=nava-db nava-core=nava-core nava-groupsync=nava-groupsync nava-onboard=nava-onboard nava-purge=nava-purge nava-relay=nava-relay nava-worker=nava-worker
+BAKE_THIN := $(foreach m,$(CI_THIN_SERVICES),--set $(word 1,$(subst =, ,$(m))).dockerfile=deploy/compose/Dockerfile.ci --set $(word 1,$(subst =, ,$(m))).target=$(word 2,$(subst =, ,$(m))))
 image-ci:
-	@docker compose pull --quiet --ignore-buildable --ignore-pull-failures $(PULL_POLICY) & pull=$$!; \
-	docker buildx bake -f compose.yaml --load $(BAKE_CACHE); status=$$?; \
+	@$(if $(filter 1,$(IMAGE_THIN)),for b in $(CI_BINARIES); do [ -x $(CI_BIN_DIR)/$$b ] || { echo "image-ci: IMAGE_THIN=1 needs $(CI_BIN_DIR)/$$b: run make ci-binaries first" >&2; exit 2; }; done; echo "image-ci: thin CI images from deploy/compose/Dockerfile.ci (IMAGE_THIN=1)";) \
+	docker compose pull --quiet --ignore-buildable --ignore-pull-failures $(PULL_POLICY) & pull=$$!; \
+	docker buildx bake -f compose.yaml --load $(BAKE_CACHE) $(if $(filter 1,$(IMAGE_THIN)),$(BAKE_THIN)); status=$$?; \
 	wait $$pull; exit $$status
+
+# The Go service binaries for IMAGE_THIN=1, in one go build with the real
+# Dockerfiles' flags, for linux/amd64 (the runner; GOOS/GOARCH override it).
+# No build tags: the production nava-worker (TICK-367).
+ci-binaries:
+	go version
+	CGO_ENABLED=0 GOOS=$${GOOS:-linux} GOARCH=$${GOARCH:-amd64} go build -trimpath -o $(CI_BIN_DIR)/ $(addprefix ./cmd/,$(CI_BINARIES))
 
 stack-up: dev-ca
 	docker compose up -d

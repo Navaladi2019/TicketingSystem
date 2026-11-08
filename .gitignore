@@ -22,3 +22,6 @@ __pycache__/
 
 # The S11a demo fixtures and state (scripts/dev/demo-interpreter.sh, TICK-352)
 /.local/
+
+# make ci-binaries: the thin CI images' binaries (TICK-628)
+/.ci-bin/
