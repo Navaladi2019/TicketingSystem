@@ -55,6 +55,8 @@ const (
 	DefinitionSecretRequired Code = "definition_secret_required"
 	AssignmentGroupRemoved   Code = "assignment_group_removed"
 	HistoryTooLong           Code = "history_too_long"
+	ExportInProgress         Code = "export_in_progress"
+	ChainAlive               Code = "chain_alive"
 )
 
 // Codes lists every Code constant.
@@ -63,7 +65,7 @@ func Codes() []Code {
 		TenantUnresolved, InvalidToken, IdempotencyKeyReuse, IdempotencyInFlight, Forbidden, DomainClaimed, InvalidIdPConfig, OnboardingConflict, InvalidCursor,
 		RateLimited, NotFound, ValidationFailed, MethodNotAllowed,
 		NotImplemented, InternalError, InvalidDefinition, EntityTypeExists, NumberPrefixTaken, SchemaBreakingChange, RecordInvalid,
-		IfMatchRequired, VersionConflict, IllegalTransition, UniqueViolation, ConfigSecretInContent, DefinitionSecretRequired, AssignmentGroupRemoved, HistoryTooLong,
+		IfMatchRequired, VersionConflict, IllegalTransition, UniqueViolation, ConfigSecretInContent, DefinitionSecretRequired, AssignmentGroupRemoved, HistoryTooLong, ExportInProgress, ChainAlive,
 	}
 }
 

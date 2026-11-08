@@ -1,0 +1,36 @@
+meta {
+  name: S16.10 AC2: the export is an audit/export entry in the log
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{core_url}}/api/v1/audit/entries?domain=audit&subject_type=audit_export&limit=50
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{auditor_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await require('./lib/s15')(N, bru).fresh();
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const ex = N.json().items.filter(e => e.action === 'export');
+  const mine = ex.find(e => JSON.stringify(e.diff || '').includes(bru.getVar('s16_incident')));
+  test("S16.6's export is an audit/export entry", () => expect(mine).to.be.an('object'));
+  test('it records who exported and the filter', () => {
+    expect(mine.actor_principal_id || (mine.actor && mine.actor.principal_id)).to.be.a('string');
+    expect(JSON.stringify(mine.diff)).to.include('/request');
+  });
+}
+
+docs {
+  Every export writes one `audit/export` entry that commits before the first byte (R19). Its diff holds the request: the filter and the stubs flag, never entry data.
+}

@@ -1,0 +1,37 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:28080/api/v1/audit/entries:export?subject_id=01a1bbfe-27c8-75d4-a2f4-32797c779f73&format=csv",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:28080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": "kind,seq,prev_hash,entry_hash,envelope_sha256,genesis,sealed,in_verified_range,sealed_at,tenant_id,id,occurred_at,domain,action,subject_type,subject_id,entity_definition_id,version_before,version_after,actor_principal_id,actor_system,source,source_ref,change_set_id,causation_id,causation_depth,request_id,backfilled,content_sha256,diff_sha256,diff_truncated,diff,diff_salt,diff_redacted,erased_at,erasure_ref,meta\r\nheader,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,\"{\"\"kind\"\":\"\"header\"\",\"\"format\"\":\"\"nava.audit.export/v1\"\",\"\"tenant_id\"\":\"\"00000000-0000-4000-8000-0000000000a1\"\",\"\"export_id\"\":\"\"01a1bbff-31cd-7336-805b-a8de8c16672f\"\",\"\"exported_at\"\":\"\"2026-11-08T16:30:26.250508Z\"\",\"\"stubs\"\":true,\"\"filter\"\":{\"\"from\"\":null,\"\"to\"\":null,\"\"domain\"\":null,\"\"subject_type\"\":null,\"\"subject_id\"\":\"\"01a1bbfe-27c8-75d4-a2f4-32797c779f73\"\",\"\"change_set_id\"\":null,\"\"after_seq\"\":null}}\"\r\nanchor,0,,0000000000000000000000000000000000000000000000000000000000000000,,true,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,\r\nstub,1,0000000000000000000000000000000000000000000000000000000000000000,32880b25f785d5812239450f70508e3f9c687b8c7fe06e53d6b36de7f60f6bb7,2108c727ed5ab6021e3adce648db23f424cad5e762eca24afb074f366a1558b7,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,\r\nstub,2,32880b25f785d5812239450f70508e3f9c687b8c7fe06e53d6b36de7f60f6bb7,c3ebd049df989b35ac7f874cfdedb7ae7637bfb59a1777e332db69d007c03583,969fb721775f043d45f9078e4986f9632cfd3f133a01155f0df52047595236ed,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,\r\nstub,3,c3ebd049df989b35ac7f874cfdedb7ae7637bfb59a1777e332db69d007c03583,9c37054e0683eec5ff4316d31325c4a7d9cbb555020572c1b7cf32c199db4824,3637bb3f3539f285d0d6c8e629e9b65ebe763ee8ee88c743bdc6b2e0be0fb2e6,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,\r\nentry,4,9c37054e0683eec5ff4316d31325c4a7d9cbb555020572c1b7cf32c199db4824,e669b1dd6e9eab956167fb74194293e01840352cef2f095a4c8fb6705798e973,2589d160c88b8c30a8a21fcd0f19e6e16f7ada0aea51a2587c8072c704bb2862,,true,true,2026-11-08T16:30:24.883044Z,00000000-0000-4000-8000-0000000000a1,01a1bbfe-27ce-7cbd-a24a-8c883574cb74,2026-11-08T16:29:18.140697Z,record,create,record,01a1bbfe-27c8-75d4-a2f4-32797c779f73,de5be94c-dce9-4359-b868-dba0ee318910,,1,328aeab4-1a78-483a-8f70-599df309fee2,,user,,,01a1bbfe-27c4-7b15-9d90-52bab8b751e3,0,1c69fe8725f062f9b675ca523f5e3ef7,false,,a1dce3f5ad3aad8600e0e35e58458a554bc54963e56afd96001e87a3c6ffe871,false,\"[{\"\"op\"\":\"\"add\"\",\"\"path\"\":\"\"\"\",\"\"value\"\":{\"\"priority\"\":2,\"\"short_description\"\":\"\"S16 mw81ry7u incident\"\",\"\"state\"\":\"\"new\"\"}}]\",2c13bb6c95e70b2ea6b8ed3807dade7a,false,,,\r\ntrailer,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,\"{\"\"kind\"\":\"\"trailer\"\",\"\"anchor_seq\"\":0,\"\"last_seq\"\":4,\"\"head_hash\"\":\"\"e669b1dd6e9eab956167fb74194293e01840352cef2f095a4c8fb6705798e973\"\",\"\"count\"\":1,\"\"stub_count\"\":3,\"\"unsealed_count\"\":0,\"\"verifiable\"\":true}\"\r\n"
+  },
+  "tests": [
+    {
+      "test": "HTTP 200",
+      "status": "pass"
+    },
+    {
+      "test": "text/csv, sent as a .csv attachment",
+      "status": "pass"
+    },
+    {
+      "test": "CRLF rows, the column row first",
+      "status": "pass"
+    },
+    {
+      "test": "no cell starts with = + - @ tab or CR (RFC 4180 parse)",
+      "status": "pass"
+    }
+  ]
+}

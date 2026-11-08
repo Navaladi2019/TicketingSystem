@@ -1,0 +1,42 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:28080/api/v1/audit/chain:reseed",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:28080",
+      "Connection": "keep-alive",
+      "Content-Length": "0",
+      "Idempotency-Key": "1ae69aba-b423-4ddb-891e-a6ef56c3c829",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "type": "urn:nava:problem:forbidden",
+      "title": "Forbidden",
+      "status": 403,
+      "code": "forbidden",
+      "detail": "The token does not allow this operation.",
+      "instance": "urn:nava:request:6ebf99abec6ea1d3a7b7a1f3e1472711"
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 403",
+      "status": "pass"
+    },
+    {
+      "test": "problem+json, code forbidden",
+      "status": "pass"
+    },
+    {
+      "test": "problem instance is this response's X-Request-Id",
+      "status": "pass"
+    }
+  ]
+}

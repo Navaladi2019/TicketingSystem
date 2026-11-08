@@ -1,0 +1,29 @@
+meta {
+  name: S16.19 reseedAuditChain 400: no Idempotency-Key
+  type: http
+  seq: 19
+}
+
+post {
+  url: {{core_url}}/api/v1/audit/chain:reseed
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{auditor_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await require('./lib/s15')(N, bru).fresh();
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('validation_failed', 400);
+}
+
+docs {
+  Every tenant write needs an Idempotency-Key; nothing is written.
+}

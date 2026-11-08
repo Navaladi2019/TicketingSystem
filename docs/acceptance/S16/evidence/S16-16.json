@@ -1,0 +1,46 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:28080/api/v1/audit/entries:export?from=2030-01-02T00:00:00Z&to=2030-01-01T00:00:00Z",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:28080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "body": {
+      "type": "urn:nava:problem:validation_failed",
+      "title": "Validation failed",
+      "status": 400,
+      "code": "validation_failed",
+      "detail": "The request does not match the API contract. See errors for the failing fields.",
+      "instance": "urn:nava:request:707c80a0c2ccb942ac9af24ab94733f9",
+      "errors": [
+        {
+          "pointer": "/query/to",
+          "rule": "range"
+        }
+      ]
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 400",
+      "status": "pass"
+    },
+    {
+      "test": "problem+json, code validation_failed",
+      "status": "pass"
+    },
+    {
+      "test": "problem instance is this response's X-Request-Id",
+      "status": "pass"
+    }
+  ]
+}

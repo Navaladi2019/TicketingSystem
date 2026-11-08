@@ -22,6 +22,7 @@ internal/audit/chain/cmd/genvectors/main.go  # main() of the golden-vector gener
 # test binaries, never by a production binary.
 internal/apitest/...                 # test-only OpenAPI contract and its server, used by API tests
 internal/audit/verify/verifytest/... # builds audit export fixtures for the verifier's tests
+internal/audit/erasetest/...           # the test-only erase helper (PLAN-005 D-5-10), linked only into test binaries; an arch test keeps cmd/* off it
 internal/audit/chain/vectors/...     # builds the audit hash-chain golden vectors (test fixtures)
 internal/identity/contracttest/...   # the identity adapter contract suite, run by tests and tools/ci/ci5report
 internal/identity/keycloak/keycloaktest/... # fake Keycloak realm for tests

@@ -85,6 +85,13 @@ func writerAllowed(rel string) bool {
 // audit_log_guard_update trigger limits to nava_worker setting the four seal
 // columns of an unsealed row. Any other write there is still reported.
 //
+// internal/audit/erasetest/erasetest.go may UPDATE audit_log and nothing else:
+// it is the test-only R23 erase helper (PLAN-005 D-5-10, P5-42, TICK-447),
+// the R11 erase transition the trigger limits to nava_erasure. The allowance
+// covers only an UPDATE whose SET list names nothing but the four erase
+// columns (eraseColumnsOnly); an arch test in that package keeps every cmd/*
+// binary from linking it.
+//
 // The seal.go allowance covers only an UPDATE whose SET list names nothing but
 // the seal columns (sealColumnsOnly); the gate checks this itself rather than
 // leaning on the trigger (TICK-581).
@@ -93,7 +100,8 @@ func auditWriter(rel, kind, table, sql string) bool {
 		return false
 	}
 	return kind == "insert" && rel == "internal/audit/append.go" ||
-		kind == "update" && rel == "internal/audit/seal/seal.go" && sealColumnsOnly(sql)
+		kind == "update" && rel == "internal/audit/seal/seal.go" && sealColumnsOnly(sql) ||
+		kind == "update" && rel == "internal/audit/erasetest/erasetest.go" && eraseColumnsOnly(sql)
 }
 
 // sealColumn reports whether col is one of the four columns of the R11 seal
@@ -123,7 +131,24 @@ var (
 // FROM, WHERE, RETURNING or semicolon outside parentheses, or the `)` closing
 // an enclosing CTE, so a keyword inside a subquery or a string does not end it
 // early (TICK-581 review).
-func sealColumnsOnly(sql string) bool {
+func sealColumnsOnly(sql string) bool { return setColumnsOnly(sql, sealColumn) }
+
+// eraseColumn reports whether col is one of the four columns of the R11 erase
+// transition (ADR-004 R11, R23).
+func eraseColumn(col string) bool {
+	switch col {
+	case "diff", "diff_salt", "erased_at", "erasure_ref":
+		return true
+	}
+	return false
+}
+
+// eraseColumnsOnly is sealColumnsOnly for the erase columns (eraseColumn).
+func eraseColumnsOnly(sql string) bool { return setColumnsOnly(sql, eraseColumn) }
+
+// setColumnsOnly reports whether every UPDATE of audit_log in sql sets only
+// columns allowed names, failing closed as sealColumnsOnly describes.
+func setColumnsOnly(sql string, allowed func(string) bool) bool {
 	s := normalize(sql, true)
 	heads := auditUpdateRE.FindAllStringIndex(s, -1)
 	updates := 0
@@ -142,7 +167,7 @@ func sealColumnsOnly(sql string) bool {
 			if i := strings.LastIndexByte(col, '.'); i >= 0 {
 				col = col[i+1:] // a qualified column, a.seq
 			}
-			if !ok || !sealColumn(col) {
+			if !ok || !allowed(col) {
 				return false
 			}
 		}
@@ -1188,6 +1213,45 @@ func TestSQLWrites(t *testing.T) {
 	for in, want := range cases {
 		if got := sqlWrites(in); !slices.Equal(got, want) {
 			t.Errorf("sqlWrites(%q) = %v, want %v", in, got, want)
+		}
+	}
+}
+
+// TestEraseColumnsOnly: the erasetest.go allowance reads the SET list, and the
+// seal and erase allowances do not stand in for each other.
+func TestEraseColumnsOnly(t *testing.T) {
+	cases := map[string]bool{
+		"UPDATE audit_log SET diff = NULL, diff_salt = NULL, erased_at = now(), erasure_ref = $1 WHERE id = ANY($2::uuid[])": true,
+		"UPDATE audit_log SET erasure_ref = $1 WHERE id = $2":                                                                true,
+		"UPDATE audit_log SET diff = NULL, seq = 1 WHERE id = $1":                                                            false,
+		"UPDATE audit_log SET entry_hash = $2 WHERE id = $1":                                                                 false,
+		"UPDATE audit_log SET diff = NULL, tenant_id = $2 WHERE id = $1":                                                     false,
+		"UPDATE audit_log SET (diff, diff_salt) = (NULL, NULL) WHERE id = $1":                                                false,
+		"UPDATE audit_log SET diff = NULL; UPDATE audit_log SET action = 'x'":                                                false,
+		"INSERT INTO audit_log (diff) VALUES (NULL)":                                                                         false,
+	}
+	for in, want := range cases {
+		if got := eraseColumnsOnly(in); got != want {
+			t.Errorf("eraseColumnsOnly(%q) = %v, want %v", in, got, want)
+		}
+	}
+	const erase = "UPDATE audit_log SET diff = NULL, erased_at = now(), erasure_ref = $1 WHERE id = $2"
+	for _, c := range []struct {
+		rel, sql string
+		want     bool
+	}{
+		{"internal/audit/erasetest/erasetest.go", erase, true},
+		{"internal/audit/erasetest/other.go", erase, false},
+		{"internal/audit/seal/seal.go", erase, false},
+		{"internal/audit/erasetest/erasetest.go", "UPDATE audit_log SET seq = 1 WHERE id = $1", false},
+		{"internal/audit/erasetest/erasetest.go", "INSERT INTO audit_log (id) VALUES ($1)", false},
+	} {
+		kind := "update"
+		if strings.HasPrefix(c.sql, "INSERT") {
+			kind = "insert"
+		}
+		if got := auditWriter(c.rel, kind, "audit_log", c.sql); got != c.want {
+			t.Errorf("auditWriter(%s, %q) = %v, want %v", c.rel, c.sql, got, c.want)
 		}
 	}
 }

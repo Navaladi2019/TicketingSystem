@@ -241,3 +241,24 @@ func TestDelayedSealInsertColumns(t *testing.T) {
 		t.Errorf("insertDelayedSealSQL differs from insertSealSQL by more than available_at: %s", insertDelayedSealSQL)
 	}
 }
+
+// EnqueueReseed refuses before any query (tx is nil) on a bad version or a nil
+// reseed id; its dedupe key sits in the seal namespace, so EnqueueAtVersion
+// still refuses it, and it differs from the plain seal key and between reseeds.
+func TestReseedRefusesBeforeAnyWrite(t *testing.T) {
+	if _, err := EnqueueReseed(context.Background(), nil, 0, uuid.New()); !errors.Is(err, ErrInvalidEntry) {
+		t.Fatalf("EnqueueReseed(0) = %v, want ErrInvalidEntry", err)
+	}
+	if _, err := EnqueueReseed(context.Background(), nil, 1, uuid.Nil); !errors.Is(err, ErrInvalidEntry) {
+		t.Fatalf("EnqueueReseed(nil id) = %v, want ErrInvalidEntry", err)
+	}
+	a, b := uuid.New(), uuid.New()
+	if k := ReseedDedupeKey(3, a); k == SealDedupeKey(3) || k == ReseedDedupeKey(3, b) || k != ReseedDedupeKey(3, a) {
+		t.Fatalf("reseed dedupe key %q is not distinct and stable", k)
+	}
+	reserved := validEntry()
+	reserved.DedupeKey = ReseedDedupeKey(1, a)
+	if _, err := EnqueueAtVersion(context.Background(), nil, reserved, 1); !errors.Is(err, ErrInvalidEntry) {
+		t.Fatalf("EnqueueAtVersion with a reseed dedupe key = %v, want ErrInvalidEntry", err)
+	}
+}

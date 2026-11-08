@@ -907,13 +907,19 @@ func auditCanaryBytes(ctx context.Context, e *etIso) error {
 // audit_log in the diff only, so if a marker's diff is compressed, the marker
 // is not in audit_log's plain bytes, and auditCanaryBytes's marker control
 // already fails with "the scan proves nothing".
+//
+// The size bound (TICK-552 review follow-up, TICK-447): a value stored out of
+// line but uncompressed passes the compression check, yet TOAST cuts it into
+// chunks of about 2 kB and a canary across a cut is no plain byte string
+// either. So the control must also be stored under auditMaxControlBytes.
 func auditControlsUncompressed(ctx context.Context, super *pgx.Conn, publishMarker string) error {
-	var n int
+	var n, size int
 	var compressed []string
 	if err := super.QueryRow(ctx,
-		`SELECT count(*), coalesce(array_agg(pg_column_compression(v.schema)) FILTER (WHERE pg_column_compression(v.schema) IS NOT NULL), '{}')
+		`SELECT count(*), coalesce(array_agg(pg_column_compression(v.schema)) FILTER (WHERE pg_column_compression(v.schema) IS NOT NULL), '{}'),
+		        coalesce(max(pg_column_size(v.schema)), 0)
 		 FROM entity_definition_versions v JOIN entity_definitions d ON d.tenant_id = v.tenant_id AND d.id = v.definition_id
-		 WHERE d.tenant_id = $1 AND d.key = 'iso_et_sec' AND strpos(v.schema::text, $2) > 0`, TenantA, publishMarker).Scan(&n, &compressed); err != nil {
+		 WHERE d.tenant_id = $1 AND d.key = 'iso_et_sec' AND strpos(v.schema::text, $2) > 0`, TenantA, publishMarker).Scan(&n, &compressed, &size); err != nil {
 		return fmt.Errorf("control: compression of entity_definition_versions.schema: %w", err)
 	}
 	if n != 1 {
@@ -923,8 +929,16 @@ func auditControlsUncompressed(ctx context.Context, super *pgx.Conn, publishMark
 		return fmt.Errorf("control: entity_definition_versions.schema with the marker %s is stored compressed (%s), so a canary in a row of its shape is not plain bytes; the scan proves nothing",
 			publishMarker, strings.Join(compressed, ", "))
 	}
+	if size >= auditMaxControlBytes {
+		return fmt.Errorf("control: entity_definition_versions.schema with the marker %s is %d bytes stored, not under %d, so TOAST may split a canary in a row of its shape; the scan proves nothing",
+			publishMarker, size, auditMaxControlBytes)
+	}
 	return nil
 }
+
+// auditMaxControlBytes bounds a control value's stored size, under the
+// TOAST threshold (about 2 kB).
+const auditMaxControlBytes = 1900
 
 // auditServiceURL is service's NAVA_DATABASE_URL in compose.yaml, with
 // ${VAR:-default} resolved to its default.
