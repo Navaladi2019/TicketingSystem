@@ -1,6 +1,6 @@
 {
-  "requests": 19,
-  "tests": 58,
+  "requests": 21,
+  "tests": 65,
   "failed": 0,
   "results": [
     {
@@ -333,6 +333,46 @@
     },
     {
       "request": "S16-19",
+      "status": 400,
+      "tests": [
+        {
+          "test": "HTTP 400",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code validation_failed",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S16-20",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "text/csv, sent as a .csv attachment",
+          "status": "pass"
+        },
+        {
+          "test": "CRLF rows, the column row first",
+          "status": "pass"
+        },
+        {
+          "test": "no cell starts with = + - @ tab or CR (RFC 4180 parse)",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S16-21",
       "status": 400,
       "tests": [
         {

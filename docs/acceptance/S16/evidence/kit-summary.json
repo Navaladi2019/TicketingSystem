@@ -1,11 +1,12 @@
 {
-  "run": "mw7u6nf2",
-  "at": "2026-11-08T12:57:34.517Z",
-  "incident": "01a1bb3b-967e-7be0-ab93-e33c94ec2077",
-  "bob_incident": "01a1bb3b-96d7-71f2-abac-821f62ebd36a",
+  "run": "mw81tfhy",
+  "at": "2026-11-08T16:31:03.805Z",
+  "incident": "01a1bbff-3581-717b-95b3-995d529d2f43",
+  "bob_incident": "01a1bbff-3613-71d5-a267-5d0661aaf16c",
   "sealed": {
-    "seq": 16,
-    "waited_s": 14
+    "seq": 10,
+    "occurred_at": "2026-11-08T16:30:27.1938Z",
+    "waited_s": 8
   },
   "load": 600,
   "results": [
@@ -30,19 +31,19 @@
       "id": "AC1",
       "name": "nava audit verify: ok, exit 0",
       "ok": true,
-      "detail": "ok: seq 1..16 from genesis to head_hash 2022feaf90da1d372ee47ed7ff55e44907f7837012151738df2604bc59f06fc4; 1 entries, 15 stubs, 0 unsealed"
+      "detail": "ok: seq 1..16 from genesis to head_hash 40f8bb95cdb77cfa633ad87270c91e713707a586b7759b2e9301387eb1222a34; 1 entries, 15 stubs, 0 unsealed"
     },
     {
       "id": "AC1",
       "name": "one line deleted: tampered, exit 1",
       "ok": true,
-      "detail": "tampered: line 18: count_mismatch: count or stub_count disagrees with the lines"
+      "detail": "tampered: line 12 (seq 11): seq_missing: seq 10..10 missing from a stubs=true file"
     },
     {
       "id": "AC1",
       "name": "one byte edited: tampered, exit 1",
       "ok": true,
-      "detail": "tampered: line 18 (seq 16): envelope_sha256_mismatch: envelope_sha256 is not SHA-256(JCS(envelope))"
+      "detail": "tampered: line 12 (seq 10): envelope_sha256_mismatch: envelope_sha256 is not SHA-256(JCS(envelope))"
     },
     {
       "id": "AC2",
@@ -60,13 +61,13 @@
       "id": "AC2",
       "name": "the first export finished with a trailer",
       "ok": true,
-      "detail": "18827619 bytes, 621 lines"
+      "detail": "18850460 bytes, 621 lines"
     },
     {
       "id": "AC2",
       "name": "the whole-log export verifies: ok, exit 0",
       "ok": true,
-      "detail": "ok: seq 1..442 from genesis to head_hash b22595909f23590a3a9cb02e763bcc67992d893cfc8a30aa1ffba3a8218f7eb1; 442 entries, 0 stubs, 176 unsealed"
+      "detail": "ok: seq 1..597 from genesis to head_hash 582ca455f5cdb543e5df7fbd4d347dca4f93ab73de4d594232a074930ee3660a; 597 entries, 0 stubs, 21 unsealed"
     },
     {
       "id": "AC2",
@@ -78,7 +79,7 @@
       "id": "AC2",
       "name": "the entry records the request",
       "ok": true,
-      "detail": "[{\"op\":\"add\",\"path\":\"/request\",\"value\":{\"filter\":{\"from\":null,\"to\":null,\"domain\":null,\"subject_type\":null,\"subject_id\":null,\"change_set_id\":null,\"after_seq\":null},\"stubs\":true}}]"
+      "detail": "[{\"op\":\"add\",\"path\":\"/request\",\"value\":{\"filter\":{\"from\":null,\"to\":null,\"domain\":null,\"subject_type\":null,\"subject_id\":null,\"change_set_id\":null,\"after_seq\":null},\"format\":\"jsonl\",\"stubs\":true}}]"
     },
     {
       "id": "AC2",
@@ -87,9 +88,81 @@
     },
     {
       "id": "AC3",
-      "name": "format=csv: 200, text/csv",
-      "ok": false,
-      "detail": "HTTP 200, application/x-ndjson"
+      "name": "format=csv: 200, text/csv, a .csv attachment",
+      "ok": true,
+      "detail": "HTTP 200, text/csv; charset=utf-8, attachment; filename=\"audit-export-01a1bbff-bf8e-79ae-9402-674431cb16fb.csv\""
+    },
+    {
+      "id": "AC3",
+      "name": "nava audit verify on the filtered CSV: ok, exit 0",
+      "ok": true,
+      "detail": "ok: seq 1..597 from genesis to head_hash 582ca455f5cdb543e5df7fbd4d347dca4f93ab73de4d594232a074930ee3660a; 1 entries, 596 stubs, 0 unsealed"
+    },
+    {
+      "id": "AC3",
+      "name": "CSV rows: the column row, header first, trailer last, one row per line the trailer counts",
+      "ok": true,
+      "detail": "600 rows after the column row; trailer: count 1, stub_count 596, unsealed_count 0"
+    },
+    {
+      "id": "AC3",
+      "name": "six-lead window as CSV: 200, text/csv",
+      "ok": true,
+      "detail": "HTTP 200, text/csv; charset=utf-8"
+    },
+    {
+      "id": "AC3",
+      "name": "lead \"=\": the incident is a full CSV row; its diff cell starts with [ and keeps the text verbatim",
+      "ok": true,
+      "detail": "diff cell starts \"[\""
+    },
+    {
+      "id": "AC3",
+      "name": "lead \"+\": the incident is a full CSV row; its diff cell starts with [ and keeps the text verbatim",
+      "ok": true,
+      "detail": "diff cell starts \"[\""
+    },
+    {
+      "id": "AC3",
+      "name": "lead \"-\": the incident is a full CSV row; its diff cell starts with [ and keeps the text verbatim",
+      "ok": true,
+      "detail": "diff cell starts \"[\""
+    },
+    {
+      "id": "AC3",
+      "name": "lead \"@\": the incident is a full CSV row; its diff cell starts with [ and keeps the text verbatim",
+      "ok": true,
+      "detail": "diff cell starts \"[\""
+    },
+    {
+      "id": "AC3",
+      "name": "lead \"\\t\": the incident is a full CSV row; its diff cell starts with [ and keeps the text verbatim",
+      "ok": true,
+      "detail": "diff cell starts \"[\""
+    },
+    {
+      "id": "AC3",
+      "name": "lead \"\\r\": the incident is a full CSV row; its diff cell starts with [ and keeps the text verbatim",
+      "ok": true,
+      "detail": "diff cell starts \"[\""
+    },
+    {
+      "id": "AC3",
+      "name": "no CSV cell starts with = + - @ tab or CR (a spreadsheet executes nothing)",
+      "ok": true,
+      "detail": "44104 cells, 0 start with a formula character, 0 carry the ' prefix"
+    },
+    {
+      "id": "AC3",
+      "name": "nava audit verify on the six-lead CSV: ok, exit 0",
+      "ok": true,
+      "detail": "ok: seq 11..597 from anchor seq 10 to head_hash 582ca455f5cdb543e5df7fbd4d347dca4f93ab73de4d594232a074930ee3660a; 6 entries, 581 stubs, 0 unsealed"
+    },
+    {
+      "id": "AC3",
+      "name": "an unknown format is refused: 400 validation_failed",
+      "ok": true,
+      "detail": "HTTP 400 validation_failed"
     },
     {
       "id": "AC4",

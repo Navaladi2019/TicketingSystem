@@ -1,0 +1,3 @@
+$ nava audit verify ac3-export-six-leads.csv
+exit 0
+ok: seq 11..597 from anchor seq 10 to head_hash 582ca455f5cdb543e5df7fbd4d347dca4f93ab73de4d594232a074930ee3660a; 6 entries, 581 stubs, 0 unsealed

@@ -2545,7 +2545,7 @@ def s16():
     reseed = "{{core_url}}/api/v1/audit/chain:reseed"
     return {
         "dir": "S16", "name": "S16 export",
-        "desc": "Story S16, TICK-421 (kit TICK-448, docs/acceptance/S16/README.md). `GET /api/v1/audit/entries:export`, the verifiable JSONL export (ADR-004 R19 to R22), and `POST /api/v1/audit/chain:reseed` (R17), as `auditor@tenant-a` (tenant A's auditors group holds `audit.export`, ADR-001-A6). AC1 (S16.5-S16.9): Alice's incident is sealed, and the export filtered to it has the incident in full and every other seq of the range as a stub; S16.7 the whole log. AC2 (S16.10): the export is an `audit/export` entry in the log. AC4 (S16.11): reseed is refused with 409 `chain_alive` while sealing runs. Isolation (S16.12-S16.13): Bob gets 403. The rest are the error answers. Saving the file and running `nava audit verify` on it (AC1), the 409 `export_in_progress` of a second concurrent export (AC2), the CSV (AC3) and the erasure samples (AC5) are in docs/acceptance/S16/tools/kit.mjs. Needs a stack whose tenants A and B have a chain head: docs/acceptance/S15/tools/upgrade-setup.sh. Runs again on the same stack.",
+        "desc": "Story S16, TICK-421 (kit TICK-448, docs/acceptance/S16/README.md). `GET /api/v1/audit/entries:export`, the verifiable JSONL export (ADR-004 R19 to R22), and `POST /api/v1/audit/chain:reseed` (R17), as `auditor@tenant-a` (tenant A's auditors group holds `audit.export`, ADR-001-A6). AC1 (S16.5-S16.9): Alice's incident is sealed, and the export filtered to it has the incident in full and every other seq of the range as a stub; S16.7 the whole log. AC2 (S16.10): the export is an `audit/export` entry in the log. AC4 (S16.11): reseed is refused with 409 `chain_alive` while sealing runs. AC3 (S16.20): the CSV. Isolation (S16.12-S16.13): Bob gets 403. The rest are the error answers. Saving the file and running `nava audit verify` on it (AC1), the 409 `export_in_progress` of a second concurrent export (AC2), the six formula characters in the CSV (AC3) and the erasure samples (AC5) are in docs/acceptance/S16/tools/kit.mjs. Needs a stack whose tenants A and B have a chain head: docs/acceptance/S15/tools/upgrade-setup.sh. Runs again on the same stack.",
         "items": [
             token("S16.1 Sign in as auditor@tenant-a (tenant A's auditors group)", "auditor_a_username", "auditor_a_password", "auditor_token"),
             token("S16.2 Sign in as Alice (agent, tenant A, no audit.export)", "alice_username", "alice_password", "alice_token"),
@@ -2721,6 +2721,38 @@ Every export writes one `audit/export` entry that commits before the first byte 
             problem_req("S16.18 reseedAuditChain 401: no token", "POST", reseed, "invalid_token", 401, headers={"Idempotency-Key": "{{$guid}}"}, desc="Missing token."),
             problem_req("S16.19 reseedAuditChain 400: no Idempotency-Key", "POST", reseed, "validation_failed", 400, auth="auditor_token", pre=S15_PRE,
                         desc="Every tenant write needs an Idempotency-Key; nothing is written."),
+            req("S16.20 AC3: export filtered to the incident as CSV: 200",
+                "GET", exp + "?subject_id={{s16_incident}}&format=csv", auth="auditor_token",
+                pre=S15_PRE,
+                tests=r"""
+N.status(200);
+test('text/csv, sent as a .csv attachment', () => {
+  expect(N.header('Content-Type')).to.match(/^text\/csv/);
+  expect(N.header('Content-Disposition')).to.match(/^attachment; filename="audit-export-[0-9a-f-]{36}\.csv"$/);
+});
+const text = N.text();
+test('CRLF rows, the column row first', () => {
+  expect(text.startsWith('kind,seq,prev_hash,entry_hash,envelope_sha256,')).to.eql(true);
+  expect(text.includes('\r\n')).to.eql(true);
+});
+test('no cell starts with = + - @ tab or CR (RFC 4180 parse)', () => {
+  const cells = [];
+  let cell = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) {
+      if (ch === '"' && text[i + 1] === '"') { cell += '"'; i++; } else if (ch === '"') q = false; else cell += ch;
+    } else if (ch === '"') q = true;
+    else if (ch === ',') { cells.push(cell); cell = ''; } else if (ch === '\r' && text[i + 1] === '\n') { cells.push(cell); cell = ''; i++; } else cell += ch;
+  }
+  expect(cells.filter(c => /^[=+\-@\t\r]/.test(c))).to.eql([]);
+});
+""",
+                desc=r"""
+The same lines as S16.6, as RFC 4180 CSV (`docs/api/audit-export-v1.md` section 5). Save it and run `nava audit verify <file>.csv`: `ok`, exit 0. kit.mjs also exports six incidents whose text starts with each formula character.
+"""),
+            problem_req("S16.21 exportAuditEntries 400: an unknown format", "GET", exp + "?format=xml", "validation_failed", 400, auth="auditor_token", pre=S15_PRE,
+                        desc="`format` is `jsonl` (the default) or `csv`."),
         ],
     }
 

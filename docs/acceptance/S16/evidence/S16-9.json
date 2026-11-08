@@ -14,7 +14,7 @@
   },
   "response": {
     "status": 200,
-    "body": "{\"kind\":\"header\",\"format\":\"nava.audit.export/v1\",\"tenant_id\":\"00000000-0000-4000-8000-0000000000a1\",\"export_id\":\"01a1bb3b-1461-7a64-9997-1e3836ca6414\",\"exported_at\":\"2026-11-08T12:56:13.661854Z\",\"stubs\":false,\"filter\":{\"from\":null,\"to\":null,\"domain\":null,\"subject_type\":null,\"subject_id\":\"00000000-0000-4000-8000-00000000dead\",\"change_set_id\":null,\"after_seq\":null}}\n{\"kind\":\"anchor\",\"genesis\":true,\"seq\":0,\"prev_hash\":null,\"entry_hash\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"envelope_sha256\":null}\n{\"kind\":\"trailer\",\"anchor_seq\":0,\"last_seq\":11,\"head_hash\":\"211878b3ee1548352cd8ce95aa6f1dc4aac01d9cae4d69d8a0c1992988ecf07b\",\"count\":0,\"stub_count\":0,\"unsealed_count\":0,\"verifiable\":false}\n"
+    "body": "{\"kind\":\"header\",\"format\":\"nava.audit.export/v1\",\"tenant_id\":\"00000000-0000-4000-8000-0000000000a1\",\"export_id\":\"01a1bbff-2f81-745f-9980-f3ff48f117ad\",\"exported_at\":\"2026-11-08T16:30:25.662353Z\",\"stubs\":false,\"filter\":{\"from\":null,\"to\":null,\"domain\":null,\"subject_type\":null,\"subject_id\":\"00000000-0000-4000-8000-00000000dead\",\"change_set_id\":null,\"after_seq\":null}}\n{\"kind\":\"anchor\",\"genesis\":true,\"seq\":0,\"prev_hash\":null,\"entry_hash\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"envelope_sha256\":null}\n{\"kind\":\"trailer\",\"anchor_seq\":0,\"last_seq\":4,\"head_hash\":\"e669b1dd6e9eab956167fb74194293e01840352cef2f095a4c8fb6705798e973\",\"count\":0,\"stub_count\":0,\"unsealed_count\":0,\"verifiable\":false}\n"
   },
   "tests": [
     {

@@ -1,0 +1,34 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "/api/v1/audit/entries:export?subject_id=01a1bbff-3581-717b-95b3-995d529d2f43&format=xml",
+    "as": "auditor",
+    "headers": {
+      "Authorization": "Bearer <auditor's access token>"
+    }
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "content-length": "325",
+      "content-type": "application/problem+json",
+      "date": "Sun, 08 Nov 2026 16:31:03 GMT",
+      "x-request-id": "1c896928f790a7453f5776db55a40492"
+    },
+    "bytes": 325,
+    "body": {
+      "type": "urn:nava:problem:validation_failed",
+      "title": "Validation failed",
+      "status": 400,
+      "code": "validation_failed",
+      "detail": "The request does not match the API contract. See errors for the failing fields.",
+      "instance": "urn:nava:request:1c896928f790a7453f5776db55a40492",
+      "errors": [
+        {
+          "pointer": "/parameters/format",
+          "rule": "enum"
+        }
+      ]
+    }
+  }
+}

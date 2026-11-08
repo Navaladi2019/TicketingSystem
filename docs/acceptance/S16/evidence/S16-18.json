@@ -9,7 +9,7 @@
       "Host": "127.0.0.1:28080",
       "Connection": "keep-alive",
       "Content-Length": "0",
-      "Idempotency-Key": "ccffb445-7665-4a10-9665-43849e7d42de",
+      "Idempotency-Key": "47551164-0d6b-4730-9784-e93b17dd3942",
       "content-type": null
     },
     "body": null
@@ -22,7 +22,7 @@
       "status": 401,
       "code": "invalid_token",
       "detail": "The access token is missing, expired or invalid.",
-      "instance": "urn:nava:request:953103b9cd3127b370dde80817eb5a93"
+      "instance": "urn:nava:request:52759bae28a729c93b92622b8c2d2bfd"
     }
   },
   "tests": [

@@ -1,0 +1,11 @@
+$ go test -count=1 -v -run "TestCSV" ./internal/audit/export/
+=== RUN   TestCSVFormulaInjectionPrefixing
+=== RUN   TestCSVRowsAndTrailerMatchJSONL
+=== RUN   TestCSVCRLFRowEndsAndDiffKeepsLF
+=== RUN   TestCSVPageFailureLeavesNoTrailer
+--- PASS: TestCSVPageFailureLeavesNoTrailer (0.00s)
+--- PASS: TestCSVCRLFRowEndsAndDiffKeepsLF (0.00s)
+--- PASS: TestCSVFormulaInjectionPrefixing (0.01s)
+--- PASS: TestCSVRowsAndTrailerMatchJSONL (0.01s)
+PASS
+ok  	github.com/Navaladi2019/TicketingSystem/internal/audit/export	0.807s

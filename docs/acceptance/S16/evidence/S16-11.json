@@ -9,7 +9,7 @@
       "Host": "127.0.0.1:28080",
       "Connection": "keep-alive",
       "Content-Length": "0",
-      "Idempotency-Key": "d356b697-4894-410c-99db-01ed640c93bb",
+      "Idempotency-Key": "a7a7a6bc-ca2a-48ec-9f3a-9d1b48695ac7",
       "content-type": null
     },
     "body": null
@@ -22,7 +22,7 @@
       "status": 409,
       "code": "chain_alive",
       "detail": "The tenant's audit seal lineage is still running, so it cannot be reseeded. Retry when its next run is more than 10 minutes overdue.",
-      "instance": "urn:nava:request:e8cbe7bd3525f0c16a53f6748cb8d7f2"
+      "instance": "urn:nava:request:db30b59b5290585c70883f037e53baeb"
     }
   },
   "tests": [

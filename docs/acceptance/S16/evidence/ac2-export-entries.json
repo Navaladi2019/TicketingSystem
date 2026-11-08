@@ -1,10 +1,10 @@
 {
-  "before": 10,
-  "after": 11,
+  "before": 6,
+  "after": 7,
   "added": [
     {
       "action": "export",
-      "actor_principal_id": "537e75e1-45ce-464f-b4d4-1e3713f1a7f9",
+      "actor_principal_id": "7054593b-1595-4e81-accc-3f171817851c",
       "backfilled": false,
       "causation_depth": 0,
       "diff": [
@@ -21,21 +21,20 @@
               "change_set_id": null,
               "after_seq": null
             },
+            "format": "jsonl",
             "stubs": true
           }
         }
       ],
       "diff_redacted": false,
-      "diff_salt": "f7d5e4bcc910d02fb4679dbe28984078",
-      "diff_sha256": "560f66b973a61e22d73406b1d74687b70848522b99b0ce11bda7c4bd522646e6",
+      "diff_salt": "201cfae5b60468550a90cf203074c24f",
+      "diff_sha256": "b581de8bb36cae852c067da5775f438e2218c30d6e4e6826600a474658c863c5",
       "diff_truncated": false,
       "domain": "audit",
-      "id": "01a1bb3c-3a05-7f40-80fc-d89ee4d42ba3",
-      "occurred_at": "2026-11-08T12:57:28.832674Z",
-      "sealed_at": "2026-11-08T12:57:32.712268Z",
-      "seq": 618,
+      "id": "01a1bbff-abf8-7755-83cd-8516755e3fdc",
+      "occurred_at": "2026-11-08T16:30:57.514957Z",
       "source": "user",
-      "subject_id": "01a1bb3c-3a05-7f40-80fc-d89ee4d42ba3",
+      "subject_id": "01a1bbff-abf8-7755-83cd-8516755e3fdc",
       "subject_type": "audit_export"
     }
   ]

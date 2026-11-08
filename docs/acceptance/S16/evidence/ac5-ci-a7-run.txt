@@ -1,0 +1,15 @@
+GitHub Actions ci, run 42495607369 (PR #515, head 0811c48, conclusion success)
+https://github.com/Navaladi2019/TicketingSystem/actions/runs/42495607369/job/128777322689 (integration)
+Tests: internal/server/audit_erasure_isolation_integration_test.go
+
+2026-11-08T15:40:57.6192003Z [shared] --- PASS: TestCIA7EraseVerifiesPendingThenPass (0.97s)
+2026-11-08T15:40:58.4734367Z [shared] --- PASS: TestCIA7SecondEraseIsRejected (0.85s)
+2026-11-08T15:40:59.3515156Z [shared] --- PASS: TestCIA7ErasureCannotReadDiff (0.88s)
+2026-11-08T15:41:00.2482424Z [shared] --- PASS: TestCIA7AppAndWorkerCannotErase (0.89s)
+2026-11-08T15:41:01.2962044Z [shared] --- PASS: TestCIA7NulledDiffWithoutEraseEntryIsTampered (1.05s)
+2026-11-08T15:41:02.2045479Z [shared] --- PASS: TestCIA4EraseNeverCrossesTenants (0.91s)
+2026-11-08T15:41:03.2911603Z [shared] --- PASS: TestCIA4ExportAndStubsNeverCrossTenants (1.09s)
+2026-11-08T15:41:04.2319304Z [shared] --- PASS: TestCIA4ExportLeaseIsPerTenant (0.94s)
+2026-11-08T15:41:05.0272237Z [shared] --- PASS: TestCIA4ReseedReadsOnlyItsOwnHead (0.80s)
+2026-11-08T15:41:05.9107770Z [shared] --- PASS: TestCIA4NoTenantContextReachesNothing (0.88s)
+2026-11-08T15:41:06.8779331Z [shared] --- PASS: TestCIA5ExportBytesCarryNoCanary (0.97s)

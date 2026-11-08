@@ -20,7 +20,7 @@
       "status": 400,
       "code": "validation_failed",
       "detail": "The request does not match the API contract. See errors for the failing fields.",
-      "instance": "urn:nava:request:af678f9b5fd061a4b6d591232fead399",
+      "instance": "urn:nava:request:707c80a0c2ccb942ac9af24ab94733f9",
       "errors": [
         {
           "pointer": "/query/to",

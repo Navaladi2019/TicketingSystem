@@ -18,7 +18,7 @@
       "items": [
         {
           "action": "export",
-          "actor_principal_id": "537e75e1-45ce-464f-b4d4-1e3713f1a7f9",
+          "actor_principal_id": "7054593b-1595-4e81-accc-3f171817851c",
           "backfilled": false,
           "causation_depth": 0,
           "diff": [
@@ -35,24 +35,25 @@
                   "change_set_id": null,
                   "after_seq": null
                 },
+                "format": "jsonl",
                 "stubs": false
               }
             }
           ],
           "diff_redacted": false,
-          "diff_salt": "9158908bcc35911be73334869aa4f596",
-          "diff_sha256": "89b2b08ec80a792b025fb03a0994c1646799df8e56dbe1dac05db23a3f6ba9a7",
+          "diff_salt": "16e3064ab434f59a621f4d2fdcb9cac9",
+          "diff_sha256": "c184bfa017f017b595e60b5df08ea4418fecbb51ddd245cf9518f9b7bc4d6f08",
           "diff_truncated": false,
           "domain": "audit",
-          "id": "01a1bb3b-1461-7a64-9997-1e3836ca6414",
-          "occurred_at": "2026-11-08T12:56:13.661854Z",
+          "id": "01a1bbff-2f81-745f-9980-f3ff48f117ad",
+          "occurred_at": "2026-11-08T16:30:25.662353Z",
           "source": "user",
-          "subject_id": "01a1bb3b-1461-7a64-9997-1e3836ca6414",
+          "subject_id": "01a1bbff-2f81-745f-9980-f3ff48f117ad",
           "subject_type": "audit_export"
         },
         {
           "action": "export",
-          "actor_principal_id": "537e75e1-45ce-464f-b4d4-1e3713f1a7f9",
+          "actor_principal_id": "7054593b-1595-4e81-accc-3f171817851c",
           "backfilled": false,
           "causation_depth": 0,
           "diff": [
@@ -69,24 +70,25 @@
                   "change_set_id": null,
                   "after_seq": null
                 },
+                "format": "jsonl",
                 "stubs": true
               }
             }
           ],
           "diff_redacted": false,
-          "diff_salt": "fd0aff7a5278092ab59fe7600cab2776",
-          "diff_sha256": "567b69dd8b763988a8a081968a9ab2c92599e43bf363df70646bbfafda13be62",
+          "diff_salt": "530db65d8605efdd4c7e15fe2fe64754",
+          "diff_sha256": "b3f647a6eb4434a610a24706db5e9eca25064d4c10b9b27e0b684e0abf8331ad",
           "diff_truncated": false,
           "domain": "audit",
-          "id": "01a1bb3b-1237-7b3c-aca0-c96773efbb9e",
-          "occurred_at": "2026-11-08T12:56:13.107909Z",
+          "id": "01a1bbff-2f45-72b0-b9d1-dc206b0e77fd",
+          "occurred_at": "2026-11-08T16:30:25.602278Z",
           "source": "user",
-          "subject_id": "01a1bb3b-1237-7b3c-aca0-c96773efbb9e",
+          "subject_id": "01a1bbff-2f45-72b0-b9d1-dc206b0e77fd",
           "subject_type": "audit_export"
         },
         {
           "action": "export",
-          "actor_principal_id": "537e75e1-45ce-464f-b4d4-1e3713f1a7f9",
+          "actor_principal_id": "7054593b-1595-4e81-accc-3f171817851c",
           "backfilled": false,
           "causation_depth": 0,
           "diff": [
@@ -103,24 +105,25 @@
                   "change_set_id": null,
                   "after_seq": null
                 },
+                "format": "jsonl",
                 "stubs": true
               }
             }
           ],
           "diff_redacted": false,
-          "diff_salt": "2552c0f17ef29d7655ed618b39247edf",
-          "diff_sha256": "73827669842d1fd420d5e82806edc87943175a774b408199d01361fd0af66b48",
+          "diff_salt": "114a9eab7d8c55777bc2aac00d3fb0d6",
+          "diff_sha256": "87c4ed4e5d3945b4e08454ef39b724ce12a28292533404553cc766853e4f4c8c",
           "diff_truncated": false,
           "domain": "audit",
-          "id": "01a1bb3b-0fca-71c4-894c-53e010225a3c",
-          "occurred_at": "2026-11-08T12:56:12.486972Z",
+          "id": "01a1bbff-2f05-7146-bc5a-9927168c1821",
+          "occurred_at": "2026-11-08T16:30:25.537387Z",
           "source": "user",
-          "subject_id": "01a1bb3b-0fca-71c4-894c-53e010225a3c",
+          "subject_id": "01a1bbff-2f05-7146-bc5a-9927168c1821",
           "subject_type": "audit_export"
         },
         {
           "action": "export",
-          "actor_principal_id": "537e75e1-45ce-464f-b4d4-1e3713f1a7f9",
+          "actor_principal_id": "7054593b-1595-4e81-accc-3f171817851c",
           "backfilled": false,
           "causation_depth": 0,
           "diff": [
@@ -133,203 +136,24 @@
                   "to": null,
                   "domain": null,
                   "subject_type": null,
-                  "subject_id": "01a1bb37-7fa4-7b9a-bd21-ce9e83e37751",
+                  "subject_id": "01a1bbfe-27c8-75d4-a2f4-32797c779f73",
                   "change_set_id": null,
                   "after_seq": null
                 },
+                "format": "jsonl",
                 "stubs": true
               }
             }
           ],
           "diff_redacted": false,
-          "diff_salt": "3458f45ba9efa8cc8a6784d329026d3d",
-          "diff_sha256": "bf0e2b10bd3338898159d1cb17deed3c3a32ae4977859872b8db8d452a8d8c08",
+          "diff_salt": "00d883f3c044c76291ba8f1da2a35ee9",
+          "diff_sha256": "9c2be3a4bbe6b4db380ba6d5b2613ff5de5ba9dca73346a6eb98b3a75ed7c290",
           "diff_truncated": false,
           "domain": "audit",
-          "id": "01a1bb3b-0d63-7383-94b0-3a9e633638bf",
-          "occurred_at": "2026-11-08T12:56:11.871361Z",
+          "id": "01a1bbff-2ec1-7469-898a-7407ec74abb5",
+          "occurred_at": "2026-11-08T16:30:25.470116Z",
           "source": "user",
-          "subject_id": "01a1bb3b-0d63-7383-94b0-3a9e633638bf",
-          "subject_type": "audit_export"
-        },
-        {
-          "action": "export",
-          "actor_principal_id": "537e75e1-45ce-464f-b4d4-1e3713f1a7f9",
-          "backfilled": false,
-          "causation_depth": 0,
-          "diff": [
-            {
-              "op": "add",
-              "path": "/request",
-              "value": {
-                "filter": {
-                  "from": null,
-                  "to": null,
-                  "domain": null,
-                  "subject_type": null,
-                  "subject_id": "01a1bb31-51e8-7f2e-a2f6-6a768708d05f",
-                  "change_set_id": null,
-                  "after_seq": null
-                },
-                "stubs": true
-              }
-            }
-          ],
-          "diff_redacted": false,
-          "diff_salt": "db50d4017c38b21dd8610b2c1501e79b",
-          "diff_sha256": "8a899bcad22f9dab8288b6ba7b4d0c2518ce81e63f0f4117b9bd545cec54d937",
-          "diff_truncated": false,
-          "domain": "audit",
-          "id": "01a1bb31-6349-7924-a6ad-9d7d899fa36c",
-          "occurred_at": "2026-11-08T12:45:38.501532Z",
-          "sealed_at": "2026-11-08T12:45:47.947859Z",
-          "seq": 10,
-          "source": "user",
-          "subject_id": "01a1bb31-6349-7924-a6ad-9d7d899fa36c",
-          "subject_type": "audit_export"
-        },
-        {
-          "action": "export",
-          "actor_principal_id": "537e75e1-45ce-464f-b4d4-1e3713f1a7f9",
-          "backfilled": false,
-          "causation_depth": 0,
-          "diff": [
-            {
-              "op": "add",
-              "path": "/request",
-              "value": {
-                "filter": {
-                  "from": null,
-                  "to": null,
-                  "domain": null,
-                  "subject_type": null,
-                  "subject_id": "00000000-0000-4000-8000-00000000dead",
-                  "change_set_id": null,
-                  "after_seq": null
-                },
-                "stubs": false
-              }
-            }
-          ],
-          "diff_redacted": false,
-          "diff_salt": "2efc8e20b64f4618898f91a4dd63f918",
-          "diff_sha256": "8f2eb101451f6f6c0d51cd5575fab04327bd7a606f609ed55ed3b778bf2157d5",
-          "diff_truncated": false,
-          "domain": "audit",
-          "id": "01a1bb31-41d9-7df1-a97e-d7224c4c2eb4",
-          "occurred_at": "2026-11-08T12:45:29.941207Z",
-          "sealed_at": "2026-11-08T12:45:37.864218Z",
-          "seq": 8,
-          "source": "user",
-          "subject_id": "01a1bb31-41d9-7df1-a97e-d7224c4c2eb4",
-          "subject_type": "audit_export"
-        },
-        {
-          "action": "export",
-          "actor_principal_id": "537e75e1-45ce-464f-b4d4-1e3713f1a7f9",
-          "backfilled": false,
-          "causation_depth": 0,
-          "diff": [
-            {
-              "op": "add",
-              "path": "/request",
-              "value": {
-                "filter": {
-                  "from": null,
-                  "to": null,
-                  "domain": "config",
-                  "subject_type": null,
-                  "subject_id": null,
-                  "change_set_id": null,
-                  "after_seq": null
-                },
-                "stubs": true
-              }
-            }
-          ],
-          "diff_redacted": false,
-          "diff_salt": "6085e66a1c4ea7aa570f0518eb7832d7",
-          "diff_sha256": "a5a504cacbda9701e3beebc2ffa9d614984355bd84dd4d7481e506af5f839f1d",
-          "diff_truncated": false,
-          "domain": "audit",
-          "id": "01a1bb31-414e-7c6c-98fd-3d5b31fcb573",
-          "occurred_at": "2026-11-08T12:45:29.803587Z",
-          "sealed_at": "2026-11-08T12:45:37.864218Z",
-          "seq": 7,
-          "source": "user",
-          "subject_id": "01a1bb31-414e-7c6c-98fd-3d5b31fcb573",
-          "subject_type": "audit_export"
-        },
-        {
-          "action": "export",
-          "actor_principal_id": "537e75e1-45ce-464f-b4d4-1e3713f1a7f9",
-          "backfilled": false,
-          "causation_depth": 0,
-          "diff": [
-            {
-              "op": "add",
-              "path": "/request",
-              "value": {
-                "filter": {
-                  "from": null,
-                  "to": null,
-                  "domain": null,
-                  "subject_type": null,
-                  "subject_id": null,
-                  "change_set_id": null,
-                  "after_seq": null
-                },
-                "stubs": true
-              }
-            }
-          ],
-          "diff_redacted": false,
-          "diff_salt": "1f3f1a67461d64beb7bc410f367e32d1",
-          "diff_sha256": "ea0b06dee80d4268c6df66360d1adc3f2b6028f0e0bb5faaa0b6653f4363623b",
-          "diff_truncated": false,
-          "domain": "audit",
-          "id": "01a1bb31-40f3-7af1-8892-45f81472bab9",
-          "occurred_at": "2026-11-08T12:45:29.71352Z",
-          "sealed_at": "2026-11-08T12:45:37.864218Z",
-          "seq": 6,
-          "source": "user",
-          "subject_id": "01a1bb31-40f3-7af1-8892-45f81472bab9",
-          "subject_type": "audit_export"
-        },
-        {
-          "action": "export",
-          "actor_principal_id": "537e75e1-45ce-464f-b4d4-1e3713f1a7f9",
-          "backfilled": false,
-          "causation_depth": 0,
-          "diff": [
-            {
-              "op": "add",
-              "path": "/request",
-              "value": {
-                "filter": {
-                  "from": null,
-                  "to": null,
-                  "domain": null,
-                  "subject_type": null,
-                  "subject_id": "01a1bb2f-33f5-7b8d-8c88-358cfe07c2f2",
-                  "change_set_id": null,
-                  "after_seq": null
-                },
-                "stubs": true
-              }
-            }
-          ],
-          "diff_redacted": false,
-          "diff_salt": "3474c885bfbad69194a81ed4d3655578",
-          "diff_sha256": "5deaaea0e5784a9859551c16d9e6f78881cce8002a1724782cc0528b024f5f8c",
-          "diff_truncated": false,
-          "domain": "audit",
-          "id": "01a1bb31-4089-74ca-bd1a-5e9ca5d426b4",
-          "occurred_at": "2026-11-08T12:45:29.605566Z",
-          "sealed_at": "2026-11-08T12:45:37.864218Z",
-          "seq": 5,
-          "source": "user",
-          "subject_id": "01a1bb31-4089-74ca-bd1a-5e9ca5d426b4",
+          "subject_id": "01a1bbff-2ec1-7469-898a-7407ec74abb5",
           "subject_type": "audit_export"
         }
       ]

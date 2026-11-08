@@ -8,8 +8,11 @@
 //   AC2  A second export started while one is streaming gets 409
 //        export_in_progress; each export that started is an audit/export
 //        entry in the log, and the refused one wrote none.
-//   AC3  The same filtered export as CSV (format=csv): no cell starts with
-//        = + - @ tab or CR unprefixed, and `nava audit verify` accepts it.
+//   AC3  The filtered export as CSV (format=csv), and a CSV of six incidents
+//        whose text starts with = + - @ tab and CR: no cell starts with a
+//        formula character (the text stays inside the diff cell, which starts
+//        with [), and `nava audit verify` accepts both. The ' prefix itself is
+//        CI-A15's unit test (TestCSVFormulaInjectionPrefixing).
 //   AC4  POST /api/v1/audit/chain:reseed: 409 chain_alive while sealing runs.
 //   AC5  Erasure (TICK-449 grooming): the S13 erased and pending samples give
 //        their documented verdicts; the on-stack evidence is P5-42's CI-A7
@@ -120,7 +123,7 @@ async function waitSealed(subject, limitS = 330) {
   for (;;) {
     const r = await call('auditor', 'GET', `/api/v1/audit/entries?subject_id=${subject}&limit=10`);
     const e = (r.json?.items || []).find((x) => x.action === 'create');
-    if (e?.seq) return { seq: e.seq, waited_s: Math.round((Date.now() - t0) / 1000) };
+    if (e?.seq) return { seq: e.seq, occurred_at: e.occurred_at, waited_s: Math.round((Date.now() - t0) / 1000) };
     if (Date.now() - t0 > limitS * 1000) throw new Error(`entry of ${subject} not sealed after ${limitS} s`);
     await sleep(2000);
   }
@@ -142,7 +145,16 @@ const incident = await createIncident('alice', {
 }, `tick448-s16-${run}-incident`);
 const bobIncident = await createIncident('bob', { short_description: `S16 ${run} tenant B`, priority: 3 }, `tick448-s16-${run}-bob`);
 console.log(`s16: Alice's incident ${incident}, Bob's ${bobIncident}`);
+// AC3: one incident per leading character a spreadsheet treats as a formula
+// (= + - @, tab, CR). Their text reaches the CSV only inside the diff cell.
+const LEADS = ['=', '+', '-', '@', '\t', '\r'];
+const leadIncidents = [];
+for (const [i, c] of LEADS.entries()) {
+  leadIncidents.push({ lead: c, value: `${c}HYPERLINK("http://example.invalid","S16 ${run} ${i}")`,
+    id: await createIncident('alice', { short_description: `${c}HYPERLINK("http://example.invalid","S16 ${run} ${i}")`, priority: 3 }, `tick448-s16-${run}-lead-${i}`) });
+}
 const sealed = await waitSealed(incident);
+for (const l of leadIncidents) l.sealed = await waitSealed(l.id);
 console.log(`s16: Alice's incident sealed at seq ${sealed.seq} (polled ${sealed.waited_s} s)`);
 
 // ---------------------------------------------------------------- AC1
@@ -227,30 +239,71 @@ check('AC2', 'the entry records the request', added.length === 1 && JSON.stringi
 check('AC2', "AC1's filtered export is an audit/export entry with its filter", before.some((e) => JSON.stringify(e.diff ?? '').includes(incident)));
 
 // ---------------------------------------------------------------- AC3
-const csv = await call('auditor', 'GET', `/api/v1/audit/entries:export?subject_id=${incident}&format=csv`);
-const C = `${EV}/ac3-export-filtered.csv`;
-writeFileSync(C, csv.text);
-const ctype = csv.headers['content-type'] || '';
-check('AC3', 'format=csv: 200, text/csv', csv.status === 200 && /text\/csv/.test(ctype), `HTTP ${csv.status}, ${ctype}`);
-if (/text\/csv/.test(ctype)) {
-  // RFC 4180 cells, CRLF rows; a quoted cell may hold commas, quotes and LF.
-  const cells = [];
-  let cell = '', q = false;
-  for (let i = 0; i < csv.text.length; i++) {
-    const ch = csv.text[i];
+// RFC 4180 cells, CRLF rows; a quoted cell may hold commas, quotes and LF.
+function csvRows(text) {
+  const rows = [];
+  let row = [], cell = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
     if (q) {
-      if (ch === '"' && csv.text[i + 1] === '"') { cell += '"'; i++; } else if (ch === '"') q = false; else cell += ch;
+      if (ch === '"' && text[i + 1] === '"') { cell += '"'; i++; } else if (ch === '"') q = false; else cell += ch;
     } else if (ch === '"') q = true;
-    else if (ch === ',') { cells.push(cell); cell = ''; } else if (ch === '\r' && csv.text[i + 1] === '\n') { cells.push(cell); cell = ''; i++; } else cell += ch;
+    else if (ch === ',') { row.push(cell); cell = ''; } else if (ch === '\r' && text[i + 1] === '\n') { row.push(cell); rows.push(row); row = []; cell = ''; i++; } else cell += ch;
   }
-  const bad = cells.filter((c) => /^[=+\-@\t\r]/.test(c));
-  const prefixed = cells.filter((c) => /^'[=+\-@\t\r']/.test(c));
-  check('AC3', 'no cell starts with = + - @ tab or CR unprefixed', bad.length === 0, `${bad.length} unprefixed, ${prefixed.length} prefixed with '`);
-  v = verifyFile(C, `${EV}/ac3-verify-csv.txt`);
-  check('AC3', 'nava audit verify on the CSV: ok, exit 0', v.code === 0, v.out.split('\n')[0]);
-} else {
-  writeFileSync(`${EV}/ac3-format-csv-response.txt`, `GET /api/v1/audit/entries:export?subject_id=${incident}&format=csv\nHTTP ${csv.status}\ncontent-type: ${ctype}\n\n${csv.text.slice(0, 600)}\n`);
+  if (cell.length || row.length) { row.push(cell); rows.push(row); }
+  return rows;
 }
+const FORMULA = /^[=+\-@\t\r]/;
+async function csvExport(query, base) {
+  const r = await call('auditor', 'GET', `/api/v1/audit/entries:export?${query}&format=csv`);
+  writeFileSync(`${EV}/${base}.csv`, r.text);
+  const ctype = r.headers['content-type'] || '';
+  const ok = r.status === 200 && /^text\/csv/.test(ctype) && /\.csv"$/.test(r.headers['content-disposition'] || '');
+  return { r, ok, ctype, rows: ok ? csvRows(r.text) : [] };
+}
+// The filtered export of AC1, as CSV.
+let c1 = await csvExport(`subject_id=${incident}`, 'ac3-export-filtered');
+check('AC3', 'format=csv: 200, text/csv, a .csv attachment', c1.ok, `HTTP ${c1.r.status}, ${c1.ctype}, ${c1.r.headers['content-disposition']}`);
+v = verifyFile(`${EV}/ac3-export-filtered.csv`, `${EV}/ac3-verify-filtered-csv.txt`);
+check('AC3', 'nava audit verify on the filtered CSV: ok, exit 0', v.code === 0 && v.out.startsWith('ok: '), v.out.split('\n')[0]);
+// Its rows are the JSONL lines: header, anchor, the range, unsealed, trailer
+// (the head has moved since AC1, so the trailer of this file is the measure).
+{
+  const kinds = c1.rows.slice(1).map((r) => r[0]);
+  const t = JSON.parse(c1.rows.at(-1)?.at(-1) || '{}');
+  const want = 2 + t.count + t.stub_count + t.unsealed_count + 1;
+  check('AC3', 'CSV rows: the column row, header first, trailer last, one row per line the trailer counts',
+    kinds[0] === 'header' && kinds.at(-1) === 'trailer' && kinds.length === want,
+    `${kinds.length} rows after the column row; trailer: count ${t.count}, stub_count ${t.stub_count}, unsealed_count ${t.unsealed_count}`);
+}
+
+// The six leading characters: the window holds exactly the six incidents.
+const ts = leadIncidents.map((l) => Date.parse(l.sealed.occurred_at));
+const from = new Date(Math.min(...ts)).toISOString();
+const to = new Date(Math.max(...ts) + 1).toISOString();
+const c6 = await csvExport(`subject_type=record&from=${from}&to=${to}`, 'ac3-export-six-leads');
+check('AC3', 'six-lead window as CSV: 200, text/csv', c6.ok, `HTTP ${c6.r.status}, ${c6.ctype}`);
+const cols = c6.rows[0] || [];
+const ci = (n) => cols.indexOf(n);
+const report = [];
+for (const l of leadIncidents) {
+  const row = c6.rows.find((r) => r[ci('subject_id')] === l.id && r[ci('kind')] === 'entry');
+  const diffCell = row ? row[ci('diff')] : undefined;
+  let stored;
+  try { stored = JSON.parse(diffCell)[0].value.short_description; } catch { stored = undefined; }
+  const name = JSON.stringify(l.lead);
+  report.push({ lead: name, incident: l.id, seq: l.sealed.seq, row_found: !!row, diff_cell_starts_with: diffCell?.[0], short_description_in_diff: stored });
+  check('AC3', `lead ${name}: the incident is a full CSV row; its diff cell starts with [ and keeps the text verbatim`, !!row && diffCell[0] === '[' && stored === l.value, row ? `diff cell starts ${JSON.stringify(diffCell.slice(0, 1))}` : 'no row');
+}
+const all = c6.rows.flat().concat(c1.rows.flat());
+const bad = all.filter((c) => FORMULA.test(c));
+const prefixed = all.filter((c) => /^'[=+\-@\t\r']/.test(c));
+check('AC3', 'no CSV cell starts with = + - @ tab or CR (a spreadsheet executes nothing)', bad.length === 0, `${all.length} cells, ${bad.length} start with a formula character, ${prefixed.length} carry the ' prefix`);
+v = verifyFile(`${EV}/ac3-export-six-leads.csv`, `${EV}/ac3-verify-six-leads-csv.txt`);
+check('AC3', 'nava audit verify on the six-lead CSV: ok, exit 0', v.code === 0 && v.out.startsWith('ok: '), v.out.split('\n')[0]);
+writeFileSync(`${EV}/ac3-six-leads.json`, JSON.stringify({ window: { from, to }, cells: all.length, formula_leading_cells: bad.length, prefixed_cells: prefixed.length, leads: report }, null, 2) + '\n');
+const bogus = await call('auditor', 'GET', `/api/v1/audit/entries:export?subject_id=${incident}&format=xml`, { save: 'ac3-format-xml-400' });
+check('AC3', 'an unknown format is refused: 400 validation_failed', bogus.status === 400 && bogus.json?.code === 'validation_failed', `HTTP ${bogus.status} ${bogus.json?.code}`);
 
 // ---------------------------------------------------------------- AC4
 const reseed = await call('auditor', 'POST', '/api/v1/audit/chain:reseed', { headers: { 'Idempotency-Key': `tick448-s16-${run}-reseed` }, save: 'ac4-reseed-409' });
