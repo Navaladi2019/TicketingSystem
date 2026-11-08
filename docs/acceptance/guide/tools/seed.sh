@@ -106,11 +106,30 @@ DO \$\$ BEGIN
     RAISE EXCEPTION 'no groups row for /t/$A/admins after group sync';
   END IF;
 END \$\$;
+-- Auditors groups (P5-18): the realm import creates /t/<tenant>/auditors and
+-- group sync the groups rows; the pointer rows of tenants onboarded before
+-- tenant_auditor_group are written here, as the migrator.
+INSERT INTO tenant_auditor_group (tenant_id, group_id)
+  SELECT tenant_id, id FROM groups WHERE tenant_id IN ('$A', '$B') AND path = '/t/' || tenant_id::text || '/auditors'
+  ON CONFLICT DO NOTHING;
+DO \$\$ BEGIN
+  IF (SELECT count(*) FROM tenant_auditor_group WHERE tenant_id IN ('$A', '$B')) <> 2 THEN
+    RAISE EXCEPTION 'no groups row for an auditors group after group sync';
+  END IF;
+END \$\$;
 CREATE TEMP TABLE seed_tpl (name text, doc json);
 INSERT INTO seed_tpl VALUES
   ('Incident', \$tpl\$$(tpl incident)\$tpl\$),
   ('Request', \$tpl\$$(tpl request)\$tpl\$),
   ('Change', \$tpl\$$(tpl change)\$tpl\$);
+-- The seeded entity types stand for history written before the audit log
+-- (S14 AC2): their versions get no entry here, and audit_backfill_s8()
+-- re-run after the seed gives them their backfilled entries. Migration B
+-- (P5-32) put the commit check on both tables, so it is off for this one
+-- transaction and back on before it commits.
+BEGIN;
+ALTER TABLE entity_definitions DISABLE TRIGGER entity_definitions_audit_commit_check;
+ALTER TABLE entity_definition_versions DISABLE TRIGGER entity_definition_versions_audit_commit_check;
 INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version)
   SELECT t.id, gen_random_uuid(), s.doc->>'key', s.name, s.doc->>'number_prefix', 1
   FROM seed_tpl s CROSS JOIN tenants t WHERE t.id IN ('$A', '$B')
@@ -123,6 +142,9 @@ INSERT INTO entity_definition_versions
   FROM seed_tpl s JOIN entity_definitions d ON d.key = s.doc->>'key'
   WHERE d.tenant_id IN ('$A', '$B')
   ON CONFLICT DO NOTHING;
+ALTER TABLE entity_definitions ENABLE TRIGGER entity_definitions_audit_commit_check;
+ALTER TABLE entity_definition_versions ENABLE TRIGGER entity_definition_versions_audit_commit_check;
+COMMIT;
 SELECT d.tenant_id AS tenant, d.key, d.current_version, encode(v.schema_sha256, 'hex') AS v1_schema_sha256
   FROM entity_definitions d JOIN entity_definition_versions v
     ON v.tenant_id = d.tenant_id AND v.definition_id = d.id AND v.version = 1

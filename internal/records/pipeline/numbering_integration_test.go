@@ -46,10 +46,7 @@ func throughBouncer(t *testing.T, e env, maxConns int32) env {
 	pw, _ := testPassword("nava_app")
 	u.User = url.UserPassword("nava_app", pw)
 	u.Path = "/" + e.platform
-	cfg, err := pgxpool.ParseConfig(u.String())
-	if err != nil {
-		t.Fatal(err)
-	}
+	cfg := serverPoolConfig(t, u.String())
 	cfg.MaxConns = maxConns
 	p, err := pgxpool.NewWithConfig(context.Background(), cfg)
 	if err != nil {
@@ -537,8 +534,14 @@ func TestIdempotencyKeyMismatchConflicts(t *testing.T) {
 		{"update key, used by a create", system(createCmd(f, map[string]any{"title": "x"}), "wf:u"), nil},
 		{"update key, other record", system(updateCmd(f, other.RecordID, 1, map[string]any{"summary": "x"}), "wf:u"), nil},
 		{"update key, other entity type", system(assetUpdate(f, asset.RecordID, 1, map[string]any{"name": "x"}), "wf:u"), nil},
+		{"create key, entity type the tenant lacks", func() pipeline.Command {
+			c := system(createCmd(f, map[string]any{"title": "x"}), "wf:c")
+			c.EntityKey = "no_such_type"
+			return c
+		}(), nil},
 	}
-	audits := count(t, e.super, "SELECT count(*) FROM audit_log WHERE tenant_id = $1", f.id)
+	keys := count(t, e.super, "SELECT count(*) FROM record_write_keys WHERE tenant_id = $1", f.id)
+	audits := count(t, e.super, "SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND domain = 'record'", f.id)
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			got, err := write(ctx, e, p, f.id, c.cmd)
@@ -554,28 +557,20 @@ func TestIdempotencyKeyMismatchConflicts(t *testing.T) {
 			}
 		})
 	}
-	if n := count(t, e.super, "SELECT count(*) FROM audit_log WHERE tenant_id = $1", f.id); n != audits {
+	if n := count(t, e.super, "SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND domain = 'record'", f.id); n != audits {
 		t.Fatalf("%d audit rows after the table, want %d: a conflict or replay wrote", n, audits)
+	}
+	if n := count(t, e.super, "SELECT count(*) FROM record_write_keys WHERE tenant_id = $1", f.id); n != keys || keys != 2 {
+		t.Fatalf("%d record_write_keys rows after the table, want %d (= 2)", n, keys)
 	}
 }
 
 // The server's pool sends statements over pgx.QueryExecModeExec (PgBouncer,
 // TICK-358): a []byte argument goes out as bytea, which a ::jsonb cast
-// refuses (SQLSTATE 22P02). The unique check must work on that pool.
+// refuses (SQLSTATE 22P02). The unique check must work on that pool; every
+// pool migrated opens is in that mode (serverPoolConfig).
 func TestUniquePropertiesOnTheServersPoolMode(t *testing.T) {
 	e := migrated(t)
-	cfg, err := pgxpool.ParseConfig(appDSN(t, e.platform))
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
-	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
-	e.app = pool
-
 	a := seedTenantWith(t, e, assetDefinition())
 	p := newPipeline(e, nil)
 	ctx := context.Background()

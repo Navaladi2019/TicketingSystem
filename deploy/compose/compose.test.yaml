@@ -62,6 +62,46 @@ services:
       retries: 60
     restart: "no"
 
+  # The activity-only stack worker (TICK-453): the nava-worker image and
+  # identity with NAVA_WORKER_WORKFLOWS=off, so it runs the service's
+  # activities (nava.workflow_ref.Close, audit.seal A1 and A2) and polls no
+  # workflow task. The nava-tq rule: every worker that polls workflow tasks on
+  # a queue registers the same workflow types. The internal/temporalstack
+  # cases (sdk, demo_outbox) run their own nava.interpreter workflow workers,
+  # so their TestMain stops nava-worker, starts this in its place, and swaps
+  # them back at the end. In its own profile, so `up` never starts it. It
+  # reuses nava-worker's image: no build, never pulled.
+  nava-worker-activities:
+    profiles: [activityonly]
+    image: nava/nava-worker:${NAVA_IMAGE_TAG:-dev}
+    pull_policy: never
+    environment:
+      NAVA_TEMPORAL_ADDRESS: temporal:7233
+      NAVA_TEMPORAL_TLS_CERT_FILE: /run/temporal-tls/nava-worker.pem
+      NAVA_TEMPORAL_TLS_KEY_FILE: /run/temporal-tls/nava-worker.key
+      NAVA_TEMPORAL_TLS_CA_FILE: /run/temporal-tls/ca.pem
+      NAVA_TEMPORAL_TLS_SERVER_NAME: temporal
+      NAVA_DATABASE_URL: postgres://nava_worker:${NAVA_WORKER_DB_PASSWORD:-dev-only-worker}@pgbouncer:5432/nava?sslmode=disable
+      NAVA_LOG_FORMAT: json
+      OTEL_SERVICE_NAME: nava-worker-activities
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      NAVA_WORKER_WORKFLOWS: "off"
+    volumes:
+      - ./deploy/compose/certs/nava-worker.pem:/run/temporal-tls/nava-worker.pem:ro
+      - ./deploy/compose/certs/nava-worker.key:/run/temporal-tls/nava-worker.key:ro
+      - ./deploy/compose/certs/ca.pem:/run/temporal-tls/ca.pem:ro
+    networks: [internal]
+    depends_on:
+      otel-collector: {condition: service_healthy}
+      temporal: {condition: service_healthy}
+      pgbouncer: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/readyz"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+    restart: "no"
+
 volumes:
   # Storage outside the interptest worker's process and container lifetime:
   # the crash case's out-of-process record (TICK-351). Each case run uses its

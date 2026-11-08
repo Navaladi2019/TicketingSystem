@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -30,8 +31,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Navaladi2019/TicketingSystem/db"
+	"github.com/Navaladi2019/TicketingSystem/internal/audit/read"
+	"github.com/Navaladi2019/TicketingSystem/internal/db/audited"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/catalog"
-	"github.com/Navaladi2019/TicketingSystem/internal/db/grants"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/migrate"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/roles"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
@@ -68,7 +70,7 @@ func etIdent(s string) string { return pgx.Identifier{s}.Sanitize() }
 func etCluster(t *testing.T) (*pgx.Conn, *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.Background()
-	m, err := grants.Parse(db.Grants())
+	m, am, err := audited.Load(db.Grants(), db.AuditedTables())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +121,7 @@ func etCluster(t *testing.T) (*pgx.Conn, *pgxpool.Pool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := migrate.Run(ctx, owner, db.Migrations(), m, gt, log, migrate.Options{LockRetrySeconds: 1}); err != nil {
+	if _, err := migrate.Run(ctx, owner, db.Migrations(), m, am, gt, log, migrate.Options{LockRetrySeconds: 1}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
@@ -144,6 +146,25 @@ func etCluster(t *testing.T) (*pgx.Conn, *pgxpool.Pool) {
 	}
 	t.Cleanup(pool.Close)
 	return super, pool
+}
+
+// etAuditReader opens the audit reader's own pool as nava-core does
+// (read.OpenPool with a DSN, ADR-004-A1 A1-5, A1-6): nava_audit_reader on the
+// platform database app's pool uses.
+func etAuditReader(t *testing.T, app *pgxpool.Pool) *read.Pool {
+	t.Helper()
+	u, err := url.Parse(os.Getenv("NAVA_TEST_PG_URL"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.User = url.UserPassword("nava_audit_reader", etPassword("nava_audit_reader"))
+	u.Path = "/" + app.Config().ConnConfig.Database
+	p, err := read.OpenPool(t.Context(), u.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(p.Close)
+	return p
 }
 
 // etTenant is a seeded tenant: an admin (member of the group
@@ -201,10 +222,15 @@ type etEnv struct {
 	pool   *pgxpool.Pool
 	a, b   etTenant
 	super  *pgx.Conn
+	logs   *etLogBuf
+	lim    *spyLimiter // allows by default; reset(false) refuses every call
 	tel    *telemetry.Telemetry
 }
 
-func newETEnv(t *testing.T) *etEnv {
+func newETEnv(t *testing.T) *etEnv { return newETEnvWith(t) }
+
+// newETEnvWith is newETEnv with extra handler options.
+func newETEnvWith(t *testing.T, extra ...server.Option) *etEnv {
 	t.Helper()
 	super, pool := etCluster(t)
 	a, b := etSeedTenant(t, super, "a"), etSeedTenant(t, super, "b")
@@ -223,12 +249,14 @@ func newETEnv(t *testing.T) *etEnv {
 	}
 	lim := &spyLimiter{}
 	lim.reset(true)
-	h, err := server.NewHandler(slog.New(slog.NewTextHandler(testLogWriter{t}, &slog.HandlerOptions{Level: slog.LevelWarn})), tel, tokens, stubPaths{},
-		server.WithLimiter(lim), server.WithPool(pool), server.WithCursors(kr))
+	logs := &etLogBuf{}
+	reader := etAuditReader(t, pool)
+	h, err := server.NewHandler(slog.New(slog.NewTextHandler(testLogWriter{t, logs}, &slog.HandlerOptions{Level: slog.LevelWarn})), tel, tokens, stubPaths{},
+		append([]server.Option{server.WithLimiter(lim), server.WithPool(pool), server.WithAuditReader(reader), server.WithCursors(kr)}, extra...)...)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &etEnv{h: h, tokens: tokens, pool: pool, a: a, b: b, super: super, tel: tel}
+	return &etEnv{h: h, tokens: tokens, pool: pool, a: a, b: b, super: super, logs: logs, lim: lim, tel: tel}
 }
 
 func (e *etEnv) do(t *testing.T, method, path, token, idemKey, body string) *httptest.ResponseRecorder {
@@ -301,6 +329,9 @@ func pointers(p etProblem) []string {
 	return out
 }
 
+// covers: createEntityType 201
+// covers: getEntityType 200
+// covers: getEntityTypeVersion 200
 func TestCreateThenReadVersionIsByteIdentical(t *testing.T) {
 	e := newETEnv(t)
 	rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "k-create-1", etBody("incident", "INC"))
@@ -346,6 +377,7 @@ func TestCreateThenReadVersionIsByteIdentical(t *testing.T) {
 	}
 }
 
+// covers: createEntityType 403
 func TestCreateRequiresTheTenantAdminGroup(t *testing.T) {
 	e := newETEnv(t)
 	for _, token := range []string{"user-a", "lookalike-a"} {
@@ -365,6 +397,7 @@ func TestCreateRequiresTheTenantAdminGroup(t *testing.T) {
 	}
 }
 
+// covers: createEntityType 400 401 409 422
 func TestCreateConflictsAndInvalidDefinitions(t *testing.T) {
 	e := newETEnv(t)
 	post := func(key, body string) *httptest.ResponseRecorder {
@@ -409,6 +442,7 @@ func TestCreateConflictsAndInvalidDefinitions(t *testing.T) {
 	}
 }
 
+// covers: createEntityType 201 409
 func TestCreateIdempotentReplay(t *testing.T) {
 	e := newETEnv(t)
 	body := etBody("incident", "INC")
@@ -437,6 +471,7 @@ func etPrefix(i int) string {
 	return s
 }
 
+// covers: listEntityTypes 200 400
 func TestListPagesWithoutDuplicates(t *testing.T) {
 	e := newETEnv(t)
 	const total = 120
@@ -518,6 +553,8 @@ func TestListPagesWithoutDuplicates(t *testing.T) {
 	wantProblem(t, rec, http.StatusBadRequest, problem.InvalidCursor)
 }
 
+// covers: getEntityType 401 404
+// covers: getEntityTypeVersion 400 404
 func TestUnknownAndForeignKeysGiveTheSameNotFound(t *testing.T) {
 	e := newETEnv(t)
 	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "ka", etBody("secret_type", "SEC")); rec.Code != http.StatusCreated {
@@ -611,6 +648,7 @@ func TestDefinitionReaderIsTenantScoped(t *testing.T) {
 // Two parallel creates of one key (each with its own Idempotency-Key, so the
 // idempotency layer does not serialise them) race to the unique index. One is
 // 201; the other must be the registered 409, never a 500 (mapUnique).
+// covers: createEntityType 201 409
 func TestParallelCreateOfOneKeyGivesOne201AndOne409(t *testing.T) {
 	e := newETEnv(t)
 	const n = 2
@@ -646,10 +684,34 @@ func TestParallelCreateOfOneKeyGivesOne201AndOne409(t *testing.T) {
 
 // testLogWriter sends the server's warnings and errors to the test log, so a
 // 500 in CI shows its wrapped cause.
-type testLogWriter struct{ t *testing.T }
+type testLogWriter struct {
+	t   *testing.T
+	buf *etLogBuf
+}
 
 func (w testLogWriter) Write(p []byte) (int, error) {
 	w.t.Helper()
 	w.t.Log(strings.TrimRight(string(p), "\n"))
+	if w.buf != nil {
+		w.buf.add(p)
+	}
 	return len(p), nil
+}
+
+// etLogBuf collects the handler's log lines so a test can assert on them.
+type etLogBuf struct {
+	mu sync.Mutex
+	sb strings.Builder
+}
+
+func (b *etLogBuf) add(p []byte) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.sb.Write(p)
+}
+
+func (b *etLogBuf) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.sb.String()
 }

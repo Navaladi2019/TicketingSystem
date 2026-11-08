@@ -94,7 +94,7 @@ func seedTenants(t *testing.T, super *pgx.Conn, active, provisioning []string) {
 		exec(t, super, "INSERT INTO tenants (id, state) VALUES ($1, 'active')", id)
 		exec(t, super, "INSERT INTO tenant_identity_binding (tenant_id, issuer, org_id) VALUES ($1, 'https://kc/realms/nava', $2)",
 			id, fmt.Sprintf("org-%d", i))
-		exec(t, super, "INSERT INTO records (tenant_id, id) VALUES ($1, $1)", id)
+		exec(t, super, recordWrite(t, super, "INSERT INTO records (tenant_id, id) VALUES ($1, $1)"), id)
 		exec(t, super, `INSERT INTO outbox (id, tenant_id, kind, dedupe_key, target_key, target_seq)
 			VALUES (gen_random_uuid(), $1::uuid, 'workflow.start', 'seed', 'rec:' || $1::text, 1)`, id)
 		exec(t, super, "INSERT INTO workflow_ref (tenant_id, outbox_id, record_id, kind) VALUES ($1, gen_random_uuid(), $1, 'approval')", id)
@@ -119,7 +119,8 @@ func TestT09EveryTableForcesRLS(t *testing.T) {
 		SELECT coalesce(string_agg(relname, ',' ORDER BY relname), '') FROM pg_class
 		WHERE relnamespace = 'public'::regnamespace AND relkind IN ('r', 'p')
 		  AND relrowsecurity AND relforcerowsecurity`)
-	want := strings.Join(sorted(append(append(platformTables(), identityTables()...), "tenant_email_domain", "pending_invite", "tenant_admin_group", "entity_definitions", "entity_definition_versions", "audit_log", "record_counters", "cascade_start", "acl_versions", "record_shares")), ",")
+	want := strings.Join(sorted(append(append(platformTables(), identityTables()...), "tenant_email_domain", "pending_invite", "tenant_admin_group", "entity_definitions", "entity_definition_versions", "record_counters", "cascade_start", "tenant_auditor_group",
+		"audit_log", "audit_log_default", "audit_chain_head", "record_write_keys", "acl_versions", "record_shares")), ",")
 	if got != want {
 		t.Fatalf("tables with ENABLE + FORCE RLS = %s, want %s", got, want)
 	}
@@ -531,4 +532,32 @@ func TestT09NoTenantNoWrite(t *testing.T) {
 	app := asRole(t, "nava_app")
 	_, err := execIn(app, "", "INSERT INTO records (tenant_id, id) VALUES ($1, gen_random_uuid())", tenantA)
 	wantSQLState(t, "insert with no tenant", err, "42501")
+}
+
+// recordWrite is write wrapped by withRecordEntry once the records
+// commit-check trigger is attached (P5-13c, TICK-530), and write unchanged
+// before it: partial-migration tests seed through the same helpers at
+// versions where audit_log is S9's table or the trigger is not there yet.
+func recordWrite(t *testing.T, super *pgx.Conn, write string) string {
+	t.Helper()
+	if queryString(t, super, `SELECT count(*)::text FROM pg_trigger
+		WHERE tgrelid = 'records'::regclass AND tgname = 'records_audit_commit_check'`) == "0" {
+		return write
+	}
+	return withRecordEntry(write)
+}
+
+// withRecordEntry turns one INSERT or UPDATE of records (no RETURNING) into
+// a statement that also writes each written row's audit_log entry, so a
+// fixture's COMMIT passes the records commit-check trigger (P5-13b,
+// ADR-004 decision 2). It runs as any role with the writer grants, or the
+// superuser.
+func withRecordEntry(write string) string {
+	action := "create"
+	if strings.HasPrefix(strings.TrimSpace(strings.ToUpper(write)), "UPDATE") {
+		action = "update"
+	}
+	return "WITH r AS (" + write + " RETURNING tenant_id, id, version) " +
+		`INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, version_after, actor_system, source)
+		 SELECT tenant_id, gen_random_uuid(), 'record', '` + action + `', 'record', id, version, 'system', 'system' FROM r`
 }

@@ -1,5 +1,5 @@
 #!/bin/sh
-# stack-case: job=stack order=51 mode=serial
+# stack-case: job=stack order=51 mode=serial area=keycloak
 # Restarts PostgreSQL, so it runs after dependencies and before the cases that count on a settled stack.
 set -eu
 . "$(dirname "$0")/../case-env.sh"

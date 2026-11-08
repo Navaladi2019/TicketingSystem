@@ -24,6 +24,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -34,10 +35,21 @@ import (
 	"strings"
 )
 
-func main() {
-	root := flag.String("root", ".", "repository root")
-	pinsFile := flag.String("pins", "docs/pins.md", "pins file, relative to -root unless absolute")
-	flag.Parse()
+func main() { os.Exit(cli(os.Args[1:], os.Stdout, os.Stderr)) }
+
+// cli parses the flags and runs the check, returning the exit code: 0, 1 when
+// anything is out of step, or 2 when the check could not run.
+func cli(args []string, stdout, stderr io.Writer) int {
+	fl := flag.NewFlagSet("checkpins", flag.ContinueOnError)
+	fl.SetOutput(stderr)
+	root := fl.String("root", ".", "repository root")
+	pinsFile := fl.String("pins", "docs/pins.md", "pins file, relative to -root unless absolute")
+	if err := fl.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0 // as flag.ExitOnError does
+		}
+		return 2
+	}
 
 	pinsPath := *pinsFile
 	if !filepath.IsAbs(pinsPath) {
@@ -45,16 +57,17 @@ func main() {
 	}
 	problems, err := check(*root, pinsPath)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "check-pins:", err)
-		os.Exit(2)
+		fmt.Fprintln(stderr, "check-pins:", err)
+		return 2
 	}
 	for _, p := range problems {
-		fmt.Fprintln(os.Stderr, "check-pins:", p)
+		fmt.Fprintln(stderr, "check-pins:", p)
 	}
 	if len(problems) > 0 {
-		os.Exit(1)
+		return 1
 	}
-	fmt.Println("check-pins: ok")
+	fmt.Fprintln(stdout, "check-pins: ok")
+	return 0
 }
 
 // pins is the parsed docs/pins.md.

@@ -11,16 +11,20 @@ import (
 )
 
 // T13 (TICK-68) adversarial guards for the cross-tenant purge. nava_purge
-// reaches every tenant, so its reach must stop at the six *_purge policies
-// and the nava_purge column grants, whatever the purge code asks for.
+// reaches every tenant, so its reach must stop at the six *_purge policies,
+// the dead-lineage read (TICK-590) and the nava_purge column grants,
+// whatever the purge code asks for.
 
-// The only policies that name nava_purge are the six paired purge policies.
-func TestT13PurgeRoleHasOnlySixPolicies(t *testing.T) {
+// The only policies that name nava_purge are the six paired purge policies
+// and audit_chain_head_purge_select, R17's read-only dead-lineage policy
+// (TICK-590; internal/audit/lineage tests its rows and columns).
+func TestT13PurgeRoleHasOnlySevenPolicies(t *testing.T) {
 	migratedPlatform(t)
 	got := queryString(t, superNava(t), `
 		SELECT string_agg(tablename || '.' || policyname || ':' || cmd, ',' ORDER BY tablename, policyname)
 		FROM pg_policies WHERE 'nava_purge' = ANY (roles) OR 'public' = ANY (roles)`)
-	want := "idempotency_keys.idempotency_purge:DELETE,idempotency_keys.idempotency_purge_select:SELECT," +
+	want := "audit_chain_head.audit_chain_head_purge_select:SELECT," +
+		"idempotency_keys.idempotency_purge:DELETE,idempotency_keys.idempotency_purge_select:SELECT," +
 		"outbox.outbox_purge:DELETE,outbox.outbox_purge_select:SELECT," +
 		"workflow_ref.workflow_ref_purge:DELETE,workflow_ref.workflow_ref_purge_select:SELECT"
 	if got != want {

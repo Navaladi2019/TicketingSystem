@@ -1,0 +1,54 @@
+meta {
+  name: S15K.2 AC2: every tenant A entry written since the kill is sealed, with no gap and no duplicate seq
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{core_url}}/api/v1/audit/entries?from={{s15_kill_at}}&limit=500
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{auditor_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await require('./lib/s15')(N, bru).fresh();
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  // This response is the first page; the rest are read here.
+  let page = N.json();
+  const items = [...page.items];
+  while (page.next_page_token) {
+    const r = await N.send({
+      url: N.url('{{core_url}}/api/v1/audit/entries?from={{s15_kill_at}}&limit=500&page_token=' + encodeURIComponent(page.next_page_token)),
+      method: 'GET',
+      headers: { Authorization: 'Bearer ' + bru.getVar('auditor_token') },
+    });
+    page = r.data;
+    items.push(...page.items);
+  }
+  const seqs = items.map(e => e.seq);
+  test('the load wrote entries after the kill', () => expect(items.length).to.be.above(100));
+  test('every entry since the kill is sealed', () => items.forEach(e => {
+    expect(e.seq, e.id).to.be.a('number');
+    expect(e.sealed_at, e.id).to.be.a('string');
+  }));
+  test('no seq twice', () => expect(new Set(seqs).size).to.eql(seqs.length));
+  test('consecutive seqs: no gap', () => {
+    const s = [...seqs].sort((a, b) => a - b);
+    s.forEach((x, i) => expect(x).to.eql(s[0] + i));
+  });
+  const lat = items.map(e => (Date.parse(e.sealed_at) - Date.parse(e.occurred_at)) / 1000).sort((a, b) => a - b);
+  console.log('S15K.2', JSON.stringify({ entries: items.length, seq_from: Math.min(...seqs), seq_to: Math.max(...seqs), latency_max_s: lat[lat.length - 1], latency_p50_s: lat[Math.floor(lat.length / 2)] }));
+}
+
+docs {
+  The entries written while the worker was down are sealed by the restarted worker, after the ones written before the kill: one run of consecutive seq numbers.
+}

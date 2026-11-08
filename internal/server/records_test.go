@@ -178,3 +178,23 @@ func TestRecordErrorMapsUnderThePipelinesVersion(t *testing.T) {
 		t.Errorf("unmapped under the pipeline's version: got the %s problem, want the raw error", pe.code)
 	}
 }
+
+// ADR-004-E5 D6 (TICK-537): the pipeline's refusal of a group that is not
+// live in the tenant is 422 assignment_group_removed at the property mapped
+// to assignment_group_id under the pipeline's version, rule "removed", and
+// never shows the cause.
+func TestRecordErrorMapsAssignmentGroupRemoved(t *testing.T) {
+	t.Parallel()
+	h, _ := recHandler()
+	err := h.recordError(t.Context(), fmt.Errorf("tx: %w", &pipeline.ErrAtVersion{
+		SchemaVersion: 2, StateProperty: "status", Err: pipeline.ErrAssignmentGroupRemoved,
+		FixedColumns: map[string]string{"status": metadata.ColumnState, "team": metadata.ColumnAssignmentGroupID},
+	}), recFixedColumns(), "state")
+	var pe *problemError
+	if !errors.As(err, &pe) || pe.code != problem.AssignmentGroupRemoved {
+		t.Fatalf("err = %v, want the assignment_group_removed problem", err)
+	}
+	if len(pe.fields) != 1 || pe.fields[0].Pointer != "/data/team" || pe.fields[0].Rule != "removed" {
+		t.Errorf("fields = %+v, want [{/data/team removed}]", pe.fields)
+	}
+}

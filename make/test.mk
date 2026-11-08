@@ -13,7 +13,10 @@ ci-unit: test
 # isolation suite (review-paths.yaml, cto_signoff.isolation_tests) ran zero
 # tests; its -tags are the tags the step means to test with, so keep them
 # beside go test's own.
+# Coverage (TICK-518): -coverpkg=./... credits a block to whichever package's
+# tests ran it, and coverage.out is the unit half of make check-coverage
+# (atomic, the mode -race needs). The navalint module is not part of it.
 test:
-	go run ./tools/ci/racelock -- go run ./tools/ci/suiteran -- go test -json -race -trimpath ./...
+	go run ./tools/ci/racelock -- go run ./tools/ci/suiteran -- go test -json -race -trimpath -covermode=atomic -coverpkg=./... -coverprofile=coverage.out ./...
 	go run ./tools/ci/racelock -- go -C tools/navalint test -race ./...
 

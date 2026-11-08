@@ -27,6 +27,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/audit/read"
 )
 
 // The seeded tenants (testdata/seed.sql). Every registered path runs as
@@ -40,6 +42,9 @@ const (
 
 	// RecordB1 is one of tenant B's records.
 	RecordB1 = "0b000000-0000-4000-8000-0000000000b1"
+	// RecordA2 is tenant A's pipeline record (P3-09); the seed also repeats it
+	// as the subject of one of tenant B's audit_log entries.
+	RecordA2 = "0a000000-0000-4000-8000-0000000000a2"
 	// RecordB2 is tenant B's pipeline record (P3-09), with audit rows.
 	RecordB2 = "0b000000-0000-4000-8000-0000000000b2"
 	// PrincipalB1 is a tenant B principal who is a member of a group.
@@ -132,6 +137,10 @@ type Cluster interface {
 	// PgBouncer's one server connection for the role: a check that holds a
 	// server connection while another request needs one waits forever.
 	PooledSize(role string, conns int32) (*pgxpool.Pool, error)
+	// AuditReader is the audit reader's own pool (read.OpenPool), logged in
+	// as nava_audit_reader through PgBouncer with a DSN, as nava-core opens
+	// it (ADR-004-A1 A1-5, A1-6).
+	AuditReader() (*read.Pool, error)
 	// Super is the bootstrap superuser on the platform database, which RLS
 	// does not hold. A DB path that seeds rows with it deletes them before
 	// it returns, so later checks see the seed unchanged.
@@ -213,12 +222,18 @@ type Path struct {
 // "Annex B coverage"). The report prints it above each group.
 func Coverage() map[string]string {
 	return map[string]string{
-		"CI-2":  "full: generic checks on every tenant table; forged-tenant HTTP paths (T17); the forged write on POST /api/v1/records/incident, StoredUnderA (P3-18)",
-		"CI-9":  "full: nava_relay, nava_purge, nava_onboard and nava_backup reach (T12); nava_backup through T08's pg_hba cases",
-		"CI-8":  "partial → P3-37 (S10): the masked-field filter 400 needs S10's masks; here the record routes' byte-identical 404 on GET, PATCH and history, stale If-Match 412, and (e)/(f) (TICK-87); cursor cases from T23; idempotency cases from T22",
-		"CI-10": "partial → P3-42 (S11b): (g) signal ping-pong needs the interpreter; (f) the start key is per tenant, here; (a)–(e) are TestCI10_* in internal/records/pipeline and the outbox depth limit TestCI10_* in internal/outbox, both against real PostgreSQL in make test-integration",
-		"T26":   "full: deprovisioning within D-P9's 10 minutes and the Epic 03 identity boundary (TICK-82); cases 1, 2, 6 and 8 run here, cases 3, 4, 5 and 7 need the real Keycloak and run in make stack-test-identity",
-		"CI-5":  "full in make identity-attacks (real Keycloak, the CI stack job, ci5-report artifact); here every case is registered: token shapes through the API handler (401 for the stated reason), the duplicate binding on this database, Keycloak-only cases as Stack paths on TestCI5",
+		"CI-2":           "full: generic checks on every tenant table; forged-tenant HTTP paths (T17); the forged write on POST /api/v1/records/incident, StoredUnderA (P3-18)",
+		"CI-9":           "full: nava_relay, nava_purge, nava_onboard and nava_backup reach (T12); nava_backup through T08's pg_hba cases",
+		"CI-8":           "partial → P3-37 (S10): the masked-field filter 400 needs S10's masks; here the record routes' byte-identical 404 on GET, PATCH and history, stale If-Match 412, and (e)/(f) (TICK-87); cursor cases from T23; idempotency cases from T22",
+		"CI-10":          "partial → P3-42 (S11b): (g) signal ping-pong needs the interpreter; (f) the start key is per tenant, here; (a)–(e) are TestCI10_* in internal/records/pipeline and the outbox depth limit TestCI10_* in internal/outbox, both against real PostgreSQL in make test-integration",
+		"T26":            "full: deprovisioning within D-P9's 10 minutes and the Epic 03 identity boundary (TICK-82); cases 1, 2, 6 and 8 run here, cases 3, 4, 5 and 7 need the real Keycloak and run in make stack-test-identity",
+		"CI-A4":          "partial (ADR-004, P5-19): audit_log through the parent, its DEFAULT partition, audit_chain_head and record_write_keys as every runtime role, with no tenant and with onboarding's pinned policies; GET /api/v1/audit/entries and record history for tenant B's admin, auditor and agent. export, stubs and reseed → P5-42 (S16)",
+		"CI-A5":          "partial (ADR-004, P5-19): table bytes of audit_log and entity_definition_versions after record and S8 canaries; export bytes → P5-42 (S16)",
+		caseDiffDenied:   "full (ADR-004-A1, TICK-558): every runtime role but nava_audit_reader gets 42501 for every listed way of reading audit_log.diff and diff_salt, through PgBouncer and nava_erasure directly; the reader cannot write audit_log or read records",
+		caseReaderScoped: "full (ADR-004-A1, TICK-558): nava_audit_reader through read.Reader and as raw SQL reads only the set tenant's rows, none with no tenant, and never txid",
+		caseReaderMasks:  "full (ADR-004-A1, TICK-558): GET /api/v1/audit/entries on the reader pool masks an x-nava-secret property for an auditor with no mask permission; red without nava_audit_reader in entity_definition_versions_select",
+		"CI-A10":         "full (ADR-004, P5-19): the nava-core and nava-worker pools from compose.yaml log in as nava_app and nava_worker and rerun the P5-10b matrix; nava_onboard and nava_groupsync are TestP510b* in internal/db/dbtest",
+		"CI-5":           "full in make identity-attacks (real Keycloak, the CI stack job, ci5-report artifact); here every case is registered: token shapes through the API handler (401 for the stated reason), the duplicate binding on this database, Keycloak-only cases as Stack paths on TestCI5",
 	}
 }
 
@@ -398,6 +413,14 @@ func Paths() []Path {
 			"INSERT INTO tenant_admin_group (tenant_id, group_id) VALUES ($1, $2)", TenantB, GroupB1),
 		sql("tenant_admin_group: point tenant B's admins at another group", "nava_app", Denied,
 			"UPDATE tenant_admin_group SET group_id = $2 WHERE tenant_id = $1", TenantB, GroupB1),
+		sql("tenant_auditor_group: read tenant B's auditors group", "nava_app", OwnRowsOnly,
+			"SELECT tenant_id FROM tenant_auditor_group WHERE tenant_id = $1", TenantB),
+		sql("tenant_auditor_group: onboarding reads tenant B's auditors row", "nava_onboard", Denied,
+			"SELECT tenant_id FROM tenant_auditor_group WHERE tenant_id = $1", TenantB),
+		sql("tenant_auditor_group: name an auditors group for tenant B", "nava_onboard", Denied,
+			"INSERT INTO tenant_auditor_group (tenant_id, group_id) VALUES ($1, $2)", TenantB, GroupB1),
+		sql("tenant_auditor_group: point tenant B's auditors at another group", "nava_app", Denied,
+			"UPDATE tenant_auditor_group SET group_id = $2 WHERE tenant_id = $1", TenantB, GroupB1),
 
 		// Records pipeline (P3-09, TICK-353). Both tenants hold the record
 		// number TCK0000001 and the audit key shared-audit-key, so a lookup by
@@ -412,18 +435,20 @@ func Paths() []Path {
 			"UPDATE records SET assignment_group_id = $2 WHERE tenant_id = $1", TenantA, GroupB1),
 		sql("records: name tenant B's principal as requester from tenant A", "nava_app", Denied,
 			"INSERT INTO records (tenant_id, id, requester_id) VALUES ($1, $2, $3)", TenantA, NewID, PrincipalB1),
-		sql("audit_log: read tenant B's audit rows by record id", "nava_app", OwnRowsOnly,
-			"SELECT tenant_id FROM audit_log WHERE record_id = $1", RecordB2),
-		sql("audit_log: look an idempotency key up in every tenant", "nava_worker", OwnRowsOnly,
-			"SELECT tenant_id FROM audit_log WHERE idempotency_key = 'shared-audit-key'"),
+		// audit_log took over from audit_log_v0 in P5-17 (TICK-435): the same
+		// five cases, filtered on subject_id. The seed repeats subject
+		// RecordA2 in both tenants, so a lookup by subject alone would find
+		// both tenants' rows.
+		sql("audit_log: read tenant B's audit rows by subject id", "nava_app", OwnRowsOnly,
+			"SELECT tenant_id FROM audit_log WHERE subject_id = $1", RecordB2),
+		sql("audit_log: look a subject up in every tenant", "nava_worker", OwnRowsOnly,
+			"SELECT tenant_id FROM audit_log WHERE subject_id = $1", RecordA2),
 		sql("audit_log: insert an audit row for tenant B", "nava_app", Denied,
-			"INSERT INTO audit_log (tenant_id, id, record_id, action, source) VALUES ($1, $2, $3, 'update', 'user')",
+			"INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, actor_system, source) VALUES ($1, $2, 'record', 'update', 'record', $3, 'user', 'user')",
 			TenantB, NewID, RecordB2),
-		// The composite foreign key holds the tenant: tenant A cannot audit
-		// tenant B's record.
-		sql("audit_log: audit tenant B's record from tenant A", "nava_worker", Denied,
-			"INSERT INTO audit_log (tenant_id, id, record_id, action, source) VALUES ($1, $2, $3, 'update', 'workflow')",
-			TenantA, NewID, RecordB2),
+		sql("audit_log: worker inserts a row with tenant B's tenant_id (WITH CHECK)", "nava_worker", Denied,
+			"INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, actor_system, source) VALUES ($1, $2, 'record', 'update', 'record', $3, 'workflow', 'workflow')",
+			TenantB, NewID, RecordB2),
 		sql("audit_log: rewrite tenant B's audit rows", "nava_app", Denied,
 			"UPDATE audit_log SET action = 'forged' WHERE tenant_id = $1", TenantB),
 		sql("record_counters: read tenant B's counters by type", "nava_app", OwnRowsOnly,
@@ -467,6 +492,8 @@ func Paths() []Path {
 	paths = append(paths, recordPaths()...)
 	paths = append(paths, recordCI8Paths()...)
 	paths = append(paths, cascadePaths()...)
+	paths = append(paths, auditPaths()...)
+	paths = append(paths, auditReaderPaths()...)
 	paths = append(paths, aclPaths()...)
 	return append(paths, boundaryPaths()...)
 }

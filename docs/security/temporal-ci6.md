@@ -249,7 +249,10 @@ pass as is. Fixed by P3-26 (TICK-362), closing AR-044: the `navalint`
 `guarderrtype` analyzer reports any use of `ErrTypeTenantGuard` or
 `ErrTypeWorkflowRef`, or a string constant equal to their values, outside
 `internal/workerguard` (test files exempt; lint fixture
-`internal/platform/lintfixture/guarderrtype.go`).
+`internal/platform/lintfixture/guarderrtype.go`). TICK-594 extends it to
+`nava.audit.seal.Unsealable` and `nava.audit.seal.HeadNotFound`: reported
+outside `internal/workerguard` and `internal/audit/seal`, and inside
+`internal/audit/seal` when built with a non-constant message.
 
 **Retry types.** A withheld failure has type `nava.Opaque`, so a
 `RetryPolicy.NonRetryableErrorTypes` entry naming the original type no longer

@@ -40,8 +40,9 @@ identity-attacks-fixture:
 # invited admin signs in through the tenant's IdP, one nava-groupsync cycle
 # runs, and nava-core's GET /api/v1/me shows the new tenant and no other; the
 # nava-onboard/nava-core separation; kill before the binding, then retry,
-# against the real nava_onboard PGStore. Needs the stack up (make stack-up).
-ONBOARD_TESTS := ^(TestOnboard(edAdminSignsInAndMeShowsTenant|DeploymentSeparation|KillBeforeBindThenRetryLiveStack|DomainClaimedIsConflict)|TestInvitedToTenantANotLinkedThroughTenantBIdP|TestSquattedInviteeIsNotPlacedInTheOtherTenant|TestUninvitedLocalUserNotLinked|TestInviteIsSingleUse|TestExpiredInviteNotLinked|TestInvitedUserInTwoTenantsNotLinked|TestInvitedUserHasNoLocalLogin|TestDisabledInviteeNotLinked|TestUnverifiedUpstreamEmailNotPlaced|TestIdPEmailVerifiedAttributeNotUserEditable|TestUserCannotRenameEmailToPendingInvite|TestAccountAPIClosedToPlainBrokeredUser|TestRealmFileEmailVerifiedMapper)$$
+# against the real nava_onboard PGStore; and the onboarded tenant sealed by
+# the always-on nava-worker (TICK-453). Needs the stack up (make stack-up).
+ONBOARD_TESTS := ^(TestOnboard(edAdminSignsInAndMeShowsTenant|edTenantIsSealed|DeploymentSeparation|KillBeforeBindThenRetryLiveStack|DomainClaimedIsConflict)|TestInvitedToTenantANotLinkedThroughTenantBIdP|TestSquattedInviteeIsNotPlacedInTheOtherTenant|TestUninvitedLocalUserNotLinked|TestInviteIsSingleUse|TestExpiredInviteNotLinked|TestInvitedUserInTwoTenantsNotLinked|TestInvitedUserHasNoLocalLogin|TestDisabledInviteeNotLinked|TestUnverifiedUpstreamEmailNotPlaced|TestIdPEmailVerifiedAttributeNotUserEditable|TestUserCannotRenameEmailToPendingInvite|TestAccountAPIClosedToPlainBrokeredUser|TestRealmFileEmailVerifiedMapper)$$
 stack-test-onboard:
 	go test -tags identitystack -count=1 -run '$(ONBOARD_TESTS)' ./internal/identitystack
 

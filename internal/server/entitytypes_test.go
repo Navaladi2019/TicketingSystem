@@ -234,6 +234,7 @@ func TestResponseErrorKnowsEveryCode(t *testing.T) {
 		problem.OnboardingConflict: true, problem.InvalidCursor: true, problem.RateLimited: true,
 		problem.NotFound: true, problem.MethodNotAllowed: true, problem.NotImplemented: true,
 		problem.InternalError: true, problem.EntityTypeExists: true, problem.NumberPrefixTaken: true, problem.IfMatchRequired: true, problem.VersionConflict: true,
+		problem.HistoryTooLong: true,
 	}
 	reg := loadTestRegistry(t)
 	h := &handlers{reg: reg, log: slog.New(slog.DiscardHandler)}
@@ -315,5 +316,22 @@ func TestParsePublish(t *testing.T) {
 		if _, perr := parsePublish([]byte(body)); perr == nil || perr.code != problem.InvalidDefinition || len(perr.fields) == 0 {
 			t.Errorf("%s: err = %v, want invalid_definition with fields", name, perr)
 		}
+	}
+}
+
+// M2 (TICK-432): a secret found while parsing a create reaches CreateEntityType
+// as a *SecretInContentError, so the handler answers through secretProblem
+// (path pointer and warning log), not a bare 422.
+func TestParseCreateSecretUnwrapsToSecretInContent(t *testing.T) {
+	body := `{"key":"incident","name":"T","number_prefix":"INC","definition":{"schema":` +
+		`{"type":"object","additionalProperties":false,"properties":{"pw":{"type":"string","x-nava-secret":true,"default":"v"}}}}}`
+	_, perr := parseCreate(json.RawMessage(body))
+	if perr == nil {
+		t.Fatal("want a refusal")
+	}
+	var err error = perr
+	var secret *entitytypes.SecretInContentError
+	if !errors.As(err, &secret) || secret.Path != "/properties/pw/default" {
+		t.Fatalf("err = %v, want a SecretInContentError at /properties/pw/default", err)
 	}
 }

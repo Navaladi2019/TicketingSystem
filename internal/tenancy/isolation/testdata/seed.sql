@@ -18,6 +18,20 @@ INSERT INTO tenant_identity_binding (tenant_id, issuer, org_id, idp_aliases) VAL
     ('0b000000-0000-4000-8000-00000000000b', 'https://idp.example/realms/nava', 'org-b', '{idp-b}'),
     ('0b000000-0000-4000-8000-00000000000b', 'https://idp.example/realms/nava', 'org-b2', '{}');
 
+-- The seed's records rows are bare fixtures for the isolation probes, not
+-- record writes: their audit entries are the curated set below, not one per
+-- row. The same holds for its entity types and versions. The commit-check
+-- triggers on records (P5-13c, ADR-004 decision 2) and on the two
+-- entity-definition tables (P5-32, migration B) are off
+-- for this one explicit transaction, from here to the COMMIT at the end of
+-- the file, and back on before it commits, so every row the suite writes
+-- later is checked. The transaction does not depend on how the loader sends
+-- the file; the harness asserts the triggers are enabled after the seed.
+BEGIN;
+ALTER TABLE records DISABLE TRIGGER records_audit_commit_check;
+ALTER TABLE entity_definitions DISABLE TRIGGER entity_definitions_audit_commit_check;
+ALTER TABLE entity_definition_versions DISABLE TRIGGER entity_definition_versions_audit_commit_check;
+
 INSERT INTO records (tenant_id, id) VALUES
     ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000000a1'),
     ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000000a2'),
@@ -82,6 +96,11 @@ INSERT INTO groups (tenant_id, id, keycloak_group_id, path) VALUES
 INSERT INTO tenant_admin_group (tenant_id, group_id) VALUES
     ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000004a1'),
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000004b2');
+
+-- TICK-434: each seed tenant's auditors group (a seeded group of the same tenant).
+INSERT INTO tenant_auditor_group (tenant_id, group_id) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000004a2'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000004b3');
 
 INSERT INTO group_members (tenant_id, group_id, principal_id) VALUES
     ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000004a1', '0a000000-0000-4000-8000-0000000003a1'),
@@ -149,13 +168,36 @@ UPDATE records SET entity_definition_id = '0b000000-0000-4000-8000-0000000006b1'
        created_by = '0b000000-0000-4000-8000-0000000003b1', assignment_group_id = '0b000000-0000-4000-8000-0000000004b1'
 WHERE tenant_id = '0b000000-0000-4000-8000-00000000000b' AND id = '0b000000-0000-4000-8000-0000000000b2';
 
-INSERT INTO audit_log (tenant_id, id, record_id, action, actor_id, source, after, idempotency_key) VALUES
-    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000008a1', '0a000000-0000-4000-8000-0000000000a2',
-        'create', '0a000000-0000-4000-8000-0000000003a1', 'user', '{}', 'shared-audit-key'),
-    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000008b1', '0b000000-0000-4000-8000-0000000000b2',
-        'create', '0b000000-0000-4000-8000-0000000003b1', 'user', '{}', 'shared-audit-key'),
-    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000008b2', NULL,
-        'cascade_rejected', NULL, 'workflow', NULL, NULL);
+-- ADR-004's audit_log, chain head and write keys (P5-10b). The rows land in
+-- audit_log_default, which CI-2 probes as a tenant table of its own. The
+-- subject and the idempotency key repeat across tenants, so a lookup by
+-- either alone would find both tenants' rows. occurred_at, txid and
+-- backfilled take their defaults, which R10's assert accepts from the
+-- superuser.
+INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, entity_definition_id,
+                       version_after, actor_principal_id, actor_system, source) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000010a1', 'record', 'create', 'record',
+        '0a000000-0000-4000-8000-0000000000a2', '0a000000-0000-4000-8000-0000000006a1', 1,
+        '0a000000-0000-4000-8000-0000000003a1', NULL, 'user'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000010b1', 'record', 'create', 'record',
+        '0a000000-0000-4000-8000-0000000000a2', '0b000000-0000-4000-8000-0000000006b1', 1,
+        '0b000000-0000-4000-8000-0000000003b1', NULL, 'user'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000010b2', 'record', 'state_change', 'record',
+        '0b000000-0000-4000-8000-0000000000b2', '0b000000-0000-4000-8000-0000000006b1', 2,
+        NULL, 'workflow', 'workflow');
+
+INSERT INTO audit_chain_head (tenant_id, id) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000011a1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000011b1');
+
+INSERT INTO record_write_keys (tenant_id, idempotency_key, definition_id, action, record_id, number, version,
+                               schema_version, audit_entry_id) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', 'shared-write-key', '0a000000-0000-4000-8000-0000000006a1', 'create',
+        '0a000000-0000-4000-8000-0000000000a2', 'TCK0000001', 1, 1, '0a000000-0000-4000-8000-0000000010a1'),
+    ('0b000000-0000-4000-8000-00000000000b', 'shared-write-key', '0b000000-0000-4000-8000-0000000006b1', 'create',
+        '0b000000-0000-4000-8000-0000000000b2', 'TCK0000001', 1, 2, '0b000000-0000-4000-8000-0000000010b1'),
+    ('0b000000-0000-4000-8000-00000000000b', 'other-write-key', '0b000000-0000-4000-8000-0000000006b1', 'update',
+        '0b000000-0000-4000-8000-0000000000b2', 'TCK0000001', 2, 2, '0b000000-0000-4000-8000-0000000010b2');
 
 INSERT INTO record_counters (tenant_id, entity_definition_id, next) VALUES
     ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000006a1', 2),
@@ -180,3 +222,9 @@ INSERT INTO record_shares (tenant_id, record_id, principal_id, principal_kind, g
         '0b000000-0000-4000-8000-0000000003b1'),
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000000b2', '0b000000-0000-4000-8000-0000000004b1', 'group',
         '0b000000-0000-4000-8000-0000000003b1');
+
+-- Back on before the seed commits (see the DISABLE above the records rows).
+ALTER TABLE records ENABLE TRIGGER records_audit_commit_check;
+ALTER TABLE entity_definitions ENABLE TRIGGER entity_definitions_audit_commit_check;
+ALTER TABLE entity_definition_versions ENABLE TRIGGER entity_definition_versions_audit_commit_check;
+COMMIT;

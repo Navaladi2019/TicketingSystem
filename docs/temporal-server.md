@@ -55,6 +55,8 @@ token's workflow id `t:<tenant>:…`. One bad command denies the whole response.
 | child (same-tenant target) without a `nava-tenant` header equal to the task's tenant | `child_header` |
 | continue-as-new without a `nava-tenant` header equal to the task's tenant | `continue_as_new_header` |
 | continue-as-new with `cron_schedule` | `continue_as_new_cron` |
+| child with `cron_schedule` (any non-empty string; TICK-576), checked after the tenant and D9c rules | `child_cron` |
+| child with a workflow `retry_policy` (any, an empty one included; TICK-576), checked after `child_cron` | `child_retry_policy` |
 | child, continue-as-new or upsert sets `NavaTenantId` to anything but the task's tenant (unset is allowed) | `search_attribute_tenant` |
 
 The `nava-tenant` header and `NavaTenantId` must be default-converter string
@@ -70,9 +72,14 @@ So a platform identity must never name a workflow type or task queue it does not
 own (S1: a relay start of `temporal-sys-batch-workflow` terminated another
 tenant's workflow). A request is allowed only if **every** workflow type, task
 queue and workflow id it names is on the compiled-in allow-list in
-`authz/policy.go` (`platformWorkflowTypes = {nava.interpreter}`,
+`authz/policy.go` (`platformWorkflowTypes = {audit.seal, nava.interpreter}`,
 `platformTaskQueues = {nava-tq}`; `nava.interpreter` is the one generic type every
-workflow definition runs as, PLAN-003 D-3-11). The two M1 smoke types were
+workflow definition runs as, PLAN-003 D-3-11). `audit.seal` is the ADR-004 R16
+audit sealer (R18, TICK-438). It is also the one entry of
+`startOnlyWorkflowTypes`: only a relay start may name it, and a worker's
+`StartChildWorkflowExecution` or `ContinueAsNewWorkflowExecution` of it is
+denied (TICK-449), because the sealer reschedules through the outbox
+(`authz/workload_audit_seal_test.go`). The two M1 smoke types were
 removed in TICK-374: the stack
 tests register their own bodies as `nava.interpreter`, so CI-6 runs the
 allow-list we ship, and `authz/workload_smoke_removed_test.go` asserts that the
@@ -86,6 +93,8 @@ prints both sets.
 | | | queue kind not NORMAL / UNSPECIFIED | `task_queue_kind_not_allowed` |
 | | | queue name not in the set | `task_queue_not_allowed` |
 | | | workflow id without `t:<tenant>:` | `workflow_id_no_tenant` |
+| | | `CronSchedule` set (any non-empty string; TICK-573) | `start_cron` |
+| | | workflow `RetryPolicy` set (any, an empty one included; TICK-573) | `start_retry_policy` |
 | D9a | `nava-relay` `SignalWorkflowExecution` | workflow id without `t:<tenant>:` | `workflow_id_no_tenant` |
 | D9b | `nava-worker` `PollWorkflowTaskQueue` | NORMAL queue not in the set | `task_queue_not_allowed` |
 | | | STICKY name not `<host>:<uuid>`, or in the set, or `NormalName` not in the set (empty included) | `sticky_queue_not_allowed` |
@@ -93,6 +102,7 @@ prints both sets.
 | | | queue not in the set | `task_queue_not_allowed` |
 | D9c | `ScheduleActivityTask` | queue set and not in the set | `task_queue_not_allowed` |
 | D9c | `StartChildWorkflowExecution`, `ContinueAsNewWorkflowExecution` | type not in the set (empty is denied, not inherited) | `workflow_type_not_allowed` |
+| | | type in `startOnlyWorkflowTypes` (`audit.seal`) | `workflow_type_not_allowed` |
 | | | queue set and not in the set | `task_queue_not_allowed` |
 | D9c | `ScheduleActivityTask`, `StartChildWorkflowExecution`, `ContinueAsNewWorkflowExecution` | queue kind not NORMAL / UNSPECIFIED | `task_queue_kind_not_allowed` |
 | D9c | `StickyAttributes` (`command=StickyAttributes`) | the D9b STICKY rule fails | `sticky_queue_not_allowed` |
@@ -188,7 +198,7 @@ page. The alert rule, once an alerting backend exists (not in M1 compose):
     summary: "nava-worker sent a cross-tenant or unlisted workflow command"
     description: "Find workflow_id and the certificate in the error log line 'Temporal workflow command denied'."
 - alert: TemporalWorkloadDenied
-  expr: sum by (identity, reason) (increase(nava_authz_denied{command="none", reason=~"workflow_type_not_allowed|task_queue_not_allowed|task_queue_kind_not_allowed|sticky_queue_not_allowed|workflow_id_no_tenant|worker_versioning_not_allowed|task_token_invalid"}[5m])) > 0
+  expr: sum by (identity, reason) (increase(nava_authz_denied{command="none", reason=~"workflow_type_not_allowed|task_queue_not_allowed|task_queue_kind_not_allowed|sticky_queue_not_allowed|workflow_id_no_tenant|worker_versioning_not_allowed|task_token_invalid|start_cron|start_retry_policy"}[5m])) > 0
   labels: {severity: page}
   annotations:
     summary: "a platform certificate named a workflow type, task queue or workflow id off the D9 allow-list"

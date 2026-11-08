@@ -100,3 +100,19 @@ codes:
     status: 409
     title: Unique value taken
     detail: Another record of this entity type already holds the value of a unique property. See errors for the property.
+  - code: config_secret_in_content
+    status: 422
+    title: Secret in configuration
+    detail: The definition sets a value at a secret path. See errors for the path; the value is never echoed.
+  - code: definition_secret_required
+    status: 422
+    title: Definition requires a secret property
+    detail: The definition requires a property marked x-nava-secret or writeOnly, which a record can never hold. See errors for the required entry.
+  - code: assignment_group_removed
+    status: 422
+    title: Assignment group removed
+    detail: The record names an assignment group that is not a live group of this tenant. Keep the record's current group or choose another one. See errors for the property.
+  - code: history_too_long
+    status: 422
+    title: History too long
+    detail: The record has more audit entries than a history page can replay. The history of this record cannot be read through this endpoint.

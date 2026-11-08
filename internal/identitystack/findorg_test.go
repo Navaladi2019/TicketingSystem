@@ -222,7 +222,8 @@ func (s *resumeStore) Bind(_ context.Context, _ uuid.UUID, _, orgID, _ string) e
 	return nil
 }
 
-func (s *resumeStore) RecordAdminGroup(context.Context, uuid.UUID, string) error { return nil }
+func (s *resumeStore) RecordAdminGroup(context.Context, uuid.UUID, string) error   { return nil }
+func (s *resumeStore) RecordAuditorGroup(context.Context, uuid.UUID, string) error { return nil }
 
 func (s *resumeStore) Activate(context.Context, uuid.UUID) error {
 	s.mu.Lock()
@@ -304,3 +305,5 @@ func TestOnboardKillBeforeBindingThenRetryLive(t *testing.T) {
 		t.Error("idp alias is not server-derived")
 	}
 }
+
+func (s *resumeStore) SeedAuditChain(context.Context, uuid.UUID) error { return nil }

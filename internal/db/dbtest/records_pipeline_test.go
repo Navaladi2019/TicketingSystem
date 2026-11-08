@@ -14,7 +14,7 @@ import (
 )
 
 // P3-09 (TICK-353): records extended additively for the write pipeline,
-// append-only audit_log and record_counters, all under FORCE RLS with
+// and record_counters, all under FORCE RLS with
 // composite tenant keys, grants from db/grants.yaml, and nava_app's
 // plan_cache_mode from db-roles.
 
@@ -26,9 +26,6 @@ const (
 	insertRecord = `INSERT INTO records (tenant_id, id, entity_definition_id, schema_version, number, state,
 		requester_id, assignee_id, assignment_group_id, created_by)
 		VALUES ($1, $2, $3, 1, $4, 'new', $5, $6, $7, $8)`
-	// insertAudit: tenant $1, record $2, idempotency key $3.
-	insertAudit = `INSERT INTO audit_log (tenant_id, id, record_id, action, actor_id, source, after, idempotency_key)
-		VALUES ($1, gen_random_uuid(), $2, 'create', NULL, 'workflow', '{}', $3)`
 	// nextNumber is the D-3-9 upsert: tenant $1, type $2.
 	nextNumber = `INSERT INTO record_counters (tenant_id, entity_definition_id, next) VALUES ($1, $2, 2)
 		ON CONFLICT (tenant_id, entity_definition_id) DO UPDATE SET next = record_counters.next + 1
@@ -45,8 +42,7 @@ func seedPipeline(t *testing.T, super *pgx.Conn, tenants ...string) {
 	seedEntityTypes(t, super, tenants...)
 	for _, id := range tenants {
 		rec := pipelineRecord(id)
-		exec(t, super, insertRecord, id, rec, id, "TCK0000001", id, id, id, id)
-		exec(t, super, insertAudit, id, rec, "seed-key")
+		exec(t, super, recordWrite(t, super, insertRecord), id, rec, id, "TCK0000001", id, id, id, id)
 		exec(t, super, "INSERT INTO record_counters (tenant_id, entity_definition_id, next) VALUES ($1, $1, 2)", id)
 	}
 }
@@ -99,16 +95,16 @@ func TestP309RecordsIndexSet(t *testing.T) {
 	// No index on any P3-09 table leads with anything but tenant_id.
 	if bad := queryString(t, super, `SELECT coalesce(string_agg(i.indexrelid::regclass::text, ','), '')
 		FROM pg_index i JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[0]
-		WHERE i.indrelid IN ('records'::regclass, 'audit_log'::regclass, 'record_counters'::regclass)
+		WHERE i.indrelid IN ('records'::regclass, 'record_counters'::regclass)
 		  AND a.attname <> 'tenant_id'`); bad != "" {
 		t.Fatalf("indexes not led by tenant_id: %s", bad)
 	}
 }
 
-// Acceptance: audit_log is append-only for every runtime role, and the
+// Acceptance: no runtime role deletes records or counters, and the
 // columns a record sets once (entity_definition_id, number, created_by,
 // created_at) cannot be updated; the other pipeline columns can (control).
-func TestP309AuditAppendOnlyAndRecordNumberFixed(t *testing.T) {
+func TestP309RecordNumberFixed(t *testing.T) {
 	migratedPlatform(t)
 	super := superNava(t)
 	seedTenants(t, super, []string{tenantA}, nil)
@@ -118,9 +114,6 @@ func TestP309AuditAppendOnlyAndRecordNumberFixed(t *testing.T) {
 	for _, role := range []string{"nava_app", "nava_worker", "nava_onboard", "nava_groupsync", "nava_relay", "nava_purge"} {
 		conn := asRole(t, role)
 		for _, q := range []string{
-			"UPDATE audit_log SET action = 'forged' WHERE tenant_id = $1",
-			"UPDATE audit_log SET idempotency_key = NULL WHERE tenant_id = $1",
-			"DELETE FROM audit_log WHERE tenant_id = $1",
 			"DELETE FROM records WHERE tenant_id = $1",
 			"DELETE FROM record_counters WHERE tenant_id = $1",
 		} {
@@ -140,19 +133,19 @@ func TestP309AuditAppendOnlyAndRecordNumberFixed(t *testing.T) {
 			_, err := execIn(conn, tenantA, q, tenantA, rec)
 			wantSQLState(t, role+": "+q, err, "42501")
 		}
-		n, err := execIn(conn, tenantA, `UPDATE records SET state = 'open', data = '{"title": "x"}', updated_at = now(),
+		n, err := execIn(conn, tenantA, withRecordEntry(`UPDATE records SET state = 'open', data = '{"title": "x"}', updated_at = now(),
 			version = version + 1, schema_version = 1, requester_id = $1, assignee_id = NULL, assignment_group_id = $1,
-			causation_origin_id = $1, causation_depth = 1 WHERE tenant_id = $1 AND id = $2`, tenantA, rec)
+			causation_origin_id = $1, causation_depth = 1 WHERE tenant_id = $1 AND id = $2`), tenantA, rec)
 		if err != nil || n != 1 {
 			t.Errorf("control: %s updates the mutable columns: %d rows, %v; want 1, nil", role, n, err)
 		}
 	}
-	if got := queryString(t, super, "SELECT number || ':' || count(*) OVER () FROM audit_log a JOIN records r USING (tenant_id) WHERE r.id = $1", rec); got != "TCK0000001:1" {
-		t.Errorf("tenant A's record number and audit rows = %s, want TCK0000001:1", got)
+	if got := queryString(t, super, "SELECT number FROM records WHERE id = $1", rec); got != "TCK0000001" {
+		t.Errorf("tenant A's record number = %s, want TCK0000001", got)
 	}
 }
 
-// Acceptance: tenant B cannot see tenant A's audit rows or counters; with no
+// Acceptance: tenant B cannot see tenant A's counters or records; with no
 // tenant, or an empty one, a role sees none. Writes for another tenant are
 // refused by the policies.
 func TestP309TenantRowsInvisible(t *testing.T) {
@@ -163,7 +156,7 @@ func TestP309TenantRowsInvisible(t *testing.T) {
 
 	for _, role := range []string{"nava_app", "nava_worker"} {
 		conn := asRole(t, role)
-		for _, table := range []string{"audit_log", "record_counters", "records"} {
+		for _, table := range []string{"record_counters", "records"} {
 			for _, mode := range []string{"B", "empty", "unset"} {
 				var own, other int
 				err := inTenantTx(conn, "", func(tx pgx.Tx) error {
@@ -193,15 +186,11 @@ func TestP309TenantRowsInvisible(t *testing.T) {
 			}
 		}
 
-		_, err := execIn(conn, tenantB, insertAudit, tenantA, pipelineRecord(tenantA), "iso-new")
-		wantSQLState(t, role+" in tenant B writes an audit row for A", err, "42501")
-		_, err = execIn(conn, tenantB, nextNumber, tenantA, tenantA)
+		_, err := execIn(conn, tenantB, nextNumber, tenantA, tenantA)
 		wantSQLState(t, role+" in tenant B takes a number from A's counter", err, "42501")
 		if n, err := execIn(conn, tenantB, "UPDATE record_counters SET next = next + 1 WHERE tenant_id = $1", tenantA); err != nil || n != 0 {
 			t.Errorf("%s in tenant B moves A's counter: %d rows, %v; want 0, nil", role, n, err)
 		}
-		_, err = execIn(conn, "", insertAudit, tenantA, pipelineRecord(tenantA), "iso-unset")
-		wantSQLState(t, role+" with no tenant writes an audit row", err, "42501")
 	}
 	if got := queryString(t, super, "SELECT string_agg(next::text, ',' ORDER BY tenant_id) FROM record_counters"); got != "2,2" {
 		t.Errorf("counters after the cross-tenant attempts = %s, want 2,2", got)
@@ -209,7 +198,7 @@ func TestP309TenantRowsInvisible(t *testing.T) {
 }
 
 // Acceptance (TICK-360): a record in tenant A naming tenant B's principal,
-// group or type, an audit row naming B's record, and a counter for B's type
+// group or type, and a counter for B's type
 // are refused by the composite foreign keys, though the policies pass them.
 func TestP309ForeignKeysRejectCrossTenant(t *testing.T) {
 	migratedPlatform(t)
@@ -238,20 +227,12 @@ func TestP309ForeignKeysRejectCrossTenant(t *testing.T) {
 	wantSQLState(t, "A moves its records to B's group", err, "23503")
 	_, err = execIn(app, a, "UPDATE records SET requester_id = $2 WHERE tenant_id = $1", a, b)
 	wantSQLState(t, "A names B's principal as requester", err, "23503")
-	_, err = execIn(app, a, insertAudit, a, b, nil) // B's bare record (seedTenants)
-	wantSQLState(t, "A's audit row naming B's record", err, "23503")
 	_, err = execIn(app, a, nextNumber, a, b)
 	wantSQLState(t, "A's counter for B's type", err, "23503")
 
 	// Controls: the same rows with A's own ids are accepted.
-	if _, err := execIn(app, a, insertRecord, a, tenantX, a, "TCK0000002", a, a, a, a); err != nil {
+	if _, err := execIn(app, a, withRecordEntry(insertRecord), a, tenantX, a, "TCK0000002", a, a, a, a); err != nil {
 		t.Fatalf("control: A's record naming A's own rows: %v", err)
-	}
-	if _, err := execIn(app, a, insertAudit, a, tenantX, nil); err != nil {
-		t.Fatalf("control: A's audit row for A's record: %v", err)
-	}
-	if _, err := execIn(app, a, insertAudit, a, nil, nil); err != nil {
-		t.Fatalf("control: an audit row with no record (cascade_rejected on a create): %v", err)
 	}
 }
 
@@ -277,66 +258,15 @@ func TestP309AllOrNoneCheck(t *testing.T) {
 	}
 	_, err := execIn(app, tenantA, "UPDATE records SET state = 'new' WHERE tenant_id = $1 AND id = $1", tenantA)
 	wantSQLState(t, "a bare record given a state alone", err, "23514")
-	_, err = execIn(app, tenantA, insertRecord, tenantA, tenantX, tenantA, "TCK0000001", nil, nil, nil, nil)
+	_, err = execIn(app, tenantA, withRecordEntry(insertRecord), tenantA, tenantX, tenantA, "TCK0000001", nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("control: a full pipeline record: %v", err)
 	}
-	if _, err := execIn(app, tenantA, "INSERT INTO records (tenant_id, id) VALUES ($1, gen_random_uuid())", tenantA); err != nil {
+	if _, err := execIn(app, tenantA, withRecordEntry("INSERT INTO records (tenant_id, id) VALUES ($1, gen_random_uuid())"), tenantA); err != nil {
 		t.Fatalf("control: a bare PLAN-001 record: %v", err)
 	}
 	_, err = execIn(app, tenantA, "UPDATE records SET schema_version = 0 WHERE tenant_id = $1 AND id = $2", tenantA, tenantX)
 	wantSQLState(t, "schema_version 0", err, "23514")
-}
-
-// Acceptance (D-3-13): a second audit row with the same idempotency_key in
-// one tenant is refused, the same key in another tenant is allowed, and one
-// write's rows with only the primary row keyed are allowed.
-func TestP309IdempotencyKeyPerTenant(t *testing.T) {
-	migratedPlatform(t)
-	super := superNava(t)
-	seedTenants(t, super, []string{tenantA, tenantB}, nil)
-	seedPipeline(t, super, tenantA, tenantB) // each tenant holds "seed-key"
-	worker := asRole(t, "nava_worker")
-	recA := pipelineRecord(tenantA)
-
-	_, err := execIn(worker, tenantA, insertAudit, tenantA, recA, "seed-key")
-	wantSQLState(t, "a second audit row keyed seed-key in tenant A", err, "23505")
-
-	key := "wf:0190a000-0000-7000-8000-0000000000aa:step-1"
-	if _, err := execIn(worker, tenantB, insertAudit, tenantB, pipelineRecord(tenantB), key); err != nil {
-		t.Fatalf("tenant B's key: %v", err)
-	}
-	// One write, two rows: the primary row keyed, the cascade_rejected row not.
-	err = inTenantTx(worker, tenantA, func(tx pgx.Tx) error {
-		ctx := context.Background()
-		if _, err := tx.Exec(ctx, insertAudit, tenantA, recA, key); err != nil {
-			return err
-		}
-		_, err := tx.Exec(ctx, `INSERT INTO audit_log (tenant_id, id, record_id, action, source, idempotency_key)
-			VALUES ($1, gen_random_uuid(), $2, 'cascade_rejected', 'workflow', NULL)`, tenantA, recA)
-		return err
-	})
-	if err != nil {
-		t.Fatalf("the same key in tenant A, primary row only: %v", err)
-	}
-
-	// The replay lookup (D-3-13) through the partial unique index's predicate.
-	var n int
-	err = inTenantTx(worker, tenantA, func(tx pgx.Tx) error {
-		tag, err := tx.Exec(context.Background(), `INSERT INTO audit_log (tenant_id, id, record_id, action, source, idempotency_key)
-			VALUES ($1, gen_random_uuid(), $2, 'update', 'workflow', $3)
-			ON CONFLICT (tenant_id, idempotency_key, actor_id) WHERE idempotency_key IS NOT NULL DO NOTHING`, tenantA, recA, key)
-		n = int(tag.RowsAffected())
-		return err
-	})
-	if err != nil || n != 0 {
-		t.Fatalf("replay with ON CONFLICT DO NOTHING: %d rows, %v; want 0, nil", n, err)
-	}
-	if got := queryString(t, super, "SELECT count(*)::text FROM audit_log WHERE idempotency_key = $1", key); got != "2" {
-		t.Errorf("rows keyed %s = %s, want 2 (one per tenant)", key, got)
-	}
-	_, err = execIn(worker, tenantA, "INSERT INTO audit_log (tenant_id, id, action, source) VALUES ($1, gen_random_uuid(), 'x', 'operator')", tenantA)
-	wantSQLState(t, "an audit row with an unknown source", err, "23514")
 }
 
 // The D-3-9 upsert works under the grants and policies, numbers are unique
@@ -346,7 +276,8 @@ func TestP309NumberingUpsertAndUniqueness(t *testing.T) {
 	super := superNava(t)
 	seedTenants(t, super, []string{tenantA}, nil)
 	seedEntityTypes(t, super, tenantA)
-	exec(t, super, "INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version) VALUES ($1, $2, 'incident', 'Incident', 'INC', 1)", tenantA, tenantY)
+	exec(t, super, "WITH d AS (INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version) VALUES ($1, $2, 'incident', 'Incident', 'INC', 1)) "+
+		configEntry+" VALUES ($1, gen_random_uuid()"+typeEntryValues+", $2"+typeEntryTail+")", tenantA, tenantY)
 	app := asRole(t, "nava_app")
 
 	for want := 1; want <= 3; want++ {
@@ -358,34 +289,13 @@ func TestP309NumberingUpsertAndUniqueness(t *testing.T) {
 			t.Fatalf("number %d from the upsert: got %d, %v", want, got, err)
 		}
 	}
-	if _, err := execIn(app, tenantA, insertRecord, tenantA, tenantX, tenantA, "TCK0000001", nil, nil, nil, nil); err != nil {
+	if _, err := execIn(app, tenantA, withRecordEntry(insertRecord), tenantA, tenantX, tenantA, "TCK0000001", nil, nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	_, err := execIn(app, tenantA, insertRecord, tenantA, tenantY, tenantA, "TCK0000001", nil, nil, nil, nil)
 	wantSQLState(t, "the same number twice in one type", err, "23505")
-	if _, err := execIn(app, tenantA, insertRecord, tenantA, tenantY, tenantY, "TCK0000001", nil, nil, nil, nil); err != nil {
+	if _, err := execIn(app, tenantA, withRecordEntry(insertRecord), tenantA, tenantY, tenantY, "TCK0000001", nil, nil, nil, nil); err != nil {
 		t.Errorf("the same number in another type: %v; want accepted", err)
-	}
-}
-
-// Group sync deletes a group Keycloak no longer has. A record naming it
-// must not block that delete (it would stall the tenant's sync,
-// deprovisioning included): the record's group is cleared, its tenant_id
-// kept.
-func TestP309GroupDeleteClearsRecordGroup(t *testing.T) {
-	migratedPlatform(t)
-	super := superNava(t)
-	seedTenants(t, super, []string{tenantA}, nil)
-	seedPipeline(t, super, tenantA)
-	sync := asRole(t, "nava_groupsync")
-
-	n, err := execIn(sync, tenantA, "DELETE FROM groups WHERE tenant_id = $1 AND id = ANY($2::uuid[])", tenantA, []string{tenantA})
-	if err != nil || n != 1 {
-		t.Fatalf("group sync deletes a group a record names: %d rows, %v; want 1, nil", n, err)
-	}
-	if got := queryString(t, super, "SELECT tenant_id || ':' || coalesce(assignment_group_id::text, 'null') FROM records WHERE id = $1",
-		pipelineRecord(tenantA)); got != tenantA+":null" {
-		t.Errorf("record after its group was deleted = %s, want %s:null", got, tenantA)
 	}
 }
 

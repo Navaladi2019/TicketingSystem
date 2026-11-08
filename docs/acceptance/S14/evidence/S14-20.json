@@ -1,0 +1,29 @@
+{
+  "request": {
+    "method": "PATCH",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident/01a1a7e0-cfd8-7b69-83b3-f91acd921a9b",
+    "body": "{\n  \"data\": {\n    \"priority\": 1\n  }\n}"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json",
+      "etag": "W/\"2\"",
+      "x-request-id": "f87a36b71617048987c1c954df985764"
+    },
+    "body": {
+      "created_at": "2026-11-04T18:44:50.776748Z",
+      "data": {
+        "priority": 1,
+        "short_description": "S14 aeeb1b63 audit timeline",
+        "state": "new"
+      },
+      "id": "01a1a7e0-cfd8-7b69-83b3-f91acd921a9b",
+      "number": "INC0000001",
+      "schema_version": 3,
+      "state": "new",
+      "updated_at": "2026-11-04T18:44:50.836315Z",
+      "version": 2
+    }
+  }
+}

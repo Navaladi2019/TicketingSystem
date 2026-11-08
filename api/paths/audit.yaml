@@ -1,0 +1,182 @@
+# Path group /api/v1/audit (TICK-435, P5-17; ADR-004 R7, R8). Shared schemas (Problem) are in ../openapi.yaml.
+paths:
+  /api/v1/audit/entries:
+    get:
+      operationId: listAuditEntries
+      summary: The tenant's audit timeline
+      description: >
+        Needs `audit.read`: a tenant admin or a member of the tenant's
+        auditors group, not filtered by record ACL (R8). The tenant's one
+        timeline, newest first (`occurred_at`, then `id`), filtered and
+        paged. Pages are stable and do not overlap. `page_token` is bound to
+        the tenant, the principal, the route and the filters. Each entry's
+        `diff` is masked for the reader (R7): a masked value reads
+        `{"redacted":"mask"}`, an op that cannot be cut cleanly is
+        `{"redacted":"op"}`, and `diff_redacted` says the diff differs from
+        the stored one. `diff_salt` comes only with an unredacted diff, so
+        `SHA-256(diff_salt || diff)` equals `diff_sha256`. An empty tenant
+        returns an empty page.
+      parameters:
+        - name: from
+          in: query
+          required: false
+          description: Entries at or after this time (`occurred_at`).
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          description: Entries before this time (`occurred_at`).
+          schema:
+            type: string
+            format: date-time
+        - name: domain
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [record, config, audit]
+        - name: subject_type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [record, cascade_key, entity_definition, audit_export, audit_chain, erasure_request]
+        - name: subject_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: after_seq
+          in: query
+          required: false
+          description: Only sealed entries whose chain `seq` is above this.
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+        - name: page_token
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 4096
+      responses:
+        "200":
+          description: One page of entries.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditEntryList"
+        "400":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "401":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "403":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "429":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "500":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "501":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+components:
+  schemas:
+    AuditEntryList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditEntry"
+        next_page_token:
+          type: string
+    AuditEntry:
+      type: object
+      required: [id, occurred_at, domain, action, subject_type, subject_id, source, causation_depth, backfilled, diff_truncated, diff_redacted]
+      properties:
+        id:
+          type: string
+          format: uuid
+        occurred_at:
+          type: string
+          format: date-time
+        domain:
+          type: string
+          enum: [record, config, audit]
+        action:
+          type: string
+        subject_type:
+          type: string
+        subject_id:
+          type: string
+          format: uuid
+        entity_definition_id:
+          type: string
+          format: uuid
+        version_before:
+          type: integer
+          format: int64
+        version_after:
+          type: integer
+          format: int64
+        actor_principal_id:
+          type: string
+          format: uuid
+          description: Absent when a system actor made the change (`actor_system`).
+        actor_system:
+          type: string
+        source:
+          type: string
+        source_ref:
+          type: string
+        change_set_id:
+          type: string
+          format: uuid
+        causation_id:
+          type: string
+          format: uuid
+        causation_depth:
+          type: integer
+        request_id:
+          type: string
+        backfilled:
+          type: boolean
+        content_sha256:
+          type: string
+          description: Lowercase hex.
+        diff_sha256:
+          type: string
+          description: Lowercase hex.
+        diff_truncated:
+          type: boolean
+        diff:
+          description: The RFC 6902 patch as this reader may see it. Absent when the entry has none or it was erased.
+          x-go-type: json.RawMessage
+        diff_redacted:
+          type: boolean
+          description: True when `diff` differs from the stored diff for this reader (R7).
+        diff_salt:
+          type: string
+          description: Lowercase hex. Present only with an unredacted diff.
+        seq:
+          type: integer
+          format: int64
+          description: The chain position. Absent until the entry is sealed.
+        sealed_at:
+          type: string
+          format: date-time
+        erased_at:
+          type: string
+          format: date-time

@@ -1,0 +1,11 @@
+## 2026-11-03: S8 schemas mark secrets only on top-level properties; the R6 check reads the whole schema
+- **Decided by:** the Technical Lead on TICK-432 (P5-14, PR #413), on the Security & Multi-Tenancy Reviewer's findings F1–F4 and E1–E13 and the Principal Software Engineer's M1 and M3. The CTO authorized the final push (M4, S4) after the third round of changes.
+- **Decision:** in `metadata.Compile`, `x-nava-secret` and `writeOnly` are accepted only as booleans directly on a top-level property. Everything else is refused:
+  - the markers anywhere else (nested, inside an applicator, `$defs` or `items`, or on the root);
+  - `$ref` or `$dynamicRef` that lands on or under a marked property;
+  - on a marked property, any keyword outside a closed set: `type`, `format`, `minLength`, `maxLength`, `title`, `description`, `x-nava-secret`, `writeOnly`;
+  - when any member is marked, `const`, `enum`, `examples`, `pattern`, `$ref` and `$dynamicRef` anywhere outside an unmarked top-level property's subtree.
+- **The secret check:** `SecretPaths` returns four keyword paths per marked property (`default`, `const`, `enum`, `examples`). `CheckSchemaSecrets` runs `secrets.Check(jsondiff.Diff(nil, schema), …)` on the whole new schema before the version insert, so a marker added to an existing default is refused (ADR-004 R6). `secrets` has no array wildcard.
+- **Why:** each bypass found in review was a new way for a schema keyword to fix the value of a secret instance. Walking instance locations through every applicator and ref form kept failing open. A closed allowlist at compile time is small enough to reason about.
+- **Deferred:** secret fields nested inside objects or arrays, and format constraints such as `pattern` on a secret. Trigger: the first story that needs one. It needs an ADR-004 amendment and a `SecretPaths` that walks instance locations and fails closed on cycles and hop limits.
+- **Dissent:** on `pattern` (S4), the Security & Multi-Tenancy Reviewer rated it Low and non-blocking, and the Principal Software Engineer rated it should-change. The CTO took it into scope.

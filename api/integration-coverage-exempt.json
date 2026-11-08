@@ -1,0 +1,41 @@
+{
+  "_doc": "Documented statuses no //go:build integration test asserts through the real handler against PostgreSQL, each with its reason. Read by api/integration_coverage_test.go, which fails on an empty reason, an unknown operation or status, and an exemption a covers: marker already satisfies. Add an entry only when the status cannot be caused through the handler against a real database; otherwise write the test.",
+  "getMe": {
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."
+  },
+  "onboardTenant": {
+    "429": "Reserved, not emitted: operator routes are not rate limited (internal/server/api.go wraps tenant routes only). Spec drift tracked in TICK-516."
+  },
+  "listEntityTypes": {
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."
+  },
+  "createEntityType": {
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."
+  },
+  "getEntityType": {
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."
+  },
+  "publishEntityTypeVersion": {
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."
+  },
+  "getEntityTypeVersion": {
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."
+  },
+  "createRecord": {
+    "403": "Not reachable: the interim authorizer allows every tenant member, so no request is refused with 403. Unit tests cover the mapping (internal/server).",
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."
+  },
+  "getRecord": {
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."
+  },
+  "patchRecord": {
+    "403": "Not reachable: the interim authorizer allows every tenant member, so no request is refused with 403. Unit tests cover the mapping (internal/server).",
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."
+  },
+  "getRecordHistory": {
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."
+  },
+  "listAuditEntries": {
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database, cursor keys or the audit reader pool, which an integration test against a database never is."
+  }
+}

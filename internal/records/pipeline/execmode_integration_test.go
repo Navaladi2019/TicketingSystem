@@ -10,33 +10,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 )
-
-// inExecMode returns e with its nava_app pool replaced by one in
-// pgx.QueryExecModeExec, the mode nava-core's PgBouncer pool uses: no
-// prepared statement, so no parameter has a declared type and pgx picks the
-// wire format from the Go type alone. A []byte for a json or jsonb column
-// then goes as bytea text and PostgreSQL refuses it (22P02, TICK-411).
-func inExecMode(t *testing.T, e env) env {
-	t.Helper()
-	cfg, err := pgxpool.ParseConfig(appDSN(t, e.platform))
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
-	p, err := pgxpool.NewWithConfig(context.Background(), cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(p.Close)
-	e.app = p
-	return e
-}
 
 // enqueueSink enqueues a start row for every write with
 // outbox.EnqueueAtVersion, as the S11b sink will (D-3-14), so the outbox
@@ -56,14 +34,14 @@ func (s *enqueueSink) RecordChanged(ctx context.Context, tx pgx.Tx, ev pipeline.
 }
 
 // TestWritesInExecMode: every statement a write runs takes its arguments in
-// QueryExecModeExec: the record insert and update (data jsonb), the audit
+// QueryExecModeExec, the mode of every pool migrated opens (serverPoolConfig):
+// the record insert and update (data jsonb), the audit
 // row (before and after), the idempotent replay, the unique-value check
 // ($4::jsonb), the cascade_rejected audit row on the runner, and the sink's
 // outbox row (payload). A json argument sent as []byte fails each with 22P02.
 func TestWritesInExecMode(t *testing.T) {
 	e := migrated(t)
 	f := seedTenantWith(t, e, assetDefinition())
-	e = inExecMode(t, e)
 	sink := &enqueueSink{}
 	p := newPipeline(e, sink)
 	ctx := context.Background()
@@ -93,7 +71,7 @@ func TestWritesInExecMode(t *testing.T) {
 		t.Fatalf("replay: %+v, %v; want %+v", again, err, first)
 	}
 
-	// Beyond the depth limit: refused, and the audit row is written on the
+	// Beyond the depth limit: refused, and the audit entry is written on the
 	// runner, in exec mode too.
 	deep := pipeline.Command{Op: pipeline.OpCreate, EntityKey: "asset", Data: map[string]any{"name": "deep"},
 		Actor: f.system(), Source: pipeline.SourceSystem,
@@ -102,8 +80,8 @@ func TestWritesInExecMode(t *testing.T) {
 		t.Fatalf("too deep: %v, want ErrCascadeTooDeep", err)
 	}
 
-	if n := count(t, e.super, `SELECT count(*) FROM audit_log WHERE tenant_id = $1`, f.id); n != 4 {
-		t.Errorf("%d audit rows, want 4 (create, update, system create, cascade_rejected)", n)
+	if n := count(t, e.super, `SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND domain = 'record'`, f.id); n != 4 {
+		t.Errorf("%d audit entries, want 4 (create, update, system create, cascade_too_deep)", n)
 	}
 	if n := count(t, e.super, `SELECT count(*) FROM outbox WHERE tenant_id = $1`, f.id); n != sink.n || n != 3 {
 		t.Errorf("%d outbox rows for %d sink calls, want 3 each (the replay calls no sink)", n, sink.n)
