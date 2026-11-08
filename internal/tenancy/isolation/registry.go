@@ -467,5 +467,6 @@ func Paths() []Path {
 	paths = append(paths, recordPaths()...)
 	paths = append(paths, recordCI8Paths()...)
 	paths = append(paths, cascadePaths()...)
+	paths = append(paths, aclPaths()...)
 	return append(paths, boundaryPaths()...)
 }
