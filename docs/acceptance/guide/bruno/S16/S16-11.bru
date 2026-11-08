@@ -1,0 +1,20 @@
+meta {
+  name: S16.11 reseedAuditChain 401: no token
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{core_url}}/api/v1/audit/chain:reseed
+  body: none
+  auth: none
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_token', 401);
+}
+
+docs {
+  Missing token.
+}

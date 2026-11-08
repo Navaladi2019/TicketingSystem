@@ -317,8 +317,9 @@ const sealDedupePrefix = SealKind + ":"
 //     seal run is never signalled.
 //
 // The caller holds the tenant's head row FOR UPDATE in tx and passes the
-// version it read there (A1 after bumping it, or chain:reseed reusing it).
-// EnqueueSeal locks the head itself before it writes, so a row is never
+// version it read there (A1, after bumping it; chain:reseed reuses the
+// version and goes through EnqueueReseed, because its dedupe key must
+// differ). EnqueueSeal locks the head itself before it writes, so a row is never
 // written without the head lock held in tx; if headVersion is not the
 // head's version under that lock it returns ErrVersionMismatch and writes
 // nothing. A tenant with no head, or tx with no tenant, is ErrHeadNotFound.
@@ -333,9 +334,6 @@ const sealDedupePrefix = SealKind + ":"
 //
 // tx must come from tenancy.InTenantTx. On any error the caller rolls tx back.
 func EnqueueSeal(ctx context.Context, tx pgx.Tx, headVersion int64, opts ...SealOption) (uuid.UUID, error) {
-	if headVersion < 1 {
-		return uuid.Nil, fmt.Errorf("%w: head version %d is below 1", ErrInvalidEntry, headVersion)
-	}
 	var o sealOptions
 	for _, opt := range opts {
 		if opt != nil {
@@ -344,6 +342,52 @@ func EnqueueSeal(ctx context.Context, tx pgx.Tx, headVersion int64, opts ...Seal
 	}
 	if o.delay < 0 {
 		return uuid.Nil, fmt.Errorf("%w: negative seal delay", ErrInvalidEntry)
+	}
+	tenant, err := lockHead(ctx, tx, headVersion)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return insertSeal(ctx, tx, tenant, headVersion, SealDedupeKey(headVersion), o)
+}
+
+// ReseedDedupeKey is the dedupe_key of the seal start row chain:reseed
+// enqueues at headVersion for the audit/reseed entry reseedID. It differs
+// from SealDedupeKey(headVersion), which the dead lineage's row already
+// holds, and from every other reseed's.
+func ReseedDedupeKey(headVersion int64, reseedID uuid.UUID) string {
+	return fmt.Sprintf("%s%d:reseed:%s", sealDedupePrefix, headVersion, reseedID)
+}
+
+// EnqueueReseed writes the start row of a new audit sealer lineage for
+// chain:reseed (ADR-004 R17, PLAN-005 C5 as amended on TICK-439) and returns
+// its id. It follows EnqueueSeal's rules: the tenant is the tenant of tx, the
+// payload is {}, target_key = audit.seal:<own id>, target_seq = headVersion,
+// no delay, and the head is locked here before the write, with
+// ErrVersionMismatch and ErrHeadNotFound as there.
+//
+// The head's version is reused without bumping it, so the dead lineage's row
+// already holds SealDedupeKey(headVersion). The key is ReseedDedupeKey
+// instead: a reseed at an unchanged version gets a new row and so a new run,
+// while a retry with the same reseedID, the id of the audit/reseed entry the
+// same call writes, returns the row it wrote and nothing more.
+//
+// tx must come from tenancy.InTenantTx. On any error the caller rolls tx back.
+func EnqueueReseed(ctx context.Context, tx pgx.Tx, headVersion int64, reseedID uuid.UUID) (uuid.UUID, error) {
+	if reseedID == uuid.Nil {
+		return uuid.Nil, fmt.Errorf("%w: no reseed id", ErrInvalidEntry)
+	}
+	tenant, err := lockHead(ctx, tx, headVersion)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return insertSeal(ctx, tx, tenant, headVersion, ReseedDedupeKey(headVersion, reseedID), sealOptions{})
+}
+
+// lockHead locks the tx tenant's audit_chain_head row and checks that its
+// version is headVersion. It returns the tenant read from that row.
+func lockHead(ctx context.Context, tx pgx.Tx, headVersion int64) (uuid.UUID, error) {
+	if headVersion < 1 {
+		return uuid.Nil, fmt.Errorf("%w: head version %d is below 1", ErrInvalidEntry, headVersion)
 	}
 	txTenant, err := tenancy.TenantOf(ctx, tx)
 	if errors.Is(err, tenancy.ErrNoTenant) {
@@ -365,13 +409,17 @@ func EnqueueSeal(ctx context.Context, tx pgx.Tx, headVersion int64, opts ...Seal
 	if got != headVersion {
 		return uuid.Nil, fmt.Errorf("%w: head has %d, given %d", ErrVersionMismatch, got, headVersion)
 	}
+	return tenant, nil
+}
 
+// insertSeal inserts one seal start row under dedupe and returns its id, or
+// the id of the tenant's row that already holds dedupe.
+func insertSeal(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, headVersion int64, dedupe string, o sealOptions) (uuid.UUID, error) {
 	id, err := uuid.NewV7()
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("outbox: new id: %w", err)
 	}
 	// RLS WITH CHECK refuses a row whose tenant_id is not app.tenant_id.
-	dedupe := SealDedupeKey(headVersion)
 	var inserted uuid.UUID
 	args := []any{id, tenant, dedupe, SealKind + ":" + id.String(), headVersion, traceparent(ctx)}
 	sql := insertSealSQL

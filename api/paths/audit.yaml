@@ -185,8 +185,53 @@ paths:
           $ref: "../openapi.yaml#/components/responses/Problem"
         "501":
           $ref: "../openapi.yaml#/components/responses/Problem"
+  /api/v1/audit/chain:reseed:
+    post:
+      operationId: reseedAuditChain
+      summary: Restart a dead audit seal lineage
+      description: >
+        Needs `audit.export`: a tenant admin or a member of the tenant's
+        auditors group (R17, ADR-001-A6.3). While the tenant's seal lineage is
+        alive, that is until its next run is more than 10 minutes overdue, the
+        call is refused with 409 `chain_alive` and writes nothing. Otherwise it
+        starts a new lineage at the head's current version, retires the old
+        one and writes an `audit/reseed` entry. The tenant is the token's.
+        There is no request body.
+      responses:
+        "200":
+          description: The new lineage.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChainReseed"
+        "401":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "403":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "404":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "409":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "429":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "500":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "501":
+          $ref: "../openapi.yaml#/components/responses/Problem"
 components:
   schemas:
+    ChainReseed:
+      type: object
+      required: [reseed_id, seal_outbox_id]
+      properties:
+        reseed_id:
+          type: string
+          format: uuid
+          description: The id of the `audit/reseed` entry.
+        seal_outbox_id:
+          type: string
+          format: uuid
+          description: The new lineage's start row.
     AuditEntryList:
       type: object
       required: [items]

@@ -270,3 +270,110 @@ func TestEnqueueSealWithDelay(t *testing.T) {
 		t.Errorf("%d outbox rows after a negative delay, want 0", n)
 	}
 }
+
+// AC (C5 amendment, TICK-446): a reseed at an unchanged version gets a new row
+// and a new run id, a retry with the same reseedID returns the same row, and
+// the row has the seal row's shape.
+func TestEnqueueReseed(t *testing.T) {
+	e := migrated(t)
+	ctx := context.Background()
+	for _, p := range producers(e) {
+		t.Run(p.role, func(t *testing.T) {
+			tenant := uuid.New()
+			seedHead(t, e.super, tenant, 3)
+			dead, _, err := lockedSeal(ctx, p.pool, tenant) // the dead lineage's row, audit.seal:3
+			if err != nil {
+				t.Fatal(err)
+			}
+			reseed := uuid.Must(uuid.NewV7())
+			enqueue := func(id uuid.UUID) uuid.UUID {
+				t.Helper()
+				var out uuid.UUID
+				err := tenancy.InTenantTx(ctx, p.pool, tenant, func(tx pgx.Tx) error {
+					var err error
+					out, err = outbox.EnqueueReseed(ctx, tx, 3, id)
+					return err
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return out
+			}
+			id := enqueue(reseed)
+			if id == dead {
+				t.Fatalf("reseed returned the dead lineage's row %s", dead)
+			}
+			var (
+				dedupe, targetKey, payload string
+				targetSeq                  int64
+				causation                  *uuid.UUID
+			)
+			if err := e.super.QueryRow(ctx, `SELECT dedupe_key, target_key, target_seq, causation_id, payload::text
+				FROM outbox WHERE tenant_id = $1 AND id = $2`, tenant, id).
+				Scan(&dedupe, &targetKey, &targetSeq, &causation, &payload); err != nil {
+				t.Fatal(err)
+			}
+			if want := "audit.seal:3:reseed:" + reseed.String(); dedupe != want {
+				t.Errorf("dedupe_key %q, want %q", dedupe, want)
+			}
+			if targetKey != "audit.seal:"+id.String() || targetSeq != 3 || payload != "{}" {
+				t.Errorf("target %q seq %d payload %s, want audit.seal:%s seq 3 {}", targetKey, targetSeq, payload, id)
+			}
+			if causation == nil || *causation != id {
+				t.Errorf("causation %v, want the row's own id", causation)
+			}
+			if again := enqueue(reseed); again != id {
+				t.Errorf("retry with the same reseed id = %s, want %s", again, id)
+			}
+			if other := enqueue(uuid.Must(uuid.NewV7())); other == id || other == dead {
+				t.Errorf("a second reseed returned %s, want a new row", other)
+			}
+			if n := count(t, e.super, "SELECT count(*) FROM outbox WHERE tenant_id = $1", tenant); n != 3 {
+				t.Errorf("%d outbox rows, want 3 (dead, two reseeds)", n)
+			}
+
+			// Failure paths write nothing.
+			for name, run := range map[string]func(tx pgx.Tx) error{
+				"stale version": func(tx pgx.Tx) error {
+					_, err := outbox.EnqueueReseed(ctx, tx, 4, uuid.New())
+					return err
+				},
+				"nil reseed id": func(tx pgx.Tx) error {
+					_, err := outbox.EnqueueReseed(ctx, tx, 3, uuid.Nil)
+					return err
+				},
+			} {
+				err := tenancy.InTenantTx(ctx, p.pool, tenant, run)
+				want := outbox.ErrVersionMismatch
+				if name == "nil reseed id" {
+					want = outbox.ErrInvalidEntry
+				}
+				if !errors.Is(err, want) {
+					t.Errorf("%s: %v, want %v", name, err, want)
+				}
+			}
+			if n := count(t, e.super, "SELECT count(*) FROM outbox WHERE tenant_id = $1", tenant); n != 3 {
+				t.Errorf("%d outbox rows after refusals, want 3", n)
+			}
+		})
+	}
+}
+
+// A reseed in a tenant with no head, or in another tenant's transaction,
+// finds no head and writes nothing.
+func TestEnqueueReseedNoHead(t *testing.T) {
+	e := migrated(t)
+	ctx := context.Background()
+	other := uuid.New()
+	seedHead(t, e.super, other, 1)
+	err := tenancy.InTenantTx(ctx, e.app, uuid.New(), func(tx pgx.Tx) error {
+		_, err := outbox.EnqueueReseed(ctx, tx, 1, uuid.New())
+		return err
+	})
+	if !errors.Is(err, outbox.ErrHeadNotFound) {
+		t.Fatalf("no head: %v, want ErrHeadNotFound", err)
+	}
+	if n := count(t, e.super, "SELECT count(*) FROM outbox WHERE tenant_id = $1", other); n != 0 {
+		t.Errorf("%d rows in the other tenant, want 0", n)
+	}
+}
