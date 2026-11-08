@@ -9,6 +9,7 @@ package server_test
 import (
 	"bytes"
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -499,5 +500,84 @@ func TestExportEraseAfterHeadIsPendingTail(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), bErase.String()) || strings.Contains(rec.Body.String(), x.b.id.String()) {
 		t.Error("tenant A's export holds tenant B's audit/erase entry")
+	}
+}
+
+// format=csv serves the same sealed rows as the JSONL export, as text/csv, the
+// file verifies, and the request diff of the audit/export entry records the
+// format. An unknown format is 400.
+//
+// covers: exportAuditEntries 200
+func TestExportFormatCSV(t *testing.T) {
+	x := newExportEnv(t)
+	rid := x.seedActivity(t)
+	q := "?subject_id=" + rid
+
+	js := x.export(t, "admin-a", q)
+	rec := x.export(t, "admin-a", q+"&format=csv")
+	if rec.Code != http.StatusOK || !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/csv") {
+		t.Fatalf("format=csv: %d %s: %s", rec.Code, rec.Header().Get("Content-Type"), rec.Body)
+	}
+	if cd := rec.Header().Get("Content-Disposition"); !strings.HasSuffix(cd, `.csv"`) {
+		t.Errorf("Content-Disposition = %q, want a .csv filename", cd)
+	}
+	if rep := report(t, rec.Body.Bytes()); rep.Outcome != verify.OutcomePass || rep.Encoding != verify.EncodingCSV {
+		t.Fatalf("csv verify: %s %s %+v\n%s", rep.Outcome, rep.Encoding, rep.Failure, rec.Body)
+	}
+
+	rows, err := csv.NewReader(bytes.NewReader(rec.Body.Bytes())).ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	col := map[string]int{}
+	for i, c := range rows[0] {
+		col[c] = i
+	}
+	// The sealed (seq, entry_hash) pairs match the JSONL export's.
+	var gotCSV, gotJSON []string
+	for _, r := range rows[1:] {
+		if r[col["kind"]] == "entry" && r[col["sealed"]] == "true" {
+			gotCSV = append(gotCSV, r[col["seq"]]+" "+r[col["entry_hash"]])
+		}
+		for _, c := range r {
+			if c != "" && strings.ContainsAny(c[:1], "=+-@\t\r") {
+				t.Errorf("cell %q begins with a formula character", c)
+			}
+		}
+	}
+	if last := rows[len(rows)-1]; last[col["kind"]] != "trailer" {
+		t.Errorf("last row kind = %q, want trailer", last[col["kind"]])
+	}
+	for _, l := range strings.Split(strings.TrimSpace(js.Body.String()), "\n") {
+		var m struct {
+			Kind      string `json:"kind"`
+			Seq       int64  `json:"seq"`
+			EntryHash string `json:"entry_hash"`
+			Sealed    bool   `json:"sealed"`
+		}
+		if err := json.Unmarshal([]byte(l), &m); err != nil {
+			t.Fatal(err)
+		}
+		if m.Kind == "entry" && m.Sealed {
+			gotJSON = append(gotJSON, fmt.Sprintf("%d %s", m.Seq, m.EntryHash))
+		}
+	}
+	if len(gotCSV) == 0 || strings.Join(gotCSV, ",") != strings.Join(gotJSON, ",") {
+		t.Errorf("sealed rows differ:\ncsv  %v\njson %v", gotCSV, gotJSON)
+	}
+
+	var diff string
+	if err := x.super.QueryRow(t.Context(), `SELECT diff::text FROM audit_log WHERE action = 'export' ORDER BY seq DESC LIMIT 1`).Scan(&diff); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(diff, `"format": "csv"`) {
+		t.Errorf("request diff = %s, want format csv", diff)
+	}
+
+	if rec := x.export(t, "admin-a", "?format=xml"); rec.Code != http.StatusBadRequest {
+		t.Errorf("unknown format = %d: %s", rec.Code, rec.Body)
+	}
+	if rec := x.export(t, "user-a", "?format=csv"); rec.Code != http.StatusForbidden {
+		t.Errorf("csv without audit.export = %d", rec.Code)
 	}
 }

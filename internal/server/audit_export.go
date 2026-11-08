@@ -37,6 +37,9 @@ func (h *handlers) ExportAuditEntries(ctx context.Context, req api.ExportAuditEn
 	if prm.Stubs != nil {
 		r.Stubs = *prm.Stubs
 	}
+	if prm.Format != nil {
+		r.CSV = *prm.Format == api.Csv
+	}
 	f := &r.Filter
 	f.From, f.To, f.AfterSeq, f.SubjectID, f.ChangeSetID = prm.From, prm.To, prm.AfterSeq, prm.SubjectId, prm.ChangeSetId
 	if prm.Domain != nil {
@@ -96,12 +99,16 @@ func (e *exportResponse) VisitExportAuditEntriesResponse(w http.ResponseWriter) 
 	rc := http.NewResponseController(w)
 	// The server's WriteTimeout would cut a long export; R21 caps it instead.
 	_ = rc.SetWriteDeadline(time.Now().Add(e.h.exporter.Deadline() + time.Minute))
-	w.Header().Set("Content-Type", "application/x-ndjson")
+	ctype, ext, write := "application/x-ndjson", "jsonl", e.h.exporter.Write
+	if e.s.Request.CSV {
+		ctype, ext, write = "text/csv; charset=utf-8", "csv", e.h.exporter.WriteCSV
+	}
+	w.Header().Set("Content-Type", ctype)
 	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Content-Disposition", `attachment; filename="audit-export-`+e.s.ExportID.String()+`.jsonl"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="audit-export-`+e.s.ExportID.String()+`.`+ext+`"`)
 	w.WriteHeader(http.StatusOK)
 	flush := func() { _ = rc.Flush() }
-	if err := e.h.exporter.Write(e.ctx, w, flush, e.s); err != nil {
+	if err := write(e.ctx, w, flush, e.s); err != nil {
 		e.h.log.ErrorContext(e.ctx, "audit export failed", e.attrs(slog.Any("error", err))...)
 		panic(http.ErrAbortHandler)
 	}
