@@ -233,6 +233,7 @@ func Coverage() map[string]string {
 		caseReaderScoped: "full (ADR-004-A1, TICK-558): nava_audit_reader through read.Reader and as raw SQL reads only the set tenant's rows, none with no tenant, and never txid",
 		caseReaderMasks:  "full (ADR-004-A1, TICK-558): GET /api/v1/audit/entries on the reader pool masks an x-nava-secret property for an auditor with no mask permission; red without nava_audit_reader in entity_definition_versions_select",
 		"CI-A10":         "full (ADR-004, P5-19): the nava-core and nava-worker pools from compose.yaml log in as nava_app and nava_worker and rerun the P5-10b matrix; nava_onboard and nava_groupsync are TestP510b* in internal/db/dbtest",
+		"I5":             "partial → P3-34 (S10): the record ACL's SQL list predicate (authz.CompileRead) and Go check (authz.Allows) agree for random policies, principals and records under RLS, with pair-matched shares and mutant compilers that must be caught (P3-32, TestI5Agreement); data filters and the list route wait for P3-34",
 		"CI-5":           "full in make identity-attacks (real Keycloak, the CI stack job, ci5-report artifact); here every case is registered: token shapes through the API handler (401 for the stated reason), the duplicate binding on this database, Keycloak-only cases as Stack paths on TestCI5",
 	}
 }
