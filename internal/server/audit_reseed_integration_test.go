@@ -29,8 +29,8 @@ func (x *exportEnv) lineage(t *testing.T, tenant uuid.UUID, offset string) uuid.
 	o := uuid.Must(uuid.NewV7())
 	ctx := t.Context()
 	if _, err := x.super.Exec(ctx, `INSERT INTO outbox (id, tenant_id, kind, kind_version, dedupe_key, target_key, target_seq,
-		causation_id, causation_depth, payload) VALUES ($1, $2, 'audit.seal', 1, 'audit.seal:' || $1::text, 'audit.seal:' || $1::text,
-		(SELECT version FROM audit_chain_head WHERE tenant_id = $2), $1, 0, '{}')`, o, tenant); err != nil {
+		causation_id, causation_depth, payload) VALUES ($1::uuid, $2::uuid, 'audit.seal', 1, 'audit.seal:' || $3::text, 'audit.seal:' || $3::text,
+		(SELECT version FROM audit_chain_head WHERE tenant_id = $2::uuid), $1::uuid, 0, '{}')`, o, tenant, o.String()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := x.super.Exec(ctx, `UPDATE audit_chain_head SET next_seal_outbox_id = $2,
