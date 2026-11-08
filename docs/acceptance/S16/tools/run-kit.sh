@@ -20,6 +20,8 @@ cd "$(dirname "$0")/../../../.."
 if [ -f .env ]; then set -a; . ./.env; set +a; fi
 EV=docs/acceptance/S16/evidence
 mkdir -p "$EV"
+# The raw Bruno reports hold dev-only tokens: never leave them behind (TICK-627).
+trap 'rm -f "$EV"/.bruno-*.json' EXIT
 CORE_PORT=${NAVA_CORE_PORT:-18080}
 KC_PORT=${KEYCLOAK_PORT:-18081}
 ADMIN_PORT=${ACCEPT_ADMIN_PORT:-19090}
