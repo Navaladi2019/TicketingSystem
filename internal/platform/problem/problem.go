@@ -27,30 +27,34 @@ type Code string
 
 // The registered codes.
 const (
-	TenantUnresolved     Code = "tenant_unresolved"
-	InvalidToken         Code = "invalid_token"
-	IdempotencyKeyReuse  Code = "idempotency_key_reuse"
-	IdempotencyInFlight  Code = "idempotency_in_flight"
-	Forbidden            Code = "forbidden"
-	DomainClaimed        Code = "domain_claimed"
-	InvalidIdPConfig     Code = "invalid_idp_config"
-	OnboardingConflict   Code = "onboarding_conflict"
-	InvalidCursor        Code = "invalid_cursor"
-	RateLimited          Code = "rate_limited"
-	NotFound             Code = "not_found"
-	ValidationFailed     Code = "validation_failed"
-	MethodNotAllowed     Code = "method_not_allowed"
-	NotImplemented       Code = "not_implemented"
-	InternalError        Code = "internal_error"
-	InvalidDefinition    Code = "invalid_definition"
-	EntityTypeExists     Code = "entity_type_exists"
-	NumberPrefixTaken    Code = "number_prefix_taken"
-	SchemaBreakingChange Code = "schema_breaking_change"
-	RecordInvalid        Code = "record_invalid"
-	IfMatchRequired      Code = "if_match_required"
-	VersionConflict      Code = "version_conflict"
-	IllegalTransition    Code = "illegal_transition"
-	UniqueViolation      Code = "unique_violation"
+	TenantUnresolved         Code = "tenant_unresolved"
+	InvalidToken             Code = "invalid_token"
+	IdempotencyKeyReuse      Code = "idempotency_key_reuse"
+	IdempotencyInFlight      Code = "idempotency_in_flight"
+	Forbidden                Code = "forbidden"
+	DomainClaimed            Code = "domain_claimed"
+	InvalidIdPConfig         Code = "invalid_idp_config"
+	OnboardingConflict       Code = "onboarding_conflict"
+	InvalidCursor            Code = "invalid_cursor"
+	RateLimited              Code = "rate_limited"
+	NotFound                 Code = "not_found"
+	ValidationFailed         Code = "validation_failed"
+	MethodNotAllowed         Code = "method_not_allowed"
+	NotImplemented           Code = "not_implemented"
+	InternalError            Code = "internal_error"
+	InvalidDefinition        Code = "invalid_definition"
+	EntityTypeExists         Code = "entity_type_exists"
+	NumberPrefixTaken        Code = "number_prefix_taken"
+	SchemaBreakingChange     Code = "schema_breaking_change"
+	RecordInvalid            Code = "record_invalid"
+	IfMatchRequired          Code = "if_match_required"
+	VersionConflict          Code = "version_conflict"
+	IllegalTransition        Code = "illegal_transition"
+	UniqueViolation          Code = "unique_violation"
+	ConfigSecretInContent    Code = "config_secret_in_content"
+	DefinitionSecretRequired Code = "definition_secret_required"
+	AssignmentGroupRemoved   Code = "assignment_group_removed"
+	HistoryTooLong           Code = "history_too_long"
 )
 
 // Codes lists every Code constant.
@@ -59,7 +63,7 @@ func Codes() []Code {
 		TenantUnresolved, InvalidToken, IdempotencyKeyReuse, IdempotencyInFlight, Forbidden, DomainClaimed, InvalidIdPConfig, OnboardingConflict, InvalidCursor,
 		RateLimited, NotFound, ValidationFailed, MethodNotAllowed,
 		NotImplemented, InternalError, InvalidDefinition, EntityTypeExists, NumberPrefixTaken, SchemaBreakingChange, RecordInvalid,
-		IfMatchRequired, VersionConflict, IllegalTransition, UniqueViolation,
+		IfMatchRequired, VersionConflict, IllegalTransition, UniqueViolation, ConfigSecretInContent, DefinitionSecretRequired, AssignmentGroupRemoved, HistoryTooLong,
 	}
 }
 
@@ -177,8 +181,11 @@ func Internal(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// marshal is json.Marshal; tests replace it to reach the failure branch.
+var marshal = json.Marshal //nolint:gochecknoglobals // test seam, replaced only by tests
+
 func write(w http.ResponseWriter, _ *http.Request, b Body) {
-	out, err := json.Marshal(b)
+	out, err := marshal(b)
 	if err != nil { // a Body of strings and ints cannot fail to marshal
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return

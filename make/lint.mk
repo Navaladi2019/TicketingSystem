@@ -1,4 +1,4 @@
-.PHONY: lint check-generate check-guide check-ci-steps check-openapi tools check-tools fmt-check vet vet-tags lint-fixture check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck
+.PHONY: lint check-generate check-guide check-ci-steps check-openapi tools check-tools fmt-check vet vet-tags lint-fixture check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck check-golangci-lint
 
 ci-lint: check-tools fmt-check vet vet-tags lint lint-fixture check-taskfile check-pins check-generate check-guide check-ci-steps check-openapi vulncheck-ci
 
@@ -49,8 +49,7 @@ tools-govulncheck:
 	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 
 # A local lint run with another golangci-lint version is not the CI run.
-check-tools:
-	@$(GOLANGCI_LINT) version | grep -q "version $(GOLANGCI_LINT_VERSION) " || { echo "golangci-lint is not $(GOLANGCI_LINT_VERSION) (docs/pins.md); run make tools"; exit 1; }
+check-tools: check-golangci-lint
 	@command -v govulncheck >/dev/null || { echo "govulncheck is missing; run make tools"; exit 1; }
 
 fmt-check:
@@ -90,3 +89,8 @@ vulncheck-ci:
 vulncheck-temporal-server:
 	cd temporal-server && govulncheck ./...
 
+
+# golangci-lint alone at the pinned version (docs/pins.md): check-tools, and
+# lint-temporal-server, whose job installs no govulncheck before it lints.
+check-golangci-lint:
+	@$(GOLANGCI_LINT) version | grep -q "version $(GOLANGCI_LINT_VERSION) " || { echo "golangci-lint is not $(GOLANGCI_LINT_VERSION) (docs/pins.md); run make tools"; exit 1; }

@@ -1,0 +1,8 @@
+meta {
+  name: S15 seal after a worker kill
+  seq: 13
+}
+
+docs {
+  Story S15, TICK-420, AC2 (kit TICK-443). Run by docs/acceptance/S15/tools/run-kit.sh after it killed nava-worker (`docker compose kill`, SIGKILL) while Alice and Bob wrote incidents, kept it down while the writes went on, started it again and waited until nothing was unsealed. `s15_kill_at` (passed with `--env-var`) is the kill time. The auditor reads every tenant A entry written since then, page by page: all sealed, no seq twice, no gap. The database check of both tenants is `docs/acceptance/S15/tools/seq-check.sql`.
+}

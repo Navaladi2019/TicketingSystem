@@ -296,6 +296,32 @@ func recHistoryCursorReplay(ctx context.Context, e *etIso) error {
 	if code, body := e.do(ctx, http.MethodPatch, "/api/v1/records/iso_et_rec/"+id, etCallerA, `{"data": {"note": "again"}}`, patch); code != http.StatusOK {
 		return fmt.Errorf("control: tenant A patching its record = %d %s, want 200", code, body)
 	}
+	// Tenant B's first page of tenant A's history. The record has live
+	// audit_log rows from the create and the patch above (TICK-531, restored
+	// on the new log by P5-17, TICK-435), so a handler that stopped calling
+	// Get first, or read History before the tenant-scoped record lookup,
+	// would answer 200 with them and fail here: the same 404 as for a
+	// missing record.
+	const missing = "0194f2c0-0000-7000-8000-000000000000"
+	oc, ob := e.do(ctx, http.MethodGet, "/api/v1/records/iso_et_rec/"+id+"/history", etCallerB, "", nil)
+	uc, ub := e.do(ctx, http.MethodGet, "/api/v1/records/iso_et_rec/"+missing+"/history", etCallerB, "", nil)
+	if uc != http.StatusNotFound {
+		return fmt.Errorf("control: tenant B's history of a missing record = %d %s, want 404", uc, ub)
+	}
+	if oc != http.StatusNotFound {
+		return fmt.Errorf("tenant B's first history page of tenant A's record = %d %s, want 404", oc, ob)
+	}
+	ow, err := withoutInstance(ob)
+	if err != nil {
+		return err
+	}
+	uw, err := withoutInstance(ub)
+	if err != nil {
+		return err
+	}
+	if ow != uw {
+		return fmt.Errorf("tenant B's history 404 for tenant A's record differs from the missing one's:\n%s\n%s", ob, ub)
+	}
 	first := "/api/v1/records/iso_et_rec/" + id + "/history?limit=1"
 	code, body := e.do(ctx, http.MethodGet, first, etCallerA, "", nil)
 	if code != http.StatusOK {

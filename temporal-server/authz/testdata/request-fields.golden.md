@@ -1017,7 +1017,7 @@ No fields.
 | `commands[].signal_external_workflow_execution_command_attributes.signal_name` | `string` | not an id or queue |
 | `commands[].start_child_workflow_execution_command_attributes` | `temporal.api.command.v1.StartChildWorkflowExecutionCommandAttributes` | message: see its fields |
 | `commands[].start_child_workflow_execution_command_attributes.control` | `string` | not an id or queue |
-| `commands[].start_child_workflow_execution_command_attributes.cron_schedule` | `string` | not an id or queue |
+| `commands[].start_child_workflow_execution_command_attributes.cron_schedule` | `string` | E1: empty (TICK-576) |
 | `commands[].start_child_workflow_execution_command_attributes.header` | `temporal.api.common.v1.Header` | message: see its fields |
 | `commands[].start_child_workflow_execution_command_attributes.header.fields{}` | `temporal.api.common.v1.Payload` | E1: `nava-tenant` header is the task's tenant |
 | `commands[].start_child_workflow_execution_command_attributes.header.fields{}.data` | `bytes` | E1: `nava-tenant` header is the task's tenant |
@@ -1037,16 +1037,16 @@ No fields.
 | `commands[].start_child_workflow_execution_command_attributes.priority.fairness_key` | `string` | not an id or queue |
 | `commands[].start_child_workflow_execution_command_attributes.priority.fairness_weight` | `float` | not an id or queue |
 | `commands[].start_child_workflow_execution_command_attributes.priority.priority_key` | `int32` | not an id or queue |
-| `commands[].start_child_workflow_execution_command_attributes.retry_policy` | `temporal.api.common.v1.RetryPolicy` | message: see its fields |
-| `commands[].start_child_workflow_execution_command_attributes.retry_policy.backoff_coefficient` | `double` | not an id or queue |
-| `commands[].start_child_workflow_execution_command_attributes.retry_policy.initial_interval` | `google.protobuf.Duration` | message: see its fields |
-| `commands[].start_child_workflow_execution_command_attributes.retry_policy.initial_interval.nanos` | `int32` | not an id or queue |
-| `commands[].start_child_workflow_execution_command_attributes.retry_policy.initial_interval.seconds` | `int64` | not an id or queue |
-| `commands[].start_child_workflow_execution_command_attributes.retry_policy.maximum_attempts` | `int32` | not an id or queue |
-| `commands[].start_child_workflow_execution_command_attributes.retry_policy.maximum_interval` | `google.protobuf.Duration` | message: see its fields |
-| `commands[].start_child_workflow_execution_command_attributes.retry_policy.maximum_interval.nanos` | `int32` | not an id or queue |
-| `commands[].start_child_workflow_execution_command_attributes.retry_policy.maximum_interval.seconds` | `int64` | not an id or queue |
-| `commands[].start_child_workflow_execution_command_attributes.retry_policy.non_retryable_error_types[]` | `string` | not an id or queue |
+| `commands[].start_child_workflow_execution_command_attributes.retry_policy` | `temporal.api.common.v1.RetryPolicy` | E1: unset (TICK-576) |
+| `commands[].start_child_workflow_execution_command_attributes.retry_policy.backoff_coefficient` | `double` | E1: unset (TICK-576) |
+| `commands[].start_child_workflow_execution_command_attributes.retry_policy.initial_interval` | `google.protobuf.Duration` | E1: unset (TICK-576) |
+| `commands[].start_child_workflow_execution_command_attributes.retry_policy.initial_interval.nanos` | `int32` | E1: unset (TICK-576) |
+| `commands[].start_child_workflow_execution_command_attributes.retry_policy.initial_interval.seconds` | `int64` | E1: unset (TICK-576) |
+| `commands[].start_child_workflow_execution_command_attributes.retry_policy.maximum_attempts` | `int32` | E1: unset (TICK-576) |
+| `commands[].start_child_workflow_execution_command_attributes.retry_policy.maximum_interval` | `google.protobuf.Duration` | E1: unset (TICK-576) |
+| `commands[].start_child_workflow_execution_command_attributes.retry_policy.maximum_interval.nanos` | `int32` | E1: unset (TICK-576) |
+| `commands[].start_child_workflow_execution_command_attributes.retry_policy.maximum_interval.seconds` | `int64` | E1: unset (TICK-576) |
+| `commands[].start_child_workflow_execution_command_attributes.retry_policy.non_retryable_error_types[]` | `string` | E1: unset (TICK-576) |
 | `commands[].start_child_workflow_execution_command_attributes.search_attributes` | `temporal.api.common.v1.SearchAttributes` | message: see its fields |
 | `commands[].start_child_workflow_execution_command_attributes.search_attributes.indexed_fields{}` | `temporal.api.common.v1.Payload` | E1: a `NavaTenantId` it sets is the task's tenant |
 | `commands[].start_child_workflow_execution_command_attributes.search_attributes.indexed_fields{}.data` | `bytes` | E1: a `NavaTenantId` it sets is the task's tenant |
@@ -1749,7 +1749,7 @@ No fields.
 | Field | Type | Class |
 |---|---|---|
 | `control` | `string` | not an id or queue |
-| `cron_schedule` | `string` | not an id or queue |
+| `cron_schedule` | `string` | D9a: empty (TICK-573) |
 | `header` | `temporal.api.common.v1.Header` | message: see its fields |
 | `header.fields{}` | `temporal.api.common.v1.Payload` | message: see its fields |
 | `header.fields{}.data` | `bytes` | not an id or queue |
@@ -1782,16 +1782,16 @@ No fields.
 | `priority.fairness_weight` | `float` | not an id or queue |
 | `priority.priority_key` | `int32` | not an id or queue |
 | `request_id` | `string` | not an id or queue |
-| `retry_policy` | `temporal.api.common.v1.RetryPolicy` | message: see its fields |
-| `retry_policy.backoff_coefficient` | `double` | not an id or queue |
-| `retry_policy.initial_interval` | `google.protobuf.Duration` | message: see its fields |
-| `retry_policy.initial_interval.nanos` | `int32` | not an id or queue |
-| `retry_policy.initial_interval.seconds` | `int64` | not an id or queue |
-| `retry_policy.maximum_attempts` | `int32` | not an id or queue |
-| `retry_policy.maximum_interval` | `google.protobuf.Duration` | message: see its fields |
-| `retry_policy.maximum_interval.nanos` | `int32` | not an id or queue |
-| `retry_policy.maximum_interval.seconds` | `int64` | not an id or queue |
-| `retry_policy.non_retryable_error_types[]` | `string` | not an id or queue |
+| `retry_policy` | `temporal.api.common.v1.RetryPolicy` | D9a: unset (TICK-573) |
+| `retry_policy.backoff_coefficient` | `double` | D9a: unset (TICK-573) |
+| `retry_policy.initial_interval` | `google.protobuf.Duration` | D9a: unset (TICK-573) |
+| `retry_policy.initial_interval.nanos` | `int32` | D9a: unset (TICK-573) |
+| `retry_policy.initial_interval.seconds` | `int64` | D9a: unset (TICK-573) |
+| `retry_policy.maximum_attempts` | `int32` | D9a: unset (TICK-573) |
+| `retry_policy.maximum_interval` | `google.protobuf.Duration` | D9a: unset (TICK-573) |
+| `retry_policy.maximum_interval.nanos` | `int32` | D9a: unset (TICK-573) |
+| `retry_policy.maximum_interval.seconds` | `int64` | D9a: unset (TICK-573) |
+| `retry_policy.non_retryable_error_types[]` | `string` | D9a: unset (TICK-573) |
 | `search_attributes` | `temporal.api.common.v1.SearchAttributes` | message: see its fields |
 | `search_attributes.indexed_fields{}` | `temporal.api.common.v1.Payload` | message: see its fields |
 | `search_attributes.indexed_fields{}.data` | `bytes` | not an id or queue |
@@ -1969,7 +1969,7 @@ No fields.
 | `continued_failure.timeout_failure_info.last_heartbeat_details.payloads[].data` | `bytes` | not an id or queue |
 | `continued_failure.timeout_failure_info.last_heartbeat_details.payloads[].metadata{}` | `bytes` | not an id or queue |
 | `continued_failure.timeout_failure_info.timeout_type` | `temporal.api.enums.v1.TimeoutType` | not an id or queue |
-| `cron_schedule` | `string` | not an id or queue |
+| `cron_schedule` | `string` | D9a: empty (TICK-573) |
 | `header` | `temporal.api.common.v1.Header` | message: see its fields |
 | `header.fields{}` | `temporal.api.common.v1.Payload` | message: see its fields |
 | `header.fields{}.data` | `bytes` | not an id or queue |
@@ -2011,16 +2011,16 @@ No fields.
 | `priority.priority_key` | `int32` | not an id or queue |
 | `request_eager_execution` | `bool` | not an id or queue |
 | `request_id` | `string` | not an id or queue |
-| `retry_policy` | `temporal.api.common.v1.RetryPolicy` | message: see its fields |
-| `retry_policy.backoff_coefficient` | `double` | not an id or queue |
-| `retry_policy.initial_interval` | `google.protobuf.Duration` | message: see its fields |
-| `retry_policy.initial_interval.nanos` | `int32` | not an id or queue |
-| `retry_policy.initial_interval.seconds` | `int64` | not an id or queue |
-| `retry_policy.maximum_attempts` | `int32` | not an id or queue |
-| `retry_policy.maximum_interval` | `google.protobuf.Duration` | message: see its fields |
-| `retry_policy.maximum_interval.nanos` | `int32` | not an id or queue |
-| `retry_policy.maximum_interval.seconds` | `int64` | not an id or queue |
-| `retry_policy.non_retryable_error_types[]` | `string` | not an id or queue |
+| `retry_policy` | `temporal.api.common.v1.RetryPolicy` | D9a: unset (TICK-573) |
+| `retry_policy.backoff_coefficient` | `double` | D9a: unset (TICK-573) |
+| `retry_policy.initial_interval` | `google.protobuf.Duration` | D9a: unset (TICK-573) |
+| `retry_policy.initial_interval.nanos` | `int32` | D9a: unset (TICK-573) |
+| `retry_policy.initial_interval.seconds` | `int64` | D9a: unset (TICK-573) |
+| `retry_policy.maximum_attempts` | `int32` | D9a: unset (TICK-573) |
+| `retry_policy.maximum_interval` | `google.protobuf.Duration` | D9a: unset (TICK-573) |
+| `retry_policy.maximum_interval.nanos` | `int32` | D9a: unset (TICK-573) |
+| `retry_policy.maximum_interval.seconds` | `int64` | D9a: unset (TICK-573) |
+| `retry_policy.non_retryable_error_types[]` | `string` | D9a: unset (TICK-573) |
 | `search_attributes` | `temporal.api.common.v1.SearchAttributes` | message: see its fields |
 | `search_attributes.indexed_fields{}` | `temporal.api.common.v1.Payload` | message: see its fields |
 | `search_attributes.indexed_fields{}.data` | `bytes` | not an id or queue |

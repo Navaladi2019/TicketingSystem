@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -37,7 +38,12 @@ import (
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	err := run(ctx, os.LookupEnv, os.Stdout)
+	var err error
+	if len(os.Args) > 1 && os.Args[1] == "reconcile-auditors" {
+		err = reconcileAuditors(ctx, os.LookupEnv, os.Stdout, os.Args[2:])
+	} else {
+		err = run(ctx, os.LookupEnv, os.Stdout)
+	}
 	stop()
 	if err != nil {
 		slog.ErrorContext(ctx, "nava-onboard stopped", slog.Any("error", err))
@@ -105,36 +111,48 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 	return errors.Join(append(errs, telErr)...)
 }
 
-// build wires the onboarding service: a nava_app pool (tenant-token refusal,
-// the invite's registry), a nava_onboard pool, and the Keycloak adapters.
-func build(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, cfg config.Onboard) (http.Handler, *pgxpool.Pool, func(), error) {
+// backends are the database stores and Keycloak adapters both the operator
+// API and the upgrade reconcile use.
+type backends struct {
+	appPool *pgxpool.Pool
+	store   *onboard.PGStore
+	dir     *keycloak.Directory
+	adapter *keycloak.Adapter
+	reg     *onboard.Registry
+	specs   *onboard.Specs
+	close   func()
+}
+
+// newBackends opens a nava_app pool (tenant-token refusal, the invite's
+// registry), a nava_onboard pool, and the Keycloak adapters.
+func newBackends(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, cfg config.Onboard) (*backends, error) {
 	appPool, err := newPool(ctx, tel, cfg.DatabaseURL, "NAVA_DATABASE_URL", 4)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 	onboardPool, err := newPool(ctx, tel, cfg.OnboardDatabaseURL, "NAVA_ONBOARD_DATABASE_URL", 8)
 	if err != nil {
 		appPool.Close()
-		return nil, nil, nil, err
+		return nil, err
 	}
-	var adapter *keycloak.Adapter
-	closeAll := func() {
-		if adapter != nil {
-			_ = adapter.Close(context.Background())
+	b := &backends{appPool: appPool}
+	b.close = func() {
+		if b.adapter != nil {
+			_ = b.adapter.Close(context.Background())
 		}
 		onboardPool.Close()
 		appPool.Close()
 	}
 	out, err := telemetry.NewOutboundClient(tel, telemetry.OutboundOptions{})
 	if err != nil {
-		closeAll()
-		return nil, nil, nil, err
+		b.close()
+		return nil, err
 	}
 	ops := make([]keycloak.OperatorSubject, 0, len(cfg.Operators))
 	for _, o := range cfg.Operators {
 		ops = append(ops, keycloak.OperatorSubject{Issuer: o.Issuer, Subject: o.Subject})
 	}
-	adapter, err = keycloak.New(ctx, keycloak.Config{
+	b.adapter, err = keycloak.New(ctx, keycloak.Config{
 		Issuers:       cfg.OIDCIssuers,
 		FetchBaseURL:  cfg.OIDCFetchBaseURL,
 		Operators:     ops,
@@ -143,44 +161,105 @@ func build(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, cfg 
 		Store:         pgstore.New(appPool),
 	}, out)
 	if err != nil {
-		closeAll()
-		return nil, nil, nil, fmt.Errorf("identity: %w", err)
+		b.close()
+		return nil, fmt.Errorf("identity: %w", err)
 	}
-	registry := onboard.NewRegistry(appPool)
-	store, err := onboard.NewPGStore(onboardPool, registry)
+	b.reg = onboard.NewRegistry(appPool)
+	b.store, err = onboard.NewPGStore(onboardPool, b.reg)
 	if err != nil {
-		closeAll()
-		return nil, nil, nil, err
+		b.close()
+		return nil, err
 	}
-	specs := onboard.NewSpecs()
-	dir, err := keycloak.NewDirectory(keycloak.DirectoryConfig{
+	b.specs = onboard.NewSpecs()
+	b.dir, err = keycloak.NewDirectory(keycloak.DirectoryConfig{
 		BaseURL:    cfg.KeycloakURL,
 		Realm:      cfg.KeycloakRealm,
 		Runtime:    keycloak.ClientCredentials{ClientID: cfg.RuntimeClientID, ClientSecret: cfg.RuntimeClientSecret},
 		Onboarding: &keycloak.ClientCredentials{ClientID: cfg.OnboardClientID, ClientSecret: cfg.OnboardClientSecret},
-		Registry:   registry,
-		IdPs:       specs.Source,
-		Invites:    store,
+		Registry:   b.reg,
+		IdPs:       b.specs.Source,
+		Invites:    b.store,
 		InviteTTL:  cfg.InviteTTL,
+		Logger:     log,
 	}, out)
 	if err != nil {
-		closeAll()
-		return nil, nil, nil, fmt.Errorf("directory: %w", err)
+		b.close()
+		return nil, fmt.Errorf("directory: %w", err)
+	}
+	return b, nil
+}
+
+// build wires the onboarding service.
+func build(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, cfg config.Onboard) (http.Handler, *pgxpool.Pool, func(), error) {
+	b, err := newBackends(ctx, log, tel, cfg)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 	svc, err := onboard.New(onboard.Options{
-		Store: store, Directory: dir, Finder: dir, Domains: registry, Specs: specs,
+		Store: b.store, Directory: b.dir, Finder: b.dir, Domains: b.reg, Specs: b.specs,
 		Resolver: onboard.NewNetResolver(), Issuer: cfg.Issuer, Log: log,
 	})
 	if err != nil {
-		closeAll()
+		b.close()
 		return nil, nil, nil, err
 	}
-	h, err := server.NewHandler(log, tel, adapter, nil, server.WithOperator(adapter, svc), server.OperatorOnly())
+	h, err := server.NewHandler(log, tel, b.adapter, nil, server.WithOperator(b.adapter, svc), server.OperatorOnly())
 	if err != nil {
-		closeAll()
+		b.close()
 		return nil, nil, nil, err
 	}
-	return h, appPool, closeAll, nil
+	return h, b.appPool, b.close, nil
+}
+
+// parseTenantIDs reads the tenant ids named on the command line.
+func parseTenantIDs(args []string) ([]uuid.UUID, error) {
+	if len(args) == 0 {
+		return nil, errors.New("usage: nava-onboard reconcile-auditors TENANT_ID [TENANT_ID ...]")
+	}
+	tenants := make([]uuid.UUID, 0, len(args))
+	for _, a := range args {
+		id, err := uuid.Parse(a)
+		if err != nil || id == uuid.Nil {
+			return nil, fmt.Errorf("%q is not a tenant id", a)
+		}
+		tenants = append(tenants, id)
+	}
+	return tenants, nil
+}
+
+// reconcileAuditors is the upgrade job `nava-onboard reconcile-auditors
+// <tenant-id>...` (TICK-567): each named active tenant that has no auditors
+// group gets one, in its own tenant context, one tenant at a time. Safe to run
+// again; it adds no member. The tenant ids come from the operator (the
+// nava_onboard role sees one tenant at a time and cannot list them).
+func reconcileAuditors(ctx context.Context, lookup config.LookupFunc, stdout io.Writer, args []string) error {
+	tenants, err := parseTenantIDs(args)
+	if err != nil {
+		return err
+	}
+	cfg, err := config.LoadOnboard(lookup)
+	if err != nil {
+		return err
+	}
+	log := logging.New(stdout, cfg.Log)
+	tel, err := telemetry.New(ctx, cfg.Telemetry)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cfg.Telemetry.ShutdownTimeout)
+		defer cancel()
+		_ = tel.Shutdown(flushCtx)
+	}()
+	b, err := newBackends(ctx, log, tel, cfg)
+	if err != nil {
+		return err
+	}
+	defer b.close()
+	sum, err := onboard.ReconcileAuditorGroups(ctx, b.store, b.dir, log, tenants)
+	log.InfoContext(ctx, "auditors group reconcile done",
+		slog.Int("created", sum.Created), slog.Int("unchanged", sum.Unchanged), slog.Int("failed", sum.Failed))
+	return err
 }
 
 // newPool connects lazily as the URL's role, with unnamed statements so it

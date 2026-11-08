@@ -25,6 +25,43 @@ A start of `nava.interpreter` goes through `cascade.ClaimStart` and
 `outbox.EnqueueStart` instead (ADR-001 A5-6), which takes `target_seq` the
 same way.
 
+## Seal start rows: EnqueueSeal (PLAN-005 C5, ADR-001 A6.3)
+
+The audit sealer's start row is not tied to a record, so it has its own entry
+point, `outbox.EnqueueSeal(ctx, tx, headVersion)`. `EnqueueAtVersion` refuses
+a start of `audit.seal`, as it refuses one of `nava.interpreter`.
+
+```mermaid
+flowchart TD
+  C["caller: SELECT version FROM audit_chain_head FOR UPDATE"] --> S["EnqueueSeal(ctx, tx, version)"]
+  S -->|version < 1| X0[ErrInvalidEntry]
+  S --> T["tenancy.TenantOf(tx)"]
+  T -->|no tenant| X1
+  T --> L["SELECT tenant_id, version FROM audit_chain_head<br/>WHERE tenant_id = tx tenant FOR UPDATE"]
+  L -->|0 rows: no head, or no tenant| X1[ErrHeadNotFound]
+  L -->|other version| X2[ErrVersionMismatch]
+  L --> I["INSERT outbox … ON CONFLICT (tenant_id, dedupe_key) DO NOTHING<br/>(RLS WITH CHECK: tenant_id = app.tenant_id)"]
+  I -->|inserted| R[return id]
+  I -->|conflict| R1[return existing id]
+```
+
+| Column | Value |
+| --- | --- |
+| `tenant_id` | the transaction's tenant (`app.tenant_id`), through the locked head row; never an argument |
+| `kind`, `kind_version` | `audit.seal`, 1 |
+| `dedupe_key` | `audit.seal:<headVersion>` (`outbox.SealDedupeKey`); every other producer refuses a key with the `audit.seal:` prefix, so only a seal row can hold one |
+| `target_key` | `audit.seal:<own id>`; the relay starts it as `t:<tenant>:audit.seal:<id>`, `REJECT_DUPLICATE` |
+| `target_seq` | `headVersion`, the head's `version` under the lock |
+| `causation_id`, `causation_depth` | the row's own id, 0 |
+| `payload` | `{}` |
+| `workflow_ref` | none: `workflow_ref.record_id` references `records`, and a seal run is never signalled |
+
+The caller holds the head `FOR UPDATE`; `EnqueueSeal` takes the same lock
+again (a no-op when held) before it writes, so no seal row is written without
+the head lock in its transaction (`TestEnqueueSealHoldsHeadLock`). The relay
+needs no change: it tells a start by `target_key` and builds the workflow id
+from `outbox.tenant_id` (`internal/relay` `TestSealStartRowStartsItsOwnRun`).
+
 ## What EnqueueAtVersion does, in the caller's transaction
 
 ```mermaid

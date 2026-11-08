@@ -25,8 +25,8 @@ import (
 
 	"github.com/Navaladi2019/TicketingSystem/db"
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
+	"github.com/Navaladi2019/TicketingSystem/internal/db/audited"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/catalog"
-	"github.com/Navaladi2019/TicketingSystem/internal/db/grants"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/migrate"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/roles"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
@@ -65,7 +65,7 @@ type env struct {
 func migrated(t *testing.T) env {
 	t.Helper()
 	ctx := context.Background()
-	m, err := grants.Parse(db.Grants())
+	m, am, err := audited.Load(db.Grants(), db.AuditedTables())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func migrated(t *testing.T) env {
 	owner := superConfig(t).Copy()
 	owner.User, owner.Database = m.Owner(), m.PlatformDatabase
 	owner.Password, _ = testPassword(m.Owner())
-	if _, err := migrate.Run(ctx, owner, db.Migrations(), m, g, log, migrate.Options{LockRetrySeconds: 1}); err != nil {
+	if _, err := migrate.Run(ctx, owner, db.Migrations(), m, am, g, log, migrate.Options{LockRetrySeconds: 1}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
@@ -118,13 +118,30 @@ func appDSN(t *testing.T, database string) string {
 	return u.String()
 }
 
-func appPool(t *testing.T, dsn string) *pgxpool.Pool {
+// serverPoolConfig parses dsn into the pool config nava-core builds for
+// NAVA_DATABASE_URL (cmd/nava-core/identity.go): QueryExecModeExec, so
+// statements stay unnamed behind PgBouncer's transaction mode, and a 5s
+// connect timeout. In that mode no parameter has a declared type and pgx
+// picks the wire format from the Go type alone, so a []byte bound to a
+// json or jsonb parameter goes as bytea and PostgreSQL refuses it (22P02,
+// TICK-411, TICK-471). Every nava_app pool in this package is built from it;
+// a test on pgx's default mode would hide that class of bug. Keep it in step
+// with nava-core's pool.
+func serverPoolConfig(t *testing.T, dsn string) *pgxpool.Config {
 	t.Helper()
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
+	cfg.ConnConfig.ConnectTimeout = 5 * time.Second
+	return cfg
+}
+
+// appPool is a nava_app pool in the server's protocol mode (serverPoolConfig).
+func appPool(t *testing.T, dsn string) *pgxpool.Pool {
+	t.Helper()
+	p, err := pgxpool.NewWithConfig(context.Background(), serverPoolConfig(t, dsn))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +265,8 @@ func inTx(t *testing.T, e env, tenant uuid.UUID, fn func(pgx.Tx) error) {
 }
 
 // countingSink records every call and, inside the write's transaction, how
-// many audit rows the record has at that point.
+// many audit entries the record has at that point (read as nava_app, through
+// the commit-check columns and the writer SELECT policy).
 type countingSink struct {
 	mu     sync.Mutex
 	events []pipeline.Event
@@ -258,7 +276,7 @@ type countingSink struct {
 
 func (s *countingSink) RecordChanged(ctx context.Context, tx pgx.Tx, ev pipeline.Event) error {
 	var n int
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE record_id = $1`, ev.RecordID).Scan(&n); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE subject_type = 'record' AND subject_id = $1`, ev.RecordID).Scan(&n); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -341,4 +359,40 @@ func waitForLockWait(t *testing.T, e env) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+}
+
+// seedEntrySQL is the audit entry of a records row a fixture writes outside
+// the pipeline: tenant $1, entry id $2, record $3, version_after $4. The
+// records commit-check trigger (P5-13b) refuses the fixture's COMMIT without it.
+const seedEntrySQL = `INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, version_after, actor_system, source)
+	VALUES ($1, $2, 'record', 'create', 'record', $3, $4, 'system', 'system')`
+
+// seedRecord runs sql (an INSERT of record id in tenant) as the superuser,
+// in one transaction with the record's audit entry, as every records write
+// must now be (CI-A2).
+func seedRecord(t *testing.T, e env, tenant, id uuid.UUID, sql string, args ...any) {
+	t.Helper()
+	ctx := context.Background()
+	err := pgx.BeginFunc(ctx, e.super, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, sql, args...); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, seedEntrySQL, tenant, uuid.Must(uuid.NewV7()), id, 1)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("seed record %s: %v", id, err)
+	}
+}
+
+// entries counts the tenant's audit_log entries with the given action.
+func entries(t *testing.T, e env, tenant uuid.UUID, action string) int {
+	t.Helper()
+	return count(t, e.super, `SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND action = $2`, tenant, action)
+}
+
+// recordEntries counts the record's entries (subject the record).
+func recordEntries(t *testing.T, e env, record uuid.UUID) int {
+	t.Helper()
+	return count(t, e.super, `SELECT count(*) FROM audit_log WHERE subject_type = 'record' AND subject_id = $1`, record)
 }

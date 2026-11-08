@@ -1,0 +1,21 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident/01a1a7e0-cfd8-7b69-83b3-f91acd921a9b/history",
+    "body": null
+  },
+  "response": {
+    "status": 404,
+    "headers": {
+      "content-type": "application/problem+json",
+      "x-request-id": "a01e832fb8342977bc630182986f0ef7"
+    },
+    "body": {
+      "type": "urn:nava:problem:not_found",
+      "title": "Not found",
+      "status": 404,
+      "code": "not_found",
+      "detail": "The resource does not exist."
+    }
+  }
+}

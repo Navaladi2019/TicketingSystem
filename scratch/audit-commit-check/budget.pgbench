@@ -1,0 +1,7 @@
+SELECT gen_random_uuid() AS sid \gset
+BEGIN;
+SET LOCAL ROLE nava_worker;
+SELECT set_config('app.tenant_id', '0190d000-0000-7000-8000-000000000004', true);
+INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, version_after, actor_system, source) VALUES ('0190d000-0000-7000-8000-000000000004', gen_random_uuid(), 'record', 'create', 'record', ':sid', 1, 'workflow', 'workflow');
+INSERT INTO p511_audited VALUES ('0190d000-0000-7000-8000-000000000004', ':sid', 'v');
+COMMIT;

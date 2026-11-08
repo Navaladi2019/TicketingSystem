@@ -66,6 +66,7 @@ deciders: Solution Architect (author); Technical Architect (round 1 CHANGES; rou
   - A masked pointer reached through `path`, `from` or a nested `value` becomes `{"redacted":"mask"}`. When it cannot be cut out cleanly, the whole op is redacted.
   - `diff_redacted` is computed per reader; it is not stored.
   - **`diff_salt` is returned only with an unredacted diff**, in both the read and the export.
+  - The raw `diff` and `diff_salt` are readable only by `nava_audit_reader`, whose pool only `internal/audit/read` holds. The masker fails closed (A1-4). *(Amended by [[ADR-004-A1-diff-read-role]].)*
 - **R8 · read gates.** `audit.read` and `audit.export` are standalone permissions. Only the seeded tenant-admin and `auditor` grants carry them. They are not filtered by record ACL.
   - The Epic 05 per-record history for other users is gated on that user's ACL for that record. It returns `domain = record` only and is masked by R7.
 
@@ -81,6 +82,7 @@ deciders: Solution Architect (author); Technical Architect (round 1 CHANGES; rou
   - INSERT on the R10 columns;
   - SELECT on `(tenant_id, occurred_at, txid, subject_type, subject_id, version_after)`;
   - canonical SELECT and INSERT policies, or for `nava_onboard`, the pinned provisioning-predicate policies.
+  - `nava_app`'s reader list no longer includes `diff` or `diff_salt`. *(Amended by [[ADR-004-A1-diff-read-role]] A1-2.)*
 
 ### Chain and sealer
 - **R13 · hash definition.**
@@ -93,7 +95,7 @@ deciders: Solution Architect (author); Technical Architect (round 1 CHANGES; rou
   - `nava_worker` updates `version`, `seq`, `entry_hash`, `next_seal_outbox_id`, `next_seal_at` and `seal_interval_s`.
   - `nava_app` updates only `export_lease_until`, `next_seal_outbox_id` and `next_seal_at`.
   - `nava_onboard` and `nava_migrator` insert.
-  - No other role writes it.
+  - No other role writes it; `nava_audit_reader` never writes it. *(Amended by [[ADR-004-A1-diff-read-role]].)*
 - **R15 · `seq` rules [PG].**
   - (a) A2 takes `seq` only from the head row it read under `SELECT … FOR UPDATE`, in the same transaction that assigns it, and advances `audit_chain_head.seq` in that same transaction.
   - (b) Nothing else writes `seq`; the R11 seal transition is the only path.
@@ -101,7 +103,7 @@ deciders: Solution Architect (author); Technical Architect (round 1 CHANGES; rou
 - **R16 · the self-rescheduling sealer.** Run *o* is workflow `t:<tenant>:audit.seal:<o>`, an ordinary D22 start.
   - **A1** runs in its own transaction and commits first. It locks the head `FOR UPDATE`. If `next_seal_outbox_id = o`, it bumps `version`, inserts start row *o′* (`target_key = audit.seal:<o′>`, `target_seq = version`, `available_at = now() + seal_interval_s`), and repoints `next_seal_outbox_id`. Otherwise it does nothing (a stale lineage).
   - **A2** seals in batches of 1,000, in `(occurred_at, id)` order, one transaction per batch, under the head lock (R15).
-  - **Interval:** 10 s after a run that sealed anything; otherwise doubled, up to 300 s.
+  - **Interval:** 10 s after a run that sealed anything; otherwise doubled, up to 300 s. *(Clarified by [[ADR-004-E7-a1-books-10s-when-work-pending]]: A1 books 10 s when the tenant has unsealed entries; A2 stores the interval for later runs.)*
   - **Seeding:** onboarding inserts the head and the first start row (ADR-001-A6.2). Migration B does the same for existing tenants.
   - **Writers never touch the outbox or the head.**
 - **R17 · `chain:reseed` [Sec].** `POST /api/v1/audit/chain:reseed`, as `nava_app`, under the head lock.
@@ -201,7 +203,7 @@ deciders: Solution Architect (author); Technical Architect (round 1 CHANGES; rou
 |---|---|
 | CI-A1 | A kill or rollback leaves no entry. A commit leaves ≥ 1 entry per (transaction, subject) and ≤ 1 per version. |
 | CI-A2 | A raw write to an audited table fails at COMMIT, for every writer role in the manifest. |
-| CI-A3 | Every audited table has the trigger with `UPDATE OF` its audited columns. Every tenant table is audited or exempt with a reason. Every writer role can run the check. No `nava_migrator` policy is left over (R26.3). |
+| CI-A3 | Every audited table has the trigger with `UPDATE OF` its audited columns. Every tenant table is audited or exempt with a reason. Every writer role can run the check. No `nava_migrator` policy is left over (R26.3). **A1-9** ([[ADR-004-A1-diff-read-role]]): no runtime role except `nava_audit_reader` holds SELECT on `diff` or `diff_salt`, on `audit_log` and every `pg_inherits` child; no runtime role holds any privilege directly on a partition; `audit_log_select`'s role list is exactly `{nava_worker, nava_erasure, nava_audit_reader}`. |
 | CI-A4 | Read, export, stubs and reseed never cross tenants. With no tenant context, zero rows. |
 | CI-A5 | Secret canaries are rejected as a top-level value, a nested `add`, a parent `replace`, and a `copy` from a secret path, in `audit_log` and in `*_versions`. Nothing secret appears in table bytes or export bytes. The error names the path only. |
 | CI-A6 | Verification passes, both unfiltered and with subject, time and change-set filters. A byte edit, a deleted row, a single-row rewrite, **and a deleted first entry in the range** (R20) each fail under any filter. A file without the anchor is rejected. |

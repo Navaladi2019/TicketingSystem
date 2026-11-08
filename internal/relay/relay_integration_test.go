@@ -28,8 +28,8 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"github.com/Navaladi2019/TicketingSystem/db"
+	"github.com/Navaladi2019/TicketingSystem/internal/db/audited"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/catalog"
-	"github.com/Navaladi2019/TicketingSystem/internal/db/grants"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/migrate"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/roles"
 	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
@@ -63,7 +63,7 @@ type env struct {
 func migrated(t testing.TB) env {
 	t.Helper()
 	ctx := context.Background()
-	m, err := grants.Parse(db.Grants())
+	m, am, err := audited.Load(db.Grants(), db.AuditedTables())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func migrated(t testing.TB) env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := migrate.Run(ctx, roleConfig(t, m.Owner(), m.PlatformDatabase), db.Migrations(), m, g, log,
+	if _, err := migrate.Run(ctx, roleConfig(t, m.Owner(), m.PlatformDatabase), db.Migrations(), m, am, g, log,
 		migrate.Options{LockRetrySeconds: 1}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -481,14 +481,24 @@ func TestMaxRedeliveryAgeMarksDead(t *testing.T) {
 	}
 }
 
+// recordEntrySQL is the tail of a statement whose CTE r returns the written
+// records rows (tenant_id, id, version): it writes each row's audit_log
+// entry, as the write pipeline does in the same transaction, so the COMMIT
+// passes the records commit-check trigger (ADR-004 decision 2, P5-13c).
+func recordEntrySQL(action string) string {
+	return `INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, version_after, actor_system, source)
+		SELECT tenant_id, gen_random_uuid(), 'record', '` + action + `', 'record', id, version, 'system', 'system' FROM r`
+}
+
 // bumpAndEnqueue is a pipeline-shaped write in tx: it bumps e's record's
 // version, as the write pipeline's UPDATE does (D-3-6; outbox leaves the bump
 // to its caller), and enqueues e at the new version. Test files are outside
 // the single-writer check (internal/records/arch_test.go).
 func bumpAndEnqueue(ctx context.Context, tx pgx.Tx, e outbox.Entry) (uuid.UUID, error) {
 	var v int64
-	switch err := tx.QueryRow(ctx, `UPDATE records SET version = version + 1 WHERE id = $1 RETURNING version`,
-		e.RecordID).Scan(&v); {
+	switch err := tx.QueryRow(ctx, `WITH r AS (UPDATE records SET version = version + 1 WHERE id = $1 RETURNING tenant_id, id, version),
+		a AS (`+recordEntrySQL("update")+`)
+		SELECT version FROM r`, e.RecordID).Scan(&v); {
 	case errors.Is(err, pgx.ErrNoRows):
 		return uuid.Nil, outbox.ErrRecordNotFound
 	case err != nil:
@@ -504,7 +514,8 @@ func TestClaimedFromProducer(t *testing.T) {
 	ctx := context.Background()
 	tenant, record := uuid.New(), uuid.New()
 	mustExec(t, e.super, "INSERT INTO tenants (id, state) VALUES ($1, 'active')", tenant)
-	mustExec(t, e.super, "INSERT INTO records (tenant_id, id) VALUES ($1, $2)", tenant, record)
+	mustExec(t, e.super, `WITH r AS (INSERT INTO records (tenant_id, id) VALUES ($1, $2) RETURNING tenant_id, id, version)
+		`+recordEntrySQL("create"), tenant, record)
 	origin := uuid.New()
 	var startID, signalID uuid.UUID
 	err := tenancy.InTenantTx(ctx, e.app, tenant, func(tx pgx.Tx) error {

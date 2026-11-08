@@ -3,6 +3,7 @@ package def
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 	"testing"
 )
 
@@ -101,5 +102,51 @@ func TestBranchCaseOrderContract(t *testing.T) {
 	}
 	if got := pick(map[string]any{"team": "z"}); got != "done" {
 		t.Errorf("no case holds: took %s, want default done", got)
+	}
+}
+
+// TestConditionHoldsEdges: the comparison rules for values the record JSON
+// decoder never gives, an undecodable literal, an unknown operator, and
+// container shapes that differ only in length or keys.
+func TestConditionHoldsEdges(t *testing.T) {
+	rec := map[string]any{
+		"arr": []any{"x", "y"},
+		"obj": map[string]any{"a": float64(1), "b": "c"},
+		"inf": math.Inf(1),
+		"nan": math.NaN(),
+		"int": 1, // a Go int is not a JSON value: equals nothing
+	}
+	cases := []struct {
+		name string
+		c    Condition
+		want bool
+	}{
+		{"value does not decode, eq", Condition{Field: "/arr", Op: OpEq, Value: json.RawMessage(`{`)}, false},
+		{"value does not decode, ne", Condition{Field: "/arr", Op: OpNe, Value: json.RawMessage(`{`)}, false},
+		{"unknown operator", Condition{Field: "/arr/0", Op: Op("gt"), Value: json.RawMessage(`"x"`)}, false},
+		{"empty pointer is the whole record", Condition{Field: "", Op: OpNe, Value: json.RawMessage(`{}`)}, true},
+		{"pointer without leading slash, eq", Condition{Field: "arr", Op: OpEq, Value: json.RawMessage(`["x","y"]`)}, false},
+		{"pointer without leading slash, ne", Condition{Field: "arr", Op: OpNe, Value: json.RawMessage(`["x","y"]`)}, true},
+		{"array equals array", Condition{Field: "/arr", Op: OpEq, Value: json.RawMessage(`["x","y"]`)}, true},
+		{"array vs shorter array", Condition{Field: "/arr", Op: OpEq, Value: json.RawMessage(`["x"]`)}, false},
+		{"array vs non-array", Condition{Field: "/arr", Op: OpEq, Value: json.RawMessage(`"x"`)}, false},
+		{"array element differs", Condition{Field: "/arr", Op: OpEq, Value: json.RawMessage(`["x","z"]`)}, false},
+		{"object with an extra key", Condition{Field: "/obj", Op: OpEq, Value: json.RawMessage(`{"a":1,"b":"c","d":1}`)}, false},
+		{"object vs non-object", Condition{Field: "/obj", Op: OpEq, Value: json.RawMessage(`[1]`)}, false},
+		{"object with another key", Condition{Field: "/obj", Op: OpEq, Value: json.RawMessage(`{"a":1,"z":"c"}`)}, false},
+		{"object value differs", Condition{Field: "/obj", Op: OpEq, Value: json.RawMessage(`{"a":1,"b":"d"}`)}, false},
+		{"infinity equals nothing", Condition{Field: "/inf", Op: OpEq, Value: json.RawMessage(`1e308`)}, false},
+		{"NaN equals nothing", Condition{Field: "/nan", Op: OpNe, Value: json.RawMessage(`0`)}, true},
+		{"non-JSON Go value equals nothing", Condition{Field: "/int", Op: OpEq, Value: json.RawMessage(`1`)}, false},
+	}
+	for _, tc := range cases {
+		if got := tc.c.Holds(rec); got != tc.want {
+			t.Errorf("%s: Holds = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+	// The whole record compared against an equal literal holds.
+	small := map[string]any{"k": "v"}
+	if !(Condition{Field: "", Op: OpEq, Value: json.RawMessage(`{"k":"v"}`)}).Holds(small) {
+		t.Error(`"" pointer: record {"k":"v"} does not equal the literal {"k":"v"}`)
 	}
 }

@@ -30,6 +30,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -39,29 +40,43 @@ import (
 )
 
 func main() {
-	remote := flag.String("remote", "origin", "git remote holding the branches")
-	mainBranch := flag.String("main", "main", "the default branch")
-	asOf := flag.String("as-of", "", "judge pull requests as they stood at this RFC 3339 time (default now)")
-	resolvedFile := flag.String("resolved", "tools/ci/storybranches/resolved.yaml", "story branch heads accepted as they are")
-	closedFile := flag.String("closed", "tools/ci/storybranches/closed.yaml", "story branches whose story issue is done or cancelled")
-	report := flag.String("report", "", "write the findings as Markdown to this file")
-	flag.Parse()
+	os.Exit(cli(os.Args[1:], os.Stdout, os.Stderr))
+}
 
-	if err := run(*remote, *mainBranch, *asOf, *resolvedFile, *closedFile, *report); err != nil {
+// cli parses args and runs the check: 0 when green, 1 on findings, 2 on a
+// usage or other error.
+func cli(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("storybranches", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	remote := fs.String("remote", "origin", "git remote holding the branches")
+	mainBranch := fs.String("main", "main", "the default branch")
+	asOf := fs.String("as-of", "", "judge pull requests as they stood at this RFC 3339 time (default now)")
+	resolvedFile := fs.String("resolved", "tools/ci/storybranches/resolved.yaml", "story branch heads accepted as they are")
+	closedFile := fs.String("closed", "tools/ci/storybranches/closed.yaml", "story branches whose story issue is done or cancelled")
+	report := fs.String("report", "", "write the findings as Markdown to this file")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+
+	if err := run(*remote, *mainBranch, *asOf, *resolvedFile, *closedFile, *report, stdout, stderr); err != nil {
 		var f failed
 		if errors.As(err, &f) {
-			os.Exit(1)
+			return 1
 		}
-		fmt.Fprintln(os.Stderr, "check-story-branches:", err)
-		os.Exit(2)
+		fmt.Fprintln(stderr, "check-story-branches:", err)
+		return 2
 	}
+	return 0
 }
 
 type failed int
 
 func (f failed) Error() string { return fmt.Sprintf("%d findings", int(f)) }
 
-func run(remote, mainBranch, asOf, resolvedFile, closedFile, report string) error {
+func run(remote, mainBranch, asOf, resolvedFile, closedFile, report string, stdout, stderr io.Writer) error {
 	in := Input{Main: mainBranch}
 	if asOf != "" {
 		t, err := time.Parse(time.RFC3339, asOf)
@@ -100,13 +115,13 @@ func run(remote, mainBranch, asOf, resolvedFile, closedFile, report string) erro
 		when = "as of " + day(in.AsOf)
 	}
 	for _, a := range accepted {
-		fmt.Println("check-story-branches: accepted:", a)
+		fmt.Fprintln(stdout, "check-story-branches: accepted:", a)
 	}
 	for _, f := range res.InFlight {
-		fmt.Println("check-story-branches: in flight:", f.Branch+":", f.describe())
+		fmt.Fprintln(stdout, "check-story-branches: in flight:", f.Branch+":", f.describe())
 	}
 	for _, f := range findings {
-		fmt.Fprintln(os.Stderr, "check-story-branches:", f)
+		fmt.Fprintln(stderr, "check-story-branches:", f)
 	}
 	if report != "" {
 		if err := os.WriteFile(report, []byte(markdown(res, mainRef, when)), 0o600); err != nil {
@@ -114,10 +129,10 @@ func run(remote, mainBranch, asOf, resolvedFile, closedFile, report string) erro
 		}
 	}
 	if len(findings) > 0 {
-		fmt.Fprintf(os.Stderr, "check-story-branches: %d findings (%s); see \"Story branches\" in docs/quality/ci-pipeline.md\n", len(findings), when)
+		fmt.Fprintf(stderr, "check-story-branches: %d findings (%s); see \"Story branches\" in docs/quality/ci-pipeline.md\n", len(findings), when)
 		return failed(len(findings))
 	}
-	fmt.Printf("check-story-branches: ok: every merged story branch is on %s (%s)\n", mainRef, when)
+	fmt.Fprintf(stdout, "check-story-branches: ok: every merged story branch is on %s (%s)\n", mainRef, when)
 	return nil
 }
 

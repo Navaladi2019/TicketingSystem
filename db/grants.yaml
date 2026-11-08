@@ -24,7 +24,10 @@
 #                    db-roles: a parameter set on the role but not listed is
 #                    reset. Only the parameters grants.AllowedSettings knows.
 # Each table's entries ship with the migration that creates that table.
-# Policies stay in SQL migrations.
+# Policies stay in SQL migrations. One exception (ADR-004 R12, P5-11): every
+# writer role of an audited table gets its audit_log grants and policies
+# generated from db/audited-tables.yaml; `nava-db migrate` merges those
+# grants into this file's before applying it.
 
 platform_database: nava
 
@@ -66,8 +69,25 @@ roles:
         INSERT: []
         UPDATE: [version, schema_version, state, requester_id, assignee_id, assignment_group_id,
                  updated_at, data, causation_origin_id, causation_depth]
-      # Append-only: no UPDATE or DELETE (P3-09).
-      audit_log: { SELECT: [], INSERT: [] }
+      # audit_log: as a writer of an audited table, its INSERT on the R10
+      # columns and SELECT on the commit-check columns are generated from
+      # db/audited-tables.yaml (R12, P5-11). The list below is every column
+      # the audit read endpoints return (P5-17, R8) but diff and diff_salt:
+      # since ADR-004-A1 (A1-2) only nava_audit_reader reads those, so any
+      # nava_app query that names them gets 42501. Never the seal columns'
+      # UPDATE.
+      audit_log:
+        SELECT: [tenant_id, id, occurred_at, txid, domain, action, subject_type, subject_id, entity_definition_id,
+                 version_before, version_after, actor_principal_id, actor_system, source, source_ref,
+                 change_set_id, causation_id, causation_depth, request_id, backfilled, content_sha256,
+                 diff_sha256, diff_truncated, seq, sealed_at, erased_at]
+      # R14: the export lease and chain:reseed's repoint. Never seq,
+      # entry_hash or version.
+      audit_chain_head:
+        SELECT: []
+        UPDATE: [export_lease_until, next_seal_outbox_id, next_seal_at]
+      # D-5-3: the pipeline's idempotency keys, insert-only.
+      record_write_keys: { SELECT: [], INSERT: [] }
       # The A5 start key (P3-12): claimed once, never changed or removed.
       cascade_start: { SELECT: [], INSERT: [] }
       # The one numbering upsert (D-3-9): INSERT ... ON CONFLICT DO UPDATE SET next.
@@ -87,11 +107,38 @@ roles:
       tenant_email_domain: { SELECT: [] }
       # authz.RequireTenantAdmin (P3-04): the platform id of the tenant's admins group.
       tenant_admin_group: { SELECT: [] }
+      # authz.RequireAuditPermission (P5-18): the platform id of the auditors group.
+      tenant_auditor_group: { SELECT: [] }
       # Entity types (P3-02, TICK-340). A type's key and number_prefix are set
       # once; publishing moves current_version. A version is insert-only (D-3-4).
       entity_definitions: { SELECT: [], INSERT: [], UPDATE: [current_version, updated_at] }
       entity_definition_versions: { SELECT: [], INSERT: [] }
     functions: {}
+
+  # ADR-004-A1 A1-1 (TICK-558): the masking reader's own login, held only by
+  # internal/audit/read's pool (read.OpenPool, NAVA_AUDIT_READER_DATABASE_URL,
+  # nava-core only). The one runtime role that reads audit_log.diff and
+  # diff_salt; never txid. It reads entity_definition_versions for the
+  # masker's secret pointers. A member of nothing, owns nothing, writes
+  # nothing, nothing on records or on any partition. Its rows come from
+  # audit_log_select and entity_definition_versions_select under the
+  # canonical predicate (20261104133000_audit_reader_policies.sql). PgBouncer
+  # caps it at pool_size=5 (A1-8).
+  nava_audit_reader:
+    attributes: [LOGIN]
+    pgbouncer_login: true
+    database: [CONNECT]
+    schemas: { public: [USAGE] }
+    tables:
+      audit_log:
+        SELECT: [tenant_id, id, occurred_at, domain, action, subject_type, subject_id, entity_definition_id,
+                 version_before, version_after, actor_principal_id, actor_system, source, source_ref,
+                 change_set_id, causation_id, causation_depth, request_id, backfilled, content_sha256,
+                 diff_sha256, diff_truncated, diff, diff_salt, seq, sealed_at, erased_at]
+      # tenant_id as well as the masker's two columns: CI-2 (ADR-001) needs every
+      # role that reads a tenant table's rows to read its tenant_id, so a row of
+      # another tenant can be told apart.
+      entity_definition_versions: { SELECT: [tenant_id, definition_id, schema] }
 
   # As nava_app, without idempotency_keys or tenants; the final activity
   # closes workflow_ref.
@@ -106,12 +153,28 @@ roles:
         INSERT: []
         UPDATE: [version, schema_version, state, requester_id, assignee_id, assignment_group_id,
                  updated_at, data, causation_origin_id, causation_depth]
-      audit_log: { SELECT: [], INSERT: [] }
+      # ADR-004: the sealer. It reads every column but diff and diff_salt
+      # (the envelope holds diff_sha256) and updates only the seal columns,
+      # through the R11 seal transition. As a record writer its R10 INSERT
+      # (and the commit-check SELECT, a subset of this one) is generated from
+      # db/audited-tables.yaml (R12, P5-11).
+      audit_log:
+        SELECT: [tenant_id, id, occurred_at, txid, domain, action, subject_type, subject_id, entity_definition_id,
+                 version_before, version_after, actor_principal_id, actor_system, source, source_ref,
+                 change_set_id, causation_id, causation_depth, request_id, backfilled, content_sha256,
+                 diff_sha256, diff_truncated, seq, prev_hash, entry_hash, sealed_at, erased_at, erasure_ref]
+        UPDATE: [seq, prev_hash, entry_hash, sealed_at]
+      # R14: the sealer's columns. Never export_lease_until.
+      audit_chain_head:
+        SELECT: []
+        UPDATE: [version, seq, entry_hash, next_seal_outbox_id, next_seal_at, seal_interval_s]
+      record_write_keys: { SELECT: [], INSERT: [] }
       cascade_start: { SELECT: [], INSERT: [] }
       record_counters: { SELECT: [], INSERT: [], UPDATE: [next] }
       outbox: { SELECT: [tenant_id, id, dedupe_key], INSERT: [] }
       workflow_ref: { SELECT: [], INSERT: [], UPDATE: [closed_at] }
       tenant_admin_group: { SELECT: [] }
+      tenant_auditor_group: { SELECT: [] }
       entity_definitions: { SELECT: [] }
       entity_definition_versions: { SELECT: [] }
 
@@ -129,7 +192,7 @@ roles:
         UPDATE: [available_at, attempts, last_error, dispatched_at, dead_at]
 
   # DELETE plus SELECT on the key and expiry-predicate columns, behind the
-  # paired purge policies.
+  # paired purge policies; and the dead-lineage gauge's read (TICK-590).
   nava_purge:
     attributes: [LOGIN]
     pgbouncer_login: true
@@ -139,6 +202,10 @@ roles:
       outbox: { SELECT: [tenant_id, id, dispatched_at, dead_at], DELETE: [] }
       workflow_ref: { SELECT: [tenant_id, outbox_id, closed_at], DELETE: [] }
       idempotency_keys: { SELECT: [tenant_id, principal_id, key, expires_at], DELETE: [] }
+      # P5-34f (TICK-590, ADR-004 R17): the dead-lineage gauge reads the key
+      # and R17's column behind audit_chain_head_purge_select, whose USING is
+      # R17's predicate: only dead heads, never written.
+      audit_chain_head: { SELECT: [tenant_id, next_seal_at] }
 
   # Creates its own tenant (provisioning), binds it, activates it.
   nava_onboard:
@@ -158,17 +225,48 @@ roles:
       pending_invite: { SELECT: [tenant_id, email, expires_at, consumed_at], INSERT: [tenant_id, email, expires_at], UPDATE: [expires_at] }
       # P3-04: the admins group row (platform id minted here, Keycloak id from
       # DirectoryAdmin) and the tenant's pointer to it. Insert only.
-      groups: { SELECT: [tenant_id, id, keycloak_group_id], INSERT: [tenant_id, id, keycloak_group_id, path] }
+      # ADR-004-E5 D4 (TICK-536): RecordAdminGroup/RecordAuditorGroup filter deleted_at IS NULL, so they read it.
+      groups: { SELECT: [tenant_id, id, keycloak_group_id, deleted_at], INSERT: [tenant_id, id, keycloak_group_id, path] }
       # Activate tests the row exists (TICK-373): SELECT on the key only.
       tenant_admin_group: { SELECT: [tenant_id], INSERT: [tenant_id, group_id] }
+      # P5-23 (TICK-568): SELECT on the key, for the groups_insert_onboard_
+      # auditors probe and the upgrade reconcile's no-op check. Insert only.
+      tenant_auditor_group: { SELECT: [tenant_id], INSERT: [tenant_id, group_id] }
       # Seed templates (P3-06) while provisioning, with deterministic UUIDv5
       # ids, so a plain INSERT is enough: no SELECT, no upsert (P3-02).
       entity_definitions: { INSERT: [] }
       entity_definition_versions: { INSERT: [] }
+      # P5-33 (TICK-441, ADR-001-A6.2): the chain head and the first
+      # audit.seal start row, plain INSERT only (no SELECT, no RETURNING, no
+      # DO UPDATE), behind pinned provisioning policies; the outbox policy
+      # also requires kind = 'audit.seal'. Columns equal outbox.insertSealSQL.
+      audit_chain_head: { INSERT: [tenant_id, id, next_seal_outbox_id, next_seal_at] }
+      outbox: { INSERT: [id, tenant_id, kind, kind_version, dedupe_key, target_key, target_seq, causation_id, causation_depth, payload, trace_context] }
+
+  # ADR-001-A6.1 (P5-10b): the one-shot erasure job (Epic 30), one run per
+  # erasure request with app.tenant_id set, under canonical policies only.
+  # LOGIN, a member of nothing, owns nothing, not on PgBouncer: its
+  # credential lives with the job runner, like the migrator's, never on an
+  # app or worker host. On audit_log (R23): SELECT by column and never diff
+  # or diff_salt; INSERT on the R10 columns for its audit/erase entries;
+  # UPDATE of the four erase columns, which the R11 erase transition is the
+  # only way to use. Epic 30 adds its record-table grants.
+  nava_erasure:
+    attributes: [LOGIN]
+    database: [CONNECT]
+    schemas: { public: [USAGE] }
+    tables:
+      audit_log:
+        SELECT: [tenant_id, occurred_at, id, subject_type, subject_id, erased_at, erasure_ref]
+        INSERT: [tenant_id, id, domain, action, subject_type, subject_id, entity_definition_id,
+                 version_before, version_after, actor_principal_id, actor_system, source, source_ref,
+                 change_set_id, causation_id, causation_depth, request_id, content_sha256, diff_sha256,
+                 diff_truncated, diff, diff_salt]
+        UPDATE: [diff, diff_salt, erased_at, erasure_ref]
 
   # Writes the identity tables (T16), one transaction per tenant. UPDATE
-  # leaves the keys alone: a row is re-keyed by delete and insert, never in
-  # place. group_members is insert and delete only.
+  # leaves the keys alone. A group is never deleted, only tombstoned
+  # (ADR-004-E5). group_members is insert and delete only.
   nava_groupsync:
     attributes: [LOGIN]
     pgbouncer_login: true
@@ -177,11 +275,18 @@ roles:
     tables:
       tenant_identity_binding: { SELECT: [tenant_id, issuer, org_id, idp_aliases] } # binding_lookup
       principals: { SELECT: [], INSERT: [], UPDATE: [email, enabled, federated_links, synced_at, deleted_at] }
-      groups: { SELECT: [], INSERT: [], UPDATE: [path], DELETE: [] }
+      # ADR-004-E5 (TICK-534): sync tombstones a group (deleted_at) and
+      # revives it on the same id; never UPDATE id or keycloak_group_id, and
+      # no DELETE (step (ii), TICK-538; D2, D10).
+      groups: { SELECT: [], INSERT: [], UPDATE: [path, deleted_at] }
       group_members: { SELECT: [], INSERT: [], DELETE: [] }
       org_units: { SELECT: [], INSERT: [], UPDATE: [parent_id, name], DELETE: [] }
-      # Group sync warns when it deletes the recorded admins group (P3-04).
-      tenant_admin_group: { SELECT: [] }
+      # Group sync reads the recorded admins and auditors groups (P3-04, I1)
+      # and deletes a pointer only once its group is tombstoned (ADR-004-E5
+      # D5: tenant_admin_group_delete_tombstoned and
+      # tenant_auditor_group_delete_tombstoned).
+      tenant_admin_group: { SELECT: [], DELETE: [] }
+      tenant_auditor_group: { SELECT: [tenant_id, group_id], DELETE: [] }
       # Consumes an invite (T252a): UPDATE ... SET consumed_at = now() WHERE
       # ... consumed_at IS NULL AND expires_at > now() RETURNING. No DELETE.
       pending_invite: { SELECT: [tenant_id, email, expires_at, consumed_at], UPDATE: [consumed_at] }

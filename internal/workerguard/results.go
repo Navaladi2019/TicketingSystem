@@ -40,10 +40,12 @@ const opaqueMessage = "error withheld from the history; the worker log has its s
 const sideEffectDenied = "\x00nava.TenantGuard: side effect withheld"
 
 // resultOK reports whether an activity, workflow or update result may be
-// recorded: nil (or a nil value, which encodes as null), or a value argOK
-// accepts. With directive set (the result of an activity, not a local one),
-// a Directive is accepted too if directiveOK passes its encoding; without it a
-// Directive falls to the generic rule and fails, since its kind is not a UUID.
+// recorded: nil (or a typed nil value, which encodes as null), or a value
+// argOK accepts. With directive set (the result of an activity, not a local
+// one), a Directive is accepted too if directiveOK passes its encoding, and a
+// typed nil *Directive is refused: it goes to directiveResultOK, which fails
+// closed, not to the null rule. Without directive set a Directive falls to the
+// generic rule and fails, since its kind is not a UUID.
 func resultOK(v any, directive bool) bool {
 	if v == nil {
 		return true
@@ -106,9 +108,15 @@ func sideEffectValueOK(v any) bool {
 
 // failureTypeAllowed lists the ApplicationError types whose message is
 // recorded as is. Their messages are constants or ids (review rule, TICK-245):
-// add a type here only with that review.
+// add a type here only with that review. The audit.seal types joined with
+// TICK-585 (guard review there).
 func failureTypeAllowed(t string) bool {
-	return t == ErrTypeTenantGuard || t == ErrTypeWorkflowRef || t == ErrTypeWorkflowRejected
+	switch t {
+	case ErrTypeTenantGuard, ErrTypeWorkflowRef, ErrTypeWorkflowRejected,
+		ErrTypeAuditSealUnsealable, ErrTypeAuditSealHeadNotFound:
+		return true
+	}
+	return false
 }
 
 // failureMessageAllowed: an allowed type keeps its message, except that an

@@ -112,6 +112,7 @@ func noDDLPublishBody(t *testing.T, n int) string {
 
 // The test is not parallel: another test's DDL on the cluster would change
 // the snapshot.
+// covers: publishEntityTypeVersion 201
 func TestPublishIssuesNoDDL(t *testing.T) {
 	e := newETEnv(t)
 	etCreateIncident(t, e)

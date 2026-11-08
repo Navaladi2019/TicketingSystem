@@ -1,0 +1,54 @@
+       relname        | relpages | reltuples 
+----------------------+----------+-----------
+ audit_log_p511_young |        2 |        60
+(1 row)
+
+--- 60 rows over 20 tenants, analysed: generic plan
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.00..1.68 rows=1 width=4)
+   ->  Append  (cost=0.00..3.36 rows=2 width=4)
+         Subplans Removed: 1
+         ->  Seq Scan on audit_log_p511_young audit_log_1  (cost=0.00..3.35 rows=1 width=4)
+               Filter: ((tenant_id = $1) AND (occurred_at = $2) AND (txid = $3) AND (subject_type = $4) AND (subject_id = $5))
+(5 rows)
+
+--- same, enable_seqscan = off (the index path it rejected)
+                                                         QUERY PLAN                                                         
+----------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=4.17..9.29 rows=1 width=4)
+   ->  Append  (cost=4.17..14.40 rows=2 width=4)
+         Subplans Removed: 1
+         ->  Bitmap Heap Scan on audit_log_p511_young audit_log_1  (cost=4.17..6.24 rows=1 width=4)
+               Recheck Cond: ((tenant_id = $1) AND (occurred_at = $2))
+               Filter: ((txid = $3) AND (subject_type = $4) AND (subject_id = $5))
+               ->  Bitmap Index Scan on audit_log_p511_young_tenant_id_occurred_at_id_idx  (cost=0.00..4.17 rows=3 width=0)
+                     Index Cond: ((tenant_id = $1) AND (occurred_at = $2))
+(8 rows)
+
+--- 60 rows of ONE tenant, analysed
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.00..2.18 rows=1 width=4)
+   ->  Append  (cost=0.00..4.36 rows=2 width=4)
+         Subplans Removed: 1
+         ->  Seq Scan on audit_log_p511_young audit_log_1  (cost=0.00..4.35 rows=1 width=4)
+               Filter: ((tenant_id = $1) AND (occurred_at = $2) AND (txid = $3) AND (subject_type = $4) AND (subject_id = $5))
+(5 rows)
+
+--- partition grows to 4,060 rows inside a transaction (an import), stats still say 60
+                                                                             QUERY PLAN                                                                             
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.28..4.30 rows=1 width=4)
+   ->  Append  (cost=0.28..8.31 rows=2 width=4)
+         Subplans Removed: 1
+         ->  Index Scan using audit_log_p511_young_tenant_id_subject_type_subject_id_occu_idx on audit_log_p511_young audit_log_1  (cost=0.28..8.30 rows=1 width=4)
+               Index Cond: ((tenant_id = $1) AND (subject_type = $4) AND (subject_id = $5) AND (occurred_at = $2))
+               Filter: (txid = $3)
+(6 rows)
+
+                                                       version                                                        
+----------------------------------------------------------------------------------------------------------------------
+ PostgreSQL 16.10 (Debian 16.10-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+(1 row)
+

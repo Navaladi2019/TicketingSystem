@@ -117,13 +117,13 @@ func TestRecordLocksNameTheTenantWithoutRLS(t *testing.T) {
 	}
 }
 
-// TestIdempotencyKeyIsScopedByPrincipal (TICK-480, TICK-498): a key belongs
+// TestIdempotencyKeyIsScopedByPrincipal (TICK-480, TICK-626): a key belongs
 // to one principal. Member B's write under member A's key, in the same
 // tenant, creates B's own record: no 409, so B learns nothing about A's key
 // (AR-TICK-480-01). Each member's retry replays its own write, a different
 // write under a member's own key is still *ErrIdempotencyConflict, and a
 // concurrent duplicate by the same principal, or by two principal-less
-// system writers, still hits the unique index (ErrDuplicateKey).
+// system writers, still hits record_write_keys_actor_key (ErrDuplicateKey).
 func TestIdempotencyKeyIsScopedByPrincipal(t *testing.T) {
 	e := migrated(t)
 	ctx := context.Background()
@@ -156,8 +156,18 @@ func TestIdempotencyKeyIsScopedByPrincipal(t *testing.T) {
 	if n := count(t, e.super, "SELECT count(*) FROM records WHERE tenant_id = $1", f.id); n != 2 {
 		t.Errorf("tenant has %d records; want A's and B's", n)
 	}
-	if n := count(t, e.super, "SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND idempotency_key = $2", f.id, key); n != 2 {
-		t.Errorf("%d audit rows keyed %s; want one per member", n, key)
+	if n := count(t, e.super, "SELECT count(*) FROM record_write_keys WHERE tenant_id = $1 AND idempotency_key = $2", f.id, key); n != 2 {
+		t.Errorf("%d record_write_keys rows keyed %s; want one per member", n, key)
+	}
+	for _, c := range []struct {
+		name  string
+		actor uuid.UUID
+		rec   uuid.UUID
+	}{{"A", memberA.PrincipalID, resA.RecordID}, {"B", memberB.PrincipalID, resB.RecordID}} {
+		if n := count(t, e.super, "SELECT count(*) FROM record_write_keys WHERE tenant_id = $1 AND idempotency_key = $2 AND actor_principal_id = $3 AND record_id = $4",
+			f.id, key, c.actor, c.rec); n != 1 {
+			t.Errorf("member %s's key row does not name its principal and record", c.name)
+		}
 	}
 
 	// Each member's retry replays its own write and writes nothing.
@@ -191,13 +201,13 @@ func TestIdempotencyKeyIsScopedByPrincipal(t *testing.T) {
 			actor *uuid.UUID
 			want  uuid.UUID
 		}{{"member A", &memberA.PrincipalID, resA.RecordID}, {"member B", &memberB.PrincipalID, resB.RecordID}} {
-			kw, err := store.AuditByKey(ctx, tx, f.id, c.actor, key)
+			kw, err := store.WriteKeyByKey(ctx, tx, f.id, c.actor, key)
 			if err != nil || kw.RecordID != c.want {
-				t.Errorf("AuditByKey(%s) = %+v, %v; want record %s", c.name, kw, err, c.want)
+				t.Errorf("WriteKeyByKey(%s) = %+v, %v; want record %s", c.name, kw, err, c.want)
 			}
 		}
-		if kw, err := store.AuditByKey(ctx, tx, f.id, nil, key); !errors.Is(err, store.ErrNotFound) {
-			t.Errorf("AuditByKey(no principal, the members' key) = %+v, %v; want ErrNotFound", kw, err)
+		if kw, err := store.WriteKeyByKey(ctx, tx, f.id, nil, key); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("WriteKeyByKey(no principal, the members' key) = %+v, %v; want ErrNotFound", kw, err)
 		}
 		return nil
 	})
@@ -213,19 +223,22 @@ func TestIdempotencyKeyIsScopedByPrincipal(t *testing.T) {
 	}
 
 	// The concurrent path, where the replay lookup has not seen the other
-	// write: the unique index refuses a second keyed audit row by the same
-	// principal, and by a second NULL actor (NULLS NOT DISTINCT), and the
-	// store reports it as ErrDuplicateKey under the index's name.
+	// write: record_write_keys_actor_key refuses a second key row by the
+	// same principal, and by a second NULL actor (NULLS NOT DISTINCT), and
+	// the store reports it as ErrDuplicateKey under the index's name.
+	var defID uuid.UUID
+	if err := e.super.QueryRow(ctx, "SELECT entity_definition_id FROM records WHERE id = $1", resA.RecordID).Scan(&defID); err != nil {
+		t.Fatal(err)
+	}
 	dup := func(name string, actor *uuid.UUID, k string, rec uuid.UUID) {
 		t.Helper()
 		err := tenancy.InTenantTx(ctx, e.app, f.id, func(tx pgx.Tx) error {
-			return store.InsertAudit(ctx, tx, &store.Audit{TenantID: f.id, ID: uuid.New(), RecordID: rec,
-				Action: "create", ActorID: actor, Source: string(pipeline.SourceWorkflow),
-				After:          &store.Snapshot{Number: "x", Version: 1, SchemaVersion: 1, Data: map[string]any{}},
-				IdempotencyKey: &k})
+			return store.InsertWriteKey(ctx, tx, &store.WriteKey{TenantID: f.id, IdempotencyKey: k,
+				DefinitionID: defID, Action: "create", RecordID: rec, Number: "x", Version: 1, SchemaVersion: 1,
+				AuditEntryID: uuid.New(), ActorPrincipalID: actor})
 		})
 		if !errors.Is(err, store.ErrDuplicateKey) {
-			t.Errorf("%s: a second audit row keyed %s = %v; want ErrDuplicateKey", name, k, err)
+			t.Errorf("%s: a second key row keyed %s = %v; want ErrDuplicateKey", name, k, err)
 		}
 	}
 	dup("member A", &memberA.PrincipalID, key, resA.RecordID)

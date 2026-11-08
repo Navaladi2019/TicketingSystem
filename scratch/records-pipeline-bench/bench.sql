@@ -43,7 +43,7 @@ SELECT t.id, gen_random_uuid(), t.id, 1, 'TCK' || lpad(n::text, 7, '0'),
        now() - n * interval '1 minute', now() - n * interval '1 minute', '{"title": "x"}'
 FROM tenants t, generate_series(1, 4000) n;
 -- Five audit rows per record, the first keyed.
-INSERT INTO audit_log (tenant_id, id, record_id, action, source, after, idempotency_key, at)
+INSERT INTO audit_log_v0 (tenant_id, id, record_id, action, source, after, idempotency_key, at)
 SELECT r.tenant_id, gen_random_uuid(), r.id, CASE a WHEN 1 THEN 'create' ELSE 'update' END,
        'workflow', '{}', CASE a WHEN 1 THEN 'wf:' || r.id || ':s1' END, r.created_at + a * interval '1 second'
 FROM records r, generate_series(1, 5) a;
@@ -51,17 +51,17 @@ INSERT INTO record_counters SELECT id, id, 4001 FROM tenants;
 VACUUM ANALYZE;
 SELECT c.relname, pg_size_pretty(pg_relation_size(c.oid)) AS size
 FROM pg_class c WHERE c.relname IN ('records', 'records_pkey', 'records_number_key', 'records_tenant_updated',
-    'records_tenant_requester', 'records_tenant_group_open', 'audit_log', 'audit_log_pkey', 'audit_log_record',
-    'audit_log_idempotency_key', 'record_counters')
+    'records_tenant_requester', 'records_tenant_group_open', 'audit_log_v0', 'audit_log_v0_pkey', 'audit_log_v0_record',
+    'audit_log_v0_idempotency_key', 'record_counters')
 ORDER BY c.relname;
 
 SELECT tenant_id AS t, id AS r FROM records ORDER BY tenant_id, id LIMIT 1 \gset
 \echo '-- a record''s history'
 EXPLAIN (ANALYZE, BUFFERS, COSTS OFF, TIMING OFF, SUMMARY ON)
-SELECT * FROM audit_log WHERE tenant_id = :'t' AND record_id = :'r' ORDER BY at, id;
+SELECT * FROM audit_log_v0 WHERE tenant_id = :'t' AND record_id = :'r' ORDER BY at, id;
 \echo '-- the replay lookup (D-3-13)'
 EXPLAIN (ANALYZE, BUFFERS, COSTS OFF, TIMING OFF, SUMMARY ON)
-SELECT id FROM audit_log WHERE tenant_id = :'t' AND idempotency_key = 'wf:' || :'r' || ':s1';
+SELECT id FROM audit_log_v0 WHERE tenant_id = :'t' AND idempotency_key = 'wf:' || :'r' || ':s1';
 \echo '-- the counter upsert (D-3-9)'
 EXPLAIN (ANALYZE, BUFFERS, COSTS OFF, TIMING OFF, SUMMARY ON)
 INSERT INTO record_counters VALUES (:'t', :'t', 2)

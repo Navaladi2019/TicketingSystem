@@ -24,8 +24,8 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/Navaladi2019/TicketingSystem/db"
+	"github.com/Navaladi2019/TicketingSystem/internal/db/audited"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/catalog"
-	"github.com/Navaladi2019/TicketingSystem/internal/db/grants"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/migrate"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/roles"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
@@ -54,7 +54,7 @@ func superConfig(t *testing.T) *pgx.ConnConfig {
 func migrated(t *testing.T) (*pgx.Conn, *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.Background()
-	m, err := grants.Parse(db.Grants())
+	m, am, err := audited.Load(db.Grants(), db.AuditedTables())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func migrated(t *testing.T) (*pgx.Conn, *pgxpool.Pool) {
 		t.Fatal(err)
 	}
 	owner := roleConfig(t, m.Owner(), m.PlatformDatabase)
-	if _, err := migrate.Run(ctx, owner, db.Migrations(), m, g, log, migrate.Options{LockRetrySeconds: 1}); err != nil {
+	if _, err := migrate.Run(ctx, owner, db.Migrations(), m, am, g, log, migrate.Options{LockRetrySeconds: 1}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
@@ -132,7 +132,11 @@ func seedRef(t *testing.T, conn *pgx.Conn, tenant uuid.UUID, kind string) (workf
 	t.Helper()
 	outboxID, record := uuid.New(), uuid.New()
 	mustExec(t, conn, "INSERT INTO tenants (id, state) VALUES ($1, 'active') ON CONFLICT DO NOTHING", tenant)
-	mustExec(t, conn, "INSERT INTO records (tenant_id, id) VALUES ($1, $2)", tenant, record)
+	// The record and its audit entry commit together, as the records
+	// commit-check trigger requires (ADR-004 decision 2, P5-13c).
+	mustExec(t, conn, `WITH r AS (INSERT INTO records (tenant_id, id) VALUES ($1, $2) RETURNING tenant_id, id, version)
+		INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, version_after, actor_system, source)
+		SELECT tenant_id, gen_random_uuid(), 'record', 'create', 'record', id, version, 'system', 'system' FROM r`, tenant, record)
 	mustExec(t, conn, "INSERT INTO workflow_ref (tenant_id, outbox_id, record_id, kind) VALUES ($1, $2, $3, $4)",
 		tenant, outboxID, record, kind)
 	return "t:" + tenant.String() + ":" + kind + ":" + outboxID.String(), outboxID

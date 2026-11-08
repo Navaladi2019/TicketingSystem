@@ -1,0 +1,22 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/audit/entries",
+    "body": null
+  },
+  "response": {
+    "status": 403,
+    "headers": {
+      "content-type": "application/problem+json",
+      "x-request-id": "a70709243321b4552886917d3d077647"
+    },
+    "body": {
+      "type": "urn:nava:problem:forbidden",
+      "title": "Forbidden",
+      "status": 403,
+      "code": "forbidden",
+      "detail": "The token does not allow this operation.",
+      "instance": "urn:nava:request:a70709243321b4552886917d3d077647"
+    }
+  }
+}

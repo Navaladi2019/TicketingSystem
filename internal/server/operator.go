@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Navaladi2019/TicketingSystem/api"
+	"github.com/Navaladi2019/TicketingSystem/internal/audit/read"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/onboard"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
@@ -51,11 +52,26 @@ type options struct {
 	// the database.
 	pool    *pgxpool.Pool
 	cursors *cursor.Keyring
+	// historyCap and historyRows set the record-history cap and its row-count
+	// hook of the audit reader. Only tests set them (export_test.go).
+	historyCap  int
+	historyRows func(int)
+	// auditMasker replaces the production read.DefinitionMasker; set by tests only.
+	auditMasker read.Masker
+	// auditPool is the nava_audit_reader pool the audit reader reads on
+	// (ADR-004-A1 A1-5). Without it the audit routes answer 501.
+	auditPool *read.Pool
 }
 
 // WithPool gives the tenant routes their database (the nava_app pool). Tenant
 // writes also need it for the Idempotency-Key store.
 func WithPool(p *pgxpool.Pool) Option { return func(o *options) { o.pool = p } }
+
+// WithAuditReader gives the audit timeline and record history the reader's
+// own pool (read.OpenPool, nava_audit_reader): the only pool that may read
+// audit_log.diff and diff_salt (ADR-004-A1). The audit.read gate, the cursor
+// and the record check stay on WithPool's nava_app pool (A1-7).
+func WithAuditReader(p *read.Pool) Option { return func(o *options) { o.auditPool = p } }
 
 // WithCursors sets the keyring that signs list cursors. Without it the list
 // endpoints answer 501 not_implemented.

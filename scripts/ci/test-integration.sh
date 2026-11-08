@@ -54,6 +54,26 @@ while [ "$i" -le "$shards" ]; do shard_pgs="$shard_pgs nava-it-pg-$id-s$i"; i=$(
 # tests take under a minute and start about two minutes into the job. A later
 # -timeout in the script's arguments wins.
 timeout=6m
+# NAVA_IT_COVERAGE (a path, make test-integration sets it): every go test
+# below writes an atomic profile over ./... into $covdir, and the script merges
+# them there at the end, the integration half of make check-coverage
+# (TICK-518). Under the checkout, not mktemp: go test on Windows cannot write
+# to Git Bash's /tmp path.
+cover=""
+covdir=""
+if [ -n "${NAVA_IT_COVERAGE:-}" ]; then
+    covdir=".coverage-it-$id"
+    rm -rf "$covdir"
+    mkdir -p "$covdir"
+    cover="-covermode=atomic -coverpkg=./..."
+    rm -f "$NAVA_IT_COVERAGE"
+fi
+# covmerge: merges the group profiles into $NAVA_IT_COVERAGE, when asked for.
+covmerge() {
+    [ -n "$covdir" ] || return 0
+    # shellcheck disable=SC2086
+    go run ./tools/ci/coverage merge -o "$NAVA_IT_COVERAGE" "$covdir"/*.out
+}
 logs=$(mktemp -d)
 pipes=$(mktemp -d)
 # This script owns the clusters, the network and the logs: remove them on any
@@ -67,7 +87,7 @@ procs=""
 printers=""
 stop() { for j in $fgpid $procs; do kill "${j%%:*}" 2>/dev/null || true; done; }
 # shellcheck disable=SC2086
-trap 'docker rm -f "$name" $shard_pgs $bouncers >/dev/null 2>&1 || true; docker network rm "$net" >/dev/null 2>&1 || true; rm -rf "$logs" "$pipes"' EXIT
+trap 'docker rm -f "$name" $shard_pgs $bouncers >/dev/null 2>&1 || true; docker network rm "$net" >/dev/null 2>&1 || true; rm -rf "$logs" "$pipes" ${covdir:+"$covdir"}' EXIT
 trap 'stop; exit 130' INT
 trap 'stop; exit 143' TERM
 # fgrun <command>: runs it in the background and waits, so INT and TERM reach the
@@ -117,7 +137,7 @@ echo "integration packages ($NAVA_TEST_PG_IMAGE):" $pkgs
 # Compile every test binary, and the log printer, while the clusters start;
 # -run '^$' runs nothing.
 # shellcheck disable=SC2086
-fgrun go test -tags integration -count=1 -run '^$' $pkgs >/dev/null
+fgrun go test -tags integration -count=1 $cover -run '^$' $pkgs >/dev/null
 fgrun go run ./tools/ci/testlog warm-up </dev/null
 
 # Gate on each container's health check (postgres: TCP, since the image's
@@ -157,7 +177,8 @@ export NAVA_TEST_PG_URL NAVA_TEST_PGBOUNCER_URL NAVA_TEST_PGBOUNCER_NOPREP_URL
 if [ "$shards" -eq 0 ]; then
     # -p 1: the packages share the cluster's roles.
     # shellcheck disable=SC2086
-    fgrun go test -tags integration -p 1 -count=1 -timeout "$timeout" -v "$@" $pkgs
+    fgrun go test -tags integration -p 1 -count=1 -timeout "$timeout" $cover ${covdir:+"-coverprofile=$covdir/all.out"} -v "$@" $pkgs
+    covmerge
     exit 0
 fi
 
@@ -172,7 +193,13 @@ for p in $pkgs; do
     [ "$p" = ./internal/db/dbtest ] && continue
     if grep -q -e NAVA_TEST_PG_URL -e NAVA_TEST_PGBOUNCER "$p"/*_test.go; then shared="$shared $p"; else own="$own $p"; fi
 done
-tests=$(go test -tags integration -list . ./internal/db/dbtest | grep '^Test')
+# TestCommitCheckBudget is not dealt to a shard: it measures absolute µs
+# (report-only review thresholds, ADR-004-E4) and wants a runner with
+# nothing beside it, so the ci.yml job
+# commit-check-budget runs it alone (scripts/ci/commit-check-budget.sh,
+# TICK-509). A run with go test arguments (no shards) still runs it if -run
+# names it.
+tests=$(go test -tags integration -list . ./internal/db/dbtest | grep '^Test' | grep -vx 'TestCommitCheckBudget')
 total=$(echo "$tests" | wc -l | tr -d ' ')
 echo "dbtest: $total tests over $shards clusters; shared cluster:$shared; own cluster:$own"
 
@@ -188,7 +215,8 @@ run() {
     mkfifo "$pipes/$l"
     tee "$logs/$l" <"$pipes/$l" | go run ./tools/ci/testlog "$l" &
     printers="$printers $!:$l"
-    go test -tags integration -count=1 -timeout "$timeout" -json "$@" >"$pipes/$l" 2>&1 &
+    # shellcheck disable=SC2086
+    go test -tags integration -count=1 -timeout "$timeout" $cover ${covdir:+"-coverprofile=$covdir/$l.out"} -json "$@" >"$pipes/$l" 2>&1 &
     procs="$procs $!:$l"
 }
 i=1
@@ -223,4 +251,5 @@ ran=$(grep -h '"Action":"run"' "$logs"/dbtest-* | grep -vc '"Test":"[^"]*/' || t
 echo "dbtest: $ran of $total top-level tests ran"
 [ "$ran" -eq "$total" ] || { echo "dbtest: the shards ran $ran tests, want $total" >&2; status=1; }
 [ "$status" -eq 0 ] || echo "integration: failed groups:$failed" >&2
+covmerge || status=1
 exit "$status"

@@ -22,7 +22,7 @@ docker run -d --name "$name" --shm-size=1g -e POSTGRES_USER=pgadmin -e POSTGRES_
 until docker exec "$name" pg_isready -h 127.0.0.1 -U pgadmin -d postgres >/dev/null 2>&1; do sleep 1; done
 port=$(docker port "$name" 5432/tcp | sed 's/.*://' | head -n1)
 
-for r in nava_migrator nava_app nava_worker nava_relay nava_purge nava_onboard nava_groupsync nava_backup keycloak temporal pgbouncer_auth; do
+for r in nava_migrator nava_app nava_worker nava_relay nava_purge nava_onboard nava_erasure nava_groupsync nava_backup keycloak temporal pgbouncer_auth; do
     export "DBROLES_PASSWORD_$(echo "$r" | tr '[:lower:]' '[:upper:]')=bench-$r"
 done
 PGHOST=127.0.0.1 PGPORT=$port PGUSER=pgadmin PGPASSWORD=bench PGDATABASE=postgres "$bin" roles >/dev/null

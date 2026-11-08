@@ -1,0 +1,11 @@
+=== RUN   TestP532MigrationBTiming
+=== RUN   TestP532MigrationBTiming/1000
+    audit_migration_b_timing_test.go:63: tenants=1000 migration A backfill: 30000 entries in 7.952s
+    audit_migration_b_timing_test.go:92: tenants=1000 versions=30093 (between A and B: 93) migration B: 480ms
+    audit_migration_b_timing_test.go:93: tenants=1000 functions: audit_backfill_s8 calls=1 total_ms=175.5; audit_seed_chain_heads calls=1 total_ms=202.0; audit_seed_uuidv7 calls=2000 total_ms=21.3
+    audit_migration_b_timing_test.go:94: tenants=1000 rows: heads=1000 seal_rows=1000 backfilled_by_B=93
+    audit_migration_b_timing_test.go:99: tenants=1000 storage: audit_chain_head=240 kB outbox=544 kB (heap and indexes)
+--- PASS: TestP532MigrationBTiming (14.79s)
+    --- PASS: TestP532MigrationBTiming/1000 (14.79s)
+PASS
+ok  	github.com/Navaladi2019/TicketingSystem/internal/db/dbtest	15.663s

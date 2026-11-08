@@ -108,6 +108,25 @@ func (c *Compiled) UniqueFields() []string {
 	return slices.Clone(c.unique)
 }
 
+// SecretProperties returns the top-level properties marked "x-nava-secret":
+// true or "writeOnly": true, sorted. Compile allows the markers nowhere else
+// (ADR-004 R6; decision 2026-11-03, secret markers top-level only), so a
+// record payload's secret pointers are exactly "/<name>" for each.
+func (c *Compiled) SecretProperties() []string {
+	props, _ := c.doc["properties"].(map[string]any)
+	var out []string
+	for name, v := range props {
+		p, _ := v.(map[string]any)
+		secret, _ := p["x-nava-secret"].(bool)
+		wo, _ := p["writeOnly"].(bool)
+		if secret || wo {
+			out = append(out, name)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
 // NumberPrefix returns the definition's record number prefix.
 func (c *Compiled) NumberPrefix() string { return c.numberPrefix }
 

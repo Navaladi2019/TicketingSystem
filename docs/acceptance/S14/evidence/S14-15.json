@@ -1,0 +1,28 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/me",
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json",
+      "x-request-id": "b94d5573658779d84f7cbcaf0f2e232e"
+    },
+    "body": {
+      "group_paths": [
+        {
+          "id": "0dc327e1-d1a1-4ebb-9488-dd58ef9cd025",
+          "path": "/admins"
+        }
+      ],
+      "groups": [
+        "0dc327e1-d1a1-4ebb-9488-dd58ef9cd025"
+      ],
+      "idp_alias": "",
+      "tenant_id": "00000000-0000-4000-8000-0000000000a1",
+      "user_id": "fbda7304-33a4-4dac-af38-33996cc5d6e3"
+    }
+  }
+}

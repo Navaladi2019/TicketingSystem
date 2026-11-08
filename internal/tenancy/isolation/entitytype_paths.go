@@ -114,6 +114,9 @@ type etIso struct {
 	super *pgx.Conn
 	keys  int
 	stop  func()
+	// cluster is the suite's database, for cases that also drive it as
+	// another role (the audit paths seal as nava_worker).
+	cluster Cluster
 }
 
 func newETIso(ctx context.Context, c Cluster) (*etIso, error) {
@@ -137,26 +140,54 @@ func newETIso(ctx context.Context, c Cluster) (*etIso, error) {
 		etCallerA:      {TenantID: uuid.MustParse(TenantA), PrincipalID: uuid.MustParse(principalA1), Groups: []uuid.UUID{uuid.MustParse(adminGroupA)}},
 		etCallerB:      {TenantID: uuid.MustParse(TenantB), PrincipalID: uuid.MustParse(principalB1)},
 		etCallerBAdmin: {TenantID: uuid.MustParse(TenantB), PrincipalID: uuid.MustParse(principalB2), Groups: []uuid.UUID{uuid.MustParse(adminGroupB)}},
+		// The audit readers (P5-19, TICK-436): each tenant's auditor (a member
+		// of its auditors group) and an agent (in a group that is neither).
+		auditCallerAAuditor: {TenantID: uuid.MustParse(TenantA), PrincipalID: uuid.MustParse(principalA2), Groups: []uuid.UUID{uuid.MustParse(auditorGroupA)}},
+		auditCallerAAgent:   {TenantID: uuid.MustParse(TenantA), PrincipalID: uuid.MustParse(principalA2)},
+		auditCallerBAuditor: {TenantID: uuid.MustParse(TenantB), PrincipalID: uuid.MustParse(principalB1), Groups: []uuid.UUID{uuid.MustParse(auditorGroupB)}},
+		auditCallerBAgent:   {TenantID: uuid.MustParse(TenantB), PrincipalID: uuid.MustParse(principalB1), Groups: []uuid.UUID{uuid.MustParse(GroupB1)}},
 	}
-	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel, tokens, pgstore.New(pool),
-		server.WithPool(pool), server.WithCursors(kr))
+	// The audit routes read on the reader's own pool, as nava-core does
+	// (ADR-004-A1 A1-5).
+	reader, err := c.AuditReader()
 	if err != nil {
 		_ = tel.Shutdown(context.Background())
 		return nil, err
 	}
-	return &etIso{h: h, super: super, stop: func() { _ = tel.Shutdown(context.Background()) }}, nil
+	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel, tokens, pgstore.New(pool),
+		server.WithPool(pool), server.WithAuditReader(reader), server.WithCursors(kr))
+	if err != nil {
+		_ = tel.Shutdown(context.Background())
+		return nil, err
+	}
+	return &etIso{h: h, super: super, stop: func() { _ = tel.Shutdown(context.Background()) }, cluster: c}, nil
 }
 
 // cleanup deletes every row the cases write, as the superuser.
 func (e *etIso) cleanup() error {
 	ctx := context.Background()
 	for _, q := range []string{
-		`DELETE FROM audit_log WHERE record_id IN (SELECT r.id FROM records r JOIN entity_definitions d
-			ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id WHERE d.key LIKE 'iso\_et\_%')`,
-		`DELETE FROM records WHERE entity_definition_id IN (SELECT id FROM entity_definitions WHERE key LIKE 'iso\_et\_%')`,
+		`DELETE FROM audit_log WHERE subject_type = 'record' AND subject_id IN (SELECT r.id FROM records r JOIN entity_definitions d
+			ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id WHERE d.key LIKE 'iso_et_%')`,
+		// The delete writes each record's entry, as the records commit-check
+		// trigger requires (P5-13c); the next statement removes those
+		// entries before their definitions go.
+		`WITH r AS (DELETE FROM records WHERE entity_definition_id IN (SELECT id FROM entity_definitions WHERE key LIKE 'iso\_et\_%')
+			RETURNING tenant_id, id, version, entity_definition_id)
+			INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, entity_definition_id, version_after, actor_system, source)
+			SELECT tenant_id, gen_random_uuid(), 'record', 'delete', 'record', id, entity_definition_id, version, 'system', 'system' FROM r`,
+		`DELETE FROM audit_log WHERE subject_type = 'record' AND action = 'delete' AND entity_definition_id IN (SELECT id FROM entity_definitions WHERE key LIKE 'iso\_et\_%')`,
 		`DELETE FROM record_counters WHERE entity_definition_id IN (SELECT id FROM entity_definitions WHERE key LIKE 'iso\_et\_%')`,
-		`DELETE FROM entity_definition_versions WHERE definition_id IN (SELECT id FROM entity_definitions WHERE key LIKE 'iso\_et\_%')`,
-		`DELETE FROM entity_definitions WHERE key LIKE 'iso\_et\_%'`,
+		// The entity-definition deletes write one config delete entry per
+		// type, as their commit-check triggers require (P5-32, migration B).
+		`WITH v AS (DELETE FROM entity_definition_versions WHERE definition_id IN (SELECT id FROM entity_definitions WHERE key LIKE 'iso\_et\_%')
+			RETURNING tenant_id, definition_id)
+			INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, actor_system, source)
+			SELECT tenant_id, gen_random_uuid(), 'config', 'delete', 'entity_definition', definition_id, 'system', 'system'
+			FROM (SELECT DISTINCT tenant_id, definition_id FROM v) d`,
+		`WITH d AS (DELETE FROM entity_definitions WHERE key LIKE 'iso\_et\_%' RETURNING tenant_id, id)
+			INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, actor_system, source)
+			SELECT tenant_id, gen_random_uuid(), 'config', 'delete', 'entity_definition', id, 'system', 'system' FROM d`,
 		`DELETE FROM idempotency_keys WHERE key LIKE 'iso-et-%'`,
 	} {
 		if _, err := e.super.Exec(ctx, q); err != nil {

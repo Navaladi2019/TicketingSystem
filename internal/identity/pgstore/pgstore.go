@@ -49,10 +49,11 @@ WHERE tenant_id = $1 AND domain = $2)`
 
 // groupPathsSQL reads the caller's groups by principal, never by group id
 // (ADR-002 section 3). Every predicate and join key names tenant_id.
+// ADR-004-E5 D4: a tombstoned group is not the caller's; the future ACL group resolver must copy this deleted_at filter.
 const groupPathsSQL = `SELECT g.id, g.path
 FROM group_members gm
 JOIN groups g ON g.tenant_id = gm.tenant_id AND g.id = gm.group_id
-WHERE gm.tenant_id = $1 AND gm.principal_id = $2
+WHERE gm.tenant_id = $1 AND gm.principal_id = $2 AND g.deleted_at IS NULL
 ORDER BY g.id`
 
 // Store reads the identity rows through pool, which must log in as nava_app.

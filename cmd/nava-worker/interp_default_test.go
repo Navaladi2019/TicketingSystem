@@ -5,8 +5,8 @@ package main
 import "testing"
 
 // TestProductionBuildRegistersNoInterpreter: with no real ports yet, the
-// production worker registers nothing for the interpreter and stays
-// activity-only.
+// production worker registers nothing for the interpreter (it still
+// registers audit.seal, TestRegisterSealer).
 func TestProductionBuildRegistersNoInterpreter(t *testing.T) {
 	acts, err := interpreterActivities(func(string) (string, bool) { return "/fixtures", true })
 	if err != nil || acts != nil {

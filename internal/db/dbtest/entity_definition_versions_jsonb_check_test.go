@@ -21,6 +21,12 @@ const insertVersionShapes = `INSERT INTO entity_definition_versions
 	(tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat, published_by)
 	VALUES ($1, $1, $1, 1, '{"type": "object"}', sha256('{"type": "object"}'), $2::jsonb, $3::jsonb, 'initial', $1)`
 
+// insertVersionShapesAudited is insertVersionShapes with its config entry,
+// so an accepted insert passes the commit check (P5-32).
+const insertVersionShapesAudited = `WITH v AS (` + insertVersionShapes + `) ` + configEntry + `
+	VALUES ($1, gen_random_uuid(), 'config', 'create', 'entity_definition', $1, 1, 'system', 'system',
+		sha256('{"type": "object"}'))`
+
 func TestTICK378VersionJSONBMustBeObjects(t *testing.T) {
 	migratedPlatform(t)
 	super := superNava(t)
@@ -56,7 +62,7 @@ func TestTICK378VersionJSONBMustBeObjects(t *testing.T) {
 	wantSQLState(t, "superuser inserts '[]'", err, "23514")
 
 	// Control: objects, empty or not, are accepted.
-	if _, err := execIn(app, tenantA, insertVersionShapes, tenantA, `{"state": "state"}`,
+	if _, err := execIn(app, tenantA, insertVersionShapesAudited, tenantA, `{"state": "state"}`,
 		`{"initial": "open", "states": ["open", "closed"], "transitions": [{"from": "open", "to": "closed"}]}`); err != nil {
 		t.Errorf("control: nava_app publishes object-shaped columns: %v; want accepted", err)
 	}
