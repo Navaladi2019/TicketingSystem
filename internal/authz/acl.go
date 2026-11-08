@@ -372,20 +372,29 @@ func (c *compiler) colEq(column string, id uuid.UUID) string {
 // shared matches a share by its (principal_kind, principal_id) pair, never by
 // the id alone (AR-S10-01), under the row's own tenant.
 func (c *compiler) shared(caller uuid.UUID, groups []uuid.UUID) string {
-	if groups == nil {
-		groups = []uuid.UUID{}
-	}
 	return "EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = " + c.col("tenant_id") +
 		" AND acl_share.record_id = " + c.col("id") +
 		" AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = " + c.arg(caller) + "::uuid)" +
-		" OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY(" + c.arg(groups) + "::uuid[]))))"
+		" OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY(" + c.arg(UUIDTexts(groups)) + "::uuid[]))))"
 }
 
 func (cd plannedCond) sql(c *compiler) string {
 	if cd.column == metadata.ColumnState {
 		return "(" + c.col(cd.column) + " = ANY(" + c.arg(cd.strs) + "::text[]))"
 	}
-	return "(" + c.col(cd.column) + " IS NOT NULL AND " + c.col(cd.column) + " = ANY(" + c.arg(cd.ids) + "::uuid[]))"
+	return "(" + c.col(cd.column) + " IS NOT NULL AND " + c.col(cd.column) + " = ANY(" + c.arg(UUIDTexts(cd.ids)) + "::uuid[]))"
+}
+
+// UUIDTexts is ids as the text array a uuid[] parameter is bound as. The
+// server's pools run in QueryExecModeExec, where a parameter has no declared
+// type and pgx cannot encode a []uuid.UUID; a []string with an explicit
+// ::uuid[] cast always encodes, and an empty or nil ids is the empty array.
+func UUIDTexts(ids []uuid.UUID) []string {
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		out[i] = id.String()
+	}
+	return out
 }
 
 func eqID(col *uuid.UUID, id uuid.UUID) bool { return col != nil && *col == id }

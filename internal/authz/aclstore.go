@@ -85,12 +85,8 @@ func SharesFor(ctx context.Context, tx pgx.Tx, p identity.Principal, recordID uu
 	if err != nil {
 		return nil, fmt.Errorf("authz: %w", err)
 	}
-	groups := p.Groups
-	if groups == nil {
-		groups = []uuid.UUID{}
-	}
 	var ids []uuid.UUID
-	if err := tx.QueryRow(ctx, sharesSQL, tenant, recordID, p.PrincipalID, groups).Scan(&ids); err != nil {
+	if err := tx.QueryRow(ctx, sharesSQL, tenant, recordID, p.PrincipalID, UUIDTexts(p.Groups)).Scan(&ids); err != nil {
 		return nil, fmt.Errorf("authz: read shares: %w", err)
 	}
 	return ids, nil

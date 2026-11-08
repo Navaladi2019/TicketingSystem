@@ -190,13 +190,13 @@ func TestCompileReadShape(t *testing.T) {
 			if v != caller() {
 				t.Errorf("bound id %s is not the caller's", v)
 			}
-		case []uuid.UUID:
-			for _, id := range v {
-				if id != g1() && id != g2() && id != other() {
+		case []string:
+			// A uuid set is bound as text (exec mode); state values are text.
+			for _, s := range v {
+				if id, err := uuid.Parse(s); err == nil && id != g1() && id != g2() && id != other() {
 					t.Errorf("bound id %s is neither the caller's group nor a policy literal", id)
 				}
 			}
-		case []string:
 		default:
 			t.Errorf("unexpected argument %T", a)
 		}
@@ -333,5 +333,35 @@ func TestACLCanWrite(t *testing.T) {
 	boom := errors.New("boom")
 	if err := (authz.ACL{Policies: fakePolicies{err: boom}}).CanWrite(ctx, tx, me(), "incident", nil, mine); !errors.Is(err, boom) {
 		t.Fatalf("reader failure: %v, want it wrapped", err)
+	}
+}
+
+// A uuid set binds as text: never nil, so an empty set is the empty array.
+func TestUUIDTexts(t *testing.T) {
+	for _, ids := range [][]uuid.UUID{nil, {}} {
+		if got := authz.UUIDTexts(ids); got == nil || len(got) != 0 {
+			t.Errorf("UUIDTexts(%v) = %#v, want an empty non-nil slice", ids, got)
+		}
+	}
+	if got := authz.UUIDTexts([]uuid.UUID{g1(), g2()}); len(got) != 2 || got[0] != g1().String() || got[1] != g2().String() {
+		t.Errorf("UUIDTexts = %v", got)
+	}
+}
+
+// Every argument CompileRead binds encodes in pgx's exec mode, which has no
+// parameter types: never a []uuid.UUID, including for an empty group set.
+func TestCompileReadArgsEncodeWithoutTypes(t *testing.T) {
+	noGroups := identity.Principal{TenantID: tenant(), PrincipalID: caller()}
+	p := pol(rw("a", authz.Subject{Shared: true}, callerCond("assignment_group_id", "in", "my_groups")),
+		rw("b", authz.Subject{Requester: true, Shared: true}, cond("requester_id", "in", other().String())))
+	for _, principal := range []identity.Principal{me(), noGroups} {
+		_, args := authz.CompileRead(p, principal, "r", 0)
+		for _, a := range args {
+			switch a.(type) {
+			case uuid.UUID, []string:
+			default:
+				t.Errorf("argument of type %T does not encode in exec mode", a)
+			}
+		}
 	}
 }

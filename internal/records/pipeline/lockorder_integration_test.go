@@ -5,6 +5,7 @@ package pipeline_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -56,8 +57,28 @@ func TestTwoWritesPerTransactionDeadlockIsRetryable(t *testing.T) {
 	errA, errB := make(chan error, 1), make(chan error, 1)
 	go func() { errA <- both(r1, r2, aFirst, aGo) }()
 	go func() { errB <- both(r2, r1, bFirst, bGo) }()
-	<-aFirst
-	<-bFirst
+	// Fail fast: a write that errors before its first step is done must not
+	// leave the test waiting out the package timeout. The other goroutine is
+	// released and drained, so its transaction ends before the pool closes.
+	var release sync.Once
+	stop := func(name string, err error) {
+		t.Helper()
+		release.Do(func() { close(aGo); close(bGo) })
+		<-errA
+		<-errB
+		t.Fatalf("transaction %s failed before its first write was done: %v", name, err)
+	}
+	waitFirst := func(name string, first <-chan struct{}, errc chan error) {
+		t.Helper()
+		select {
+		case <-first:
+		case err := <-errc:
+			errc <- err // stop drains both channels
+			stop(name, err)
+		}
+	}
+	waitFirst("A", aFirst, errA)
+	waitFirst("B", bFirst, errB)
 	close(aGo) // A now waits on R2, which B holds
 	waitForLockWait(t, e)
 	close(bGo) // B now waits on R1, which A holds: a deadlock
