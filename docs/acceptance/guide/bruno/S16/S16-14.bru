@@ -1,0 +1,20 @@
+meta {
+  name: S16.14 exportAuditEntries 401: no token
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{core_url}}/api/v1/audit/entries:export
+  body: none
+  auth: none
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_token', 401);
+}
+
+docs {
+  Missing token.
+}

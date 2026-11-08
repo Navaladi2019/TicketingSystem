@@ -1,0 +1,42 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:28080/api/v1/audit/chain:reseed",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:28080",
+      "Connection": "keep-alive",
+      "Content-Length": "0",
+      "Idempotency-Key": "a7a7a6bc-ca2a-48ec-9f3a-9d1b48695ac7",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 409,
+    "body": {
+      "type": "urn:nava:problem:chain_alive",
+      "title": "Audit chain is alive",
+      "status": 409,
+      "code": "chain_alive",
+      "detail": "The tenant's audit seal lineage is still running, so it cannot be reseeded. Retry when its next run is more than 10 minutes overdue.",
+      "instance": "urn:nava:request:db30b59b5290585c70883f037e53baeb"
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 409",
+      "status": "pass"
+    },
+    {
+      "test": "problem+json, code chain_alive",
+      "status": "pass"
+    },
+    {
+      "test": "problem instance is this response's X-Request-Id",
+      "status": "pass"
+    }
+  ]
+}

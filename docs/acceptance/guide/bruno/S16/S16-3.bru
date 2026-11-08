@@ -1,42 +1,35 @@
 meta {
-  name: S16.3 exportAuditEntries 200: the whole log
+  name: S16.3 Sign in as Bob (agent, tenant B)
   type: http
   seq: 3
 }
 
-get {
-  url: {{core_url}}/api/v1/audit/entries:export
-  body: none
+post {
+  url: {{keycloak_url}}/realms/{{realm}}/protocol/openid-connect/token
+  body: formUrlEncoded
   auth: none
 }
 
-headers {
-  Authorization: Bearer {{admin_a_token}}
+body:form-urlencoded {
+  grant_type: password
+  client_id: nava-web
+  scope: openid
+  username: {{bob_username}}
+  password: {{bob_password}}
 }
 
 tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
-  const raw = typeof res.getBody() === 'string' ? res.getBody() : JSON.stringify(res.getBody());
-  const lines = raw.split('
-  ').filter(l => l.length);
-  const ls = lines.map(l => JSON.parse(l));
-  N.status(200);
-  test('content type is ndjson', () => expect(res.getHeader('content-type')).to.include('application/x-ndjson'));
-  test('header first, trailer last', () => {
-    expect(ls[0].kind).to.eql('header');
-    expect(ls[0].format).to.eql('nava.audit.export/v1');
-    expect(ls[0].stubs).to.eql(true);
-    expect(ls[ls.length - 1].kind).to.eql('trailer');
-  });
-  test('the anchor follows the header', () => expect(ls[1].kind).to.be.oneOf(['anchor', 'trailer']));
-  test('the trailer counts match the lines', () => {
-    const t = ls[ls.length - 1];
-    expect(t.count).to.eql(ls.filter(l => l.kind === 'entry' && l.sealed).length);
-    expect(t.stub_count).to.eql(ls.filter(l => l.kind === 'stub').length);
-  });
-  test('a redacted entry carries no diff_salt', () => ls.filter(l => l.kind === 'entry' && l.diff_redacted).forEach(l => expect(l.diff_salt).to.eql(null)));
+  test('HTTP 200 from Keycloak', () => expect(res.getStatus()).to.eql(200));
+  const tok = N.json();
+  test('access token issued', () => expect(tok.access_token).to.be.a('string'));
+  bru.setVar('bob_token', tok.access_token);
+  if (tok.id_token) bru.setVar('bob_token_id', tok.id_token);
+  const c = N.jwt(tok.access_token);
+  bru.setVar('bob_token_exp', String(c.exp));
+  test('issuer is the pinned realm URL', () => expect(c.iss).to.eql(N.url('{{keycloak_issuer_url}}/realms/{{realm}}')));
 }
 
 docs {
-  One JSON object per line: the header names the format and the request, the last line is the trailer. Save the body and run `nava audit verify <file>`: it exits 0.
+  Signs in as `{{bob_username}}` through Keycloak (client `nava-web`, password grant) and keeps the access token in the runtime variable `bob_token`.
 }

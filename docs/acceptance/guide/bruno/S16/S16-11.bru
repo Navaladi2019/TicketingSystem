@@ -1,5 +1,5 @@
 meta {
-  name: S16.11 reseedAuditChain 401: no token
+  name: S16.11 AC4: reseedAuditChain 409 chain_alive while sealing runs
   type: http
   seq: 11
 }
@@ -11,14 +11,20 @@ post {
 }
 
 headers {
+  Authorization: Bearer {{auditor_token}}
   Idempotency-Key: {{$guid}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await require('./lib/s15')(N, bru).fresh();
 }
 
 tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
-  N.problem('invalid_token', 401);
+  N.problem('chain_alive', 409);
 }
 
 docs {
-  Missing token.
+  The seal lineage of a running stack is alive (R17), so the reseed is refused and writes nothing. A dead lineage is reseeded in the integration tests (P5-35).
 }

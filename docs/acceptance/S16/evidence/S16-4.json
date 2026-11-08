@@ -1,0 +1,40 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:28080/api/v1/records/incident",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Content-Length": "87",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:28080",
+      "Connection": "keep-alive",
+      "Idempotency-Key": "tick448-s16-mw81ry7u",
+      "Content-Type": "application/json"
+    },
+    "body": "{\n  \"data\": {\n    \"short_description\": \"S16 mw81ry7u incident\",\n    \"priority\": 2\n  }\n}"
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "created_at": "2026-11-08T16:29:18.152382Z",
+      "data": {
+        "priority": 2,
+        "short_description": "S16 mw81ry7u incident",
+        "state": "new"
+      },
+      "id": "01a1bbfe-27c8-75d4-a2f4-32797c779f73",
+      "number": "INC0000001",
+      "schema_version": 1,
+      "state": "new",
+      "updated_at": "2026-11-08T16:29:18.152382Z",
+      "version": 1
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 201",
+      "status": "pass"
+    }
+  ]
+}
