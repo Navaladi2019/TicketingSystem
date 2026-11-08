@@ -115,7 +115,7 @@ func TestFixture(t *testing.T) {
 			tags:  []string{"fixturetag"},
 			scope: "^TestTaggedSuite$",
 			args:  goTest("-json", "-tags", "fixturetag", "-run", "^TestTaggedSuite$", "./tagged"),
-			want:  []string{"ok    tagged/tagged_suite_test.go, ran 1 of 1 tests", "3 registered files are outside this run"},
+			want:  []string{"ok    tagged/tagged_suite_test.go, ran 1 of 1 tests", "3 registered files are outside this run", "  1 top-level tests ran (pass or fail)"},
 		},
 		{
 			// The declared scope does not hide a go test filter that drops

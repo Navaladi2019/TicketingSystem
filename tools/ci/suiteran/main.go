@@ -500,12 +500,16 @@ type report struct {
 	files    []fileResult
 	events   int
 	failures []string
+	ran      int // top-level tests that ended in pass or fail, every package
 }
 
 func check(s *stream, files []suiteFile, tags []string, sc scope) report {
 	ctxt := build.Default
 	ctxt.BuildTags = tags
 	r := report{events: s.events, failures: s.failures}
+	for _, tests := range s.ran {
+		r.ran += len(tests)
+	}
 	for _, f := range files {
 		var tests []string
 		for _, t := range f.Tests {
@@ -576,6 +580,9 @@ func (r report) String(tags []string, sc scope) string {
 		b.WriteString("  (none)\n")
 	}
 	fmt.Fprintf(&b, "  %d registered files are outside this run (package not tested, build constraints not met, or no test in the -run/-skip scope)\n", out)
+	// TICK-628: how many tests the step ran, so a -run/-skip split of one
+	// package can be read off the log.
+	fmt.Fprintf(&b, "  %d top-level tests ran (pass or fail)\n", r.ran)
 	if r.events == 0 {
 		b.WriteString("suiteran: FAIL: the stream held no go test -json event (is -json missing, or did go test not start?)\n")
 	}
