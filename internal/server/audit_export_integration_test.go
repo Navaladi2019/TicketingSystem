@@ -566,12 +566,31 @@ func TestExportFormatCSV(t *testing.T) {
 		t.Errorf("sealed rows differ:\ncsv  %v\njson %v", gotCSV, gotJSON)
 	}
 
-	var diff string
-	if err := x.super.QueryRow(t.Context(), `SELECT diff::text FROM audit_log WHERE action = 'export' ORDER BY seq DESC LIMIT 1`).Scan(&diff); err != nil {
+	// Each export's entry is found by its own id, not by position.
+	exportDiff := func(id string) string {
+		var d string
+		if err := x.super.QueryRow(t.Context(), `SELECT diff::text FROM audit_log WHERE tenant_id = $1 AND id = $2 AND action = 'export'`, x.a.id, id).Scan(&d); err != nil {
+			t.Fatalf("entry for export_id %s: %v", id, err)
+		}
+		return strings.ReplaceAll(d, " ", "")
+	}
+	var jh, ch struct {
+		ExportID string `json:"export_id"`
+	}
+	if err := json.Unmarshal([]byte(strings.SplitN(js.Body.String(), "\n", 2)[0]), &jh); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(diff, `"format": "csv"`) {
-		t.Errorf("request diff = %s, want format csv", diff)
+	if err := json.Unmarshal([]byte(rows[1][col["meta"]]), &ch); err != nil {
+		t.Fatalf("csv header meta %q: %v", rows[1][col["meta"]], err)
+	}
+	if ch.ExportID == "" || ch.ExportID == jh.ExportID {
+		t.Fatalf("export ids: csv %q, jsonl %q", ch.ExportID, jh.ExportID)
+	}
+	if d := exportDiff(ch.ExportID); !strings.Contains(d, `"format":"csv"`) {
+		t.Errorf("csv request diff = %s, want format csv", d)
+	}
+	if d := exportDiff(jh.ExportID); !strings.Contains(d, `"format":"jsonl"`) {
+		t.Errorf("jsonl request diff = %s, want format jsonl", d)
 	}
 
 	if rec := x.export(t, "admin-a", "?format=xml"); rec.Code != http.StatusBadRequest {

@@ -109,7 +109,7 @@ func (e *exportResponse) VisitExportAuditEntriesResponse(w http.ResponseWriter) 
 	w.WriteHeader(http.StatusOK)
 	flush := func() { _ = rc.Flush() }
 	if err := write(e.ctx, w, flush, e.s); err != nil {
-		e.h.log.ErrorContext(e.ctx, "audit export failed", e.attrs(slog.Any("error", err))...)
+		e.h.log.ErrorContext(e.ctx, "audit export failed", e.attrs(slog.Bool("csv", e.s.Request.CSV), slog.Any("error", err))...)
 		panic(http.ErrAbortHandler)
 	}
 	return nil
