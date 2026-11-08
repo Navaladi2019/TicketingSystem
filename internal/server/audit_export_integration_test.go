@@ -17,12 +17,14 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/audit/chain"
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/patchwalk"
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/read"
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/seal"
@@ -59,18 +61,6 @@ func newExportEnv(t *testing.T, extra ...server.Option) *exportEnv {
 	ctx := t.Context()
 	for _, tn := range []etTenant{x.a, x.b} {
 		if _, err := x.super.Exec(ctx, "INSERT INTO audit_chain_head (tenant_id, id) VALUES ($1, $2)", tn.id, uuid.New()); err != nil {
-			t.Fatal(err)
-		}
-	}
-	// ADR-004-A1 / TICK-612: the reader reads prev_hash, entry_hash and
-	// erasure_ref. Until that grant is in the migrations, grant it here.
-	var has bool
-	if err := x.super.QueryRow(ctx, "SELECT has_column_privilege('nava_audit_reader', 'audit_log', 'entry_hash', 'SELECT')").Scan(&has); err != nil {
-		t.Fatal(err)
-	}
-	if !has {
-		t.Log("TICK-612 grant absent: granting prev_hash, entry_hash, erasure_ref to nava_audit_reader for this test")
-		if _, err := x.super.Exec(ctx, "GRANT SELECT (prev_hash, entry_hash, erasure_ref) ON audit_log TO nava_audit_reader"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -378,5 +368,136 @@ func TestExportRedactedEntriesCarryNoSalt(t *testing.T) {
 	}
 	if rep := report(t, rec.Body.Bytes()); rep.Outcome != verify.OutcomePass {
 		t.Errorf("outcome %s %+v", rep.Outcome, rep.Failure)
+	}
+}
+
+// insertUnsealedErase inserts, as the superuser with triggers off on this
+// transaction only (the erase transition belongs to nava_erasure), an
+// unsealed audit/erase entry for tenant under ref listing erased, stamped now.
+func (x *exportEnv) insertUnsealedErase(t *testing.T, ctx context.Context, tenant, ref uuid.UUID, erased ...string) uuid.UUID {
+	t.Helper()
+	list, err := json.Marshal(erased)
+	if err != nil {
+		t.Fatal(err)
+	}
+	diff := []byte(`[{"op":"add","path":"/erased_ids","value":` + string(list) + `}]`)
+	salt := [16]byte{0xee, 0x01}
+	sha := chain.DiffSHA256(salt, diff)
+	id := uuid.New()
+	tx, err := x.super.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, "SET LOCAL session_replication_role = replica"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_log (tenant_id, id, occurred_at, domain, action, subject_type,
+		subject_id, actor_system, source, diff_sha256, diff, diff_salt)
+		VALUES ($1, $2, clock_timestamp(), 'audit', 'erase', 'erasure_request', $3, 'erasure', 'system', $4, $5::json, $6)`,
+		tenant, id, ref, sha[:], string(diff), salt[:]); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+// CI-A6 extension, against Postgres and the reader pool (TICK-613, ADR-004-E8
+// Follow-up, R24): an erasure that commits after the lease and head statement
+// and before the page holding the erased entry gives a tail entry with
+// sealed:false, in_verified_range:false, and the file verifies as pending.
+// Tenant B holds an audit/erase entry under the same erasure_ref, which must
+// not appear in A's export (the query is scoped to the export's tenant).
+//
+// covers: exportAuditEntries 200
+func TestExportEraseAfterHeadIsPendingTail(t *testing.T) {
+	x := newExportEnv(t)
+	x.seedActivity(t)
+	ctx := t.Context()
+
+	// X: the last sealed entry of A that still has a diff.
+	var xID uuid.UUID
+	var xSeq int64
+	if err := x.super.QueryRow(ctx, `SELECT id, seq FROM audit_log WHERE tenant_id = $1 AND seq IS NOT NULL AND diff IS NOT NULL
+		ORDER BY seq DESC LIMIT 1`, x.a.id).Scan(&xID, &xSeq); err != nil {
+		t.Fatal(err)
+	}
+	ref := uuid.New()
+	var eraseID uuid.UUID
+	// Tenant B: an audit/erase entry under the same ref, committed up front.
+	bErase := x.insertUnsealedErase(t, ctx, x.b.id, ref, uuid.NewString())
+
+	// The hook fires inside each page transaction, before the page reads. Call
+	// 1 is the erasure-refs read; the erasure commits at call 2, so after the
+	// lease and head and before any range page, X's included.
+	var calls atomic.Int32
+	x.onPage = func() {
+		if calls.Add(1) != 2 {
+			return
+		}
+		tx, err := x.super.Begin(ctx)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		if _, err := tx.Exec(ctx, "SET LOCAL session_replication_role = replica"); err != nil {
+			t.Error(err)
+			return
+		}
+		if _, err := tx.Exec(ctx, `UPDATE audit_log SET diff = NULL, diff_salt = NULL, erased_at = clock_timestamp(), erasure_ref = $3
+			WHERE tenant_id = $1 AND id = $2`, x.a.id, xID, ref); err != nil {
+			t.Error(err)
+			return
+		}
+		if err := tx.Commit(ctx); err != nil {
+			t.Error(err)
+			return
+		}
+		eraseID = x.insertUnsealedErase(t, ctx, x.a.id, ref, xID.String())
+	}
+	rec := x.export(t, "admin-a", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("export = %d: %s", rec.Code, rec.Body)
+	}
+	if calls.Load() < 3 {
+		t.Fatalf("only %d page transactions: the erasure was not between pages", calls.Load())
+	}
+	if eraseID == uuid.Nil {
+		t.Fatal("control: the erasure hook did not run")
+	}
+	rep := report(t, rec.Body.Bytes())
+	if rep.Outcome != verify.OutcomePending || rep.Lines[xSeq] != verify.LinePending {
+		t.Fatalf("outcome %s, lines %v, failure %+v; want pending at seq %d\n%s", rep.Outcome, rep.Lines, rep.Failure, xSeq, rec.Body)
+	}
+
+	var tail []string
+	for _, ln := range strings.Split(strings.TrimSuffix(rec.Body.String(), "\n"), "\n") {
+		if strings.Contains(ln, `"action":"erase"`) {
+			tail = append(tail, ln)
+		}
+	}
+	if len(tail) != 1 {
+		t.Fatalf("erase lines = %d, want 1:\n%s", len(tail), rec.Body)
+	}
+	var e struct {
+		Sealed          bool   `json:"sealed"`
+		InVerifiedRange bool   `json:"in_verified_range"`
+		Seq             *int64 `json:"seq"`
+		Envelope        struct {
+			ID       string `json:"id"`
+			TenantID string `json:"tenant_id"`
+		} `json:"envelope"`
+	}
+	if err := json.Unmarshal([]byte(tail[0]), &e); err != nil {
+		t.Fatal(err)
+	}
+	if e.Sealed || e.InVerifiedRange || e.Seq != nil || e.Envelope.ID != eraseID.String() || e.Envelope.TenantID != x.a.id.String() {
+		t.Errorf("tail erase entry = %+v, want A's %s, sealed false, in_verified_range false, seq null", e, eraseID)
+	}
+	if strings.Contains(rec.Body.String(), bErase.String()) || strings.Contains(rec.Body.String(), x.b.id.String()) {
+		t.Error("tenant A's export holds tenant B's audit/erase entry")
 	}
 }
