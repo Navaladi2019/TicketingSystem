@@ -1,24 +1,34 @@
 meta {
-  name: S16.8 exportAuditEntries 400: from after to
+  name: S16.8 exportAuditEntries 200: filtered by domain
   type: http
   seq: 8
 }
 
 get {
-  url: {{core_url}}/api/v1/audit/entries:export?from=2030-01-02T00:00:00Z&to=2030-01-01T00:00:00Z
+  url: {{core_url}}/api/v1/audit/entries:export?domain=config
   body: none
   auth: none
 }
 
 headers {
-  Authorization: Bearer {{admin_a_token}}
+  Authorization: Bearer {{auditor_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await require('./lib/s15')(N, bru).fresh();
 }
 
 tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
-  N.problem('validation_failed', 400);
+  const ls = N.text().split('\n').filter(l => l.length).map(l => JSON.parse(l));
+  N.status(200);
+  test('full lines are config; the rest are stubs', () => {
+    ls.filter(l => l.kind === 'entry' && l.sealed).forEach(l => expect(l.envelope.domain).to.eql('config'));
+    ls.filter(l => l.kind === 'stub').forEach(l => expect(Object.keys(l).sort()).to.eql(['entry_hash', 'envelope_sha256', 'kind', 'prev_hash', 'seq']));
+  });
 }
 
 docs {
-  The window must have from before to.
+  Entries of the config domain are in full; every other seq of the range is a hash-only stub. The file still verifies.
 }

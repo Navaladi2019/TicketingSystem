@@ -1,5 +1,5 @@
 meta {
-  name: S16.7 exportAuditEntries 403: a member without audit.export
+  name: S16.7 exportAuditEntries 200: the whole log
   type: http
   seq: 7
 }
@@ -11,14 +11,31 @@ get {
 }
 
 headers {
-  Authorization: Bearer {{alice_token}}
+  Authorization: Bearer {{auditor_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await require('./lib/s15')(N, bru).fresh();
 }
 
 tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
-  N.problem('forbidden', 403);
+  const ls = N.text().split('\n').filter(l => l.length).map(l => JSON.parse(l));
+  N.status(200);
+  test('header first, trailer last', () => {
+    expect(ls[0].kind).to.eql('header');
+    expect(ls[ls.length - 1].kind).to.eql('trailer');
+  });
+  test('the trailer counts match the lines', () => {
+    const t = ls[ls.length - 1];
+    expect(t.count).to.eql(ls.filter(l => l.kind === 'entry' && l.sealed).length);
+    expect(t.stub_count).to.eql(ls.filter(l => l.kind === 'stub').length);
+  });
+  test("only tenant A's entries", () => ls.filter(l => l.envelope).forEach(l => expect(l.envelope.tenant_id).to.eql('00000000-0000-4000-8000-0000000000a1')));
+  test('a redacted entry carries no diff_salt', () => ls.filter(l => l.kind === 'entry' && l.diff_redacted).forEach(l => expect(l.diff_salt).to.eql(null)));
 }
 
 docs {
-  Alice is neither a tenant admin nor in the auditors group.
+  No filter: every entry of the range is in full, so there are no stubs.
 }

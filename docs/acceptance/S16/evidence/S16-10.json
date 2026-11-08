@@ -1,0 +1,352 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:28080/api/v1/audit/entries?domain=audit&subject_type=audit_export&limit=50",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:28080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "items": [
+        {
+          "action": "export",
+          "actor_principal_id": "537e75e1-45ce-464f-b4d4-1e3713f1a7f9",
+          "backfilled": false,
+          "causation_depth": 0,
+          "diff": [
+            {
+              "op": "add",
+              "path": "/request",
+              "value": {
+                "filter": {
+                  "from": null,
+                  "to": null,
+                  "domain": null,
+                  "subject_type": null,
+                  "subject_id": "00000000-0000-4000-8000-00000000dead",
+                  "change_set_id": null,
+                  "after_seq": null
+                },
+                "stubs": false
+              }
+            }
+          ],
+          "diff_redacted": false,
+          "diff_salt": "9158908bcc35911be73334869aa4f596",
+          "diff_sha256": "89b2b08ec80a792b025fb03a0994c1646799df8e56dbe1dac05db23a3f6ba9a7",
+          "diff_truncated": false,
+          "domain": "audit",
+          "id": "01a1bb3b-1461-7a64-9997-1e3836ca6414",
+          "occurred_at": "2026-11-08T12:56:13.661854Z",
+          "source": "user",
+          "subject_id": "01a1bb3b-1461-7a64-9997-1e3836ca6414",
+          "subject_type": "audit_export"
+        },
+        {
+          "action": "export",
+          "actor_principal_id": "537e75e1-45ce-464f-b4d4-1e3713f1a7f9",
+          "backfilled": false,
+          "causation_depth": 0,
+          "diff": [
+            {
+              "op": "add",
+              "path": "/request",
+              "value": {
+                "filter": {
+                  "from": null,
+                  "to": null,
+                  "domain": "config",
+                  "subject_type": null,
+                  "subject_id": null,
+                  "change_set_id": null,
+                  "after_seq": null
+                },
+                "stubs": true
+              }
+            }
+          ],
+          "diff_redacted": false,
+          "diff_salt": "fd0aff7a5278092ab59fe7600cab2776",
+          "diff_sha256": "567b69dd8b763988a8a081968a9ab2c92599e43bf363df70646bbfafda13be62",
+          "diff_truncated": false,
+          "domain": "audit",
+          "id": "01a1bb3b-1237-7b3c-aca0-c96773efbb9e",
+          "occurred_at": "2026-11-08T12:56:13.107909Z",
+          "source": "user",
+          "subject_id": "01a1bb3b-1237-7b3c-aca0-c96773efbb9e",
+          "subject_type": "audit_export"
+        },
+        {
+          "action": "export",
+          "actor_principal_id": "537e75e1-45ce-464f-b4d4-1e3713f1a7f9",
+          "backfilled": false,
+          "causation_depth": 0,
+          "diff": [
+            {
+              "op": "add",
+              "path": "/request",
+              "value": {
+                "filter": {
+                  "from": null,
+                  "to": null,
+                  "domain": null,
+                  "subject_type": null,
+                  "subject_id": null,
+                  "change_set_id": null,
+                  "after_seq": null
+                },
+                "stubs": true
+              }
+            }
+          ],
+          "diff_redacted": false,
+          "diff_salt": "2552c0f17ef29d7655ed618b39247edf",
+          "diff_sha256": "73827669842d1fd420d5e82806edc87943175a774b408199d01361fd0af66b48",
+          "diff_truncated": false,
+          "domain": "audit",
+          "id": "01a1bb3b-0fca-71c4-894c-53e010225a3c",
+          "occurred_at": "2026-11-08T12:56:12.486972Z",
+          "source": "user",
+          "subject_id": "01a1bb3b-0fca-71c4-894c-53e010225a3c",
+          "subject_type": "audit_export"
+        },
+        {
+          "action": "export",
+          "actor_principal_id": "537e75e1-45ce-464f-b4d4-1e3713f1a7f9",
+          "backfilled": false,
+          "causation_depth": 0,
+          "diff": [
+            {
+              "op": "add",
+              "path": "/request",
+              "value": {
+                "filter": {
+                  "from": null,
+                  "to": null,
+                  "domain": null,
+                  "subject_type": null,
+                  "subject_id": "01a1bb37-7fa4-7b9a-bd21-ce9e83e37751",
+                  "change_set_id": null,
+                  "after_seq": null
+                },
+                "stubs": true
+              }
+            }
+          ],
+          "diff_redacted": false,
+          "diff_salt": "3458f45ba9efa8cc8a6784d329026d3d",
+          "diff_sha256": "bf0e2b10bd3338898159d1cb17deed3c3a32ae4977859872b8db8d452a8d8c08",
+          "diff_truncated": false,
+          "domain": "audit",
+          "id": "01a1bb3b-0d63-7383-94b0-3a9e633638bf",
+          "occurred_at": "2026-11-08T12:56:11.871361Z",
+          "source": "user",
+          "subject_id": "01a1bb3b-0d63-7383-94b0-3a9e633638bf",
+          "subject_type": "audit_export"
+        },
+        {
+          "action": "export",
+          "actor_principal_id": "537e75e1-45ce-464f-b4d4-1e3713f1a7f9",
+          "backfilled": false,
+          "causation_depth": 0,
+          "diff": [
+            {
+              "op": "add",
+              "path": "/request",
+              "value": {
+                "filter": {
+                  "from": null,
+                  "to": null,
+                  "domain": null,
+                  "subject_type": null,
+                  "subject_id": "01a1bb31-51e8-7f2e-a2f6-6a768708d05f",
+                  "change_set_id": null,
+                  "after_seq": null
+                },
+                "stubs": true
+              }
+            }
+          ],
+          "diff_redacted": false,
+          "diff_salt": "db50d4017c38b21dd8610b2c1501e79b",
+          "diff_sha256": "8a899bcad22f9dab8288b6ba7b4d0c2518ce81e63f0f4117b9bd545cec54d937",
+          "diff_truncated": false,
+          "domain": "audit",
+          "id": "01a1bb31-6349-7924-a6ad-9d7d899fa36c",
+          "occurred_at": "2026-11-08T12:45:38.501532Z",
+          "sealed_at": "2026-11-08T12:45:47.947859Z",
+          "seq": 10,
+          "source": "user",
+          "subject_id": "01a1bb31-6349-7924-a6ad-9d7d899fa36c",
+          "subject_type": "audit_export"
+        },
+        {
+          "action": "export",
+          "actor_principal_id": "537e75e1-45ce-464f-b4d4-1e3713f1a7f9",
+          "backfilled": false,
+          "causation_depth": 0,
+          "diff": [
+            {
+              "op": "add",
+              "path": "/request",
+              "value": {
+                "filter": {
+                  "from": null,
+                  "to": null,
+                  "domain": null,
+                  "subject_type": null,
+                  "subject_id": "00000000-0000-4000-8000-00000000dead",
+                  "change_set_id": null,
+                  "after_seq": null
+                },
+                "stubs": false
+              }
+            }
+          ],
+          "diff_redacted": false,
+          "diff_salt": "2efc8e20b64f4618898f91a4dd63f918",
+          "diff_sha256": "8f2eb101451f6f6c0d51cd5575fab04327bd7a606f609ed55ed3b778bf2157d5",
+          "diff_truncated": false,
+          "domain": "audit",
+          "id": "01a1bb31-41d9-7df1-a97e-d7224c4c2eb4",
+          "occurred_at": "2026-11-08T12:45:29.941207Z",
+          "sealed_at": "2026-11-08T12:45:37.864218Z",
+          "seq": 8,
+          "source": "user",
+          "subject_id": "01a1bb31-41d9-7df1-a97e-d7224c4c2eb4",
+          "subject_type": "audit_export"
+        },
+        {
+          "action": "export",
+          "actor_principal_id": "537e75e1-45ce-464f-b4d4-1e3713f1a7f9",
+          "backfilled": false,
+          "causation_depth": 0,
+          "diff": [
+            {
+              "op": "add",
+              "path": "/request",
+              "value": {
+                "filter": {
+                  "from": null,
+                  "to": null,
+                  "domain": "config",
+                  "subject_type": null,
+                  "subject_id": null,
+                  "change_set_id": null,
+                  "after_seq": null
+                },
+                "stubs": true
+              }
+            }
+          ],
+          "diff_redacted": false,
+          "diff_salt": "6085e66a1c4ea7aa570f0518eb7832d7",
+          "diff_sha256": "a5a504cacbda9701e3beebc2ffa9d614984355bd84dd4d7481e506af5f839f1d",
+          "diff_truncated": false,
+          "domain": "audit",
+          "id": "01a1bb31-414e-7c6c-98fd-3d5b31fcb573",
+          "occurred_at": "2026-11-08T12:45:29.803587Z",
+          "sealed_at": "2026-11-08T12:45:37.864218Z",
+          "seq": 7,
+          "source": "user",
+          "subject_id": "01a1bb31-414e-7c6c-98fd-3d5b31fcb573",
+          "subject_type": "audit_export"
+        },
+        {
+          "action": "export",
+          "actor_principal_id": "537e75e1-45ce-464f-b4d4-1e3713f1a7f9",
+          "backfilled": false,
+          "causation_depth": 0,
+          "diff": [
+            {
+              "op": "add",
+              "path": "/request",
+              "value": {
+                "filter": {
+                  "from": null,
+                  "to": null,
+                  "domain": null,
+                  "subject_type": null,
+                  "subject_id": null,
+                  "change_set_id": null,
+                  "after_seq": null
+                },
+                "stubs": true
+              }
+            }
+          ],
+          "diff_redacted": false,
+          "diff_salt": "1f3f1a67461d64beb7bc410f367e32d1",
+          "diff_sha256": "ea0b06dee80d4268c6df66360d1adc3f2b6028f0e0bb5faaa0b6653f4363623b",
+          "diff_truncated": false,
+          "domain": "audit",
+          "id": "01a1bb31-40f3-7af1-8892-45f81472bab9",
+          "occurred_at": "2026-11-08T12:45:29.71352Z",
+          "sealed_at": "2026-11-08T12:45:37.864218Z",
+          "seq": 6,
+          "source": "user",
+          "subject_id": "01a1bb31-40f3-7af1-8892-45f81472bab9",
+          "subject_type": "audit_export"
+        },
+        {
+          "action": "export",
+          "actor_principal_id": "537e75e1-45ce-464f-b4d4-1e3713f1a7f9",
+          "backfilled": false,
+          "causation_depth": 0,
+          "diff": [
+            {
+              "op": "add",
+              "path": "/request",
+              "value": {
+                "filter": {
+                  "from": null,
+                  "to": null,
+                  "domain": null,
+                  "subject_type": null,
+                  "subject_id": "01a1bb2f-33f5-7b8d-8c88-358cfe07c2f2",
+                  "change_set_id": null,
+                  "after_seq": null
+                },
+                "stubs": true
+              }
+            }
+          ],
+          "diff_redacted": false,
+          "diff_salt": "3474c885bfbad69194a81ed4d3655578",
+          "diff_sha256": "5deaaea0e5784a9859551c16d9e6f78881cce8002a1724782cc0528b024f5f8c",
+          "diff_truncated": false,
+          "domain": "audit",
+          "id": "01a1bb31-4089-74ca-bd1a-5e9ca5d426b4",
+          "occurred_at": "2026-11-08T12:45:29.605566Z",
+          "sealed_at": "2026-11-08T12:45:37.864218Z",
+          "seq": 5,
+          "source": "user",
+          "subject_id": "01a1bb31-4089-74ca-bd1a-5e9ca5d426b4",
+          "subject_type": "audit_export"
+        }
+      ]
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 200",
+      "status": "pass"
+    },
+    {
+      "test": "S16.6's export is an audit/export entry",
+      "status": "pass"
+    },
+    {
+      "test": "it records who exported and the filter",
+      "status": "pass"
+    }
+  ]
+}

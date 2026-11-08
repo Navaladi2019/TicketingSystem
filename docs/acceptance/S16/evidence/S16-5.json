@@ -1,0 +1,65 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:28080/api/v1/audit/entries?subject_id=01a1bb37-7fa4-7b9a-bd21-ce9e83e37751&limit=10",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:28080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "items": [
+        {
+          "action": "create",
+          "actor_principal_id": "e99a5f13-fdd6-4d27-947c-ee7e2803b820",
+          "backfilled": false,
+          "causation_depth": 0,
+          "causation_id": "01a1bb37-7f9e-7cca-af61-263bdf12d52f",
+          "diff": [
+            {
+              "op": "add",
+              "path": "",
+              "value": {
+                "priority": 2,
+                "short_description": "S16 mw7u0wkn incident",
+                "state": "new"
+              }
+            }
+          ],
+          "diff_redacted": false,
+          "diff_salt": "42c3a0cdb097473b17be719da3f3b4cc",
+          "diff_sha256": "265c5538825fbf5e8d1b4bdc59a2c4fc929cfce3884428971ad94b4dade59c2b",
+          "diff_truncated": false,
+          "domain": "record",
+          "entity_definition_id": "39deefcf-6ad9-4ee6-8aad-2ddffd6a5f46",
+          "id": "01a1bb37-7fa9-788b-8270-2b37632a8e4d",
+          "occurred_at": "2026-11-08T12:52:18.966946Z",
+          "request_id": "8bdc963756fac1f8ffc0e4bb3c65696b",
+          "sealed_at": "2026-11-08T12:56:09.996015Z",
+          "seq": 11,
+          "source": "user",
+          "subject_id": "01a1bb37-7fa4-7b9a-bd21-ce9e83e37751",
+          "subject_type": "record",
+          "version_after": 1
+        }
+      ]
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 200",
+      "status": "pass"
+    },
+    {
+      "test": "sealed: the create entry has a seq",
+      "status": "pass"
+    }
+  ]
+}

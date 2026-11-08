@@ -1,0 +1,353 @@
+{
+  "requests": 19,
+  "tests": 58,
+  "failed": 0,
+  "results": [
+    {
+      "request": "S16-1",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200 from Keycloak",
+          "status": "pass"
+        },
+        {
+          "test": "access token issued",
+          "status": "pass"
+        },
+        {
+          "test": "issuer is the pinned realm URL",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S16-2",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200 from Keycloak",
+          "status": "pass"
+        },
+        {
+          "test": "access token issued",
+          "status": "pass"
+        },
+        {
+          "test": "issuer is the pinned realm URL",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S16-3",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200 from Keycloak",
+          "status": "pass"
+        },
+        {
+          "test": "access token issued",
+          "status": "pass"
+        },
+        {
+          "test": "issuer is the pinned realm URL",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S16-4",
+      "status": 201,
+      "tests": [
+        {
+          "test": "HTTP 201",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S16-5",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "sealed: the create entry has a seq",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S16-6",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "content type is ndjson, sent as an attachment",
+          "status": "pass"
+        },
+        {
+          "test": "header first, naming the format and the filter; trailer last",
+          "status": "pass"
+        },
+        {
+          "test": "the anchor follows the header",
+          "status": "pass"
+        },
+        {
+          "test": "the incident's entry is in full, at its seq",
+          "status": "pass"
+        },
+        {
+          "test": "every full line is the incident; every other seq is a hash-only stub",
+          "status": "pass"
+        },
+        {
+          "test": "the trailer counts match the lines and the range is verifiable",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S16-7",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "header first, trailer last",
+          "status": "pass"
+        },
+        {
+          "test": "the trailer counts match the lines",
+          "status": "pass"
+        },
+        {
+          "test": "only tenant A's entries",
+          "status": "pass"
+        },
+        {
+          "test": "a redacted entry carries no diff_salt",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S16-8",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "full lines are config; the rest are stubs",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S16-9",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "stubs false is recorded and nothing is verifiable",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S16-10",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "S16.6's export is an audit/export entry",
+          "status": "pass"
+        },
+        {
+          "test": "it records who exported and the filter",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S16-11",
+      "status": 409,
+      "tests": [
+        {
+          "test": "HTTP 409",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code chain_alive",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S16-12",
+      "status": 403,
+      "tests": [
+        {
+          "test": "HTTP 403",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code forbidden",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S16-13",
+      "status": 403,
+      "tests": [
+        {
+          "test": "HTTP 403",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code forbidden",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S16-14",
+      "status": 401,
+      "tests": [
+        {
+          "test": "HTTP 401",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code invalid_token",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S16-15",
+      "status": 403,
+      "tests": [
+        {
+          "test": "HTTP 403",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code forbidden",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S16-16",
+      "status": 400,
+      "tests": [
+        {
+          "test": "HTTP 400",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code validation_failed",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S16-17",
+      "status": 403,
+      "tests": [
+        {
+          "test": "HTTP 403",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code forbidden",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S16-18",
+      "status": 401,
+      "tests": [
+        {
+          "test": "HTTP 401",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code invalid_token",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S16-19",
+      "status": 400,
+      "tests": [
+        {
+          "test": "HTTP 400",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code validation_failed",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        }
+      ]
+    }
+  ]
+}

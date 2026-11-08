@@ -1,0 +1,3 @@
+$ nava audit verify ac1-export-byte-edited.jsonl
+exit 1
+tampered: line 18 (seq 16): envelope_sha256_mismatch: envelope_sha256 is not SHA-256(JCS(envelope))

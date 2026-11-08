@@ -1,0 +1,3 @@
+$ nava audit verify .ac2-first-export.jsonl
+exit 0
+ok: seq 1..442 from genesis to head_hash b22595909f23590a3a9cb02e763bcc67992d893cfc8a30aa1ffba3a8218f7eb1; 442 entries, 0 stubs, 176 unsealed

@@ -1,0 +1,29 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:28080/api/v1/audit/entries:export?stubs=false&subject_id=00000000-0000-4000-8000-00000000dead",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:28080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": "{\"kind\":\"header\",\"format\":\"nava.audit.export/v1\",\"tenant_id\":\"00000000-0000-4000-8000-0000000000a1\",\"export_id\":\"01a1bb3b-1461-7a64-9997-1e3836ca6414\",\"exported_at\":\"2026-11-08T12:56:13.661854Z\",\"stubs\":false,\"filter\":{\"from\":null,\"to\":null,\"domain\":null,\"subject_type\":null,\"subject_id\":\"00000000-0000-4000-8000-00000000dead\",\"change_set_id\":null,\"after_seq\":null}}\n{\"kind\":\"anchor\",\"genesis\":true,\"seq\":0,\"prev_hash\":null,\"entry_hash\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"envelope_sha256\":null}\n{\"kind\":\"trailer\",\"anchor_seq\":0,\"last_seq\":11,\"head_hash\":\"211878b3ee1548352cd8ce95aa6f1dc4aac01d9cae4d69d8a0c1992988ecf07b\",\"count\":0,\"stub_count\":0,\"unsealed_count\":0,\"verifiable\":false}\n"
+  },
+  "tests": [
+    {
+      "test": "HTTP 200",
+      "status": "pass"
+    },
+    {
+      "test": "stubs false is recorded and nothing is verifiable",
+      "status": "pass"
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "/api/v1/audit/chain:reseed",
+    "as": "bob",
+    "headers": {
+      "Idempotency-Key": "tick448-s16-mw7u6nf2-bob-reseed",
+      "Authorization": "Bearer <bob's access token>"
+    }
+  },
+  "response": {
+    "status": 403,
+    "headers": {
+      "content-length": "204",
+      "content-type": "application/problem+json",
+      "date": "Sun, 08 Nov 2026 12:57:34 GMT",
+      "x-request-id": "5b65fd2ffefdd86597ab4928afe32769"
+    },
+    "bytes": 204,
+    "body": {
+      "type": "urn:nava:problem:forbidden",
+      "title": "Forbidden",
+      "status": 403,
+      "code": "forbidden",
+      "detail": "The token does not allow this operation.",
+      "instance": "urn:nava:request:5b65fd2ffefdd86597ab4928afe32769"
+    }
+  }
+}

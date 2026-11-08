@@ -1,0 +1,7 @@
+GET /api/v1/audit/entries:export?subject_id=01a1bb3b-967e-7be0-ab93-e33c94ec2077&format=csv
+HTTP 200
+content-type: application/x-ndjson
+
+{"kind":"header","format":"nava.audit.export/v1","tenant_id":"00000000-0000-4000-8000-0000000000a1","export_id":"01a1bb3c-4c64-7a52-83c0-01707958e9f7","exported_at":"2026-11-08T12:57:33.536444Z","stubs":true,"filter":{"from":null,"to":null,"domain":null,"subject_type":null,"subject_id":"01a1bb3b-967e-7be0-ab93-e33c94ec2077","change_set_id":null,"after_seq":null}}
+{"kind":"anchor","genesis":true,"seq":0,"prev_hash":null,"entry_hash":"0000000000000000000000000000000000000000000000000000000000000000","envelope_sha256":null}
+{"kind":"stub","seq":1,"prev_hash":"0000000000000000000000000000000000000

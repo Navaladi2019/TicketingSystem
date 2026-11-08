@@ -1,0 +1,3 @@
+$ nava audit verify ac1-export-line-deleted.jsonl
+exit 1
+tampered: line 18: count_mismatch: count or stub_count disagrees with the lines

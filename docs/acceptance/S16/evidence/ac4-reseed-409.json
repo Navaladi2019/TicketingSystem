@@ -1,0 +1,29 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "/api/v1/audit/chain:reseed",
+    "as": "auditor",
+    "headers": {
+      "Idempotency-Key": "tick448-s16-mw7u6nf2-reseed",
+      "Authorization": "Bearer <auditor's access token>"
+    }
+  },
+  "response": {
+    "status": 409,
+    "headers": {
+      "content-length": "311",
+      "content-type": "application/problem+json",
+      "date": "Sun, 08 Nov 2026 12:57:33 GMT",
+      "x-request-id": "0395142001174ec3bf03f07de836774b"
+    },
+    "bytes": 311,
+    "body": {
+      "type": "urn:nava:problem:chain_alive",
+      "title": "Audit chain is alive",
+      "status": 409,
+      "code": "chain_alive",
+      "detail": "The tenant's audit seal lineage is still running, so it cannot be reseeded. Retry when its next run is more than 10 minutes overdue.",
+      "instance": "urn:nava:request:0395142001174ec3bf03f07de836774b"
+    }
+  }
+}

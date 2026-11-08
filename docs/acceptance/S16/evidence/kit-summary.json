@@ -1,0 +1,136 @@
+{
+  "run": "mw7u6nf2",
+  "at": "2026-11-08T12:57:34.517Z",
+  "incident": "01a1bb3b-967e-7be0-ab93-e33c94ec2077",
+  "bob_incident": "01a1bb3b-96d7-71f2-abac-821f62ebd36a",
+  "sealed": {
+    "seq": 16,
+    "waited_s": 14
+  },
+  "load": 600,
+  "results": [
+    {
+      "id": "AC1",
+      "name": "filtered export: 200, application/x-ndjson",
+      "ok": true,
+      "detail": "HTTP 200, application/x-ndjson, 19 lines"
+    },
+    {
+      "id": "AC1",
+      "name": "every full line is the incident; the rest of the range are stubs",
+      "ok": true,
+      "detail": "1 full, 15 stubs"
+    },
+    {
+      "id": "AC1",
+      "name": "the header records the filter",
+      "ok": true
+    },
+    {
+      "id": "AC1",
+      "name": "nava audit verify: ok, exit 0",
+      "ok": true,
+      "detail": "ok: seq 1..16 from genesis to head_hash 2022feaf90da1d372ee47ed7ff55e44907f7837012151738df2604bc59f06fc4; 1 entries, 15 stubs, 0 unsealed"
+    },
+    {
+      "id": "AC1",
+      "name": "one line deleted: tampered, exit 1",
+      "ok": true,
+      "detail": "tampered: line 18: count_mismatch: count or stub_count disagrees with the lines"
+    },
+    {
+      "id": "AC1",
+      "name": "one byte edited: tampered, exit 1",
+      "ok": true,
+      "detail": "tampered: line 18 (seq 16): envelope_sha256_mismatch: envelope_sha256 is not SHA-256(JCS(envelope))"
+    },
+    {
+      "id": "AC2",
+      "name": "first export: 200 and streaming",
+      "ok": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "id": "AC2",
+      "name": "second export while the first streams: 409 export_in_progress",
+      "ok": true,
+      "detail": "HTTP 409 export_in_progress"
+    },
+    {
+      "id": "AC2",
+      "name": "the first export finished with a trailer",
+      "ok": true,
+      "detail": "18827619 bytes, 621 lines"
+    },
+    {
+      "id": "AC2",
+      "name": "the whole-log export verifies: ok, exit 0",
+      "ok": true,
+      "detail": "ok: seq 1..442 from genesis to head_hash b22595909f23590a3a9cb02e763bcc67992d893cfc8a30aa1ffba3a8218f7eb1; 442 entries, 0 stubs, 176 unsealed"
+    },
+    {
+      "id": "AC2",
+      "name": "the streamed export is one audit/export entry; the refused one wrote none",
+      "ok": true,
+      "detail": "1 new audit/export entries"
+    },
+    {
+      "id": "AC2",
+      "name": "the entry records the request",
+      "ok": true,
+      "detail": "[{\"op\":\"add\",\"path\":\"/request\",\"value\":{\"filter\":{\"from\":null,\"to\":null,\"domain\":null,\"subject_type\":null,\"subject_id\":null,\"change_set_id\":null,\"after_seq\":null},\"stubs\":true}}]"
+    },
+    {
+      "id": "AC2",
+      "name": "AC1's filtered export is an audit/export entry with its filter",
+      "ok": true
+    },
+    {
+      "id": "AC3",
+      "name": "format=csv: 200, text/csv",
+      "ok": false,
+      "detail": "HTTP 200, application/x-ndjson"
+    },
+    {
+      "id": "AC4",
+      "name": "chain:reseed while sealing runs: 409 chain_alive",
+      "ok": true,
+      "detail": "HTTP 409 chain_alive"
+    },
+    {
+      "id": "AC5",
+      "name": "S13 sample export-erased-pending: exit 3, as documented",
+      "ok": true,
+      "detail": "pending: seq 1..6 from genesis to head_hash 1e046654c186772c3adf39fcbdcb8c6429929d768560c808c2ecc70f1f973811; 6 entries, 0 stubs, 1 unsealed"
+    },
+    {
+      "id": "AC5",
+      "name": "S13 sample export-erased-without-erase-entry: exit 1, as documented",
+      "ok": true,
+      "detail": "tampered: line 8 (seq 6): erasure_unlisted: erased, but no chain-valid audit/erase entry for its erasure_ref lists its id (R24)"
+    },
+    {
+      "id": "ISO",
+      "name": "Bob (tenant B, no audit.export) cannot export: 403",
+      "ok": true,
+      "detail": "HTTP 403"
+    },
+    {
+      "id": "ISO",
+      "name": "Bob cannot reseed: 403",
+      "ok": true,
+      "detail": "HTTP 403"
+    },
+    {
+      "id": "ISO",
+      "name": "tenant A's whole export holds only tenant A's entries",
+      "ok": true,
+      "detail": "00000000-0000-4000-8000-0000000000a1"
+    },
+    {
+      "id": "ISO",
+      "name": "Bob's incident is nowhere in tenant A's export",
+      "ok": true
+    }
+  ]
+}

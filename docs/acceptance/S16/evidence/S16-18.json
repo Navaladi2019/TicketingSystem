@@ -1,0 +1,42 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:28080/api/v1/audit/chain:reseed",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:28080",
+      "Connection": "keep-alive",
+      "Content-Length": "0",
+      "Idempotency-Key": "ccffb445-7665-4a10-9665-43849e7d42de",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 401,
+    "body": {
+      "type": "urn:nava:problem:invalid_token",
+      "title": "Invalid token",
+      "status": 401,
+      "code": "invalid_token",
+      "detail": "The access token is missing, expired or invalid.",
+      "instance": "urn:nava:request:953103b9cd3127b370dde80817eb5a93"
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 401",
+      "status": "pass"
+    },
+    {
+      "test": "problem+json, code invalid_token",
+      "status": "pass"
+    },
+    {
+      "test": "problem instance is this response's X-Request-Id",
+      "status": "pass"
+    }
+  ]
+}

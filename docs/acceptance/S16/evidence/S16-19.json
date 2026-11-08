@@ -1,0 +1,47 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:28080/api/v1/audit/chain:reseed",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:28080",
+      "Connection": "keep-alive",
+      "Content-Length": "0",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "body": {
+      "type": "urn:nava:problem:validation_failed",
+      "title": "Validation failed",
+      "status": 400,
+      "code": "validation_failed",
+      "detail": "The request does not match the API contract. See errors for the failing fields.",
+      "instance": "urn:nava:request:8b5277e89316b366780348846c49ef2e",
+      "errors": [
+        {
+          "pointer": "/header/Idempotency-Key",
+          "rule": "required"
+        }
+      ]
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 400",
+      "status": "pass"
+    },
+    {
+      "test": "problem+json, code validation_failed",
+      "status": "pass"
+    },
+    {
+      "test": "problem instance is this response's X-Request-Id",
+      "status": "pass"
+    }
+  ]
+}

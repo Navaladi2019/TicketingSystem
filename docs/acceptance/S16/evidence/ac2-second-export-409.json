@@ -1,0 +1,28 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "/api/v1/audit/entries:export?subject_id=01a1bb3b-967e-7be0-ab93-e33c94ec2077",
+    "as": "auditor",
+    "headers": {
+      "Authorization": "Bearer <auditor's access token>"
+    }
+  },
+  "response": {
+    "status": 409,
+    "headers": {
+      "content-length": "266",
+      "content-type": "application/problem+json",
+      "date": "Sun, 08 Nov 2026 12:57:30 GMT",
+      "x-request-id": "5aec9280866f1f434a9893e68dba1237"
+    },
+    "bytes": 266,
+    "body": {
+      "type": "urn:nava:problem:export_in_progress",
+      "title": "Export in progress",
+      "status": 409,
+      "code": "export_in_progress",
+      "detail": "Another audit export of this tenant is running. Retry when it has finished.",
+      "instance": "urn:nava:request:5aec9280866f1f434a9893e68dba1237"
+    }
+  }
+}
