@@ -6,6 +6,7 @@ Delivery decisions that change a task's contract, newest first.
 
 <!-- docindex:start -->
 
+- [2026-11-09: D-3-27, the stack seed publishes a temporary allow-all ACL until P3-35](decisions/2026-11-09-d-3-27-stack-seed-allow-all-acl.md)
 - [2026-11-09: D-3-26, S10 contract amendment A1: CanWrite takes the transaction and the record rows; only four system sources skip it](decisions/2026-11-09-d-3-26-authorizer-a1.md)
 - [2026-11-07: TICK-594: guarderrtype covers the audit.seal message; cause and details stay runtime-checked; a seal type held in a variable is deferred](decisions/2026-11-07-tick-594-seal-guard-lint-scope.md)
 - [2026-11-07: PLAN-005-E7 drafted: ADR-004-E7 lands as two tasks in S15; S15 acceptance waits for them](decisions/2026-11-07-plan-005-e7-adr-004-e7.md)
