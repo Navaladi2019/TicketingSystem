@@ -74,9 +74,9 @@ type aclWorld struct {
 	g1, g2, g3         uuid.UUID
 	records            []uuid.UUID
 	sameUUIDGroupShare uuid.UUID // shared with group g1
-	sameUUIDUserShare  uuid.UUID // shared as a "user" share carrying g1's UUID
+	sameUUIDUserShare  uuid.UUID // a "user" share of the principal whose id is g1's
 	userShare          uuid.UUID // shared with u1
-	mislabelledUser    uuid.UUID // shared as a "group" share carrying u1's UUID
+	mislabelledUser    uuid.UUID // a "group" share of the group whose id is u1's
 }
 
 func seedACLWorld(t *testing.T, e env) aclWorld {
@@ -130,11 +130,24 @@ func seedACLWorld(t *testing.T, e env) aclWorld {
 			}
 		}
 	}
+	// The same-UUID cases need a principal that carries g1's id and a group
+	// that carries u1's id: since TICK-625 a share names its user or group
+	// through a foreign key (user_id, group_id; principal_id is generated
+	// from them), so each target must exist. The caller is in group g1 and is
+	// u1; the principal g1 and the group u1 are someone else.
+	mustExec(t, e.super, `INSERT INTO principals (tenant_id, id, keycloak_user_id, enabled, synced_at) VALUES ($1, $2, $3, true, now())`,
+		w.f.id, w.g1, "kc-same-"+w.g1.String())
+	mustExec(t, e.super, `INSERT INTO groups (tenant_id, id, keycloak_group_id, path) VALUES ($1, $2, $3, $4)`,
+		w.f.id, w.u1, "kc-same-"+w.u1.String(), fmt.Sprintf("/t/%s/same-as-u1", w.f.id))
 	share := func(kind string, principal uuid.UUID) uuid.UUID {
 		id := create(map[string]any{})
 		w.records = append(w.records, id)
+		column := "user_id"
+		if kind == "group" {
+			column = "group_id"
+		}
 		inTx(t, e, w.f.id, func(tx pgx.Tx) error {
-			_, err := tx.Exec(ctx, `INSERT INTO record_shares (tenant_id, record_id, principal_id, principal_kind) VALUES ($1, $2, $3, $4)`,
+			_, err := tx.Exec(ctx, `INSERT INTO record_shares (tenant_id, record_id, `+column+`, principal_kind) VALUES ($1, $2, $3, $4)`,
 				w.f.id, id, principal, kind)
 			return err
 		})

@@ -26,8 +26,12 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
-// sameResponse fails unless got and want have the same status, body bytes
-// and headers.
+// perRequestHeader reports a header whose value differs on every response by
+// design: sameResponse checks it is present on both, not its value.
+func perRequestHeader(k string) bool { return k == "X-Request-Id" || k == "Date" }
+
+// sameResponse fails unless got and want have the same status, body bytes,
+// header keys, and header values except perRequestHeader's.
 func sameResponse(t *testing.T, name string, got, want *httptest.ResponseRecorder) {
 	t.Helper()
 	if got.Code != want.Code || got.Body.String() != want.Body.String() {
@@ -38,6 +42,9 @@ func sameResponse(t *testing.T, name string, got, want *httptest.ResponseRecorde
 		t.Errorf("%s headers = %v; want %v", name, gh, wh)
 	}
 	for k := range wh {
+		if perRequestHeader(k) {
+			continue
+		}
 		if !slices.Equal(gh[k], wh[k]) {
 			t.Errorf("%s header %s = %q; want %q", name, k, gh[k], wh[k])
 		}
