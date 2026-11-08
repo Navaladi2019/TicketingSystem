@@ -157,7 +157,7 @@ func TestP330ForeignKeysRejectCrossTenant(t *testing.T) {
 	seedACL(t, super, tenantA, tenantB)
 	// A tenant B record whose id tenant A does not have.
 	other := "0b000000-0000-4000-8000-0000000000b7"
-	exec(t, super, "INSERT INTO records (tenant_id, id) VALUES ($1, $2)", tenantB, other)
+	exec(t, super, withRecordEntry("INSERT INTO records (tenant_id, id) VALUES ($1, $2)"), tenantB, other)
 
 	app := asRole(t, "nava_app")
 	_, err := execIn(app, tenantA, insertShare, tenantA, other, tenantA, "user", tenantA)
