@@ -1,0 +1,25 @@
+meta {
+  name: S16.9 reseedAuditChain 409: the lineage is alive
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{core_url}}/api/v1/audit/chain:reseed
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: {{$guid}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('chain_alive', 409);
+}
+
+docs {
+  The seal lineage of a running stack is alive (R17), so the reseed is refused and writes nothing. A dead lineage is reseeded in the integration tests.
+}

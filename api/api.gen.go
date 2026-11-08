@@ -268,6 +268,15 @@ type AuditEntryList struct {
 	NextPageToken *string      `json:"next_page_token,omitempty"`
 }
 
+// ChainReseed defines model for ChainReseed.
+type ChainReseed struct {
+	// ReseedId The id of the `audit/reseed` entry.
+	ReseedId openapi_types.UUID `json:"reseed_id"`
+
+	// SealOutboxId The new lineage's start row.
+	SealOutboxId openapi_types.UUID `json:"seal_outbox_id"`
+}
+
 // CreateEntityTypeRequest Deliberately unconstrained here: the server checks every field after the admin check and answers 422 `invalid_definition` with `errors[].pointer`. Kept as the request bytes (`json.RawMessage`) so the schema is stored byte for byte.
 type CreateEntityTypeRequest = json.RawMessage
 
@@ -462,6 +471,11 @@ type Entity = string
 // Key defines model for Key.
 type Key = string
 
+// ReseedAuditChainParams defines parameters for ReseedAuditChain.
+type ReseedAuditChainParams struct {
+	IdempotencyKey string `json:"Idempotency-Key"`
+}
+
 // ListAuditEntriesParams defines parameters for ListAuditEntries.
 type ListAuditEntriesParams struct {
 	// From Entries at or after this time (`occurred_at`).
@@ -566,6 +580,9 @@ type PatchRecordApplicationMergePatchPlusJSONRequestBody = PatchRecordRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// ReseedAuditChain Restart a dead audit seal lineage
+	// (POST /api/v1/audit/chain:reseed)
+	ReseedAuditChain(w http.ResponseWriter, r *http.Request, params ReseedAuditChainParams)
 	// ListAuditEntries The tenant's audit timeline
 	// (GET /api/v1/audit/entries)
 	ListAuditEntries(w http.ResponseWriter, r *http.Request, params ListAuditEntriesParams)
@@ -615,6 +632,51 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// ReseedAuditChain operation middleware
+func (siw *ServerInterfaceWrapper) ReseedAuditChain(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ReseedAuditChainParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReseedAuditChain(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // ListAuditEntries operation middleware
 func (siw *ServerInterfaceWrapper) ListAuditEntries(w http.ResponseWriter, r *http.Request) {
@@ -1493,6 +1555,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/entity-types/{key}/versions/{n}", wrapper.GetEntityTypeVersion)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/audit/entries", wrapper.ListAuditEntries)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/audit/entries:export", wrapper.ExportAuditEntries)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/audit/chain:reseed", wrapper.ReseedAuditChain)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/records/{entity}", wrapper.CreateRecord)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/records/{entity}/{id}", wrapper.GetRecord)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/v1/records/{entity}/{id}", wrapper.PatchRecord)
@@ -1504,6 +1567,142 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 type ProblemApplicationProblemPlusJSONResponse Problem
 
 type ProblemNoInstanceApplicationProblemPlusJSONResponse ProblemNoInstance
+
+type ReseedAuditChainRequestObject struct {
+	Params ReseedAuditChainParams
+}
+
+type ReseedAuditChainResponseObject interface {
+	VisitReseedAuditChainResponse(w http.ResponseWriter) error
+}
+
+type ReseedAuditChain200JSONResponse ChainReseed
+
+func (response ReseedAuditChain200JSONResponse) VisitReseedAuditChainResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReseedAuditChain400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response ReseedAuditChain400ApplicationProblemPlusJSONResponse) VisitReseedAuditChainResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReseedAuditChain401ApplicationProblemPlusJSONResponse Problem
+
+func (response ReseedAuditChain401ApplicationProblemPlusJSONResponse) VisitReseedAuditChainResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReseedAuditChain403ApplicationProblemPlusJSONResponse Problem
+
+func (response ReseedAuditChain403ApplicationProblemPlusJSONResponse) VisitReseedAuditChainResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReseedAuditChain404ApplicationProblemPlusJSONResponse Problem
+
+func (response ReseedAuditChain404ApplicationProblemPlusJSONResponse) VisitReseedAuditChainResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReseedAuditChain409ApplicationProblemPlusJSONResponse Problem
+
+func (response ReseedAuditChain409ApplicationProblemPlusJSONResponse) VisitReseedAuditChainResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReseedAuditChain429ApplicationProblemPlusJSONResponse Problem
+
+func (response ReseedAuditChain429ApplicationProblemPlusJSONResponse) VisitReseedAuditChainResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReseedAuditChain500ApplicationProblemPlusJSONResponse Problem
+
+func (response ReseedAuditChain500ApplicationProblemPlusJSONResponse) VisitReseedAuditChainResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReseedAuditChain501ApplicationProblemPlusJSONResponse Problem
+
+func (response ReseedAuditChain501ApplicationProblemPlusJSONResponse) VisitReseedAuditChainResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
 
 type ListAuditEntriesRequestObject struct {
 	Params ListAuditEntriesParams
@@ -3182,6 +3381,9 @@ func (response GetRecordHistory501ApplicationProblemPlusJSONResponse) VisitGetRe
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// ReseedAuditChain Restart a dead audit seal lineage
+	// (POST /api/v1/audit/chain:reseed)
+	ReseedAuditChain(ctx context.Context, request ReseedAuditChainRequestObject) (ReseedAuditChainResponseObject, error)
 	// ListAuditEntries The tenant's audit timeline
 	// (GET /api/v1/audit/entries)
 	ListAuditEntries(ctx context.Context, request ListAuditEntriesRequestObject) (ListAuditEntriesResponseObject, error)
@@ -3260,6 +3462,32 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// ReseedAuditChain operation middleware
+func (sh *strictHandler) ReseedAuditChain(w http.ResponseWriter, r *http.Request, params ReseedAuditChainParams) {
+	var request ReseedAuditChainRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReseedAuditChain(ctx, request.(ReseedAuditChainRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReseedAuditChain")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReseedAuditChainResponseObject); ok {
+		if err := validResponse.VisitReseedAuditChainResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // ListAuditEntries operation middleware
