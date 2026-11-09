@@ -1,10 +1,18 @@
 ## TICK-634 review: replace Jaeger with OpenObserve (PR #529)
 
-Reviewer: Quality, Testing & CI Advisor. Commit reviewed: `4a865c69`.
+Reviewer: Quality, Testing & CI Advisor. First reviewed at `4a865c69`, re-reviewed at `1591dedd`.
 
-**Verdict: REQUEST CHANGES.** One bug broke the CI `stack` job, and one bug makes the README log queries fail. With the password fixed, every live acceptance check passed.
+**Verdict: APPROVE**, conditional on green CI on `1591dedd`.
 
-**Update:** finding 1 is fixed in `5928b260` (`Dev-Only-Openobserve-1`; the base64 default matches it). Green CI on the new run is still pending. Findings 2 and 3 are still open.
+| Finding | Status |
+| --- | --- |
+| 1. Bug: weak dev password, CI `stack` job failed | Fixed in `5928b260`. Run 42562565858 on that commit: every job green, including `stack` (OpenObserve healthy with the default credentials) |
+| 2. Bug: README log queries | Fixed in `1591dedd`: `severity`, `request_id`, View Trace, `nava_request_id` |
+| 3. Spec drift: "the CI stack has no OpenObserve" | Fixed in `1591dedd` (compose.yaml, Collector config, README) |
+| 4. Missing test: telemetry reaches OpenObserve | Open; follow-up, not a merge blocker |
+| 5. `nava_tenant_id` on spans | For the Security & Multi-Tenancy Reviewer; existing behaviour |
+
+The sections below are the first review, kept as written.
 
 ## CI (GitHub Actions run 42556175303, label `ci:full`)
 
