@@ -121,6 +121,7 @@ func (PolicyStore) Publish(ctx context.Context, tx pgx.Tx, entityKey string, exp
 	} else if err != nil {
 		return nil, fmt.Errorf("authz: lock entity type: %w", err)
 	}
+	tenancy.Forget(tx, policyKey{entityKey})
 	return publishLocked(ctx, tx, tenant, def, expected, by, rules, masks)
 }
 
@@ -138,6 +139,7 @@ func (PolicyStore) PublishIfNone(ctx context.Context, tx pgx.Tx, entityKey strin
 	} else if err != nil {
 		return false, fmt.Errorf("authz: lock entity type: %w", err)
 	}
+	tenancy.Forget(tx, policyKey{entityKey})
 	_, err = publishLocked(ctx, tx, tenant, def, 0, by, rules, masks)
 	var ce *ConflictError
 	if errors.As(err, &ce) {
