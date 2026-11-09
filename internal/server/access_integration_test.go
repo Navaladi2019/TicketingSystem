@@ -554,3 +554,50 @@ func sameProblem(t *testing.T, rec *httptest.ResponseRecorder) string {
 	}
 	return fmt.Sprintf("%d %s %q %q %s", p.Status, p.Code, p.Title, p.Detail, p.Errors)
 }
+
+// A group or user of this tenant that has been tombstoned is refused like an
+// unknown id: the same 422 body, and nothing written (TICK-642).
+// covers: putEntityTypeAccess 422
+func TestPutAccessRefusesATombstonedGroupOrUserLikeAnUnknownId(t *testing.T) {
+	e := newPatchEnv(t)
+	rule := func(who string) string {
+		return `{"rules": [{"id": "r", "ops": ["read"], "who": ` + who + `}]}`
+	}
+	// A tombstoned group or principal may not keep memberships (the live FKs).
+	for _, q := range []struct {
+		sql string
+		id  uuid.UUID
+	}{
+		{"DELETE FROM group_members WHERE tenant_id = $1 AND group_id = $2", e.a.lookalikeGroup},
+		{"DELETE FROM group_members WHERE tenant_id = $1 AND principal_id = $2", e.a.user.PrincipalID},
+	} {
+		if _, err := e.super.Exec(t.Context(), q.sql, e.a.id, q.id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := e.super.Exec(t.Context(), "UPDATE groups SET deleted_at = now() WHERE tenant_id = $1 AND id = $2", e.a.id, e.a.lookalikeGroup); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.super.Exec(t.Context(), "UPDATE principals SET enabled = false, deleted_at = now() WHERE tenant_id = $1 AND id = $2", e.a.id, e.a.user.PrincipalID); err != nil {
+		t.Fatal(err)
+	}
+	dead := "00000000-0000-4000-8000-00000000dead"
+	for _, tc := range []struct{ name, kind, tombstoned, pointer string }{
+		{"tombstoned group", "groups", e.a.lookalikeGroup.String(), "/rules/0/who/groups/0 not_in_tenant"},
+		{"tombstoned user", "users", e.a.user.PrincipalID.String(), "/rules/0/who/users/0 not_in_tenant"},
+	} {
+		versions, entries := e.aclCounts(t)
+		got := e.access(t, http.MethodPut, accessPath, "admin-a", "tomb-"+tc.kind, `W/"1"`, rule(`{"`+tc.kind+`": ["`+tc.tombstoned+`"]}`))
+		unknown := e.access(t, http.MethodPut, accessPath, "admin-a", "unk-"+tc.kind, `W/"1"`, rule(`{"`+tc.kind+`": ["`+dead+`"]}`))
+		wantProblem(t, got, http.StatusUnprocessableEntity, problem.InvalidAccessPolicy)
+		if p := pointerRules(t, got); !containsStr(p, tc.pointer) {
+			t.Errorf("%s: errors %v, want %q", tc.name, p, tc.pointer)
+		}
+		if got.Code != unknown.Code || sameProblem(t, got) != sameProblem(t, unknown) {
+			t.Errorf("%s: %d %s differs from the unknown id's %d %s", tc.name, got.Code, got.Body, unknown.Code, unknown.Body)
+		}
+		if v, n := e.aclCounts(t); v != versions || n != entries {
+			t.Errorf("%s: wrote versions %d -> %d, entries %d -> %d", tc.name, versions, v, entries, n)
+		}
+	}
+}

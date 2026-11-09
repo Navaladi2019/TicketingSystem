@@ -74,15 +74,16 @@ func PrincipalOf(ctx context.Context, tx pgx.Tx, userID uuid.UUID) (p identity.P
 }
 
 const (
-	groupsInTenantSQL = `SELECT id FROM groups WHERE tenant_id = $1 AND id = ANY($2::uuid[])`
-	usersInTenantSQL  = `SELECT id FROM principals WHERE tenant_id = $1 AND id = ANY($2::uuid[])`
+	groupsInTenantSQL = `SELECT id FROM groups WHERE tenant_id = $1 AND deleted_at IS NULL AND id = ANY($2::uuid[])`
+	usersInTenantSQL  = `SELECT id FROM principals WHERE tenant_id = $1 AND deleted_at IS NULL AND id = ANY($2::uuid[])`
 )
 
-// NotInTenant returns a Problem for every ref whose id is not a group (or
-// user) of the transaction's tenant. It filters by tenant_id itself, on top of
-// row-level security, and answers the same way for an id that does not exist
-// and an id of another tenant: the publish route must not become an oracle for
-// ids of other tenants.
+// NotInTenant returns a Problem for every ref whose id is not a live group (or
+// user) of the transaction's tenant. A tombstoned id is refused like an unknown
+// one. It filters by tenant_id itself, on top of row-level security, and
+// answers the same way for an id that does not exist and an id of another
+// tenant: the publish route must not become an oracle for ids of other
+// tenants.
 func NotInTenant(ctx context.Context, tx pgx.Tx, refs []TenantRef) ([]Problem, error) {
 	tenant, err := tenancy.TenantOf(ctx, tx)
 	if err != nil {
