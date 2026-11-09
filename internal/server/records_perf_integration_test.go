@@ -18,7 +18,8 @@
 // the perf tag keeps it out. Report: docs/quality/acl-perf-800k.md.
 //
 // Env: NAVA_PERF_SECONDS (20) per scenario, NAVA_PERF_CLIENTS (8),
-// NAVA_PERF_OUT (the raw report, default bin/acl-perf-800k-raw.md).
+// NAVA_PERF_OUT (the raw report, default bin/acl-perf-800k-raw.md),
+// NAVA_PERF_ONLY (a regular expression over scenario names; empty runs all).
 
 package server_test
 
@@ -60,13 +61,15 @@ import (
 const (
 	perfListTargetMS = 150.0
 	perfGetTargetMS  = 50.0
-	perfSmallTenants = 399
-	perfLargeRecords = 400000
-	perfLargeUsers   = 5000
-	perfSmallUsers   = 20
-	perfGroups       = 50
-	perfLargeActors  = 200
-	perfPage20Actors = 20
+	// The D-3-9 trigger: create p95 > 50 ms revisits record numbering.
+	perfCreateTargetMS = 50.0
+	perfSmallTenants   = 399
+	perfLargeRecords   = 400000
+	perfLargeUsers     = 5000
+	perfSmallUsers     = 20
+	perfGroups         = 50
+	perfLargeActors    = 200
+	perfPage20Actors   = 20
 )
 
 // perfSchema is P3-01's record shape as an entity type: the fixed columns of
@@ -123,14 +126,20 @@ type perfStartKey struct{}
 type perfStmt struct {
 	SQL  string
 	Args []any
-	Dur  time.Duration
+	// Start is the offset from the start of the request; Dur runs to the end
+	// of the result set.
+	Start, Dur time.Duration
 }
 
-// perfTrace collects the statements of one request.
+// perfTrace collects the statements of one request; start is when the
+// request was sent.
 type perfTrace struct {
 	mu    sync.Mutex
+	start time.Time
 	stmts []perfStmt
 }
+
+func newPerfTrace() *perfTrace { return &perfTrace{start: time.Now()} }
 
 type perfStart struct {
 	at   time.Time
@@ -156,7 +165,7 @@ func (perfTracer) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, _ pgx.TraceQue
 		return
 	}
 	tr.mu.Lock()
-	tr.stmts = append(tr.stmts, perfStmt{SQL: st.sql, Args: st.args, Dur: time.Since(st.at)})
+	tr.stmts = append(tr.stmts, perfStmt{SQL: st.sql, Args: st.args, Start: st.at.Sub(tr.start), Dur: time.Since(st.at)})
 	tr.mu.Unlock()
 }
 
@@ -454,14 +463,27 @@ func (e *perfEnv) actors(t *testing.T) {
 
 // ---- scenarios -------------------------------------------------------------
 
-// perfReq is one request of a scenario: a token and a path.
-type perfReq struct{ token, path string }
+// perfReq is one request of a scenario: a token, a path and, for a create,
+// the JSON body.
+type perfReq struct{ token, path, body string }
 
 type perfScenario struct {
 	name   string
-	kind   string // list or get
+	kind   string // list, get or create
 	tenant string // large or small
 	reqs   []perfReq
+	// clients is the scenario's own client count; 0 uses NAVA_PERF_CLIENTS.
+	clients int
+}
+
+// send runs r the way sc's kind does: a GET for list and get, a POST with a
+// fresh Idempotency-Key for create. It returns the response and the status
+// that means success.
+func (e *perfEnv) send(ctx context.Context, sc perfScenario, r perfReq) (*httptest.ResponseRecorder, int) {
+	if sc.kind == "create" {
+		return e.serve(ctx, http.MethodPost, r.path, r.token, uuid.NewString(), r.body), http.StatusCreated
+	}
+	return e.serve(ctx, http.MethodGet, r.path, r.token, "", ""), http.StatusOK
 }
 
 func (e *perfEnv) list(ctx context.Context, t *testing.T, token, query string) listPage {
@@ -488,7 +510,7 @@ func listReqs(tokens []string, query string) []perfReq {
 		if query != "" {
 			path += "?" + query
 		}
-		out = append(out, perfReq{tok, path})
+		out = append(out, perfReq{tok, path, ""})
 	}
 	return out
 }
@@ -508,7 +530,7 @@ func (e *perfEnv) page20(t *testing.T, tokens []string, query string) []perfReq 
 			}
 			q = joinQuery(query, "cursor="+urlEscape(*p.Next))
 		}
-		out = append(out, perfReq{tok, "/api/v1/records/ticket?" + q})
+		out = append(out, perfReq{tok, "/api/v1/records/ticket?" + q, ""})
 	}
 	return out
 }
@@ -550,35 +572,108 @@ func (e *perfEnv) getReqs(t *testing.T, tokens []string, perActor int) []perfReq
 			if err := rows.Scan(&id); err != nil {
 				t.Fatal(err)
 			}
-			out = append(out, perfReq{tok, "/api/v1/records/ticket/" + id.String()})
+			out = append(out, perfReq{tok, "/api/v1/records/ticket/" + id.String(), ""})
 		}
 		rows.Close()
 	}
 	return out
 }
 
+// createReqs builds one create per actor: P3-01's record shape (about 1 KB
+// of data), the actor as requester, and for an agent one of its own
+// assignment groups (the desk rule's write scope); an admin's record goes to
+// group 0 of its tenant.
+func (e *perfEnv) createReqs(t *testing.T, tokens []string) []perfReq {
+	t.Helper()
+	out := make([]perfReq, 0, len(tokens))
+	for i, tok := range tokens {
+		p := e.tokens[tok]
+		group := uuid.Nil
+		if g := e.agentGroups[tok]; len(g) > 0 {
+			group = g[i%len(g)]
+		} else if err := e.super.QueryRow(t.Context(), `SELECT md5('g' || tn || '/0')::uuid FROM perf_tenant WHERE tenant_id = $1`,
+			p.TenantID).Scan(&group); err != nil {
+			t.Fatal(err)
+		}
+		data := map[string]any{
+			"short_description": fmt.Sprintf("Perf create %d", i),
+			"description":       strings.Repeat("0123456789abcdef0123456789abcdef", 27),
+			"priority":          "3",
+			"category":          "category-1",
+			"impact":            2,
+			"tags":              []string{"t1", "t2"},
+			"site":              "s1",
+			"group":             group.String(),
+			"requester":         p.PrincipalID.String(),
+		}
+		b, err := json.Marshal(map[string]any{"data": data})
+		if err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, perfReq{tok, "/api/v1/records/ticket", string(b)})
+	}
+	return out
+}
+
+// perfDef is a scenario before its requests are built: build may walk lists
+// (page 20) or query the seed, so only the selected scenarios pay for it.
+type perfDef struct {
+	name, kind, tenant string
+	build              func() []perfReq
+	// clients overrides NAVA_PERF_CLIENTS for this scenario (0: the default).
+	clients int
+}
+
+// scenarios builds the scenarios whose name matches NAVA_PERF_ONLY (a regular
+// expression; empty selects every one).
 func (e *perfEnv) scenarios(t *testing.T) []perfScenario {
 	t.Helper()
+	only, err := regexp.Compile(os.Getenv("NAVA_PERF_ONLY"))
+	if err != nil {
+		t.Fatalf("NAVA_PERF_ONLY: %v", err)
+	}
+	var out []perfScenario
+	for _, d := range e.defs(t) {
+		if only.MatchString(d.name) {
+			out = append(out, perfScenario{d.name, d.kind, d.tenant, d.build(), d.clients})
+		}
+	}
+	if len(out) == 0 {
+		t.Fatalf("NAVA_PERF_ONLY=%q selects no scenario", only)
+	}
+	return out
+}
+
+func (e *perfEnv) defs(t *testing.T) []perfDef {
+	t.Helper()
 	admin := []string{"admin-large"}
-	return []perfScenario{
-		{"agent list by group, default sort, page 1", "list", "large", listReqs(e.agents, "")},
-		{"agent list by group, default sort, page 20", "list", "large", e.page20(t, e.agents[:perfPage20Actors], "")},
-		{"requester list (heavy requesters), page 1", "list", "large", listReqs(e.requesters, "")},
-		{"requester list (heavy requesters), page 20", "list", "large", e.page20(t, e.requesters, "")},
-		{"admin list, default sort, page 1", "list", "large", listReqs(admin, "")},
-		{"admin list, default sort, page 20", "list", "large", e.page20(t, admin, "")},
-		{"agent list, filter[state]=new", "list", "large", listReqs(e.agents, "filter%5Bstate%5D=new")},
-		{"agent list, filter[priority]=1 (data)", "list", "large", listReqs(e.agents, "filter%5Bpriority%5D=1")},
-		{"agent list, filter[site]=s7 (rare data, < 1% of visible rows)", "list", "large", listReqs(e.agents, "filter%5Bsite%5D=s7")},
-		{"agent list, sort=-updated_at", "list", "large", listReqs(e.agents, "sort=-updated_at")},
-		{"agent list, sort=assignee", "list", "large", listReqs(e.agents, "sort=assignee")},
-		{"admin list, filter[state][in]=new,in_progress, sort=-updated_at", "list", "large",
-			listReqs(admin, "filter%5Bstate%5D%5Bin%5D=new,in_progress&sort=-updated_at")},
-		{"small tenant: agent list, page 1", "list", "small", listReqs(e.smallAgents, "")},
-		{"small tenant: admin list, page 1", "list", "small", listReqs(e.smallAdmins, "")},
-		{"single GET, agent", "get", "large", e.getReqs(t, e.agents, 5)},
-		{"single GET, admin", "get", "large", e.getReqs(t, admin, 1000)},
-		{"single GET, small tenant agent", "get", "small", e.getReqs(t, e.smallAgents, 2)},
+	return []perfDef{
+		{"agent list by group, default sort, page 1", "list", "large", func() []perfReq { return listReqs(e.agents, "") }, 0},
+		{"agent list by group, default sort, page 20", "list", "large", func() []perfReq { return e.page20(t, e.agents[:perfPage20Actors], "") }, 0},
+		{"requester list (heavy requesters), page 1", "list", "large", func() []perfReq { return listReqs(e.requesters, "") }, 0},
+		{"requester list (heavy requesters), page 20", "list", "large", func() []perfReq { return e.page20(t, e.requesters, "") }, 0},
+		{"admin list, default sort, page 1", "list", "large", func() []perfReq { return listReqs(admin, "") }, 0},
+		{"admin list, default sort, page 20", "list", "large", func() []perfReq { return e.page20(t, admin, "") }, 0},
+		{"agent list, filter[state]=new", "list", "large", func() []perfReq { return listReqs(e.agents, "filter%5Bstate%5D=new") }, 0},
+		{"agent list, filter[priority]=1 (data)", "list", "large", func() []perfReq { return listReqs(e.agents, "filter%5Bpriority%5D=1") }, 0},
+		{"agent list, filter[site]=s7 (rare data, < 1% of visible rows)", "list", "large", func() []perfReq { return listReqs(e.agents, "filter%5Bsite%5D=s7") }, 0},
+		{"agent list, sort=-updated_at", "list", "large", func() []perfReq { return listReqs(e.agents, "sort=-updated_at") }, 0},
+		{"agent list, sort=assignee", "list", "large", func() []perfReq { return listReqs(e.agents, "sort=assignee") }, 0},
+		{"admin list, filter[state][in]=new,in_progress, sort=-updated_at", "list", "large", func() []perfReq {
+			return listReqs(admin, "filter%5Bstate%5D%5Bin%5D=new,in_progress&sort=-updated_at")
+		}, 0},
+		{"small tenant: agent list, page 1", "list", "small", func() []perfReq { return listReqs(e.smallAgents, "") }, 0},
+		{"small tenant: admin list, page 1", "list", "small", func() []perfReq { return listReqs(e.smallAdmins, "") }, 0},
+		{"single GET, agent", "get", "large", func() []perfReq { return e.getReqs(t, e.agents, 5) }, 0},
+		{"single GET, admin", "get", "large", func() []perfReq { return e.getReqs(t, admin, 1000) }, 0},
+		{"single GET, small tenant agent", "get", "small", func() []perfReq { return e.getReqs(t, e.smallAgents, 2) }, 0},
+		// Creates run last, so the rows they add never reach a read scenario.
+		// One client: no other create queues on the tenant's record_counters
+		// row, so this is the create path alone (D-3-9 states no concurrency).
+		{"create, agent (1 client)", "create", "large", func() []perfReq { return e.createReqs(t, e.agents) }, 1},
+		{"create, agent", "create", "large", func() []perfReq { return e.createReqs(t, e.agents) }, 0},
+		{"create, admin", "create", "large", func() []perfReq { return e.createReqs(t, admin) }, 0},
+		{"create, small tenant agent", "create", "small", func() []perfReq { return e.createReqs(t, e.smallAgents) }, 0},
 	}
 }
 
@@ -591,6 +686,37 @@ type perfResult struct {
 	stmtSQL  []perfStmt                 // one representative request, in order
 	explains []string
 	errs     int64
+	holds    []perfHold // creates only, one per request
+}
+
+// perfHold is one create's record_counters window (D-3-9). wait is the
+// upsert itself: the queue for the row lock plus its execution. hold runs
+// from the end of the upsert, when the row is locked, to the end of the
+// COMMIT that releases it; stmts is the time n statements spent in that
+// window, and the rest of hold is the handler's own time between them.
+type perfHold struct {
+	wait, hold, stmts time.Duration
+	n                 int
+}
+
+// counterHold finds the record_counters upsert and the COMMIT that ends its
+// transaction in one create's statements.
+func counterHold(ss []perfStmt) (perfHold, bool) {
+	up := slices.IndexFunc(ss, func(s perfStmt) bool { return strings.Contains(s.SQL, "INSERT INTO record_counters") })
+	if up < 0 {
+		return perfHold{}, false
+	}
+	locked := ss[up].Start + ss[up].Dur
+	h := perfHold{wait: ss[up].Dur}
+	for _, s := range ss[up+1:] {
+		h.stmts += s.Dur
+		h.n++
+		if strings.EqualFold(strings.TrimSpace(s.SQL), "commit") {
+			h.hold = s.Start + s.Dur - locked
+			return h, true
+		}
+	}
+	return perfHold{}, false
 }
 
 var perfWS = regexp.MustCompile(`\s+`)
@@ -606,8 +732,8 @@ func (e *perfEnv) run(t *testing.T, sc perfScenario, clients int, d time.Duratio
 		if i >= 50 {
 			break
 		}
-		if rec := e.serve(t.Context(), http.MethodGet, r.path, r.token, "", ""); rec.Code != http.StatusOK {
-			t.Fatalf("%s: warm-up GET %s as %s = %d: %s", sc.name, r.path, r.token, rec.Code, rec.Body)
+		if rec, want := e.send(t.Context(), sc, r); rec.Code != want {
+			t.Fatalf("%s: warm-up %s as %s = %d: %s", sc.name, r.path, r.token, rec.Code, rec.Body)
 		}
 	}
 	var (
@@ -620,20 +746,26 @@ func (e *perfEnv) run(t *testing.T, sc perfScenario, clients int, d time.Duratio
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			var lat []time.Duration
+			var (
+				lat   []time.Duration
+				holds []perfHold
+			)
 			stmts := map[string][]time.Duration{}
 			for time.Now().Before(deadline) {
 				r := sc.reqs[int(next.Add(1)-1)%len(sc.reqs)]
-				tr := &perfTrace{}
+				tr := newPerfTrace()
 				ctx := context.WithValue(t.Context(), perfTraceKey{}, tr)
 				t0 := time.Now()
-				rec := e.serve(ctx, http.MethodGet, r.path, r.token, "", "")
+				rec, want := e.send(ctx, sc, r)
 				el := time.Since(t0)
-				if rec.Code != http.StatusOK {
+				if rec.Code != want {
 					atomic.AddInt64(&res.errs, 1)
 					continue
 				}
 				lat = append(lat, el)
+				if h, ok := counterHold(tr.stmts); ok && sc.kind == "create" {
+					holds = append(holds, h)
+				}
 				for _, s := range tr.stmts {
 					k := normSQL(s.SQL)
 					stmts[k] = append(stmts[k], s.Dur)
@@ -641,6 +773,7 @@ func (e *perfEnv) run(t *testing.T, sc perfScenario, clients int, d time.Duratio
 			}
 			mu.Lock()
 			res.lat = append(res.lat, lat...)
+			res.holds = append(res.holds, holds...)
 			for k, v := range stmts {
 				res.stmtDur[k] = append(res.stmtDur[k], v...)
 			}
@@ -657,13 +790,14 @@ func (e *perfEnv) run(t *testing.T, sc perfScenario, clients int, d time.Duratio
 
 // capture runs the scenario's first request once more with a trace, keeps
 // its statements, and EXPLAINs each SELECT exactly as the handler sent it, as
-// nava_app in the actor's tenant transaction.
+// nava_app in the actor's tenant transaction. Writes are never EXPLAINed:
+// EXPLAIN ANALYZE would run them again.
 func (e *perfEnv) capture(t *testing.T, res *perfResult) {
 	t.Helper()
 	r := res.sc.reqs[0]
-	tr := &perfTrace{}
-	if rec := e.serve(context.WithValue(t.Context(), perfTraceKey{}, tr), http.MethodGet, r.path, r.token, "", ""); rec.Code != http.StatusOK {
-		t.Fatalf("%s: capture = %d", res.sc.name, rec.Code)
+	tr := newPerfTrace()
+	if rec, want := e.send(context.WithValue(t.Context(), perfTraceKey{}, tr), res.sc, r); rec.Code != want {
+		t.Fatalf("%s: capture = %d: %s", res.sc.name, rec.Code, rec.Body)
 	}
 	res.stmtSQL = tr.stmts
 	tenant := e.tokens[r.token].TenantID
@@ -713,8 +847,11 @@ func pct(d []time.Duration, p float64) float64 {
 }
 
 func (r *perfResult) target() float64 {
-	if r.sc.kind == "get" {
+	switch r.sc.kind {
+	case "get":
 		return perfGetTargetMS
+	case "create":
+		return perfCreateTargetMS
 	}
 	return perfListTargetMS
 }
@@ -730,13 +867,19 @@ func TestRecordsACLPerf800k(t *testing.T) {
 	}
 	e := newPerfEnv(t, clients)
 	e.seed(t)
+	floor := e.transportFloor(t, clients)
+	t.Logf("FLOOR SELECT 1 round trip, %d clients: p50=%.2f p95=%.2f p99=%.2f ms", clients, pct(floor, .50), pct(floor, .95), pct(floor, .99))
 	var results []*perfResult
 	for _, sc := range e.scenarios(t) {
-		r := e.run(t, sc, clients, time.Duration(secs)*time.Second)
+		c := clients
+		if sc.clients > 0 {
+			c = sc.clients
+		}
+		r := e.run(t, sc, c, time.Duration(secs)*time.Second)
 		t.Logf("RESULT %-62s n=%6d p50=%8.2f p95=%8.2f p99=%8.2f ms", sc.name, len(r.lat), pct(r.lat, .50), pct(r.lat, .95), pct(r.lat, .99))
 		results = append(results, r)
 	}
-	report := e.report(t, results, clients, secs)
+	report := e.report(t, results, floor, clients, secs)
 	if err := os.MkdirAll(filepath.Dir(out), 0o750); err != nil {
 		t.Fatal(err)
 	}
@@ -751,7 +894,41 @@ func TestRecordsACLPerf800k(t *testing.T) {
 	}
 }
 
-func (e *perfEnv) report(t *testing.T, results []*perfResult, clients, secs int) string {
+// transportFloor is the cost of one round trip on the handler's pool: clients
+// workers each run SELECT 1 200 times. Every statement of a request pays it,
+// so a request's floor is about its statement count times this p50; the
+// per-statement tables are read against it.
+func (e *perfEnv) transportFloor(t *testing.T, clients int) []time.Duration {
+	t.Helper()
+	var (
+		mu  sync.Mutex
+		wg  sync.WaitGroup
+		out []time.Duration
+	)
+	for w := 0; w < clients; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			var lat []time.Duration
+			for i := 0; i < 200; i++ {
+				t0 := time.Now()
+				var one int
+				if err := e.pool.QueryRow(t.Context(), "SELECT 1").Scan(&one); err != nil {
+					t.Error(err)
+					return
+				}
+				lat = append(lat, time.Since(t0))
+			}
+			mu.Lock()
+			out = append(out, lat...)
+			mu.Unlock()
+		}()
+	}
+	wg.Wait()
+	return out
+}
+
+func (e *perfEnv) report(t *testing.T, results []*perfResult, floor []time.Duration, clients, secs int) string {
 	t.Helper()
 	var b strings.Builder
 	w := func(f string, a ...any) { fmt.Fprintf(&b, f, a...) }
@@ -770,6 +947,8 @@ func (e *perfEnv) report(t *testing.T, results []*perfResult, clients, secs int)
 		    FROM records r JOIN perf_tenant t ON t.tenant_id = r.tenant_id AND t.tn = 0
 		UNION ALL SELECT 'record_shares ' || count(*) FROM record_shares
 		UNION ALL SELECT 'heap ' || pg_size_pretty(pg_relation_size('records')) || ', indexes ' || pg_size_pretty(pg_indexes_size('records'))`))
+	w("## Transport floor\n\n`SELECT 1` on the handler's pool, %d clients x 200: p50 %.2f / p95 %.2f / p99 %.2f ms. Each statement in the tables below pays about this much before the database does any work.\n\n",
+		clients, pct(floor, .50), pct(floor, .95), pct(floor, .99))
 	w("## Results (ms, per request through the handler)\n\n| Scenario | Tenant | n | p50 | p95 | p99 | Target | Verdict |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, r := range results {
 		p95 := pct(r.lat, .95)
@@ -779,6 +958,7 @@ func (e *perfEnv) report(t *testing.T, results []*perfResult, clients, secs int)
 		}
 		w("| %s | %s | %d | %.2f | %.2f | %.2f | %.0f | %s |\n", r.sc.name, r.sc.tenant, len(r.lat), pct(r.lat, .5), p95, pct(r.lat, .99), r.target(), v)
 	}
+	e.reportHolds(w, results, floor)
 	w("\n## Per statement (ms, as pgx traced it, all requests of the scenario)\n\n")
 	for _, r := range results {
 		w("### %s\n\n| # | Statement | n | p50 | p95 | p99 |\n| --- | --- | --- | --- | --- | --- |\n", r.sc.name)
@@ -793,18 +973,53 @@ func (e *perfEnv) report(t *testing.T, results []*perfResult, clients, secs int)
 		}
 		w("\n")
 	}
-	w("## Captured SQL and EXPLAIN (ANALYZE, BUFFERS)\n\nOne request per scenario (its first actor), each statement exactly as the handler sent it, with its arguments, then its plan run once more as nava_app in the same tenant.\n\n")
+	w("## Captured SQL and EXPLAIN (ANALYZE, BUFFERS)\n\nOne request per scenario (its first actor), each statement exactly as the handler sent it, with its arguments, then its plan run once more as nava_app in the same tenant. A create's writes are shown without a plan: EXPLAIN ANALYZE would run them again.\n\n")
 	for _, r := range results {
-		w("### %s\n\nRequest: `GET %s` as `%s`\n\n", r.sc.name, r.sc.reqs[0].path, r.sc.reqs[0].token)
+		method := http.MethodGet
+		if r.sc.kind == "create" {
+			method = http.MethodPost
+		}
+		w("### %s\n\nRequest: `%s %s` as `%s`\n\n", r.sc.name, method, r.sc.reqs[0].path, r.sc.reqs[0].token)
 		for i, s := range r.stmtSQL {
-			if r.explains[i] == "" {
-				continue
-			}
 			args, _ := json.Marshal(s.Args)
-			w("Statement %d:\n\n```sql\n%s\n```\n\nArguments: `%s`\n\n```\n%s\n```\n\n", i+1, strings.TrimSpace(s.SQL), args, r.explains[i])
+			switch {
+			case r.explains[i] != "":
+				w("Statement %d:\n\n```sql\n%s\n```\n\nArguments: `%s`\n\n```\n%s\n```\n\n", i+1, strings.TrimSpace(s.SQL), args, r.explains[i])
+			case r.sc.kind == "create" && !isSelect(s.SQL):
+				w("Statement %d (write, not EXPLAINed):\n\n```sql\n%s\n```\n\n", i+1, strings.TrimSpace(s.SQL))
+			}
 		}
 	}
 	return b.String()
+}
+
+// reportHolds prints, per create scenario, how long each create holds its
+// tenant's record_counters row and what that time is made of. Transport is
+// estimated as the statements in the window times the transport floor's p50;
+// database is the rest of their statement time; handler is the time between
+// statements.
+func (e *perfEnv) reportHolds(w func(string, ...any), results []*perfResult, floor []time.Duration) {
+	floorP50 := time.Duration(pct(floor, .50) * float64(time.Millisecond))
+	w("\n## Counter hold (creates, D-3-9)\n\nFrom the end of the `record_counters` upsert (the row is locked) to the end of the COMMIT that releases it, per create. Transport is estimated as statements in the window x the transport floor p50 (%.2f ms); database is the rest of their statement time; handler is the time between statements. Wait is the upsert itself: the queue for the row plus its execution.\n\n", pct(floor, .50))
+	w("| Scenario | n | Wait p50 / p95 | Hold p50 / p95 | Statements in hold | Transport (est.) p50 / p95 | Database p50 / p95 | Handler p50 / p95 |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	for _, r := range results {
+		if r.sc.kind != "create" || len(r.holds) == 0 {
+			continue
+		}
+		var wait, hold, tr, db, app []time.Duration
+		var stmts []int
+		for _, h := range r.holds {
+			t := time.Duration(h.n) * floorP50
+			wait, hold, tr = append(wait, h.wait), append(hold, h.hold), append(tr, t)
+			db = append(db, max(0, h.stmts-t))
+			app = append(app, max(0, h.hold-h.stmts))
+			stmts = append(stmts, h.n)
+		}
+		slices.Sort(stmts)
+		w("| %s | %d | %.2f / %.2f | %.2f / %.2f | %d | %.2f / %.2f | %.2f / %.2f | %.2f / %.2f |\n", r.sc.name, len(r.holds),
+			pct(wait, .5), pct(wait, .95), pct(hold, .5), pct(hold, .95), stmts[len(stmts)/2],
+			pct(tr, .5), pct(tr, .95), pct(db, .5), pct(db, .95), pct(app, .5), pct(app, .95))
+	}
 }
 
 func (e *perfEnv) superText(t *testing.T, sql string) string {

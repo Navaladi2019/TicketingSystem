@@ -70,7 +70,8 @@ It needs Docker and Go and takes about 32 minutes on the host below. It is not
 in CI. It starts `postgres:<pin>` with P3-01's server settings, runs the test
 and writes the raw report to `bin/acl-perf-800k-raw.md`. The test fails when
 any scenario misses its target. Env: `NAVA_PERF_SECONDS` (20),
-`NAVA_PERF_CLIENTS` (8), `NAVA_PERF_OUT`, `BENCH_KEEP=1`.
+`NAVA_PERF_CLIENTS` (8), `NAVA_PERF_OUT`, `NAVA_PERF_ONLY` (a regular
+expression over scenario names, for example `^create`), `BENCH_KEEP=1`.
 
 Raw output for this run, with every statement, argument and plan:
 `docs/quality/acl-perf-800k/run-2026-11-09.md`.
@@ -203,8 +204,8 @@ P3-36 runs again on this harness once TICK-639 and TICK-640 have merged. The
 re-run covers every large-tenant row and both `data` selectivities, with the
 targets unchanged. A miss goes back on TICK-336 with its plans.
 
-For that re-run the harness has one more scenario, which is not in the
-2026-11-09 numbers above:
+For that re-run the harness has scenarios that are not in the 2026-11-09
+numbers above:
 
 - **Agent list, `filter[site]=s7`, the rare `data` value.** `site` is one of
   200 values, each 0.5% of rows, so it matches less than 1% of an agent's
@@ -212,11 +213,61 @@ For that re-run the harness has one more scenario, which is not in the
   derives `site` from `category`'s random draw, so every other column and
   the RNG stream are unchanged. The raw report's Data section prints the
   large tenant's `site = s7` count.
+- **Create, end to end, against the D-3-9 trigger (p95 ≤ 50 ms)**, added at
+  the Technical Lead's request. TICK-640 (PR #539) adds six indexes and
+  measured only the INSERT statement: its p95 went from 11–22 ms to
+  20–29 ms. These scenarios measure the whole `POST /api/v1/records/ticket`
+  instead: authn, idempotency, validation, the ACL write check, numbering,
+  the INSERT, the audit row and COMMIT. They run as an agent (into one of
+  its own groups) and as the admin on the large tenant, and as a
+  small-tenant agent. The body is P3-01's record shape, about 1 KB of
+  `data`. Every request carries a fresh `Idempotency-Key`. The creates run
+  after every read scenario, so the rows they add never reach a read. The
+  raw report lists each create's statements and per-statement timings; its
+  writes are not EXPLAINed, because `EXPLAIN ANALYZE` would run them again.
+  8 clients on one tenant all take that tenant's `record_counters` row
+  (D-3-9), so the large-tenant create p95 includes that lock wait.
+- **Create, agent (1 client)**, next to the 8-client row. With one client
+  no other create queues on the counter row, so this row is the create path
+  alone. D-3-9's trigger states no concurrency; the two rows together show
+  whether a miss comes from the path or from the counter queue.
+- **Counter hold**, a table in the raw report for every create scenario. Each
+  traced statement carries its start offset in the request. For each create,
+  the window runs from the end of the `record_counters` upsert (the row is
+  locked) to the end of the `COMMIT` that releases it. The table prints:
+  - the upsert itself (the wait for the row plus its execution);
+  - the hold, and how many statements run inside it;
+  - the hold split into transport (statements in the window times the
+    transport floor's p50, an estimate), database (the rest of their
+    statement time) and handler time (between statements).
+
+- **Transport floor.** Before the scenarios, 8 clients run `SELECT 1` 200
+  times each on the handler's pool, and the report prints its p50/p95/p99.
+  A create runs 29 statements and a list 10, so a request's floor is about
+  its statement count times that p50. The per-statement tables are read
+  against it.
+
+A create-only smoke on 2026-11-09 (`NAVA_PERF_ONLY='^create'`, 5 s per
+scenario, story branch before TICK-639/TICK-640, host shared with other
+work) checked the scenario, not the target: every request returned 201.
+Two things from it are for the re-run to confirm or clear, not results:
+
+- The `record_counters` upsert waited p50 409–565 ms and p95 about 3 s on
+  the large tenant. 8 creates on one tenant and type queue for one counter
+  row, held from the upsert to COMMIT (D-3-9).
+- Every round trip, `SELECT current_setting(...)` included, took about 13 ms
+  at p50, against 3.4 ms in the 2026-11-09 list run. At 29 statements that
+  is about 400 ms per create before any database work. The transport floor
+  above exists to separate this from the database.
+
+Known miss in the re-run: requester lists until **TICK-644** (P3-34c, the
+requester list as a `UNION ALL` of index-ordered branches) lands. TICK-640
+left them at 38–166 ms of database time. The re-run reports them against
+their unchanged target with a link to TICK-644, not as a new finding.
 
 ## What this does not cover
 
-- Write paths (create, PATCH). The D-3-9 create p95 trigger is out of scope
-  here.
+- PATCH. Create is measured from the re-run on (above); PATCH is not.
 - Through PgBouncer. Handler to PostgreSQL is direct, through Docker's port
   forward. The pooler adds queueing (P3-01) and would only make the lists
   slower.
