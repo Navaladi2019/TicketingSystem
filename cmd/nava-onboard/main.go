@@ -295,7 +295,7 @@ func reconcileDefaultACL(ctx context.Context, lookup config.LookupFunc, stdout i
 		return err
 	}
 	defer pool.Close()
-	sum, err := onboard.ReconcileDefaultACLs(ctx, onboard.ACLStore{Pool: pool, NoAdminsOK: true}, log, tenants)
+	sum, err := onboard.ReconcileDefaultACLs(ctx, onboard.ACLStore{Pool: pool}, log, tenants)
 	log.InfoContext(ctx, "default acl reconcile done",
 		slog.Int("published", sum.Published), slog.Int("unchanged", sum.Unchanged), slog.Int("failed", sum.Failed))
 	return err

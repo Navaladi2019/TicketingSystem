@@ -471,7 +471,10 @@ docker compose exec -T nava-onboard nava-onboard reconcile-default-acl <tenant-i
 Each tenant is handled alone, in its own tenant transaction, and a tenant
 whose `incident` type already has an ACL version is left as it is, so the
 command is safe to repeat. The default names the tenant's admins group and,
-when the tenant has one, its `service-desk` group (a tenant with no admins group row, such as the stack seed's tenant B, gets the default without the admins rule here; onboarding itself refuses such a tenant); it writes the audit entry
-with the version. A failure for one tenant is logged with its id, the others
-still run, and the command exits non-zero. `request` and `change` get no ACL:
+when the tenant has one, its `service-desk` group; it writes the audit entry
+with the version. A tenant with no admins group row is a failure: it gets nothing and stays
+fail-closed (a default is never published without the admins rule). A failure
+for one tenant is logged with its id and reason, the others still run, the
+summary counts published, already-present and failed tenants, and the command
+exits non-zero. `request` and `change` get no ACL:
 an admin publishes one with `PUT /api/v1/entity-types/{key}/access`.

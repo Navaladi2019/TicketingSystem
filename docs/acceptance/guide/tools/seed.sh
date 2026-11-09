@@ -70,6 +70,14 @@ user=$(kc "$KC/admin/realms/nava/users?username=admin%40tenant-a.test&exact=true
 [ -n "$admins" ] && [ -n "$user" ] || { echo "seed: no admins group or no admin@tenant-a.test" >&2; exit 1; }
 kc -X PUT "$KC/admin/realms/nava/users/$user/groups/$admins" >/dev/null
 echo "seed: admin@tenant-a.test is in /t/$A/admins"
+# Tenant B's admins group too, with no member: the default incident ACL names
+# the tenant's admins group, and a tenant with none gets no default (A5), so
+# both seeded tenants need the row. B has no admin user in the realm.
+parentb=$(kc "$KC/admin/realms/nava/group-by-path/t/$B" | first_id)
+[ -n "$parentb" ] || { echo "seed: no group /t/$B in realm nava" >&2; exit 1; }
+code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $kc_token"   -H 'Content-Type: application/json' -d '{"name":"admins"}' "$KC/admin/realms/nava/groups/$parentb/children")
+case $code in 201|409) ;; *) echo "seed: creating /t/$B/admins answered HTTP $code" >&2; exit 1 ;; esac
+echo "seed: /t/$B/admins exists"
 
 echo "seed: one group sync cycle (nava-groupsync --once)"
 docker compose run --rm --no-deps nava-groupsync --once
@@ -99,11 +107,11 @@ echo "seed: tenant A's admin group, incident/request/change at version 1 in A an
 docker compose exec -T postgres sh -c \
   'PGPASSWORD=$(cat /run/pg_superuser_password) psql -q -v ON_ERROR_STOP=1 -U pgadmin -d nava' <<SQL
 INSERT INTO tenant_admin_group (tenant_id, group_id)
-  SELECT tenant_id, id FROM groups WHERE tenant_id = '$A' AND path = '/t/$A/admins'
+  SELECT tenant_id, id FROM groups WHERE tenant_id IN ('$A', '$B') AND path = '/t/' || tenant_id::text || '/admins'
   ON CONFLICT DO NOTHING;
 DO \$\$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM tenant_admin_group WHERE tenant_id = '$A') THEN
-    RAISE EXCEPTION 'no groups row for /t/$A/admins after group sync';
+  IF (SELECT count(*) FROM tenant_admin_group WHERE tenant_id IN ('$A', '$B')) <> 2 THEN
+    RAISE EXCEPTION 'no groups row for an admins group after group sync';
   END IF;
 END \$\$;
 -- Auditors groups (P5-18): the realm import creates /t/<tenant>/auditors and

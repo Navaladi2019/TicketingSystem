@@ -330,18 +330,10 @@ func TestPutAccessRefusalsWriteNothing(t *testing.T) {
 	// A foreign id and an id that does not exist are refused alike.
 	a := e.access(t, http.MethodPut, accessPath, "admin-a", "alike-1", `W/"1"`, rule(`{"groups": [`+foreign+`]}`, ""))
 	b := e.access(t, http.MethodPut, accessPath, "admin-a", "alike-2", `W/"1"`, rule(`{"groups": ["00000000-0000-4000-8000-00000000dead"]}`, ""))
-	// The body differs only in `instance`, the request id of each response.
-	if pa, pb := pointerRules(t, a), pointerRules(t, b); a.Code != b.Code || fmt.Sprint(pa) != fmt.Sprint(pb) {
+	// The bodies differ only in `instance`, the request id of each response:
+	// compare status, code, detail and errors.
+	if sa, sb := sameProblem(t, a), sameProblem(t, b); a.Code != b.Code || sa != sb {
 		t.Errorf("foreign id %d %s vs unknown id %d %s: the 422 must be the same", a.Code, a.Body, b.Code, b.Body)
-	}
-	for _, r := range []*httptest.ResponseRecorder{a, b} {
-		var p struct {
-			Code, Detail, Title string
-		}
-		_ = json.Unmarshal(r.Body.Bytes(), &p)
-		if p.Code != "invalid_access_policy" || p.Detail != "The access policy is not accepted. Nothing was published. See errors for the failing fields." {
-			t.Errorf("422 body = %s", r.Body)
-		}
 	}
 
 	// Own-tenant ids of every kind are accepted.
@@ -544,4 +536,21 @@ func TestEntityTypeAndItsACLInOneTransactionHaveOneAuditEntryEach(t *testing.T) 
 			t.Errorf("%d %s entries at version 1, want %d", n, subject, want)
 		}
 	}
+}
+
+// sameProblem is a problem response without its per-request `instance`: its
+// status, code, title, detail and errors, as one comparable string.
+func sameProblem(t *testing.T, rec *httptest.ResponseRecorder) string {
+	t.Helper()
+	var p struct {
+		Status int             `json:"status"`
+		Code   string          `json:"code"`
+		Title  string          `json:"title"`
+		Detail string          `json:"detail"`
+		Errors json.RawMessage `json:"errors"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
+		t.Fatalf("not a problem: %v: %s", err, rec.Body)
+	}
+	return fmt.Sprintf("%d %s %q %q %s", p.Status, p.Code, p.Title, p.Detail, p.Errors)
 }

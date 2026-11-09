@@ -213,15 +213,3 @@ func TestOnboardStopsBeforeActivationWhenTheDefaultACLFails(t *testing.T) {
 		t.Fatalf("after the retry: active = %v, publish calls = %d, want active and 2", st.active[tenant], len(acl.calls))
 	}
 }
-
-func TestDefaultIncidentRulesWithoutAnAdminsGroupHaveNoAdminsRule(t *testing.T) {
-	t.Parallel()
-	for _, r := range DefaultIncidentRules(uuid.Nil, []uuid.UUID{uuid.New()}) {
-		if r.ID == RuleAdmins {
-			t.Fatalf("an admins rule naming the nil group was published: %+v", r)
-		}
-		if slices.Contains(r.Who.Groups, uuid.Nil) {
-			t.Fatalf("rule %s names the nil group", r.ID)
-		}
-	}
-}
