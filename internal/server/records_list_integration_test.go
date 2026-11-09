@@ -293,30 +293,45 @@ func TestListRecordsCrossTenant(t *testing.T) {
 }
 
 // 8. A walk with inserts between pages: no duplicate and no gap among the
-// records that existed at the start. (200 records and pages of 25 here; the
-// keyset logic does not depend on the count.)
+// records that existed when the walk started.
+//
+// 200 rows and pages of 25 put every keyset branch (ASC/DESC x tie/NULL/
+// distinct) on a page boundary: about half the rows have an assignee drawn
+// from three principals (ties; the rest are NULL, so a boundary crosses the
+// non-NULL to NULL transition), and every row is in state "new" (one big tie
+// group, broken by id). The predicate does not depend on N, so 10k rows would
+// test the same branches.
 func TestListRecordsKeysetWalkWithConcurrentInserts(t *testing.T) {
 	e := newRecEnv(t)
-	start := map[string]bool{}
+	assignees := []uuid.UUID{e.a.admin.PrincipalID, e.a.user.PrincipalID, e.a.lookalike.PrincipalID}
+	existing := map[string]bool{}
 	for i := 0; i < 200; i++ {
-		start[e.mustCreateRec(t, "admin-a", "ticket", fmt.Sprintf("w%d", i), fmt.Sprintf(`{"short_description": "r%d"}`, i)).ID] = true
+		data := fmt.Sprintf(`{"short_description": "r%d"}`, i)
+		if i%2 == 0 {
+			data = fmt.Sprintf(`{"short_description": "r%d", "assignee": %q}`, i, assignees[i/2%len(assignees)])
+		}
+		existing[e.mustCreateRec(t, "admin-a", "ticket", fmt.Sprintf("w%d", i), data).ID] = true
 	}
-	for _, sort := range []string{"", "sort=created_at", "sort=state", "sort=-updated_at"} {
-		seen, pages, inserted := map[string]bool{}, 0, 0
+	sorts := []string{"", "sort=created_at", "sort=state", "sort=-state", "sort=-updated_at", "sort=assignee", "sort=-assignee"}
+	for n, sort := range sorts {
+		start := map[string]bool{}
+		for id := range existing {
+			start[id] = true
+		}
 		q := "limit=25"
 		if sort != "" {
 			q += "&" + sort
 		}
-		var total int
-		for next := ""; ; {
+		seen, pages, next := map[string]bool{}, 0, ""
+		for {
 			query := q
 			if next != "" {
 				query += "&cursor=" + next
 			}
 			p := e.mustList(t, "admin-a", "ticket", query)
 			pages++
-			if pages == 1 {
-				total = p.Total
+			if p.Total < len(start) {
+				t.Errorf("%q page %d: total %d, want at least %d", sort, pages, p.Total, len(start))
 			}
 			for _, it := range p.Items {
 				if seen[it.ID] {
@@ -324,10 +339,14 @@ func TestListRecordsKeysetWalkWithConcurrentInserts(t *testing.T) {
 				}
 				seen[it.ID] = true
 			}
-			// Inserts and updates while the walk is in progress.
+			// Inserts while the walk is in progress: one with an assignee, one
+			// without. The newest rows sort behind the cursor of a descending
+			// -created_at/-updated_at walk, and into the tie group of a state or
+			// assignee walk; none may disturb the rows that existed at the start.
 			if pages <= 3 {
-				e.mustCreateRec(t, "admin-a", "ticket", fmt.Sprintf("w-ins-%s-%d", sort, pages), `{"short_description": "late"}`)
-				inserted++
+				key := fmt.Sprintf("w-ins-%d-%d", n, pages)
+				e.mustCreateRec(t, "admin-a", "ticket", key+"a", fmt.Sprintf(`{"short_description": "late", "assignee": %q}`, assignees[pages%len(assignees)]))
+				e.mustCreateRec(t, "admin-a", "ticket", key+"n", `{"short_description": "late"}`)
 			}
 			if p.Next == nil {
 				break
@@ -339,16 +358,44 @@ func TestListRecordsKeysetWalkWithConcurrentInserts(t *testing.T) {
 				t.Errorf("%q: record %s existed at the start and was skipped", sort, id)
 			}
 		}
-		if total < len(start) {
-			t.Errorf("%q: first-page total %d, want at least %d", sort, total, len(start))
-		}
-		for id := range start { // later runs start from a larger set
-			_ = id
-		}
+		// Later walks start from a larger set.
 		for id := range seen {
-			start[id] = true
+			existing[id] = true
 		}
-		_ = inserted
+	}
+}
+
+// Risk 1: a cursor minted for admin and sent by another caller of the same
+// tenant is invalid, not a page.
+func TestListRecordsCursorIsBoundToTheCaller(t *testing.T) {
+	e := newRecEnv(t)
+	for i := 0; i < 3; i++ {
+		e.mustCreateRec(t, "admin-a", "ticket", fmt.Sprintf("cb%d", i), `{"short_description": "s"}`)
+	}
+	pa := e.mustList(t, "admin-a", "ticket", "limit=1")
+	if pa.Next == nil {
+		t.Fatal("no cursor")
+	}
+	if p := e.mustList(t, "admin-a", "ticket", "limit=1&cursor="+*pa.Next); len(p.Items) != 1 {
+		t.Fatalf("control: the admin's own cursor gave %d items", len(p.Items))
+	}
+	rec, _ := e.list(t, "user-a", "ticket", "limit=1&cursor="+*pa.Next)
+	listCode(t, rec, http.StatusBadRequest, "invalid_cursor")
+}
+
+// Risk 2: tenant A filtering on one of tenant B's group ids finds nothing.
+func TestListRecordsFilterOnAnotherTenantsGroup(t *testing.T) {
+	e := newRecEnv(t)
+	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-b", "tg", recTypeBody("ticket", "TKT")); rec.Code != http.StatusCreated {
+		t.Fatal(rec.Body)
+	}
+	e.mustCreateRec(t, "admin-b", "ticket", "g1", fmt.Sprintf(`{"short_description": "b", "group": %q}`, e.b.adminGroup))
+	e.mustCreateRec(t, "admin-a", "ticket", "g2", `{"short_description": "a"}`)
+	for _, q := range []string{"filter[group]=" + e.b.adminGroup.String(), "filter[group][in]=" + e.b.adminGroup.String() + "," + uuid.NewString()} {
+		p := e.mustList(t, "admin-a", "ticket", q)
+		if len(p.Items) != 0 || p.Total != 0 {
+			t.Errorf("?%s: %d items, total %d; want none", q, len(p.Items), p.Total)
+		}
 	}
 }
 
