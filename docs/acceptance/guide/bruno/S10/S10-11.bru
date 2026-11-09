@@ -1,0 +1,24 @@
+meta {
+  name: S10.11 Alice (not an admin) reads it: 403
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/incident/access
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('forbidden', 403);
+}
+
+docs {
+  Only tenant admins read an access policy.
+}

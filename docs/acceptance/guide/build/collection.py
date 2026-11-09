@@ -995,6 +995,11 @@ N.status(404);"""
             token("S9.1 Sign in as agent@tenant-a (Alice)", "alice_username", "alice_password", "alice_token",
                   extra="bru.setVar('s9_run', N.v('s9_run_id') || Math.random().toString(16).slice(2, 10));\nconsole.log('S9 run', bru.getVar('s9_run'));"),
             token("S9.2 Sign in as agent@tenant-b (Bob)", "bob_username", "bob_password", "bob_token"),
+            token("S9.2a Sign in as admin@tenant-a (triage)", "admin_a_username", "admin_a_password", "admin_a_token",
+                  desc="A principal allowed to triage: under the default incident ACL a requester reads and writes its own incident only while it is `new`, so S9.9 to S9.13 (versions, `ETag`s and history) run as tenant A's admin. S9.4 stays Alice's. Needs `tools/seed.sh` (tenant A's admins group)."),
+            req("S9.3a The admin's principal id", "GET", "{{core_url}}/api/v1/me", auth="admin_a_token",
+                desc="Kept to check that the history names the admin as the actor of the update.",
+                tests=f"N.me('{A}');\nbru.setVar('s9_admin', N.json().user_id);"),
             req("S9.3 Alice's principal id", "GET", "{{core_url}}/api/v1/me", auth="alice_token",
                 desc="Kept to check that the history names Alice as the actor (`actor_id` is the `user_id` of `GET /me`).",
                 tests=f"N.me('{A}');\nbru.setVar('s9_alice', N.json().user_id);"),
@@ -1051,7 +1056,18 @@ const n = Number(bru.getVar('s9_number').slice(3)) + 1;
 const want = 'INC' + String(n).padStart(7, '0');
 test(`number ${want}: no gap after S9.4`, () => expect(b.number).to.eql(want));
 bru.setVar('s9_id2', b.id);"""),
-            req("S9.9 AC2: update with the current ETag: 200", "PATCH", one, auth="alice_token",
+            req("S9.8a A requester cannot triage: Alice moves her own incident to in_progress: 403", "PATCH", one, auth="alice_token",
+                headers={**key("alice-triage"), **mp, "If-Match": 'W/"1"'}, body={"state": "in_progress"},
+                desc="Alice is the requester. The default incident ACL lets her write her own incident only while it is `new`, and the write is checked before and after the change, so moving it out of `new` is refused: 403 `forbidden`. S9.8b shows the record did not change.",
+                tests="N.problem('forbidden', 403);"),
+            req("S9.8b The refusal changed nothing: still version 1, state new", "GET", one, auth="alice_token",
+                tests="""N.status(200);
+test('version 1, state new, ETag W/"1"', () => {
+  expect(N.json().version).to.eql(1);
+  expect(N.json().state).to.eql('new');
+  expect(N.header('ETag')).to.eql('W/"1"');
+});"""),
+            req("S9.9 AC2: update with the current ETag: 200", "PATCH", one, auth="admin_a_token",
                 headers={**key("update"), **mp, "If-Match": 'W/"1"'},
                 body={"data": {"priority": 1}, "state": "in_progress"},
                 desc="Priority 1 and state `in_progress`, based on version 1. 200 with version 2 and `ETag: W/\"2\"`.",
@@ -1064,7 +1080,7 @@ test('version 2, priority 1, in_progress, rest kept', () => {
   expect(b.data.short_description).to.eql('S9 ' + bru.getVar('s9_run') + ' printer on fire');
 });
 test('ETag W/"2"', () => expect(N.header('ETag')).to.eql('W/"2"'));"""),
-            req("S9.10 AC2: update with the old ETag: 412 version_conflict", "PATCH", one, auth="alice_token",
+            req("S9.10 AC2: update with the old ETag: 412 version_conflict", "PATCH", one, auth="admin_a_token",
                 headers={**key("stale"), **mp, "If-Match": 'W/"1"'}, body={"data": {"priority": 4}},
                 desc="Based on version 1, which is no longer current. Refused: 412 `version_conflict` with the current `ETag`; nothing is overwritten.",
                 tests="""N.problem('version_conflict', 412);
@@ -1073,7 +1089,7 @@ test('the current ETag W/"2" in the header and the detail', () => {
   expect(N.json().detail).to.include('W/"2"');
 });"""),
             problem_req("S9.11 AC2: update without If-Match: 428", "PATCH", one, "if_match_required", 428,
-                        auth="alice_token", headers={**key("nomatch"), **mp}, body={"data": {"priority": 4}},
+                        auth="admin_a_token", headers={**key("nomatch"), **mp}, body={"data": {"priority": 4}},
                         desc="No `If-Match`: 428 `if_match_required`."),
             req("S9.12 AC2: the refused updates changed nothing", "GET", one, auth="alice_token",
                 desc="Still version 2 with priority 1, as S9.9 left it.",
@@ -1085,15 +1101,16 @@ test('version 2, priority 1, in_progress', () => {
   expect(b.state).to.eql('in_progress');
   expect(N.header('ETag')).to.eql('W/"2"');
 });"""),
-            req("S9.13 AC3: the history: one row per change, Alice, source user", "GET", one + "/history", auth="alice_token",
-                desc="Exactly two rows, newest first: the update of S9.9 and the create of S9.4. Each names Alice (`actor_id`) and `source: user`. The retry, the 412 and the 428 added none.",
+            req("S9.13 AC3: the history: one row per change, the actors, source user", "GET", one + "/history", auth="admin_a_token",
+                desc="Exactly two rows, newest first: the update of S9.9 (by the admin) and the create of S9.4 (by Alice). Each names its actor (`actor_id`) and `source: user`. The retry, the 412, the 428 and Alice's refused S9.8a added none.",
                 tests="""N.status(200);
 const items = N.json().items;
 test('exactly two rows: update, create', () => expect(items.map(i => i.action)).to.eql(['update', 'create']));
-test('each names Alice and source user', () => items.forEach(i => {
-  expect(i.actor_id, i.action).to.eql(bru.getVar('s9_alice'));
-  expect(i.source, i.action).to.eql('user');
-}));
+test('the update names the admin, the create names Alice, both source user', () => {
+  expect(items[0].actor_id).to.eql(bru.getVar('s9_admin'));
+  expect(items[1].actor_id).to.eql(bru.getVar('s9_alice'));
+  items.forEach(i => expect(i.source, i.action).to.eql('user'));
+});
 test('the update changed priority and state', () => expect(items[0].changed).to.have.members(['/data/priority', '/data/state']));
 test('the update has before and after', () => {
   expect(items[0].before.priority).to.eql(2);
@@ -1138,6 +1155,137 @@ const b = N.json();
 test('number is INC and 7 digits', () => expect(b.number).to.match({num}));
 if (String(N.v('s9_fresh_b')) === '1') test('number: INC0000001 (fresh stack, tenant B)', () => expect(b.number).to.eql('INC0000001'));
 N.noLeak(bru.getVar('s9_id'), 'S9 ' + bru.getVar('s9_run') + ' printer');"""),
+        ],
+    }
+
+
+# --------------------------------------------------------------------------- S10
+def s10():
+    lst = "{{core_url}}/api/v1/records/incident"
+    et = "{{core_url}}/api/v1/entity-types/incident/access"
+    explain = "{{core_url}}/api/v1/access/explain?entity=incident&record={{s10_rec}}&user="
+    key = lambda k: {"Idempotency-Key": "tick620-s10-{{s10_run}}-" + k}
+    no404 = """
+test('HTTP 404 problem+json, code not_found, no instance', () => {
+  expect(res.getStatus()).to.eql(404);
+  expect(N.header('Content-Type') || '').to.include('application/problem+json');
+  expect(N.json().code).to.eql('not_found');
+  expect(N.json()).to.not.have.property('instance');
+});
+N.status(404);"""
+    # Republishes the policy GET returned, unchanged, so the default ACL keeps
+    # working for the S9 flows; the pre-request script builds the body.
+    same_policy = LOAD_PRE + r"""
+const cur = JSON.parse(bru.getVar('s10_policy'));
+req.setBody({ rules: cur.rules, masks: cur.masks });
+req.setHeader('If-Match', 'W/"' + cur.version + '"');
+"""
+    return {
+        "dir": "S10", "name": "S10 access",
+        "desc": "Story S10, TICK-336. S10.1 to S10.5 are the record list under the ACL (TICK-619, P3-34): only the records the caller may read, with an exact `total` under the same predicate. S10.6 on (P3-35, TICK-620): a tenant admin reads and publishes an entity type's access policy and asks the explainer why a user can or cannot read a record. Needs `tools/seed.sh` (it publishes the default incident ACL through `nava-onboard reconcile-default-acl`). Story users: `admin@tenant-a` is tenant A's admin, `agent@tenant-a` is Alice, `agent@tenant-b` is Bob. Runs again on the same stack: S10.15 republishes the policy it read, unchanged, so each pass adds one ACL version and changes no decision.",
+        "items": [
+            token("S10.1 Sign in as agent@tenant-a (Alice)", "alice_username", "alice_password", "alice_token"),
+            req("S10.2 List incidents: 200 with items, next_cursor and total", "GET", lst + "?limit=5", auth="alice_token",
+                desc="Only records Alice may read. `total` counts them under the same ACL predicate as the page.",
+                tests="""N.status(200);
+const b = N.json();
+test('items is an array of at most 5', () => { expect(b.items).to.be.an('array'); expect(b.items.length).to.be.at.most(5); });
+test('total is an integer at least the page size', () => { expect(b.total).to.be.a('number'); expect(b.total).to.be.at.least(b.items.length); });
+test('next_cursor is a string or null', () => expect(b.next_cursor === null || typeof b.next_cursor === 'string').to.eql(true));"""),
+            problem_req("S10.3 An unknown filter field: 400 validation_failed", "GET", lst + "?filter[no_such_field]=1", "validation_failed", 400,
+                        auth="alice_token", desc="Only properties of the entity type can be filtered."),
+            problem_req("S10.4 A bad cursor: 400 invalid_cursor", "GET", lst + "?cursor=garbage", "invalid_cursor", 400,
+                        auth="alice_token", desc="A cursor that was not issued to this caller for this query."),
+            problem_req("S10.5 No token: 401", "GET", lst, "invalid_token", 401, desc="Authentication comes first."),
+            token("S10.6 Sign in as admin@tenant-a (tenant A's admins group)", "admin_a_username", "admin_a_password", "admin_a_token",
+                  extra="bru.setVar('s10_run', Math.random().toString(16).slice(2, 10));"),
+            token("S10.7 Sign in as agent@tenant-b (Bob, tenant B)", "bob_username", "bob_password", "bob_token"),
+            req("S10.8 Alice's principal id", "GET", "{{core_url}}/api/v1/me", auth="alice_token",
+                tests=f"N.me('{A}');\nbru.setVar('s10_alice', N.json().user_id);"),
+            req("S10.9 Bob's principal id", "GET", "{{core_url}}/api/v1/me", auth="bob_token",
+                tests=f"N.me('{B}');\nbru.setVar('s10_bob', N.json().user_id);"),
+            req("S10.10 The admin reads the incident access policy: 200 with its ETag", "GET", et, auth="admin_a_token",
+                desc="The newest published version, `{version, rules, masks, published_by, published_at}`, with `ETag: W/\"<version>\"`. On a fresh stack it is version 1, the default incident ACL, with `published_by` null.",
+                tests="""N.status(200);
+const b = N.json();
+test('version, rules, masks, published_at', () => {
+  expect(b.version).to.be.a('number');
+  expect(b.rules).to.be.an('array');
+  expect(b.masks).to.be.an('array');
+  expect(b.published_at).to.be.a('string');
+});
+test('ETag W/"<version>"', () => expect(N.header('ETag')).to.eql('W/"' + b.version + '"'));
+bru.setVar('s10_policy', JSON.stringify(b));"""),
+            req("S10.11 Alice (not an admin) reads it: 403", "GET", et, auth="alice_token",
+                desc="Only tenant admins read an access policy.",
+                tests="N.problem('forbidden', 403);"),
+            req("S10.12 An unknown entity type: the same 404 as a type that has no policy", "GET",
+                "{{core_url}}/api/v1/entity-types/no_such_type/access", auth="admin_a_token",
+                tests=no404),
+            req("S10.13 PUT without If-Match: 428", "PUT", et, auth="admin_a_token", headers=key("nomatch"),
+                body={"rules": []},
+                desc="428 `if_match_required`, and nothing is published.",
+                tests="N.problem('if_match_required', 428);"),
+            req("S10.14 PUT with a stale If-Match: 412 and the current ETag", "PUT", et, auth="admin_a_token",
+                headers={**key("stale"), "If-Match": 'W/"0"'}, body={"rules": []},
+                desc="Version 0 is never current once a policy is published. 412 `version_conflict`, the current `ETag` in the header, nothing published.",
+                tests="""N.problem('version_conflict', 412);
+test('the current ETag is in the header', () => expect(N.header('ETag')).to.eql('W/"' + JSON.parse(bru.getVar('s10_policy')).version + '"'));"""),
+            req("S10.15 The admin republishes the policy it read: 200, version + 1", "PUT", et, auth="admin_a_token",
+                headers=key("same"), body={"rules": []}, pre=same_policy,
+                desc="The body is the policy S10.10 read, unchanged (set by the pre-request script), so no decision changes. The new version is the old one plus one and the `ETag` says so.",
+                tests="""N.status(200);
+const was = JSON.parse(bru.getVar('s10_policy'));
+test('version + 1', () => expect(N.json().version).to.eql(was.version + 1));
+test('the same rules', () => expect(N.json().rules).to.eql(was.rules));
+test('ETag W/"<version>"', () => expect(N.header('ETag')).to.eql('W/"' + N.json().version + '"'));"""),
+            req("S10.16 An unknown column and a group of no tenant: 422 with pointers", "PUT", et, auth="admin_a_token",
+                headers={**key("bad"), "If-Match": 'W/"0"'},
+                body={"rules": [{"id": "bad", "ops": ["read"], "who": {"groups": ["00000000-0000-4000-8000-00000000dead"]},
+                                 "where": [{"column": "priority", "op": "eq", "values": ["1"]}]}]},
+                desc="422 `invalid_access_policy`. The unknown column is refused at `/rules/0/where/0/column`. A group that is not in the tenant is refused at `/rules/0/who/groups/0`, the same whether it does not exist or belongs to another tenant. The shape is checked before the version, so this answers 422, not 412.",
+                tests="""N.problem('invalid_access_policy', 422);
+const at = N.json().errors.map(e => e.pointer);
+test('the column is named', () => expect(at).to.include('/rules/0/where/0/column'));"""),
+            req("S10.17 The admin creates an incident for Alice as requester", "POST", "{{core_url}}/api/v1/records/incident",
+                auth="admin_a_token", headers=key("create"),
+                body={"data": {"short_description": "S10 {{s10_run}} explainer", "requester": "{{s10_alice}}"}},
+                desc="The admin has write on every record under the default ACL; Alice is named as the requester.",
+                tests="N.status(201);\nbru.setVar('s10_rec', N.json().id);"),
+            req("S10.18 Explain: why can Alice read it? allow, with the granting rule", "GET", explain + "{{s10_alice}}",
+                auth="admin_a_token",
+                desc="Alice is the requester, so the default requester rule grants read. `rule_id` names the rule; `masked_fields` lists only fields the admin could read.",
+                tests="""N.status(200);
+const b = N.json();
+test('allow, a rule id, an ACL version, a masked list', () => {
+  expect(b.decision).to.eql('allow');
+  expect(b.rule_id).to.be.a('string');
+  expect(b.acl_version).to.be.a('number');
+  expect(b.masked_fields).to.be.an('array');
+});"""),
+            req("S10.19 Explain for Bob, a user of tenant B: the same 404 as an unknown user", "GET", explain + "{{s10_bob}}",
+                auth="admin_a_token",
+                desc="Bob is another tenant's user: not found, byte for byte like a user that does not exist.",
+                tests=no404),
+            req("S10.20 Alice (not an admin) asks the explainer: 403", "GET", explain + "{{s10_alice}}", auth="alice_token",
+                tests="N.problem('forbidden', 403);"),
+            req("S10.21 Explain without a token: 401", "GET", explain + "{{s10_alice}}",
+                tests="N.problem('invalid_token', 401);"),
+            req("S10.22 PUT without an Idempotency-Key: 400", "PUT", et, auth="admin_a_token",
+                headers={"If-Match": 'W/"1"'}, body={"rules": []},
+                tests="N.problem('validation_failed', 400);"),
+            req("S10.23 Read the policy without a token: 401", "GET", et, tests="N.problem('invalid_token', 401);"),
+            req("S10.24 PUT without a token: 401", "PUT", et, headers={**key("anon"), "If-Match": 'W/"1"'}, body={"rules": []},
+                tests="N.problem('invalid_token', 401);"),
+            req("S10.25 Alice (not an admin) publishes: 403, nothing published", "PUT", et, auth="alice_token",
+                headers={**key("alice"), "If-Match": 'W/"1"'}, body={"rules": []},
+                desc="Only tenant admins publish. The admin check runs first, so Alice learns nothing about the version or the body.",
+                tests="N.problem('forbidden', 403);"),
+            req("S10.26 PUT for an unknown entity type: 404", "PUT", "{{core_url}}/api/v1/entity-types/no_such_type/access",
+                auth="admin_a_token", headers={**key("nosuch"), "If-Match": 'W/"0"'}, body={"rules": []}, tests=no404),
+            req("S10.27 Explain without the user parameter: 400", "GET",
+                "{{core_url}}/api/v1/access/explain?entity=incident&record={{s10_rec}}", auth="admin_a_token",
+                tests="N.problem('validation_failed', 400);"),
         ],
     }
 
@@ -2529,33 +2677,6 @@ if (wait > 0) {{ console.log(`waiting ${{Math.round(wait / 1000)}} s for the tok
         ],
     }
 
-
-
-
-# --------------------------------------------------------------------------- S10
-def s10():
-    """S10 access: record list under the ACL (TICK-619, P3-34). More S10
-    requests (masks, shares) are added by the tasks that deliver them."""
-    lst = "{{core_url}}/api/v1/records/incident"
-    return {
-        "dir": "S10", "name": "S10 access",
-        "desc": "Story S10, TICK-336. The record list returns only the records the caller may read, with an exact `total` under the same predicate (TICK-619). Needs `tools/seed.sh`. Until the default incident ACL is published by onboarding (P3-35) a seeded tenant has no ACL and the list is empty: nobody may read (fail closed).",
-        "items": [
-            token("S10.1 Sign in as agent@tenant-a (Alice)", "alice_username", "alice_password", "alice_token"),
-            req("S10.2 List incidents: 200 with items, next_cursor and total", "GET", lst + "?limit=5", auth="alice_token",
-                desc="Only records Alice may read. `total` counts them under the same ACL predicate as the page.",
-                tests="""N.status(200);
-const b = N.json();
-test('items is an array of at most 5', () => { expect(b.items).to.be.an('array'); expect(b.items.length).to.be.at.most(5); });
-test('total is an integer at least the page size', () => { expect(b.total).to.be.a('number'); expect(b.total).to.be.at.least(b.items.length); });
-test('next_cursor is a string or null', () => expect(b.next_cursor === null || typeof b.next_cursor === 'string').to.eql(true));"""),
-            problem_req("S10.3 An unknown filter field: 400 validation_failed", "GET", lst + "?filter[no_such_field]=1", "validation_failed", 400,
-                        auth="alice_token", desc="Only properties of the entity type can be filtered."),
-            problem_req("S10.4 A bad cursor: 400 invalid_cursor", "GET", lst + "?cursor=garbage", "invalid_cursor", 400,
-                        auth="alice_token", desc="A cursor that was not issued to this caller for this query."),
-            problem_req("S10.5 No token: 401", "GET", lst, "invalid_token", 401, desc="Authentication comes first."),
-        ],
-    }
 
 FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s14, s14_story, s15_seal, s15_kill, s15_idle, x1, x2, x4, x5, x3, late]
 

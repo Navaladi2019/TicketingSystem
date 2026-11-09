@@ -183,7 +183,15 @@ func (e *etIso) cleanup() error {
 			SELECT tenant_id, gen_random_uuid(), 'record', 'delete', 'record', id, entity_definition_id, version, 'system', 'system' FROM r`,
 		`DELETE FROM audit_log WHERE subject_type = 'record' AND action = 'delete' AND entity_definition_id IN (SELECT id FROM entity_definitions WHERE key LIKE 'iso\_et\_%')`,
 		`DELETE FROM record_counters WHERE entity_definition_id IN (SELECT id FROM entity_definitions WHERE key LIKE 'iso\_et\_%')`,
-		`DELETE FROM acl_versions WHERE entity_definition_id IN (SELECT id FROM entity_definitions WHERE key LIKE 'iso\_et\_%')`,
+		// acl_versions has the commit check too (P3-35): the delete writes one
+		// acl_policy delete entry per type, and the next statement removes
+		// them with the entries acltest.Publish and the PUT route wrote.
+		`WITH a AS (DELETE FROM acl_versions WHERE entity_definition_id IN (SELECT id FROM entity_definitions WHERE key LIKE 'iso\_et\_%')
+			RETURNING tenant_id, entity_definition_id)
+			INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, actor_system, source)
+			SELECT tenant_id, gen_random_uuid(), 'config', 'delete', 'acl_policy', entity_definition_id, 'system', 'system'
+			FROM (SELECT DISTINCT tenant_id, entity_definition_id FROM a) d`,
+		`DELETE FROM audit_log WHERE subject_type = 'acl_policy' AND subject_id IN (SELECT id FROM entity_definitions WHERE key LIKE 'iso\_et\_%')`,
 		// The entity-definition deletes write one config delete entry per
 		// type, as their commit-check triggers require (P5-32, migration B).
 		`WITH v AS (DELETE FROM entity_definition_versions WHERE definition_id IN (SELECT id FROM entity_definitions WHERE key LIKE 'iso\_et\_%')

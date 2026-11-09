@@ -18,6 +18,24 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for AccessExplanationDecision.
+const (
+	Allow AccessExplanationDecision = "allow"
+	Deny  AccessExplanationDecision = "deny"
+)
+
+// Valid indicates whether the value is a known member of the AccessExplanationDecision enum.
+func (e AccessExplanationDecision) Valid() bool {
+	switch e {
+	case Allow:
+		return true
+	case Deny:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AuditEntryDomain.
 const (
 	AuditEntryDomainAudit  AuditEntryDomain = "audit"
@@ -134,6 +152,7 @@ func (e ListAuditEntriesParamsDomain) Valid() bool {
 
 // Defines values for ListAuditEntriesParamsSubjectType.
 const (
+	ListAuditEntriesParamsSubjectTypeAclPolicy        ListAuditEntriesParamsSubjectType = "acl_policy"
 	ListAuditEntriesParamsSubjectTypeAuditChain       ListAuditEntriesParamsSubjectType = "audit_chain"
 	ListAuditEntriesParamsSubjectTypeAuditExport      ListAuditEntriesParamsSubjectType = "audit_export"
 	ListAuditEntriesParamsSubjectTypeCascadeKey       ListAuditEntriesParamsSubjectType = "cascade_key"
@@ -145,6 +164,8 @@ const (
 // Valid indicates whether the value is a known member of the ListAuditEntriesParamsSubjectType enum.
 func (e ListAuditEntriesParamsSubjectType) Valid() bool {
 	switch e {
+	case ListAuditEntriesParamsSubjectTypeAclPolicy:
+		return true
 	case ListAuditEntriesParamsSubjectTypeAuditChain:
 		return true
 	case ListAuditEntriesParamsSubjectTypeAuditExport:
@@ -160,6 +181,26 @@ func (e ListAuditEntriesParamsSubjectType) Valid() bool {
 	default:
 		return false
 	}
+}
+
+// AccessExplanation defines model for AccessExplanation.
+type AccessExplanation struct {
+	AclVersion   int                       `json:"acl_version"`
+	Decision     AccessExplanationDecision `json:"decision"`
+	MaskedFields []string                  `json:"masked_fields"`
+	RuleId       *string                   `json:"rule_id"`
+}
+
+// AccessExplanationDecision defines model for AccessExplanation.Decision.
+type AccessExplanationDecision string
+
+// AccessPolicy defines model for AccessPolicy.
+type AccessPolicy struct {
+	Masks       []map[string]interface{} `json:"masks"`
+	PublishedAt time.Time                `json:"published_at"`
+	PublishedBy *openapi_types.UUID      `json:"published_by,omitempty"`
+	Rules       []map[string]interface{} `json:"rules"`
+	Version     int                      `json:"version"`
 }
 
 // AuditEntry defines model for AuditEntry.
@@ -360,6 +401,9 @@ type ProblemNoInstance struct {
 // PublishEntityTypeVersionRequest Deliberately unconstrained here, like CreateEntityTypeRequest: the server checks every field after the admin check. Kept as the request bytes so the schema is stored byte for byte.
 type PublishEntityTypeVersionRequest = json.RawMessage
 
+// PutAccessPolicyRequest Deliberately unconstrained here: the server checks every field after the admin check and answers 422 `invalid_access_policy` with `errors[].pointer`. Kept as the request bytes (`json.RawMessage`).
+type PutAccessPolicyRequest = json.RawMessage
+
 // Record defines model for Record.
 type Record struct {
 	// AssignmentGroup The record's assignment group, the value of the property mapped to the `assignment_group_id` fixed column. Absent when the record has none. `removed` is true once the group has been removed from the directory: the record keeps pointing at it and nothing reassigns it (ADR-004-E5 D7).
@@ -423,6 +467,13 @@ type Entity = string
 // Key defines model for Key.
 type Key = string
 
+// ExplainAccessParams defines parameters for ExplainAccess.
+type ExplainAccessParams struct {
+	Entity string `form:"entity" json:"entity"`
+	Record string `form:"record" json:"record"`
+	User   string `form:"user" json:"user"`
+}
+
 // ListAuditEntriesParams defines parameters for ListAuditEntries.
 type ListAuditEntriesParams struct {
 	// From Entries at or after this time (`occurred_at`).
@@ -455,6 +506,13 @@ type ListEntityTypesParams struct {
 // CreateEntityTypeParams defines parameters for CreateEntityType.
 type CreateEntityTypeParams struct {
 	IdempotencyKey string `json:"Idempotency-Key"`
+}
+
+// PutEntityTypeAccessParams defines parameters for PutEntityTypeAccess.
+type PutEntityTypeAccessParams struct {
+	// IfMatch The `ETag` of the version the publish is based on. Optional in the contract only so that its absence is the registered 428.
+	IfMatch        *string `json:"If-Match,omitempty"`
+	IdempotencyKey string  `json:"Idempotency-Key"`
 }
 
 // PublishEntityTypeVersionParams defines parameters for PublishEntityTypeVersion.
@@ -495,6 +553,9 @@ type GetRecordHistoryParams struct {
 // CreateEntityTypeJSONRequestBody defines body for CreateEntityType for application/json ContentType.
 type CreateEntityTypeJSONRequestBody = CreateEntityTypeRequest
 
+// PutEntityTypeAccessJSONRequestBody defines body for PutEntityTypeAccess for application/json ContentType.
+type PutEntityTypeAccessJSONRequestBody = PutAccessPolicyRequest
+
 // PublishEntityTypeVersionJSONRequestBody defines body for PublishEntityTypeVersion for application/json ContentType.
 type PublishEntityTypeVersionJSONRequestBody = PublishEntityTypeVersionRequest
 
@@ -509,6 +570,9 @@ type PatchRecordApplicationMergePatchPlusJSONRequestBody = PatchRecordRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// ExplainAccess Why a user can or cannot read a record (tenant admin)
+	// (GET /api/v1/access/explain)
+	ExplainAccess(w http.ResponseWriter, r *http.Request, params ExplainAccessParams)
 	// ListAuditEntries The tenant's audit timeline
 	// (GET /api/v1/audit/entries)
 	ListAuditEntries(w http.ResponseWriter, r *http.Request, params ListAuditEntriesParams)
@@ -521,6 +585,12 @@ type ServerInterface interface {
 	// GetEntityType The current version of an entity type
 	// (GET /api/v1/entity-types/{key})
 	GetEntityType(w http.ResponseWriter, r *http.Request, key Key)
+	// GetEntityTypeAccess The entity type's published access policy (tenant admin)
+	// (GET /api/v1/entity-types/{key}/access)
+	GetEntityTypeAccess(w http.ResponseWriter, r *http.Request, key Key)
+	// PutEntityTypeAccess Publish the next access policy version (tenant admin)
+	// (PUT /api/v1/entity-types/{key}/access)
+	PutEntityTypeAccess(w http.ResponseWriter, r *http.Request, key Key, params PutEntityTypeAccessParams)
 	// PublishEntityTypeVersion Publish the next version of an entity type (tenant admin)
 	// (POST /api/v1/entity-types/{key}/versions)
 	PublishEntityTypeVersion(w http.ResponseWriter, r *http.Request, key Key, params PublishEntityTypeVersionParams)
@@ -558,6 +628,65 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// ExplainAccess operation middleware
+func (siw *ServerInterfaceWrapper) ExplainAccess(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ExplainAccessParams
+
+	// ------------- Required query parameter "entity" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "entity", r.URL.Query(), &params.Entity, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "entity"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entity", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "record" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "record", r.URL.Query(), &params.Record, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "record"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "record", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "user" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "user", r.URL.Query(), &params.User, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "user"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "user", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ExplainAccess(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // ListAuditEntries operation middleware
 func (siw *ServerInterfaceWrapper) ListAuditEntries(w http.ResponseWriter, r *http.Request) {
@@ -791,6 +920,105 @@ func (siw *ServerInterfaceWrapper) GetEntityType(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetEntityType(w, r, key)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetEntityTypeAccess operation middleware
+func (siw *ServerInterfaceWrapper) GetEntityTypeAccess(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "key" -------------
+	var key Key
+
+	err = runtime.BindStyledParameterWithOptions("simple", "key", r.PathValue("key"), &key, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetEntityTypeAccess(w, r, key)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutEntityTypeAccess operation middleware
+func (siw *ServerInterfaceWrapper) PutEntityTypeAccess(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "key" -------------
+	var key Key
+
+	err = runtime.BindStyledParameterWithOptions("simple", "key", r.PathValue("key"), &key, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "key", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params PutEntityTypeAccessParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutEntityTypeAccess(w, r, key, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1378,6 +1606,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/entity-types/{key}", wrapper.GetEntityType)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/entity-types/{key}/versions", wrapper.PublishEntityTypeVersion)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/entity-types/{key}/versions/{n}", wrapper.GetEntityTypeVersion)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/entity-types/{key}/access", wrapper.GetEntityTypeAccess)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/entity-types/{key}/access", wrapper.PutEntityTypeAccess)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/access/explain", wrapper.ExplainAccess)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/audit/entries", wrapper.ListAuditEntries)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/records/{entity}", wrapper.ListRecords)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/records/{entity}", wrapper.CreateRecord)
@@ -1391,6 +1622,130 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 type ProblemApplicationProblemPlusJSONResponse Problem
 
 type ProblemNoInstanceApplicationProblemPlusJSONResponse ProblemNoInstance
+
+type ExplainAccessRequestObject struct {
+	Params ExplainAccessParams
+}
+
+type ExplainAccessResponseObject interface {
+	VisitExplainAccessResponse(w http.ResponseWriter) error
+}
+
+type ExplainAccess200JSONResponse AccessExplanation
+
+func (response ExplainAccess200JSONResponse) VisitExplainAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExplainAccess400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response ExplainAccess400ApplicationProblemPlusJSONResponse) VisitExplainAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExplainAccess401ApplicationProblemPlusJSONResponse Problem
+
+func (response ExplainAccess401ApplicationProblemPlusJSONResponse) VisitExplainAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExplainAccess403ApplicationProblemPlusJSONResponse Problem
+
+func (response ExplainAccess403ApplicationProblemPlusJSONResponse) VisitExplainAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExplainAccess404ApplicationProblemPlusJSONResponse struct {
+	ProblemNoInstanceApplicationProblemPlusJSONResponse
+}
+
+func (response ExplainAccess404ApplicationProblemPlusJSONResponse) VisitExplainAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExplainAccess429ApplicationProblemPlusJSONResponse Problem
+
+func (response ExplainAccess429ApplicationProblemPlusJSONResponse) VisitExplainAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExplainAccess500ApplicationProblemPlusJSONResponse Problem
+
+func (response ExplainAccess500ApplicationProblemPlusJSONResponse) VisitExplainAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExplainAccess501ApplicationProblemPlusJSONResponse Problem
+
+func (response ExplainAccess501ApplicationProblemPlusJSONResponse) VisitExplainAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
 
 type ListAuditEntriesRequestObject struct {
 	Params ListAuditEntriesParams
@@ -1816,6 +2171,308 @@ func (response GetEntityType500ApplicationProblemPlusJSONResponse) VisitGetEntit
 type GetEntityType501ApplicationProblemPlusJSONResponse Problem
 
 func (response GetEntityType501ApplicationProblemPlusJSONResponse) VisitGetEntityTypeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEntityTypeAccessRequestObject struct {
+	Key Key `json:"key"`
+}
+
+type GetEntityTypeAccessResponseObject interface {
+	VisitGetEntityTypeAccessResponse(w http.ResponseWriter) error
+}
+
+type GetEntityTypeAccess200ResponseHeaders struct {
+	ETag string
+}
+
+type GetEntityTypeAccess200JSONResponse struct {
+	Body    AccessPolicy
+	Headers GetEntityTypeAccess200ResponseHeaders
+}
+
+func (response GetEntityTypeAccess200JSONResponse) VisitGetEntityTypeAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEntityTypeAccess401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response GetEntityTypeAccess401ApplicationProblemPlusJSONResponse) VisitGetEntityTypeAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEntityTypeAccess403ApplicationProblemPlusJSONResponse Problem
+
+func (response GetEntityTypeAccess403ApplicationProblemPlusJSONResponse) VisitGetEntityTypeAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEntityTypeAccess404ApplicationProblemPlusJSONResponse struct {
+	ProblemNoInstanceApplicationProblemPlusJSONResponse
+}
+
+func (response GetEntityTypeAccess404ApplicationProblemPlusJSONResponse) VisitGetEntityTypeAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEntityTypeAccess429ApplicationProblemPlusJSONResponse Problem
+
+func (response GetEntityTypeAccess429ApplicationProblemPlusJSONResponse) VisitGetEntityTypeAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEntityTypeAccess500ApplicationProblemPlusJSONResponse Problem
+
+func (response GetEntityTypeAccess500ApplicationProblemPlusJSONResponse) VisitGetEntityTypeAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEntityTypeAccess501ApplicationProblemPlusJSONResponse Problem
+
+func (response GetEntityTypeAccess501ApplicationProblemPlusJSONResponse) VisitGetEntityTypeAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutEntityTypeAccessRequestObject struct {
+	Key    Key `json:"key"`
+	Params PutEntityTypeAccessParams
+	Body   *PutEntityTypeAccessJSONRequestBody
+}
+
+type PutEntityTypeAccessResponseObject interface {
+	VisitPutEntityTypeAccessResponse(w http.ResponseWriter) error
+}
+
+type PutEntityTypeAccess200ResponseHeaders struct {
+	ETag string
+}
+
+type PutEntityTypeAccess200JSONResponse struct {
+	Body    AccessPolicy
+	Headers PutEntityTypeAccess200ResponseHeaders
+}
+
+func (response PutEntityTypeAccess200JSONResponse) VisitPutEntityTypeAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutEntityTypeAccess400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response PutEntityTypeAccess400ApplicationProblemPlusJSONResponse) VisitPutEntityTypeAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutEntityTypeAccess401ApplicationProblemPlusJSONResponse Problem
+
+func (response PutEntityTypeAccess401ApplicationProblemPlusJSONResponse) VisitPutEntityTypeAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutEntityTypeAccess403ApplicationProblemPlusJSONResponse Problem
+
+func (response PutEntityTypeAccess403ApplicationProblemPlusJSONResponse) VisitPutEntityTypeAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutEntityTypeAccess404ApplicationProblemPlusJSONResponse struct {
+	ProblemNoInstanceApplicationProblemPlusJSONResponse
+}
+
+func (response PutEntityTypeAccess404ApplicationProblemPlusJSONResponse) VisitPutEntityTypeAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutEntityTypeAccess412ResponseHeaders struct {
+	ETag string
+}
+
+type PutEntityTypeAccess412ApplicationProblemPlusJSONResponse struct {
+	Body    Problem
+	Headers PutEntityTypeAccess412ResponseHeaders
+}
+
+func (response PutEntityTypeAccess412ApplicationProblemPlusJSONResponse) VisitPutEntityTypeAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(412)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutEntityTypeAccess422ApplicationProblemPlusJSONResponse Problem
+
+func (response PutEntityTypeAccess422ApplicationProblemPlusJSONResponse) VisitPutEntityTypeAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutEntityTypeAccess428ApplicationProblemPlusJSONResponse Problem
+
+func (response PutEntityTypeAccess428ApplicationProblemPlusJSONResponse) VisitPutEntityTypeAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(428)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutEntityTypeAccess429ApplicationProblemPlusJSONResponse Problem
+
+func (response PutEntityTypeAccess429ApplicationProblemPlusJSONResponse) VisitPutEntityTypeAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutEntityTypeAccess500ApplicationProblemPlusJSONResponse Problem
+
+func (response PutEntityTypeAccess500ApplicationProblemPlusJSONResponse) VisitPutEntityTypeAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutEntityTypeAccess501ApplicationProblemPlusJSONResponse Problem
+
+func (response PutEntityTypeAccess501ApplicationProblemPlusJSONResponse) VisitPutEntityTypeAccessResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -3029,6 +3686,9 @@ func (response GetRecordHistory501ApplicationProblemPlusJSONResponse) VisitGetRe
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// ExplainAccess Why a user can or cannot read a record (tenant admin)
+	// (GET /api/v1/access/explain)
+	ExplainAccess(ctx context.Context, request ExplainAccessRequestObject) (ExplainAccessResponseObject, error)
 	// ListAuditEntries The tenant's audit timeline
 	// (GET /api/v1/audit/entries)
 	ListAuditEntries(ctx context.Context, request ListAuditEntriesRequestObject) (ListAuditEntriesResponseObject, error)
@@ -3041,6 +3701,12 @@ type StrictServerInterface interface {
 	// GetEntityType The current version of an entity type
 	// (GET /api/v1/entity-types/{key})
 	GetEntityType(ctx context.Context, request GetEntityTypeRequestObject) (GetEntityTypeResponseObject, error)
+	// GetEntityTypeAccess The entity type's published access policy (tenant admin)
+	// (GET /api/v1/entity-types/{key}/access)
+	GetEntityTypeAccess(ctx context.Context, request GetEntityTypeAccessRequestObject) (GetEntityTypeAccessResponseObject, error)
+	// PutEntityTypeAccess Publish the next access policy version (tenant admin)
+	// (PUT /api/v1/entity-types/{key}/access)
+	PutEntityTypeAccess(ctx context.Context, request PutEntityTypeAccessRequestObject) (PutEntityTypeAccessResponseObject, error)
 	// PublishEntityTypeVersion Publish the next version of an entity type (tenant admin)
 	// (POST /api/v1/entity-types/{key}/versions)
 	PublishEntityTypeVersion(ctx context.Context, request PublishEntityTypeVersionRequestObject) (PublishEntityTypeVersionResponseObject, error)
@@ -3107,6 +3773,32 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// ExplainAccess operation middleware
+func (sh *strictHandler) ExplainAccess(w http.ResponseWriter, r *http.Request, params ExplainAccessParams) {
+	var request ExplainAccessRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ExplainAccess(ctx, request.(ExplainAccessRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ExplainAccess")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ExplainAccessResponseObject); ok {
+		if err := validResponse.VisitExplainAccessResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // ListAuditEntries operation middleware
@@ -3213,6 +3905,66 @@ func (sh *strictHandler) GetEntityType(w http.ResponseWriter, r *http.Request, k
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetEntityTypeResponseObject); ok {
 		if err := validResponse.VisitGetEntityTypeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetEntityTypeAccess operation middleware
+func (sh *strictHandler) GetEntityTypeAccess(w http.ResponseWriter, r *http.Request, key Key) {
+	var request GetEntityTypeAccessRequestObject
+
+	request.Key = key
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetEntityTypeAccess(ctx, request.(GetEntityTypeAccessRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetEntityTypeAccess")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetEntityTypeAccessResponseObject); ok {
+		if err := validResponse.VisitGetEntityTypeAccessResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutEntityTypeAccess operation middleware
+func (sh *strictHandler) PutEntityTypeAccess(w http.ResponseWriter, r *http.Request, key Key, params PutEntityTypeAccessParams) {
+	var request PutEntityTypeAccessRequestObject
+
+	request.Key = key
+	request.Params = params
+
+	var body PutEntityTypeAccessJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutEntityTypeAccess(ctx, request.(PutEntityTypeAccessRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutEntityTypeAccess")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutEntityTypeAccessResponseObject); ok {
+		if err := validResponse.VisitPutEntityTypeAccessResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

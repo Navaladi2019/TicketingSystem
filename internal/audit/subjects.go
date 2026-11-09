@@ -16,6 +16,7 @@ const (
 	SubjectRecord           = subjects.Record
 	SubjectCascadeKey       = subjects.CascadeKey
 	SubjectEntityDefinition = subjects.EntityDefinition
+	SubjectACLPolicy        = subjects.ACLPolicy
 	SubjectAuditExport      = subjects.AuditExport
 	SubjectAuditChain       = subjects.AuditChain
 	SubjectErasureRequest   = subjects.ErasureRequest

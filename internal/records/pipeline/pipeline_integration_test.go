@@ -253,7 +253,9 @@ func TestAuditAndSinkInTheWriteTransaction(t *testing.T) {
 	p := newPipeline(e, sink)
 	origin := uuid.New()
 
-	res := mustCreate(t, e, p, f, map[string]any{"title": "printer"})
+	// An explicit requester: this test is about the audit entry, not about the
+	// default the pipeline gives a create that leaves it out (A4).
+	res := mustCreate(t, e, p, f, map[string]any{"title": "printer", "requester": f.principal.PrincipalID.String()})
 	cmd := updateCmd(f, res.RecordID, 1, map[string]any{"summary": "x"})
 	cmd.Source, cmd.Causation = pipeline.SourceRule, outbox.Causation{OriginID: origin, Depth: 1}
 	if _, err := write(context.Background(), e, p, f.id, cmd); err != nil {
@@ -276,7 +278,8 @@ func TestAuditAndSinkInTheWriteTransaction(t *testing.T) {
 		Domain: "record", Action: "create", SubjectType: "record", SubjectID: res.RecordID, DefinitionID: defPtr,
 		VersionAfter: ptr(int64(1)), ActorPrincipal: &f.principal.PrincipalID, Source: "user",
 		CausationID: &sink.events[0].Causation.OriginID,
-		Diff:        `[{"op":"add","path":"","value":{"priority":"low","status":"open","title":"printer"}}]`,
+		// The requester the create sent.
+		Diff: `[{"op":"add","path":"","value":{"priority":"low","requester":"` + f.principal.PrincipalID.String() + `","status":"open","title":"printer"}}]`,
 	}); diff != "" {
 		t.Fatalf("create entry: %s", diff)
 	}

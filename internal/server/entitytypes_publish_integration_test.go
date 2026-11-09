@@ -320,7 +320,8 @@ func etAuditRows(t *testing.T, e *etEnv) []etAuditRow {
 	t.Helper()
 	rows, err := e.super.Query(t.Context(), `
 SELECT action, version_before, version_after, content_sha256, source, actor_principal_id, request_id
-FROM audit_log WHERE tenant_id = $1 AND domain = 'config' AND subject_type = 'entity_definition' ORDER BY version_after`, e.a.id)
+FROM audit_log WHERE tenant_id = $1 AND domain = 'config' AND subject_type = 'entity_definition'
+  AND source <> 'system' ORDER BY version_after`, e.a.id) // not the system entries of the test ACLs (acltest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -379,7 +380,7 @@ func TestPublishWritesCreateThenPublishEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := e.super.QueryRow(t.Context(),
-		"SELECT diff::text FROM audit_log WHERE tenant_id = $1 AND domain = 'config' AND version_after = 2", e.a.id).Scan(&stored); err != nil {
+		"SELECT diff::text FROM audit_log WHERE tenant_id = $1 AND domain = 'config' AND version_after = 2 AND source <> 'system'", e.a.id).Scan(&stored); err != nil {
 		t.Fatal(err)
 	}
 	if stored != string(want) {

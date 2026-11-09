@@ -170,7 +170,7 @@ func newIDEnv(t *testing.T, appPoolOverride *pgxpool.Pool) *idEnv {
 		t.Fatal(err)
 	}
 	svc, err := onboard.New(onboard.Options{
-		Store: store, Directory: dir, Finder: dir, Domains: onboard.NewRegistry(pool),
+		Store: store, Directory: dir, Finder: dir, Domains: onboard.NewRegistry(pool), ACL: onboard.ACLStore{Pool: pool},
 		Specs: onboard.NewSpecs(), Resolver: pubResolver{}, Issuer: realm.Issuer(), Log: slog.New(slog.DiscardHandler),
 	})
 	if err != nil {
@@ -235,7 +235,7 @@ func (v *idEnv) footprint(t *testing.T) map[string]int {
 	out := map[string]int{}
 	for _, table := range []string{
 		"tenants", "tenant_identity_binding", "tenant_email_domain", "groups",
-		"tenant_admin_group", "entity_definitions", "entity_definition_versions", "principals", "group_members",
+		"tenant_admin_group", "entity_definitions", "entity_definition_versions", "acl_versions", "principals", "group_members",
 	} {
 		out[table] = v.count(t, "SELECT count(*) FROM "+table)
 	}
@@ -456,7 +456,7 @@ func (v *idEnv) tenantRows(t *testing.T, id uuid.UUID) map[string]int {
 	out := map[string]int{}
 	for _, table := range []string{
 		"tenant_identity_binding", "tenant_email_domain", "groups", "tenant_admin_group",
-		"entity_definitions", "entity_definition_versions",
+		"entity_definitions", "entity_definition_versions", "acl_versions",
 	} {
 		out[table] = v.count(t, "SELECT count(*) FROM "+table+" WHERE tenant_id = $1", id)
 	}
@@ -509,6 +509,31 @@ func TestOnboardCreatesRowsAndReplayWritesOnce(t *testing.T) {
 	}
 	if len(v.dir.inviteList()) != 1 || v.dir.inviteList()[0] != "admin@acme-one.test" {
 		t.Errorf("invites = %v, want the admin once", v.dir.inviteList())
+	}
+	// P3-35: the incident type has the default ACL v1, naming the tenant's own
+	// admins group, with its audit entry; the other types have none and fail
+	// closed until an admin publishes one.
+	var adminGroup uuid.UUID
+	if err := v.e.super.QueryRow(t.Context(), "SELECT group_id FROM tenant_admin_group WHERE tenant_id = $1", want).Scan(&adminGroup); err != nil {
+		t.Fatal(err)
+	}
+	var rules string
+	if err := v.e.super.QueryRow(t.Context(), `SELECT a.rules::text FROM acl_versions a JOIN entity_definitions d ON d.tenant_id = a.tenant_id AND d.id = a.entity_definition_id
+		WHERE a.tenant_id = $1 AND d.key = 'incident' AND a.version = 1 AND a.published_by IS NULL`, want).Scan(&rules); err != nil {
+		t.Fatalf("incident ACL v1: %v", err)
+	}
+	for _, w := range []string{`"default-admins"`, `"default-requester"`, adminGroup.String()} {
+		if !strings.Contains(rules, w) {
+			t.Errorf("default incident ACL %s lacks %s", rules, w)
+		}
+	}
+	if n := v.count(t, "SELECT count(*) FROM acl_versions WHERE tenant_id = $1", want); n != 1 {
+		t.Errorf("%d ACL versions, want only the incident's", n)
+	}
+	if n := v.count(t, `SELECT count(*) FROM audit_log a JOIN entity_definitions d ON d.tenant_id = a.tenant_id AND d.id = a.subject_id
+		WHERE a.tenant_id = $1 AND d.key = 'incident' AND a.domain = 'config' AND a.subject_type = 'acl_policy' AND a.action = 'publish' AND a.version_after = 1
+		  AND a.actor_system = 'onboarding' AND a.source = 'onboarding'`, want); n != 1 {
+		t.Errorf("%d audit entries for the default ACL, want 1", n)
 	}
 
 	rows := v.tenantRows(t, want)

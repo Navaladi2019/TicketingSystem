@@ -598,6 +598,7 @@ func (w *write) create(ctx context.Context, after map[string]any) (Result, error
 	if err := rec.Split(after, fixed); err != nil {
 		return Result{}, fmt.Errorf("pipeline: %w", err)
 	}
+	w.defaultRequester(rec, after, fixed)
 	// A new record has no shares. The check runs before the unique and
 	// group lookups, so a refused writer learns nothing from them.
 	if err := w.canWrite(ctx, nil, rowOf(rec, nil)); err != nil {
@@ -621,6 +622,28 @@ func (w *write) create(ctx context.Context, after map[string]any) (Result, error
 		return Result{}, fmt.Errorf("pipeline: %w", err)
 	}
 	return w.finish(ctx, rec, nil)
+}
+
+// defaultRequester sets requester_id to the caller when a user or AI create
+// leaves the requester property out (contract amendment A4), before the write
+// check, so the check sees the row that would be stored. An explicit value,
+// null included, is the caller's own and goes through the check as sent. A
+// system source gets no default: it has no principal to name. A type that maps
+// no property to requester_id has nothing to default.
+func (w *write) defaultRequester(rec *store.Record, after map[string]any, fixed map[string]string) {
+	if w.cmd.Source.system() || w.cmd.Actor.PrincipalID == uuid.Nil {
+		return
+	}
+	for prop, col := range fixed {
+		if col != metadata.ColumnRequesterID {
+			continue
+		}
+		if _, sent := after[prop]; !sent {
+			id := w.cmd.Actor.PrincipalID
+			rec.RequesterID = &id
+		}
+		return
+	}
 }
 
 func (w *write) update(ctx context.Context, patch map[string]any) (Result, error) {

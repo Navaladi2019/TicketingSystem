@@ -91,6 +91,7 @@ func onboardService(t *testing.T) (*onboard.Service, *e2eDir) {
 		Directory: dir,
 		Finder:    dir,
 		Domains:   onboard.NewRegistry(rolePool(t, "nava_app", 2)),
+		ACL:       onboard.ACLStore{Pool: rolePool(t, "nava_app", 2)},
 		Specs:     specs,
 		Resolver:  e2eResolver{},
 		Issuer:    "https://kc/realms/nava",

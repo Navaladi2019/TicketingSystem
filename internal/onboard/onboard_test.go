@@ -237,7 +237,7 @@ func newSvc(t *testing.T) (*Service, *fakeStore, *fakeDir) {
 	st := newStore()
 	specs := NewSpecs()
 	dir := &fakeDir{orgs: map[uuid.UUID]string{}, specs: specs}
-	svc, err := New(Options{Store: st, Directory: dir, Finder: dir, Domains: st, Specs: specs, Resolver: okResolver,
+	svc, err := New(Options{Store: st, Directory: dir, Finder: dir, Domains: st, ACL: &fakeACL{}, Specs: specs, Resolver: okResolver,
 		Issuer: "https://kc/realms/nava", Log: slog.New(slog.DiscardHandler)})
 	if err != nil {
 		t.Fatal(err)

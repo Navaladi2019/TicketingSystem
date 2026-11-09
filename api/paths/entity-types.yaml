@@ -216,6 +216,130 @@ paths:
           $ref: "../openapi.yaml#/components/responses/Problem"
         "501":
           $ref: "../openapi.yaml#/components/responses/Problem"
+  /api/v1/entity-types/{key}/access:
+    get:
+      operationId: getEntityTypeAccess
+      summary: The entity type's published access policy (tenant admin)
+      description: >
+        Tenant admins only, own tenant only. Returns the newest published ACL
+        version: `{version, rules, masks, published_by, published_at}` with
+        `ETag: W/"<version>"`. `published_by` is null for a version no
+        principal published (the onboarding default). 404 when the key is
+        unknown, is another tenant's, or has no published version; the body is
+        the same in each case.
+      parameters:
+        - $ref: "#/components/parameters/Key"
+      responses:
+        "200":
+          description: The newest access policy version.
+          headers:
+            ETag:
+              required: true
+              description: Weak ETag of the version, `W/"<version>"`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessPolicy"
+        "401":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "403":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "404":
+          $ref: "../openapi.yaml#/components/responses/ProblemNoInstance"
+        "429":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "500":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "501":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+    put:
+      operationId: putEntityTypeAccess
+      summary: Publish the next access policy version (tenant admin)
+      description: >
+        Publishes immutable ACL version N+1 from the body `{rules, masks}`
+        (`masks` optional). Tenant admins only, own tenant only. `If-Match`
+        carries the `ETag` the publish is based on; the first publish uses
+        `W/"0"`. A body that is not a JSON object is 400 `validation_failed`
+        (the validator); 422 is for an object that breaks the policy rules. Check order: authentication, admin (403), entity type (404),
+        `If-Match` missing (428 `if_match_required`), stale (412
+        `version_conflict`, current `ETag` in the header), then the body (422
+        `invalid_access_policy` with `errors[].pointer` and `rule`). The body
+        is refused when a column, op or `caller` is unknown, a shape rule of
+        the database is broken, a rule id repeats, a mask field is not a
+        top-level schema property, a mask subject sets `requester`, `assignee`
+        or `shared`, a mask's `write` names a group or user its `read` does not,
+        or any group or user id (in a subject or a condition) is not in the
+        tenant (`not_in_tenant`, the same for an unknown id and another
+        tenant's). A refused request writes no version and no audit entry. The
+        publish writes one audit entry in the same transaction.
+        `Idempotency-Key` is required.
+      parameters:
+        - $ref: "#/components/parameters/Key"
+        - name: If-Match
+          in: header
+          required: false
+          description: >
+            The `ETag` of the version the publish is based on. Optional in the
+            contract only so that its absence is the registered 428.
+          schema:
+            type: string
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PutAccessPolicyRequest"
+      responses:
+        "200":
+          description: The published version.
+          headers:
+            ETag:
+              required: true
+              description: Weak ETag of the new version, `W/"<version>"`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessPolicy"
+        "400":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "401":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "403":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "404":
+          $ref: "../openapi.yaml#/components/responses/ProblemNoInstance"
+        "412":
+          description: The `If-Match` version is not the newest; the current `ETag` is in the header.
+          headers:
+            ETag:
+              required: true
+              schema:
+                type: string
+          content:
+            application/problem+json:
+              schema:
+                $ref: "../openapi.yaml#/components/schemas/Problem"
+        "422":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "428":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "429":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "500":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "501":
+          $ref: "../openapi.yaml#/components/responses/Problem"
 components:
   parameters:
     Key:
@@ -227,6 +351,38 @@ components:
       schema:
         type: string
   schemas:
+    PutAccessPolicyRequest:
+      type: object
+      description: >
+        Deliberately unconstrained here: the server checks every field after
+        the admin check and answers 422 `invalid_access_policy` with
+        `errors[].pointer`. Kept as the request bytes (`json.RawMessage`).
+      x-go-type: json.RawMessage
+      properties:
+        rules:
+          description: "Array of `{id, ops, who, where?}`; may be empty (nobody is allowed)."
+        masks:
+          description: "Array of `{field, read, write}`; optional."
+    AccessPolicy:
+      type: object
+      required: [version, rules, masks, published_at]
+      properties:
+        version:
+          type: integer
+        rules:
+          type: array
+          items:
+            type: object
+        masks:
+          type: array
+          items:
+            type: object
+        published_by:
+          type: [string, "null"]
+          format: uuid
+        published_at:
+          type: string
+          format: date-time
     CreateEntityTypeRequest:
       type: object
       description: >

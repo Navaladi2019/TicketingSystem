@@ -22,8 +22,8 @@ import (
 
 const (
 	// insertACL: tenant $1, type $2, version $3, publisher $4.
-	insertACL = `INSERT INTO acl_versions (tenant_id, entity_definition_id, version, rules, masks, published_by)
-		VALUES ($1, $2, $3, '[]', '[]', $4)`
+	insertACL = `WITH r AS (INSERT INTO acl_versions (tenant_id, entity_definition_id, version, rules, masks, published_by)
+		VALUES ($1, $2, $3, '[]', '[]', $4) RETURNING tenant_id, entity_definition_id, version) ` + aclEntry
 	// insertShare: tenant $1, record $2, user $3, group $4, kind $5,
 	// granter $6 (TICK-625: user_id and group_id replace principal_id).
 	insertShare = `INSERT INTO record_shares (tenant_id, record_id, user_id, group_id, principal_kind, granted_by)
@@ -32,6 +32,14 @@ const (
 	insertShareGroup = `INSERT INTO groups (tenant_id, id, keycloak_group_id, path)
 		VALUES ($1::uuid, $2::uuid, 'kc-' || $2::text, '/t/' || $1::text || '/shares')`
 )
+
+// aclEntry writes the audit entry of each acl_versions row of the CTE r, so
+// the fixture's COMMIT passes the commit check acl_versions has since P3-35
+// (the same shape as withRecordEntry).
+const aclEntry = `INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, entity_definition_id,
+		version_after, actor_system, source, content_sha256)
+	SELECT tenant_id, gen_random_uuid(), 'config', 'publish', 'acl_policy', entity_definition_id, entity_definition_id,
+		version, 'system', 'system', sha256('acl') FROM r`
 
 var aclTables = []string{"acl_versions", "record_shares"}
 
@@ -271,4 +279,32 @@ func beforeACLTables(fsys fs.FS, m *grants.Manifest, a *audited.Manifest) (*gran
 		}
 	}
 	return &gm, &am
+}
+
+// Acceptance (P3-35, TICK-620; ADR-004 CI-A3): acl_versions carries the audit
+// commit check. A publish with no audit entry for its entity type in the same
+// transaction is refused at COMMIT with audit_missing, for both writer roles,
+// and the same insert with its entry commits.
+func TestP335ACLPublishWithoutAnAuditEntryIsRefused(t *testing.T) {
+	migratedPlatform(t)
+	super := superNava(t)
+	seedTenants(t, super, []string{tenantA}, nil)
+	seedACL(t, super, tenantA)
+
+	const bare = `INSERT INTO acl_versions (tenant_id, entity_definition_id, version, rules, masks, published_by)
+		VALUES ($1, $2, $3, '[]', '[]', $4)`
+	for i, role := range []string{"nava_app", "nava_worker"} {
+		conn := asRole(t, role)
+		_, err := execIn(conn, tenantA, bare, tenantA, tenantA, 2+i*2, tenantA)
+		if code, constraint := pgErrDetail(err); code != "23514" || constraint != "acl_versions_audit_commit_check" {
+			t.Errorf("%s publishes with no audit entry: err = %v (constraint %q), want 23514 from acl_versions_audit_commit_check", role, err, constraint)
+		}
+		if _, err := execIn(conn, tenantA, insertACL, tenantA, tenantA, 3+i*2, tenantA); err != nil {
+			t.Errorf("%s publishes with its audit entry: %v", role, err)
+		}
+	}
+	if got := queryString(t, super, `SELECT string_agg(version::text, ',' ORDER BY version) FROM acl_versions
+		WHERE tenant_id = $1 AND entity_definition_id = $1`, tenantA); got != "1,3,5" {
+		t.Errorf("versions after the refused publishes = %s, want 1,3,5 (the bare ones wrote nothing)", got)
+	}
 }

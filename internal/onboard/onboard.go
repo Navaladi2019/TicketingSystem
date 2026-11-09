@@ -141,7 +141,9 @@ type Options struct {
 	Directory Directory
 	Finder    OrgFinder // optional
 	// Domains reads, as nava_app under RLS, whether the tenant owns a domain.
-	Domains  DomainOwnership
+	Domains DomainOwnership
+	// ACL publishes the default incident ACL of the new tenant (P3-35).
+	ACL      ACLPublisher
 	Specs    *Specs
 	Resolver Resolver
 	// Issuer is the realm issuer written to tenant_identity_binding.
@@ -156,8 +158,8 @@ type Service struct {
 
 // New returns a Service.
 func New(o Options) (*Service, error) {
-	if o.Store == nil || o.Directory == nil || o.Specs == nil || o.Domains == nil || o.Resolver == nil || o.Log == nil || o.Issuer == "" {
-		return nil, errors.New("onboard: store, directory, domains, specs, resolver, issuer and logger are required")
+	if o.Store == nil || o.Directory == nil || o.Specs == nil || o.Domains == nil || o.ACL == nil || o.Resolver == nil || o.Log == nil || o.Issuer == "" {
+		return nil, errors.New("onboard: store, directory, domains, acl, specs, resolver, issuer and logger are required")
 	}
 	return &Service{o: o}, nil
 }
@@ -262,6 +264,12 @@ func (s *Service) Onboard(ctx context.Context, operator identity.Operator, key s
 				slog.String("tenant_id", tenantID.String()),
 				slog.String("keycloak_group_id", kcAuditorID))
 		}
+		return Result{}, err
+	}
+	// Record authorization fails closed (S10), so the seeded incident type
+	// gets its default ACL before the tenant is active. After the admins
+	// group, which the default names. Idempotent for a retry.
+	if _, err := s.o.ACL.PublishDefaultIncident(ctx, tenantID); err != nil {
 		return Result{}, err
 	}
 	// Every audited write has committed by now, while the tenant is still

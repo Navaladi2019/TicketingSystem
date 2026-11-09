@@ -36,6 +36,15 @@
   "listAuditEntries": {
     "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database, cursor keys or the audit reader pool, which an integration test against a database never is."
   },
+  "getEntityTypeAccess": {
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."
+  },
+  "putEntityTypeAccess": {
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."
+  },
+  "explainAccess": {
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."
+  },
   "listRecords": {
     "429": "Not asserted here: the limiter is route-agnostic; internal/server/write_chain_test.go drives it on tenant routes.",
     "500": "Needs an internal failure (a dependency error mid-request); not caused through the handler against a healthy database.",

@@ -73,6 +73,11 @@ func TestEveryTenantWriteRouteCompletesItsKeyInTheWrite(t *testing.T) {
 			e.h.ServeHTTP(w, req)
 			return w
 		},
+		"PUT /api/v1/entity-types/{key}/access": func(key string) *httptest.ResponseRecorder {
+			// Keeps the seeded principals able to use the types, as the test ACL did.
+			body := `{"rules": [{"id": "k487", "ops": ["read", "write"], "who": {"users": ["` + e.a.admin.PrincipalID.String() + `", "` + e.a.user.PrincipalID.String() + `"]}}]}`
+			return e.access(t, http.MethodPut, "/api/v1/entity-types/incident/access", "admin-a", key, `W/"1"`, body)
+		},
 	}
 
 	_, tenant := contractWriteOps(t)

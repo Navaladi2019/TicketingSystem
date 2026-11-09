@@ -170,9 +170,10 @@ func TestP511CatalogueCIA3(t *testing.T) {
 	if p, err := auditedManifest(t).Check(ctx, super, m, g); err != nil || len(p) != 0 {
 		t.Fatalf("real manifest: problems %v, err %v", p, err)
 	}
-	// Exactly three tables have the trigger: records (P5-13c, TICK-530) and
-	// the entity-definition tables (P5-32, migration B, TICK-442).
-	const wantTriggers = "entity_definition_versions:entity_definition_versions_audit_commit_check:O," +
+	// Exactly four tables have the trigger: records (P5-13c, TICK-530), the
+	// entity-definition tables (P5-32, migration B, TICK-442) and acl_versions
+	// (P3-35, TICK-620).
+	const wantTriggers = "acl_versions:acl_versions_audit_commit_check:O,entity_definition_versions:entity_definition_versions_audit_commit_check:O," +
 		"entity_definitions:entity_definitions_audit_commit_check:O,records:records_audit_commit_check:O"
 	if got := queryString(t, super, `SELECT coalesce(string_agg(t.tgrelid::regclass::text || ':' || t.tgname || ':' || t.tgenabled::text, ','
 		ORDER BY t.tgname COLLATE "C"), '')

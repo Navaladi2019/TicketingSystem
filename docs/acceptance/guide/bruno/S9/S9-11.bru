@@ -1,7 +1,7 @@
 meta {
   name: S9.11 AC2: update without If-Match: 428
   type: http
-  seq: 11
+  seq: 15
 }
 
 patch {
@@ -11,7 +11,7 @@ patch {
 }
 
 headers {
-  Authorization: Bearer {{alice_token}}
+  Authorization: Bearer {{admin_a_token}}
   Idempotency-Key: tick359-s9-{{s9_run}}-nomatch
   Content-Type: application/merge-patch+json
 }

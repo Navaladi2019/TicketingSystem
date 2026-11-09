@@ -231,14 +231,15 @@ func TestDiffIsBuiltFromStoredJSONB(t *testing.T) {
 		"requester":{"type":"string","format":"uuid"},"n":{"type":"number"},"m":{"type":"object"}}}`)
 	f := seedTenantWith(t, e, def)
 	p := newPipeline(e, nil)
-	cmd := createCmd(f, map[string]any{"title": "t", "n": json.Number("1e2"), "m": map[string]any{"z": 1, "a": json.Number("2.50")}})
+	// An explicit requester: this test is about jsonb's literals, not the default (A4).
+	cmd := createCmd(f, map[string]any{"title": "t", "requester": f.principal.PrincipalID.String(), "n": json.Number("1e2"), "m": map[string]any{"z": 1, "a": json.Number("2.50")}})
 	cmd.EntityKey = "metric"
 	res, err := write(context.Background(), e, p, f.id, cmd)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := readEntry(t, e, f.id, "create", res.RecordID)
-	if want := `[{"op":"add","path":"","value":{"m":{"a":2.50,"z":1},"n":100,"status":"open","title":"t"}}]`; got.Diff != want {
+	if want := `[{"op":"add","path":"","value":{"m":{"a":2.50,"z":1},"n":100,"requester":"` + f.principal.PrincipalID.String() + `","status":"open","title":"t"}}]`; got.Diff != want {
 		t.Errorf("diff %s, want %s (jsonb's literals)", got.Diff, want)
 	}
 }
