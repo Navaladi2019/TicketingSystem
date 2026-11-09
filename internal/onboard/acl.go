@@ -49,10 +49,15 @@ const (
 // triaged by the admins group (M1 has no null condition). There are no masks.
 // A tenant with no service-desk group (serviceDesk
 // empty) gets no service-desk rule: a rule that names no group matches no one.
+// The same holds for admins == uuid.Nil: a tenant with no admins group row (only
+// the stack seed's tenant B) gets no admins rule.
 func DefaultIncidentRules(admins uuid.UUID, serviceDesk []uuid.UUID) []authz.Rule {
-	rules := []authz.Rule{{
-		ID: RuleAdmins, Ops: []string{authz.OpRead, authz.OpWrite}, Who: authz.Subject{Groups: []uuid.UUID{admins}},
-	}}
+	var rules []authz.Rule
+	if admins != uuid.Nil {
+		rules = append(rules, authz.Rule{
+			ID: RuleAdmins, Ops: []string{authz.OpRead, authz.OpWrite}, Who: authz.Subject{Groups: []uuid.UUID{admins}},
+		})
+	}
 	if len(serviceDesk) > 0 {
 		rules = append(rules, authz.Rule{
 			ID: RuleServiceDesk, Ops: []string{authz.OpRead, authz.OpWrite}, Who: authz.Subject{Groups: serviceDesk},
@@ -75,7 +80,15 @@ type ACLPublisher interface {
 // ACLStore is the PostgreSQL ACLPublisher. Its pool logs in as nava_app, the
 // role that writes acl_versions (db/audited-tables.yaml), and every statement
 // runs in the tenant's own transaction, so row-level security scopes it.
-type ACLStore struct{ Pool *pgxpool.Pool }
+type ACLStore struct {
+	Pool *pgxpool.Pool
+	// NoAdminsOK lets a tenant with no tenant_admin_group row get the default
+	// without the admins rule, where onboarding refuses it (ErrNoTenantAdmin):
+	// an onboarded tenant always has the row, and a missing one there is a
+	// bug. The reconcile sets it, for the stack seed's tenant B, which has no
+	// admins group.
+	NoAdminsOK bool
+}
 
 var _ ACLPublisher = ACLStore{}
 
@@ -94,7 +107,9 @@ func (s ACLStore) PublishDefaultIncident(ctx context.Context, tenantID uuid.UUID
 	err := tenancy.InTenantTx(ctx, s.Pool, tenantID, func(tx pgx.Tx) error {
 		var admins uuid.UUID
 		if err := tx.QueryRow(ctx, adminGroupSQL, tenantID).Scan(&admins); errors.Is(err, pgx.ErrNoRows) {
-			return ErrNoTenantAdmin
+			if !s.NoAdminsOK {
+				return ErrNoTenantAdmin
+			}
 		} else if err != nil {
 			return err
 		}

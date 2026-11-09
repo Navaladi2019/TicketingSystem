@@ -238,7 +238,8 @@ func TestDiffIsBuiltFromStoredJSONB(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := readEntry(t, e, f.id, "create", res.RecordID)
-	if want := `[{"op":"add","path":"","value":{"m":{"a":2.50,"z":1},"n":100,"status":"open","title":"t"}}]`; got.Diff != want {
+	// requester is the caller: a user create that leaves it out gets it (A4).
+	if want := `[{"op":"add","path":"","value":{"m":{"a":2.50,"z":1},"n":100,"requester":"` + f.principal.PrincipalID.String() + `","status":"open","title":"t"}}]`; got.Diff != want {
 		t.Errorf("diff %s, want %s (jsonb's literals)", got.Diff, want)
 	}
 }

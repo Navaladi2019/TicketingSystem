@@ -276,7 +276,8 @@ func TestAuditAndSinkInTheWriteTransaction(t *testing.T) {
 		Domain: "record", Action: "create", SubjectType: "record", SubjectID: res.RecordID, DefinitionID: defPtr,
 		VersionAfter: ptr(int64(1)), ActorPrincipal: &f.principal.PrincipalID, Source: "user",
 		CausationID: &sink.events[0].Causation.OriginID,
-		Diff:        `[{"op":"add","path":"","value":{"priority":"low","status":"open","title":"printer"}}]`,
+		// requester is the caller: a user create that leaves it out gets it (A4).
+		Diff: `[{"op":"add","path":"","value":{"priority":"low","requester":"` + f.principal.PrincipalID.String() + `","status":"open","title":"printer"}}]`,
 	}); diff != "" {
 		t.Fatalf("create entry: %s", diff)
 	}
