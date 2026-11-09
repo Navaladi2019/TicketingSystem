@@ -511,6 +511,13 @@ erDiagram
 
 ### Evidence (P3-09)
 
+> **Superseded index set (TICK-640, P3-34b).** `records_tenant_updated`,
+> `records_tenant_requester` and `records_tenant_group_open` were dropped in
+> `20261109110600_drop_records_s9_list_indexes.sql` and replaced by the
+> `records_list_*` set, each led by `(tenant_id, entity_definition_id)`.
+> Evidence and the current set: [`records-list-indexes.md`](records-list-indexes.md).
+> The numbers below are P3-09's, kept as recorded.
+
 `scratch/records-pipeline-bench/run.sh` (output in `result.txt`):
 `postgres:16.10` in Docker Desktop on Windows 11 (16 vCPU, 19.4 GiB given to
 Docker), the real migration body, prerequisite tables reduced to their keys,

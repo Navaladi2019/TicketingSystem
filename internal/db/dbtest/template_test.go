@@ -3,6 +3,7 @@
 package dbtest
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -41,6 +42,12 @@ func migratedCluster(t *testing.T) *grants.Manifest {
 					}
 					exec(t, conn, stmt)
 				}
+				// CREATE DATABASE does not copy database-level settings
+				// (ALTER DATABASE ... SET, e.g. TICK-640's jit = off).
+				for _, kv := range tpl.settings[d] {
+					k, v, _ := strings.Cut(kv, "=")
+					exec(t, conn, "ALTER DATABASE "+ident(d)+" SET "+ident(k)+" = '"+strings.ReplaceAll(v, "'", "''")+"'")
+				}
 			}
 			if got := queryString(t, conn, databasesFingerprint, m.DatabaseNames()); got != tpl.databases {
 				t.Fatalf("databases copied from templates differ from the migrated ones:\n got %s\nwant %s", got, tpl.databases)
@@ -52,7 +59,7 @@ func migratedCluster(t *testing.T) *grants.Manifest {
 
 	m = freshCluster(t)
 	migrateAll(t, m)
-	next := &template{grants: map[string][]databaseGrant{}}
+	next := &template{grants: map[string][]databaseGrant{}, settings: map[string][]string{}}
 	next.roles = queryString(t, conn, rolesFingerprint)
 	next.databases = queryString(t, conn, databasesFingerprint, m.DatabaseNames())
 	for _, d := range m.DatabaseNames() {
@@ -63,6 +70,11 @@ func migratedCluster(t *testing.T) *grants.Manifest {
 		if next.grants[d], err = pgx.CollectRows(rows, pgx.RowToStructByPos[databaseGrant]); err != nil {
 			t.Fatal(err)
 		}
+		var settings []string
+		if err := conn.QueryRow(t.Context(), databaseSettings, d).Scan(&settings); err != nil {
+			t.Fatal(err)
+		}
+		next.settings[d] = settings
 		// A template database must have no other session.
 		exec(t, conn, "SELECT pg_catalog.pg_terminate_backend(pid) FROM pg_catalog.pg_stat_activity WHERE datname = $1 AND pid <> pg_catalog.pg_backend_pid()", d)
 		name := ident(templateName(d))
@@ -82,7 +94,15 @@ var tpl *template
 type template struct {
 	roles, databases string
 	grants           map[string][]databaseGrant
+	settings         map[string][]string // database -> its own name=value settings
 }
+
+// databaseSettings is database $1's own settings (for every role), as
+// name=value.
+const databaseSettings = `
+	SELECT coalesce((SELECT s.setconfig FROM pg_catalog.pg_db_role_setting s
+	                 JOIN pg_catalog.pg_database d ON d.oid = s.setdatabase
+	                 WHERE d.datname = $1 AND s.setrole = 0), '{}')`
 
 type databaseGrant struct {
 	Grantee, Priv string // grantee quoted, or PUBLIC
@@ -138,7 +158,8 @@ const databasesFingerprint = `
 	                   a.privilege_type, a.is_grantable) AS x
 	            FROM pg_catalog.aclexplode(coalesce(d.datacl, pg_catalog.acldefault('d', d.datdba))) a) s),
 	       d.datallowconn, d.datistemplate, d.datconnlimit, d.encoding, d.datcollate, d.datctype,
-	       (SELECT count(*) FROM pg_catalog.pg_db_role_setting rs WHERE rs.setdatabase = d.oid)),
+	       (SELECT string_agg(rs.setrole::regrole::text || '=' || array_to_string(rs.setconfig, ','), ';' ORDER BY rs.setrole)
+	        FROM pg_catalog.pg_db_role_setting rs WHERE rs.setdatabase = d.oid)),
 	       ',' ORDER BY d.datname), '')
 	FROM pg_catalog.pg_database d WHERE d.datname = ANY ($1)`
 

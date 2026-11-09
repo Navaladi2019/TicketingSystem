@@ -75,19 +75,24 @@ func TestP309RecordsNotRewritten(t *testing.T) {
 	}
 }
 
-// Acceptance: the P3-01 index set, every index led by tenant_id, and no GIN
-// or expression index on records.
+// Acceptance: the records index set, every index led by tenant_id, and no GIN
+// or expression index on records. P3-09 shipped P3-01's set; P3-34b
+// (TICK-640) replaced its three list indexes with the records_list_* set,
+// each led by (tenant_id, entity_definition_id).
 func TestP309RecordsIndexSet(t *testing.T) {
 	migratedPlatform(t)
 	super := superNava(t)
 	got := queryString(t, super, `SELECT string_agg(indexname || ' ' || regexp_replace(indexdef, '^.* USING ', ''), E'\n' ORDER BY indexname)
 		FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'records'`)
 	want := strings.Join([]string{
+		"records_list_assignee btree (tenant_id, entity_definition_id, assignee_id DESC, updated_at DESC, id DESC)",
+		"records_list_created btree (tenant_id, entity_definition_id, created_at DESC, id DESC)",
+		"records_list_group btree (tenant_id, entity_definition_id, assignment_group_id DESC, updated_at DESC, id DESC)",
+		"records_list_requester btree (tenant_id, entity_definition_id, requester_id DESC, updated_at DESC, id DESC)",
+		"records_list_state btree (tenant_id, entity_definition_id, state DESC, updated_at DESC, id DESC)",
+		"records_list_updated btree (tenant_id, entity_definition_id, updated_at DESC, id DESC)",
 		"records_number_key btree (tenant_id, entity_definition_id, number)",
 		"records_pkey btree (tenant_id, id)",
-		"records_tenant_group_open btree (tenant_id, assignment_group_id, updated_at DESC, id DESC) WHERE (state <> 'closed'::text)",
-		"records_tenant_requester btree (tenant_id, requester_id, updated_at DESC, id DESC)",
-		"records_tenant_updated btree (tenant_id, updated_at DESC, id DESC)",
 	}, "\n")
 	if got != want {
 		t.Fatalf("records indexes:\n%s\nwant:\n%s", got, want)
