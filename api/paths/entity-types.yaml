@@ -261,7 +261,8 @@ paths:
         Publishes immutable ACL version N+1 from the body `{rules, masks}`
         (`masks` optional). Tenant admins only, own tenant only. `If-Match`
         carries the `ETag` the publish is based on; the first publish uses
-        `W/"0"`. Check order: authentication, admin (403), entity type (404),
+        `W/"0"`. A body that is not a JSON object is 400 `validation_failed`
+        (the validator); 422 is for an object that breaks the policy rules. Check order: authentication, admin (403), entity type (404),
         `If-Match` missing (428 `if_match_required`), stale (412
         `version_conflict`, current `ETag` in the header), then the body (422
         `invalid_access_policy` with `errors[].pointer` and `rule`). The body

@@ -152,6 +152,7 @@ func (e ListAuditEntriesParamsDomain) Valid() bool {
 
 // Defines values for ListAuditEntriesParamsSubjectType.
 const (
+	ListAuditEntriesParamsSubjectTypeAclPolicy        ListAuditEntriesParamsSubjectType = "acl_policy"
 	ListAuditEntriesParamsSubjectTypeAuditChain       ListAuditEntriesParamsSubjectType = "audit_chain"
 	ListAuditEntriesParamsSubjectTypeAuditExport      ListAuditEntriesParamsSubjectType = "audit_export"
 	ListAuditEntriesParamsSubjectTypeCascadeKey       ListAuditEntriesParamsSubjectType = "cascade_key"
@@ -163,6 +164,8 @@ const (
 // Valid indicates whether the value is a known member of the ListAuditEntriesParamsSubjectType enum.
 func (e ListAuditEntriesParamsSubjectType) Valid() bool {
 	switch e {
+	case ListAuditEntriesParamsSubjectTypeAclPolicy:
+		return true
 	case ListAuditEntriesParamsSubjectTypeAuditChain:
 		return true
 	case ListAuditEntriesParamsSubjectTypeAuditExport:

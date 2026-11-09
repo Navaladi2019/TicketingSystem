@@ -1,8 +1,8 @@
 -- P3-35 (TICK-620): attach the audit commit check to acl_versions (ADR-004
 -- CI-A3). From here a raw INSERT into acl_versions fails at COMMIT with
 -- audit_missing, unless the same transaction wrote an audit_log entry for the
--- same entity type (subject_type entity_definition, subject_id
--- entity_definition_id, db/audited-tables.yaml).
+-- same entity type's access policy (subject_type acl_policy, subject_id
+-- entity_definition_id, db/audited-tables.yaml; contract amendment A3).
 --
 -- The two writers of acl_versions are the publish route (authz.PolicyStore.
 -- Publish, which writes the entry with the version) and the default incident
@@ -25,7 +25,7 @@ SET LOCAL lock_timeout = '5s';
 CREATE CONSTRAINT TRIGGER acl_versions_audit_commit_check
     AFTER INSERT OR DELETE ON acl_versions
     DEFERRABLE INITIALLY DEFERRED
-    FOR EACH ROW EXECUTE FUNCTION audit_commit_check('entity_definition', 'entity_definition_id');
+    FOR EACH ROW EXECUTE FUNCTION audit_commit_check('acl_policy', 'entity_definition_id');
 
 -- +goose Down
 

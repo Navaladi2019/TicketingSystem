@@ -218,7 +218,7 @@ func auditPublish(ctx context.Context, tx pgx.Tx, def uuid.UUID, before, after *
 	e := audit.Entry{
 		Domain:        audit.DomainConfig,
 		Action:        audit.ActionPublish,
-		SubjectType:   audit.SubjectEntityDefinition,
+		SubjectType:   audit.SubjectACLPolicy,
 		SubjectID:     def,
 		VersionBefore: vBefore,
 		VersionAfter:  &va,

@@ -38,7 +38,7 @@ const (
 // (the same shape as withRecordEntry).
 const aclEntry = `INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, entity_definition_id,
 		version_after, actor_system, source, content_sha256)
-	SELECT tenant_id, gen_random_uuid(), 'config', 'publish', 'entity_definition', entity_definition_id, entity_definition_id,
+	SELECT tenant_id, gen_random_uuid(), 'config', 'publish', 'acl_policy', entity_definition_id, entity_definition_id,
 		version, 'system', 'system', sha256('acl') FROM r`
 
 var aclTables = []string{"acl_versions", "record_shares"}

@@ -46,6 +46,8 @@ func TestDefaultIncidentRulesAreTheContractsDefault(t *testing.T) {
 		{ID: "default-service-desk", Ops: []string{"read", "write"}, Who: authz.Subject{Groups: []uuid.UUID{desk}},
 			Where: []authz.Cond{{Column: "assignment_group_id", Op: "in", Caller: "my_groups"}}},
 		{ID: "default-requester", Ops: []string{"read"}, Who: authz.Subject{Requester: true}},
+		{ID: "default-requester-new", Ops: []string{"read", "write"}, Who: authz.Subject{Requester: true},
+			Where: []authz.Cond{{Column: "state", Op: "eq", Values: []string{"new"}}}},
 	}
 	got, _ := json.Marshal(rules)
 	exp, _ := json.Marshal(want)
@@ -61,7 +63,7 @@ func TestDefaultIncidentRulesWithoutAServiceDeskGroupHaveNoDeadRule(t *testing.T
 	for i, r := range rules {
 		ids[i] = r.ID
 	}
-	if want := []string{"default-admins", "default-requester"}; !slices.Equal(ids, want) {
+	if want := []string{"default-admins", "default-requester", "default-requester-new"}; !slices.Equal(ids, want) {
 		t.Fatalf("rule ids = %v, want %v", ids, want)
 	}
 }
@@ -80,7 +82,8 @@ func TestDefaultIncidentRulesPassPublishValidation(t *testing.T) {
 }
 
 // The default decides as the contract says: admins everything, the service
-// desk the incidents of its own groups, a requester its own for read only,
+// desk the incidents of its own groups, a requester its own (read always,
+// write while new),
 // everyone else nothing.
 func TestDefaultIncidentRulesDecide(t *testing.T) {
 	t.Parallel()
@@ -93,6 +96,9 @@ func TestDefaultIncidentRulesDecide(t *testing.T) {
 		return authz.Row{ID: uuid.New(), State: "new", RequesterID: requester, AssignmentGroupID: group}
 	}
 	mine, theirs := rowOf(&user.PrincipalID, &deskG), rowOf(nil, &otherG)
+	raised := rowOf(&user.PrincipalID, nil) // the requester's own, not assigned yet
+	closed := raised
+	closed.State = "closed"
 	for _, tc := range []struct {
 		name  string
 		p     identity.Principal
@@ -107,7 +113,13 @@ func TestDefaultIncidentRulesDecide(t *testing.T) {
 		{"agent reads another group's", agent, authz.OpRead, theirs, false},
 		{"agent reads an unassigned one", agent, authz.OpRead, rowOf(nil, nil), false},
 		{"requester reads its own", user, authz.OpRead, mine, true},
-		{"requester does not write its own", user, authz.OpWrite, mine, false},
+		{"requester writes its own while new", user, authz.OpWrite, mine, true},
+		{"requester raises an unassigned incident", user, authz.OpWrite, raised, true},
+		{"requester reads its own once closed", user, authz.OpRead, closed, true},
+		{"requester does not write its own once closed", user, authz.OpWrite, closed, false},
+		{"requester does not write another's", user, authz.OpWrite, theirs, false},
+		{"agent does not write an unassigned one", agent, authz.OpWrite, raised, false},
+		{"admin triages an unassigned one", admin, authz.OpWrite, raised, true},
 		{"stranger reads nothing", user, authz.OpRead, theirs, false},
 	} {
 		if _, ok := authz.Allows(pol, tc.p, tc.op, tc.row); ok != tc.allow {

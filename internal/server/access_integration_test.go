@@ -16,8 +16,13 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/authz/acltest"
+	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
+	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
+	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
 const accessPath = "/api/v1/entity-types/job/access"
@@ -69,7 +74,7 @@ func (e *etEnv) aclCounts(t *testing.T) (versions, entries int) {
 		t.Fatal(err)
 	}
 	if err := e.super.QueryRow(t.Context(),
-		"SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND domain = 'config' AND subject_type = 'entity_definition'", e.a.id).Scan(&entries); err != nil {
+		"SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND domain = 'config' AND subject_type = 'acl_policy'", e.a.id).Scan(&entries); err != nil {
 		t.Fatal(err)
 	}
 	return versions, entries
@@ -197,7 +202,7 @@ func TestPutAccessPublishesTheNextVersionWithItsAuditEntry(t *testing.T) {
 	)
 	if err := e.super.QueryRow(t.Context(), `SELECT a.action, a.source, a.version_before, a.version_after, a.content_sha256, a.diff::text, a.actor_principal_id, a.subject_id, d.id
 		FROM audit_log a JOIN entity_definitions d ON d.tenant_id = a.tenant_id AND d.key = 'widget'
-		WHERE a.tenant_id = $1 AND a.domain = 'config' AND a.subject_type = 'entity_definition' AND a.subject_id = d.id AND a.version_after = 1 AND a.action = 'publish'`,
+		WHERE a.tenant_id = $1 AND a.domain = 'config' AND a.subject_type = 'acl_policy' AND a.subject_id = d.id AND a.version_after = 1 AND a.action = 'publish'`,
 		e.a.id).Scan(&action, &source, &before, &after, &sum, &diff, &actor, &subject, &def); err != nil {
 		t.Fatalf("the publish has no audit entry: %v", err)
 	}
@@ -274,7 +279,6 @@ func TestPutAccessRefusalsWriteNothing(t *testing.T) {
 		{"unknown column", rule(`{}`, `{"column": "priority", "op": "eq", "values": ["1"]}`), "/rules/0/where/0/column value"},
 		{"unknown op", `{"rules": [{"id": "r", "ops": ["delete"], "who": {}}]}`, "/rules/0/ops/0 value"},
 		{"unknown caller", rule(`{}`, `{"column": "assignee_id", "op": "eq", "caller": "boss"}`), "/rules/0/where/0/caller value"},
-		{"not an object", `[]`, " type"},
 		{"unknown top-level key", `{"rules": [], "extra": 1}`, "/extra unknown_key"},
 		{"duplicate rule id", `{"rules": [{"id": "r", "ops": ["read"], "who": {}}, {"id": "r", "ops": ["read"], "who": {}}]}`, "/rules/1/id duplicate"},
 		{"group of another tenant", rule(`{"groups": [`+foreign+`]}`, ""), "/rules/0/who/groups/0 not_in_tenant"},
@@ -309,6 +313,20 @@ func TestPutAccessRefusalsWriteNothing(t *testing.T) {
 			t.Errorf("%s: wrote versions %d -> %d, entries %d -> %d", tc.name, versions, v, entries, n)
 		}
 	}
+	// A body that is not a JSON object fails the contract's validator: 400, not
+	// 422 (A3). Nothing is written, and the cases below it in this test still run.
+	versions, entries := e.aclCounts(t)
+	for i, body := range []string{`[]`, `"rules"`, `5`} {
+		rec := e.access(t, http.MethodPut, accessPath, "admin-a", fmt.Sprintf("notobject-%d", i), `W/"1"`, body)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("body %s = %d, want 400 validation_failed: %s", body, rec.Code, rec.Body)
+			continue
+		}
+		wantProblem(t, rec, http.StatusBadRequest, problem.ValidationFailed)
+	}
+	if v, n := e.aclCounts(t); v != versions || n != entries {
+		t.Errorf("a non-object body wrote: versions %d -> %d, entries %d -> %d", versions, v, entries, n)
+	}
 	// A foreign id and an id that does not exist are refused alike.
 	a := e.access(t, http.MethodPut, accessPath, "admin-a", "alike-1", `W/"1"`, rule(`{"groups": [`+foreign+`]}`, ""))
 	b := e.access(t, http.MethodPut, accessPath, "admin-a", "alike-2", `W/"1"`, rule(`{"groups": ["00000000-0000-4000-8000-00000000dead"]}`, ""))
@@ -326,7 +344,7 @@ func TestPutAccessRefusalsWriteNothing(t *testing.T) {
 
 	// 403: not an admin, before the body or the version is looked at. 404: an
 	// unknown type, before the body.
-	versions, entries := e.aclCounts(t)
+	versions, entries = e.aclCounts(t)
 	for _, tok := range []string{"user-a", "lookalike-a"} {
 		wantProblem(t, e.access(t, http.MethodPut, accessPath, tok, "403-"+tok, `W/"9"`, `{"nope": 1}`), http.StatusForbidden, problem.Forbidden)
 	}
@@ -480,5 +498,40 @@ func TestExplainAccessUnderAnEmptyPolicyDenies(t *testing.T) {
 	x := decodeExplanation(t, e.explain(t, "admin-a", "job", rec.ID, e.a.user.PrincipalID.String()))
 	if x.Decision != "deny" || x.RuleID != nil || x.ACLVersion != 2 || x.MaskedFields == nil {
 		t.Errorf("explanation under an empty policy = %+v", x)
+	}
+}
+
+// Regression (contract amendment A3): an entity type's version 1 and its ACL
+// version 1 written in one transaction. Both audit entries used to share the
+// key (transaction, entity_definition, definition id, version 1) and the
+// second append failed with a duplicate; the ACL has its own subject, acl_policy.
+// The fixtures of the records pipeline do exactly this, and the transaction
+// must stay one.
+// covers: putEntityTypeAccess 200
+func TestEntityTypeAndItsACLInOneTransactionHaveOneAuditEntryEach(t *testing.T) {
+	e := newPatchEnv(t)
+	err := tenancy.InTenantTx(t.Context(), e.pool, e.a.id, func(tx pgx.Tx) error {
+		def := metadata.Definition{
+			Key: "oneshot", NumberPrefix: "ONE", Schema: json.RawMessage(patchSchema), FixedColumns: map[string]string{"state": "state"},
+			States: metadata.StateModel{Initial: "new", States: []string{"new", "closed"}, Transitions: []metadata.Transition{{From: "new", To: "closed"}}},
+		}
+		if _, err := (entitytypes.Store{}).Create(t.Context(), tx, e.a.id, entitytypes.NewInput{Name: "One shot", PublishedBy: e.a.admin.PrincipalID, Definition: def}); err != nil {
+			return err
+		}
+		_, err := acltest.Publish(t.Context(), tx, "oneshot", acltest.AllowUsers(e.a.admin.PrincipalID))
+		return err
+	})
+	if err != nil {
+		t.Fatalf("type and ACL in one transaction: %v", err)
+	}
+	for subject, want := range map[string]int{"entity_definition": 1, "acl_policy": 1} {
+		var n int
+		if err := e.super.QueryRow(t.Context(), `SELECT count(*) FROM audit_log a JOIN entity_definitions d ON d.tenant_id = a.tenant_id AND d.id = a.subject_id
+			WHERE a.tenant_id = $1 AND d.key = 'oneshot' AND a.subject_type = $2 AND a.version_after = 1`, e.a.id, subject).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != want {
+			t.Errorf("%d %s entries at version 1, want %d", n, subject, want)
+		}
 	}
 }

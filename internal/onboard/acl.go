@@ -37,12 +37,17 @@ const (
 	RuleAdmins      = "default-admins"
 	RuleServiceDesk = "default-service-desk"
 	RuleRequester   = "default-requester"
+	// RuleRequesterNew lets a requester create and edit its own incident while
+	// it is new (A3): without it the requester could read but never raise one.
+	RuleRequesterNew = "default-requester-new"
 )
 
 // DefaultIncidentRules is the default incident ACL v1: the tenant admins read
 // and write everything, the service-desk group reads and writes the incidents
-// assigned to one of its own groups, and a requester reads the incidents it
-// raised. There are no masks. A tenant with no service-desk group (serviceDesk
+// assigned to one of its own groups, a requester reads the incidents it raised
+// and writes them while their state is new. An unassigned incident is
+// triaged by the admins group (M1 has no null condition). There are no masks.
+// A tenant with no service-desk group (serviceDesk
 // empty) gets no service-desk rule: a rule that names no group matches no one.
 func DefaultIncidentRules(admins uuid.UUID, serviceDesk []uuid.UUID) []authz.Rule {
 	rules := []authz.Rule{{
@@ -54,7 +59,10 @@ func DefaultIncidentRules(admins uuid.UUID, serviceDesk []uuid.UUID) []authz.Rul
 			Where: []authz.Cond{{Column: metadata.ColumnAssignmentGroupID, Op: authz.CondIn, Caller: authz.CallerMyGroups}},
 		})
 	}
-	return append(rules, authz.Rule{ID: RuleRequester, Ops: []string{authz.OpRead}, Who: authz.Subject{Requester: true}})
+	return append(rules,
+		authz.Rule{ID: RuleRequester, Ops: []string{authz.OpRead}, Who: authz.Subject{Requester: true}},
+		authz.Rule{ID: RuleRequesterNew, Ops: []string{authz.OpRead, authz.OpWrite}, Who: authz.Subject{Requester: true},
+			Where: []authz.Cond{{Column: metadata.ColumnState, Op: authz.CondEq, Values: []string{"new"}}}})
 }
 
 // ACLPublisher publishes the default incident ACL of one tenant.

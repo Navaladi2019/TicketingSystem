@@ -531,7 +531,7 @@ func TestOnboardCreatesRowsAndReplayWritesOnce(t *testing.T) {
 		t.Errorf("%d ACL versions, want only the incident's", n)
 	}
 	if n := v.count(t, `SELECT count(*) FROM audit_log a JOIN entity_definitions d ON d.tenant_id = a.tenant_id AND d.id = a.subject_id
-		WHERE a.tenant_id = $1 AND d.key = 'incident' AND a.domain = 'config' AND a.action = 'publish' AND a.version_after = 1
+		WHERE a.tenant_id = $1 AND d.key = 'incident' AND a.domain = 'config' AND a.subject_type = 'acl_policy' AND a.action = 'publish' AND a.version_after = 1
 		  AND a.actor_system = 'onboarding' AND a.source = 'onboarding'`, want); n != 1 {
 		t.Errorf("%d audit entries for the default ACL, want 1", n)
 	}

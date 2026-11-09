@@ -6,6 +6,7 @@ Delivery decisions that change a task's contract, newest first.
 
 <!-- docindex:start -->
 
+- [2026-11-09: D-3-28, S10 contract amendment A3: ACL audit entries get the subject acl_policy; the default incident ACL lets a requester raise its own incident; a non-object PUT body is 400](decisions/2026-11-09-d-3-28-acl-audit-subject-default-acl-body-shape.md)
 - [2026-11-09: D-3-27, the stack seed publishes a temporary allow-all ACL until P3-35](decisions/2026-11-09-d-3-27-stack-seed-allow-all-acl.md)
 - [2026-11-09: D-3-26, S10 contract amendment A1: CanWrite takes the transaction and the record rows; only four system sources skip it](decisions/2026-11-09-d-3-26-authorizer-a1.md)
 - [2026-11-07: TICK-594: guarderrtype covers the audit.seal message; cause and details stay runtime-checked; a seal type held in a variable is deferred](decisions/2026-11-07-tick-594-seal-guard-lint-scope.md)
