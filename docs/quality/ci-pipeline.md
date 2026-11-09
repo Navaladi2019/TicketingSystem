@@ -701,7 +701,7 @@ self-hosted run failed on `Bind for 127.0.0.1:9091 failed: port is already
 allocated` before), and the defaults stay 5080 and 9091 for local use.
 
 **Runner prerequisites** (the owner's WSL, out of scope here): Docker with the
-buildx and compose plugins, `make`, `git`, `gcc` (`go test -race`), `python3`
+buildx and compose plugins, `make`, `git` 2.38 or newer (`git merge-tree --write-tree`, used by `tools/ci/storybranches` and its tests; Ubuntu 22.04 ships 2.34: `sudo add-apt-repository ppa:git-core/ppa && sudo apt install git`), `gcc` (`go test -race`), `python3`
 (`make check-guide`), `curl`, and the runner registered with the labels
 `self-hosted` and `wsl`. Go comes from `actions/setup-go` into the runner's
 tool cache.
