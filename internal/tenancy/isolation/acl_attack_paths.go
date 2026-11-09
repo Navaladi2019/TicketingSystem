@@ -176,14 +176,14 @@ func s10Setup(ctx context.Context, e *etIso) (*s10Fixture, error) {
 	if err := e.super.QueryRow(ctx, `SELECT id::text FROM entity_definitions WHERE tenant_id = $1 AND key = $2`, TenantB, s10Key).Scan(&fx.defB); err != nil {
 		return nil, err
 	}
-	// Positive controls of the policy: the desk reads the desk record, not the
-	// admin record; the plain user reads neither.
+	// Controls of the policy: the desk reads the desk record, not the admin
+	// record; the plain user reads neither. How a denial answers is row 2's.
 	for _, c := range []struct {
 		token, id string
-		want      int
-	}{{s10Desk, fx.desk, http.StatusOK}, {s10Desk, fx.admin, http.StatusNotFound}, {s10Plain, fx.desk, http.StatusNotFound}, {s10Admin, fx.admin, http.StatusOK}} {
-		if r := e.ci8Do(ctx, e.h, http.MethodGet, s10Records+"/"+c.id, c.token, "", nil); r.code != c.want {
-			return nil, fmt.Errorf("control: %s reading %s = %d %s, want %d", c.token, c.id, r.code, r.body, c.want)
+		read      bool
+	}{{s10Desk, fx.desk, true}, {s10Desk, fx.admin, false}, {s10Plain, fx.desk, false}, {s10Admin, fx.admin, true}} {
+		if r := e.ci8Do(ctx, e.h, http.MethodGet, s10Records+"/"+c.id, c.token, "", nil); (r.code == http.StatusOK) != c.read {
+			return nil, fmt.Errorf("control: %s reading %s = %d %s, want read %v", c.token, c.id, r.code, r.body, c.read)
 		}
 	}
 	return fx, nil
