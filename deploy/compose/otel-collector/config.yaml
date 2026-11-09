@@ -1,6 +1,5 @@
-# nava-core exports OTLP/HTTP traces and logs here. Logs go to the debug
-# exporter only. Traces go to the debug exporter and to Jaeger (local dev, TICK-330);
-# no production backend is chosen.
+# nava-core exports OTLP/HTTP traces and logs here. Both signals go to the debug
+# exporter and to OpenObserve (local dev, TICK-634); no production backend is chosen.
 extensions:
   health_check:
     endpoint: 0.0.0.0:13133
@@ -98,13 +97,15 @@ processors:
 exporters:
   debug:
     verbosity: detailed
-  # Jaeger runs only under the `operator` profile. Without it the name does not
-  # resolve: the exporter logs a send error, retries for 5s, drops that batch and
-  # never blocks the pipeline or the health check, so the CI stack stays healthy.
-  # The small queue bounds memory while Jaeger is absent.
-  otlp/jaeger:
-    endpoint: jaeger:4317
-    tls: {insecure: true}
+  # OpenObserve runs under the `operator` profile, which the CI stack also uses.
+  # If it is down or absent, the name does not resolve: the exporter logs a send
+  # error, retries for 5s, drops that batch and never blocks the pipeline or the
+  # health check, so the Collector stays healthy. The small queue bounds memory
+  # while OpenObserve is unavailable.
+  otlphttp/openobserve:
+    endpoint: http://openobserve:5080/api/default
+    headers:
+      Authorization: "Basic ${env:OPENOBSERVE_BASIC_AUTH}"
     retry_on_failure: {enabled: true, initial_interval: 1s, max_interval: 2s, max_elapsed_time: 5s}
     sending_queue: {enabled: true, queue_size: 100}
 
@@ -114,8 +115,8 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, attributes/deny, transform/deny, tail_sampling, batch]
-      exporters: [debug, otlp/jaeger]
+      exporters: [debug, otlphttp/openobserve]
     logs:
       receivers: [otlp]
       processors: [memory_limiter, attributes/deny, batch]
-      exporters: [debug]
+      exporters: [debug, otlphttp/openobserve]

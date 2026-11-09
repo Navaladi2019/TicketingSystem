@@ -295,18 +295,28 @@ services:
       retries: 20
     restart: unless-stopped
 
-  # Jaeger (TICK-330), local dev only: shows the traces the Collector forwards.
-  # Profile `operator`, so the CI stack never starts it. In-memory storage, so
-  # traces are gone after a restart. `internal` lets the Collector reach its OTLP
-  # port (4317, never published); `operator` carries the published UI.
-  jaeger:
+  # OpenObserve (TICK-634; replaced the TICK-330 trace UI), local dev only: shows
+  # the traces and logs the Collector forwards, with log search and filters.
+  # Profile `operator` (the CI stack also runs that profile, so it must stay
+  # healthy there). Data lives on the named
+  # volume `openobserve-data`. `internal` lets the Collector reach its OTLP/HTTP
+  # endpoint (5080, same port as the UI); only the UI mapping below is published,
+  # on loopback. The `-debug` image tag is used because the plain image has no
+  # shell, curl or wget for a health check; the pin is in docs/pins.md.
+  openobserve:
     profiles: [operator]
-    image: jaegertracing/jaeger:2.11.0
+    image: public.ecr.aws/zinclabs/openobserve:v1.1.2-debug
+    environment:
+      ZO_ROOT_USER_EMAIL: ${OPENOBSERVE_USER:-dev@nava.test}
+      ZO_ROOT_USER_PASSWORD: ${OPENOBSERVE_PASSWORD:-Dev-Only-Openobserve-1}
+      ZO_DATA_DIR: /data
+    volumes:
+      - openobserve-data:/data
     networks: [internal, operator]
     ports:
-      - "127.0.0.1:16686:16686"
+      - "127.0.0.1:5080:5080"
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:16686/"]
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:5080/healthz"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -344,6 +354,10 @@ services:
     environment:
       # Share of ordinary traces kept; errors and slow requests are always kept.
       OTEL_TAIL_SAMPLE_PERCENT: ${OTEL_TAIL_SAMPLE_PERCENT:-10}
+      # Basic auth for the OpenObserve exporter (operator profile only). Must
+      # equal base64("<OPENOBSERVE_USER>:<OPENOBSERVE_PASSWORD>"); the default is
+      # the dev credentials. See .env.example.
+      OPENOBSERVE_BASIC_AUTH: ${OPENOBSERVE_BASIC_AUTH:-ZGV2QG5hdmEudGVzdDpEZXYtT25seS1PcGVub2JzZXJ2ZS0x}
     networks: [internal]
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:13133/"]
@@ -601,6 +615,7 @@ networks:
 
 volumes:
   pgdata: {}
+  openobserve-data: {}
   # PostgreSQL's Unix socket directory, shared by postgres and db-roles only.
   # tmpfs: no stale socket or lock file survives a restart.
   pgsocket:

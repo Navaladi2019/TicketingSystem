@@ -13,7 +13,7 @@ in the [TODO tracker](../delivery/todo.md).
  HTTP request
    │
    ▼ otelhttp (OTel instrumentation)
-   ├── span ──► TracerProvider ──► filteringExporter ──► OTLP exporter ──► push ──► Collector / Tempo / Jaeger
+   ├── span ──► TracerProvider ──► filteringExporter ──► OTLP exporter ──► push ──► Collector / OpenObserve
    │                                                   (only if an OTEL_EXPORTER_OTLP_*ENDPOINT is set)
    │
    ├── measurement ──► MeterProvider (+ View) ──► otelprom reader ──┐
@@ -212,7 +212,7 @@ queries aggregate, e.g. `sum(rate(http_server_request_duration_seconds_count[5m]
 
 - Local: `prom/prometheus` in Docker with target
   `host.docker.internal:9090` and `--enable-feature=exemplar-storage`.
-- T02 compose stack: Prometheus + Grafana, plus Tempo or Jaeger and the
+- T02 compose stack: Prometheus + Grafana, plus OpenObserve (TICK-634) and the
   Collector, so an exemplar click opens its trace.
 - Production: kube-prometheus-stack with a `ServiceMonitor`.
 - Whichever: scrape the internal listener (`NAVA_ADMIN_ADDR`, default
