@@ -1,5 +1,5 @@
 -- TICK-640 (P3-34b): drops P3-09's list indexes, which the records_list_*
--- set (20261109110000 to 20261109110500) supersedes. None leads with
+-- set (20261109140000 to 20261109140500) supersedes. None leads with
 -- entity_definition_id, which every list statement binds (P3-36, PR #534).
 --   records_tenant_updated     -> records_list_updated
 --   records_tenant_requester   -> records_list_requester

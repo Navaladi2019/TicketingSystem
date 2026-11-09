@@ -39,7 +39,7 @@ migrates.
 
 ## JIT (off on the platform database)
 
-`20261109110700_platform_database_jit_off.sql` runs
+`20261109140700_platform_database_jit_off.sql` runs
 `ALTER DATABASE <platform> SET jit = off` (TICK-640). The platform database
 serves OLTP only.
 

@@ -513,7 +513,7 @@ erDiagram
 
 > **Superseded index set (TICK-640, P3-34b).** `records_tenant_updated`,
 > `records_tenant_requester` and `records_tenant_group_open` were dropped in
-> `20261109110600_drop_records_s9_list_indexes.sql` and replaced by the
+> `20261109140600_drop_records_s9_list_indexes.sql` and replaced by the
 > `records_list_*` set, each led by `(tenant_id, entity_definition_id)`.
 > Evidence and the current set: [`records-list-indexes.md`](records-list-indexes.md).
 > The numbers below are P3-09's, kept as recorded.
