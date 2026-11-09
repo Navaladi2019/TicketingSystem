@@ -90,6 +90,10 @@ flowchart TD
   lock is held from there to commit, so creates of one type in one tenant
   queue on it and get consecutive numbers; a rollback gives its number back.
   Nothing creates the counter row in advance, and there is no sequence (I8).
+  Since TICK-648 the upsert opens a create's last batch, with the INSERT
+  (which builds the number in SQL from the counter), the write key and the
+  audit entry; the counter is held for that batch and the commit's round
+  trip ([tenant-tx-batching.md](tenant-tx-batching.md)).
   Format `<prefix><7 digits>` (`INC0000001`), growing past 7 digits; past
   that the text does not sort by number, so lists sort on `created_at`.
 - **State model.** A create must be in the type's `Initial` state. An
