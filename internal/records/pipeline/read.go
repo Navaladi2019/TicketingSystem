@@ -75,3 +75,9 @@ func TieBreaksOnUpdatedAt(col string) bool { return store.TieBreaksOnUpdatedAt(c
 // ErrStatementTimeout is the store's: a list with a data filter ran past its
 // statement timeout.
 var ErrStatementTimeout = store.ErrStatementTimeout
+
+// PageStatement is the page statement List runs for q, for plan tests and benches.
+func PageStatement(q ListQuery) (string, []any, error) { return store.PageStatement(q) }
+
+// CountStatement is the capped count statement List runs for q.
+func CountStatement(q ListQuery) string { return store.CountStatement(q) }

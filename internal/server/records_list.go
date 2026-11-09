@@ -408,12 +408,23 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 				return &problemError{problem.InvalidCursor, nil, errors.New("cursor does not fit the query")}
 			}
 		}
-		readSQL, readArgs := authz.CompileRead(pol, p, "r", 2)
+		// A rule that ORs subjects (requester, assignee, share) is read as one
+		// index-ordered branch per subject (TICK-644); CompileRead is the single
+		// statement when there is nothing to split.
+		branches, readArgs := authz.ReadBranches(pol, p, "r", 2)
+		var readSQL string
+		if len(branches) < 2 {
+			branches = nil
+			readSQL, readArgs = authz.CompileRead(pol, p, "r", 2)
+		}
 		filt, filtArgs := pl.where(2 + len(readArgs))
 		lq := pipeline.ListQuery{
 			TenantID: p.TenantID, DefinitionID: defID,
-			Where: readSQL + " AND " + filt, Args: append(slices.Clone(readArgs), filtArgs...),
+			Where: filt, Args: append(slices.Clone(readArgs), filtArgs...), Branches: branches,
 			SortColumn: pl.sortCol, Desc: pl.desc, Limit: pl.limit + 1,
+		}
+		if branches == nil {
+			lq.Where = readSQL + " AND " + filt
 		}
 		if pos != nil {
 			lq.Keyset, lq.KeysetArgs = pl.keyset(*pos, 2+len(lq.Args))

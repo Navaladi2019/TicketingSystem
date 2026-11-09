@@ -1,0 +1,5 @@
+=== RUN   TestMineListBench
+    records_list_mine_bench_integration_test.go:38: NAVA_TICK644_URL is not set
+--- SKIP: TestMineListBench (0.00s)
+PASS
+ok  	github.com/Navaladi2019/TicketingSystem/internal/server	0.867s
