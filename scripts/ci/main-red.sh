@@ -19,7 +19,12 @@ title="main is red: $short"
 failed=$(printf '%s' "$NEEDS_JSON" | jq -r '[to_entries[] | select(.value.result == "failure") | .key] | join(", ")')
 [ -n "$failed" ] || failed="(none reported failure; see the run)"
 
-body=$(printf '`ci` failed on a push to `main` at %s.\n\nFailing jobs: %s\n\nRun: %s\n' "$SHA" "$failed" "$RUN_URL")
+# EVENT: push (default) or schedule (temporal-server-vulncheck, TICK-641).
+case ${EVENT:-push} in
+    schedule) what='a scheduled run on `main`' ;;
+    *) what='a push to `main`' ;;
+esac
+body=$(printf '`ci` failed on %s at %s.\n\nFailing jobs: %s\n\nRun: %s\n' "$what" "$SHA" "$failed" "$RUN_URL")
 
 # The label may not exist yet in a fresh repository; an existing one is kept.
 gh label create P0 --color B60205 --description "Production-blocking; fix today" >/dev/null 2>&1 || true

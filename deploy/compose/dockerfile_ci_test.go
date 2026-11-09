@@ -297,6 +297,48 @@ func TestThinServicesCoverCompose(t *testing.T) {
 	}
 }
 
+// TICK-641: with the published temporal-server image, make image-ci bakes
+// BAKE_TARGETS minus temporal-server instead of bake's default group (every
+// compose service with a build:). A service missing from BAKE_TARGETS would
+// then not be built at all, and the stack would start on a stale image or
+// none. BAKE_TARGETS must be exactly the services compose.yaml builds.
+func TestBakeTargetsCoverCompose(t *testing.T) {
+	var targets []string
+	for _, f := range makeVar(t, "BAKE_TARGETS") {
+		if f == "$(BAKE_CACHED)" {
+			targets = append(targets, makeVar(t, "BAKE_CACHED")...)
+			continue
+		}
+		targets = append(targets, f)
+	}
+	b, err := os.ReadFile(filepath.Join("..", "..", "compose.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var c struct {
+		Services map[string]struct {
+			Build any `yaml:"build"`
+		} `yaml:"services"`
+	}
+	if err := yaml.Unmarshal(b, &c); err != nil {
+		t.Fatal(err)
+	}
+	var built []string
+	for svc, s := range c.Services {
+		if s.Build != nil {
+			built = append(built, svc)
+		}
+	}
+	slices.Sort(targets)
+	slices.Sort(built)
+	if !slices.Equal(targets, built) {
+		t.Errorf("BAKE_TARGETS (make/stack.mk) = %v; compose.yaml builds %v", targets, built)
+	}
+	if !slices.Contains(targets, "temporal-server") {
+		t.Errorf("BAKE_TARGETS lacks temporal-server, which TEMPORAL_SERVER_PREBUILT=1 filters out")
+	}
+}
+
 // .dockerignore must not drop the binaries, or the thin build fails with a
 // missing COPY source (or, worse, keeps a stale layer).
 func TestDockerignoreKeepsCIBinaries(t *testing.T) {

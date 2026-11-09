@@ -20,6 +20,9 @@ calls only `make` targets. Install the pinned tools once with `make tools`.
 
 In GitHub, the `temporal-server` job runs the module's tests, then
 `make lint-temporal-server`, then `make vulncheck-temporal-server`, which must
+report zero findings. Since TICK-641 it runs only when the module, or how it
+is built, tested or linted, changed, and a scheduled job scans the module for
+new advisories (see "Published temporal-server image" below). The scan must
 report zero findings: there is no exception and no allowlist (ADR-001 A1
 Decision 3, TICK-121). `lint-temporal-server` (TICK-584) runs golangci-lint
 from `temporal-server/` with the root `.golangci.yml`: `make lint` runs
@@ -541,6 +544,80 @@ from the CI log alone.
 
 On a laptop: `make ci-binaries && make image-ci IMAGE_THIN=1` (set `GOARCH`
 on an arm64 host).
+
+### Published temporal-server image (TICK-641)
+
+Before TICK-641, every run that changed any Go code ran the `temporal-server`
+job (tests, golangci-lint, govulncheck: about 1m45s on GitHub-hosted runners,
+8m45s on WSL), and every `stack` run rebuilt `nava/temporal-server`, which
+compiles the whole Temporal server. In the 30 days to 2026-11-09, 50 of 1046
+commits on `main` touched `temporal-server/`. The job's Go cache was the
+largest Actions cache entry (about 1 GB each, 2 GB in all), with the repository
+at 11.3 GB of its 10 GB.
+
+**When the job runs.** `make ci-temporal-server-changed`
+(`scripts/ci/temporal-server-changed.sh`, in the `changes` job) writes the
+`temporal_server` output:
+
+| Run | `temporal_server` |
+| --- | --- |
+| a pull request into a `TICK-*` story branch (`CI_FULL`) | true: `full-suite` needs every job |
+| a pull request without `ci:run` or `ci:full` | false |
+| a push to `main` | true if the push's own commits (`github.event.before`..HEAD) changed an input below; true when that commit is unknown |
+| a manual run on `main` | true |
+| any other pull request or manual run | true if the diff from the merge base changed an input below |
+
+Inputs: `temporal-server/`, `make/temporal-server.mk`, `make/lint.mk` (tool
+pins), `Makefile`, `.golangci.yml`, `docs/pins.md`, `.github/workflows/ci.yml`,
+`tools/ci/suiteran`, and the script itself. `TestTemporalServerChanged`
+(`tools/ci/cichanged`) covers each row and the inputs.
+
+**govulncheck for an unchanged module.** A new advisory needs no change of
+ours, so the scheduled run (every 6 hours) also runs
+`temporal-server-vulncheck`: `make tools-govulncheck` and
+`make vulncheck-temporal-server` on `ubuntu-latest`. A finding fails it, and
+`main-red` (which now also fires on a scheduled run) opens or updates the P0
+"main is red" issue. That meets ADR-001 A1 Decision 3 (zero findings, no
+allowlist) and the R7 rescan for new advisories without a scan on every pull
+request. The step is in `tools/ci/cisteps/required.yaml`.
+
+**The published image.** The `temporal-server-image` workflow
+(`make temporal-server-publish`, `scripts/ci/temporal-server-image.sh`)
+builds `temporal-server/` with its own Dockerfile and pushes it to
+`ghcr.io/navaladi2019/nava-temporal-server:<tree>`. `<tree>` is
+`git rev-parse HEAD:temporal-server`, git's hash of the build context
+(sources, `go.mod`, the Dockerfile and its pinned base images), so the same
+tree is the same tag whatever commit holds it. The workflow runs on a push to
+`main` that changes the module, its make fragment, the script or the workflow,
+and by hand on `main`. It skips a tag that already exists. It is the only
+workflow with `packages: write`, and it never runs on a pull request.
+
+The `stack` job runs `make temporal-server-pull` before `make image-ci`:
+
+- **Published:** it pulls the tag, checks that its `nava.temporal-server.tree`
+  label equals the tree, and tags it as the run's `nava/temporal-server`
+  (`:dev`, or `:ci-<run id>` on self-hosted). It sets
+  `TEMPORAL_SERVER_PREBUILT=1`, so `image-ci` bakes `BAKE_TARGETS` without
+  `temporal-server` and reads or writes no cache scope for it.
+- **Not published** (the change edits `temporal-server/`, `main` has not
+  published it yet, or the pull failed): no error, and `image-ci` bakes every
+  target as before.
+
+`TestBakeTargetsCoverCompose` (`deploy/compose`) keeps `BAKE_TARGETS` equal
+to the services `compose.yaml` builds, so leaving out `temporal-server` never
+leaves out another service. The repository is public, so the pull needs no
+login. That matters on the self-hosted runner, whose Docker config has no
+credential store. On `main` the published image counts as "the real
+Dockerfile": it was built from it by the publish workflow.
+
+Local runs are unchanged: `make stack-up` and `make image-ci` build from
+source unless `TEMPORAL_SERVER_PREBUILT=1` is set after a
+`make temporal-server-pull`. Pulling a registry tag in CI is
+AR-TICK-641-01.
+
+**Bootstrap.** The merge of TICK-641 changes the workflow file, so it
+publishes the first tag. After that, a run whose `temporal-server/` tree is
+unchanged from `main` pulls it.
 
 ### Story branches (TICK-322)
 
