@@ -4,7 +4,9 @@
 # pull request without the ci:run label, TICK-563) runs ci-lint alone, before
 # any other rule. Two cases run every stage: CI_ALL=1 (the workflow's push or
 # manual run on main) and a change under .github/workflows, since only a full
-# run proves a workflow edit.
+# run proves a workflow edit. CI_FULL=1 (a pull request into a TICK-* story
+# branch, TICK-638) runs every stage and every stack-case area whatever its
+# diff and wins over CI_LINT_ONLY; unlike CI_ALL its images follow the rule.
 # With GITHUB_OUTPUT set, also writes unit, integration and stack as
 # true/false for the workflow's job conditions, and areas: the stack-case
 # areas (all, none or a comma list, `cichanged -areas`) that make stack-tests
@@ -19,7 +21,12 @@ set -eu
 
 all="ci-lint ci-unit ci-integration ci-stack"
 areas=
-if [ "${CI_LINT_ONLY:-}" = 1 ]; then
+base=${BASE:-origin/main}
+if [ "${CI_FULL:-}" = 1 ]; then
+    stages=$all
+    areas=all
+    echo "ci-stages: CI_FULL=1 (pull request into a story branch), every stage" >&2
+elif [ "${CI_LINT_ONLY:-}" = 1 ]; then
     stages=ci-lint
     areas=none
     echo "ci-stages: CI_LINT_ONLY=1 (no ci:run label), ci-lint only" >&2
@@ -28,7 +35,6 @@ elif [ "${CI_ALL:-}" = 1 ]; then
     areas=all
     echo "ci-stages: CI_ALL=1, every stage" >&2
 else
-    base=${BASE:-origin/main}
     mb=$(git merge-base "$base" HEAD) || { echo "ci-stages: no merge base with $base; fetch it first" >&2; exit 2; }
     if [ -n "$(git diff --name-only --no-renames "$mb" -- .github/workflows)" ]; then
         stages=$all

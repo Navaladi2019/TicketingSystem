@@ -1,4 +1,4 @@
-.PHONY: ci ci-isolated ci-changed ci-stages ci-isolated-down ci-lint ci-unit ci-integration ci-stack review-paths
+.PHONY: ci ci-isolated ci-changed ci-stages check-full-suite ci-isolated-down ci-lint ci-unit ci-integration ci-stack review-paths
 
 # Gate stages. Each fragment adds its own steps to a stage with a rule that has no recipe
 # (ci-lint: my-target), so a new target never edits another fragment.
@@ -44,6 +44,12 @@ ci-changed:
 # skip the jobs a pull request does not need. CI_ALL=1 prints every stage.
 ci-stages:
 	@sh scripts/ci/ci-stages.sh
+
+# Fails unless every suite job in RESULTS ("job=result ...") is success: the
+# full-suite job on a pull request into a story branch, where a skipped job is
+# not green (TICK-638).
+check-full-suite:
+	@sh scripts/ci/full-suite.sh
 
 # Tears down what a killed ci-isolated run left behind (its own project and tags).
 ci-isolated-down:

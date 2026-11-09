@@ -59,6 +59,9 @@ steps:
   - job: coverage
     artifact: coverage
     why: the merged profile and coverage.html
+  - job: full-suite
+    run: make check-full-suite
+    why: a pull request into a story branch shows a skipped unit, integration or stack job as a passed check and merges with its suites never run (TICK-638)
 
   # The tenant isolation suite (T11, ADR-001 CI-2).
   - job: integration
