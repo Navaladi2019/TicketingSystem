@@ -6,7 +6,125 @@ the D25 escalation. The question: with the real compiled ACL predicate
 `records/store.List`), is list p95 ≤ 150 ms and single-read p95 ≤ 50 ms at
 800k records?
 
-## Verdict
+## Re-run, after TICK-639 and TICK-640
+
+**Run:** 2026-11-09, on `TICK-336/group-acl-masking` at `1aa5357e`. That
+head has TICK-639 (list SQL in index order), TICK-640 (list indexes, `jit =
+off`) and TICK-637 (`total` capped at 10,000). The later story-branch commit
+`01fc85b4` adds only isolation tests. The harness, host and settings are the
+same as the first run. Targets are unchanged.
+
+**Raw reports:**
+- `docs/quality/acl-perf-800k/rerun-2026-11-09.md`: every scenario, 8
+  clients, 20 s each. Transport floor p50 2.65 / p95 4.85 ms.
+- `docs/quality/acl-perf-800k/rerun-2026-11-09-repeat.md`: the GET and create
+  rows again on a fresh database (`NAVA_PERF_ONLY='^(single GET|create)'`).
+  Transport floor p50 1.65 / p95 2.76 ms.
+
+### Verdict
+
+**Not met.** Large-tenant lists, creates and the small-tenant single read
+still miss. The page statement of a fixed-column list now meets the target on
+its own (2 to 4 ms single-run). What remains has three causes: the capped
+count, the `data` filters and the create path. Per the CTO's conditions,
+these numbers go on TICK-336 and the task stops there.
+
+### Reads
+
+p95 in ms, per request, 8 clients. `count` is `total`'s
+`SELECT count(*) FROM (… LIMIT 10001)`. `page` is the page statement. Both are
+p95 under load, then single-run `EXPLAIN ANALYZE` in brackets.
+
+| Scenario | Request p95 | Target | `count` p95 (single) | `page` p95 (single) | Class |
+| --- | --- | --- | --- | --- | --- |
+| Agent list by group, page 1 | **443.1** | 150 | 344.6 (244.1) | 36.2 (4.4) | count only |
+| Agent list by group, page 20 | **367.0** | 150 | 294.3 (121.8) | 31.7 (2.5) | count only |
+| Agent list, `sort=-updated_at` | **343.3** | 150 | 271.8 (103.4) | 29.7 (1.9) | count only |
+| Agent list, `sort=assignee` | **290.2** | 150 | 237.2 (109.5) | 17.8 (2.1) | count only |
+| Agent list, `filter[state]=new` | **473.8** | 150 | 210.9 (40.4) | 186.4 (27.5) | load: both statements |
+| Admin list, `state in (new,in_progress)`, `sort=-updated_at` | **481.9** (p50 92.6) | 150 | 141.8 (34.5) | 145.7 (2.5) | load: tail only |
+| Admin list, page 1 | 89.9 | 150 | 11.0 (5.5) | 24.3 (0.8) | met |
+| Admin list, page 20 | 89.2 | 150 | 13.4 (6.1) | 23.1 (0.6) | met |
+| Agent list, `filter[priority]=1` (data, 5%) | **840.5** | 150 | 704.2 (282.0) | 95.3 (26.5) | data filter |
+| Agent list, `filter[site]=s7` (data, 0.5%) | **1,286.8** | 150 | 607.3 (274.9) | 692.9 (268.4) | data filter |
+| Requester list, page 1 | **712.7** | 150 | 596.6 (634.5) | 92.1 (16.8) | known miss, TICK-644 |
+| Requester list, page 20 | **698.9** | 150 | 566.0 (206.3) | 91.8 (7.3) | known miss, TICK-644 |
+| Small tenant: agent list | 101.6 | 150 | 16.2 (1.6) | 27.3 (1.3) | met |
+| Small tenant: admin list | 68.2 | 150 | 7.8 (0.7) | 19.2 (0.6) | met |
+
+What the plans show:
+
+- **The count is the agent-list miss.** The count walks
+  `records_number_key (tenant_id, entity_definition_id, number)`, filters
+  with the ACL predicate, and stops at 10,001 matches. An agent sees about
+  24,700 rows, so the count reads about 161,000 rows (28,278 buffers): 100 to
+  244 ms single-run. The page walks `records_list_updated` and stops after 51
+  rows (736 removed): 2 to 4 ms. A 10,000 cap already reads too much at this
+  shape. PLAN-003's count-only fallback is the cap itself, so this is the
+  case D25 says does not escalate. The request still misses 150 ms, so the
+  CTO decides.
+- **`data` filters scan the tenant.** `priority=1` walks the whole tenant in
+  the count (398,792 rows removed). `site=s7` also misses in the page: 155,922
+  rows removed before 51 matches, 268 ms single-run. Neither filter is
+  indexable under RLS (P3-01). This is a `data`-filter miss, so per the
+  CTO's conditions it reopens D25.
+- **`state=new` and the admin `state in` list are load misses.** Single-run,
+  both statements take 2.5 to 40 ms. Under 8 clients the agent `state=new`
+  page reaches p95 186 ms. The admin list's p50 is 92.6 ms with a 482 ms p95
+  tail. Both are fixed-column lists over 150 ms at p95.
+- **Requester lists (TICK-644, known miss).** Against 150 ms per request:
+  p95 699 to 713 ms. Against TICK-644's 50 ms database time for the page
+  statement: p95 92 ms under load (single-run 7 to 17 ms). The count costs
+  more than the page: p95 566 to 597 ms. A heavy requester has about 5,600
+  rows, below the cap, so the count reads the whole tenant (394,374 rows
+  removed).
+
+### Single read
+
+| Scenario | p95, re-run | p95, repeat | Target |
+| --- | --- | --- | --- |
+| GET, agent | **122.4** | 47.6 | 50 |
+| GET, admin | **99.7** | 48.8 | 50 |
+| GET, small-tenant agent | **60.7** | **55.3** | 50 |
+
+A GET is 13 statements. Each of them takes ≤ 0.3 ms in the database
+(`records_pkey` and primary-key lookups). The request is round trips: p50
+32 to 37 ms is about 13 times the floor. In the re-run the floor's p99 was
+12 ms and every GET statement's p95 was 6 to 15 ms, so the host was noisy.
+In the repeat, agent and admin meet and the small-tenant GET misses by
+5 ms. The single-read result depends on the host's transport, not on the
+query.
+
+### Create (D-3-9 trigger, 50 ms)
+
+| Scenario | Request p95, re-run / repeat | Counter wait p95 | Counter hold p50 / p95 | Hold: transport (est.) / database / handler, p50 |
+| --- | --- | --- | --- | --- |
+| Agent, 1 client | **83.4** / **98.6** | 2.8 / 3.2 | 21.7 / 36.9; 29.2 / 42.4 | 29.1 / 0.0 / 1.2; 18.1 / 9.5 / 1.2 |
+| Agent, 8 clients | **470.6** / **647.8** | 413.4 / 580.8 | 22.7 / 30.2; 30.6 / 41.6 | 29.1 / 0.0 / 1.1; 18.1 / 11.1 / 1.2 |
+| Admin, 8 clients | **1,017.4** / **858.4** | 727.6 / 771.7 | 29.1 / 87.5; 35.5 / 70.5 | 29.1 / 0.0 / 1.2; 18.1 / 15.8 / 1.3 |
+| Small-tenant agent, 8 clients | **424.6** / **370.9** | 13.0 / 12.8 | 61.5 / 182.5; 78.7 / 154.9 | 29.1 / 30.2 / 1.8; 18.1 / 57.7 / 2.3 |
+
+Where two values share a cell, the first is from the re-run and the second
+from the repeat.
+
+- **One create alone misses 50 ms.** It runs 29 statements in two
+  transactions, the idempotency claim and then the write. With 1 client and
+  no queue (wait p95 about 3 ms), p95 is 83 to 99 ms. The database part of
+  the counter hold is 0 to 10 ms. The rest is round trips: 29 × the floor's
+  p50 is 48 to 77 ms on this host before any database work.
+- **On one tenant, creates queue on the counter.** With 8 clients, the
+  `record_counters` upsert waits p95 413 to 772 ms for the row. Each holder
+  keeps the row for 11 statements, through INSERT, write key, audit, outbox
+  and COMMIT: p50 23 to 36 ms. Seven waiters × that hold is the wait. That is
+  D-3-9's design ("the lock window is short") meeting 11 round trips.
+- **The small-tenant creates don't queue** (wait p95 13 ms). Their hold has
+  more database time, 30 to 58 ms at p50, from COMMIT: the 8 clients write
+  to different tenants and share the WAL flush (`fsync = on`). The COMMIT
+  p99 was 696 ms in the re-run.
+
+A create miss reopens D-3-9 (the CTO's conditions).
+
+## Verdict (first run)
 
 **Single read: met.** p95 41.0 to 44.6 ms across the three GET scenarios.
 
