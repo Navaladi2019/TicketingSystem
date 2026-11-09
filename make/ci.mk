@@ -1,4 +1,4 @@
-.PHONY: ci ci-isolated ci-changed ci-stages check-full-suite ci-isolated-down ci-lint ci-unit ci-integration ci-stack review-paths
+.PHONY: ci ci-isolated ci-changed ci-stages check-full-suite ci-isolated-down ci-lint ci-unit ci-integration ci-stack review-paths ci-runner ci-self-hosted-env ci-builder ci-builder-prune ci-self-hosted-cleanup
 
 # Gate stages. Each fragment adds its own steps to a stage with a rule that has no recipe
 # (ci-lint: my-target), so a new target never edits another fragment.
@@ -18,7 +18,8 @@
 #                   unit tests. No containers.
 #   ci-integration  -tags integration against a throwaway PostgreSQL (Docker),
 #                   then the isolation suite (make isolation), then the
-#                   ci-isolated --down tag check (test-ci-isolated-down).
+#                   ci-isolated --down tag check (test-ci-isolated-down),
+#                   the integration cleanup and self-hosted cleanup checks.
 #   ci-stack        image build, compose up, GET /healthz smoke, stack tests.
 
 ci: ci-lint ci-unit ci-integration ci-stack
@@ -61,3 +62,31 @@ ci-isolated-down:
 review-paths:
 	go run ./tools/ci/reviewpaths -base $(BASE)
 
+# --- Runners (TICK-641, docs/quality/ci-pipeline.md "Runners") -------------
+# The ci workflow runs on GitHub-hosted runners or on the owner's self-hosted
+# WSL runner. ci-runner resolves which (RUNNER_INPUT, RUNNER_VAR, CROSS_REPO)
+# into the runner job's outputs.
+ci-runner:
+	@sh scripts/ci/runner.sh
+
+# Self-hosted only: this run's compose project, image tag and host ports
+# (ID=ci-<run id>), into $$GITHUB_ENV, so the run never meets the owner's own
+# stack or another run.
+ci-self-hosted-env:
+	@[ -n "$(ID)" ] || { echo "usage: make ci-self-hosted-env ID=<id>"; exit 2; }
+	@sh scripts/ci/self-hosted-env.sh $(ID)
+
+# Self-hosted only: the persistent buildx builder nava-ci (IMAGE_CACHE=local
+# keeps the layer cache in it), created when missing, selected through
+# BUILDX_BUILDER. ci-builder-prune trims its cache to KEEP_GB (default 20).
+ci-builder:
+	@sh scripts/ci/buildx-builder.sh
+ci-builder-prune:
+	@sh scripts/ci/buildx-builder.sh prune
+
+# Self-hosted only: removes one run's containers, volumes, networks and image
+# tags (ID=ci-<run id>), and nothing else; fails if any is left. Run by the
+# self-hosted-cleanup job after every Docker job, passed or failed.
+ci-self-hosted-cleanup:
+	@[ -n "$(ID)" ] || { echo "usage: make ci-self-hosted-cleanup ID=<id>"; exit 2; }
+	sh scripts/ci/self-hosted-cleanup.sh $(ID)

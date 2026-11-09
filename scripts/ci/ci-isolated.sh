@@ -66,7 +66,7 @@ teardown() {
     # scripts remove them on exit; this catches a stage killed before its
     # trap ran. The label selects this project's only, never another run's.
     for c in $(docker ps -a -q --filter "label=nava.ci.owner=$COMPOSE_PROJECT_NAME"); do
-        docker rm -f "$c" >/dev/null 2>&1 || true
+        docker rm -fv "$c" >/dev/null 2>&1 || true
     done
     for n in $(docker network ls -q --filter "label=nava.ci.owner=$COMPOSE_PROJECT_NAME"); do
         docker network rm "$n" >/dev/null 2>&1 || true

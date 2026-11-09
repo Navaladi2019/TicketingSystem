@@ -25,7 +25,8 @@ case $id in '' | *[!0-9]*) echo "NAVA_IT_ID=$id: digits only" >&2; exit 2 ;; esa
 owner=${COMPOSE_PROJECT_NAME:-none}
 name="nava-it-pg-budget-$id"
 gopid=""
-trap 'docker rm -f "$name" >/dev/null 2>&1 || true' EXIT
+# rm -v: the cluster's anonymous data volume too (TICK-641).
+trap 'docker rm -fv "$name" >/dev/null 2>&1 || true' EXIT
 trap '[ -z "$gopid" ] || kill "$gopid" 2>/dev/null || true; exit 130' INT
 trap '[ -z "$gopid" ] || kill "$gopid" 2>/dev/null || true; exit 143' TERM
 
@@ -67,7 +68,7 @@ echo "commit-check-budget ($image): cluster healthy after $(( $(date +%s) - t0 )
 out=$(mktemp)
 fifo=$(mktemp -u)
 mkfifo "$fifo"
-trap 'docker rm -f "$name" >/dev/null 2>&1 || true; rm -f "$out" "$fifo"' EXIT
+trap 'docker rm -fv "$name" >/dev/null 2>&1 || true; rm -f "$out" "$fifo"' EXIT
 tee "$out" <"$fifo" &
 teepid=$!
 go test -tags integration -count=1 -timeout 6m -v -run '^TestCommitCheckBudget$' "$@" ./internal/db/dbtest >"$fifo" 2>&1 &

@@ -35,7 +35,7 @@ if [ "$mode" = fixture ]; then
     kc_tag=$(sed -n 's/^| `quay.io\/keycloak\/keycloak` | [^|]*(negative fixture: \([0-9.]*\)).*/\1/p' docs/pins.md)
     [ -n "$kc_tag" ] || { echo "no Keycloak negative fixture in docs/pins.md" >&2; exit 1; }
     kc="nava-ci5-kc-fixture-$$"
-    trap 'docker rm -f "$kc" >/dev/null 2>&1 || true' EXIT
+    trap 'docker rm -fv "$kc" >/dev/null 2>&1 || true' EXIT
     trap 'exit 130' INT TERM
     # start-dev, throwaway admin.
     docker run -d --name "$kc" -p 127.0.0.1::8080 \
@@ -53,10 +53,13 @@ fi
 tag=$(sed -n 's/^| `postgres` | \([^ |]*\) |.*/\1/p' docs/pins.md)
 [ -n "$tag" ] || { echo "no postgres row in docs/pins.md" >&2; exit 1; }
 pg="nava-ci5-pg-$$"
-trap 'docker rm -f "$pg" >/dev/null 2>&1 || true' EXIT
+# rm -v: the postgres image's anonymous data volume too, and nava.ci.owner as
+# test-integration.sh sets it, so the self-hosted cleanup job finds a cluster
+# a killed run left (TICK-641).
+trap 'docker rm -fv "$pg" >/dev/null 2>&1 || true' EXIT
 trap 'exit 130' INT TERM
 # Throwaway cluster, so no durability (as isolation.sh).
-docker run -d --name "$pg" \
+docker run -d --name "$pg" --label "nava.ci.owner=${COMPOSE_PROJECT_NAME:-none}" \
     -e POSTGRES_USER=pgadmin -e POSTGRES_PASSWORD=test-only -e POSTGRES_INITDB_ARGS=--no-sync \
     --health-cmd 'pg_isready -h 127.0.0.1 -U pgadmin -d postgres' \
     --health-interval 1s --health-timeout 5s --health-retries 90 \

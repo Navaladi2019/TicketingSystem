@@ -61,10 +61,18 @@ func startPostgres(t *testing.T) (dsn, container string) {
 		port := l.Addr().(*net.TCPAddr).Port
 		_ = l.Close()
 		name := fmt.Sprintf("nava-it-health-%d-%d", os.Getpid(), port)
-		out, err := exec.CommandContext(t.Context(), "docker", "run", "-d", "--name", name,
+		// nava.ci.owner as scripts/ci/test-integration.sh sets it, so the
+		// self-hosted cleanup job finds a container a killed run left (TICK-641).
+		owner := os.Getenv("COMPOSE_PROJECT_NAME")
+		if owner == "" {
+			owner = "none"
+		}
+		out, err := exec.CommandContext(t.Context(), "docker", "run", "-d", "--name", name, "--label", "nava.ci.owner="+owner,
 			"-e", "POSTGRES_PASSWORD=dev-only", "-p", fmt.Sprintf("127.0.0.1:%d:5432", port), image).CombinedOutput()
 		t.Cleanup(func() {
-			_ = exec.CommandContext(context.WithoutCancel(t.Context()), "docker", "rm", "-f", name).Run()
+			// -v: the postgres image's anonymous data volume goes with it; a
+			// persistent Docker host (the self-hosted runner) would keep it (TICK-641).
+			_ = exec.CommandContext(context.WithoutCancel(t.Context()), "docker", "rm", "-fv", name).Run()
 		})
 		if err == nil {
 			return fmt.Sprintf("postgres://postgres:dev-only@127.0.0.1:%d/postgres?sslmode=disable", port), name

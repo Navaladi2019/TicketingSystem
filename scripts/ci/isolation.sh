@@ -27,7 +27,8 @@ labels="--label nava.ci.run=nava-iso-$id --label nava.ci.owner=${COMPOSE_PROJECT
 # INT and TERM stop the running go command and exit through the EXIT trap.
 # Never `exec` the last command: exec drops the EXIT trap (TICK-185).
 fgpid=""
-trap 'docker rm -f "$pg" "$bouncer" >/dev/null 2>&1 || true; docker network rm "$net" >/dev/null 2>&1 || true' EXIT
+# rm -v: the cluster's anonymous data volume too (TICK-641).
+trap 'docker rm -fv "$pg" "$bouncer" >/dev/null 2>&1 || true; docker network rm "$net" >/dev/null 2>&1 || true' EXIT
 trap '[ -z "$fgpid" ] || kill "$fgpid" 2>/dev/null; exit 130' INT
 trap '[ -z "$fgpid" ] || kill "$fgpid" 2>/dev/null; exit 143' TERM
 # fgrun <command>: as in test-integration.sh, so a signal reaches the trap at once.

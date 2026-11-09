@@ -621,6 +621,105 @@ go run ./tools/ci/storybranches -as-of 2026-10-28T18:00:00Z        # before #266
 story as in flight. Branches outside `TICK-<n>/` (`agent/...`), and pull
 requests from forks, are not story branches.
 
+## Runners (TICK-641)
+
+The `ci` workflow runs on GitHub-hosted runners (`ubuntu-latest`, the
+default) or on the owner's self-hosted WSL runner (labels `self-hosted`,
+`wsl`). The first job, `runner` (`make ci-runner`, `scripts/ci/runner.sh`),
+picks one, and every suite job (`changes`, `lint`, `unit`, `temporal-server`,
+`integration`, `commit-check-budget`, `stack`, `coverage`) takes
+`runs-on: ${{ fromJSON(needs.runner.outputs.runs_on) }}`. `runner`,
+`full-suite`, `story-branches` and `main-red` stay on `ubuntu-latest`: they
+use no Docker and take seconds.
+
+**How to pick.**
+
+| Where | Value | Wins over |
+| --- | --- | --- |
+| manual run: Actions → ci → Run workflow → `runner`, or `gh workflow run ci --ref <branch> -f runner=self-hosted` | `github` or `self-hosted` | the variable |
+| repository variable `CI_RUNNER` (Settings → Secrets and variables → Actions → Variables) | `github` or `self-hosted`; unset is `github` | nothing: it is the default of push, pull request and manual runs without the input |
+
+Any other value fails the `runner` job (so every suite job is skipped and the
+run is red) rather than guess. The schedule runs `story-branches` alone, on
+`ubuntu-latest`.
+
+**Forks never run on self-hosted.** On a pull request whose head repository is
+a fork (`head.repo.fork`) or any other repository than this one
+(`head.repo.full_name != github.repository`), `runner` returns `github`
+whatever the input or variable say: a fork's code must never run on the
+owner's machine. `TestRunner` (`tools/ci/cichanged/runner_test.go`) covers
+the input/variable precedence, the fork rule and the unknown values.
+
+**What differs per runner.**
+
+| | GitHub-hosted | Self-hosted (WSL) |
+| --- | --- | --- |
+| image layer cache | Actions cache (`IMAGE_CACHE=gha`); `docker/setup-buildx-action` and `crazy-max/ghaction-github-runtime`; only `main` writes it (`CACHE_WRITE`, TICK-400) | the persistent buildx builder `nava-ci` (docker-container driver, `IMAGE_CACHE=local`), created by `make ci-builder` when missing and selected through `BUILDX_BUILDER` for the job only (not `docker buildx use`, which would change the owner's default builder). Neither action runs: `setup-buildx-action` makes a throwaway builder whose cache would be lost every job |
+| who writes the image cache | `main` only | every run, whatever its branch. Accepted: the runner has one owner, and a local BuildKit cache has no per-ref scope and no 10 GB repository limit to evict `main`'s layers, the reason for TICK-400's rule |
+| image cache size | GitHub's 10 GB per repository | trimmed after every run to `CI_BUILDX_KEEP_GB` (repository variable, default 20) by `make ci-builder-prune`, least recently used first; never a full prune |
+| Go build and module cache, pinned tools | `actions/cache` per job (restore always, save on `main`) | no Actions cache at all: `~/.cache/go-build`, `~/go/pkg/mod`, `~/.cache/golangci-lint` and `~/go/bin` persist on the host's disk, and an upload to GitHub would buy nothing. `make tools` runs every lint job (seconds with a warm Go cache) |
+| compose project, image tag, host ports | `nava`, `nava/*:dev`, 18080/18081/17233/18233 (a fresh VM per job) | per run (`make ci-self-hosted-env ID=ci-<run id>`): project `nava-ci-<run id>`, tag `nava/*:ci-<run id>`, four ports in 22000-23999 from a checksum of the id, skipping ports a running container publishes. Never the owner's own `nava` project or `:dev` images |
+| integration clusters | removed by their scripts | the same, now with `docker rm -v` (the postgres image's anonymous data volume went unremoved before), and labelled `nava.ci.owner=nava-ci-<run id>` for the cleanup |
+| after the run | the VM is discarded | the `self-hosted-cleanup` job (below) |
+
+**The cleanup job.** `self-hosted-cleanup` needs `integration`,
+`commit-check-budget` and `stack` (the jobs that use Docker), runs on
+`[self-hosted, wsl]` with `if: always()` whenever the runner is self-hosted,
+so it runs after a green, a red and a cancelled run alike. `make
+ci-self-hosted-cleanup ID=ci-<run id>` (`scripts/ci/self-hosted-cleanup.sh`)
+removes:
+
+- the containers (with their anonymous volumes), named volumes and networks
+  labelled `com.docker.compose.project=nava-ci-<run id>` or `...-int` (the
+  internal overlay's project), by label, so a service of an overlay that
+  `compose down` would not know is caught too;
+- the containers and networks labelled `nava.ci.owner=nava-ci-<run id>` (the
+  integration, isolation, commit-check-budget and CI-5 clusters, and the
+  health integration test's container);
+- the image tags `nava/*:ci-<run id>` and compose's default names
+  `nava-ci-<run id>-*` (untag only: shared layers stay);
+- the overlay's log in `${TMPDIR:-/tmp}`.
+
+It selects only by an exact label value or tag, never by `prune` or a name
+prefix, and then fails if anything of the run is left. It never touches the
+`nava-ci` builder (its second step only trims the cache) or anything without
+those labels, so the owner's own containers and volumes are safe.
+`make test-self-hosted-cleanup` (in the `integration` job and
+`ci-integration`) proves both halves on throwaway objects: this run's go, an
+id that merely starts with this run's stays, and so do an unlabelled
+container and volume and the `:dev` tag of the same image.
+Workspace leftovers (`.ci-bin/`, coverage files, the dev certificates) are not
+removed by the job: the next job's `actions/checkout` cleans the workspace
+(`git clean -ffdx`) before it starts.
+
+**One runner, and a second later.** One self-hosted runner runs one job at a
+time. The per-run project, tag and port slot mean a second runner on the same
+Docker host would not collide on names, with two exceptions: the two fixed
+host ports in `compose.yaml`, OpenObserve's `127.0.0.1:5080` and
+Prometheus's `127.0.0.1:9091` (both in the `operator` profile the stack tests
+use), have no variable, so two stacks at once (two runners, or a
+run while the owner's own stack is up) fail to bind them. Until they get one,
+stop the local stack before a self-hosted run.
+
+**Runner prerequisites** (the owner's WSL, out of scope here): Docker with the
+buildx and compose plugins, `make`, `git`, `gcc` (`go test -race`), `python3`
+(`make check-guide`), `curl`, and the runner registered with the labels
+`self-hosted` and `wsl`. Go comes from `actions/setup-go` into the runner's
+tool cache.
+
+**Reset the `nava-ci` builder by hand** (a corrupt cache, or to measure a cold
+build):
+
+```sh
+docker buildx du --builder nava-ci            # how big the cache is
+docker buildx prune --builder nava-ci -af     # empty the cache, keep the builder
+docker buildx rm nava-ci                      # or drop the builder; the next stack job recreates it
+```
+
+**Leftovers of a killed runner.** If the runner itself died before the
+cleanup job ran, run the cleanup by hand with that run's id:
+`make ci-self-hosted-cleanup ID=ci-<run id>` from a checkout on the WSL host.
+
 ## Parallel runs (TICK-147)
 
 `make ci-isolated ID=<pr-or-sha>` (`task ci:isolated ID=...`) runs the same four

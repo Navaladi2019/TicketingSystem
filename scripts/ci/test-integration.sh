@@ -86,8 +86,10 @@ fgpid=""
 procs=""
 printers=""
 stop() { for j in $fgpid $procs; do kill "${j%%:*}" 2>/dev/null || true; done; }
+# rm -v: the postgres image declares a data VOLUME, and an anonymous volume
+# outlives its container unless removed with it (TICK-641, self-hosted runner).
 # shellcheck disable=SC2086
-trap 'docker rm -f "$name" $shard_pgs $bouncers >/dev/null 2>&1 || true; docker network rm "$net" >/dev/null 2>&1 || true; rm -rf "$logs" "$pipes" ${covdir:+"$covdir"}' EXIT
+trap 'docker rm -fv "$name" $shard_pgs $bouncers >/dev/null 2>&1 || true; docker network rm "$net" >/dev/null 2>&1 || true; rm -rf "$logs" "$pipes" ${covdir:+"$covdir"}' EXIT
 trap 'stop; exit 130' INT
 trap 'stop; exit 143' TERM
 # fgrun <command>: runs it in the background and waits, so INT and TERM reach the
