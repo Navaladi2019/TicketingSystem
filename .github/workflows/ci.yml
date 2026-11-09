@@ -7,7 +7,11 @@
 #                    CI steps, OpenAPI, govulncheck (no containers)
 #   unit             go test -race (no containers)
 #   temporal-server  the custom server module's unit tests, golangci-lint
-#                    (TICK-584) and govulncheck (no containers)
+#                    (TICK-584) and govulncheck (no containers); only when
+#                    the module or how it is built, tested or linted changed
+#                    (make ci-temporal-server-changed, TICK-641)
+#   temporal-server-vulncheck  the schedule's govulncheck of that module, so a
+#                    new advisory is found without a change (ADR-001-A1 R7)
 #   integration      -tags integration against a throwaway PostgreSQL, the
 #                    isolation suite, then the ci-isolated --down tag check
 #   commit-check-budget  TestCommitCheckBudget alone on its own runner
@@ -49,7 +53,12 @@
 # fail (TICK-297).
 #   story-branches   every story branch's work is on main (TICK-322); runs on
 #                    every event and every 6 hours (schedule, which runs no
-#                    other job), and on main keeps one issue open while red
+#                    other job but temporal-server-vulncheck), and on main
+#                    keeps one issue open while red
+# The stack job uses the published temporal-server image when one exists for
+# the checkout's temporal-server/ tree (make temporal-server-pull, TICK-641;
+# the temporal-server-image workflow publishes it from main) and builds the
+# others; without one it builds temporal-server from source as before.
 # Budget: see "Job time budgets" in docs/quality/ci-pipeline.md. stack builds
 # the images first (4 to 13 minutes, by how much of the image cache survives),
 # then runs about 10 to 12 minutes of stack cases and 2 to 3 of database and
@@ -104,8 +113,9 @@ on:
         type: choice
         options: [github, self-hosted]
         default: github
-  # story-branches only: a story branch drifts from main without any push to
+  # story-branches: a story branch drifts from main without any push to
   # main (a PR merged into it), so it is checked on a clock too (TICK-322).
+  # temporal-server-vulncheck: new advisories for an unchanged module (TICK-641).
   schedule:
     - cron: '23 */6 * * *'
 
@@ -172,6 +182,8 @@ jobs:
       areas: ${{ steps.stages.outputs.areas }}
       # How stack builds its images: real or thin (TICK-628).
       images: ${{ steps.stages.outputs.images }}
+      # Whether the temporal-server job runs (TICK-641).
+      temporal_server: ${{ steps.tsrv.outputs.temporal_server }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -211,6 +223,18 @@ jobs:
           # A manual run's images input (TICK-628); CI_ALL (main) wins.
           CI_IMAGES: ${{ github.event_name == 'workflow_dispatch' && inputs.images || '' }}
         run: make ci-stages
+      # TICK-641: the temporal-server job only when its module, or how it is
+      # built, tested or linted, changed. On a push to main the push's own
+      # commits decide (PUSH_BEFORE); a story PR (CI_FULL) always runs it.
+      - name: Does temporal-server need its job
+        id: tsrv
+        env:
+          BASE: origin/${{ github.base_ref || 'main' }}
+          CI_ALL: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && '1' || '' }}
+          CI_FULL: ${{ github.event_name == 'pull_request' && startsWith(github.base_ref, 'TICK-') && '1' || '' }}
+          CI_LINT_ONLY: ${{ github.event_name == 'pull_request' && !startsWith(github.base_ref, 'TICK-') && !contains(github.event.pull_request.labels.*.name, 'ci:run') && !contains(github.event.pull_request.labels.*.name, 'ci:full') && '1' || '' }}
+          PUSH_BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
+        run: make ci-temporal-server-changed
       # Only main writes the cache (TICK-400); see CACHE_WRITE above.
       - name: Save the Go build cache
         if: success() && env.CACHE_WRITE == 'true' && needs.runner.outputs.self_hosted != 'true'
@@ -355,7 +379,7 @@ jobs:
 
   temporal-server:
     needs: [runner, changes]
-    if: needs.changes.outputs.unit == 'true'
+    if: needs.changes.outputs.temporal_server == 'true'
     runs-on: ${{ fromJSON(needs.runner.outputs.runs_on) }}
     timeout-minutes: ${{ needs.runner.outputs.self_hosted == 'true' && 30 || 10 }}
     env:
@@ -414,6 +438,25 @@ jobs:
             ~/go/pkg/mod
             ~/.cache/golangci-lint
           key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
+
+  temporal-server-vulncheck:
+    # TICK-641: the temporal-server job runs only when its module changes, and
+    # a new advisory needs no change of ours, so the schedule scans the module
+    # every 6 hours (ADR-001 A1 Decision 3: zero findings; R7: rescan for new
+    # advisories). A failure opens the P0 issue through main-red.
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: temporal-server/go.mod
+          cache: false
+      - name: Install govulncheck
+        run: make tools-govulncheck
+      - name: govulncheck (temporal-server)
+        run: make vulncheck-temporal-server
 
   integration:
     needs: [runner, changes]
@@ -589,6 +632,12 @@ jobs:
       - name: Build the Go service binaries
         if: env.IMAGE_THIN == '1' || env.CACHE_WRITE == 'true'
         run: make ci-binaries
+      # TICK-641: the image published from main for this temporal-server/
+      # tree, tagged as this run's nava/temporal-server; image-ci then leaves
+      # it out of the bake (TEMPORAL_SERVER_PREBUILT=1). Not published (the
+      # change edits temporal-server/): image-ci builds it, as before.
+      - name: Published temporal-server image
+        run: make temporal-server-pull
       # Once per run: every phase below uses these images.
       - name: Build images (layer cache in gha, or nava-ci on self-hosted)
         id: images
@@ -843,10 +892,11 @@ jobs:
 
   main-red:
     # A push to main with any failed job opens (or comments on) the P0
-    # "main is red" issue. A skipped job is not a failure; a cancelled run
-    # does not fire this.
-    needs: [runner, changes, lint, unit, temporal-server, integration, commit-check-budget, stack, coverage]
-    if: failure() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # "main is red" issue, and so does a scheduled run whose
+    # temporal-server-vulncheck failed (TICK-641). A skipped job is not a
+    # failure; a cancelled run does not fire this.
+    needs: [runner, changes, lint, unit, temporal-server, temporal-server-vulncheck, integration, commit-check-budget, stack, coverage]
+    if: failure() && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -859,6 +909,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           NEEDS_JSON: ${{ toJSON(needs) }}
         run: sh scripts/ci/main-red.sh
