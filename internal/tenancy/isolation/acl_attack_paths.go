@@ -264,7 +264,7 @@ func s10List(ctx context.Context, e *etIso, token, query string) (s10Page, error
 		return p, fmt.Errorf("control: %s listing %s = %d %s, want 200", token, path, r.code, r.body)
 	}
 	if err := json.Unmarshal([]byte(r.body), &p); err != nil || p.Total == nil {
-		return p, fmt.Errorf("control: %s listing %s: not a page: %v: %s", token, path, err, r.body)
+		return p, fmt.Errorf("control: %s listing %s: not a page: %w: %s", token, path, err, r.body)
 	}
 	return p, nil
 }
@@ -666,7 +666,7 @@ func s10WriteScope(ctx context.Context, e *etIso, fx *s10Fixture) error {
 		return fmt.Errorf("the desk creating a record in the admins group = %d %s, want 403", r.code, r.body)
 	}
 	if m, err := count(); err != nil || m != n {
-		return fmt.Errorf("the refused create left %d records, want %d (%v)", m, n, err)
+		return fmt.Errorf("the refused create left %d records, want %d (%w)", m, n, err)
 	}
 	// Control: in its own group the desk does create.
 	if _, err := s10Create(ctx, e, s10Desk, fmt.Sprintf(`{"data": {"note": "x", "group": %q}}`, auditorGroupA)); err != nil {
@@ -839,7 +839,7 @@ func s10PutForeignMaskIDs(ctx context.Context, e *etIso, _ *s10Fixture) error {
 			return fmt.Errorf("%s: tenant B's id and an unknown id answer differently:\n%s\n%s", c.name, bodies[0], bodies[1])
 		}
 		if after, err := counts(); err != nil || after != before {
-			return fmt.Errorf("%s: wrote: %s -> %s (%v)", c.name, before, after, err)
+			return fmt.Errorf("%s: wrote: %s -> %s (%w)", c.name, before, after, err)
 		}
 	}
 	// Control: the same masks with tenant A's own ids publish.

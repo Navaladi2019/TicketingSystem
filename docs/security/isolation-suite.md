@@ -105,6 +105,6 @@ sequenceDiagram
 
 ## Not covered here (owner)
 
-- Byte-identical 404, `If-Match` 412 and the masked-field filter: CI-8 rest, TICK-87.
+- Byte-identical 404 and `If-Match` 412: CI-8 rest, TICK-87. The masked-field filter (CI-8 (d)) and the S10 ACL and mask attacks are registered here since P3-37: see [s10-acl-attacks.md](s10-acl-attacks.md).
 - Write cascades: CI-10, TICK-88.
 - Generic INSERT probes. `WITH CHECK` is covered by the registered insert paths for every table a runtime role may insert into.
