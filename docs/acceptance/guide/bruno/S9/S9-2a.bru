@@ -1,0 +1,35 @@
+meta {
+  name: S9.2a Sign in as admin@tenant-a (triage)
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{keycloak_url}}/realms/{{realm}}/protocol/openid-connect/token
+  body: formUrlEncoded
+  auth: none
+}
+
+body:form-urlencoded {
+  grant_type: password
+  client_id: nava-web
+  scope: openid
+  username: {{admin_a_username}}
+  password: {{admin_a_password}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 200 from Keycloak', () => expect(res.getStatus()).to.eql(200));
+  const tok = N.json();
+  test('access token issued', () => expect(tok.access_token).to.be.a('string'));
+  bru.setVar('admin_a_token', tok.access_token);
+  if (tok.id_token) bru.setVar('admin_a_token_id', tok.id_token);
+  const c = N.jwt(tok.access_token);
+  bru.setVar('admin_a_token_exp', String(c.exp));
+  test('issuer is the pinned realm URL', () => expect(c.iss).to.eql(N.url('{{keycloak_issuer_url}}/realms/{{realm}}')));
+}
+
+docs {
+  A principal allowed to triage: under the default incident ACL a requester reads and writes its own incident only while it is `new`, so S9.9 to S9.13 (versions, `ETag`s and history) run as tenant A's admin. S9.4 stays Alice's. Needs `tools/seed.sh` (tenant A's admins group).
+}

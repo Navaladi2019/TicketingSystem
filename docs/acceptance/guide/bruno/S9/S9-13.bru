@@ -1,7 +1,7 @@
 meta {
-  name: S9.13 AC3: the history: one row per change, Alice, source user
+  name: S9.13 AC3: the history: one row per change, the actors, source user
   type: http
-  seq: 13
+  seq: 17
 }
 
 get {
@@ -11,7 +11,7 @@ get {
 }
 
 headers {
-  Authorization: Bearer {{alice_token}}
+  Authorization: Bearer {{admin_a_token}}
 }
 
 tests {
@@ -19,10 +19,11 @@ tests {
   N.status(200);
   const items = N.json().items;
   test('exactly two rows: update, create', () => expect(items.map(i => i.action)).to.eql(['update', 'create']));
-  test('each names Alice and source user', () => items.forEach(i => {
-    expect(i.actor_id, i.action).to.eql(bru.getVar('s9_alice'));
-    expect(i.source, i.action).to.eql('user');
-  }));
+  test('the update names the admin, the create names Alice, both source user', () => {
+    expect(items[0].actor_id).to.eql(bru.getVar('s9_admin'));
+    expect(items[1].actor_id).to.eql(bru.getVar('s9_alice'));
+    items.forEach(i => expect(i.source, i.action).to.eql('user'));
+  });
   test('the update changed priority and state', () => expect(items[0].changed).to.have.members(['/data/priority', '/data/state']));
   test('the update has before and after', () => {
     expect(items[0].before.priority).to.eql(2);
@@ -33,5 +34,5 @@ tests {
 }
 
 docs {
-  Exactly two rows, newest first: the update of S9.9 and the create of S9.4. Each names Alice (`actor_id`) and `source: user`. The retry, the 412 and the 428 added none.
+  Exactly two rows, newest first: the update of S9.9 (by the admin) and the create of S9.4 (by Alice). Each names its actor (`actor_id`) and `source: user`. The retry, the 412, the 428 and Alice's refused S9.8a added none.
 }

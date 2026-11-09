@@ -1,0 +1,25 @@
+meta {
+  name: S9.8b The refusal changed nothing: still version 1, state new
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s9_id}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('version 1, state new, ETag W/"1"', () => {
+    expect(N.json().version).to.eql(1);
+    expect(N.json().state).to.eql('new');
+    expect(N.header('ETag')).to.eql('W/"1"');
+  });
+}

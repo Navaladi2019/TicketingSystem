@@ -995,6 +995,11 @@ N.status(404);"""
             token("S9.1 Sign in as agent@tenant-a (Alice)", "alice_username", "alice_password", "alice_token",
                   extra="bru.setVar('s9_run', N.v('s9_run_id') || Math.random().toString(16).slice(2, 10));\nconsole.log('S9 run', bru.getVar('s9_run'));"),
             token("S9.2 Sign in as agent@tenant-b (Bob)", "bob_username", "bob_password", "bob_token"),
+            token("S9.2a Sign in as admin@tenant-a (triage)", "admin_a_username", "admin_a_password", "admin_a_token",
+                  desc="A principal allowed to triage: under the default incident ACL a requester reads and writes its own incident only while it is `new`, so S9.9 to S9.13 (versions, `ETag`s and history) run as tenant A's admin. S9.4 stays Alice's. Needs `tools/seed.sh` (tenant A's admins group)."),
+            req("S9.3a The admin's principal id", "GET", "{{core_url}}/api/v1/me", auth="admin_a_token",
+                desc="Kept to check that the history names the admin as the actor of the update.",
+                tests=f"N.me('{A}');\nbru.setVar('s9_admin', N.json().user_id);"),
             req("S9.3 Alice's principal id", "GET", "{{core_url}}/api/v1/me", auth="alice_token",
                 desc="Kept to check that the history names Alice as the actor (`actor_id` is the `user_id` of `GET /me`).",
                 tests=f"N.me('{A}');\nbru.setVar('s9_alice', N.json().user_id);"),
@@ -1051,7 +1056,18 @@ const n = Number(bru.getVar('s9_number').slice(3)) + 1;
 const want = 'INC' + String(n).padStart(7, '0');
 test(`number ${want}: no gap after S9.4`, () => expect(b.number).to.eql(want));
 bru.setVar('s9_id2', b.id);"""),
-            req("S9.9 AC2: update with the current ETag: 200", "PATCH", one, auth="alice_token",
+            req("S9.8a A requester cannot triage: Alice moves her own incident to in_progress: 403", "PATCH", one, auth="alice_token",
+                headers={**key("alice-triage"), **mp, "If-Match": 'W/"1"'}, body={"state": "in_progress"},
+                desc="Alice is the requester. The default incident ACL lets her write her own incident only while it is `new`, and the write is checked before and after the change, so moving it out of `new` is refused: 403 `forbidden`. S9.8b shows the record did not change.",
+                tests="N.problem('forbidden', 403);"),
+            req("S9.8b The refusal changed nothing: still version 1, state new", "GET", one, auth="alice_token",
+                tests="""N.status(200);
+test('version 1, state new, ETag W/"1"', () => {
+  expect(N.json().version).to.eql(1);
+  expect(N.json().state).to.eql('new');
+  expect(N.header('ETag')).to.eql('W/"1"');
+});"""),
+            req("S9.9 AC2: update with the current ETag: 200", "PATCH", one, auth="admin_a_token",
                 headers={**key("update"), **mp, "If-Match": 'W/"1"'},
                 body={"data": {"priority": 1}, "state": "in_progress"},
                 desc="Priority 1 and state `in_progress`, based on version 1. 200 with version 2 and `ETag: W/\"2\"`.",
@@ -1064,7 +1080,7 @@ test('version 2, priority 1, in_progress, rest kept', () => {
   expect(b.data.short_description).to.eql('S9 ' + bru.getVar('s9_run') + ' printer on fire');
 });
 test('ETag W/"2"', () => expect(N.header('ETag')).to.eql('W/"2"'));"""),
-            req("S9.10 AC2: update with the old ETag: 412 version_conflict", "PATCH", one, auth="alice_token",
+            req("S9.10 AC2: update with the old ETag: 412 version_conflict", "PATCH", one, auth="admin_a_token",
                 headers={**key("stale"), **mp, "If-Match": 'W/"1"'}, body={"data": {"priority": 4}},
                 desc="Based on version 1, which is no longer current. Refused: 412 `version_conflict` with the current `ETag`; nothing is overwritten.",
                 tests="""N.problem('version_conflict', 412);
@@ -1073,7 +1089,7 @@ test('the current ETag W/"2" in the header and the detail', () => {
   expect(N.json().detail).to.include('W/"2"');
 });"""),
             problem_req("S9.11 AC2: update without If-Match: 428", "PATCH", one, "if_match_required", 428,
-                        auth="alice_token", headers={**key("nomatch"), **mp}, body={"data": {"priority": 4}},
+                        auth="admin_a_token", headers={**key("nomatch"), **mp}, body={"data": {"priority": 4}},
                         desc="No `If-Match`: 428 `if_match_required`."),
             req("S9.12 AC2: the refused updates changed nothing", "GET", one, auth="alice_token",
                 desc="Still version 2 with priority 1, as S9.9 left it.",
@@ -1085,15 +1101,16 @@ test('version 2, priority 1, in_progress', () => {
   expect(b.state).to.eql('in_progress');
   expect(N.header('ETag')).to.eql('W/"2"');
 });"""),
-            req("S9.13 AC3: the history: one row per change, Alice, source user", "GET", one + "/history", auth="alice_token",
-                desc="Exactly two rows, newest first: the update of S9.9 and the create of S9.4. Each names Alice (`actor_id`) and `source: user`. The retry, the 412 and the 428 added none.",
+            req("S9.13 AC3: the history: one row per change, the actors, source user", "GET", one + "/history", auth="admin_a_token",
+                desc="Exactly two rows, newest first: the update of S9.9 (by the admin) and the create of S9.4 (by Alice). Each names its actor (`actor_id`) and `source: user`. The retry, the 412, the 428 and Alice's refused S9.8a added none.",
                 tests="""N.status(200);
 const items = N.json().items;
 test('exactly two rows: update, create', () => expect(items.map(i => i.action)).to.eql(['update', 'create']));
-test('each names Alice and source user', () => items.forEach(i => {
-  expect(i.actor_id, i.action).to.eql(bru.getVar('s9_alice'));
-  expect(i.source, i.action).to.eql('user');
-}));
+test('the update names the admin, the create names Alice, both source user', () => {
+  expect(items[0].actor_id).to.eql(bru.getVar('s9_admin'));
+  expect(items[1].actor_id).to.eql(bru.getVar('s9_alice'));
+  items.forEach(i => expect(i.source, i.action).to.eql('user'));
+});
 test('the update changed priority and state', () => expect(items[0].changed).to.have.members(['/data/priority', '/data/state']));
 test('the update has before and after', () => {
   expect(items[0].before.priority).to.eql(2);
