@@ -224,7 +224,7 @@ func Coverage() map[string]string {
 	return map[string]string{
 		"CI-2":           "full: generic checks on every tenant table; forged-tenant HTTP paths (T17); the forged write on POST /api/v1/records/incident, StoredUnderA (P3-18)",
 		"CI-9":           "full: nava_relay, nava_purge, nava_onboard and nava_backup reach (T12); nava_backup through T08's pg_hba cases",
-		"CI-8":           "partial → P3-37 (S10): the masked-field filter 400 needs S10's masks; here the record routes' byte-identical 404 on GET, PATCH and history, stale If-Match 412, and (e)/(f) (TICK-87); cursor cases from T23; idempotency cases from T22",
+		"CI-8":           "full: the record routes' byte-identical 404 on GET, PATCH and history, stale If-Match 412, and (e)/(f) (TICK-87); cursor cases from T23; idempotency cases from T22; the masked-field filter 400 (d) and the S10 attack rows on the record ACL, masks, admin routes and explainer (P3-37)",
 		"CI-10":          "partial → P3-42 (S11b): (g) signal ping-pong needs the interpreter; (f) the start key is per tenant, here; (a)–(e) are TestCI10_* in internal/records/pipeline and the outbox depth limit TestCI10_* in internal/outbox, both against real PostgreSQL in make test-integration",
 		"T26":            "full: deprovisioning within D-P9's 10 minutes and the Epic 03 identity boundary (TICK-82); cases 1, 2, 6 and 8 run here, cases 3, 4, 5 and 7 need the real Keycloak and run in make stack-test-identity",
 		"CI-A4":          "partial (ADR-004, P5-19): audit_log through the parent, its DEFAULT partition, audit_chain_head and record_write_keys as every runtime role, with no tenant and with onboarding's pinned policies; GET /api/v1/audit/entries and record history for tenant B's admin, auditor and agent. export, stubs and reseed → P5-42 (S16)",
@@ -496,5 +496,6 @@ func Paths() []Path {
 	paths = append(paths, auditPaths()...)
 	paths = append(paths, auditReaderPaths()...)
 	paths = append(paths, aclPaths()...)
+	paths = append(paths, aclAttackPaths()...)
 	return append(paths, boundaryPaths()...)
 }
