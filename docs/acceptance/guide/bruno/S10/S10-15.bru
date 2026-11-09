@@ -36,6 +36,7 @@ tests {
   test('version + 1', () => expect(N.json().version).to.eql(was.version + 1));
   test('the same rules', () => expect(N.json().rules).to.eql(was.rules));
   test('ETag W/"<version>"', () => expect(N.header('ETag')).to.eql('W/"' + N.json().version + '"'));
+  bru.setVar('s10_etag', N.header('ETag'));
 }
 
 docs {
