@@ -563,6 +563,18 @@ func TestPutAccessRefusesATombstonedGroupOrUserLikeAnUnknownId(t *testing.T) {
 	rule := func(who string) string {
 		return `{"rules": [{"id": "r", "ops": ["read"], "who": ` + who + `}]}`
 	}
+	// A tombstoned group or principal may not keep memberships (the live FKs).
+	for _, q := range []struct {
+		sql string
+		id  uuid.UUID
+	}{
+		{"DELETE FROM group_members WHERE tenant_id = $1 AND group_id = $2", e.a.lookalikeGroup},
+		{"DELETE FROM group_members WHERE tenant_id = $1 AND principal_id = $2", e.a.user.PrincipalID},
+	} {
+		if _, err := e.super.Exec(t.Context(), q.sql, e.a.id, q.id); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if _, err := e.super.Exec(t.Context(), "UPDATE groups SET deleted_at = now() WHERE tenant_id = $1 AND id = $2", e.a.id, e.a.lookalikeGroup); err != nil {
 		t.Fatal(err)
 	}
