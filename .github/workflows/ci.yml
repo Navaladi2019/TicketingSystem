@@ -26,7 +26,11 @@
 #                    unit does; a change that needs unit also runs integration
 # Triggers (TICK-563, for Actions cost): a push to main, a pull request, a
 # manual run and the schedule. A push to a task or story branch starts no run.
-# A pull request without the ci:run label runs changes, lint and
+# A pull request into a TICK-* story branch (a task PR) runs every job and
+# every stack case on open and on every push, with no label (CI_FULL=1,
+# TICK-638), and its full-suite job fails when any of those jobs did not
+# succeed: a skipped job is not green there.
+# Any other pull request without the ci:run label runs changes, lint and
 # story-branches only (make ci-stages with CI_LINT_ONLY=1). With the label it
 # runs the jobs its change needs: the changes job asks `make ci-stages`
 # (tools/ci/cichanged, the rules of `make ci-changed`), lint always runs, and a
@@ -146,8 +150,12 @@ jobs:
           # Every stage on a push or manual run on main only: a merge result
           # has no meaningful diff base. Never on another branch (TICK-563).
           CI_ALL: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && '1' || '' }}
-          # A pull request without the ci:run or ci:full label: lint only (TICK-563).
-          CI_LINT_ONLY: ${{ github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'ci:run') && !contains(github.event.pull_request.labels.*.name, 'ci:full') && '1' || '' }}
+          # A pull request into a TICK-* story branch: every stage and every
+          # stack-case area, no label needed (TICK-638).
+          CI_FULL: ${{ github.event_name == 'pull_request' && startsWith(github.base_ref, 'TICK-') && '1' || '' }}
+          # Any other pull request without the ci:run or ci:full label: lint
+          # only (TICK-563).
+          CI_LINT_ONLY: ${{ github.event_name == 'pull_request' && !startsWith(github.base_ref, 'TICK-') && !contains(github.event.pull_request.labels.*.name, 'ci:run') && !contains(github.event.pull_request.labels.*.name, 'ci:full') && '1' || '' }}
           # Every stack-case area: the ci:full label, a manual run, and every
           # pull request into main, story PRs among them (a branch name cannot
           # tell a story PR from a task PR). On a push to main CI_ALL sets it.
@@ -630,6 +638,23 @@ jobs:
             coverage-total.out
             coverage.html
           if-no-files-found: error
+
+  full-suite:
+    # TICK-638: on a pull request into a TICK-* story branch every suite job
+    # must run and succeed. GitHub shows a skipped job as passed, so this job
+    # turns a skipped (or failed, or cancelled) one red. Make it the required
+    # check for story-branch pull requests. Same label rule as lint, so a run
+    # started by any other label skips it with the rest.
+    needs: [changes, lint, unit, temporal-server, integration, commit-check-budget, stack, coverage]
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && startsWith(github.base_ref, 'TICK-') && (github.event.action != 'labeled' || github.event.label.name == 'ci:run' || github.event.label.name == 'ci:full') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Every suite job succeeded
+        env:
+          RESULTS: changes=${{ needs.changes.result }} lint=${{ needs.lint.result }} unit=${{ needs.unit.result }} temporal-server=${{ needs.temporal-server.result }} integration=${{ needs.integration.result }} commit-check-budget=${{ needs.commit-check-budget.result }} stack=${{ needs.stack.result }} coverage=${{ needs.coverage.result }}
+        run: make check-full-suite
 
   story-branches:
     # TICK-322: a story branch's work must reach main. Fails on changes merged

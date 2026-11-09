@@ -94,7 +94,7 @@ func ciStages(t *testing.T, dir, base string, env ...string) string {
 	cmd.Dir = dir
 	// Later entries win, so the runner's own GITHUB_OUTPUT, CI_ALL or
 	// CI_LINT_ONLY never leak in.
-	cmd.Env = append(os.Environ(), append([]string{"BASE=" + base, "GITHUB_OUTPUT=" + out, "CI_ALL=", "CI_LINT_ONLY=", "CI_AREAS_ALL=", "CI_IMAGES="}, env...)...)
+	cmd.Env = append(os.Environ(), append([]string{"BASE=" + base, "GITHUB_OUTPUT=" + out, "CI_ALL=", "CI_FULL=", "CI_LINT_ONLY=", "CI_AREAS_ALL=", "CI_IMAGES="}, env...)...)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	if _, err := cmd.Output(); err != nil {
@@ -194,6 +194,18 @@ func testDocsOnlyDiffRunsNoUnitIntegrationOrStack(t *testing.T, dir, base string
 	})
 	if got := ciStages(t, dir, base); got != allFalse {
 		t.Fatalf("GITHUB_OUTPUT = %q, want %q", got, allFalse)
+	}
+	// TICK-638: a pull request into a story branch (CI_FULL=1) runs every
+	// stage and every stack-case area whatever its diff, even this docs-only
+	// one, and wins over CI_LINT_ONLY. The images still follow the rule: no
+	// Dockerfile changed, so thin. Checked on this diff to save a cichanged
+	// pass (TICK-597).
+	const full = "unit=true\nintegration=true\nstack=true\nareas=all\nimages=thin\n"
+	if got := ciStages(t, dir, base, "CI_FULL=1"); got != full {
+		t.Errorf("CI_FULL=1: GITHUB_OUTPUT = %q, want %q", got, full)
+	}
+	if got := ciStages(t, dir, base, "CI_FULL=1", "CI_LINT_ONLY=1"); got != full {
+		t.Errorf("CI_FULL=1 CI_LINT_ONLY=1: GITHUB_OUTPUT = %q, want %q", got, full)
 	}
 }
 
