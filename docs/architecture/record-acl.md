@@ -137,6 +137,9 @@ the same 404. `acl_version` is 0 and `decision` is `deny` when no version is
 published. The admin's own read access to the record is not checked: a tenant
 admin can publish an ACL granting itself read, so the check would protect
 nothing (the explainer returns only the decision, rule id and field names).
+The explainer answers allow or deny for any record in the tenant, including
+records the admin's own read rule would hide; only the fields the admin cannot
+read are withheld.
 
 **The default incident ACL v1** (`onboard.DefaultIncidentRules`): the tenant's
 admins group reads and writes everything; the `service-desk` group reads and
@@ -159,5 +162,6 @@ runs it); see [the operator guide](../operator/onboarding.md).
 
 **Tenant scope of the explainer and the compiler.** The compiler never emits
 an id it did not get from the tenant's own policy row, and the publish route
-refuses every id outside the tenant, so a stored policy names only its own
+refuses every id outside the tenant (and every tombstoned group or user of it,
+with the same 422 as an unknown id), so a stored policy names only its own
 tenant's groups and users.
