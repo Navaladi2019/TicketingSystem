@@ -94,7 +94,7 @@ func InTenantTx(ctx context.Context, pool *pgxpool.Pool, tenantID uuid.UUID, fn 
 	if err != nil {
 		return fmt.Errorf("tenancy: begin: %w", err)
 	}
-	st := &scopedTx{Tx: tx, tenant: tenantID, memo: map[any]any{}}
+	st := &scopedTx{Tx: tx, tenant: tenantID, memo: &memo{m: map[any]any{}}}
 	// Rollback after Commit is a no-op for pgx, and only a warning for
 	// PostgreSQL after a batched COMMIT, so one deferred call covers the
 	// error return, the panic and a failed commit.
@@ -135,12 +135,73 @@ type atCommit struct {
 type scopedTx struct {
 	pgx.Tx
 	tenant   uuid.UUID
-	memo     map[any]any
+	memo     *memo
 	atCommit []atCommit
 	// nested: a savepoint (Begin). It shares the parent's tenant and memo but
 	// cannot queue statements for the commit: rolling the savepoint back
 	// would not take them back.
 	nested bool
+	// mark: for a savepoint, the memo's undo length when it opened.
+	mark int
+	// ended: the savepoint was released or rolled back.
+	ended bool
+}
+
+// memo is a transaction's memo, shared by its savepoints. While a savepoint
+// is open every change is journaled in undo, so rolling the savepoint back
+// can restore the memo as it was when the savepoint opened (TICK-651): a
+// record created in a rolled-back savepoint is then no longer recalled.
+type memo struct {
+	m    map[any]any
+	undo []undoEntry
+	open int // savepoints open
+}
+
+// undoEntry is key's value before a change: v, or absent when !had.
+type undoEntry struct {
+	key any
+	v   any
+	had bool
+}
+
+func (m *memo) set(key, v any) {
+	m.journal(key)
+	m.m[key] = v
+}
+
+func (m *memo) del(key any) {
+	m.journal(key)
+	delete(m.m, key)
+}
+
+func (m *memo) journal(key any) {
+	if m.open == 0 {
+		return
+	}
+	v, had := m.m[key]
+	m.undo = append(m.undo, undoEntry{key: key, v: v, had: had})
+}
+
+// end closes a savepoint opened at mark. A rollback undoes, newest first,
+// every change since mark; a release keeps them, journaled still for an
+// enclosing savepoint's rollback. With no savepoint left open, the journal
+// is dropped.
+func (m *memo) end(mark int, rollback bool) {
+	if rollback {
+		for i := len(m.undo) - 1; i >= mark; i-- {
+			u := m.undo[i]
+			if u.had {
+				m.m[u.key] = u.v
+			} else {
+				delete(m.m, u.key)
+			}
+		}
+		m.undo = m.undo[:mark]
+	}
+	m.open--
+	if m.open == 0 {
+		m.undo = nil
+	}
 }
 
 // Begin opens a savepoint that keeps the tenant and the memo.
@@ -149,7 +210,36 @@ func (s *scopedTx) Begin(ctx context.Context) (pgx.Tx, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &scopedTx{Tx: sp, tenant: s.tenant, memo: s.memo, nested: true}, nil
+	s.memo.open++
+	return &scopedTx{Tx: sp, tenant: s.tenant, memo: s.memo, nested: true, mark: len(s.memo.undo)}, nil
+}
+
+// Commit commits the transaction or releases the savepoint. A savepoint
+// whose release fails keeps none of its memo changes: its work was not kept
+// either.
+func (s *scopedTx) Commit(ctx context.Context) error {
+	err := s.Tx.Commit(ctx)
+	s.endSavepoint(err != nil && !errors.Is(err, pgx.ErrTxClosed))
+	return err
+}
+
+// Rollback rolls the transaction or the savepoint back. A savepoint's
+// rollback undoes the memo changes made since it opened. On a savepoint
+// already released or rolled back it does nothing to the memo, so the usual
+// deferred Rollback after Commit is safe.
+func (s *scopedTx) Rollback(ctx context.Context) error {
+	err := s.Tx.Rollback(ctx)
+	s.endSavepoint(!errors.Is(err, pgx.ErrTxClosed))
+	return err
+}
+
+// endSavepoint ends s's memo scope once, rolling it back when rollback.
+func (s *scopedTx) endSavepoint(rollback bool) {
+	if !s.nested || s.ended {
+		return
+	}
+	s.ended = true
+	s.memo.end(s.mark, rollback)
 }
 
 // commitBatch sends the queued statements and COMMIT as one batch: one round
@@ -204,10 +294,12 @@ func ExecAtCommit(tx pgx.Tx, sql string, args ...any) bool {
 // A tx InTenantTx did not open has no memo, and Remember does nothing.
 //
 // Memo only reads whose result this transaction does not change later, or
-// Forget the key in the code that changes it.
+// Forget the key in the code that changes it. A savepoint shares its
+// transaction's memo; rolling it back undoes the Remember and Forget calls
+// made since it opened, releasing it keeps them (TICK-651).
 func Remember(tx pgx.Tx, key, v any) {
 	if s, ok := tx.(*scopedTx); ok {
-		s.memo[key] = v
+		s.memo.set(key, v)
 	}
 }
 
@@ -217,14 +309,14 @@ func Recall(tx pgx.Tx, key any) (any, bool) {
 	if !ok {
 		return nil, false
 	}
-	v, found := s.memo[key]
+	v, found := s.memo.m[key]
 	return v, found
 }
 
 // Forget drops key from tx's memo.
 func Forget(tx pgx.Tx, key any) {
 	if s, ok := tx.(*scopedTx); ok {
-		delete(s.memo, key)
+		s.memo.del(key)
 	}
 }
 

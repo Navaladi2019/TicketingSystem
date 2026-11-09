@@ -33,7 +33,9 @@ The transaction `fn` gets is a `*scopedTx`. Only `InTenantTx` builds one:
   was prefetched in a batch (definition, policy, the row a create stored) is
   used by the code that would otherwise read it again. The memo dies with the
   transaction, which belongs to one tenant. Publishing a definition or an ACL
-  drops the matching entry.
+  drops the matching entry. A savepoint shares the memo: rolling it back
+  undoes the `Remember` and `Forget` calls made since it opened, so a record
+  created in it is no longer recalled; releasing it keeps them (TICK-651).
 - `ExecAtCommit` queues a statement for the round trip that commits. The
   statement's result is read after COMMIT, so a statement that must stop the
   commit has to fail in SQL. A savepoint cannot queue one.
@@ -101,7 +103,8 @@ read of that version.
   and records a violation for any statement or batch sent on an unscoped
   connection. The tenancy, pipeline and server tests run requests through it.
 - The tenancy tests cover the cross-tenant and empty-tenant cases for
-  batches, `ExecAtCommit` atomicity, the memo, and savepoints.
+  batches, `ExecAtCommit` atomicity, the memo, and savepoints, including
+  memo undo on savepoint rollback, nested savepoints and release.
 - The server test holds create and GET to their round-trip and statement
   budgets, and two tenants interleaved on one connection, and 16 concurrent
   clients, to their own tenant.
