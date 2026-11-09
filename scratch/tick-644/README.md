@@ -17,11 +17,21 @@ NAVA_TICK644_URL=postgres://pgadmin:bench@127.0.0.1:55644/nava [NAVA_TICK644_PLA
 
 | Requester | Page | Page stmt before | Page stmt after | Count stmt before | Count stmt after |
 | --- | --- | --- | --- | --- | --- |
-| req1 | 1 | 10.93 ms | 1.76 ms | 1030.18 ms | 9.45 ms |
-| req1 | 20 | 10.12 ms | 1.46 ms | 925.62 ms | 11.94 ms |
-| req8 | 1 | 59.24 ms | 1.08 ms | 1012.46 ms | 2.10 ms |
-| req8 | 20 | 63.24 ms | 1.03 ms | 945.01 ms | 1.93 ms |
 
-Timings vary with host load (an earlier run: page before 13-68 ms, count before 270-540 ms, after under 18 ms); the ratios hold. Plans: the page statement is a
-Merge Append of index-ordered `records_list_requester` / `records_list_assignee` arms; the only `Sort` is the
-share arm's, over the rows shared with the caller.
+| req1 | 1 | 17.17 ms | 1.45 ms | 257.98 ms | 8.20 ms |
+| req1 | 20 | 8.39 ms | 0.74 ms | 175.52 ms | 7.66 ms |
+| req8 | 1 | 29.09 ms | 0.80 ms | 203.65 ms | 2.78 ms |
+| req8 | 20 | 34.70 ms | 0.92 ms | 203.75 ms | 2.35 ms |
+
+Timings vary with host load (earlier runs: page before 10-90 ms, count before
+0.2-1.8 s, after under 20 ms); the ratios hold.
+
+`plans.txt` is `EXPLAIN (ANALYZE, BUFFERS)` of the page and the count
+statement, page 1 and page 20, before and after, for both requesters
+(`NAVA_TICK644_PLANS=1`). After: a Merge Append of index-ordered scans on
+`records_list_requester` and `records_list_assignee`. The share arm is a
+Bitmap Heap Scan on `record_shares` (the `record_shares_principal` index, the
+caller's own shares) -> HashAggregate -> Nested Loop to `records` -> `Sort` ->
+`Limit`; its Sort input is the caller's share rows (0 to 1 here), not the
+tenant. The seeded shape has no large group with many shares; a bench for
+that is deferred (TICK-644 review, round 1).

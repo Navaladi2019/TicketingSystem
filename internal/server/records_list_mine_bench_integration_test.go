@@ -71,7 +71,13 @@ func TestMineListBench(t *testing.T) {
 				pageSQL, pageArgs, err := pipeline.PageStatement(q)
 				mineMust(err)
 				countArgs := append([]any{tenant, def}, q.Args...)
+				if plans {
+					fmt.Printf("\n=== %s page %d %s: page statement (EXPLAIN ANALYZE, BUFFERS)\n", n, page, form)
+				}
 				pg := mineExplain(ctx, pool, tenant, pageSQL, pageArgs, runs, plans)
+				if plans {
+					fmt.Printf("\n=== %s page %d %s: count statement (EXPLAIN ANALYZE, BUFFERS)\n", n, page, form)
+				}
 				ct := mineExplain(ctx, pool, tenant, pipeline.CountStatement(q), countArgs, runs, plans)
 				fmt.Printf("%-5s page %-2d %-18s page stmt median %7.2f ms (min %.2f), count stmt median %7.2f ms (min %.2f)\n", n, page, form, pg.med, pg.min, ct.med, ct.min)
 			}

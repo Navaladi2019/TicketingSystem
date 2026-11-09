@@ -174,8 +174,21 @@ func CompileRead(pol *Policy, p identity.Principal, alias string, argBase int) (
 // the branches repeats no row. The branches are the rule's subjects in the
 // order requester, assignee, shared, each with the rule's conditions, rule by
 // rule; the placeholders and arguments follow CompileRead's contract (numbered
-// from argBase+1, every id from pol or p). A rule that admits every row (no
-// conditions) is the single branch "true". No branch means no rule can match.
+// from argBase+1, every id from pol or p). A rule that admits every row (the
+// caller is named by it and it has no conditions) makes the whole predicate
+// the single branch "true". An everyone rule WITH conditions is not special:
+// its disjunct is "(true AND conditions)" and it is a branch like any other, so
+// it can sit beside a requester branch. No branch means no rule can match;
+// callers fall back to CompileRead when there are fewer than two branches.
+//
+// Exclusion needs every term to be two-valued: the SQL below never yields NULL
+// (colEq and the conditions carry IS NOT NULL, state is NOT NULL, the share
+// term is an EXISTS), so NOT d_j is true exactly when d_j is false and no row
+// is dropped by "AND NOT". A term that could be NULL would silently remove its
+// rows from every later branch (Security review risk 2); keep new terms
+// two-valued. The text grows with the square of the number of disjuncts (branch
+// i repeats the i-1 before it); a policy has a handful of subjects, so that is
+// small, but it is not meant for hundreds.
 func ReadBranches(pol *Policy, p identity.Principal, alias string, argBase int) (branches []string, args []any) {
 	if !identRE.MatchString(alias) {
 		panic(fmt.Sprintf("authz: ReadBranches alias %q is not a plain identifier", alias))
@@ -200,7 +213,8 @@ func ReadBranches(pol *Policy, p identity.Principal, alias string, argBase int) 
 
 // disjuncts is the rule's SQL split by subject: each is a subject term ANDed
 // with every condition, so their OR is sql. The conditions' arguments are bound
-// once and their text shared.
+// once and their text shared. Every disjunct is two-valued (never NULL), which
+// ReadBranches relies on for its AND NOT exclusion.
 func (pr plannedRule) disjuncts(c *compiler) []string {
 	var who []string
 	if pr.everyone {

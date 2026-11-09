@@ -11,6 +11,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
+	"github.com/Navaladi2019/TicketingSystem/internal/identity"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 )
 
 // TICK-644 (P3-34c): the requester list is answered as a UNION ALL of the
@@ -23,8 +25,11 @@ func TestListRecordsMineBranchesMatchTheSingleStatement(t *testing.T) {
 		authz.Rule{ID: "admins", Ops: []string{authz.OpRead, authz.OpWrite}, Who: authz.Subject{Users: []uuid.UUID{e.a.admin.PrincipalID}}})
 	ctx := t.Context()
 	me, mate := e.a.user.PrincipalID, e.a.lookalike.PrincipalID
+	var made []string
 	mk := func(key, extra string) recBody {
-		return e.mustCreateRec(t, "admin-a", "ticket", key, `{"short_description": "s"`+extra+`}`)
+		r := e.mustCreateRec(t, "admin-a", "ticket", key, `{"short_description": "s"`+extra+`}`)
+		made = append(made, r.ID)
+		return r
 	}
 	share := func(tenant, rec string, user uuid.UUID) {
 		t.Helper()
@@ -78,56 +83,180 @@ func TestListRecordsMineBranchesMatchTheSingleStatement(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Mixed states: every third record of the lot is closed, so the state sorts
+	// have ties and the tie-breakers (updated_at, id) decide the order.
+	for i, id := range made {
+		if i%3 == 0 {
+			if rec := e.patch(t, "admin-a", "ticket", id, `W/"1"`, `{"state": "closed"}`); rec.Code != http.StatusOK {
+				t.Fatalf("close = %d: %s", rec.Code, rec.Body)
+			}
+		}
+	}
+
 	var def uuid.UUID
 	if err := e.super.QueryRow(ctx, "SELECT id FROM entity_definitions WHERE tenant_id = $1 AND key = 'ticket'", e.a.id).Scan(&def); err != nil {
 		t.Fatal(err)
 	}
-	rows, err := e.super.Query(ctx, `SELECT r.id::text FROM records r WHERE r.tenant_id = $1 AND r.entity_definition_id = $2
+	// single is the order of the single OR statement for a sort, as the store
+	// documents it: NULLS FIRST descending, NULLS LAST ascending, state and the
+	// foreign keys tie-break on updated_at, then id.
+	single := func(col, dir, filter string) []string {
+		t.Helper()
+		nulls, tie := "LAST", ""
+		if dir == "DESC" {
+			nulls = "FIRST"
+		}
+		if col != "created_at" && col != "updated_at" {
+			tie = "r.updated_at " + dir + ", "
+		}
+		rows, err := e.super.Query(ctx, `SELECT r.id::text FROM records r WHERE r.tenant_id = $1 AND r.entity_definition_id = $2`+filter+`
 		AND (r.requester_id = $3 OR r.assignee_id = $3 OR EXISTS (SELECT 1 FROM record_shares s WHERE s.tenant_id = r.tenant_id AND s.record_id = r.id AND s.principal_kind = 'user' AND s.principal_id = $3))
-		ORDER BY r.updated_at DESC, r.id DESC`, e.a.id, def, me)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var order []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		ORDER BY r.`+col+` `+dir+` NULLS `+nulls+`, `+tie+`r.id `+dir, e.a.id, def, me)
+		if err != nil {
 			t.Fatal(err)
 		}
-		order = append(order, id)
+		defer rows.Close()
+		var order []string
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				t.Fatal(err)
+			}
+			order = append(order, id)
+		}
+		return order
 	}
-	rows.Close()
+	order := single("updated_at", "DESC", "")
 	if len(order) != len(want) {
 		t.Fatalf("fixture: single statement returns %d rows, built %d", len(order), len(want))
 	}
 
-	for _, limit := range []int{1, 7, 100} {
-		var got []string
-		next := ""
-		for pages := 0; ; pages++ {
-			q := fmt.Sprintf("limit=%d", limit)
-			if next != "" {
-				q += "&cursor=" + next
-			}
-			p := e.mustList(t, "user-a", "ticket", q)
-			if p.Total != len(want) {
-				t.Fatalf("limit %d: total %d, want %d", limit, p.Total, len(want))
-			}
-			for _, it := range p.Items {
-				got = append(got, it.ID)
-			}
-			if p.Next == nil {
-				break
-			}
-			next = *p.Next
-			if pages > 100 {
-				t.Fatal("walk does not end")
-			}
+	// Every sort the list takes, at limits 1, 4 and 100, against the single statement.
+	for _, s := range []struct{ query, col, dir, filter string }{
+		{"", "updated_at", "DESC", ""},
+		{"sort=updated_at", "updated_at", "ASC", ""},
+		{"sort=created_at", "created_at", "ASC", ""},
+		{"sort=-created_at", "created_at", "DESC", ""},
+		{"sort=state", "state", "ASC", ""},
+		{"sort=-state", "state", "DESC", ""},
+		{"sort=assignee", "assignee_id", "ASC", ""},
+		{"sort=-assignee", "assignee_id", "DESC", ""},
+		{"filter[state]=closed", "updated_at", "DESC", " AND r.state = 'closed'"},
+	} {
+		order := single(s.col, s.dir, s.filter)
+		if len(order) == 0 || (s.filter == "" && len(order) != len(want)) {
+			t.Fatalf("%q: fixture gives %d rows", s.query, len(order))
 		}
-		if !slices.Equal(got, order) {
-			t.Errorf("limit %d: walk returned\n%v\nsingle statement\n%v", limit, got, order)
+		for _, limit := range []int{1, 4, 100} {
+			var got []string
+			next := ""
+			for pages := 0; ; pages++ {
+				q := fmt.Sprintf("limit=%d", limit)
+				if s.query != "" {
+					q += "&" + s.query
+				}
+				if next != "" {
+					q += "&cursor=" + next
+				}
+				p := e.mustList(t, "user-a", "ticket", q)
+				if p.Total != len(order) {
+					t.Fatalf("%q limit %d: total %d, want %d", s.query, limit, p.Total, len(order))
+				}
+				for _, it := range p.Items {
+					got = append(got, it.ID)
+				}
+				if p.Next == nil {
+					break
+				}
+				next = *p.Next
+				if pages > 100 {
+					t.Fatal("walk does not end")
+				}
+			}
+			if !slices.Equal(got, order) {
+				t.Errorf("%q limit %d: walk returned\n%v\nsingle statement\n%v", s.query, limit, got, order)
+			}
 		}
 	}
+	// The tenant predicate on its own: a tenant B row that carries tenant A's
+	// entity_definition_id and the caller as requester is hidden by the arms'
+	// r.tenant_id = $1 alone. It is read as the superuser, which bypasses RLS,
+	// so only the statement's own predicate stands between it and the page.
+	forged := uuid.New()
+	if _, err := e.super.Exec(ctx, `SET session_replication_role = replica`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.super.Exec(ctx, `INSERT INTO records (tenant_id, id, entity_definition_id, version, schema_version, number, state, requester_id, created_at, updated_at, data)
+		VALUES ($1, $2, $3, 1, 1, 'FORGED-1', 'new', $4, now() + interval '1 hour', now() + interval '1 hour', '{}')`, e.b.id, forged, def, me); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.super.Exec(ctx, `RESET session_replication_role`); err != nil {
+		t.Fatal(err)
+	}
+	var visibleToAnyTenant int
+	if err := e.super.QueryRow(ctx, `SELECT count(*) FROM records WHERE entity_definition_id = $1 AND requester_id = $2 AND id = $3`, def, me, forged).Scan(&visibleToAnyTenant); err != nil || visibleToAnyTenant != 1 {
+		t.Fatalf("control: the forged row is not in the table: %d, %v", visibleToAnyTenant, err)
+	}
+	pol := &authz.Policy{Version: 1, Rules: []authz.Rule{{ID: "mine", Ops: []string{authz.OpRead}, Who: authz.Subject{Requester: true, Assignee: true, Shared: true}}}}
+	lq := pipeline.ListQuery{TenantID: e.a.id, DefinitionID: def, Where: "true", SortColumn: "updated_at", Desc: true, Limit: 1000}
+	lq.Branches, lq.Args = authz.ReadBranches(pol, identity.Principal{TenantID: e.a.id, PrincipalID: me}, "r", 2)
+	if len(lq.Branches) != 3 {
+		t.Fatalf("branches = %d, want 3", len(lq.Branches))
+	}
+	sql, args, err := pipeline.PageStatement(lq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prows, err := e.super.Query(ctx, sql, args...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for prows.Next() {
+		vals, err := prows.Values()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, tn := uuid.UUID(vals[1].([16]byte)), uuid.UUID(vals[0].([16]byte)); got == forged || tn != e.a.id {
+			t.Errorf("the page statement without RLS returned %v (tenant %v)", got, vals[0])
+		}
+		n++
+	}
+	prows.Close()
+	// The page joins entity_definitions on the row's tenant, which would also
+	// drop the forged row (tenant B has no such definition), so on its own that
+	// does not prove the arms' predicate. A page of one does: the forged row is
+	// the newest, and an arm without the tenant predicate would hand it to the
+	// merge's LIMIT 1, the join would drop it, and the page would be empty.
+	lq1 := lq
+	lq1.Limit = 1
+	sql1, args1, err := pipeline.PageStatement(lq1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	one, err := e.super.Query(ctx, sql1, args1...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got1 := 0
+	for one.Next() {
+		got1++
+	}
+	one.Close()
+	if got1 != 1 {
+		t.Errorf("page of one without RLS returned %d rows, want 1: an arm let the other tenant's row take the slot", got1)
+	}
+	if n != len(want) {
+		t.Errorf("page statement without RLS returned %d rows, want %d", n, len(want))
+	}
+	{
+		csql := pipeline.CountStatement(lq)
+		var total int
+		if err := e.super.QueryRow(ctx, csql, append([]any{e.a.id, def}, lq.Args...)...).Scan(&total); err != nil || total != len(want) {
+			t.Errorf("count statement without RLS = %d, %v; want %d", total, err, len(want))
+		}
+	}
+
 	for _, id := range []string{b.ID, bs.ID} {
 		if slices.Contains(order, id) || ids(e.mustList(t, "user-a", "ticket", "limit=100").Items)[id] {
 			t.Errorf("tenant B record %s is in tenant A's list", id)
