@@ -94,3 +94,7 @@ func DefinitionID(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, key string
 // TieBreaksOnUpdatedAt reports whether a list sorted by col orders by
 // (col, updated_at, id), so its cursor carries the last row's updated_at.
 func TieBreaksOnUpdatedAt(col string) bool { return store.TieBreaksOnUpdatedAt(col) }
+
+// ErrStatementTimeout is the store's: a list with a data filter ran past its
+// statement timeout.
+var ErrStatementTimeout = store.ErrStatementTimeout

@@ -228,6 +228,11 @@ func (pl *listPlan) where(base int) (string, []any) {
 	return strings.Join(terms, " AND "), args
 }
 
+// hasDataFilter reports whether any filter reads the data document.
+func (pl *listPlan) hasDataFilter() bool {
+	return slices.ContainsFunc(pl.filters, func(f listFilter) bool { return f.col == "" })
+}
+
 func textsOf(vs []any) []string {
 	out := make([]string, len(vs))
 	for i, v := range vs {
@@ -413,8 +418,12 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 		if pos != nil {
 			lq.Keyset, lq.KeysetArgs = pl.keyset(*pos, 2+len(lq.Args))
 		}
+		lq.DataFilter, lq.Timeout = pl.hasDataFilter(), h.dataFilterTimeout
 		page, err := pipeline.List(ctx, tx, lq)
 		if err != nil {
+			if errors.Is(err, pipeline.ErrStatementTimeout) {
+				return &problemError{problem.FilterTooExpensive, nil, err}
+			}
 			return err
 		}
 		out = api.RecordList{Items: make([]api.Record, 0, min(len(page.Records), pl.limit)), Total: page.Total}
