@@ -252,6 +252,30 @@ func TestStreamEvents(t *testing.T) {
 	}
 }
 
+// TICK-628 follow-up: the report lists the slowest top-level tests, longest
+// first, from go test -json's Elapsed; subtests are not listed.
+func TestReportListsSlowestTests(t *testing.T) {
+	var out bytes.Buffer
+	s := newStream(&out, false)
+	pkg := "example.com/p"
+	var in strings.Builder
+	for i := 1; i <= slowestShown+2; i++ {
+		fmt.Fprintf(&in, `{"Action":"pass","Package":%q,"Test":"Test%02d","Elapsed":%d}`+"\n", pkg, i, i)
+	}
+	fmt.Fprintf(&in, `{"Action":"pass","Package":%q,"Test":"Test12/sub","Elapsed":99}`+"\n", pkg)
+	if err := s.read(strings.NewReader(in.String())); err != nil {
+		t.Fatal(err)
+	}
+	rep := check(s, nil, nil, scope{})
+	got := rep.String(nil, scope{})
+	if !strings.Contains(got, fmt.Sprintf("suiteran: the %d slowest top-level tests:\n     12.0s  Test12  p\n     11.0s  Test11  p\n", slowestShown)) {
+		t.Errorf("report does not list the slowest tests longest first:\n%s", got)
+	}
+	if strings.Contains(got, "Test01 ") || strings.Contains(got, "Test02 ") || strings.Contains(got, "sub") {
+		t.Errorf("report lists more than %d tests, or a subtest:\n%s", slowestShown, got)
+	}
+}
+
 // pathList writes a path list that registers *_suite_test.go under dir.
 func pathList(t *testing.T, dir string) reviewcfg.Config {
 	t.Helper()

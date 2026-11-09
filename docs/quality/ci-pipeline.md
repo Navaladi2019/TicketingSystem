@@ -506,9 +506,18 @@ scenario test the rule. `TestDockerfileCIMatchesRealFinalStages` fails when a
 user, binary path, entrypoint or exposed ports;
 `TestThinServicesCoverCompose` fails when a Go service of `compose.yaml` is
 missing from `CI_THIN_SERVICES` (`make/stack.mk`). `nava-worker-interptest`
-is not a thin image: the interpreter cases build it from the real Dockerfile
-with `compose up --build`. What a thin run no longer proves, the real build
-stage, is accepted risk AR-TICK-628-01.
+(the interpreter cases' worker, `compose.test.yaml`) is thin too: `make
+ci-binaries` builds `.ci-bin/nava-worker-interptest` with `-tags interptest`,
+`make image-ci IMAGE_THIN=1` tags it from `Dockerfile.ci`'s
+`nava-worker-interptest` target (the nava-worker final stage), and with
+`NAVA_INTERPTEST_PREBUILT=1` the cases start it without `--build`. With real
+images they still build it from the real Dockerfile with `compose up --build`.
+A thin run therefore does no `go build` in Docker. What a thin run no longer
+proves, the real build stage, is accepted risk AR-TICK-628-01.
+
+`suiteran` lists the 10 slowest top-level tests of each step it checks, from
+`go test -json`'s `Elapsed`, so a stack case's minutes can be traced to tests
+from the CI log alone.
 
 On a laptop: `make ci-binaries && make image-ci IMAGE_THIN=1` (set `GOARCH`
 on an arm64 host).

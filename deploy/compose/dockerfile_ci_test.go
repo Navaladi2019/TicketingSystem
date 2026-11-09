@@ -161,8 +161,19 @@ func realGoServices(t *testing.T) map[string]finalStage {
 	return out
 }
 
+// variantOf maps a Dockerfile.ci target that is a build variant of a real
+// Dockerfile (same final stage, other build tags) to that Dockerfile's
+// directory: nava-worker-interptest is deploy/compose/nava-worker/Dockerfile
+// with NAVA_BUILD_TAGS=interptest (compose.test.yaml).
+func variantOf() map[string]string { return map[string]string{"nava-worker-interptest": "nava-worker"} }
+
 func TestDockerfileCIMatchesRealFinalStages(t *testing.T) {
 	real := realGoServices(t)
+	for variant, base := range variantOf() {
+		if _, ok := real[base]; !ok {
+			t.Fatalf("variantOf %s: no real deploy/compose/%s/Dockerfile", variant, base)
+		}
+	}
 	stages := parseDockerfile(t, ciDockerfile)
 	ci := map[string]finalStage{}
 	srcRe := regexp.MustCompile(`^COPY\s+(\S+)\s`)
@@ -177,10 +188,18 @@ func TestDockerfileCIMatchesRealFinalStages(t *testing.T) {
 		}
 		ci[st.name] = flatten(t, stages, i)
 	}
-	for bin, want := range real {
+	targets := map[string]string{} // target -> real Dockerfile directory
+	for bin := range real {
+		targets[bin] = bin
+	}
+	for variant, base := range variantOf() {
+		targets[variant] = base
+	}
+	for bin, dir := range targets {
+		want := real[dir]
 		got, ok := ci[bin]
 		if !ok {
-			t.Errorf("%s has no target %s for deploy/compose/%s/Dockerfile", ciDockerfile, bin, bin)
+			t.Errorf("%s has no target %s for deploy/compose/%s/Dockerfile", ciDockerfile, bin, dir)
 			continue
 		}
 		for _, d := range []struct{ what, got, want string }{
@@ -197,7 +216,7 @@ func TestDockerfileCIMatchesRealFinalStages(t *testing.T) {
 		}
 	}
 	for bin := range ci {
-		if _, ok := real[bin]; !ok {
+		if _, ok := targets[bin]; !ok {
 			t.Errorf("%s target %s has no real deploy/compose/%s/Dockerfile", ciDockerfile, bin, bin)
 		}
 	}
