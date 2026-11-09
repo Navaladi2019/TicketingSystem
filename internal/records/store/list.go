@@ -36,6 +36,14 @@ type ListQuery struct {
 	DataFilter bool
 	// Timeout bounds a DataFilter list; zero means DataFilterTimeout.
 	Timeout time.Duration
+
+	// Branches, when it has two or more entries, are mutually exclusive
+	// predicates over r (authz.ReadBranches) whose OR is the ACL; Where then
+	// holds the filters alone. Each branch is read in index order with its own
+	// LIMIT and the branches are merged, so a caller that sees a small share of
+	// the tenant does not walk the whole sort index (TICK-644). Their rows and
+	// order are those of Where AND (OR of Branches).
+	Branches []string
 }
 
 // TieBreaksOnUpdatedAt reports whether a list sorted by col orders by
@@ -87,10 +95,8 @@ func List(ctx context.Context, tx pgx.Tx, q ListQuery) (*ListPage, error) {
 	args := append([]any{q.TenantID, q.DefinitionID}, q.Args...)
 	// The count reads records alone: the joins below only add columns (one
 	// definition, at most one group per row), so they cannot change the count.
-	where := ` WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ` + q.Where
-
 	var total int64
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM (SELECT 1 FROM records r`+where+` LIMIT `+fmt.Sprint(TotalCap+1)+`) c`, args...).Scan(&total); err != nil {
+	if err := tx.QueryRow(ctx, CountStatement(q), args...).Scan(&total); err != nil {
 		return nil, timedOut(ctx, fmt.Errorf("records/store: count records: %w", err))
 	}
 
@@ -154,6 +160,9 @@ func PageStatement(q ListQuery) (string, []any, error) {
 		order += ", r.updated_at " + dir
 	}
 	order += ", r.id " + dir
+	if branched(q) {
+		return branchedPage(q, args, keyset, order), args, nil
+	}
 	return `SELECT r.tenant_id, r.id, r.entity_definition_id, d.key, r.version, r.schema_version, r.number, r.state,
        r.requester_id, r.assignee_id, r.assignment_group_id, r.created_by, r.created_at, r.updated_at,
        r.data, r.causation_origin_id, coalesce(r.causation_depth, 0), coalesce(g.deleted_at IS NOT NULL, false),
@@ -205,4 +214,51 @@ func timedOut(ctx context.Context, err error) error {
 		return fmt.Errorf("%w: %w", ErrStatementTimeout, err)
 	}
 	return err
+}
+
+// branched reports whether q is answered branch by branch.
+func branched(q ListQuery) bool { return len(q.Branches) > 1 }
+
+// CountStatement counts the rows of q (the tenant, definition, Where and ACL
+// predicate), up to TotalCap+1; the tests and the bench EXPLAIN it. With Branches each branch counts apart,
+// capped by itself, and the exclusive branches add up.
+func CountStatement(q ListQuery) string {
+	where := ` WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ` + q.Where
+	cap1 := fmt.Sprint(TotalCap + 1)
+	if !branched(q) {
+		return `SELECT count(*) FROM (SELECT 1 FROM records r` + where + ` LIMIT ` + cap1 + `) c`
+	}
+	arms := make([]string, len(q.Branches))
+	for i, b := range q.Branches {
+		arms[i] = `(SELECT 1 FROM records r` + where + ` AND ` + b + ` LIMIT ` + cap1 + `)`
+	}
+	return `SELECT count(*) FROM (SELECT 1 FROM (` + strings.Join(arms, ` UNION ALL `) + `) u LIMIT ` + cap1 + `) c`
+}
+
+// branchedPage is the page statement of a branched q: one arm per branch, each
+// ordered and limited by the index it can use, merged by the outer ORDER BY
+// and LIMIT, then joined to the definition and group of the at most Limit rows.
+func branchedPage(q ListQuery, args []any, keyset, order string) string {
+	limit := `LIMIT $` + fmt.Sprint(len(args))
+	cols := `r.tenant_id, r.id, r.entity_definition_id, r.version, r.schema_version, r.number, r.state,
+  r.requester_id, r.assignee_id, r.assignment_group_id, r.created_by, r.created_at, r.updated_at,
+  r.data, r.causation_origin_id, r.causation_depth, r.` + q.SortColumn + ` AS sort_key`
+	arms := make([]string, len(q.Branches))
+	for i, b := range q.Branches {
+		arms[i] = `(SELECT ` + cols + ` FROM records r
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ` + q.Where + ` AND ` + b + keyset +
+			` ORDER BY r.` + q.SortColumn + ` ` + order + ` ` + limit + `)`
+	}
+	outer := strings.NewReplacer("r.updated_at", "updated_at", "r.id", "id").Replace(order)
+	// The sort column's ORDER BY term leads; order starts with its direction.
+	return `SELECT x.tenant_id, x.id, x.entity_definition_id, d.key, x.version, x.schema_version, x.number, x.state,
+       x.requester_id, x.assignee_id, x.assignment_group_id, x.created_by, x.created_at, x.updated_at,
+       x.data, x.causation_origin_id, coalesce(x.causation_depth, 0), coalesce(g.deleted_at IS NOT NULL, false),
+       x.sort_key::text FROM (
+` + strings.Join(arms, "\nUNION ALL\n") + `
+ORDER BY sort_key ` + outer + ` ` + limit + `
+) x
+JOIN entity_definitions d ON d.tenant_id = x.tenant_id AND d.id = x.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = x.tenant_id AND g.id = x.assignment_group_id
+ORDER BY x.sort_key ` + strings.NewReplacer("updated_at", "x.updated_at", "id", "x.id").Replace(outer)
 }

@@ -167,6 +167,80 @@ func CompileRead(pol *Policy, p identity.Principal, alias string, argBase int) (
 	return "(" + strings.Join(ors, " OR ") + ")", c.args
 }
 
+// ReadBranches is CompileRead's predicate split into branches for a query that
+// answers each branch from its own index and merges them (TICK-644). Their OR
+// admits exactly the rows CompileRead admits and no row matches two of them:
+// each branch carries the negation of the branches before it, so a UNION ALL of
+// the branches repeats no row. The branches are the rule's subjects in the
+// order requester, assignee, shared, each with the rule's conditions, rule by
+// rule; the placeholders and arguments follow CompileRead's contract (numbered
+// from argBase+1, every id from pol or p). A rule that admits every row (the
+// caller is named by it and it has no conditions) makes the whole predicate
+// the single branch "true". An everyone rule WITH conditions is not special:
+// its disjunct is "(true AND conditions)" and it is a branch like any other, so
+// it can sit beside a requester branch. No branch means no rule can match;
+// callers fall back to CompileRead when there are fewer than two branches.
+//
+// Exclusion needs every term to be two-valued: the SQL below never yields NULL
+// (colEq and the conditions carry IS NOT NULL, state is NOT NULL, the share
+// term is an EXISTS), so NOT d_j is true exactly when d_j is false and no row
+// is dropped by "AND NOT". A term that could be NULL would silently remove its
+// rows from every later branch (Security review risk 2); keep new terms
+// two-valued. The text grows with the square of the number of disjuncts (branch
+// i repeats the i-1 before it); a policy has a handful of subjects, so that is
+// small, but it is not meant for hundreds.
+func ReadBranches(pol *Policy, p identity.Principal, alias string, argBase int) (branches []string, args []any) {
+	if !identRE.MatchString(alias) {
+		panic(fmt.Sprintf("authz: ReadBranches alias %q is not a plain identifier", alias))
+	}
+	c := &compiler{alias: alias, base: argBase}
+	var plain []string
+	for _, pr := range plan(pol, p, OpRead) {
+		if pr.everyone && len(pr.conds) == 0 {
+			return []string{"true"}, nil
+		}
+		plain = append(plain, pr.disjuncts(c)...)
+	}
+	for i, d := range plain {
+		b := d
+		for _, prev := range plain[:i] {
+			b += " AND NOT " + prev
+		}
+		branches = append(branches, "("+b+")")
+	}
+	return branches, c.args
+}
+
+// disjuncts is the rule's SQL split by subject: each is a subject term ANDed
+// with every condition, so their OR is sql. The conditions' arguments are bound
+// once and their text shared. Every disjunct is two-valued (never NULL), which
+// ReadBranches relies on for its AND NOT exclusion.
+func (pr plannedRule) disjuncts(c *compiler) []string {
+	var who []string
+	if pr.everyone {
+		who = []string{"true"}
+	} else {
+		if pr.requester {
+			who = append(who, c.colEq(metadata.ColumnRequesterID, pr.caller))
+		}
+		if pr.assignee {
+			who = append(who, c.colEq(metadata.ColumnAssigneeID, pr.caller))
+		}
+		if pr.shared {
+			who = append(who, c.shared(pr.caller, pr.groups))
+		}
+	}
+	conds := make([]string, len(pr.conds))
+	for i, cd := range pr.conds {
+		conds[i] = cd.sql(c)
+	}
+	out := make([]string, len(who))
+	for i, w := range who {
+		out[i] = "(" + strings.Join(append([]string{w}, conds...), " AND ") + ")"
+	}
+	return out
+}
+
 var identRE = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
 
 // plannedRule is a rule resolved against one principal and op: what remains
