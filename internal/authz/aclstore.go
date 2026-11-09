@@ -33,17 +33,49 @@ LIMIT 1`
 
 // Current returns the entity type's newest published policy, or nil when it
 // has none (or the tenant has no such type). A stored rule list that does not
-// decode is an error, never an empty policy.
+// decode is an error, never an empty policy. A policy QueuePolicy prefetched
+// in tx is returned without a round trip.
 func (PolicyStore) Current(ctx context.Context, tx pgx.Tx, entityKey string) (*Policy, error) {
+	if v, ok := tenancy.Recall(tx, policyKey{entityKey}); ok {
+		return v.(*Policy), nil //nolint:forcetypeassert // only QueuePolicy stores under policyKey
+	}
 	tenant, err := tenancy.TenantOf(ctx, tx)
 	if err != nil {
 		return nil, fmt.Errorf("authz: %w", err)
 	}
+	return scanPolicy(tx.QueryRow(ctx, currentPolicySQL, tenant, entityKey))
+}
+
+// policyKey is the tx memo key of an entity type's prefetched policy.
+type policyKey struct{ entity string }
+
+// QueuePolicy queues the read of the entity type's newest published policy
+// on b, a batch the caller sends in tx (TICK-648). When the batch runs the
+// policy goes in tx's memo (tenancy.Remember), and Current, so every ACL
+// check and Policy in the rest of tx, uses it with no round trip. Publish
+// drops it, so a transaction that publishes reads the new version.
+func (PolicyStore) QueuePolicy(ctx context.Context, tx pgx.Tx, b *pgx.Batch, entityKey string) error {
+	tenant, err := tenancy.TenantOf(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("authz: %w", err)
+	}
+	b.Queue(currentPolicySQL, tenant, entityKey).QueryRow(func(row pgx.Row) error {
+		pol, err := scanPolicy(row)
+		if err != nil {
+			return err
+		}
+		tenancy.Remember(tx, policyKey{entityKey}, pol)
+		return nil
+	})
+	return nil
+}
+
+func scanPolicy(row pgx.Row) (*Policy, error) {
 	var (
 		pol          Policy
 		rules, masks []byte
 	)
-	err = tx.QueryRow(ctx, currentPolicySQL, tenant, entityKey).Scan(&pol.EntityDefinitionID, &pol.Version, &rules, &masks)
+	err := row.Scan(&pol.EntityDefinitionID, &pol.Version, &rules, &masks)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil //nolint:nilnil // nil policy is the contract's "none published" (fail closed)
 	}
@@ -92,6 +124,33 @@ func SharesFor(ctx context.Context, tx pgx.Tx, p identity.Principal, recordID uu
 	return ids, nil
 }
 
+// QueueSharesFor queues SharesFor on b, a batch the caller sends in tx: when
+// it runs, *dst is the record's shares that name p. A principal with no id
+// has none, and nothing is queued.
+func QueueSharesFor(ctx context.Context, tx pgx.Tx, b *pgx.Batch, p identity.Principal, recordID uuid.UUID, dst *[]uuid.UUID) error {
+	*dst = nil
+	if p.PrincipalID == uuid.Nil {
+		return nil
+	}
+	tenant, err := tenancy.TenantOf(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("authz: %w", err)
+	}
+	b.Queue(sharesSQL, tenant, recordID, p.PrincipalID, UUIDTexts(p.Groups)).QueryRow(func(row pgx.Row) error {
+		if err := row.Scan(dst); err != nil {
+			return fmt.Errorf("authz: read shares: %w", err)
+		}
+		return nil
+	})
+	return nil
+}
+
+// PolicyPrefetcher is a PolicyReader that can queue its read on a batch.
+// PolicyStore is one.
+type PolicyPrefetcher interface {
+	QueuePolicy(ctx context.Context, tx pgx.Tx, b *pgx.Batch, entityKey string) error
+}
+
 // ACL is the S10 Authorizer: it reads the entity type's current policy with
 // Policies, in the caller's transaction, and decides with Allows.
 type ACL struct {
@@ -99,6 +158,25 @@ type ACL struct {
 }
 
 var _ Authorizer = ACL{}
+
+// QueuePolicy queues the read of the policy every later check of entity in
+// tx uses (PolicyStore.QueuePolicy), after the same tenant check the checks
+// make: for a principal of another tenant, or a PolicyReader that cannot
+// queue, it queues nothing and the checks read and refuse as before.
+func (a ACL) QueuePolicy(ctx context.Context, tx pgx.Tx, b *pgx.Batch, p identity.Principal, entity string) error {
+	pf, ok := a.Policies.(PolicyPrefetcher)
+	if !ok {
+		return nil
+	}
+	tenant, err := tenancy.TenantOf(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("authz: %w", err)
+	}
+	if p.TenantID == uuid.Nil || p.TenantID != tenant {
+		return nil
+	}
+	return pf.QueuePolicy(ctx, tx, b, entity)
+}
 
 // CanRead implements Authorizer.
 func (a ACL) CanRead(ctx context.Context, tx pgx.Tx, p identity.Principal, entity string, r Row) error {

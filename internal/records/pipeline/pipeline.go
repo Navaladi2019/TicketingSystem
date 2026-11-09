@@ -420,17 +420,21 @@ func (p *Pipeline) perform(ctx context.Context, tx pgx.Tx, cmd Command) (Result,
 		cmd.Causation.OriginID = origin
 	}
 
+	pre, err := p.prefetch(ctx, tx, tenant, cmd)
+	if err != nil {
+		return Result{}, err
+	}
 	if cmd.IdempotencyKey != "" {
-		res, found, err := replay(ctx, tx, tenant, cmd)
+		res, found, err := replay(pre, cmd)
 		if err != nil || found {
 			return res, err
 		}
 	}
 
-	defID, err := store.DefinitionID(ctx, tx, tenant, cmd.EntityKey)
-	if err != nil {
-		return Result{}, mapNotFound(err)
+	if pre.defID == uuid.Nil {
+		return Result{}, ErrNotFound
 	}
+	defID := pre.defID
 	def, defVersion, err := p.defs.Current(ctx, tx, cmd.EntityKey)
 	if err != nil {
 		return Result{}, mapNotFound(err)
@@ -522,20 +526,13 @@ func (p *Pipeline) rejectTooDeep(ctx context.Context, tenant uuid.UUID, cmd Comm
 // write must be the same entity type (by definition id) and op, and on an
 // update the same record; otherwise the key names another write,
 // *ErrIdempotencyConflict.
-func replay(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, cmd Command) (Result, bool, error) {
-	k, err := store.WriteKeyByKey(ctx, tx, tenant, optional(cmd.Actor.PrincipalID), cmd.IdempotencyKey)
-	if errors.Is(err, store.ErrNotFound) {
+func replay(pre *prefetched, cmd Command) (Result, bool, error) {
+	k := pre.writeKey
+	if k == nil {
 		return Result{}, false, nil
 	}
-	if err != nil {
-		return Result{}, false, fmt.Errorf("pipeline: %w", err)
-	}
 	// An entity key the tenant does not have cannot name the stored write.
-	defID, err := store.DefinitionID(ctx, tx, tenant, cmd.EntityKey)
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		return Result{}, false, fmt.Errorf("pipeline: %w", err)
-	}
-	if err != nil || k.DefinitionID != defID || k.Action != cmd.Op.String() || (cmd.Op == OpUpdate && k.RecordID != cmd.RecordID) {
+	if pre.defID == uuid.Nil || k.DefinitionID != pre.defID || k.Action != cmd.Op.String() || (cmd.Op == OpUpdate && k.RecordID != cmd.RecordID) {
 		return Result{}, false, &ErrIdempotencyConflict{}
 	}
 	return Result{RecordID: k.RecordID, Number: k.Number, Version: k.Version, SchemaVersion: k.SchemaVersion}, true, nil
@@ -604,24 +601,16 @@ func (w *write) create(ctx context.Context, after map[string]any) (Result, error
 	if err := w.canWrite(ctx, nil, rowOf(rec, nil)); err != nil {
 		return Result{}, err
 	}
-	if err := w.checkUnique(ctx, uuid.Nil, nil, after, fixed); err != nil {
-		return Result{}, err
-	}
-	if err := w.checkGroup(ctx, nil, rec.AssignmentGroupID); err != nil {
-		return Result{}, err
-	}
-	// The number is taken after every check, as the last statement before
-	// the record, audit and outbox inserts, so the counter row's lock is held
-	// only for the rest of the write (D-3-9).
-	n, err := store.NextNumber(ctx, w.tx, w.tenant, w.defID)
+	// The unique and group checks, and the payload the audit entry is built
+	// from, go in one batch (TICK-648).
+	preview, err := w.checkCreate(ctx, rec, after, fixed)
 	if err != nil {
-		return Result{}, fmt.Errorf("pipeline: %w", err)
+		return Result{}, err
 	}
-	rec.Number = store.FormatNumber(w.def.NumberPrefix(), n)
-	if err := store.Insert(ctx, w.tx, rec); err != nil {
-		return Result{}, fmt.Errorf("pipeline: %w", err)
-	}
-	return w.finish(ctx, rec, nil)
+	// The number is taken after every check, in the write's last batch with
+	// the record, write key and audit inserts, so the counter row's lock is
+	// held only from that batch to the caller's COMMIT (D-3-9).
+	return w.writeCreate(ctx, rec, preview)
 }
 
 // defaultRequester sets requester_id to the caller when a user or AI create
@@ -742,6 +731,7 @@ func (w *write) update(ctx context.Context, patch map[string]any) (Result, error
 	rec.SchemaVersion = w.defVersion
 	rec.UpdatedAt = w.p.clock.Now()
 	w.causation(rec)
+	tenancy.Forget(w.tx, storedKey{rec.ID})
 	v, err := store.Update(ctx, w.tx, rec, w.cmd.ExpectedVersion)
 	if errors.Is(err, store.ErrStale) {
 		return Result{}, ErrVersionConflict

@@ -169,6 +169,31 @@ func (perfTracer) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, _ pgx.TraceQue
 	tr.mu.Unlock()
 }
 
+// TraceBatchStart implements pgx.BatchTracer (TICK-648): a batch is one
+// round trip, recorded as one entry whose SQL is "BATCH: " and its
+// statements joined by " ; ". Its arguments are not kept, so its statements
+// are not EXPLAINed.
+func (perfTracer) TraceBatchStart(ctx context.Context, _ *pgx.Conn, d pgx.TraceBatchStartData) context.Context {
+	if ctx.Value(perfTraceKey{}) == nil {
+		return ctx
+	}
+	sqls := make([]string, 0, d.Batch.Len())
+	for _, q := range d.Batch.QueuedQueries {
+		sqls = append(sqls, normSQL(q.SQL))
+	}
+	return context.WithValue(ctx, perfStartKey{}, perfStart{at: time.Now(), sql: perfBatchPrefix + strings.Join(sqls, " ; ")})
+}
+
+// TraceBatchQuery implements pgx.BatchTracer.
+func (perfTracer) TraceBatchQuery(context.Context, *pgx.Conn, pgx.TraceBatchQueryData) {}
+
+// TraceBatchEnd implements pgx.BatchTracer.
+func (perfTracer) TraceBatchEnd(ctx context.Context, conn *pgx.Conn, _ pgx.TraceBatchEndData) {
+	perfTracer{}.TraceQueryEnd(ctx, conn, pgx.TraceQueryEndData{})
+}
+
+const perfBatchPrefix = "BATCH: "
+
 type perfAllow struct{}
 
 func (perfAllow) Allow(context.Context, uuid.UUID) (ratelimit.Decision, error) {
@@ -700,7 +725,10 @@ type perfHold struct {
 }
 
 // counterHold finds the record_counters upsert and the COMMIT that ends its
-// transaction in one create's statements.
+// transaction in one create's statements. Since TICK-648 both are in
+// batches: the upsert opens the create's last batch, whose end is the
+// earliest the client sees the row locked (so wait includes the rest of
+// that batch), and COMMIT ends the batch after it. n counts round trips.
 func counterHold(ss []perfStmt) (perfHold, bool) {
 	up := slices.IndexFunc(ss, func(s perfStmt) bool { return strings.Contains(s.SQL, "INSERT INTO record_counters") })
 	if up < 0 {
@@ -711,7 +739,7 @@ func counterHold(ss []perfStmt) (perfHold, bool) {
 	for _, s := range ss[up+1:] {
 		h.stmts += s.Dur
 		h.n++
-		if strings.EqualFold(strings.TrimSpace(s.SQL), "commit") {
+		if sql := strings.ToLower(strings.TrimSpace(s.SQL)); sql == "commit" || strings.HasSuffix(sql, " ; commit") {
 			h.hold = s.Start + s.Dur - locked
 			return h, true
 		}

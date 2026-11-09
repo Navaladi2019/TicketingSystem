@@ -42,6 +42,13 @@ type recordACL interface {
 	authz.MaskSource
 }
 
+// policyQueuer is a recordACL that can prefetch the entity type's policy in
+// a batch (authz.ACL); the checks in the rest of the transaction then read
+// it from the transaction's memo.
+type policyQueuer interface {
+	QueuePolicy(ctx context.Context, tx pgx.Tx, b *pgx.Batch, p identity.Principal, entity string) error
+}
+
 // maskRule is the rule of the field error of a 422 field_not_writable.
 const maskRule = "mask"
 
@@ -100,6 +107,23 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 		resp  api.CreateRecord201JSONResponse
 	)
 	err := tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) error {
+		// Causation stays empty on purpose: origin and depth never come from
+		// the request (TICK-88 security review).
+		cmd := pipeline.Command{Op: pipeline.OpCreate, EntityKey: req.Entity, Actor: p, Source: pipeline.SourceUser}
+		// One round trip for every read the create starts with: the hold on
+		// the request's idempotency key and the pipeline's prefetch (the
+		// definition and the policy, which Current below and the write and
+		// shaping checks then take from the transaction's memo) (TICK-648).
+		b := &pgx.Batch{}
+		if err := idempotency.QueueHold(ctx, tx, b); err != nil {
+			return err
+		}
+		if err := h.pipe.QueuePrefetch(ctx, tx, b, cmd); err != nil {
+			return err
+		}
+		if err := tx.SendBatch(ctx, b).Close(); err != nil {
+			return err
+		}
 		def, curVersion, err := h.store.Current(ctx, tx, req.Entity)
 		if err != nil {
 			return err
@@ -110,14 +134,12 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 		if perr != nil {
 			return perr
 		}
-		res, err := h.pipe.Write(ctx, tx, pipeline.Command{
-			// Causation stays empty on purpose: origin and depth never come from
-			// the request (TICK-88 security review).
-			Op: pipeline.OpCreate, EntityKey: req.Entity, Data: data, Actor: p, Source: pipeline.SourceUser,
-		})
+		cmd.Data = data
+		res, err := h.pipe.Write(ctx, tx, cmd)
 		if err != nil {
 			return err
 		}
+		// Get answers from the row the write stored, with no round trip.
 		if rec, err = pipeline.Get(ctx, tx, p.TenantID, res.RecordID); err != nil {
 			return err
 		}
@@ -135,7 +157,8 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 			Body:    body,
 			Headers: api.CreateRecord201ResponseHeaders{ETag: etag(rec.Version), Location: "/api/v1/records/" + rec.EntityKey + "/" + rec.ID.String()},
 		}
-		// The key completes in this transaction, with the write (TICK-482).
+		// The key completes in this transaction, with the write (TICK-482),
+		// in the COMMIT's round trip since the key's row is held.
 		return idempotency.CompleteInTx(ctx, tx, resp.VisitCreateRecordResponse)
 	})
 	if err != nil {
@@ -167,17 +190,34 @@ func (h *handlers) GetRecord(ctx context.Context, req api.GetRecordRequestObject
 		body api.Record
 	)
 	err := tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) error {
+		// Every read in one round trip (TICK-648): the definition and the
+		// policy go to the transaction's memo, where Current, CanRead and the
+		// shaping layer find them; the record and the caller's shares of it
+		// come back here. The shares are read before the record is known to
+		// exist, under the tenant's RLS, and used only once CanRead runs.
+		b := &pgx.Batch{}
+		h.store.QueueCurrent(tx, b, req.Entity)
+		if pq, ok := h.acl.(policyQueuer); ok {
+			if err := pq.QueuePolicy(ctx, tx, b, p, req.Entity); err != nil {
+				return err
+			}
+		}
+		pipeline.QueueGet(b, p.TenantID, id, &rec)
+		var shares []uuid.UUID
+		if err := authz.QueueSharesFor(ctx, tx, b, p, id, &shares); err != nil {
+			return err
+		}
+		if err := tx.SendBatch(ctx, b).Close(); err != nil {
+			return err
+		}
 		cur, curVersion, err := h.store.Current(ctx, tx, req.Entity)
 		if err != nil {
 			return err
 		}
-		if rec, err = pipeline.Get(ctx, tx, p.TenantID, id); err != nil {
-			return err
-		}
-		if rec.EntityKey != req.Entity {
+		if rec == nil || rec.EntityKey != req.Entity {
 			return pipeline.ErrNotFound
 		}
-		if err := h.canRead(ctx, tx, p, rec); err != nil {
+		if err := h.canReadRow(ctx, tx, p, rec, pipeline.RowWith(rec, shares)); err != nil {
 			return err
 		}
 		// The row was split under its own version's mapping; defaults come
@@ -205,7 +245,12 @@ func (h *handlers) canRead(ctx context.Context, tx pgx.Tx, p identity.Principal,
 	if err != nil {
 		return err
 	}
-	err = h.acl.CanRead(ctx, tx, p, rec.EntityKey, row)
+	return h.canReadRow(ctx, tx, p, rec, row)
+}
+
+// canReadRow is canRead with the ACL's row already read.
+func (h *handlers) canReadRow(ctx context.Context, tx pgx.Tx, p identity.Principal, rec *pipeline.Record, row authz.Row) error {
+	err := h.acl.CanRead(ctx, tx, p, rec.EntityKey, row)
 	if errors.Is(err, authz.ErrNotVisible) {
 		return pipeline.ErrNotFound
 	}

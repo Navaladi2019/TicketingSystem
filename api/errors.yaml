@@ -120,6 +120,10 @@ codes:
     status: 400
     title: Masked field
     detail: The query filters, sorts, counts or aggregates on a field the entity type's access policy hides from you. See errors for the field.
+  - code: filter_too_expensive
+    status: 422
+    title: Filter too expensive
+    detail: The list filter on a data property took longer than the server allows. Narrow it with a filter on state, requester, assignee or assignment group, or try a more selective value.
   - code: field_not_writable
     status: 422
     title: Field not writable

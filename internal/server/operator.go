@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -52,6 +53,8 @@ type options struct {
 	// the database.
 	pool    *pgxpool.Pool
 	cursors *cursor.Keyring
+	// dataFilterTimeout overrides the data-filter list timeout; zero keeps the default.
+	dataFilterTimeout time.Duration
 	// historyCap and historyRows set the record-history cap and its row-count
 	// hook of the audit reader. Only tests set them (export_test.go).
 	historyCap  int
@@ -72,6 +75,12 @@ func WithPool(p *pgxpool.Pool) Option { return func(o *options) { o.pool = p } }
 // audit_log.diff and diff_salt (ADR-004-A1). The audit.read gate, the cursor
 // and the record check stay on WithPool's nava_app pool (A1-7).
 func WithAuditReader(p *read.Pool) Option { return func(o *options) { o.auditPool = p } }
+
+// WithDataFilterTimeout sets the statement timeout of a list with a data filter
+// (default 2 s); a test uses a short one.
+func WithDataFilterTimeout(d time.Duration) Option {
+	return func(o *options) { o.dataFilterTimeout = d }
+}
 
 // WithCursors sets the keyring that signs list cursors. Without it the list
 // endpoints answer 501 not_implemented.

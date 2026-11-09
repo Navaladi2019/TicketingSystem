@@ -2,9 +2,14 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/google/uuid"
 )
@@ -26,6 +31,11 @@ type ListQuery struct {
 	Keyset     string
 	KeysetArgs []any
 	Limit      int
+	// DataFilter is true when Where filters on a data property: such a list has
+	// no index to lean on, so both statements run under Timeout.
+	DataFilter bool
+	// Timeout bounds a DataFilter list; zero means DataFilterTimeout.
+	Timeout time.Duration
 }
 
 // TieBreaksOnUpdatedAt reports whether a list sorted by col orders by
@@ -55,7 +65,13 @@ type ListPage struct {
 // TotalCap is the most the list counts: an exact count of a large tenant's
 // matches alone misses the list p95 (P3-36), so past it Total is TotalCap and
 // TotalCapped is set.
-const TotalCap = 10000
+const TotalCap = 1000
+
+// DataFilterTimeout is the statement timeout of a list with a data filter (TICK-647).
+const DataFilterTimeout = 2 * time.Second
+
+// ErrStatementTimeout is returned when a DataFilter list ran past its timeout.
+var ErrStatementTimeout = errors.New("records/store: list statement timed out")
 
 // List returns up to Limit records of the entity type matching Where and
 // Keyset, ordered by SortColumn then id, and the count of rows matching Where
@@ -64,6 +80,10 @@ func List(ctx context.Context, tx pgx.Tx, q ListQuery) (*ListPage, error) {
 	if !listable(q.SortColumn) {
 		return nil, fmt.Errorf("records/store: sort column %q is not listable", q.SortColumn)
 	}
+	restore, err := boundDataFilter(ctx, tx, q)
+	if err != nil {
+		return nil, err
+	}
 	args := append([]any{q.TenantID, q.DefinitionID}, q.Args...)
 	// The count reads records alone: the joins below only add columns (one
 	// definition, at most one group per row), so they cannot change the count.
@@ -71,7 +91,7 @@ func List(ctx context.Context, tx pgx.Tx, q ListQuery) (*ListPage, error) {
 
 	var total int64
 	if err := tx.QueryRow(ctx, `SELECT count(*) FROM (SELECT 1 FROM records r`+where+` LIMIT `+fmt.Sprint(TotalCap+1)+`) c`, args...).Scan(&total); err != nil {
-		return nil, fmt.Errorf("records/store: count records: %w", err)
+		return nil, timedOut(ctx, fmt.Errorf("records/store: count records: %w", err))
 	}
 
 	sql, pageArgs, err := PageStatement(q)
@@ -80,7 +100,7 @@ func List(ctx context.Context, tx pgx.Tx, q ListQuery) (*ListPage, error) {
 	}
 	rows, err := tx.Query(ctx, sql, pageArgs...)
 	if err != nil {
-		return nil, fmt.Errorf("records/store: list records: %w", err)
+		return nil, timedOut(ctx, fmt.Errorf("records/store: list records: %w", err))
 	}
 	defer rows.Close()
 	page := &ListPage{Total: min(total, TotalCap), TotalCapped: total > TotalCap}
@@ -94,7 +114,11 @@ func List(ctx context.Context, tx pgx.Tx, q ListQuery) (*ListPage, error) {
 		page.SortKeys = append(page.SortKeys, key)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("records/store: list records: %w", err)
+		return nil, timedOut(ctx, fmt.Errorf("records/store: list records: %w", err))
+	}
+	rows.Close()
+	if err := restore(); err != nil {
+		return nil, err
 	}
 	return page, nil
 }
@@ -138,4 +162,47 @@ JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_defin
 LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
 WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ` + q.Where + keyset +
 		` ORDER BY r.` + q.SortColumn + ` ` + order + ` LIMIT $` + fmt.Sprint(len(args)), args, nil
+}
+
+// boundDataFilter sets the transaction's statement_timeout for a DataFilter
+// list and returns the func that puts the earlier value back, so the handler's
+// later statements in the same transaction are not bound. SET LOCAL ends with
+// the transaction either way.
+func boundDataFilter(ctx context.Context, tx pgx.Tx, q ListQuery) (func() error, error) {
+	if !q.DataFilter {
+		return func() error { return nil }, nil
+	}
+	d := q.Timeout
+	if d <= 0 {
+		d = DataFilterTimeout
+	}
+	var prior string
+	if err := tx.QueryRow(ctx, `SELECT current_setting('statement_timeout')`).Scan(&prior); err != nil {
+		return nil, fmt.Errorf("records/store: read statement_timeout: %w", err)
+	}
+	set := func(v string) error {
+		// SET cannot take a parameter. v is whole milliseconds or the server's own
+		// earlier setting, quoted as a literal.
+		_, err := tx.Exec(ctx, "SET LOCAL statement_timeout = '"+strings.ReplaceAll(v, "'", "''")+"'")
+		return err
+	}
+	if err := set(strconv.FormatInt(d.Milliseconds(), 10)); err != nil {
+		return nil, fmt.Errorf("records/store: set statement_timeout: %w", err)
+	}
+	return func() error {
+		if err := set(prior); err != nil {
+			return fmt.Errorf("records/store: restore statement_timeout: %w", err)
+		}
+		return nil
+	}, nil
+}
+
+// timedOut wraps err with ErrStatementTimeout when Postgres cancelled the
+// statement (57014) while the request itself is still live.
+func timedOut(ctx context.Context, err error) error {
+	var pe *pgconn.PgError
+	if ctx.Err() == nil && errors.As(err, &pe) && pe.Code == "57014" {
+		return fmt.Errorf("%w: %w", ErrStatementTimeout, err)
+	}
+	return err
 }
