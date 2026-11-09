@@ -26,6 +26,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/authz/acltest"
@@ -33,7 +34,6 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
-	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
 const aclKey = "aclcase"
@@ -396,11 +396,23 @@ func TestPolicyStoreReadsTheNewestVersionOfItsTenant(t *testing.T) {
 		}
 		return nil
 	})
-	// A stored rule list that does not decode is an error, never a policy.
-	mustExec(t, e.super, `INSERT INTO acl_versions (tenant_id, entity_definition_id, version, rules, masks)
+	// A rule list the decoder would refuse never reaches it: the shape CHECK
+	// (TICK-629) refuses it at insert, the superuser's too, and the newest
+	// version stays 2.
+	_, err := e.super.Exec(ctx, `INSERT INTO acl_versions (tenant_id, entity_definition_id, version, rules, masks)
 		SELECT tenant_id, id, 3, '[{"id": "x", "ops": ["read"], "who": {}, "colour": "red"}]', '[]' FROM entity_definitions WHERE tenant_id = $1 AND key = $2`, a.id, entityKey)
-	err := tenancy.InTenantTx(ctx, e.app, a.id, func(tx pgx.Tx) error { _, err := authz.PolicyStore{}.Current(ctx, tx, entityKey); return err })
-	if err == nil {
-		t.Fatal("a malformed rule list decoded")
+	var pe *pgconn.PgError
+	if !errors.As(err, &pe) || pe.Code != "23514" || pe.ConstraintName != "acl_versions_rules_check" {
+		t.Fatalf("inserting a malformed rule list: %v, want 23514 on acl_versions_rules_check", err)
 	}
+	inTx(t, e, a.id, func(tx pgx.Tx) error {
+		pol, err := authz.PolicyStore{}.Current(ctx, tx, entityKey)
+		if err != nil {
+			return err
+		}
+		if pol == nil || pol.Version != 2 {
+			return fmt.Errorf("tenant A's policy after the refused insert = %+v, want version 2", pol)
+		}
+		return nil
+	})
 }

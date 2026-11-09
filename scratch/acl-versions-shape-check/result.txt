@@ -1,0 +1,75 @@
+postgres:16.10; host: MINGW64_NT-10.0-26300 3.3.6-bec3d608-341.x86_64 x86_64; docker: 16 vCPUs, 20806184960 bytes
+ acl_versions_rows | total_size | avg_rules_bytes | avg_masks_bytes | avg_rules_text_bytes 
+-------------------+------------+-----------------+-----------------+----------------------
+            100000 | 451 MB     |            3124 |             400 |                 4458
+(1 row)
+
+== insert 20,000 versions, no CHECK (3 runs)
+Time: 1103.415 ms (00:01.103)
+Time: 32.594 ms
+Time: 977.402 ms
+Time: 32.145 ms
+Time: 938.466 ms
+Time: 34.798 ms
+== one publish (single-row insert), no CHECK (3 runs)
+Time: 4.232 ms
+Time: 3.442 ms
+Time: 3.233 ms
+Time: 15.473 ms
+== migration 1: functions + ADD CONSTRAINT ... NOT VALID (100,000 rows present)
+Time: 8.210 ms
+Time: 3.542 ms
+Time: 4.543 ms
+Time: 3.985 ms
+Time: 3.686 ms
+Time: 0.129 ms
+Time: 3.375 ms
+== migration 2: VALIDATE CONSTRAINT x2 over 100,000 rows
+Time: 0.141 ms
+Time: 26778.609 ms (00:26.779)
+Time: 3055.675 ms (00:03.056)
+Time: 4.051 ms
+== insert 20,000 versions, both CHECKs (3 runs)
+Time: 6801.256 ms (00:06.801)
+Time: 32.111 ms
+Time: 7094.658 ms (00:07.095)
+Time: 32.453 ms
+Time: 6904.220 ms (00:06.904)
+Time: 35.486 ms
+== one publish (single-row insert), both CHECKs (3 runs)
+Time: 5.171 ms
+Time: 3.894 ms
+Time: 3.887 ms
+Time: 18.474 ms
+== both predicates alone over 100,000 rows
+                                    QUERY PLAN                                     
+-----------------------------------------------------------------------------------
+ Aggregate (actual time=30412.658..30412.687 rows=1 loops=1)
+   Buffers: shared hit=3149450 read=56800 written=1
+   ->  Seq Scan on acl_versions (actual time=0.510..30394.109 rows=100000 loops=1)
+         Filter: (acl_rules_valid(rules) AND acl_masks_valid(masks))
+         Buffers: shared hit=3149450 read=56800 written=1
+ Planning:
+   Buffers: shared hit=3 read=1
+ Planning Time: 0.089 ms
+ Execution Time: 30412.715 ms
+(9 rows)
+
+                                                  QUERY PLAN                                                   
+---------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=23.089..23.090 rows=1 loops=1)
+   Buffers: shared read=909
+   ->  Index Only Scan using acl_versions_pkey on acl_versions (actual time=1.042..18.014 rows=100000 loops=1)
+         Heap Fetches: 0
+         Buffers: shared read=909
+ Planning:
+   Buffers: shared read=3 dirtied=1
+ Planning Time: 0.183 ms
+ Execution Time: 23.113 ms
+(9 rows)
+
+== a malformed row is refused, naming the constraint
+psql:/bench/bench.sql:102: ERROR:  new row for relation "acl_versions" violates check constraint "acl_versions_rules_check"
+DETAIL:  Failing row contains (cb08a19a-0fa5-43d9-9236-f339f5b715bc, 91ea186b-8810-4175-97be-edfe521717d7, 1, [{"id": "x", "ops": ["read"], "who": {}, "colour": "red"}], [], null, 2026-11-09 00:30:06.502232+00).
+psql:/bench/bench.sql:104: ERROR:  new row for relation "acl_versions" violates check constraint "acl_versions_masks_check"
+DETAIL:  Failing row contains (11d0e68a-0de2-4e93-aec8-4fe3763b8f30, ab1eeb14-3d04-431e-8633-88e9a2f3ce56, 1, [], {"fields": []}, null, 2026-11-09 00:30:06.502714+00).

@@ -116,7 +116,14 @@ roles:
       # ACLs and shares (P3-30, TICK-615): immutable, insert-only.
       acl_versions: { SELECT: [], INSERT: [] }
       record_shares: { SELECT: [], INSERT: [] }
-    functions: {}
+    # TICK-629: acl_versions' rules and masks CHECKs call these, as the
+    # inserting role.
+    functions:
+      "public.acl_uuids_valid(jsonb)": [EXECUTE]
+      "public.acl_subject_valid(jsonb)": [EXECUTE]
+      "public.acl_cond_valid(jsonb)": [EXECUTE]
+      "public.acl_rules_valid(jsonb)": [EXECUTE]
+      "public.acl_masks_valid(jsonb)": [EXECUTE]
 
   # ADR-004-A1 A1-1 (TICK-558): the masking reader's own login, held only by
   # internal/audit/read's pool (read.OpenPool, NAVA_AUDIT_READER_DATABASE_URL,
@@ -182,6 +189,14 @@ roles:
       entity_definition_versions: { SELECT: [] }
       acl_versions: { SELECT: [], INSERT: [] }
       record_shares: { SELECT: [], INSERT: [] }
+    # TICK-629: acl_versions' rules and masks CHECKs call these, as the
+    # inserting role.
+    functions:
+      "public.acl_uuids_valid(jsonb)": [EXECUTE]
+      "public.acl_subject_valid(jsonb)": [EXECUTE]
+      "public.acl_cond_valid(jsonb)": [EXECUTE]
+      "public.acl_rules_valid(jsonb)": [EXECUTE]
+      "public.acl_masks_valid(jsonb)": [EXECUTE]
 
   # Every column of outbox but dedupe_key and last_error; writes only the
   # dispatch columns. Nothing on workflow_ref or records.

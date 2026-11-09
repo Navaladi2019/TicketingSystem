@@ -22,8 +22,8 @@ erDiagram
         uuid tenant_id PK
         uuid entity_definition_id PK
         int version PK
-        jsonb rules
-        jsonb masks
+        jsonb rules "CHECK acl_rules_valid (TICK-629)"
+        jsonb masks "CHECK acl_masks_valid (TICK-629)"
         uuid published_by
         timestamptz published_at
     }
@@ -41,6 +41,11 @@ erDiagram
 
 Every foreign key is composite, `(tenant_id, …)`, so it holds the tenant even
 though PostgreSQL checks it as the owner, past RLS.
+
+`rules` and `masks` have the shape `internal/authz` decodes, enforced by
+`acl_versions_rules_check` and `acl_versions_masks_check` (TICK-629; the
+accepted shape and its cost are in
+[`acl-versions-shape-check.md`](acl-versions-shape-check.md)).
 
 A share names its principal in `user_id` (FK to `principals`) or `group_id`
 (FK to `groups`). `record_shares_principal_check` holds exactly one of them
