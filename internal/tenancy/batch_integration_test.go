@@ -371,3 +371,104 @@ func TestMemoIsPerTransaction(t *testing.T) {
 		}
 	}
 }
+
+// TestSavepointRollbackUndoesItsMemo (TICK-651): rolling a savepoint back
+// undoes the Remember and Forget calls made since it opened, nested
+// savepoints included; releasing one keeps them, until an enclosing
+// savepoint rolls back.
+func TestSavepointRollbackUndoesItsMemo(t *testing.T) {
+	pool, _, _ := newPool(t, env(t, "NAVA_TEST_PG_URL"), 1)
+	ctx := t.Context()
+	recall := func(tx pgx.Tx, k string) any {
+		v, _ := tenancy.Recall(tx, k)
+		return v
+	}
+	begin := func(tx pgx.Tx) pgx.Tx {
+		t.Helper()
+		sp, err := tx.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return sp
+	}
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	err := tenancy.InTenantTx(ctx, pool, uuid.New(), func(tx pgx.Tx) error {
+		tenancy.Remember(tx, "kept", "before")
+		tenancy.Remember(tx, "forgotten", "before")
+
+		// Rollback: an added key goes, an overwritten and a forgotten key
+		// come back as they were.
+		sp := begin(tx)
+		tenancy.Remember(sp, "added", "sp")
+		tenancy.Remember(sp, "kept", "sp")
+		tenancy.Remember(sp, "kept", "sp again")
+		tenancy.Forget(sp, "forgotten")
+		must(sp.Rollback(ctx))
+		if v := recall(tx, "added"); v != nil {
+			t.Errorf("added after rollback = %v, want missing", v)
+		}
+		if v := recall(tx, "kept"); v != "before" {
+			t.Errorf("kept after rollback = %v, want before", v)
+		}
+		if v := recall(tx, "forgotten"); v != "before" {
+			t.Errorf("forgotten after rollback = %v, want before", v)
+		}
+		// A second Rollback (the deferred one after Commit or Rollback) undoes nothing.
+		tenancy.Remember(tx, "after", "tx")
+		if err := sp.Rollback(ctx); !errors.Is(err, pgx.ErrTxClosed) {
+			t.Errorf("second Rollback = %v, want ErrTxClosed", err)
+		}
+		if v := recall(tx, "after"); v != "tx" {
+			t.Errorf("after a second Rollback = %v, want tx", v)
+		}
+
+		// Release keeps; Rollback after Commit undoes nothing.
+		sp = begin(tx)
+		tenancy.Remember(sp, "released", "sp")
+		must(sp.Commit(ctx))
+		_ = sp.Rollback(ctx)
+		if v := recall(tx, "released"); v != "sp" {
+			t.Errorf("released = %v, want sp", v)
+		}
+
+		// Nested: an inner release, then the outer rollback, undoes both.
+		outer := begin(tx)
+		tenancy.Remember(outer, "outer", "o")
+		inner := begin(outer)
+		tenancy.Remember(inner, "inner", "i")
+		tenancy.Remember(inner, "released", "inner")
+		must(inner.Commit(ctx))
+		if v := recall(outer, "inner"); v != "i" {
+			t.Errorf("inner after its release = %v, want i", v)
+		}
+		must(outer.Rollback(ctx))
+		for k, want := range map[string]any{"outer": nil, "inner": nil, "released": "sp"} {
+			if v := recall(tx, k); v != want {
+				t.Errorf("%s after the outer rollback = %v, want %v", k, v, want)
+			}
+		}
+
+		// Nested: an inner rollback, then the outer release, keeps only the outer's.
+		outer = begin(tx)
+		tenancy.Remember(outer, "outer", "o")
+		inner = begin(outer)
+		tenancy.Remember(inner, "inner", "i")
+		must(inner.Rollback(ctx))
+		must(outer.Commit(ctx))
+		if v := recall(tx, "outer"); v != "o" {
+			t.Errorf("outer after release = %v, want o", v)
+		}
+		if v := recall(tx, "inner"); v != nil {
+			t.Errorf("inner after its rollback = %v, want missing", v)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
