@@ -53,6 +53,16 @@ The Technical Architect stress-tests the choice before the Technical Lead accept
 - An accepted dependency is added to `docs/pins.md` with its reason in the same PR; until T05 creates the file, the PR description and the accepting TICK-94 comment are the record, and T05 copies them in.
 - Choices already decided in ADR-001, in a PLAN-001 decision (D-Pxx) or in the decision log need no new stress test; cite the decision. A choice that appears only in a task description is not a decision: it goes through this rule even if the PLAN fixed it.
 
+## Rule 3: no approval before the full suite is green on the reviewed head
+
+Applies to every pull request into a `TICK-*` story branch (TICK-638).
+
+- The reviewer does not post `VERDICT: APPROVE` until the `ci` workflow run on the exact head SHA under review is visible and finished, and every one of `changes`, `lint`, `unit`, `temporal-server`, `integration`, `commit-check-budget`, `stack`, `coverage` and `full-suite` shows **success**. Check with `gh pr checks <pr>` and compare the run's SHA with the head you read.
+- A **skipped** suite job is not green. GitHub shows it as passed; this rule does not. The `full-suite` job enforces the same: it fails when any suite job did not succeed.
+- A push after the approval makes it stale: the new head needs its own green run before the PR merges.
+- A run started only by adding an unrelated label skips every job; it is not the full-suite run and does not count either way. Read the run for `opened`, `synchronize` or `reopened` on that head.
+- The verdict cites the run: `CI: <run URL> on <short sha>, full suite green.` No line, no approval; the Technical Lead sends it back.
+
 ## What a core review checks
 
 | Area | Expectation |
@@ -75,3 +85,4 @@ The Technical Architect stress-tests the choice before the Technical Lead accept
 | 2026-10-17 | Technical Architect review (TICK-95) applied: rule 2 exemption limited to recorded decisions (R2-1); definitions narrowed to direct requires and new attribute keys; diff check and pre-T05 pin record; rule 2 wins over rule 1; `none (<reason>)` form. | Technical Lead |
 | 2026-11-01 | "Workflow panics" row added for AR-042 (P3-26, TICK-362). | Security & Multi-Tenancy Reviewer |
 | 2026-11-03 | "Tests: API operations" and "TDD" rows added (standing rules from vknavaladi; gate in TICK-510). | Quality, Testing & CI Advisor |
+| 2026-11-09 | Rule 3 added: no approval of a story-branch PR before the full suite is green on the reviewed head; skipped is not green (TICK-638, raised on TICK-619). | Quality, Testing & CI Advisor |
