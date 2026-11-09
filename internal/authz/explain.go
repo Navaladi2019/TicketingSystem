@@ -79,10 +79,11 @@ const (
 )
 
 // NotInTenant returns a Problem for every ref whose id is not a live group (or
-// user) of the transaction's tenant: a tombstoned one is refused like an unknown id. It filters by tenant_id itself, on top of
-// row-level security, and answers the same way for an id that does not exist
-// and an id of another tenant: the publish route must not become an oracle for
-// ids of other tenants.
+// user) of the transaction's tenant. A tombstoned id is refused like an unknown
+// one. It filters by tenant_id itself, on top of row-level security, and
+// answers the same way for an id that does not exist and an id of another
+// tenant: the publish route must not become an oracle for ids of other
+// tenants.
 func NotInTenant(ctx context.Context, tx pgx.Tx, refs []TenantRef) ([]Problem, error) {
 	tenant, err := tenancy.TenantOf(ctx, tx)
 	if err != nil {
