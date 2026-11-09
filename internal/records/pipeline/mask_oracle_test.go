@@ -17,10 +17,12 @@ import (
 // nobody may read or write it.
 type maskingAuthz struct{ fakeAuthz }
 
-var nameMaskedFromEveryone = &authz.Policy{Masks: []authz.Mask{{Field: "name"}}}
+func nameMaskedFromEveryone() *authz.Policy {
+	return &authz.Policy{Masks: []authz.Mask{{Field: "name"}}}
+}
 
 func (maskingAuthz) CanWriteFields(_ context.Context, _ pgx.Tx, p identity.Principal, _ string, before, after, patch map[string]any) error {
-	return authz.CheckWriteFields(nameMaskedFromEveryone, p, before, after, patch)
+	return authz.CheckWriteFields(nameMaskedFromEveryone(), p, before, after, patch)
 }
 
 // Adversarial (security review of PR #526): a caller who can neither read
