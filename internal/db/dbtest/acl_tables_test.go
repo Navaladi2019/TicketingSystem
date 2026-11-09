@@ -23,7 +23,7 @@ import (
 const (
 	// insertACL: tenant $1, type $2, version $3, publisher $4.
 	insertACL = `INSERT INTO acl_versions (tenant_id, entity_definition_id, version, rules, masks, published_by)
-		VALUES ($1, $2, $3, '{"roles": {}}', '{"fields": []}', $4)`
+		VALUES ($1, $2, $3, '[]', '[]', $4)`
 	// insertShare: tenant $1, record $2, user $3, group $4, kind $5,
 	// granter $6 (TICK-625: user_id and group_id replace principal_id).
 	insertShare = `INSERT INTO record_shares (tenant_id, record_id, user_id, group_id, principal_kind, granted_by)
@@ -150,7 +150,7 @@ func TestP330Immutable(t *testing.T) {
 		_, err = execIn(conn, tenantA, insertACL, tenantA, tenantA, 0, tenantA)
 		wantSQLState(t, role+" publishes version 0", err, "23514")
 		for _, q := range []string{
-			"UPDATE acl_versions SET rules = '{}' WHERE tenant_id = $1",
+			"UPDATE acl_versions SET rules = '[]' WHERE tenant_id = $1",
 			"DELETE FROM acl_versions WHERE tenant_id = $1",
 			"UPDATE record_shares SET principal_kind = 'group' WHERE tenant_id = $1",
 			"DELETE FROM record_shares WHERE tenant_id = $1",
@@ -218,29 +218,50 @@ func TestP330IndexSet(t *testing.T) {
 	}
 }
 
-// aclTablesMigration creates acl_versions and record_shares.
-const aclTablesMigration = "20261108124249_acl_tables.sql"
+// aclTablesMigration creates acl_versions and record_shares;
+// aclShapeCheckMigration creates the acl_*_valid functions their CHECKs call
+// (TICK-629).
+const (
+	aclTablesMigration     = "20261108124249_acl_tables.sql"
+	aclShapeCheckMigration = "20261109100000_acl_versions_shape_check.sql"
+)
 
 // beforeACLTables is the pair of manifests for a run of the migrations in
 // fsys: when fsys stops before aclTablesMigration, both tables are left out
 // of the grants and audited manifests, which name tables the run has not
-// created yet (the grant step fails on a missing table). Otherwise m and a
-// are returned unchanged. Tests that migrate to an earlier version use it.
+// created yet (the grant step fails on a missing table); when it stops before
+// aclShapeCheckMigration, the acl_*_valid functions are left out of the
+// grants manifest alike. Otherwise m and a are returned unchanged. Tests that
+// migrate to an earlier version use it.
 func beforeACLTables(fsys fs.FS, m *grants.Manifest, a *audited.Manifest) (*grants.Manifest, *audited.Manifest) {
-	if _, err := fs.Stat(fsys, aclTablesMigration); err == nil {
+	_, errTables := fs.Stat(fsys, aclTablesMigration)
+	_, errCheck := fs.Stat(fsys, aclShapeCheckMigration)
+	if errTables == nil && errCheck == nil {
 		return m, a
 	}
 	gm := *m
 	gm.Roles = make(map[string]grants.Role, len(m.Roles))
 	for name, r := range m.Roles {
-		tables := make(map[string]map[string][]string, len(r.Tables))
-		for tbl, privs := range r.Tables {
-			if !slices.Contains(aclTables, tbl) {
-				tables[tbl] = privs
+		if errTables != nil {
+			tables := make(map[string]map[string][]string, len(r.Tables))
+			for tbl, privs := range r.Tables {
+				if !slices.Contains(aclTables, tbl) {
+					tables[tbl] = privs
+				}
+			}
+			r.Tables = tables
+		}
+		functions := make(map[string][]string, len(r.Functions))
+		for fn, privs := range r.Functions {
+			if !strings.HasPrefix(fn, "public.acl_") {
+				functions[fn] = privs
 			}
 		}
-		r.Tables = tables
+		r.Functions = functions
 		gm.Roles[name] = r
+	}
+	if errTables == nil {
+		return &gm, a
 	}
 	am := *a
 	am.Audited = make(map[string]audited.Table, len(a.Audited))

@@ -210,11 +210,14 @@ INSERT INTO record_counters (tenant_id, entity_definition_id, next) VALUES
 -- user and its own 'agents' group (TICK-625: user_id and group_id carry
 -- composite foreign keys, so a share can name only its own tenant's
 -- principals); the two groups share a Keycloak id, so a lookup that joins
--- groups by keycloak_group_id alone would find both tenants' shares.
+-- groups by keycloak_group_id alone would find both tenants' shares. Rules
+-- and masks have the shape acl_versions_rules_check and _masks_check accept
+-- (TICK-629).
 INSERT INTO acl_versions (tenant_id, entity_definition_id, version, rules, masks, published_by) VALUES
-    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000006a1', 1, '{}', '{}', '0a000000-0000-4000-8000-0000000003a1'),
-    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b1', 1, '{}', '{}', '0b000000-0000-4000-8000-0000000003b1'),
-    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b1', 2, '{"b": 2}', '{}', '0b000000-0000-4000-8000-0000000003b1');
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000006a1', 1, '[]', '[]', '0a000000-0000-4000-8000-0000000003a1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b1', 1, '[]', '[]', '0b000000-0000-4000-8000-0000000003b1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b1', 2,
+        '[{"id": "b2", "ops": ["read"], "who": {"requester": true}}]', '[]', '0b000000-0000-4000-8000-0000000003b1');
 
 INSERT INTO record_shares (tenant_id, record_id, user_id, group_id, principal_kind, granted_by) VALUES
     ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000000a2', '0a000000-0000-4000-8000-0000000003a1', NULL, 'user',

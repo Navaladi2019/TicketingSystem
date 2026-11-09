@@ -14,15 +14,15 @@ func aclPaths() []Path {
 		sql("acl_versions: read every type's version 1", "nava_worker", OwnRowsOnly,
 			"SELECT tenant_id FROM acl_versions WHERE version = 1"),
 		sql("acl_versions: publish an ACL for tenant B", "nava_app", Denied,
-			"INSERT INTO acl_versions (tenant_id, entity_definition_id, version, rules, masks) VALUES ($1, $2, 3, '{}', '{}')",
+			"INSERT INTO acl_versions (tenant_id, entity_definition_id, version, rules, masks) VALUES ($1, $2, 3, '[]', '[]')",
 			TenantB, EntityDefinitionB1),
 		// The composite foreign key holds the tenant: tenant A cannot publish an
 		// ACL for tenant B's type, though the policy passes the row.
 		sql("acl_versions: publish an ACL in tenant A for tenant B's type", "nava_worker", Denied,
-			"INSERT INTO acl_versions (tenant_id, entity_definition_id, version, rules, masks) VALUES ($1, $2, 3, '{}', '{}')",
+			"INSERT INTO acl_versions (tenant_id, entity_definition_id, version, rules, masks) VALUES ($1, $2, 3, '[]', '[]')",
 			TenantA, EntityDefinitionB1),
 		sql("acl_versions: rewrite tenant B's ACL", "nava_app", Denied,
-			"UPDATE acl_versions SET rules = '{}' WHERE tenant_id = $1", TenantB),
+			"UPDATE acl_versions SET rules = '[]' WHERE tenant_id = $1", TenantB),
 		sql("acl_versions: delete tenant B's ACL", "nava_worker", Denied,
 			"DELETE FROM acl_versions WHERE tenant_id = $1", TenantB),
 		// The list join (P3-34) by the caller's ids: tenant B's user and group

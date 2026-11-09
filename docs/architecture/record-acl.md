@@ -14,7 +14,11 @@ condition holds. Conditions use the fixed columns only (`state`,
 `requester_id`, `assignee_id`, `assignment_group_id`) with `eq` (one value)
 or `in`, against literals or the caller (`self`, `my_groups`). **Fail
 closed:** no published version, an empty policy, a rule with any malformed
-condition, and an empty value set all match nothing.
+condition, and an empty value set all match nothing. Since TICK-629 the database
+refuses a stored policy outside the contract's shape at insert
+(`acl_versions_rules_check`, `acl_versions_masks_check`;
+[`docs/data/acl-versions-shape-check.md`](../data/acl-versions-shape-check.md)),
+so the fail-closed handling of a malformed rule is defence in depth.
 
 ## One decision, two renderings
 
