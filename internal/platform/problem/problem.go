@@ -56,6 +56,7 @@ const (
 	AssignmentGroupRemoved   Code = "assignment_group_removed"
 	HistoryTooLong           Code = "history_too_long"
 	MaskedField              Code = "masked_field"
+	FilterTooExpensive       Code = "filter_too_expensive"
 	FieldNotWritable         Code = "field_not_writable"
 	InvalidAccessPolicy      Code = "invalid_access_policy"
 )
@@ -67,7 +68,7 @@ func Codes() []Code {
 		RateLimited, NotFound, ValidationFailed, MethodNotAllowed,
 		NotImplemented, InternalError, InvalidDefinition, EntityTypeExists, NumberPrefixTaken, SchemaBreakingChange, RecordInvalid,
 		IfMatchRequired, VersionConflict, IllegalTransition, UniqueViolation, ConfigSecretInContent, DefinitionSecretRequired, AssignmentGroupRemoved, HistoryTooLong,
-		MaskedField, FieldNotWritable, InvalidAccessPolicy,
+		MaskedField, FilterTooExpensive, FieldNotWritable, InvalidAccessPolicy,
 	}
 }
 

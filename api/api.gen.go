@@ -457,10 +457,10 @@ type RecordList struct {
 	// NextCursor Opaque; null on the last page.
 	NextCursor *string `json:"next_cursor"`
 
-	// Total Records the caller may read that match the filters, not only this page. Exact up to 10,000; when more match, `total` is 10,000 and `total_capped` is true.
+	// Total Records the caller may read that match the filters, not only this page. Exact up to 1,000; when more match, `total` is 1,000 and `total_capped` is true.
 	Total int64 `json:"total"`
 
-	// TotalCapped Present and true when `total` was capped at 10,000 (counting a large tenant's matches exactly misses the list p95). Absent otherwise.
+	// TotalCapped Present and true when `total` was capped at 1,000 (counting a large tenant's matches exactly misses the list p95). Absent otherwise.
 	TotalCapped *bool `json:"total_capped,omitempty"`
 }
 
@@ -3047,6 +3047,20 @@ func (response ListRecords404ApplicationProblemPlusJSONResponse) VisitListRecord
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListRecords422ApplicationProblemPlusJSONResponse Problem
+
+func (response ListRecords422ApplicationProblemPlusJSONResponse) VisitListRecordsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
 	_, err := buf.WriteTo(w)
 	return err
 }

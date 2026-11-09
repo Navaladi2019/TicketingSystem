@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -69,7 +70,7 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 	}
 
 	a := apihttp.New(spec, reg, log, baseURL)
-	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors}
+	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors, dataFilterTimeout: opts.dataFilterTimeout}
 	if opts.pool != nil {
 		// The S10 composition (PLAN-003): the record ACL reads and writes,
 		// no events yet. S11b swaps the sink.
@@ -172,9 +173,10 @@ type handlers struct {
 	paths identity.GroupPathReader
 	// pool (nava_app) and cursors serve the entity-type endpoints; nil answers
 	// 501 not_implemented.
-	pool    *pgxpool.Pool
-	cursors *cursor.Keyring
-	store   entitytypes.Store
+	pool              *pgxpool.Pool
+	cursors           *cursor.Keyring
+	dataFilterTimeout time.Duration
+	store             entitytypes.Store
 	// pipe serves the record endpoints; nil answers 501 not_implemented.
 	pipe *pipeline.Pipeline
 	// acl decides record reads (and, inside pipe, writes) and gives the

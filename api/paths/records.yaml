@@ -25,7 +25,10 @@ paths:
         `validation_failed`. A property the ACL's field masks hide from the
         caller, in a filter or a sort, answers 400 `masked_field` before any
         query runs. A `cursor` that is malformed, tampered, from another
-        caller or query, or for another sort answers 400 `invalid_cursor`. An
+        caller or query, or for another sort answers 400 `invalid_cursor`. A list with a filter on a `data`
+        property runs under a 2-second statement timeout; past it the answer is
+        422 `filter_too_expensive` (narrow the filter). `total` counts at most
+        1,000 rows under the same predicate as the page. An
         unknown entity type gives the 404 of getRecord, byte for byte.
       parameters:
         - $ref: "#/components/parameters/Entity"
@@ -62,6 +65,8 @@ paths:
           $ref: "../openapi.yaml#/components/responses/Problem"
         "404":
           $ref: "../openapi.yaml#/components/responses/ProblemNoInstance"
+        "422":
+          $ref: "../openapi.yaml#/components/responses/Problem"
         "429":
           $ref: "../openapi.yaml#/components/responses/Problem"
         "500":
@@ -405,12 +410,12 @@ components:
           format: int64
           description: >
             Records the caller may read that match the filters, not only this
-            page. Exact up to 10,000; when more match, `total` is 10,000 and
+            page. Exact up to 1,000; when more match, `total` is 1,000 and
             `total_capped` is true.
         total_capped:
           type: boolean
           description: >
-            Present and true when `total` was capped at 10,000 (counting a
+            Present and true when `total` was capped at 1,000 (counting a
             large tenant's matches exactly misses the list p95). Absent otherwise.
     Record:
       type: object
