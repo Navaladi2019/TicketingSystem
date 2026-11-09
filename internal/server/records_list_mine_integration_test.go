@@ -3,16 +3,22 @@
 package server_test
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
+	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
+	"github.com/Navaladi2019/TicketingSystem/internal/server"
+	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
 // TICK-644 (P3-34c): the requester list is answered as a UNION ALL of the
@@ -315,5 +321,91 @@ func TestListRecordsMineKeysetWalkWithConcurrentInserts(t *testing.T) {
 		if !seen[id] {
 			t.Errorf("record %s existed at the start and was skipped", id)
 		}
+	}
+}
+
+// mineACL publishes the requester / assignee / share rule that the list reads
+// as three branches, plus an admin rule.
+func (e *etEnv) mineACL(t *testing.T) {
+	t.Helper()
+	e.publishACL(t, e.a.id, "ticket",
+		authz.Rule{ID: "mine", Ops: []string{authz.OpRead}, Who: authz.Subject{Requester: true, Assignee: true, Shared: true}},
+		authz.Rule{ID: "admins", Ops: []string{authz.OpRead, authz.OpWrite}, Who: authz.Subject{Users: []uuid.UUID{e.a.admin.PrincipalID}}})
+}
+
+// TICK-647 with TICK-644: the branched count caps at totalCap per arm and in
+// the outer limit. The requester arm alone holds more than the cap, and the
+// assignee arm adds a few: the sum is still capped, not 1,000 + 3.
+func TestListRecordsMineTotalIsCappedAtTheCap(t *testing.T) {
+	e := newRecEnv(t)
+	e.mineACL(t)
+	user := e.a.user.PrincipalID
+	p := pipeline.New(authz.ACL{Policies: authz.PolicyStore{}}, entitytypes.Store{}, pipeline.NoopSink{}, pipeline.PoolRunner{Pool: e.pool}, pipeline.SystemClock{})
+	const rows = totalCap + 5
+	if err := tenancy.InTenantTx(t.Context(), e.pool, e.a.id, func(tx pgx.Tx) error {
+		for i := range rows + 3 {
+			data := map[string]any{"short_description": "bulk"}
+			if i < rows {
+				data["requester"] = user.String()
+			} else {
+				data["assignee"] = user.String()
+			}
+			if _, err := p.Write(t.Context(), tx, pipeline.Command{Op: pipeline.OpCreate, EntityKey: "ticket", Data: data,
+				Actor: identity.Principal{TenantID: e.a.id}, Source: pipeline.SourceSystem}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got := e.mustList(t, "user-a", "ticket", "limit=5")
+	if got.Total != totalCap || got.Capped == nil || !*got.Capped || len(got.Items) != 5 {
+		t.Errorf("requester: total %d capped %v items %d; want %d, true, 5", got.Total, got.Capped, len(got.Items), totalCap)
+	}
+	// Under the cap the total is exact: the assignee arm alone, filtered.
+	got = e.mustList(t, "user-a", "ticket", "filter[assignee]="+user.String())
+	if got.Total != 3 || got.Capped != nil {
+		t.Errorf("assignee filter: total %d capped %v; want exact 3, absent", got.Total, got.Capped)
+	}
+}
+
+// TICK-647 with TICK-644: the data-filter statement timeout also bounds the
+// branched page and count. A superuser holds ACCESS EXCLUSIVE on records, so
+// the branched list blocks until the timeout and answers 422
+// filter_too_expensive; once released the same request is served.
+func TestListMineDataFilterTimeoutAnswers422(t *testing.T) {
+	e := newETEnvWith(t, server.WithDataFilterTimeout(300*time.Millisecond))
+	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "t-a", recTypeBody("ticket", "TKT")); rec.Code != http.StatusCreated {
+		t.Fatalf("seed type = %d: %s", rec.Code, rec.Body)
+	}
+	e.mineACL(t)
+	e.mustCreateRec(t, "admin-a", "ticket", "k1", fmt.Sprintf(`{"short_description": "x", "requester": %q}`, e.a.user.PrincipalID))
+
+	lock, err := e.super.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	released := false
+	defer func() {
+		if !released {
+			_ = lock.Rollback(context.Background())
+		}
+	}()
+	if _, err := lock.Exec(t.Context(), "LOCK TABLE records IN ACCESS EXCLUSIVE MODE"); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	rec, _ := e.list(t, "user-a", "ticket", "filter[short_description]=x")
+	listCode(t, rec, http.StatusUnprocessableEntity, "filter_too_expensive")
+	if d := time.Since(start); d > 5*time.Second {
+		t.Errorf("timed-out branched list took %s, want about the 300 ms timeout", d)
+	}
+	if err := lock.Rollback(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	released = true
+	if p := e.mustList(t, "user-a", "ticket", "filter[short_description]=x"); p.Total != 1 {
+		t.Errorf("branched list after the timeout: total %d, want 1", p.Total)
 	}
 }

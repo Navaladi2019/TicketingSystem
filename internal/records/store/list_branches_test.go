@@ -1,6 +1,7 @@
 package store_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -33,7 +34,7 @@ func TestBranchedStatements(t *testing.T) {
 		t.Errorf("args = %v, want tenant, definition, 2 args, keyset, limit", args)
 	}
 	count := store.CountStatement(q)
-	if strings.Count(count, "LIMIT 10001") != 3 || !strings.Contains(count, "UNION ALL") {
+	if strings.Count(count, fmt.Sprintf("LIMIT %d", store.TotalCap+1)) != 3 || !strings.Contains(count, "UNION ALL") {
 		t.Errorf("count = %s", count)
 	}
 
