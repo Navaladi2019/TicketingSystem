@@ -9,6 +9,8 @@
 
 **APPROVE.** I found no Bug, Breaks-under or Spec-drift findings. There is one low Missing-test item and two Preference items. None of them blocks the merge.
 
+**Disposition (re-review of #541 at head `6c7d3992`).** The Technical Lead decided that findings 1 and 2 land on #541 before it merges, and both are fixed at `6c7d3992`. Finding 1: when the admin explains a2, row 5 now fails if the body contains `triage`. That check sits in an attack assertion, before the `masked_fields` control, and is shown red under M5b. Finding 2: `s10-acl-attacks.md` now says that M1 proves a tenant-scope break and that the `foreign` rule has no separate defence of its own. The `cichanged` timing note needed no change. `registry.go` is unchanged since `417f29f5`.
+
 ## What I checked
 
 ### 1. Each row asserts the attack, not a control
