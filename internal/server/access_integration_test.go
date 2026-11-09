@@ -578,7 +578,7 @@ func TestPutAccessRefusesATombstonedGroupOrUserLikeAnUnknownId(t *testing.T) {
 	if _, err := e.super.Exec(t.Context(), "UPDATE groups SET deleted_at = now() WHERE tenant_id = $1 AND id = $2", e.a.id, e.a.lookalikeGroup); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.super.Exec(t.Context(), "UPDATE principals SET deleted_at = now() WHERE tenant_id = $1 AND id = $2", e.a.id, e.a.user.PrincipalID); err != nil {
+	if _, err := e.super.Exec(t.Context(), "UPDATE principals SET enabled = false, deleted_at = now() WHERE tenant_id = $1 AND id = $2", e.a.id, e.a.user.PrincipalID); err != nil {
 		t.Fatal(err)
 	}
 	dead := "00000000-0000-4000-8000-00000000dead"
