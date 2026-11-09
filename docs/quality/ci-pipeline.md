@@ -702,6 +702,20 @@ collide: every host port `compose.yaml` publishes has a variable
 self-hosted run failed on `Bind for 127.0.0.1:9091 failed: port is already
 allocated` before), and the defaults stay 5080 and 9091 for local use.
 
+**Parallel jobs on the WSL host.** GitHub hands each job to an idle runner
+with matching labels, and one runner process runs one job at a time. With one
+runner the jobs of a run queue behind each other (about 44 minutes of jobs
+back to back, against 11 minutes in parallel on GitHub-hosted). For parallel
+jobs, register more runner instances on the same WSL host, each in its own
+folder with the labels `self-hosted,wsl`; the workflow needs no change. The
+widest point of a run is `unit`, `temporal-server`, `integration` and `stack`
+at once, so four instances in total run every job without queueing. Jobs of
+one run on one Docker host do not collide: `stack` owns the compose project,
+image tags and port slot; the integration clusters have random names and
+ports; `self-hosted-cleanup` runs after both. Size WSL for it in
+`.wslconfig` (for example `processors=12`, `memory=16GB`): `stack` alone
+holds Keycloak, Temporal, PostgreSQL and the services.
+
 **Runner prerequisites** (the owner's WSL, out of scope here): Docker with the
 buildx and compose plugins, `make`, `git` 2.38 or newer (`git merge-tree --write-tree`, used by `tools/ci/storybranches` and its tests; Ubuntu 22.04 ships 2.34: `sudo add-apt-repository ppa:git-core/ppa && sudo apt install git`), `gcc` (`go test -race`), Node.js 20 or 22 with `npx` (the `s8_entity_types` stack case; GitHub-hosted runners have it preinstalled), `python3`
 (`make check-guide`), `curl`, and the runner registered with the labels
