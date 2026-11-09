@@ -658,7 +658,7 @@ the input/variable precedence, the fork rule and the unknown values.
 | who writes the image cache | `main` only | every run, whatever its branch. Accepted: the runner has one owner, and a local BuildKit cache has no per-ref scope and no 10 GB repository limit to evict `main`'s layers, the reason for TICK-400's rule |
 | image cache size | GitHub's 10 GB per repository | trimmed after every run to `CI_BUILDX_KEEP_GB` (repository variable, default 20) by `make ci-builder-prune`, least recently used first; never a full prune |
 | Go build and module cache, pinned tools | `actions/cache` per job (restore always, save on `main`) | no Actions cache at all: `~/.cache/go-build`, `~/go/pkg/mod`, `~/.cache/golangci-lint` and `~/go/bin` persist on the host's disk, and an upload to GitHub would buy nothing. `make tools` runs every lint job (seconds with a warm Go cache) |
-| compose project, image tag, host ports | `nava`, `nava/*:dev`, 18080/18081/17233/18233 (a fresh VM per job) | per run (`make ci-self-hosted-env ID=ci-<run id>`): project `nava-ci-<run id>`, tag `nava/*:ci-<run id>`, four ports in 22000-23999 from a checksum of the id, skipping ports a running container publishes. Never the owner's own `nava` project or `:dev` images |
+| compose project, image tag, host ports | `nava`, `nava/*:dev`, 18080/18081/17233/18233/5080/9091 (a fresh VM per job) | per run (`make ci-self-hosted-env ID=ci-<run id>`): project `nava-ci-<run id>`, tag `nava/*:ci-<run id>`, six ports in 22000-24999 from a checksum of the id (nava-core, Keycloak, Temporal, Temporal UI, `OPENOBSERVE_PORT`, `PROMETHEUS_PORT`), skipping ports a running container publishes. Never the owner's own `nava` project, `:dev` images or ports |
 | integration clusters | removed by their scripts | the same, now with `docker rm -v` (the postgres image's anonymous data volume went unremoved before), and labelled `nava.ci.owner=nava-ci-<run id>` for the cleanup |
 | after the run | the VM is discarded | the `self-hosted-cleanup` job (below) |
 
@@ -694,12 +694,11 @@ removed by the job: the next job's `actions/checkout` cleans the workspace
 
 **One runner, and a second later.** One self-hosted runner runs one job at a
 time. The per-run project, tag and port slot mean a second runner on the same
-Docker host would not collide on names, with two exceptions: the two fixed
-host ports in `compose.yaml`, OpenObserve's `127.0.0.1:5080` and
-Prometheus's `127.0.0.1:9091` (both in the `operator` profile the stack tests
-use), have no variable, so two stacks at once (two runners, or a
-run while the owner's own stack is up) fail to bind them. Until they get one,
-stop the local stack before a self-hosted run.
+Docker host, or the owner's own stack running beside a CI run, does not
+collide: every host port `compose.yaml` publishes has a variable
+(`OPENOBSERVE_PORT` and `PROMETHEUS_PORT` since TICK-641; the first
+self-hosted run failed on `Bind for 127.0.0.1:9091 failed: port is already
+allocated` before), and the defaults stay 5080 and 9091 for local use.
 
 **Runner prerequisites** (the owner's WSL, out of scope here): Docker with the
 buildx and compose plugins, `make`, `git`, `gcc` (`go test -race`), `python3`

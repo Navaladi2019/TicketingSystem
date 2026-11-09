@@ -6,7 +6,9 @@
 #   COMPOSE_PROJECT_NAME  nava-<id>  (containers, networks, volumes; the
 #                         integration clusters' nava.ci.owner label)
 #   NAVA_IMAGE_TAG        <id>       (every nava/* image the run builds)
-#   host ports            a free slot in 22000-23999 derived from <id>
+#   host ports            a free slot of six in 22000-24999 derived from <id>:
+#                         nava-core, Keycloak, Temporal, Temporal UI,
+#                         OpenObserve, Prometheus
 # The workflow passes ID=ci-<run id>; the self-hosted-cleanup job removes
 # exactly these names (scripts/ci/self-hosted-cleanup.sh). Lines go to
 # $GITHUB_ENV, or to stdout outside Actions.
@@ -20,16 +22,18 @@ case $id in
     "" | dev | *[!a-z0-9_-]* | [!a-z0-9]*) echo "ci-self-hosted-env: ID '$id': lowercase letters, digits, - and _, not dev" >&2; exit 2 ;;
 esac
 
-# Four host ports from a slot chosen by the id's checksum; the next slot when
+# Six host ports from a slot chosen by the id's checksum; the next slot when
 # a running container already publishes one of them.
 taken() { [ -n "$(docker ps -q --filter "publish=$1")" ]; }
 slot=$(( $(printf '%s' "$id" | cksum | cut -d ' ' -f 1) % 500 ))
 tries=0
 while :; do
-    base=$(( 22000 + slot * 4 ))
-    taken $base || taken $((base + 1)) || taken $((base + 2)) || taken $((base + 3)) || break
+    base=$(( 22000 + slot * 6 ))
+    free=1
+    for i in 0 1 2 3 4 5; do taken $((base + i)) && { free=0; break; }; done
+    [ $free = 0 ] || break
     tries=$((tries + 1))
-    [ $tries -lt 500 ] || { echo "ci-self-hosted-env: no free port slot in 22000-23999" >&2; exit 1; }
+    [ $tries -lt 500 ] || { echo "ci-self-hosted-env: no free port slot in 22000-24999" >&2; exit 1; }
     slot=$(( (slot + 1) % 500 ))
 done
 
@@ -42,5 +46,7 @@ out=${GITHUB_ENV:-/dev/stdout}
     echo "TEMPORAL_TEST_PORT=$((base + 2))"
     echo "UI_PORT=$((base + 3))"
     echo "TEMPORAL_UI_PORT=$((base + 3))"
+    echo "OPENOBSERVE_PORT=$((base + 4))"
+    echo "PROMETHEUS_PORT=$((base + 5))"
 } >>"$out"
-echo "ci-self-hosted-env: project nava-$id, image tag $id, ports $base-$((base + 3))"
+echo "ci-self-hosted-env: project nava-$id, image tag $id, ports $base-$((base + 5))"
