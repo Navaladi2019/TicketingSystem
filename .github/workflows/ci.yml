@@ -136,6 +136,9 @@ jobs:
     # unset). A pull request whose head is another repository (a fork) always
     # gets github: a fork's code never runs on the owner's machine. Itself on
     # ubuntu-latest; same if: as changes, so a skipped run skips it too.
+    # Self-hosted jobs get longer timeouts (TICK-641): the first run on a cold
+    # host downloads Go and builds the tools and caches, which overran 5 and
+    # 10 minutes; later runs are warm.
     if: github.event_name != 'schedule' && (github.event.action != 'labeled' || github.event.label.name == 'ci:run' || github.event.label.name == 'ci:full')
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -159,7 +162,7 @@ jobs:
     needs: runner
     if: github.event_name != 'schedule' && (github.event.action != 'labeled' || github.event.label.name == 'ci:run' || github.event.label.name == 'ci:full')
     runs-on: ${{ fromJSON(needs.runner.outputs.runs_on) }}
-    timeout-minutes: 5
+    timeout-minutes: ${{ needs.runner.outputs.self_hosted == 'true' && 20 || 5 }}
     outputs:
       unit: ${{ steps.stages.outputs.unit }}
       integration: ${{ steps.stages.outputs.integration }}
@@ -221,7 +224,7 @@ jobs:
     needs: runner
     if: github.event_name != 'schedule' && (github.event.action != 'labeled' || github.event.label.name == 'ci:run' || github.event.label.name == 'ci:full')
     runs-on: ${{ fromJSON(needs.runner.outputs.runs_on) }}
-    timeout-minutes: 10
+    timeout-minutes: ${{ needs.runner.outputs.self_hosted == 'true' && 30 || 10 }}
     env:
       # check-openapi and review-paths diff against the pull request's base.
       BASE: origin/${{ github.base_ref || 'main' }}
@@ -304,7 +307,7 @@ jobs:
     needs: [runner, changes]
     if: needs.changes.outputs.unit == 'true'
     runs-on: ${{ fromJSON(needs.runner.outputs.runs_on) }}
-    timeout-minutes: 10
+    timeout-minutes: ${{ needs.runner.outputs.self_hosted == 'true' && 30 || 10 }}
     env:
       # TestNewMigrationsLaterThanBase compares added migrations with main's
       # newest (TICK-299), so the checkout needs main's history. Always main,
@@ -353,7 +356,7 @@ jobs:
     needs: [runner, changes]
     if: needs.changes.outputs.unit == 'true'
     runs-on: ${{ fromJSON(needs.runner.outputs.runs_on) }}
-    timeout-minutes: 10
+    timeout-minutes: ${{ needs.runner.outputs.self_hosted == 'true' && 30 || 10 }}
     env:
       # lint-temporal-server reports only lines changed since the merge base
       # (TICK-584 ratchet), so the checkout needs the base's history.
@@ -415,7 +418,7 @@ jobs:
     needs: [runner, changes]
     if: needs.changes.outputs.integration == 'true'
     runs-on: ${{ fromJSON(needs.runner.outputs.runs_on) }}
-    timeout-minutes: 10
+    timeout-minutes: ${{ needs.runner.outputs.self_hosted == 'true' && 30 || 10 }}
     steps:
       - uses: actions/checkout@v4
       # Self-hosted (TICK-641): this run's compose project, image tag and
@@ -488,7 +491,7 @@ jobs:
     needs: [runner, changes]
     if: needs.changes.outputs.integration == 'true'
     runs-on: ${{ fromJSON(needs.runner.outputs.runs_on) }}
-    timeout-minutes: 10
+    timeout-minutes: ${{ needs.runner.outputs.self_hosted == 'true' && 30 || 10 }}
     steps:
       - uses: actions/checkout@v4
       # Self-hosted (TICK-641): this run's compose project, image tag and
@@ -537,7 +540,7 @@ jobs:
     needs: [runner, changes]
     if: needs.changes.outputs.stack == 'true'
     runs-on: ${{ fromJSON(needs.runner.outputs.runs_on) }}
-    timeout-minutes: 40
+    timeout-minutes: ${{ needs.runner.outputs.self_hosted == 'true' && 60 || 40 }}
     env:
       # gha on GitHub-hosted; on self-hosted the BuildKit cache of the
       # persistent nava-ci builder (TICK-641).
@@ -723,7 +726,7 @@ jobs:
     needs: [runner, changes, unit, integration]
     if: ${{ !cancelled() && needs.changes.outputs.unit == 'true' }}
     runs-on: ${{ fromJSON(needs.runner.outputs.runs_on) }}
-    timeout-minutes: 10
+    timeout-minutes: ${{ needs.runner.outputs.self_hosted == 'true' && 30 || 10 }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
