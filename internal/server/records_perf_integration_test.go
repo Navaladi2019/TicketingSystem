@@ -61,6 +61,10 @@ import (
 const (
 	perfListTargetMS = 150.0
 	perfGetTargetMS  = 50.0
+	// perfShortTimeout is the bound check's data-filter statement timeout.
+	perfShortTimeout = 100 * time.Millisecond
+	// perfDataFilterTimeoutLabel names the server default (store.DataFilterTimeout).
+	perfDataFilterTimeoutLabel = "2s (store.DataFilterTimeout)"
 	// The D-3-9 trigger: create p95 > 50 ms revisits record numbering.
 	perfCreateTargetMS = 50.0
 	perfSmallTenants   = 399
@@ -203,7 +207,10 @@ func (perfAllow) Allow(context.Context, uuid.UUID) (ratelimit.Decision, error) {
 // ---- environment -----------------------------------------------------------
 
 type perfEnv struct {
-	h      http.Handler
+	h http.Handler
+	// hShort is the same handler with a perfShortTimeout data-filter
+	// statement timeout (TICK-647), for the bound check.
+	hShort http.Handler
 	pool   *pgxpool.Pool
 	super  *pgx.Conn
 	tokens etTokens
@@ -243,12 +250,17 @@ func newPerfEnv(t *testing.T, clients int) *perfEnv {
 		t.Fatal(err)
 	}
 	reader := etAuditReader(t, pool)
-	h, err := server.NewHandler(slog.New(slog.NewTextHandler(testLogWriter{t, nil}, &slog.HandlerOptions{Level: slog.LevelWarn})), tel, tokens, stubPaths{},
-		server.WithLimiter(perfAllow{}), server.WithPool(pool), server.WithAuditReader(reader), server.WithCursors(kr))
+	opts := []server.Option{server.WithLimiter(perfAllow{}), server.WithPool(pool), server.WithAuditReader(reader), server.WithCursors(kr)}
+	log := slog.New(slog.NewTextHandler(testLogWriter{t, nil}, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	h, err := server.NewHandler(log, tel, tokens, stubPaths{}, opts...)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &perfEnv{h: h, pool: pool, super: super, tokens: tokens, large: large, agentGroups: map[string][]uuid.UUID{}}
+	hShort, err := server.NewHandler(log, tel, tokens, stubPaths{}, append(opts, server.WithDataFilterTimeout(perfShortTimeout))...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &perfEnv{h: h, hShort: hShort, pool: pool, super: super, tokens: tokens, large: large, agentGroups: map[string][]uuid.UUID{}}
 }
 
 func (e *perfEnv) exec(t *testing.T, sql string, args ...any) {
@@ -267,6 +279,10 @@ func firstLine(s string) string {
 }
 
 func (e *perfEnv) serve(ctx context.Context, method, path, token, idem, body string) *httptest.ResponseRecorder {
+	return serveOn(ctx, e.h, method, path, token, idem, body)
+}
+
+func serveOn(ctx context.Context, h http.Handler, method, path, token, idem, body string) *httptest.ResponseRecorder {
 	req := httptest.NewRequestWithContext(ctx, method, path, strings.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+token)
 	if idem != "" {
@@ -276,7 +292,7 @@ func (e *perfEnv) serve(ctx context.Context, method, path, token, idem, body str
 		req.Header.Set("Content-Type", "application/json")
 	}
 	rec := httptest.NewRecorder()
-	e.h.ServeHTTP(rec, req)
+	h.ServeHTTP(rec, req)
 	return rec
 }
 
@@ -504,11 +520,28 @@ type perfScenario struct {
 // send runs r the way sc's kind does: a GET for list and get, a POST with a
 // fresh Idempotency-Key for create. It returns the response and the status
 // that means success.
-func (e *perfEnv) send(ctx context.Context, sc perfScenario, r perfReq) (*httptest.ResponseRecorder, int) {
-	if sc.kind == "create" {
-		return e.serve(ctx, http.MethodPost, r.path, r.token, uuid.NewString(), r.body), http.StatusCreated
+func (e *perfEnv) send(ctx context.Context, sc perfScenario, r perfReq) (*httptest.ResponseRecorder, bool) {
+	switch sc.kind {
+	case "create":
+		rec := e.serve(ctx, http.MethodPost, r.path, r.token, uuid.NewString(), r.body)
+		return rec, rec.Code == http.StatusCreated
+	case "timeout":
+		// The bound check: the short timeout must answer filter_too_expensive.
+		rec := serveOn(ctx, e.hShort, http.MethodGet, r.path, r.token, "", "")
+		return rec, isFilterTooExpensive(rec)
+	case "data":
+		// A data-filter list either answers or hits its statement timeout.
+		rec := e.serve(ctx, http.MethodGet, r.path, r.token, "", "")
+		return rec, rec.Code == http.StatusOK || isFilterTooExpensive(rec)
 	}
-	return e.serve(ctx, http.MethodGet, r.path, r.token, "", ""), http.StatusOK
+	rec := e.serve(ctx, http.MethodGet, r.path, r.token, "", "")
+	return rec, rec.Code == http.StatusOK
+}
+
+// isFilterTooExpensive reports whether rec is TICK-647's data-filter timeout:
+// 422 with the filter_too_expensive problem code.
+func isFilterTooExpensive(rec *httptest.ResponseRecorder) bool {
+	return rec.Code == http.StatusUnprocessableEntity && strings.Contains(rec.Body.String(), `"filter_too_expensive"`)
 }
 
 func (e *perfEnv) list(ctx context.Context, t *testing.T, token, query string) listPage {
@@ -680,8 +713,11 @@ func (e *perfEnv) defs(t *testing.T) []perfDef {
 		{"admin list, default sort, page 1", "list", "large", func() []perfReq { return listReqs(admin, "") }, 0},
 		{"admin list, default sort, page 20", "list", "large", func() []perfReq { return e.page20(t, admin, "") }, 0},
 		{"agent list, filter[state]=new", "list", "large", func() []perfReq { return listReqs(e.agents, "filter%5Bstate%5D=new") }, 0},
-		{"agent list, filter[priority]=1 (data)", "list", "large", func() []perfReq { return listReqs(e.agents, "filter%5Bpriority%5D=1") }, 0},
-		{"agent list, filter[site]=s7 (rare data, < 1% of visible rows)", "list", "large", func() []perfReq { return listReqs(e.agents, "filter%5Bsite%5D=s7") }, 0},
+		{"agent list, filter[priority]=1 (data)", "data", "large", func() []perfReq { return listReqs(e.agents, "filter%5Bpriority%5D=1") }, 0},
+		{"agent list, filter[site]=s7 (rare data, < 1% of visible rows)", "data", "large", func() []perfReq { return listReqs(e.agents, "filter%5Bsite%5D=s7") }, 0},
+		// TICK-647's bound: the same list under a short statement timeout must
+		// answer 422 filter_too_expensive about that fast, never hang.
+		{"agent list, filter[site]=s7, short data-filter timeout (bound check)", "timeout", "large", func() []perfReq { return listReqs(e.agents, "filter%5Bsite%5D=s7") }, 0},
 		{"agent list, sort=-updated_at", "list", "large", func() []perfReq { return listReqs(e.agents, "sort=-updated_at") }, 0},
 		{"agent list, sort=assignee", "list", "large", func() []perfReq { return listReqs(e.agents, "sort=assignee") }, 0},
 		{"admin list, filter[state][in]=new,in_progress, sort=-updated_at", "list", "large", func() []perfReq {
@@ -711,6 +747,7 @@ type perfResult struct {
 	stmtSQL  []perfStmt                 // one representative request, in order
 	explains []string
 	errs     int64
+	timeouts int64      // 422 filter_too_expensive answers (data and timeout kinds)
 	holds    []perfHold // creates only, one per request
 }
 
@@ -760,7 +797,7 @@ func (e *perfEnv) run(t *testing.T, sc perfScenario, clients int, d time.Duratio
 		if i >= 50 {
 			break
 		}
-		if rec, want := e.send(t.Context(), sc, r); rec.Code != want {
+		if rec, ok := e.send(t.Context(), sc, r); !ok {
 			t.Fatalf("%s: warm-up %s as %s = %d: %s", sc.name, r.path, r.token, rec.Code, rec.Body)
 		}
 	}
@@ -784,11 +821,14 @@ func (e *perfEnv) run(t *testing.T, sc perfScenario, clients int, d time.Duratio
 				tr := newPerfTrace()
 				ctx := context.WithValue(t.Context(), perfTraceKey{}, tr)
 				t0 := time.Now()
-				rec, want := e.send(ctx, sc, r)
+				rec, ok := e.send(ctx, sc, r)
 				el := time.Since(t0)
-				if rec.Code != want {
+				if !ok {
 					atomic.AddInt64(&res.errs, 1)
 					continue
+				}
+				if rec.Code == http.StatusUnprocessableEntity {
+					atomic.AddInt64(&res.timeouts, 1)
 				}
 				lat = append(lat, el)
 				if h, ok := counterHold(tr.stmts); ok && sc.kind == "create" {
@@ -824,7 +864,7 @@ func (e *perfEnv) capture(t *testing.T, res *perfResult) {
 	t.Helper()
 	r := res.sc.reqs[0]
 	tr := newPerfTrace()
-	if rec, want := e.send(context.WithValue(t.Context(), perfTraceKey{}, tr), res.sc, r); rec.Code != want {
+	if rec, ok := e.send(context.WithValue(t.Context(), perfTraceKey{}, tr), res.sc, r); !ok {
 		t.Fatalf("%s: capture = %d: %s", res.sc.name, rec.Code, rec.Body)
 	}
 	res.stmtSQL = tr.stmts
@@ -880,6 +920,8 @@ func (r *perfResult) target() float64 {
 		return perfGetTargetMS
 	case "create":
 		return perfCreateTargetMS
+	case "timeout":
+		return 0 // the bound check has no latency target
 	}
 	return perfListTargetMS
 }
@@ -916,7 +958,7 @@ func TestRecordsACLPerf800k(t *testing.T) {
 	}
 	t.Logf("wrote %s", out)
 	for _, r := range results {
-		if p95 := pct(r.lat, .95); p95 > r.target() {
+		if p95 := pct(r.lat, .95); r.target() > 0 && p95 > r.target() {
 			t.Errorf("MISS %s: p95 %.2f ms > %.0f ms", r.sc.name, p95, r.target())
 		}
 	}
@@ -981,15 +1023,20 @@ func (e *perfEnv) report(t *testing.T, results []*perfResult, floor []time.Durat
 	for _, r := range results {
 		p95 := pct(r.lat, .95)
 		v := "meets"
-		if p95 > r.target() {
+		switch {
+		case r.target() == 0:
+			v = "n/a (bound check)"
+		case p95 > r.target():
 			v = "**MISS**"
 		}
 		w("| %s | %s | %d | %.2f | %.2f | %.2f | %.0f | %s |\n", r.sc.name, r.sc.tenant, len(r.lat), pct(r.lat, .5), p95, pct(r.lat, .99), r.target(), v)
 	}
 	e.reportHolds(w, results, floor)
+	reportTimeouts(w, results)
 	w("\n## Per statement (ms, as pgx traced it, all requests of the scenario)\n\n")
 	for _, r := range results {
-		w("### %s\n\n| # | Statement | n | p50 | p95 | p99 |\n| --- | --- | --- | --- | --- | --- |\n", r.sc.name)
+		trips, stmts, sizes := roundTrips(r.stmtSQL)
+		w("### %s\n\nRound trips: %d, statements: %d, statements per batch: %v (one request, the first actor).\n\n| # | Statement | n | p50 | p95 | p99 |\n| --- | --- | --- | --- | --- | --- |\n", r.sc.name, trips, stmts, sizes)
 		for i, s := range r.stmtSQL {
 			k := normSQL(s.SQL)
 			lbl := k
@@ -1047,6 +1094,35 @@ func (e *perfEnv) reportHolds(w func(string, ...any), results []*perfResult, flo
 		w("| %s | %d | %.2f / %.2f | %.2f / %.2f | %d | %.2f / %.2f | %.2f / %.2f | %.2f / %.2f |\n", r.sc.name, len(r.holds),
 			pct(wait, .5), pct(wait, .95), pct(hold, .5), pct(hold, .95), stmts[len(stmts)/2],
 			pct(tr, .5), pct(tr, .95), pct(db, .5), pct(db, .95), pct(app, .5), pct(app, .95))
+	}
+}
+
+// roundTrips counts one request's round trips and statements: a batch
+// (TICK-648) is one round trip carrying several statements.
+func roundTrips(ss []perfStmt) (trips, stmts int, batchSizes []int) {
+	for _, s := range ss {
+		trips++
+		if b, ok := strings.CutPrefix(s.SQL, perfBatchPrefix); ok {
+			n := len(strings.Split(b, " ; "))
+			stmts += n
+			batchSizes = append(batchSizes, n)
+			continue
+		}
+		stmts++
+	}
+	return trips, stmts, batchSizes
+}
+
+// reportTimeouts prints how data-filter lists ended (TICK-647): answered, or
+// 422 filter_too_expensive, with the latency including the 422s.
+func reportTimeouts(w func(string, ...any), results []*perfResult) {
+	w("\n## Data-filter statement timeout (TICK-647)\n\nDefault timeout %s; the bound check runs with %s. A 422 is `filter_too_expensive`. Latency includes the 422s.\n\n| Scenario | Requests | 422 | p50 | p95 | max |\n| --- | --- | --- | --- | --- | --- |\n",
+		perfDataFilterTimeoutLabel, perfShortTimeout)
+	for _, r := range results {
+		if r.sc.kind != "data" && r.sc.kind != "timeout" {
+			continue
+		}
+		w("| %s | %d | %d | %.2f | %.2f | %.2f |\n", r.sc.name, len(r.lat), r.timeouts, pct(r.lat, .5), pct(r.lat, .95), pct(r.lat, 1))
 	}
 }
 

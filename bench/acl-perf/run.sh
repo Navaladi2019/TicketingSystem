@@ -21,7 +21,9 @@ export NAVA_PERF_OUT
 MSYS_NO_PATHCONV=1
 export MSYS_NO_PATHCONV
 
+sampler=""
 cleanup() {
+    [ -n "$sampler" ] && kill "$sampler" 2>/dev/null || true
     if [ "${BENCH_KEEP:-0}" = 1 ]; then echo "kept: $pg"; return; fi
     docker rm -f "$pg" >/dev/null 2>&1 || true
 }
@@ -41,5 +43,17 @@ mkdir -p "$(dirname "$NAVA_PERF_OUT")"
     echo "### $(date -u +%Y-%m-%dT%H:%M:%SZ) postgres:$pgtag"
     echo "### host: $(uname -s); docker $(docker version --format '{{.Server.Version}}')"
     docker info --format '### docker VM: {{.NCPU}} CPUs, {{.MemTotal}} bytes, kernel {{.KernelVersion}}'
+    # Other database work on the same Docker VM skews every number: list it.
+    echo "### other containers at start: $(docker ps --format '{{.Names}}' | grep -v "^$pg\$" | tr '\n' ' ')"
 } | tee "$NAVA_PERF_OUT.host"
+# Every 10 s, the other database workloads on the Docker VM (integration
+# clusters, CI stacks, other benches): a scenario that ran while one was up is
+# contended, and its numbers say so (TICK-621).
+(
+    while :; do
+        echo "$(date -u +%H:%M:%S) $(docker ps --format '{{.Names}}' | grep -E '^(nava-it-|nava-ci-|nava-aclperf-)' | grep -v "^$pg\$" | tr '\n' ' ')"
+        sleep 10
+    done
+) > "$NAVA_PERF_OUT.contention" 2>/dev/null &
+sampler=$!
 go test -tags 'integration perf' -count=1 -timeout 120m -v -run '^TestRecordsACLPerf800k$' ./internal/server
