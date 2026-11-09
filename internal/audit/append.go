@@ -59,12 +59,46 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $
 // returns ErrDuplicateEntry. Append never sets occurred_at, txid,
 // backfilled, or the seal or erasure columns (R10).
 func Append(ctx context.Context, tx pgx.Tx, e Entry) (uuid.UUID, error) {
-	if err := e.validate(); err != nil {
+	id, args, err := prepare(ctx, tx, e)
+	if err != nil {
 		return uuid.Nil, err
+	}
+	if _, err := tx.Exec(ctx, insertSQL, args...); err != nil {
+		return uuid.Nil, insertError(err)
+	}
+	return id, nil
+}
+
+// QueueAppend is Append for a pgx.Batch the caller sends in tx (TICK-648):
+// every check Append makes before its INSERT runs here, now, and a failure
+// returns before anything is queued; the INSERT is queued on b. When the
+// batch runs, a failed INSERT fails it with the error Append would have
+// returned (ErrDuplicateEntry joined to the database error, or a wrapped
+// one). It returns the entry's id.
+func QueueAppend(ctx context.Context, tx pgx.Tx, b *pgx.Batch, e Entry) (uuid.UUID, error) {
+	id, args, err := prepare(ctx, tx, e)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	qq := b.Queue(insertSQL, args...)
+	qq.Fn = func(br pgx.BatchResults) error {
+		if _, err := br.Exec(); err != nil {
+			return insertError(err)
+		}
+		return nil
+	}
+	return id, nil
+}
+
+// prepare makes every check of Append before the INSERT, in Append's order,
+// and returns the entry's id and the INSERT's arguments.
+func prepare(ctx context.Context, tx pgx.Tx, e Entry) (uuid.UUID, []any, error) {
+	if err := e.validate(); err != nil {
+		return uuid.Nil, nil, err
 	}
 	stored, truncated, err := prepareDiff(e)
 	if err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, nil, err
 	}
 	var salt []byte
 	var diffSHA []byte
@@ -76,16 +110,16 @@ func Append(ctx context.Context, tx pgx.Tx, e Entry) (uuid.UUID, error) {
 	}
 	if e.ID == uuid.Nil {
 		if e.ID, err = uuid.NewV7(); err != nil {
-			return uuid.Nil, fmt.Errorf("audit: mint id: %w", err)
+			return uuid.Nil, nil, fmt.Errorf("audit: mint id: %w", err)
 		}
 	}
 
 	tenant, err := tenancy.TenantOf(ctx, tx)
 	if errors.Is(err, tenancy.ErrNoTenant) {
-		return uuid.Nil, invalid("tenant_id", "the transaction has no tenant (I2)")
+		return uuid.Nil, nil, invalid("tenant_id", "the transaction has no tenant (I2)")
 	}
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("audit: %w", err)
+		return uuid.Nil, nil, fmt.Errorf("audit: %w", err)
 	}
 
 	var content []byte
@@ -97,19 +131,21 @@ func Append(ctx context.Context, tx pgx.Tx, e Entry) (uuid.UUID, error) {
 		s := string(stored)
 		diffText = &s
 	}
-	_, err = tx.Exec(ctx, insertSQL,
+	return e.ID, []any{
 		tenant, e.ID, string(e.Domain), string(e.Action), string(e.SubjectType), e.SubjectID, e.EntityDefinitionID,
 		e.VersionBefore, e.VersionAfter, e.Actor.PrincipalID, e.Actor.System, string(e.Source), e.SourceRef,
 		e.ChangeSetID, e.CausationID, e.CausationDepth, e.RequestID, content, diffSHA,
-		truncated, diffText, salt)
-	if err != nil {
-		var pe *pgconn.PgError
-		if errors.As(err, &pe) && pe.Code == "23505" && strings.HasSuffix(pe.ConstraintName, "_commit_key") {
-			return uuid.Nil, errors.Join(ErrDuplicateEntry, err)
-		}
-		return uuid.Nil, fmt.Errorf("audit: insert entry: %w", err)
+		truncated, diffText, salt,
+	}, nil
+}
+
+// insertError maps a failed INSERT.
+func insertError(err error) error {
+	var pe *pgconn.PgError
+	if errors.As(err, &pe) && pe.Code == "23505" && strings.HasSuffix(pe.ConstraintName, "_commit_key") {
+		return errors.Join(ErrDuplicateEntry, err)
 	}
-	return e.ID, nil
+	return fmt.Errorf("audit: insert entry: %w", err)
 }
 
 // prepareDiff checks e's diff and returns the bytes to store: nil for no

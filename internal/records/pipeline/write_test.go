@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -86,6 +88,56 @@ func (x *scriptTx) Exec(_ context.Context, sql string, _ ...any) (pgconn.Command
 	return pgconn.NewCommandTag("OK"), s.err
 }
 
+// SendBatch runs b's statements one by one through QueryRow and Exec, as
+// PostgreSQL runs a batch: in order, and none after the first that fails
+// (TICK-648).
+func (x *scriptTx) SendBatch(ctx context.Context, b *pgx.Batch) pgx.BatchResults {
+	return &scriptBatch{ctx: ctx, x: x, b: b}
+}
+
+type scriptBatch struct {
+	ctx context.Context
+	x   *scriptTx
+	b   *pgx.Batch
+	i   int
+}
+
+func (r *scriptBatch) next() *pgx.QueuedQuery {
+	q := r.b.QueuedQueries[r.i]
+	r.i++
+	return q
+}
+
+func (r *scriptBatch) Exec() (pgconn.CommandTag, error) {
+	q := r.next()
+	return r.x.Exec(r.ctx, q.SQL, q.Arguments...)
+}
+
+func (r *scriptBatch) QueryRow() pgx.Row {
+	q := r.next()
+	return r.x.QueryRow(r.ctx, q.SQL, q.Arguments...)
+}
+
+func (r *scriptBatch) Query() (pgx.Rows, error) {
+	r.x.t.Error("scriptTx batches answer QueryRow and Exec only")
+	return nil, errors.New("unexpected Query in a batch")
+}
+
+func (r *scriptBatch) Close() error {
+	for r.i < len(r.b.QueuedQueries) {
+		var err error
+		if fn := r.b.QueuedQueries[r.i].Fn; fn != nil {
+			err = fn(r)
+		} else {
+			_, err = r.Exec()
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ran reports whether any statement containing fragment ran.
 func (x *scriptTx) ranAny(fragment string) bool {
 	for _, s := range x.ran {
@@ -107,6 +159,7 @@ const (
 	sqlInsert     = "INSERT INTO records"
 	sqlUpdate     = "UPDATE records"
 	sqlPayload    = "::text FROM records"
+	sqlPreview    = ") AS records"
 	sqlAudit      = "INSERT INTO audit_log"
 	sqlShares     = "FROM record_shares"
 )
@@ -264,7 +317,8 @@ func newFixture() fixture {
 func (f fixture) tx(t *testing.T, stmts ...stmt) *scriptTx {
 	return &scriptTx{t: t, tenant: f.tenant.String(), stmts: append(stmts,
 		stmt{match: sqlDefinition, scan: scanUUID(f.defID)},
-		stmt{match: sqlShares, scan: func(dest ...any) error { *dest[0].(*[]uuid.UUID) = nil; return nil }})}
+		stmt{match: sqlShares, scan: func(dest ...any) error { *dest[0].(*[]uuid.UUID) = nil; return nil }},
+		stmt{match: sqlPreview, scan: scanString(`{}`)})}
 }
 
 func (f fixture) create(data map[string]any) pipeline.Command {
@@ -461,9 +515,12 @@ func TestWriteRefusedByTheAuthorizer(t *testing.T) {
 func TestCreateStatementFailures(t *testing.T) {
 	f := newFixture()
 	p := unitPipeline(fakeAuthz{}, fakeDefs{cur: assetDef(t), curVersion: 1})
+	const payload = `{"name": "x", "serial": "SN-1", "status": "active"}`
+	// The INSERT's SQL names record_counters (its number), so it is matched
+	// before the counter's own statement.
 	ok := []stmt{
-		{match: sqlLock}, {match: sqlTaken, scan: scanBool(false)}, {match: sqlNumber, scan: scanInt(1)},
-		{match: sqlInsert}, {match: sqlPayload, scan: scanString(`{"name":"x","serial":"SN-1","status":"active"}`)},
+		{match: sqlLock}, {match: sqlTaken, scan: scanBool(false)}, {match: sqlPreview, scan: scanString(payload)},
+		{match: sqlInsert, scan: scanInserted("AST0000001", payload)}, {match: sqlNumber, scan: scanInt(1)},
 		{match: sqlAudit},
 	}
 	cases := []struct {
@@ -473,8 +530,9 @@ func TestCreateStatementFailures(t *testing.T) {
 	}{
 		{sqlLock, "pipeline: records/store: lock unique value: boom", sqlTaken},
 		{sqlTaken, "pipeline: records/store: check unique value: boom", sqlNumber},
+		{sqlPreview, "pipeline: records/store: preview payload as jsonb: boom", sqlNumber},
 		{sqlNumber, "pipeline: records/store: take record number: boom", sqlInsert},
-		{sqlPayload, "pipeline: records/store: read payload as jsonb: boom", sqlAudit},
+		{sqlInsert, "pipeline: records/store: insert record: boom", sqlAudit},
 		{sqlAudit, "pipeline: audit: audit: insert entry: boom", ""},
 	}
 	for _, c := range cases {
@@ -508,6 +566,43 @@ func TestCreateStatementFailures(t *testing.T) {
 	res, err := p.Write(t.Context(), f.tx(t, ok...), f.create(map[string]any{"name": "x", "serial": "SN-1"}))
 	if err != nil || res.Number != "AST0000001" || res.Version != 1 {
 		t.Fatalf("create = %+v, %v", res, err)
+	}
+}
+
+// scanInserted answers the create's INSERT ... RETURNING: number, the
+// timestamps and the stored payload.
+func scanInserted(number, payload string) func(...any) error {
+	return func(dest ...any) error {
+		now := time.Now()
+		*dest[0].(*string) = number
+		*dest[1].(*time.Time) = now
+		*dest[2].(*time.Time) = now
+		*dest[3].(*string) = payload
+		return nil
+	}
+}
+
+// A create whose stored number or payload is not the one it took or audited
+// fails, and returns no result: the audit entry would not describe the row.
+func TestCreateChecksWhatTheInsertStored(t *testing.T) {
+	f := newFixture()
+	p := unitPipeline(fakeAuthz{}, fakeDefs{cur: assetDef(t), curVersion: 1})
+	const payload = `{"name": "x", "status": "active"}`
+	for name, c := range map[string]struct {
+		number, stored, want string
+	}{
+		"number":  {"AST0000002", payload, `pipeline: stored number "AST0000002", want "AST0000001"`},
+		"payload": {"AST0000001", `{"name": "y", "status": "active"}`, "pipeline: the stored payload is not the one the audit entry was built from"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			tx := f.tx(t, stmt{match: sqlPreview, scan: scanString(payload)},
+				stmt{match: sqlInsert, scan: scanInserted(c.number, c.stored)}, stmt{match: sqlNumber, scan: scanInt(1)},
+				stmt{match: sqlAudit})
+			_, err := p.Write(t.Context(), tx, f.create(map[string]any{"name": "x"}))
+			if err == nil || err.Error() != c.want {
+				t.Fatalf("err = %v, want %q", err, c.want)
+			}
+		})
 	}
 }
 
@@ -640,5 +735,63 @@ func TestRunnerIsTheConfiguredOne(t *testing.T) {
 	p := pipeline.New(fakeAuthz{}, nopDefs{}, pipeline.NoopSink{}, r, pipeline.SystemClock{})
 	if err := p.Runner().InTenantTx(t.Context(), uuid.New(), nil); err != nil || calls != 1 {
 		t.Fatalf("Runner().InTenantTx = %v after %d calls, want the configured runner", err, calls)
+	}
+}
+
+// A create checks every unique property in one batch, each lookup after its
+// lock, and refuses on the first taken one in property order. Ten unique
+// properties, more than a small slice's first allocation holds, so a lookup
+// result written through a stale pointer would be lost (TICK-648).
+func TestCreateChecksEveryUniquePropertyInOneBatch(t *testing.T) {
+	f := newFixture()
+	props := map[string]any{"name": map[string]any{"type": "string"},
+		"status": map[string]any{"type": "string", "enum": []string{"active"}}}
+	data := map[string]any{"name": "x"}
+	var fields []string
+	for i := range 10 {
+		field := fmt.Sprintf("u%d", i)
+		fields = append(fields, field)
+		props[field] = map[string]any{"type": "string", "x-nava-unique": true}
+		data[field] = "v-" + field
+	}
+	schema, err := json.Marshal(map[string]any{"$schema": "https://json-schema.org/draft/2020-12/schema",
+		"type": "object", "additionalProperties": false, "required": []string{"name"}, "properties": props})
+	if err != nil {
+		t.Fatal(err)
+	}
+	def, err := metadata.Compile(metadata.Definition{
+		Key: "asset", Schema: schema, NumberPrefix: "AST",
+		FixedColumns: map[string]string{"status": metadata.ColumnState},
+		States:       metadata.StateModel{Initial: "active", States: []string{"active"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := unitPipeline(fakeAuthz{}, fakeDefs{cur: def, curVersion: 1})
+	for _, c := range []struct {
+		taken []int // indexes of the lookups that find the value taken
+		want  string
+	}{
+		{[]int{0}, "u0"},
+		{[]int{9}, "u9"},
+		{[]int{3, 7}, "u3"},
+	} {
+		i := 0
+		tx := f.tx(t, stmt{match: sqlLock}, stmt{match: sqlTaken, scan: func(dest ...any) error {
+			*dest[0].(*bool) = slices.Contains(c.taken, i)
+			i++
+			return nil
+		}})
+		_, err := p.Write(t.Context(), tx, f.create(data))
+		var uv *pipeline.ErrUniqueViolation
+		if !errors.As(err, &uv) || uv.Field != c.want {
+			t.Errorf("taken %v: err = %v, want the unique violation on %s", c.taken, err, c.want)
+		}
+		if i != len(fields) {
+			t.Errorf("taken %v: %d lookups ran, want all %d in the batch", c.taken, i, len(fields))
+		}
+		if tx.ranAny(sqlNumber) || tx.ranAny(sqlInsert) {
+			t.Errorf("taken %v: the create went on to the number", c.taken)
+		}
 	}
 }

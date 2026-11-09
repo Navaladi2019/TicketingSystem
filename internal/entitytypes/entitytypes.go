@@ -23,6 +23,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
+	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
 var (
@@ -169,6 +170,7 @@ type NewInput struct {
 // first, so a request that clashes on both reports the key. The caller's
 // transaction is unusable after an error.
 func (s Store) Create(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, in NewInput) (*Version, error) {
+	defer tenancy.Forget(tx, currentKey{in.Definition.Key})
 	d := in.Definition
 	var one int
 	switch err := tx.QueryRow(ctx, `SELECT 1 FROM entity_definitions WHERE key = $1`, d.Key).Scan(&one); {
@@ -240,6 +242,7 @@ type SeedInput struct {
 // commit check on both tables requires from migration B (P5-32) on. The
 // caller's transaction must run as the tenant (tenancy.InTenantTx).
 func (Store) Seed(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, in SeedInput) (bool, error) {
+	defer tenancy.Forget(tx, currentKey{in.Definition.Key})
 	d := in.Definition
 	fixed, err := encodeFixedColumns(d.FixedColumns)
 	if err != nil {
@@ -291,6 +294,7 @@ type PublishInput struct {
 // Breaking; nothing is written then. The caller's transaction is unusable
 // after an error.
 func (s Store) Publish(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, in PublishInput) (*Version, error) {
+	defer tenancy.Forget(tx, currentKey{in.Key})
 	if in.PublishedBy == uuid.Nil {
 		return nil, ErrNoPublisher
 	}
@@ -404,8 +408,13 @@ func (s Store) Version(ctx context.Context, tx pgx.Tx, entityKey string, version
 	return compile(v)
 }
 
-// Current implements DefinitionReader.
+// Current implements DefinitionReader. A definition QueueCurrent prefetched
+// in tx is returned without a round trip.
 func (s Store) Current(ctx context.Context, tx pgx.Tx, entityKey string) (*metadata.Compiled, int, error) {
+	if v, ok := tenancy.Recall(tx, currentKey{entityKey}); ok {
+		c := v.(current) //nolint:forcetypeassert // only QueueCurrent stores under currentKey
+		return c.def, c.version, c.err
+	}
 	v, err := s.GetCurrent(ctx, tx, entityKey)
 	if err != nil {
 		return nil, 0, err
@@ -415,6 +424,43 @@ func (s Store) Current(ctx context.Context, tx pgx.Tx, entityKey string) (*metad
 		return nil, 0, err
 	}
 	return c, v.Version, nil
+}
+
+// currentKey is the tx memo key of an entity type's prefetched current
+// definition; current is what is stored under it.
+type currentKey struct{ key string }
+
+type current struct {
+	def     *metadata.Compiled
+	version int
+	err     error // what Current returns: ErrNotFound, or a stored row that does not scan or compile
+}
+
+// QueueCurrent queues Current's read on b, a batch the caller sends in tx
+// (TICK-648). When the batch runs, the compiled definition, or ErrNotFound,
+// goes in tx's memo (tenancy.Remember), and every Current of entityKey in the
+// rest of tx answers from it with no round trip. Create, Seed and Publish
+// drop it, so a transaction that changes the type reads it again. A stored
+// version that no longer scans or compiles is not a batch failure: Current
+// returns that error, as it would have unbatched. A failed statement fails the
+// batch.
+func (Store) QueueCurrent(tx pgx.Tx, b *pgx.Batch, entityKey string) {
+	b.Queue(versionSelect+` WHERE d.key = $1 AND v.version = d.current_version`, entityKey).
+		QueryRow(func(row pgx.Row) error {
+			v, err := scanVersion(row)
+			var pe *pgconn.PgError
+			if errors.As(err, &pe) {
+				return err // the statement failed: so does the batch
+			}
+			if err != nil {
+				// ErrNotFound, or a row that does not scan: Current returns it.
+				tenancy.Remember(tx, currentKey{entityKey}, current{err: err})
+				return nil
+			}
+			c, err := compile(v)
+			tenancy.Remember(tx, currentKey{entityKey}, current{def: c, version: v.Version, err: err})
+			return nil
+		})
 }
 
 // compile compiles a stored version. A stored row that no longer compiles is

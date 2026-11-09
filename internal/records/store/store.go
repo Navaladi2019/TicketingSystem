@@ -19,7 +19,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -192,27 +191,12 @@ RETURNING version`,
 // the literal jsonb prints and diff_sha256 does not depend on how the client
 // spelled it.
 func PayloadJSON(ctx context.Context, tx pgx.Tx, tenantID, id uuid.UUID, version int64, fixed map[string]string) (json.RawMessage, error) {
-	props := slices.Sorted(maps.Keys(fixed))
-	args := []any{tenantID, id, version, props}
-	expr := "(data - $4::text[])"
-	for _, prop := range props {
-		col := fixed[prop]
-		switch col {
-		case metadata.ColumnState, metadata.ColumnRequesterID, metadata.ColumnAssigneeID, metadata.ColumnAssignmentGroupID:
-		default:
-			return nil, fmt.Errorf("records/store: unknown fixed column %q", col)
-		}
-		args = append(args, prop)
-		n := len(args)
-		// col is one of the four constants above, never input.
-		if col == metadata.ColumnState {
-			expr += fmt.Sprintf(" || jsonb_build_object($%d::text, %s)", n, col)
-			continue
-		}
-		expr += fmt.Sprintf(" || CASE WHEN %s IS NULL THEN '{}'::jsonb ELSE jsonb_build_object($%d::text, %s) END", col, n, col)
+	expr, args, err := payloadExpr(fixed, []any{tenantID, id, version})
+	if err != nil {
+		return nil, err
 	}
 	var s string
-	err := tx.QueryRow(ctx, "SELECT ("+expr+")::text FROM records WHERE tenant_id = $1 AND id = $2 AND version = $3", args...).Scan(&s)
+	err = tx.QueryRow(ctx, "SELECT ("+expr+")::text FROM records WHERE tenant_id = $1 AND id = $2 AND version = $3", args...).Scan(&s)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrStale
 	}
@@ -269,10 +253,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 // (TICK-480, TICK-626). It reads record_write_keys only, never the audit log.
 func WriteKeyByKey(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, actor *uuid.UUID, key string) (*WriteKey, error) {
 	k := WriteKey{TenantID: tenantID, IdempotencyKey: key, ActorPrincipalID: actor}
-	err := tx.QueryRow(ctx, `
-SELECT definition_id, action, record_id, number, version, schema_version, audit_entry_id
-FROM record_write_keys
-WHERE tenant_id = $1 AND idempotency_key = $2 AND actor_principal_id IS NOT DISTINCT FROM $3`, tenantID, key, actor).
+	err := tx.QueryRow(ctx, writeKeySelect, tenantID, key, actor).
 		Scan(&k.DefinitionID, &k.Action, &k.RecordID, &k.Number, &k.Version, &k.SchemaVersion, &k.AuditEntryID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -282,6 +263,11 @@ WHERE tenant_id = $1 AND idempotency_key = $2 AND actor_principal_id IS NOT DIST
 	}
 	return &k, nil
 }
+
+const writeKeySelect = `
+SELECT definition_id, action, record_id, number, version, schema_version, audit_entry_id
+FROM record_write_keys
+WHERE tenant_id = $1 AND idempotency_key = $2 AND actor_principal_id IS NOT DISTINCT FROM $3`
 
 // jsonParam is a jsonb statement argument. Over QueryExecModeExec (nava-core's
 // PgBouncer pool) the parameter has no declared type, and pgx sends []byte as

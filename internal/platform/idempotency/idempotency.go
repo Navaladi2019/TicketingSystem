@@ -362,15 +362,11 @@ func (m *Middleware) complete(ctx context.Context, req request, resp *captured) 
 }
 
 func store(ctx context.Context, tx pgx.Tx, req request, resp *captured) error {
-	hdrs, err := encodeHeaders(resp.header)
+	sql, args, err := storeSQL(req, resp)
 	if err != nil {
 		return err
 	}
-	tag, err := tx.Exec(ctx, `
-UPDATE idempotency_keys
-   SET state = 'completed', response_status = $4, response_body = $5, response_headers = $6
- WHERE tenant_id = $1 AND principal_id = $2 AND key = $3 AND state = 'in_flight'`,
-		req.p.TenantID, req.p.PrincipalID, req.key, int16(resp.status), resp.body, headersParam(hdrs)) //nolint:gosec // an HTTP status is 100-599
+	tag, err := tx.Exec(ctx, sql, args...)
 	if err != nil {
 		return fmt.Errorf("idempotency: store: %w", err)
 	}
@@ -378,6 +374,28 @@ UPDATE idempotency_keys
 		return errors.New("idempotency: store: the row is gone or already completed")
 	}
 	return nil
+}
+
+// storeSQL is the UPDATE that marks the key completed with resp.
+func storeSQL(req request, resp *captured) (string, []any, error) {
+	hdrs, err := encodeHeaders(resp.header)
+	if err != nil {
+		return "", nil, err
+	}
+	return `
+UPDATE idempotency_keys
+   SET state = 'completed', response_status = $4, response_body = $5, response_headers = $6
+ WHERE tenant_id = $1 AND principal_id = $2 AND key = $3 AND state = 'in_flight'`,
+		[]any{req.p.TenantID, req.p.PrincipalID, req.key, int16(resp.status), resp.body, headersParam(hdrs)}, nil //nolint:gosec // an HTTP status is 100-599
+}
+
+// mustMatchOne wraps an UPDATE so that, when it matches no row, it fails in
+// SQL (division by zero, 22012) and aborts the transaction: a statement
+// queued for the COMMIT's round trip cannot have its row count checked
+// before the COMMIT runs (tenancy.ExecAtCommit). The hold makes a miss
+// impossible; this keeps a miss from committing the write anyway.
+func mustMatchOne(update string) string {
+	return "WITH done AS (" + update + " RETURNING 1) SELECT 1 / count(*) FROM done"
 }
 
 // encodeHeaders is the response_headers value for h: a JSON object of the
@@ -507,6 +525,57 @@ type scopeKey struct{}
 type scope struct {
 	req       request
 	completed atomic.Bool
+	// held is the transaction in which QueueHold locked the key's row, once
+	// that batch has run.
+	held atomic.Pointer[pgx.Tx]
+}
+
+// holdSQL locks the request's own key row while it is still in_flight. A
+// takeover (takeOver) or another completion of the row waits for this
+// transaction to end, and finds the row completed if it commits.
+const holdSQL = `
+SELECT 1 FROM idempotency_keys
+ WHERE tenant_id = $1 AND principal_id = $2 AND key = $3 AND state = 'in_flight'
+   FOR UPDATE`
+
+// ErrNotInFlight means the request's key is no longer in_flight when its
+// handler's transaction tries to hold it: another request took it over and
+// completed it. The handler's transaction must roll back, so the write does
+// not happen twice.
+var ErrNotInFlight = errors.New("idempotency: the key is no longer in flight")
+
+// QueueHold queues, on b, the lock of the request's key row, for a handler
+// that sends b in its own InTenantTx transaction tx before it writes
+// (TICK-648). Once the batch has run, CompleteInTx stores the response in the
+// round trip that commits tx (tenancy.ExecAtCommit), since the held row
+// cannot be completed by anyone else first. When the row is not in_flight,
+// the batch fails with ErrNotInFlight. Without a middleware scope in ctx it
+// queues nothing.
+func QueueHold(ctx context.Context, tx pgx.Tx, b *pgx.Batch) error {
+	sc, ok := ctx.Value(scopeKey{}).(*scope)
+	if !ok {
+		return nil
+	}
+	tenant, err := tenancy.TenantOf(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("idempotency: transaction tenant: %w", err)
+	}
+	if tenant != sc.req.p.TenantID {
+		return errors.New("idempotency: the transaction is scoped to another tenant than the request's")
+	}
+	b.Queue(holdSQL, sc.req.p.TenantID, sc.req.p.PrincipalID, sc.req.key).Query(func(rows pgx.Rows) error {
+		held := rows.Next()
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("idempotency: hold: %w", err)
+		}
+		if !held {
+			return ErrNotInFlight
+		}
+		sc.held.Store(&tx)
+		return nil
+	})
+	return nil
 }
 
 // CompleteInTx stores the response a handler is about to return, inside tx,
@@ -535,6 +604,19 @@ func CompleteInTx(ctx context.Context, tx pgx.Tx, visit func(http.ResponseWriter
 	c := &captured{status: http.StatusOK, header: http.Header{}}
 	if err := visit(&recorder{c: c}); err != nil {
 		return fmt.Errorf("idempotency: render response: %w", err)
+	}
+	// A row this transaction holds (QueueHold) is still in_flight and
+	// nobody else can complete it, so its UPDATE matches exactly that row
+	// and can ride in the COMMIT's round trip.
+	if h := sc.held.Load(); h != nil && *h == tx {
+		sql, args, err := storeSQL(sc.req, c)
+		if err != nil {
+			return err
+		}
+		if tenancy.ExecAtCommit(tx, mustMatchOne(sql), args...) {
+			sc.completed.Store(true)
+			return nil
+		}
 	}
 	if err := store(ctx, tx, sc.req, c); err != nil {
 		return err

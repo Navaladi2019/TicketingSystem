@@ -47,13 +47,26 @@ type recordEntry struct {
 // is refused as *ErrValidation with the code audit_secret_in_diff, naming the
 // pointer and never the value (ADR-004 R6).
 func appendRecordEntry(ctx context.Context, tx pgx.Tx, cmd Command, e recordEntry) error {
+	entry, err := recordAuditEntry(ctx, cmd, e)
+	if err != nil {
+		return err
+	}
+	if _, err := audit.Append(ctx, tx, entry); err != nil {
+		return mapAppendError(err)
+	}
+	return nil
+}
+
+// recordAuditEntry is the audit entry of a record write: e's diff and the
+// write's actor, source and causation.
+func recordAuditEntry(ctx context.Context, cmd Command, e recordEntry) (audit.Entry, error) {
 	diff, err := jsondiff.Diff(e.before, e.after)
 	if err != nil {
-		return fmt.Errorf("pipeline: audit diff: %w", err)
+		return audit.Entry{}, fmt.Errorf("pipeline: audit diff: %w", err)
 	}
 	defID := e.rec.EntityDefinitionID
 	va := e.rec.Version
-	entry := audit.Entry{
+	return audit.Entry{
 		ID:                 e.id,
 		Domain:             audit.DomainRecord,
 		Action:             e.action,
@@ -70,11 +83,7 @@ func appendRecordEntry(ctx context.Context, tx pgx.Tx, cmd Command, e recordEntr
 		RequestID:          requestID(ctx),
 		Diff:               diff,
 		SecretPaths:        secretPaths(e.secretProps),
-	}
-	if _, err := audit.Append(ctx, tx, entry); err != nil {
-		return mapAppendError(err)
-	}
-	return nil
+	}, nil
 }
 
 // AuditSuppressed writes the cascade_cycle entry of a start the cascade key

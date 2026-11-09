@@ -12,8 +12,11 @@ func InTenantTx(ctx context.Context, pool *pgxpool.Pool, tenantID uuid.UUID, fn 
 ```
 
 - `uuid.Nil` returns `ErrNoTenant`. No transaction is opened.
-- The tenant is set with `set_config('app.tenant_id', $1, true)`. The `true`
-  makes it transaction-local, so it ends with the transaction. Through
+- The tenant is set with `set_config('app.tenant_id', <tenant>, true)` in the
+  same simple-query round trip as `BEGIN` (TICK-648, see
+  [tenant-tx-batching.md](tenant-tx-batching.md)), so no statement or batch
+  `fn` sends runs before it. The `true` makes it transaction-local, so it ends
+  with the transaction. Through
   PgBouncer in transaction mode, the next transaction on the same server
   connection starts with no tenant, even when it belongs to another client.
 - If `fn` returns an error, the transaction rolls back and the error is
@@ -33,9 +36,8 @@ sequenceDiagram
     alt tenantID == uuid.Nil
         T-->>H: ErrNoTenant (no BEGIN)
     else
-        T->>B: BEGIN
-        B->>P: BEGIN on any server connection
-        T->>P: SELECT set_config('app.tenant_id', $1, true)
+        T->>B: BEGIN; SELECT set_config('app.tenant_id', tenant, true)
+        B->>P: one round trip on any server connection
         T->>P: fn(tx): queries filtered by RLS
         alt fn ok
             T->>P: COMMIT (setting ends)
