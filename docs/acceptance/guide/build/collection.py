@@ -2530,7 +2530,34 @@ if (wait > 0) {{ console.log(`waiting ${{Math.round(wait / 1000)}} s for the tok
     }
 
 
-FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s14, s14_story, s15_seal, s15_kill, s15_idle, x1, x2, x4, x5, x3, late]
+
+
+# --------------------------------------------------------------------------- S10
+def s10():
+    """S10 access: record list under the ACL (TICK-619, P3-34). More S10
+    requests (masks, shares) are added by the tasks that deliver them."""
+    lst = "{{core_url}}/api/v1/records/incident"
+    return {
+        "dir": "S10", "name": "S10 access",
+        "desc": "Story S10, TICK-336. The record list returns only the records the caller may read, with an exact `total` under the same predicate (TICK-619). Needs `tools/seed.sh`. Until the default incident ACL is published by onboarding (P3-35) a seeded tenant has no ACL and the list is empty: nobody may read (fail closed).",
+        "items": [
+            token("S10.1 Sign in as agent@tenant-a (Alice)", "alice_username", "alice_password", "alice_token"),
+            req("S10.2 List incidents: 200 with items, next_cursor and total", "GET", lst + "?limit=5", auth="alice_token",
+                desc="Only records Alice may read. `total` counts them under the same ACL predicate as the page.",
+                tests="""N.status(200);
+const b = N.json();
+test('items is an array of at most 5', () => { expect(b.items).to.be.an('array'); expect(b.items.length).to.be.at.most(5); });
+test('total is an integer at least the page size', () => { expect(b.total).to.be.a('number'); expect(b.total).to.be.at.least(b.items.length); });
+test('next_cursor is a string or null', () => expect(b.next_cursor === null || typeof b.next_cursor === 'string').to.eql(true));"""),
+            problem_req("S10.3 An unknown filter field: 400 validation_failed", "GET", lst + "?filter[no_such_field]=1", "validation_failed", 400,
+                        auth="alice_token", desc="Only properties of the entity type can be filtered."),
+            problem_req("S10.4 A bad cursor: 400 invalid_cursor", "GET", lst + "?cursor=garbage", "invalid_cursor", 400,
+                        auth="alice_token", desc="A cursor that was not issued to this caller for this query."),
+            problem_req("S10.5 No token: 401", "GET", lst, "invalid_token", 401, desc="Authentication comes first."),
+        ],
+    }
+
+FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s14, s14_story, s15_seal, s15_kill, s15_idle, x1, x2, x4, x5, x3, late]
 
 ENV = [
     ("core_url", "http://127.0.0.1:18080"),

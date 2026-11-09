@@ -1,0 +1,368 @@
+//go:build integration
+
+// P3-34 (TICK-619): GET /api/v1/records/{entity} through the real handler on
+// real PostgreSQL. The page and total are under the ACL's read predicate;
+// filter, sort and the keyset cursor work inside it; a masked field named
+// anywhere is 400 masked_field.
+
+package server_test
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"testing"
+
+	"github.com/google/uuid"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/authz"
+	"github.com/Navaladi2019/TicketingSystem/internal/identity"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/cursor"
+)
+
+type listPage struct {
+	Items []recBody `json:"items"`
+	Next  *string   `json:"next_cursor"`
+	Total int       `json:"total"`
+}
+
+func (e *etEnv) list(t *testing.T, token, entity, query string) (*httptest.ResponseRecorder, listPage) {
+	t.Helper()
+	path := "/api/v1/records/" + entity
+	if query != "" {
+		path += "?" + query
+	}
+	rec := e.do(t, http.MethodGet, path, token, "", "")
+	var p listPage
+	if rec.Code == http.StatusOK {
+		if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
+			t.Fatalf("list body: %v: %s", err, rec.Body)
+		}
+	}
+	return rec, p
+}
+
+func (e *etEnv) mustList(t *testing.T, token, entity, query string) listPage {
+	t.Helper()
+	rec, p := e.list(t, token, entity, query)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list %s ?%s = %d: %s", token, query, rec.Code, rec.Body)
+	}
+	return p
+}
+
+func listCode(t *testing.T, rec *httptest.ResponseRecorder, status int, code string) {
+	t.Helper()
+	var p struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil || rec.Code != status || p.Code != code {
+		t.Fatalf("response = %d %s, want %d %s", rec.Code, rec.Body, status, code)
+	}
+}
+
+func ids(items []recBody) map[string]bool {
+	out := map[string]bool{}
+	for _, it := range items {
+		out[it.ID] = true
+	}
+	return out
+}
+
+func wantIDs(t *testing.T, name string, got []recBody, want ...recBody) {
+	t.Helper()
+	g, w := ids(got), map[string]bool{}
+	for _, r := range want {
+		w[r.ID] = true
+	}
+	if len(g) != len(w) || len(got) != len(w) {
+		t.Errorf("%s: %d items, want %d", name, len(got), len(w))
+	}
+	for id := range w {
+		if !g[id] {
+			t.Errorf("%s: record %s missing", name, id)
+		}
+	}
+}
+
+// serviceDeskACL: the desk group (lookalike-a, "service-desk") reads and writes
+// the records of its own group, a requester reads its own, the admins group
+// reads and writes everything (the default incident ACL, P3-35).
+func (e *etEnv) serviceDeskACL(t *testing.T, entity string) {
+	t.Helper()
+	e.publishACL(t, e.a.id, entity,
+		authz.Rule{ID: "desk", Ops: []string{authz.OpRead, authz.OpWrite}, Who: authz.Subject{Groups: []uuid.UUID{e.a.lookalikeGroup}},
+			Where: []authz.Cond{{Column: "assignment_group_id", Op: authz.CondIn, Caller: authz.CallerMyGroups}}},
+		authz.Rule{ID: "requester", Ops: []string{authz.OpRead}, Who: authz.Subject{Requester: true}},
+		authz.Rule{ID: "admins", Ops: []string{authz.OpRead, authz.OpWrite}, Who: authz.Subject{Groups: []uuid.UUID{e.a.adminGroup}}},
+	)
+}
+
+// covers: listRecords 200
+func TestListRecordsUnderTheACL(t *testing.T) {
+	e := newRecEnv(t)
+	e.serviceDeskACL(t, "ticket")
+	desk, other, user := e.a.lookalikeGroup, e.a.adminGroup, e.a.user.PrincipalID
+	mk := func(key, extra string) recBody {
+		return e.mustCreateRec(t, "admin-a", "ticket", key, `{"short_description": "s"`+extra+`}`)
+	}
+	d1 := mk("l1", fmt.Sprintf(`, "group": %q`, desk))
+	d2 := mk("l2", fmt.Sprintf(`, "group": %q`, desk))
+	d3 := mk("l3", fmt.Sprintf(`, "group": %q`, desk))
+	if rec := e.patch(t, "admin-a", "ticket", d3.ID, `W/"1"`, `{"state": "closed"}`); rec.Code != http.StatusOK {
+		t.Fatalf("close = %d: %s", rec.Code, rec.Body)
+	}
+	o1 := mk("l4", fmt.Sprintf(`, "group": %q`, other))
+	r1 := mk("l5", fmt.Sprintf(`, "requester": %q`, user))
+	r2 := mk("l6", fmt.Sprintf(`, "group": %q, "requester": %q`, other, user))
+	n1 := mk("l7", "")
+
+	// 1. The agent sees exactly its group's records; total is that count.
+	p := e.mustList(t, "lookalike-a", "ticket", "")
+	wantIDs(t, "agent", p.Items, d1, d2, d3)
+	if p.Total != 3 || p.Next != nil {
+		t.Errorf("agent total = %d, next = %v; want 3, nil", p.Total, p.Next)
+	}
+	// 2. The requester sees only their own.
+	p = e.mustList(t, "user-a", "ticket", "")
+	wantIDs(t, "requester", p.Items, r1, r2)
+	if p.Total != 2 {
+		t.Errorf("requester total = %d, want 2", p.Total)
+	}
+	// 3. The admin sees all.
+	p = e.mustList(t, "admin-a", "ticket", "")
+	wantIDs(t, "admin", p.Items, d1, d2, d3, o1, r1, r2, n1)
+	if p.Total != 7 {
+		t.Errorf("admin total = %d, want 7", p.Total)
+	}
+	// 4. Filter and sort, still ACL-restricted; newest first.
+	p = e.mustList(t, "lookalike-a", "ticket", "filter[state]=new&sort=-created_at")
+	wantIDs(t, "state=new", p.Items, d1, d2)
+	if p.Total != 2 || p.Items[0].ID != d2.ID || p.Items[1].ID != d1.ID {
+		t.Errorf("state=new: total %d, order %v; want 2, newest first", p.Total, []string{p.Items[0].ID, p.Items[1].ID})
+	}
+	p = e.mustList(t, "lookalike-a", "ticket", "sort=created_at&filter[state][in]=new,closed")
+	if p.Total != 3 || p.Items[0].ID != d1.ID || p.Items[2].ID != d3.ID {
+		t.Errorf("sort=created_at in: total %d, first %s, last %s", p.Total, p.Items[0].ID, p.Items[2].ID)
+	}
+	// A filter on another group's id finds nothing the caller may not read.
+	p = e.mustList(t, "lookalike-a", "ticket", "filter[group]="+other.String())
+	if len(p.Items) != 0 || p.Total != 0 {
+		t.Errorf("filter on another group: %d items, total %d; want none", len(p.Items), p.Total)
+	}
+}
+
+// Security finding 2: a record the caller cannot read is in neither the page
+// nor total, whatever the paging and the filter.
+func TestListRecordsHidesUnreadableFromPageAndTotal(t *testing.T) {
+	e := newRecEnv(t)
+	secret := e.mustCreateRec(t, "admin-a", "ticket", "u1", `{"short_description": "private"}`)
+	mine := e.mustCreateRec(t, "admin-a", "ticket", "u2", fmt.Sprintf(`{"short_description": "mine", "requester": %q}`, e.a.user.PrincipalID))
+	e.publishACL(t, e.a.id, "ticket",
+		authz.Rule{ID: "req", Ops: []string{authz.OpRead}, Who: authz.Subject{Requester: true}},
+		authz.Rule{ID: "admins", Ops: []string{authz.OpRead, authz.OpWrite}, Who: authz.Subject{Users: []uuid.UUID{e.a.admin.PrincipalID}}})
+	for _, q := range []string{"", "limit=1", "filter[state]=new", "sort=updated_at", "filter[short_description]=private"} {
+		p := e.mustList(t, "user-a", "ticket", q)
+		if ids(p.Items)[secret.ID] {
+			t.Errorf("?%s: an unreadable record is in the page", q)
+		}
+		if q == "filter[short_description]=private" && (p.Total != 0 || len(p.Items) != 0) {
+			t.Errorf("?%s: total %d items %d; the unreadable match must not count", q, p.Total, len(p.Items))
+		} else if q != "filter[short_description]=private" && (p.Total != 1 || !ids(p.Items)[mine.ID] && q != "limit=1") {
+			t.Errorf("?%s: total %d; want 1 (only the readable record)", q, p.Total)
+		}
+	}
+	// No ACL at all: nothing and total 0 (fail closed).
+	e2 := newETEnv(t)
+	e2.noTestACL = true
+	if rec := e2.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "n1", recTypeBody("bare", "BAR")); rec.Code != http.StatusCreated {
+		t.Fatal(rec.Body)
+	}
+	e2.seedSystemRecord(t, "bare")
+	if p := e2.mustList(t, "admin-a", "bare", ""); len(p.Items) != 0 || p.Total != 0 {
+		t.Errorf("no ACL: %d items, total %d; want none", len(p.Items), p.Total)
+	}
+}
+
+// covers: listRecords 400
+// covers: listRecords 401
+// covers: listRecords 404
+func TestListRecordsErrors(t *testing.T) {
+	m := newMaskEnv(t)
+	// user-a is outside the desk group, so cost, triage and assignee are masked.
+	for name, q := range map[string]string{
+		"filter":                    "filter[cost]=1",
+		"filter in":                 "filter[triage][in]=a,b",
+		"filter on a fixed column":  "filter[assignee]=" + uuid.NewString(),
+		"sort on a fixed column":    "sort=assignee",
+		"descending sort":           "sort=-assignee",
+		"masked beside an ok field": "filter[short_description]=x&filter[cost]=1",
+	} {
+		rec, _ := m.list(t, "user-a", "job", q)
+		listCode(t, rec, http.StatusBadRequest, "masked_field")
+		if name == "filter" && bytes.Contains(rec.Body.Bytes(), []byte("1")) && bytes.Contains(rec.Body.Bytes(), []byte(`"value"`)) {
+			t.Errorf("a masked_field body must not echo the value: %s", rec.Body)
+		}
+	}
+	// The desk group may read them: the same queries succeed.
+	for _, q := range []string{"filter[cost]=1", "sort=assignee", "filter[triage][in]=a,b"} {
+		m.mustList(t, "lookalike-a", "job", q)
+	}
+	for _, q := range []string{"filter[nope]=1", "sort=nope", "sort=cost", "filter[cost][gt]=1", "filter[assignee]=x", "filter[token]=x"} {
+		rec, _ := m.list(t, "lookalike-a", "job", q)
+		listCode(t, rec, http.StatusBadRequest, "validation_failed")
+	}
+	for _, q := range []string{"limit=0", "limit=201"} {
+		rec, _ := m.list(t, "lookalike-a", "job", q)
+		listCode(t, rec, http.StatusBadRequest, "validation_failed")
+	}
+	rec, _ := m.list(t, "lookalike-a", "job", "cursor=garbage")
+	listCode(t, rec, http.StatusBadRequest, "invalid_cursor")
+
+	// 6. An unknown entity type is the 404 of GET /records/{entity}/{id}.
+	sameResponse(t, "list of an unknown entity",
+		m.do(t, http.MethodGet, "/api/v1/records/nope", "admin-a", "", ""),
+		m.do(t, http.MethodGet, "/api/v1/records/nope/"+uuid.NewString(), "admin-a", "", ""))
+	if rec := m.do(t, http.MethodGet, "/api/v1/records/job", "", "", ""); rec.Code != http.StatusUnauthorized {
+		t.Errorf("no token = %d, want 401", rec.Code)
+	}
+}
+
+// The sort key a cursor carries is checked too: a cursor whose key is a
+// masked field answers 400 masked_field even when the request names no sort.
+func TestListRecordsMaskedSortKeyInCursor(t *testing.T) {
+	m := newMaskEnv(t)
+	user := m.tokens["user-a"]
+	ctx := identity.NewContext(context.Background(), user)
+	kr, err := cursor.NewKeyring("k1", cursor.Key{ID: "k1", Secret: bytes.Repeat([]byte("s"), 32)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims, err := cursor.ClaimsFor(ctx, "listRecords", url.Values{"_entity": {"job"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pos, _ := json.Marshal(map[string]any{"s": "assignee", "d": true, "v": nil, "i": uuid.NewString()})
+	tok, err := kr.Encode(claims, pos)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, _ := m.list(t, "user-a", "job", "cursor="+tok)
+	listCode(t, rec, http.StatusBadRequest, "masked_field")
+	// The same forged cursor is merely invalid for the sort it does not fit.
+	pos, _ = json.Marshal(map[string]any{"s": "updated_at", "d": true, "v": nil, "i": uuid.NewString()})
+	tok, _ = kr.Encode(claims, pos)
+	rec, _ = m.list(t, "user-a", "job", "cursor="+tok)
+	listCode(t, rec, http.StatusBadRequest, "invalid_cursor")
+}
+
+// 7. Another tenant's records are in neither the page nor total.
+func TestListRecordsCrossTenant(t *testing.T) {
+	e := newRecEnv(t)
+	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-b", "tb", recTypeBody("ticket", "TKT")); rec.Code != http.StatusCreated {
+		t.Fatal(rec.Body)
+	}
+	a := e.mustCreateRec(t, "admin-a", "ticket", "x1", `{"short_description": "a"}`)
+	b := e.mustCreateRec(t, "admin-b", "ticket", "x2", `{"short_description": "b"}`)
+	b2 := e.mustCreateRec(t, "admin-b", "ticket", "x3", `{"short_description": "b2"}`)
+	p := e.mustList(t, "admin-a", "ticket", "")
+	if len(p.Items) != 1 || p.Items[0].ID != a.ID || p.Total != 1 {
+		t.Errorf("tenant A list: %d items, total %d", len(p.Items), p.Total)
+	}
+	p = e.mustList(t, "admin-b", "ticket", "")
+	wantIDs(t, "tenant B", p.Items, b, b2)
+	if p.Total != 2 {
+		t.Errorf("tenant B total = %d, want 2", p.Total)
+	}
+	// An entity type only tenant B has is a 404 for tenant A.
+	sameResponse(t, "B's type seen by A",
+		e.do(t, http.MethodGet, "/api/v1/records/incident", "admin-a", "", ""),
+		e.do(t, http.MethodGet, "/api/v1/records/nope", "admin-a", "", ""))
+	// A cursor made by tenant B does not work for tenant A.
+	e.mustCreateRec(t, "admin-b", "ticket", "x4", `{"short_description": "b3"}`)
+	pb := e.mustList(t, "admin-b", "ticket", "limit=1")
+	if pb.Next == nil {
+		t.Fatal("no cursor")
+	}
+	rec, _ := e.list(t, "admin-a", "ticket", "limit=1&cursor="+*pb.Next)
+	listCode(t, rec, http.StatusBadRequest, "invalid_cursor")
+}
+
+// 8. A walk with inserts between pages: no duplicate and no gap among the
+// records that existed at the start. (200 records and pages of 25 here; the
+// keyset logic does not depend on the count.)
+func TestListRecordsKeysetWalkWithConcurrentInserts(t *testing.T) {
+	e := newRecEnv(t)
+	start := map[string]bool{}
+	for i := 0; i < 200; i++ {
+		start[e.mustCreateRec(t, "admin-a", "ticket", fmt.Sprintf("w%d", i), fmt.Sprintf(`{"short_description": "r%d"}`, i)).ID] = true
+	}
+	for _, sort := range []string{"", "sort=created_at", "sort=state", "sort=-updated_at"} {
+		seen, pages, inserted := map[string]bool{}, 0, 0
+		q := "limit=25"
+		if sort != "" {
+			q += "&" + sort
+		}
+		var total int
+		for next := ""; ; {
+			query := q
+			if next != "" {
+				query += "&cursor=" + next
+			}
+			p := e.mustList(t, "admin-a", "ticket", query)
+			pages++
+			if pages == 1 {
+				total = p.Total
+			}
+			for _, it := range p.Items {
+				if seen[it.ID] {
+					t.Fatalf("%q: duplicate %s on page %d", sort, it.ID, pages)
+				}
+				seen[it.ID] = true
+			}
+			// Inserts and updates while the walk is in progress.
+			if pages <= 3 {
+				e.mustCreateRec(t, "admin-a", "ticket", fmt.Sprintf("w-ins-%s-%d", sort, pages), `{"short_description": "late"}`)
+				inserted++
+			}
+			if p.Next == nil {
+				break
+			}
+			next = *p.Next
+		}
+		for id := range start {
+			if !seen[id] {
+				t.Errorf("%q: record %s existed at the start and was skipped", sort, id)
+			}
+		}
+		if total < len(start) {
+			t.Errorf("%q: first-page total %d, want at least %d", sort, total, len(start))
+		}
+		for id := range start { // later runs start from a larger set
+			_ = id
+		}
+		for id := range seen {
+			start[id] = true
+		}
+		_ = inserted
+	}
+}
+
+// Items are shaped by the caller's masks as GET is.
+func TestListRecordsItemsAreShaped(t *testing.T) {
+	m := newMaskEnv(t)
+	r := m.mustCreateRec(t, "lookalike-a", "job", "sh1", `{"short_description": "s", "cost": 5}`)
+	for token, wantCost := range map[string]bool{"lookalike-a": true, "user-a": false} {
+		p := m.mustList(t, token, "job", "")
+		if len(p.Items) != 1 || p.Items[0].ID != r.ID {
+			t.Fatalf("%s: items %v", token, p.Items)
+		}
+		if _, has := p.Items[0].Data["cost"]; has != wantCost {
+			t.Errorf("%s: cost in data = %v, want %v", token, has, wantCost)
+		}
+	}
+}

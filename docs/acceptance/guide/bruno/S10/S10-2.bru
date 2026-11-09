@@ -1,0 +1,28 @@
+meta {
+  name: S10.2 List incidents: 200 with items, next_cursor and total
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?limit=5
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  test('items is an array of at most 5', () => { expect(b.items).to.be.an('array'); expect(b.items.length).to.be.at.most(5); });
+  test('total is an integer at least the page size', () => { expect(b.total).to.be.a('number'); expect(b.total).to.be.at.least(b.items.length); });
+  test('next_cursor is a string or null', () => expect(b.next_cursor === null || typeof b.next_cursor === 'string').to.eql(true));
+}
+
+docs {
+  Only records Alice may read. `total` counts them under the same ACL predicate as the page.
+}

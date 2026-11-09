@@ -157,3 +157,17 @@ func (c *Compiled) AllowsTransition(from, to string) bool {
 
 // States returns a copy of the state model's states.
 func (c *Compiled) States() []string { return slices.Clone(c.states.States) }
+
+// PropertyTypes returns each top-level property's JSON Schema "type" when it
+// is a single string ("" otherwise, e.g. a union or none). The list route
+// builds its filter and masked-field checks from these names only (TICK-619).
+func (c *Compiled) PropertyTypes() map[string]string {
+	props, _ := c.doc["properties"].(map[string]any)
+	out := make(map[string]string, len(props))
+	for name, v := range props {
+		p, _ := v.(map[string]any)
+		t, _ := p["type"].(string)
+		out[name] = t
+	}
+	return out
+}

@@ -1,0 +1,8 @@
+meta {
+  name: S10 access
+  seq: 10
+}
+
+docs {
+  Story S10, TICK-336. The record list returns only the records the caller may read, with an exact `total` under the same predicate (TICK-619). Needs `tools/seed.sh`. Until the default incident ACL is published by onboarding (P3-35) a seeded tenant has no ACL and the list is empty: nobody may read (fail closed).
+}
