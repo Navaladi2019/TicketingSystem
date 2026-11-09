@@ -63,22 +63,23 @@ OTEL_TAIL_SAMPLE_PERCENT=100 task stack:up   # keep every trace, not 10%
   requests slower than 500 ms are always kept.
 - Prometheus: `http://127.0.0.1:9091`, Status > Targets; each nava service's
   admin `/metrics` is scraped over `internal` (the admin ports stay unpublished).
-- Without the `operator` profile (the CI stack) there is no OpenObserve. The Collector
-  then logs a failed export for each trace and log batch, drops it after 5 s of retries
-  and stays healthy.
+- If OpenObserve is stopped or absent (any stack without the `operator` profile),
+  the Collector logs a failed export for each trace and log batch, drops it after
+  5 s of retries and stays healthy. The CI stack does run the `operator` profile.
 
 **View and filter logs.** Logs view in OpenObserve, stream `default`, pick the
 time range at the top right. In the SQL query box:
 
 ```
-level = 'ERROR'                      -- by level (severity)
+severity = 'ERROR'                   -- by level
 trace_id = '<32-hex trace id>'       -- only one request's lines
-"nava.request_id" = '<request id>'   -- by request id
+request_id = '<request id>'          -- by request id
 ```
 
-Free text: type a word in the search box, or `match_all('timeout')`. Open a
-log line and copy its `trace_id`, then in the Traces view search that id to see
-the matching trace. Use the exact field names shown in the log line's detail.
+Free text: type a word in the search box, or `match_all('timeout')`. To open the
+matching trace, expand the log line and click **View Trace**. In the Traces view
+the request id field is `nava_request_id`; use the exact field names shown in
+the detail view.
 
 **Adding a role or database.** List it in `db/grants.yaml` (see `db/README.md`);
 db-roles creates it on the next `up`. A LOGIN role also needs a

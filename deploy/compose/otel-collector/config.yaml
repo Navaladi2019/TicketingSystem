@@ -97,10 +97,11 @@ processors:
 exporters:
   debug:
     verbosity: detailed
-  # OpenObserve runs only under the `operator` profile. Without it the name does
-  # not resolve: the exporter logs a send error, retries for 5s, drops that batch
-  # and never blocks the pipeline or the health check, so the CI stack stays
-  # healthy. The small queue bounds memory while OpenObserve is absent.
+  # OpenObserve runs under the `operator` profile, which the CI stack also uses.
+  # If it is down or absent, the name does not resolve: the exporter logs a send
+  # error, retries for 5s, drops that batch and never blocks the pipeline or the
+  # health check, so the Collector stays healthy. The small queue bounds memory
+  # while OpenObserve is unavailable.
   otlphttp/openobserve:
     endpoint: http://openobserve:5080/api/default
     headers:

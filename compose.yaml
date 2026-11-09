@@ -297,7 +297,8 @@ services:
 
   # OpenObserve (TICK-634; replaced the TICK-330 trace UI), local dev only: shows
   # the traces and logs the Collector forwards, with log search and filters.
-  # Profile `operator`, so the CI stack never starts it. Data lives on the named
+  # Profile `operator` (the CI stack also runs that profile, so it must stay
+  # healthy there). Data lives on the named
   # volume `openobserve-data`. `internal` lets the Collector reach its OTLP/HTTP
   # endpoint (5080, same port as the UI); only the UI mapping below is published,
   # on loopback. The `-debug` image tag is used because the plain image has no
