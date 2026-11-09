@@ -2,7 +2,9 @@
 
 Reviewer: Quality, Testing & CI Advisor. Commit reviewed: `4a865c69`.
 
-**Verdict: REQUEST CHANGES.** One bug breaks the CI `stack` job, and one bug makes the README log queries fail. With the password fixed, every live acceptance check passed.
+**Verdict: REQUEST CHANGES.** One bug broke the CI `stack` job, and one bug makes the README log queries fail. With the password fixed, every live acceptance check passed.
+
+**Update:** finding 1 is fixed in `5928b260` (`Dev-Only-Openobserve-1`; the base64 default matches it). Green CI on the new run is still pending. Findings 2 and 3 are still open.
 
 ## CI (GitHub Actions run 42556175303, label `ci:full`)
 
