@@ -5,7 +5,7 @@
 # and runs TestRecordsACLPerf800k (internal/server, tags integration perf),
 # which seeds P3-01's shape and writes the raw report. Report:
 # docs/quality/acl-perf-800k.md. Needs Docker and Go. Not part of CI.
-#   make bench-acl-perf        # about 20 minutes
+#   make bench-acl-perf        # about 32 minutes
 # Env: NAVA_PERF_SECONDS (20) per scenario, NAVA_PERF_CLIENTS (8),
 # NAVA_PERF_OUT (bin/acl-perf-800k-raw.md), BENCH_KEEP=1 keeps the container.
 set -eu

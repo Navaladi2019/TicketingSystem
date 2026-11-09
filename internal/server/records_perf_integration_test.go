@@ -83,6 +83,7 @@ const perfSchema = `{
     "category": {"type": "string", "maxLength": 40},
     "impact": {"type": "integer"},
     "tags": {"type": "array", "items": {"type": "string"}},
+    "site": {"type": "string", "maxLength": 10},
     "state": {"type": "string", "enum": ["new", "in_progress", "on_hold", "closed"], "default": "new"},
     "group": {"type": "string", "format": "uuid"},
     "assignee": {"type": "string", "format": "uuid"},
@@ -340,7 +341,12 @@ func perfSeedSQL() []string {
 		            'impact', 1 + floor(x.r2 * 3)::int,
 		            'short_description', 'Record ' || x.n || ' ' || md5(x.n::text),
 		            'description', repeat(md5(x.tn || ':' || x.n), 27),
-		            'tags', jsonb_build_array('t' || floor(x.r5 * 50)::int, 't' || floor(x.r6 * 50)::int)),
+		            'tags', jsonb_build_array('t' || floor(x.r5 * 50)::int, 't' || floor(x.r6 * 50)::int),
+		            -- The rare value (TICK-621, the CTO's D25 re-run condition):
+		            -- 200 sites, each 0.5% of rows. It reuses r9 (category's
+		            -- draw, never a sort or ACL column), so the RNG stream and
+		            -- every other column stay P3-01's.
+		            'site', 's' || floor(x.r9 * 200)::int),
 		        0
 		 FROM (
 		     SELECT t.tn, t.tenant_id, t.nusers, d.id AS def, n,
@@ -494,21 +500,15 @@ func (e *perfEnv) page20(t *testing.T, tokens []string, query string) []perfReq 
 	var out []perfReq
 	for _, tok := range tokens {
 		q := query
-		var next *string
-		for i := 1; i < 20; i++ {
+		for page := 1; page < 20; page++ {
 			p := e.list(t.Context(), t, tok, q)
 			if p.Next == nil {
-				break
+				// A shorter list would silently measure an earlier page as page 20.
+				t.Fatalf("%s: the list of %s ends at page %d, before page 20", query, tok, page)
 			}
-			next = p.Next
-			q = joinQuery(query, "cursor="+urlEscape(*next))
+			q = joinQuery(query, "cursor="+urlEscape(*p.Next))
 		}
-		if next != nil && q != query {
-			out = append(out, perfReq{tok, "/api/v1/records/ticket?" + q})
-		}
-	}
-	if len(out) == 0 {
-		t.Fatalf("no actor of %v reaches page 20", tokens[:1])
+		out = append(out, perfReq{tok, "/api/v1/records/ticket?" + q})
 	}
 	return out
 }
@@ -569,6 +569,7 @@ func (e *perfEnv) scenarios(t *testing.T) []perfScenario {
 		{"admin list, default sort, page 20", "list", "large", e.page20(t, admin, "")},
 		{"agent list, filter[state]=new", "list", "large", listReqs(e.agents, "filter%5Bstate%5D=new")},
 		{"agent list, filter[priority]=1 (data)", "list", "large", listReqs(e.agents, "filter%5Bpriority%5D=1")},
+		{"agent list, filter[site]=s7 (rare data, < 1% of visible rows)", "list", "large", listReqs(e.agents, "filter%5Bsite%5D=s7")},
 		{"agent list, sort=-updated_at", "list", "large", listReqs(e.agents, "sort=-updated_at")},
 		{"agent list, sort=assignee", "list", "large", listReqs(e.agents, "sort=assignee")},
 		{"admin list, filter[state][in]=new,in_progress, sort=-updated_at", "list", "large",
@@ -765,6 +766,8 @@ func (e *perfEnv) report(t *testing.T, results []*perfResult, clients, secs int)
 	w("## Data\n\n```\n%s\n```\n\n", e.superText(t, `SELECT 'records ' || count(*) || ', open ' || count(*) FILTER (WHERE state <> 'closed')
 		|| ', priority 1 ' || count(*) FILTER (WHERE data ->> 'priority' = '1') || ', avg data bytes ' || round(avg(pg_column_size(data))) FROM records
 		UNION ALL SELECT 'tenants ' || count(*) || ', largest ' || max(nrec) || ', smallest ' || min(nrec) FROM perf_tenant
+		UNION ALL SELECT 'site s7, large tenant ' || count(*) FILTER (WHERE r.data ->> 'site' = 's7') || ' of ' || count(*)
+		    FROM records r JOIN perf_tenant t ON t.tenant_id = r.tenant_id AND t.tn = 0
 		UNION ALL SELECT 'record_shares ' || count(*) FROM record_shares
 		UNION ALL SELECT 'heap ' || pg_size_pretty(pg_relation_size('records')) || ', indexes ' || pg_size_pretty(pg_indexes_size('records'))`))
 	w("## Results (ms, per request through the handler)\n\n| Scenario | Tenant | n | p50 | p95 | p99 | Target | Verdict |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")

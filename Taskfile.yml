@@ -53,7 +53,7 @@ tasks:
       - sh scripts/ci/test-integration.sh -run '^$' -bench '^BenchmarkClaim$' -benchtime 200x
 
   bench:acl-perf:
-    desc: "Run the P3-36 perf measurement (TICK-621): list and single-read p95 at 800k records through the real handlers, against a throwaway postgres container (needs Docker), the same as make bench-acl-perf; about 20 minutes, not in CI"
+    desc: "Run the P3-36 perf measurement (TICK-621): list and single-read p95 at 800k records through the real handlers, against a throwaway postgres container (needs Docker), the same as make bench-acl-perf; about 32 minutes, not in CI"
     cmds:
       - sh bench/acl-perf/run.sh
 

@@ -6,6 +6,6 @@ bench-records-list:
 
 .PHONY: bench-acl-perf
 
-## TICK-621 P3-36: list and single-read p95 at 800k through the real handlers (compiled ACL SQL), ~20 min; not in CI
+## TICK-621 P3-36: list and single-read p95 at 800k through the real handlers (compiled ACL SQL), ~32 min; not in CI
 bench-acl-perf:
 	sh bench/acl-perf/run.sh

@@ -184,15 +184,34 @@ a sort, at 1,740 ms.
 5. **JIT compiles every large-tenant list statement.** Plans that read the
    whole tenant cost about 1.35M, far above `jit_above_cost` (100k). JIT then
    spends 200 to 430 ms per statement. That is two thirds of a single-run
-   agent page. With JIT off, the remaining scan and sort (150 to 190 ms per
-   statement, two statements per request) would still miss 150 ms. JIT is a
-   multiplier on cause 1, not a cause of its own.
+   agent page. With JIT off, the remaining scan and sort would take 150 to
+   190 ms per statement, two statements per request, and would still miss
+   150 ms. That figure is **derived** (execution time minus JIT time), not
+   measured with `jit = off`. JIT is a multiplier on cause 1, not a cause of
+   its own.
 6. **Concurrency multiplies the single-run cost.** 8 clients each reading
    400k rows twice per request is CPU-bound: 550 ms single-run becomes
    3 to 5 s at p95.
 
 The JSONB filter (`filter[priority]=1`) cannot use an index under RLS, as
 P3-01 found. It reads the whole tenant anyway, like the unfiltered list.
+
+## Re-run (CTO's D25 decision)
+
+The CTO decided D25 on TICK-336: no D25 work now, and the targets stay.
+P3-36 runs again on this harness once TICK-639 and TICK-640 have merged. The
+re-run covers every large-tenant row and both `data` selectivities, with the
+targets unchanged. A miss goes back on TICK-336 with its plans.
+
+For that re-run the harness has one more scenario, which is not in the
+2026-11-09 numbers above:
+
+- **Agent list, `filter[site]=s7`, the rare `data` value.** `site` is one of
+  200 values, each 0.5% of rows, so it matches less than 1% of an agent's
+  visible rows. It sits next to the existing `priority=1` row (5%). The seed
+  derives `site` from `category`'s random draw, so every other column and
+  the RNG stream are unchanged. The raw report's Data section prints the
+  large tenant's `site = s7` count.
 
 ## What this does not cover
 
