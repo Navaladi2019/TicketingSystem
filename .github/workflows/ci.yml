@@ -67,7 +67,8 @@
 # WSL runner ([self-hosted, wsl]) from a manual run's runner input, else the
 # repository variable CI_RUNNER; a pull request from a fork always gets
 # GitHub-hosted. Every suite job runs on its pick (runs-on from its output);
-# runner, full-suite, story-branches and main-red stay on ubuntu-latest.
+# runner, commit-check-budget (a benchmark against this runner's baseline),
+# full-suite, story-branches and main-red stay on ubuntu-latest.
 # On self-hosted: no Actions cache at all (the Go caches and tools persist on
 # the host's disk), image layers in the persistent buildx builder nava-ci
 # (IMAGE_CACHE=local, not setup-buildx-action's throwaway builder), each run
@@ -488,26 +489,20 @@ jobs:
     # and the same-run reference) run in this one job, which the verdict rule
     # needs. Runs whenever integration does; the integration shards leave
     # the test out.
-    needs: [runner, changes]
+    # Always GitHub-hosted (TICK-641): the budget rows are measured against
+    # that runner (ADR-004-E3/E4); a number from another host compares with
+    # nothing, and the WSL runner failed fail_flat.
+    needs: changes
     if: needs.changes.outputs.integration == 'true'
-    runs-on: ${{ fromJSON(needs.runner.outputs.runs_on) }}
-    timeout-minutes: ${{ needs.runner.outputs.self_hosted == 'true' && 30 || 10 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      # Self-hosted (TICK-641): this run's compose project, image tag and
-      # host ports, and the nava.ci.owner label of its clusters, which the
-      # self-hosted-cleanup job removes.
-      - name: Per-run Docker names (self-hosted)
-        if: needs.runner.outputs.self_hosted == 'true'
-        env:
-          ID: ci-${{ github.run_id }}
-        run: make ci-self-hosted-env
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: false
       - name: Restore the Go build cache
-        if: needs.runner.outputs.self_hosted != 'true'
         uses: actions/cache/restore@v4
         with:
           path: |
@@ -521,7 +516,7 @@ jobs:
         run: make test-commit-check-budget
       # Only main writes the cache (TICK-400); see CACHE_WRITE above.
       - name: Save the Go build cache
-        if: success() && env.CACHE_WRITE == 'true' && needs.runner.outputs.self_hosted != 'true'
+        if: success() && env.CACHE_WRITE == 'true'
         uses: actions/cache/save@v4
         with:
           path: |
@@ -698,7 +693,7 @@ jobs:
     # CI_BUILDX_KEEP_GB (repository variable, default 20). Workspace leftovers
     # (.ci-bin, coverage files, certificates) go with the next job's checkout,
     # which cleans the workspace.
-    needs: [runner, integration, commit-check-budget, stack]
+    needs: [runner, integration, stack]
     if: always() && needs.runner.outputs.self_hosted == 'true'
     runs-on: [self-hosted, wsl]
     timeout-minutes: 10
