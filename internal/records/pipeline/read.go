@@ -11,6 +11,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/store"
+	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
 // Record is a stored record as Get returns it. Only the pipeline imports the
@@ -18,8 +19,17 @@ import (
 type Record = store.Record
 
 // Get reads a record of the transaction's tenant, or ErrNotFound. It reads
-// only; every write goes through Write.
+// only; every write goes through Write. A record Write created in tx is
+// returned as stored, without a round trip (TICK-648).
 func Get(ctx context.Context, tx pgx.Tx, tenantID, id uuid.UUID) (*Record, error) {
+	if v, ok := tenancy.Recall(tx, storedKey{id}); ok {
+		rec := *v.(*Record) //nolint:forcetypeassert // only writeCreate stores under storedKey
+		if rec.TenantID != tenantID {
+			return nil, ErrNotFound
+		}
+		rec.Data = deepCopy(rec.Data)
+		return &rec, nil
+	}
 	rec, err := store.Get(ctx, tx, tenantID, id)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil, ErrNotFound
@@ -28,6 +38,19 @@ func Get(ctx context.Context, tx pgx.Tx, tenantID, id uuid.UUID) (*Record, error
 		return nil, fmt.Errorf("pipeline: %w", err)
 	}
 	return rec, nil
+}
+
+// QueueGet queues Get on b, a batch the caller sends in its InTenantTx
+// transaction: when it runs, *dst is the record, or nil when the tenant has
+// no such record.
+func QueueGet(b *pgx.Batch, tenantID, id uuid.UUID, dst **Record) {
+	store.QueueGet(b, tenantID, id, dst)
+}
+
+// RowWith is what the ACL sees of rec given shares, p's pair-matched shares
+// of it (authz.QueueSharesFor).
+func RowWith(rec *Record, shares []uuid.UUID) authz.Row {
+	return *rowOf(rec, shares)
 }
 
 // RowOf is what the ACL sees of rec for p: its fixed columns and p's
