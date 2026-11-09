@@ -459,7 +459,7 @@ func TestListRecordsPageStatementsNeedNoSort(t *testing.T) {
 	for _, d := range []struct {
 		id uuid.UUID
 		n  int
-	}{{def, 4000}, {other, 12000}} {
+	}{{def, 800}, {other, 2400}} {
 		if _, err := tx.Exec(ctx, `INSERT INTO records (tenant_id, id, entity_definition_id, version, schema_version, number, state, created_at, updated_at, data)
 		 SELECT $1, gen_random_uuid(), $2, 1, 1, 'PLAN-' || g, CASE WHEN g % 3 = 0 THEN 'closed' ELSE 'new' END,
 		        now() - (g || ' seconds')::interval, now() - ((g * 7919 % $3) || ' seconds')::interval, '{}'
@@ -473,12 +473,12 @@ func TestListRecordsPageStatementsNeedNoSort(t *testing.T) {
 	if _, err := e.super.Exec(ctx, "ANALYZE records"); err != nil {
 		t.Fatal(err)
 	}
-	// The count is exact up to 10,000 and capped past it (scope item 4).
-	if p := e.mustList(t, "admin-a", "ticket", "limit=1"); p.Total != 4000 || p.Capped != nil {
-		t.Errorf("4000 matches: total %d capped %v, want exact 4000 and no total_capped", p.Total, p.Capped)
+	// The count is exact up to 1,000 and capped past it (D25).
+	if p := e.mustList(t, "admin-a", "ticket", "limit=1"); p.Total != 800 || p.Capped != nil {
+		t.Errorf("800 matches: total %d capped %v, want exact 800 and no total_capped", p.Total, p.Capped)
 	}
-	if p := e.mustList(t, "admin-a", "change", "limit=1"); p.Total != 10000 || p.Capped == nil || !*p.Capped {
-		t.Errorf("12000 matches: total %d capped %v, want 10000 and total_capped true", p.Total, p.Capped)
+	if p := e.mustList(t, "admin-a", "change", "limit=1"); p.Total != 1000 || p.Capped == nil || !*p.Capped {
+		t.Errorf("2400 matches: total %d capped %v, want 1000 and total_capped true", p.Total, p.Capped)
 	}
 	for _, sort := range []string{"", "updated_at", "-updated_at", "created_at", "-created_at", "state", "-state"} {
 		for _, cursor := range []bool{false, true} {
