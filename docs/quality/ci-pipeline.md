@@ -716,6 +716,15 @@ ports; `self-hosted-cleanup` runs after both. Size WSL for it in
 `.wslconfig` (for example `processors=12`, `memory=16GB`): `stack` alone
 holds Keycloak, Temporal, PostgreSQL and the services.
 
+**Docker credentials on WSL.** Docker Desktop's WSL integration writes
+`"credsStore": "desktop.exe"`, a Windows program called over WSL interop for
+every pull; under four parallel jobs that call timed out ("error getting
+credentials") and failed the image build. `make ci-self-hosted-env` points the
+self-hosted jobs at `DOCKER_CONFIG=~/.docker-ci`: no credential store
+(anonymous pulls of public images, inside Docker Hub's anonymous limit given
+the local cache), with `buildx` and `contexts` linked back to `~/.docker` so the
+`nava-ci` builder is the same one.
+
 **Runner prerequisites** (the owner's WSL, out of scope here): Docker with the
 buildx and compose plugins, `make`, `git` 2.38 or newer (`git merge-tree --write-tree`, used by `tools/ci/storybranches` and its tests; Ubuntu 22.04 ships 2.34: `sudo add-apt-repository ppa:git-core/ppa && sudo apt install git`), `gcc` (`go test -race`), Node.js 20 or 22 with `npx` (the `s8_entity_types` stack case; GitHub-hosted runners have it preinstalled), `python3`
 (`make check-guide`), `curl`, and the runner registered with the labels

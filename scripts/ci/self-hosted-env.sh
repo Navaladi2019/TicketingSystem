@@ -12,6 +12,7 @@
 #                         OpenObserve, Prometheus, and the acceptance tunnels
 #                         (onboard, six admin listeners, Temporal UI) of
 #                         docs/acceptance/guide/tools/tunnels.sh
+#   DOCKER_CONFIG         ~/.docker-ci: no credential store (see below)
 #   NAVA_IT_GO_TIMEOUT    20m: go test -timeout of the integration shards (the
 #                         job shares the host with other jobs; 6m timed out)
 # The workflow passes ID=ci-<run id>; the self-hosted-cleanup job removes
@@ -42,6 +43,20 @@ while :; do
     slot=$(( (slot + 1) % 500 ))
 done
 
+# DOCKER_CONFIG without a credential store: the owner's ~/.docker/config.json
+# names "credsStore": "desktop.exe", a Windows program reached over WSL
+# interop, and under four parallel jobs the call timed out ("error getting
+# credentials", WSL "UtilAcceptVsock: accept4 failed 110") and failed the
+# image build. CI pulls only public images, anonymously. buildx and contexts
+# link back to ~/.docker, so the nava-ci builder is the same one (TICK-641).
+ci_cfg=$HOME/.docker-ci
+mkdir -p "$ci_cfg"
+[ -s "$ci_cfg/config.json" ] || echo '{}' >"$ci_cfg/config.json"
+for x in buildx contexts; do
+    [ -e "$HOME/.docker/$x" ] || continue
+    [ -e "$ci_cfg/$x" ] || ln -s "$HOME/.docker/$x" "$ci_cfg/$x" 2>/dev/null || true
+done
+
 out=${GITHUB_ENV:-/dev/stdout}
 {
     echo "COMPOSE_PROJECT_NAME=nava-$id"
@@ -62,5 +77,6 @@ out=${GITHUB_ENV:-/dev/stdout}
     echo "ACCEPT_ADMIN_PORT=$((base + 7))"
     echo "ACCEPT_UI_PORT=$((base + 13))"
     echo "NAVA_IT_GO_TIMEOUT=20m"
+    echo "DOCKER_CONFIG=$ci_cfg"
 } >>"$out"
 echo "ci-self-hosted-env: project nava-$id, image tag $id, ports $base-$((base + 13))"
