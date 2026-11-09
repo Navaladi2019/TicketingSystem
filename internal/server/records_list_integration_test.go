@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
@@ -610,11 +612,13 @@ func TestListRecordsTotalIsCappedAt1000UnderTheACL(t *testing.T) {
 // without a data filter is not bound by it, and the pool serves the next
 // request once the lock is released.
 func TestListDataFilterTimeoutAnswers422(t *testing.T) {
-	e := newETEnvWith(t, server.WithDataFilterTimeout(300*time.Millisecond))
+	e := newETEnvWith(t)
 	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "t-a", recTypeBody("ticket", "TKT")); rec.Code != http.StatusCreated {
 		t.Fatalf("seed type = %d: %s", rec.Code, rec.Body)
 	}
 	e.mustCreateRec(t, "admin-a", "ticket", "k1", `{"short_description": "x"}`)
+	// One connection: the setting the timed-out request leaves on it shows below.
+	e.onOneConn(t, server.WithDataFilterTimeout(300*time.Millisecond))
 
 	lock, err := e.super.Begin(t.Context())
 	if err != nil {
@@ -643,5 +647,72 @@ func TestListDataFilterTimeoutAnswers422(t *testing.T) {
 	p := e.mustList(t, "admin-a", "ticket", "filter[short_description]=x")
 	if p.Total != 1 {
 		t.Errorf("list after the timeout: total %d, want 1", p.Total)
+	}
+	// SET LOCAL ended with the transaction: the one connection is back to the default.
+	var got string
+	if err := e.pool.QueryRow(t.Context(), "SHOW statement_timeout").Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got != "0" {
+		t.Errorf("statement_timeout on the reused connection = %q, want the default 0", got)
+	}
+}
+
+// onOneConn serves e's handler from a pool of the same database that has one
+// connection, with extra options, so every request reuses that connection and
+// a setting a request leaves on it shows in the next one. The pool is built
+// after any ALTER ROLE the test made, so its connection carries it.
+func (e *etEnv) onOneConn(t *testing.T, extra ...server.Option) {
+	t.Helper()
+	cfg := e.pool.Config().Copy()
+	cfg.MaxConns = 1
+	pool, err := pgxpool.NewWithConfig(t.Context(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	kr, err := cursor.NewKeyring("k1", cursor.Key{ID: "k1", Secret: bytes.Repeat([]byte("s"), 32)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := server.NewHandler(slog.New(slog.NewTextHandler(testLogWriter{t, e.logs}, &slog.HandlerOptions{Level: slog.LevelError})),
+		e.tel, e.tokens, stubPaths{},
+		append([]server.Option{server.WithLimiter(e.lim), server.WithPool(pool), server.WithAuditReader(etAuditReader(t, pool)), server.WithCursors(kr)}, extra...)...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.h, e.pool = h, pool
+}
+
+// covers: listRecords 422
+//
+// TICK-649: only a data-filter list that ran past its timeout answers
+// filter_too_expensive. A list without a data filter that Postgres cancels
+// (here the role's own statement_timeout) is a server error, not advice to
+// narrow a filter it does not have.
+func TestListCancelWithoutDataFilterIsNotFilterTooExpensive(t *testing.T) {
+	e := newETEnvWith(t)
+	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "t-a", recTypeBody("ticket", "TKT")); rec.Code != http.StatusCreated {
+		t.Fatalf("seed type = %d: %s", rec.Code, rec.Body)
+	}
+	e.mustCreateRec(t, "admin-a", "ticket", "k1", `{"short_description": "x"}`)
+
+	if _, err := e.super.Exec(t.Context(), "ALTER ROLE nava_app SET statement_timeout = '300ms'"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = e.super.Exec(context.Background(), "ALTER ROLE nava_app RESET statement_timeout") })
+	e.onOneConn(t)
+
+	lock, err := e.super.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = lock.Rollback(context.Background()) }()
+	if _, err := lock.Exec(t.Context(), "LOCK TABLE records IN ACCESS EXCLUSIVE MODE"); err != nil {
+		t.Fatal(err)
+	}
+	rec, _ := e.list(t, "admin-a", "ticket", "")
+	if rec.Code != http.StatusInternalServerError || strings.Contains(rec.Body.String(), "filter_too_expensive") {
+		t.Fatalf("cancelled list without a data filter = %d %s, want 500 and not filter_too_expensive", rec.Code, rec.Body)
 	}
 }
