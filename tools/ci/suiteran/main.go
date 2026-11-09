@@ -271,6 +271,7 @@ type event struct {
 	Test        string
 	Output      string
 	FailedBuild string
+	Elapsed     float64 // seconds, on a test's pass or fail
 }
 
 // stream is what a run says: the packages go test reported on, and the
@@ -281,6 +282,7 @@ type stream struct {
 	events   int
 	packages map[string]bool
 	ran      map[string]map[string]bool // package -> top-level test
+	elapsed  []testTime                 // each top-level test's pass or fail
 	failures []string
 	buffered map[string][]string // package\x00top-level test -> output
 }
@@ -349,6 +351,7 @@ func (s *stream) add(e event) {
 	if e.Test != top {
 		return
 	}
+	s.elapsed = append(s.elapsed, testTime{pkg: e.Package, test: top, seconds: e.Elapsed})
 	if e.Action == "fail" {
 		s.failures = append(s.failures, e.Package+" "+top)
 		for _, l := range s.buffered[key] {
@@ -500,8 +503,19 @@ type report struct {
 	files    []fileResult
 	events   int
 	failures []string
-	ran      int // top-level tests that ended in pass or fail, every package
+	ran      int        // top-level tests that ended in pass or fail, every package
+	slowest  []testTime // the slowestShown longest of them, longest first
 }
+
+// testTime is one top-level test's run time, from go test -json's Elapsed.
+type testTime struct {
+	pkg, test string
+	seconds   float64
+}
+
+// slowestShown is how many tests the report lists by run time (TICK-628
+// follow-up): enough to see where a stack case's minutes go without a -v run.
+const slowestShown = 10
 
 func check(s *stream, files []suiteFile, tags []string, sc scope) report {
 	ctxt := build.Default
@@ -509,6 +523,11 @@ func check(s *stream, files []suiteFile, tags []string, sc scope) report {
 	r := report{events: s.events, failures: s.failures}
 	for _, tests := range s.ran {
 		r.ran += len(tests)
+	}
+	r.slowest = append([]testTime(nil), s.elapsed...)
+	sort.SliceStable(r.slowest, func(i, j int) bool { return r.slowest[i].seconds > r.slowest[j].seconds })
+	if len(r.slowest) > slowestShown {
+		r.slowest = r.slowest[:slowestShown]
 	}
 	for _, f := range files {
 		var tests []string
@@ -583,6 +602,12 @@ func (r report) String(tags []string, sc scope) string {
 	// TICK-628: how many tests the step ran, so a -run/-skip split of one
 	// package can be read off the log.
 	fmt.Fprintf(&b, "  %d top-level tests ran (pass or fail)\n", r.ran)
+	if len(r.slowest) > 0 {
+		fmt.Fprintf(&b, "suiteran: the %d slowest top-level tests:\n", len(r.slowest))
+		for _, tt := range r.slowest {
+			fmt.Fprintf(&b, "  %7.1fs  %s  %s\n", tt.seconds, tt.test, path.Base(tt.pkg))
+		}
+	}
 	if r.events == 0 {
 		b.WriteString("suiteran: FAIL: the stream held no go test -json event (is -json missing, or did go test not start?)\n")
 	}

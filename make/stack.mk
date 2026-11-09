@@ -104,23 +104,31 @@ PULL_POLICY := $(if $(filter local,$(IMAGE_CACHE)),--policy missing)
 # the risk that a pull request no longer builds the real build stage is
 # AR-TICK-628-01. CI_THIN_SERVICES maps each compose service to its target;
 # TestThinServicesCoverCompose fails when a Go service of compose.yaml is
-# missing from it.
+# missing from it. The interptest stack worker (compose.test.yaml, profile
+# interptest) is built from Dockerfile.ci's nava-worker-interptest target over
+# CI_BIN_DIR/nava-worker-interptest (-tags interptest), and tagged directly:
+# bake builds compose.yaml only. The interpreter cases start it without
+# --build when NAVA_INTERPTEST_PREBUILT=1 (the stack job sets it with
+# IMAGE_THIN=1), so a thin run does no go build in Docker at all.
 CI_BIN_DIR := .ci-bin
 CI_BINARIES := nava-core nava-db nava-groupsync nava-onboard nava-purge nava-relay nava-worker
 CI_THIN_SERVICES := db-roles=nava-db migrate=nava-db nava-core=nava-core nava-groupsync=nava-groupsync nava-onboard=nava-onboard nava-purge=nava-purge nava-relay=nava-relay nava-worker=nava-worker
 BAKE_THIN := $(foreach m,$(CI_THIN_SERVICES),--set $(word 1,$(subst =, ,$(m))).dockerfile=deploy/compose/Dockerfile.ci --set $(word 1,$(subst =, ,$(m))).target=$(word 2,$(subst =, ,$(m))))
 image-ci:
-	@$(if $(filter 1,$(IMAGE_THIN)),for b in $(CI_BINARIES); do [ -x $(CI_BIN_DIR)/$$b ] || { echo "image-ci: IMAGE_THIN=1 needs $(CI_BIN_DIR)/$$b: run make ci-binaries first" >&2; exit 2; }; done; echo "image-ci: thin CI images from deploy/compose/Dockerfile.ci (IMAGE_THIN=1)";) \
+	@$(if $(filter 1,$(IMAGE_THIN)),for b in $(CI_BINARIES) nava-worker-interptest; do [ -x $(CI_BIN_DIR)/$$b ] || { echo "image-ci: IMAGE_THIN=1 needs $(CI_BIN_DIR)/$$b: run make ci-binaries first" >&2; exit 2; }; done; echo "image-ci: thin CI images from deploy/compose/Dockerfile.ci (IMAGE_THIN=1)";) \
 	docker compose pull --quiet --ignore-buildable --ignore-pull-failures $(PULL_POLICY) & pull=$$!; \
 	docker buildx bake -f compose.yaml --load $(BAKE_CACHE) $(if $(filter 1,$(IMAGE_THIN)),$(BAKE_THIN)); status=$$?; \
+	$(if $(filter 1,$(IMAGE_THIN)),[ $$status -ne 0 ] || docker buildx build --load -f deploy/compose/Dockerfile.ci --target nava-worker-interptest -t nava/nava-worker-interptest:$${NAVA_IMAGE_TAG:-dev} . || status=$$?;) \
 	wait $$pull; exit $$status
 
 # The Go service binaries for IMAGE_THIN=1, in one go build with the real
 # Dockerfiles' flags, for linux/amd64 (the runner; GOOS/GOARCH override it).
-# No build tags: the production nava-worker (TICK-367).
+# No build tags: the production nava-worker (TICK-367). Then the interptest
+# stack worker, the same package with -tags interptest (the S11a fakes).
 ci-binaries:
 	go version
 	CGO_ENABLED=0 GOOS=$${GOOS:-linux} GOARCH=$${GOARCH:-amd64} go build -trimpath -o $(CI_BIN_DIR)/ $(addprefix ./cmd/,$(CI_BINARIES))
+	CGO_ENABLED=0 GOOS=$${GOOS:-linux} GOARCH=$${GOARCH:-amd64} go build -trimpath -tags interptest -o $(CI_BIN_DIR)/nava-worker-interptest ./cmd/nava-worker
 
 stack-up: dev-ca
 	docker compose up -d

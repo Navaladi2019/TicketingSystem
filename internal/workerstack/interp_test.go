@@ -109,7 +109,14 @@ func startInterpWorker(t *testing.T, extraEnv ...string) *interpWorker {
 	}
 	t.Cleanup(func() { stopInterpWorker(t, env) })
 	// --no-deps: the stack is up; --wait: the service's /readyz healthcheck.
-	if out, err := composeIn(ctx, env, "up", "-d", "--build", "--no-deps", "--wait", "--wait-timeout", "180", interpService); err != nil {
+	// --build builds it from the real Dockerfile, unless make image-ci
+	// IMAGE_THIN=1 already built it from Dockerfile.ci (NAVA_INTERPTEST_PREBUILT=1,
+	// TICK-628 follow-up).
+	up := []string{"up", "-d", "--no-deps", "--wait", "--wait-timeout", "180", interpService}
+	if os.Getenv("NAVA_INTERPTEST_PREBUILT") != "1" {
+		up = append([]string{"up", "-d", "--build"}, up[2:]...)
+	}
+	if out, err := composeIn(ctx, env, up...); err != nil {
 		logs, _ := composeIn(ctx, env, "logs", "--no-color", "--tail", "100", interpService)
 		t.Fatalf("compose up %s: %v\n%s\nlogs:\n%s", interpService, err, out, logs)
 	}

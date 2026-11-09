@@ -45,10 +45,18 @@ COPY .ci-bin/nava-relay /usr/local/bin/nava-relay
 USER nava
 ENTRYPOINT ["/usr/local/bin/nava-relay"]
 
-# The production nava-worker: no build tags. nava-worker-interptest
-# (compose.test.yaml, NAVA_BUILD_TAGS=interptest) is not built from here; the
-# interpreter cases build it from the real Dockerfile with compose up --build.
+# The production nava-worker: no build tags.
 FROM base AS nava-worker
 COPY .ci-bin/nava-worker /usr/local/bin/nava-worker
+USER nava
+ENTRYPOINT ["/usr/local/bin/nava-worker"]
+
+# nava-worker-interptest (compose.test.yaml, NAVA_BUILD_TAGS=interptest): the
+# same final stage as nava-worker, over the binary built with -tags interptest
+# (TICK-628 follow-up). make image-ci IMAGE_THIN=1 tags it
+# nava/nava-worker-interptest, and the interpreter cases then start it without
+# --build (NAVA_INTERPTEST_PREBUILT=1).
+FROM base AS nava-worker-interptest
+COPY .ci-bin/nava-worker-interptest /usr/local/bin/nava-worker
 USER nava
 ENTRYPOINT ["/usr/local/bin/nava-worker"]

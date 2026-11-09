@@ -459,6 +459,9 @@ jobs:
       # 1: make image-ci builds the Go services from deploy/compose/Dockerfile.ci
       # over the binaries the step before it builds (TICK-628, AR-TICK-628-01).
       IMAGE_THIN: ${{ needs.changes.outputs.images == 'thin' && '1' || '' }}
+      # With thin images, make image-ci also builds nava-worker-interptest, so
+      # the interpreter cases start it without --build (TICK-628 follow-up).
+      NAVA_INTERPTEST_PREBUILT: ${{ needs.changes.outputs.images == 'thin' && '1' || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
