@@ -17,14 +17,22 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
+	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/cursor"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 	"github.com/Navaladi2019/TicketingSystem/internal/server"
+	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
+
+// totalCap is the list total cap (records/store.TotalCap, TICK-647).
+const totalCap = 1000
 
 type listPage struct {
 	Items  []recBody `json:"items"`
@@ -451,7 +459,7 @@ func TestListRecordsPageStatementsNeedNoSort(t *testing.T) {
 	for _, d := range []struct {
 		id uuid.UUID
 		n  int
-	}{{def, 4000}, {other, 12000}} {
+	}{{def, 800}, {other, 2400}} {
 		if _, err := tx.Exec(ctx, `INSERT INTO records (tenant_id, id, entity_definition_id, version, schema_version, number, state, created_at, updated_at, data)
 		 SELECT $1, gen_random_uuid(), $2, 1, 1, 'PLAN-' || g, CASE WHEN g % 3 = 0 THEN 'closed' ELSE 'new' END,
 		        now() - (g || ' seconds')::interval, now() - ((g * 7919 % $3) || ' seconds')::interval, '{}'
@@ -465,12 +473,12 @@ func TestListRecordsPageStatementsNeedNoSort(t *testing.T) {
 	if _, err := e.super.Exec(ctx, "ANALYZE records"); err != nil {
 		t.Fatal(err)
 	}
-	// The count is exact up to 10,000 and capped past it (scope item 4).
-	if p := e.mustList(t, "admin-a", "ticket", "limit=1"); p.Total != 4000 || p.Capped != nil {
-		t.Errorf("4000 matches: total %d capped %v, want exact 4000 and no total_capped", p.Total, p.Capped)
+	// The count is exact up to 1,000 and capped past it (D25).
+	if p := e.mustList(t, "admin-a", "ticket", "limit=1"); p.Total != 800 || p.Capped != nil {
+		t.Errorf("800 matches: total %d capped %v, want exact 800 and no total_capped", p.Total, p.Capped)
 	}
-	if p := e.mustList(t, "admin-a", "change", "limit=1"); p.Total != 10000 || p.Capped == nil || !*p.Capped {
-		t.Errorf("12000 matches: total %d capped %v, want 10000 and total_capped true", p.Total, p.Capped)
+	if p := e.mustList(t, "admin-a", "change", "limit=1"); p.Total != 1000 || p.Capped == nil || !*p.Capped {
+		t.Errorf("2400 matches: total %d capped %v, want 1000 and total_capped true", p.Total, p.Capped)
 	}
 	for _, sort := range []string{"", "updated_at", "-updated_at", "created_at", "-created_at", "state", "-state"} {
 		for _, cursor := range []bool{false, true} {
@@ -553,4 +561,87 @@ func usesContractIndex(plan string) bool {
 		return false
 	}
 	return walk(doc[0].Plan)
+}
+
+// TICK-647: total counts at most totalCap (1,000) rows under the same
+// ACL predicate as the page. The admin reads all 1,001+ rows (capped); the
+// requester reads only its own few (exact).
+func TestListRecordsTotalIsCappedAt1000UnderTheACL(t *testing.T) {
+	e := newRecEnv(t)
+	e.serviceDeskACL(t, "ticket")
+	user := e.a.user.PrincipalID
+	p := pipeline.New(authz.ACL{Policies: authz.PolicyStore{}}, entitytypes.Store{}, pipeline.NoopSink{}, pipeline.PoolRunner{Pool: e.pool}, pipeline.SystemClock{})
+	const rows = totalCap + 5
+	if err := tenancy.InTenantTx(t.Context(), e.pool, e.a.id, func(tx pgx.Tx) error {
+		for i := range rows {
+			data := map[string]any{"short_description": "bulk"}
+			if i < 3 {
+				data["requester"] = user.String()
+			}
+			if _, err := p.Write(t.Context(), tx, pipeline.Command{Op: pipeline.OpCreate, EntityKey: "ticket", Data: data,
+				Actor: identity.Principal{TenantID: e.a.id}, Source: pipeline.SourceSystem}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	admin := e.mustList(t, "admin-a", "ticket", "limit=5")
+	if admin.Total != totalCap || admin.Capped == nil || !*admin.Capped {
+		t.Errorf("admin: total %d capped %v; want %d, true", admin.Total, admin.Capped, totalCap)
+	}
+	req := e.mustList(t, "user-a", "ticket", "")
+	if req.Total != 3 || req.Capped != nil {
+		t.Errorf("requester: total %d capped %v; want exact 3, absent", req.Total, req.Capped)
+	}
+	// A data-filter list is capped the same way.
+	if p := e.mustList(t, "admin-a", "ticket", "filter[short_description]=bulk&limit=1"); p.Total != totalCap || p.Capped == nil {
+		t.Errorf("data-filter list: total %d capped %v; want capped %d", p.Total, p.Capped, totalCap)
+	}
+}
+
+// covers: listRecords 422
+//
+// TICK-647: a data-filter list runs under a statement timeout. A superuser
+// connection holds ACCESS EXCLUSIVE on records, so the list blocks until the
+// timeout (a lock wait counts) and answers 422 filter_too_expensive. A list
+// without a data filter is not bound by it, and the pool serves the next
+// request once the lock is released.
+func TestListDataFilterTimeoutAnswers422(t *testing.T) {
+	e := newETEnvWith(t, server.WithDataFilterTimeout(300*time.Millisecond))
+	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "t-a", recTypeBody("ticket", "TKT")); rec.Code != http.StatusCreated {
+		t.Fatalf("seed type = %d: %s", rec.Code, rec.Body)
+	}
+	e.mustCreateRec(t, "admin-a", "ticket", "k1", `{"short_description": "x"}`)
+
+	lock, err := e.super.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	released := false
+	defer func() {
+		if !released {
+			_ = lock.Rollback(context.Background())
+		}
+	}()
+	if _, err := lock.Exec(t.Context(), "LOCK TABLE records IN ACCESS EXCLUSIVE MODE"); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	rec, _ := e.list(t, "admin-a", "ticket", "filter[short_description]=x")
+	listCode(t, rec, http.StatusUnprocessableEntity, "filter_too_expensive")
+	if d := time.Since(start); d > 5*time.Second {
+		t.Errorf("timed-out list took %s, want about the 300 ms timeout", d)
+	}
+	if err := lock.Rollback(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	released = true
+
+	p := e.mustList(t, "admin-a", "ticket", "filter[short_description]=x")
+	if p.Total != 1 {
+		t.Errorf("list after the timeout: total %d, want 1", p.Total)
+	}
 }

@@ -78,6 +78,7 @@
     "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys."
   },
   "listRecords": {
+    "422": "filter_too_expensive needs a data-filter list that outlasts the 2 s statement timeout on a large table; asserted by the integration test TestListDataFilterTimeoutAnswers422 (a table lock and a short timeout).",
     "429": "Not asserted here: the limiter is route-agnostic and asserted on getMe in S6.12.",
     "500": "Needs an internal failure (a dependency error mid-request); not caused from outside a healthy stack.",
     "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys."
