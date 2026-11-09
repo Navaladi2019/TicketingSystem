@@ -489,6 +489,19 @@ jobs:
           name: ci5-report
           path: ci5-report.md
           if-no-files-found: error
+      # Written by the s10_access case (TICK-643): the Bruno JUnit, HTML and JSON reports of
+      # folder S10. They carry the dev-only seed passwords (already in bruno/environments/local.bru)
+      # and this run's short-lived tokens of a stack torn down below; Authorization headers are
+      # left out. warn, not error: an earlier failed serial case stops the run before s10_access,
+      # and that case is the failure to read.
+      - name: S10 access report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: s10-access-report
+          path: docs/acceptance/guide/reports/S10.*
+          if-no-files-found: warn
+          retention-days: 14
       - name: Logs on failure (stack)
         if: always() && (steps.up.outcome == 'failure' || steps.cases-stack.outcome == 'failure')
         run: make stack-logs
