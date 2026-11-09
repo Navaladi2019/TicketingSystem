@@ -12,7 +12,7 @@ get {
 
 tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
-  N.problem('invalid_token', 401);
+  N.problem('invalid_token', 499); // TICK-643 deliberate break, reverted next commit
 }
 
 docs {
