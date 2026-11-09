@@ -627,10 +627,12 @@ The `ci` workflow runs on GitHub-hosted runners (`ubuntu-latest`, the
 default) or on the owner's self-hosted WSL runner (labels `self-hosted`,
 `wsl`). The first job, `runner` (`make ci-runner`, `scripts/ci/runner.sh`),
 picks one, and every suite job (`changes`, `lint`, `unit`, `temporal-server`,
-`integration`, `commit-check-budget`, `stack`, `coverage`) takes
+`integration`, `stack`, `coverage`) takes
 `runs-on: ${{ fromJSON(needs.runner.outputs.runs_on) }}`. `runner`,
 `full-suite`, `story-branches` and `main-red` stay on `ubuntu-latest`: they
-use no Docker and take seconds.
+use no Docker and take seconds. `commit-check-budget` stays there too: its
+rows are measured against that runner (ADR-004-E3/E4), so a number from the
+WSL host compares with nothing (it failed `fail_flat` there).
 
 **How to pick.**
 
@@ -662,8 +664,8 @@ the input/variable precedence, the fork rule and the unknown values.
 | integration clusters | removed by their scripts | the same, now with `docker rm -v` (the postgres image's anonymous data volume went unremoved before), and labelled `nava.ci.owner=nava-ci-<run id>` for the cleanup |
 | after the run | the VM is discarded | the `self-hosted-cleanup` job (below) |
 
-**The cleanup job.** `self-hosted-cleanup` needs `integration`,
-`commit-check-budget` and `stack` (the jobs that use Docker), runs on
+**The cleanup job.** `self-hosted-cleanup` needs `integration` and `stack`
+(the self-hosted jobs that use Docker), runs on
 `[self-hosted, wsl]` with `if: always()` whenever the runner is self-hosted,
 so it runs after a green, a red and a cancelled run alike. `make
 ci-self-hosted-cleanup ID=ci-<run id>` (`scripts/ci/self-hosted-cleanup.sh`)
