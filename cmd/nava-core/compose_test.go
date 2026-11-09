@@ -182,10 +182,10 @@ func checkKeycloakProxy(env map[string]string) error {
 func TestComposePublishesOnlyAllowedUIs(t *testing.T) {
 	t.Parallel()
 	allowed := map[string]string{ // service -> container port
-		"keycloak":   "8080",
-		"nava-core":  "8080",
-		"jaeger":     "16686",
-		"prometheus": "9091",
+		"keycloak":    "8080",
+		"nava-core":   "8080",
+		"openobserve": "5080",
+		"prometheus":  "9091",
 	}
 	for _, f := range []string{"../../compose.yaml", "../../deploy/compose/compose.internal.yaml"} {
 		b, err := os.ReadFile(f)
