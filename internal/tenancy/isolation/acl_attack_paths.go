@@ -582,6 +582,12 @@ func s10Explainer(ctx context.Context, e *etIso, fx *s10Fixture) error {
 	if r.code != http.StatusOK || json.Unmarshal([]byte(r.body), &x) != nil || x.Decision != "allow" || x.RuleID == nil || *x.RuleID != "desk" {
 		return fmt.Errorf("control: the admin explaining a2 on the desk record = %d %s, want 200 allow by desk", r.code, r.body)
 	}
+	// a2 may read triage, the admin may not: explaining a2 must not tell the
+	// admin that triage exists. Checked before the masked_fields control, so a
+	// leak fails here and not as a control.
+	if strings.Contains(r.body, "triage") {
+		return fmt.Errorf("the explainer names triage, which the admin cannot read, when explaining a2: %s", r.body)
+	}
 	if slices.Sort(x.MaskedFields); !slices.Equal(x.MaskedFields, []string{"assignee", "cost"}) {
 		return fmt.Errorf("control: masked_fields for a2 = %v, want [assignee cost]", x.MaskedFields)
 	}
