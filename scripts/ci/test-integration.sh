@@ -53,7 +53,9 @@ while [ "$i" -le "$shards" ]; do shard_pgs="$shard_pgs nava-it-pg-$id-s$i"; i=$(
 # names it, before GitHub cancels the step with an empty log (TICK-225). The
 # tests take under a minute and start about two minutes into the job. A later
 # -timeout in the script's arguments wins.
-timeout=6m
+# NAVA_IT_GO_TIMEOUT: a slower host sets more (the self-hosted runner, whose
+# integration job has 30 minutes and shares the host with other jobs, TICK-641).
+timeout=${NAVA_IT_GO_TIMEOUT:-6m}
 # NAVA_IT_COVERAGE (a path, make test-integration sets it): every go test
 # below writes an atomic profile over ./... into $covdir, and the script merges
 # them there at the end, the integration half of make check-coverage
