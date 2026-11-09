@@ -6,6 +6,7 @@
 #   COMPOSE_PROJECT_NAME  nava-<id>  (containers, networks, volumes; the
 #                         integration clusters' nava.ci.owner label)
 #   NAVA_IMAGE_TAG        <id>       (every nava/* image the run builds)
+#   KEYCLOAK_PUBLIC_URL   http://localhost:<its Keycloak port> (the issuer)
 #   host ports            a free slot of six in 22000-24999 derived from <id>:
 #                         nava-core, Keycloak, Temporal, Temporal UI,
 #                         OpenObserve, Prometheus
@@ -43,6 +44,11 @@ out=${GITHUB_ENV:-/dev/stdout}
     echo "NAVA_IMAGE_TAG=$id"
     echo "NAVA_CORE_PORT=$base"
     echo "KEYCLOAK_PORT=$((base + 1))"
+    # Keycloak's pinned issuer (KC_HOSTNAME, NAVA_OIDC_ISSUERS) on the run's
+    # own port. On the default localhost:18081 the identity tests reached the
+    # owner's own Keycloak there, whose keys signed nothing of this stack
+    # (CI-5: invalid_token: kid).
+    echo "KEYCLOAK_PUBLIC_URL=http://localhost:$((base + 1))"
     echo "TEMPORAL_TEST_PORT=$((base + 2))"
     echo "UI_PORT=$((base + 3))"
     echo "TEMPORAL_UI_PORT=$((base + 3))"
