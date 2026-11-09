@@ -19,8 +19,8 @@ type maskingAuthz struct{ fakeAuthz }
 
 var nameMaskedFromEveryone = &authz.Policy{Masks: []authz.Mask{{Field: "name"}}}
 
-func (maskingAuthz) CanWriteFields(_ context.Context, _ pgx.Tx, p identity.Principal, _ string, before, after map[string]any) error {
-	return authz.CheckWriteFields(nameMaskedFromEveryone, p, before, after)
+func (maskingAuthz) CanWriteFields(_ context.Context, _ pgx.Tx, p identity.Principal, _ string, before, after, patch map[string]any) error {
+	return authz.CheckWriteFields(nameMaskedFromEveryone, p, before, after, patch)
 }
 
 // Adversarial (security review of PR #526): a caller who can neither read
@@ -29,6 +29,7 @@ func (maskingAuthz) CanWriteFields(_ context.Context, _ pgx.Tx, p identity.Princ
 // the guess. Today a correct guess equals the stored value, so it is not a
 // "written" field, the write goes through (200) and a wrong guess is a 422:
 // a value oracle for any masked field with a small domain (enum, boolean).
+// Fixed by TICK-633 B1: an unreadable patch key is always a write.
 func TestPatchingAMaskedFieldIsRefusedEvenWithItsStoredValue(t *testing.T) {
 	f := newFixture()
 	p := unitPipeline(maskingAuthz{}, fakeDefs{cur: assetDef(t), curVersion: 1})
