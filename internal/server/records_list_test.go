@@ -113,9 +113,9 @@ func TestPlanListAccepts(t *testing.T) {
 	if len(args) != 6 {
 		t.Errorf("args = %d, want 6 (cost, count x2, group, state, urgent)", len(args))
 	}
-	// The default sort is -created_at.
+	// The default sort is -updated_at.
 	pl, _ = planList(def, qs(t, ""), nil, nil)
-	if pl.sortProp != "created_at" || !pl.desc {
+	if pl.sortProp != "updated_at" || !pl.desc {
 		t.Fatalf("default plan = %+v", pl)
 	}
 	// A value is data, never SQL.
@@ -179,10 +179,10 @@ func TestMaskedFieldInDefaultSortIsRefusedBeforeSQL(t *testing.T) {
 	if perr != nil {
 		t.Fatal(perr)
 	}
-	if got := pl.fields(); len(got) != 1 || got[0] != "created_at" {
+	if got := pl.fields(); len(got) != 1 || got[0] != "updated_at" {
 		t.Fatalf("fields = %v: the default sort must be checked", got)
 	}
-	wantProblemCode(t, checkPlan(maskPolicy("created_at"), identity.Principal{}, pl), problem.MaskedField)
+	wantProblemCode(t, checkPlan(maskPolicy("updated_at"), identity.Principal{}, pl), problem.MaskedField)
 }
 
 func TestUnmaskedPlanPasses(t *testing.T) {
@@ -195,7 +195,7 @@ func TestUnmaskedPlanPasses(t *testing.T) {
 
 func TestKeysetPredicate(t *testing.T) {
 	t.Parallel()
-	pl, _ := planList(listTestDef(t), qs(t, ""), nil, nil)
+	pl, _ := planList(listTestDef(t), qs(t, ""), strp("-created_at"), nil)
 	id := uuid.NewString()
 	v := "2026-11-09 03:39:54.145534+00"
 	if !pl.validPos(listPos{Sort: "created_at", Desc: true, Val: &v, ID: id}) {
@@ -212,7 +212,44 @@ func TestKeysetPredicate(t *testing.T) {
 		}
 	}
 	sql, args := pl.keyset(listPos{Sort: "created_at", Desc: true, Val: &v, ID: id}, 7)
-	if !strings.Contains(sql, "$8::timestamptz") || !strings.Contains(sql, "$9::uuid") || !strings.Contains(sql, " < ") || len(args) != 2 {
+	if !strings.Contains(sql, "$8::timestamptz") || !strings.Contains(sql, "$9::uuid") || !strings.Contains(sql, "(r.created_at, r.id) < ($8::timestamptz, $9::uuid)") || len(args) != 2 {
 		t.Errorf("keyset = %s %v", sql, args)
+	}
+}
+
+func TestKeysetNullSegments(t *testing.T) {
+	t.Parallel()
+	id, v, u := uuid.NewString(), uuid.NewString(), "2026-11-09 03:39:54.145534Z"
+	for _, c := range []struct {
+		sort string
+		pos  listPos
+		want string
+	}{
+		{"-assignee", listPos{Sort: "assignee", Desc: true, ID: id, Upd: u}, "(r.assignee_id IS NOT NULL OR (r.updated_at, r.id) < ($4::timestamptz, $5::uuid))"},
+		{"assignee", listPos{Sort: "assignee", ID: id, Upd: u}, "(r.assignee_id IS NULL AND (r.updated_at, r.id) > ($4::timestamptz, $5::uuid))"},
+		{"-assignee", listPos{Sort: "assignee", Desc: true, Val: &v, ID: id, Upd: u}, "((r.assignee_id, r.updated_at, r.id) < ($4::uuid, $5::timestamptz, $6::uuid))"},
+		{"assignee", listPos{Sort: "assignee", Val: &v, ID: id, Upd: u}, "(((r.assignee_id, r.updated_at, r.id) > ($4::uuid, $5::timestamptz, $6::uuid)) OR r.assignee_id IS NULL)"},
+		{"state", listPos{Sort: "state", Val: strp("new"), ID: id, Upd: u}, "((r.state, r.updated_at, r.id) > ($4::text, $5::timestamptz, $6::uuid))"},
+		{"-updated_at", listPos{Sort: "updated_at", Desc: true, Val: &u, ID: id}, "((r.updated_at, r.id) < ($4::timestamptz, $5::uuid))"},
+	} {
+		pl, perr := planList(listTestDef(t), qs(t, ""), strp(c.sort), nil)
+		if perr != nil {
+			t.Fatal(perr)
+		}
+		if !pl.validPos(c.pos) {
+			t.Errorf("%s %+v: cursor invalid", c.sort, c.pos)
+		}
+		if got, _ := pl.keyset(c.pos, 3); got != c.want {
+			t.Errorf("%s %+v:\n got %s\nwant %s", c.sort, c.pos, got, c.want)
+		}
+	}
+	// A tie-break sort needs the updated_at in its cursor; the others must not carry one.
+	pl, _ := planList(listTestDef(t), qs(t, ""), strp("state"), nil)
+	if pl.validPos(listPos{Sort: "state", Val: strp("new"), ID: id}) {
+		t.Error("a state cursor without updated_at was accepted")
+	}
+	pl, _ = planList(listTestDef(t), qs(t, ""), nil, nil)
+	if pl.validPos(listPos{Sort: "updated_at", Desc: true, Val: &u, ID: id, Upd: u}) {
+		t.Error("an updated_at cursor with a tie-break updated_at was accepted")
 	}
 }

@@ -36,7 +36,7 @@ const (
 	listRecordsRoute    = "listRecords"
 	defaultRecordsLimit = 50
 	maxInValues         = 100
-	defaultSortField    = "created_at"
+	defaultSortField    = "updated_at"
 )
 
 type rawQueryKey struct{}
@@ -243,11 +243,18 @@ type listPos struct {
 	Desc bool    `json:"d"`
 	Val  *string `json:"v"`
 	ID   string  `json:"i"`
+	// Upd is the last row's updated_at, carried by the sorts that tie-break on
+	// it (state and the foreign keys); empty for created_at and updated_at.
+	Upd string `json:"u,omitempty"`
 }
 
 // tsLayouts returns the layouts of a timestamptz rendered as text.
 func tsLayouts() []string {
 	return []string{"2006-01-02 15:04:05.999999Z07:00", "2006-01-02 15:04:05.999999Z07"}
+}
+
+func validTS(v string) bool {
+	return slices.ContainsFunc(tsLayouts(), func(l string) bool { _, err := time.Parse(l, v); return err == nil })
 }
 
 func (pl *listPlan) validPos(pos listPos) bool {
@@ -257,12 +264,15 @@ func (pl *listPlan) validPos(pos listPos) bool {
 	if _, err := uuid.Parse(pos.ID); err != nil {
 		return false
 	}
+	if pipeline.TieBreaksOnUpdatedAt(pl.sortCol) != (pos.Upd != "") || (pos.Upd != "" && !validTS(pos.Upd)) {
+		return false
+	}
 	if pos.Val == nil {
 		return true
 	}
 	switch pl.sortCol {
 	case "created_at", "updated_at":
-		return slices.ContainsFunc(tsLayouts(), func(l string) bool { _, err := time.Parse(l, *pos.Val); return err == nil })
+		return validTS(*pos.Val)
 	case metadata.ColumnState:
 		return true
 	}
@@ -270,26 +280,65 @@ func (pl *listPlan) validPos(pos listPos) bool {
 	return err == nil
 }
 
-// keyset renders the page predicate after pos, placeholders from base+1.
+// keyset renders the page predicate after pos, placeholders from base+1. It
+// follows the store's ORDER BY: descending is NULLS FIRST, ascending NULLS
+// LAST, and the tie-break is id (created_at, updated_at) or updated_at, id
+// (state and the foreign keys). A row comparison keeps the predicate a range
+// condition on the sort index, so a deep page costs what page 1 does; the
+// NULL segment of a nullable column is handled apart.
 func (pl *listPlan) keyset(pos listPos, base int) (string, []any) {
 	col := "r." + pl.sortCol
-	if pos.Val == nil {
-		return "(" + col + " IS NULL AND r.id > $" + strconv.Itoa(base+1) + "::uuid)", []any{pos.ID}
-	}
-	cast := "uuid"
-	switch pl.sortCol {
-	case "created_at", "updated_at":
-		cast = "timestamptz"
-	case metadata.ColumnState:
-		cast = "text"
-	}
+	n := base
+	arg := func(cast string) string { n++; return "$" + strconv.Itoa(n) + "::" + cast }
 	op := ">"
 	if pl.desc {
 		op = "<"
 	}
-	v, id := "$"+strconv.Itoa(base+1)+"::"+cast, "$"+strconv.Itoa(base+2)+"::uuid"
-	return "(" + col + " " + op + " " + v + " OR " + col + " IS NULL OR (" + col + " = " + v + " AND r.id > " + id + "))",
-		[]any{*pos.Val, pos.ID}
+	// tail is the row comparison of the columns after col.
+	tailCols, tailArgs, args := "r.id", "", []any{}
+	if pipeline.TieBreaksOnUpdatedAt(pl.sortCol) {
+		tailCols = "r.updated_at, r.id"
+	}
+	valArg := ""
+	if pos.Val != nil {
+		cast := "uuid"
+		switch pl.sortCol {
+		case "created_at", "updated_at":
+			cast = "timestamptz"
+		case metadata.ColumnState:
+			cast = "text"
+		}
+		valArg = arg(cast)
+		args = append(args, *pos.Val)
+	}
+	if pos.Upd != "" {
+		tailArgs = arg("timestamptz") + ", "
+		args = append(args, pos.Upd)
+	}
+	tailArgs += arg("uuid")
+	args = append(args, pos.ID)
+	tail := "(" + tailCols + ") " + op + " (" + tailArgs + ")"
+	if pos.Val == nil {
+		if pl.desc {
+			// NULLs come first: the rest of the segment, then every non-NULL.
+			return "(" + col + " IS NOT NULL OR " + tail + ")", args
+		}
+		return "(" + col + " IS NULL AND " + tail + ")", args
+	}
+	pred := "((" + col + ", " + tailCols + ") " + op + " (" + valArg + ", " + tailArgs + "))"
+	if !pl.desc && nullableSort(pl.sortCol) {
+		pred = "(" + pred + " OR " + col + " IS NULL)" // NULLS LAST follow every value
+	}
+	return pred, args
+}
+
+// nullableSort reports whether col may hold NULL.
+func nullableSort(col string) bool {
+	switch col {
+	case "assignee_id", "assignment_group_id", "requester_id":
+		return true
+	}
+	return false
 }
 
 // ListRecords serves GET /api/v1/records/{entity}.
@@ -369,6 +418,9 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 			return err
 		}
 		out = api.RecordList{Items: make([]api.Record, 0, min(len(page.Records), pl.limit)), Total: page.Total}
+		if page.TotalCapped {
+			out.TotalCapped = &page.TotalCapped
+		}
 		fixedBy := map[int]map[string]string{}
 		for _, rec := range page.Records[:min(len(page.Records), pl.limit)] {
 			fixed, seen := fixedBy[rec.SchemaVersion]
@@ -382,7 +434,11 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 		}
 		if len(page.Records) > pl.limit {
 			last := pl.limit - 1
-			raw, err := json.Marshal(listPos{Sort: pl.sortProp, Desc: pl.desc, Val: page.SortKeys[last], ID: page.Records[last].ID.String()})
+			pos := listPos{Sort: pl.sortProp, Desc: pl.desc, Val: page.SortKeys[last], ID: page.Records[last].ID.String()}
+			if pipeline.TieBreaksOnUpdatedAt(pl.sortCol) {
+				pos.Upd = page.Records[last].UpdatedAt.UTC().Format(tsLayouts()[0])
+			}
+			raw, err := json.Marshal(pos)
 			if err != nil {
 				return err
 			}

@@ -28,6 +28,11 @@ type ListQuery struct {
 	Limit      int
 }
 
+// TieBreaksOnUpdatedAt reports whether a list sorted by col orders by
+// (col, updated_at, id) rather than (col, id): the sort indexes of state and
+// the foreign keys end in updated_at DESC, id DESC.
+func TieBreaksOnUpdatedAt(col string) bool { return col != "created_at" && col != "updated_at" }
+
 // listable reports whether col is a column a list may order by.
 func listable(col string) bool {
 	switch col {
@@ -43,7 +48,14 @@ type ListPage struct {
 	Records  []*Record
 	SortKeys []*string
 	Total    int64
+	// TotalCapped is true when more than TotalCap rows match and Total is TotalCap.
+	TotalCapped bool
 }
+
+// TotalCap is the most the list counts: an exact count of a large tenant's
+// matches alone misses the list p95 (P3-36), so past it Total is TotalCap and
+// TotalCapped is set.
+const TotalCap = 10000
 
 // List returns up to Limit records of the entity type matching Where and
 // Keyset, ordered by SortColumn then id, and the count of rows matching Where
@@ -53,37 +65,25 @@ func List(ctx context.Context, tx pgx.Tx, q ListQuery) (*ListPage, error) {
 		return nil, fmt.Errorf("records/store: sort column %q is not listable", q.SortColumn)
 	}
 	args := append([]any{q.TenantID, q.DefinitionID}, q.Args...)
-	base := ` FROM records r
-JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
-LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
-WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ` + q.Where
+	// The count reads records alone: the joins below only add columns (one
+	// definition, at most one group per row), so they cannot change the count.
+	where := ` WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ` + q.Where
 
 	var total int64
-	if err := tx.QueryRow(ctx, `SELECT count(*)`+base, args...).Scan(&total); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM (SELECT 1 FROM records r`+where+` LIMIT `+fmt.Sprint(TotalCap+1)+`) c`, args...).Scan(&total); err != nil {
 		return nil, fmt.Errorf("records/store: count records: %w", err)
 	}
 
-	pageArgs := append(append([]any{}, args...), q.KeysetArgs...)
-	where := ""
-	if q.Keyset != "" {
-		where = " AND " + q.Keyset
+	sql, pageArgs, err := PageStatement(q)
+	if err != nil {
+		return nil, err
 	}
-	dir := "ASC"
-	if q.Desc {
-		dir = "DESC"
-	}
-	pageArgs = append(pageArgs, q.Limit)
-	sql := `SELECT r.tenant_id, r.id, r.entity_definition_id, d.key, r.version, r.schema_version, r.number, r.state,
-       r.requester_id, r.assignee_id, r.assignment_group_id, r.created_by, r.created_at, r.updated_at,
-       r.data, r.causation_origin_id, coalesce(r.causation_depth, 0), coalesce(g.deleted_at IS NOT NULL, false),
-       r.` + q.SortColumn + `::text` + base + where +
-		` ORDER BY r.` + q.SortColumn + ` ` + dir + ` NULLS LAST, r.id ASC LIMIT $` + fmt.Sprint(len(pageArgs))
 	rows, err := tx.Query(ctx, sql, pageArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("records/store: list records: %w", err)
 	}
 	defer rows.Close()
-	page := &ListPage{Total: total}
+	page := &ListPage{Total: min(total, TotalCap), TotalCapped: total > TotalCap}
 	for rows.Next() {
 		var key *string
 		rec, err := scan(rowWithExtra{rows, &key})
@@ -106,3 +106,36 @@ type rowWithExtra struct {
 }
 
 func (r rowWithExtra) Scan(dest ...any) error { return r.rows.Scan(append(dest, r.extra)...) }
+
+// PageStatement is the SQL and arguments of the page statement of q. The
+// tests EXPLAIN it, so what they check is what List runs.
+func PageStatement(q ListQuery) (string, []any, error) {
+	if !listable(q.SortColumn) {
+		return "", nil, fmt.Errorf("records/store: sort column %q is not listable", q.SortColumn)
+	}
+	args := append(append(append([]any{q.TenantID, q.DefinitionID}, q.Args...), q.KeysetArgs...), q.Limit)
+	keyset := ""
+	if q.Keyset != "" {
+		keyset = " AND " + q.Keyset
+	}
+	// The only ORDER BY shapes the sort indexes serve (P3-34a/b): descending is
+	// the index forward, ascending the same index backward. created_at and
+	// updated_at end in id; state and the foreign keys tie-break on updated_at.
+	dir, nulls := "ASC", "NULLS LAST"
+	if q.Desc {
+		dir, nulls = "DESC", "NULLS FIRST"
+	}
+	order := dir + " " + nulls
+	if TieBreaksOnUpdatedAt(q.SortColumn) {
+		order += ", r.updated_at " + dir
+	}
+	order += ", r.id " + dir
+	return `SELECT r.tenant_id, r.id, r.entity_definition_id, d.key, r.version, r.schema_version, r.number, r.state,
+       r.requester_id, r.assignee_id, r.assignment_group_id, r.created_by, r.created_at, r.updated_at,
+       r.data, r.causation_origin_id, coalesce(r.causation_depth, 0), coalesce(g.deleted_at IS NOT NULL, false),
+       r.` + q.SortColumn + `::text FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ` + q.Where + keyset +
+		` ORDER BY r.` + q.SortColumn + ` ` + order + ` LIMIT $` + fmt.Sprint(len(args)), args, nil
+}
