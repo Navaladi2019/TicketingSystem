@@ -1238,12 +1238,13 @@ test('the current ETag is in the header', () => expect(N.header('ETag')).to.eql(
 const was = JSON.parse(bru.getVar('s10_policy'));
 test('version + 1', () => expect(N.json().version).to.eql(was.version + 1));
 test('the same rules', () => expect(N.json().rules).to.eql(was.rules));
-test('ETag W/"<version>"', () => expect(N.header('ETag')).to.eql('W/"' + N.json().version + '"'));"""),
+test('ETag W/"<version>"', () => expect(N.header('ETag')).to.eql('W/"' + N.json().version + '"'));
+bru.setVar('s10_etag', N.header('ETag'));"""),
             req("S10.16 An unknown column and a group of no tenant: 422 with pointers", "PUT", et, auth="admin_a_token",
-                headers={**key("bad"), "If-Match": 'W/"0"'},
+                headers={**key("bad"), "If-Match": "{{s10_etag}}"},
                 body={"rules": [{"id": "bad", "ops": ["read"], "who": {"groups": ["00000000-0000-4000-8000-00000000dead"]},
                                  "where": [{"column": "priority", "op": "eq", "values": ["1"]}]}]},
-                desc="422 `invalid_access_policy`. The unknown column is refused at `/rules/0/where/0/column`. A group that is not in the tenant is refused at `/rules/0/who/groups/0`, the same whether it does not exist or belongs to another tenant. The shape is checked before the version, so this answers 422, not 412.",
+                desc="422 `invalid_access_policy`. `If-Match` is the current `ETag` (S10.15's): the PUT checks `If-Match` (428, 412) before the body (`docs/architecture/record-acl.md`), so a stale one would answer 412 and never reach the body. `priority` is not an ACL column (only `state`, `requester_id`, `assignee_id`, `assignment_group_id`), refused at `/rules/0/where/0/column`. A shape problem stops the check, so the group of no tenant is not reported here; a well-formed rule naming it would be refused at `/rules/0/who/groups/0`, the same whether the group does not exist or belongs to another tenant. Nothing is published.",
                 tests="""N.problem('invalid_access_policy', 422);
 const at = N.json().errors.map(e => e.pointer);
 test('the column is named', () => expect(at).to.include('/rules/0/where/0/column'));"""),
