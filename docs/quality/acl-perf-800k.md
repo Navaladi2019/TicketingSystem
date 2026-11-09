@@ -40,7 +40,7 @@ p95 under load, then single-run `EXPLAIN ANALYZE` in brackets.
 | Agent list by group, page 1 | **443.1** | 150 | 344.6 (244.1) | 36.2 (4.4) | count only |
 | Agent list by group, page 20 | **367.0** | 150 | 294.3 (121.8) | 31.7 (2.5) | count only |
 | Agent list, `sort=-updated_at` | **343.3** | 150 | 271.8 (103.4) | 29.7 (1.9) | count only |
-| Agent list, `sort=assignee` | **290.2** | 150 | 237.2 (109.5) | 17.8 (2.1) | count only |
+| Agent list, `sort=assignee` | 290.2 | outside target | 237.2 (109.5) | 17.8 (2.1) | foreign-key sort, outside the target (option (b) on TICK-639); count only |
 | Agent list, `filter[state]=new` | **473.8** | 150 | 210.9 (40.4) | 186.4 (27.5) | load: both statements |
 | Admin list, `state in (new,in_progress)`, `sort=-updated_at` | **481.9** (p50 92.6) | 150 | 141.8 (34.5) | 145.7 (2.5) | load: tail only |
 | Admin list, page 1 | 89.9 | 150 | 11.0 (5.5) | 24.3 (0.8) | met |
@@ -72,12 +72,22 @@ What the plans show:
   both statements take 2.5 to 40 ms. Under 8 clients the agent `state=new`
   page reaches p95 186 ms. The admin list's p50 is 92.6 ms with a 482 ms p95
   tail. Both are fixed-column lists over 150 ms at p95.
+- **Foreign-key sorts are outside the target** (option (b) on TICK-639).
+  `sort=assignee` is reported but not judged. Its miss is count-only anyway.
+- **The count alone misses.** With `total_capped`, the result is bounded at
+  10,000, but the work isn't. To find 10,001 matches the count walks about
+  161,000 rows, because the ACL predicate rejects about 94% of what it reads.
+  On the agent lists this is the only miss: request p95 290 to 443 ms, of
+  which the count is p95 237 to 345 ms and the page p95 18 to 36 ms.
 - **Requester lists (TICK-644, known miss).** Against 150 ms per request:
   p95 699 to 713 ms. Against TICK-644's 50 ms database time for the page
   statement: p95 92 ms under load (single-run 7 to 17 ms). The count costs
   more than the page: p95 566 to 597 ms. A heavy requester has about 5,600
   rows, below the cap, so the count reads the whole tenant (394,374 rows
-  removed).
+  removed). TICK-644 leaves the count unchanged (its scope: "the total count
+  is unchanged"), so the `UNION ALL` rewrite fixes the page only. Even with
+  TICK-644 the request misses on the count, the same count-only miss as the
+  agent lists.
 
 ### Single read
 
