@@ -6,3 +6,4 @@
   - No production path changes: onboarding and the runtime still fail closed.
 - **Removal owner:** TICK-620 (P3-35). Its acceptance criteria now include removing the temporary seed ACL and passing the S9 and S10 Bruno flows on the real onboarding default ACL.
 - **Revisit when:** P3-35 merges.
+- **Removed (TICK-620, P3-35):** `seed.sh` no longer inserts the allow-all ACL. It runs `nava-onboard reconcile-default-acl` for tenants A and B, which publishes the same default incident ACL onboarding publishes (with its audit entry). `request` and `change` have no ACL on the stack until an admin publishes one.

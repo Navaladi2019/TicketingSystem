@@ -1,0 +1,16 @@
+meta {
+  name: S10.19 Read the policy without a token: 401
+  type: http
+  seq: 19
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/incident/access
+  body: none
+  auth: none
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_token', 401);
+}

@@ -29,8 +29,9 @@ type refusalOp struct {
 }
 
 // refusalOps returns every tenant operation of the bundle against tenant A's
-// "ticket" type (newRecEnv) and record id.
-func refusalOps(id string) []refusalOp {
+// "ticket" type (newRecEnv) and record id; e gives the principals the access
+// operations name.
+func refusalOps(e *etEnv, id string) []refusalOp {
 	def := fmt.Sprintf(`"definition": {"schema": %s,
   "fixed_columns": {"state": "state", "group": "assignment_group_id", "assignee": "assignee_id", "requester": "requester_id"},
   "states": {"initial": "new", "states": ["new", "closed"], "transitions": [{"from": "new", "to": "closed"}]}}`, recSchema)
@@ -49,6 +50,14 @@ func refusalOps(id string) []refusalOp {
 			body: `{"data": {"short_description": "patched"}}`},
 		{id: "getRecordHistory", method: http.MethodGet, path: "/api/v1/records/ticket/" + id + "/history", want: http.StatusOK},
 		{id: "listAuditEntries", method: http.MethodGet, path: "/api/v1/audit/entries", want: http.StatusOK},
+		{id: "getEntityTypeAccess", method: http.MethodGet, path: "/api/v1/entity-types/ticket/access", want: http.StatusOK},
+		// A policy that keeps every seeded principal able to use the type, so
+		// the writes after it still succeed.
+		{id: "putEntityTypeAccess", method: http.MethodPut, path: "/api/v1/entity-types/ticket/access", write: true, want: http.StatusOK,
+			body: `{"rules": [{"id": "refusal-allow", "ops": ["read", "write"], "who": {"users": ["` + e.a.admin.PrincipalID.String() + `", "` +
+				e.a.user.PrincipalID.String() + `", "` + e.a.lookalike.PrincipalID.String() + `"]}}]}`},
+		{id: "explainAccess", method: http.MethodGet, want: http.StatusOK,
+			path: "/api/v1/access/explain?entity=ticket&record=" + id + "&user=" + e.a.user.PrincipalID.String()},
 	}
 }
 
@@ -64,6 +73,9 @@ func (e *etEnv) send(t *testing.T, op refusalOp, token, idemKey string) *httptes
 	switch {
 	case op.method == http.MethodPatch:
 		req.Header.Set("Content-Type", "application/merge-patch+json")
+		req.Header.Set("If-Match", `W/"1"`)
+	case op.method == http.MethodPut: // the ACL of a type that has the one version the test ACL published
+		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("If-Match", `W/"1"`)
 	case op.body != "":
 		req.Header.Set("Content-Type", "application/json")
@@ -110,7 +122,7 @@ func (e *etEnv) rowCounts(t *testing.T) []string {
 func checkRefusals(t *testing.T, e *etEnv, status int, code problem.Code, token string, refuse, allow func()) {
 	t.Helper()
 	r := e.mustCreateRec(t, "user-a", "ticket", "seed", `{"short_description": "seed"}`)
-	ops := refusalOps(r.ID)
+	ops := refusalOps(e, r.ID)
 	refuse()
 	before := e.rowCounts(t)
 	for _, op := range ops {
@@ -148,6 +160,9 @@ func checkRefusals(t *testing.T, e *etEnv, status int, code problem.Code, token 
 // covers: patchRecord 401
 // covers: getRecordHistory 401
 // covers: listAuditEntries 401
+// covers: getEntityTypeAccess 401
+// covers: putEntityTypeAccess 401
+// covers: explainAccess 401
 func TestEveryTenantOperationWithoutATokenIs401AndWritesNothing(t *testing.T) {
 	e := newRecEnv(t)
 	checkRefusals(t, e, http.StatusUnauthorized, problem.InvalidToken, "", func() {}, func() {})
@@ -163,6 +178,9 @@ func TestEveryTenantOperationWithoutATokenIs401AndWritesNothing(t *testing.T) {
 // covers: patchRecord 429
 // covers: getRecordHistory 429
 // covers: listAuditEntries 429
+// covers: getEntityTypeAccess 429
+// covers: putEntityTypeAccess 429
+// covers: explainAccess 429
 func TestEveryTenantOperationOverTheLimitIs429AndWritesNothing(t *testing.T) {
 	e := newRecEnv(t)
 	checkRefusals(t, e, http.StatusTooManyRequests, problem.RateLimited, "admin-a",
@@ -190,6 +208,9 @@ func withoutIdempotencyKeys(counts []string) []string {
 // covers: patchRecord 500
 // covers: getRecordHistory 500
 // covers: listAuditEntries 500
+// covers: getEntityTypeAccess 500
+// covers: putEntityTypeAccess 500
+// covers: explainAccess 500
 func TestEveryTenantOperationOnADatabaseFailureIs500AndWritesNothing(t *testing.T) {
 	// The table each operation reads or writes first in its own store;
 	// renaming it is a database failure in the middle of the request.
@@ -204,6 +225,9 @@ func TestEveryTenantOperationOnADatabaseFailureIs500AndWritesNothing(t *testing.
 		"patchRecord":              "records",
 		"getRecordHistory":         "audit_log",
 		"listAuditEntries":         "audit_log",
+		"getEntityTypeAccess":      "acl_versions",
+		"putEntityTypeAccess":      "entity_definitions",
+		"explainAccess":            "records",
 	}
 	e := newRecEnv(t)
 	r := e.mustCreateRec(t, "user-a", "ticket", "seed", `{"short_description": "seed"}`)
@@ -213,7 +237,7 @@ func TestEveryTenantOperationOnADatabaseFailureIs500AndWritesNothing(t *testing.
 			t.Fatalf("rename %s to %s: %v", from, to, err)
 		}
 	}
-	for _, op := range refusalOps(r.ID) {
+	for _, op := range refusalOps(e, r.ID) {
 		table := brokenTable[op.id]
 		if table == "" {
 			t.Fatalf("%s: no table to break", op.id)

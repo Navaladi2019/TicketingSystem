@@ -124,3 +124,7 @@ codes:
     status: 422
     title: Field not writable
     detail: The write sets or changes a field the entity type's access policy does not let you write. Nothing was written. See errors for the field.
+  - code: invalid_access_policy
+    status: 422
+    title: Invalid access policy
+    detail: The access policy is not accepted. Nothing was published. See errors for the failing fields.

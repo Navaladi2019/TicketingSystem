@@ -1,0 +1,16 @@
+meta {
+  name: S10.17 Explain without a token: 401
+  type: http
+  seq: 17
+}
+
+get {
+  url: {{core_url}}/api/v1/access/explain?entity=incident&record={{s10_rec}}&user={{s10_alice}}
+  body: none
+  auth: none
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_token', 401);
+}

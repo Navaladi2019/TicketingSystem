@@ -456,3 +456,22 @@ the row is left as it is, with no call to Keycloak, so the command is safe to
 repeat. A tenant that is unknown or not active is refused. The group starts
 empty: add auditors in Keycloak as for a new tenant. A failure for one tenant
 is logged with its id, the others still run, and the command exits non-zero.
+
+## Default incident ACL for tenants that existed before S10 (TICK-620)
+
+Record authorization fails closed: a type with no published ACL version can be
+neither read nor written. Onboarding now publishes the default incident ACL for
+a new tenant. A tenant onboarded earlier has none; give it one with the ids of
+the tenants, from the `nava-onboard` container:
+
+```sh
+docker compose exec -T nava-onboard nava-onboard reconcile-default-acl <tenant-id> [<tenant-id>...]
+```
+
+Each tenant is handled alone, in its own tenant transaction, and a tenant
+whose `incident` type already has an ACL version is left as it is, so the
+command is safe to repeat. The default names the tenant's admins group and,
+when the tenant has one, its `service-desk` group; it writes the audit entry
+with the version. A failure for one tenant is logged with its id, the others
+still run, and the command exits non-zero. `request` and `change` get no ACL:
+an admin publishes one with `PUT /api/v1/entity-types/{key}/access`.

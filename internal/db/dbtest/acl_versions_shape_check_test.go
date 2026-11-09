@@ -23,8 +23,8 @@ import (
 
 // insertACLShape: tenant $1 (also the type and publisher), version $2,
 // rules $3 and masks $4 as text cast to jsonb.
-const insertACLShape = `INSERT INTO acl_versions (tenant_id, entity_definition_id, version, rules, masks, published_by)
-	VALUES ($1, $1, $2, $3::text::jsonb, $4::text::jsonb, $1)`
+const insertACLShape = `WITH r AS (INSERT INTO acl_versions (tenant_id, entity_definition_id, version, rules, masks, published_by)
+	VALUES ($1, $1, $2, $3::text::jsonb, $4::text::jsonb, $1) RETURNING tenant_id, entity_definition_id, version) ` + aclEntry
 
 var aclShapeFunctions = []string{
 	"acl_uuids_valid(jsonb)", "acl_subject_valid(jsonb)", "acl_cond_valid(jsonb)",

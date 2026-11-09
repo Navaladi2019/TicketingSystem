@@ -1,0 +1,21 @@
+meta {
+  name: S10.5 Bob's principal id
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.me('00000000-0000-4000-8000-0000000000b1');
+  bru.setVar('s10_bob', N.json().user_id);
+}

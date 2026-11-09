@@ -1,0 +1,32 @@
+meta {
+  name: S10.9 PUT without If-Match: 428
+  type: http
+  seq: 9
+}
+
+put {
+  url: {{core_url}}/api/v1/entity-types/incident/access
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick620-s10-{{s10_run}}-nomatch
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "rules": []
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('if_match_required', 428);
+}
+
+docs {
+  428 `if_match_required`, and nothing is published.
+}

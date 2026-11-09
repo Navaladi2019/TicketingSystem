@@ -271,6 +271,9 @@ func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http
 				case problem.MaskedField:
 					h.reg.Write(w, r, problem.MaskedField, pe.fields...)
 					return
+				case problem.InvalidAccessPolicy:
+					h.reg.Write(w, r, problem.InvalidAccessPolicy, pe.fields...)
+					return
 				}
 			}
 			h.reg.WriteError(w, r, h.log, pe.code, pe.err)

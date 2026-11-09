@@ -1,0 +1,31 @@
+meta {
+  name: S10.14 Explain: why can Alice read it? allow, with the granting rule
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{core_url}}/api/v1/access/explain?entity=incident&record={{s10_rec}}&user={{s10_alice}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  test('allow, a rule id, an ACL version, a masked list', () => {
+    expect(b.decision).to.eql('allow');
+    expect(b.rule_id).to.be.a('string');
+    expect(b.acl_version).to.be.a('number');
+    expect(b.masked_fields).to.be.an('array');
+  });
+}
+
+docs {
+  Alice is the requester, so the default requester rule grants read. `rule_id` names the rule; `masked_fields` lists only fields the admin could read.
+}

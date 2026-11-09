@@ -144,6 +144,7 @@ func setup(ctx context.Context) (*env, error) {
 		{"records", "records_audit_commit_check"},
 		{"entity_definitions", "entity_definitions_audit_commit_check"},
 		{"entity_definition_versions", "entity_definition_versions_audit_commit_check"},
+		{"acl_versions", "acl_versions_audit_commit_check"},
 	} {
 		var enabled string
 		if err := sc.QueryRow(ctx, `SELECT coalesce((SELECT tgenabled::text FROM pg_trigger

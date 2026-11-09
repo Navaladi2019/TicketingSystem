@@ -1,0 +1,70 @@
+paths:
+  /api/v1/access/explain:
+    get:
+      operationId: explainAccess
+      summary: Why a user can or cannot read a record (tenant admin)
+      description: >
+        Tenant admins only, own tenant only. Evaluates the entity type's
+        newest published access policy for the user and the record, as a read
+        does. `decision` is `allow` or `deny`; `rule_id` names the first rule
+        that grants read, and is null for a deny. `acl_version` is the version
+        evaluated, 0 when none is published (nobody can read: fail closed).
+        `masked_fields` lists the fields the policy hides from the user,
+        leaving out every field the calling admin cannot read itself. An
+        unknown entity type, record or user, one that is another tenant's,
+        and a malformed id give the same 404, byte for byte, with no
+        `instance`.
+      parameters:
+        - name: entity
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: record
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: user
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The decision.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessExplanation"
+        "400":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "401":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "403":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "404":
+          $ref: "../openapi.yaml#/components/responses/ProblemNoInstance"
+        "429":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "500":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "501":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+components:
+  schemas:
+    AccessExplanation:
+      type: object
+      required: [decision, rule_id, acl_version, masked_fields]
+      properties:
+        decision:
+          type: string
+          enum: [allow, deny]
+        rule_id:
+          type: [string, "null"]
+        acl_version:
+          type: integer
+        masked_fields:
+          type: array
+          items:
+            type: string

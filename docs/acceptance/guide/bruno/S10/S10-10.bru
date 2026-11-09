@@ -1,0 +1,34 @@
+meta {
+  name: S10.10 PUT with a stale If-Match: 412 and the current ETag
+  type: http
+  seq: 10
+}
+
+put {
+  url: {{core_url}}/api/v1/entity-types/incident/access
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick620-s10-{{s10_run}}-stale
+  If-Match: W/"0"
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "rules": []
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('version_conflict', 412);
+  test('the current ETag is in the header', () => expect(N.header('ETag')).to.eql('W/"' + JSON.parse(bru.getVar('s10_policy')).version + '"'));
+}
+
+docs {
+  Version 0 is never current once a policy is published. 412 `version_conflict`, the current `ETag` in the header, nothing published.
+}
