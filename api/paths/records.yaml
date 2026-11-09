@@ -15,6 +15,11 @@ paths:
         property. `sort=<property>` or `sort=-<property>` on a property mapped
         to a fixed column, or on `created_at` or `updated_at`; the default is
         `-updated_at`; ties break on `id`. There is no sort or range on `data`.
+        Only sorts on `created_at`, `updated_at` and `state` are index-ordered
+        (answered by an index scan, no `Sort`) and inside the list p95 target.
+        A sort on `assignee`, `requester` or `assignment_group` is allowed but
+        is outside that target and may pay for a `Sort`; filtering on those
+        columns stays index-ordered through the access-path indexes.
         An unknown property, an unsortable property, a value that does not fit
         the property's type or an unknown `filter[...]` form answers 400
         `validation_failed`. A property the ACL's field masks hide from the

@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -427,8 +428,11 @@ func TestListRecordsItemsAreShaped(t *testing.T) {
 func TestListRecordsPageStatementsNeedNoSort(t *testing.T) {
 	e := newRecEnv(t)
 	ctx := t.Context()
-	var def uuid.UUID
+	var def, other uuid.UUID
 	if err := e.super.QueryRow(ctx, "SELECT id FROM entity_definitions WHERE tenant_id = $1 AND key = 'ticket'", e.a.id).Scan(&def); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.super.QueryRow(ctx, "SELECT id FROM entity_definitions WHERE tenant_id = $1 AND key = 'change'", e.a.id).Scan(&other); err != nil {
 		t.Fatal(err)
 	}
 	// Bulk rows with the triggers off (the records commit check wants an audit
@@ -440,11 +444,19 @@ func TestListRecordsPageStatementsNeedNoSort(t *testing.T) {
 	if _, err := tx.Exec(ctx, "SET LOCAL session_replication_role = replica"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO records (tenant_id, id, entity_definition_id, version, schema_version, number, state, created_at, updated_at, data)
+	// A second entity type with three times the rows: a tenant-wide index would
+	// have to filter it out, so only an index that leads with
+	// (tenant_id, entity_definition_id) is cheap for the ticket list.
+	for _, d := range []struct {
+		id uuid.UUID
+		n  int
+	}{{def, 4000}, {other, 12000}} {
+		if _, err := tx.Exec(ctx, `INSERT INTO records (tenant_id, id, entity_definition_id, version, schema_version, number, state, created_at, updated_at, data)
 		 SELECT $1, gen_random_uuid(), $2, 1, 1, 'PLAN-' || g, CASE WHEN g % 3 = 0 THEN 'closed' ELSE 'new' END,
-		        now() - (g || ' seconds')::interval, now() - ((g * 7919 % 4000) || ' seconds')::interval, '{}'
-		 FROM generate_series(1, 4000) g`, e.a.id, def); err != nil {
-		t.Fatal(err)
+		        now() - (g || ' seconds')::interval, now() - ((g * 7919 % $3) || ' seconds')::interval, '{}'
+		 FROM generate_series(1, $3) g`, e.a.id, d.id, d.n); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatal(err)
@@ -460,8 +472,8 @@ func TestListRecordsPageStatementsNeedNoSort(t *testing.T) {
 			if hasNode(plan, "Sort") || hasNode(plan, "Incremental Sort") {
 				t.Errorf("%s: plan has a Sort node:\n%s", name, plan)
 			}
-			if !hasNode(plan, "Index Scan") && !hasNode(plan, "Index Only Scan") {
-				t.Errorf("%s: plan is no index scan:\n%s", name, plan)
+			if !usesContractIndex(plan) {
+				t.Errorf("%s: plan uses no (tenant_id, entity_definition_id, ...) index:\n%s", name, plan)
 			}
 		}
 	}
@@ -496,6 +508,32 @@ func hasNode(plan, nodeType string) bool {
 	var walk func(n map[string]any) bool
 	walk = func(n map[string]any) bool {
 		if n["Node Type"] == nodeType {
+			return true
+		}
+		kids, _ := n["Plans"].([]any)
+		for _, k := range kids {
+			if m, ok := k.(map[string]any); ok && walk(m) {
+				return true
+			}
+		}
+		return false
+	}
+	return walk(doc[0].Plan)
+}
+
+// usesContractIndex reports whether the plan scans records by an index whose
+// condition holds entity_definition_id: the contract indexes lead with
+// (tenant_id, entity_definition_id, ...), the S9 indexes do not, so the
+// default and updated_at sorts go red until P3-34b's indexes exist.
+func usesContractIndex(plan string) bool {
+	var doc []struct{ Plan map[string]any }
+	if err := json.Unmarshal([]byte(plan), &doc); err != nil || len(doc) == 0 {
+		return false
+	}
+	var walk func(n map[string]any) bool
+	walk = func(n map[string]any) bool {
+		cond, _ := n["Index Cond"].(string)
+		if n["Relation Name"] == "records" && strings.Contains(n["Node Type"].(string), "Index") && strings.Contains(cond, "entity_definition_id") {
 			return true
 		}
 		kids, _ := n["Plans"].([]any)
