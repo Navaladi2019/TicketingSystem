@@ -28,6 +28,11 @@ type ListQuery struct {
 	Limit      int
 }
 
+// TieBreaksOnUpdatedAt reports whether a list sorted by col orders by
+// (col, updated_at, id) rather than (col, id): the sort indexes of state and
+// the foreign keys end in updated_at DESC, id DESC.
+func TieBreaksOnUpdatedAt(col string) bool { return col != "created_at" && col != "updated_at" }
+
 // listable reports whether col is a column a list may order by.
 func listable(col string) bool {
 	switch col {
@@ -43,7 +48,14 @@ type ListPage struct {
 	Records  []*Record
 	SortKeys []*string
 	Total    int64
+	// TotalCapped is true when more than TotalCap rows match and Total is TotalCap.
+	TotalCapped bool
 }
+
+// TotalCap is the most the list counts: an exact count of a large tenant's
+// matches alone misses the list p95 (P3-36), so past it Total is TotalCap and
+// TotalCapped is set.
+const TotalCap = 10000
 
 // List returns up to Limit records of the entity type matching Where and
 // Keyset, ordered by SortColumn then id, and the count of rows matching Where
@@ -58,7 +70,7 @@ func List(ctx context.Context, tx pgx.Tx, q ListQuery) (*ListPage, error) {
 	where := ` WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ` + q.Where
 
 	var total int64
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM records r`+where, args...).Scan(&total); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM (SELECT 1 FROM records r`+where+` LIMIT `+fmt.Sprint(TotalCap+1)+`) c`, args...).Scan(&total); err != nil {
 		return nil, fmt.Errorf("records/store: count records: %w", err)
 	}
 
@@ -71,7 +83,7 @@ func List(ctx context.Context, tx pgx.Tx, q ListQuery) (*ListPage, error) {
 		return nil, fmt.Errorf("records/store: list records: %w", err)
 	}
 	defer rows.Close()
-	page := &ListPage{Total: total}
+	page := &ListPage{Total: min(total, TotalCap), TotalCapped: total > TotalCap}
 	for rows.Next() {
 		var key *string
 		rec, err := scan(rowWithExtra{rows, &key})
@@ -106,12 +118,18 @@ func PageStatement(q ListQuery) (string, []any, error) {
 	if q.Keyset != "" {
 		keyset = " AND " + q.Keyset
 	}
-	// The only ORDER BY shapes the sort indexes serve (P3-34a): descending is
-	// the index forward, ascending the same index backward.
-	order := "ASC NULLS LAST, r.id ASC"
+	// The only ORDER BY shapes the sort indexes serve (P3-34a/b): descending is
+	// the index forward, ascending the same index backward. created_at and
+	// updated_at end in id; state and the foreign keys tie-break on updated_at.
+	dir, nulls := "ASC", "NULLS LAST"
 	if q.Desc {
-		order = "DESC NULLS FIRST, r.id DESC"
+		dir, nulls = "DESC", "NULLS FIRST"
 	}
+	order := dir + " " + nulls
+	if TieBreaksOnUpdatedAt(q.SortColumn) {
+		order += ", r.updated_at " + dir
+	}
+	order += ", r.id " + dir
 	return `SELECT r.tenant_id, r.id, r.entity_definition_id, d.key, r.version, r.schema_version, r.number, r.state,
        r.requester_id, r.assignee_id, r.assignment_group_id, r.created_by, r.created_at, r.updated_at,
        r.data, r.causation_origin_id, coalesce(r.causation_depth, 0), coalesce(g.deleted_at IS NOT NULL, false),

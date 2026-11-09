@@ -32,7 +32,11 @@ func ListPageStatement(t *testing.T, sort string, withCursor bool, tenant, defin
 		default:
 			val = uuid.NewString()
 		}
-		q.Keyset, q.KeysetArgs = pl.keyset(listPos{Sort: pl.sortProp, Desc: pl.desc, Val: &val, ID: uuid.NewString()}, 2)
+		pos := listPos{Sort: pl.sortProp, Desc: pl.desc, Val: &val, ID: uuid.NewString()}
+		if store.TieBreaksOnUpdatedAt(pl.sortCol) {
+			pos.Upd = "2026-11-09 03:39:54.145534Z"
+		}
+		q.Keyset, q.KeysetArgs = pl.keyset(pos, 2)
 	}
 	sql, args, err := store.PageStatement(q)
 	if err != nil {

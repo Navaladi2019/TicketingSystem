@@ -219,24 +219,37 @@ func TestKeysetPredicate(t *testing.T) {
 
 func TestKeysetNullSegments(t *testing.T) {
 	t.Parallel()
-	id := uuid.NewString()
-	v := uuid.NewString()
+	id, v, u := uuid.NewString(), uuid.NewString(), "2026-11-09 03:39:54.145534Z"
 	for _, c := range []struct {
 		sort string
 		pos  listPos
 		want string
 	}{
-		{"-assignee", listPos{Sort: "assignee", Desc: true, ID: id}, "(r.assignee_id IS NOT NULL OR r.id < $4::uuid)"},
-		{"assignee", listPos{Sort: "assignee", ID: id}, "(r.assignee_id IS NULL AND r.id > $4::uuid)"},
-		{"-assignee", listPos{Sort: "assignee", Desc: true, Val: &v, ID: id}, "((r.assignee_id, r.id) < ($4::uuid, $5::uuid))"},
-		{"assignee", listPos{Sort: "assignee", Val: &v, ID: id}, "(((r.assignee_id, r.id) > ($4::uuid, $5::uuid)) OR r.assignee_id IS NULL)"},
+		{"-assignee", listPos{Sort: "assignee", Desc: true, ID: id, Upd: u}, "(r.assignee_id IS NOT NULL OR (r.updated_at, r.id) < ($4::timestamptz, $5::uuid))"},
+		{"assignee", listPos{Sort: "assignee", ID: id, Upd: u}, "(r.assignee_id IS NULL AND (r.updated_at, r.id) > ($4::timestamptz, $5::uuid))"},
+		{"-assignee", listPos{Sort: "assignee", Desc: true, Val: &v, ID: id, Upd: u}, "((r.assignee_id, r.updated_at, r.id) < ($4::uuid, $5::timestamptz, $6::uuid))"},
+		{"assignee", listPos{Sort: "assignee", Val: &v, ID: id, Upd: u}, "(((r.assignee_id, r.updated_at, r.id) > ($4::uuid, $5::timestamptz, $6::uuid)) OR r.assignee_id IS NULL)"},
+		{"state", listPos{Sort: "state", Val: strp("new"), ID: id, Upd: u}, "((r.state, r.updated_at, r.id) > ($4::text, $5::timestamptz, $6::uuid))"},
+		{"-updated_at", listPos{Sort: "updated_at", Desc: true, Val: &u, ID: id}, "((r.updated_at, r.id) < ($4::timestamptz, $5::uuid))"},
 	} {
 		pl, perr := planList(listTestDef(t), qs(t, ""), strp(c.sort), nil)
 		if perr != nil {
 			t.Fatal(perr)
 		}
+		if !pl.validPos(c.pos) {
+			t.Errorf("%s %+v: cursor invalid", c.sort, c.pos)
+		}
 		if got, _ := pl.keyset(c.pos, 3); got != c.want {
 			t.Errorf("%s %+v:\n got %s\nwant %s", c.sort, c.pos, got, c.want)
 		}
+	}
+	// A tie-break sort needs the updated_at in its cursor; the others must not carry one.
+	pl, _ := planList(listTestDef(t), qs(t, ""), strp("state"), nil)
+	if pl.validPos(listPos{Sort: "state", Val: strp("new"), ID: id}) {
+		t.Error("a state cursor without updated_at was accepted")
+	}
+	pl, _ = planList(listTestDef(t), qs(t, ""), nil, nil)
+	if pl.validPos(listPos{Sort: "updated_at", Desc: true, Val: &u, ID: id, Upd: u}) {
+		t.Error("an updated_at cursor with a tie-break updated_at was accepted")
 	}
 }

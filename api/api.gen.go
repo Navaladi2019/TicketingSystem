@@ -457,8 +457,11 @@ type RecordList struct {
 	// NextCursor Opaque; null on the last page.
 	NextCursor *string `json:"next_cursor"`
 
-	// Total Records the caller may read that match the filters, not only this page.
+	// Total Records the caller may read that match the filters, not only this page. Exact up to 10,000; when more match, `total` is 10,000 and `total_capped` is true.
 	Total int64 `json:"total"`
+
+	// TotalCapped Present and true when `total` was capped at 10,000 (counting a large tenant's matches exactly misses the list p95). Absent otherwise.
+	TotalCapped *bool `json:"total_capped,omitempty"`
 }
 
 // Entity defines model for Entity.

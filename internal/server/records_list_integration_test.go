@@ -27,9 +27,10 @@ import (
 )
 
 type listPage struct {
-	Items []recBody `json:"items"`
-	Next  *string   `json:"next_cursor"`
-	Total int       `json:"total"`
+	Items  []recBody `json:"items"`
+	Next   *string   `json:"next_cursor"`
+	Total  int       `json:"total"`
+	Capped *bool     `json:"total_capped"`
 }
 
 func (e *etEnv) list(t *testing.T, token, entity, query string) (*httptest.ResponseRecorder, listPage) {
@@ -463,6 +464,13 @@ func TestListRecordsPageStatementsNeedNoSort(t *testing.T) {
 	}
 	if _, err := e.super.Exec(ctx, "ANALYZE records"); err != nil {
 		t.Fatal(err)
+	}
+	// The count is exact up to 10,000 and capped past it (scope item 4).
+	if p := e.mustList(t, "admin-a", "ticket", "limit=1"); p.Total != 4000 || p.Capped != nil {
+		t.Errorf("4000 matches: total %d capped %v, want exact 4000 and no total_capped", p.Total, p.Capped)
+	}
+	if p := e.mustList(t, "admin-a", "change", "limit=1"); p.Total != 10000 || p.Capped == nil || !*p.Capped {
+		t.Errorf("12000 matches: total %d capped %v, want 10000 and total_capped true", p.Total, p.Capped)
 	}
 	for _, sort := range []string{"", "updated_at", "-updated_at", "created_at", "-created_at", "state", "-state"} {
 		for _, cursor := range []bool{false, true} {

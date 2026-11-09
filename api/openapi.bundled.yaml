@@ -1154,7 +1154,14 @@ components:
         total:
           type: integer
           format: int64
-          description: Records the caller may read that match the filters, not only this page.
+          description: >
+            Records the caller may read that match the filters, not only this page. Exact up to 10,000; when more match, `total` is 10,000 and `total_capped` is true.
+
+        total_capped:
+          type: boolean
+          description: >
+            Present and true when `total` was capped at 10,000 (counting a large tenant's matches exactly misses the list p95). Absent otherwise.
+
     Record:
       type: object
       required: [id, number, version, schema_version, state, data, created_at, updated_at]
