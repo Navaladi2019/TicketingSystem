@@ -565,9 +565,12 @@ func (w *write) do(ctx context.Context) (Result, error) {
 }
 
 func (w *write) create(ctx context.Context, after map[string]any) (Result, error) {
-	// The caller's own data: the defaults applied below are not its writes
-	// (P3-33). ApplyDefaults returns a new map, so written stays as sent.
-	written := after
+	// The mask write check runs first, on the caller's own data: the defaults
+	// applied below are not its writes, and no other error (validation,
+	// state, row scope, unique) can come back for a masked field (P3-33).
+	if err := w.canWriteFields(ctx, nil, after, nil); err != nil {
+		return Result{}, err
+	}
 	after = w.def.ApplyDefaults(after)
 	// The state column is never NULL, and a record starts in the initial
 	// state.
@@ -598,9 +601,6 @@ func (w *write) create(ctx context.Context, after map[string]any) (Result, error
 	// A new record has no shares. The check runs before the unique and
 	// group lookups, so a refused writer learns nothing from them.
 	if err := w.canWrite(ctx, nil, rowOf(rec, nil)); err != nil {
-		return Result{}, err
-	}
-	if err := w.canWriteFields(ctx, nil, written); err != nil {
 		return Result{}, err
 	}
 	if err := w.checkUnique(ctx, uuid.Nil, nil, after, fixed); err != nil {
@@ -661,8 +661,14 @@ func (w *write) update(ctx context.Context, patch map[string]any) (Result, error
 	before := rec.Payload(stored.FixedColumns())
 
 	// merged is the caller's write: the stored payload with its patch, before
-	// defaults (P3-33). ApplyDefaults returns a new map.
+	// defaults. The mask write check runs on it right away, before
+	// validation, the state model, the row check and the unique lookup, so
+	// no other answer can depend on a masked field's stored value (P3-33,
+	// TICK-633 B1). ApplyDefaults returns a new map.
 	merged := mergePatch(deepCopy(before), patch)
+	if err := w.canWriteFields(ctx, before, merged, patch); err != nil {
+		return Result{}, err
+	}
 	after := w.def.ApplyDefaults(merged)
 	fe := w.def.Validate(after)
 	if _, ok := after[w.def.StateProperty()]; !ok {
@@ -686,9 +692,6 @@ func (w *write) update(ctx context.Context, patch map[string]any) (Result, error
 			return Result{}, fmt.Errorf("pipeline: %w", err)
 		}
 		if err := w.canWrite(ctx, beforeRow, rowOf(&next, beforeRow.SharedWith)); err != nil {
-			return Result{}, err
-		}
-		if err := w.canWriteFields(ctx, before, merged); err != nil {
 			return Result{}, err
 		}
 	}
@@ -823,16 +826,17 @@ func (w *write) canWrite(ctx context.Context, before, after *authz.Row) error {
 }
 
 // canWriteFields is the mask write check of the authorise stage (P3-33),
-// beside canWrite and skipped for the same system sources. before is the
-// stored payload (nil on a create), after the caller's data without defaults.
-// A refusal is *authz.ErrFieldNotWritable or authz.ErrForbidden; a failure to
-// decide is wrapped. It runs before the unique and group lookups and every
+// skipped for the same system sources as canWrite. before is the stored
+// payload (nil on a create), after the caller's data without defaults, and
+// patch the caller's merge patch (nil on a create). A refusal is
+// *authz.ErrFieldNotWritable or authz.ErrForbidden; a failure to decide is
+// wrapped. It is the first check on the caller's data and runs before every
 // write statement, so a refused write leaves no record, audit or outbox row.
-func (w *write) canWriteFields(ctx context.Context, before, after map[string]any) error {
+func (w *write) canWriteFields(ctx context.Context, before, after, patch map[string]any) error {
 	if w.cmd.Source.system() {
 		return nil
 	}
-	err := w.p.authz.CanWriteFields(ctx, w.tx, w.cmd.Actor, w.cmd.EntityKey, before, after)
+	err := w.p.authz.CanWriteFields(ctx, w.tx, w.cmd.Actor, w.cmd.EntityKey, before, after, patch)
 	var nw *authz.ErrFieldNotWritable
 	if err != nil && !errors.As(err, &nw) && !errors.Is(err, authz.ErrForbidden) {
 		return fmt.Errorf("pipeline: %w", err)

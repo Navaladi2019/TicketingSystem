@@ -159,11 +159,12 @@ func (a ACL) policy(ctx context.Context, tx pgx.Tx, p identity.Principal, entity
 
 // CanWriteFields implements Authorizer: the mask write check (P3-33), beside
 // the CanWrite row check, which it does not change (A1). before is the stored
-// payload (nil on a create) and after the caller's data: the payload before
-// merged with the caller's patch, without defaults. It returns
-// *ErrFieldNotWritable for a field p may not write, ErrForbidden for a
-// principal of another tenant, and a wrapped error when it could not decide.
-func (a ACL) CanWriteFields(ctx context.Context, tx pgx.Tx, p identity.Principal, entity string, before, after map[string]any) error {
+// payload (nil on a create), after the caller's data (before merged with
+// patch, without defaults) and patch the caller's merge patch (nil on a
+// create). It returns *ErrFieldNotWritable for a field p may not write,
+// ErrForbidden for a principal of another tenant, and a wrapped error when it
+// could not decide.
+func (a ACL) CanWriteFields(ctx context.Context, tx pgx.Tx, p identity.Principal, entity string, before, after, patch map[string]any) error {
 	pol, err := a.policy(ctx, tx, p, entity)
 	if errors.Is(err, errOtherTenant) {
 		return ErrForbidden
@@ -171,7 +172,7 @@ func (a ACL) CanWriteFields(ctx context.Context, tx pgx.Tx, p identity.Principal
 	if err != nil {
 		return err
 	}
-	return CheckWriteFields(pol, p, before, after)
+	return CheckWriteFields(pol, p, before, after, patch)
 }
 
 // MaskSource gives the read side the policy the shaping layer applies: the

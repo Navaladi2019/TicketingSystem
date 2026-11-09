@@ -160,7 +160,11 @@ paths:
         a removed group unchanged succeeds.
         A patch that sets, changes or removes a property the ACL's field
         masks do not let the caller write answers 422 `field_not_writable`
-        (after the 403 check) and changes nothing. The 200 body is shaped by
+        and changes nothing. A property the caller cannot read counts as
+        written whatever its value, so its stored value, a wrong guess and
+        `null` get the same answer; this check runs before the body's schema
+        and state checks and the 403 check, so a masked `state` never answers
+        `illegal_transition`. The 200 body is shaped by
         the caller's field masks as getRecord's is.
       parameters:
         - $ref: "#/components/parameters/Entity"
@@ -334,6 +338,10 @@ components:
           type: integer
         state:
           type: string
+          description: >
+            The record's state. `""` when the state property is masked from the
+            caller by a field mask (P3-33): it is no state of the model, so never
+            filter, transition or display it as one.
         data:
           type: object
           additionalProperties: true

@@ -354,3 +354,60 @@ func TestUniqueViolationDoesNotIdentifyAnUnreadableRecord(t *testing.T) {
 		}
 	}
 }
+
+func (m *maskEnv) tenantRows(t *testing.T, table string) int {
+	t.Helper()
+	var n int
+	if err := m.super.QueryRow(t.Context(), "SELECT count(*) FROM "+table+" WHERE tenant_id = $1", m.a.id).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// TICK-633 B1: a PATCH is no oracle for a field the caller cannot read. Its
+// current value, a wrong guess and null all get the same 422
+// field_not_writable; a masked state gets it too, never illegal_transition,
+// whatever the hidden current state. Nothing is written in any case.
+//
+// covers: patchRecord 422
+func TestPatchIsNoOracleForAMaskedField(t *testing.T) {
+	m := newMaskEnv(t)
+	desk := authz.Subject{Groups: []uuid.UUID{m.desk}}
+	m.publishMasks(t, append(m.deskMasks(), authz.Mask{Field: "state", Read: desk, Write: desk}))
+	r := m.mustCreateRec(t, "lookalike-a", "job", "mk-o1", `{"short_description": "s", "cost": 500}`)
+	// The agent closes it: closed -> new is not a transition the model has.
+	if rec := m.patch(t, "lookalike-a", "job", r.ID, `W/"1"`, `{"state": "closed"}`); rec.Code != http.StatusOK {
+		t.Fatalf("the agent's close = %d: %s", rec.Code, rec.Body)
+	}
+	records, audits, outbox := m.recordCount(t, "a"), m.tenantAudits(t), m.tenantRows(t, "outbox")
+
+	for name, c := range map[string]struct{ body, pointer string }{
+		"cost, its stored value":             {`{"data": {"cost": 500}}`, "/data/cost"},
+		"cost, a wrong guess":                {`{"data": {"cost": 7}}`, "/data/cost"},
+		"cost, null":                         {`{"data": {"cost": null}}`, "/data/cost"},
+		"triage, null on its stored default": {`{"data": {"triage": null}}`, "/data/triage"},
+		"state, its stored value":            {`{"state": "closed"}`, "/data/state"},
+		"state, an illegal transition":       {`{"state": "new"}`, "/data/state"},
+		"state, inside data":                 {`{"data": {"state": "new"}}`, "/data/state"},
+	} {
+		wantNotWritable(t, name, m.patch(t, "user-a", "job", r.ID, `W/"2"`, c.body), c.pointer)
+	}
+	if got := m.recordCount(t, "a"); got != records {
+		t.Errorf("records = %d, want %d", got, records)
+	}
+	if got := m.tenantAudits(t); got != audits {
+		t.Errorf("audit entries = %d, want %d: a refused PATCH wrote", got, audits)
+	}
+	if got := m.tenantRows(t, "outbox"); got != outbox {
+		t.Errorf("outbox rows = %d, want %d: a refused PATCH wrote", got, outbox)
+	}
+	rec := m.do(t, http.MethodGet, "/api/v1/records/job/"+r.ID, "lookalike-a", "", "")
+	if d := recordData(t, rec); rec.Header().Get("ETag") != `W/"2"` || d["cost"] != float64(500) || d["state"] != "closed" {
+		t.Fatalf("record after the refusals: ETag %q data %v, want version 2, cost 500, closed", rec.Header().Get("ETag"), d)
+	}
+	// The requester can still patch what it can read, and the body it was
+	// given (no masked field) goes back unchanged.
+	if rec := m.patch(t, "user-a", "job", r.ID, `W/"2"`, `{"data": {"short_description": "s"}}`); rec.Code != http.StatusOK {
+		t.Fatalf("the requester's patch of an open field = %d: %s", rec.Code, rec.Body)
+	}
+}

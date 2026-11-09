@@ -430,8 +430,9 @@ type Authorizer interface {
 	CanWrite(ctx context.Context, tx pgx.Tx, p identity.Principal, entity string, before, after *Row) error
 	// CanWriteFields is the field-mask write check (P3-33), a separate
 	// method so the A1 row check keeps its shape. before is the stored
-	// payload (nil on a create), after the caller's data without defaults. It
-	// returns nil, *ErrFieldNotWritable naming the fields p may not write,
+	// payload (nil on a create), after the caller's data without defaults,
+	// patch the caller's merge patch (nil on a create; see CheckWriteFields).
+	// It returns nil, *ErrFieldNotWritable naming the fields p may not write,
 	// ErrForbidden, or a wrapped error when it could not decide.
-	CanWriteFields(ctx context.Context, tx pgx.Tx, p identity.Principal, entity string, before, after map[string]any) error
+	CanWriteFields(ctx context.Context, tx pgx.Tx, p identity.Principal, entity string, before, after, patch map[string]any) error
 }

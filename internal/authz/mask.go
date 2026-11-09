@@ -123,12 +123,25 @@ func WrittenFields(before, after map[string]any) []string {
 	return out
 }
 
-// CheckWriteFields returns *ErrFieldNotWritable naming every field among
-// WrittenFields(before, after) that p may not write under pol, and nil when
-// there is none.
-func CheckWriteFields(pol *Policy, p identity.Principal, before, after map[string]any) error {
+// CheckWriteFields returns *ErrFieldNotWritable naming, sorted, every field
+// p writes and may not write under pol, and nil when there is none. The
+// fields p writes are WrittenFields(before, after) plus every top-level key
+// of patch (the caller's merge patch, nil on a create) that p may not read,
+// whatever its value (TICK-633 B1): if an unchanged value of a field p cannot
+// read were no write, the answer to a patch would tell p whether it guessed
+// the stored value (or, with null, whether the field is set). "Unchanged is
+// no write" holds only for the fields p can read, so a client can send back
+// the body it was given.
+func CheckWriteFields(pol *Policy, p identity.Principal, before, after, patch map[string]any) error {
+	written := WrittenFields(before, after)
+	for k := range patch {
+		if !Readable(pol, p, k) && !slices.Contains(written, k) {
+			written = append(written, k)
+		}
+	}
+	slices.Sort(written)
 	var bad []string
-	for _, f := range WrittenFields(before, after) {
+	for _, f := range written {
 		if !Writable(pol, p, f) {
 			bad = append(bad, f)
 		}

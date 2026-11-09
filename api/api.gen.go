@@ -369,9 +369,11 @@ type Record struct {
 	Id              openapi_types.UUID     `json:"id"`
 	Number          string                 `json:"number"`
 	SchemaVersion   int                    `json:"schema_version"`
-	State           string                 `json:"state"`
-	UpdatedAt       time.Time              `json:"updated_at"`
-	Version         int64                  `json:"version"`
+
+	// State The record's state. `""` when the state property is masked from the caller by a field mask (P3-33): it is no state of the model, so never filter, transition or display it as one.
+	State     string    `json:"state"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Version   int64     `json:"version"`
 }
 
 // RecordAssignmentGroup The record's assignment group, the value of the property mapped to the `assignment_group_id` fixed column. Absent when the record has none. `removed` is true once the group has been removed from the directory: the record keeps pointing at it and nothing reassigns it (ADR-004-E5 D7).

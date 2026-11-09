@@ -28,9 +28,10 @@ before any SQL runs, `400 masked_field`).
 ```mermaid
 flowchart TB
     subgraph Write["pipeline.Write (user / ai sources)"]
-        V[patch, defaults, validate, state model] --> RW["CanWrite(before row, after row)<br/>403 forbidden"]
-        RW --> FW["CanWriteFields(stored payload, caller's data)<br/>422 field_not_writable"]
-        FW --> U[unique and group checks, then INSERT/UPDATE, audit, outbox]
+        M[merge patch] --> FW["CanWriteFields(stored payload, caller's data, patch)<br/>422 field_not_writable"]
+        FW --> V[defaults, validate, state model]
+        V --> RW["CanWrite(before row, after row)<br/>403 forbidden"]
+        RW --> U[unique and group checks, then INSERT/UPDATE, audit, outbox]
     end
     subgraph Read["one shaping layer"]
         G[GET 200, create 201, PATCH 200] --> SH["authz.Shape(policy, p, data)<br/>+ state / assignment_group"]
@@ -42,9 +43,16 @@ flowchart TB
 - **Write.** The caller's write is the data it sent on a create, and the
   stored payload with its patch merged on an update, both before defaults: a
   default the server applies is not the caller's write. A field whose
-  presence or value differs is written; setting, changing or removing a
-  masked field is refused before any write statement, so nothing is written
-  (no record, audit or outbox row). The system sources skip it, as they skip
+  presence or value differs is written. On an update, a key of the patch
+  that the caller cannot **read** is written whatever its value (TICK-633
+  B1), so a patch is no oracle: the stored value, a wrong guess and `null`
+  get the same `422 field_not_writable`. "Unchanged is no write" holds only
+  for fields the caller can read, so a client can send back the body it was
+  given. The check is the first one on the caller's data: it runs right
+  after the merge, before validation, the state model, `CanWrite` and the
+  unique lookup, so no other error can depend on a masked field (a masked
+  `state` never yields `illegal_transition`). Nothing is written (no record,
+  audit or outbox row). The system sources skip it, as they skip
   `CanWrite`.
 - **Read.** `Shape` returns a new map without the masked properties and never
   mutates its input. A masked fixed-column property also hides its top-level

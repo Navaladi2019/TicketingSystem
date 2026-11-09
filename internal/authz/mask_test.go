@@ -159,20 +159,59 @@ func TestWrittenFields(t *testing.T) {
 
 func TestCheckWriteFields(t *testing.T) {
 	f := newMaskFixture()
-	err := authz.CheckWriteFields(f.pol, f.requester, nil, map[string]any{"title": "t", "notes": "n", "cost": 1})
+	err := authz.CheckWriteFields(f.pol, f.requester, nil, map[string]any{"title": "t", "notes": "n", "cost": 1}, nil)
 	var nw *authz.ErrFieldNotWritable
 	if !errors.As(err, &nw) || !reflect.DeepEqual(nw.Fields, []string{"cost", "notes"}) {
 		t.Fatalf("CheckWriteFields = %v, want not writable [cost notes]", err)
 	}
-	if err := authz.CheckWriteFields(f.pol, f.agent, nil, map[string]any{"title": "t", "notes": "n", "cost": 1}); err != nil {
+	if err := authz.CheckWriteFields(f.pol, f.agent, nil, map[string]any{"title": "t", "notes": "n", "cost": 1}, nil); err != nil {
 		t.Fatalf("CheckWriteFields for an allowed writer = %v", err)
 	}
 	// An update that leaves a masked field as stored writes nothing to it.
 	before := map[string]any{"title": "t", "cost": 1}
-	if err := authz.CheckWriteFields(f.pol, f.requester, before, map[string]any{"title": "u", "cost": 1}); err != nil {
+	if err := authz.CheckWriteFields(f.pol, f.requester, before, map[string]any{"title": "u", "cost": 1}, map[string]any{"title": "u"}); err != nil {
 		t.Fatalf("an update that keeps cost = %v, want nil", err)
 	}
-	if err := authz.CheckWriteFields(nil, f.requester, nil, map[string]any{"cost": 1}); err != nil {
+	if err := authz.CheckWriteFields(nil, f.requester, nil, map[string]any{"cost": 1}, nil); err != nil {
 		t.Fatalf("a nil policy has no masks: %v", err)
+	}
+}
+
+// TICK-633 B1: on an update, a key of the caller's patch that the caller
+// cannot read is a write whatever its value, so the answer never tells the
+// caller whether it guessed the stored value, or (with null) whether the
+// field is set. For a field the caller can read, an unchanged value is still
+// no write.
+func TestUnreadablePatchKeyIsAlwaysAWrite(t *testing.T) {
+	f := newMaskFixture()
+	before := map[string]any{"title": "t", "cost": 500}
+	cases := []struct {
+		name         string
+		after, patch map[string]any
+	}{
+		{"the stored value, guessed", map[string]any{"title": "t", "cost": 500}, map[string]any{"cost": 500}},
+		{"a wrong guess", map[string]any{"title": "t", "cost": 7}, map[string]any{"cost": 7}},
+		{"null on a set field", map[string]any{"title": "t"}, map[string]any{"cost": nil}},
+		{"null on an absent field", before, map[string]any{"absent_masked": nil}},
+	}
+	pol := &authz.Policy{Masks: append(f.pol.Masks, authz.Mask{Field: "absent_masked"})}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			err := authz.CheckWriteFields(pol, f.requester, before, c.after, c.patch)
+			var nw *authz.ErrFieldNotWritable
+			if !errors.As(err, &nw) || len(nw.Fields) != 1 {
+				t.Fatalf("CheckWriteFields = %v, want one field not writable", err)
+			}
+		})
+	}
+	// notes is readable but not writable by the requester: sending back its
+	// stored value is no write.
+	stored := map[string]any{"notes": "n"}
+	if err := authz.CheckWriteFields(f.pol, f.requester, stored, stored, map[string]any{"notes": "n"}); err != nil {
+		t.Fatalf("a readable field sent back unchanged = %v, want nil", err)
+	}
+	// The agent may write cost: its unchanged value passes.
+	if err := authz.CheckWriteFields(f.pol, f.agent, before, before, map[string]any{"cost": 500}); err != nil {
+		t.Fatalf("the agent's unchanged cost = %v, want nil", err)
 	}
 }

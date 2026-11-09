@@ -237,7 +237,7 @@ func (a fakeAuthz) CanWrite(_ context.Context, _ pgx.Tx, _ identity.Principal, _
 	return a.err
 }
 
-func (a fakeAuthz) CanWriteFields(_ context.Context, _ pgx.Tx, _ identity.Principal, _ string, before, after map[string]any) error {
+func (a fakeAuthz) CanWriteFields(_ context.Context, _ pgx.Tx, _ identity.Principal, _ string, before, after, _ map[string]any) error {
 	if a.calls != nil {
 		*a.calls = append(*a.calls, authzCall{op: "fields", beforeData: before, afterData: after})
 	}
