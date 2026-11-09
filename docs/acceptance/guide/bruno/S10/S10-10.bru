@@ -1,34 +1,33 @@
 meta {
-  name: S10.10 PUT with a stale If-Match: 412 and the current ETag
+  name: S10.10 The admin reads the incident access policy: 200 with its ETag
   type: http
   seq: 10
 }
 
-put {
+get {
   url: {{core_url}}/api/v1/entity-types/incident/access
-  body: json
+  body: none
   auth: none
 }
 
 headers {
   Authorization: Bearer {{admin_a_token}}
-  Idempotency-Key: tick620-s10-{{s10_run}}-stale
-  If-Match: W/"0"
-  Content-Type: application/json
-}
-
-body:json {
-  {
-    "rules": []
-  }
 }
 
 tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
-  N.problem('version_conflict', 412);
-  test('the current ETag is in the header', () => expect(N.header('ETag')).to.eql('W/"' + JSON.parse(bru.getVar('s10_policy')).version + '"'));
+  N.status(200);
+  const b = N.json();
+  test('version, rules, masks, published_at', () => {
+    expect(b.version).to.be.a('number');
+    expect(b.rules).to.be.an('array');
+    expect(b.masks).to.be.an('array');
+    expect(b.published_at).to.be.a('string');
+  });
+  test('ETag W/"<version>"', () => expect(N.header('ETag')).to.eql('W/"' + b.version + '"'));
+  bru.setVar('s10_policy', JSON.stringify(b));
 }
 
 docs {
-  Version 0 is never current once a policy is published. 412 `version_conflict`, the current `ETag` in the header, nothing published.
+  The newest published version, `{version, rules, masks, published_by, published_at}`, with `ETag: W/"<version>"`. On a fresh stack it is version 1, the default incident ACL, with `published_by` null.
 }

@@ -1,43 +1,24 @@
 meta {
-  name: S10.11 The admin republishes the policy it read: 200, version + 1
+  name: S10.11 Alice (not an admin) reads it: 403
   type: http
   seq: 11
 }
 
-put {
+get {
   url: {{core_url}}/api/v1/entity-types/incident/access
-  body: json
+  body: none
   auth: none
 }
 
 headers {
-  Authorization: Bearer {{admin_a_token}}
-  Idempotency-Key: tick620-s10-{{s10_run}}-same
-  Content-Type: application/json
-}
-
-body:json {
-  {
-    "rules": []
-  }
-}
-
-script:pre-request {
-  const N = require('./lib/nava')({ bru });
-  const cur = JSON.parse(bru.getVar('s10_policy'));
-  req.setBody({ rules: cur.rules, masks: cur.masks });
-  req.setHeader('If-Match', 'W/"' + cur.version + '"');
+  Authorization: Bearer {{alice_token}}
 }
 
 tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
-  N.status(200);
-  const was = JSON.parse(bru.getVar('s10_policy'));
-  test('version + 1', () => expect(N.json().version).to.eql(was.version + 1));
-  test('the same rules', () => expect(N.json().rules).to.eql(was.rules));
-  test('ETag W/"<version>"', () => expect(N.header('ETag')).to.eql('W/"' + N.json().version + '"'));
+  N.problem('forbidden', 403);
 }
 
 docs {
-  The body is the policy S10.6 read, unchanged (set by the pre-request script), so no decision changes. The new version is the old one plus one and the `ETag` says so.
+  Only tenant admins read an access policy.
 }

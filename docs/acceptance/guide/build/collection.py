@@ -1144,6 +1144,7 @@ N.noLeak(bru.getVar('s9_id'), 'S9 ' + bru.getVar('s9_run') + ' printer');"""),
 
 # --------------------------------------------------------------------------- S10
 def s10():
+    lst = "{{core_url}}/api/v1/records/incident"
     et = "{{core_url}}/api/v1/entity-types/incident/access"
     explain = "{{core_url}}/api/v1/access/explain?entity=incident&record={{s10_rec}}&user="
     key = lambda k: {"Idempotency-Key": "tick620-s10-{{s10_run}}-" + k}
@@ -1164,17 +1165,29 @@ req.setHeader('If-Match', 'W/"' + cur.version + '"');
 """
     return {
         "dir": "S10", "name": "S10 access",
-        "desc": "Story S10, TICK-336 (P3-35, TICK-620). A tenant admin reads and publishes an entity type's access policy and asks the explainer why a user can or cannot read a record. Needs `tools/seed.sh` (it publishes the default incident ACL through `nava-onboard reconcile-default-acl`). Story users: `admin@tenant-a` is tenant A's admin, `agent@tenant-a` is Alice, `agent@tenant-b` is Bob. Runs again on the same stack: S10.11 republishes the policy it read, unchanged, so each pass adds one ACL version and changes no decision.",
+        "desc": "Story S10, TICK-336. S10.1 to S10.5 are the record list under the ACL (TICK-619, P3-34): only the records the caller may read, with an exact `total` under the same predicate. S10.6 on (P3-35, TICK-620): a tenant admin reads and publishes an entity type's access policy and asks the explainer why a user can or cannot read a record. Needs `tools/seed.sh` (it publishes the default incident ACL through `nava-onboard reconcile-default-acl`). Story users: `admin@tenant-a` is tenant A's admin, `agent@tenant-a` is Alice, `agent@tenant-b` is Bob. Runs again on the same stack: S10.15 republishes the policy it read, unchanged, so each pass adds one ACL version and changes no decision.",
         "items": [
-            token("S10.1 Sign in as admin@tenant-a (tenant A's admins group)", "admin_a_username", "admin_a_password", "admin_a_token",
+            token("S10.1 Sign in as agent@tenant-a (Alice)", "alice_username", "alice_password", "alice_token"),
+            req("S10.2 List incidents: 200 with items, next_cursor and total", "GET", lst + "?limit=5", auth="alice_token",
+                desc="Only records Alice may read. `total` counts them under the same ACL predicate as the page.",
+                tests="""N.status(200);
+const b = N.json();
+test('items is an array of at most 5', () => { expect(b.items).to.be.an('array'); expect(b.items.length).to.be.at.most(5); });
+test('total is an integer at least the page size', () => { expect(b.total).to.be.a('number'); expect(b.total).to.be.at.least(b.items.length); });
+test('next_cursor is a string or null', () => expect(b.next_cursor === null || typeof b.next_cursor === 'string').to.eql(true));"""),
+            problem_req("S10.3 An unknown filter field: 400 validation_failed", "GET", lst + "?filter[no_such_field]=1", "validation_failed", 400,
+                        auth="alice_token", desc="Only properties of the entity type can be filtered."),
+            problem_req("S10.4 A bad cursor: 400 invalid_cursor", "GET", lst + "?cursor=garbage", "invalid_cursor", 400,
+                        auth="alice_token", desc="A cursor that was not issued to this caller for this query."),
+            problem_req("S10.5 No token: 401", "GET", lst, "invalid_token", 401, desc="Authentication comes first."),
+            token("S10.6 Sign in as admin@tenant-a (tenant A's admins group)", "admin_a_username", "admin_a_password", "admin_a_token",
                   extra="bru.setVar('s10_run', Math.random().toString(16).slice(2, 10));"),
-            token("S10.2 Sign in as agent@tenant-a (Alice, not an admin)", "alice_username", "alice_password", "alice_token"),
-            token("S10.3 Sign in as agent@tenant-b (Bob, tenant B)", "bob_username", "bob_password", "bob_token"),
-            req("S10.4 Alice's principal id", "GET", "{{core_url}}/api/v1/me", auth="alice_token",
+            token("S10.7 Sign in as agent@tenant-b (Bob, tenant B)", "bob_username", "bob_password", "bob_token"),
+            req("S10.8 Alice's principal id", "GET", "{{core_url}}/api/v1/me", auth="alice_token",
                 tests=f"N.me('{A}');\nbru.setVar('s10_alice', N.json().user_id);"),
-            req("S10.5 Bob's principal id", "GET", "{{core_url}}/api/v1/me", auth="bob_token",
+            req("S10.9 Bob's principal id", "GET", "{{core_url}}/api/v1/me", auth="bob_token",
                 tests=f"N.me('{B}');\nbru.setVar('s10_bob', N.json().user_id);"),
-            req("S10.6 The admin reads the incident access policy: 200 with its ETag", "GET", et, auth="admin_a_token",
+            req("S10.10 The admin reads the incident access policy: 200 with its ETag", "GET", et, auth="admin_a_token",
                 desc="The newest published version, `{version, rules, masks, published_by, published_at}`, with `ETag: W/\"<version>\"`. On a fresh stack it is version 1, the default incident ACL, with `published_by` null.",
                 tests="""N.status(200);
 const b = N.json();
@@ -1186,30 +1199,30 @@ test('version, rules, masks, published_at', () => {
 });
 test('ETag W/"<version>"', () => expect(N.header('ETag')).to.eql('W/"' + b.version + '"'));
 bru.setVar('s10_policy', JSON.stringify(b));"""),
-            req("S10.7 Alice (not an admin) reads it: 403", "GET", et, auth="alice_token",
+            req("S10.11 Alice (not an admin) reads it: 403", "GET", et, auth="alice_token",
                 desc="Only tenant admins read an access policy.",
                 tests="N.problem('forbidden', 403);"),
-            req("S10.8 An unknown entity type: the same 404 as a type that has no policy", "GET",
+            req("S10.12 An unknown entity type: the same 404 as a type that has no policy", "GET",
                 "{{core_url}}/api/v1/entity-types/no_such_type/access", auth="admin_a_token",
                 tests=no404),
-            req("S10.9 PUT without If-Match: 428", "PUT", et, auth="admin_a_token", headers=key("nomatch"),
+            req("S10.13 PUT without If-Match: 428", "PUT", et, auth="admin_a_token", headers=key("nomatch"),
                 body={"rules": []},
                 desc="428 `if_match_required`, and nothing is published.",
                 tests="N.problem('if_match_required', 428);"),
-            req("S10.10 PUT with a stale If-Match: 412 and the current ETag", "PUT", et, auth="admin_a_token",
+            req("S10.14 PUT with a stale If-Match: 412 and the current ETag", "PUT", et, auth="admin_a_token",
                 headers={**key("stale"), "If-Match": 'W/"0"'}, body={"rules": []},
                 desc="Version 0 is never current once a policy is published. 412 `version_conflict`, the current `ETag` in the header, nothing published.",
                 tests="""N.problem('version_conflict', 412);
 test('the current ETag is in the header', () => expect(N.header('ETag')).to.eql('W/"' + JSON.parse(bru.getVar('s10_policy')).version + '"'));"""),
-            req("S10.11 The admin republishes the policy it read: 200, version + 1", "PUT", et, auth="admin_a_token",
+            req("S10.15 The admin republishes the policy it read: 200, version + 1", "PUT", et, auth="admin_a_token",
                 headers=key("same"), body={"rules": []}, pre=same_policy,
-                desc="The body is the policy S10.6 read, unchanged (set by the pre-request script), so no decision changes. The new version is the old one plus one and the `ETag` says so.",
+                desc="The body is the policy S10.10 read, unchanged (set by the pre-request script), so no decision changes. The new version is the old one plus one and the `ETag` says so.",
                 tests="""N.status(200);
 const was = JSON.parse(bru.getVar('s10_policy'));
 test('version + 1', () => expect(N.json().version).to.eql(was.version + 1));
 test('the same rules', () => expect(N.json().rules).to.eql(was.rules));
 test('ETag W/"<version>"', () => expect(N.header('ETag')).to.eql('W/"' + N.json().version + '"'));"""),
-            req("S10.12 An unknown column and a group of no tenant: 422 with pointers", "PUT", et, auth="admin_a_token",
+            req("S10.16 An unknown column and a group of no tenant: 422 with pointers", "PUT", et, auth="admin_a_token",
                 headers={**key("bad"), "If-Match": 'W/"0"'},
                 body={"rules": [{"id": "bad", "ops": ["read"], "who": {"groups": ["00000000-0000-4000-8000-00000000dead"]},
                                  "where": [{"column": "priority", "op": "eq", "values": ["1"]}]}]},
@@ -1217,12 +1230,12 @@ test('ETag W/"<version>"', () => expect(N.header('ETag')).to.eql('W/"' + N.json(
                 tests="""N.problem('invalid_access_policy', 422);
 const at = N.json().errors.map(e => e.pointer);
 test('the column is named', () => expect(at).to.include('/rules/0/where/0/column'));"""),
-            req("S10.13 The admin creates an incident for Alice as requester", "POST", "{{core_url}}/api/v1/records/incident",
+            req("S10.17 The admin creates an incident for Alice as requester", "POST", "{{core_url}}/api/v1/records/incident",
                 auth="admin_a_token", headers=key("create"),
                 body={"data": {"short_description": "S10 {{s10_run}} explainer", "requester": "{{s10_alice}}"}},
                 desc="The admin has write on every record under the default ACL; Alice is named as the requester.",
                 tests="N.status(201);\nbru.setVar('s10_rec', N.json().id);"),
-            req("S10.14 Explain: why can Alice read it? allow, with the granting rule", "GET", explain + "{{s10_alice}}",
+            req("S10.18 Explain: why can Alice read it? allow, with the granting rule", "GET", explain + "{{s10_alice}}",
                 auth="admin_a_token",
                 desc="Alice is the requester, so the default requester rule grants read. `rule_id` names the rule; `masked_fields` lists only fields the admin could read.",
                 tests="""N.status(200);
@@ -1233,27 +1246,27 @@ test('allow, a rule id, an ACL version, a masked list', () => {
   expect(b.acl_version).to.be.a('number');
   expect(b.masked_fields).to.be.an('array');
 });"""),
-            req("S10.15 Explain for Bob, a user of tenant B: the same 404 as an unknown user", "GET", explain + "{{s10_bob}}",
+            req("S10.19 Explain for Bob, a user of tenant B: the same 404 as an unknown user", "GET", explain + "{{s10_bob}}",
                 auth="admin_a_token",
                 desc="Bob is another tenant's user: not found, byte for byte like a user that does not exist.",
                 tests=no404),
-            req("S10.16 Alice (not an admin) asks the explainer: 403", "GET", explain + "{{s10_alice}}", auth="alice_token",
+            req("S10.20 Alice (not an admin) asks the explainer: 403", "GET", explain + "{{s10_alice}}", auth="alice_token",
                 tests="N.problem('forbidden', 403);"),
-            req("S10.17 Explain without a token: 401", "GET", explain + "{{s10_alice}}",
+            req("S10.21 Explain without a token: 401", "GET", explain + "{{s10_alice}}",
                 tests="N.problem('invalid_token', 401);"),
-            req("S10.18 PUT without an Idempotency-Key: 400", "PUT", et, auth="admin_a_token",
+            req("S10.22 PUT without an Idempotency-Key: 400", "PUT", et, auth="admin_a_token",
                 headers={"If-Match": 'W/"1"'}, body={"rules": []},
                 tests="N.problem('validation_failed', 400);"),
-            req("S10.19 Read the policy without a token: 401", "GET", et, tests="N.problem('invalid_token', 401);"),
-            req("S10.20 PUT without a token: 401", "PUT", et, headers={**key("anon"), "If-Match": 'W/"1"'}, body={"rules": []},
+            req("S10.23 Read the policy without a token: 401", "GET", et, tests="N.problem('invalid_token', 401);"),
+            req("S10.24 PUT without a token: 401", "PUT", et, headers={**key("anon"), "If-Match": 'W/"1"'}, body={"rules": []},
                 tests="N.problem('invalid_token', 401);"),
-            req("S10.21 Alice (not an admin) publishes: 403, nothing published", "PUT", et, auth="alice_token",
+            req("S10.25 Alice (not an admin) publishes: 403, nothing published", "PUT", et, auth="alice_token",
                 headers={**key("alice"), "If-Match": 'W/"1"'}, body={"rules": []},
                 desc="Only tenant admins publish. The admin check runs first, so Alice learns nothing about the version or the body.",
                 tests="N.problem('forbidden', 403);"),
-            req("S10.22 PUT for an unknown entity type: 404", "PUT", "{{core_url}}/api/v1/entity-types/no_such_type/access",
+            req("S10.26 PUT for an unknown entity type: 404", "PUT", "{{core_url}}/api/v1/entity-types/no_such_type/access",
                 auth="admin_a_token", headers={**key("nosuch"), "If-Match": 'W/"0"'}, body={"rules": []}, tests=no404),
-            req("S10.23 Explain without the user parameter: 400", "GET",
+            req("S10.27 Explain without the user parameter: 400", "GET",
                 "{{core_url}}/api/v1/access/explain?entity=incident&record={{s10_rec}}", auth="admin_a_token",
                 tests="N.problem('validation_failed', 400);"),
         ],

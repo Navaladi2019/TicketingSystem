@@ -1,56 +1,26 @@
 meta {
-  name: S10.12 An unknown column and a group of no tenant: 422 with pointers
+  name: S10.12 An unknown entity type: the same 404 as a type that has no policy
   type: http
   seq: 12
 }
 
-put {
-  url: {{core_url}}/api/v1/entity-types/incident/access
-  body: json
+get {
+  url: {{core_url}}/api/v1/entity-types/no_such_type/access
+  body: none
   auth: none
 }
 
 headers {
   Authorization: Bearer {{admin_a_token}}
-  Idempotency-Key: tick620-s10-{{s10_run}}-bad
-  If-Match: W/"0"
-  Content-Type: application/json
-}
-
-body:json {
-  {
-    "rules": [
-      {
-        "id": "bad",
-        "ops": [
-          "read"
-        ],
-        "who": {
-          "groups": [
-            "00000000-0000-4000-8000-00000000dead"
-          ]
-        },
-        "where": [
-          {
-            "column": "priority",
-            "op": "eq",
-            "values": [
-              "1"
-            ]
-          }
-        ]
-      }
-    ]
-  }
 }
 
 tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
-  N.problem('invalid_access_policy', 422);
-  const at = N.json().errors.map(e => e.pointer);
-  test('the column is named', () => expect(at).to.include('/rules/0/where/0/column'));
-}
-
-docs {
-  422 `invalid_access_policy`. The unknown column is refused at `/rules/0/where/0/column`. A group that is not in the tenant is refused at `/rules/0/who/groups/0`, the same whether it does not exist or belongs to another tenant. The shape is checked before the version, so this answers 422, not 412.
+  test('HTTP 404 problem+json, code not_found, no instance', () => {
+    expect(res.getStatus()).to.eql(404);
+    expect(N.header('Content-Type') || '').to.include('application/problem+json');
+    expect(N.json().code).to.eql('not_found');
+    expect(N.json()).to.not.have.property('instance');
+  });
+  N.status(404);
 }

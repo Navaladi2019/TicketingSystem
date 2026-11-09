@@ -1,19 +1,18 @@
 meta {
-  name: S10.22 PUT for an unknown entity type: 404
+  name: S10.22 PUT without an Idempotency-Key: 400
   type: http
   seq: 22
 }
 
 put {
-  url: {{core_url}}/api/v1/entity-types/no_such_type/access
+  url: {{core_url}}/api/v1/entity-types/incident/access
   body: json
   auth: none
 }
 
 headers {
   Authorization: Bearer {{admin_a_token}}
-  Idempotency-Key: tick620-s10-{{s10_run}}-nosuch
-  If-Match: W/"0"
+  If-Match: W/"1"
   Content-Type: application/json
 }
 
@@ -25,11 +24,5 @@ body:json {
 
 tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
-  test('HTTP 404 problem+json, code not_found, no instance', () => {
-    expect(res.getStatus()).to.eql(404);
-    expect(N.header('Content-Type') || '').to.include('application/problem+json');
-    expect(N.json().code).to.eql('not_found');
-    expect(N.json()).to.not.have.property('instance');
-  });
-  N.status(404);
+  N.problem('validation_failed', 400);
 }

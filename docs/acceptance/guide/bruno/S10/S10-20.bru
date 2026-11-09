@@ -1,28 +1,20 @@
 meta {
-  name: S10.20 PUT without a token: 401
+  name: S10.20 Alice (not an admin) asks the explainer: 403
   type: http
   seq: 20
 }
 
-put {
-  url: {{core_url}}/api/v1/entity-types/incident/access
-  body: json
+get {
+  url: {{core_url}}/api/v1/access/explain?entity=incident&record={{s10_rec}}&user={{s10_alice}}
+  body: none
   auth: none
 }
 
 headers {
-  Idempotency-Key: tick620-s10-{{s10_run}}-anon
-  If-Match: W/"1"
-  Content-Type: application/json
-}
-
-body:json {
-  {
-    "rules": []
-  }
+  Authorization: Bearer {{alice_token}}
 }
 
 tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
-  N.problem('invalid_token', 401);
+  N.problem('forbidden', 403);
 }

@@ -43,3 +43,27 @@ func RowOf(ctx context.Context, tx pgx.Tx, p identity.Principal, rec *Record) (a
 // DecodeObject decodes a JSON object with numbers kept exact (json.Number),
 // the form Write takes in Command.Data.
 func DecodeObject(b []byte) (map[string]any, error) { return store.DecodeObject(b) }
+
+// ListQuery is the store's list query, for the read-only list route.
+type ListQuery = store.ListQuery
+
+// ListPage is one page of a list and its exact total.
+type ListPage = store.ListPage
+
+// List reads one page of the transaction's tenant's records. It reads only.
+func List(ctx context.Context, tx pgx.Tx, q ListQuery) (*ListPage, error) {
+	page, err := store.List(ctx, tx, q)
+	if err != nil {
+		return nil, fmt.Errorf("pipeline: %w", err)
+	}
+	return page, nil
+}
+
+// DefinitionID is the id of the tenant's entity type key, or ErrNotFound.
+func DefinitionID(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, key string) (uuid.UUID, error) {
+	id, err := store.DefinitionID(ctx, tx, tenantID, key)
+	if errors.Is(err, store.ErrNotFound) {
+		return uuid.Nil, ErrNotFound
+	}
+	return id, err
+}

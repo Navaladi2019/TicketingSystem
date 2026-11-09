@@ -1,35 +1,28 @@
 meta {
-  name: S10.2 Sign in as agent@tenant-a (Alice, not an admin)
+  name: S10.2 List incidents: 200 with items, next_cursor and total
   type: http
   seq: 2
 }
 
-post {
-  url: {{keycloak_url}}/realms/{{realm}}/protocol/openid-connect/token
-  body: formUrlEncoded
+get {
+  url: {{core_url}}/api/v1/records/incident?limit=5
+  body: none
   auth: none
 }
 
-body:form-urlencoded {
-  grant_type: password
-  client_id: nava-web
-  scope: openid
-  username: {{alice_username}}
-  password: {{alice_password}}
+headers {
+  Authorization: Bearer {{alice_token}}
 }
 
 tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
-  test('HTTP 200 from Keycloak', () => expect(res.getStatus()).to.eql(200));
-  const tok = N.json();
-  test('access token issued', () => expect(tok.access_token).to.be.a('string'));
-  bru.setVar('alice_token', tok.access_token);
-  if (tok.id_token) bru.setVar('alice_token_id', tok.id_token);
-  const c = N.jwt(tok.access_token);
-  bru.setVar('alice_token_exp', String(c.exp));
-  test('issuer is the pinned realm URL', () => expect(c.iss).to.eql(N.url('{{keycloak_issuer_url}}/realms/{{realm}}')));
+  N.status(200);
+  const b = N.json();
+  test('items is an array of at most 5', () => { expect(b.items).to.be.an('array'); expect(b.items.length).to.be.at.most(5); });
+  test('total is an integer at least the page size', () => { expect(b.total).to.be.a('number'); expect(b.total).to.be.at.least(b.items.length); });
+  test('next_cursor is a string or null', () => expect(b.next_cursor === null || typeof b.next_cursor === 'string').to.eql(true));
 }
 
 docs {
-  Signs in as `{{alice_username}}` through Keycloak (client `nava-web`, password grant) and keeps the access token in the runtime variable `alice_token`.
+  Only records Alice may read. `total` counts them under the same ACL predicate as the page.
 }

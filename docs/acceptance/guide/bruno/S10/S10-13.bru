@@ -1,36 +1,32 @@
 meta {
-  name: S10.13 The admin creates an incident for Alice as requester
+  name: S10.13 PUT without If-Match: 428
   type: http
   seq: 13
 }
 
-post {
-  url: {{core_url}}/api/v1/records/incident
+put {
+  url: {{core_url}}/api/v1/entity-types/incident/access
   body: json
   auth: none
 }
 
 headers {
   Authorization: Bearer {{admin_a_token}}
-  Idempotency-Key: tick620-s10-{{s10_run}}-create
+  Idempotency-Key: tick620-s10-{{s10_run}}-nomatch
   Content-Type: application/json
 }
 
 body:json {
   {
-    "data": {
-      "short_description": "S10 {{s10_run}} explainer",
-      "requester": "{{s10_alice}}"
-    }
+    "rules": []
   }
 }
 
 tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
-  N.status(201);
-  bru.setVar('s10_rec', N.json().id);
+  N.problem('if_match_required', 428);
 }
 
 docs {
-  The admin has write on every record under the default ACL; Alice is named as the requester.
+  428 `if_match_required`, and nothing is published.
 }

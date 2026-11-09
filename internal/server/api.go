@@ -97,7 +97,7 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 		api.StdHTTPServerOptions{
 			BaseURL:          baseURL,
 			BaseRouter:       mux,
-			Middlewares:      []api.MiddlewareFunc{a.Middleware()},
+			Middlewares:      []api.MiddlewareFunc{withRawQuery, a.Middleware()},
 			ErrorHandlerFunc: a.ErrorHandler,
 		},
 	)

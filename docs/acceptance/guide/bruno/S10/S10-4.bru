@@ -1,11 +1,11 @@
 meta {
-  name: S10.4 Alice's principal id
+  name: S10.4 A bad cursor: 400 invalid_cursor
   type: http
   seq: 4
 }
 
 get {
-  url: {{core_url}}/api/v1/me
+  url: {{core_url}}/api/v1/records/incident?cursor=garbage
   body: none
   auth: none
 }
@@ -16,6 +16,9 @@ headers {
 
 tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
-  N.me('00000000-0000-4000-8000-0000000000a1');
-  bru.setVar('s10_alice', N.json().user_id);
+  N.problem('invalid_cursor', 400);
+}
+
+docs {
+  A cursor that was not issued to this caller for this query.
 }

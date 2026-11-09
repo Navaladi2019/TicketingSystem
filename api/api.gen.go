@@ -450,6 +450,17 @@ type RecordHistory struct {
 	NextCursor *string        `json:"next_cursor,omitempty"`
 }
 
+// RecordList defines model for RecordList.
+type RecordList struct {
+	Items []Record `json:"items"`
+
+	// NextCursor Opaque; null on the last page.
+	NextCursor *string `json:"next_cursor"`
+
+	// Total Records the caller may read that match the filters, not only this page.
+	Total int64 `json:"total"`
+}
+
 // Entity defines model for Entity.
 type Entity = string
 
@@ -512,6 +523,13 @@ type PublishEntityTypeVersionParams struct {
 // OnboardTenantParams defines parameters for OnboardTenant.
 type OnboardTenantParams struct {
 	IdempotencyKey string `json:"Idempotency-Key"`
+}
+
+// ListRecordsParams defines parameters for ListRecords.
+type ListRecordsParams struct {
+	Sort   *string `form:"sort,omitempty" json:"sort,omitempty"`
+	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
 // CreateRecordParams defines parameters for CreateRecord.
@@ -585,6 +603,9 @@ type ServerInterface interface {
 	// OnboardTenant Onboard a tenant (operator token only)
 	// (POST /api/v1/operator/tenants)
 	OnboardTenant(w http.ResponseWriter, r *http.Request, params OnboardTenantParams)
+	// ListRecords List the records of an entity type the caller may read
+	// (GET /api/v1/records/{entity})
+	ListRecords(w http.ResponseWriter, r *http.Request, entity Entity, params ListRecordsParams)
 	// CreateRecord Create a record of an entity type
 	// (POST /api/v1/records/{entity})
 	CreateRecord(w http.ResponseWriter, r *http.Request, entity Entity, params CreateRecordParams)
@@ -1155,6 +1176,74 @@ func (siw *ServerInterfaceWrapper) OnboardTenant(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// ListRecords operation middleware
+func (siw *ServerInterfaceWrapper) ListRecords(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "entity" -------------
+	var entity Entity
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entity", r.PathValue("entity"), &entity, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entity", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListRecordsParams
+
+	// ------------- Optional query parameter "sort" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "sort", r.URL.Query(), &params.Sort, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "sort"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sort", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListRecords(w, r, entity, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // CreateRecord operation middleware
 func (siw *ServerInterfaceWrapper) CreateRecord(w http.ResponseWriter, r *http.Request) {
 
@@ -1521,6 +1610,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/entity-types/{key}/access", wrapper.PutEntityTypeAccess)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/access/explain", wrapper.ExplainAccess)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/audit/entries", wrapper.ListAuditEntries)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/records/{entity}", wrapper.ListRecords)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/records/{entity}", wrapper.CreateRecord)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/records/{entity}/{id}", wrapper.GetRecord)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/v1/records/{entity}/{id}", wrapper.PatchRecord)
@@ -2889,6 +2979,117 @@ func (response OnboardTenant501ApplicationProblemPlusJSONResponse) VisitOnboardT
 	return err
 }
 
+type ListRecordsRequestObject struct {
+	Entity Entity `json:"entity"`
+	Params ListRecordsParams
+}
+
+type ListRecordsResponseObject interface {
+	VisitListRecordsResponse(w http.ResponseWriter) error
+}
+
+type ListRecords200JSONResponse RecordList
+
+func (response ListRecords200JSONResponse) VisitListRecordsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListRecords400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response ListRecords400ApplicationProblemPlusJSONResponse) VisitListRecordsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListRecords401ApplicationProblemPlusJSONResponse Problem
+
+func (response ListRecords401ApplicationProblemPlusJSONResponse) VisitListRecordsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListRecords404ApplicationProblemPlusJSONResponse struct {
+	ProblemNoInstanceApplicationProblemPlusJSONResponse
+}
+
+func (response ListRecords404ApplicationProblemPlusJSONResponse) VisitListRecordsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListRecords429ApplicationProblemPlusJSONResponse Problem
+
+func (response ListRecords429ApplicationProblemPlusJSONResponse) VisitListRecordsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListRecords500ApplicationProblemPlusJSONResponse Problem
+
+func (response ListRecords500ApplicationProblemPlusJSONResponse) VisitListRecordsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListRecords501ApplicationProblemPlusJSONResponse Problem
+
+func (response ListRecords501ApplicationProblemPlusJSONResponse) VisitListRecordsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CreateRecordRequestObject struct {
 	Entity Entity `json:"entity"`
 	Params CreateRecordParams
@@ -3518,6 +3719,9 @@ type StrictServerInterface interface {
 	// OnboardTenant Onboard a tenant (operator token only)
 	// (POST /api/v1/operator/tenants)
 	OnboardTenant(ctx context.Context, request OnboardTenantRequestObject) (OnboardTenantResponseObject, error)
+	// ListRecords List the records of an entity type the caller may read
+	// (GET /api/v1/records/{entity})
+	ListRecords(ctx context.Context, request ListRecordsRequestObject) (ListRecordsResponseObject, error)
 	// CreateRecord Create a record of an entity type
 	// (POST /api/v1/records/{entity})
 	CreateRecord(ctx context.Context, request CreateRecordRequestObject) (CreateRecordResponseObject, error)
@@ -3879,6 +4083,33 @@ func (sh *strictHandler) OnboardTenant(w http.ResponseWriter, r *http.Request, p
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(OnboardTenantResponseObject); ok {
 		if err := validResponse.VisitOnboardTenantResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListRecords operation middleware
+func (sh *strictHandler) ListRecords(w http.ResponseWriter, r *http.Request, entity Entity, params ListRecordsParams) {
+	var request ListRecordsRequestObject
+
+	request.Entity = entity
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListRecords(ctx, request.(ListRecordsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListRecords")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListRecordsResponseObject); ok {
+		if err := validResponse.VisitListRecordsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

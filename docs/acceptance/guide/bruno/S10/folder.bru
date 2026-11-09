@@ -4,5 +4,5 @@ meta {
 }
 
 docs {
-  Story S10, TICK-336 (P3-35, TICK-620). A tenant admin reads and publishes an entity type's access policy and asks the explainer why a user can or cannot read a record. Needs `tools/seed.sh` (it publishes the default incident ACL through `nava-onboard reconcile-default-acl`). Story users: `admin@tenant-a` is tenant A's admin, `agent@tenant-a` is Alice, `agent@tenant-b` is Bob. Runs again on the same stack: S10.11 republishes the policy it read, unchanged, so each pass adds one ACL version and changes no decision.
+  Story S10, TICK-336. S10.1 to S10.5 are the record list under the ACL (TICK-619, P3-34): only the records the caller may read, with an exact `total` under the same predicate. S10.6 on (P3-35, TICK-620): a tenant admin reads and publishes an entity type's access policy and asks the explainer why a user can or cannot read a record. Needs `tools/seed.sh` (it publishes the default incident ACL through `nava-onboard reconcile-default-acl`). Story users: `admin@tenant-a` is tenant A's admin, `agent@tenant-a` is Alice, `agent@tenant-b` is Bob. Runs again on the same stack: S10.15 republishes the policy it read, unchanged, so each pass adds one ACL version and changes no decision.
 }
