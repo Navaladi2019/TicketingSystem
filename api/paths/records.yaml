@@ -14,7 +14,7 @@ paths:
         on a property mapped to a fixed column or a top-level scalar `data`
         property. `sort=<property>` or `sort=-<property>` on a property mapped
         to a fixed column, or on `created_at` or `updated_at`; the default is
-        `-created_at`; ties break on `id`. There is no sort or range on `data`.
+        `-updated_at`; ties break on `id`. There is no sort or range on `data`.
         An unknown property, an unsortable property, a value that does not fit
         the property's type or an unknown `filter[...]` form answers 400
         `validation_failed`. A property the ACL's field masks hide from the

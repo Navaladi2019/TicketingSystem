@@ -22,6 +22,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/cursor"
+	"github.com/Navaladi2019/TicketingSystem/internal/server"
 )
 
 type listPage struct {
@@ -254,7 +255,7 @@ func TestListRecordsMaskedSortKeyInCursor(t *testing.T) {
 	rec, _ := m.list(t, "user-a", "job", "cursor="+tok)
 	listCode(t, rec, http.StatusBadRequest, "masked_field")
 	// The same forged cursor is merely invalid for the sort it does not fit.
-	pos, _ = json.Marshal(map[string]any{"s": "updated_at", "d": true, "v": nil, "i": uuid.NewString()})
+	pos, _ = json.Marshal(map[string]any{"s": "created_at", "d": true, "v": nil, "i": uuid.NewString()})
 	tok, _ = kr.Encode(claims, pos)
 	rec, _ = m.list(t, "user-a", "job", "cursor="+tok)
 	listCode(t, rec, http.StatusBadRequest, "invalid_cursor")
@@ -412,4 +413,98 @@ func TestListRecordsItemsAreShaped(t *testing.T) {
 			t.Errorf("%s: cost in data = %v, want %v", token, has, wantCost)
 		}
 	}
+}
+
+// P3-34a (TICK-639): every page statement is answered by an index scan in the
+// requested order. EXPLAIN (FORMAT JSON) of the statement the handler builds,
+// for each sort a sort index serves (updated_at, created_at, state; the
+// assignee, group and requester columns have access-path indexes, not sort
+// indexes), both directions, with and without a cursor, must hold no Sort
+// node. Dropping an index (P3-34b) or changing the ORDER BY turns it red.
+// Sequential and bitmap scans are off so the planner can only use an index
+// that matches; with 4000 rows a missing index otherwise hides behind a
+// cheap sort.
+func TestListRecordsPageStatementsNeedNoSort(t *testing.T) {
+	e := newRecEnv(t)
+	ctx := t.Context()
+	var def uuid.UUID
+	if err := e.super.QueryRow(ctx, "SELECT id FROM entity_definitions WHERE tenant_id = $1 AND key = 'ticket'", e.a.id).Scan(&def); err != nil {
+		t.Fatal(err)
+	}
+	// Bulk rows with the triggers off (the records commit check wants an audit
+	// entry per write; this test reads plans, not audit).
+	tx, err := e.super.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, "SET LOCAL session_replication_role = replica"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO records (tenant_id, id, entity_definition_id, version, schema_version, number, state, created_at, updated_at, data)
+		 SELECT $1, gen_random_uuid(), $2, 1, 1, 'PLAN-' || g, CASE WHEN g % 3 = 0 THEN 'closed' ELSE 'new' END,
+		        now() - (g || ' seconds')::interval, now() - ((g * 7919 % 4000) || ' seconds')::interval, '{}'
+		 FROM generate_series(1, 4000) g`, e.a.id, def); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.super.Exec(ctx, "ANALYZE records"); err != nil {
+		t.Fatal(err)
+	}
+	for _, sort := range []string{"", "updated_at", "-updated_at", "created_at", "-created_at", "state", "-state"} {
+		for _, cursor := range []bool{false, true} {
+			name := fmt.Sprintf("sort=%q cursor=%v", sort, cursor)
+			sql, args := server.ListPageStatement(t, sort, cursor, e.a.id, def)
+			plan := explain(t, e, sql, args)
+			if hasNode(plan, "Sort") || hasNode(plan, "Incremental Sort") {
+				t.Errorf("%s: plan has a Sort node:\n%s", name, plan)
+			}
+			if !hasNode(plan, "Index Scan") && !hasNode(plan, "Index Only Scan") {
+				t.Errorf("%s: plan is no index scan:\n%s", name, plan)
+			}
+		}
+	}
+}
+
+func explain(t *testing.T, e *etEnv, sql string, args []any) string {
+	t.Helper()
+	ctx := t.Context()
+	tx, err := e.super.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	for _, s := range []string{"SET LOCAL enable_seqscan = off", "SET LOCAL enable_bitmapscan = off", "SET LOCAL jit = off"} {
+		if _, err := tx.Exec(ctx, s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var plan string
+	if err := tx.QueryRow(ctx, "EXPLAIN (FORMAT JSON) "+sql, args...).Scan(&plan); err != nil {
+		t.Fatalf("explain: %v\n%s", err, sql)
+	}
+	return plan
+}
+
+// hasNode reports whether the JSON plan holds a node of the given type.
+func hasNode(plan, nodeType string) bool {
+	var doc []struct{ Plan map[string]any }
+	if err := json.Unmarshal([]byte(plan), &doc); err != nil || len(doc) == 0 {
+		return false
+	}
+	var walk func(n map[string]any) bool
+	walk = func(n map[string]any) bool {
+		if n["Node Type"] == nodeType {
+			return true
+		}
+		kids, _ := n["Plans"].([]any)
+		for _, k := range kids {
+			if m, ok := k.(map[string]any); ok && walk(m) {
+				return true
+			}
+		}
+		return false
+	}
+	return walk(doc[0].Plan)
 }

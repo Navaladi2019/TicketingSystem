@@ -36,7 +36,7 @@ const (
 	listRecordsRoute    = "listRecords"
 	defaultRecordsLimit = 50
 	maxInValues         = 100
-	defaultSortField    = "created_at"
+	defaultSortField    = "updated_at"
 )
 
 type rawQueryKey struct{}
@@ -270,11 +270,20 @@ func (pl *listPlan) validPos(pos listPos) bool {
 	return err == nil
 }
 
-// keyset renders the page predicate after pos, placeholders from base+1.
+// keyset renders the page predicate after pos, placeholders from base+1. It
+// follows the store's ORDER BY: descending is col DESC NULLS FIRST, id DESC and
+// ascending is col ASC NULLS LAST, id ASC. A row comparison keeps the
+// predicate on the sort index (tenant, entity, col, id) so a deep page costs
+// what page 1 does; the NULL segment of a nullable column is handled apart.
 func (pl *listPlan) keyset(pos listPos, base int) (string, []any) {
 	col := "r." + pl.sortCol
 	if pos.Val == nil {
-		return "(" + col + " IS NULL AND r.id > $" + strconv.Itoa(base+1) + "::uuid)", []any{pos.ID}
+		id := "$" + strconv.Itoa(base+1) + "::uuid"
+		if pl.desc {
+			// NULLs come first: the rest of the segment, then every non-NULL.
+			return "(" + col + " IS NOT NULL OR r.id < " + id + ")", []any{pos.ID}
+		}
+		return "(" + col + " IS NULL AND r.id > " + id + ")", []any{pos.ID}
 	}
 	cast := "uuid"
 	switch pl.sortCol {
@@ -288,8 +297,20 @@ func (pl *listPlan) keyset(pos listPos, base int) (string, []any) {
 		op = "<"
 	}
 	v, id := "$"+strconv.Itoa(base+1)+"::"+cast, "$"+strconv.Itoa(base+2)+"::uuid"
-	return "(" + col + " " + op + " " + v + " OR " + col + " IS NULL OR (" + col + " = " + v + " AND r.id > " + id + "))",
-		[]any{*pos.Val, pos.ID}
+	pred := "((" + col + ", r.id) " + op + " (" + v + ", " + id + "))"
+	if !pl.desc && nullableSort(pl.sortCol) {
+		pred = "(" + pred + " OR " + col + " IS NULL)" // NULLS LAST follow every value
+	}
+	return pred, []any{*pos.Val, pos.ID}
+}
+
+// nullableSort reports whether col may hold NULL.
+func nullableSort(col string) bool {
+	switch col {
+	case "assignee_id", "assignment_group_id", "requester_id":
+		return true
+	}
+	return false
 }
 
 // ListRecords serves GET /api/v1/records/{entity}.
