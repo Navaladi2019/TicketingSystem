@@ -144,7 +144,10 @@ writes the incidents whose `assignment_group_id` is one of the caller's
 groups; a requester reads its own incidents in every state and reads and
 writes them while `state` is `new` (`default-requester-new`, A3). An
 unassigned incident is triaged by the admins group: M1 has no null condition.
-No masks. Onboarding publishes it
+No masks. On a create by a user or an AI that leaves the requester out, the
+pipeline sets `requester_id` to the caller before the write check (A4), so a
+requester can raise an incident under `default-requester-new`; a system source
+gets no default. Onboarding publishes it
 for the seeded `incident` type after the admins group is recorded and before
 the tenant is activated, through `authz.PolicyStore.PublishIfNone`, so a retry
 publishes nothing twice. A tenant with no `service-desk` group gets no

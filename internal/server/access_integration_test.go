@@ -80,7 +80,7 @@ func (e *etEnv) aclCounts(t *testing.T) (versions, entries int) {
 	return versions, entries
 }
 
-func ids(ps ...uuid.UUID) string {
+func uuidList(ps ...uuid.UUID) string {
 	out := make([]string, len(ps))
 	for i, p := range ps {
 		out[i] = `"` + p.String() + `"`
@@ -169,9 +169,9 @@ func TestPutAccessPublishesTheNextVersionWithItsAuditEntry(t *testing.T) {
 		t.Fatalf("create widget = %d: %s", r.Code, r.Body)
 	}
 	const path = "/api/v1/entity-types/widget/access"
-	body := `{"rules": [{"id": "r1", "ops": ["read", "write"], "who": {"users": [` + ids(e.a.admin.PrincipalID, e.a.user.PrincipalID) + `], "groups": [` + ids(e.a.adminGroup) + `]},
+	body := `{"rules": [{"id": "r1", "ops": ["read", "write"], "who": {"users": [` + uuidList(e.a.admin.PrincipalID, e.a.user.PrincipalID) + `], "groups": [` + uuidList(e.a.adminGroup) + `]},
 		"where": [{"column": "state", "op": "in", "values": ["new"]}]}],
-		"masks": [{"field": "note", "read": {"groups": [` + ids(e.a.adminGroup) + `]}, "write": {"groups": [` + ids(e.a.adminGroup) + `]}}]}`
+		"masks": [{"field": "note", "read": {"groups": [` + uuidList(e.a.adminGroup) + `]}, "write": {"groups": [` + uuidList(e.a.adminGroup) + `]}}]}`
 	versions0, entries0 := e.aclCounts(t)
 
 	// The first publish is based on W/"0": 200, version 1, its ETag.
@@ -242,7 +242,7 @@ func TestPutAccessPublishesTheNextVersionWithItsAuditEntry(t *testing.T) {
 func TestPutAccessReplayWithTheSameKeyWritesOneVersion(t *testing.T) {
 	e := newPatchEnv(t)
 	versions0, entries0 := e.aclCounts(t)
-	body := `{"rules": [{"id": "r", "ops": ["read"], "who": {"users": [` + ids(e.a.admin.PrincipalID) + `]}}]}`
+	body := `{"rules": [{"id": "r", "ops": ["read"], "who": {"users": [` + uuidList(e.a.admin.PrincipalID) + `]}}]}`
 	first := e.access(t, http.MethodPut, accessPath, "admin-a", "replay", `W/"1"`, body)
 	second := e.access(t, http.MethodPut, accessPath, "admin-a", "replay", `W/"1"`, body)
 	if first.Code != http.StatusOK || second.Code != http.StatusOK || first.Body.String() != second.Body.String() || second.Header().Get("ETag") != `W/"2"` {
@@ -261,8 +261,8 @@ func TestPutAccessReplayWithTheSameKeyWritesOneVersion(t *testing.T) {
 // covers: putEntityTypeAccess 400 403 404 422
 func TestPutAccessRefusalsWriteNothing(t *testing.T) {
 	e := newPatchEnv(t)
-	own := ids(e.a.adminGroup)
-	foreign := ids(e.b.adminGroup)
+	own := uuidList(e.a.adminGroup)
+	foreign := uuidList(e.b.adminGroup)
 	rule := func(who, where string) string {
 		if where != "" {
 			where = `, "where": [` + where + `]`
@@ -283,10 +283,10 @@ func TestPutAccessRefusalsWriteNothing(t *testing.T) {
 		{"duplicate rule id", `{"rules": [{"id": "r", "ops": ["read"], "who": {}}, {"id": "r", "ops": ["read"], "who": {}}]}`, "/rules/1/id duplicate"},
 		{"group of another tenant", rule(`{"groups": [`+foreign+`]}`, ""), "/rules/0/who/groups/0 not_in_tenant"},
 		{"group of no tenant", rule(`{"groups": ["00000000-0000-4000-8000-00000000dead"]}`, ""), "/rules/0/who/groups/0 not_in_tenant"},
-		{"user of another tenant", rule(`{"users": [`+ids(e.b.user.PrincipalID)+`]}`, ""), "/rules/0/who/users/0 not_in_tenant"},
+		{"user of another tenant", rule(`{"users": [`+uuidList(e.b.user.PrincipalID)+`]}`, ""), "/rules/0/who/users/0 not_in_tenant"},
 		{"a group where a user belongs", rule(`{"users": [`+own+`]}`, ""), "/rules/0/who/users/0 not_in_tenant"},
-		{"requester of another tenant in a condition", rule(`{}`, `{"column": "requester_id", "op": "eq", "values": [`+ids(e.b.user.PrincipalID)+`]}`), "/rules/0/where/0/values/0 not_in_tenant"},
-		{"assignee of another tenant in a condition", rule(`{}`, `{"column": "assignee_id", "op": "in", "values": [`+ids(e.a.user.PrincipalID, e.b.admin.PrincipalID)+`]}`), "/rules/0/where/0/values/1 not_in_tenant"},
+		{"requester of another tenant in a condition", rule(`{}`, `{"column": "requester_id", "op": "eq", "values": [`+uuidList(e.b.user.PrincipalID)+`]}`), "/rules/0/where/0/values/0 not_in_tenant"},
+		{"assignee of another tenant in a condition", rule(`{}`, `{"column": "assignee_id", "op": "in", "values": [`+uuidList(e.a.user.PrincipalID, e.b.admin.PrincipalID)+`]}`), "/rules/0/where/0/values/1 not_in_tenant"},
 		{"assignment group of another tenant in a condition", rule(`{}`, `{"column": "assignment_group_id", "op": "eq", "values": [`+foreign+`]}`), "/rules/0/where/0/values/0 not_in_tenant"},
 		{"mask group of another tenant", mask(`{"groups": [`+foreign+`]}`, `{}`), "/masks/0/read/groups/0 not_in_tenant"},
 		{"mask on a field the schema lacks", `{"rules": [], "masks": [{"field": "salary", "read": {}, "write": {}}]}`, "/masks/0/field field"},
@@ -295,7 +295,7 @@ func TestPutAccessRefusalsWriteNothing(t *testing.T) {
 		{"mask read by the assignee", mask(`{"assignee": true}`, `{}`), "/masks/0/read/assignee mask_subject"},
 		{"mask read by a share holder", mask(`{"shared": true}`, `{}`), "/masks/0/read/shared mask_subject"},
 		{"mask write by the requester", mask(`{}`, `{"requester": true}`), "/masks/0/write/requester mask_subject"},
-		{"mask write wider than read", mask(`{"groups": [`+own+`]}`, `{"groups": [`+own+`, `+ids(e.a.lookalikeGroup)+`]}`), "/masks/0/write/groups/1 mask_write"},
+		{"mask write wider than read", mask(`{"groups": [`+own+`]}`, `{"groups": [`+own+`, `+uuidList(e.a.lookalikeGroup)+`]}`), "/masks/0/write/groups/1 mask_write"},
 	} {
 		versions, entries := e.aclCounts(t)
 		rec := e.access(t, http.MethodPut, accessPath, "admin-a", fmt.Sprintf("refuse-%d", i), `W/"1"`, tc.body)
@@ -335,8 +335,8 @@ func TestPutAccessRefusalsWriteNothing(t *testing.T) {
 	}
 
 	// Own-tenant ids of every kind are accepted.
-	good := `{"rules": [{"id": "r", "ops": ["read", "write"], "who": {"groups": [` + own + `], "users": [` + ids(e.a.user.PrincipalID) + `]},
-		"where": [{"column": "assignment_group_id", "op": "in", "values": [` + own + `]}, {"column": "requester_id", "op": "eq", "values": [` + ids(e.a.user.PrincipalID) + `]}]}],
+	good := `{"rules": [{"id": "r", "ops": ["read", "write"], "who": {"groups": [` + own + `], "users": [` + uuidList(e.a.user.PrincipalID) + `]},
+		"where": [{"column": "assignment_group_id", "op": "in", "values": [` + own + `]}, {"column": "requester_id", "op": "eq", "values": [` + uuidList(e.a.user.PrincipalID) + `]}]}],
 		"masks": [{"field": "note", "read": {"groups": [` + own + `]}, "write": {}}]}`
 	if rec := e.access(t, http.MethodPut, accessPath, "admin-a", "good", `W/"1"`, good); rec.Code != http.StatusOK {
 		t.Fatalf("own-tenant ids = %d: %s", rec.Code, rec.Body)
@@ -365,7 +365,7 @@ func TestPutAccessRefusalsWriteNothing(t *testing.T) {
 func TestPutAccessAdminOfAnotherTenantChangesOnlyItsOwnTenant(t *testing.T) {
 	e := newPatchEnv(t)
 	versions, entries := e.aclCounts(t)
-	rec := e.access(t, http.MethodPut, accessPath, "admin-b", "b-own", `W/"1"`, `{"rules": [{"id": "b", "ops": ["read"], "who": {"users": [`+ids(e.b.admin.PrincipalID)+`]}}]}`)
+	rec := e.access(t, http.MethodPut, accessPath, "admin-b", "b-own", `W/"1"`, `{"rules": [{"id": "b", "ops": ["read"], "who": {"users": [`+uuidList(e.b.admin.PrincipalID)+`]}}]}`)
 	if rec.Code != http.StatusOK || decodeAccess(t, rec).Version != 2 {
 		t.Fatalf("tenant B publish = %d: %s", rec.Code, rec.Body)
 	}
@@ -408,9 +408,9 @@ func TestExplainAccessNamesTheRuleAndHidesWhatTheAdminCannotRead(t *testing.T) {
 	// from everyone outside the admins group; code only the lookalike group (of
 	// which the asking admin is not a member) may read.
 	put := e.access(t, http.MethodPut, accessPath, "admin-a", "explain-put", `W/"1"`,
-		`{"rules": [{"id": "r-desk", "ops": ["read", "write"], "who": {"users": [`+ids(e.a.admin.PrincipalID, e.a.user.PrincipalID)+`]}}],
-		 "masks": [{"field": "note", "read": {"groups": [`+ids(e.a.adminGroup)+`]}, "write": {"groups": [`+ids(e.a.adminGroup)+`]}},
-		           {"field": "code", "read": {"groups": [`+ids(e.a.lookalikeGroup)+`]}, "write": {"groups": [`+ids(e.a.lookalikeGroup)+`]}}]}`)
+		`{"rules": [{"id": "r-desk", "ops": ["read", "write"], "who": {"users": [`+uuidList(e.a.admin.PrincipalID, e.a.user.PrincipalID)+`]}}],
+		 "masks": [{"field": "note", "read": {"groups": [`+uuidList(e.a.adminGroup)+`]}, "write": {"groups": [`+uuidList(e.a.adminGroup)+`]}},
+		           {"field": "code", "read": {"groups": [`+uuidList(e.a.lookalikeGroup)+`]}, "write": {"groups": [`+uuidList(e.a.lookalikeGroup)+`]}}]}`)
 	if put.Code != http.StatusOK {
 		t.Fatalf("publish = %d: %s", put.Code, put.Body)
 	}
