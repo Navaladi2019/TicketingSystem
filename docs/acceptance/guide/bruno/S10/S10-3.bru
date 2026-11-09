@@ -1,0 +1,24 @@
+meta {
+  name: S10.3 An unknown filter field: 400 validation_failed
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?filter[no_such_field]=1
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('validation_failed', 400);
+}
+
+docs {
+  Only properties of the entity type can be filtered.
+}

@@ -354,6 +354,53 @@ paths:
         "501":
           $ref: "#/components/responses/Problem"
   /api/v1/records/{entity}:
+    get:
+      operationId: listRecords
+      summary: List the records of an entity type the caller may read
+      description: >
+        Returns only the records the entity type's published ACL lets the caller read (no ACL: none), with an exact `total` counted under the same predicate, so a record the caller cannot read is in neither the page nor `total`. Each item is shaped by the caller's field masks as getRecord's body is. Filters: `filter[<property>]=v` (equal) and `filter[<property>][in]=a,b` on a property mapped to a fixed column or a top-level scalar `data` property. `sort=<property>` or `sort=-<property>` on a property mapped to a fixed column, or on `created_at` or `updated_at`; the default is `-created_at`; ties break on `id`. There is no sort or range on `data`. An unknown property, an unsortable property, a value that does not fit the property's type or an unknown `filter[...]` form answers 400 `validation_failed`. A property the ACL's field masks hide from the caller, in a filter or a sort, answers 400 `masked_field` before any query runs. A `cursor` that is malformed, tampered, from another caller or query, or for another sort answers 400 `invalid_cursor`. An unknown entity type gives the 404 of getRecord, byte for byte.
+
+      parameters:
+        - $ref: "#/components/parameters/Entity"
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 130
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 4096
+      responses:
+        "200":
+          description: One page of records.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordList"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/ProblemNoInstance"
+        "429":
+          $ref: "#/components/responses/Problem"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "501":
+          $ref: "#/components/responses/Problem"
     post:
       operationId: createRecord
       summary: Create a record of an entity type
@@ -898,6 +945,21 @@ components:
       properties:
         data:
           description: The record payload, an object.
+    RecordList:
+      type: object
+      required: [items, next_cursor, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Record"
+        next_cursor:
+          type: [string, "null"]
+          description: Opaque; null on the last page.
+        total:
+          type: integer
+          format: int64
+          description: Records the caller may read that match the filters, not only this page.
     Record:
       type: object
       required: [id, number, version, schema_version, state, data, created_at, updated_at]
