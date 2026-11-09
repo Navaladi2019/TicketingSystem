@@ -1,0 +1,33 @@
+| Tenant | Scenario | Query | Visible rows | p50 ms | p95 ms | max ms | Buffers (EXPLAIN) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| L (1M) | default/end-user | count exact | 1114 | 11.1 | **17.0** | 17.0 | shared hit=3447 |
+| L (1M) | default/end-user | count capped 1001 | 1114 | 10.8 | **13.6** | 13.6 | shared hit=3324 |
+| L (1M) | default/end-user | page 1 | 1114 | 19.9 | **25.5** | 25.5 | shared hit=3452 |
+| L (1M) | default/end-user | page 20 | 1114 | 13.8 | **22.8** | 22.8 | shared hit=3452 |
+| L (1M) | default/agent-3-teams | count exact | 40248 | 162.3 | **203.4** | 203.4 | shared hit=47743 |
+| L (1M) | default/agent-3-teams | count capped 1001 | 40248 | 56.5 | **79.4** | 79.4 | shared hit=8965 |
+| L (1M) | default/agent-3-teams | page 1 | 40248 | 39.7 | **69.5** | 69.5 | shared hit=2636 |
+| L (1M) | default/agent-3-teams | page 20 | 40248 | 84.6 | **105.2** | 105.2 | shared hit=26398 |
+| L (1M) | default/service-desk | count exact | 1000000 | 574.3 | **664.3** | 664.3 | shared hit=175716 |
+| L (1M) | default/service-desk | count capped 1001 | 1000000 | 2.7 | **4.4** | 4.4 | shared hit=176 |
+| L (1M) | default/service-desk | page 1 | 1000000 | 4.8 | **5.5** | 5.5 | shared hit=205 |
+| L (1M) | default/service-desk | page 20 | 1000000 | 7.4 | **8.6** | 8.6 | shared hit=1161 |
+| L (1M) | share-heavy/partner | count exact | 51377 | 324.9 | **457.1** | 457.1 | shared hit=219485 |
+| L (1M) | share-heavy/partner | count capped 1001 | 51377 | 283.2 | **357.1** | 357.1 | shared hit=171145 |
+| L (1M) | share-heavy/partner | page 1 | 51377 | 446.2 | **598.0** | 598.0 | shared hit=219490 |
+| L (1M) | share-heavy/partner | page 20 | 51377 | 470.2 | **515.0** | 515.0 | shared hit=219490 |
+| M (100k) | default/end-user | count exact | 304 | 5.6 | **9.6** | 9.6 | shared hit=757 |
+| M (100k) | default/end-user | count capped 1001 | 304 | 4.9 | **6.9** | 6.9 | shared hit=757 |
+| M (100k) | default/end-user | page 1 | 304 | 10.0 | **13.1** | 13.1 | shared hit=762 |
+| M (100k) | default/agent-3-teams | count exact | 8220 | 38.0 | **51.8** | 51.8 | shared hit=10581 |
+| M (100k) | default/agent-3-teams | count capped 1001 | 8220 | 20.2 | **24.9** | 24.9 | shared hit=2811 |
+| M (100k) | default/agent-3-teams | page 1 | 8220 | 95.6 | **120.0** | 120.0 | shared hit=10586 |
+| M (100k) | default/agent-3-teams | page 20 | 8220 | 67.5 | **127.9** | 127.9 | shared hit=10586 |
+| M (100k) | default/service-desk | count exact | 100000 | 299.9 | **382.0** | 382.0 | shared hit=100937 |
+| M (100k) | default/service-desk | count capped 1001 | 100000 | 8.3 | **11.1** | 11.1 | shared hit=1014 |
+| M (100k) | default/service-desk | page 1 | 100000 | 5.6 | **7.3** | 7.3 | shared hit=202 |
+| M (100k) | default/service-desk | page 20 | 100000 | 10.9 | **23.4** | 23.4 | shared hit=1152 |
+| M (100k) | share-heavy/partner | count exact | 5270 | 94.9 | **174.5** | 174.5 | shared hit=28317 |
+| M (100k) | share-heavy/partner | count capped 1001 | 5270 | 40.7 | **80.2** | 80.2 | shared hit=19420 |
+| M (100k) | share-heavy/partner | page 1 | 5270 | 91.1 | **113.7** | 113.7 | shared hit=43434 |
+| M (100k) | share-heavy/partner | page 20 | 5270 | 104.0 | **194.3** | 194.3 | shared hit=39799 |
