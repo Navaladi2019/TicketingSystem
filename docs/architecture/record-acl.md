@@ -81,3 +81,5 @@ pair-matched shares, write scope); `internal/server/records_acl_integration_test
 (the byte-identical 404 on GET, PATCH and history; 403 on a scope move; no
 ACL denies). Fixtures publish an allow-all test ACL with
 `internal/authz/acltest`; the onboarding default ACL is P3-35's.
+
+Field masks (P3-33) are in [record-field-masks.md](record-field-masks.md).

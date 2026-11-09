@@ -116,3 +116,11 @@ codes:
     status: 422
     title: History too long
     detail: The record has more audit entries than a history page can replay. The history of this record cannot be read through this endpoint.
+  - code: masked_field
+    status: 400
+    title: Masked field
+    detail: The query filters, sorts, counts or aggregates on a field the entity type's access policy hides from you. See errors for the field.
+  - code: field_not_writable
+    status: 422
+    title: Field not writable
+    detail: The write sets or changes a field the entity type's access policy does not let you write. Nothing was written. See errors for the field.

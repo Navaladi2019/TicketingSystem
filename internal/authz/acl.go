@@ -99,8 +99,10 @@ type Rule struct {
 	Where []Cond   `json:"where,omitempty"`
 }
 
-// Mask is a field mask (P3-33 enforces it): a top-level schema property hidden
-// from everyone not in Read and unwritable for everyone not in Write.
+// Mask is a field mask (P3-33, mask.go): a top-level schema property hidden
+// from everyone not in Read and unwritable for everyone not in Write. Read and
+// Write match on Groups and Users only (A2): Requester, Assignee and Shared in
+// a mask never match.
 type Mask struct {
 	Field string  `json:"field"`
 	Read  Subject `json:"read"`
@@ -426,4 +428,11 @@ type Authorizer interface {
 	// not decide. Requiring both stops a write from moving a record out of
 	// the caller's write scope.
 	CanWrite(ctx context.Context, tx pgx.Tx, p identity.Principal, entity string, before, after *Row) error
+	// CanWriteFields is the field-mask write check (P3-33), a separate
+	// method so the A1 row check keeps its shape. before is the stored
+	// payload (nil on a create), after the caller's data without defaults,
+	// patch the caller's merge patch (nil on a create; see CheckWriteFields).
+	// It returns nil, *ErrFieldNotWritable naming the fields p may not write,
+	// ErrForbidden, or a wrapped error when it could not decide.
+	CanWriteFields(ctx context.Context, tx pgx.Tx, p identity.Principal, entity string, before, after, patch map[string]any) error
 }

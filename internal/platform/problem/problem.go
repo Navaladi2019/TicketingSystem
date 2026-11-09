@@ -55,6 +55,8 @@ const (
 	DefinitionSecretRequired Code = "definition_secret_required"
 	AssignmentGroupRemoved   Code = "assignment_group_removed"
 	HistoryTooLong           Code = "history_too_long"
+	MaskedField              Code = "masked_field"
+	FieldNotWritable         Code = "field_not_writable"
 )
 
 // Codes lists every Code constant.
@@ -64,6 +66,7 @@ func Codes() []Code {
 		RateLimited, NotFound, ValidationFailed, MethodNotAllowed,
 		NotImplemented, InternalError, InvalidDefinition, EntityTypeExists, NumberPrefixTaken, SchemaBreakingChange, RecordInvalid,
 		IfMatchRequired, VersionConflict, IllegalTransition, UniqueViolation, ConfigSecretInContent, DefinitionSecretRequired, AssignmentGroupRemoved, HistoryTooLong,
+		MaskedField, FieldNotWritable,
 	}
 }
 

@@ -71,10 +71,10 @@ func TestWriteChecksTheRowBeforeAndAfter(t *testing.T) {
 		stmt{match: sqlShares, scan: func(dest ...any) error { *dest[0].(*[]uuid.UUID) = []uuid.UUID{share}; return nil }},
 		stmt{match: sqlPayload, err: errBoom}) // stop the write after the authorizer
 	_, _ = p.Write(t.Context(), tx, f.update(rec.id, map[string]any{"status": "retired"}))
-	if len(calls) != 2 || calls[0].op != authz.OpRead || calls[1].op != authz.OpWrite {
-		t.Fatalf("authorizer calls = %+v, want read then write", calls)
+	if len(calls) != 3 || calls[0].op != authz.OpRead || calls[1].op != "fields" || calls[2].op != authz.OpWrite {
+		t.Fatalf("authorizer calls = %+v, want read, the field check, then write", calls)
 	}
-	w := calls[1]
+	w := calls[2]
 	if w.before == nil || w.before.State != "active" || w.after.State != "retired" || w.before.ID != rec.id || w.after.ID != rec.id {
 		t.Fatalf("write check before %+v after %+v, want active -> retired of the record", w.before, w.after)
 	}
@@ -84,8 +84,8 @@ func TestWriteChecksTheRowBeforeAndAfter(t *testing.T) {
 
 	calls = nil
 	_, _ = p.Write(t.Context(), f.tx(t, stmt{match: sqlNumber, err: errBoom}), f.create(map[string]any{"name": "x"}))
-	if len(calls) == 0 || calls[0].op != authz.OpWrite || calls[0].before != nil || calls[0].after == nil || calls[0].after.SharedWith != nil {
-		t.Fatalf("create's authorizer calls = %+v, want one write with no before and no shares", calls)
+	if len(calls) != 2 || calls[0].op != "fields" || calls[1].op != authz.OpWrite || calls[1].before != nil || calls[1].after == nil || calls[1].after.SharedWith != nil {
+		t.Fatalf("create's authorizer calls = %+v, want the field check, then one write with no before and no shares", calls)
 	}
 }
 
@@ -106,5 +106,92 @@ func TestSystemSourcesSkipTheAuthorizerAndAIDoesNot(t *testing.T) {
 	_, err := p.Write(t.Context(), f.tx(t, stmt{match: sqlNumber, err: errBoom}), sys)
 	if errors.Is(err, authz.ErrForbidden) || !errors.Is(err, errBoom) {
 		t.Fatalf("system write: %v, want it past the authorizer (to the number)", err)
+	}
+}
+
+// The mask write check (P3-33) sees the caller's own data: on a create the
+// sent payload, without the initial state or any default the pipeline adds;
+// on an update the stored payload and that payload with the patch merged in.
+func TestFieldCheckSeesOnlyTheCallersWrite(t *testing.T) {
+	f := newFixture()
+	var calls []authzCall
+	p := unitPipeline(fakeAuthz{calls: &calls}, fakeDefs{cur: assetDef(t), curVersion: 1})
+	_, _ = p.Write(t.Context(), f.tx(t, stmt{match: sqlNumber, err: errBoom}), f.create(map[string]any{"name": "x"}))
+	fc := fieldsCall(t, calls)
+	if fc.beforeData != nil || len(fc.afterData) != 1 || fc.afterData["name"] != "x" {
+		t.Fatalf("create field check before %v after %v, want nil and only the sent name", fc.beforeData, fc.afterData)
+	}
+
+	calls = nil
+	rec := storedRecord{tenant: f.tenant, id: uuid.New(), def: f.defID, key: "asset", version: 1, schemaVersion: 1,
+		state: "active", data: `{"name":"x"}`}
+	tx := f.tx(t, stmt{match: sqlGet, scan: rec.scan}, stmt{match: sqlPayload, err: errBoom})
+	_, _ = p.Write(t.Context(), tx, f.update(rec.id, map[string]any{"tag": 3}))
+	fc = fieldsCall(t, calls)
+	if got := authz.WrittenFields(fc.beforeData, fc.afterData); len(got) != 1 || got[0] != "tag" {
+		t.Fatalf("update field check before %v after %v: written %v, want [tag]", fc.beforeData, fc.afterData, got)
+	}
+}
+
+// A field the caller may not write refuses the write before any statement
+// that writes: no number, no record, no audit entry.
+func TestFieldNotWritableWritesNothing(t *testing.T) {
+	f := newFixture()
+	refusal := &authz.ErrFieldNotWritable{Fields: []string{"tag"}}
+	p := unitPipeline(fakeAuthz{fieldsErr: refusal}, fakeDefs{cur: assetDef(t), curVersion: 1})
+	tx := f.tx(t)
+	_, err := p.Write(t.Context(), tx, f.create(map[string]any{"name": "x", "tag": 1}))
+	var nw *authz.ErrFieldNotWritable
+	if !errors.As(err, &nw) || nw.Fields[0] != "tag" {
+		t.Fatalf("create: %v, want *authz.ErrFieldNotWritable for tag", err)
+	}
+	for _, s := range []string{sqlLock, sqlNumber, sqlInsert, sqlAudit} {
+		if tx.ranAny(s) {
+			t.Fatalf("a refused write ran %q", s)
+		}
+	}
+
+	sys := f.create(map[string]any{"name": "x", "tag": 1})
+	sys.Source, sys.Actor.PrincipalID = pipeline.SourceSystem, uuid.Nil
+	if _, err := p.Write(t.Context(), f.tx(t, stmt{match: sqlNumber, err: errBoom}), sys); errors.As(err, &nw) || !errors.Is(err, errBoom) {
+		t.Fatalf("system write: %v, want it past the field check (to the number)", err)
+	}
+}
+
+func fieldsCall(t *testing.T, calls []authzCall) authzCall {
+	t.Helper()
+	for _, c := range calls {
+		if c.op == "fields" {
+			return c
+		}
+	}
+	t.Fatalf("no field check in %+v", calls)
+	return authzCall{}
+}
+
+// TICK-633 B1: the field check comes before validation and the state model,
+// so a refused field never yields record_invalid or illegal_transition: the
+// patch below is both invalid and an illegal transition, and the answer is
+// still the field refusal.
+func TestFieldCheckRunsBeforeValidationAndTheStateModel(t *testing.T) {
+	f := newFixture()
+	refusal := &authz.ErrFieldNotWritable{Fields: []string{"status"}}
+	p := unitPipeline(fakeAuthz{fieldsErr: refusal}, fakeDefs{cur: assetDef(t), curVersion: 1})
+	rec := storedRecord{tenant: f.tenant, id: uuid.New(), def: f.defID, key: "asset", version: 1, schemaVersion: 1,
+		state: "retired", data: `{"name":"x"}`}
+	tx := f.tx(t, stmt{match: sqlGet, scan: rec.scan})
+	_, err := p.Write(t.Context(), tx, f.update(rec.id, map[string]any{"status": "active", "tag": "not a number"}))
+	var nw *authz.ErrFieldNotWritable
+	if !errors.As(err, &nw) {
+		t.Fatalf("update: %v, want *authz.ErrFieldNotWritable before validation and the transition check", err)
+	}
+	for _, s := range []string{sqlLock, sqlUpdate, sqlAudit} {
+		if tx.ranAny(s) {
+			t.Fatalf("a refused update ran %q", s)
+		}
+	}
+	_, err = p.Write(t.Context(), f.tx(t), f.create(map[string]any{"status": "retired", "tag": "x"}))
+	if !errors.As(err, &nw) {
+		t.Fatalf("create: %v, want *authz.ErrFieldNotWritable before validation and the initial-state check", err)
 	}
 }

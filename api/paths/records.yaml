@@ -22,6 +22,16 @@ paths:
         with the pointer of the group property, one body for every case,
         and writes nothing. An unknown entity type gives the 404 of
         getRecord, byte for byte, with no `instance`.
+        Sending a property the ACL's field masks do not let the caller write
+        answers 422 `field_not_writable` with `errors[].pointer` under `/data`
+        and writes nothing; a default the server applies is not the caller's
+        write. A unique value another record already holds is a 409
+        `unique_violation` naming the property only, never that record.
+        The 201 body is shaped by the caller's field masks as getRecord's is.
+        In it a top-level property the entity type's published
+        ACL masks from the caller is absent from `data`; if it is the state
+        property `state` is `""`, and if it is the assignment group property
+        `assignment_group` is absent. A mask names groups and users only.
       parameters:
         - $ref: "#/components/parameters/Entity"
         - name: Idempotency-Key
@@ -88,6 +98,10 @@ paths:
         record, a record of another entity type, an id that is not a UUID and
         an unknown entity type key give the same 404, byte for byte, with no
         `instance`.
+        Field masks (P3-33): a top-level property the entity type's published
+        ACL masks from the caller is absent from `data`; if it is the state
+        property `state` is `""`, and if it is the assignment group property
+        `assignment_group` is absent. A mask names groups and users only.
       parameters:
         - $ref: "#/components/parameters/Entity"
         - name: id
@@ -144,6 +158,14 @@ paths:
         group of the tenant answers the 422 `assignment_group_removed` of
         createRecord, the same body, and changes nothing. A patch that leaves
         a removed group unchanged succeeds.
+        A patch that sets, changes or removes a property the ACL's field
+        masks do not let the caller write answers 422 `field_not_writable`
+        and changes nothing. A property the caller cannot read counts as
+        written whatever its value, so its stored value, a wrong guess and
+        `null` get the same answer; this check runs before the body's schema
+        and state checks and the 403 check, so a masked `state` never answers
+        `illegal_transition`. The 200 body is shaped by
+        the caller's field masks as getRecord's is.
       parameters:
         - $ref: "#/components/parameters/Entity"
         - name: id
@@ -230,8 +252,11 @@ paths:
         `data` before and after the write (merge-patch semantics: an absent key
         is a removed key; `before` is absent on a create). `changed` lists the
         JSON pointers, under `/data`, of the properties that differ; arrays
-        count as one value. Values are unmasked until S10. The 404 is that of
-        getRecord, byte for byte, with no `instance`.
+        count as one value. A property the ACL's field masks hide from the
+        caller is absent from `before`, `after` and `changed`; an entry that
+        changed only such properties is still listed, with an empty
+        `changed`. Secret properties read `{"redacted":"mask"}`. The 404 is
+        that of getRecord, byte for byte, with no `instance`.
         A record with more than 500 audit entries is a 422 `history_too_long`:
         one page replays the whole history, so the history is capped
         (docs/budgets.md).
@@ -313,6 +338,10 @@ components:
           type: integer
         state:
           type: string
+          description: >
+            The record's state. `""` when the state property is masked from the
+            caller by a field mask (P3-33): it is no state of the model, so never
+            filter, transition or display it as one.
         data:
           type: object
           additionalProperties: true

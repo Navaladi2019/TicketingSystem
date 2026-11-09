@@ -3,7 +3,8 @@
 // it loads the record and the entity type's current definition, checks that
 // the caller can read the record (an unreadable one is ErrNotFound), applies
 // the merge patch and defaults, validates against the JSON Schema, authorises
-// the write against the record before and after it (authz.Authorizer, A1;
+// the write against the record before and after it and against the field
+// masks (authz.Authorizer, A1, P3-33;
 // skipped only for the system sources rule, workflow, function and system),
 // writes the row with an optimistic version check, writes one ADR-004 audit
 // entry through audit.Append and calls the EventSink. Nothing commits unless
@@ -365,7 +366,7 @@ func (p *Pipeline) Runner() TxRunner { return p.runner }
 
 // Write performs cmd in tx, which must come from tenancy.InTenantTx at READ
 // COMMITTED (the default). It returns ErrInvalidCommand, ErrNotFound,
-// authz.ErrForbidden, *ErrValidation, *ErrIllegalTransition,
+// authz.ErrForbidden, *authz.ErrFieldNotWritable, *ErrValidation, *ErrIllegalTransition,
 // *ErrUniqueViolation, ErrAssignmentGroupRemoved, ErrVersionConflict,
 // *ErrIdempotencyConflict or
 // outbox.ErrCascadeTooDeep for a refused write; ErrRetryable, wrapping the
@@ -564,6 +565,12 @@ func (w *write) do(ctx context.Context) (Result, error) {
 }
 
 func (w *write) create(ctx context.Context, after map[string]any) (Result, error) {
+	// The mask write check runs first, on the caller's own data: the defaults
+	// applied below are not its writes, and no other error (validation,
+	// state, row scope, unique) can come back for a masked field (P3-33).
+	if err := w.canWriteFields(ctx, nil, after, nil); err != nil {
+		return Result{}, err
+	}
 	after = w.def.ApplyDefaults(after)
 	// The state column is never NULL, and a record starts in the initial
 	// state.
@@ -653,8 +660,16 @@ func (w *write) update(ctx context.Context, patch map[string]any) (Result, error
 	}
 	before := rec.Payload(stored.FixedColumns())
 
-	after := mergePatch(deepCopy(before), patch)
-	after = w.def.ApplyDefaults(after)
+	// merged is the caller's write: the stored payload with its patch, before
+	// defaults. The mask write check runs on it right away, before
+	// validation, the state model, the row check and the unique lookup, so
+	// no other answer can depend on a masked field's stored value (P3-33,
+	// TICK-633 B1). ApplyDefaults returns a new map.
+	merged := mergePatch(deepCopy(before), patch)
+	if err := w.canWriteFields(ctx, before, merged, patch); err != nil {
+		return Result{}, err
+	}
+	after := w.def.ApplyDefaults(merged)
 	fe := w.def.Validate(after)
 	if _, ok := after[w.def.StateProperty()]; !ok {
 		fe = appendField(fe, metadata.FieldError{Path: "/" + escape(w.def.StateProperty()), Code: "required"})
@@ -805,6 +820,25 @@ func (w *write) canWrite(ctx context.Context, before, after *authz.Row) error {
 	}
 	err := w.p.authz.CanWrite(ctx, w.tx, w.cmd.Actor, w.cmd.EntityKey, before, after)
 	if err != nil && !errors.Is(err, authz.ErrForbidden) {
+		return fmt.Errorf("pipeline: %w", err)
+	}
+	return err
+}
+
+// canWriteFields is the mask write check of the authorise stage (P3-33),
+// skipped for the same system sources as canWrite. before is the stored
+// payload (nil on a create), after the caller's data without defaults, and
+// patch the caller's merge patch (nil on a create). A refusal is
+// *authz.ErrFieldNotWritable or authz.ErrForbidden; a failure to decide is
+// wrapped. It is the first check on the caller's data and runs before every
+// write statement, so a refused write leaves no record, audit or outbox row.
+func (w *write) canWriteFields(ctx context.Context, before, after, patch map[string]any) error {
+	if w.cmd.Source.system() {
+		return nil
+	}
+	err := w.p.authz.CanWriteFields(ctx, w.tx, w.cmd.Actor, w.cmd.EntityKey, before, after, patch)
+	var nw *authz.ErrFieldNotWritable
+	if err != nil && !errors.As(err, &nw) && !errors.Is(err, authz.ErrForbidden) {
 		return fmt.Errorf("pipeline: %w", err)
 	}
 	return err

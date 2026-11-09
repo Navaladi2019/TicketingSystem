@@ -22,14 +22,20 @@ const publishSQL = `
 INSERT INTO acl_versions (tenant_id, entity_definition_id, version, rules, masks)
 SELECT d.tenant_id, d.id,
        coalesce((SELECT max(a.version) FROM acl_versions a WHERE a.tenant_id = d.tenant_id AND a.entity_definition_id = d.id), 0) + 1,
-       $3::text::jsonb, '[]'::jsonb
+       $3::text::jsonb, $4::text::jsonb
 FROM entity_definitions d
 WHERE d.tenant_id = $1 AND d.key = $2
 RETURNING version`
 
-// Publish inserts rules as the entity type's next ACL version, in tx, and
-// returns the version. The entity type must exist in tx's tenant.
+// Publish inserts rules, with no masks, as the entity type's next ACL
+// version, in tx, and returns the version. The entity type must exist in tx's
+// tenant.
 func Publish(ctx context.Context, tx pgx.Tx, entityKey string, rules ...authz.Rule) (int, error) {
+	return PublishPolicy(ctx, tx, entityKey, rules, nil)
+}
+
+// PublishPolicy is Publish with field masks (P3-33).
+func PublishPolicy(ctx context.Context, tx pgx.Tx, entityKey string, rules []authz.Rule, masks []authz.Mask) (int, error) {
 	tenant, err := tenancy.TenantOf(ctx, tx)
 	if err != nil {
 		return 0, err
@@ -37,12 +43,19 @@ func Publish(ctx context.Context, tx pgx.Tx, entityKey string, rules ...authz.Ru
 	if rules == nil {
 		rules = []authz.Rule{}
 	}
+	if masks == nil {
+		masks = []authz.Mask{}
+	}
 	b, err := json.Marshal(rules)
 	if err != nil {
 		return 0, err
 	}
+	m, err := json.Marshal(masks)
+	if err != nil {
+		return 0, err
+	}
 	var v int
-	if err := tx.QueryRow(ctx, publishSQL, tenant, entityKey, string(b)).Scan(&v); err != nil {
+	if err := tx.QueryRow(ctx, publishSQL, tenant, entityKey, string(b), string(m)).Scan(&v); err != nil {
 		return 0, fmt.Errorf("acltest: publish %s: %w", entityKey, err)
 	}
 	return v, nil

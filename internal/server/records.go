@@ -31,7 +31,19 @@ import (
 // Record endpoints (TICK-357, P3-14). Check order on every records route:
 // authn, entity type (unknown is the one 404), record, read authorization
 // (an unreadable record is the same 404), body, then the write authorizer
-// inside the pipeline, after the schema check (P3-31).
+// inside the pipeline, after the schema check (P3-31), with the field-mask
+// write check beside it (P3-33). Every record body is shaped by the caller's
+// field masks (shapedBody).
+
+// recordACL is what the record and audit handlers need of the record ACL:
+// the read and write checks, and the policy of the shaping layer (P3-33).
+type recordACL interface {
+	authz.Authorizer
+	authz.MaskSource
+}
+
+// maskRule is the rule of the field error of a 422 field_not_writable.
+const maskRule = "mask"
 
 // pgForeignKeyViolation is SQLSTATE 23503.
 const pgForeignKeyViolation = "23503"
@@ -115,8 +127,12 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 		if err != nil {
 			return err
 		}
+		body, err := h.shapedBody(ctx, tx, p, rec, rec.Payload(fixed), fixed)
+		if err != nil {
+			return err
+		}
 		resp = api.CreateRecord201JSONResponse{
-			Body:    recordBody(rec, rec.Payload(fixed)),
+			Body:    body,
 			Headers: api.CreateRecord201ResponseHeaders{ETag: etag(rec.Version), Location: "/api/v1/records/" + rec.EntityKey + "/" + rec.ID.String()},
 		}
 		// The key completes in this transaction, with the write (TICK-482).
@@ -148,7 +164,7 @@ func (h *handlers) GetRecord(ctx context.Context, req api.GetRecordRequestObject
 	}
 	var (
 		rec  *pipeline.Record
-		data map[string]any
+		body api.Record
 	)
 	err := tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) error {
 		cur, curVersion, err := h.store.Current(ctx, tx, req.Entity)
@@ -170,8 +186,8 @@ func (h *handlers) GetRecord(ctx context.Context, req api.GetRecordRequestObject
 		if err != nil {
 			return err
 		}
-		data = cur.ApplyDefaults(rec.Payload(fixed))
-		return nil
+		body, err = h.shapedBody(ctx, tx, p, rec, cur.ApplyDefaults(rec.Payload(fixed)), fixed)
+		return err
 	})
 	if errors.Is(err, pipeline.ErrNotFound) || errors.Is(err, entitytypes.ErrNotFound) {
 		return h.notFound(ctx), nil
@@ -179,7 +195,7 @@ func (h *handlers) GetRecord(ctx context.Context, req api.GetRecordRequestObject
 	if err != nil {
 		return nil, err
 	}
-	return api.GetRecord200JSONResponse{Body: recordBody(rec, data), Headers: api.GetRecord200ResponseHeaders{ETag: etag(rec.Version)}}, nil
+	return api.GetRecord200JSONResponse{Body: body, Headers: api.GetRecord200ResponseHeaders{ETag: etag(rec.Version)}}, nil
 }
 
 // canRead returns pipeline.ErrNotFound when p may not read rec, so the
@@ -194,6 +210,49 @@ func (h *handlers) canRead(ctx context.Context, tx pgx.Tx, p identity.Principal,
 		return pipeline.ErrNotFound
 	}
 	return err
+}
+
+// policy is the entity type's current policy for p, for the shaping layer.
+// The caller has already checked that p may read the record, so a principal
+// of another tenant does not reach here; if one did, it is the missing record.
+func (h *handlers) policy(ctx context.Context, tx pgx.Tx, p identity.Principal, entity string) (*authz.Policy, error) {
+	pol, err := h.acl.Policy(ctx, tx, p, entity)
+	if errors.Is(err, authz.ErrNotVisible) {
+		return nil, pipeline.ErrNotFound
+	}
+	return pol, err
+}
+
+// shapedBody is the record body for p (P3-33): the one shaping layer every
+// record read goes through (GET, the 201 of a create, the 200 of a PATCH).
+// data is the record's payload under fixed, the mapping its row was written
+// under.
+func (h *handlers) shapedBody(ctx context.Context, tx pgx.Tx, p identity.Principal, rec *pipeline.Record, data map[string]any, fixed map[string]string) (api.Record, error) {
+	pol, err := h.policy(ctx, tx, p, rec.EntityKey)
+	if err != nil {
+		return api.Record{}, err
+	}
+	return shapeRecord(pol, p, rec, data, fixed), nil
+}
+
+// shapeRecord drops from data every property pol masks from p, and the
+// top-level fields that repeat a masked fixed-column property: state becomes
+// "" and assignment_group is left out. requester_id and assignee_id appear in
+// data only.
+func shapeRecord(pol *authz.Policy, p identity.Principal, rec *pipeline.Record, data map[string]any, fixed map[string]string) api.Record {
+	body := recordBody(rec, authz.Shape(pol, p, data))
+	for prop, col := range fixed {
+		if authz.Readable(pol, p, prop) {
+			continue
+		}
+		switch col {
+		case metadata.ColumnState:
+			body.State = ""
+		case metadata.ColumnAssignmentGroupID:
+			body.AssignmentGroup = nil
+		}
+	}
+	return body
 }
 
 // fixedColumnsOf is the fixed-column mapping of the version a row was written
@@ -264,6 +323,7 @@ func (h *handlers) recordError(ctx context.Context, err error, fixed map[string]
 		fixed, stateProp = av.FixedColumns, av.StateProperty
 	}
 	var (
+		nw *authz.ErrFieldNotWritable
 		ve *pipeline.ErrValidation
 		it *pipeline.ErrIllegalTransition
 		uv *pipeline.ErrUniqueViolation
@@ -273,6 +333,13 @@ func (h *handlers) recordError(ctx context.Context, err error, fixed map[string]
 	switch {
 	case errors.As(err, &pe):
 		return pe
+	case errors.As(err, &nw):
+		// The pointers name the fields the caller sent, never a value.
+		fields := make([]problem.FieldError, len(nw.Fields))
+		for i, f := range nw.Fields {
+			fields[i] = invalid("/data/"+escapePointer(f), maskRule)
+		}
+		return &problemError{problem.FieldNotWritable, fields, err}
 	case errors.Is(err, authz.ErrForbidden):
 		return &problemError{problem.Forbidden, nil, err}
 	case errors.Is(err, pipeline.ErrAssignmentGroupRemoved):
