@@ -1,0 +1,11 @@
+## 2026-11-09: TICK-638: every pull request into a story branch runs the full suite on open; skipped is not green
+- **Decided by:** process fix raised on TICK-619 (PR #530), implemented by the Quality, Testing & CI Advisor on TICK-638. Narrows the 2026-11-04 `ci:run` decision (TICK-563) for story-branch bases; the owner can revert it on cost.
+- **Reason:** since TICK-563, task PRs without `ci:run` collected reviewer approvals while `unit`, `integration`, `stack` (tenancy isolation), `temporal-server`, `commit-check-budget` and `coverage` were all skipped, and GitHub shows a skipped job as passed.
+- **Decision:**
+  - A pull request whose base starts with `TICK-` runs every job and every stack case on `opened`, `synchronize` and `reopened`, with no label (`CI_FULL=1` in `make ci-stages`). Images still follow the thin/real rule (TICK-628).
+  - A new `full-suite` job (`make check-full-suite`) needs every suite job and fails unless each one succeeded. It is in `tools/ci/cisteps/required.yaml`; the owner adds it to the required status checks of the story-branch ruleset.
+  - Review standard rule 3 (`docs/delivery/review-standard-core.md`): no `VERDICT: APPROVE` on a story-branch PR before the full-suite run on the reviewed head is visible and green.
+- **Unchanged:** pull requests into `main` and any other base still need `ci:run`; story → `main` PRs keep the story-acceptance flow; push and schedule triggers.
+- **Cost:** about one full run (about 39 billed minutes) per push to a task PR.
+- **Revisit if:** Actions cost becomes the binding constraint again; the cheaper fallback is auto-applying `ci:run` on `opened` (which keeps diff-based skipping and so needs `full-suite` relaxed to "not skipped when needed").
+- **Dissent:** none.

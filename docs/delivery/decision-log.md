@@ -6,6 +6,7 @@ Delivery decisions that change a task's contract, newest first.
 
 <!-- docindex:start -->
 
+- [2026-11-09: TICK-638: every pull request into a story branch runs the full suite on open; skipped is not green](decisions/2026-11-09-full-suite-on-story-branch-prs.md)
 - [2026-11-07: TICK-594: guarderrtype covers the audit.seal message; cause and details stay runtime-checked; a seal type held in a variable is deferred](decisions/2026-11-07-tick-594-seal-guard-lint-scope.md)
 - [2026-11-07: PLAN-005-E7 drafted: ADR-004-E7 lands as two tasks in S15; S15 acceptance waits for them](decisions/2026-11-07-plan-005-e7-adr-004-e7.md)
 - [2026-11-05: C5 amended: WithDelay option (P5-34a) and EnqueueReseed with reseed dedupe key (P5-35)](decisions/2026-11-05-c5-withdelay-and-enqueuereseed.md)

@@ -1,9 +1,10 @@
 # CI pipeline (T05)
 
 `make ci` runs every gate locally, for a human debugging a failure. **Agents
-verify in GitHub, not locally:** open a PR, add the `ci:run` label and read
-the `ci` workflow (a push to a task branch starts no run since TICK-563; see
-"In GitHub"). The GitHub workflow `.github/workflows/ci.yml`
+verify in GitHub, not locally:** open a PR and read the `ci` workflow. A PR
+into a `TICK-*` story branch runs every job with no label (TICK-638); any
+other PR needs the `ci:run` label (a push to a task branch starts no run since
+TICK-563; see "In GitHub"). The GitHub workflow `.github/workflows/ci.yml`
 calls only `make` targets. Install the pinned tools once with `make tools`.
 
 ## Gates, in order
@@ -413,16 +414,32 @@ branch starts no run: TICK-563 removed `TICK-**` from `on.push.branches`
 
 | Event | Jobs that run |
 | --- | --- |
-| pull request with neither `ci:run` nor `ci:full` | `changes`, `lint`, `story-branches` (`make ci-stages` with `CI_LINT_ONLY=1` sets every stage false) |
+| pull request into a `TICK-*` story branch (a task PR), any labels | every job and every stack case (`CI_FULL=1`, TICK-638), then `full-suite`, which fails unless every suite job succeeded |
+| any other pull request with neither `ci:run` nor `ci:full` | `changes`, `lint`, `story-branches` (`make ci-stages` with `CI_LINT_ONLY=1` sets every stage false) |
 | pull request with `ci:run` (added, or already there on a later push) | `changes`, `lint`, `story-branches` and the jobs its change needs (table below); `stack` skips the cases of untouched areas (below) |
 | pull request with `ci:full` | as `ci:run`, and `stack` runs every case |
-| `labeled` with any label but `ci:run` or `ci:full` | none: every job's `if:` skips it, and the run has a concurrency group of its own so it never cancels the real one |
+| `labeled` with any label but `ci:run` or `ci:full` | none: every job's `if:` skips it (`full-suite` too), and the run has a concurrency group of its own so it never cancels the real one |
 | push or manual run on `main` | every job (`CI_ALL=1`) and `main-red` on failure |
 | manual run on another branch | the jobs its diff against `main` needs (`CI_ALL` is never set off `main`) |
 | schedule | `story-branches` only |
 
-Add `ci:run` when the pull request is ready for review; later pushes run again
-without adding it again. A story → `main` pull request needs `ci:run` before it
+**Story-branch pull requests (TICK-638).** Since TICK-563 task PRs collected
+approvals while `unit`, `integration`, `stack`, `temporal-server`,
+`commit-check-budget` and `coverage` were all skipped, and a skipped job reads
+as "not failed". A pull request whose base starts with `TICK-` now runs the
+full suite when it opens and on every push, whatever its diff (`CI_FULL=1` in
+`make ci-stages`: every stage, every stack-case area; the images still follow
+the thin/real rule). The `full-suite` job (`make check-full-suite`,
+`scripts/ci/full-suite.sh`) needs every suite job and fails when any result is
+not `success`, so it is the one check to require on story-branch PRs. A
+reviewer approves only after that run is green on the reviewed head (rule 3 of
+`docs/delivery/review-standard-core.md`). Cost: a full run (about 39 billed
+minutes) per push to a task PR, against the TICK-563 saving; the gate on
+regressions was judged worth it. Tests: `TestFullSuite` and the `CI_FULL`
+checks in `TestCIStages` (`tools/ci/cichanged`).
+
+Add `ci:run` to any other pull request when it is ready for review; later
+pushes run again without adding it again. A story → `main` pull request needs `ci:run` before it
 merges (the story-acceptance flow adds it); its diff is the whole story, so it
 runs every job the story touched, and the push to `main` after the merge runs
 every job.
@@ -468,7 +485,10 @@ for each skipped case. Without `AREAS` (locally) every case runs. Every area
 runs (`CI_AREAS_ALL=1`, or `CI_ALL=1` on `main`) with the `ci:full` label, on a
 manual run, on a push to `main` and on every pull request into `main`: a
 branch name cannot tell a story → `main` PR from a task PR, so task PRs into
-`main` run every case too. Skipping applies to task PRs into story branches.
+`main` run every case too. Every pull request into a story branch runs every
+case as well (`CI_FULL=1`, TICK-638), so area skipping now applies only to a
+`ci:run` pull request into a branch that is neither `main` nor a `TICK-*`
+story branch.
 The mapping is tested in `TestClassifyAreas`, the runner in
 `TestAreasSkipUntouchedCases`.
 
