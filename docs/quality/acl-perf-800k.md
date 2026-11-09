@@ -227,6 +227,19 @@ numbers above:
   writes are not EXPLAINed, because `EXPLAIN ANALYZE` would run them again.
   8 clients on one tenant all take that tenant's `record_counters` row
   (D-3-9), so the large-tenant create p95 includes that lock wait.
+- **Create, agent (1 client)**, next to the 8-client row. With one client
+  no other create queues on the counter row, so this row is the create path
+  alone. D-3-9's trigger states no concurrency; the two rows together show
+  whether a miss comes from the path or from the counter queue.
+- **Counter hold**, a table in the raw report for every create scenario. Each
+  traced statement carries its start offset in the request. For each create,
+  the window runs from the end of the `record_counters` upsert (the row is
+  locked) to the end of the `COMMIT` that releases it. The table prints:
+  - the upsert itself (the wait for the row plus its execution);
+  - the hold, and how many statements run inside it;
+  - the hold split into transport (statements in the window times the
+    transport floor's p50, an estimate), database (the rest of their
+    statement time) and handler time (between statements).
 
 - **Transport floor.** Before the scenarios, 8 clients run `SELECT 1` 200
   times each on the handler's pool, and the report prints its p50/p95/p99.
