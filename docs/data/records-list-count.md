@@ -19,20 +19,32 @@ principal measured. At 100k, page 1 has p95 0.27 to 0.72 s.
 | C2: the share arm is a correlated `EXISTS`, OR-ed with the other arms | No `BitmapOr` is possible, so the count walks every row of the type (1.01M buffers at 1M) | **F2**, render the share arm as an InitPlan array, plus **I2**/**I3** for the assignee and group arms | No (the SQL changes, the semantics do not) |
 | C3: an exact count is O(visible rows) | 1M visible rows cost at least 470 ms, even as a parallel index-only scan with 0 heap fetches | No index fixes it | **Yes**: back to the plan author as an RFC |
 
-I1 + F2 + I2 + I3 bring every case into budget except two: a principal who
-sees most of the tenant (the count), and a share-heavy principal at 1M (count
-and page). Those two need the RFC (C3) and a plan-shape fix for F2's page
-(below).
+**No measured combination meets the budget for every principal.** Misses
+over 150 ms, as the slowest of 10 runs:
+
+| Variant | Misses |
+| --- | --- |
+| + I1 | 1M: the end-user count (4,841 ms), page 1 (184 ms) and page 20 (1,751 ms). The agent count (4,063 ms). The service-desk count (391 ms). The share-heavy count (3,661 ms) and page 20 (216 ms). 100k: every exact count (184 to 441 ms). |
+| + I1, F2, I2, I3 | 1M: the agent count (203 ms). The service-desk count (664 ms). The share-heavy count (457 ms), page 1 (598 ms) and page 20 (515 ms). 100k: the service-desk count (382 ms). The share-heavy count (175 ms) and page 20 (194 ms). |
+| Capped count, + I1, F2, I2, I3 | The share-heavy count at 1M (357 ms). Every other capped count is ≤ 80 ms. |
+
+Only the capped-count column comes close. The page has no single form that
+works for every principal:
+- With the `EXISTS` form and I1, sparse principals miss. The end user's
+  page 20 at 1M reads 902,359 buffers.
+- With F2, dense-share principals miss. The share-heavy page at 1M is a
+  bitmap plus a sort, at 532 ms.
 
 ## Results
 
-Statement time, nava_app, one client, as p50 / **p95** in ms. Baseline: 30
-runs. Variants: 10 runs. "Visible" is the exact count. Page 20 is the keyset
+Statement time, nava_app, one client, in ms. Baseline: 30 runs, p50 /
+**p95**. Variant columns: 10 runs, p50 / **max of 10**. With n = 10, the
+nearest-rank p95 is the maximum, so those columns are labelled that way. "Visible" is the exact count. Page 20 is the keyset
 page after row 950. "n/a": fewer than 950 visible rows.
 
 ### Tenant L, 1,000,000 incident records (+100,000 request)
 
-| Principal (visible) | Query | Baseline (main) | + I1 | + I1, F2, I2, I3 | Capped count 1001, + I1, F2, I2, I3 |
+| Principal (visible) | Query | Baseline (main), p50 / p95 | + I1, p50 / max | + I1, F2, I2, I3, p50 / max | Capped count 1001, + I1, F2, I2, I3, p50 / max |
 | --- | --- | --- | --- | --- | --- |
 | end user (1,114) | count | 2,014 / **2,993** | 3,199 / **4,841** | 11 / **17** | 11 / **14** |
 | | page 1 | 2,325 / **3,990** | 107 / **184** | 20 / **26** | |
@@ -49,7 +61,7 @@ page after row 950. "n/a": fewer than 950 visible rows.
 
 ### Tenant M, 100,000 incident records (+10,000 request)
 
-| Principal (visible) | Query | Baseline (main) | + I1 | + I1, F2, I2, I3 | Capped count 1001, + I1, F2, I2, I3 |
+| Principal (visible) | Query | Baseline (main), p50 / p95 | + I1, p50 / max | + I1, F2, I2, I3, p50 / max | Capped count 1001, + I1, F2, I2, I3, p50 / max |
 | --- | --- | --- | --- | --- | --- |
 | end user (304) | count | 248 / **336** | 160 / **184** | 6 / **10** | 5 / **7** |
 | | page 1 | 238 / **267** | 55 / **66** | 10 / **13** | |
@@ -64,8 +76,12 @@ page after row 950. "n/a": fewer than 950 visible rows.
 
 Full tables with max and `EXPLAIN` buffers, and every `EXPLAIN (ANALYZE,
 BUFFERS)`: `scratch/tick-637-list-count/out/<variant>/`. `SET LOCAL jit = off`
-(F1, `out/f1-jitoff/`) left every plan and every buffer count unchanged and
-moved the times only within the noise, so it is not proposed.
+(F1, `out/f1-jitoff/`) is not proposed here, and TICK-640 owns it. JIT is a
+real cost on the baseline: the end user's count at 1M spent 423 ms of
+1,921 ms in JIT, which agrees with PR #534's 200 to 430 ms. F1 is not
+proposed here because JIT stops mattering once I1 and F2 bring the plan cost
+under the JIT thresholds. On the multi-second baseline, its saving did not
+show through the ±50% noise.
 
 ## Why: the plans
 
@@ -109,6 +125,14 @@ type and sorts them (175,721 buffers). With I1 it walks the index and stops
 at 51 rows (205 buffers, 4 ms). `records_tenant_updated (updated_at DESC,
 id DESC)` cannot serve a list sorted by `updated_at` either: the store renders
 `DESC NULLS LAST, id ASC`, and the index is `DESC` (NULLS FIRST), `id DESC`.
+**The keyset is an OR, not a row comparison.** `records_list.go` renders the
+page-20 predicate as `(created_at < $v OR created_at IS NULL OR (created_at =
+$v AND id > $id))`. No index condition can come from that, so a keyset page
+walks I1 from the top and filters out every row before the cursor. For a
+sparse principal, that is the 902,359 buffers in the Verdict. PR #534
+(TICK-621) found the same thing as its cause 3. The sort index and the
+keyset get one fix, in TICK-640, for both PRs.
+
 None of the three list indexes in `20261101190000_records_pipeline.sql`
 serves the default order or the `updated_at` order that `store.List`
 produces. At best, `records_tenant_requester` gives a requester-sorted list a
@@ -130,20 +154,35 @@ only to performance.
 
 ### Data layer, no contract change (postgres-dev, follow-up task)
 
-1. **I1** `records_tenant_def_created ON records (tenant_id, entity_definition_id, created_at DESC NULLS LAST, id)`,
-   91 MB at 1.21M rows, `CREATE INDEX CONCURRENTLY`. It serves the default
-   sort and keyset. Page 1 p95 3.3 s → 5 ms for the service desk at 1M.
+1. **I1**, a sort index for the default order: 91 MB at 1.21M rows, built with
+   `CREATE INDEX CONCURRENTLY`. It takes the service-desk page 1 at 1M from
+   3,290 ms p95 to 5 ms (max of 10). It does not help a keyset page until the
+   keyset is a row comparison (C1). **Now folded into TICK-640** as the shared
+   contract's `(tenant_id, entity_definition_id, created_at DESC, id DESC)`,
+   together with that keyset fix. The shape measured here is not built.
 2. **F2** in `authz.compiler.shared`: the uncorrelated InitPlan form, bound to
    `p.TenantID`. The rendering of the decision changes and the decision does
    not, so the I5 agreement suite (P3-32) and the Security & Multi-Tenancy
    Reviewer must pass it first. It needs **I2** `(tenant_id, assignee_id)`
    (8.9 MB) and **I3** `(tenant_id, assignment_group_id)` (8.7 MB) so every arm
    is indexable. `records_tenant_group_open` is partial (`state <> 'closed'`)
-   and cannot serve closed rows.
-3. Use F2 for the count only and keep the `EXISTS` form for the page, until the
-   share-heavy page plan is fixed. The page then gets I1's walk, and the count
-   gets the bitmap. This combination is inferred from the two columns above,
-   not run end to end; the follow-up measures it.
+   and cannot serve closed rows. I2 and I3 are now folded into TICK-640, as
+   the contract's `assignee_id` and `assignment_group_id` access-path
+   indexes. F2 itself waits for the Security & Multi-Tenancy Reviewer's
+   verdict. The harness's `rewriteShare` is a string patch that hard-codes
+   `$1`, so it is not a model for F2: the compiler must bind `p.TenantID`
+   through `c.arg`.
+3. **The page is open.** Neither form meets the budget for every principal
+   (Verdict). F2 fails dense-share pages, and `EXISTS` with I1 fails sparse
+   pages. Using F2 for the count only was never run end to end, and it does
+   not fix the page. It would also make the count and the page render the
+   same decision as different SQL. That needs a mode on `CompileRead`, with
+   the I5 agreement suite covering both forms, and it is the Technical Lead's
+   design call. One option worth measuring is to fetch the share ids first
+   and bind them as a `uuid[]` parameter. The planner then knows the array's
+   length and can choose, per principal, between the bitmap and the ordered
+   walk. It is an authz change, so it has the same security gate as F2. The
+   follow-up must measure sparse and dense principals with the same code.
 4. Align the other sort orders with the indexes, or drop the indexes no order
    uses (C1, last paragraph). That needs its own measurement.
 
@@ -159,7 +198,7 @@ secondary B-trees, so expect a few percent per index.
 C3 means an exact `total` cannot meet 150 ms when a principal sees a large
 share of a 1M tenant. The options, measured with I1 + F2 + I2 + I3:
 
-| Option | 1M, service desk | 1M, share-heavy | Contract effect |
+| Option | 1M, service desk (p50 / max of 10) | 1M, share-heavy (p50 / max of 10) | Contract effect |
 | --- | --- | --- | --- |
 | Exact `count(*)` on every page (today) | 574 / **664** ms | 325 / **457** ms | none |
 | Exact count on the first page only | the same on page 1 | the same on page 1 | `total` absent after page 1; page 1 still misses |
@@ -167,11 +206,11 @@ share of a 1M tenant. The options, measured with I1 + F2 + I2 + I3:
 | Planner estimate | not measured | not measured | rejected: wrong by 400x, and a count oracle |
 
 My recommendation is the capped count, the fallback P3-01 already named for a
-count-only miss (`records-list-bench.md`), with the share-heavy page fixed as
-in step 3. The capped share-heavy count still misses at 357 ms: the bitmap
-builds the whole share set before `LIMIT` stops it. That case needs either the
-step 3 plan or a cap on the number of shares a principal can hold, and it is
-the main open question for the RFC.
+count-only miss (`records-list-bench.md`). The capped share-heavy count still
+misses at 357 ms (max of 10): the bitmap builds the whole share set before
+`LIMIT` stops it. That case, together with the open page form in step 3, is
+the main open question for the RFC. Possible answers are a bound share-id
+parameter, or a cap on the number of shares a principal can hold.
 
 ## Setup
 
@@ -179,8 +218,8 @@ the main open question for the RFC.
   on WSL2, a VM with 16 CPUs. The idle `nava` stack and another agent's
   PostgreSQL container ran at the same time, so treat timings as about ±50%,
   and compare buffers first. The same query moved by up to 2x between runs
-  with the same plan (for example, service desk count without F2, 391 ms vs
-  714 ms p95).
+  with the same plan (for example, the service-desk count without F2: 391 ms
+  max of 10 with I1, against 714 ms p95 over 30 baseline runs).
 - `postgres:16.10`: `shared_buffers = 2GB`, `effective_cache_size = 6GB`,
   `max_wal_size = 8GB`, `track_io_timing = on`, `fsync = off`,
   `synchronous_commit = off` (reads are unaffected). Everything else is the
@@ -248,5 +287,7 @@ erDiagram
 - Plan author (records path): the RFC on `total` (C3).
 - Security & Multi-Tenancy Reviewer: F2 (an authz compiler change), and the
   estimate-as-total oracle.
-- postgres-dev follow-up: I1, I2, I3 with a write benchmark, and F2 on the
-  count only.
+- TICK-640 (postgres-dev): I1, I2 and I3 in the contract's shapes, the keyset
+  row comparison shared with PR #534, the write benchmark, and a re-run of
+  this harness on the merged set with sparse and dense principals.
+- Technical Lead: whether `CompileRead` gets a count-only form (step 3).
