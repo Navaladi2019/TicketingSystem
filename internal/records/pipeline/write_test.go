@@ -168,10 +168,6 @@ func scanUUID(id uuid.UUID) func(...any) error {
 	return func(dest ...any) error { *dest[0].(*uuid.UUID) = id; return nil }
 }
 
-func scanInt(n int64) func(...any) error {
-	return func(dest ...any) error { *dest[0].(*int64) = n; return nil }
-}
-
 func scanString(v string) func(...any) error {
 	return func(dest ...any) error { *dest[0].(*string) = v; return nil }
 }

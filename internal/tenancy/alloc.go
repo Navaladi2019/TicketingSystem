@@ -58,7 +58,9 @@ type AllocInfo struct {
 //
 // On any error the connection is not idle, and the pool destroys it on
 // release, so neither the tenant nor the setting can leak. The caller bounds
-// the call with ctx (ADR-005 A5).
+// the call with ctx (ADR-005 A5). The whole send, COMMIT included, may have
+// reached the server before ctx ends: an allocation reported as failed can
+// still commit. Its number is then a gap, never a number on two records.
 func AllocTx(ctx context.Context, pool *pgxpool.Pool, createTx pgx.Tx, queue func(b *pgx.Batch, tenant uuid.UUID)) (AllocInfo, error) {
 	tenant, err := TenantOf(ctx, createTx)
 	if err != nil {

@@ -737,18 +737,24 @@ type perfHold struct {
 }
 
 // counterHold finds the record_counters upsert and the COMMIT that ends its
-// transaction in one create's statements. Since TICK-657 the upsert runs
-// alone in a transaction of its own on the allocator pool, and the COMMIT
-// right after it ends the window (D-3-9 as amended 2026-11-10). A COMMIT
-// batched after other statements (" ; commit") still ends it, as in the
-// TICK-648 layout. n counts round trips.
+// transaction in one create's statements. Since TICK-657 (ADR-005 L2s) the
+// upsert and its COMMIT are one AllocTx trip: the hold is inside it, and
+// wait is the whole trip. Otherwise (TICK-648, gapless L1) a COMMIT batched
+// after other statements (" ; commit") ends the window. n counts round
+// trips.
 func counterHold(ss []perfStmt) (perfHold, bool) {
 	up := slices.IndexFunc(ss, func(s perfStmt) bool { return strings.Contains(s.SQL, "INSERT INTO record_counters") })
 	if up < 0 {
 		return perfHold{}, false
 	}
-	locked := ss[up].Start + ss[up].Dur
 	h := perfHold{wait: ss[up].Dur}
+	// ADR-005 L2s (tenancy.AllocTx): the upsert and its COMMIT are one
+	// pipelined trip, so the lock is held inside it, already counted in
+	// wait; nothing after the trip holds it.
+	if strings.HasSuffix(strings.ToLower(strings.TrimSpace(ss[up].SQL)), " ; commit") {
+		return h, true
+	}
+	locked := ss[up].Start + ss[up].Dur
 	for _, s := range ss[up+1:] {
 		h.stmts += s.Dur
 		h.n++
