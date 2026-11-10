@@ -2,7 +2,8 @@
 
 `make ci` runs every gate locally, for a human debugging a failure. **Agents
 verify in GitHub, not locally:** open a PR and read the `ci` workflow. A PR
-into a `TICK-*` story branch runs every job with no label (TICK-638); any
+into a `TICK-*` story branch runs every job with no label (TICK-638; except
+`temporal-server` when the PR leaves that module alone, TICK-695); any
 other PR needs the `ci:run` label (a push to a task branch starts no run since
 TICK-563; see "In GitHub"). The GitHub workflow `.github/workflows/ci.yml`
 calls only `make` targets. Install the pinned tools once with `make tools`.
@@ -443,7 +444,7 @@ push to a task or story branch starts no run: TICK-563 removed `TICK-**` from
 
 | Event | Jobs that run | Suites |
 | --- | --- | --- |
-| pull request into a `TICK-*` story branch (a task PR), no `ci:full` | every job and every stack-case area (`CI_FULL=1` in `make ci-stages`, TICK-638), then `full-suite`, which fails unless every suite job succeeded | fast |
+| pull request into a `TICK-*` story branch (a task PR), no `ci:full` | every job and every stack-case area (`CI_FULL=1` in `make ci-stages`, TICK-638) but `temporal-server`, which runs only when the diff from the story branch touched its inputs (TICK-695), then `full-suite`, which fails unless every suite job succeeded (a `temporal-server` skipped for an unchanged module counts as success) | fast |
 | any other pull request with neither `ci:run` nor `ci:full` | `changes`, `lint`, `story-branches` (`make ci-stages` with `CI_LINT_ONLY=1` sets every stage false) | none |
 | pull request with `ci:run` (added, or already there on a later push) | `changes`, `lint`, `story-branches` and the jobs its change needs (table below); `stack` skips the cases of untouched areas (below) | fast |
 | pull request with `ci:full` (any base) | every job and every area | full |
@@ -643,16 +644,42 @@ at 11.3 GB of its 10 GB.
 
 | Run | `temporal_server` |
 | --- | --- |
-| a pull request into a `TICK-*` story branch (`CI_FULL`) | true: `full-suite` needs every job |
+| a full run (`CI_FULL`: `ci:full`, a manual run, the daily run) | true |
 | a pull request without `ci:run` or `ci:full` | false |
 | a push to `main` | true if the push's own commits (`github.event.before`..HEAD) changed an input below; true when that commit is unknown |
 | a manual run on `main` | true |
+| a pull request into a `TICK-*` story branch (TICK-695) | true if the diff from the merge base with the story branch changed an input below |
 | any other pull request or manual run | true if the diff from the merge base changed an input below |
 
-Inputs: `temporal-server/`, `make/temporal-server.mk`, `make/lint.mk` (tool
-pins), `Makefile`, `.golangci.yml`, `docs/pins.md`, `.github/workflows/ci.yml`,
-`tools/ci/suiteran`, and the script itself. `TestTemporalServerChanged`
-(`tools/ci/cichanged`) covers each row and the inputs.
+**Story-branch pull requests (TICK-695).** This job is the one exception to
+TICK-638's "every job runs on a pull request into a story branch". A task PR
+into a story branch diffs against the story branch (`BASE` is
+`origin/<base_ref>`), so a task that leaves the module alone skips the job,
+even when an earlier task of the same story changed it. The `full-suite` job
+accepts that skip only when the `changes` job wrote `temporal_server=false`
+(`TEMPORAL_SERVER`, `scripts/ci/full-suite.sh`); a skipped `temporal-server`
+with any other decision, or any other skipped job, still fails it. This is
+safe because `temporal-server/` is a separate Go module with its own
+`go.mod`: nothing in the root module changes what it builds or tests. The
+story -> `main` PR still runs the job whenever the story touched the module,
+since its diff from `main` includes the change. A skipped required check
+passes in branch protection, so the PR stays mergeable.
+
+Inputs (TICK-695):
+
+| Input | Triggers on |
+| --- | --- |
+| `temporal-server/` (its `go.mod` pins the job's Go version), `make/temporal-server.mk`, `.golangci.yml`, `tools/ci/suiteran`, `scripts/ci/temporal-server-changed.sh` | any change |
+| `Makefile`, `make/lint.mk` | a changed line that mentions `GOLANGCI_LINT_VERSION`: the pin (in `Makefile`), and how `make tools` installs and `check-golangci-lint` checks it (in `make/lint.mk`) |
+| `docs/pins.md` | a changed `golangci-lint` row or ``Go (`temporal-server`)`` row |
+
+Not inputs: `.github/workflows/ci.yml` and any other `Makefile`,
+`make/lint.mk` or `docs/pins.md` edit; CI-tuning PRs edit those constantly.
+**Accepted trade-off:** an edit to the job's own steps in `ci.yml` is not
+exercised until the module next changes, a `ci:full` run, or the next manual
+or daily run on `main` (`CI_ALL`). `TestTemporalServerChanged` and
+`TestTemporalServerChangedStoryPR` (`tools/ci/cichanged`) cover each row and
+input; `TestFullSuite` covers the skip exception.
 
 **govulncheck workflow.** govulncheck is no longer a step of the `ci`
 workflow: `.github/workflows/govulncheck.yml` runs it as a pipeline of its own
