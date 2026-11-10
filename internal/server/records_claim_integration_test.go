@@ -408,3 +408,45 @@ func TestCreateRecordSameKeyInTwoTenantsCreatesTwo(t *testing.T) {
 		t.Errorf("key rows in %d tenants, want 2", tenants)
 	}
 }
+
+// Adversarial (Security review, TICK-688): tenant B holds the key open,
+// uncommitted, inside its create; tenant A's create with the same key must
+// neither wait on B's claim, nor replay B's response, nor get B's 409. The
+// claim's conflict target includes tenant_id, so B's uncommitted row is no
+// lock A can meet: A answers 201 well inside ClaimWait.
+func TestCreateRecordSameKeyHeldOpenInOtherTenantDoesNotBlock(t *testing.T) {
+	e := newRecEnv(t)
+	installGate(t, e)
+	closeGate(t, e)
+	held := goCreate(t, e, "user-b", "incident", "k-688-xt", `{"short_description": "gated"}`)
+	waitLocks(t, e, "advisory", 1) // B's claim is in, uncommitted; B waits at its insert
+	start := time.Now()
+	ra := e.createRec(t, "user-a", "ticket", "k-688-xt", `{"short_description": "free"}`)
+	took := time.Since(start)
+	if ra.Code != http.StatusCreated || ra.Header().Get(idempotency.ReplayedHeader) == "true" {
+		t.Fatalf("tenant A create = %d replayed=%q while B held the key: %s",
+			ra.Code, ra.Header().Get(idempotency.ReplayedHeader), ra.Body)
+	}
+	if took >= idempotency.ClaimWait/2 {
+		t.Errorf("tenant A waited %v on tenant B's uncommitted key, want no wait", took)
+	}
+	var waiting int
+	if err := e.super.QueryRow(t.Context(),
+		`SELECT count(*) FROM pg_locks WHERE locktype = 'transactionid' AND NOT granted`).Scan(&waiting); err != nil {
+		t.Fatal(err)
+	}
+	if waiting != 0 {
+		t.Errorf("%d transactionid lock waits while B holds its key, want 0", waiting)
+	}
+	openGate(t, e)
+	rb := recv(t, held)
+	if rb.Code != http.StatusCreated || rb.Header().Get(idempotency.ReplayedHeader) == "true" {
+		t.Fatalf("tenant B create = %d replayed=%q: %s", rb.Code, rb.Header().Get(idempotency.ReplayedHeader), rb.Body)
+	}
+	if decodeRec(t, ra).ID == decodeRec(t, rb).ID {
+		t.Error("the two tenants' creates returned one record")
+	}
+	if a, b := e.recordCount(t, "a"), e.recordCount(t, "b"); a != 1 || b != 1 {
+		t.Errorf("records A=%d B=%d, want 1 each", a, b)
+	}
+}
