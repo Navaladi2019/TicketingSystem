@@ -1,0 +1,12 @@
+## 2026-11-10: D-3-9, record numbers may have gaps and are never reclaimed; the number is taken in its own short transaction before the create
+- **Decided by:** vknavaladi (human, 2026-11-09 17:25 UTC) on the CTO's option (b), TICK-621; the no-reclaim ruling by the CTO on TICK-621 (2026-11-10). Recorded in PLAN-003 by the Technical Lead. Dissent: none.
+- **Numbers (P3-36 re-run at `4fc57183`, contended host):** 8-client create p95 408 ms (agent), 301 ms (admin), 264 ms (small-tenant agent) against 50 ms. The counter wait alone was p95 310 ms (agent): about 7 creates queue on one counter row, each holding it for at least one batch plus the COMMIT fsync.
+- **Decision:**
+  - Numbers stay unique and increasing per tenant and type, from `record_counters` (ADR-001 I8: no Postgres sequences).
+  - The counter upsert runs in its own short transaction, committed before the create transaction begins, so creates of one type no longer queue behind each other's COMMIT. No schema change.
+  - A create that fails or rolls back after taking its number leaves a gap. The number is never reclaimed: a shared free list would need its own lock (every create serializes again), and a reclaimed number would be older than numbers already issued, breaking sort-by-number.
+- **Ruled out:** option (c), number assigned after commit (CTO): the create response and audit entry would lack the number, and every create would need a second write and outbox event.
+- **Deferred:** strict gapless numbering as a per-type opt-in, paid only by the type that enables it. **Trigger:** a tenant or regulator requires every number in a type's sequence to be accounted for.
+- **Task:** P3-36d (core-dev) on `TICK-336/group-acl-masking`. Acceptance: the three 8-client create rows of P3-36 re-run against 50 ms p95.
+- **Reopens:** if those rows still miss after P3-36d, the numbers go back to the CTO.
+- **Supersedes:** D-3-9's earlier text (counter taken last inside the write transaction; a rolled-back number reused) and the gapless tests that assert it (`TestConcurrentCreatesNumberWithoutGapsThroughPgBouncer`, `TestRolledBackCreateNumberIsReused`), which P3-36d rewrites.
