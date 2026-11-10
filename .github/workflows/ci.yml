@@ -12,48 +12,63 @@
 #                    (TICK-584) (no containers); only when the module or how
 #                    it is built, tested or linted changed
 #                    (make ci-temporal-server-changed, TICK-641)
-#   integration      -tags integration against a throwaway PostgreSQL, the
-#                    isolation suite, then the ci-isolated --down tag check
+#   integration      -tags integration against a throwaway PostgreSQL; on a
+#                    full run also the isolation suite, the ci-isolated --down
+#                    tag check and the cleanup check (TICK-652)
 #   commit-check-budget  TestCommitCheckBudget alone on its own runner
 #                    (ADR-004-E3 budget rows, TICK-509)
-#   stack            one image build (make image-ci, once per run; on a
-#                    pull request that does not touch the image build, thin
-#                    images over binaries built on the runner, TICK-628), then three
-#                    stacks in turn, each torn down before the next: the
-#                    platform and Temporal cases; a fresh stack for the
-#                    database cases (db-roles/migrate idempotency, roles,
-#                    hba); the internal overlay. The database and overlay
-#                    phases run even when an earlier phase failed (TICK-563;
-#                    they were the stack-db and stack-internal jobs)
+#   stack            one image build (make image-ci, once per run; thin images
+#                    over binaries built on the runner unless the change
+#                    touches the image build or the run is CI_ALL, TICK-628),
+#                    then the platform and Temporal cases: the tier=smoke cases
+#                    on a fast run, every case on a full run (STACK_TIER,
+#                    TICK-652). A full run then brings up two more stacks in
+#                    turn, each torn down before the next: the database cases
+#                    (db-roles/migrate idempotency, roles, hba) and the
+#                    internal overlay; they run even when an earlier phase
+#                    failed (TICK-563; they were the stack-db and
+#                    stack-internal jobs)
 #   coverage         merges the unit and integration coverage profiles and
 #                    fails below 95% (make check-coverage, TICK-518). Runs whenever
 #                    unit does; a change that needs unit also runs integration
-# Triggers (TICK-563, for Actions cost): a push to main, a pull request, a
-# manual run and the schedule. A push to a task or story branch starts no run.
-# A pull request into a TICK-* story branch (a task PR) runs every job and
-# every stack case on open and on every push, with no label (CI_FULL=1,
-# TICK-638), and its full-suite job fails when any of those jobs did not
-# succeed: a skipped job is not green there.
-# Any other pull request without the ci:run label runs changes, lint and
-# story-branches only (make ci-stages with CI_LINT_ONLY=1). With the label it
-# runs the jobs its change needs: the changes job asks `make ci-stages`
+# Triggers (TICK-563, for Actions cost; TICK-652, for pull request speed):
+#   event                          jobs                          suites
+#   pull request, no label         changes, lint, story-branches -
+#   pull request + ci:run          what the diff needs           fast
+#   pull request into TICK-*       every job and area (TICK-638) fast
+#   pull request + ci:full         every job and area            full
+#   push to main                   what the diff since           fast
+#                                  github.event.before needs
+#   daily schedule (DAILY CRON)    every job and area, real      full
+#                                  images (CI_ALL)
+#   6-hourly schedule              story-branches only           -
+#   manual run (workflow_dispatch) every job and area; CI_ALL    full
+#                                  (real images) on main
+# fast: the tier=smoke stack cases, no isolation suite, no stack-db or
+# stack-internal phase, no CI-5, CI-6 or isolation report. full (CI_FULL):
+# everything, as every push to main ran before TICK-652. The regressions only
+# a full run catches reach main and are caught by the next daily run, about
+# 24 hours later, unless the pull request carries ci:full (AR-TICK-652-01;
+# docs/delivery/review-paths.yaml asks for it on the risky paths).
+# A push to a task or story branch starts no run. A pull request into a
+# TICK-* story branch runs on open and on every push with no label, and its
+# full-suite job fails when any job did not succeed: a skipped job is not
+# green there. With ci:run the changes job asks `make ci-stages`
 # (tools/ci/cichanged, the rules of `make ci-changed`), lint always runs, and a
-# change under .github/workflows runs everything. Every later push to a
-# labelled pull request runs again. Inside stack, make stack-tests skips the
-# keycloak, pgbouncer and db cases (area= in the case header) whose area the
-# change does not touch (AREAS, from cichanged -areas); the ci:full label (which
-# also counts as ci:run), a manual run, a pull request into main and a push to
-# main run every case. identity_attacks and the isolation cases have no area. Adding any other label starts a run whose
-# jobs are all skipped. Only main runs every job whatever changed (CI_ALL=1 on
-# a push or manual run on main); a red push to main opens a P0 issue
-# (main-red). A manual run (workflow_dispatch) on another branch runs the jobs
-# its diff against main needs.
+# change under .github/workflows runs every job. Every later push to a
+# labelled pull request runs again. Inside stack, make stack-tests also skips
+# the keycloak, pgbouncer and db cases (area= in the case header) whose area
+# the change does not touch (AREAS, from cichanged -areas); a full run and a
+# pull request into main run every area. identity_attacks and the isolation
+# cases have no area. Adding any other label starts a run whose jobs are all
+# skipped. A red push to main or a red daily run opens a P0 issue (main-red).
 # A step listed in tools/ci/cisteps/required.yaml must stay: make
 # check-ci-steps fails the lint job when one is removed, disabled or allowed to
 # fail (TICK-297).
 #   story-branches   every story branch's work is on main (TICK-322); runs on
-#                    every event and every 6 hours (schedule, which runs no
-#                    other job), and on main keeps one issue open while red
+#                    every event and every 6 hours (the 6-hourly schedule,
+#                    which runs no other job), and on main keeps one issue
+#                    open while red
 # The stack job uses the published temporal-server image when one exists for
 # the checkout's temporal-server/ tree (make temporal-server-pull, TICK-641;
 # the temporal-server-image workflow publishes it from main) and builds the
@@ -61,7 +76,8 @@
 # Budget: see "Job time budgets" in docs/quality/ci-pipeline.md. stack builds
 # the images first (4 to 13 minutes, by how much of the image cache survives),
 # then runs about 10 to 12 minutes of stack cases and 2 to 3 of database and
-# overlay cases, so its timeout-minutes is 40 (TICK-400, TICK-563); the
+# overlay cases on a full run (about 2 to 3 of smoke cases and no other phase
+# on a fast run, TICK-652), so its timeout-minutes is 40 (TICK-400, TICK-563); the
 # others are at 10 or 5. Each job keeps its
 # own Go build cache (key per job, refreshed every run on main), the CI tools
 # are cached by version, and image layers live in the Actions cache (gha).
@@ -112,10 +128,15 @@ on:
         type: choice
         options: [github, self-hosted]
         default: github
-  # story-branches only: a story branch drifts from main without any push to
-  # main (a PR merged into it), so it is checked on a clock too (TICK-322).
   schedule:
+    # story-branches only: a story branch drifts from main without any push to
+    # main (a PR merged into it), so it is checked on a clock too (TICK-322).
     - cron: '23 */6 * * *'
+    # The daily full run on main (TICK-652): every job, every stack case and
+    # area, the isolation suite and the real Dockerfiles. DAILY CRON: this
+    # string is repeated, and must stay equal, in env.CI_FULL, the runner,
+    # changes and lint if: lines, the changes job's CI_ALL and main-red's if:.
+    - cron: '41 2 * * *'
 
 permissions:
   contents: read
@@ -124,17 +145,28 @@ env:
   # 'true' on a push, manual run or schedule on main; the Go cache save steps
   # and make image-ci (cache-to) write the Actions cache only then (TICK-400).
   CACHE_WRITE: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
+  # 'true' on a full run (TICK-652): the daily schedule (DAILY CRON), a manual
+  # run, a pull request labelled ci:full. Gates the full-only suites: the
+  # isolation suite, the stack cases without tier=smoke (CI-5
+  # identity_attacks, CI-6 sdk, the Temporal isolation cases and the rest),
+  # the stack-db and stack-internal phases and their reports. A pull request
+  # into a TICK-* story branch runs every job and area (TICK-638) but is a
+  # fast run unless labelled ci:full. Job-level if: cannot read env, so the
+  # jobs that need it there repeat the expression. AR-TICK-652-01.
+  CI_FULL: ${{ github.event.schedule == '41 2 * * *' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:full')) }}
 
 # A push gets a group of its own (per ref and sha), so a newer merge neither
 # cancels nor replaces a queued run: GitHub keeps one pending run per group even
 # with cancel-in-progress off (only main has push runs since TICK-563; the ref
 # stays in the group). Pull requests still cancel their older run.
-# A scheduled run (story-branches only) has a group of its own, so it never
-# displaces a manual run queued on main. A pull request labelled with anything
+# A scheduled run has a group of its own per cron (TICK-652): the 6-hourly
+# story-branches run and the daily full run (DAILY CRON) each queue only
+# behind themselves, so a queued 6-hourly run can never replace the daily one,
+# and neither displaces a manual run queued on main. A pull request labelled with anything
 # but ci:run or ci:full (a run whose jobs are all skipped) has a group of its own too, so
 # it never cancels the pull request's real run (TICK-563).
 concurrency:
-  group: ${{ github.event_name == 'push' && format('ci-push-{0}-{1}', github.ref, github.sha) || github.event_name == 'schedule' && 'ci-schedule' || github.event.action == 'labeled' && github.event.label.name != 'ci:run' && github.event.label.name != 'ci:full' && format('ci-label-{0}', github.run_id) || format('ci-{0}', github.ref) }}
+  group: ${{ github.event_name == 'push' && format('ci-push-{0}-{1}', github.ref, github.sha) || github.event_name == 'schedule' && format('ci-schedule-{0}', github.event.schedule) || github.event.action == 'labeled' && github.event.label.name != 'ci:run' && github.event.label.name != 'ci:full' && format('ci-label-{0}', github.run_id) || format('ci-{0}', github.ref) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -148,7 +180,7 @@ jobs:
     # Self-hosted jobs get longer timeouts (TICK-641): the first run on a cold
     # host downloads Go and builds the tools and caches, which overran 5 and
     # 10 minutes; later runs are warm.
-    if: github.event_name != 'schedule' && (github.event.action != 'labeled' || github.event.label.name == 'ci:run' || github.event.label.name == 'ci:full')
+    if: (github.event_name != 'schedule' || github.event.schedule == '41 2 * * *') && (github.event.action != 'labeled' || github.event.label.name == 'ci:run' || github.event.label.name == 'ci:full')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -165,11 +197,12 @@ jobs:
         run: make ci-runner
 
   changes:
-    # Which of unit, integration and stack this change needs. A scheduled run
-    # is story-branches alone, and a label other than ci:run or ci:full runs nothing
-    # (TICK-563): skipping this job skips the jobs that need it.
+    # Which of unit, integration and stack this change needs. The 6-hourly
+    # scheduled run is story-branches alone (the daily one, DAILY CRON, runs
+    # everything, TICK-652), and a label other than ci:run or ci:full runs
+    # nothing (TICK-563): skipping this job skips the jobs that need it.
     needs: runner
-    if: github.event_name != 'schedule' && (github.event.action != 'labeled' || github.event.label.name == 'ci:run' || github.event.label.name == 'ci:full')
+    if: (github.event_name != 'schedule' || github.event.schedule == '41 2 * * *') && (github.event.action != 'labeled' || github.event.label.name == 'ci:run' || github.event.label.name == 'ci:full')
     runs-on: ${{ fromJSON(needs.runner.outputs.runs_on) }}
     timeout-minutes: ${{ needs.runner.outputs.self_hosted == 'true' && 20 || 5 }}
     outputs:
@@ -204,20 +237,28 @@ jobs:
       - name: Stages this change needs
         id: stages
         env:
-          BASE: origin/${{ github.base_ref || 'main' }}
-          # Every stage on a push or manual run on main only: a merge result
-          # has no meaningful diff base. Never on another branch (TICK-563).
-          CI_ALL: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && '1' || '' }}
-          # A pull request into a TICK-* story branch: every stage and every
-          # stack-case area, no label needed (TICK-638).
-          CI_FULL: ${{ github.event_name == 'pull_request' && startsWith(github.base_ref, 'TICK-') && '1' || '' }}
+          # A push to main diffs against the commit before it (TICK-652): with
+          # origin/main, which is HEAD, nothing differs and nothing would run.
+          # ci-stages.sh runs a zero or unknown before (new ref, force push)
+          # as CI_ALL.
+          BASE: ${{ github.event_name == 'push' && github.event.before || format('origin/{0}', github.base_ref || 'main') }}
+          # Every stage, every area and the real images: the daily run
+          # (DAILY CRON) and a manual run, on main only (TICK-652). No longer
+          # a push to main, which runs what its diff needs. Never on another
+          # branch (TICK-563).
+          CI_ALL: ${{ github.ref == 'refs/heads/main' && (github.event.schedule == '41 2 * * *' || github.event_name == 'workflow_dispatch') && '1' || '' }}
+          # Every stage and every stack-case area: a full run (env.CI_FULL:
+          # ci:full, a manual run, the daily run, TICK-652) and a pull request
+          # into a TICK-* story branch, no label needed (TICK-638).
+          CI_FULL: ${{ (env.CI_FULL == 'true' || (github.event_name == 'pull_request' && startsWith(github.base_ref, 'TICK-'))) && '1' || '' }}
           # Any other pull request without the ci:run or ci:full label: lint
           # only (TICK-563).
           CI_LINT_ONLY: ${{ github.event_name == 'pull_request' && !startsWith(github.base_ref, 'TICK-') && !contains(github.event.pull_request.labels.*.name, 'ci:run') && !contains(github.event.pull_request.labels.*.name, 'ci:full') && '1' || '' }}
-          # Every stack-case area: the ci:full label, a manual run, and every
-          # pull request into main, story PRs among them (a branch name cannot
-          # tell a story PR from a task PR). On a push to main CI_ALL sets it.
-          CI_AREAS_ALL: ${{ (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && (github.base_ref == 'main' || contains(github.event.pull_request.labels.*.name, 'ci:full')))) && '1' || '' }}
+          # Every stack-case area: every pull request into main, story PRs
+          # among them (a branch name cannot tell a story PR from a task PR).
+          # CI_FULL and CI_ALL set it on a full run; a push to main runs the
+          # areas its diff touches (TICK-652).
+          CI_AREAS_ALL: ${{ github.event_name == 'pull_request' && github.base_ref == 'main' && '1' || '' }}
           # A manual run's images input (TICK-628); CI_ALL (main) wins.
           CI_IMAGES: ${{ github.event_name == 'workflow_dispatch' && inputs.images || '' }}
         run: make ci-stages
@@ -229,7 +270,9 @@ jobs:
         env:
           BASE: origin/${{ github.base_ref || 'main' }}
           CI_ALL: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && '1' || '' }}
-          CI_FULL: ${{ github.event_name == 'pull_request' && startsWith(github.base_ref, 'TICK-') && '1' || '' }}
+          # A full run (env.CI_FULL, TICK-652) runs the job too, as the
+          # stages step above does.
+          CI_FULL: ${{ (env.CI_FULL == 'true' || (github.event_name == 'pull_request' && startsWith(github.base_ref, 'TICK-'))) && '1' || '' }}
           CI_LINT_ONLY: ${{ github.event_name == 'pull_request' && !startsWith(github.base_ref, 'TICK-') && !contains(github.event.pull_request.labels.*.name, 'ci:run') && !contains(github.event.pull_request.labels.*.name, 'ci:full') && '1' || '' }}
           PUSH_BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
         run: make ci-temporal-server-changed
@@ -245,7 +288,7 @@ jobs:
 
   lint:
     needs: runner
-    if: github.event_name != 'schedule' && (github.event.action != 'labeled' || github.event.label.name == 'ci:run' || github.event.label.name == 'ci:full')
+    if: (github.event_name != 'schedule' || github.event.schedule == '41 2 * * *') && (github.event.action != 'labeled' || github.event.label.name == 'ci:run' || github.event.label.name == 'ci:full')
     runs-on: ${{ fromJSON(needs.runner.outputs.runs_on) }}
     timeout-minutes: ${{ needs.runner.outputs.self_hosted == 'true' && 30 || 10 }}
     env:
@@ -465,6 +508,10 @@ jobs:
             go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-
             go-${{ github.job }}-
       - name: Integration tests (-tags integration)
+        env:
+          # The isolation suite on a full run only (TICK-652, AR-TICK-652-01).
+          # Here, not on the run: line: required.yaml matches that line exactly.
+          ISOLATION: ${{ env.CI_FULL == 'true' && '1' || '0' }}
         run: make test-integration
       # The integration half of the coverage gate (TICK-518).
       - name: Integration coverage profile
@@ -473,19 +520,23 @@ jobs:
           name: coverage-integration
           path: coverage-integration.out
           if-no-files-found: error
-      # Its own step, not part of make test-integration (TICK-224).
+      # Its own step, not part of make test-integration (TICK-224). Full runs
+      # only (TICK-652): it tests a CI script, not the product.
       - name: ci-isolated --down untags only its own tags
+        if: env.CI_FULL == 'true'
         run: make test-ci-isolated-down
       # Its own step too (TICK-185): a run with ARGS or a TERM part way
-      # leaves no nava-it-* container or network.
+      # leaves no nava-it-* container or network. Full runs only (TICK-652).
       - name: Integration script leaves nothing behind
+        if: env.CI_FULL == 'true'
         run: make test-integration-cleanup
       # TICK-641: the self-hosted cleanup removes one run's Docker objects
       # and nothing else (throwaway objects, seconds).
       - name: Self-hosted cleanup removes only its run's objects
         run: make test-self-hosted-cleanup
+      # Full runs only, with the suite that writes it (TICK-652).
       - name: Isolation report
-        if: always()
+        if: always() && env.CI_FULL == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: isolation-report
@@ -635,16 +686,20 @@ jobs:
           # The mode=parallel cases run at once, as in make ci-stack (TICK-628).
           # Here, not on the run: line: required.yaml matches that line exactly.
           PARALLEL: "1"
+          # Only the tier=smoke cases on a fast run, every case on a full run
+          # (TICK-652, AR-TICK-652-01; run-cases.sh).
+          STACK_TIER: ${{ env.CI_FULL == 'true' && 'all' || 'smoke' }}
         run: make stack-tests JOB=stack
+      # sdk and identity_attacks write these; both are full-tier (TICK-652).
       - name: CI-6 report
-        if: always()
+        if: always() && env.CI_FULL == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ci6-report
           path: ci6-report.md
           if-no-files-found: error
       - name: CI-5 report
-        if: always()
+        if: always() && env.CI_FULL == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ci5-report
@@ -657,14 +712,15 @@ jobs:
         if: always()
         run: make stack-down
 
-      # Phase 2: the database cases (job=stack-db) on a fresh stack.
+      # Phase 2: the database cases (job=stack-db) on a fresh stack. Full
+      # runs only (TICK-652, AR-TICK-652-01).
       - name: Start a fresh stack (stack-db)
         id: up-db
-        if: ${{ !cancelled() && steps.images.outcome == 'success' }}
+        if: ${{ !cancelled() && env.CI_FULL == 'true' && steps.images.outcome == 'success' }}
         run: make stack-up
       - name: Stack cases (stack-db)
         id: cases-db
-        if: ${{ !cancelled() && steps.up-db.outcome == 'success' }}
+        if: ${{ !cancelled() && env.CI_FULL == 'true' && steps.up-db.outcome == 'success' }}
         env:
           AREAS: ${{ needs.changes.outputs.areas }}
           # The mode=parallel cases run at once, as in make ci-stack (TICK-628).
@@ -679,14 +735,14 @@ jobs:
         run: make stack-down
 
       # Phase 3: the internal overlay (job=stack-internal), which brings up
-      # its own stack.
+      # its own stack. Full runs only (TICK-652, AR-TICK-652-01).
       - name: Dev installation CA
         id: ca
-        if: ${{ !cancelled() && steps.images.outcome == 'success' }}
+        if: ${{ !cancelled() && env.CI_FULL == 'true' && steps.images.outcome == 'success' }}
         run: make dev-ca
       - name: Stack cases (stack-internal)
         id: cases-internal
-        if: ${{ !cancelled() && steps.ca.outcome == 'success' }}
+        if: ${{ !cancelled() && env.CI_FULL == 'true' && steps.ca.outcome == 'success' }}
         env:
           AREAS: ${{ needs.changes.outputs.areas }}
           # The mode=parallel cases run at once, as in make ci-stack (TICK-628).
@@ -869,12 +925,13 @@ jobs:
           key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
 
   main-red:
-    # A push to main with any failed job opens (or comments on) the P0
-    # "main is red" issue. A skipped job is not a failure; a cancelled run
+    # A push to main or the daily full run (DAILY CRON, TICK-652) with any
+    # failed job opens (or comments on) the P0 "main is red" issue, which
+    # names the event (EVENT). A skipped job is not a failure; a cancelled run
     # does not fire this. The govulncheck workflow has a main-red job of its
     # own (TICK-641).
     needs: [runner, changes, lint, unit, temporal-server, integration, commit-check-budget, stack, coverage]
-    if: failure() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: failure() && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event.schedule == '41 2 * * *')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -887,6 +944,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
+          # push or schedule: scripts/ci/main-red.sh words the body (TICK-641).
+          EVENT: ${{ github.event_name }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           NEEDS_JSON: ${{ toJSON(needs) }}
         run: sh scripts/ci/main-red.sh

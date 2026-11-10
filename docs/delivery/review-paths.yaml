@@ -20,6 +20,16 @@
 # of `security` or `cto_signoff.paths` that matches no tracked file and has no
 # marker, on a marker that names no task, and on a marker whose path exists.
 
+# TICK-652: a fast CI run (ci:run, a pull request into a story branch, a push
+# to main) skips the isolation suite, the full stack-case tier and the
+# stack-db and stack-internal phases (AR-TICK-652-01). A change to tenancy,
+# identity, Temporal authz (temporal-server/authz/), database roles and
+# migrations (db/, internal/db/, cmd/nava-db/), PgBouncer
+# (deploy/compose/pgbouncer/), pg_hba (db/pg_hba.conf) or the compose networks
+# (compose.yaml, deploy/compose/compose.internal.yaml) should carry ci:full.
+# TODO(TODO-TICK-652-01): reviewpaths only prints, never fails, and cannot see
+# the pull request's labels, so it cannot require ci:full; until a check does,
+# the author and the Security reviewer add the label.
 security:
   - internal/tenancy/
   - internal/identity/

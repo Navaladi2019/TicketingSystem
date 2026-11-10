@@ -1,18 +1,23 @@
 #!/bin/sh
 # The stack-test registry, derived from the files in cases/. Each case carries one header line:
-#   # stack-case: job=<stack|stack-db|stack-internal|none>[,<job>] order=<n> mode=<serial|parallel> [area=<keycloak|pgbouncer|db>]
+#   # stack-case: job=<stack|stack-db|stack-internal|none>[,<job>] order=<n> mode=<serial|parallel> [area=<keycloak|pgbouncer|db>] [tier=smoke]
 # job: the CI job that runs it (none: by name only). order: run order, lower first; the
 # default is 20; cases that stop or restart services sort after the read-only ones.
 # mode: parallel cases only read the stack, so `PARALLEL=1` runs them at once.
 # area (TICK-563): the service the case tests. `run` skips it unless AREAS names that area
 # (AREAS: all, the default, none, or a comma list; CI sets it from cichanged -areas). A case
 # without area= always runs: identity_attacks and every tenant-isolation case have none.
+# tier (TICK-652): smoke marks the cases a fast CI run keeps. `run` with STACK_TIER=smoke runs
+# only those, still filtered by AREAS, and prints "SKIP <case> (full tier, ...)" for the rest;
+# STACK_TIER unset or all (the default, as on a laptop) runs every case. ci.yml sets
+# STACK_TIER=smoke on a pull request with ci:run and on a push to main, and all on a full run
+# (CI_FULL: the daily run on main, ci:full, a manual run, a pull request into a story branch).
 #
 #   run-cases.sh list <jobs>              case names in run order (<jobs>: a comma list, or all)
 #   run-cases.sh registry                 the registry as YAML
 #   run-cases.sh run <jobs>               run them; stops at the first failed serial case
 #   run-cases.sh check                    every case has a valid header
-# A bad header (missing, unknown key or job, non-numeric order, bad mode) makes every command
+# A bad header (missing, unknown key, job, area or tier, non-numeric order, bad mode) makes every command
 # exit 1 naming the file, never a silent skip. CASES_DIR overrides cases/ (the tests use it).
 # CI calls `make stack-tests JOB=<job>`; a failure names the case.
 set -eu
@@ -20,7 +25,7 @@ dir=$(cd "$(dirname "$0")" && pwd)
 cases=${CASES_DIR:-$dir/cases}
 die() { echo "run-cases: $*" >&2; exit 1; }
 
-# TABLE: "order name mode jobs area" rows (area - for none), sorted. Built in this shell (not a pipeline's last
+# TABLE: "order name mode jobs area tier" rows (area and tier - for none), sorted. Built in this shell (not a pipeline's last
 # stage) so a bad header stops the command.
 load() {
     rows=$(
@@ -29,13 +34,14 @@ load() {
             n=$(basename "$f" .sh)
             h=$(sed -n 's/^# stack-case: //p' "$f" | head -n 1)
             [ -n "$h" ] || die "$f has no '# stack-case:' header"
-            j=; o=20; m=serial; a=-
+            j=; o=20; m=serial; a=-; ti=-
             for kv in $h; do
                 case $kv in
                 job=*) j=${kv#job=} ;;
                 order=*) o=${kv#order=} ;;
                 mode=*) m=${kv#mode=} ;;
                 area=*) a=${kv#area=} ;;
+                tier=*) ti=${kv#tier=} ;;
                 *) die "$f: unknown header field '$kv'" ;;
                 esac
             done
@@ -46,7 +52,8 @@ load() {
             case $o in ''|*[!0-9]*) die "$f: order '$o' is not a number" ;; esac
             case $m in serial|parallel) ;; *) die "$f: mode '$m' is not serial or parallel" ;; esac
             case $a in -|keycloak|pgbouncer|db) ;; *) die "$f: unknown area '$a'" ;; esac
-            printf '%s %s %s %s %s\n' "$o" "$n" "$m" "$j" "$a"
+            case $ti in -|smoke) ;; *) die "$f: unknown tier '$ti'" ;; esac
+            printf '%s %s %s %s %s %s\n' "$o" "$n" "$m" "$j" "$a" "$ti"
         done
     ) || exit 1
     [ -n "$rows" ] || die "no cases in $cases"
@@ -70,14 +77,22 @@ areas_check() {
     done
 }
 
-# touched <rows> [skip]: the rows that run under AREAS (no area, or an area AREAS names);
-# with skip, "name area" for each of the others.
+# tier_check: STACK_TIER is all or smoke (TICK-652).
+tier_check() {
+    case ${STACK_TIER:-all} in all|smoke) ;; *) die "STACK_TIER: '$STACK_TIER' is not all or smoke" ;; esac
+}
+
+# touched <rows> [skip]: the rows that run under AREAS (no area, or an area AREAS names) and
+# STACK_TIER (all, or the case is tier=smoke); with skip, one SKIP line for each of the others.
+# The tier reason wins: a fast run skips a full-tier case whatever its area (TICK-652).
 touched() {
-    printf '%s\n' "$1" | awk -v areas="${AREAS:-all}" -v skip="${2:-}" '
+    printf '%s\n' "$1" | awk -v areas="${AREAS:-all}" -v tier="${STACK_TIER:-all}" -v skip="${2:-}" '
         BEGIN { n = split(areas, w, ","); for (i = 1; i <= n; i++) on[w[i]] = 1 }
-        NF { keep = ($5 == "-" || areas == "all" || ($5 in on))
-             if (skip == "" && keep) print
-             if (skip != "" && !keep) print $2, $5 }'
+        NF { intier = (tier == "all" || $6 == tier)
+             inarea = ($5 == "-" || areas == "all" || ($5 in on))
+             if (skip == "" && intier && inarea) print
+             if (skip != "" && !intier) printf "SKIP %s (full tier, STACK_TIER=%s)\n", $2, tier
+             else if (skip != "" && !inarea) printf "SKIP %s (area %s not touched)\n", $2, $5 }'
 }
 
 # names <jobs> [mode]
@@ -114,11 +129,12 @@ run_parallel() { # names: at once, each output printed whole when it ends
 
 run() {
     areas_check
+    tier_check
     whole=$(rows "$1")
     [ -n "$whole" ] || die "no case runs in job '$1'"
-    touched "$whole" skip | while read -r sn sa; do printf 'SKIP %s (area %s not touched)\n' "$sn" "$sa"; done
+    touched "$whole" skip
     r=$(touched "$whole")
-    if [ -z "$r" ]; then printf 'ok: every stack case in %s skipped (AREAS=%s)\n' "$1" "${AREAS:-all}"; return 0; fi
+    if [ -z "$r" ]; then printf 'ok: every stack case in %s skipped (AREAS=%s STACK_TIER=%s)\n' "$1" "${AREAS:-all}" "${STACK_TIER:-all}"; return 0; fi
     # names and rows below read TABLE: keep only the cases that run.
     TABLE=$r
     if [ "${PARALLEL:-}" = 1 ]; then
@@ -142,7 +158,7 @@ run() {
 load
 case ${1:-} in
 list) names "${2:?jobs}" "${3:-}" ;;
-registry) printf '%s\n' "$TABLE" | awk '{ printf "- name: %s\n  make: %s\n  serial: %s\n  order: %s\n  ci_jobs: [%s]\n", $2, "stack-test-" $2, ($3 == "serial" ? "true" : "false"), $1, $4; if ($5 != "-") printf "  area: %s\n", $5 }' ;;
+registry) printf '%s\n' "$TABLE" | awk '{ printf "- name: %s\n  make: %s\n  serial: %s\n  order: %s\n  ci_jobs: [%s]\n", $2, "stack-test-" $2, ($3 == "serial" ? "true" : "false"), $1, $4; if ($5 != "-") printf "  area: %s\n", $5; if ($6 != "-") printf "  tier: %s\n", $6 }' ;;
 run) run "${2:?jobs}" ;;
 check) echo "ok: $(printf '%s\n' "$TABLE" | wc -l | tr -d ' ') cases" ;;
 *) echo "usage: run-cases.sh list|registry|run|check" >&2; exit 1 ;;

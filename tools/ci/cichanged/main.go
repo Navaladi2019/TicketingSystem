@@ -6,8 +6,13 @@
 // Every change runs ci-lint. Documentation (.md and .html outside a Go
 // package and testdata) runs nothing else. A Go package's files add ci-unit, plus
 // ci-integration when an integration test depends on the package, plus
-// ci-stack when an image or a stack test does. A file no rule knows runs every
-// stage, so a new kind of file is never skipped by default.
+// ci-stack when an image or a stack test does and the package is one of
+// stackTriggers (TICK-652): a command, the migrations and database bootstrap,
+// the configuration, the Keycloak adapter, or a stack suite. Plain Go logic
+// that the unit and integration stages already cover no longer starts the
+// stack; the daily full run on main covers it there (AR-TICK-652-01). A file
+// no rule knows runs every stage, so a new kind of file is never skipped by
+// default.
 //
 // With -areas it prints instead the stack-case areas the change touches
 // (TICK-563): all, none, or a comma list of keycloak, pgbouncer and db, which
@@ -57,6 +62,38 @@ func stackRoots() [][]string {
 		{"-tags", "workerstack", "-test", "./internal/workerstack"},
 		{"-tags", "workerstack,interpcrash", "-test", "./internal/workerstack"},
 	}
+}
+
+// stackTriggers are the package directories (and, ending in "/", directory
+// prefixes) whose change starts the stack stage, when an image or a stack test
+// depends on them (TICK-652): what decides whether the stack starts and how
+// it is wired, not the logic inside it. cmd/: each command is an image's
+// main or a stack test's binary. db, internal/db/{migrate,roles,grants}:
+// the migrations and the db-roles bootstrap every stack runs first.
+// internal/platform/config: the environment the compose file sets. Keycloak:
+// the adapter the realm and the identity case meet. The stack suites
+// themselves and their report tools. Every other package's change runs unit
+// (and integration) only, and its stack cases on the next full run.
+func stackTriggers() []string {
+	return []string{
+		"cmd/",
+		"db", "internal/db/migrate", "internal/db/roles", "internal/db/grants",
+		"internal/platform/config",
+		"internal/identity/keycloak",
+		"internal/temporalstack", "internal/identitystack", "internal/workerstack",
+		"tools/ci/ci5report", "tools/ci/ci6report",
+	}
+}
+
+// stackTrigger reports whether a change to package directory pkg starts the
+// stack stage (with g.stack[pkg]), and the trigger it matched.
+func stackTrigger(pkg string) (string, bool) {
+	for _, t := range stackTriggers() {
+		if pkg == t || (strings.HasSuffix(t, "/") && strings.HasPrefix(pkg, t)) {
+			return t, true
+		}
+	}
+	return "", false
 }
 
 func main() {
@@ -225,8 +262,12 @@ func fileStages(f string, g graph) ([]string, string) {
 			why = append(why, "integration tests depend on it")
 		}
 		if g.stack[pkg] {
-			s = append(s, "ci-stack")
-			why = append(why, "an image or stack test depends on it")
+			if _, ok := stackTrigger(pkg); ok {
+				s = append(s, "ci-stack")
+				why = append(why, "an image or stack test depends on it")
+			} else {
+				why = append(why, "stack cases on the full run only (TICK-652)")
+			}
 		}
 		return s, "package " + pkg + strings.Join(append([]string{""}, why...), "; ")
 	}

@@ -207,6 +207,16 @@ func testDocsOnlyDiffRunsNoUnitIntegrationOrStack(t *testing.T, dir, base string
 	if got := ciStages(t, dir, base, "CI_FULL=1", "CI_LINT_ONLY=1"); got != full {
 		t.Errorf("CI_FULL=1 CI_LINT_ONLY=1: GITHUB_OUTPUT = %q, want %q", got, full)
 	}
+	// TICK-652: a push to main diffs against github.event.before (BASE, a
+	// sha); this docs-only diff then runs lint alone, as above. A zero
+	// before (a new ref) or one this clone lacks (a force push) has no diff,
+	// so the push runs as CI_ALL=1: every stage and area, real images.
+	const all = "unit=true\nintegration=true\nstack=true\nareas=all\nimages=real\n"
+	for _, b := range []string{"0000000000000000000000000000000000000000", "0123456789abcdef0123456789abcdef01234567"} {
+		if got := ciStages(t, dir, b); got != all {
+			t.Errorf("BASE=%s: GITHUB_OUTPUT = %q, want %q", b, got, all)
+		}
+	}
 }
 
 // TICK-563: a pull request without the ci:run label (CI_LINT_ONLY=1) runs

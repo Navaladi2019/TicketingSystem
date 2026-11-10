@@ -2,17 +2,22 @@
 # make ci-stages: the CI stages the change against BASE needs, from
 # tools/ci/cichanged (the rules make ci-changed uses). CI_LINT_ONLY=1 (a
 # pull request without the ci:run label, TICK-563) runs ci-lint alone, before
-# any other rule. Two cases run every stage: CI_ALL=1 (the workflow's push or
-# manual run on main) and a change under .github/workflows, since only a full
-# run proves a workflow edit. CI_FULL=1 (a pull request into a TICK-* story
-# branch, TICK-638) runs every stage and every stack-case area whatever its
-# diff and wins over CI_LINT_ONLY; unlike CI_ALL its images follow the rule.
+# any other rule. Two cases run every stage: CI_ALL=1 (the workflow's daily
+# run or manual run on main, TICK-652; no longer a push to main) and a change
+# under .github/workflows, since only a full run proves a workflow edit.
+# CI_FULL=1 (a full run: the ci:full label or a manual run, TICK-652; and a
+# pull request into a TICK-* story branch, TICK-638) runs every stage and
+# every stack-case area whatever its diff and wins over CI_LINT_ONLY; unlike
+# CI_ALL its images follow the rule.
+# A push to main diffs against the commit before it (BASE, a sha, TICK-652).
+# A BASE that is the zero sha (a new ref) or a commit this clone does not
+# have (a force push dropped it) has nothing to diff against, so it runs as
+# CI_ALL=1.
 # With GITHUB_OUTPUT set, also writes unit, integration and stack as
 # true/false for the workflow's job conditions, and areas: the stack-case
 # areas (all, none or a comma list, `cichanged -areas`) that make stack-tests
-# runs (TICK-563). Every area runs with CI_ALL=1, with CI_AREAS_ALL=1 (the
-# ci:full label, a manual run, a pull request into main) and for a
-# workflow change.
+# runs (TICK-563). Every area runs with CI_ALL=1, with CI_FULL=1, with
+# CI_AREAS_ALL=1 (a pull request into main) and for a workflow change.
 # And images (TICK-628): real or thin, how the stack job builds its images
 # (`cichanged -images`). CI_ALL=1 (main) is always real. CI_IMAGES=real or
 # thin (a manual run's images input) overrides the rule on any other ref. A
@@ -22,10 +27,20 @@ set -eu
 all="ci-lint ci-unit ci-integration ci-stack"
 areas=
 base=${BASE:-origin/main}
+# Only a sha (a push's before) falls back; a missing ref name stays an error below.
+case $base in
+'' | *[!0-9a-f]*) ;;
+*)
+    if [ "$base" = 0000000000000000000000000000000000000000 ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+        CI_ALL=1
+        echo "ci-stages: BASE $base is the zero sha or not in this clone (new ref or force push), CI_ALL=1" >&2
+    fi
+    ;;
+esac
 if [ "${CI_FULL:-}" = 1 ]; then
     stages=$all
     areas=all
-    echo "ci-stages: CI_FULL=1 (pull request into a story branch), every stage" >&2
+    echo "ci-stages: CI_FULL=1 (ci:full, manual run or pull request into a story branch), every stage" >&2
 elif [ "${CI_LINT_ONLY:-}" = 1 ]; then
     stages=ci-lint
     areas=none
