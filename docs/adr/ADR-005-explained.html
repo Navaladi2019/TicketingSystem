@@ -44,19 +44,19 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 <tr><th>audience</th><td>Anyone who needs to understand or approve the decision. It assumes no knowledge of PostgreSQL or our write pipeline.</td></tr>
 </tbody></table>
 
-<div class="callout"><strong>One question is still yours: gapless numbers, or gaps allowed?</strong> The ADR is written for <strong>gaps allowed</strong>, as the CTO recommends. If you choose gapless, one section of the ADR switches to the stated alternative and the 50 ms speed target gets a written waiver. Nothing else changes. Reply on TICK-653 with <code>DECISION: A</code> (gapless) or <code>DECISION: B</code> (gaps allowed).</div>
+<div class="callout"><strong>Your gaps decision is built in, per record type.</strong> You decided on TICK-621 (2026-11-10) that each record type chooses its own <em>numbering mode</em>: <strong>gaps</strong> (the default, fast) or <strong>gapless</strong> (no skipped numbers, slower). The admin sets it next to the type's prefix and can change it later. The 50 ms speed target applies to <em>gaps</em> types; <em>gapless</em> types get a written waiver. Skipped numbers are never re-used.</div>
 
 <h1>ADR-005, explained</h1>
 
 <blockquote><strong>The whole decision in four sentences.</strong>
 (1) A record's number is handed out in its own tiny database step, just before the record is saved, instead of during the save, so people creating records at the same moment stop queuing behind each other.
-(2) Tenants describe a number format as a short pattern, for example <code>{yyyy}{MM}{seq:4}</code> for "year, month, then a 4-digit counter that restarts every month".
+(2) Tenants describe a number format as a short pattern, for example <code>{prefix}-{yyyy}{MM}{seq:4}</code> for "the type's letters, year, month, then a 4-digit counter that restarts every month", giving <code>VISA-2026110001</code>.
 (3) A format is created at runtime, by an admin first and later also by a plugin through our API, and linked to as many record types as need it, with no software release.
 (4) Every existing record type keeps exactly today's numbers (<code>INC0000042</code> continues as <code>INC0000043</code>).</blockquote>
 
 <h2>1. The problem in plain words</h2>
 <p><strong>Speed.</strong> Every record gets a human-facing number such as <code>INC0000042</code>. Today, the counter that produces it is locked from the moment a record is numbered until the record is fully saved. When 8 people create the same kind of record at once, they stand in a queue for that one counter. The target is that creating a record takes at most 50 ms for 95 % of requests (the "p95"). We measured 264–408 ms.</p>
-<p><strong>Formats.</strong> Today every number is a 2–6 letter prefix plus 7 digits. Tenants building applications such as visa or PF applications want numbers like <code>202611 0001</code> (restart each month), <code>20261110 01</code> (restart each day) or <code>BLR_26_01_11</code> (per branch and month). You also asked whether a format could be a plugin "created dynamically and linked".</p>
+<p><strong>Formats.</strong> Today every number is a 2–6 letter prefix plus 7 digits. Each record type already has its own prefix (<code>INC</code> for incidents, <code>VISA</code>, <code>PF</code> and so on), chosen by the tenant admin, and its own counter. Tenants building applications such as visa or PF applications want numbers like <code>202611 0001</code> (restart each month), <code>20261110 01</code> (restart each day) or <code>BLR_26_01_11</code> (per branch and month). You also asked whether a format could be a plugin "created dynamically and linked".</p>
 
 <h2>2. Words used on this page</h2>
 <dl class="gloss">
@@ -67,6 +67,8 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 <dt>fsync</dt><dd>The database waiting for the disk to confirm a change is safely stored. It takes a few milliseconds and is usually the slowest part of saving.</dd>
 <dt>Scope</dt><dd>What a counter restarts for: a month, a day, a branch, or a mix. Each scope has its own counter row.</dd>
 <dt>Epoch</dt><dd>A version number for a type's format. A new format starts a new counter, so it never continues an old one by mistake.</dd>
+<dt>Numbering mode</dt><dd>A per-type setting: <em>gaps</em> (a failed create may skip a number; fast) or <em>gapless</em> (never skips; creates of that type queue for the counter).</dd>
+<dt>Prefix</dt><dd>The 2–6 capital letters that start every number of a type, unique within a tenant.</dd>
 <dt>Plugin</dt><dd>Tenant-supplied add-on code. Our rule I8 says plugins reach data only through our API, never the database directly.</dd>
 </dl>
 
@@ -75,9 +77,9 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 <p>Measured by spike S1 (a small, time-boxed experiment) with 8 clients creating the same type at once, on a quiet machine.</p>
 <table><thead><tr><th>Option</th><th>How it works</th><th>Wait for the number (p95)</th><th>Gaps?</th><th>Verdict</th></tr></thead><tbody>
 <tr><td>L0 today</td><td>Counter locked until the whole record is saved</td><td>150–179 ms</td><td>no</td><td><span class="tag red">misses</span></td></tr>
-<tr><td>L1 gapless, tightened</td><td>Same lock, but the save is sent in one go</td><td>108–120 ms</td><td>no</td><td><span class="tag amber">alternative</span> if you choose gapless; needs a waiver</td></tr>
+<tr><td>L1 gapless, tightened</td><td>Same lock, but the save is sent in one go</td><td>108–120 ms</td><td>no</td><td><span class="tag green">chosen for gapless types</span>; speed waiver for those types only</td></tr>
 <tr><td>L2</td><td>Number handed out in its own tiny step first</td><td>31–36 ms</td><td>yes</td><td>superseded by L2s</td></tr>
-<tr><td><strong>L2s</strong></td><td>As L2, but the tiny step does not wait for the disk (see &sect;5 for why that is safe)</td><td><strong>about 1 ms</strong></td><td>yes</td><td><span class="tag green">chosen</span> (pending you)</td></tr>
+<tr><td><strong>L2s</strong></td><td>As L2, but the tiny step does not wait for the disk (see &sect;5 for why that is safe)</td><td><strong>about 1 ms</strong></td><td>yes</td><td><span class="tag green">chosen for gaps types</span> (the default)</td></tr>
 <tr><td>L2&prime;</td><td>Hand out the number before permission checks</td><td>22–51 ms</td><td>yes, more</td><td><span class="tag red">rejected</span>: someone with no permission to create could still use up numbers</td></tr>
 <tr><td>L3 / L4</td><td>Blocks of numbers per server / number assigned after saving</td><td>~0</td><td>large / none</td><td><span class="tag red">rejected</span>: big gaps on restart / the create could not return its number</td></tr>
 </tbody></table>
@@ -112,7 +114,7 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 <defs><marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#59636e"/></marker></defs>
 <rect x="15" y="30" width="130" height="40" rx="6" fill="#ddf4ff" stroke="#0969da"/><text x="80" y="55" font-size="12" text-anchor="middle" fill="#1f2328">Admin screen</text>
 <rect x="15" y="110" width="130" height="40" rx="6" fill="#ddf4ff" stroke="#0969da"/><text x="80" y="135" font-size="12" text-anchor="middle" fill="#1f2328">Plugin (later, C11)</text>
-<rect x="210" y="65" width="170" height="54" rx="6" fill="#fff8c5" stroke="#9a6700"/><text x="295" y="88" font-size="12" text-anchor="middle" fill="#1f2328">Number format v3</text><text x="295" y="106" font-size="11" text-anchor="middle" fill="#1f2328">{yyyy}{MM}{seq:4}</text>
+<rect x="210" y="65" width="170" height="54" rx="6" fill="#fff8c5" stroke="#9a6700"/><text x="295" y="88" font-size="12" text-anchor="middle" fill="#1f2328">Number format v3</text><text x="295" y="106" font-size="11" text-anchor="middle" fill="#1f2328">{prefix}-{yyyy}{MM}{seq:4}</text>
 <rect x="445" y="30" width="140" height="40" rx="6" fill="#f6f8fa" stroke="#59636e"/><text x="515" y="55" font-size="12" text-anchor="middle" fill="#1f2328">Type: Visa (pins v3)</text>
 <rect x="445" y="110" width="140" height="40" rx="6" fill="#f6f8fa" stroke="#59636e"/><text x="515" y="135" font-size="12" text-anchor="middle" fill="#1f2328">Type: PF (pins v3)</text>
 <rect x="620" y="65" width="125" height="54" rx="6" fill="#dafbe1" stroke="#1a7f37"/><text x="682" y="88" font-size="12" text-anchor="middle" fill="#1f2328">Create a record</text><text x="682" y="106" font-size="11" text-anchor="middle" fill="#1f2328">reads the pinned copy</text>
@@ -128,10 +130,12 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 <figcaption>Figure 2. A format is defined once and linked; each record type pins the version it uses.</figcaption>
 </figure>
 <ul>
-<li><strong>Allocator (L2s).</strong> The number is handed out in a tiny step after permission and validation checks, on its own small pool of database connections. If someone retries a request we already completed, they get the same record and the same number back.</li>
+<li><strong>Allocator, per type.</strong> For a <em>gaps</em> type (the default) the number is handed out in a tiny step after permission and validation checks, on its own small pool of database connections (L2s). For a <em>gapless</em> type it is taken at the very end of the save, so a failed save gives the number back (L1). If someone retries a request we already completed, they get the same record and the same number back.</li>
+<li><strong>Switching a type's mode is safe.</strong> Both modes use the same counter, so a switch can never hand out one number twice. The switch applies to creates that start after it. A test switches the mode back and forth while creates are running and checks for duplicates.</li>
+<li><strong>Every format starts with the type's prefix.</strong> Right after the prefix comes a digit, a date part, the counter or a separator such as <code>-</code> or <code>/</code>, never another letter. Because prefixes are unique letters, the letters at the start of any number always identify exactly one type, so searching by number finds exactly one record. A format without the prefix is refused when published (<code>number_format_prefix_required</code>). Your examples become <code>VISA-202611____</code>, <code>VISA-20261110__</code> and <code>VISA/BLR/26/__/11</code>. If you ever want numbers without any prefix, that would make numbers unique only within a type; tell us and it becomes a product decision.</li>
 <li><strong>Patterns.</strong> Pieces available: the type's prefix, year, month, day, a counter of chosen width, and a value from a fixed list on the record (for example the branch). Patterns are checked when published; anything ambiguous is refused with a clear message.</li>
 <li><strong>Restarts.</strong> A counter restarts for whatever the pattern shows: a pattern with a month restarts monthly; one with a branch keeps a counter per branch.</li>
-<li><strong>Changing a format never rewrites existing numbers.</strong> A changed pattern starts a new counter (a new epoch), and we refuse a new pattern that could ever produce a number an older pattern already produced.</li>
+<li><strong>Changing a format never rewrites existing numbers.</strong> A changed pattern starts a new counter (a new epoch), and we refuse a new pattern that could ever produce a number an older pattern of the same type already produced. Different types cannot clash, thanks to the prefix rule above.</li>
 <li><strong>Running out.</strong> A format either grows the counter past its width, or refuses the create with a clear "number space exhausted" error. You are alerted at 90 % use.</li>
 </ul>
 
@@ -149,7 +153,7 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 
 <h2>5. What you are accepting</h2>
 <table><thead><tr><th>Risk</th><th>Size</th><th>What would make us revisit</th></tr></thead><tbody>
-<tr><td><strong>Gaps.</strong> A create that fails after its number was handed out leaves a skipped number. After a database crash, a few numbers that were never used on any record may be handed out again.</td><td>Product choice (yours)</td><td>A tenant legally needs gapless numbers: we add a per-type gapless mode.</td></tr>
+<tr><td><strong>Gaps (on <em>gaps</em> types).</strong> A create that fails after its number was handed out leaves a skipped number. After a database crash, a few numbers that were never used on any record may be handed out again.</td><td>Product choice (yours), gaps types only</td><td>A type that legally needs gapless numbers switches to <em>gapless</em>; no code change.</td></tr>
 <tr><td><strong>Why skipping the disk wait is safe.</strong> The tiny step does not wait for the disk. If the database crashes, it can forget a few counter steps, but only for numbers that never made it onto a saved record, because saving a record forces everything before it to disk. Tested by killing the database 3 times mid-run: 0 duplicate numbers.</td><td>Low</td><td>Someone adds <em>logical replication</em> (a way of copying data to another system change by change) on the counter table: this decision is reopened.</td></tr>
 <tr><td>A number that shows a branch keeps showing it even if that field is later hidden from some users; numbers already sent in emails cannot be recalled.</td><td>Low</td><td>A tenant asks to recall numbers.</td></tr>
 <tr><td>A per-branch counter tells anyone who can see one record roughly how many records that branch had this period (within the same tenant only).</td><td>Low</td><td>A tenant treats that as confidential.</td></tr>

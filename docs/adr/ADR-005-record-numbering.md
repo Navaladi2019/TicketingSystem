@@ -9,12 +9,12 @@ rfc: docs/adr/ADR-005/rfc/RFC-014-record-numbering.md (rev 1, archived with rev-
 supersedes: none
 amends: PLAN-003 D-3-9 (docs/delivery/plan-records-path.md:88)
 source: Human request on TICK-648 ("OPEN AN RFC", 2026-11-09), plugin option requested by vknavaladi (TICK-653, 2026-11-09 17:21 UTC); P3-36 trigger from TICK-621 (create p95 > 50 ms)
-deciders: Solution Architect (author); Technical Architect (rev 1 APPROVE with findings 1–5, spike S1, comment 01a1c19d-bb65); Security & Multi-Tenancy Reviewer (round 1 APPROVE with C1–C7, comment 01a1c147-92d1; rev 1 additions APPROVE with C8–C13, comment 01a1c310-2851); Postgres & Data Modeling Specialist (round 1 CHANGES, two blocking items closed by the Technical Architect's re-check, comment 01a1c14c-b6d3); CTO (chair rulings, comment 01a1c30c-b7e4); vknavaladi (gaps policy, pending)
+deciders: Solution Architect (author); Technical Architect (rev 1 APPROVE with findings 1–5, spike S1, comment 01a1c19d-bb65); Security & Multi-Tenancy Reviewer (round 1 APPROVE with C1–C7, comment 01a1c147-92d1; rev 1 additions APPROVE with C8–C13, comment 01a1c310-2851); Postgres & Data Modeling Specialist (round 1 CHANGES, two blocking items closed by the Technical Architect's re-check, comment 01a1c14c-b6d3); CTO (chair rulings, comment 01a1c30c-b7e4); vknavaladi (per-type `numbering_mode`, TICK-621, 2026-11-10 02:06 UTC, recorded in PR #551); CTO (leading-`{prefix}` rule, comment 01a1c387-b543)
 ---
 
 # ADR-005: Record numbering
 
-> **Status: PROPOSED.** All reviewers have approved RFC-014 rev 1 or had their blocking items closed (CTO ruling, comment 01a1c30c-b7e4). Security approved rev 1's additions with conditions C8–C13 (comment 01a1c310-2851), written in §3.7. **One product decision is open: gapless or gaps allowed.** This ADR is written with **L2s (gaps allowed)** as the decision, pending vknavaladi's answer on TICK-653. If the answer is gapless, §2.1 switches to the stated alternative (L1 plus a recorded waiver) and nothing else in this ADR changes. ACCEPTED is not posted until the human has answered.
+> **Status: PROPOSED.** All reviewers have approved RFC-014 rev 1 or had their blocking items closed (CTO ruling, comment 01a1c30c-b7e4). Security approved rev 1's additions with conditions C8–C13 (comment 01a1c310-2851), written in §3.7. **The gaps policy is decided, per type** (vknavaladi on TICK-621, 2026-11-10 02:06 UTC; recorded as D-3-9 in PR #551): `entity_definitions.numbering_mode` is `gaps` (default) or `gapless`. A `gaps` type allocates with **L2s**; a `gapless` type allocates with **L1** (§2.1). Every format starts with `{prefix}` (§3.1, CTO ruling 01a1c387-b543).
 >
 > **Invariants source.** The project description defines no invariants, so this ADR is checked against [[ADR-001-platform-blueprint]] §1, I1–I9 (`main` at `89e0f84d`).
 >
@@ -30,8 +30,8 @@ Two problems:
 
 ## Decision
 
-1. **The number is allocated in its own tiny transaction (L2s), before the create transaction and after authorisation and validation.** It runs on a dedicated allocator pool, in one pipelined send: `BEGIN; set_config(app.tenant_id, …, true); SET LOCAL synchronous_commit = off; upsert … RETURNING; COMMIT`. The create transaction then inserts the record with that number. *Pending the human: gaps allowed* (§2.1).
-2. **Number formats are declarative templates**, e.g. `{yyyy}{MM}{seq:4}` or `{field:branch}_{yy}_{seq:2}_{MM}`, validated and compiled at publish (§3). Nothing in a format adds a statement or a round trip to the counter lock.
+1. **The number is allocated in its own tiny transaction (L2s), before the create transaction and after authorisation and validation.** It runs on a dedicated allocator pool, in one pipelined send: `BEGIN; set_config(app.tenant_id, …, true); SET LOCAL synchronous_commit = off; upsert … RETURNING; COMMIT`. The create transaction then inserts the record with that number. This is the path for **`gaps` types**, the default. A **`gapless` type** takes its number last inside the create transaction (L1), so a rolled-back create gives its number back. The mode is per type, `entity_definitions.numbering_mode`, decided on TICK-621 (§2.1).
+2. **Number formats are declarative templates that start with the type's `{prefix}`**, e.g. `{prefix}-{yyyy}{MM}{seq:4}` or `{prefix}/{field:branch}/{yy}/{seq:3}`, validated and compiled at publish (§3). Nothing in a format adds a statement or a round trip to the counter lock.
 3. **A number format is tenant-owned, versioned metadata (`number_formats`)**, created at runtime by an admin (ships first) or, once the plugin principal of §3.7 C11 exists, by a plugin through the public API, and **linked** to entity types by a pinned `(number_format_id, format_version)` [CTO]. This is how "created dynamically and linked" is met: configuration, no code.
 4. **Counters are scoped:** `record_counters` gains `scope_key`, and its primary key becomes `(tenant_id, entity_definition_id, scope_key)`, changed by an expand/contract migration (§4).
 5. **The default format is today's format.** `{prefix}{seq:7}` with `overflow: grow` is epoch 0 and uses `scope_key = ''`, so every existing type continues its existing counter. No existing number is migrated or rewritten.
@@ -47,9 +47,9 @@ Measured by spike S1 (Technical Architect, quiet host, 8 clients on one type and
 | | Option | Counter wait p95 | Create p95 (SQL level) | Throughput | Gaps | Verdict |
 |---|---|---|---|---|---|---|
 | L0 | Today: lock held until the create commits | 150 / 179 ms | 171 / 207 ms | 103–123/s | none | rejected: misses |
-| L1 | Gapless; write batch and `COMMIT` in one pipelined send | 108 / 120 ms | 133 / 142 ms | 142–149/s | none | **stated alternative** if the human picks gapless; needs a waiver |
+| L1 | Gapless; write batch and `COMMIT` in one pipelined send | 108 / 120 ms | 133 / 142 ms | 142–149/s | none | **chosen for `gapless` types**; waiver for those types only |
 | L2 | Own transaction, synchronous commit | 31 / 36 ms | 69 / 120 ms | 143–180/s | on failed creates | superseded by L2s |
-| **L2s** | L2 with `SET LOCAL synchronous_commit = off` | **0.84 / 0.99 ms** (contended host 0.97 / 1.20) | **39.5** ms (one rep 114 ms under transport noise) | **258/s** | on failed creates | **chosen** (pending the human) |
+| **L2s** | L2 with `SET LOCAL synchronous_commit = off` | **0.84 / 0.99 ms** (contended host 0.97 / 1.20) | **39.5** ms (one rep 114 ms under transport noise) | **258/s** | on failed creates | **chosen for `gaps` types** (the default) |
 | L2′ | Allocate on the main pool before the checks | 22 / 51 ms | 87 / 133 ms | 134/s | also on every refused create | **rejected [CTO]**: allocation before authorisation lets a principal with no create permission advance any type's counter, a side effect ahead of I4 |
 | L3 | Blocks of numbers cached per server | ~0 | — | — | large, on restart | rejected for M1. Trigger: one scope needs > ~500 creates/s sustained |
 | L4 | Number assigned after commit | 0 | — | — | none | rejected: a create must return its number |
@@ -63,19 +63,27 @@ Measured by spike S1 (Technical Architect, quiet host, 8 clients on one type and
 | Plugin computes the number (P-b) | Tenant code runs per create, outside the lock, returns the rendered parts | **deferred** (§6) |
 | Plugin owns the counter (P-c) | Tenant code increments or is called inside the lock | **rejected**: violates I8 and the chair's hard line |
 
-## 2. The allocator (L2s)
+## 2. The allocator (L2s for `gaps` types, L1 for `gapless` types)
 
-### 2.1 Gaps policy — pending vknavaladi
+### 2.1 Gaps policy — decided, per type
 
-| | **Chosen, pending: gaps allowed (L2s)** | **Stated alternative: gapless (L1)** |
+**Decided by vknavaladi on TICK-621 (2026-11-10 02:06 UTC), recorded as D-3-9 in PR #551** (`docs/delivery/decisions/2026-11-10-d-3-9-numbers-may-have-gaps.md`). Each type chooses `entity_definitions.numbering_mode`: `gaps` (default) or `gapless`, set together with `number_prefix` and changeable later.
+
+| | **`gaps` (default): L2s** | **`gapless`: L1** |
 |---|---|---|
+| How the number is taken | Dedicated allocator pool, `tenancy.AllocTx`, `SET LOCAL synchronous_commit = off`, committed before the create transaction begins (§2.2) | Taken **last inside the create transaction**; a rolled-back create gives its number back |
 | What users see | A create that fails after allocation leaves a hole (INC41, INC43). After a database crash a few never-used numbers may be handed out again; no number is ever on two records | Every number used, no holes |
 | Counter wait p95, 8 same-scope clients | ~1 ms | 108–120 ms |
-| 50 ms create target | met at the database level (A3 below still owed) | **cannot be met**; needs a recorded waiver, about create p95 ≤ 200 ms at 8 clients (exact value after the clean re-run) |
+| 50 ms create target (8 clients) | **applies**; met at the database level (A3 still owed) | **waived for `gapless` types only**: recorded waiver, about create p95 ≤ 200 ms at 8 clients (exact value after the clean re-run) |
 | Ceiling per tenant, type and scope | ≥ 258 creates/s measured | ~140–150 creates/s |
-| Create paths | one | one (L1 replaces L0) |
 
-The CTO recommends gaps allowed for every type in M1. A per-type gapless mode is deferred; trigger: the first tenant with a legal gapless requirement (it costs a second create path and a doubled create test matrix).
+**Gaps are never reclaimed.** A shared free list would need its own lock (every create serialises again), and a reclaimed number would be older than numbers already issued, breaking sort-by-number. Both modes use the same counter row, the same scoped key (§4) and the same compiled format (§3): one allocator with two placements, not two numbering systems.
+
+#### 2.1.1 Changing the mode
+- **Both paths upsert the same row**, `(tenant_id, entity_definition_id, scope_key)`, with the same `ON CONFLICT … DO UPDATE SET next = next + 1`. Whichever path holds the row lock, the next caller sees the advanced value, so a mode change cannot produce a duplicate number. A `gapless` rollback returns only a number no other caller could have read, because it held the row lock until the rollback.
+- **The change applies to creates that start after the definition change.** A create reads `numbering_mode` with the definition at its start; creates already running finish on the path they began with. No counter row is rewritten.
+- **Crash safety holds across the switch.** A `gapless` create commits synchronously, so its fsync also flushes any earlier `gaps` (L2s) counter commit (the WAL-prefix argument below).
+- **Pinned test:** 8 concurrent creators on one type and scope while the type's mode is flipped `gaps` → `gapless` → `gaps` several times, with some creates forced to fail; assert that no two records share a number.
 
 ### 2.2 Rules
 
@@ -105,7 +113,11 @@ The CTO recommends gaps allowed for every type in M1. A per-type gapless mode is
 | `{field:<key>}` | the mapped code of an enum property (§3.4) |
 | literal | `[A-Z0-9_\-/.]`, at most 16 characters per run |
 
-Rendered length ≤ 64. Unknown tokens are refused, so a new token type is an additive change. Examples: `yyyymm____` → `{yyyy}{MM}{seq:4}`; `yyyymmdd__` → `{yyyy}{MM}{dd}{seq:2}`; `BRANCH_yy__MM_` → `{field:branch}_{yy}_{seq:2}_{MM}`.
+Rendered length ≤ 64. Unknown tokens are refused, so a new token type is an additive change.
+
+**Leading-`{prefix}` rule** [CTO, comment 01a1c387-b543]. Every template **starts with `{prefix}`**, and the token right after it **must not produce letters**: it cannot be a literal starting with `A–Z` or a `{field:…}` token. It may be a date part, `{seq:N}`, or a literal starting with a digit or one of `_-/.`. Otherwise the publish is refused at compile time with **`number_format_prefix_required`** (422), naming the offending position. Why: `number_prefix` is `^[A-Z]{2,6}$` and unique per tenant, so the leading run of letters of any number names exactly one type. A number therefore stays unique across the whole tenant (search by number finds one record) with no check across types.
+
+Examples (prefix `VISA`): `yyyymm____` → `{prefix}-{yyyy}{MM}{seq:4}` (`VISA-2026110001`); `yyyymmdd__` → `{prefix}-{yyyy}{MM}{dd}{seq:2}` (`VISA-2026111001`); `BRANCH_yy__MM_` → `{prefix}/{field:branch}/{yy}/{seq:2}/{MM}` (`VISA/BLR/26/01/11`). Refused with `number_format_prefix_required`: `{yyyy}{MM}{seq:4}` (no prefix), `{prefix}{field:branch}{seq:3}` and `{prefix}X{seq:4}` (letters right after the prefix).
 
 **Compiled form**, snapshotted on the published **definition version**: `scope_parts`, `head`, `width`, `tail`, `overflow`, `epoch`, `compiled_sha256`, `time_zone`. A create reads only this snapshot, never `number_formats`, so formats add nothing to the create path or the lock.
 
@@ -122,6 +134,7 @@ Rendered length ≤ 64. Unknown tokens are refused, so a new token type is an ad
 - **Epoch = identity of the compiled template within a type**, not of the definition version. A publish with the same `compiled_sha256` keeps the epoch and continues the counter. A changed compiled template gets the next epoch. Re-adopting an earlier template reuses its epoch and continues that counter. `{prefix}{seq:7}`/`grow` is always epoch 0 with `scope_key = ''`. [PG 2]
 - **Epoch registry** [TA-4]: `numbering_epochs(tenant_id, entity_definition_id, epoch, compiled_sha256, literal_head, created_at)` with `UNIQUE (tenant_id, entity_definition_id, epoch)` and `UNIQUE (tenant_id, entity_definition_id, compiled_sha256)`, and the composite FK `(tenant_id, entity_definition_id) REFERENCES entity_definitions (tenant_id, id)` [Sec C8]; `tenant_id` leading, FORCE RLS, isolation-registry rows. The epoch is taken inside the publish transaction under `FOR UPDATE` [Sec C10], so two concurrent publishes cannot both claim epoch N+1. Epoch 0 is implicit (no row needed).
 - **Disjointness rule** [TA-1]: the *literal head* of an epoch is the literal text before its first variable token (`{prefix}` resolves to its literal). For every pair of epochs of a type, refuse the publish if one literal head is a prefix of the other (equal heads included) **unless** the first character where the longer head continues lies outside the character set of the shorter template's next token. Example: epoch 0 `INC` + digits vs `INC-{yyyy}…` is allowed (`-` is not a digit); epoch 0 vs `{prefix}{yy}{seq:3}` is refused (same head `INC`, both continue with digits); `{prefix}{yy}{seq:3}` vs `{prefix}2{seq:4}` is refused (`INC` is a prefix of `INC2`, and `2` is a digit). A property test over generated template pairs asserts that no two accepted epochs can render the same string. The records unique index `(tenant_id, entity_definition_id, number)` stays the backstop; a violation there is a 500-class bug, never silent.
+- **The disjointness check stays within one type.** The leading-`{prefix}` rule (§3.1) guarantees that numbers of two different types cannot clash, so no check across types is needed.
 - Existing numbers are never rewritten.
 
 ### 3.4 Field tokens [Sec C5–C7]
@@ -225,7 +238,7 @@ Rewritten on the new key, plus:
 | AR-TICK-653-02 | 🟡 Low | A per-scope sequence reveals the volume per scope (e.g. records per branch this month) to anyone who can read one record in it; within the tenant only | A tenant treats per-scope volume as confidential |
 | AR-TICK-653-03 | 🟡 Low | The L2s no-duplicate guarantee assumes WAL replays as a prefix (crash recovery, physical replicas, PITR) | **Logical replication on `record_counters`** reopens this ADR [CTO] |
 | AR-TICK-653-04 | ⚪ Info | The allocator pool adds 4 connections per API replica to `max_connections` and PgBouncer | More than ~10 API replicas, or connection pressure on PostgreSQL |
-| (product) | ⚪ Info | Gaps in numbering after failed creates and after a crash (gaps policy L2s) | A tenant's legal gapless requirement: build the per-type gapless mode |
+| (product) | ⚪ Info | Gaps in numbering on `gaps` types (the default) after failed creates and after a crash; gaps are never reclaimed | A tenant's legal gapless requirement: that type sets `numbering_mode = gapless` (D-3-9, PR #551) |
 
 ## 9. Evidence
 - **Spike S1** (Technical Architect): L0, L1, L2, L2s, L2′ at 8 clients, quiet and contended hosts; 1-client SQL-level create p95 (L0 31.5, L1 15.3, L2 23.6, L2s 18.9 ms); A4 crash check 3/3 with no duplicates. `docs/adr/ADR-005/spikes/technical-architect/s1/`.
@@ -234,13 +247,13 @@ Rewritten on the new key, plus:
 
 ## 10. Still owed (not blocking this ADR)
 - **A3:** 1-client create over HTTP ≤ 50 ms on a quiet host, owed on TICK-621. The SQL part is 15–32 ms p95, which suggests most of the 174 ms HTTP miss is outside the database (inferred). [CTO]
-- **Budgets:** with the plan, add to `docs/budgets.md`: counter wait p95 at 8 same-scope clients under L2s ≤ 2 ms (measured 0.84–1.20 ms); create p95 1 client over HTTP ≤ 50 ms (unverified); and, only if gapless is chosen, the L1 waiver value. [CTO]
+- **Budgets:** with the plan, add to `docs/budgets.md`: counter wait p95 at 8 same-scope clients under L2s ≤ 2 ms (measured 0.84–1.20 ms); create p95 1 client over HTTP ≤ 50 ms (unverified); and the L1 waiver value for `gapless` types (the 50 ms 8-client row applies to `gaps` types only). [CTO]
 
 ## 11. Amendment to PLAN-003 D-3-9
-D-3-9 (`docs/delivery/plan-records-path.md:88`) is replaced, on acceptance, by: *"Numbering per ADR-005: the number is allocated by `tenancy.AllocTx` on a dedicated `nava_app` pool (L2s) after authorisation and validation, keyed by `(tenant_id, entity_definition_id, scope_key)`, with the format taken from the definition version's compiled number-format snapshot. Default `{prefix}{seq:7}` (epoch 0, `scope_key = ''`). Gaps allowed. No sequences (I8)."* The PLAN for this ADR edits the row.
+D-3-9 (`docs/delivery/plan-records-path.md:88`) is replaced, on acceptance, by: *"Numbering per ADR-005: the number is allocated by `tenancy.AllocTx` on a dedicated `nava_app` pool (L2s) after authorisation and validation, keyed by `(tenant_id, entity_definition_id, scope_key)`, with the format taken from the definition version's compiled number-format snapshot. Default `{prefix}{seq:7}` (epoch 0, `scope_key = ''`). Each type chooses its mode in `entity_definitions.numbering_mode` (`text NOT NULL DEFAULT 'gaps' CHECK (numbering_mode IN ('gaps','gapless'))`), set where `number_prefix` is set and changeable later (the counter row carries on either way). For a `gapless` type it runs last inside the create transaction (the TICK-648 behaviour): a rolled-back create gives its number back, and that type's concurrent creates queue on its counter row, a cost paid only by that type and not held to the 50 ms 8-client target. **In `gaps` mode** a create that fails or rolls back after taking its number leaves that number unused, and it is **never reclaimed** (a shared free list would re-serialize every create and make numbers non-monotonic). No sequences (I8)."* The L2s path is the `gaps` mode; the per-type sentences are word for word from D-3-9 as amended in PR #551. The PLAN for this ADR edits the row.
 
 ## 12. Sequencing (for the PLAN)
-1. Allocator (L2s, or L1 if gapless), `tenancy.AllocTx`, pool, metrics. Independent of formats; closes the P3-36 trigger.
+1. **Already planned; the ADR plan opens no second task.** Both allocation paths are P3-36e (TICK-657) on TICK-621. P3-36e builds the `gaps` path as ADR-005 L2s (`tenancy.AllocTx`, dedicated pool, metrics, rules A1–A8) and keeps L1 for `gapless`, so there is one allocator. The mode-switch test of §2.1.1 is part of P3-36e's acceptance. Independent of formats; closes the P3-36 trigger.
 2. Counter key expand/contract M1 → M2 → deploy → M3, with registry rows.
 3. `number_formats`, links, `numbering_epochs` (with C8–C10, C12, C13 and their registry rows), templates (dates, width, overflow), `period_end` and mandatory purge, publish gate. Admin-UI publish only. *Depends on:* step 2 (M3 done).
    - Plugin writes to formats are a later step. *Depends on:* the plugin principal of §3.7 C11.
