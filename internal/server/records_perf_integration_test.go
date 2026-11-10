@@ -32,6 +32,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -831,6 +832,19 @@ type perfResult struct {
 	// probe is the host-speed probe's p50 in ms, taken just before this
 	// attempt (creates only; 0 when not probed).
 	probe float64
+	// setup is how the attempt was prepared and what ran during its probe
+	// (creates only).
+	setup perfSetup
+}
+
+// perfSetup records an attempt's method steps (Technical Lead, 2026-11-10
+// 18:2x UTC): how long it waited for the bench database to quiesce and for
+// the host to be free of other bench and integration databases, and what
+// pg_stat_activity and docker stats showed during the host-speed probe.
+type perfSetup struct {
+	quiesceWait, isolationWait time.Duration
+	activity                   []string // pg_stat_activity, mid-probe
+	dockerStats                []string // docker stats, during the probe
 }
 
 // lastCommit is the duration of the request's last round trip that commits
@@ -882,22 +896,114 @@ func (r *perfResult) retryLater() int64 { return r.errCodes["503 retry_later"] }
 // hostProbe is the host-speed gate's measurement: one client sends
 // `BEGIN; COMMIT` (one round trip, simple protocol) perfHostProbeN times on
 // the handler's pool, untraced. It returns the p50 in ms.
-func (e *perfEnv) hostProbe(t *testing.T) float64 {
+//
+// Alongside it, docker stats runs (one sample, taken while the probe runs)
+// and pg_stat_activity is read once at the probe's midpoint on the
+// superuser connection, so the report shows what else was working.
+func (e *perfEnv) hostProbe(t *testing.T, st *perfSetup) float64 {
 	t.Helper()
 	conn, err := e.pool.Acquire(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer conn.Release()
+	stats := make(chan []string, 1)
+	go func() {
+		stats <- dockerLines("stats", "--no-stream", "--format", "{{.Name}} cpu={{.CPUPerc}} mem={{.MemPerc}}")
+	}()
 	d := make([]time.Duration, 0, perfHostProbeN)
-	for range perfHostProbeN {
+	for i := range perfHostProbeN {
+		if i == perfHostProbeN/2 {
+			st.activity = e.activity(t)
+		}
 		t0 := time.Now()
 		if _, err := conn.Exec(t.Context(), "BEGIN; COMMIT"); err != nil {
 			t.Fatal(err)
 		}
 		d = append(d, time.Since(t0))
 	}
+	st.dockerStats = <-stats
 	return pct(d, .5)
+}
+
+// activity is every other backend of the cluster as pg_stat_activity shows
+// it: backend type, database, state, how long its query has run, and the
+// query's start.
+func (e *perfEnv) activity(t *testing.T) []string {
+	t.Helper()
+	out := e.superText(t, `SELECT coalesce(backend_type, '') || ' db=' || coalesce(datname, '-') || ' state=' || coalesce(state, '-')
+		|| ' running=' || coalesce(round(extract(epoch FROM clock_timestamp() - query_start) * 1000)::text || 'ms', '-')
+		|| ' query=' || left(regexp_replace(coalesce(query, ''), '\s+', ' ', 'g'), 60)
+		FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND (state IS DISTINCT FROM 'idle' OR backend_type <> 'client backend')
+		ORDER BY backend_type, pid`)
+	if out == "" {
+		return nil
+	}
+	return strings.Split(out, "\n")
+}
+
+// dockerLines runs docker with args and returns its output lines; an error
+// is returned as the only line, so the report shows it.
+func dockerLines(args ...string) []string {
+	b, err := exec.Command("docker", args...).CombinedOutput() //nolint:gosec // fixed arguments, a bench harness
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if err != nil {
+		return append(lines, "docker: "+err.Error())
+	}
+	return lines
+}
+
+// perfWaitLimit bounds each wait for the database to quiesce or the host to
+// be free; past it the run stops rather than measure a busy host.
+const perfWaitLimit = 30 * time.Minute
+
+// quiesce waits until no autovacuum worker and no VACUUM or ANALYZE runs in
+// the bench database, and returns how long that took.
+func (e *perfEnv) quiesce(t *testing.T) time.Duration {
+	t.Helper()
+	start := time.Now()
+	for {
+		var n int
+		if err := e.super.QueryRow(t.Context(), `SELECT count(*) FROM pg_stat_activity
+			WHERE datname = current_database() AND pid <> pg_backend_pid()
+			  AND (backend_type = 'autovacuum worker' OR query ~* '^\s*(vacuum|analyze|autovacuum)')
+			  AND state IS DISTINCT FROM 'idle'`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n == 0 {
+			return time.Since(start)
+		}
+		if time.Since(start) > perfWaitLimit {
+			t.Fatalf("bench database not quiet after %v: %d autovacuum or analyze backends", perfWaitLimit, n)
+		}
+		time.Sleep(time.Second)
+	}
+}
+
+// isolate waits until no other bench or integration database container
+// (nava-it-pg-*, nava-aclperf-*) runs on the host; the run's own container
+// is NAVA_PERF_PG_CONTAINER (set by bench/acl-perf/run.sh). It returns how
+// long that took.
+func isolate(t *testing.T) time.Duration {
+	t.Helper()
+	own := os.Getenv("NAVA_PERF_PG_CONTAINER")
+	start := time.Now()
+	for {
+		var others []string
+		for _, n := range dockerLines("ps", "--format", "{{.Names}}") {
+			if n != own && (strings.HasPrefix(n, "nava-it-pg-") || strings.HasPrefix(n, "nava-aclperf-") || strings.HasPrefix(n, "docker: ")) {
+				others = append(others, n)
+			}
+		}
+		if len(others) == 0 {
+			return time.Since(start)
+		}
+		if time.Since(start) > perfWaitLimit {
+			t.Fatalf("host not isolated after %v: %v still running", perfWaitLimit, others)
+		}
+		t.Logf("waiting for %v to stop before the next attempt", others)
+		time.Sleep(15 * time.Second)
+	}
 }
 
 // perfHold is one create's record_counters window (D-3-9). wait is the
@@ -1110,12 +1216,13 @@ func TestRecordsACLPerf800k(t *testing.T) {
 	}
 	e := newPerfEnv(t, clients)
 	e.seed(t)
-	// NAVA_PERF_CHECKPOINT=1 flushes the seed's dirty pages before the first
-	// scenario, so a checkpoint spread over the run (checkpoint_completion_target)
-	// does not land on the creates' commit fsyncs.
-	if os.Getenv("NAVA_PERF_CHECKPOINT") == "1" {
-		e.exec(t, "CHECKPOINT")
-	}
+	// Quiesce the seed (Technical Lead, 2026-11-10): VACUUM (ANALYZE) does
+	// the work autovacuum would otherwise do during the attempts, and
+	// CHECKPOINT flushes the dirty pages, so neither lands on the creates.
+	t0 := time.Now()
+	e.exec(t, "VACUUM (ANALYZE)")
+	e.exec(t, "CHECKPOINT")
+	t.Logf("QUIESCE VACUUM (ANALYZE) and CHECKPOINT after the seed: %v", time.Since(t0).Round(time.Second))
 	floor := e.transportFloor(t, clients)
 	t.Logf("FLOOR SELECT 1 round trip, %d clients: p50=%.2f p95=%.2f p99=%.2f ms", clients, pct(floor, .50), pct(floor, .95), pct(floor, .99))
 	if p50 := pct(floor, .50); p50 > perfFloorGateMS {
@@ -1138,11 +1245,14 @@ func TestRecordsACLPerf800k(t *testing.T) {
 		}
 		for a := 1; a <= attempts; a++ {
 			probe := 0.0
+			var st perfSetup
 			if sc.kind == "create" {
-				probe = e.hostProbe(t)
+				st.isolationWait = isolate(t)
+				st.quiesceWait = e.quiesce(t)
+				probe = e.hostProbe(t, &st)
 			}
 			r := e.run(t, sc, c, time.Duration(secs)*time.Second)
-			r.attempt, r.probe = a, probe
+			r.attempt, r.probe, r.setup = a, probe, st
 			t.Logf("RESULT %-62s attempt %d n=%6d p50=%8.2f p95=%8.2f p99=%8.2f ms commit p50=%6.2f host probe=%5.2f retry_later=%d gated=%q",
 				sc.name, a, len(r.lat), pct(r.lat, .50), pct(r.lat, .95), pct(r.lat, .99), r.commitP50(), r.probe, r.retryLater(), r.gateReason())
 			results = append(results, r)
@@ -1263,6 +1373,7 @@ func (e *perfEnv) report(t *testing.T, results []*perfResult, floor []time.Durat
 	}
 	e.reportHolds(w, results, floor)
 	reportAlloc(w, results)
+	reportSetup(w, results)
 	reportTimeouts(w, results)
 	w("\n## Per statement (ms, as pgx traced it, all requests of the scenario)\n\n")
 	for _, r := range results {
@@ -1521,5 +1632,26 @@ func reportAlloc(w func(string, ...any), results []*perfResult) {
 			failed = strings.Join(keys, ", ")
 		}
 		w("| %s | %d | %s | %s | %.0f | %s |\n", r.label(), n, q(acq), q(lat), timeouts, failed)
+	}
+}
+
+// reportSetup prints, per create attempt, the method steps before it and
+// what pg_stat_activity and docker stats showed during its host probe.
+func reportSetup(w func(string, ...any), results []*perfResult) {
+	w("\n## Attempt setup and host-probe samples (creates)\n\nBefore each create attempt: wait until no other `nava-it-pg-*` or `nava-aclperf-*` container runs, then until no autovacuum or analyze backend works in the bench database, then the host-speed probe. `pg_stat_activity` is read at the probe's midpoint (every non-idle backend and every non-client backend, other than the reader); `docker stats` is one sample taken while the probe runs. The seed was quiesced once with `VACUUM (ANALYZE)` and `CHECKPOINT`.\n\n")
+	for _, r := range results {
+		if r.sc.kind != "create" {
+			continue
+		}
+		w("### %s\n\nIsolation wait %v, quiesce wait %v, host probe p50 %.2f ms.\n\n```\n", r.label(), r.setup.isolationWait.Round(time.Second), r.setup.quiesceWait.Round(time.Second), r.probe)
+		w("pg_stat_activity:\n")
+		for _, l := range r.setup.activity {
+			w("  %s\n", l)
+		}
+		w("docker stats:\n")
+		for _, l := range r.setup.dockerStats {
+			w("  %s\n", l)
+		}
+		w("```\n\n")
 	}
 }

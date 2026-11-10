@@ -8,13 +8,17 @@
 #   make bench-acl-perf        # about 32 minutes
 # Env: NAVA_PERF_SECONDS (20) per scenario, NAVA_PERF_CLIENTS (8),
 # NAVA_PERF_OUT (bin/acl-perf-800k-raw.md), NAVA_PERF_ONLY (a regexp over
-# scenario names, e.g. '^create'), NAVA_PERF_CHECKPOINT=1 (CHECKPOINT after
-# the seed), BENCH_KEEP=1 keeps the container.
+# scenario names, e.g. '^create'), BENCH_KEEP=1 keeps the container. The
+# test quiesces the seed (VACUUM (ANALYZE), CHECKPOINT) and, before each
+# create attempt, waits for other nava-it-pg-*/nava-aclperf-* containers to
+# stop and for autovacuum to finish in the bench database.
 set -eu
 cd "$(dirname "$0")/../.."
 pgtag=$(sed -n 's/^| `postgres` | \([^ |]*\) |.*/\1/p' docs/pins.md)
 [ -n "$pgtag" ] || { echo "no postgres row in docs/pins.md" >&2; exit 1; }
 pg=nava-aclperf-pg-$$
+NAVA_PERF_PG_CONTAINER=$pg
+export NAVA_PERF_PG_CONTAINER
 NAVA_PERF_OUT=${NAVA_PERF_OUT:-$(pwd)/bin/acl-perf-800k-raw.md}
 # go test on Windows reads a Git Bash path (/c/...) as C:\c\...: hand it C:/...
 if command -v cygpath >/dev/null 2>&1; then NAVA_PERF_OUT=$(cygpath -m "$NAVA_PERF_OUT"); fi

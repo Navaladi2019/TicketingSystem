@@ -474,7 +474,7 @@ and writes the raw report to `bin/acl-perf-800k-raw.md`. The test fails when
 any scenario misses its target. Env: `NAVA_PERF_SECONDS` (20),
 `NAVA_PERF_CLIENTS` (8), `NAVA_PERF_OUT`, `NAVA_PERF_ONLY` (a regular
 expression over scenario names, for example `^create`), `BENCH_KEEP=1`,
-`NAVA_PERF_CHECKPOINT=1` (a `CHECKPOINT` after the seed).
+and the create attempts' method steps: the seed is quiesced with `VACUUM (ANALYZE)` and `CHECKPOINT`, and before each create attempt the test waits until no other `nava-it-pg-*` or `nava-aclperf-*` container runs and no autovacuum or analyze works in the bench database, then samples `pg_stat_activity` and `docker stats` during the host-speed probe (`NAVA_PERF_CHECKPOINT` is gone: the checkpoint always runs).
 
 Raw output for this run, with every statement, argument and plan:
 `docs/quality/acl-perf-800k/run-2026-11-09.md`.
