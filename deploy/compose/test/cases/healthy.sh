@@ -6,7 +6,9 @@ set -eu
 # Every container healthy, db-roles and migrate done, within the S1 budget of
 # 180 s from the first container's creation, so `up -d` counts (TICK-164). The
 # test and CI overlays only publish a port and drop durability, and the
-# operator profile adds the Temporal UI, so the CI stack has the same budget.
+# operator profile adds the Temporal UI, OpenObserve and Prometheus (a full CI
+# run and a laptop; a fast CI run leaves it off, TICK-696), so the CI stack has
+# the same budget. The containers checked follow COMPOSE_PROFILES (services()).
 # The internal overlay keeps 300 s (t_internal). The 180 s gate holds when the
 # stack has the host to itself, as on a GitHub runner. While other compose
 # stacks run on the host it stretches to CONTENDED_WAIT_SECONDS (300 s): two

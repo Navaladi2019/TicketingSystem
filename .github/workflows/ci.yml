@@ -24,7 +24,10 @@
 #                    touches the image build or the run is CI_ALL, TICK-628),
 #                    then the platform and Temporal cases: the tier=smoke cases
 #                    on a fast run, every case on a full run (STACK_TIER,
-#                    TICK-652). A full run then brings up two more stacks in
+#                    TICK-652). The operator compose profile (temporal-ui,
+#                    OpenObserve, Prometheus) follows the selected cases
+#                    (profile=operator, TICK-696): a fast run neither pulls
+#                    nor starts those three, a full run starts all three. A full run then brings up two more stacks in
 #                    turn, each torn down before the next: the database cases
 #                    (db-roles/migrate idempotency, roles, hba) and the
 #                    internal overlay; they run even when an earlier phase
@@ -141,7 +144,8 @@ on:
     # The daily full run on main (TICK-652): every job, every stack case and
     # area, the isolation suite and the real Dockerfiles. DAILY CRON: this
     # string is repeated, and must stay equal, in env.CI_FULL, the runner,
-    # changes and lint if: lines, the changes job's CI_ALL and main-red's if:.
+    # changes and lint if: lines, the changes job's CI_ALL, the stack job's
+    # STACK_TIER (TICK-696, TestStackTierRepeatsCIFull) and main-red's if:.
     - cron: '41 2 * * *'
 
 permissions:
@@ -631,6 +635,17 @@ jobs:
       # With thin images, make image-ci also builds nava-worker-interptest, so
       # the interpreter cases start it without --build (TICK-628 follow-up).
       NAVA_INTERPTEST_PREBUILT: ${{ needs.changes.outputs.images == 'thin' && '1' || '' }}
+      # The stack-case areas the change touches (TICK-563; run-cases.sh).
+      AREAS: ${{ needs.changes.outputs.areas }}
+      # Only the tier=smoke cases on a fast run, every case on a full run
+      # (TICK-652, AR-TICK-652-01; run-cases.sh). On the job, not the cases
+      # step (TICK-696): make/stack.mk derives COMPOSE_PROFILES from STACK_TIER,
+      # AREAS and JOB, so image-ci's pull, stack-up, stack-logs and stack-down
+      # agree. A fast run selects no profile=operator case, so temporal-ui,
+      # OpenObserve and Prometheus are neither pulled nor started; a full run
+      # starts all three. Job-level env cannot read env, so this repeats the
+      # workflow's CI_FULL expression (keep the two equal).
+      STACK_TIER: ${{ (github.event.schedule == '41 2 * * *' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:full'))) && 'all' || 'smoke' }}
     steps:
       - uses: actions/checkout@v4
       # Self-hosted (TICK-641): this run's compose project, image tag and
@@ -696,14 +711,15 @@ jobs:
       - name: Stack cases (stack)
         id: cases-stack
         env:
-          AREAS: ${{ needs.changes.outputs.areas }}
           # The mode=parallel cases run at once, as in make ci-stack (TICK-628).
           # Here, not on the run: line: required.yaml matches that line exactly.
           PARALLEL: "1"
-          # Only the tier=smoke cases on a fast run, every case on a full run
-          # (TICK-652, AR-TICK-652-01; run-cases.sh).
-          STACK_TIER: ${{ env.CI_FULL == 'true' && 'all' || 'smoke' }}
         run: make stack-tests JOB=stack
+      # TICK-696: host and per-container memory after the cases, so a fast run
+      # (no operator profile) and a full run compare. Never fails.
+      - name: Stack memory (stack)
+        if: always() && steps.up.outcome == 'success'
+        run: make stack-mem
       # sdk and identity_attacks write these; both are full-tier (TICK-652).
       - name: CI-6 report
         if: always() && env.CI_FULL == 'true'
@@ -736,7 +752,6 @@ jobs:
         id: cases-db
         if: ${{ !cancelled() && env.CI_FULL == 'true' && steps.up-db.outcome == 'success' }}
         env:
-          AREAS: ${{ needs.changes.outputs.areas }}
           # The mode=parallel cases run at once, as in make ci-stack (TICK-628).
           # Here, not on the run: line: required.yaml matches that line exactly.
           PARALLEL: "1"
@@ -758,7 +773,6 @@ jobs:
         id: cases-internal
         if: ${{ !cancelled() && env.CI_FULL == 'true' && steps.ca.outcome == 'success' }}
         env:
-          AREAS: ${{ needs.changes.outputs.areas }}
           # The mode=parallel cases run at once, as in make ci-stack (TICK-628).
           # Here, not on the run: line: required.yaml matches that line exactly.
           PARALLEL: "1"
