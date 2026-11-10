@@ -286,9 +286,16 @@ func TestAllocationTimeoutIsRetryableAndMeasured(t *testing.T) {
 	if got := numbers(t, e, f.id, entityKey); !slices.Equal(got, wantNumbers(t, "INC", 1, 1)) {
 		t.Fatalf("numbers = %v, want only INC0000001", got)
 	}
-	// The retry takes the next number.
-	if next := mustCreate(t, e, p, f, map[string]any{"title": "retry"}); next.Number != "INC0000002" {
-		t.Fatalf("retry got %s, want INC0000002", next.Number)
+	// The retry takes a new number: INC0000002, or INC0000003 when the
+	// timed-out allocation, already sent in full, still committed after the
+	// lock was released and before its cancel arrived. That is a gap, never
+	// a number on two records.
+	next := mustCreate(t, e, p, f, map[string]any{"title": "retry"})
+	if next.Number != "INC0000002" && next.Number != "INC0000003" {
+		t.Fatalf("retry got %s, want INC0000002 or INC0000003", next.Number)
+	}
+	if got := numbers(t, e, f.id, entityKey); !slices.Equal(got, []string{"INC0000001", next.Number}) {
+		t.Fatalf("numbers = %v, want INC0000001 and the retry's %s", got, next.Number)
 	}
 
 	var rm metricdata.ResourceMetrics
