@@ -204,7 +204,7 @@ func TestCreateRecordAllocationTimeoutIs503RetryLater(t *testing.T) {
 	if n := keyRows(t, e, "late"); n != 0 {
 		t.Fatalf("%d key rows after the 503, want 0: the claim rolls back with the write", n)
 	}
-	retry :=e.createRec(t, "user-a", "ticket", "late", `{"short_description": "late"}`)
+	retry := e.createRec(t, "user-a", "ticket", "late", `{"short_description": "late"}`)
 	if retry.Code != http.StatusCreated || retry.Header().Get("Idempotent-Replayed") == "true" {
 		t.Fatalf("retry = %d replayed=%q, want a fresh 201: %s", retry.Code, retry.Header().Get("Idempotent-Replayed"), retry.Body)
 	}
