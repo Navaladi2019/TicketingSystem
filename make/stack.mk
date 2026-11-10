@@ -1,4 +1,4 @@
-.PHONY: prebuilt-pull prebuilt-publish ci-stack ci-stack-run stack-tests stack-main stack-internal-beside stack-internal stack-up stack-down stack-logs image image-ci ci-binaries smoke
+.PHONY: stack-mem prebuilt-pull prebuilt-publish ci-stack ci-stack-run stack-tests stack-main stack-internal-beside stack-internal stack-up stack-down stack-logs image image-ci ci-binaries smoke
 
 # Builds the images, brings the stack up, runs every stack test, then tears
 # it down (logs first on failure). The workflow runs `make stack-tests JOB=<job>`
@@ -193,6 +193,13 @@ smoke: stack-test-smoke
 stack-internal:
 	docker compose down -v
 	sh deploy/compose/test/stack-test.sh internal
+
+# TICK-696: the host's memory and each running container's, a snapshot for
+# the stack job log (the step after the cases), so a fast and a full run can be
+# compared. Never fails the job.
+stack-mem:
+	@echo "stack-mem: COMPOSE_PROFILES=$(COMPOSE_PROFILES)"; free -m 2>/dev/null || true; \
+	ids=$$(docker compose $(STACK_FILES) ps -q); [ -z "$$ids" ] || docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.CPUPerc}}' $$ids || true
 
 stack-logs:
 	docker compose $(STACK_FILES) logs --no-color --tail 200
