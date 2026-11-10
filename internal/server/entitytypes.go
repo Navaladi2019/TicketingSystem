@@ -234,6 +234,7 @@ func (h *handlers) PublishEntityTypeVersion(ctx context.Context, req api.Publish
 		raw = *req.Body
 	}
 	var v *entitytypes.Version
+	var modeOnly bool
 	err := tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) error {
 		if err := authz.RequireTenantAdminTx(ctx, tx, p); err != nil {
 			return err
@@ -247,6 +248,7 @@ func (h *handlers) PublishEntityTypeVersion(ctx context.Context, req api.Publish
 		if perr != nil {
 			return perr
 		}
+		modeOnly = pr.def == nil
 		var err error
 		// The mode is set first, so a publish in the same request reads it.
 		if pr.hasMode {
@@ -295,15 +297,21 @@ func (h *handlers) PublishEntityTypeVersion(ctx context.Context, req api.Publish
 	case err != nil:
 		return nil, err
 	}
-	h.log.InfoContext(ctx, "entity type version published",
-		slog.String("tenant_id", p.TenantID.String()), slog.String("entity_key", v.Key),
-		slog.Int("version", v.Version), slog.String("compat", v.Compat))
+	if modeOnly {
+		h.log.InfoContext(ctx, "entity type numbering mode changed",
+			slog.String("tenant_id", p.TenantID.String()), slog.String("entity_key", v.Key),
+			slog.String("numbering_mode", string(v.NumberingMode)))
+	} else {
+		h.log.InfoContext(ctx, "entity type version published",
+			slog.String("tenant_id", p.TenantID.String()), slog.String("entity_key", v.Key),
+			slog.Int("version", v.Version), slog.String("compat", v.Compat))
+	}
 	return &entityTypeResponse{status: http.StatusCreated, v: v}, nil
 }
 
-// parsePublish validates the publish body: only `definition`, and never a
-// number_prefix, which does not change after create. The definition itself is
-// compiled by the store against the stored key and prefix.
+// parsePublish validates the publish body: a `definition`, a `numbering_mode`
+// or both, and never a number_prefix, which does not change after create. The
+// definition itself is compiled by the store against the stored key and prefix.
 func parsePublish(raw json.RawMessage) (publishRequest, *problemError) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
