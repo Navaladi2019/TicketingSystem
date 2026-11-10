@@ -140,6 +140,17 @@ and the 7 green push runs of story branch `TICK-334/workflow-interpreter`
 | `commit-check-budget` | | 120 s, cold Go cache (run 41673342312; the test itself 13 s) | | | 10 |
 | `changes` | under 1 min | | | | 5 |
 
+**Fast-run budget (TICK-652).** Baseline, the last green push to `main`
+before TICK-652 (run 42579995367): 18 minutes, critical path `changes` (0.5)
+→ `stack` (17.5); every other job done by minute 9; `integration` 7.5
+minutes, of which the isolation suite about 1 and `test-integration-cleanup`
+0.8. Expected on a fast run, from that run's step times (to be replaced by
+the measured `ci:run` run on the TICK-652 pull request): `stack` about 10
+minutes (set-up 1, `make image-ci` 5.5, stack up and smoke cases about 3,
+teardown 0.5), `integration` about 5.5, so about 11 minutes end to end. A
+full run stays at about 18. `timeout-minutes` is unchanged: a full run still
+needs it.
+
 Run ids: on `main`, 41261072764, 41257268224, 41254956177, 41248729699,
 41225258899, 40832394612, 40826427934, 40824849251, 40823401408 and
 40821579602. On the story branch, 41277164363, 41274001507, 41269677744,
@@ -403,7 +414,16 @@ Every change runs `ci-lint`. Documentation (`.md` and `.html` outside a Go
 package and outside `testdata`) runs nothing else; any other file under
 `docs/` runs all four, since tests read some of them. A Go package's files add
 `ci-unit`, plus `ci-integration` when an integration test depends on the
-package and `ci-stack` when an image or a stack test does (`go list -deps`).
+package and `ci-stack` when an image or a stack test does (`go list -deps`)
+and the package is a stack trigger (TICK-652, `stackTriggers` in
+`tools/ci/cichanged/main.go`): a command under `cmd/`, the migrations and
+database bootstrap (`db`, `internal/db/{migrate,roles,grants}`), the
+configuration (`internal/platform/config`), the Keycloak adapter
+(`internal/identity/keycloak`), or a stack suite (`internal/temporalstack`,
+`internal/identitystack`, `internal/workerstack`, the CI-5 and CI-6 report
+tools). Any other Go package, plain logic that `unit` and `integration`
+already cover, no longer starts `stack`; its stack cases run on the next full
+run (AR-TICK-652-01).
 Compose and `deploy/` files add `ci-unit` (unit tests read the compose and
 collector files) and `ci-stack`; the integration script adds `ci-integration`.
 `go.mod`, `go.sum`, `docs/pins.md`, the Makefile, and any file no rule knows
@@ -414,22 +434,71 @@ settled by the human on 2026-10-25 (decision log): it can.
 
 ### In GitHub
 
-**Triggers (TICK-563).** The workflow runs on a push to `main`, on a pull
-request (`opened`, `synchronize`, `reopened`, `labeled`), by hand
-(`workflow_dispatch`) and on the 6-hour schedule. A push to a task or story
-branch starts no run: TICK-563 removed `TICK-**` from `on.push.branches`
-(it was added by TICK-289), for Actions cost.
+**Triggers (TICK-563, TICK-652).** The workflow runs on a push to `main`, on
+a pull request (`opened`, `synchronize`, `reopened`, `labeled`), by hand
+(`workflow_dispatch`) and on two schedules: every 6 hours (`23 */6 * * *`,
+`story-branches` only) and daily (`41 2 * * *`, the full run on `main`). A
+push to a task or story branch starts no run: TICK-563 removed `TICK-**` from
+`on.push.branches` (it was added by TICK-289), for Actions cost.
 
-| Event | Jobs that run |
-| --- | --- |
-| pull request into a `TICK-*` story branch (a task PR), any labels | every job and every stack case (`CI_FULL=1`, TICK-638), then `full-suite`, which fails unless every suite job succeeded |
-| any other pull request with neither `ci:run` nor `ci:full` | `changes`, `lint`, `story-branches` (`make ci-stages` with `CI_LINT_ONLY=1` sets every stage false) |
-| pull request with `ci:run` (added, or already there on a later push) | `changes`, `lint`, `story-branches` and the jobs its change needs (table below); `stack` skips the cases of untouched areas (below) |
-| pull request with `ci:full` | as `ci:run`, and `stack` runs every case |
-| `labeled` with any label but `ci:run` or `ci:full` | none: every job's `if:` skips it (`full-suite` too), and the run has a concurrency group of its own so it never cancels the real one |
-| push or manual run on `main` | every job (`CI_ALL=1`) and `main-red` on failure |
-| manual run on another branch | the jobs its diff against `main` needs (`CI_ALL` is never set off `main`) |
-| schedule | `story-branches` only |
+| Event | Jobs that run | Suites |
+| --- | --- | --- |
+| pull request into a `TICK-*` story branch (a task PR), no `ci:full` | every job and every stack-case area (`CI_FULL=1` in `make ci-stages`, TICK-638), then `full-suite`, which fails unless every suite job succeeded | fast |
+| any other pull request with neither `ci:run` nor `ci:full` | `changes`, `lint`, `story-branches` (`make ci-stages` with `CI_LINT_ONLY=1` sets every stage false) | none |
+| pull request with `ci:run` (added, or already there on a later push) | `changes`, `lint`, `story-branches` and the jobs its change needs (table below); `stack` skips the cases of untouched areas (below) | fast |
+| pull request with `ci:full` (any base) | every job and every area | full |
+| `labeled` with any label but `ci:run` or `ci:full` | none: every job's `if:` skips it (`full-suite` too), and the run has a concurrency group of its own so it never cancels the real one | none |
+| push to `main` | the jobs its diff since `github.event.before` needs, `main-red` on failure; a zero or unknown `before` (new ref, force push) runs every job (`CI_ALL=1`) | fast |
+| daily schedule on `main` | every job and area, real images (`CI_ALL=1`), `main-red` on failure | full |
+| manual run | every job and area; on `main` also real images (`CI_ALL=1`) | full |
+| 6-hourly schedule | `story-branches` only | none |
+
+**Fast and full runs (TICK-652).** Pull request CI ran the slow,
+security-focused suites on every labelled push: the last green push to `main`
+took 18 minutes, 17.5 of them on the `stack` critical path (image build 5.5,
+stack cases 8, `stack-db` 0.7, `stack-internal` 0.7). A run is now either fast
+or full. The workflow-level env `CI_FULL` is `true` on a full run: the daily
+schedule, a manual run, or a pull request labelled `ci:full`. Job-level `if:`
+cannot read `env`, so the daily cron string is repeated where a job needs it
+(the comment `DAILY CRON` in `ci.yml` lists every copy).
+
+| Suite | Fast run | Full run |
+| --- | --- | --- |
+| `lint`, `unit`, `temporal-server`, `commit-check-budget`, `coverage` | as the diff needs | every job |
+| `integration`: integration tests and the coverage profile | yes | yes |
+| `integration`: isolation suite (CI-2) and `isolation-report` | no (`ISOLATION=0`) | yes |
+| `integration`: `test-ci-isolated-down`, `test-integration-cleanup` | no | yes |
+| `stack` phase 1: `tier=smoke` cases | yes, by area | yes, every area |
+| `stack` phase 1: every other case (CI-5 `identity_attacks`, CI-6 and CI-7 `sdk`, `temporal_custody`, `temporal_handshake`, `temporal_isolation`, `temporal_operator_reach`, `onboard`, `demo_outbox`, `s8_entity_types`, `s9_records`, `s14_*`, `keycloak_restart`, `trace`, `logs`, `redact`, `interpreter`, `pgbouncer`) and the `ci5-report` and `ci6-report` uploads | no (`STACK_TIER=smoke`) | yes (`STACK_TIER=all`) |
+| `stack` phase 2 (`stack-db`: `dbroles`, `hba`, `idempotent`) | no | yes |
+| `stack` phase 3 (`stack-internal`: the internal overlay) | no | yes |
+
+The smoke tier (`tier=smoke` in the case header, `run-cases.sh`) is
+`healthy`, `smoke`, `temporal`, `temporal_health`, `identity`, `worker` and
+`dependencies`: the stack comes up within its budget, `nava-core` answers on
+the compose network with Postgres, Keycloak and Temporal ok, the realm and
+the Keycloak adapter work, and `nava-worker` runs a workflow. Measured in the
+stack log of main run 42579995367 (2026-11-09): `healthy` 10 s, the parallel
+group about 18 s, `worker` 77 s, `dependencies` 13 s; about 2 minutes of
+cases against 8.7 for the full tier. TICK-652 proposed `onboard` for the
+smoke tier too; it is left out because it took 150 s, longer than the rest of
+the tier together. Add it back with `tier=smoke` in `cases/onboard.sh` (and
+in `TestRealSmokeTier`) if onboarding regressions matter more than those 2.5
+minutes. `temporal` (Temporal and Keycloak own their databases: three psql queries,
+read-only) was not in the proposal and is in the tier as a cheap check that
+the stack's databases exist. Without `STACK_TIER` (locally) every case runs.
+
+What a fast run cannot catch: a role, `pg_hba`, tenant-isolation, egress,
+identity-attack or Temporal-confinement regression. It merges and is caught
+by the next daily run, about 24 hours later, which opens the `main is red` P0
+(`main-red` fires on a red daily run too). A pull request that touches those
+paths should carry `ci:full`; `docs/delivery/review-paths.yaml` cannot enforce
+the label yet (TODO-TICK-652-01). The risk is AR-TICK-652-01 in
+`docs/security/accepted-risks.md`. The daily run has a concurrency group of
+its own per cron (`ci-schedule-<cron>`), so a queued 6-hourly run can never
+replace it. The tests: `TestTierSmokeRunsOnlySmokeCases`, `TestBadTierFailsLoudly`
+and `TestRealSmokeTier` (`tools/ci/stackcases`), the zero-sha checks in
+`TestCIStages` and `testStackTriggerScope` (`tools/ci/cichanged`).
 
 **Story-branch pull requests (TICK-638).** Since TICK-563 task PRs collected
 approvals while `unit`, `integration`, `stack`, `temporal-server`,
@@ -461,7 +530,7 @@ stages `cichanged` picks and writes `unit`, `integration` and `stack` as
 | always | `changes`, `lint`, `story-branches` |
 | `ci-unit` | `unit`, `temporal-server` (and `coverage`, which adds `integration`) |
 | `ci-integration` | `integration` |
-| `ci-stack` | `stack` (its three phases) |
+| `ci-stack` | `stack` (phase 1; phases 2 and 3 on a full run) |
 
 A diff of only documentation (`.md` and `.html` outside a Go package and
 `testdata`) needs `ci-lint` alone; the `TestCIStages` subtest "docs-only diff runs no unit,
@@ -490,25 +559,33 @@ compose files, the case runner, a file no rule knows) turns on every area.
 list); the three `make stack-tests` steps get it as `AREAS`, and
 `deploy/compose/test/run-cases.sh` prints `SKIP <case> (area <x> not touched)`
 for each skipped case. Without `AREAS` (locally) every case runs. Every area
-runs (`CI_AREAS_ALL=1`, or `CI_ALL=1` on `main`) with the `ci:full` label, on a
-manual run, on a push to `main` and on every pull request into `main`: a
-branch name cannot tell a story → `main` PR from a task PR, so task PRs into
-`main` run every case too. Every pull request into a story branch runs every
-case as well (`CI_FULL=1`, TICK-638), so area skipping now applies only to a
-`ci:run` pull request into a branch that is neither `main` nor a `TICK-*`
-story branch.
+runs on a full run (`CI_FULL=1`: `ci:full`, a manual run, the daily run) and
+on every pull request into `main` (`CI_AREAS_ALL=1`): a branch name cannot
+tell a story → `main` PR from a task PR, so task PRs into `main` run every
+area too. Every pull request into a story branch runs every area as well
+(`CI_FULL=1`, TICK-638). Area skipping applies to a push to `main` (since
+TICK-652) and a `ci:run` pull request into a branch that is neither `main`
+nor a `TICK-*` story branch. Areas only filter within the tier: on a fast run
+a skipped area's smoke cases (`identity`, `dependencies`) are skipped too.
 The mapping is tested in `TestClassifyAreas`, the runner in
 `TestAreasSkipUntouchedCases`.
 
-A push to `main` sets `CI_ALL=1`: the merged tree runs every job, since a merge
-result has no meaningful diff base. Each push has its own concurrency group (per ref and sha), so a newer
-merge neither cancels nor replaces the run of an older one. When any job of a
-push to `main` fails, the `main-red` job (`scripts/ci/main-red.sh`, the only
+A push to `main` no longer sets `CI_ALL=1` (TICK-652): `BASE` is
+`github.event.before`, so the push runs the jobs and areas its diff since the
+previous `main` commit needs, fast tier, thin images unless the image build
+changed. With `origin/main` as the base it would compare `main` with itself
+and run nothing. A zero `before` (a new ref) or one the clone does not have
+(a force push) falls back to `CI_ALL=1`. The daily run and a manual run on
+`main` set `CI_ALL=1`: every job, every area, the real Dockerfiles. Each push
+has its own concurrency group (per ref and sha), so a newer merge neither
+cancels nor replaces the run of an older one. When any job of a push to
+`main` or of the daily run fails, the `main-red` job (`scripts/ci/main-red.sh`, the only
 job with `issues: write` besides `story-branches`) opens a GitHub issue `main is red: <short sha>`
 labelled `P0`, with the failing jobs and the run URL; while one such issue is
 open, a later red push comments on it instead. Close it once `main` is green. Locally, `make ci-stages`
 prints the stages for the current branch, `CI_ALL=1 make ci-stages` prints
-all four and `CI_LINT_ONLY=1 make ci-stages` prints `ci-lint`.
+all four and `CI_LINT_ONLY=1 make ci-stages` prints `ci-lint`. The issue
+names the event ("a push to `main`" or "a scheduled run on `main`", `scripts/ci/main-red.sh`).
 
 ### Thin CI images (TICK-628)
 

@@ -1,5 +1,5 @@
 #!/bin/sh
-# stack-case: job=stack order=10 mode=parallel
+# stack-case: job=stack order=10 mode=parallel tier=smoke
 set -eu
 . "$(dirname "$0")/../case-env.sh"
 

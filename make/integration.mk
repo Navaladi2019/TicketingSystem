@@ -10,9 +10,14 @@ ci-integration: test-integration test-ci-isolated-down test-integration-cleanup 
 # workflow step), so this loop stays fast (TICK-224).
 # NAVA_IT_COVERAGE: the script writes the integration half of make
 # check-coverage there (TICK-518).
+# ISOLATION=0 skips the isolation suite too (TICK-652): ci.yml sets it on a
+# fast run (a pull request with ci:run, a push to main) and 1 on a full run
+# (the daily run on main, ci:full, a manual run), AR-TICK-652-01. The suite
+# writes no coverage profile, so the gate's total is the same either way.
+ISOLATION ?= 1
 test-integration:
 	NAVA_IT_COVERAGE=coverage-integration.out sh scripts/ci/test-integration.sh $(ARGS)
-	$(if $(ARGS),@echo "isolation suite skipped (ARGS set); run make isolation",sh scripts/ci/isolation.sh)
+	$(if $(ARGS),@echo "isolation suite skipped (ARGS set); run make isolation",$(if $(filter 0,$(ISOLATION)),@echo "isolation suite skipped (ISOLATION=0: a fast CI run); run make isolation",sh scripts/ci/isolation.sh))
 
 # test-integration.sh leaves no container or network behind after a run with
 # go test arguments or a TERM part way (TICK-185). Its own ci.yml step and in

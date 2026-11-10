@@ -1,5 +1,5 @@
 #!/bin/sh
-# stack-case: job=stack,stack-db order=0 mode=serial
+# stack-case: job=stack,stack-db order=0 mode=serial tier=smoke
 set -eu
 . "$(dirname "$0")/../case-env.sh"
 

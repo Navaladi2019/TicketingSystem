@@ -30,13 +30,14 @@ func TestRealRepo(t *testing.T) {
 	t.Run("load graph", func(t *testing.T) { testLoadGraph(t, g) })
 	t.Run("story suites selected", func(t *testing.T) { testStorySuitesSelected(t, g) })
 	t.Run("every command is a stack root", func(t *testing.T) { testEveryCommandIsAStackRoot(t, g) })
+	t.Run("stack trigger scope", func(t *testing.T) { testStackTriggerScope(t, g) })
 }
 
 func testGraph() graph {
 	return graph{
-		packages:    set("internal/db/roles", "internal/db", "internal/server", "tools/ci/checkpins", "db", "internal/platform/telemetry"),
+		packages:    set("internal/db/roles", "internal/db", "internal/server", "tools/ci/checkpins", "db", "internal/platform/telemetry", "cmd/nava-core", "internal/platform/config", "internal/temporalstack"),
 		integration: set("internal/db/roles", "db", "internal/platform/telemetry"),
-		stack:       set("internal/server", "db", "internal/platform/telemetry"),
+		stack:       set("internal/server", "db", "internal/platform/telemetry", "cmd/nava-core", "internal/platform/config", "internal/temporalstack"),
 	}
 }
 
@@ -51,8 +52,13 @@ func TestClassify(t *testing.T) {
 		{"pins pick the images", []string{"docs/pins.md"}, "ci-lint ci-unit ci-integration ci-stack"},
 		{"unit-only package", []string{"tools/ci/checkpins/main.go"}, "ci-lint ci-unit"},
 		{"integration package", []string{"internal/db/roles/roles.go"}, "ci-lint ci-unit ci-integration"},
-		{"stack package", []string{"internal/server/server.go"}, "ci-lint ci-unit ci-stack"},
-		{"both", []string{"internal/platform/telemetry/filter.go"}, "ci-lint ci-unit ci-integration ci-stack"},
+		// TICK-652: plain Go logic an image depends on no longer starts the
+		// stack; its stack cases run on the next full run.
+		{"logic package an image depends on", []string{"internal/server/server.go"}, "ci-lint ci-unit"},
+		{"logic package with integration tests", []string{"internal/platform/telemetry/filter.go"}, "ci-lint ci-unit ci-integration"},
+		{"command", []string{"cmd/nava-core/main.go"}, "ci-lint ci-unit ci-stack"},
+		{"configuration", []string{"internal/platform/config/config.go"}, "ci-lint ci-unit ci-stack"},
+		{"stack suite", []string{"internal/temporalstack/x_test.go"}, "ci-lint ci-unit ci-stack"},
 		{"embedded file in a package subdirectory", []string{"db/migrations/00009_x.sql"}, "ci-lint ci-unit ci-integration ci-stack"},
 		{"deepest package wins", []string{"internal/db/roles/testdata/x.txt"}, "ci-lint ci-unit ci-integration"},
 		{"parent package", []string{"internal/db/pool.go"}, "ci-lint ci-unit"},
@@ -60,7 +66,7 @@ func TestClassify(t *testing.T) {
 		{"non-documentation file under docs", []string{"docs/delivery/review-paths.yaml"}, "ci-lint ci-unit ci-integration ci-stack"},
 		{"S13 acceptance kit", []string{"docs/acceptance/S13/README.md", "docs/acceptance/S13/export-ok.jsonl"}, "ci-lint ci-unit"},
 		{"testdata markdown", []string{"tools/ci/checkpins/testdata/pins.md"}, "ci-lint ci-unit"},
-		{"markdown in a package", []string{"internal/server/NOTES.md"}, "ci-lint ci-unit ci-stack"},
+		{"markdown in a package", []string{"internal/server/NOTES.md"}, "ci-lint ci-unit"},
 		{"temporal-server module", []string{"temporal-server/authz/authz.go"}, "ci-lint ci-unit ci-stack"},
 		{"navalint module", []string{"tools/navalint/setconfig/setconfig.go"}, "ci-lint ci-unit"},
 		{"root dependencies", []string{"go.sum"}, "ci-lint ci-unit ci-integration ci-stack"},
@@ -114,6 +120,13 @@ func testLoadGraph(t *testing.T, g graph) {
 // must select that stage (TICK-292, docs/delivery/merge-safety.md "Story
 // suites on main"). The real graph: a pull request that touches only one of
 // these files must not skip the suite.
+// TICK-652: the stack suites (CI-5, CI-6, CI-7, the S7 demo, the crash case)
+// are full-tier: a fast run (ci:run, a push to main) skips them whatever it
+// selects, and the daily full run and ci:full run them (AR-TICK-652-01). So
+// only the suites' own code, commands and scripts still select ci-stack; a
+// library package they exercise (workerguard, outbox, contracttest, the
+// interpreter) selects ci-unit, and ci-integration where it has
+// integration tests, as testStackTriggerScope checks.
 func testStorySuitesSelected(t *testing.T, g graph) {
 	for _, c := range []struct {
 		suite, file, stage string
@@ -123,23 +136,22 @@ func testStorySuitesSelected(t *testing.T, g graph) {
 		{"CI-2 isolation suite", "internal/tenancy/isolation/registry.go", "ci-integration"},
 		{"CI-2 isolation suite", "scripts/ci/isolation.sh", "ci-integration"},
 		{"CI-5 identity attacks", "internal/identitystack/ci5_isolation_test.go", "ci-stack"},
-		{"CI-5 identity attacks", "internal/identity/contracttest/ci5.go", "ci-stack"},
+		{"CI-5 identity attacks", "internal/identity/contracttest/ci5.go", "ci-unit"},
 		{"CI-5 identity attacks", "tools/ci/ci5report/main.go", "ci-stack"},
 		{"CI-5 identity attacks", "scripts/ci/identity-attacks.sh", "ci-stack"},
 		{"CI-6 Temporal suite", "internal/temporalstack/ci6_isolation_test.go", "ci-stack"},
-		{"CI-6 Temporal suite", "internal/workerguard/guard.go", "ci-stack"},
+		{"CI-6 Temporal suite", "internal/workerguard/guard.go", "ci-unit"},
 		{"CI-6 Temporal suite", "tools/ci/ci6report/main.go", "ci-stack"},
 		{"CI-6 Authorizer unit tests", "temporal-server/authz/adversarial_test.go", "ci-unit"},
 		{"CI-6 Authorizer image", "temporal-server/authz/adversarial_test.go", "ci-stack"},
 		{"CI-7 payload schema", "internal/temporalstack/ci7_isolation_test.go", "ci-stack"},
 		{"CI-7 payload check", "internal/outbox/outbox.go", "ci-integration"},
-		{"CI-7 payload check", "internal/outbox/outbox.go", "ci-stack"},
 		{"S7 demo", "internal/temporalstack/demo_outbox_test.go", "ci-stack"},
 		{"S7 demo", "cmd/demo-outbox/main.go", "ci-stack"},
 		{"S7 demo", "scripts/dev/demo-outbox.sh", "ci-stack"},
 		{"S7 worker", "internal/workerstack/stack_test.go", "ci-stack"},
 		{"P3-24 crash case", "internal/workerstack/interp_crash_test.go", "ci-stack"},
-		{"P3-24 crash fixture", "internal/workflow/interp/testdata/applyonce.json", "ci-stack"},
+		{"P3-24 crash fixture", "internal/workflow/interp/testdata/applyonce.json", "ci-unit"},
 	} {
 		t.Run(c.suite+" "+c.file+" "+c.stage, func(t *testing.T) {
 			got, reasons := classify([]string{c.file}, g)
@@ -147,6 +159,39 @@ func testStorySuitesSelected(t *testing.T, g graph) {
 				t.Fatalf("%s: stages = %q, want %s\n%s", c.suite, strings.Join(got, " "), c.stage, strings.Join(reasons, "\n"))
 			}
 		})
+	}
+}
+
+// TICK-652: every stack trigger is a real package the stack depends on (a
+// renamed package would silently stop starting the stack), and plain logic
+// packages do not start it.
+func testStackTriggerScope(t *testing.T, g graph) {
+	for _, tr := range stackTriggers() {
+		if strings.HasSuffix(tr, "/") {
+			continue
+		}
+		if !g.packages[tr] || !g.stack[tr] {
+			t.Errorf("stack trigger %s: package %v, stack %v; want both (renamed or no longer in the stack?)", tr, g.packages[tr], g.stack[tr])
+		}
+	}
+	for _, c := range []struct {
+		file  string
+		stack bool
+	}{
+		{"cmd/nava-worker/main.go", true},
+		{"db/migrations/00001_global_revokes.sql", true},
+		{"internal/db/migrate/migrate.go", true},
+		{"internal/platform/config/config.go", true},
+		{"internal/identity/keycloak/admin.go", true},
+		{"internal/workerstack/stack_test.go", true},
+		{"internal/server/server.go", false},
+		{"internal/outbox/outbox.go", false},
+		{"internal/workerguard/guard.go", false},
+	} {
+		got, reasons := classify([]string{c.file}, g)
+		if slices.Contains(got, "ci-stack") != c.stack {
+			t.Errorf("%s: stages %q, want ci-stack %v\n%s", c.file, strings.Join(got, " "), c.stack, strings.Join(reasons, "\n"))
+		}
 	}
 }
 
