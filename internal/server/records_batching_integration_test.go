@@ -33,8 +33,8 @@ import (
 // The budgets: round trips and statements of one request, idempotency claim
 // included. A change that adds a round trip to either path fails here.
 const (
-	createTripBudget      = 6  // was 9 (TICK-688 folds the claim's own BEGIN, INSERT, COMMIT into the write): BEGIN, claim+prefetch batch, checks, write batch, COMMIT batch; number (TICK-657, ADR-005 AllocTx): one pipelined trip
-	createStatementBudget = 19 // was 29, 17 (TICK-648), 21 (TICK-657): write 14 (BEGIN+GUC, the claim under lock_timeout set and reset in place of the hold), number 5 (BEGIN, tenant, SET LOCAL, upsert, COMMIT)
+	createTripBudget      = 4  // was 6 (TICK-692: BEGIN+GUC open the claim+prefetch batch, the write rides in the COMMIT batch), 9 (TICK-688 folds the claim's own BEGIN, INSERT, COMMIT into the write): BEGIN, claim+prefetch batch, checks, write batch, COMMIT batch; number (TICK-657, ADR-005 AllocTx): one pipelined trip
+	createStatementBudget = 19 // unchanged by TICK-692 (BEGIN and the tenant are two statements of the first batch, as BEGIN+GUC counted two); was 29, 17 (TICK-648), 21 (TICK-657): write 14 (BEGIN+GUC, the claim under lock_timeout set and reset in place of the hold), number 5 (BEGIN, tenant, SET LOCAL, upsert, COMMIT)
 	getTripBudget         = 3  // BEGIN, one batch, COMMIT
 	getStatementBudget    = 7  // was 13: BEGIN+GUC, definition, record, shares, policy, COMMIT
 )
@@ -117,10 +117,14 @@ func TestRecordCreateAndGetRoundTrips(t *testing.T) {
 	if len(trips) < 2 {
 		t.Fatalf("create: %d trips: %s", len(trips), fmt.Sprint(trips))
 	}
-	if first := trips[1]; !first.Batch || len(first.SQL) < 3 ||
-		!strings.Contains(first.SQL[0], "lock_timeout") || !strings.Contains(first.SQL[1], "INSERT INTO idempotency_keys") ||
-		!strings.Contains(first.SQL[2], "lock_timeout") {
-		t.Errorf("the trip after BEGIN is %q, want the claim under lock_timeout, then the prefetch", first.SQL)
+	// TICK-692: the first trip opens the transaction and sets the tenant,
+	// then claims the key and prefetches, in one batch. The Guard attributes
+	// a batch to a tenant from its first statements only when they are the
+	// tenancy package's BEGIN and setting (tenancy.FirstBatchTenant).
+	if first := trips[0]; !first.Batch || len(first.SQL) < 5 || first.SQL[0] != "BEGIN" || first.Tenant != e.a.id ||
+		!strings.Contains(first.SQL[2], "lock_timeout") || !strings.Contains(first.SQL[3], "INSERT INTO idempotency_keys") ||
+		!strings.Contains(first.SQL[4], "lock_timeout") {
+		t.Errorf("the first trip is %q, want BEGIN, the tenant, the claim under lock_timeout, then the prefetch", first.SQL)
 	}
 	commits := 0
 	for _, tr := range trips {
@@ -138,22 +142,24 @@ func TestRecordCreateAndGetRoundTrips(t *testing.T) {
 			createTripBudget, createStatementBudget, fmt.Sprint(trips))
 	}
 	// The number's own transaction, one pipelined trip, then the write's
-	// last two trips: the write batch, then the batch that stores the
-	// idempotency response and commits.
-	if len(trips) < 3 {
+	// last trip: the record, the audit entry, the idempotency completion
+	// and COMMIT in one batch (TICK-692).
+	if len(trips) < 2 {
 		t.Fatalf("create: %d trips: %s", len(trips), fmt.Sprint(trips))
 	}
-	if alloc := trips[len(trips)-3]; !alloc.Batch || len(alloc.SQL) != 5 || alloc.SQL[0] != "BEGIN" ||
+	if alloc := trips[len(trips)-2]; !alloc.Batch || len(alloc.SQL) != 5 || alloc.SQL[0] != "BEGIN" ||
 		!strings.Contains(alloc.SQL[3], "record_counters") || alloc.SQL[4] != "COMMIT" {
-		t.Errorf("the trip before the write batch is %q; want the number's one trip: BEGIN, tenant, SET LOCAL, upsert, COMMIT", alloc.SQL)
+		t.Errorf("the trip before the commit is %q; want the number's one trip: BEGIN, tenant, SET LOCAL, upsert, COMMIT", alloc.SQL)
 	}
-	counter, commit := trips[len(trips)-2], trips[len(trips)-1]
-	if !counter.Batch || !strings.Contains(counter.SQL[0], "INSERT INTO records") ||
-		slices.ContainsFunc(counter.SQL, func(s string) bool { return strings.Contains(s, "record_counters") }) {
-		t.Errorf("the trip before the commit is %q, want the write batch, without the counter", counter.SQL)
+	commit := trips[len(trips)-1]
+	if !commit.Batch || len(commit.SQL) != 4 || !strings.Contains(commit.SQL[0], "INSERT INTO records") ||
+		!strings.Contains(commit.SQL[1], "audit_log") || !strings.Contains(commit.SQL[2], "UPDATE idempotency_keys") ||
+		commit.SQL[3] != "COMMIT" ||
+		slices.ContainsFunc(commit.SQL, func(s string) bool { return strings.Contains(s, "record_counters") }) {
+		t.Errorf("the last trip is %q, want the record, the audit entry, the idempotency completion and COMMIT in one batch, without the counter", commit.SQL)
 	}
-	if !commit.Batch || len(commit.SQL) != 2 || !strings.Contains(commit.SQL[0], "UPDATE idempotency_keys") || commit.SQL[1] != "COMMIT" {
-		t.Errorf("the last trip is %q, want the idempotency completion and COMMIT in one batch", commit.SQL)
+	for i, tr := range trips {
+		t.Logf("create trip %d: %d statements: %s", i+1, len(tr.SQL), summarize(tr.SQL))
 	}
 
 	var body recBody
@@ -303,4 +309,20 @@ func TestConcurrentRecordCreatesStayInTheirTenant(t *testing.T) {
 	if v := g.Violations(); len(v) > 0 {
 		t.Errorf("statements ran with no tenant set: %q", v)
 	}
+}
+
+// summarize is each statement's first line, for the trace in the test log.
+func summarize(sqls []string) string {
+	out := make([]string, len(sqls))
+	for i, s := range sqls {
+		s = strings.TrimSpace(s)
+		if j := strings.IndexByte(s, '\n'); j >= 0 {
+			s = s[:j]
+		}
+		if len(s) > 60 {
+			s = s[:60] + "..."
+		}
+		out[i] = s
+	}
+	return strings.Join(out, " | ")
 }

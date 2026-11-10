@@ -165,6 +165,21 @@ type Command struct {
 	// SourceRef is the AI decision record's id, a lowercase UUID: required
 	// when Source is SourceAI and refused otherwise (ADR-004 R4).
 	SourceRef *string
+	// InsertAtCommit lets a create of a `gaps` type queue its write (the
+	// record, the write key, the audit entry) for the round trip that
+	// commits tx (tenancy.QueueAtCommit) instead of sending it as a round
+	// trip of its own (TICK-692). Set it only when the caller sends nothing
+	// on tx after Write returns but statements it queues at commit itself.
+	// Write then answers with the record as it will be stored, from the
+	// number, the allocation's instant and the payload preview; the INSERT
+	// fails, and nothing commits, unless the stored row is exactly that
+	// (store.QueueInsertRecordAsExpected). A failure of the queued write
+	// comes out of tenancy.InTenantTx mapped as Write would map it,
+	// *ErrAtVersion included. It is ignored for an update, a `gapless`
+	// type, a tx with no commit batch (a savepoint, or not from
+	// tenancy.InTenantTx) and an EventSink other than NoopSink, which may
+	// send statements that must follow the INSERT; those write as before.
+	InsertAtCommit bool
 }
 
 // Result is what a write produced.
@@ -406,11 +421,17 @@ func (p *Pipeline) Runner() TxRunner { return p.runner }
 // If that entry cannot be written, the error also wraps the cause.
 func (p *Pipeline) Write(ctx context.Context, tx pgx.Tx, cmd Command) (Result, error) {
 	res, err := p.perform(ctx, tx, cmd)
-	var pe *pgconn.PgError
-	if errors.As(err, &pe) && (pe.Code == "40P01" || pe.Code == "40001") {
+	if retryable(err) {
 		return Result{}, fmt.Errorf("%w: %w", ErrRetryable, err)
 	}
 	return res, err
+}
+
+// retryable reports whether PostgreSQL aborted the transaction for a
+// deadlock (40P01) or a serialization failure (40001).
+func retryable(err error) bool {
+	var pe *pgconn.PgError
+	return errors.As(err, &pe) && (pe.Code == "40P01" || pe.Code == "40001")
 }
 
 // perform is Write before its error mapping.
@@ -642,6 +663,9 @@ func (w *write) create(ctx context.Context, after map[string]any) (Result, error
 		// The record is created at the allocation's instant (A7), so a date
 		// in a number will always match created_at.
 		rec.CreatedAt, rec.UpdatedAt = alloc.Instant, alloc.Instant
+	}
+	if w.atCommit() {
+		return w.writeCreateAtCommit(ctx, rec, preview)
 	}
 	return w.writeCreate(ctx, rec, preview)
 }
