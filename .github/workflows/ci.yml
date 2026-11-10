@@ -6,7 +6,8 @@
 #                    acceptance guide), required
 #                    CI steps, OpenAPI (no containers). govulncheck is the
 #                    govulncheck workflow since TICK-641
-#                    (.github/workflows/govulncheck.yml)
+#                    (.github/workflows/govulncheck.yml): every second day
+#                    and on PRs that change a go.mod or go.sum (TICK-694)
 #   unit             go test -race (no containers)
 #   temporal-server  the custom server module's unit tests and golangci-lint
 #                    (TICK-584) (no containers); only when the module or how

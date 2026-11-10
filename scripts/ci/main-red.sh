@@ -4,9 +4,9 @@
 # URL. While one main-is-red issue is open, a later red push comments on it
 # instead of opening another, so one incident stays one issue.
 #
-# Also the govulncheck workflow's main-red job (TICK-641), on a push or a
-# scheduled run: WORKFLOW names the workflow in the body (default ci), EVENT
-# the event (default push).
+# Also the govulncheck workflow's main-red job (TICK-641), on a scheduled
+# run (TICK-694: it no longer runs on a push): WORKFLOW names the workflow in
+# the body (default ci), EVENT the event (default push).
 # Inputs (the job sets them): GH_TOKEN, GH_REPO (owner/repo), SHA, RUN_URL and
 # NEEDS_JSON, the workflow's toJSON(needs). Needs gh and jq.
 # Not a make target: TICK-289 forbids Makefile edits while S5 and S7 are open.
