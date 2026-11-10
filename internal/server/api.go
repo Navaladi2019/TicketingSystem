@@ -33,6 +33,11 @@ import (
 // contract's paths already start with /api/v1, so both are empty.
 const baseURL = ""
 
+// createRecordPattern is the mux pattern of createRecord, the one route that
+// claims its Idempotency-Key in its own write transaction (TICK-688). A test
+// fails if the generated router's pattern ever differs.
+const createRecordPattern = "POST " + baseURL + "/api/v1/records/{entity}"
+
 // newAPI registers the /api/v1 routes of the embedded contract on mux and
 // returns the handler to serve. Authentication (routeAuth) wraps the whole
 // mux, outside the generated router: the generated wrapper binds path, query
@@ -135,6 +140,9 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 		if err != nil {
 			return nil, err
 		}
+		// Record create claims its key in its own write transaction, one
+		// synchronous commit (TICK-688); CreateRecord settles it.
+		m.ClaimInTx(createRecordPattern)
 		idem = m.Handler
 	} else {
 		idem = refuseWrites(reg, log)
@@ -292,11 +300,14 @@ func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http
 				}
 			}
 			if pe.code == problem.RetryLater {
-				// A 5xx is not stored against the Idempotency-Key, but the
-				// key's in_flight claim stands until its lease ends: a retry
-				// with the same key before then is 409 idempotency_in_flight.
-				// So the advice is the lease, after which the retry runs the
-				// write again.
+				// A 5xx is not stored against the Idempotency-Key. On a
+				// route that claims in a transaction of its own (PATCH) the
+				// key's in_flight claim stands until its lease ends, and a
+				// retry with the same key before then is 409
+				// idempotency_in_flight, so the advice is the lease. Record
+				// create's claim rolled back with the write (TICK-688), so
+				// its retry could run at once; it keeps the same advice, one
+				// Retry-After for retry_later on every route.
 				w.Header().Set("Retry-After", strconv.Itoa(int(idempotency.Lease/time.Second)))
 			}
 			h.reg.WriteError(w, r, h.log, pe.code, pe.err)
