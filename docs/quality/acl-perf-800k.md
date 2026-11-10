@@ -6,6 +6,82 @@ the D25 escalation. The question: with the real compiled ACL predicate
 `records/store.List`), is list p95 ≤ 150 ms and single-read p95 ≤ 50 ms at
 800k records?
 
+## Gated create re-run after TICK-688 (claim folded into the create transaction)
+
+**Result: FAIL.** At story tip `15da77d6`, two rows that passed the storage-window gate still miss:
+- small tenant, 8 clients: 70.6 ms;
+- 1 client: 50.6 ms and 59.9 ms.
+
+Agent and admin at 8 clients got no valid window in 3 attempts in either run. That makes the host invalid for those two rows, not a miss.
+
+**Method.** This PR's harness, merged with the story tip (`9878baea`), creates only, with `NAVA_PERF_ONLY='^create'`.
+
+| Gate | Rule (CTO, 2026-11-10 13:33 UTC) |
+| --- | --- |
+| Storage window | A scored create row counts only if its commit p50 is ≤ 10 ms. Commit p50 is taken from the create's own commit round trip in its trace. After the fold, that round trip is the completion batch ending in `COMMIT`. |
+| Attempts | A gated attempt is neither a pass nor a fail. A row gets at most 3 attempts. |
+| Transport floor | p50 must be ≤ 3 ms. The harness now enforces this with `t.Fatalf`. |
+
+Each create makes **6 round trips** (it was 9 before the fold): BEGIN, claim and prefetch batch, checks, `AllocTx`, insert, then completion and commit. There were no `409 idempotency_in_flight` responses.
+
+| File | Start (UTC) | Build | Floor p50 / p95 / p99 |
+| --- | --- | --- | --- |
+| `final-2026-11-10-fold-gated-run1.md` | 15:33 | `15da77d6` and this harness | 1.17 / 2.20 / 5.78 |
+| `final-2026-11-10-fold-gated-run2.md` | 15:41 | `15da77d6` and this harness | 1.09 / 1.66 / 2.58 |
+| `final-2026-11-10-prefold-control.md` | 15:48 | `c65064cd` (`9da6f7e1`, pre-fold), same-hour control, not gated | 2.26 / 3.46 / 4.14 |
+
+### Every attempt (ms)
+
+| Row | Run / attempt | p95 | Commit p50 | Counter wait p50 / p95 | Alloc p50 / p95 | Failed | Verdict |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 client | 1 / 1 | 70.5 | 10.96 | – | 2.89 / 8.44 | none | gated |
+| 1 client | 1 / 2 | **59.9** | 8.15 | – | 3.37 / 8.53 | none | **MISS** |
+| 1 client | 2 / 1 | **50.6** | 7.81 | 2.86 / 5.29 | 3.15 / 7.49 | none | **MISS** |
+| 8 clients, agent | 1 / 1, 2, 3 | 127.5, 101.5, 83.5 | 12.11, 10.36, 10.08 | – | 5.59 / 21.79, 4.19 / 17.74, 3.93 / 9.76 | 1× 503 `retry_later` (attempt 1) | gated ×3 |
+| 8 clients, agent | 2 / 1, 2, 3 | 73.5, 160.5, 113.0 | 10.16, 11.25, 11.87 | 3.48 / 8.44, 4.08 / 17.82, 4.72 / 12.80 | 3.83 / 9.69, 4.45 / 21.79, 4.87 / 19.37 | none | gated ×3, **host invalid** |
+| 8 clients, admin | 1 / 1, 2, 3 | 133.7, 204.8, 186.7 | 11.08, 13.17, 22.72 | – | 4.57 / 20.25, 7.68 / 24.66, 6.65 / 23.68 | none | gated ×3 |
+| 8 clients, admin | 2 / 1, 2, 3 | 136.7, 125.6, 74.1 | 11.23, 27.01, 10.14 | 4.02 / 15.81, 3.89 / 11.22, 3.59 / 8.33 | 4.36 / 19.74, 4.27 / 17.24, 3.98 / 9.61 | none | gated ×3, **host invalid** |
+| 8 clients, small tenant | 1 / 1, 2, 3 | 293.2, 187.6, 120.0 | 14.62, 13.97, 11.89 | – | 8.51 / 40.77, 7.91 / 24.63, 5.64 / 20.03 | 1× 503 `retry_later` (attempt 1) | gated ×3 |
+| 8 clients, small tenant | 2 / 1 | 76.6 | 10.26 | 3.60 / 8.56 | 3.99 / 9.66 | none | gated |
+| 8 clients, small tenant | 2 / 2 | **70.6** | 9.83 | 3.29 / 7.50 | 3.71 / 9.24 | none | **MISS** |
+| 8 clients, `gapless` (not scored) | 1, 2 | 383.0, 228.7 | 12.55, 7.66 | 39.5 / 199.9 (run 2) | – | none | reported only |
+
+Notes on the table:
+- **Run 1 counter waits:** they are in that run's report.
+- **Acquire wait on `nava_alloc`:** p95 ≤ 0.5 ms, with one 1.33 ms exception.
+- **Both `retry_later` responses** were allocations past the 200 ms budget: `nava_numbering_alloc_timeouts` was 1 in each of those attempts. Both came while the commit p50 was 12 to 15 ms.
+
+### The host was in a slow period: same-hour control
+
+At 15:48 the pre-fold build (`c65064cd`) ran on the same host. Its p95 was 56.9 / 95.3 / 93.7 / 144.6 ms for 1 client / agent / admin / small tenant. The same build gave 41.4 / 52.1 / 64.0 / 97.5 at 12:58.
+
+So at 15:33 to 15:48:
+- **The host was slower than at 13:00.** Even a trivial single-client `BEGIN` took 2.4 to 3.0 ms p50, against 1.6 to 1.8.
+- **The fold helped.** In the same hour the folded build is 6 to 74 ms faster at p95 than the pre-fold build.
+
+**The gate does not catch this kind of slowness.** It reads commit fsync only. A single client never contends on fsync, so the 1-client row passes the gate with commit p50 8 ms while every round trip costs about 1.7 times its 13:00 value.
+
+### Where a valid 8-client create spends its time
+
+Small tenant, run 2, attempt 2: request p50 40.2 ms, p95 70.6 ms.
+
+| Round trip | p50 / p95 (ms) |
+| --- | --- |
+| `BEGIN` + set tenant | 2.4 / 4.8 |
+| Claim + prefetch batch | 6.8 / 17.4 |
+| Checks batch | 3.6 / 8.5 |
+| `AllocTx` | 3.3 / 7.5 |
+| `INSERT` batch | 5.3 / 10.0 |
+| Completion + `COMMIT` | 9.8 / 15.9 |
+
+- The statements sum to 31 ms at p50. The other 9 ms is handler time between round trips.
+- The p95 comes from tails stacking across 6 round trips, not from one statement.
+- The claim batch's tail (p95 17.4 ms) is the largest after the commit. That batch now carries the `lock_timeout` setting, the claim `INSERT` and the prefetch.
+
+**For the CTO.** The commit count is down to one, so the remaining levers are design questions:
+1. **Fewer round trips per create.** For example, merge the checks batch into the prefetch, or send the insert and the completion in one batch with the commit.
+2. **A gate that also covers per-round-trip host speed.** For example, score a create row only when its `BEGIN` p50 is ≤ 2 ms as well. That is needed before a 1-client verdict can be trusted on this host.
+
 ## Final re-run after TICK-656 and TICK-657 (gaps-allowed numbering)
 
 **Runs.** All runs are at story tip `9da6f7e1` with this PR's harness, on the reference host (Docker 29.9.2 on WSL2, 16 vCPU, 12.5 GB; `postgres:16.10`). The raw reports are in `docs/quality/acl-perf-800k/`. Only an idle `postgres` container from another task and the multica stack were up, both under 1% CPU. Every run passed the floor gate (p50 ≤ 3 ms).

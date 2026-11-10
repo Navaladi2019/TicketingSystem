@@ -60,6 +60,17 @@ import (
 
 // The targets (PLAN-003 P3-36, D25 escalation).
 const (
+	// perfCommitGateMS is the storage-window gate (CTO, 2026-11-10 13:33
+	// UTC): a create row is scored only when its own commit p50 is at or
+	// under this, so the host disk's slow band (17 to 26 ms on the WSL2
+	// reference host) is not scored as the code's cost.
+	perfCommitGateMS = 10.0
+	// perfCommitAttempts is how often a gated create row is run before the
+	// host is reported invalid for creates.
+	perfCommitAttempts = 3
+	// perfFloorGateMS is the transport floor gate: a busy host gives no
+	// numbers at all.
+	perfFloorGateMS  = 3.0
 	perfListTargetMS = 150.0
 	perfGetTargetMS  = 50.0
 	// perfShortTimeout is the bound check's data-filter statement timeout:
@@ -805,6 +816,40 @@ type perfResult struct {
 	alloc    map[string]*dto.Metric // nava_numbering_alloc_* during the scenario
 	timeouts int64                  // 422 filter_too_expensive answers (data and timeout kinds)
 	holds    []perfHold             // creates only, one per request
+	// commits are each create's commit round trip: the last statement of
+	// the request that ends its transaction ("commit" or a batch ending in
+	// " ; commit"). Their p50 is the storage-window gate.
+	commits []time.Duration
+	attempt int // 1-based attempt of a gated create row
+}
+
+// lastCommit is the duration of the request's last round trip that commits
+// a transaction: the create's own commit (the allocator's AllocTx commit,
+// asynchronous, comes earlier).
+func lastCommit(ss []perfStmt) (time.Duration, bool) {
+	for i := len(ss) - 1; i >= 0; i-- {
+		if sql := strings.ToLower(strings.TrimSpace(ss[i].SQL)); sql == "commit" || strings.HasSuffix(sql, " ; commit") {
+			return ss[i].Dur, true
+		}
+	}
+	return 0, false
+}
+
+// label names a result in the report tables: a scored create row carries its
+// attempt.
+func (r *perfResult) label() string {
+	if r.attempt > 0 && r.sc.kind == "create" && r.sc.unscored == "" {
+		return fmt.Sprintf("%s, attempt %d", r.sc.name, r.attempt)
+	}
+	return r.sc.name
+}
+
+// commitP50 is the row's storage window, in ms.
+func (r *perfResult) commitP50() float64 { return pct(r.commits, .5) }
+
+// gated reports a create row whose storage window was too slow to score.
+func (r *perfResult) gated() bool {
+	return r.sc.kind == "create" && r.sc.unscored == "" && r.commitP50() > perfCommitGateMS
 }
 
 // perfHold is one create's record_counters window (D-3-9). wait is the
@@ -876,8 +921,9 @@ func (e *perfEnv) run(t *testing.T, sc perfScenario, clients int, d time.Duratio
 		go func() {
 			defer wg.Done()
 			var (
-				lat   []time.Duration
-				holds []perfHold
+				lat     []time.Duration
+				holds   []perfHold
+				commits []time.Duration
 			)
 			stmts := map[string][]time.Duration{}
 			for time.Now().Before(deadline) {
@@ -905,6 +951,9 @@ func (e *perfEnv) run(t *testing.T, sc perfScenario, clients int, d time.Duratio
 				if h, ok := counterHold(tr.stmts); ok && sc.kind == "create" {
 					holds = append(holds, h)
 				}
+				if c, ok := lastCommit(tr.stmts); ok && sc.kind == "create" {
+					commits = append(commits, c)
+				}
 				for _, s := range tr.stmts {
 					k := normSQL(s.SQL)
 					stmts[k] = append(stmts[k], s.Dur)
@@ -913,6 +962,7 @@ func (e *perfEnv) run(t *testing.T, sc perfScenario, clients int, d time.Duratio
 			mu.Lock()
 			res.lat = append(res.lat, lat...)
 			res.holds = append(res.holds, holds...)
+			res.commits = append(res.commits, commits...)
 			for k, v := range stmts {
 				res.stmtDur[k] = append(res.stmtDur[k], v...)
 			}
@@ -1020,6 +1070,9 @@ func TestRecordsACLPerf800k(t *testing.T) {
 	}
 	floor := e.transportFloor(t, clients)
 	t.Logf("FLOOR SELECT 1 round trip, %d clients: p50=%.2f p95=%.2f p99=%.2f ms", clients, pct(floor, .50), pct(floor, .95), pct(floor, .99))
+	if p50 := pct(floor, .50); p50 > perfFloorGateMS {
+		t.Fatalf("host busy: transport floor p50 %.2f ms > %.0f ms gate; no numbers taken", p50, perfFloorGateMS)
+	}
 	var results []*perfResult
 	for _, sc := range e.scenarios(t) {
 		c := clients
@@ -1029,9 +1082,22 @@ func TestRecordsACLPerf800k(t *testing.T) {
 		if sc.before != nil {
 			sc.before()
 		}
-		r := e.run(t, sc, c, time.Duration(secs)*time.Second)
-		t.Logf("RESULT %-62s n=%6d p50=%8.2f p95=%8.2f p99=%8.2f ms", sc.name, len(r.lat), pct(r.lat, .50), pct(r.lat, .95), pct(r.lat, .99))
-		results = append(results, r)
+		// A scored create row runs until its storage window passes the
+		// gate, at most perfCommitAttempts times; every attempt is reported.
+		attempts := 1
+		if sc.kind == "create" && sc.unscored == "" {
+			attempts = perfCommitAttempts
+		}
+		for a := 1; a <= attempts; a++ {
+			r := e.run(t, sc, c, time.Duration(secs)*time.Second)
+			r.attempt = a
+			t.Logf("RESULT %-62s attempt %d n=%6d p50=%8.2f p95=%8.2f p99=%8.2f ms commit p50=%6.2f gated=%v",
+				sc.name, a, len(r.lat), pct(r.lat, .50), pct(r.lat, .95), pct(r.lat, .99), r.commitP50(), r.gated())
+			results = append(results, r)
+			if !r.gated() {
+				break
+			}
+		}
 	}
 	report := e.report(t, results, floor, clients, secs)
 	if err := os.MkdirAll(filepath.Dir(out), 0o750); err != nil {
@@ -1041,9 +1107,21 @@ func TestRecordsACLPerf800k(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("wrote %s", out)
+	invalid := map[string]bool{}
 	for _, r := range results {
-		if p95 := pct(r.lat, .95); r.target() > 0 && p95 > r.target() {
+		switch p95 := pct(r.lat, .95); {
+		case r.gated():
+			invalid[r.sc.name] = r.attempt == perfCommitAttempts
+		case r.target() > 0 && p95 > r.target():
+			invalid[r.sc.name] = false
 			t.Errorf("MISS %s: p95 %.2f ms > %.0f ms", r.sc.name, p95, r.target())
+		default:
+			invalid[r.sc.name] = false
+		}
+	}
+	for name, bad := range invalid {
+		if bad {
+			t.Errorf("HOST INVALID for creates: %s had no storage window (commit p50 <= %.0f ms) in %d attempts", name, perfCommitGateMS, perfCommitAttempts)
 		}
 	}
 }
@@ -1103,19 +1181,27 @@ func (e *perfEnv) report(t *testing.T, results []*perfResult, floor []time.Durat
 		UNION ALL SELECT 'heap ' || pg_size_pretty(pg_relation_size('records')) || ', indexes ' || pg_size_pretty(pg_indexes_size('records'))`))
 	w("## Transport floor\n\n`SELECT 1` on the handler's pool, %d clients x 200: p50 %.2f / p95 %.2f / p99 %.2f ms. Each statement in the tables below pays about this much before the database does any work.\n\n",
 		clients, pct(floor, .50), pct(floor, .95), pct(floor, .99))
-	w("## Results (ms, per request through the handler)\n\n| Scenario | Tenant | n | p50 | p95 | p99 | Target | Verdict |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	w("## Results (ms, per request through the handler)\n\nA create row is scored only when its commit p50 (the create's own commit round trip, from its trace) is at or under %.0f ms; a gated attempt is neither a pass nor a fail and is re-run, at most %d attempts (storage-window gate, CTO 2026-11-10). Round trips are one request's, the first actor's.\n\n", perfCommitGateMS, perfCommitAttempts)
+	w("| Scenario | Attempt | Tenant | n | p50 | p95 | p99 | Commit p50 | Round trips | Target | Verdict |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, r := range results {
 		p95 := pct(r.lat, .95)
 		v := "meets"
 		switch {
 		case r.sc.unscored != "":
 			v = r.sc.unscored
+		case r.gated():
+			v = fmt.Sprintf("gated (commit p50 > %.0f ms)", perfCommitGateMS)
 		case r.target() == 0:
 			v = "n/a (bound check)"
 		case p95 > r.target():
 			v = "**MISS**"
 		}
-		w("| %s | %s | %d | %.2f | %.2f | %.2f | %.0f | %s |\n", r.sc.name, r.sc.tenant, len(r.lat), pct(r.lat, .5), p95, pct(r.lat, .99), r.target(), v)
+		attempt, commit, trips := "-", "-", "-"
+		if r.sc.kind == "create" {
+			n, _, _ := roundTrips(r.stmtSQL)
+			attempt, commit, trips = strconv.Itoa(max(r.attempt, 1)), fmt.Sprintf("%.2f", r.commitP50()), strconv.Itoa(n)
+		}
+		w("| %s | %s | %s | %d | %.2f | %.2f | %.2f | %s | %s | %.0f | %s |\n", r.sc.name, attempt, r.sc.tenant, len(r.lat), pct(r.lat, .5), p95, pct(r.lat, .99), commit, trips, r.target(), v)
 	}
 	e.reportHolds(w, results, floor)
 	reportAlloc(w, results)
@@ -1123,7 +1209,7 @@ func (e *perfEnv) report(t *testing.T, results []*perfResult, floor []time.Durat
 	w("\n## Per statement (ms, as pgx traced it, all requests of the scenario)\n\n")
 	for _, r := range results {
 		trips, stmts, sizes := roundTrips(r.stmtSQL)
-		w("### %s\n\nRound trips: %d, statements: %d, statements per batch: %v (one request, the first actor).\n\n| # | Statement | n | p50 | p95 | p99 |\n| --- | --- | --- | --- | --- | --- |\n", r.sc.name, trips, stmts, sizes)
+		w("### %s\n\nRound trips: %d, statements: %d, statements per batch: %v (one request, the first actor).\n\n| # | Statement | n | p50 | p95 | p99 |\n| --- | --- | --- | --- | --- | --- |\n", r.label(), trips, stmts, sizes)
 		for i, s := range r.stmtSQL {
 			k := normSQL(s.SQL)
 			lbl := k
@@ -1141,7 +1227,7 @@ func (e *perfEnv) report(t *testing.T, results []*perfResult, floor []time.Durat
 		if r.sc.kind == "create" {
 			method = http.MethodPost
 		}
-		w("### %s\n\nRequest: `%s %s` as `%s`\n\n", r.sc.name, method, r.sc.reqs[0].path, r.sc.reqs[0].token)
+		w("### %s\n\nRequest: `%s %s` as `%s`\n\n", r.label(), method, r.sc.reqs[0].path, r.sc.reqs[0].token)
 		for i, s := range r.stmtSQL {
 			args, _ := json.Marshal(s.Args)
 			switch {
@@ -1178,7 +1264,7 @@ func (e *perfEnv) reportHolds(w func(string, ...any), results []*perfResult, flo
 			stmts = append(stmts, h.n)
 		}
 		slices.Sort(stmts)
-		w("| %s | %d | %.2f / %.2f | %.2f / %.2f | %d | %.2f / %.2f | %.2f / %.2f | %.2f / %.2f |\n", r.sc.name, len(r.holds),
+		w("| %s | %d | %.2f / %.2f | %.2f / %.2f | %d | %.2f / %.2f | %.2f / %.2f | %.2f / %.2f |\n", r.label(), len(r.holds),
 			pct(wait, .5), pct(wait, .95), pct(hold, .5), pct(hold, .95), stmts[len(stmts)/2],
 			pct(tr, .5), pct(tr, .95), pct(db, .5), pct(db, .95), pct(app, .5), pct(app, .95))
 	}
@@ -1376,6 +1462,6 @@ func reportAlloc(w func(string, ...any), results []*perfResult) {
 			slices.Sort(keys)
 			failed = strings.Join(keys, ", ")
 		}
-		w("| %s | %d | %s | %s | %.0f | %s |\n", r.sc.name, n, q(acq), q(lat), timeouts, failed)
+		w("| %s | %d | %s | %s | %.0f | %s |\n", r.label(), n, q(acq), q(lat), timeouts, failed)
 	}
 }
