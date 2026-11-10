@@ -3,19 +3,20 @@
 # separate go.mod files) are scanned in parallel, and each must report zero
 # findings: no exception and no allowlist (ADR-001 A1 Decision 3).
 #
-# When it runs:
-#   pull_request  every pull request, on open and every push, with no label:
-#                 it takes about a minute and is a security gate, so it is not
-#                 behind ci:run (TICK-563). No paths filter, so it can be a
-#                 required check (a path-filtered required check never reports
-#                 and blocks the merge).
-#   push          main: every merge is scanned.
-#   schedule      every 6 hours: a new advisory needs no change of ours (ADR-001-A1
-#                 R7), and since TICK-641 nothing else scans an unchanged
-#                 module every day.
+# When it runs (TICK-694, the owner's request: every 2 days, not every PR):
+#   schedule      03:17 UTC on every second day of the month ('17 3 */2 * *';
+#                 a 31-day month runs on the 31st and the 1st): a new advisory
+#                 needs no change of ours (ADR-001-A1 R7).
+#   pull_request  only when it changes go.mod or go.sum of either module: a
+#                 new or bumped dependency is how a known-vulnerable module
+#                 enters main (ADR-001-A1 Decision 3, zero findings). Not a
+#                 required check of main, so the paths filter blocks no merge.
+#                 Every other pull request skips it.
 #   workflow_dispatch  by hand.
-# A failure on main (push or schedule) opens or updates the P0 "main is red"
-# issue (scripts/ci/main-red.sh). Always GitHub-hosted: no Docker, nothing the
+# No push trigger: a merge is scanned by its pull request (when it changed a
+# dependency) and by the next scheduled run.
+# A failed scheduled run on main opens or updates the P0 "main is red" issue
+# (scripts/ci/main-red.sh). Always GitHub-hosted: no Docker, nothing the
 # self-hosted runner would speed up. Every step is a make target:
 # `make tools-govulncheck vulncheck vulncheck-temporal-server` runs it locally.
 # The steps below are kept by make check-ci-steps
@@ -25,16 +26,20 @@ name: govulncheck
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-  push:
-    branches: [main]
+    paths:
+      - go.mod
+      - go.sum
+      - temporal-server/go.mod
+      - temporal-server/go.sum
   schedule:
-    - cron: '17 */6 * * *'
+    - cron: '17 3 */2 * *'
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# A pull request cancels its older run; main runs never cancel each other.
+# A pull request cancels its older run; scheduled and manual runs never
+# cancel each other.
 concurrency:
   group: ${{ github.event_name == 'pull_request' && format('govulncheck-{0}', github.ref) || format('govulncheck-{0}', github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -70,7 +75,7 @@ jobs:
 
   main-red:
     needs: [root, temporal-server]
-    if: failure() && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule')
+    if: failure() && github.ref == 'refs/heads/main' && github.event_name == 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
