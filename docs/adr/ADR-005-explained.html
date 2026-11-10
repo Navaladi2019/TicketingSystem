@@ -51,7 +51,7 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 <blockquote><strong>The whole decision in four sentences.</strong>
 (1) A record's number is handed out in its own tiny database step, just before the record is saved, instead of during the save, so people creating records at the same moment stop queuing behind each other.
 (2) Tenants describe a number format as a short pattern, for example <code>{yyyy}{MM}{seq:4}</code> for "year, month, then a 4-digit counter that restarts every month".
-(3) A format is created at runtime, by an admin or by a plugin through our API, and linked to as many record types as need it, with no software release.
+(3) A format is created at runtime, by an admin first and later also by a plugin through our API, and linked to as many record types as need it, with no software release.
 (4) Every existing record type keeps exactly today's numbers (<code>INC0000042</code> continues as <code>INC0000043</code>).</blockquote>
 
 <h2>1. The problem in plain words</h2>
@@ -111,7 +111,7 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 <svg viewBox="0 0 760 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Number formats are created, linked to types and snapshotted">
 <defs><marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#59636e"/></marker></defs>
 <rect x="15" y="30" width="130" height="40" rx="6" fill="#ddf4ff" stroke="#0969da"/><text x="80" y="55" font-size="12" text-anchor="middle" fill="#1f2328">Admin screen</text>
-<rect x="15" y="110" width="130" height="40" rx="6" fill="#ddf4ff" stroke="#0969da"/><text x="80" y="135" font-size="12" text-anchor="middle" fill="#1f2328">Plugin (via API)</text>
+<rect x="15" y="110" width="130" height="40" rx="6" fill="#ddf4ff" stroke="#0969da"/><text x="80" y="135" font-size="12" text-anchor="middle" fill="#1f2328">Plugin (later, C11)</text>
 <rect x="210" y="65" width="170" height="54" rx="6" fill="#fff8c5" stroke="#9a6700"/><text x="295" y="88" font-size="12" text-anchor="middle" fill="#1f2328">Number format v3</text><text x="295" y="106" font-size="11" text-anchor="middle" fill="#1f2328">{yyyy}{MM}{seq:4}</text>
 <rect x="445" y="30" width="140" height="40" rx="6" fill="#f6f8fa" stroke="#59636e"/><text x="515" y="55" font-size="12" text-anchor="middle" fill="#1f2328">Type: Visa (pins v3)</text>
 <rect x="445" y="110" width="140" height="40" rx="6" fill="#f6f8fa" stroke="#59636e"/><text x="515" y="135" font-size="12" text-anchor="middle" fill="#1f2328">Type: PF (pins v3)</text>
@@ -135,6 +135,18 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 <li><strong>Running out.</strong> A format either grows the counter past its width, or refuses the create with a clear "number space exhausted" error. You are alerted at 90 % use.</li>
 </ul>
 
+<h2>4a. Security conditions on formats and plugins</h2>
+<p>Security approved the new format tables and the plugin route with six conditions, C8 to C13. They are rules of the ADR (&sect;3.7). Two of them would be <strong>High</strong> if missed, meaning one tenant could reach into another's data or a plugin could act with more rights than it should.</p>
+<table><thead><tr><th>Condition</th><th>In plain words</th><th>If missed</th></tr></thead><tbody>
+<tr><td><strong>C8</strong></td><td>Every link between tables (a type to its format, an epoch to its type) includes the tenant, so a tenant can never point at another tenant's format, and cannot even learn whether one exists. The database checks links without applying tenant filtering, which is why the tenant must be part of the link itself.</td><td><span class="tag red">High</span></td></tr>
+<tr><td><strong>C9</strong></td><td>The format tables are built exactly like our existing record-type tables: tenant-filtered by the database, format names unique per tenant only, published versions can never be edited or deleted.</td><td><span class="tag amber">at scale</span></td></tr>
+<tr><td><strong>C10</strong></td><td>A new epoch is taken inside the same save as the type's publish, with the type locked, so two admins publishing at once get a clear answer instead of an error.</td><td><span class="tag amber">at scale</span></td></tr>
+<tr><td><strong>C11</strong></td><td><strong>Plugins cannot write formats yet. The admin screen ships first.</strong> We have no plugin identity today. Before plugin writes are switched on, five things must exist: one login per plugin per tenant; the tenant taken from the installation, never from what the plugin sends; the plugin recorded as a real user in the audit trail; a plugin's rights can only narrow its tenant permissions, never widen them; and permission to edit formats does not include permission to change a record type.</td><td><span class="tag red">High</span></td></tr>
+<tr><td><strong>C12</strong></td><td>The audit trail records "this change came from plugin X" from the server's own knowledge of who called, never from a field in the request, so nobody can disguise who made a change.</td><td><span class="tag amber">at scale</span></td></tr>
+<tr><td><strong>C13</strong></td><td>"Re-publish linked types" checks, type by type, that the person asking may change that type, and the report shows nothing they could not already see.</td><td><span class="tag amber">at scale</span></td></tr>
+</tbody></table>
+<p>The implementation must also add tenant-isolation tests for each of these (for example: tenant A asking for tenant B's format gets exactly the same "not found" as for a format that does not exist).</p>
+
 <h2>5. What you are accepting</h2>
 <table><thead><tr><th>Risk</th><th>Size</th><th>What would make us revisit</th></tr></thead><tbody>
 <tr><td><strong>Gaps.</strong> A create that fails after its number was handed out leaves a skipped number. After a database crash, a few numbers that were never used on any record may be handed out again.</td><td>Product choice (yours)</td><td>A tenant legally needs gapless numbers: we add a per-type gapless mode.</td></tr>
@@ -152,7 +164,7 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 <ul>
 <li><strong>Spike S1</strong> (Technical Architect): every option measured with 8 simultaneous creators, on a quiet and a busy machine, plus 3 forced database crashes with no duplicate numbers. Code and raw output: <code>docs/adr/ADR-005/spikes/technical-architect/s1/</code>.</li>
 <li><strong>Counter bench</strong> (Postgres specialist): every migration step timed, the rollout failure reproduced (which is why the four-step order exists), and lookups shown to stay just as fast at 1.43 million counter rows. <code>docs/adr/ADR-005/spikes/postgres/counter-scope/</code>.</li>
-<li><strong>Reviews:</strong> Security approved (with conditions now written into the ADR), the Technical Architect approved, and the Postgres specialist's two required fixes were made and re-checked.</li>
+<li><strong>Reviews:</strong> Security approved twice: the design, and then the format tables and plugin route added in the revision (conditions C1&ndash;C13, all written into the ADR), the Technical Architect approved, and the Postgres specialist's two required fixes were made and re-checked.</li>
 </ul>
 
 <h2>8. Still owed, not blocking</h2>

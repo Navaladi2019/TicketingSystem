@@ -9,16 +9,16 @@ rfc: docs/adr/ADR-005/rfc/RFC-014-record-numbering.md (rev 1, archived with rev-
 supersedes: none
 amends: PLAN-003 D-3-9 (docs/delivery/plan-records-path.md:88)
 source: Human request on TICK-648 ("OPEN AN RFC", 2026-11-09), plugin option requested by vknavaladi (TICK-653, 2026-11-09 17:21 UTC); P3-36 trigger from TICK-621 (create p95 > 50 ms)
-deciders: Solution Architect (author); Technical Architect (rev 1 APPROVE with findings 1–5, spike S1, comment 01a1c19d-bb65); Security & Multi-Tenancy Reviewer (round 1 APPROVE with C1–C7, comment 01a1c147-92d1); Postgres & Data Modeling Specialist (round 1 CHANGES, two blocking items closed by the Technical Architect's re-check, comment 01a1c14c-b6d3); CTO (chair rulings, comment 01a1c30c-b7e4); vknavaladi (gaps policy, pending)
+deciders: Solution Architect (author); Technical Architect (rev 1 APPROVE with findings 1–5, spike S1, comment 01a1c19d-bb65); Security & Multi-Tenancy Reviewer (round 1 APPROVE with C1–C7, comment 01a1c147-92d1; rev 1 additions APPROVE with C8–C13, comment 01a1c310-2851); Postgres & Data Modeling Specialist (round 1 CHANGES, two blocking items closed by the Technical Architect's re-check, comment 01a1c14c-b6d3); CTO (chair rulings, comment 01a1c30c-b7e4); vknavaladi (gaps policy, pending)
 ---
 
 # ADR-005: Record numbering
 
-> **Status: PROPOSED.** All reviewers have approved RFC-014 rev 1 or had their blocking items closed (CTO ruling, comment 01a1c30c-b7e4). **One product decision is open: gapless or gaps allowed.** This ADR is written with **L2s (gaps allowed)** as the decision, pending vknavaladi's answer on TICK-653. If the answer is gapless, §2.1 switches to the stated alternative (L1 plus a recorded waiver) and nothing else in this ADR changes. ACCEPTED is not posted until the human has answered.
+> **Status: PROPOSED.** All reviewers have approved RFC-014 rev 1 or had their blocking items closed (CTO ruling, comment 01a1c30c-b7e4). Security approved rev 1's additions with conditions C8–C13 (comment 01a1c310-2851), written in §3.7. **One product decision is open: gapless or gaps allowed.** This ADR is written with **L2s (gaps allowed)** as the decision, pending vknavaladi's answer on TICK-653. If the answer is gapless, §2.1 switches to the stated alternative (L1 plus a recorded waiver) and nothing else in this ADR changes. ACCEPTED is not posted until the human has answered.
 >
 > **Invariants source.** The project description defines no invariants, so this ADR is checked against [[ADR-001-platform-blueprint]] §1, I1–I9 (`main` at `89e0f84d`).
 >
-> Reviewer conditions are written as rules and tagged: **[TA-n]** Technical Architect finding n, **[Sec Cn]** Security condition n, **[PG n]** Postgres item n, **[CTO]** chair ruling.
+> Reviewer conditions are written as rules and tagged: **[TA-n]** Technical Architect finding n, **[Sec Cn]** Security condition n (C8 and C11 are **High if missed**), **[PG n]** Postgres item n, **[CTO]** chair ruling.
 
 ## Context
 
@@ -32,7 +32,7 @@ Two problems:
 
 1. **The number is allocated in its own tiny transaction (L2s), before the create transaction and after authorisation and validation.** It runs on a dedicated allocator pool, in one pipelined send: `BEGIN; set_config(app.tenant_id, …, true); SET LOCAL synchronous_commit = off; upsert … RETURNING; COMMIT`. The create transaction then inserts the record with that number. *Pending the human: gaps allowed* (§2.1).
 2. **Number formats are declarative templates**, e.g. `{yyyy}{MM}{seq:4}` or `{field:branch}_{yy}_{seq:2}_{MM}`, validated and compiled at publish (§3). Nothing in a format adds a statement or a round trip to the counter lock.
-3. **A number format is tenant-owned, versioned metadata (`number_formats`)**, created at runtime by an admin or by a plugin through the public API, and **linked** to entity types by a pinned `(number_format_id, format_version)` [CTO]. This is how "created dynamically and linked" is met: configuration, no code.
+3. **A number format is tenant-owned, versioned metadata (`number_formats`)**, created at runtime by an admin (ships first) or, once the plugin principal of §3.7 C11 exists, by a plugin through the public API, and **linked** to entity types by a pinned `(number_format_id, format_version)` [CTO]. This is how "created dynamically and linked" is met: configuration, no code.
 4. **Counters are scoped:** `record_counters` gains `scope_key`, and its primary key becomes `(tenant_id, entity_definition_id, scope_key)`, changed by an expand/contract migration (§4).
 5. **The default format is today's format.** `{prefix}{seq:7}` with `overflow: grow` is epoch 0 and uses `scope_key = ''`, so every existing type continues its existing counter. No existing number is migrated or rewritten.
 6. **Plugins that run code per create are deferred with a trigger (P-b); plugins that own the counter or run inside the lock are rejected (P-c).**
@@ -110,17 +110,17 @@ Rendered length ≤ 64. Unknown tokens are refused, so a new token type is an ad
 **Compiled form**, snapshotted on the published **definition version**: `scope_parts`, `head`, `width`, `tail`, `overflow`, `epoch`, `compiled_sha256`, `time_zone`. A create reads only this snapshot, never `number_formats`, so formats add nothing to the create path or the lock.
 
 ### 3.2 `number_formats` and links [CTO], [TA-3]
-- `number_formats(tenant_id, id, key, version, template, overflow, time_zone, compiled, …)`, `tenant_id` leading, FORCE RLS (I1). Published through the same configuration publish path, with the same validator and compiler; audited (`subject_type = number_format`).
-- An entity definition links a pinned `(number_format_id, format_version)`. No link means the default (epoch 0).
+- `number_formats` (head) and `number_format_versions` (immutable), shaped and granted as in §3.7 C9, `tenant_id` leading, FORCE RLS (I1). Published through the same configuration publish path, with the same validator and compiler; audited (`subject_type = number_format`).
+- An entity **definition version** links a pinned `(number_format_id, format_version)` through a composite FK that leads with `tenant_id` (§3.7 C8). The link lives on the immutable `entity_definition_versions`, never on the mutable `entity_definitions` row. No link means the default (epoch 0).
 - **A definition publish keeps the pinned version unless that publish explicitly bumps it.** An unrelated publish (e.g. adding a field) never changes a type's numbering.
 - **"Re-publish linked types"** in the admin view runs N independent per-type publishes, each checked for epoch and disjointness on its own, and reports success or refusal per type. **No automatic fan-out.**
 - Field tokens in a shared format are validated per linked type at that type's publish (§3.4).
-- **Plugin-authored formats (P-a):** the same validator and compiler as a human publish, no plugin-only path; format and definition publish require an explicit scope on the plugin token, and the tenant is taken only from the token binding; the audit entry names the plugin (`source = plugin`). [Sec]
-- The `number_formats` migration PR adds isolation-registry rows (tenant A cannot read, publish or link tenant B's format) and is reviewed by Security.
+- **Plugin-authored formats (P-a):** the same validator and compiler as a human publish, no plugin-only path. **Plugin writes stay off until the plugin principal of §3.7 C11 is specified; admin-UI format publish ships first.** The audit actor is set by the server (§3.7 C12).
+- "Re-publish linked types" authorises each type separately for the caller (§3.7 C13).
 
 ### 3.3 Epochs and disjointness
 - **Epoch = identity of the compiled template within a type**, not of the definition version. A publish with the same `compiled_sha256` keeps the epoch and continues the counter. A changed compiled template gets the next epoch. Re-adopting an earlier template reuses its epoch and continues that counter. `{prefix}{seq:7}`/`grow` is always epoch 0 with `scope_key = ''`. [PG 2]
-- **Epoch registry** [TA-4]: `numbering_epochs(tenant_id, entity_definition_id, epoch, compiled_sha256, literal_head, created_at)` with `UNIQUE (tenant_id, entity_definition_id, epoch)` and `UNIQUE (tenant_id, entity_definition_id, compiled_sha256)`; `tenant_id` leading, FORCE RLS, isolation-registry rows. Two concurrent publishes cannot both claim epoch N+1. Epoch 0 is implicit (no row needed).
+- **Epoch registry** [TA-4]: `numbering_epochs(tenant_id, entity_definition_id, epoch, compiled_sha256, literal_head, created_at)` with `UNIQUE (tenant_id, entity_definition_id, epoch)` and `UNIQUE (tenant_id, entity_definition_id, compiled_sha256)`, and the composite FK `(tenant_id, entity_definition_id) REFERENCES entity_definitions (tenant_id, id)` [Sec C8]; `tenant_id` leading, FORCE RLS, isolation-registry rows. The epoch is taken inside the publish transaction under `FOR UPDATE` [Sec C10], so two concurrent publishes cannot both claim epoch N+1. Epoch 0 is implicit (no row needed).
 - **Disjointness rule** [TA-1]: the *literal head* of an epoch is the literal text before its first variable token (`{prefix}` resolves to its literal). For every pair of epochs of a type, refuse the publish if one literal head is a prefix of the other (equal heads included) **unless** the first character where the longer head continues lies outside the character set of the shorter template's next token. Example: epoch 0 `INC` + digits vs `INC-{yyyy}…` is allowed (`-` is not a digit); epoch 0 vs `{prefix}{yy}{seq:3}` is refused (same head `INC`, both continue with digits); `{prefix}{yy}{seq:3}` vs `{prefix}2{seq:4}` is refused (`INC` is a prefix of `INC2`, and `2` is a digit). A property test over generated template pairs asserts that no two accepted epochs can render the same string. The records unique index `(tenant_id, entity_definition_id, number)` stays the backstop; a violation there is a 500-class bug, never silent.
 - Existing numbers are never rewritten.
 
@@ -140,6 +140,18 @@ Per format, `overflow: grow | refuse`. `grow` is allowed only when the template 
 
 ### 3.6 Time zone
 A tenant setting `time_zone` (IANA name, default `UTC`), with an optional per-format override. A change affects future scope keys only.
+
+### 3.7 Security conditions on formats, links, epochs and plugins [Sec C8–C13]
+Security approved rev 1's additions with these conditions (comment 01a1c310-2851). They are rules of this ADR, stated as written.
+
+| # | Rule | If missed |
+|---|---|---|
+| **C8** | **Every link is a composite foreign key that leads with `tenant_id`.** The pinned link is `(tenant_id, number_format_id, format_version) REFERENCES number_format_versions (tenant_id, format_id, version)`. `numbering_epochs` has `(tenant_id, entity_definition_id) REFERENCES entity_definitions (tenant_id, id)`. Reason: PostgreSQL runs FK checks as the table owner and ignores RLS (`20261031150000_entity_definitions.sql:3-5`), so a single-column `number_format_id` FK would let a tenant A admin link tenant B's format UUID: a cross-tenant pointer and an existence oracle (FK pass vs "not found"). With the composite key, B's id and a made-up id both fail with the same `number_format_not_found` (422) | **High** |
+| **C9** | **Same shape as `entity_definitions` / `entity_definition_versions`.** Head `number_formats`: PK `(tenant_id, id)`, `UNIQUE (tenant_id, key)` (never a global `key`, which would be a cross-tenant uniqueness oracle), `current_version`. Immutable `number_format_versions`: PK `(tenant_id, format_id, version)`. `ENABLE` + `FORCE ROW LEVEL SECURITY` on `number_formats`, `number_format_versions` and `numbering_epochs`, with the canonical `NULLIF(current_setting('app.tenant_id', true), '')::uuid` predicate on every policy. Grants: `nava_app` SELECT and INSERT, plus column-level UPDATE of `current_version, updated_at` on the head table only (as `db/grants.yaml:117`); `nava_worker` SELECT only; **no UPDATE or DELETE grant or policy on versions or epochs for any role**; `nava_purge` never touches them. If onboarding seeds default formats, `nava_onboard` INSERT uses the pinned "tenant is provisioning" policy, as for definitions. The link lives on the immutable `entity_definition_versions`; the UPDATE grant on `entity_definitions` stays `current_version, updated_at` | will bite at scale |
+| **C10** | **The epoch is taken inside the tenant publish transaction.** The disjointness check and the new-epoch INSERT run in the same `InTenantTx` as the definition publish, after `SELECT … FOR UPDATE` on that tenant's `entity_definitions` row, so the UNIQUE constraints never turn a race into a 500 and every epoch read goes through RLS | will bite at scale |
+| **C11** | **Plugin writes stay off until the plugin principal is specified; admin-UI format publish ships first.** There is no plugin identity today: `identity.Principal` has no kind or scopes (`internal/identity/identity.go:30`), `Resolve` reads no `scope` claim (`internal/identity/keycloak/keycloak.go:197`), and `principals` holds Keycloak users only. **Precondition for enabling plugin writes**, the five-point contract: (1) one Keycloak client per (plugin, tenant), never one shared client that picks its tenant per request; (2) the tenant comes from the binding, never from a claim value, header or body (I2): either the client's service-account user belongs to exactly one organization and goes through `Resolve` unchanged, or a platform binding `(iss, azp) → tenant`, written only by the tenant admin's install flow and RLS-forced like `tenant_identity_binding`; (3) the service account is synced as a `principals` row, so `audit_log.actor_principal_id` is a real FK `(tenant_id, actor_principal_id)`, not a free-text `actor_system`; (4) scope narrows, never grants: the effective right is (token scope) ∩ (the plugin principal's tenant ACL); (5) `number_format:write` does not imply `entity_definition:publish`: linking a format, bumping a type's pinned version or "re-publish linked types" need definition publish on each type | **High** |
+| **C12** | **`source = plugin` and `source_ref = <client id>` are set by the server** from the resolved principal's kind and `azp`, never from the request (otherwise within-tenant attribution forgery, Medium). The PR adding formats adds `number_format` to `audit_log_subject_type_check` (closed vocabulary, `20261102233600_audit_log.sql:109`), using `NOT VALID` then `VALIDATE` | will bite at scale |
+| **C13** | **"Re-publish linked types" checks authorisation per type for the caller.** A principal with format-write but no publish right on type X gets a per-type refusal for X; the per-type report shows no type the caller could not already list (I4, within the tenant) | will bite at scale |
 
 ## 4. Counter table and migration
 
@@ -173,11 +185,21 @@ Rewritten on the new key, plus:
 - `number_formats` and `numbering_epochs`: cross-tenant read, publish and link → Denied;
 - the allocator pool refuses to start under a non-`nava_app` role.
 
+**Required tests on the implementation PR that adds the format tables** [Sec C8–C13], in `internal/tenancy/isolation/registry.go`, beside the generic CI-2 checks:
+- `number_formats`, `number_format_versions`, `numbering_epochs`: read tenant B's rows by id and by key, as `nava_app` and `nava_worker` → `OwnRowsOnly`;
+- insert a tenant B format, version or epoch as `nava_app` → `Denied`;
+- `nava_worker` INSERT into any of the three → `Denied`;
+- `nava_app` UPDATE or DELETE on versions or epochs → `Denied` (no grant);
+- **FK case:** tenant A publishes a definition version whose link names `(tenant A, format id of B, 1)` → `Denied`;
+- `nava_onboard` seeds a format for an active tenant B → `Denied` (if seeding exists);
+- **HTTP:** a tenant A token on `GET`/`PUT /…/number-formats/{B's id}` → byte-identical 404 to a missing id; a forged `tenant_id` in the format publish body → `StoredUnderA`;
+- when plugins land (C11): a tenant A plugin token with a forged tenant header → `StoredUnderA`; a plugin token with format-write only that tries to bump a type's pinned version → 403.
+
 ## 6. Plugins
 
 | | Shape | Verdict |
 |---|---|---|
-| **P-a** | A plugin authors a `number_format` through the public API, with a scoped token | **in scope** (§3.2) |
+| **P-a** | A plugin authors a `number_format` through the public API, with a scoped token | **in scope** (§3.2); admin-UI publish ships first, plugin writes stay off until the §3.7 C11 contract is met |
 | **P-b** | A plugin runs per create, before the lock, returning the rendered parts; the platform keeps the counter | **deferred** |
 | **P-c** | A plugin owns the counter or runs inside the lock | **rejected** (I8, chair's hard line) |
 
@@ -220,7 +242,8 @@ D-3-9 (`docs/delivery/plan-records-path.md:88`) is replaced, on acceptance, by: 
 ## 12. Sequencing (for the PLAN)
 1. Allocator (L2s, or L1 if gapless), `tenancy.AllocTx`, pool, metrics. Independent of formats; closes the P3-36 trigger.
 2. Counter key expand/contract M1 → M2 → deploy → M3, with registry rows.
-3. `number_formats`, links, `numbering_epochs`, templates (dates, width, overflow), `period_end` and mandatory purge, publish gate. *Depends on:* step 2 (M3 done).
+3. `number_formats`, links, `numbering_epochs` (with C8–C10, C12, C13 and their registry rows), templates (dates, width, overflow), `period_end` and mandatory purge, publish gate. Admin-UI publish only. *Depends on:* step 2 (M3 done).
+   - Plugin writes to formats are a later step. *Depends on:* the plugin principal of §3.7 C11.
 4. Field tokens (enum only), coupled mask publish, re-check. *Depends on:* step 3 and S10 field masks.
 
 P-b is not planned.
