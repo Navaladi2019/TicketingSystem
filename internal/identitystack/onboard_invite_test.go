@@ -10,6 +10,11 @@ package identitystack
 // same tenant and IdP who is placed and whose invite is consumed, so a test
 // cannot pass because nothing is ever placed.
 //
+// The tests run in parallel (TICK-635). Each test has its own tenants and IdP
+// realms. Group sync is the one shared resource: groupsyncOnce runs one cycle
+// at a time, and duringNoCycle keeps a cycle out of a window that a cycle
+// would change (onboard_e2e_test.go).
+//
 //	make stack-up
 //	make stack-test-onboard
 
@@ -151,14 +156,21 @@ func squatAdminOfA(t *testing.T) {
 	a.requirePlaced(t, ctl)
 }
 
-func TestInvitedToTenantANotLinkedThroughTenantBIdP(t *testing.T) { squatAdminOfA(t) }
+func TestInvitedToTenantANotLinkedThroughTenantBIdP(t *testing.T) {
+	t.Parallel()
+	squatAdminOfA(t)
+}
 
-func TestSquattedInviteeIsNotPlacedInTheOtherTenant(t *testing.T) { squatAdminOfA(t) }
+func TestSquattedInviteeIsNotPlacedInTheOtherTenant(t *testing.T) {
+	t.Parallel()
+	squatAdminOfA(t)
+}
 
 // Test 2: A's IdP asserts the seeded local user alice@tenant-a.test, who has a
 // password and was never invited. The login is refused, alice gains no link,
 // and her password login still works.
 func TestUninvitedLocalUserNotLinked(t *testing.T) {
+	t.Parallel()
 	stopGroupsync(t)
 	f := onboardFx(t)
 	seedIdPUser(t, f.realm, "alice@tenant-a.test", "alice@tenant-a.test", f.pass)
@@ -182,6 +194,7 @@ func TestUninvitedLocalUserNotLinked(t *testing.T) {
 // Test 4: after the admin is placed and the invite consumed, a second subject
 // of A's IdP with the same email is refused and the first link is unchanged.
 func TestInviteIsSingleUse(t *testing.T) {
+	t.Parallel()
 	stopGroupsync(t)
 	f := onboardFx(t)
 	brokeredSignIn(t, f.idpAlias, f.admin, f.pass)
@@ -215,6 +228,7 @@ func TestInviteIsSingleUse(t *testing.T) {
 
 // Test 5: an invite that expired before the first login places nobody.
 func TestExpiredInviteNotLinked(t *testing.T) {
+	t.Parallel()
 	stopGroupsync(t)
 	f := onboardFx(t)
 	psqlSuper(t, fmt.Sprintf("UPDATE pending_invite SET created_at = now() - interval '8 days', expires_at = now() - interval '1 day' "+
@@ -236,15 +250,20 @@ func TestExpiredInviteNotLinked(t *testing.T) {
 // Test 6: an invitee who also belongs to another tenant's /t/ group is not
 // placed in this one.
 func TestInvitedUserInTwoTenantsNotLinked(t *testing.T) {
+	t.Parallel()
 	stopGroupsync(t)
 	a, b := onboardFx(t), onboardFx(t)
 	ctl := a.control(t)
 
-	brokeredSignIn(t, a.idpAlias, a.admin, a.pass)
-	id := kcUserByEmail(t, a.admin)
-	if code, body := adminRealm(t, "nava", http.MethodPut, "/users/"+id+"/groups/"+kcGroupID(t, "/t/"+b.tenant.String()), nil); code != http.StatusNoContent {
-		t.Fatalf("add the invitee to /t/%s: %d %s", b.tenant, code, body)
-	}
+	// No cycle between the sign-in and the second group: it would place the
+	// invitee in A before the condition under test holds.
+	duringNoCycle(func() {
+		brokeredSignIn(t, a.idpAlias, a.admin, a.pass)
+		id := kcUserByEmail(t, a.admin)
+		if code, body := adminRealm(t, "nava", http.MethodPut, "/users/"+id+"/groups/"+kcGroupID(t, "/t/"+b.tenant.String()), nil); code != http.StatusNoContent {
+			t.Fatalf("add the invitee to /t/%s: %d %s", b.tenant, code, body)
+		}
+	})
 	groupsyncOnce(t)
 
 	if a.placed(t, a.admin) {
@@ -259,6 +278,7 @@ func TestInvitedUserInTwoTenantsNotLinked(t *testing.T) {
 // Test 7: before the IdP login the invitee has no Keycloak user, so neither
 // the password grant nor a browser login works; after it they have no password.
 func TestInvitedUserHasNoLocalLogin(t *testing.T) {
+	t.Parallel()
 	stopGroupsync(t)
 	f := onboardFx(t)
 	if kcUserByEmail(t, f.admin) != "" {
@@ -290,15 +310,20 @@ func TestInvitedUserHasNoLocalLogin(t *testing.T) {
 
 // Test 8: the invitee is disabled between the first login and the next cycle.
 func TestDisabledInviteeNotLinked(t *testing.T) {
+	t.Parallel()
 	stopGroupsync(t)
 	f := onboardFx(t)
 	ctl := f.control(t)
 
-	brokeredSignIn(t, f.idpAlias, f.admin, f.pass)
-	id := kcUserByEmail(t, f.admin)
-	if code, b := adminRealm(t, "nava", http.MethodPut, "/users/"+id, map[string]any{"enabled": false}); code != http.StatusNoContent {
-		t.Fatalf("disable the invitee: %d %s", code, b)
-	}
+	// No cycle between the sign-in and the disable: it would place the
+	// invitee while still enabled.
+	duringNoCycle(func() {
+		brokeredSignIn(t, f.idpAlias, f.admin, f.pass)
+		id := kcUserByEmail(t, f.admin)
+		if code, b := adminRealm(t, "nava", http.MethodPut, "/users/"+id, map[string]any{"enabled": false}); code != http.StatusNoContent {
+			t.Fatalf("disable the invitee: %d %s", code, b)
+		}
+	})
 	groupsyncOnce(t)
 
 	if f.placed(t, f.admin) {
@@ -344,6 +369,7 @@ func storedEmailVerified(t *testing.T, email string) string {
 // placed and the invite stays pending. Positive control: the same tenant and
 // IdP with email_verified=true is placed and its invite consumed.
 func TestUnverifiedUpstreamEmailNotPlaced(t *testing.T) {
+	t.Parallel()
 	stopGroupsync(t)
 	f := onboardFx(t)
 	ctl := f.control(t)
@@ -400,6 +426,7 @@ func accountClaims(t *testing.T, tok string) (aud, roles any) {
 // the application-initiated action forms, which need no account role. Realm
 // nava's user profile is the control.
 func TestAccountAPIClosedToPlainBrokeredUser(t *testing.T) {
+	t.Parallel()
 	stopGroupsync(t)
 	f := onboardFx(t)
 	tok := accountConsoleSignIn(t, f.idpAlias, f.admin, f.pass)
@@ -566,6 +593,7 @@ func (fm aiaForm) requireNotEditable(t *testing.T) {
 // value, and group sync does not place them. The same tenant and IdP place the
 // control invitee. If the form is not offered, the test fails.
 func TestIdPEmailVerifiedAttributeNotUserEditable(t *testing.T) {
+	t.Parallel()
 	stopGroupsync(t)
 	f := onboardFx(t)
 	ctl := f.control(t)
@@ -597,6 +625,7 @@ func TestIdPEmailVerifiedAttributeNotUserEditable(t *testing.T) {
 // pending and nobody is placed under it; then the real admin signs in and is
 // placed. If the update-profile form is not offered, the test fails.
 func TestUserCannotRenameEmailToPendingInvite(t *testing.T) {
+	t.Parallel()
 	stopGroupsync(t)
 	f := onboardFx(t)
 	mallory := "mallory-" + uuid.NewString()[:8] + "@" + f.domain
