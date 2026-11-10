@@ -110,10 +110,12 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 		// Causation stays empty on purpose: origin and depth never come from
 		// the request (TICK-88 security review).
 		cmd := pipeline.Command{Op: pipeline.OpCreate, EntityKey: req.Entity, Actor: p, Source: pipeline.SourceUser}
-		// One round trip for every read the create starts with: the hold on
-		// the request's idempotency key and the pipeline's prefetch (the
-		// definition and the policy, which Current below and the write and
-		// shaping checks then take from the transaction's memo) (TICK-648).
+		// One round trip for the claim of the request's idempotency key, the
+		// transaction's first write (TICK-688), and every read the create
+		// starts with: the pipeline's prefetch (the definition and the
+		// policy, which Current below and the write and shaping checks then
+		// take from the transaction's memo) (TICK-648). The claim waits at
+		// most idempotency.ClaimWait on a concurrent request with the key.
 		b := &pgx.Batch{}
 		if err := idempotency.QueueHold(ctx, tx, b); err != nil {
 			return err
@@ -121,7 +123,10 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 		if err := h.pipe.QueuePrefetch(ctx, tx, b, cmd); err != nil {
 			return err
 		}
-		if err := tx.SendBatch(ctx, b).Close(); err != nil {
+		// The replay check comes first: a request whose key is taken
+		// (replayed, reused, in flight) rolls back here, before validation,
+		// the write check and the number (I4, ADR-005).
+		if err := idempotency.ResolveClaim(ctx, tx, tx.SendBatch(ctx, b).Close()); err != nil {
 			return err
 		}
 		def, curVersion, err := h.store.Current(ctx, tx, req.Entity)
@@ -162,6 +167,10 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 		return idempotency.CompleteInTx(ctx, tx, resp.VisitCreateRecordResponse)
 	})
 	if err != nil {
+		if errors.Is(err, idempotency.ErrSettled) {
+			// The middleware answers from the key; this response is dropped.
+			return settledCreate{}, nil
+		}
 		if errors.Is(err, entitytypes.ErrNotFound) || errors.Is(err, pipeline.ErrNotFound) {
 			return h.notFound(ctx), nil
 		}
@@ -171,6 +180,14 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 	}
 	return resp, nil
 }
+
+// settledCreate is CreateRecord's response when the request's key was
+// already taken (idempotency.ErrSettled). The idempotency middleware
+// replaces it with the stored response or the key's 409, so it writes
+// nothing.
+type settledCreate struct{}
+
+func (settledCreate) VisitCreateRecordResponse(http.ResponseWriter) error { return nil }
 
 // GetRecord serves GET /api/v1/records/{entity}/{id}.
 func (h *handlers) GetRecord(ctx context.Context, req api.GetRecordRequestObject) (api.GetRecordResponseObject, error) {

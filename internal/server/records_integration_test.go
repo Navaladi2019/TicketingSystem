@@ -173,9 +173,10 @@ func TestCreateRecordRetryWithTheSameKeyCreatesOne(t *testing.T) {
 // ADR-005 A5, TICK-657: a create whose number allocation passes its timeout
 // (here the tenant's counter row is held by another transaction) answers 503
 // retry_later and writes nothing. The 503 is not stored against the
-// Idempotency-Key, but the key's in_flight claim stands until its lease ends,
-// so Retry-After is the lease; once it has passed, the retry with the same
-// key creates the record.
+// Idempotency-Key, and since TICK-688 its claim rolled back with the write,
+// so no key row is left and the retry with the same key creates the record
+// at once. Retry-After stays the key lease, the one retry_later advice of
+// every route.
 //
 // covers: createRecord 503
 func TestCreateRecordAllocationTimeoutIs503RetryLater(t *testing.T) {
@@ -200,11 +201,8 @@ func TestCreateRecordAllocationTimeoutIs503RetryLater(t *testing.T) {
 	if n := e.recordCount(t, "a"); n != 1 {
 		t.Fatalf("tenant A has %d records after the 503, want 1", n)
 	}
-	// Before the lease ends the same key is still in flight.
-	wantProblem(t, e.createRec(t, "user-a", "ticket", "late", `{"short_description": "late"}`), http.StatusConflict, problem.IdempotencyInFlight)
-	if _, err := e.super.Exec(t.Context(),
-		"UPDATE idempotency_keys SET lease_until = now() - interval '1 second' WHERE key = 'late'"); err != nil {
-		t.Fatal(err)
+	if n := keyRows(t, e, "late"); n != 0 {
+		t.Fatalf("%d key rows after the 503, want 0: the claim rolls back with the write", n)
 	}
 	retry := e.createRec(t, "user-a", "ticket", "late", `{"short_description": "late"}`)
 	if retry.Code != http.StatusCreated || retry.Header().Get("Idempotent-Replayed") == "true" {
@@ -474,9 +472,9 @@ func TestCreateRecordKeyIsCompletedWithTheWrite(t *testing.T) {
 	}
 }
 
-// A failure while storing the response now fails the whole write: the record
-// is not committed, the key is retaken after the lease, and the retry creates
-// exactly one record with one number.
+// A failure while storing the response fails the whole write: the record is
+// not committed, nor is the key's claim, and the retry creates exactly one
+// record with one number.
 func TestCreateRecordStoreFailureRollsBackTheWriteAndTheRetryCreatesOne(t *testing.T) {
 	e := newRecEnv(t)
 	ctx := t.Context()
@@ -498,9 +496,10 @@ func TestCreateRecordStoreFailureRollsBackTheWriteAndTheRetryCreatesOne(t *testi
 	if _, err := e.super.Exec(ctx, `DROP TRIGGER fail_idem_store ON idempotency_keys`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.super.Exec(ctx,
-		"UPDATE idempotency_keys SET lease_until = now() - interval '1 second' WHERE key = 'k-482b'"); err != nil {
-		t.Fatal(err)
+	// The claim rolled back with the write (TICK-688): no row, so the retry
+	// runs at once, with no lease to wait out.
+	if n := keyRows(t, e, "k-482b"); n != 0 {
+		t.Fatalf("%d key rows after the failed store, want 0", n)
 	}
 	retry := e.createRec(t, "user-a", "ticket", "k-482b", `{"short_description": "once"}`)
 	if retry.Code != http.StatusCreated {
@@ -550,13 +549,64 @@ END $$`,
 	if n := e.recordCount(t, "a"); n != 0 {
 		t.Errorf("tenant A has %d records, want 0: the stale owner's write must roll back", n)
 	}
-	var state string
-	var body []byte
-	if err := e.super.QueryRow(ctx,
-		"SELECT state, response_body FROM idempotency_keys WHERE key = 'k-482c'").Scan(&state, &body); err != nil {
+	// Since TICK-688 the key's claim is in the same transaction, so it rolls
+	// back too: no row, and so no stored 201 of the stale owner.
+	if n := keyRows(t, e, "k-482c"); n != 0 {
+		t.Errorf("%d key rows, want 0: the claim rolls back with the stale owner's write", n)
+	}
+}
+
+// legacyInFlight commits an in_flight row for key the way a binary that
+// claims in a transaction of its own leaves one (a rolling deploy, or a
+// crash before TICK-688), with the hash of the create request createRec
+// sends for data, and its lease ending after lease (negative: passed).
+func legacyInFlight(t *testing.T, e *etEnv, key, data string, lease time.Duration) {
+	t.Helper()
+	hash := idempotency.RequestHash(http.MethodPost, "/api/v1/records/ticket", []byte(`{"data": `+data+`}`))
+	if _, err := e.super.Exec(t.Context(), `
+INSERT INTO idempotency_keys (tenant_id, principal_id, key, request_hash, lease_until, expires_at)
+SELECT $1, principal_id, $2, $3, now() + $4 * interval '1 millisecond', now() + interval '1 day'
+  FROM idempotency_keys WHERE tenant_id = $1 AND key = 'seed-legacy'`,
+		e.a.id, key, hash, lease.Milliseconds()); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(body), `"number"`) {
-		t.Errorf("the key holds the stale owner's response: %s", body)
+}
+
+// TICK-688: an in_flight row committed by an older binary. Within its lease a
+// create with the key is 409 idempotency_in_flight at once and writes
+// nothing; once the lease has passed, the create takes the row over in its
+// own transaction and completes it with the write.
+func TestCreateRecordLegacyInFlightRow(t *testing.T) {
+	e := newRecEnv(t)
+	// A first create of user-a, whose key row gives the principal id.
+	e.mustCreateRec(t, "user-a", "ticket", "seed-legacy", `{"short_description": "seed"}`)
+	data := `{"short_description": "legacy"}`
+
+	legacyInFlight(t, e, "k-688-young", data, time.Minute)
+	wantProblem(t, e.createRec(t, "user-a", "ticket", "k-688-young", data), http.StatusConflict, problem.IdempotencyInFlight)
+	if n := e.recordCount(t, "a"); n != 1 {
+		t.Errorf("tenant A has %d records after the 409, want 1", n)
+	}
+
+	legacyInFlight(t, e, "k-688-stale", data, -time.Second)
+	retaken := idempotencyResult(t, e.tel, "retaken")
+	got := e.createRec(t, "user-a", "ticket", "k-688-stale", data)
+	if got.Code != http.StatusCreated || got.Header().Get(idempotency.ReplayedHeader) == "true" {
+		t.Fatalf("create over a stale row = %d: %s", got.Code, got.Body)
+	}
+	if d := idempotencyResult(t, e.tel, "retaken") - retaken; d != 1 {
+		t.Errorf("retaken counter moved by %v, want 1", d)
+	}
+	var state string
+	var stored []byte
+	if err := e.super.QueryRow(t.Context(),
+		"SELECT state, response_body FROM idempotency_keys WHERE key = 'k-688-stale'").Scan(&state, &stored); err != nil {
+		t.Fatal(err)
+	}
+	if state != "completed" || string(stored) != got.Body.String() {
+		t.Errorf("key = %s %s, want completed with the 201", state, stored)
+	}
+	if n := e.recordCount(t, "a"); n != 2 {
+		t.Errorf("tenant A has %d records, want 2", n)
 	}
 }

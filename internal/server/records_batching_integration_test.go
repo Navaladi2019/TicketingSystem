@@ -33,8 +33,8 @@ import (
 // The budgets: round trips and statements of one request, idempotency claim
 // included. A change that adds a round trip to either path fails here.
 const (
-	createTripBudget      = 9  // claim: BEGIN, INSERT, COMMIT; write: BEGIN, prefetch, checks, write batch, COMMIT batch; number (TICK-657, ADR-005 AllocTx): one pipelined trip
-	createStatementBudget = 21 // was 29, then 17 (TICK-648): claim 4 (BEGIN+GUC, INSERT, COMMIT), write 12, number 5 (BEGIN, tenant, SET LOCAL, upsert, COMMIT)
+	createTripBudget      = 6  // was 9 (TICK-688 folds the claim's own BEGIN, INSERT, COMMIT into the write): BEGIN, claim+prefetch batch, checks, write batch, COMMIT batch; number (TICK-657, ADR-005 AllocTx): one pipelined trip
+	createStatementBudget = 19 // was 29, 17 (TICK-648), 21 (TICK-657): write 14 (BEGIN+GUC, the claim under lock_timeout set and reset in place of the hold), number 5 (BEGIN, tenant, SET LOCAL, upsert, COMMIT)
 	getTripBudget         = 3  // BEGIN, one batch, COMMIT
 	getStatementBudget    = 7  // was 13: BEGIN+GUC, definition, record, shares, policy, COMMIT
 )
@@ -111,6 +111,28 @@ func TestRecordCreateAndGetRoundTrips(t *testing.T) {
 	underOnly(t, "create", rec, e.a.id)
 	trips := rec.Trips()
 	t.Logf("create: %d round trips, %d statements (before: 29 statements, two transactions)", len(trips), rec.Statements())
+	// One synchronous commit: the write's. The claim has no transaction of
+	// its own; it is the first write of the claim+prefetch batch, bounded by
+	// lock_timeout set just before it and reset just after (TICK-688).
+	if len(trips) < 2 {
+		t.Fatalf("create: %d trips: %s", len(trips), fmt.Sprint(trips))
+	}
+	if first := trips[1]; !first.Batch || len(first.SQL) < 3 ||
+		!strings.Contains(first.SQL[0], "lock_timeout") || !strings.Contains(first.SQL[1], "INSERT INTO idempotency_keys") ||
+		!strings.Contains(first.SQL[2], "lock_timeout") {
+		t.Errorf("the trip after BEGIN is %q, want the claim under lock_timeout, then the prefetch", first.SQL)
+	}
+	commits := 0
+	for _, tr := range trips {
+		for _, s := range tr.SQL {
+			if strings.HasPrefix(s, "COMMIT") {
+				commits++
+			}
+		}
+	}
+	if commits != 2 {
+		t.Errorf("%d COMMITs, want 2: the number's (asynchronous, ADR-005 A4) and the write's", commits)
+	}
 	if len(trips) > createTripBudget || rec.Statements() > createStatementBudget {
 		t.Errorf("create: %d trips, %d statements; budget %d, %d: %s", len(trips), rec.Statements(),
 			createTripBudget, createStatementBudget, fmt.Sprint(trips))
