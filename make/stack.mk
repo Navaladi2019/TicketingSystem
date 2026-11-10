@@ -1,4 +1,4 @@
-.PHONY: ci-stack ci-stack-run stack-tests stack-main stack-internal-beside stack-internal stack-up stack-down stack-logs image image-ci ci-binaries smoke
+.PHONY: prebuilt-pull prebuilt-publish ci-stack ci-stack-run stack-tests stack-main stack-internal-beside stack-internal stack-up stack-down stack-logs image image-ci ci-binaries smoke
 
 # Builds the images, brings the stack up, runs every stack test, then tears
 # it down (logs first on failure). The workflow runs `make stack-tests JOB=<job>`
@@ -72,6 +72,19 @@ COMPOSE_PROJECT := $(or $(COMPOSE_PROJECT_NAME),nava)
 image:
 	docker compose build
 
+# Pull every PUBLISHED_IMAGES entry whose key is published; never fails on a
+# miss. Prints and (with GITHUB_ENV) exports PREBUILT_SERVICES.
+prebuilt-pull:
+	@hits=; for s in $(PUBLISHED_IMAGES); do if sh scripts/ci/prebuilt-image.sh $$s pull; then hits="$$hits $$s"; fi; done; \
+	hits=$${hits# }; echo "prebuilt-pull: PREBUILT_SERVICES=$$hits"; \
+	if [ -n "$$GITHUB_ENV" ]; then echo "PREBUILT_SERVICES=$$hits" >>"$$GITHUB_ENV"; fi
+
+# Build and push SERVICE's image unless its key is published (the
+# prebuilt-images workflow, main only; GH_TOKEN, GH_ACTOR).
+prebuilt-publish:
+	@[ -n "$(SERVICE)" ] || { echo "prebuilt-publish: set SERVICE to one of $(PUBLISHED_IMAGES)" >&2; exit 2; }
+	sh scripts/ci/prebuilt-image.sh $(SERVICE) publish
+
 # CI image build: buildx bake over compose.yaml while the registry images are
 # pulled alongside. IMAGE_CACHE=gha keeps the layer cache in the GitHub Actions
 # cache (needs a docker-container builder and the Actions runtime env), so an
@@ -91,11 +104,19 @@ image:
 BAKE_CACHED := db-roles keycloak nava-core nava-groupsync nava-onboard nava-purge nava-relay nava-worker otel-collector temporal-server
 # Every compose.yaml service with a build: (TestBakeTargetsCoverCompose).
 BAKE_TARGETS := $(BAKE_CACHED) migrate
-# TEMPORAL_SERVER_PREBUILT=1 (make temporal-server-pull found the published
-# image, TICK-641): bake every target but temporal-server, and read or write
-# no cache for it. Unset: bake's default group, every target, as before.
-BAKE_BUILT := $(if $(filter 1,$(TEMPORAL_SERVER_PREBUILT)),$(filter-out temporal-server,$(BAKE_CACHED)),$(BAKE_CACHED))
-BAKE_ONLY := $(if $(filter 1,$(TEMPORAL_SERVER_PREBUILT)),$(filter-out temporal-server,$(BAKE_TARGETS)))
+# Published CI images (TICK-641, TICK-693; docs/quality/ci-pipeline.md
+# "Published CI images"): the services the prebuilt-images workflow publishes
+# to GHCR from main, keyed on what their build reads
+# (scripts/ci/prebuilt-image.sh). make prebuilt-pull pulls each one whose key
+# is published, tags it as this run's nava/<service> and writes the hits as
+# PREBUILT_SERVICES to GITHUB_ENV; a miss of any kind is not an error. make
+# image-ci then bakes every target but PREBUILT_SERVICES, and reads or writes
+# no cache for them. PREBUILT_SERVICES unset: bake's default group, every
+# target, as before. TestPublishedImageKeyCoversBuild keeps each key covering
+# its Dockerfile's COPY/ADD sources.
+PUBLISHED_IMAGES := temporal-server keycloak
+BAKE_BUILT := $(filter-out $(PREBUILT_SERVICES),$(BAKE_CACHED))
+BAKE_ONLY := $(if $(strip $(PREBUILT_SERVICES)),$(filter-out $(PREBUILT_SERVICES),$(BAKE_TARGETS)))
 comma := ,
 BAKE_CACHE_TO = $(if $(filter true,$(CACHE_WRITE)),--set $(1).cache-to=type=gha$(comma)scope=$(1)$(comma)mode=max$(comma)ignore-error=true)
 BAKE_CACHE_GHA := $(foreach t,$(BAKE_BUILT),--set $(t).cache-from=type=gha,scope=$(t) $(call BAKE_CACHE_TO,$(t))) --set migrate.cache-from=type=gha,scope=db-roles
