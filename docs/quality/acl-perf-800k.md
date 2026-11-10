@@ -60,6 +60,25 @@ In every attempt:
 
 **The small-tenant row** is host-invalid at 16:00 UTC. Per the outcome rule it is repeated once, alone, at `15da77d6` in a different hour (scheduled for 17:10 UTC). Neither outcome of that repeat changes the verdict above.
 
+**Repeat in a different hour: still host-invalid.**
+
+| Start (UTC) | Floor p50 | Outcome |
+| --- | --- | --- |
+| 17:23 | 3.47 ms | Aborted at the floor gate, so no numbers |
+| 17:48 | 1.85 ms | Ran the small-tenant row alone; every attempt failed the host-speed probe (table below) |
+
+During both runs another task's integration Postgres (`nava-it-pg-tick692`) was at 9 to 24% CPU. The raw report for the 17:48 run is `final-2026-11-10-small-tenant-repeat-1748.md`.
+
+| Attempt | p95 | Host probe p50 | Commit p50 | `retry_later` | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 113.6 | 2.98 | 10.76 | 0 | gated (probe, commit) |
+| 2 | 89.4 | 2.96 | 9.90 | 0 | gated (probe) |
+| 3 | 87.6 | 2.87 | 9.73 | 0 | gated (probe) |
+
+The row is reported as host-invalid. That is not a pass and not a miss; the reference host goes to the CTO.
+
+Not verified: in both runs, every probe after the 16:00 run's first three rows read 2.5 to 3.0 ms. That includes the very first probe of the 17:48 run, taken right after the seed. Background work in the bench database itself, such as autovacuum or analyze after the seed and the creates, may be raising the probe as well as the host. Sampling `pg_stat_activity` during the probe would settle it.
+
 ## Gated create re-run after TICK-688 (claim folded into the create transaction)
 
 **Result: FAIL.** At story tip `15da77d6`, two rows that passed the storage-window gate still miss:
