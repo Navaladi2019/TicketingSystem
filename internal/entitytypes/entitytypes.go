@@ -76,6 +76,7 @@ type Summary struct {
 	Key            string
 	Name           string
 	NumberPrefix   string
+	NumberingMode  metadata.NumberingMode
 	CurrentVersion int
 	UpdatedAt      time.Time
 }
@@ -144,7 +145,7 @@ func (Store) GetCurrent(ctx context.Context, tx pgx.Tx, key string) (*Version, e
 // List returns up to limit entity types with key greater than after, by key.
 func (Store) List(ctx context.Context, tx pgx.Tx, after string, limit int) ([]Summary, error) {
 	rows, err := tx.Query(ctx, `
-SELECT key, name, number_prefix, current_version, updated_at
+SELECT key, name, number_prefix, numbering_mode, current_version, updated_at
 FROM entity_definitions WHERE key > $1 ORDER BY key LIMIT $2`, after, limit)
 	if err != nil {
 		return nil, fmt.Errorf("entitytypes: list: %w", err)
@@ -153,7 +154,7 @@ FROM entity_definitions WHERE key > $1 ORDER BY key LIMIT $2`, after, limit)
 	out := []Summary{}
 	for rows.Next() {
 		var s Summary
-		if err := rows.Scan(&s.Key, &s.Name, &s.NumberPrefix, &s.CurrentVersion, &s.UpdatedAt); err != nil {
+		if err := rows.Scan(&s.Key, &s.Name, &s.NumberPrefix, &s.NumberingMode, &s.CurrentVersion, &s.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("entitytypes: list: %w", err)
 		}
 		out = append(out, s)
