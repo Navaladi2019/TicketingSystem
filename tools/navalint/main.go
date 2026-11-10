@@ -2,8 +2,8 @@
 //
 //	go vet -vettool=bin/navalint ./...
 //
-// `make lint` builds and runs it: setconfig (T07), idpclaims (T15, CI-11) and
-// guarderrtype (AR-044, P3-26, TICK-594).
+// `make lint` builds and runs it: setconfig (T07), idpclaims (T15, CI-11),
+// guarderrtype (AR-044, P3-26, TICK-594) and tenancyconn (TICK-698).
 package main
 
 import (
@@ -12,8 +12,9 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/tools/navalint/guarderrtype"
 	"github.com/Navaladi2019/TicketingSystem/tools/navalint/idpclaims"
 	"github.com/Navaladi2019/TicketingSystem/tools/navalint/setconfig"
+	"github.com/Navaladi2019/TicketingSystem/tools/navalint/tenancyconn"
 )
 
 func main() {
-	unitchecker.Main(setconfig.Analyzer, idpclaims.Analyzer, guarderrtype.Analyzer)
+	unitchecker.Main(setconfig.Analyzer, idpclaims.Analyzer, guarderrtype.Analyzer, tenancyconn.Analyzer)
 }
