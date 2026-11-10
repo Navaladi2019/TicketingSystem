@@ -55,8 +55,9 @@ type Dependencies struct {
 	// the record-number allocator pool (D-3-9 as amended 2026-11-10,
 	// TICK-657). Behind PgBouncer it names a database entry with a server
 	// pool of its own, so an allocation never waits for a server connection
-	// an open create holds. Optional: unset, the allocator pool connects with
-	// DatabaseURL. It holds a password, as DatabaseURL does.
+	// an open create holds. nava-core requires it whenever DatabaseURL and
+	// OIDCIssuers are set (cmd/nava-core/allocator.go). It holds a password,
+	// as DatabaseURL does.
 	AllocatorDatabaseURL string
 	// KeycloakManagementURL is NAVA_KEYCLOAK_MANAGEMENT_URL, the base URL of
 	// Keycloak's management port, such as http://keycloak:9000.

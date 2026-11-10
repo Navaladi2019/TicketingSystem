@@ -69,7 +69,7 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 		return err
 	}
 	defer closeResolver()
-	allocPool, err := newAllocatorPool(ctx, log, tel, cfg)
+	allocPool, err := newAllocatorPool(ctx, tel, cfg)
 	if err != nil {
 		_ = tel.Shutdown(context.WithoutCancel(ctx))
 		return err

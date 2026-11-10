@@ -347,8 +347,9 @@ func TestTemporalTLSRequiresServerName(t *testing.T) {
 	}
 }
 
-// NAVA_ALLOCATOR_DATABASE_URL is optional (TICK-657): unset it is empty, set
-// it is kept as given.
+// NAVA_ALLOCATOR_DATABASE_URL (TICK-657): unset it is empty (nava-core
+// refuses to start without it when the record routes are configured), set it
+// is kept as given.
 func TestAllocatorDatabaseURL(t *testing.T) {
 	t.Parallel()
 	cfg, err := config.Load(func(string) (string, bool) { return "", false })

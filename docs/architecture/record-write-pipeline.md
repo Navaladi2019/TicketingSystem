@@ -114,7 +114,8 @@ flowchart TD
   of its own (`cmd/nava-core/allocator.go`, 4 connections, `pool_max_conns`
   in the DSN overrides it and must match `nava_alloc pool_size`) and, behind
   PgBouncer, a server pool of its own (the `nava_alloc` entry,
-  `NAVA_ALLOCATOR_DATABASE_URL`). The pool logs in as `nava_app` only:
+  `NAVA_ALLOCATOR_DATABASE_URL`, required with the record routes: there is
+  no fallback to the API pool's DSN). The pool logs in as `nava_app` only:
   startup refuses another login, and each connection is checked for
   SUPERUSER and BYPASSRLS as it opens (`tenancy.AllocPoolConfig`). Metrics:
   `nava_numbering_alloc_acquire_seconds`, `nava_numbering_alloc_seconds`,

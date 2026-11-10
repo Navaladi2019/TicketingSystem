@@ -14,7 +14,7 @@ package pipeline
 //  3. write: the INSERT of the record with its number, the write key and
 //     the audit entry. The number was taken just before, in a transaction of
 //     its own that has already committed (D-3-9 as amended 2026-11-10,
-//     Pipeline.takeNumber), so no lock on record_counters is held here.
+//     write.allocate, alloc.go), so no lock on record_counters is held here.
 //
 // An update keeps its statements one by one; it reads its definition and
 // policy through the same prefetch.

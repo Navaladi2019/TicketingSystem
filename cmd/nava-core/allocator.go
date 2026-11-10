@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -32,20 +31,20 @@ const allocatorMaxConns = 4
 // while the create's transaction holds an API pool connection (D-3-9 as
 // amended 2026-11-10). It is a separate pool so an allocation never waits for
 // a connection an open create holds, which with every API connection in a
-// create would never come. It connects with NAVA_ALLOCATOR_DATABASE_URL, or
-// NAVA_DATABASE_URL when that is unset. Nil when tenant resolution is not
-// configured (as newResolver): there are then no record routes.
-func newAllocatorPool(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, cfg config.Config) (*pgxpool.Pool, error) {
+// create would never come. It connects with NAVA_ALLOCATOR_DATABASE_URL,
+// which is required whenever the record routes are configured: falling back
+// to NAVA_DATABASE_URL would, behind PgBouncer, share the API pool's server
+// pool, the starvation scope 3 of TICK-657 forbids. Nil when tenant
+// resolution is not configured (as newResolver): there are then no record
+// routes.
+func newAllocatorPool(ctx context.Context, tel *telemetry.Telemetry, cfg config.Config) (*pgxpool.Pool, error) {
 	if len(cfg.Deps.OIDCIssuers) == 0 || cfg.Deps.DatabaseURL == "" {
 		return nil, nil
 	}
 	dsn := cfg.Deps.AllocatorDatabaseURL
 	if dsn == "" {
-		// Behind PgBouncer the two pools then share one server pool, and a
-		// create holding the last server connection waits for its number
-		// until PgBouncer's query_wait_timeout.
-		log.WarnContext(ctx, "NAVA_ALLOCATOR_DATABASE_URL is not set: the allocator pool connects with NAVA_DATABASE_URL")
-		dsn = cfg.Deps.DatabaseURL
+		return nil, errors.New("config: NAVA_ALLOCATOR_DATABASE_URL: required with NAVA_DATABASE_URL and NAVA_OIDC_ISSUERS " +
+			"(the record-number allocator pool, with a PgBouncer server pool of its own)")
 	}
 	poolCfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
@@ -56,6 +55,8 @@ func newAllocatorPool(ctx context.Context, log *slog.Logger, tel *telemetry.Tele
 	// transaction mode, and a 5 s connect timeout.
 	poolCfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
 	poolCfg.ConnConfig.ConnectTimeout = 5 * time.Second
+	// The parsed config cannot tell pgxpool's default width from an explicit
+	// pool_max_conns, so the DSN itself is asked.
 	if !strings.Contains(dsn, "pool_max_conns") {
 		poolCfg.MaxConns = allocatorMaxConns
 	}
