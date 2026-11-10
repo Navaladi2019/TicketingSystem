@@ -488,6 +488,30 @@ minutes. `temporal` (Temporal and Keycloak own their databases: three psql queri
 read-only) was not in the proposal and is in the tier as a cheap check that
 the stack's databases exist. Without `STACK_TIER` (locally) every case runs.
 
+The operator compose profile (`temporal-ui`, `openobserve`, `prometheus`)
+follows the selected cases (TICK-696). A case that needs one of those services
+carries `profile=operator` in its header: today `trace`, `logs`, `redact`,
+`temporal_custody` and `temporal_operator_reach`, all full-tier.
+`run-cases.sh profiles <jobs>` prints `operator` when a case that runs under
+`STACK_TIER`, `AREAS` and `<jobs>` has it, and nothing otherwise. With
+`STACK_TIER` set, `make/stack.mk` sets `COMPOSE_PROFILES` from it. The stack
+job sets `STACK_TIER` and `AREAS` on the job, not on the cases step, so
+`make image-ci` (its `docker compose pull`), `stack-up`, `stack-logs` and
+`stack-down` all use the same profile. `stack-up` and `image-ci` print the
+value they use. A fast run therefore neither pulls nor starts the three
+services, and a full run starts all three. Without `STACK_TIER` (a laptop), or
+with `COMPOSE_PROFILES` set by the caller, nothing changes: `operator`, or the
+caller's value. The Collector stays healthy without OpenObserve: its
+OpenObserve exporter logs a send error, retries for 5 s and drops the batch
+(`deploy/compose/otel-collector/config.yaml`), so the `nava-*` services that
+wait for a healthy Collector are not held up. The guards:
+`TestOperatorServicesNeedTheProfile` fails when a case script names a service
+of compose.yaml's operator profile and its header lacks `profile=operator`.
+`TestRealOperatorCases` pins the list and checks that a fast selection needs
+no profile. `TestStackTierRepeatsCIFull` keeps the job's `STACK_TIER`
+condition equal to the workflow's `CI_FULL`, since job-level `env` cannot
+read `env`.
+
 What a fast run cannot catch: a role, `pg_hba`, tenant-isolation, egress,
 identity-attack or Temporal-confinement regression. It merges and is caught
 by the next daily run, about 24 hours later, which opens the `main is red` P0

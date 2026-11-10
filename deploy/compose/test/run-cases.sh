@@ -1,6 +1,7 @@
 #!/bin/sh
 # The stack-test registry, derived from the files in cases/. Each case carries one header line:
 #   # stack-case: job=<stack|stack-db|stack-internal|none>[,<job>] order=<n> mode=<serial|parallel> [area=<keycloak|pgbouncer|db>] [tier=smoke]
+#                [profile=operator]
 # job: the CI job that runs it (none: by name only). order: run order, lower first; the
 # default is 20; cases that stop or restart services sort after the read-only ones.
 # mode: parallel cases only read the stack, so `PARALLEL=1` runs them at once.
@@ -12,12 +13,18 @@
 # STACK_TIER unset or all (the default, as on a laptop) runs every case. ci.yml sets
 # STACK_TIER=smoke on a pull request with ci:run and on a push to main, and all on a full run
 # (CI_FULL: the daily run on main, ci:full, a manual run, a pull request into a story branch).
+# profile (TICK-696): operator marks a case that needs a service of compose.yaml's operator
+# profile (temporal-ui, openobserve, prometheus) up. `profiles` prints operator when a case that
+# runs under AREAS and STACK_TIER has it, nothing otherwise; make/stack.mk sets COMPOSE_PROFILES
+# from it when STACK_TIER is set (CI), so a fast run neither pulls nor starts those three.
+# TestOperatorServicesNeedTheProfile fails when a case names one without profile=operator.
 #
 #   run-cases.sh list <jobs>              case names in run order (<jobs>: a comma list, or all)
 #   run-cases.sh registry                 the registry as YAML
 #   run-cases.sh run <jobs>               run them; stops at the first failed serial case
 #   run-cases.sh check                    every case has a valid header
-# A bad header (missing, unknown key, job, area or tier, non-numeric order, bad mode) makes every command
+#   run-cases.sh profiles <jobs>          the compose profiles the selected cases need (operator or nothing)
+# A bad header (missing, unknown key, job, area, tier or profile, non-numeric order, bad mode) makes every command
 # exit 1 naming the file, never a silent skip. CASES_DIR overrides cases/ (the tests use it).
 # CI calls `make stack-tests JOB=<job>`; a failure names the case.
 set -eu
@@ -25,7 +32,7 @@ dir=$(cd "$(dirname "$0")" && pwd)
 cases=${CASES_DIR:-$dir/cases}
 die() { echo "run-cases: $*" >&2; exit 1; }
 
-# TABLE: "order name mode jobs area tier" rows (area and tier - for none), sorted. Built in this shell (not a pipeline's last
+# TABLE: "order name mode jobs area tier profile" rows (area, tier and profile - for none), sorted. Built in this shell (not a pipeline's last
 # stage) so a bad header stops the command.
 load() {
     rows=$(
@@ -34,7 +41,7 @@ load() {
             n=$(basename "$f" .sh)
             h=$(sed -n 's/^# stack-case: //p' "$f" | head -n 1)
             [ -n "$h" ] || die "$f has no '# stack-case:' header"
-            j=; o=20; m=serial; a=-; ti=-
+            j=; o=20; m=serial; a=-; ti=-; pr=-
             for kv in $h; do
                 case $kv in
                 job=*) j=${kv#job=} ;;
@@ -42,6 +49,7 @@ load() {
                 mode=*) m=${kv#mode=} ;;
                 area=*) a=${kv#area=} ;;
                 tier=*) ti=${kv#tier=} ;;
+                profile=*) pr=${kv#profile=} ;;
                 *) die "$f: unknown header field '$kv'" ;;
                 esac
             done
@@ -53,7 +61,8 @@ load() {
             case $m in serial|parallel) ;; *) die "$f: mode '$m' is not serial or parallel" ;; esac
             case $a in -|keycloak|pgbouncer|db) ;; *) die "$f: unknown area '$a'" ;; esac
             case $ti in -|smoke) ;; *) die "$f: unknown tier '$ti'" ;; esac
-            printf '%s %s %s %s %s %s\n' "$o" "$n" "$m" "$j" "$a" "$ti"
+            case $pr in -|operator) ;; *) die "$f: unknown profile '$pr'" ;; esac
+            printf '%s %s %s %s %s %s %s\n' "$o" "$n" "$m" "$j" "$a" "$ti" "$pr"
         done
     ) || exit 1
     [ -n "$rows" ] || die "no cases in $cases"
@@ -93,6 +102,14 @@ touched() {
              if (skip == "" && intier && inarea) print
              if (skip != "" && !intier) printf "SKIP %s (full tier, STACK_TIER=%s)\n", $2, tier
              else if (skip != "" && !inarea) printf "SKIP %s (area %s not touched)\n", $2, $5 }'
+}
+
+# profiles <jobs>: operator when a case that runs in <jobs> under AREAS and STACK_TIER has
+# profile=operator, nothing otherwise (TICK-696).
+profiles() {
+    areas_check
+    tier_check
+    touched "$(rows "$1")" | awk '$7 == "operator" { print "operator"; exit }'
 }
 
 # names <jobs> [mode]
@@ -158,8 +175,9 @@ run() {
 load
 case ${1:-} in
 list) names "${2:?jobs}" "${3:-}" ;;
-registry) printf '%s\n' "$TABLE" | awk '{ printf "- name: %s\n  make: %s\n  serial: %s\n  order: %s\n  ci_jobs: [%s]\n", $2, "stack-test-" $2, ($3 == "serial" ? "true" : "false"), $1, $4; if ($5 != "-") printf "  area: %s\n", $5; if ($6 != "-") printf "  tier: %s\n", $6 }' ;;
+registry) printf '%s\n' "$TABLE" | awk '{ printf "- name: %s\n  make: %s\n  serial: %s\n  order: %s\n  ci_jobs: [%s]\n", $2, "stack-test-" $2, ($3 == "serial" ? "true" : "false"), $1, $4; if ($5 != "-") printf "  area: %s\n", $5; if ($6 != "-") printf "  tier: %s\n", $6; if ($7 != "-") printf "  profile: %s\n", $7 }' ;;
 run) run "${2:?jobs}" ;;
+profiles) profiles "${2:?jobs}" ;;
 check) echo "ok: $(printf '%s\n' "$TABLE" | wc -l | tr -d ' ') cases" ;;
-*) echo "usage: run-cases.sh list|registry|run|check" >&2; exit 1 ;;
+*) echo "usage: run-cases.sh list|registry|run|check|profiles" >&2; exit 1 ;;
 esac

@@ -58,9 +58,28 @@ STACK_LOCK = go run ./tools/ci/racelock -port 47620 -slots $(STACK_SLOTS) -take 
 # --- Compose stack ---------------------------------------------------------
 # The trace stack test needs every ordinary trace kept.
 export OTEL_TAIL_SAMPLE_PERCENT ?= 100
-# T28: the stack tests run with the operator profile (Temporal UI) and the test
-# overlay that publishes the Temporal gateway on loopback for the SDK test.
-export COMPOSE_PROFILES ?= operator
+# T28: the stack tests run with the operator profile (Temporal UI, OpenObserve,
+# Prometheus) and the test overlay that publishes the Temporal gateway on
+# loopback for the SDK test.
+# TICK-696: with STACK_TIER set (the ci.yml stack job sets it, with AREAS, on
+# the job), the profile comes from the cases that selection runs:
+# `run-cases.sh profiles $(JOB)` prints operator when one of them has
+# profile=operator. A fast run (STACK_TIER=smoke) runs none, so stack-up,
+# image-ci's pull, stack-logs and stack-down all leave the three services out.
+# STACK_TIER unset (a laptop): operator, as before. COMPOSE_PROFILES set by the
+# caller always wins. A bad registry header stops make here, never an empty
+# profile by mistake.
+ifeq ($(origin COMPOSE_PROFILES),undefined)
+ifneq ($(strip $(STACK_TIER)),)
+COMPOSE_PROFILES := $(shell STACK_TIER=$(STACK_TIER) AREAS=$(AREAS) sh deploy/compose/test/run-cases.sh profiles $(JOB) || echo PROFILES-ERROR)
+ifneq ($(filter PROFILES-ERROR,$(COMPOSE_PROFILES)),)
+$(error run-cases.sh profiles $(JOB) failed (STACK_TIER=$(STACK_TIER) AREAS=$(AREAS)); see the run-cases error above)
+endif
+else
+COMPOSE_PROFILES := operator
+endif
+endif
+export COMPOSE_PROFILES
 export COMPOSE_FILE ?= compose.yaml:deploy/compose/compose.test.yaml
 # Windows Docker splits COMPOSE_FILE on ";" unless told otherwise.
 export COMPOSE_PATH_SEPARATOR ?= :
@@ -143,6 +162,7 @@ CI_BINARIES := nava-core nava-db nava-groupsync nava-onboard nava-purge nava-rel
 CI_THIN_SERVICES := db-roles=nava-db migrate=nava-db nava-core=nava-core nava-groupsync=nava-groupsync nava-onboard=nava-onboard nava-purge=nava-purge nava-relay=nava-relay nava-worker=nava-worker
 BAKE_THIN := $(foreach m,$(CI_THIN_SERVICES),--set $(word 1,$(subst =, ,$(m))).dockerfile=deploy/compose/Dockerfile.ci --set $(word 1,$(subst =, ,$(m))).target=$(word 2,$(subst =, ,$(m))))
 image-ci:
+	@echo "image-ci: COMPOSE_PROFILES=$(COMPOSE_PROFILES) (the registry images pulled follow it, TICK-696)"
 	@$(if $(filter 1,$(IMAGE_THIN)),for b in $(CI_BINARIES) nava-worker-interptest; do [ -x $(CI_BIN_DIR)/$$b ] || { echo "image-ci: IMAGE_THIN=1 needs $(CI_BIN_DIR)/$$b: run make ci-binaries first" >&2; exit 2; }; done; echo "image-ci: thin CI images from deploy/compose/Dockerfile.ci (IMAGE_THIN=1)";) \
 	docker compose pull --quiet --ignore-buildable --ignore-pull-failures $(PULL_POLICY) & pull=$$!; \
 	docker buildx bake -f compose.yaml --load $(BAKE_CACHE) $(if $(filter 1,$(IMAGE_THIN)),$(BAKE_THIN)) $(BAKE_ONLY); status=$$?; \
@@ -159,6 +179,7 @@ ci-binaries:
 	CGO_ENABLED=0 GOOS=$${GOOS:-linux} GOARCH=$${GOARCH:-amd64} go build -trimpath -tags interptest -o $(CI_BIN_DIR)/nava-worker-interptest ./cmd/nava-worker
 
 stack-up: dev-ca
+	@echo "stack-up: COMPOSE_PROFILES=$(COMPOSE_PROFILES) (STACK_TIER=$(or $(STACK_TIER),unset) AREAS=$(or $(AREAS),all) JOB=$(JOB))"
 	docker compose up -d
 
 # stack-test-<name>: one case, deploy/compose/test/cases/<name>.sh (make/ fragments with their own recipe override this).
