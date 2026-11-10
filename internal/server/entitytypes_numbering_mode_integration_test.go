@@ -112,6 +112,31 @@ func TestNumberingModeChangesOnUpdateWithoutAVersion(t *testing.T) {
 	}
 }
 
+// covers: publishEntityTypeVersion 422
+func TestNumberingModeWithABreakingDefinitionChangesNothing(t *testing.T) {
+	e := newETEnv(t)
+	etCreateIncident(t, e)
+	auditCount := func() int {
+		var n int
+		if err := e.super.QueryRow(t.Context(), "SELECT count(*) FROM audit_log WHERE tenant_id = $1", e.a.id).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	before := auditCount()
+	body := strings.Replace(etPublishBody(t, `"default": "new"`, `"default": "closed"`), `{"definition"`, `{"numbering_mode":"gapless","definition"`, 1)
+	wantProblem(t, e.do(t, http.MethodPost, etVersionsPath, "admin-a", "k-brk", body), http.StatusUnprocessableEntity, problem.SchemaBreakingChange)
+	if got := etStoredMode(t, e); got != "gaps" {
+		t.Errorf("stored mode = %q, want gaps: the refused request rolls back", got)
+	}
+	if n := etVersionCount(t, e); n != 1 {
+		t.Errorf("versions = %d, want 1", n)
+	}
+	if after := auditCount(); after != before {
+		t.Errorf("audit entries = %d, want %d", after, before)
+	}
+}
+
 // covers: createEntityType 403
 // covers: publishEntityTypeVersion 403 404
 func TestNumberingModeRefusedForNonAdminsAndOtherTenants(t *testing.T) {
