@@ -31,6 +31,7 @@ import (
 
 	"github.com/Navaladi2019/TicketingSystem/internal/audit"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
+	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/store"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
@@ -196,9 +197,23 @@ func (w *write) writeCreate(ctx context.Context, rec *store.Record, after []byte
 	}
 	fixed := w.def.FixedColumns()
 	b := &pgx.Batch{}
-	var got store.Inserted
-	if err := store.QueueInsertRecord(b, rec, fixed, &got); err != nil {
-		return Result{}, fmt.Errorf("pipeline: %w", err)
+	var (
+		got      store.Inserted
+		numbered store.Numbered
+	)
+	// A `gapless` type takes its number here, last inside this transaction
+	// (ADR-005 L1, TICK-648): the counter row stays locked until this
+	// transaction ends, and a rollback gives the number back. A `gaps` type
+	// arrives with the number its allocation already committed.
+	gapless := w.def.NumberingMode() == metadata.NumberingGapless
+	var queueErr error
+	if gapless {
+		queueErr = store.QueueInsertNumbered(b, rec, w.def.NumberPrefix(), fixed, &numbered)
+	} else {
+		queueErr = store.QueueInsertRecord(b, rec, fixed, &got)
+	}
+	if queueErr != nil {
+		return Result{}, fmt.Errorf("pipeline: %w", queueErr)
 	}
 	if w.cmd.IdempotencyKey != "" {
 		// Claimed before the audit entry, so a concurrent duplicate by the
@@ -229,6 +244,13 @@ func (w *write) writeCreate(ctx context.Context, rec *store.Record, after []byte
 			return Result{}, m.err
 		}
 		return Result{}, fmt.Errorf("pipeline: %w", err)
+	}
+	if gapless {
+		if want := store.FormatNumber(w.def.NumberPrefix(), numbered.N); numbered.Number != want {
+			return Result{}, fmt.Errorf("pipeline: stored number %q, want %q", numbered.Number, want)
+		}
+		rec.Number = numbered.Number
+		got = store.Inserted{Number: numbered.Number, Payload: numbered.Payload, CreatedAt: numbered.CreatedAt, UpdatedAt: numbered.UpdatedAt}
 	}
 	if got.Number != rec.Number {
 		return Result{}, fmt.Errorf("pipeline: stored number %q, want %q", got.Number, rec.Number)

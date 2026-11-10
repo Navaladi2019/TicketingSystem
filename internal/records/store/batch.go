@@ -242,3 +242,69 @@ func writeKeyError(err error) error {
 	}
 	return fmt.Errorf("records/store: insert write key: %w", err)
 }
+
+// Numbered is what QueueInsertNumbered reads back when the batch runs.
+type Numbered struct {
+	// N is the counter value the create took.
+	N int64
+	// Number is the number the INSERT stored, built by PostgreSQL from N.
+	Number string
+	// Payload is the stored row's payload, as PayloadJSON returns it.
+	Payload json.RawMessage
+	// CreatedAt and UpdatedAt are the stored timestamps, at PostgreSQL's
+	// precision.
+	CreatedAt, UpdatedAt time.Time
+}
+
+// numberSQL is FormatNumber in SQL over the counter value the batch's first
+// statement took: the prefix, then the value zero padded to 7 digits and
+// longer as needed (lpad alone would cut an 8-digit value).
+const numberSQL = `$15::text || (SELECT CASE WHEN c.next - 1 < 10000000 THEN lpad((c.next - 1)::text, 7, '0')
+    ELSE (c.next - 1)::text END
+  FROM record_counters c WHERE c.tenant_id = $1 AND c.entity_definition_id = $4)`
+
+// QueueInsertNumbered queues a `gapless` type's numbering and insert (ADR-005
+// L1, D-3-9; the TICK-648 layout), the last statements before the audit
+// entry: the record_counters
+// upsert, which locks the tenant's counter row of the type until the
+// transaction ends, then the INSERT of r, whose number PostgreSQL builds from
+// the counter value the upsert left, under prefix. r.Number is ignored.
+// When the batch runs, *dst holds the value, the number, the stored
+// timestamps and the stored payload under fixed. A rollback after this
+// gives the number back (no gap). It upserts the same row as QueueAllocate,
+// the `gaps` path, so a type whose mode changes carries on from its counter
+// and no number is used twice (ADR-005 §2.1.1).
+func QueueInsertNumbered(b *pgx.Batch, r *Record, prefix string, fixed map[string]string, dst *Numbered) error {
+	data, err := json.Marshal(r.Data)
+	if err != nil {
+		return fmt.Errorf("records/store: encode data: %w", err)
+	}
+	b.Queue(nextNumberSQL, r.TenantID, r.EntityDefinitionID).QueryRow(func(row pgx.Row) error {
+		if err := row.Scan(&dst.N); err != nil {
+			return fmt.Errorf("records/store: take record number: %w", err)
+		}
+		return nil
+	})
+	expr, args, err := payloadExpr(fixed, []any{
+		r.TenantID, r.ID, r.Version, r.EntityDefinitionID, r.SchemaVersion, r.State,
+		r.RequesterID, r.AssigneeID, r.AssignmentGroupID, r.CreatedBy, r.CreatedAt, jsonParam(data),
+		r.CausationOriginID, r.CausationDepth, prefix,
+	})
+	if err != nil {
+		return err
+	}
+	b.Queue(`
+INSERT INTO records (tenant_id, id, version, entity_definition_id, schema_version, number, state,
+    requester_id, assignee_id, assignment_group_id, created_by, created_at, updated_at, data,
+    causation_origin_id, causation_depth)
+VALUES ($1, $2, $3, $4, $5, `+numberSQL+`, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14)
+RETURNING number, created_at, updated_at, (`+expr+`)::text`, args...).QueryRow(func(row pgx.Row) error {
+		var payload string
+		if err := row.Scan(&dst.Number, &dst.CreatedAt, &dst.UpdatedAt, &payload); err != nil {
+			return fmt.Errorf("records/store: insert record: %w", err)
+		}
+		dst.Payload = json.RawMessage(payload)
+		return nil
+	})
+	return nil
+}

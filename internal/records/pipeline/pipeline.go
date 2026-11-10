@@ -630,14 +630,19 @@ func (w *write) create(ctx context.Context, after map[string]any) (Result, error
 	// refused or invalid create never moves the counter. It is taken in a
 	// transaction of its own that commits before this one inserts the record
 	// (ADR-005 L2s), so a create that fails from here on leaves a gap.
-	alloc, err := w.allocate(ctx)
-	if err != nil {
-		return Result{}, err
+	// A `gapless` type takes it last inside this transaction instead
+	// (ADR-005 L1, writeCreate). The mode is the one the definition had
+	// when this create read it (§2.1.1).
+	if w.def.NumberingMode() != metadata.NumberingGapless {
+		alloc, err := w.allocate(ctx)
+		if err != nil {
+			return Result{}, err
+		}
+		rec.Number = store.FormatNumber(w.def.NumberPrefix(), alloc.Number)
+		// The record is created at the allocation's instant (A7), so a date
+		// in a number will always match created_at.
+		rec.CreatedAt, rec.UpdatedAt = alloc.Instant, alloc.Instant
 	}
-	rec.Number = store.FormatNumber(w.def.NumberPrefix(), alloc.Number)
-	// The record is created at the allocation's instant (A7), so a date in
-	// a number will always match created_at.
-	rec.CreatedAt, rec.UpdatedAt = alloc.Instant, alloc.Instant
 	return w.writeCreate(ctx, rec, preview)
 }
 

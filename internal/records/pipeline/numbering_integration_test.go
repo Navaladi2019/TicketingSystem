@@ -132,9 +132,11 @@ func noErrors(t *testing.T, errs []error) {
 // workers continue at 51, and give a steadier creates/s figure for the PR.
 // Each create takes its number through the allocator's own server pool while
 // its transaction holds one of the 5 (TICK-657): sharing them would starve.
+// It runs against a `gapless` type (ADR-005 L1, D-3-9); the `gaps` type's
+// allocator is TestAllocatorPoolDoesNotStarveThePool's.
 func TestConcurrentCreatesNumberWithoutGapsThroughPgBouncer(t *testing.T) {
 	e := throughBouncer(t, migrated(t), 50)
-	f := seedTenant(t, e)
+	f := seedTenantWith(t, e, gaplessDefinition(definition(schemaV1)))
 	p := newPipeline(e, nil)
 
 	took, errs := createMany(e, p, f, 50, 50)
@@ -154,13 +156,11 @@ func TestConcurrentCreatesNumberWithoutGapsThroughPgBouncer(t *testing.T) {
 
 // AC: a rolled-back create's number is reused by the next create, and a
 // refused create (here a unique violation, after which the write stops before
-// taking a number) uses none. That is the gapless mode (TICK-648), which
-// returns per type with entity_definitions.numbering_mode (TICK-659); the
-// gaps mode is TestRolledBackCreateLeavesAGap.
+// taking a number) uses none. That is a `gapless` type (ADR-005 L1, the
+// TICK-648 layout); a `gaps` type is TestRolledBackCreateLeavesAGap.
 func TestRolledBackCreateNumberIsReused(t *testing.T) {
-	t.Skip("gapless numbering returns per type with TICK-659's numbering_mode column (TICK-657)")
 	e := migrated(t)
-	f := seedTenant(t, e)
+	f := seedTenantWith(t, e, gaplessDefinition(definition(schemaV1)))
 	p := newPipeline(e, nil)
 	ctx := context.Background()
 	mustCreate(t, e, p, f, map[string]any{"title": "one"})
