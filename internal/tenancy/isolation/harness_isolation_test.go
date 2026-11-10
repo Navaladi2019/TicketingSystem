@@ -36,6 +36,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/db/grants"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/migrate"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/roles"
+	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
 // suite is the cluster TestMain built; the tests do not run in parallel.
@@ -227,6 +228,30 @@ func (e *env) poolSize(t *testing.T, role string, pooled bool, conns int32) *pgx
 	return p
 }
 
+// allocPool is the allocator pool nava-core opens (cmd/nava-core/allocator.go):
+// nava_app, 4 connections, every one's role checked (tenancy.AllocPoolConfig).
+// It logs in directly: the suite's PgBouncer gives nava_app one server
+// connection, which an open create holds while it waits for its number.
+func (e *env) allocPool(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	cfg, err := pgxpool.ParseConfig("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ConnConfig = e.roleConfig("nava_app", false)
+	cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
+	cfg.MaxConns = 4
+	if err := tenancy.AllocPoolConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	p, err := pgxpool.NewWithConfig(t.Context(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(p.Close)
+	return p
+}
+
 // cluster is the Cluster a DB path gets: pools and the superuser, closed
 // when the test ends.
 type cluster struct {
@@ -240,6 +265,10 @@ func (c cluster) Pool(role string) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("%s is not a manifest role", role)
 	}
 	return c.e.pool(c.t, role, r.PgBouncerLogin), nil
+}
+
+func (c cluster) AllocatorPool() (*pgxpool.Pool, error) {
+	return c.e.allocPool(c.t), nil
 }
 
 func (c cluster) PoolSize(role string, conns int32) (*pgxpool.Pool, error) {
