@@ -202,8 +202,9 @@ done
 # nothing beside it, so the ci.yml job
 # commit-check-budget runs it alone (scripts/ci/commit-check-budget.sh,
 # TICK-509). A run with go test arguments (no shards) still runs it if -run
-# names it.
-tests=$(go test -tags integration -list . ./internal/db/dbtest | grep '^Test' | grep -vx 'TestCommitCheckBudget')
+# names it. TestP511CommitCheckPooledSession goes there too (TICK-641): a
+# timing ratio, not meaningful on a saturated shared host.
+tests=$(go test -tags integration -list . ./internal/db/dbtest | grep '^Test' | grep -vx -e 'TestCommitCheckBudget' -e 'TestP511CommitCheckPooledSession')
 total=$(echo "$tests" | wc -l | tr -d ' ')
 echo "dbtest: $total tests over $shards clusters; shared cluster:$shared; own cluster:$own"
 

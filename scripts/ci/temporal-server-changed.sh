@@ -17,8 +17,8 @@
 #   otherwise       the diff from the merge base with BASE (default
 #                   origin/main), as make ci-stages.
 #
-# A new advisory needs no change of ours, so a skipped job leaves govulncheck
-# to the scheduled temporal-server-vulncheck job (ADR-001-A1 R7).
+# govulncheck is not in this job: the govulncheck workflow scans both modules
+# on every pull request, push to main and day (TICK-641).
 set -eu
 
 say() {

@@ -11,7 +11,7 @@ calls only `make` targets. Install the pinned tools once with `make tools`.
 
 | Stage | Make target | What fails it | Containers |
 | --- | --- | --- | --- |
-| Lint | `ci-lint` | tool versions differ from `docs/pins.md`, `gofmt`, `go vet`, `vet-tags` (`go vet` once per build-tag set the `//go:build` lines use), golangci-lint, `lint-fixture` (exactly 5 forbidigo findings), `check-taskfile`, `check-pins`, `check-generate` (`api/api.gen.go` differs from what `go generate ./api/...` writes), `check-guide` (`docs/acceptance/guide/`, among it `bruno/lib/nava.js` `REGISTERED`, differs from what `build/build.py` writes; TICK-391), `check-ci-steps` (`ci.yml` lost a step listed in `tools/ci/cisteps/required.yaml`), `check-openapi`, `govulncheck ./...` in both modules at once (`vulncheck-ci`, below) | none |
+| Lint | `ci-lint` | tool versions differ from `docs/pins.md`, `gofmt`, `go vet`, `vet-tags` (`go vet` once per build-tag set the `//go:build` lines use), golangci-lint, `lint-fixture` (exactly 5 forbidigo findings), `check-taskfile`, `check-pins`, `check-generate` (`api/api.gen.go` differs from what `go generate ./api/...` writes), `check-guide` (`docs/acceptance/guide/`, among it `bruno/lib/nava.js` `REGISTERED`, differs from what `build/build.py` writes; TICK-391), `check-ci-steps` (`ci.yml` lost a step listed in `tools/ci/cisteps/required.yaml`), `check-openapi`, `govulncheck ./...` in both modules at once (`vulncheck-ci`, below; in GitHub the separate `govulncheck` workflow, TICK-641) | none |
 | Unit | `ci-unit` | `go test -race ./...` under the host-wide race lock (below), temporal-server unit tests, golangci-lint on the temporal-server module (`lint-temporal-server`, TICK-584) | none |
 | Integration | `ci-integration` | any `//go:build integration` test (`internal/db/dbtest`, `internal/db/pooltest`, `internal/tenancy`, `internal/platform/health`) against throwaway PostgreSQL clusters and two PgBouncers (tags from `docs/pins.md`), or the dbtest shards running fewer tests than the package lists | Docker |
 | Isolation (in `ci-integration`, after `test-integration`) | `isolation` | the tenant isolation suite (`internal/tenancy/isolation`, T11, ADR-001 CI-2): any role × tenant table, registered path or fixture failing; writes the report `isolation-report.md` at the repository root (uploaded as the `isolation-report` artifact, even when the job fails) | Docker |
@@ -19,12 +19,12 @@ calls only `make` targets. Install the pinned tools once with `make tools`.
 | Stack | `ci-stack` | image build, every container healthy, `GET /healthz` smoke from inside the compose network, then the stack tests (`pgbouncer`, `temporal`, `dependencies`, `trace`, `redact`, `idempotent`, `dbroles`, `hba`, `internal`) | compose |
 
 In GitHub, the `temporal-server` job runs the module's tests, then
-`make lint-temporal-server`, then `make vulncheck-temporal-server`, which must
-report zero findings. Since TICK-641 it runs only when the module, or how it
-is built, tested or linted, changed, and a scheduled job scans the module for
-new advisories (see "Published temporal-server image" below). The scan must
-report zero findings: there is no exception and no allowlist (ADR-001 A1
-Decision 3, TICK-121). `lint-temporal-server` (TICK-584) runs golangci-lint
+`make lint-temporal-server`. Since TICK-641 it runs only when the module, or
+how it is built, tested or linted, changed (see "Published temporal-server
+image" below). govulncheck for both modules is the separate `govulncheck`
+workflow (see "govulncheck workflow" below), and it must report zero
+findings: there is no exception and no allowlist (ADR-001 A1 Decision 3,
+TICK-121). `lint-temporal-server` (TICK-584) runs golangci-lint
 from `temporal-server/` with the root `.golangci.yml`: `make lint` runs
 `./...` from the root, and with no `go.work` that pattern stops at the
 module's own `go.mod`, so before TICK-584 no job linted the D9/E1 authorizer.
@@ -70,7 +70,12 @@ own (`make test-commit-check-budget`, `scripts/ci/commit-check-budget.sh`),
 whenever `integration` runs. The test measures ADR-004-E3's absolute µs
 budget rows, which drifted 10-36 % over the ceilings when the test shared the
 `integration` runner with the dbtest shards. The integration shards leave it
-out, so it runs once (D-E3-4, TICK-509). Under ADR-004-E4 the absolute
+out, so it runs once (D-E3-4, TICK-509).
+`TestP511CommitCheckPooledSession` runs in this job too, after the budget test,
+and the integration shards leave it out (TICK-641): timing ratios are not
+meaningful on a saturated shared host (its median t(4N)/t(N) read 8.05 against
+the unchanged limit of 8 on the loaded WSL runner). The script fails when it
+did not run. Under ADR-004-E4 the absolute
 thresholds are report-only: the job fails only when no rows were measured, a
 same-run ratio is out of range or the per-call row is not flat; a row over
 its threshold gets a `::warning::` annotation, and both rows, with the host's
@@ -280,8 +285,8 @@ scans both modules for new advisories (ADR-001-A1's R7 trigger). The trade-off,
 accepted in D2: a code-only change that starts calling an already-listed
 vulnerable symbol is caught by the next day's first run, not the same run.
 `VULNCHECK=all make vulncheck-ci` scans regardless; `make vulncheck` and
-`make vulncheck-temporal-server` always scan, and the GitHub workflow still
-calls those.
+`make vulncheck-temporal-server` always scan, and the `govulncheck` workflow
+calls those (TICK-641). The stamps apply to local `make ci-lint` only.
 
 **One race-detector run per host (TICK-153 D3).** `make test` and `task test`
 run `go test -race` through `tools/ci/racelock`, which holds a listener on
@@ -548,7 +553,7 @@ on an arm64 host).
 ### Published temporal-server image (TICK-641)
 
 Before TICK-641, every run that changed any Go code ran the `temporal-server`
-job (tests, golangci-lint, govulncheck: about 1m45s on GitHub-hosted runners,
+job (tests, golangci-lint, then govulncheck: about 1m45s on GitHub-hosted runners,
 8m45s on WSL), and every `stack` run rebuilt `nava/temporal-server`, which
 compiles the whole Temporal server. In the 30 days to 2026-11-09, 50 of 1046
 commits on `main` touched `temporal-server/`. The job's Go cache was the
@@ -572,14 +577,28 @@ pins), `Makefile`, `.golangci.yml`, `docs/pins.md`, `.github/workflows/ci.yml`,
 `tools/ci/suiteran`, and the script itself. `TestTemporalServerChanged`
 (`tools/ci/cichanged`) covers each row and the inputs.
 
-**govulncheck for an unchanged module.** A new advisory needs no change of
-ours, so the scheduled run (every 6 hours) also runs
-`temporal-server-vulncheck`: `make tools-govulncheck` and
-`make vulncheck-temporal-server` on `ubuntu-latest`. A finding fails it, and
-`main-red` (which now also fires on a scheduled run) opens or updates the P0
-"main is red" issue. That meets ADR-001 A1 Decision 3 (zero findings, no
-allowlist) and the R7 rescan for new advisories without a scan on every pull
-request. The step is in `tools/ci/cisteps/required.yaml`.
+**govulncheck workflow.** govulncheck is no longer a step of the `ci`
+workflow: `.github/workflows/govulncheck.yml` runs it as a pipeline of its own
+(the owner's request on TICK-641). Two parallel jobs on `ubuntu-latest`,
+`root` (`make vulncheck`) and `temporal-server`
+(`make vulncheck-temporal-server`), each after `make tools-govulncheck`, with
+no Actions cache (about a minute each).
+
+| Event | Runs |
+| --- | --- |
+| pull request (opened, synchronize, reopened) | always, with no label: a security gate that costs about a minute, not behind `ci:run`. No paths filter, so it can be a required check (a path-filtered required check never reports and blocks the merge) |
+| push to `main` | always |
+| schedule | every 6 hours (minute 17): a new advisory needs no change of ours (ADR-001-A1 R7), and the `temporal-server` job no longer scans an unchanged module |
+| manual | always |
+
+A finding fails the job. On `main` (push or schedule) the workflow's own
+`main-red` job opens or updates the P0 "main is red" issue
+(`scripts/ci/main-red.sh`, with `WORKFLOW=govulncheck`). `make check-ci-steps`
+keeps both steps (`tools/ci/cisteps/required-govulncheck.yaml`). To block a
+merge on a finding, make the `govulncheck / root` and
+`govulncheck / temporal-server` checks required in the branch protection of
+`main`. Locally: `make tools-govulncheck vulncheck vulncheck-temporal-server`,
+or `make vulncheck-ci` as part of `make ci-lint`.
 
 **The published image.** The `temporal-server-image` workflow
 (`make temporal-server-publish`, `scripts/ci/temporal-server-image.sh`)

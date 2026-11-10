@@ -44,9 +44,6 @@ steps:
   - job: temporal-server
     run: make lint-temporal-server
     why: golangci-lint on the temporal-server module; make lint's ./... stops at its go.mod, so without it the D9/E1 authorizer is linted by nothing (TICK-584)
-  - job: temporal-server-vulncheck
-    run: make vulncheck-temporal-server
-    why: the temporal-server job runs only when its module changes (TICK-641), so this scheduled scan is what finds a new advisory in an unchanged module (ADR-001 A1 Decision 3, R7)
 
   # The coverage gate (TICK-518): both profiles, the gate and its report.
   - job: unit
