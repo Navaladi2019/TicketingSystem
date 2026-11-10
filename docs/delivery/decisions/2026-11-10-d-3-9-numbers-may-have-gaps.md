@@ -1,0 +1,14 @@
+## 2026-11-10: D-3-9, each type chooses gaps (default) or gapless numbering; gaps are never reclaimed
+- **Decided by:** vknavaladi (human, 2026-11-09 17:25 UTC) on the CTO's option (b), TICK-621; the no-reclaim ruling by the CTO on TICK-621 (2026-11-10). Recorded in PLAN-003 by the Technical Lead. Dissent: none.
+- **Numbers (P3-36 re-run at `4fc57183`, contended host):** 8-client create p95 408 ms (agent), 301 ms (admin), 264 ms (small-tenant agent) against 50 ms. The counter wait alone was p95 310 ms (agent): about 7 creates queue on one counter row, each holding it for at least one batch plus the COMMIT fsync.
+- **Decision:**
+  - Numbers stay unique and increasing per tenant and type, from `record_counters` (ADR-001 I8: no Postgres sequences).
+  - **Per-type choice (vknavaladi, 2026-11-10 02:06 UTC, TICK-621):** `entity_definitions.numbering_mode` is `gaps` (default) or `gapless`, set with `number_prefix` and changeable later.
+  - `gaps`: the counter upsert runs in its own short transaction, after the replay, validation and write checks, committed before the create transaction begins, so creates of one type no longer queue behind each other's COMMIT.
+  - `gapless`: the counter is taken last inside the create transaction (TICK-648); a rolled-back create gives its number back. That type's concurrent creates queue on its counter row; the 50 ms 8-client target applies to `gaps` types only.
+  - In `gaps` mode a create that fails or rolls back after taking its number leaves a gap. The number is never reclaimed: a shared free list would need its own lock (every create serializes again), and a reclaimed number would be older than numbers already issued, breaking sort-by-number.
+- **Ruled out:** option (c), number assigned after commit (CTO): the create response and audit entry would lack the number, and every create would need a second write and outbox event.
+- **Default `gaps`** (Technical Lead): the gapless cost is paid only by a type that turns it on, as the CTO framed it. vknavaladi can flip the default.
+- **Tasks** on `TICK-336/group-acl-masking`: P3-36f (postgres-dev, the column), P3-36e (core-dev, both allocation paths, TICK-657), P3-36g (backend-dev, frontend-dev, set the mode in the type admin API and UI). Acceptance: the three 8-client create rows of P3-36 re-run on `gaps` types against 50 ms p95.
+- **Reopens:** if those rows still miss after P3-36e, the numbers go back to the CTO.
+- **Supersedes:** D-3-9's earlier text (counter taken last inside the write transaction; a rolled-back number reused) and the gapless tests that assert it (`TestConcurrentCreatesNumberWithoutGapsThroughPgBouncer`, `TestRolledBackCreateNumberIsReused`), which P3-36e keeps for `gapless` types and adds gap tests for `gaps` types.

@@ -1,4 +1,4 @@
-# Records list: the exact total and the page under the ACL predicate (TICK-637)
+# Records list: the total and the page under the ACL predicate (TICK-637)
 
 Scope: TICK-637, risk 3 deferred from the TICK-619 / PR #530 security review.
 `GET /api/v1/records/{entity}` (`internal/server/records_list.go`,
