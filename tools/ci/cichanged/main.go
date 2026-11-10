@@ -27,11 +27,18 @@
 //
 // Usage: cichanged [-base origin/main] [-v] [-areas | -images]. -v prints why
 // each file needs its stages (or areas, or image mode) on stderr.
+//
+// CICHANGED_GRAPH, when set, names a JSON file holding the package graph
+// (graphFile) to use instead of running go list (TICK-697). Only the tests
+// set it: they load the real graph once and hand it to every ci-stages.sh
+// scenario, which would otherwise run go list over the whole module eight
+// times per cichanged run. CI never sets it.
 package main
 
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -135,7 +142,7 @@ func run(base string, verbose, areas bool, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	g, err := loadGraph()
+	g, err := graphFor(os.Getenv(graphEnv))
 	if err != nil {
 		return err
 	}
@@ -318,6 +325,44 @@ func mergeBase(base string) (string, error) {
 		return "", fmt.Errorf("%w (fetch %s first)", err, base)
 	}
 	return strings.TrimSpace(mb), nil
+}
+
+// graphEnv names the environment variable that points cichanged at a saved
+// graph (TICK-697); see the package comment.
+const graphEnv = "CICHANGED_GRAPH"
+
+// graphFile is the JSON form of a graph, for CICHANGED_GRAPH.
+type graphFile struct {
+	Packages    []string `json:"packages"`
+	Integration []string `json:"integration"`
+	Stack       []string `json:"stack"`
+}
+
+// graphFor reads the graph saved in file, or loads it with go list when file
+// is empty.
+func graphFor(file string) (graph, error) {
+	if file == "" {
+		return loadGraph()
+	}
+	b, err := os.ReadFile(file) //nolint:gosec // a file the caller names on purpose
+	if err != nil {
+		return graph{}, fmt.Errorf("%s: %w", graphEnv, err)
+	}
+	var f graphFile
+	if err := json.Unmarshal(b, &f); err != nil {
+		return graph{}, fmt.Errorf("%s %s: %w", graphEnv, file, err)
+	}
+	if len(f.Packages) == 0 {
+		return graph{}, fmt.Errorf("%s %s: no packages", graphEnv, file)
+	}
+	toSet := func(l []string) map[string]bool {
+		m := map[string]bool{}
+		for _, v := range l {
+			m[v] = true
+		}
+		return m
+	}
+	return graph{packages: toSet(f.Packages), integration: toSet(f.Integration), stack: toSet(f.Stack)}, nil
 }
 
 func loadGraph() (graph, error) {

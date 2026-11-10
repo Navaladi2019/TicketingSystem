@@ -12,7 +12,8 @@
 #   temporal-server  the custom server module's unit tests and golangci-lint
 #                    (TICK-584) (no containers); only when the module or how
 #                    it is built, tested or linted changed
-#                    (make ci-temporal-server-changed, TICK-641)
+#                    (make ci-temporal-server-changed, TICK-641), story-branch
+#                    pull requests included (TICK-695)
 #   integration      -tags integration against a throwaway PostgreSQL; on a
 #                    full run also the isolation suite, the ci-isolated --down
 #                    tag check and the cleanup check (TICK-652)
@@ -40,6 +41,9 @@
 #   pull request, no label         changes, lint, story-branches -
 #   pull request + ci:run          what the diff needs           fast
 #   pull request into TICK-*       every job and area (TICK-638) fast
+#                                  but temporal-server, which
+#                                  runs only when the module
+#                                  changed (TICK-695)
 #   pull request + ci:full         every job and area            full
 #   push to main                   what the diff since           fast
 #                                  github.event.before needs
@@ -57,7 +61,8 @@
 # A push to a task or story branch starts no run. A pull request into a
 # TICK-* story branch runs on open and on every push with no label, and its
 # full-suite job fails when any job did not succeed: a skipped job is not
-# green there. With ci:run the changes job asks `make ci-stages`
+# green there, except temporal-server when the changes job found the module
+# unchanged (TICK-695). With ci:run the changes job asks `make ci-stages`
 # (tools/ci/cichanged, the rules of `make ci-changed`), lint always runs, and a
 # change under .github/workflows runs every job. Every later push to a
 # labelled pull request runs again. Inside stack, make stack-tests also skips
@@ -269,15 +274,22 @@ jobs:
         run: make ci-stages
       # TICK-641: the temporal-server job only when its module, or how it is
       # built, tested or linted, changed. On a push to main the push's own
-      # commits decide (PUSH_BEFORE); a story PR (CI_FULL) always runs it.
+      # commits decide (PUSH_BEFORE). TICK-695: the one exception to TICK-638,
+      # a pull request into a TICK-* story branch diffs against the story
+      # branch (BASE) like any other pull request, so a task PR that leaves
+      # the module alone skips it; full-suite accepts that skip. The module
+      # has its own go.mod, and the story -> main PR still runs the job when
+      # the story touched it. ci.yml is not an input: an edit to this job's
+      # steps waits for the module's next change or a full or main run.
       - name: Does temporal-server need its job
         id: tsrv
         env:
           BASE: origin/${{ github.base_ref || 'main' }}
           CI_ALL: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && '1' || '' }}
-          # A full run (env.CI_FULL, TICK-652) runs the job too, as the
-          # stages step above does.
-          CI_FULL: ${{ (env.CI_FULL == 'true' || (github.event_name == 'pull_request' && startsWith(github.base_ref, 'TICK-'))) && '1' || '' }}
+          # A full run (env.CI_FULL: ci:full, a manual run, the daily run,
+          # TICK-652) runs the job. Unlike the stages step, a story-branch
+          # pull request alone does not (TICK-695).
+          CI_FULL: ${{ env.CI_FULL == 'true' && '1' || '' }}
           CI_LINT_ONLY: ${{ github.event_name == 'pull_request' && !startsWith(github.base_ref, 'TICK-') && !contains(github.event.pull_request.labels.*.name, 'ci:run') && !contains(github.event.pull_request.labels.*.name, 'ci:full') && '1' || '' }}
           PUSH_BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
         run: make ci-temporal-server-changed
@@ -865,7 +877,9 @@ jobs:
     # must run and succeed. GitHub shows a skipped job as passed, so this job
     # turns a skipped (or failed, or cancelled) one red. Make it the required
     # check for story-branch pull requests. Same label rule as lint, so a run
-    # started by any other label skips it with the rest.
+    # started by any other label skips it with the rest. TICK-695: a skipped
+    # temporal-server passes when the changes job found the module unchanged
+    # (TEMPORAL_SERVER=false).
     needs: [changes, lint, unit, temporal-server, integration, commit-check-budget, stack, coverage]
     if: ${{ !cancelled() && github.event_name == 'pull_request' && startsWith(github.base_ref, 'TICK-') && (github.event.action != 'labeled' || github.event.label.name == 'ci:run' || github.event.label.name == 'ci:full') }}
     runs-on: ubuntu-latest
@@ -874,6 +888,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Every suite job succeeded
         env:
+          TEMPORAL_SERVER: ${{ needs.changes.outputs.temporal_server }}
           RESULTS: changes=${{ needs.changes.result }} lint=${{ needs.lint.result }} unit=${{ needs.unit.result }} temporal-server=${{ needs.temporal-server.result }} integration=${{ needs.integration.result }} commit-check-budget=${{ needs.commit-check-budget.result }} stack=${{ needs.stack.result }} coverage=${{ needs.coverage.result }}
         run: make check-full-suite
 
