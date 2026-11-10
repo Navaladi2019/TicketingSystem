@@ -6,6 +6,7 @@ Delivery decisions that change a task's contract, newest first.
 
 <!-- docindex:start -->
 
+- [2026-11-10: D-3-9, numbering allows gaps and is not reclaimed; the `filter[state]=new` miss reopens the shape work as one index task](decisions/2026-11-10-d-3-9-gaps-allowed-and-state-index.md)
 - [2026-11-09: D25, the list `total` is capped at 1,000 and a data-filter list has a 2 s timeout; the index and shape work for the P3-36 misses is deferred](decisions/2026-11-09-d25-list-total-cap-and-data-filter-timeout.md)
 - [2026-11-09: D-3-28, S10 contract amendment A3: ACL audit entries get the subject acl_policy; the default incident ACL lets a requester raise its own incident; a non-object PUT body is 400](decisions/2026-11-09-d-3-28-acl-audit-subject-default-acl-body-shape.md)
 - [2026-11-09: D-3-27, the stack seed publishes a temporary allow-all ACL until P3-35](decisions/2026-11-09-d-3-27-stack-seed-allow-all-acl.md)

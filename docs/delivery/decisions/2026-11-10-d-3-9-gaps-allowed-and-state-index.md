@@ -1,0 +1,16 @@
+## 2026-11-10: D-3-9, numbering allows gaps and is not reclaimed; the `filter[state]=new` miss reopens the shape work as one index task
+- **Decided by:** vknavaladi (gaps allowed, 2026-11-09 17:25 UTC); the CTO on TICK-621 (no reclaim, 2026-11-10 01:50 UTC) and on TICK-336 (the `state` index, 2026-11-10). Dissent: none.
+- **Numbers (P3-36 final re-run, PR #544):** 8-client creates p95 162.8 / 166.5 / 82.9 ms against 50 on the gapless code. Agent `filter[state]=new` p95 192.6 ms against 150. In its plans, `state` is only a `Filter` on `records_list_group`, and about 20k rows are read and discarded per statement.
+- **Decision, numbering (D-3-9 amended):**
+  - The number is taken in its own short transaction, after the validation and ACL write checks (I4) and before the record insert.
+  - A rolled-back create leaves a gap. Gaps are not reclaimed, because a free list would serialize creates again and numbers would stop increasing.
+  - Numbers still come from `record_counters`, not from sequences (I8). Assigning the number after commit stays ruled out.
+  - Task: TICK-657 (P3-36e).
+- **Decision, list shape:**
+  - The group access path gets a composite B-tree index with `state` right after `assignment_group_id`, then the default sort keys. It is built `CONCURRENTLY`.
+  - It is not an expression index and not a partial index on "open" states, because what counts as open depends on each tenant's workflow.
+  - `authz.CompileRead` is unchanged (I5).
+  - This is not D25, and the 150 ms target stays. Task: TICK-656 (P3-36d).
+- **Cut:**
+  - `synchronous_commit = off` on the allocation, the dedicated allocator pool sizing and a per-type gapless option wait for ADR-005 (PROPOSED) and its plan. *Trigger:* the 8-client rows still miss after TICK-657.
+- **Reopens:** the P3-36 re-run on TICK-621 after both tasks merge, on the same harness and host. If `state=new` is over 150 ms, or an 8-client create is over 50 ms, the numbers go back to the CTO.
