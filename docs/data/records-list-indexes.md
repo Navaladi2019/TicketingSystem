@@ -25,7 +25,8 @@ database. PLAN-003 D25 rules out expression indexes and anything on `data`.
 
 ## Index set
 
-Six B-tree indexes. Each sort column ends in `DESC`, so a descending list
+Seven B-tree indexes: TICK-640's six, and `records_list_group_state`, added by
+TICK-656 (see [P3-36d](#p3-36d-records_list_group_state-tick-656)). Each sort column ends in `DESC`, so a descending list
 reads the index forward and an ascending list reads it backward.
 
 | Index | Key | Serves |
@@ -34,6 +35,7 @@ reads the index forward and an ascending list reads it backward.
 | `records_list_created` | `(tenant_id, entity_definition_id, created_at DESC, id DESC)` | `sort=[-]created_at` |
 | `records_list_state` | `(tenant_id, entity_definition_id, state DESC, updated_at DESC, id DESC)` | `sort=[-]state`; `filter[state]=s` under the default sort |
 | `records_list_group` | `(…, assignment_group_id DESC, updated_at DESC, id DESC)` | `filter[group]`; `sort=[-]group`; the `records_assignment_group_fkey` RI check |
+| `records_list_group_state` | `(…, assignment_group_id DESC, state DESC, updated_at DESC, id DESC)` | the group branch of an agent's `filter[state]` list and count (P3-36d, TICK-656, below) |
 | `records_list_requester` | `(…, requester_id DESC, updated_at DESC, id DESC)` | `filter[requester]`; the requester branch of the `mine` rule; `sort=[-]requester` |
 | `records_list_assignee` | `(…, assignee_id DESC, updated_at DESC, id DESC)` | `filter[assignee]`; the assignee branch of the `mine` rule; `sort=[-]assignee` |
 
@@ -56,7 +58,7 @@ erDiagram
         text state "records_list_state"
         uuid requester_id
         uuid assignee_id
-        uuid assignment_group_id
+        uuid assignment_group_id "records_list_group, records_list_group_state"
         timestamptz created_at "records_list_created"
         timestamptz updated_at "records_list_updated, tiebreak of the others"
         jsonb data "no index (D25)"
@@ -83,6 +85,116 @@ erDiagram
 4. **The NULL segment** of a nullable sort column is its own branch:
    `r.<col> IS NULL AND (r.updated_at, r.id) < (…)`. The bench measured it
    as an index condition, with no `Sort`.
+
+## P3-36d: `records_list_group_state` (TICK-656)
+
+P3-36's final re-run (PR #544) missed one fixed-column list: the agent's
+`filter[state]=new` took **192.6 ms p95** against a 150 ms target. The group
+branch of the ACL (`authz.ReadBranches`) matched `records_list_group` on
+`(tenant_id, entity_definition_id, assignment_group_id)` only. `state` was a
+`Filter`, so the count dropped 19,547 rows and the page dropped 22,950.
+
+**Change:** one B-tree index,
+`records_list_group_state (tenant_id, entity_definition_id, assignment_group_id DESC, state DESC, updated_at DESC, id DESC)`.
+It is built online (`db/migrations/20261110100000_records_list_group_state.sql`).
+`records_list_group` stays. Not used: an expression index, a partial index on
+"open" states, anything on `data`, or a change to `authz.CompileRead`.
+
+```mermaid
+erDiagram
+    groups ||--o{ records : "assignment_group_id"
+    records {
+        uuid tenant_id "key 1: RLS, leads every index"
+        uuid entity_definition_id "key 2"
+        uuid assignment_group_id "key 3: = ANY(caller groups)"
+        text state "key 4: = ANY(filter), now an Index Cond"
+        timestamptz updated_at "key 5: default sort"
+        uuid id "key 6: tiebreak"
+    }
+```
+
+### Evidence (agent-1 of the 400k tenant, 4 groups)
+
+The setup is TICK-640's 800k seed (`scratch/tick-640/setup.go`), with the
+same host and server as [Evidence](#evidence) and PostgreSQL 16.10. The
+statements are `store.List`'s since TICK-644: the capped count, and the
+`UNION ALL` page of the four ACL branches (`scratch/tick-656/explain.sh`). Each
+ran twice and the second, warm run is kept. The raw plans are
+`scratch/tick-656/plans-{before,after,replace}.md`.
+
+| Statement | Before (`records_list_group`) | After: both indexes (shipped) | Replace `records_list_group` |
+| --- | --- | --- | --- |
+| `filter[state]=new`, count | 116 ms, 18,568 buf, 20,147 removed | **2.7 ms**, 534 buf, 0 removed (Index Only Scan, `state` in Index Cond) | 1.2 ms |
+| `filter[state]=new`, page 1 | 144 ms, 21,992 buf, 22,950 removed | **13.8 ms**, 1,584 buf, 40 removed | 11.3 ms |
+| unfiltered, count | 2.2 ms | 1.5 ms | 1.8 ms |
+| unfiltered, page 1 / page 20 | 9.2 / 8.1 ms | 7.6 / 8.1 ms (plan unchanged) | 8.4 / 7.9 ms |
+| `sort=-group`, page 1 / page 20 | 201 / 12.3 ms | 190 / 9.3 ms (plan unchanged) | **399 / 353 ms** |
+| `sort=group`, page 1 | 146 ms | 152 ms (plan unchanged) | **411 ms** |
+| admin `state in (new, in_progress)`, count / page | 0.8 / 4.9 ms | 1.0 / 6.3 ms (plan unchanged) | 1.3 / 8.5 ms |
+
+- **`state` is an Index Cond.** The count's group branch is an Index Only
+  Scan with `assignment_group_id = ANY(...) AND state = ANY('{new}')` in
+  `Index Cond`, 0 heap fetches. It reads 1,001 entries for 1,001 rows. On
+  the page, the 40 rows removed are in the requester and assignee branches,
+  and the group branch removes none.
+- **The `state=new` page still has a `Sort`.** In the group branch it is a
+  top-N heapsort over the 1,168 matching rows, about 11 ms of the 13.8. There
+  are two causes, and no index removes either one:
+  1. The ACL binds the caller's groups as `assignment_group_id = ANY($groups)`.
+     An index ordered by group returns four runs, one per group, and
+     PostgreSQL 16 does not merge them. The same holds before the change, for
+     every index led by the group.
+  2. On PostgreSQL 16, an `= ANY` on a non-leading index column drops the
+     index order. The list emits `state = ANY('{new}')` even for one value.
+     With a single group: `state = ANY('{new}')` gives a Sort over 377 rows
+     in 3.5 ms, while `state = 'new'` reads 51 rows in order with no Sort in
+     0.19 ms. `TestP336dGroupStateFilterIsIndexCond` pins both cases.
+
+  Removing the Sort would take a SQL change, not an index. One option is
+  one ordered branch per group, merged by a `Merge Append`. That belongs to
+  `authz.ReadBranches` or `store.List`, which this task does not change. See
+  Hand-offs.
+- **Keep `records_list_group`.** Without it, `sort=[-]group` falls back to
+  `records_list_group_state`. Its order has `state` between the group and
+  `updated_at`, so it reads the whole group range: page 1 goes from 190 to
+  399 ms, and page 20 from 9.3 to 353 ms. The `sort=group` and `sort=-group`
+  plans with both indexes are the same as before. Each is an ordered scan of
+  `records_list_group` with no `Sort` in the group branch. The only `Sort`
+  nodes are in the requester, assignee and shared branches, at 1–101 rows,
+  before and after.
+- **Already a miss before this task:** the agent's `sort=-group` page 1, at
+  190 ms (the TICK-640 exception, covered under [Evidence](#evidence)). This
+  index does not change it.
+- **Why `state DESC`:** the direction matches `records_list_state`.
+  Equality and `= ANY` read either direction at the same cost, and no
+  allowed sort orders by group and then state.
+
+### Write and storage cost
+
+| | Value |
+| --- | --- |
+| Size at 800k | 80 MB, about 105 B per record (`records_list_group`: 73 MB) |
+| `CREATE INDEX CONCURRENTLY` | 10.1 s over 886k rows |
+| Indexes maintained per insert | 9, was 8 |
+| Indexes maintained per update | Every pipeline update moves `updated_at`, so none is HOT: 9, was 8 |
+
+The insert bench was `scratch/tick-656/insert-bench.sh`, TICK-640's insert
+pgbench: 8 clients, 30 s, FKs and the commit trigger off. Runs alternated
+with and without the index:
+
+| Run | With: p50 / p95, tps | Without: p50 / p95, tps |
+| --- | --- | --- |
+| 1, 2 | 9.6 / 37.6 ms, 492; 8.5 / 31.1 ms, 656 | 8.3 / 11.8 ms, 862; 8.7 / 12.6 ms, 866 |
+| 3, 4 | 8.4 / 11.1 ms, 911; 8.1 / 14.2 ms, 889 | 8.5 / 28.2 ms, 745; 8.4 / 26.0 ms, 711 |
+
+- **p50:** 8.1–9.6 ms with the index, 8.3–8.7 ms without.
+- **p95 and tps:** they swing either way by more than any difference the
+  index makes. Commit `fsync` on WSL2 dominates them, as in TICK-640, so
+  this bench cannot resolve the cost of one more B-tree entry.
+- **WAL per insert:** 2.9–7.7 KB with and 2.7–4.9 KB without. Checkpoint
+  full-page writes dominate it.
+- **The production figure** comes from the create rows of P3-36's re-run
+  on TICK-621.
 
 ## Evidence
 
@@ -258,6 +370,13 @@ SECS=60 sh scratch/tick-640/insert-bench.sh <label>
 
 ## Hand-offs
 
+- **P3-36d (TICK-656), to the Technical Lead:** the agent's `filter[state]`
+  page still sorts in its group branch, over the matching rows only (13.8 ms
+  at 800k, see [P3-36d](#p3-36d-records_list_group_state-tick-656)). Removing
+  the Sort means changing the SQL in `authz.ReadBranches` or `store.List`:
+  emit `state = $1` for one value, and one ordered branch per caller group.
+  That is out of this task's scope. It is needed only if the P3-36 re-run
+  still misses.
 - **P3-34a (TICK-639), list SQL:**
   - Follow the order and keyset changes above.
   - To bring requester lists under 50 ms, emit the `mine` rule as a

@@ -78,7 +78,8 @@ func TestP309RecordsNotRewritten(t *testing.T) {
 // Acceptance: the records index set, every index led by tenant_id, and no GIN
 // or expression index on records. P3-09 shipped P3-01's set; P3-34b
 // (TICK-640) replaced its three list indexes with the records_list_* set,
-// each led by (tenant_id, entity_definition_id).
+// each led by (tenant_id, entity_definition_id); P3-36d (TICK-656) added
+// records_list_group_state for the agent's filter[state] list.
 func TestP309RecordsIndexSet(t *testing.T) {
 	migratedPlatform(t)
 	super := superNava(t)
@@ -88,6 +89,7 @@ func TestP309RecordsIndexSet(t *testing.T) {
 		"records_list_assignee btree (tenant_id, entity_definition_id, assignee_id DESC, updated_at DESC, id DESC)",
 		"records_list_created btree (tenant_id, entity_definition_id, created_at DESC, id DESC)",
 		"records_list_group btree (tenant_id, entity_definition_id, assignment_group_id DESC, updated_at DESC, id DESC)",
+		"records_list_group_state btree (tenant_id, entity_definition_id, assignment_group_id DESC, state DESC, updated_at DESC, id DESC)",
 		"records_list_requester btree (tenant_id, entity_definition_id, requester_id DESC, updated_at DESC, id DESC)",
 		"records_list_state btree (tenant_id, entity_definition_id, state DESC, updated_at DESC, id DESC)",
 		"records_list_updated btree (tenant_id, entity_definition_id, updated_at DESC, id DESC)",
