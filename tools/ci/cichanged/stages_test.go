@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -76,14 +79,45 @@ func gitIn(t *testing.T, dir string, args ...string) {
 	}
 }
 
+// graphFileFor writes this checkout's graph (realGraph) beside the clone dir
+// once, and returns its path for CICHANGED_GRAPH (TICK-697). Every scenario
+// only edits comments, docs or a Dockerfile, so the clone's graph is the
+// checkout's; TestRealRepo/cli covers loadGraph itself. Without it each
+// scenario's cichanged ran go list over the whole module eight times in a
+// freshly written tree, which took TestCIStages to about 27 minutes under
+// task test on Windows.
+func graphFileFor(t *testing.T, dir string) string {
+	t.Helper()
+	p := filepath.Join(filepath.Dir(dir), "graph.json")
+	if _, err := os.Stat(p); err == nil {
+		return p
+	}
+	g, err := realGraph()
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := func(m map[string]bool) []string { return slices.Sorted(maps.Keys(m)) }
+	b, err := json.Marshal(graphFile{Packages: list(g.packages), Integration: list(g.integration), Stack: list(g.stack)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
 // ciStages runs this checkout's scripts/ci/ci-stages.sh (the recipe of make
-// ci-stages) in dir with env, and returns the GITHUB_OUTPUT it wrote.
+// ci-stages) in dir with env, and returns the GITHUB_OUTPUT it wrote. Its
+// cichanged runs read the saved graph (graphFileFor) instead of running go
+// list.
 func ciStages(t *testing.T, dir, base string, env ...string) string {
 	t.Helper()
 	sh, err := exec.LookPath("sh")
 	if err != nil {
 		t.Skip("no sh on PATH")
 	}
+	graph := graphFileFor(t, dir)
 	root, err := git("rev-parse", "--show-toplevel")
 	if err != nil {
 		t.Fatal(err)
@@ -94,7 +128,7 @@ func ciStages(t *testing.T, dir, base string, env ...string) string {
 	cmd.Dir = dir
 	// Later entries win, so the runner's own GITHUB_OUTPUT, CI_ALL or
 	// CI_LINT_ONLY never leak in.
-	cmd.Env = append(os.Environ(), append([]string{"BASE=" + base, "GITHUB_OUTPUT=" + out, "CI_ALL=", "CI_FULL=", "CI_LINT_ONLY=", "CI_AREAS_ALL=", "CI_IMAGES="}, env...)...)
+	cmd.Env = append(os.Environ(), append([]string{"BASE=" + base, "GITHUB_OUTPUT=" + out, "CI_ALL=", "CI_FULL=", "CI_LINT_ONLY=", "CI_AREAS_ALL=", "CI_IMAGES=", graphEnv + "=" + graph}, env...)...)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	if _, err := cmd.Output(); err != nil {

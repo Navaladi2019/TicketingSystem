@@ -197,3 +197,48 @@ func TestChangedFilesListsEachFileOnce(t *testing.T) {
 		t.Fatalf("changed files = %q", got)
 	}
 }
+
+// TICK-697: CICHANGED_GRAPH points cichanged at a saved graph instead of go
+// list; a missing, unreadable or empty one fails with exit 2 and prints no
+// stages, as a failed go list does.
+func TestCLISavedGraph(t *testing.T) {
+	tempRepo(t, map[string]string{"README.md": "x\n"})
+	write := func(body string) string {
+		p := filepath.Join(t.TempDir(), "graph.json")
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	if err := os.MkdirAll("a", 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join("a", "a.go"), []byte("package a\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name, file, stdout, stderr string
+		code                       int
+	}{
+		// Not a Go module, so only the saved graph knows a is an
+		// integration and stack package.
+		{"saved graph", write(`{"packages":["a"],"integration":["a"],"stack":["a"]}`), "ci-lint ci-unit ci-integration\n", "", 0},
+		{"missing file", filepath.Join(t.TempDir(), "nope.json"), "", "cichanged: CICHANGED_GRAPH: open ", 2},
+		{"bad JSON", write("{"), "", "cichanged: CICHANGED_GRAPH ", 2},
+		{"no packages", write(`{"packages":[]}`), "", "cichanged: CICHANGED_GRAPH ", 2},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv(graphEnv, c.file)
+			var stdout, stderr strings.Builder
+			if code := cli([]string{"-base", "HEAD"}, &stdout, &stderr); code != c.code {
+				t.Fatalf("exit %d, want %d; stderr %q", code, c.code, stderr.String())
+			}
+			if stdout.String() != c.stdout {
+				t.Errorf("stdout %q, want %q", stdout.String(), c.stdout)
+			}
+			if !strings.HasPrefix(stderr.String(), c.stderr) {
+				t.Errorf("stderr %q, want prefix %q", stderr.String(), c.stderr)
+			}
+		})
+	}
+}
