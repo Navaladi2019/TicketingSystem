@@ -8,16 +8,17 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/tools/navalint/tenancyconn"
 )
 
-// TestOutsideTenancy: .Conn() on a pgx.Tx, called or as a method value, on a
-// savepoint or in a closure, is reported outside internal/tenancy; a
-// pgxpool.Conn's Conn() and another type's are not, and neither is a
-// _test.go file (the `// want` comments in testdata/src/a).
+// TestOutsideTenancy: .Conn() and .LargeObjects() on a pgx.Tx, called or as
+// a method value, on a savepoint or in a closure, are reported outside
+// internal/tenancy; a pgxpool.Conn's Conn() and another type's methods are
+// not, and neither is a _test.go file (the `// want` comments in
+// testdata/src/a).
 func TestOutsideTenancy(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), tenancyconn.Analyzer, "a")
 }
 
 // TestTenancyIsAllowed: internal/tenancy, which owns the transaction, may
-// call it.
+// call both.
 func TestTenancyIsAllowed(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), tenancyconn.Analyzer, tenancyconn.TenancyPkg)
 }

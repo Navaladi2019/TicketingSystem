@@ -177,10 +177,18 @@ func (t *lazyTx) CopyFrom(ctx context.Context, table pgx.Identifier, cols []stri
 	return t.conn.CopyFrom(ctx, table, cols, src)
 }
 
-// LargeObjects is not supported: pgx builds a pgx.LargeObjects only for its
-// own transactions. Nothing in the platform uses large objects.
+// errLargeObjects is LargeObjects' panic value.
+const errLargeObjects = "tenancy: LargeObjects is not supported on tenant transactions (BeginInFirstBatch)"
+
+// LargeObjects panics: pgx builds a pgx.LargeObjects only for its own
+// transactions, and its one field is unexported, so no error-valued one can
+// be returned without unsafe. Nothing in the platform uses large objects, and
+// navalint tenancyconn reports .LargeObjects() on a pgx.Tx outside
+// internal/tenancy, so code that passes lint cannot reach this (TICK-698). A
+// feature that needs large objects needs its own design for setting the
+// tenant first.
 func (t *lazyTx) LargeObjects() pgx.LargeObjects {
-	panic("tenancy: large objects are not supported in a BeginInFirstBatch transaction")
+	panic(errLargeObjects)
 }
 
 func (t *lazyTx) Prepare(ctx context.Context, name, sql string) (*pgconn.StatementDescription, error) {
