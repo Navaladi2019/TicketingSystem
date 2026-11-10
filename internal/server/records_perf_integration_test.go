@@ -909,7 +909,7 @@ func (e *perfEnv) hostProbe(t *testing.T, st *perfSetup) float64 {
 	defer conn.Release()
 	stats := make(chan []string, 1)
 	go func() {
-		stats <- dockerLines("stats", "--no-stream", "--format", "{{.Name}} cpu={{.CPUPerc}} mem={{.MemPerc}}")
+		stats <- dockerLines(t.Context(), "stats", "--no-stream", "--format", "{{.Name}} cpu={{.CPUPerc}} mem={{.MemPerc}}")
 	}()
 	d := make([]time.Duration, 0, perfHostProbeN)
 	for i := range perfHostProbeN {
@@ -944,8 +944,8 @@ func (e *perfEnv) activity(t *testing.T) []string {
 
 // dockerLines runs docker with args and returns its output lines; an error
 // is returned as the only line, so the report shows it.
-func dockerLines(args ...string) []string {
-	b, err := exec.Command("docker", args...).CombinedOutput() //nolint:gosec // fixed arguments, a bench harness
+func dockerLines(ctx context.Context, args ...string) []string {
+	b, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput()
 	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
 	if err != nil {
 		return append(lines, "docker: "+err.Error())
@@ -990,7 +990,7 @@ func isolate(t *testing.T) time.Duration {
 	start := time.Now()
 	for {
 		var others []string
-		for _, n := range dockerLines("ps", "--format", "{{.Names}}") {
+		for _, n := range dockerLines(t.Context(), "ps", "--format", "{{.Names}}") {
 			if n != own && (strings.HasPrefix(n, "nava-it-pg-") || strings.HasPrefix(n, "nava-aclperf-") || strings.HasPrefix(n, "docker: ")) {
 				others = append(others, n)
 			}
