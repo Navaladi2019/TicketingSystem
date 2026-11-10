@@ -1015,3 +1015,5 @@ clusters, with half again as headroom for Keycloak's start-up:
 
 `make ci` and `make stack-up` with no variables behave as before (project
 `nava`, tag `dev`, the old ports). The GitHub workflow is unchanged.
+
+<!-- TICK-695 verification (a): throwaway, not merged. -->
