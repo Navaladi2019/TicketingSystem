@@ -221,6 +221,62 @@ RETURNING number, created_at, updated_at, (`+expr+`)::text`, args...).QueryRow(f
 	return nil
 }
 
+// ErrStoredRowDiffers means an INSERT queued with QueueInsertRecordAsExpected
+// stored a row whose number, timestamps or payload are not the ones the
+// caller built its response from. The statement fails, so the batch's
+// COMMIT never runs.
+var ErrStoredRowDiffers = errors.New("records/store: the stored record is not the one the response was built from")
+
+// pgDivisionByZero is SQLSTATE 22012, which QueueInsertRecordAsExpected's
+// assertion raises.
+const pgDivisionByZero = "22012"
+
+// QueueInsertRecordAsExpected queues the INSERT of a new record r, with the
+// number r.Number already taken (as QueueInsertRecord), for a batch whose
+// results the caller cannot act on before it commits: the batch that commits
+// a create (TICK-692). Nothing is read back. The statement itself fails,
+// with ErrStoredRowDiffers, unless the stored row has r.Number, r.CreatedAt
+// as created_at and updated_at, and payload (PayloadJSON's text under fixed,
+// the payload preview) byte for byte: what the caller built its response and
+// audit entry from is then what was stored, or nothing commits.
+func QueueInsertRecordAsExpected(b *pgx.Batch, r *Record, fixed map[string]string, payload json.RawMessage) error {
+	data, err := json.Marshal(r.Data)
+	if err != nil {
+		return fmt.Errorf("records/store: encode data: %w", err)
+	}
+	expr, args, err := payloadExpr(fixed, []any{
+		r.TenantID, r.ID, r.Version, r.EntityDefinitionID, r.SchemaVersion, r.Number, r.State,
+		r.RequesterID, r.AssigneeID, r.AssignmentGroupID, r.CreatedBy, r.CreatedAt, jsonParam(data),
+		r.CausationOriginID, r.CausationDepth,
+	})
+	if err != nil {
+		return err
+	}
+	args = append(args, string(payload))
+	// A data-modifying CTE always runs to completion; the division fails the
+	// statement, and with it the INSERT, when the stored row is not the
+	// expected one.
+	queueExec(b, insertAsExpectedError, `
+WITH ins AS (
+INSERT INTO records (tenant_id, id, version, entity_definition_id, schema_version, number, state,
+    requester_id, assignee_id, assignment_group_id, created_by, created_at, updated_at, data,
+    causation_origin_id, causation_depth)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12, $13, $14, $15)
+RETURNING number, created_at, updated_at, (`+expr+`)::text AS payload)
+SELECT 1 / count(*)::int FROM ins
+ WHERE number = $6::text AND created_at = $12::timestamptz AND updated_at = $12::timestamptz
+   AND payload = $`+fmt.Sprint(len(args))+`::text`, args...)
+	return nil
+}
+
+func insertAsExpectedError(err error) error {
+	var pe *pgconn.PgError
+	if errors.As(err, &pe) && pe.Code == pgDivisionByZero {
+		return ErrStoredRowDiffers
+	}
+	return fmt.Errorf("records/store: insert record: %w", err)
+}
+
 // QueueInsertWriteKey queues InsertWriteKey for a record the same batch
 // inserted before it: k.Number is ignored and the stored number is the
 // record's. A key another write by the same principal holds fails the batch

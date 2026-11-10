@@ -2,7 +2,8 @@
 // test drives runs inside a transaction whose BEGIN set the tenant (TICK-648).
 //
 // Guard is a pgx tracer for a test pool. It follows each connection: the
-// tenancy BEGIN marks it scoped to a tenant, COMMIT or ROLLBACK (alone or as
+// tenancy BEGIN, alone or opening a batch (tenancy.BeginInFirstBatch), marks
+// it scoped to a tenant, COMMIT or ROLLBACK (alone or as
 // the last statement of a batch) unmarks it. Any other statement, and any
 // batch, sent on a connection that is not scoped is a violation. So a test
 // that drives a request through a Guard pool and finds no violation has
@@ -158,6 +159,14 @@ func (g *Guard) TraceBatchStart(ctx context.Context, conn *pgx.Conn, d pgx.Trace
 	if id, ok := tenancy.AllocTenant(d.Batch); ok {
 		if tenant != uuid.Nil {
 			g.violations = append(g.violations, "an allocation BEGIN on a connection already scoped to "+tenant.String())
+		}
+		tenant = id
+		g.scoped[conn] = id
+	} else if id, ok := tenancy.FirstBatchTenant(d.Batch); ok {
+		// A BeginInFirstBatch transaction opens, and sets its tenant, in
+		// the first statements of its first batch (TICK-692).
+		if tenant != uuid.Nil {
+			g.violations = append(g.violations, "a first-batch BEGIN on a connection already scoped to "+tenant.String())
 		}
 		tenant = id
 		g.scoped[conn] = id

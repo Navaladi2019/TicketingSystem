@@ -76,11 +76,19 @@ func BeginTenant(sql string) (uuid.UUID, bool) {
 // holds a per-transaction memo (Remember, Recall) and can queue statements
 // for the commit's round trip (ExecAtCommit).
 //
+// With BeginInFirstBatch, the BEGIN and the setting ride in the round trip of
+// the first batch fn sends instead of one of their own (TICK-692,
+// firstbatch.go).
+//
 // tenantID must come from the request's resolved principal, never from a
 // path, query or body.
-func InTenantTx(ctx context.Context, pool *pgxpool.Pool, tenantID uuid.UUID, fn func(pgx.Tx) error) (err error) {
+func InTenantTx(ctx context.Context, pool *pgxpool.Pool, tenantID uuid.UUID, fn func(pgx.Tx) error, opts ...TxOption) (err error) {
 	if tenantID == uuid.Nil {
 		return ErrNoTenant
+	}
+	var o txOptions
+	for _, opt := range opts {
+		opt(&o)
 	}
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
@@ -90,8 +98,10 @@ func InTenantTx(ctx context.Context, pool *pgxpool.Pool, tenantID uuid.UUID, fn 
 	// out of any transaction (TxStatus 'I'); otherwise it destroys it.
 	// Deferred first, so it runs after the rollback below.
 	defer conn.Release()
-	tx, err := conn.BeginTx(ctx, pgx.TxOptions{BeginQuery: beginSQL(tenantID)})
-	if err != nil {
+	var tx pgx.Tx
+	if o.beginInFirstBatch {
+		tx = &lazyTx{conn: conn.Conn(), tenant: tenantID}
+	} else if tx, err = conn.BeginTx(ctx, pgx.TxOptions{BeginQuery: beginSQL(tenantID)}); err != nil {
 		return fmt.Errorf("tenancy: begin: %w", err)
 	}
 	st := &scopedTx{Tx: tx, tenant: tenantID, memo: &memo{m: map[any]any{}}}
@@ -113,7 +123,7 @@ func InTenantTx(ctx context.Context, pool *pgxpool.Pool, tenantID uuid.UUID, fn 
 	if err := fn(st); err != nil {
 		return err
 	}
-	if len(st.atCommit) == 0 {
+	if st.atCommit == nil || st.atCommit.Len() == 0 {
 		if err := tx.Commit(ctx); err != nil {
 			return fmt.Errorf("tenancy: commit: %w", err)
 		}
@@ -122,21 +132,17 @@ func InTenantTx(ctx context.Context, pool *pgxpool.Pool, tenantID uuid.UUID, fn 
 	return st.commitBatch(ctx, conn.Conn().PgConn())
 }
 
-// atCommit is a statement queued with ExecAtCommit.
-type atCommit struct {
-	sql  string
-	args []any
-}
-
 // scopedTx is the transaction InTenantTx hands fn: pgx's own, plus the tenant
 // its BEGIN set, the memo and the statements queued for the commit. Only
 // InTenantTx builds one, so holding one proves the tenant was set at BEGIN.
 // Like pgx.Tx it is not safe for concurrent use.
 type scopedTx struct {
 	pgx.Tx
-	tenant   uuid.UUID
-	memo     *memo
-	atCommit []atCommit
+	tenant uuid.UUID
+	memo   *memo
+	// atCommit is the batch the commit's round trip sends before COMMIT
+	// (ExecAtCommit, QueueAtCommit); nil until something is queued.
+	atCommit *pgx.Batch
 	// nested: a savepoint (Begin). It shares the parent's tenant and memo but
 	// cannot queue statements for the commit: rolling the savepoint back
 	// would not take them back.
@@ -246,10 +252,7 @@ func (s *scopedTx) endSavepoint(rollback bool) {
 // trip. A failing statement makes PostgreSQL skip the rest of the batch,
 // COMMIT included, and InTenantTx's deferred rollback ends the transaction.
 func (s *scopedTx) commitBatch(ctx context.Context, conn *pgconn.PgConn) error {
-	b := &pgx.Batch{}
-	for _, q := range s.atCommit {
-		b.Queue(q.sql, q.args...)
-	}
+	b := s.atCommit
 	b.Queue("COMMIT").Exec(func(ct pgconn.CommandTag) error {
 		// PostgreSQL answers the COMMIT of an aborted transaction with ROLLBACK.
 		if ct.String() == "ROLLBACK" {
@@ -278,12 +281,36 @@ func (s *scopedTx) commitBatch(ctx context.Context, conn *pgconn.PgConn) error {
 // fail in SQL, and one whose row count matters must be made certain by the
 // caller first, for example by locking the row earlier in tx.
 func ExecAtCommit(tx pgx.Tx, sql string, args ...any) bool {
-	s, ok := tx.(*scopedTx)
-	if !ok || s.nested {
+	b, ok := QueueAtCommit(tx)
+	if !ok {
 		return false
 	}
-	s.atCommit = append(s.atCommit, atCommit{sql: sql, args: args})
+	b.Queue(sql, args...)
 	return true
+}
+
+// QueueAtCommit returns the batch the round trip that commits tx sends, for
+// statements that need a result callback (pgx.QueuedQuery's Exec, Query,
+// QueryRow): it runs everything queued on it, in order, then COMMIT. As with
+// ExecAtCommit, a statement that must stop the commit has to fail in SQL; a
+// failing statement makes PostgreSQL skip the rest of the batch, COMMIT
+// included, its callback's error is what InTenantTx returns (wrapped), and
+// the transaction rolls back. The callbacks run while the batch's results
+// are read, so a callback of a statement before COMMIT sees its result
+// before the commit's. Queue nothing on it but statements for this round
+// trip, and only once the caller is sure it wants them sent.
+//
+// It returns false when tx is not an InTenantTx transaction or is a
+// savepoint.
+func QueueAtCommit(tx pgx.Tx) (*pgx.Batch, bool) {
+	s, ok := tx.(*scopedTx)
+	if !ok || s.nested {
+		return nil, false
+	}
+	if s.atCommit == nil {
+		s.atCommit = &pgx.Batch{}
+	}
+	return s.atCommit, true
 }
 
 // Remember stores v under key in tx's memo, for Recall later in the same

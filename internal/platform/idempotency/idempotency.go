@@ -27,7 +27,8 @@
 //     nothing; if it rolls back, the duplicate's claim goes ahead and it runs
 //     as the first request. The wait is bounded by ClaimWait (lock_timeout on
 //     the claim alone, tenancy.QueueUnderLockTimeout); past it the duplicate
-//     gets 409 idempotency_in_flight and its transaction rolls back.
+//     gets 409 idempotency_in_flight, with Retry-After ClaimRetryAfter (not
+//     Lease: see ClaimRetryAfter), and its transaction rolls back.
 //  3. While it waits, a duplicate holds one pool connection, and through
 //     PgBouncer one server connection, for up to ClaimWait. That is accepted
 //     (TICK-688): concurrent duplicates of one key each hold one connection
@@ -113,6 +114,14 @@ const (
 	// gets 409 idempotency_in_flight. It is also how long each waiting
 	// duplicate holds a connection, so it stays short. Not configuration.
 	ClaimWait = 2 * time.Second
+	// ClaimRetryAfter is the Retry-After of a ClaimInTx route (record create)
+	// on 409 idempotency_in_flight and 503 retry_later (TICK-690). Such a
+	// route leaves no key row behind when it fails, so its retry need not
+	// wait out a Lease: a duplicate past ClaimWait is waiting on a request
+	// that is still running, which a retry after about ClaimWait finds
+	// committed (and replays) or rolled back (and runs). Every other route
+	// advises Lease, for the in_flight row it leaves.
+	ClaimRetryAfter = ClaimWait
 )
 
 // Results recorded on nava.idempotency.requests. Never a tenant, principal or
@@ -249,7 +258,11 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 			m.reg.Write(w, r, problem.IdempotencyKeyReuse)
 		case outcomeInFlight:
 			m.count(ctx, resultInFlight)
-			w.Header().Set("Retry-After", strconv.Itoa(int(Lease/time.Second)))
+			retry := Lease
+			if m.inTx[r.Pattern] {
+				retry = ClaimRetryAfter
+			}
+			w.Header().Set("Retry-After", strconv.Itoa(int(retry/time.Second)))
 			m.reg.Write(w, r, problem.IdempotencyInFlight)
 		case outcomeReplay:
 			m.count(ctx, resultReplayed)
