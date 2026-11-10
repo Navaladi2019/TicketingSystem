@@ -68,6 +68,13 @@ const (
 	// perfCommitAttempts is how often a gated create row is run before the
 	// host is reported invalid for creates.
 	perfCommitAttempts = 3
+	// perfHostGateMS is the host-speed gate (CTO, 2026-11-10 15:58 UTC): a
+	// 1-client `BEGIN; COMMIT` probe run just before each create attempt
+	// must have p50 at or under this. It catches a host whose every round
+	// trip is slow, which the commit gate alone misses on the 1-client row.
+	perfHostGateMS = 2.0
+	// perfHostProbeN is the probe's round trips.
+	perfHostProbeN = 200
 	// perfFloorGateMS is the transport floor gate: a busy host gives no
 	// numbers at all.
 	perfFloorGateMS  = 3.0
@@ -821,6 +828,9 @@ type perfResult struct {
 	// " ; commit"). Their p50 is the storage-window gate.
 	commits []time.Duration
 	attempt int // 1-based attempt of a gated create row
+	// probe is the host-speed probe's p50 in ms, taken just before this
+	// attempt (creates only; 0 when not probed).
+	probe float64
 }
 
 // lastCommit is the duration of the request's last round trip that commits
@@ -847,9 +857,47 @@ func (r *perfResult) label() string {
 // commitP50 is the row's storage window, in ms.
 func (r *perfResult) commitP50() float64 { return pct(r.commits, .5) }
 
-// gated reports a create row whose storage window was too slow to score.
+// gated reports a create row attempt that failed a gate: the host-speed
+// probe or the storage window. The transport floor gate stops the whole run.
 func (r *perfResult) gated() bool {
-	return r.sc.kind == "create" && r.sc.unscored == "" && r.commitP50() > perfCommitGateMS
+	return r.sc.kind == "create" && r.sc.unscored == "" && r.gateReason() != ""
+}
+
+// gateReason names the gates the attempt failed, or "" when it is valid.
+func (r *perfResult) gateReason() string {
+	var why []string
+	if r.probe > perfHostGateMS {
+		why = append(why, fmt.Sprintf("host probe %.2f > %.1f ms", r.probe, perfHostGateMS))
+	}
+	if r.commitP50() > perfCommitGateMS {
+		why = append(why, fmt.Sprintf("commit p50 %.2f > %.0f ms", r.commitP50(), perfCommitGateMS))
+	}
+	return strings.Join(why, ", ")
+}
+
+// retryLater counts the attempt's 503 retry_later answers: in a valid
+// attempt each one is a miss.
+func (r *perfResult) retryLater() int64 { return r.errCodes["503 retry_later"] }
+
+// hostProbe is the host-speed gate's measurement: one client sends
+// `BEGIN; COMMIT` (one round trip, simple protocol) perfHostProbeN times on
+// the handler's pool, untraced. It returns the p50 in ms.
+func (e *perfEnv) hostProbe(t *testing.T) float64 {
+	t.Helper()
+	conn, err := e.pool.Acquire(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Release()
+	d := make([]time.Duration, 0, perfHostProbeN)
+	for range perfHostProbeN {
+		t0 := time.Now()
+		if _, err := conn.Exec(t.Context(), "BEGIN; COMMIT"); err != nil {
+			t.Fatal(err)
+		}
+		d = append(d, time.Since(t0))
+	}
+	return pct(d, .5)
 }
 
 // perfHold is one create's record_counters window (D-3-9). wait is the
@@ -1089,10 +1137,14 @@ func TestRecordsACLPerf800k(t *testing.T) {
 			attempts = perfCommitAttempts
 		}
 		for a := 1; a <= attempts; a++ {
+			probe := 0.0
+			if sc.kind == "create" {
+				probe = e.hostProbe(t)
+			}
 			r := e.run(t, sc, c, time.Duration(secs)*time.Second)
-			r.attempt = a
-			t.Logf("RESULT %-62s attempt %d n=%6d p50=%8.2f p95=%8.2f p99=%8.2f ms commit p50=%6.2f gated=%v",
-				sc.name, a, len(r.lat), pct(r.lat, .50), pct(r.lat, .95), pct(r.lat, .99), r.commitP50(), r.gated())
+			r.attempt, r.probe = a, probe
+			t.Logf("RESULT %-62s attempt %d n=%6d p50=%8.2f p95=%8.2f p99=%8.2f ms commit p50=%6.2f host probe=%5.2f retry_later=%d gated=%q",
+				sc.name, a, len(r.lat), pct(r.lat, .50), pct(r.lat, .95), pct(r.lat, .99), r.commitP50(), r.probe, r.retryLater(), r.gateReason())
 			results = append(results, r)
 			if !r.gated() {
 				break
@@ -1115,13 +1167,16 @@ func TestRecordsACLPerf800k(t *testing.T) {
 		case r.target() > 0 && p95 > r.target():
 			invalid[r.sc.name] = false
 			t.Errorf("MISS %s: p95 %.2f ms > %.0f ms", r.sc.name, p95, r.target())
+		case r.target() > 0 && r.retryLater() > 0:
+			invalid[r.sc.name] = false
+			t.Errorf("MISS %s: %d retry_later in a valid attempt", r.sc.name, r.retryLater())
 		default:
 			invalid[r.sc.name] = false
 		}
 	}
 	for name, bad := range invalid {
 		if bad {
-			t.Errorf("HOST INVALID for creates: %s had no storage window (commit p50 <= %.0f ms) in %d attempts", name, perfCommitGateMS, perfCommitAttempts)
+			t.Errorf("HOST INVALID for creates: %s had no valid attempt (host probe <= %.1f ms and commit p50 <= %.0f ms) in %d attempts", name, perfHostGateMS, perfCommitGateMS, perfCommitAttempts)
 		}
 	}
 }
@@ -1181,8 +1236,8 @@ func (e *perfEnv) report(t *testing.T, results []*perfResult, floor []time.Durat
 		UNION ALL SELECT 'heap ' || pg_size_pretty(pg_relation_size('records')) || ', indexes ' || pg_size_pretty(pg_indexes_size('records'))`))
 	w("## Transport floor\n\n`SELECT 1` on the handler's pool, %d clients x 200: p50 %.2f / p95 %.2f / p99 %.2f ms. Each statement in the tables below pays about this much before the database does any work.\n\n",
 		clients, pct(floor, .50), pct(floor, .95), pct(floor, .99))
-	w("## Results (ms, per request through the handler)\n\nA create row is scored only when its commit p50 (the create's own commit round trip, from its trace) is at or under %.0f ms; a gated attempt is neither a pass nor a fail and is re-run, at most %d attempts (storage-window gate, CTO 2026-11-10). Round trips are one request's, the first actor's.\n\n", perfCommitGateMS, perfCommitAttempts)
-	w("| Scenario | Attempt | Tenant | n | p50 | p95 | p99 | Commit p50 | Round trips | Target | Verdict |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	w("## Results (ms, per request through the handler)\n\nA create row attempt is scored only when it passes every gate (CTO, 2026-11-10): the transport floor (p50 <= %.0f ms, checked once, the run stops otherwise), the host-speed probe (a 1-client `BEGIN; COMMIT` p50 <= %.1f ms, run just before the attempt) and the storage window (the create's own commit round trip p50 <= %.0f ms, from its trace). A gated attempt is neither a pass nor a fail and is re-run, at most %d attempts. A `503 retry_later` in a valid attempt is a miss. Round trips are one request's, the first actor's.\n\n", perfFloorGateMS, perfHostGateMS, perfCommitGateMS, perfCommitAttempts)
+	w("| Scenario | Attempt | Tenant | n | p50 | p95 | p99 | Host probe p50 | Commit p50 | Round trips | retry_later | Target | Verdict |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, r := range results {
 		p95 := pct(r.lat, .95)
 		v := "meets"
@@ -1190,18 +1245,21 @@ func (e *perfEnv) report(t *testing.T, results []*perfResult, floor []time.Durat
 		case r.sc.unscored != "":
 			v = r.sc.unscored
 		case r.gated():
-			v = fmt.Sprintf("gated (commit p50 > %.0f ms)", perfCommitGateMS)
+			v = "gated (" + r.gateReason() + ")"
 		case r.target() == 0:
 			v = "n/a (bound check)"
 		case p95 > r.target():
 			v = "**MISS**"
+		case r.sc.kind == "create" && r.retryLater() > 0:
+			v = "**MISS** (retry_later)"
 		}
-		attempt, commit, trips := "-", "-", "-"
+		attempt, probe, commit, trips, rl := "-", "-", "-", "-", "-"
 		if r.sc.kind == "create" {
 			n, _, _ := roundTrips(r.stmtSQL)
 			attempt, commit, trips = strconv.Itoa(max(r.attempt, 1)), fmt.Sprintf("%.2f", r.commitP50()), strconv.Itoa(n)
+			probe, rl = fmt.Sprintf("%.2f", r.probe), strconv.FormatInt(r.retryLater(), 10)
 		}
-		w("| %s | %s | %s | %d | %.2f | %.2f | %.2f | %s | %s | %.0f | %s |\n", r.sc.name, attempt, r.sc.tenant, len(r.lat), pct(r.lat, .5), p95, pct(r.lat, .99), commit, trips, r.target(), v)
+		w("| %s | %s | %s | %d | %.2f | %.2f | %.2f | %s | %s | %s | %s | %.0f | %s |\n", r.sc.name, attempt, r.sc.tenant, len(r.lat), pct(r.lat, .5), p95, pct(r.lat, .99), probe, commit, trips, rl, r.target(), v)
 	}
 	e.reportHolds(w, results, floor)
 	reportAlloc(w, results)

@@ -6,6 +6,60 @@ the D25 escalation. The question: with the real compiled ACL predicate
 `records/store.List`), is list p95 ≤ 150 ms and single-read p95 ≤ 50 ms at
 800k records?
 
+## Create re-run with the host-speed gate (`15da77d6`, 16:00 UTC)
+
+**Result: two valid rows miss, so the outcome rule releases P3-36i (TICK-692).**
+
+| Valid row | p95 | Target | Verdict |
+| --- | --- | --- | --- |
+| Agent, 8 clients | **72.5 ms** | 50 ms | **MISS** |
+| Admin, 8 clients | **85.0 ms** | 50 ms | **MISS** |
+| 1 client | **43.2 ms** | 50 ms | meets |
+
+The small-tenant row got no valid attempt in 3: the host-speed probe failed each time.
+
+**Method.** This harness at `b4d7b512` (story tip `15da77d6`), with `NAVA_PERF_ONLY='^create'`. The raw report is `final-2026-11-10-fold-hostgate-run1.md`, started 16:00 UTC. Three gates apply (CTO, 2026-11-10 15:58 UTC):
+
+| Gate | How it is measured | Limit |
+| --- | --- | --- |
+| Transport floor | Measured once, before the scenarios | p50 ≤ 3 ms |
+| Host speed (new) | 200 round trips of a 1-client `BEGIN; COMMIT` on the handler's pool, run just before each attempt and not taken from the row's own trace | p50 ≤ 2.0 ms |
+| Storage window | The commit round trip, from the row's own trace | p50 ≤ 10 ms |
+
+The run's transport floor was p50 1.46 ms, p95 2.58 ms. A `503 retry_later` in a valid attempt counts as a miss; in a gated attempt it is only reported. There were none.
+
+| Row | Attempt | p95 | Host probe p50 | Commit p50 | Counter wait p50 / p95 | Alloc p50 / p95 | Round trips | Verdict |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 client | 1 | 43.2 | 1.67 | 7.81 | 2.43 / 4.42 | 2.55 / 4.87 | 6 | **meets** |
+| 8 clients, agent | 1 | **72.5** | 1.20 | 9.33 | 3.75 / 8.20 | 4.05 / 9.53 | 6 | **MISS** |
+| 8 clients, admin | 1 | **85.0** | 1.66 | 9.32 | 3.88 / 8.76 | 4.18 / 9.76 | 6 | **MISS** |
+| 8 clients, small tenant | 1 | 98.2 | 3.03 | 9.98 | 4.22 / 11.05 | 4.43 / 15.53 | 6 | gated (host probe) |
+| 8 clients, small tenant | 2 | 64.6 | 3.03 | 9.41 | 3.67 / 6.93 | 3.97 / 9.16 | 6 | gated (host probe) |
+| 8 clients, small tenant | 3 | 72.5 | 2.52 | 9.18 | 3.76 / 8.08 | 4.06 / 9.61 | 6 | gated (host probe), no valid attempt in 3 |
+| 8 clients, `gapless` | 1 | 189.0 | 2.75 | 6.42 | 36.5 / 166.1 | – | 5 | reported only |
+
+In every attempt:
+- the allocator's acquire wait was p95 ≤ 0.49 ms;
+- `nava_numbering_alloc_timeouts` stayed at 0;
+- there was no `409 idempotency_in_flight`.
+
+**Where a valid 8-client create spends its time.** Agent, attempt 1: request p50 42.5 ms, p95 72.5 ms. The host probe just before it was 1.20 ms, so the host was fast.
+
+| Round trip | p50 / p95 (ms) |
+| --- | --- |
+| `BEGIN` + set tenant | 3.1 / 8.1 |
+| lock_timeout, claim and prefetch | 7.6 / 17.8 |
+| Checks | 4.0 / 8.5 |
+| `AllocTx` | 3.8 / 8.2 |
+| `INSERT` | 6.1 / 10.7 |
+| Completion and `COMMIT` | 9.3 / 14.9 |
+
+- The statements sum to 33.9 ms at p50; the other 8.6 ms is handler time.
+- **With 8 clients, even a trivial `BEGIN` costs 3.1 ms p50, while one client on the same host costs 1.2 ms.** That is the database and VM under eight concurrent writers, not host noise: the host-speed gate passed.
+- The p95 comes from tails stacking across 6 round trips. P3-36i removes two of them: the standalone `BEGIN`, folded into the claim batch, and the separate insert, folded into the completion batch. At p50 that saves about 3 + 6 ms; at p95 it removes two of the six tails.
+
+**The small-tenant row** is host-invalid at 16:00 UTC. Per the outcome rule it is repeated once, alone, at `15da77d6` in a different hour (scheduled for 17:10 UTC). Neither outcome of that repeat changes the verdict above.
+
 ## Gated create re-run after TICK-688 (claim folded into the create transaction)
 
 **Result: FAIL.** At story tip `15da77d6`, two rows that passed the storage-window gate still miss:
