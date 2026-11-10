@@ -619,6 +619,7 @@ func TestListDataFilterTimeoutAnswers422(t *testing.T) {
 	e.mustCreateRec(t, "admin-a", "ticket", "k1", `{"short_description": "x"}`)
 	// One connection: the setting the timed-out request leaves on it shows below.
 	e.onOneConn(t, server.WithDataFilterTimeout(300*time.Millisecond))
+	baseline := e.showStatementTimeout(t)
 
 	lock, err := e.super.Begin(t.Context())
 	if err != nil {
@@ -639,6 +640,13 @@ func TestListDataFilterTimeoutAnswers422(t *testing.T) {
 	if d := time.Since(start); d > 5*time.Second {
 		t.Errorf("timed-out list took %s, want about the 300 ms timeout", d)
 	}
+	// Right after the timed-out request, before any later data-filter list
+	// (whose own restore would write the old value back and hide a leak): SET
+	// LOCAL ended with the rolled-back transaction, so the one connection still
+	// carries the baseline.
+	if got := e.showStatementTimeout(t); got != baseline {
+		t.Errorf("statement_timeout right after the 422 = %q, want the baseline %q", got, baseline)
+	}
 	if err := lock.Rollback(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -648,14 +656,20 @@ func TestListDataFilterTimeoutAnswers422(t *testing.T) {
 	if p.Total != 1 {
 		t.Errorf("list after the timeout: total %d, want 1", p.Total)
 	}
-	// SET LOCAL ended with the transaction: the one connection is back to the default.
+	if got := e.showStatementTimeout(t); got != baseline {
+		t.Errorf("statement_timeout after the next data-filter list = %q, want the baseline %q", got, baseline)
+	}
+}
+
+// showStatementTimeout reads statement_timeout on e's pool, which onOneConn
+// limits to one connection, so it is the connection the requests used.
+func (e *etEnv) showStatementTimeout(t *testing.T) string {
+	t.Helper()
 	var got string
 	if err := e.pool.QueryRow(t.Context(), "SHOW statement_timeout").Scan(&got); err != nil {
 		t.Fatal(err)
 	}
-	if got != "0" {
-		t.Errorf("statement_timeout on the reused connection = %q, want the default 0", got)
-	}
+	return got
 }
 
 // onOneConn serves e's handler from a pool of the same database that has one
@@ -714,5 +728,9 @@ func TestListCancelWithoutDataFilterIsNotFilterTooExpensive(t *testing.T) {
 	rec, _ := e.list(t, "admin-a", "ticket", "")
 	if rec.Code != http.StatusInternalServerError || strings.Contains(rec.Body.String(), "filter_too_expensive") {
 		t.Fatalf("cancelled list without a data filter = %d %s, want 500 and not filter_too_expensive", rec.Code, rec.Body)
+	}
+	// The 500 is the list's own cancel, not some other failure.
+	if got := e.logs.String(); !strings.Contains(got, "57014") {
+		t.Errorf("error logs do not show the 57014 cancel: %s", got)
 	}
 }

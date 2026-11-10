@@ -70,7 +70,7 @@ func DecodeObject(b []byte) (map[string]any, error) { return store.DecodeObject(
 // ListQuery is the store's list query, for the read-only list route.
 type ListQuery = store.ListQuery
 
-// ListPage is one page of a list and its exact total.
+// ListPage is one page of a list and its total (capped at store.TotalCap).
 type ListPage = store.ListPage
 
 // List reads one page of the transaction's tenant's records. It reads only.
