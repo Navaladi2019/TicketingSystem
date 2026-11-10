@@ -19,3 +19,11 @@ func SetTenant(ctx context.Context, tx pgx.Tx, tenant string) error {
 	_, err := tx.Exec(ctx, "SET app.tenant_id = '"+tenant+"'")
 	return err
 }
+
+// AsyncCommit makes a transaction's commit asynchronous outside
+// internal/tenancy. Only tenancy.AllocTx may, inside its own allocation
+// transaction (ADR-005 A1, A4); the setconfig analyzer must report it.
+func AsyncCommit(ctx context.Context, tx pgx.Tx) error {
+	_, err := tx.Exec(ctx, "SET LOCAL synchronous_commit = off")
+	return err
+}
