@@ -671,13 +671,14 @@ no Actions cache (about a minute each).
 A finding fails the job. On a scheduled run on `main` the workflow's own
 `main-red` job opens or updates the P0 "main is red" issue
 (`scripts/ci/main-red.sh`, with `WORKFLOW=govulncheck`). `make check-ci-steps`
-keeps both steps (`tools/ci/cisteps/required-govulncheck.yaml`). To block a
-They are deliberately not required checks of `main`: with the
-`paths:` filter, a required check would never report on most pull requests
-and block their merge. The trade-off (TICK-694): a code-only change that
-starts calling an already-listed vulnerable symbol, or an advisory published
-after a merge, is caught by the next scheduled run, up to two days later. Locally: `make tools-govulncheck vulncheck vulncheck-temporal-server`,
-or `make vulncheck-ci` as part of `make ci-lint`.
+keeps both steps (`tools/ci/cisteps/required-govulncheck.yaml`). They are
+deliberately not required checks of `main`: with the `paths:` filter, a
+required check would never report on most pull requests and block their
+merge. The trade-off (TICK-694): a code-only change that starts calling an
+already-listed vulnerable symbol, or an advisory published after a merge, is
+caught by the next scheduled run, up to two days later. Locally:
+`make tools-govulncheck vulncheck vulncheck-temporal-server`, or
+`make vulncheck-ci` as part of `make ci-lint`.
 
 **The published image.** The `temporal-server-image` workflow
 (`make temporal-server-publish`, `scripts/ci/temporal-server-image.sh`)
