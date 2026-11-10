@@ -297,8 +297,8 @@ func TestThinServicesCoverCompose(t *testing.T) {
 	}
 }
 
-// TICK-641: with the published temporal-server image, make image-ci bakes
-// BAKE_TARGETS minus temporal-server instead of bake's default group (every
+// TICK-641, TICK-693: with published images, make image-ci bakes
+// BAKE_TARGETS minus PREBUILT_SERVICES instead of bake's default group (every
 // compose service with a build:). A service missing from BAKE_TARGETS would
 // then not be built at all, and the stack would start on a stale image or
 // none. BAKE_TARGETS must be exactly the services compose.yaml builds.
@@ -334,8 +334,10 @@ func TestBakeTargetsCoverCompose(t *testing.T) {
 	if !slices.Equal(targets, built) {
 		t.Errorf("BAKE_TARGETS (make/stack.mk) = %v; compose.yaml builds %v", targets, built)
 	}
-	if !slices.Contains(targets, "temporal-server") {
-		t.Errorf("BAKE_TARGETS lacks temporal-server, which TEMPORAL_SERVER_PREBUILT=1 filters out")
+	for _, svc := range makeVar(t, "PUBLISHED_IMAGES") {
+		if !slices.Contains(targets, svc) {
+			t.Errorf("BAKE_TARGETS lacks %s, which PREBUILT_SERVICES filters out when it is published", svc)
+		}
 	}
 }
 

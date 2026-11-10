@@ -70,10 +70,10 @@
 #                    every event and every 6 hours (the 6-hourly schedule,
 #                    which runs no other job), and on main keeps one issue
 #                    open while red
-# The stack job uses the published temporal-server image when one exists for
-# the checkout's temporal-server/ tree (make temporal-server-pull, TICK-641;
-# the temporal-server-image workflow publishes it from main) and builds the
-# others; without one it builds temporal-server from source as before.
+# The stack job uses the published temporal-server and keycloak images when
+# one exists for the checkout's key (make prebuilt-pull, TICK-641, TICK-693;
+# the prebuilt-images workflow publishes them from main) and builds the
+# others; without one it builds that service from source as before.
 # Budget: see "Job time budgets" in docs/quality/ci-pipeline.md. stack builds
 # the images first (4 to 13 minutes, by how much of the image cache survives),
 # then runs about 10 to 12 minutes of stack cases and 2 to 3 of database and
@@ -662,12 +662,13 @@ jobs:
       - name: Build the Go service binaries
         if: env.IMAGE_THIN == '1' || env.CACHE_WRITE == 'true'
         run: make ci-binaries
-      # TICK-641: the image published from main for this temporal-server/
-      # tree, tagged as this run's nava/temporal-server; image-ci then leaves
-      # it out of the bake (TEMPORAL_SERVER_PREBUILT=1). Not published (the
-      # change edits temporal-server/): image-ci builds it, as before.
-      - name: Published temporal-server image
-        run: make temporal-server-pull
+      # TICK-641, TICK-693: the temporal-server and keycloak images published
+      # from main for this checkout's keys, tagged as this run's
+      # nava/<service>; image-ci then leaves the hits out of the bake
+      # (PREBUILT_SERVICES). A miss (the change edits a key input, or the
+      # pull fails) is not an error: image-ci builds that one, as before.
+      - name: Published CI images (temporal-server, keycloak)
+        run: make prebuilt-pull
       # Once per run: every phase below uses these images.
       - name: Build images (layer cache in gha, or nava-ci on self-hosted)
         id: images

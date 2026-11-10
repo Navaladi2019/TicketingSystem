@@ -21,7 +21,7 @@ calls only `make` targets. Install the pinned tools once with `make tools`.
 In GitHub, the `temporal-server` job runs the module's tests, then
 `make lint-temporal-server`. Since TICK-641 it runs only when the module, or
 how it is built, tested or linted, changed (see "Published temporal-server
-image" below). govulncheck for both modules is the separate `govulncheck`
+image" and "Published CI images" below). govulncheck for both modules is the separate `govulncheck`
 workflow (see "govulncheck workflow" below), and it must report zero
 findings: there is no exception and no allowlist (ADR-001 A1 Decision 3,
 TICK-121). `lint-temporal-server` (TICK-584) runs golangci-lint
@@ -680,43 +680,87 @@ caught by the next scheduled run, up to two days later. Locally:
 `make tools-govulncheck vulncheck vulncheck-temporal-server`, or
 `make vulncheck-ci` as part of `make ci-lint`.
 
-**The published image.** The `temporal-server-image` workflow
-(`make temporal-server-publish`, `scripts/ci/temporal-server-image.sh`)
-builds `temporal-server/` with its own Dockerfile and pushes it to
-`ghcr.io/navaladi2019/nava-temporal-server:<tree>`. `<tree>` is
-`git rev-parse HEAD:temporal-server`, git's hash of the build context
-(sources, `go.mod`, the Dockerfile and its pinned base images), so the same
-tree is the same tag whatever commit holds it. The workflow runs on a push to
-`main` that changes the module, its make fragment, the script or the workflow,
-and by hand on `main`. It skips a tag that already exists. It is the only
-workflow with `packages: write`, and it never runs on a pull request.
+**The published image.** Since TICK-693 the stack job pulls
+`nava/temporal-server` with the generic mechanism in "Published CI images"
+below; the key (`git rev-parse HEAD:temporal-server`), registry and label are
+unchanged, so tags published under TICK-641 still hit.
 
-The `stack` job runs `make temporal-server-pull` before `make image-ci`:
+### Published CI images (TICK-641, TICK-693)
 
-- **Published:** it pulls the tag, checks that its `nava.temporal-server.tree`
-  label equals the tree, and tags it as the run's `nava/temporal-server`
-  (`:dev`, or `:ci-<run id>` on self-hosted). It sets
-  `TEMPORAL_SERVER_PREBUILT=1`, so `image-ci` bakes `BAKE_TARGETS` without
-  `temporal-server` and reads or writes no cache scope for it.
-- **Not published** (the change edits `temporal-server/`, `main` has not
-  published it yet, or the pull failed): no error, and `image-ci` bakes every
-  target as before.
+Some stack images change rarely but cost minutes to build: `temporal-server`
+compiles the whole Temporal server, and `keycloak` runs the Quarkus
+augmentation (`kc.sh build`) even on a gha cache hit. The `prebuilt-images`
+workflow publishes them to GHCR from `main`, and the `stack` job pulls them
+instead of baking them.
 
-`TestBakeTargetsCoverCompose` (`deploy/compose`) keeps `BAKE_TARGETS` equal
-to the services `compose.yaml` builds, so leaving out `temporal-server` never
-leaves out another service. The repository is public, so the pull needs no
-login. That matters on the self-hosted runner, whose Docker config has no
-credential store. On `main` the published image counts as "the real
-Dockerfile": it was built from it by the publish workflow.
+| Service | Registry | Key (the tag) | Label checked on pull |
+| --- | --- | --- | --- |
+| `temporal-server` | `ghcr.io/navaladi2019/nava-temporal-server` | `git rev-parse HEAD:temporal-server`, git's hash of the whole build context (sources, `go.mod`, the Dockerfile and its pinned base images) | `nava.temporal-server.tree` |
+| `keycloak` | `ghcr.io/navaladi2019/nava-keycloak` | sha256 over `<path> <blob id>` of `deploy/compose/keycloak/Dockerfile` and `deploy/compose/keycloak/quarkus.properties` | `nava.keycloak.key` |
+
+`keycloak`'s build context is the repository root, so its tree hash would
+change on every commit; the key hashes exactly the files the build reads. The
+Dockerfile pins the base image (`quay.io/keycloak/keycloak:<version>`), so a
+base bump changes the key. `import/` and `test-realms/` are mounted at run
+time, not copied, and are not in the key. The same inputs give the same tag
+whatever commit holds them.
+
+**Publish.** `make prebuilt-publish SERVICE=<service>`
+(`scripts/ci/prebuilt-image.sh <service> publish`), one matrix entry per
+service in `PUBLISHED_IMAGES` (`make/stack.mk`). The workflow runs on a push
+to `main` that changes a key input, `make/stack.mk`, `make/temporal-server.mk`,
+the script or the workflow, and by hand on `main`. It skips a tag that
+already exists, so an entry whose inputs did not change costs one manifest
+lookup. It is the only workflow with `packages: write`, and it never runs on a
+pull request.
+
+**Pull.** The `stack` job runs `make prebuilt-pull` before `make image-ci`.
+For each service in `PUBLISHED_IMAGES`:
+
+- **Published:** it pulls the tag, checks that its key label equals the key,
+  and tags it as the run's `nava/<service>` (`:dev`, or `:ci-<run id>` on
+  self-hosted). The log line is
+  `prebuilt-image: using published <ref> as nava/<service>:<tag>`.
+- **Not published** (the change edits a key input, `main` has not published
+  it yet, the inputs are dirty, the pull failed or the label differs): it logs
+  why (`... building <service> from source`) and moves on. A miss is never an
+  error.
+
+It then writes the hits as `PREBUILT_SERVICES` to `GITHUB_ENV`, so
+`image-ci` bakes `BAKE_TARGETS` without them and reads or writes no gha cache
+scope for them. With no hit, `image-ci` bakes every target as before.
+
+**Guard tests** (`deploy/compose`, run by `task test`):
+
+- `TestPublishedImageKeyCoversBuild`: for each published service, every
+  `COPY`/`ADD` source of its Dockerfile (resolved against the compose build
+  context), and the Dockerfile itself, is one of the script's `inputs=` paths
+  or under one. Adding a `COPY` of a file the key does not hash fails it;
+  otherwise a change to that file would keep the old key and CI would pull a
+  stale image. `TestUncoveredCopySources` tests the guard itself.
+- `TestBakeTargetsCoverCompose` keeps `BAKE_TARGETS` equal to the services
+  `compose.yaml` builds, and containing every published service, so leaving
+  one out never leaves out another.
+- `TestPrebuiltWorkflowMatrix` keeps the publish matrix equal to
+  `PUBLISHED_IMAGES`.
+
+The repository is public, so the pull needs no login. That matters on the
+self-hosted runner, whose Docker config has no credential store. On `main`
+the published image counts as "the real Dockerfile": it was built from it by
+the publish workflow.
 
 Local runs are unchanged: `make stack-up` and `make image-ci` build from
-source unless `TEMPORAL_SERVER_PREBUILT=1` is set after a
-`make temporal-server-pull`. Pulling a registry tag in CI is
-AR-TICK-641-01.
+source unless `PREBUILT_SERVICES` is set after a `make prebuilt-pull`.
+Pulling a registry tag in CI is AR-TICK-641-01, which covers both packages.
 
-**Bootstrap.** The merge of TICK-641 changes the workflow file, so it
-publishes the first tag. After that, a run whose `temporal-server/` tree is
-unchanged from `main` pulls it.
+**Adding a service.** Add a case entry (first line `inputs='...'`) to
+`scripts/ci/prebuilt-image.sh`, add it to `PUBLISHED_IMAGES` and to the
+workflow's matrix and `paths:`. The guard tests then check the key.
+
+**Bootstrap.** TICK-641's merge published the first temporal-server tag.
+TICK-693's merge changes the workflow file, so it publishes the first
+keycloak tag (or run the workflow by hand on `main`). After that, a run whose
+key inputs are unchanged from `main` pulls it.
 
 ### Story branches (TICK-322)
 

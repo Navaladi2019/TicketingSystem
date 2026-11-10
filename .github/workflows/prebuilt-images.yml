@@ -1,0 +1,54 @@
+# TICK-641, TICK-693: publishes the stack images whose inputs rarely change to
+# ghcr.io/navaladi2019/nava-<service>:<content key> (make prebuilt-publish,
+# scripts/ci/prebuilt-image.sh), so the ci workflow's stack job pulls them
+# (make prebuilt-pull) instead of building them on every run:
+#   temporal-server  keyed on git's hash of the temporal-server/ tree
+#   keycloak         keyed on its Dockerfile and quarkus.properties
+# Only main publishes: this is the one workflow with packages: write, and it
+# runs on pushes to main and manual runs on main, never on a pull request. An
+# existing tag is not rebuilt, so a matrix entry whose inputs did not change
+# costs one manifest lookup.
+# A failed or late publish costs time only: the stack job then builds the
+# image from source, as before. docs/quality/ci-pipeline.md
+# "Published CI images".
+name: prebuilt-images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'temporal-server/**'
+      - 'deploy/compose/keycloak/Dockerfile'
+      - 'deploy/compose/keycloak/quarkus.properties'
+      - 'make/stack.mk'
+      - 'make/temporal-server.mk'
+      - 'scripts/ci/prebuilt-image.sh'
+      - '.github/workflows/prebuilt-images.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prebuilt-images-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [temporal-server, keycloak]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and push the image unless its key's tag exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_ACTOR: ${{ github.actor }}
+        run: make prebuilt-publish SERVICE=${{ matrix.service }}

@@ -2,7 +2,7 @@
 
 TEMPORAL_SERVER_IMAGE ?= nava/temporal-server:$(NAVA_IMAGE_TAG)
 
-.PHONY: temporal-server-test lint-temporal-server temporal-server-image temporal-server-publish temporal-server-pull ci-temporal-server-changed temporal-server-dev-certs temporal-server-run dev-ca operator-tunnel
+.PHONY: temporal-server-test lint-temporal-server temporal-server-image ci-temporal-server-changed temporal-server-dev-certs temporal-server-run dev-ca operator-tunnel
 
 ci-unit: temporal-server-test lint-temporal-server
 
@@ -28,17 +28,8 @@ lint-temporal-server: check-golangci-lint
 temporal-server-image:
 	docker build -t $(TEMPORAL_SERVER_IMAGE) temporal-server
 
-## The published image (TICK-641, docs/quality/ci-pipeline.md "Published
-## temporal-server image"), tagged with git's hash of the temporal-server/
-## tree. publish: build and push it unless it exists (the
-## temporal-server-image workflow, main only; GH_TOKEN, GH_ACTOR). pull: tag
-## it TEMPORAL_SERVER_IMAGE and set TEMPORAL_SERVER_PREBUILT=1 in GITHUB_ENV,
-## or leave make image-ci to build it from source when it is not published.
-temporal-server-publish:
-	sh scripts/ci/temporal-server-image.sh publish
-
-temporal-server-pull:
-	TEMPORAL_SERVER_IMAGE=$(TEMPORAL_SERVER_IMAGE) sh scripts/ci/temporal-server-image.sh pull
+## The published image (TICK-641) is make prebuilt-publish SERVICE=temporal-server
+## and make prebuilt-pull (make/stack.mk, scripts/ci/prebuilt-image.sh).
 
 ## Whether the ci workflow's temporal-server job runs (TICK-641): true when
 ## the module or how it is built, tested or linted changed.
