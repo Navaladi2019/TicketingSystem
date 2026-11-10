@@ -378,6 +378,10 @@ func (h *handlers) recordError(ctx context.Context, err error, fixed map[string]
 	switch {
 	case errors.As(err, &pe):
 		return pe
+	case errors.Is(err, pipeline.ErrRetryable):
+		// A number allocation past its timeout (ADR-005 A5) or a deadlock:
+		// the transaction committed nothing, so a retry is safe (TICK-657).
+		return &problemError{problem.RetryLater, nil, err}
 	case errors.As(err, &nw):
 		// The pointers name the fields the caller sent, never a value.
 		fields := make([]problem.FieldError, len(nw.Fields))

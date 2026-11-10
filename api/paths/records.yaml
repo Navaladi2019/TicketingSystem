@@ -157,6 +157,17 @@ paths:
           $ref: "../openapi.yaml#/components/responses/Problem"
         "501":
           $ref: "../openapi.yaml#/components/responses/Problem"
+        "503":
+          description: retry_later. The write changed nothing (a number allocation timed out, or a deadlock); retry after the Retry-After interval.
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema:
+                type: integer
+          content:
+            application/problem+json:
+              schema:
+                $ref: "../openapi.yaml#/components/schemas/Problem"
   /api/v1/records/{entity}/{id}:
     get:
       operationId: getRecord
@@ -314,6 +325,17 @@ paths:
           $ref: "../openapi.yaml#/components/responses/Problem"
         "501":
           $ref: "../openapi.yaml#/components/responses/Problem"
+        "503":
+          description: retry_later. The write changed nothing (a number allocation timed out, or a deadlock); retry after the Retry-After interval.
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema:
+                type: integer
+          content:
+            application/problem+json:
+              schema:
+                $ref: "../openapi.yaml#/components/schemas/Problem"
   /api/v1/records/{entity}/{id}/history:
     get:
       operationId: getRecordHistory

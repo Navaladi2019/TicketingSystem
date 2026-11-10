@@ -28,7 +28,8 @@
     "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."
   },
   "patchRecord": {
-    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is.",
+    "503": "A patch takes no number, so its only retry_later cause is a deadlock or serialization failure between concurrent transactions (pipeline.ErrRetryable), which the handler cannot be made to hit deterministically. The mapping it shares with createRecord is covered by TestCreateRecordAllocationTimeoutIs503RetryLater."
   },
   "getRecordHistory": {
     "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."

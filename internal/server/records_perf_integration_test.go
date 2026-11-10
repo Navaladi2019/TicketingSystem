@@ -231,6 +231,18 @@ func newPerfEnv(t *testing.T, clients int) *perfEnv {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
+	// nava-core's allocator pool (cmd/nava-core/allocator.go, TICK-657): a
+	// create takes its number on it, traced like the API pool.
+	ac := pc.Copy()
+	ac.MaxConns = 4
+	if err := tenancy.AllocPoolConfig(ac); err != nil {
+		t.Fatal(err)
+	}
+	alloc, err := pgxpool.NewWithConfig(t.Context(), ac)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(alloc.Close)
 	large := etSeedTenant(t, super, "large")
 	tokens := etTokens{"admin-large": large.admin}
 	tel, err := telemetry.New(t.Context(), config.Telemetry{})
@@ -244,7 +256,7 @@ func newPerfEnv(t *testing.T, clients int) *perfEnv {
 	}
 	reader := etAuditReader(t, pool)
 	h, err := server.NewHandler(slog.New(slog.NewTextHandler(testLogWriter{t, nil}, &slog.HandlerOptions{Level: slog.LevelWarn})), tel, tokens, stubPaths{},
-		server.WithLimiter(perfAllow{}), server.WithPool(pool), server.WithAuditReader(reader), server.WithCursors(kr))
+		server.WithLimiter(perfAllow{}), server.WithPool(pool), server.WithAllocatorPool(alloc), server.WithAuditReader(reader), server.WithCursors(kr))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -725,17 +737,24 @@ type perfHold struct {
 }
 
 // counterHold finds the record_counters upsert and the COMMIT that ends its
-// transaction in one create's statements. Since TICK-648 both are in
-// batches: the upsert opens the create's last batch, whose end is the
-// earliest the client sees the row locked (so wait includes the rest of
-// that batch), and COMMIT ends the batch after it. n counts round trips.
+// transaction in one create's statements. Since TICK-657 (ADR-005 L2s) the
+// upsert and its COMMIT are one AllocTx trip: the hold is inside it, and
+// wait is the whole trip. Otherwise (TICK-648, gapless L1) a COMMIT batched
+// after other statements (" ; commit") ends the window. n counts round
+// trips.
 func counterHold(ss []perfStmt) (perfHold, bool) {
 	up := slices.IndexFunc(ss, func(s perfStmt) bool { return strings.Contains(s.SQL, "INSERT INTO record_counters") })
 	if up < 0 {
 		return perfHold{}, false
 	}
-	locked := ss[up].Start + ss[up].Dur
 	h := perfHold{wait: ss[up].Dur}
+	// ADR-005 L2s (tenancy.AllocTx): the upsert and its COMMIT are one
+	// pipelined trip, so the lock is held inside it, already counted in
+	// wait; nothing after the trip holds it.
+	if strings.HasSuffix(strings.ToLower(strings.TrimSpace(ss[up].SQL)), " ; commit") {
+		return h, true
+	}
+	locked := ss[up].Start + ss[up].Dur
 	for _, s := range ss[up+1:] {
 		h.stmts += s.Dur
 		h.n++

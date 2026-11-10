@@ -37,6 +37,7 @@ const (
 	OnboardingConflict       Code = "onboarding_conflict"
 	InvalidCursor            Code = "invalid_cursor"
 	RateLimited              Code = "rate_limited"
+	RetryLater               Code = "retry_later"
 	NotFound                 Code = "not_found"
 	ValidationFailed         Code = "validation_failed"
 	MethodNotAllowed         Code = "method_not_allowed"
@@ -65,7 +66,7 @@ const (
 func Codes() []Code {
 	return []Code{
 		TenantUnresolved, InvalidToken, IdempotencyKeyReuse, IdempotencyInFlight, Forbidden, DomainClaimed, InvalidIdPConfig, OnboardingConflict, InvalidCursor,
-		RateLimited, NotFound, ValidationFailed, MethodNotAllowed,
+		RateLimited, RetryLater, NotFound, ValidationFailed, MethodNotAllowed,
 		NotImplemented, InternalError, InvalidDefinition, EntityTypeExists, NumberPrefixTaken, SchemaBreakingChange, RecordInvalid,
 		IfMatchRequired, VersionConflict, IllegalTransition, UniqueViolation, ConfigSecretInContent, DefinitionSecretRequired, AssignmentGroupRemoved, HistoryTooLong,
 		MaskedField, FilterTooExpensive, FieldNotWritable, InvalidAccessPolicy,

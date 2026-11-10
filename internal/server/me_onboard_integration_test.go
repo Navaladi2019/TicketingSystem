@@ -184,7 +184,7 @@ func newIDEnv(t *testing.T, appPoolOverride *pgxpool.Pool) *idEnv {
 	lim := &spyLimiter{}
 	lim.reset(true)
 	h, err := server.NewHandler(slog.New(slog.NewTextHandler(testLogWriter{t, nil}, &slog.HandlerOptions{Level: slog.LevelError})),
-		tel, adapter, pgstore.New(appPool), server.WithLimiter(lim), server.WithPool(pool), server.WithOperator(adapter, svc))
+		tel, adapter, pgstore.New(appPool), server.WithLimiter(lim), server.WithPool(pool), server.WithAllocatorPool(etAllocPool(t, pool)), server.WithOperator(adapter, svc))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -730,7 +730,8 @@ func TestOnboardNotConfiguredIs501(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = tel.Shutdown(context.Background()) })
 	adapter := v.realm.Resolver(t, pgstore.New(v.e.pool), operatorSub)
-	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel, adapter, pgstore.New(v.e.pool), server.WithPool(v.e.pool))
+	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel, adapter, pgstore.New(v.e.pool), server.WithPool(v.e.pool),
+		server.WithAllocatorPool(etAllocPool(t, v.e.pool)))
 	if err != nil {
 		t.Fatal(err)
 	}

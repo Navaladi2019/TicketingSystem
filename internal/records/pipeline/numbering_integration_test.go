@@ -32,7 +32,9 @@ import (
 )
 
 // throughBouncer returns e with its nava_app pool replaced by one that goes
-// through the transaction-mode PgBouncer, maxConns client connections wide.
+// through the transaction-mode PgBouncer, maxConns client connections wide,
+// and its allocator pool by one through the pooler's nava_alloc entry, which
+// has a server pool of its own as on the compose stack (TICK-657).
 func throughBouncer(t *testing.T, e env, maxConns int32) env {
 	t.Helper()
 	raw := os.Getenv("NAVA_TEST_PGBOUNCER_URL")
@@ -59,6 +61,11 @@ func throughBouncer(t *testing.T, e env, maxConns int32) env {
 		t.Fatalf("through PgBouncer: database %q, %v; want %q", db, err, e.platform)
 	}
 	e.app = p
+	u.Path = "/nava_alloc"
+	e.alloc = allocPool(t, u.String())
+	if err := e.alloc.QueryRow(context.Background(), "SELECT current_database()").Scan(&db); err != nil || db != e.platform {
+		t.Fatalf("allocator through PgBouncer: database %q, %v; want %q", db, err, e.platform)
+	}
 	return e
 }
 
@@ -121,11 +128,15 @@ func noErrors(t *testing.T, errs []error) {
 }
 
 // AC: 50 concurrent creates through PgBouncer get INC0000001..INC0000050,
-// no duplicates and no gaps. A further 500 creates on 50 workers continue at
-// 51 with no gap, and give a steadier creates/s figure for the PR.
+// no duplicates and, as none fails, no gaps. A further 500 creates on 50
+// workers continue at 51, and give a steadier creates/s figure for the PR.
+// Each create takes its number through the allocator's own server pool while
+// its transaction holds one of the 5 (TICK-657): sharing them would starve.
+// It runs against a `gapless` type (ADR-005 L1, D-3-9); the `gaps` type's
+// allocator is TestAllocatorPoolDoesNotStarveThePool's.
 func TestConcurrentCreatesNumberWithoutGapsThroughPgBouncer(t *testing.T) {
 	e := throughBouncer(t, migrated(t), 50)
-	f := seedTenant(t, e)
+	f := seedTenantWith(t, e, gaplessDefinition(definition(schemaV1)))
 	p := newPipeline(e, nil)
 
 	took, errs := createMany(e, p, f, 50, 50)
@@ -145,10 +156,11 @@ func TestConcurrentCreatesNumberWithoutGapsThroughPgBouncer(t *testing.T) {
 
 // AC: a rolled-back create's number is reused by the next create, and a
 // refused create (here a unique violation, after which the write stops before
-// taking a number) uses none.
+// taking a number) uses none. That is a `gapless` type (ADR-005 L1, the
+// TICK-648 layout); a `gaps` type is TestRolledBackCreateLeavesAGap.
 func TestRolledBackCreateNumberIsReused(t *testing.T) {
 	e := migrated(t)
-	f := seedTenant(t, e)
+	f := seedTenantWith(t, e, gaplessDefinition(definition(schemaV1)))
 	p := newPipeline(e, nil)
 	ctx := context.Background()
 	mustCreate(t, e, p, f, map[string]any{"title": "one"})

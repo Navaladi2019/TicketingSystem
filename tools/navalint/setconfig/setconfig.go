@@ -1,5 +1,6 @@
-// Package setconfig defines an analyzer that reports set_config and
-// app.tenant_id in Go string constants outside internal/tenancy (PG-N1, R8).
+// Package setconfig defines an analyzer that reports set_config,
+// app.tenant_id and synchronous_commit in Go string constants outside
+// internal/tenancy (PG-N1, R8; ADR-005 A4).
 // tenancy.InTenantTx is the one place that scopes a transaction to a tenant;
 // a second place could set another tenant's id, or a session-wide one that
 // outlives the transaction on a pooled connection.
@@ -58,12 +59,17 @@ var tenantRead = regexp.MustCompile(`current_setting\s*\(\s*'app\.tenant_id'(::t
 
 // needles are matched case-insensitively: SQL keywords and function names
 // are, and quoted "app.tenant_id" is the same setting.
-var needles = []string{"set_config", "app.tenant_id"}
+//
+// synchronous_commit is one too (ADR-005 A4, TICK-657): tenancy.AllocTx is
+// the one place that turns it off, with SET LOCAL inside its own allocation
+// transaction. Anywhere else, and at session level above all, it would make
+// a record's own commit asynchronous.
+var needles = []string{"set_config", "app.tenant_id", "synchronous_commit"}
 
 // Analyzer reports the needles in string constants outside TenancyPkg.
 var Analyzer = &analysis.Analyzer{
 	Name: "setconfig",
-	Doc:  "reports set_config and app.tenant_id outside internal/tenancy; use tenancy.InTenantTx",
+	Doc:  "reports set_config, app.tenant_id and synchronous_commit outside internal/tenancy; use tenancy.InTenantTx or tenancy.AllocTx",
 	Run:  run,
 }
 
@@ -117,5 +123,5 @@ func match(s string, reads bool) string {
 }
 
 func report(pass *analysis.Pass, pos token.Pos, needle string) {
-	pass.Reportf(pos, "%s outside internal/tenancy: scope the transaction with tenancy.InTenantTx", needle)
+	pass.Reportf(pos, "%s outside internal/tenancy: scope the transaction with tenancy.InTenantTx (or tenancy.AllocTx for a number)", needle)
 }

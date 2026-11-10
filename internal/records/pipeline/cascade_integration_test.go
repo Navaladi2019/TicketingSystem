@@ -377,9 +377,10 @@ func TestCI10_RetriedActivityCreatesNoSecondStart(t *testing.T) {
 	}
 }
 
-// recordingRunner counts the own-transaction runs the pipeline asks for.
+// recordingRunner counts the own-transaction runs the pipeline asks for. It
+// is a PoolRunner, so it also allocates numbers (not counted).
 type recordingRunner struct {
-	pipeline.TxRunner
+	pipeline.PoolRunner
 	mu   sync.Mutex
 	runs int
 }
@@ -388,7 +389,7 @@ func (r *recordingRunner) InTenantTx(ctx context.Context, tenant uuid.UUID, fn f
 	r.mu.Lock()
 	r.runs++
 	r.mu.Unlock()
-	return r.TxRunner.InTenantTx(ctx, tenant, fn)
+	return r.PoolRunner.InTenantTx(ctx, tenant, fn)
 }
 
 // countingTx counts the statements the pipeline sends on the caller's tx.
@@ -420,7 +421,7 @@ func (c *countingTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.
 func TestCI10_DepthBeyondLimitRejectedAndAuditedOnTheRunner(t *testing.T) {
 	e := migrated(t)
 	f := seedTenant(t, e)
-	runner := &recordingRunner{TxRunner: pipeline.PoolRunner{Pool: e.app}}
+	runner := &recordingRunner{PoolRunner: e.runner()}
 	sink := &countingSink{}
 	p := pipeline.New(authz.ACL{Policies: authz.PolicyStore{}}, entitytypes.Store{}, sink, runner, pipeline.SystemClock{})
 	ctx := context.Background()

@@ -33,8 +33,8 @@ import (
 // The budgets: round trips and statements of one request, idempotency claim
 // included. A change that adds a round trip to either path fails here.
 const (
-	createTripBudget      = 8  // claim: BEGIN, INSERT, COMMIT; write: BEGIN, prefetch, checks, counter batch, COMMIT batch
-	createStatementBudget = 17 // was 29: claim 4 (BEGIN+GUC, INSERT, COMMIT), write 13
+	createTripBudget      = 9  // claim: BEGIN, INSERT, COMMIT; write: BEGIN, prefetch, checks, write batch, COMMIT batch; number (TICK-657, ADR-005 AllocTx): one pipelined trip
+	createStatementBudget = 21 // was 29, then 17 (TICK-648): claim 4 (BEGIN+GUC, INSERT, COMMIT), write 12, number 5 (BEGIN, tenant, SET LOCAL, upsert, COMMIT)
 	getTripBudget         = 3  // BEGIN, one batch, COMMIT
 	getStatementBudget    = 7  // was 13: BEGIN+GUC, definition, record, shares, policy, COMMIT
 )
@@ -59,7 +59,7 @@ func guardedRecEnv(t *testing.T, maxConns int32) (*etEnv, *tenancytest.Guard) {
 	}
 	h, err := server.NewHandler(slog.New(slog.NewTextHandler(testLogWriter{t, e.logs}, &slog.HandlerOptions{Level: slog.LevelWarn})),
 		e.tel, e.tokens, stubPaths{},
-		server.WithLimiter(e.lim), server.WithPool(pool), server.WithAuditReader(etAuditReader(t, pool)), server.WithCursors(kr))
+		server.WithLimiter(e.lim), server.WithPool(pool), server.WithAllocatorPool(etAllocPool(t, pool)), server.WithAuditReader(etAuditReader(t, pool)), server.WithCursors(kr))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,8 +96,10 @@ func underOnly(t *testing.T, what string, rec *tenancytest.Recorder, want uuid.U
 
 // TestRecordCreateAndGetRoundTrips: a create and a GET each set the tenant
 // before their first statement and run every trip under it, within the
-// budgets; the create takes the counter in the batch before the COMMIT
-// batch, which also completes the idempotency key.
+// budgets. The create takes its number in a transaction of its own, one
+// pipelined trip on the allocator pool (ADR-005 AllocTx, TICK-657), then sends
+// the write batch and the COMMIT batch, which also completes the idempotency
+// key.
 func TestRecordCreateAndGetRoundTrips(t *testing.T) {
 	e, g := guardedRecEnv(t, 4)
 	group := e.a.adminGroup.String()
@@ -113,11 +115,20 @@ func TestRecordCreateAndGetRoundTrips(t *testing.T) {
 		t.Errorf("create: %d trips, %d statements; budget %d, %d: %s", len(trips), rec.Statements(),
 			createTripBudget, createStatementBudget, fmt.Sprint(trips))
 	}
-	// The write's last two trips: the counter batch, then the batch that
-	// stores the idempotency response and commits.
+	// The number's own transaction, one pipelined trip, then the write's
+	// last two trips: the write batch, then the batch that stores the
+	// idempotency response and commits.
+	if len(trips) < 3 {
+		t.Fatalf("create: %d trips: %s", len(trips), fmt.Sprint(trips))
+	}
+	if alloc := trips[len(trips)-3]; !alloc.Batch || len(alloc.SQL) != 5 || alloc.SQL[0] != "BEGIN" ||
+		!strings.Contains(alloc.SQL[3], "record_counters") || alloc.SQL[4] != "COMMIT" {
+		t.Errorf("the trip before the write batch is %q; want the number's one trip: BEGIN, tenant, SET LOCAL, upsert, COMMIT", alloc.SQL)
+	}
 	counter, commit := trips[len(trips)-2], trips[len(trips)-1]
-	if !counter.Batch || !strings.Contains(counter.SQL[0], "record_counters") {
-		t.Errorf("the trip before the commit is %q, want the counter batch", counter.SQL)
+	if !counter.Batch || !strings.Contains(counter.SQL[0], "INSERT INTO records") ||
+		slices.ContainsFunc(counter.SQL, func(s string) bool { return strings.Contains(s, "record_counters") }) {
+		t.Errorf("the trip before the commit is %q, want the write batch, without the counter", counter.SQL)
 	}
 	if !commit.Batch || len(commit.SQL) != 2 || !strings.Contains(commit.SQL[0], "UPDATE idempotency_keys") || commit.SQL[1] != "COMMIT" {
 		t.Errorf("the last trip is %q, want the idempotency completion and COMMIT in one batch", commit.SQL)
@@ -207,8 +218,9 @@ func TestRecordRequestsOfTwoTenantsOnOneConnection(t *testing.T) {
 
 // TestConcurrentRecordCreatesStayInTheirTenant: 8 clients each of tenants A
 // and B create at once on a pool smaller than the clients; every trip of
-// every request runs under its own tenant, and each tenant's numbers are
-// gapless.
+// every request, its number's transaction on the allocator pool included,
+// runs under its own tenant, and as no create fails each tenant's numbers
+// have no gap.
 func TestConcurrentRecordCreatesStayInTheirTenant(t *testing.T) {
 	e, g := guardedRecEnv(t, 4)
 	const perClient = 5

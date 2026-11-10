@@ -15,7 +15,9 @@ func calls() {
 	_ = (prefix + "config")                             // want `set_config outside internal/tenancy`
 	_ = fmt.Sprintf("%s", "app.tenant_id")              // want `app.tenant_id outside internal/tenancy`
 	x := "y"
-	_ = "set_config(" + x // want `set_config outside internal/tenancy`
+	_ = "set_config(" + x                    // want `set_config outside internal/tenancy`
+	_ = "SET LOCAL synchronous_commit = off" // want `synchronous_commit outside internal/tenancy`
+	_ = "SET SYNCHRONOUS_COMMIT TO off"      // want `synchronous_commit outside internal/tenancy`
 	_ = scoped
 }
 

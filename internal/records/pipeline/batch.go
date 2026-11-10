@@ -11,9 +11,10 @@ package pipeline
 //  2. checks: for each unique property, its advisory lock then its lookup,
 //     in property order; the assignment group lookup; and PostgreSQL's
 //     jsonb text of the payload about to be stored (the audit diff's after).
-//  3. write: the record_counters upsert, the INSERT that takes its number,
-//     the write key and the audit entry. The counter row is locked from here
-//     to the caller's COMMIT, so it is the last batch of the write (D-3-9).
+//  3. write: the INSERT of the record with its number, the write key and
+//     the audit entry. The number was taken just before, in a transaction of
+//     its own that has already committed (D-3-9 as amended 2026-11-10,
+//     write.allocate, alloc.go), so no lock on record_counters is held here.
 //
 // An update keeps its statements one by one; it reads its definition and
 // policy through the same prefetch.
@@ -30,6 +31,7 @@ import (
 
 	"github.com/Navaladi2019/TicketingSystem/internal/audit"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
+	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/store"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
@@ -184,10 +186,10 @@ func (w *write) checkCreate(ctx context.Context, rec *store.Record, after map[st
 	return preview, nil
 }
 
-// writeCreate sends the write batch of a create: the number, the record,
-// the write key and the audit entry, in that order. after is the payload
-// preview the audit diff is built from; the INSERT returns the stored
-// payload, which must be the same bytes.
+// writeCreate sends the write batch of a create: the record, with the
+// number rec.Number already taken, the write key and the audit entry, in
+// that order. after is the payload preview the audit diff is built from; the
+// INSERT returns the stored payload, which must be the same bytes.
 func (w *write) writeCreate(ctx context.Context, rec *store.Record, after []byte) (Result, error) {
 	auditID, err := uuid.NewV7()
 	if err != nil {
@@ -195,9 +197,23 @@ func (w *write) writeCreate(ctx context.Context, rec *store.Record, after []byte
 	}
 	fixed := w.def.FixedColumns()
 	b := &pgx.Batch{}
-	var got store.Numbered
-	if err := store.QueueInsertNumbered(b, rec, w.def.NumberPrefix(), fixed, &got); err != nil {
-		return Result{}, fmt.Errorf("pipeline: %w", err)
+	var (
+		got      store.Inserted
+		numbered store.Numbered
+	)
+	// A `gapless` type takes its number here, last inside this transaction
+	// (ADR-005 L1, TICK-648): the counter row stays locked until this
+	// transaction ends, and a rollback gives the number back. A `gaps` type
+	// arrives with the number its allocation already committed.
+	gapless := w.def.NumberingMode() == metadata.NumberingGapless
+	var queueErr error
+	if gapless {
+		queueErr = store.QueueInsertNumbered(b, rec, w.def.NumberPrefix(), fixed, &numbered)
+	} else {
+		queueErr = store.QueueInsertRecord(b, rec, fixed, &got)
+	}
+	if queueErr != nil {
+		return Result{}, fmt.Errorf("pipeline: %w", queueErr)
 	}
 	if w.cmd.IdempotencyKey != "" {
 		// Claimed before the audit entry, so a concurrent duplicate by the
@@ -229,13 +245,20 @@ func (w *write) writeCreate(ctx context.Context, rec *store.Record, after []byte
 		}
 		return Result{}, fmt.Errorf("pipeline: %w", err)
 	}
-	if want := store.FormatNumber(w.def.NumberPrefix(), got.N); got.Number != want {
-		return Result{}, fmt.Errorf("pipeline: stored number %q, want %q", got.Number, want)
+	if gapless {
+		if want := store.FormatNumber(w.def.NumberPrefix(), numbered.N); numbered.Number != want {
+			return Result{}, fmt.Errorf("pipeline: stored number %q, want %q", numbered.Number, want)
+		}
+		rec.Number = numbered.Number
+		got = store.Inserted{Number: numbered.Number, Payload: numbered.Payload, CreatedAt: numbered.CreatedAt, UpdatedAt: numbered.UpdatedAt}
+	}
+	if got.Number != rec.Number {
+		return Result{}, fmt.Errorf("pipeline: stored number %q, want %q", got.Number, rec.Number)
 	}
 	if !bytes.Equal(got.Payload, after) {
 		return Result{}, errors.New("pipeline: the stored payload is not the one the audit entry was built from")
 	}
-	rec.Number, rec.CreatedAt, rec.UpdatedAt = got.Number, got.CreatedAt, got.UpdatedAt
+	rec.CreatedAt, rec.UpdatedAt = got.CreatedAt, got.UpdatedAt
 	// The stored payload, as PostgreSQL returns it, is the record's data
 	// from here on: what a read in this transaction would decode.
 	data, err := store.DecodeObject(got.Payload)
