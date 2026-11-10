@@ -57,6 +57,24 @@ func (e AuditEntryDomain) Valid() bool {
 	}
 }
 
+// Defines values for EntityTypeSummaryNumberingMode.
+const (
+	EntityTypeSummaryNumberingModeGapless EntityTypeSummaryNumberingMode = "gapless"
+	EntityTypeSummaryNumberingModeGaps    EntityTypeSummaryNumberingMode = "gaps"
+)
+
+// Valid indicates whether the value is a known member of the EntityTypeSummaryNumberingMode enum.
+func (e EntityTypeSummaryNumberingMode) Valid() bool {
+	switch e {
+	case EntityTypeSummaryNumberingModeGapless:
+		return true
+	case EntityTypeSummaryNumberingModeGaps:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for EntityTypeVersionCompat.
 const (
 	Compatible    EntityTypeVersionCompat = "compatible"
@@ -72,6 +90,24 @@ func (e EntityTypeVersionCompat) Valid() bool {
 	case Initial:
 		return true
 	case NeedsBackfill:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for EntityTypeVersionNumberingMode.
+const (
+	EntityTypeVersionNumberingModeGapless EntityTypeVersionNumberingMode = "gapless"
+	EntityTypeVersionNumberingModeGaps    EntityTypeVersionNumberingMode = "gaps"
+)
+
+// Valid indicates whether the value is a known member of the EntityTypeVersionNumberingMode enum.
+func (e EntityTypeVersionNumberingMode) Valid() bool {
+	switch e {
+	case EntityTypeVersionNumberingModeGapless:
+		return true
+	case EntityTypeVersionNumberingModeGaps:
 		return true
 	default:
 		return false
@@ -273,12 +309,16 @@ type EntityTypeList struct {
 
 // EntityTypeSummary defines model for EntityTypeSummary.
 type EntityTypeSummary struct {
-	CurrentVersion int       `json:"current_version"`
-	Key            string    `json:"key"`
-	Name           string    `json:"name"`
-	NumberPrefix   string    `json:"number_prefix"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	CurrentVersion int                            `json:"current_version"`
+	Key            string                         `json:"key"`
+	Name           string                         `json:"name"`
+	NumberPrefix   string                         `json:"number_prefix"`
+	NumberingMode  EntityTypeSummaryNumberingMode `json:"numbering_mode"`
+	UpdatedAt      time.Time                      `json:"updated_at"`
 }
+
+// EntityTypeSummaryNumberingMode defines model for EntityTypeSummary.NumberingMode.
+type EntityTypeSummaryNumberingMode string
 
 // EntityTypeVersion defines model for EntityTypeVersion.
 type EntityTypeVersion struct {
@@ -290,7 +330,10 @@ type EntityTypeVersion struct {
 	Key          string            `json:"key"`
 	Name         string            `json:"name"`
 	NumberPrefix string            `json:"number_prefix"`
-	PublishedAt  time.Time         `json:"published_at"`
+
+	// NumberingMode How the type numbers its records (D-3-9). Belongs to the type, not the version.
+	NumberingMode EntityTypeVersionNumberingMode `json:"numbering_mode"`
+	PublishedAt   time.Time                      `json:"published_at"`
 
 	// Schema The JSON Schema 2020-12 document, as the stored bytes.
 	Schema interface{} `json:"schema"`
@@ -303,6 +346,9 @@ type EntityTypeVersion struct {
 
 // EntityTypeVersionCompat defines model for EntityTypeVersion.Compat.
 type EntityTypeVersionCompat string
+
+// EntityTypeVersionNumberingMode How the type numbers its records (D-3-9). Belongs to the type, not the version.
+type EntityTypeVersionNumberingMode string
 
 // FieldError defines model for FieldError.
 type FieldError struct {
