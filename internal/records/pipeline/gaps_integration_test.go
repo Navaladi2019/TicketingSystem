@@ -380,6 +380,13 @@ func allStarved(t *testing.T, errs []error) {
 	}
 }
 
+// noLatencyBudget is the allocation timeout of the subtests that must not
+// starve: they test that the create path cannot deadlock, not its latency,
+// so a slow CI host must not fail them on the production 200 ms (A5, which
+// TestAllocationTimeoutIsRetryableAndMeasured covers). The controls keep the
+// production timeout: their starvation is what they assert.
+const noLatencyBudget = 5 * time.Second
+
 // AC (scope 3, ADR-005 A5): no pool starvation at pool size x 2 concurrent
 // creates, each holding its create connection while it waits for a number.
 // Direct: an API pool of 4. Through PgBouncer: an API pool as wide as the
@@ -399,7 +406,7 @@ func TestAllocatorPoolDoesNotStarveThePool(t *testing.T) {
 	}
 	const direct = 4
 	t.Run("direct, allocator pool", func(t *testing.T) {
-		noErrors(t, starve(small(direct), f, pipeline.PoolRunner{Pool: allocPool(t, dsn)}, direct))
+		noErrors(t, starve(small(direct), f, pipeline.PoolRunner{Pool: allocPool(t, dsn), AllocTimeout: noLatencyBudget}, direct))
 	})
 	t.Run("direct, control: the API pool", func(t *testing.T) {
 		e := small(direct)
@@ -409,7 +416,7 @@ func TestAllocatorPoolDoesNotStarveThePool(t *testing.T) {
 	const serverPool = 5 // scripts/ci/pgbouncer/pooled.ini default_pool_size
 	bounced := throughBouncer(t, base, serverPool)
 	t.Run("PgBouncer, allocator through nava_alloc", func(t *testing.T) {
-		noErrors(t, starve(bounced, f, pipeline.PoolRunner{Pool: bounced.alloc}, serverPool))
+		noErrors(t, starve(bounced, f, pipeline.PoolRunner{Pool: bounced.alloc, AllocTimeout: noLatencyBudget}, serverPool))
 	})
 	t.Run("PgBouncer, control: allocator through the nava entry", func(t *testing.T) {
 		shared := allocPool(t, bounced.app.Config().ConnString())

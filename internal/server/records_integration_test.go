@@ -7,6 +7,7 @@
 package server_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -163,6 +164,44 @@ func TestCreateRecordRetryWithTheSameKeyCreatesOne(t *testing.T) {
 	wantProblem(t, e.createRec(t, "user-a", "ticket", "same-key", `{"short_description": "other"}`), http.StatusConflict, problem.IdempotencyKeyReuse)
 	if n := e.recordCount(t, "a"); n != 1 {
 		t.Errorf("tenant A has %d records after the conflicting retry, want 1", n)
+	}
+}
+
+// ADR-005 A5, TICK-657: a create whose number allocation passes its timeout
+// (here the tenant's counter row is held by another transaction) answers 503
+// retry_later with Retry-After and writes nothing. The 503 is not stored
+// against the Idempotency-Key, so the retry with the same key creates the
+// record once the counter is free.
+//
+// covers: createRecord 503
+func TestCreateRecordAllocationTimeoutIs503RetryLater(t *testing.T) {
+	e := newRecEnv(t)
+	e.mustCreateRec(t, "user-a", "ticket", "first", `{"short_description": "one"}`)
+	holder, err := e.super.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = holder.Rollback(context.Background()) }()
+	if _, err := holder.Exec(t.Context(), "SELECT 1 FROM record_counters WHERE tenant_id = $1 FOR UPDATE", e.a.id); err != nil {
+		t.Fatal(err)
+	}
+	late := e.createRec(t, "user-a", "ticket", "late", `{"short_description": "late"}`)
+	wantProblem(t, late, http.StatusServiceUnavailable, problem.RetryLater)
+	if got := late.Header().Get("Retry-After"); got != "1" {
+		t.Errorf("Retry-After = %q, want 1", got)
+	}
+	if err := holder.Rollback(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if n := e.recordCount(t, "a"); n != 1 {
+		t.Fatalf("tenant A has %d records after the 503, want 1", n)
+	}
+	retry := e.createRec(t, "user-a", "ticket", "late", `{"short_description": "late"}`)
+	if retry.Code != http.StatusCreated || retry.Header().Get("Idempotent-Replayed") == "true" {
+		t.Fatalf("retry = %d replayed=%q, want a fresh 201: %s", retry.Code, retry.Header().Get("Idempotent-Replayed"), retry.Body)
+	}
+	if n := e.recordCount(t, "a"); n != 2 {
+		t.Fatalf("tenant A has %d records after the retry, want 2", n)
 	}
 }
 

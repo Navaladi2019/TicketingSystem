@@ -231,7 +231,7 @@ func TestResponseErrorKnowsEveryCode(t *testing.T) {
 	noFields := map[problem.Code]bool{
 		problem.TenantUnresolved: true, problem.InvalidToken: true, problem.IdempotencyKeyReuse: true,
 		problem.IdempotencyInFlight: true, problem.Forbidden: true, problem.DomainClaimed: true,
-		problem.OnboardingConflict: true, problem.InvalidCursor: true, problem.RateLimited: true,
+		problem.OnboardingConflict: true, problem.InvalidCursor: true, problem.RateLimited: true, problem.RetryLater: true,
 		problem.NotFound: true, problem.MethodNotAllowed: true, problem.NotImplemented: true,
 		problem.InternalError: true, problem.EntityTypeExists: true, problem.NumberPrefixTaken: true, problem.IfMatchRequired: true, problem.VersionConflict: true,
 		problem.HistoryTooLong: true, problem.FilterTooExpensive: true,

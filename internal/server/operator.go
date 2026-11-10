@@ -75,8 +75,8 @@ func WithPool(p *pgxpool.Pool) Option { return func(o *options) { o.pool = p } }
 // WithAllocatorPool gives the record pipeline's own transactions (a create's
 // number, D-3-9 as amended 2026-11-10; the cascade_rejected audit row) a
 // nava_app pool of their own, so they never wait for a connection an open
-// create holds (TICK-657). Without it they run on WithPool's pool, which is
-// safe only while a create never holds every connection of it.
+// create holds (TICK-657). WithPool requires it: NewHandler refuses the
+// record routes without it.
 func WithAllocatorPool(p *pgxpool.Pool) Option { return func(o *options) { o.allocPool = p } }
 
 // WithAuditReader gives the audit timeline and record history the reader's

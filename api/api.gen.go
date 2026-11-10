@@ -3271,6 +3271,30 @@ func (response CreateRecord501ApplicationProblemPlusJSONResponse) VisitCreateRec
 	return err
 }
 
+type CreateRecord503ResponseHeaders struct {
+	RetryAfter *int
+}
+
+type CreateRecord503ApplicationProblemPlusJSONResponse struct {
+	Body    Problem
+	Headers CreateRecord503ResponseHeaders
+}
+
+func (response CreateRecord503ApplicationProblemPlusJSONResponse) VisitCreateRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetRecordRequestObject struct {
 	Entity Entity `json:"entity"`
 	Id     string `json:"id"`
@@ -3571,6 +3595,30 @@ func (response PatchRecord501ApplicationProblemPlusJSONResponse) VisitPatchRecor
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PatchRecord503ResponseHeaders struct {
+	RetryAfter *int
+}
+
+type PatchRecord503ApplicationProblemPlusJSONResponse struct {
+	Body    Problem
+	Headers PatchRecord503ResponseHeaders
+}
+
+func (response PatchRecord503ApplicationProblemPlusJSONResponse) VisitPatchRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(503)
 	_, err := buf.WriteTo(w)
 	return err
 }

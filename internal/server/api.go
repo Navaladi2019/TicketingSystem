@@ -92,10 +92,14 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 		if err != nil {
 			return nil, err
 		}
-		runner := pipeline.PoolRunner{Pool: opts.pool, Metrics: allocMetrics}
-		if opts.allocPool != nil {
-			runner.Pool = opts.allocPool
+		// A create takes its number on the allocator pool (ADR-005 L2s)
+		// while its own transaction holds a request-pool connection. On the
+		// request pool itself, creates holding every connection would starve
+		// their own allocations, so there is no fallback (TICK-657).
+		if opts.allocPool == nil {
+			return nil, errors.New("server: the record routes need WithAllocatorPool (ADR-005 L2s): the number allocator never runs on the request pool")
 		}
+		runner := pipeline.PoolRunner{Pool: opts.allocPool, Metrics: allocMetrics}
 		h.pipe = pipeline.New(h.acl, h.store, pipeline.NoopSink{}, runner, pipeline.SystemClock{})
 	}
 	api.HandlerWithOptions(
@@ -234,6 +238,10 @@ func (h *handlers) GetMe(ctx context.Context, _ api.GetMeRequestObject) (api.Get
 	return api.GetMe200JSONResponse{UserId: p.PrincipalID, TenantId: p.TenantID, Groups: groups, IdpAlias: p.IdPAlias, GroupPaths: paths}, nil
 }
 
+// retryLaterSeconds is the Retry-After of a 503 retry_later: an allocation
+// gives up after 200 ms, so a second is ample for its queue to drain.
+const retryLaterSeconds = "1"
+
 // responseError answers a handler's problemError with its registered code and
 // hands every other error to the shared handler.
 func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http.Request, error) {
@@ -285,6 +293,11 @@ func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http
 					h.reg.Write(w, r, problem.InvalidAccessPolicy, pe.fields...)
 					return
 				}
+			}
+			if pe.code == problem.RetryLater {
+				// Not stored by the idempotency middleware (a 5xx), so the
+				// retry with the same key runs the write again.
+				w.Header().Set("Retry-After", retryLaterSeconds)
 			}
 			h.reg.WriteError(w, r, h.log, pe.code, pe.err)
 			return

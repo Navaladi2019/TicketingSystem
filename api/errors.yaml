@@ -40,6 +40,10 @@ codes:
     status: 400
     title: Invalid cursor
     detail: The pagination cursor is invalid or has expired.
+  - code: retry_later
+    status: 503
+    title: Try again later
+    detail: The write could not finish now and changed nothing. Retry after the interval in Retry-After.
   - code: rate_limited
     status: 429
     title: Rate limited
