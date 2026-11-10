@@ -11,7 +11,9 @@ import (
 // transaction-local (is_local true), so neither outlives the transaction:
 // through PgBouncer in transaction mode the next transaction on the server
 // connection starts at the server default. The reset is to '0', no timeout,
-// which is the platform's value: no role, database or pool sets lock_timeout.
+// which is the platform's value: no role, database or pool sets lock_timeout
+// (TestNoRoleOrDatabaseDefaultSetsLockTimeout in internal/db/dbtest fails if
+// one does; restoring the previous value instead would cost a statement).
 const (
 	lockTimeoutSetSQL   = "SELECT set_config('lock_timeout', $1, true)"
 	lockTimeoutResetSQL = "SELECT set_config('lock_timeout', '0', true)"

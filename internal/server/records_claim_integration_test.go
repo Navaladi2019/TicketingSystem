@@ -239,7 +239,7 @@ func TestCreateRecordDuplicatePastClaimWaitIs409(t *testing.T) {
 	dup := e.createRec(t, "user-a", "ticket", "k-688-wait", `{"short_description": "gated"}`)
 	took := time.Since(start)
 	wantProblem(t, dup, http.StatusConflict, problem.IdempotencyInFlight)
-	if got, want := dup.Header().Get("Retry-After"), strconv.Itoa(int(idempotency.Lease/time.Second)); got != want {
+	if got, want := dup.Header().Get("Retry-After"), strconv.Itoa(int(idempotency.ClaimRetryAfter/time.Second)); got != want {
 		t.Errorf("Retry-After = %q, want %s", got, want)
 	}
 	if took < idempotency.ClaimWait-100*time.Millisecond || took > idempotency.ClaimWait+3*time.Second {
