@@ -60,16 +60,18 @@ sequenceDiagram
 
 | Round trip | Statements |
 |---|---|
-| idempotency claim (unchanged, own transaction) | BEGIN+GUC; `INSERT idempotency_keys`; COMMIT |
 | BEGIN | BEGIN+GUC |
-| prefetch | lock own `idempotency_keys` row `FOR UPDATE`; definition id; current definition; ACL policy |
+| claim + prefetch | `set_config('lock_timeout', '2000ms', true)`; `INSERT idempotency_keys … ON CONFLICT DO NOTHING` (the claim, TICK-688); `set_config('lock_timeout', '0', true)`; definition id; current definition; ACL policy |
 | checks | per unique property its advisory lock then its lookup; assignment group live; payload preview |
 | number (`tenancy.AllocTx`, allocator pool, TICK-657, ADR-005 L2s) | one pipelined send: BEGIN; `set_config` (tenant); `SET LOCAL synchronous_commit = off`; `record_counters` upsert `RETURNING next - 1, now()`; COMMIT |
 | write | `INSERT records` (with the number); `record_write_keys` (system writers with a key); `INSERT audit_log` |
 | commit | `UPDATE idempotency_keys` (completed, the 201); COMMIT |
 
-That is 9 round trips and 21 statements (8 and 17 under TICK-648): the
-number's own transaction adds one round trip of five statements and moves
+That is 6 round trips, 19 statements and one synchronous commit (9 and 21
+under TICK-657, 8 and 17 under TICK-648): TICK-688 folds the idempotency
+claim, which was a transaction of its own (BEGIN+GUC, INSERT, COMMIT: three
+round trips, a second synchronous commit), into the claim + prefetch batch.
+The number's own transaction adds one round trip of five statements and moves
 the upsert out of the write batch. The counter row is locked for that one
 round trip, with no fsync in it (its COMMIT is asynchronous, ADR-005 A4), no
 longer from the write batch to the create's synchronous COMMIT.
@@ -87,13 +89,34 @@ longer from the write batch to the create's synchronous COMMIT.
   preview: `PayloadJSON`'s expression over bind parameters). The INSERT
   returns the stored row's payload, and the pipeline fails the write unless
   the two are byte-equal. So the diff is still the stored row's jsonb text.
-- **Idempotency.** The middleware's claim keeps its own transaction, so a
-  concurrent duplicate still gets 409 `idempotency_in_flight`. The handler's
-  prefetch locks the request's own key row while it is `in_flight`, so no
-  takeover can complete it first. The completion then rides in the COMMIT's
-  round trip, wrapped to divide by zero when it matches no row, so a miss
-  aborts the write as the unbatched check did (TICK-482). The pipeline's
+- **Idempotency (TICK-688).** The claim is the transaction's first write,
+  ahead of validation, the write check and the number, and is settled
+  (`idempotency.ResolveClaim`) right after the batch. A replay, a reuse or a
+  wait past the bound rolls the transaction back there and takes no number
+  (I4). The claim alone waits at most `idempotency.ClaimWait` (2 s,
+  `tenancy.QueueUnderLockTimeout`) on a concurrent request with the key; any
+  other lock wait of the create keeps its unbounded behaviour. The completion
+  rides in the COMMIT's round trip, wrapped to divide by zero when it matches
+  no row (TICK-482). A failed create leaves no key row. The pipeline's
   `record_write_keys` replay, `in_flight` and per-actor rules are unchanged.
+
+```mermaid
+sequenceDiagram
+    participant A as request 1
+    participant B as request 2 (same key)
+    participant P as PostgreSQL
+    A->>P: BEGIN+GUC
+    A->>P: batch: lock_timeout 2s, claim INSERT, lock_timeout 0, prefetch
+    B->>P: BEGIN+GUC
+    B->>P: batch: lock_timeout 2s, claim INSERT (waits on A's key)
+    A->>P: checks, number, write
+    A->>P: batch: UPDATE idempotency_keys (the 201), COMMIT
+    P-->>B: claim inserts nothing (A committed)
+    B->>P: SELECT the key row: completed
+    B->>P: ROLLBACK, replay A's 201
+    Note over B,P: A rolled back: B's claim inserts, B creates.<br/>Past 2 s: 55P03, B rolls back, 409 idempotency_in_flight.
+```
+
 - **The 201** is built from the row the write stored (`pipeline.Get` answers
   from the memo), with the stored number, timestamps and payload.
 
