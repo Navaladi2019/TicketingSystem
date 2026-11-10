@@ -4,14 +4,14 @@
 #   lint             gofmt, go vet (untagged, then per build-tag set),
 #                    golangci-lint, fixtures, pins, generated code (API and
 #                    acceptance guide), required
-#                    CI steps, OpenAPI, govulncheck (no containers)
+#                    CI steps, OpenAPI (no containers). govulncheck is the
+#                    govulncheck workflow since TICK-641
+#                    (.github/workflows/govulncheck.yml)
 #   unit             go test -race (no containers)
-#   temporal-server  the custom server module's unit tests, golangci-lint
-#                    (TICK-584) and govulncheck (no containers); only when
-#                    the module or how it is built, tested or linted changed
+#   temporal-server  the custom server module's unit tests and golangci-lint
+#                    (TICK-584) (no containers); only when the module or how
+#                    it is built, tested or linted changed
 #                    (make ci-temporal-server-changed, TICK-641)
-#   temporal-server-vulncheck  the schedule's govulncheck of that module, so a
-#                    new advisory is found without a change (ADR-001-A1 R7)
 #   integration      -tags integration against a throwaway PostgreSQL, the
 #                    isolation suite, then the ci-isolated --down tag check
 #   commit-check-budget  TestCommitCheckBudget alone on its own runner
@@ -53,8 +53,7 @@
 # fail (TICK-297).
 #   story-branches   every story branch's work is on main (TICK-322); runs on
 #                    every event and every 6 hours (schedule, which runs no
-#                    other job but temporal-server-vulncheck), and on main
-#                    keeps one issue open while red
+#                    other job), and on main keeps one issue open while red
 # The stack job uses the published temporal-server image when one exists for
 # the checkout's temporal-server/ tree (make temporal-server-pull, TICK-641;
 # the temporal-server-image workflow publishes it from main) and builds the
@@ -113,9 +112,8 @@ on:
         type: choice
         options: [github, self-hosted]
         default: github
-  # story-branches: a story branch drifts from main without any push to
+  # story-branches only: a story branch drifts from main without any push to
   # main (a PR merged into it), so it is checked on a clock too (TICK-322).
-  # temporal-server-vulncheck: new advisories for an unchanged module (TICK-641).
   schedule:
     - cron: '23 */6 * * *'
 
@@ -315,8 +313,7 @@ jobs:
         run: make check-ci-steps
       - name: OpenAPI additive-only
         run: make check-openapi
-      - name: govulncheck
-        run: make vulncheck
+      # govulncheck: the govulncheck workflow (TICK-641).
       # Only main writes the cache (TICK-400); see CACHE_WRITE above.
       - name: Save the Go build cache
         if: success() && env.CACHE_WRITE == 'true' && needs.runner.outputs.self_hosted != 'true'
@@ -406,7 +403,7 @@ jobs:
           restore-keys: |
             go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-
             go-${{ github.job }}-
-      # The lint job's tools cache (same key): golangci-lint and govulncheck.
+      # The lint job's tools cache (same key): golangci-lint.
       # Self-hosted (TICK-641): ~/go/bin persists, so no Actions cache, and
       # make tools reinstalls the pins from the warm Go cache.
       - name: Cache pinned tools
@@ -425,9 +422,7 @@ jobs:
       # findings in changed lines until the existing backlog is fixed.
       - name: golangci-lint (temporal-server)
         run: make lint-temporal-server
-      # ADR-001 A1 Decision 3: zero findings, no exception and no allowlist.
-      - name: govulncheck (temporal-server)
-        run: make vulncheck-temporal-server
+      # govulncheck (ADR-001 A1 Decision 3): the govulncheck workflow (TICK-641).
       # Only main writes the cache (TICK-400); see CACHE_WRITE above.
       - name: Save the Go build cache
         if: success() && env.CACHE_WRITE == 'true' && needs.runner.outputs.self_hosted != 'true'
@@ -438,25 +433,6 @@ jobs:
             ~/go/pkg/mod
             ~/.cache/golangci-lint
           key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
-
-  temporal-server-vulncheck:
-    # TICK-641: the temporal-server job runs only when its module changes, and
-    # a new advisory needs no change of ours, so the schedule scans the module
-    # every 6 hours (ADR-001 A1 Decision 3: zero findings; R7: rescan for new
-    # advisories). A failure opens the P0 issue through main-red.
-    if: github.event_name == 'schedule'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: temporal-server/go.mod
-          cache: false
-      - name: Install govulncheck
-        run: make tools-govulncheck
-      - name: govulncheck (temporal-server)
-        run: make vulncheck-temporal-server
 
   integration:
     needs: [runner, changes]
@@ -534,11 +510,13 @@ jobs:
     # the test out.
     # Always GitHub-hosted (TICK-641): the budget rows are measured against
     # that runner (ADR-004-E3/E4); a number from another host compares with
-    # nothing, and the WSL runner failed fail_flat.
+    # nothing, and the WSL runner failed fail_flat. TestP511CommitCheckPooledSession
+    # runs here too, out of the integration shards: a timing ratio is not
+    # meaningful on a saturated shared host (TICK-641).
     needs: changes
     if: needs.changes.outputs.integration == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -555,7 +533,7 @@ jobs:
           restore-keys: |
             go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-
             go-${{ github.job }}-
-      - name: Commit-check budget rows (TestCommitCheckBudget alone)
+      - name: Commit-check budget rows and the P511 pooled-session ratio
         run: make test-commit-check-budget
       # Only main writes the cache (TICK-400); see CACHE_WRITE above.
       - name: Save the Go build cache
@@ -892,11 +870,11 @@ jobs:
 
   main-red:
     # A push to main with any failed job opens (or comments on) the P0
-    # "main is red" issue, and so does a scheduled run whose
-    # temporal-server-vulncheck failed (TICK-641). A skipped job is not a
-    # failure; a cancelled run does not fire this.
-    needs: [runner, changes, lint, unit, temporal-server, temporal-server-vulncheck, integration, commit-check-budget, stack, coverage]
-    if: failure() && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule')
+    # "main is red" issue. A skipped job is not a failure; a cancelled run
+    # does not fire this. The govulncheck workflow has a main-red job of its
+    # own (TICK-641).
+    needs: [runner, changes, lint, unit, temporal-server, integration, commit-check-budget, stack, coverage]
+    if: failure() && github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -909,7 +887,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
-          EVENT: ${{ github.event_name }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           NEEDS_JSON: ${{ toJSON(needs) }}
         run: sh scripts/ci/main-red.sh
