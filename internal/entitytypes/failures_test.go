@@ -88,17 +88,18 @@ func versionRow(def metadata.Definition, version, current int, badSum bool) step
 	return step{scan: func(d []any) error {
 		*d[0].(*string) = def.Key
 		*d[2].(*string) = def.NumberPrefix
-		*d[3].(*int) = current
-		*d[4].(*int) = version
-		*d[5].(*string) = string(def.Schema)
+		*d[3].(*metadata.NumberingMode) = metadata.NumberingGaps
+		*d[4].(*int) = current
+		*d[5].(*int) = version
+		*d[6].(*string) = string(def.Schema)
 		sum := sha256.Sum256(def.Schema)
 		if badSum {
-			*d[6].(*[]byte) = sum[:5]
+			*d[7].(*[]byte) = sum[:5]
 		} else {
-			*d[6].(*[]byte) = sum[:]
+			*d[7].(*[]byte) = sum[:]
 		}
-		*d[7].(*map[string]string) = def.FixedColumns
-		*d[8].(*metadata.StateModel) = def.States
+		*d[8].(*map[string]string) = def.FixedColumns
+		*d[9].(*metadata.StateModel) = def.States
 		return nil
 	}}
 }
@@ -237,7 +238,8 @@ func TestPublishRefusalsAndFailures(t *testing.T) {
 	ctx, d := t.Context(), template(t)
 	lock := step{scan: func(dest []any) error {
 		*dest[1].(*string) = d.NumberPrefix
-		*dest[2].(*int) = 1
+		*dest[2].(*metadata.NumberingMode) = metadata.NumberingGaps
+		*dest[3].(*int) = 1
 		return nil
 	}}
 	cur := versionRow(d, 1, 1, false)
@@ -293,7 +295,8 @@ func TestEncodeFailuresWriteNothing(t *testing.T) {
 	}
 	lock := step{scan: func(dest []any) error {
 		*dest[1].(*string) = d.NumberPrefix
-		*dest[2].(*int) = 1
+		*dest[2].(*metadata.NumberingMode) = metadata.NumberingGaps
+		*dest[3].(*int) = 1
 		return nil
 	}}
 	_, err = Store{}.Publish(ctx, &fakeTx{t: t, steps: []step{lock, versionRow(d, 1, 1, false)}}, uuid.New(),

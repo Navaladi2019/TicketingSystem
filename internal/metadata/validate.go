@@ -130,6 +130,10 @@ func (c *Compiled) SecretProperties() []string {
 // NumberPrefix returns the definition's record number prefix.
 func (c *Compiled) NumberPrefix() string { return c.numberPrefix }
 
+// NumberingMode returns the type's numbering mode (D-3-9): NumberingGaps
+// unless the definition set NumberingGapless.
+func (c *Compiled) NumberingMode() NumberingMode { return c.numberingMode }
+
 // FixedColumns returns a copy of the mapping from top-level property to the
 // fixed column that stores it (one of the Column constants).
 func (c *Compiled) FixedColumns() map[string]string { return maps.Clone(c.fixedColumns) }
