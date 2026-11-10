@@ -703,6 +703,11 @@ jobs:
           # Here, not on the run: line: required.yaml matches that line exactly.
           PARALLEL: "1"
         run: make stack-tests JOB=stack
+      # TICK-696: host and per-container memory after the cases, so a fast run
+      # (no operator profile) and a full run compare. Never fails.
+      - name: Stack memory (stack)
+        if: always() && steps.up.outcome == 'success'
+        run: make stack-mem
       # sdk and identity_attacks write these; both are full-tier (TICK-652).
       - name: CI-6 report
         if: always() && env.CI_FULL == 'true'
