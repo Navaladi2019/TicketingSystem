@@ -83,28 +83,39 @@ flowchart TD
   first write's uncommitted key and then hits `23505` on
   `record_write_keys_actor_key`, which aborts the transaction: `Write` returns
   `*ErrIdempotencyConflict{Concurrent: true}`, and the retry replays.
-- **Numbering (D-3-9, amended 2026-11-10: gaps allowed, no reclaim).** A
-  create takes its number with one upsert, `INSERT INTO record_counters ...
+- **Numbering (D-3-9 as amended 2026-11-10; ADR-005 L2s for `gaps` types).**
+  A create takes its number with one upsert, `INSERT INTO record_counters ...
   VALUES (..., 2) ON CONFLICT ... DO UPDATE SET next = record_counters.next +
-  1 RETURNING next - 1`, after the replay check, validation, the write check
-  and the unique and group checks (ADR-001 I4), so a refused or invalid create
-  never moves the counter. The upsert runs on the pipeline's `TxRunner` in a
-  short tenant transaction of its own (BEGIN with the tenant GUC, upsert,
-  COMMIT) that commits before the record is inserted (TICK-657). The counter
-  row is locked only for that upsert and its COMMIT, so creates of one type
-  no longer queue on each other's COMMIT. A create that fails or rolls back
-  after that leaves a gap; a retry takes a new number. Numbers stay unique
-  and increasing per tenant and type. Nothing creates the counter row in
-  advance, and there is no sequence (I8). The per-type `gapless` mode (the
-  TICK-648 layout) returns with `entity_definitions.numbering_mode`
-  (TICK-659).
-- **Allocator pool.** The runner's transaction needs a connection while the
-  create's own transaction holds one, so nava-core gives it a pool of its own
-  (`cmd/nava-core/allocator.go`, 4 connections) and, behind PgBouncer, a
-  server pool of its own (the `nava_alloc` entry, `NAVA_ALLOCATOR_DATABASE_URL`).
-  On the API pool, or on the API pool's PgBouncer server pool, creates that
-  hold every connection would wait forever for their numbers
-  (`TestAllocatorPoolDoesNotStarveThePool`).
+  1 RETURNING next - 1, now()`, after the replay check, validation, the
+  write check and the unique and group checks (ADR-001 I4, ADR-005 A6), so a
+  refused or invalid create never moves the counter. It runs through
+  `tenancy.AllocTx` on the dedicated allocator pool: one pipelined send of
+  `BEGIN; set_config(app.tenant_id, tenant, true); SET LOCAL
+  synchronous_commit = off; upsert; COMMIT`, with the tenant taken from the
+  create's own transaction (A1, A2, A4). The allocation commits before the
+  record is inserted, without waiting for its WAL flush: the record's own
+  synchronous commit flushes it (AR-TICK-653-03). The counter row is locked
+  only for that one round trip. The create checks the allocation (tenant,
+  type, scope `''`, epoch 0) against its own transaction, and stores the
+  allocation's `now()` as `created_at` (A7). An allocation that takes longer
+  than 200 ms fails the create with `ErrRetryable` (A5). A create that fails
+  or rolls back after its number leaves a gap; a retry takes a new number.
+  Numbers stay unique and increasing per tenant and type. Nothing creates the
+  counter row in advance, and there is no sequence (I8). The per-type
+  `gapless` mode (L1, the TICK-648 layout) returns with
+  `entity_definitions.numbering_mode` (TICK-659).
+- **Allocator pool (ADR-005 A3, A5, A8).** The allocation needs a connection
+  while the create's own transaction holds one, so nava-core gives it a pool
+  of its own (`cmd/nava-core/allocator.go`, 4 connections, `pool_max_conns`
+  in the DSN overrides it and must match `nava_alloc pool_size`) and, behind
+  PgBouncer, a server pool of its own (the `nava_alloc` entry,
+  `NAVA_ALLOCATOR_DATABASE_URL`). The pool logs in as `nava_app` only:
+  startup refuses another login, and each connection is checked for
+  SUPERUSER and BYPASSRLS as it opens (`tenancy.AllocPoolConfig`). Metrics:
+  `nava_numbering_alloc_acquire_seconds`, `nava_numbering_alloc_seconds`,
+  `nava_numbering_alloc_timeouts`. On the API pool, or on the API pool's
+  PgBouncer server pool, creates that hold every connection would starve
+  their own allocations (`TestAllocatorPoolDoesNotStarveThePool`).
 
 ```mermaid
 sequenceDiagram
@@ -112,13 +123,11 @@ sequenceDiagram
     participant A as allocator pool
     participant P as PostgreSQL
     H->>P: BEGIN+tenant; prefetch; checks (CanWrite, unique, group)
-    H->>A: takeNumber(tenant, type)
-    A->>P: BEGIN+tenant
-    A->>P: record_counters upsert RETURNING next - 1
-    A->>P: COMMIT (counter row unlocked)
-    A-->>H: n
-    H->>P: batch: INSERT record (number n), write key, audit
-    H->>P: COMMIT (a failure here leaves n as a gap)
+    H->>A: AllocTx(createTx) - tenant = TenantOf(createTx)
+    A->>P: one send: BEGIN; set_config; SET LOCAL synchronous_commit = off; upsert RETURNING next - 1, now(); COMMIT
+    A-->>H: (tenant, type, scope '', epoch 0, n, instant)
+    H->>P: batch: INSERT record (number n, created_at = instant), write key, audit
+    H->>P: COMMIT, synchronous (a failure here leaves n as a gap)
 ```
 
   Format `<prefix><7 digits>` (`INC0000001`), growing past 7 digits; past

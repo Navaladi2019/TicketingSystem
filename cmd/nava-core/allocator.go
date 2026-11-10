@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/db"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
+	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
 // allocatorMaxConns is the allocator pool's default width. An allocation is
@@ -56,6 +58,11 @@ func newAllocatorPool(ctx context.Context, log *slog.Logger, tel *telemetry.Tele
 	poolCfg.ConnConfig.ConnectTimeout = 5 * time.Second
 	if !strings.Contains(dsn, "pool_max_conns") {
 		poolCfg.MaxConns = allocatorMaxConns
+	}
+	// ADR-005 A3: nava_app only. Another login fails startup here; every
+	// connection is also checked for SUPERUSER and BYPASSRLS as it opens.
+	if err := tenancy.AllocPoolConfig(poolCfg); err != nil {
+		return nil, fmt.Errorf("config: %w", err)
 	}
 	return db.NewPool(ctx, poolCfg, tel)
 }

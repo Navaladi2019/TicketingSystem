@@ -118,6 +118,12 @@ func (g *Guard) TraceQueryStart(ctx context.Context, conn *pgx.Conn, d pgx.Trace
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	tenant := g.state(conn)
+	// The allocator pool's role check (ADR-005 A3) runs once as a connection
+	// opens, under no tenant by design: neither a violation nor a request's
+	// trip.
+	if tenancy.IsAllocatorRoleCheck(d.SQL) {
+		return ctx
+	}
 	if id, ok := tenancy.BeginTenant(d.SQL); ok {
 		if tenant != uuid.Nil {
 			g.violations = append(g.violations, "a tenancy BEGIN on a connection already scoped to "+tenant.String())
@@ -147,6 +153,15 @@ func (g *Guard) TraceBatchStart(ctx context.Context, conn *pgx.Conn, d pgx.Trace
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	tenant := g.state(conn)
+	// An AllocTx batch opens its own transaction and scopes it in its
+	// first statements, so it runs under that tenant from the start.
+	if id, ok := tenancy.AllocTenant(d.Batch); ok {
+		if tenant != uuid.Nil {
+			g.violations = append(g.violations, "an allocation BEGIN on a connection already scoped to "+tenant.String())
+		}
+		tenant = id
+		g.scoped[conn] = id
+	}
 	sqls := make([]string, 0, d.Batch.Len())
 	for _, q := range d.Batch.QueuedQueries {
 		sqls = append(sqls, q.SQL)

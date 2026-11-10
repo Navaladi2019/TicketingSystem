@@ -158,11 +158,11 @@ func TestConcurrentCreatesNumberWithoutGaps(t *testing.T) {
 
 // TestCreateTakesItsNumberInATransactionOfItsOwn traces a create's round
 // trips on both pools: the tenancy BEGIN sets the tenant before anything
-// else, every trip runs under it, and the record_counters upsert runs alone
-// in a transaction of its own (BEGIN, upsert, COMMIT) after the checks and
-// before the batch that inserts the record, which no longer names the
-// counter (D-3-9 as amended 2026-11-10, TICK-657). Its trips and statements
-// are logged for the PR.
+// else, every trip runs under it, and the record_counters upsert goes in one
+// pipelined trip of its own on the allocator pool (tenancy.AllocTx: BEGIN,
+// the tenant, SET LOCAL, the upsert, COMMIT; ADR-005 A1, A4) after the
+// checks and before the batch that inserts the record, which no longer names
+// the counter (TICK-657). Its trips and statements are logged for the PR.
 func TestCreateTakesItsNumberInATransactionOfItsOwn(t *testing.T) {
 	e := migrated(t)
 	f := seedTenant(t, e)
@@ -204,21 +204,17 @@ func TestCreateTakesItsNumberInATransactionOfItsOwn(t *testing.T) {
 				return slices.ContainsFunc(tr.SQL, func(s string) bool { return strings.Contains(s, want) })
 			}
 			up := slices.IndexFunc(trips, func(tr tenancytest.Trip) bool { return has(tr, "record_counters") })
-			if up < 1 || up+1 >= len(trips) {
-				t.Fatalf("no counter upsert between two trips: %d trips", len(trips))
+			if up < 1 {
+				t.Fatalf("no counter upsert after the create's BEGIN: %d trips", len(trips))
 			}
-			if n := len(trips[up].SQL); n != 1 {
-				t.Errorf("the counter upsert shares its trip with %d statements: %q", n-1, trips[up].SQL)
-			}
-			if begin := trips[up-1]; !strings.HasPrefix(strings.ToLower(begin.SQL[0]), "begin") {
-				t.Errorf("the trip before the upsert is %q, want the allocation's BEGIN", begin.SQL)
-			}
-			if end := trips[up+1]; len(end.SQL) != 1 || end.SQL[0] != "commit" {
-				t.Errorf("the trip after the upsert is %q, want the allocation's COMMIT", end.SQL)
+			alloc := trips[up].SQL
+			if !trips[up].Batch || len(alloc) != 5 || alloc[0] != "BEGIN" || !strings.HasPrefix(alloc[2], "SET LOCAL ") ||
+				!strings.Contains(alloc[3], "record_counters") || alloc[4] != "COMMIT" {
+				t.Errorf("the allocation trip is %q, want one batch: BEGIN, the tenant, SET LOCAL, the upsert, COMMIT", alloc)
 			}
 			ins := slices.IndexFunc(trips, func(tr tenancytest.Trip) bool { return has(tr, "INSERT INTO records") })
-			if ins < up+2 || !has(trips[ins], "INSERT INTO audit_log") {
-				t.Errorf("the record batch (trip %d) is not after the allocation's COMMIT (trip %d) with the audit entry", ins, up+1)
+			if ins != up+1 || !has(trips[ins], "INSERT INTO audit_log") {
+				t.Errorf("the record batch (trip %d) is not the trip after the allocation (trip %d), with the audit entry", ins, up)
 			}
 			for i, tr := range trips {
 				if i != up && has(tr, "record_counters") {
@@ -228,7 +224,7 @@ func TestCreateTakesItsNumberInATransactionOfItsOwn(t *testing.T) {
 			if end := trips[len(trips)-1]; end.SQL[len(end.SQL)-1] != "commit" {
 				t.Errorf("the last trip is %q, want COMMIT", end.SQL)
 			}
-			t.Logf("create (%s), pipeline only: %d round trips, %d statements; 3 trips of them the number's own transaction",
+			t.Logf("create (%s), pipeline only: %d round trips, %d statements; 1 trip of them the number's own transaction",
 				c.name, len(trips), rec.Statements())
 		})
 	}

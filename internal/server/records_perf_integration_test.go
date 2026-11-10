@@ -235,6 +235,9 @@ func newPerfEnv(t *testing.T, clients int) *perfEnv {
 	// create takes its number on it, traced like the API pool.
 	ac := pc.Copy()
 	ac.MaxConns = 4
+	if err := tenancy.AllocPoolConfig(ac); err != nil {
+		t.Fatal(err)
+	}
 	alloc, err := pgxpool.NewWithConfig(t.Context(), ac)
 	if err != nil {
 		t.Fatal(err)

@@ -88,7 +88,11 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 			return nil, err
 		}
 		h.acl = authz.ACL{Policies: authz.PolicyStore{}}
-		runner := pipeline.PoolRunner{Pool: opts.pool}
+		allocMetrics, err := pipeline.NewAllocMetrics(tel.MeterProvider)
+		if err != nil {
+			return nil, err
+		}
+		runner := pipeline.PoolRunner{Pool: opts.pool, Metrics: allocMetrics}
 		if opts.allocPool != nil {
 			runner.Pool = opts.allocPool
 		}

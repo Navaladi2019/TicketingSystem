@@ -26,8 +26,9 @@
 //
 // A create takes the next per-tenant, per-type number from record_counters
 // (D-3-9 as amended 2026-11-10: gaps allowed, no reclaim) after every check,
-// in a short transaction of its own on the TxRunner that commits before the
-// record is inserted (takeNumber). A create that then fails leaves a gap.
+// in a short transaction of its own on the allocator pool that commits
+// before the record is inserted (ADR-005 L2s, tenancy.AllocTx, alloc.go). A
+// create that then fails leaves a gap.
 // Every write checks the type's state model and its unique properties
 // (D-3-22) (P3-11). A write that changes assignment_group_id must
 // name a live group of the tenant (ADR-004-E5 D6); an unchanged value passes
@@ -218,19 +219,28 @@ type DefinitionReader interface {
 }
 
 // TxRunner runs fn in a tenant transaction of its own, while the caller's
-// transaction is open. Write takes a create's number on it (D-3-9, amended
-// 2026-11-10) and records a cascade_rejected audit row on it, so the row
-// survives the caller's rollback (D-3-7a). Each call needs a connection the
-// callers' transactions do not hold: a PoolRunner over the callers' own pool
-// can starve, every connection held by a create waiting for a second one.
-// nava-core gives it a pool of its own (the allocator pool, TICK-657).
+// transaction is open. Write records a cascade_rejected audit row on it, so
+// the row survives the caller's rollback (D-3-7a). A TxRunner that is also an
+// Allocator takes a `gaps` create's number (ADR-005 L2s, TICK-657). Each
+// call needs a connection the callers' transactions do not hold: a
+// PoolRunner over the callers' own pool can starve, every connection held by
+// a create waiting for a second one. nava-core gives it a pool of its own
+// (the allocator pool, cmd/nava-core/allocator.go).
 type TxRunner interface {
 	InTenantTx(ctx context.Context, tenantID uuid.UUID, fn func(pgx.Tx) error) error
 }
 
 // PoolRunner is the TxRunner over a pool, through tenancy.InTenantTx, so
-// the transaction's BEGIN sets the tenant and RLS applies to it.
-type PoolRunner struct{ Pool *pgxpool.Pool }
+// the transaction's BEGIN sets the tenant and RLS applies to it. It is also
+// the Allocator, through tenancy.AllocTx (alloc.go).
+type PoolRunner struct {
+	Pool *pgxpool.Pool
+	// AllocTimeout bounds an allocation (ADR-005 A5); zero is
+	// DefaultAllocTimeout.
+	AllocTimeout time.Duration
+	// Metrics records the allocator's metrics (A8); nil records none.
+	Metrics *AllocMetrics
+}
 
 // InTenantTx implements TxRunner.
 func (r PoolRunner) InTenantTx(ctx context.Context, tenantID uuid.UUID, fn func(pgx.Tx) error) error {
@@ -262,7 +272,9 @@ var (
 	// can deadlock with another one (P3-11's locks are ordered within one
 	// write, not across writes: TICK-88, from the PR #360 review); cascades
 	// themselves never share one, because each runs in its own activity.
-	ErrRetryable = errors.New("pipeline: transaction aborted by a deadlock or serialization failure, retry")
+	// It also means a create's number allocation passed its timeout
+	// (ADR-005 A5): nothing was inserted, and a retry takes a new number.
+	ErrRetryable = errors.New("pipeline: transaction aborted by a deadlock or serialization failure, or a number allocation timed out, retry")
 	// ErrAssignmentGroupRemoved means the write changes assignment_group_id to
 	// a group the tenant does not have live: tombstoned, another tenant's
 	// (live or tombstoned) or unknown. The cases are not told apart
@@ -614,34 +626,19 @@ func (w *write) create(ctx context.Context, after map[string]any) (Result, error
 	if err != nil {
 		return Result{}, err
 	}
-	// The number is taken after every check (ADR-001 I4): a refused or
-	// invalid create never moves the counter.
-	n, err := w.p.takeNumber(ctx, w.tenant, w.defID)
+	// The number is taken after every check (ADR-001 I4, ADR-005 A6): a
+	// refused or invalid create never moves the counter. It is taken in a
+	// transaction of its own that commits before this one inserts the record
+	// (ADR-005 L2s), so a create that fails from here on leaves a gap.
+	alloc, err := w.allocate(ctx)
 	if err != nil {
 		return Result{}, err
 	}
-	rec.Number = store.FormatNumber(w.def.NumberPrefix(), n)
+	rec.Number = store.FormatNumber(w.def.NumberPrefix(), alloc.Number)
+	// The record is created at the allocation's instant (A7), so a date in
+	// a number will always match created_at.
+	rec.CreatedAt, rec.UpdatedAt = alloc.Instant, alloc.Instant
 	return w.writeCreate(ctx, rec, preview)
-}
-
-// takeNumber takes the next number of the tenant's entity type defID in a
-// transaction of its own on the TxRunner, scoped to tenant by its BEGIN, and
-// commits it before returning (D-3-9 as amended 2026-11-10). The counter
-// row is locked only for that upsert and its COMMIT, never until the
-// create's own COMMIT, so concurrent creates of a type do not queue on each
-// other's transactions. The number is spent once taken: if the create then
-// fails or rolls back, it leaves a gap, and a retry takes a new number.
-func (p *Pipeline) takeNumber(ctx context.Context, tenant, defID uuid.UUID) (int64, error) {
-	var n int64
-	err := p.runner.InTenantTx(ctx, tenant, func(tx pgx.Tx) error {
-		var err error
-		n, err = store.NextNumber(ctx, tx, tenant, defID)
-		return err
-	})
-	if err != nil {
-		return 0, fmt.Errorf("pipeline: %w", err)
-	}
-	return n, nil
 }
 
 // defaultRequester sets requester_id to the caller when a user or AI create

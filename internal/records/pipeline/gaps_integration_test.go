@@ -1,10 +1,11 @@
 //go:build integration
 
 // TICK-657 (P3-36e): PLAN-003 D-3-9 as amended 2026-11-10, gaps allowed and
-// no reclaim. A create takes its number on the pipeline's TxRunner, in a
-// short transaction of its own that commits before the record is inserted,
-// and only after the replay check, validation and the write check (ADR-001
-// I4). The runner is the allocator pool, never the pool the create's own
+// no reclaim, built as ADR-005's L2s allocator. A create takes its number
+// with tenancy.AllocTx on the dedicated allocator pool, in one pipelined
+// transaction of its own that commits before the record is inserted, and
+// only after the replay check, validation and the write check (ADR-001 I4,
+// ADR-005 A6). The allocator pool is never the pool the create's own
 // transaction holds.
 
 package pipeline_test
@@ -14,12 +15,15 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
@@ -106,91 +110,114 @@ func TestRefusedCreatesLeaveTheCounter(t *testing.T) {
 	}
 }
 
+// allocRecorder is the pipeline's PoolRunner with every allocation it
+// returned kept.
+type allocRecorder struct {
+	pipeline.PoolRunner
+	mu     sync.Mutex
+	allocs []pipeline.Allocation
+}
+
+func (r *allocRecorder) Allocate(ctx context.Context, createTx pgx.Tx, def uuid.UUID) (pipeline.Allocation, error) {
+	a, err := r.PoolRunner.Allocate(ctx, createTx, def)
+	if err == nil {
+		r.mu.Lock()
+		r.allocs = append(r.allocs, a)
+		r.mu.Unlock()
+	}
+	return a, err
+}
+
+func (r *allocRecorder) taken() []pipeline.Allocation {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.allocs)
+}
+
+func recordedPipeline(r *allocRecorder) *pipeline.Pipeline {
+	return pipeline.New(authz.ACL{Policies: authz.PolicyStore{}}, entitytypes.Store{}, pipeline.NoopSink{}, r, pipeline.SystemClock{})
+}
+
 // AC: an idempotent replay returns the original number and allocates
-// nothing; it runs no transaction on the runner at all.
+// nothing.
 func TestCreateReplayTakesNoNumber(t *testing.T) {
 	e := migrated(t)
 	f := seedTenant(t, e)
-	runner := &recordingRunner{TxRunner: e.runner()}
-	p := pipeline.New(authz.ACL{Policies: authz.PolicyStore{}}, entitytypes.Store{}, pipeline.NoopSink{}, runner, pipeline.SystemClock{})
+	runner := &allocRecorder{PoolRunner: e.runner()}
+	p := recordedPipeline(runner)
 	ctx := context.Background()
 	cmd := createCmd(f, map[string]any{"title": "keyed"})
 	cmd.Actor, cmd.Source, cmd.IdempotencyKey, cmd.Causation = f.system(), pipeline.SourceWorkflow, "wf:gap", workflowCausation()
 
 	first, err := write(ctx, e, p, f.id, cmd)
-	if err != nil || first.Number != "INC0000001" || runner.runs != 1 {
-		t.Fatalf("first = %+v, %v, %d runner transactions; want INC0000001 and 1", first, err, runner.runs)
+	if err != nil || first.Number != "INC0000001" || len(runner.taken()) != 1 {
+		t.Fatalf("first = %+v, %v, %d allocations; want INC0000001 and 1", first, err, len(runner.taken()))
 	}
 	replay, err := write(ctx, e, p, f.id, cmd)
 	if err != nil || replay != first {
 		t.Fatalf("replay = %+v, %v; want %+v", replay, err, first)
 	}
-	if runner.runs != 1 {
-		t.Fatalf("%d runner transactions after the replay, want 1: the replay took a number", runner.runs)
+	if n := len(runner.taken()); n != 1 {
+		t.Fatalf("%d allocations after the replay, want 1: the replay took a number", n)
 	}
 	if n := counterNext(t, e, f.id, entityKey); n != 2 {
 		t.Fatalf("counter next = %d after the replay, want 2", n)
 	}
 }
 
-// scopeRunner records, for each allocation, the tenants whose counter rows
-// its transaction can see after it took the number: under RLS, only the
-// tenant its BEGIN set.
-type scopeRunner struct {
-	pipeline.TxRunner
-	mu   sync.Mutex
-	seen [][]uuid.UUID
+// AC (ADR-005 A2, A7): each allocation runs under the create transaction's
+// tenant, for the create's type, at scope ” and epoch 0, and the record is
+// stored with the allocation's instant as created_at and updated_at.
+func TestAllocationIsTheCreatesAndDatesTheRecord(t *testing.T) {
+	e := migrated(t)
+	a, b := seedTenant(t, e), seedTenant(t, e)
+	runner := &allocRecorder{PoolRunner: e.runner()}
+	p := recordedPipeline(runner)
+	fixtures := []tenantFixture{a, b, a}
+	var made []pipeline.Result
+	for _, f := range fixtures {
+		made = append(made, mustCreate(t, e, p, f, map[string]any{"title": "x"}))
+	}
+	got := runner.taken()
+	if len(got) != len(fixtures) {
+		t.Fatalf("%d allocations, want %d", len(got), len(fixtures))
+	}
+	for i, f := range fixtures {
+		al := got[i]
+		if al.Tenant != f.id || al.Definition != *definitionID(t, e, f.id) || al.ScopeKey != "" || al.Epoch != 0 {
+			t.Fatalf("allocation %d = %+v, want tenant %s, its type, scope '' and epoch 0", i, al, f.id)
+		}
+		var created, updated time.Time
+		if err := e.super.QueryRow(context.Background(), `SELECT created_at, updated_at FROM records WHERE id = $1`,
+			made[i].RecordID).Scan(&created, &updated); err != nil {
+			t.Fatal(err)
+		}
+		if !created.Equal(al.Instant) || !updated.Equal(al.Instant) {
+			t.Fatalf("record %d: created_at %v, updated_at %v; want the allocation's instant %v", i, created, updated, al.Instant)
+		}
+	}
 }
 
-func (r *scopeRunner) InTenantTx(ctx context.Context, tenant uuid.UUID, fn func(pgx.Tx) error) error {
-	return r.TxRunner.InTenantTx(ctx, tenant, func(tx pgx.Tx) error {
-		if err := fn(tx); err != nil {
-			return err
-		}
-		rows, err := tx.Query(ctx, `SELECT DISTINCT tenant_id FROM record_counters ORDER BY tenant_id`)
-		if err != nil {
-			return err
-		}
-		ids, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
-		if err != nil {
-			return err
-		}
-		r.mu.Lock()
-		r.seen = append(r.seen, ids)
-		r.mu.Unlock()
-		return nil
-	})
-}
-
-// AC: the allocation transaction is tenant-scoped. Its BEGIN sets the write's
-// tenant, so under RLS it sees only that tenant's counters, and a transaction
-// of tenant A cannot take, or move, a number of tenant B's type.
+// AC: the allocation transaction is tenant-scoped. AllocTx takes the tenant
+// from the create's own transaction, so under RLS a tenant A allocation can
+// neither take nor move a number of tenant B's type.
 func TestAllocationTransactionIsTenantScoped(t *testing.T) {
 	e := migrated(t)
 	a, b := seedTenant(t, e), seedTenant(t, e)
-	runner := &scopeRunner{TxRunner: e.runner()}
-	p := pipeline.New(authz.ACL{Policies: authz.PolicyStore{}}, entitytypes.Store{}, pipeline.NoopSink{}, runner, pipeline.SystemClock{})
+	p := newPipeline(e, nil)
 	ctx := context.Background()
-	for _, f := range []tenantFixture{a, b, a} {
-		mustCreate(t, e, p, f, map[string]any{"title": "x"})
-	}
-	// The third allocation (tenant A again) runs with tenant B's row in the
-	// table, and still sees only tenant A's.
-	for i, want := range []uuid.UUID{a.id, b.id, a.id} {
-		if i >= len(runner.seen) || !slices.Equal(runner.seen[i], []uuid.UUID{want}) {
-			t.Fatalf("allocation transactions saw the counters of %v, want each only its own tenant's (%s, %s, %s)",
-				runner.seen, a.id, b.id, a.id)
-		}
-	}
-	if n := count(t, e.super, `SELECT count(DISTINCT tenant_id) FROM record_counters WHERE tenant_id IN ($1, $2)`, a.id, b.id); n != 2 {
-		t.Fatalf("%d tenants have counter rows, want 2", n)
-	}
-
-	// Tenant B's counter row exists (next = 2). A tenant A transaction can
-	// neither see it to update it nor insert a row for tenant B.
+	mustCreate(t, e, p, b, map[string]any{"title": "x"}) // tenant B's counter row: next = 2
 	defB := *definitionID(t, e, b.id)
-	err := e.runner().InTenantTx(ctx, a.id, func(tx pgx.Tx) error {
-		_, err := store.NextNumber(ctx, tx, b.id, defB)
+
+	err := tenancy.InTenantTx(ctx, e.app, a.id, func(createTx pgx.Tx) error {
+		var got store.Allocated
+		_, err := tenancy.AllocTx(ctx, e.alloc, createTx, func(batch *pgx.Batch, tenant uuid.UUID) {
+			if tenant != a.id {
+				t.Errorf("AllocTx handed the queue tenant %s, want the create's %s", tenant, a.id)
+			}
+			// A forged tenant: B's counter, under A's setting.
+			store.QueueAllocate(batch, b.id, defB, &got)
+		})
 		return err
 	})
 	if err == nil {
@@ -204,18 +231,103 @@ func TestAllocationTransactionIsTenantScoped(t *testing.T) {
 	}
 }
 
+// AC (ADR-005 A3): the allocator pool refuses a role that bypasses RLS.
+// nava_app given BYPASSRLS after the pool was configured is refused as each
+// new connection opens, and the create fails without a number.
+func TestAllocatorPoolRefusesABypassRLSRole(t *testing.T) {
+	e := migrated(t)
+	f := seedTenant(t, e)
+	mustExec(t, e.super, "ALTER ROLE nava_app BYPASSRLS")
+	t.Cleanup(func() { _, _ = e.super.Exec(context.Background(), "ALTER ROLE nava_app NOBYPASSRLS") })
+	e.alloc = allocPool(t, appDSN(t, e.platform)) // fresh: no connection opened yet
+	_, err := write(context.Background(), e, newPipeline(e, nil), f.id, createCmd(f, map[string]any{"title": "x"}))
+	if err == nil || !strings.Contains(err.Error(), "nava_app") {
+		t.Fatalf("create on a BYPASSRLS allocator pool: %v, want the allocator role refused", err)
+	}
+	if n := counterNext(t, e, f.id, entityKey); n != 0 {
+		t.Fatalf("counter next = %d, want 0: no number taken", n)
+	}
+}
+
+// AC (ADR-005 A5, A8): an allocation that waits past its timeout fails the
+// create with ErrRetryable, writes nothing, and is counted; acquire wait and
+// latency are recorded for every allocation.
+func TestAllocationTimeoutIsRetryableAndMeasured(t *testing.T) {
+	e := migrated(t)
+	f := seedTenant(t, e)
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	m, err := pipeline.NewAllocMetrics(mp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := e.runner()
+	runner.AllocTimeout, runner.Metrics = 100*time.Millisecond, m
+	p := pipeline.New(authz.ACL{Policies: authz.PolicyStore{}}, entitytypes.Store{}, pipeline.NoopSink{}, runner, pipeline.SystemClock{})
+	ctx := context.Background()
+	mustCreate(t, e, p, f, map[string]any{"title": "one"})
+
+	// Hold the counter row's lock, so the next allocation waits on it.
+	holder, err := e.super.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = holder.Rollback(ctx) }()
+	if _, err := holder.Exec(ctx, `SELECT 1 FROM record_counters WHERE tenant_id = $1 FOR UPDATE`, f.id); err != nil {
+		t.Fatal(err)
+	}
+	_, err = write(ctx, e, p, f.id, createCmd(f, map[string]any{"title": "late"}))
+	if !errors.Is(err, pipeline.ErrRetryable) {
+		t.Fatalf("create behind a held counter: %v, want ErrRetryable", err)
+	}
+	if err := holder.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := numbers(t, e, f.id, entityKey); !slices.Equal(got, wantNumbers(t, "INC", 1, 1)) {
+		t.Fatalf("numbers = %v, want only INC0000001", got)
+	}
+	// The retry takes the next number.
+	if next := mustCreate(t, e, p, f, map[string]any{"title": "retry"}); next.Number != "INC0000002" {
+		t.Fatalf("retry got %s, want INC0000002", next.Number)
+	}
+
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(ctx, &rm); err != nil {
+		t.Fatal(err)
+	}
+	counts := map[string]uint64{}
+	var timeouts int64
+	for _, sm := range rm.ScopeMetrics {
+		for _, mt := range sm.Metrics {
+			switch d := mt.Data.(type) {
+			case metricdata.Histogram[float64]:
+				for _, dp := range d.DataPoints {
+					counts[mt.Name] += dp.Count
+				}
+			case metricdata.Sum[int64]:
+				for _, dp := range d.DataPoints {
+					timeouts += dp.Value
+				}
+			}
+		}
+	}
+	if counts["nava_numbering_alloc_acquire_seconds"] != 3 || counts["nava_numbering_alloc_seconds"] != 3 || timeouts != 1 {
+		t.Fatalf("metrics: histograms %v, timeouts %d; want 3 acquires, 3 latencies, 1 timeout", counts, timeouts)
+	}
+}
+
 // barrierRunner holds each allocation until n of them are waiting, so n
 // creates hold their own transactions' connections at once when they ask for
 // a number: the worst case for a pool both share.
 type barrierRunner struct {
-	pipeline.TxRunner
+	pipeline.PoolRunner
 	n       int
 	mu      sync.Mutex
 	waiting int
 	release chan struct{}
 }
 
-func (r *barrierRunner) InTenantTx(ctx context.Context, tenant uuid.UUID, fn func(pgx.Tx) error) error {
+func (r *barrierRunner) Allocate(ctx context.Context, createTx pgx.Tx, def uuid.UUID) (pipeline.Allocation, error) {
 	r.mu.Lock()
 	if r.release == nil {
 		r.release = make(chan struct{})
@@ -229,57 +341,74 @@ func (r *barrierRunner) InTenantTx(ctx context.Context, tenant uuid.UUID, fn fun
 	select {
 	case <-ch:
 	case <-ctx.Done():
-		return ctx.Err()
+		return pipeline.Allocation{}, ctx.Err()
 	}
-	return r.TxRunner.InTenantTx(ctx, tenant, fn)
+	return r.PoolRunner.Allocate(ctx, createTx, def)
 }
 
-// AC (scope 3): no pool starvation. With an API pool of 4 connections, 8
-// concurrent creates each hold one of the 4 while they wait for a number. On
-// the allocator pool they all finish; on the API pool itself (the control)
-// they wait for a connection none of them gives back, so the check catches a
-// runner wired back onto the API pool.
+// starve runs 2 x n concurrent creates whose allocations each wait until n
+// of them hold their create transactions, and returns every error.
+func starve(e env, f tenantFixture, alloc pipeline.PoolRunner, n int) []error {
+	p := pipeline.New(authz.ACL{Policies: authz.PolicyStore{}}, entitytypes.Store{}, pipeline.NoopSink{},
+		&barrierRunner{PoolRunner: alloc, n: n}, pipeline.SystemClock{})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	errs := make([]error, 2*n)
+	var wg sync.WaitGroup
+	for i := range errs {
+		wg.Go(func() {
+			_, errs[i] = write(ctx, e, p, f.id, createCmd(f, map[string]any{"title": fmt.Sprint(i)}))
+		})
+	}
+	wg.Wait()
+	return errs
+}
+
+func allStarved(t *testing.T, errs []error) {
+	t.Helper()
+	for i, err := range errs {
+		if !errors.Is(err, pipeline.ErrRetryable) {
+			t.Fatalf("create %d on a shared pool: %v, want it starved (ErrRetryable after the allocation timeout)", i, err)
+		}
+	}
+}
+
+// AC (scope 3, ADR-005 A5): no pool starvation at pool size x 2 concurrent
+// creates, each holding its create connection while it waits for a number.
+// Direct: an API pool of 4. Through PgBouncer: an API pool as wide as the
+// pooler's server pool (5), so the open creates hold every server
+// connection of the nava entry. On the allocator pool (through nava_alloc)
+// all finish; the controls, on the API pool or through the nava entry,
+// starve and fail fast with ErrRetryable, so the test catches an allocator
+// wired back onto either.
 func TestAllocatorPoolDoesNotStarveThePool(t *testing.T) {
-	const poolSize = 4
 	base := migrated(t)
 	f := seedTenant(t, base)
 	dsn := appDSN(t, base.platform)
-	run := func(t *testing.T, e env, timeout time.Duration) []error {
-		t.Helper()
-		p := pipeline.New(authz.ACL{Policies: authz.PolicyStore{}}, entitytypes.Store{}, pipeline.NoopSink{},
-			&barrierRunner{TxRunner: e.runner(), n: poolSize}, pipeline.SystemClock{})
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
-		errs := make([]error, 2*poolSize)
-		var wg sync.WaitGroup
-		for i := range errs {
-			wg.Go(func() {
-				_, errs[i] = write(ctx, e, p, f.id, createCmd(f, map[string]any{"title": fmt.Sprint(i)}))
-			})
-		}
-		wg.Wait()
-		return errs
-	}
-	small := func() env {
+	small := func(size int32) env {
 		cfg := serverPoolConfig(t, dsn)
-		cfg.MaxConns = poolSize
+		cfg.MaxConns = size
 		return env{super: base.super, app: newPool(t, cfg), platform: base.platform}
 	}
+	const direct = 4
+	t.Run("direct, allocator pool", func(t *testing.T) {
+		noErrors(t, starve(small(direct), f, pipeline.PoolRunner{Pool: allocPool(t, dsn)}, direct))
+	})
+	t.Run("direct, control: the API pool", func(t *testing.T) {
+		e := small(direct)
+		allStarved(t, starve(e, f, pipeline.PoolRunner{Pool: e.app}, direct))
+	})
 
-	t.Run("allocator pool", func(t *testing.T) {
-		e := small()
-		e.alloc = allocPool(t, dsn)
-		noErrors(t, run(t, e, 30*time.Second))
+	const serverPool = 5 // scripts/ci/pgbouncer/pooled.ini default_pool_size
+	bounced := throughBouncer(t, base, serverPool)
+	t.Run("PgBouncer, allocator through nava_alloc", func(t *testing.T) {
+		noErrors(t, starve(bounced, f, pipeline.PoolRunner{Pool: bounced.alloc}, serverPool))
 	})
-	t.Run("control: the API pool", func(t *testing.T) {
-		e := small() // alloc nil: the runner uses app
-		for i, err := range run(t, e, 3*time.Second) {
-			if !errors.Is(err, context.DeadlineExceeded) {
-				t.Fatalf("create %d on a shared pool: %v, want it starved (context.DeadlineExceeded)", i, err)
-			}
-		}
+	t.Run("PgBouncer, control: allocator through the nava entry", func(t *testing.T) {
+		shared := allocPool(t, bounced.app.Config().ConnString())
+		allStarved(t, starve(bounced, f, pipeline.PoolRunner{Pool: shared}, serverPool))
 	})
-	if got := numbers(t, base, f.id, entityKey); !slices.Equal(got, wantNumbers(t, "INC", 1, 2*poolSize)) {
-		t.Fatalf("numbers = %v, want INC0000001..%d from the allocator pool run only", got, 2*poolSize)
+	if got := numbers(t, base, f.id, entityKey); !slices.Equal(got, wantNumbers(t, "INC", 1, 2*direct+2*serverPool)) {
+		t.Fatalf("numbers = %v, want INC0000001..%d from the allocator pool runs only", got, 2*direct+2*serverPool)
 	}
 }

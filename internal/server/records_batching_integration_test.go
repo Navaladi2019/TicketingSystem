@@ -33,8 +33,8 @@ import (
 // The budgets: round trips and statements of one request, idempotency claim
 // included. A change that adds a round trip to either path fails here.
 const (
-	createTripBudget      = 11 // claim: BEGIN, INSERT, COMMIT; write: BEGIN, prefetch, checks, write batch, COMMIT batch; number (TICK-657): BEGIN, upsert, COMMIT
-	createStatementBudget = 20 // was 29, then 17 (TICK-648): claim 4 (BEGIN+GUC, INSERT, COMMIT), write 12, number 4 (BEGIN+GUC, upsert, COMMIT)
+	createTripBudget      = 9  // claim: BEGIN, INSERT, COMMIT; write: BEGIN, prefetch, checks, write batch, COMMIT batch; number (TICK-657, ADR-005 AllocTx): one pipelined trip
+	createStatementBudget = 21 // was 29, then 17 (TICK-648): claim 4 (BEGIN+GUC, INSERT, COMMIT), write 12, number 5 (BEGIN, tenant, SET LOCAL, upsert, COMMIT)
 	getTripBudget         = 3  // BEGIN, one batch, COMMIT
 	getStatementBudget    = 7  // was 13: BEGIN+GUC, definition, record, shares, policy, COMMIT
 )
@@ -96,8 +96,8 @@ func underOnly(t *testing.T, what string, rec *tenancytest.Recorder, want uuid.U
 
 // TestRecordCreateAndGetRoundTrips: a create and a GET each set the tenant
 // before their first statement and run every trip under it, within the
-// budgets. The create takes its number alone in a transaction of its own
-// (BEGIN, upsert, COMMIT; D-3-9 as amended 2026-11-10, TICK-657), then sends
+// budgets. The create takes its number in a transaction of its own, one
+// pipelined trip on the allocator pool (ADR-005 AllocTx, TICK-657), then sends
 // the write batch and the COMMIT batch, which also completes the idempotency
 // key.
 func TestRecordCreateAndGetRoundTrips(t *testing.T) {
@@ -115,17 +115,15 @@ func TestRecordCreateAndGetRoundTrips(t *testing.T) {
 		t.Errorf("create: %d trips, %d statements; budget %d, %d: %s", len(trips), rec.Statements(),
 			createTripBudget, createStatementBudget, fmt.Sprint(trips))
 	}
-	// The number's own transaction, then the write's last two trips: the
-	// write batch, then the batch that stores the idempotency response and
-	// commits.
-	if len(trips) < 5 {
+	// The number's own transaction, one pipelined trip, then the write's
+	// last two trips: the write batch, then the batch that stores the
+	// idempotency response and commits.
+	if len(trips) < 3 {
 		t.Fatalf("create: %d trips: %s", len(trips), fmt.Sprint(trips))
 	}
-	begin, upsert, numbered := trips[len(trips)-5], trips[len(trips)-4], trips[len(trips)-3]
-	if !strings.HasPrefix(strings.ToLower(begin.SQL[0]), "begin") || len(upsert.SQL) != 1 ||
-		!strings.Contains(upsert.SQL[0], "record_counters") || len(numbered.SQL) != 1 || numbered.SQL[0] != "commit" {
-		t.Errorf("the three trips before the write batch are %q, %q, %q; want the number's BEGIN, upsert alone, COMMIT",
-			begin.SQL, upsert.SQL, numbered.SQL)
+	if alloc := trips[len(trips)-3]; !alloc.Batch || len(alloc.SQL) != 5 || alloc.SQL[0] != "BEGIN" ||
+		!strings.Contains(alloc.SQL[3], "record_counters") || alloc.SQL[4] != "COMMIT" {
+		t.Errorf("the trip before the write batch is %q; want the number's one trip: BEGIN, tenant, SET LOCAL, upsert, COMMIT", alloc.SQL)
 	}
 	counter, commit := trips[len(trips)-2], trips[len(trips)-1]
 	if !counter.Batch || !strings.Contains(counter.SQL[0], "INSERT INTO records") ||

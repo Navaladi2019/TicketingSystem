@@ -159,6 +159,9 @@ func etAllocPool(t *testing.T, app *pgxpool.Pool) *pgxpool.Pool {
 	t.Helper()
 	cfg := app.Config().Copy()
 	cfg.MaxConns = 4
+	if err := tenancy.AllocPoolConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
 	p, err := pgxpool.NewWithConfig(t.Context(), cfg)
 	if err != nil {
 		t.Fatal(err)

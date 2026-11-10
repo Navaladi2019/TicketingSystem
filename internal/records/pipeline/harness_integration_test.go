@@ -146,11 +146,14 @@ func serverPoolConfig(t *testing.T, dsn string) *pgxpool.Config {
 
 // allocPool is a nava_app allocator pool on dsn, as nava-core opens it
 // (cmd/nava-core/allocator.go): the server's protocol mode, allocatorMaxConns
-// wide.
+// wide, and every connection's role checked (tenancy.AllocPoolConfig).
 func allocPool(t *testing.T, dsn string) *pgxpool.Pool {
 	t.Helper()
 	cfg := serverPoolConfig(t, dsn)
 	cfg.MaxConns = allocatorMaxConns
+	if err := tenancy.AllocPoolConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
 	return newPool(t, cfg)
 }
 

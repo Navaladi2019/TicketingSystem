@@ -51,7 +51,7 @@ sequenceDiagram
     T->>H: fn(scopedTx)
     H->>P: batch 1 (prefetch reads)
     H->>P: batch 2 (checks)
-    H->>P: number: BEGIN+GUC, counter upsert, COMMIT (own transaction, allocator pool)
+    H->>P: number: tenancy.AllocTx, one send (BEGIN, GUC, SET LOCAL, upsert, COMMIT) on the allocator pool
     H->>P: batch 3 (INSERT record, audit)
     T->>P: batch: ExecAtCommit statements, COMMIT
 ```
@@ -64,16 +64,15 @@ sequenceDiagram
 | BEGIN | BEGIN+GUC |
 | prefetch | lock own `idempotency_keys` row `FOR UPDATE`; definition id; current definition; ACL policy |
 | checks | per unique property its advisory lock then its lookup; assignment group live; payload preview |
-| number (own transaction, allocator pool, TICK-657) | BEGIN+GUC; `record_counters` upsert; COMMIT |
+| number (`tenancy.AllocTx`, allocator pool, TICK-657, ADR-005 L2s) | one pipelined send: BEGIN; `set_config` (tenant); `SET LOCAL synchronous_commit = off`; `record_counters` upsert `RETURNING next - 1, now()`; COMMIT |
 | write | `INSERT records` (with the number); `record_write_keys` (system writers with a key); `INSERT audit_log` |
 | commit | `UPDATE idempotency_keys` (completed, the 201); COMMIT |
 
-That is 11 round trips and 20 statements (8 and 17 under TICK-648): the
-number's own transaction adds three round trips (BEGIN+GUC, the upsert,
-COMMIT) and moves the upsert out of the write batch. The counter row is
-locked from the upsert to that COMMIT, one round trip and its commit, no
-longer from the write batch to the create's COMMIT (D-3-9 as amended
-2026-11-10).
+That is 9 round trips and 21 statements (8 and 17 under TICK-648): the
+number's own transaction adds one round trip of five statements and moves
+the upsert out of the write batch. The counter row is locked for that one
+round trip, with no fsync in it (its COMMIT is asynchronous, ADR-005 A4), no
+longer from the write batch to the create's synchronous COMMIT.
 
 - **Number after the checks, in its own transaction.** The upsert runs after
   every check, so a refused create moves nothing, and commits before the

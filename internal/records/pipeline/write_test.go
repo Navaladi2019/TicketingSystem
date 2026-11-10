@@ -330,25 +330,44 @@ func (f fixture) update(id uuid.UUID, patch map[string]any) pipeline.Command {
 		Actor: f.actor, Source: pipeline.SourceUser, Data: patch}
 }
 
-// numberRunner is the unit pipeline's TxRunner, where a create takes its
-// number (D-3-9 as amended 2026-11-10): each call runs fn on a scriptTx of
-// its own whose record_counters upsert scans next, or fails with err, and is
-// kept so a test can tell whether a number was taken and in which tenant.
+// numberRunner is the unit pipeline's TxRunner and Allocator, where a create
+// takes its number (ADR-005 L2s): each Allocate answers next, or fails with
+// err, and is kept so a test can tell whether a number was taken and in
+// which tenant. forge, when set, rewrites the allocation before it is
+// returned (the A2 check). It runs no own-transaction work.
 type numberRunner struct {
-	t    *testing.T
-	next int64
-	err  error
-	txs  []*scriptTx
+	t     *testing.T
+	next  int64
+	err   error
+	forge func(*pipeline.Allocation)
+	calls []pipeline.Allocation
 }
 
-func (r *numberRunner) InTenantTx(_ context.Context, tenant uuid.UUID, fn func(pgx.Tx) error) error {
-	x := &scriptTx{t: r.t, tenant: tenant.String(), stmts: []stmt{{match: sqlNumber, scan: scanInt(r.next), err: r.err}}}
-	r.txs = append(r.txs, x)
-	return fn(x)
+func (r *numberRunner) InTenantTx(context.Context, uuid.UUID, func(pgx.Tx) error) error {
+	return errors.New("runner not expected")
+}
+
+// allocInstant is the instant numberRunner's allocations report.
+func allocInstant() time.Time { return time.Date(2026, 11, 10, 23, 59, 59, 0, time.UTC) }
+
+func (r *numberRunner) Allocate(ctx context.Context, createTx pgx.Tx, def uuid.UUID) (pipeline.Allocation, error) {
+	tenant, err := tenancy.TenantOf(ctx, createTx)
+	if err != nil {
+		return pipeline.Allocation{}, err
+	}
+	a := pipeline.Allocation{Tenant: tenant, Definition: def, Number: r.next, Instant: allocInstant()}
+	r.calls = append(r.calls, a)
+	if r.err != nil {
+		return pipeline.Allocation{}, fmt.Errorf("records/store: take record number: %w", r.err)
+	}
+	if r.forge != nil {
+		r.forge(&a)
+	}
+	return a, nil
 }
 
 // taken reports whether any create took a number.
-func (r *numberRunner) taken() bool { return len(r.txs) > 0 }
+func (r *numberRunner) taken() bool { return len(r.calls) > 0 }
 
 // unitPipeline is a pipeline whose number allocation fails with errBoom: a
 // create that gets past every check stops at its number.
@@ -609,8 +628,47 @@ func TestCreateStatementFailures(t *testing.T) {
 	if err != nil || res.Number != "AST0000001" || res.Version != 1 {
 		t.Fatalf("create = %+v, %v", res, err)
 	}
-	if len(numbers.txs) != 1 || numbers.txs[0].tenant != f.tenant.String() || !numbers.txs[0].ranAny(sqlNumber) {
-		t.Fatalf("number transactions = %d, want one in tenant %s that took the number", len(numbers.txs), f.tenant)
+	if len(numbers.calls) != 1 || numbers.calls[0].Tenant != f.tenant || numbers.calls[0].Definition != f.defID {
+		t.Fatalf("allocations = %+v, want one in tenant %s for type %s", numbers.calls, f.tenant, f.defID)
+	}
+}
+
+// ADR-005 A2: the create checks the allocation against its own transaction
+// and type before it inserts anything; an allocation for another tenant,
+// type, scope or epoch, or with no number or instant, stops the create.
+func TestCreateChecksTheAllocation(t *testing.T) {
+	f := newFixture()
+	for name, forge := range map[string]func(*pipeline.Allocation){
+		"other tenant": func(a *pipeline.Allocation) { a.Tenant = uuid.New() },
+		"other type":   func(a *pipeline.Allocation) { a.Definition = uuid.New() },
+		"scope":        func(a *pipeline.Allocation) { a.ScopeKey = "2026" },
+		"epoch":        func(a *pipeline.Allocation) { a.Epoch = 1 },
+		"no number":    func(a *pipeline.Allocation) { a.Number = 0 },
+		"no instant":   func(a *pipeline.Allocation) { a.Instant = time.Time{} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			p, _ := numberedPipeline(t, fakeAuthz{}, fakeDefs{cur: assetDef(t), curVersion: 1}, &numberRunner{next: 1, forge: forge})
+			const payload = `{"name": "x", "status": "active"}`
+			tx := f.tx(t, stmt{match: sqlPreview, scan: scanString(payload)})
+			_, err := p.Write(t.Context(), tx, f.create(map[string]any{"name": "x"}))
+			if err == nil || !strings.Contains(err.Error(), "is not this create's") {
+				t.Fatalf("err = %v, want the allocation refused", err)
+			}
+			if tx.ranAny(sqlInsert) || tx.ranAny(sqlAudit) {
+				t.Error("the create inserted after a foreign allocation")
+			}
+		})
+	}
+}
+
+// A TxRunner that cannot allocate fails the create at its number.
+func TestCreateNeedsAnAllocator(t *testing.T) {
+	f := newFixture()
+	p := pipeline.New(fakeAuthz{}, fakeDefs{cur: assetDef(t), curVersion: 1}, pipeline.NoopSink{},
+		runnerFunc(func(context.Context, uuid.UUID, func(pgx.Tx) error) error { return errors.New("runner not expected") }), pipeline.SystemClock{})
+	tx := f.tx(t, stmt{match: sqlPreview, scan: scanString(`{"name": "x", "status": "active"}`)})
+	if _, err := p.Write(t.Context(), tx, f.create(map[string]any{"name": "x"})); err == nil || !strings.Contains(err.Error(), "cannot allocate") {
+		t.Fatalf("err = %v, want the runner refused", err)
 	}
 }
 

@@ -1,6 +1,8 @@
 package store
 
 import (
+	"time"
+
 	"context"
 	"fmt"
 
@@ -34,6 +36,33 @@ const nextNumberSQL = `
 INSERT INTO record_counters (tenant_id, entity_definition_id, next) VALUES ($1, $2, 2)
 ON CONFLICT (tenant_id, entity_definition_id) DO UPDATE SET next = record_counters.next + 1
 RETURNING next - 1`
+
+// allocateSQL is nextNumberSQL, the same upsert of the same row, also
+// returning now(): the allocation's instant, which the create stores as
+// created_at (ADR-005 A7). now() is fixed at the allocation transaction's
+// start, so it adds no statement and no round trip.
+const allocateSQL = nextNumberSQL + ", now()"
+
+// Allocated is what QueueAllocate reads back when the batch runs.
+type Allocated struct {
+	// Number is the counter value taken.
+	Number int64
+	// Instant is the allocation transaction's now().
+	Instant time.Time
+}
+
+// QueueAllocate queues a `gaps` type's number allocation (ADR-005 L2s) for
+// tenancy.AllocTx: the record_counters upsert of the tenant's type, in the
+// allocation's own transaction, which commits before the create inserts the
+// record. When the batch runs, *dst holds the number and the instant.
+func QueueAllocate(b *pgx.Batch, tenantID, entityDefinitionID uuid.UUID, dst *Allocated) {
+	b.Queue(allocateSQL, tenantID, entityDefinitionID).QueryRow(func(row pgx.Row) error {
+		if err := row.Scan(&dst.Number, &dst.Instant); err != nil {
+			return fmt.Errorf("records/store: take record number: %w", err)
+		}
+		return nil
+	})
+}
 
 // FormatNumber is a record number: the prefix and the counter value, zero
 // padded to 7 digits and growing past 7 as needed (INC0000001, INC12345678).

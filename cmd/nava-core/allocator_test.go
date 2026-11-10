@@ -2,11 +2,13 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"log/slog"
 	"strings"
 	"testing"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
+	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
 // The allocator pool (TICK-657): none without tenant resolution; its own DSN
@@ -53,6 +55,17 @@ func TestNewAllocatorPool(t *testing.T) {
 	_, _, maxConns, err = open(t, config.Dependencies{OIDCIssuers: issuers, DatabaseURL: app, AllocatorDatabaseURL: alloc + "?pool_max_conns=9"})
 	if err != nil || maxConns != 9 {
 		t.Errorf("pool_max_conns=9: max %d, %v; want 9", maxConns, err)
+	}
+
+	// ADR-005 A3: startup refuses an allocator pool that logs in as anything
+	// but nava_app, from its own DSN or the fallback.
+	for _, deps := range []config.Dependencies{
+		{OIDCIssuers: issuers, DatabaseURL: app, AllocatorDatabaseURL: "postgres://nava_owner:hunter2@pgbouncer:5432/nava_alloc"},
+		{OIDCIssuers: issuers, DatabaseURL: "postgres://nava_migrator:hunter2@pgbouncer:5432/nava"},
+	} {
+		if _, _, _, err := open(t, deps); !errors.Is(err, tenancy.ErrAllocatorRole) || strings.Contains(err.Error(), "hunter2") {
+			t.Errorf("non-nava_app login: %v; want tenancy.ErrAllocatorRole, without the password", err)
+		}
 	}
 
 	_, _, _, err = open(t, config.Dependencies{OIDCIssuers: issuers, DatabaseURL: app, AllocatorDatabaseURL: "postgres://nava_app:hunter2@pgbouncer:notaport/nava"})
