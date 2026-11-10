@@ -196,7 +196,7 @@ paths:
       operationId: publishEntityTypeVersion
       summary: Publish the next version of an entity type (tenant admin)
       description: >
-        Publishes immutable version N+1 and makes it the current version. Tenant admins only; the check runs before the body is read any further than as well-formed JSON. The body is `{definition: {schema, fixed_columns, states}}`; a `number_prefix` field answers 422 `invalid_definition`, because the prefix never changes after create. The new definition is classified against the current version (D-3-5): a breaking change answers 422 `schema_breaking_change` with `errors[].pointer` naming each offending path, and adds nothing. A definition that requires a marked (`x-nava-secret` or `writeOnly`) property answers 422 `definition_secret_required`, with `errors[].pointer` naming the offending `required` entry, and adds nothing. Compatible and needs-backfill changes publish. An unknown key and another tenant's key give the same 404, byte for byte, with no `instance`. `Idempotency-Key` is required.
+        Publishes immutable version N+1 and makes it the current version. Tenant admins only; the check runs before the body is read any further than as well-formed JSON. The body is `{definition: {schema, fixed_columns, states}}`; a `number_prefix` field answers 422 `invalid_definition`, because the prefix never changes after create. The new definition is classified against the current version (D-3-5): a breaking change answers 422 `schema_breaking_change` with `errors[].pointer` naming each offending path, and adds nothing. A definition that requires a marked (`x-nava-secret` or `writeOnly`) property answers 422 `definition_secret_required`, with `errors[].pointer` naming the offending `required` entry, and adds nothing. Compatible and needs-backfill changes publish. An unknown key and another tenant's key give the same 404, byte for byte, with no `numbering_mode` (`gaps` or `gapless`, D-3-9) may be sent with or instead of `definition`; alone it changes the mode, publishes no version and answers the current version. Any other value answers 422 `invalid_definition` at `/numbering_mode`. Numbering carries on from the type's counter. `instance`. `Idempotency-Key` is required.
 
       parameters:
         - $ref: "#/components/parameters/Key"
@@ -978,6 +978,8 @@ components:
           description: 1 to 120 characters.
         number_prefix:
           description: "`^[A-Z]{2,6}$`, unique per tenant, never changes."
+        numbering_mode:
+          description: "`gaps` (default) or `gapless`, optional."
         definition:
           description: "`{schema, fixed_columns, states}`, see the metadata engine."
     PublishEntityTypeVersionRequest:
@@ -987,11 +989,13 @@ components:
 
       x-go-type: json.RawMessage
       properties:
+        numbering_mode:
+          description: "`gaps` or `gapless`. Alone, it changes the mode and publishes no version."
         definition:
           description: "`{schema, fixed_columns, states}`, see the metadata engine."
     EntityTypeVersion:
       type: object
-      required: [key, name, number_prefix, version, current, schema, schema_sha256, fixed_columns, states, compat, published_at]
+      required: [key, name, number_prefix, numbering_mode, version, current, schema, schema_sha256, fixed_columns, states, compat, published_at]
       properties:
         key:
           type: string
@@ -999,6 +1003,10 @@ components:
           type: string
         number_prefix:
           type: string
+        numbering_mode:
+          type: string
+          enum: [gaps, gapless]
+          description: How the type numbers its records (D-3-9). Belongs to the type, not the version.
         version:
           type: integer
         current:
@@ -1023,7 +1031,7 @@ components:
           format: date-time
     EntityTypeSummary:
       type: object
-      required: [key, name, number_prefix, current_version, updated_at]
+      required: [key, name, number_prefix, numbering_mode, current_version, updated_at]
       properties:
         key:
           type: string
@@ -1031,6 +1039,9 @@ components:
           type: string
         number_prefix:
           type: string
+        numbering_mode:
+          type: string
+          enum: [gaps, gapless]
         current_version:
           type: integer
         updated_at:
