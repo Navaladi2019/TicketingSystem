@@ -61,8 +61,11 @@ import (
 const (
 	perfListTargetMS = 150.0
 	perfGetTargetMS  = 50.0
-	// perfShortTimeout is the bound check's data-filter statement timeout.
-	perfShortTimeout = 100 * time.Millisecond
+	// perfShortTimeout is the bound check's data-filter statement timeout:
+	// far below what the s7 count and page take even run alone (tens of ms
+	// at 800k), so every request must hit it. 100 ms did not fire on a warm,
+	// single request (2026-11-10).
+	perfShortTimeout = 2 * time.Millisecond
 	// perfDataFilterTimeoutLabel names the server default (store.DataFilterTimeout).
 	perfDataFilterTimeoutLabel = "2s (store.DataFilterTimeout)"
 	// The D-3-9 trigger: create p95 > 50 ms revisits record numbering.

@@ -6,6 +6,58 @@ the D25 escalation. The question: with the real compiled ACL predicate
 `records/store.List`), is list p95 ≤ 150 ms and single-read p95 ≤ 50 ms at
 800k records?
 
+## Final re-run, after TICK-647, TICK-648 and TICK-644
+
+**Runs** (raw reports in `docs/quality/acl-perf-800k/`):
+
+| File | When (UTC) | Tip | Harness | Rows | Floor p50 / p95 | Clean? |
+| --- | --- | --- | --- | --- | --- | --- |
+| `final-2026-11-09-full.md` | 11-09 18:15 | `45635f89` (has TICK-644) | story tip | all | 1.81 / 3.10 | Floor clean. Another agent's stack came up mid-run: in the rows from agent page 20 to `site=s7`, trivial statements took 10 to 25 ms p50, against 3 to 4 ms elsewhere. Those rows are contended. The rest are clean. |
+| `final-2026-11-09-lists-repeat.md` | 11-09 18:41 | `45635f89` | story tip | the contended list rows | 4.02 / 8.11 | No. A meet still holds, because contention only adds time. |
+| `final-2026-11-10-create-state-bound.md` | 11-10 01:40 | `caa8ce29` | this PR (2 ms bound check) | creates, `state=new`, bound check | 2.60 / 4.03 | Gate passed, then noisy: 1-client `BEGIN` p50 3.14 ms against 1.20 in the 18:15 run. Used only for the bound check. |
+
+Gated attempts aborted at the floor: 11-09 16:58 (3.42), 17:10 (4.18); 11-10 01:21 (4.25), 01:36 (4.00).
+`caa8ce29` adds only TICK-651 (a savepoint memo fix) on top of `45635f89`.
+
+### p95 against target (ms)
+
+| Row | p95 | Target | Verdict | Source |
+| --- | --- | --- | --- | --- |
+| Agent list by group, page 1 / page 20 | 72.5 / 92.5 | 150 | meets | full / repeat |
+| Admin list, page 1 / page 20 | 66.6 / 59.8 | 150 | meets | repeat |
+| Agent `sort=-updated_at` / `sort=assignee` | 146.2 / 117.5 | 150 | meets | full |
+| Admin `state in`, `sort=-updated_at` | 118.6 | 150 | meets | full |
+| **Agent `filter[state]=new`** | **192.6** (885 contended, 390 noisy) | 150 | **MISS, fixed column** | repeat |
+| Requester list, page 1 / page 20 | 75.4 / 76.8 | 150 | meets (TICK-644 fixed it) | repeat |
+| Small tenant: agent / admin list | 111.5 / 70.4 | 150 | meets | full |
+| `data` `priority=1` / `site=s7` | 223.8 / 224.4 | 150 | known miss, TICK-646 | repeat |
+| Single GET: agent / admin / small tenant | 25.0 / 21.0 / 16.1 | 50 | meets, no waiver | full |
+| Create, agent, 1 client | 28.7 (p50 24.7) | 50 | meets | full |
+| Create, 8 clients: agent / admin / small tenant | 162.8 / 166.5 / 82.9 | 50 | miss on gapless code; D-3-9 decided "gaps allowed", change not yet on the branch | full |
+
+### `filter[state]=new` is a fixed-column miss
+
+Under load in the repeat, `count` p95 is 76.8 ms and `page` is 101.2 ms, while trivial statements in the same requests stay at 3 ms p50. Run alone with `EXPLAIN (ANALYZE, BUFFERS)`, `count` takes 44.2 ms and `page` takes 38.9 ms. In both plans, `records_list_group` is matched on `(tenant_id, entity_definition_id, assignment_group_id)`. `state` is only a `Filter`, which drops 19,547 rows for the count (20,873 buffers) and 22,950 rows for the page (24,492 buffers). That is real database work, not host noise. Per the CTO's 2026-11-09 decision, this reopens the shape work.
+
+### Creates (D-3-9)
+
+Counter, from the clean 18:15 run:
+
+| Scenario | Wait p50 / p95 | Hold p50 / p95 | Statements in hold |
+| --- | --- | --- | --- |
+| create, agent, 1 client | 3.43 / 4.54 | 5.22 / 6.87 | 1 |
+| create, agent, 8 clients | 28.55 / 133.48 | 6.81 / 9.01 | 1 |
+| create, admin, 8 clients | 28.73 / 135.90 | 6.81 / 9.76 | 1 |
+| create, small tenant, 8 clients | 6.35 / 10.94 | 9.82 / 18.87 | 1 |
+
+- **1 client meets** on a clean host (28.7 ms). It takes 8 round trips, and trivial statements run at the floor (`BEGIN` p50 1.20 ms). The noisy 01:40 run gave 83.7 ms, but there 1-client `BEGIN` alone was 3.14 ms p50, so that number is not used.
+- **8 clients** were measured on the gapless code, which is still the tip: the counter upsert sits in the final batch of the create transaction. The decision to allow gaps (vknavaladi, 2026-11-09 17:25 UTC) is not implemented yet. These rows can only be scored once that change lands.
+- **Risk for the gaps-allowed change.** The small-tenant 8-client row misses (82.9 ms) even though its counter wait p95 is only 10.9 ms. Removing the counter queue alone may not bring 8-client creates under 50 ms. Measure it after the change; it is not a conclusion yet.
+
+### Data-filter timeout (TICK-647)
+
+With the bound check's 2 ms data-filter timeout, all 4,396 of 4,396 requests answered `422 filter_too_expensive`: p50 29.9, p95 69.0, max 201.9 ms. None hung. At the default 2 s timeout, no `data` list hit it. The bound check first used 100 ms, which didn't fire on a single warm request (11-10 01:30 run), so it is now 2 ms.
+
 ## Re-run, after TICK-639 and TICK-640
 
 **Run:** 2026-11-09, on `TICK-336/group-acl-masking` at `1aa5357e`. That
