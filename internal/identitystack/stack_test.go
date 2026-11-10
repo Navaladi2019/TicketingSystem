@@ -50,6 +50,16 @@ func baseURL() string {
 	return "http://" + realmHost
 }
 
+// publicURL is Keycloak's public address (KC_HOSTNAME in compose.yaml:
+// KEYCLOAK_PUBLIC_URL, else http://realmHost), whatever port the stack under
+// test is published on.
+func publicURL() string {
+	if u := os.Getenv("KEYCLOAK_PUBLIC_URL"); u != "" {
+		return strings.TrimRight(u, "/")
+	}
+	return "http://" + realmHost
+}
+
 // toStack sends requests for realmHost to the Keycloak under test, so a stack
 // on another port (make ci-isolated) never follows a broker redirect into the
 // default stack's Keycloak.

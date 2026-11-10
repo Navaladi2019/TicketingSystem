@@ -89,9 +89,16 @@ image:
 # branch or a pull request can be read by no other ref, and those caches
 # filled the repository's 10 GB and evicted main's.
 BAKE_CACHED := db-roles keycloak nava-core nava-groupsync nava-onboard nava-purge nava-relay nava-worker otel-collector temporal-server
+# Every compose.yaml service with a build: (TestBakeTargetsCoverCompose).
+BAKE_TARGETS := $(BAKE_CACHED) migrate
+# TEMPORAL_SERVER_PREBUILT=1 (make temporal-server-pull found the published
+# image, TICK-641): bake every target but temporal-server, and read or write
+# no cache for it. Unset: bake's default group, every target, as before.
+BAKE_BUILT := $(if $(filter 1,$(TEMPORAL_SERVER_PREBUILT)),$(filter-out temporal-server,$(BAKE_CACHED)),$(BAKE_CACHED))
+BAKE_ONLY := $(if $(filter 1,$(TEMPORAL_SERVER_PREBUILT)),$(filter-out temporal-server,$(BAKE_TARGETS)))
 comma := ,
 BAKE_CACHE_TO = $(if $(filter true,$(CACHE_WRITE)),--set $(1).cache-to=type=gha$(comma)scope=$(1)$(comma)mode=max$(comma)ignore-error=true)
-BAKE_CACHE_GHA := $(foreach t,$(BAKE_CACHED),--set $(t).cache-from=type=gha,scope=$(t) $(call BAKE_CACHE_TO,$(t))) --set migrate.cache-from=type=gha,scope=db-roles
+BAKE_CACHE_GHA := $(foreach t,$(BAKE_BUILT),--set $(t).cache-from=type=gha,scope=$(t) $(call BAKE_CACHE_TO,$(t))) --set migrate.cache-from=type=gha,scope=db-roles
 BAKE_CACHE := $(if $(filter gha,$(IMAGE_CACHE)),$(BAKE_CACHE_GHA))
 PULL_POLICY := $(if $(filter local,$(IMAGE_CACHE)),--policy missing)
 #
@@ -117,7 +124,7 @@ BAKE_THIN := $(foreach m,$(CI_THIN_SERVICES),--set $(word 1,$(subst =, ,$(m))).d
 image-ci:
 	@$(if $(filter 1,$(IMAGE_THIN)),for b in $(CI_BINARIES) nava-worker-interptest; do [ -x $(CI_BIN_DIR)/$$b ] || { echo "image-ci: IMAGE_THIN=1 needs $(CI_BIN_DIR)/$$b: run make ci-binaries first" >&2; exit 2; }; done; echo "image-ci: thin CI images from deploy/compose/Dockerfile.ci (IMAGE_THIN=1)";) \
 	docker compose pull --quiet --ignore-buildable --ignore-pull-failures $(PULL_POLICY) & pull=$$!; \
-	docker buildx bake -f compose.yaml --load $(BAKE_CACHE) $(if $(filter 1,$(IMAGE_THIN)),$(BAKE_THIN)); status=$$?; \
+	docker buildx bake -f compose.yaml --load $(BAKE_CACHE) $(if $(filter 1,$(IMAGE_THIN)),$(BAKE_THIN)) $(BAKE_ONLY); status=$$?; \
 	$(if $(filter 1,$(IMAGE_THIN)),[ $$status -ne 0 ] || docker buildx build --load -f deploy/compose/Dockerfile.ci --target nava-worker-interptest -t nava/nava-worker-interptest:$${NAVA_IMAGE_TAG:-dev} . || status=$$?;) \
 	wait $$pull; exit $$status
 

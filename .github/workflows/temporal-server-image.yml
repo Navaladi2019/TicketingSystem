@@ -1,0 +1,44 @@
+# TICK-641: publishes nava/temporal-server to
+# ghcr.io/navaladi2019/nava-temporal-server:<git hash of the temporal-server/
+# tree> (make temporal-server-publish, scripts/ci/temporal-server-image.sh),
+# so the ci workflow's stack job pulls it (make temporal-server-pull) instead of
+# compiling Temporal on every run. Only main publishes: this is the one
+# workflow with packages: write, and it runs on pushes to main and manual runs
+# on main, never on a pull request. An existing tag is not rebuilt.
+# A failed or late publish costs time only: the stack job then builds the
+# image from source, as before. docs/quality/ci-pipeline.md
+# "Published temporal-server image".
+name: temporal-server-image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'temporal-server/**'
+      - 'make/temporal-server.mk'
+      - 'scripts/ci/temporal-server-image.sh'
+      - '.github/workflows/temporal-server-image.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: temporal-server-image-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and push the image unless this tree's tag exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_ACTOR: ${{ github.actor }}
+        run: make temporal-server-publish

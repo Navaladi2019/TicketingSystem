@@ -1,0 +1,9 @@
+# The steps .github/workflows/govulncheck.yml must keep (TICK-641), checked by
+# make check-ci-steps like required.yaml checks ci.yml. Same fields.
+steps:
+  - job: root
+    run: make vulncheck
+    why: govulncheck on the root module, zero findings (ADR-001 A1 Decision 3); no other workflow scans it since TICK-641
+  - job: temporal-server
+    run: make vulncheck-temporal-server
+    why: govulncheck on the temporal-server module, zero findings (ADR-001 A1 Decision 3); no other workflow scans it since TICK-641

@@ -4,6 +4,9 @@
 # URL. While one main-is-red issue is open, a later red push comments on it
 # instead of opening another, so one incident stays one issue.
 #
+# Also the govulncheck workflow's main-red job (TICK-641), on a push or a
+# scheduled run: WORKFLOW names the workflow in the body (default ci), EVENT
+# the event (default push).
 # Inputs (the job sets them): GH_TOKEN, GH_REPO (owner/repo), SHA, RUN_URL and
 # NEEDS_JSON, the workflow's toJSON(needs). Needs gh and jq.
 # Not a make target: TICK-289 forbids Makefile edits while S5 and S7 are open.
@@ -19,7 +22,11 @@ title="main is red: $short"
 failed=$(printf '%s' "$NEEDS_JSON" | jq -r '[to_entries[] | select(.value.result == "failure") | .key] | join(", ")')
 [ -n "$failed" ] || failed="(none reported failure; see the run)"
 
-body=$(printf '`ci` failed on a push to `main` at %s.\n\nFailing jobs: %s\n\nRun: %s\n' "$SHA" "$failed" "$RUN_URL")
+case ${EVENT:-push} in
+    schedule) what='a scheduled run on `main`' ;;
+    *) what='a push to `main`' ;;
+esac
+body=$(printf '`%s` failed on %s at %s.\n\nFailing jobs: %s\n\nRun: %s\n' "${WORKFLOW:-ci}" "$what" "$SHA" "$failed" "$RUN_URL")
 
 # The label may not exist yet in a fresh repository; an existing one is kept.
 gh label create P0 --color B60205 --description "Production-blocking; fix today" >/dev/null 2>&1 || true

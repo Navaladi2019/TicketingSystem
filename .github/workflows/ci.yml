@@ -4,10 +4,14 @@
 #   lint             gofmt, go vet (untagged, then per build-tag set),
 #                    golangci-lint, fixtures, pins, generated code (API and
 #                    acceptance guide), required
-#                    CI steps, OpenAPI, govulncheck (no containers)
+#                    CI steps, OpenAPI (no containers). govulncheck is the
+#                    govulncheck workflow since TICK-641
+#                    (.github/workflows/govulncheck.yml)
 #   unit             go test -race (no containers)
-#   temporal-server  the custom server module's unit tests, golangci-lint
-#                    (TICK-584) and govulncheck (no containers)
+#   temporal-server  the custom server module's unit tests and golangci-lint
+#                    (TICK-584) (no containers); only when the module or how
+#                    it is built, tested or linted changed
+#                    (make ci-temporal-server-changed, TICK-641)
 #   integration      -tags integration against a throwaway PostgreSQL, the
 #                    isolation suite, then the ci-isolated --down tag check
 #   commit-check-budget  TestCommitCheckBudget alone on its own runner
@@ -50,6 +54,10 @@
 #   story-branches   every story branch's work is on main (TICK-322); runs on
 #                    every event and every 6 hours (schedule, which runs no
 #                    other job), and on main keeps one issue open while red
+# The stack job uses the published temporal-server image when one exists for
+# the checkout's temporal-server/ tree (make temporal-server-pull, TICK-641;
+# the temporal-server-image workflow publishes it from main) and builds the
+# others; without one it builds temporal-server from source as before.
 # Budget: see "Job time budgets" in docs/quality/ci-pipeline.md. stack builds
 # the images first (4 to 13 minutes, by how much of the image cache survives),
 # then runs about 10 to 12 minutes of stack cases and 2 to 3 of database and
@@ -62,6 +70,20 @@
 # and evicts least recently used first. Caches written by task branches and
 # pull requests can be read by no other ref, and they pushed main's image
 # layers out, so stack runs went to the 25-minute limit.
+# Runners (TICK-641, docs/quality/ci-pipeline.md "Runners"): the runner job
+# picks GitHub-hosted (ubuntu-latest, the default) or the owner's self-hosted
+# WSL runner ([self-hosted, wsl]) from a manual run's runner input, else the
+# repository variable CI_RUNNER; a pull request from a fork always gets
+# GitHub-hosted. Every suite job runs on its pick (runs-on from its output);
+# runner, commit-check-budget (a benchmark against this runner's baseline),
+# full-suite, story-branches and main-red stay on ubuntu-latest.
+# On self-hosted: no Actions cache at all (the Go caches and tools persist on
+# the host's disk), image layers in the persistent buildx builder nava-ci
+# (IMAGE_CACHE=local, not setup-buildx-action's throwaway builder), each run
+# under a compose project, image tag and host ports of its own
+# (make ci-self-hosted-env), and the self-hosted-cleanup job removes the
+# run's containers, volumes, networks and image tags afterwards, passed,
+# failed or cancelled, then trims the nava-ci cache to CI_BUILDX_KEEP_GB.
 name: ci
 
 on:
@@ -84,6 +106,12 @@ on:
         type: choice
         options: [auto, real, thin]
         default: auto
+      # Where the jobs run (TICK-641); overrides the CI_RUNNER variable.
+      runner:
+        description: 'Runner: github (GitHub-hosted ubuntu-latest) or self-hosted (the owner''s WSL runner)'
+        type: choice
+        options: [github, self-hosted]
+        default: github
   # story-branches only: a story branch drifts from main without any push to
   # main (a PR merged into it), so it is checked on a clock too (TICK-322).
   schedule:
@@ -110,13 +138,40 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  runner:
+    # TICK-641: where every suite job runs. runs_on is JSON for runs-on:
+    # fromJSON(...): "ubuntu-latest" or ["self-hosted","wsl"]. A manual run's
+    # runner input wins over the repository variable CI_RUNNER (github when
+    # unset). A pull request whose head is another repository (a fork) always
+    # gets github: a fork's code never runs on the owner's machine. Itself on
+    # ubuntu-latest; same if: as changes, so a skipped run skips it too.
+    # Self-hosted jobs get longer timeouts (TICK-641): the first run on a cold
+    # host downloads Go and builds the tools and caches, which overran 5 and
+    # 10 minutes; later runs are warm.
+    if: github.event_name != 'schedule' && (github.event.action != 'labeled' || github.event.label.name == 'ci:run' || github.event.label.name == 'ci:full')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      runs_on: ${{ steps.pick.outputs.runs_on }}
+      self_hosted: ${{ steps.pick.outputs.self_hosted }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pick the runner
+        id: pick
+        env:
+          RUNNER_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || '' }}
+          RUNNER_VAR: ${{ vars.CI_RUNNER }}
+          CROSS_REPO: ${{ github.event_name == 'pull_request' && (github.event.pull_request.head.repo.fork || github.event.pull_request.head.repo.full_name != github.repository) }}
+        run: make ci-runner
+
   changes:
     # Which of unit, integration and stack this change needs. A scheduled run
     # is story-branches alone, and a label other than ci:run or ci:full runs nothing
     # (TICK-563): skipping this job skips the jobs that need it.
+    needs: runner
     if: github.event_name != 'schedule' && (github.event.action != 'labeled' || github.event.label.name == 'ci:run' || github.event.label.name == 'ci:full')
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+    runs-on: ${{ fromJSON(needs.runner.outputs.runs_on) }}
+    timeout-minutes: ${{ needs.runner.outputs.self_hosted == 'true' && 20 || 5 }}
     outputs:
       unit: ${{ steps.stages.outputs.unit }}
       integration: ${{ steps.stages.outputs.integration }}
@@ -125,6 +180,8 @@ jobs:
       areas: ${{ steps.stages.outputs.areas }}
       # How stack builds its images: real or thin (TICK-628).
       images: ${{ steps.stages.outputs.images }}
+      # Whether the temporal-server job runs (TICK-641).
+      temporal_server: ${{ steps.tsrv.outputs.temporal_server }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -134,6 +191,7 @@ jobs:
           go-version-file: go.mod
           cache: false
       - name: Restore the Go build cache
+        if: needs.runner.outputs.self_hosted != 'true'
         uses: actions/cache/restore@v4
         with:
           path: |
@@ -163,9 +221,21 @@ jobs:
           # A manual run's images input (TICK-628); CI_ALL (main) wins.
           CI_IMAGES: ${{ github.event_name == 'workflow_dispatch' && inputs.images || '' }}
         run: make ci-stages
+      # TICK-641: the temporal-server job only when its module, or how it is
+      # built, tested or linted, changed. On a push to main the push's own
+      # commits decide (PUSH_BEFORE); a story PR (CI_FULL) always runs it.
+      - name: Does temporal-server need its job
+        id: tsrv
+        env:
+          BASE: origin/${{ github.base_ref || 'main' }}
+          CI_ALL: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && '1' || '' }}
+          CI_FULL: ${{ github.event_name == 'pull_request' && startsWith(github.base_ref, 'TICK-') && '1' || '' }}
+          CI_LINT_ONLY: ${{ github.event_name == 'pull_request' && !startsWith(github.base_ref, 'TICK-') && !contains(github.event.pull_request.labels.*.name, 'ci:run') && !contains(github.event.pull_request.labels.*.name, 'ci:full') && '1' || '' }}
+          PUSH_BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
+        run: make ci-temporal-server-changed
       # Only main writes the cache (TICK-400); see CACHE_WRITE above.
       - name: Save the Go build cache
-        if: success() && env.CACHE_WRITE == 'true'
+        if: success() && env.CACHE_WRITE == 'true' && needs.runner.outputs.self_hosted != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
@@ -174,9 +244,10 @@ jobs:
           key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
 
   lint:
+    needs: runner
     if: github.event_name != 'schedule' && (github.event.action != 'labeled' || github.event.label.name == 'ci:run' || github.event.label.name == 'ci:full')
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    runs-on: ${{ fromJSON(needs.runner.outputs.runs_on) }}
+    timeout-minutes: ${{ needs.runner.outputs.self_hosted == 'true' && 30 || 10 }}
     env:
       # check-openapi and review-paths diff against the pull request's base.
       BASE: origin/${{ github.base_ref || 'main' }}
@@ -189,6 +260,7 @@ jobs:
           go-version-file: go.mod
           cache: false
       - name: Restore the Go build cache
+        if: needs.runner.outputs.self_hosted != 'true'
         uses: actions/cache/restore@v4
         with:
           path: |
@@ -199,8 +271,11 @@ jobs:
           restore-keys: |
             go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-
             go-${{ github.job }}-
+      # Self-hosted (TICK-641): ~/go/bin persists, so no Actions cache, and
+      # make tools reinstalls the pins from the warm Go cache.
       - name: Cache pinned tools
         id: tools
+        if: needs.runner.outputs.self_hosted != 'true'
         uses: actions/cache@v4
         with:
           path: ~/go/bin
@@ -238,11 +313,10 @@ jobs:
         run: make check-ci-steps
       - name: OpenAPI additive-only
         run: make check-openapi
-      - name: govulncheck
-        run: make vulncheck
+      # govulncheck: the govulncheck workflow (TICK-641).
       # Only main writes the cache (TICK-400); see CACHE_WRITE above.
       - name: Save the Go build cache
-        if: success() && env.CACHE_WRITE == 'true'
+        if: success() && env.CACHE_WRITE == 'true' && needs.runner.outputs.self_hosted != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
@@ -252,10 +326,10 @@ jobs:
           key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
 
   unit:
-    needs: changes
+    needs: [runner, changes]
     if: needs.changes.outputs.unit == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    runs-on: ${{ fromJSON(needs.runner.outputs.runs_on) }}
+    timeout-minutes: ${{ needs.runner.outputs.self_hosted == 'true' && 30 || 10 }}
     env:
       # TestNewMigrationsLaterThanBase compares added migrations with main's
       # newest (TICK-299), so the checkout needs main's history. Always main,
@@ -271,6 +345,7 @@ jobs:
           go-version-file: go.mod
           cache: false
       - name: Restore the Go build cache
+        if: needs.runner.outputs.self_hosted != 'true'
         uses: actions/cache/restore@v4
         with:
           path: |
@@ -291,7 +366,7 @@ jobs:
           if-no-files-found: error
       # Only main writes the cache (TICK-400); see CACHE_WRITE above.
       - name: Save the Go build cache
-        if: success() && env.CACHE_WRITE == 'true'
+        if: success() && env.CACHE_WRITE == 'true' && needs.runner.outputs.self_hosted != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
@@ -300,10 +375,10 @@ jobs:
           key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
 
   temporal-server:
-    needs: changes
-    if: needs.changes.outputs.unit == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    needs: [runner, changes]
+    if: needs.changes.outputs.temporal_server == 'true'
+    runs-on: ${{ fromJSON(needs.runner.outputs.runs_on) }}
+    timeout-minutes: ${{ needs.runner.outputs.self_hosted == 'true' && 30 || 10 }}
     env:
       # lint-temporal-server reports only lines changed since the merge base
       # (TICK-584 ratchet), so the checkout needs the base's history.
@@ -317,6 +392,7 @@ jobs:
           go-version-file: temporal-server/go.mod
           cache: false
       - name: Restore the Go build cache
+        if: needs.runner.outputs.self_hosted != 'true'
         uses: actions/cache/restore@v4
         with:
           path: |
@@ -327,9 +403,12 @@ jobs:
           restore-keys: |
             go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-
             go-${{ github.job }}-
-      # The lint job's tools cache (same key): golangci-lint and govulncheck.
+      # The lint job's tools cache (same key): golangci-lint.
+      # Self-hosted (TICK-641): ~/go/bin persists, so no Actions cache, and
+      # make tools reinstalls the pins from the warm Go cache.
       - name: Cache pinned tools
         id: tools
+        if: needs.runner.outputs.self_hosted != 'true'
         uses: actions/cache@v4
         with:
           path: ~/go/bin
@@ -343,12 +422,10 @@ jobs:
       # findings in changed lines until the existing backlog is fixed.
       - name: golangci-lint (temporal-server)
         run: make lint-temporal-server
-      # ADR-001 A1 Decision 3: zero findings, no exception and no allowlist.
-      - name: govulncheck (temporal-server)
-        run: make vulncheck-temporal-server
+      # govulncheck (ADR-001 A1 Decision 3): the govulncheck workflow (TICK-641).
       # Only main writes the cache (TICK-400); see CACHE_WRITE above.
       - name: Save the Go build cache
-        if: success() && env.CACHE_WRITE == 'true'
+        if: success() && env.CACHE_WRITE == 'true' && needs.runner.outputs.self_hosted != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
@@ -358,17 +435,26 @@ jobs:
           key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
 
   integration:
-    needs: changes
+    needs: [runner, changes]
     if: needs.changes.outputs.integration == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    runs-on: ${{ fromJSON(needs.runner.outputs.runs_on) }}
+    timeout-minutes: ${{ needs.runner.outputs.self_hosted == 'true' && 30 || 10 }}
     steps:
       - uses: actions/checkout@v4
+      # Self-hosted (TICK-641): this run's compose project, image tag and
+      # host ports, and the nava.ci.owner label of its clusters, which the
+      # self-hosted-cleanup job removes.
+      - name: Per-run Docker names (self-hosted)
+        if: needs.runner.outputs.self_hosted == 'true'
+        env:
+          ID: ci-${{ github.run_id }}
+        run: make ci-self-hosted-env
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: false
       - name: Restore the Go build cache
+        if: needs.runner.outputs.self_hosted != 'true'
         uses: actions/cache/restore@v4
         with:
           path: |
@@ -394,6 +480,10 @@ jobs:
       # leaves no nava-it-* container or network.
       - name: Integration script leaves nothing behind
         run: make test-integration-cleanup
+      # TICK-641: the self-hosted cleanup removes one run's Docker objects
+      # and nothing else (throwaway objects, seconds).
+      - name: Self-hosted cleanup removes only its run's objects
+        run: make test-self-hosted-cleanup
       - name: Isolation report
         if: always()
         uses: actions/upload-artifact@v4
@@ -403,7 +493,7 @@ jobs:
           if-no-files-found: error
       # Only main writes the cache (TICK-400); see CACHE_WRITE above.
       - name: Save the Go build cache
-        if: success() && env.CACHE_WRITE == 'true'
+        if: success() && env.CACHE_WRITE == 'true' && needs.runner.outputs.self_hosted != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
@@ -418,10 +508,15 @@ jobs:
     # and the same-run reference) run in this one job, which the verdict rule
     # needs. Runs whenever integration does; the integration shards leave
     # the test out.
+    # Always GitHub-hosted (TICK-641): the budget rows are measured against
+    # that runner (ADR-004-E3/E4); a number from another host compares with
+    # nothing, and the WSL runner failed fail_flat. TestP511CommitCheckPooledSession
+    # runs here too, out of the integration shards: a timing ratio is not
+    # meaningful on a saturated shared host (TICK-641).
     needs: changes
     if: needs.changes.outputs.integration == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -438,7 +533,7 @@ jobs:
           restore-keys: |
             go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-
             go-${{ github.job }}-
-      - name: Commit-check budget rows (TestCommitCheckBudget alone)
+      - name: Commit-check budget rows and the P511 pooled-session ratio
         run: make test-commit-check-budget
       # Only main writes the cache (TICK-400); see CACHE_WRITE above.
       - name: Save the Go build cache
@@ -458,12 +553,14 @@ jobs:
     # of cases. Each phase starts from a fresh stack, as those jobs did, and
     # runs even when an earlier phase failed, so one red run still reports all
     # three.
-    needs: changes
+    needs: [runner, changes]
     if: needs.changes.outputs.stack == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
+    runs-on: ${{ fromJSON(needs.runner.outputs.runs_on) }}
+    timeout-minutes: ${{ needs.runner.outputs.self_hosted == 'true' && 60 || 40 }}
     env:
-      IMAGE_CACHE: gha
+      # gha on GitHub-hosted; on self-hosted the BuildKit cache of the
+      # persistent nava-ci builder (TICK-641).
+      IMAGE_CACHE: ${{ needs.runner.outputs.self_hosted == 'true' && 'local' || 'gha' }}
       # 1: make image-ci builds the Go services from deploy/compose/Dockerfile.ci
       # over the binaries the step before it builds (TICK-628, AR-TICK-628-01).
       IMAGE_THIN: ${{ needs.changes.outputs.images == 'thin' && '1' || '' }}
@@ -472,11 +569,20 @@ jobs:
       NAVA_INTERPTEST_PREBUILT: ${{ needs.changes.outputs.images == 'thin' && '1' || '' }}
     steps:
       - uses: actions/checkout@v4
+      # Self-hosted (TICK-641): this run's compose project, image tag and
+      # host ports, and the nava.ci.owner label of its clusters, which the
+      # self-hosted-cleanup job removes.
+      - name: Per-run Docker names (self-hosted)
+        if: needs.runner.outputs.self_hosted == 'true'
+        env:
+          ID: ci-${{ github.run_id }}
+        run: make ci-self-hosted-env
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: false
       - name: Restore the Go build cache
+        if: needs.runner.outputs.self_hosted != 'true'
         uses: actions/cache/restore@v4
         with:
           path: |
@@ -486,8 +592,17 @@ jobs:
           restore-keys: |
             go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-
             go-${{ github.job }}-
+      # GitHub-hosted: a fresh builder and the Actions runtime env for
+      # type=gha. Self-hosted: neither (setup-buildx-action's builder is
+      # throwaway, its cache gone after the job); the persistent nava-ci
+      # builder instead, selected through BUILDX_BUILDER (TICK-641).
       - uses: docker/setup-buildx-action@v3
+        if: needs.runner.outputs.self_hosted != 'true'
       - uses: crazy-max/ghaction-github-runtime@v3
+        if: needs.runner.outputs.self_hosted != 'true'
+      - name: Persistent buildx builder nava-ci (self-hosted)
+        if: needs.runner.outputs.self_hosted == 'true'
+        run: make ci-builder
       # One go build of the seven service binaries for the thin images
       # (TICK-628). Main builds them too, though its images are real, so the
       # Go cache it saves holds this build (CGO off, -trimpath) and a pull
@@ -495,8 +610,14 @@ jobs:
       - name: Build the Go service binaries
         if: env.IMAGE_THIN == '1' || env.CACHE_WRITE == 'true'
         run: make ci-binaries
+      # TICK-641: the image published from main for this temporal-server/
+      # tree, tagged as this run's nava/temporal-server; image-ci then leaves
+      # it out of the bake (TEMPORAL_SERVER_PREBUILT=1). Not published (the
+      # change edits temporal-server/): image-ci builds it, as before.
+      - name: Published temporal-server image
+        run: make temporal-server-pull
       # Once per run: every phase below uses these images.
-      - name: Build images (layer cache in gha)
+      - name: Build images (layer cache in gha, or nava-ci on self-hosted)
         id: images
         run: make image-ci
 
@@ -580,13 +701,40 @@ jobs:
         run: make stack-down
       # Only main writes the cache (TICK-400); see CACHE_WRITE above.
       - name: Save the Go build cache
-        if: success() && env.CACHE_WRITE == 'true'
+        if: success() && env.CACHE_WRITE == 'true' && needs.runner.outputs.self_hosted != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
           key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
+
+  self-hosted-cleanup:
+    # TICK-641: on the self-hosted runner, after every job that uses Docker,
+    # whether it passed, failed, was skipped or cancelled, removes this run's
+    # compose projects (nava-ci-<run id>, -int) with their volumes and
+    # networks, the integration clusters labelled with that project, and the
+    # nava/*:ci-<run id> image tags, then fails if any is left. Never the
+    # owner's own containers or volumes (they carry neither label), never the
+    # nava-ci builder: the second step only trims its cache to
+    # CI_BUILDX_KEEP_GB (repository variable, default 20). Workspace leftovers
+    # (.ci-bin, coverage files, certificates) go with the next job's checkout,
+    # which cleans the workspace.
+    needs: [runner, integration, stack]
+    if: always() && needs.runner.outputs.self_hosted == 'true'
+    runs-on: [self-hosted, wsl]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Remove this run's containers, volumes, networks and image tags
+        env:
+          ID: ci-${{ github.run_id }}
+        run: make ci-self-hosted-cleanup
+      - name: Trim the nava-ci build cache
+        if: always()
+        env:
+          KEEP_GB: ${{ vars.CI_BUILDX_KEEP_GB || '20' }}
+        run: make ci-builder-prune
 
   coverage:
     # TICK-518: the total Go coverage of the unit run (make test) and the
@@ -597,10 +745,10 @@ jobs:
     # that runs unit (make ci-stages adds integration to those), even when
     # unit or integration failed or was skipped: a missing profile then fails
     # the download, so the job is never skipped as "not needed" (TICK-518).
-    needs: [changes, unit, integration]
+    needs: [runner, changes, unit, integration]
     if: ${{ !cancelled() && needs.changes.outputs.unit == 'true' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    runs-on: ${{ fromJSON(needs.runner.outputs.runs_on) }}
+    timeout-minutes: ${{ needs.runner.outputs.self_hosted == 'true' && 30 || 10 }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -608,6 +756,7 @@ jobs:
           go-version-file: go.mod
           cache: false
       - name: Restore the Go build cache
+        if: needs.runner.outputs.self_hosted != 'true'
         uses: actions/cache/restore@v4
         with:
           path: |
@@ -722,8 +871,9 @@ jobs:
   main-red:
     # A push to main with any failed job opens (or comments on) the P0
     # "main is red" issue. A skipped job is not a failure; a cancelled run
-    # does not fire this.
-    needs: [changes, lint, unit, temporal-server, integration, commit-check-budget, stack, coverage]
+    # does not fire this. The govulncheck workflow has a main-red job of its
+    # own (TICK-641).
+    needs: [runner, changes, lint, unit, temporal-server, integration, commit-check-budget, stack, coverage]
     if: failure() && github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
