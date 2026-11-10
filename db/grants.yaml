@@ -110,8 +110,9 @@ roles:
       # authz.RequireAuditPermission (P5-18): the platform id of the auditors group.
       tenant_auditor_group: { SELECT: [] }
       # Entity types (P3-02, TICK-340). A type's key and number_prefix are set
-      # once; publishing moves current_version. A version is insert-only (D-3-4).
-      entity_definitions: { SELECT: [], INSERT: [], UPDATE: [current_version, updated_at] }
+      # once; publishing moves current_version. numbering_mode (D-3-9, TICK-659)
+      # changes later through SetNumberingMode. A version is insert-only (D-3-4).
+      entity_definitions: { SELECT: [], INSERT: [], UPDATE: [current_version, updated_at, numbering_mode] }
       entity_definition_versions: { SELECT: [], INSERT: [] }
       # ACLs and shares (P3-30, TICK-615): immutable, insert-only.
       acl_versions: { SELECT: [], INSERT: [] }

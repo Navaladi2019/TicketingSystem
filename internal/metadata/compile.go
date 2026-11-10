@@ -100,6 +100,13 @@ func Compile(d Definition) (*Compiled, error) {
 	if !prefixPattern.MatchString(d.NumberPrefix) {
 		bad.add("number_prefix")
 	}
+	mode := d.NumberingMode
+	if mode == "" {
+		mode = NumberingGaps
+	}
+	if !mode.Valid() {
+		bad.add("numbering_mode")
+	}
 	checkStates(d.States, &bad)
 
 	doc, ok := decodeSchema(d.Schema, &bad)
@@ -141,9 +148,10 @@ func Compile(d Definition) (*Compiled, error) {
 		fixed[k] = v
 	}
 	return &Compiled{
-		key:          d.Key,
-		numberPrefix: d.NumberPrefix,
-		fixedColumns: fixed,
+		key:           d.Key,
+		numberPrefix:  d.NumberPrefix,
+		numberingMode: mode,
+		fixedColumns:  fixed,
 		states: StateModel{
 			Initial:     d.States.Initial,
 			States:      slices.Clone(d.States.States),

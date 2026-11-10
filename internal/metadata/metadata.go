@@ -60,7 +60,30 @@ type Definition struct {
 	FixedColumns map[string]string `json:"fixed_columns"`
 	// States is the state model of the property mapped to ColumnState.
 	States StateModel `json:"states"`
+	// NumberingMode is how the type numbers its records (PLAN-003 D-3-9):
+	// NumberingGaps or NumberingGapless. Empty compiles as NumberingGaps.
+	// It lives on the type, not the version (entity_definitions.numbering_mode),
+	// so changing it is not a schema change and Classify ignores it.
+	NumberingMode NumberingMode `json:"numbering_mode,omitempty"`
 }
+
+// NumberingMode is an entity type's record numbering mode (PLAN-003 D-3-9,
+// entity_definitions_numbering_mode_check).
+type NumberingMode string
+
+const (
+	// NumberingGaps takes the number in its own short transaction before the
+	// create: a create that fails afterwards leaves its number unused. The
+	// default.
+	NumberingGaps NumberingMode = "gaps"
+	// NumberingGapless takes the number last inside the create transaction:
+	// a rolled-back create gives it back, and the type's creates queue on its
+	// counter row.
+	NumberingGapless NumberingMode = "gapless"
+)
+
+// Valid reports whether m is one of NumberingGaps or NumberingGapless.
+func (m NumberingMode) Valid() bool { return m == NumberingGaps || m == NumberingGapless }
 
 // StateModel is the set of states and the allowed transitions between them.
 type StateModel struct {
@@ -135,11 +158,12 @@ type FieldError struct {
 // Compiled is a definition that passed Compile. It is immutable and safe for
 // concurrent use.
 type Compiled struct {
-	key          string
-	numberPrefix string
-	fixedColumns map[string]string
-	states       StateModel
-	schema       *jsonschema.Schema
+	key           string
+	numberPrefix  string
+	numberingMode NumberingMode
+	fixedColumns  map[string]string
+	states        StateModel
+	schema        *jsonschema.Schema
 	// doc is the decoded schema (numbers as json.Number); read only.
 	doc map[string]any
 	// defaults holds each top-level property's default as JSON, decoded
