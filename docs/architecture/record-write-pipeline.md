@@ -29,7 +29,7 @@ flowchart TD
     U --> GR{assignment_group_id<br/>set or changed?}
     GR -- yes: not a live group of the tenant --> GX[ErrAssignmentGroupRemoved<br/>422, nothing written]
     GR -- no, or live --> N
-    N[create: record_counters upsert<br/>RETURNING next - 1]
+    N[create: record_counters upsert RETURNING next - 1<br/>in its own committed transaction on the allocator pool]
     N --> J[INSERT, or UPDATE ... version = version + 1<br/>WHERE tenant_id, id, version = expected]
     J --> W[keyed write: one record_write_keys row<br/>D-5-3, P5-13a]
     W --> K[one audit_log entry<br/>(audit.Append, ADR-004)]
@@ -83,17 +83,44 @@ flowchart TD
   first write's uncommitted key and then hits `23505` on
   `record_write_keys_actor_key`, which aborts the transaction: `Write` returns
   `*ErrIdempotencyConflict{Concurrent: true}`, and the retry replays.
-- **Numbering (D-3-9).** A create takes its number with one upsert,
-  `INSERT INTO record_counters ... VALUES (..., 2) ON CONFLICT ... DO UPDATE
-  SET next = record_counters.next + 1 RETURNING next - 1`, after every check
-  and right before the record, audit and outbox inserts. The counter row's
-  lock is held from there to commit, so creates of one type in one tenant
-  queue on it and get consecutive numbers; a rollback gives its number back.
-  Nothing creates the counter row in advance, and there is no sequence (I8).
-  Since TICK-648 the upsert opens a create's last batch, with the INSERT
-  (which builds the number in SQL from the counter), the write key and the
-  audit entry; the counter is held for that batch and the commit's round
-  trip ([tenant-tx-batching.md](tenant-tx-batching.md)).
+- **Numbering (D-3-9, amended 2026-11-10: gaps allowed, no reclaim).** A
+  create takes its number with one upsert, `INSERT INTO record_counters ...
+  VALUES (..., 2) ON CONFLICT ... DO UPDATE SET next = record_counters.next +
+  1 RETURNING next - 1`, after the replay check, validation, the write check
+  and the unique and group checks (ADR-001 I4), so a refused or invalid create
+  never moves the counter. The upsert runs on the pipeline's `TxRunner` in a
+  short tenant transaction of its own (BEGIN with the tenant GUC, upsert,
+  COMMIT) that commits before the record is inserted (TICK-657). The counter
+  row is locked only for that upsert and its COMMIT, so creates of one type
+  no longer queue on each other's COMMIT. A create that fails or rolls back
+  after that leaves a gap; a retry takes a new number. Numbers stay unique
+  and increasing per tenant and type. Nothing creates the counter row in
+  advance, and there is no sequence (I8). The per-type `gapless` mode (the
+  TICK-648 layout) returns with `entity_definitions.numbering_mode`
+  (TICK-659).
+- **Allocator pool.** The runner's transaction needs a connection while the
+  create's own transaction holds one, so nava-core gives it a pool of its own
+  (`cmd/nava-core/allocator.go`, 4 connections) and, behind PgBouncer, a
+  server pool of its own (the `nava_alloc` entry, `NAVA_ALLOCATOR_DATABASE_URL`).
+  On the API pool, or on the API pool's PgBouncer server pool, creates that
+  hold every connection would wait forever for their numbers
+  (`TestAllocatorPoolDoesNotStarveThePool`).
+
+```mermaid
+sequenceDiagram
+    participant H as create (API pool)
+    participant A as allocator pool
+    participant P as PostgreSQL
+    H->>P: BEGIN+tenant; prefetch; checks (CanWrite, unique, group)
+    H->>A: takeNumber(tenant, type)
+    A->>P: BEGIN+tenant
+    A->>P: record_counters upsert RETURNING next - 1
+    A->>P: COMMIT (counter row unlocked)
+    A-->>H: n
+    H->>P: batch: INSERT record (number n), write key, audit
+    H->>P: COMMIT (a failure here leaves n as a gap)
+```
+
   Format `<prefix><7 digits>` (`INC0000001`), growing past 7 digits; past
   that the text does not sort by number, so lists sort on `created_at`.
 - **State model.** A create must be in the type's `Initial` state. An

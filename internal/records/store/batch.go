@@ -124,7 +124,7 @@ func QueueUniqueTaken(b *pgx.Batch, tenantID, entityDefinitionID, except uuid.UU
 // QueuePayloadPreview queues the payload PayloadJSON would return for r once
 // inserted: the same expression, over r's values as bind parameters instead
 // of the stored row, so *dst holds PostgreSQL's own jsonb text of them.
-// InsertNumbered returns the stored row's payload, which the pipeline
+// QueueInsertRecord returns the stored row's payload, which the pipeline
 // compares with this one, so an audit diff built from the preview is the
 // stored row's.
 func QueuePayloadPreview(b *pgx.Batch, r *Record, fixed map[string]string, dst *json.RawMessage) error {
@@ -177,11 +177,9 @@ func payloadExpr(fixed map[string]string, args []any) (string, []any, error) {
 	return expr, args, nil
 }
 
-// Numbered is what QueueInsertNumbered reads back when the batch runs.
-type Numbered struct {
-	// N is the counter value the create took.
-	N int64
-	// Number is the number the INSERT stored, built by PostgreSQL from N.
+// Inserted is what QueueInsertRecord reads back when the batch runs.
+type Inserted struct {
+	// Number is the number the INSERT stored.
 	Number string
 	// Payload is the stored row's payload, as PayloadJSON returns it.
 	Payload json.RawMessage
@@ -190,36 +188,19 @@ type Numbered struct {
 	CreatedAt, UpdatedAt time.Time
 }
 
-// numberSQL is FormatNumber in SQL over the counter value the batch's first
-// statement took: the prefix, then the value zero padded to 7 digits and
-// longer as needed (lpad alone would cut an 8-digit value).
-const numberSQL = `$15::text || (SELECT CASE WHEN c.next - 1 < 10000000 THEN lpad((c.next - 1)::text, 7, '0')
-    ELSE (c.next - 1)::text END
-  FROM record_counters c WHERE c.tenant_id = $1 AND c.entity_definition_id = $4)`
-
-// QueueInsertNumbered queues a create's numbering and insert, the last
-// statements before the audit entry (D-3-9, TICK-648): the record_counters
-// upsert, which locks the tenant's counter row of the type until the
-// transaction ends, then the INSERT of r, whose number PostgreSQL builds from
-// the counter value the upsert left, under prefix. r.Number is ignored.
-// When the batch runs, *dst holds the value, the number, the stored
-// timestamps and the stored payload under fixed. A rollback after this gives the number back (no gap),
-// as NextNumber's does.
-func QueueInsertNumbered(b *pgx.Batch, r *Record, prefix string, fixed map[string]string, dst *Numbered) error {
+// QueueInsertRecord queues the INSERT of a new record r, with the number
+// r.Number the caller took with NextNumber in a transaction of its own
+// (D-3-9 as amended 2026-11-10). When the batch runs, *dst holds the stored
+// number, the stored timestamps and the stored payload under fixed.
+func QueueInsertRecord(b *pgx.Batch, r *Record, fixed map[string]string, dst *Inserted) error {
 	data, err := json.Marshal(r.Data)
 	if err != nil {
 		return fmt.Errorf("records/store: encode data: %w", err)
 	}
-	b.Queue(nextNumberSQL, r.TenantID, r.EntityDefinitionID).QueryRow(func(row pgx.Row) error {
-		if err := row.Scan(&dst.N); err != nil {
-			return fmt.Errorf("records/store: take record number: %w", err)
-		}
-		return nil
-	})
 	expr, args, err := payloadExpr(fixed, []any{
-		r.TenantID, r.ID, r.Version, r.EntityDefinitionID, r.SchemaVersion, r.State,
+		r.TenantID, r.ID, r.Version, r.EntityDefinitionID, r.SchemaVersion, r.Number, r.State,
 		r.RequesterID, r.AssigneeID, r.AssignmentGroupID, r.CreatedBy, r.CreatedAt, jsonParam(data),
-		r.CausationOriginID, r.CausationDepth, prefix,
+		r.CausationOriginID, r.CausationDepth,
 	})
 	if err != nil {
 		return err
@@ -228,7 +209,7 @@ func QueueInsertNumbered(b *pgx.Batch, r *Record, prefix string, fixed map[strin
 INSERT INTO records (tenant_id, id, version, entity_definition_id, schema_version, number, state,
     requester_id, assignee_id, assignment_group_id, created_by, created_at, updated_at, data,
     causation_origin_id, causation_depth)
-VALUES ($1, $2, $3, $4, $5, `+numberSQL+`, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12, $13, $14, $15)
 RETURNING number, created_at, updated_at, (`+expr+`)::text`, args...).QueryRow(func(row pgx.Row) error {
 		var payload string
 		if err := row.Scan(&dst.Number, &dst.CreatedAt, &dst.UpdatedAt, &payload); err != nil {

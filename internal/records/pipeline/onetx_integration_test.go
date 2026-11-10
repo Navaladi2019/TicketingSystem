@@ -71,8 +71,10 @@ BEGIN RAISE EXCEPTION 'injected failure on `+table+`'; END $$`)
 // TestCreateRollsBackAtEveryStage: a create that fails at the counter, the
 // record insert, the write key, the audit entry, the sink's outbox row, or
 // the COMMIT's own round trip leaves no record, audit row, outbox row or
-// write key, and does not move the counter; the next create takes the next
-// number, with no gap.
+// write key. Its number was taken in a transaction of its own that already
+// committed (D-3-9 as amended 2026-11-10, gaps allowed): a failure at the
+// counter moves nothing, and each later stage's failure leaves one gap, so
+// the next create takes the number after the last one spent.
 func TestCreateRollsBackAtEveryStage(t *testing.T) {
 	e := migrated(t)
 	f := seedTenant(t, e)
@@ -97,15 +99,20 @@ func TestCreateRollsBackAtEveryStage(t *testing.T) {
 		setup func(t *testing.T) *pipeline.Pipeline
 		// atCommit queues a failing statement for the COMMIT's round trip.
 		atCommit bool
+		// spent: the stage fails after the number committed (a gap).
+		spent bool
 	}{
-		{"counter", func(t *testing.T) *pipeline.Pipeline { failOn(t, e, "record_counters", "UPDATE"); return ok }, false},
-		{"record", func(t *testing.T) *pipeline.Pipeline { failOn(t, e, "records", "INSERT"); return ok }, false},
-		{"write key", func(t *testing.T) *pipeline.Pipeline { failOn(t, e, "record_write_keys", "INSERT"); return ok }, false},
-		{"audit", func(t *testing.T) *pipeline.Pipeline { failOn(t, e, "audit_log", "INSERT"); return ok }, false},
-		{"outbox", func(*testing.T) *pipeline.Pipeline { return newPipeline(e, failSink{&enqueueSink{}}) }, false},
-		{"commit", func(*testing.T) *pipeline.Pipeline { return ok }, true},
+		{"counter", func(t *testing.T) *pipeline.Pipeline { failOn(t, e, "record_counters", "UPDATE"); return ok }, false, false},
+		{"record", func(t *testing.T) *pipeline.Pipeline { failOn(t, e, "records", "INSERT"); return ok }, false, true},
+		{"write key", func(t *testing.T) *pipeline.Pipeline { failOn(t, e, "record_write_keys", "INSERT"); return ok }, false, true},
+		{"audit", func(t *testing.T) *pipeline.Pipeline { failOn(t, e, "audit_log", "INSERT"); return ok }, false, true},
+		{"outbox", func(*testing.T) *pipeline.Pipeline { return newPipeline(e, failSink{&enqueueSink{}}) }, false, true},
+		{"commit", func(*testing.T) *pipeline.Pipeline { return ok }, true, true},
 	}
 	for i, s := range stages {
+		if s.spent {
+			before.next++
+		}
 		t.Run(s.name, func(t *testing.T) {
 			p := s.setup(t)
 			err := tenancy.InTenantTx(ctx, e.app, f.id, func(tx pgx.Tx) error {
@@ -121,7 +128,7 @@ func TestCreateRollsBackAtEveryStage(t *testing.T) {
 				t.Fatal("the create succeeded, want the injected failure")
 			}
 			if got := stateOf(t, e, f.id); got != before {
-				t.Errorf("after a failure at the %s: %+v, want %+v (nothing kept, counter unmoved)", s.name, got, before)
+				t.Errorf("after a failure at the %s: %+v, want %+v (nothing kept, the counter moved only by a spent number)", s.name, got, before)
 			}
 		})
 	}
@@ -129,8 +136,9 @@ func TestCreateRollsBackAtEveryStage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Number != "INC0000002" {
-		t.Errorf("the create after the failures took %s, want INC0000002 (no gap)", res.Number)
+	// Five numbers spent (2..6), so the next is 7.
+	if res.Number != "INC0000007" {
+		t.Errorf("the create after the failures took %s, want INC0000007 (2..6 are gaps)", res.Number)
 	}
 }
 
@@ -148,24 +156,27 @@ func TestConcurrentCreatesNumberWithoutGaps(t *testing.T) {
 	t.Logf("400 creates on 8 workers, direct: %v, %.0f creates/s", took, 400/took.Seconds())
 }
 
-// TestCreateTakesTheCounterInItsLastBatch traces a create's round trips: the
-// tenancy BEGIN sets the tenant before anything else, every later trip runs
-// under it, and the record_counters upsert is in the last batch before
-// COMMIT, with the record, write key and audit inserts and nothing after
-// them. Its trips and statements are logged for the PR (TICK-648).
-func TestCreateTakesTheCounterInItsLastBatch(t *testing.T) {
+// TestCreateTakesItsNumberInATransactionOfItsOwn traces a create's round
+// trips on both pools: the tenancy BEGIN sets the tenant before anything
+// else, every trip runs under it, and the record_counters upsert runs alone
+// in a transaction of its own (BEGIN, upsert, COMMIT) after the checks and
+// before the batch that inserts the record, which no longer names the
+// counter (D-3-9 as amended 2026-11-10, TICK-657). Its trips and statements
+// are logged for the PR.
+func TestCreateTakesItsNumberInATransactionOfItsOwn(t *testing.T) {
 	e := migrated(t)
 	f := seedTenant(t, e)
-	cfg := serverPoolConfig(t, appDSN(t, e.platform))
 	g := &tenancytest.Guard{}
-	cfg.ConnConfig.Tracer = g
-	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
-	if err != nil {
-		t.Fatal(err)
+	traced := func(maxConns int32) *pgxpool.Pool {
+		cfg := serverPoolConfig(t, appDSN(t, e.platform))
+		cfg.ConnConfig.Tracer = g
+		if maxConns > 0 {
+			cfg.MaxConns = maxConns
+		}
+		return newPool(t, cfg)
 	}
-	t.Cleanup(pool.Close)
-	traced := env{super: e.super, app: pool, platform: e.platform}
-	p := newPipeline(traced, nil)
+	tenv := env{super: e.super, app: traced(0), alloc: traced(allocatorMaxConns), platform: e.platform}
+	p := newPipeline(tenv, nil)
 
 	for _, c := range []struct {
 		name string
@@ -180,7 +191,7 @@ func TestCreateTakesTheCounterInItsLastBatch(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			ctx, rec := tenancytest.Record(context.Background())
-			if _, err := write(ctx, traced, p, f.id, c.cmd); err != nil {
+			if _, err := write(ctx, tenv, p, f.id, c.cmd); err != nil {
 				t.Fatal(err)
 			}
 			trips := rec.Trips()
@@ -189,26 +200,36 @@ func TestCreateTakesTheCounterInItsLastBatch(t *testing.T) {
 					t.Errorf("trip %d ran under tenant %s, want %s: %q", i, tr.Tenant, f.id, tr.SQL)
 				}
 			}
-			last := trips[len(trips)-2]
-			if !last.Batch || !strings.Contains(last.SQL[0], "record_counters") {
-				t.Fatalf("the trip before COMMIT is %q, want the batch that opens with the counter upsert", last.SQL)
+			has := func(tr tenancytest.Trip, want string) bool {
+				return slices.ContainsFunc(tr.SQL, func(s string) bool { return strings.Contains(s, want) })
 			}
-			for _, want := range []string{"INSERT INTO records", "INSERT INTO audit_log"} {
-				if !slices.ContainsFunc(last.SQL, func(s string) bool { return strings.Contains(s, want) }) {
-					t.Errorf("the counter batch has no %q: %q", want, last.SQL)
+			up := slices.IndexFunc(trips, func(tr tenancytest.Trip) bool { return has(tr, "record_counters") })
+			if up < 1 || up+1 >= len(trips) {
+				t.Fatalf("no counter upsert between two trips: %d trips", len(trips))
+			}
+			if n := len(trips[up].SQL); n != 1 {
+				t.Errorf("the counter upsert shares its trip with %d statements: %q", n-1, trips[up].SQL)
+			}
+			if begin := trips[up-1]; !strings.HasPrefix(strings.ToLower(begin.SQL[0]), "begin") {
+				t.Errorf("the trip before the upsert is %q, want the allocation's BEGIN", begin.SQL)
+			}
+			if end := trips[up+1]; len(end.SQL) != 1 || end.SQL[0] != "commit" {
+				t.Errorf("the trip after the upsert is %q, want the allocation's COMMIT", end.SQL)
+			}
+			ins := slices.IndexFunc(trips, func(tr tenancytest.Trip) bool { return has(tr, "INSERT INTO records") })
+			if ins < up+2 || !has(trips[ins], "INSERT INTO audit_log") {
+				t.Errorf("the record batch (trip %d) is not after the allocation's COMMIT (trip %d) with the audit entry", ins, up+1)
+			}
+			for i, tr := range trips {
+				if i != up && has(tr, "record_counters") {
+					t.Errorf("trip %d also names the counter: %q", i, tr.SQL)
 				}
 			}
 			if end := trips[len(trips)-1]; end.SQL[len(end.SQL)-1] != "commit" {
 				t.Errorf("the last trip is %q, want COMMIT", end.SQL)
 			}
-			for _, tr := range trips[:len(trips)-2] {
-				for _, s := range tr.SQL {
-					if strings.Contains(s, "record_counters") {
-						t.Errorf("a trip before the last batch takes the counter: %q", s)
-					}
-				}
-			}
-			t.Logf("create (%s), pipeline only: %d round trips, %d statements", c.name, len(trips), rec.Statements())
+			t.Logf("create (%s), pipeline only: %d round trips, %d statements; 3 trips of them the number's own transaction",
+				c.name, len(trips), rec.Statements())
 		})
 	}
 	if v := g.Violations(); len(v) > 0 {

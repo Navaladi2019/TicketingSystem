@@ -231,6 +231,15 @@ func newPerfEnv(t *testing.T, clients int) *perfEnv {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
+	// nava-core's allocator pool (cmd/nava-core/allocator.go, TICK-657): a
+	// create takes its number on it, traced like the API pool.
+	ac := pc.Copy()
+	ac.MaxConns = 4
+	alloc, err := pgxpool.NewWithConfig(t.Context(), ac)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(alloc.Close)
 	large := etSeedTenant(t, super, "large")
 	tokens := etTokens{"admin-large": large.admin}
 	tel, err := telemetry.New(t.Context(), config.Telemetry{})
@@ -244,7 +253,7 @@ func newPerfEnv(t *testing.T, clients int) *perfEnv {
 	}
 	reader := etAuditReader(t, pool)
 	h, err := server.NewHandler(slog.New(slog.NewTextHandler(testLogWriter{t, nil}, &slog.HandlerOptions{Level: slog.LevelWarn})), tel, tokens, stubPaths{},
-		server.WithLimiter(perfAllow{}), server.WithPool(pool), server.WithAuditReader(reader), server.WithCursors(kr))
+		server.WithLimiter(perfAllow{}), server.WithPool(pool), server.WithAllocatorPool(alloc), server.WithAuditReader(reader), server.WithCursors(kr))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -725,10 +734,11 @@ type perfHold struct {
 }
 
 // counterHold finds the record_counters upsert and the COMMIT that ends its
-// transaction in one create's statements. Since TICK-648 both are in
-// batches: the upsert opens the create's last batch, whose end is the
-// earliest the client sees the row locked (so wait includes the rest of
-// that batch), and COMMIT ends the batch after it. n counts round trips.
+// transaction in one create's statements. Since TICK-657 the upsert runs
+// alone in a transaction of its own on the allocator pool, and the COMMIT
+// right after it ends the window (D-3-9 as amended 2026-11-10). A COMMIT
+// batched after other statements (" ; commit") still ends it, as in the
+// TICK-648 layout. n counts round trips.
 func counterHold(ss []perfStmt) (perfHold, bool) {
 	up := slices.IndexFunc(ss, func(s perfStmt) bool { return strings.Contains(s.SQL, "INSERT INTO record_counters") })
 	if up < 0 {

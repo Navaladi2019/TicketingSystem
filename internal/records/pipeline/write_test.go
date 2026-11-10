@@ -330,10 +330,37 @@ func (f fixture) update(id uuid.UUID, patch map[string]any) pipeline.Command {
 		Actor: f.actor, Source: pipeline.SourceUser, Data: patch}
 }
 
+// numberRunner is the unit pipeline's TxRunner, where a create takes its
+// number (D-3-9 as amended 2026-11-10): each call runs fn on a scriptTx of
+// its own whose record_counters upsert scans next, or fails with err, and is
+// kept so a test can tell whether a number was taken and in which tenant.
+type numberRunner struct {
+	t    *testing.T
+	next int64
+	err  error
+	txs  []*scriptTx
+}
+
+func (r *numberRunner) InTenantTx(_ context.Context, tenant uuid.UUID, fn func(pgx.Tx) error) error {
+	x := &scriptTx{t: r.t, tenant: tenant.String(), stmts: []stmt{{match: sqlNumber, scan: scanInt(r.next), err: r.err}}}
+	r.txs = append(r.txs, x)
+	return fn(x)
+}
+
+// taken reports whether any create took a number.
+func (r *numberRunner) taken() bool { return len(r.txs) > 0 }
+
+// unitPipeline is a pipeline whose number allocation fails with errBoom: a
+// create that gets past every check stops at its number.
 func unitPipeline(a authz.Authorizer, defs pipeline.DefinitionReader) *pipeline.Pipeline {
-	return pipeline.New(a, defs, pipeline.NoopSink{}, runnerFunc(func(context.Context, uuid.UUID, func(pgx.Tx) error) error {
-		return errors.New("runner not expected")
-	}), pipeline.SystemClock{})
+	p, _ := numberedPipeline(nil, a, defs, &numberRunner{err: errBoom})
+	return p
+}
+
+// numberedPipeline is a pipeline that takes its numbers from r.
+func numberedPipeline(t *testing.T, a authz.Authorizer, defs pipeline.DefinitionReader, r *numberRunner) (*pipeline.Pipeline, *numberRunner) {
+	r.t = t
+	return pipeline.New(a, defs, pipeline.NoopSink{}, r, pipeline.SystemClock{}), r
 }
 
 // The tenant is the transaction's, never the command's: a transaction with
@@ -434,7 +461,7 @@ func TestWriteReplayReadFailure(t *testing.T) {
 // write and reported at the definition version the write used.
 func TestWriteRefusesDataThatIsNotJSON(t *testing.T) {
 	f := newFixture()
-	p := unitPipeline(fakeAuthz{}, fakeDefs{cur: assetDef(t), curVersion: 3})
+	p, numbers := numberedPipeline(t, fakeAuthz{}, fakeDefs{cur: assetDef(t), curVersion: 3}, &numberRunner{next: 1})
 	tx := f.tx(t)
 	_, err := p.Write(t.Context(), tx, f.create(map[string]any{"name": make(chan int)}))
 	if !errors.Is(err, pipeline.ErrInvalidCommand) {
@@ -447,8 +474,8 @@ func TestWriteRefusesDataThatIsNotJSON(t *testing.T) {
 	if !errors.As(err, &av) || av.SchemaVersion != 3 || av.StateProperty != "status" {
 		t.Errorf("err = %#v, want ErrAtVersion at version 3 naming status", err)
 	}
-	if tx.ranAny(sqlInsert) || tx.ranAny(sqlNumber) {
-		t.Error("a statement wrote after the refusal")
+	if tx.ranAny(sqlInsert) || numbers.taken() {
+		t.Error("a statement wrote or a number was taken after the refusal")
 	}
 }
 
@@ -456,7 +483,7 @@ func TestWriteRefusesDataThatIsNotJSON(t *testing.T) {
 // the required property, and nothing is inserted or numbered.
 func TestCreateValidatesBeforeWriting(t *testing.T) {
 	f := newFixture()
-	p := unitPipeline(fakeAuthz{}, fakeDefs{cur: assetDef(t), curVersion: 1})
+	p, numbers := numberedPipeline(t, fakeAuthz{}, fakeDefs{cur: assetDef(t), curVersion: 1}, &numberRunner{next: 1})
 	for name, data := range map[string]map[string]any{
 		"nil data":   nil,
 		"wrong type": {"name": "x", "tag": "seven"},
@@ -477,10 +504,13 @@ func TestCreateValidatesBeforeWriting(t *testing.T) {
 			if !reflect.DeepEqual(ve.Fields, want) {
 				t.Errorf("fields = %v, want %v", ve.Fields, want)
 			}
-			for _, s := range []string{sqlLock, sqlNumber, sqlInsert, sqlAudit} {
+			for _, s := range []string{sqlLock, sqlInsert, sqlAudit} {
 				if tx.ranAny(s) {
 					t.Errorf("%q ran after a validation failure", s)
 				}
+			}
+			if numbers.taken() {
+				t.Error("an invalid create took a number")
 			}
 		})
 	}
@@ -489,14 +519,14 @@ func TestCreateValidatesBeforeWriting(t *testing.T) {
 // A refused authorisation writes nothing, on a create and on an update.
 func TestWriteRefusedByTheAuthorizer(t *testing.T) {
 	f := newFixture()
-	p := unitPipeline(fakeAuthz{err: authz.ErrForbidden}, fakeDefs{cur: assetDef(t), curVersion: 1})
+	p, numbers := numberedPipeline(t, fakeAuthz{err: authz.ErrForbidden}, fakeDefs{cur: assetDef(t), curVersion: 1}, &numberRunner{next: 1})
 
 	tx := f.tx(t)
 	if _, err := p.Write(t.Context(), tx, f.create(map[string]any{"name": "x"})); !errors.Is(err, authz.ErrForbidden) {
 		t.Fatalf("create: %v, want authz.ErrForbidden", err)
 	}
-	if tx.ranAny(sqlInsert) || tx.ranAny(sqlNumber) {
-		t.Error("create: a statement wrote after the refusal")
+	if tx.ranAny(sqlInsert) || numbers.taken() {
+		t.Error("create: a statement wrote or a number was taken after the refusal")
 	}
 
 	rec := storedRecord{tenant: f.tenant, id: uuid.New(), def: f.defID, key: "asset", version: 1, schemaVersion: 1,
@@ -511,32 +541,36 @@ func TestWriteRefusedByTheAuthorizer(t *testing.T) {
 }
 
 // Each failing statement of a create is returned wrapped, naming its step,
-// and stops the write there.
+// and stops the write there. The number is taken between the checks batch
+// and the write batch, in a transaction of its own (D-3-9 as amended
+// 2026-11-10), never in the create's.
 func TestCreateStatementFailures(t *testing.T) {
 	f := newFixture()
-	p := unitPipeline(fakeAuthz{}, fakeDefs{cur: assetDef(t), curVersion: 1})
 	const payload = `{"name": "x", "serial": "SN-1", "status": "active"}`
-	// The INSERT's SQL names record_counters (its number), so it is matched
-	// before the counter's own statement.
 	ok := []stmt{
 		{match: sqlLock}, {match: sqlTaken, scan: scanBool(false)}, {match: sqlPreview, scan: scanString(payload)},
-		{match: sqlInsert, scan: scanInserted("AST0000001", payload)}, {match: sqlNumber, scan: scanInt(1)},
-		{match: sqlAudit},
+		{match: sqlInsert, scan: scanInserted("AST0000001", payload)}, {match: sqlAudit},
 	}
 	cases := []struct {
 		fail     string
 		want     string
 		notAfter string
+		numbered bool // the number was taken before the failure
 	}{
-		{sqlLock, "pipeline: records/store: lock unique value: boom", sqlTaken},
-		{sqlTaken, "pipeline: records/store: check unique value: boom", sqlNumber},
-		{sqlPreview, "pipeline: records/store: preview payload as jsonb: boom", sqlNumber},
-		{sqlNumber, "pipeline: records/store: take record number: boom", sqlInsert},
-		{sqlInsert, "pipeline: records/store: insert record: boom", sqlAudit},
-		{sqlAudit, "pipeline: audit: audit: insert entry: boom", ""},
+		{sqlLock, "pipeline: records/store: lock unique value: boom", sqlTaken, false},
+		{sqlTaken, "pipeline: records/store: check unique value: boom", sqlInsert, false},
+		{sqlPreview, "pipeline: records/store: preview payload as jsonb: boom", sqlInsert, false},
+		{sqlNumber, "pipeline: records/store: take record number: boom", sqlInsert, true},
+		{sqlInsert, "pipeline: records/store: insert record: boom", sqlAudit, true},
+		{sqlAudit, "pipeline: audit: audit: insert entry: boom", "", true},
 	}
 	for _, c := range cases {
 		t.Run(c.fail, func(t *testing.T) {
+			r := &numberRunner{next: 1}
+			if c.fail == sqlNumber {
+				r.err = errBoom
+			}
+			p, numbers := numberedPipeline(t, fakeAuthz{}, fakeDefs{cur: assetDef(t), curVersion: 1}, r)
 			stmts := make([]stmt, 0, len(ok))
 			for _, s := range ok {
 				if s.match == c.fail {
@@ -559,13 +593,24 @@ func TestCreateStatementFailures(t *testing.T) {
 			if c.notAfter != "" && tx.ranAny(c.notAfter) {
 				t.Errorf("%q ran after the failure", c.notAfter)
 			}
+			if numbers.taken() != c.numbered {
+				t.Errorf("number taken = %v, want %v", numbers.taken(), c.numbered)
+			}
+			if tx.ranAny(sqlNumber) {
+				t.Error("the create's transaction touched record_counters; the number has a transaction of its own")
+			}
 		})
 	}
 
-	// And with every statement answering, the create succeeds.
+	// And with every statement answering, the create succeeds with the
+	// number one transaction of its own took, in the write's tenant.
+	p, numbers := numberedPipeline(t, fakeAuthz{}, fakeDefs{cur: assetDef(t), curVersion: 1}, &numberRunner{next: 1})
 	res, err := p.Write(t.Context(), f.tx(t, ok...), f.create(map[string]any{"name": "x", "serial": "SN-1"}))
 	if err != nil || res.Number != "AST0000001" || res.Version != 1 {
 		t.Fatalf("create = %+v, %v", res, err)
+	}
+	if len(numbers.txs) != 1 || numbers.txs[0].tenant != f.tenant.String() || !numbers.txs[0].ranAny(sqlNumber) {
+		t.Fatalf("number transactions = %d, want one in tenant %s that took the number", len(numbers.txs), f.tenant)
 	}
 }
 
@@ -586,7 +631,7 @@ func scanInserted(number, payload string) func(...any) error {
 // fails, and returns no result: the audit entry would not describe the row.
 func TestCreateChecksWhatTheInsertStored(t *testing.T) {
 	f := newFixture()
-	p := unitPipeline(fakeAuthz{}, fakeDefs{cur: assetDef(t), curVersion: 1})
+	p, _ := numberedPipeline(t, fakeAuthz{}, fakeDefs{cur: assetDef(t), curVersion: 1}, &numberRunner{next: 1})
 	const payload = `{"name": "x", "status": "active"}`
 	for name, c := range map[string]struct {
 		number, stored, want string
@@ -596,8 +641,7 @@ func TestCreateChecksWhatTheInsertStored(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			tx := f.tx(t, stmt{match: sqlPreview, scan: scanString(payload)},
-				stmt{match: sqlInsert, scan: scanInserted(c.number, c.stored)}, stmt{match: sqlNumber, scan: scanInt(1)},
-				stmt{match: sqlAudit})
+				stmt{match: sqlInsert, scan: scanInserted(c.number, c.stored)}, stmt{match: sqlAudit})
 			_, err := p.Write(t.Context(), tx, f.create(map[string]any{"name": "x"}))
 			if err == nil || err.Error() != c.want {
 				t.Fatalf("err = %v, want %q", err, c.want)
@@ -767,7 +811,7 @@ func TestCreateChecksEveryUniquePropertyInOneBatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := unitPipeline(fakeAuthz{}, fakeDefs{cur: def, curVersion: 1})
+	p, numbers := numberedPipeline(t, fakeAuthz{}, fakeDefs{cur: def, curVersion: 1}, &numberRunner{next: 1})
 	for _, c := range []struct {
 		taken []int // indexes of the lookups that find the value taken
 		want  string
@@ -790,7 +834,7 @@ func TestCreateChecksEveryUniquePropertyInOneBatch(t *testing.T) {
 		if i != len(fields) {
 			t.Errorf("taken %v: %d lookups ran, want all %d in the batch", c.taken, i, len(fields))
 		}
-		if tx.ranAny(sqlNumber) || tx.ranAny(sqlInsert) {
+		if numbers.taken() || tx.ranAny(sqlInsert) {
 			t.Errorf("taken %v: the create went on to the number", c.taken)
 		}
 	}

@@ -51,6 +51,13 @@ type Dependencies struct {
 	// DatabaseURL is NAVA_DATABASE_URL, a postgres:// or postgresql:// URL. It
 	// holds a password: it is never logged and never echoed in an error.
 	DatabaseURL string
+	// AllocatorDatabaseURL is NAVA_ALLOCATOR_DATABASE_URL, nava_app's DSN for
+	// the record-number allocator pool (D-3-9 as amended 2026-11-10,
+	// TICK-657). Behind PgBouncer it names a database entry with a server
+	// pool of its own, so an allocation never waits for a server connection
+	// an open create holds. Optional: unset, the allocator pool connects with
+	// DatabaseURL. It holds a password, as DatabaseURL does.
+	AllocatorDatabaseURL string
 	// KeycloakManagementURL is NAVA_KEYCLOAK_MANAGEMENT_URL, the base URL of
 	// Keycloak's management port, such as http://keycloak:9000.
 	KeycloakManagementURL string
@@ -160,6 +167,7 @@ func Load(lookup LookupFunc) (Config, error) {
 	}
 	cfg.Deps = Dependencies{
 		DatabaseURL:           r.databaseURL("NAVA_DATABASE_URL"),
+		AllocatorDatabaseURL:  r.databaseURL("NAVA_ALLOCATOR_DATABASE_URL"),
 		KeycloakManagementURL: strings.TrimRight(r.baseURL("NAVA_KEYCLOAK_MANAGEMENT_URL"), "/"),
 		KeycloakTokenURL:      r.httpURL("NAVA_KEYCLOAK_TOKEN_URL"),
 		TemporalAddress:       r.hostPort("NAVA_TEMPORAL_ADDRESS"),

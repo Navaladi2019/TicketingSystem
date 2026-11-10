@@ -9,12 +9,16 @@ import (
 )
 
 // NextNumber takes the next record number of the tenant's entity type
-// (D-3-9): one upsert on record_counters, in the caller's transaction. The
-// first call for a type inserts next = 2 and returns 1; every later one adds
-// one. The upsert holds the counter row's lock until the transaction ends, so
-// concurrent creates of the same type queue here and get consecutive numbers,
-// and a rollback gives its number back to the next create (no gap). There is
-// no sequence (ADR-001 I8) and no step creates the row in advance.
+// (D-3-9 as amended 2026-11-10: gaps allowed, no reclaim): one upsert on
+// record_counters. The first call for a type inserts next = 2 and returns 1;
+// every later one adds one. The upsert holds the counter row's lock until tx
+// ends, so tx should be a short transaction of its own that commits before
+// the record is inserted: the record pipeline runs it on its TxRunner, never
+// in the create's transaction, so concurrent creates of a type queue only on
+// this upsert and its COMMIT. A create that fails after its number committed
+// leaves a gap; numbers are never reused, and stay unique and increasing per
+// tenant and type. There is no sequence (ADR-001 I8) and no step creates the
+// row in advance.
 func NextNumber(ctx context.Context, tx pgx.Tx, tenantID, entityDefinitionID uuid.UUID) (int64, error) {
 	var n int64
 	err := tx.QueryRow(ctx, nextNumberSQL, tenantID, entityDefinitionID).Scan(&n)

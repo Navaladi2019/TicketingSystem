@@ -51,7 +51,8 @@ sequenceDiagram
     T->>H: fn(scopedTx)
     H->>P: batch 1 (prefetch reads)
     H->>P: batch 2 (checks)
-    H->>P: batch 3 (counter upsert, INSERT record, audit)
+    H->>P: number: BEGIN+GUC, counter upsert, COMMIT (own transaction, allocator pool)
+    H->>P: batch 3 (INSERT record, audit)
     T->>P: batch: ExecAtCommit statements, COMMIT
 ```
 
@@ -63,17 +64,23 @@ sequenceDiagram
 | BEGIN | BEGIN+GUC |
 | prefetch | lock own `idempotency_keys` row `FOR UPDATE`; definition id; current definition; ACL policy |
 | checks | per unique property its advisory lock then its lookup; assignment group live; payload preview |
-| write | `record_counters` upsert; `INSERT records` (number built by PostgreSQL from the counter); `record_write_keys` (system writers with a key); `INSERT audit_log` |
+| number (own transaction, allocator pool, TICK-657) | BEGIN+GUC; `record_counters` upsert; COMMIT |
+| write | `INSERT records` (with the number); `record_write_keys` (system writers with a key); `INSERT audit_log` |
 | commit | `UPDATE idempotency_keys` (completed, the 201); COMMIT |
 
-That is 8 round trips and 17 statements, down from 29 statements in 29 round
-trips. The counter row is locked from the write batch to the commit batch:
-two round trips, down from eleven statements.
+That is 11 round trips and 20 statements (8 and 17 under TICK-648): the
+number's own transaction adds three round trips (BEGIN+GUC, the upsert,
+COMMIT) and moves the upsert out of the write batch. The counter row is
+locked from the upsert to that COMMIT, one round trip and its commit, no
+longer from the write batch to the create's COMMIT (D-3-9 as amended
+2026-11-10).
 
-- **Counter last.** The upsert opens the write batch, and only the inserts
-  that need its number follow it. The INSERT builds the number in SQL as
-  `FormatNumber` does, and the pipeline checks the two agree. A rollback at
-  any stage gives the number back (`TestCreateRollsBackAtEveryStage`).
+- **Number after the checks, in its own transaction.** The upsert runs after
+  every check, so a refused create moves nothing, and commits before the
+  write batch, which inserts the record with that number. A failure after
+  the number is taken leaves a gap (`TestCreateRollsBackAtEveryStage`,
+  `TestRolledBackCreateLeavesAGap`). The per-type `gapless` mode, with the
+  TICK-648 layout, returns with TICK-659.
 - **Audit diff.** The audit entry is built before the write batch, from the
   payload PostgreSQL makes of the values about to be stored (the payload
   preview: `PayloadJSON`'s expression over bind parameters). The INSERT

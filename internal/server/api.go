@@ -88,7 +88,11 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 			return nil, err
 		}
 		h.acl = authz.ACL{Policies: authz.PolicyStore{}}
-		h.pipe = pipeline.New(h.acl, h.store, pipeline.NoopSink{}, pipeline.PoolRunner{Pool: opts.pool}, pipeline.SystemClock{})
+		runner := pipeline.PoolRunner{Pool: opts.pool}
+		if opts.allocPool != nil {
+			runner.Pool = opts.allocPool
+		}
+		h.pipe = pipeline.New(h.acl, h.store, pipeline.NoopSink{}, runner, pipeline.SystemClock{})
 	}
 	api.HandlerWithOptions(
 		api.NewStrictHandlerWithOptions(h, nil, api.StrictHTTPServerOptions{

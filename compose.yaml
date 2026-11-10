@@ -370,6 +370,10 @@ services:
       NAVA_TEMPORAL_TLS_SERVER_NAME: temporal
       # nava_app (db/grants.yaml) through PgBouncer; PostgreSQL gates /readyz.
       NAVA_DATABASE_URL: postgres://nava_app:${NAVA_APP_DB_PASSWORD:-dev-only-app}@pgbouncer:5432/nava?sslmode=disable
+      # TICK-657: nava_app again, for the record-number allocator pool, through
+      # PgBouncer's nava_alloc entry: a server pool of its own, so a number is
+      # never waiting for a server connection an open create holds.
+      NAVA_ALLOCATOR_DATABASE_URL: postgres://nava_app:${NAVA_APP_DB_PASSWORD:-dev-only-app}@pgbouncer:5432/nava_alloc?sslmode=disable
       # ADR-004-A1 A1-6: the audit reader's own login (nava_audit_reader), the
       # only one that reads audit_log.diff and diff_salt. nava-core only: no
       # other service gets it. nava-core does not start without it.

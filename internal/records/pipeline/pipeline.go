@@ -25,8 +25,11 @@
 // transaction (tenancy.TenantOf) and refuses an actor of another tenant.
 //
 // A create takes the next per-tenant, per-type number from record_counters
-// (D-3-9). Every write checks the type's state model and its unique
-// properties (D-3-22) (P3-11). A write that changes assignment_group_id must
+// (D-3-9 as amended 2026-11-10: gaps allowed, no reclaim) after every check,
+// in a short transaction of its own on the TxRunner that commits before the
+// record is inserted (takeNumber). A create that then fails leaves a gap.
+// Every write checks the type's state model and its unique properties
+// (D-3-22) (P3-11). A write that changes assignment_group_id must
 // name a live group of the tenant (ADR-004-E5 D6); an unchanged value passes
 // even after its group is tombstoned (D7).
 //
@@ -214,15 +217,19 @@ type DefinitionReader interface {
 	Current(ctx context.Context, tx pgx.Tx, entityKey string) (*metadata.Compiled, int, error)
 }
 
-// TxRunner runs fn in a tenant transaction of its own. Write records a
-// cascade_rejected audit row on it, so the row survives the caller's
-// rollback (D-3-7a). It needs a connection of its own while the caller's
-// transaction is open: a PoolRunner on the caller's pool needs at least two.
+// TxRunner runs fn in a tenant transaction of its own, while the caller's
+// transaction is open. Write takes a create's number on it (D-3-9, amended
+// 2026-11-10) and records a cascade_rejected audit row on it, so the row
+// survives the caller's rollback (D-3-7a). Each call needs a connection the
+// callers' transactions do not hold: a PoolRunner over the callers' own pool
+// can starve, every connection held by a create waiting for a second one.
+// nava-core gives it a pool of its own (the allocator pool, TICK-657).
 type TxRunner interface {
 	InTenantTx(ctx context.Context, tenantID uuid.UUID, fn func(pgx.Tx) error) error
 }
 
-// PoolRunner is the TxRunner over a pool, through tenancy.InTenantTx.
+// PoolRunner is the TxRunner over a pool, through tenancy.InTenantTx, so
+// the transaction's BEGIN sets the tenant and RLS applies to it.
 type PoolRunner struct{ Pool *pgxpool.Pool }
 
 // InTenantTx implements TxRunner.
@@ -607,10 +614,34 @@ func (w *write) create(ctx context.Context, after map[string]any) (Result, error
 	if err != nil {
 		return Result{}, err
 	}
-	// The number is taken after every check, in the write's last batch with
-	// the record, write key and audit inserts, so the counter row's lock is
-	// held only from that batch to the caller's COMMIT (D-3-9).
+	// The number is taken after every check (ADR-001 I4): a refused or
+	// invalid create never moves the counter.
+	n, err := w.p.takeNumber(ctx, w.tenant, w.defID)
+	if err != nil {
+		return Result{}, err
+	}
+	rec.Number = store.FormatNumber(w.def.NumberPrefix(), n)
 	return w.writeCreate(ctx, rec, preview)
+}
+
+// takeNumber takes the next number of the tenant's entity type defID in a
+// transaction of its own on the TxRunner, scoped to tenant by its BEGIN, and
+// commits it before returning (D-3-9 as amended 2026-11-10). The counter
+// row is locked only for that upsert and its COMMIT, never until the
+// create's own COMMIT, so concurrent creates of a type do not queue on each
+// other's transactions. The number is spent once taken: if the create then
+// fails or rolls back, it leaves a gap, and a retry takes a new number.
+func (p *Pipeline) takeNumber(ctx context.Context, tenant, defID uuid.UUID) (int64, error) {
+	var n int64
+	err := p.runner.InTenantTx(ctx, tenant, func(tx pgx.Tx) error {
+		var err error
+		n, err = store.NextNumber(ctx, tx, tenant, defID)
+		return err
+	})
+	if err != nil {
+		return 0, fmt.Errorf("pipeline: %w", err)
+	}
+	return n, nil
 }
 
 // defaultRequester sets requester_id to the caller when a user or AI create
