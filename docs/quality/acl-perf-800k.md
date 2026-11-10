@@ -6,6 +6,67 @@ the D25 escalation. The question: with the real compiled ACL predicate
 `records/store.List`), is list p95 ≤ 150 ms and single-read p95 ≤ 50 ms at
 800k records?
 
+## Final quiesced create re-run after TICK-692 (`25aedcf0`, 19:3x UTC)
+
+**Result under the frozen rules:**
+- **1 client is valid and meets:** p95 32.6 ms.
+- **The three 8-client `gaps` rows are host-invalid.** All 9 attempts failed the storage-window gate, with commit p50 between 11.4 and 16.6 ms.
+- **Nothing else held them back.** The host probe passed in 7 of the 9 attempts. No other bench or integration container ran.
+- **Under the fixed outcome, the CTO takes this to vknavaladi.**
+
+**Method.** The run used this harness at `469687ff`, which is `79a3a0ef` with `25aedcf0` merged in, and `NAVA_PERF_ONLY='^create'`. The raw report is `final-2026-11-10-tick692-quiesced.md`.
+
+| Step | Result |
+| --- | --- |
+| Quiesce: `VACUUM (ANALYZE)` + `CHECKPOINT` after the seed | took 38 s |
+| Transport floor | p50 1.08, p95 2.22 ms |
+| Isolation wait, every attempt | 0 s |
+| Quiesce wait, every attempt | 0 s |
+
+Autovacuum stayed on during the attempts. It was seen once, at the small tenant's attempt-2 probe (`VACUUM ANALYZE public.audit_log_default`).
+
+**Every attempt** (ms)
+
+| Row | Att. | p95 | Host probe | Commit p50 | Counter wait p50 / p95 | Alloc p50 / p95 | Round trips | 409 / 503 | Verdict |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 client | 1 | **32.6** | 0.62 | 7.42 | 1.85 / 3.66 | 2.02 / 4.60 | 4 | 0 / 0 | **meets** |
+| 8 clients, agent | 1 | 66.4 | 1.18 | 12.47 | 3.34 / 8.44 | 3.67 / 9.67 | 4 | 0 / 0 | gated (commit) |
+| 8 clients, agent | 2 | 90.0 | 1.10 | 11.74 | 3.47 / 11.67 | 3.78 / 15.03 | 4 | 0 / 0 | gated (commit) |
+| 8 clients, agent | 3 | 71.0 | 2.14 | 12.59 | 4.01 / 9.85 | 4.26 / 11.03 | 4 | 0 / 0 | gated (probe, commit) |
+| 8 clients, admin | 1 | 81.1 | 1.99 | 15.52 | 3.29 / 7.46 | 3.79 / 9.23 | 4 | 0 / 0 | gated (commit) |
+| 8 clients, admin | 2 | 66.0 | 1.18 | 13.15 | 3.66 / 8.49 | 4.04 / 9.64 | 4 | 0 / 0 | gated (commit) |
+| 8 clients, admin | 3 | 52.6 | 2.29 | 11.92 | 2.92 / 6.53 | 3.30 / 8.24 | 4 | 0 / 0 | gated (probe, commit) |
+| 8 clients, small tenant | 1 | 50.0 | 1.76 | 11.42 | 2.64 / 5.97 | 2.85 / 7.53 | 4 | 0 / 0 | gated (commit) |
+| 8 clients, small tenant | 2 | 63.1 | 1.27 | 12.11 | 2.56 / 5.37 | 2.86 / 6.88 | 4 | 0 / 0 | gated (commit) |
+| 8 clients, small tenant | 3 | 73.1 | 1.25 | 16.59 | 2.81 / 8.29 | 3.27 / 9.55 | 4 | 0 / 0 | gated (commit) |
+| 8 clients, `gapless` | 1 | 213.7 | 1.20 | 7.83 | 42.0 / 188.6 | – | 4 | 0 / 0 | reported only |
+
+Across all attempts, `nava_numbering_alloc` acquire was p95 ≤ 1.66 ms and timeouts were 0.
+
+**The gate measures a different quantity since TICK-692.** This is for the CTO to decide; the method is frozen, so the harness is unchanged.
+- **What the gate reads.** The storage-window gate reads the create's commit round trip from its trace.
+  - **Before TICK-692,** that round trip was completion + `COMMIT` (9.3 ms p50 at 16:00), and `INSERT INTO records` was its own round trip (6.1 ms p50). The 10 ms limit was set from the former.
+  - **After TICK-692,** the commit round trip is `INSERT` + completion + `COMMIT`: 4 statements, batch `[8 2 5 4]`.
+  - So the gate now includes the insert's work, about 4 to 6 ms at 8 clients.
+- **Same run, without the insert:**
+  - The `gapless` row's commit round trip is still completion + `COMMIT` only, and it read **7.83 ms**.
+  - The 1-client commit round trip, insert included, read 7.42 ms.
+- **The disk window was probably fine.** These point to the storage window being normal during the run, with the rows gated by the insert inside the gated round trip.
+- **The outcome would not become a pass either way.**
+  - With the gate set aside, 8 of the 9 8-client attempts are over 50 ms p95. The exception is small tenant attempt 1, at 49.96.
+  - If the gate were re-based, agent and admin would be valid misses, not passes.
+
+**Where an 8-client create spends its time.** Agent, attempt 1: request p50 35.8 ms, p95 66.4 ms.
+
+| Round trip | p50 / p95 (ms) |
+| --- | --- |
+| `BEGIN` + set tenant + claim + prefetch | 7.2 / 19.8 |
+| Checks | 3.5 / 9.2 |
+| `AllocTx` | 3.3 / 8.4 |
+| `INSERT` + completion + `COMMIT` | 12.5 / 20.4 |
+
+The statements sum to 26.5 ms at p50; the handler spends the remaining 9.3 ms. Against 6 round trips at 16:00, p50 fell from 42.5 to 35.8 ms. The tails still stack: the first and last round trips each reach about 20 ms at p95.
+
 ## Create re-run with the host-speed gate (`15da77d6`, 16:00 UTC)
 
 **Result: two valid rows miss, so the outcome rule releases P3-36i (TICK-692).**
