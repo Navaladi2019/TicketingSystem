@@ -314,7 +314,8 @@ services:
       - openobserve-data:/data
     networks: [internal, operator]
     ports:
-      - "127.0.0.1:5080:5080"
+      # Host port: OPENOBSERVE_PORT (TICK-641; per run on the self-hosted CI runner).
+      - "127.0.0.1:${OPENOBSERVE_PORT:-5080}:5080"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:5080/healthz"]
       interval: 5s
@@ -339,7 +340,8 @@ services:
       - ./deploy/compose/prometheus/rules:/etc/prometheus/rules:ro
     networks: [internal, operator]
     ports:
-      - "127.0.0.1:9091:9091"
+      # Host port: PROMETHEUS_PORT (TICK-641; per run on the self-hosted CI runner).
+      - "127.0.0.1:${PROMETHEUS_PORT:-9091}:9091"
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9091/-/healthy"]
       interval: 5s

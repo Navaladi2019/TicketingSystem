@@ -63,7 +63,7 @@ func TestRunRemovesStaleContainersThenNetworks(t *testing.T) {
 	if code := run(nil, &stdout, &stderr, testNow(), d.run); code != 0 {
 		t.Fatalf("exit %d, stderr: %s", code, stderr.String())
 	}
-	want := [][]string{{"rm", "-f", "nava-it-pg-1"}, {"network", "rm", "nava-it-net-1"}}
+	want := [][]string{{"rm", "-fv", "nava-it-pg-1"}, {"network", "rm", "nava-it-net-1"}}
 	if !slices.EqualFunc(d.removed, want, slices.Equal) {
 		t.Errorf("removed %q, want %q", d.removed, want)
 	}
@@ -118,7 +118,7 @@ func TestRunFailsOnlyOnARealRemovalError(t *testing.T) {
 	if stdout.String() != wantOut {
 		t.Errorf("stdout:\n%s\nwant:\n%s", stdout.String(), wantOut)
 	}
-	wantErr := "itreap: docker rm -f nava-iso-pg-3: exit status 1: Error response from daemon: cannot remove container: device busy\n"
+	wantErr := "itreap: docker rm -fv nava-iso-pg-3: exit status 1: Error response from daemon: cannot remove container: device busy\n"
 	if stderr.String() != wantErr {
 		t.Errorf("stderr:\n%q\nwant:\n%q", stderr.String(), wantErr)
 	}

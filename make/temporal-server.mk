@@ -2,7 +2,7 @@
 
 TEMPORAL_SERVER_IMAGE ?= nava/temporal-server:$(NAVA_IMAGE_TAG)
 
-.PHONY: temporal-server-test lint-temporal-server temporal-server-image temporal-server-dev-certs temporal-server-run dev-ca operator-tunnel
+.PHONY: temporal-server-test lint-temporal-server temporal-server-image temporal-server-publish temporal-server-pull ci-temporal-server-changed temporal-server-dev-certs temporal-server-run dev-ca operator-tunnel
 
 ci-unit: temporal-server-test lint-temporal-server
 
@@ -27,6 +27,23 @@ lint-temporal-server: check-golangci-lint
 ## Build the custom Temporal server image (ADR-001 D22, task T27a).
 temporal-server-image:
 	docker build -t $(TEMPORAL_SERVER_IMAGE) temporal-server
+
+## The published image (TICK-641, docs/quality/ci-pipeline.md "Published
+## temporal-server image"), tagged with git's hash of the temporal-server/
+## tree. publish: build and push it unless it exists (the
+## temporal-server-image workflow, main only; GH_TOKEN, GH_ACTOR). pull: tag
+## it TEMPORAL_SERVER_IMAGE and set TEMPORAL_SERVER_PREBUILT=1 in GITHUB_ENV,
+## or leave make image-ci to build it from source when it is not published.
+temporal-server-publish:
+	sh scripts/ci/temporal-server-image.sh publish
+
+temporal-server-pull:
+	TEMPORAL_SERVER_IMAGE=$(TEMPORAL_SERVER_IMAGE) sh scripts/ci/temporal-server-image.sh pull
+
+## Whether the ci workflow's temporal-server job runs (TICK-641): true when
+## the module or how it is built, tested or linted changed.
+ci-temporal-server-changed:
+	@sh scripts/ci/temporal-server-changed.sh
 
 ## Write throwaway development certificates to temporal-server/.devcerts.
 temporal-server-dev-certs:

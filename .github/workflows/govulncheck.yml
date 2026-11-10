@@ -1,0 +1,90 @@
+# TICK-641: govulncheck as a pipeline of its own, out of the ci workflow's
+# lint and temporal-server jobs. Both modules (the root and temporal-server/,
+# separate go.mod files) are scanned in parallel, and each must report zero
+# findings: no exception and no allowlist (ADR-001 A1 Decision 3).
+#
+# When it runs:
+#   pull_request  every pull request, on open and every push, with no label:
+#                 it takes about a minute and is a security gate, so it is not
+#                 behind ci:run (TICK-563). No paths filter, so it can be a
+#                 required check (a path-filtered required check never reports
+#                 and blocks the merge).
+#   push          main: every merge is scanned.
+#   schedule      every 6 hours: a new advisory needs no change of ours (ADR-001-A1
+#                 R7), and since TICK-641 nothing else scans an unchanged
+#                 module every day.
+#   workflow_dispatch  by hand.
+# A failure on main (push or schedule) opens or updates the P0 "main is red"
+# issue (scripts/ci/main-red.sh). Always GitHub-hosted: no Docker, nothing the
+# self-hosted runner would speed up. Every step is a make target:
+# `make tools-govulncheck vulncheck vulncheck-temporal-server` runs it locally.
+# The steps below are kept by make check-ci-steps
+# (tools/ci/cisteps/required-govulncheck.yaml).
+name: govulncheck
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A pull request cancels its older run; main runs never cancel each other.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('govulncheck-{0}', github.ref) || format('govulncheck-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  root:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Install govulncheck
+        run: make tools-govulncheck
+      - name: govulncheck (root module)
+        run: make vulncheck
+
+  temporal-server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: temporal-server/go.mod
+          cache: false
+      - name: Install govulncheck
+        run: make tools-govulncheck
+      - name: govulncheck (temporal-server)
+        run: make vulncheck-temporal-server
+
+  main-red:
+    needs: [root, temporal-server]
+    if: failure() && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Open or update the P0 issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
+          WORKFLOW: govulncheck
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: sh scripts/ci/main-red.sh

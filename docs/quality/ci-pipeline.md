@@ -11,7 +11,7 @@ calls only `make` targets. Install the pinned tools once with `make tools`.
 
 | Stage | Make target | What fails it | Containers |
 | --- | --- | --- | --- |
-| Lint | `ci-lint` | tool versions differ from `docs/pins.md`, `gofmt`, `go vet`, `vet-tags` (`go vet` once per build-tag set the `//go:build` lines use), golangci-lint, `lint-fixture` (exactly 5 forbidigo findings), `check-taskfile`, `check-pins`, `check-generate` (`api/api.gen.go` differs from what `go generate ./api/...` writes), `check-guide` (`docs/acceptance/guide/`, among it `bruno/lib/nava.js` `REGISTERED`, differs from what `build/build.py` writes; TICK-391), `check-ci-steps` (`ci.yml` lost a step listed in `tools/ci/cisteps/required.yaml`), `check-openapi`, `govulncheck ./...` in both modules at once (`vulncheck-ci`, below) | none |
+| Lint | `ci-lint` | tool versions differ from `docs/pins.md`, `gofmt`, `go vet`, `vet-tags` (`go vet` once per build-tag set the `//go:build` lines use), golangci-lint, `lint-fixture` (exactly 5 forbidigo findings), `check-taskfile`, `check-pins`, `check-generate` (`api/api.gen.go` differs from what `go generate ./api/...` writes), `check-guide` (`docs/acceptance/guide/`, among it `bruno/lib/nava.js` `REGISTERED`, differs from what `build/build.py` writes; TICK-391), `check-ci-steps` (`ci.yml` lost a step listed in `tools/ci/cisteps/required.yaml`), `check-openapi`, `govulncheck ./...` in both modules at once (`vulncheck-ci`, below; in GitHub the separate `govulncheck` workflow, TICK-641) | none |
 | Unit | `ci-unit` | `go test -race ./...` under the host-wide race lock (below), temporal-server unit tests, golangci-lint on the temporal-server module (`lint-temporal-server`, TICK-584) | none |
 | Integration | `ci-integration` | any `//go:build integration` test (`internal/db/dbtest`, `internal/db/pooltest`, `internal/tenancy`, `internal/platform/health`) against throwaway PostgreSQL clusters and two PgBouncers (tags from `docs/pins.md`), or the dbtest shards running fewer tests than the package lists | Docker |
 | Isolation (in `ci-integration`, after `test-integration`) | `isolation` | the tenant isolation suite (`internal/tenancy/isolation`, T11, ADR-001 CI-2): any role × tenant table, registered path or fixture failing; writes the report `isolation-report.md` at the repository root (uploaded as the `isolation-report` artifact, even when the job fails) | Docker |
@@ -19,9 +19,12 @@ calls only `make` targets. Install the pinned tools once with `make tools`.
 | Stack | `ci-stack` | image build, every container healthy, `GET /healthz` smoke from inside the compose network, then the stack tests (`pgbouncer`, `temporal`, `dependencies`, `trace`, `redact`, `idempotent`, `dbroles`, `hba`, `internal`) | compose |
 
 In GitHub, the `temporal-server` job runs the module's tests, then
-`make lint-temporal-server`, then `make vulncheck-temporal-server`, which must
-report zero findings: there is no exception and no allowlist (ADR-001 A1
-Decision 3, TICK-121). `lint-temporal-server` (TICK-584) runs golangci-lint
+`make lint-temporal-server`. Since TICK-641 it runs only when the module, or
+how it is built, tested or linted, changed (see "Published temporal-server
+image" below). govulncheck for both modules is the separate `govulncheck`
+workflow (see "govulncheck workflow" below), and it must report zero
+findings: there is no exception and no allowlist (ADR-001 A1 Decision 3,
+TICK-121). `lint-temporal-server` (TICK-584) runs golangci-lint
 from `temporal-server/` with the root `.golangci.yml`: `make lint` runs
 `./...` from the root, and with no `go.work` that pattern stops at the
 module's own `go.mod`, so before TICK-584 no job linted the D9/E1 authorizer.
@@ -67,7 +70,12 @@ own (`make test-commit-check-budget`, `scripts/ci/commit-check-budget.sh`),
 whenever `integration` runs. The test measures ADR-004-E3's absolute µs
 budget rows, which drifted 10-36 % over the ceilings when the test shared the
 `integration` runner with the dbtest shards. The integration shards leave it
-out, so it runs once (D-E3-4, TICK-509). Under ADR-004-E4 the absolute
+out, so it runs once (D-E3-4, TICK-509).
+`TestP511CommitCheckPooledSession` runs in this job too, after the budget test,
+and the integration shards leave it out (TICK-641): timing ratios are not
+meaningful on a saturated shared host (its median t(4N)/t(N) read 8.05 against
+the unchanged limit of 8 on the loaded WSL runner). The script fails when it
+did not run. Under ADR-004-E4 the absolute
 thresholds are report-only: the job fails only when no rows were measured, a
 same-run ratio is out of range or the per-call row is not flat; a row over
 its threshold gets a `::warning::` annotation, and both rows, with the host's
@@ -277,8 +285,8 @@ scans both modules for new advisories (ADR-001-A1's R7 trigger). The trade-off,
 accepted in D2: a code-only change that starts calling an already-listed
 vulnerable symbol is caught by the next day's first run, not the same run.
 `VULNCHECK=all make vulncheck-ci` scans regardless; `make vulncheck` and
-`make vulncheck-temporal-server` always scan, and the GitHub workflow still
-calls those.
+`make vulncheck-temporal-server` always scan, and the `govulncheck` workflow
+calls those (TICK-641). The stamps apply to local `make ci-lint` only.
 
 **One race-detector run per host (TICK-153 D3).** `make test` and `task test`
 run `go test -race` through `tools/ci/racelock`, which holds a listener on
@@ -542,6 +550,94 @@ from the CI log alone.
 On a laptop: `make ci-binaries && make image-ci IMAGE_THIN=1` (set `GOARCH`
 on an arm64 host).
 
+### Published temporal-server image (TICK-641)
+
+Before TICK-641, every run that changed any Go code ran the `temporal-server`
+job (tests, golangci-lint, then govulncheck: about 1m45s on GitHub-hosted runners,
+8m45s on WSL), and every `stack` run rebuilt `nava/temporal-server`, which
+compiles the whole Temporal server. In the 30 days to 2026-11-09, 50 of 1046
+commits on `main` touched `temporal-server/`. The job's Go cache was the
+largest Actions cache entry (about 1 GB each, 2 GB in all), with the repository
+at 11.3 GB of its 10 GB.
+
+**When the job runs.** `make ci-temporal-server-changed`
+(`scripts/ci/temporal-server-changed.sh`, in the `changes` job) writes the
+`temporal_server` output:
+
+| Run | `temporal_server` |
+| --- | --- |
+| a pull request into a `TICK-*` story branch (`CI_FULL`) | true: `full-suite` needs every job |
+| a pull request without `ci:run` or `ci:full` | false |
+| a push to `main` | true if the push's own commits (`github.event.before`..HEAD) changed an input below; true when that commit is unknown |
+| a manual run on `main` | true |
+| any other pull request or manual run | true if the diff from the merge base changed an input below |
+
+Inputs: `temporal-server/`, `make/temporal-server.mk`, `make/lint.mk` (tool
+pins), `Makefile`, `.golangci.yml`, `docs/pins.md`, `.github/workflows/ci.yml`,
+`tools/ci/suiteran`, and the script itself. `TestTemporalServerChanged`
+(`tools/ci/cichanged`) covers each row and the inputs.
+
+**govulncheck workflow.** govulncheck is no longer a step of the `ci`
+workflow: `.github/workflows/govulncheck.yml` runs it as a pipeline of its own
+(the owner's request on TICK-641). Two parallel jobs on `ubuntu-latest`,
+`root` (`make vulncheck`) and `temporal-server`
+(`make vulncheck-temporal-server`), each after `make tools-govulncheck`, with
+no Actions cache (about a minute each).
+
+| Event | Runs |
+| --- | --- |
+| pull request (opened, synchronize, reopened) | always, with no label: a security gate that costs about a minute, not behind `ci:run`. No paths filter, so it can be a required check (a path-filtered required check never reports and blocks the merge) |
+| push to `main` | always |
+| schedule | every 6 hours (minute 17): a new advisory needs no change of ours (ADR-001-A1 R7), and the `temporal-server` job no longer scans an unchanged module |
+| manual | always |
+
+A finding fails the job. On `main` (push or schedule) the workflow's own
+`main-red` job opens or updates the P0 "main is red" issue
+(`scripts/ci/main-red.sh`, with `WORKFLOW=govulncheck`). `make check-ci-steps`
+keeps both steps (`tools/ci/cisteps/required-govulncheck.yaml`). To block a
+merge on a finding, make the `govulncheck / root` and
+`govulncheck / temporal-server` checks required in the branch protection of
+`main`. Locally: `make tools-govulncheck vulncheck vulncheck-temporal-server`,
+or `make vulncheck-ci` as part of `make ci-lint`.
+
+**The published image.** The `temporal-server-image` workflow
+(`make temporal-server-publish`, `scripts/ci/temporal-server-image.sh`)
+builds `temporal-server/` with its own Dockerfile and pushes it to
+`ghcr.io/navaladi2019/nava-temporal-server:<tree>`. `<tree>` is
+`git rev-parse HEAD:temporal-server`, git's hash of the build context
+(sources, `go.mod`, the Dockerfile and its pinned base images), so the same
+tree is the same tag whatever commit holds it. The workflow runs on a push to
+`main` that changes the module, its make fragment, the script or the workflow,
+and by hand on `main`. It skips a tag that already exists. It is the only
+workflow with `packages: write`, and it never runs on a pull request.
+
+The `stack` job runs `make temporal-server-pull` before `make image-ci`:
+
+- **Published:** it pulls the tag, checks that its `nava.temporal-server.tree`
+  label equals the tree, and tags it as the run's `nava/temporal-server`
+  (`:dev`, or `:ci-<run id>` on self-hosted). It sets
+  `TEMPORAL_SERVER_PREBUILT=1`, so `image-ci` bakes `BAKE_TARGETS` without
+  `temporal-server` and reads or writes no cache scope for it.
+- **Not published** (the change edits `temporal-server/`, `main` has not
+  published it yet, or the pull failed): no error, and `image-ci` bakes every
+  target as before.
+
+`TestBakeTargetsCoverCompose` (`deploy/compose`) keeps `BAKE_TARGETS` equal
+to the services `compose.yaml` builds, so leaving out `temporal-server` never
+leaves out another service. The repository is public, so the pull needs no
+login. That matters on the self-hosted runner, whose Docker config has no
+credential store. On `main` the published image counts as "the real
+Dockerfile": it was built from it by the publish workflow.
+
+Local runs are unchanged: `make stack-up` and `make image-ci` build from
+source unless `TEMPORAL_SERVER_PREBUILT=1` is set after a
+`make temporal-server-pull`. Pulling a registry tag in CI is
+AR-TICK-641-01.
+
+**Bootstrap.** The merge of TICK-641 changes the workflow file, so it
+publishes the first tag. After that, a run whose `temporal-server/` tree is
+unchanged from `main` pulls it.
+
 ### Story branches (TICK-322)
 
 The `story-branches` job runs `make check-story-branches` on every event, and
@@ -620,6 +716,129 @@ go run ./tools/ci/storybranches -as-of 2026-10-28T18:00:00Z        # before #266
 (S6 since #266 opened on 2026-10-28 18:04Z): CI sees an open PR and treats the
 story as in flight. Branches outside `TICK-<n>/` (`agent/...`), and pull
 requests from forks, are not story branches.
+
+## Runners (TICK-641)
+
+The `ci` workflow runs on GitHub-hosted runners (`ubuntu-latest`, the
+default) or on the owner's self-hosted WSL runner (labels `self-hosted`,
+`wsl`). The first job, `runner` (`make ci-runner`, `scripts/ci/runner.sh`),
+picks one, and every suite job (`changes`, `lint`, `unit`, `temporal-server`,
+`integration`, `stack`, `coverage`) takes
+`runs-on: ${{ fromJSON(needs.runner.outputs.runs_on) }}`. `runner`,
+`full-suite`, `story-branches` and `main-red` stay on `ubuntu-latest`: they
+use no Docker and take seconds. `commit-check-budget` stays there too: its
+rows are measured against that runner (ADR-004-E3/E4), so a number from the
+WSL host compares with nothing (it failed `fail_flat` there).
+
+**How to pick.**
+
+| Where | Value | Wins over |
+| --- | --- | --- |
+| manual run: Actions → ci → Run workflow → `runner`, or `gh workflow run ci --ref <branch> -f runner=self-hosted` | `github` or `self-hosted` | the variable |
+| repository variable `CI_RUNNER` (Settings → Secrets and variables → Actions → Variables) | `github` or `self-hosted`; unset is `github` | nothing: it is the default of push, pull request and manual runs without the input |
+
+Any other value fails the `runner` job (so every suite job is skipped and the
+run is red) rather than guess. The schedule runs `story-branches` alone, on
+`ubuntu-latest`.
+
+**Forks never run on self-hosted.** On a pull request whose head repository is
+a fork (`head.repo.fork`) or any other repository than this one
+(`head.repo.full_name != github.repository`), `runner` returns `github`
+whatever the input or variable say: a fork's code must never run on the
+owner's machine. `TestRunner` (`tools/ci/cichanged/runner_test.go`) covers
+the input/variable precedence, the fork rule and the unknown values.
+
+**What differs per runner.**
+
+| | GitHub-hosted | Self-hosted (WSL) |
+| --- | --- | --- |
+| image layer cache | Actions cache (`IMAGE_CACHE=gha`); `docker/setup-buildx-action` and `crazy-max/ghaction-github-runtime`; only `main` writes it (`CACHE_WRITE`, TICK-400) | the persistent buildx builder `nava-ci` (docker-container driver, `IMAGE_CACHE=local`), created by `make ci-builder` when missing and selected through `BUILDX_BUILDER` for the job only (not `docker buildx use`, which would change the owner's default builder). Neither action runs: `setup-buildx-action` makes a throwaway builder whose cache would be lost every job |
+| who writes the image cache | `main` only | every run, whatever its branch. Accepted: the runner has one owner, and a local BuildKit cache has no per-ref scope and no 10 GB repository limit to evict `main`'s layers, the reason for TICK-400's rule |
+| image cache size | GitHub's 10 GB per repository | trimmed after every run to `CI_BUILDX_KEEP_GB` (repository variable, default 20) by `make ci-builder-prune`, least recently used first; never a full prune |
+| Go build and module cache, pinned tools | `actions/cache` per job (restore always, save on `main`) | no Actions cache at all: `~/.cache/go-build`, `~/go/pkg/mod`, `~/.cache/golangci-lint` and `~/go/bin` persist on the host's disk, and an upload to GitHub would buy nothing. `make tools` runs every lint job (seconds with a warm Go cache) |
+| compose project, image tag, host ports | `nava`, `nava/*:dev`, 18080/18081/17233/18233/5080/9091 (a fresh VM per job) | per run (`make ci-self-hosted-env ID=ci-<run id>`): project `nava-ci-<run id>`, tag `nava/*:ci-<run id>`, six ports in 22000-24999 from a checksum of the id (nava-core, Keycloak, Temporal, Temporal UI, `OPENOBSERVE_PORT`, `PROMETHEUS_PORT`), skipping ports a running container publishes. `KEYCLOAK_PUBLIC_URL` (the pinned issuer) follows the run's Keycloak port: on the default `localhost:18081` the identity tests reached the owner's own Keycloak and failed `invalid_token: kid`. Never the owner's own `nava` project, `:dev` images or ports |
+| integration clusters | removed by their scripts | the same, now with `docker rm -v` (the postgres image's anonymous data volume went unremoved before), and labelled `nava.ci.owner=nava-ci-<run id>` for the cleanup |
+| after the run | the VM is discarded | the `self-hosted-cleanup` job (below) |
+
+**The cleanup job.** `self-hosted-cleanup` needs `integration` and `stack`
+(the self-hosted jobs that use Docker), runs on
+`[self-hosted, wsl]` with `if: always()` whenever the runner is self-hosted,
+so it runs after a green, a red and a cancelled run alike. `make
+ci-self-hosted-cleanup ID=ci-<run id>` (`scripts/ci/self-hosted-cleanup.sh`)
+removes:
+
+- the containers (with their anonymous volumes), named volumes and networks
+  labelled `com.docker.compose.project=nava-ci-<run id>` or `...-int` (the
+  internal overlay's project), by label, so a service of an overlay that
+  `compose down` would not know is caught too;
+- the containers and networks labelled `nava.ci.owner=nava-ci-<run id>` (the
+  integration, isolation, commit-check-budget and CI-5 clusters, and the
+  health integration test's container);
+- the image tags `nava/*:ci-<run id>` and compose's default names
+  `nava-ci-<run id>-*` (untag only: shared layers stay);
+- the overlay's log in `${TMPDIR:-/tmp}`.
+
+It selects only by an exact label value or tag, never by `prune` or a name
+prefix, and then fails if anything of the run is left. It never touches the
+`nava-ci` builder (its second step only trims the cache) or anything without
+those labels, so the owner's own containers and volumes are safe.
+`make test-self-hosted-cleanup` (in the `integration` job and
+`ci-integration`) proves both halves on throwaway objects: this run's go, an
+id that merely starts with this run's stays, and so do an unlabelled
+container and volume and the `:dev` tag of the same image.
+Workspace leftovers (`.ci-bin/`, coverage files, the dev certificates) are not
+removed by the job: the next job's `actions/checkout` cleans the workspace
+(`git clean -ffdx`) before it starts.
+
+**One runner, and a second later.** One self-hosted runner runs one job at a
+time. The per-run project, tag and port slot mean a second runner on the same
+Docker host, or the owner's own stack running beside a CI run, does not
+collide: every host port `compose.yaml` publishes has a variable
+(`OPENOBSERVE_PORT` and `PROMETHEUS_PORT` since TICK-641; the first
+self-hosted run failed on `Bind for 127.0.0.1:9091 failed: port is already
+allocated` before), and the defaults stay 5080 and 9091 for local use.
+
+**Parallel jobs on the WSL host.** GitHub hands each job to an idle runner
+with matching labels, and one runner process runs one job at a time. With one
+runner the jobs of a run queue behind each other (about 44 minutes of jobs
+back to back, against 11 minutes in parallel on GitHub-hosted). For parallel
+jobs, register more runner instances on the same WSL host, each in its own
+folder with the labels `self-hosted,wsl`; the workflow needs no change. The
+widest point of a run is `unit`, `temporal-server`, `integration` and `stack`
+at once, so four instances in total run every job without queueing. Jobs of
+one run on one Docker host do not collide: `stack` owns the compose project,
+image tags and port slot; the integration clusters have random names and
+ports; `self-hosted-cleanup` runs after both. Size WSL for it in
+`.wslconfig` (for example `processors=12`, `memory=16GB`): `stack` alone
+holds Keycloak, Temporal, PostgreSQL and the services.
+
+**Docker credentials on WSL.** Docker Desktop's WSL integration writes
+`"credsStore": "desktop.exe"`, a Windows program called over WSL interop for
+every pull; under four parallel jobs that call timed out ("error getting
+credentials") and failed the image build. `make ci-self-hosted-env` points the
+self-hosted jobs at `DOCKER_CONFIG=~/.docker-ci`: no credential store
+(anonymous pulls of public images, inside Docker Hub's anonymous limit given
+the local cache), with `buildx` and `contexts` linked back to `~/.docker` so the
+`nava-ci` builder is the same one.
+
+**Runner prerequisites** (the owner's WSL, out of scope here): Docker with the
+buildx and compose plugins, `make`, `git` 2.38 or newer (`git merge-tree --write-tree`, used by `tools/ci/storybranches` and its tests; Ubuntu 22.04 ships 2.34: `sudo add-apt-repository ppa:git-core/ppa && sudo apt install git`), `gcc` (`go test -race`), Node.js 20 or 22 with `npx` (the `s8_entity_types` stack case; GitHub-hosted runners have it preinstalled), `python3`
+(`make check-guide`), `curl`, and the runner registered with the labels
+`self-hosted` and `wsl`. Go comes from `actions/setup-go` into the runner's
+tool cache.
+
+**Reset the `nava-ci` builder by hand** (a corrupt cache, or to measure a cold
+build):
+
+```sh
+docker buildx du --builder nava-ci            # how big the cache is
+docker buildx prune --builder nava-ci -af     # empty the cache, keep the builder
+docker buildx rm nava-ci                      # or drop the builder; the next stack job recreates it
+```
+
+**Leftovers of a killed runner.** If the runner itself died before the
+cleanup job ran, run the cleanup by hand with that run's id:
+`make ci-self-hosted-cleanup ID=ci-<run id>` from a checkout on the WSL host.
 
 ## Parallel runs (TICK-147)
 

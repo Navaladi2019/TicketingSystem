@@ -53,7 +53,9 @@ while [ "$i" -le "$shards" ]; do shard_pgs="$shard_pgs nava-it-pg-$id-s$i"; i=$(
 # names it, before GitHub cancels the step with an empty log (TICK-225). The
 # tests take under a minute and start about two minutes into the job. A later
 # -timeout in the script's arguments wins.
-timeout=6m
+# NAVA_IT_GO_TIMEOUT: a slower host sets more (the self-hosted runner, whose
+# integration job has 30 minutes and shares the host with other jobs, TICK-641).
+timeout=${NAVA_IT_GO_TIMEOUT:-6m}
 # NAVA_IT_COVERAGE (a path, make test-integration sets it): every go test
 # below writes an atomic profile over ./... into $covdir, and the script merges
 # them there at the end, the integration half of make check-coverage
@@ -86,8 +88,10 @@ fgpid=""
 procs=""
 printers=""
 stop() { for j in $fgpid $procs; do kill "${j%%:*}" 2>/dev/null || true; done; }
+# rm -v: the postgres image declares a data VOLUME, and an anonymous volume
+# outlives its container unless removed with it (TICK-641, self-hosted runner).
 # shellcheck disable=SC2086
-trap 'docker rm -f "$name" $shard_pgs $bouncers >/dev/null 2>&1 || true; docker network rm "$net" >/dev/null 2>&1 || true; rm -rf "$logs" "$pipes" ${covdir:+"$covdir"}' EXIT
+trap 'docker rm -fv "$name" $shard_pgs $bouncers >/dev/null 2>&1 || true; docker network rm "$net" >/dev/null 2>&1 || true; rm -rf "$logs" "$pipes" ${covdir:+"$covdir"}' EXIT
 trap 'stop; exit 130' INT
 trap 'stop; exit 143' TERM
 # fgrun <command>: runs it in the background and waits, so INT and TERM reach the
@@ -198,8 +202,9 @@ done
 # nothing beside it, so the ci.yml job
 # commit-check-budget runs it alone (scripts/ci/commit-check-budget.sh,
 # TICK-509). A run with go test arguments (no shards) still runs it if -run
-# names it.
-tests=$(go test -tags integration -list . ./internal/db/dbtest | grep '^Test' | grep -vx 'TestCommitCheckBudget')
+# names it. TestP511CommitCheckPooledSession goes there too (TICK-641): a
+# timing ratio, not meaningful on a saturated shared host.
+tests=$(go test -tags integration -list . ./internal/db/dbtest | grep '^Test' | grep -vx -e 'TestCommitCheckBudget' -e 'TestP511CommitCheckPooledSession')
 total=$(echo "$tests" | wc -l | tr -d ' ')
 echo "dbtest: $total tests over $shards clusters; shared cluster:$shared; own cluster:$own"
 

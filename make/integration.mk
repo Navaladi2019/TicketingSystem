@@ -1,6 +1,6 @@
-.PHONY: test-integration test-integration-cleanup reap-integration bench-relay isolation test-ci-isolated-down test-commit-check-budget
+.PHONY: test-integration test-integration-cleanup reap-integration bench-relay isolation test-ci-isolated-down test-commit-check-budget test-self-hosted-cleanup
 
-ci-integration: test-integration test-ci-isolated-down test-integration-cleanup
+ci-integration: test-integration test-ci-isolated-down test-integration-cleanup test-self-hosted-cleanup
 
 # Every package with `//go:build integration` tests, against a throwaway
 # postgres container the script starts and removes (needs Docker), then the
@@ -50,6 +50,12 @@ isolation:
 # throwaway tags on an empty imported image, a fresh id per run. Needs Docker.
 test-ci-isolated-down:
 	sh scripts/ci/test-ci-isolated-down.sh
+
+# The self-hosted cleanup job's script removes one run's containers, volumes,
+# networks and image tags and nothing else: not another run's, not the
+# owner's own (TICK-641). Throwaway objects; needs Docker, no build.
+test-self-hosted-cleanup:
+	sh scripts/ci/test-self-hosted-cleanup.sh
 
 
 # The commit-check budget rows (ADR-004-E3, D-E3-4, TICK-509):
