@@ -101,9 +101,14 @@ flowchart TD
   than 200 ms fails the create with `ErrRetryable` (A5). A create that fails
   or rolls back after its number leaves a gap; a retry takes a new number.
   Numbers stay unique and increasing per tenant and type. Nothing creates the
-  counter row in advance, and there is no sequence (I8). The per-type
-  `gapless` mode (L1, the TICK-648 layout) returns with
-  `entity_definitions.numbering_mode` (TICK-659).
+  counter row in advance, and there is no sequence (I8). A type whose
+  `entity_definitions.numbering_mode` is `gapless` (TICK-659) takes its
+  number with L1 instead: the same upsert, last in the create's own write
+  batch (the TICK-648 layout), so a rollback gives the number back. The
+  create reads the mode with its definition (`Compiled.NumberingMode`); a
+  mode change applies to creates that start after it, and both paths upsert
+  the same row, so no number is used twice (ADR-005 §2.1.1,
+  `TestModeSwitchNeverReusesANumber`).
 - **Allocator pool (ADR-005 A3, A5, A8).** The allocation needs a connection
   while the create's own transaction holds one, so nava-core gives it a pool
   of its own (`cmd/nava-core/allocator.go`, 4 connections, `pool_max_conns`

@@ -78,8 +78,10 @@ longer from the write batch to the create's synchronous COMMIT.
   every check, so a refused create moves nothing, and commits before the
   write batch, which inserts the record with that number. A failure after
   the number is taken leaves a gap (`TestCreateRollsBackAtEveryStage`,
-  `TestRolledBackCreateLeavesAGap`). The per-type `gapless` mode, with the
-  TICK-648 layout, returns with TICK-659.
+  `TestRolledBackCreateLeavesAGap`). A `gapless` type (TICK-659) keeps the
+  TICK-648 layout: the upsert opens its write batch, there is no allocation
+  trip, and a rollback gives the number back
+  (`TestRolledBackCreateNumberIsReused`).
 - **Audit diff.** The audit entry is built before the write batch, from the
   payload PostgreSQL makes of the values about to be stored (the payload
   preview: `PayloadJSON`'s expression over bind parameters). The INSERT
