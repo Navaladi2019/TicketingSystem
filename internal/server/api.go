@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -238,10 +239,6 @@ func (h *handlers) GetMe(ctx context.Context, _ api.GetMeRequestObject) (api.Get
 	return api.GetMe200JSONResponse{UserId: p.PrincipalID, TenantId: p.TenantID, Groups: groups, IdpAlias: p.IdPAlias, GroupPaths: paths}, nil
 }
 
-// retryLaterSeconds is the Retry-After of a 503 retry_later: an allocation
-// gives up after 200 ms, so a second is ample for its queue to drain.
-const retryLaterSeconds = "1"
-
 // responseError answers a handler's problemError with its registered code and
 // hands every other error to the shared handler.
 func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http.Request, error) {
@@ -295,9 +292,12 @@ func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http
 				}
 			}
 			if pe.code == problem.RetryLater {
-				// Not stored by the idempotency middleware (a 5xx), so the
-				// retry with the same key runs the write again.
-				w.Header().Set("Retry-After", retryLaterSeconds)
+				// A 5xx is not stored against the Idempotency-Key, but the
+				// key's in_flight claim stands until its lease ends: a retry
+				// with the same key before then is 409 idempotency_in_flight.
+				// So the advice is the lease, after which the retry runs the
+				// write again.
+				w.Header().Set("Retry-After", strconv.Itoa(int(idempotency.Lease/time.Second)))
 			}
 			h.reg.WriteError(w, r, h.log, pe.code, pe.err)
 			return

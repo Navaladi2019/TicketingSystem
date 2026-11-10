@@ -12,9 +12,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/idempotency"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 )
 
@@ -169,9 +172,10 @@ func TestCreateRecordRetryWithTheSameKeyCreatesOne(t *testing.T) {
 
 // ADR-005 A5, TICK-657: a create whose number allocation passes its timeout
 // (here the tenant's counter row is held by another transaction) answers 503
-// retry_later with Retry-After and writes nothing. The 503 is not stored
-// against the Idempotency-Key, so the retry with the same key creates the
-// record once the counter is free.
+// retry_later and writes nothing. The 503 is not stored against the
+// Idempotency-Key, but the key's in_flight claim stands until its lease ends,
+// so Retry-After is the lease; once it has passed, the retry with the same
+// key creates the record.
 //
 // covers: createRecord 503
 func TestCreateRecordAllocationTimeoutIs503RetryLater(t *testing.T) {
@@ -187,14 +191,20 @@ func TestCreateRecordAllocationTimeoutIs503RetryLater(t *testing.T) {
 	}
 	late := e.createRec(t, "user-a", "ticket", "late", `{"short_description": "late"}`)
 	wantProblem(t, late, http.StatusServiceUnavailable, problem.RetryLater)
-	if got := late.Header().Get("Retry-After"); got != "1" {
-		t.Errorf("Retry-After = %q, want 1", got)
+	if got, want := late.Header().Get("Retry-After"), strconv.Itoa(int(idempotency.Lease/time.Second)); got != want {
+		t.Errorf("Retry-After = %q, want the key lease %s", got, want)
 	}
 	if err := holder.Rollback(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	if n := e.recordCount(t, "a"); n != 1 {
 		t.Fatalf("tenant A has %d records after the 503, want 1", n)
+	}
+	// Before the lease ends the same key is still in flight.
+	wantProblem(t, e.createRec(t, "user-a", "ticket", "late", `{"short_description": "late"}`), http.StatusConflict, problem.IdempotencyInFlight)
+	if _, err := e.super.Exec(t.Context(),
+		"UPDATE idempotency_keys SET lease_until = now() - interval '1 second' WHERE key = 'late'"); err != nil {
+		t.Fatal(err)
 	}
 	retry := e.createRec(t, "user-a", "ticket", "late", `{"short_description": "late"}`)
 	if retry.Code != http.StatusCreated || retry.Header().Get("Idempotent-Replayed") == "true" {
