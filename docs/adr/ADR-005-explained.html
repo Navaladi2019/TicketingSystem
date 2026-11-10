@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-005 explained: faster record numbers and number formats tenants can define</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--accbg:#ddf4ff;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--accbg:#0c2d6b;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.banner{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.pill{font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left;overflow-wrap:break-word}
+th{background:var(--soft)}
+table.front th{width:120px}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px;margin-top:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:44px}
+h3{font-size:18px;margin-top:28px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;background:var(--soft);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+figure.diagram{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure.diagram svg{width:100%;min-width:600px;height:auto;display:block;margin:0 auto;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+.tag{display:inline-block;font-size:12px;font-weight:700;padding:1px 9px;border-radius:999px;white-space:nowrap}
+.tag.red{color:var(--bad);background:var(--badbg);border:1px solid var(--bad)}
+.tag.green{color:var(--good);background:var(--goodbg);border:1px solid var(--good)}
+.tag.amber{color:var(--warn);background:var(--warnbg);border:1px solid var(--warn)}
+.callout{border:1px solid var(--warn);background:var(--warnbg);border-radius:8px;padding:10px 14px;margin:14px 0}
+dl.gloss{display:grid;grid-template-columns:minmax(140px,220px) minmax(0,1fr);gap:6px 18px}
+dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
+@media (max-width:640px){dl.gloss{grid-template-columns:minmax(0,1fr)} dl.gloss dd{margin-bottom:8px}}
+@media print{table{display:table}}
+</style>
+</head>
+<body><main>
+<div class="banner"><span class="pill">READING GUIDE &middot; ADR-005 PROPOSED</span>
+<span class="src">This companion explains <code>ADR-005-record-numbering.md</code>. It is not the decision record and changes nothing. If this page and the ADR disagree, the ADR wins.</span></div>
+<table class="front"><tbody>
+<tr><th>title</th><td>ADR-005 explained: record numbers that no longer slow down record creation, in formats each tenant can define</td></tr>
+<tr><th>type</th><td>An explainer for the decision-maker. It is not a decision record.</td></tr>
+<tr><th>explains</th><td>ADR-005 (status PROPOSED, 2026-11-10), from RFC-014 rev 1 on TICK-653. It amends PLAN-003 D-3-9, today's numbering rule.</td></tr>
+<tr><th>audience</th><td>Anyone who needs to understand or approve the decision. It assumes no knowledge of PostgreSQL or our write pipeline.</td></tr>
+</tbody></table>
+
+<div class="callout"><strong>One question is still yours: gapless numbers, or gaps allowed?</strong> The ADR is written for <strong>gaps allowed</strong>, as the CTO recommends. If you choose gapless, one section of the ADR switches to the stated alternative and the 50 ms speed target gets a written waiver. Nothing else changes. Reply on TICK-653 with <code>DECISION: A</code> (gapless) or <code>DECISION: B</code> (gaps allowed).</div>
+
+<h1>ADR-005, explained</h1>
+
+<blockquote><strong>The whole decision in four sentences.</strong>
+(1) A record's number is handed out in its own tiny database step, just before the record is saved, instead of during the save, so people creating records at the same moment stop queuing behind each other.
+(2) Tenants describe a number format as a short pattern, for example <code>{yyyy}{MM}{seq:4}</code> for "year, month, then a 4-digit counter that restarts every month".
+(3) A format is created at runtime, by an admin or by a plugin through our API, and linked to as many record types as need it, with no software release.
+(4) Every existing record type keeps exactly today's numbers (<code>INC0000042</code> continues as <code>INC0000043</code>).</blockquote>
+
+<h2>1. The problem in plain words</h2>
+<p><strong>Speed.</strong> Every record gets a human-facing number such as <code>INC0000042</code>. Today, the counter that produces it is locked from the moment a record is numbered until the record is fully saved. When 8 people create the same kind of record at once, they stand in a queue for that one counter. The target is that creating a record takes at most 50 ms for 95 % of requests (the "p95"). We measured 264–408 ms.</p>
+<p><strong>Formats.</strong> Today every number is a 2–6 letter prefix plus 7 digits. Tenants building applications such as visa or PF applications want numbers like <code>202611 0001</code> (restart each month), <code>20261110 01</code> (restart each day) or <code>BLR_26_01_11</code> (per branch and month). You also asked whether a format could be a plugin "created dynamically and linked".</p>
+
+<h2>2. Words used on this page</h2>
+<dl class="gloss">
+<dt>Counter</dt><dd>One row in the database per tenant and record type (and now per "scope") holding the next number.</dd>
+<dt>Lock</dt><dd>While one request updates the counter, others wanting the same counter wait. The time it is held decides how long the queue gets.</dd>
+<dt>p95</dt><dd>95 % of requests are at least this fast.</dd>
+<dt>Gap</dt><dd>A number that was handed out but never ended up on a record, so the sequence skips it (41, 43).</dd>
+<dt>fsync</dt><dd>The database waiting for the disk to confirm a change is safely stored. It takes a few milliseconds and is usually the slowest part of saving.</dd>
+<dt>Scope</dt><dd>What a counter restarts for: a month, a day, a branch, or a mix. Each scope has its own counter row.</dd>
+<dt>Epoch</dt><dd>A version number for a type's format. A new format starts a new counter, so it never continues an old one by mistake.</dd>
+<dt>Plugin</dt><dd>Tenant-supplied add-on code. Our rule I8 says plugins reach data only through our API, never the database directly.</dd>
+</dl>
+
+<h2>3. Options considered</h2>
+<h3>3.1 Making numbering fast</h3>
+<p>Measured by spike S1 (a small, time-boxed experiment) with 8 clients creating the same type at once, on a quiet machine.</p>
+<table><thead><tr><th>Option</th><th>How it works</th><th>Wait for the number (p95)</th><th>Gaps?</th><th>Verdict</th></tr></thead><tbody>
+<tr><td>L0 today</td><td>Counter locked until the whole record is saved</td><td>150–179 ms</td><td>no</td><td><span class="tag red">misses</span></td></tr>
+<tr><td>L1 gapless, tightened</td><td>Same lock, but the save is sent in one go</td><td>108–120 ms</td><td>no</td><td><span class="tag amber">alternative</span> if you choose gapless; needs a waiver</td></tr>
+<tr><td>L2</td><td>Number handed out in its own tiny step first</td><td>31–36 ms</td><td>yes</td><td>superseded by L2s</td></tr>
+<tr><td><strong>L2s</strong></td><td>As L2, but the tiny step does not wait for the disk (see &sect;5 for why that is safe)</td><td><strong>about 1 ms</strong></td><td>yes</td><td><span class="tag green">chosen</span> (pending you)</td></tr>
+<tr><td>L2&prime;</td><td>Hand out the number before permission checks</td><td>22–51 ms</td><td>yes, more</td><td><span class="tag red">rejected</span>: someone with no permission to create could still use up numbers</td></tr>
+<tr><td>L3 / L4</td><td>Blocks of numbers per server / number assigned after saving</td><td>~0</td><td>large / none</td><td><span class="tag red">rejected</span>: big gaps on restart / the create could not return its number</td></tr>
+</tbody></table>
+
+<figure class="diagram">
+<svg viewBox="0 0 760 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Lock duration today versus L2s">
+<text x="20" y="28" font-size="15" font-weight="700" fill="#1f2328">Today (L0): the counter stays locked for the whole save</text>
+<rect x="20" y="42" width="110" height="34" rx="5" fill="#ddf4ff" stroke="#0969da"/><text x="75" y="64" font-size="12" text-anchor="middle" fill="#1f2328">checks</text>
+<rect x="135" y="42" width="560" height="34" rx="5" fill="#ffebe9" stroke="#cf222e"/><text x="415" y="64" font-size="12" text-anchor="middle" fill="#1f2328">counter LOCKED: number, record, audit, outbox, disk confirm (fsync)</text>
+<text x="20" y="100" font-size="12" fill="#59636e">8 people at once &#8594; each waits for up to 7 others: 150&#8211;310 ms</text>
+<text x="20" y="150" font-size="15" font-weight="700" fill="#1f2328">Chosen (L2s): the lock covers one tiny step only</text>
+<rect x="20" y="164" width="110" height="34" rx="5" fill="#ddf4ff" stroke="#0969da"/><text x="75" y="186" font-size="12" text-anchor="middle" fill="#1f2328">checks</text>
+<rect x="135" y="164" width="40" height="34" rx="5" fill="#ffebe9" stroke="#cf222e"/><text x="155" y="186" font-size="11" text-anchor="middle" fill="#1f2328">#</text>
+<rect x="180" y="164" width="515" height="34" rx="5" fill="#dafbe1" stroke="#1a7f37"/><text x="437" y="186" font-size="12" text-anchor="middle" fill="#1f2328">save record with that number (no counter lock), disk confirm</text>
+<text x="20" y="222" font-size="12" fill="#59636e">The red box is under 1 ms, so 8 people at once barely wait: about 1 ms</text>
+<text x="20" y="260" font-size="12" fill="#59636e">Cost: if the save fails after the red box, that number is skipped (a gap).</text>
+</svg>
+<figcaption>Figure 1. Red is the time the counter is locked. Shrinking it removes the queue.</figcaption>
+</figure>
+
+<h3>3.2 Defining formats</h3>
+<table><thead><tr><th>Option</th><th>Verdict</th></tr></thead><tbody>
+<tr><td>A pattern stored on each record type</td><td>Works, but 30 types sharing a format means 30 edits.</td></tr>
+<tr><td><strong>A pattern as its own object ("number format"), linked to types</strong></td><td><span class="tag green">chosen</span>. This is the "created dynamically and linked" you asked for, as configuration.</td></tr>
+<tr><td>A plugin that runs code every time a record is created</td><td><span class="tag amber">deferred</span>: it adds a network call to every create, and we have no safe place to run tenant code yet.</td></tr>
+<tr><td>A plugin that owns the counter</td><td><span class="tag red">rejected</span>: it would need direct database access, which rule I8 forbids.</td></tr>
+</tbody></table>
+
+<h2>4. The decision</h2>
+<figure class="diagram">
+<svg viewBox="0 0 760 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Number formats are created, linked to types and snapshotted">
+<defs><marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#59636e"/></marker></defs>
+<rect x="15" y="30" width="130" height="40" rx="6" fill="#ddf4ff" stroke="#0969da"/><text x="80" y="55" font-size="12" text-anchor="middle" fill="#1f2328">Admin screen</text>
+<rect x="15" y="110" width="130" height="40" rx="6" fill="#ddf4ff" stroke="#0969da"/><text x="80" y="135" font-size="12" text-anchor="middle" fill="#1f2328">Plugin (via API)</text>
+<rect x="210" y="65" width="170" height="54" rx="6" fill="#fff8c5" stroke="#9a6700"/><text x="295" y="88" font-size="12" text-anchor="middle" fill="#1f2328">Number format v3</text><text x="295" y="106" font-size="11" text-anchor="middle" fill="#1f2328">{yyyy}{MM}{seq:4}</text>
+<rect x="445" y="30" width="140" height="40" rx="6" fill="#f6f8fa" stroke="#59636e"/><text x="515" y="55" font-size="12" text-anchor="middle" fill="#1f2328">Type: Visa (pins v3)</text>
+<rect x="445" y="110" width="140" height="40" rx="6" fill="#f6f8fa" stroke="#59636e"/><text x="515" y="135" font-size="12" text-anchor="middle" fill="#1f2328">Type: PF (pins v3)</text>
+<rect x="620" y="65" width="125" height="54" rx="6" fill="#dafbe1" stroke="#1a7f37"/><text x="682" y="88" font-size="12" text-anchor="middle" fill="#1f2328">Create a record</text><text x="682" y="106" font-size="11" text-anchor="middle" fill="#1f2328">reads the pinned copy</text>
+<line x1="145" y1="50" x2="208" y2="85" stroke="#59636e" marker-end="url(#a)"/>
+<line x1="145" y1="130" x2="208" y2="100" stroke="#59636e" marker-end="url(#a)"/>
+<line x1="380" y1="85" x2="443" y2="52" stroke="#59636e" marker-end="url(#a)"/>
+<line x1="380" y1="100" x2="443" y2="128" stroke="#59636e" marker-end="url(#a)"/>
+<line x1="585" y1="52" x2="618" y2="85" stroke="#59636e" marker-end="url(#a)"/>
+<line x1="585" y1="128" x2="618" y2="100" stroke="#59636e" marker-end="url(#a)"/>
+<text x="20" y="200" font-size="12" fill="#59636e">Editing the format to v4 does not change Visa or PF by itself. An admin chooses "re-publish linked types";</text>
+<text x="20" y="220" font-size="12" fill="#59636e">each type is then checked and updated separately, and the result is reported per type.</text>
+</svg>
+<figcaption>Figure 2. A format is defined once and linked; each record type pins the version it uses.</figcaption>
+</figure>
+<ul>
+<li><strong>Allocator (L2s).</strong> The number is handed out in a tiny step after permission and validation checks, on its own small pool of database connections. If someone retries a request we already completed, they get the same record and the same number back.</li>
+<li><strong>Patterns.</strong> Pieces available: the type's prefix, year, month, day, a counter of chosen width, and a value from a fixed list on the record (for example the branch). Patterns are checked when published; anything ambiguous is refused with a clear message.</li>
+<li><strong>Restarts.</strong> A counter restarts for whatever the pattern shows: a pattern with a month restarts monthly; one with a branch keeps a counter per branch.</li>
+<li><strong>Changing a format never rewrites existing numbers.</strong> A changed pattern starts a new counter (a new epoch), and we refuse a new pattern that could ever produce a number an older pattern already produced.</li>
+<li><strong>Running out.</strong> A format either grows the counter past its width, or refuses the create with a clear "number space exhausted" error. You are alerted at 90 % use.</li>
+</ul>
+
+<h2>5. What you are accepting</h2>
+<table><thead><tr><th>Risk</th><th>Size</th><th>What would make us revisit</th></tr></thead><tbody>
+<tr><td><strong>Gaps.</strong> A create that fails after its number was handed out leaves a skipped number. After a database crash, a few numbers that were never used on any record may be handed out again.</td><td>Product choice (yours)</td><td>A tenant legally needs gapless numbers: we add a per-type gapless mode.</td></tr>
+<tr><td><strong>Why skipping the disk wait is safe.</strong> The tiny step does not wait for the disk. If the database crashes, it can forget a few counter steps, but only for numbers that never made it onto a saved record, because saving a record forces everything before it to disk. Tested by killing the database 3 times mid-run: 0 duplicate numbers.</td><td>Low</td><td>Someone adds <em>logical replication</em> (a way of copying data to another system change by change) on the counter table: this decision is reopened.</td></tr>
+<tr><td>A number that shows a branch keeps showing it even if that field is later hidden from some users; numbers already sent in emails cannot be recalled.</td><td>Low</td><td>A tenant asks to recall numbers.</td></tr>
+<tr><td>A per-branch counter tells anyone who can see one record roughly how many records that branch had this period (within the same tenant only).</td><td>Low</td><td>A tenant treats that as confidential.</td></tr>
+<tr><td>4 extra database connections per server.</td><td>Info</td><td>More than ~10 servers.</td></tr>
+</tbody></table>
+<p>No risk crosses tenants: every counter and format row belongs to one tenant and the database itself refuses access across tenants.</p>
+
+<h2>6. Moving from today, safely</h2>
+<p>The counter table gets a new column and a new key. To avoid breaking record creation during a rollout, the change happens in four steps: add the column, build the new index in the background, deploy code that uses it, then switch the key. Custom formats stay switched off until the last step is done. Existing types keep the empty scope, so <code>INC0000042</code> is followed by <code>INC0000043</code>; a test pins exactly that.</p>
+
+<h2>7. Evidence</h2>
+<ul>
+<li><strong>Spike S1</strong> (Technical Architect): every option measured with 8 simultaneous creators, on a quiet and a busy machine, plus 3 forced database crashes with no duplicate numbers. Code and raw output: <code>docs/adr/ADR-005/spikes/technical-architect/s1/</code>.</li>
+<li><strong>Counter bench</strong> (Postgres specialist): every migration step timed, the rollout failure reproduced (which is why the four-step order exists), and lookups shown to stay just as fast at 1.43 million counter rows. <code>docs/adr/ADR-005/spikes/postgres/counter-scope/</code>.</li>
+<li><strong>Reviews:</strong> Security approved (with conditions now written into the ADR), the Technical Architect approved, and the Postgres specialist's two required fixes were made and re-checked.</li>
+</ul>
+
+<h2>8. Still owed, not blocking</h2>
+<ul>
+<li>A clean re-measurement of a single user creating a record over the network (the database part is 15–32 ms; the rest of the 174 ms miss is elsewhere and is tracked on TICK-621).</li>
+<li>Code-running plugins come back only when we have a safe plugin runtime, a tenant needs a format patterns cannot express, and there is at least 20 ms of speed headroom to spend.</li>
+</ul>
+</main></body></html>
