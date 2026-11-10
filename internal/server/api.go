@@ -300,21 +300,32 @@ func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http
 				}
 			}
 			if pe.code == problem.RetryLater {
-				// A 5xx is not stored against the Idempotency-Key. On a
-				// route that claims in a transaction of its own (PATCH) the
-				// key's in_flight claim stands until its lease ends, and a
-				// retry with the same key before then is 409
+				// A 5xx is not stored against the Idempotency-Key (TICK-690).
+				// On a route that claims in a transaction of its own (PATCH)
+				// the key's in_flight claim stands until its lease ends, and
+				// a retry with the same key before then is 409
 				// idempotency_in_flight, so the advice is the lease. Record
 				// create's claim rolled back with the write (TICK-688), so
-				// its retry could run at once; it keeps the same advice, one
-				// Retry-After for retry_later on every route.
-				w.Header().Set("Retry-After", strconv.Itoa(int(idempotency.Lease/time.Second)))
+				// its retry can run at once: it advises ClaimRetryAfter.
+				w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter(r)/time.Second)))
 			}
 			h.reg.WriteError(w, r, h.log, pe.code, pe.err)
 			return
 		}
 		a.StrictResponseError(w, r, err)
 	}
+}
+
+// retryAfter is the Retry-After a write on r's route advises with 503
+// retry_later: idempotency.ClaimRetryAfter for record create, the one route
+// that claims its key in its write transaction (TICK-688), and
+// idempotency.Lease for every other route (TICK-690). The idempotency
+// middleware advises the same on 409 idempotency_in_flight.
+func retryAfter(r *http.Request) time.Duration {
+	if r.Pattern == createRecordPattern {
+		return idempotency.ClaimRetryAfter
+	}
+	return idempotency.Lease
 }
 
 // refuseWrites answers 501 to a tenant write when no key store is configured.

@@ -192,8 +192,8 @@ func TestCreateRecordAllocationTimeoutIs503RetryLater(t *testing.T) {
 	}
 	late := e.createRec(t, "user-a", "ticket", "late", `{"short_description": "late"}`)
 	wantProblem(t, late, http.StatusServiceUnavailable, problem.RetryLater)
-	if got, want := late.Header().Get("Retry-After"), strconv.Itoa(int(idempotency.Lease/time.Second)); got != want {
-		t.Errorf("Retry-After = %q, want the key lease %s", got, want)
+	if got, want := late.Header().Get("Retry-After"), strconv.Itoa(int(idempotency.ClaimRetryAfter/time.Second)); got != want {
+		t.Errorf("Retry-After = %q, want ClaimRetryAfter %s", got, want)
 	}
 	if err := holder.Rollback(t.Context()); err != nil {
 		t.Fatal(err)
