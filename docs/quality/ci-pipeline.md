@@ -663,18 +663,20 @@ no Actions cache (about a minute each).
 
 | Event | Runs |
 | --- | --- |
-| pull request (opened, synchronize, reopened) | always, with no label: a security gate that costs about a minute, not behind `ci:run`. No paths filter, so it can be a required check (a path-filtered required check never reports and blocks the merge) |
-| push to `main` | always |
-| schedule | every 6 hours (minute 17): a new advisory needs no change of ours (ADR-001-A1 R7), and the `temporal-server` job no longer scans an unchanged module |
+| pull request (opened, synchronize, reopened) | only when it changes `go.mod`, `go.sum`, `temporal-server/go.mod` or `temporal-server/go.sum` (`paths:` filter, TICK-694): a new or bumped dependency is how a known-vulnerable module enters `main`. Every other pull request skips it. Allowed because it is not a required check of `main` |
+| push to `main` | never (TICK-694): a dependency change was scanned on its pull request, and anything else waits for the next scheduled run |
+| schedule | every second day of the month at 03:17 UTC (`17 3 */2 * *`, TICK-694; a 31-day month runs on the 31st and the 1st): a new advisory needs no change of ours (ADR-001-A1 R7) |
 | manual | always |
 
-A finding fails the job. On `main` (push or schedule) the workflow's own
+A finding fails the job. On a scheduled run on `main` the workflow's own
 `main-red` job opens or updates the P0 "main is red" issue
 (`scripts/ci/main-red.sh`, with `WORKFLOW=govulncheck`). `make check-ci-steps`
 keeps both steps (`tools/ci/cisteps/required-govulncheck.yaml`). To block a
-merge on a finding, make the `govulncheck / root` and
-`govulncheck / temporal-server` checks required in the branch protection of
-`main`. Locally: `make tools-govulncheck vulncheck vulncheck-temporal-server`,
+They are deliberately not required checks of `main`: with the
+`paths:` filter, a required check would never report on most pull requests
+and block their merge. The trade-off (TICK-694): a code-only change that
+starts calling an already-listed vulnerable symbol, or an advisory published
+after a merge, is caught by the next scheduled run, up to two days later. Locally: `make tools-govulncheck vulncheck vulncheck-temporal-server`,
 or `make vulncheck-ci` as part of `make ci-lint`.
 
 **The published image.** The `temporal-server-image` workflow

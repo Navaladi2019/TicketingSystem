@@ -1,6 +1,6 @@
 #!/bin/sh
 # make ci-temporal-server-changed (TICK-641): whether the ci workflow's
-# temporal-server job (the module's unit tests, golangci-lint and govulncheck)
+# temporal-server job (the module's unit tests and golangci-lint)
 # runs. The module has its own go.mod and nothing in the root module touches
 # it, so a change outside its inputs (below) skips the job. Before, it ran on
 # every Go change: about 95% of its runs tested an unchanged module.
@@ -18,7 +18,8 @@
 #                   origin/main), as make ci-stages.
 #
 # govulncheck is not in this job: the govulncheck workflow scans both modules
-# on every pull request, push to main and day (TICK-641).
+# every second day and on pull requests that change a go.mod or go.sum
+# (TICK-641, TICK-694).
 set -eu
 
 say() {
