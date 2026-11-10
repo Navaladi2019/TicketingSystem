@@ -6,6 +6,79 @@ the D25 escalation. The question: with the real compiled ACL predicate
 `records/store.List`), is list p95 ≤ 150 ms and single-read p95 ≤ 50 ms at
 800k records?
 
+## Final re-run after TICK-656 and TICK-657 (gaps-allowed numbering)
+
+**Runs.** All runs are at story tip `9da6f7e1` with this PR's harness, on the reference host (Docker 29.9.2 on WSL2, 16 vCPU, 12.5 GB; `postgres:16.10`). The raw reports are in `docs/quality/acl-perf-800k/`. Only an idle `postgres` container from another task and the multica stack were up, both under 1% CPU. Every run passed the floor gate (p50 ≤ 3 ms).
+
+| File | Start (UTC) | Rows | Floor p50 / p95 / p99 |
+| --- | --- | --- | --- |
+| `final-2026-11-10-gaps-create-run1-log.txt` | 12:54 | creates. Aborted at the gapless row's setup (a raw `UPDATE` hit the audit trigger), so only the log's `RESULT` lines exist | 0.57 / 1.19 / 1.81 |
+| `final-2026-11-10-gaps-create-run2.md` | 12:58 | creates, gapless row included | 1.09 / 1.44 / 1.81 |
+| `final-2026-11-10-gaps-create-run3.md` | 13:02 | creates | 1.17 / 2.35 / 5.88 |
+| `final-2026-11-10-gaps-create-run4-checkpoint.md` | 13:06 | creates, `NAVA_PERF_CHECKPOINT=1` | 1.07 / 1.71 / 2.59 |
+| `final-2026-11-10-lists-9da6f7e1.md` | 13:11 | `state=new`, agent page 1 and page 20, admin `state in` | 1.05 / 1.55 / 1.77 |
+
+### p95 against target (ms)
+
+| Row | Run 1 | Run 2 | Run 3 | Run 4 | Target | Verdict |
+| --- | --- | --- | --- | --- | --- | --- |
+| Create, agent, 1 client | 40.0 | 41.4 | 66.0 | 51.6 | 50 | **Meets in 2 of 4 runs.** Run 3's floor p99 was 5.9 ms. |
+| Create, agent, 8 clients (`gaps`) | 80.3 | 52.1 | 76.7 | 93.7 | 50 | **MISS** (best 52.1) |
+| Create, admin, 8 clients (`gaps`) | 97.8 | 64.0 | 72.4 | 102.3 | 50 | **MISS** (best 64.0) |
+| Create, small tenant agent, 8 clients (`gaps`) | 49.0 | 97.5 | 92.1 | 55.1 | 50 | **MISS** (meets in 1 of 4 runs) |
+| Create, agent, 8 clients, `gapless` type | - | 183.6 | 169.1 | 150.7 | none | Reported only: the type chose this cost (D-3-9) |
+
+| Row | p95 | Target | Verdict |
+| --- | --- | --- | --- |
+| Agent list by group, page 1 / page 20 | 73.5 / 71.2 | 150 | meets |
+| **Agent `filter[state]=new`** | **76.2** (was 192.6) | 150 | **meets.** The plan now uses `records_list_group_state` (TICK-656): `count` is an Index Only Scan with no `state` filter, where before it read about 20k rows and dropped them |
+| Admin `state in`, `sort=-updated_at` | 68.2 (was 118.6) | 150 | meets, no regression |
+
+### Creates: the counter queue is gone, and the commits are what remain
+
+**Allocation (`nava_numbering_alloc_*`), 8 clients, `gaps` types, runs 2 to 4:**
+
+| | p50 | p95 |
+| --- | --- | --- |
+| Allocation, acquire included | 2.2 to 3.3 ms | 4.8 to 7.6 ms |
+| Acquire wait on the 4-connection `nava_alloc` pool | 0.25 to 0.28 ms | 0.48 to 1.46 ms |
+
+`nava_numbering_alloc_timeouts` stayed at 0. There were no `retry_later` responses and no failed requests in any run.
+
+**Counter wait.** This is the `AllocTx` trip as the handler's tracer sees it.
+
+| Rows | Wait p95 |
+| --- | --- |
+| 8-client rows, `gaps` | 3.6 to 5.6 ms (it was 133 to 310 ms when the counter sat in the create transaction) |
+| `gapless` row | 123.6 to 151.4 ms |
+
+**Where an 8-client create spends its time.** Run 2, agent, statement p50s in ms. They sum to about 35 ms, against a request p50 of 39.6.
+
+| Round trip | p50 (ms) |
+| --- | --- |
+| Idempotency claim (`BEGIN` + set tenant, `INSERT`, `COMMIT`) | 1.8 + 2.3 + **7.0** |
+| Create (`BEGIN` + set tenant, prefetch batch, checks batch) | 1.8 + 4.6 + 2.5 |
+| Allocation (`AllocTx`, `synchronous_commit = off`) | 2.4 |
+| `INSERT` batch | 4.1 |
+| Completion and `COMMIT` batch | **8.7** |
+
+- **The two synchronous commits are the cost, and so is their variance.** One commits the idempotency claim; the other commits the create. Their fsync latency on this host switches between two levels:
+
+  | Commit p50, claim / final | Rows near target | Rows missing by 40 to 50 ms |
+  | --- | --- | --- |
+  | 7 / 9 ms | 49 to 55 ms | |
+  | 17 to 25 / 17 to 26 ms | | 92 to 102 ms |
+
+  That is why the slow row moves between runs: small tenant in runs 2 and 3, agent and admin in run 4.
+- **The seed's checkpoint is not the cause.** Run 4 issues `CHECKPOINT` after the seed, and the slow window moved instead of going away.
+- **Allocation is about 7% of the request.** No change to the counter or the allocator pool would bring these rows under 50 ms.
+
+**Levers, for the CTO's decision.** QA does not implement either; both are scoped by owners.
+1. **Fold the idempotency claim into the create transaction.** This was the first trigger the Technical Lead recorded on 11-09, and it was not opened. It removes one synchronous commit and two round trips: about 11 ms at p50 when commits are fast, and about 25 ms when they are slow. In the fast window this would bring all three rows under 50 ms. In the slow window they would still miss.
+2. **The reference host's fsync.** Docker Desktop on WSL2 writes WAL to a virtual disk whose commit latency switches between levels, as shown above. Whether production storage behaves the same is a question for the infra owner. It is not a reason to relax the target.
+
+**The 1-client row is now borderline:** 40.0, 41.4, 51.6 and 66.0 ms, against 28.7 ms on 11-09 with gapless code. A `gaps` create makes 9 round trips instead of 8. Its p50 is 30 to 34 ms, so a single slow commit pushes p95 over 50.
+
 ## Final re-run, after TICK-647, TICK-648 and TICK-644
 
 **Runs** (raw reports in `docs/quality/acl-perf-800k/`):
@@ -251,7 +324,8 @@ in CI. It starts `postgres:<pin>` with P3-01's server settings, runs the test
 and writes the raw report to `bin/acl-perf-800k-raw.md`. The test fails when
 any scenario misses its target. Env: `NAVA_PERF_SECONDS` (20),
 `NAVA_PERF_CLIENTS` (8), `NAVA_PERF_OUT`, `NAVA_PERF_ONLY` (a regular
-expression over scenario names, for example `^create`), `BENCH_KEEP=1`.
+expression over scenario names, for example `^create`), `BENCH_KEEP=1`,
+`NAVA_PERF_CHECKPOINT=1` (a `CHECKPOINT` after the seed).
 
 Raw output for this run, with every statement, argument and plan:
 `docs/quality/acl-perf-800k/run-2026-11-09.md`.

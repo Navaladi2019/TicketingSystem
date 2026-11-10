@@ -150,6 +150,26 @@ func etCluster(t *testing.T) (*pgx.Conn, *pgxpool.Pool) {
 	return super, pool
 }
 
+// etAllocPool is nava-core's allocator pool (cmd/nava-core/allocator.go,
+// TICK-657) beside app: the same login, database and tracer, 4 connections.
+// A create takes its number on it while its own transaction holds an app
+// connection, so a handler on a small app pool must have one: on app itself,
+// as many concurrent creates as app has connections would wait forever.
+func etAllocPool(t *testing.T, app *pgxpool.Pool) *pgxpool.Pool {
+	t.Helper()
+	cfg := app.Config().Copy()
+	cfg.MaxConns = 4
+	if err := tenancy.AllocPoolConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	p, err := pgxpool.NewWithConfig(t.Context(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(p.Close)
+	return p
+}
+
 // etAuditReader opens the audit reader's own pool as nava-core does
 // (read.OpenPool with a DSN, ADR-004-A1 A1-5, A1-6): nava_audit_reader on the
 // platform database app's pool uses.
@@ -257,7 +277,7 @@ func newETEnvWith(t *testing.T, extra ...server.Option) *etEnv {
 	logs := &etLogBuf{}
 	reader := etAuditReader(t, pool)
 	h, err := server.NewHandler(slog.New(slog.NewTextHandler(testLogWriter{t, logs}, &slog.HandlerOptions{Level: slog.LevelWarn})), tel, tokens, stubPaths{},
-		append([]server.Option{server.WithLimiter(lim), server.WithPool(pool), server.WithAuditReader(reader), server.WithCursors(kr)}, extra...)...)
+		append([]server.Option{server.WithLimiter(lim), server.WithPool(pool), server.WithAllocatorPool(etAllocPool(t, pool)), server.WithAuditReader(reader), server.WithCursors(kr)}, extra...)...)
 	if err != nil {
 		t.Fatal(err)
 	}

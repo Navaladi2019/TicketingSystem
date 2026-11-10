@@ -64,7 +64,15 @@ func newTripwireHandler(t *testing.T, tel *telemetry.Telemetry, lim ratelimit.Li
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel, twoTenants{}, stubPaths{}, server.WithLimiter(lim), server.WithPool(pool))
+	// The allocator pool, its own, as nava-core's (TICK-657); it never
+	// connects either.
+	alloc, err := pgxpool.New(t.Context(), "postgres://nobody@127.0.0.1:1/none?connect_timeout=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(alloc.Close)
+	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel, twoTenants{}, stubPaths{}, server.WithLimiter(lim),
+		server.WithPool(pool), server.WithAllocatorPool(alloc))
 	if err != nil {
 		t.Fatal(err)
 	}

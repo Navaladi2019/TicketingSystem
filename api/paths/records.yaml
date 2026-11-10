@@ -6,7 +6,7 @@ paths:
       summary: List the records of an entity type the caller may read
       description: >
         Returns only the records the entity type's published ACL lets the
-        caller read (no ACL: none), with an exact `total` counted under the
+        caller read (no ACL: none), with a `total` counted under the
         same predicate, so a record the caller cannot read is in neither the
         page nor `total`. Each item is shaped by the caller's field masks as
         getRecord's body is.
@@ -26,8 +26,10 @@ paths:
         caller, in a filter or a sort, answers 400 `masked_field` before any
         query runs. A `cursor` that is malformed, tampered, from another
         caller or query, or for another sort answers 400 `invalid_cursor`. A list with a filter on a `data`
-        property runs under a 2-second statement timeout; past it the answer is
-        422 `filter_too_expensive` (narrow the filter). `total` counts at most
+        property runs under a 2-second statement timeout, which applies to each
+        statement: a list is a count plus a page, so one can take about 4
+        seconds in the worst case. Past the timeout the answer is 422
+        `filter_too_expensive` (narrow the filter). `total` counts at most
         1,000 rows under the same predicate as the page. An
         unknown entity type gives the 404 of getRecord, byte for byte.
       parameters:
@@ -155,6 +157,17 @@ paths:
           $ref: "../openapi.yaml#/components/responses/Problem"
         "501":
           $ref: "../openapi.yaml#/components/responses/Problem"
+        "503":
+          description: retry_later. The write changed nothing (a number allocation timed out, or a deadlock); retry after the Retry-After interval.
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema:
+                type: integer
+          content:
+            application/problem+json:
+              schema:
+                $ref: "../openapi.yaml#/components/schemas/Problem"
   /api/v1/records/{entity}/{id}:
     get:
       operationId: getRecord
@@ -312,6 +325,17 @@ paths:
           $ref: "../openapi.yaml#/components/responses/Problem"
         "501":
           $ref: "../openapi.yaml#/components/responses/Problem"
+        "503":
+          description: retry_later. The write changed nothing (a number allocation timed out, or a deadlock); retry after the Retry-After interval.
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema:
+                type: integer
+          content:
+            application/problem+json:
+              schema:
+                $ref: "../openapi.yaml#/components/schemas/Problem"
   /api/v1/records/{entity}/{id}/history:
     get:
       operationId: getRecordHistory

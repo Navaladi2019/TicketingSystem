@@ -57,6 +57,24 @@ func (e AuditEntryDomain) Valid() bool {
 	}
 }
 
+// Defines values for EntityTypeSummaryNumberingMode.
+const (
+	EntityTypeSummaryNumberingModeGapless EntityTypeSummaryNumberingMode = "gapless"
+	EntityTypeSummaryNumberingModeGaps    EntityTypeSummaryNumberingMode = "gaps"
+)
+
+// Valid indicates whether the value is a known member of the EntityTypeSummaryNumberingMode enum.
+func (e EntityTypeSummaryNumberingMode) Valid() bool {
+	switch e {
+	case EntityTypeSummaryNumberingModeGapless:
+		return true
+	case EntityTypeSummaryNumberingModeGaps:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for EntityTypeVersionCompat.
 const (
 	Compatible    EntityTypeVersionCompat = "compatible"
@@ -72,6 +90,24 @@ func (e EntityTypeVersionCompat) Valid() bool {
 	case Initial:
 		return true
 	case NeedsBackfill:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for EntityTypeVersionNumberingMode.
+const (
+	EntityTypeVersionNumberingModeGapless EntityTypeVersionNumberingMode = "gapless"
+	EntityTypeVersionNumberingModeGaps    EntityTypeVersionNumberingMode = "gaps"
+)
+
+// Valid indicates whether the value is a known member of the EntityTypeVersionNumberingMode enum.
+func (e EntityTypeVersionNumberingMode) Valid() bool {
+	switch e {
+	case EntityTypeVersionNumberingModeGapless:
+		return true
+	case EntityTypeVersionNumberingModeGaps:
 		return true
 	default:
 		return false
@@ -273,12 +309,16 @@ type EntityTypeList struct {
 
 // EntityTypeSummary defines model for EntityTypeSummary.
 type EntityTypeSummary struct {
-	CurrentVersion int       `json:"current_version"`
-	Key            string    `json:"key"`
-	Name           string    `json:"name"`
-	NumberPrefix   string    `json:"number_prefix"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	CurrentVersion int                            `json:"current_version"`
+	Key            string                         `json:"key"`
+	Name           string                         `json:"name"`
+	NumberPrefix   string                         `json:"number_prefix"`
+	NumberingMode  EntityTypeSummaryNumberingMode `json:"numbering_mode"`
+	UpdatedAt      time.Time                      `json:"updated_at"`
 }
+
+// EntityTypeSummaryNumberingMode defines model for EntityTypeSummary.NumberingMode.
+type EntityTypeSummaryNumberingMode string
 
 // EntityTypeVersion defines model for EntityTypeVersion.
 type EntityTypeVersion struct {
@@ -290,7 +330,10 @@ type EntityTypeVersion struct {
 	Key          string            `json:"key"`
 	Name         string            `json:"name"`
 	NumberPrefix string            `json:"number_prefix"`
-	PublishedAt  time.Time         `json:"published_at"`
+
+	// NumberingMode How the type numbers its records (D-3-9). Belongs to the type, not the version.
+	NumberingMode EntityTypeVersionNumberingMode `json:"numbering_mode"`
+	PublishedAt   time.Time                      `json:"published_at"`
 
 	// Schema The JSON Schema 2020-12 document, as the stored bytes.
 	Schema interface{} `json:"schema"`
@@ -303,6 +346,9 @@ type EntityTypeVersion struct {
 
 // EntityTypeVersionCompat defines model for EntityTypeVersion.Compat.
 type EntityTypeVersionCompat string
+
+// EntityTypeVersionNumberingMode How the type numbers its records (D-3-9). Belongs to the type, not the version.
+type EntityTypeVersionNumberingMode string
 
 // FieldError defines model for FieldError.
 type FieldError struct {
@@ -3271,6 +3317,30 @@ func (response CreateRecord501ApplicationProblemPlusJSONResponse) VisitCreateRec
 	return err
 }
 
+type CreateRecord503ResponseHeaders struct {
+	RetryAfter *int
+}
+
+type CreateRecord503ApplicationProblemPlusJSONResponse struct {
+	Body    Problem
+	Headers CreateRecord503ResponseHeaders
+}
+
+func (response CreateRecord503ApplicationProblemPlusJSONResponse) VisitCreateRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetRecordRequestObject struct {
 	Entity Entity `json:"entity"`
 	Id     string `json:"id"`
@@ -3571,6 +3641,30 @@ func (response PatchRecord501ApplicationProblemPlusJSONResponse) VisitPatchRecor
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PatchRecord503ResponseHeaders struct {
+	RetryAfter *int
+}
+
+type PatchRecord503ApplicationProblemPlusJSONResponse struct {
+	Body    Problem
+	Headers PatchRecord503ResponseHeaders
+}
+
+func (response PatchRecord503ApplicationProblemPlusJSONResponse) VisitPatchRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(503)
 	_, err := buf.WriteTo(w)
 	return err
 }

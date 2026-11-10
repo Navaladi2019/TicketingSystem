@@ -137,6 +137,12 @@ type Cluster interface {
 	// PgBouncer's one server connection for the role: a check that holds a
 	// server connection while another request needs one waits forever.
 	PooledSize(role string, conns int32) (*pgxpool.Pool, error)
+	// AllocatorPool is the record-number allocator pool, as nava-core opens
+	// it (ADR-005 A3, A5, TICK-657): nava_app, checked by
+	// tenancy.AllocPoolConfig, logged in directly so it never shares the
+	// suite's one PgBouncer server connection with the creates that wait on
+	// it.
+	AllocatorPool() (*pgxpool.Pool, error)
 	// AuditReader is the audit reader's own pool (read.OpenPool), logged in
 	// as nava_audit_reader through PgBouncer with a DSN, as nava-core opens
 	// it (ADR-004-A1 A1-5, A1-6).

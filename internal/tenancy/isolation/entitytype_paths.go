@@ -159,8 +159,15 @@ func newETIso(ctx context.Context, c Cluster) (*etIso, error) {
 		_ = tel.Shutdown(context.Background())
 		return nil, err
 	}
+	// A create takes its number on the allocator pool (ADR-005 L2s): on
+	// pool, one connection the create holds, it would starve.
+	alloc, err := c.AllocatorPool()
+	if err != nil {
+		_ = tel.Shutdown(context.Background())
+		return nil, err
+	}
 	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel, tokens, pgstore.New(pool),
-		server.WithPool(pool), server.WithAuditReader(reader), server.WithCursors(kr))
+		server.WithPool(pool), server.WithAllocatorPool(alloc), server.WithAuditReader(reader), server.WithCursors(kr))
 	if err != nil {
 		_ = tel.Shutdown(context.Background())
 		return nil, err

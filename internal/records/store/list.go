@@ -97,7 +97,7 @@ func List(ctx context.Context, tx pgx.Tx, q ListQuery) (*ListPage, error) {
 	// definition, at most one group per row), so they cannot change the count.
 	var total int64
 	if err := tx.QueryRow(ctx, CountStatement(q), args...).Scan(&total); err != nil {
-		return nil, timedOut(ctx, fmt.Errorf("records/store: count records: %w", err))
+		return nil, timedOut(ctx, q, fmt.Errorf("records/store: count records: %w", err))
 	}
 
 	sql, pageArgs, err := PageStatement(q)
@@ -106,7 +106,7 @@ func List(ctx context.Context, tx pgx.Tx, q ListQuery) (*ListPage, error) {
 	}
 	rows, err := tx.Query(ctx, sql, pageArgs...)
 	if err != nil {
-		return nil, timedOut(ctx, fmt.Errorf("records/store: list records: %w", err))
+		return nil, timedOut(ctx, q, fmt.Errorf("records/store: list records: %w", err))
 	}
 	defer rows.Close()
 	page := &ListPage{Total: min(total, TotalCap), TotalCapped: total > TotalCap}
@@ -120,7 +120,7 @@ func List(ctx context.Context, tx pgx.Tx, q ListQuery) (*ListPage, error) {
 		page.SortKeys = append(page.SortKeys, key)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, timedOut(ctx, fmt.Errorf("records/store: list records: %w", err))
+		return nil, timedOut(ctx, q, fmt.Errorf("records/store: list records: %w", err))
 	}
 	rows.Close()
 	if err := restore(); err != nil {
@@ -207,10 +207,12 @@ func boundDataFilter(ctx context.Context, tx pgx.Tx, q ListQuery) (func() error,
 }
 
 // timedOut wraps err with ErrStatementTimeout when Postgres cancelled the
-// statement (57014) while the request itself is still live.
-func timedOut(ctx context.Context, err error) error {
+// statement (57014) of a DataFilter list while the request itself is still
+// live. A cancel on a list without a data filter (a role-level timeout,
+// pg_cancel_backend) is not the data filter's doing and stays the raw error.
+func timedOut(ctx context.Context, q ListQuery, err error) error {
 	var pe *pgconn.PgError
-	if ctx.Err() == nil && errors.As(err, &pe) && pe.Code == "57014" {
+	if q.DataFilter && ctx.Err() == nil && errors.As(err, &pe) && pe.Code == "57014" {
 		return fmt.Errorf("%w: %w", ErrStatementTimeout, err)
 	}
 	return err

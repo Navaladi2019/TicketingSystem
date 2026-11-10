@@ -8,7 +8,8 @@
 #   make bench-acl-perf        # about 32 minutes
 # Env: NAVA_PERF_SECONDS (20) per scenario, NAVA_PERF_CLIENTS (8),
 # NAVA_PERF_OUT (bin/acl-perf-800k-raw.md), NAVA_PERF_ONLY (a regexp over
-# scenario names, e.g. '^create'), BENCH_KEEP=1 keeps the container.
+# scenario names, e.g. '^create'), NAVA_PERF_CHECKPOINT=1 (CHECKPOINT after
+# the seed), BENCH_KEEP=1 keeps the container.
 set -eu
 cd "$(dirname "$0")/../.."
 pgtag=$(sed -n 's/^| `postgres` | \([^ |]*\) |.*/\1/p' docs/pins.md)

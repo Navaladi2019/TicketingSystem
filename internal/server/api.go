@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -88,7 +89,19 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 			return nil, err
 		}
 		h.acl = authz.ACL{Policies: authz.PolicyStore{}}
-		h.pipe = pipeline.New(h.acl, h.store, pipeline.NoopSink{}, pipeline.PoolRunner{Pool: opts.pool}, pipeline.SystemClock{})
+		allocMetrics, err := pipeline.NewAllocMetrics(tel.MeterProvider)
+		if err != nil {
+			return nil, err
+		}
+		// A create takes its number on the allocator pool (ADR-005 L2s)
+		// while its own transaction holds a request-pool connection. On the
+		// request pool itself, creates holding every connection would starve
+		// their own allocations, so there is no fallback (TICK-657).
+		if opts.allocPool == nil {
+			return nil, errors.New("server: the record routes need WithAllocatorPool (ADR-005 L2s): the number allocator never runs on the request pool")
+		}
+		runner := pipeline.PoolRunner{Pool: opts.allocPool, Metrics: allocMetrics}
+		h.pipe = pipeline.New(h.acl, h.store, pipeline.NoopSink{}, runner, pipeline.SystemClock{})
 	}
 	api.HandlerWithOptions(
 		api.NewStrictHandlerWithOptions(h, nil, api.StrictHTTPServerOptions{
@@ -277,6 +290,14 @@ func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http
 					h.reg.Write(w, r, problem.InvalidAccessPolicy, pe.fields...)
 					return
 				}
+			}
+			if pe.code == problem.RetryLater {
+				// A 5xx is not stored against the Idempotency-Key, but the
+				// key's in_flight claim stands until its lease ends: a retry
+				// with the same key before then is 409 idempotency_in_flight.
+				// So the advice is the lease, after which the retry runs the
+				// write again.
+				w.Header().Set("Retry-After", strconv.Itoa(int(idempotency.Lease/time.Second)))
 			}
 			h.reg.WriteError(w, r, h.log, pe.code, pe.err)
 			return

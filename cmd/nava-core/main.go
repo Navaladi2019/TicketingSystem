@@ -69,6 +69,14 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 		return err
 	}
 	defer closeResolver()
+	allocPool, err := newAllocatorPool(ctx, tel, cfg)
+	if err != nil {
+		_ = tel.Shutdown(context.WithoutCancel(ctx))
+		return err
+	}
+	if allocPool != nil {
+		defer allocPool.Close()
+	}
 	cursors, err := cursor.NewKeyringFromConfig(cfg.Cursor)
 	if err != nil {
 		_ = tel.Shutdown(context.WithoutCancel(ctx))
@@ -83,7 +91,7 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 	}
 	defer auditPool.Close()
 	public, err := server.NewHandler(log, tel, resolver, paths, server.WithRateLimit(cfg.RateLimit), server.WithPool(pool),
-		server.WithAuditReader(auditPool), server.WithCursors(cursors))
+		server.WithAllocatorPool(allocPool), server.WithAuditReader(auditPool), server.WithCursors(cursors))
 	if err != nil {
 		_ = tel.Shutdown(context.WithoutCancel(ctx))
 		return err

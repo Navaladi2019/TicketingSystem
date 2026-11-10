@@ -45,6 +45,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	dto "github.com/prometheus/client_model/go"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/authz/acltest"
@@ -218,6 +219,9 @@ type perfEnv struct {
 	super  *pgx.Conn
 	tokens etTokens
 	large  etTenant
+	// tel is the handler's telemetry: the report reads the allocator's
+	// nava_numbering_alloc_* series from its registry (TICK-657).
+	tel *telemetry.Telemetry
 	// tokens per role
 	agents, requesters, smallAgents, smallAdmins []string
 	agentGroups                                  map[string][]uuid.UUID
@@ -241,6 +245,18 @@ func newPerfEnv(t *testing.T, clients int) *perfEnv {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
+	// nava-core's allocator pool (cmd/nava-core/allocator.go, TICK-657): a
+	// create takes its number on it, traced like the API pool.
+	ac := pc.Copy()
+	ac.MaxConns = 4
+	if err := tenancy.AllocPoolConfig(ac); err != nil {
+		t.Fatal(err)
+	}
+	alloc, err := pgxpool.NewWithConfig(t.Context(), ac)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(alloc.Close)
 	large := etSeedTenant(t, super, "large")
 	tokens := etTokens{"admin-large": large.admin}
 	tel, err := telemetry.New(t.Context(), config.Telemetry{})
@@ -253,7 +269,7 @@ func newPerfEnv(t *testing.T, clients int) *perfEnv {
 		t.Fatal(err)
 	}
 	reader := etAuditReader(t, pool)
-	opts := []server.Option{server.WithLimiter(perfAllow{}), server.WithPool(pool), server.WithAuditReader(reader), server.WithCursors(kr)}
+	opts := []server.Option{server.WithLimiter(perfAllow{}), server.WithPool(pool), server.WithAllocatorPool(alloc), server.WithAuditReader(reader), server.WithCursors(kr)}
 	log := slog.New(slog.NewTextHandler(testLogWriter{t, nil}, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	h, err := server.NewHandler(log, tel, tokens, stubPaths{}, opts...)
 	if err != nil {
@@ -263,7 +279,7 @@ func newPerfEnv(t *testing.T, clients int) *perfEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &perfEnv{h: h, hShort: hShort, pool: pool, super: super, tokens: tokens, large: large, agentGroups: map[string][]uuid.UUID{}}
+	return &perfEnv{h: h, hShort: hShort, pool: pool, super: super, tokens: tokens, large: large, tel: tel, agentGroups: map[string][]uuid.UUID{}}
 }
 
 func (e *perfEnv) exec(t *testing.T, sql string, args ...any) {
@@ -518,6 +534,12 @@ type perfScenario struct {
 	reqs   []perfReq
 	// clients is the scenario's own client count; 0 uses NAVA_PERF_CLIENTS.
 	clients int
+	// before runs once before the scenario (e.g. switching the type to
+	// gapless numbering); nil does nothing.
+	before func()
+	// unscored reports the scenario without holding it to a target, with
+	// this reason (the gapless create: that cost is the type's choice).
+	unscored string
 }
 
 // send runs r the way sc's kind does: a GET for list and get, a POST with a
@@ -685,6 +707,12 @@ type perfDef struct {
 	clients int
 }
 
+// perfExtra is a scenario's optional setup and scoring, by scenario name.
+type perfExtra struct {
+	before   func()
+	unscored string
+}
+
 // scenarios builds the scenarios whose name matches NAVA_PERF_ONLY (a regular
 // expression; empty selects every one).
 func (e *perfEnv) scenarios(t *testing.T) []perfScenario {
@@ -696,13 +724,33 @@ func (e *perfEnv) scenarios(t *testing.T) []perfScenario {
 	var out []perfScenario
 	for _, d := range e.defs(t) {
 		if only.MatchString(d.name) {
-			out = append(out, perfScenario{d.name, d.kind, d.tenant, d.build(), d.clients})
+			out = append(out, perfScenario{d.name, d.kind, d.tenant, d.build(), d.clients, e.extras(t)[d.name].before, e.extras(t)[d.name].unscored})
 		}
 	}
 	if len(out) == 0 {
 		t.Fatalf("NAVA_PERF_ONLY=%q selects no scenario", only)
 	}
 	return out
+}
+
+// extras are the scenarios with a setup step or no target. The gapless
+// create switches the large tenant's ticket type to gapless numbering (D-3-9,
+// per type) and runs last; that cost is the type's choice, so it is reported
+// and not held to 50 ms.
+func (e *perfEnv) extras(t *testing.T) map[string]perfExtra {
+	t.Helper()
+	return map[string]perfExtra{
+		"create, agent, gapless type": {
+			before: func() {
+				// Through the API (a mode-only publish), so the change is audited.
+				rec := e.serve(t.Context(), http.MethodPost, "/api/v1/entity-types/ticket/versions", "admin-large", uuid.NewString(), `{"numbering_mode": "gapless"}`)
+				if rec.Code != http.StatusCreated {
+					t.Fatalf("set ticket numbering_mode gapless = %d: %s", rec.Code, rec.Body)
+				}
+			},
+			unscored: "gapless type: reported, not scored (D-3-9)",
+		},
+	}
 }
 
 func (e *perfEnv) defs(t *testing.T) []perfDef {
@@ -738,6 +786,9 @@ func (e *perfEnv) defs(t *testing.T) []perfDef {
 		{"create, agent", "create", "large", func() []perfReq { return e.createReqs(t, e.agents) }, 0},
 		{"create, admin", "create", "large", func() []perfReq { return e.createReqs(t, admin) }, 0},
 		{"create, small tenant agent", "create", "small", func() []perfReq { return e.createReqs(t, e.smallAgents) }, 0},
+		// Last: it switches the large tenant's ticket type to gapless
+		// numbering (D-3-9, per type), reported but not held to 50 ms.
+		{"create, agent, gapless type", "create", "large", func() []perfReq { return e.createReqs(t, e.agents) }, 0},
 	}
 }
 
@@ -750,8 +801,10 @@ type perfResult struct {
 	stmtSQL  []perfStmt                 // one representative request, in order
 	explains []string
 	errs     int64
-	timeouts int64      // 422 filter_too_expensive answers (data and timeout kinds)
-	holds    []perfHold // creates only, one per request
+	errCodes map[string]int64       // failed requests by "status problem-code"
+	alloc    map[string]*dto.Metric // nava_numbering_alloc_* during the scenario
+	timeouts int64                  // 422 filter_too_expensive answers (data and timeout kinds)
+	holds    []perfHold             // creates only, one per request
 }
 
 // perfHold is one create's record_counters window (D-3-9). wait is the
@@ -765,17 +818,24 @@ type perfHold struct {
 }
 
 // counterHold finds the record_counters upsert and the COMMIT that ends its
-// transaction in one create's statements. Since TICK-648 both are in
-// batches: the upsert opens the create's last batch, whose end is the
-// earliest the client sees the row locked (so wait includes the rest of
-// that batch), and COMMIT ends the batch after it. n counts round trips.
+// transaction in one create's statements. Since TICK-657 (ADR-005 L2s) the
+// upsert and its COMMIT are one AllocTx trip: the hold is inside it, and
+// wait is the whole trip. Otherwise (TICK-648, gapless L1) a COMMIT batched
+// after other statements (" ; commit") ends the window. n counts round
+// trips.
 func counterHold(ss []perfStmt) (perfHold, bool) {
 	up := slices.IndexFunc(ss, func(s perfStmt) bool { return strings.Contains(s.SQL, "INSERT INTO record_counters") })
 	if up < 0 {
 		return perfHold{}, false
 	}
-	locked := ss[up].Start + ss[up].Dur
 	h := perfHold{wait: ss[up].Dur}
+	// ADR-005 L2s (tenancy.AllocTx): the upsert and its COMMIT are one
+	// pipelined trip, so the lock is held inside it, already counted in
+	// wait; nothing after the trip holds it.
+	if strings.HasSuffix(strings.ToLower(strings.TrimSpace(ss[up].SQL)), " ; commit") {
+		return h, true
+	}
+	locked := ss[up].Start + ss[up].Dur
 	for _, s := range ss[up+1:] {
 		h.stmts += s.Dur
 		h.n++
@@ -795,7 +855,8 @@ func normSQL(s string) string { return perfWS.ReplaceAllString(strings.TrimSpace
 // once, and returns the per-request latencies and per-statement durations.
 func (e *perfEnv) run(t *testing.T, sc perfScenario, clients int, d time.Duration) *perfResult {
 	t.Helper()
-	res := &perfResult{sc: sc, stmtDur: map[string][]time.Duration{}}
+	res := &perfResult{sc: sc, stmtDur: map[string][]time.Duration{}, errCodes: map[string]int64{}}
+	allocBefore := e.allocSnapshot(t)
 	for i, r := range sc.reqs {
 		if i >= 50 {
 			break
@@ -828,6 +889,13 @@ func (e *perfEnv) run(t *testing.T, sc perfScenario, clients int, d time.Duratio
 				el := time.Since(t0)
 				if !ok {
 					atomic.AddInt64(&res.errs, 1)
+					var pb struct {
+						Code string `json:"code"`
+					}
+					_ = json.Unmarshal(rec.Body.Bytes(), &pb)
+					mu.Lock()
+					res.errCodes[fmt.Sprintf("%d %s", rec.Code, pb.Code)]++
+					mu.Unlock()
 					continue
 				}
 				if rec.Code == http.StatusUnprocessableEntity {
@@ -852,8 +920,9 @@ func (e *perfEnv) run(t *testing.T, sc perfScenario, clients int, d time.Duratio
 		}()
 	}
 	wg.Wait()
+	res.alloc = allocDelta(allocBefore, e.allocSnapshot(t))
 	if res.errs > 0 {
-		t.Errorf("%s: %d requests failed", sc.name, res.errs)
+		t.Errorf("%s: %d requests failed: %v", sc.name, res.errs, res.errCodes)
 	}
 	e.capture(t, res)
 	return res
@@ -918,6 +987,9 @@ func pct(d []time.Duration, p float64) float64 {
 }
 
 func (r *perfResult) target() float64 {
+	if r.sc.unscored != "" {
+		return 0
+	}
 	switch r.sc.kind {
 	case "get":
 		return perfGetTargetMS
@@ -940,6 +1012,12 @@ func TestRecordsACLPerf800k(t *testing.T) {
 	}
 	e := newPerfEnv(t, clients)
 	e.seed(t)
+	// NAVA_PERF_CHECKPOINT=1 flushes the seed's dirty pages before the first
+	// scenario, so a checkpoint spread over the run (checkpoint_completion_target)
+	// does not land on the creates' commit fsyncs.
+	if os.Getenv("NAVA_PERF_CHECKPOINT") == "1" {
+		e.exec(t, "CHECKPOINT")
+	}
 	floor := e.transportFloor(t, clients)
 	t.Logf("FLOOR SELECT 1 round trip, %d clients: p50=%.2f p95=%.2f p99=%.2f ms", clients, pct(floor, .50), pct(floor, .95), pct(floor, .99))
 	var results []*perfResult
@@ -947,6 +1025,9 @@ func TestRecordsACLPerf800k(t *testing.T) {
 		c := clients
 		if sc.clients > 0 {
 			c = sc.clients
+		}
+		if sc.before != nil {
+			sc.before()
 		}
 		r := e.run(t, sc, c, time.Duration(secs)*time.Second)
 		t.Logf("RESULT %-62s n=%6d p50=%8.2f p95=%8.2f p99=%8.2f ms", sc.name, len(r.lat), pct(r.lat, .50), pct(r.lat, .95), pct(r.lat, .99))
@@ -1027,6 +1108,8 @@ func (e *perfEnv) report(t *testing.T, results []*perfResult, floor []time.Durat
 		p95 := pct(r.lat, .95)
 		v := "meets"
 		switch {
+		case r.sc.unscored != "":
+			v = r.sc.unscored
 		case r.target() == 0:
 			v = "n/a (bound check)"
 		case p95 > r.target():
@@ -1035,6 +1118,7 @@ func (e *perfEnv) report(t *testing.T, results []*perfResult, floor []time.Durat
 		w("| %s | %s | %d | %.2f | %.2f | %.2f | %.0f | %s |\n", r.sc.name, r.sc.tenant, len(r.lat), pct(r.lat, .5), p95, pct(r.lat, .99), r.target(), v)
 	}
 	e.reportHolds(w, results, floor)
+	reportAlloc(w, results)
 	reportTimeouts(w, results)
 	w("\n## Per statement (ms, as pgx traced it, all requests of the scenario)\n\n")
 	for _, r := range results {
@@ -1145,4 +1229,153 @@ func (e *perfEnv) superText(t *testing.T, sql string) string {
 		out = append(out, s)
 	}
 	return strings.Join(out, "\n")
+}
+
+// ---- allocator metrics (TICK-657) -------------------------------------------
+
+// allocSnapshot gathers the nava_numbering_alloc_* families from the
+// handler's telemetry registry.
+func (e *perfEnv) allocSnapshot(t *testing.T) map[string]*dto.MetricFamily {
+	t.Helper()
+	mfs, err := e.tel.Registry.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]*dto.MetricFamily{}
+	for _, mf := range mfs {
+		if strings.HasPrefix(mf.GetName(), "nava_numbering_alloc") {
+			out[mf.GetName()] = mf
+		}
+	}
+	return out
+}
+
+// allocDelta is after minus before, each family's series summed into one:
+// the allocator's series carry no tenant or type attribute (T01).
+func allocDelta(before, after map[string]*dto.MetricFamily) map[string]*dto.Metric {
+	out := map[string]*dto.Metric{}
+	for name, a := range after {
+		d := sumFamily(a)
+		if b, ok := before[name]; ok {
+			bs := sumFamily(b)
+			switch {
+			case d.Histogram != nil && bs.Histogram != nil:
+				d.Histogram.SampleCount = new(d.Histogram.GetSampleCount() - bs.Histogram.GetSampleCount())
+				d.Histogram.SampleSum = new(d.Histogram.GetSampleSum() - bs.Histogram.GetSampleSum())
+				for i := range d.Histogram.Bucket {
+					if i < len(bs.Histogram.Bucket) {
+						d.Histogram.Bucket[i].CumulativeCount = new(d.Histogram.Bucket[i].GetCumulativeCount() - bs.Histogram.Bucket[i].GetCumulativeCount())
+					}
+				}
+			case d.Counter != nil && bs.Counter != nil:
+				d.Counter.Value = new(d.Counter.GetValue() - bs.Counter.GetValue())
+			}
+		}
+		out[name] = d
+	}
+	return out
+}
+
+// sumFamily folds a family's series into one new metric.
+func sumFamily(mf *dto.MetricFamily) *dto.Metric {
+	var out dto.Metric
+	for _, m := range mf.GetMetric() {
+		if h := m.GetHistogram(); h != nil {
+			if out.Histogram == nil {
+				out.Histogram = &dto.Histogram{SampleCount: new(uint64(0)), SampleSum: new(0.0)}
+				for _, b := range h.GetBucket() {
+					out.Histogram.Bucket = append(out.Histogram.Bucket, &dto.Bucket{UpperBound: new(b.GetUpperBound()), CumulativeCount: new(uint64(0))})
+				}
+			}
+			out.Histogram.SampleCount = new(out.Histogram.GetSampleCount() + h.GetSampleCount())
+			out.Histogram.SampleSum = new(out.Histogram.GetSampleSum() + h.GetSampleSum())
+			for i, b := range h.GetBucket() {
+				if i < len(out.Histogram.Bucket) {
+					out.Histogram.Bucket[i].CumulativeCount = new(out.Histogram.Bucket[i].GetCumulativeCount() + b.GetCumulativeCount())
+				}
+			}
+		}
+		if c := m.GetCounter(); c != nil {
+			if out.Counter == nil {
+				out.Counter = &dto.Counter{Value: new(0.0)}
+			}
+			out.Counter.Value = new(out.Counter.GetValue() + c.GetValue())
+		}
+	}
+	return &out
+}
+
+// histQuantile estimates quantile q in ms from a histogram in seconds,
+// linearly inside the bucket, as Prometheus histogram_quantile does. Past
+// the last bound it returns that bound and over.
+func histQuantile(h *dto.Histogram, q float64) (ms float64, over bool) {
+	n := float64(h.GetSampleCount())
+	if n == 0 {
+		return 0, false
+	}
+	rank := q * n
+	lo, prev := 0.0, 0.0
+	for _, b := range h.GetBucket() {
+		c := float64(b.GetCumulativeCount())
+		if c >= rank {
+			if c == prev {
+				return b.GetUpperBound() * 1000, false
+			}
+			return (lo + (b.GetUpperBound()-lo)*(rank-prev)/(c-prev)) * 1000, false
+		}
+		lo, prev = b.GetUpperBound(), c
+	}
+	return lo * 1000, true
+}
+
+// reportAlloc prints the allocator's metrics per create scenario: the pool
+// acquire wait, the whole allocation (acquire included) and the timeouts
+// that become retry_later, plus every failed request by status and code.
+func reportAlloc(w func(string, ...any), results []*perfResult) {
+	w("\n## Number allocation (creates, `nava_numbering_alloc_*`, ADR-005 L2s)\n\nPer scenario, from the handler's telemetry registry (bucket bounds 0.5, 1, 2.5, 5, 10, 25, 50, 100, 200, 500 ms; quantiles interpolated inside a bucket). Gapless creates take no allocation, so their row is empty. Failed requests are by HTTP status and problem code; `retry_later` is an allocation past its 200 ms budget.\n\n")
+	w("| Scenario | Allocations | Acquire mean / p50 / p95 | Allocation mean / p50 / p95 | Timeouts | Failed requests |\n| --- | --- | --- | --- | --- | --- |\n")
+	q := func(h *dto.Histogram) string {
+		if h == nil || h.GetSampleCount() == 0 {
+			return "-"
+		}
+		f := func(x float64) string {
+			v, over := histQuantile(h, x)
+			if over {
+				return fmt.Sprintf("> %.1f", v)
+			}
+			return fmt.Sprintf("%.2f", v)
+		}
+		return fmt.Sprintf("%.2f / %s / %s", h.GetSampleSum()/float64(h.GetSampleCount())*1000, f(.5), f(.95))
+	}
+	for _, r := range results {
+		if r.sc.kind != "create" {
+			continue
+		}
+		var acq, lat *dto.Histogram
+		timeouts := 0.0
+		for name, m := range r.alloc {
+			switch {
+			case strings.HasPrefix(name, "nava_numbering_alloc_acquire"):
+				acq = m.GetHistogram()
+			case strings.HasPrefix(name, "nava_numbering_alloc_timeouts"):
+				timeouts = m.GetCounter().GetValue()
+			case strings.HasPrefix(name, "nava_numbering_alloc_seconds"):
+				lat = m.GetHistogram()
+			}
+		}
+		n := uint64(0)
+		if lat != nil {
+			n = lat.GetSampleCount()
+		}
+		failed := "none"
+		if len(r.errCodes) > 0 {
+			keys := make([]string, 0, len(r.errCodes))
+			for k, v := range r.errCodes {
+				keys = append(keys, fmt.Sprintf("%s x%d", k, v))
+			}
+			slices.Sort(keys)
+			failed = strings.Join(keys, ", ")
+		}
+		w("| %s | %d | %s | %s | %.0f | %s |\n", r.sc.name, n, q(acq), q(lat), timeouts, failed)
+	}
 }
