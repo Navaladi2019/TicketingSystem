@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -16,13 +17,18 @@ func set(s ...string) map[string]bool {
 	return m
 }
 
-// TestRealRepo loads this repository's graph once and runs every check that
-// reads it as a subtest: one load runs go list over the whole module eight
-// times, and loading it per test helped push this package past go test's
-// 10-minute timeout under task test's -race run of every package
-// (TICK-597).
+// realGraph loads this repository's graph once per test binary: one load
+// runs go list over the whole module eight times, and loading it per test
+// (TICK-597), or per ci-stages.sh scenario (TICK-697), pushed this package
+// past go test's 10-minute timeout under task test's -race run of every
+// package on Windows.
+//
+//nolint:gochecknoglobals // one graph load per package run
+var realGraph = sync.OnceValues(loadGraph)
+
+// TestRealRepo runs every check that reads the real graph as a subtest.
 func TestRealRepo(t *testing.T) {
-	g, err := loadGraph()
+	g, err := realGraph()
 	if err != nil {
 		t.Fatal(err)
 	}

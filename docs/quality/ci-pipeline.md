@@ -540,6 +540,16 @@ integration or stack" in `tools/ci/cichanged` runs `scripts/ci/ci-stages.sh` on 
 runs every job, since only a full run proves a workflow edit. A skipped job
 shows as skipped, not failed, and a skipped required check counts as passed.
 
+**`TestCIStages` speed (TICK-697).** The scenarios run `ci-stages.sh` in a
+clone, and each of its `cichanged` runs used to load the package graph with
+eight `go list` passes over a freshly written tree. Under `task test` on a
+Windows host that took about 27 minutes, past go test's 10-minute default. The
+test now loads the graph once in this checkout and hands it to every run
+through `CICHANGED_GRAPH` (a JSON file). The clone's graph is the same,
+because every scenario edits only comments, docs or a Dockerfile.
+`TestRealRepo/cli` still covers the `go list` path, and `TestCLISavedGraph`
+covers the saved-graph path. CI never sets `CICHANGED_GRAPH`.
+
 **Stack cases by area (TICK-563).** Keycloak and PgBouncer stay in the stack
 (`nava-core` needs both); only the cases that test them can be skipped. A case
 header may carry `area=keycloak|pgbouncer|db`:
