@@ -90,7 +90,7 @@ func TestNumberingModeChangesOnUpdateWithoutAVersion(t *testing.T) {
 	}
 	// Audited like other type edits: one config entry for the change.
 	var n int
-	if err := e.super.QueryRow(t.Context(), "SELECT count(*) FROM audit_entries WHERE tenant_id = $1 AND diff::text LIKE '%numbering_mode%'", e.a.id).Scan(&n); err != nil || n < 1 {
+	if err := e.super.QueryRow(t.Context(), "SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND domain = 'config' AND subject_type = 'entity_definition' AND diff::text LIKE '%numbering_mode%'", e.a.id).Scan(&n); err != nil || n < 1 {
 		t.Errorf("audit entries for numbering_mode = %d (err %v), want >= 1", n, err)
 	}
 	// With a definition: the mode is set and version 2 publishes.
