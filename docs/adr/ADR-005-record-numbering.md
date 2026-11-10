@@ -2,7 +2,7 @@
 type: adr
 id: ADR-005
 title: Record numbering — a number allocator outside the create transaction (L2s), declarative number formats linked to entity types, scoped counters
-status: PROPOSED
+status: ACCEPTED
 date: 2026-11-10
 issue: TICK-653
 rfc: docs/adr/ADR-005/rfc/RFC-014-record-numbering.md (rev 1, archived with rev-0/ and rev-1/; thread under TICK-653 comment 01a1c137-ed1f-71c2-8ee9-9b9aa87380b4)
@@ -14,7 +14,7 @@ deciders: Solution Architect (author); Technical Architect (rev 1 APPROVE with f
 
 # ADR-005: Record numbering
 
-> **Status: PROPOSED.** All reviewers have approved RFC-014 rev 1 or had their blocking items closed (CTO ruling, comment 01a1c30c-b7e4). Security approved rev 1's additions with conditions C8–C13 (comment 01a1c310-2851), written in §3.7. **The gaps policy is decided, per type** (vknavaladi on TICK-621, 2026-11-10 02:06 UTC; recorded as D-3-9 in PR #551): `entity_definitions.numbering_mode` is `gaps` (default) or `gapless`. A `gaps` type allocates with **L2s**; a `gapless` type allocates with **L1** (§2.1). Every format starts with `{prefix}` (§3.1, CTO ruling 01a1c387-b543).
+> **Status: ACCEPTED (2026-11-10, Solution Architect verdict on TICK-653 after the Technical Architect critique and CTO rulings; no dissent).** All reviewers have approved RFC-014 rev 1 or had their blocking items closed (CTO ruling, comment 01a1c30c-b7e4). Security approved rev 1's additions with conditions C8–C13 (comment 01a1c310-2851), written in §3.7. **The gaps policy is decided, per type** (vknavaladi on TICK-621, 2026-11-10 02:06 UTC; recorded as D-3-9 in PR #551): `entity_definitions.numbering_mode` is `gaps` (default) or `gapless`. A `gaps` type allocates with **L2s**; a `gapless` type allocates with **L1** (§2.1). Every format starts with `{prefix}` (§3.1, CTO ruling 01a1c387-b543).
 >
 > **Invariants source.** The project description defines no invariants, so this ADR is checked against [[ADR-001-platform-blueprint]] §1, I1–I9 (`main` at `89e0f84d`).
 >
