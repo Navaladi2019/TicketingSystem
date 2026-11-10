@@ -6,6 +6,7 @@ Delivery decisions that change a task's contract, newest first.
 
 <!-- docindex:start -->
 
+- [2026-11-10: PLAN-006 drafted: ADR-005 lands in Milestone 2 as S17, S18, S19 after S10; M3 one release after the expand](decisions/2026-11-10-plan-006-adr-005.md)
 - [2026-11-09: TICK-638: every pull request into a story branch runs the full suite on open; skipped is not green](decisions/2026-11-09-full-suite-on-story-branch-prs.md)
 - [2026-11-07: TICK-594: guarderrtype covers the audit.seal message; cause and details stay runtime-checked; a seal type held in a variable is deferred](decisions/2026-11-07-tick-594-seal-guard-lint-scope.md)
 - [2026-11-07: PLAN-005-E7 drafted: ADR-004-E7 lands as two tasks in S15; S15 acceptance waits for them](decisions/2026-11-07-plan-005-e7-adr-004-e7.md)
