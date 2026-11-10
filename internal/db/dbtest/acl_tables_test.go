@@ -5,6 +5,7 @@ package dbtest
 import (
 	"context"
 	"io/fs"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -242,6 +243,7 @@ const (
 // grants manifest alike. Otherwise m and a are returned unchanged. Tests that
 // migrate to an earlier version use it.
 func beforeACLTables(fsys fs.FS, m *grants.Manifest, a *audited.Manifest) (*grants.Manifest, *audited.Manifest) {
+	m, a = beforeNumberingMode(fsys, m, a)
 	_, errTables := fs.Stat(fsys, aclTablesMigration)
 	_, errCheck := fs.Stat(fsys, aclShapeCheckMigration)
 	if errTables == nil && errCheck == nil {
@@ -307,4 +309,39 @@ func TestP335ACLPublishWithoutAnAuditEntryIsRefused(t *testing.T) {
 		WHERE tenant_id = $1 AND entity_definition_id = $1`, tenantA); got != "1,3,5" {
 		t.Errorf("versions after the refused publishes = %s, want 1,3,5 (the bare ones wrote nothing)", got)
 	}
+}
+
+// beforeNumberingMode returns m and a without entity_definitions.numbering_mode
+// (P3-36f, TICK-659) when fsys lacks the migration that adds it: no UPDATE
+// grant on the column, and no audited column, so a run over fsys applies a
+// manifest whose columns exist.
+func beforeNumberingMode(fsys fs.FS, m *grants.Manifest, a *audited.Manifest) (*grants.Manifest, *audited.Manifest) {
+	if _, err := fs.Stat(fsys, numberingModeMigration); err == nil {
+		return m, a
+	}
+	const table, column = "entity_definitions", "numbering_mode"
+	without := func(cols []string) []string {
+		return slices.DeleteFunc(slices.Clone(cols), func(c string) bool { return c == column })
+	}
+	gm := *m
+	gm.Roles = make(map[string]grants.Role, len(m.Roles))
+	for name, r := range m.Roles {
+		if privs, ok := r.Tables[table]; ok {
+			tables := maps.Clone(r.Tables)
+			p := make(map[string][]string, len(privs))
+			for priv, cols := range privs {
+				p[priv] = without(cols)
+			}
+			tables[table] = p
+			r.Tables = tables
+		}
+		gm.Roles[name] = r
+	}
+	am := *a
+	am.Audited = maps.Clone(a.Audited)
+	if e, ok := am.Audited[table]; ok {
+		e.AuditedColumns = without(e.AuditedColumns)
+		am.Audited[table] = e
+	}
+	return &gm, &am
 }

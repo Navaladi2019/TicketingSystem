@@ -16,6 +16,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/jsondiff"
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/patchwalk"
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/secrets"
+	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/requestid"
 )
 
@@ -200,6 +201,40 @@ func auditSeed(ctx context.Context, tx pgx.Tx, definitionID uuid.UUID, schemaSum
 	}
 	if _, err := audit.Append(ctx, tx, e); err != nil {
 		return fmt.Errorf("entitytypes: seed audit: %w", err)
+	}
+	return nil
+}
+
+// auditNumberingMode writes the config update entry of a numbering mode change
+// just made in tx (D-3-9). The diff is {"numbering_mode": before} to
+// {"numbering_mode": after}; content_sha256 (required for config, R3) hashes
+// the after document, the type's numbering configuration as now stored. No
+// version moves, so both version fields are NULL.
+func auditNumberingMode(ctx context.Context, tx pgx.Tx, definitionID uuid.UUID, before, after metadata.NumberingMode, by uuid.UUID) error {
+	doc := func(m metadata.NumberingMode) json.RawMessage {
+		return json.RawMessage(`{"numbering_mode":` + strconv.Quote(string(m)) + `}`)
+	}
+	afterDoc := doc(after)
+	diff, err := jsondiff.Diff(doc(before), afterDoc)
+	if err != nil {
+		return fmt.Errorf("entitytypes: diff numbering mode: %w", err)
+	}
+	sum := sha256.Sum256(afterDoc)
+	e := audit.Entry{
+		Domain:        audit.DomainConfig,
+		Action:        audit.ActionUpdate,
+		SubjectType:   audit.SubjectEntityDefinition,
+		SubjectID:     definitionID,
+		Actor:         audit.Actor{PrincipalID: &by},
+		Source:        audit.SourceUser,
+		ContentSHA256: &sum,
+		Diff:          diff,
+	}
+	if id := requestid.FromContext(ctx); id != "" {
+		e.RequestID = &id
+	}
+	if _, err := audit.Append(ctx, tx, e); err != nil {
+		return fmt.Errorf("entitytypes: audit numbering mode: %w", err)
 	}
 	return nil
 }
