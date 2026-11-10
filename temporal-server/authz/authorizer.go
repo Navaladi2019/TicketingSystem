@@ -732,3 +732,5 @@ func requestHasNamespace(api string) bool {
 	}
 	return m.Input().Fields().ByName("namespace") != nil
 }
+
+// TICK-695 verification (b): throwaway, not merged.
