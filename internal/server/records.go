@@ -109,8 +109,14 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 	err := tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) error {
 		// Causation stays empty on purpose: origin and depth never come from
 		// the request (TICK-88 security review).
-		cmd := pipeline.Command{Op: pipeline.OpCreate, EntityKey: req.Entity, Actor: p, Source: pipeline.SourceUser}
-		// One round trip for the claim of the request's idempotency key, the
+		//
+		// The write (record, audit entry) rides in the COMMIT's round trip
+		// with the key's completion (InsertAtCommit, TICK-692): nothing
+		// below Write sends a statement of its own but the reads of
+		// fixedColumnsOf and shapedBody, which never read the new record.
+		cmd := pipeline.Command{Op: pipeline.OpCreate, EntityKey: req.Entity, Actor: p, Source: pipeline.SourceUser, InsertAtCommit: true}
+		// One round trip for the BEGIN and the tenant (BeginInFirstBatch,
+		// TICK-692), the claim of the request's idempotency key, the
 		// transaction's first write (TICK-688), and every read the create
 		// starts with: the pipeline's prefetch (the definition and the
 		// policy, which Current below and the write and shaping checks then
@@ -165,7 +171,7 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 		// The key completes in this transaction, with the write (TICK-482),
 		// in the COMMIT's round trip since the key's row is held.
 		return idempotency.CompleteInTx(ctx, tx, resp.VisitCreateRecordResponse)
-	})
+	}, tenancy.BeginInFirstBatch())
 	if err != nil {
 		if errors.Is(err, idempotency.ErrSettled) {
 			// The middleware answers from the key; this response is dropped.
