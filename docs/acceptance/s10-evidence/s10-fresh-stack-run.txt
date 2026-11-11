@@ -1,0 +1,368 @@
+S10\S10-1 (200 OK) - 158 ms
+Tests
+   ✓ HTTP 200 from Keycloak
+   ✓ access token issued
+   ✓ issuer is the pinned realm URL
+S10\S10-2 (200 OK) - 116 ms
+Tests
+   ✓ HTTP 200
+   ✓ items is an array of at most 5
+   ✓ total is an integer at least the page size
+   ✓ next_cursor is a string or null
+S10\S10-3 (400 Bad Request) - 19 ms
+Tests
+   ✓ HTTP 400
+   ✓ problem+json, code validation_failed
+   ✓ problem instance is this response's X-Request-Id
+S10\S10-4 (400 Bad Request) - 18 ms
+Tests
+   ✓ HTTP 400
+   ✓ problem+json, code invalid_cursor
+   ✓ problem instance is this response's X-Request-Id
+S10\S10-5 (401 Unauthorized) - 6 ms
+Tests
+   ✓ HTTP 401
+   ✓ problem+json, code invalid_token
+   ✓ problem instance is this response's X-Request-Id
+S10\S10-6 (200 OK) - 107 ms
+Tests
+   ✓ HTTP 200 from Keycloak
+   ✓ access token issued
+   ✓ issuer is the pinned realm URL
+S10\S10-7 (200 OK) - 98 ms
+Tests
+   ✓ HTTP 200 from Keycloak
+   ✓ access token issued
+   ✓ issuer is the pinned realm URL
+S10\S10-8 (200 OK) - 10 ms
+Tests
+   ✓ HTTP 200
+   ✓ tenant_id is 00000000-0000-4000-8000-0000000000a1
+   ✓ Me has the contract fields
+   ✓ Alice is in /service-desk
+S10\S10-9 (200 OK) - 12 ms
+Tests
+   ✓ HTTP 200
+   ✓ tenant_id is 00000000-0000-4000-8000-0000000000b1
+   ✓ Me has the contract fields
+S10\S10-10 (200 OK) - 16 ms
+Tests
+   ✓ HTTP 200
+   ✓ version, rules, masks, published_at
+   ✓ ETag W/"<version>"
+S10\S10-11 (403 Forbidden) - 11 ms
+Tests
+   ✓ HTTP 403
+   ✓ problem+json, code forbidden
+   ✓ problem instance is this response's X-Request-Id
+S10\S10-12 (404 Not Found) - 17 ms
+Tests
+   ✓ HTTP 404 problem+json, code not_found, no instance
+   ✓ HTTP 404
+S10\S10-13 (428 Precondition Required) - 17 ms
+Tests
+   ✓ HTTP 428
+   ✓ problem+json, code if_match_required
+   ✓ problem instance is this response's X-Request-Id
+S10\S10-14 (412 Precondition Failed) - 23 ms
+Tests
+   ✓ HTTP 412
+   ✓ problem+json, code version_conflict
+   ✓ problem instance is this response's X-Request-Id
+   ✓ the current ETag is in the header
+S10\S10-15 (200 OK) - 28 ms
+Tests
+   ✓ HTTP 200
+   ✓ version + 1
+   ✓ the same rules
+   ✓ ETag W/"<version>"
+S10\S10-16 (422 Unprocessable Entity) - 16 ms
+Tests
+   ✓ HTTP 422
+   ✓ problem+json, code invalid_access_policy
+   ✓ problem instance is this response's X-Request-Id
+   ✓ the column is named
+S10\S10-17 (201 Created) - 47 ms
+Tests
+   ✓ HTTP 201
+S10\S10-18 (200 OK) - 17 ms
+Tests
+   ✓ HTTP 200
+   ✓ allow, a rule id, an ACL version, a masked list
+S10\S10-19 (404 Not Found) - 12 ms
+Tests
+   ✓ HTTP 404 problem+json, code not_found, no instance
+   ✓ HTTP 404
+S10\S10-20 (403 Forbidden) - 13 ms
+Tests
+   ✓ HTTP 403
+   ✓ problem+json, code forbidden
+   ✓ problem instance is this response's X-Request-Id
+S10\S10-21 (401 Unauthorized) - 6 ms
+Tests
+   ✓ HTTP 401
+   ✓ problem+json, code invalid_token
+   ✓ problem instance is this response's X-Request-Id
+S10\S10-22 (400 Bad Request) - 13 ms
+Tests
+   ✓ HTTP 400
+   ✓ problem+json, code validation_failed
+   ✓ problem instance is this response's X-Request-Id
+S10\S10-23 (401 Unauthorized) - 5 ms
+Tests
+   ✓ HTTP 401
+   ✓ problem+json, code invalid_token
+   ✓ problem instance is this response's X-Request-Id
+S10\S10-24 (401 Unauthorized) - 5 ms
+Tests
+   ✓ HTTP 401
+   ✓ problem+json, code invalid_token
+   ✓ problem instance is this response's X-Request-Id
+S10\S10-25 (403 Forbidden) - 14 ms
+Tests
+   ✓ HTTP 403
+   ✓ problem+json, code forbidden
+   ✓ problem instance is this response's X-Request-Id
+S10\S10-26 (404 Not Found) - 15 ms
+Tests
+   ✓ HTTP 404 problem+json, code not_found, no instance
+   ✓ HTTP 404
+S10\S10-27 (400 Bad Request) - 11 ms
+Tests
+   ✓ HTTP 400
+   ✓ problem+json, code validation_failed
+   ✓ problem instance is this response's X-Request-Id
+S10\S10-28 (200 OK) - 107 ms
+Tests
+   ✓ HTTP 200 from Keycloak
+   ✓ access token issued
+   ✓ issuer is the pinned realm URL
+S10\S10-29 (200 OK) - 13 ms
+Tests
+   ✓ HTTP 200
+   ✓ tenant_id is 00000000-0000-4000-8000-0000000000a1
+   ✓ Me has the contract fields
+   ✓ not in /service-desk or /admins
+S10\S10-30 (200 OK) - 21 ms
+Tests
+   ✓ HTTP 200
+   ✓ tenant_id is 00000000-0000-4000-8000-0000000000a1
+   ✓ Me has the contract fields
+   ✓ the admin is in /admins
+S10\S10-31 (200 OK) - 38 ms
+Tests
+   ✓ HTTP 200
+   ✓ version: S10.15 + 1
+   ✓ the same rules
+   ✓ two masks, description and assignee, admins only
+   ✓ published_by is the admin
+S10\S10-32 (200 OK) - 34 ms
+Tests
+   ✓ HTTP 200
+   ✓ newest acl_policy entry: config publish
+   ✓ at the masked version, by the admin
+S10\S10-33 (201 Created) - 22 ms
+Tests
+   ✓ HTTP 201
+   ✓ assigned to /service-desk
+   ✓ the admin sees description
+S10\S10-34 (201 Created) - 20 ms
+Tests
+   ✓ HTTP 201
+S10\S10-35 (201 Created) - 20 ms
+Tests
+   ✓ HTTP 201
+S10\S10-36 (201 Created) - 21 ms
+Tests
+   ✓ HTTP 201
+S10\S10-37 (200 OK) - 30 ms
+Tests
+   ✓ HTTP 200
+   ✓ state in_progress
+S10\S10-38 (201 Created) - 17 ms
+Tests
+   ✓ HTTP 201
+   ✓ requester is the caller, state new
+S10\S10-39 (200 OK) - 17 ms
+Tests
+   ✓ HTTP 200
+   ✓ includes s10_sd_rec
+   ✓ leaves out s10_adm_rec
+   ✓ leaves out s10_req2_rec
+   ✓ total is the number of items (one page, no cursor)
+   ✓ every item is assigned to /service-desk
+   ✓ no item shows description
+S10\S10-40 (200 OK) - 16 ms
+Tests
+   ✓ HTTP 200
+   ✓ includes s10_sd_rec
+   ✓ includes s10_adm_rec
+   ✓ includes s10_req2_rec
+   ✓ total is the number of items (one page, no cursor)
+   ✓ the /service-desk items are exactly Alice's total
+   ✓ more than Alice sees
+S10\S10-41 (200 OK) - 17 ms
+Tests
+   ✓ HTTP 200
+   ✓ includes s10_sd_rec
+   ✓ leaves out s10_adm_rec
+   ✓ leaves out s10_un_rec
+   ✓ leaves out s10_req_rec
+   ✓ leaves out s10_req2_rec
+   ✓ total is the number of items (one page, no cursor)
+   ✓ every item: one of her groups, or she is the requester
+S10\S10-42 (200 OK) - 18 ms
+Tests
+   ✓ HTTP 200
+   ✓ includes s10_req_rec
+   ✓ includes s10_req2_rec
+   ✓ leaves out s10_sd_rec
+   ✓ leaves out s10_adm_rec
+   ✓ leaves out s10_un_rec
+   ✓ total is the number of items (one page, no cursor)
+   ✓ every item names the requester
+   ✓ its in_progress incident is listed (read in every state)
+S10\S10-43 (200 OK) - 30 ms
+Tests
+   ✓ HTTP 200
+   ✓ version 2
+S10\S10-44 (403 Forbidden) - 24 ms
+Tests
+   ✓ HTTP 403
+   ✓ problem+json, code forbidden
+   ✓ problem instance is this response's X-Request-Id
+S10\S10-45 (404 Not Found) - 12 ms
+Tests
+   ✓ HTTP 404
+   ✓ problem+json, code not_found, no instance
+S10\S10-46 (404 Not Found) - 13 ms
+Tests
+   ✓ HTTP 404
+   ✓ problem+json, code not_found, no instance
+   ✓ body byte-identical to the missing id's 404
+S10\S10-47 (404 Not Found) - 13 ms
+Tests
+   ✓ HTTP 404
+   ✓ problem+json, code not_found, no instance
+   ✓ body byte-identical to the missing id's 404
+S10\S10-48 (404 Not Found) - 25 ms
+Tests
+   ✓ HTTP 404
+   ✓ problem+json, code not_found, no instance
+   ✓ body byte-identical to the missing id's 404
+S10\S10-49 (404 Not Found) - 13 ms
+Tests
+   ✓ HTTP 404
+   ✓ problem+json, code not_found, no instance
+   ✓ body byte-identical to the missing id's 404
+S10\S10-50 (404 Not Found) - 45 ms
+Tests
+   ✓ HTTP 404
+   ✓ problem+json, code not_found, no instance
+S10\S10-51 (404 Not Found) - 12 ms
+Tests
+   ✓ HTTP 404
+   ✓ problem+json, code not_found, no instance
+   ✓ body byte-identical to the missing id's 404
+S10\S10-52 (404 Not Found) - 12 ms
+Tests
+   ✓ HTTP 404
+   ✓ problem+json, code not_found, no instance
+S10\S10-53 (404 Not Found) - 12 ms
+Tests
+   ✓ HTTP 404
+   ✓ problem+json, code not_found, no instance
+   ✓ body byte-identical to the missing id's 404
+   ✓ response names nothing of the other tenant
+S10\S10-54 (200 OK) - 16 ms
+Tests
+   ✓ HTTP 200
+   ✓ leaves out s10_sd_rec
+   ✓ leaves out s10_adm_rec
+   ✓ leaves out s10_un_rec
+   ✓ leaves out s10_req_rec
+   ✓ leaves out s10_req2_rec
+   ✓ response names nothing of the other tenant
+S10\S10-55 (200 OK) - 17 ms
+Tests
+   ✓ HTTP 200
+   ✓ data has no description
+   ✓ response names nothing of the other tenant
+S10\S10-56 (400 Bad Request) - 59 ms
+Tests
+   ✓ HTTP 400
+   ✓ problem+json, code masked_field
+   ✓ problem instance is this response's X-Request-Id
+S10\S10-57 (400 Bad Request) - 14 ms
+Tests
+   ✓ HTTP 400
+   ✓ problem+json, code masked_field
+   ✓ problem instance is this response's X-Request-Id
+S10\S10-58 (422 Unprocessable Entity) - 20 ms
+Tests
+   ✓ HTTP 422
+   ✓ problem+json, code field_not_writable
+   ✓ problem instance is this response's X-Request-Id
+   ✓ errors[] points at /data/description
+S10\S10-59 (200 OK) - 25 ms
+Tests
+   ✓ HTTP 200
+   ✓ version 2, no description
+S10\S10-60 (200 OK) - 15 ms
+Tests
+   ✓ HTTP 200
+   ✓ exactly the /service-desk incident
+   ✓ description unchanged
+S10\S10-61 (200 OK) - 18 ms
+Tests
+   ✓ HTTP 200
+   ✓ decision allow
+   ✓ rule_id default-service-desk
+   ✓ acl_version is the masked version
+   ✓ masked_fields: assignee, description
+S10\S10-62 (200 OK) - 16 ms
+Tests
+   ✓ HTTP 200
+   ✓ decision deny
+   ✓ rule_id None
+   ✓ acl_version is the masked version
+S10\S10-63 (200 OK) - 20 ms
+Tests
+   ✓ HTTP 200
+   ✓ decision deny
+   ✓ rule_id None
+   ✓ acl_version is the masked version
+S10\S10-64 (200 OK) - 14 ms
+Tests
+   ✓ HTTP 200
+   ✓ decision allow
+   ✓ rule_id default-admins
+   ✓ acl_version is the masked version
+   ✓ nothing masked for the admin
+S10\S10-65 (200 OK) - 12 ms
+Tests
+   ✓ HTTP 200
+   ✓ decision allow
+   ✓ rule_id default-requester
+   ✓ acl_version is the masked version
+S10\S10-66 (200 OK) - 18 ms
+Tests
+   ✓ HTTP 200
+   ✓ version + 1
+   ✓ S10.10's rules and masks
+
+📊 Execution Summary
+┌───────────────┬────────────────┐
+│ Metric        │     Result     │
+├───────────────┼────────────────┤
+│ Status        │     ✓ PASS     │
+├───────────────┼────────────────┤
+│ Requests      │ 66 (66 Passed) │
+├───────────────┼────────────────┤
+│ Tests         │    220/220     │
+├───────────────┼────────────────┤
+│ Assertions    │      0/0       │
+├───────────────┼────────────────┤
+│ Duration (ms) │      2640      │
+└───────────────┴────────────────┘
+api-test: PASS
