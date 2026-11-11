@@ -36,13 +36,13 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 </head>
 </head>
 <body><main>
-<div class="banner"><span class="pill">READING GUIDE &middot; RFC-015 DRAFT (rev 0) &middot; ADR-006 not yet decided</span>
+<div class="banner"><span class="pill">READING GUIDE &middot; RFC-015 REVISED (rev 1) &middot; ADR-006 not yet decided</span>
 <span class="src">This companion explains <code>docs/adr/ADR-006/rfc/RFC-015-filterable-searchable-fields.md</code>. It changes nothing. If this page and the RFC disagree, the RFC wins.</span></div>
 <table class="front"><tbody>
 <tr><th>Question</th><td>How can tenant-defined fields on tickets be filtered and searched fast (under 150 ms) at 100k+ records, including a field an admin marks filterable after the data already exists?</td></tr>
 <tr><th>Recommendation</th><td><b>Option A, the proposal from vknavaladi:</b> keep the record in JSON, and copy each filterable field into a small typed table that the database can index safely. Search uses the same trick. No external search engine for now.</td></tr>
 <tr><th>Issue</th><td>TICK-714</td></tr>
-<tr><th>Status</th><td>Draft. Waiting for the benchmark spike S1 (Postgres specialist), the Technical Architect critique and the security review.</td></tr>
+<tr><th>Status</th><td>Revised (rev 1) after one review round. The Technical Architect found two timing gaps in the background job; the Security reviewer approved the design with five required rules. Both are folded in. Still waiting for the benchmark spikes S1–S3 and for your review. Nothing is merged.</td></tr>
 </tbody></table>
 
 <h2>1. The problem in plain words</h2>
@@ -129,7 +129,9 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 <ul>
 <li>The background job is a resumable workflow. If it stops, it continues from its last batch. Running a batch twice changes nothing.</li>
 <li>It pauses between batches so it does not slow down people saving tickets.</li>
+<li><b>Before it starts, it waits for every save that was already in flight</b> when the admin flagged the field. Without this wait, a ticket saved at exactly that moment could be skipped forever; the Technical Architect reproduced this in rev 0, and the wait (the same trick PostgreSQL uses when it builds an index online) removes it. The same wait runs when a flag is cleared, so no leftover copies remain.</li>
 <li>It locks each batch briefly, so a ticket edited at the same moment is never overwritten with an older value.</li>
+<li>Dates and numbers are read the same way whatever the server&rsquo;s time-zone or date settings are, so the live copy and the background copy always agree.</li>
 <li>Rough duration: one to two minutes per field for 400k tickets. <i>Unverified</i>; spike S3 measures it.</li>
 <li>While the field is not ready, a filter on it returns a clear "not ready yet" answer with progress, not a slow or failing query.</li>
 </ul>
@@ -143,6 +145,14 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 <tr><td>Decimal precision</td><td>Numbers with more than 15 significant digits may compare as equal when they are not.</td></tr>
 </tbody></table>
 
+<h2>5b. Security rules added in rev 1</h2>
+<ul>
+<li><b>Hidden fields stay hidden in search.</b> If every searchable field is hidden from a user, search returns nothing, without running a query. It never falls back to searching all fields.</li>
+<li><b>One query decides everything.</b> The copied values are only ever used inside the same query that applies the user&rsquo;s access rules. There is no separate count or summary that could reveal tickets the user cannot open.</li>
+<li><b>Progress is a percentage only</b> (&ldquo;indexing, 43%&rdquo;), so it cannot reveal how many tickets exist.</li>
+<li><b>Every copied value is tied to its tenant&rsquo;s field</b> by a database rule, so a bug cannot file it under another tenant.</li>
+<li><b>The background job never carries ticket content</b> through the workflow engine&rsquo;s history.</li>
+</ul>
 <h2>6. Decisions for the human (business tradeoffs)</h2>
 <div class="callout">
 <p><b>H1.</b> Accept database-only search (word and prefix match, no ranking, no typo tolerance) for now? <b>Recommended: yes.</b></p>
@@ -158,6 +168,7 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 <tr><td>Page of 50 filtered tickets</td><td>55–60 ms for a 2% filter, 5–10 ms for a 40% filter (one user, laptop)</td><td>Same</td></tr>
 <tr><td>Speed at 400k tickets with 8 users, and save speed</td><td><span class="tag amber">Pending</span></td><td>Spike S1, Postgres specialist</td></tr>
 <tr><td>Search speed and size</td><td><span class="tag amber">Pending</span></td><td>Spike S2</td></tr>
+<tr><td>Timing gaps in rev 0 (a save during the flag, a save during removal)</td><td><span class="tag red">Gap found</span> then <span class="tag green">closed by the wait</span>: 1 missed ticket and 1 leftover copy without it, 0 and 0 with it</td><td>Technical Architect spike, TICK-714 critique</td></tr>
 <tr><td>Late-flag backfill with live edits, zero differences</td><td><span class="tag amber">Pending</span></td><td>Spike S3</td></tr>
 </tbody></table>
 </main></body></html>
