@@ -25,7 +25,7 @@ body:json {
 script:pre-request {
   const N = require('./lib/nava')({ bru });
   const cur = JSON.parse(bru.getVar('s10_policy'));
-  req.setBody({ rules: cur.rules, masks: cur.masks });
+  req.setBody({ rules: cur.rules, masks: [] });
   req.setHeader('If-Match', bru.getVar('s10_etag_mask'));
 }
 
@@ -34,12 +34,12 @@ tests {
   N.status(200);
   const was = JSON.parse(bru.getVar('s10_policy'));
   test('version + 1', () => expect(N.json().version).to.eql(Number(bru.getVar('s10_mask_version')) + 1));
-  test("S10.10's rules and masks", () => {
+  test("S10.10's rules, no masks", () => {
     expect(N.json().rules).to.eql(was.rules);
-    expect(N.json().masks).to.eql(was.masks);
+    expect(N.json().masks).to.eql([]);
   });
 }
 
 docs {
-  Republishes S10.10's rules and masks, so later folders and the next pass start from the default ACL's decisions.
+  Republishes S10.10's rules with `masks: []`, so later folders and the next pass start unmasked, even after a pass that stopped between S10.31 and here.
 }

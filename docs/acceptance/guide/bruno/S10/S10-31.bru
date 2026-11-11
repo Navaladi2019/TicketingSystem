@@ -36,7 +36,7 @@ tests {
   N.status(200);
   const was = JSON.parse(bru.getVar('s10_policy'));
   const b = N.json();
-  test('version: S10.15 + 1', () => expect(b.version).to.eql(was.version + 2));
+  test('version: S10.10 + 2 (S10.15 + 1)', () => expect(b.version).to.eql(was.version + 2));
   test('the same rules', () => expect(b.rules).to.eql(was.rules));
   test('two masks, description and assignee, admins only', () => {
     expect(b.masks.map(x => x.field)).to.have.members(['description', 'assignee']);

@@ -1340,7 +1340,7 @@ req.setHeader('If-Match', bru.getVar('s10_etag'));
 """
     unmask_pre = LOAD_PRE + r"""
 const cur = JSON.parse(bru.getVar('s10_policy'));
-req.setBody({ rules: cur.rules, masks: cur.masks });
+req.setBody({ rules: cur.rules, masks: [] });
 req.setHeader('If-Match', bru.getVar('s10_etag_mask'));
 """
     return [
@@ -1367,7 +1367,7 @@ bru.setVar('s10_admins', g ? g.id : '');"""),
             tests="""N.status(200);
 const was = JSON.parse(bru.getVar('s10_policy'));
 const b = N.json();
-test('version: S10.15 + 1', () => expect(b.version).to.eql(was.version + 2));
+test('version: S10.10 + 2 (S10.15 + 1)', () => expect(b.version).to.eql(was.version + 2));
 test('the same rules', () => expect(b.rules).to.eql(was.rules));
 test('two masks, description and assignee, admins only', () => {
   expect(b.masks.map(x => x.field)).to.have.members(['description', 'assignee']);
@@ -1532,13 +1532,13 @@ test('description unchanged', () => expect(N.json().items[0].data.description).t
         # ---- cleanup
         req("S10.66 The admin removes the masks again: 200, the rules unchanged", "PUT", et, auth="admin_a_token",
             headers=key("unmask"), body={"rules": []}, pre=unmask_pre,
-            desc="Republishes S10.10's rules and masks, so later folders and the next pass start from the default ACL's decisions.",
+            desc="Republishes S10.10's rules with `masks: []`, so later folders and the next pass start unmasked, even after a pass that stopped between S10.31 and here.",
             tests="""N.status(200);
 const was = JSON.parse(bru.getVar('s10_policy'));
 test('version + 1', () => expect(N.json().version).to.eql(Number(bru.getVar('s10_mask_version')) + 1));
-test("S10.10's rules and masks", () => {
+test("S10.10's rules, no masks", () => {
   expect(N.json().rules).to.eql(was.rules);
-  expect(N.json().masks).to.eql(was.masks);
+  expect(N.json().masks).to.eql([]);
 });"""),
     ]
 
