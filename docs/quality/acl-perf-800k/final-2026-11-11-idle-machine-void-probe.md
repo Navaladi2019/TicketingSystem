@@ -1,4 +1,6 @@
-# P3-36 raw report (TICK-621)
+# P3-36 raw report (TICK-621): VOID, not scored
+
+> **VOID, not scored.** The storage probe in this run, `BEGIN; SELECT pg_current_xact_id(); COMMIT`, did not flush WAL. A commit that only takes a transaction id writes no WAL of its own, so the storage gate measured nothing; the "meets" verdicts below do not count. The scored run is `final-2026-11-11-idle-machine.md`, and the verdict is in `../acl-perf-800k.md` ("Final verdict (P3-36)").
 
 Generated 2026-11-11T02:58:24Z by TestRecordsACLPerf800k (internal/server/records_perf_integration_test.go): 8 clients, 20 s per scenario, through the real handlers.
 

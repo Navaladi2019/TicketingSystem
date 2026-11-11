@@ -6,6 +6,35 @@ the D25 escalation. The question: with the real compiled ACL predicate
 `records/store.List`), is list p95 ≤ 150 ms and single-read p95 ≤ 50 ms at
 800k records?
 
+## Final verdict (P3-36)
+
+**P3-36 meets its targets, apart from the `data` filters, which the CTO accepted as a known miss.** This block is the record. The dated sections below it are history, newest first, and a later section supersedes an earlier one.
+
+| Area | Result | Target | Verdict | Where measured |
+| --- | --- | --- | --- | --- |
+| List, fixed columns: agent by group page 1 / 20, agent `filter[state]=new`, admin `state in` | 73.5 / 71.2, 76.2, 68.2 ms p95 | 150 ms | **met** | Closed at `9da6f7e1` (TICK-656 state index), 2026-11-10 13:11 UTC |
+| List, other rows: agent `sort=-updated_at` / `sort=assignee`, admin page 1 / 20, requester page 1 / 20, small tenant agent / admin | 146.2 / 117.5, 66.6 / 59.8, 75.4 / 76.8, 111.5 / 70.4 ms p95 | 150 ms | **met** | Final re-run at `45635f89`, 2026-11-09 |
+| List, `data` filters: `priority=1` / `site=s7` | 223.8 / 224.4 ms p95; a timeout returns 422 `filter_too_expensive`, none hang | 150 ms | **known miss, accepted by the CTO** (TICK-646) | Final re-run at `45635f89`, 2026-11-09 |
+| Single read: agent / admin / small tenant | 25.0 / 21.0 / 16.1 ms p95 | 50 ms | **met**, no waiver | Final re-run at `45635f89`, 2026-11-09 |
+| Create, 1 client | 23.0 ms p95 | 50 ms | **met** | `9975568b`, idle machine, 2026-11-11 |
+| Create, 8 clients on `gaps` types: agent / admin / small tenant | 42.4 / 42.1 / 47.2 ms p95 | 50 ms | **met**. Small tenant by only 2.8 ms | `9975568b`, idle machine, 2026-11-11, every gate passed on the first attempt |
+| Create, 8 clients on a `gapless` type | 205.7 ms p95 | none | **reported, not scored**: the type chose that cost (D-3-9) | `9975568b`, idle machine, 2026-11-11 |
+
+**Method.** Creates were scored on the idle reference machine under vknavaladi's option A (2026-11-11), which keeps the 50 ms target strictly. Each create attempt counts only when it passes four gates:
+
+| Gate | Limit |
+| --- | --- |
+| Transport floor | p50 ≤ 3 ms |
+| Host-speed probe | p50 ≤ 2.0 ms |
+| Storage probe: one WAL flush, no `INSERT` | p50 ≤ 10 ms |
+| Containers | none running besides the allow-list |
+
+The method is in "Create re-run on the idle machine" below. The run with the void storage probe is recorded but not scored.
+
+**Residual risk.** The 8-client margin was measured on a WSL2 virtual disk, and production storage may differ. This is `AR-S10-02` in `docs/security/accepted-risks.md`, owned by the Technical Architect. The trigger is a go-live benchmark on production storage that misses 50 ms. Two known gaps in the method, both accepted by the CTO:
+- no PgBouncer;
+- no HTTP transport.
+
 ## Create re-run on the idle machine (option A, 2026-11-11 ~03:2x UTC): every valid row meets
 
 **Result: PASS.** All four scored create rows were valid on their first attempt, and all meet p95 ≤ 50 ms:
@@ -59,6 +88,8 @@ The statements sum to 23.8 ms. Handler time between round trips is 5.2 ms.
 **The margin is thin.** On the busy host the night before, the same build read 52 to 90 ms, and small tenant meets here by 2.8 ms. The verdict holds for an idle machine. Whether production storage keeps this margin is the go-live risk the CTO recorded.
 
 ## Final quiesced create re-run after TICK-692 (`25aedcf0`, 19:3x UTC)
+
+> **Superseded.** Two things overtook this section. First, vknavaladi chose option A on 2026-11-11, so this run was not taken to them as host-invalid. Second, the storage gate moved from the in-trace commit to the dedicated probe in `d6ae5799`. The result is in [Final verdict (P3-36)](#final-verdict-p3-36). This section stays as history.
 
 **Result under the frozen rules:**
 - **1 client is valid and meets:** p95 32.6 ms.
@@ -796,12 +827,16 @@ their unchanged target with a link to TICK-644, not as a new finding.
 
 ## Hand-offs
 
-- **Technical Lead:** D25 escalation to the CTO (PLAN-003). List p95 misses
-  150 ms on every large-tenant scenario, and the page statement misses on its
-  own. The numbers and plans are in this document and in
-  `docs/quality/acl-perf-800k/run-2026-11-09.md`.
-- **Owner of P3-34 (`records/store.List`, `planList`):** causes 1 to 4 are
-  drift between the list SQL and the query shape P3-01 measured and P3-09
-  indexed. The CTO's D25 decision should settle the fix before anyone changes
-  it. This task does not.
-- **Principal Software Engineer:** reviewer of this measurement.
+Final state, 2026-11-11.
+
+- **Technical Lead:** P3-36 closes when PR #544 merges into `TICK-336/group-acl-masking`. The verdict is in [Final verdict (P3-36)](#final-verdict-p3-36). No escalation is open. The D25 escalation from the first run (2026-11-09) has been settled:
+  - the list rows were fixed by TICK-639, TICK-640, TICK-644, TICK-647 and TICK-656;
+  - the `data` filters stay a CTO-accepted known miss (TICK-646);
+  - creates were fixed by TICK-648, TICK-657, TICK-688 and TICK-692.
+- **Technical Architect:** owns `AR-S10-02`, the 8-client create margin on production storage. The trigger is the go-live benchmark.
+- **Principal Software Engineer:** reviewer of this measurement (PR #544).
+
+> **Superseded, first run (2026-11-09).** The hand-offs below were written for the first run and no longer apply. They are kept as history.
+>
+> - **Technical Lead:** D25 escalation to the CTO (PLAN-003). List p95 misses 150 ms on every large-tenant scenario, and the page statement misses on its own. The numbers and plans are in `docs/quality/acl-perf-800k/run-2026-11-09.md`.
+> - **Owner of P3-34 (`records/store.List`, `planList`):** causes 1 to 4 are drift between the list SQL and the query shape P3-01 measured and P3-09 indexed. The CTO's D25 decision should settle the fix before anyone changes it.
