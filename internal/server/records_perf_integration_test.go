@@ -32,6 +32,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -45,6 +46,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	dto "github.com/prometheus/client_model/go"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/authz/acltest"
@@ -59,8 +61,33 @@ import (
 
 // The targets (PLAN-003 P3-36, D25 escalation).
 const (
+	// perfCommitGateMS is the storage-window gate (CTO, 2026-11-10 13:33
+	// UTC): a create row is scored only when its own commit p50 is at or
+	// under this, so the host disk's slow band (17 to 26 ms on the WSL2
+	// reference host) is not scored as the code's cost.
+	perfCommitGateMS = 10.0
+	// perfCommitAttempts is how often a gated create row is run before the
+	// host is reported invalid for creates.
+	perfCommitAttempts = 3
+	// perfHostGateMS is the host-speed gate (CTO, 2026-11-10 15:58 UTC): a
+	// 1-client `BEGIN; COMMIT` probe run just before each create attempt
+	// must have p50 at or under this. It catches a host whose every round
+	// trip is slow, which the commit gate alone misses on the 1-client row.
+	perfHostGateMS = 2.0
+	// perfHostProbeN is the probe's round trips.
+	perfHostProbeN = 200
+	// perfFloorGateMS is the transport floor gate: a busy host gives no
+	// numbers at all.
+	perfFloorGateMS  = 3.0
 	perfListTargetMS = 150.0
 	perfGetTargetMS  = 50.0
+	// perfShortTimeout is the bound check's data-filter statement timeout:
+	// far below what the s7 count and page take even run alone (tens of ms
+	// at 800k), so every request must hit it. 100 ms did not fire on a warm,
+	// single request (2026-11-10).
+	perfShortTimeout = 2 * time.Millisecond
+	// perfDataFilterTimeoutLabel names the server default (store.DataFilterTimeout).
+	perfDataFilterTimeoutLabel = "2s (store.DataFilterTimeout)"
 	// The D-3-9 trigger: create p95 > 50 ms revisits record numbering.
 	perfCreateTargetMS = 50.0
 	perfSmallTenants   = 399
@@ -203,11 +230,17 @@ func (perfAllow) Allow(context.Context, uuid.UUID) (ratelimit.Decision, error) {
 // ---- environment -----------------------------------------------------------
 
 type perfEnv struct {
-	h      http.Handler
+	h http.Handler
+	// hShort is the same handler with a perfShortTimeout data-filter
+	// statement timeout (TICK-647), for the bound check.
+	hShort http.Handler
 	pool   *pgxpool.Pool
 	super  *pgx.Conn
 	tokens etTokens
 	large  etTenant
+	// tel is the handler's telemetry: the report reads the allocator's
+	// nava_numbering_alloc_* series from its registry (TICK-657).
+	tel *telemetry.Telemetry
 	// tokens per role
 	agents, requesters, smallAgents, smallAdmins []string
 	agentGroups                                  map[string][]uuid.UUID
@@ -255,12 +288,17 @@ func newPerfEnv(t *testing.T, clients int) *perfEnv {
 		t.Fatal(err)
 	}
 	reader := etAuditReader(t, pool)
-	h, err := server.NewHandler(slog.New(slog.NewTextHandler(testLogWriter{t, nil}, &slog.HandlerOptions{Level: slog.LevelWarn})), tel, tokens, stubPaths{},
-		server.WithLimiter(perfAllow{}), server.WithPool(pool), server.WithAllocatorPool(alloc), server.WithAuditReader(reader), server.WithCursors(kr))
+	opts := []server.Option{server.WithLimiter(perfAllow{}), server.WithPool(pool), server.WithAllocatorPool(alloc), server.WithAuditReader(reader), server.WithCursors(kr)}
+	log := slog.New(slog.NewTextHandler(testLogWriter{t, nil}, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	h, err := server.NewHandler(log, tel, tokens, stubPaths{}, opts...)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &perfEnv{h: h, pool: pool, super: super, tokens: tokens, large: large, agentGroups: map[string][]uuid.UUID{}}
+	hShort, err := server.NewHandler(log, tel, tokens, stubPaths{}, append(opts, server.WithDataFilterTimeout(perfShortTimeout))...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &perfEnv{h: h, hShort: hShort, pool: pool, super: super, tokens: tokens, large: large, tel: tel, agentGroups: map[string][]uuid.UUID{}}
 }
 
 func (e *perfEnv) exec(t *testing.T, sql string, args ...any) {
@@ -279,6 +317,10 @@ func firstLine(s string) string {
 }
 
 func (e *perfEnv) serve(ctx context.Context, method, path, token, idem, body string) *httptest.ResponseRecorder {
+	return serveOn(ctx, e.h, method, path, token, idem, body)
+}
+
+func serveOn(ctx context.Context, h http.Handler, method, path, token, idem, body string) *httptest.ResponseRecorder {
 	req := httptest.NewRequestWithContext(ctx, method, path, strings.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+token)
 	if idem != "" {
@@ -288,7 +330,7 @@ func (e *perfEnv) serve(ctx context.Context, method, path, token, idem, body str
 		req.Header.Set("Content-Type", "application/json")
 	}
 	rec := httptest.NewRecorder()
-	e.h.ServeHTTP(rec, req)
+	h.ServeHTTP(rec, req)
 	return rec
 }
 
@@ -511,16 +553,39 @@ type perfScenario struct {
 	reqs   []perfReq
 	// clients is the scenario's own client count; 0 uses NAVA_PERF_CLIENTS.
 	clients int
+	// before runs once before the scenario (e.g. switching the type to
+	// gapless numbering); nil does nothing.
+	before func()
+	// unscored reports the scenario without holding it to a target, with
+	// this reason (the gapless create: that cost is the type's choice).
+	unscored string
 }
 
 // send runs r the way sc's kind does: a GET for list and get, a POST with a
 // fresh Idempotency-Key for create. It returns the response and the status
 // that means success.
-func (e *perfEnv) send(ctx context.Context, sc perfScenario, r perfReq) (*httptest.ResponseRecorder, int) {
-	if sc.kind == "create" {
-		return e.serve(ctx, http.MethodPost, r.path, r.token, uuid.NewString(), r.body), http.StatusCreated
+func (e *perfEnv) send(ctx context.Context, sc perfScenario, r perfReq) (*httptest.ResponseRecorder, bool) {
+	switch sc.kind {
+	case "create":
+		rec := e.serve(ctx, http.MethodPost, r.path, r.token, uuid.NewString(), r.body)
+		return rec, rec.Code == http.StatusCreated
+	case "timeout":
+		// The bound check: the short timeout must answer filter_too_expensive.
+		rec := serveOn(ctx, e.hShort, http.MethodGet, r.path, r.token, "", "")
+		return rec, isFilterTooExpensive(rec)
+	case "data":
+		// A data-filter list either answers or hits its statement timeout.
+		rec := e.serve(ctx, http.MethodGet, r.path, r.token, "", "")
+		return rec, rec.Code == http.StatusOK || isFilterTooExpensive(rec)
 	}
-	return e.serve(ctx, http.MethodGet, r.path, r.token, "", ""), http.StatusOK
+	rec := e.serve(ctx, http.MethodGet, r.path, r.token, "", "")
+	return rec, rec.Code == http.StatusOK
+}
+
+// isFilterTooExpensive reports whether rec is TICK-647's data-filter timeout:
+// 422 with the filter_too_expensive problem code.
+func isFilterTooExpensive(rec *httptest.ResponseRecorder) bool {
+	return rec.Code == http.StatusUnprocessableEntity && strings.Contains(rec.Body.String(), `"filter_too_expensive"`)
 }
 
 func (e *perfEnv) list(ctx context.Context, t *testing.T, token, query string) listPage {
@@ -661,6 +726,12 @@ type perfDef struct {
 	clients int
 }
 
+// perfExtra is a scenario's optional setup and scoring, by scenario name.
+type perfExtra struct {
+	before   func()
+	unscored string
+}
+
 // scenarios builds the scenarios whose name matches NAVA_PERF_ONLY (a regular
 // expression; empty selects every one).
 func (e *perfEnv) scenarios(t *testing.T) []perfScenario {
@@ -672,13 +743,33 @@ func (e *perfEnv) scenarios(t *testing.T) []perfScenario {
 	var out []perfScenario
 	for _, d := range e.defs(t) {
 		if only.MatchString(d.name) {
-			out = append(out, perfScenario{d.name, d.kind, d.tenant, d.build(), d.clients})
+			out = append(out, perfScenario{d.name, d.kind, d.tenant, d.build(), d.clients, e.extras(t)[d.name].before, e.extras(t)[d.name].unscored})
 		}
 	}
 	if len(out) == 0 {
 		t.Fatalf("NAVA_PERF_ONLY=%q selects no scenario", only)
 	}
 	return out
+}
+
+// extras are the scenarios with a setup step or no target. The gapless
+// create switches the large tenant's ticket type to gapless numbering (D-3-9,
+// per type) and runs last; that cost is the type's choice, so it is reported
+// and not held to 50 ms.
+func (e *perfEnv) extras(t *testing.T) map[string]perfExtra {
+	t.Helper()
+	return map[string]perfExtra{
+		"create, agent, gapless type": {
+			before: func() {
+				// Through the API (a mode-only publish), so the change is audited.
+				rec := e.serve(t.Context(), http.MethodPost, "/api/v1/entity-types/ticket/versions", "admin-large", uuid.NewString(), `{"numbering_mode": "gapless"}`)
+				if rec.Code != http.StatusCreated {
+					t.Fatalf("set ticket numbering_mode gapless = %d: %s", rec.Code, rec.Body)
+				}
+			},
+			unscored: "gapless type: reported, not scored (D-3-9)",
+		},
+	}
 }
 
 func (e *perfEnv) defs(t *testing.T) []perfDef {
@@ -692,8 +783,11 @@ func (e *perfEnv) defs(t *testing.T) []perfDef {
 		{"admin list, default sort, page 1", "list", "large", func() []perfReq { return listReqs(admin, "") }, 0},
 		{"admin list, default sort, page 20", "list", "large", func() []perfReq { return e.page20(t, admin, "") }, 0},
 		{"agent list, filter[state]=new", "list", "large", func() []perfReq { return listReqs(e.agents, "filter%5Bstate%5D=new") }, 0},
-		{"agent list, filter[priority]=1 (data)", "list", "large", func() []perfReq { return listReqs(e.agents, "filter%5Bpriority%5D=1") }, 0},
-		{"agent list, filter[site]=s7 (rare data, < 1% of visible rows)", "list", "large", func() []perfReq { return listReqs(e.agents, "filter%5Bsite%5D=s7") }, 0},
+		{"agent list, filter[priority]=1 (data)", "data", "large", func() []perfReq { return listReqs(e.agents, "filter%5Bpriority%5D=1") }, 0},
+		{"agent list, filter[site]=s7 (rare data, < 1% of visible rows)", "data", "large", func() []perfReq { return listReqs(e.agents, "filter%5Bsite%5D=s7") }, 0},
+		// TICK-647's bound: the same list under a short statement timeout must
+		// answer 422 filter_too_expensive about that fast, never hang.
+		{"agent list, filter[site]=s7, short data-filter timeout (bound check)", "timeout", "large", func() []perfReq { return listReqs(e.agents, "filter%5Bsite%5D=s7") }, 0},
 		{"agent list, sort=-updated_at", "list", "large", func() []perfReq { return listReqs(e.agents, "sort=-updated_at") }, 0},
 		{"agent list, sort=assignee", "list", "large", func() []perfReq { return listReqs(e.agents, "sort=assignee") }, 0},
 		{"admin list, filter[state][in]=new,in_progress, sort=-updated_at", "list", "large", func() []perfReq {
@@ -711,6 +805,9 @@ func (e *perfEnv) defs(t *testing.T) []perfDef {
 		{"create, agent", "create", "large", func() []perfReq { return e.createReqs(t, e.agents) }, 0},
 		{"create, admin", "create", "large", func() []perfReq { return e.createReqs(t, admin) }, 0},
 		{"create, small tenant agent", "create", "small", func() []perfReq { return e.createReqs(t, e.smallAgents) }, 0},
+		// Last: it switches the large tenant's ticket type to gapless
+		// numbering (D-3-9, per type), reported but not held to 50 ms.
+		{"create, agent, gapless type", "create", "large", func() []perfReq { return e.createReqs(t, e.agents) }, 0},
 	}
 }
 
@@ -723,8 +820,274 @@ type perfResult struct {
 	stmtSQL  []perfStmt                 // one representative request, in order
 	explains []string
 	errs     int64
-	holds    []perfHold // creates only, one per request
+	errCodes map[string]int64       // failed requests by "status problem-code"
+	alloc    map[string]*dto.Metric // nava_numbering_alloc_* during the scenario
+	timeouts int64                  // 422 filter_too_expensive answers (data and timeout kinds)
+	holds    []perfHold             // creates only, one per request
+	// commits are each create's commit round trip: the last statement of
+	// the request that ends its transaction ("commit" or a batch ending in
+	// " ; commit"). Their p50 is the storage-window gate.
+	commits []time.Duration
+	attempt int // 1-based attempt of a gated create row
+	// probe is the host-speed probe's p50 in ms, taken just before this
+	// attempt (creates only; 0 when not probed).
+	probe float64
+	// setup is how the attempt was prepared and what ran during its probe
+	// (creates only).
+	setup perfSetup
+	// storage is the dedicated storage probe's commit p50 in ms, taken
+	// just before this attempt: the storage-window gate since the CTO's
+	// 2026-11-10 19:49 reading (creates only).
+	storage float64
+	// intruders are containers outside perfAllowedContainers seen while the
+	// attempt ran; any one voids the attempt.
+	intruders []string
 }
+
+// perfSetup records an attempt's method steps (Technical Lead, 2026-11-10
+// 18:2x UTC): how long it waited for the bench database to quiesce and for
+// the host to be free of other bench and integration databases, and what
+// pg_stat_activity and docker stats showed during the host-speed probe.
+type perfSetup struct {
+	quiesceWait, isolationWait time.Duration
+	activity                   []string // pg_stat_activity, mid-probe
+	dockerStats                []string // docker stats, during the probe
+}
+
+// lastCommit is the duration of the request's last round trip that commits
+// a transaction: the create's own commit (the allocator's AllocTx commit,
+// asynchronous, comes earlier).
+func lastCommit(ss []perfStmt) (time.Duration, bool) {
+	for i := len(ss) - 1; i >= 0; i-- {
+		if sql := strings.ToLower(strings.TrimSpace(ss[i].SQL)); sql == "commit" || strings.HasSuffix(sql, " ; commit") {
+			return ss[i].Dur, true
+		}
+	}
+	return 0, false
+}
+
+// label names a result in the report tables: a scored create row carries its
+// attempt.
+func (r *perfResult) label() string {
+	if r.attempt > 0 && r.sc.kind == "create" && r.sc.unscored == "" {
+		return fmt.Sprintf("%s, attempt %d", r.sc.name, r.attempt)
+	}
+	return r.sc.name
+}
+
+// commitP50 is the row's storage window, in ms.
+func (r *perfResult) commitP50() float64 { return pct(r.commits, .5) }
+
+// gated reports a create row attempt that failed a gate: the host-speed
+// probe or the storage window. The transport floor gate stops the whole run.
+func (r *perfResult) gated() bool {
+	return r.sc.kind == "create" && r.sc.unscored == "" && r.gateReason() != ""
+}
+
+// gateReason names the gates the attempt failed, or "" when it is valid.
+func (r *perfResult) gateReason() string {
+	var why []string
+	if r.probe > perfHostGateMS {
+		why = append(why, fmt.Sprintf("host probe %.2f > %.1f ms", r.probe, perfHostGateMS))
+	}
+	if r.storage > perfCommitGateMS {
+		why = append(why, fmt.Sprintf("storage probe %.2f > %.0f ms", r.storage, perfCommitGateMS))
+	}
+	if len(r.intruders) > 0 {
+		why = append(why, "other containers during the attempt: "+strings.Join(r.intruders, " "))
+	}
+	return strings.Join(why, ", ")
+}
+
+// retryLater counts the attempt's 503 retry_later answers: in a valid
+// attempt each one is a miss.
+func (r *perfResult) retryLater() int64 { return r.errCodes["503 retry_later"] }
+
+// hostProbe is the host-speed gate's measurement: one client sends
+// `BEGIN; COMMIT` (one round trip, simple protocol) perfHostProbeN times on
+// the handler's pool, untraced. It returns the p50 in ms.
+//
+// Alongside it, docker stats runs (one sample, taken while the probe runs)
+// and pg_stat_activity is read once at the probe's midpoint on the
+// superuser connection, so the report shows what else was working.
+func (e *perfEnv) hostProbe(t *testing.T, st *perfSetup) float64 {
+	t.Helper()
+	conn, err := e.pool.Acquire(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Release()
+	stats := make(chan []string, 1)
+	go func() {
+		stats <- dockerLines(t.Context(), "stats", "--no-stream", "--format", "{{.Name}} cpu={{.CPUPerc}} mem={{.MemPerc}}")
+	}()
+	d := make([]time.Duration, 0, perfHostProbeN)
+	for i := range perfHostProbeN {
+		if i == perfHostProbeN/2 {
+			st.activity = e.activity(t)
+		}
+		t0 := time.Now()
+		if _, err := conn.Exec(t.Context(), "BEGIN; COMMIT"); err != nil {
+			t.Fatal(err)
+		}
+		d = append(d, time.Since(t0))
+	}
+	st.dockerStats = <-stats
+	return pct(d, .5)
+}
+
+// activity is every other backend of the cluster as pg_stat_activity shows
+// it: backend type, database, state, how long its query has run, and the
+// query's start.
+func (e *perfEnv) activity(t *testing.T) []string {
+	t.Helper()
+	out := e.superText(t, `SELECT coalesce(backend_type, '') || ' db=' || coalesce(datname, '-') || ' state=' || coalesce(state, '-')
+		|| ' running=' || coalesce(round(extract(epoch FROM clock_timestamp() - query_start) * 1000)::text || 'ms', '-')
+		|| ' query=' || left(regexp_replace(coalesce(query, ''), '\s+', ' ', 'g'), 60)
+		FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND (state IS DISTINCT FROM 'idle' OR backend_type <> 'client backend')
+		ORDER BY backend_type, pid`)
+	if out == "" {
+		return nil
+	}
+	return strings.Split(out, "\n")
+}
+
+// dockerLines runs docker with args and returns its output lines; an error
+// is returned as the only line, so the report shows it.
+func dockerLines(ctx context.Context, args ...string) []string {
+	b, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput()
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if err != nil {
+		return append(lines, "docker: "+err.Error())
+	}
+	return lines
+}
+
+// perfWaitLimit bounds each wait for the database to quiesce or the host to
+// be free; past it the run stops rather than measure a busy host.
+const perfWaitLimit = 30 * time.Minute
+
+// quiesce waits until no autovacuum worker and no VACUUM or ANALYZE runs in
+// the bench database, and returns how long that took.
+func (e *perfEnv) quiesce(t *testing.T) time.Duration {
+	t.Helper()
+	start := time.Now()
+	for {
+		var n int
+		if err := e.super.QueryRow(t.Context(), `SELECT count(*) FROM pg_stat_activity
+			WHERE datname = current_database() AND pid <> pg_backend_pid()
+			  AND (backend_type = 'autovacuum worker' OR query ~* '^\s*(vacuum|analyze|autovacuum)')
+			  AND state IS DISTINCT FROM 'idle'`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n == 0 {
+			return time.Since(start)
+		}
+		if time.Since(start) > perfWaitLimit {
+			t.Fatalf("bench database not quiet after %v: %d autovacuum or analyze backends", perfWaitLimit, n)
+		}
+		time.Sleep(time.Second)
+	}
+}
+
+// isolate waits until no other bench or integration database container
+// (nava-it-pg-*, nava-aclperf-*) runs on the host; the run's own container
+// is NAVA_PERF_PG_CONTAINER (set by bench/acl-perf/run.sh). It returns how
+// long that took.
+func isolate(t *testing.T) time.Duration {
+	t.Helper()
+	start := time.Now()
+	for {
+		others := foreignContainers(t.Context())
+		if len(others) == 0 {
+			return time.Since(start)
+		}
+		if time.Since(start) > perfWaitLimit {
+			t.Fatalf("host not isolated after %v: %v still running", perfWaitLimit, others)
+		}
+		t.Logf("waiting for %v to stop before the next attempt", others)
+		time.Sleep(15 * time.Second)
+	}
+}
+
+// perfAllowedContainers may run during a create attempt besides the run's
+// own database (Technical Lead, 2026-11-11 02:45 UTC): the idle buildkit
+// builder and the Multica platform, which runs the agents and cannot stop.
+// Their CPU is in every docker stats sample.
+var perfAllowedContainers = map[string]bool{ //nolint:gochecknoglobals // a fixed allow-list
+	"buildx_buildkit_nava-ci0": true,
+	"multica-backend-1":        true,
+	"multica-frontend-1":       true,
+	"multica-postgres-1":       true,
+}
+
+// foreignContainers lists running containers other than the run's own
+// database (NAVA_PERF_PG_CONTAINER) and perfAllowedContainers; a docker
+// error is returned as one entry, so it never reads as an idle host.
+func foreignContainers(ctx context.Context) []string {
+	own := os.Getenv("NAVA_PERF_PG_CONTAINER")
+	var out []string
+	for _, n := range dockerLines(ctx, "ps", "--format", "{{.Names}}") {
+		if n != "" && n != own && !perfAllowedContainers[n] {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// watchContainers polls docker ps every 5 s until stop closes and returns
+// every foreign container it saw.
+func watchContainers(ctx context.Context, stop <-chan struct{}) <-chan []string {
+	res := make(chan []string, 1)
+	go func() {
+		seen := map[string]bool{}
+		tick := time.NewTicker(5 * time.Second)
+		defer tick.Stop()
+		for {
+			for _, n := range foreignContainers(ctx) {
+				seen[n] = true
+			}
+			select {
+			case <-stop:
+				out := make([]string, 0, len(seen))
+				for n := range seen {
+					out = append(out, n)
+				}
+				slices.Sort(out)
+				res <- out
+				return
+			case <-tick.C:
+			}
+		}
+	}()
+	return res
+}
+
+// storageProbe is the storage-window gate's measurement (CTO, 2026-11-10
+// 19:49 UTC): one client commits a transaction that inserts no row but
+// writes WAL, `BEGIN; SELECT pg_logical_emit_message(true, ...); COMMIT`
+// (one round trip, simple protocol), perfStorageProbeN times. A
+// transactional message makes the COMMIT flush its WAL, as a create's does;
+// a transaction that only takes an id (pg_current_xact_id) does not, and an
+// empty one writes nothing (checked with pg_stat_wal.wal_sync: 50 commits,
+// 50 syncs, against 2 for the id-only form). It runs on the superuser
+// connection, which may call the function. Its p50 is the disk's commit
+// latency without a create's INSERT.
+func (e *perfEnv) storageProbe(t *testing.T) float64 {
+	t.Helper()
+	d := make([]time.Duration, 0, perfStorageProbeN)
+	for range perfStorageProbeN {
+		t0 := time.Now()
+		if _, err := e.super.Exec(t.Context(), "BEGIN; SELECT pg_logical_emit_message(true, 'nava-perf', 'storage probe'); COMMIT"); err != nil {
+			t.Fatal(err)
+		}
+		d = append(d, time.Since(t0))
+	}
+	return pct(d, .5)
+}
+
+// perfStorageProbeN is the storage probe's commits.
+const perfStorageProbeN = 100
 
 // perfHold is one create's record_counters window (D-3-9). wait is the
 // upsert itself: the queue for the row lock plus its execution. hold runs
@@ -774,12 +1137,13 @@ func normSQL(s string) string { return perfWS.ReplaceAllString(strings.TrimSpace
 // once, and returns the per-request latencies and per-statement durations.
 func (e *perfEnv) run(t *testing.T, sc perfScenario, clients int, d time.Duration) *perfResult {
 	t.Helper()
-	res := &perfResult{sc: sc, stmtDur: map[string][]time.Duration{}}
+	res := &perfResult{sc: sc, stmtDur: map[string][]time.Duration{}, errCodes: map[string]int64{}}
+	allocBefore := e.allocSnapshot(t)
 	for i, r := range sc.reqs {
 		if i >= 50 {
 			break
 		}
-		if rec, want := e.send(t.Context(), sc, r); rec.Code != want {
+		if rec, ok := e.send(t.Context(), sc, r); !ok {
 			t.Fatalf("%s: warm-up %s as %s = %d: %s", sc.name, r.path, r.token, rec.Code, rec.Body)
 		}
 	}
@@ -794,8 +1158,9 @@ func (e *perfEnv) run(t *testing.T, sc perfScenario, clients int, d time.Duratio
 		go func() {
 			defer wg.Done()
 			var (
-				lat   []time.Duration
-				holds []perfHold
+				lat     []time.Duration
+				holds   []perfHold
+				commits []time.Duration
 			)
 			stmts := map[string][]time.Duration{}
 			for time.Now().Before(deadline) {
@@ -803,15 +1168,28 @@ func (e *perfEnv) run(t *testing.T, sc perfScenario, clients int, d time.Duratio
 				tr := newPerfTrace()
 				ctx := context.WithValue(t.Context(), perfTraceKey{}, tr)
 				t0 := time.Now()
-				rec, want := e.send(ctx, sc, r)
+				rec, ok := e.send(ctx, sc, r)
 				el := time.Since(t0)
-				if rec.Code != want {
+				if !ok {
 					atomic.AddInt64(&res.errs, 1)
+					var pb struct {
+						Code string `json:"code"`
+					}
+					_ = json.Unmarshal(rec.Body.Bytes(), &pb)
+					mu.Lock()
+					res.errCodes[fmt.Sprintf("%d %s", rec.Code, pb.Code)]++
+					mu.Unlock()
 					continue
+				}
+				if rec.Code == http.StatusUnprocessableEntity {
+					atomic.AddInt64(&res.timeouts, 1)
 				}
 				lat = append(lat, el)
 				if h, ok := counterHold(tr.stmts); ok && sc.kind == "create" {
 					holds = append(holds, h)
+				}
+				if c, ok := lastCommit(tr.stmts); ok && sc.kind == "create" {
+					commits = append(commits, c)
 				}
 				for _, s := range tr.stmts {
 					k := normSQL(s.SQL)
@@ -821,6 +1199,7 @@ func (e *perfEnv) run(t *testing.T, sc perfScenario, clients int, d time.Duratio
 			mu.Lock()
 			res.lat = append(res.lat, lat...)
 			res.holds = append(res.holds, holds...)
+			res.commits = append(res.commits, commits...)
 			for k, v := range stmts {
 				res.stmtDur[k] = append(res.stmtDur[k], v...)
 			}
@@ -828,8 +1207,9 @@ func (e *perfEnv) run(t *testing.T, sc perfScenario, clients int, d time.Duratio
 		}()
 	}
 	wg.Wait()
+	res.alloc = allocDelta(allocBefore, e.allocSnapshot(t))
 	if res.errs > 0 {
-		t.Errorf("%s: %d requests failed", sc.name, res.errs)
+		t.Errorf("%s: %d requests failed: %v", sc.name, res.errs, res.errCodes)
 	}
 	e.capture(t, res)
 	return res
@@ -843,7 +1223,7 @@ func (e *perfEnv) capture(t *testing.T, res *perfResult) {
 	t.Helper()
 	r := res.sc.reqs[0]
 	tr := newPerfTrace()
-	if rec, want := e.send(context.WithValue(t.Context(), perfTraceKey{}, tr), res.sc, r); rec.Code != want {
+	if rec, ok := e.send(context.WithValue(t.Context(), perfTraceKey{}, tr), res.sc, r); !ok {
 		t.Fatalf("%s: capture = %d: %s", res.sc.name, rec.Code, rec.Body)
 	}
 	res.stmtSQL = tr.stmts
@@ -894,11 +1274,16 @@ func pct(d []time.Duration, p float64) float64 {
 }
 
 func (r *perfResult) target() float64 {
+	if r.sc.unscored != "" {
+		return 0
+	}
 	switch r.sc.kind {
 	case "get":
 		return perfGetTargetMS
 	case "create":
 		return perfCreateTargetMS
+	case "timeout":
+		return 0 // the bound check has no latency target
 	}
 	return perfListTargetMS
 }
@@ -914,17 +1299,58 @@ func TestRecordsACLPerf800k(t *testing.T) {
 	}
 	e := newPerfEnv(t, clients)
 	e.seed(t)
+	// Quiesce the seed (Technical Lead, 2026-11-10): VACUUM (ANALYZE) does
+	// the work autovacuum would otherwise do during the attempts, and
+	// CHECKPOINT flushes the dirty pages, so neither lands on the creates.
+	t0 := time.Now()
+	e.exec(t, "VACUUM (ANALYZE)")
+	e.exec(t, "CHECKPOINT")
+	t.Logf("QUIESCE VACUUM (ANALYZE) and CHECKPOINT after the seed: %v", time.Since(t0).Round(time.Second))
 	floor := e.transportFloor(t, clients)
 	t.Logf("FLOOR SELECT 1 round trip, %d clients: p50=%.2f p95=%.2f p99=%.2f ms", clients, pct(floor, .50), pct(floor, .95), pct(floor, .99))
+	if p50 := pct(floor, .50); p50 > perfFloorGateMS {
+		t.Fatalf("host busy: transport floor p50 %.2f ms > %.0f ms gate; no numbers taken", p50, perfFloorGateMS)
+	}
 	var results []*perfResult
 	for _, sc := range e.scenarios(t) {
 		c := clients
 		if sc.clients > 0 {
 			c = sc.clients
 		}
-		r := e.run(t, sc, c, time.Duration(secs)*time.Second)
-		t.Logf("RESULT %-62s n=%6d p50=%8.2f p95=%8.2f p99=%8.2f ms", sc.name, len(r.lat), pct(r.lat, .50), pct(r.lat, .95), pct(r.lat, .99))
-		results = append(results, r)
+		if sc.before != nil {
+			sc.before()
+		}
+		// A scored create row runs until its storage window passes the
+		// gate, at most perfCommitAttempts times; every attempt is reported.
+		attempts := 1
+		if sc.kind == "create" && sc.unscored == "" {
+			attempts = perfCommitAttempts
+		}
+		for a := 1; a <= attempts; a++ {
+			probe, storage := 0.0, 0.0
+			var st perfSetup
+			var watch <-chan []string
+			stop := make(chan struct{})
+			if sc.kind == "create" {
+				st.isolationWait = isolate(t)
+				st.quiesceWait = e.quiesce(t)
+				probe = e.hostProbe(t, &st)
+				storage = e.storageProbe(t)
+				watch = watchContainers(t.Context(), stop)
+			}
+			r := e.run(t, sc, c, time.Duration(secs)*time.Second)
+			close(stop)
+			if watch != nil {
+				r.intruders = <-watch
+			}
+			r.attempt, r.probe, r.setup, r.storage = a, probe, st, storage
+			t.Logf("RESULT %-62s attempt %d n=%6d p50=%8.2f p95=%8.2f p99=%8.2f ms storage probe=%6.2f in-trace commit p50=%6.2f host probe=%5.2f retry_later=%d gated=%q",
+				sc.name, a, len(r.lat), pct(r.lat, .50), pct(r.lat, .95), pct(r.lat, .99), r.storage, r.commitP50(), r.probe, r.retryLater(), r.gateReason())
+			results = append(results, r)
+			if !r.gated() {
+				break
+			}
+		}
 	}
 	report := e.report(t, results, floor, clients, secs)
 	if err := os.MkdirAll(filepath.Dir(out), 0o750); err != nil {
@@ -934,9 +1360,24 @@ func TestRecordsACLPerf800k(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("wrote %s", out)
+	invalid := map[string]bool{}
 	for _, r := range results {
-		if p95 := pct(r.lat, .95); p95 > r.target() {
+		switch p95 := pct(r.lat, .95); {
+		case r.gated():
+			invalid[r.sc.name] = r.attempt == perfCommitAttempts
+		case r.target() > 0 && p95 > r.target():
+			invalid[r.sc.name] = false
 			t.Errorf("MISS %s: p95 %.2f ms > %.0f ms", r.sc.name, p95, r.target())
+		case r.target() > 0 && r.retryLater() > 0:
+			invalid[r.sc.name] = false
+			t.Errorf("MISS %s: %d retry_later in a valid attempt", r.sc.name, r.retryLater())
+		default:
+			invalid[r.sc.name] = false
+		}
+	}
+	for name, bad := range invalid {
+		if bad {
+			t.Errorf("HOST INVALID for creates: %s had no valid attempt (host probe <= %.1f ms, storage probe <= %.0f ms, no other container) in %d attempts", name, perfHostGateMS, perfCommitGateMS, perfCommitAttempts)
 		}
 	}
 }
@@ -996,19 +1437,39 @@ func (e *perfEnv) report(t *testing.T, results []*perfResult, floor []time.Durat
 		UNION ALL SELECT 'heap ' || pg_size_pretty(pg_relation_size('records')) || ', indexes ' || pg_size_pretty(pg_indexes_size('records'))`))
 	w("## Transport floor\n\n`SELECT 1` on the handler's pool, %d clients x 200: p50 %.2f / p95 %.2f / p99 %.2f ms. Each statement in the tables below pays about this much before the database does any work.\n\n",
 		clients, pct(floor, .50), pct(floor, .95), pct(floor, .99))
-	w("## Results (ms, per request through the handler)\n\n| Scenario | Tenant | n | p50 | p95 | p99 | Target | Verdict |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	w("## Results (ms, per request through the handler)\n\nA create row attempt is scored only when it passes every gate (CTO, 2026-11-10): the transport floor (p50 <= %.0f ms, checked once, the run stops otherwise), the host-speed probe (a 1-client `BEGIN; COMMIT` p50 <= %.1f ms, run just before the attempt) and the storage window (a dedicated 1-client `BEGIN; SELECT pg_logical_emit_message(true, ...); COMMIT` probe, a commit that flushes WAL with no INSERT, p50 <= %.0f ms, run just before the attempt; the in-trace commit round trip, which since TICK-692 carries the INSERT, is reported only). An attempt is also void if a container other than the run's database, the buildkit builder and the three Multica platform containers runs during it. A gated attempt is neither a pass nor a fail and is re-run, at most %d attempts. A `503 retry_later` in a valid attempt is a miss. Round trips are one request's, the first actor's.\n\n", perfFloorGateMS, perfHostGateMS, perfCommitGateMS, perfCommitAttempts)
+	w("| Scenario | Attempt | Tenant | n | p50 | p95 | p99 | Host probe p50 | Storage probe p50 | In-trace commit p50 | Round trips | retry_later | Target | Verdict |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, r := range results {
 		p95 := pct(r.lat, .95)
 		v := "meets"
-		if p95 > r.target() {
+		switch {
+		case r.sc.unscored != "":
+			v = r.sc.unscored
+		case r.gated():
+			v = "gated (" + r.gateReason() + ")"
+		case r.target() == 0:
+			v = "n/a (bound check)"
+		case p95 > r.target():
 			v = "**MISS**"
+		case r.sc.kind == "create" && r.retryLater() > 0:
+			v = "**MISS** (retry_later)"
 		}
-		w("| %s | %s | %d | %.2f | %.2f | %.2f | %.0f | %s |\n", r.sc.name, r.sc.tenant, len(r.lat), pct(r.lat, .5), p95, pct(r.lat, .99), r.target(), v)
+		attempt, probe, storage, commit, trips, rl := "-", "-", "-", "-", "-", "-"
+		if r.sc.kind == "create" {
+			n, _, _ := roundTrips(r.stmtSQL)
+			attempt, commit, trips = strconv.Itoa(max(r.attempt, 1)), fmt.Sprintf("%.2f", r.commitP50()), strconv.Itoa(n)
+			probe, rl, storage = fmt.Sprintf("%.2f", r.probe), strconv.FormatInt(r.retryLater(), 10), fmt.Sprintf("%.2f", r.storage)
+		}
+		w("| %s | %s | %s | %d | %.2f | %.2f | %.2f | %s | %s | %s | %s | %s | %.0f | %s |\n", r.sc.name, attempt, r.sc.tenant, len(r.lat), pct(r.lat, .5), p95, pct(r.lat, .99), probe, storage, commit, trips, rl, r.target(), v)
 	}
 	e.reportHolds(w, results, floor)
+	reportAlloc(w, results)
+	reportSetup(w, results)
+	reportTimeouts(w, results)
 	w("\n## Per statement (ms, as pgx traced it, all requests of the scenario)\n\n")
 	for _, r := range results {
-		w("### %s\n\n| # | Statement | n | p50 | p95 | p99 |\n| --- | --- | --- | --- | --- | --- |\n", r.sc.name)
+		trips, stmts, sizes := roundTrips(r.stmtSQL)
+		w("### %s\n\nRound trips: %d, statements: %d, statements per batch: %v (one request, the first actor).\n\n| # | Statement | n | p50 | p95 | p99 |\n| --- | --- | --- | --- | --- | --- |\n", r.label(), trips, stmts, sizes)
 		for i, s := range r.stmtSQL {
 			k := normSQL(s.SQL)
 			lbl := k
@@ -1026,7 +1487,7 @@ func (e *perfEnv) report(t *testing.T, results []*perfResult, floor []time.Durat
 		if r.sc.kind == "create" {
 			method = http.MethodPost
 		}
-		w("### %s\n\nRequest: `%s %s` as `%s`\n\n", r.sc.name, method, r.sc.reqs[0].path, r.sc.reqs[0].token)
+		w("### %s\n\nRequest: `%s %s` as `%s`\n\n", r.label(), method, r.sc.reqs[0].path, r.sc.reqs[0].token)
 		for i, s := range r.stmtSQL {
 			args, _ := json.Marshal(s.Args)
 			switch {
@@ -1063,9 +1524,38 @@ func (e *perfEnv) reportHolds(w func(string, ...any), results []*perfResult, flo
 			stmts = append(stmts, h.n)
 		}
 		slices.Sort(stmts)
-		w("| %s | %d | %.2f / %.2f | %.2f / %.2f | %d | %.2f / %.2f | %.2f / %.2f | %.2f / %.2f |\n", r.sc.name, len(r.holds),
+		w("| %s | %d | %.2f / %.2f | %.2f / %.2f | %d | %.2f / %.2f | %.2f / %.2f | %.2f / %.2f |\n", r.label(), len(r.holds),
 			pct(wait, .5), pct(wait, .95), pct(hold, .5), pct(hold, .95), stmts[len(stmts)/2],
 			pct(tr, .5), pct(tr, .95), pct(db, .5), pct(db, .95), pct(app, .5), pct(app, .95))
+	}
+}
+
+// roundTrips counts one request's round trips and statements: a batch
+// (TICK-648) is one round trip carrying several statements.
+func roundTrips(ss []perfStmt) (trips, stmts int, batchSizes []int) {
+	for _, s := range ss {
+		trips++
+		if b, ok := strings.CutPrefix(s.SQL, perfBatchPrefix); ok {
+			n := len(strings.Split(b, " ; "))
+			stmts += n
+			batchSizes = append(batchSizes, n)
+			continue
+		}
+		stmts++
+	}
+	return trips, stmts, batchSizes
+}
+
+// reportTimeouts prints how data-filter lists ended (TICK-647): answered, or
+// 422 filter_too_expensive, with the latency including the 422s.
+func reportTimeouts(w func(string, ...any), results []*perfResult) {
+	w("\n## Data-filter statement timeout (TICK-647)\n\nDefault timeout %s; the bound check runs with %s. A 422 is `filter_too_expensive`. Latency includes the 422s.\n\n| Scenario | Requests | 422 | p50 | p95 | max |\n| --- | --- | --- | --- | --- | --- |\n",
+		perfDataFilterTimeoutLabel, perfShortTimeout)
+	for _, r := range results {
+		if r.sc.kind != "data" && r.sc.kind != "timeout" {
+			continue
+		}
+		w("| %s | %d | %d | %.2f | %.2f | %.2f |\n", r.sc.name, len(r.lat), r.timeouts, pct(r.lat, .5), pct(r.lat, .95), pct(r.lat, 1))
 	}
 }
 
@@ -1085,4 +1575,174 @@ func (e *perfEnv) superText(t *testing.T, sql string) string {
 		out = append(out, s)
 	}
 	return strings.Join(out, "\n")
+}
+
+// ---- allocator metrics (TICK-657) -------------------------------------------
+
+// allocSnapshot gathers the nava_numbering_alloc_* families from the
+// handler's telemetry registry.
+func (e *perfEnv) allocSnapshot(t *testing.T) map[string]*dto.MetricFamily {
+	t.Helper()
+	mfs, err := e.tel.Registry.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]*dto.MetricFamily{}
+	for _, mf := range mfs {
+		if strings.HasPrefix(mf.GetName(), "nava_numbering_alloc") {
+			out[mf.GetName()] = mf
+		}
+	}
+	return out
+}
+
+// allocDelta is after minus before, each family's series summed into one:
+// the allocator's series carry no tenant or type attribute (T01).
+func allocDelta(before, after map[string]*dto.MetricFamily) map[string]*dto.Metric {
+	out := map[string]*dto.Metric{}
+	for name, a := range after {
+		d := sumFamily(a)
+		if b, ok := before[name]; ok {
+			bs := sumFamily(b)
+			switch {
+			case d.Histogram != nil && bs.Histogram != nil:
+				d.Histogram.SampleCount = new(d.Histogram.GetSampleCount() - bs.Histogram.GetSampleCount())
+				d.Histogram.SampleSum = new(d.Histogram.GetSampleSum() - bs.Histogram.GetSampleSum())
+				for i := range d.Histogram.Bucket {
+					if i < len(bs.Histogram.Bucket) {
+						d.Histogram.Bucket[i].CumulativeCount = new(d.Histogram.Bucket[i].GetCumulativeCount() - bs.Histogram.Bucket[i].GetCumulativeCount())
+					}
+				}
+			case d.Counter != nil && bs.Counter != nil:
+				d.Counter.Value = new(d.Counter.GetValue() - bs.Counter.GetValue())
+			}
+		}
+		out[name] = d
+	}
+	return out
+}
+
+// sumFamily folds a family's series into one new metric.
+func sumFamily(mf *dto.MetricFamily) *dto.Metric {
+	var out dto.Metric
+	for _, m := range mf.GetMetric() {
+		if h := m.GetHistogram(); h != nil {
+			if out.Histogram == nil {
+				out.Histogram = &dto.Histogram{SampleCount: new(uint64(0)), SampleSum: new(0.0)}
+				for _, b := range h.GetBucket() {
+					out.Histogram.Bucket = append(out.Histogram.Bucket, &dto.Bucket{UpperBound: new(b.GetUpperBound()), CumulativeCount: new(uint64(0))})
+				}
+			}
+			out.Histogram.SampleCount = new(out.Histogram.GetSampleCount() + h.GetSampleCount())
+			out.Histogram.SampleSum = new(out.Histogram.GetSampleSum() + h.GetSampleSum())
+			for i, b := range h.GetBucket() {
+				if i < len(out.Histogram.Bucket) {
+					out.Histogram.Bucket[i].CumulativeCount = new(out.Histogram.Bucket[i].GetCumulativeCount() + b.GetCumulativeCount())
+				}
+			}
+		}
+		if c := m.GetCounter(); c != nil {
+			if out.Counter == nil {
+				out.Counter = &dto.Counter{Value: new(0.0)}
+			}
+			out.Counter.Value = new(out.Counter.GetValue() + c.GetValue())
+		}
+	}
+	return &out
+}
+
+// histQuantile estimates quantile q in ms from a histogram in seconds,
+// linearly inside the bucket, as Prometheus histogram_quantile does. Past
+// the last bound it returns that bound and over.
+func histQuantile(h *dto.Histogram, q float64) (ms float64, over bool) {
+	n := float64(h.GetSampleCount())
+	if n == 0 {
+		return 0, false
+	}
+	rank := q * n
+	lo, prev := 0.0, 0.0
+	for _, b := range h.GetBucket() {
+		c := float64(b.GetCumulativeCount())
+		if c >= rank {
+			if c == prev {
+				return b.GetUpperBound() * 1000, false
+			}
+			return (lo + (b.GetUpperBound()-lo)*(rank-prev)/(c-prev)) * 1000, false
+		}
+		lo, prev = b.GetUpperBound(), c
+	}
+	return lo * 1000, true
+}
+
+// reportAlloc prints the allocator's metrics per create scenario: the pool
+// acquire wait, the whole allocation (acquire included) and the timeouts
+// that become retry_later, plus every failed request by status and code.
+func reportAlloc(w func(string, ...any), results []*perfResult) {
+	w("\n## Number allocation (creates, `nava_numbering_alloc_*`, ADR-005 L2s)\n\nPer scenario, from the handler's telemetry registry (bucket bounds 0.5, 1, 2.5, 5, 10, 25, 50, 100, 200, 500 ms; quantiles interpolated inside a bucket). Gapless creates take no allocation, so their row is empty. Failed requests are by HTTP status and problem code; `retry_later` is an allocation past its 200 ms budget.\n\n")
+	w("| Scenario | Allocations | Acquire mean / p50 / p95 | Allocation mean / p50 / p95 | Timeouts | Failed requests |\n| --- | --- | --- | --- | --- | --- |\n")
+	q := func(h *dto.Histogram) string {
+		if h == nil || h.GetSampleCount() == 0 {
+			return "-"
+		}
+		f := func(x float64) string {
+			v, over := histQuantile(h, x)
+			if over {
+				return fmt.Sprintf("> %.1f", v)
+			}
+			return fmt.Sprintf("%.2f", v)
+		}
+		return fmt.Sprintf("%.2f / %s / %s", h.GetSampleSum()/float64(h.GetSampleCount())*1000, f(.5), f(.95))
+	}
+	for _, r := range results {
+		if r.sc.kind != "create" {
+			continue
+		}
+		var acq, lat *dto.Histogram
+		timeouts := 0.0
+		for name, m := range r.alloc {
+			switch {
+			case strings.HasPrefix(name, "nava_numbering_alloc_acquire"):
+				acq = m.GetHistogram()
+			case strings.HasPrefix(name, "nava_numbering_alloc_timeouts"):
+				timeouts = m.GetCounter().GetValue()
+			case strings.HasPrefix(name, "nava_numbering_alloc_seconds"):
+				lat = m.GetHistogram()
+			}
+		}
+		n := uint64(0)
+		if lat != nil {
+			n = lat.GetSampleCount()
+		}
+		failed := "none"
+		if len(r.errCodes) > 0 {
+			keys := make([]string, 0, len(r.errCodes))
+			for k, v := range r.errCodes {
+				keys = append(keys, fmt.Sprintf("%s x%d", k, v))
+			}
+			slices.Sort(keys)
+			failed = strings.Join(keys, ", ")
+		}
+		w("| %s | %d | %s | %s | %.0f | %s |\n", r.label(), n, q(acq), q(lat), timeouts, failed)
+	}
+}
+
+// reportSetup prints, per create attempt, the method steps before it and
+// what pg_stat_activity and docker stats showed during its host probe.
+func reportSetup(w func(string, ...any), results []*perfResult) {
+	w("\n## Attempt setup and host-probe samples (creates)\n\nBefore each create attempt: wait until no container runs other than the run's database, `buildx_buildkit_nava-ci0` and the three `multica-*` platform containers (docker ps is polled every 5 s during the attempt too; another container voids it), then until no autovacuum or analyze backend works in the bench database, then the host-speed probe and the storage probe. `pg_stat_activity` is read at the probe's midpoint (every non-idle backend and every non-client backend, other than the reader); `docker stats` is one sample taken while the probe runs. The seed was quiesced once with `VACUUM (ANALYZE)` and `CHECKPOINT`.\n\n")
+	for _, r := range results {
+		if r.sc.kind != "create" {
+			continue
+		}
+		w("### %s\n\nIsolation wait %v, quiesce wait %v, host probe p50 %.2f ms.\n\n```\n", r.label(), r.setup.isolationWait.Round(time.Second), r.setup.quiesceWait.Round(time.Second), r.probe)
+		w("pg_stat_activity:\n")
+		for _, l := range r.setup.activity {
+			w("  %s\n", l)
+		}
+		w("docker stats:\n")
+		for _, l := range r.setup.dockerStats {
+			w("  %s\n", l)
+		}
+		w("```\n\n")
+	}
 }
