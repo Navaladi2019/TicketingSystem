@@ -22,9 +22,10 @@
 set -eu
 cd "$(dirname "$0")/../../../.."
 
-# Git Bash would rewrite /run/... in the container command.
-MSYS_NO_PATHCONV=1
-export MSYS_NO_PATHCONV
+# Git Bash would rewrite /run/... in the container command. Only for docker:
+# exported for the whole script it also stops Git Bash from mapping curl's
+# `-o /dev/null`, and curl fails with exit 23 on a Windows host (TICK-623).
+dc() { MSYS_NO_PATHCONV=1 docker compose "$@"; }
 
 # .env applies as it does to compose (KEYCLOAK_PUBLIC_URL, COMPOSE_PROJECT_NAME).
 if [ -f .env ]; then set -a; . ./.env; set +a; fi
@@ -34,7 +35,7 @@ A=00000000-0000-4000-8000-0000000000a1
 B=00000000-0000-4000-8000-0000000000b1
 
 echo "seed: tenants A and B, issuer $ISSUER"
-docker compose exec -T postgres sh -c \
+dc exec -T postgres sh -c \
   'PGPASSWORD=$(cat /run/pg_superuser_password) psql -q -v ON_ERROR_STOP=1 -U pgadmin -d nava' <<SQL
 INSERT INTO tenants (id, state) VALUES ('$A', 'active'), ('$B', 'active')
   ON CONFLICT (id) DO NOTHING;
@@ -80,7 +81,7 @@ case $code in 201|409) ;; *) echo "seed: creating /t/$B/admins answered HTTP $co
 echo "seed: /t/$B/admins exists"
 
 echo "seed: one group sync cycle (nava-groupsync --once)"
-docker compose run --rm --no-deps nava-groupsync --once
+dc run --rm --no-deps nava-groupsync --once
 
 # The admins group's platform id, the entity types at version 1. Template
 # bytes go in as dollar-quoted literals, so a template holding "$tpl$" would
@@ -104,7 +105,7 @@ for t in incident request change; do
 done
 tpl() { cat "internal/metadata/templates/$1.json"; }
 echo "seed: tenant A's admin group, incident/request/change at version 1 in A and B"
-docker compose exec -T postgres sh -c \
+dc exec -T postgres sh -c \
   'PGPASSWORD=$(cat /run/pg_superuser_password) psql -q -v ON_ERROR_STOP=1 -U pgadmin -d nava' <<SQL
 INSERT INTO tenant_admin_group (tenant_id, group_id)
   SELECT tenant_id, id FROM groups WHERE tenant_id IN ('$A', '$B') AND path = '/t/' || tenant_id::text || '/admins'
@@ -167,8 +168,8 @@ SQL
 # database seeded by an earlier version of this script still has the allow-all
 # version 1; drop the volumes and seed again to get the default.
 echo "seed: default incident ACL in A and B (nava-onboard reconcile-default-acl)"
-docker compose exec -T nava-onboard nava-onboard reconcile-default-acl "$A" "$B"
-docker compose exec -T postgres sh -c   'PGPASSWORD=$(cat /run/pg_superuser_password) psql -q -v ON_ERROR_STOP=1 -U pgadmin -d nava' <<SQL
+dc exec -T nava-onboard nava-onboard reconcile-default-acl "$A" "$B"
+dc exec -T postgres sh -c   'PGPASSWORD=$(cat /run/pg_superuser_password) psql -q -v ON_ERROR_STOP=1 -U pgadmin -d nava' <<SQL
 DO \$\$ BEGIN
   IF (SELECT count(*) FROM acl_versions a JOIN entity_definitions d ON d.tenant_id = a.tenant_id AND d.id = a.entity_definition_id
       WHERE d.tenant_id IN ('$A', '$B') AND d.key = 'incident') < 2 THEN

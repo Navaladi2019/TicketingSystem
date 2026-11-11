@@ -1334,7 +1334,8 @@ test('acl_version is the masked version', () => expect(b.acl_version).to.eql(Num
     mask_pre = LOAD_PRE + r"""
 const cur = JSON.parse(bru.getVar('s10_policy'));
 const admins = bru.getVar('s10_admins');
-req.setBody({ rules: cur.rules, masks: [{ field: 'description', read: { groups: [admins] }, write: { groups: [admins] } }] });
+const m = (field) => ({ field, read: { groups: [admins] }, write: { groups: [admins] } });
+req.setBody({ rules: cur.rules, masks: [m('description'), m('assignee')] });
 req.setHeader('If-Match', bru.getVar('s10_etag'));
 """
     unmask_pre = LOAD_PRE + r"""
@@ -1360,18 +1361,17 @@ bru.setVar('s10_admin', N.json().user_id);
 const g = N.json().group_paths.find(x => x.path === '/admins');
 test('the admin is in /admins', () => expect(g, 'group_paths /admins').to.be.an('object'));
 bru.setVar('s10_admins', g ? g.id : '');"""),
-        req("S10.31 The admin publishes the incident ACL with a mask on description: 200", "PUT", et, auth="admin_a_token",
+        req("S10.31 The admin publishes the incident ACL with masks on description and assignee: 200", "PUT", et, auth="admin_a_token",
             headers=key("mask"), body={"rules": []}, pre=mask_pre,
-            desc="The rules of S10.10, unchanged, plus one mask: `description` is read and written by tenant A's `admins` group only (an internal-only field). `If-Match` is S10.15's `ETag`. S10.66 removes the mask again.",
+            desc="The rules of S10.10, unchanged, plus two masks, read and written by tenant A's `admins` group only: `description` (an internal-only field) and `assignee` (a fixed column, so the sort case of criterion 4 can be shown: a data property such as `description` is never sortable, for anyone, and answers `validation_failed`). `If-Match` is S10.15's `ETag`. S10.66 removes the mask again.",
             tests="""N.status(200);
 const was = JSON.parse(bru.getVar('s10_policy'));
 const b = N.json();
 test('version: S10.15 + 1', () => expect(b.version).to.eql(was.version + 2));
 test('the same rules', () => expect(b.rules).to.eql(was.rules));
-test('one mask, on description, admins only', () => {
-  expect(b.masks).to.have.length(1);
-  expect(b.masks[0].field).to.eql('description');
-  expect(b.masks[0].read.groups).to.eql([bru.getVar('s10_admins')]);
+test('two masks, description and assignee, admins only', () => {
+  expect(b.masks.map(x => x.field)).to.have.members(['description', 'assignee']);
+  b.masks.forEach(x => expect(x.read.groups, x.field).to.eql([bru.getVar('s10_admins')]));
 });
 test('published_by is the admin', () => expect(b.published_by).to.eql(bru.getVar('s10_admin')));
 bru.setVar('s10_mask_version', String(b.version));
@@ -1500,7 +1500,8 @@ N.noLeak('s10-internal-' + bru.getVar('s10_run'));"""),
         req("S10.56 C4: Alice filters on description: 400 masked_field", "GET", inc + "?filter[description]=s10-internal-{{s10_run}}",
             auth="alice_token", desc="Refused before any query runs, so the filter is no oracle for the hidden value.",
             tests="N.problem('masked_field', 400);"),
-        req("S10.57 C4: Alice sorts on description: 400 masked_field", "GET", inc + "?sort=description", auth="alice_token",
+        req("S10.57 C4: Alice sorts on assignee (masked): 400 masked_field", "GET", inc + "?sort=assignee", auth="alice_token",
+            desc="`assignee` is a sortable fixed column that the mask hides from Alice. (A sort on `description` is `validation_failed` for every caller, admin included: data properties are never sortable, so it reveals nothing.)",
             tests="N.problem('masked_field', 400);"),
         req("S10.58 C4: Alice writes description: 422 field_not_writable, nothing written", "PATCH", inc + "/{{s10_sd_rec}}",
             auth="alice_token", headers={**key("alice-desc"), **mp, "If-Match": 'W/"1"'}, body={"data": {"description": "changed"}},
@@ -1514,9 +1515,9 @@ N.noLeak('s10-internal-' + bru.getVar('s10_run'));"""),
             tests="N.status(200);\n" + ids + """test('exactly the /service-desk incident', () => expect(ids).to.eql([bru.getVar('s10_sd_rec')]));
 test('description unchanged', () => expect(N.json().items[0].data.description).to.eql('s10-internal-' + bru.getVar('s10_run')));"""),
         # ---- criterion 5: the explainer
-        req("S10.61 C5: explain (Alice, /service-desk incident): allow by default-service-desk, description masked", "GET",
+        req("S10.61 C5: explain (Alice, /service-desk incident): allow by default-service-desk, masked fields listed", "GET",
             ex("s10_sd_rec", "s10_alice"), auth="admin_a_token",
-            tests=explain("allow", "default-service-desk") + "\ntest('masked_fields: description', () => expect(b.masked_fields).to.eql(['description']));"),
+            tests=explain("allow", "default-service-desk") + "\ntest('masked_fields: assignee, description', () => expect(b.masked_fields).to.have.members(['assignee', 'description']));"),
         req("S10.62 C5: explain (Alice, admins incident): deny, no granting rule", "GET", ex("s10_adm_rec", "s10_alice"),
             auth="admin_a_token", desc="Rules are allow-only, so a deny names no rule: `rule_id` is null (api/paths/access.yaml).",
             tests=explain("deny", None)),
@@ -1529,7 +1530,7 @@ test('description unchanged', () => expect(N.json().items[0].data.description).t
             ex("s10_req2_rec", "s10_requester"), auth="admin_a_token",
             tests=explain("allow", "default-requester")),
         # ---- cleanup
-        req("S10.66 The admin removes the mask again: 200, the rules unchanged", "PUT", et, auth="admin_a_token",
+        req("S10.66 The admin removes the masks again: 200, the rules unchanged", "PUT", et, auth="admin_a_token",
             headers=key("unmask"), body={"rules": []}, pre=unmask_pre,
             desc="Republishes S10.10's rules and masks, so later folders and the next pass start from the default ACL's decisions.",
             tests="""N.status(200);

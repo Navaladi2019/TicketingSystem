@@ -1,5 +1,5 @@
 meta {
-  name: S10.31 The admin publishes the incident ACL with a mask on description: 200
+  name: S10.31 The admin publishes the incident ACL with masks on description and assignee: 200
   type: http
   seq: 31
 }
@@ -26,7 +26,8 @@ script:pre-request {
   const N = require('./lib/nava')({ bru });
   const cur = JSON.parse(bru.getVar('s10_policy'));
   const admins = bru.getVar('s10_admins');
-  req.setBody({ rules: cur.rules, masks: [{ field: 'description', read: { groups: [admins] }, write: { groups: [admins] } }] });
+  const m = (field) => ({ field, read: { groups: [admins] }, write: { groups: [admins] } });
+  req.setBody({ rules: cur.rules, masks: [m('description'), m('assignee')] });
   req.setHeader('If-Match', bru.getVar('s10_etag'));
 }
 
@@ -37,10 +38,9 @@ tests {
   const b = N.json();
   test('version: S10.15 + 1', () => expect(b.version).to.eql(was.version + 2));
   test('the same rules', () => expect(b.rules).to.eql(was.rules));
-  test('one mask, on description, admins only', () => {
-    expect(b.masks).to.have.length(1);
-    expect(b.masks[0].field).to.eql('description');
-    expect(b.masks[0].read.groups).to.eql([bru.getVar('s10_admins')]);
+  test('two masks, description and assignee, admins only', () => {
+    expect(b.masks.map(x => x.field)).to.have.members(['description', 'assignee']);
+    b.masks.forEach(x => expect(x.read.groups, x.field).to.eql([bru.getVar('s10_admins')]));
   });
   test('published_by is the admin', () => expect(b.published_by).to.eql(bru.getVar('s10_admin')));
   bru.setVar('s10_mask_version', String(b.version));
@@ -48,5 +48,5 @@ tests {
 }
 
 docs {
-  The rules of S10.10, unchanged, plus one mask: `description` is read and written by tenant A's `admins` group only (an internal-only field). `If-Match` is S10.15's `ETag`. S10.66 removes the mask again.
+  The rules of S10.10, unchanged, plus two masks, read and written by tenant A's `admins` group only: `description` (an internal-only field) and `assignee` (a fixed column, so the sort case of criterion 4 can be shown: a data property such as `description` is never sortable, for anyone, and answers `validation_failed`). `If-Match` is S10.15's `ETag`. S10.66 removes the mask again.
 }
