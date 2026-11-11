@@ -120,6 +120,13 @@ roles:
       # ACLs and shares (P3-30, TICK-615): immutable, insert-only.
       acl_versions: { SELECT: [], INSERT: [] }
       record_shares: { SELECT: [], INSERT: [] }
+      # Workflow definitions (P3-40, TICK-709, 20261111123300): a definition's
+      # key, entity and creator are set once; publishing moves current_version.
+      # Versions are immutable, insert-only (D-3-12). workflow_cause is the
+      # durable copy of a delivery's causation (D-3-29), insert-only.
+      workflow_definitions: { SELECT: [], INSERT: [], UPDATE: [current_version, updated_at] }
+      workflow_definition_versions: { SELECT: [], INSERT: [] }
+      workflow_cause: { SELECT: [], INSERT: [] }
     # TICK-629: acl_versions' rules and masks CHECKs call these, as the
     # inserting role.
     functions:
@@ -191,13 +198,20 @@ roles:
       cascade_start: { SELECT: [], INSERT: [] }
       record_counters: { SELECT: [], INSERT: [], UPDATE: [next] }
       outbox: { SELECT: [tenant_id, id, dedupe_key], INSERT: [] }
-      workflow_ref: { SELECT: [], INSERT: [], UPDATE: [closed_at] }
+      # closed_at: CloseWorkflowRef. record_changed_signal_id: NextStep's
+      # waiting state (P3-40, D-3-29). Never the key, record_id or kind.
+      workflow_ref: { SELECT: [], INSERT: [], UPDATE: [closed_at, record_changed_signal_id] }
       tenant_admin_group: { SELECT: [] }
       tenant_auditor_group: { SELECT: [] }
       entity_definitions: { SELECT: [] }
       entity_definition_versions: { SELECT: [] }
       acl_versions: { SELECT: [], INSERT: [] }
       record_shares: { SELECT: [], INSERT: [] }
+      # P3-40 (TICK-709): DefinitionStore.Load and the sink's trigger lookup
+      # read the definitions; workflow_cause as nava_app.
+      workflow_definitions: { SELECT: [] }
+      workflow_definition_versions: { SELECT: [] }
+      workflow_cause: { SELECT: [], INSERT: [] }
     # TICK-629: acl_versions' rules and masks CHECKs call these, as the
     # inserting role.
     functions:

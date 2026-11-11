@@ -111,7 +111,9 @@ func main() {
 }
 
 // seedSQL is the superuser SQL that seeds the demo entity type in tenant-a at
-// version 1, as entitytypes.Store.Seed writes a type (no publisher). The
+// version 1, as entitytypes.Store.Seed writes a type (no publisher), and
+// the workflow definition the start key names (cascade_start's foreign key,
+// P3-40; no creator, and no audit entry until P3-41 attaches its trigger). The
 // tenants row must exist. Every INSERT is ON CONFLICT DO NOTHING, so a rerun
 // changes nothing. The definition is compiled first, so the seed never stores
 // a type the pipeline would refuse.
@@ -152,11 +154,13 @@ INSERT INTO entity_definition_versions
   (tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat, published_by)
 VALUES ('%[1]s', '%[5]s', '%[2]s', 1, $nava$%[6]s$nava$::json, '\x%[7]s'::bytea, '%[8]s'::jsonb, '%[9]s'::jsonb, 'initial', NULL)
 ON CONFLICT DO NOTHING;
+INSERT INTO workflow_definitions (tenant_id, id, key, entity_definition_id, current_version, created_by)
+VALUES ('%[1]s', '%[10]s', 'demo_start', '%[2]s', 1, NULL) ON CONFLICT DO NOTHING;
 ALTER TABLE entity_definitions ENABLE TRIGGER entity_definitions_audit_commit_check;
 ALTER TABLE entity_definition_versions ENABLE TRIGGER entity_definition_versions_audit_commit_check;
 COMMIT;
 `, tenantA, entityDefID, entityKey, entityPrefix, entityVersionID, entitySchema, hex.EncodeToString(sum[:]),
-		fixed, states), nil
+		fixed, states, definition), nil
 }
 
 func run(ctx context.Context, lookup func(string) (string, bool), out io.Writer) error {

@@ -48,6 +48,9 @@ func TestP312CascadeStartKey(t *testing.T) {
 	super := superNava(t)
 	seedTenants(t, super, []string{tenantA, tenantB}, nil)
 	seedPipeline(t, super, tenantA, tenantB)
+	// Every claim names a definition of its own tenant (P3-40's foreign key).
+	seedWorkflowDefinition(t, super, defX, tenantA, tenantB)
+	seedWorkflowDefinition(t, super, tenantA, tenantA, tenantB)
 	recA, recB := pipelineRecord(tenantA), pipelineRecord(tenantB) // the same id in both tenants
 
 	for i, role := range []string{"nava_app", "nava_worker"} {

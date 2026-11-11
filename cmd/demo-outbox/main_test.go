@@ -34,18 +34,20 @@ func TestEntityTypeTakesTheDemoWrites(t *testing.T) {
 }
 
 // TestSeedSQL: the seed is idempotent, keeps the schema's exact bytes with
-// the hash the table CHECK recomputes, and names tenant-a.
+// the hash the table CHECK recomputes, names tenant-a, and seeds the workflow
+// definition the start key names (P3-40).
 func TestSeedSQL(t *testing.T) {
 	s, err := seedSQL()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := strings.Count(s, "ON CONFLICT DO NOTHING"); n != 2 {
-		t.Errorf("%d ON CONFLICT DO NOTHING, want 2 (one per INSERT)", n)
+	if n := strings.Count(s, "ON CONFLICT DO NOTHING"); n != 3 {
+		t.Errorf("%d ON CONFLICT DO NOTHING, want 3 (one per INSERT)", n)
 	}
 	sum := sha256.Sum256([]byte(entitySchema))
 	for _, want := range []string{"$nava$" + entitySchema + "$nava$::json", `'\x` + hex.EncodeToString(sum[:]) + `'::bytea`,
-		"'" + tenantA + "'", "'" + entityKey + "'", "'" + entityPrefix + "'", "'initial', NULL"} {
+		"'" + tenantA + "'", "'" + entityKey + "'", "'" + entityPrefix + "'", "'initial', NULL",
+		"'" + definition + "', 'demo_start', '" + entityDefID + "', 1, NULL"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("seed SQL lacks %s:\n%s", want, s)
 		}
