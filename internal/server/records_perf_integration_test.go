@@ -835,6 +835,13 @@ type perfResult struct {
 	// setup is how the attempt was prepared and what ran during its probe
 	// (creates only).
 	setup perfSetup
+	// storage is the dedicated storage probe's commit p50 in ms, taken
+	// just before this attempt: the storage-window gate since the CTO's
+	// 2026-11-10 19:49 reading (creates only).
+	storage float64
+	// intruders are containers outside perfAllowedContainers seen while the
+	// attempt ran; any one voids the attempt.
+	intruders []string
 }
 
 // perfSetup records an attempt's method steps (Technical Lead, 2026-11-10
@@ -883,8 +890,11 @@ func (r *perfResult) gateReason() string {
 	if r.probe > perfHostGateMS {
 		why = append(why, fmt.Sprintf("host probe %.2f > %.1f ms", r.probe, perfHostGateMS))
 	}
-	if r.commitP50() > perfCommitGateMS {
-		why = append(why, fmt.Sprintf("commit p50 %.2f > %.0f ms", r.commitP50(), perfCommitGateMS))
+	if r.storage > perfCommitGateMS {
+		why = append(why, fmt.Sprintf("storage probe %.2f > %.0f ms", r.storage, perfCommitGateMS))
+	}
+	if len(r.intruders) > 0 {
+		why = append(why, "other containers during the attempt: "+strings.Join(r.intruders, " "))
 	}
 	return strings.Join(why, ", ")
 }
@@ -986,15 +996,9 @@ func (e *perfEnv) quiesce(t *testing.T) time.Duration {
 // long that took.
 func isolate(t *testing.T) time.Duration {
 	t.Helper()
-	own := os.Getenv("NAVA_PERF_PG_CONTAINER")
 	start := time.Now()
 	for {
-		var others []string
-		for _, n := range dockerLines(t.Context(), "ps", "--format", "{{.Names}}") {
-			if n != own && (strings.HasPrefix(n, "nava-it-pg-") || strings.HasPrefix(n, "nava-aclperf-") || strings.HasPrefix(n, "docker: ")) {
-				others = append(others, n)
-			}
-		}
+		others := foreignContainers(t.Context())
 		if len(others) == 0 {
 			return time.Since(start)
 		}
@@ -1005,6 +1009,85 @@ func isolate(t *testing.T) time.Duration {
 		time.Sleep(15 * time.Second)
 	}
 }
+
+// perfAllowedContainers may run during a create attempt besides the run's
+// own database (Technical Lead, 2026-11-11 02:45 UTC): the idle buildkit
+// builder and the Multica platform, which runs the agents and cannot stop.
+// Their CPU is in every docker stats sample.
+var perfAllowedContainers = map[string]bool{ //nolint:gochecknoglobals // a fixed allow-list
+	"buildx_buildkit_nava-ci0": true,
+	"multica-backend-1":        true,
+	"multica-frontend-1":       true,
+	"multica-postgres-1":       true,
+}
+
+// foreignContainers lists running containers other than the run's own
+// database (NAVA_PERF_PG_CONTAINER) and perfAllowedContainers; a docker
+// error is returned as one entry, so it never reads as an idle host.
+func foreignContainers(ctx context.Context) []string {
+	own := os.Getenv("NAVA_PERF_PG_CONTAINER")
+	var out []string
+	for _, n := range dockerLines(ctx, "ps", "--format", "{{.Names}}") {
+		if n != "" && n != own && !perfAllowedContainers[n] {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// watchContainers polls docker ps every 5 s until stop closes and returns
+// every foreign container it saw.
+func watchContainers(ctx context.Context, stop <-chan struct{}) <-chan []string {
+	res := make(chan []string, 1)
+	go func() {
+		seen := map[string]bool{}
+		tick := time.NewTicker(5 * time.Second)
+		defer tick.Stop()
+		for {
+			for _, n := range foreignContainers(ctx) {
+				seen[n] = true
+			}
+			select {
+			case <-stop:
+				out := make([]string, 0, len(seen))
+				for n := range seen {
+					out = append(out, n)
+				}
+				slices.Sort(out)
+				res <- out
+				return
+			case <-tick.C:
+			}
+		}
+	}()
+	return res
+}
+
+// storageProbe is the storage-window gate's measurement (CTO, 2026-11-10
+// 19:49 UTC): one client commits a transaction that inserts no row but
+// writes WAL, `BEGIN; SELECT pg_logical_emit_message(true, ...); COMMIT`
+// (one round trip, simple protocol), perfStorageProbeN times. A
+// transactional message makes the COMMIT flush its WAL, as a create's does;
+// a transaction that only takes an id (pg_current_xact_id) does not, and an
+// empty one writes nothing (checked with pg_stat_wal.wal_sync: 50 commits,
+// 50 syncs, against 2 for the id-only form). It runs on the superuser
+// connection, which may call the function. Its p50 is the disk's commit
+// latency without a create's INSERT.
+func (e *perfEnv) storageProbe(t *testing.T) float64 {
+	t.Helper()
+	d := make([]time.Duration, 0, perfStorageProbeN)
+	for range perfStorageProbeN {
+		t0 := time.Now()
+		if _, err := e.super.Exec(t.Context(), "BEGIN; SELECT pg_logical_emit_message(true, 'nava-perf', 'storage probe'); COMMIT"); err != nil {
+			t.Fatal(err)
+		}
+		d = append(d, time.Since(t0))
+	}
+	return pct(d, .5)
+}
+
+// perfStorageProbeN is the storage probe's commits.
+const perfStorageProbeN = 100
 
 // perfHold is one create's record_counters window (D-3-9). wait is the
 // upsert itself: the queue for the row lock plus its execution. hold runs
@@ -1244,17 +1327,25 @@ func TestRecordsACLPerf800k(t *testing.T) {
 			attempts = perfCommitAttempts
 		}
 		for a := 1; a <= attempts; a++ {
-			probe := 0.0
+			probe, storage := 0.0, 0.0
 			var st perfSetup
+			var watch <-chan []string
+			stop := make(chan struct{})
 			if sc.kind == "create" {
 				st.isolationWait = isolate(t)
 				st.quiesceWait = e.quiesce(t)
 				probe = e.hostProbe(t, &st)
+				storage = e.storageProbe(t)
+				watch = watchContainers(t.Context(), stop)
 			}
 			r := e.run(t, sc, c, time.Duration(secs)*time.Second)
-			r.attempt, r.probe, r.setup = a, probe, st
-			t.Logf("RESULT %-62s attempt %d n=%6d p50=%8.2f p95=%8.2f p99=%8.2f ms commit p50=%6.2f host probe=%5.2f retry_later=%d gated=%q",
-				sc.name, a, len(r.lat), pct(r.lat, .50), pct(r.lat, .95), pct(r.lat, .99), r.commitP50(), r.probe, r.retryLater(), r.gateReason())
+			close(stop)
+			if watch != nil {
+				r.intruders = <-watch
+			}
+			r.attempt, r.probe, r.setup, r.storage = a, probe, st, storage
+			t.Logf("RESULT %-62s attempt %d n=%6d p50=%8.2f p95=%8.2f p99=%8.2f ms storage probe=%6.2f in-trace commit p50=%6.2f host probe=%5.2f retry_later=%d gated=%q",
+				sc.name, a, len(r.lat), pct(r.lat, .50), pct(r.lat, .95), pct(r.lat, .99), r.storage, r.commitP50(), r.probe, r.retryLater(), r.gateReason())
 			results = append(results, r)
 			if !r.gated() {
 				break
@@ -1286,7 +1377,7 @@ func TestRecordsACLPerf800k(t *testing.T) {
 	}
 	for name, bad := range invalid {
 		if bad {
-			t.Errorf("HOST INVALID for creates: %s had no valid attempt (host probe <= %.1f ms and commit p50 <= %.0f ms) in %d attempts", name, perfHostGateMS, perfCommitGateMS, perfCommitAttempts)
+			t.Errorf("HOST INVALID for creates: %s had no valid attempt (host probe <= %.1f ms, storage probe <= %.0f ms, no other container) in %d attempts", name, perfHostGateMS, perfCommitGateMS, perfCommitAttempts)
 		}
 	}
 }
@@ -1346,8 +1437,8 @@ func (e *perfEnv) report(t *testing.T, results []*perfResult, floor []time.Durat
 		UNION ALL SELECT 'heap ' || pg_size_pretty(pg_relation_size('records')) || ', indexes ' || pg_size_pretty(pg_indexes_size('records'))`))
 	w("## Transport floor\n\n`SELECT 1` on the handler's pool, %d clients x 200: p50 %.2f / p95 %.2f / p99 %.2f ms. Each statement in the tables below pays about this much before the database does any work.\n\n",
 		clients, pct(floor, .50), pct(floor, .95), pct(floor, .99))
-	w("## Results (ms, per request through the handler)\n\nA create row attempt is scored only when it passes every gate (CTO, 2026-11-10): the transport floor (p50 <= %.0f ms, checked once, the run stops otherwise), the host-speed probe (a 1-client `BEGIN; COMMIT` p50 <= %.1f ms, run just before the attempt) and the storage window (the create's own commit round trip p50 <= %.0f ms, from its trace). A gated attempt is neither a pass nor a fail and is re-run, at most %d attempts. A `503 retry_later` in a valid attempt is a miss. Round trips are one request's, the first actor's.\n\n", perfFloorGateMS, perfHostGateMS, perfCommitGateMS, perfCommitAttempts)
-	w("| Scenario | Attempt | Tenant | n | p50 | p95 | p99 | Host probe p50 | Commit p50 | Round trips | retry_later | Target | Verdict |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	w("## Results (ms, per request through the handler)\n\nA create row attempt is scored only when it passes every gate (CTO, 2026-11-10): the transport floor (p50 <= %.0f ms, checked once, the run stops otherwise), the host-speed probe (a 1-client `BEGIN; COMMIT` p50 <= %.1f ms, run just before the attempt) and the storage window (a dedicated 1-client `BEGIN; SELECT pg_logical_emit_message(true, ...); COMMIT` probe, a commit that flushes WAL with no INSERT, p50 <= %.0f ms, run just before the attempt; the in-trace commit round trip, which since TICK-692 carries the INSERT, is reported only). An attempt is also void if a container other than the run's database, the buildkit builder and the three Multica platform containers runs during it. A gated attempt is neither a pass nor a fail and is re-run, at most %d attempts. A `503 retry_later` in a valid attempt is a miss. Round trips are one request's, the first actor's.\n\n", perfFloorGateMS, perfHostGateMS, perfCommitGateMS, perfCommitAttempts)
+	w("| Scenario | Attempt | Tenant | n | p50 | p95 | p99 | Host probe p50 | Storage probe p50 | In-trace commit p50 | Round trips | retry_later | Target | Verdict |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, r := range results {
 		p95 := pct(r.lat, .95)
 		v := "meets"
@@ -1363,13 +1454,13 @@ func (e *perfEnv) report(t *testing.T, results []*perfResult, floor []time.Durat
 		case r.sc.kind == "create" && r.retryLater() > 0:
 			v = "**MISS** (retry_later)"
 		}
-		attempt, probe, commit, trips, rl := "-", "-", "-", "-", "-"
+		attempt, probe, storage, commit, trips, rl := "-", "-", "-", "-", "-", "-"
 		if r.sc.kind == "create" {
 			n, _, _ := roundTrips(r.stmtSQL)
 			attempt, commit, trips = strconv.Itoa(max(r.attempt, 1)), fmt.Sprintf("%.2f", r.commitP50()), strconv.Itoa(n)
-			probe, rl = fmt.Sprintf("%.2f", r.probe), strconv.FormatInt(r.retryLater(), 10)
+			probe, rl, storage = fmt.Sprintf("%.2f", r.probe), strconv.FormatInt(r.retryLater(), 10), fmt.Sprintf("%.2f", r.storage)
 		}
-		w("| %s | %s | %s | %d | %.2f | %.2f | %.2f | %s | %s | %s | %s | %.0f | %s |\n", r.sc.name, attempt, r.sc.tenant, len(r.lat), pct(r.lat, .5), p95, pct(r.lat, .99), probe, commit, trips, rl, r.target(), v)
+		w("| %s | %s | %s | %d | %.2f | %.2f | %.2f | %s | %s | %s | %s | %s | %.0f | %s |\n", r.sc.name, attempt, r.sc.tenant, len(r.lat), pct(r.lat, .5), p95, pct(r.lat, .99), probe, storage, commit, trips, rl, r.target(), v)
 	}
 	e.reportHolds(w, results, floor)
 	reportAlloc(w, results)
@@ -1638,7 +1729,7 @@ func reportAlloc(w func(string, ...any), results []*perfResult) {
 // reportSetup prints, per create attempt, the method steps before it and
 // what pg_stat_activity and docker stats showed during its host probe.
 func reportSetup(w func(string, ...any), results []*perfResult) {
-	w("\n## Attempt setup and host-probe samples (creates)\n\nBefore each create attempt: wait until no other `nava-it-pg-*` or `nava-aclperf-*` container runs, then until no autovacuum or analyze backend works in the bench database, then the host-speed probe. `pg_stat_activity` is read at the probe's midpoint (every non-idle backend and every non-client backend, other than the reader); `docker stats` is one sample taken while the probe runs. The seed was quiesced once with `VACUUM (ANALYZE)` and `CHECKPOINT`.\n\n")
+	w("\n## Attempt setup and host-probe samples (creates)\n\nBefore each create attempt: wait until no container runs other than the run's database, `buildx_buildkit_nava-ci0` and the three `multica-*` platform containers (docker ps is polled every 5 s during the attempt too; another container voids it), then until no autovacuum or analyze backend works in the bench database, then the host-speed probe and the storage probe. `pg_stat_activity` is read at the probe's midpoint (every non-idle backend and every non-client backend, other than the reader); `docker stats` is one sample taken while the probe runs. The seed was quiesced once with `VACUUM (ANALYZE)` and `CHECKPOINT`.\n\n")
 	for _, r := range results {
 		if r.sc.kind != "create" {
 			continue

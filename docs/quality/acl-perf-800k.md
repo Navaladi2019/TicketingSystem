@@ -6,6 +6,58 @@ the D25 escalation. The question: with the real compiled ACL predicate
 `records/store.List`), is list p95 ≤ 150 ms and single-read p95 ≤ 50 ms at
 800k records?
 
+## Create re-run on the idle machine (option A, 2026-11-11 ~03:2x UTC): every valid row meets
+
+**Result: PASS.** All four scored create rows were valid on their first attempt, and all meet p95 ≤ 50 ms:
+
+| Row | p95 |
+| --- | --- |
+| 1 client | 23.0 ms |
+| 8 clients, agent | 42.4 ms |
+| 8 clients, admin | 42.1 ms |
+| 8 clients, small tenant | 47.2 ms |
+
+Per vknavaladi's option A (2026-11-11 02:45 UTC), the 50 ms target is kept strictly.
+
+**Build and method.**
+- **Harness and build:** this harness at story tip `9975568b`, which includes TICK-692 (`25aedcf0`) and TICK-663. The run used `NAVA_PERF_ONLY='^create'`.
+- **Raw report:** `final-2026-11-11-idle-machine.md`.
+- **Machine:** idle apart from the allowed containers: `buildx_buildkit_nava-ci0` and the Multica platform (`multica-backend-1`, `multica-frontend-1`, `multica-postgres-1`). Their CPU stayed ≤ 0.34% in every probe sample.
+- **Container watch:** `docker ps` was polled every 5 s during each attempt. No other container appeared.
+- **Quiesce:** `VACUUM (ANALYZE)` and `CHECKPOINT` took 20 s.
+- **Transport floor:** p50 1.08 ms, p95 1.69 ms.
+
+**Storage gate (CTO, 2026-11-10 19:49 reading).** The gate is now a dedicated 1-client probe run just before each attempt: `BEGIN; SELECT pg_logical_emit_message(true, …); COMMIT`. That commit flushes WAL without any `INSERT`. The in-trace commit p50 is reported but not used for the gate.
+
+**The first idle run (02:5x UTC) is void.** That run used a `BEGIN; SELECT pg_current_xact_id(); COMMIT` probe, which does not flush WAL. It read 0.5 to 1.0 ms and gated nothing.
+- **How it was caught:** `pg_stat_wal.wal_sync` on a throwaway `postgres:16.10` showed 50 commits giving 2 syncs with an id only, against 50 with an `INSERT` and 50 with a transactional `pg_logical_emit_message`.
+- **Its numbers:** p95 22.5, 41.2, 40.6 and 38.0 ms, in `final-2026-11-11-idle-machine-void-probe.md`. They agree with the valid run, but they are not scored.
+
+**Every attempt** (ms)
+
+| Row | Att. | p95 | Host probe | Storage probe | In-trace commit p50 | Counter wait p50 / p95 | Alloc p50 / p95 | Round trips | 409 / 503 | Verdict |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 client | 1 | **23.0** | 0.58 | 2.91 | 6.48 | 1.69 / 2.76 | 1.81 / 3.35 | 4 | 0 / 0 | **meets** |
+| 8 clients, agent | 1 | **42.4** | 1.08 | 3.78 | 11.42 | 2.88 / 5.02 | 3.37 / 6.36 | 4 | 0 / 0 | **meets** |
+| 8 clients, admin | 1 | **42.1** | 0.55 | 3.25 | 11.32 | 2.85 / 4.73 | 3.33 / 5.01 | 4 | 0 / 0 | **meets** |
+| 8 clients, small tenant | 1 | **47.2** | 1.09 | 2.87 | 11.21 | 2.83 / 5.04 | 3.20 / 6.01 | 4 | 0 / 0 | **meets** |
+| 8 clients, `gapless` | 1 | 205.7 | 1.59 | 3.20 | 6.85 | 39.3 / 186.2 | – | 4 | 0 / 0 | reported only |
+
+Allocator acquire wait was p95 ≤ 0.49 ms, and `nava_numbering_alloc_timeouts` stayed at 0.
+
+**Where an 8-client create spends its time.** Agent: request p50 29.0 ms, p95 42.4 ms.
+
+| Round trip | p50 / p95 (ms) |
+| --- | --- |
+| `BEGIN` + claim + prefetch | 6.4 / 11.7 |
+| Checks | 3.1 / 5.2 |
+| `AllocTx` | 2.9 / 5.0 |
+| `INSERT` + completion + `COMMIT` | 11.4 / 16.5 |
+
+The statements sum to 23.8 ms. Handler time between round trips is 5.2 ms.
+
+**The margin is thin.** On the busy host the night before, the same build read 52 to 90 ms, and small tenant meets here by 2.8 ms. The verdict holds for an idle machine. Whether production storage keeps this margin is the go-live risk the CTO recorded.
+
 ## Final quiesced create re-run after TICK-692 (`25aedcf0`, 19:3x UTC)
 
 **Result under the frozen rules:**
@@ -535,7 +587,7 @@ and writes the raw report to `bin/acl-perf-800k-raw.md`. The test fails when
 any scenario misses its target. Env: `NAVA_PERF_SECONDS` (20),
 `NAVA_PERF_CLIENTS` (8), `NAVA_PERF_OUT`, `NAVA_PERF_ONLY` (a regular
 expression over scenario names, for example `^create`), `BENCH_KEEP=1`,
-and the create attempts' method steps: the seed is quiesced with `VACUUM (ANALYZE)` and `CHECKPOINT`, and before each create attempt the test waits until no other `nava-it-pg-*` or `nava-aclperf-*` container runs and no autovacuum or analyze works in the bench database, then samples `pg_stat_activity` and `docker stats` during the host-speed probe (`NAVA_PERF_CHECKPOINT` is gone: the checkpoint always runs).
+and the create attempts' method steps: the seed is quiesced with `VACUUM (ANALYZE)` and `CHECKPOINT`, and before each create attempt the test waits until no other `nava-it-pg-*` or `nava-aclperf-*` container runs and no autovacuum or analyze works in the bench database, then samples `pg_stat_activity` and `docker stats` during the host-speed probe (`NAVA_PERF_CHECKPOINT` is gone: the checkpoint always runs). Before each create attempt it also runs the storage probe (`BEGIN; SELECT pg_logical_emit_message(true, ...); COMMIT`, the storage-window gate) and voids the attempt if a container other than its database, `buildx_buildkit_nava-ci0` and the `multica-*` platform runs.
 
 Raw output for this run, with every statement, argument and plan:
 `docs/quality/acl-perf-800k/run-2026-11-09.md`.
