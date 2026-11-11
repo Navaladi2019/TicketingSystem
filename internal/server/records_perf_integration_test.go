@@ -19,7 +19,9 @@
 //
 // Env: NAVA_PERF_SECONDS (20) per scenario, NAVA_PERF_CLIENTS (8),
 // NAVA_PERF_OUT (the raw report, default bin/acl-perf-800k-raw.md),
-// NAVA_PERF_ONLY (a regular expression over scenario names; empty runs all).
+// NAVA_PERF_ONLY (a regular expression over scenario names; empty runs all),
+// NAVA_PERF_RATE and NAVA_PERF_WARMUP (open-loop creates, TICK-700: see
+// records_perf_openloop_integration_test.go).
 
 package server_test
 
@@ -164,6 +166,8 @@ type perfTrace struct {
 	mu    sync.Mutex
 	start time.Time
 	stmts []perfStmt
+	// acqs are the request's pool acquires (TICK-700, AcquireTracer).
+	acqs []perfAcq
 }
 
 func newPerfTrace() *perfTrace { return &perfTrace{start: time.Now()} }
@@ -842,6 +846,8 @@ type perfResult struct {
 	// intruders are containers outside perfAllowedContainers seen while the
 	// attempt ran; any one voids the attempt.
 	intruders []string
+	// open is set on an open-loop row (TICK-700, NAVA_PERF_RATE).
+	open *perfOpen
 }
 
 // perfSetup records an attempt's method steps (Technical Lead, 2026-11-10
@@ -1311,6 +1317,19 @@ func TestRecordsACLPerf800k(t *testing.T) {
 	if p50 := pct(floor, .50); p50 > perfFloorGateMS {
 		t.Fatalf("host busy: transport floor p50 %.2f ms > %.0f ms gate; no numbers taken", p50, perfFloorGateMS)
 	}
+	if rates := perfRates(t); rates != nil {
+		// TICK-700: open-loop creates, informational. No gate, no target.
+		warm := time.Duration(perfEnvInt("NAVA_PERF_WARMUP", 10)) * time.Second
+		report := e.report(t, e.openLoop(t, rates, warm, time.Duration(secs)*time.Second), floor, clients, secs)
+		if err := os.MkdirAll(filepath.Dir(out), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(out, []byte(report), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("wrote %s", out)
+		return
+	}
 	var results []*perfResult
 	for _, sc := range e.scenarios(t) {
 		c := clients
@@ -1437,6 +1456,7 @@ func (e *perfEnv) report(t *testing.T, results []*perfResult, floor []time.Durat
 		UNION ALL SELECT 'heap ' || pg_size_pretty(pg_relation_size('records')) || ', indexes ' || pg_size_pretty(pg_indexes_size('records'))`))
 	w("## Transport floor\n\n`SELECT 1` on the handler's pool, %d clients x 200: p50 %.2f / p95 %.2f / p99 %.2f ms. Each statement in the tables below pays about this much before the database does any work.\n\n",
 		clients, pct(floor, .50), pct(floor, .95), pct(floor, .99))
+	reportOpen(w, results)
 	w("## Results (ms, per request through the handler)\n\nA create row attempt is scored only when it passes every gate (CTO, 2026-11-10): the transport floor (p50 <= %.0f ms, checked once, the run stops otherwise), the host-speed probe (a 1-client `BEGIN; COMMIT` p50 <= %.1f ms, run just before the attempt) and the storage window (a dedicated 1-client `BEGIN; SELECT pg_logical_emit_message(true, ...); COMMIT` probe, a commit that flushes WAL with no INSERT, p50 <= %.0f ms, run just before the attempt; the in-trace commit round trip, which since TICK-692 carries the INSERT, is reported only). An attempt is also void if a container other than the run's database, the buildkit builder and the three Multica platform containers runs during it. A gated attempt is neither a pass nor a fail and is re-run, at most %d attempts. A `503 retry_later` in a valid attempt is a miss. Round trips are one request's, the first actor's.\n\n", perfFloorGateMS, perfHostGateMS, perfCommitGateMS, perfCommitAttempts)
 	w("| Scenario | Attempt | Tenant | n | p50 | p95 | p99 | Host probe p50 | Storage probe p50 | In-trace commit p50 | Round trips | retry_later | Target | Verdict |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, r := range results {
