@@ -16,6 +16,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
 )
 
@@ -77,6 +79,23 @@ func TestEveryTenantWriteRouteCompletesItsKeyInTheWrite(t *testing.T) {
 			// Keeps the seeded principals able to use the types, as the test ACL did.
 			body := `{"rules": [{"id": "k487", "ops": ["read", "write"], "who": {"users": ["` + e.a.admin.PrincipalID.String() + `", "` + e.a.user.PrincipalID.String() + `"]}}]}`
 			return e.access(t, http.MethodPut, "/api/v1/entity-types/incident/access", "admin-a", key, `W/"1"`, body)
+		},
+		"POST /api/v1/audit/chain:reseed": func(key string) *httptest.ResponseRecorder {
+			// A tenant with a dead chain head (R17: next_seal_at over 10 minutes late).
+			ctx := t.Context()
+			if _, err := e.super.Exec(ctx, "INSERT INTO audit_chain_head (tenant_id, id) VALUES ($1, $2) ON CONFLICT DO NOTHING", e.a.id, uuid.New()); err != nil {
+				t.Fatal(err)
+			}
+			o := uuid.Must(uuid.NewV7())
+			if _, err := e.super.Exec(ctx, `INSERT INTO outbox (id, tenant_id, kind, kind_version, dedupe_key, target_key, target_seq,
+				causation_id, causation_depth, payload) VALUES ($1::uuid, $2::uuid, 'audit.seal', 1, 'audit.seal:' || $3::text, 'audit.seal:' || $3::text,
+				(SELECT version FROM audit_chain_head WHERE tenant_id = $2::uuid), $1::uuid, 0, '{}')`, o, e.a.id, o.String()); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := e.super.Exec(ctx, "UPDATE audit_chain_head SET next_seal_outbox_id = $2, next_seal_at = now() - interval '11 minutes' WHERE tenant_id = $1", e.a.id, o); err != nil {
+				t.Fatal(err)
+			}
+			return e.do(t, http.MethodPost, "/api/v1/audit/chain:reseed", "admin-a", key, "")
 		},
 	}
 
