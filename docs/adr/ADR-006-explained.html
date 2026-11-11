@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RFC-015 explained: filterable and searchable tenant fields</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--accbg:#ddf4ff;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--accbg:#0c2d6b;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.banner{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.pill{font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left;overflow-wrap:break-word}
+th{background:var(--soft)}
+table.front th{width:120px}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px;margin-top:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:44px}
+h3{font-size:18px;margin-top:28px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;background:var(--soft);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+figure.diagram{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure.diagram svg{width:100%;min-width:600px;height:auto;display:block;margin:0 auto;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+.tag{display:inline-block;font-size:12px;font-weight:700;padding:1px 9px;border-radius:999px;white-space:nowrap}
+.tag.red{color:var(--bad);background:var(--badbg);border:1px solid var(--bad)}
+.tag.green{color:var(--good);background:var(--goodbg);border:1px solid var(--good)}
+.tag.amber{color:var(--warn);background:var(--warnbg);border:1px solid var(--warn)}
+.callout{border:1px solid var(--warn);background:var(--warnbg);border-radius:8px;padding:10px 14px;margin:14px 0}
+dl.gloss{display:grid;grid-template-columns:minmax(140px,220px) minmax(0,1fr);gap:6px 18px}
+dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
+@media (max-width:640px){dl.gloss{grid-template-columns:minmax(0,1fr)} dl.gloss dd{margin-bottom:8px}}
+@media print{table{display:table}}
+</style>
+</head>
+</head>
+<body><main>
+<div class="banner"><span class="pill">READING GUIDE &middot; RFC-015 DRAFT (rev 0) &middot; ADR-006 not yet decided</span>
+<span class="src">This companion explains <code>docs/adr/ADR-006/rfc/RFC-015-filterable-searchable-fields.md</code>. It changes nothing. If this page and the RFC disagree, the RFC wins.</span></div>
+<table class="front"><tbody>
+<tr><th>Question</th><td>How can tenant-defined fields on tickets be filtered and searched fast (under 150 ms) at 100k+ records, including a field an admin marks filterable after the data already exists?</td></tr>
+<tr><th>Recommendation</th><td><b>Option A, the proposal from vknavaladi:</b> keep the record in JSON, and copy each filterable field into a small typed table that the database can index safely. Search uses the same trick. No external search engine for now.</td></tr>
+<tr><th>Issue</th><td>TICK-714</td></tr>
+<tr><th>Status</th><td>Draft. Waiting for the benchmark spike S1 (Postgres specialist), the Technical Architect critique and the security review.</td></tr>
+</tbody></table>
+
+<h2>1. The problem in plain words</h2>
+<p>Each tenant designs its own ticket fields, such as <i>site</i>, <i>priority</i> or <i>customer tier</i>. We store them in one flexible JSON column, <code>records.data</code>. Filtering on them is slow: <code>filter[site]=s7</code> takes 1.3 s at the 95th percentile, against a 150 ms target.</p>
+<p>The usual fix, an index on the JSON column, <b>does not work for us</b>. The reason is our tenant wall.</p>
+<dl class="gloss">
+<dt>RLS (row-level security)</dt><dd>A database rule that makes every query see only the current tenant's rows. It is our main protection against one customer seeing another's data.</dd>
+<dt>Leakproof</dt><dd>A property of a database comparison: it cannot reveal anything about a row through an error message. Under RLS, the database only uses an index for a comparison that is leakproof. Otherwise it first applies the tenant rule row by row, which means reading everything.</dd>
+<dt>Index</dt><dd>A sorted lookup structure, like a book index, that lets the database jump to matching rows instead of reading all of them.</dd>
+</dl>
+<p>The JSON comparisons are not leakproof. So for our application user the database ignores any JSON index and reads the tenant's whole table: 9 ms with the index, 292 ms without it, in our earlier benchmark.</p>
+<p>A new finding in this RFC: plain comparisons on text, whole numbers, floating-point numbers, dates and true/false <b>are</b> leakproof. Exact decimal numbers (<code>numeric</code>) and the database's own full-text search operator (<code>@@</code>) are <b>not</b>. That shapes every choice below.</p>
+
+<h2>2. The decision</h2>
+<figure class="diagram">
+<svg viewBox="0 0 760 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Record write copies filterable fields into a typed side table">
+<defs><marker id="ar" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#57606a"/></marker></defs>
+<rect x="20" y="30" width="190" height="80" rx="8" fill="#ddf4ff" stroke="#0969da"/>
+<text x="115" y="58" text-anchor="middle" font-size="14" font-weight="700" fill="#1f2328">Save a ticket</text>
+<text x="115" y="80" text-anchor="middle" font-size="12" fill="#1f2328">one write pipeline</text>
+<text x="115" y="96" text-anchor="middle" font-size="12" fill="#1f2328">one transaction</text>
+<rect x="270" y="20" width="210" height="100" rx="8" fill="#f6f8fa" stroke="#57606a"/>
+<text x="375" y="46" text-anchor="middle" font-size="14" font-weight="700" fill="#1f2328">records</text>
+<text x="375" y="68" text-anchor="middle" font-size="12" fill="#1f2328">data (JSON): source of truth</text>
+<text x="375" y="86" text-anchor="middle" font-size="12" fill="#1f2328">audited, unchanged</text>
+<text x="375" y="104" text-anchor="middle" font-size="12" fill="#1f2328">trigger fires on change</text>
+<rect x="540" y="20" width="200" height="100" rx="8" fill="#dafbe1" stroke="#1a7f37"/>
+<text x="640" y="46" text-anchor="middle" font-size="14" font-weight="700" fill="#1f2328">record_field_values</text>
+<text x="640" y="68" text-anchor="middle" font-size="12" fill="#1f2328">a typed copy of each</text>
+<text x="640" y="86" text-anchor="middle" font-size="12" fill="#1f2328">filterable field</text>
+<text x="640" y="104" text-anchor="middle" font-size="12" fill="#1f2328">RLS + safe indexes</text>
+<line x1="210" y1="70" x2="266" y2="70" stroke="#57606a" stroke-width="2" marker-end="url(#ar)"/>
+<line x1="480" y1="70" x2="536" y2="70" stroke="#57606a" stroke-width="2" marker-end="url(#ar)"/>
+<text x="508" y="62" text-anchor="middle" font-size="11" fill="#57606a">copy</text>
+<rect x="270" y="160" width="210" height="70" rx="8" fill="#ddf4ff" stroke="#0969da"/>
+<text x="375" y="188" text-anchor="middle" font-size="14" font-weight="700" fill="#1f2328">List with filter[site]=s7</text>
+<text x="375" y="208" text-anchor="middle" font-size="12" fill="#1f2328">same ACL as today</text>
+<line x1="480" y1="195" x2="640" y2="195" stroke="#57606a" stroke-width="2"/>
+<line x1="640" y1="195" x2="640" y2="124" stroke="#57606a" stroke-width="2" marker-end="url(#ar)"/>
+<text x="560" y="214" text-anchor="middle" font-size="11" fill="#57606a">index lookup, inside the tenant wall</text>
+</svg>
+<figcaption>The record stays as it is. A trigger copies only the flagged fields into a typed table that the database can index under RLS.</figcaption>
+</figure>
+<ol>
+<li><b>Keep JSON as the truth; copy filterable fields into a typed side table.</b> An admin marks a field "filterable" in the type designer. From then on, a database trigger copies that field's value into <code>record_field_values</code> whenever a ticket is saved, in the same transaction.</li>
+<li><b>Store numbers as floating-point, not as exact decimals,</b> because only floating-point comparisons are leakproof. Whole numbers stay exact up to 9 quadrillion.</li>
+<li><b>Range filters</b> on numbers and dates (for example "due before Friday") come back. <b>Sorting</b> by a custom field stays out until the benchmark shows its cost.</li>
+<li><b>Search</b> ("tickets mentioning <i>printer</i>") uses a second side table that stores each word of a "searchable" field. Word lookups are leakproof, so they work inside the tenant wall.</li>
+<li><b>No per-tenant database changes.</b> Flagging a field never changes the database structure, which keeps the rule "configuration, not code".</li>
+</ol>
+
+<h2>3. Options considered</h2>
+<table><thead><tr><th>Option</th><th>What it is</th><th>Outcome</th><th>Why</th></tr></thead><tbody>
+<tr><td><b>A</b> Typed side table + trigger</td><td>The proposal: copy flagged fields into an indexed table</td><td><span class="tag green">Chosen</span></td><td>Works inside the tenant wall (proven at plan level), no per-field database change, no new system.</td></tr>
+<tr><td><b>B</b> Spare columns on the ticket</td><td>Pre-made columns <code>str_1</code>…<code>str_10</code> mapped to fields</td><td><span class="tag red">Rejected</span></td><td>About 20 extra indexes on the main table would roughly halve save speed for every tenant. Filling a column later rewrites audited tickets.</td></tr>
+<tr><td><b>C</b> Promote common fields</td><td>Make priority, category, site real columns</td><td><span class="tag amber">Fallback</span></td><td>Only helps fields we name; tenants' fields differ. Kept in reserve if the benchmark fails.</td></tr>
+<tr><td><b>D</b> External store</td><td>OpenSearch, Elasticsearch, MongoDB or Cassandra fed from our event queue</td><td><span class="tag red">Rejected for filters</span> <span class="tag amber">Deferred for search</span></td><td>The tenant wall and the access rules would live in our code instead of the database. Saved tickets appear seconds late. Cassandra cannot do ad-hoc filters at all; MongoDB adds nothing and has a restrictive licence (SSPL).</td></tr>
+</tbody></table>
+
+<h2>4. Marking a field filterable when 100k tickets already exist</h2>
+<figure class="diagram">
+<svg viewBox="0 0 760 160" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Field index lifecycle">
+<defs><marker id="ar2" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#57606a"/></marker></defs>
+<rect x="20" y="45" width="150" height="60" rx="30" fill="#f6f8fa" stroke="#57606a"/>
+<text x="95" y="72" text-anchor="middle" font-size="13" font-weight="700" fill="#1f2328">admin flags</text>
+<text x="95" y="90" text-anchor="middle" font-size="11" fill="#1f2328">publish</text>
+<rect x="220" y="45" width="160" height="60" rx="8" fill="#fff8c5" stroke="#9a6700"/>
+<text x="300" y="72" text-anchor="middle" font-size="13" font-weight="700" fill="#1f2328">backfilling</text>
+<text x="300" y="90" text-anchor="middle" font-size="11" fill="#1f2328">filter answers "not ready, 43%"</text>
+<rect x="430" y="45" width="140" height="60" rx="8" fill="#dafbe1" stroke="#1a7f37"/>
+<text x="500" y="72" text-anchor="middle" font-size="13" font-weight="700" fill="#1f2328">ready</text>
+<text x="500" y="90" text-anchor="middle" font-size="11" fill="#1f2328">fast filter</text>
+<rect x="610" y="45" width="130" height="60" rx="8" fill="#ffebe9" stroke="#cf222e"/>
+<text x="675" y="72" text-anchor="middle" font-size="13" font-weight="700" fill="#1f2328">removing</text>
+<text x="675" y="90" text-anchor="middle" font-size="11" fill="#1f2328">flag cleared</text>
+<line x1="170" y1="75" x2="216" y2="75" stroke="#57606a" stroke-width="2" marker-end="url(#ar2)"/>
+<line x1="380" y1="75" x2="426" y2="75" stroke="#57606a" stroke-width="2" marker-end="url(#ar2)"/>
+<line x1="570" y1="75" x2="606" y2="75" stroke="#57606a" stroke-width="2" marker-end="url(#ar2)"/>
+<path d="M300,105 C300,145 675,145 675,109" fill="none" stroke="#57606a" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#ar2)"/>
+<text x="488" y="152" text-anchor="middle" font-size="11" fill="#57606a">flag cleared during backfill</text>
+</svg>
+<figcaption>New tickets are copied by the trigger from the moment the flag is published. A background job copies the old ones in batches of 1,000.</figcaption>
+</figure>
+<ul>
+<li>The background job is a resumable workflow. If it stops, it continues from its last batch. Running a batch twice changes nothing.</li>
+<li>It pauses between batches so it does not slow down people saving tickets.</li>
+<li>It locks each batch briefly, so a ticket edited at the same moment is never overwritten with an older value.</li>
+<li>Rough duration: one to two minutes per field for 400k tickets. <i>Unverified</i>; spike S3 measures it.</li>
+<li>While the field is not ready, a filter on it returns a clear "not ready yet" answer with progress, not a slow or failing query.</li>
+</ul>
+
+<h2>5. What is being accepted</h2>
+<table><thead><tr><th>Residual</th><th>In plain words</th></tr></thead><tbody>
+<tr><td>Storage</td><td>About 320 bytes per ticket per filterable field (about 2.6 GB at 800k tickets with 10 fields each). Search words cost more; S2 measures it. Quotas cap it: 10 filterable and 5 searchable fields per ticket type.</td></tr>
+<tr><td>Save speed</td><td>Every filterable field adds work to each save. Estimated 25–40% fewer saves per second with 5 fields. <i>Unverified</i>: S1 measures it, and the quota is lowered if it is worse than 30%.</td></tr>
+<tr><td>Search quality</td><td>Finds tickets containing the words (and word beginnings). No "best match first", no typo tolerance, no stemming. That needs a search engine: a decision for you (below).</td></tr>
+<tr><td>Middle-range filters</td><td>A filter that matches 0.5–5% of a very large tenant may be the slow case. S1 measures it.</td></tr>
+<tr><td>Decimal precision</td><td>Numbers with more than 15 significant digits may compare as equal when they are not.</td></tr>
+</tbody></table>
+
+<h2>6. Decisions for the human (business tradeoffs)</h2>
+<div class="callout">
+<p><b>H1.</b> Accept database-only search (word and prefix match, no ranking, no typo tolerance) for now? <b>Recommended: yes.</b></p>
+<p><b>H2.</b> When ranked search is needed: OpenSearch (Apache 2.0 licence) or Elasticsearch (licence to check with legal)? <b>Recommended: OpenSearch, for search only.</b> It is a new system to run (at least 3 servers for high availability, backups, upgrades). We do not have cost data yet.</p>
+<p><b>H3.</b> Accept the storage cost above? <b>Recommended: yes</b>, bounded by quotas.</p>
+<p><b>H4.</b> Keep filtering inside the database's tenant wall (no external store for filters)? <b>Recommended: yes.</b></p>
+</div>
+
+<h2>7. Evidence so far</h2>
+<table><thead><tr><th>Check</th><th>Result</th><th>Source</th></tr></thead><tbody>
+<tr><td>Which comparisons are leakproof (PostgreSQL 16.10)</td><td>text, whole and floating-point numbers, dates, true/false: yes. Exact decimals, full-text match, JSON: no.</td><td><code>docs/adr/ADR-006/spikes/solution-architect/rls-shape/</code></td></tr>
+<tr><td>Does the side table's index get used inside the tenant wall?</td><td><span class="tag green">Yes</span> for text equality, lists of values, number range, date range and true/false. The same filter on the JSON column reads the whole table.</td><td>Same folder, plan-shape check, 200k-ticket tenant</td></tr>
+<tr><td>Page of 50 filtered tickets</td><td>55–60 ms for a 2% filter, 5–10 ms for a 40% filter (one user, laptop)</td><td>Same</td></tr>
+<tr><td>Speed at 400k tickets with 8 users, and save speed</td><td><span class="tag amber">Pending</span></td><td>Spike S1, Postgres specialist</td></tr>
+<tr><td>Search speed and size</td><td><span class="tag amber">Pending</span></td><td>Spike S2</td></tr>
+<tr><td>Late-flag backfill with live edits, zero differences</td><td><span class="tag amber">Pending</span></td><td>Spike S3</td></tr>
+</tbody></table>
+</main></body></html>
