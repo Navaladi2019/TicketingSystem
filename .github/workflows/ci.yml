@@ -47,8 +47,8 @@
 # Budget: see "Job time budgets" in docs/quality/ci-pipeline.md. stack builds
 # the images first (4 to 13 minutes, by how much of the image cache survives),
 # then runs about 10 to 12 minutes of stack cases and 2 to 3 of database and
-# overlay cases, so its timeout-minutes is 40 (TICK-400, TICK-563); the
-# others are at 10 or 5. Each job keeps its
+# overlay cases, so its timeout-minutes is 40 (TICK-400, TICK-563);
+# integration is at 15 (TICK-701), the others at 10 or 5. Each job keeps its
 # own Go build cache (key per job, refreshed every run on main), the CI tools
 # are cached by version, and image layers live in the Actions cache (gha).
 # Only runs on main write the Go and image caches (CACHE_WRITE, TICK-400):
@@ -337,7 +337,11 @@ jobs:
     needs: changes
     if: needs.changes.outputs.integration == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 15, was 10 (TICK-701): 39 green runs, 2026-11-07 to 11-11, took 254 s to
+    # 581 s (p95 580 s, run 42850114329), and attempt 1 of run 42962065688 was
+    # cancelled at the 10-minute bound after its tests (526 s) had passed.
+    # 900 s is 55 % over the slowest green run. A hang guard, not a target.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
