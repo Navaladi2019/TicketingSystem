@@ -11,7 +11,34 @@
 // the middleware must sit inside the authentication middleware.
 //
 // State lives in idempotency_keys, reached as nava_app inside
-// tenancy.InTenantTx:
+// tenancy.InTenantTx. A key is claimed in one of two ways.
+//
+// A route registered with ClaimInTx (record create, TICK-688) claims its key
+// inside its own write transaction, as the first write:
+//
+//  1. The handler queues the claim (QueueHold) in the first batch of its
+//     transaction, ahead of its reads, and settles it (ResolveClaim) before it
+//     validates, authorises or writes. The claim inserts an in_flight row that
+//     only this transaction sees; the stored response is written in the
+//     COMMIT's round trip (CompleteInTx), so the claim, the write and the
+//     response commit together, in one synchronous commit, or not at all.
+//  2. A concurrent duplicate blocks on the uncommitted key. If the first
+//     request commits, the duplicate replays its stored response and runs
+//     nothing; if it rolls back, the duplicate's claim goes ahead and it runs
+//     as the first request. The wait is bounded by ClaimWait (lock_timeout on
+//     the claim alone, tenancy.QueueUnderLockTimeout); past it the duplicate
+//     gets 409 idempotency_in_flight, with Retry-After ClaimRetryAfter (not
+//     Lease: see ClaimRetryAfter), and its transaction rolls back.
+//  3. While it waits, a duplicate holds one pool connection, and through
+//     PgBouncer one server connection, for up to ClaimWait. That is accepted
+//     (TICK-688): concurrent duplicates of one key each hold one connection
+//     for at most ClaimWait, and give it back when they replay or get the 409.
+//  4. A request that fails (4xx, 5xx, rollback) leaves no row: its claim rolls
+//     back with it, so the retry runs at once and there is no lease to wait
+//     out. The lease and the takeover of a stale in_flight row (below) apply
+//     to such a route only for a row an older binary committed in_flight.
+//
+// Every other write claims its key in a transaction of its own:
 //
 //  1. The first request inserts an in_flight row and commits, so a concurrent
 //     duplicate sees it. It runs the handler, then marks the row completed.
@@ -80,6 +107,21 @@ const (
 	// completeTimeout bounds storing the response after the handler ran, which
 	// must survive the client hanging up.
 	completeTimeout = 5 * time.Second
+	// ClaimWait bounds how long the claim of a ClaimInTx route waits for a
+	// concurrent request with the same key to commit or roll back
+	// (TICK-688). A healthy record create takes about 50 ms, so this covers
+	// a first request 40 times slower than target; past it the duplicate
+	// gets 409 idempotency_in_flight. It is also how long each waiting
+	// duplicate holds a connection, so it stays short. Not configuration.
+	ClaimWait = 2 * time.Second
+	// ClaimRetryAfter is the Retry-After of a ClaimInTx route (record create)
+	// on 409 idempotency_in_flight and 503 retry_later (TICK-690). Such a
+	// route leaves no key row behind when it fails, so its retry need not
+	// wait out a Lease: a duplicate past ClaimWait is waiting on a request
+	// that is still running, which a retry after about ClaimWait finds
+	// committed (and replays) or rolled back (and runs). Every other route
+	// advises Lease, for the in_flight row it leaves.
+	ClaimRetryAfter = ClaimWait
 )
 
 // Results recorded on nava.idempotency.requests. Never a tenant, principal or
@@ -112,6 +154,24 @@ type Middleware struct {
 	reg      *problem.Registry
 	log      *slog.Logger
 	requests metric.Int64Counter
+	// inTx: the route patterns whose handler claims the key in its own
+	// transaction (ClaimInTx). Set before the middleware serves.
+	inTx map[string]bool
+}
+
+// ClaimInTx makes the routes with these patterns (http.Request.Pattern, as
+// "POST /api/v1/records/{entity}") claim their key inside the handler's own
+// write transaction instead of in a transaction of their own (TICK-688, see
+// the package doc). Such a handler must call QueueHold in the first batch of
+// its transaction, ResolveClaim right after that batch, and CompleteInTx
+// last. Call it before the middleware serves a request.
+func (m *Middleware) ClaimInTx(patterns ...string) {
+	if m.inTx == nil {
+		m.inTx = map[string]bool{}
+	}
+	for _, p := range patterns {
+		m.inTx[p] = true
+	}
 }
 
 // New returns a Middleware that stores keys through pool, which must log in
@@ -178,9 +238,15 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		r.Body = io.NopCloser(bytes.NewReader(body))
 
 		req := request{p: p, key: key, hash: RequestHash(r.Method, r.URL.RequestURI(), body)}
-		out, err := m.acquire(ctx, req, func(sc *scope) *captured {
+		run := func(sc *scope) *captured {
 			return capture(next, r.WithContext(context.WithValue(ctx, scopeKey{}, sc)))
-		})
+		}
+		var out *outcome
+		if m.inTx[r.Pattern] {
+			out = m.runInTx(ctx, req, run)
+		} else {
+			out, err = m.acquire(ctx, req, run)
+		}
 		if err != nil {
 			m.count(ctx, resultError)
 			m.reg.WriteError(w, r, m.log, problem.InternalError, err)
@@ -192,7 +258,11 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 			m.reg.Write(w, r, problem.IdempotencyKeyReuse)
 		case outcomeInFlight:
 			m.count(ctx, resultInFlight)
-			w.Header().Set("Retry-After", strconv.Itoa(int(Lease/time.Second)))
+			retry := Lease
+			if m.inTx[r.Pattern] {
+				retry = ClaimRetryAfter
+			}
+			w.Header().Set("Retry-After", strconv.Itoa(int(retry/time.Second)))
 			m.reg.Write(w, r, problem.IdempotencyInFlight)
 		case outcomeReplay:
 			m.count(ctx, resultReplayed)
@@ -270,11 +340,7 @@ UPDATE idempotency_keys
 func (m *Middleware) acquire(ctx context.Context, req request, run func(*scope) *captured) (*outcome, error) {
 	var out *outcome
 	err := tenancy.InTenantTx(ctx, m.pool, req.p.TenantID, func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `
-INSERT INTO idempotency_keys (tenant_id, principal_id, key, request_hash, lease_until, expires_at)
-VALUES ($1, $2, $3, $4, now() + $5::double precision * interval '1 second',
-        now() + $6::double precision * interval '1 second')
-ON CONFLICT (tenant_id, principal_id, key) DO NOTHING`,
+		tag, err := tx.Exec(ctx, insertClaim,
 			req.p.TenantID, req.p.PrincipalID, req.key, req.hash, Lease.Seconds(), TTL.Seconds())
 		if err != nil {
 			return fmt.Errorf("idempotency: insert: %w", err)
@@ -330,6 +396,31 @@ ON CONFLICT (tenant_id, principal_id, key) DO NOTHING`,
 		}
 	}
 	return out, nil
+}
+
+// runInTx runs a ClaimInTx route. The handler claims and settles the key in
+// its own transaction (QueueHold, ResolveClaim), so the outcome is either
+// the handler's response or, when the key was already taken, the outcome
+// ResolveClaim settled, which replaces whatever the handler wrote. Nothing is
+// stored here: a response not stored in the handler's transaction rolled
+// back with its claim.
+func (m *Middleware) runInTx(ctx context.Context, req request, run func(*scope) *captured) *outcome {
+	sc := &scope{req: req, inTx: true}
+	resp := run(sc)
+	if o := sc.settled.Load(); o != nil {
+		return o
+	}
+	if !sc.completed.Load() && resp.status >= 200 && resp.status < 300 {
+		// A route registered with ClaimInTx answered 2xx without storing
+		// the key in its transaction: it did not claim.
+		m.log.ErrorContext(ctx, "idempotency: a ClaimInTx route answered 2xx without completing its key in the write",
+			slog.Int("status", resp.status))
+	}
+	result := resultExecuted
+	if sc.retaken {
+		result = resultRetaken
+	}
+	return &outcome{kind: outcomeRan, resp: resp, result: result}
 }
 
 // complete is the fallback for handlers that do not call CompleteInTx: it
@@ -525,6 +616,17 @@ type scopeKey struct{}
 type scope struct {
 	req       request
 	completed atomic.Bool
+	// inTx: the route claims the key in the handler's transaction
+	// (ClaimInTx). The fields below are for that mode: the handler's
+	// goroutine sets them, the middleware reads them after it returned.
+	inTx bool
+	// claimSent, claimed: the claim's INSERT ran, and inserted the row.
+	claimSent, claimed bool
+	// retaken: the claim took over a stale in_flight row.
+	retaken bool
+	// settled: the outcome ResolveClaim decided instead of the handler's
+	// write (a replay, a reuse, in flight).
+	settled atomic.Pointer[outcome]
 	// held is the transaction in which QueueHold locked the key's row, once
 	// that batch has run.
 	held atomic.Pointer[pgx.Tx]
@@ -551,6 +653,11 @@ var ErrNotInFlight = errors.New("idempotency: the key is no longer in flight")
 // cannot be completed by anyone else first. When the row is not in_flight,
 // the batch fails with ErrNotInFlight. Without a middleware scope in ctx it
 // queues nothing.
+//
+// For a ClaimInTx route it queues the claim of the key instead, as the
+// transaction's first write, waiting at most ClaimWait
+// (tenancy.QueueUnderLockTimeout). The handler must then pass the batch's
+// error to ResolveClaim before it does anything else.
 func QueueHold(ctx context.Context, tx pgx.Tx, b *pgx.Batch) error {
 	sc, ok := ctx.Value(scopeKey{}).(*scope)
 	if !ok {
@@ -562,6 +669,10 @@ func QueueHold(ctx context.Context, tx pgx.Tx, b *pgx.Batch) error {
 	}
 	if tenant != sc.req.p.TenantID {
 		return errors.New("idempotency: the transaction is scoped to another tenant than the request's")
+	}
+	if sc.inTx {
+		queueClaim(sc, tx, b)
+		return nil
 	}
 	b.Queue(holdSQL, sc.req.p.TenantID, sc.req.p.PrincipalID, sc.req.key).Query(func(rows pgx.Rows) error {
 		held := rows.Next()

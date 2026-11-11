@@ -37,6 +37,7 @@ const (
 	OnboardingConflict       Code = "onboarding_conflict"
 	InvalidCursor            Code = "invalid_cursor"
 	RateLimited              Code = "rate_limited"
+	RetryLater               Code = "retry_later"
 	NotFound                 Code = "not_found"
 	ValidationFailed         Code = "validation_failed"
 	MethodNotAllowed         Code = "method_not_allowed"
@@ -59,15 +60,17 @@ const (
 	FilterTooExpensive       Code = "filter_too_expensive"
 	FieldNotWritable         Code = "field_not_writable"
 	InvalidAccessPolicy      Code = "invalid_access_policy"
+	ExportInProgress         Code = "export_in_progress"
+	ChainAlive               Code = "chain_alive"
 )
 
 // Codes lists every Code constant.
 func Codes() []Code {
 	return []Code{
 		TenantUnresolved, InvalidToken, IdempotencyKeyReuse, IdempotencyInFlight, Forbidden, DomainClaimed, InvalidIdPConfig, OnboardingConflict, InvalidCursor,
-		RateLimited, NotFound, ValidationFailed, MethodNotAllowed,
+		RateLimited, RetryLater, NotFound, ValidationFailed, MethodNotAllowed,
 		NotImplemented, InternalError, InvalidDefinition, EntityTypeExists, NumberPrefixTaken, SchemaBreakingChange, RecordInvalid,
-		IfMatchRequired, VersionConflict, IllegalTransition, UniqueViolation, ConfigSecretInContent, DefinitionSecretRequired, AssignmentGroupRemoved, HistoryTooLong,
+		IfMatchRequired, VersionConflict, IllegalTransition, UniqueViolation, ConfigSecretInContent, DefinitionSecretRequired, AssignmentGroupRemoved, HistoryTooLong, ExportInProgress, ChainAlive,
 		MaskedField, FilterTooExpensive, FieldNotWritable, InvalidAccessPolicy,
 	}
 }

@@ -236,6 +236,7 @@ func TestRejectsBadBadDependencyValuesByName(t *testing.T) {
 	t.Parallel()
 	for key, bad := range map[string]string{
 		"NAVA_DATABASE_URL":            "mysql://u:hunter2@h/db",
+		"NAVA_ALLOCATOR_DATABASE_URL":  "mysql://u:hunter2@h/db",
 		"NAVA_KEYCLOAK_MANAGEMENT_URL": "http://u:hunter2@keycloak:9000",
 		"NAVA_KEYCLOAK_TOKEN_URL":      "http://u:hunter2@keycloak:8080/realms/nava/protocol/openid-connect/token",
 		"NAVA_TEMPORAL_ADDRESS":        "temporal",
@@ -343,5 +344,21 @@ func TestTemporalTLSRequiresServerName(t *testing.T) {
 	_, err = load(map[string]string{"NAVA_TEMPORAL_TLS_CERT_FILE": "c.pem"})
 	if err == nil || strings.Contains(err.Error(), "NAVA_TEMPORAL_TLS_SERVER_NAME") {
 		t.Fatalf("partial set: %v, want only the all-or-none error", err)
+	}
+}
+
+// NAVA_ALLOCATOR_DATABASE_URL (TICK-657): unset it is empty (nava-core
+// refuses to start without it when the record routes are configured), set it
+// is kept as given.
+func TestAllocatorDatabaseURL(t *testing.T) {
+	t.Parallel()
+	cfg, err := config.Load(func(string) (string, bool) { return "", false })
+	if err != nil || cfg.Deps.AllocatorDatabaseURL != "" {
+		t.Fatalf("unset: %q, %v; want empty", cfg.Deps.AllocatorDatabaseURL, err)
+	}
+	const dsn = "postgres://nava_app:pw@pgbouncer:5432/nava_alloc"
+	cfg, err = config.Load(func(k string) (string, bool) { return dsn, k == "NAVA_ALLOCATOR_DATABASE_URL" })
+	if err != nil || cfg.Deps.AllocatorDatabaseURL != dsn {
+		t.Fatalf("set: %q, %v; want %q", cfg.Deps.AllocatorDatabaseURL, err, dsn)
 	}
 }

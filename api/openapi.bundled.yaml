@@ -196,7 +196,7 @@ paths:
       operationId: publishEntityTypeVersion
       summary: Publish the next version of an entity type (tenant admin)
       description: >
-        Publishes immutable version N+1 and makes it the current version. Tenant admins only; the check runs before the body is read any further than as well-formed JSON. The body is `{definition: {schema, fixed_columns, states}}`; a `number_prefix` field answers 422 `invalid_definition`, because the prefix never changes after create. The new definition is classified against the current version (D-3-5): a breaking change answers 422 `schema_breaking_change` with `errors[].pointer` naming each offending path, and adds nothing. A definition that requires a marked (`x-nava-secret` or `writeOnly`) property answers 422 `definition_secret_required`, with `errors[].pointer` naming the offending `required` entry, and adds nothing. Compatible and needs-backfill changes publish. An unknown key and another tenant's key give the same 404, byte for byte, with no `instance`. `Idempotency-Key` is required.
+        Publishes immutable version N+1 and makes it the current version. Tenant admins only; the check runs before the body is read any further than as well-formed JSON. The body is `{definition: {schema, fixed_columns, states}}`; a `number_prefix` field answers 422 `invalid_definition`, because the prefix never changes after create. The new definition is classified against the current version (D-3-5): a breaking change answers 422 `schema_breaking_change` with `errors[].pointer` naming each offending path, and adds nothing. A definition that requires a marked (`x-nava-secret` or `writeOnly`) property answers 422 `definition_secret_required`, with `errors[].pointer` naming the offending `required` entry, and adds nothing. Compatible and needs-backfill changes publish. An unknown key and another tenant's key give the same 404, byte for byte, with no `instance`. `numbering_mode` (`gaps` or `gapless`, D-3-9) may be sent with or instead of `definition`; alone it changes the mode, publishes no version and answers the current version. Any other value answers 422 `invalid_definition` at `/numbering_mode`. Numbering carries on from the type's counter. `Idempotency-Key` is required.
 
       parameters:
         - $ref: "#/components/parameters/Key"
@@ -502,6 +502,141 @@ paths:
           $ref: "#/components/responses/Problem"
         "501":
           $ref: "#/components/responses/Problem"
+  /api/v1/audit/entries:export:
+    get:
+      operationId: exportAuditEntries
+      summary: Download a verifiable JSONL export of the audit log
+      description: >
+        Needs `audit.export`: a tenant admin or a member of the tenant's auditors group (R8). Streams `nava.audit.export/v1` JSONL (header, anchor, the sealed range, unsealed matches, trailer; `docs/api/audit-export-v1.md`) that `nava audit verify` accepts under any filter. The `audit/export` entry commits before the first byte, and one export runs per tenant at a time (R19): a second gets 409 `export_in_progress`. The range starts at the entry before the first sealed entry of the time window and runs to the chain head read at the start (R20). Entries that match are in full, the others are hash-only stubs, unless `stubs=false`, which sends matches only and verifies `unverifiable` when the filter leaves a gap. Diffs are masked for the caller and `diff_salt` comes only with an unredacted diff (R7). Pages of 5,000 rows, each its own short transaction, stop after 15 minutes (R21). An error after the first byte ends the file without a trailer.
+
+      parameters:
+        - name: from
+          in: query
+          required: false
+          description: Entries at or after this time (`occurred_at`).
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          description: Entries before this time (`occurred_at`).
+          schema:
+            type: string
+            format: date-time
+        - name: domain
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [record, config, audit]
+        - name: subject_type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [record, cascade_key, entity_definition, audit_export, audit_chain, erasure_request]
+        - name: subject_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: change_set_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: after_seq
+          in: query
+          required: false
+          description: Incremental export. The range starts at `after_seq + 1`, anchored on `after_seq`.
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+        - name: stubs
+          in: query
+          required: false
+          description: Send non-matching entries of the range as stubs (default) or leave them out.
+          schema:
+            type: boolean
+            default: true
+        - name: format
+          in: query
+          required: false
+          description: >
+            `jsonl` (default) or `csv`: the same lines as RFC 4180 CSV (`docs/api/audit-export-v1.md` section 5). Any other value is 400 `validation_failed`.
+
+          schema:
+            type: string
+            enum: [jsonl, csv]
+            default: jsonl
+      responses:
+        "200":
+          description: The export, one JSON object per line, or CSV when `format=csv`.
+          content:
+            application/x-ndjson:
+              schema:
+                type: string
+                format: binary
+            text/csv:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "409":
+          $ref: "#/components/responses/Problem"
+        "429":
+          $ref: "#/components/responses/Problem"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "501":
+          $ref: "#/components/responses/Problem"
+  /api/v1/audit/chain:reseed:
+    post:
+      operationId: reseedAuditChain
+      summary: Restart a dead audit seal lineage
+      description: >
+        Needs `audit.export`: a tenant admin or a member of the tenant's auditors group (R17, ADR-001-A6.3). While the tenant's seal lineage is alive, that is until its next run is more than 10 minutes overdue, the call is refused with 409 `chain_alive` and writes nothing. Otherwise it starts a new lineage at the head's current version, retires the old one and writes an `audit/reseed` entry. The tenant is the token's. There is no request body. `Idempotency-Key` is required: a retry with the same key returns the first answer.
+
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+      responses:
+        "200":
+          description: The new lineage.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChainReseed"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          $ref: "#/components/responses/Problem"
+        "429":
+          $ref: "#/components/responses/Problem"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "501":
+          $ref: "#/components/responses/Problem"
   /api/v1/records/{entity}:
     get:
       operationId: listRecords
@@ -556,7 +691,7 @@ paths:
       operationId: createRecord
       summary: Create a record of an entity type
       description: >
-        Check order: authentication, then the entity type (an unknown key is a 404), then the body, then the authorizer. The body is `{data}`; `data` is validated against the current schema version, defaults applied, and the write goes through the record write pipeline with source `user` and the caller as actor. The entity type's published ACL must let the caller write the new record, or the answer is 403 `forbidden`; with no published ACL nobody may (fail closed). `Idempotency-Key` is required: a retry with the same key returns the stored response and creates nothing. A field that fails the schema, or a reference to a principal that does not exist in the tenant, answers 422 `record_invalid` with `errors[].pointer` under `/data`; the same body for a random UUID and for another tenant's principal. An assignment group that is not a live group of the tenant (removed, another tenant's group, live or removed, or a random UUID) answers 422 `assignment_group_removed` with the pointer of the group property, one body for every case, and writes nothing. An unknown entity type gives the 404 of getRecord, byte for byte, with no `instance`. Sending a property the ACL's field masks do not let the caller write answers 422 `field_not_writable` with `errors[].pointer` under `/data` and writes nothing; a default the server applies is not the caller's write. A unique value another record already holds is a 409 `unique_violation` naming the property only, never that record. The 201 body is shaped by the caller's field masks as getRecord's is. In it a top-level property the entity type's published ACL masks from the caller is absent from `data`; if it is the state property `state` is `""`, and if it is the assignment group property `assignment_group` is absent. A mask names groups and users only.
+        Check order: authentication, then the entity type (an unknown key is a 404), then the body, then the authorizer. The body is `{data}`; `data` is validated against the current schema version, defaults applied, and the write goes through the record write pipeline with source `user` and the caller as actor. The entity type's published ACL must let the caller write the new record, or the answer is 403 `forbidden`; with no published ACL nobody may (fail closed). `Idempotency-Key` is required: a retry with the same key returns the stored response and creates nothing. A request whose key another request is still creating with waits for that request, at most 2 seconds: it then returns the stored response, or creates the record if the other request failed. Past the wait it answers 409 `idempotency_in_flight` with `Retry-After: 2`, and creates nothing. A create that fails stores nothing against its key, so a retry with the key runs the create again; its 503 `retry_later` also advises `Retry-After: 2`. Other write routes advise the 60-second key lease. A field that fails the schema, or a reference to a principal that does not exist in the tenant, answers 422 `record_invalid` with `errors[].pointer` under `/data`; the same body for a random UUID and for another tenant's principal. An assignment group that is not a live group of the tenant (removed, another tenant's group, live or removed, or a random UUID) answers 422 `assignment_group_removed` with the pointer of the group property, one body for every case, and writes nothing. An unknown entity type gives the 404 of getRecord, byte for byte, with no `instance`. Sending a property the ACL's field masks do not let the caller write answers 422 `field_not_writable` with `errors[].pointer` under `/data` and writes nothing; a default the server applies is not the caller's write. A unique value another record already holds is a 409 `unique_violation` naming the property only, never that record. The 201 body is shaped by the caller's field masks as getRecord's is. In it a top-level property the entity type's published ACL masks from the caller is absent from `data`; if it is the state property `state` is `""`, and if it is the assignment group property `assignment_group` is absent. A mask names groups and users only.
 
       parameters:
         - $ref: "#/components/parameters/Entity"
@@ -609,6 +744,17 @@ paths:
           $ref: "#/components/responses/Problem"
         "501":
           $ref: "#/components/responses/Problem"
+        "503":
+          description: retry_later. The write changed nothing (a number allocation timed out, or a deadlock) and stored nothing against the Idempotency-Key; retry after the Retry-After interval.
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying. 2 on this route, which leaves no key lease to wait out.
+              schema:
+                type: integer
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
   /api/v1/records/{entity}/{id}:
     get:
       operationId: getRecord
@@ -727,6 +873,17 @@ paths:
           $ref: "#/components/responses/Problem"
         "501":
           $ref: "#/components/responses/Problem"
+        "503":
+          description: retry_later. The write changed nothing (a number allocation timed out, or a deadlock); retry after the Retry-After interval.
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema:
+                type: integer
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
   /api/v1/records/{entity}/{id}/history:
     get:
       operationId: getRecordHistory
@@ -846,6 +1003,18 @@ components:
           type: array
           items:
             type: string
+    ChainReseed:
+      type: object
+      required: [reseed_id, seal_outbox_id]
+      properties:
+        reseed_id:
+          type: string
+          format: uuid
+          description: The id of the `audit/reseed` entry.
+        seal_outbox_id:
+          type: string
+          format: uuid
+          description: The new lineage's start row.
     AuditEntryList:
       type: object
       required: [items]
@@ -937,7 +1106,7 @@ components:
     PutAccessPolicyRequest:
       type: object
       description: >
-        Deliberately unconstrained here: the server checks every field after the admin check and answers 422 `invalid_access_policy` with `errors[].pointer`. Kept as the request bytes (`json.RawMessage`).
+        Deliberately unconstrained here: the server checks the body after the admin check, the entity type and `If-Match` (428, 412), and answers 422 `invalid_access_policy` with `errors[].pointer`. Kept as the request bytes (`json.RawMessage`).
 
       x-go-type: json.RawMessage
       properties:
@@ -978,6 +1147,8 @@ components:
           description: 1 to 120 characters.
         number_prefix:
           description: "`^[A-Z]{2,6}$`, unique per tenant, never changes."
+        numbering_mode:
+          description: "`gaps` (default) or `gapless`, optional."
         definition:
           description: "`{schema, fixed_columns, states}`, see the metadata engine."
     PublishEntityTypeVersionRequest:
@@ -987,11 +1158,13 @@ components:
 
       x-go-type: json.RawMessage
       properties:
+        numbering_mode:
+          description: "`gaps` or `gapless`. Alone, it changes the mode and publishes no version."
         definition:
           description: "`{schema, fixed_columns, states}`, see the metadata engine."
     EntityTypeVersion:
       type: object
-      required: [key, name, number_prefix, version, current, schema, schema_sha256, fixed_columns, states, compat, published_at]
+      required: [key, name, number_prefix, numbering_mode, version, current, schema, schema_sha256, fixed_columns, states, compat, published_at]
       properties:
         key:
           type: string
@@ -999,6 +1172,10 @@ components:
           type: string
         number_prefix:
           type: string
+        numbering_mode:
+          type: string
+          enum: [gaps, gapless]
+          description: How the type numbers its records (D-3-9). Belongs to the type, not the version.
         version:
           type: integer
         current:
@@ -1023,7 +1200,7 @@ components:
           format: date-time
     EntityTypeSummary:
       type: object
-      required: [key, name, number_prefix, current_version, updated_at]
+      required: [key, name, number_prefix, numbering_mode, current_version, updated_at]
       properties:
         key:
           type: string
@@ -1031,6 +1208,9 @@ components:
           type: string
         number_prefix:
           type: string
+        numbering_mode:
+          type: string
+          enum: [gaps, gapless]
         current_version:
           type: integer
         updated_at:

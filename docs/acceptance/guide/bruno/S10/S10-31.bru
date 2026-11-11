@@ -1,0 +1,52 @@
+meta {
+  name: S10.31 The admin publishes the incident ACL with masks on description and assignee: 200
+  type: http
+  seq: 31
+}
+
+put {
+  url: {{core_url}}/api/v1/entity-types/incident/access
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick623-s10-{{s10_run}}-mask
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "rules": []
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const cur = JSON.parse(bru.getVar('s10_policy'));
+  const admins = bru.getVar('s10_admins');
+  const m = (field) => ({ field, read: { groups: [admins] }, write: { groups: [admins] } });
+  req.setBody({ rules: cur.rules, masks: [m('description'), m('assignee')] });
+  req.setHeader('If-Match', bru.getVar('s10_etag'));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const was = JSON.parse(bru.getVar('s10_policy'));
+  const b = N.json();
+  test('version: S10.10 + 2 (S10.15 + 1)', () => expect(b.version).to.eql(was.version + 2));
+  test('the same rules', () => expect(b.rules).to.eql(was.rules));
+  test('two masks, description and assignee, admins only', () => {
+    expect(b.masks.map(x => x.field)).to.have.members(['description', 'assignee']);
+    b.masks.forEach(x => expect(x.read.groups, x.field).to.eql([bru.getVar('s10_admins')]));
+  });
+  test('published_by is the admin', () => expect(b.published_by).to.eql(bru.getVar('s10_admin')));
+  bru.setVar('s10_mask_version', String(b.version));
+  bru.setVar('s10_etag_mask', N.header('ETag'));
+}
+
+docs {
+  The rules of S10.10, unchanged, plus two masks, read and written by tenant A's `admins` group only: `description` (an internal-only field) and `assignee` (a fixed column, so the sort case of criterion 4 can be shown: a data property such as `description` is never sortable, for anyone, and answers `validation_failed`). `If-Match` is S10.15's `ETag`. S10.66 removes the mask again.
+}

@@ -1,0 +1,36 @@
+meta {
+  name: S10.42 C2: the requester lists incidents: only its own, in every state, total matches
+  type: http
+  seq: 42
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?limit=200
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{req_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const ids = N.json().items.map(i => i.id);
+  test('includes s10_req_rec', () => expect(ids).to.include(bru.getVar('s10_req_rec')));
+  test('includes s10_req2_rec', () => expect(ids).to.include(bru.getVar('s10_req2_rec')));
+  test('leaves out s10_sd_rec', () => expect(ids).to.not.include(bru.getVar('s10_sd_rec')));
+  test('leaves out s10_adm_rec', () => expect(ids).to.not.include(bru.getVar('s10_adm_rec')));
+  test('leaves out s10_un_rec', () => expect(ids).to.not.include(bru.getVar('s10_un_rec')));
+  test('total is the number of items (one page, no cursor)', () => {
+    expect(N.json().next_cursor, 'one page on a fresh stack').to.eql(null);
+    expect(N.json().total).to.eql(N.json().items.length);
+  });
+
+  test('every item names the requester', () => N.json().items.forEach(i => expect(i.data.requester, i.number).to.eql(bru.getVar('s10_requester'))));
+  test('its in_progress incident is listed (read in every state)', () => {
+    const r = N.json().items.find(i => i.id === bru.getVar('s10_req2_rec'));
+    expect(r.state).to.eql('in_progress');
+  });
+}

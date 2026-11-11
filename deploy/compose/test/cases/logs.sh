@@ -1,5 +1,5 @@
 #!/bin/sh
-# stack-case: job=stack order=54 mode=serial
+# stack-case: job=stack order=54 mode=serial profile=operator
 set -eu
 . "$(dirname "$0")/../case-env.sh"
 

@@ -1,0 +1,3 @@
+$ nava audit verify ac1-export-line-deleted.jsonl
+exit 1
+tampered: line 12 (seq 11): seq_missing: seq 10..10 missing from a stubs=true file

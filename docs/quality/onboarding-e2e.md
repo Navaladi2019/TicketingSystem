@@ -55,5 +55,6 @@ make stack-up
 make stack-test-onboard
 ```
 
-In CI: the `stack` job's `make stack-test-identity` step runs these tests until the
-workflow has its own `make stack-test-onboard` step (TODO-014).
+In CI: the `onboard` stack case runs `make stack-test-onboard`, under `suiteran`
+with `-run '$(ONBOARD_TESTS)'`; `make stack-test-identity` skips the same tests
+(TICK-628, TODO-014 fixed), so each runs once.

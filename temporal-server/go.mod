@@ -2,7 +2,7 @@ module github.com/Navaladi2019/TicketingSystem/temporal-server
 
 go 1.26.0
 
-toolchain go1.26.10
+toolchain go1.26.11
 
 require (
 	go.temporal.io/api v1.53.0

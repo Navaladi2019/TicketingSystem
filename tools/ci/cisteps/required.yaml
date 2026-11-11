@@ -59,14 +59,17 @@ steps:
   - job: coverage
     artifact: coverage
     why: the merged profile and coverage.html
+  - job: full-suite
+    run: make check-full-suite
+    why: a pull request into a story branch shows a skipped unit, integration or stack job as a passed check and merges with its suites never run (TICK-638)
 
   # The tenant isolation suite (T11, ADR-001 CI-2).
   - job: integration
     run: make test-integration
-    why: integration tests and then the isolation suite, under suiteran
+    why: integration tests and then the isolation suite, under suiteran; the isolation suite runs on full runs only (the daily run on main, ci:full, a manual run; ISOLATION=0 on a fast run, TICK-652, AR-TICK-652-01)
   - job: integration
     artifact: isolation-report
-    why: the CI-2 isolation report
+    why: the CI-2 isolation report, uploaded on full runs (the daily run on main, ci:full, a manual run), with the suite that writes it (TICK-652)
 
   # The commit-check budget rows (ADR-004-E3, D-E3-4, TICK-509), alone on a runner.
   - job: commit-check-budget
@@ -77,19 +80,19 @@ steps:
   # (TICK-296); each job runs the ones whose header names it, so a new case needs no entry here.
   - job: stack
     run: make stack-tests JOB=stack
-    why: every stack case with job=stack, among them the CI-6 and CI-7 SDK suite, realm nava and the CI-5 adversarial identity suite (T19), each under suiteran
+    why: every stack case with job=stack, among them the CI-6 and CI-7 SDK suite, realm nava and the CI-5 adversarial identity suite (T19), each under suiteran; a fast run keeps the tier=smoke cases only, and full runs (the daily run on main, ci:full, a manual run) run every case (STACK_TIER, TICK-652)
   # stack-db and stack-internal were jobs of their own until TICK-563; their
   # cases now run in the stack job, each on a fresh stack, after its one image
   # build. Same steps, same make targets, moved job.
   - job: stack
     run: make stack-tests JOB=stack-db
-    why: the database stack cases (idempotent, dbroles, hba)
+    why: the database stack cases (idempotent, dbroles, hba); full runs only (the daily run on main, ci:full, a manual run; TICK-652, AR-TICK-652-01)
   - job: stack
     run: make stack-tests JOB=stack-internal
-    why: the internal overlay comes up healthy with no egress
+    why: the internal overlay comes up healthy with no egress; full runs only (the daily run on main, ci:full, a manual run; TICK-652, AR-TICK-652-01)
   - job: stack
     artifact: ci6-report
-    why: the CI-6 report (TICK-49)
+    why: the CI-6 report (TICK-49), uploaded on full runs (the daily run on main, ci:full, a manual run), where the sdk case that writes it runs (TICK-652)
   - job: stack
     artifact: ci5-report
-    why: the CI-5 report
+    why: the CI-5 report, uploaded on full runs (the daily run on main, ci:full, a manual run), where the identity_attacks case that writes it runs (TICK-652)

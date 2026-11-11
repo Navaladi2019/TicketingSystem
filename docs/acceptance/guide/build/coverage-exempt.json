@@ -38,7 +38,8 @@
     "403": "Not reachable in S9: the interim authorizer allows every tenant member. Unit tests cover the mapping (internal/server).",
     "429": "Not asserted here: the limiter is route-agnostic and asserted on getMe in S6.12; internal/server/write_chain_test.go (P2) drives it on every tenant write route.",
     "500": "Needs an internal failure (a dependency error mid-request); not caused from outside a healthy stack.",
-    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database."
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database.",
+    "503": "Needs a number allocation to pass its 200 ms timeout (or, on a patch, a deadlock), which a healthy stack does not show from outside. TestCreateRecordAllocationTimeoutIs503RetryLater (internal/server) asserts the 503 retry_later with Retry-After through the real handler."
   },
   "getRecord": {
     "429": "Not asserted here: the limiter is route-agnostic and asserted on getMe in S6.12; internal/server/write_chain_test.go (P2) drives it on every tenant write route.",
@@ -49,7 +50,8 @@
     "403": "Not reachable in S9: the interim authorizer allows every tenant member. Unit tests cover the mapping (internal/server).",
     "429": "Not asserted here: the limiter is route-agnostic and asserted on getMe in S6.12; internal/server/write_chain_test.go (P2) drives it on every tenant write route.",
     "500": "Needs an internal failure (a dependency error mid-request); not caused from outside a healthy stack.",
-    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database."
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database.",
+    "503": "Needs a number allocation to pass its 200 ms timeout (or, on a patch, a deadlock), which a healthy stack does not show from outside. TestCreateRecordAllocationTimeoutIs503RetryLater (internal/server) asserts the 503 retry_later with Retry-After through the real handler."
   },
   "listAuditEntries": {
     "429": "Not asserted here: the limiter is route-agnostic and asserted on getMe in S6.12.",
@@ -82,5 +84,18 @@
     "429": "Not asserted here: the limiter is route-agnostic and asserted on getMe in S6.12.",
     "500": "Needs an internal failure (a dependency error mid-request); not caused from outside a healthy stack.",
     "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys."
+  },
+  "exportAuditEntries": {
+    "409": "export_in_progress needs two exports running at once; the guide runs one request at a time. TestExportEntryFirstLeaseAndPageTransactions (internal/server) starts the second inside the first's first page.",
+    "429": "Not asserted here: the limiter is route-agnostic and asserted on getMe in S6.12.",
+    "500": "Needs an internal failure (a dependency error mid-request); not caused from outside a healthy stack.",
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or the audit reader pool."
+  },
+  "reseedAuditChain": {
+    "200": "A 200 needs a dead seal lineage (next_seal_at more than 10 minutes late), which a healthy stack never has. TestReseedAliveRefusedThenDeadRestarts (internal/server) covers it.",
+    "404": "Needs a tenant with no audit_chain_head, which onboarding always creates. TestReseedGateTenantAndMissingHead (internal/server) covers it.",
+    "429": "Not asserted here: the limiter is route-agnostic and asserted on getMe in S6.12.",
+    "500": "Needs an internal failure (a dependency error mid-request); not caused from outside a healthy stack.",
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database."
   }
 }

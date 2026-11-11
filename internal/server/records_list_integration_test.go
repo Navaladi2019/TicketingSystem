@@ -691,7 +691,7 @@ func (e *etEnv) onOneConn(t *testing.T, extra ...server.Option) {
 	}
 	h, err := server.NewHandler(slog.New(slog.NewTextHandler(testLogWriter{t, e.logs}, &slog.HandlerOptions{Level: slog.LevelError})),
 		e.tel, e.tokens, stubPaths{},
-		append([]server.Option{server.WithLimiter(e.lim), server.WithPool(pool), server.WithAuditReader(etAuditReader(t, pool)), server.WithCursors(kr)}, extra...)...)
+		append([]server.Option{server.WithLimiter(e.lim), server.WithPool(pool), server.WithAllocatorPool(etAllocPool(t, pool)), server.WithAuditReader(etAuditReader(t, pool)), server.WithCursors(kr)}, extra...)...)
 	if err != nil {
 		t.Fatal(err)
 	}

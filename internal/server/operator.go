@@ -61,14 +61,27 @@ type options struct {
 	historyRows func(int)
 	// auditMasker replaces the production read.DefinitionMasker; set by tests only.
 	auditMasker read.Masker
+	// exportPageSize and exportOnPage override the export's R21 page size and
+	// observe its page transactions; set by tests only.
+	exportPageSize int
+	exportOnPage   func(time.Time, string)
 	// auditPool is the nava_audit_reader pool the audit reader reads on
 	// (ADR-004-A1 A1-5). Without it the audit routes answer 501.
 	auditPool *read.Pool
+	// allocPool is the record pipeline's TxRunner pool (WithAllocatorPool).
+	allocPool *pgxpool.Pool
 }
 
 // WithPool gives the tenant routes their database (the nava_app pool). Tenant
 // writes also need it for the Idempotency-Key store.
 func WithPool(p *pgxpool.Pool) Option { return func(o *options) { o.pool = p } }
+
+// WithAllocatorPool gives the record pipeline's own transactions (a create's
+// number, D-3-9 as amended 2026-11-10; the cascade_rejected audit row) a
+// nava_app pool of their own, so they never wait for a connection an open
+// create holds (TICK-657). WithPool requires it: NewHandler refuses the
+// record routes without it.
+func WithAllocatorPool(p *pgxpool.Pool) Option { return func(o *options) { o.allocPool = p } }
 
 // WithAuditReader gives the audit timeline and record history the reader's
 // own pool (read.OpenPool, nava_audit_reader): the only pool that may read

@@ -88,7 +88,10 @@ func newAPIRunner(t *testing.T) *apiRunner {
 	// WithPool turns the records routes and the Idempotency-Key store on, so
 	// a StoredUnderA call reaches the real create (P3-18).
 	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel, resolver, pgstore.New(pool),
-		server.WithOperator(resolver, refusingOnboarder{}), server.WithPool(pool))
+		server.WithOperator(resolver, refusingOnboarder{}), server.WithPool(pool),
+		// A create takes its number on the allocator pool (ADR-005 L2s); on
+		// pool, one connection the create holds, it would starve.
+		server.WithAllocatorPool(suite.allocPool(t)))
 	if err != nil {
 		t.Fatal(err)
 	}

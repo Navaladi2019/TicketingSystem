@@ -11,9 +11,10 @@ package pipeline
 //  2. checks: for each unique property, its advisory lock then its lookup,
 //     in property order; the assignment group lookup; and PostgreSQL's
 //     jsonb text of the payload about to be stored (the audit diff's after).
-//  3. write: the record_counters upsert, the INSERT that takes its number,
-//     the write key and the audit entry. The counter row is locked from here
-//     to the caller's COMMIT, so it is the last batch of the write (D-3-9).
+//  3. write: the INSERT of the record with its number, the write key and
+//     the audit entry. The number was taken just before, in a transaction of
+//     its own that has already committed (D-3-9 as amended 2026-11-10,
+//     write.allocate, alloc.go), so no lock on record_counters is held here.
 //
 // An update keeps its statements one by one; it reads its definition and
 // policy through the same prefetch.
@@ -30,6 +31,7 @@ import (
 
 	"github.com/Navaladi2019/TicketingSystem/internal/audit"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
+	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/store"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
@@ -184,10 +186,10 @@ func (w *write) checkCreate(ctx context.Context, rec *store.Record, after map[st
 	return preview, nil
 }
 
-// writeCreate sends the write batch of a create: the number, the record,
-// the write key and the audit entry, in that order. after is the payload
-// preview the audit diff is built from; the INSERT returns the stored
-// payload, which must be the same bytes.
+// writeCreate sends the write batch of a create: the record, with the
+// number rec.Number already taken, the write key and the audit entry, in
+// that order. after is the payload preview the audit diff is built from; the
+// INSERT returns the stored payload, which must be the same bytes.
 func (w *write) writeCreate(ctx context.Context, rec *store.Record, after []byte) (Result, error) {
 	auditID, err := uuid.NewV7()
 	if err != nil {
@@ -195,9 +197,23 @@ func (w *write) writeCreate(ctx context.Context, rec *store.Record, after []byte
 	}
 	fixed := w.def.FixedColumns()
 	b := &pgx.Batch{}
-	var got store.Numbered
-	if err := store.QueueInsertNumbered(b, rec, w.def.NumberPrefix(), fixed, &got); err != nil {
-		return Result{}, fmt.Errorf("pipeline: %w", err)
+	var (
+		got      store.Inserted
+		numbered store.Numbered
+	)
+	// A `gapless` type takes its number here, last inside this transaction
+	// (ADR-005 L1, TICK-648): the counter row stays locked until this
+	// transaction ends, and a rollback gives the number back. A `gaps` type
+	// arrives with the number its allocation already committed.
+	gapless := w.def.NumberingMode() == metadata.NumberingGapless
+	var queueErr error
+	if gapless {
+		queueErr = store.QueueInsertNumbered(b, rec, w.def.NumberPrefix(), fixed, &numbered)
+	} else {
+		queueErr = store.QueueInsertRecord(b, rec, fixed, &got)
+	}
+	if queueErr != nil {
+		return Result{}, fmt.Errorf("pipeline: %w", queueErr)
 	}
 	if w.cmd.IdempotencyKey != "" {
 		// Claimed before the audit entry, so a concurrent duplicate by the
@@ -229,13 +245,20 @@ func (w *write) writeCreate(ctx context.Context, rec *store.Record, after []byte
 		}
 		return Result{}, fmt.Errorf("pipeline: %w", err)
 	}
-	if want := store.FormatNumber(w.def.NumberPrefix(), got.N); got.Number != want {
-		return Result{}, fmt.Errorf("pipeline: stored number %q, want %q", got.Number, want)
+	if gapless {
+		if want := store.FormatNumber(w.def.NumberPrefix(), numbered.N); numbered.Number != want {
+			return Result{}, fmt.Errorf("pipeline: stored number %q, want %q", numbered.Number, want)
+		}
+		rec.Number = numbered.Number
+		got = store.Inserted{Number: numbered.Number, Payload: numbered.Payload, CreatedAt: numbered.CreatedAt, UpdatedAt: numbered.UpdatedAt}
+	}
+	if got.Number != rec.Number {
+		return Result{}, fmt.Errorf("pipeline: stored number %q, want %q", got.Number, rec.Number)
 	}
 	if !bytes.Equal(got.Payload, after) {
 		return Result{}, errors.New("pipeline: the stored payload is not the one the audit entry was built from")
 	}
-	rec.Number, rec.CreatedAt, rec.UpdatedAt = got.Number, got.CreatedAt, got.UpdatedAt
+	rec.CreatedAt, rec.UpdatedAt = got.CreatedAt, got.UpdatedAt
 	// The stored payload, as PostgreSQL returns it, is the record's data
 	// from here on: what a read in this transaction would decode.
 	data, err := store.DecodeObject(got.Payload)
@@ -255,6 +278,119 @@ func (w *write) writeCreate(ctx context.Context, rec *store.Record, after []byte
 	// no round trip (TICK-648).
 	tenancy.Remember(w.tx, storedKey{rec.ID}, rec)
 	return Result{RecordID: rec.ID, Number: rec.Number, Version: rec.Version, SchemaVersion: rec.SchemaVersion}, nil
+}
+
+// atCommit reports whether this create queues its write for the round trip
+// that commits w.tx (Command.InsertAtCommit, TICK-692).
+func (w *write) atCommit() bool {
+	if !w.cmd.InsertAtCommit || w.cmd.Op != OpCreate || w.def.NumberingMode() == metadata.NumberingGapless {
+		return false
+	}
+	// TODO(TODO-S10-02): a real sink (P3-42) must queue its statements after
+	// the record on the commit batch, or creates go back to 5 round trips.
+	if _, noop := w.p.sink.(NoopSink); !noop {
+		return false
+	}
+	_, ok := tenancy.QueueAtCommit(w.tx)
+	return ok
+}
+
+// writeCreateAtCommit is writeCreate for Command.InsertAtCommit: the same
+// statements, in the same order, queued on the batch that commits w.tx
+// (TICK-692), so the record, its write key and its audit entry are sent with
+// the idempotency completion and COMMIT in one round trip. Nothing is read
+// back: the record as stored is the one built here, from the number taken,
+// the allocation's instant and the payload preview after, and the INSERT
+// fails unless the stored row is exactly that
+// (store.QueueInsertRecordAsExpected). A failure is mapped as writeCreate and
+// Write map it, inside *ErrAtVersion, and comes out of tenancy.InTenantTx.
+func (w *write) writeCreateAtCommit(ctx context.Context, rec *store.Record, after []byte) (Result, error) {
+	auditID, err := uuid.NewV7()
+	if err != nil {
+		return Result{}, fmt.Errorf("pipeline: new audit id: %w", err)
+	}
+	fixed := w.def.FixedColumns()
+	// Built apart and moved onto the commit batch only once every statement
+	// is queued, so a failure here leaves the commit batch as it was.
+	b := &pgx.Batch{}
+	if err := store.QueueInsertRecordAsExpected(b, rec, fixed, after); err != nil {
+		return Result{}, fmt.Errorf("pipeline: %w", err)
+	}
+	if w.cmd.IdempotencyKey != "" {
+		store.QueueInsertWriteKey(b, &store.WriteKey{
+			TenantID: w.tenant, IdempotencyKey: w.cmd.IdempotencyKey, DefinitionID: rec.EntityDefinitionID,
+			Action: w.cmd.Op.String(), RecordID: rec.ID, Version: rec.Version,
+			SchemaVersion: rec.SchemaVersion, AuditEntryID: auditID,
+			ActorPrincipalID: optional(w.cmd.Actor.PrincipalID),
+		})
+	}
+	e := recordEntry{id: auditID, action: audit.ActionCreate, rec: rec, after: after, secretProps: w.def.SecretProperties()}
+	entry, err := recordAuditEntry(ctx, w.cmd, e)
+	if err != nil {
+		return Result{}, err
+	}
+	if _, err := audit.QueueAppend(ctx, w.tx, b, entry); err != nil {
+		return Result{}, mapAppendError(err)
+	}
+	wrapLast(b, func(err error) error { return &mappedErr{mapAppendError(err)} })
+	// The stored payload is the preview (the INSERT asserts it): the
+	// record's data from here on, as writeCreate decodes it.
+	data, err := store.DecodeObject(after)
+	if err != nil {
+		return Result{}, fmt.Errorf("pipeline: decode payload preview: %w", err)
+	}
+	for prop := range fixed {
+		delete(data, prop)
+	}
+	ev := Event{Op: w.cmd.Op, EntityDefinitionID: rec.EntityDefinitionID, RecordID: rec.ID, Version: rec.Version,
+		Causation: w.cmd.Causation, ActorID: w.cmd.Actor.PrincipalID, Source: w.cmd.Source, SourceRef: w.cmd.SourceRef}
+	if err := w.p.sink.RecordChanged(ctx, w.tx, ev); err != nil {
+		return Result{}, fmt.Errorf("pipeline: event sink: %w", err)
+	}
+	commit, ok := tenancy.QueueAtCommit(w.tx)
+	if !ok {
+		return Result{}, errors.New("pipeline: the transaction has no commit batch")
+	}
+	for _, qq := range b.QueuedQueries {
+		inner := qq.Fn
+		qq.Fn = func(br pgx.BatchResults) error {
+			var err error
+			if inner != nil {
+				err = inner(br)
+			} else {
+				_, err = br.Exec()
+			}
+			if err != nil {
+				return w.mapAtCommit(err)
+			}
+			return nil
+		}
+		commit.QueuedQueries = append(commit.QueuedQueries, qq)
+	}
+	rec.Data = data
+	// Get of this record later in tx answers with the row as it will be
+	// stored, with no round trip.
+	tenancy.Remember(w.tx, storedKey{rec.ID}, rec)
+	return Result{RecordID: rec.ID, Number: rec.Number, Version: rec.Version, SchemaVersion: rec.SchemaVersion}, nil
+}
+
+// mapAtCommit maps the failure of a statement writeCreateAtCommit queued as
+// writeCreate and Write map the same failure of the write batch.
+func (w *write) mapAtCommit(err error) error {
+	var m *mappedErr
+	switch {
+	case errors.Is(err, store.ErrDuplicateKey):
+		err = &ErrIdempotencyConflict{Concurrent: true}
+	case errors.As(err, &m):
+		err = m.err
+	default:
+		err = fmt.Errorf("pipeline: %w", err)
+	}
+	err = &ErrAtVersion{SchemaVersion: w.defVersion, FixedColumns: w.def.FixedColumns(), StateProperty: w.def.StateProperty(), Err: err}
+	if retryable(err) {
+		return fmt.Errorf("%w: %w", ErrRetryable, err)
+	}
+	return err
 }
 
 // storedKey is the tx memo key of a record this transaction created: the row

@@ -87,6 +87,14 @@ paths:
         caller write the new record, or the answer is 403 `forbidden`; with
         no published ACL nobody may (fail closed). `Idempotency-Key` is required: a retry with
         the same key returns the stored response and creates nothing.
+        A request whose key another request is still creating with waits for
+        that request, at most 2 seconds: it then returns the stored response,
+        or creates the record if the other request failed. Past the wait it
+        answers 409 `idempotency_in_flight` with `Retry-After: 2`, and creates
+        nothing. A create that fails stores nothing against its key, so a
+        retry with the key runs the create again; its 503 `retry_later` also
+        advises `Retry-After: 2`. Other write routes advise the 60-second key
+        lease.
         A field that fails the schema, or a reference to a principal that does
         not exist in the tenant, answers 422 `record_invalid` with
         `errors[].pointer` under `/data`; the same body for a random UUID and
@@ -157,6 +165,17 @@ paths:
           $ref: "../openapi.yaml#/components/responses/Problem"
         "501":
           $ref: "../openapi.yaml#/components/responses/Problem"
+        "503":
+          description: retry_later. The write changed nothing (a number allocation timed out, or a deadlock) and stored nothing against the Idempotency-Key; retry after the Retry-After interval.
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying. 2 on this route, which leaves no key lease to wait out.
+              schema:
+                type: integer
+          content:
+            application/problem+json:
+              schema:
+                $ref: "../openapi.yaml#/components/schemas/Problem"
   /api/v1/records/{entity}/{id}:
     get:
       operationId: getRecord
@@ -314,6 +333,17 @@ paths:
           $ref: "../openapi.yaml#/components/responses/Problem"
         "501":
           $ref: "../openapi.yaml#/components/responses/Problem"
+        "503":
+          description: retry_later. The write changed nothing (a number allocation timed out, or a deadlock); retry after the Retry-After interval.
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema:
+                type: integer
+          content:
+            application/problem+json:
+              schema:
+                $ref: "../openapi.yaml#/components/schemas/Problem"
   /api/v1/records/{entity}/{id}/history:
     get:
       operationId: getRecordHistory

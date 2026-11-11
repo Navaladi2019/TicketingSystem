@@ -1,4 +1,4 @@
-.PHONY: ci-stack ci-stack-run stack-tests stack-main stack-internal-beside stack-internal stack-up stack-down stack-logs image image-ci smoke
+.PHONY: stack-mem prebuilt-pull prebuilt-publish ci-stack ci-stack-run stack-tests stack-main stack-internal-beside stack-internal stack-up stack-down stack-logs image image-ci ci-binaries smoke
 
 # Builds the images, brings the stack up, runs every stack test, then tears
 # it down (logs first on failure). The workflow runs `make stack-tests JOB=<job>`
@@ -6,7 +6,7 @@
 # The tests are the files in deploy/compose/test/cases/, ordered and assigned to a CI job by the
 # "# stack-case:" header of each (run-cases.sh); adding one needs no edit here or in ci.yml.
 # healthy gates the rest. The read-only (parallel) cases then run at once under PARALLEL=1
-# (TICK-153 O10), as ci-stack does; the CI jobs run one at a time. The serial cases follow in
+# (TICK-153 O10), as ci-stack does; the CI steps set PARALLEL=1 too (TICK-628). The serial cases follow in
 # order: dependencies stops Keycloak, trace counts every trace the Collector saw, idempotent
 # restarts the stack, and dbroles changes roles. worker polls nava-tq, the queue the sdk
 # suite's workers poll, so it sorts after that suite.
@@ -58,9 +58,28 @@ STACK_LOCK = go run ./tools/ci/racelock -port 47620 -slots $(STACK_SLOTS) -take 
 # --- Compose stack ---------------------------------------------------------
 # The trace stack test needs every ordinary trace kept.
 export OTEL_TAIL_SAMPLE_PERCENT ?= 100
-# T28: the stack tests run with the operator profile (Temporal UI) and the test
-# overlay that publishes the Temporal gateway on loopback for the SDK test.
-export COMPOSE_PROFILES ?= operator
+# T28: the stack tests run with the operator profile (Temporal UI, OpenObserve,
+# Prometheus) and the test overlay that publishes the Temporal gateway on
+# loopback for the SDK test.
+# TICK-696: with STACK_TIER set (the ci.yml stack job sets it, with AREAS, on
+# the job), the profile comes from the cases that selection runs:
+# `run-cases.sh profiles $(JOB)` prints operator when one of them has
+# profile=operator. A fast run (STACK_TIER=smoke) runs none, so stack-up,
+# image-ci's pull, stack-logs and stack-down all leave the three services out.
+# STACK_TIER unset (a laptop): operator, as before. COMPOSE_PROFILES set by the
+# caller always wins. A bad registry header stops make here, never an empty
+# profile by mistake.
+ifeq ($(origin COMPOSE_PROFILES),undefined)
+ifneq ($(strip $(STACK_TIER)),)
+COMPOSE_PROFILES := $(shell STACK_TIER=$(STACK_TIER) AREAS=$(AREAS) sh deploy/compose/test/run-cases.sh profiles $(JOB) || echo PROFILES-ERROR)
+ifneq ($(filter PROFILES-ERROR,$(COMPOSE_PROFILES)),)
+$(error run-cases.sh profiles $(JOB) failed (STACK_TIER=$(STACK_TIER) AREAS=$(AREAS)); see the run-cases error above)
+endif
+else
+COMPOSE_PROFILES := operator
+endif
+endif
+export COMPOSE_PROFILES
 export COMPOSE_FILE ?= compose.yaml:deploy/compose/compose.test.yaml
 # Windows Docker splits COMPOSE_FILE on ";" unless told otherwise.
 export COMPOSE_PATH_SEPARATOR ?= :
@@ -71,6 +90,19 @@ COMPOSE_PROJECT := $(or $(COMPOSE_PROJECT_NAME),nava)
 
 image:
 	docker compose build
+
+# Pull every PUBLISHED_IMAGES entry whose key is published; never fails on a
+# miss. Prints and (with GITHUB_ENV) exports PREBUILT_SERVICES.
+prebuilt-pull:
+	@hits=; for s in $(PUBLISHED_IMAGES); do if sh scripts/ci/prebuilt-image.sh $$s pull; then hits="$$hits $$s"; fi; done; \
+	hits=$${hits# }; echo "prebuilt-pull: PREBUILT_SERVICES=$$hits"; \
+	if [ -n "$$GITHUB_ENV" ]; then echo "PREBUILT_SERVICES=$$hits" >>"$$GITHUB_ENV"; fi
+
+# Build and push SERVICE's image unless its key is published (the
+# prebuilt-images workflow, main only; GH_TOKEN, GH_ACTOR).
+prebuilt-publish:
+	@[ -n "$(SERVICE)" ] || { echo "prebuilt-publish: set SERVICE to one of $(PUBLISHED_IMAGES)" >&2; exit 2; }
+	sh scripts/ci/prebuilt-image.sh $(SERVICE) publish
 
 # CI image build: buildx bake over compose.yaml while the registry images are
 # pulled alongside. IMAGE_CACHE=gha keeps the layer cache in the GitHub Actions
@@ -89,17 +121,65 @@ image:
 # branch or a pull request can be read by no other ref, and those caches
 # filled the repository's 10 GB and evicted main's.
 BAKE_CACHED := db-roles keycloak nava-core nava-groupsync nava-onboard nava-purge nava-relay nava-worker otel-collector temporal-server
+# Every compose.yaml service with a build: (TestBakeTargetsCoverCompose).
+BAKE_TARGETS := $(BAKE_CACHED) migrate
+# Published CI images (TICK-641, TICK-693; docs/quality/ci-pipeline.md
+# "Published CI images"): the services the prebuilt-images workflow publishes
+# to GHCR from main, keyed on what their build reads
+# (scripts/ci/prebuilt-image.sh). make prebuilt-pull pulls each one whose key
+# is published, tags it as this run's nava/<service> and writes the hits as
+# PREBUILT_SERVICES to GITHUB_ENV; a miss of any kind is not an error. make
+# image-ci then bakes every target but PREBUILT_SERVICES, and reads or writes
+# no cache for them. PREBUILT_SERVICES unset: bake's default group, every
+# target, as before. TestPublishedImageKeyCoversBuild keeps each key covering
+# its Dockerfile's COPY/ADD sources.
+PUBLISHED_IMAGES := temporal-server keycloak
+BAKE_BUILT := $(filter-out $(PREBUILT_SERVICES),$(BAKE_CACHED))
+BAKE_ONLY := $(if $(strip $(PREBUILT_SERVICES)),$(filter-out $(PREBUILT_SERVICES),$(BAKE_TARGETS)))
 comma := ,
 BAKE_CACHE_TO = $(if $(filter true,$(CACHE_WRITE)),--set $(1).cache-to=type=gha$(comma)scope=$(1)$(comma)mode=max$(comma)ignore-error=true)
-BAKE_CACHE_GHA := $(foreach t,$(BAKE_CACHED),--set $(t).cache-from=type=gha,scope=$(t) $(call BAKE_CACHE_TO,$(t))) --set migrate.cache-from=type=gha,scope=db-roles
+BAKE_CACHE_GHA := $(foreach t,$(BAKE_BUILT),--set $(t).cache-from=type=gha,scope=$(t) $(call BAKE_CACHE_TO,$(t))) --set migrate.cache-from=type=gha,scope=db-roles
 BAKE_CACHE := $(if $(filter gha,$(IMAGE_CACHE)),$(BAKE_CACHE_GHA))
 PULL_POLICY := $(if $(filter local,$(IMAGE_CACHE)),--policy missing)
+#
+# IMAGE_THIN=1 (TICK-628): the Go services' images come from
+# deploy/compose/Dockerfile.ci, one target per binary, over the binaries
+# make ci-binaries built on the host into CI_BIN_DIR, so the build does no
+# go build in Docker. Pull request stack runs set it when the change does not
+# touch the image build (cichanged -images); main never does. The images keep
+# the real Dockerfiles' final stage (TestDockerfileCIMatchesRealFinalStages);
+# the risk that a pull request no longer builds the real build stage is
+# AR-TICK-628-01. CI_THIN_SERVICES maps each compose service to its target;
+# TestThinServicesCoverCompose fails when a Go service of compose.yaml is
+# missing from it. The interptest stack worker (compose.test.yaml, profile
+# interptest) is built from Dockerfile.ci's nava-worker-interptest target over
+# CI_BIN_DIR/nava-worker-interptest (-tags interptest), and tagged directly:
+# bake builds compose.yaml only. The interpreter cases start it without
+# --build when NAVA_INTERPTEST_PREBUILT=1 (the stack job sets it with
+# IMAGE_THIN=1), so a thin run does no go build in Docker at all.
+CI_BIN_DIR := .ci-bin
+CI_BINARIES := nava-core nava-db nava-groupsync nava-onboard nava-purge nava-relay nava-worker
+CI_THIN_SERVICES := db-roles=nava-db migrate=nava-db nava-core=nava-core nava-groupsync=nava-groupsync nava-onboard=nava-onboard nava-purge=nava-purge nava-relay=nava-relay nava-worker=nava-worker
+BAKE_THIN := $(foreach m,$(CI_THIN_SERVICES),--set $(word 1,$(subst =, ,$(m))).dockerfile=deploy/compose/Dockerfile.ci --set $(word 1,$(subst =, ,$(m))).target=$(word 2,$(subst =, ,$(m))))
 image-ci:
-	@docker compose pull --quiet --ignore-buildable --ignore-pull-failures $(PULL_POLICY) & pull=$$!; \
-	docker buildx bake -f compose.yaml --load $(BAKE_CACHE); status=$$?; \
+	@echo "image-ci: COMPOSE_PROFILES=$(COMPOSE_PROFILES) (the registry images pulled follow it, TICK-696)"
+	@$(if $(filter 1,$(IMAGE_THIN)),for b in $(CI_BINARIES) nava-worker-interptest; do [ -x $(CI_BIN_DIR)/$$b ] || { echo "image-ci: IMAGE_THIN=1 needs $(CI_BIN_DIR)/$$b: run make ci-binaries first" >&2; exit 2; }; done; echo "image-ci: thin CI images from deploy/compose/Dockerfile.ci (IMAGE_THIN=1)";) \
+	docker compose pull --quiet --ignore-buildable --ignore-pull-failures $(PULL_POLICY) & pull=$$!; \
+	docker buildx bake -f compose.yaml --load $(BAKE_CACHE) $(if $(filter 1,$(IMAGE_THIN)),$(BAKE_THIN)) $(BAKE_ONLY); status=$$?; \
+	$(if $(filter 1,$(IMAGE_THIN)),[ $$status -ne 0 ] || docker buildx build --load -f deploy/compose/Dockerfile.ci --target nava-worker-interptest -t nava/nava-worker-interptest:$${NAVA_IMAGE_TAG:-dev} . || status=$$?;) \
 	wait $$pull; exit $$status
 
+# The Go service binaries for IMAGE_THIN=1, in one go build with the real
+# Dockerfiles' flags, for linux/amd64 (the runner; GOOS/GOARCH override it).
+# No build tags: the production nava-worker (TICK-367). Then the interptest
+# stack worker, the same package with -tags interptest (the S11a fakes).
+ci-binaries:
+	go version
+	CGO_ENABLED=0 GOOS=$${GOOS:-linux} GOARCH=$${GOARCH:-amd64} go build -trimpath -o $(CI_BIN_DIR)/ $(addprefix ./cmd/,$(CI_BINARIES))
+	CGO_ENABLED=0 GOOS=$${GOOS:-linux} GOARCH=$${GOARCH:-amd64} go build -trimpath -tags interptest -o $(CI_BIN_DIR)/nava-worker-interptest ./cmd/nava-worker
+
 stack-up: dev-ca
+	@echo "stack-up: COMPOSE_PROFILES=$(COMPOSE_PROFILES) (STACK_TIER=$(or $(STACK_TIER),unset) AREAS=$(or $(AREAS),all) JOB=$(JOB))"
 	docker compose up -d
 
 # stack-test-<name>: one case, deploy/compose/test/cases/<name>.sh (make/ fragments with their own recipe override this).
@@ -113,6 +193,13 @@ smoke: stack-test-smoke
 stack-internal:
 	docker compose down -v
 	sh deploy/compose/test/stack-test.sh internal
+
+# TICK-696: the host's memory and each running container's, a snapshot for
+# the stack job log (the step after the cases), so a fast and a full run can be
+# compared. Never fails the job.
+stack-mem:
+	@echo "stack-mem: COMPOSE_PROFILES=$(COMPOSE_PROFILES)"; free -m 2>/dev/null || true; \
+	ids=$$(docker compose $(STACK_FILES) ps -q); [ -z "$$ids" ] || docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.CPUPerc}}' $$ids || true
 
 stack-logs:
 	docker compose $(STACK_FILES) logs --no-color --tail 200

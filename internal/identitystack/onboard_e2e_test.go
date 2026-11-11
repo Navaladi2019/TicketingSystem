@@ -400,16 +400,50 @@ func brokeredAttemptAs(t *testing.T, clientID, redirect string, pkce bool, idp, 
 	return inNetToken(t, c, form), ""
 }
 
+// Group sync state shared by parallel tests (TICK-635). The onboard invite
+// tests run with t.Parallel(), and a group sync cycle is not scoped to one
+// test: it syncs every bound tenant.
+//
+//   - groupsyncStop counts the tests that need the long-running nava-groupsync
+//     stopped. The first one stops it and the last one restarts it. Without
+//     the count, the first test to finish would restart it while the others
+//     still run.
+//   - cycleGate: groupsyncOnce holds it exclusively, and duringNoCycle and the
+//     fixture cleanups hold it shared. Two --once cycles at once would skip
+//     each other's locked tenants and exit 0. A cycle between two steps of
+//     another test could place a user that test is about to make unplaceable.
+//     A cycle could also read a tenant whose org or users are being deleted.
+//
+//nolint:gochecknoglobals // shared test state, one stack per process
+var (
+	groupsyncStop struct {
+		sync.Mutex
+		n int
+	}
+	cycleGate sync.RWMutex
+)
+
 // stopGroupsync stops the long-running nava-groupsync for the test and brings
-// it back, healthy, in Cleanup: while it runs, a cycle of its own can hold a
-// tenant's lock, so the --once cycle skips that tenant, exits 0, and /me
-// fails for a reason that is not the one under test.
+// it back, healthy, in Cleanup once no other test still needs it stopped:
+// while it runs, a cycle of its own can hold a tenant's lock, so the --once
+// cycle skips that tenant, exits 0, and /me fails for a reason that is not
+// the one under test.
 func stopGroupsync(t *testing.T) {
 	t.Helper()
-	if out, err := dockerOut(t, "", "compose", "stop", "nava-groupsync"); err != nil {
-		t.Fatalf("stop nava-groupsync: %v\n%s", err, out)
+	groupsyncStop.Lock()
+	defer groupsyncStop.Unlock()
+	if groupsyncStop.n == 0 {
+		if out, err := dockerOut(t, "", "compose", "stop", "nava-groupsync"); err != nil {
+			t.Fatalf("stop nava-groupsync: %v\n%s", err, out)
+		}
 	}
+	groupsyncStop.n++
 	t.Cleanup(func() {
+		groupsyncStop.Lock()
+		defer groupsyncStop.Unlock()
+		if groupsyncStop.n--; groupsyncStop.n > 0 {
+			return
+		}
 		if out, err := dockerOut(t, "", "compose", "up", "-d", "--no-deps", "--wait", "nava-groupsync"); err != nil {
 			t.Errorf("restart nava-groupsync: %v\n%s", err, out)
 		}
@@ -418,12 +452,25 @@ func stopGroupsync(t *testing.T) {
 
 // groupsyncOnce runs one nava-groupsync cycle, which syncs every bound
 // tenant's principals; it exits non-zero when any tenant failed. Call
-// stopGroupsync first.
+// stopGroupsync first. Only one cycle runs at a time (cycleGate), and it
+// starts after every step the caller made before the call.
 func groupsyncOnce(t *testing.T) {
 	t.Helper()
+	cycleGate.Lock()
+	defer cycleGate.Unlock()
 	if out, err := dockerOut(t, "", "compose", "run", "--rm", "--no-deps", "-T", "nava-groupsync", "--once"); err != nil {
 		t.Fatalf("nava-groupsync --once: %v\n%s", err, out)
 	}
+}
+
+// duringNoCycle runs steps with no group sync cycle running. Use it when a
+// cycle between the steps would change what the test checks, such as a
+// sign-in followed by a disable. steps must not call groupsyncOnce, because
+// that would deadlock.
+func duringNoCycle(steps func()) {
+	cycleGate.RLock()
+	defer cycleGate.RUnlock()
+	steps()
 }
 
 type meResp struct {

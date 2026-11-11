@@ -26,6 +26,8 @@ export MSYS_NO_PATHCONV
 if [ -f .env ]; then set -a; . ./.env; set +a; fi
 EV=docs/acceptance/S15/evidence
 mkdir -p "$EV"
+# The raw Bruno reports hold dev-only tokens: never leave them behind (TICK-627).
+trap 'rm -f "$EV"/.bruno-*.json' EXIT
 A=00000000-0000-4000-8000-0000000000a1
 B=00000000-0000-4000-8000-0000000000b1
 CORE_PORT=${NAVA_CORE_PORT:-18080}

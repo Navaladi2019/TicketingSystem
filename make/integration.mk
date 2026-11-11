@@ -1,6 +1,6 @@
-.PHONY: test-integration test-integration-cleanup reap-integration bench-relay isolation test-ci-isolated-down test-commit-check-budget
+.PHONY: test-integration test-integration-cleanup reap-integration bench-relay isolation test-ci-isolated-down test-commit-check-budget test-self-hosted-cleanup
 
-ci-integration: test-integration test-ci-isolated-down test-integration-cleanup
+ci-integration: test-integration test-ci-isolated-down test-integration-cleanup test-self-hosted-cleanup
 
 # Every package with `//go:build integration` tests, against a throwaway
 # postgres container the script starts and removes (needs Docker), then the
@@ -10,9 +10,14 @@ ci-integration: test-integration test-ci-isolated-down test-integration-cleanup
 # workflow step), so this loop stays fast (TICK-224).
 # NAVA_IT_COVERAGE: the script writes the integration half of make
 # check-coverage there (TICK-518).
+# ISOLATION=0 skips the isolation suite too (TICK-652): ci.yml sets it on a
+# fast run (a pull request with ci:run, a push to main) and 1 on a full run
+# (the daily run on main, ci:full, a manual run), AR-TICK-652-01. The suite
+# writes no coverage profile, so the gate's total is the same either way.
+ISOLATION ?= 1
 test-integration:
 	NAVA_IT_COVERAGE=coverage-integration.out sh scripts/ci/test-integration.sh $(ARGS)
-	$(if $(ARGS),@echo "isolation suite skipped (ARGS set); run make isolation",sh scripts/ci/isolation.sh)
+	$(if $(ARGS),@echo "isolation suite skipped (ARGS set); run make isolation",$(if $(filter 0,$(ISOLATION)),@echo "isolation suite skipped (ISOLATION=0: a fast CI run); run make isolation",sh scripts/ci/isolation.sh))
 
 # test-integration.sh leaves no container or network behind after a run with
 # go test arguments or a TERM part way (TICK-185). Its own ci.yml step and in
@@ -50,6 +55,12 @@ isolation:
 # throwaway tags on an empty imported image, a fresh id per run. Needs Docker.
 test-ci-isolated-down:
 	sh scripts/ci/test-ci-isolated-down.sh
+
+# The self-hosted cleanup job's script removes one run's containers, volumes,
+# networks and image tags and nothing else: not another run's, not the
+# owner's own (TICK-641). Throwaway objects; needs Docker, no build.
+test-self-hosted-cleanup:
+	sh scripts/ci/test-self-hosted-cleanup.sh
 
 
 # The commit-check budget rows (ADR-004-E3, D-E3-4, TICK-509):

@@ -1,0 +1,39 @@
+meta {
+  name: S10.38 A3: the requester raises its own incident: 201, requester is the caller
+  type: http
+  seq: 38
+}
+
+post {
+  url: {{core_url}}/api/v1/records/incident
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{req_a_token}}
+  Idempotency-Key: tick623-s10-{{s10_run}}-req
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "S10 {{s10_run}} raised by the requester"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  bru.setVar('s10_req_rec', N.json().id);
+  test('requester is the caller, state new', () => {
+    expect(N.json().data.requester).to.eql(bru.getVar('s10_requester'));
+    expect(N.json().state).to.eql('new');
+  });
+}
+
+docs {
+  `default-requester-new` lets a requester create an incident while it is `new`; the pipeline sets `requester` to the caller (A4).
+}

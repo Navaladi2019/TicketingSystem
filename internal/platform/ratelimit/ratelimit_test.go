@@ -283,7 +283,10 @@ func TestNewRequiresArguments(t *testing.T) {
 
 func TestConfigDefaults(t *testing.T) {
 	t.Parallel()
-	m := ratelimit.NewMemory(ratelimit.Config{}, nil)
+	// A fixed clock: at DefaultRate (50/s) a token refills every 20 ms, so on
+	// a slow host (-race on the self-hosted runner, TICK-641) the wall clock
+	// refilled one before the 101st request and the test failed.
+	m := ratelimit.NewMemory(ratelimit.Config{}, newClock().now)
 	for i := range ratelimit.DefaultBurst {
 		if d, _ := m.Allow(t.Context(), tenantA); !d.Allowed {
 			t.Fatalf("request %d refused under default burst", i)

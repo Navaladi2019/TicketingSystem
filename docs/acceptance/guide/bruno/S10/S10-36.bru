@@ -1,0 +1,33 @@
+meta {
+  name: S10.36 The admin raises an incident for the requester, assigned to admins
+  type: http
+  seq: 36
+}
+
+post {
+  url: {{core_url}}/api/v1/records/incident
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick623-s10-{{s10_run}}-req2
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "S10 {{s10_run}} for the requester",
+      "requester": "{{s10_requester}}",
+      "assignment_group": "{{s10_admins}}"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  bru.setVar('s10_req2_rec', N.json().id);
+}

@@ -1,0 +1,29 @@
+meta {
+  name: S16.12 Isolation: Bob cannot export: 403
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{core_url}}/api/v1/audit/entries:export
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await require('./lib/s15')(N, bru).fresh();
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('forbidden', 403);
+}
+
+docs {
+  Bob is an agent in tenant B, without `audit.export`. The tenant is always the token's: there is no way to name tenant A.
+}

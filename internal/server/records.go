@@ -109,11 +109,19 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 	err := tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) error {
 		// Causation stays empty on purpose: origin and depth never come from
 		// the request (TICK-88 security review).
-		cmd := pipeline.Command{Op: pipeline.OpCreate, EntityKey: req.Entity, Actor: p, Source: pipeline.SourceUser}
-		// One round trip for every read the create starts with: the hold on
-		// the request's idempotency key and the pipeline's prefetch (the
-		// definition and the policy, which Current below and the write and
-		// shaping checks then take from the transaction's memo) (TICK-648).
+		//
+		// The write (record, audit entry) rides in the COMMIT's round trip
+		// with the key's completion (InsertAtCommit, TICK-692): nothing
+		// below Write sends a statement of its own but the reads of
+		// fixedColumnsOf and shapedBody, which never read the new record.
+		cmd := pipeline.Command{Op: pipeline.OpCreate, EntityKey: req.Entity, Actor: p, Source: pipeline.SourceUser, InsertAtCommit: true}
+		// One round trip for the BEGIN and the tenant (BeginInFirstBatch,
+		// TICK-692), the claim of the request's idempotency key, the
+		// transaction's first write (TICK-688), and every read the create
+		// starts with: the pipeline's prefetch (the definition and the
+		// policy, which Current below and the write and shaping checks then
+		// take from the transaction's memo) (TICK-648). The claim waits at
+		// most idempotency.ClaimWait on a concurrent request with the key.
 		b := &pgx.Batch{}
 		if err := idempotency.QueueHold(ctx, tx, b); err != nil {
 			return err
@@ -121,7 +129,10 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 		if err := h.pipe.QueuePrefetch(ctx, tx, b, cmd); err != nil {
 			return err
 		}
-		if err := tx.SendBatch(ctx, b).Close(); err != nil {
+		// The replay check comes first: a request whose key is taken
+		// (replayed, reused, in flight) rolls back here, before validation,
+		// the write check and the number (I4, ADR-005).
+		if err := idempotency.ResolveClaim(ctx, tx, tx.SendBatch(ctx, b).Close()); err != nil {
 			return err
 		}
 		def, curVersion, err := h.store.Current(ctx, tx, req.Entity)
@@ -160,8 +171,12 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 		// The key completes in this transaction, with the write (TICK-482),
 		// in the COMMIT's round trip since the key's row is held.
 		return idempotency.CompleteInTx(ctx, tx, resp.VisitCreateRecordResponse)
-	})
+	}, tenancy.BeginInFirstBatch())
 	if err != nil {
+		if errors.Is(err, idempotency.ErrSettled) {
+			// The middleware answers from the key; this response is dropped.
+			return settledCreate{}, nil
+		}
 		if errors.Is(err, entitytypes.ErrNotFound) || errors.Is(err, pipeline.ErrNotFound) {
 			return h.notFound(ctx), nil
 		}
@@ -171,6 +186,14 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 	}
 	return resp, nil
 }
+
+// settledCreate is CreateRecord's response when the request's key was
+// already taken (idempotency.ErrSettled). The idempotency middleware
+// replaces it with the stored response or the key's 409, so it writes
+// nothing.
+type settledCreate struct{}
+
+func (settledCreate) VisitCreateRecordResponse(http.ResponseWriter) error { return nil }
 
 // GetRecord serves GET /api/v1/records/{entity}/{id}.
 func (h *handlers) GetRecord(ctx context.Context, req api.GetRecordRequestObject) (api.GetRecordResponseObject, error) {
@@ -378,6 +401,10 @@ func (h *handlers) recordError(ctx context.Context, err error, fixed map[string]
 	switch {
 	case errors.As(err, &pe):
 		return pe
+	case errors.Is(err, pipeline.ErrRetryable):
+		// A number allocation past its timeout (ADR-005 A5) or a deadlock:
+		// the transaction committed nothing, so a retry is safe (TICK-657).
+		return &problemError{problem.RetryLater, nil, err}
 	case errors.As(err, &nw):
 		// The pointers name the fields the caller sent, never a value.
 		fields := make([]problem.FieldError, len(nw.Fields))

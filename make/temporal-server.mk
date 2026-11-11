@@ -2,7 +2,7 @@
 
 TEMPORAL_SERVER_IMAGE ?= nava/temporal-server:$(NAVA_IMAGE_TAG)
 
-.PHONY: temporal-server-test lint-temporal-server temporal-server-image temporal-server-dev-certs temporal-server-run dev-ca operator-tunnel
+.PHONY: temporal-server-test lint-temporal-server temporal-server-image ci-temporal-server-changed temporal-server-dev-certs temporal-server-run dev-ca operator-tunnel
 
 ci-unit: temporal-server-test lint-temporal-server
 
@@ -27,6 +27,14 @@ lint-temporal-server: check-golangci-lint
 ## Build the custom Temporal server image (ADR-001 D22, task T27a).
 temporal-server-image:
 	docker build -t $(TEMPORAL_SERVER_IMAGE) temporal-server
+
+## The published image (TICK-641) is make prebuilt-publish SERVICE=temporal-server
+## and make prebuilt-pull (make/stack.mk, scripts/ci/prebuilt-image.sh).
+
+## Whether the ci workflow's temporal-server job runs (TICK-641): true when
+## the module or how it is built, tested or linted changed.
+ci-temporal-server-changed:
+	@sh scripts/ci/temporal-server-changed.sh
 
 ## Write throwaway development certificates to temporal-server/.devcerts.
 temporal-server-dev-certs:

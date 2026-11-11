@@ -1,0 +1,25 @@
+meta {
+  name: S10.29 The requester's principal id: in no /service-desk or admins group
+  type: http
+  seq: 29
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{req_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.me('00000000-0000-4000-8000-0000000000a1');
+  bru.setVar('s10_requester', N.json().user_id);
+  test('not in /service-desk or /admins', () => {
+    expect(N.paths()).to.not.include('/service-desk');
+    expect(N.paths()).to.not.include('/admins');
+  });
+}

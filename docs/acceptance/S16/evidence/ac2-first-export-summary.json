@@ -1,0 +1,31 @@
+{
+  "bytes": 18850460,
+  "lines": 621,
+  "header": {
+    "kind": "header",
+    "format": "nava.audit.export/v1",
+    "tenant_id": "00000000-0000-4000-8000-0000000000a1",
+    "export_id": "01a1bbff-abf8-7755-83cd-8516755e3fdc",
+    "exported_at": "2026-11-08T16:30:57.514957Z",
+    "stubs": true,
+    "filter": {
+      "from": null,
+      "to": null,
+      "domain": null,
+      "subject_type": null,
+      "subject_id": null,
+      "change_set_id": null,
+      "after_seq": null
+    }
+  },
+  "trailer": {
+    "kind": "trailer",
+    "anchor_seq": 0,
+    "last_seq": 597,
+    "head_hash": "582ca455f5cdb543e5df7fbd4d347dca4f93ab73de4d594232a074930ee3660a",
+    "count": 597,
+    "stub_count": 0,
+    "unsealed_count": 21,
+    "verifiable": true
+  }
+}

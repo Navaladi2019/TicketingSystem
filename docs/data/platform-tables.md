@@ -497,6 +497,9 @@ erDiagram
 - **Numbering (D-3-9).** One upsert, `INSERT … VALUES (…, 2) ON CONFLICT
   (tenant_id, entity_definition_id) DO UPDATE SET next = record_counters.next
   + 1 RETURNING next - 1`; `next` is the number the following create gets.
+  Since TICK-657 it runs in a short transaction of its own that commits
+  before the record is inserted, so a failed create leaves a gap (D-3-9 as
+  amended 2026-11-10).
   It needs INSERT, UPDATE (`next`) and SELECT, each under its own policy.
 - **Composite foreign keys (TICK-360).** All five carry `tenant_id`. A record
   naming another tenant's type, principal or group, an audit row naming

@@ -70,9 +70,11 @@ Before calling a change done, run `task test` and `task lint`.
 **Agents never run the CI pipeline locally.** Do not run `make ci`,
 `make ci-isolated`, `make ci-changed`, `make ci-stack` or `make stack-*` to
 verify a change or a story: they take 5 to 25 minutes and hold the host's
-Docker and race lock. Open a PR, add the `ci:run` label and read the GitHub
-`ci` workflow result: a push to a task branch starts no run, and a PR without
-the label runs only `changes`, `lint` and `story-branches` (TICK-563).
+Docker and race lock. Open a PR and read the GitHub `ci` workflow result: a
+push to a task branch starts no run; a PR into a `TICK-*` story branch runs
+every job with no label (TICK-638), except `temporal-server` when the PR leaves
+that module alone (TICK-695); any other PR needs the `ci:run` label, and
+without it runs only `changes`, `lint` and `story-branches` (TICK-563).
 `gh workflow run ci --ref <branch>` runs the jobs the branch's diff against
 `main` needs; only `main` runs every job. `make ci` stays for
 humans debugging a failure that GitHub cannot show (see

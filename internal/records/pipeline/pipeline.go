@@ -25,8 +25,12 @@
 // transaction (tenancy.TenantOf) and refuses an actor of another tenant.
 //
 // A create takes the next per-tenant, per-type number from record_counters
-// (D-3-9). Every write checks the type's state model and its unique
-// properties (D-3-22) (P3-11). A write that changes assignment_group_id must
+// (D-3-9 as amended 2026-11-10: gaps allowed, no reclaim) after every check,
+// in a short transaction of its own on the allocator pool that commits
+// before the record is inserted (ADR-005 L2s, tenancy.AllocTx, alloc.go). A
+// create that then fails leaves a gap.
+// Every write checks the type's state model and its unique properties
+// (D-3-22) (P3-11). A write that changes assignment_group_id must
 // name a live group of the tenant (ADR-004-E5 D6); an unchanged value passes
 // even after its group is tombstoned (D7).
 //
@@ -161,6 +165,21 @@ type Command struct {
 	// SourceRef is the AI decision record's id, a lowercase UUID: required
 	// when Source is SourceAI and refused otherwise (ADR-004 R4).
 	SourceRef *string
+	// InsertAtCommit lets a create of a `gaps` type queue its write (the
+	// record, the write key, the audit entry) for the round trip that
+	// commits tx (tenancy.QueueAtCommit) instead of sending it as a round
+	// trip of its own (TICK-692). Set it only when the caller sends nothing
+	// on tx after Write returns but statements it queues at commit itself.
+	// Write then answers with the record as it will be stored, from the
+	// number, the allocation's instant and the payload preview; the INSERT
+	// fails, and nothing commits, unless the stored row is exactly that
+	// (store.QueueInsertRecordAsExpected). A failure of the queued write
+	// comes out of tenancy.InTenantTx mapped as Write would map it,
+	// *ErrAtVersion included. It is ignored for an update, a `gapless`
+	// type, a tx with no commit batch (a savepoint, or not from
+	// tenancy.InTenantTx) and an EventSink other than NoopSink, which may
+	// send statements that must follow the INSERT; those write as before.
+	InsertAtCommit bool
 }
 
 // Result is what a write produced.
@@ -214,16 +233,29 @@ type DefinitionReader interface {
 	Current(ctx context.Context, tx pgx.Tx, entityKey string) (*metadata.Compiled, int, error)
 }
 
-// TxRunner runs fn in a tenant transaction of its own. Write records a
-// cascade_rejected audit row on it, so the row survives the caller's
-// rollback (D-3-7a). It needs a connection of its own while the caller's
-// transaction is open: a PoolRunner on the caller's pool needs at least two.
+// TxRunner runs fn in a tenant transaction of its own, while the caller's
+// transaction is open. Write records a cascade_rejected audit row on it, so
+// the row survives the caller's rollback (D-3-7a). A TxRunner that is also an
+// Allocator takes a `gaps` create's number (ADR-005 L2s, TICK-657). Each
+// call needs a connection the callers' transactions do not hold: a
+// PoolRunner over the callers' own pool can starve, every connection held by
+// a create waiting for a second one. nava-core gives it a pool of its own
+// (the allocator pool, cmd/nava-core/allocator.go).
 type TxRunner interface {
 	InTenantTx(ctx context.Context, tenantID uuid.UUID, fn func(pgx.Tx) error) error
 }
 
-// PoolRunner is the TxRunner over a pool, through tenancy.InTenantTx.
-type PoolRunner struct{ Pool *pgxpool.Pool }
+// PoolRunner is the TxRunner over a pool, through tenancy.InTenantTx, so
+// the transaction's BEGIN sets the tenant and RLS applies to it. It is also
+// the Allocator, through tenancy.AllocTx (alloc.go).
+type PoolRunner struct {
+	Pool *pgxpool.Pool
+	// AllocTimeout bounds an allocation (ADR-005 A5); zero is
+	// DefaultAllocTimeout.
+	AllocTimeout time.Duration
+	// Metrics records the allocator's metrics (A8); nil records none.
+	Metrics *AllocMetrics
+}
 
 // InTenantTx implements TxRunner.
 func (r PoolRunner) InTenantTx(ctx context.Context, tenantID uuid.UUID, fn func(pgx.Tx) error) error {
@@ -255,7 +287,9 @@ var (
 	// can deadlock with another one (P3-11's locks are ordered within one
 	// write, not across writes: TICK-88, from the PR #360 review); cascades
 	// themselves never share one, because each runs in its own activity.
-	ErrRetryable = errors.New("pipeline: transaction aborted by a deadlock or serialization failure, retry")
+	// It also means a create's number allocation passed its timeout
+	// (ADR-005 A5): nothing was inserted, and a retry takes a new number.
+	ErrRetryable = errors.New("pipeline: transaction aborted by a deadlock or serialization failure, or a number allocation timed out, retry")
 	// ErrAssignmentGroupRemoved means the write changes assignment_group_id to
 	// a group the tenant does not have live: tombstoned, another tenant's
 	// (live or tombstoned) or unknown. The cases are not told apart
@@ -387,11 +421,17 @@ func (p *Pipeline) Runner() TxRunner { return p.runner }
 // If that entry cannot be written, the error also wraps the cause.
 func (p *Pipeline) Write(ctx context.Context, tx pgx.Tx, cmd Command) (Result, error) {
 	res, err := p.perform(ctx, tx, cmd)
-	var pe *pgconn.PgError
-	if errors.As(err, &pe) && (pe.Code == "40P01" || pe.Code == "40001") {
+	if retryable(err) {
 		return Result{}, fmt.Errorf("%w: %w", ErrRetryable, err)
 	}
 	return res, err
+}
+
+// retryable reports whether PostgreSQL aborted the transaction for a
+// deadlock (40P01) or a serialization failure (40001).
+func retryable(err error) bool {
+	var pe *pgconn.PgError
+	return errors.As(err, &pe) && (pe.Code == "40P01" || pe.Code == "40001")
 }
 
 // perform is Write before its error mapping.
@@ -607,9 +647,26 @@ func (w *write) create(ctx context.Context, after map[string]any) (Result, error
 	if err != nil {
 		return Result{}, err
 	}
-	// The number is taken after every check, in the write's last batch with
-	// the record, write key and audit inserts, so the counter row's lock is
-	// held only from that batch to the caller's COMMIT (D-3-9).
+	// The number is taken after every check (ADR-001 I4, ADR-005 A6): a
+	// refused or invalid create never moves the counter. It is taken in a
+	// transaction of its own that commits before this one inserts the record
+	// (ADR-005 L2s), so a create that fails from here on leaves a gap.
+	// A `gapless` type takes it last inside this transaction instead
+	// (ADR-005 L1, writeCreate). The mode is the one the definition had
+	// when this create read it (§2.1.1).
+	if w.def.NumberingMode() != metadata.NumberingGapless {
+		alloc, err := w.allocate(ctx)
+		if err != nil {
+			return Result{}, err
+		}
+		rec.Number = store.FormatNumber(w.def.NumberPrefix(), alloc.Number)
+		// The record is created at the allocation's instant (A7), so a date
+		// in a number will always match created_at.
+		rec.CreatedAt, rec.UpdatedAt = alloc.Instant, alloc.Instant
+	}
+	if w.atCommit() {
+		return w.writeCreateAtCommit(ctx, rec, preview)
+	}
 	return w.writeCreate(ctx, rec, preview)
 }
 

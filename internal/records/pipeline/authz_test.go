@@ -83,7 +83,7 @@ func TestWriteChecksTheRowBeforeAndAfter(t *testing.T) {
 	}
 
 	calls = nil
-	_, _ = p.Write(t.Context(), f.tx(t, stmt{match: sqlNumber, err: errBoom}), f.create(map[string]any{"name": "x"}))
+	_, _ = p.Write(t.Context(), f.tx(t), f.create(map[string]any{"name": "x"}))
 	if len(calls) != 2 || calls[0].op != "fields" || calls[1].op != authz.OpWrite || calls[1].before != nil || calls[1].after == nil || calls[1].after.SharedWith != nil {
 		t.Fatalf("create's authorizer calls = %+v, want the field check, then one write with no before and no shares", calls)
 	}
@@ -103,7 +103,7 @@ func TestSystemSourcesSkipTheAuthorizerAndAIDoesNot(t *testing.T) {
 
 	sys := f.create(map[string]any{"name": "x"})
 	sys.Source, sys.Actor.PrincipalID = pipeline.SourceSystem, uuid.Nil
-	_, err := p.Write(t.Context(), f.tx(t, stmt{match: sqlNumber, err: errBoom}), sys)
+	_, err := p.Write(t.Context(), f.tx(t), sys)
 	if errors.Is(err, authz.ErrForbidden) || !errors.Is(err, errBoom) {
 		t.Fatalf("system write: %v, want it past the authorizer (to the number)", err)
 	}
@@ -116,7 +116,7 @@ func TestFieldCheckSeesOnlyTheCallersWrite(t *testing.T) {
 	f := newFixture()
 	var calls []authzCall
 	p := unitPipeline(fakeAuthz{calls: &calls}, fakeDefs{cur: assetDef(t), curVersion: 1})
-	_, _ = p.Write(t.Context(), f.tx(t, stmt{match: sqlNumber, err: errBoom}), f.create(map[string]any{"name": "x"}))
+	_, _ = p.Write(t.Context(), f.tx(t), f.create(map[string]any{"name": "x"}))
 	fc := fieldsCall(t, calls)
 	if fc.beforeData != nil || len(fc.afterData) != 1 || fc.afterData["name"] != "x" {
 		t.Fatalf("create field check before %v after %v, want nil and only the sent name", fc.beforeData, fc.afterData)
@@ -138,22 +138,25 @@ func TestFieldCheckSeesOnlyTheCallersWrite(t *testing.T) {
 func TestFieldNotWritableWritesNothing(t *testing.T) {
 	f := newFixture()
 	refusal := &authz.ErrFieldNotWritable{Fields: []string{"tag"}}
-	p := unitPipeline(fakeAuthz{fieldsErr: refusal}, fakeDefs{cur: assetDef(t), curVersion: 1})
+	p, numbers := numberedPipeline(t, fakeAuthz{fieldsErr: refusal}, fakeDefs{cur: assetDef(t), curVersion: 1}, &numberRunner{err: errBoom})
 	tx := f.tx(t)
 	_, err := p.Write(t.Context(), tx, f.create(map[string]any{"name": "x", "tag": 1}))
 	var nw *authz.ErrFieldNotWritable
 	if !errors.As(err, &nw) || nw.Fields[0] != "tag" {
 		t.Fatalf("create: %v, want *authz.ErrFieldNotWritable for tag", err)
 	}
-	for _, s := range []string{sqlLock, sqlNumber, sqlInsert, sqlAudit} {
+	for _, s := range []string{sqlLock, sqlInsert, sqlAudit} {
 		if tx.ranAny(s) {
 			t.Fatalf("a refused write ran %q", s)
 		}
 	}
+	if numbers.taken() {
+		t.Fatal("a refused write took a number")
+	}
 
 	sys := f.create(map[string]any{"name": "x", "tag": 1})
 	sys.Source, sys.Actor.PrincipalID = pipeline.SourceSystem, uuid.Nil
-	if _, err := p.Write(t.Context(), f.tx(t, stmt{match: sqlNumber, err: errBoom}), sys); errors.As(err, &nw) || !errors.Is(err, errBoom) {
+	if _, err := p.Write(t.Context(), f.tx(t), sys); errors.As(err, &nw) || !errors.Is(err, errBoom) {
 		t.Fatalf("system write: %v, want it past the field check (to the number)", err)
 	}
 }

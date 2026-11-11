@@ -1,0 +1,28 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "/api/v1/audit/entries:export",
+    "as": "bob",
+    "headers": {
+      "Authorization": "Bearer <bob's access token>"
+    }
+  },
+  "response": {
+    "status": 403,
+    "headers": {
+      "content-length": "204",
+      "content-type": "application/problem+json",
+      "date": "Sun, 08 Nov 2026 16:31:03 GMT",
+      "x-request-id": "d920865c4a5f3b83e37584d833bae208"
+    },
+    "bytes": 204,
+    "body": {
+      "type": "urn:nava:problem:forbidden",
+      "title": "Forbidden",
+      "status": 403,
+      "code": "forbidden",
+      "detail": "The token does not allow this operation.",
+      "instance": "urn:nava:request:d920865c4a5f3b83e37584d833bae208"
+    }
+  }
+}

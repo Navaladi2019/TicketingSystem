@@ -29,8 +29,11 @@ check-guide:
 # Fails when .github/workflows/ci.yml stops running a step listed in
 # tools/ci/cisteps/required.yaml (TICK-297): a suite or report upload removed,
 # disabled or allowed to fail.
+# ci.yml against required.yaml, and govulncheck.yml against
+# required-govulncheck.yaml (TICK-641).
 check-ci-steps:
 	go run ./tools/ci/cisteps
+	go run ./tools/ci/cisteps -workflow .github/workflows/govulncheck.yml -required tools/ci/cisteps/required-govulncheck.yaml
 
 # Additive-only rule for /api/v1: fails when api/openapi.yaml removes or
 # narrows anything the base branch (BASE, default origin/main) offers. A

@@ -50,12 +50,14 @@ var goMatcherRe = regexp.MustCompile(`^\s*(.+\.go):(?:(\d+):(\d+):)? (.*)`)
 
 func TestFixture(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		env  string
-		tags []string
-		args []string
-		code int
-		want []string
+		name  string
+		env   string
+		tags  []string
+		scope string // suiteran -run
+		skip  string // suiteran -skip
+		args  []string
+		code  int
+		want  []string
 	}{
 		{
 			name: "every suite runs",
@@ -100,6 +102,39 @@ func TestFixture(t *testing.T) {
 			want: []string{"FAIL  tagged/tagged_suite_test.go, ran 0 of 1 tests", "3 registered files are outside this run"},
 		},
 		{
+			// TICK-628: a step that declares the same -run to suiteran
+			// expects only the suites with a test in that scope.
+			name:  "a declared -run scope leaves the other suites out",
+			tags:  []string{"fixturetag"},
+			scope: "^TestPlain$",
+			args:  goTest("-json", "-tags", "fixturetag", "-run", "^TestPlain$", "./tagged"),
+			want:  []string{"(none)", "4 registered files are outside this run", `-run "^TestPlain$"`},
+		},
+		{
+			name:  "a declared -run scope still expects its own suite",
+			tags:  []string{"fixturetag"},
+			scope: "^TestTaggedSuite$",
+			args:  goTest("-json", "-tags", "fixturetag", "-run", "^TestTaggedSuite$", "./tagged"),
+			want:  []string{"ok    tagged/tagged_suite_test.go, ran 1 of 1 tests", "3 registered files are outside this run", "  1 top-level tests ran (pass or fail)"},
+		},
+		{
+			// The declared scope does not hide a go test filter that drops
+			// a suite inside it.
+			name:  "go test filters out a suite inside the declared -run scope",
+			tags:  []string{"fixturetag"},
+			scope: "^Test(Plain|TaggedSuite)$",
+			args:  goTest("-json", "-tags", "fixturetag", "-run", "^TestPlain$", "./tagged"),
+			code:  1,
+			want:  []string{"FAIL  tagged/tagged_suite_test.go, ran 0 of 1 tests"},
+		},
+		{
+			name: "a declared -skip scope leaves the skipped suite out",
+			tags: []string{"fixturetag"},
+			skip: "^TestTaggedSuite$",
+			args: goTest("-json", "-tags", "fixturetag", "-skip", "^TestTaggedSuite$", "./tagged"),
+			want: []string{"(none)", "4 registered files are outside this run", `-skip "^TestTaggedSuite$"`},
+		},
+		{
 			name: "a step without the tag does not expect the tagged suite",
 			args: goTest("-json", "./tagged"),
 			want: []string{"(none)", "4 registered files are outside this run"},
@@ -116,7 +151,11 @@ func TestFixture(t *testing.T) {
 			if tc.env != "" {
 				t.Setenv(tc.env, "1")
 			}
-			code, out := runFixture(t, options{tags: tc.tags, args: tc.args})
+			sc, err := newScope(tc.scope, tc.skip)
+			if err != nil {
+				t.Fatal(err)
+			}
+			code, out := runFixture(t, options{tags: tc.tags, args: tc.args, scope: sc})
 			if code != tc.code {
 				t.Errorf("exit code %d, want %d\n%s", code, tc.code, out)
 			}
@@ -284,42 +323,60 @@ func TestEveryRegisteredSuiteHasACheckedStep(t *testing.T) {
 	}
 }
 
-// TestStackTestIdentityIsChecked fails when make stack-test-identity stops
-// failing on its own for a registered identitystack suite that ran zero tests
-// (TICK-283): its go test must run under suiteran with the same -tags, and
-// must not -run or -skip, which would leave a registered suite out of the run
-// (TestFixture's "a -run filter leaves a suite out" shows suiteran then
-// fails). TestCI5 stays out by its ci5 build tag; make identity-attacks
-// checks it.
+// TestStackTestIdentityIsChecked fails when make stack-test-identity or make
+// stack-test-onboard stops failing on its own for a registered identitystack
+// suite that ran zero tests (TICK-283): each go test must run under suiteran
+// with the same -tags. The two split ./internal/identitystack with one
+// pattern (TICK-628): identity -skip '$(ONBOARD_TESTS)', onboard -run
+// '$(ONBOARD_TESTS)', each declared to suiteran too, so every test runs in
+// exactly one of them and each checks its own half. Any other filter would
+// leave a registered suite out of both runs (TestFixture's "a -run filter
+// leaves a suite out" shows suiteran then fails). TestCI5 stays out by its
+// ci5 build tag; make identity-attacks checks it.
 func TestStackTestIdentityIsChecked(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join(repoRoot, "make", "identity.mk"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	recipe := makeRecipe(string(b), "stack-test-identity")
-	var calls []string
-	for _, l := range recipe {
-		if strings.Contains(l, "go test") {
-			calls = append(calls, l)
+	const pattern = "'$(ONBOARD_TESTS)'"
+	for _, tc := range []struct{ target, filter string }{
+		{"stack-test-identity", "skip"},
+		{"stack-test-onboard", "run"},
+	} {
+		recipe := makeRecipe(string(b), tc.target)
+		var calls []string
+		for _, l := range recipe {
+			if strings.Contains(l, "go test") {
+				calls = append(calls, l)
+			}
+		}
+		if len(calls) != 1 {
+			t.Errorf("%s runs go test %d times, want 1:\n%s", tc.target, len(calls), strings.Join(recipe, "\n"))
+			continue
+		}
+		flags, goTest, ok := strings.Cut(calls[0], " -- ")
+		if !ok || !strings.Contains(flags, "tools/ci/suiteran") {
+			t.Errorf("%s's go test does not run under suiteran: %q", tc.target, calls[0])
+			continue
+		}
+		tagsRe := regexp.MustCompile(`-tags[= ](\S+)`)
+		st, gt := tagsRe.FindStringSubmatch(flags), tagsRe.FindStringSubmatch(goTest)
+		if st == nil || gt == nil || st[1] != gt[1] {
+			t.Errorf("%s: suiteran -tags and go test -tags differ: %q", tc.target, calls[0])
+		}
+		if !strings.Contains(goTest, "-json") || !strings.Contains(goTest, "./internal/identitystack") {
+			t.Errorf("%s: go test is not a -json run of ./internal/identitystack: %q", tc.target, goTest)
+		}
+		filterRe := regexp.MustCompile(`\s-(?:test\.)?(run|skip)[= ](\S+)`)
+		for _, part := range []struct{ name, s string }{{"suiteran", flags}, {"go test", goTest}} {
+			fs := filterRe.FindAllStringSubmatch(part.s, -1)
+			if len(fs) != 1 || fs[0][1] != tc.filter || fs[0][2] != pattern {
+				t.Errorf("%s: %s filters %q, want exactly -%s %s: %q", tc.target, part.name, fs, tc.filter, pattern, calls[0])
+			}
 		}
 	}
-	if len(calls) != 1 {
-		t.Fatalf("stack-test-identity runs go test %d times, want 1:\n%s", len(calls), strings.Join(recipe, "\n"))
-	}
-	flags, goTest, ok := strings.Cut(calls[0], " -- ")
-	if !ok || !strings.Contains(flags, "tools/ci/suiteran") {
-		t.Fatalf("stack-test-identity's go test does not run under suiteran: %q", calls[0])
-	}
-	tagsRe := regexp.MustCompile(`-tags[= ](\S+)`)
-	st, gt := tagsRe.FindStringSubmatch(flags), tagsRe.FindStringSubmatch(goTest)
-	if st == nil || gt == nil || st[1] != gt[1] {
-		t.Errorf("suiteran -tags and go test -tags differ: %q", calls[0])
-	}
-	if !strings.Contains(goTest, "-json") || !strings.Contains(goTest, "./internal/identitystack") {
-		t.Errorf("go test is not a -json run of ./internal/identitystack: %q", goTest)
-	}
-	if f := regexp.MustCompile(`\s-(test\.)?(run|skip)[= ]`).FindString(goTest); f != "" {
-		t.Errorf("go test filters tests (%s), which can leave a registered suite out: %q", strings.TrimSpace(f), goTest)
+	if !regexp.MustCompile(`(?m)^ONBOARD_TESTS := \^\(.+\)\$\$$`).Match(b) {
+		t.Error("ONBOARD_TESTS is not one anchored ^(...)$ pattern, so -run and -skip may not split the package cleanly")
 	}
 }
 
@@ -358,6 +415,73 @@ func TestIdentitystackStreamMissingASuiteFails(t *testing.T) {
 		if got := strings.Contains(out.String(), "FAIL  internal/identitystack/ci5_isolation_test.go"); got != tc.ci5Held {
 			t.Errorf("-tags %v: ci5_isolation_test.go held to running = %v, want %v\n%s", tc.tags, got, tc.ci5Held, out.String())
 		}
+	}
+}
+
+// TICK-628: onboard_invite_test.go (registered) runs only in make
+// stack-test-onboard. Against the real path list and the real ONBOARD_TESTS,
+// an onboard stream with no invite test fails naming the file under -run; one
+// invite test is enough; and identity's -skip scope never expects the file.
+func TestOnboardStreamMissingTheInviteSuiteFails(t *testing.T) {
+	t.Setenv("GOFLAGS", "")
+	b, err := os.ReadFile(filepath.Join(repoRoot, "make", "identity.mk"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`(?m)^ONBOARD_TESTS := (.+)$`).FindSubmatch(b)
+	if m == nil {
+		t.Fatal("make/identity.mk has no ONBOARD_TESTS := line")
+	}
+	pattern := strings.ReplaceAll(string(m[1]), "$$", "$")
+	ip := "github.com/Navaladi2019/TicketingSystem/internal/identitystack"
+	streamOf := func(tests ...string) string {
+		var s strings.Builder
+		for _, tn := range tests {
+			s.WriteString(`{"Action":"run","Package":"` + ip + `","Test":"` + tn + `"}` + "\n")
+			s.WriteString(`{"Action":"pass","Package":"` + ip + `","Test":"` + tn + `"}` + "\n")
+		}
+		s.WriteString(`{"Action":"pass","Package":"` + ip + `"}` + "\n")
+		f := filepath.Join(t.TempDir(), "onboard-stream.json")
+		if err := os.WriteFile(f, []byte(s.String()), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+	check := func(sc scope, stream string) (int, string) {
+		var out bytes.Buffer
+		code, err := run(options{
+			tags: []string{"identitystack"}, in: true, args: []string{stream}, scope: sc,
+			root: repoRoot, pathsFile: filepath.Join("docs", "delivery", "review-paths.yaml"),
+		}, &out)
+		if err != nil {
+			t.Fatalf("run: %v\n%s", err, out.String())
+		}
+		return code, out.String()
+	}
+	onboard, err := newScope(pattern, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, err := newScope("", pattern)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Only the non-invite onboarding test ran: the invite suite is missing.
+	noInvite := streamOf("TestOnboardDomainClaimedIsConflict")
+	if code, out := check(onboard, noInvite); code != 1 || !strings.Contains(out, "FAIL  internal/identitystack/onboard_invite_test.go, ran 0 of") {
+		t.Errorf("onboard scope, no invite test: exit %d, want 1 naming onboard_invite_test.go\n%s", code, out)
+	}
+	// One invite test ran: the onboard step passes, and no other registered
+	// identitystack suite is expected under its -run.
+	if code, out := check(onboard, streamOf("TestOnboardDomainClaimedIsConflict", "TestInvitedToTenantANotLinkedThroughTenantBIdP")); code != 0 ||
+		!strings.Contains(out, "ok    internal/identitystack/onboard_invite_test.go, ran 1 of") {
+		t.Errorf("onboard scope, one invite test: exit %d, want 0 with onboard_invite_test.go ok\n%s", code, out)
+	}
+	// identity's -skip scope leaves the file out (every one of its tests is
+	// in ONBOARD_TESTS), so the identity step cannot fail on it.
+	if _, out := check(identity, noInvite); strings.Contains(out, "onboard_invite_test.go") {
+		t.Errorf("identity scope lists onboard_invite_test.go as in the run\n%s", out)
 	}
 }
 

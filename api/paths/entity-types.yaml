@@ -139,7 +139,11 @@ paths:
         nothing.
         Compatible and needs-backfill changes publish. An unknown key and
         another tenant's key give the same 404, byte for byte, with no
-        `instance`. `Idempotency-Key` is required.
+        `instance`. `numbering_mode` (`gaps` or `gapless`, D-3-9) may be sent
+        with or instead of `definition`; alone it changes the mode, publishes no
+        version and answers the current version. Any other value answers 422
+        `invalid_definition` at `/numbering_mode`. Numbering carries on from the
+        type's counter. `Idempotency-Key` is required.
       parameters:
         - $ref: "#/components/parameters/Key"
         - name: Idempotency-Key
@@ -354,9 +358,10 @@ components:
     PutAccessPolicyRequest:
       type: object
       description: >
-        Deliberately unconstrained here: the server checks every field after
-        the admin check and answers 422 `invalid_access_policy` with
-        `errors[].pointer`. Kept as the request bytes (`json.RawMessage`).
+        Deliberately unconstrained here: the server checks the body after the
+        admin check, the entity type and `If-Match` (428, 412), and answers
+        422 `invalid_access_policy` with `errors[].pointer`. Kept as the
+        request bytes (`json.RawMessage`).
       x-go-type: json.RawMessage
       properties:
         rules:
@@ -398,6 +403,8 @@ components:
           description: 1 to 120 characters.
         number_prefix:
           description: "`^[A-Z]{2,6}$`, unique per tenant, never changes."
+        numbering_mode:
+          description: "`gaps` (default) or `gapless`, optional."
         definition:
           description: "`{schema, fixed_columns, states}`, see the metadata engine."
     PublishEntityTypeVersionRequest:
@@ -408,11 +415,13 @@ components:
         bytes so the schema is stored byte for byte.
       x-go-type: json.RawMessage
       properties:
+        numbering_mode:
+          description: "`gaps` or `gapless`. Alone, it changes the mode and publishes no version."
         definition:
           description: "`{schema, fixed_columns, states}`, see the metadata engine."
     EntityTypeVersion:
       type: object
-      required: [key, name, number_prefix, version, current, schema, schema_sha256, fixed_columns, states, compat, published_at]
+      required: [key, name, number_prefix, numbering_mode, version, current, schema, schema_sha256, fixed_columns, states, compat, published_at]
       properties:
         key:
           type: string
@@ -420,6 +429,10 @@ components:
           type: string
         number_prefix:
           type: string
+        numbering_mode:
+          type: string
+          enum: [gaps, gapless]
+          description: How the type numbers its records (D-3-9). Belongs to the type, not the version.
         version:
           type: integer
         current:
@@ -444,7 +457,7 @@ components:
           format: date-time
     EntityTypeSummary:
       type: object
-      required: [key, name, number_prefix, current_version, updated_at]
+      required: [key, name, number_prefix, numbering_mode, current_version, updated_at]
       properties:
         key:
           type: string
@@ -452,6 +465,9 @@ components:
           type: string
         number_prefix:
           type: string
+        numbering_mode:
+          type: string
+          enum: [gaps, gapless]
         current_version:
           type: integer
         updated_at:

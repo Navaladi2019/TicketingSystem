@@ -1,0 +1,24 @@
+meta {
+  name: S10.57 C4: Alice sorts on assignee (masked): 400 masked_field
+  type: http
+  seq: 57
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?sort=assignee
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('masked_field', 400);
+}
+
+docs {
+  `assignee` is a sortable fixed column that the mask hides from Alice. (A sort on `description` is `validation_failed` for every caller, admin included: data properties are never sortable, so it reveals nothing.)
+}

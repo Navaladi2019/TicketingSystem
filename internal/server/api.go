@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 
 	"github.com/Navaladi2019/TicketingSystem/api"
+	"github.com/Navaladi2019/TicketingSystem/internal/audit/export"
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/read"
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
@@ -31,6 +33,11 @@ import (
 // baseURL is oapi-codegen's BaseURL and the validator's Options.Prefix. The
 // contract's paths already start with /api/v1, so both are empty.
 const baseURL = ""
+
+// createRecordPattern is the mux pattern of createRecord, the one route that
+// claims its Idempotency-Key in its own write transaction (TICK-688). A test
+// fails if the generated router's pattern ever differs.
+const createRecordPattern = "POST " + baseURL + "/api/v1/records/{entity}"
 
 // newAPI registers the /api/v1 routes of the embedded contract on mux and
 // returns the handler to serve. Authentication (routeAuth) wraps the whole
@@ -80,6 +87,7 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 		}
 		if opts.auditPool != nil {
 			h.audit = &read.Reader{Pool: opts.auditPool, Masker: masker, MaxRecordEntries: opts.historyCap, OnRecordRows: opts.historyRows}
+			h.exporter = newExporter(h.audit, opts)
 		}
 		if h.historyTooLong, err = tel.MeterProvider.Meter("github.com/Navaladi2019/TicketingSystem/internal/server").Int64Counter(
 			"nava.records.history.too_long",
@@ -88,7 +96,19 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 			return nil, err
 		}
 		h.acl = authz.ACL{Policies: authz.PolicyStore{}}
-		h.pipe = pipeline.New(h.acl, h.store, pipeline.NoopSink{}, pipeline.PoolRunner{Pool: opts.pool}, pipeline.SystemClock{})
+		allocMetrics, err := pipeline.NewAllocMetrics(tel.MeterProvider)
+		if err != nil {
+			return nil, err
+		}
+		// A create takes its number on the allocator pool (ADR-005 L2s)
+		// while its own transaction holds a request-pool connection. On the
+		// request pool itself, creates holding every connection would starve
+		// their own allocations, so there is no fallback (TICK-657).
+		if opts.allocPool == nil {
+			return nil, errors.New("server: the record routes need WithAllocatorPool (ADR-005 L2s): the number allocator never runs on the request pool")
+		}
+		runner := pipeline.PoolRunner{Pool: opts.allocPool, Metrics: allocMetrics}
+		h.pipe = pipeline.New(h.acl, h.store, pipeline.NoopSink{}, runner, pipeline.SystemClock{})
 	}
 	api.HandlerWithOptions(
 		api.NewStrictHandlerWithOptions(h, nil, api.StrictHTTPServerOptions{
@@ -122,6 +142,9 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 		if err != nil {
 			return nil, err
 		}
+		// Record create claims its key in its own write transaction, one
+		// synchronous commit (TICK-688); CreateRecord settles it.
+		m.ClaimInTx(createRecordPattern)
 		idem = m.Handler
 	} else {
 		idem = refuseWrites(reg, log)
@@ -187,6 +210,8 @@ type handlers struct {
 	// audit serves the audit timeline and a record's history (P5-17) on the
 	// nava_audit_reader pool (ADR-004-A1); nil answers 501 not_implemented.
 	audit *read.Reader
+	// exporter streams the audit export (P5-40) from the same reader pool.
+	exporter *export.Exporter
 	// historyTooLong counts the histories refused for their length; nil
 	// counts nothing.
 	historyTooLong metric.Int64Counter
@@ -278,11 +303,33 @@ func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http
 					return
 				}
 			}
+			if pe.code == problem.RetryLater {
+				// A 5xx is not stored against the Idempotency-Key (TICK-690).
+				// On a route that claims in a transaction of its own (PATCH)
+				// the key's in_flight claim stands until its lease ends, and
+				// a retry with the same key before then is 409
+				// idempotency_in_flight, so the advice is the lease. Record
+				// create's claim rolled back with the write (TICK-688), so
+				// its retry can run at once: it advises ClaimRetryAfter.
+				w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter(r)/time.Second)))
+			}
 			h.reg.WriteError(w, r, h.log, pe.code, pe.err)
 			return
 		}
 		a.StrictResponseError(w, r, err)
 	}
+}
+
+// retryAfter is the Retry-After a write on r's route advises with 503
+// retry_later: idempotency.ClaimRetryAfter for record create, the one route
+// that claims its key in its write transaction (TICK-688), and
+// idempotency.Lease for every other route (TICK-690). The idempotency
+// middleware advises the same on 409 idempotency_in_flight.
+func retryAfter(r *http.Request) time.Duration {
+	if r.Pattern == createRecordPattern {
+		return idempotency.ClaimRetryAfter
+	}
+	return idempotency.Lease
 }
 
 // refuseWrites answers 501 to a tenant write when no key store is configured.

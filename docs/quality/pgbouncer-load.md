@@ -45,6 +45,9 @@ hash of the SQL text, so names collide across clients, as in production.
   image and settings except the pool size, which must be small to force sharing.
 - **`QueryExecModeCacheDescribe` / simple protocol.** Not the mode the core uses.
 - **Throughput.** This is a correctness test; it reports no latency budget.
+- **Connection totals.** The stack's PgBouncer and PostgreSQL sizing, the
+  allocator pool included, is summed in `docs/budgets.md` "Connection sizing"
+  and checked by `TestConnectionBudgetFits`.
 
 ## Run it
 

@@ -246,9 +246,33 @@ func TestStreamEvents(t *testing.T) {
 	if !s.packages[pkg] || len(s.packages) != 1 {
 		t.Errorf("packages = %v, want only %s", s.packages, pkg)
 	}
-	rep := check(s, nil, nil)
-	if !rep.failed() || !strings.Contains(rep.String(nil), "suiteran: FAIL: example.com/broken (build), example.com/p TestA, example.com/p") {
-		t.Errorf("report does not fail on the failures:\n%s", rep.String(nil))
+	rep := check(s, nil, nil, scope{})
+	if !rep.failed() || !strings.Contains(rep.String(nil, scope{}), "suiteran: FAIL: example.com/broken (build), example.com/p TestA, example.com/p") {
+		t.Errorf("report does not fail on the failures:\n%s", rep.String(nil, scope{}))
+	}
+}
+
+// TICK-628 follow-up: the report lists the slowest top-level tests, longest
+// first, from go test -json's Elapsed; subtests are not listed.
+func TestReportListsSlowestTests(t *testing.T) {
+	var out bytes.Buffer
+	s := newStream(&out, false)
+	pkg := "example.com/p"
+	var in strings.Builder
+	for i := 1; i <= slowestShown+2; i++ {
+		fmt.Fprintf(&in, `{"Action":"pass","Package":%q,"Test":"Test%02d","Elapsed":%d}`+"\n", pkg, i, i)
+	}
+	fmt.Fprintf(&in, `{"Action":"pass","Package":%q,"Test":"Test12/sub","Elapsed":99}`+"\n", pkg)
+	if err := s.read(strings.NewReader(in.String())); err != nil {
+		t.Fatal(err)
+	}
+	rep := check(s, nil, nil, scope{})
+	got := rep.String(nil, scope{})
+	if !strings.Contains(got, fmt.Sprintf("suiteran: the %d slowest top-level tests:\n     12.0s  Test12  p\n     11.0s  Test11  p\n", slowestShown)) {
+		t.Errorf("report does not list the slowest tests longest first:\n%s", got)
+	}
+	if strings.Contains(got, "Test01 ") || strings.Contains(got, "Test02 ") || strings.Contains(got, "sub") {
+		t.Errorf("report lists more than %d tests, or a subtest:\n%s", slowestShown, got)
 	}
 }
 
@@ -409,14 +433,14 @@ func TestCheckUnreadableConstraints(t *testing.T) {
 	files := []suiteFile{
 		{Path: "z/gone_suite_test.go", Dir: filepath.Join(t.TempDir(), "gone"), ImportPath: "example.com/m/a", Tests: []string{"TestA"}},
 	}
-	rep := check(s, files, nil)
+	rep := check(s, files, nil, scope{})
 	if len(rep.files) != 1 || !strings.HasPrefix(rep.files[0].NotInRun, "build constraints unreadable: ") {
 		t.Fatalf("files = %+v, want the file out of the run as unreadable", rep.files)
 	}
 	if rep.failed() {
-		t.Errorf("report failed:\n%s", rep.String(nil))
+		t.Errorf("report failed:\n%s", rep.String(nil, scope{}))
 	}
-	if out := rep.String(nil); !strings.Contains(out, "(none)") || !strings.Contains(out, "1 registered files are outside this run") {
+	if out := rep.String(nil, scope{}); !strings.Contains(out, "(none)") || !strings.Contains(out, "1 registered files are outside this run") {
 		t.Errorf("report:\n%s", out)
 	}
 }

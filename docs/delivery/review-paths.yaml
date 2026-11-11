@@ -20,6 +20,16 @@
 # of `security` or `cto_signoff.paths` that matches no tracked file and has no
 # marker, on a marker that names no task, and on a marker whose path exists.
 
+# TICK-652: a fast CI run (ci:run, a pull request into a story branch, a push
+# to main) skips the isolation suite, the full stack-case tier and the
+# stack-db and stack-internal phases (AR-TICK-652-01). A change to tenancy,
+# identity, Temporal authz (temporal-server/authz/), database roles and
+# migrations (db/, internal/db/, cmd/nava-db/), PgBouncer
+# (deploy/compose/pgbouncer/), pg_hba (db/pg_hba.conf) or the compose networks
+# (compose.yaml, deploy/compose/compose.internal.yaml) should carry ci:full.
+# TODO(TODO-TICK-652-01): reviewpaths only prints, never fails, and cannot see
+# the pull request's labels, so it cannot require ci:full; until a check does,
+# the author and the Security reviewer add the label.
 security:
   - internal/tenancy/
   - internal/identity/
@@ -101,6 +111,9 @@ cto_signoff:
     - internal/identitystack/adversarial_test.go
     - internal/identitystack/audience_attack_test.go
     - internal/identitystack/directory_adversarial_test.go
+    # The onboarding invite cross-tenant cases (TICK-628): the onboard stack
+    # case is their only run (stack-test-onboard, suiteran -run ONBOARD_TESTS).
+    - internal/identitystack/onboard_invite_test.go
     # The T19 CI-5 suite: its environment, and the catalogue Require checks
     # (dropping an entry would drop its case from every adapter's run).
     - internal/identitystack/ci5_env_test.go

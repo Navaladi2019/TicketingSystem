@@ -1,0 +1,40 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:28080/api/v1/audit/entries:export",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:28080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "type": "urn:nava:problem:forbidden",
+      "title": "Forbidden",
+      "status": 403,
+      "code": "forbidden",
+      "detail": "The token does not allow this operation.",
+      "instance": "urn:nava:request:f816aa42e722d55e01ab78f205481e41"
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 403",
+      "status": "pass"
+    },
+    {
+      "test": "problem+json, code forbidden",
+      "status": "pass"
+    },
+    {
+      "test": "problem instance is this response's X-Request-Id",
+      "status": "pass"
+    }
+  ]
+}

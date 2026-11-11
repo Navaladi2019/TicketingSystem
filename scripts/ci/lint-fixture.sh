@@ -7,8 +7,10 @@
 #              1 workflow.WithDataConverter (TICK-245).
 #   depguard: 1 JWT library import outside internal/identity/keycloak (T15,
 #              CI-11).
-#   navalint setconfig: 2 tenant settings outside internal/tenancy (T07),
-#              seen by both of navalint.sh's passes, plus 1 in an
+#   navalint setconfig: 2 tenant settings and 1 SET LOCAL
+#              synchronous_commit (ADR-005 A1, A4, TICK-657) outside
+#              internal/tenancy (T07), seen by both of navalint.sh's passes,
+#              plus 1 in an
 #              integration-tagged and 1 in a temporalstack-tagged file, seen
 #              only by the tagged pass `make lint` runs.
 #   navalint idpclaims: 1 Keycloak claim read and 1 admin API path outside
@@ -37,12 +39,13 @@ test "$n" -eq 1 || { echo "lint-fixture: expected 1 depguard finding, got $n"; e
 echo "$out" | grep -q "identityport.go:.*lestrrat-go/jwx" || { echo "lint-fixture: the jwx import outside the adapter was not reported"; exit 1; }
 echo "lint-fixture: ok, $n depguard finding"
 
-want=6
+want=8
 code=0; out=$(NAVALINT_TAGS=lintfixture sh scripts/ci/navalint.sh ./internal/platform/lintfixture/ 2>&1) || code=$?
 echo "$out"
 test "$code" -ne 0 || { echo "lint-fixture: navalint passed the setconfig fixture"; exit 1; }
-n=$(echo "$out" | grep -c "outside internal/tenancy: scope the transaction with tenancy.InTenantTx$" || true)
+n=$(echo "$out" | grep -c "outside internal/tenancy: scope the transaction with tenancy.InTenantTx (or tenancy.AllocTx for a number)$" || true)
 test "$n" -eq "$want" || { echo "lint-fixture: expected $want setconfig findings, got $n"; exit 1; }
+echo "$out" | grep -q "setconfig.go:.*synchronous_commit outside internal/tenancy" || { echo "lint-fixture: SET LOCAL synchronous_commit outside internal/tenancy was not reported"; exit 1; }
 for f in setconfig_integration.go setconfig_temporalstack.go; do
     echo "$out" | grep -q "$f:.*outside internal/tenancy" || { echo "lint-fixture: navalint did not check the build-tagged $f"; exit 1; }
 done

@@ -6,8 +6,11 @@ Delivery decisions that change a task's contract, newest first.
 
 <!-- docindex:start -->
 
+- [2026-11-10: TICK-660 ships the numbering_mode API only; the type admin UI control is deferred](decisions/2026-11-10-tick-660-numbering-mode-ui-deferred.md)
 - [2026-11-10: the `filter[state]=new` miss reopens the list-shape work as one index task](decisions/2026-11-10-state-filter-index.md)
+- [2026-11-10: PLAN-006 drafted: ADR-005 lands in Milestone 2 as S17, S18, S19 after S10; M3 one release after the expand](decisions/2026-11-10-plan-006-adr-005.md)
 - [2026-11-10: D-3-9, each type chooses gaps (default) or gapless numbering; gaps are never reclaimed](decisions/2026-11-10-d-3-9-numbers-may-have-gaps.md)
+- [2026-11-09: TICK-638: every pull request into a story branch runs the full suite on open; skipped is not green](decisions/2026-11-09-full-suite-on-story-branch-prs.md)
 - [2026-11-09: D25, the list `total` is capped at 1,000 and a data-filter list has a 2 s timeout; the index and shape work for the P3-36 misses is deferred](decisions/2026-11-09-d25-list-total-cap-and-data-filter-timeout.md)
 - [2026-11-09: D-3-28, S10 contract amendment A3: ACL audit entries get the subject acl_policy; the default incident ACL lets a requester raise its own incident; a non-object PUT body is 400](decisions/2026-11-09-d-3-28-acl-audit-subject-default-acl-body-shape.md)
 - [2026-11-09: D-3-27, the stack seed publishes a temporary allow-all ACL until P3-35](decisions/2026-11-09-d-3-27-stack-seed-allow-all-acl.md)

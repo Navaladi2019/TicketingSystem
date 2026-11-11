@@ -1,0 +1,28 @@
+meta {
+  name: S10.62 C5: explain (Alice, admins incident): deny, no granting rule
+  type: http
+  seq: 62
+}
+
+get {
+  url: {{core_url}}/api/v1/access/explain?entity=incident&record={{s10_adm_rec}}&user={{s10_alice}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  test('decision deny', () => expect(b.decision).to.eql('deny'));
+  test('rule_id None', () => expect(b.rule_id).to.eql(null));
+  test('acl_version is the masked version', () => expect(b.acl_version).to.eql(Number(bru.getVar('s10_mask_version'))));
+}
+
+docs {
+  Rules are allow-only, so a deny names no rule: `rule_id` is null (api/paths/access.yaml).
+}

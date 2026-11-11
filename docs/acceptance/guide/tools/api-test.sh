@@ -38,6 +38,24 @@ fi
 command -v npx >/dev/null 2>&1 || { echo "api-test: npx not found; install Node.js (verified with 22)" >&2; exit 2; }
 mkdir -p "$OUT"
 
+# A stack on other host ports (make ci-isolated, the self-hosted CI runner,
+# TICK-641) exports them; local.bru names the defaults. Explicit --env-var
+# arguments come after these, so they still win.
+envs=""
+add() { [ -z "$2" ] || envs="$envs --env-var $1=$2"; }
+add core_url "${NAVA_CORE_PORT:+http://127.0.0.1:$NAVA_CORE_PORT}"
+add keycloak_url "${KEYCLOAK_PORT:+http://127.0.0.1:$KEYCLOAK_PORT}"
+add keycloak_issuer_url "${KEYCLOAK_PUBLIC_URL:-}"
+add onboard_url "${ACCEPT_ONBOARD_PORT:+http://127.0.0.1:$ACCEPT_ONBOARD_PORT}"
+add temporal_ui_url "${ACCEPT_UI_PORT:+http://127.0.0.1:$ACCEPT_UI_PORT}"
+if [ -n "${ACCEPT_ADMIN_PORT:-}" ]; then
+  i=0
+  for v in admin_url onboard_admin_url groupsync_admin_url relay_admin_url worker_admin_url purge_admin_url; do
+    add "$v" "http://127.0.0.1:$((ACCEPT_ADMIN_PORT + i))"
+    i=$((i + 1))
+  done
+fi
+
 # Bruno resolves require('./lib/nava') and the environment from the
 # collection root, so it runs from there.
 cd "$COLL"
@@ -49,7 +67,7 @@ npx --yes "@usebruno/cli@$BRUNO_CLI_VERSION" run "$target" -r \
   --reporter-junit "$OUT/$name.junit.xml" \
   --reporter-html "$OUT/$name.html" \
   --reporter-json "$OUT/$name.json" \
-  "$@"
+  $envs "$@"
 rc=$?
 set -e
 echo "api-test: reports in $OUT/$name.{junit.xml,html,json}"

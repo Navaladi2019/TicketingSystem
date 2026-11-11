@@ -30,6 +30,10 @@ paths:
     $ref: "paths/access.yaml#/paths/~1api~1v1~1access~1explain"
   /api/v1/audit/entries:
     $ref: "paths/audit.yaml#/paths/~1api~1v1~1audit~1entries"
+  /api/v1/audit/entries:export:
+    $ref: "paths/audit.yaml#/paths/~1api~1v1~1audit~1entries:export"
+  /api/v1/audit/chain:reseed:
+    $ref: "paths/audit.yaml#/paths/~1api~1v1~1audit~1chain:reseed"
   /api/v1/records/{entity}:
     $ref: "paths/records.yaml#/paths/~1api~1v1~1records~1{entity}"
   /api/v1/records/{entity}/{id}:

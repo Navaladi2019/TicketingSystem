@@ -74,6 +74,7 @@ Later tasks add the rest:
 - P5-17 (TICK-435) added the reader's SELECT (nava_app, diff and diff_salt included).
 - P5-33 (TICK-441) added onboarding's pinned INSERT on the head and on `outbox` (`kind = 'audit.seal'` only) (A6.2); it commits while the tenant is `provisioning`, and `Activate` is a later transaction.
 - P5-34f (TICK-590) added `nava_purge`'s read of dead heads for the `audit_dead_lineages` gauge (see [Audit sealer](../architecture/audit-sealer.md#dead-lineages-r17)).
+- P5-40 (TICK-444) added `GET /api/v1/audit/entries:export`. `nava_app` takes the lease with one `UPDATE audit_chain_head ... RETURNING seq, entry_hash` and writes the `audit/export` entry in the same transaction; the pages stream on the `nava_audit_reader` pool, which needs SELECT on `prev_hash`, `entry_hash` and `erasure_ref` (TICK-612).
 - P5-15 and P5-32 add the migrator's temporary policies, created and dropped inside the backfill and the seeder (see [S8 backfill](#s8-backfill-migration-a-p5-15) and [Migration B](#migration-b-p5-32)).
 
 The column grants decide which columns a role may name. Two triggers decide what a role may do with them:

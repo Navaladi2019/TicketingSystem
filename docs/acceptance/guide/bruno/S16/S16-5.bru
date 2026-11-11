@@ -1,0 +1,46 @@
+meta {
+  name: S16.5 AC1: the incident's entry is sealed
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{core_url}}/api/v1/audit/entries?subject_id={{s16_incident}}&limit=10
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{auditor_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await require('./lib/s15')(N, bru).fresh();
+  // Polls every 2 s until the entry has a seq, for up to 330 s (AC3 of S15).
+  const t0 = Date.now();
+  const T = require('./lib/s15')(N, bru);
+  for (;;) {
+    await T.fresh('auditor_token');
+    const r = await N.send({
+      url: N.url('{{core_url}}/api/v1/audit/entries?subject_id={{s16_incident}}&limit=10'),
+      method: 'GET',
+      headers: { Authorization: 'Bearer ' + bru.getVar('auditor_token') },
+    });
+    const e = ((r.data && r.data.items) || []).find(x => x.action === 'create');
+    if ((e && e.seq) || Date.now() - t0 > 330 * 1000) break;
+    await bru.sleep(2000);
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const e = N.json().items.find(x => x.action === 'create');
+  test('sealed: the create entry has a seq', () => expect(e && e.seq).to.be.a('number').and.at.least(1));
+  bru.setVar('s16_seq', String(e && e.seq));
+}
+
+docs {
+  Only a sealed entry is inside the verified range; S16.6 exports after it is sealed.
+}

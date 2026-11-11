@@ -1,0 +1,30 @@
+meta {
+  name: S16.17 reseedAuditChain 403: a member without audit.export
+  type: http
+  seq: 17
+}
+
+post {
+  url: {{core_url}}/api/v1/audit/chain:reseed
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: {{$guid}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await require('./lib/s15')(N, bru).fresh();
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('forbidden', 403);
+}
+
+docs {
+  Alice is neither a tenant admin nor in the auditors group.
+}
