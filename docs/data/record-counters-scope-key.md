@@ -58,20 +58,53 @@ unconditional drop on purpose; tested by `TestP601CounterScopeIndexRepair`.)
   on `record_counters_pkey`. So no binary can fork a type's counter before
   M3, and S18's publish gate keeps non-default formats off until then.
 
-**First-upsert race while two unique indexes
-exist.** Between M2 and M3, two concurrent *first* upserts of one
-(tenant, type) can fail with 23505 on whichever unique index is not the
-statement's arbiter (`record_counters_scoped_key` for R0,
-`record_counters_pkey` for R1). Existing counter rows are not affected.
-Evidence: `scratch/tick-665/README.md` (0 of 160,000 before M2 and after M3;
-15,533 R0 and 19,829 R1 failures of 160,000 with both indexes, in a workload
-where every upsert is a first insert). Decided (Technical Lead, option A):
-R1's allocation retries once on 23505 against either index, a fresh AllocTx
-for `gaps` and a savepoint for `gapless` (TICK-666, P6-02), pinned by
-`TestConcurrentFirstCreatesOfATypeAllSucceed`. This PR merges into the story
-branch only together with P6-02. R0 binaries keep the race during the R1
-rollout (accepted risk). **Operator guidance:** run M3 soon after R1 is fully
-rolled out; that closes the window.
+**First-create race while two unique indexes exist (ADR-005-E1).** Between
+M2 and M3, two concurrent *first* upserts of one (tenant, type) can fail
+with 23505 on whichever unique index is not the statement's arbiter
+(`record_counters_scoped_key` for R0, `record_counters_pkey` for R1):
+`ON CONFLICT` absorbs conflicts on its arbiter only. Existing counter rows
+are not affected. Evidence: `scratch/tick-665/README.md` (0 of 160,000
+before M2 and after M3; 15,533 R0 and 19,829 R1 failures of 160,000 with
+both indexes, in a workload where every upsert is a first insert).
+
+Decision A (TICK-665): **R1 retries once** (P6-02, TICK-666). R0 binaries
+are not fixed; they can fail a type's first create while R1 rolls out
+(accepted risk). **Operator guidance:** run M3 soon after R1 is fully
+rolled out; that closes the window. #581 merges into the story branch only
+together with P6-02.
+
+```mermaid
+sequenceDiagram
+    participant C as create (R1)
+    participant DB as record_counters
+    C->>DB: upsert ON CONFLICT (t, d, scope_key)
+    DB-->>C: 23505 on record_counters_pkey or _scoped_key<br/>(the winner committed first)
+    Note over C: gaps: a fresh tenancy.AllocTx<br/>gapless: ROLLBACK TO SAVEPOINT nava_number, resend the write batch
+    C->>DB: the same upsert, once
+    DB-->>C: UPDATE arm: the winner's row, next + 1
+```
+
+- Only SQLSTATE 23505 on `record_counters` naming one of those two indexes is
+  retried (`store.CounterRace`), and only once; any other error, or a
+  second failure, fails the create as before.
+- The second attempt finds the winner's row because the winner committed
+  before the loser's 23505 was raised and the create runs at READ COMMITTED.
+  At REPEATABLE READ the same race raises 40001, which is not retried: do
+  not raise the create transaction's isolation level, and do not add 40001
+  to the predicate.
+- `gapless` opens the savepoint `nava_number` as the first statement of the
+  create's write batch: one more statement, no more round trips. `gaps`
+  sends nothing extra. The rollback and the resend cost one or two round
+  trips, on the race only.
+- Every retry is counted in `nava_numbering_first_create_retries{mode}`.
+- **Temporary.** After M3 there is one unique index and the predicate can
+  never fire: the retry and the savepoint go with M3 (S18/R2),
+  `TODO-S17-02`.
+- Tests: `TestConcurrentFirstCreatesOfATypeAllSucceed` (pinned),
+  `TestP602FirstCreateRaceIsRetriedOnce`,
+  `TestP602FirstCreateRaceIsRetriedNoMoreThanOnce`,
+  `TestP602ConcurrentFirstCreatesAllSucceed`,
+  `TestAllocatorPoolDoesNotStarveThePool`.
 
 **Grants, RLS, audit:** unchanged. `nava_app` and `nava_worker` have
 table-level INSERT (the INSERT arm sets `scope_key` and `period_end`) and

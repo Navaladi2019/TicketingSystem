@@ -8,8 +8,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/numbering"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/store"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
@@ -38,11 +41,12 @@ type Allocation struct {
 }
 
 // Allocator takes a `gaps` type's number in a transaction of its own that
-// commits before the create inserts the record (ADR-005 L2s). Its tenant is
-// tenancy.TenantOf(createTx). A TxRunner that is also an Allocator (a
-// PoolRunner) is where the pipeline takes its numbers.
+// commits before the create inserts the record (ADR-005 L2s), from the
+// counter of format's scope key. Its tenant is tenancy.TenantOf(createTx).
+// A TxRunner that is also an Allocator (a PoolRunner) is where the pipeline
+// takes its numbers.
 type Allocator interface {
-	Allocate(ctx context.Context, createTx pgx.Tx, definition uuid.UUID) (Allocation, error)
+	Allocate(ctx context.Context, createTx pgx.Tx, definition uuid.UUID, format numbering.Compiled) (Allocation, error)
 }
 
 // Allocate implements Allocator with tenancy.AllocTx on r.Pool, which must be
@@ -50,7 +54,14 @@ type Allocator interface {
 // create's own transaction holds, concurrent creates can starve it. It gives
 // up after r.AllocTimeout (DefaultAllocTimeout when zero) with ErrRetryable,
 // and records r.Metrics when set.
-func (r PoolRunner) Allocate(ctx context.Context, createTx pgx.Tx, definition uuid.UUID) (Allocation, error) {
+//
+// While both unique indexes of record_counters exist (ADR-005 M2 to M3), a
+// type's first allocation can lose the race for the counter row with 23505
+// on the index the upsert does not name (store.CounterRace, ADR-005-E1). It
+// is then retried once, in a fresh AllocTx: the winner has committed, so the
+// second upsert takes the UPDATE arm. No other error is retried, and the
+// retry runs within the same timeout.
+func (r PoolRunner) Allocate(ctx context.Context, createTx pgx.Tx, definition uuid.UUID, format numbering.Compiled) (Allocation, error) {
 	timeout := r.AllocTimeout
 	if timeout <= 0 {
 		timeout = DefaultAllocTimeout
@@ -58,10 +69,21 @@ func (r PoolRunner) Allocate(ctx context.Context, createTx pgx.Tx, definition uu
 	actx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	start := time.Now()
+	scope := format.ScopeKey()
 	var got store.Allocated
-	info, err := tenancy.AllocTx(actx, r.Pool, createTx, func(b *pgx.Batch, tenant uuid.UUID) {
-		store.QueueAllocate(b, tenant, definition, &got)
-	})
+	alloc := func() (tenancy.AllocInfo, error) {
+		return tenancy.AllocTx(actx, r.Pool, createTx, func(b *pgx.Batch, tenant uuid.UUID) {
+			store.QueueAllocate(b, tenant, definition, scope, &got)
+		})
+	}
+	info, err := alloc()
+	if store.CounterRace(err) {
+		r.Metrics.retried(ctx, metadata.NumberingGaps)
+		var again tenancy.AllocInfo
+		again, err = alloc()
+		again.Acquire += info.Acquire
+		info = again
+	}
 	timedOut := err != nil && errors.Is(actx.Err(), context.DeadlineExceeded) && ctx.Err() == nil
 	r.Metrics.observe(ctx, info.Acquire, time.Since(start), timedOut)
 	switch {
@@ -70,14 +92,15 @@ func (r PoolRunner) Allocate(ctx context.Context, createTx pgx.Tx, definition uu
 	case err != nil:
 		return Allocation{}, err
 	}
-	return Allocation{Tenant: info.Tenant, Definition: definition, Number: got.Number, Instant: got.Instant}, nil
+	return Allocation{Tenant: info.Tenant, Definition: definition, ScopeKey: scope, Epoch: format.Epoch,
+		Number: got.Number, Instant: got.Instant}, nil
 }
 
 // AllocMetrics are the allocator's metrics (ADR-005 A8). A nil
 // *AllocMetrics records nothing. No attribute names a tenant or a type (T01).
 type AllocMetrics struct {
-	acquire, latency metric.Float64Histogram
-	timeouts         metric.Int64Counter
+	acquire, latency  metric.Float64Histogram
+	timeouts, retries metric.Int64Counter
 }
 
 // allocBuckets are in seconds: the allocation's budget is 200 ms, and an
@@ -88,8 +111,10 @@ func allocBuckets() []float64 {
 
 // NewAllocMetrics registers the allocator's metrics on mp:
 // nava_numbering_alloc_acquire_seconds (the allocator pool's acquire wait),
-// nava_numbering_alloc_seconds (the whole allocation, acquire included) and
-// nava_numbering_alloc_timeouts (allocations past the timeout).
+// nava_numbering_alloc_seconds (the whole allocation, acquire included),
+// nava_numbering_alloc_timeouts (allocations past the timeout) and
+// nava_numbering_first_create_retries (upserts retried after the expand
+// window's first-create race, by numbering mode: ADR-005-E1).
 func NewAllocMetrics(mp metric.MeterProvider) (*AllocMetrics, error) {
 	m := mp.Meter("github.com/Navaladi2019/TicketingSystem/internal/records/pipeline")
 	acquire, err := m.Float64Histogram("nava_numbering_alloc_acquire_seconds",
@@ -110,7 +135,13 @@ func NewAllocMetrics(mp metric.MeterProvider) (*AllocMetrics, error) {
 	if err != nil {
 		return nil, fmt.Errorf("pipeline: %w", err)
 	}
-	return &AllocMetrics{acquire: acquire, latency: latency, timeouts: timeouts}, nil
+	retries, err := m.Int64Counter("nava_numbering_first_create_retries",
+		metric.WithDescription("Record-number upserts retried once after a unique violation on the record_counters index they do not name (the first create of a counter while both unique indexes exist)."),
+		metric.WithUnit("{retry}"))
+	if err != nil {
+		return nil, fmt.Errorf("pipeline: %w", err)
+	}
+	return &AllocMetrics{acquire: acquire, latency: latency, timeouts: timeouts, retries: retries}, nil
 }
 
 func (m *AllocMetrics) observe(ctx context.Context, acquire, total time.Duration, timedOut bool) {
@@ -126,6 +157,26 @@ func (m *AllocMetrics) observe(ctx context.Context, acquire, total time.Duration
 	}
 }
 
+// retried counts one first-create retry of a type in mode (gaps or
+// gapless). The mode is the only attribute: no tenant, no type (T01).
+func (m *AllocMetrics) retried(ctx context.Context, mode metadata.NumberingMode) {
+	if m == nil {
+		return
+	}
+	m.retries.Add(context.WithoutCancel(ctx), 1, metric.WithAttributes(attribute.String("mode", string(mode))))
+}
+
+// allocMetrics is the AllocMetrics of the pipeline's runner, when it is a
+// PoolRunner (or embeds one); nil, which records nothing, otherwise.
+func (p *Pipeline) allocMetrics() *AllocMetrics {
+	if r, ok := p.runner.(interface{ allocMetrics() *AllocMetrics }); ok {
+		return r.allocMetrics()
+	}
+	return nil
+}
+
+func (r PoolRunner) allocMetrics() *AllocMetrics { return r.Metrics }
+
 // allocate takes the create's number (ADR-005 L2s) on the runner and checks
 // the allocation against the create's own transaction and type (A2).
 func (w *write) allocate(ctx context.Context) (Allocation, error) {
@@ -133,14 +184,22 @@ func (w *write) allocate(ctx context.Context) (Allocation, error) {
 	if !ok {
 		return Allocation{}, errors.New("pipeline: the TxRunner cannot allocate record numbers")
 	}
-	got, err := a.Allocate(ctx, w.tx, w.defID)
+	format := w.format()
+	got, err := a.Allocate(ctx, w.tx, w.defID, format)
 	if err != nil {
 		return Allocation{}, fmt.Errorf("pipeline: %w", err)
 	}
-	if got.Tenant != w.tenant || got.Definition != w.defID || got.ScopeKey != "" || got.Epoch != 0 ||
+	if got.Tenant != w.tenant || got.Definition != w.defID || got.ScopeKey != format.ScopeKey() || got.Epoch != format.Epoch ||
 		got.Number < 1 || got.Instant.IsZero() {
 		return Allocation{}, fmt.Errorf("pipeline: the allocation (tenant %s, type %s, scope %q, epoch %d, number %d) is not this create's (tenant %s, type %s)",
 			got.Tenant, got.Definition, got.ScopeKey, got.Epoch, got.Number, w.tenant, w.defID)
 	}
 	return got, nil
+}
+
+// format is the create's compiled number format (ADR-005 §3.1). Every type
+// has the default until number formats ship (S18), when it is read from the
+// definition version's snapshot instead.
+func (w *write) format() numbering.Compiled {
+	return numbering.Default()
 }

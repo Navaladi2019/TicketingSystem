@@ -458,14 +458,16 @@ func Paths() []Path {
 			TenantB, NewID, RecordB2),
 		sql("audit_log: rewrite tenant B's audit rows", "nava_app", Denied,
 			"UPDATE audit_log SET action = 'forged' WHERE tenant_id = $1", TenantB),
-		sql("record_counters: read tenant B's counters by type", "nava_app", OwnRowsOnly,
-			"SELECT tenant_id FROM record_counters WHERE entity_definition_id = $1", EntityDefinitionB1),
+		// On the 3-column key of ADR-005 §4.2 (R1's upsert, P6-02 [Sec C4]),
+		// scope '' as every create writes until S18.
+		sql("record_counters: read tenant B's counters by type and scope", "nava_app", OwnRowsOnly,
+			"SELECT tenant_id FROM record_counters WHERE entity_definition_id = $1 AND scope_key = ''", EntityDefinitionB1),
 		sql("record_counters: take a number from tenant B's counter", "nava_app", Denied,
-			`INSERT INTO record_counters (tenant_id, entity_definition_id, next) VALUES ($1, $2, 2)
-			 ON CONFLICT (tenant_id, entity_definition_id) DO UPDATE SET next = record_counters.next + 1 RETURNING next - 1`,
+			`INSERT INTO record_counters (tenant_id, entity_definition_id, scope_key, next) VALUES ($1, $2, '', 2)
+			 ON CONFLICT (tenant_id, entity_definition_id, scope_key) DO UPDATE SET next = record_counters.next + 1 RETURNING next - 1`,
 			TenantB, EntityDefinitionB1),
 		sql("record_counters: start a counter in tenant A for tenant B's type", "nava_worker", Denied,
-			"INSERT INTO record_counters (tenant_id, entity_definition_id, next) VALUES ($1, $2, 2)", TenantA, EntityDefinitionB1),
+			"INSERT INTO record_counters (tenant_id, entity_definition_id, scope_key, next) VALUES ($1, $2, '', 2)", TenantA, EntityDefinitionB1),
 		sql("record_counters: move tenant B's counters", "nava_worker", Denied,
 			"UPDATE record_counters SET next = next + 1 WHERE tenant_id = $1", TenantB),
 

@@ -28,6 +28,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/numbering"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/store"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
@@ -118,8 +119,8 @@ type allocRecorder struct {
 	allocs []pipeline.Allocation
 }
 
-func (r *allocRecorder) Allocate(ctx context.Context, createTx pgx.Tx, def uuid.UUID) (pipeline.Allocation, error) {
-	a, err := r.PoolRunner.Allocate(ctx, createTx, def)
+func (r *allocRecorder) Allocate(ctx context.Context, createTx pgx.Tx, def uuid.UUID, format numbering.Compiled) (pipeline.Allocation, error) {
+	a, err := r.PoolRunner.Allocate(ctx, createTx, def, format)
 	if err == nil {
 		r.mu.Lock()
 		r.allocs = append(r.allocs, a)
@@ -216,7 +217,7 @@ func TestAllocationTransactionIsTenantScoped(t *testing.T) {
 				t.Errorf("AllocTx handed the queue tenant %s, want the create's %s", tenant, a.id)
 			}
 			// A forged tenant: B's counter, under A's setting.
-			store.QueueAllocate(batch, b.id, defB, &got)
+			store.QueueAllocate(batch, b.id, defB, "", &got)
 		})
 		return err
 	})
@@ -334,7 +335,7 @@ type barrierRunner struct {
 	release chan struct{}
 }
 
-func (r *barrierRunner) Allocate(ctx context.Context, createTx pgx.Tx, def uuid.UUID) (pipeline.Allocation, error) {
+func (r *barrierRunner) Allocate(ctx context.Context, createTx pgx.Tx, def uuid.UUID, format numbering.Compiled) (pipeline.Allocation, error) {
 	r.mu.Lock()
 	if r.release == nil {
 		r.release = make(chan struct{})
@@ -350,7 +351,7 @@ func (r *barrierRunner) Allocate(ctx context.Context, createTx pgx.Tx, def uuid.
 	case <-ctx.Done():
 		return pipeline.Allocation{}, ctx.Err()
 	}
-	return r.PoolRunner.Allocate(ctx, createTx, def)
+	return r.PoolRunner.Allocate(ctx, createTx, def, format)
 }
 
 // starve runs 2 x n concurrent creates whose allocations each wait until n
