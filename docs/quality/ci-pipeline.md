@@ -601,7 +601,7 @@ health gate at once with "container ... vanished", not after 120 s of
 
 **Caches, shared by every run.** Nothing is set per run and nothing is cleaned.
 - Go: the per-user `GOCACHE`, `GOMODCACHE` and golangci-lint cache, safe for
-  concurrent use. The `go1.26.10` toolchain downloads once (`GOTOOLCHAIN=auto`).
+  concurrent use. The `go1.26.11` toolchain downloads once (`GOTOOLCHAIN=auto`).
 - Pinned tools: `make tools` runs only when `make check-tools` fails.
 - Images: `IMAGE_CACHE=local` makes `ci-stack` build with `make image-ci`
   (`buildx bake`) on the local builder. Its BuildKit cache is shared by every
