@@ -44,7 +44,7 @@ The method is in "Create re-run on the idle machine" below. The run with the voi
 - Latency is timed from each request's scheduled send time, so queueing counts.
 - 10 s warm-up at the same rate, then a 60 s measured window.
 - Same harness and host as the idle-machine run below: the 800k seed (828k at the start of the creates), quiesce, isolation, and the host and storage probes before each row. The probes are reported, not gated.
-- Harness `712fe7cb`, `NAVA_PERF_RATE=100,200 NAVA_PERF_SECONDS=60 NAVA_PERF_ONLY='^create, agent(, gapless type)?$' sh bench/acl-perf/run.sh`.
+- Harness `712fe7cb` (rebased onto the story branch as `53743318`, same content), `NAVA_PERF_RATE=100,200 NAVA_PERF_SECONDS=60 NAVA_PERF_ONLY='^create, agent(, gapless type)?$' sh bench/acl-perf/run.sh`.
 - Raw report: `docs/quality/acl-perf-800k/openloop-2026-11-11-create-100s.md`.
 
 | Row | Achieved /s | p50 | p95 | p99 | max | In flight max / p95 | Errors (409 / 503 `retry_later` / other) | Counter wait p50 / p95 | Commit p50 | API pool acquire p95 / max | `nava_numbering_alloc` acquire p95 / allocation p95 | Host / storage probe p50 |
