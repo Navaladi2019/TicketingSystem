@@ -22,3 +22,10 @@ __pycache__/
 
 # The S11a demo fixtures and state (scripts/dev/demo-interpreter.sh, TICK-352)
 /.local/
+
+# make ci-binaries: the thin CI images' binaries (TICK-628)
+/.ci-bin/
+
+# Raw Bruno reports copied into an acceptance kit's evidence/ (TICK-627). They
+# hold dev-only tokens; evidence.mjs turns them into redacted per-request files.
+/docs/acceptance/S*/evidence/.bruno-*.json

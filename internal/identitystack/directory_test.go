@@ -234,9 +234,11 @@ func seedTenantUser(t *testing.T, tenant uuid.UUID, email string) string {
 func deleteUserAfter(t *testing.T, email string) {
 	t.Helper()
 	t.Cleanup(func() {
-		if id := kcUserByEmail(t, email); id != "" {
-			adminRealm(t, "nava", http.MethodDelete, "/users/"+id, nil)
-		}
+		duringNoCycle(func() {
+			if id := kcUserByEmail(t, email); id != "" {
+				adminRealm(t, "nava", http.MethodDelete, "/users/"+id, nil)
+			}
+		})
 	})
 }
 
@@ -707,15 +709,17 @@ func oidcSpec(context.Context, uuid.UUID) (keycloak.IdPSpec, error) {
 func cleanupTenantOrg(t *testing.T, tenant uuid.UUID, alias string) {
 	t.Helper()
 	t.Cleanup(func() {
-		_, b := adminRealm(t, "nava", http.MethodGet, "/organizations?exact=true&search="+alias, nil)
-		var os []struct{ ID, Alias string }
-		_ = json.Unmarshal(b, &os)
-		for _, o := range os {
-			if o.Alias == alias {
-				adminRealm(t, "nava", http.MethodDelete, "/organizations/"+o.ID, nil)
+		duringNoCycle(func() {
+			_, b := adminRealm(t, "nava", http.MethodGet, "/organizations?exact=true&search="+alias, nil)
+			var os []struct{ ID, Alias string }
+			_ = json.Unmarshal(b, &os)
+			for _, o := range os {
+				if o.Alias == alias {
+					adminRealm(t, "nava", http.MethodDelete, "/organizations/"+o.ID, nil)
+				}
 			}
-		}
-		adminRealm(t, "nava", http.MethodDelete, "/identity-provider/instances/"+keycloak.TenantIdPAlias(tenant), nil)
+			adminRealm(t, "nava", http.MethodDelete, "/identity-provider/instances/"+keycloak.TenantIdPAlias(tenant), nil)
+		})
 	})
 }
 

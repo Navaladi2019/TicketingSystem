@@ -1,0 +1,8 @@
+meta {
+  name: S16 export
+  seq: 13
+}
+
+docs {
+  Story S16, TICK-421 (kit TICK-448, docs/acceptance/S16/README.md). `GET /api/v1/audit/entries:export`, the verifiable JSONL export (ADR-004 R19 to R22), and `POST /api/v1/audit/chain:reseed` (R17), as `auditor@tenant-a` (tenant A's auditors group holds `audit.export`, ADR-001-A6). AC1 (S16.5-S16.9): Alice's incident is sealed, and the export filtered to it has the incident in full and every other seq of the range as a stub; S16.7 the whole log. AC2 (S16.10): the export is an `audit/export` entry in the log. AC4 (S16.11): reseed is refused with 409 `chain_alive` while sealing runs. AC3 (S16.20): the CSV. Isolation (S16.12-S16.13): Bob gets 403. The rest are the error answers. Saving the file and running `nava audit verify` on it (AC1), the 409 `export_in_progress` of a second concurrent export (AC2), the six formula characters in the CSV (AC3) and the erasure samples (AC5) are in docs/acceptance/S16/tools/kit.mjs. Needs a stack whose tenants A and B have a chain head: docs/acceptance/S15/tools/upgrade-setup.sh. Runs again on the same stack.
+}

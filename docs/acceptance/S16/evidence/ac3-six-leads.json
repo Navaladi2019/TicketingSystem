@@ -1,0 +1,59 @@
+{
+  "window": {
+    "from": "2026-11-08T16:30:27.383Z",
+    "to": "2026-11-08T16:30:27.580Z"
+  },
+  "cells": 44104,
+  "formula_leading_cells": 0,
+  "prefixed_cells": 0,
+  "leads": [
+    {
+      "lead": "\"=\"",
+      "incident": "01a1bbff-363f-7e44-a025-5e083839023e",
+      "seq": 11,
+      "row_found": true,
+      "diff_cell_starts_with": "[",
+      "short_description_in_diff": "=HYPERLINK(\"http://example.invalid\",\"S16 mw81tfhy 0\")"
+    },
+    {
+      "lead": "\"+\"",
+      "incident": "01a1bbff-366a-729a-b546-830542df0415",
+      "seq": 12,
+      "row_found": true,
+      "diff_cell_starts_with": "[",
+      "short_description_in_diff": "+HYPERLINK(\"http://example.invalid\",\"S16 mw81tfhy 1\")"
+    },
+    {
+      "lead": "\"-\"",
+      "incident": "01a1bbff-3693-797c-9db2-7359675d08b2",
+      "seq": 13,
+      "row_found": true,
+      "diff_cell_starts_with": "[",
+      "short_description_in_diff": "-HYPERLINK(\"http://example.invalid\",\"S16 mw81tfhy 2\")"
+    },
+    {
+      "lead": "\"@\"",
+      "incident": "01a1bbff-36b6-7b8f-b4a4-62863a390c35",
+      "seq": 14,
+      "row_found": true,
+      "diff_cell_starts_with": "[",
+      "short_description_in_diff": "@HYPERLINK(\"http://example.invalid\",\"S16 mw81tfhy 3\")"
+    },
+    {
+      "lead": "\"\\t\"",
+      "incident": "01a1bbff-36dc-7a2a-93ef-b3bed15cbc7c",
+      "seq": 15,
+      "row_found": true,
+      "diff_cell_starts_with": "[",
+      "short_description_in_diff": "\tHYPERLINK(\"http://example.invalid\",\"S16 mw81tfhy 4\")"
+    },
+    {
+      "lead": "\"\\r\"",
+      "incident": "01a1bbff-3703-70e9-9e75-ab0f7ea2fe99",
+      "seq": 16,
+      "row_found": true,
+      "diff_cell_starts_with": "[",
+      "short_description_in_diff": "\rHYPERLINK(\"http://example.invalid\",\"S16 mw81tfhy 5\")"
+    }
+  ]
+}

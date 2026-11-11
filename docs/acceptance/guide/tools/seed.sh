@@ -63,8 +63,11 @@ kc() { curl -fsS -H "Authorization: Bearer $kc_token" -H 'Content-Type: applicat
 first_id() { sed -n 's/^[^{]*{"id":"\([^"]*\)".*/\1/p' | head -n 1; }
 parent=$(kc "$KC/admin/realms/nava/group-by-path/t/$A" | first_id)
 [ -n "$parent" ] || { echo "seed: no group /t/$A in realm nava" >&2; exit 1; }
-code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $kc_token" \
-  -H 'Content-Type: application/json' -d '{"name":"admins"}' "$KC/admin/realms/nava/groups/$parent/children")
+# The status code goes on its own last line after the body: no `-o /dev/null`,
+# which the native curl.exe cannot open under MSYS_NO_PATHCONV (TICK-609).
+code=$(curl -sS -w '\n%{http_code}' -X POST -H "Authorization: Bearer $kc_token" \
+  -H 'Content-Type: application/json' -d '{"name":"admins"}' "$KC/admin/realms/nava/groups/$parent/children" |
+  tail -n 1)
 case $code in 201|409) ;; *) echo "seed: creating /t/$A/admins answered HTTP $code" >&2; exit 1 ;; esac
 admins=$(kc "$KC/admin/realms/nava/group-by-path/t/$A/admins" | first_id)
 user=$(kc "$KC/admin/realms/nava/users?username=admin%40tenant-a.test&exact=true" | sed 's/^\[//' | first_id)

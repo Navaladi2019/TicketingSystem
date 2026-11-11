@@ -9,6 +9,13 @@
 # out of its shards for that reason; the ci.yml job commit-check-budget runs
 # this script on a runner of its own. Needs Docker. Extra arguments go to go
 # test. Not part of make ci: a laptop is not the baseline (docs/budgets.md).
+#
+# TestP511CommitCheckPooledSession runs here too, after the budget test, for
+# the same reason (TICK-641): it asserts a timing ratio (median t(4N)/t(N) of
+# 3 runs < 8), which is not meaningful on a saturated shared host. In the
+# integration job on the loaded self-hosted runner it read 8.05 and failed.
+# Its threshold is unchanged; test-integration.sh leaves it out of its shards,
+# and this script fails when it did not run.
 set -eu
 cd "$(dirname "$0")/../.."
 
@@ -25,7 +32,8 @@ case $id in '' | *[!0-9]*) echo "NAVA_IT_ID=$id: digits only" >&2; exit 2 ;; esa
 owner=${COMPOSE_PROJECT_NAME:-none}
 name="nava-it-pg-budget-$id"
 gopid=""
-trap 'docker rm -f "$name" >/dev/null 2>&1 || true' EXIT
+# rm -v: the cluster's anonymous data volume too (TICK-641).
+trap 'docker rm -fv "$name" >/dev/null 2>&1 || true' EXIT
 trap '[ -z "$gopid" ] || kill "$gopid" 2>/dev/null || true; exit 130' INT
 trap '[ -z "$gopid" ] || kill "$gopid" 2>/dev/null || true; exit 143' TERM
 
@@ -67,17 +75,22 @@ echo "commit-check-budget ($image): cluster healthy after $(( $(date +%s) - t0 )
 out=$(mktemp)
 fifo=$(mktemp -u)
 mkfifo "$fifo"
-trap 'docker rm -f "$name" >/dev/null 2>&1 || true; rm -f "$out" "$fifo"' EXIT
+trap 'docker rm -fv "$name" >/dev/null 2>&1 || true; rm -f "$out" "$fifo"' EXIT
 tee "$out" <"$fifo" &
 teepid=$!
-go test -tags integration -count=1 -timeout 6m -v -run '^TestCommitCheckBudget$' "$@" ./internal/db/dbtest >"$fifo" 2>&1 &
+go test -tags integration -count=1 -timeout 9m -v -run '^(TestCommitCheckBudget|TestP511CommitCheckPooledSession)$' "$@" ./internal/db/dbtest >"$fifo" 2>&1 &
 gopid=$!
 status=0
 wait "$gopid" || status=$?
 wait "$teepid" || true
 echo "commit-check-budget: done after $(( $(date +%s) - t0 ))s"
-# A green run must have measured both rows: a renamed test makes -run match
-# nothing and go test pass (TICK-509 review finding 2).
+# A renamed test makes -run match nothing and go test pass, so a green run
+# must have run TestP511CommitCheckPooledSession (TICK-641) and measured both
+# budget rows (TICK-509 review finding 2).
+if ! grep -q -- '--- PASS: TestP511CommitCheckPooledSession ' "$out" && [ "$status" -eq 0 ]; then
+    echo "commit-check-budget: TestP511CommitCheckPooledSession did not run; was it renamed or skipped?" >&2
+    status=1
+fi
 #
 # ADR-004-E4: the review thresholds are report-only. A row over its threshold
 # in a warn run gets one ::warning:: annotation and the job stays green; the

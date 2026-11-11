@@ -61,6 +61,10 @@ type options struct {
 	historyRows func(int)
 	// auditMasker replaces the production read.DefinitionMasker; set by tests only.
 	auditMasker read.Masker
+	// exportPageSize and exportOnPage override the export's R21 page size and
+	// observe its page transactions; set by tests only.
+	exportPageSize int
+	exportOnPage   func(time.Time, string)
 	// auditPool is the nava_audit_reader pool the audit reader reads on
 	// (ADR-004-A1 A1-5). Without it the audit routes answer 501.
 	auditPool *read.Pool

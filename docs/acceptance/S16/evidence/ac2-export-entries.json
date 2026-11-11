@@ -1,0 +1,41 @@
+{
+  "before": 6,
+  "after": 7,
+  "added": [
+    {
+      "action": "export",
+      "actor_principal_id": "7054593b-1595-4e81-accc-3f171817851c",
+      "backfilled": false,
+      "causation_depth": 0,
+      "diff": [
+        {
+          "op": "add",
+          "path": "/request",
+          "value": {
+            "filter": {
+              "from": null,
+              "to": null,
+              "domain": null,
+              "subject_type": null,
+              "subject_id": null,
+              "change_set_id": null,
+              "after_seq": null
+            },
+            "format": "jsonl",
+            "stubs": true
+          }
+        }
+      ],
+      "diff_redacted": false,
+      "diff_salt": "201cfae5b60468550a90cf203074c24f",
+      "diff_sha256": "b581de8bb36cae852c067da5775f438e2218c30d6e4e6826600a474658c863c5",
+      "diff_truncated": false,
+      "domain": "audit",
+      "id": "01a1bbff-abf8-7755-83cd-8516755e3fdc",
+      "occurred_at": "2026-11-08T16:30:57.514957Z",
+      "source": "user",
+      "subject_id": "01a1bbff-abf8-7755-83cd-8516755e3fdc",
+      "subject_type": "audit_export"
+    }
+  ]
+}

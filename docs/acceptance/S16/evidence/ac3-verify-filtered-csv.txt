@@ -1,0 +1,3 @@
+$ nava audit verify ac3-export-filtered.csv
+exit 0
+ok: seq 1..597 from genesis to head_hash 582ca455f5cdb543e5df7fbd4d347dca4f93ab73de4d594232a074930ee3660a; 1 entries, 596 stubs, 0 unsealed

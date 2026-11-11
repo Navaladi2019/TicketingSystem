@@ -42,7 +42,11 @@ var anyForm = regexp.MustCompile(`<form[^>]*action="([^"]+)"`)
 func accountConsoleToken(t *testing.T, user, pass string) string {
 	t.Helper()
 	c := newClient(t)
-	redirect := baseURL() + "/realms/nava/account/"
+	// The public address (KC_HOSTNAME), not baseURL(): Keycloak checks the
+	// account console's relative redirect URIs against its hostname, so a
+	// stack on another port (make ci-isolated, the self-hosted CI runner)
+	// answered 400 to localhost:<KEYCLOAK_PORT>. toStack routes it (TICK-641).
+	redirect := publicURL() + "/realms/nava/account/"
 	var final *url.URL
 	c.CheckRedirect = func(req *http.Request, _ []*http.Request) error {
 		if strings.HasPrefix(req.URL.String(), redirect) && req.URL.Query().Get("code") != "" {

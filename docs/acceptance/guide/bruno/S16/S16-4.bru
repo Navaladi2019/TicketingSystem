@@ -1,0 +1,42 @@
+meta {
+  name: S16.4 Alice creates an incident: 201
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{core_url}}/api/v1/records/incident
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: tick448-s16-{{s16_run}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "S16 {{s16_run}} incident",
+      "priority": 2
+    }
+  }
+}
+
+script:pre-request {
+  if (!bru.getVar('s16_run')) bru.setVar('s16_run', Date.now().toString(36));
+  const N = require('./lib/nava')({ bru });
+  await require('./lib/s15')(N, bru).fresh();
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  bru.setVar('s16_incident', N.json().id);
+}
+
+docs {
+  The incident the auditor will export. Its `record/create` entry is the one full line of S16.6's export.
+}

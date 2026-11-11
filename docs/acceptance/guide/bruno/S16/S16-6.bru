@@ -1,0 +1,58 @@
+meta {
+  name: S16.6 AC1: export filtered to the incident: 200
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{core_url}}/api/v1/audit/entries:export?subject_id={{s16_incident}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{auditor_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await require('./lib/s15')(N, bru).fresh();
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  const ls = N.text().split('\n').filter(l => l.length).map(l => JSON.parse(l));
+  N.status(200);
+  test('content type is ndjson, sent as an attachment', () => {
+    expect(N.header('Content-Type')).to.include('application/x-ndjson');
+    expect(N.header('Content-Disposition')).to.match(/^attachment; filename="audit-export-[0-9a-f-]{36}\.jsonl"$/);
+  });
+  test('header first, naming the format and the filter; trailer last', () => {
+    expect(ls[0].kind).to.eql('header');
+    expect(ls[0].format).to.eql('nava.audit.export/v1');
+    expect(ls[0].stubs).to.eql(true);
+    expect(JSON.stringify(ls[0])).to.include(bru.getVar('s16_incident'));
+    expect(ls[ls.length - 1].kind).to.eql('trailer');
+  });
+  test('the anchor follows the header', () => expect(ls[1].kind).to.be.oneOf(['anchor', 'stub']));
+  const full = ls.filter(l => l.kind === 'entry');
+  test("the incident's entry is in full, at its seq", () => {
+    const e = full.find(l => l.envelope.subject_id === bru.getVar('s16_incident'));
+    expect(e).to.be.an('object');
+    expect(e.seq).to.eql(Number(bru.getVar('s16_seq')));
+  });
+  test('every full line is the incident; every other seq is a hash-only stub', () => {
+    full.forEach(l => expect(l.envelope.subject_id).to.eql(bru.getVar('s16_incident')));
+    ls.filter(l => l.kind === 'stub').forEach(l => expect(Object.keys(l).sort()).to.eql(['entry_hash', 'envelope_sha256', 'kind', 'prev_hash', 'seq']));
+  });
+  test('the trailer counts match the lines and the range is verifiable', () => {
+    const t = ls[ls.length - 1];
+    expect(t.count).to.eql(full.filter(l => l.sealed).length);
+    expect(t.stub_count).to.eql(ls.filter(l => l.kind === 'stub').length);
+    expect(t.verifiable).to.eql(true);
+  });
+}
+
+docs {
+  Save the body (Bruno: the response pane's save button) and run `nava audit verify <file>`: `ok`, exit 0. kit.mjs does that and the tampering (AC1).
+}

@@ -60,6 +60,8 @@ const (
 	FilterTooExpensive       Code = "filter_too_expensive"
 	FieldNotWritable         Code = "field_not_writable"
 	InvalidAccessPolicy      Code = "invalid_access_policy"
+	ExportInProgress         Code = "export_in_progress"
+	ChainAlive               Code = "chain_alive"
 )
 
 // Codes lists every Code constant.
@@ -68,7 +70,7 @@ func Codes() []Code {
 		TenantUnresolved, InvalidToken, IdempotencyKeyReuse, IdempotencyInFlight, Forbidden, DomainClaimed, InvalidIdPConfig, OnboardingConflict, InvalidCursor,
 		RateLimited, RetryLater, NotFound, ValidationFailed, MethodNotAllowed,
 		NotImplemented, InternalError, InvalidDefinition, EntityTypeExists, NumberPrefixTaken, SchemaBreakingChange, RecordInvalid,
-		IfMatchRequired, VersionConflict, IllegalTransition, UniqueViolation, ConfigSecretInContent, DefinitionSecretRequired, AssignmentGroupRemoved, HistoryTooLong,
+		IfMatchRequired, VersionConflict, IllegalTransition, UniqueViolation, ConfigSecretInContent, DefinitionSecretRequired, AssignmentGroupRemoved, HistoryTooLong, ExportInProgress, ChainAlive,
 		MaskedField, FilterTooExpensive, FieldNotWritable, InvalidAccessPolicy,
 	}
 }

@@ -165,7 +165,9 @@ func run(args []string, stdout, stderr io.Writer, now time.Time, docker dockerFu
 			fmt.Fprintf(stdout, "itreap: would remove %s %s (%s old)\n", r.Kind, r.Name, age)
 			continue
 		}
-		rm := []string{"rm", "-f", r.Name}
+		// -v: a cluster's anonymous data volume (the postgres image's
+		// VOLUME) goes with it (TICK-641).
+		rm := []string{"rm", "-fv", r.Name}
 		if r.Kind == "network" {
 			rm = []string{"network", "rm", r.Name}
 		}

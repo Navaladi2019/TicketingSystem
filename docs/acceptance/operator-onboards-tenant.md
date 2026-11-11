@@ -78,5 +78,5 @@ As a control, another user of C's IdP signs in, which shows the refusal is about
 - **The new admin's `/me` works only after the next group sync cycle**, at most 5 minutes after their first sign-in. The walkthrough runs one cycle by hand.
 - **The tenant's IdP URLs must be public https.** On the stack, the harness points them at a test realm afterwards, as the Keycloak master admin.
 - **Squatting (AR-037).** An IdP that is not limited to its own domains can claim an address in another tenant's domain first. That tenant's admin is then refused, which is criterion 3 seen from the other side.
-- **The onboarding stack tests have no CI step of their own yet** (TODO-014). `make stack-test-identity` runs them, so CI covers them today.
+- **The onboarding stack tests run in CI in the `onboard` stack case** (`make stack-test-onboard`). Until TICK-628 (TODO-014, fixed 2026-11-08) `make stack-test-identity` ran them a second time; it now skips them.
 - **One intermittent failure.** In a local unit run of `internal/identity/keycloak`, the full suite failed once under load and then passed 5 times in a row. CI is green.

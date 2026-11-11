@@ -1,0 +1,49 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:28080/api/v1/audit/entries:export?subject_id=01a1bbfe-27c8-75d4-a2f4-32797c779f73",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:28080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": "{\"kind\":\"header\",\"format\":\"nava.audit.export/v1\",\"tenant_id\":\"00000000-0000-4000-8000-0000000000a1\",\"export_id\":\"01a1bbff-2ec1-7469-898a-7407ec74abb5\",\"exported_at\":\"2026-11-08T16:30:25.470116Z\",\"stubs\":true,\"filter\":{\"from\":null,\"to\":null,\"domain\":null,\"subject_type\":null,\"subject_id\":\"01a1bbfe-27c8-75d4-a2f4-32797c779f73\",\"change_set_id\":null,\"after_seq\":null}}\n{\"kind\":\"anchor\",\"genesis\":true,\"seq\":0,\"prev_hash\":null,\"entry_hash\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"envelope_sha256\":null}\n{\"kind\":\"stub\",\"seq\":1,\"prev_hash\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"entry_hash\":\"32880b25f785d5812239450f70508e3f9c687b8c7fe06e53d6b36de7f60f6bb7\",\"envelope_sha256\":\"2108c727ed5ab6021e3adce648db23f424cad5e762eca24afb074f366a1558b7\"}\n{\"kind\":\"stub\",\"seq\":2,\"prev_hash\":\"32880b25f785d5812239450f70508e3f9c687b8c7fe06e53d6b36de7f60f6bb7\",\"entry_hash\":\"c3ebd049df989b35ac7f874cfdedb7ae7637bfb59a1777e332db69d007c03583\",\"envelope_sha256\":\"969fb721775f043d45f9078e4986f9632cfd3f133a01155f0df52047595236ed\"}\n{\"kind\":\"stub\",\"seq\":3,\"prev_hash\":\"c3ebd049df989b35ac7f874cfdedb7ae7637bfb59a1777e332db69d007c03583\",\"entry_hash\":\"9c37054e0683eec5ff4316d31325c4a7d9cbb555020572c1b7cf32c199db4824\",\"envelope_sha256\":\"3637bb3f3539f285d0d6c8e629e9b65ebe763ee8ee88c743bdc6b2e0be0fb2e6\"}\n{\"kind\":\"entry\",\"sealed\":true,\"in_verified_range\":true,\"seq\":4,\"prev_hash\":\"9c37054e0683eec5ff4316d31325c4a7d9cbb555020572c1b7cf32c199db4824\",\"entry_hash\":\"e669b1dd6e9eab956167fb74194293e01840352cef2f095a4c8fb6705798e973\",\"envelope_sha256\":\"2589d160c88b8c30a8a21fcd0f19e6e16f7ada0aea51a2587c8072c704bb2862\",\"sealed_at\":\"2026-11-08T16:30:24.883044Z\",\"envelope\":{\"action\":\"create\",\"actor_principal_id\":\"328aeab4-1a78-483a-8f70-599df309fee2\",\"actor_system\":null,\"backfilled\":false,\"causation_depth\":0,\"causation_id\":\"01a1bbfe-27c4-7b15-9d90-52bab8b751e3\",\"change_set_id\":null,\"content_sha256\":null,\"diff_sha256\":\"a1dce3f5ad3aad8600e0e35e58458a554bc54963e56afd96001e87a3c6ffe871\",\"diff_truncated\":false,\"domain\":\"record\",\"entity_definition_id\":\"de5be94c-dce9-4359-b868-dba0ee318910\",\"id\":\"01a1bbfe-27ce-7cbd-a24a-8c883574cb74\",\"occurred_at\":\"2026-11-08T16:29:18.140697Z\",\"request_id\":\"1c69fe8725f062f9b675ca523f5e3ef7\",\"source\":\"user\",\"source_ref\":null,\"subject_id\":\"01a1bbfe-27c8-75d4-a2f4-32797c779f73\",\"subject_type\":\"record\",\"tenant_id\":\"00000000-0000-4000-8000-0000000000a1\",\"version_after\":1,\"version_before\":null},\"diff\":\"[{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"\\\",\\\"value\\\":{\\\"priority\\\":2,\\\"short_description\\\":\\\"S16 mw81ry7u incident\\\",\\\"state\\\":\\\"new\\\"}}]\",\"diff_salt\":\"2c13bb6c95e70b2ea6b8ed3807dade7a\",\"diff_redacted\":false,\"erased_at\":null,\"erasure_ref\":null}\n{\"kind\":\"trailer\",\"anchor_seq\":0,\"last_seq\":4,\"head_hash\":\"e669b1dd6e9eab956167fb74194293e01840352cef2f095a4c8fb6705798e973\",\"count\":1,\"stub_count\":3,\"unsealed_count\":0,\"verifiable\":true}\n"
+  },
+  "tests": [
+    {
+      "test": "HTTP 200",
+      "status": "pass"
+    },
+    {
+      "test": "content type is ndjson, sent as an attachment",
+      "status": "pass"
+    },
+    {
+      "test": "header first, naming the format and the filter; trailer last",
+      "status": "pass"
+    },
+    {
+      "test": "the anchor follows the header",
+      "status": "pass"
+    },
+    {
+      "test": "the incident's entry is in full, at its seq",
+      "status": "pass"
+    },
+    {
+      "test": "every full line is the incident; every other seq is a hash-only stub",
+      "status": "pass"
+    },
+    {
+      "test": "the trailer counts match the lines and the range is verifiable",
+      "status": "pass"
+    }
+  ]
+}

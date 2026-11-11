@@ -6,21 +6,39 @@
 // Every change runs ci-lint. Documentation (.md and .html outside a Go
 // package and testdata) runs nothing else. A Go package's files add ci-unit, plus
 // ci-integration when an integration test depends on the package, plus
-// ci-stack when an image or a stack test does. A file no rule knows runs every
-// stage, so a new kind of file is never skipped by default.
+// ci-stack when an image or a stack test does and the package is one of
+// stackTriggers (TICK-652): a command, the migrations and database bootstrap,
+// the configuration, the Keycloak adapter, or a stack suite. Plain Go logic
+// that the unit and integration stages already cover no longer starts the
+// stack; the daily full run on main covers it there (AR-TICK-652-01). A file
+// no rule knows runs every stage, so a new kind of file is never skipped by
+// default.
 //
 // With -areas it prints instead the stack-case areas the change touches
 // (TICK-563): all, none, or a comma list of keycloak, pgbouncer and db, which
 // `make stack-tests AREAS=...` uses to skip the cases of untouched areas. A
 // file no area rule knows turns on every area.
 //
-// Usage: cichanged [-base origin/main] [-v] [-areas]. -v prints why each file
-// needs its stages (or areas) on stderr.
+// With -images it prints instead how the stack job builds its images
+// (TICK-628): real (the deploy/compose Dockerfiles, as main always does) when
+// the change touches a Dockerfile, .dockerignore, go.mod, go.sum or a compose
+// build: block, else thin (deploy/compose/Dockerfile.ci over binaries built
+// on the runner, make image-ci IMAGE_THIN=1).
+//
+// Usage: cichanged [-base origin/main] [-v] [-areas | -images]. -v prints why
+// each file needs its stages (or areas, or image mode) on stderr.
+//
+// CICHANGED_GRAPH, when set, names a JSON file holding the package graph
+// (graphFile) to use instead of running go list (TICK-697). Only the tests
+// set it: they load the real graph once and hand it to every ci-stages.sh
+// scenario, which would otherwise run go list over the whole module eight
+// times per cichanged run. CI never sets it.
 package main
 
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -53,6 +71,38 @@ func stackRoots() [][]string {
 	}
 }
 
+// stackTriggers are the package directories (and, ending in "/", directory
+// prefixes) whose change starts the stack stage, when an image or a stack test
+// depends on them (TICK-652): what decides whether the stack starts and how
+// it is wired, not the logic inside it. cmd/: each command is an image's
+// main or a stack test's binary. db, internal/db/{migrate,roles,grants}:
+// the migrations and the db-roles bootstrap every stack runs first.
+// internal/platform/config: the environment the compose file sets. Keycloak:
+// the adapter the realm and the identity case meet. The stack suites
+// themselves and their report tools. Every other package's change runs unit
+// (and integration) only, and its stack cases on the next full run.
+func stackTriggers() []string {
+	return []string{
+		"cmd/",
+		"db", "internal/db/migrate", "internal/db/roles", "internal/db/grants",
+		"internal/platform/config",
+		"internal/identity/keycloak",
+		"internal/temporalstack", "internal/identitystack", "internal/workerstack",
+		"tools/ci/ci5report", "tools/ci/ci6report",
+	}
+}
+
+// stackTrigger reports whether a change to package directory pkg starts the
+// stack stage (with g.stack[pkg]), and the trigger it matched.
+func stackTrigger(pkg string) (string, bool) {
+	for _, t := range stackTriggers() {
+		if pkg == t || (strings.HasSuffix(t, "/") && strings.HasPrefix(pkg, t)) {
+			return t, true
+		}
+	}
+	return "", false
+}
+
 func main() {
 	os.Exit(cli(os.Args[1:], os.Stdout, os.Stderr))
 }
@@ -65,8 +115,20 @@ func cli(args []string, stdout, stderr io.Writer) int {
 	base := fs.String("base", "origin/main", "base ref of the change")
 	verbose := fs.Bool("v", false, "print the reason for each file on stderr")
 	areas := fs.Bool("areas", false, "print the stack-case areas the change touches instead of the stages")
+	images := fs.Bool("images", false, "print the stack image build mode (real or thin) instead of the stages")
 	if err := fs.Parse(args); err != nil {
 		return 2
+	}
+	if *areas && *images {
+		_, _ = fmt.Fprintln(stderr, "cichanged: -areas and -images are exclusive")
+		return 2
+	}
+	if *images {
+		if err := runImages(*base, *verbose, stdout, stderr); err != nil {
+			_, _ = fmt.Fprintln(stderr, "cichanged:", err)
+			return 2
+		}
+		return 0
 	}
 	if err := run(*base, *verbose, *areas, stdout, stderr); err != nil {
 		_, _ = fmt.Fprintln(stderr, "cichanged:", err)
@@ -80,7 +142,7 @@ func run(base string, verbose, areas bool, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	g, err := loadGraph()
+	g, err := graphFor(os.Getenv(graphEnv))
 	if err != nil {
 		return err
 	}
@@ -101,6 +163,41 @@ func run(base string, verbose, areas bool, stdout, stderr io.Writer) error {
 		}
 	}
 	_, _ = fmt.Fprintln(stdout, strings.Join(stages, " "))
+	return nil
+}
+
+// runImages prints real or thin for the change against base. It needs no
+// package graph: the rule reads only paths and compose build: blocks.
+func runImages(base string, verbose bool, stdout, stderr io.Writer) error {
+	files, err := changedFiles(base)
+	if err != nil {
+		return err
+	}
+	mb, err := mergeBase(base)
+	if err != nil {
+		return err
+	}
+	atBase := func(f string) ([]byte, error) {
+		if _, err := git("cat-file", "-e", mb+":"+f); err != nil {
+			return nil, nil // not on the base side
+		}
+		out, err := git("show", mb+":"+f)
+		return []byte(out), err
+	}
+	inTree := func(f string) ([]byte, error) {
+		b, err := os.ReadFile(filepath.FromSlash(f))
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return b, err
+	}
+	mode, reasons := classifyImages(files, atBase, inTree)
+	if verbose {
+		for _, r := range reasons {
+			_, _ = fmt.Fprintln(stderr, "cichanged:", r)
+		}
+	}
+	_, _ = fmt.Fprintln(stdout, mode)
 	return nil
 }
 
@@ -172,8 +269,12 @@ func fileStages(f string, g graph) ([]string, string) {
 			why = append(why, "integration tests depend on it")
 		}
 		if g.stack[pkg] {
-			s = append(s, "ci-stack")
-			why = append(why, "an image or stack test depends on it")
+			if _, ok := stackTrigger(pkg); ok {
+				s = append(s, "ci-stack")
+				why = append(why, "an image or stack test depends on it")
+			} else {
+				why = append(why, "stack cases on the full run only (TICK-652)")
+			}
 		}
 		return s, "package " + pkg + strings.Join(append([]string{""}, why...), "; ")
 	}
@@ -193,13 +294,13 @@ func packageOf(f string, packages map[string]bool) (string, bool) {
 // changedFiles lists the files that differ from the merge base with base,
 // committed or not, and the untracked ones.
 func changedFiles(base string) ([]string, error) {
-	mb, err := git("merge-base", base, "HEAD")
+	mb, err := mergeBase(base)
 	if err != nil {
-		return nil, fmt.Errorf("%w (fetch %s first)", err, base)
+		return nil, err
 	}
 	// --no-renames: a moved file counts at its old path too, so a file moved
 	// out of a package into docs/ still runs that package's stages.
-	diff, err := git("diff", "--name-only", "--no-renames", strings.TrimSpace(mb))
+	diff, err := git("diff", "--name-only", "--no-renames", mb)
 	if err != nil {
 		return nil, err
 	}
@@ -215,6 +316,53 @@ func changedFiles(base string) ([]string, error) {
 	}
 	slices.Sort(out)
 	return out, nil
+}
+
+// mergeBase is the merge base of base and HEAD.
+func mergeBase(base string) (string, error) {
+	mb, err := git("merge-base", base, "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("%w (fetch %s first)", err, base)
+	}
+	return strings.TrimSpace(mb), nil
+}
+
+// graphEnv names the environment variable that points cichanged at a saved
+// graph (TICK-697); see the package comment.
+const graphEnv = "CICHANGED_GRAPH"
+
+// graphFile is the JSON form of a graph, for CICHANGED_GRAPH.
+type graphFile struct {
+	Packages    []string `json:"packages"`
+	Integration []string `json:"integration"`
+	Stack       []string `json:"stack"`
+}
+
+// graphFor reads the graph saved in file, or loads it with go list when file
+// is empty.
+func graphFor(file string) (graph, error) {
+	if file == "" {
+		return loadGraph()
+	}
+	b, err := os.ReadFile(file) //nolint:gosec // a file the caller names on purpose
+	if err != nil {
+		return graph{}, fmt.Errorf("%s: %w", graphEnv, err)
+	}
+	var f graphFile
+	if err := json.Unmarshal(b, &f); err != nil {
+		return graph{}, fmt.Errorf("%s %s: %w", graphEnv, file, err)
+	}
+	if len(f.Packages) == 0 {
+		return graph{}, fmt.Errorf("%s %s: no packages", graphEnv, file)
+	}
+	toSet := func(l []string) map[string]bool {
+		m := map[string]bool{}
+		for _, v := range l {
+			m[v] = true
+		}
+		return m
+	}
+	return graph{packages: toSet(f.Packages), integration: toSet(f.Integration), stack: toSet(f.Stack)}, nil
 }
 
 func loadGraph() (graph, error) {
